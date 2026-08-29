@@ -52,6 +52,13 @@ services:
       CORS_ORIGIN: http://localhost
       IMAGES_DIR: /app/data/images
       LOG_LEVEL: info
+      # A BASE DO SERVIDOR DE TILES, e ela decide DUAS coisas ao mesmo tempo: é o que o
+      # `GET /api/config` serve ao cliente para montar os endereços, e é o que o índice de
+      # regime (`tile-regime.js`) usa para reconhecer quais endereços do catálogo são
+      # servidos por este host. Ler variáveis diferentes nos dois lados faria a base que
+      # INDEXA divergir da base que o cliente PEDE, e o sintoma seria um índice que não casa
+      # nada — ou seja, com a decisão 4, recusa de tudo.
+      TILE_SERVER_URL: http://localhost/tiles
     # O dump já vem migrado; `migrate.js` é no-op e serve de prova de que o schema
     # da cópia é o que este código espera.
     volumes:

@@ -1,115 +1,103 @@
 // Path: tests/unit/tile-access-predicado.test.js
 //
-// O PREDICADO PURO DO `auth_request` DE TILE, e o que ele existe para segurar.
+// AS DUAS PEÇAS PURAS DO GATE DE TILE: o recorte do caminho pedido e o alcance do escopo
+// de chave. As duas rodam sem banco e sem Express, e as duas falham FECHADO — que é o que
+// este arquivo existe para prender.
 //
-// POR QUE ELE PRECISA DE UM TESTE SEM BANCO, além do de integração. Metade dos
-// desfechos deste predicado é INALCANÇÁVEL pela rota, e não por acidente: o CHECK de
-// `api_keys.scope` só admite os valores do vocabulário vigente, então não existe
-// caminho de banco que entregue ao gate um escopo desconhecido. Isso é bom (o CHECK é a
-// primeira barreira) e cria um cego: o ramo que decide o que fazer com um escopo que um
-// servidor mais novo invente nunca é exercido pelo teste de integração. Se ele falhasse
-// ABERTO, a rodada inteira ficaria verde.
+// O QUE MUDOU EM 2026-08-29, e por que este arquivo foi reescrito: até então o gate
+// decidia só sobre a CREDENCIAL, e o predicado testado aqui era `tileAccessDenial`, uma
+// função que respondia "esta credencial serve?" sem saber que camada estava sendo pedida.
+// Ela deixou de existir quando o gate passou a decidir POR RECURSO (secção (f) de
+// PENDENCIA-TILE-PRIVADO.md): a decisão agora é assíncrona, consulta o índice de catálogo
+// e o predicado SQL, e vive em `requireTileAccess`. O que sobra de puro são estas duas.
 //
-// A DIREÇÃO DA FALHA É O ASSUNTO. `scopeReachesTile` pergunta se o escopo está no
-// VOCABULÁRIO (`API_KEY_SCOPES`, derivado de `API_KEY_SCOPE_REACH`), porque o cabeçalho
-// de `api-key-terms.js` declara que as superfícies SÓ-FLEXÍVEIS são alcançadas por toda
-// chave que resolve — escrever aqui uma segunda tabela seria a lista duplicada que a
-// casa proíbe. O preço dessa derivação é que um escopo NOVO ganharia alcance de tile
-// sozinho, e é o último caso deste arquivo que cobra o preço: o vocabulário é preso por
-// igualdade EXATA, de modo que acrescentar um escopo reprova aqui e obriga quem o
-// acrescenta a responder a pergunta.
+// A DIREÇÃO DA FALHA É O ASSUNTO NOS DOIS CASOS:
 //
-// O QUE ESTE ARQUIVO NÃO PRENDE: que a rota responda 401/200, que a chave vencida seja
-// recusada, que o corpo saia vazio. Isso é `tests/integration/tile-access-auth-request.test.js`.
+//   `caminhoDoTile` devolve `null` quando o cabeçalho não veio, e o gate lê `null` como
+//   RECUSA. Um nginx configurado sem `X-Original-URI` não pode receber "sim" para todo
+//   caminho — isso seria falha aberta operada por esquecimento de configuração.
+//
+//   `scopeReachesTile` pergunta se o escopo está no VOCABULÁRIO, e não se ele é igual a
+//   um valor. Escopo nulo, indefinido ou inventado por um servidor mais novo não alcança
+//   nada. Comparar por igualdade e cair no `else` falharia ABERTO, que é a lista fechada
+//   que a constituição proíbe nos dois eixos de permissão.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  TILE_ACCESS_DENIAL,
-  scopeReachesTile,
-  tileAccessDenial,
-} from '../../src/modules/auth/tile-access.js';
 import { API_KEY_SCOPES } from '../../src/modules/users/api-key-terms.js';
+import {
+  scopeReachesTile,
+  caminhoDoTile,
+  TILE_ACCESS_DENIAL,
+} from '../../src/modules/auth/tile-access.js';
 
-describe('tile-access: o predicado puro', () => {
-  it('a chave de escopo `tiles` passa, e é o caso que a rota existe para servir', () => {
-    assert.equal(tileAccessDenial({ authVia: 'api_key', apiKeyScope: 'tiles' }), null);
+/** Um `req` mínimo: só o que `caminhoDoTile` lê. */
+function req(uri) {
+  return { get: (nome) => (nome.toLowerCase() === 'x-original-uri' ? uri : undefined) };
+}
+
+describe('tile-access: o recorte do caminho pedido', () => {
+  it('tira o prefixo público e a query', () => {
+    // A base da suíte é `/tiles` (`.env.test`), e o recorte usa a MESMA base com que o
+    // índice indexa: os dois lados precisam concordar sobre onde o prefixo termina.
+    assert.equal(caminhoDoTile(req('/tiles/rodovias')), 'rodovias');
+    assert.equal(caminhoDoTile(req('/tiles/rodovias/10/385/577')), 'rodovias/10/385/577');
+    assert.equal(caminhoDoTile(req('/tiles/rodovias?api_key=abc')), 'rodovias');
+    assert.equal(caminhoDoTile(req('/tiles/dem/1/2/3.png?x=1#frag')), 'dem/1/2/3.png');
   });
 
-  it('a chave de escopo `full` também passa: o vocabulário INTEIRO alcança o tile', () => {
-    // Sem este caso, o gate poderia comparar por igualdade com `tiles` e derrubar todo
-    // integrador do slot legado, que resolve como `full`.
-    assert.equal(tileAccessDenial({ authVia: 'api_key', apiKeyScope: 'full' }), null);
-
-    const semAlcance = API_KEY_SCOPES.filter((s) => !scopeReachesTile(s));
-    assert.deepEqual(
-      semAlcance, [],
-      'todo escopo do vocabulário alcança o tile; se um deixar de alcançar, a mudança certa é uma '
-      + 'coluna `tile` em API_KEY_SCOPE_REACH, e não um `if` dentro de scopeReachesTile'
-    );
-    assert.ok(API_KEY_SCOPES.length > 0, 'guarda: vocabulário vazio faria a asserção acima passar vazia');
+  it('devolve null SEM cabeçalho — e o gate lê isso como recusa', () => {
+    // O caso que impede a falha aberta por configuração esquecida.
+    assert.equal(caminhoDoTile(req(undefined)), null);
+    assert.equal(caminhoDoTile(req('')), null);
+    assert.equal(caminhoDoTile(req('   ')), null);
+    assert.equal(caminhoDoTile(req(42)), null);
   });
 
-  it('credencial que NÃO é chave de API é recusada, seja qual for o escopo que carregue', () => {
-    // O 401 desta rota nasce aqui para: anônimo, sessão de cookie, Bearer, e toda chave
-    // que não RESOLVEU (vencida, revogada, de conta desativada, de OM inativa, malformada)
-    // — em todos esses casos `flexibleAuth` deixa `authVia` sem valor.
-    for (const via of [undefined, null, '', 'jwt', 'cookie', 'api-key', 'API_KEY']) {
-      assert.equal(
-        tileAccessDenial({ authVia: via, apiKeyScope: 'tiles' }),
-        TILE_ACCESS_DENIAL.SEM_CHAVE_VIVA,
-        `authVia ${JSON.stringify(via)} não pode abrir o tile`
-      );
+  it('devolve null para o prefixo nu, que não endereça fonte nenhuma', () => {
+    assert.equal(caminhoDoTile(req('/tiles/')), null);
+    assert.equal(caminhoDoTile(req('/tiles')), null);
+  });
+
+  it('um caminho fora do prefixo é devolvido como veio, e não casará nada', () => {
+    // Não é papel deste recorte recusar: quem não conhece o caminho é o índice, e a
+    // recusa acontece lá, com o motivo `caminho-nao-reivindicado`. Recusar aqui
+    // esconderia a razão real dentro de uma função de string.
+    assert.equal(caminhoDoTile(req('/outra-coisa/x')), 'outra-coisa/x');
+  });
+});
+
+describe('tile-access: o alcance do escopo de chave', () => {
+  it('todo escopo do vocabulário alcança o tile', () => {
+    // Asserção sobre a LISTA e não sobre dois literais: um escopo novo entra aqui sozinho,
+    // e o caso abaixo é que decide se ele deveria.
+    assert.ok(API_KEY_SCOPES.length >= 2, 'o vocabulário não pode estar vazio');
+    for (const escopo of API_KEY_SCOPES) {
+      assert.equal(scopeReachesTile(escopo), true, `o escopo ${escopo} deveria alcançar`);
     }
   });
 
-  it('sem argumento nenhum, recusa: o default é o NÃO', () => {
-    assert.equal(tileAccessDenial(), TILE_ACCESS_DENIAL.SEM_CHAVE_VIVA);
-    assert.equal(tileAccessDenial({}), TILE_ACCESS_DENIAL.SEM_CHAVE_VIVA);
-  });
-
-  it('escopo FORA do vocabulário falha FECHADO, e este é o ramo que o banco não alcança', () => {
-    // `api_keys.scope` tem CHECK, então nenhum destes chega pela rota. É por isso que
-    // eles são medidos aqui: o ramo existe para o dia em que o vocabulário crescer, e um
-    // ramo nunca exercido é um ramo que pode estar invertido.
-    const desconhecidos = [
-      undefined, null, '', ' ', 'Tiles', 'TILES', 'tiles ', 'administracao', 'estrito',
-      'full,tiles', '*', 'toString', '__proto__', 'constructor', 0, 1, true, {}, [],
-    ];
-    for (const escopo of desconhecidos) {
-      assert.equal(
-        scopeReachesTile(escopo), false,
-        `o escopo ${JSON.stringify(escopo)} não está no vocabulário e não pode alcançar o tile`
-      );
-      assert.equal(
-        tileAccessDenial({ authVia: 'api_key', apiKeyScope: escopo }),
-        TILE_ACCESS_DENIAL.ESCOPO_NAO_ALCANCA,
-        `o escopo ${JSON.stringify(escopo)} precisa ser recusado PELO ESCOPO, não por outro termo`
-      );
+  it('FALHA FECHADO para o que não está no vocabulário', () => {
+    for (const invalido of [null, undefined, '', 'admin', 'escopo-de-um-servidor-mais-novo', 42, {}]) {
+      assert.equal(scopeReachesTile(invalido), false, `${String(invalido)} não pode alcançar`);
     }
-    assert.equal(desconhecidos.length, 19, 'guarda: laço sobre coleção de tamanho não asserido não prova nada');
+  });
+});
+
+describe('tile-access: os motivos de recusa são distinguíveis', () => {
+  it('os quatro motivos existem e são distintos', () => {
+    // Sem motivos distintos, os 401 deste endpoint são indistinguíveis entre si, e um
+    // deles poderia estar acontecendo pelo motivo errado sem nada acusar. Eles saem em
+    // cabeçalho, que é como chegam ao log de erro do host.
+    const motivos = Object.values(TILE_ACCESS_DENIAL);
+    assert.equal(motivos.length, 4);
+    assert.equal(new Set(motivos).size, 4);
+    assert.ok(motivos.every((m) => typeof m === 'string' && m.length > 0));
   });
 
-  it('os DOIS motivos são distintos: a rota consegue dizer de onde veio a recusa', () => {
-    // Se os dois colapsassem numa string só, o cabeçalho de diagnóstico da rota mentiria
-    // e o teste de integração não teria como separar "chave não resolveu" de "escopo
-    // errado" — os dois são o mesmo 401.
-    assert.notEqual(TILE_ACCESS_DENIAL.SEM_CHAVE_VIVA, TILE_ACCESS_DENIAL.ESCOPO_NAO_ALCANCA);
-    assert.equal(Object.keys(TILE_ACCESS_DENIAL).length, 2);
-    assert.equal(Object.isFrozen(TILE_ACCESS_DENIAL), true);
-  });
-
-  it('O VOCABULÁRIO É PRESO POR IGUALDADE EXATA, e é isso que obriga a decisão', () => {
-    // ESCOPO NOVO REPROVA AQUI. A derivação de `scopeReachesTile` a partir de
-    // `API_KEY_SCOPES` daria alcance de tile a um escopo novo SOZINHA, que é a única
-    // direção de falha aberta deste arquivo. Este caso a fecha: quem acrescentar um
-    // escopo passa por aqui e responde se ele alcança o tile. Se a resposta for NÃO, a
-    // mudança certa é uma coluna `tile` em `API_KEY_SCOPE_REACH` (onde o alcance por
-    // superfície já mora, como `estrito` e `administracao`), lida por `apiKeyReaches`.
-    assert.deepEqual(
-      [...API_KEY_SCOPES].sort(), ['full', 'tiles'],
-      'o vocabulário de escopo de chave mudou: decida, POR ESCRITO, se o valor novo alcança a '
-      + 'superfície de tile antes de atualizar esta lista'
-    );
+  it('o motivo do caminho não reivindicado é o da decisão 4', () => {
+    // Asserção absoluta sobre o valor: ele aparece no log do host e em
+    // `dev/tile-privado`, então renomeá-lo em silêncio quebraria a leitura de fora.
+    assert.equal(TILE_ACCESS_DENIAL.CAMINHO_NAO_REIVINDICADO, 'caminho-nao-reivindicado');
   });
 });

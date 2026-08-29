@@ -1268,22 +1268,26 @@ const CENSO_ROTA = [
   { arquivo: 'src/modules/auth/auth.routes.js', rota: 'GET /me', classe: R_OUTRA, gate: 'auth', motivo: IDENTIDADE },
   {
     arquivo: 'src/modules/auth/auth.routes.js', rota: 'GET /tile-access', classe: R_OUTRA,
-    gate: 'requireTileKey',
-    motivo: 'O `auth_request` do nginx para as rotas do servidor de tiles (cláusula 10.7). Ele é '
-      + 'R_OUTRA e NÃO `recurso-com-filtro` por uma razão que precisa estar escrita aqui, porque é '
-      + 'a mesma que o `fileoverview` de `src/modules/auth/tile-access.js` declara em voz alta: ele '
-      + 'responde SIM ou NÃO sobre a CREDENCIAL e nunca sobre a CAMADA. Não recebe o caminho do '
-      + 'tile, não sabe qual recurso está sendo pedido, e `fn_can_see_resource` não entra na '
-      + 'história. Não serve recurso nenhum (a resposta é vazia nos dois desfechos) e não recorta '
-      + 'recurso nenhum. A CONSEQUÊNCIA, dita sem eufemismo para que nenhuma tela prometa mais do '
-      + 'que existe: um usuário comum com chave viva alcança os bytes do tile de uma camada privada '
-      + 'que o catálogo não lhe mostra. O que este endpoint compra é o público deixar de ser '
-      + '"qualquer um" e passar a ser "quem porta uma chave viva", que é um estreitamento real e '
-      + 'não é privacidade por recurso. Classificá-lo `recurso-com-filtro` seria declarar um filtro '
-      + 'que não existe, e classificá-lo `recurso-publico-por-desenho` seria dizer que ele serve '
-      + 'recurso. O gate é `requireTileKey` (o `auth` estrito recusaria a chave de escopo `tiles`, '
-      + 'que é exatamente a credencial que o tile carrega). Comportamento em '
-      + '`tests/integration/tile-access-auth-request.test.js`.',
+    gate: 'requireTileAccess',
+    motivo: 'O `auth_request` do nginx para as rotas do servidor de tiles (cláusula 10.7). Ele '
+      + 'continua R_OUTRA porque NÃO SERVE recurso nenhum: a resposta é vazia nos dois desfechos, '
+      + 'e quem entrega os bytes é o servidor de tiles, atrás do proxy, sem passar por este '
+      + 'processo. O que ele faz é DECIDIR, e desde 2026-08-29 ele decide POR RECURSO: recebe o '
+      + 'caminho pedido em `X-Original-URI`, resolve-o contra o índice de catálogo '
+      + '(`tile-regime.js`) e, quando a linha é privada, chama o MESMO `fn_can_see_resource` do '
+      + 'resto do acervo, memoizado por (chamador, empréstimo, recurso). '
+      + 'ESTE MOTIVO DESCREVIA O DESENHO ANTERIOR ATÉ AQUELA DATA, e a diferença é grande o '
+      + 'bastante para ficar registrada: ele dizia que o endpoint "responde sobre a CREDENCIAL e '
+      + 'nunca sobre a CAMADA", que "não recebe o caminho do tile" e que "um usuário comum com '
+      + 'chave viva alcança os bytes de uma camada privada que o catálogo não lhe mostra". As três '
+      + 'frases eram verdadeiras e deixaram de ser; a última foi MEDIDA em '
+      + '`dev/tile-privado/scripts/confere-martin-nginx.sh` antes de o dono decidir fechar. '
+      + 'DUAS PROPRIEDADES QUE NÃO SE ADIVINHAM. O caminho que NENHUMA linha de catálogo '
+      + 'reivindica é RECUSADO, invertendo a regra do irmão do 3D, onde ele é público: aqui o '
+      + 'endereço é texto livre digitado à mão e serão centenas de camadas, então um erro de '
+      + 'digitação numa linha privada publicaria os bytes em silêncio. E a linha PÚBLICA é '
+      + 'liberada SEM CREDENCIAL NENHUMA, o que devolve o visitante anônimo e o cache de borda '
+      + 'do público. Comportamento em `tests/integration/tile-access-auth-request.test.js`.',
   },
   { arquivo: 'src/modules/users/users.routes.js', rota: 'GET /me', classe: R_OUTRA, gate: 'auth', motivo: IDENTIDADE },
   {

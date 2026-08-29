@@ -36,6 +36,7 @@
 // would pass by vacuity.
 import config from '../../config.js';
 import { invalidarRegimeDeAssets3d } from '../nomes/assets3d-regime.js';
+import { invalidarRegimeDeTile } from '../nomes/tile-regime.js';
 import { invalidarAcessoDeAssets3d } from '../nomes/assets3d-acesso.js';
 import { invalidarIndiceDeModelos3d } from '../models3d/models3d.index.js';
 
@@ -66,6 +67,12 @@ export function isAppConfigCacheEnabled() {
 export function invalidateAppConfigCache() {
   entry = null;
   invalidarRegimeDeAssets3d();
+  // O irmão do prefixo de tiles, pendurado aqui pela MESMA razão dada abaixo: uma
+  // invalidação alcançável só por quem lembra dela é a que fica velha. Sem esta linha o
+  // regime de uma camada recém-marcada privada continuaria valendo pelo TTL de 60 s, e o
+  // sintoma seria o pior possível — os bytes saindo para quem não deve, com aparência de
+  // funcionamento normal.
+  invalidarRegimeDeTile();
   invalidarAcessoDeAssets3d();
   // Third structure derived from the same catalog rows: which file serves which model.
   // It hangs here for the reason the paragraph above gives — an invalidation reachable

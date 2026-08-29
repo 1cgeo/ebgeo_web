@@ -14,7 +14,7 @@ import {
 import { canDeliverAccountMail } from '../../utils/mailer.js';
 import * as ctrl from './auth.controller.js';
 import * as schemas from './auth.schemas.js';
-import { requireTileKey, tileAccess } from './tile-access.js';
+import { requireTileAccess } from './tile-access.js';
 import { requireSelfRegistrationEnabled } from './register-gate.js';
 
 const router = Router();
@@ -100,8 +100,14 @@ router.get('/me', auth, ctrl.getMe);
 // linha por TILE, e `audit_trail.action` não tem ação de leitura para gravar.
 //
 // LEIA O `fileoverview` DE `tile-access.js` ANTES DE DESCREVER ESTA ROTA EM QUALQUER
-// LUGAR: ela valida a CREDENCIAL e nunca o RECURSO, então ela não fecha o tile privado
-// por camada.
-router.get('/tile-access', requireTileKey, tileAccess);
+// LUGAR. Ela decide POR RECURSO desde 2026-08-29: resolve o caminho pedido contra o
+// índice de catálogo, libera o público sem credencial nenhuma e passa o privado pelo
+// mesmo `fn_can_see_resource` do resto do acervo. Até aquela data ela validava só a
+// credencial, e qualquer chave viva alcançava qualquer camada privada.
+//
+// UM MIDDLEWARE SÓ, e ele responde: não há par gate/handler porque os quatro desfechos
+// (não reivindicado, público, sem credencial, recurso não alcançado) são decididos no
+// mesmo lugar, e separá-los faria o handler ter de repetir a consulta ao índice.
+router.get('/tile-access', requireTileAccess);
 
 export { router as authRoutes };

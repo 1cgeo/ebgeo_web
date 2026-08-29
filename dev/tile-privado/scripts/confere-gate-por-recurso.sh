@@ -108,8 +108,16 @@ echo
 echo "=== O que NAO pode regredir ==="
 firme "camada privada, SEM chave"             401 "$T/areas_treinamento"
 firme "raster privado, SEM chave"             401 "$T/dem-restrito/10/385/577.png"
-firme "chave vencida"                         401 "$T/hidrografia?api_key=aaaaaaaa-0000-4000-8000-000000000003"
-firme "chave revogada"                        401 "$T/hidrografia?api_key=aaaaaaaa-0000-4000-8000-000000000004"
+# AS TRES AMARRAS DA CHAVE, medidas contra a camada PRIVADA e nao contra a publica.
+# A primeira versao deste bloco usava a publica, e ela regrediu ao alcancar o alvo: com o
+# gate por recurso a linha publica passa SEM credencial, entao uma chave morta ali devolve
+# 200 e o desfecho esta certo. Medir amarra de credencial onde a credencial nao e
+# consultada e cobertura vazia; o par positivo do bloco acima (credenciado com chave viva
+# abre a mesma camada) e o que torna estes 401 uma afirmacao.
+firme "chave vencida, camada privada"         401 "$T/areas_treinamento?api_key=aaaaaaaa-0000-4000-8000-000000000003"
+firme "chave revogada, camada privada"        401 "$T/areas_treinamento?api_key=aaaaaaaa-0000-4000-8000-000000000004"
+firme "chave de conta desativada, privada"    401 "$T/areas_treinamento?api_key=aaaaaaaa-0000-4000-8000-000000000005"
+firme "chave que nem existe, privada"         401 "$T/areas_treinamento?api_key=99999999-9999-4999-8999-999999999999"
 firme "o app continua bootando"               200 "http://localhost/api/config"
 
 echo
@@ -121,4 +129,4 @@ if [ "$pendentes" -gt 0 ]; then
     echo "ALVO AINDA NAO ALCANCADO: $pendentes de 17 casos. Isto e o esperado ANTES da implementacao."
     exit "$pendentes"
 fi
-echo "GATE POR RECURSO NO TILE: os 17 casos alcancados -- $(date '+%Y-%m-%d %H:%M')."
+echo "GATE POR RECURSO NO TILE: os 17 alvos alcancados, mais 7 de nao-regressao -- $(date '+%Y-%m-%d %H:%M')."

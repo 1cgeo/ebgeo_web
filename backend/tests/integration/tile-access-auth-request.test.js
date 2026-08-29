@@ -2,17 +2,23 @@
 //
 // O ENDPOINT DE `auth_request` DO NGINX PARA AS ROTAS DO MARTIN (cláusula 10.7).
 //
-// O QUE ESTE ARQUIVO MEDE, E O QUE ELE NÃO PODE MEDIR. Ele mede que
-// `GET /api/v1/auth/tile-access` responde 200 para uma chave de API viva de escopo que
-// alcança tile, e 401 sem corpo para todo o resto. Ele NÃO mede privacidade por
-// recurso, e não mede porque ela não existe neste desenho: a rota responde sobre a
-// CREDENCIAL e nunca sobre a CAMADA, `fn_can_see_resource` não entra na história, e um
-// usuário comum com chave viva alcança os bytes do tile de uma camada privada que o
-// catálogo não lhe mostra. Isso está escrito no `fileoverview` de
-// `src/modules/auth/tile-access.js` e repetido aqui de propósito: um arquivo de teste
-// que não declara o próprio teto vira licença para acreditar que ele fecha mais do que
-// fecha. E ele não mede NADA sobre o nginx: que o servidor de produção de fato exija a
-// chave é sonda com data, rodada à mão no deploy, pela mesma razão que a 10.1 registra.
+// O QUE ESTE ARQUIVO MEDE. Ele mede os QUATRO desfechos do gate: caminho que nenhuma
+// linha de catálogo reivindica (401), linha pública (200 sem credencial nenhuma), linha
+// privada sem credencial (401) e linha privada com credencial, que passa pelo mesmo
+// `fn_can_see_resource` do resto do acervo.
+//
+// O TETO DESTE ARQUIVO MUDOU EM 2026-08-29, e o cabeçalho anterior está registrado aqui
+// porque a diferença é o assunto: até aquela data o gate respondia sobre a CREDENCIAL e
+// nunca sobre a CAMADA, e este arquivo declarava não medir privacidade por recurso
+// porque ela não existia. Agora existe (secção (f) de PENDENCIA-TILE-PRIVADO.md), e a
+// maior parte dos casos abaixo continua sendo sobre a credencial por uma razão de
+// desenho: eles rodam contra uma camada privada que o principal ALCANÇA por concessão,
+// de modo que o que decide o desfecho continua sendo a chave. Medir credencial contra
+// uma camada pública seria vácuo, porque ali a credencial não é consultada.
+//
+// ELE CONTINUA NÃO MEDINDO NADA SOBRE O NGINX: que o servidor de produção de fato faça a
+// subrequisição, e a faça com o cabeçalho do caminho, é sonda com data rodada à mão no
+// deploy, pela mesma razão que a 10.1 registra.
 //
 // A ARMADILHA DESTA MEDIÇÃO, e ela é específica. Quase toda recusa aqui nasce de um
 // termo de `FIND_USER_BY_API_KEY` (prazo, revogação, conta ativa, OM ativa, corte de
@@ -45,6 +51,7 @@ import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, loginUser } from '../helpers/fixtures.js';
 import { installPoolQueryCounter } from '../helpers/query-counter.js';
 import { TILE_ACCESS_DENIAL } from '../../src/modules/auth/tile-access.js';
+import { invalidateAppConfigCache } from '../../src/modules/config/config.cache.js';
 
 const SFX = randomUUID().slice(0, 8);
 const ROTA = '/api/v1/auth/tile-access';
@@ -52,10 +59,31 @@ const ROTA = '/api/v1/auth/tile-access';
 describe('tile-access: o `auth_request` do nginx para as rotas do Martin', () => {
   let app, db;
   let dono, donoToken;
-  let orgId, lotado;
+  let orgId, lotado, estranho;
 
-  /** O pedido do nginx: a chave viaja na QUERY, como o MapLibre a carrega. */
-  const pedir = (chave) => supertest(app).get(chave === undefined ? ROTA : `${ROTA}?api_key=${chave}`);
+  // AS FIXTURES DE CATÁLOGO. O gate resolve o caminho contra o índice, então sem linha de
+  // catálogo TODO caminho é "não reivindicado" e todo caso responderia 401 pelo motivo
+  // errado — verde por vacuidade no lado negativo e vermelho inexplicável no positivo.
+  const fontePrivada = `fonte-priv-${SFX}`;
+  const fontePublica = `fonte-pub-${SFX}`;
+  const caminhoPrivado = `/tiles/${fontePrivada}/10/385/577`;
+  const caminhoPublico = `/tiles/${fontePublica}/10/385/577`;
+  const idPrivado = `t-auth-priv-${SFX}`;
+  const idPublico = `t-auth-pub-${SFX}`;
+
+  /**
+   * O pedido do nginx: a chave viaja na QUERY (como o MapLibre a carrega) e o caminho
+   * pedido no cabeçalho `X-Original-URI`, que é o que o `location` do host repassa.
+   *
+   * O CAMINHO PADRÃO É O DA CAMADA PRIVADA que o `dono` ALCANÇA por concessão, e essa
+   * escolha é o que mantém os casos de credencial honestos: contra uma camada pública o
+   * gate nem consulta a credencial (decisão 5), então todo caso negativo passaria por
+   * vacuidade.
+   */
+  const pedir = (chave, caminho = caminhoPrivado) => {
+    const url = chave === undefined ? ROTA : `${ROTA}?api_key=${chave}`;
+    return supertest(app).get(url).set('X-Original-URI', caminho);
+  };
 
   /**
    * Insere uma chave nomeada direto no banco.
@@ -101,12 +129,47 @@ describe('tile-access: o `auth_request` do nginx para as rotas do Martin', () =>
     );
     orgId = rows[0].id;
     lotado = await createUser(db, { username: `tile_lotado_${SFX}`, organization_id: orgId });
+    // Um terceiro, SEM concessão nenhuma: ele é o par negativo do predicado de recurso, e
+    // precisa ser uma conta própria porque as outras duas alcançam a camada de propósito.
+    estranho = await createUser(db, { username: `tile_estranho_${SFX}` });
+
+    // Uma linha PRIVADA e uma PÚBLICA, endereçando fontes sob o prefixo de tiles.
+    for (const [id, fonte, nivel] of [[idPrivado, fontePrivada, 'private'], [idPublico, fontePublica, 'public']]) {
+      await db.query(
+        `INSERT INTO data_layers (id, name, access_level, config)
+         VALUES ($1, $2, $3, jsonb_build_object('source', jsonb_build_object('url', $4::text, 'type', 'vector')))`,
+        [id, `Camada ${id}`, nivel, `/tiles/${fonte}`]
+      );
+    }
+    // O `dono` ALCANÇA a privada por concessão. Sem isto, todo caso de credencial abaixo
+    // responderia 401 por não alcançar o recurso, e o arnês de termos mediria outra coisa.
+    await db.query(
+      `INSERT INTO resource_grants (resource_type, resource_id, grantee_id, grant_level, granted_by)
+       VALUES ('data_layer', $1, $2, 'view', $2)`,
+      [idPrivado, dono.id]
+    );
+    // E o `lotado` também, pela mesma razão: o caso da OM inativa usa a chave DELE, e o par
+    // positivo (com a OM ativa, a chave abre) mediria "não alcança o recurso" em vez de
+    // "a OM está ativa" se ele não tivesse acesso à camada.
+    await db.query(
+      `INSERT INTO resource_grants (resource_type, resource_id, grantee_id, grant_level, granted_by)
+       VALUES ('data_layer', $1, $2, 'view', $3)`,
+      [idPrivado, lotado.id, dono.id]
+    );
+    // O índice é memoizado; sem invalidar, ele foi construído antes destas linhas.
+    invalidateAppConfigCache();
   });
 
   after(async () => {
-    await db.query('DELETE FROM api_keys WHERE user_id = ANY($1::uuid[])', [[dono.id, lotado.id]]);
-    await db.query('DELETE FROM audit_trail WHERE actor_id = ANY($1::uuid[])', [[dono.id, lotado.id]]);
-    await db.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [[dono.id, lotado.id]]);
+    await db.query('DELETE FROM api_keys WHERE user_id = ANY($1::uuid[])', [[dono.id, lotado.id, estranho.id]]);
+    await db.query('DELETE FROM audit_trail WHERE actor_id = ANY($1::uuid[])', [[dono.id, lotado.id, estranho.id]]);
+    // AS CONCESSÕES ANTES DOS USUÁRIOS: `resource_grants.grantee_id` e `granted_by` são FK
+    // sem `ON DELETE`, então apagar a conta primeiro derruba a limpeza inteira com uma
+    // violação de chave estrangeira no `after` — que aparece como o describe PAI vermelho
+    // com todos os casos verdes, e não se parece nada com o assunto do arquivo.
+    await db.query('DELETE FROM resource_grants WHERE resource_id = ANY($1::text[])', [[idPrivado, idPublico]]);
+    await db.query('DELETE FROM data_layers WHERE id = ANY($1::text[])', [[idPrivado, idPublico]]);
+    await db.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [[dono.id, lotado.id, estranho.id]]);
     await db.query('DELETE FROM organizations WHERE id = $1', [orgId]);
     await teardownTestEnv(db);
   });
@@ -172,11 +235,41 @@ describe('tile-access: o `auth_request` do nginx para as rotas do Martin', () =>
   // O NÃO, um termo por caso
   // =========================================================================
   describe('o NÃO: cada recusa pelo termo que se acha que ela vem', () => {
-    it('SEM `api_key` nenhuma: 401, e o motivo é `sem-chave-viva`', async () => {
-      const res = await supertest(app).get(ROTA);
+    it('SEM credencial nenhuma: 401, e o motivo é `sem-credencial`', async () => {
+      const res = await pedir(undefined);
       assert.equal(res.status, 401);
       assert.equal(res.text, '', 'o NÃO também sai sem corpo');
-      assert.equal(res.headers['x-ebgeo-tile-denial'], TILE_ACCESS_DENIAL.SEM_CHAVE_VIVA);
+      assert.equal(res.headers['x-ebgeo-tile-denial'], TILE_ACCESS_DENIAL.SEM_CREDENCIAL);
+    });
+
+    it('SEM o cabeçalho do caminho: 401, e o motivo é o do CATÁLOGO', async () => {
+      // Um nginx configurado sem `X-Original-URI` não pode receber "sim" para todo
+      // caminho, que seria falha aberta operada por esquecimento de configuração. O motivo
+      // é `caminho-nao-reivindicado` de propósito: do ponto de vista do gate, um pedido
+      // sem caminho é indistinguível de um caminho que ninguém reivindica, e inventar um
+      // terceiro motivo faria o log do host sugerir um problema de credencial.
+      const res = await supertest(app).get(ROTA);
+      assert.equal(res.status, 401);
+      assert.equal(res.headers['x-ebgeo-tile-denial'], TILE_ACCESS_DENIAL.CAMINHO_NAO_REIVINDICADO);
+    });
+
+    it('caminho que NENHUMA linha reivindica: 401, mesmo com credencial boa', async () => {
+      // A decisão 4, e o par que a torna uma afirmação: a MESMA credencial que abre a
+      // camada cadastrada é recusada num caminho que o catálogo não descreve.
+      const chave = await inserirChave(dono.id);
+      const orfa = await pedir(chave.apiKey, `/tiles/fonte-que-ninguem-cadastrou-${SFX}/1/2/3`);
+      assert.equal(orfa.status, 401);
+      assert.equal(orfa.headers['x-ebgeo-tile-denial'], TILE_ACCESS_DENIAL.CAMINHO_NAO_REIVINDICADO);
+
+      const conhecida = await pedir(chave.apiKey);
+      assert.equal(conhecida.status, 200, 'a mesma chave abre a camada que ESTÁ no catálogo');
+    });
+
+    it('a linha PÚBLICA abre sem credencial nenhuma — decisão 5', async () => {
+      // É o passo que devolve o produto: o visitante anônimo volta a ver camada de dados.
+      const res = await supertest(app).get(ROTA).set('X-Original-URI', caminhoPublico);
+      assert.equal(res.status, 200);
+      assert.equal(res.text, '');
     });
 
     it('chave VENCIDA: 401, e a MESMA linha passa quando o prazo volta', async () => {
@@ -184,7 +277,7 @@ describe('tile-access: o `auth_request` do nginx para as rotas do Martin', () =>
 
       const vencida = await pedir(chave.apiKey);
       assert.equal(vencida.status, 401);
-      assert.equal(vencida.headers['x-ebgeo-tile-denial'], TILE_ACCESS_DENIAL.SEM_CHAVE_VIVA);
+      assert.equal(vencida.headers['x-ebgeo-tile-denial'], TILE_ACCESS_DENIAL.SEM_CREDENCIAL);
 
       // CONTROLE DO TERMO: o predicado sem `expires_at > NOW()` acha a linha. Logo a
       // recusa é do prazo, e não de a chave não existir ou de a conta ter sumido.
@@ -208,7 +301,7 @@ describe('tile-access: o `auth_request` do nginx para as rotas do Martin', () =>
 
       const revogada = await pedir(chave.apiKey);
       assert.equal(revogada.status, 401);
-      assert.equal(revogada.headers['x-ebgeo-tile-denial'], TILE_ACCESS_DENIAL.SEM_CHAVE_VIVA);
+      assert.equal(revogada.headers['x-ebgeo-tile-denial'], TILE_ACCESS_DENIAL.SEM_CREDENCIAL);
 
       // CONTROLE DO TERMO: sem `revoked_at IS NULL` a linha aparece, viva e no prazo.
       const semRevogacao = await acharSemTermo(
@@ -230,7 +323,7 @@ describe('tile-access: o `auth_request` do nginx para as rotas do Martin', () =>
       await db.query('UPDATE users SET is_active = false WHERE id = $1', [dono.id]);
       const depois = await pedir(chave.apiKey);
       assert.equal(depois.status, 401);
-      assert.equal(depois.headers['x-ebgeo-tile-denial'], TILE_ACCESS_DENIAL.SEM_CHAVE_VIVA);
+      assert.equal(depois.headers['x-ebgeo-tile-denial'], TILE_ACCESS_DENIAL.SEM_CREDENCIAL);
 
       // CONTROLE DO TERMO: a chave continua viva, no prazo e não revogada; quem a exclui
       // é `u.is_active = true` do JOIN, e não um gate de sessão — esta rota não tem `auth`
@@ -254,7 +347,7 @@ describe('tile-access: o `auth_request` do nginx para as rotas do Martin', () =>
       await db.query('UPDATE organizations SET is_active = false WHERE id = $1', [orgId]);
       const depois = await pedir(chave.apiKey);
       assert.equal(depois.status, 401);
-      assert.equal(depois.headers['x-ebgeo-tile-denial'], TILE_ACCESS_DENIAL.SEM_CHAVE_VIVA);
+      assert.equal(depois.headers['x-ebgeo-tile-denial'], TILE_ACCESS_DENIAL.SEM_CREDENCIAL);
 
       // CONTROLE DO TERMO: a conta segue ativa e a chave viva; quem exclui é o
       // `COALESCE(o.is_active, true)` que viaja dentro de `FIND_USER_BY_API_KEY`.
@@ -270,18 +363,32 @@ describe('tile-access: o `auth_request` do nginx para as rotas do Martin', () =>
       assert.equal(devolta.status, 200, 'reativada a OM, a MESMA chave abre o tile');
     });
 
-    it('sessão de COOKIE/Bearer sem chave nenhuma: 401', async () => {
-      // A rota valida a credencial que o TILE carrega, e o MapLibre não põe cabeçalho
-      // num pedido de tile. Uma sessão JWT que chegasse aqui e passasse tornaria o gate
-      // dependente de uma credencial que o pedido do tile pode não ter, e esconderia o
-      // passo que ainda falta: distribuir a chave ao cliente.
-      const res = await supertest(app).get(ROTA).set('Authorization', `Bearer ${donoToken}`);
-      assert.equal(res.status, 401);
-      assert.equal(res.headers['x-ebgeo-tile-denial'], TILE_ACCESS_DENIAL.SEM_CHAVE_VIVA);
+    it('a sessão JWT TAMBÉM é credencial válida aqui — e isso INVERTEU em 2026-08-29', async () => {
+      // O caso anterior afirmava o oposto: que uma sessão JWT chegando aqui NÃO podia
+      // passar, porque a rota validava a credencial que o TILE carrega e "o MapLibre não
+      // põe cabeçalho num pedido de tile". As duas metades caíram. A segunda era falsa
+      // (`transformRequest` é consultado no `loadTile`, e o valor transformado É o pedido
+      // de rede), e a primeira deixou de ser desejável: a decisão 3 tira a chave de API do
+      // caminho do navegador justamente porque ela é portadora e aparece no log de acesso,
+      // e põe no lugar o token de sessão. Recusar o JWT aqui manteria a chave como único
+      // transporte possível.
+      const res = await supertest(app).get(ROTA)
+        .set('X-Original-URI', caminhoPrivado)
+        .set('Authorization', `Bearer ${donoToken}`);
+      assert.equal(res.status, 200);
+      assert.equal(res.text, '', 'o SIM continua sem corpo');
+    });
 
-      // DISCRIMINAÇÃO: a mesma sessão vale onde ela deve valer.
-      const me = await supertest(app).get('/api/v1/auth/me').set('Authorization', `Bearer ${donoToken}`);
-      assert.equal(me.status, 200, 'a sessão é boa; ela apenas não é a credencial deste endpoint');
+    it('a sessão de quem NÃO alcança o recurso é recusada, e pelo termo do RECURSO', async () => {
+      // O par do caso acima, e ele é o que impede a leitura "JWT abre tudo": o mesmo tipo
+      // de credencial, sobre a MESMA camada, recusado porque o principal não a alcança. Sem
+      // este caso, aceitar o JWT teria trocado um buraco por outro.
+      const outroToken = await loginUser(app, estranho.username, estranho.password);
+      const res = await supertest(app).get(ROTA)
+        .set('X-Original-URI', caminhoPrivado)
+        .set('Authorization', `Bearer ${outroToken}`);
+      assert.equal(res.status, 401);
+      assert.equal(res.headers['x-ebgeo-tile-denial'], TILE_ACCESS_DENIAL.RECURSO_NAO_ALCANCADO);
     });
   });
 
@@ -295,7 +402,7 @@ describe('tile-access: o `auth_request` do nginx para as rotas do Martin', () =>
         contador.reset();
         const res = await pedir('nao-e-um-uuid');
         assert.equal(res.status, 401);
-        assert.equal(res.headers['x-ebgeo-tile-denial'], TILE_ACCESS_DENIAL.SEM_CHAVE_VIVA);
+        assert.equal(res.headers['x-ebgeo-tile-denial'], TILE_ACCESS_DENIAL.SEM_CREDENCIAL);
         assert.equal(
           contador.state.count, 0,
           `a peneira de UUID de flexibleAuth precisa devolver o passante ANTES do banco; `

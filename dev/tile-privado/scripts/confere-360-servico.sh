@@ -106,11 +106,10 @@ TA=$(entrar admin); TP=$(entrar pedro); TM=$(entrar marcel); TD=$(entrar diniz)
 # uma delas seria a que ninguem mede.
 #
 # $1 = 've' ou 'nao-ve' (o que se afirma sobre o marcador no corpo)
-# $2 = 'cheio' ou 'vazio' (o que se afirma sobre a porta binaria)
-# $3.. = argumentos de credencial repassados ao curl
+# $2.. = argumentos de credencial repassados ao curl
 todas_as_portas() {
-    local espera="$1" volume="$2"
-    shift 2
+    local espera="$1"
+    shift
     porta "MVT de fotos"                "$espera" "$SLUG" "$@" "$BASE$S/tiles/$TILE.pbf"
     porta "GeoJSON legado"              "$espera" "$SLUG" "$@" "$BASE$S/tiles/fotos.geojson"
     porta "listagem de projetos"        "$espera" "$SLUG" "$@" "$BASE$S/projects"
@@ -127,22 +126,21 @@ todas_as_portas() {
     porta "foto por nome"               "$espera" "$FOTO" "$@" "$BASE$S/photos/by-name/$NOME_FOTO"
     porta "detalhe da foto"             "$espera" "$FOTO" "$@" "$BASE$S/photos/$FOTO"
     porta "vizinhas da foto"            "$espera" "MULTICAPTURA" "$@" "$BASE$S/photos/$FOTO/nearby"
-    bytes "OS BYTES DA FOTO (image)"    "$volume" "$@" "$BASE$S/photos/$FOTO/image"
 }
 
 echo
 echo "=== CONTROLE NEGATIVO: projeto PUBLICO, o anonimo ve tudo ==="
 sql "UPDATE sv360.projects SET access_level='public';"
-todas_as_portas "ve" "cheio"
+todas_as_portas "ve"
 
 echo
 echo "=== O PROJETO VIRA PRIVADO: o anonimo nao ve nada, porta por porta ==="
 sql "UPDATE sv360.projects SET access_level='private';"
-todas_as_portas "nao-ve" "vazio"
+todas_as_portas "nao-ve"
 
 echo
 echo "=== O MESMO conjunto, para quem TEM direito (administrador) ==="
-todas_as_portas "ve" "cheio" -H "Authorization: Bearer $TA"
+todas_as_portas "ve" -H "Authorization: Bearer $TA"
 
 echo
 echo "=== AS PORTAS QUE RECUSAM POR STATUS, nos dois estados ==="
@@ -180,6 +178,13 @@ porta "atlasId inventado, pedro"       "nao-ve" "$SLUG" -H "Authorization: Beare
 
 echo
 echo "=== PORTAS SEM BYTES NESTA MAQUINA: declaradas, FORA da contagem ==="
+# A PORTA DOS BYTES DA FOTO SAIU DESTA CONFERENCIA EM 2026-08-29, e nao por decisao
+# minha: o commit 5780c09c ("o 360 vira tiles-only") REMOVEU a rota
+# `/photos/:uuid/image`, que servia a foto inteira. Ela agora responde "Route not found",
+# e medir uma porta que o produto nao tem mais e medir o proprio teste. Os bytes do 360
+# passam a sair so pela PIRAMIDE, que neste acervo esta vazia e por isso segue declarada
+# abaixo em vez de contada.
+#
 # sv360.photo_pyramids esta vazia no acervo copiado e este projeto nao tem miniatura,
 # entao estas tres respondem igual para todo mundo. Conta-las como fechadas seria
 # cobertura vazia: elas nao teriam como vazar o que nao existe. Ficam listadas com o

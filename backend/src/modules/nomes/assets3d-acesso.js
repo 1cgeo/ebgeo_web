@@ -147,7 +147,7 @@ export function gateDeAsset3d(req, res, next) {
     }
     req.assetPrivado = regime.privado;
     if (!regime.privado) return next();
-    if (await assetLiberado(req, regime)) return next();
+    if (await recursoPrivadoLiberado(req, regime)) return next();
     return next(new NotFoundError('3D asset'));
   }).catch(next);
 }
@@ -155,11 +155,17 @@ export function gateDeAsset3d(req, res, next) {
 /**
  * May this request have the bytes of this private resource?
  *
+ * O NOME PERDEU O "ASSET" EM 2026-08-29, quando o segundo consumidor apareceu. Ela nunca
+ * foi sobre asset: é o predicado de recurso privado, memoizado por (chamador, empréstimo,
+ * recurso), e agora decide também o tile do servidor de tiles (`modules/auth/tile-access.js`).
+ * O memo é COMPARTILHADO pelos dois, e isso é deliberado — a chave carrega tipo e id, então
+ * não há colisão, e uma segunda tabela teria um segundo teto de tamanho para dimensionar.
+ *
  * @param {import('express').Request} req
  * @param {{tipo: string, resourceId: string}} alvo - From `regimeDoCaminho`.
  * @returns {Promise<boolean>}
  */
-export async function assetLiberado(req, alvo) {
+export async function recursoPrivadoLiberado(req, alvo) {
   const userId = principalUserId(req.user);
   const atlasId = atlasScopeId(req.query?.atlasId);
   const chave = `${impressaoDoPrincipal(req.user)}|${atlasId ?? '-'}|${alvo.tipo}|${alvo.resourceId}`;

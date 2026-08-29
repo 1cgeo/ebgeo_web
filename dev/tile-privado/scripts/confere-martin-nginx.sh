@@ -171,11 +171,21 @@ echo
 echo "=== METADE 2: OS BYTES. O nginx pergunta pela CREDENCIAL, nunca pela CAMADA ==="
 checar "sem chave nenhuma"                 401 "$BASE/$URL_TILE"
 checar "chave viva do credenciado"         200 "$BASE/$URL_TILE?api_key=$CHAVE_CREDENCIADO"
-# A LINHA QUE RESUME O CASO 4. `pedro` e usuario comum, nao ve esta camada em nenhuma
-# das duas portas do catalogo (medido acima, duas vezes), e mesmo assim baixa os bytes
-# dela. O gate do nginx nao tem como saber que camada e essa.
-defeito "chave de quem NAO ve a camada"    200 "$BASE/$URL_TILE?api_key=$CHAVE_COMUM"
-defeito "e os tiles, nao so o TileJSON"    200 "$BASE/$URL_TILE/10/385/577?api_key=$CHAVE_COMUM"
+# A LINHA QUE RESUMIA O CASO 4, E QUE MUDOU DE LADO EM 2026-08-29. `pedro` e usuario
+# comum e nao ve esta camada em nenhuma das duas portas do catalogo (medido acima, duas
+# vezes). Ate esta data ele baixava os bytes dela mesmo assim, porque o `auth_request`
+# perguntava so pela credencial; os dois casos abaixo estavam marcados DEFEITO, com a
+# limitacao declarada da clausula 10.7 escrita ao lado.
+#
+# O GATE PASSOU A DECIDIR POR RECURSO, e foi este script que avisou: os dois casos
+# viraram `MUDOU` na primeira rodada depois da implementacao, que e exatamente o que a
+# funcao `defeito` existe para fazer -- um desfecho previsto que deixa de se reproduzir
+# pede que a conclusao seja revista, em vez de passar despercebido como verde.
+checar "chave de quem NAO ve a camada"     401 "$BASE/$URL_TILE?api_key=$CHAVE_COMUM"
+checar "e os tiles, nao so o TileJSON"     401 "$BASE/$URL_TILE/10/385/577?api_key=$CHAVE_COMUM"
+# E o par positivo, que impede a leitura "agora recusa tudo": a mesma camada, para quem a
+# alcanca, continua abrindo.
+checar "e o credenciado continua alcancando" 200 "$BASE/$URL_TILE?api_key=$CHAVE_CREDENCIADO"
 
 echo
 echo "--- devolvendo as tres linhas ao estado original ---"
@@ -188,7 +198,7 @@ echo
 echo "Metade 1 (catalogo, por recurso): $(( 20 - falhas ))/20 corretas."
 echo "Metade 2 (bytes, por credencial): $defeitos porta(s) alcancada(s) por quem nao ve a camada."
 if [ "$falhas" -eq 0 ]; then
-    echo "CASO 4 (Martin via nginx) CONFERIDO -- $(date '+%Y-%m-%d %H:%M'). Ver as linhas DEFEITO."
+    echo "x"
 else
     echo "CASO 4 COM $falhas DESVIO(S) INESPERADO(S)."
 fi

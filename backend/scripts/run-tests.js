@@ -228,6 +228,16 @@ async function runTests() {
         // DESENVOLVIMENTO, e rodar a suite destruia o acervo importado — sem erro, e so
         // percebido na proxima vez que alguem abrisse um modelo.
         ASSETS_3D_SQLITE: './data/test-assets3d.sqlite',
+        // A BASE DO SERVIDOR DE TILES precisa existir na suite, e a razao nao se adivinha:
+        // o indice de regime (`tile-regime.js`) so indexa endereco que caia sob ela, entao
+        // sem ela o indice sai VAZIO. Com o gate por recurso, indice vazio significa
+        // "nenhum caminho e reivindicado", ou seja RECUSA DE TUDO, e um teste de tile que
+        // passasse assim estaria medindo a ausencia de configuracao em vez do gate.
+        //
+        // ELA VAI AQUI E NAO NO `.env.test`, que este runner NAO le: o env do processo de
+        // teste e montado nesta lista, e uma variavel posta no arquivo fica inocua com
+        // aparencia de configurada.
+        TILE_SERVER_URL: process.env.TILE_SERVER_URL || '/tiles',
       },
     });
 
