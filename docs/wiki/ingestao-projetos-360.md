@@ -4,6 +4,10 @@ Upload multipart que substitui o **estado completo** de um projeto por `(organiz
 
 O código deste módulo é densamente comentado: `backend/src/modules/streetview360/sv360.ingest.js` e `backend/src/modules/streetview360/sv360.merge.js` já explicam o protocolo de swap, o advisory lock de sessão, o collision guard e a janela de crash residual. Esta página cobre só o que **não** está em nenhum arquivo isolado.
 
+**DUAS mudanças de 2026-08-29 que esta página descrevia ao contrário** (decisão em [`../decisions/decisions-2026.md`](../decisions/decisions-2026.md)):
+- **Nome por SLUG, não por OM.** O `db_filename` derivado no servidor é `{slug}.db`, sem prefixo de OM, e o `UNIQUE (slug)` de `sv360.projects` é GLOBAL (não mais por org). A isolação entre OMs saiu do nome do arquivo e virou o índice único; `organization_id` continua como POSSE (gate de escrita).
+- **TILES-ONLY.** O único arquivo de pixel instalado é o `{slug}_tiles.db`. A images.db de blob full/preview e a rota de imagem inteira saíram, e o swap de ingestão é do `{slug}_tiles.db`. Toda foto viva precisa de pirâmide (`validatePyramidCoverage`), online e no ETL offline. Onde os parágrafos abaixo dizem `{orgId}__{slug}.db` ou o par com images.db, leia o mundo anterior.
+
 ## O que a reingestão destrói
 
 Consequência que não aparece em nenhum arquivo sozinho: o merge é purge+reinsert do estado completo (`mergeProject`, `backend/src/modules/streetview360/sv360.merge.js`), mas as rotas de calibração escrevem direto em `sv360.photos` e `sv360.targets` (`backend/src/modules/streetview360/sv360.write.queries.js`). Logo, **toda calibração feita via API é apagada silenciosamente pelo próximo upload de bundle**, a menos que o manifest já a contenha ([[calibracao-e-grafo-360]]). Não há aviso, diff ou trilha.

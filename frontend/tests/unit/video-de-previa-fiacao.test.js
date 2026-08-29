@@ -130,16 +130,14 @@ describe('o recorte de categorias do vídeo de prévia', () => {
         expect(fonte).toContain('updateSv360ProjectMetadata');
     });
 
-    it('o CARTÃO decide pelo dado, e o basemap nunca chega lá', () => {
+    it('o CARTÃO não desenha mais o botão de prévia (removido a pedido do dono, 2026-08-29)', () => {
         const cartao = lerFonte('src/js/catalog/components/catalog-card.js');
-        // PISO — o botão existe e é gateado pelo campo do item, não pelo tipo. Um gate por
-        // tipo teria de ser editado a cada tipo novo; este não.
-        expect(cartao).toMatch(/if \(item\.previewVideo\)/);
-        expect(cartao).toContain('preview-video.modal.js');
-        // DISCRIMINAÇÃO — nenhum ramo por tipo de item no gate do vídeo. Se alguém trocar
-        // por uma lista fechada de tipos, esta asserção não cai sozinha, então o par acima é
-        // o que segura: o gate é uma leitura de propriedade e nada mais.
-        expect(cartao).not.toMatch(/previewVideo[\s\S]{0,120}CATALOG_ITEM_TYPES/);
+        // O botão "Prévia" saiu do cartão do catálogo geral. O envio no admin e o dado
+        // `previewVideo` FICAM (o dono pediu só o botão), então este teste prende a remoção
+        // do botão, não do dado: o cartão não abre mais o modal nem gateia por `previewVideo`.
+        expect(cartao).not.toContain('preview-video.modal.js');
+        expect(cartao).not.toMatch(/if \(item\.previewVideo\)/);
+        expect(cartao).not.toContain('catalog-card-btn--preview');
     });
 
     it('`catalog.service.js` carrega `previewVideo` nas QUATRO famílias que têm cartão', () => {

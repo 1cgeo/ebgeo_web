@@ -2,6 +2,8 @@
 
 Repositório de panoramas em `/api/v1/sv360`: é a exceção do backend em envelope, em cache e em sync, e quase toda armadilha do módulo nasce de uma dessas três exceções.
 
+**TILES-ONLY desde 2026-08-29** (decisão em [`../decisions/decisions-2026.md`](../decisions/decisions-2026.md)). O pixel de uma panorâmica sai só por PIRÂMIDE DE TILES: a images.db de blob full/preview, a rota GET /photos/:uuid/image, o serviço de imagem inteira (getPhotoImage, getPhotoImageMeta, GET_PHOTO_SIZES, blobstore.getImage) foram removidos. O único arquivo de pixel no disco é o `{slug}_tiles.db`; a ingestão (online e o ETL offline) exige pirâmide cobrindo toda foto viva. Vários trechos ABAIXO descrevem o mundo com imagem inteira (o ETag vindo de coluna de tamanho, a "imagem" servida, o bug v4/v5 na rota de imagem): são HISTÓRICOS, e valem como a razão de o cache e o gate serem como são, hoje aplicados ao TILE (mesmo eixo). O arquivo de imagem inteira só sobrevive como fonte para regerar a pirâmide.
+
 ## Duas coisas chamadas "360" (a confusão mais cara)
 
 - O módulo `sv360` (backend, `src/modules/streetview360/`) é o acervo de panoramas do servidor: projetos, fotos, grafo de navegação, imagem WebP.

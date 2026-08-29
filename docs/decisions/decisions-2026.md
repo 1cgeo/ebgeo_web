@@ -1496,3 +1496,19 @@ piso de cobertura em 97,8%); frontend verde (8785 casos). A conferência
 
 **Status:** fases 1 a 4 aceitas; fase 5 recusada por medição; a exigência de consentimento
 da 6.3 fica [em obra], com os três itens acima nomeados.
+
+---
+
+### 2026-08-29 (noite 4): o botão "Prévia" sai do cartão do catálogo geral
+
+**Decisão do dono.** O botão "Prévia" do cartão do catálogo geral do ebgeo (o que o usuário vê, `frontend/src/js/catalog/components/catalog-card.js`) SAIU. Escopo explícito: só o botão do cartão, **não** a tela de administração.
+
+**O que FICA:** o envio do vídeo de prévia no painel de administração (`admin/catalog-tab.js` + a rota `PATCH /sv360/admin/projects/:slug` e o `config.previewVideo` das outras famílias), o dado `previewVideo` que `catalog.service.js` carrega, e o modal `catalog/components/preview-video.modal.js`. O dado sobrevive e o administrador ainda o envia; só a afordância de leitura no cartão geral saiu. O botão era o único que abria o modal, então o modal ficou sem chamador em `src`, preservado para um eventual retorno do botão.
+
+**O que saiu do cartão:** o bloco `if (item.previewVideo)` que montava o botão, o import de `abrirPreviaDeVideo` e o ícone `PLAY`, que só ele usava.
+
+**Guarda:** `frontend/tests/unit/video-de-previa-fiacao.test.js` passou a afirmar a AUSÊNCIA do botão no cartão (o cartão não importa mais o modal, não gateia por `previewVideo`, não cria `catalog-card-btn--preview`), mantendo os testes do envio no admin e do dado em `catalog.service.js`.
+
+**Errata das decisões de 2026-08-24 (vídeo de prévia para quatro tipos):** a "superfície de leitura comum, o botão Prévia do cartão" daquelas decisões deixou de existir. O carimbo de escopo de `enderecoDaPrevia` (a razão da decisão de 2026-08-24) segue no modal, válido se o botão voltar.
+
+**Status:** aceita.

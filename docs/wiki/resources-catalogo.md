@@ -99,7 +99,9 @@ Ao salvar: miniatura nova vence o JSON digitado, "Remover" faz `delete`, campo i
 
 ## O vídeo de prévia vale para QUATRO tipos, e o basemap fica de fora
 
-Até 2026-08-21 o vídeo de prévia era exclusivo de `tileset` e tinha um leitor só no produto inteiro: o popup do marcador 3D, que só abre com o modelo já carregado no mapa. Ele passou a valer para **modelo 3D, camada de dados, camada de análise e projeto 360**, e ganhou uma superfície de leitura comum, o botão "Prévia" do cartão do catálogo (`frontend/src/js/catalog/components/preview-video.modal.js`).
+Até 2026-08-21 o vídeo de prévia era exclusivo de `tileset` e tinha um leitor só no produto inteiro: o popup do marcador 3D, que só abre com o modelo já carregado no mapa. Ele passou a valer para **modelo 3D, camada de dados, camada de análise e projeto 360**.
+
+**O botão "Prévia" do cartão do catálogo SAIU em 2026-08-29, a pedido do dono** (decisão em [`../decisions/decisions-2026.md`](../decisions/decisions-2026.md)). O ENVIO no painel de administração, a coluna/`config` que guarda o `previewVideo` e o modal `frontend/src/js/catalog/components/preview-video.modal.js` FICAM: só a afordância de leitura no cartão geral saiu. Ou seja, o administrador ainda envia o vídeo e o dado sobrevive, mas o cartão do catálogo geral não abre mais a prévia. O que segue nesta página descreve o dado e o envio, que continuam valendo.
 
 O **basemap ficou de fora, e é decisão e não esquecimento**: ele é o único dos cinco tipos que não aparece como cartão de catálogo, porque a superfície dele é o seletor de camada base, uma lista compacta sem lugar para uma afordância de mídia. Campo de escrita sem superfície de leitura é afordância que mente: o administrador preencheria uma URL que nada mostra. Como `config` é livre, reabrir a categoria um dia não custa migração; o que custa é a superfície de leitura, e é ela que decide.
 
