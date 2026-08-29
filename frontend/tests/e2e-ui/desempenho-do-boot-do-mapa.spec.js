@@ -143,6 +143,15 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
         // de falha do medidor e indistinguivel do sucesso do produto. Medido 1 em 10 de 10 boots
         // frios; o teto de 10 e menos de 2% das 559 respostas.
         //
+        // ELE CONTA SO O QUE ESTA CAMADA SERVE, desde 2026-08-28, e o `ehDaCasa` de
+        // `peso-de-boot.js` diz por que: os tiles do basemap vem de `a.tile.openstreetmap.org`,
+        // chegam como `fetch` (logo, fora de `bytesDeScript` e de `requisicoesDeScript`, que sao
+        // as unicas somas de byte asseridas aqui) e dependem de latencia externa. Eles passaram a
+        // nao ser pesados dentro do teto de 5 s, e o contador foi a 19 em 5 de 5 rodadas: um teto
+        // escrito quando ele media 1 reprovava sem que nenhuma grandeza do app tivesse mudado. A
+        // contagem deles continua VISIVEL na serie anexada, em `naoPesadasDeTerceiros`, porque
+        // esconder o numero seria trocar um falso vermelho por um ponto cego.
+        //
         // E ELE NAO E O CONTROLE PRINCIPAL, dito aqui para nao ser lido como se fosse: uma
         // resposta servida do cache resolve como ZERO e conta como PESADA, entao um cache quente
         // colapsa a soma sem mover este contador (medido nas transicoes, onde a mesma janela deu

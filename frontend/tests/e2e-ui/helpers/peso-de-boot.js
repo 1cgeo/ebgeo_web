@@ -78,6 +78,7 @@
 import { expect } from '@playwright/test';
 import { expectAppBooted } from './boot-probe.js';
 import { currentMapKeyIsUuid } from './collab-helpers.js';
+import { APP_ORIGIN, BACKEND_PORT } from '../constants.js';
 
 /** Estado por pagina. `WeakMap` para nao segurar pagina fechada viva. */
 const sondas = new WeakMap();
@@ -93,6 +94,40 @@ export const MAPA_VIVO = () => Boolean(globalThis.__ebgeoMap && globalThis.__ebg
 
 /** Quanto tempo esperar as pesagens pendentes antes de desistir e contar `naoPesadas`. */
 const PESAGEM_TIMEOUT_MS = 5000;
+
+/** As origens que ESTA camada serve: o app (Vite) e o backend descartavel. @private */
+const ORIGENS_DA_CASA = Object.freeze([
+    APP_ORIGIN,
+    `http://127.0.0.1:${BACKEND_PORT}`,
+    `http://localhost:${BACKEND_PORT}`,
+]);
+
+/**
+ * A resposta veio de algo que esta camada SERVE, ou de um terceiro na internet?
+ *
+ * A pergunta existe por causa do contador `naoPesadas`, que e o controle do proprio instrumento.
+ * Ele protege as somas de BYTE: uma pesagem perdida entra como zero, e byte a menos le-se como
+ * emagrecimento. Só que uma pesagem perdida de um tile de basemap de terceiro nao entra em soma
+ * nenhuma que este arquivo assere (`bytesDeScript` e `requisicoesDeScript` filtram
+ * `resourceType === 'script'`, e o tile chega como `fetch`), e ela depende de latencia que a
+ * camada nao controla. Medido em 2026-08-28 nesta maquina: 18 tiles de `a.tile.openstreetmap.org`
+ * por boot frio, pedidos pelo estilo do mapa, cujo `sizes()` nao resolve dentro do teto de
+ * pesagem, contra UM unico `blob:` do proprio app. O contador marcava 19 em 5 de 5 rodadas e
+ * reprovava um teto de 10 escrito quando ele media 1, sem que nenhuma das grandezas asseridas
+ * tivesse mudado um byte.
+ *
+ * `blob:` e `data:` sao da casa por construcao (a propria pagina os cunha), e a URL ilegivel
+ * conta como da casa: falhar FECHADO aqui mantem o controle do instrumento no lado seguro.
+ *
+ * @private
+ * @param {string} url
+ * @returns {boolean}
+ */
+function ehDaCasa(url) {
+    if (!url) return true;
+    if (url.startsWith('blob:') || url.startsWith('data:')) return true;
+    return ORIGENS_DA_CASA.some((origem) => url.startsWith(origem));
+}
 
 /**
  * Liga a sonda de peso numa pagina RECEM-CRIADA, antes do primeiro `goto`.
@@ -179,7 +214,12 @@ function somar(estado, { de, ate }) {
         requisicoesDeScript: scripts.length,
         bytesTotais: dentro.reduce((a, r) => a + r.bytes, 0),
         requisicoesTotais: dentro.length,
-        naoPesadas: dentro.filter((r) => !r.pesada).length,
+        // DUAS COLUNAS, e a divisao e a do predicado acima: `naoPesadas` cobre o que esta camada
+        // serve, que e o que pode corromper as somas de byte; `naoPesadasDeTerceiros` fica
+        // VISIVEL na serie anexada, sem teto, para que a rede externa continue legivel sem
+        // reprovar a medida do app.
+        naoPesadas: dentro.filter((r) => !r.pesada && ehDaCasa(r.url)).length,
+        naoPesadasDeTerceiros: dentro.filter((r) => !r.pesada && !ehDaCasa(r.url)).length,
     };
 }
 
@@ -278,6 +318,7 @@ export async function medirJanela(page, {
             bytesTotaisDepoisDoBoot: null,
             requisicoesDepoisDoBoot: null,
             naoPesadas: null,
+            naoPesadasDeTerceiros: null,
             ociosidadeMs,
         };
     }
@@ -303,6 +344,8 @@ export async function medirJanela(page, {
         bytesTotaisDepoisDoBoot: depois ? depois.bytesTotais : null,
         requisicoesDepoisDoBoot: depois ? depois.requisicoesTotais : null,
         naoPesadas: noBoot.naoPesadas + (depois ? depois.naoPesadas : 0),
+        naoPesadasDeTerceiros: noBoot.naoPesadasDeTerceiros
+            + (depois ? depois.naoPesadasDeTerceiros : 0),
         ociosidadeMs,
     };
     if (process.env.EBGEO_E2E_PESO === '1') {
@@ -392,7 +435,7 @@ const COLUNAS = Object.freeze([
     'msAcao', 'msBarraDaConta', 'msSincroniaOnline', 'msMapaVivo', 'msMapaDoAtlasAtivo',
     'bytesDeScript', 'requisicoesDeScript', 'bytesTotais',
     'bytesDeScriptDepoisDoBoot', 'bytesTotaisDepoisDoBoot', 'requisicoesDepoisDoBoot',
-    'naoPesadas',
+    'naoPesadas', 'naoPesadasDeTerceiros',
 ]);
 
 /**

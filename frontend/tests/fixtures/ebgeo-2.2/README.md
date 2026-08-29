@@ -8,8 +8,15 @@ app de `main` e exportando pelo caminho de produção. Nada neste repositório a
 | `01-completo.ebgeo` | `309ecc2c…6488c` | 11 mapas, 262 feições, 17 camadas, 2 grupos, 2 briefings (2+3 slides), 2 ícones customizados, 5 PNG |
 | `02-minimo.ebgeo` | `f26b044e…3130b` | 1 mapa, 1 feição, 1 camada, nada mais |
 
-Quem as lê: `tests/helpers/ebgeo-fixture.js` (leitor + semeador) e
-`tests/integration/migracao-22-para-23-fixture-real.test.js`.
+Quem as lê, hoje QUATRO arquivos (a lista sai de `git ls-files` mais um grep por
+`loadEbgeoFixture` e pelo nome do arquivo, não de memória):
+
+- `tests/helpers/ebgeo-fixture.js`, o leitor e semeador que os outros três usam;
+- `tests/integration/migracao-22-para-23-fixture-real.test.js`, os 22 casos da migração 2.2 para
+  2.3 sobre `fake-indexeddb`;
+- `tests/e2e-ui/browser-migracao-2.2.spec.js`, a mesma migração em Chromium de verdade;
+- `tests/e2e-ui/atlas-local-ebgeo-e-teardown.spec.js`, que abre o `01-completo.ebgeo` pela TELA e
+  compara o que chegou com o que o arquivo declara.
 
 ## O que uma regeração quebra, e onde
 
