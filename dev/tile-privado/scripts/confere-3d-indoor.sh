@@ -44,6 +44,10 @@
 # nao como `ok`, porque um numero previsto nao deixa de ser um numero ruim.
 set -uo pipefail
 cd "$(dirname "$0")/.."
+# `sql`, `sql_catalogo`, `reiniciar` e `entrar` vivem em comum.sh, e a razao de estarem
+# la esta escrita no cabecalho daquele arquivo: escrever catalogo por psql e medir em
+# seguida mede o CACHE, nao o gate, e a licao so parou de recorrer quando virou verbo.
+. "$(dirname "$0")/comum.sh"
 
 BASE="${BASE:-http://localhost}"
 A="/api/v1/assets3d"
@@ -52,13 +56,6 @@ CHAVE_CREDENCIADO="aaaaaaaa-0000-4000-8000-000000000002"
 falhas=0
 defeitos=0
 
-sql() { docker compose exec -T db psql -q -U ebgeo -d ebgeo_zero -v ON_ERROR_STOP=1 -c "$1" > /dev/null; }
-reiniciar() { docker compose restart backend > /dev/null 2>&1; sleep 8; }
-entrar() {
-    curl -s -X POST "$BASE/api/v1/auth/login" -H 'Content-Type: application/json' \
-        -d "{\"username\":\"$1\",\"password\":\"${SENHA:-tassofragoso}\"}" \
-        | python -c "import sys,json;print(json.load(sys.stdin)['data']['accessToken'])" 2>/dev/null
-}
 
 checar() {
     local rotulo="$1" esperado="$2"
@@ -100,8 +97,7 @@ echo
 echo "=== CONTROLE NEGATIVO: cena PUBLICA, tudo abre sem credencial ==="
 # Sem este bloco, um 404 por arquivo ausente (a pasta preview/ desta cena esta VAZIA)
 # seria lido como recusa do gate.
-sql "UPDATE tilesets SET access_level='public' WHERE id='museu-1cgeo';"
-reiniciar
+sql_catalogo "UPDATE tilesets SET access_level='public' WHERE id='museu-1cgeo';"
 checar "marcadores.json (fetch nosso)"        200 "$BASE$CENA/marcadores.json"
 checar "voxel/voxel-meta.json (fetch nosso)"  200 "$BASE$CENA/voxel/voxel-meta.json"
 checar "voxel/voxel.bin (fetch nosso)"        200 "$BASE$CENA/voxel/voxel.bin"
@@ -110,8 +106,7 @@ checar "itens/item_001.jpg (img.src)"         200 "$BASE$CENA/itens/item_001.jpg
 
 echo
 echo "=== A CENA VIRA PRIVADA: fecha para quem NAO tem direito ==="
-sql "UPDATE tilesets SET access_level='private' WHERE id='museu-1cgeo';"
-reiniciar
+sql_catalogo "UPDATE tilesets SET access_level='private' WHERE id='museu-1cgeo';"
 checar "marcadores.json, anonimo"             404 "$BASE$CENA/marcadores.json"
 checar "voxel-meta.json, anonimo"             404 "$BASE$CENA/voxel/voxel-meta.json"
 checar "voxel.bin, anonimo"                   404 "$BASE$CENA/voxel/voxel.bin"
@@ -153,8 +148,7 @@ checar "item_001.jpg com api_key"             200 "$BASE$CENA/itens/item_001.jpg
 
 echo
 echo "--- devolvendo a cena a publica ---"
-sql "UPDATE tilesets SET access_level='public' WHERE id='museu-1cgeo';"
-reiniciar
+sql_catalogo "UPDATE tilesets SET access_level='public' WHERE id='museu-1cgeo';"
 checar "publica de volta, anonimo"            200 "$BASE$CENA/cena.sog"
 
 echo

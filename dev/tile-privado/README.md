@@ -54,6 +54,33 @@ scripts/sonda.sh          # o gate do nginx: 18 casos
 scripts/sonda-360-3d.sh   # o gate por recurso no serviço: 12 casos
 ```
 
+## As quatro conferências, uma por caso de proteção
+
+O produto protege o acervo por quatro caminhos, e eles são de naturezas diferentes. Um
+script por caso, todos com controle negativo e código de saída, rodados em série em
+2026-08-29: **125 casos corretos, zero desvio, três defeitos declarados**.
+
+| script | caso | medidas | defeitos |
+|---|---|---|---|
+| `scripts/confere-3d-servico.sh` | 3D pelo serviço | 33 | 0 |
+| `scripts/confere-360-servico.sh` | 360 pelo serviço | 52 | 0 |
+| `scripts/confere-3d-indoor.sh` | cena indoor | 20 | 1 |
+| `scripts/confere-martin-nginx.sh` | dados, análise e basemap pelo nginx | 20 | 2 |
+
+**`DEFEITO` não é `FALHOU`.** As linhas marcadas assim são desfechos que a conferência
+PREVÊ e que continuam ruins: uma porta que fecha para quem tem direito (a foto de item
+da cena indoor, que vira `img.src` e não aceita cabeçalho) e duas que abrem para quem
+não deveria (o tile alcançado por qualquer chave viva, que é a limitação declarada da
+cláusula 10.7). Elas contam separado justamente para que o relatório não chame de `ok`
+uma tela quebrada nem um buraco conhecido; se um dia mudarem, o script acusa `MUDOU` e
+pede que a conclusão seja revista.
+
+**A escrita de catálogo é `sql_catalogo`, nunca `sql`.** As funções compartilhadas estão
+em `scripts/comum.sh`, e o cabeçalho dele diz por que: três estruturas derivadas do
+catálogo vivem em memória do processo e só a escrita PELA ROTA as invalida, então uma
+sonda que use psql e meça em seguida mede o cache. Isso deu dois alarmes falsos de
+vazamento neste mesmo dia, e o segundo veio depois de a lição já estar anotada.
+
 **`sonda.sh` mede o gate de CREDENCIAL.** Chave viva abre nos dois escopos do
 vocabulário; sem chave, chave mal formada, UUID inexistente, vencida, revogada, de
 conta desativada e de sessão cortada recusam, cada uma nomeando o motivo pelo

@@ -83,8 +83,16 @@ O enunciado original falava só de "camada de dados". O escopo medido é maior:
 | `basemaps` | `config.style` (estilo MapLibre inteiro, com N fontes dentro) | `atlas-settings.service.js` |
 | `tilesets` | `config.url` / `basePath` / `preview*` | já fechado por `assets3d-regime.js`; o buraco declarado é o prefixo `/3d/` do nginx |
 
-O basemap privado não estava no enunciado e tem o mesmo defeito, com agravante: o estilo
-viaja inteiro no payload. E `labelSource` é a armadilha que `assets3d-regime.js` já resolveu
+O basemap privado não estava no enunciado e tem o mesmo defeito no eixo dos BYTES. **O
+agravante previsto aqui, "o estilo viaja inteiro no payload", NÃO se confirmou**, e foi
+medido em 2026-08-29 (`dev/tile-privado/scripts/confere-martin-nginx.sh`): um
+`config.style` gravado numa linha PRIVADA não sai no `/api/config` anônimo, o item some
+da lista `basemaps`, e o estilo chega a quem tem direito pelo endpoint aditivo. O que
+sobra no payload público é o estilo ESTÁTICO homônimo, montado pelos construtores de
+variável de ambiente em `listBasemapStyles` antes do override de catálogo, e esse é
+público por desenho declarado (é a mesma família de `BDGEX_WMS_URL`, que a lista de
+fora-de-escopo logo abaixo já nomeia). Procurar o id do basemap no payload acusa aquele
+e não este, o que produz um alarme sobre vazamento inexistente. E `labelSource` é a armadilha que `assets3d-regime.js` já resolveu
 com listas de campos nomeadas: quem escrever "reescreve `source.url`" fecha uma porta e
 deixa a irmã aberta.
 

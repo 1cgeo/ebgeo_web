@@ -32,6 +32,10 @@
 # uma porta que ninguém guarda.
 set -uo pipefail
 cd "$(dirname "$0")/.."
+# `sql`, `sql_catalogo`, `reiniciar` e `entrar` vivem em comum.sh, e a razao de estarem
+# la esta escrita no cabecalho daquele arquivo: escrever catalogo por psql e medir em
+# seguida mede o CACHE, nao o gate, e a licao so parou de recorrer quando virou verbo.
+. "$(dirname "$0")/comum.sh"
 
 BASE="${BASE:-http://localhost}"
 A="/api/v1/assets3d"
@@ -40,16 +44,9 @@ CHAVE_COMUM="aaaaaaaa-0000-4000-8000-000000000001"         # pedro, escopo tiles
 OM_DO_PRODUTOR="c8e2cfe7-1f9e-4246-b952-2c6f75a83991"      # marcel
 falhas=0
 
-sql() { docker compose exec -T db psql -q -U ebgeo -d ebgeo_zero -v ON_ERROR_STOP=1 -c "$1" > /dev/null; }
-entrar() {
-    curl -s -X POST "$BASE/api/v1/auth/login" -H 'Content-Type: application/json' \
-        -d "{\"username\":\"$1\",\"password\":\"${SENHA:-tassofragoso}\"}" \
-        | python -c "import sys,json;print(json.load(sys.stdin)['data']['accessToken'])" 2>/dev/null
-}
 # O memo de decisão dura 30 s e só é limpo por escrita de catálogo PELA ROTA; o índice
 # de regime idem. Como esta conferência escreve direto no banco, o reinício é o que
 # torna cada bloco uma medição do gate e não do cache.
-reiniciar() { docker compose restart backend > /dev/null 2>&1; sleep 8; }
 
 checar() {
     local rotulo="$1" esperado="$2"; shift 2
@@ -78,8 +75,7 @@ TA=$(entrar admin); TP=$(entrar pedro); TM=$(entrar marcel); TD=$(entrar diniz)
 
 echo
 echo "=== CONTROLE NEGATIVO: com a linha PÚBLICA, tudo abre para o anônimo ==="
-sql "UPDATE tilesets SET access_level='public', owner_org_id=NULL WHERE id='PCL';"
-reiniciar
+sql_catalogo "UPDATE tilesets SET access_level='public', owner_org_id=NULL WHERE id='PCL';"
 checar "raiz da árvore (campo url)"        200 "$BASE$A/PCL/tileset.json"
 checar "filho dentro da árvore"            200 "$BASE$A/PCL/Data/a.b3dm"
 checar "preview FORA da pasta (previewVideo)" 200 "$BASE$A/videos/preview.webm"
@@ -87,8 +83,7 @@ cache  "regime de cache do público"        "public" "$BASE$A/PCL/tileset.json"
 
 echo
 echo "=== A LINHA VIRA PRIVADA: as três portas fecham para o anônimo ==="
-sql "UPDATE tilesets SET access_level='private' WHERE id='PCL';"
-reiniciar
+sql_catalogo "UPDATE tilesets SET access_level='private' WHERE id='PCL';"
 checar "raiz da árvore"                    404 "$BASE$A/PCL/tileset.json"
 checar "filho dentro da árvore"            404 "$BASE$A/PCL/Data/a.b3dm"
 # A PORTA QUE UMA IMPLEMENTAÇÃO DESATENTA DEIXA ABERTA: ela não está sob a pasta do
@@ -115,8 +110,7 @@ echo "=== EIXO B, o ramo da PRODUÇÃO: a linha passa a ser da OM do produtor ==
 # O produtor alcança o privado que a OM dele PRODUZ, sem concessão nenhuma, e é o
 # ramo que separa `producer` de `user`. Sem este bloco o papel de produtor sairia
 # desta conferência indistinguível de um usuário comum.
-sql "UPDATE tilesets SET owner_org_id='$OM_DO_PRODUTOR' WHERE id='PCL';"
-reiniciar
+sql_catalogo "UPDATE tilesets SET owner_org_id='$OM_DO_PRODUTOR' WHERE id='PCL';"
 checar "produtor da OM DONA (marcel)"      200 -H "Authorization: Bearer $TM" "$BASE$A/PCL/tileset.json"
 checar "usuário comum, mesma linha"        404 -H "Authorization: Bearer $TP" "$BASE$A/PCL/tileset.json"
 checar "anônimo, mesma linha"              404 "$BASE$A/PCL/tileset.json"
@@ -170,8 +164,7 @@ done
 
 echo
 echo "--- devolvendo a linha ao estado original ---"
-sql "UPDATE tilesets SET access_level='public', owner_org_id=NULL WHERE id='PCL';"
-reiniciar
+sql_catalogo "UPDATE tilesets SET access_level='public', owner_org_id=NULL WHERE id='PCL';"
 checar "público de volta, anônimo"         200 "$BASE$A/PCL/tileset.json"
 
 if [ "${MEDIR_MEMO:-0}" = "1" ]; then
@@ -196,8 +189,7 @@ if [ "${MEDIR_MEMO:-0}" = "1" ]; then
     done
     echo "  medido  fechou $(( $(date +%s) - inicio )) s após a revogação (TTL declarado: 30 s)"
     sql "DELETE FROM resource_grants WHERE resource_id='PCL';"
-    sql "UPDATE tilesets SET access_level='public' WHERE id='PCL';"
-    reiniciar
+    sql_catalogo "UPDATE tilesets SET access_level='public' WHERE id='PCL';"
 fi
 
 echo

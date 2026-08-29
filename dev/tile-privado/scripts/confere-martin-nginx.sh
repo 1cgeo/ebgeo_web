@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+# CASO 4 DOS QUATRO: o que o MARTIN serve (camada de dados, de analise e basemap),
+# gateado no NGINX e nao no servico.
+#
+# ESTE CASO E DE OUTRA NATUREZA, e confundi-lo com os tres primeiros e o erro que este
+# cabecalho existe para impedir. Nos casos 1 a 3 o Node esta no caminho dos bytes e o
+# predicado sabe QUAL recurso foi pedido: a resposta e sobre a pessoa E sobre a camada.
+# Aqui o Node nao ve o tile passar. O `location` do nginx pergunta a este backend uma
+# unica coisa, por `auth_request`: esta credencial esta viva? Ele nao manda o caminho,
+# nao resolve camada nenhuma, e `fn_can_see_resource` nao entra na historia (cláusula
+# 10.7 e o `fileoverview` de backend/src/modules/auth/tile-access.js).
+#
+# ENTAO A PROTECAO AQUI TEM DUAS METADES QUE PRECISAM SER MEDIDAS SEPARADAS:
+#
+#   METADE 1, o CATALOGO, que funciona por recurso. A URL do tile de uma camada privada
+#   nao sai para quem nao pode ve-la. Sao DUAS portas, e a pendencia nomeia as duas:
+#   `/api/config` (memoizado, NAO varia por chamador, entao a linha privada some dele
+#   para todo mundo) e `/api/v1/resource-access/visible` (autenticado, aditivo, e onde
+#   quem tem direito recebe a URL). Isto e medido abaixo, ramo por ramo de papel.
+#
+#   METADE 2, os BYTES, que NAO funciona por recurso. Quem porta uma chave de API viva
+#   alcanca o tile de QUALQUER camada, inclusive de uma que o catalogo lhe esconde. Isso
+#   nao e defeito de implementacao: e a limitacao DECLARADA da decisao do dono de
+#   2026-08-24 pelo sim/nao simples. Este script a mede em voz alta, marcada DEFEITO, em
+#   vez de deixa-la implicita num paragrafo.
+#
+# O QUE ELE COMPRA MESMO ASSIM, e e real: os bytes saem de "abertos para a internet
+# inteira" para "exigem uma chave viva". O tamanho do publico muda; quem, dentro dele,
+# ve o que, nao muda.
+#
+# A ARMADILHA QUE ESTE SCRIPT PEGOU NA PRIMEIRA RODADA: quatro FALHOU dizendo que a
+# camada privada continuava saindo no `/api/config`, para o administrador inclusive. Nao
+# era vazamento, era o memo daquele endpoint (30 s) servindo o payload de antes da
+# escrita. Toda escrita de catalogo aqui passa por `sql_catalogo`, que invalida.
+#
+# NAO MEDIDO AQUI, declarado: a SEGUNDA porta de saida da URL na reidratacao do
+# snapshot de sync (`GET_VISIBLE_CATALOG_DEFINITIONS`), porque ela exige um atlas
+# montado e o banco copiado tem zero atlas.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+
+BASE="${BASE:-http://localhost}"
+CHAVE_CREDENCIADO="aaaaaaaa-0000-4000-8000-000000000002"   # diniz, ve todo privado
+CHAVE_COMUM="aaaaaaaa-0000-4000-8000-000000000001"         # pedro, nao ve nada privado
+CAMADA="rodovias-federais"
+URL_TILE="tiles/rodovias"
+# O MARCADOR DO BASEMAP E UMA URL CUNHADA, e nao o id da linha, porque o id NAO
+# discrimina: `basemapStyles` comeca dos construtores ESTATICOS de variavel de ambiente
+# e so entao recebe o override de `config.style` de cada linha
+# (`listBasemapStyles`, backend/src/modules/config/config.service.js). O estilo estatico
+# do BDGEx e homonimo da linha de catalogo e e PUBLICO por desenho declarado (a
+# pendencia poe `BDGEX_WMS_URL` entre os enderecos de env, globais e fora de escopo).
+# Procurar "bdgex" no payload acusa aquele, nao este, e foi o que deu o unico FALHOU da
+# primeira rodada: um alarme sobre um vazamento que nao existia.
+#
+# Esta URL so pode ter vindo do `config.style` da linha, entao ela mede o que o
+# enunciado da pendencia previa: "o basemap privado tem o mesmo defeito, com agravante,
+# o estilo viaja inteiro no payload". Medido: nao viaja.
+URL_BASEMAP="tiles/basemap-secreto"
+falhas=0
+defeitos=0
+
+# `sql`, `sql_catalogo`, `reiniciar` e `entrar` vivem em comum.sh. `sql_catalogo` e o que
+# impede a medicao do CACHE em vez do gate; o motivo esta escrito la.
+. "$(dirname "$0")/comum.sh"
+
+# ve <rotulo> <ve|nao-ve> <marcador> <curl args...>
+ve() {
+    local rotulo="$1" espera="$2" marcador="$3"
+    shift 3
+    local achou
+    if curl -s "$@" | grep -qaF "$marcador"; then achou="ve"; else achou="nao-ve"; fi
+    if [ "$achou" = "$espera" ]; then
+        printf '  ok      %-46s %s\n' "$rotulo" "$achou"
+    else
+        printf '  FALHOU  %-46s esperado %s, obtido %s\n' "$rotulo" "$espera" "$achou"
+        falhas=$((falhas + 1))
+    fi
+}
+
+checar() {
+    local rotulo="$1" esperado="$2"
+    shift 2
+    local obtido
+    obtido=$(curl -s -o /dev/null -w '%{http_code}' "$@")
+    if [ "$obtido" = "$esperado" ]; then
+        printf '  ok      %-46s %s\n' "$rotulo" "$obtido"
+    else
+        printf '  FALHOU  %-46s esperado %s, obtido %s\n' "$rotulo" "$esperado" "$obtido"
+        falhas=$((falhas + 1))
+    fi
+}
+
+# defeito <rotulo> <status previsto> <curl args...>
+# O desfecho esperado E o comportamento ruim, e ele sai marcado como tal para que o
+# relatorio nao chame de `ok` uma limitacao. Se o recorte por recurso for feito um dia,
+# esta linha fica vermelha, que e o aviso que se quer.
+defeito() {
+    local rotulo="$1" esperado="$2"
+    shift 2
+    local obtido
+    obtido=$(curl -s -o /dev/null -w '%{http_code}' "$@")
+    if [ "$obtido" = "$esperado" ]; then
+        printf '  DEFEITO %-46s %s (limitacao declarada da 10.7)\n' "$rotulo" "$obtido"
+        defeitos=$((defeitos + 1))
+    else
+        printf '  MUDOU   %-46s previa %s, obtido %s -- reveja a conclusao\n' "$rotulo" "$esperado" "$obtido"
+        falhas=$((falhas + 1))
+    fi
+}
+
+TA=$(entrar admin); TP=$(entrar pedro); TM=$(entrar marcel); TD=$(entrar diniz)
+[ -n "$TA" ] || { echo "ERRO: login falhou; o ambiente esta de pe?"; exit 1; }
+
+echo
+echo "=== CONTROLE NEGATIVO: camada PUBLICA, a URL sai no config para o anonimo ==="
+sql_catalogo "UPDATE data_layers SET access_level='public', owner_org_id=NULL WHERE id='$CAMADA';"
+sql_catalogo "UPDATE basemaps SET access_level='public' WHERE id='bdgex';"
+sql_catalogo "UPDATE analysis_layers SET access_level='public' WHERE id='declividade';"
+ve "URL do tile em /api/config"            "ve" "$URL_TILE" "$BASE/api/config"
+ve "estilo do basemap em /api/config"      "ve" "$URL_BASEMAP" "$BASE/api/config"
+ve "analise declividade em /api/config"    "ve" "declividade" "$BASE/api/config"
+
+echo
+echo "=== METADE 1: as tres viram privadas e SOMEM do /api/config ==="
+# O `/api/config` e memoizado e NAO varia por chamador, e isso e deliberado: e o
+# documento cujo fracasso impede o boot. Entao a linha privada some dele para TODO
+# mundo, administrador inclusive, e o que ele perde volta pelo segundo endpoint.
+sql_catalogo "UPDATE data_layers SET access_level='private' WHERE id='$CAMADA';"
+sql_catalogo "UPDATE basemaps SET access_level='private' WHERE id='bdgex';"
+sql_catalogo "UPDATE analysis_layers SET access_level='private' WHERE id='declividade';"
+ve "URL do tile, anonimo"                  "nao-ve" "$URL_TILE" "$BASE/api/config"
+ve "URL do tile, ADMINISTRADOR"            "nao-ve" "$URL_TILE" -H "Authorization: Bearer $TA" "$BASE/api/config"
+ve "estilo do basemap privado, anonimo"    "nao-ve" "$URL_BASEMAP" "$BASE/api/config"
+ve "estilo do basemap, credenciado"        "ve"     "$URL_BASEMAP" -H "Authorization: Bearer $TD" "$BASE/api/v1/resource-access/visible"
+ve "analise privada, anonimo"              "nao-ve" "declividade" "$BASE/api/config"
+
+echo
+echo "=== METADE 1, segunda porta: /resource-access/visible, ramo por ramo ==="
+checar "anonimo (rota tem auth ESTRITO)"   401 "$BASE/api/v1/resource-access/visible"
+ve "usuario comum (pedro)"                 "nao-ve" "$URL_TILE" -H "Authorization: Bearer $TP" "$BASE/api/v1/resource-access/visible"
+ve "produtor de outra OM (marcel)"         "nao-ve" "$URL_TILE" -H "Authorization: Bearer $TM" "$BASE/api/v1/resource-access/visible"
+ve "credenciado (diniz)"                   "ve"     "$URL_TILE" -H "Authorization: Bearer $TD" "$BASE/api/v1/resource-access/visible"
+ve "administrador"                         "ve"     "$URL_TILE" -H "Authorization: Bearer $TA" "$BASE/api/v1/resource-access/visible"
+
+echo
+echo "=== METADE 1, o ramo da PRODUCAO ==="
+sql_catalogo "UPDATE data_layers SET owner_org_id=(SELECT producer_org_id FROM users WHERE username='marcel') WHERE id='$CAMADA';"
+ve "produtor da OM DONA (marcel)"          "ve"     "$URL_TILE" -H "Authorization: Bearer $TM" "$BASE/api/v1/resource-access/visible"
+ve "usuario comum, mesma linha"            "nao-ve" "$URL_TILE" -H "Authorization: Bearer $TP" "$BASE/api/v1/resource-access/visible"
+sql_catalogo "UPDATE data_layers SET owner_org_id=NULL WHERE id='$CAMADA';"
+
+echo
+echo "=== METADE 1, o campo IRMAO: labelSource sai junto ==="
+# `config.labelSource` e uma SEGUNDA fonte de tile, independente de `config.source`, e a
+# pendencia a nomeia como a armadilha de quem escrever "reescreve source.url". Aqui ela
+# nao e um risco separado, porque o que o catalogo esconde e a LINHA INTEIRA; medir isso
+# e o que autoriza a afirmar que os dois campos somem juntos, em vez de supor.
+sql_catalogo "UPDATE data_layers SET config = jsonb_set(config, '{labelSource}', '{\"url\": \"http://localhost/tiles/rotulos-secretos\", \"type\": \"vector\"}'::jsonb) WHERE id='$CAMADA';"
+ve "labelSource privado, anonimo"          "nao-ve" "rotulos-secretos" "$BASE/api/config"
+ve "labelSource, credenciado (sai junto)"  "ve"     "rotulos-secretos" -H "Authorization: Bearer $TD" "$BASE/api/v1/resource-access/visible"
+sql_catalogo "UPDATE data_layers SET config = config - 'labelSource' WHERE id='$CAMADA';"
+
+echo
+echo "=== METADE 2: OS BYTES. O nginx pergunta pela CREDENCIAL, nunca pela CAMADA ==="
+checar "sem chave nenhuma"                 401 "$BASE/$URL_TILE"
+checar "chave viva do credenciado"         200 "$BASE/$URL_TILE?api_key=$CHAVE_CREDENCIADO"
+# A LINHA QUE RESUME O CASO 4. `pedro` e usuario comum, nao ve esta camada em nenhuma
+# das duas portas do catalogo (medido acima, duas vezes), e mesmo assim baixa os bytes
+# dela. O gate do nginx nao tem como saber que camada e essa.
+defeito "chave de quem NAO ve a camada"    200 "$BASE/$URL_TILE?api_key=$CHAVE_COMUM"
+defeito "e os tiles, nao so o TileJSON"    200 "$BASE/$URL_TILE/10/385/577?api_key=$CHAVE_COMUM"
+
+echo
+echo "--- devolvendo as tres linhas ao estado original ---"
+sql_catalogo "UPDATE data_layers SET access_level='public' WHERE id='$CAMADA';"
+sql_catalogo "UPDATE basemaps SET access_level='public' WHERE id='bdgex';"
+sql_catalogo "UPDATE analysis_layers SET access_level='public' WHERE id='declividade';"
+ve "URL do tile de volta no config"        "ve" "$URL_TILE" "$BASE/api/config"
+
+echo
+echo "Metade 1 (catalogo, por recurso): $(( 19 - falhas ))/19 corretas."
+echo "Metade 2 (bytes, por credencial): $defeitos porta(s) alcancada(s) por quem nao ve a camada."
+if [ "$falhas" -eq 0 ]; then
+    echo "CASO 4 (Martin via nginx) CONFERIDO -- $(date '+%Y-%m-%d %H:%M'). Ver as linhas DEFEITO."
+else
+    echo "CASO 4 COM $falhas DESVIO(S) INESPERADO(S)."
+fi
+exit "$falhas"

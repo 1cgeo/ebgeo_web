@@ -23,6 +23,10 @@
 # e saem DECLARADAS, fora da contagem.
 set -uo pipefail
 cd "$(dirname "$0")/.."
+# `sql`, `sql_catalogo`, `reiniciar` e `entrar` vivem em comum.sh, e a razao de estarem
+# la esta escrita no cabecalho daquele arquivo: escrever catalogo por psql e medir em
+# seguida mede o CACHE, nao o gate, e a licao so parou de recorrer quando virou verbo.
+. "$(dirname "$0")/comum.sh"
 
 BASE="${BASE:-http://localhost}"
 S="/api/v1/sv360"
@@ -35,13 +39,7 @@ CHAVE_CREDENCIADO="aaaaaaaa-0000-4000-8000-000000000002"
 CHAVE_COMUM="aaaaaaaa-0000-4000-8000-000000000001"
 falhas=0
 
-sql() { docker compose exec -T db psql -q -U ebgeo -d ebgeo_zero -v ON_ERROR_STOP=1 -c "$1" > /dev/null; }
 
-entrar() {
-    curl -s -X POST "$BASE/api/v1/auth/login" -H 'Content-Type: application/json' \
-        -d "{\"username\":\"$1\",\"password\":\"${SENHA:-tassofragoso}\"}" \
-        | python -c "import sys,json;print(json.load(sys.stdin)['data']['accessToken'])" 2>/dev/null
-}
 
 # porta <rotulo> <ve|nao-ve> <marcador> <curl args...>
 #
