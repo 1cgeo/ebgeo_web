@@ -5,6 +5,8 @@
 // O do 360 é composto e vem de `sv360.queries.js` pelo mesmo motivo.
 import { sv360AccessPredicate } from '../streetview360/sv360.queries.js';
 import { catalogAuthorizationPredicate } from '../catalog/catalog.queries.js';
+import { CATALOG_TABLES } from '../catalog/catalog.tables.js';
+import { TYPE_BY_TABLE } from './resource-access.types.js';
 
 /**
  * Marca um recurso de CATÁLOGO como público ou privado.
@@ -387,6 +389,12 @@ export const LIST_GRANTS_FOR_RESOURCE = `
  * O `::text` UNIFORMIZA A CHAVE: as quatro tabelas de catálogo têm id textual (slug) e
  * `sv360.projects` tem UUID, enquanto `resource_grants.resource_id` é TEXT para os
  * cinco. Sem o cast o `UNION ALL` nem tipa.
+ *
+ * EXISTE UM SEGUNDO FRAGMENTO SOBRE AS MESMAS CINCO TABELAS, mais abaixo neste arquivo
+ * (`RECURSOS_COM_NIVEL_DE_ACESSO`, que alimenta `LIST_ATLAS_RESOURCES`), e ele NÃO é
+ * cópia desatualizada deste: ele carrega `access_level`, NÃO filtra `active` e é usado em
+ * junção EXTERNA. As três diferenças são o assunto de lá, e o JSDoc daquele fragmento
+ * explica por que unificá-los mudaria o que estas duas listagens de concessão mostram.
  */
 const RECURSOS_VIVOS = `
     SELECT 'basemap'::text AS resource_type, id::text AS resource_id, name
@@ -1202,12 +1210,90 @@ SELECT 'frontier', id, grantee_id, grantee_group_id, resource_type, resource_id,
 
 // --- empréstimo por atlas --------------------------------------------------
 
-/** O que este atlas empresta (vivos). $1 = atlas_id. */
+/**
+ * O CADASTRO DOS CINCO TIPOS: (tipo, id, nome, nível de acesso), numa relação só.
+ *
+ * `atlas_resources.resource_type` aponta para CINCO vocabulários e as tabelas por trás
+ * deles são QUATRO de catálogo mais `sv360.projects`. Sem esta união, traduzir um
+ * empréstimo em nome legível seria uma consulta por linha (N+1) ou um `switch` por tipo
+ * no JS — as duas formas divergem na primeira tabela de recurso nova.
+ *
+ * NÃO É `RECURSOS_VIVOS` COM UMA COLUNA A MAIS, e as duas diferenças são semânticas, não
+ * de conveniência, o que é a razão de existirem os dois fragmentos em vez de um. (a)
+ * Aquele filtra `active = true`, porque as duas listagens de concessão por ator precisam
+ * ESCONDER o recurso morto; aqui o soft-deletado precisa APARECER, senão um empréstimo
+ * vivo volta sem nome e fica indistinguível do órfão de verdade. (b) Aquele é junção
+ * INTERNA nos dois consumidores, e por isso a lista dele nunca sai crua; este é junção
+ * EXTERNA, e o nulo é resposta legítima. Somar `access_level` lá e apagar o `WHERE`
+ * mudaria o que as duas telas de concessão mostram.
+ *
+ * Ele também é IRMÃO de `SELECT_LINHAS_DE_CATALOGO` (`catalog/catalog.tables.js`) e não
+ * o reusa por duas razões: aquele devolve `config` (o que os índices de regime precisam)
+ * e não devolve `name`, e o vocabulário de tipo dele é o de PRODUÇÃO, enquanto aqui o
+ * tipo precisa ser o do `CHECK` de `atlas_resources.resource_type` — o mesmo de
+ * `resource_grants` — que inclui `sv360_project`. Conflatar os dois eixos é o erro que
+ * `catalog.tables.js` já descreve em voz alta.
+ *
+ * O NOME DA TABELA VEM DA WHITELIST CONGELADA (`CATALOG_TABLES`), nunca de uma
+ * requisição, que é a regra que todo nome de tabela interpolado nesta base segue (o pg
+ * não liga nome de tabela como parâmetro). `TYPE_BY_TABLE` é a inversa declarada em
+ * `resource-access.types.js`, então uma tabela de catálogo nova entra aqui pela mesma
+ * porta por onde entra no resto do módulo — que é o que este fragmento tem a mais que o
+ * irmão escrito à mão logo acima.
+ *
+ * O `::text` UNIFORMIZA A CHAVE, pelo mesmo motivo de `RECURSOS_VIVOS`: as quatro tabelas
+ * de catálogo têm id textual (slug) e `sv360.projects` tem UUID, enquanto
+ * `atlas_resources.resource_id` é TEXT para os cinco. Sem o cast o `UNION ALL` nem tipa,
+ * e a comparação da junção levantaria `22P02` no primeiro slug.
+ */
+const RECURSOS_COM_NIVEL_DE_ACESSO = [
+  ...CATALOG_TABLES.map(
+    (t) => `SELECT '${TYPE_BY_TABLE[t]}'::text AS resource_type, id::text AS resource_id, name, access_level
+      FROM ${t}`
+  ),
+  `SELECT 'sv360_project'::text, id::text, name, access_level
+      FROM sv360.projects`,
+].join('\n     UNION ALL\n    ');
+
+/**
+ * O que este atlas empresta (vivos), com o NOME e o NÍVEL DE ACESSO de cada recurso.
+ * $1 = atlas_id.
+ *
+ * O `name` e o `access_level` existem para a cláusula 6.6: ao ativar o link público de
+ * um atlas, a tela precisa NOMEAR os recursos privados que ele empresta, porque o
+ * empréstimo ao visitante foi mantido e o que resolve é o consentimento informado. Uma
+ * lista de ids não nomeia nada.
+ *
+ * O JOIN É EXTERNO, E ISSO É A DECISÃO, NÃO UM DETALHE. Um empréstimo cuja linha de
+ * catálogo não existe mais (o hard-delete do 360, ou uma linha apagada à mão) volta com
+ * `name` e `access_level` nulos e CONTINUA NA LISTA. Um `JOIN` interno o faria sumir, e
+ * sumir é o oposto do que a cláusula quer: o vínculo continua vivo em `atlas_resources`,
+ * continua contando em `ATLASES_LENDING_RESOURCE` e continua sendo o que quem administra
+ * o atlas precisa ver para desfazê-lo. Esconder o órfão é esconder um empréstimo vivo.
+ *
+ * ELA NÃO RECORTA POR CHAMADOR, e isso precisa estar escrito porque é o que muda com os
+ * dois campos novos: quem tem `read` no atlas passa a ler o NOME e a MARCA de acesso de
+ * tudo o que o atlas empresta. O gate real é o do vínculo, não o do recurso — o
+ * empréstimo entrega o próprio recurso a quem abre este atlas (`fn_granted_resource_ids`,
+ * ramo D4), então o nome não abre porta nenhuma que o vínculo já não tenha aberto. A
+ * exceção é o empréstimo cujo braço D4 morreu (o dono do atlas perdeu o acesso): ali o
+ * nome sai e o recurso não. É pouco, e é justamente o vínculo que a tela precisa nomear
+ * para que alguém o desfaça. A rota é `auth` ESTRITO, então nada disso alcança o
+ * visitante anônimo de link público.
+ *
+ * UMA CONSULTA SÓ, e não uma por item: a tela da cláusula 6.6 abre sobre a lista inteira,
+ * e um N+1 por tipo aqui seria cinco consultas por empréstimo.
+ */
 export const LIST_ATLAS_RESOURCES = `
+  WITH recurso AS (${RECURSOS_COM_NIVEL_DE_ACESSO})
   SELECT ar.id, ar.resource_type, ar.resource_id, ar.added_by, ar.added_at,
-         u.username AS added_by_username
+         u.username AS added_by_username,
+         r.name AS name,
+         r.access_level AS access_level
     FROM atlas_resources ar
     LEFT JOIN users u ON u.id = ar.added_by
+    LEFT JOIN recurso r
+           ON r.resource_type = ar.resource_type AND r.resource_id = ar.resource_id
    WHERE ar.atlas_id = $1::uuid AND ar.removed_at IS NULL
    ORDER BY ar.resource_type, ar.added_at
 `;

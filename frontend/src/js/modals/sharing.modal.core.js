@@ -100,6 +100,9 @@ import {
     permissionRank,
     serverTreatsAsAtlasOwner,
 } from '@js/projects/permission-levels.js';
+// As frases do aviso da cláusula 6.6, num módulo FOLHA: o texto é dado, e quem desenha é
+// esta classe.
+import { avisoDeExposicao } from './link-publico-phrases.js';
 
 /**
  * A frase de confirmação de "Tornar dono", que descreve o que acontece com QUEM CLICA.
@@ -679,6 +682,9 @@ export class SharingModal extends ModalBase {
         this._isPublic = false;
         /** @type {string|null} */
         this._publicLink = null;
+        // O que o link EXPÕE, para o aviso da cláusula 6.6. Nulo enquanto não carregou;
+        // vazio quando o atlas não empresta nada privado.
+        this._emprestimos = null;
         /** @type {Array<{userId:string, username:string, nome:string, permission:string}>} */
         this._shares = [];
         /** @type {Array<{groupId:string, name:string, permission:string, memberCount:number, ownerNome:string|null}>} */
@@ -807,9 +813,36 @@ export class SharingModal extends ModalBase {
             // que ela usa depois. Falhar aqui deixa a seção sem seletor, com a dica dizendo
             // por quê, em vez de derrubar a tela inteira.
             this._loadMyGroups();
+            // OS EMPRÉSTIMOS, pela mesma razão dos grupos: eles alimentam um AVISO, e a
+            // lista de quem tem acesso é o que a pessoa veio ver. Falhar aqui deixa o
+            // aviso ausente, e não a tela quebrada.
+            this._loadEmprestimos();
         } catch {
             if (!this.getBody()) return;
             this._renderError();
+        }
+    }
+
+    /**
+     * @private Os recursos que este atlas EMPRESTA, para o aviso do link público.
+     *
+     * A cláusula 6.3 diz que o empréstimo alcança o visitante do link, e a 6.6 exige que a
+     * tela nomeie o que está sendo exposto: um empréstimo é invisível para quem publica.
+     *
+     * FALHA CALADO, de propósito. Se esta rota cair, o aviso não aparece, e a alternativa
+     * (uma caixa de erro) diria ao dono que algo está errado com o compartilhamento, que
+     * não está. O custo dessa escolha está dito: o consentimento fica sem informação
+     * quando a rota falha.
+     * @returns {Promise<void>}
+     */
+    async _loadEmprestimos() {
+        try {
+            const recursos = await apiClient.listAtlasResources(this._atlasId);
+            if (!this.getBody()) return;
+            this._emprestimos = Array.isArray(recursos) ? recursos : [];
+            this._renderBody();
+        } catch {
+            // Silêncio: o aviso some, o resto do modal continua.
         }
     }
 
@@ -1061,6 +1094,40 @@ export class SharingModal extends ModalBase {
         return `<span class="sharing-avatar${onlineCls}" ${attr} style="background-color: ${color};">${initials}</span>`;
     }
 
+    /**
+     * @private O AVISO DA CLÁUSULA 6.6: o que este link expõe além do atlas.
+     *
+     * ELE APARECE ANTES DO LINK e independe de o link estar LIGADO, e as duas coisas são a
+     * decisão. Antes, porque o consentimento precisa preceder o ato; independente, porque
+     * quem vai LIGAR o link é justamente quem ainda não sabe o que está prestes a expor, e
+     * um aviso que só surgisse depois chegaria tarde.
+     *
+     * O NOME DOS ITENS É ESCAPADO: eles vêm de `data_layers.name` e afins, que o
+     * administrador digita.
+     * @returns {string}
+     */
+    _avisoDeExposicao() {
+        // `null` é "ainda não carregou": o aviso não se desenha, e nem por isso a seção
+        // some. Vazio é "não há o que avisar", e dá o mesmo resultado por outra razão.
+        const aviso = avisoDeExposicao(this._emprestimos);
+        if (!aviso) return '';
+
+        const itens = aviso.nomes
+            .map((nome) => `<li>${escapeHtml(nome)}</li>`)
+            .join('');
+        const resto = aviso.restantes > 0
+            ? `<li class="sharing-exposicao__resto">e mais ${aviso.restantes}</li>`
+            : '';
+
+        return `
+            <div class="sharing-exposicao" role="note" data-testid="sharing-exposicao">
+                <span class="sharing-exposicao__titulo">${escapeHtml(aviso.titulo)}</span>
+                <ul class="sharing-exposicao__lista">${itens}${resto}</ul>
+                <span class="sharing-exposicao__corpo">${escapeHtml(aviso.corpo)}</span>
+            </div>
+        `;
+    }
+
     /** @private */
     _renderPublicSection() {
         const linkRow = this._isPublic
@@ -1095,6 +1162,7 @@ export class SharingModal extends ModalBase {
                             <span class="sharing-switch__thumb" aria-hidden="true"></span>
                         </button>
                     </div>
+                    ${this._avisoDeExposicao()}
                     ${linkRow}
                 </div>
             </section>

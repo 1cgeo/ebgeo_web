@@ -362,11 +362,13 @@ decidiu que a nomeação continua não sendo exigida aqui.
 **6.6** O que faltava não era o predicado, era o **CONSENTIMENTO**: um empréstimo é invisível na tela de
 quem publica o link. Ao ativar o link público, a interface precisa **nomear os recursos privados que o
 atlas empresta**, porque hoje ela diz apenas que qualquer pessoa com o link visualiza o atlas, o que é
-verdade e é insuficiente. **[em obra]** desde 2026-08-29. Três coisas faltam, e nenhuma existe:
-`GET /api/v1/atlas/:atlasId/resources` devolve o empréstimo sem o nome do recurso e sem o nível de acesso;
-o modal de compartilhamento não tem o aviso; e o `transformRequest` do mapa só reconhece URL do 360, então
-o token efêmero do visitante não viaja no tile do servidor de tiles, e sem isso a cláusula fica escrita e
-não vale na tela.
+verdade e é insuficiente. **[em obra]** desde 2026-08-29. Eram três coisas faltando, e a primeira delas
+saiu no mesmo dia: `GET /api/v1/atlas/:atlasId/resources` já devolve `name` e `access_level` por item, os
+dois nulos no empréstimo ÓRFÃO, que continua na lista de propósito, porque sumir esconderia um empréstimo
+vivo (preso por `backend/tests/integration/atlas-emprestimo-nomeia-recurso.test.js`). Faltam as outras
+duas: o modal de compartilhamento não tem o aviso; e o `transformRequest` do mapa só reconhece URL do 360,
+então o token efêmero do visitante não viaja no tile do servidor de tiles, e sem isso a cláusula fica
+escrita e não vale na tela.
 
 **6.4** O empréstimo reconhece também o **produtor** como dono capaz de emprestar o acervo da própria
 organização. **[vigente]** desde 2026-08-21: a produção do dono do atlas entrou como termo próprio na

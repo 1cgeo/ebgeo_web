@@ -412,6 +412,26 @@ const CENSO_CONSULTA = [
   },
   {
     arquivo: 'src/modules/resource-access/resource-access.queries.js',
+    unidade: 'RECURSOS_COM_NIVEL_DE_ACESSO', n: 2, classe: PUBLICO,
+    motivo: 'O fragmento que dá NOME e MARCA DE ACESSO ao recurso na listagem do que um atlas '
+      + 'EMPRESTA (`GET /atlas/:atlasId/resources`). Ele une as cinco tabelas SEM predicado de '
+      + 'acesso e SEM `active`, e as duas ausências são deliberadas: aquela rota responde sobre o '
+      + 'VÍNCULO (`atlas_resources`), não sobre a visibilidade do recurso, e um item soft-deletado '
+      + 'que continua emprestado precisa aparecer NOMEADO, senão ele fica indistinguível do '
+      + 'empréstimo órfão. Ele nasceu para a cláusula 6.6: ao ativar o link público, a tela nomeia '
+      + 'os privados que o atlas empresta, porque o empréstimo ao visitante foi MANTIDO e o que '
+      + 'resolve é o consentimento informado — e uma lista de ids não nomeia nada. O RISCO é '
+      + 'exato: usado FORA de uma junção com `atlas_resources` do atlas em foco, ele entrega o '
+      + 'nome e o nível de acesso de todo recurso do sistema. O único consumidor o junta por LEFT '
+      + 'JOIN contra os empréstimos VIVOS de UM atlas, e a rota é `auth` estrito mais '
+      + '`requireAtlasPermission(\'read\')`. O que ele acrescenta ao que já saía por ali é o NOME '
+      + 'de um recurso que o leitor pode não enxergar; o empréstimo em si já entrega o recurso a '
+      + 'quem abre o atlas (ramo D4 de `fn_granted_resource_ids`), então a diferença real é o '
+      + 'vínculo cujo braço D4 morreu — que é justamente o que a tela precisa nomear para que '
+      + 'alguém o desfaça.',
+  },
+  {
+    arquivo: 'src/modules/resource-access/resource-access.queries.js',
     unidade: 'LIST_SHAREABLE_OF_ACTOR', n: 1, classe: SQL,
     predicado: 'fn_produced_private_resource_ids',
     motivo: 'O campo `shareable` do payload aditivo: os pares (tipo, id) que este ator pode '
@@ -977,10 +997,14 @@ const CENSO_ROTA = [
   {
     arquivo: 'src/modules/atlas/atlas.routes.js', rota: 'GET /:atlasId/resources', classe: R_OUTRA,
     gate: 'requireAtlasPermission',
-    motivo: 'Devolve os IDS emprestados ao atlas a quem tem `read`, inclusive os de recursos que '
+    motivo: 'Devolve o INVENTÁRIO emprestado ao atlas a quem tem `read`, inclusive os itens que '
       + 'aquele leitor não enxerga — e isso é deliberado e documentado na rota: a lista é o '
       + 'inventário do atlas, não o conteúdo do recurso. Nenhum byte de recurso sai por aqui, e '
-      + 'quem quiser o conteúdo passa pela superfície do recurso, que filtra.',
+      + 'quem quiser o conteúdo passa pela superfície do recurso, que filtra. DESDE 2026-08-29 '
+      + 'ela devolve TAMBÉM `name` e `access_level` de cada item, e esta linha dizia "os IDS" '
+      + 'antes disso: os dois campos alimentam a cláusula 6.6 (ao ativar o link público, a tela '
+      + 'NOMEIA os privados que o atlas empresta), e o que eles acrescentam é METADADO, não '
+      + 'conteúdo. Nulos no empréstimo órfão, que continua na lista de propósito.',
   },
 
   // ---------------- catálogo ------------------------------------------------

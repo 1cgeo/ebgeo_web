@@ -252,8 +252,14 @@ export async function auth(req, res, next) {
     // 401 E NÃO 403, ao contrário da amarra da chave: aqui a credencial NÃO é aceitável
     // para esta rota em forma nenhuma, e o cliente precisa apresentar o token no
     // cabeçalho. O 403 diria "você não pode", quando o certo é "assim não".
+    // A CONDIÇÃO OLHA A PRESENÇA DO CABEÇALHO, e não só quem resolveu. O cliente logado
+    // manda `Bearer` E carrega o cookie, que o navegador envia sozinho na mesma origem;
+    // como o cookie tem precedência de RESOLUÇÃO em `flexibleAuth`, `authVia` é `'cookie'`
+    // em toda requisição do app, e uma amarra que olhasse só isso recusaria toda escrita de
+    // todo usuário. A primeira versão fazia isso, e quem pegou foi a captura de UI: o
+    // `POST /atlas` respondeu 401 com esta mesma mensagem.
     const metodoSeguro = ['GET', 'HEAD', 'OPTIONS'].includes(req.method);
-    if (req.authVia === 'cookie' && !metodoSeguro) {
+    if (req.authVia === 'cookie' && !req.temBearer && !metodoSeguro) {
       return next(new UnauthorizedError(
         'Esta rota exige o token no cabeçalho Authorization; o cookie de sessão não autoriza escrita'
       ));

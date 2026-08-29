@@ -951,7 +951,21 @@ export async function revokeGrant({ grantId, actor, req }) {
 
 // --- empréstimo por atlas --------------------------------------------------
 
-/** O que este atlas empresta (vivos). @returns {Promise<Array>} */
+/**
+ * O que este atlas empresta (vivos), com o nome legível e o nível de acesso de cada um.
+ *
+ * O item é `{ id, resource_type, resource_id, added_by, added_at, added_by_username,
+ * name, access_level }`. Os dois últimos nasceram para a cláusula 6.6: ao ativar o link
+ * público, a tela NOMEIA os privados que o atlas empresta, porque o empréstimo ao
+ * visitante foi mantido e quem resolve é o consentimento informado.
+ *
+ * `name` e `access_level` são NULOS no empréstimo órfão (a linha de catálogo não existe
+ * mais), e o órfão continua na lista: ver o JSDoc de `LIST_ATLAS_RESOURCES`. Quem
+ * consome precisa tratar o nulo, e o tratamento certo é dizer que não dá para nomear
+ * aquele vínculo — nunca escondê-lo.
+ *
+ * @returns {Promise<Array>}
+ */
 export async function listAtlasResources(atlasId) {
   const { rows } = await query(Q.LIST_ATLAS_RESOURCES, [atlasId]);
   return rows;

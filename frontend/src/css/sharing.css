@@ -1326,3 +1326,63 @@
     font-size: var(--font-size-xs);
     color: var(--gray-500);
 }
+
+/* =========================================================================
+   O AVISO DE EXPOSIÇÃO DO LINK PÚBLICO (cláusula 6.6)
+
+   Ele nomeia os recursos PRIVADOS que o atlas empresta, porque o empréstimo
+   alcança o visitante do link (cláusula 6.3, reexaminada e MANTIDA em
+   2026-08-29) e é invisível para quem publica.
+
+   `--color-warning-strong` e não `--color-warning`: o token claro sobre o
+   fundo de 20% de opacidade dá menos de 2:1, o que o próprio
+   `design-tokens.css` registra logo abaixo da declaração dele.
+   ========================================================================= */
+
+.sharing-exposicao {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-top: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border-left: 3px solid var(--color-warning);
+    border-radius: var(--radius-sm);
+    background-color: rgb(var(--warning-rgb) / 12%);
+}
+
+.sharing-exposicao__titulo {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--color-warning-strong);
+}
+
+/* A lista é o conteúdo acionável: são os nomes que o dono precisa reconhecer
+   para decidir. Sem marcador e recuada, para não competir com o título. */
+.sharing-exposicao__lista {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+}
+
+.sharing-exposicao__lista li {
+    padding-left: var(--space-2);
+}
+
+.sharing-exposicao__lista li::before {
+    content: "•";
+    margin-right: var(--space-1);
+    color: var(--color-warning);
+}
+
+/* "e mais N" não é um item: é o resumo do que a lista não coube. */
+.sharing-exposicao__resto {
+    color: var(--gray-500);
+    font-style: italic;
+}
+
+.sharing-exposicao__corpo {
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+}

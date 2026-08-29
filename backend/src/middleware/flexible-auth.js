@@ -105,8 +105,23 @@ export async function flexibleAuth(req, res, next) {
     // pedido segue ANÔNIMO em vez de tentar o cabeçalho. Isso é caracterizado em
     // `tests/integration/flexible-auth-precedence.test.js` e não muda aqui.
     const tokenDeCookie = req.cookies?.token;
-    const token = tokenDeCookie || extractBearerToken(req);
+    const tokenDeCabecalho = extractBearerToken(req);
+    const token = tokenDeCookie || tokenDeCabecalho;
     if (!token) return next();
+
+    // A PRESENÇA DO CABEÇALHO É REGISTRADA À PARTE de quem RESOLVEU, e a distinção é o que
+    // impede a amarra de CSRF de derrubar o app inteiro. O cliente logado manda `Bearer` E
+    // carrega o cookie (mesma origem, o navegador o envia sozinho); como o cookie tem
+    // precedência de resolução, `authVia` seria `'cookie'` em TODA requisição do app, e uma
+    // amarra que olhasse só isso recusaria toda escrita de todo usuário. Foi medido: a
+    // primeira versão quebrou a criação de atlas na captura de UI.
+    //
+    // O QUE A PRESENÇA PROVA: um formulário de outro site NÃO consegue pôr um cabeçalho
+    // `Authorization` (isso exige preflight, que o CORS recusa), então um Bearer no pedido
+    // é prova de que ele veio de código que TEM o token, e não de uma página hostil que só
+    // conta com o cookie do navegador. É essa prova, e não a ausência do cookie, que
+    // autoriza a escrita.
+    req.temBearer = Boolean(tokenDeCabecalho);
 
     let payload;
     try {

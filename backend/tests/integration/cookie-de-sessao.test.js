@@ -158,6 +158,26 @@ describe('cookie de sessão: emissão, leitura e a porta fechada da escrita', ()
       }
     });
 
+    it('COOKIE + BEARER JUNTOS escrevem, que é como o navegador de verdade pede', async () => {
+      // O CASO QUE FALTAVA, e a falta dele quase custou o app inteiro. O cliente logado
+      // manda `Authorization` E carrega o cookie, que o navegador envia sozinho na mesma
+      // origem. Como o cookie tem precedência de RESOLUÇÃO em `flexibleAuth`, `authVia` é
+      // `'cookie'` nessa requisição, e a primeira versão da amarra a recusava: toda
+      // escrita de todo usuário respondia 401. Quem pegou foi a captura de UI, não a
+      // suíte, porque todos os casos daqui mandavam UMA credencial por vez.
+      //
+      // O que autoriza é a PRESENÇA do cabeçalho: um formulário de outro site não
+      // consegue pô-lo (exige preflight, que o CORS recusa).
+      const login = await entrar().expect(200);
+      const { valor } = cookieDaResposta(login);
+      const res = await supertest(app).post('/api/v1/atlas')
+        .set('Cookie', `token=${valor}`)
+        .set('Authorization', `Bearer ${valor}`)
+        .send({ name: `atlas cookie+bearer ${SFX}` })
+        .expect(201);
+      await db.query('DELETE FROM atlas WHERE id = $1', [res.body.data.id]);
+    });
+
     it('a rota MULTIPART, que é a postável cross-site sem preflight, também recusa', async () => {
       // São CINCO rotas assim no backend, e elas são a razão de a amarra não poder
       // depender só do preflight: `multipart/form-data` é Content-Type CORS-simples.
