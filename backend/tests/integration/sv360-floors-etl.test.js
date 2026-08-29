@@ -23,6 +23,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { importIndexDb } from '../../scripts/sv360-import.js';
+import { buildTilesDb } from '../helpers/sv360-tiles.js';
 import { blobPool } from '../../src/utils/sqlite-blob-pool.js';
 
 const NS = Buffer.from('1b671a64-40d5-491e-99b0-da01ff1f3341'.replace(/-/g, ''), 'hex');
@@ -150,11 +151,9 @@ describe('StreetView 360 — ETL dos andares (project_floors + floor_label)', ()
       [SLUG, [[f0, full0, prev0], [f1, full1, prev1]]],
       [FLAT_SLUG, [[fl1, fullA, prevA], [fl2, fullB, prevB]]],
     ]) {
-      const sdb = new Database(path.join(srcDir, `${slug}.db`));
-      sdb.exec('CREATE TABLE images (photo_id TEXT PRIMARY KEY, full_webp BLOB, preview_webp BLOB)');
-      const ins = sdb.prepare('INSERT INTO images VALUES (?,?,?)');
-      for (const r of rows) ins.run(...r);
-      sdb.close();
+      // Tiles-only: o ETL instala o `{slug}_tiles.db`, entao a origem precisa dele com
+      // a piramide de toda foto viva. A `{slug}.db` de blob nao viaja mais.
+      buildTilesDb(path.join(srcDir, `${slug}_tiles.db`), rows.map((r) => r[0]));
     }
   }
 

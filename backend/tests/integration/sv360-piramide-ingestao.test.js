@@ -124,7 +124,7 @@ describe('sv360 — a pirâmide ingerida é a pirâmide que o cliente lê', () =
    * @returns {void}
    */
   function registrarArquivos(slug) {
-    const base = path.resolve(config.sv360.dbDir, `${defaultOrgId}__${slug}`);
+    const base = path.resolve(config.sv360.dbDir, `${slug}`);
     for (const p of [
       `${base}.db`, `${base}.db.bak`, `${base}.db.tmp`,
       `${base}_tiles.db`, `${base}_tiles.db.bak`, `${base}_tiles.db.tmp`,
@@ -133,22 +133,6 @@ describe('sv360 — a pirâmide ingerida é a pirâmide que o cliente lê', () =
     }
   }
 
-  /**
-   * O `{slug}.db` do acervo PODADO: a tabela `images` existe, as colunas de blob não.
-   * É o que a origem deixou depois do `aposentar-full.js`.
-   * @param {string} nome - nome do arquivo tmp
-   * @param {string[]} ids - as fotos que sobraram como registro
-   * @returns {string} caminho
-   */
-  function imagesPodado(nome, ids) {
-    const p = path.join(tmpRoot, nome);
-    const sdb = new Database(p);
-    sdb.exec('CREATE TABLE images (photo_id TEXT PRIMARY KEY)');
-    const ins = sdb.prepare('INSERT INTO images VALUES (?)');
-    for (const id of ids) ins.run(id);
-    sdb.close();
-    return p;
-  }
 
   /**
    * O `{slug}_tiles.db`: `tile_pyramids` (no esquema pedido) + `tiles` com os bytes.
@@ -233,7 +217,6 @@ describe('sv360 — a pirâmide ingerida é a pirâmide que o cliente lê', () =
       .post(url('/admin/projects/upload'))
       .set('Authorization', `Bearer ${token}`)
       .attach('manifest', manifestoPodado(spec, photoId))
-      .attach('imagesDb', imagesPodado(`${spec.slug}-images.db`, [photoId]))
       .attach('tilesDb', tilesDb(`${spec.slug}-tiles.db`, photoId, spec, completo))
       .expect(201);
     return res.body;
@@ -318,12 +301,11 @@ describe('sv360 — a pirâmide ingerida é a pirâmide que o cliente lê', () =
       const body = await ingerir(A, photoA, true);
       assert.equal(body.slug, A.slug);
       assert.equal(body.photoCount, 1);
-      assert.equal(body.dbFilename, `${defaultOrgId}__${A.slug}.db`);
-      // Os DOIS arquivos entram: um projeto só-tiles sem o segundo arquivo não tem
-      // fonte de pixel nenhuma.
-      assert.ok(existsSync(path.resolve(config.sv360.dbDir, `${defaultOrgId}__${A.slug}.db`)));
+      assert.equal(body.dbFilename, `${A.slug}.db`);
+      // Tiles-only: o UNICO arquivo de pixel instalado e o `{slug}_tiles.db`. O
+      // `db_filename` e a chave logica `{slug}.db`, sem arquivo com esse nome no disco.
       assert.ok(
-        existsSync(path.resolve(config.sv360.dbDir, `${defaultOrgId}__${A.slug}_tiles.db`)),
+        existsSync(path.resolve(config.sv360.dbDir, `${A.slug}_tiles.db`)),
         'o {slug}_tiles.db precisa estar instalado, senão a rota do tile lê o vazio'
       );
     });

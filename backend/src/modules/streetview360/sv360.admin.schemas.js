@@ -125,12 +125,9 @@ const photoSchema = Joi.object({
   lon: finiteNumber.min(-180).max(180).required(),
   ele: finiteNumber.allow(null),
   heading: finiteNumber.allow(null),
-  camera_height: finiteNumber.allow(null),
   mesh_rotation_x: finiteNumber.allow(null),
   mesh_rotation_y: finiteNumber.allow(null),
   mesh_rotation_z: finiteNumber.allow(null),
-  distance_scale: finiteNumber.allow(null),
-  marker_scale: finiteNumber.allow(null),
   floor_level: Joi.number().integer().allow(null),
   // The floor's NAME on screen. A separate column from floor_level because two
   // spaces on the SAME level can be named differently ('Externo' and 'Campo' are
@@ -168,8 +165,6 @@ const targetSchema = Joi.object({
   is_next: Joi.boolean().allow(null),
   is_original: Joi.boolean().allow(null),
   override_bearing: finiteNumber.allow(null),
-  override_distance: finiteNumber.allow(null),
-  override_height: finiteNumber.allow(null),
   hidden: Joi.boolean().allow(null),
 }).unknown(true);
 

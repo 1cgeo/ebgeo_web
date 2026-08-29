@@ -52,17 +52,15 @@ function validateTileParams(req, res, next) {
 // --- multer (bundle upload) -------------------------------------------------
 // The disk storage STREAMS the (multi-GB) images.db to a tmp path on the SAME volume
 // as SV360_DB_DIR (so the later .tmp->dest rename is atomic, not cross-device).
-// The manifest + thumbnail are small; all four land in tmp and are cleaned by
-// the controller's finally. Field names: manifest / imagesDb / tilesDb / thumbnail.
+// The manifest + thumbnail are small; the three fields land in tmp and are cleaned
+// by the controller's finally. Field names: manifest / tilesDb / thumbnail.
 //
-// `tilesDb` É O SEGUNDO ARQUIVO SQLITE DO PROJETO ({slug}_tiles.db, as pirâmides) e
-// ele faltava aqui. `ingestBundle` sempre aceitou `tilesTmpPath`, mas NADA o
-// preenchia: um acervo só-tiles (o normal desde que a origem apagou os blobs) era
-// recusado na borda com "so-tiles archive ... and none was uploaded", e não havia
-// campo por onde enviá-lo. Só o ETL offline conseguia ingerir esse acervo.
+// `tilesDb` É O ARQUIVO SQLITE DE PIXEL DO PROJETO ({slug}_tiles.db, as pirâmides),
+// e desde o tiles-only (2026-08-29) é o único: a `{slug}.db` de blob e o campo
+// `imagesDb` saíram. Toda foto passou a ter pirâmide, então `validatePyramidCoverage`
+// recusa na borda o bundle que chegue sem ela.
 const ALLOWED_FIELD_MIME = {
   manifest: ['application/json', 'application/octet-stream', 'text/plain'],
-  imagesDb: ['application/octet-stream', 'application/x-sqlite3', 'application/vnd.sqlite3', ''],
   tilesDb: ['application/octet-stream', 'application/x-sqlite3', 'application/vnd.sqlite3', ''],
   thumbnail: ['image/webp', 'application/octet-stream'],
 };
@@ -100,14 +98,13 @@ const uploadBundle = multer({
     if (!allowed) return cb(new BadRequestError(`Unexpected upload field: ${file.fieldname}`));
     if (allowed.includes(file.mimetype)) return cb(null, true);
     // octet-stream is the catch-all for SQLite/binary; if the client mislabels,
-    // accept anything for the two SQLite fields (validated as SQLite later by
-    // validateImagesDb / lerPiramides).
-    if (file.fieldname === 'imagesDb' || file.fieldname === 'tilesDb') return cb(null, true);
+    // accept anything for the tiles SQLite field (validated as SQLite later by
+    // lerPiramides / validatePyramidCoverage).
+    if (file.fieldname === 'tilesDb') return cb(null, true);
     return cb(new BadRequestError(`Invalid mime for ${file.fieldname}: ${file.mimetype}`));
   },
 }).fields([
   { name: 'manifest', maxCount: 1 },
-  { name: 'imagesDb', maxCount: 1 },
   { name: 'tilesDb', maxCount: 1 },
   { name: 'thumbnail', maxCount: 1 },
 ]);
@@ -341,14 +338,6 @@ router.get(
   liftOptionalAtlasId,
   requireAtlasScopeWhenPresent,
   ctrl.getPhotoTile
-);
-
-router.get(
-  '/photos/:uuid/image',
-  validate({ params: schemas.uuidParamSchema, query: schemas.imageQuerySchema }),
-  liftOptionalAtlasId,
-  requireAtlasScopeWhenPresent,
-  ctrl.getPhotoImage
 );
 
 // --- writes (stage 2) ------------------------------------------------------

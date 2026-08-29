@@ -2,16 +2,20 @@
 
 /**
  * @fileoverview "Sistema" tab of the admin panel. Edits the STATIC/ENV parts of the runtime
- * config (app/features/map2d/map3d viewer/service URLs) that have no `resources` row, via
+ * config (app/features/map2d/service URLs) that have no `resources` row, via
  * GET/PUT /config/admin (requireAdmin). Only CHANGED fields are sent, so the stored override
  * document contains exactly what an admin deliberately set (untouched values keep tracking the
  * deploy STATIC/ENV). Config is read at boot, so a "recarregar para aplicar" notice is shown.
+ *
+ * The 3D-viewer control toggles, the raw "Advanced (JSON)" editor and the "Limpar todos os
+ * overrides" button were all removed on 2026-08-29 (owner decision): the curated fields cover what
+ * admins actually change. Only CHANGED fields are still sent, so the stored override document holds
+ * exactly what an admin set.
  *
  * All dynamic text via textContent (never innerHTML with user data).
  */
 
 import { apiClient } from '@store/sync/api-client.js';
-import { showConfirm } from '@modals/confirm.modal.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
 import { sectionHeader, ICON_CONFIG, failureState } from './admin-dom.js';
 
@@ -70,15 +74,14 @@ class ConfigTab {
             return;
         }
         if (!this._alive) return;
-        this._buildForm(data.effective || {}, data.overrides || {});
+        this._buildForm(data.effective || {});
     }
 
     /**
      * @private
      * @param {Object} eff - The effective config (used to prefill + diff on save).
-     * @param {Object} overrides - The current stored override document (prefills the advanced editor).
      */
-    _buildForm(eff, overrides) {
+    _buildForm(eff) {
         const c = this._container;
         c.replaceChildren();
         c.appendChild(sectionHeader('Sistema', {
@@ -99,66 +102,30 @@ class ConfigTab {
         const fGrid = check(form, 'Grade (UTM)', 'admin-config-feat-grid', !!eff.features?.grid);
         const fSearch = check(form, 'Busca por API', 'admin-config-feat-search', !!eff.features?.apisearch);
 
+        heading(form, 'Contas');
+        const fSignup = check(form, 'Permitir auto-cadastro (botão "Criar conta")',
+            'admin-config-feat-signup', !!eff.features?.self_registration);
+        const signupHint = document.createElement('p');
+        signupHint.className = 'admin-form__hint';
+        signupHint.textContent = 'Desligado, o botão "Criar conta" some e a rota de cadastro recusa (403): '
+            + 'só o administrador cria contas. Aplica no próximo carregamento da página, como o resto desta aba.';
+        form.appendChild(signupHint);
+
         heading(form, 'Mapa 2D');
         const minZoom = number(form, 'Zoom mínimo', 'admin-config-map2d-minzoom', eff.map2d?.minZoom);
         const maxZoom = number(form, 'Zoom máximo', 'admin-config-map2d-maxzoom', eff.map2d?.maxZoom);
         const maxPitch = number(form, 'Inclinação máxima', 'admin-config-map2d-maxpitch', eff.map2d?.maxPitch);
         const globe = check(form, 'Projeção globo', 'admin-config-map2d-globe', !!eff.map2d?.globe_projection);
 
-        const viewer = eff.map3d?.viewer || {};
-        const viewerInputs = {};
-        const viewerKeys = Object.keys(viewer);
-        if (viewerKeys.length) {
-            heading(form, 'Mapa 3D — controles do viewer');
-            for (const k of viewerKeys) {
-                viewerInputs[k] = check(form, k, `admin-config-map3d-${k}`, !!viewer[k]);
-            }
-        }
-
         heading(form, 'Serviços');
-        const tileUrl = text(form, 'Tile server (URL)', 'admin-config-tileurl', eff.services?.tileServerUrl ?? '');
-
-        heading(form, 'Avançado (JSON)');
-        const advHint = document.createElement('p');
-        advHint.className = 'admin-form__hint';
-        advHint.textContent = 'Sobrescreve QUALQUER chave do config (ex.: map2d.terrainSource/hillshade/bounds, '
-            + 'map3d.initialCamera/providers/bounds, streetView360, analysisLayers.enabled). Mesclado sobre o '
-            + 'padrão; os campos acima têm precedência. Salvar MESCLA (não remove chaves): para remover, use '
-            + '"Limpar todos os overrides". Catálogo (basemaps/camadas/3D) é gerenciado na aba Catálogo.';
-        form.appendChild(advHint);
-        const advInput = jsonField(form, 'Overrides avançados (JSON)', 'admin-config-advanced',
-            JSON.stringify(overrides ?? {}, null, 2));
-
-        const clearBtn = button('Limpar todos os overrides', 'admin-btn admin-btn--danger', 'admin-config-clear');
-        clearBtn.addEventListener('click', async () => {
-            // A CONTAGEM VEM DO QUE JÁ ESTÁ NA TELA. O textarea ao lado carrega o documento inteiro
-        // de overrides, então o número de seções que este botão apaga é conhecido no instante do
-        // clique. "Limpar TODOS" sem dizer quantos são é o pedido de confirmação mais vago do
-        // painel, e ele é irreversível.
-        const secoes = Object.keys(overrides ?? {});
-        const quantas = secoes.length === 0
-            ? 'Não há nenhum override gravado: nada muda.'
-            : `Isto apaga ${secoes.length} ${secoes.length === 1 ? 'seção' : 'seções'} de `
-              + `override (${secoes.join(', ')}) e devolve a configuração ao padrão do deploy.`;
-        const ok = await showConfirm('Limpar TODOS os overrides do sistema?', {
-                message: quantas,
-                destructive: true,
-                confirmText: 'Limpar tudo',
-            });
-            if (!ok) return;
-            try {
-                await apiClient.clearConfigOverrides();
-                showSuccess('Overrides limpos. Recarregue para aplicar.');
-                // LIMPAR NÃO É SALVAR. Sem esta linha, um "Limpar tudo" feito depois de um
-                // salvamento remontaria o formulário com "Configurações salvas" aceso, que
-                // é a afirmação contrária ao que acabou de acontecer.
-                this._salvou = false;
-                if (this._alive) this._render();
-            } catch (err) {
-                showError(err?.message || 'Falha ao limpar os overrides.');
-            }
-        });
-        form.appendChild(clearBtn);
+        const tileUrl = text(form, 'Servidor de tiles da grade UTM (URL)', 'admin-config-tileurl',
+            eff.services?.tileServerUrl ?? '');
+        const tileHint = document.createElement('p');
+        tileHint.className = 'admin-form__hint';
+        tileHint.textContent = 'Base das fontes de vetor da GRADE UTM (as camadas de articulação de '
+            + 'cartas). O mapa monta cada fonte como "<esta URL>/grid_<sistema>_<escala>". Vazio '
+            + 'desliga a grade (as fontes não resolvem). Não afeta mapas base, dados nem 3D/360.';
+        form.appendChild(tileHint);
 
         const error = document.createElement('div');
         error.className = 'admin-form__error';
@@ -216,6 +183,7 @@ class ConfigTab {
             diffBool(featDiff, 'imagens_panoramicas', fPan.checked, !!eff.features?.imagens_panoramicas);
             diffBool(featDiff, 'grid', fGrid.checked, !!eff.features?.grid);
             diffBool(featDiff, 'apisearch', fSearch.checked, !!eff.features?.apisearch);
+            diffBool(featDiff, 'self_registration', fSignup.checked, !!eff.features?.self_registration);
             if (Object.keys(featDiff).length) payload.features = featDiff;
 
             const map2dDiff = {};
@@ -225,43 +193,18 @@ class ConfigTab {
             diffBool(map2dDiff, 'globe_projection', globe.checked, !!eff.map2d?.globe_projection);
             if (Object.keys(map2dDiff).length) payload.map2d = map2dDiff;
 
-            const viewerDiff = {};
-            for (const [k, inp] of Object.entries(viewerInputs)) {
-                diffBool(viewerDiff, k, inp.checked, !!viewer[k]);
-            }
-            if (Object.keys(viewerDiff).length) payload.map3d = { viewer: viewerDiff };
-
             if (tileUrl.value.trim() !== (eff.services?.tileServerUrl ?? '')) {
                 payload.services = { tileServerUrl: tileUrl.value.trim() };
             }
 
-            // Advanced raw overrides (any config path). The curated payload above wins on conflict.
-            let advanced = {};
-            const advText = advInput.value.trim();
-            if (advText) {
-                try {
-                    advanced = JSON.parse(advText);
-                } catch (err) {
-                    error.textContent = `JSON avançado inválido: ${err.message}`;
-                    error.hidden = false;
-                    return;
-                }
-                if (advanced === null || typeof advanced !== 'object' || Array.isArray(advanced)) {
-                    error.textContent = 'O JSON avançado deve ser um objeto.';
-                    error.hidden = false;
-                    return;
-                }
-            }
-            const merged = deepMerge(advanced, payload);
-
-            if (Object.keys(merged).length === 0) {
+            if (Object.keys(payload).length === 0) {
                 showSuccess('Nenhuma alteração a salvar.');
                 return;
             }
 
             saveBtn.disabled = true;
             try {
-                await apiClient.updateConfigOverrides(merged);
+                await apiClient.updateConfigOverrides(payload);
                 showSuccess('Configurações salvas.');
                 // O ESTADO PRIMEIRO, o nó depois: o `_render` logo abaixo monta um formulário
                 // novo, e é `this._salvou` que decide se o aviso nasce visível nele. A linha
@@ -365,33 +308,3 @@ function button(label, className, testid) {
     return btn;
 }
 
-function jsonField(form, label, testid, value) {
-    const field = document.createElement('div');
-    field.className = 'admin-form__field';
-    const lab = document.createElement('label');
-    lab.textContent = label;
-    lab.setAttribute('for', testid);
-    field.appendChild(lab);
-    const ta = document.createElement('textarea');
-    ta.id = testid;
-    ta.dataset.testid = testid;
-    ta.className = 'admin-form__json';
-    ta.rows = 10;
-    ta.spellcheck = false;
-    ta.value = value;
-    field.appendChild(ta);
-    form.appendChild(field);
-    return ta;
-}
-
-/** Deep-merges `override` onto `base` (override wins; objects merge; arrays/scalars replace). */
-function deepMerge(base, override) {
-    if (override === null || typeof override !== 'object' || Array.isArray(override)) {
-        return override === undefined ? base : override;
-    }
-    const out = base && typeof base === 'object' && !Array.isArray(base) ? { ...base } : {};
-    for (const [k, v] of Object.entries(override)) {
-        out[k] = v && typeof v === 'object' && !Array.isArray(v) ? deepMerge(out[k], v) : v;
-    }
-    return out;
-}

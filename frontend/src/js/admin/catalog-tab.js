@@ -6,11 +6,17 @@
  * just references their paths). Resource categories (tileset/data_layer/analysis_layer/basemap) each
  * have their OWN table and CRUD route, resolved by `_catalogEndpoint` — there is no single
  * /api/v1/resources route, and this fileoverview claimed there was until 2026-07-25, in the very
- * file that maps per type. Confie no `_catalogEndpoint`, não nesta prosa. The `config` (rich,
- * MapLibre-expression-heavy) is edited as JSON. 360 projects are managed via the sv360 admin routes (list/enable/disable/delete)
- * — the bundle upload is out-of-band.
+ * file that maps per type. Confie no `_catalogEndpoint`, não nesta prosa. The `config` is edited as
+ * FIELDS since 2026-08-29 (owner decision), one per configurable key (`CONFIG_FIELDS`); the only
+ * remaining raw JSON is the basemap MapLibre `style` box, the one config that does not reduce to a
+ * field. Keys with no field are preserved untouched on save (the config starts from the existing
+ * row). 360 projects are managed via the sv360 admin routes (list/enable/disable/delete) — the
+ * bundle upload is out-of-band. Since 2026-08-29 the 360 project is edited as a PARALLEL of the 3D
+ * resource: an "Editar" form (`_render360Form`: id, nome, descrição, OM dona, visibilidade, status,
+ * thumbnail, vídeo) plus Tornar privado/público, Excluir and the extra CALIBRAR button (the one
+ * thing 360 has more of). Each axis has its own sv360 admin route; calibration is the studio.
  *
- * Dynamic text via textContent; JSON is parsed/validated before save (never innerHTML with data).
+ * Dynamic text via textContent; the style JSON is parsed/validated before save (never innerHTML with data).
  */
 
 import { apiClient } from '@store/sync/api-client.js';
@@ -18,12 +24,12 @@ import { sessionContext } from '@store/sync/session-context.js';
 import { showConfirm } from '@modals/confirm.modal.js';
 // Import DIRETO do arquivo, nunca pelo barrel `@modals`: esta página boota sem a store, e
 // o barrel de modais a arrasta de volta pelo caminho transitivo.
-import { showPrompt } from '@modals/prompt.modal.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
 import { validateMapLibreStyle } from '@utils/maplibre-style-validate.js';
 import { validateImageFile, readFileAsDataURL, compressImage } from '@utils/image_utils.js';
 import { sectionHeader, card, emptyState, ICON_CATALOG, failureState } from './admin-dom.js';
-import { orgLabel } from './org-options.js';
+import { orgLabel, buildDomainOptions } from './org-options.js';
+import config from '@js/config.js';
 // Two LEAF modules, imported one by one and never through the `@catalog` barrel: this page boots
 // without the store, and the barrel re-exports `catalog.service.js`, which reaches it.
 import { CAMPO_FORMA_3D, FORMAS_3D, Forma3D, derivarForma3d } from '@catalog/forma-3d.js';
@@ -32,6 +38,7 @@ import { FORMA_3D_LABELS } from '@catalog/catalog.constants.js';
 // acesso são compartilhadas com o modal de configurações do atlas, e o barrel arrastaria a store.
 import { visibilityChangeWarning, visibilityChangeSummary } from '@catalog/visibility-phrases.js';
 import { setupCleanup, cleanup } from '@utils/event-cleanup.js';
+import { deepClone } from '@utils/deep-utils.js';
 // Modulo folha, zero imports, como as demais familias de frase desta pagina.
 import {
     catalogDeletionWarning, projectStatusChangeWarning, projectDeletionWarning,
@@ -161,6 +168,78 @@ const TEMPLATES = {
         priority: 1,
     },
 };
+
+/**
+ * A `config` de cada categoria em CAMPOS (decisão do dono, 2026-08-29), com uma distinção que o
+ * config real do deploy impõe: parte das chaves é ESCALAR (URL, zoom, opacidade, limites) e vira
+ * campo simples; parte é ESTRUTURADA (o `style` MapLibre com expressões `case`/`step`, a `legend`,
+ * a `source` de análise com `tiles[]`) e não reduz a campo, então mora numa CAIXA JSON dedicada por
+ * chave. O que não está em nenhuma das duas listas (extras de 3D, `labelSource`, …) é PRESERVADO no
+ * salvamento, porque o `config` parte da linha existente. As chaves já servidas por controle próprio
+ * ficam de fora: `enabled`/`priority` (mapa base), a miniatura (`THUMB_KEY`), `previewVideo`, `forma3d`.
+ *
+ * `scalar[].kind`: 'text' (string), 'num' (número; vazio remove a chave), 'bool' (checkbox),
+ * 'list' (texto separado por vírgula, vira array de strings) ou 'bounds' (quatro números O/S/L/N num
+ * array). `json[]` é uma chave de topo editada como JSON
+ * (vazia remove a chave; JSON inválido recusa o save). `maplibre: true` marca a única que passa
+ * pela validação de estilo MapLibre inteiro (só o mapa base).
+ */
+const CONFIG_FIELDS = Object.freeze({
+    basemap: {
+        scalar: [],
+        json: [{ key: 'style', label: 'Estilo MapLibre (JSON, opcional)', maplibre: true }],
+    },
+    data_layer: {
+        scalar: [
+            { path: 'source.type', label: 'Tipo da fonte', kind: 'text', placeholder: 'vector' },
+            { path: 'source.url', label: 'URL da fonte', kind: 'text' },
+            { path: 'sourceLayer', label: 'Camada da fonte (source-layer)', kind: 'text' },
+            { path: 'minzoom', label: 'Zoom mínimo', kind: 'num' },
+            { path: 'maxzoom', label: 'Zoom máximo', kind: 'num' },
+            { path: 'labelSource.type', label: 'Tipo da fonte do rótulo (opcional)', kind: 'text', placeholder: 'vector' },
+            { path: 'labelSource.url', label: 'URL da fonte do rótulo (opcional)', kind: 'text' },
+            { path: 'labelSourceLayer', label: 'Camada da fonte do rótulo (opcional)', kind: 'text' },
+            { path: 'labelMinzoom', label: 'Zoom mínimo do rótulo (opcional)', kind: 'num' },
+        ],
+        json: [
+            { key: 'style', label: 'Estilo (JSON — fill / border / label MapLibre, opcional)' },
+            { key: 'legend', label: 'Legenda (JSON, opcional)' },
+        ],
+    },
+    analysis_layer: {
+        scalar: [
+            { path: 'opacity', label: 'Opacidade (0 a 1)', kind: 'num' },
+            { path: 'defaultVisibility', label: 'Visível por padrão', kind: 'bool' },
+            { path: 'bounds', label: 'Limites (Oeste, Sul, Leste, Norte)', kind: 'bounds' },
+        ],
+        json: [
+            { key: 'source', label: 'Fonte (JSON — tipo, tiles/url, zoom)' },
+            { key: 'paint', label: 'Paint (JSON, opcional)' },
+            { key: 'legend', label: 'Legenda (JSON, opcional)' },
+        ],
+    },
+    tileset: {
+        scalar: [
+            { path: 'url', label: 'URL do modelo / tileset', kind: 'text' },
+            { path: 'keywords', label: 'Palavras-chave (separadas por vírgula)', kind: 'list' },
+            { path: 'data_captura', label: 'Data de captura', kind: 'text' },
+            { path: 'local', label: 'Local', kind: 'text' },
+            { path: 'locate.lon', label: 'Longitude (centralizar câmera)', kind: 'num' },
+            { path: 'locate.lat', label: 'Latitude (centralizar câmera)', kind: 'num' },
+            { path: 'locate.height', label: 'Altura da câmera (m)', kind: 'num' },
+            { path: 'heightOffset', label: 'Deslocamento de altura (m)', kind: 'num' },
+            // Só o modelo .glb usa posição/rotação/escala; ficam vazios para 3D Tiles.
+            { path: 'position.lon', label: 'Posição: longitude (só .glb)', kind: 'num' },
+            { path: 'position.lat', label: 'Posição: latitude (só .glb)', kind: 'num' },
+            { path: 'rotation.heading', label: 'Rotação: heading (só .glb)', kind: 'num' },
+            { path: 'rotation.pitch', label: 'Rotação: pitch (só .glb)', kind: 'num' },
+            { path: 'rotation.roll', label: 'Rotação: roll (só .glb)', kind: 'num' },
+            { path: 'scale', label: 'Escala (só .glb)', kind: 'num' },
+            { path: 'maximumScreenSpaceError', label: 'Erro máx. de tela (qualidade, opcional)', kind: 'num' },
+        ],
+        json: [],
+    },
+});
 
 /**
  * Builds the "Catálogo" tab definition for the admin panel.
@@ -377,8 +456,8 @@ class CatalogTab {
         // ela o produtor não distingue o que mantém do que apenas enxerga, já que a listagem
         // traz também o acervo público das outras OMs.
         const cabecalhos = temAcesso
-            ? ['ID', 'Nome', 'Ordem', 'OM dona', 'Acesso', 'Ações']
-            : ['ID', 'Nome', 'Ordem', 'OM dona', 'Ações'];
+            ? ['ID', 'Nome', 'OM dona', 'Acesso', 'Ações']
+            : ['ID', 'Nome', 'OM dona', 'Ações'];
         for (const h of cabecalhos) {
             const th = document.createElement('th');
             th.textContent = h;
@@ -395,7 +474,6 @@ class CatalogTab {
             tr.dataset.resourceId = r.id;
             tr.appendChild(cell(r.id || ''));
             tr.appendChild(cell(r.name || ''));
-            tr.appendChild(cell(String(r.sort_order ?? '')));
             tr.appendChild(ownerOrgCell(r.owner_org_id));
             if (temAcesso) tr.appendChild(accessCell(r.access_level));
             const actions = document.createElement('td');
@@ -464,33 +542,41 @@ class CatalogTab {
         if (isEdit) { idInput.disabled = true; }
         const nameInput = textField(form, 'Nome', 'admin-catalog-name', resource?.name ?? '');
         const descInput = textField(form, 'Descrição', 'admin-catalog-desc', resource?.description ?? '');
-        const sortInput = textField(form, 'Ordem', 'admin-catalog-sort', String(resource?.sort_order ?? 0), 'number');
 
-        // EIXO 3 — A OM DONA, SÓ DE LEITURA, e a razão de não haver seletor aqui é do
-        // servidor: `owner_org_id` nunca é lido do corpo da requisição, nem para
-        // administrador. Na criação ele é CARIMBADO com o escopo de produção de quem cria
-        // (nulo para administrador = acervo institucional), e nenhuma das três escritas o põe
-        // no SET. Oferecer um seletor seria um controle que não grava em lugar nenhum — o
-        // defeito clássico de um campo que parece autorizar e não autoriza.
+        // EIXO 3 — A OM DONA. O ADMINISTRADOR A TRANSFERE numa edição, pela rota própria
+        // `PATCH /:id/owner-org` (decisão do dono, 2026-08-29, que SUPERA a de 2026-08-24: a
+        // promessa saíra do texto por não haver rota; agora a rota existe, só-administrador). As
+        // três escritas comuns continuam SEM ler `owner_org_id` do corpo — mover a linha é ato de
+        // sistema, e é por isso que é um controle à parte e uma chamada à parte no `onSave`.
+        //
+        // FORA DESSE CASO O CAMPO É SÓ DE LEITURA: na criação a OM é CARIMBADA pelo escopo de
+        // quem cria (nula para administrador), e para o produtor a OM dona nunca vem do formulário.
         const ownerOrgId = isEdit
             ? (resource?.owner_org_id ?? null)
             : (sessionContext.isAdmin() ? null : sessionContext.producerOrgId);
-        const ownerField = readOnlyField(form, 'OM dona', 'admin-catalog-owner-org',
-            ownerOrgId ? orgLabel(ownerOrgId) : 'Institucional (nenhuma OM)');
-        ownerField.title = 'A OM que mantém este recurso.';
-        form.appendChild(hintParagraph(isEdit
-            // NÃO PROMETE MAIS A TRANSFERÊNCIA, porque ela não existe em rota nenhuma. O texto
-            // anterior mandava procurar uma capacidade não implementada: `CAMPOS_EDITAVEIS` do
-            // serviço de catálogo tem quatro chaves e `owner_org_id` não é uma delas, o UPDATE
-            // não a toca, e o ramo de ressurreição a deixa de fora DE PROPÓSITO, com o motivo
-            // escrito lá. O 360 tampouco transfere. Decisão do dono, 2026-08-24: a promessa sai
-            // do texto em vez de a rota nascer.
-            ? 'A OM dona é definida na criação e não muda depois, nem por esta tela nem por outra. '
-              + 'Para mover um recurso de OM, crie-o de novo na OM certa e exclua este.'
-            : (sessionContext.isAdmin()
-                ? 'Criado por um administrador, o item nasce institucional (sem OM dona) e só o '
-                  + 'administrador o mantém. Para que uma OM o mantenha, quem cria é o produtor dela.'
-                : 'O servidor carimba a sua OM como dona deste item. Ela não vem deste formulário.')));
+        const podeTransferir = isEdit && sessionContext.isAdmin();
+        let ownerSelect = null;
+        if (podeTransferir) {
+            // "— (nenhuma)" é o INSTITUCIONAL, um destino legítimo, e não uma linha vazia: o
+            // valor '' vira `null` no envio, que devolve o recurso ao acervo sem OM dona.
+            const opts = buildDomainOptions(
+                config.organizacoesMilitares, ownerOrgId, orgLabel(ownerOrgId), '— (nenhuma) Institucional');
+            ownerSelect = selectField(form, 'OM dona', 'admin-catalog-owner-org', opts, ownerOrgId ?? '');
+            form.appendChild(hintParagraph('Mover para outra OM (ou para o institucional) é ato de '
+                + 'administrador, registrado na auditoria. Só o administrador vê este seletor; o '
+                + 'produtor mantém o que a OM dele produziu, mas não transfere.'));
+        } else {
+            const ownerField = readOnlyField(form, 'OM dona', 'admin-catalog-owner-org',
+                ownerOrgId ? orgLabel(ownerOrgId) : 'Institucional (nenhuma OM)');
+            ownerField.title = 'A OM que mantém este recurso.';
+            form.appendChild(hintParagraph(isEdit
+                ? 'A OM dona é definida na criação, e só o administrador a transfere.'
+                : (sessionContext.isAdmin()
+                    ? 'Criado por um administrador, o item nasce institucional (sem OM dona) e só o '
+                      + 'administrador o mantém. Para que uma OM o mantenha, quem cria é o produtor dela.'
+                    : 'O servidor carimba a sua OM como dona deste item. Ela não vem deste formulário.')));
+        }
+        const ownerBefore = ownerOrgId ?? null;
 
         // EIXO 1 — O ACESSO É UMA SEGUNDA ESCRITA, e por isso não entra no `payload`
         // abaixo: ele mora numa rota própria (`PATCH /resource-access/:type/:id/
@@ -616,24 +702,50 @@ class CatalogTab {
                 + 'visualizador em primeira pessoa, não no Cesium.'));
         }
 
-        // O VÍDEO DE PRÉVIA DEIXOU DE SER SÓ DO 3D (2026-08-21). Ele vale para TILESET,
-        // CAMADA DE DADOS e CAMADA DE ANÁLISE — as três guardam o valor em `config`, onde a
-        // chave `previewVideo` passou a ser DECLARADA na borda do servidor. O projeto 360
-        // também o tem, mas por outra porta (coluna + rota própria), na tabela abaixo.
-        //
-        // O BASEMAP NÃO ENTRA, e é decisão registrada: ele é o único dos cinco tipos que não
-        // aparece como cartão de catálogo — a superfície dele é o seletor de camada base,
-        // uma lista compacta sem lugar para uma afordância de mídia. Oferecer o campo aqui
-        // seria pedir uma URL que nada mostraria.
-        //
-        // A mídia é fora de banda e referenciada por URL, nunca enviada: é vídeo.
-        let videoInput = null;
+        // O VÍDEO DE PRÉVIA É ENVIADO como a miniatura (decisão do dono, 2026-08-29): arquivo
+        // hospedado no servidor, não mais URL colada. Vale para TILESET, DADOS e ANÁLISE; o mapa
+        // base fica de fora (não tem cartão de catálogo, então não há onde mostrar a prévia). Uma
+        // URL EXTERNA já gravada continua sendo servida (o cartão só toca a URL); o que sai é a
+        // capacidade de COLAR uma nova. O envio é rota própria (`/:id/preview-video`), à parte do
+        // save do item, como a visibilidade e a thumbnail.
+        let pendingVideoFile = null;
+        let removeVideo = false;
+        const temVideoAtual = !!(resource?.config?.previewVideo);
         if (CATEGORIAS_COM_VIDEO.includes(category)) {
-            videoInput = textField(form, 'Vídeo de prévia (URL, opcional)', 'admin-catalog-video',
-                resource?.config?.previewVideo ?? '');
-            form.appendChild(hintParagraph('O vídeo abre num botão "Prévia" no cartão do '
-                + 'catálogo. Endereço apenas (o arquivo mora fora do banco); esvaziar o campo '
-                + 'remove a prévia.'));
+            const field = document.createElement('div');
+            field.className = 'admin-form__field';
+            const lab = document.createElement('label');
+            lab.textContent = 'Vídeo de prévia (MP4 ou WebM, opcional)';
+            field.appendChild(lab);
+            const estado = document.createElement('p');
+            estado.className = 'admin-form__hint';
+            estado.dataset.testid = 'admin-catalog-video-state';
+            estado.textContent = temVideoAtual ? 'Há um vídeo. Envie outro para substituir.' : 'Sem vídeo.';
+            field.appendChild(estado);
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = 'video/mp4,video/webm';
+            fileInput.dataset.testid = 'admin-catalog-video';
+            fileInput.addEventListener('change', () => {
+                pendingVideoFile = fileInput.files?.[0] ?? null;
+                if (pendingVideoFile) {
+                    removeVideo = false;
+                    estado.textContent = `Novo vídeo: ${pendingVideoFile.name}`;
+                }
+            });
+            field.appendChild(fileInput);
+            if (temVideoAtual) {
+                field.appendChild(button('Remover vídeo', 'admin-btn admin-btn--ghost admin-btn--sm',
+                    'admin-catalog-video-remove', () => {
+                        removeVideo = true;
+                        pendingVideoFile = null;
+                        fileInput.value = '';
+                        estado.textContent = 'O vídeo será removido ao salvar.';
+                    }));
+            }
+            form.appendChild(field);
+            form.appendChild(hintParagraph('Enviado ao salvar e hospedado no servidor, aberto num '
+                + 'botão "Prévia" no cartão do catálogo. Máximo 50 MB.'));
         }
 
         // Basemaps: expose the two config keys that actually drive the base-layer selector as
@@ -648,8 +760,10 @@ class CatalogTab {
                 String(resource?.config?.priority ?? resource?.sort_order ?? 0), 'number');
         }
 
-        const configValue = JSON.stringify(resource?.config ?? TEMPLATES[category] ?? {}, null, 2);
-        const configInput = jsonField(form, 'Avançado — configuração (JSON)', 'admin-catalog-config', configValue);
+        // A CONFIG DO RECURSO EM CAMPOS, não em JSON cru (decisão do dono, 2026-08-29). Os campos
+        // cobrem o que se edita; o que não tem campo é preservado no save (o config parte da linha
+        // existente). O estilo MapLibre do mapa base é a exceção: caixa JSON dedicada, dentro daqui.
+        const configFields = buildConfigFields(form, category, resource?.config ?? TEMPLATES[category] ?? {});
 
         form.appendChild(error);
 
@@ -668,17 +782,16 @@ class CatalogTab {
             if (!isEdit && !id) { showFormError(error, 'Informe um ID.'); return; }
             if (!name) { showFormError(error, 'Informe um nome.'); return; }
 
-            let config;
-            try {
-                config = JSON.parse(configInput.value);
-            } catch (err) {
-                showFormError(error, `JSON inválido: ${err.message}`);
-                return;
-            }
+            // O config PARTE DA LINHA EXISTENTE (ou do template, na criação), e os campos gravam
+            // por cima. Assim uma chave sem campo (extra de 3D, estilo MapLibre) sobrevive à edição.
+            const config = deepClone(resource?.config ?? TEMPLATES[category] ?? {});
+            const cfgErro = configFields.apply(config);
+            if (cfgErro) { showFormError(error, cfgErro); return; }
 
             // A basemap may carry a MapLibre `style` override — validate it before saving so a
-            // malformed style can never reach (and brick) the map.
-            if (category === 'basemap' && config && config.style !== undefined) {
+            // malformed style can never reach (and brick) the map. O `apply` já garantiu que é JSON
+            // válido; isto verifica a ESTRUTURA MapLibre, que é outra coisa.
+            if (category === 'basemap' && config.style !== undefined) {
                 const v = validateMapLibreStyle(config.style);
                 if (!v.ok) {
                     showFormError(error, `Estilo MapLibre inválido: ${v.errors.join(' ')}`);
@@ -701,23 +814,12 @@ class CatalogTab {
                     if (removeThumbnail) delete config[thumbKey];
                     else if (pendingThumbnail) config[thumbKey] = pendingThumbnail;
                 }
-                if (videoInput) {
-                    const vid = videoInput.value.trim();
-                    if (vid) config.previewVideo = vid;
-                    else delete config.previewVideo;
-                } else if (config.previewVideo !== undefined) {
-                    // A CHAVE LEGADA E PODADA AQUI, e sem isto a linha ficava INEDITAVEL. O campo
-                    // de video so e montado para as categorias de `CATEGORIAS_COM_VIDEO`, e
-                    // `basemap` esta fora dela por decisao de produto (sem cartao de catalogo, nao
-                    // ha onde ler o video). So que o textarea avancado devolve o `config` INTEIRO
-                    // de volta, entao um basemap gravado com `previewVideo` antes de 2026-08-23
-                    // reenviava a chave, e `configSchemaSemPreviewVideo` responde 422 em QUALQUER
-                    // edicao, inclusive uma que so mude o nome. Nao ha poda no servidor nem
-                    // migracao: a linha so se conserta apagando a chave a mao do JSON, e nada na
-                    // tela dizia isso.
-                    //
-                    // Silenciosa de proposito? Nao: a linha abaixo avisa. Apagar dado de alguem
-                    // sem dizer e como o proximo defeito nasce.
+                // O VÍDEO NÃO ENTRA MAIS NO CONFIG AQUI: ele é enviado por rota própria depois do
+                // save (ver abaixo), e a chave `previewVideo` da linha é PRESERVADA como está. Só o
+                // MAPA BASE ainda poda a chave legada: ele não tem campo de vídeo e o schema de
+                // update dele recusa `config.previewVideo` (cláusula 2.4), então uma linha antiga
+                // com a chave ficaria ineditável (422 em qualquer edição). A poda avisa (abaixo).
+                if (!CATEGORIAS_COM_VIDEO.includes(category) && config.previewVideo !== undefined) {
                     delete config.previewVideo;
                     podouVideoLegado = true;
                 }
@@ -761,12 +863,10 @@ class CatalogTab {
                 }
             }
 
-            const sort = Number(sortInput.value.trim());
             const payload = {
                 name,
                 description: descInput.value.trim(),
                 config,
-                sort_order: Number.isFinite(sort) ? sort : 0,
             };
             saveBtn.disabled = true;
             let resposta = null;
@@ -812,6 +912,45 @@ class CatalogTab {
                 }
             }
 
+            // A TRANSFERÊNCIA DE OM DONA VAI DEPOIS e numa chamada própria, pela mesma razão da
+            // visibilidade: o item já foi gravado quando ela falha, e ela é rota separada
+            // (`PATCH /:id/owner-org`, só-administrador). Só chama quando MUDOU. O valor '' do
+            // seletor institucional vira `null`.
+            let ownerAfter = ownerBefore;
+            let ownerTransferido = false;
+            if (ownerSelect) {
+                ownerAfter = ownerSelect.value || null;
+                if (ownerAfter !== ownerBefore) {
+                    try {
+                        await apiClient.transferResourceOwner(category, resource.id, ownerAfter);
+                        ownerTransferido = true;
+                    } catch (err) {
+                        showError(err?.message || 'O item foi salvo, mas a OM dona não pôde ser alterada.');
+                        if (this._alive) this._selectCategory(category);
+                        return;
+                    }
+                }
+            }
+
+            // O VÍDEO vai por último, numa chamada própria (envio ou remoção), pela mesma razão da
+            // visibilidade: o item já existe quando ela roda, e a rota precisa do id. O arquivo é
+            // hospedado no servidor; a URL entra em `config.previewVideo` no lado de lá.
+            const recursoId = isEdit ? resource.id : id;
+            let videoMudou = false;
+            try {
+                if (pendingVideoFile) {
+                    await apiClient.uploadResourceVideo(category, recursoId, pendingVideoFile);
+                    videoMudou = true;
+                } else if (removeVideo) {
+                    await apiClient.removeResourceVideo(category, recursoId);
+                    videoMudou = true;
+                }
+            } catch (err) {
+                showError(err?.message || 'O item foi salvo, mas o vídeo de prévia não pôde ser enviado.');
+                if (this._alive) this._selectCategory(category);
+                return;
+            }
+
             // O TOAST RELATA O EFEITO. "Item atualizado." é verdade e é pouco quando a
             // gravação acabou de tirar o item do catálogo de outras pessoas: o eixo que
             // mudou o que os OUTROS veem é o que precisa aparecer na frase.
@@ -829,10 +968,18 @@ class CatalogTab {
             if (accessAfter !== accessBefore) {
                 partes.push(visibilityChangeSummary({ nome: name, accessLevel: accessAfter }));
             }
+            if (ownerTransferido) {
+                partes.push(ownerAfter
+                    ? `OM dona agora é ${orgLabel(ownerAfter)}.`
+                    : 'Agora é acervo institucional (sem OM dona).');
+            }
             // DIZ O QUE FOI DESCARTADO. O campo nao vale para mapa base e o servidor o recusa;
             // apagar sem falar deixaria a pessoa procurando um video que ela mesma gravou.
             if (podouVideoLegado) {
                 partes.push('O campo de vídeo de prévia foi descartado: ele não vale para mapa base.');
+            }
+            if (videoMudou) {
+                partes.push(pendingVideoFile ? 'Vídeo de prévia enviado.' : 'Vídeo de prévia removido.');
             }
             showSuccess(partes.join(' '));
             if (this._alive) this._selectCategory(category);
@@ -1027,9 +1174,10 @@ class CatalogTab {
         // ANUNCIA AS CINCO ACOES, e nao duas. A nota falava em "status/exclusao" enquanto a
         // linha oferece ativar/desativar, publico/privado, calibrar, video e excluir: as nao
         // anunciadas incluem justamente as que mudam quem VE o projeto.
-        note.textContent = 'Aqui você gerencia os metadados do projeto 360: status (Ativo/Inativo), '
-            + 'acesso (Público/Privado), calibração das fotos, vídeo de prévia e exclusão. '
-            + 'O envio do bundle é feito pelo botão no topo da seção.';
+        note.textContent = 'O 360 é gerenciado como os outros recursos: "Editar" abre o formulário '
+            + '(nome, descrição, OM dona, visibilidade, status, thumbnail e vídeo), mais os botões de '
+            + 'acesso, exclusão e o de calibração, que é o que o 360 tem a mais. O envio do bundle é '
+            + 'feito pelo botão no topo da seção.';
         c.appendChild(note);
 
         const wrap = card({ testid: 'admin-360-list', padded: false });
@@ -1121,22 +1269,17 @@ class CatalogTab {
             // estúdio era um botão global da barra do topo, que levava ao seletor e mandava
             // escolher de novo o projeto que a pessoa já tinha na tela.
             if (mantem) {
-                actions.appendChild(button(enabled ? 'Desativar' : 'Ativar', 'admin-btn admin-btn--ghost', 'admin-360-toggle',
-                    () => this._toggle360(p, enabled ? 'disabled' : 'enabled')));
+                // PARALELO DO 3D (decisão do dono, 2026-08-29): os mesmos botões de linha dos
+                // outros recursos (Editar, Tornar privado/público, Excluir) mais o de CALIBRAR,
+                // que é a única coisa que o 360 tem a mais. Nome, descrição, OM dona, status,
+                // vídeo e thumbnail deixaram de ser ações soltas e viraram campos do formulário
+                // Editar (`_render360Form`).
+                actions.appendChild(button('Editar', 'admin-btn admin-btn--ghost', 'admin-360-edit',
+                    () => this._render360Form(p)));
                 actions.appendChild(button(privado ? 'Tornar público' : 'Tornar privado', 'admin-btn admin-btn--ghost',
                     'admin-360-access', () => this._toggle360Access(p, privado ? 'public' : 'private')));
                 actions.appendChild(button('Calibrar', 'admin-btn admin-btn--ghost', 'admin-360-calibrar',
                     () => this._calibrar360(p)));
-                // O VÍDEO DE PRÉVIA DO 360 É AÇÃO DE LINHA, e não campo de formulário: esta
-                // categoria não tem formulário nenhum (o bundle entra fora do painel), então
-                // a única superfície de escrita que existe é a tabela. O rótulo diz o ESTADO
-                // ("Vídeo" / "Trocar vídeo"), que é o que evita abrir o prompt só para
-                // descobrir se já há um.
-                actions.appendChild(button(
-                    (p.preview_video ?? p.previewVideo) ? 'Trocar vídeo' : 'Vídeo',
-                    'admin-btn admin-btn--ghost', 'admin-360-video',
-                    () => this._edit360Video(p),
-                ));
                 actions.appendChild(button('Excluir', 'admin-btn admin-btn--danger', 'admin-360-delete',
                     () => this._delete360(p)));
             } else {
@@ -1163,42 +1306,267 @@ class CatalogTab {
     }
 
     /**
-     * @private
-     * @param {Object} project - the listed row (carries `organization_id`, which disambiguates a
-     *   slug that exists in more than one organization for a global admin).
-     * @param {string} status
+     * @private O formulário Editar de um projeto 360, PARALELO do formulário de recurso (3D em
+     * diante): id, nome, descrição, OM dona, visibilidade, status, thumbnail e vídeo. A calibração
+     * NÃO entra aqui, é o botão à parte, porque é a única coisa que o 360 tem a mais.
+     *
+     * Cada eixo tem rota própria (metadado, status, visibilidade, transferência de OM, thumbnail),
+     * e o salvamento chama só os que MUDARAM. A transferência de OM vai por ÚLTIMO: ela move o
+     * projeto de escopo, então os outros PATCH (que desambiguam pelo `orgId` de ORIGEM) têm de
+     * acontecer antes.
+     * @param {Object} project
      */
-    async _toggle360(project, status) {
+    _render360Form(project) {
+        const c = this._content;
+        c.replaceChildren();
         const slug = project.slug ?? project.name;
-        // PERGUNTA SO NO SENTIDO DESTRUTIVO, como `_toggle360Access` ao lado: `disabled` esconde o
-        // projeto de todo mundo fora da OM dona, o que e MAIS amplo que privatizar, e este botao
-        // era o unico dos quatro da linha que nao perguntava nada. Reativar nao tira de ninguem.
-        const aviso = projectStatusChangeWarning({ nome: project.name, para: status });
-        if (aviso) {
-            const ok = await showConfirm(`Desativar "${project.name || slug}"?`, {
-                message: aviso,
-                destructive: true,
-                confirmText: 'Desativar',
-            });
-            if (!ok) {
-                // Redesenha: o botao da linha reflete o estado, e sair sem redesenhar deixaria a
-                // tela coerente por acidente e nao por construcao.
-                if (this._alive) this._render360List();
-                return;
+        const orgId = project.organization_id ?? project.organizationId ?? null;
+
+        const form = document.createElement('form');
+        form.className = 'admin-form admin-form--wide';
+        form.dataset.testid = 'admin-360-form';
+
+        const titulo = document.createElement('h3');
+        titulo.className = 'admin-form__title';
+        titulo.textContent = `Editar projeto 360: ${project.name || slug}`;
+        form.appendChild(titulo);
+
+        const error = document.createElement('div');
+        error.className = 'admin-form__error';
+        error.dataset.testid = 'admin-360-error';
+        error.hidden = true;
+        error.setAttribute('role', 'alert');
+
+        readOnlyField(form, 'ID (slug)', 'admin-360-id', slug);
+        const nameInput = textField(form, 'Nome', 'admin-360-name', project.name ?? '');
+        const descInput = textField(form, 'Descrição', 'admin-360-desc', project.description ?? '');
+
+        // OS CAMPOS DO CARTÃO DE CATÁLOGO, paralelos do 3D (o cartão do 360 já os lê): palavra-chave,
+        // local, data de captura e o centro (longitude/latitude do marcador). Vêm da linha crua do
+        // admin (`keywords` é array; o resto é coluna).
+        const keywordsInput = textField(form, 'Palavras-chave (separadas por vírgula)', 'admin-360-keywords',
+            Array.isArray(project.keywords) ? project.keywords.join(', ') : '');
+        const localInput = textField(form, 'Local (cidade, estado)', 'admin-360-local', project.location ?? '');
+        const captureInput = textField(form, 'Data de captura', 'admin-360-capture', project.capture_date ?? '');
+        const lonInput = textField(form, 'Longitude (centro do marcador)', 'admin-360-lon',
+            project.center_long ?? project.center?.lon ?? '', 'number');
+        lonInput.step = 'any';
+        const latInput = textField(form, 'Latitude (centro do marcador)', 'admin-360-lat',
+            project.center_lat ?? project.center?.lat ?? '', 'number');
+        latInput.step = 'any';
+
+        // OM DONA: o administrador transfere; o produtor lê. Sem opção vazia, porque o 360 não
+        // tem estado institucional (a OM é obrigatória, entra no upload).
+        const isAdmin = sessionContext.isAdmin();
+        let orgSelect = null;
+        if (isAdmin) {
+            const lista = Array.isArray(config.organizacoesMilitares) ? config.organizacoesMilitares : [];
+            const opts = lista.filter((o) => o && o.id).map((o) => ({ value: o.id, label: o.name }));
+            if (orgId && !opts.some((o) => o.value === orgId)) {
+                opts.unshift({ value: orgId, label: `${orgLabel(orgId)} (atual)` });
             }
+            orgSelect = selectField(form, 'OM dona', 'admin-360-owner-org', opts, orgId ?? '');
+            form.appendChild(hintParagraph('Mover para outra OM é ato de administrador, registrado '
+                + 'na auditoria. Troca só a dona; os arquivos não mudam de lugar.'));
+        } else {
+            readOnlyField(form, 'OM dona', 'admin-360-owner-org', orgLabel(orgId));
         }
-        try {
-            await apiClient.setSv360ProjectStatus(slug, status, {
-                orgId: project.organization_id ?? project.organizationId,
-            });
-            showSuccess('Status atualizado.');
-            if (this._alive) this._render360List();
-        } catch (err) {
-            // The backend message here is developer English ("Ambiguous slug ..."), so it stays in
-            // the console and the screen gets fixed pt-BR microcopy.
-            console.warn('[catalog-tab] falha ao alterar o status do projeto 360:', err);
-            showError('Não foi possível atualizar o status do projeto 360°.');
+
+        // VISIBILIDADE
+        const accessBefore = project.access_level ?? 'public';
+        const accessInput = selectField(form, 'Acesso (visibilidade)', 'admin-360-access-select',
+            ACCESS_LEVELS, accessBefore);
+        form.appendChild(hintParagraph('Privado tira o projeto do catálogo público. Ele continua '
+            + 'visível para administradores, credenciados, produtores da OM dona e quem recebeu acesso.'));
+
+        // STATUS (Ativo/Inativo). No 360 é eixo próprio (oculta de todos fora da OM dona).
+        const enabledBefore = (project.status ?? project.state) === 'enabled';
+        const statusInput = checkboxField(form, 'Ativo (aparece no catálogo)', 'admin-360-status', enabledBefore);
+
+        // VÍDEO: enviado como arquivo (não mais URL colada), como nos outros recursos. Uma URL
+        // externa já gravada continua sendo servida; o que sai é colar uma nova.
+        let pendingVideoFile = null;
+        let removeVideo = false;
+        const temVideo360 = !!(project.preview_video ?? project.previewVideo);
+        const videoField = document.createElement('div');
+        videoField.className = 'admin-form__field';
+        const videoLab = document.createElement('label');
+        videoLab.textContent = 'Vídeo de prévia (MP4 ou WebM, opcional)';
+        videoField.appendChild(videoLab);
+        const videoEstado = document.createElement('p');
+        videoEstado.className = 'admin-form__hint';
+        videoEstado.dataset.testid = 'admin-360-video-state';
+        videoEstado.textContent = temVideo360 ? 'Há um vídeo. Envie outro para substituir.' : 'Sem vídeo.';
+        videoField.appendChild(videoEstado);
+        const videoInput = document.createElement('input');
+        videoInput.type = 'file';
+        videoInput.accept = 'video/mp4,video/webm';
+        videoInput.dataset.testid = 'admin-360-video';
+        videoInput.addEventListener('change', () => {
+            pendingVideoFile = videoInput.files?.[0] ?? null;
+            if (pendingVideoFile) {
+                removeVideo = false;
+                videoEstado.textContent = `Novo vídeo: ${pendingVideoFile.name}`;
+            }
+        });
+        videoField.appendChild(videoInput);
+        if (temVideo360) {
+            videoField.appendChild(button('Remover vídeo', 'admin-btn admin-btn--ghost admin-btn--sm',
+                'admin-360-video-remove', () => {
+                    removeVideo = true;
+                    pendingVideoFile = null;
+                    videoInput.value = '';
+                    videoEstado.textContent = 'O vídeo será removido ao salvar.';
+                }));
         }
+        form.appendChild(videoField);
+
+        // THUMBNAIL: pega uma imagem, converte para WebP e envia para a rota que substitui a
+        // atual. Sem prever a atual do servidor (ela é gateada por auth para projeto privado);
+        // a prévia é do arquivo recém-escolhido.
+        let pendingThumbBlob = null;
+        const thumbField = document.createElement('div');
+        thumbField.className = 'admin-form__field';
+        const thumbLabel = document.createElement('label');
+        thumbLabel.textContent = 'Miniatura (thumbnail)';
+        thumbField.appendChild(thumbLabel);
+        const thumb = document.createElement('div');
+        thumb.className = 'admin-thumb';
+        thumb.dataset.empty = 'true';
+        const preview = document.createElement('img');
+        preview.className = 'admin-thumb__preview';
+        preview.alt = '';
+        thumb.appendChild(preview);
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = 'image/png,image/jpeg,image/webp';
+        fileInput.dataset.testid = 'admin-360-thumbnail';
+        fileInput.className = 'admin-thumb__input';
+        fileInput.addEventListener('change', async () => {
+            const file = fileInput.files?.[0];
+            if (!file) return;
+            const v = validateImageFile(file);
+            if (!v.valid) { showFormError(error, v.reason); fileInput.value = ''; return; }
+            try {
+                const raw = await readFileAsDataURL(file);
+                const webp = await compressImage(raw, { maxDimension: 640, quality: 0.82, mimeType: 'image/webp' });
+                preview.src = webp;
+                delete thumb.dataset.empty;
+                pendingThumbBlob = await (await fetch(webp)).blob();
+                error.hidden = true;
+            } catch {
+                showFormError(error, 'Não foi possível processar a imagem.');
+            }
+        });
+        thumb.appendChild(fileInput);
+        const thumbHint = document.createElement('p');
+        thumbHint.className = 'admin-form__hint';
+        thumbHint.textContent = 'JPEG, PNG ou WebP, convertida para WebP e enviada. Substitui a atual.';
+        thumbField.append(thumb, thumbHint);
+        form.appendChild(thumbField);
+
+        form.appendChild(error);
+
+        const actions = document.createElement('div');
+        actions.className = 'admin-form__actions';
+        actions.appendChild(button('Cancelar', 'admin-btn admin-btn--ghost', 'admin-360-cancel',
+            () => this._render360List()));
+        const saveBtn = button('Salvar', 'admin-btn admin-btn--primary', 'admin-360-save', null);
+        actions.appendChild(saveBtn);
+        form.appendChild(actions);
+
+        const scope = { orgId };
+        const onSave = async () => {
+            error.hidden = true;
+            const nome = nameInput.value.trim();
+            if (!nome) { showFormError(error, 'Informe um nome.'); return; }
+
+            // A privatização confirma ANTES de qualquer escrita, como no formulário de recurso.
+            let accessAfter = accessInput.value;
+            if (accessAfter !== accessBefore) {
+                const aviso = visibilityChangeWarning(accessAfter, { nome, tipoRotulo: 'Projeto 360°' });
+                if (aviso) {
+                    const ok = await showConfirm(`Tornar "${nome}" privado?`, {
+                        message: aviso, destructive: true,
+                        confirmText: 'Tornar privado', cancelText: 'Manter público',
+                    });
+                    if (!ok) { accessInput.value = accessBefore; accessAfter = accessBefore; }
+                }
+            }
+
+            // DESATIVAR também confirma: `disabled` oculta o projeto de todos fora da OM dona, o
+            // que é mais amplo que privatizar. Reativar não tira de ninguém, e não pergunta.
+            let statusAfter = statusInput.checked;
+            if (!statusAfter && enabledBefore) {
+                const aviso = projectStatusChangeWarning({ nome, para: 'disabled' });
+                if (aviso) {
+                    const ok = await showConfirm(`Desativar "${nome}"?`, {
+                        message: aviso, destructive: true, confirmText: 'Desativar',
+                    });
+                    if (!ok) { statusInput.checked = true; statusAfter = true; }
+                }
+            }
+
+            saveBtn.disabled = true;
+            try {
+                // 1) Metadado (nome, descrição, e os campos do cartão) — parcial, só o que mudou. O
+                // vídeo NÃO entra aqui: é envio de arquivo por rota própria (passo 5).
+                const meta = {};
+                if (nome !== (project.name ?? '')) meta.name = nome;
+                if (descInput.value.trim() !== (project.description ?? '')) meta.description = descInput.value.trim();
+                const keywordsAntes = Array.isArray(project.keywords) ? project.keywords.join(', ') : '';
+                if (keywordsInput.value.trim() !== keywordsAntes) {
+                    meta.keywords = keywordsInput.value.split(',').map((s) => s.trim()).filter(Boolean);
+                }
+                if (localInput.value.trim() !== (project.location ?? '')) meta.location = localInput.value.trim();
+                if (captureInput.value.trim() !== (project.capture_date ?? '')) meta.captureDate = captureInput.value.trim();
+                const lonAntes = project.center_long ?? project.center?.lon ?? '';
+                if (lonInput.value.trim() !== String(lonAntes)) {
+                    const n = Number(lonInput.value.trim());
+                    meta.centerLong = lonInput.value.trim() === '' ? null : (Number.isFinite(n) ? n : undefined);
+                }
+                const latAntes = project.center_lat ?? project.center?.lat ?? '';
+                if (latInput.value.trim() !== String(latAntes)) {
+                    const n = Number(latInput.value.trim());
+                    meta.centerLat = latInput.value.trim() === '' ? null : (Number.isFinite(n) ? n : undefined);
+                }
+                // Um número inválido (NaN) não vira campo: `undefined` é retirado antes do envio.
+                if (meta.centerLong === undefined) delete meta.centerLong;
+                if (meta.centerLat === undefined) delete meta.centerLat;
+                if (Object.keys(meta).length) await apiClient.updateSv360ProjectMetadata(slug, meta, scope);
+
+                // 2) Status.
+                if (statusAfter !== enabledBefore) {
+                    await apiClient.setSv360ProjectStatus(slug, statusAfter ? 'enabled' : 'disabled', scope);
+                }
+
+                // 3) Visibilidade (chave é o UUID, não o slug).
+                if (accessAfter !== accessBefore) {
+                    await apiClient.setResourceVisibility('sv360_project', project.id, accessAfter);
+                }
+
+                // 4) Thumbnail.
+                if (pendingThumbBlob) await apiClient.uploadSv360Thumbnail(slug, pendingThumbBlob, scope);
+
+                // 5) Vídeo (envio ou remoção do arquivo hospedado).
+                if (pendingVideoFile) await apiClient.uploadSv360Video(slug, pendingVideoFile, scope);
+                else if (removeVideo) await apiClient.removeSv360Video(slug, scope);
+
+                // 6) OM dona POR ÚLTIMO: move o escopo, então tudo que desambigua pelo orgId de
+                // origem precisa ter acontecido antes.
+                if (orgSelect && orgSelect.value && orgSelect.value !== orgId) {
+                    await apiClient.transferSv360ProjectOwner(slug, orgSelect.value, scope);
+                }
+
+                showSuccess('Projeto 360 atualizado.');
+                if (this._alive) this._render360List();
+            } catch (err) {
+                showFormError(error, err?.message || 'Não foi possível salvar o projeto 360.');
+                saveBtn.disabled = false;
+            }
+        };
+        saveBtn.addEventListener('click', onSave);
+        c.appendChild(form);
     }
 
     /**
@@ -1238,17 +1606,6 @@ class CatalogTab {
     }
 
     /**
-     * @private Grava o VÍDEO DE PRÉVIA do projeto 360.
-     *
-     * A rota é PRÓPRIA (`PATCH /sv360/admin/projects/:slug`), e não a de visibilidade nem a
-     * de status: `sv360.projects` guarda o vídeo em COLUNA porque não tem `config` JSONB
-     * como as quatro tabelas de catálogo.
-     *
-     * O `null` do prompt (Esc, ou "Cancelar") é ABANDONO e não escreve nada; a string vazia
-     * é REMOÇÃO e escreve. Confundir os dois faria "cancelar" apagar o vídeo.
-     * @param {Object} project
-     */
-    /**
      * Abre o estúdio de calibração 360 na FOTO DE ENTRADA do projeto desta linha.
      *
      * O CONTRATO DA URL É UMA CHAVE SÓ. `calibration/app.js` lê `?photo=` e nada mais: não existe
@@ -1270,26 +1627,6 @@ class CatalogTab {
         window.location.assign(entrada
             ? `./calibracao.html?photo=${encodeURIComponent(entrada)}`
             : './calibracao.html');
-    }
-
-    async _edit360Video(project) {
-        const slug = project.slug ?? project.name;
-        const atual = project.preview_video ?? project.previewVideo ?? '';
-        const valor = await showPrompt(
-            `Vídeo de prévia de "${project.name || slug}" (URL; deixe em branco para remover)`,
-            atual,
-        );
-        if (valor === null) return;
-        try {
-            await apiClient.updateSv360ProjectMetadata(slug, { previewVideo: valor.trim() }, {
-                orgId: project.organization_id ?? project.organizationId,
-            });
-            showSuccess(valor.trim() ? 'Vídeo de prévia atualizado.' : 'Vídeo de prévia removido.');
-            if (this._alive) this._render360List();
-        } catch (err) {
-            console.warn('[catalog-tab] falha ao gravar o vídeo de prévia do projeto 360:', err);
-            showError('Não foi possível gravar o vídeo de prévia do projeto 360°.');
-        }
     }
 
     /** @private */
@@ -1377,6 +1714,145 @@ function hintParagraph(texto) {
     p.className = 'admin-form__hint';
     p.textContent = texto;
     return p;
+}
+
+/** Lê um caminho aninhado ('a.b.c') de um objeto, devolvendo undefined se um trecho faltar. */
+function getPath(obj, path) {
+    return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+}
+
+/** Grava um caminho aninhado, criando os objetos intermediários que faltarem. */
+function setPath(obj, path, value) {
+    const keys = path.split('.');
+    const last = keys.pop();
+    let node = obj;
+    for (const k of keys) {
+        if (node[k] == null || typeof node[k] !== 'object') node[k] = {};
+        node = node[k];
+    }
+    node[last] = value;
+}
+
+/** Apaga um caminho aninhado (deixa os objetos intermediários no lugar). */
+function deletePath(obj, path) {
+    const keys = path.split('.');
+    const last = keys.pop();
+    const node = keys.reduce((o, k) => (o == null ? undefined : o[k]), obj);
+    if (node && typeof node === 'object') delete node[last];
+}
+
+/**
+ * Monta os CAMPOS de `config` da categoria (escalares + caixas JSON das chaves estruturadas) e
+ * devolve um `apply(config)` que grava os valores SOBRE um config existente, preservando as chaves
+ * sem campo. `apply` devolve uma mensagem de erro (ou null), para o chamador recusar uma caixa JSON
+ * com sintaxe inválida antes de gravar.
+ *
+ * Campo de número/texto vazio APAGA a chave. `bounds` só grava com os quatro números válidos, e só
+ * apaga com os quatro vazios, senão preserva o que havia. Caixa JSON vazia APAGA a chave.
+ * @param {HTMLElement} form
+ * @param {string} category
+ * @param {Object} cfg - O config atual (fonte dos valores iniciais).
+ * @returns {{ apply: (config: Object) => (string|null) }}
+ */
+function buildConfigFields(form, category, cfg) {
+    const specs = CONFIG_FIELDS[category] ?? { scalar: [], json: [] };
+    const inputs = [];
+    for (const spec of specs.scalar) {
+        if (spec.kind === 'bounds') {
+            const arr = Array.isArray(getPath(cfg, spec.path)) ? getPath(cfg, spec.path) : [];
+            const wrap = document.createElement('div');
+            wrap.className = 'admin-form__field';
+            const lab = document.createElement('label');
+            lab.textContent = spec.label;
+            wrap.appendChild(lab);
+            const row = document.createElement('div');
+            row.className = 'admin-form__bounds';
+            const bInputs = [];
+            for (let i = 0; i < 4; i += 1) {
+                const inp = document.createElement('input');
+                inp.type = 'number';
+                inp.step = 'any';
+                inp.dataset.testid = `admin-catalog-bounds-${i}`;
+                inp.value = Number.isFinite(arr[i]) ? String(arr[i]) : '';
+                row.appendChild(inp);
+                bInputs.push(inp);
+            }
+            wrap.appendChild(row);
+            form.appendChild(wrap);
+            inputs.push({ spec, bInputs });
+        } else if (spec.kind === 'bool') {
+            const testid = `admin-catalog-cfg-${spec.path.replace(/\W+/g, '-')}`;
+            const inp = checkboxField(form, spec.label, testid, getPath(cfg, spec.path) === true);
+            inputs.push({ spec, inp });
+        } else {
+            const current = getPath(cfg, spec.path);
+            let value;
+            if (spec.kind === 'list') value = Array.isArray(current) ? current.join(', ') : '';
+            else value = current == null ? '' : String(current);
+            const testid = `admin-catalog-cfg-${spec.path.replace(/\W+/g, '-')}`;
+            const inp = textField(form, spec.label, testid, value, spec.kind === 'num' ? 'number' : 'text');
+            if (spec.kind === 'num') inp.step = 'any';
+            if (spec.placeholder) inp.placeholder = spec.placeholder;
+            inputs.push({ spec, inp });
+        }
+    }
+
+    // AS CHAVES ESTRUTURADAS em caixas JSON, uma por chave. O estilo do mapa base é a única que
+    // passa pela validação de estilo MapLibre inteiro (`maplibre: true`); o `style` de camada de
+    // dados é um recorte (`fill`/`border`/`label`), não um estilo inteiro, e reprovaria naquela
+    // validação. Só a sintaxe JSON é cobrada aqui.
+    const boxes = [];
+    for (const j of specs.json) {
+        const val = cfg?.[j.key] === undefined ? '' : JSON.stringify(cfg[j.key], null, 2);
+        const box = jsonField(form, j.label, `admin-catalog-json-${j.key}`, val);
+        boxes.push({ spec: j, box });
+    }
+
+    return {
+        apply(config) {
+            for (const { spec, inp, bInputs } of inputs) {
+                if (spec.kind === 'bounds') {
+                    const nums = bInputs.map((b) => Number(b.value.trim()));
+                    if (bInputs.every((b) => b.value.trim() !== '') && nums.every(Number.isFinite)) {
+                        setPath(config, spec.path, nums);
+                    } else if (bInputs.every((b) => b.value.trim() === '')) {
+                        deletePath(config, spec.path);
+                    }
+                } else if (spec.kind === 'bool') {
+                    setPath(config, spec.path, inp.checked);
+                } else if (spec.kind === 'list') {
+                    const arr = inp.value.split(',').map((s) => s.trim()).filter(Boolean);
+                    if (arr.length) setPath(config, spec.path, arr);
+                    else deletePath(config, spec.path);
+                } else {
+                    const raw = inp.value.trim();
+                    if (raw === '') {
+                        deletePath(config, spec.path);
+                    } else if (spec.kind === 'num') {
+                        const n = Number(raw);
+                        if (Number.isFinite(n)) setPath(config, spec.path, n);
+                    } else {
+                        setPath(config, spec.path, raw);
+                    }
+                }
+            }
+            for (const { spec, box } of boxes) {
+                const raw = box.value.trim();
+                if (raw === '') {
+                    delete config[spec.key];
+                } else {
+                    let parsed;
+                    try {
+                        parsed = JSON.parse(raw);
+                    } catch (err) {
+                        return `Campo "${spec.label}" com JSON inválido: ${err.message}`;
+                    }
+                    config[spec.key] = parsed;
+                }
+            }
+            return null;
+        },
+    };
 }
 
 /**

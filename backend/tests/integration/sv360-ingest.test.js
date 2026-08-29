@@ -22,7 +22,6 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
-import Database from 'better-sqlite3';
 import { mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -31,6 +30,7 @@ import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createAdminUser, createProducerUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
+import { buildTilesDb } from '../helpers/sv360-tiles.js';
 
 const JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
 
@@ -79,20 +79,18 @@ const full3 = Buffer.from('RIFFxxxxWEBPfull-003-payload-klmnopqrst');
 const prev3 = Buffer.from('RIFFxxxxWEBPprev003');
 
 describe('StreetView 360 — admin/ingestion contract', () => {
-  let app, db, tmpRoot, destPath, thumbPath, derivedDbFilename;
+  let app, db, tmpRoot, destPath, thumbPath;
   let defaultOrgId, otherOrgId, otherProjectId;
   let ownerToken, adminToken, viewerToken, crossOrgToken;
 
   // Builds a small synthetic images.db on disk under tmpRoot, returning its path.
+  // Tiles-only: o arquivo de pixel do bundle e o `{slug}_tiles.db`, e ele cobre as
+  // MESMAS fotos do manifesto. O nome/assinatura ficam para os call sites nao mudarem;
+  // so o conteudo virou piramide, e o `.attach` passou de `imagesDb` para `tilesDb`.
   function buildImagesDb(name, rows) {
     const p = path.join(tmpRoot, name);
     if (existsSync(p)) rmSync(p, { force: true });
-    const sdb = new Database(p);
-    sdb.exec('CREATE TABLE images (photo_id TEXT PRIMARY KEY, full_webp BLOB, preview_webp BLOB)');
-    const ins = sdb.prepare('INSERT INTO images VALUES (?,?,?)');
-    for (const r of rows) ins.run(r.id, r.full, r.preview);
-    sdb.close();
-    return p;
+    return buildTilesDb(p, rows.map((r) => r.id));
   }
 
   // Writes a manifest.json to tmpRoot and returns its path.
@@ -195,10 +193,10 @@ describe('StreetView 360 — admin/ingestion contract', () => {
     tmpRoot = path.join(os.tmpdir(), `sv360-ingest-${crypto.randomUUID().slice(0, 8)}`);
     mkdirSync(tmpRoot, { recursive: true });
     mkdirSync(config.sv360.dbDir, { recursive: true });
-    // FIX-1: the {slug}.db filename is DERIVED server-side from (orgId, slug); the
-    // manifest's db_filename is IGNORED. The on-disk store is org-scoped.
-    derivedDbFilename = `${defaultOrgId}__${SLUG}.db`;
-    destPath = path.resolve(config.sv360.dbDir, derivedDbFilename);
+    // O `db_filename` e a chave LOGICA `{slug}.db`, DERIVADA por slug no servidor; o
+    // do manifesto e IGNORADO. Tiles-only: o unico arquivo de pixel no disco e o
+    // `{slug}_tiles.db`, entao `destPath` (o arquivo instalado) aponta para ele.
+    destPath = path.resolve(config.sv360.dbDir, `${SLUG}_tiles.db`);
     thumbPath = path.resolve(config.sv360.dbDir, `${SLUG}.webp`);
   });
 
@@ -254,7 +252,7 @@ describe('StreetView 360 — admin/ingestion contract', () => {
       .post(url('/admin/projects/upload'))
       .set(...auth(ownerToken))
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(201);
 
     assert.equal(res.body.slug, SLUG);
@@ -296,15 +294,15 @@ describe('StreetView 360 — admin/ingestion contract', () => {
     assert.equal(Number(geo[0].lon), -46.6);
     assert.equal(Number(geo[0].lat), -23.5);
 
-    // The {slug}.db landed in SV360_DB_DIR.
-    assert.ok(existsSync(destPath), 'expected {slug}.db in SV360_DB_DIR');
+    // O {slug}_tiles.db aterrissou em SV360_DB_DIR (tiles-only: o unico arquivo de pixel).
+    assert.ok(existsSync(destPath), 'expected {slug}_tiles.db in SV360_DB_DIR');
 
-    // The image is servable post-upload (proves swap + blobPool reads the new db).
-    const img = await supertest(app)
-      .get(url(`/photos/${photo1Id}/image?quality=full`))
+    // O tile e servivel pos-upload (prova o swap + o blobPool lendo o novo tiles.db).
+    const tile = await supertest(app)
+      .get(url(`/photos/${photo1Id}/tiles/0/0/0`))
       .set(...auth(ownerToken))
       .expect(200);
-    assert.ok(Buffer.from(img.body).equals(full1), 'served full webp must equal the uploaded blob');
+    assert.ok(Buffer.from(tile.body).length > 0, 'o tile servido deve vir com bytes');
   });
 
   // --- reupload "last upload wins" -------------------------------------------
@@ -343,7 +341,7 @@ describe('StreetView 360 — admin/ingestion contract', () => {
       .post(url('/admin/projects/upload'))
       .set(...auth(ownerToken))
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(201);
     assert.equal(res.body.photoCount, 3);
 
@@ -392,7 +390,7 @@ describe('StreetView 360 — admin/ingestion contract', () => {
       .post(url('/admin/projects/upload'))
       .set(...auth(ownerToken))
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(422);
     assert.equal(typeof res.body.error, 'string');
   });
@@ -412,7 +410,7 @@ describe('StreetView 360 — admin/ingestion contract', () => {
       .post(url('/admin/projects/upload'))
       .set(...auth(ownerToken))
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(422);
     assert.equal(typeof res.body.error, 'string');
   });
@@ -431,7 +429,7 @@ describe('StreetView 360 — admin/ingestion contract', () => {
       .post(url('/admin/projects/upload'))
       .set(...auth(ownerToken))
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(422);
     assert.equal(typeof res.body.error, 'string');
   });
@@ -451,28 +449,28 @@ describe('StreetView 360 — admin/ingestion contract', () => {
       .post(url('/admin/projects/upload'))
       .set(...auth(ownerToken))
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(422);
     assert.equal(typeof res.body.error, 'string');
   });
 
-  it('rejects an images.db whose blob size mismatches the manifest → 4xx', async () => {
-    // Manifest claims full_size_bytes = full1.length, but the db carries prev1
-    // (shorter) in full_webp → PASSO 0 size-check fails (400).
-    const imagesDbPath = buildImagesDb('mismatch-images.db', [
-      { id: photo1Id, full: prev1, preview: prev1 },
-    ]);
+  it('rejects a {slug}_tiles.db whose pyramid does not cover a manifest photo → 4xx', async () => {
+    // Tiles-only: o unico validador de pixel e a cobertura de piramide. O tiles.db
+    // cobre so photo2Id, mas o manifesto declara photo1Id -> validatePyramidCoverage
+    // recusa (400). Antes deste teste a checagem era de tamanho de blob, que saiu com
+    // a images.db.
+    const tilesDbPath = buildImagesDb('uncovered-tiles.db', [{ id: photo2Id }]);
     const m = baseManifest({
       photos: [photoRow(photo1Id, 'foto001.jpg', 1, -23.5, -46.6, full1, prev1)],
       targets: [],
     });
-    const manifestPath = writeManifest('mismatch.json', m);
+    const manifestPath = writeManifest('uncovered.json', m);
 
     const res = await supertest(app)
       .post(url('/admin/projects/upload'))
       .set(...auth(ownerToken))
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', tilesDbPath)
       .expect(400);
     assert.equal(typeof res.body.error, 'string');
   });
@@ -512,7 +510,7 @@ describe('StreetView 360 — admin/ingestion contract', () => {
       .post(url('/admin/projects/upload'))
       .set(...auth(ownerToken))
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(409);
     assert.equal(typeof res.body.error, 'string');
 
@@ -530,8 +528,8 @@ describe('StreetView 360 — admin/ingestion contract', () => {
   it('db_filename is derived server-side: a malicious manifest cannot overwrite another OM\'s {slug}.db', async () => {
     // OM-B (the "victim") owns a real org-scoped {slug}.db on disk.
     const victimSlug = 'victim-proj';
-    const victimDerived = `${otherOrgId}__${victimSlug}.db`;
-    const victimPath = path.resolve(config.sv360.dbDir, victimDerived);
+    const victimDerived = `${victimSlug}.db`;
+    const victimPath = path.resolve(config.sv360.dbDir, `${victimSlug}_tiles.db`);
     const victimBytes = Buffer.from('VICTIM-OM-B-ORIGINAL-DB-CONTENT-do-not-touch');
     mkdirSync(config.sv360.dbDir, { recursive: true });
     writeFileSync(victimPath, victimBytes);
@@ -559,7 +557,7 @@ describe('StreetView 360 — admin/ingestion contract', () => {
       .post(url('/admin/projects/upload'))
       .set(...auth(adminToken)) // global admin → honors orgSlug 'default'
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(201);
 
     // OM-B's file is INTACT (the malicious db_filename was ignored).
@@ -570,8 +568,8 @@ describe('StreetView 360 — admin/ingestion contract', () => {
     );
 
     // OM-A's data went to ITS OWN org-scoped file (default-org derived name).
-    const attackerDerived = `${defaultOrgId}__${attackerSlug}.db`;
-    const attackerPath = path.resolve(config.sv360.dbDir, attackerDerived);
+    const attackerDerived = `${attackerSlug}.db`;
+    const attackerPath = path.resolve(config.sv360.dbDir, `${attackerSlug}_tiles.db`);
     assert.ok(existsSync(attackerPath), 'attacker data must land in its org-scoped file');
 
     // Postgres recorded the DERIVED filename, not the malicious one.
@@ -613,7 +611,7 @@ describe('StreetView 360 — admin/ingestion contract', () => {
       .post(url('/admin/projects/upload'))
       .set(...auth(ownerToken))
       .attach('manifest', manA)
-      .attach('imagesDb', imgA)
+      .attach('tilesDb', imgA)
       .expect(201);
 
     // Upload as the OTHER-org editor (mesmo slug, outra OM): RECUSADO com 409.
@@ -630,7 +628,7 @@ describe('StreetView 360 — admin/ingestion contract', () => {
       .post(url('/admin/projects/upload'))
       .set(...auth(crossOrgToken))
       .attach('manifest', manB)
-      .attach('imagesDb', imgB)
+      .attach('tilesDb', imgB)
       .expect(409);
 
     // A OM dona do slug continua sendo a primeira, e há UM só arquivo.
@@ -651,8 +649,7 @@ describe('StreetView 360 — admin/ingestion contract', () => {
     // that passes PASSO 0 (valid + size-matched) but FAILS the merge tx via a
     // cross-project photo-id collision (collisionId already lives in OM-B).
     const rbSlug = 'rollback-proj';
-    const rbDerived = `${defaultOrgId}__${rbSlug}.db`;
-    const rbPath = path.resolve(config.sv360.dbDir, rbDerived);
+    const rbPath = path.resolve(config.sv360.dbDir, `${rbSlug}_tiles.db`);
 
     const rbId1 = uuidv5('default/rollback-proj/r001.jpg');
     // First, a clean upload to establish the project + its on-disk file.
@@ -669,7 +666,7 @@ describe('StreetView 360 — admin/ingestion contract', () => {
       .post(url('/admin/projects/upload'))
       .set(...auth(ownerToken))
       .attach('manifest', man0)
-      .attach('imagesDb', img0)
+      .attach('tilesDb', img0)
       .expect(201);
 
     assert.ok(existsSync(rbPath), 'project file installed by the clean upload');
@@ -717,7 +714,7 @@ describe('StreetView 360 — admin/ingestion contract', () => {
       .post(url('/admin/projects/upload'))
       .set(...auth(ownerToken))
       .attach('manifest', man1)
-      .attach('imagesDb', img1)
+      .attach('tilesDb', img1)
       .expect(409);
 
     // The OLD {slug}.db was restored byte-for-byte (.bak rolled back).
@@ -756,8 +753,7 @@ describe('StreetView 360 — admin/ingestion contract', () => {
     // No prior file for this slug; a merge that 409s must drop the just-installed
     // file so nothing orphan remains on disk (rollbackSwap with bakMade=false).
     const orphSlug = 'orphan-proj';
-    const orphDerived = `${defaultOrgId}__${orphSlug}.db`;
-    const orphPath = path.resolve(config.sv360.dbDir, orphDerived);
+    const orphPath = path.resolve(config.sv360.dbDir, `${orphSlug}_tiles.db`);
     assert.equal(existsSync(orphPath), false, 'precondition: no file yet');
 
     // Seed a colliding id in OM-B.
@@ -795,7 +791,7 @@ describe('StreetView 360 — admin/ingestion contract', () => {
       .post(url('/admin/projects/upload'))
       .set(...auth(ownerToken))
       .attach('manifest', man)
-      .attach('imagesDb', img)
+      .attach('tilesDb', img)
       .expect(409);
 
     assert.equal(existsSync(orphPath), false, 'no orphan {slug}.db after failed first upload');
@@ -821,7 +817,7 @@ describe('StreetView 360 — admin/ingestion contract', () => {
     const sop = await db.query(
       `INSERT INTO sv360.projects (organization_id, slug, name, db_filename, status, photo_count)
        VALUES ($1, $2, 'Sibling', $3, 'enabled', 1) RETURNING id`,
-      [defaultOrgId, sibSlug, `${defaultOrgId}__${sibSlug}.db`]
+      [defaultOrgId, sibSlug, `${sibSlug}.db`]
     );
     const sibPid = sop.rows[0].id;
     await db.query(
@@ -845,7 +841,7 @@ describe('StreetView 360 — admin/ingestion contract', () => {
       .post(url('/admin/projects/upload'))
       .set(...auth(ownerToken))
       .attach('manifest', man)
-      .attach('imagesDb', img)
+      .attach('tilesDb', img)
       .expect(409);
     assert.equal(typeof res.body.error, 'string');
 
@@ -864,11 +860,11 @@ describe('StreetView 360 — admin/ingestion contract', () => {
       .post(url('/admin/projects/upload'))
       .set(...auth(ownerToken))
       .attach('manifest', man2)
-      .attach('imagesDb', img2)
+      .attach('tilesDb', img2)
       .expect(201);
 
     // Cleanup.
-    rmSync(path.resolve(config.sv360.dbDir, `${defaultOrgId}__${sibSlug}.db`), { force: true });
+    rmSync(path.resolve(config.sv360.dbDir, `${sibSlug}.db`), { force: true });
     await db.query(`DELETE FROM sv360.projects WHERE id = $1`, [sibPid]);
     await db.query(`DELETE FROM sv360.projects WHERE organization_id = $1 AND slug = $2`, [
       defaultOrgId,
@@ -878,38 +874,37 @@ describe('StreetView 360 — admin/ingestion contract', () => {
 
   // --- FIX-5: ambiguous slug for a global admin → 409 (disambiguate via ?orgId) -
 
-  it('global admin acting on an ambiguous slug → 409; ?orgId disambiguates', async () => {
-    // Same slug in TWO orgs. A global admin DELETE/PATCH by bare slug is ambiguous.
+  it('o slug é único GLOBAL: o administrador age por slug SEM ?orgId, e nunca é ambíguo', async () => {
+    // Desde 2026-08-29 `UNIQUE(slug)` global: um slug pertence a UM projeto, então o caso ambíguo
+    // (mesmo slug em duas OMs) que exigia `?orgId` não existe mais. O administrador resolve pelo
+    // slug só, e plantar o mesmo slug numa segunda OM é impossível.
     const ambSlug = 'amb-slug';
-    const mk = async (org) =>
-      db.query(
-        `INSERT INTO sv360.projects (organization_id, slug, name, db_filename, status, photo_count)
-         VALUES ($1, $2, 'Amb', $3, 'enabled', 0) RETURNING id`,
-        [org, ambSlug, `${org}__${ambSlug}.db`]
-      );
-    await mk(defaultOrgId);
-    const p2 = await mk(otherOrgId);
+    await db.query(
+      `INSERT INTO sv360.projects (organization_id, slug, name, db_filename, status, photo_count)
+       VALUES ($1, $2, 'Amb', $3, 'enabled', 0)`,
+      [otherOrgId, ambSlug, `${ambSlug}.db`],
+    );
 
-    // Ambiguous → 409.
-    const res = await supertest(app)
-      .patch(url(`/admin/projects/${ambSlug}/status`))
-      .set(...auth(adminToken))
-      .send({ status: 'disabled' })
-      .expect(409);
-    assert.equal(typeof res.body.error, 'string');
-
-    // Disambiguate via ?orgId → 200, acts on exactly that org's project.
+    // Sem ?orgId → 200 direto, age no projeto do slug.
     const ok = await supertest(app)
-      .patch(url(`/admin/projects/${ambSlug}/status?orgId=${otherOrgId}`))
+      .patch(url(`/admin/projects/${ambSlug}/status`))
       .set(...auth(adminToken))
       .send({ status: 'disabled' })
       .expect(200);
     assert.equal(ok.body.status, 'disabled');
     assert.equal(ok.body.organization_id, otherOrgId);
 
-    // Cleanup.
+    // E o MESMO slug numa segunda OM é recusado pelo UNIQUE.
+    await assert.rejects(
+      db.query(
+        `INSERT INTO sv360.projects (organization_id, slug, name, db_filename, status, photo_count)
+         VALUES ($1, $2, 'Amb2', $3, 'enabled', 0)`,
+        [defaultOrgId, ambSlug, `${ambSlug}.db`],
+      ),
+      /projects_slug_key|unicidade|unique/i,
+    );
+
     await db.query(`DELETE FROM sv360.projects WHERE slug = $1`, [ambSlug]);
-    void p2;
   });
 
   // --- authz -----------------------------------------------------------------
@@ -922,7 +917,7 @@ describe('StreetView 360 — admin/ingestion contract', () => {
     const res = await supertest(app)
       .post(url('/admin/projects/upload'))
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(401);
     assert.equal(typeof res.body.error, 'string');
   });
@@ -936,7 +931,7 @@ describe('StreetView 360 — admin/ingestion contract', () => {
       .post(url('/admin/projects/upload'))
       .set(...auth(viewerToken))
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(403);
     assert.equal(typeof res.body.error, 'string');
   });
@@ -951,7 +946,7 @@ describe('StreetView 360 — admin/ingestion contract', () => {
       .post(url('/admin/projects/upload'))
       .set(...auth(crossOrgToken))
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(403);
     assert.equal(typeof res.body.error, 'string');
   });

@@ -29,7 +29,6 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
-import Database from 'better-sqlite3';
 import { mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -38,6 +37,7 @@ import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createAdminUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
+import { buildTilesDb } from '../helpers/sv360-tiles.js';
 
 const JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
 const RID = crypto.randomUUID().slice(0, 8);
@@ -91,15 +91,12 @@ describe('StreetView 360 — thumbnail do bundle: magic bytes + teto próprio (a
     );
   }
 
+  // Tiles-only: o arquivo de pixel e o `{slug}_tiles.db`, cobrindo as MESMAS fotos.
+  // Nome/assinatura preservados; so o conteudo virou piramide e o `.attach` mudou.
   function buildImagesDb(name, ids) {
     const p = path.join(tmpRoot, name);
     if (existsSync(p)) rmSync(p, { force: true });
-    const sdb = new Database(p);
-    sdb.exec('CREATE TABLE images (photo_id TEXT PRIMARY KEY, full_webp BLOB, preview_webp BLOB)');
-    const ins = sdb.prepare('INSERT INTO images VALUES (?,?,?)');
-    for (const id of ids) ins.run(id, full, prev);
-    sdb.close();
-    return p;
+    return buildTilesDb(p, ids);
   }
 
   function bundle(slug) {
@@ -124,7 +121,7 @@ describe('StreetView 360 — thumbnail do bundle: magic bytes + teto próprio (a
     return { manifestPath, imagesDbPath: buildImagesDb(`${slug}.images.db`, [photoId]) };
   }
 
-  const thumbDestOf = (slug) => path.resolve(config.sv360.dbDir, `${orgId}__${slug}.webp`);
+  const thumbDestOf = (slug) => path.resolve(config.sv360.dbDir, `${slug}.webp`);
 
   function writeTmp(name, buf) {
     const p = path.join(tmpRoot, name);
@@ -149,7 +146,7 @@ describe('StreetView 360 — thumbnail do bundle: magic bytes + teto próprio (a
   after(async () => {
     await closeStore();
     for (const slug of criados) {
-      const dest = path.resolve(config.sv360.dbDir, `${orgId}__${slug}.db`);
+      const dest = path.resolve(config.sv360.dbDir, `${slug}.db`);
       for (const f of [dest, `${dest}.tmp`, `${dest}.bak`, thumbDestOf(slug)]) {
         if (existsSync(f)) {
           try {
@@ -173,7 +170,7 @@ describe('StreetView 360 — thumbnail do bundle: magic bytes + teto próprio (a
       .post(url('/admin/projects/upload'))
       .set('Authorization', `Bearer ${adminToken()}`)
       .attach('manifest', b.manifestPath)
-      .attach('imagesDb', b.imagesDbPath)
+      .attach('tilesDb', b.imagesDbPath)
       .attach('thumbnail', writeTmp(`${slug}.webp`, WEBP_BYTES), { contentType: 'image/webp' });
 
     assert.equal(res.status, 201, JSON.stringify(res.body));
@@ -190,7 +187,7 @@ describe('StreetView 360 — thumbnail do bundle: magic bytes + teto próprio (a
       .post(url('/admin/projects/upload'))
       .set('Authorization', `Bearer ${adminToken()}`)
       .attach('manifest', b.manifestPath)
-      .attach('imagesDb', b.imagesDbPath)
+      .attach('tilesDb', b.imagesDbPath)
       .attach('thumbnail', writeTmp(`${slug}.webp`, PNG_BYTES), { contentType: 'image/webp' });
 
     assert.equal(res.status, 400, JSON.stringify(res.body));
@@ -210,7 +207,7 @@ describe('StreetView 360 — thumbnail do bundle: magic bytes + teto próprio (a
       .post(url('/admin/projects/upload'))
       .set('Authorization', `Bearer ${adminToken()}`)
       .attach('manifest', b.manifestPath)
-      .attach('imagesDb', b.imagesDbPath)
+      .attach('tilesDb', b.imagesDbPath)
       .attach('thumbnail', writeTmp(`${slug}.bin`, WEBP_BYTES), { contentType: 'application/octet-stream' });
 
     assert.equal(res.status, 201, JSON.stringify(res.body));
@@ -233,7 +230,7 @@ describe('StreetView 360 — thumbnail do bundle: magic bytes + teto próprio (a
       .post(url('/admin/projects/upload'))
       .set('Authorization', `Bearer ${adminToken()}`)
       .attach('manifest', b.manifestPath)
-      .attach('imagesDb', b.imagesDbPath)
+      .attach('tilesDb', b.imagesDbPath)
       .attach('thumbnail', writeTmp(`${slug}.webp`, grande), { contentType: 'image/webp' });
 
     assert.equal(res.status, 400, JSON.stringify(res.body));
@@ -251,7 +248,7 @@ describe('StreetView 360 — thumbnail do bundle: magic bytes + teto próprio (a
       .post(url('/admin/projects/upload'))
       .set('Authorization', `Bearer ${adminToken()}`)
       .attach('manifest', b.manifestPath)
-      .attach('imagesDb', b.imagesDbPath);
+      .attach('tilesDb', b.imagesDbPath);
     assert.equal(res.status, 201, JSON.stringify(res.body));
   });
 });

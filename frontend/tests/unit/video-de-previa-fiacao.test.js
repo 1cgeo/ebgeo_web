@@ -59,10 +59,11 @@ describe('apiClient.updateSv360ProjectMetadata — a porta de escrita do 360', (
         };
     });
 
-    it('grava a URL na rota de METADADO, com a OM que desambigua o slug', async () => {
-        // PISO — a requisição acontece e é um PATCH na rota nova, não na de status. Sem esta
-        // metade, as asserções de forma abaixo passariam num método que não chama nada.
-        await api.updateSv360ProjectMetadata('projeto-a', { previewVideo: '/3d/v/a.webm' }, {
+    it('grava o metadado na rota nova (PATCH), com a OM que desambigua o slug', async () => {
+        // PISO — a requisição acontece e é um PATCH na rota de metadado, não na de status. Sem
+        // esta metade, as asserções de forma abaixo passariam num método que não chama nada. O
+        // VÍDEO NÃO VIAJA MAIS por aqui (virou `uploadSv360Video`); o veículo é o nome.
+        await api.updateSv360ProjectMetadata('projeto-a', { name: 'Museu' }, {
             orgId: '00000000-0000-0000-0000-000000000001',
         });
         expect(chamadas).toHaveLength(1);
@@ -70,26 +71,41 @@ describe('apiClient.updateSv360ProjectMetadata — a porta de escrita do 360', (
         expect(chamadas[0].path).toBe(
             '/sv360/admin/projects/projeto-a?orgId=00000000-0000-0000-0000-000000000001',
         );
-        expect(chamadas[0].body).toEqual({ previewVideo: '/3d/v/a.webm' });
+        expect(chamadas[0].body).toEqual({ name: 'Museu' });
 
         // DISCRIMINAÇÃO — sem `orgId` a URL não ganha query nenhuma. Um `?orgId=undefined`
         // é o defeito que o método irmão (`setSv360ProjectStatus`) já pagou uma vez.
-        await api.updateSv360ProjectMetadata('projeto-a', { previewVideo: '/x.webm' });
+        await api.updateSv360ProjectMetadata('projeto-a', { name: 'Outro' });
         expect(chamadas[1].path).toBe('/sv360/admin/projects/projeto-a');
     });
 
-    it('a STRING VAZIA chega ao servidor: remover o vídeo não pode virar um PATCH sem corpo', async () => {
-        // Este é o caso que o padrão vizinho erraria. `listAudit`, no mesmo arquivo, JOGA
-        // FORA toda chave de valor vazio (para não montar filtro vazio numa query string), e
-        // aplicar a mesma regra aqui transformaria "apagar o vídeo" num corpo `{}` — que o
-        // Joi da rota recusa com 422, porque o schema é `.min(1)`.
-        await api.updateSv360ProjectMetadata('projeto-a', { previewVideo: '' });
-        expect(chamadas[0].body).toEqual({ previewVideo: '' });
+    it('a STRING VAZIA de um campo de texto chega ao servidor (é como se ESVAZIA)', async () => {
+        // `listAudit`, no mesmo arquivo, JOGA FORA toda chave de valor vazio; aplicar a mesma
+        // regra aqui transformaria "apagar a descrição" num corpo `{}`, que o Joi recusa com 422
+        // (`.min(1)`). A chave presente com `''` viaja; só o `undefined` não viaja. (O vídeo NÃO
+        // se apaga por aqui — isso é `removeSv360Video`; o campo de texto vivo é a descrição.)
+        await api.updateSv360ProjectMetadata('projeto-a', { description: '' });
+        expect(chamadas[0].body).toEqual({ description: '' });
+    });
 
-        // E o payload ausente por inteiro também degrada para "remover", nunca para corpo
-        // vazio: quem chama sem payload está limpando o campo.
-        await api.updateSv360ProjectMetadata('projeto-a', null);
-        expect(chamadas[1].body).toEqual({ previewVideo: '' });
+    it('a atualização é PARCIAL: só as chaves PRESENTES viajam (o local não arrasta a palavra-chave)', async () => {
+        // O corpo é montado por PRESENÇA: mandar só o local não pode enviar `keywords` junto,
+        // senão editar um campo apagaria o outro. É o espelho no cliente da atualização parcial
+        // do servidor (`UPDATE_PROJECT_METADATA` com os booleanos de "fornecido"). O `previewVideo`
+        // NÃO está entre as chaves montadas: o vídeo é envio de arquivo à parte.
+        await api.updateSv360ProjectMetadata('projeto-a', { location: 'Resende, RJ' });
+        expect(chamadas[0].body).toEqual({ location: 'Resende, RJ' });
+
+        await api.updateSv360ProjectMetadata('projeto-a', { keywords: ['a', 'b'] });
+        expect(chamadas[1].body).toEqual({ keywords: ['a', 'b'] });
+
+        // Vários juntos, quando o chamador de fato quer mexer em mais de um.
+        await api.updateSv360ProjectMetadata('projeto-a', { name: 'X', description: '', centerLat: -22.4 });
+        expect(chamadas[2].body).toEqual({ name: 'X', description: '', centerLat: -22.4 });
+
+        // E o `previewVideo`, mesmo passado, NÃO viaja: o cliente não o monta mais.
+        await api.updateSv360ProjectMetadata('projeto-a', { name: 'Y', previewVideo: '/v.webm' });
+        expect(chamadas[3].body).toEqual({ name: 'Y' });
     });
 });
 
@@ -105,10 +121,12 @@ describe('o recorte de categorias do vídeo de prévia', () => {
         // DISCRIMINAÇÃO — a ausência do basemap é o ponto do caso, e ela é o que reabrir a
         // categoria tem de derrubar de propósito.
         expect(categorias).not.toContain('basemap');
-        // E `sv360` também não está na lista, por outro motivo: aquela categoria não tem
-        // formulário nenhum, e o vídeo dela é ação de linha da tabela (`_edit360Video`).
+        // E `sv360` também não está na lista, por outro motivo: aquela categoria tem o SEU
+        // PRÓPRIO formulário (`_render360Form`, paralelo do 3D desde 2026-08-29), e não o
+        // formulário compartilhado das quatro tabelas de catálogo. O vídeo do 360 é um campo
+        // desse formulário, gravado por `updateSv360ProjectMetadata`.
         expect(categorias).not.toContain('sv360');
-        expect(fonte).toContain('_edit360Video');
+        expect(fonte).toContain('_render360Form');
         expect(fonte).toContain('updateSv360ProjectMetadata');
     });
 

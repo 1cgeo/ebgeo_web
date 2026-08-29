@@ -1295,3 +1295,134 @@ Cem perdia nos DOIS eixos, o que torna a decisão fácil: a mudança melhora vaz
 **O que NÃO muda.** O teto do servidor continua em 500 ops por lote (`backend/src/modules/sync/sync.schemas.js`), e os dois tetos seguem independentes: subir `FLUSH_BATCH_SIZE` acima de 500 faz todo push virar 422. Ver [`../wiki/envelope-operacao.md`](../wiki/envelope-operacao.md).
 
 **Status:** aceita.
+
+---
+
+### 2026-08-29: o administrador transfere a OM dona de um recurso, por rota própria; e a aba Sistema perde dois controles
+
+**Decisão.** Três mudanças no painel de administração, pedidas pelo dono.
+
+1. **Nasce a transferência de OM dona de recurso de catálogo**, que a decisão de 2026-08-24 tinha mandado sair do TEXTO por não haver rota. Agora há: `PATCH /api/v1/<tabela>/:id/owner-org`, gateada por `requireAdmin` (`backend/src/modules/catalog/catalog.routes.js`), com serviço `transferCatalogItemOwner` e controller `transferOwner`. `owner_org_id` continua FORA do corpo das três escritas comuns (`papel-produtor-catalogo.test.js` segue afirmando isso); mover a linha é ato de sistema, em rota e chamada à parte, como a visibilidade. `owner_org_id: null` devolve ao acervo institucional. OM inexistente ou inativa é 400. A aba mostra um `<select>` de OM só para o administrador em modo edição; para o produtor e na criação o campo segue de leitura.
+
+2. **A aba Sistema perde os controles do viewer 3D e o editor "Avançado (JSON)".** Os campos curados cobrem o que o administrador muda, e "Limpar todos os overrides" continua zerando tudo para o padrão do deploy.
+
+3. **O hover do botão de sub-aba ativo deixa de ficar ilegível** (Pessoal e Catálogo): o `:hover` clareava o fundo do botão ativo sem trocar o texto branco. Agora o hover clareia só o botão inativo, e o ativo escurece o verde.
+
+**A pergunta que a decisão de 2026-08-24 deixou aberta, respondida.** As concessões (`resource_grants`) originadas pela OM anterior **não são tocadas** pela transferência. Elas são por RECURSO (`resource_id`, `resource_type`), não por OM, então sobrevivem à mudança de dono e vencem pelo próprio prazo; a revogação continua por AUTORIA (`granted_by`), de modo que quem concedeu ainda revoga o que concedeu. O que muda é a MANUTENÇÃO: `fn_can_produce_resource` passa a casar a OM NOVA, então o produtor da OM anterior deixa de manter e de conceder de raiz aquele recurso, e o produtor da nova OM passa a poder. É o comportamento certo, porque manter segue a posse.
+
+- *Auditoria:* reusa `CATALOG_UPDATE` com `details.transfer = true` e o de-para `fromOrgId`/`toOrgId`, em vez de cunhar uma ação CATALOG_TRANSFER, porque um valor novo no `CHECK` de `audit_trail.action` custaria migração de constraint (destrutiva). `target_org_id` é a OM NOVA.
+
+**Guarda:** `backend/tests/integration/papel-produtor-catalogo.test.js` (caso "a ROTA PRÓPRIA (PATCH /:id/owner-org) transfere, e só o administrador a alcança"): produtor 403, administrador 200 de A para B e de volta ao institucional, OM inválida 400, id inexistente 404.
+
+**Status:** aceita. **Supera** a parte da decisão de 2026-08-24 que mandava a transferência sair do texto.
+
+---
+
+### 2026-08-29 (tarde): auto-cadastro vira toggle de runtime; a "Ordem" do catálogo sai; a config de recurso vira campos
+
+**Decisão.** Três mudanças no painel de administração, pedidas pelo dono.
+
+1. **Auto-cadastro é um TOGGLE de runtime.** A rota `POST /auth/register` deixou de ser montada-ou-não no boot pelo env `ALLOW_SELF_REGISTRATION` e passou a ser sempre montada, gateada por `requireSelfRegistrationEnabled` (`backend/src/modules/auth/register-gate.js`), que lê a config EFETIVA (`features.self_registration`) a cada requisição. O valor parte do env e o override do administrador (na aba Sistema) o inverte, sem redeploy. O botão "Criar conta" já lia a mesma flag, então botão e rota nunca discordam. Desligado por padrão no banco de dev (2026-08-29): só o administrador cria contas até ligar o toggle.
+
+2. **A coluna "Ordem" (`sort_order`) saiu do catálogo.** A listagem ordena por `created_at` (data do insumo), não mais por `sort_order`. O campo e a coluna sumiram da aba; a coluna do banco e o aceite pela API continuam por compatibilidade, apenas sem uso na tela nem na ordenação.
+
+3. **A config de recurso é editada em CAMPOS, não em JSON cru.** O editor geral de configuração em JSON saiu. Cada categoria expõe campos escalares (URL, zoom, opacidade, limites, localização 3D) e CAIXAS JSON dedicadas só para as chaves estruturadas que não reduzem a campo: o `style` MapLibre (mapa base e camada de dados, com expressões `case`/`step`), a `legend`, e a `source` de análise (com `tiles[]`). Chaves sem campo são PRESERVADAS no salvamento, porque o config parte da linha existente.
+
+**O par que fecha a decisão do item 3.** A primeira tentativa reduziu o `style` de camada de dados a três campos (cor/largura/opacidade da borda). O dono apontou o config real (`config.js` do deploy): a borda é `["step", ["length", ...], ...]`, uma expressão MapLibre, não um escalar. Campo teria truncado dado. Por isso a regra: escalar vira campo, estruturado vira caixa JSON. A validação de estilo MapLibre INTEIRO (`validateMapLibreStyle`) roda só no `style` do mapa base; o `style` de camada de dados é um recorte (`fill`/`border`/`label`) e só tem a sintaxe JSON cobrada.
+
+**Também nesta rodada:** os controles do viewer 3D e o editor "Avançado (JSON)" da aba Sistema saíram; o hover do botão de sub-aba ativo (Pessoal e Catálogo) deixou de ficar ilegível.
+
+**Guardas:** `backend/tests/integration/auto-cadastro-toggle-runtime.test.js` (403 desligado, 422 ligado, e o `GET /api/config` espelhando a flag). O catálogo em campos é exercitado pelos specs de navegador (`browser-admin-catalog.spec.js`, `browser-basemap-privado.spec.js`), fora do `npm test`.
+
+**Status:** aceita.
+
+---
+
+### 2026-08-29 (fim): o projeto 360 ganha paridade de edição com o 3D (renomear pela UI)
+
+**Contexto.** O 360 é recurso de catálogo como o 3D, mas a aba só oferecia ações de linha (status, acesso, vídeo, calibrar, excluir) e nenhuma forma de editar o NOME: ele era fixado pelo bundle e não mudava mais pela tela.
+
+**Decisão.** A rota de metadado do 360 (`PATCH /sv360/admin/projects/:slug`, `updateProjectMetadata`) passou a aceitar `name` além de `previewVideo`, e a aba ganhou a ação de linha "Renomear" (`admin-360-rename`). Renomear troca só o `name` de display: `slug`, `db_filename` e os arquivos SQLite (`{orgId}__{slug}`) não mudam, então é seguro.
+
+**A atualização virou PARCIAL, e essa é a metade que morde.** Antes o serviço passava `previewVideo` sempre (null para ausente), o que já bastava com um campo só. Com dois campos, mandar só o nome apagaria o vídeo e vice-versa. O `UPDATE_PROJECT_METADATA` passou a tocar cada coluna só quando o campo foi FORNECIDO (booleanos `$4`/`$6` num `CASE`), e o `updateSv360ProjectMetadata` do cliente monta o corpo por PRESENÇA de chave, nunca por `?? ''`. A string vazia continua removendo o vídeo, porque a chave está presente; o `undefined` é que não viaja.
+
+**O que NÃO entrou, e por quê.** Transferir a OM dona de um projeto 360 (o análogo do que as quatro tabelas de catálogo ganharam) NÃO foi feito: a OM entra no `db_filename` e no `UNIQUE(organization_id, slug)`, então mover de OM exigiria renomear os arquivos SQLite físicos e tratar colisão de slug no destino, que é trabalho de outra ordem. O 360 impõe a OM do produtor no upload e não a transfere.
+
+**Guardas:** `backend/tests/integration/catalogo-video-de-previa.test.js` (caso "o 360 se RENOMEIA pela mesma rota, e a atualização é PARCIAL") e `frontend/tests/unit/video-de-previa-fiacao.test.js` (o corpo do cliente é montado por presença).
+
+**Status:** aceita.
+
+---
+
+### 2026-08-29 (noite): o projeto 360 vira paralelo exato do 3D, com a calibração a mais
+
+**Decisão do dono.** O 360 é recurso de catálogo como o 3D, e a aba passou a tratá-lo igual: botões de linha "Editar", "Tornar privado/público", "Excluir", mais o de "Calibrar" (a única coisa que o 360 tem a mais). O "Editar" abre um formulário (`_render360Form`) paralelo ao do 3D: id (slug), nome, descrição, OM dona, visibilidade, status (Ativo/Inativo), thumbnail e vídeo. As ações que eram soltas na linha (Renomear, Ativar/Desativar, Vídeo) viraram campos do formulário.
+
+**O achado que evitou uma migração destrutiva.** A dificuldade aparente era a OM dona: os arquivos são `{orgId}__{slug}.db`, então transferir de OM PARECIA exigir renomear arquivos no disco. Não exige: as leituras em runtime resolvem o store pela coluna `db_filename` GRAVADA (`resolveDbPath(row.db_filename)`), e `deriveDbFilename(orgId, slug)` só roda no INGEST. A transferência é TROCA DE COLUNA (`organization_id`), sem tocar o disco, exatamente como no 3D (onde transferir não move os bytes do modelo). O prefixo de OM no nome do arquivo fica cosmético depois. Guarda: `sv360-admin-authz.test.js` prova que o `{orgId}__{slug}.db` continua no lugar após a transferência.
+
+**O que entrou no backend:**
+- `description` como coluna nova de `sv360.projects` (migração aditiva) + a rota de metadado (`PATCH /admin/projects/:slug`) aceitando `name`, `description` e `previewVideo`, com atualização PARCIAL (cada coluna só muda com o campo fornecido, via booleanos no `UPDATE`).
+- `PATCH /admin/projects/:slug/owner-org` (só-admin, `requireAdmin`): transfere a OM por troca de coluna, com 400 para OM inválida e 409 para colisão de slug no destino (o slug é único só por OM).
+- `POST /admin/projects/:slug/thumbnail` (multipart): substitui a thumbnail no disco, validando WebP por magic bytes, gate de posse no serviço.
+
+**O que NÃO entrou, e por quê.** O `{slug}.db` de imagens é resíduo (o próprio descritor da pirâmide marca `base: 'image?quality=preview'` como legado e diz que o cliente usa o tile de nível 0; a origem já apagou o `image?quality=full`). Remover o `images.db` do ingest e das rotas é uma limpeza separada e maior, que NÃO bloqueia o paralelo e fica para depois. E o nome dos arquivos por `{orgId}__{slug}` continua: renomear para `{slug}` exigiria migração destrutiva do `UNIQUE(org, slug)` sem ganho de leitura, já que a transferência não depende disso.
+
+**Guardas:** `backend/tests/integration/sv360-admin-authz.test.js` (transferência: produtor 403, admin 200 com arquivo intacto, OM inválida 400, colisão 409; thumbnail: 401 anônimo, 200 com WebP válido, 400 para não-WebP) e `catalogo-video-de-previa.test.js` (metadado parcial: nome e vídeo não se apagam).
+
+**Status:** aceita.
+
+---
+
+### 2026-08-29 (tarde 2): o vídeo de prévia vira ENVIO de arquivo hospedado, e o rótulo do tile server fica claro
+
+**Decisão do dono.** O vídeo de prévia de recurso deixa de ser uma URL externa colada e passa a ser ENVIADO como a thumbnail: arquivo hospedado no backend, servido por rota própria. Vale para os três tipos de catálogo que têm vídeo (tileset, dados, análise) e para o projeto 360. Parâmetros escolhidos: teto de 50 MB por arquivo; só envio (a URL externa já gravada continua sendo servida, mas não dá para colar uma nova).
+
+**Por que em disco, e não embutido no config como a thumbnail.** A thumbnail vira um data URL de dezenas de kB dentro do `config` JSONB, que o `/api/config` memoiza e serve anônimo. Um vídeo tem MB e quebraria esse payload. Então o arquivo vive em `data/catalog-videos` e o config guarda só a URL servida.
+
+**Modelo de acesso: público-por-URL.** O nome do arquivo carrega um token de 16 bytes aleatórios, e a URL só chega a quem VÊ o recurso (config público, ou o payload aditivo do privado). Servir é público (o token é a capacidade, como o link público de atlas), sem um segundo gate por tipo de recurso, que exigiria mapear o arquivo de volta ao recurso. Registrado nos dois censos de superfície (`saidas-de-conteudo-censo` e `superficies-de-recurso-censo`), com o RISCO escrito.
+
+**Backend novo:** módulo `catalog-video` (store com validação por magic bytes MP4/WebM + teto, controller de serviço com Range/ETag/streaming, rota pública `GET /api/v1/catalog-videos/:file`); envio/remoção por rota do recurso (`POST`/`DELETE /:id/preview-video` no catálogo e `/admin/projects/:slug/preview-video` no 360), com limpeza do arquivo antigo na troca e do órfão no hard-delete do 360. Config nova: `CATALOG_VIDEO_DIR`, `CATALOG_VIDEO_BASE_URL`, `CATALOG_VIDEO_MAX_SIZE_MB` (padrão 50), todas opcionais.
+
+**Também nesta rodada:** o rótulo do "Tile server (URL)" na aba Sistema passou a dizer o que ele faz. Ele NÃO é morto: `initGridLayers` (`frontend/src/js/grid/grid-layers.config.js`) monta as fontes de vetor da GRADE UTM como `<esta URL>/grid_<sistema>_<escala>`. Vazio, a grade não resolve as fontes. O rótulo virou "Servidor de tiles da grade UTM (URL)" com uma dica explicando.
+
+**Guardas:** os dois censos de superfície de recurso do backend; a suíte de catálogo e `sv360-admin-authz`. O envio pela UI é exercitado pelos specs de navegador, fora do `npm test`.
+
+**Status:** aceita.
+
+---
+
+### 2026-08-29 (noite 2): o botão "Limpar overrides" sai, e o 360 ganha os campos de cartão do catálogo
+
+**Decisão do dono.** Duas mudanças no painel.
+
+1. **O botão "Limpar todos os overrides" saiu da aba Sistema.** A capacidade no servidor continua (`clearConfigOverrides`), mas a porta na tela some: os campos curados cobrem o que se edita, e o reset em massa era o gesto mais vago e irreversível do painel.
+
+2. **O projeto 360 ganhou os campos de cartão do catálogo, paralelos do 3D:** palavra-chave, local, data de captura, longitude e latitude (o centro do marcador). O achado que motivou: o cartão do catálogo do cliente (`_getPanoramic360`) JÁ LIA `keywords`, `location`, `captureDate` e `center` de um projeto 360, mas o backend só tinha `capture_date`, `center_lat` e `center_long`, e as consultas públicas nem selecionavam os campos de texto. Faltavam duas colunas e o resto era leitura morta.
+
+**O que entrou no backend:**
+- Colunas `keywords` (TEXT[]) e `location` (TEXT) em `sv360.projects` (`013_sv360_keywords_local.sql`, aditiva). `keywords` é array porque o cartão itera sobre ela, o mesmo formato do 3D.
+- `publicProjectView` passou a emitir `keywords`; `description`/`location`/`captureDate`/`center` já eram chaves da forma congelada (emitidas null), e agora carregam valor. As consultas públicas (`LIST_PROJECTS`, `GET_PROJECT_BY_SLUG`) e as de admin passaram a selecionar `description`, `location`, `keywords`, `capture_date`.
+- A rota de metadado (`PATCH /admin/projects/:slug`) aceita `keywords`, `location`, `captureDate`, `centerLat`, `centerLong`, com atualização parcial por campo (cada coluna só muda com o campo fornecido).
+- O formulário Editar do 360 ganhou os cinco campos.
+
+**Guarda:** `catalogo-video-de-previa.test.js` (os campos gravam e saem na forma pública, e a atualização é parcial: mudar o local não apaga as palavras-chave).
+
+**Status:** aceita.
+
+---
+
+### 2026-08-29 (noite 3): o 360 do web converge com o ebgeo_360, arquivo por SLUG e colunas inertes podadas
+
+**Contexto.** O `ebgeo_360` (`C:\Users\diniz\OneDrive\Desktop\Desenvolvimento\ebgeo_360`, microsserviço Fastify) é a fonte-da-verdade do 360. O web tinha três divergências herdadas: nome de arquivo com prefixo de OM (`{orgId}__{slug}.db`), slug único por OM em vez de global, e cinco colunas de calibração que o cliente nunca leu e que não existem na origem. A aplicação ainda não está no ar, então dá para mudar tudo sem transição (decisão do dono).
+
+**Decisão, em fases.**
+
+1. **Nome de arquivo por SLUG, sem prefixo de OM (feito).** `deriveDbFilename(slug)` devolve `{slug}.db`, e o tiles é `{slug}_tiles.db`. A isolação entre OMs, que o prefixo garantia, virou o `UNIQUE (slug)` de `sv360.projects` (`007_sv360.sql`): dois projetos com o mesmo slug em qualquer OM são impossíveis, então não há dois arquivos para colidir. A coluna `organization_id` sobrevive como POSSE (gate de escrita, transferência de OM), só saiu do NOME. O upsert de merge passou a recusar (409) o slug que já pertence a outra OM. O ETL (`scripts/sv360-import.js`) e a limpeza de disco (`deleteProject`, que agora apaga também o `{slug}_tiles.db`) seguem o nome novo.
+
+2. **Poda dos cinco campos inertes (feito).** Saíram do schema, do INSERT, das consultas de leitura, do payload e dos schemas de escrita: `camera_height`, `distance_scale`, `marker_scale` (foto) e `override_distance`, `override_height` (alvo). O cliente nunca os lia (o modelo relativo de marcador projeta por azimute e ordem de fila, não por distância/altura). `override_bearing` FICA: é o único da família com leitor vivo (`minimap.js`, só a nulidade). Guarda: `sv360-contract.test.js` afirma que `camera.height`/`distance_scale`/`marker_scale` chegam `undefined`.
+
+3. **Tiles-only (feito).** A `images.db` (`{slug}.db` de blob full/preview) saiu inteira: a rota `GET /photos/:uuid/image`, `getPhotoImage`, `getPhotoImageMeta`, `GET_PHOTO_SIZES` e `blobstore.getImage` foram removidos, e o único arquivo de pixel no disco passou a ser o `{slug}_tiles.db`. A ingestão (online e o ETL offline `scripts/sv360-import.js`) instala SÓ o tiles e EXIGE pirâmide cobrindo toda foto viva (`validatePyramidCoverage`), sem instalar `{slug}.db`. As colunas `full_size_bytes`/`preview_size_bytes` FICARAM como metadado dormente (o dono nomeou a images.db, não elas). No frontend, o fallback de imagem inteira (`image?quality=preview|full`) saiu do visualizador do mapa (`street_view_viewer.js`) e do estúdio de calibração (`calibration/viewer.js`, `preview-viewer.js`): toda foto compõe por tiles, e a foto sem pirâmide não tem mais para onde cair. Fix de produção que apareceu no caminho: a cobertura de pirâmide e a leitura de pós-merge passaram a considerar só foto VIVA (`liveManifestPhotoIds`), porque foto tombstonada em `photos[]` não tem pixel e exigi-lo recusava bundle são.
+
+**Verificação:** `npm run lint` + `npm test` do backend verdes (3929 testes), `npm run lint` + `npm test` do frontend verdes (8785 testes). A conferência com o `ebgeo_360` continua sendo o diff de `tile-loader.js` descrito em [`../../.claude/rules/common-tasks.md`](../../.claude/rules/common-tasks.md). A UI do 360 (mapa e estúdio) fica para a verificação por Playwright.
+
+**Status:** as três fases aceitas.

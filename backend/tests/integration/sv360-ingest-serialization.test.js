@@ -22,10 +22,10 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import os from 'node:os';
 import { mkdirSync, rmSync, existsSync } from 'node:fs';
-import Database from 'better-sqlite3';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import config from '../../src/config.js';
 import { ingestBundle } from '../../src/modules/streetview360/sv360.ingest.js';
+import { buildTilesDb } from '../helpers/sv360-tiles.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
 
 // Must match SV360_INGEST_LOCK_NAMESPACE in src/modules/streetview360/sv360.ingest.js.
@@ -53,15 +53,11 @@ describe('sv360 ingest serialization (per orgId+slug advisory lock, P3)', () => 
   const diskPaths = new Set();
 
   /** Builds a synthetic images.db in a tmp dir (the swap SOURCE). */
+  // Tiles-only: o arquivo de pixel do bundle e o `{slug}_tiles.db`.
   function buildTmpImagesDb(name, rows) {
     const p = path.join(tmpRoot, name);
     if (existsSync(p)) rmSync(p, { force: true });
-    const sdb = new Database(p);
-    sdb.exec('CREATE TABLE images (photo_id TEXT PRIMARY KEY, full_webp BLOB, preview_webp BLOB)');
-    const ins = sdb.prepare('INSERT INTO images VALUES (?,?,?)');
-    for (const r of rows) ins.run(r.id, r.full, r.preview);
-    sdb.close();
-    return p;
+    return buildTilesDb(p, rows.map((r) => r.id));
   }
 
   /** A minimal valid manifest + its matching images.db. */
@@ -83,9 +79,9 @@ describe('sv360 ingest serialization (per orgId+slug advisory lock, P3)', () => 
         preview_size_bytes: prevBuf.length,
       }],
     };
-    const dbTmpPath = buildTmpImagesDb(`${slug}.db`, [{ id: photoId, full: fullBuf, preview: prevBuf }]);
-    diskPaths.add(path.join(config.sv360.dbDir, `${orgId}__${slug}.db`));
-    return { manifest, dbTmpPath };
+    const tilesTmpPath = buildTmpImagesDb(`${slug}.db`, [{ id: photoId, full: fullBuf, preview: prevBuf }]);
+    diskPaths.add(path.join(config.sv360.dbDir, `${slug}_tiles.db`));
+    return { manifest, tilesTmpPath };
   }
 
   before(async () => {
@@ -124,7 +120,7 @@ describe('sv360 ingest serialization (per orgId+slug advisory lock, P3)', () => 
   });
 
   it('an ingest BLOCKS while the (org, slug) lock is held elsewhere', async () => {
-    const { manifest, dbTmpPath } = bundleFor(SLUG_A);
+    const { manifest, tilesTmpPath } = bundleFor(SLUG_A);
 
     // Hold the exact key ingestBundle uses, on an independent connection.
     await db.query('SELECT pg_advisory_lock($1, hashtext($2))', [
@@ -133,7 +129,7 @@ describe('sv360 ingest serialization (per orgId+slug advisory lock, P3)', () => 
     ]);
 
     let settled = false;
-    const ingest = ingestBundle({ manifest, dbTmpPath, orgId, source: 'upload' })
+    const ingest = ingestBundle({ manifest, tilesTmpPath, orgId, source: 'upload' })
       .then((r) => { settled = true; return r; })
       .catch((e) => { settled = true; throw e; });
 
@@ -158,8 +154,8 @@ describe('sv360 ingest serialization (per orgId+slug advisory lock, P3)', () => 
     ]);
 
     try {
-      const { manifest, dbTmpPath } = bundleFor(SLUG_B);
-      const result = await ingestBundle({ manifest, dbTmpPath, orgId, source: 'upload' });
+      const { manifest, tilesTmpPath } = bundleFor(SLUG_B);
+      const result = await ingestBundle({ manifest, tilesTmpPath, orgId, source: 'upload' });
       assert.equal(result.slug, SLUG_B, 'an unrelated slug is not blocked');
     } finally {
       await db.query('SELECT pg_advisory_unlock($1, hashtext($2))', [
@@ -176,7 +172,7 @@ describe('sv360 ingest serialization (per orgId+slug advisory lock, P3)', () => 
     bad.manifest.photos[0].lat = 999; // out of range → validation rejects
 
     await assert.rejects(
-      ingestBundle({ manifest: bad.manifest, dbTmpPath: bad.dbTmpPath, orgId, source: 'upload' })
+      ingestBundle({ manifest: bad.manifest, tilesTmpPath: bad.tilesTmpPath, orgId, source: 'upload' })
     );
 
     // If the lock leaked, this acquisition would hang instead of returning.
@@ -202,8 +198,8 @@ describe('sv360 ingest serialization (per orgId+slug advisory lock, P3)', () => 
 
     // Serialization means both settle without corrupting each other; last write wins.
     const results = await Promise.allSettled([
-      ingestBundle({ manifest: a.manifest, dbTmpPath: a.dbTmpPath, orgId, source: 'upload' }),
-      ingestBundle({ manifest: b.manifest, dbTmpPath: b.dbTmpPath, orgId, source: 'upload' }),
+      ingestBundle({ manifest: a.manifest, tilesTmpPath: a.tilesTmpPath, orgId, source: 'upload' }),
+      ingestBundle({ manifest: b.manifest, tilesTmpPath: b.tilesTmpPath, orgId, source: 'upload' }),
     ]);
 
     assert.ok(
@@ -217,7 +213,7 @@ describe('sv360 ingest serialization (per orgId+slug advisory lock, P3)', () => 
       [orgId, slug]
     );
     assert.equal(rows.length, 1, 'exactly one project row for the slug');
-    const onDisk = path.join(config.sv360.dbDir, rows[0].db_filename);
+    const onDisk = path.join(config.sv360.dbDir, rows[0].db_filename.replace(/.db$/i, "_tiles.db"));
     assert.ok(existsSync(onDisk), 'the file Postgres names must be the one on disk');
     // No leftover .tmp/.bak residue from the interleaving.
     assert.equal(existsSync(`${onDisk}.bak`), false, 'no .bak residue');

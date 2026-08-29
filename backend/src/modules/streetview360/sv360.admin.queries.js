@@ -13,18 +13,18 @@
 // Real columns (007_sv360.sql):
 //   sv360.projects (id, organization_id, slug, name, center_lat, center_long,
 //                   entry_photo_id, photo_count, db_filename, status,
-//                   created_at, updated_at)  UNIQUE(organization_id, slug)
+//                   created_at, updated_at)  UNIQUE(slug)
 //   sv360.photos   (id TEXT PK, project_id, original_name, display_name,
-//                   sequence_number, lat, lon, ele, heading, camera_height,
-//                   mesh_rotation_x/y/z, distance_scale, marker_scale,
+//                   sequence_number, lat, lon, ele, heading,
+//                   mesh_rotation_x/y/z,
 //                   floor_level, floor_label, full_size_bytes,
 //                   preview_size_bytes,
 //                   calibration_reviewed, capture_date, geom (trigger), ...)
 //   sv360.project_floors (project_id, level, label, plan_coords JSONB)
 //                   PK(project_id, level), migration 007_sv360.sql
 //   sv360.targets  (source_id, target_id, distance_m, bearing_deg, is_next,
-//                   is_original, override_bearing, override_distance,
-//                   override_height, hidden)  PK(source_id, target_id)
+//                   is_original, override_bearing, hidden)
+//                   PK(source_id, target_id)
 //   sv360.deleted_photos (photo_id PK, deleted_at)
 
 // -------------------------------------------------------------------------
@@ -177,15 +177,13 @@ export const PURGE_PROJECT_TOMBSTONES = `
 //   $3  = original_name            $4  = display_name
 //   $5  = sequence_number          $6  = lat
 //   $7  = lon                      $8  = ele
-//   $9  = heading                  $10 = camera_height
-//   $11 = mesh_rotation_x          $12 = mesh_rotation_y
-//   $13 = mesh_rotation_z          $14 = distance_scale
-//   $15 = marker_scale             $16 = floor_level
-//   $17 = full_size_bytes          $18 = preview_size_bytes
-//   $19 = calibration_reviewed     $20 = capture_date
-//   $21 = floor_label
+//   $9  = heading                  $10 = mesh_rotation_x
+//   $11 = mesh_rotation_y          $12 = mesh_rotation_z
+//   $13 = floor_level              $14 = full_size_bytes
+//   $15 = preview_size_bytes       $16 = calibration_reviewed
+//   $17 = capture_date             $18 = floor_label
 //
-// $21 (`sv360.photos.floor_label`) was MISSING from this list until the floors
+// $18 (`sv360.photos.floor_label`) was MISSING from this list until the floors
 // port. The column exists in sv360.photos and the origin carries a label on every
 // photo of a project with floors, so the ingestion accepted the field, dropped it
 // and answered 201: a Beira-Rio photo landed with `floor_label` NULL and the
@@ -194,29 +192,28 @@ export const PURGE_PROJECT_TOMBSTONES = `
 export const INSERT_PHOTO = `
   INSERT INTO sv360.photos
     (id, project_id, original_name, display_name, sequence_number,
-     lat, lon, ele, heading, camera_height,
-     mesh_rotation_x, mesh_rotation_y, mesh_rotation_z, distance_scale, marker_scale,
+     lat, lon, ele, heading,
+     mesh_rotation_x, mesh_rotation_y, mesh_rotation_z,
      floor_level, full_size_bytes, preview_size_bytes, calibration_reviewed, capture_date,
      floor_label)
   VALUES
     ($1, $2::uuid, $3, $4, $5,
-     $6, $7, $8, $9, $10,
-     $11, $12, $13, $14, $15,
-     $16, $17, $18, $19, $20,
-     $21)
+     $6, $7, $8, $9,
+     $10, $11, $12,
+     $13, $14, $15, $16, $17,
+     $18)
 `;
 
 // Insert one directed adjacency link. Same column order/semantics as the stage-2
 // write INSERT_TARGET; duplicated here so the merge core has no cross-stage
 // coupling. All FKs are satisfied because photos[] are inserted first.
 //   $1 = source_id, $2 = target_id, $3 = distance_m, $4 = bearing_deg,
-//   $5 = is_next, $6 = is_original, $7 = override_bearing,
-//   $8 = override_distance, $9 = override_height, $10 = hidden
+//   $5 = is_next, $6 = is_original, $7 = override_bearing, $8 = hidden
 export const INSERT_TARGET = `
   INSERT INTO sv360.targets
     (source_id, target_id, distance_m, bearing_deg, is_next, is_original,
-     override_bearing, override_distance, override_height, hidden)
-  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     override_bearing, hidden)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 `;
 
 // Drop the project's capture tracks before reinserting the manifest's (same

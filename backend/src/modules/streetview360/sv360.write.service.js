@@ -201,8 +201,6 @@ export async function createTarget(uuid, body, user) {
       body.is_next ?? false,
       body.is_original ?? false,
       body.override_bearing ?? null,
-      body.override_distance ?? null,
-      body.override_height ?? null,
       body.hidden ?? false,
     ]);
     return rebuildPhotoShape(uuid, user, exec);

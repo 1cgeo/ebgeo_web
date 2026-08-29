@@ -123,9 +123,9 @@ export const GET_PROJECT_BY_SLUG = `
 export const GET_PHOTO_BY_ID = `
   SELECT p.id, p.project_id, p.original_name, p.display_name, p.sequence_number,
          ST_Y(p.geom) AS lat, ST_X(p.geom) AS lon, p.ele,
-         p.heading, p.camera_height,
+         p.heading,
          p.mesh_rotation_x, p.mesh_rotation_y, p.mesh_rotation_z,
-         p.distance_scale, p.marker_scale, p.floor_level, p.floor_label,
+         p.floor_level, p.floor_label,
          p.full_size_bytes, p.preview_size_bytes,
          p.calibration_reviewed, p.capture_date,
          pr.slug AS project_slug, pr.db_filename, pr.organization_id,
@@ -152,9 +152,9 @@ export const GET_PHOTO_BY_ID = `
 export const GET_PHOTO_BY_NAME = `
   SELECT p.id, p.project_id, p.original_name, p.display_name, p.sequence_number,
          ST_Y(p.geom) AS lat, ST_X(p.geom) AS lon, p.ele,
-         p.heading, p.camera_height,
+         p.heading,
          p.mesh_rotation_x, p.mesh_rotation_y, p.mesh_rotation_z,
-         p.distance_scale, p.marker_scale, p.floor_level, p.floor_label,
+         p.floor_level, p.floor_label,
          p.full_size_bytes, p.preview_size_bytes,
          p.calibration_reviewed, p.capture_date,
          pr.slug AS project_slug, pr.db_filename, pr.organization_id,
@@ -172,23 +172,9 @@ export const GET_PHOTO_BY_NAME = `
 // photos so a soft-deleted photo's blob is never served (same rule as
 // GET_PHOTO_BY_ID / GET_PHOTO_BY_NAME).
 //
-// `access_level` viaja junto DESDE A FASE F9, e não é enfeite: o controller decidia o
-// ESCOPO DE CACHE da imagem só por `status`, então a foto de um projeto
-// `enabled + private` saía com `public, max-age=1ano, immutable` — um recurso de acesso
-// restrito entregue a um cache compartilhado para repor a qualquer um pelo ano
-// seguinte. Sem esta coluna a decisão teria dois eixos e um dado.
-//   $1 = photo id (TEXT uuid v5), $2 = userId (uuid, nullable),
-//   $3 = atlasId (uuid, nullable)
-export const GET_PHOTO_SIZES = `
-  SELECT p.full_size_bytes, p.preview_size_bytes,
-         pr.db_filename, pr.organization_id, pr.status AS project_status,
-         pr.access_level
-  FROM sv360.photos p
-  JOIN sv360.projects pr ON pr.id = p.project_id
-  WHERE p.id = $1
-    AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
-    AND ${sv360AccessPredicate(2, 3, 'pr.')}
-`;
+// GET_PHOTO_SIZES saiu em 2026-08-29 com a rota de imagem inteira (tiles-only): ela
+// era a fonte O(1) do ETag da imagem, e sem porta de imagem não tem consumidor. O
+// mesmo eixo de cache (status + access_level) vive agora nas consultas de pirâmide.
 
 // Directed adjacency for a photo (visible links only), joined to the target
 // photo for its name/display_name/lon/lat/ele. Internal columns bearing_deg /
@@ -205,7 +191,7 @@ export const GET_PHOTO_SIZES = `
 //   $1 = source photo id (TEXT uuid v5)
 export const GET_TARGETS_FOR_PHOTO = `
   SELECT t.target_id, t.distance_m, t.bearing_deg, t.is_next, t.is_original,
-         t.override_bearing, t.override_distance, t.override_height,
+         t.override_bearing,
          tp.original_name AS target_name, tp.display_name AS target_display_name,
          ST_X(tp.geom) AS target_lon, ST_Y(tp.geom) AS target_lat, tp.ele AS target_ele,
          tp.floor_level AS target_floor_level, tp.floor_label AS target_floor_label
@@ -319,7 +305,7 @@ export const LIST_PROJECT_FLOORS = `
 export const LIST_PHOTOS_BY_PROJECT = `
   SELECT p.id, p.original_name, p.display_name, p.sequence_number,
          ST_X(p.geom) AS lon, ST_Y(p.geom) AS lat, p.ele,
-         p.heading, p.camera_height, p.floor_level,
+         p.heading, p.floor_level,
          p.full_size_bytes, p.preview_size_bytes, p.calibration_reviewed
   FROM sv360.photos p
   WHERE p.project_id = $1
@@ -348,7 +334,7 @@ export const LIST_PHOTOS_BY_PROJECT = `
 //   $1 = source photo id (TEXT uuid v5)
 export const GET_ALL_TARGETS_FOR_PHOTO = `
   SELECT t.target_id, t.distance_m, t.bearing_deg, t.is_next, t.is_original,
-         t.override_bearing, t.override_distance, t.override_height, t.hidden,
+         t.override_bearing, t.hidden,
          tp.original_name AS target_name, tp.display_name AS target_display_name,
          ST_X(tp.geom) AS target_lon, ST_Y(tp.geom) AS target_lat, tp.ele AS target_ele,
          tp.floor_level AS target_floor_level, tp.floor_label AS target_floor_label

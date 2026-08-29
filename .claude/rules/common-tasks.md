@@ -98,17 +98,19 @@ DPI 150/200/300; elementos cartográficos escalam por `uiScale = dpi / 200`.
 **A projeção não usa distância nem altura.** O marcador recebe do mundo só uma direção:
 o alvo é projetado no HORIZONTE da câmera pelo azimute, e a altura acima da linha vem da
 posição na fila daquela direção (`elevationDeg(rank)`), não da geometria. A distância só
-decide a ORDEM ao longo da direção. Altura de câmera, terreno e `distance_scale` não estão
-apenas sem uso, foram removidos do cliente. O `fileoverview` de `projectOnHorizon` é onde
-isso está dito por extenso.
+decide a ORDEM ao longo da direção. Altura de câmera, terreno e escala de distância não
+estão apenas sem uso, foram removidos do cliente. O `fileoverview` de `projectOnHorizon` é
+onde isso está dito por extenso.
 
-Consequência prática: `override_height` e `override_distance` sobrevivem como colunas do
-backend (`sv360`), chegam ao cliente no payload de alvos e não têm leitor nenhum nele.
-Procurar por elas para ajustar o alinhamento é perseguir um botão que não está mais ligado
-em nada. **O terceiro override tem leitor, e ele não faz o que o nome sugere:**
-`frontend/src/js/calibration/minimap.js` lê `override_bearing` para pintar o alvo com raio
-e cor próprios no minimapa do operador. É realce de tela, não entrada da projeção (o
-azimute servido é derivado da geometria por `ST_Azimuth`). O que corrige alinhamento é a
+Consequência prática: os campos inertes que o cliente nunca lia (camera_height,
+distance_scale e marker_scale na foto; override_distance e override_height no alvo) foram
+PODADOS do backend em 2026-08-29, para o web casar com o `ebgeo_360`, que não os tem
+(decisão registrada em [`../../docs/decisions/decisions-2026.md`](../../docs/decisions/decisions-2026.md)). Não existem mais colunas, nem chegam no
+payload. Procurar por elas para ajustar o alinhamento é perseguir um botão que nunca esteve
+ligado em nada. **O único override que sobrou tem leitor, e ele não faz o que o nome
+sugere:** `frontend/src/js/calibration/minimap.js` lê `override_bearing` para pintar o alvo
+com raio e cor próprios no minimapa do operador. É realce de tela, não entrada da projeção
+(o azimute servido é derivado da geometria por `ST_Azimuth`). O que corrige alinhamento é a
 rotação de malha da calibração, que nivela a esfera antes de qualquer desenho.
 
 ## O par que DIVERGE é `tile-loader.js`, e ele é de outro repositório

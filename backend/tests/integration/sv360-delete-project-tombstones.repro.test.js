@@ -20,7 +20,6 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto, { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
-import Database from 'better-sqlite3';
 import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -29,6 +28,7 @@ import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createProducerUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
+import { buildTilesDb } from '../helpers/sv360-tiles.js';
 
 const JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
 const RID = randomUUID().slice(0, 8);
@@ -71,14 +71,10 @@ describe('StreetView 360 — delete de projeto não deixa tombstone órfão (ach
   }
 
   function buildBundle(tag) {
-    const dbFile = path.join(tmpRoot, `${tag}.db`);
+    // Tiles-only: o arquivo de pixel do bundle e o `{slug}_tiles.db` cobrindo p1 e p2.
+    const dbFile = path.join(tmpRoot, `${tag}_tiles.db`);
     if (existsSync(dbFile)) rmSync(dbFile, { force: true });
-    const sdb = new Database(dbFile);
-    sdb.exec('CREATE TABLE images (photo_id TEXT PRIMARY KEY, full_webp BLOB, preview_webp BLOB)');
-    const ins = sdb.prepare('INSERT INTO images VALUES (?,?,?)');
-    ins.run(p1, full, prev);
-    ins.run(p2, full, prev);
-    sdb.close();
+    buildTilesDb(dbFile, [p1, p2]);
 
     const manifestFile = path.join(tmpRoot, `${tag}.json`);
     writeFileSync(
@@ -107,7 +103,7 @@ describe('StreetView 360 — delete de projeto não deixa tombstone órfão (ach
       .post(url('/admin/projects/upload'))
       .set('Authorization', `Bearer ${ownerToken}`)
       .attach('manifest', manifestFile)
-      .attach('imagesDb', dbFile);
+      .attach('tilesDb', dbFile);
   }
 
   before(async () => {
@@ -197,7 +193,7 @@ describe('StreetView 360 — delete de projeto não deixa tombstone órfão (ach
     // A foto antes tombstonada tem de estar VIVA já no primeiro re-upload — não só
     // depois de um segundo upload idêntico.
     await supertest(app).get(url(`/photos/${p2}`)).expect(200);
-    await supertest(app).get(url(`/photos/${p2}/image?quality=full`)).expect(200);
+    await supertest(app).get(url(`/photos/${p2}/tiles/0/0/0`)).expect(200);
 
     const geo = await supertest(app).get(url('/tiles/fotos.geojson')).expect(200);
     const ids = geo.body.features.map((f) => f.properties.id);

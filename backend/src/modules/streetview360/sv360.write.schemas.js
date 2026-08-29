@@ -39,17 +39,15 @@ const photoId = Joi.string()
 
 // --- aggregate calibration body --------------------------------------------
 
-// PUT /photos/:uuid/calibration — any subset of the FROZEN calibration fields;
-// at least one (.min(1)). Field names are the contract names (`height` maps to
-// camera_height in the service whitelist).
+// PUT /photos/:uuid/calibration — any subset of the calibration fields; at least
+// one (.min(1)). Field names are the contract names, mapped to columns by the
+// CALIBRATION_COLUMN_WHITELIST in the service. As colunas inertes que o ebgeo_360
+// não usa (camera_height, distance_scale, marker_scale) saíram em 2026-08-29.
 export const calibrationBodySchema = Joi.object({
   heading: finiteNumber,
-  height: finiteNumber,
   mesh_rotation_x: finiteNumber,
   mesh_rotation_y: finiteNumber,
   mesh_rotation_z: finiteNumber,
-  distance_scale: finiteNumber,
-  marker_scale: finiteNumber,
   floor_level: floorLevel,
   calibration_reviewed: calibrationReviewed,
 })
@@ -94,8 +92,6 @@ export const createTargetBodySchema = Joi.object({
   distance_m: finiteNumber,
   bearing_deg: finiteNumber,
   override_bearing: finiteNumber.allow(null),
-  override_distance: finiteNumber.allow(null),
-  override_height: finiteNumber.allow(null),
   hidden: Joi.boolean().default(false),
 }).unknown(false);
 
@@ -106,12 +102,9 @@ export const createTargetBodySchema = Joi.object({
 const batchItemSchema = Joi.object({
   uuid: photoId.required(),
   heading: finiteNumber,
-  height: finiteNumber,
   mesh_rotation_x: finiteNumber,
   mesh_rotation_y: finiteNumber,
   mesh_rotation_z: finiteNumber,
-  distance_scale: finiteNumber,
-  marker_scale: finiteNumber,
   floor_level: floorLevel,
   calibration_reviewed: calibrationReviewed,
 })

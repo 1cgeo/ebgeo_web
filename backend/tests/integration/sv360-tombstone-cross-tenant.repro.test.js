@@ -28,12 +28,12 @@ import os from 'node:os';
 import { mkdirSync, rmSync, existsSync } from 'node:fs';
 import jwt from 'jsonwebtoken';
 import supertest from 'supertest';
-import Database from 'better-sqlite3';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createProducerUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 import { ingestBundle } from '../../src/modules/streetview360/sv360.ingest.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
+import { buildTilesDb } from '../helpers/sv360-tiles.js';
 
 const JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
 const RID = randomUUID().slice(0, 8);
@@ -78,12 +78,7 @@ describe('sv360 — tombstone do manifesto não atravessa organização (#19)', 
   function buildTmpImagesDb(name, rows) {
     const p = path.join(tmpRoot, name);
     if (existsSync(p)) rmSync(p, { force: true });
-    const sdb = new Database(p);
-    sdb.exec('CREATE TABLE images (photo_id TEXT PRIMARY KEY, full_webp BLOB, preview_webp BLOB)');
-    const ins = sdb.prepare('INSERT INTO images VALUES (?,?,?)');
-    for (const r of rows) ins.run(r.id, r.full, r.preview);
-    sdb.close();
-    return p;
+    return buildTilesDb(p, rows.map((r) => r.id));
   }
 
   /** Bundle mínimo válido de UMA foto, com deleted_photos[] arbitrário. */
@@ -109,11 +104,11 @@ describe('sv360 — tombstone do manifesto não atravessa organização (#19)', 
       targets: [],
       deleted_photos: deletedPhotos,
     };
-    const dbTmpPath = buildTmpImagesDb(`${slug}-${randomUUID().slice(0, 4)}.db`, [
+    const tilesTmpPath = buildTmpImagesDb(`${slug}-${randomUUID().slice(0, 4)}.db`, [
       { id: photoId, full: fullBuf, preview: prevBuf },
     ]);
-    diskPaths.add(path.resolve(config.sv360.dbDir, `${orgId}__${slug}.db`));
-    return { manifest, dbTmpPath, orgId };
+    diskPaths.add(path.resolve(config.sv360.dbDir, `${slug}_tiles.db`));
+    return { manifest, tilesTmpPath, orgId };
   }
 
   before(async () => {

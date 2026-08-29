@@ -16,7 +16,6 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
-import Database from 'better-sqlite3';
 import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -24,6 +23,7 @@ import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import config from '../../src/config.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
+import { buildTilesDb } from '../helpers/sv360-tiles.js';
 import { resolveOrgIdBySlug } from '../../src/modules/streetview360/sv360.merge.js';
 
 const JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
@@ -55,15 +55,12 @@ describe('StreetView 360 — a org default do merge é a org que a migração se
   let app, db, tmpRoot, adminToken, seededDefaultOrgId, otherOrgId;
   const criados = [];
 
+  // Tiles-only: o arquivo de pixel e o `{slug}_tiles.db`, cobrindo as MESMAS fotos.
+  // Nome/assinatura preservados; so o conteudo virou piramide e o `.attach` mudou.
   function buildImagesDb(name, ids) {
     const p = path.join(tmpRoot, name);
     if (existsSync(p)) rmSync(p, { force: true });
-    const sdb = new Database(p);
-    sdb.exec('CREATE TABLE images (photo_id TEXT PRIMARY KEY, full_webp BLOB, preview_webp BLOB)');
-    const ins = sdb.prepare('INSERT INTO images VALUES (?,?,?)');
-    for (const id of ids) ins.run(id, full, prev);
-    sdb.close();
-    return p;
+    return buildTilesDb(p, ids);
   }
 
   function writeManifest(name, obj) {
@@ -101,7 +98,7 @@ describe('StreetView 360 — a org default do merge é a org que a migração se
       .post(url('/admin/projects/upload'))
       .set('Authorization', `Bearer ${adminToken}`)
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(201);
     criados.push({ slug, photoId, dbFilename: res.body.dbFilename });
     return res.body;
@@ -188,17 +185,19 @@ describe('StreetView 360 — a org default do merge é a org que a migração se
     assert.notEqual(rows[0].organization_id, otherOrgId);
   });
 
-  it('o db_filename persistido é prefixado por ESSA mesma org, e o arquivo existe em disco', async () => {
-    // Prova que a derivação do nome e o merge concordaram sobre a org: se o merge
-    // resolvesse uma org e a derivação outra, o Postgres apontaria para um arquivo
-    // que a ingestão nunca escreveu.
+  it('o db_filename persistido é por SLUG, e o {slug}_tiles.db existe em disco', async () => {
+    // Prova que a derivação do nome e o merge concordaram: se o merge resolvesse um
+    // nome e a derivação outro, o Postgres apontaria para um arquivo que a ingestão
+    // nunca escreveu. Tiles-only: o arquivo de pixel no disco é o `{slug}_tiles.db`,
+    // e `db_filename` é a chave lógica `{slug}.db` de onde ele deriva.
     const { rows } = await db.query(`SELECT db_filename FROM sv360.projects WHERE slug = $1`, [
       SLUGS.ausente,
     ]);
-    assert.equal(rows[0].db_filename, `${seededDefaultOrgId}__${SLUGS.ausente}.db`);
+    assert.equal(rows[0].db_filename, `${SLUGS.ausente}.db`);
+    const tiles = rows[0].db_filename.replace(/\.db$/i, '_tiles.db');
     assert.ok(
-      existsSync(path.resolve(config.sv360.dbDir, rows[0].db_filename)),
-      'o {orgId}__{slug}.db precisa existir em SV360_DB_DIR'
+      existsSync(path.resolve(config.sv360.dbDir, tiles)),
+      'o {slug}_tiles.db precisa existir em SV360_DB_DIR'
     );
   });
 
@@ -230,7 +229,7 @@ describe('StreetView 360 — a org default do merge é a org que a migração se
       .post(url('/admin/projects/upload'))
       .set('Authorization', `Bearer ${adminToken}`)
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(422);
 
     // O caminho da ETL: a função pura resolve os marcadores SEM consultar o banco
@@ -261,7 +260,7 @@ describe('StreetView 360 — a org default do merge é a org que a migração se
       .post(url('/admin/projects/upload'))
       .set('Authorization', `Bearer ${adminToken}`)
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(409);
     assert.match(res.body.error, /Unknown organization slug/);
 

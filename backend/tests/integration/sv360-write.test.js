@@ -169,11 +169,11 @@ describe('StreetView 360 — write/calibration contract', () => {
     await db.query(
       `INSERT INTO sv360.photos
          (id, project_id, original_name, display_name, sequence_number, lat, lon, ele,
-          heading, camera_height, mesh_rotation_x, mesh_rotation_y, mesh_rotation_z,
-          distance_scale, marker_scale, floor_level, full_size_bytes, preview_size_bytes,
+          heading, mesh_rotation_x, mesh_rotation_y, mesh_rotation_z,
+          floor_level, full_size_bytes, preview_size_bytes,
           calibration_reviewed, capture_date)
        VALUES ($1, $2, 'w-foto001.jpg', 'W Foto 001', 1, -23.5, -46.6, 720,
-               12, 1.6, 0.1, 0.2, 0.3, 1.5, 2, 1, $3, $4, false, '2024-01-15T10:00:00Z')`,
+               12, 0.1, 0.2, 0.3, 1, $3, $4, false, '2024-01-15T10:00:00Z')`,
       [photoId, enabledProjectId, fullBuf.length, previewBuf.length]
     );
     await db.query(
@@ -223,26 +223,26 @@ describe('StreetView 360 — write/calibration contract', () => {
     const res = await supertest(app)
       .put(url(`/photos/${photoId}/calibration`))
       .set(...auth(produtorToken))
-      .send({ heading: 45, height: 2.2, distance_scale: 3, calibration_reviewed: true })
+      .send({ heading: 45, mesh_rotation_y: 0.5, calibration_reviewed: true })
       .expect(200);
 
     // Bare frozen shape (not {data}).
     assert.equal(res.body.data, undefined);
     assert.equal(res.body.camera.id, photoId);
     assert.equal(res.body.camera.heading, 45);
-    assert.equal(res.body.camera.height, 2.2); // camera_height -> height
-    assert.equal(res.body.camera.distance_scale, 3);
+    assert.equal(res.body.camera.mesh_rotation_y, 0.5);
     assert.equal(res.body.camera.calibration_reviewed, true);
-    // Untouched field preserved.
-    assert.equal(res.body.camera.marker_scale, 2);
+    // Campos inertes saíram do contrato em 2026-08-29 (não existem no ebgeo_360).
+    assert.equal(res.body.camera.height, undefined);
+    assert.equal(res.body.camera.distance_scale, undefined);
+    assert.equal(res.body.camera.marker_scale, undefined);
 
     const { rows } = await db.query(
-      `SELECT heading, camera_height, distance_scale, calibration_reviewed FROM sv360.photos WHERE id = $1`,
+      `SELECT heading, mesh_rotation_y, calibration_reviewed FROM sv360.photos WHERE id = $1`,
       [photoId]
     );
     assert.equal(Number(rows[0].heading), 45);
-    assert.equal(Number(rows[0].camera_height), 2.2);
-    assert.equal(Number(rows[0].distance_scale), 3);
+    assert.equal(Number(rows[0].mesh_rotation_y), 0.5);
     assert.equal(rows[0].calibration_reviewed, true);
   });
 
@@ -263,20 +263,20 @@ describe('StreetView 360 — write/calibration contract', () => {
     await supertest(app)
       .put(url(`/photos/${photoId}/calibration`))
       .set(...auth(produtorToken))
-      .send({ heading: 400, distance_scale: 0, mesh_rotation_x: -3.5 })
+      .send({ heading: 400, mesh_rotation_z: -3.5, mesh_rotation_x: -3.5 })
       .expect(200);
     const { rows } = await db.query(
-      `SELECT heading, distance_scale, mesh_rotation_x FROM sv360.photos WHERE id = $1`,
+      `SELECT heading, mesh_rotation_z, mesh_rotation_x FROM sv360.photos WHERE id = $1`,
       [photoId]
     );
     assert.equal(Number(rows[0].heading), 400);
-    assert.equal(Number(rows[0].distance_scale), 0);
+    assert.equal(Number(rows[0].mesh_rotation_z), -3.5);
     assert.equal(Number(rows[0].mesh_rotation_x), -3.5);
     // Restore so later assertions on this shared photo are unaffected.
     await supertest(app)
       .put(url(`/photos/${photoId}/calibration`))
       .set(...auth(produtorToken))
-      .send({ heading: 45, distance_scale: 3, mesh_rotation_x: 0 })
+      .send({ heading: 45, mesh_rotation_z: 0, mesh_rotation_x: 0 })
       .expect(200);
   });
 
@@ -303,10 +303,10 @@ describe('StreetView 360 — write/calibration contract', () => {
     await supertest(app)
       .put(url(`/photos/${photoId}/calibration`))
       .set(...auth(adminToken))
-      .send({ height: 9.9 })
+      .send({ mesh_rotation_z: 9.9 })
       .expect(200);
-    const { rows } = await db.query(`SELECT camera_height FROM sv360.photos WHERE id = $1`, [photoId]);
-    assert.equal(Number(rows[0].camera_height), 9.9);
+    const { rows } = await db.query(`SELECT mesh_rotation_z FROM sv360.photos WHERE id = $1`, [photoId]);
+    assert.equal(Number(rows[0].mesh_rotation_z), 9.9);
   });
 
   // --- ownership ladder ------------------------------------------------------
@@ -495,7 +495,7 @@ describe('StreetView 360 — write/calibration contract', () => {
       .set(...auth(produtorToken))
       .send({
         photos: [
-          { uuid: photoId, heading: 33, marker_scale: 5 },
+          { uuid: photoId, heading: 33, mesh_rotation_y: 5 },
           { uuid: missing, heading: 10 }, // not found → failed
         ],
       })
@@ -510,11 +510,11 @@ describe('StreetView 360 — write/calibration contract', () => {
     assert.equal(typeof res.body.failed[0].error, 'string');
 
     const { rows } = await db.query(
-      `SELECT heading, marker_scale FROM sv360.photos WHERE id = $1`,
+      `SELECT heading, mesh_rotation_y FROM sv360.photos WHERE id = $1`,
       [photoId]
     );
     assert.equal(Number(rows[0].heading), 33);
-    assert.equal(Number(rows[0].marker_scale), 5);
+    assert.equal(Number(rows[0].mesh_rotation_y), 5);
   });
 
   it('batch-calibration is atomic per the transaction: a forbidden item does not roll back the rest', async () => {

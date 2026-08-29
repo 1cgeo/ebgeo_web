@@ -322,12 +322,9 @@ export async function mergeProject(t, manifest, { orgId, source } = {}) {
       p.lon,
       num(p.ele),
       num(p.heading) ?? 0,
-      num(p.camera_height) ?? 0,
       num(p.mesh_rotation_x) ?? 0,
       num(p.mesh_rotation_y) ?? 0,
       num(p.mesh_rotation_z) ?? 0,
-      num(p.distance_scale) ?? 1,
-      num(p.marker_scale) ?? 1,
       num(p.floor_level) ?? 0,
       num(p.full_size_bytes),
       num(p.preview_size_bytes),
@@ -349,8 +346,6 @@ export async function mergeProject(t, manifest, { orgId, source } = {}) {
       bool(tg.is_next),
       bool(tg.is_original),
       num(tg.override_bearing),
-      num(tg.override_distance),
-      num(tg.override_height),
       bool(tg.hidden),
     ]);
   }

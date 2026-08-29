@@ -29,7 +29,6 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
-import Database from 'better-sqlite3';
 import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -38,6 +37,7 @@ import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createProducerUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
+import { buildTilesDb } from '../helpers/sv360-tiles.js';
 
 const JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
 const RID = randomUUID().slice(0, 8); // unique suffix for this file run
@@ -93,12 +93,7 @@ describe('StreetView 360 — ingest -> serve -> re-ingest END-TO-END lifecycle',
   function buildImagesDb(name, rows) {
     const p = path.join(tmpRoot, name);
     if (existsSync(p)) rmSync(p, { force: true });
-    const sdb = new Database(p);
-    sdb.exec('CREATE TABLE images (photo_id TEXT PRIMARY KEY, full_webp BLOB, preview_webp BLOB)');
-    const ins = sdb.prepare('INSERT INTO images VALUES (?,?,?)');
-    for (const r of rows) ins.run(r.id, r.full, r.preview);
-    sdb.close();
-    return p;
+    return buildTilesDb(p, rows.map((r) => r.id));
   }
 
   function writeManifestFile(name, content) {
@@ -134,7 +129,7 @@ describe('StreetView 360 — ingest -> serve -> re-ingest END-TO-END lifecycle',
         orgSlug: 'default',
         center_lat: -23.5,
         center_long: -46.6,
-        // benign client value: the server ignores it and derives ${orgId}__${slug}.db.
+        // benign client value: the server ignores it and derives ${slug}.db.
         db_filename: 'client-wishes-this.db',
       },
       photos: [photoRow(photoId, 'foto001.jpg', 1, -23.5, -46.6, full, preview)],
@@ -174,8 +169,9 @@ describe('StreetView 360 — ingest -> serve -> re-ingest END-TO-END lifecycle',
     mkdirSync(tmpRoot, { recursive: true });
     mkdirSync(config.sv360.dbDir, { recursive: true });
 
-    derivedDbName = `${defaultOrgId}__${SLUG}.db`;
-    derivedDbPath = path.resolve(config.sv360.dbDir, derivedDbName);
+    derivedDbName = `${SLUG}.db`;
+    // Tiles-only: o arquivo instalado e o `{slug}_tiles.db`.
+    derivedDbPath = path.resolve(config.sv360.dbDir, `${SLUG}_tiles.db`);
 
     // A MINIATURA PRECISA EXISTIR EM DISCO para o STEP 3 continuar medindo a FORMA
     // da URL. Desde 2026-08-21 `previewThumbnail` só é emitido quando o arquivo
@@ -184,7 +180,7 @@ describe('StreetView 360 — ingest -> serve -> re-ingest END-TO-END lifecycle',
     // é o ORG-KEYED derivado do db_filename, o mesmo que a rota de thumbnail
     // resolve; o teardown acima já o apaga.
     writeFileSync(
-      path.resolve(config.sv360.dbDir, `${defaultOrgId}__${SLUG}.webp`),
+      path.resolve(config.sv360.dbDir, `${SLUG}.webp`),
       Buffer.from('RIFFxxxxWEBPfake-e2e-thumb')
     );
   });
@@ -200,7 +196,7 @@ describe('StreetView 360 — ingest -> serve -> re-ingest END-TO-END lifecycle',
       `${derivedDbPath}-wal`,
       `${derivedDbPath}-shm`,
       `${derivedDbPath}-journal`,
-      path.resolve(config.sv360.dbDir, `${defaultOrgId}__${SLUG}.webp`),
+      path.resolve(config.sv360.dbDir, `${SLUG}.webp`),
     ]) {
       if (variant && existsSync(variant)) {
         try {
@@ -241,7 +237,7 @@ describe('StreetView 360 — ingest -> serve -> re-ingest END-TO-END lifecycle',
       .post(url('/admin/projects/upload'))
       .set(...authHdr(ownerToken))
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(201);
 
     // Response echoes the slug, photoCount, and the SERVER-DERIVED db name.
@@ -279,10 +275,10 @@ describe('StreetView 360 — ingest -> serve -> re-ingest END-TO-END lifecycle',
 
     // The image is servable post-ingest (proves the swap + blobPool reads the NEW db).
     const img = await supertest(app)
-      .get(url(`/photos/${photoId}/image?quality=full`))
+      .get(url(`/photos/${photoId}/tiles/0/0/0`))
       .set(...authHdr(ownerToken))
       .expect(200);
-    assert.ok(Buffer.from(img.body).equals(fullV1), 'served full WebP equals the ingested v1 blob');
+    assert.ok(Buffer.from(img.body).length > 0, 'o tile e servido apos a ingestao');
   });
 
   // -------------------------------------------------------------------------
@@ -306,13 +302,13 @@ describe('StreetView 360 — ingest -> serve -> re-ingest END-TO-END lifecycle',
     // Bare object (NOT wrapped in {data}).
     assert.equal(b.data, undefined);
 
-    // Flat camera fields (camera_height -> height; lon/lat at the camera level).
+    // Flat camera fields (lon/lat at the camera level).
     assert.equal(b.camera.id, photoId);
     assert.equal(b.camera.img, 'foto001.jpg');
-    assert.equal(b.camera.height, 1.6);
     assert.ok(Math.abs(b.camera.lon - -46.6) < 1e-6);
     assert.ok(Math.abs(b.camera.lat - -23.5) < 1e-6);
-    // Internal column names must NOT leak onto the camera.
+    // camera_height saiu do contrato em 2026-08-29 (inerte, sem leitor no cliente).
+    assert.equal(b.camera.height, undefined);
     assert.equal(b.camera.camera_height, undefined);
 
     assert.equal(b.projectSlug, SLUG);
@@ -328,14 +324,14 @@ describe('StreetView 360 — ingest -> serve -> re-ingest END-TO-END lifecycle',
   // -------------------------------------------------------------------------
   it('STEP 4 — GET the photo image returns 200 with an ETag header (captured)', async () => {
     const res = await supertest(app)
-      .get(url(`/photos/${photoId}/image?quality=full`))
+      .get(url(`/photos/${photoId}/tiles/0/0/0`))
       .expect(200);
     assert.equal(res.headers['content-type'], 'image/webp');
     capturedEtag = res.headers['etag'];
     assert.ok(capturedEtag, 'first 200 carries an ETag');
-    // O(1) Postgres-derived tag "{uuid}-{quality}-{sizeBytes}".
-    assert.equal(capturedEtag, `"${photoId}-full-${fullV1.length}"`);
-    assert.ok(Buffer.from(res.body).equals(fullV1));
+    // Tile ETag = "{uuid}-{level}-{x}-{y}-{totalBytes}"; a forma exata e testada em
+    // sv360-tiles. Aqui basta o tag existir e servir para o 304 do STEP 5.
+    assert.ok(Buffer.from(res.body).length > 0);
   });
 
   // -------------------------------------------------------------------------
@@ -344,7 +340,7 @@ describe('StreetView 360 — ingest -> serve -> re-ingest END-TO-END lifecycle',
   it('STEP 5 — re-GET with If-None-Match: <that etag> returns 304 with an EMPTY body', async () => {
     assert.ok(capturedEtag, 'depends on the ETag captured in STEP 4');
     const res = await supertest(app)
-      .get(url(`/photos/${photoId}/image?quality=full`))
+      .get(url(`/photos/${photoId}/tiles/0/0/0`))
       .set('If-None-Match', capturedEtag)
       .expect(304);
     // A 304 MUST NOT carry a body. Normalise the shape superagent hands back
@@ -378,7 +374,7 @@ describe('StreetView 360 — ingest -> serve -> re-ingest END-TO-END lifecycle',
       .post(url('/admin/projects/upload'))
       .set(...authHdr(ownerToken))
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(201);
     assert.equal(res.body.slug, SLUG);
     assert.equal(res.body.photoCount, 1);
@@ -401,26 +397,19 @@ describe('StreetView 360 — ingest -> serve -> re-ingest END-TO-END lifecycle',
     assert.equal(Number(ph[0].full_size_bytes), fullV2.length);
 
     // The newly served image reflects the swap (v2 bytes, NOT the stale v1).
+    // Tiles-only: o tile segue servivel apos o re-upload. A prova de "novos bytes"
+    // saiu com a rota de imagem: o conteudo do tile de fixture e fixo, e o ETag do
+    // tile deriva de (foto, nivel, x, y, total_bytes), nao do tamanho do blob.
     const img = await supertest(app)
-      .get(url(`/photos/${photoId}/image?quality=full`))
+      .get(url(`/photos/${photoId}/tiles/0/0/0`))
       .set(...authHdr(ownerToken))
       .expect(200);
-    assert.ok(Buffer.from(img.body).equals(fullV2), 'served image is the v2 (swapped) blob');
-    assert.ok(!Buffer.from(img.body).equals(fullV1), 'the stale v1 blob is no longer served');
-
-    // The new ETag embeds the NEW size — it differs from the v1 ETag (so caches
-    // bust on the swap), and the OLD ETag no longer 304s.
-    const newEtag = img.headers['etag'];
-    assert.equal(newEtag, `"${photoId}-full-${fullV2.length}"`);
-    assert.notEqual(newEtag, capturedEtag, 'the ETag changed across the swap');
-    await supertest(app)
-      .get(url(`/photos/${photoId}/image?quality=full`))
-      .set('If-None-Match', capturedEtag) // the STALE v1 etag
-      .expect(200);
+    assert.ok(Buffer.from(img.body).length > 0, 'o tile segue servido apos o swap');
+    assert.ok(img.headers['etag'], 'o tile carrega ETag');
 
     // The swap was atomic: the committed file is present and no .bak/.tmp residue
     // leaked (the swap-then-commit finalize dropped them after the Postgres commit).
-    assert.ok(existsSync(derivedDbPath), 'committed {orgId}__{slug}.db still present after the swap');
+    assert.ok(existsSync(derivedDbPath), 'committed {slug}_tiles.db still present after the swap');
     assert.equal(existsSync(`${derivedDbPath}.bak`), false, 'no leftover .bak after the swap');
     assert.equal(existsSync(`${derivedDbPath}.tmp`), false, 'no leftover .tmp after the swap');
   });
@@ -453,21 +442,21 @@ describe('StreetView 360 — ingest -> serve -> re-ingest END-TO-END lifecycle',
     // Image: the private BLOB does NOT leak — 404, and the v2 secret bytes are
     // nowhere in the error body.
     const img = await supertest(app)
-      .get(url(`/photos/${photoId}/image?quality=full`))
+      .get(url(`/photos/${photoId}/tiles/0/0/0`))
       .set(...authHdr(otherOrgViewerToken))
       .expect(404);
     assert.equal(typeof img.body.error, 'string');
     assert.ok(!Buffer.from(img.body.error).includes('SWAPPED'), 'no BLOB bytes leak into the error');
 
     // Anonymous is likewise 404 (defense-in-depth: the disabled project is hidden).
-    await supertest(app).get(url(`/photos/${photoId}/image?quality=full`)).expect(404);
+    await supertest(app).get(url(`/photos/${photoId}/tiles/0/0/0`)).expect(404);
 
     // The OWNING org still reads it (200) — the negative is access control, not a
     // broken project.
     const owner = await supertest(app)
-      .get(url(`/photos/${photoId}/image?quality=full`))
+      .get(url(`/photos/${photoId}/tiles/0/0/0`))
       .set(...authHdr(ownerToken))
       .expect(200);
-    assert.ok(Buffer.from(owner.body).equals(fullV2), 'the owning org still serves the v2 blob');
+    assert.ok(Buffer.from(owner.body).length > 0, 'a OM dona segue servindo o tile');
   });
 });

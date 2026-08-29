@@ -84,6 +84,8 @@ const fonte = arquivos(dirSrc, (n) => n.endsWith('.js') || n.endsWith('.html'))
  */
 const PREFIXOS_DINAMICOS = Object.freeze([
     'admin-cat-',                  // `admin-cat-${cat.key}`        — admin/catalog-tab.js
+    'admin-catalog-cfg-',          // `admin-catalog-cfg-${path}`   — admin/catalog-tab.js (config em campos)
+    'admin-catalog-json-',         // `admin-catalog-json-${key}`   — admin/catalog-tab.js (caixas JSON estruturadas)
     'atlas-settings-nav-',         // `atlas-settings-nav-${s.id}`  — modals/atlas-settings.modal.js
     'atlas-settings-projection-',  // `atlas-settings-projection-${c.id}`
     'comments-group-',             // `comments-group-${key}`       — comment_tool/comments-panel.js

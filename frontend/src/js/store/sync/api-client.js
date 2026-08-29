@@ -1036,13 +1036,8 @@ export class ApiClient {
         return this._request('PUT', '/config/admin', { body: overrides });
     }
 
-    /**
-     * Admin: clears ALL config overrides (revert to the deploy STATIC/ENV defaults).
-     * @returns {Promise<{ overrides: Object }>}
-     */
-    async clearConfigOverrides() {
-        return this._request('DELETE', '/config/admin');
-    }
+    // `clearConfigOverrides` (DELETE /config/admin) saiu em 2026-08-29 junto com o botão "Limpar
+    // todos os overrides" da aba Sistema, que era o único chamador. A rota do servidor continua.
 
     // ===== CATALOG — RESOURCES (admin metadata CRUD; requireAdmin server-side) =====
     // These manage the catalog METADATA only (the `config` JSONB: name/url/thumbnail/style/…);
@@ -1096,8 +1091,8 @@ export class ApiClient {
     }
 
     /**
-     * Updates a catalog item (partial metadata). `owner_org_id` never travels here either — see
-     * `createResource`; a transfer between organizations is not this route.
+     * Updates a catalog item (partial metadata). `owner_org_id` never travels here — a transfer
+     * between organizations is `transferResourceOwner`, its own admin-only route.
      * @param {string} category
      * @param {string} id
      * @param {{ name?: string, description?: string, config?: Object, sort_order?: number }} payload
@@ -1105,6 +1100,63 @@ export class ApiClient {
      */
     async updateResource(category, id, payload) {
         return this._request('PUT', `/${this._catalogEndpoint(category)}/${encodeURIComponent(id)}`, { body: payload });
+    }
+
+    /**
+     * Transfers a catalog item's OWNING organization (`owner_org_id`). Admin-only server-side
+     * (`PATCH /:id/owner-org`); `null` returns the item to the institutional collection.
+     *
+     * It is a SEPARATE route from `updateResource` on purpose: the three ordinary writes never
+     * read `owner_org_id` from the body (a producer maintains, never transfers), so moving a row
+     * to another OM is a system act gated by `requireAdmin`, not by production scope.
+     * @param {string} category
+     * @param {string} id
+     * @param {string|null} ownerOrgId - The new owning OM id, or null for institutional.
+     * @returns {Promise<Object>}
+     */
+    async transferResourceOwner(category, id, ownerOrgId) {
+        return this._request(
+            'PATCH',
+            `/${this._catalogEndpoint(category)}/${encodeURIComponent(id)}/owner-org`,
+            { body: { owner_org_id: ownerOrgId ?? null } },
+        );
+    }
+
+    /**
+     * ENVIA o vídeo de prévia de um recurso (multipart, campo `video`). O arquivo é hospedado no
+     * servidor e a URL servida entra em `config.previewVideo`. Admin/produtor server-side.
+     * @param {string} category - 'tileset'|'data_layer'|'analysis_layer' (o mapa base não tem vídeo)
+     * @param {string} id
+     * @param {File|Blob} file - MP4 ou WebM, até 50 MB (validado por magic bytes no servidor)
+     * @returns {Promise<Object>} a linha do recurso
+     */
+    async uploadResourceVideo(category, id, file) {
+        await this._ensureFreshAccessToken();
+        const form = new FormData();
+        form.append('video', file, file?.name || 'video.mp4');
+        const headers = this._accessToken ? { Authorization: `Bearer ${this._accessToken}` } : {};
+        const res = await this._fetch(
+            `${this.baseUrl}/${this._catalogEndpoint(category)}/${encodeURIComponent(id)}/preview-video`,
+            { method: 'POST', headers, body: form },
+        );
+        const parsed = await this._parseBody(res);
+        if (!res.ok) {
+            const err = parsed && typeof parsed === 'object' ? parsed.error : null;
+            throw new ApiError(buildApiErrorMessage(err, res.status), {
+                status: res.status, code: err?.code, details: err?.details,
+            });
+        }
+        return parsed?.data ?? parsed;
+    }
+
+    /**
+     * REMOVE o vídeo de prévia de um recurso (tira a chave e apaga o arquivo hospedado).
+     * @param {string} category
+     * @param {string} id
+     * @returns {Promise<Object>}
+     */
+    async removeResourceVideo(category, id) {
+        return this._request('DELETE', `/${this._catalogEndpoint(category)}/${encodeURIComponent(id)}/preview-video`);
     }
 
     /**
@@ -1353,31 +1405,122 @@ export class ApiClient {
     }
 
     /**
-     * Grava o METADADO editável de um projeto 360 — hoje só o vídeo de prévia.
+     * Grava o METADADO editável de um projeto 360: nome, descrição, palavra-chave, local, data de
+     * captura e o centro (longitude/latitude). O VÍDEO NÃO é gravado aqui: ele virou envio de
+     * arquivo (`uploadSv360Video`/`removeSv360Video`), então esta rota não o produz.
      *
-     * Rota PRÓPRIA, e não a de status: `PATCH /sv360/admin/projects/:slug` nasceu com este
-     * campo porque `sv360.projects` não tem `config` JSONB como as quatro tabelas de
-     * catálogo, então o vídeo do 360 é coluna e precisa de porta de escrita.
+     * Rota PRÓPRIA, e não a de status: `PATCH /sv360/admin/projects/:slug` nasceu porque
+     * `sv360.projects` não tem `config` JSONB como as quatro tabelas de catálogo, então cada
+     * metadado do 360 é coluna e precisa de porta de escrita.
      *
      * `orgId` importa pela mesma razão de `setSv360ProjectStatus`: slug é único por
      * ORGANIZAÇÃO, não globalmente, e um administrador que lista todas as OMs pode ver o
      * mesmo slug duas vezes.
      *
-     * STRING VAZIA É O "REMOVER", e ela precisa CHEGAR ao servidor: o padrão de descarte de
-     * `listAudit` (que joga fora `''` para não montar filtro vazio) seria exatamente errado
-     * aqui, porque transformaria "apagar o vídeo" num PATCH sem corpo, que o Joi recusa com
-     * 422. Por isso o corpo é montado explicitamente e não por varredura de chaves.
+     * ENVIA SÓ OS CAMPOS PRESENTES no payload, e é isso que torna a atualização PARCIAL: mandar um
+     * campo que não mudou o reescreveria. STRING VAZIA de um campo de texto (descrição, local)
+     * CHEGA ao servidor, porque a chave está presente (o `undefined` é que não entra), e ali vira
+     * NULL na coluna. O corpo é montado por presença explícita, nunca por `?? ''`.
      *
      * @param {string} slug
-     * @param {{previewVideo?: string|null}} payload
+     * @param {{name?: string, description?: string, keywords?: string[], location?: string, captureDate?: string, centerLat?: number, centerLong?: number}} payload
      * @param {{orgId?: string}} [options]
      * @returns {Promise<Object>} a linha atualizada (envelope PLANO do 360, sem `{data}`)
      */
     async updateSv360ProjectMetadata(slug, payload, { orgId } = {}) {
         const qs = orgId ? `?orgId=${encodeURIComponent(orgId)}` : '';
-        return this._request('PATCH', `/sv360/admin/projects/${encodeURIComponent(slug)}${qs}`, {
-            body: { previewVideo: payload?.previewVideo ?? '' },
+        // Só as chaves PRESENTES viajam (atualização parcial): mandar uma chave que não mudou a
+        // reescreveria. `keywords`/`location`/`captureDate`/`centerLat`/`centerLong` são os campos
+        // do cartão de catálogo (paralelo do 3D). `previewVideo` NÃO está na lista: o vídeo virou
+        // ENVIO de arquivo (`uploadSv360Video`/`removeSv360Video`), então nenhum chamador o manda
+        // por aqui; o servidor ainda aceita a chave, mas o cliente não a produz.
+        const body = {};
+        for (const k of ['name', 'description', 'keywords', 'location', 'captureDate', 'centerLat', 'centerLong']) {
+            if (payload?.[k] !== undefined) body[k] = payload[k];
+        }
+        return this._request('PATCH', `/sv360/admin/projects/${encodeURIComponent(slug)}${qs}`, { body });
+    }
+
+    /**
+     * ENVIA o vídeo de prévia de um projeto 360 (multipart, campo `video`). Hospedado no servidor,
+     * a URL entra na coluna `preview_video`. `orgId` opcional desambigua o slug.
+     * @param {string} slug
+     * @param {File|Blob} file - MP4 ou WebM, até 50 MB
+     * @param {{orgId?: string}} [options]
+     * @returns {Promise<Object>} a linha do projeto (envelope plano)
+     */
+    async uploadSv360Video(slug, file, { orgId } = {}) {
+        await this._ensureFreshAccessToken();
+        const form = new FormData();
+        form.append('video', file, file?.name || 'video.mp4');
+        const qs = orgId ? `?orgId=${encodeURIComponent(orgId)}` : '';
+        const headers = this._accessToken ? { Authorization: `Bearer ${this._accessToken}` } : {};
+        const res = await this._fetch(
+            `${this.baseUrl}/sv360/admin/projects/${encodeURIComponent(slug)}/preview-video${qs}`,
+            { method: 'POST', headers, body: form },
+        );
+        const parsed = await this._parseBody(res);
+        if (!res.ok) {
+            const err = parsed && typeof parsed === 'object' ? parsed.error : null;
+            throw new ApiError(buildApiErrorMessage(err, res.status), {
+                status: res.status, code: err?.code, details: err?.details,
+            });
+        }
+        return parsed;
+    }
+
+    /**
+     * REMOVE o vídeo de prévia de um projeto 360 (coluna + arquivo). `orgId` desambigua o slug.
+     * @param {string} slug
+     * @param {{orgId?: string}} [options]
+     * @returns {Promise<Object>}
+     */
+    async removeSv360Video(slug, { orgId } = {}) {
+        const qs = orgId ? `?orgId=${encodeURIComponent(orgId)}` : '';
+        return this._request('DELETE', `/sv360/admin/projects/${encodeURIComponent(slug)}/preview-video${qs}`);
+    }
+
+    /**
+     * Transfere a OM DONA de um projeto 360 (só-admin no servidor). É troca de coluna: nenhum
+     * arquivo em disco é renomeado. `orgId` opcional desambigua o slug de ORIGEM.
+     * @param {string} slug
+     * @param {string} ownerOrgId - a OM destino
+     * @param {{orgId?: string}} [options]
+     * @returns {Promise<Object>} a linha atualizada (envelope plano do 360)
+     */
+    async transferSv360ProjectOwner(slug, ownerOrgId, { orgId } = {}) {
+        const qs = orgId ? `?orgId=${encodeURIComponent(orgId)}` : '';
+        return this._request('PATCH', `/sv360/admin/projects/${encodeURIComponent(slug)}/owner-org${qs}`, {
+            body: { owner_org_id: ownerOrgId },
         });
+    }
+
+    /**
+     * Substitui a thumbnail de um projeto 360 (multipart, campo `thumbnail`). O servidor valida
+     * WebP por magic bytes antes de gravar. `orgId` opcional desambigua o slug.
+     * @param {string} slug
+     * @param {File|Blob} file
+     * @param {{orgId?: string}} [options]
+     * @returns {Promise<Object>} a linha do projeto (envelope plano do 360)
+     */
+    async uploadSv360Thumbnail(slug, file, { orgId } = {}) {
+        await this._ensureFreshAccessToken();
+        const form = new FormData();
+        form.append('thumbnail', file, file?.name || 'thumb.webp');
+        const qs = orgId ? `?orgId=${encodeURIComponent(orgId)}` : '';
+        const headers = this._accessToken ? { Authorization: `Bearer ${this._accessToken}` } : {};
+        const res = await this._fetch(
+            `${this.baseUrl}/sv360/admin/projects/${encodeURIComponent(slug)}/thumbnail${qs}`,
+            { method: 'POST', headers, body: form },
+        );
+        const parsed = await this._parseBody(res);
+        if (!res.ok) {
+            const err = parsed && typeof parsed === 'object' ? parsed.error : null;
+            throw new ApiError(buildApiErrorMessage(err, res.status), {
+                status: res.status, code: err?.code, details: err?.details,
+            });
+        }
+        return parsed;
     }
 
     /**

@@ -4,15 +4,6 @@
 // the router-level sv360ErrorHandler (Joi → 422).
 import Joi from 'joi';
 
-// Image quality selector (?quality=full|preview, default full). `unknown(true)`
-// keeps any extra query params from being rejected (forward-compat).
-export const imageQuerySchema = Joi.object({
-  quality: Joi.string().valid('full', 'preview').default('full'),
-  // O atlas em foco. Mesmo campo, mesma regra e mesmo gate do `atlasScopeQuerySchema`;
-  // ele se repete porque esta rota já tinha schema de query próprio.
-  atlasId: Joi.string().trim().guid(),
-}).unknown(true);
-
 // ?atlasId= — o ATLAS EM FOCO, para o braço de EMPRÉSTIMO do predicado de leitura.
 //
 // OPCIONAL de propósito: "sem atlas em foco" é o estado normal de quem abre o 360

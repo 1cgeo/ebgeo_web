@@ -23,11 +23,11 @@
 //       body is empty). Plus: a STALE/mismatched If-None-Match still streams 200.
 //   (4) db_filename DERIVED (positive) — a successful upload whose manifest carries
 //       a BENIGN but DIFFERENT db_filename must persist the SERVER-derived
-//       `${orgId}__{slug}.db` in Postgres (the client value is ignored, not just
+//       `{slug}.db` in Postgres (the client value is ignored, not just
 //       for the malicious case). Asserted on a real upload.
 //   (5) out-of-range LON manifest → 422 + flat { error } (the ingest suite covers
 //       out-of-range LAT; the lon path + its envelope were unasserted).
-//   (6) successful ingest COMMITS the new {orgId}__{slug}.db with no .bak/.tmp left
+//   (6) successful ingest COMMITS the new {slug}.db with no .bak/.tmp left
 //       (the swap-then-commit SUCCESS finalize — siblings assert the FAILED path).
 //
 // Seeds are SQL (reads) + a real multipart upload (ingest); fixtures mirror the
@@ -46,9 +46,10 @@ import path from 'node:path';
 import os from 'node:os';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
-import { createAdminUser, createProducerUser } from '../helpers/fixtures.js';
+import { createProducerUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
+import { buildTilesDb } from '../helpers/sv360-tiles.js';
 
 const JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
 const RID = randomUUID().slice(0, 8); // unique suffix for this file run
@@ -95,7 +96,7 @@ describe('StreetView 360 — coverage of genuinely-untested behavior', () => {
   let app, db;
   let defaultOrgId, otherOrgId;
   let enabledProjectId, disabledProjectId;
-  let ownerToken, adminToken, otherOrgViewerToken, otherOrgEditorToken;
+  let ownerToken, otherOrgEditorToken;
   let tmpRoot;
   // Track on-disk .db/.webp paths to clean in teardown.
   const diskPaths = new Set();
@@ -104,18 +105,14 @@ describe('StreetView 360 — coverage of genuinely-untested behavior', () => {
   const enabledPhotoId = uuidv5(`enabled/${ENABLED_SLUG}/cov-foto.jpg`);
   const disabledPhotoId = uuidv5(`disabled/${DISABLED_SLUG}/cov-secret.jpg`);
 
-  // Org-keyed db_filename (parallels deriveDbFilename → ${orgId}__${slug}.db).
+  // Org-keyed db_filename (parallels deriveDbFilename → ${slug}.db).
   let enabledDbName, disabledDbName, enabledDbPath, disabledDbPath;
 
+  // Tiles-only: o arquivo de pixel do bundle e o `{slug}_tiles.db`.
   function buildImagesDb(name, rows) {
     const p = path.join(tmpRoot, name);
     if (existsSync(p)) rmSync(p, { force: true });
-    const sdb = new Database(p);
-    sdb.exec('CREATE TABLE images (photo_id TEXT PRIMARY KEY, full_webp BLOB, preview_webp BLOB)');
-    const ins = sdb.prepare('INSERT INTO images VALUES (?,?,?)');
-    for (const r of rows) ins.run(r.id, r.full, r.preview);
-    sdb.close();
-    return p;
+    return buildTilesDb(p, rows.map((r) => r.id));
   }
 
   function writeManifestFile(name, content) {
@@ -162,21 +159,18 @@ describe('StreetView 360 — coverage of genuinely-untested behavior', () => {
     // sintetico escreveria (o gate de escrita e JS) e nao leria nada — um 404 com cara
     // de autorizacao que e, na verdade, fixture.
     const produtor = await createProducerUser(db, defaultOrgId, { username: `cov_prod_${RID}` });
-    const administrador = await createAdminUser(db, { username: `cov_admin_${RID}` });
     const produtorOutra = await createProducerUser(db, otherOrgId, { username: `cov_prodb_${RID}` });
 
     ownerToken = mintToken({ orgId: defaultOrgId, producerOrgId: defaultOrgId, sub: produtor.id });
-    adminToken = mintToken({ orgId: otherOrgId, role: 'admin', sub: administrador.id });
     // Apenas LOTADO na outra OM: e o ator que o modelo antigo autorizava.
-    otherOrgViewerToken = mintToken({ orgId: otherOrgId });
     otherOrgEditorToken = mintToken({ orgId: otherOrgId, producerOrgId: otherOrgId, sub: produtorOutra.id });
 
     tmpRoot = path.join(os.tmpdir(), `sv360-cov-${RID}`);
     mkdirSync(tmpRoot, { recursive: true });
     mkdirSync(config.sv360.dbDir, { recursive: true });
 
-    enabledDbName = `${defaultOrgId}__${ENABLED_SLUG}.db`;
-    disabledDbName = `${otherOrgId}__${DISABLED_SLUG}.db`;
+    enabledDbName = `${ENABLED_SLUG}.db`;
+    disabledDbName = `${DISABLED_SLUG}.db`;
     enabledDbPath = path.resolve(config.sv360.dbDir, enabledDbName);
     disabledDbPath = path.resolve(config.sv360.dbDir, disabledDbName);
     diskPaths.add(enabledDbPath);
@@ -203,8 +197,8 @@ describe('StreetView 360 — coverage of genuinely-untested behavior', () => {
     await db.query(
       `INSERT INTO sv360.photos
          (id, project_id, original_name, display_name, sequence_number, lat, lon, ele,
-          heading, camera_height, full_size_bytes, preview_size_bytes, capture_date)
-       VALUES ($1, $2, 'cov-foto.jpg', 'Cov Foto', 1, -23.5, -46.6, 720, 12, 1.6, $3, $4,
+          heading, full_size_bytes, preview_size_bytes, capture_date)
+       VALUES ($1, $2, 'cov-foto.jpg', 'Cov Foto', 1, -23.5, -46.6, 720, 12, $3, $4,
                '2024-02-01T10:00:00Z')`,
       [enabledPhotoId, enabledProjectId, fullBuf.length, prevBuf.length]
     );
@@ -216,7 +210,7 @@ describe('StreetView 360 — coverage of genuinely-untested behavior', () => {
       [disabledPhotoId, disabledProjectId, disFullBuf.length, disFullBuf.length]
     );
 
-    // Build the per-project {orgId}__{slug}.db files with the WebP blobs.
+    // Build the per-project {slug}.db files with the WebP blobs.
     const e = new Database(enabledDbPath);
     e.exec('CREATE TABLE images (photo_id TEXT PRIMARY KEY, full_webp BLOB, preview_webp BLOB)');
     e.prepare('INSERT INTO images VALUES (?,?,?)').run(enabledPhotoId, fullBuf, prevBuf);
@@ -259,46 +253,6 @@ describe('StreetView 360 — coverage of genuinely-untested behavior', () => {
   });
 
   // -------------------------------------------------------------------------
-  // (1) Image-route ACCESS NEGATIVE — the private BLOB must not leak.
-  // -------------------------------------------------------------------------
-
-  it('image route: a disabled-project image is 404 for anon (private BLOB does not leak)', async () => {
-    const res = await supertest(app)
-      .get(url(`/photos/${disabledPhotoId}/image?quality=full`))
-      .expect(404);
-    // Flat { error } envelope (NOT { error: { code, message } }).
-    assert.equal(typeof res.body.error, 'string');
-    // And the response is NOT the secret blob (no leak even in the error body).
-    assert.ok(!Buffer.from(res.body.error).includes('SECRET'));
-  });
-
-  it('image route: a OM PRODUTORA e o admin global LEEM a imagem do projeto oculto (200, bytes reais)', async () => {
-    // QUEM LE O OCULTO MUDOU NESTA FASE, e o ator deste caso com ele: era "membro da
-    // OM" (`organization_id`, LOTACAO auto-declarada no auto-cadastro) e passou a ser
-    // a OM PRODUTORA (`producer_org_id`, concedido por administrador). O par negativo
-    // logo abaixo e o que torna a troca visivel: a conta apenas LOTADA na mesma OM,
-    // que o modelo antigo deixava entrar, hoje leva 404.
-    const member = await supertest(app)
-      .get(url(`/photos/${disabledPhotoId}/image?quality=full`))
-      .set(...authHdr(otherOrgEditorToken))
-      .expect(200);
-    assert.equal(member.headers['content-type'], 'image/webp');
-    assert.ok(Buffer.from(member.body).equals(disFullBuf), 'a OM produtora recebe o blob oculto de verdade');
-
-    // O NEGATIVO NO MESMO CORPO: lotado na OM produtora, sem cracha, nao le.
-    await supertest(app)
-      .get(url(`/photos/${disabledPhotoId}/image?quality=full`))
-      .set(...authHdr(otherOrgViewerToken))
-      .expect(404);
-
-    const admin = await supertest(app)
-      .get(url(`/photos/${disabledPhotoId}/image?quality=full`))
-      .set(...authHdr(adminToken))
-      .expect(200);
-    assert.ok(Buffer.from(admin.body).equals(disFullBuf), 'global admin gets the real disabled blob');
-  });
-
-  // -------------------------------------------------------------------------
   // (2) by-UUID metadata ACCESS NEGATIVE (distinct from the by-NAME path).
   // -------------------------------------------------------------------------
 
@@ -324,66 +278,14 @@ describe('StreetView 360 — coverage of genuinely-untested behavior', () => {
   });
 
   // -------------------------------------------------------------------------
-  // (3) ETag ROUND-TRIP 304 on the IMAGE route (served etag, empty 304 body).
-  // -------------------------------------------------------------------------
-
-  it('image route: the SERVED ETag round-trips to a 304 with an EMPTY body', async () => {
-    // First GET → capture the ETag the server actually emits (not a hardcoded one).
-    const first = await supertest(app)
-      .get(url(`/photos/${enabledPhotoId}/image?quality=full`))
-      .expect(200);
-    const etag = first.headers['etag'];
-    assert.ok(etag, 'first 200 carries an ETag');
-    assert.equal(etag, `"${enabledPhotoId}-full-${fullBuf.length}"`); // O(1) Postgres-derived
-
-    // Re-GET with the served ETag verbatim → 304, no body.
-    const second = await supertest(app)
-      .get(url(`/photos/${enabledPhotoId}/image?quality=full`))
-      .set('If-None-Match', etag)
-      .expect(304);
-    // A 304 MUST NOT carry a body. Normalise the shape superagent hands back
-    // (Buffer for a binary route, text otherwise) and assert ZERO bytes — one
-    // fact, not a menu of tolerated outcomes.
-    const bodyBytes = Buffer.isBuffer(second.body)
-      ? second.body.length
-      : Buffer.byteLength(second.text ?? '');
-    assert.equal(bodyBytes, 0, 'a 304 carries no body');
-    assert.equal(second.headers['content-length'], undefined);
-  });
-
-  it('image route: a STALE If-None-Match still streams a fresh 200 with the full body', async () => {
-    const res = await supertest(app)
-      .get(url(`/photos/${enabledPhotoId}/image?quality=full`))
-      .set('If-None-Match', '"some-old-etag-that-does-not-match"')
-      .expect(200);
-    assert.equal(res.body.length, fullBuf.length);
-    assert.ok(Buffer.from(res.body).equals(fullBuf));
-  });
-
-  it('image route: full and preview qualities yield DISTINCT ETags (the quality is part of the tag)', async () => {
-    const full = await supertest(app)
-      .get(url(`/photos/${enabledPhotoId}/image?quality=full`))
-      .expect(200);
-    const preview = await supertest(app)
-      .get(url(`/photos/${enabledPhotoId}/image?quality=preview`))
-      .expect(200);
-    assert.notEqual(full.headers['etag'], preview.headers['etag']);
-    // A preview ETag fed to a full request must NOT 304 (different tag).
-    await supertest(app)
-      .get(url(`/photos/${enabledPhotoId}/image?quality=full`))
-      .set('If-None-Match', preview.headers['etag'])
-      .expect(200);
-  });
-
-  // -------------------------------------------------------------------------
   // (4) db_filename DERIVED (positive): a BENIGN client value is overridden.
   // (6) successful ingest COMMITS the new file, no .bak/.tmp residue.
   // -------------------------------------------------------------------------
 
   it('upload: a benign client db_filename is IGNORED — Postgres records the server-derived name; the file commits clean', async () => {
     const slug = `cov-derive-${RID}`;
-    const derived = `${defaultOrgId}__${slug}.db`;
-    const derivedPath = path.resolve(config.sv360.dbDir, derived);
+    const derived = `${slug}.db`;
+    const derivedPath = path.resolve(config.sv360.dbDir, derived.replace(/.db$/i, "_tiles.db"));
     diskPaths.add(derivedPath);
     assert.equal(existsSync(derivedPath), false, 'precondition: no file yet');
 
@@ -409,13 +311,13 @@ describe('StreetView 360 — coverage of genuinely-untested behavior', () => {
       .post(url('/admin/projects/upload'))
       .set(...authHdr(ownerToken))
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(201);
     // Response echoes the DERIVED name, not the client's.
     assert.equal(res.body.dbFilename, derived);
     assert.notEqual(res.body.dbFilename, 'client-supplied-name.db');
 
-    // Postgres persisted the server-derived `${orgId}__{slug}.db`.
+    // Postgres persisted the server-derived `{slug}.db`.
     const { rows } = await db.query(
       `SELECT db_filename FROM sv360.projects WHERE organization_id = $1 AND slug = $2`,
       [defaultOrgId, slug]
@@ -434,12 +336,12 @@ describe('StreetView 360 — coverage of genuinely-untested behavior', () => {
       'the client-supplied db_filename must never be written'
     );
 
-    // The newly ingested image is servable from the committed file.
-    const img = await supertest(app)
-      .get(url(`/photos/${okId}/image?quality=full`))
+    // O tile recem-ingerido e servivel a partir do arquivo comitado.
+    const tile = await supertest(app)
+      .get(url(`/photos/${okId}/tiles/0/0/0`))
       .set(...authHdr(ownerToken))
       .expect(200);
-    assert.ok(Buffer.from(img.body).equals(fullBuf));
+    assert.ok(Buffer.from(tile.body).length > 0);
 
     // Cleanup this project's rows (file removed by teardown via diskPaths).
     await db.query(`DELETE FROM sv360.projects WHERE organization_id = $1 AND slug = $2`, [
@@ -455,8 +357,8 @@ describe('StreetView 360 — coverage of genuinely-untested behavior', () => {
 
   it('upload: a manifest with lon out of range → 422 + flat { error }; NOTHING is committed', async () => {
     const slug = `cov-badlon-${RID}`;
-    const derived = `${defaultOrgId}__${slug}.db`;
-    const derivedPath = path.resolve(config.sv360.dbDir, derived);
+    const derived = `${slug}.db`;
+    const derivedPath = path.resolve(config.sv360.dbDir, derived.replace(/.db$/i, "_tiles.db"));
     diskPaths.add(derivedPath);
 
     const okId = uuidv5(`default/${slug}/b001.jpg`);
@@ -476,7 +378,7 @@ describe('StreetView 360 — coverage of genuinely-untested behavior', () => {
       .post(url('/admin/projects/upload'))
       .set(...authHdr(ownerToken))
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(422);
     assert.equal(typeof res.body.error, 'string');
     assert.equal(res.body.error.error, undefined, 'envelope is FLAT, not nested');

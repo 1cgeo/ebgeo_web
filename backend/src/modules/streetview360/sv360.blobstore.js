@@ -11,13 +11,6 @@ import path from 'node:path';
 import { blobPool } from '../../utils/sqlite-blob-pool.js';
 import config from '../../config.js';
 
-// Fixed allowlist: the SQLite column is chosen from quality, never interpolated
-// from raw user input.
-const QUALITY_COLUMN = Object.freeze({
-  full: 'full_webp',
-  preview: 'preview_webp',
-});
-
 /**
  * Resolves the absolute path of a project's {slug}.db inside config.sv360.dbDir.
  * `dbFilename` ALWAYS comes from sv360.projects.db_filename (Postgres), never
@@ -31,35 +24,15 @@ export function resolveDbPath(dbFilename) {
 }
 
 /**
- * Reads a photo's WebP BLOB from its project's {slug}.db on a worker thread.
+ * Resolves the absolute path of a project's {slug}_tiles.db — o arquivo SQLite de
+ * pixel do projeto, com as pirâmides de tile de cada panorâmica.
  *
- * Waits out an in-progress ingestion/delete swap of that file first (achado 61):
- * during the swap the destination is momentarily ABSENT (it lives under .bak while
- * .tmp is renamed over it), and the existsSync probe below would report a perfectly
- * live photo as missing → 404. `whenAvailable` resolves immediately in steady
- * state; blobPool.read() itself also defers if the window opens after this point.
- * @param {string} dbFile - absolute path from resolveDbPath()
- * @param {string} photoId - TEXT uuid v5 photo id (bound parameter)
- * @param {'full'|'preview'} quality - selects full_webp or preview_webp
- * @returns {Promise<Buffer|null>} the BLOB, or null if the db/row/blob is absent
- */
-export async function getImage(dbFile, photoId, quality) {
-  const col = QUALITY_COLUMN[quality] || QUALITY_COLUMN.full;
-  if (typeof blobPool.whenAvailable === 'function') await blobPool.whenAvailable(dbFile);
-  if (!existsSync(dbFile)) return null;
-  return blobPool.read(dbFile, `SELECT ${col} FROM images WHERE photo_id = ?`, [photoId]);
-}
-
-/**
- * Resolves the absolute path of a project's {slug}_tiles.db — the SECOND SQLite file
- * of a project, holding the tile pyramids of its panoramas.
- *
- * WHY A SECOND FILE, and not more columns in {slug}.db. It mirrors the origin
- * (ebgeo_360 writes `{slug}_tiles.db` beside `{slug}.db`), which is what lets a bundle
- * be copied over without a conversion step. It also keeps the two lifetimes apart: the
- * origin RETIRED the `full_webp`/`preview_webp` columns of 29 projects (64.6 GB freed)
- * and the pyramid file is now the only source of pixels for them, so a project can
- * legitimately arrive with one file and not the other.
+ * É O ÚNICO ARQUIVO DE PIXEL do projeto no web desde 2026-08-29 (tiles-only): a
+ * `{slug}.db` de blob full/preview e a rota de imagem inteira saíram, e toda foto
+ * passou a ter pirâmide. `db_filename` continua sendo a chave LÓGICA `{slug}.db`
+ * (nenhum arquivo com esse nome existe), de onde este caminho deriva o `_tiles.db`
+ * e de onde a miniatura deriva o `.webp`. A origem (ebgeo_360) ainda escreve os dois
+ * arquivos lado a lado, e é dela que o bundle vem.
  *
  * The name is DERIVED from db_filename, which always comes from Postgres, never from
  * user input; path.basename strips any directory component as a traversal defense —

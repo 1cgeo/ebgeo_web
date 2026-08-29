@@ -23,7 +23,6 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
-import Database from 'better-sqlite3';
 import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -31,6 +30,7 @@ import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import config from '../../src/config.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
+import { buildTilesDb } from '../helpers/sv360-tiles.js';
 import { canWriteProject } from '../../src/modules/streetview360/sv360.write.service.js';
 
 const JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
@@ -83,15 +83,11 @@ describe('StreetView 360 — o pré-filtro de upload roda ANTES do multer (FIX-4
     return jwt.sign(claims, JWT_SECRET, { algorithm: 'HS256', expiresIn: '15m' });
   }
 
+  // Tiles-only: o arquivo de pixel e o `{slug}_tiles.db`, cobrindo as MESMAS fotos.
   function buildImagesDb(name, ids) {
     const p = path.join(tmpRoot, name);
     if (existsSync(p)) rmSync(p, { force: true });
-    const sdb = new Database(p);
-    sdb.exec('CREATE TABLE images (photo_id TEXT PRIMARY KEY, full_webp BLOB, preview_webp BLOB)');
-    const ins = sdb.prepare('INSERT INTO images VALUES (?,?,?)');
-    for (const id of ids) ins.run(id, full, prev);
-    sdb.close();
-    return p;
+    return buildTilesDb(p, ids);
   }
 
   function bundle(slug) {
@@ -174,7 +170,7 @@ describe('StreetView 360 — o pré-filtro de upload roda ANTES do multer (FIX-4
       .post(url('/admin/projects/upload'))
       .set('Authorization', `Bearer ${token({})}`)
       .attach('manifest', b.manifestPath)
-      .attach('imagesDb', b.imagesDbPath)
+      .attach('tilesDb', b.imagesDbPath)
       .attach('bogus', b.manifestPath);
 
     assert.equal(res.status, 403, 'o pré-filtro precisa vencer o multer na ordem da cadeia');
@@ -190,7 +186,7 @@ describe('StreetView 360 — o pré-filtro de upload roda ANTES do multer (FIX-4
       .post(url('/admin/projects/upload'))
       .set('Authorization', `Bearer ${token({})}`)
       .attach('manifest', b.manifestPath)
-      .attach('imagesDb', b.imagesDbPath)
+      .attach('tilesDb', b.imagesDbPath)
       .expect(403);
   });
 
@@ -203,7 +199,7 @@ describe('StreetView 360 — o pré-filtro de upload roda ANTES do multer (FIX-4
       .post(url('/admin/projects/upload'))
       .set('Authorization', `Bearer ${token({ organization_id: null })}`)
       .attach('manifest', b.manifestPath)
-      .attach('imagesDb', b.imagesDbPath);
+      .attach('tilesDb', b.imagesDbPath);
     assert.equal(res.status, 403);
   });
 
@@ -212,7 +208,7 @@ describe('StreetView 360 — o pré-filtro de upload roda ANTES do multer (FIX-4
     const res = await supertest(app)
       .post(url('/admin/projects/upload'))
       .attach('manifest', b.manifestPath)
-      .attach('imagesDb', b.imagesDbPath);
+      .attach('tilesDb', b.imagesDbPath);
     assert.equal(res.status, 401, 'falta de credencial não pode ser reportada como falta de permissão');
   });
 
@@ -228,7 +224,7 @@ describe('StreetView 360 — o pré-filtro de upload roda ANTES do multer (FIX-4
       .post(url('/admin/projects/upload'))
       .set('Authorization', `Bearer ${token({ producerOrgId: orgId })}`)
       .attach('manifest', b.manifestPath)
-      .attach('imagesDb', b.imagesDbPath);
+      .attach('tilesDb', b.imagesDbPath);
     assert.equal(res.status, 201, res.body?.error ?? '');
     assert.equal(res.body.slug, slug);
   });
@@ -244,7 +240,7 @@ describe('StreetView 360 — o pré-filtro de upload roda ANTES do multer (FIX-4
       .post(url('/admin/projects/upload'))
       .set('Authorization', `Bearer ${token({ role: 'admin' })}`)
       .attach('manifest', b.manifestPath)
-      .attach('imagesDb', b.imagesDbPath);
+      .attach('tilesDb', b.imagesDbPath);
     assert.equal(res.status, 201, res.body?.error ?? '');
   });
 
@@ -268,7 +264,7 @@ describe('StreetView 360 — o pré-filtro de upload roda ANTES do multer (FIX-4
         .post(url('/admin/projects/upload'))
         .set('Authorization', `Bearer ${token(claims)}`)
         .attach('manifest', b.manifestPath)
-        .attach('imagesDb', b.imagesDbPath);
+        .attach('tilesDb', b.imagesDbPath);
       assert.notEqual(res.status, 403, `o pré-filtro barrou ${rotulo}, que o serviço autoriza`);
       assert.equal(res.status, 201, `${rotulo}: ${res.body?.error ?? ''}`);
     }

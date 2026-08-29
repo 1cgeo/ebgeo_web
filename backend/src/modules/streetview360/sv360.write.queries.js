@@ -17,12 +17,9 @@
 // column names.
 export const CALIBRATION_COLUMN_WHITELIST = {
   heading: 'heading',
-  height: 'camera_height',
   mesh_rotation_x: 'mesh_rotation_x',
   mesh_rotation_y: 'mesh_rotation_y',
   mesh_rotation_z: 'mesh_rotation_z',
-  distance_scale: 'distance_scale',
-  marker_scale: 'marker_scale',
   floor_level: 'floor_level',
   calibration_reviewed: 'calibration_reviewed',
 };
@@ -55,13 +52,12 @@ export const UPDATE_TARGET_VISIBILITY = `
 // Create a directed adjacency link. ON CONFLICT on the composite PK is left to
 // raise (the service maps the PK violation / pre-check to a 409 ConflictError).
 //   $1 = source_id, $2 = target_id, $3 = distance_m, $4 = bearing_deg,
-//   $5 = is_next, $6 = is_original, $7 = override_bearing,
-//   $8 = override_distance, $9 = override_height, $10 = hidden
+//   $5 = is_next, $6 = is_original, $7 = override_bearing, $8 = hidden
 export const INSERT_TARGET = `
   INSERT INTO sv360.targets
     (source_id, target_id, distance_m, bearing_deg, is_next, is_original,
-     override_bearing, override_distance, override_height, hidden)
-  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     override_bearing, hidden)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 `;
 
 // Guard for createTarget: the destination photo must exist, live in the SAME

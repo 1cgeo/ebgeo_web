@@ -24,15 +24,12 @@
  * tamanho diferente. Reaproveitar a instancia do principal faria as duas
  * cameras brigarem pelo mesmo nivel a cada frame.
  *
- * SEM PIRAMIDE, o caminho de hoje continua inteiro: preview e depois full. A
- * sonda do `tiles.json` e ESPERADA antes do preview, ao contrario do viewer.js,
- * que as dispara juntas. O painel nao pode emitir `image?quality=preview` na
- * foto que tem piramide, porque o `preview_webp` vai ser apagado do disco; uma
- * volta de rede a mais no caminho de excecao e o preco disso.
+ * TILES-ONLY desde 2026-08-29: o ingest passou a EXIGIR piramide, entao toda foto
+ * servida compoe por tiles no ramo acima. A rota de imagem inteira saiu do backend,
+ * e com ela o fallback preview/full que este painel tinha para a foto sem piramide.
  */
 
 import * as THREE from '../../vendor/three/three.module.js';
-import { getPhotoImageUrl } from './api.js';
 import { createTileLoader } from '../street_view_tool/tile-loader.js';
 import { StreetViewProjector } from './projector.js';
 import { state, isTargetHidden, onChange } from './state.js';
@@ -100,7 +97,6 @@ let rearCameraConfig = null;
 
 // Reusable Vector3
 const _lookAtTarget = new THREE.Vector3();
-const textureLoader = new THREE.TextureLoader();
 
 // ---- Piramide de tiles do painel -------------------------------------------
 
@@ -819,56 +815,10 @@ async function tentarTiles(photoId, generation) {
 async function carregarPanorama(photoId, generation) {
     if (await tentarTiles(photoId, generation)) return;
 
-    try {
-        await loadTexture(getPhotoImageUrl(photoId, 'preview'), true, generation);
-    } catch {
-        // Preview failed
-    }
-
-    if (generation !== loadGeneration) return;
-
-    try {
-        await loadTexture(getPhotoImageUrl(photoId, 'full'), false, generation);
-    } catch (err) {
-        console.error('Preview viewer: failed to load full image:', err);
-    }
-}
-
-function loadTexture(url, isPreview, generation = loadGeneration) {
-    return new Promise((resolve, reject) => {
-        textureLoader.load(
-            url,
-            (texture) => {
-                texture.colorSpace = THREE.SRGBColorSpace;
-
-                // Carga obsoleta (outro show*/hide* foi disparado): descarta.
-                if (generation !== loadGeneration) {
-                    texture.dispose();
-                    resolve();
-                    return;
-                }
-
-                if (isPreview && material.map && material.map.userData?.isFull) {
-                    texture.dispose();
-                    resolve();
-                    return;
-                }
-
-                descartarTexturaAtual();
-
-                texture.userData = { isFull: !isPreview };
-                material.map = texture;
-                material.color.set(0xffffff);
-                material.needsUpdate = true;
-                // A textura chega fora do ciclo de interacao: sem isto a esfera
-                // so apareceria no proximo movimento de camera.
-                markPreviewNeedsRender();
-                resolve();
-            },
-            undefined,
-            (err) => reject(err)
-        );
-    });
+    // TILES-ONLY (2026-08-29): o ingest exige piramide, entao toda foto servida cai
+    // no ramo de tiles acima. A rota de imagem inteira saiu do backend, e com ela o
+    // fallback preview/full deste visualizador de retaguarda.
+    console.warn('[calibracao/preview] foto sem piramide de tiles e sem fallback de imagem (tiles-only)');
 }
 
 // ============================================================================

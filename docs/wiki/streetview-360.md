@@ -75,7 +75,7 @@ A forma pública ganhou `previewVideo` em 2026-08-21, e ele ilustra a regra: a c
 
 ## Validação de calibração não tem faixas (de propósito)
 
-Todo numérico é `Joi.number()` finito, sem `min`/`max`, e as colunas não têm CHECK (`backend/src/modules/streetview360/sv360.write.schemas.js`). `heading: 400` e `distance_scale: 0` são **aceitos**. Não adivinhe faixas: apertar aqui rejeitaria valores que o acervo já carrega, gerados pelo pipeline de ingestão e não pelo estúdio. As únicas faixas do produto são de tela, valem só para as três rotações de malha e vivem no estúdio, que hoje mora aqui: ver [[calibracao-e-grafo-360]]. Corpo vazio ou campo desconhecido dá 422 (todos os schemas são `.min(1)` + `.unknown(false)`).
+Todo numérico é `Joi.number()` finito, sem `min`/`max`, e as colunas não têm CHECK (`backend/src/modules/streetview360/sv360.write.schemas.js`). `heading: 400` e rotações de malha negativas são **aceitos**. Não adivinhe faixas: apertar aqui rejeitaria valores que o acervo já carrega, gerados pelo pipeline de ingestão e não pelo estúdio. As únicas faixas do produto são de tela, valem só para as três rotações de malha e vivem no estúdio, que hoje mora aqui: ver [[calibracao-e-grafo-360]]. Corpo vazio ou campo desconhecido dá 422 (todos os schemas são `.min(1)` + `.unknown(false)`).
 
 ## Tiles e o quirk do cliente
 

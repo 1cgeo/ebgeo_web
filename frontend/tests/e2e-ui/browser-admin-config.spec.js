@@ -64,9 +64,9 @@ describeOrSkip('Admin panel — Sistema (config) tab (real browser + real backen
         const newTitle = `EBGeo ${Math.random().toString(36).slice(2, 7)}`;
         await page.locator('[data-testid="admin-config-app-title"]').fill(newTitle);
         await page.locator('[data-testid="admin-config-feat-grid"]').check();
-        // An ADVANCED override for a key with no form field (map3d.initialCamera) — proves any config
-        // path is editable. The curated fields above merge on top.
-        await page.locator('[data-testid="admin-config-advanced"]').fill('{"map3d":{"initialCamera":{"height":777}}}');
+        // O editor "Avançado (JSON)" saiu em 2026-08-29 (decisão do dono): só os campos
+        // curados chegam ao override. Este caso prova o caminho GET/PUT com os dois campos
+        // curados que ele já editava.
         await page.locator('[data-testid="admin-config-save"]').click();
         await expect(page.locator('[data-testid="admin-config-notice"]')).toBeVisible({ timeout: 10000 });
 
@@ -79,6 +79,5 @@ describeOrSkip('Admin panel — Sistema (config) tab (real browser + real backen
         });
         expect(cfg.app.title).toBe(newTitle);
         expect(cfg.features.grid).toBe(true);
-        expect(cfg.map3d.initialCamera.height).toBe(777);
     });
 });

@@ -274,7 +274,6 @@ const CENSO_ROTA = [
   json('src/modules/streetview360/sv360.routes.js', 'GET /photos/by-name/:nome'),
   json('src/modules/streetview360/sv360.routes.js', 'GET /photos/:uuid'),
   json('src/modules/streetview360/sv360.routes.js', 'GET /photos/:uuid/nearby'),
-  bytes('src/modules/streetview360/sv360.routes.js', 'GET /photos/:uuid/image', 'src/modules/streetview360/sv360.controller.js'),
   // A pirâmide de tiles: o DESCRITOR sai por `res.json` (é metadado da escada) e o TILE
   // sai como bytes, pelo mesmo caminho da imagem. Os dois lados da mesma foto, e é por
   // isso que aparecem em classes diferentes deste censo.
@@ -420,13 +419,9 @@ const CENSO_EMISSOR = [
     classe: E_BYTES, motivo: BYTES_DE_ARQUIVO },
   { arquivo: 'src/modules/streetview360/sv360.controller.js', texto: 'return res.status(416).setHeader(\'Content-Range\', `bytes */${st.size}`).end();', n: 1,
     classe: E_SEM_CORPO, motivo: SEM_CORPO },
-  { arquivo: 'src/modules/streetview360/sv360.controller.js', texto: 'if (req.headers[\'if-none-match\'] === d.etag) return res.status(304).end();', n: 2,
+  { arquivo: 'src/modules/streetview360/sv360.controller.js', texto: 'if (req.headers[\'if-none-match\'] === d.etag) return res.status(304).end();', n: 1,
     classe: E_SEM_CORPO, motivo: SEM_CORPO },
-  { arquivo: 'src/modules/streetview360/sv360.controller.js', texto: 'return res.status(416).setHeader(\'Content-Range\', `bytes */${size}`).end();', n: 1,
-    classe: E_SEM_CORPO, motivo: SEM_CORPO },
-  { arquivo: 'src/modules/streetview360/sv360.controller.js', texto: 'return res.end(buf.subarray(range.start, range.end + 1));', n: 1,
-    classe: E_BYTES, motivo: BYTES_DE_ARQUIVO },
-  { arquivo: 'src/modules/streetview360/sv360.controller.js', texto: 'return res.end(buf);', n: 2,
+  { arquivo: 'src/modules/streetview360/sv360.controller.js', texto: 'return res.end(buf);', n: 1,
     classe: E_BYTES, motivo: BYTES_DE_ARQUIVO },
 
   { arquivo: 'src/modules/streetview360/sv360.write.controller.js', texto: 'res.status(204).end();', n: 2,

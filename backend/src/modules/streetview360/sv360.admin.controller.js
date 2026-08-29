@@ -8,9 +8,9 @@
 // its column in 2026-08-20. Responses follow the FROZEN flat 360 contract: bare JSON (NOT wrapped
 // in {data}); errors bubble to the router-level sv360ErrorHandler ({ error }).
 //
-// The upload reads the multer.fields() result (req.files.{manifest,imagesDb,
-// thumbnail}[0].path — disk storage, the images.db is multi-GB and streamed to a
-// tmp path, never in memory). The controller ALWAYS cleans the multer tmp files
+// The upload reads the multer.fields() result (req.files.{manifest,tilesDb,
+// thumbnail}[0].path — disk storage, the {slug}_tiles.db can be multi-GB and is
+// streamed to a tmp path, never in memory). The controller ALWAYS cleans the multer tmp files
 // in a finally: on success the images.db tmp was already copied by the swap, so
 // removing the leftover tmp is safe; on failure all tmp files are removed.
 import { existsSync, rmSync } from 'node:fs';
@@ -33,23 +33,20 @@ function cleanTmp(p) {
 }
 
 /**
- * POST /sv360/admin/projects/upload — ingest a bundle (manifest.json + images.db
- * + optional {slug}_tiles.db + optional thumbnail.webp) via multipart. 201 with the
- * project summary.
- * Ownership + merge tx + atomic {slug}.db swap happen in the service/ingest.
+ * POST /sv360/admin/projects/upload — ingest a bundle (manifest.json + {slug}_tiles.db
+ * + optional thumbnail.webp) via multipart. 201 with the project summary.
+ * Ownership + merge tx + atomic {slug}_tiles.db swap happen in the service/ingest.
  */
 export const uploadProject = asyncHandler(async (req, res) => {
   const files = req.files || {};
   const manifestPath = files.manifest?.[0]?.path;
-  const imagesDbPath = files.imagesDb?.[0]?.path;
-  // OPCIONAL, e obrigatório na prática para acervo só-tiles: sem ele
-  // `validateImagesDb` recusa o bundle, porque não sobraria fonte de pixel nenhuma.
+  // TILES-ONLY: o unico arquivo de pixel e o `{slug}_tiles.db`, e ele e obrigatorio.
   const tilesDbPath = files.tilesDb?.[0]?.path;
   const thumbnailPath = files.thumbnail?.[0]?.path;
 
   try {
     if (!manifestPath) throw new BadRequestError('manifest field is required');
-    if (!imagesDbPath) throw new BadRequestError('imagesDb field is required');
+    if (!tilesDbPath) throw new BadRequestError('tilesDb field is required');
 
     // O `orgId` SAI DO ENVELOPE E NÃO ENTRA NA RESPOSTA: o corpo do 201 é contrato
     // congelado do 360 (envelope plano, sem `{data}`), e a OM está aqui só para a
@@ -57,7 +54,6 @@ export const uploadProject = asyncHandler(async (req, res) => {
     // que é o evento de NASCIMENTO do recurso dele.
     const { orgId, ...result } = await asvc.uploadBundle(req.user, {
       manifestPath,
-      imagesDbPath,
       tilesDbPath,
       thumbnailPath,
     });
@@ -86,11 +82,10 @@ export const uploadProject = asyncHandler(async (req, res) => {
     });
     res.status(201).json(result);
   } finally {
-    // manifest + thumbnail tmp are always disposable; the images.db tmp was
+    // manifest + thumbnail tmp are always disposable; the {slug}_tiles.db tmp was
     // copied by the swap on success and should be removed on failure too.
     cleanTmp(manifestPath);
     cleanTmp(thumbnailPath);
-    cleanTmp(imagesDbPath);
     cleanTmp(tilesDbPath);
   }
 });

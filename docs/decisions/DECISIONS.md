@@ -103,6 +103,13 @@ viram commit, teste e, se ensinaram algo, linha no [`docs/livro-razao.md`](../li
 | 2026-08-28 | O import não-aditivo descarta os mapas do escopo antes da primeira escrita | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-28 | A vivacidade do socket deixa de depender do temporizador da página | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-28 | O lote de saída do cliente cai de cem para vinte e cinco, porque cem perdia nos dois eixos | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-29 | O administrador transfere a OM dona de um recurso, e a aba Sistema perde dois controles | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-29 | Auto-cadastro vira toggle de runtime; a "Ordem" do catálogo sai; a config de recurso vira campos | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-29 | O projeto 360 ganha paridade de edição com o 3D (renomear pela UI) | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-29 | O projeto 360 vira paralelo exato do 3D, com a calibração a mais | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-29 | O vídeo de prévia vira ENVIO de arquivo hospedado, e o rótulo do tile server fica claro | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-29 | O botão "Limpar overrides" sai, e o 360 ganha os campos de cartão do catálogo | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-29 | O 360 do web converge com o ebgeo_360: arquivo por SLUG e colunas inertes podadas | [decisions-2026.md](decisions-2026.md) |
 
 As duas linhas de 2026-08-16 acima entraram em 2026-08-18: as entradas integrais existiam no arquivo
 do ano e ninguém acrescentara a linha aqui, que é a metade do procedimento que falha calada (o índice

@@ -88,11 +88,11 @@ describe('StreetView 360 — read-only contract', () => {
     await db.query(
       `INSERT INTO sv360.photos
          (id, project_id, original_name, display_name, sequence_number, lat, lon, ele,
-          heading, camera_height, mesh_rotation_x, mesh_rotation_y, mesh_rotation_z,
-          distance_scale, marker_scale, floor_level, full_size_bytes, preview_size_bytes,
+          heading, mesh_rotation_x, mesh_rotation_y, mesh_rotation_z,
+          floor_level, full_size_bytes, preview_size_bytes,
           calibration_reviewed, capture_date)
        VALUES ($1, $2, 'foto001.jpg', 'Foto 001', 1, -23.5, -46.6, 720,
-               12, 1.6, 0.1, 0.2, 0.3, 1.5, 2, 1, $3, $4, true, '2024-01-15T10:00:00Z')`,
+               12, 0.1, 0.2, 0.3, 1, $3, $4, true, '2024-01-15T10:00:00Z')`,
       [photoId, enabledProjectId, fullBuf.length, previewBuf.length]
     );
     await db.query(
@@ -198,12 +198,14 @@ describe('StreetView 360 — read-only contract', () => {
     assert.equal(b.camera.id, photoId);
     assert.equal(b.camera.img, 'foto001.jpg');
     assert.equal(b.camera.display_name, 'Foto 001');
-    assert.equal(b.camera.height, 1.6); // camera_height -> height
+    // camera_height / distance_scale / marker_scale saíram do contrato em
+    // 2026-08-29 (inertes, sem leitor no cliente, não existem no ebgeo_360).
+    assert.equal(b.camera.height, undefined);
+    assert.equal(b.camera.distance_scale, undefined);
+    assert.equal(b.camera.marker_scale, undefined);
     assert.equal(b.camera.mesh_rotation_y, 0.2);
     assert.equal(b.camera.mesh_rotation_x, 0.1);
     assert.equal(b.camera.mesh_rotation_z, 0.3);
-    assert.equal(b.camera.distance_scale, 1.5);
-    assert.equal(b.camera.marker_scale, 2);
     assert.equal(b.camera.floor_level, 1);
     assert.equal(b.camera.calibration_reviewed, true);
     assert.ok(Math.abs(b.camera.lon - -46.6) < 1e-6);
@@ -230,54 +232,6 @@ describe('StreetView 360 — read-only contract', () => {
     assert.equal(t.bearing_deg, undefined);
     assert.equal(t.distance_m, undefined);
     assert.equal(t.override_bearing, null);
-  });
-
-  // (c) image serving
-  it('serves the full image (200) with the O(1) ETag + Content-Type', async () => {
-    const res = await supertest(app)
-      .get(`/api/v1/sv360/photos/${photoId}/image?quality=full`)
-      .expect(200);
-    assert.equal(res.headers['content-type'], 'image/webp');
-    assert.equal(res.headers['etag'], `"${photoId}-full-${fullBuf.length}"`);
-    assert.equal(res.headers['accept-ranges'], 'bytes');
-    assert.match(res.headers['cache-control'], /immutable/);
-    assert.ok(Buffer.isBuffer(res.body));
-    assert.equal(res.body.length, fullBuf.length);
-    assert.ok(res.body.equals(fullBuf));
-  });
-
-  it('serves the preview image with a distinct ETag', async () => {
-    const res = await supertest(app)
-      .get(`/api/v1/sv360/photos/${photoId}/image?quality=preview`)
-      .expect(200);
-    assert.equal(res.headers['etag'], `"${photoId}-preview-${previewBuf.length}"`);
-    assert.equal(res.body.length, previewBuf.length);
-  });
-
-  it('304s on a matching If-None-Match (no BLOB read)', async () => {
-    const etag = `"${photoId}-full-${fullBuf.length}"`;
-    await supertest(app)
-      .get(`/api/v1/sv360/photos/${photoId}/image`)
-      .set('If-None-Match', etag)
-      .expect(304);
-  });
-
-  it('serves a Range (206) with Content-Range', async () => {
-    const res = await supertest(app)
-      .get(`/api/v1/sv360/photos/${photoId}/image`)
-      .set('Range', 'bytes=0-3')
-      .expect(206);
-    assert.match(res.headers['content-range'], new RegExp(`^bytes 0-3/${fullBuf.length}$`));
-    assert.equal(res.headers['content-length'], '4');
-    assert.ok(res.body.equals(fullBuf.subarray(0, 4)));
-  });
-
-  it('rejects an invalid Range (416)', async () => {
-    const res = await supertest(app)
-      .get(`/api/v1/sv360/photos/${photoId}/image`)
-      .set('Range', 'bytes=999999-')
-      .expect(416);
-    assert.match(res.headers['content-range'], new RegExp(`^bytes \\*/${fullBuf.length}$`));
   });
 
   // (d) error envelope

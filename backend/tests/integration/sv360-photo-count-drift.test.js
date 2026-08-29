@@ -22,7 +22,6 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
-import Database from 'better-sqlite3';
 import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -31,6 +30,7 @@ import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createProducerUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
+import { buildTilesDb } from '../helpers/sv360-tiles.js';
 
 const JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
 const RID = crypto.randomUUID().slice(0, 8);
@@ -56,15 +56,11 @@ const url = (p) => `/api/v1/sv360${p}`;
 describe('StreetView 360 — photo_count publicado bate com o que a API entrega', () => {
   let app, db, tmpRoot, orgId, token, destPath;
 
+  // Tiles-only: o arquivo de pixel e o `{slug}_tiles.db`, cobrindo as MESMAS fotos.
   function buildImagesDb(name, ids) {
     const p = path.join(tmpRoot, name);
     if (existsSync(p)) rmSync(p, { force: true });
-    const sdb = new Database(p);
-    sdb.exec('CREATE TABLE images (photo_id TEXT PRIMARY KEY, full_webp BLOB, preview_webp BLOB)');
-    const ins = sdb.prepare('INSERT INTO images VALUES (?,?,?)');
-    for (const id of ids) ins.run(id, full, prev);
-    sdb.close();
-    return p;
+    return buildTilesDb(p, ids);
   }
 
   function photoRow(id, seq) {
@@ -94,7 +90,7 @@ describe('StreetView 360 — photo_count publicado bate com o que a API entrega'
       .post(url('/admin/projects/upload'))
       .set('Authorization', `Bearer ${token}`)
       .attach('manifest', manifestPath)
-      .attach('imagesDb', buildImagesDb(`${nome}.images.db`, [p1, p2]));
+      .attach('tilesDb', buildImagesDb(`${nome}.images.db`, [p1, p2]));
     assert.equal(res.status, 201, res.body?.error ?? '');
     return res.body;
   }

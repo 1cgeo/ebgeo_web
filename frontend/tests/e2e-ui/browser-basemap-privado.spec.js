@@ -72,14 +72,11 @@ async function criarBasemap(page, { id, nome, acesso }) {
     await page.locator('[data-testid="admin-catalog-id"]').fill(id);
     await page.locator('[data-testid="admin-catalog-name"]').fill(nome);
     await page.locator('[data-testid="admin-catalog-priority"]').fill('99');
-    await page.locator('[data-testid="admin-catalog-config"]').fill(JSON.stringify({
-        enabled: true,
-        priority: 99,
-        style: {
-            version: 8,
-            sources: {},
-            layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#c2185b' } }],
-        },
+    // O estilo MapLibre mora numa caixa JSON dedicada (o editor JSON geral saiu em 2026-08-29).
+    await page.locator('[data-testid="admin-catalog-json-style"]').fill(JSON.stringify({
+        version: 8,
+        sources: {},
+        layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#c2185b' } }],
     }));
     await page.locator('[data-testid="admin-catalog-access"]').selectOption(acesso);
     await page.locator('[data-testid="admin-catalog-save"]').click();

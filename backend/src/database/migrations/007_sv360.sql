@@ -138,12 +138,9 @@ CREATE TABLE sv360.photos (
     lon                  DOUBLE PRECISION NOT NULL,
     ele                  DOUBLE PRECISION,
     heading              DOUBLE PRECISION NOT NULL DEFAULT 0,
-    camera_height        DOUBLE PRECISION NOT NULL DEFAULT 0,
     mesh_rotation_x      DOUBLE PRECISION NOT NULL DEFAULT 0,
     mesh_rotation_y      DOUBLE PRECISION NOT NULL DEFAULT 0,
     mesh_rotation_z      DOUBLE PRECISION NOT NULL DEFAULT 0,
-    distance_scale       DOUBLE PRECISION NOT NULL DEFAULT 1,
-    marker_scale         DOUBLE PRECISION NOT NULL DEFAULT 1,
     -- NÍVEL DO ANDAR, a régua que todo consumidor aplica: 0 = TÉRREO (externo,
     -- pátio, campo e todo espaço interno no nível do solo), 1 = primeiro andar
     -- interno, negativo = subsolo. Inteiro ORDENÁVEL porque o seletor empilha os
@@ -221,8 +218,6 @@ CREATE TABLE sv360.targets (
     is_next           BOOLEAN NOT NULL DEFAULT false,
     is_original       BOOLEAN NOT NULL DEFAULT false,
     override_bearing  DOUBLE PRECISION,
-    override_distance DOUBLE PRECISION,
-    override_height   DOUBLE PRECISION,
     hidden            BOOLEAN NOT NULL DEFAULT false,
     PRIMARY KEY (source_id, target_id)
 );

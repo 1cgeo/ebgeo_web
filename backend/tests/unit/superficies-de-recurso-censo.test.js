@@ -497,13 +497,6 @@ const CENSO_CONSULTA = [
       + 'e um público prova a diferença.',
   },
   {
-    arquivo: 'src/modules/streetview360/sv360.queries.js', unidade: 'GET_PHOTO_SIZES', n: 2,
-    classe: SQL, predicado: P_360,
-    motivo: 'A fonte O(1) do ETag e o caminho do {slug}.db, ou seja, a porta dos BYTES da imagem. '
-      + 'Era a mais grave das quatro: sem predicado ela entregava o WebP inteiro, e ainda o marcava '
-      + '`public, max-age=1ano, immutable`.',
-  },
-  {
     arquivo: 'src/modules/streetview360/sv360.pyramid.queries.js', unidade: 'GET_PHOTO_PYRAMID', n: 2,
     classe: SQL, predicado: P_360,
     motivo: 'A SEGUNDA porta para o mesmo pixel: desde que a origem aposentou `full_webp`, a '
@@ -649,13 +642,6 @@ const CENSO_CONSULTA = [
     classe: DERIVADO, predicado: 'src/modules/streetview360/sv360.queries.js::GET_PHOTO_BY_NAME',
     motivo: `${DERIVA_DA_FOTO} A OM preferida do chamador viaja junto, e ela é ORDENAÇÃO: quem `
       + 'autoriza é o predicado no WHERE, e o desempate só escolhe entre as linhas que ele deixou passar.',
-  },
-  {
-    arquivo: 'src/modules/streetview360/sv360.service.js', unidade: 'getPhotoImageMeta', n: 1,
-    classe: DERIVADO, predicado: 'src/modules/streetview360/sv360.queries.js::GET_PHOTO_SIZES',
-    motivo: `${DERIVA_DA_FOTO} Ela devolve TAMBÉM o `
-      + '`access_level`, porque o escopo de cache da imagem tem dois eixos e um deles não estava '
-      + 'sendo consultado.',
   },
   {
     arquivo: 'src/modules/streetview360/sv360.service.js', unidade: 'getPhotoPyramidMeta', n: 1,
@@ -1175,12 +1161,6 @@ const CENSO_ROTA = [
       + 'não no desempate.',
   },
   {
-    arquivo: 'src/modules/streetview360/sv360.routes.js', rota: 'GET /photos/:uuid/image',
-    classe: R_FILTRADA, gate: 'requireAtlasScopeWhenPresent',
-    motivo: `${LEITURA_360} Esta serve os BYTES do WebP, e era a mais grave das cinco: entregava a `
-      + 'imagem e ainda a marcava `public, max-age=1ano, immutable`.',
-  },
-  {
     arquivo: 'src/modules/streetview360/sv360.routes.js', rota: 'GET /photos/:uuid/tiles.json',
     classe: R_FILTRADA, gate: 'requireAtlasScopeWhenPresent',
     motivo: `${LEITURA_360} O descritor da pirâmide: diz que a foto existe, o tamanho nativo dela e `
@@ -1474,19 +1454,13 @@ const CENSO_CACHE = [
       + 'regime da imagem.',
   },
   {
-    arquivo: 'src/modules/streetview360/sv360.controller.js', trecho: 'setImmutableHeaders(res, d.etag',
-    n: 1, classe: C_CONDICIONAL,
-    motivo: 'A chamada do caminho da IMAGEM da foto, o WebP em si. É a resposta mais cara do módulo '
-      + 'e a que mais interessa a um cache — e por isso a que menos pode errar de escopo.',
-  },
-  {
-    arquivo: 'src/modules/streetview360/sv360.controller.js', trecho: "'no-store'", n: 3, classe: C_SEM,
-    motivo: 'Os caminhos de ERRO do serviço de blob: nada do que eles devolvem pode ser guardado, '
+    arquivo: 'src/modules/streetview360/sv360.controller.js', trecho: "'no-store'", n: 2, classe: C_SEM,
+    motivo: 'Os caminhos de ERRO do serviço de tile: nada do que eles devolvem pode ser guardado, '
       + 'porque a divergência entre Postgres e o arquivo SQLite é transitória e um 404 cacheado a '
-      + 'tornaria permanente para aquele cliente. São TRÊS desde 2026-08-20: a imagem ausente, o '
+      + 'tornaria permanente para aquele cliente. São DOIS desde o tiles-only (2026-08-29): o '
       + 'tile ausente, e o tile FORA DA ESCADA — este último é o único que não vem de divergência, '
       + 'e mesmo assim não se cacheia, porque a escada muda numa regeração e um 404 pregado no '
-      + 'navegador sobreviveria à pirâmide nova.',
+      + 'navegador sobreviveria à pirâmide nova. (A imagem inteira ausente saiu com a rota.)',
   },
   {
     arquivo: 'src/modules/catalog-video/catalog-video.controller.js',
@@ -1556,10 +1530,6 @@ const CENSO_REGIME = [
   },
   {
     arquivo: SV360_ROTAS, rota: 'GET /thumbnails/:slug.webp', handler: 'getThumbnail',
-    controller: SV360_CTRL, classe: C_CONDICIONAL, marcador: M_BYTES,
-  },
-  {
-    arquivo: SV360_ROTAS, rota: 'GET /photos/:uuid/image', handler: 'getPhotoImage',
     controller: SV360_CTRL, classe: C_CONDICIONAL, marcador: M_BYTES,
   },
   {
@@ -2197,8 +2167,8 @@ describe('Censo das superfícies de recurso (fase F9)', () => {
     // rota nova entrar na contagem sozinha, que é exatamente o descuido que esta cobrança
     // existe para impedir.
     assert.equal(
-      deLeitura.length, 17,
-      `as rotas de leitura do 360 sao dezessete; o censo lista ${deLeitura.length}`
+      deLeitura.length, 16,
+      `as rotas de leitura do 360 sao dezesseis; o censo lista ${deLeitura.length}`
     );
     const semEscopo = deLeitura
       .filter((e) => e.gate !== 'requireAtlasScopeWhenPresent')

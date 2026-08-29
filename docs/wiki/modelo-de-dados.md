@@ -226,13 +226,13 @@ O custo, que ainda não estava medido, aparece na estatística do banco real: `p
 
 ---
 
-## 15. Seis colunas de calibração 360 escritas, servidas e sem consumidor
+## 15. Cinco colunas de calibração 360 inertes, PODADAS em 2026-08-29
 
-**O que é.** O modelo relativo de marcador do 360 abandonou a geometria de distância e altura, e as colunas ficaram.
+**O que era.** O modelo relativo de marcador do 360 abandonou a geometria de distância e altura, e cinco colunas ficaram escritas e servidas sem consumidor no cliente: camera_height, distance_scale e marker_scale na foto; override_distance e override_height no alvo.
 
-**Evidência.** `sv360.photos.camera_height`, `sv360.photos.distance_scale`, `sv360.photos.marker_scale`, `sv360.targets.override_distance` e `sv360.targets.override_height` são escritas na ingestão (`backend/src/modules/streetview360/sv360.merge.js`) e servidas pelas consultas de leitura (`backend/src/modules/streetview360/sv360.queries.js`). No frontend, a varredura por cada uma devolve **apenas comentários** dizendo que o campo saiu: `frontend/src/js/calibration/calibration-panel.js`, `frontend/src/js/calibration/state.js`, `frontend/src/js/street_view_tool/street_view_viewer.js` e os dois `projector.js`. `override_bearing` é o único da família que ainda tem leitor real, e ele lê só a **nulidade** (`frontend/src/js/calibration/minimap.js` monta um distintivo "tem override"), nunca o valor. A regra `.claude/rules/common-tasks.md` já registra `override_height` como coluna sem leitor.
+**Desfecho.** As cinco saíram do schema, do INSERT, das consultas de leitura e do payload em 2026-08-29, para o web casar com o `ebgeo_360` fonte-da-verdade, que não as tem (decisão em [`../decisions/decisions-2026.md`](../decisions/decisions-2026.md)). O único da família que sobrou é `override_bearing`, servido em `targets[]` e lido só quanto à **nulidade** por `frontend/src/js/calibration/minimap.js` (um distintivo "tem override"), nunca o valor. Guarda de contrato: `backend/tests/integration/sv360-contract.test.js` afirma que `camera.height`, `camera.distance_scale` e `camera.marker_scale` chegam `undefined`.
 
-**Custo de deixar como está.** Elas viajam em toda resposta de foto e de alvo, e o operador de calibração que as encontrar no JSON vai supor que ajustá-las muda o desenho. Foi exatamente esse o caminho que a regra da casa manda não perseguir.
+**Por que podar em vez de deixar.** Enquanto viajavam em toda resposta de foto e de alvo, o operador de calibração que as encontrasse no JSON supunha que ajustá-las mudava o desenho. Era o caminho que a regra da casa manda não perseguir, e agora ele não existe.
 
 **Recomendação.** **Sai depois, fora da F15.** Elas são dado de origem preservado de uma ingestão que ainda roda, e removê-las mexe no ETL e no manifesto. O que a F15 deve fazer é registrar as seis aqui e em [[streetview-360]], porque a regra hoje nomeia uma só. Antes de remover, confirmar com o dono se o acervo bruto ainda precisa carregá-las.
 

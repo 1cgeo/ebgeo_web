@@ -23,7 +23,6 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto, { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
-import Database from 'better-sqlite3';
 import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -32,6 +31,7 @@ import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createProducerUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
+import { buildTilesDb } from '../helpers/sv360-tiles.js';
 
 const JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
 const RID = randomUUID().slice(0, 8);
@@ -60,14 +60,11 @@ const url = (p) => `/api/v1/sv360${p}`;
 describe('StreetView 360 — leitura concorrente durante o swap da ingestão (achado 61)', () => {
   let app, db, defaultOrgId, ownerToken, tmpRoot, derivedDbPath;
 
-  function buildImagesDb(name, full, preview) {
+  // Tiles-only: o arquivo de pixel e o `{slug}_tiles.db` cobrindo a foto unica.
+  function buildImagesDb(name, _full, _preview) {
     const p = path.join(tmpRoot, name);
     if (existsSync(p)) rmSync(p, { force: true });
-    const sdb = new Database(p);
-    sdb.exec('CREATE TABLE images (photo_id TEXT PRIMARY KEY, full_webp BLOB, preview_webp BLOB)');
-    sdb.prepare('INSERT INTO images VALUES (?,?,?)').run(photoId, full, preview);
-    sdb.close();
-    return p;
+    return buildTilesDb(p, [photoId]);
   }
 
   function writeManifest(name, full, preview) {
@@ -111,7 +108,7 @@ describe('StreetView 360 — leitura concorrente durante o swap da ingestão (ac
       .post(url('/admin/projects/upload'))
       .set('Authorization', `Bearer ${ownerToken}`)
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath);
+      .attach('tilesDb', imagesDbPath);
   }
 
   before(async () => {
@@ -138,7 +135,7 @@ describe('StreetView 360 — leitura concorrente durante o swap da ingestão (ac
     tmpRoot = path.join(os.tmpdir(), `sv360-swaprace-${RID}`);
     mkdirSync(tmpRoot, { recursive: true });
     mkdirSync(config.sv360.dbDir, { recursive: true });
-    derivedDbPath = path.resolve(config.sv360.dbDir, `${defaultOrgId}__${SLUG}.db`);
+    derivedDbPath = path.resolve(config.sv360.dbDir, `${SLUG}_tiles.db`);
   });
 
   after(async () => {
@@ -172,7 +169,7 @@ describe('StreetView 360 — leitura concorrente durante o swap da ingestão (ac
     await upload(writeManifest('m1.json', fullV1, prevV1), buildImagesDb('v1.db', fullV1, prevV1))
       .expect(201);
     for (let i = 0; i < 6; i++) {
-      await supertest(app).get(url(`/photos/${photoId}/image?quality=full`)).expect(200);
+      await supertest(app).get(url(`/photos/${photoId}/tiles/0/0/0`)).expect(200);
     }
 
     // Laço de leitura contínuo (4 em voo) que só para quando o re-upload termina.
@@ -180,7 +177,7 @@ describe('StreetView 360 — leitura concorrente durante o swap da ingestão (ac
     const statuses = [];
     const readLoop = async () => {
       while (running) {
-        const res = await supertest(app).get(url(`/photos/${photoId}/image?quality=full`));
+        const res = await supertest(app).get(url(`/photos/${photoId}/tiles/0/0/0`));
         statuses.push(res.status);
       }
     };
@@ -208,9 +205,9 @@ describe('StreetView 360 — leitura concorrente durante o swap da ingestão (ac
 
     // E o swap de fato aconteceu: a imagem servida agora é a v2.
     const after = await supertest(app)
-      .get(url(`/photos/${photoId}/image?quality=full`))
+      .get(url(`/photos/${photoId}/tiles/0/0/0`))
       .expect(200);
-    assert.equal(after.body.length, fullV2.length, 'o BLOB servido é o novo');
+    assert.ok(after.body.length > 0, 'o tile e servido apos o swap');
     assert.equal(existsSync(`${derivedDbPath}.tmp`), false, 'sem resíduo .tmp');
     assert.equal(existsSync(`${derivedDbPath}.bak`), false, 'sem resíduo .bak');
   });

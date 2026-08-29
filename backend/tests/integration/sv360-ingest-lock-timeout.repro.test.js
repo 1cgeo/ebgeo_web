@@ -27,11 +27,11 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import os from 'node:os';
 import { mkdirSync, rmSync, existsSync } from 'node:fs';
-import Database from 'better-sqlite3';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import config from '../../src/config.js';
 import { task } from '../../src/database/index.js';
 import { ingestBundle } from '../../src/modules/streetview360/sv360.ingest.js';
+import { buildTilesDb } from '../helpers/sv360-tiles.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
 
 // Deve casar com SV360_INGEST_LOCK_NAMESPACE em src/modules/streetview360/sv360.ingest.js.
@@ -84,13 +84,10 @@ describe('sv360 ingest — advisory lock com lock_timeout (#18)', () => {
       targets: [],
       deleted_photos: [],
     };
-    const p = path.join(tmpRoot, `${SLUG}-${randomUUID().slice(0, 4)}.db`);
-    const sdb = new Database(p);
-    sdb.exec('CREATE TABLE images (photo_id TEXT PRIMARY KEY, full_webp BLOB, preview_webp BLOB)');
-    sdb.prepare('INSERT INTO images VALUES (?,?,?)').run(photoId, fullBuf, prevBuf);
-    sdb.close();
-    diskPaths.add(path.resolve(config.sv360.dbDir, `${orgId}__${SLUG}.db`));
-    return { manifest, dbTmpPath: p };
+    const p = path.join(tmpRoot, `${SLUG}-${randomUUID().slice(0, 4)}_tiles.db`);
+    buildTilesDb(p, [photoId]);
+    diskPaths.add(path.resolve(config.sv360.dbDir, `${SLUG}_tiles.db`));
+    return { manifest, tilesTmpPath: p };
   }
 
   before(async () => {
@@ -129,8 +126,8 @@ describe('sv360 ingest — advisory lock com lock_timeout (#18)', () => {
   });
 
   it('a ingestão bloqueada no lock FALHA com 503 em vez de reter a conexão para sempre', async () => {
-    const { manifest, dbTmpPath } = bundle();
-    const destPath = path.resolve(config.sv360.dbDir, `${orgId}__${SLUG}.db`);
+    const { manifest, tilesTmpPath } = bundle();
+    const destPath = path.resolve(config.sv360.dbDir, `${SLUG}_tiles.db`);
 
     // Um contendor segura a chave exata da ingestão numa conexão independente.
     await db.query('SELECT pg_advisory_lock($1, hashtext($2))', [
@@ -140,7 +137,7 @@ describe('sv360 ingest — advisory lock com lock_timeout (#18)', () => {
 
     try {
       const outcome = await Promise.race([
-        ingestBundle({ manifest, dbTmpPath, orgId, source: 'upload' }).then(
+        ingestBundle({ manifest, tilesTmpPath, orgId, source: 'upload' }).then(
           () => 'RESOLVED',
           (err) => err
         ),
@@ -191,8 +188,8 @@ describe('sv360 ingest — advisory lock com lock_timeout (#18)', () => {
   });
 
   it('sem contenção a ingestão continua funcionando normalmente', async () => {
-    const { manifest, dbTmpPath } = bundle();
-    const result = await ingestBundle({ manifest, dbTmpPath, orgId, source: 'upload' });
+    const { manifest, tilesTmpPath } = bundle();
+    const result = await ingestBundle({ manifest, tilesTmpPath, orgId, source: 'upload' });
     assert.equal(result.slug, SLUG);
     assert.equal(result.photoCount, 1);
   });

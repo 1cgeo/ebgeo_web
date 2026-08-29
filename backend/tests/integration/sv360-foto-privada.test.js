@@ -29,7 +29,6 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import Database from 'better-sqlite3';
 import { mkdirSync, rmSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import supertest from 'supertest';
@@ -39,6 +38,7 @@ import {
 } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
+import { buildTilesDb } from '../helpers/sv360-tiles.js';
 
 // A foto PRIVADA fica MAIS PERTO do ponto de busca que a pública: é o que faz
 // `/photos/nearest` responder coisas diferentes conforme quem pergunta, e é o único
@@ -84,7 +84,7 @@ describe('F9 — as cinco rotas de FOTO aprenderam o eixo de privacidade', () =>
     );
   const getImagem = (id, token, atlasId) => {
     const req = comEscopo(
-      supertest(app).get(`/api/v1/sv360/photos/${id}/image`), token, atlasId
+      supertest(app).get(`/api/v1/sv360/photos/${id}/tiles/0/0/0`), token, atlasId
     );
     return req.buffer().parse((r, cb) => {
       const chunks = [];
@@ -160,16 +160,20 @@ describe('F9 — as cinco rotas de FOTO aprenderam o eixo de privacidade', () =>
     // Blobs REAIS em disco: sem eles o 200 do caminho autorizado vira 404 por falta de
     // arquivo e o par positivo/negativo deixa de discriminar (os dois lados dariam 404).
     mkdirSync(config.sv360.dbDir, { recursive: true });
-    for (const [nome, foto, full, prev] of [
-      [nomeDbPriv, fotoPrivadaId, BLOB_PRIV, PREV_PRIV],
-      [nomeDbPub, fotoPublicaId, BLOB_PUB, PREV_PUB],
+    for (const [nome, foto] of [
+      [nomeDbPriv, fotoPrivadaId],
+      [nomeDbPub, fotoPublicaId],
     ]) {
-      const caminho = path.resolve(config.sv360.dbDir, nome);
+      // Tiles-only: o pixel vem do `{slug}_tiles.db` + descritor em photo_pyramids.
+      const caminho = path.resolve(config.sv360.dbDir, nome.replace(/\.db$/i, '_tiles.db'));
       if (existsSync(caminho)) rmSync(caminho, { force: true });
-      const sdb = new Database(caminho);
-      sdb.exec('CREATE TABLE images (photo_id TEXT PRIMARY KEY, full_webp BLOB, preview_webp BLOB)');
-      sdb.prepare('INSERT INTO images VALUES (?,?,?)').run(foto, full, prev);
-      sdb.close();
+      buildTilesDb(caminho, [foto]);
+      await db.query(
+        `INSERT INTO sv360.photo_pyramids
+           (photo_id, tile_size, max_level, width, height, quality, tile_count, total_bytes, razao)
+         VALUES ($1, 512, 0, 1024, 512, 80, 1, 24, 2)`,
+        [foto]
+      );
       if (nome === nomeDbPriv) dbPrivPath = caminho;
       else dbPubPath = caminho;
     }
@@ -266,13 +270,11 @@ describe('F9 — as cinco rotas de FOTO aprenderam o eixo de privacidade', () =>
     await getImagem(fotoPrivadaId, null).expect(404);
     await getImagem(fotoPrivadaId, tokenForasteiro).expect(404);
 
-    const pub = await getImagem(fotoPublicaId, null).expect(200);
-    assert.deepEqual(pub.body, BLOB_PUB, 'a foto pública continua servida byte a byte');
+    await getImagem(fotoPublicaId, null).expect(200); // a foto publica segue servida (tile)
   });
 
   it('IMAGEM — POSITIVO: o concedido recebe os bytes, e a resposta NÃO é publicamente cacheável', async () => {
     const res = await getImagem(fotoPrivadaId, tokenBeneficiario).expect(200);
-    assert.deepEqual(res.body, BLOB_PRIV);
     assert.match(res.headers['cache-control'], /^private,/,
       'recurso restrito não pode ir para cache compartilhado');
     assert.match(res.headers.vary ?? '', /Authorization/);
@@ -403,7 +405,6 @@ describe('F9 — as cinco rotas de FOTO aprenderam o eixo de privacidade', () =>
       const meta = await getFoto(fotoPrivadaId, null).expect(200);
       assert.equal(meta.body.camera.id, fotoPrivadaId);
       const img = await getImagem(fotoPrivadaId, null).expect(200);
-      assert.deepEqual(img.body, BLOB_PRIV);
       assert.match(img.headers['cache-control'], /^public,/);
     } finally {
       await supertest(app)

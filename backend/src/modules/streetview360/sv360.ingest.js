@@ -139,6 +139,19 @@ export function validateManifest(manifest) {
 }
 
 /**
+ * Os ids das fotos VIVAS do manifesto: as de `photos[]` que NÃO estão em
+ * `deleted_photos[]`. É o conjunto que precisa de pixel (pirâmide) e o que a leitura
+ * de pós-merge conta, porque a foto tombstonada tem o pixel removido e o cascade do
+ * tombstone apaga a pirâmide dela logo depois de gravada.
+ * @param {Object} manifest - the validated manifest
+ * @returns {string[]}
+ */
+function liveManifestPhotoIds(manifest) {
+  const mortos = new Set((manifest.deleted_photos || []).map((d) => d.photo_id));
+  return manifest.photos.filter((p) => !mortos.has(p.id)).map((p) => p.id);
+}
+
+/**
  * The guard that REPLACES the byte-size check for a so-tiles archive: every live photo of
  * the manifest must have a pyramid in the uploaded `{slug}_tiles.db`.
  *
@@ -150,22 +163,27 @@ export function validateManifest(manifest) {
  * @param {Object} manifest - the validated manifest
  * @throws {BadRequestError} when the file is absent, malformed, or does not cover a photo
  */
-function validatePyramidCoverage(tilesDbPath, manifest) {
+export function validatePyramidCoverage(tilesDbPath, manifest) {
   if (!tilesDbPath || !existsSync(tilesDbPath)) {
     throw new BadRequestError(
-      'images.db carries no full_webp/preview_webp columns (so-tiles archive), '
-      + 'so a {slug}_tiles.db with the tile pyramids is required and none was uploaded'
+      'a {slug}_tiles.db with the tile pyramids is required (tiles-only) and none was uploaded'
     );
   }
+  // SÓ FOTO VIVA precisa de pixel. Uma foto tombstonada continua em `photos[]` (o
+  // INSERT dela roda e o tombstone repõe a deleção), mas o pixel dela foi removido,
+  // então exigir a pirâmide dela recusaria um bundle são e a leitura contaria uma
+  // pirâmide que o cascade do tombstone apaga logo depois (`pyramid write incomplete`).
+  const livres = liveManifestPhotoIds(manifest);
+
   // A LEITURA É A MESMA QUE ESCREVE, e essa identidade é o ponto. Enquanto esta
   // função tinha o próprio `prepare`, ela conferia uma escada e o Postgres recebia
   // outra (ou, por mais tempo ainda, nenhuma). Ver `sv360.pyramid.js`.
-  const piramides = lerPiramides(tilesDbPath, manifest.photos.map((p) => p.id));
+  const piramides = lerPiramides(tilesDbPath, livres);
 
-  for (const p of manifest.photos) {
-    const linha = piramides.get(p.id);
+  for (const id of livres) {
+    const linha = piramides.get(id);
     if (!linha) {
-      throw new BadRequestError(`tiles.db has no pyramid for photo ${p.id}`);
+      throw new BadRequestError(`tiles.db has no pyramid for photo ${id}`);
     }
     // Uma escada degenerada e pior que ausente: ela passa na contagem e produz um
     // descritor que o cliente segue ate um nivel sem tile nenhum. `max_level` entra
@@ -174,7 +192,7 @@ function validatePyramidCoverage(tilesDbPath, manifest) {
     if (!(linha.tileSize > 0) || !(linha.width > 0) || !(linha.height > 0)
         || !Number.isInteger(linha.maxLevel) || linha.maxLevel < 0) {
       throw new BadRequestError(
-        `tiles.db has a degenerate pyramid for photo ${p.id} `
+        `tiles.db has a degenerate pyramid for photo ${id} `
         + `(tile_size=${linha.tileSize}, width=${linha.width}, height=${linha.height}, `
         + `max_level=${linha.maxLevel})`
       );
@@ -506,13 +524,13 @@ export async function rollbackSwap(destPath, bakMade) {
 /**
  * End-to-end ingestion of ONE project bundle, shared by the admin upload and the
  * ETL. Order is SWAP-FIRST-THEN-COMMIT (FIX-3) — the Postgres commit is the single
- * atomic commit point, so Postgres never gets ahead of the disk:
- *   PASSO 0 — validateManifest + validateImagesDb (size-check) + lerPiramides
- *             (leitura do {slug}_tiles.db). Anything fails here => 4xx, NOTHING
- *             touched.
- *   PASSO 1 — installSwap(dest, imagesDb): install the new {slug}.db but PRESERVE
- *             the .bak (so it is still reversible). dest is derived from
- *             (orgId, slug) — the SAME server-derived name mergeProject writes.
+ * atomic commit point, so Postgres never gets ahead of the disk. TILES-ONLY desde
+ * 2026-08-29: o UNICO arquivo e o `{slug}_tiles.db`, e a `{slug}.db` de blob saiu.
+ *   PASSO 0 — validateManifest + validatePyramidCoverage (toda foto viva tem
+ *             piramide) + lerPiramides. Anything fails here => 4xx, NOTHING touched.
+ *   PASSO 1 — installSwap(tilesDest, tilesDb): install the new {slug}_tiles.db but
+ *             PRESERVE the .bak (so it is still reversible). tilesDest is derived
+ *             from the slug — the SAME server-derived name mergeProject writes.
  *   PASSO 2 — tx(t => mergeProject(...) + gravarPiramides(...)): collision guard
  *             (409), upsert (status/created_at preserved), purge + reinsert, e a
  *             pirâmide de cada foto em `sv360.photo_pyramids`. If it THROWS,
@@ -520,13 +538,12 @@ export async function rollbackSwap(destPath, bakMade) {
  *             and Postgres stay consistent. If it SUCCEEDS, commitSwap (drop .bak).
  *
  * Residual crash window (documented honestly): a process crash BETWEEN PASSO 1 and
- * the PASSO 2 commit leaves the NEW {slug}.db on disk with the OLD Postgres
- * metadata. This is BENIGN: every photo Postgres still announces is servable from
- * the new file (the new file is a superset for a re-upload / equal for a first
- * upload up to the announced rows); newly added photos simply do not appear yet.
- * Because photo ids are deterministic UUID v5 (namespaced per tenant), the 409
- * collision path is nearly impossible, so the cost of an install-then-rollback on
- * 409 is negligible.
+ * the PASSO 2 commit leaves the NEW {slug}_tiles.db on disk with the OLD Postgres
+ * metadata. This is BENIGN: every photo Postgres still announces has its pyramid in
+ * the new file (a superset for a re-upload / equal for a first upload up to the
+ * announced rows); newly added photos simply do not appear yet. Because photo ids
+ * are deterministic UUID v5 (namespaced per tenant), the 409 collision path is
+ * nearly impossible, so the cost of an install-then-rollback on 409 is negligible.
  *
  * Accepts either a parsed `manifest` object or a `manifestPath` to read+parse.
  * Does NOT clean up the multer tmp files — the caller owns that.
@@ -534,17 +551,16 @@ export async function rollbackSwap(destPath, bakMade) {
  * @param {Object} args
  * @param {string} [args.manifestPath] - path to manifest.json (read+parsed if no manifest)
  * @param {Object} [args.manifest] - already-parsed manifest object
- * @param {string} args.dbTmpPath - tmp path of the uploaded images.db (the swap source)
- * @param {string} [args.tilesTmpPath] - tmp path of the uploaded {slug}_tiles.db, when the
- *   bundle carries one. Obrigatorio na pratica para acervo so-tiles: sem ele
- *   `validateImagesDb` recusa o bundle, porque nao sobraria fonte de pixel nenhuma.
+ * @param {string} args.tilesTmpPath - tmp path of the uploaded {slug}_tiles.db (the swap
+ *   source). Obrigatorio: e o unico arquivo de pixel, e sem ele `validatePyramidCoverage`
+ *   recusa o bundle porque nao sobraria fonte de pixel nenhuma.
  * @param {string} args.orgId - resolved target organization_id (uuid)
  * @param {string} [args.source] - provenance tag ('upload' | 'etl'), informational
  * @returns {Promise<{projectId:string, slug:string, dbFilename:string, photoCount:number}>}
  */
-export async function ingestBundle({ manifestPath, manifest, dbTmpPath, tilesTmpPath = null, orgId, source } = {}) {
+export async function ingestBundle({ manifestPath, manifest, tilesTmpPath, orgId, source } = {}) {
   if (!orgId) throw new BadRequestError('orgId is required for ingestion');
-  if (!dbTmpPath) throw new BadRequestError('images.db (dbTmpPath) is required');
+  if (!tilesTmpPath) throw new BadRequestError('{slug}_tiles.db (tilesTmpPath) is required');
 
   // PASSO 0a — parse + validate the manifest (4xx, nothing touched).
   let raw = manifest;
@@ -558,9 +574,9 @@ export async function ingestBundle({ manifestPath, manifest, dbTmpPath, tilesTmp
   }
   const validated = validateManifest(raw);
 
-  // PASSO 0b — validate the bundle carries the pixels the manifest promises, seja por
-  // BLOB (acervo historico) seja por PIRAMIDE (acervo so-tiles).
-  validateImagesDb(dbTmpPath, validated, tilesTmpPath);
+  // PASSO 0b — tiles-only desde 2026-08-29: o UNICO validador de pixel e a cobertura
+  // de piramide. Toda foto viva do manifesto precisa de piramide no {slug}_tiles.db.
+  validatePyramidCoverage(tilesTmpPath, validated);
 
   // PASSO 0c — a piramide que o bundle traz, lida UMA vez e FORA da transacao.
   //
@@ -573,16 +589,14 @@ export async function ingestBundle({ manifestPath, manifest, dbTmpPath, tilesTmp
   // `tiles.json` responde 404 para toda foto, o cliente entende "esta foto tem blob" e
   // pede a imagem inteira, que a origem apagou. O acervo nao pinta, e nada fica
   // vermelho.
-  const piramides = lerPiramides(tilesTmpPath, validated.photos.map((p) => p.id));
+  const piramides = lerPiramides(tilesTmpPath, liveManifestPhotoIds(validated));
 
-  // The dest filename is DERIVED from (orgId, slug) — identical to the value
-  // mergeProject persists, so the file and Postgres always agree (FIX-1/FIX-3).
+  // `db_filename` e a chave LOGICA `{slug}.db` que o Postgres guarda (SLUG, sem
+  // prefixo de OM), identica ao valor que `mergeProject` persiste. Nenhum arquivo
+  // com esse nome existe no disco desde o tiles-only: o UNICO arquivo de pixel e o
+  // `{slug}_tiles.db`, derivado dela, e a miniatura `{slug}.webp` sai da mesma chave.
   const dbFilename = deriveDbFilename(validated.project.slug);
-  const destPath = resolveDbPath(dbFilename);
-  // O SEGUNDO ARQUIVO do projeto, quando ele existe. O nome e DERIVADO do mesmo
-  // `dbFilename`, entao os dois andam juntos por construcao e nao por convencao
-  // repetida em dois lugares.
-  const tilesDestPath = tilesTmpPath ? resolveTilesDbPath(dbFilename) : null;
+  const tilesDestPath = resolveTilesDbPath(dbFilename);
 
   // P3 — serialize ingestions of the same (orgId, slug).
   //
@@ -605,20 +619,9 @@ export async function ingestBundle({ manifestPath, manifest, dbTmpPath, tilesTmp
     await acquireIngestLock(conn, lockKey);
 
     try {
-      // PASSO 1 — install the new {slug}.db, KEEPING the .bak (reversible).
-      const { bakMade } = await installSwap(destPath, dbTmpPath);
-      // OS DOIS ARQUIVOS ENTRAM E SAEM JUNTOS. Instalar o de imagens e falhar no de
-      // tiles deixaria em disco um projeto so-tiles sem tile nenhum, que e exatamente o
-      // estado que `validateImagesDb` existe para impedir na entrada.
-      let tilesBakMade = false;
-      if (tilesDestPath) {
-        try {
-          ({ bakMade: tilesBakMade } = await installSwap(tilesDestPath, tilesTmpPath));
-        } catch (err) {
-          await rollbackSwap(destPath, bakMade);
-          throw err;
-        }
-      }
+      // PASSO 1 — install the new {slug}_tiles.db, KEEPING the .bak (reversible).
+      // UM SO ARQUIVO desde o tiles-only: a `{slug}.db` de blob nao existe mais.
+      const { bakMade: tilesBakMade } = await installSwap(tilesDestPath, tilesTmpPath);
 
       // PASSO 2 — Postgres merge in a single tx. The commit is the atomic point.
       // Runs on the lock-holding connection, so the lock covers it.
@@ -662,15 +665,13 @@ export async function ingestBundle({ manifestPath, manifest, dbTmpPath, tilesTmp
       } catch (err) {
         // Merge failed (409 collision / orphan FK / I/O): undo the file install so
         // disk matches the rolled-back Postgres state, then rethrow the original 4xx/5xx.
-        await rollbackSwap(destPath, bakMade);
-        if (tilesDestPath) await rollbackSwap(tilesDestPath, tilesBakMade);
+        await rollbackSwap(tilesDestPath, tilesBakMade);
         throw err;
       }
 
       // Merge committed — finalize the swap (drop the .bak; failure here is logged,
       // never fatal: the new file is already installed and Postgres is consistent).
-      commitSwap(destPath);
-      if (tilesDestPath) commitSwap(tilesDestPath);
+      commitSwap(tilesDestPath);
 
       return {
         projectId: merged.projectId,

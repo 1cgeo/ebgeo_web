@@ -85,8 +85,8 @@ describe('StreetView 360 — escritas de target em foto tombstonada não deixam 
     await db.query(
       `INSERT INTO sv360.targets
          (source_id, target_id, distance_m, bearing_deg, is_next, is_original,
-          override_bearing, override_distance, override_height, hidden)
-       VALUES ($1, $2, 10, 90, true, true, 7, 8, 9, false)`,
+          override_bearing, hidden)
+       VALUES ($1, $2, 10, 90, true, true, 7, false)`,
       [src, dst]
     );
 
@@ -107,7 +107,7 @@ describe('StreetView 360 — escritas de target em foto tombstonada não deixam 
 
   const link = () =>
     db.query(
-      `SELECT override_bearing, override_distance, override_height, hidden
+      `SELECT override_bearing, hidden
          FROM sv360.targets WHERE source_id = $1 AND target_id = $2`,
       [src, dst]
     );

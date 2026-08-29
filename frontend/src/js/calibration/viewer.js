@@ -455,24 +455,12 @@ export async function loadProgressive(previewUrl, fullUrl, photoId = null) {
 
     if (await tentarTiles(photoId || uuidDaUrlDeImagem(fullUrl), generation)) return;
 
-    // Daqui para baixo a foto NAO tem piramide. Hoje NENHUMA foto servida cai
-    // aqui, e o ramo existe para a foto recem-importada, que passa por aqui
-    // ate o gerador rodar.
-    //
-    // O preview segura a tela enquanto o full chega. Ele sobrevive so neste
-    // ramo, e morre junto do `preview_webp` quando a importacao passar a gerar
-    // a piramide antes de publicar a foto.
-    try {
-        await loadPanorama(previewUrl, true, generation);
-    } catch {
-        // Preview falhou: vai direto ao full.
-    }
-
-    try {
-        await loadPanorama(fullUrl, false, generation);
-    } catch (err) {
-        console.error('Failed to load full panorama:', err);
-    }
+    // TILES-ONLY (2026-08-29): o ingest passou a EXIGIR piramide, entao toda foto
+    // servida tem tiles e cai no ramo acima. A rota de imagem inteira
+    // (`image?quality=preview|full`) saiu do backend, e com ela o fallback que
+    // baixava o WebP inteiro para a foto sem piramide. `previewUrl`/`fullUrl` seguem
+    // na assinatura so para `uuidDaUrlDeImagem` derivar o photoId quando ele nao vem.
+    console.warn('[calibracao] foto sem piramide de tiles e sem fallback de imagem (tiles-only)');
 }
 
 // ============================================================================

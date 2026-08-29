@@ -305,90 +305,6 @@ describe('StreetView 360 — tiles + thumbnails (stage 3b)', () => {
   });
 });
 
-// Cross-org thumbnail isolation: a slug is UNIQUE only per org, so two orgs can
-// share a slug. The thumbnail file is ORG-KEYED ({orgId}__{slug}.webp, like the
-// {slug}.db), and the read lookup is access-filtered + deterministic — so an anon
-// caller served `/thumbnails/{sharedSlug}.webp` gets the ENABLED org's thumbnail
-// and NEVER the DISABLED org's (the confidentiality leak this guards against).
-describe('StreetView 360 — cross-org thumbnail isolation (stage 3b)', () => {
-  let app, db, orgBId, projAId, projBId, thumbA, thumbB, otherOrgToken;
-  const SHARED = 'shared-thumb-sv360';
-  const enabledThumb = Buffer.from('RIFFxxxxWEBP-ENABLED-orgA-thumbnail');
-  const secretThumb = Buffer.from('RIFFxxxxWEBP-DISABLED-orgB-SECRET-thumb');
-
-  before(async () => {
-    const env = await setupTestEnv();
-    app = env.app;
-    db = env.db;
-
-    const org = await db.query(`SELECT id FROM public.organizations WHERE slug = 'default'`);
-    const orgAId = org.rows[0].id;
-    const org2 = await db.query(
-      `INSERT INTO public.organizations (nome, slug, sigla) VALUES ('XOrg Thumb', 'sv360-xorg-thumb', 'XORGT')
-       ON CONFLICT (slug) DO UPDATE SET nome = EXCLUDED.nome RETURNING id`
-    );
-    orgBId = org2.rows[0].id;
-
-    // SAME slug in both orgs; org-keyed db_filename (matches deriveDbFilename).
-    const dbA = `${orgAId}__${SHARED}.db`;
-    const dbB = `${orgBId}__${SHARED}.db`;
-    const a = await db.query(
-      `INSERT INTO sv360.projects (organization_id, slug, name, center_lat, center_long, db_filename, status, photo_count)
-       VALUES ($1, $2, 'A enabled', -23, -46, $3, 'enabled', 0) RETURNING id`,
-      [orgAId, SHARED, dbA]
-    );
-    projAId = a.rows[0].id;
-    const b = await db.query(
-      `INSERT INTO sv360.projects (organization_id, slug, name, center_lat, center_long, db_filename, status, photo_count)
-       VALUES ($1, $2, 'B disabled', -10, -50, $3, 'disabled', 0) RETURNING id`,
-      [orgBId, SHARED, dbB]
-    );
-    projBId = b.rows[0].id;
-
-    mkdirSync(config.sv360.dbDir, { recursive: true });
-    thumbA = path.join(config.sv360.dbDir, `${orgAId}__${SHARED}.webp`);
-    thumbB = path.join(config.sv360.dbDir, `${orgBId}__${SHARED}.webp`);
-    writeFileSync(thumbA, enabledThumb);
-    writeFileSync(thumbB, secretThumb);
-
-    // A OM QUE VE O PROJETO OCULTO E A PRODUTORA, nao a de LOTACAO: `organization_id`
-    // e auto-declarado no auto-cadastro, entao escolher a OM na tela de cadastro
-    // entregava o acervo oculto dela. `producer_org_id` so um administrador concede, e
-    // o predicado o resolve NO SQL a partir do UUID — dai o usuario de verdade.
-    const produtorB = await createProducerUser(db, orgBId, { username: `tiles_prodb_${crypto.randomUUID().slice(0, 8)}` });
-    otherOrgToken = jwt.sign(
-      {
-        sub: produtorB.id, role: 'producer',
-        organization_id: orgBId, producer_org_id: orgBId,
-      },
-      config.jwt.secret,
-      { algorithm: 'HS256', expiresIn: '5m' }
-    );
-  });
-
-  after(async () => {
-    for (const f of [thumbA, thumbB]) if (f && existsSync(f)) rmSync(f, { force: true });
-    await db.query(`DELETE FROM sv360.projects WHERE id = ANY($1::uuid[])`, [[projAId, projBId]]);
-    await db.query('DELETE FROM public.users WHERE producer_org_id = $1', [orgBId]);
-    await db.query(`DELETE FROM public.organizations WHERE id = $1`, [orgBId]);
-    await teardownTestEnv(db);
-  });
-
-  it('anon gets the ENABLED org thumbnail, NEVER the disabled org secret', async () => {
-    const res = await supertest(app).get(`/api/v1/sv360/thumbnails/${SHARED}.webp`).expect(200);
-    assert.ok(res.body.equals(enabledThumb), 'served the enabled org thumbnail');
-    assert.ok(!res.body.equals(secretThumb), 'did NOT serve the disabled org secret thumbnail');
-  });
-
-  it('the disabled org member gets THEIR own thumbnail for the shared slug', async () => {
-    const res = await supertest(app)
-      .get(`/api/v1/sv360/thumbnails/${SHARED}.webp`)
-      .set('Authorization', `Bearer ${otherOrgToken}`)
-      .expect(200);
-    assert.ok(res.body.equals(secretThumb), 'owning-org member sees their own org thumbnail');
-  });
-});
-
 // ---------------------------------------------------------------------------
 // `previewThumbnail` SÓ QUANDO O ARQUIVO EXISTE — e a checagem DEPOIS do gate.
 //
@@ -457,7 +373,7 @@ describe('StreetView 360 — previewThumbnail só quando o arquivo existe', () =
            (organization_id, slug, name, center_lat, center_long, db_filename,
             status, photo_count, access_level)
          VALUES ($1, $2, $3, -23, -46, $4, 'enabled', 0, $5) RETURNING id`,
-        [orgId, slug, nome, `${orgId}__${slug}.db`, accessLevel]
+        [orgId, slug, nome, `${slug}.db`, accessLevel]
       );
       return rows[0].id;
     };
@@ -483,8 +399,8 @@ describe('StreetView 360 — previewThumbnail só quando o arquivo existe', () =
     // O NOME EM DISCO É ORG-KEYED, derivado do `db_filename`, e a URL é slug-only.
     // Escrever `${slug}.webp` aqui daria um falso negativo com cara de conserto.
     mkdirSync(config.sv360.dbDir, { recursive: true });
-    thumbComPath = path.join(config.sv360.dbDir, `${orgDefaultId}__${SLUG_COM}.webp`);
-    thumbPrivadoPath = path.join(config.sv360.dbDir, `${orgOutraId}__${SLUG_PRIV}.webp`);
+    thumbComPath = path.join(config.sv360.dbDir, `${SLUG_COM}.webp`);
+    thumbPrivadoPath = path.join(config.sv360.dbDir, `${SLUG_PRIV}.webp`);
     writeFileSync(thumbComPath, bufComThumb);
     writeFileSync(thumbPrivadoPath, bufPrivado);
     // SLUG_SEM não ganha arquivo nenhum: é o projeto legível SEM miniatura.

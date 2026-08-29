@@ -4,16 +4,11 @@
 // The metadata routes return BARE objects/arrays (the 360 contract is NOT
 // wrapped in {data:...}, unlike the rest of the backend — intentional/frozen).
 //
-// The image route mirrors assets3d.controller.js exactly:
-//   1. getPhotoImageMeta → { etag, sizeBytes, dbFile, photoId } from Postgres
-//      *_size_bytes only (O(1), NO BLOB read).
-//   2. setImmutableHeaders.
-//   3. If-None-Match === etag → 304 BEFORE touching SQLite and BEFORE the
-//      semaphore acquire.
-//   4. parseRange; 'invalid' → 416 with Content-Range bytes */size.
-//   5. sem.acquire() (released once on res 'finish'/'close'); read the BLOB on a
-//      worker thread via the blobstore.
-//   6. Range → 206 + Content-Range + slice; else 200 + Content-Length + buffer.
+// PIXEL É SÓ POR PIRÂMIDE desde 2026-08-29 (tiles-only): a rota de imagem inteira
+// (`GET /photos/:uuid/image`) e a leitura de blob saíram. Toda panorâmica vem em
+// tiles pelo descritor de escada (`/tiles.json`) e por `/tiles/:level/:x/:y`, que
+// lê o `{slug}_tiles.db` no worker do blobstore. A miniatura (`/thumbnails/:slug.webp`)
+// continua sendo o único WebP inteiro servido, do filesystem.
 import { stat } from 'node:fs/promises';
 import crypto from 'node:crypto';
 import { asyncHandler } from '../../utils/async-handler.js';
@@ -353,92 +348,6 @@ export const getThumbnail = asyncHandler(async (req, res, next) => {
   return streamFileToResponse(res, next, filePath);
 });
 
-// GET /sv360/photos/:uuid/image?quality=full|preview — ETag O(1) / 304 / Range.
-export const getPhotoImage = asyncHandler(async (req, res, next) => {
-  const quality = req.query?.quality === 'preview' ? 'preview' : 'full';
-  const d = await svc.getPhotoImageMeta(
-    req.params.uuid, quality, req.user, req.atlasId ?? null
-  );
-
-  setImmutableHeaders(res, d.etag, d.contentType, d.projectStatus, d.projectAccessLevel);
-
-  // 304 BEFORE any SQLite touch and BEFORE acquiring the semaphore (the ETag is
-  // Postgres-derived → O(1)). Range/Content-Length, however, are derived from the
-  // ACTUAL blob length AFTER the read (below) — NOT from Postgres `size_bytes`.
-  // In steady state they match (validateImagesDb enforces it at ingest), but the
-  // blob lives in the {slug}.db file while the size lives in Postgres, so during
-  // the ingest swap↔commit window (or any drift) a same-name image replacement
-  // could make them diverge. Trusting the buffer length keeps every 200/206
-  // response protocol-correct (Content-Length always == body) regardless.
-  if (req.headers['if-none-match'] === d.etag) return res.status(304).end();
-
-  // Same ordering hazard as `assets3d.controller.js`, and the same fix: the
-  // release hooks go up BEFORE `await sem.acquire()`. Under contention the
-  // acquire parks in the semaphore queue for an unbounded time, and a client
-  // that aborts while parked makes `res` emit 'close' inside that window — a
-  // listener attached afterwards never sees it, because the event is not
-  // replayed. The permit would then be held forever, and `SV360_MAX_INFLIGHT`
-  // such aborts hang photo serving until the process restarts.
-  // `acquired` keeps an early 'close' from releasing a permit we do not own yet.
-  let acquired = false;
-  let released = false;
-  let closed = false;
-  const release = () => {
-    if (acquired && !released) {
-      released = true;
-      sem.release();
-    }
-  };
-  const onDone = () => {
-    closed = true;
-    release();
-  };
-  res.on('finish', onDone);
-  res.on('close', onDone);
-
-  await sem.acquire();
-  acquired = true;
-  if (closed || res.destroyed || res.writableEnded) {
-    release(); // client is already gone: hand the permit back, skip the read
-    return;
-  }
-  try {
-    const buf = await blobstore.getImage(d.dbFile, d.photoId, quality); // BLOB on a worker thread
-    if (!buf) {
-      release();
-      // The immutable headers went up BEFORE the read (the ETag is O(1) from
-      // Postgres), so they are already on this response — and this 404 is the one
-      // outcome for which they are wrong. Postgres announcing a photo whose blob is
-      // absent is TRANSIENT by construction: it is the residual crash window between
-      // PASSO 1 and the PASSO 2 commit (sv360.ingest.js) or a file being restored.
-      // Left in place, `public, max-age=31536000, immutable` lets a browser or CDN
-      // pin that 404 for a YEAR, so the photo stays "missing" for its viewers long
-      // after the drift healed. Content-Type: image/webp on a JSON error body is the
-      // same mistake in miniature.
-      res.removeHeader('ETag');
-      res.removeHeader('Content-Type');
-      res.setHeader('Cache-Control', 'no-store');
-      return next(new NotFoundError('Image'));
-    }
-    const size = buf.length; // authoritative: the bytes we will actually send
-    const range = req.headers.range ? parseRange(req.headers.range, size) : null;
-    if (range === 'invalid') {
-      return res.status(416).setHeader('Content-Range', `bytes */${size}`).end();
-    }
-    if (range) {
-      res.status(206);
-      res.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${size}`);
-      res.setHeader('Content-Length', range.end - range.start + 1);
-      return res.end(buf.subarray(range.start, range.end + 1));
-    }
-    res.setHeader('Content-Length', size);
-    return res.end(buf);
-  } catch (err) {
-    release();
-    throw err;
-  }
-});
-
 
 // ============================================================================
 // PIRÂMIDE DE TILES DA PANORÂMICA  (≠ o MVT de pontos algumas linhas acima)
@@ -505,7 +414,7 @@ export const getPhotoTile = asyncHandler(async (req, res, next) => {
 
   if (req.headers['if-none-match'] === etag) return res.status(304).end();
 
-  // Mesma ordem de liberação do semáforo de `getPhotoImage`, e pelo mesmo motivo: os
+  // Mesma ordem de liberação do semáforo da rota de imagem antiga, e pelo mesmo motivo: os
   // hooks sobem ANTES do acquire, senão um cliente que aborta enquanto está parado na
   // fila leva a permissão embora para sempre.
   let acquired = false;

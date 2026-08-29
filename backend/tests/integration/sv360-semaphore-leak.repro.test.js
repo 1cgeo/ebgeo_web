@@ -29,7 +29,6 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import net from 'node:net';
 import { once } from 'node:events';
-import Database from 'better-sqlite3';
 import { mkdirSync, rmSync, existsSync } from 'node:fs';
 import path from 'node:path';
 
@@ -41,6 +40,7 @@ const { setupTestEnv, teardownTestEnv } = await import('../helpers/setup.js');
 const config = (await import('../../src/config.js')).default;
 const { closeStore } = await import('../../src/modules/streetview360/sv360.blobstore.js');
 const { sem } = await import('../../src/modules/streetview360/sv360.controller.js');
+const { buildTilesDb } = await import('../helpers/sv360-tiles.js');
 
 const NS = Buffer.from('1b671a64-40d5-491e-99b0-da01ff1f3341'.replace(/-/g, ''), 'hex');
 function uuidv5(name) {
@@ -53,9 +53,11 @@ function uuidv5(name) {
 
 const SLUG = 'proj-sem-leak-sv360';
 const DB_FILENAME = `${SLUG}.db`;
-const blob = Buffer.from('RIFFxxxxWEBP-leak-repro-bytes!');
 const photoId = uuidv5(`default/${SLUG}/leak.jpg`);
-const ROTA = `/api/v1/sv360/photos/${photoId}/image`;
+// Tiles-only: o semaforo agora serve a rota de TILE (a de imagem inteira saiu). O
+// permit e a fila de `sem.acquire()` sao os mesmos, entao o repro do vazamento vale
+// identico aqui — so o alvo mudou.
+const ROTA = `/api/v1/sv360/photos/${photoId}/tiles/0/0/0`;
 
 describe('StreetView 360 — cliente que aborta na fila não pode queimar o permit', () => {
     let app, db, dbPath, server, porta;
@@ -73,18 +75,23 @@ describe('StreetView 360 — cliente que aborta na fila não pode queimar o perm
         );
         await db.query(
             `INSERT INTO sv360.photos
-               (id, project_id, original_name, sequence_number, lat, lon, full_size_bytes, preview_size_bytes)
-             VALUES ($1, $2, 'leak.jpg', 1, -23, -46, $3, $3)`,
-            [photoId, proj.rows[0].id, blob.length],
+               (id, project_id, original_name, sequence_number, lat, lon)
+             VALUES ($1, $2, 'leak.jpg', 1, -23, -46)`,
+            [photoId, proj.rows[0].id],
+        );
+        // O descritor da piramide, que a rota do tile le antes de servir o byte.
+        await db.query(
+            `INSERT INTO sv360.photo_pyramids
+               (photo_id, tile_size, max_level, width, height, quality, tile_count, total_bytes, razao)
+             VALUES ($1, 512, 0, 1024, 512, 80, 1, 24, 2)`,
+            [photoId],
         );
 
         mkdirSync(config.sv360.dbDir, { recursive: true });
-        dbPath = path.join(config.sv360.dbDir, DB_FILENAME);
+        // Tiles-only: o arquivo de pixel e o `{slug}_tiles.db`, derivado da chave logica.
+        dbPath = path.join(config.sv360.dbDir, `${SLUG}_tiles.db`);
         if (existsSync(dbPath)) rmSync(dbPath, { force: true });
-        const sdb = new Database(dbPath);
-        sdb.exec('CREATE TABLE images (photo_id TEXT PRIMARY KEY, full_webp BLOB, preview_webp BLOB)');
-        sdb.prepare('INSERT INTO images VALUES (?,?,?)').run(photoId, blob, blob);
-        sdb.close();
+        buildTilesDb(dbPath, [photoId]);
 
         // Servidor real: só com socket cru dá para abortar a conexão no meio.
         server = app.listen(0);
@@ -119,7 +126,7 @@ describe('StreetView 360 — cliente que aborta na fila não pode queimar o perm
 
         const resp = await supertest(app).get(ROTA).timeout({ deadline: 8000 });
         assert.equal(resp.status, 200, 'a rota deve seguir servindo após o abort na fila');
-        assert.equal(Buffer.from(resp.body).length, blob.length);
+        assert.ok(Buffer.from(resp.body).length > 0, "o tile deve vir com bytes");
     });
 
     it('requisição normal continua liberando o permit', async () => {

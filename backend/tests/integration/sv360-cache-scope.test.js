@@ -17,12 +17,12 @@ import crypto from 'crypto';
 import path from 'node:path';
 import os from 'node:os';
 import { mkdirSync, rmSync, existsSync } from 'node:fs';
-import Database from 'better-sqlite3';
 import jwt from 'jsonwebtoken';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createProducerUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
+import { buildTilesDb } from '../helpers/sv360-tiles.js';
 
 const RID = crypto.randomUUID().slice(0, 8);
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -67,16 +67,24 @@ describe('sv360 cache scope matches access scope (P6)', () => {
   let tmpRoot;
   const diskPaths = new Set();
 
+  // Tiles-only: a rota de imagem saiu, entao a mesma logica de cache (setTileHeaders,
+  // dois eixos) e exercitada pela rota de TILE. O arquivo de pixel e o `{slug}_tiles.db`,
+  // derivado do db_filename, e cada foto ganha um descritor em `sv360.photo_pyramids`.
   function buildImagesDb(fileName, rows) {
-    const p = path.join(config.sv360.dbDir, fileName);
+    const p = path.join(config.sv360.dbDir, fileName.replace(/\.db$/i, '_tiles.db'));
     if (existsSync(p)) rmSync(p, { force: true });
-    const sdb = new Database(p);
-    sdb.exec('CREATE TABLE images (photo_id TEXT PRIMARY KEY, full_webp BLOB, preview_webp BLOB)');
-    const ins = sdb.prepare('INSERT INTO images VALUES (?,?,?)');
-    for (const r of rows) ins.run(r.id, r.full, r.preview);
-    sdb.close();
+    buildTilesDb(p, rows.map((r) => r.id));
     diskPaths.add(p);
     return p;
+  }
+
+  async function inserirPiramide(photoId) {
+    await db.query(
+      `INSERT INTO sv360.photo_pyramids
+         (photo_id, tile_size, max_level, width, height, quality, tile_count, total_bytes, razao)
+       VALUES ($1, 512, 0, 1024, 512, 80, 1, 24, 2)`,
+      [photoId]
+    );
   }
 
   before(async () => {
@@ -118,6 +126,7 @@ describe('sv360 cache scope matches access scope (P6)', () => {
       [enabledPhotoId, p1.rows[0].id, fullBuf.length, prevBuf.length]
     );
     buildImagesDb(enabledDb, [{ id: enabledPhotoId, full: fullBuf, preview: prevBuf }]);
+    await inserirPiramide(enabledPhotoId);
 
     // ── DISABLED project (access-controlled) in the OTHER org ──
     const disabledDb = `${otherOrgId}__${DISABLED_SLUG}.db`;
@@ -136,6 +145,7 @@ describe('sv360 cache scope matches access scope (P6)', () => {
       [disabledPhotoId, p2.rows[0].id, fullBuf.length, prevBuf.length]
     );
     buildImagesDb(disabledDb, [{ id: disabledPhotoId, full: fullBuf, preview: prevBuf }]);
+    await inserirPiramide(disabledPhotoId);
   });
 
   after(async () => {
@@ -157,8 +167,7 @@ describe('sv360 cache scope matches access scope (P6)', () => {
   it('an ENABLED project image stays publicly cacheable', async () => {
     // Genuinely public content — a shared cache SHOULD serve it.
     const res = await supertest(app)
-      .get(url(`/photos/${enabledPhotoId}/image`))
-      .query({ quality: 'full' })
+      .get(url(`/photos/${enabledPhotoId}/tiles/0/0/0`))
       .expect(200);
 
     assert.match(res.headers['cache-control'], /public/);
@@ -177,7 +186,7 @@ describe('sv360 cache scope matches access scope (P6)', () => {
     // projetos diferentes não separaria "o eixo passou a contar" de "este projeto sempre
     // foi tratado assim".
     const publico = await supertest(app)
-      .get(url(`/photos/${enabledPhotoId}/image`))
+      .get(url(`/photos/${enabledPhotoId}/tiles/0/0/0`))
       .expect(200);
     assert.match(publico.headers['cache-control'], /^public,/, 'piso: enabled+public é público');
 
@@ -186,7 +195,7 @@ describe('sv360 cache scope matches access scope (P6)', () => {
     );
     try {
       const privado = await supertest(app)
-        .get(url(`/photos/${enabledPhotoId}/image`))
+        .get(url(`/photos/${enabledPhotoId}/tiles/0/0/0`))
         .set('Authorization', `Bearer ${ownerToken}`)
         .expect(200);
       assert.match(privado.headers['cache-control'], /^private,/);
@@ -199,7 +208,7 @@ describe('sv360 cache scope matches access scope (P6)', () => {
     }
     // E o par de volta: remarcado público, volta a ser publicamente cacheável.
     const devolta = await supertest(app)
-      .get(url(`/photos/${enabledPhotoId}/image`))
+      .get(url(`/photos/${enabledPhotoId}/tiles/0/0/0`))
       .expect(200);
     assert.match(devolta.headers['cache-control'], /^public,/);
   });
@@ -207,8 +216,7 @@ describe('sv360 cache scope matches access scope (P6)', () => {
   it('a DISABLED project image is NOT publicly cacheable', async () => {
     // Authorized fetch by the owning org — the bytes come back…
     const res = await supertest(app)
-      .get(url(`/photos/${disabledPhotoId}/image`))
-      .query({ quality: 'full' })
+      .get(url(`/photos/${disabledPhotoId}/tiles/0/0/0`))
       .set('Authorization', `Bearer ${otherOrgToken}`)
       .expect(200);
 
@@ -223,8 +231,7 @@ describe('sv360 cache scope matches access scope (P6)', () => {
 
   it('a DISABLED project image varies by credential (proxy belt-and-braces)', async () => {
     const res = await supertest(app)
-      .get(url(`/photos/${disabledPhotoId}/image`))
-      .query({ quality: 'preview' })
+      .get(url(`/photos/${disabledPhotoId}/tiles/0/0/0`))
       .set('Authorization', `Bearer ${otherOrgToken}`)
       .expect(200);
 
@@ -235,29 +242,25 @@ describe('sv360 cache scope matches access scope (P6)', () => {
   it('the access rule itself is unchanged — a foreign org still gets 404', async () => {
     // Guard: P6 is about cache headers only. It must not have loosened the gate.
     await supertest(app)
-      .get(url(`/photos/${disabledPhotoId}/image`))
-      .query({ quality: 'full' })
+      .get(url(`/photos/${disabledPhotoId}/tiles/0/0/0`))
       .set('Authorization', `Bearer ${ownerToken}`)
       .expect(404);
 
     await supertest(app)
-      .get(url(`/photos/${disabledPhotoId}/image`))
-      .query({ quality: 'full' })
+      .get(url(`/photos/${disabledPhotoId}/tiles/0/0/0`))
       .expect(404);
   });
 
   it('caching still works where it should — the ETag/304 path is intact', async () => {
     const first = await supertest(app)
-      .get(url(`/photos/${enabledPhotoId}/image`))
-      .query({ quality: 'full' })
+      .get(url(`/photos/${enabledPhotoId}/tiles/0/0/0`))
       .expect(200);
 
     const etag = first.headers['etag'];
     assert.ok(etag, 'an ETag must still be emitted');
 
     await supertest(app)
-      .get(url(`/photos/${enabledPhotoId}/image`))
-      .query({ quality: 'full' })
+      .get(url(`/photos/${enabledPhotoId}/tiles/0/0/0`))
       .set('If-None-Match', etag)
       .expect(304);
   });

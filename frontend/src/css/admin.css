@@ -651,7 +651,10 @@
     transition: background var(--transition-fast), color var(--transition-fast);
 }
 
-.admin-catalog__nav-btn:hover {
+/* O hover do botão INATIVO clareia o fundo. Excluir o ativo é o conserto: sem o
+   `:not(...)`, a especificidade do `:hover` vencia a do `--active` e trocava só o
+   fundo para cinza claro, deixando o texto branco do botão ativo ilegível. */
+.admin-catalog__nav-btn:hover:not(.admin-catalog__nav-btn--active) {
     background: var(--gray-100);
 }
 
@@ -659,6 +662,13 @@
     background: var(--primary);
     border-color: var(--primary);
     color: #fff;
+}
+
+/* O hover do botão ATIVO escurece o verde em vez de clarear: o texto continua branco
+   e legível, e o realce ainda responde ao mouse. */
+.admin-catalog__nav-btn--active:hover {
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
 }
 
 /* Thumbnail upload (catalog forms): a preview box + a file picker. */
@@ -690,7 +700,18 @@
     margin-top: var(--space-2);
 }
 
-/* Monospace JSON editor for the rich `config` blob (MapLibre expressions, etc.). */
+/* Bounds field: four number inputs (west, south, east, north) side by side. */
+.admin-form__bounds {
+    display: flex;
+    gap: var(--space-2);
+}
+
+.admin-form__bounds input {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Monospace JSON editor for the basemap MapLibre style box (the only remaining JSON in the catalog). */
 .admin-form__json {
     width: 100%;
     box-sizing: border-box;

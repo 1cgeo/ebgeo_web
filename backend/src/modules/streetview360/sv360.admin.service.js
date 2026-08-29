@@ -644,9 +644,9 @@ export async function deleteProject(slug, user, opts = {}, req = null) {
  * @throws {ConflictError} 409 on a cross-OM photo-id collision (from mergeProject)
  */
 export async function uploadBundle(user, files = {}) {
-  const { manifestPath, imagesDbPath, tilesDbPath, thumbnailPath } = files;
+  const { manifestPath, tilesDbPath, thumbnailPath } = files;
   if (!manifestPath) throw new BadRequestError('manifest.json is required');
-  if (!imagesDbPath) throw new BadRequestError('images.db is required');
+  if (!tilesDbPath) throw new BadRequestError('{slug}_tiles.db is required');
 
   // Parse + validate the manifest up front (so the org/ownership resolution sees
   // a clean orgSlug and the controller gets a 422 before any heavy work).
@@ -668,22 +668,19 @@ export async function uploadBundle(user, files = {}) {
   // Ownership: resolve + authorize the target organization_id (admin vs om).
   const orgId = await resolveUploadOrgId(user, manifest);
 
-  // Ingest (validateImagesDb size-check -> atomic swap -> merge tx; see above).
+  // Ingest (validatePyramidCoverage -> atomic tiles swap -> merge tx; see above).
+  // TILES-ONLY: o unico arquivo de pixel e o `{slug}_tiles.db`.
   const result = await ingestBundle({
     manifest,
-    dbTmpPath: imagesDbPath,
-    // O SEGUNDO ARQUIVO DO PROJETO. Ele é opcional no formato COM blob e obrigatório
-    // no só-tiles, e quem cobra a diferença é `validateImagesDb`, lendo a FORMA do
-    // arquivo — nunca uma bandeira do chamador.
-    tilesTmpPath: tilesDbPath ?? null,
+    tilesTmpPath: tilesDbPath,
     orgId,
     source: 'upload',
   });
 
-  // Persist the optional thumbnail to disk under SV360_DB_DIR, ORG-KEYED exactly
-  // like the {orgId}__{slug}.db BLOB store (result.dbFilename) — NEVER slug-only,
-  // or two orgs sharing a slug would overwrite/leak each other's thumbnail. The
-  // GET /thumbnails route resolves the same org-keyed name from the project row.
+  // Persist the optional thumbnail to disk under SV360_DB_DIR, por SLUG a partir de
+  // `result.dbFilename` (a chave logica {slug}.db) reescrita para {slug}.webp. O
+  // `UNIQUE(slug)` do schema impede duas OMs no mesmo slug, entao nao ha colisao. A
+  // rota GET /thumbnails resolve o mesmo nome por slug a partir da linha do projeto.
   if (thumbnailPath && existsSync(thumbnailPath)) {
     try {
       const thumbDest = resolveDbPath(result.dbFilename.replace(/\.db$/i, '.webp'));

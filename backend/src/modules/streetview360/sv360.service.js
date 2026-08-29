@@ -1,14 +1,14 @@
 // Path: src/modules/streetview360/sv360.service.js
 // Read-only business logic for the StreetView 360 module (Fase 9, stage 1).
-// Metadata lives in Postgres (schema `sv360`); only the WebP BLOBs live in the
-// per-project {slug}.db SQLite. This layer:
+// Metadata lives in Postgres (schema `sv360`); o pixel vive na pirâmide de tiles
+// do `{slug}_tiles.db` SQLite por projeto (tiles-only desde 2026-08-29: a imagem
+// inteira e a `{slug}.db` de blob saíram). This layer:
 //   - enforces the read-access policy (enabled = public; disabled = owner/admin
 //     only, returning 404 to avoid leaking existence on a hidden project);
 //   - maps the DB columns to the FROZEN photoMetadataShape (flat camera fields;
 //     targets expose `bearing`/`distance`, mapped from internal bearing_deg/
 //     distance_m, with a constant `icon: 'next'`);
-//   - builds the O(1) image descriptor (ETag from Postgres *_size_bytes, no BLOB
-//     read) consumed by the controller for 304/Range serving.
+//   - builds the pyramid descriptor + tile metadata consumed by the controller.
 // All writes/calibration/admin/ingestion are stage 2.
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -88,13 +88,13 @@ export function isProjectReadable(project, user) {
   //
   // "NENHUMA LINHA CHEGA AQUI SEM TER PASSADO POR ELE" e uma afirmacao que este
   // comentario ja fez enquanto era FALSA, e o custo dela foi o buraco mais fundo do
-  // modulo: as QUATRO consultas de foto (GET_PHOTO_BY_ID, GET_PHOTO_BY_NAME,
-  // GET_PHOTO_SIZES, NEARBY_PHOTOS) nao carregavam predicado nenhum ate a fase F9,
-  // entao um projeto `enabled + private` entregava metadado, imagem e vizinhanca a
-  // quem soubesse o uuid — e por coordenada, no `/photos/nearest`. Hoje as quatro
-  // carregam, e quem cobra a propriedade e o censo de superficies
+  // modulo: as consultas de foto (GET_PHOTO_BY_ID, GET_PHOTO_BY_NAME, NEARBY_PHOTOS)
+  // nao carregavam predicado nenhum ate a fase F9,
+  // entao um projeto `enabled + private` entregava metadado e vizinhanca a
+  // quem soubesse o uuid — e por coordenada, no `/photos/nearest`. Hoje as tres
+  // carregam (a rota de imagem inteira saiu em 2026-08-29, tiles-only), e quem cobra e o censo
   // (`tests/unit/superficies-de-recurso-censo.test.js`), que exige de cada consulta
-  // uma classe: uma quinta consulta de foto sem predicado reprova por nome, em vez
+  // uma classe: uma consulta de foto nova sem predicado reprova por nome, em vez
   // de ser coberta por esta frase.
   //
   // Consequencia pratica: um projeto `enabled + private` e considerado legivel
@@ -446,48 +446,9 @@ export async function photoByName(nome, user, atlasId = null) {
 }
 
 /**
- * Builds the O(1) image descriptor for the controller: ETag from Postgres
- * *_size_bytes (NO BLOB read), plus the resolved {slug}.db path. The 304/Range/
- * semaphore handling and the actual BLOB fetch live in the controller.
- * @param {string} uuid - photo id (TEXT uuid v5)
- * @param {'full'|'preview'} quality
- * @param {Object} [user]
- * @param {string|null} [atlasId] - atlas em foco, JÁ confirmado pelo gate de rota
- * @returns {Promise<{dbFile:string, sizeBytes:number, etag:string, photoId:string, contentType:string}>}
- * @throws {NotFoundError} if missing/tombstoned, privado fora do alcance, ou oculto
- */
-export async function getPhotoImageMeta(uuid, quality, user, atlasId = null) {
-  const { rows } = await query(Q.GET_PHOTO_SIZES, [uuid, ...readScope(user, atlasId)]);
-  const row = rows[0];
-  if (!row) throw new NotFoundError('Photo');
-  enforceProjectReadable(
-    { status: row.project_status, organization_id: row.organization_id },
-    user,
-    'Photo'
-  );
-
-  const sizeBytes = Number(
-    quality === 'preview' ? row.preview_size_bytes : row.full_size_bytes
-  );
-  return {
-    dbFile: blobstore.resolveDbPath(row.db_filename),
-    sizeBytes,
-    etag: `"${uuid}-${quality}-${sizeBytes}"`,
-    photoId: uuid,
-    contentType: 'image/webp',
-    // OS DOIS EIXOS dirigem o escopo de cache no controller, e são dois porque um
-    // sozinho já errou: `disabled` oculta, `private` restringe, e a imagem de um
-    // projeto `enabled + private` viajava marcada `public, immutable` (P6, corrigido
-    // na fase F9).
-    projectStatus: row.project_status,
-    projectAccessLevel: row.access_level,
-  };
-}
-
-/**
  * Metadado da PIRÂMIDE de uma foto: o descritor que o cliente lê antes de pedir tile.
  *
- * O gate é o MESMO de `getPhotoImageMeta`, e ser o mesmo é o requisito, não o estilo:
+ * O gate é o MESMO das outras leituras de foto, e ser o mesmo é o requisito, não o estilo:
  * a pirâmide é uma segunda porta para o mesmo pixel, e um recurso que sai por muitas
  * portas não fica protegido pelo predicado de uma delas. O censo de superfícies dos
  * dois pacotes cobra esta linha.
@@ -989,12 +950,9 @@ export function buildPhotoMetadata(photo, targets, { includeHidden = false } = {
       lat: photo.lat,
       ele: photo.ele,
       heading: photo.heading,
-      height: photo.camera_height,
       mesh_rotation_y: photo.mesh_rotation_y,
       mesh_rotation_x: photo.mesh_rotation_x,
       mesh_rotation_z: photo.mesh_rotation_z,
-      distance_scale: photo.distance_scale,
-      marker_scale: photo.marker_scale,
       floor_level: photo.floor_level,
       // The NAME this photo's floor carries on screen. Nullable by construction:
       // a flat project has no floor to name (`?? null` normalizes the undefined a
@@ -1040,8 +998,6 @@ export function buildPhotoMetadata(photo, targets, { includeHidden = false } = {
       distance: t.distance_m,
       bearing: t.bearing_deg,
       override_bearing: t.override_bearing,
-      override_distance: t.override_distance,
-      override_height: t.override_height,
       // Present ONLY under include_hidden. The default read never carries the key,
       // because there the array is hidden-free by construction and a constant
       // `hidden: false` on every target would be noise the viewer has to ignore.

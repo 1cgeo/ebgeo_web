@@ -45,8 +45,7 @@ const TILES_SLUG = 'proj-etl-so-tiles';
 // O mesmo acervo podado, com UMA foto viva fora da pirâmide.
 const PARCIAL_SLUG = 'proj-etl-tiles-parcial';
 const DB_FILENAME = `${SLUG}.db`;
-// FIX-1: the dest filename is the SERVER-DERIVED org-scoped name, not the legacy one.
-const DEFAULT_ORG_ID = '00000000-0000-0000-0000-000000000001';
+// O nome do arquivo no destino é por SLUG (`{slug}.db`), sem prefixo de OM, como no ebgeo_360.
 
 const p1 = uuidv5('default/proj-etl/etl-foto001.jpg');
 const p2 = uuidv5('default/proj-etl/etl-foto002.jpg');
@@ -209,6 +208,9 @@ describe('StreetView 360 — offline ETL (importIndexDb)', () => {
     buildTilesDb(TILES_SLUG, [t1, t2]);
     buildPodadoDb(PARCIAL_SLUG, [x1, x2]);
     buildTilesDb(PARCIAL_SLUG, [x1]); // x2 fica sem pirâmide, de propósito
+    // Tiles-only: o projeto principal (proj-etl) tambem precisa do `{slug}_tiles.db`,
+    // que e o unico arquivo de pixel que o ETL instala. O `{slug}.db` de blob nao viaja.
+    buildTilesDb(SLUG, [p1, p2]);
     // Only project A gets a thumbnail; project B has none (the real corpus has
     // 6 of 28 missing), which must NOT fail its import.
     writeFileSync(path.join(thumbDir, `${SLUG}.webp`), THUMB_BYTES);
@@ -269,11 +271,12 @@ describe('StreetView 360 — offline ETL (importIndexDb)', () => {
     assert.equal(Number(geo[0].lon), -46.6);
     assert.equal(Number(geo[0].lat), -23.5);
 
-    // {slug}.db copied to dest with both rows, under the server-derived name.
-    const copied = path.join(destDir, `${DEFAULT_ORG_ID}__${SLUG}.db`);
-    assert.ok(existsSync(copied), 'expected derived {slug}.db copied to dest');
+    // Tiles-only: o `{slug}_tiles.db` copiado, com a piramide das duas fotos, sob o
+    // nome derivado por slug. A `{slug}.db` de blob nao viaja mais.
+    const copied = path.join(destDir, `${SLUG}_tiles.db`);
+    assert.ok(existsSync(copied), 'expected derived {slug}_tiles.db copied to dest');
     const cdb = new Database(copied, { readonly: true });
-    const n = cdb.prepare('SELECT COUNT(*) AS n FROM images').get().n;
+    const n = cdb.prepare('SELECT COUNT(*) AS n FROM tile_pyramids').get().n;
     cdb.close();
     assert.equal(n, 2);
   });
@@ -302,8 +305,8 @@ describe('StreetView 360 — offline ETL (importIndexDb)', () => {
   it('transfer:"link" hardlinks instead of copying, and a rerun keeps the source intact', async () => {
     const linkDir = path.join(tmpRoot, 'linked');
     mkdirSync(linkDir, { recursive: true });
-    const srcPath = path.join(srcDir, DB_FILENAME);
-    const linkPath = path.join(linkDir, `${DEFAULT_ORG_ID}__${SLUG}.db`);
+    const srcPath = path.join(srcDir, `${SLUG}_tiles.db`);
+    const linkPath = path.join(linkDir, `${SLUG}_tiles.db`);
 
     const { imported } = await importIndexDb(indexDbPath, {
       dbDirSource: srcDir,
@@ -331,14 +334,14 @@ describe('StreetView 360 — offline ETL (importIndexDb)', () => {
       logger: silentLogger,
     });
     const ldb = new Database(linkPath, { readonly: true });
-    const row = ldb.prepare('SELECT full_webp AS f FROM images WHERE photo_id = ?').get(p1);
-    const total = ldb.prepare('SELECT COUNT(*) AS n FROM images').get().n;
+    const total = ldb.prepare('SELECT COUNT(*) AS n FROM tile_pyramids').get().n;
+    const temFoto = ldb.prepare('SELECT 1 FROM tile_pyramids WHERE photo_id = ?').get(p1);
     ldb.close();
-    assert.equal(total, 2, 'both image rows survive the relink');
-    assert.deepEqual(Buffer.from(row.f), full1, 'BLOB bytes survive the relink');
+    assert.equal(total, 2, 'both pyramid rows survive the relink');
+    assert.ok(temFoto, 'a piramide de p1 sobrevive ao relink');
   });
 
-  it('transfers the project thumbnail under the ORG-KEYED name the serving route resolves', async () => {
+  it('transfers the project thumbnail under the SLUG name the serving route resolves', async () => {
     const thumbOutDir = path.join(tmpRoot, 'thumb-dest');
     mkdirSync(thumbOutDir, { recursive: true });
 
@@ -349,15 +352,11 @@ describe('StreetView 360 — offline ETL (importIndexDb)', () => {
       logger: silentLogger,
     });
 
-    // GET /sv360/thumbnails/:slug.webp resolves `{orgId}__{slug}.webp` inside
-    // SV360_DB_DIR — the legacy `{slug}.webp` name would 404.
-    const served = path.join(thumbOutDir, `${DEFAULT_ORG_ID}__${SLUG}.webp`);
-    assert.ok(existsSync(served), 'thumbnail must land under the org-keyed name');
+    // GET /sv360/thumbnails/:slug.webp resolves `{slug}.webp` inside SV360_DB_DIR:
+    // sem prefixo de OM, como no ebgeo_360.
+    const served = path.join(thumbOutDir, `${SLUG}.webp`);
+    assert.ok(existsSync(served), 'thumbnail must land under the slug name');
     assert.deepEqual(readFileSync(served), THUMB_BYTES, 'thumbnail bytes transferred intact');
-    assert.ok(
-      !existsSync(path.join(thumbOutDir, `${SLUG}.webp`)),
-      'and NOT under the legacy slug-only name, which the route would not find'
-    );
 
     // A project whose thumbnail is absent still imports — reported, never fatal.
     const projA = imported.find((r) => r.slug === SLUG);
@@ -381,8 +380,8 @@ describe('StreetView 360 — offline ETL (importIndexDb)', () => {
 
     // O ARQUIVO QUE FALTAVA. O ETL não copiava `{slug}_tiles.db`, então um acervo
     // podado chegava ao destino sem fonte de pixel nenhuma.
-    const tilesDest = path.join(podadoDir, `${DEFAULT_ORG_ID}__${TILES_SLUG}_tiles.db`);
-    assert.ok(existsSync(tilesDest), 'o {slug}_tiles.db tem de chegar sob o nome org-keyed');
+    const tilesDest = path.join(podadoDir, `${TILES_SLUG}_tiles.db`);
+    assert.ok(existsSync(tilesDest), 'o {slug}_tiles.db tem de chegar sob o nome por slug');
     const tdb = new Database(tilesDest, { readonly: true });
     const ids = tdb.prepare('SELECT photo_id FROM tile_pyramids ORDER BY photo_id').all();
     tdb.close();
@@ -392,14 +391,7 @@ describe('StreetView 360 — offline ETL (importIndexDb)', () => {
       'a pirâmide das duas fotos vivas viajou junto'
     );
 
-    // E o {slug}.db podado entra sendo MUITO menor que os *_size_bytes que o index.db
-    // anuncia: é exatamente o piso de bytes que não se aplica a este formato.
-    const imagesDest = path.join(podadoDir, `${DEFAULT_ORG_ID}__${TILES_SLUG}.db`);
-    assert.ok(existsSync(imagesDest), 'o {slug}.db podado também é instalado');
-    assert.ok(
-      statSync(imagesDest).size < BYTES_FANTASMA,
-      'o arquivo podado é minúsculo perto do que o índice ainda anuncia'
-    );
+    // Tiles-only: nao ha `{slug}.db` instalado, so o `{slug}_tiles.db` verificado acima.
 
     const { rows } = await db.query(
       `SELECT COUNT(*)::int AS n FROM sv360.photos
@@ -464,11 +456,11 @@ describe('StreetView 360 — offline ETL (importIndexDb)', () => {
     ]);
     assert.equal(rows.length, 0, 'o merge do projeto recusado tem de ter sido revertido');
     assert.ok(
-      !existsSync(path.join(parcialDir, `${DEFAULT_ORG_ID}__${PARCIAL_SLUG}.db`)),
+      !existsSync(path.join(parcialDir, `${PARCIAL_SLUG}.db`)),
       'nem o {slug}.db do projeto recusado chega ao destino'
     );
     assert.ok(
-      !existsSync(path.join(parcialDir, `${DEFAULT_ORG_ID}__${PARCIAL_SLUG}_tiles.db`)),
+      !existsSync(path.join(parcialDir, `${PARCIAL_SLUG}_tiles.db`)),
       'nem o {slug}_tiles.db dele'
     );
 

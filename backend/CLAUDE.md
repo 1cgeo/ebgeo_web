@@ -295,9 +295,11 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   reconcilia **autorização** (share revogado / atlas despublicado / org desativada), e ele **não** reage à
   revogação do refresh token. Há **um socket por `atlasId`** (sem mensagem de "switch"): trocar de atlas =
   abrir nova conexão e fechar a anterior pelo cliente.
-- **`sv360` está FORA do sync/CRDT/WS** do atlas: BLOBs WebP em SQLite por projeto (`{slug}.db`, worker
-  pool + ETag O(1) + semáforo), erros em envelope **plano** `{ error }` (não `{error:{code,message}}`),
-  `db_filename` **derivado no servidor** (`${orgId}__{slug}.db`), ingestão swap-then-commit. Detalhes em
+- **`sv360` está FORA do sync/CRDT/WS** do atlas: pixel em SQLite por projeto, worker
+  pool + ETag O(1) + semáforo, erros em envelope **plano** `{ error }` (não `{error:{code,message}}`),
+  `db_filename` **derivado no servidor** por SLUG, sem prefixo de OM, como no `ebgeo_360`
+  fonte-da-verdade (a isolação entre OMs virou o `UNIQUE (slug)` do schema, mudança de
+  2026-08-29). Ingestão swap-then-commit. Detalhes em
   [[streetview-360]] e [[ingestao-projetos-360]], ambas em [`../docs/wiki/`](../docs/wiki/index.md).
   Ao citar doc, use wikilink ou caminho entre crases: caminho nu em prosa é ponto cego dos DOIS
   guardas de integridade ao mesmo tempo, e foi assim que um ponteiro para uma pasta inexistente

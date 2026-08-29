@@ -4,37 +4,29 @@
 //
 // Imports the legacy SQLite `index.db` (organizations/projects/photos/targets/
 // deleted_photos, §4.3, plus project_tracks and project_floors) into the
-// Postgres `sv360` schema and COPIES each project's TWO on-disk files into
-// config.sv360.dbDir: `{slug}.db` (the images store) and, when it exists,
-// `{slug}_tiles.db` (the tile pyramids).
+// Postgres `sv360` schema and COPIES each project's `{slug}_tiles.db` (the tile
+// pyramids) into config.sv360.dbDir. TILES-ONLY desde 2026-08-29: a `{slug}.db`
+// de blob full/preview deixou de ser lida e instalada.
 //
 // It is the offline twin of the admin multipart upload: BOTH reuse the SHARED
 // core `mergeProject` (src/modules/streetview360/sv360.merge.js), so "último
 // upload manda", the cross-OM collision guard and idempotency are defined
 // exactly once. This script only orchestrates: read index.db -> build an
-// in-memory manifest per project -> tx(mergeProject) -> copy {slug}.db with a
-// size check.
+// in-memory manifest per project -> tx(mergeProject) -> copy {slug}_tiles.db.
 //
 // Properties (per the SPEC etlSignature + Tarefa 2 DoD):
 //   - Idempotent: rerunning the same index.db reproduces the same state
 //     (mergeProject purges + reinserts deterministically; UUID v5 ids are stable).
 //   - Per-project isolation: a single corrupt/incomplete project is collected in
 //     `skipped[]` and does NOT abort the others (each project gets its own tx()).
-//   - Verified transfer, by ARCHIVE SHAPE. The source {slug}.db must exist, be
-//     non-empty and carry the pixels the manifest promises. WHICH check proves
-//     that depends on the shape, and the shape is read from the file itself (the
-//     SHARED `validateImagesDb` of sv360.ingest.js, never a probe re-typed here):
-//       COM BLOB (the historic archive): `images` has full_webp/preview_webp, the
-//         per-photo byte lengths must match the manifest, AND the destination file
-//         must be at least the summed *_size_bytes (full + preview) of the photos.
-//       SO-TILES (the normal shape since the origin ran `aposentar-full.js`): the
-//         blob columns are GONE, so there are no bytes to sum and the byte floor
-//         does not apply. The guard is TRADED, not waived: the project must bring a
-//         `{slug}_tiles.db` whose pyramid covers EVERY live photo of the manifest,
-//         and that pyramid is WRITTEN to sv360.photo_pyramids in the same tx (a
-//         copied file with an empty table is a panorama that never paints).
-//     A failed transfer/check rolls the project's row back (the transfer runs
-//     INSIDE the same tx callback, so a throw aborts the commit).
+//   - Verified transfer. The source {slug}_tiles.db must exist, be non-empty and
+//     its pyramid must cover EVERY live photo of the manifest — the SHARED
+//     `validatePyramidCoverage` of sv360.ingest.js, never a probe re-typed here.
+//     A legacy archive that is blob-only (no pyramid) is REJECTED until the origin
+//     generates its pyramid: there is no blob path left. The pyramid is WRITTEN to
+//     sv360.photo_pyramids in the same tx (a copied file with an empty table is a
+//     panorama that never paints). A failed transfer/check rolls the project's row
+//     back (the transfer runs INSIDE the same tx callback, so a throw aborts the commit).
 //   - Progress logging via the injected logger (defaults to console).
 //
 // ORDERING NOTE (vs. the online upload): the online path SWAPS THE FILE FIRST
@@ -82,12 +74,11 @@ import Database from 'better-sqlite3';
 import { tx } from '../src/database/index.js';
 import { mergeProject, resolveOrgIdBySlug } from '../src/modules/streetview360/sv360.merge.js';
 // The PIXEL-SOURCE guard, shared with the online upload. It is imported, never
-// re-typed: it already knows the TWO shapes of archive (blob columns vs. só-tiles)
-// and it owns the PRAGMA probe that tells them apart. A third copy of that rule
-// would drift, and the symptom would be one path accepting what the other refuses.
-// `resolveTilesDbPath` comes along for the same reason: whoever INSTALLS the tiles
-// file and whoever READS it must derive the same name.
-import { validateImagesDb, resolveTilesDbPath } from '../src/modules/streetview360/sv360.ingest.js';
+// re-typed: it reads the pyramid coverage from the {slug}_tiles.db, and a second
+// copy of that rule would drift, the symptom being one path accepting what the
+// other refuses. `resolveTilesDbPath` comes along for the same reason: whoever
+// INSTALLS the tiles file and whoever READS it must derive the same name.
+import { validatePyramidCoverage, resolveTilesDbPath } from '../src/modules/streetview360/sv360.ingest.js';
 // A PIRÂMIDE TAMBÉM ATRAVESSA, e por muito tempo não atravessava: o ETL copiava o
 // `{slug}_tiles.db` e deixava `sv360.photo_pyramids` VAZIA, então `tiles.json`
 // respondia 404 para toda foto de um acervo que só tem tiles. Mesma leitura do
@@ -416,22 +407,6 @@ function fsyncQuiet(filePath) {
   }
 }
 
-// Sum the per-photo full + preview byte counts: the lower bound the destination
-// {slug}.db must satisfy (the SQLite file also carries page overhead/indexes, so
-// it is always >= the summed BLOB bytes). A zero/absent dest fails the check.
-//
-// ONLY MEANINGFUL FOR AN ARCHIVE THAT STILL HAS BLOBS. On a só-tiles archive the
-// legacy index.db keeps the *_size_bytes of the images it no longer stores (the
-// origin's `aposentar-full.js` opens the index READONLY and never zeroes them), so
-// this sum measures bytes that are not supposed to be in the file. The caller only
-// applies it to the blob shape.
-function expectedMinBytes(photos) {
-  let sum = 0;
-  for (const p of photos) {
-    sum += Number(p.full_size_bytes || 0) + Number(p.preview_size_bytes || 0);
-  }
-  return sum;
-}
 
 // The basename of the tiles file that goes WITH a given {slug}.db, source or dest.
 // The rule (strip `.db`, append `_tiles.db`, basename first as a traversal defense)
@@ -472,70 +447,52 @@ function transferOne(src, dest, transfer) {
 }
 
 /**
- * Transfers a project's on-disk store — {slug}.db AND its {slug}_tiles.db — and
- * verifies that what landed really carries the project's pixels.
+ * Transfers a project's on-disk pixel store — the {slug}_tiles.db — and verifies
+ * that its pyramid covers every live photo of the manifest.
  *
- * THE TWO FILES TRAVEL TOGETHER, which is the half that was missing: the ETL used
- * to move only {slug}.db. Since the origin retired the blob columns, that file
- * alone is a bare list of photo ids, so an import that leaves the pyramids behind
- * installs a project with NO source of pixels at all — the exact state
- * `sv360.ingest.js` documents the validation as existing to prevent, and one that
- * surfaces far away, as a panorama that never paints.
+ * TILES-ONLY desde 2026-08-29: o ETL move SÓ o `{slug}_tiles.db`. A `{slug}.db` de
+ * blob deixou de ser lida e instalada, então um acervo legado COM blob e sem pirâmide
+ * não entra até a origem gerar a pirâmide dele. O validador é o mesmo do upload
+ * (`validatePyramidCoverage`), lido do arquivo, nunca re-tipado aqui: uma foto viva
+ * sem pirâmide não tem fonte de pixel nenhuma, e o sintoma aparece longe daqui, como
+ * panorâmica que não pinta.
  *
- * WHICH CHECK PROVES THE PIXELS ARE THERE depends on the shape of the archive, and
- * the shape is read from the file by the SHARED `validateImagesDb`:
- *   - COM BLOB: per-photo byte lengths must match the manifest, and the byte floor
- *     below still applies to the destination file, exactly as before.
- *   - SÓ-TILES: there are no blobs to size, so the floor is meaningless (see
- *     expectedMinBytes) and is NOT applied. In its place stands the pyramid
- *     coverage of every live photo, which validateImagesDb enforces. What remains
- *     from the old check is what still means something: the files exist and are
- *     non-empty.
- *
- * Naming, unchanged: the SOURCE basename is the legacy {slug}.db name from the
- * index.db; the DEST basename is the SERVER-DERIVED db_filename (FIX-1: org-scoped),
- * so the on-disk store matches what mergeProject wrote to Postgres and two orgs
- * sharing a slug never collide on one file. The tiles names are derived from those.
+ * Naming: o basename da ORIGEM é o `{slug}.db` legado do index.db; o do DESTINO é o
+ * `db_filename` DERIVADO por slug (sem prefixo de OM), e os nomes de tiles derivam dos
+ * dois. `db_filename` é chave lógica: nenhum `{slug}.db` chega ao disco.
  *
  * Throws on any problem so the caller's tx rolls back the merge.
- * @param {string} srcDir - dir holding the legacy {slug}.db / {slug}_tiles.db
- * @param {string} destDir - dir to install them into
- * @param {string} srcDbFilename - legacy {slug}.db name
- * @param {string} destDbFilename - server-derived `{orgId}__{slug}.db`
+ * @param {string} srcDir - dir holding the legacy {slug}_tiles.db
+ * @param {string} destDir - dir to install it into
+ * @param {string} srcDbFilename - legacy {slug}.db logical name (tiles derived from it)
+ * @param {string} destDbFilename - server-derived {slug}.db logical name
  * @param {Object} manifest - the project manifest (photos[] is what gets verified)
  * @param {'copy'|'link'} transfer
- * @returns {{dest:string, destSize:number, tilesDest:string|null, temBlob:boolean}}
+ * @returns {{tilesDest:string}}
  */
 function transferProjectStore(srcDir, destDir, srcDbFilename, destDbFilename, manifest, transfer) {
   const srcBase = path.basename(srcDbFilename);
   const destBase = path.basename(destDbFilename);
-  const src = path.resolve(srcDir, srcBase);
-  const dest = path.resolve(destDir, destBase);
   const srcTiles = path.resolve(srcDir, tilesBasename(srcBase));
   const destTiles = path.resolve(destDir, tilesBasename(destBase));
 
-  if (!existsSync(src)) {
-    throw new Error(`source {slug}.db not found: ${src}`);
+  // TILES-ONLY desde 2026-08-29: o UNICO arquivo de pixel e o `{slug}_tiles.db`. A
+  // `{slug}.db` de blob nao e mais lida nem instalada, entao um acervo legado COM
+  // blob e sem piramide nao entra ate a origem gerar a piramide dele.
+  if (!existsSync(srcTiles) || statSync(srcTiles).size <= 0) {
+    throw new Error(`source {slug}_tiles.db not found or empty: ${srcTiles}`);
   }
-  const srcSize = statSync(src).size;
-  if (srcSize <= 0) {
-    throw new Error(`source {slug}.db is empty: ${src}`);
-  }
-  const temTiles = existsSync(srcTiles) && statSync(srcTiles).size > 0;
 
   // PASSO 0 of the offline path, the same one the upload runs. It is done on the
-  // SOURCE, before anything is written: a project that cannot prove its pixels must
-  // not leave a half-installed store behind.
-  let temBlob;
+  // SOURCE, before anything is written: a project whose pyramid does not cover
+  // every live photo must not leave a half-installed store behind.
   try {
-    ({ temBlob } = validateImagesDb(src, manifest, temTiles ? srcTiles : null));
+    validatePyramidCoverage(srcTiles, manifest);
   } catch (err) {
-    // Say WHERE we looked. The shared message names the cause ("só-tiles archive,
-    // and no tiles db"), but it is written for an upload; the operator of the ETL
-    // needs the two paths on disk to act on it.
+    // Say WHERE we looked: the shared message is written for an upload, and the ETL
+    // operator needs the path on disk to act on it.
     throw new Error(
-      `${src} does not carry the pixels its index.db announces: ${err.message} ` +
-        `(looked for the pyramids at ${srcTiles})`,
+      `${srcTiles} does not carry the pyramids its index.db announces: ${err.message}`,
       { cause: err }
     );
   }
@@ -545,29 +502,13 @@ function transferProjectStore(srcDir, destDir, srcDbFilename, destDbFilename, ma
   // Same path on both ends: a copy would truncate dest and then read the very file
   // it just emptied (dest IS src), destroying the store; a link would be a no-op.
   // Reachable whenever dbDirSource === dbDirDest and the legacy name already equals
-  // the derived one, so it is a guard, not a theoretical branch. Checked per FILE:
-  // the images db and the tiles db can perfectly well differ on this.
-  if (src !== dest) transferOne(src, dest, transfer);
-  if (temTiles && srcTiles !== destTiles) transferOne(srcTiles, destTiles, transfer);
+  // the derived one, so it is a guard, not a theoretical branch.
+  if (srcTiles !== destTiles) transferOne(srcTiles, destTiles, transfer);
 
-  const destSize = statSync(dest).size;
-  if (destSize <= 0) {
-    throw new Error(`copied {slug}.db is empty: ${dest}`);
-  }
-  if (temBlob) {
-    const minBytes = expectedMinBytes(manifest.photos);
-    if (destSize < minBytes) {
-      throw new Error(
-        `copied {slug}.db is smaller than the photo BLOBs it should contain ` +
-          `(${destSize} < ${minBytes}): ${dest} — this archive DOES have the ` +
-          `full_webp/preview_webp columns, so the copy is truncated`
-      );
-    }
-  }
-  if (temTiles && (!existsSync(destTiles) || statSync(destTiles).size <= 0)) {
+  if (!existsSync(destTiles) || statSync(destTiles).size <= 0) {
     throw new Error(`copied {slug}_tiles.db is missing or empty: ${destTiles}`);
   }
-  return { dest, destSize, tilesDest: temTiles ? destTiles : null, temBlob };
+  return { tilesDest: destTiles };
 }
 
 /**

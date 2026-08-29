@@ -465,7 +465,10 @@ describe('os sitios da acusacao existem onde a falha acontece', () => {
     });
 
     it('o status viaja como CAMPO nos dois pedidos do 360, e nao so dentro da frase', () => {
+        // Tiles-only (2026-08-29): os DOIS pedidos de rede do 360 sao o METADADO
+        // (streetview-api.service) e o TILES.JSON (tile-loader). A rota de imagem inteira
+        // saiu, e com ela o fetch de blob do proprio visualizador que carimbava o status.
         expect(fonte('street_view_tool/streetview-api.service.js')).toContain('error.status = response.status;');
-        expect(fonte('street_view_tool/street_view_viewer.js')).toContain('erro.status = response.status;');
+        expect(fonte('street_view_tool/tile-loader.js')).toContain('erro.status = resposta.status;');
     });
 });

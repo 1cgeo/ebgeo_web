@@ -12,9 +12,9 @@ A posse é resolvida no service, não em middleware, porque depende de carregar 
 
 ## O contrato congelado é a ausência de faixa
 
-Todo numérico é `Joi.number()` sem `min`/`max`, e as colunas são `DOUBLE PRECISION`/`INTEGER` sem `CHECK`. Isso é decisão, não esquecimento (`backend/src/modules/streetview360/sv360.write.schemas.js`): chutar um limite aqui devolveria 422 para valor que o cliente legitimamente manda e o banco aceitaria. São aceitos `heading: 400`, `distance_scale: 0`, escalas negativas, `floor_level: -2`. Ver [[sintese-contratos-congelados]].
+Todo numérico é `Joi.number()` sem `min`/`max`, e as colunas são `DOUBLE PRECISION`/`INTEGER` sem `CHECK`. Isso é decisão, não esquecimento (`backend/src/modules/streetview360/sv360.write.schemas.js`): chutar um limite aqui devolveria 422 para valor que o cliente legitimamente manda e o banco aceitaria. São aceitos `heading: 400`, escalas negativas de rotação de malha, `floor_level: -2`. Ver [[sintese-contratos-congelados]].
 
-As únicas faixas que existem no produto são de TELA, e são estreitas: o estúdio impõe 0 a 360 no eixo Y da malha e -30 a 30 em X e Z (`renderSlidersSection`, `frontend/src/js/calibration/calibration-panel.js`). Elas não servem de contrato porque os demais numéricos não têm mais controle nenhum no estúdio: `heading`, `distance_scale` e `floor_level` chegam ao banco pela ingestão de bundle, com o que o pipeline de origem gerou. Apertar o Joi contra o limite de tela reprovaria o acervo na primeira reescrita.
+As únicas faixas que existem no produto são de TELA, e são estreitas: o estúdio impõe 0 a 360 no eixo Y da malha e -30 a 30 em X e Z (`renderSlidersSection`, `frontend/src/js/calibration/calibration-panel.js`). Elas não servem de contrato porque os demais numéricos não têm mais controle nenhum no estúdio: `heading` e `floor_level` chegam ao banco pela ingestão de bundle, com o que o pipeline de origem gerou. Apertar o Joi contra o limite de tela reprovaria o acervo na primeira reescrita.
 
 ## Armadilha: o comentário do próprio código mente sobre coerção
 
@@ -24,7 +24,7 @@ Detalhe oposto ao esperado: `stripUnknown: true` é global, mas o `.unknown(fals
 
 ## Override de link: servido, gravado uma vez, e sem leitor na projeção
 
-Os campos `override_bearing`, `override_distance` e `override_height` continuam **servidos** em `targets[]` pela leitura do metadado, e continuam sendo gravados na criação do link (`INSERT_TARGET`). O que não existe mais é rota que os edite depois: o `PUT .../targets/:targetId/override` saiu junto com o modelo de marcador **absoluto**, substituído pelo **relativo**.
+O campo `override_bearing` continua **servido** em `targets[]` pela leitura do metadado, e continua sendo gravado na criação do link (`INSERT_TARGET`). Os outros dois overrides (override_distance e override_height) eram inertes e foram PODADOS do schema, do INSERT e do payload em 2026-08-29, para o web casar com o `ebgeo_360` (decisão em [`../decisions/decisions-2026.md`](../decisions/decisions-2026.md)). Rota que os editasse depois já não existia: o `PUT .../targets/:targetId/override` saiu antes, junto com o modelo de marcador **absoluto**, substituído pelo **relativo**.
 
 **A projeção também não os lê mais, e é aqui que a leitura do payload engana.** `resolveTargetVector` (`frontend/src/js/street_view_tool/navigation/navigator.js`) resolve azimute e distância a partir de lat/lon e de mais nada; o JSDoc dele registra o motivo, que é uma medida: os overrides eram calibração do ÍCONE, e um `override_distance` de 17,3 m num alvo a 10,2 m reordenava a fila em silêncio. Posição errada se corrige movendo a FOTO, nunca empurrando o marcador que aponta para ela.
 

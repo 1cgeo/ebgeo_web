@@ -24,7 +24,6 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
-import Database from 'better-sqlite3';
 import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -33,6 +32,7 @@ import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createAdminUser, createProducerUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
+import { buildTilesDb } from '../helpers/sv360-tiles.js';
 import * as svc from '../../src/modules/streetview360/sv360.service.js';
 
 const JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
@@ -101,12 +101,7 @@ describe('StreetView 360 — audit gap coverage', () => {
   function buildImagesDb(name, rows) {
     const p = path.join(tmpRoot, name);
     if (existsSync(p)) rmSync(p, { force: true });
-    const sdb = new Database(p);
-    sdb.exec('CREATE TABLE images (photo_id TEXT PRIMARY KEY, full_webp BLOB, preview_webp BLOB)');
-    const ins = sdb.prepare('INSERT INTO images VALUES (?,?,?)');
-    for (const r of rows) ins.run(r.id, r.full, r.preview);
-    sdb.close();
-    return p;
+    return buildTilesDb(p, rows.map((r) => r.id));
   }
 
   function writeManifestFile(name, content) {
@@ -191,8 +186,8 @@ describe('StreetView 360 — audit gap coverage', () => {
     await db.query(
       `INSERT INTO sv360.photos
          (id, project_id, original_name, display_name, sequence_number, lat, lon, ele,
-          heading, camera_height, full_size_bytes, preview_size_bytes, capture_date)
-       VALUES ($1, $2, $3, 'Enabled Collide', 1, -23.5, -46.6, 720, 12, 1.6, $4, $5, '2024-01-15T10:00:00Z')`,
+          heading, full_size_bytes, preview_size_bytes, capture_date)
+       VALUES ($1, $2, $3, 'Enabled Collide', 1, -23.5, -46.6, 720, 12, $4, $5, '2024-01-15T10:00:00Z')`,
       [enabledCollidePhotoId, enabledProjectId, collideName, fullBuf.length, prevBuf.length]
     );
     await db.query(
@@ -424,7 +419,7 @@ describe('StreetView 360 — audit gap coverage', () => {
     const v4 = randomUUID();
     assert.equal(v4[14], '4', 'sanity: randomUUID is v4, so this exercises the v4 path');
 
-    for (const path of [`/photos/${v4}`, `/photos/${v4}/image`]) {
+    for (const path of [`/photos/${v4}`, `/photos/${v4}/tiles/0/0/0`]) {
       const res = await supertest(app).get(url(path));
       assert.equal(res.status, 404, `${path} must reach the lookup, not the format guard`);
     }
@@ -541,7 +536,7 @@ describe('StreetView 360 — audit gap coverage', () => {
       .post(url('/admin/projects/upload'))
       .set(...authHdr(ownerToken))
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(400);
     assert.equal(typeof res.body.error, 'string');
   });
@@ -554,7 +549,7 @@ describe('StreetView 360 — audit gap coverage', () => {
     const res = await supertest(app)
       .post(url('/admin/projects/upload'))
       .set(...authHdr(ownerToken))
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(400);
     assert.equal(typeof res.body.error, 'string');
   });
@@ -581,7 +576,7 @@ describe('StreetView 360 — audit gap coverage', () => {
       .post(url('/admin/projects/upload'))
       .set(...authHdr(adminToken))
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(409);
     assert.equal(typeof res.body.error, 'string');
   });
@@ -605,7 +600,7 @@ describe('StreetView 360 — audit gap coverage', () => {
       .post(url('/admin/projects/upload'))
       .set(...authHdr(ownerToken))
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .expect(403);
     assert.equal(typeof res.body.error, 'string');
   });
@@ -644,7 +639,7 @@ describe('StreetView 360 — audit gap coverage', () => {
       .post(url('/admin/projects/upload'))
       .set(...authHdr(ownerToken))
       .attach('manifest', man1)
-      .attach('imagesDb', img1)
+      .attach('tilesDb', img1)
       .expect(201);
 
     // p2 is tombstoned → GET 404 (flat error); p1 live → 200.
@@ -661,7 +656,7 @@ describe('StreetView 360 — audit gap coverage', () => {
       .post(url('/admin/projects/upload'))
       .set(...authHdr(ownerToken))
       .attach('manifest', man2)
-      .attach('imagesDb', img2)
+      .attach('tilesDb', img2)
       .expect(201);
 
     await supertest(app).get(url(`/photos/${p2}`)).expect(404);
@@ -682,7 +677,7 @@ describe('StreetView 360 — audit gap coverage', () => {
       .post(url('/admin/projects/upload'))
       .set(...authHdr(ownerToken))
       .attach('manifest', man3)
-      .attach('imagesDb', img3)
+      .attach('tilesDb', img3)
       .expect(201);
 
     const { rows: afterTomb } = await db.query(
@@ -726,7 +721,7 @@ describe('StreetView 360 — audit gap coverage', () => {
       .post(url('/admin/projects/upload'))
       .set(...authHdr(ownerToken))
       .attach('manifest', manifestPath)
-      .attach('imagesDb', imagesDbPath)
+      .attach('tilesDb', imagesDbPath)
       .attach('bogus', extra);
 
     // Whatever the status, the body must be the FLAT { error } envelope.

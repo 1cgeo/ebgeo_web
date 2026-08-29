@@ -76,9 +76,6 @@ const PHOTO_PROPERTY = 'id';
 const TEXTURE_CACHE_MAX_SIZE = 30;  // Max textures to keep in memory (~30-50MB depending on resolution)
 const METADATA_CACHE_MAX_SIZE = 100; // Metadata is small, can keep more
 
-// Retry config for image fetches (mitigates HTTP/2 proxy errors)
-const FETCH_MAX_RETRIES = 3;
-const FETCH_RETRY_DELAY_MS = 500;
 
 // Escape hatch for on-demand rendering: `?render=always` restores the old
 // draw-every-frame behaviour, to isolate a suspected missing invalidation.
@@ -534,66 +531,6 @@ async function syncFloorSelector(data) {
  */
 let activeTextureAbort = null;
 
-/**
- * Fetches a URL as a Blob with retry logic to handle transient HTTP/2 proxy errors.
- * Validates Content-Length to detect truncated responses from proxy issues.
- * @param {string} url - URL to fetch
- * @param {object} options - fetch options (may include signal for abort)
- * @param {number} [retries=FETCH_MAX_RETRIES] - remaining retry attempts
- * @returns {Promise<Blob>}
- */
-async function fetchBlobWithRetry(url, options, retries = FETCH_MAX_RETRIES) {
-    try {
-        const response = await fetch(url, options);
-        if (!response.ok) {
-            // THE STATUS TRAVELS AS A FIELD, not only inside the sentence. It is a MEASURED
-            // fact and the failure notice prints it verbatim, so it has to survive as a number:
-            // `requestStatus` reads `status`/`statusCode` and nothing parses prose.
-            const erro = new Error(`HTTP ${response.status}`);
-            erro.status = response.status;
-            throw erro;
-        }
-        const blob = await response.blob();
-        const expectedLength = response.headers.get('Content-Length');
-        if (expectedLength && blob.size !== parseInt(expectedLength, 10)) {
-            throw new Error(`Truncated response: got ${blob.size}/${expectedLength} bytes`);
-        }
-        return blob;
-    } catch (error) {
-        if (error.name === 'AbortError') throw error;
-        if (retries <= 0) throw error;
-        if (options?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-        console.warn(`[street-view-viewer] Fetch failed (${retries} retries left): ${error.message}`);
-        await new Promise(r => setTimeout(r, FETCH_RETRY_DELAY_MS));
-        return fetchBlobWithRetry(url, options, retries - 1);
-    }
-}
-
-/**
- * Creates a Three.js texture from a fetched Blob.
- */
-async function blobToTexture(blob) {
-    const objectURL = URL.createObjectURL(blob);
-    const texture = await new Promise((resolve, reject) => {
-        const loader = new THREE.TextureLoader();
-        loader.load(
-            objectURL,
-            (tex) => {
-                URL.revokeObjectURL(objectURL);
-                resolve(tex);
-            },
-            undefined,
-            (error) => {
-                URL.revokeObjectURL(objectURL);
-                console.error('[street-view-viewer] TextureLoader failed:', error);
-                reject(error instanceof Error ? error : new Error('TextureLoader failed to load image'));
-            }
-        );
-    });
-    texture.colorSpace = THREE.SRGBColorSpace;
-    return texture;
-}
-
 // ===== PIRAMIDE DE TILES =====
 
 /**
@@ -902,7 +839,6 @@ async function loadTexture(data) {
 
     // Build cache keys
     const fullCacheKey = `full:${photoId}`;
-    const previewCacheKey = `preview:${photoId}`;
 
     // Full-res cache hit — no network needed
     if (streetViewState.textureCache.has(fullCacheKey)) {
@@ -918,7 +854,6 @@ async function loadTexture(data) {
     const controller = new AbortController();
     activeTextureAbort = controller;
 
-    const { getPhotoImageUrl } = await import('./streetview-api.service.js');
 
     // FASE 1: A SONDA DO tiles.json, E ELA VEM ANTES DE QUALQUER IMAGEM.
     //
@@ -942,94 +877,20 @@ async function loadTexture(data) {
     // o cache quente, e paga preview e full ao chegar.
     if (await tentarTiles(photoId, data, controller)) return;
 
-    // Phase 2: Load preview for instant feedback. So aqui, porque esta foto nao
-    // tem piramide e o full que vem depois demora de 500 KB a 2,5 MB.
-    try {
-        if (streetViewState.textureCache.has(previewCacheKey)) {
-            applyTexture(streetViewState.textureCache.get(previewCacheKey), data);
-        } else {
-            const previewUrl = getPhotoImageUrl(photoId, 'preview');
-            const previewBlob = await fetchBlobWithRetry(previewUrl, { signal: controller.signal });
-            if (activeTextureAbort !== controller) return;
-
-            const previewTexture = await blobToTexture(previewBlob);
-            streetViewState.textureCache.set(previewCacheKey, previewTexture);
-
-            // A CORRIDA CONTRA OS TILES ACABOU, e por isso so a geracao guarda
-            // aqui. Enquanto a sonda corria junto do preview, a composicao por
-            // tiles podia ganhar dela e o preview rebaixaria a esfera; havia um
-            // `tilesJaNaEsfera` para barrar isso. Agora o preview so existe
-            // depois de a sonda dizer que NAO ha piramide, e o carregador ja
-            // largou a foto. A guarda saiu junto: guarda que nao pode reprovar
-            // nada nao guarda coisa nenhuma.
-            if (activeTextureAbort === controller) {
-                applyTexture(previewTexture, data);
-            }
-        }
-    } catch (error) {
-        // Preview is best-effort; continue to full-res load
-        if (error.name === 'AbortError') return;
-        console.warn('[street-view-viewer] Preview load failed (continuing to full-res):', error);
-    }
-
-    // Phase 3: Load full-resolution image. Sem piramide, o caminho de sempre.
-    try {
-        const fullUrl = getPhotoImageUrl(photoId, 'full');
-        const blob = await fetchBlobWithRetry(fullUrl, { signal: controller.signal });
-
-        if (activeTextureAbort !== controller) return;
-
-        const fullTexture = await blobToTexture(blob);
-        if (activeTextureAbort !== controller) return;
-        activeTextureAbort = null;
-        streetViewState.textureCache.set(fullCacheKey, fullTexture);
-        applyTexture(fullTexture, data);
-
-        // Prefetch previews for navigation targets
-        if (data.targets) {
-            prefetchTargetPreviews(data.targets);
-        }
-    } catch (error) {
-        if (error.name === 'AbortError') return;
-        if (activeTextureAbort === controller) activeTextureAbort = null;
-        console.error('[street-view-viewer] Full-res texture load failed:', error);
-        throw error;
-    }
+    // TILES-ONLY (2026-08-29): toda foto tem piramide, e a rota de imagem inteira
+    // (`image?quality=preview|full`) saiu do backend, sem fallback. Se `tentarTiles`
+    // nao pintou, esta foto nao tem fonte de pixel. Nao ha imagem para cair de volta:
+    // pedir `image` agora seria um 404 garantido. O aviso ao usuario vem do proprio
+    // caminho de tile (createTileHoleWatch / photo360-failure); aqui so se solta o
+    // controle e se registra. Antes deste corte havia uma Fase 2 (preview) e uma
+    // Fase 3 (full) que baixavam o WebP inteiro para a foto sem piramide.
+    if (activeTextureAbort === controller) activeTextureAbort = null;
+    console.warn(
+        '[street-view-viewer] foto sem piramide de tiles e sem fallback de imagem (tiles-only):',
+        photoId
+    );
 }
 
-/**
- * Prefetches preview textures for navigation targets in the background.
- * Uses low-priority fetch to avoid competing with the current photo load.
- *
- * SO O RAMO SEM PIRAMIDE CHEGA AQUI. Este e o ultimo emissor de
- * `image?quality=preview` do visualizador, e ele existe para aquecer o
- * `textureCache`, que a foto com piramide nao le mais. Quando o acervo inteiro
- * tiver piramide, a funcao morre junto do `preview_webp`.
- */
-async function prefetchTargetPreviews(targets) {
-    const { getPhotoImageUrl } = await import('./streetview-api.service.js');
-
-    for (const target of targets) {
-        const targetId = target.id || target.img;
-        if (!targetId) continue;
-
-        const cacheKey = `preview:${targetId}`;
-        if (streetViewState.textureCache.has(cacheKey)) continue;
-
-        // Low-priority background fetch with retry
-        fetchBlobWithRetry(getPhotoImageUrl(targetId, 'preview'), { priority: 'low' }, 1)
-            .then(blob => blobToTexture(blob))
-            .then(tex => {
-                // Only cache if not already cached (another navigation may have loaded it)
-                if (!streetViewState.textureCache.has(cacheKey)) {
-                    streetViewState.textureCache.set(cacheKey, tex);
-                }
-            })
-            .catch((error) => {
-                console.warn(`[street-view-viewer] Prefetch failed for target ${targetId}:`, error);
-            });
-    }
-}
 
 /**
  * Descarta a textura que SAI da esfera, e so ela.

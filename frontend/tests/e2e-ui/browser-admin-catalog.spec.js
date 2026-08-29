@@ -2,10 +2,11 @@
 
 /**
  * Browser click-through of the ADMIN PANEL → Catálogo tab, in real Chromium against the REAL
- * spawned backend. The catalog manages METADATA only (the `config` JSONB, edited as JSON) — never
- * files. A global admin registers a `data_layer` resource through the JSON editor; it appears in the
- * list and propagates into GET /config (dataLayers). A second test deletes it; a third confirms the
- * 360 tab loads (metadata view, no bundle upload).
+ * spawned backend. The catalog manages METADATA only (the `config` JSONB, edited as FIELDS since
+ * 2026-08-29, with dedicated JSON boxes only for the structured keys) — never files. A global admin
+ * registers a `data_layer` resource through the fields; it appears in the list and propagates into
+ * GET /config (dataLayers). A second test deletes it; a third confirms the 360 tab loads (metadata
+ * view, no bundle upload).
  */
 
 import { test, expect } from '@playwright/test';
@@ -68,13 +69,12 @@ describeOrSkip('Admin panel — Catálogo tab (real browser + real backend)', ()
 
         await page.locator('[data-testid="admin-catalog-id"]').fill(id);
         await page.locator('[data-testid="admin-catalog-name"]').fill('Camada de Teste');
-        // The JSON editor is prefilled with a valid data_layer template — set a concrete config.
-        await page.locator('[data-testid="admin-catalog-config"]').fill(JSON.stringify({
-            source: { type: 'vector', url: '/cms/martin/teste' },
-            sourceLayer: 'teste',
-            minzoom: 4,
-            maxzoom: 18,
-        }));
+        // Config em CAMPOS (o editor JSON saiu em 2026-08-29).
+        await page.locator('[data-testid="admin-catalog-cfg-source-type"]').fill('vector');
+        await page.locator('[data-testid="admin-catalog-cfg-source-url"]').fill('/cms/martin/teste');
+        await page.locator('[data-testid="admin-catalog-cfg-sourceLayer"]').fill('teste');
+        await page.locator('[data-testid="admin-catalog-cfg-minzoom"]').fill('4');
+        await page.locator('[data-testid="admin-catalog-cfg-maxzoom"]').fill('18');
         await page.locator('[data-testid="admin-catalog-save"]').click();
 
         // Back to the list; the new resource is shown.
@@ -100,7 +100,8 @@ describeOrSkip('Admin panel — Catálogo tab (real browser + real backend)', ()
         await page.locator('[data-testid="admin-catalog-new"]').click();
         await page.locator('[data-testid="admin-catalog-id"]').fill(id);
         await page.locator('[data-testid="admin-catalog-name"]').fill('Para Excluir');
-        await page.locator('[data-testid="admin-catalog-config"]').fill('{"source":{"type":"vector","url":"/x"},"sourceLayer":"x"}');
+        await page.locator('[data-testid="admin-catalog-cfg-source-url"]').fill('/x');
+        await page.locator('[data-testid="admin-catalog-cfg-sourceLayer"]').fill('x');
         await page.locator('[data-testid="admin-catalog-save"]').click();
         await expect(page.locator('[data-testid="admin-catalog-list"]')).toContainText(id, { timeout: 10000 });
 
@@ -127,17 +128,17 @@ describeOrSkip('Admin panel — Catálogo tab (real browser + real backend)', ()
         await page.locator('[data-testid="admin-catalog-id"]').fill(id);
         await page.locator('[data-testid="admin-catalog-name"]').fill('Basemap Custom');
 
-        // An invalid MapLibre style (version 7) is blocked inline before any save.
-        await page.locator('[data-testid="admin-catalog-config"]').fill('{"enabled":true,"style":{"version":7,"sources":{},"layers":[]}}');
+        // An invalid MapLibre style (version 7) is blocked inline before any save. O estilo agora
+        // mora numa caixa JSON dedicada; enabled/priority são campos próprios.
+        await page.locator('[data-testid="admin-catalog-json-style"]').fill('{"version":7,"sources":{},"layers":[]}');
         await page.locator('[data-testid="admin-catalog-save"]').click();
         await expect(page.locator('[data-testid="admin-catalog-error"]')).toContainText('Estilo MapLibre inválido', { timeout: 5000 });
 
         // A valid style saves and propagates into basemapStyles.
-        await page.locator('[data-testid="admin-catalog-config"]').fill(JSON.stringify({
-            enabled: true,
-            priority: 9,
-            style: { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background' }] },
-        }));
+        await page.locator('[data-testid="admin-catalog-priority"]').fill('9');
+        await page.locator('[data-testid="admin-catalog-json-style"]').fill(JSON.stringify(
+            { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background' }] },
+        ));
         await page.locator('[data-testid="admin-catalog-save"]').click();
         await expect(page.locator('[data-testid="admin-catalog-list"]')).toContainText(id, { timeout: 10000 });
 
@@ -161,7 +162,8 @@ describeOrSkip('Admin panel — Catálogo tab (real browser + real backend)', ()
         await page.locator('[data-testid="admin-catalog-new"]').click();
         await page.locator('[data-testid="admin-catalog-id"]').fill(id);
         await page.locator('[data-testid="admin-catalog-name"]').fill('Com Thumb');
-        await page.locator('[data-testid="admin-catalog-config"]').fill('{"source":{"type":"vector","url":"/x"},"sourceLayer":"x"}');
+        await page.locator('[data-testid="admin-catalog-cfg-source-url"]').fill('/x');
+        await page.locator('[data-testid="admin-catalog-cfg-sourceLayer"]').fill('x');
 
         // Pick a tiny PNG; the form downscales it and embeds it as a data URL (no out-of-band serving).
         const png = globalThis.Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
