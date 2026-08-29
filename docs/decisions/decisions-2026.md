@@ -637,7 +637,7 @@ Entradas integrais. O índice está em [DECISIONS.md](DECISIONS.md).
 
 - **Dois defeitos reais fechados de passagem, os dois com controle negativo executado:** o teto de profundidade 32 da poda era fail-OPEN (a consulta agora devolve a `fronteira` e `podarPorRaizes` a reenfileira até esvaziar); e o caminho de SYNC não tinha guarda de referência privada para 3D, 360, slide e mapa base (`resource-ref.extractors.js`, uma entrada por superfície, com censo próprio).
 
-- **Status:** aceita. O inventário é APAGADO pela mesma razão registrada na entrada de 2026-08-21 sobre a integração main/360: documento de trabalho pendente é o que mais depressa perde sincronia, porque descreve o que ainda vai mudar, e conferir código contra ele confirma frase falsa com ar de verificação. O que continua aberto vive onde é verificado: as três cláusulas do censo da constituição, e `PENDENCIA-TILE-PRIVADO.md`, que segue parado por decisão do dono.
+- **Status:** aceita. O inventário é APAGADO pela mesma razão registrada na entrada de 2026-08-21 sobre a integração main/360: documento de trabalho pendente é o que mais depressa perde sincronia, porque descreve o que ainda vai mudar, e conferir código contra ele confirma frase falsa com ar de verificação. O que continua aberto vive onde é verificado: as três cláusulas do censo da constituição, e `docs/wiki/tile-privado.md`, que segue parado por decisão do dono.
 ---
 
 ### 2026-08-22: as três migrações posteriores ao esmagamento voltam para dentro das baselines, e o comentário encolhe um sexto

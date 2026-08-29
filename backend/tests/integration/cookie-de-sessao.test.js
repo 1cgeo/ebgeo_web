@@ -6,8 +6,7 @@
 // nenhum: o tile do MapLibre, o `img.src` de uma cena 3D, o `<video src>` de uma
 // prévia. Sem cookie, a única credencial que os alcança é a chave de API na URL, que é
 // portadora, permanente até a rotação, e aparece no log de acesso do nginx e no
-// `Referer` de tudo o que a página carregar depois. É a decisão 3 da secção (f) de
-// PENDENCIA-TILE-PRIVADO.md: o cookie carrega o MESMO JWT, sem credencial nova.
+// `Referer` de tudo o que a página carregar depois. É a decisão 3 d// docs/wiki/tile-privado.md: o cookie carrega o MESMO JWT, sem credencial nova.
 //
 // O RISCO QUE ELE ABRE, e é metade deste arquivo. O middleware `auth` estrito REUSA o
 // `req.user` que o `flexibleAuth` global já populou, e o `flexibleAuth` lê o cookie.

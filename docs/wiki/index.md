@@ -63,6 +63,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[gestao-usuarios]] - ciclo de vida administrativo das contas, incluindo desativação com transferência de atlas.
 - [[resources-catalogo]] - o catálogo global versionado de camadas e assets, escrito por administrador ou pela OM produtora.
 - [[acesso-a-recurso-privado]] - a marca público/privado nos cinco tipos de recurso, a concessão em árvore com prazo e o empréstimo que um atlas faz do que anexou.
+- [[tile-privado]] - a única superfície de recurso privado que o Node não serve: o gate por `auth_request` no nginx, os três transportes de credencial e o custo medido.
 - [[grupo-de-acesso]] - o beneficiário coletivo de uma concessão, quem tem autoridade para compô-lo, e por que listar grupo e administrar grupo têm gates diferentes.
 - [[auditoria]] - a trilha de eventos de negócio, o eixo de OM gravado na escrita, e a leitura em dois ramos (administrador e produtor).
 - [[config-dinamico]] - o endpoint público que substitui o config.js estático e monta o payload em runtime.

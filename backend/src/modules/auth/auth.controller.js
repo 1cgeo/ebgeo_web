@@ -7,7 +7,7 @@ import { env } from '../../utils/environment.js';
 /**
  * PÕE O TOKEN DE SESSÃO NO COOKIE, ao lado do corpo que já o devolve.
  *
- * POR QUE O COOKIE EXISTE, e é a decisão 3 da secção (f) de PENDENCIA-TILE-PRIVADO.md:
+ * POR QUE O COOKIE EXISTE, e é a decisão 3 d`docs/wiki/tile-privado.md`:
  * há pedidos que o NAVEGADOR faz e que não aceitam cabeçalho nenhum — o tile do
  * MapLibre, o `img.src` de uma cena 3D, o `<video src>` de uma prévia. Sem cookie, a
  * única credencial que os alcança é a chave de API na URL, que é portadora, permanente

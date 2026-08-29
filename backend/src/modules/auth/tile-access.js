@@ -4,7 +4,7 @@
  *
  * O nginx valida a credencial contra este endereço antes de fazer o proxy (cláusula 10.7
  * da constituição, decisão do dono de 2026-08-23; a apuração das cinco opções está em
- * `PENDENCIA-TILE-PRIVADO.md`). Este arquivo é o lado deste servidor.
+ * `docs/wiki/tile-privado.md`). Este arquivo é o lado deste servidor.
  *
  * ============================================================================
  * ELE DECIDE POR RECURSO DESDE 2026-08-29, e antes disso não decidia. A versão anterior
@@ -13,7 +13,7 @@
  * como limitação declarada. Foi MEDIDO em
  * `dev/tile-privado/scripts/confere-martin-nginx.sh` (um usuário comum que não vê a camada
  * em nenhuma das duas portas do catálogo baixava os tiles dela), e o dono decidiu fechar.
- * A secção (f) daquele arquivo carrega as cinco decisões; as quatro que este arquivo
+ * A página `docs/wiki/tile-privado.md` carrega as cinco decisões; as quatro que este arquivo
  * implementa estão nomeadas nos comentários abaixo, uma por ramo.
  * ============================================================================
  *

@@ -552,11 +552,15 @@ essas três.
 Uma constituição que só lista intenções é propaganda. Estes são os limites conhecidos, e cada um está
 registrado onde se conserta.
 
-**10.1** **Os bytes do tile privado não passam por gate.** O endereço do tile de uma camada privada é servido
-diretamente pelo servidor web, fora do alcance do predicado: marcar um recurso como privado esconde a URL, e
-não move byte nenhum. O gêmeo do defeito é que o acervo privado hoje **não desenha para quem tem direito**,
-porque o navegador pede o tile sem credencial. Apuração completa, quatro opções comparadas e recomendação em
-[`PENDENCIA-TILE-PRIVADO.md`](PENDENCIA-TILE-PRIVADO.md). **[pendente]** por decisão do dono.
+**10.1** **O tile privado é gateado POR RECURSO, no nginx.** Esta cláusula descrevia um DEFEITO até
+2026-08-29: o endereço do tile de uma camada privada era servido direto pelo servidor web, fora do alcance do
+predicado, de modo que marcar um recurso como privado escondia a URL e não movia byte nenhum. Hoje o nginx
+pergunta ao backend por `auth_request` antes do proxy, e o gate resolve o caminho pedido contra um índice de
+catálogo e consulta o mesmo `fn_can_see_resource` do resto do acervo. O gêmeo do defeito (o acervo privado não
+desenhar para quem tem direito) foi fechado pelo cookie de sessão e pelo carimbo de credencial no tile.
+Como funciona, o que fica de fora e o custo medido: [[tile-privado]]. **[em obra]**: o que falta é a SONDA COM
+DATA no deploy, porque nada neste repositório prova o que o nginx do host faz, e o 422 que recusa marcar
+privada uma linha cujo endereço aponte para servidor de terceiro.
 
 **10.2** **O grafo de concessões é um grafo, não uma árvore**, e isso é deliberado (cláusula 3.6). Quem
 espera que revogar de um concedente corte todo mundo vai se surpreender: quem tem dois caminhos mantém o
@@ -644,10 +648,9 @@ RECURSO. Ele valida a CREDENCIAL e nunca a CAMADA, `fn_can_see_resource` não en
 usuário comum com chave viva alcança o tile de uma camada que o catálogo não lhe mostra. O que muda é o
 tamanho do público, não quem dentro dele vê o quê. Provas em
 `backend/tests/integration/tile-access-auth-request.test.js` e
-`backend/tests/unit/tile-access-predicado.test.js`; a alternativa recusada (o endpoint receber o caminho e
-consultar o predicado) está escrita, com o motivo, no passo 2 de
-[`PENDENCIA-TILE-PRIVADO.md`](PENDENCIA-TILE-PRIVADO.md), onde ela deixou de ser decisão pendente e passou
-a ser limitação declarada.
+`backend/tests/unit/tile-access-predicado.test.js`. A alternativa que era recusada (o endpoint receber o
+caminho e consultar o predicado) FOI FEITA em 2026-08-29, depois de medido que a limitação declarada abria os
+bytes de qualquer camada privada a qualquer chave viva: ver [[tile-privado]].
 
 **O que continua aberto, e é por isso que a cláusula não está vigente.** O slot antigo (`users.api_key`, uma
 chave por conta) não foi apagado, porque migração é forward-only e integradores o carregam: ele ganhou prazo
@@ -666,7 +669,8 @@ que falta: uma credencial permanente que hoje só um integrador usa passaria a v
 
 **As três amarras vieram primeiro, e essa ordem não era preferência:** ligar o `location` antes delas
 trocaria um vazamento de bytes por uma sessão de administrador sem prazo. A apuração, com a opção comparada
-às outras quatro, está em [`PENDENCIA-TILE-PRIVADO.md`](PENDENCIA-TILE-PRIVADO.md).
-**[em obra]**: as amarras e o endpoint de `auth_request` estão de pé, falta o `location` do nginx (que não
-tem teste neste repositório e vira sonda com data, rodada à mão no deploy), a distribuição da chave ao
-cliente e a aposentadoria do slot antigo.
+às outras quatro, e o que foi feito depois dela, estão em [[tile-privado]].
+**[em obra]**: as amarras, o endpoint de `auth_request` e o `location` estão de pé e medidos em
+`dev/tile-privado/`. O que falta é a SONDA COM DATA no deploy (nada aqui prova o que o nginx do host faz) e a
+aposentadoria do slot antigo. A distribuição da chave ao cliente SAIU desta lista, e não por ter sido feita: o
+transporte no navegador passou a ser o token, em cookie, e a chave ficou para integração fora do navegador.

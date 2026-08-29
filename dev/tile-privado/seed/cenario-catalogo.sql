@@ -1,7 +1,7 @@
 -- O CATALOGO DE TESTE, no banco de CONFIGURACAO (ebgeo_zero).
 --
 -- Cada linha aqui existe para exercitar um ramo do gate por recurso decidido em
--- 2026-08-29 (seccao (f) de PENDENCIA-TILE-PRIVADO.md). O que ele precisa distinguir
+-- 2026-08-29 (`docs/wiki/tile-privado.md`). O que ele precisa distinguir
 -- nao e "publico contra privado": sao SETE situacoes, e seis delas so aparecem num
 -- acervo com forma real.
 --

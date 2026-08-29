@@ -98,9 +98,11 @@ const ABERTAS = [
     },
     {
         numero: '10.1',
-        estado: 'pendente',
-        natureza: 'decisão',
-        motivo: 'os bytes do tile privado, parados por decisão do dono; a apuração vive em arquivo próprio',
+        estado: 'em obra',
+        natureza: 'trabalho',
+        motivo: 'o gate por recurso no tile FOI FEITO em 2026-08-29 e a cláusula deixou de descrever um'
+            + ' defeito; o que resta é a sonda com data no deploy (nada no repositório prova o que o'
+            + ' nginx do host faz) e o 422 que recusa marcar privada uma linha de terceiro',
     },
     {
         numero: '10.7',

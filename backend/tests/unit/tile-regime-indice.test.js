@@ -7,7 +7,7 @@
 // edição, e o irmão (`assets3d-regime-indice.test.js`) carrega essa lição no cabeçalho.
 //
 // O QUE ESTE ARQUIVO PRECISA PROVAR, e cada bloco existe para uma das decisões de
-// 2026-08-29 registradas na secção (f) de PENDENCIA-TILE-PRIVADO.md:
+// 2026-08-29 registradas n`docs/wiki/tile-privado.md`:
 //
 //   - endereço de TERCEIRO não entra no índice (decisão 1: só pode ser público);
 //   - caminho NÃO REIVINDICADO se distingue do reivindicado (decisão 4: o gate o recusa,

@@ -5,8 +5,7 @@
 #
 # POR QUE COOKIE. A chave de API e portadora e permanente ate a rotacao: ela aparece no
 # log de acesso do nginx, no `Referer` de todo recurso que a pagina carregue depois e em
-# todo cache compartilhado que guarde a URL com query. A decisao 3 (seccao (f) de
-# PENDENCIA-TILE-PRIVADO.md) tira a chave do caminho do NAVEGADOR e poe no lugar o mesmo
+# todo cache compartilhado que guarde a URL com query. A decisao 3 (# docs/wiki/tile-privado.md) tira a chave do caminho do NAVEGADOR e poe no lugar o mesmo
 # JWT de sessao, num cookie. Nao ha credencial nova: o token e um so, e o que muda e a
 # porta por onde ele entra.
 #

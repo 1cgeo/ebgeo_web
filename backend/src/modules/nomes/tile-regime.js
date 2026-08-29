@@ -32,7 +32,7 @@
  * OS ENDEREÇOS SÃO QUATRO FAMÍLIAS, e a última é a que não se adivinha:
  *   - `data_layers.config.source`      — a fonte da camada;
  *   - `data_layers.config.labelSource` — a SEGUNDA fonte da mesma linha, independente da
- *     primeira. É a armadilha que `PENDENCIA-TILE-PRIVADO.md` nomeia: quem escrever
+ *     primeira. É a armadilha que `docs/wiki/tile-privado.md` nomeia: quem escrever
  *     "reescreve source" fecha uma porta e deixa a irmã aberta;
  *   - `analysis_layers.config.source`  — raster, que NÃO vem do servidor de tiles vetorial
  *     e mesmo assim sai pelo mesmo prefixo (atrás de um prefixo há mais de um servidor);

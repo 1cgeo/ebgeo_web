@@ -63,10 +63,11 @@ const ALVOS = [
     // `frontend/tests/unit/constituicao-estado-das-clausulas.test.js`, e o que ele alcança
     // está escrito lá.
     'CONSTITUICAO.md',
-    // Entra pela mesma razão, e com a ressalva registrada mais abaixo sobre documento de
-    // trabalho pendente: este é citado pela cláusula 10.1, então precisa existir e precisa
-    // que os caminhos que ele cita resolvam.
-    'PENDENCIA-TILE-PRIVADO.md',
+    // `PENDENCIA-TILE-PRIVADO.md` esteve nesta lista de 2026-08-20 a 2026-08-29, citado pela
+    // cláusula 10.1. Ele SAIU porque o trabalho fechou: o que sobrevive dele é
+    // `docs/wiki/tile-privado.md`, que a varredura de `PASTAS` já cobre. Documento de
+    // trabalho que fecha vira página; mantê-lo na raiz depois de pronto é como um
+    // "pendente" sobrevive à própria resolução.
     // A PROPOSTA solar/lunar entrou em 2026-08-23, e ela mostra por que a lista escrita a mao e o
     // ponto fraco deste guarda: o arquivo vivia na raiz desde 2026-08-14, com decisao de escopo do
     // Chefe da DGEO dentro, e NENHUM caminho ou simbolo dele era verificado, porque a raiz nao e
@@ -375,8 +376,7 @@ const EM_DASH = '—';
  *
  * O QUE FICA DE FORA, medido no dia em que este guarda nasceu, para ninguém concluir do
  * verde mais do que ele diz: `.claude/skills/**` (25 ocorrências), `.claude/agents/**`
- * (11), `frontend/tests/TESTING.md` (8), `frontend/tests/TESTING-BACKLOG.md` (28) e
- * `PENDENCIA-TILE-PRIVADO.md` (3). Nenhum deles foi limpo, e alargar o alcance sem
+ * (11), `frontend/tests/TESTING.md` (8), `frontend/tests/TESTING-BACKLOG.md` (28). Nenhum deles foi limpo, e alargar o alcance sem
  * limpar antes deixaria o guarda vermelho no dia em que nasceu, que é como um guarda
  * novo morre. `README.md` e `CONSTITUICAO.md` estão limpos hoje e mesmo assim ficaram de
  * fora, porque o recorte foi decidido pelo dono; incluí-los é uma linha, quando quiser.

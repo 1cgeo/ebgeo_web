@@ -4,7 +4,7 @@ Levanta o EBGeo inteiro em Docker, atrás de um nginx, com uma cópia do banco d
 configuração `ebgeo_zero`, para medir a cláusula 10.7 (a chave de API validada no
 nginx antes do servidor de tiles). Apurado e rodado em 2026-08-29.
 
-A pendência que ele serve é [`PENDENCIA-TILE-PRIVADO.md`](../../PENDENCIA-TILE-PRIVADO.md).
+A pendência que ele serve é [`docs/wiki/tile-privado.md`](../../docs/wiki/tile-privado.md).
 
 ## Subir
 
@@ -116,7 +116,7 @@ servidos pelo nginx sob o MESMO prefixo. Isso reproduz o que a produção faz �
 Martin deixaria a análise inteira de fora.
 
 **`confere-gate-por-recurso.sh` FALHA HOJE, e isso é o ponto.** Ele é o enunciado
-executável da seção (f) de `PENDENCIA-TILE-PRIVADO.md`, escrito antes de uma linha de
+executável de `docs/wiki/tile-privado.md`, escrito antes de uma linha de
 código: 12 de 17 casos pendentes em 2026-08-29. Um teste escrito depois da implementação
 nasce verde e o controle negativo vira um passo que alguém lembra de fazer; escrito
 antes, ele é vermelho por construção, e o dia em que ficar verde é a medição de que o

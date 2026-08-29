@@ -7,7 +7,7 @@
 // tiles — é a saída para o defeito da 10.1, os bytes do tile privado sem gate. A
 // consequência é que uma credencial que hoje um punhado de integradores carrega passaria
 // a viajar na URL de CADA TILE, para dentro do log de acesso do nginx e de todo cache
-// compartilhado. A frase que ordena o trabalho está em `PENDENCIA-TILE-PRIVADO.md`:
+// compartilhado. A frase que ordena o trabalho está em `docs/wiki/tile-privado.md`:
 // "ligar o `location` antes das três amarras troca um vazamento por uma sessão de
 // administrador sem prazo".
 //

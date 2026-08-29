@@ -7,8 +7,7 @@
 // O QUE MUDOU EM 2026-08-29, e por que este arquivo foi reescrito: até então o gate
 // decidia só sobre a CREDENCIAL, e o predicado testado aqui era `tileAccessDenial`, uma
 // função que respondia "esta credencial serve?" sem saber que camada estava sendo pedida.
-// Ela deixou de existir quando o gate passou a decidir POR RECURSO (secção (f) de
-// PENDENCIA-TILE-PRIVADO.md): a decisão agora é assíncrona, consulta o índice de catálogo
+// Ela deixou de existir quando o gate passou a decidir POR RECURSO (// docs/wiki/tile-privado.md): a decisão agora é assíncrona, consulta o índice de catálogo
 // e o predicado SQL, e vive em `requireTileAccess`. O que sobra de puro são estas duas.
 //
 // A DIREÇÃO DA FALHA É O ASSUNTO NOS DOIS CASOS:

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # O ALVO DO GATE POR RECURSO, escrito ANTES da implementacao.
 #
-# ELE FALHA HOJE, E ISSO E O PONTO. Este arquivo e o enunciado executavel da seccao (f)
-# de PENDENCIA-TILE-PRIVADO.md: cada caso afirma o desfecho DEPOIS do gate, medido
+# ELE FALHOU AO NASCER, E ISSO ERA O PONTO. Este arquivo e o enunciado executavel de
+# docs/wiki/tile-privado.md: cada caso afirma o desfecho DEPOIS do gate, medido
 # contra o produto de hoje. O retrato de 2026-08-29, antes de uma linha de codigo:
 #
 #     camada PUBLICA, anonimo ................ 401   deveria ser 200 (o produto quebrado)

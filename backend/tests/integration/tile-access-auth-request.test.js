@@ -10,7 +10,7 @@
 // O TETO DESTE ARQUIVO MUDOU EM 2026-08-29, e o cabeçalho anterior está registrado aqui
 // porque a diferença é o assunto: até aquela data o gate respondia sobre a CREDENCIAL e
 // nunca sobre a CAMADA, e este arquivo declarava não medir privacidade por recurso
-// porque ela não existia. Agora existe (secção (f) de PENDENCIA-TILE-PRIVADO.md), e a
+// porque ela não existia. Agora existe (`docs/wiki/tile-privado.md`), e a
 // maior parte dos casos abaixo continua sendo sobre a credencial por uma razão de
 // desenho: eles rodam contra uma camada privada que o principal ALCANÇA por concessão,
 // de modo que o que decide o desfecho continua sendo a chave. Medir credencial contra

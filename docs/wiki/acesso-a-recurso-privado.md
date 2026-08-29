@@ -2,6 +2,8 @@
 
 O eixo que decide quem enxerga um recurso do catálogo ou um projeto 360 marcado como privado: quatro papéis globais que não são escada, concessão em árvore com prazo (a uma pessoa ou a um coletivo), e o empréstimo que um atlas faz dos recursos que anexou.
 
+A superfície em que este eixo NÃO pode ser embutido na consulta é o tile servido pelo nginx, e ela tem página própria: [[tile-privado]].
+
 Vale para os **cinco** tipos de `RESOURCE_TYPES` (`backend/src/modules/resource-access/resource-access.types.js`). Ele é ortogonal ao eixo por atlas de [[permissoes-atlas]] e ao eixo de ocultação do 360 ([[streetview-360]]), e cruzá-los é a fonte de erro desta página inteira.
 
 ## O que esta fase fechou, e por que quase toda página vizinha estava errada
