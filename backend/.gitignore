@@ -4,6 +4,10 @@ node_modules/
 # Environment
 .env
 .env.local
+# Backup datado de .env: `.env` sozinho NAO casa com `.env.bak-<data>`, e o arquivo
+# carrega JWT_SECRET. Um `git add .` o levaria junto, e segredo commitado nao sai
+# do historico com um `rm`.
+.env.bak*
 
 # Test environment (keep .env.test.example, ignore actual .env.test)
 # .env.test is committed with safe defaults for local testing

@@ -167,16 +167,21 @@ literais de objeto, não `importOriginal`, então uma propriedade nova do three 
 sem escrever nada lá (ele é só leitura):
 
 ```bash
-cd /d/desenvolvimento/ebgeo_360
-git show HEAD:public/calibration/js/tile-loader.js > /tmp/tl-360.js
+B=/c/Users/diniz/OneDrive/Desktop/Desenvolvimento
+git -C "$B/ebgeo_360" show HEAD:public/calibration/js/tile-loader.js > /tmp/tl-360.js
 diff --strip-trailing-cr /tmp/tl-360.js \
-  /d/desenvolvimento/ebgeo_web_integracao_backend/frontend/src/js/street_view_tool/tile-loader.js
+  "$B/ebgeo_web/frontend/src/js/street_view_tool/tile-loader.js"
 ```
 
-O caminho do vizinho mudou: até 2026-08-24 esta seção mandava entrar em
-`/c/Users/diniz/OneDrive/Desktop/Desenvolvimento/ebgeo_360`, que não existe nesta máquina, e o
-alvo do diff era `../ebgeo_web/`, que também não. Um comando de conferência que não roda é uma
-conferência que não acontece.
+O caminho do vizinho já errou DUAS vezes, nos dois sentidos, e a segunda correção foi pior que a
+primeira: em 2026-08-24 esta seção trocou
+`/c/Users/diniz/OneDrive/Desktop/Desenvolvimento/` por `/d/desenvolvimento/` alegando que o
+primeiro não existia, e o que não existe nesta máquina é o segundo (conferido em 2026-08-29, com
+`ls /d/` vazio). Junto foi um alvo de diff inventado, `ebgeo_web_integracao_backend/`, que também
+não existe: o branch mora no próprio `ebgeo_web/`. Um comando de conferência que não roda é uma
+conferência que não acontece, e trocar um caminho quebrado por outro quebrado custa a conferência
+inteira mais a confiança na correção. O `git -C` acima dispensa o `cd`, então o comando continua
+sendo só leitura e não deixa o shell noutro repositório.
 
 O `--strip-trailing-cr` não é opcional: o nosso arquivo é CRLF e o de lá é LF, e sem ele o diff
 acusa as 1600 linhas. **Diferença maior que os seis trechos acima é conserto não portado.** Foi
@@ -192,9 +197,10 @@ graça às duas montagens do estúdio, ao contrário dos cinco arquivos de naveg
 que são cópia de verdade. Repare no efeito colateral, que é o que dá peso ao `dispose()`: a página
 de calibração monta DOIS carregadores, então toda textura de GPU não descartada vaza em dobro.
 
-Última conferência: 2026-08-24, com o `ebgeo_360` em `9d0f528` (o `ff01e06` da conferência
-anterior já não era o HEAD de lá; o commit novo é de bancada e não toca neste arquivo). O delta
-medido é exatamente os seis trechos acima. Anote a data ao re-conferir, senão esta seção vira um
+Última conferência: 2026-08-29, com o `ebgeo_360` em `5f79c12`. O delta medido é exatamente os
+seis trechos acima. Os quatro commits que o 360 ganhou desde `9d0f528` (a conferência anterior)
+não tocam em `public/` nem no servidor: são roteiro de ingestão (`scripts/`), e por isso o arquivo
+continua convergido sem porte nenhum. Anote a data ao re-conferir, senão esta seção vira um
 "confira" sem prazo de validade.
 
 ## Os cinco arquivos de navegação, que hoje estão CONVERGIDOS
