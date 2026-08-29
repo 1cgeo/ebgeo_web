@@ -1426,3 +1426,73 @@ Cem perdia nos DOIS eixos, o que torna a decisão fácil: a mudança melhora vaz
 **Verificação:** `npm run lint` + `npm test` do backend verdes (3929 testes), `npm run lint` + `npm test` do frontend verdes (8785 testes). A conferência com o `ebgeo_360` continua sendo o diff de `tile-loader.js` descrito em [`../../.claude/rules/common-tasks.md`](../../.claude/rules/common-tasks.md). A UI do 360 (mapa e estúdio) fica para a verificação por Playwright.
 
 **Status:** as três fases aceitas.
+
+### 2026-08-29 (madrugada): o tile privado ganha gate POR RECURSO, e o empréstimo ao visitante de link público é MANTIDO com consentimento informado
+
+**O ponto de partida.** Os bytes do tile de uma camada privada saíam pelo nginx sem passar
+por predicado nenhum: marcar a camada como privada escondia a URL do catálogo e não movia
+byte. A cláusula 10.7 tinha posto a chave de API como credencial validada no nginx, e o
+`auth_request` resultante respondia sobre a CREDENCIAL e nunca sobre a CAMADA, e qualquer
+chave viva alcançava qualquer camada privada, inclusive de outra OM. Isso foi MEDIDO em
+`dev/tile-privado/scripts/confere-martin-nginx.sh` antes de virar decisão.
+
+**O que foi feito (fases 1 a 4).** Um índice em memória diz a que linha de catálogo
+pertence cada caminho servido sob o prefixo de tiles
+(`backend/src/modules/nomes/tile-regime.js`); o gate resolve o caminho por ele e decide os
+quatro desfechos; o `location` parou de exigir chave de todo mundo, o que devolveu o
+visitante anônimo e o cache de borda do público; e o login passou a emitir o cookie de
+sessão, para que o token viaje em pedidos que o navegador faz e que não aceitam cabeçalho
+(o tile, o `img.src`, o `<video src>`). O cookie fechou o último defeito da cena indoor.
+
+**A fase 5 (cache da subrequisição) foi RECUSADA por medição**, e é o tipo de recusa que
+vale registrar: o gate custa zero mensurável (tile público a +5 µs do piso, tile privado
+por cookie exatamente no piso). O que custa é a chave de API, +480 µs por tile, porque
+`FIND_USER_BY_API_KEY` é uma consulta ao banco por requisição e não é memoizada. Um cache
+compraria atraso de revogação em troca de um ganho que a medição não acha.
+
+**A DECISÃO DE PRODUTO, e o caminho até ela.** Com o gate de pé, sobrou um caso: o
+visitante de link público não tem cookie (o token dele é efêmero e mora só em memória, por
+contrato do cliente), então uma camada privada EMPRESTADA pelo atlas não desenharia para
+ele. A primeira formulação do dono foi que um visitante não deve alcançar recurso privado,
+e ela seria uma emenda à cláusula 6.3.
+
+Ela foi retirada pelo próprio dono, com o argumento que a derruba: **o auto-cadastro é
+aberto, então "estar logado" não é barreira nenhuma**, e quem quisesse o recurso criaria
+uma conta. O eixo certo nunca foi autenticação, é NOMEAÇÃO: um share nominal significa que
+alguém com autoridade sobre o atlas escolheu aquela pessoa, e o link público é o único
+caminho em que ninguém decidiu quem entra.
+
+Postas as três saídas (manter e avisar; tirar o empréstimo do link público mantendo-o para
+os nomeados; acabar com o empréstimo), **o dono escolheu MANTER e resolver por interface**:
+com aquele link, o visitante alcança o recurso privado emprestado, mesmo deslogado, e o
+que muda é que o DONO passa a saber exatamente o que está expondo no momento de publicar.
+
+**Por que essa escolha é defensável, e é a mesma razão da 6.3:** quem publica um atlas que
+empresta um recurso privado está publicando aquele recurso naquele contexto, e a cadeia
+começa em alguém com autoridade de repasse. O que faltava não era o predicado, era o
+CONSENTIMENTO: um empréstimo é invisível na tela de quem publica o link.
+
+**A cláusula 6.3 continua VIGENTE e ganha uma exigência**, que nasce [em obra]: ao ativar
+o link público, a tela precisa nomear os recursos privados que o atlas empresta. Hoje ela
+diz apenas "qualquer pessoa com o link pode visualizar este atlas, sem precisar entrar",
+que é verdade e é insuficiente.
+
+**O que isso implica de trabalho, e nada disso está feito:**
+
+1. `GET /api/v1/atlas/:atlasId/resources` devolve o empréstimo sem o NOME do recurso e sem
+   o `access_level`, e o aviso precisa dos dois para nomear o que expõe.
+2. O modal de compartilhamento (`frontend/src/js/modals/sharing.modal.core.js`,
+   `_renderPublicSection`) precisa do aviso.
+3. O visitante precisa CONSEGUIR ver o que a decisão diz que ele vê: o
+   `transformRequest` do mapa hoje só reconhece URL do 360 (`isSv360Url`), então o token
+   efêmero dele não viaja no tile do servidor de tiles. Sem isso a decisão fica escrita e
+   não vale na tela.
+
+**Verificação do que já está pronto:** seis conferências em `dev/tile-privado/scripts/`,
+165 casos e zero defeito; backend com lint limpo e `npm test` completo verde (3943 casos,
+piso de cobertura em 97,8%); frontend verde (8785 casos). A conferência
+`confere-gate-por-recurso.sh` foi escrita ANTES do código e saiu de 12 pendentes para
+24 de 24.
+
+**Status:** fases 1 a 4 aceitas; fase 5 recusada por medição; a exigência de consentimento
+da 6.3 fica [em obra], com os três itens acima nomeados.

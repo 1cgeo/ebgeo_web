@@ -81,6 +81,15 @@ const ABERTAS = [
         motivo: 'auto-cadastro: o endurecimento está feito e a abertura da rota espera o relay de e-mail existir',
     },
     {
+        numero: '6.6',
+        estado: 'em obra',
+        natureza: 'trabalho',
+        motivo: 'o CONSENTIMENTO do empréstimo ao link público: o predicado foi reexaminado em'
+            + ' 2026-08-29 e MANTIDO (restringi-lo a quem tem conta não protegeria nada, porque o'
+            + ' auto-cadastro é aberto), então o que falta é a tela nomear, ao publicar o link, os'
+            + ' recursos privados que o atlas empresta',
+    },
+    {
         numero: '9.3',
         estado: 'em obra',
         natureza: 'trabalho',

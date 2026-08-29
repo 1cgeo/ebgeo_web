@@ -352,6 +352,22 @@ quem publica um atlas que empresta um recurso privado está publicando aquele re
 a torna defensável é que a cadeia começa em alguém com autoridade de repasse. **[vigente]** Preso por
 `backend/tests/integration/resource-access-visitante-publico.test.js`.
 
+Ela foi **reexaminada e MANTIDA em 2026-08-29**, e o caminho até a manutenção é o que decide a redação. A
+proposta era restringi-la a quem tem conta, e ela caiu pelo argumento do próprio dono: **o auto-cadastro é
+aberto, então "estar logado" não é barreira nenhuma**, e quem quisesse o recurso criaria uma conta. O eixo
+que separa de verdade não é autenticação, é NOMEAÇÃO (um share nominal significa que alguém com autoridade
+escolheu aquela pessoa; o link público é o único caminho em que ninguém decidiu quem entra), e o dono
+decidiu que a nomeação continua não sendo exigida aqui.
+
+**6.6** O que faltava não era o predicado, era o **CONSENTIMENTO**: um empréstimo é invisível na tela de
+quem publica o link. Ao ativar o link público, a interface precisa **nomear os recursos privados que o
+atlas empresta**, porque hoje ela diz apenas que qualquer pessoa com o link visualiza o atlas, o que é
+verdade e é insuficiente. **[em obra]** desde 2026-08-29. Três coisas faltam, e nenhuma existe:
+`GET /api/v1/atlas/:atlasId/resources` devolve o empréstimo sem o nome do recurso e sem o nível de acesso;
+o modal de compartilhamento não tem o aviso; e o `transformRequest` do mapa só reconhece URL do 360, então
+o token efêmero do visitante não viaja no tile do servidor de tiles, e sem isso a cláusula fica escrita e
+não vale na tela.
+
 **6.4** O empréstimo reconhece também o **produtor** como dono capaz de emprestar o acervo da própria
 organização. **[vigente]** desde 2026-08-21: a produção do dono do atlas entrou como termo próprio na
 disjunção do empréstimo. E ela é reavaliada a cada leitura como as outras, então perder a produção (ou a OM
