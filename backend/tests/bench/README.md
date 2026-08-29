@@ -3,6 +3,12 @@
 Dez cenários que medem o backend com **vários usuários mexendo no mesmo dado ao mesmo tempo**.
 Não entram no `npm test`. Não afirmam tempo. Imprimem número, e reprovam perda de dado.
 
+**Este arquivo é o MÉTODO. O RESULTADO mora em `docs/wiki/capacidade-de-uma-instancia.md`**: os
+tetos medidos, o que continua aberto e o que eles obrigam a decidir. A separação é de propósito,
+porque um envelhece por mudança de bancada e o outro por mudança de produto. Um documento
+`DIAGNOSTICO-DE-CARGA.md` na raiz do repositório carregou os dois juntos de 2026-08-26 a
+2026-08-29, e foi apagado quando o durável dele chegou aos dois destinos.
+
 Duas famílias, e elas medem coisas diferentes:
 
 - **E1 a E7, escrita.** Um processo de driver, carga em forma de requisição, foco no `POST /sync`
@@ -98,13 +104,25 @@ para um par só) e mede o custo de EXISTIR: socket aberto, heartbeat, sala no ma
 ### Por que a presença é o centro, e não um enfeite
 
 A sala é `atlasId -> Set<WebSocket>`, sem subcanal por mapa. Um usuário com o mouse em movimento
-emite **12,5 quadros por segundo** (`CURSOR_THROTTLE_MS = 80`, no `presence-bridge.js`), e cada
-quadro é retransmitido para todos os outros membros. Numa sala de 100 com metade mexendo o cursor:
-~625 quadros por segundo entrando, ~62 mil saindo. A escrita, na mesma sala, são ~100 descargas
-por segundo. **Duas ordens de grandeza**, e as bancadas E1 a E7 não enxergam nada disso.
+emite **12,5 quadros por segundo** (`CURSOR_THROTTLE_MS = 80`, no `presence-bridge.js`). Até
+2026-08-28 cada quadro era retransmitido a todos os outros membros: numa sala de 100 com metade
+mexendo o cursor, ~625 quadros por segundo entrando e ~62 mil saindo, contra ~100 descargas de
+escrita. **Duas ordens de grandeza**, e as bancadas E1 a E7 não enxergam nada disso.
 
 Dobrar a sala **quadruplica** o trabalho de transmissão. Isso é da forma do desenho, e nenhum
 ajuste de pool ou de tamanho de lote muda.
+
+**O que mudou, e o que NÃO mudou.** Desde 2026-08-28 o servidor acumula por sala e emite um lote
+`cursors` a cada `WS_CURSOR_BATCH_MS` (100 ms), com a última posição de cada cliente: as escritas
+caem de `S x f x 12,5 x (S-1)` para `S x 10` por segundo, e o limite operacional de sala subiu de
+cinquenta para duzentas. A FORMA quadrática continua lá, adiada e não removida: a sala de 400
+segue com ack de 89 s, agora limitada por carga útil em vez de syscall. `WS_CURSOR_BATCH_MS=0`
+volta ao caminho antigo, que é como se mede um contra o outro.
+
+**Efeito na régua:** com o agrupamento ligado, a fórmula antiga de perda de cursor mediria
+COALESCÊNCIA em vez de descarte (ela acusou 26,6% de "perda" na sala de dez, que não tem
+congestionamento nenhum). O denominador desconta o teto do lote, e a coalescência tem coluna
+própria.
 
 ### As cadências, e de onde saem os números
 
@@ -122,12 +140,20 @@ O usuário virtual alterna rajada e ócio, e **a primeira espera é sorteada** e
 inteiro. Sem isso o começo da janela não teria escrita nenhuma: na cadência de trabalho o ócio
 médio passa de um minuto e meio, e um piloto de 20 s registrou zero ops.
 
-### Todo usuário pinga, e isso não é opcional
+### Todo usuário pinga, e continua não sendo opcional
 
-Não existe handler de `pong` no gateway. O único jeito de um socket continuar vivo é o cliente
-mandar `{type:'ping'}`, que `handlePing` usa para rearmar `isAlive`. A varredura de 30 s
-(`heartbeatSweep`) termina qualquer socket que não tenha rearmado. Um usuário virtual silencioso
-seria derrubado em até 60 s, e a bancada viraria uma tempestade de reconexão medindo a si mesma.
+A varredura de 30 s (`heartbeatSweep`) termina qualquer socket que não tenha rearmado `isAlive`. Um
+usuário virtual silencioso seria derrubado em até 60 s, e a bancada viraria uma tempestade de
+reconexão medindo a si mesma.
+
+**O que REARMA a marca mudou em 2026-08-28, e o driver não pode contar com isso.** Até então só o
+`{type:'ping'}` da aplicação rearmava, e não havia handler de `pong`; hoje rearmam também qualquer
+frame que chega e o pong do PROTOCOLO, que a varredura solicita por `ws.ping()`. Foi esta bancada
+que achou os dois defeitos: sob saturação de CPU o ping do cliente chega tarde, e a varredura
+ceifou 156 sockets na rampa de uma rodada, removendo 16% da população. **Isso era um descarte de
+carga acidental**, e ao removê-lo o ack mediano sob saturação foi de 72 ms para 114 s. Ou seja, o
+driver silencioso continua morrendo e o driver falante deixou de morrer, então a regra do usuário
+virtual não muda: pingue.
 
 ### As três réguas de quebra, em ordem de gravidade
 

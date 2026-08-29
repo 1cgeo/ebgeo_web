@@ -7,6 +7,7 @@ Reunião dos limites atuais do sistema colaborativo, salas por atlas e não por 
 O registro de salas é literalmente `atlasId -> Set<WebSocket>` (`backend/src/modules/collab/collab.rooms.js`). Não existe sub-canal por mapa. Consequências práticas:
 
 - Cursor, seleção e presença temporal de um usuário que está em outro mapa chegam a todo mundo. O **frontend** é quem filtra (`frontend/src/js/presence/remote-cursors.layer.js`), e um `mapId` ausente resulta em zero cursores.
+- **O custo disso é quadrático no tamanho da sala, e foi medido.** Sem subcanal, o trabalho de transmissão é `S x f x 12,5 x (S-1)` por segundo, então dobrar a sala quadruplica a escrita em socket. Foi o que fez o limite operacional ser de cinquenta pessoas até 2026-08-28, quando o cursor passou a sair em lote e o limite subiu para duzentas. Números e o que continua aberto em [[capacidade-de-uma-instancia]].
 - Operações são fan-out para a sala inteira, independentemente do mapa. Um atlas com muitos mapas paga banda de todos eles em cada aba conectada.
 - O emissor é excluído por identidade de socket. O push por REST **não tem socket para excluir**, então o próprio cliente recebe o eco e precisa descartá-lo pelo `clientId`. Ver [[client-id-estavel]] e [[canal-collab-websocket]].
 
@@ -58,7 +59,7 @@ Também há um limite de concorrência: pushes do mesmo atlas são serializados 
 
 ## 7. Permissão fica cacheada no socket
 
-O socket resolve a permissão no handshake e vive por horas; a reconciliação com o banco acontece no sweep de heartbeat, então **a janela de staleness é o intervalo de heartbeat**, e um usuário revogado escreve dentro dela. O mesmo sweep é o mecanismo de morte por inatividade: sem pong, `terminate()` (close 1006), que vira `away`, não `user_left`. Detalhe do gate em [[sintese-eixos-de-permissao]] e [[permissoes-atlas]].
+O socket resolve a permissão no handshake e vive por horas; a reconciliação com o banco acontece no sweep de heartbeat, então **a janela de staleness é o intervalo de heartbeat**, e um usuário revogado escreve dentro dela. O mesmo sweep é o mecanismo de morte por inatividade: sem sinal de vida, `terminate()` (close 1006), que vira `away`, não `user_left`. O que conta como sinal de vida mudou em 2026-08-28 e deixou de ser só o ping da aplicação: **qualquer frame que chega**, mais o pong do PROTOCOLO, que a pilha de rede do navegador responde sem passar pelo JavaScript da página. Os dois defeitos que isso conserta (a varredura virando descarte de carga sob saturação, e a aba oculta ceifada por temporizador estrangulado) estão em [[canal-collab-websocket]] §"Vivacidade". Detalhe do gate em [[sintese-eixos-de-permissao]] e [[permissoes-atlas]].
 
 **O fan-out do sweep está limitado, e essa é uma propriedade a preservar, não uma pendência.** Cada reconciliação abre até três queries (`getLiveAuthState`, `backend/src/utils/org-status.js`, mais o SELECT de `atlas` e o de shares dentro de `resolvePermission`), então uma sala grande dispararia N vezes isso contra um pool de dez (`DATABASE_POOL_MAX`, `backend/src/config.js`). Hoje `heartbeatSweep` (`backend/src/modules/collab/collab.gateway.js`) faz `await reconcileAuthorization(ws)` dentro de workers contados por `AUTHZ_SWEEP_CONCURRENCY`, e devolve uma promessa que só assenta quando todas as reconciliações daquele tique terminaram. Se for mexer no sweep, mantenha as duas metades: sem o teto o sweep compete com o tráfego HTTP pelo pool, e sem esperar o fim do tique um sweep ainda drenando quando o seguinte começa dobra a janela de staleness, que é justamente a garantia que ele existe para dar.
 
@@ -84,4 +85,4 @@ Regra que fica: todo estado por mapa chaveado por **nome** é compartilhado por 
 
 ## Páginas comparadas
 
-[[canal-collab-websocket]] · [[presenca-colaborativa]] · [[tabela-operations]] · [[modelo-conflito-lww]] · [[snapshot-e-pull-incremental]] · [[sintese-capacidades-por-papel]] · [[sintese-decisoes-arquiteturais]] · [[sintese-rest-vs-websocket]]
+[[canal-collab-websocket]] · [[presenca-colaborativa]] · [[capacidade-de-uma-instancia]] · [[tabela-operations]] · [[modelo-conflito-lww]] · [[snapshot-e-pull-incremental]] · [[sintese-capacidades-por-papel]] · [[sintese-decisoes-arquiteturais]] · [[sintese-rest-vs-websocket]]

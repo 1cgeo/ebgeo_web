@@ -31,6 +31,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[client-id-estavel]] - o identificador de cliente persistido que sustenta idempotência e presença.
 - [[presenca-colaborativa]] - a camada efêmera em memória que propaga roster, cursores e seleção nas três superfícies (2D, 3D e 360), com a janela de graça que separa queda de conexão de saída real.
 - [[qualidade-conexao-adaptativa]] - RTT reportado pelo cliente e ajustes de transporte recomendados pelo servidor.
+- [[capacidade-de-uma-instancia]] - quantas pessoas cabem num processo, medido em bancada: o teto de sala, o de sockets e o de escrita por atlas.
 
 ## Atlas, permissões e compartilhamento
 

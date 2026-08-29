@@ -1242,3 +1242,56 @@ metade ficou guardada à parte.
 - **Guardas:** `frontend/tests/e2e-ui/atlas-local-ebgeo-e-teardown.spec.js` ganhou o caso "cada mapa do arquivo tem UM registro, e a leitura por NOME alcança o do arquivo", que compara a leitura por nome de TODOS os onze mapas com o que o arquivo declara (controle negativo medido: sem o conserto ele reprova nomeando `"Principal": 2`). A ORDEM (descartar antes de escrever) é presa em `frontend/tests/integration/import-ebgeo-atlas-local.test.js`, por `invocationCallOrder`, porque ela não se lê no resultado: rodando depois, o descarte apagaria o projeto que acabou de entrar.
 - **O que NÃO foi feito, e por quê:** um atlas importado ANTES deste conserto continua com os dois registros, e o conserto não os repara. Um reparo automático no boot precisaria apagar registro de mapa em todo carregamento, e o gate seguro ("apague o name-keyed vazio quando um UUID-keyed tem o mesmo nome") é código destrutivo num caminho que roda sempre, para um estado que se desfaz reimportando o mesmo arquivo. A saída é reimportar.
 - **Status:** aceita.
+
+---
+
+### 2026-08-28: a vivacidade do socket deixa de depender do temporizador da página
+
+**Decisão.** `heartbeatSweep` (`backend/src/modules/collab/collab.gateway.js`) para de exigir o `{type:'ping'}` da aplicação como única prova de vida. Passam a rearmar `isAlive` duas coisas: **qualquer frame que chega** do cliente, e o **pong do PROTOCOLO**, que a varredura passa a solicitar por `ws.ping()`. O ping da aplicação continua existindo e continua rearmando; o que muda é ele ter deixado de ser o único.
+
+**Contexto: dois defeitos opostos, os dois medidos, e nenhum dos dois se anunciava.**
+
+1. **Sob saturação, a varredura era um DESCARTE DE CARGA acidental.** Numa rodada de bancada com mil usuários, 156 sockets caíram na rampa. A primeira explicação escrita foi de fome de pool (`reconcileAuthorization` falharia e fecharia com `4003`), e ela era **deduzida de ler o `catch` sem verificar se algo o alcança**. Três medidas a desmontaram: o pool não tem `connectionTimeoutMillis`, então ele espera em vez de lançar e o `catch` nunca roda; os códigos de fechamento, uma vez instrumentados, saíram **todos `1006`**, que é `terminate()` da varredura; e o laço do driver durante a rampa marcou p99 de 19 ms, ou seja os pings SAÍRAM no horário e quem não os processou a tempo foi o servidor, ocupado com o fan-out de presença. O mecanismo real: um cliente que manda doze quadros de cursor por segundo era, para a varredura, indistinguível de um cliente morto.
+2. **A aba oculta era ceifada de forma determinística.** O cliente pinga a cada 25 s e a varredura roda a cada 30 s. Medido com sonda própria no Chrome, aba oculta por 17 minutos e socket aberto: o intervalo é de **25.000 ms exatos** por cerca de 5,6 minutos e depois trava em **60.000 ms**, em seis amostras consecutivas. O socket aberto **não** isenta a página, que era a dúvida do desenho. Com ping de 60 s contra varredura de 30 s o socket morre sempre: a varredura baixa a marca e a seguinte não encontra ping nenhum. Numa sala de 200, cada volta de aba esquecida virava rotatividade de presença para as outras 199.
+
+**Alternativas rejeitadas.**
+
+- *Subir o intervalo da varredura, ou baixar o do cliente.* Remendo dos dois lados. Aceitava que a prova de vida dependesse de um temporizador que o navegador tem o direito de estrangular, e pagava com socket morto ocupando memória e presença fantasma por minutos. Baixar o ping do cliente é **impossível**: o piso do estrangulamento é de um por minuto, e nenhum temporizador de página o vence.
+- *Um pool dedicado para a varredura de autorização.* Era a ação planejada para o defeito 1, e a medida mostrou que a premissa dela estava errada. O conserto certo custou uma linha.
+
+**O que a decisão CUSTA, e é a metade que não se lê no código.** A marca deixa de provar que o laço de JavaScript do par roda e passa a provar que a **conexão e o processo do navegador** estão vivos. Isso é o conserto, não uma perda (aba em segundo plano É uma página com o laço estrangulado, e matá-la era o falso positivo), mas quem escrever detecção de cliente travado a partir do heartbeat vai medir outra coisa.
+
+**E o conserto do defeito 1 PIOROU um número, de propósito.** Ao parar de ceifar, o sistema deixou de remover 16% da população sob saturação:
+
+| | antes | depois |
+|---|---|---|
+| derrubados na rampa | 156 | **0** |
+| ackP50 sob saturação | 72 ms | **114.427 ms** |
+
+Ou seja, ele **troca desconexão invisível por latência visível**. O custo medido contra a linha de base é **zero até 50 pessoas por sala**, e na de 100 o ack ia de 3.844 para 6.775 ms: o dano só existe onde o sistema já estava fora do limite, e o agrupamento de cursor da decisão irmã é que o tira de lá. Isoladamente, este conserto **não autorizaria** subir o limite de sala.
+
+**Guardas:** `backend/tests/ws/collab-vivacidade-por-frame.test.js` e `backend/tests/ws/collab-vivacidade-por-protocolo.test.js`.
+
+**Status:** aceita. Capacidade e o que continua aberto em [`../wiki/capacidade-de-uma-instancia.md`](../wiki/capacidade-de-uma-instancia.md).
+
+---
+
+### 2026-08-28: o lote de saída do cliente cai de cem para vinte e cinco, porque cem perdia nos dois eixos
+
+**Decisão.** `FLUSH_BATCH_SIZE` (`frontend/src/js/store/sync/sync-engine.js`) vai de 100 para **25**.
+
+**Contexto.** `pushOperations` serializa a escrita de um atlas por `pg_advisory_xact_lock`, e o serviço custa cerca de **1,26 ms por op**. A fila do enésimo escritor é `escritores x lote x 1,26 ms`, e cruza os 5 s do `lock_timeout` quando o produto passa de ~4.000 ops. Com lote de 100 isso são **40 escritores simultâneos no mesmo atlas**, e o modo de falha é ruim: uma pessoa cola ou importa muita coisa, e **os outros** levam a recusa 503.
+
+**A medida, três rodadas** (bancada E2, `backend/tests/bench/escrita-lote.bench.mjs`):
+
+| lote | ops/s | p50 por envio |
+|---|---|---|
+| 10 | 818 / 725 / 691 | ~89 ms |
+| **25** | **968 / 773 / 752** | ~213 ms |
+| 100 | 706 / 677 | ~1.095 ms |
+
+Cem perdia nos DOIS eixos, o que torna a decisão fácil: a mudança melhora vazão E afasta o 503, sem troca. Entre 10 e 25 uma rodada não decidia (18% de diferença cabe dentro da banda de ruído de 20%), e foram precisas três para ver o sinal consistente. **O desempate veio de fora da bancada, e fica declarado como inferência:** 25 gera duas vezes e meia menos mensagens que 10 para o mesmo trabalho.
+
+**O que NÃO muda.** O teto do servidor continua em 500 ops por lote (`backend/src/modules/sync/sync.schemas.js`), e os dois tetos seguem independentes: subir `FLUSH_BATCH_SIZE` acima de 500 faz todo push virar 422. Ver [`../wiki/envelope-operacao.md`](../wiki/envelope-operacao.md).
+
+**Status:** aceita.

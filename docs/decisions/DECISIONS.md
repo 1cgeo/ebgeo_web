@@ -101,6 +101,8 @@ viram commit, teste e, se ensinaram algo, linha no [`docs/livro-razao.md`](../li
 | 2026-08-27 | O link de compartilhamento ganha a quarta superfície, e a PENDENCIA da raiz é dissolvida | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-28 | O cursor sai em lote por sala, e o limite de sala vai de cinquenta para duzentos | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-28 | O import não-aditivo descarta os mapas do escopo antes da primeira escrita | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-28 | A vivacidade do socket deixa de depender do temporizador da página | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-28 | O lote de saída do cliente cai de cem para vinte e cinco, porque cem perdia nos dois eixos | [decisions-2026.md](decisions-2026.md) |
 
 As duas linhas de 2026-08-16 acima entraram em 2026-08-18: as entradas integrais existiam no arquivo
 do ano e ninguém acrescentara a linha aqui, que é a metade do procedimento que falha calada (o índice

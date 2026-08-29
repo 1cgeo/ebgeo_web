@@ -132,7 +132,33 @@ function coletarMarkdown(dir, acc = []) {
 // propósito: PASTAS garante que o arquivo é lido enquanto estiver em `docs/`,
 // ALVOS garante que ele está NAQUELE caminho, que é o que o resto do corpus (e o
 // teto de tamanho do MEMORY.md) aponta.
-const DOCS = [...new Set([...ALVOS.filter((f) => existsSync(join(RAIZ, f))), ...PASTAS.flatMap((p) => coletarMarkdown(p))])];
+/**
+ * Os .md da RAIZ, sem recursao, coletados em vez de declarados.
+ *
+ * A LISTA ESCRITA A MAO RECORREU TRES VEZES, e o comentario de `ALVOS` ja registrava duas: a
+ * constituicao viveu fora da vigia ate 2026-08-21 e a proposta solar/lunar ate 2026-08-23. A
+ * terceira foi o `DIAGNOSTICO-DE-CARGA.md`, que nasceu na raiz em 2026-08-26, carregou por tres
+ * dias os numeros de capacidade que dirigiram quatro mudancas de codigo, e nunca foi declarado.
+ * O `docs/MEMORY.md` chegou a dizer "DOIS documentos de trabalho moram na RAIZ" enquanto eram
+ * TRES. Cada vez o conserto foi acrescentar uma linha aqui, e cada vez a linha seguinte faltou.
+ *
+ * Por isso a abordagem mudou em vez de a lista crescer: a raiz passa a ser VARRIDA. Documento de
+ * raiz nasce vigiado, sem ninguem lembrar de nada. `ALVOS` continua existindo e continua com os
+ * arquivos de raiz dentro, porque ele afirma outra coisa: que aquele arquivo esta NAQUELE caminho.
+ * A varredura sozinha nao pega o arquivo RENOMEADO (ele some da lista sem erro), e a declaracao
+ * sozinha nao pega o arquivo NOVO. Precisam das duas.
+ */
+function coletarMarkdownDaRaiz() {
+    return readdirSync(RAIZ)
+        .filter((nome) => nome.endsWith('.md'))
+        .filter((nome) => statSync(join(RAIZ, nome)).isFile());
+}
+
+const DOCS = [...new Set([
+    ...ALVOS.filter((f) => existsSync(join(RAIZ, f))),
+    ...coletarMarkdownDaRaiz(),
+    ...PASTAS.flatMap((p) => coletarMarkdown(p)),
+])];
 
 /**
  * Caminhos de código citados em backticks: `frontend/src/js/store/store.js`,
@@ -210,7 +236,14 @@ const RAIZES_DE_RESOLUCAO = ['', 'backend', 'frontend', 'backend/src', 'frontend
 /** Arquivos de código indexados. Custo medido: ~0,6 s para 1288 arquivos. */
 const FONTES_DE_CODIGO = [
     ...['frontend/src', 'backend/src'].flatMap((d) => coletarPorExtensao(d, ['.js', '.css', '.html', '.sql'])),
-    ...['frontend/tests', 'backend/tests'].flatMap((d) => coletarPorExtensao(d, ['.js'])),
+    // O `.mjs` entrou em 2026-08-29, pela quarta ocorrencia da mesma classe dos comentarios
+    // abaixo: as dez bancadas de concorrencia (`backend/tests/bench/`) sao todas `.mjs`, entao o
+    // indice nao continha uma linha delas e o guarda acusava `ackP95`, `escritorWs` e
+    // `cursoresRecebidos`, que sao colunas e modulos REAIS, citados por
+    // `docs/wiki/capacidade-de-uma-instancia.md` e pelo livro-razao. Extensao e um recorte tao
+    // arbitrario quanto prefixo: quando o indice fica menor que o codigo, o guarda erra para o
+    // lado BARULHENTO, que e o lado em que alguem o desliga.
+    ...['frontend/tests', 'backend/tests'].flatMap((d) => coletarPorExtensao(d, ['.js', '.mjs'])),
     // Sem estas raízes o guarda acusa símbolo que existe: TEST_DB_NAME mora em
     // backend/scripts/ e manualChunks em frontend/vite.config.js. Guarda que aponta
     // para o lugar errado treina o leitor a ignorá-lo, que é como um guarda morre.
@@ -317,6 +350,7 @@ const SIMBOLO_INEXISTENTE_DE_PROPOSITO = new Map([
     ['createSession', 'escritor de `active_sessions` removido em 2026-07-25, quando se mediu que a tabela nunca tivera um SELECT. A entrada de decisão que o nomeia é registro histórico: ela existe para dizer o que foi retirado e por quê, e apagar o nome falsificaria o registro. A tabela em si saiu do schema em 2026-08-23; ver presenca-colaborativa'],
     ['deleteSession', 'o par do acima, removido no mesmo commit e citado pelo mesmo motivo'],
     ['updateData', 'método da GeoJSONSource do MapLibre 5.18 (aplica um diff em vez de reenviar a coleção). Externo, e o livro-razão o nomeia justamente para registrar que este projeto NÃO o usa: as 293 chamadas de setData reenviam o array inteiro'],
+    ['connectionTimeoutMillis', 'opção do pool do pg que este projeto NÃO define, e a ausência é o ponto: sem ela o pool ESPERA em vez de lançar, então o catch que contaria a falha de autorização nunca roda. Um mecanismo de defeito inteiro foi deduzido de ler aquele catch sem verificar se algo o alcança, e a medição o refutou (todos os fechamentos saíram 1006, não 4003); ver a decisão de 2026-08-28 sobre vivacidade e capacidade-de-uma-instancia'],
 ]);
 
 // ---------------------------------------------------------------------------

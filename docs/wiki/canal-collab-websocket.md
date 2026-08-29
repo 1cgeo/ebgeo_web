@@ -65,11 +65,34 @@ Os applies inbound são **serializados numa cadeia de promessas** (`frontend/src
 
 - **Comentário nunca chega a conexão `read`** (`skipReadOnly`, `backend/src/modules/collab/collab.rooms.js`). Lote misto é *dividido*, para que o `read` ainda receba as ops não-comentário (`broadcastOperations`, `backend/src/modules/collab/collab.rooms.js`). Ver [[comentario-espacial]].
 - **`selection` é gated a editores e acima**: `read` e `comment` têm o frame **descartado em silêncio, sem `error`** (`backend/src/modules/collab/collab.handlers.js`). `cursor` e `temporal` são livres. Comentarista e visualizador só recebem seleção alheia.
-- Erros do WS são planos (`{type, code, message}`), diferente do envelope REST `{error:{code,message}}` de [[erros-api]].
+- Erros do WS são planos, diferente do envelope REST `{error:{code,message}}` de [[erros-api]], e desde 2026-08-28 eles carregam **`opIds` e `retryable`** (`frameDeErro`, `backend/src/modules/collab/collab.handlers.js`). Antes eram `{type, code, message}` sem referência ao lote, e com mais de um lote em voo o cliente não tinha como saber QUAIS ops falharam: a bancada mediu 750 ops em limbo numa rodada forçada de contenção. Os `opIds` são do próprio remetente e voltam só para ele. O `retryable` sai do `statusCode`, nunca do `code`, e o 503 do `lock_timeout` é a única falha deste caminho que vale re-tentar. **Inversão que vale registrar: o socket agora informa MAIS que o REST**, porque o 503 do REST continua sem veredito por op.
+
+## Vivacidade: a marca não prova mais que o JavaScript da página roda
+
+`heartbeatSweep` (`backend/src/modules/collab/collab.gateway.js`) termina o socket que não rearmou `isAlive` desde a varredura anterior. **O que REARMA a marca mudou duas vezes em 2026-08-28, e as duas mudanças consertam defeitos opostos.**
+
+Antes, só o `{type:'ping'}` da aplicação rearmava, e não havia handler de `pong`. Daí dois modos de falha medidos:
+
+1. **Sob saturação de CPU, a varredura virava descarte de carga.** O ping do cliente sai no horário e o SERVIDOR é que demora a processá-lo, então um cliente que manda doze quadros de cursor por segundo ficava indistinguível de um cliente morto. Numa rodada de bancada isso ceifou 156 sockets, 16% da população, e os sobreviventes recebiam serviço decente. Hoje **qualquer frame que chega** rearma a marca, que é prova mais forte que um ping: mostra que o laço do cliente roda E que ele tem o que dizer.
+2. **Aba oculta era ceifada de forma determinística.** O navegador estrangula o temporizador da página: medido no Chrome com socket aberto, o ping de 25 s roda exato por cerca de cinco minutos e depois **trava em 60 s**. Contra uma varredura de 30 s o socket morre sempre, e o socket aberto não isenta a página. Baixar o intervalo do cliente é impossível, porque o piso do estrangulamento é de um por minuto. Hoje a varredura emite o ping do **protocolo**, respondido pela pilha de rede do navegador: ele não passa pelo JavaScript da página, e a API de WebSocket nem expõe ping e pong ao script.
+
+A consequência é de LEITURA, não de código: a marca deixou de provar que o laço de JavaScript do par roda e passa a provar que a conexão e o processo do navegador estão vivos. **Isso é o conserto, não uma perda** (aba em segundo plano É uma página com o laço estrangulado, e matá-la era o falso positivo), mas quem escrever detecção de cliente travado a partir do heartbeat vai medir outra coisa. O caso não coberto continua sendo o do lado do cliente, em [[capacidade-de-uma-instancia]].
+
+## O cursor sai em LOTE por sala, e o remetente recebe o próprio eco
+
+Desde 2026-08-28 o servidor não retransmite quadro de cursor um a um: acumula por sala e emite, a cada `WS_CURSOR_BATCH_MS` (100 ms, `cursorBatchMs` em `backend/src/config.js`), um frame `cursors` com a ÚLTIMA posição de cada `clientId`. Decisão, medições e as três escolhas de desenho que são fáceis de desfazer por engano em [`../decisions/decisions-2026.md`](../decisions/decisions-2026.md); o efeito de capacidade em [[capacidade-de-uma-instancia]].
+
+Três coisas que mordem quem escreve cliente:
+
+- **O remetente RECEBE o próprio cursor no lote** e filtra no cliente, pelo `clientId`. Excluir cada remetente no servidor exigiria um payload por destinatário, que é exatamente o custo eliminado. É a mesma economia do eco de operação ([[client-id-estavel]]); `selection` continua excluindo o remetente.
+- **O filtro do cliente compara `clientId` EXATO**, não a metade de instalação que a dedupe de operação usa. Pela instalação, o cursor da outra aba do mesmo navegador sumiria.
+- **A camada de presença não viu a mudança.** `ws-client.js` desmonta o lote e reemite um evento `cursor` por item, então `presence-bridge.js` continua assinando `cursor` como sempre ([[presenca-colaborativa]]).
+
+A compatibilidade **não** é retroativa, e a escolha foi deliberada: cliente antigo contra servidor novo para de ver cursor sem erro nenhum. `WS_CURSOR_BATCH_MS=0` reverte sem novo deploy de código.
 
 ## Backpressure: op durável nunca é descartada
 
-Medido por socket em `bufferedAmount` (`backend/src/modules/collab/collab.rooms.js`): acima de 1 MiB frames coalescáveis (`cursor`/`temporal`/`selection`) são descartados, porque o próximo frame os supera e o drop se auto-cura. Acima de 8 MiB o socket é `terminate()` **de propósito**, para que reconecte e recupere via `sync_request`. Op durável nunca é descartada em silêncio: isso divergiria o peer permanentemente, enquanto matar o socket é recuperável. O cliente replica a mesma política na saída (`_sendRaw`, `frontend/src/js/store/sync/ws-client.js`).
+Medido por socket em `bufferedAmount` (`backend/src/modules/collab/collab.rooms.js`): acima de 1 MiB frames coalescáveis (`cursor`/`cursors`/`temporal`/`selection`) são descartados, porque o próximo frame os supera e o drop se auto-cura. Acima de 8 MiB o socket é `terminate()` **de propósito**, para que reconecte e recupere via `sync_request`. Op durável nunca é descartada em silêncio: isso divergiria o peer permanentemente, enquanto matar o socket é recuperável. O cliente replica a mesma política na saída (`_sendRaw`, `frontend/src/js/store/sync/ws-client.js`).
 
 ## Sinais fora do log de operações
 
