@@ -17,6 +17,10 @@ export const ICON_AUDIT = `<svg viewBox="0 0 24 24" width="20" height="20" fill=
 // A CHAVE, e não um cadeado: o cadeado é o recurso FECHADO (é o que o selo "Privado" já diz), e
 // esta aba é sobre quem tem a chave dele. Ícone estático, sem dado de usuário, como os irmãos.
 export const ICON_GRANTS = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 8.3-8.3"/><path d="m16 6 3 3"/><path d="m19 3 2 2"/></svg>`;
+// O PULSO, e não uma lupa nem um triângulo de alerta: a aba não é busca (a Auditoria, com a folha
+// de papel, é a que se consulta por filtro) e não é um alarme ligado, porque o desfecho normal
+// dela é a linha reta de um sistema sem erro. Ícone estático, sem dado de usuário, como os irmãos.
+export const ICON_DIAG = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l2.5-7 4 14L16 12h5"/></svg>`;
 export const ICON_PERSONNEL = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8z"/></svg>`;
 // UMA pessoa, e não o par de `ICON_USERS`: a aba "Minha conta" é sobre o próprio titular, e a
 // aba "Usuários" é sobre as contas dos outros. Duas silhuetas no trilho leriam como a mesma coisa.

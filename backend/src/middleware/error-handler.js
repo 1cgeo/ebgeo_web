@@ -27,7 +27,11 @@ export function errorHandler(err, req, res, next) {
     // necessária porque a outra linha não existe.
     reqId: req.id,
     method: req.method,
-    url: redactUrl(req.url),
+    // `originalUrl` pela mesma razão de `request-logger.js`: aqui a pilha de routers está
+    // ainda mais garantidamente em pé (o erro veio de dentro dela), então `req.url` é o
+    // caminho relativo ao mount, e as duas linhas da MESMA requisição sairiam com URLs
+    // diferentes — o oposto do que o `reqId` acima existe para permitir.
+    url: redactUrl(req.originalUrl || req.url),
     userId: req.user?.id,
   }, 'Request error');
 

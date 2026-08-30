@@ -28,6 +28,7 @@ import { createPersonnelTab } from './personnel-tab.js';
 import { createGroupsTab } from './groups-tab.js';
 import { createGrantsTab } from './grants-tab.js';
 import { createAuditTab } from './audit-tab.js';
+import { createDiagTab } from './diag-tab.js';
 import { createAccountTab } from './account-tab.js';
 
 /**
@@ -42,6 +43,7 @@ const TAB_FACTORIES = Object.freeze({
     catalog: createCatalogTab,
     personnel: createPersonnelTab,
     audit: createAuditTab,
+    diagnostico: createDiagTab,
     account: createAccountTab,
 });
 

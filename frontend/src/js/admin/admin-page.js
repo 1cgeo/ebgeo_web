@@ -37,6 +37,9 @@ import { initTabLock, noneKey } from '@utils/tab-lock.js';
 // `index.js` e `projects/projects-page.js` consomem.
 import { classifyRequestFailure, RequestFailure } from '@utils/request-failure.js';
 import { startIdleWatch } from '../session/idle-watch.js';
+// Pelo ARQUIVO, como os vizinhos de `session/` (a pasta não tem barrel). Best-effort e sem rede na
+// instalação: ver a chamada no topo de `initAdminPage`.
+import { instalarTelemetriaDeErro } from '../session/erro-telemetria.js';
 // Por ARQUIVO, nunca por barrel: este modulo alcanca o store por folhas, e e isso que o torna
 // importavel de uma pagina que boota sem `initServices()`.
 import {
@@ -151,6 +154,11 @@ async function endSession(reason) {
  * @returns {Promise<void>}
  */
 async function initAdminPage() {
+    // A TELEMETRIA DE ERRO PRIMEIRO, como nas outras três páginas: o erro de boot é o que menos se
+    // consegue reproduzir depois. Síncrona, sem rede, e nada abaixo depende dela — a página sobe
+    // igual com a rota ausente.
+    instalarTelemetriaDeErro();
+
     configureApiClient({ baseUrl: resolveBackendBaseUrl() });
 
     if (!(await bootConfig())) {

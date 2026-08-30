@@ -161,6 +161,16 @@ const CENSO = [
       + 'acesso, e a rota inteira não existe no ambiente onde a trilha é lida.',
   },
 
+  // ---------------- diag: telemetria ------------------------------------------
+  {
+    arquivo: 'src/modules/diag/diag.routes.js', rota: 'POST /erro-cliente', classe: ISENTA,
+    motivo: 'Relato de erro do NAVEGADOR, anônimo por desenho. Não move eixo de acesso nenhum, e a '
+      + 'própria linha de `client_errors` já guarda quem (user_id, quando há sessão), quando '
+      + '(primeira_em/ultima_em) e quantas vezes. Auditá-la seria uma linha de trilha por erro de '
+      + 'tela — ou seja, o defeito em laço que motivou este módulo afogaria a trilha, que é o '
+      + 'oposto do que a agregação por assinatura existe para evitar.',
+  },
+
   // ---------------- conteúdo de atlas ----------------------------------------
   { arquivo: 'src/modules/images/images.routes.js', rota: 'POST /', classe: ISENTA, motivo: CONTEUDO_DE_ATLAS },
   { arquivo: 'src/modules/images/images.routes.js', rota: 'POST /bulk', classe: ISENTA, motivo: CONTEUDO_DE_ATLAS },

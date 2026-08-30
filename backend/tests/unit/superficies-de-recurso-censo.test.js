@@ -1286,6 +1286,20 @@ const CENSO_ROTA = [
       + '`marcarEscopoJson` do controller reporia a trilha do administrador para um produtor num '
       + 'cache compartilhado e a suíte inteira continuaria verde (medido).',
   },
+  {
+    arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /erros', classe: R_OUTRA, gate: 'requireAdmin',
+    motivo: `${SO_ADMIN} O que ela serve é AGREGAÇÃO do log em arquivo (assinatura, contagem, `
+      + 'percentil), e o diretório é decidido pelo servidor: não existe `?dir=`, justamente para que '
+      + 'a rota não vire leitor de arquivo arbitrário atrás de um gate de administrador.',
+  },
+  { arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /lento', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
+  { arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /status', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
+  {
+    arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /erros-cliente', classe: R_OUTRA, gate: 'requireAdmin',
+    motivo: `${SO_ADMIN} Serve \`client_errors\`, a telemetria de erro do NAVEGADOR. As linhas não `
+      + 'carregam id de catálogo, 360 nem 3D: carregam mensagem, pilha e a página em que o defeito '
+      + 'apareceu. O `atlas_id` que elas guardam é contexto sem FK, não referência de recurso.',
+  },
   { arquivo: 'src/modules/sync/sync.routes.js', rota: 'GET /admin/stats', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
   { arquivo: 'src/modules/users/users.routes.js', rota: 'GET /', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
   { arquivo: 'src/modules/users/users.routes.js', rota: 'GET /:userId', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },

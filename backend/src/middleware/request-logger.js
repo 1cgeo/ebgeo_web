@@ -29,7 +29,16 @@ export function requestLogger(req, res, next) {
     const logData = {
       reqId: req.id,
       method: req.method,
-      url: redactUrl(req.url),
+      // `originalUrl`, NUNCA `req.url`, e a diferença só aparece a jusante. O Express
+      // REESCREVE `req.url` ao entrar num router montado, tirando o prefixo do mount, e
+      // este ouvinte roda no `finish`, que dispara enquanto a pilha de routers ainda está
+      // em pé: o que se lia aqui era o caminho relativo ao último router visitado. Medido
+      // na aba Diagnóstico em 2026-08-30, e o custo era exatamente o que o relatório existe
+      // para evitar: a MESMA rota aparecia em duas linhas (`POST /erro-cliente` com 3
+      // chamadas e `POST /api/v1/diag/erro-cliente` com 1), e `POST /login` era
+      // indistinguível de qualquer outro `/login` montado em outro prefixo. `originalUrl` é
+      // posto uma vez, no início do pedido, e nenhum router o toca.
+      url: redactUrl(req.originalUrl || req.url),
       statusCode: res.statusCode,
       duration,
       userId: req.user?.id,

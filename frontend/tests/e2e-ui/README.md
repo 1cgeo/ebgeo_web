@@ -337,6 +337,26 @@ O arquivo de estado no temp DERIVA da porta do backend, então trocar a porta j�
 o banco NÃO deriva de nada e precisa ser passado à parte, senão a segunda rodada dropa o
 banco da primeira no meio dela.
 
+### O MESMO checkout também colide consigo mesmo, e essa é a mais fácil de cair
+
+O parágrafo acima descreve dois checkouts. O caso que de fato ocorreu (2026-08-30) é mais
+banal: **um Vite desta camada que sobrou de uma rodada anterior e nunca foi encerrado** (o
+processo era de VINTE E SEIS HORAS antes). `reuseExistingServer` o reusou, e como este config
+não tem watcher, ele continuou servindo o módulo que carregou quando subiu. O sintoma foi uma
+captura de tela da aba nova que mostrava o painel **sem** a aba — um `toBeVisible` que falhou
+apontando para o produto, quando o errado era o instrumento.
+
+O jeito de descobrir é olhar a idade do processo, não o código:
+
+```bash
+netstat -ano | grep ":4321" | grep LISTENING     # o PID que segura a porta
+powershell "Get-Process -Id <PID> | Select StartTime"
+```
+
+Se o `StartTime` for anterior à sua última edição, mate o processo antes de concluir
+qualquer coisa sobre a tela. Um verde (ou um vermelho) obtido de um Vite mais velho que o
+código não afirma nada sobre o código.
+
 ## Prerequisites (one-time)
 
 Playwright is a `devDependency` but the browser binary must be fetched. Because

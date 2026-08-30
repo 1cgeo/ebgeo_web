@@ -123,6 +123,36 @@ const config = Object.freeze({
     // a hung request. Short by design: a readiness answer that arrives late is
     // already useless to an orchestrator.
     dbTimeoutMs: parseInt(optional('HEALTH_DB_TIMEOUT_MS', '2000'), 10),
+
+    /**
+     * A AMOSTRA PERIÓDICA (`src/utils/amostra-de-saude.js`), que é a metade que PERGUNTA
+     * sozinha: o `/health` acima só responde a quem chama, e aqui não há orquestrador
+     * chamando. Ligada por env do mesmo jeito que o log em arquivo (`off` exato desliga;
+     * vazio cai no default), e nunca em teste, o que quem decide é `deveAmostrar`.
+     *
+     * O INTERVALO DEFAULT É 5 MINUTOS, e o número é um câmbio entre três coisas:
+     *  - CUSTO: cada amostra tira uma conexão do pool de dez (`DATABASE_POOL_MAX`) por um
+     *    `SELECT 1`. A 300 s isso é ruído ao lado de um único boot do app, que faz dezenas
+     *    de consultas; a alguns segundos ele passaria a competir com o sync no mesmo pool,
+     *    ou seja, o observador viraria parte da carga observada.
+     *  - RESOLUÇÃO: 288 pontos por dia. Como é o BURACO na série que revela a queda (o
+     *    amostrador não testemunha a própria morte), duas amostras faltando já localizam a
+     *    indisponibilidade numa janela de dez minutos, que é a precisão com que se reage
+     *    numa instalação sem plantão nem alarme.
+     *  - VOLUME: 288 linhas por dia no `.jsonl`, ao lado das milhares de linhas de
+     *    requisição do mesmo arquivo. Uma amostra a cada segundo enterraria no relatório
+     *    justamente o que ele existe para achar.
+     *
+     * O PRAZO DA SONDA é PRÓPRIO e MAIOR que o do `/health` de propósito: aquele responde a
+     * um orquestrador, para quem resposta atrasada já não serve; esta escreve história, e
+     * distinguir "lento" de "morto" é parte do que ela registra. Ele tem de continuar bem
+     * abaixo do intervalo, senão duas sondas se sobrepõem no pool.
+     */
+    amostra: Object.freeze({
+      ativa: optional('HEALTH_SAMPLE', 'on') !== 'off',
+      intervaloMs: parseInt(optional('HEALTH_SAMPLE_INTERVAL_MS', '300000'), 10),
+      dbTimeoutMs: parseInt(optional('HEALTH_SAMPLE_DB_TIMEOUT_MS', '5000'), 10),
+    }),
   }),
 
   cors: Object.freeze({
@@ -443,6 +473,18 @@ export const NUMERIC_ENV_RULES = Object.freeze({
   // do relay come o prazo inteiro.
   AUTH_PASSWORD_RESET_TTL_MINUTES: { min: 5, max: 1440 },
   HEALTH_DB_TIMEOUT_MS: { min: 100, max: 60000 },
+  // Intervalo da amostra periódica de saúde. Piso de 10 s porque abaixo disso o
+  // amostrador deixa de ser observador e vira carga no mesmo pool de dez conexões
+  // que serve o sync (e enche o `.jsonl` com a própria série). Teto de um dia
+  // porque uma amostra menos frequente que isso não forma série nenhuma: é o
+  // buraco entre amostras que revela a queda, e com um ponto por dia o buraco não
+  // distingue "caiu" de "ainda não amostrou". NaN aqui é o estrago clássico da
+  // tabela, `setInterval(NaN)` ≈ a cada 1 ms, agora com uma ida ao banco junto.
+  HEALTH_SAMPLE_INTERVAL_MS: { min: 10000, max: 86400000 },
+  // Prazo próprio da sonda ao banco dentro da amostra. Mesma faixa do knob do
+  // /health: abaixo de 100 ms toda sonda expiraria por latência normal, e acima de
+  // 60 s ela deixaria de expirar antes do intervalo default.
+  HEALTH_SAMPLE_DB_TIMEOUT_MS: { min: 100, max: 60000 },
   SMTP_PORT: { min: 1, max: 65535 },
 });
 

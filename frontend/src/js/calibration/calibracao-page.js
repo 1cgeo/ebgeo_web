@@ -45,6 +45,9 @@ import { EBGEO_LOGO_BASE64 } from '../utilities/logo-base64.js';
 // From the FILE, never from the `@utils` barrel: the barrel reaches `@store` transitively.
 import { initTabLock, noneKey } from '@utils/tab-lock.js';
 import { startIdleWatch } from '../session/idle-watch.js';
+// Pelo ARQUIVO, como os vizinhos de `session/` (a pasta nao tem barrel). Best-effort e sem rede na
+// instalacao: ver a chamada no topo de `initCalibracaoPage`.
+import { instalarTelemetriaDeErro } from '../session/erro-telemetria.js';
 // Pelo ARQUIVO, nunca por barrel, que e o que o mantem carregavel numa pagina sem
 // `initServices()`. Mesma importacao que `admin-page.js` e `projects-page.js` fazem.
 import {
@@ -247,6 +250,11 @@ function takeRequestedPhoto() {
 }
 
 async function initCalibracaoPage() {
+    // A TELEMETRIA DE ERRO PRIMEIRO, como nas outras tres paginas, e aqui ela vale ainda mais: o
+    // gate manda para o mapa quem nao calibra, entao um erro levantado antes dele so existe nesta
+    // aba e por um instante. Sincrona, sem rede, e nada abaixo depende dela.
+    instalarTelemetriaDeErro();
+
     configureApiClient({ baseUrl: resolveBackendBaseUrl() });
 
     if (!(await bootConfig())) {

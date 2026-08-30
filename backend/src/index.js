@@ -3,21 +3,66 @@ import { createServer } from 'http';
 import app from './app.js';
 import config, { validateEnvVariables } from './config.js';
 import logger from './utils/logger.js';
-import { pgp } from './database/index.js';
+import { pgp, one, db } from './database/index.js';
 import { attachWebSocket, closeAllSockets } from './modules/collab/index.js';
 import { blobPool } from './utils/sqlite-blob-pool.js';
+import {
+  criarAmostradorDeSaude,
+  deveAmostrar,
+  sondarBancoComPrazo,
+} from './utils/amostra-de-saude.js';
 
 // Fail fast and loudly on misconfiguration before accepting any connection.
 validateEnvVariables();
 
 const server = createServer(app);
 
-// Attach WebSocket upgrade handler to the same HTTP server
-attachWebSocket(server);
+// Attach WebSocket upgrade handler to the same HTTP server.
+//
+// O retorno é o `WebSocketServer`, e é ele que dá a contagem de sockets vivos à amostra de
+// saúde abaixo (`wss.clients.size`). A alternativa seria um contador exportado por
+// `modules/collab/`, ou seja, mais uma superfície pública num módulo de domínio para servir
+// à observabilidade; aqui o boot já tem o objeto em mãos e ninguém precisa saber disso.
+const wss = attachWebSocket(server);
 
 server.listen(config.port, () => {
   logger.info({ port: config.port, env: config.nodeEnv }, 'EBGeo backend started');
 });
+
+// A amostra periódica de saúde. Ela mora AQUI, e não em `app.js`, pelo mesmo motivo que
+// `validateEnvVariables()`: `app.js` é importado pela suíte via supertest, e um timer que
+// nascesse de lá subiria em toda rodada de teste. O gate de ambiente de `deveAmostrar` é a
+// segunda amarra dessa mesma decisão, não a única.
+const decisaoDaAmostra = deveAmostrar({
+  ativa: config.health.amostra.ativa,
+  isTest: config.isTest,
+  intervaloMs: config.health.amostra.intervaloMs,
+});
+
+let amostrador = null;
+if (decisaoDaAmostra.ligar) {
+  amostrador = criarAmostradorDeSaude({
+    intervaloMs: config.health.amostra.intervaloMs,
+    sondarBanco: () => sondarBancoComPrazo({
+      consultar: () => one('SELECT 1 AS ok'),
+      prazoMs: config.health.amostra.dbTimeoutMs,
+    }),
+    // `$pool` é o `pg-pool` por baixo do pg-promise: totalCount / idleCount / waitingCount.
+    // `descreverPool` é defensivo quanto à forma, então uma atualização da biblioteca omite
+    // o campo em vez de publicar NaN na série.
+    lerPool: () => db.$pool,
+    contarSockets: () => wss.clients.size,
+    registrar: logger,
+  });
+  logger.info(
+    { intervaloMs: config.health.amostra.intervaloMs },
+    'Amostra periódica de saúde ligada'
+  );
+} else {
+  // Dizer POR QUE não ligou, senão "não há amostra no log" é indistinguível de "o
+  // amostrador quebrou", que é a classe de silêncio que esta camada existe para fechar.
+  logger.info({ motivo: decisaoDaAmostra.motivo }, 'Amostra periódica de saúde desligada');
+}
 
 // How long to wait for a graceful close before forcing the exit. Without this,
 // a stuck connection keeps the process alive until the supervisor SIGKILLs it —
@@ -37,6 +82,10 @@ let shuttingDown = false;
 async function shutdown(signal) {
   if (shuttingDown) return; // a second SIGINT must not re-enter
   shuttingDown = true;
+  // Parar a amostra ANTES de fechar o pool: uma sonda que caísse depois do `pgp.end()`
+  // escreveria uma linha de banco fora no desligamento, e um incidente falso no fim de todo
+  // deploy é como uma série de saúde perde o valor.
+  amostrador?.parar();
   logger.info(`${signal} received, shutting down gracefully`);
 
   const forceExit = setTimeout(() => {

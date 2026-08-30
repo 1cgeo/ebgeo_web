@@ -49,7 +49,13 @@ export default [
                 proj4: 'readonly',
                 // Node.js globals for config files
                 process: 'readonly',
-                __dirname: 'readonly'
+                __dirname: 'readonly',
+                // Substituído TEXTUALMENTE pelo Vite (`define`, em `vite.config.js`), a partir do
+                // `version` do `package.json`. Não é uma variável de runtime: `globalThis.__APP_VERSION__`
+                // NÃO é substituído (é nome de propriedade, não identificador), então quem o lê o lê
+                // sempre por identificador nu, atrás de um `typeof` — fora do bundle (vitest em node)
+                // ele simplesmente não existe.
+                __APP_VERSION__: 'readonly'
             }
         },
 

@@ -15,8 +15,17 @@
  *
  * A DISCRIMINAÇÃO é o resto da tabela, em asserção ABSOLUTA (igualdade do array inteiro, não
  * `toContain`): um predicado quebrado que devolvesse tudo para todo mundo passaria verde numa
- * asserção de presença. O anônimo continua sem porta, o administrador tem as OITO abas
+ * asserção de presença. O anônimo continua sem porta, o administrador tem as NOVE abas
  * nomeadas e o produtor tem `catalog`, `groups`, `grants`, `audit` e `account`.
+ *
+ * `diagnostico` ENTROU EM 2026-08-30 e é a mais RECORTADA da tabela, ao lado de `users`, `config`
+ * e `personnel`: só o administrador global. As quatro rotas de `/diag` exigem administração do
+ * sistema, e o recorte no cliente existe para que ninguém bata em 403 na montagem. O controle
+ * NEGATIVO dela é a linha do produtor: ele tem `audit`, que é a outra aba de consulta, e é
+ * justamente por isso que a ausência de `diagnostico` na lista dele mede alguma coisa. Um recorte
+ * quebrado que desse a aba a todo mundo continuaria verde numa asserção de presença sobre a linha
+ * do administrador, e é por isso que as duas asserções (a igualdade absoluta e o `not.toContain`
+ * das outras três audiências) andam juntas.
  *
  * `grants` PASSOU A SER UNIVERSAL entre as três audiências que abrem a porta (2026-08-24, o
  * fechamento da pendência declarada no mesmo dia), e as demais continuam recortadas. O rótulo
@@ -88,6 +97,12 @@ const DISPENSADOS = Object.freeze({
     'src/js/admin/admin-panel.js':
         'Componente burro: recebe `title` por parâmetro e só tem "Administração" como '
         + 'default de construtor. Quem decide o título é `mountAdminPage`, que consome a função.',
+    'src/js/session/erro-telemetria-assinatura.js':
+        'Cita `admin.html` como CHAVE de uma tabela que traduz `location.pathname` no nome da '
+        + 'página para a telemetria de erro ("qual das quatro páginas quebrou"). Ele não leva '
+        + 'ninguém a lugar nenhum, não desenha porta e não mede audiência: nomear as quatro '
+        + 'páginas é o oposto de decidir quem entra numa delas. Mesmo caso do modal abaixo, e '
+        + 'classificar é mais barato que torcer o código para escapar da varredura.',
     'src/js/modals/create-atlas.modal.js':
         'Cita "Administração" numa FRASE DE AJUDA ("Você não administra nenhum grupo. Crie um em '
         + 'Administração > Grupos"), e não numa decisão sobre quem vê a porta: o modal não '
@@ -200,12 +215,13 @@ describe('adminAudience — a tabela das quatro audiências', () => {
         expect(adminAudience()).toEqual({ label: null, tabIds: [] });
     });
 
-    it('o administrador tem as OITO abas, com Concessões, Auditoria e Minha conta no fim', () => {
+    it('o administrador tem as NOVE abas, com as três consultas e Minha conta no fim', () => {
         // A ORDEM É CONTRATO (é a de montagem, e a primeira aba é a que o painel abre): as duas
         // de CONSULTA ficam no fim, e entre elas a pessoal vem antes da do sistema.
         expect(adminAudience(ADMIN)).toEqual({
             label: 'Administração',
-            tabIds: ['users', 'groups', 'config', 'catalog', 'personnel', 'grants', 'audit', 'account'],
+            tabIds: ['users', 'groups', 'config', 'catalog', 'personnel', 'grants', 'audit',
+                'diagnostico', 'account'],
         });
     });
 
@@ -239,7 +255,8 @@ describe('adminAudience — a tabela das quatro audiências', () => {
         // Nada aqui é fronteira de segurança: quem gateia é o servidor.
         expect(adminAudience({ isAuthenticated: false, isAdmin: true })).toEqual({
             label: 'Administração',
-            tabIds: ['users', 'groups', 'config', 'catalog', 'personnel', 'grants', 'audit', 'account'],
+            tabIds: ['users', 'groups', 'config', 'catalog', 'personnel', 'grants', 'audit',
+                'diagnostico', 'account'],
         });
         // A discriminação: o produtor NÃO tem a mesma robustez, porque ele é testado depois
         // da sessão. Trocar as duas linhas quebraria a asserção de cima ou esta.
@@ -266,7 +283,33 @@ describe('adminAudience — a tabela das quatro audiências', () => {
         const primeiro = adminAudience(ADMIN);
         primeiro.tabIds.length = 0;
         expect(adminAudience(ADMIN).tabIds)
-            .toEqual(['users', 'groups', 'config', 'catalog', 'personnel', 'grants', 'audit', 'account']);
+            .toEqual(['users', 'groups', 'config', 'catalog', 'personnel', 'grants', 'audit',
+                'diagnostico', 'account']);
+    });
+
+    it('só o administrador tem Diagnóstico: as quatro rotas de /diag exigem administração', () => {
+        // A aba nasceu em 2026-08-30 e é do administrador e de mais ninguém. O recorte no cliente
+        // não é a fronteira de segurança (o servidor gateia as quatro rotas), e existe para que
+        // produtor e credenciado não batam num 403 na PRIMEIRA requisição da aba, que é a pior
+        // forma de dizer não: é a mesma razão de `users`, `config` e `personnel`.
+        expect(adminAudience(ADMIN).tabIds).toContain('diagnostico');
+        expect(adminAudience(PRODUTOR).tabIds).not.toContain('diagnostico');
+        expect(adminAudience(COMUM).tabIds).not.toContain('diagnostico');
+        expect(adminAudience(ANONIMO).tabIds).not.toContain('diagnostico');
+        // O CONTROLE NEGATIVO: o produtor tem a OUTRA aba de consulta, então a ausência acima não
+        // é o efeito de ele simplesmente não ter consulta nenhuma. Sem esta linha, um recorte que
+        // zerasse todas as abas de consulta do produtor deixaria as três de cima verdes.
+        expect(adminAudience(PRODUTOR).tabIds).toContain('audit');
+    });
+
+    it('Diagnóstico é CONSULTA e fica com as consultas, antes só de Minha conta', () => {
+        // A ORDEM É A DE MONTAGEM, e a primeira aba é a que o painel abre: ninguém abre o painel
+        // para ler um gráfico de erros. Esta asserção prende a posição RELATIVA, e não o índice,
+        // para que uma aba nova de gestão entrando no topo não a quebre por nada.
+        const abas = adminAudience(ADMIN).tabIds;
+        expect(abas.indexOf('diagnostico')).toBeGreaterThan(abas.indexOf('grants'));
+        expect(abas.indexOf('diagnostico')).toBeGreaterThan(abas.indexOf('audit'));
+        expect(abas.indexOf('diagnostico')).toBeLessThan(abas.indexOf('account'));
     });
 });
 

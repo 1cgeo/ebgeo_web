@@ -1410,6 +1410,387 @@
     padding: var(--space-1) var(--space-2);
 }
 
+/* ===== Aba Diagnóstico =====
+
+   Quatro seções sobre a MESMA janela de tempo (pulso, erros do servidor, erros do navegador,
+   latência), e um seletor só, no cabeçalho da aba.
+
+   A CONTAGEM É O ELEMENTO DA ABA, como o chip de prazo é o da aba Concessões, e é o único que
+   ganha escada de peso: quem abre esta tela está escolhendo o que consertar primeiro, e uma lista
+   em que mil ocorrências pesam o mesmo que uma devolve a escolha sem nenhum dado a mais. Os quatro
+   degraus são logarítmicos (`pesoDaContagem`, em `js/admin/diag-phrases.js`) porque a diferença
+   que importa entre dois defeitos é de ordem de grandeza.
+
+   O VAZIO É VERDE AQUI, e só aqui no painel. "Nenhum erro nas últimas 24 horas" é o melhor
+   desfecho possível desta tela; desenhá-lo com a cara cinzenta de "nenhum resultado para o seu
+   filtro" ensina a ler saúde como defeito. A forma continua sendo o `.admin-empty` da casa, com
+   uma classe a mais: o que muda é o sinal, não o bloco. */
+
+.admin-diag__section {
+    margin-top: var(--space-8);
+}
+
+/* A dica da janela e as ressalvas das seções são PROSA sobre a lista, não itens dela: mesmo peso
+   de legenda de `.admin-grants__scope`, e é de propósito que se pareçam. */
+.admin-diag__hint,
+.admin-diag__nota {
+    margin: 0 0 var(--space-3);
+    color: var(--gray-600);
+    font-size: var(--font-size-sm);
+}
+
+.admin-diag__hint {
+    margin-top: calc(-1 * var(--space-2));
+}
+
+/* A nota abaixo de uma lista (o que a varredura leu) fica colada nela, não solta. */
+.admin-diag__section > .admin-diag__nota:last-child {
+    margin: var(--space-2) 0 0;
+    font-size: var(--font-size-xs);
+}
+
+/* ----- o seletor de janela, no cabeçalho da aba ----- */
+
+.admin-diag__janela {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.admin-diag__janela-label {
+    font-size: var(--font-size-sm);
+    color: var(--gray-600);
+}
+
+/* ----- seção 1: o pulso ----- */
+
+.admin-diag__pulso {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-6);
+}
+
+.admin-diag__tile {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 7rem;
+}
+
+.admin-diag__tile-valor {
+    font-size: var(--font-size-2xl);
+    font-weight: var(--font-weight-bold);
+    font-variant-numeric: tabular-nums;
+    line-height: var(--line-height-tight);
+    color: var(--gray-900);
+}
+
+.admin-diag__tile-rotulo {
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--gray-500);
+}
+
+/* Zero erro é VERDE e não cinza: é o número que a pessoa veio conferir, e o cinza o esconderia
+   entre os outros ladrilhos. */
+.admin-diag__tile--ok .admin-diag__tile-valor {
+    color: color-mix(in srgb, var(--color-success) 80%, var(--gray-900));
+}
+
+.admin-diag__tile--erro .admin-diag__tile-valor {
+    color: color-mix(in srgb, var(--color-error) 78%, var(--gray-900));
+}
+
+/* A distribuição por faixa. AS QUATRO APARECEM SEMPRE, zeradas inclusive: uma barra que não é
+   desenhada se lê como dado que não chegou, e "zero 5xx" é justamente a informação buscada. */
+.admin-diag__faixas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: var(--space-4) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.admin-diag__faixa {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-full);
+    background: var(--gray-100);
+    color: var(--gray-700);
+    font-size: var(--font-size-sm);
+}
+
+.admin-diag__faixa-nome {
+    font-weight: var(--font-weight-semibold);
+    font-variant-numeric: tabular-nums;
+}
+
+.admin-diag__faixa-valor {
+    font-variant-numeric: tabular-nums;
+}
+
+/* As famílias NÃO são uma escala, pelo mesmo motivo dos chips da Auditoria: 3xx não é "meio 2xx".
+   A faixa que este build não conhece fica com a moldura tracejada de `.admin-chip--desconhecido`,
+   e nunca com a cor de outra: pintar um `1xx` de verde afirmaria saúde sobre um valor que ninguém
+   classificou. */
+.admin-diag__faixa--ok {
+    background: color-mix(in srgb, var(--color-success) 15%, transparent);
+    color: color-mix(in srgb, var(--color-success) 80%, var(--gray-900));
+}
+
+.admin-diag__faixa--redirecionamento {
+    background: color-mix(in srgb, var(--color-info) 15%, transparent);
+    color: var(--color-info-strong);
+}
+
+.admin-diag__faixa--cliente {
+    background: color-mix(in srgb, var(--color-warning) 18%, transparent);
+    color: var(--color-warning-strong);
+}
+
+.admin-diag__faixa--servidor {
+    background: color-mix(in srgb, var(--color-error) 15%, transparent);
+    color: var(--color-error-strong);
+    font-weight: var(--font-weight-semibold);
+}
+
+.admin-diag__faixa--desconhecida {
+    background: transparent;
+    border: 1px dashed var(--gray-400);
+}
+
+/* ----- seções 2 e 3: as duas listas de erro, na MESMA linguagem visual -----
+   Uma lista e não uma tabela: cada item carrega um bloco expansível com a pilha, e uma pilha
+   dentro de célula de tabela força a gaveta em linha irmã que a Auditoria precisou construir. */
+
+.admin-diag__lista {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.admin-diag__item {
+    padding: var(--space-3) var(--space-4);
+    border-bottom: var(--border-width) solid var(--border-color);
+}
+
+.admin-diag__item:last-child {
+    border-bottom: none;
+}
+
+.admin-diag__item-cabeca {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-4);
+}
+
+.admin-diag__item-texto {
+    flex: 1;
+    min-width: 0;
+}
+
+/* A CONTAGEM, primeiro elemento de toda linha e o único com escada de peso. Largura mínima fixa e
+   dígitos tabulares para que a coluna de números não dance entre uma linha e a seguinte. */
+.admin-diag__contagem {
+    flex: 0 0 auto;
+    min-width: 3.5rem;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-md);
+    background: var(--gray-100);
+    color: var(--gray-600);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    cursor: help;
+}
+
+/* Ocorrência única: o degrau mais baixo, e o mais discreto. É também onde cai a contagem que NÃO
+   chegou, e por isso ele não pode alarmar. */
+.admin-diag__contagem--unica {
+    font-size: var(--font-size-sm);
+}
+
+.admin-diag__contagem--poucas {
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
+}
+
+.admin-diag__contagem--muitas {
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-semibold);
+    background: color-mix(in srgb, var(--color-warning) 18%, transparent);
+    color: var(--color-warning-strong);
+}
+
+/* Cem ou mais: o defeito que domina o período. Ele é o único em vermelho e em corpo de título,
+   porque é a linha que responde sozinha "o que consertar primeiro". */
+.admin-diag__contagem--massa {
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-bold);
+    background: color-mix(in srgb, var(--color-error) 15%, transparent);
+    color: var(--color-error-strong);
+}
+
+/* A assinatura (ou a mensagem, do lado do navegador). `overflow-wrap: anywhere` porque ela é texto
+   arbitrário de terceiro e costuma vir sem espaço nenhum: uma URL de duzentos caracteres sem esta
+   regra estoura o cartão para fora da tela. */
+.admin-diag__assinatura {
+    margin: 0;
+    color: var(--gray-900);
+    font-weight: var(--font-weight-medium);
+    overflow-wrap: anywhere;
+}
+
+.admin-diag__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin: var(--space-1) 0 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+}
+
+/* O ponto separador entre os pedaços do metadado, gerado e não escrito no texto: ele não pode
+   entrar no `textContent` de um pedaço, senão vira parte do dado copiável. */
+.admin-diag__meta > * + *::before {
+    content: "·";
+    margin-right: var(--space-2);
+    color: var(--gray-400);
+}
+
+.admin-diag__meta-alvo {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    overflow-wrap: anywhere;
+}
+
+.admin-diag__meta-status {
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-semibold);
+}
+
+.admin-diag__meta-quando {
+    font-variant-numeric: tabular-nums;
+    cursor: help;
+}
+
+.admin-diag__meta-usuario {
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-600);
+}
+
+/* ----- o bloco expansível com a pilha ----- */
+
+.admin-diag__pilha {
+    margin: var(--space-2) 0 0 calc(3.5rem + var(--space-4));
+    font-size: var(--font-size-xs);
+}
+
+.admin-diag__pilha-resumo {
+    cursor: pointer;
+    color: var(--gray-600);
+}
+
+.admin-diag__pilha-resumo:hover {
+    color: var(--primary-700);
+}
+
+/* O TETO E A ROLAGEM, pelo mesmo motivo da gaveta da Auditoria: uma pilha de trezentas linhas
+   empurraria a lista inteira para fora da tela. Rolar e não truncar, porque cortar esconderia
+   justamente o quadro onde o defeito nasce. */
+.admin-diag__pilha-corpo {
+    max-height: 18rem;
+    overflow: auto;
+    margin: var(--space-2) 0 0;
+    padding: var(--space-2) var(--space-3);
+    background: var(--gray-50);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    color: var(--gray-700);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.admin-diag__extras {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: var(--space-1) var(--space-3);
+    margin: var(--space-2) 0 0;
+}
+
+.admin-diag__extras dt {
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-600);
+}
+
+.admin-diag__extras dd {
+    margin: 0;
+    color: var(--gray-800);
+    overflow-wrap: anywhere;
+}
+
+/* ----- seção 4: a latência ----- */
+
+.admin-diag__table {
+    table-layout: auto;
+}
+
+.admin-diag__rota {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    overflow-wrap: anywhere;
+}
+
+.admin-diag__numero {
+    width: 6rem;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    color: var(--gray-600);
+}
+
+/* O P95 É A COLUNA EM EVIDÊNCIA, e não a média: a média de mil chamadas rápidas com cinquenta
+   travadas continua parecendo rápida, e é a cauda que a pessoa sente quando diz "está lento". Ela
+   é a única com peso e cor, para que a varredura do olho pare nela. */
+.admin-diag__p95 {
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-900);
+}
+
+.admin-diag__p95--ok {
+    color: color-mix(in srgb, var(--color-success) 80%, var(--gray-900));
+}
+
+.admin-diag__p95--atencao {
+    color: var(--color-warning-strong);
+}
+
+.admin-diag__p95--lenta {
+    color: var(--color-error-strong);
+}
+
+/* p95 que não chegou NÃO herda a cor de nenhum dos três: um valor ausente pintado de verde
+   afirmaria saúde. Mesma convenção de `.admin-chip--desconhecido`. */
+.admin-diag__p95--desconhecida {
+    color: var(--gray-400);
+    font-weight: var(--font-weight-normal);
+}
+
+/* ----- o vazio que é boa notícia ----- */
+
+.admin-diag__ok {
+    background: color-mix(in srgb, var(--color-success) 8%, transparent);
+    border-radius: var(--radius-md);
+}
+
+.admin-diag__ok .admin-empty__message {
+    color: color-mix(in srgb, var(--color-success) 80%, var(--gray-900));
+    font-weight: var(--font-weight-semibold);
+}
+
 /* ==========================================================================
    O PAINEL É DESKTOP-ONLY, e isto é decisão, não omissão.
 
@@ -1418,7 +1799,7 @@
    relatório de UX do administrador a listava como falta. Ela passa a ser
    declarada.
 
-   O PORQUÊ: as seis abas são tabelas de administração com cinco a sete colunas
+   O PORQUÊ: as abas do administrador são tabelas com cinco a sete colunas
    (usuário, papel, lotação, OM produtora, status, ações), mais formulários de
    JSON avançado e uma trilha paginada com filtros. Espremer isso num telefone
    não produz uma tela pior, produz uma tela que mente: coluna escondida em

@@ -55,6 +55,9 @@ import { calibrationExitNotice } from './calibration/exit-decision.js';
 import { emailVerificationNotice } from './session/email-verification-phrases.js';
 import { sessionRestoreNotice } from './session/session-restore-phrases.js';
 import { showVisitorBanner, destroyVisitorBanner } from './session/visitor-banner.js';
+// Pelo ARQUIVO (a pasta `session/` não tem barrel), e de um módulo que não participa do boot: ver
+// a chamada no topo de `initApp`.
+import { instalarTelemetriaDeErro } from './session/erro-telemetria.js';
 import { getViewModeController } from '@ui/view-mode.controller.js';
 import { showToast } from '@utils';
 import { createMap, createControls, initializeApp, setupCleanupHandlers } from './map_sig.js';
@@ -72,6 +75,12 @@ import { showUnavailableScreen } from '@ui/unavailable-screen.js';
  * Runs phases sequentially — no side-effects at import time.
  */
 async function initApp() {
+    // Phase -2: TELEMETRIA DE ERRO, e ela é a primeira linha do boot de propósito: o erro que mais
+    // custa a diagnosticar é justamente o de boot, e um capturador instalado depois das fases não
+    // vê nenhum deles. Síncrona, sem rede e best-effort: ela não participa desta função em mais
+    // nada, e o fail-fast do `GET /api/config` mais abaixo continua sendo o único portão do mapa.
+    instalarTelemetriaDeErro();
+
     // Capture the URL deep-link params at the VERY TOP, before any async boot work. The store boot
     // (initializeWithLastActiveMap, kicked off inside initializeApp) and initAtlasUrlSync emit
     // MAP_LOCK_CHANGED early, and atlas-url-sync strips `?atlas` for an anonymous visitor — so reading

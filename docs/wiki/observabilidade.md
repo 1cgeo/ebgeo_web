@@ -43,8 +43,45 @@ Três decisões que não se adivinham lendo:
 
 `ehErro` tem dois termos, e o segundo é o que se esquece: `level >= 50` pega o que foi logado como erro, mas o `errorHandler` desta casa loga 4xx em `warn` de propósito. Sem o segundo termo, todo 400, 401, 403 e 404 sumiria do relatório, **inclusive o 400 em laço que motivou a ferramenta**.
 
+## A amostra de saúde
+
+`backend/src/utils/amostra-de-saude.js`, ligada em `backend/src/index.js` (nunca em `app.js`, que é o que a suíte importa). A cada intervalo ela emite **uma linha no mesmo `.jsonl`**, marcada por um campo `amostra` cujo valor é exportado como símbolo para as duas pontas não divergirem por digitação.
+
+Ela não vai para tabela nenhuma, e isso é decisão: uma série temporal de baixa cardinalidade no arquivo é consultável pelas mesmas ferramentas do resto, e uma tabela a mais seria uma segunda verdade para manter.
+
+**O limite honesto, escrito também no `.env.example`: um amostrador dentro do processo não testemunha a própria morte.** OOM, event loop travado e máquina reiniciada não produzem amostra dizendo isso, produzem **silêncio**. O que revela a queda é o **buraco na série**, então a pergunta certa é "quantas amostras faltaram e quando", nunca "alguma amostra disse que caiu". Pelo mesmo motivo o boot **loga o motivo** quando decide não ligar o amostrador: sem isso, "não há amostra no log" seria indistinguível de "o amostrador quebrou".
+
+Duas finuras que se perdem numa reescrita desatenta: a sonda ao banco distingue **prazo** de **erro** (o Postgres fora e o nosso pool entupido pedem providências opostas), e o prazo dela é MAIOR que o do `GET /api/v1/health` de propósito, porque aquele responde a um orquestrador (para quem resposta atrasada já não serve) e esta escreve história (onde distinguir "lento" de "morto" é o registro).
+
+## O erro do navegador
+
+É a metade que faltava no incidente: o que o dono colou veio do console e ninguém registrava. Ele chega por `POST /api/v1/diag/erro-cliente` e vira linha em `client_errors` (migração `backend/src/database/migrations/014_observabilidade.sql`).
+
+**A rota aceita ANÔNIMO, e tem de aceitar**: o app roda deslogado, e é justamente aí que ninguém vê o erro. Ela tem limitador próprio por endereço, teto de tamanho em todo campo, e o `user_id` sai do token, nunca do corpo.
+
+**A escrita é UPSERT por assinatura, incrementando um contador.** Não é otimização: o incidente que originou tudo isto foram dezenove erros idênticos em segundos, e uma inserção por ocorrência transformaria um defeito do cliente num ataque ao banco. Pela mesma razão o cliente deduplica antes de enviar (mesma assinatura uma vez por sessão, teto global e intervalo mínimo).
+
+Quatro coisas que não se adivinham lendo o código:
+
+- **A assinatura é montada no CLIENTE, e a mensagem ENVIADA é a normalizada, não a crua.** Mandar as duas faria o agrupamento do servidor deixar de casar com o do cliente sem ninguém ver. A normalização troca hash de build, UUID e o `?t=` do HMR por marcador; sem isso cada carga da página vira um grupo novo e o agrupamento não agrupa nada. A coluna do quadro de pilha fica de fora, porque muda a cada reformatação do minificador.
+- **`assinatura` tem teto de 300 porque é chave única em btree**, que recusa valor acima de ~2.700 bytes. Sem o teto, o modo de falha seria um 500 no caminho que existe para registrar falhas.
+- **`atlasId` só viaja se for UUID.** Um atlas LOCAL é chaveado por nome, e mandá-lo derrubaria o envio inteiro por causa do campo mais dispensável dele.
+- **`user_id` é `ON DELETE SET NULL`**, divergindo do "FK sem `ON DELETE`" que a casa usa em toda parte: telemetria não pode fazer a exclusão de uma conta falhar.
+
+Limitação conhecida: o campo `release` carrega hoje a versão do `package.json`, que é constante entre builds e **não distingue deploys**. Enquanto for assim, ele não serve para dizer "isto foi corrigido na versão seguinte".
+
+## A tela
+
+Aba **Diagnóstico** em `admin.html`, só para o administrador. Ela consome quatro rotas, todas com gate de administração e janela com teto de 7 dias (ler trinta arquivos numa requisição HTTP seria derrubar o servidor pela porta do diagnóstico).
+
+**O campo que decide a honestidade da tela é `diretorioAusente`.** As rotas que leem log respondem **200 com lista vazia** quando não há diretório, e sem tratar isso a aba desenharia a boa notícia verde ("nenhum erro nas últimas 24 horas") a partir de um **instrumento desligado**, que é cobertura vazia passando verde na forma de interface. O estado de leitor cego vem ANTES do ramo de vazio. Na mesma linha estão `truncado` (a janela perdeu os registros mais antigos) e as contagens antes do corte, sem as quais "20 assinaturas" é indistinguível de "20 de 400".
+
+**Um número da tela parece contradizer o outro, e não contradiz:** o `erros` de `/diag/status` conta REGISTROS (uma requisição falha produz duas linhas de log), enquanto `/diag/erros` conta defeitos distintos, porque funde por `reqId` antes de agrupar. É a mesma conta que o CLI faz, mantida igual de propósito.
+
+O resto do desenho é da tela e está nos `fileoverview` dos dois arquivos dela: a contagem manda (peso visual em escada logarítmica, porque mil ocorrências e uma não podem ter o mesmo tamanho), o p95 é a coluna com peso (é ele que corresponde a "está lento", não a média), e o vazio NOMEIA a janela, senão afirmaria sobre a história inteira do sistema.
+
 ## O que ainda não existe
 
-O plano tem quatro camadas e esta página cobre a primeira. Faltam: a amostra de saúde e latência guardada no banco, a captura de erro do NAVEGADOR (que hoje não é registrado em lugar nenhum, e era metade da evidência do incidente), a aba Diagnóstico do painel de administração e o relatório de uso sobre `audit_trail`. Enquanto elas não existirem, **a única forma de consultar é o comando**, e vale dizer isso em voz alta em vez de deixar a página sugerir uma tela que não está lá.
+O relatório de **uso** (quem usa, o quê, quanto), que é consulta sobre `audit_trail`, `operations` e `users`, não instrumentação nova. E não há **alarme**: nada avisa ninguém, tudo é consulta sob demanda. Numa instalação sem plantão isso é decisão, não esquecimento, mas convém dizer em voz alta para a página não sugerir uma vigilância que não existe.
 
 Ver [[deploy-backend]], [[syncledger]] (a camada de tracing test/dev, que é outra coisa e não sobe para produção por gate de ambiente) e [[erros-api]].

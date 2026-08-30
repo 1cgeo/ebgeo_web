@@ -28,6 +28,7 @@ import catalogVideoRoutes from './modules/catalog-video/catalog-video.routes.js'
 import { debugRoutes } from './modules/debug/debug.routes.js';
 import { resourceAccessRoutes } from './modules/resource-access/index.js';
 import { accessGroupsRoutes } from './modules/access-groups/index.js';
+import { diagRoutes } from './modules/diag/index.js';
 import { isTraceEnabled } from './utils/sync-trace.js';
 
 /**
@@ -202,6 +203,12 @@ export function createApp() {
   app.use('/api/v1/sv360', sv360Routes);
   app.use('/api/v1/resource-access', resourceAccessRoutes);
   app.use('/api/v1/access-groups', accessGroupsRoutes);
+  // Diagnóstico. Montado SEMPRE, ao contrário do `/debug` do SyncLedger logo abaixo, e a
+  // diferença é o propósito: aquilo é tracing de desenvolvimento e não sobe para produção;
+  // isto é a leitura do log e da telemetria, que só serve se existir exatamente onde o
+  // incidente acontece. As quatro rotas de leitura são gateadas por administrador dentro do
+  // próprio router; a quinta é o relato anônimo de erro do navegador.
+  app.use('/api/v1/diag', diagRoutes);
 
   // SyncLedger debug-trace endpoint — env-gated (test/dev only), never in production.
   // The `!config.isProd` clause is a hard production cross-check: even if EBGEO_TRACE=1

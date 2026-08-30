@@ -58,6 +58,10 @@ const PROBES = [
   // nenhum caso usa é opção que ninguém percebe quebrar.
   { prefix: '/api/v1/resource-access', path: '/api/v1/resource-access/tileset/x/visibility', method: 'patch' },
   { prefix: '/api/v1/access-groups', path: '/api/v1/access-groups' },
+  // Sonda no `status` (administrador, 401 sem credencial) e não no `erro-cliente`
+  // anônimo: uma sonda que ESCREVE deixaria uma linha de telemetria a cada rodada deste
+  // teste, e a sonda de um guarda não pode ter efeito colateral no banco.
+  { prefix: '/api/v1/diag', path: '/api/v1/diag/status' },
   { prefix: '/api/v1/debug', path: '/api/v1/debug/trace' },
 ];
 

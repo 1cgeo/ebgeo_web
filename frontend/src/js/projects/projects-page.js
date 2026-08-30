@@ -42,6 +42,9 @@ import { adminAudience } from '@js/admin/admin-audience.js';
 import { showUnavailableScreen, BlockingCause } from '@ui/unavailable-screen.js';
 import { createAppBar } from '@ui/app-bar.js';
 import { startIdleWatch } from '../session/idle-watch.js';
+// Pelo ARQUIVO, como os vizinhos de `session/` (a pasta não tem barrel). Best-effort e sem rede na
+// instalação: ver a chamada no topo de `initProjectsPage`.
+import { instalarTelemetriaDeErro } from '../session/erro-telemetria.js';
 // Por ARQUIVO, nunca por barrel: este modulo alcanca o store por folhas, e e isso que o torna
 // importavel de uma pagina que boota sem `initServices()`.
 import {
@@ -975,6 +978,11 @@ async function renderWithoutServer() {
  * @returns {Promise<void>}
  */
 async function initProjectsPage() {
+    // A TELEMETRIA DE ERRO PRIMEIRO, como nas outras três páginas: o erro de boot é o que menos se
+    // consegue reproduzir depois. Síncrona, sem rede, e nada abaixo depende dela — esta página
+    // sobe igual com a rota ausente, inclusive no ramo `renderWithoutServer`.
+    instalarTelemetriaDeErro();
+
     configureApiClient({ baseUrl: resolveBackendBaseUrl() });
 
     // NÃO É MAIS FAIL-FAST NESTA PÁGINA, e essa é a decisão do dono de 2026-08-24. O mapa continua

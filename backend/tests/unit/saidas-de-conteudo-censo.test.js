@@ -193,6 +193,16 @@ const CENSO_ROTA = [
   json('src/modules/debug/debug.routes.js', 'GET /trace'),
   json('src/modules/debug/debug.routes.js', 'DELETE /trace'),
 
+  // Diagnóstico. As três primeiras devolvem AGREGAÇÃO do log em arquivo (assinatura, contagem,
+  // percentil), nunca definição de recurso de catálogo, então a poda não tem o que fazer nelas e
+  // atravessá-la não custa nada. `erros-cliente` devolve linhas de `client_errors`, que também não
+  // carregam id de catálogo. `POST /erro-cliente` responde 204: sem corpo, sem poda.
+  json('src/modules/diag/diag.routes.js', 'POST /erro-cliente'),
+  json('src/modules/diag/diag.routes.js', 'GET /erros'),
+  json('src/modules/diag/diag.routes.js', 'GET /lento'),
+  json('src/modules/diag/diag.routes.js', 'GET /status'),
+  json('src/modules/diag/diag.routes.js', 'GET /erros-cliente'),
+
   json('src/modules/images/images.routes.js', 'GET /'),
   json('src/modules/images/images.routes.js', 'POST /'),
   json('src/modules/images/images.routes.js', 'POST /bulk'),
@@ -367,6 +377,11 @@ const CENSO_EMISSOR = [
 
   { arquivo: 'src/modules/auth/auth.controller.js', texto: 'res.status(204).send();', n: 1,
     classe: E_SEM_CORPO, motivo: SEM_CORPO },
+
+  { arquivo: 'src/modules/diag/diag.controller.js', texto: 'res.status(204).end();', n: 1,
+    classe: E_SEM_CORPO, motivo: `${SEM_CORPO} É o aceite do relato de erro do navegador: quem `
+      + 'relata não tem o que fazer com um corpo, e devolver a linha gravada daria a um chamador '
+      + 'ANÔNIMO uma leitura do que já está na tabela.' },
 
   { arquivo: 'src/modules/auth/tile-access.js', texto: 'res.status(401).end();', n: 1,
     classe: E_SEM_CORPO, motivo: `${SEM_CORPO} Este e o NAO do auth_request do nginx (clausula 10.7). `
