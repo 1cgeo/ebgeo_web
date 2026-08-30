@@ -17,7 +17,7 @@
  *   | principal                  | rótulo        | abas                                                        |
  *   |----------------------------|---------------|-------------------------------------------------------------|
  *   | anônimo                    | (nenhum)      | (nenhuma)                                                   |
- *   | administrador global       | Administração | users, groups, config, catalog, personnel, grants, audit, diagnostico, account |
+ *   | administrador global       | Administração | users, groups, config, catalog, personnel, grants, audit, diagnostico, uso, account |
  *   | produtor                   | Catálogo      | catalog, groups, grants, audit, account                     |
  *   | qualquer outro autenticado | Acessos       | groups, grants, account                                     |
  *
@@ -60,8 +60,10 @@
  * que o primeiro clique nega); "Catálogo" com quatro abas erra para o outro lado, e o centro de
  * gravidade do produtor continua sendo o acervo que ele mantém, que é a primeira aba e a única
  * onde ele cria coisa. Foi o oposto no caso do credenciado, e é o que separa os dois casos:
- * "Grupos" nomeava a metade que NÃO é a razão de ele abrir a página. "Administração" já cobre
- * sete abas e não precisa de retoque.
+ * "Grupos" nomeava a metade que NÃO é a razão de ele abrir a página. "Administração" cobre a lista
+ * inteira do administrador e não precisa de retoque a cada aba nova. (Esta linha dizia "sete abas"
+ * e já estava errada quando `diagnostico` nasceu: contador em prosa envelhece sozinho, e nenhum
+ * guarda pega aritmética. A propriedade que sobrevive é a de cima, não o número.)
  *
  * O CREDENCIADO NÃO TEM LINHA PRÓPRIA, e a ausência é a decisão: desde 2026-08-20 o grupo de
  * acesso é entidade de USUÁRIO, com dono, e a autoridade sobre ele deixou de ser papel global
@@ -111,10 +113,26 @@
  * ATO de gente (quem fez o quê), o diagnóstico registra FALHA de máquina (o que quebrou, quantas
  * vezes, o que está lento), e o recorte por OM que torna `audit` compartilhável com o produtor não
  * tem sentido nenhum sobre uma pilha de exceção.
+ *
+ * `uso` ENTROU EM 2026-08-30, LOGO DEPOIS DE `diagnostico`, e a posição sai da mesma régua levada
+ * um degrau adiante: as abas de consulta ficam no fim, e entre elas vem primeiro a pessoal
+ * (`grants`), depois as do sistema. Entre as três do sistema, `uso` é a ÚLTIMA porque é a única aba
+ * do painel inteiro SEM UM ÚNICO BOTÃO: `audit` e `diagnostico` levam a um ato (procurar o autor de
+ * uma linha, consertar a rota lenta), e esta é panorama pelo panorama. A régua da lista é "quem
+ * abre o painel vem quase sempre para agir", e uma aba sem ação nenhuma é o fim natural dela.
+ * "Minha conta" continua depois de tudo por decisão própria, já registrada.
+ *
+ * ELA É DO ADMINISTRADOR E DE MAIS NINGUÉM, pelo mesmo motivo de `diagnostico`: a rota exige
+ * administração do sistema. Mas repare que aqui o recorte não seria dispensável nem se o servidor
+ * fosse permissivo, e a diferença vale ser dita: o que a aba mostra é o CENSO do produto inteiro
+ * (todas as contas, todos os atlas, todo o volume), sem recorte por OM. Não existe versão desta
+ * tela que faça sentido para um produtor, ao contrário de `audit`, que o servidor sabe recortar
+ * pela OM dona do recurso. Uma "Uso da minha OM" seria outra aba, com outra consulta.
  * @type {ReadonlyArray<string>}
  */
 const ABAS_DO_ADMINISTRADOR = Object.freeze([
-    'users', 'groups', 'config', 'catalog', 'personnel', 'grants', 'audit', 'diagnostico', 'account',
+    'users', 'groups', 'config', 'catalog', 'personnel', 'grants', 'audit', 'diagnostico', 'uso',
+    'account',
 ]);
 
 /**

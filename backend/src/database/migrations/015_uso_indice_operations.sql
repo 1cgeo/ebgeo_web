@@ -1,0 +1,39 @@
+-- Path: src/database/migrations/015_uso_indice_operations.sql
+--
+-- O ÍNDICE QUE O RELATÓRIO DE USO PEDE, e ele é sobre `created_at` SOZINHO.
+--
+-- POR QUE O ÍNDICE QUE JÁ EXISTE NÃO SERVE. `idx_operations_atlas_created` é
+-- `(atlas_id, created_at)`, composto e nessa ordem. Ele resolve a pergunta do sync
+-- ("as operações DESTE atlas depois de tal instante"), que é a que o produto faz o
+-- tempo todo. O relatório de uso faz a pergunta ORTOGONAL: "todas as operações do
+-- sistema neste período", sem atlas nenhum. Uma coluna que é a SEGUNDA de um índice
+-- composto não pode guiar a busca quando a primeira não está no predicado, então as
+-- quatro consultas do resumo caíam em Seq Scan na tabela que mais cresce do sistema.
+--
+-- MEDIDO com EXPLAIN ANALYZE sobre 100 mil linhas, antes deste arquivo existir:
+--   MIN(created_at)            -> Seq Scan, 19 ms   (o horizonte do relatório)
+--   quem editou no período     -> Seq Scan
+--   produção por tipo          -> Seq Scan
+--   atlas mais ativos          -> Parallel Seq Scan
+-- Os quatro são a mesma varredura repetida, e todos ficam cobertos por este índice.
+-- Cem mil linhas é pouco: `operations` guarda UMA LINHA POR EDIÇÃO de qualquer usuário
+-- em qualquer atlas, então ela é a única tabela do sistema com crescimento sem teto
+-- natural, e é justamente nela que o custo de uma varredura deixa de ser aceitável sem
+-- avisar.
+--
+-- O CUSTO DESTE ARQUIVO, dito em voz alta: `CREATE INDEX` (sem `CONCURRENTLY`) toma
+-- lock de ESCRITA na tabela enquanto constrói. Numa base grande isso é uma pausa no
+-- sync de todo mundo. `CONCURRENTLY` não é opção aqui por uma razão estrutural, não por
+-- preferência: o runner de migração desta casa roda CADA arquivo dentro de uma
+-- transação (`src/database/migrate.js`), e o Postgres proíbe `CREATE INDEX
+-- CONCURRENTLY` dentro de transação. Se um dia esta migração for aplicada a uma base
+-- com histórico grande e usuários conectados, o caminho é criar o índice à mão, fora do
+-- runner, e depois marcar a migração como aplicada — não mudar o runner por causa deste
+-- arquivo.
+--
+-- POR QUE NÃO É `(created_at DESC)` NEM PARCIAL: o relatório varre uma FAIXA (de X até
+-- agora) e também pede o MIN absoluto, então as duas pontas são usadas; e qualquer
+-- predicado parcial (por exemplo "últimos 90 dias") teria de ser reescrito com o tempo,
+-- que é a definição de índice que envelhece sozinho.
+
+CREATE INDEX idx_operations_created ON operations(created_at);

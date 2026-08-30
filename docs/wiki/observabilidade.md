@@ -80,8 +80,24 @@ Aba **Diagnóstico** em `admin.html`, só para o administrador. Ela consome quat
 
 O resto do desenho é da tela e está nos `fileoverview` dos dois arquivos dela: a contagem manda (peso visual em escada logarítmica, porque mil ocorrências e uma não podem ter o mesmo tamanho), o p95 é a coluna com peso (é ele que corresponde a "está lento", não a média), e o vazio NOMEIA a janela, senão afirmaria sobre a história inteira do sistema.
 
+## O uso
+
+Aba **Uso** em `admin.html`, só para o administrador, sobre `GET /api/v1/uso/resumo`. Não é instrumentação nova: é consulta sobre `audit_trail`, `operations`, `users` e `atlas`, que já registravam tudo isto.
+
+**O campo que decide a honestidade deste relatório é o `horizonte`, e ele são DUAS fontes que limitam metades diferentes.** `operations` é uma tabela PODÁVEL (a rota de limpeza é de administrador), então um relatório de 90 dias pode estar medindo 20 sem avisar; `audit_trail` não é podada. A distinção importa porque nem tudo depende das duas: `operacoesDesde` alcança a produção inteira, o ranking, "Produziram" e "Com edição"; `trilhaDesde` alcança **só** "Entraram" (que vem do `LOGIN`); e **três números não têm horizonte nenhum** (contas novas, atlas criados e excluídos saem de `users` e `atlas` por data própria). Reuni-los sob um aviso só faria a tela desconfiar de contagens íntegras.
+
+Três armadilhas que o código não conta sozinho:
+
+- **`null` no horizonte NÃO é "está coberto".** Tabela vazia hoje não prova que sempre esteve vazia, e `desde < null` é `false` em JavaScript, então a leitura ingênua produz silêncio exatamente no caso sem evidência. São quatro estados, não dois: cobre, encurtado, vazio, e "o servidor não informou" (versão anterior).
+- **O aviso não afirma CAUSA.** Instalação jovem e histórico apagado são indistinguíveis daqui, e dizer "foi podado" inventaria fato. Ele também é desenhado FORA do corpo da tela, para sobreviver ao estado vazio, que é justamente quando um histórico apagado por inteiro cai.
+- **`entraram` é um PISO, não um exato:** o `LOGIN` é auditado em best-effort, então uma falha de escrita da trilha some da conta.
+
+**O regime de cada métrica é campo, não frase** (`regime: HOJE|PERIODO` em `uso-phrases.js`): contas ativas e atlas vivos são de HOJE, o resto é do período. Escrever isso à mão em oito ladrilhos é a forma de errar um sem nada ficar vermelho, e rotular um estoque acumulado como se fosse do período infla o número sem parecer defeito.
+
+Sobre o CUSTO: as consultas do resumo perguntam pelo período SEM atlas, e o índice que existia (`idx_operations_atlas_created`) é composto com `atlas_id` na frente, então não guiava nenhuma delas. Quatro caíam em varredura sequencial na tabela que mais cresce do sistema; `backend/src/database/migrations/015_uso_indice_operations.sql` fecha as quatro, e o cabeçalho dele carrega as medições e o custo do lock.
+
 ## O que ainda não existe
 
-O relatório de **uso** (quem usa, o quê, quanto), que é consulta sobre `audit_trail`, `operations` e `users`, não instrumentação nova. E não há **alarme**: nada avisa ninguém, tudo é consulta sob demanda. Numa instalação sem plantão isso é decisão, não esquecimento, mas convém dizer em voz alta para a página não sugerir uma vigilância que não existe.
+Não há **alarme**: nada avisa ninguém, tudo é consulta sob demanda. Numa instalação sem plantão isso é decisão, não esquecimento, mas convém dizer em voz alta para a página não sugerir uma vigilância que não existe.
 
 Ver [[deploy-backend]], [[syncledger]] (a camada de tracing test/dev, que é outra coisa e não sobe para produção por gate de ambiente) e [[erros-api]].

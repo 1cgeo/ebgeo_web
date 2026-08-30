@@ -1300,6 +1300,14 @@ const CENSO_ROTA = [
       + 'carregam id de catálogo, 360 nem 3D: carregam mensagem, pilha e a página em que o defeito '
       + 'apareceu. O `atlas_id` que elas guardam é contexto sem FK, não referência de recurso.',
   },
+  {
+    arquivo: 'src/modules/uso/uso.routes.js', rota: 'GET /resumo', classe: R_OUTRA, gate: 'requireAdmin',
+    motivo: `${SO_ADMIN} O relatório de uso é CONSULTA sobre \`operations\`, \`audit_trail\`, `
+      + '`users` e `atlas`: nenhuma das seis consultas do módulo toca tabela de catálogo, `sv360` '
+      + 'ou `a3d`, e o que sai é contagem, nome de atlas e nome de dono. Não entra em CENSO_REGIME '
+      + 'porque a lista de regime é bicondicional com as rotas `recurso-com-filtro`, e classificar '
+      + 'esta como se servisse recurso trocaria uma ausência honesta por uma classificação falsa.',
+  },
   { arquivo: 'src/modules/sync/sync.routes.js', rota: 'GET /admin/stats', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
   { arquivo: 'src/modules/users/users.routes.js', rota: 'GET /', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
   { arquivo: 'src/modules/users/users.routes.js', rota: 'GET /:userId', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },

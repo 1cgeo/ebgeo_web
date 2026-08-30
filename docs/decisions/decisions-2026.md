@@ -1526,3 +1526,17 @@ da 6.3 fica [em obra], com os três itens acima nomeados.
 **Errata das decisões de 2026-08-24 (vídeo de prévia para quatro tipos):** a "superfície de leitura comum, o botão Prévia do cartão" daquelas decisões deixou de existir. O carimbo de escopo de `enderecoDaPrevia` (a razão da decisão de 2026-08-24) segue no modal, válido se o botão voltar.
 
 **Status:** aceita.
+
+---
+
+### 2026-08-30: a troca de atlas volta a NAVEGAR, e o modal de troca ao vivo sai
+
+**Decisão do dono**, literal: "não gosto desse modal do seu atlas, quero que vá para página /atlas em vez de usar aquele modal". O clique em "Seus atlas" (menu do avatar e a grade de ações da aba Mapas, que delega para ele) volta a levar para `atlas.html`, como fazia até 2026-08-26.
+
+**O que saiu:** o modal inteiro (o arquivo atlas-switch.modal.js de `frontend/src/js/modals/`, a folha atlas-switch.css e o `@import` dela em `frontend/src/css/style.css`), mais o teste que só existia para ele (o porta-de-troca-de-atlas.test.js de `frontend/tests/unit/`). Nada mais o importava: a única porta era `_openAtlasSwitchDoor`, dentro de `openProjectPicker`, e ela foi removida junto com o parâmetro `navigate`, que existia só para forçar o caminho antigo e passou a ser o único caminho.
+
+**O que FICA, e é a distinção inteira:** `switchAtlas` (`frontend/src/js/account/open-atlas.service.js`) continua de pé, com os testes dela, exercitada pelo gancho sem interface `__ebgeoSwitchAtlas` que `frontend/src/js/index.js` instala. O que a decisão alcança é a INTERFACE, não a capacidade. O comentário daquele gancho dizia que a porta visível "é uma decisão de produto separada, e ela está com o dono": a decisão foi tomada, e no sentido de não haver porta.
+
+**Consequência para a bancada.** `frontend/tests/e2e-ui/troca-viva-de-atlas-medida.spec.js` dirigia o modal desde 2026-08-26 e voltou ao gancho, perdendo a série que cronometrava abrir a porta. O cabeçalho dela passou a DECLARAR a limitação em voz alta: o que ela mede é que a função é mais barata que a recarga, e não que alguém colha essa economia pela tela, porque nenhum gesto do produto aciona `switchAtlas`. Sem essa frase, o número voltaria a ser lido como ganho entregue, que é exatamente o erro que a correção de 2026-08-26 existia para consertar.
+
+**Status:** aceita.

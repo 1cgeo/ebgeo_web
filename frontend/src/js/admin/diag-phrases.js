@@ -216,30 +216,14 @@ export function pesoDaContagem(n) {
     return PESO.MASSA;
 }
 
-/**
- * O instante de um valor que pode chegar em três formas: epoch ms (o contrato de `primeira` e
- * `ultima`), string numérica (um `bigint` serializado) ou ISO (o que uma coluna `timestamptz`
- * costuma virar em JSON).
- *
- * A STRING VAZIA NÃO É A EPOCH. `new Date(Number(''))` é `new Date(0)`, isto é, 1970: um campo
- * vazio viraria uma data plausível e errada em vez de um travessão. Daí o teste de dígitos antes
- * da conversão numérica.
- * @param {*} valor
- * @returns {Date|null}
- */
-export function instanteDe(valor) {
-    let d = null;
-    if (valor instanceof Date) {
-        d = valor;
-    } else if (typeof valor === 'number') {
-        d = Number.isFinite(valor) ? new Date(valor) : null;
-    } else if (typeof valor === 'string') {
-        const texto = valor.trim();
-        if (texto) d = /^-?\d+$/.test(texto) ? new Date(Number(texto)) : new Date(texto);
-    }
-    if (!d || Number.isNaN(d.getTime())) return null;
-    return d;
-}
+// A leitura de instante mora em `./instante.js`, compartilhada com a outra aba do painel:
+// as duas frentes a escreveram identica no mesmo dia, e ela e a peca com ramos suficientes
+// para divergir sem ninguem notar. Reexportada para os consumidores (e os testes) deste
+// modulo nao mudarem de porta por causa de uma extracao interna.
+import { instanteDe } from './instante.js';
+
+export { instanteDe };
+
 
 /**
  * A hora LOCAL de um instante, curta (dia e hora do relógio de quem lê).

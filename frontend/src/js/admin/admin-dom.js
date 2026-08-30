@@ -21,6 +21,12 @@ export const ICON_GRANTS = `<svg viewBox="0 0 24 24" width="20" height="20" fill
 // de papel, é a que se consulta por filtro) e não é um alarme ligado, porque o desfecho normal
 // dela é a linha reta de um sistema sem erro. Ícone estático, sem dado de usuário, como os irmãos.
 export const ICON_DIAG = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l2.5-7 4 14L16 12h5"/></svg>`;
+// AS BARRAS, e é o desenho literal do que a aba mostra: a série diária de produção. Ele se separa
+// do pulso de `ICON_DIAG` pela mesma distinção que separa as duas abas — o pulso é a linha de uma
+// grandeza contínua que se olha para achar o pico anômalo, as barras são o volume de um período
+// que se olha para comparar. Não é um gráfico de linha nem uma seta de crescimento: a aba não
+// promete tendência, ela conta o que houve. Ícone estático, sem dado de usuário, como os irmãos.
+export const ICON_USO = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20h18"/><path d="M6 20v-6"/><path d="M11 20V8"/><path d="M16 20v-9"/><path d="M21 20V5"/></svg>`;
 export const ICON_PERSONNEL = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8z"/></svg>`;
 // UMA pessoa, e não o par de `ICON_USERS`: a aba "Minha conta" é sobre o próprio titular, e a
 // aba "Usuários" é sobre as contas dos outros. Duas silhuetas no trilho leriam como a mesma coisa.

@@ -29,6 +29,7 @@ import { debugRoutes } from './modules/debug/debug.routes.js';
 import { resourceAccessRoutes } from './modules/resource-access/index.js';
 import { accessGroupsRoutes } from './modules/access-groups/index.js';
 import { diagRoutes } from './modules/diag/index.js';
+import { usoRoutes } from './modules/uso/index.js';
 import { isTraceEnabled } from './utils/sync-trace.js';
 
 /**
@@ -209,6 +210,13 @@ export function createApp() {
   // incidente acontece. As quatro rotas de leitura são gateadas por administrador dentro do
   // próprio router; a quinta é o relato anônimo de erro do navegador.
   app.use('/api/v1/diag', diagRoutes);
+  // Relatório de uso. Irmão do `/diag` em gate (auth estrito + requireAdmin) e separado
+  // dele em FONTE, que é a razão de ser um módulo e não uma quinta rota lá: `/diag` lê o
+  // log em ARQUIVO e não toca o banco (é o que o mantém útil quando o Postgres é o
+  // problema); este é consulta agregada sobre `operations`, `audit_trail`, `users` e
+  // `atlas`, e não vale nada sem banco. Juntá-los faria o módulo do diagnóstico ganhar uma
+  // dependência que ele existe para não ter.
+  app.use('/api/v1/uso', usoRoutes);
 
   // SyncLedger debug-trace endpoint — env-gated (test/dev only), never in production.
   // The `!config.isProd` clause is a hard production cross-check: even if EBGEO_TRACE=1

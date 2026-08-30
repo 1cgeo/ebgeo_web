@@ -62,6 +62,9 @@ const PROBES = [
   // anônimo: uma sonda que ESCREVE deixaria uma linha de telemetria a cada rodada deste
   // teste, e a sonda de um guarda não pode ter efeito colateral no banco.
   { prefix: '/api/v1/diag', path: '/api/v1/diag/status' },
+  // Rota única do módulo, e ela é de leitura: sem credencial responde 401, nunca o 404 do
+  // catch-all, e a sonda não deixa nada no banco.
+  { prefix: '/api/v1/uso', path: '/api/v1/uso/resumo' },
   { prefix: '/api/v1/debug', path: '/api/v1/debug/trace' },
 ];
 

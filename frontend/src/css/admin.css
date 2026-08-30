@@ -1791,6 +1791,293 @@
     font-weight: var(--font-weight-semibold);
 }
 
+/* ===== Aba Uso =====
+
+   Quem usa, o quê, e quanto: quatro seções sobre o MESMO período (pessoas, atlas, produção com a
+   série diária, e os atlas mais ativos), lidas de UMA rota só.
+
+   O REGIME É PARTE DO LADRILHO, e é a decisão que atravessa esta seção inteira. Dois dos números
+   desta tela são estoque de HOJE (contas ativas, atlas existentes) e todo o resto é fluxo DO
+   PERÍODO; um ladrilho sem a terceira linha lê como fluxo, porque o cabeçalho da aba diz um
+   período. Daí `.admin-uso__tile-regime` não ser opcional no desenho: ela é a linha que impede o
+   número de mentir por omissão. A lógica que a preenche é `METRICAS_DE_PESSOAS` /
+   `METRICAS_DE_ATLAS`, em `js/admin/uso-phrases.js`.
+
+   O GRÁFICO É DESENHADO À MÃO, com barras em CSS e altura posta por JS (valor computado em
+   runtime, a exceção declarada da convenção). Nenhuma biblioteca: um gráfico só não paga o peso de
+   uma dependência no bundle de `admin.html`.
+
+   O DIA PARADO OCUPA A LARGURA DELE. A barra de altura zero é invisível, e quem mostra o dia é a
+   linha de base contínua (`.admin-uso__colunas::after`) mais a coluna que continua no eixo e
+   continua respondendo ao ponteiro. Um dia que sumisse do eixo se leria como dado que não chegou,
+   que é a afirmação oposta à verdadeira.
+
+   O AVISO DE HORIZONTE TEM DOIS PESOS, e a diferença é deliberada: encurtado e vazio são
+   `.admin-uso__aviso` (o dado da tela está incompleto, e é preciso saber ANTES de ler o gráfico);
+   servidor que não informou o alcance é `.admin-uso__nota`, de voz baixa, porque versão anterior
+   não é incidente e alarmar a cada carga ensina a ignorar o alarme. */
+
+.admin-uso__section {
+    margin-top: var(--space-8);
+}
+
+/* A dica do período e as ressalvas são PROSA sobre os números, não itens deles: mesmo peso de
+   `.admin-diag__nota`, e é de propósito que se pareçam. */
+.admin-uso__hint,
+.admin-uso__nota {
+    margin: 0 0 var(--space-3);
+    color: var(--gray-600);
+    font-size: var(--font-size-sm);
+}
+
+.admin-uso__hint {
+    margin-top: calc(-1 * var(--space-2));
+}
+
+/* ----- o horizonte: até onde o dado alcança ----- */
+
+.admin-uso__avisos:empty {
+    display: none;
+}
+
+.admin-uso__aviso {
+    margin: 0 0 var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-left: 3px solid var(--color-warning);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+    color: var(--gray-800);
+    font-size: var(--font-size-sm);
+}
+
+/* ----- o seletor de período, no cabeçalho da aba ----- */
+
+.admin-uso__janela {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.admin-uso__janela-label {
+    font-size: var(--font-size-sm);
+    color: var(--gray-600);
+}
+
+/* ----- os ladrilhos ----- */
+
+.admin-uso__tiles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-6);
+}
+
+.admin-uso__tile {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 8rem;
+}
+
+.admin-uso__tile-valor {
+    font-size: var(--font-size-2xl);
+    font-weight: var(--font-weight-bold);
+    font-variant-numeric: tabular-nums;
+    line-height: var(--line-height-tight);
+    color: var(--gray-900);
+}
+
+.admin-uso__tile-rotulo {
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--gray-500);
+}
+
+/* A terceira linha do ladrilho: ver o cabeçalho desta seção. Ela é discreta e NÃO é opcional. */
+.admin-uso__tile-regime {
+    font-size: var(--font-size-2xs);
+    font-style: italic;
+    color: var(--gray-500);
+}
+
+.admin-uso__tile--destaque .admin-uso__tile-valor {
+    color: color-mix(in srgb, var(--color-info) 70%, var(--gray-900));
+}
+
+/* ----- o gráfico da série diária ----- */
+
+.admin-uso__grafico {
+    --uso-grafico-altura: 11rem;
+
+    margin: var(--space-6) 0 0;
+}
+
+.admin-uso__grafico-moldura {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+}
+
+/* O eixo tem DUAS marcas e não uma escala: o máximo e o zero. Uma grade completa num gráfico de
+   noventa colunas de sete pixels acrescenta linha e não acrescenta leitura. */
+.admin-uso__eixo-y {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-width: 3rem;
+    height: var(--uso-grafico-altura);
+    font-size: var(--font-size-2xs);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    color: var(--gray-500);
+}
+
+.admin-uso__colunas {
+    position: relative;
+    display: flex;
+    flex: 1;
+    align-items: flex-end;
+    gap: 2px;
+    min-width: 0;
+    margin: 0;
+    padding: 0 0 1.25rem;
+    list-style: none;
+}
+
+/* A LINHA DE BASE, e é ela que faz o dia parado existir na tela: a barra de altura zero é
+   invisível, e o que mostra o dia é a coluna continuar no eixo, sobre esta linha. */
+.admin-uso__colunas::after {
+    content: '';
+    position: absolute;
+    top: var(--uso-grafico-altura);
+    right: 0;
+    left: 0;
+    border-top: 1px solid var(--border-color-dark);
+}
+
+.admin-uso__coluna {
+    position: relative;
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    align-items: center;
+    min-width: 0;
+}
+
+.admin-uso__barra-caixa {
+    display: flex;
+    align-items: flex-end;
+    width: 100%;
+    height: var(--uso-grafico-altura);
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+/* O realce é da COLUNA inteira, e não da barra: num dia de altura zero não há barra para apontar,
+   e é justamente o dia parado que a pessoa quer conferir. */
+.admin-uso__coluna:hover .admin-uso__barra-caixa {
+    background: var(--gray-100);
+}
+
+.admin-uso__barra {
+    width: 100%;
+    min-height: 2px;
+    border-radius: 2px 2px 0 0;
+    background: color-mix(in srgb, var(--color-info) 62%, transparent);
+}
+
+/* O piso de dois pixels vale para quem TEM produção (uma operação num dia não pode desenhar igual
+   a nenhuma); o dia zerado desce até a linha de base. */
+.admin-uso__barra--zero {
+    min-height: 0;
+    background: transparent;
+}
+
+.admin-uso__coluna-rotulo {
+    position: absolute;
+    top: calc(var(--uso-grafico-altura) + var(--space-1));
+    left: 50%;
+    white-space: nowrap;
+    font-size: var(--font-size-3xs);
+    font-variant-numeric: tabular-nums;
+    color: var(--gray-500);
+    transform: translateX(-50%);
+}
+
+.admin-uso__grafico-legenda {
+    margin: var(--space-3) 0 0;
+    color: var(--gray-600);
+    font-size: var(--font-size-xs);
+}
+
+/* ----- a produção por tipo de entidade ----- */
+
+.admin-uso__tipos {
+    margin: var(--space-6) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* A GRADE É POR LINHA, e não `display: contents` na `li`: um item de lista que some da árvore
+   perde o papel de item para o leitor de tela. As duas colunas numéricas são de largura fixa
+   justamente para que as linhas continuem alinhadas sem isso. */
+.admin-uso__tipo {
+    display: grid;
+    grid-template-columns: minmax(9rem, 13rem) 1fr 5rem 4rem;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-1) 0;
+}
+
+.admin-uso__tipo-nome {
+    font-size: var(--font-size-sm);
+    color: var(--gray-800);
+}
+
+.admin-uso__tipo-trilho {
+    height: 0.5rem;
+    overflow: hidden;
+    border-radius: var(--radius-full);
+    background: var(--gray-100);
+}
+
+/* A barra é proporcional ao MAIOR tipo, e não ao total: com vinte tipos, a fatia do total deixa
+   todas invisíveis. A proporção do total continua na tela, em número, na última coluna. */
+.admin-uso__tipo-barra {
+    display: block;
+    height: 100%;
+    border-radius: var(--radius-full);
+    background: color-mix(in srgb, var(--color-info) 62%, transparent);
+}
+
+.admin-uso__tipo-valor,
+.admin-uso__tipo-fatia,
+.admin-uso__numero {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.admin-uso__tipo-valor {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-900);
+}
+
+.admin-uso__tipo-fatia {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+}
+
+/* ----- os atlas mais ativos ----- */
+
+.admin-uso__table {
+    table-layout: auto;
+}
+
+.admin-uso__atlas-nome {
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-900);
+}
+
 /* ==========================================================================
    O PAINEL É DESKTOP-ONLY, e isto é decisão, não omissão.
 

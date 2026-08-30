@@ -203,6 +203,12 @@ const CENSO_ROTA = [
   json('src/modules/diag/diag.routes.js', 'GET /status'),
   json('src/modules/diag/diag.routes.js', 'GET /erros-cliente'),
 
+  // Relatório de uso: CONTAGENS agregadas (pessoas, atlas, produção por entidade e por dia)
+  // mais nome de atlas e nome de dono. Nenhum id de catálogo, 360 ou 3D atravessa, e nenhuma
+  // consulta do módulo toca tabela de recurso — mas ela sai por `res.json`, e portanto pela
+  // poda global, como toda a família.
+  json('src/modules/uso/uso.routes.js', 'GET /resumo'),
+
   json('src/modules/images/images.routes.js', 'GET /'),
   json('src/modules/images/images.routes.js', 'POST /'),
   json('src/modules/images/images.routes.js', 'POST /bulk'),

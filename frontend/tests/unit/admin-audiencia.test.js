@@ -15,7 +15,7 @@
  *
  * A DISCRIMINAÇÃO é o resto da tabela, em asserção ABSOLUTA (igualdade do array inteiro, não
  * `toContain`): um predicado quebrado que devolvesse tudo para todo mundo passaria verde numa
- * asserção de presença. O anônimo continua sem porta, o administrador tem as NOVE abas
+ * asserção de presença. O anônimo continua sem porta, o administrador tem as DEZ abas
  * nomeadas e o produtor tem `catalog`, `groups`, `grants`, `audit` e `account`.
  *
  * `diagnostico` ENTROU EM 2026-08-30 e é a mais RECORTADA da tabela, ao lado de `users`, `config`
@@ -215,13 +215,13 @@ describe('adminAudience — a tabela das quatro audiências', () => {
         expect(adminAudience()).toEqual({ label: null, tabIds: [] });
     });
 
-    it('o administrador tem as NOVE abas, com as três consultas e Minha conta no fim', () => {
+    it('o administrador tem as DEZ abas, com as consultas e Minha conta no fim', () => {
         // A ORDEM É CONTRATO (é a de montagem, e a primeira aba é a que o painel abre): as duas
         // de CONSULTA ficam no fim, e entre elas a pessoal vem antes da do sistema.
         expect(adminAudience(ADMIN)).toEqual({
             label: 'Administração',
             tabIds: ['users', 'groups', 'config', 'catalog', 'personnel', 'grants', 'audit',
-                'diagnostico', 'account'],
+                'diagnostico', 'uso', 'account'],
         });
     });
 
@@ -256,7 +256,7 @@ describe('adminAudience — a tabela das quatro audiências', () => {
         expect(adminAudience({ isAuthenticated: false, isAdmin: true })).toEqual({
             label: 'Administração',
             tabIds: ['users', 'groups', 'config', 'catalog', 'personnel', 'grants', 'audit',
-                'diagnostico', 'account'],
+                'diagnostico', 'uso', 'account'],
         });
         // A discriminação: o produtor NÃO tem a mesma robustez, porque ele é testado depois
         // da sessão. Trocar as duas linhas quebraria a asserção de cima ou esta.
@@ -284,7 +284,7 @@ describe('adminAudience — a tabela das quatro audiências', () => {
         primeiro.tabIds.length = 0;
         expect(adminAudience(ADMIN).tabIds)
             .toEqual(['users', 'groups', 'config', 'catalog', 'personnel', 'grants', 'audit',
-                'diagnostico', 'account']);
+                'diagnostico', 'uso', 'account']);
     });
 
     it('só o administrador tem Diagnóstico: as quatro rotas de /diag exigem administração', () => {
@@ -300,6 +300,34 @@ describe('adminAudience — a tabela das quatro audiências', () => {
         // é o efeito de ele simplesmente não ter consulta nenhuma. Sem esta linha, um recorte que
         // zerasse todas as abas de consulta do produtor deixaria as três de cima verdes.
         expect(adminAudience(PRODUTOR).tabIds).toContain('audit');
+    });
+
+    it('só o administrador tem Uso: o censo do produto não tem recorte por OM', () => {
+        // A aba nasceu em 2026-08-30 e é do administrador e de mais ninguém. Aqui o recorte no
+        // cliente não é só a cortesia de evitar o 403 na montagem, que é a razão de `diagnostico`:
+        // o que a aba mostra é o CENSO do produto inteiro (todas as contas, todos os atlas, todo o
+        // volume), sem recorte por OM. Não existe versão dela que faça sentido para um produtor,
+        // ao contrário de `audit`, que o servidor sabe recortar pela OM dona do recurso.
+        expect(adminAudience(ADMIN).tabIds).toContain('uso');
+        expect(adminAudience(PRODUTOR).tabIds).not.toContain('uso');
+        expect(adminAudience(COMUM).tabIds).not.toContain('uso');
+        expect(adminAudience(ANONIMO).tabIds).not.toContain('uso');
+        // O CONTROLE NEGATIVO, o mesmo de `diagnostico`: o produtor TEM a outra aba de consulta,
+        // então a ausência acima não é o efeito de ele não ter consulta nenhuma. Sem esta linha,
+        // um recorte que zerasse toda consulta do produtor deixaria as três de cima verdes.
+        expect(adminAudience(PRODUTOR).tabIds).toContain('audit');
+    });
+
+    it('Uso é a última CONSULTA: é a única aba do painel sem um único botão', () => {
+        // A régua da lista é "quem abre o painel vem quase sempre para agir", e ela ordena as
+        // consultas entre si: `grants` (pessoal, e com dois atos) vem antes das do sistema, `audit`
+        // e `diagnostico` levam a um ato fora da tela, e `uso` é panorama pelo panorama. Esta
+        // asserção prende a posição RELATIVA, e não o índice, para que uma aba nova de gestão
+        // entrando no topo não a quebre por nada.
+        const abas = adminAudience(ADMIN).tabIds;
+        expect(abas.indexOf('uso')).toBeGreaterThan(abas.indexOf('diagnostico'));
+        expect(abas.indexOf('uso')).toBeGreaterThan(abas.indexOf('audit'));
+        expect(abas.indexOf('uso')).toBeLessThan(abas.indexOf('account'));
     });
 
     it('Diagnóstico é CONSULTA e fica com as consultas, antes só de Minha conta', () => {

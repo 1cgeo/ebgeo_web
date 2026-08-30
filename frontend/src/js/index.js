@@ -378,10 +378,13 @@ let _abriuAtlasDeServidor = false;
  * afirmacao de ganho sem numero e chute, e o numero so sai exercitando a troca no navegador de
  * verdade. Este gancho e o que da a bancada (Playwright, ou o console) acesso ao caminho novo.
  *
- * POR QUE NAO TEM BOTAO. A porta VISIVEL para a troca ao vivo (trocar o que "Seus atlas" faz, ou
- * por um seletor dentro do mapa) e uma decisao de produto separada, e ela esta com o dono. Um
- * seletor construido aqui por conta propria seria interface que ninguem pediu, no caminho que a
- * pagina de projetos ja ocupa.
+ * POR QUE NAO TEM BOTAO, E ISSO AGORA E DECISAO TOMADA, nao pergunta em aberto. A porta VISIVEL
+ * existiu entre 2026-08-26 e 2026-08-30, como um modal debaixo do clique de "Seus atlas"
+ * (um arquivo atlas-switch.modal.js em modals/, ja removido, sem crase porque nao existe mais), e
+ * o dono do produto a RECUSOU em 2026-08-30: aquele
+ * gesto voltou a NAVEGAR para `atlas.html`, que e o nome do destino. O que a decisao alcanca e a
+ * INTERFACE, nao a capacidade: `switchAtlas` continua de pe, e este gancho continua sendo o unico
+ * jeito de exercita-la. Nao construa um seletor novo aqui: seria refazer a porta recusada.
  *
  * ELE E INSTALADO ANTES DO ROTEAMENTO DE BOOT porque cada ramo daquela cadeia sai com `return`:
  * instalado depois, ele so existiria no boot que caisse no seletor de atlas.

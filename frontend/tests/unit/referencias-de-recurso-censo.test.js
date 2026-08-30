@@ -135,6 +135,11 @@ const CENSO = [
     { arquivo: 'src/js/3d_models_viewer_tool/tools/marker_tool_3d.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/3d_models_viewer_tool/tools/measurement_tool_3d.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/3d_models_viewer_tool/tools/viewshed_tool_3d.js', campo: 'tilesetId', classe: RUNTIME },
+    // HOMÓNIMO DE VOCABULÁRIO, e não um campo: em `uso-phrases.js` `baseLayer` é CHAVE da
+    // tabela que traduz o `entityType` do sync para pt-BR na aba Uso ("Camadas de fundo"). Nenhum
+    // id de recurso passa por ali, e nada daquele arquivo escreve documento nenhum. Mesma classe e
+    // mesma razão de `events/event_types.js` logo abaixo, que também só carrega o NOME.
+    { arquivo: 'src/js/admin/uso-phrases.js', campo: 'baseLayer', classe: RUNTIME },
     { arquivo: 'src/js/base-layer-selector/base-layer-selector.control.js', campo: 'baseLayer', classe: RUNTIME },
     { arquivo: 'src/js/baselayers/base-layer.control.js', campo: 'baseLayer', classe: RUNTIME },
     { arquivo: 'src/js/baselayers/base-layer.control.js', campo: 'catalogLayers', classe: RUNTIME },
