@@ -29,6 +29,12 @@ import {
 
 import mapManager from './store-state-manager.js';
 import { mapResolver, awaitMapResolverReady } from './services/map-resolver.service.js';
+// A decisão de qual mapa o boot abre, e com que identificador. Folha, pura e testada à parte:
+// ver o `fileoverview` dela para os dois defeitos que ela conserta.
+import { escolherMapaDeEntrada } from './mapa-de-entrada.js';
+// `getSettingCompat` é a leitura de ajuste do repositório (o irmão do `setAppSetting` que este
+// arquivo já importa de `repository.js`, que só exporta a escrita).
+import { getSettingCompat, getRepository } from './repositories/index.js';
 import { EventTypes } from '../events';
 import { sessionContext } from './sync/session-context.js';
 import {
@@ -407,13 +413,45 @@ async function routePendingOperationsToTheirAtlas() {
 /**
  * Initialize with last active map.
  *
+ * A LINHA DA ESCOLHA FICA ENTRE AS DUAS ESPERAS, E ISSO É O CONSERTO, não estilo.
+ * `initializeRepository` devolve uma CHAVE de armazenamento, e num atlas copiado de servidor
+ * ("Salvar como local") toda chave é UUID; gravá-la direto como mapa corrente fazia a tela
+ * mostrar `fbeae0b2-...` no lugar do nome (relatado pelo dono em 2026-08-30). Resolver
+ * chave→nome exige o `mapResolver`, que só está pronto depois de `awaitMapResolverReady` —
+ * daí a escolha final não caber dentro de `initializeRepository`, e sim aqui, com o porquê e
+ * os DOIS defeitos escritos no `fileoverview` de `mapa-de-entrada.js`.
+ *
  * @returns {Promise<string>} Last active map name
  */
 export async function initializeWithLastActiveMap() {
     await enforceLocalStoreWhenLoggedOut();
     await activateBootAtlasScope();
-    const lastActiveMap = await initializeRepository();
+    const chaveDeEntrada = await initializeRepository();
+
+    // O RESOLVEDOR É REFEITO AQUI, e não só esperado, porque a montagem que `initServices()`
+    // dispara acontece ANTES de `activateBootAtlasScope()` acima: ela lê o escopo que estava
+    // ativo naquele instante, não o deste boot. Num atlas local copiado de servidor isso é a
+    // diferença entre saber e não saber os UUIDs, e sem saber `resolveToName` devolve a entrada
+    // de volta (é a política dele), de modo que o mapa abre chamado pelo UUID.
+    //
+    // NÃO É INVENÇÃO MINHA, é o que `adoptMountedLocalAtlas` (`map.operations.js`) já faz ao
+    // trocar de slot, com o mesmo comentário: refazer contra o repositório JÁ montado. O boot
+    // era o único caminho fora dessa regra, e é por isso que trocar de mapa "consertava" a tela.
+    //
+    // O `await` da promessa antiga vem PRIMEIRO de propósito: `initialize()` começa limpando as
+    // duas tabelas, então deixar as duas montagens correndo juntas permitiria que a leitura
+    // antiga terminasse depois da nova e escrevesse por cima com dado de outro escopo. Custo:
+    // uma varredura a mais no boot (dezenas de ms, medidos no cabeçalho do resolvedor), e ela
+    // paga o custo de a primeira ter sido feita cedo demais para valer.
     await awaitMapResolverReady();
+    await mapResolver.initialize(getRepository());
+
+    const lastActiveMap = escolherMapaDeEntrada({
+        chave: chaveDeEntrada,
+        preferido: await getSettingCompat('lastActiveMap'),
+        isKnown: (v) => mapResolver.isKnown(v),
+        resolveToName: (v) => mapResolver.resolveToName(v),
+    });
     await mapManager.setCurrentMap(lastActiveMap);
     await mapManager.initializeProjectColorCache();
     await loadMapDataToMemory(lastActiveMap);

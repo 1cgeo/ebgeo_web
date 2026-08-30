@@ -302,3 +302,123 @@ describe('getRepository().getAllMaps after a fresh atlas pull', () => {
         expect(allMaps.get(DEFAULT_MAP_NAME).id).toBeNull();
     });
 });
+
+// ============================================================================
+// REPRO — atlas COPIADO de servidor para local: o mapa abria chamado pelo UUID.
+//
+// Relatado pelo dono em 2026-08-30: "fiz uma copia para o atlas local, quando eu abro o
+// atlas local o mapa vem com o nome fbeae0b2-fc32-4add-91df-a858815cf11e; ao trocar de
+// mapa aparece os nomes corretos".
+//
+// A FORMA DE ARMAZENAMENTO É O PONTO, e ela só existe neste caminho: "Salvar como local"
+// copia banco a banco (`copyAtlasDatabases`), então as chaves UUID do atlas de servidor
+// viajam inteiras e o slot local fica com TODOS os mapas chaveados por UUID — coisa que
+// o produto não produz de outra forma, porque o `Principal` local é chaveado por NOME. É
+// por isso que os casos acima, que sempre têm um mapa name-keyed junto, não pegavam.
+//
+// SÃO DOIS DEFEITOS, e o segundo se esconde atrás do primeiro:
+//  (a) `initializeRepository` devolve uma CHAVE, e o boot a gravava como nome corrente ->
+//      toda tela que lê o nome mostrava o UUID cru;
+//  (b) o ajuste `lastActiveMap` guarda um NOME (`setCurrentMapName`), e é comparado contra
+//      a lista de CHAVES -> num atlas todo UUID-keyed nunca casa, e o boot abre `keys[0]`,
+//      um mapa ARBITRÁRIO, não o último em que a pessoa estava.
+//
+// Controle negativo: em `escolherMapaDeEntrada` (src/js/store/mapa-de-entrada.js), devolva
+// `chave` direto e os dois casos abaixo caem — o primeiro com o UUID no lugar do nome.
+// ============================================================================
+
+import { escolherMapaDeEntrada } from '../../src/js/store/mapa-de-entrada.js';
+
+// Os dois mapas da cópia, ambos chaveados por UUID, como o disco fica de verdade.
+const COPIA_MAPA_A = 'fbeae0b2-fc32-4add-91df-a858815cf11e';
+const COPIA_NOME_A = 'Área de Operações';
+const COPIA_MAPA_B = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+const COPIA_NOME_B = 'Logística';
+
+describe('atlas copiado de servidor para local (repro do mapa com nome de UUID)', () => {
+    /** Semeia a cópia: TODO mapa chaveado por UUID, nenhum name-keyed. */
+    async function semearCopia(preferido) {
+        await seedRepository(
+            [
+                { key: COPIA_MAPA_A, id: COPIA_MAPA_A, name: COPIA_NOME_A },
+                { key: COPIA_MAPA_B, id: COPIA_MAPA_B, name: COPIA_NOME_B },
+            ],
+            preferido,
+        );
+    }
+
+    /**
+     * ATENÇÃO, E ESTA NOTA É UMA CONFISSÃO: este ajudante chama `mapResolver.initialize` ELE
+     * MESMO. Ou seja, ele arma o passo que, na produção, era JUSTAMENTE o que faltava — o boot
+     * esperava a montagem disparada por `initServices()`, feita antes de o escopo do atlas
+     * existir, e nunca refazia. Estes casos ficaram verdes com o produto ainda quebrado, e o
+     * dono viu o UUID na tela depois de eu declarar consertado.
+     *
+     * O que eles cobrem, então, é a DECISÃO (`escolherMapaDeEntrada`) dado um resolvedor que
+     * conhece o atlas. Quem cobre a montagem do resolvedor no boot é
+     * `tests/unit/boot-refaz-o-resolvedor.test.js`, e é lá que está escrito por que aquele
+     * guarda é estrutural.
+     */
+    /** A composição real do boot: repositório escolhe a chave, resolvedor lê, decisão resolve. */
+    async function bootar(preferido) {
+        const chave = await initializeRepository();
+        await mapResolver.initialize(getRepository());
+        return {
+            chave,
+            aberto: escolherMapaDeEntrada({
+                chave,
+                preferido,
+                isKnown: (v) => mapResolver.isKnown(v),
+                resolveToName: (v) => mapResolver.resolveToName(v),
+            }),
+        };
+    }
+
+    it('(a) o mapa aberto é chamado pelo NOME, e nunca pelo UUID', async () => {
+        await semearCopia(null);
+
+        const { chave, aberto } = await bootar(null);
+
+        // A chave crua É um UUID: é isto que o boot gravava como nome corrente.
+        expect([COPIA_MAPA_A, COPIA_MAPA_B]).toContain(chave);
+        // E é isto que a pessoa vê agora.
+        expect([COPIA_NOME_A, COPIA_NOME_B]).toContain(aberto);
+        expect(aberto).not.toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/i);
+    });
+
+    it('(b) o boot volta para o mapa em que a pessoa estava, e não para o primeiro da lista', async () => {
+        // `setCurrentMapName` grava o NOME. Num atlas todo UUID-keyed, a comparação de
+        // `initializeRepository` contra as CHAVES não casa, e ele devolve `keys[0]`.
+        await semearCopia(COPIA_NOME_B);
+
+        const { chave, aberto } = await bootar(COPIA_NOME_B);
+
+        expect(aberto).toBe(COPIA_NOME_B);
+        // A prova de que o caso não é vazio: a escolha do repositório era OUTRO mapa.
+        expect(mapResolver.resolveToName(chave)).toBe(COPIA_NOME_A);
+    });
+
+    it('preferido que não existe mais não abre um mapa fantasma', async () => {
+        // `resolveToName` devolve a entrada de volta quando não acha, então usá-lo como
+        // teste de existência abriria um mapa apagado. Quem decide é `isKnown`.
+        await semearCopia('Mapa Que Foi Apagado');
+
+        const { aberto } = await bootar('Mapa Que Foi Apagado');
+
+        expect(aberto).not.toBe('Mapa Que Foi Apagado');
+        expect([COPIA_NOME_A, COPIA_NOME_B]).toContain(aberto);
+    });
+
+    it('o atlas local COMUM (chaveado por nome) não muda de comportamento', async () => {
+        // Controle positivo: sem UUID nenhum, a decisão tem de ser a identidade.
+        await seedRepository(
+            [{ key: DEFAULT_MAP_NAME, id: null, name: DEFAULT_MAP_NAME }],
+            DEFAULT_MAP_NAME,
+        );
+
+        const { chave, aberto } = await bootar(DEFAULT_MAP_NAME);
+
+        expect(chave).toBe(DEFAULT_MAP_NAME);
+        expect(aberto).toBe(DEFAULT_MAP_NAME);
+    });
+});
