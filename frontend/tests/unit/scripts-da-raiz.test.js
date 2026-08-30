@@ -48,6 +48,12 @@ const SO_UM_PACOTE_DE_PROPOSITO = new Map([
     ['test:e2e:ui', 'Playwright com browser, caro demais para o encadeamento do DoD'],
     ['test:e2e:mega', 'idem, e roda headed'],
     ['knip', 'dead-code do frontend; o backend não tem configuração de knip'],
+    // `diag` lê o log em arquivo, e quem escreve esse log é o SERVIDOR (`pino`, um arquivo
+    // por dia em `LOG_DIR`). O frontend não tem log em disco para consultar: o erro de
+    // navegador não passa por aqui, ele vai virar uma tabela no Postgres alimentada por
+    // um endpoint de telemetria, e a consulta dele será a mesma do backend. Ver
+    // `docs/wiki/observabilidade.md`.
+    ['diag', 'consulta o log em arquivo, que só o backend escreve'],
     ['clean', 'limpa artefatos de build, que só o frontend produz'],
 ]);
 

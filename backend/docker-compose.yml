@@ -30,13 +30,21 @@ services:
       JWT_SECRET: change-me-to-a-random-64-char-string-for-local-dev-only
       CORS_ORIGIN: http://localhost:8080
       IMAGES_DIR: /app/data/images
+      # O log em arquivo (src/utils/log-diario.js). O VOLUME abaixo e' o ponto todo: sem
+      # ele o .jsonl vive na camada de escrita do container e some no `docker compose up`
+      # seguinte, ou seja, some no deploy, que e' exatamente quando se quer comparar o
+      # antes e o depois.
+      LOG_DIR: /app/data/logs
+      LOG_RETENTION_DAYS: "30"
     ports:
       - "3000:3000"
     volumes:
       - ebgeo_images:/app/data/images
+      - ebgeo_logs:/app/data/logs
     # Run migrations before starting the server.
     command: sh -c "node src/database/migrate.js && node src/index.js"
 
 volumes:
   ebgeo_pgdata:
   ebgeo_images:
+  ebgeo_logs:

@@ -20,6 +20,12 @@ export function errorHandler(err, req, res, next) {
   const logFn = loggedStatus < 500 ? logger.warn : logger.error;
   logFn.call(logger, {
     err,
+    // O mesmo id que `request-logger.js` carimba na linha de requisição. É o que permite a
+    // `scripts/diag.js` fundir as DUAS linhas que uma requisição falha produz, em vez de
+    // contar o mesmo erro duas vezes em duas assinaturas diferentes. Ausente quando a
+    // falha precede o logger de requisição (corpo malformado), e ali a fusão não é
+    // necessária porque a outra linha não existe.
+    reqId: req.id,
     method: req.method,
     url: redactUrl(req.url),
     userId: req.user?.id,

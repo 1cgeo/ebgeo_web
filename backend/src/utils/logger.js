@@ -1,6 +1,8 @@
 // Path: src/utils/logger.js
 import pino from 'pino';
+import pretty from 'pino-pretty';
 import config from '../config.js';
+import { criarLogDiario } from './log-diario.js';
 
 /**
  * Fields that must never reach the logs, whatever object they arrive inside.
@@ -71,11 +73,57 @@ export function errSerializer(err) {
   return scrubSecrets(base);
 }
 
+/**
+ * Os destinos do log, montados em 2026-08-30 quando o log passou a SOBREVIVER à sessão.
+ *
+ * O QUE MUDOU E POR QUÊ. Antes daqui saía uma coisa só: stdout, bonito em desenvolvimento
+ * (worker de `pino-pretty` via `transport`) e JSON cru em produção. Ninguém guardava
+ * nenhum dos dois, então a evidência de um defeito durava o que durasse o terminal ou o
+ * container. Agora são DOIS destinos em paralelo, e os dois valem nos dois ambientes.
+ *
+ * POR QUE `multistream` E NÃO `transport`. As duas opções do pino são excludentes: com
+ * `transport` o destino roda numa thread de trabalho e não se pode passar um stream
+ * próprio. O `pino-pretty` também funciona em processo (é o uso legado e suportado,
+ * `pino(pretty())`), e é essa forma que permite ter o terminal legível E o arquivo ao
+ * mesmo tempo. O custo é a formatação sair no mesmo event loop, o que só importaria num
+ * volume de log que esta aplicação não tem.
+ *
+ * O ARQUIVO VALE EM DESENVOLVIMENTO TAMBÉM, e não é descuido: o defeito que motivou tudo
+ * isto (um 400 em laço no push de sync) aconteceu em DEV, e a mensagem do servidor se
+ * perdeu porque só existia na rolagem de um terminal. Em teste ele fica desligado, senão a
+ * suíte sujaria o disco a cada rodada — e ali o `level` já é `silent`, então não há nada
+ * para escrever de qualquer modo.
+ */
+function montarDestinos() {
+  const destinos = [];
+
+  destinos.push({
+    stream: config.isProd
+      ? process.stdout
+      : pretty({ colorize: true, translateTime: 'SYS:standard', ignore: 'pid,hostname' }),
+  });
+
+  if (config.log.emArquivo && !config.isTest) {
+    destinos.push({
+      stream: criarLogDiario({
+        diretorio: config.log.dir,
+        retencaoDias: config.log.retencaoDias,
+      }),
+    });
+  }
+
+  return pino.multistream(destinos);
+}
+
 const logger = pino({
   level: config.isTest ? 'silent' : config.logLevel,
   serializers: { err: errSerializer },
   // Defense in depth for shapes the serializer never sees: anything logged directly
   // as a field rather than nested inside `err`.
+  //
+  // A redação e o serializer rodam ANTES dos destinos, então o arquivo em disco recebe
+  // exatamente o mesmo texto já limpo que o terminal: não há caminho por onde uma
+  // credencial chegue ao arquivo e não ao stdout.
   redact: {
     paths: [
       'password', 'newPassword', 'currentPassword',
@@ -84,16 +132,6 @@ const logger = pino({
     ],
     censor: '[REDACTED]',
   },
-  transport: config.isProd
-    ? undefined
-    : {
-        target: 'pino-pretty',
-        options: {
-          colorize: true,
-          translateTime: 'SYS:standard',
-          ignore: 'pid,hostname',
-        },
-      },
-});
+}, montarDestinos());
 
 export default logger;

@@ -87,6 +87,21 @@ const config = Object.freeze({
   nodeEnv,
   logLevel: optional('LOG_LEVEL', 'info'),
 
+  /**
+   * O log em ARQUIVO (`src/utils/log-diario.js`), que é o que faz a evidência sobreviver à
+   * sessão. `LOG_TO_FILE=off` desliga, e é a única forma: o caminho vazio cai no default,
+   * pela armadilha do `optional()` documentada acima.
+   *
+   * O diretório default fica sob `./data`, como todo o resto dos dados desta aplicação, e
+   * por isso ele já está dentro do volume que o compose monta: um log que morre com o
+   * container não teria resolvido o problema que motivou este destino.
+   */
+  log: Object.freeze({
+    dir: optional('LOG_DIR', './data/logs'),
+    retencaoDias: optionalInt('LOG_RETENTION_DAYS') ?? 30,
+    emArquivo: optional('LOG_TO_FILE', 'on') !== 'off',
+  }),
+
   db: Object.freeze({
     connectionString: required('DATABASE_URL'),
     poolMin: parseInt(optional('DATABASE_POOL_MIN', '2'), 10),
@@ -378,6 +393,10 @@ const config = Object.freeze({
 // hypothetical — TRUST_PROXY_HOPS and the two gazetteer limiter knobs below were
 // read here and absent from this table. See tests/unit/config-env-rules.test.js.
 export const NUMERIC_ENV_RULES = Object.freeze({
+  // Retenção do log em arquivo, em dias, HOJE inclusive. Piso 1 (zero apagaria o arquivo
+  // que está sendo escrito) e teto de dez anos, que é absurdo o bastante para só pegar
+  // erro de digitação sem impedir uma política de retenção longa.
+  LOG_RETENTION_DAYS: { min: 1, max: 3650 },
   DATABASE_POOL_MIN: { min: 0, max: 1000 },
   DATABASE_POOL_MAX: { min: 1, max: 1000 },
   MAX_IMAGE_SIZE_MB: { min: 1, max: 1024 },

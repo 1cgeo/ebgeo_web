@@ -33,7 +33,8 @@
     "test:coverage:frontend": "npm run test:coverage --prefix frontend",
     "test:coverage:backend": "npm run test:coverage --prefix backend",
     "lint:fix:frontend": "npm run lint:fix --prefix frontend",
-    "lint:fix:backend": "npm run lint:fix --prefix backend"
+    "lint:fix:backend": "npm run lint:fix --prefix backend",
+    "diag": "npm run diag --prefix backend --"
   },
   "devDependencies": {
     "concurrently": "^10.0.3"
