@@ -25,7 +25,7 @@ O que torna isso difícil de depurar é que **as duas viajam no MESMO snapshot**
 Duas consequências que economizam depuração:
 
 - As chaves de `SETTING_OBJECT_KEYS` sofrem merge de um nível (`COALESCE(settings->key,'{}') || incoming`) justamente para que gravações concorrentes por mapa não se derrubem. As demais são substituídas inteiras. Adicionar uma chave objeto sem incluí-la nessa lista causa perda de dados silenciosa entre mapas.
-- `logAtlasSetting` (`frontend/src/js/store/sync/operation-dispatcher.js`) usa o UUID do atlas quando resolve, e o sentinela literal `'atlas'` quando não. Funciona porque o backend escopa pelo atlas da **rota** e ignora o `entityId`. Um `entityId` que não seja UUID nem `'atlas'` é descartado antes do flush, porque **uma única op inválida faz o Postgres estourar `22P02` e derruba o lote inteiro**, travando todo o sync.
+- `logAtlasSetting` (`frontend/src/js/store/sync/operation-dispatcher.js`) usa o UUID do atlas quando resolve, e o sentinela literal `'atlas'` quando não. Funciona porque o backend escopa pelo atlas da **rota** e ignora o `entityId`. Um `entityId` que não seja UUID nem `'atlas'` é descartado antes do flush, porque ele não se liga a nada do outro lado. (Esta frase dizia que **uma única op inválida derrubava o lote inteiro** por `22P02`; era verdade até 2026-08-30, quando as duas recusas que consultam o banco desceram para dentro do savepoint por operação e essa op passou a voltar recusada individualmente. Ver [[tabela-operations]].)
 
 ## A exceção: escritas REST estruturais são invisíveis ao pull incremental
 

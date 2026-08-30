@@ -1543,31 +1543,40 @@ export async function pushOperations(atlasId, operations, userId, permission = '
       // invalidates the whole batch (403).
       assertOperationAllowed(op, permission);
 
-      // Per-op refusal (unknown entity type, map delete, map lock/unlock, write into a
-      // locked map, any op that REFERS to a resource the actor cannot see): refuse THIS
-      // operation without aborting the transaction, so one denied op cannot freeze the
-      // client's queue. The unknown-target check runs first because it is the cheapest
-      // and needs no database round-trip; the two that DO need one come last.
-      const denialReason = foreignAtlasDenialReason(op, atlasId)
-        ?? unknownTargetDenialReason(op)
-        ?? operationDenialReason(op, permission)
-        ?? await lockedMapDenialReason(t, op)
-        ?? await unseenResourceDenialReason(t, op, principalIdOrNull(userId), atlasId);
-      if (denialReason) {
+      // A recusa POR OPERAÇÃO tem uma forma só, e ela é usada em TRÊS sítios (política,
+      // consulta ao banco, violação de integridade). O que varia entre eles é o `outcome`
+      // do ledger, e é por isso que ele é parâmetro: as três recusas precisam continuar
+      // distinguíveis lá.
+      const recusarOperacao = (reason, outcome) => {
         acks.push({
           opId: rawOp.id,
           serverVersion: null,
           idempotent: false,
           rejected: true,
-          reason: denialReason,
+          reason,
         });
         if (isTraceEnabled()) {
           recordSpan(atlasId, TraceStage.SERVER_APPLIED, {
             opId: rawOp.id, traceId: rawOp.traceId, entityType: op.entityType, operationType: op.type,
             entityId: op.entityId, mapId: op.mapId, rowsAffected: 0,
-            outcome: TraceOutcome.NO_EFFECT, reason: denialReason,
+            outcome, reason,
           });
         }
+      };
+
+      // Per-op refusal (unknown entity type, map delete, map lock/unlock, write into a
+      // locked map, any op that REFERS to a resource the actor cannot see): refuse THIS
+      // operation without aborting the transaction, so one denied op cannot freeze the
+      // client's queue.
+      //
+      // AQUI FICAM SÓ AS TRÊS PURAS, e a ordem entre elas continua sendo por custo: nenhuma
+      // toca o banco. As duas que CONSULTAM desceram para DENTRO do savepoint por operação,
+      // logo abaixo, e o motivo está escrito lá.
+      const denialReason = foreignAtlasDenialReason(op, atlasId)
+        ?? unknownTargetDenialReason(op)
+        ?? operationDenialReason(op, permission);
+      if (denialReason) {
+        recusarOperacao(denialReason, TraceOutcome.NO_EFFECT);
         continue;
       }
 
@@ -1587,6 +1596,26 @@ export async function pushOperations(atlasId, operations, userId, permission = '
       let applied;
       try {
         applied = await t.tx(async (sp) => {
+          // AS DUAS RECUSAS QUE CONSULTAM O BANCO CORREM AQUI DENTRO, e não antes do
+          // savepoint, e isto é o conserto de um buraco na guarda acima. As duas consultam
+          // PARAMETRIZADAS PELO PAYLOAD do cliente: `lockedMapDenialReason` compara
+          // `op.mapId` com `maps.id`, que é UUID, enquanto o schema do push aceita `mapId`
+          // como string qualquer (`sync.schemas.js`). Um mapId não-UUID (o mapa local
+          // "Principal" é chaveado por NOME) levanta 22P02 na própria CHECAGEM. Fora do
+          // savepoint esse erro abortava o `tx()` do LOTE INTEIRO, e o `errorHandler` o
+          // mapeia para um 400 genérico que não nomeia op nenhuma; como o cliente não faz
+          // dequeue de não-2xx, ele reenviava o mesmo lote a cada 1,5 s para sempre. Ou
+          // seja: a guarda escrita para impedir que UMA op envenenasse a fila era
+          // alcançável por fora dela mesma, com sintoma idêntico ao que ela existe para
+          // curar. Aqui dentro, o mesmo 22P02 cai no `catch` abaixo, vira recusa POR
+          // OPERAÇÃO e é NOMEADA no log do servidor.
+          //
+          // Elas continuam ANTES do INSERT: op recusada não entra no log de operações, e o
+          // savepoint é liberado sem ter escrito nada.
+          const denialConsultado = (await lockedMapDenialReason(sp, op))
+            ?? (await unseenResourceDenialReason(sp, op, principalIdOrNull(userId), atlasId));
+          if (denialConsultado) return { denied: denialConsultado };
+
           // Insert operation into log (idempotent: ON CONFLICT (atlas_id, op_id) DO NOTHING).
           const inserted = await sp.oneOrNone(Q.INSERT_OPERATION, [
             atlasId,
@@ -1632,22 +1661,16 @@ export async function pushOperations(atlasId, operations, userId, permission = '
           { err, atlasId, opId: rawOp.id, entityType: op.entityType, operationType: op.type },
           'sync: operação recusada por violação de integridade'
         );
-        acks.push({
-          opId: rawOp.id,
-          serverVersion: null,
-          idempotent: false,
-          rejected: true,
-          reason,
-        });
-        if (isTraceEnabled()) {
-          recordSpan(atlasId, TraceStage.SERVER_APPLIED, {
-            opId: rawOp.id, traceId: rawOp.traceId, entityType: op.entityType, operationType: op.type,
-            entityId: op.entityId, mapId: op.mapId, rowsAffected: 0,
-            // FAILED (e não NO_EFFECT, o da recusa de política): no ledger as duas
-            // recusas precisam ser distinguíveis.
-            outcome: TraceOutcome.FAILED, reason,
-          });
-        }
+        // FAILED (e não NO_EFFECT, o da recusa de política): no ledger as duas
+        // recusas precisam ser distinguíveis.
+        recusarOperacao(reason, TraceOutcome.FAILED);
+        continue;
+      }
+
+      // Recusa decidida DENTRO do savepoint (mapa bloqueado, recurso invisível): nada foi
+      // escrito, e daqui em diante ela é indistinguível da recusa de política de cima.
+      if (applied.denied) {
+        recusarOperacao(applied.denied, TraceOutcome.NO_EFFECT);
         continue;
       }
 

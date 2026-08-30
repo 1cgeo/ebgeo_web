@@ -32,7 +32,7 @@ Formato do envelope em [[envelope-operacao]]; fila e compactação em [[fila-ope
 
 ## Dois guards descartam ops em silêncio, e existem por um bug real
 
-Em `logOperation` (`frontend/src/js/store/sync/operation-dispatcher.js`), replicados em `logBatchOperations` e em `createMapSettingLogger`. O motivo não é higiene: **uma única op inválida faz o Postgres rejeitar (22P02) e derruba o batch inteiro do flush, travando todo o sync.** São veneno na fila, não sujeira.
+Em `logOperation` (`frontend/src/js/store/sync/operation-dispatcher.js`), replicados em `logBatchOperations` e em `createMapSettingLogger`. O motivo não é higiene: a op não se liga a nada do outro lado, então enfileirá-la é prometer uma sincronização que não vai acontecer. **A metade dramática desta frase caiu em 2026-08-30:** ela dizia que uma única op inválida fazia o Postgres rejeitar (`22P02`) e derrubava o batch inteiro do flush, travando todo o sync, e isso era verdade porque a consulta que estourava (`lockedMapDenialReason`) rodava FORA do savepoint por operação. Ela desceu para dentro dele, e hoje a op ofensora volta recusada individualmente. Continuam sendo veneno na fila; deixaram de ser veneno no lote.
 
 1. `setting` com id não-UUID e diferente do sentinela `'atlas'` → `DropReason.NON_UUID_SETTING_ID`. Chaves locais como `lastActiveMap` são estado por cliente.
 2. Qualquer op com `mapId` presente e não-UUID → `DropReason.NON_UUID_MAPID`. É o anti-vazamento do mapa local `Principal`, chaveado por nome ([[dominio-local-vs-remoto]]). Ops de nível-atlas passam `mapId = null` e escapam.

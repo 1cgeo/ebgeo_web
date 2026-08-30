@@ -10,18 +10,29 @@
 //
 // GATILHOS. Depois que `integrityRejectionReason` (sync.service.js) passou a absorver
 // as classes SQLSTATE 22 e 23 POR OPERAÇÃO, a maioria dos erros de dado nem chega mais
-// aos catches do collab — vira ack com `rejected: true`. O que ainda chega, e é o que
-// este arquivo usa, são erros levantados FORA do savepoint por operação:
-//   - `lockedMapDenialReason` (sync.service.js:1018-1025) consulta
-//     `SELECT locked FROM maps WHERE id = $1` com `op.mapId`, que o Joi aceita como
-//     `Joi.string()` (sync.schemas.js:21). Um mapId não-UUID estoura 22P02 ANTES do
-//     `try` por op, e o erro sobe até o catch do handler.
-//   - `pullOperations` não valida `lastVersion`: `data.lastVersion || 0` desce direto
-//     para `GET_OPERATIONS_SINCE_VERSION`, e um valor não numérico estoura 22P02.
+// aos catches do collab — vira ack com `rejected: true`. Restava UM erro de dado
+// levantado fora do savepoint, e ele era um DEFEITO, não um gatilho legítimo:
+// `lockedMapDenialReason` consulta `SELECT locked FROM maps WHERE id = $1` com
+// `op.mapId`, que o Joi aceita como `Joi.string()` (`sync.schemas.js`), e um mapId
+// não-UUID estourava 22P02 ANTES do `try` por op — abortando o lote inteiro (400 em
+// laço pelo REST, frame de erro aqui). Em 2026-08-30 as duas recusas que CONSULTAM o
+// banco desceram para dentro do savepoint, então o mesmo gatilho virou recusa POR
+// OPERAÇÃO nas duas portas; ver
+// `tests/integration/sync-mapid-nao-uuid-poison.repro.test.js`.
+//
+// O QUE ISSO MUDA AQUI, e é preciso dizer em voz alta para a próxima leitura não
+// procurar cobertura que saiu: os dois primeiros casos deixaram de exercitar o `catch`
+// de `handleOperation`/`handleOperations` e passaram a prender a MESMA política na
+// porta que a op de fato toma hoje — o ack de recusa, cujo `reason` não pode carregar
+// texto de driver nem ecoar o valor ofensor. O mascaramento de `frameDeErro` continua
+// prendido pelo terceiro caso (`handleSyncRequest`, que segue sem savepoint) e por
+// `tests/unit/safe-error-message.test.js`.
 //
 // AS DUAS METADES. Asserir só que o corpo está limpo deixaria passar um "fix" que
 // simplesmente engole o erro. Cada teste afirma (a) que o frame recebido NÃO contém
-// texto do driver, e (b) que o erro CRU, com o texto inteiro, chegou ao `logger.error`.
+// texto do driver, e (b) que o erro CRU, com o texto inteiro, chegou ao logger (ao
+// `logger.error` do handler no caso do `sync_request`; ao `logger.warn` da recusa por
+// integridade, em sync.service.js, nos dois de operação).
 //
 // A ÂNCORA da metade (b) é o VALOR OFENSOR, não a prosa do driver. A primeira versão
 // deste arquivo procurava 'invalid input syntax' no log e falhou em toda a suíte: o
@@ -45,6 +56,12 @@ const U = () => `leak_${randomUUID().slice(0, 8)}`;
 // O mapId inválido é o gatilho E a evidência: se ele reaparecer no frame do cliente,
 // é porque o texto do driver ("invalid input syntax for type uuid: ...") passou.
 const BAD_MAP_ID = 'nao-e-uuid-de-mapa';
+
+/** O motivo genérico de `PG_INTEGRITY_REASONS['22P02']` (sync.service.js). */
+const RECUSA_POR_FORMATO = 'Alteração descartada: identificador ou valor com formato inválido.';
+
+/** A mensagem do `logger.warn` que carrega o erro CRU da recusa por integridade. */
+const MSG_RECUSA_INTEGRIDADE = 'sync: operação recusada por violação de integridade';
 
 /**
  * Tokens que só existem em texto de driver / de sistema de arquivos. Um único acerto
@@ -136,57 +153,70 @@ describe('Collab WS — mensagem de erro sanitizada nos três catches (107)', ()
    * Metade (b): o erro cru precisa ter chegado ao logger. Sem esta asserção, um fix
    * que apenas engolisse o erro passaria verde.
    */
-  function assertRawErrorLogged(records, msgDoHandler, valorOfensor) {
+  function assertRawErrorLogged(records, msgDoHandler, valorOfensor, esperado = 1) {
     // O filtro é pela mensagem DESTE handler, não por "algum log com um Error": a
     // camada de banco já emite um 'DB Error' carregando o mesmo erro, e um filtro
     // frouxo passaria verde provando o log de outra pessoa (foi o que o controle
     // negativo pegou na suíte irmã de imagens).
+    //
+    // `esperado` existe porque a recusa por integridade é POR OPERAÇÃO: um lote com duas
+    // ops venenosas loga duas vezes, e travar em 1 mediria o lote errado.
     const meus = records.filter((r) => r.msg === msgDoHandler);
-    assert.equal(meus.length, 1, `o handler tem de logar exatamente uma vez: ${JSON.stringify(records.map((r) => r.msg))}`);
-    assert.ok(meus[0].obj.err instanceof Error, 'o log tem de carregar o objeto de erro, não uma string');
-    assert.ok(
-      meus[0].obj.err.message.includes(valorOfensor),
-      `o erro CRU (com o valor ofensor "${valorOfensor}") tem de chegar ao log; capturado: ${meus[0].obj.err.message}`
-    );
+    assert.equal(meus.length, esperado, `o log esperado tem de sair ${esperado}x: ${JSON.stringify(records.map((r) => r.msg))}`);
+    for (const m of meus) {
+      assert.ok(m.obj.err instanceof Error, 'o log tem de carregar o objeto de erro, não uma string');
+      assert.ok(
+        m.obj.err.message.includes(valorOfensor),
+        `o erro CRU (com o valor ofensor "${valorOfensor}") tem de chegar ao log; capturado: ${m.obj.err.message}`
+      );
+    }
   }
 
-  it('handleOperation: um mapId não-UUID responde texto genérico, não o do driver', async () => {
+  it('handleOperation: um mapId não-UUID vira recusa POR OPERAÇÃO, sem texto do driver', async () => {
     const client = await openClient();
     await client.waitForType('connected');
     client.clearMessages();
 
-    client.send({ type: 'operation', op: opWithBadMap() });
-    const frame = await client.waitForType('error');
+    const op = opWithBadMap();
+    client.send({ type: 'operation', op });
+    // `ack`, e não `error`: a op é recusada individualmente, que é o desfecho que o
+    // cliente sabe descartar. Um frame de erro aqui significaria o lote envenenado de volta.
+    const frame = await client.waitForType('ack');
 
     // (a) o cliente não recebe nada do driver.
-    assert.equal(frame.code, 'OPERATION_FAILED');
-    assert.equal(frame.message, 'Valor mal formado (identificador ou tipo inválido).');
+    assert.equal(frame.opId, op.id);
+    assert.equal(frame.result.success, false);
+    assert.equal(frame.result.rejected, true);
+    assert.equal(frame.result.reason, RECUSA_POR_FORMATO);
     const bruto = JSON.stringify(frame);
     assert.doesNotMatch(bruto, DRIVER_TEXT, `texto de driver no frame: ${bruto}`);
     assert.doesNotMatch(bruto, /[/\\]/, `separador de caminho no frame: ${bruto}`);
     assert.ok(!bruto.includes(BAD_MAP_ID), `o valor ofensor foi ecoado de volta: ${bruto}`);
 
     // (b) e o erro cru chegou ao log.
-    assertRawErrorLogged(spy.records, 'Failed to process operation', BAD_MAP_ID);
-
+    assertRawErrorLogged(spy.records, MSG_RECUSA_INTEGRIDADE, BAD_MAP_ID);
   });
 
-  it('handleOperations (lote): mesmo gatilho, mesma resposta genérica', async () => {
+  it('handleOperations (lote): mesmo gatilho, recusa op a op, e o lote não cai', async () => {
     const client = await openClient();
     await client.waitForType('connected');
     client.clearMessages();
 
-    client.send({ type: 'operations', ops: [opWithBadMap(), opWithBadMap()] });
-    const frame = await client.waitForType('error');
+    const ops = [opWithBadMap(), opWithBadMap()];
+    client.send({ type: 'operations', ops });
+    const frame = await client.waitForType('ack_batch');
 
-    assert.equal(frame.code, 'OPERATION_FAILED');
-    assert.equal(frame.message, 'Valor mal formado (identificador ou tipo inválido).');
+    assert.equal(frame.results.length, 2);
+    for (const r of frame.results) {
+      assert.equal(r.success, false);
+      assert.equal(r.rejected, true);
+      assert.equal(r.reason, RECUSA_POR_FORMATO);
+    }
     const bruto = JSON.stringify(frame);
     assert.doesNotMatch(bruto, DRIVER_TEXT, `texto de driver no frame: ${bruto}`);
     assert.ok(!bruto.includes(BAD_MAP_ID), `o valor ofensor foi ecoado de volta: ${bruto}`);
 
-    assertRawErrorLogged(spy.records, 'Failed to process operations batch', BAD_MAP_ID);
-
+    assertRawErrorLogged(spy.records, MSG_RECUSA_INTEGRIDADE, BAD_MAP_ID, 2);
   });
 
   it('handleSyncRequest: um lastVersion não numérico responde texto genérico', async () => {

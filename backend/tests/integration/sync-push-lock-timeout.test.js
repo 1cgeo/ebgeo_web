@@ -209,17 +209,30 @@ describe('sync push — the advisory lock wait is BOUNDED (503, not a hung pool)
     assert.equal(ok.body.data.results[0].success, true);
   });
 
-  it('push que aborta a transação no Postgres (mapId malformado): mesma liberação', async () => {
-    // Outro modo de falha, com outro caminho de saída da tx: aqui o erro nasce no
-    // Postgres (FK/constraint), não numa exceção de aplicação.
+  it('push com mapId malformado (erro nascido no Postgres): recusa por op, e o lock é liberado', async () => {
+    // ESTE CASO MUDOU DE ALVO EM 2026-08-30, e a mudança é o registro de um conserto.
+    // Ele media a saída da tx por um erro nascido no POSTGRES, e usava como gatilho um
+    // mapId não-UUID, que estourava 22P02 na consulta de `lockedMapDenialReason` — feita,
+    // até aquela data, FORA do savepoint por operação. Isso abortava o lote inteiro e
+    // devolvia 400 a cada flush de 1,5 s, para sempre, porque o cliente não faz dequeue de
+    // não-2xx: era defeito, não modo de falha legítimo. As duas recusas que consultam o
+    // banco desceram para dentro do savepoint, então o MESMO gatilho hoje termina em recusa
+    // POR OPERAÇÃO, com a transação COMMITADA. Ver
+    // `tests/integration/sync-mapid-nao-uuid-poison.repro.test.js`.
+    //
+    // O que ele prende agora é a metade que continua sendo assunto deste arquivo: um lote
+    // que sai pelo caminho da recusa não deixa o advisory lock preso. A saída por ABORTO
+    // continua prendida pelo caso anterior (403 de política, exceção de aplicação lançada
+    // depois de o lock já ter sido tomado), que é o mesmo ROLLBACK.
     const opRuim = pointOp('nao-e-um-uuid', randomUUID()); // mapId que estoura o cast ::uuid
     const res = await supertest(app)
       .post(`/api/v1/atlas/${atlas.id}/sync`)
       .set('Authorization', `Bearer ${token}`)
       .send({ operations: [opRuim] });
-    assert.ok(res.status >= 400, `o push precisava falhar, veio ${res.status}`);
+    assert.equal(res.status, 200, `o lote não pode mais cair por causa de uma op, veio ${res.status}`);
+    assert.equal(res.body.data.results[0].rejected, true, 'e a op ofensora é recusada individualmente');
 
-    assert.equal(await lockLivre(atlas.id), true, 'o lock ficou preso após o erro de transação');
+    assert.equal(await lockLivre(atlas.id), true, 'o lock ficou preso após a recusa');
 
     const opId = randomUUID();
     const ok = await supertest(app)
