@@ -126,7 +126,10 @@ describe('WebSocket Broadcasts from REST', function () {
       const res = await supertest(app)
         .patch(`/api/v1/atlas/${atlas.id}/settings`)
         .set('Authorization', `Bearer ${ownerToken}`)
-        .send({ min_zoom: 5, max_zoom: 18 });
+        // O par era `min_zoom`/`max_zoom` até 2026-08-31, quando o zoom de atlas foi removido.
+        // Chave viva importa aqui: o `stripUnknown` descartaria as duas, e o caso mediria o
+        // aviso de uma mudança que não aconteceu.
+        .send({ bounds_2d: [[-45, -23], [-42, -21]] });
 
       assert.equal(res.status, 200);
 

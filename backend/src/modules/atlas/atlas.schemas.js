@@ -266,7 +266,26 @@ export const importSchema = Joi.object({
   atlas: Joi.object({
     name: Joi.string().max(255).required(),
     description: Joi.string().allow(null, ''),
-    settings: scrubbedObjectSchema,
+    // `.strip()` E NÃO `.forbidden()` NO ZOOM DE ATLAS, e a diferença decide se um arquivo
+    // exportado ANTES de 2026-08-31 ainda entra. Recusar o import inteiro por causa de duas
+    // chaves mortas seria trocar um campo inerte por um atlas que a pessoa não consegue mais
+    // subir; descartá-las deixa o import passar e o banco limpo.
+    //
+    // A DECLARAÇÃO PRECISA EXISTIR porque este caminho NÃO passa por `atlasSettingsSchema`:
+    // `settings` aqui é objeto livre (só escovado de definição de recurso), e o serviço o
+    // funde sobre o DEFAULT da coluna. Sem estas duas linhas, o zoom de atlas continuava
+    // GRAVÁVEL por uma rota real depois de ter sido removido de todas as outras, e uma chave
+    // que uma porta ainda escreve não está removida.
+    // `.unknown(true)` NÃO É ENFEITE, e o teste desta rota o cobrou: `scrubbedObjectSchema` não
+    // tinha definição de chave nenhuma, então o `stripUnknown` de `validate.js` não tinha o que
+    // comparar e todo o objeto passava. Bastou o `.keys()` acima para o schema PASSAR a ter
+    // chaves declaradas, e nesse instante todas as outras viraram desconhecidas: o import
+    // gravava `settings` VAZIO, silenciosamente, em todo atlas subido. Uma linha para descartar
+    // duas chaves mortas quase apagou o documento inteiro.
+    settings: scrubbedObjectSchema.keys({
+      min_zoom: Joi.any().strip(),
+      max_zoom: Joi.any().strip(),
+    }).unknown(true),
   }).required(),
   maps: Joi.array().items(mapSchema).default([]),
   briefings: Joi.array().items(briefingSchema).default([]),

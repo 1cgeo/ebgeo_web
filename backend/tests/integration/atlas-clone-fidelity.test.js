@@ -231,15 +231,51 @@ describe('clone / duplicate / import must not silently alter what they copy', ()
         .post('/api/v1/atlas/import')
         .set('Authorization', `Bearer ${token}`)
         .send({
-          atlas: { name: `P76 partial ${randomUUID().slice(0, 6)}`, settings: { min_zoom: 5 } },
+          // A CHAVE DE EXEMPLO ERA `min_zoom` ATÉ 2026-08-31, e o caso passou a certificar o
+          // contrário do que se queria: que uma chave REMOVIDA do produto continuava sendo
+          // gravada por esta rota. O caso mede a FUSÃO parcial, então ele troca de chave e
+          // ganha um irmão logo abaixo, que mede a remoção.
+          //
+          // `bounds_2d` E NÃO `default_basemap`: medido, não escolhido por gosto. O segundo é
+          // REFERÊNCIA DE CATÁLOGO (está no inventário de `resource-reference.registry.js`) e
+          // passa pela poda por destinatário, então ele volta `null` e o caso mediria a poda
+          // em vez da fusão. `bounds_2d` é geometria pura, inerte como o `min_zoom` era.
+          atlas: {
+            name: `P76 partial ${randomUUID().slice(0, 6)}`,
+            settings: { bounds_2d: [[-45, -23], [-42, -21]] },
+          },
           maps: [],
         })
         .expect(201);
 
       const settings = await settingsOf(imported.body.data.id);
-      assert.equal(settings.min_zoom, 5, 'the payload wins where it speaks');
+      assert.deepEqual(settings.bounds_2d, [[-45, -23], [-42, -21]], 'the payload wins where it speaks');
       assert.equal(settings.features.map_3d, true, 'and the rest of the default survives');
       assert.deepEqual(settings.available_3d_models, []);
+    });
+
+    it('um atlas exportado ANTES da remoção do zoom entra, e o zoom NÃO entra com ele', async () => {
+      // As duas metades num caso só, porque separá-las esconde o custo de cada escolha:
+      // recusar o import (`forbidden`) protegeria o banco e deixaria a pessoa sem subir o
+      // arquivo antigo; aceitar sem descartar subiria o arquivo e gravaria chave morta. O
+      // `.strip()` é o par, e é o par que se mede.
+      const imported = await supertest(app)
+        .post('/api/v1/atlas/import')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          atlas: {
+            name: `P76 zoom ${randomUUID().slice(0, 6)}`,
+            settings: { min_zoom: 5, max_zoom: 15, bounds_2d: [[-45, -23], [-42, -21]] },
+          },
+          maps: [],
+        })
+        .expect(201);
+
+      const settings = await settingsOf(imported.body.data.id);
+      assert.equal(settings.min_zoom, undefined, 'o zoom de atlas não entra por esta porta');
+      assert.equal(settings.max_zoom, undefined);
+      assert.deepEqual(settings.bounds_2d, [[-45, -23], [-42, -21]],
+        'e o irmão vivo do mesmo payload entra: o descarte é das duas chaves, não do objeto');
     });
 
     it('PATCH on an imported atlas behaves like PATCH on a created one (same shallow merge)', async () => {

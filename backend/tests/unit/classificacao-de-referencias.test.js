@@ -154,7 +154,7 @@ describe('coleta de referências de recurso', () => {
       available_3d_models: ['PCL'],
       available_360_views: ['projeto-a'],
       // DISCRIMINAÇÃO: chave vizinha que NÃO é referência de catálogo nenhuma.
-      min_zoom: 4,
+      bounds_2d: [[-45, -23], [-42, -21]],
       features: { map_3d: true },
     }), [
       { type: 'basemap', resourceId: 'osm' },
@@ -167,7 +167,7 @@ describe('coleta de referências de recurso', () => {
     ]);
 
     // E um documento sem nenhuma das seis não produz nada.
-    assert.deepEqual(refsFromSettings({ min_zoom: 4 }), []);
+    assert.deepEqual(refsFromSettings({ bounds_2d: null }), []);
     assert.deepEqual(refsFromSettings(null), []);
   });
 
@@ -314,7 +314,7 @@ describe('aplicação da poda de cópia', () => {
       basemaps: ['osm', 'bdgex'],
       default_basemap: 'osm',
       available_3d_models: ['PCL', 'SECRETO'],
-      min_zoom: 4,
+      bounds_2d: [[-45, -23], [-42, -21]],
     });
 
     assert.deepEqual(saida.basemaps, ['osm']);
@@ -322,7 +322,7 @@ describe('aplicação da poda de cópia', () => {
     // O padrão continua visível, então continua lá: a poda não pode zerar o que sobreviveu.
     assert.equal(saida.default_basemap, 'osm');
     // E o que NÃO é referência de catálogo atravessa intacto.
-    assert.equal(saida.min_zoom, 4);
+    assert.deepEqual(saida.bounds_2d, [[-45, -23], [-42, -21]]);
     assert.deepEqual(p.report, { 'settings.basemaps': 1, 'settings.available_3d_models': 1 });
   });
 
@@ -363,9 +363,9 @@ describe('aplicação da poda de cópia', () => {
 
   it('`settings` sem nenhuma das seis chaves atravessa sem perda', () => {
     // PISO da direcão oposta: um podador que zerasse `settings` por precaução apagaria
-    // `bounds_2d`, `min_zoom` e o registro de ícones do atlas inteiro.
+    // `bounds_2d`, `features` e o registro de ícones do atlas inteiro.
     const p = new ResourcePruner(new Map());
-    const entrada = { min_zoom: 4, bounds_2d: null, customIcons: [{ id: 'a' }] };
+    const entrada = { features: { map_3d: true }, bounds_2d: null, customIcons: [{ id: 'a' }] };
     assert.deepEqual(p.settings(entrada), entrada);
     assert.ok(p.vazio);
   });

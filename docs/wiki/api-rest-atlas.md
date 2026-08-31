@@ -33,7 +33,7 @@ Desde `1d23ac9` (2026-07-19) a query usa flag de "campo enviado" (`description =
 
 O frontend contorna enviando sempre o bloco completo (`frontend/src/js/modals/atlas-settings.modal.js`). **Todo cliente novo deve fazer o mesmo**: ler o settings atual, mesclar em memória, mandar o objeto inteiro.
 
-Duas convenções que o schema não explicita: **lista de disponibilidade vazia significa "sem restrição"**, não "nada permitido" (`backend/src/database/migrations/003_atlas.sql`); e a validação Joi rejeita `min_zoom > max_zoom` e `default_basemap` fora de `basemaps` (`backend/src/modules/atlas/atlas.schemas.js`). Forma completa em [[atlas-settings]].
+Duas convenções que o schema não explicita: **lista de disponibilidade vazia significa "sem restrição"**, não "nada permitido" (`backend/src/database/migrations/003_atlas.sql`); e a validação Joi rejeita `default_basemap` fora de `basemaps` (`backend/src/modules/atlas/atlas.schemas.js`). A regra irmã, que cruzava `min_zoom > max_zoom`, saiu em 2026-08-31 com o zoom de atlas: quem restringe zoom é o mapa base ([[resources-catalogo]]). `min_zoom`/`max_zoom` num PATCH são DESCARTADOS pelo `stripUnknown`, e num `POST /import` são descartados por `.strip()` declarado, para que um arquivo exportado antes da remoção ainda entre. Forma completa em [[atlas-settings]].
 
 ## DELETE, restore e por que o restore não é gateado
 

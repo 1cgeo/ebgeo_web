@@ -99,7 +99,11 @@ describe('ownership transfer fired by a GLOBAL admin acting on someone else\'s a
     await supertest(app)
       .patch(`/api/v1/atlas/${atlas.id}/settings`)
       .set('Authorization', `Bearer ${ownerToken}`)
-      .send({ min_zoom: 4 })
+      // A chave era `min_zoom` até 2026-08-31, quando o zoom de atlas foi removido. O caso
+      // mede que o DONO ANTIGO ainda administra o atlas transferido, e um PATCH cuja única
+      // chave é descartada pelo `stripUnknown` devolve 200 sem escrever nada: passaria mesmo
+      // se a permissão estivesse quebrada. Uma chave viva faz a rota gravar de fato.
+      .send({ bounds_2d: [[-45, -23], [-42, -21]] })
       .expect(200);
 
     await supertest(app)
