@@ -1543,6 +1543,38 @@ da 6.3 fica [em obra], com os três itens acima nomeados.
 
 ---
 
+### 2026-08-31: o zoom mínimo e máximo passa a ser do mapa base, e o da aplicação vira fixo
+
+**Origem.** Observação do dono: o nível de zoom mínimo e máximo deveria ser por mapa base, e não uma régua geral da aplicação. A análise achou o desenho real, que era pior do que a pergunta supunha: existiam TRÊS níveis declarados e UM ligado.
+
+**O ESTADO ANTERIOR, medido antes de propor qualquer coisa.** A aplicação valia `[1, 17.9]` e era o único nível que chegava ao MapLibre (`map_sig.js`, no construtor), editável pelo painel. O ATLAS tinha `settings.min_zoom`/`max_zoom`: validados com regra de ordenação, persistidos, clonados, cobertos por cinco arquivos de teste, e lidos por nenhum consumidor de comportamento do frontend. E o MAPA BASE não tinha nível nenhum: o que existia era o `maxzoom` da FONTE de cada estilo (BDGEx 18, osm e topográfica 19, imagens 20), que não trava a câmera, porque o MapLibre faz overzoom e escala o último tile.
+
+**A medida que decidiu o desenho:** o teto de 17.9 estava ABAIXO do `maxzoom` de toda fonte, então era ele que segurava as cinco camadas, e nenhuma alcançava o próprio limite. O caso que motivou a pergunta, um mapa base que legitimamente só serve até certo zoom, não tinha como ser expresso em lugar nenhum.
+
+**A DECISÃO, do dono.** Dois níveis, e só um configurável:
+
+- A APLICAÇÃO é fixa em `[2, 21]`, e não é configurável por ninguém. Os campos saíram do painel e o schema de override recusa as duas chaves.
+- O MAPA BASE aperta dentro dela, por `config.minzoom`/`config.maxzoom` da linha de catálogo, entre 2 e 21. Editam o administrador e o produtor da OM dona da linha.
+- O ATLAS não tem zoom. Removido do DEFAULT da baseline, do schema e dos testes.
+
+**O SEED NÃO É OPCIONAL, e essa é a parte que a decisão sozinha não entrega.** Subir o teto de 17.9 para 21 sem declarar a faixa das cinco linhas semeadas entregaria, no mesmo dia, overzoom borrado em todo mapa base, porque o que os segurava era o teto global. Por isso `005_catalogo.sql` passa a declarar: topográfica 19, ortoimagem 18, BDGEx 18, osm 19, imagens 20, piso 2 nas cinco. Cada `maxzoom` é o da FONTE do estilo daquela camada; o 18 da ortoimagem é decisão do dono, e não leitura de fonte, porque o módulo do cliente ainda é a URL de demonstração do MapLibre.
+
+**A RECUSA TEM DE SER NOMEADA, e apagar a chave do schema não bastava.** `map2d` é `.unknown(true)`: uma chave apenas retirada passaria como desconhecida, seria gravada em `config_settings` e voltaria a vencer o valor fixo no deep-merge. Daí `Joi.any().forbidden()`, o mesmo gesto que a cláusula 2.4 já usava para o vídeo de prévia do mapa base. E porque borda de entrada não alcança linha JÁ gravada, `podarZoomDeAplicacao` roda também na LEITURA de `getAppConfig`: um documento escrito antes desta mudança não derruba o valor fixo, e cicatriza no salvamento seguinte. Preso por `backend/tests/integration/config-effective-invariant.repro.test.js`, cujo insumo degenerado é escrito DIRETO no banco, porque a API já não consegue produzi-lo.
+
+**A ORDEM DE ESCRITA ERA A METADE NÃO ÓBVIA, e foi medida no bundle em uso, não deduzida da documentação.** `frontend/public/vendors/maplibre-gl.js`: `Map.setMinZoom(e)` só age se `e <= transform.maxZoom` e `Map.setMaxZoom(e)` só age se `e >= transform.minZoom`; fora disso as duas LEVANTAM, e as duas comparações são inclusivas (faixa degenerada `[2, 2]` passa). A ordem ingênua estoura ao sair de um mapa base de teto BAIXO para um de piso ALTO, que é troca corriqueira. A faixa passou a se escrever em TRÊS chamadas, baixando primeiro o piso ao chão da aplicação, o que torna as três válidas em qualquer ordem de troca sem um ramo condicional. `frontend/tests/unit/basemap-faixa-de-zoom.test.js` dirige um mapa falso que impõe essas guardas literais, e traz o CONTROLE NEGATIVO: o mesmo insumo, na ordem ingênua, levanta.
+
+**A ARMADILHA DO BOOT.** A aplicação da faixa roda FORA do `if (this.currentLayer !== layer)` de `switchLayer`. O getter de `currentLayer` devolve `carta-topografica` quando não há estado e o mapa NASCE com esse estilo (`map_sig.js`), então no boot mais comum o bloco inteiro é pulado, e uma implementação dentro dele nunca aplicaria a faixa do mapa base inicial.
+
+**O MINI-MAPA DO 360 ENTROU JUNTO**, por decisão do dono na mesma sessão. Ele carregava um estilo OSM escrito à mão em `street-view-mini-map-style.js`, com URL de tile e de glifo próprias, fora do catálogo: num deploy sem saída para a internet o mapa principal vinha do tile server interno e o mini-mapa ficava em branco, sem erro e sem lugar onde o administrador consertasse. Passa a escolher um MAPA BASE do catálogo (`streetView360.miniMapBasemap`, com seletor próprio no painel), e SÓ o mapa base: a faixa de zoom vem da linha daquele mapa base, porque um par próprio aqui seria o terceiro nível de zoom que esta decisão acabou de eliminar. Consequência registrada: o `minZoom: 11` que o mini-mapa tinha escrito à mão SAI, então um mapa base de piso 2 deixa o mini-mapa afastar até 2. O `maxZoom: 17.9` que morava na mesma linha era cópia do teto antigo da aplicação, e teria ficado órfã.
+
+**A PERMISSÃO NÃO É NOVA, e conferi antes de escrever uma linha de gate.** `fn_can_produce_resource` (`008_acesso_a_recurso.sql`) devolve `v_owner_org IS NOT NULL AND v_owner_org = v_scope`, com administrador saindo `true` antes. É exatamente a regra pedida. A consequência que surpreende: as cinco linhas semeadas são institucionais (`owner_org_id` NULL), então nenhum produtor ajusta o zoom delas, e na prática o zoom dos cinco é do administrador.
+
+**Baseline reescrita, e não migração nova**, pelo que `backend/CLAUDE.md` autoriza enquanto nenhum banco fora do branch a aplicou. Banco de desenvolvimento migrado antes não é alcançável por upgrade: `node scripts/dev-db.js recreate`.
+
+**Raio de explosão.** O maior é o teto subindo de 17.9 para 21, que muda o zoom máximo de toda tela do produto; ele é contido pelo seed das cinco linhas, e o que sobra é o mapa base novo criado sem declarar faixa, que vale a faixa inteira por omissão. O segundo é o mini-mapa do 360, que passa a depender do catálogo: sem mapa base que resolva, o estilo local antigo continua sendo o último recurso, porque `setStyle(undefined)` deixaria o mini-mapa em branco sem erro nenhum.
+
+**Status:** aceita.
+
 ### 2026-08-31: o visualizador 3D deixa de vazar por abertura, e o laço de render para quando ele fecha
 
 **Origem.** Pergunta do dono: se há vazamento de memória no mapa, no 360 ou no 3D. A resposta veio de bancada, e não de leitura de código: uma sonda de recurso vivo (listener, contexto WebGL, objeto de GPU, `ImageBitmap`, timer) mais a memória privada do processo separada por tipo, contra dado real (`serra_dourada` em 3D Tiles, `museu-1cgeo` em primeira pessoa, o projeto `museu_cms` com 76 panorâmicas).

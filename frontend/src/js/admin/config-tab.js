@@ -126,6 +126,28 @@ class ConfigTab {
         const maxPitch = number(form, 'Inclinação máxima', 'admin-config-map2d-maxpitch', eff.map2d?.maxPitch);
         const globe = check(form, 'Projeção globo', 'admin-config-map2d-globe', !!eff.map2d?.globe_projection);
 
+        heading(form, 'Visualizador 360');
+        // SÓ O MAPA BASE, e não uma faixa de zoom própria (decisão do dono, 2026-08-31): o
+        // zoom do mini-mapa vem da linha de catálogo do mapa base escolhido, que é o único
+        // lugar do produto onde zoom se configura.
+        //
+        // A lista sai dos mapas base HABILITADOS do catálogo, na ordem de prioridade, que é a
+        // mesma que o seletor principal mostra. Oferecer um desabilitado seria oferecer uma
+        // escolha que o cliente não consegue desenhar.
+        const basesDisponiveis = Object.entries(eff.basemaps ?? {})
+            .filter(([, b]) => b?.enabled !== false)
+            .sort((a, b) => (a[1]?.priority ?? 0) - (b[1]?.priority ?? 0))
+            .map(([id, b]) => ({ value: id, label: b?.name ? `${b.name} (${id})` : id }));
+        const miniMapa = selectOne(
+            form, 'Mapa base do mini-mapa do 360', 'admin-config-sv360-minimapa',
+            basesDisponiveis, eff.streetView360?.miniMapBasemap ?? '',
+        );
+        const miniHint = document.createElement('p');
+        miniHint.className = 'admin-form__hint';
+        miniHint.textContent = 'O mini-mapa herda a faixa de zoom do mapa base escolhido, '
+            + 'configurada na aba Catálogo. Vale no próximo carregamento da página.';
+        form.appendChild(miniHint);
+
         heading(form, 'Serviços');
         const tileUrl = text(form, 'Servidor de tiles da grade UTM (URL)', 'admin-config-tileurl',
             eff.services?.tileServerUrl ?? '');
@@ -201,6 +223,10 @@ class ConfigTab {
             diffNum(map2dDiff, 'maxPitch', maxPitch, eff.map2d?.maxPitch);
             diffBool(map2dDiff, 'globe_projection', globe.checked, !!eff.map2d?.globe_projection);
             if (Object.keys(map2dDiff).length) payload.map2d = map2dDiff;
+
+            if (miniMapa.value !== (eff.streetView360?.miniMapBasemap ?? '')) {
+                payload.streetView360 = { miniMapBasemap: miniMapa.value };
+            }
 
             if (tileUrl.value.trim() !== (eff.services?.tileServerUrl ?? '')) {
                 payload.services = { tileServerUrl: tileUrl.value.trim() };
@@ -292,6 +318,40 @@ function field(form, label, testid, type, value) {
     wrap.appendChild(input);
     form.appendChild(wrap);
     return input;
+}
+
+/**
+ * Um `<select>` de opções `{value, label}`, com o valor corrente pré-selecionado.
+ *
+ * O VALOR CORRENTE ENTRA NA LISTA MESMO QUE NÃO ESTEJA NELA, e essa é a razão de a função não
+ * ser três linhas: se o mapa base configurado tiver sido apagado ou desabilitado no catálogo,
+ * um `<select>` que só oferecesse os vivos mostraria OUTRO item selecionado, e salvar qualquer
+ * coisa na aba trocaria a configuração em silêncio. A opção órfã aparece nomeada como
+ * indisponível, e quem mudar mudará de propósito.
+ */
+function selectOne(form, label, testid, options, value) {
+    const wrap = document.createElement('div');
+    wrap.className = 'admin-form__field';
+    const lab = document.createElement('label');
+    lab.textContent = label;
+    lab.setAttribute('for', testid);
+    wrap.appendChild(lab);
+    const sel = document.createElement('select');
+    sel.id = testid;
+    sel.dataset.testid = testid;
+    const lista = options.some((o) => o.value === value) || !value
+        ? options
+        : [...options, { value, label: `${value} (indisponível)` }];
+    for (const opt of lista) {
+        const el = document.createElement('option');
+        el.value = opt.value;
+        el.textContent = opt.label;
+        el.selected = opt.value === value;
+        sel.appendChild(el);
+    }
+    wrap.appendChild(sel);
+    form.appendChild(wrap);
+    return sel;
 }
 
 function check(form, label, testid, checked) {

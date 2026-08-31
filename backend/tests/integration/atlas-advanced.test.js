@@ -57,23 +57,27 @@ describe('Atlas Advanced', () => {
     it('merges settings without overwriting existing keys', async () => {
       const atlas = await createAtlas(db, owner.id, { name: 'Settings Merge Atlas' });
 
-      // First PATCH: set exaggeration
+      // As duas chaves eram `min_zoom` e `max_zoom` até 2026-08-31, quando o zoom de atlas
+      // foi removido. O que este caso mede é a FUSÃO, não o zoom, então ele passa a usar
+      // duas outras chaves escalares independentes do documento de settings.
+
+      // First PATCH: set one key
       await supertest(app)
         .patch(`/api/v1/atlas/${atlas.id}/settings`)
         .set('Authorization', `Bearer ${ownerToken}`)
-        .send({ min_zoom: 5 })
+        .send({ default_basemap: 'osm' })
         .expect(200);
 
       // Second PATCH: set a different key
       const res = await supertest(app)
         .patch(`/api/v1/atlas/${atlas.id}/settings`)
         .set('Authorization', `Bearer ${ownerToken}`)
-        .send({ max_zoom: 18 })
+        .send({ bounds_2d: [[-45, -23], [-42, -21]] })
         .expect(200);
 
       // Both settings should coexist
-      assert.equal(res.body.data.settings.min_zoom, 5);
-      assert.equal(res.body.data.settings.max_zoom, 18);
+      assert.equal(res.body.data.settings.default_basemap, 'osm');
+      assert.deepEqual(res.body.data.settings.bounds_2d, [[-45, -23], [-42, -21]]);
     });
 
     it('deep-merges nested settings objects', async () => {
@@ -115,7 +119,7 @@ describe('Atlas Advanced', () => {
         // allowlist: o caso reprovaria por estar CERTO. Com os dois publicos ele vira o
         // controle POSITIVO da poda de settings, que a metade negativa mede em
         // `clone-poda-por-destinatario.test.js`.
-        .send({ basemaps: ['osm', 'imagens'], min_zoom: 3 })
+        .send({ basemaps: ['osm', 'imagens'], default_basemap: 'osm' })
         .expect(200);
 
       // Add maps with features
@@ -140,7 +144,7 @@ describe('Atlas Advanced', () => {
 
       // Settings should be preserved
       assert.deepEqual(cloned.settings.basemaps, ['osm', 'imagens']);
-      assert.equal(cloned.settings.min_zoom, 3);
+      assert.equal(cloned.settings.default_basemap, 'osm');
 
       // Maps should be cloned
       assert.ok(cloned.maps.length >= 1);

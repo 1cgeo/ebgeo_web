@@ -285,7 +285,11 @@ const ORCAMENTO = Object.freeze({
     azimuth_distance_tool: 0,
     processing: 10,
     attribute_table: 10,
-    street_view_tool: 9,
+    // 10 desde 2026-08-31: `mini-mapa-base.js`, que decide qual mapa base do CATÁLOGO o
+    // mini-mapa desenha e em que faixa de zoom. Ele é ansioso porque o construtor do
+    // MapLibre precisa do estilo e da faixa na hora, e o peso que ele traz é o do
+    // `baselayers/index.js` (os cinco estilos), que a página do mapa já carrega.
+    street_view_tool: 10,
     briefing: 8,
     measurement_tool: 3,
     analysis_tools: 0,

@@ -63,6 +63,20 @@ const BASELINE = 'le-o-singleton-config';
 const DONO_BASELINE = 'dono-do-baseline';
 const SEM_OVERLAY = 'le-config-fora-do-app-do-mapa';
 const SEM_EIXO = 'nao-e-catalogo';
+/**
+ * Toca o catálogo SEM importar o singleton: recebe o documento por argumento, ou o lê de uma
+ * resposta de rota. Entrou em 2026-08-31 com o mapa base do mini-mapa do 360.
+ *
+ * A CLASSE EXISTE PORQUE O DEFEITO QUE O CENSO CAÇA É A CÓPIA, e quem recebe o catálogo por
+ * argumento não tem onde guardar uma: ele lê o que lhe deram, no instante da chamada, então o
+ * overlay de recurso concedido já entrou ou já saiu quando o valor chega. Exigir dele o import
+ * do singleton seria exigir justamente o acoplamento que a forma dispensa.
+ *
+ * E ELA NÃO É PORTA DOS FUNDOS: a asserção da classe é o ESPELHO da dos outros, e o arquivo
+ * aqui classificado tem de NÃO importar o singleton. Um consumidor que passe a importá-lo fica
+ * vermelho aqui, e a classificação deixa de ser um lugar onde se estaciona o que incomoda.
+ */
+const SEM_SINGLETON = 'toca-o-catalogo-sem-o-singleton';
 
 /** Classes da família do cache de projetos 360. */
 const CACHE_360 = 'consome-o-cache-de-projetos';
@@ -107,6 +121,29 @@ const CENSO = [
     },
 
     // ================= consumidores do singleton `config` ====================
+    {
+        arquivo: 'src/js/street_view_tool/mini-mapa-base.js', gatilho: 'catalogo', n: 5,
+        classe: SEM_SINGLETON,
+        motivo: 'O mapa base do MINI-MAPA do visualizador 360, que desde 2026-08-31 sai do '
+            + 'catálogo em vez de um estilo OSM escrito à mão neste diretório (decisão do dono). '
+            + 'As cinco leituras são de duas naturezas e nenhuma é de URL: `config.basemaps` para '
+            + 'a lista de habilitados por prioridade e para a faixa de zoom da linha escolhida, e '
+            + '`config.basemapStyles` para o estilo de um id que o cliente não traz embutido. '
+            + 'A superfície é a MESMA do seletor principal, e por construção: o mini-mapa delega '
+            + 'a `resolveBasemapStyle` e a `firstStyledBasemap`, então um mapa base privado '
+            + 'concedido resolve aqui pelo mesmo caminho aditivo, e um id que o visitante não '
+            + 'alcança cai no mesmo fallback. O que ele NÃO faz é listar: o mini-mapa não é um '
+            + 'seletor, então nada aqui expõe nome de recurso a quem não o tem.',
+    },
+    {
+        arquivo: 'src/js/admin/config-tab.js', gatilho: 'catalogo', n: 1,
+        classe: SEM_SINGLETON,
+        motivo: 'A aba de configuração do administrador, que desde 2026-08-31 monta o seletor de '
+            + 'mapa base do mini-mapa do 360 a partir de `config.basemaps` do documento EFETIVO. '
+            + 'Uma leitura só, e de LISTA, o que a torna a única entrada deste censo cujo alcance '
+            + 'é decidido pela rota e não pelo arquivo: `GET /config/admin` é `requireAdmin`, e o '
+            + 'administrador lê todo recurso por cláusula 2.7 da constituição.',
+    },
     {
         arquivo: 'src/js/config.helpers.js', gatilho: 'catalogo', n: 7, classe: BASELINE,
         motivo: 'Os ajudantes de basemap (`getEnabledBasemaps`, `getValidBasemapFallback`, '
@@ -491,6 +528,17 @@ describe('Censo das superfícies de recurso no cliente (fase F9)', () => {
             .map((e) => e.arquivo);
         expect(semImport).toEqual([]);
 
+        // O ESPELHO, e é ele que impede a classe nova de virar porta dos fundos: quem foi
+        // classificado como "toca o catálogo SEM o singleton" tem de continuar sem ele. No
+        // dia em que um destes importar `config.js`, a classificação está errada e este caso
+        // diz qual arquivo é.
+        const comImport = CENSO
+            .filter((e) => e.classe === SEM_SINGLETON)
+            .filter((e) => lerCodigo(e.arquivo).includes("config.js'"))
+            .map((e) => e.arquivo);
+        expect(comImport).toEqual([]);
+        expect(CENSO.filter((e) => e.classe === SEM_SINGLETON).length).toBeGreaterThan(0);
+
         // DISCRIMINAÇÃO, e sem ela "todos importam" seria só o que se mede numa lista em
         // que todo arquivo importa tudo: o falso positivo declarado NÃO importa o
         // singleton, e é exatamente por isso que ele não é um consumidor.
@@ -538,7 +586,8 @@ describe('Censo das superfícies de recurso no cliente (fase F9)', () => {
     });
 
     it('toda entrada tem classe válida e motivo escrito', () => {
-        const classes = [BASELINE, DONO_BASELINE, SEM_OVERLAY, SEM_EIXO, CACHE_360, DONO_CACHE, OUTRO_MODULO];
+        const classes = [BASELINE, DONO_BASELINE, SEM_OVERLAY, SEM_EIXO, SEM_SINGLETON,
+            CACHE_360, DONO_CACHE, OUTRO_MODULO];
         const ruins = CENSO
             .filter((e) => !classes.includes(e.classe) || !e.motivo || e.motivo.length < 60)
             .map((e) => `${e.arquivo} (${e.gatilho})`);

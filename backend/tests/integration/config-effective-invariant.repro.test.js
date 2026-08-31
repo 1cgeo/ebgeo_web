@@ -1,35 +1,36 @@
 // Path: tests/integration/config-effective-invariant.repro.test.js
-// Regression: an admin could brick the whole app — for everyone, including
-// anonymous users — with one valid-looking config save.
 //
-// `map2d.minZoom <= maxZoom` was declared in config.admin.schemas.js, but
-// `validate({ body })` runs on the PARTIAL that arrives in the request, and the
-// custom check only fires when BOTH keys are in the same payload. The merge happens
-// afterwards in `updateConfigOverrides`, and the merged document was never
-// revalidated. Worse, revalidating the merged OVERRIDES would still not be enough:
-// the conflict is against the STATIC base (`MAP2D_BASE` is minZoom 1 / maxZoom
-// 17.9, config.static.js:23-24), which the overrides are layered onto only later,
-// in `getAppConfig`. The invariant has to be checked on the EFFECTIVE document.
+// A CLASSE DE DEFEITO QUE ESTE ARQUIVO GUARDA: um administrador emparedar o produto INTEIRO,
+// para todo mundo e o anônimo inclusive, com um salvamento de configuração de aparência
+// legítima. `map2d.minZoom` maior que `map2d.maxZoom` no documento efetivo faz o cliente
+// entregar os dois verbatim ao construtor do MapLibre, que LEVANTA; o boot é fail-fast no
+// `GET /api/config` e não tem plano B, então a aplicação para de carregar. O administrador vê
+// 200 e nenhum sinal de que alguma coisa está errada, e a recuperação
+// (`DELETE /config/admin`) existe só por curl, porque o painel que a dispararia vive no
+// frontend que não sobe mais.
 //
-// So it takes a single PUT, not two: `{"map2d":{"minZoom":20}}` validates fine and
-// yields a public /api/config serving minZoom 20 against maxZoom 17.9. And the
-// admin panel emits exactly that payload by construction — `diffNum` sends only the
-// changed key (frontend admin/config-tab.js), so an admin who edits just "Zoom
-// mínimo" produces it through normal UI use.
+// A DEFESA MUDOU DE CAMADA EM 2026-08-31, e o arquivo mudou com ela. A faixa de zoom da
+// aplicação deixou de ser configurável (decisão do dono): ela é FIXA em `MAP2D_BASE` e o
+// único nível ajustável passou a ser o do mapa base, na linha de catálogo dele. Antes o que
+// segurava era uma invariante calculada sobre o documento efetivo, e ela precisava existir
+// porque as duas chaves entravam. Agora elas não entram, e o teste que interessa é outro.
 //
-// Then: the frontend passes both values verbatim to the MapLibre constructor, which
-// throws "maxZoom must be greater than or equal to minZoom"; boot is fail-fast on
-// GET /api/config with no static fallback, so the app stops loading for everyone.
-// The admin sees a 200 and no sign anything is wrong. Recovery exists
-// (DELETE /config/admin) but only via curl — the panel that would trigger it lives
-// in the frontend that no longer boots.
+// SÃO DUAS METADES, e nenhuma prova a outra:
 //
-// Why the existing coverage missed it: config-admin.test.js:127 sends
-// `{minZoom: 20, maxZoom: 5}` — the one shape the payload-local check DOES catch.
-// It proves the validator works on the input it was written for, and never tests
-// the input the product actually produces.
+//   1. A BORDA recusa as duas chaves. Não basta tirá-las do schema: `map2d` é
+//      `.unknown(true)`, então uma chave apenas removida passaria como desconhecida, seria
+//      GRAVADA em `config_settings` e voltaria a vencer no deep-merge. A recusa é nomeada
+//      (`Joi.any().forbidden()`), e é isto que o primeiro bloco mede.
 //
-// Negative control: remove the effective-document check and test 1 returns 200.
+//   2. O DOCUMENTO JÁ GRAVADO não emparedou ninguém. Uma linha `app_config` escrita ANTES
+//      da mudança carrega `map2d.minZoom` que nenhum corpo novo menciona e que borda nenhuma
+//      alcança: ela sobrevive a toda fusão seguinte. Este é o insumo degenerado do arquivo, e
+//      ele é construído à mão, ESCREVENDO DIRETO NO BANCO, porque a API já não consegue
+//      produzi-lo. Sem esta metade, `podarZoomDeAplicacao` poderia ser apagado da leitura de
+//      `getAppConfig` sem deixar nada vermelho.
+//
+// CONTROLE NEGATIVO: tire o `forbidden` do schema e o bloco 1 vira 200; tire a poda da
+// leitura e o bloco 2 serve o zoom da linha velha.
 
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -38,7 +39,7 @@ import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createAdminUser, loginUser } from '../helpers/fixtures.js';
 import { MAP2D_BASE } from '../../src/modules/config/config.static.js';
 
-describe('config invariants hold on the EFFECTIVE document (repro)', () => {
+describe('a faixa de zoom da aplicação é fixa, e nada a derruba (repro)', () => {
   let app, db, adminTok;
 
   before(async () => {
@@ -54,8 +55,6 @@ describe('config invariants hold on the EFFECTIVE document (repro)', () => {
   });
 
   beforeEach(async () => {
-    // Each case starts from pristine overrides, so one test's partial save cannot
-    // supply the other half of another test's invariant.
     await supertest(app)
       .delete('/api/v1/config/admin')
       .set('Authorization', `Bearer ${adminTok}`);
@@ -67,71 +66,72 @@ describe('config invariants hold on the EFFECTIVE document (repro)', () => {
       .set('Authorization', `Bearer ${adminTok}`)
       .send(body);
 
-  it('refuses a lone minZoom that exceeds the STATIC maxZoom', async () => {
-    assert.ok(
-      MAP2D_BASE.maxZoom < 20,
-      `fixture: the static base must make 20 an invalid minZoom (base maxZoom=${MAP2D_BASE.maxZoom})`
-    );
+  const servido = async () => (await supertest(app).get('/api/v1/config').expect(200)).body.data.map2d;
 
+  it('o par fixo é o que o produto serve', async () => {
+    const map2d = await servido();
+    assert.equal(map2d.minZoom, MAP2D_BASE.minZoom);
+    assert.equal(map2d.maxZoom, MAP2D_BASE.maxZoom);
+    assert.ok(map2d.minZoom <= map2d.maxZoom, 'e é consistente por construção');
+  });
+
+  it('a BORDA recusa minZoom sozinho, que era o payload que o painel produzia', async () => {
+    // Era este o formato real do defeito: `diffNum` mandava só a chave que mudou, então
+    // quem editasse apenas "Zoom mínimo" produzia `{map2d:{minZoom:20}}` pelo uso normal.
     const res = await put({ map2d: { minZoom: 20 } });
-    assert.ok(
-      res.status >= 400,
-      `a save that would brick the app must be refused, got ${res.status}`
+    assert.ok(res.status >= 400, `deveria recusar, veio ${res.status}`);
+    const map2d = await servido();
+    assert.equal(map2d.minZoom, MAP2D_BASE.minZoom, 'o valor fixo continua de pé');
+  });
+
+  it('a BORDA recusa maxZoom sozinho, e o par junto, mesmo quando consistente', async () => {
+    assert.ok((await put({ map2d: { maxZoom: 16 } })).status >= 400);
+    assert.ok((await put({ map2d: { minZoom: 4, maxZoom: 16 } })).status >= 400,
+      'consistente ou não, a chave não é mais configurável');
+    const map2d = await servido();
+    assert.equal(map2d.maxZoom, MAP2D_BASE.maxZoom);
+  });
+
+  it('e a recusa NOMEIA o campo, em vez de reprovar a aba inteira em silêncio', async () => {
+    const res = await put({ map2d: { minZoom: 20 } });
+    assert.match(JSON.stringify(res.body), /[Zz]oom/);
+  });
+
+  it('o RESTO de map2d continua editável: a recusa é das duas chaves, não da seção', async () => {
+    await put({ map2d: { maxPitch: 70 } }).expect(200);
+    const map2d = await servido();
+    assert.equal(map2d.maxPitch, 70, 'o override legítimo aplica');
+    assert.equal(map2d.minZoom, MAP2D_BASE.minZoom, 'e o zoom fixo não se move junto');
+  });
+
+  it('O DOCUMENTO VELHO: uma linha gravada antes da mudança NÃO derruba o valor fixo', async () => {
+    // O insumo degenerado, escrito DIRETO no banco porque a API já não o produz. É a forma
+    // exata que emparedava: minZoom acima do teto estático.
+    await db.query(
+      `INSERT INTO config_settings (key, value) VALUES ('app_config', $1::jsonb)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify({ map2d: { minZoom: 20, maxZoom: 3, maxPitch: 70 } })],
     );
 
-    // The real assertion is not the status but what the public endpoint now serves.
-    const cfg = await supertest(app).get('/api/v1/config').expect(200);
-    const { minZoom, maxZoom } = cfg.body.data.map2d;
-    assert.ok(
-      minZoom <= maxZoom,
-      `/api/config must never serve minZoom > maxZoom (got ${minZoom} > ${maxZoom})`
+    const map2d = await servido();
+    assert.equal(map2d.minZoom, MAP2D_BASE.minZoom, 'a linha velha não vence a poda da leitura');
+    assert.equal(map2d.maxZoom, MAP2D_BASE.maxZoom);
+    assert.ok(map2d.minZoom <= map2d.maxZoom, 'e o produto nunca serve um par que emparede');
+    assert.equal(map2d.maxPitch, 70, 'o resto da linha velha continua valendo: a poda é cirúrgica');
+  });
+
+  it('e o próximo salvamento CICATRIZA a linha velha, em vez de conviver com ela', async () => {
+    await db.query(
+      `INSERT INTO config_settings (key, value) VALUES ('app_config', $1::jsonb)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify({ map2d: { minZoom: 20, maxZoom: 3 } })],
     );
-  });
 
-  it('refuses the invariant broken across TWO successive saves', async () => {
-    // Each half is individually harmless; only the merged document is invalid.
-    const first = await put({ map2d: { minZoom: 10 } });
-    assert.equal(first.status, 200, 'a minZoom below the static maxZoom is a legitimate save');
+    await put({ map2d: { maxPitch: 65 } }).expect(200);
 
-    const second = await put({ map2d: { maxZoom: 5 } });
-    assert.ok(second.status >= 400, `the merged document is invalid, got ${second.status}`);
-
-    const cfg = await supertest(app).get('/api/v1/config').expect(200);
-    const { minZoom, maxZoom } = cfg.body.data.map2d;
-    assert.ok(minZoom <= maxZoom, `still consistent (got ${minZoom} > ${maxZoom})`);
-  });
-
-  it('still accepts a legitimate partial save', async () => {
-    // The fix must not turn every partial save into a rejection: the whole point of
-    // the merge is that an admin can edit one field without resending the rest.
-    await put({ map2d: { minZoom: 3 } }).expect(200);
-
-    const cfg = await supertest(app).get('/api/v1/config').expect(200);
-    assert.equal(cfg.body.data.map2d.minZoom, 3, 'the legitimate override applies');
-    assert.equal(
-      cfg.body.data.map2d.maxZoom, MAP2D_BASE.maxZoom,
-      'and the untouched half keeps its static value'
-    );
-  });
-
-  it('still accepts both keys together when they are consistent', async () => {
-    await put({ map2d: { minZoom: 4, maxZoom: 16 } }).expect(200);
-
-    const cfg = await supertest(app).get('/api/v1/config').expect(200);
-    assert.equal(cfg.body.data.map2d.minZoom, 4);
-    assert.equal(cfg.body.data.map2d.maxZoom, 16);
-  });
-
-  it('lowering maxZoom below an ALREADY saved minZoom is refused', async () => {
-    await put({ map2d: { minZoom: 12 } }).expect(200);
-
-    // The stored override is now the other side of the invariant — the case that
-    // makes checking only the incoming payload insufficient.
-    const res = await put({ map2d: { maxZoom: 8 } });
-    assert.ok(res.status >= 400, `got ${res.status}`);
-
-    const cfg = await supertest(app).get('/api/v1/config').expect(200);
-    const { minZoom, maxZoom } = cfg.body.data.map2d;
-    assert.ok(minZoom <= maxZoom, `still consistent (got ${minZoom} > ${maxZoom})`);
+    const { rows } = await db.query("SELECT value FROM config_settings WHERE key = 'app_config'");
+    assert.equal(rows[0].value.map2d.minZoom, undefined, 'a chave morta some do documento gravado');
+    assert.equal(rows[0].value.map2d.maxZoom, undefined);
+    assert.equal(rows[0].value.map2d.maxPitch, 65);
   });
 });

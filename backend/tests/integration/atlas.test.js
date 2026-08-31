@@ -147,6 +147,10 @@ describe('Atlas API', () => {
       .send({
         features: { map_3d: false, panoramic_images: true, terrain_3d: false },
         basemaps: ['carta-topografica'],
+        // O ZOOM DE ATLAS SAIU em 2026-08-31 (decisão do dono), e o par continua sendo
+        // ENVIADO de propósito: é a prova, ponta a ponta, de que um cliente antigo que
+        // ainda o mande não derruba o PATCH nem grava chave morta. O `stripUnknown` de
+        // `validate.js` o descarta antes do banco.
         min_zoom: 8,
         max_zoom: 15,
       })
@@ -154,8 +158,8 @@ describe('Atlas API', () => {
 
     assert.equal(res.body.data.settings.features.map_3d, false);
     assert.deepEqual(res.body.data.settings.basemaps, ['carta-topografica']);
-    assert.equal(res.body.data.settings.min_zoom, 8);
-    assert.equal(res.body.data.settings.max_zoom, 15);
+    assert.equal(res.body.data.settings.min_zoom, undefined, 'o zoom de atlas não é gravado');
+    assert.equal(res.body.data.settings.max_zoom, undefined, 'o zoom de atlas não é gravado');
   });
 
   it('POST /atlas/:id/clone — creates a deep copy', async () => {

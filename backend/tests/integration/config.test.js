@@ -118,11 +118,17 @@ describe('Config endpoint (GET /api/v1/config)', () => {
     const cfg = (await supertest(app).get('/api/v1/config').expect(200)).body.data;
     assert.equal(typeof cfg.basemaps, 'object');
     assert.ok(!Array.isArray(cfg.basemaps));
+    // A COMPARAÇÃO É EXATA de propósito: ela é o que pega uma chave a mais escapando do
+    // `config` da linha para o payload público. `minzoom`/`maxzoom` entraram em 2026-08-31
+    // com a faixa de zoom por mapa base, e o `19` é o `maxzoom` da FONTE do estilo desta
+    // camada, não um número escolhido.
     assert.deepEqual(cfg.basemaps['carta-topografica'], {
       name: 'Topográfica',
       enabled: true,
       image: './images/layers/carta-topografica-thumb.png',
       priority: 1,
+      minzoom: 2,
+      maxzoom: 19,
     });
   });
 

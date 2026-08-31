@@ -50,11 +50,19 @@ Se o modal lesse `config.dataLayers.layers`, leria a lista **já filtrada pelo o
 
 Corolário na direção oposta: o modal só oferece basemaps habilitados no deploy (`frontend/src/js/modals/atlas-settings.modal.js`), porque um basemap desabilitado seria marcável sem jamais aparecer no seletor. As vistas 360 vivem **fora** de `config` (cache de preflight do sv360), então a allowlist é lida à parte via `getAtlas360Allowlist()`. Ver [[streetview-360]], [[resources-catalogo]] e [[config-dinamico]].
 
+## O zoom saiu daqui em 2026-08-31
+
+`min_zoom` e `max_zoom` **não existem mais** em `settings`, por decisão do dono. Eram o caso mais puro de contrato reservado: validados, persistidos, clonados, cobertos por teste, e lidos por nenhum consumidor de comportamento. O que se ganhava mantendo-os era um relato futuro de "o limite de zoom do atlas não funciona" que não seria bug.
+
+A faixa de zoom passou a ter dois níveis, e só um é configurável. A **aplicação** é fixa em `[2, 21]` (`MAP2D_BASE`, em `backend/src/modules/config/config.static.js`), e o override do administrador recusa as duas chaves com 422 nomeado. O **mapa base** aperta dentro dela por `config.minzoom`/`config.maxzoom` da linha de catálogo, editável por administrador ou pelo produtor da OM dona. Ver [[resources-catalogo]] e [[config-dinamico]].
+
+A remoção foi feita reescrevendo a baseline (`003_atlas.sql`), o que é honesto enquanto nenhum banco fora do branch a aplicou. Banco de desenvolvimento migrado antes disso não é alcançável por upgrade: recrie com `node scripts/dev-db.js recreate`.
+
 ## Campos aceitos mas não consumidos
 
-`bounds_2d`, `min_zoom`, `max_zoom` e `default_basemap` são validados, persistidos e devolvidos no GET, mas **nenhum consumidor de comportamento do frontend os lê**: o modal nem os envia e `intersectAvailability` não os considera. São contrato reservado, não comportamento. Um relato de "limite de zoom não funciona" não é bug: é feature ausente.
+`bounds_2d` e `default_basemap` são validados, persistidos e devolvidos no GET, mas **nenhum consumidor de comportamento do frontend os lê**: o modal nem os envia e `intersectAvailability` não os considera. São contrato reservado, não comportamento.
 
-A conferência disso **não** é um `grep` pelos identificadores, e a diferença já enganou esta página: `default_basemap` tem ocorrência viva em `frontend/src/js/catalog/resource-reference.registry.js`, na entrada `settings.default_basemap`, que é o inventário de onde um id de catálogo mora dentro de um atlas ([[sair-do-servidor]]). Aparecer num inventário de referência não é ter leitor de comportamento, e é exatamente por isso que a receita por ausência de ocorrência falha: o que se procura é quem MUDA a tela a partir do valor, não quem cita o nome.
+A conferência disso **não** é um `grep` pelos identificadores, e a diferença já enganou esta página duas vezes. A primeira foi o zoom, que ficou aqui listado como reservado por meses até virar remoção. A segunda: `default_basemap` tem ocorrência viva em `frontend/src/js/catalog/resource-reference.registry.js`, na entrada `settings.default_basemap`, que é o inventário de onde um id de catálogo mora dentro de um atlas ([[sair-do-servidor]]). Aparecer num inventário de referência não é ter leitor de comportamento, e é exatamente por isso que a receita por ausência de ocorrência falha: o que se procura é quem MUDA a tela a partir do valor, não quem cita o nome.
 
 ## Pontos de contato
 

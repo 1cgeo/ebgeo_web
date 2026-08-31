@@ -153,12 +153,21 @@ describe('PUT /config/admin: save parcial concorrente não perde seção (item 7
 
   it('payload inválido faz rollback: não sobra documento vazio onde não havia nenhum', async () => {
     // O `INSERT ... ON CONFLICT DO UPDATE` que toma o lock também CRIA a linha quando
-    // ela não existe. Fora de transação isso deixaria um `{}` para trás sempre que a
-    // validação do documento efetivo recusasse o save.
+    // ela não existe. Fora de transação isso deixaria um `{}` para trás sempre que o
+    // save falhasse depois do lock.
+    //
+    // O INSUMO ERA `{map2d:{minZoom:20}}`, recusado por uma invariante calculada sobre o
+    // documento efetivo. Ela saiu em 2026-08-31 com a faixa fixa de zoom: as duas chaves
+    // não entram mais, então a recusa mudou de camada e passou a ser 422 na BORDA, antes de
+    // qualquer transação. O caso teria virado verde por falta de falha, medindo nada.
+    //
+    // O INSUMO NOVO FALHA DEPOIS DO LOCK, que é a única posição que exerce este rollback: um
+    // NUL (`\u0000`) dentro de uma string. Ele atravessa `JSON.stringify` como texto válido e
+    // morre no cast `::jsonb` do UPSERT, que é a linha seguinte ao lock. É alcançável de
+    // verdade por HTTP, ao contrário de um objeto que só existe em memória.
     await assert.rejects(
-      () => updateConfigOverrides({ map2d: { minZoom: 20 } }, null),
-      /minZoom/,
-      'minZoom acima do maxZoom ESTÁTICO precisa continuar recusado'
+      () => updateConfigOverrides({ app: { title: 'antes\u0000depois' } }, null),
+      'um payload que o Postgres recusa precisa derrubar a transação inteira'
     );
 
     const { rows } = await db.query('SELECT value FROM config_settings WHERE key = $1', [CHAVE]);

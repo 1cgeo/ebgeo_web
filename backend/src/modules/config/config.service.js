@@ -311,6 +311,20 @@ async function buildAppConfig() {
     // template; the frontend selects the layer via pointsSourceLayer/linesSourceLayer.
     streetView360: {
       serviceUrl: C.sv360ServiceUrl,
+      // O MAPA BASE DO MINI-MAPA do visualizador 360, escolhido pelo administrador (decisão
+      // do dono, 2026-08-31). Antes o mini-mapa carregava um estilo OSM ESCRITO À MÃO no
+      // cliente (`street-view-mini-map-style.js`), com URL de tile e de glifo próprias: um
+      // deploy sem saída para a internet tinha o mapa principal servido pelo tile server
+      // interno e o mini-mapa em branco, sem erro nenhum, porque o estilo dele não passava
+      // pelo catálogo.
+      //
+      // A ESCOLHA É SÓ O MAPA BASE, e não uma segunda faixa de zoom: a faixa vem da linha de
+      // catálogo do mapa base escolhido, como em qualquer outro mapa do produto.
+      //
+      // O PADRÃO É `osm` porque é o que o mini-mapa desenhava. A chave guarda um id, e não um
+      // estilo: um id que não resolve cai no fallback do cliente, do mesmo jeito que um mapa
+      // base removido do catálogo cai no seletor principal.
+      miniMapBasemap: S.STREETVIEW360_BASE.miniMapBasemap,
       pointsSource: { type: 'vector', tiles: [`${C.sv360ServiceUrl}/tiles/{z}/{x}/{y}.pbf`] },
       pointsSourceLayer: 'fotos',
       linesSource: { type: 'vector', tiles: [`${C.sv360ServiceUrl}/tiles/{z}/{x}/{y}.pbf`] },

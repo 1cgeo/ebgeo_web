@@ -45,6 +45,14 @@ stubGlobais();
 vi.mock('../../src/js/config.js', () => ({
     default: {
         features: { imagens_panoramicas: true },
+        // O DUBLÊ CARREGA `map2d` e `basemaps` desde 2026-08-31, e não por completude: o
+        // mini-mapa passou a herdar mapa base e faixa de zoom do catálogo
+        // (`mini-mapa-base.js`), então um `config` sem essas duas chaves não é um `config`
+        // pobre, é um que o cliente real nunca produz (o piso estrutural de
+        // `frontend/src/js/config.js` garante `map2d`).
+        map2d: { minZoom: 2, maxZoom: 21 },
+        basemaps: { osm: { name: 'OSM', enabled: true, priority: 1, minzoom: 2, maxzoom: 19 } },
+        basemapStyles: {},
         streetView360: {
             serviceUrl: '/api/v1/sv360',
             pointsSource: { type: 'vector', tiles: [TEMPLATE] },

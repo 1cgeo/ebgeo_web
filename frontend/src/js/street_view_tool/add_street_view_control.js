@@ -21,6 +21,7 @@ import { fetchNearestPhoto, sv360AtlasScope, sv360TileSource } from './streetvie
 import { credencialDeTile } from '../map/credencial-de-tile.js';
 import { rebuildScopedSource } from './tile-scope.js';
 import { STYLE_MINI_MAPA } from './street-view-mini-map-style.js';
+import { estiloDoMiniMapa, faixaDoMiniMapa } from './mini-mapa-base.js';
 import { photo360Failures } from './photo360-failure.js';
 
 // Property carrying the photo id on the 360 photo features.
@@ -248,11 +249,20 @@ class AddStreetViewControl {
         if (!this.miniMap) {
             this.miniMap = new maplibregl.Map({
                 container: 'mini-map-street-view',
-                style: STYLE_MINI_MAPA,
+                // O MAPA BASE DO MINI-MAPA VEM DO CATÁLOGO desde 2026-08-31 (decisão do dono),
+                // escolhido pelo administrador em `streetView360.miniMapBasemap`. O
+                // `STYLE_MINI_MAPA` escrito à mão vira o ÚLTIMO fallback, e não some: se o id
+                // configurado não resolver e nenhum mapa base do catálogo resolver, um estilo
+                // local ainda desenha alguma coisa, e `setStyle(undefined)` deixaria o
+                // mini-mapa em branco sem erro nenhum.
+                style: estiloDoMiniMapa(config, STYLE_MINI_MAPA),
                 attributionControl: false,
                 zoom: 12.5,
-                minZoom: 11,
-                maxZoom: 17.9,
+                // A FAIXA VEM DO MAPA BASE ESCOLHIDO, e não é mais um par escrito aqui. O
+                // `maxZoom: 17.9` que morava nesta linha era uma CÓPIA à mão do teto antigo da
+                // aplicação, e ficou órfã quando o teto virou 21: o mini-mapa desenhava um
+                // limite que nenhuma outra tela tinha.
+                ...faixaDoMiniMapa(config),
                 validateStyle: false,
                 // O minimapa carrega a fonte de PONTOS do 360, os mesmos tiles
                 // flexibleAuth do mapa principal, e por isso precisa do mesmo

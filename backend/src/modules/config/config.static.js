@@ -72,6 +72,19 @@ export const MAP2D_BASE = {
   },
 };
 
+/**
+ * O que o visualizador 360 tem de configurável e não vem de env.
+ *
+ * Hoje é um campo só: qual MAPA BASE o mini-mapa desenha. A faixa de zoom dele NÃO mora aqui,
+ * de propósito, e essa é a decisão (do dono, 2026-08-31): ela vem da linha de catálogo do mapa
+ * base escolhido, que é o único lugar do produto onde zoom se configura. Um segundo par de
+ * `minZoom`/`maxZoom` aqui seria um terceiro nível de zoom, e o produto acabou de reduzir três
+ * a um.
+ */
+export const STREETVIEW360_BASE = {
+  miniMapBasemap: 'osm',
+};
+
 export const MAP3D_BOUNDS = { west: -58.1, south: -33.8, east: -48.0, north: -22.5 };
 
 export const MAP3D_VIEWER = {

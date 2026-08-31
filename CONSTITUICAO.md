@@ -117,8 +117,21 @@ modo que recurso de outra OM devolve não-encontrado em vez de proibido. Preso p
 `backend/tests/integration/produtor-define-visibilidade.test.js`.
 
 **2.4** O produtor **mantém** o acervo da própria organização: cria, edita e remove as linhas de catálogo
-dela, incluindo nome, metadados, miniatura e vídeo de prévia. Recurso institucional, sem organização dona,
-não é de produtor nenhum. **[vigente]**
+dela, incluindo nome, metadados, miniatura, vídeo de prévia e a faixa de zoom do mapa base. Recurso
+institucional, sem organização dona, não é de produtor nenhum. **[vigente]**
+
+**A FAIXA DE ZOOM DO MAPA BASE É O ÚNICO NÍVEL DE ZOOM CONFIGURÁVEL DO PRODUTO.** Decisão do dono,
+2026-08-31: a aplicação é fixa em `[2, 21]`, o administrador não a edita mais, e o atlas não tem zoom
+nenhum (existiu como contrato reservado e foi removido junto). O mapa base APERTA dentro da faixa fixa por
+`config.minzoom`/`config.maxzoom`, entre 2 e 21, e não a afrouxa. Preso por
+`backend/tests/unit/basemap-faixa-de-zoom.test.js`, `frontend/tests/unit/basemap-faixa-de-zoom.test.js` e
+`backend/tests/integration/config-effective-invariant.repro.test.js`.
+
+A consequência da própria cláusula, e ela é a que surpreende: as CINCO linhas de mapa base semeadas são
+institucionais (`owner_org_id` NULL), e `fn_can_produce_resource` devolve
+`v_owner_org IS NOT NULL AND v_owner_org = v_scope`, então **nenhum produtor ajusta o zoom delas**. Na
+prática o zoom dos cinco é do administrador, e o do produtor é o dos mapas base que a OM dele criou. Isto
+não é gate novo: é a mesma regra desta cláusula aplicada a um campo novo.
 
 **MANTER A LINHA NÃO É INGERIR OS BYTES, e os dois acervos divergem nisso.** Decisão do dono, 2026-08-24: o
 360 ganha tela de envio de bundle (a rota `POST /sv360/admin/projects/upload` já existia, já era

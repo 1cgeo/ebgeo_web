@@ -114,6 +114,7 @@ viram commit, teste e, se ensinaram algo, linha no [`docs/livro-razao.md`](../li
 | 2026-08-29 | O botão "Prévia" sai do cartão do catálogo geral (envio no admin e dado ficam) | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-30 | A troca de atlas volta a NAVEGAR para atlas.html; o modal de troca ao vivo sai (a capacidade fica) | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-31 | O visualizador 3D deixa de vazar listener e de refazer o tileset a cada abertura; o laço de render para quando ele fecha | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-31 | O zoom mínimo e máximo passa a ser do mapa base; o da aplicação vira fixo em [2, 21] e o do atlas é removido | [decisions-2026.md](decisions-2026.md) |
 
 As duas linhas de 2026-08-16 acima entraram em 2026-08-18: as entradas integrais existiam no arquivo
 do ano e ninguém acrescentara a linha aqui, que é a metade do procedimento que falha calada (o índice

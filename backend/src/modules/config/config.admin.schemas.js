@@ -67,7 +67,18 @@ export const configOverridesSchema = Joi.object({
   // e o cliente deriva a rota da própria base da API. Ligar/desligar continua em
   // `features.apisearch`. Mantido como objeto aberto para não quebrar payloads antigos.
   search: Joi.object().unknown(true),
-  streetView360: Joi.object().unknown(true),
+  // `miniMapBasemap` é DECLARADA, e o objeto continua `.unknown(true)` para não fechar o que
+  // o editor "Avançado (JSON)" já aceitava. Declarar dá borda ao campo que o painel passou a
+  // oferecer: um id de mapa base é um slug de catálogo (`VARCHAR(100)`), e um valor gordo ou
+  // não-texto morre aqui em 422, em vez de virar `setStyle` de um id que não existe.
+  //
+  // O QUE ELA NÃO CHECA é se o id EXISTE, e a omissão é deliberada: o catálogo muda por outra
+  // rota, então um mapa base apagado depois deixaria a configuração inválida sem que ninguém
+  // salvasse nada. Quem resolve isso é o cliente, caindo no fallback, que é a mesma resposta
+  // que ele já dá para um mapa base que sumiu do seletor principal.
+  streetView360: Joi.object({
+    miniMapBasemap: Joi.string().trim().max(100).allow(''),
+  }).unknown(true),
   analysisLayers: Joi.object().unknown(true),
   dataLayers: Joi.object().unknown(true),
   assets3dBaseUrl: Joi.string().max(500).allow(''),
