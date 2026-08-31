@@ -81,6 +81,41 @@ export async function seedTileset(dbName, {
 }
 
 /**
+ * Registra o modelo 3D CONVERTIDO que serve os bytes de um tileset, em `a3d.models`.
+ *
+ * POR QUE UM SEMEADOR SEPARADO DO TILESET. As duas metades de um modelo moram em tabelas
+ * diferentes e respondem a perguntas diferentes: `public.tilesets` é o CATÁLOGO (o que o
+ * cliente vê e quem pode vê-lo) e `a3d.models` é a PRODUÇÃO (qual arquivo `.3dtiles` serve
+ * aqueles bytes). `resolverModelo3d` faz o JOIN das duas, então um tileset com linha de
+ * catálogo e sem linha de produção responde **404** em `/api/v1/assets3d/m/<id>/...`, com a
+ * mensagem "3D model not found" e nenhum outro sinal.
+ *
+ * ISSO CUSTOU UMA MEDIDA ERRADA em 2026-08-31: um spec que só semeava o tileset abria o
+ * visualizador, via o modelo falhar, voltava para o 2D e ficava verde por outro caminho. Um
+ * ambiente incompleto se parece com defeito do produto, e a diferença entre os dois é
+ * exatamente esta linha.
+ *
+ * O ARQUIVO PRECISA EXISTIR em `backend/data/models3d/<dbFilename>`: o padrão é o
+ * `serra_dourada.3dtiles` do repositório, que é o único modelo real versionado aqui.
+ *
+ * @param {string} dbName - `readState().dbName`.
+ * @param {{modelId: string, dbFilename?: string, buildToken?: string}} opts
+ * @returns {Promise<string>} O `model_id` registrado.
+ */
+export async function seedModelo3d(dbName, {
+    modelId, dbFilename = 'serra_dourada.3dtiles', buildToken = 'e2e-token',
+}) {
+    await conectar(dbName).none(
+        `INSERT INTO a3d.models (model_id, db_filename, build_token)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (model_id) DO UPDATE
+            SET db_filename = EXCLUDED.db_filename, build_token = EXCLUDED.build_token`,
+        [modelId, dbFilename, buildToken],
+    );
+    return modelId;
+}
+
+/**
  * Cria um projeto 360 PÚBLICO com uma foto, e devolve o `original_name` dela, que é a forma
  * pela qual `streetview360_data.photo_name` referencia o projeto (`RESOLVE_SV360_REFS`).
  *

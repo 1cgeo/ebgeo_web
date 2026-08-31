@@ -1540,3 +1540,37 @@ da 6.3 fica [em obra], com os três itens acima nomeados.
 **Consequência para a bancada.** `frontend/tests/e2e-ui/troca-viva-de-atlas-medida.spec.js` dirigia o modal desde 2026-08-26 e voltou ao gancho, perdendo a série que cronometrava abrir a porta. O cabeçalho dela passou a DECLARAR a limitação em voz alta: o que ela mede é que a função é mais barata que a recarga, e não que alguém colha essa economia pela tela, porque nenhum gesto do produto aciona `switchAtlas`. Sem essa frase, o número voltaria a ser lido como ganho entregue, que é exatamente o erro que a correção de 2026-08-26 existia para consertar.
 
 **Status:** aceita.
+
+---
+
+### 2026-08-31: o visualizador 3D deixa de vazar por abertura, e o laço de render para quando ele fecha
+
+**Origem.** Pergunta do dono: se há vazamento de memória no mapa, no 360 ou no 3D. A resposta veio de bancada, e não de leitura de código: uma sonda de recurso vivo (listener, contexto WebGL, objeto de GPU, `ImageBitmap`, timer) mais a memória privada do processo separada por tipo, contra dado real (`serra_dourada` em 3D Tiles, `museu-1cgeo` em primeira pessoa, o projeto `museu_cms` com 76 panorâmicas).
+
+**A RÉGUA SE PROVOU ANTES DE JULGAR, e reprovou a si mesma duas vezes.** As duas correções viraram código, porque as duas produzem número grande e coerente:
+
+- `Runtime.getHeapUsage` mede o heap do V8, e `ArrayBuffer` mora FORA dele: a sonda deixou passar 4 MB por ciclo de um vazador deliberado. Por isso a bancada passou a medir também a memória privada do processo, que é a única que enxerga tile, textura no lado da CPU e buffer de compositor.
+- A contagem BRUTA de listener acusava +14 por ciclo no 3D, onde o `Memory.getDOMCounters` do próprio Chrome contava +1. Listener em elemento descartado morre com o elemento, e quem estava errado era a sonda. Corrigida por `WeakRef` mais `isConnected`, as duas medidas passaram a bater, e é essa concordância que autoriza usar a nossa.
+
+**O QUE NÃO VAZA, e foi medido, não presumido.** O 360: 35 panorâmicas de 5120x2560 navegadas em sequência, memória entre 716 e 740 MB sem tendência, contagem de textura fixa em 74, nenhum listener novo. A primeira pessoa: 10 ciclos de abrir e fechar com a cena provada carregada, memória caindo de 950 para 842 MB. O mapa 2D acumula 1 listener de `abort` por alternância de camada, registrado DENTRO de `frontend/public/vendors/maplibre-gl.js`, sem nenhum quadro de app na pilha e sem crescimento de memória: fica em observação, sem remendo em biblioteca vendorizada.
+
+**OS TRÊS CONSERTOS NO 3D**, todos em `frontend/src/js/3d_models_viewer_tool/map_3d.js`, cada um com a medida que o motivou e a que o fechou:
+
+1. **O listener por abertura.** `initActiveToolChip3D` pendurava uma função anônima no `#active-tool-chip-3d-close` a cada abertura, e aquele botão nunca sai do documento: +1 listener vivo por ciclo, sem patamar em catorze ciclos. Passou a guardar a referência e removê-la antes de adicionar, que é o que o laço vizinho dos `.button-tool-3d` já fazia. Depois: contagem travada em 289 nos catorze ciclos.
+
+2. **O tileset refeito à toa.** Reabrir o MESMO modelo destruía o `Cesium3DTileset` e montava outro idêntico, cada um nascendo com `cacheBytes` de 1 GB. Custo medido: 8,8 MB por ciclo no processo RENDERIZADOR, sem patamar em doze ciclos, com o processo de GPU parado em 526 MB e as contas do próprio Cesium (geometria, texturas, memória do tileset) imóveis. Não era objeto esquecido, e a prova é que uma referência fraca mostrava UM único tileset vivo o tempo todo: era decodificação refeita. `loadSingleTileset` passou a reaproveitar o tileset quando o id não mudou e ele continua vivo. Não se pula o que depende do MAPA e não do modelo: câmera salva, marcadores, medições e bacias seguem sendo restaurados. Depois: memória plana em 951 MB por doze ciclos, com o renderizador 90 MB abaixo do patamar anterior.
+
+3. **O laço que sobrevivia ao fechamento.** `pauseRendering` ligava o `requestRenderMode`, que corta o desenho e não o laço: o app pedia 60 quadros por segundo com o 3D FECHADO, contra 5 por segundo com ele ABERTO e parado. Fechar custava mais que deixar aberto. `useDefaultRenderLoop` passou a desligar no pause e a religar no resume, incondicionalmente e ANTES de qualquer retorno antecipado, porque um caminho de reabertura que caísse no `return` devolveria a cena sem quem a desenhasse. Depois: 0 quadro por segundo com o visualizador fechado.
+
+**A guarda.** `frontend/tests/e2e-ui/vazamento-viewers.spec.js`, com a sonda em `frontend/tests/e2e-ui/helpers/sonda-vazamento.js`. Dois testes, e a ordem é o método: §30.1 exercita um vazador deliberado (20 listeners, 30 texturas, 1 contexto WebGL e 1 timer por chamada) e EXIGE que a régua o reprove; só então §30.2 deixa a régua julgar o app. O spec nasceu vermelho no defeito real (`<button>:click +4` em 4 ciclos, que é o +1 por ciclo da bancada) e ficou verde com o conserto: esse par é o controle negativo.
+
+**DUAS ARMADILHAS QUE A GUARDA INCORPOROU**, porque as duas produziram verde falso durante a construção dela:
+
+- Sem linha em `a3d.models`, a rota do asset responde 404 "3D model not found", o visualizador volta para o 2D e o teste passa sem ter aberto modelo nenhum. Um tileset tem DUAS metades em tabelas diferentes, e semear só o catálogo é semear metade. Daí `seedModelo3d` em `frontend/tests/e2e-ui/helpers/catalog-seed.js`, e a segunda escrita PELA ROTA depois do `INSERT`, para derrubar o memo do índice de modelos, que só se invalida em escrita de catálogo.
+- Sem `.button-tool-3d` no documento, `registerToolEventListeners` retorna antes de registrar qualquer coisa, e o teste ficaria verde COM o defeito presente. O ciclo passou a devolver essa contagem, e ela é asserida a cada ciclo medido.
+
+**A estabilidade da guarda foi MEDIDA EM SÉRIE, e não numa rodada.** Com o teto de 30 s para o Cesium subir, §30.2 se pulou por "limite de ambiente" em 1 de 3 rodadas, com a máquina carregada logo depois da suíte de backend. Pulo por lentidão é a pior das três saídas, porque não reprova nem verifica. Teto em 60 s: 5 de 5 rodadas verdes.
+
+**Raio de explosão.** O de maior alcance é o reaproveitamento do tileset, porque muda o que acontece ao reabrir o mesmo modelo: nada é rebaixado, mas a cena volta a partir do estado que ficou. Conferido por captura de tela em três aberturas seguidas (o modelo desenha igual na terceira) e pelo caminho de risco, que é a TROCA: com um segundo modelo registrado para o teste, trocar continua criando um tileset novo, destruindo o anterior e deixando exatamente um vivo e um na cena. O desligamento do laço tem o modo de falha "tela parada sem erro no console", e o teste dele é a captura depois da reabertura, não o número.
+
+**Status:** aceita.

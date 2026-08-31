@@ -440,6 +440,14 @@ function pauseRendering() {
     scene.groundPrimitives.show = false;
     cesiumState.viewer.clock.shouldAnimate = false;
     scene.screenSpaceCameraController.enableInputs = false;
+
+    // E O LAÇO TAMBÉM PARA. `requestRenderMode` sozinho corta o DESENHO, não o laço: o
+    // `requestAnimationFrame` do Cesium continua acordando sessenta vezes por segundo com o
+    // visualizador fechado, para sempre. Medido em 2026-08-31 com a bancada: 60 quadros por
+    // segundo pedidos com o 3D FECHADO, contra 5 por segundo com ele aberto e parado, ou
+    // seja, fechar custava mais que deixar aberto. Isso não é memória, é CPU e bateria de
+    // quem voltou para o mapa 2D.
+    cesiumState.viewer.useDefaultRenderLoop = false;
 }
 
 /**
@@ -448,6 +456,12 @@ function pauseRendering() {
  */
 function resumeRendering() {
     if (!cesiumState.viewer) return;
+
+    // O laço volta ANTES de qualquer verificação de estado, e incondicionalmente: quem o
+    // desligou foi `pauseRendering`, e um caminho de reabertura que caia no `return` de baixo
+    // (viewer vivo e não pausado) devolveria a cena sem quem a desenhe, que é tela parada sem
+    // erro nenhum no console.
+    cesiumState.viewer.useDefaultRenderLoop = true;
 
     // Always add class to body for sidebar visibility (even on first open)
     document.body.classList.add('cesium-active');
@@ -542,6 +556,14 @@ export function cleanup3DFeatures() {
         navHelpHandlers.documentKeydown = null;
     }
     navHelpInitialized = false;
+
+    // Solta o handler do chip junto com o resto: a próxima `initActiveToolChip3D` volta a
+    // pendurar um, e guardar o antigo aqui seria segurar um fechamento morto.
+    if (fecharChipHandler) {
+        document.getElementById('active-tool-chip-3d-close')
+            ?.removeEventListener('click', fecharChipHandler);
+        fecharChipHandler = null;
+    }
 
     cesiumState = {
         isLoaded: false,
@@ -933,49 +955,71 @@ async function loadSingleTileset(viewer, tilesetId) {
         throw new Error('Invalid or destroyed viewer');
     }
 
-    if (currentTileset) {
-        removeTileFailedListener?.();
-        removeTileFailedListener = null;
-        viewer.scene.primitives.remove(currentTileset);
-        if (!currentTileset.isDestroyed()) {
-            currentTileset.destroy();
-        }
-        currentTileset = null;
-        _currentTilesetId = null;
-    }
-
-    // THE ACCUSATION IS RETRACTED WHERE THE REQUEST IS MADE AGAIN, which is here and not on
-    // success: a model whose root loads can still lose every child, so "it opened" is not
-    // evidence that it drew. Asking for it again is, and everything this attempt fails at is
-    // reported from scratch below.
-    model3dFailures.clear(tilesetId);
-
     const tilesetConfig = config.tilesets.find(t => t.id === tilesetId);
     if (!tilesetConfig) {
         throw new Error(`Tileset ${tilesetId} not found in config.tilesets`);
     }
 
-    // THE BRANCH IS BY DECLARED SHAPE, NOT BY EXCLUSION. It used to be
-    // `tilesetConfig.type === 'glb' ? model : tileset`, which is a two-way answer to a
-    // four-way question: a point cloud and an indoor scene both landed in the `else`, the first
-    // correctly (its format is part of 3D Tiles) and the second not at all — and a fifth kind
-    // added later would land there too, silently. `visualizadorDaForma` has no default, so a
-    // shape with no branch throws HERE, where the id and the shape are both in hand, instead of
-    // rendering an empty scene.
-    const forma = derivarForma3d(tilesetConfig);
-    switch (visualizadorDaForma(forma)) {
-        case Visualizador3D.CESIUM_MODEL:
-            currentTileset = await createGlbModel(viewer, tilesetConfig);
-            break;
-        case Visualizador3D.CESIUM_TILESET:
-            currentTileset = await createOptimizedTileset(viewer, tilesetConfig);
-            break;
-        default:
-            // The indoor scene is drawn by `first_person_3d_tool/`, which is another viewer
-            // entirely: reaching this line means a catalog row was routed to the wrong one.
-            throw new Error(
-                `Modelo 3D "${tilesetId}" declara a forma "${forma}", que o visualizador Cesium nao desenha`
-            );
+    // REABRIR O MESMO MODELO NÃO O RECONSTRÓI. Fechar o visualizador apenas PAUSA a cena
+    // (`closeViewer` chama `pauseRendering`), então o tileset da abertura anterior continua
+    // vivo e desenhado; jogá-lo fora para montar outro idêntico é trabalho puro, e caro:
+    // cada `Cesium3DTileset` nasce com `cacheBytes` de 1 GB e refaz a decodificação inteira.
+    //
+    // O CUSTO MEDIDO desse refazer, em 2026-08-31, com o `serra_dourada`: o processo
+    // renderizador crescia 8,8 MB por ciclo de abrir e fechar, sem patamar em doze ciclos,
+    // enquanto o processo de GPU ficava parado e as contas do próprio Cesium (geometria,
+    // texturas, memória do tileset) não se mexiam. Não era objeto esquecido (um único
+    // tileset vivo o tempo todo, medido por referência fraca), era decodificação refeita.
+    //
+    // O que NÃO se pula: a câmera salva, os marcadores, as medições e as bacias continuam
+    // sendo restaurados abaixo, porque eles dependem do MAPA ativo e não do modelo, e
+    // pulá-los mudaria o que a pessoa vê ao reabrir.
+    const reaproveita = !!currentTileset
+        && typeof currentTileset.isDestroyed === 'function'
+        && !currentTileset.isDestroyed()
+        && _currentTilesetId === tilesetId;
+
+    if (!reaproveita) {
+        if (currentTileset) {
+            removeTileFailedListener?.();
+            removeTileFailedListener = null;
+            viewer.scene.primitives.remove(currentTileset);
+            if (!currentTileset.isDestroyed()) {
+                currentTileset.destroy();
+            }
+            currentTileset = null;
+            _currentTilesetId = null;
+        }
+
+        // THE ACCUSATION IS RETRACTED WHERE THE REQUEST IS MADE AGAIN, which is here and not on
+        // success: a model whose root loads can still lose every child, so "it opened" is not
+        // evidence that it drew. Asking for it again is, and everything this attempt fails at is
+        // reported from scratch below. O ramo do reaproveitamento não a retrata, e não deve: lá
+        // nenhuma requisição nova é feita, então não há nada de novo a inocentar.
+        model3dFailures.clear(tilesetId);
+
+        // THE BRANCH IS BY DECLARED SHAPE, NOT BY EXCLUSION. It used to be
+        // `tilesetConfig.type === 'glb' ? model : tileset`, which is a two-way answer to a
+        // four-way question: a point cloud and an indoor scene both landed in the `else`, the first
+        // correctly (its format is part of 3D Tiles) and the second not at all — and a fifth kind
+        // added later would land there too, silently. `visualizadorDaForma` has no default, so a
+        // shape with no branch throws HERE, where the id and the shape are both in hand, instead of
+        // rendering an empty scene.
+        const forma = derivarForma3d(tilesetConfig);
+        switch (visualizadorDaForma(forma)) {
+            case Visualizador3D.CESIUM_MODEL:
+                currentTileset = await createGlbModel(viewer, tilesetConfig);
+                break;
+            case Visualizador3D.CESIUM_TILESET:
+                currentTileset = await createOptimizedTileset(viewer, tilesetConfig);
+                break;
+            default:
+                // The indoor scene is drawn by `first_person_3d_tool/`, which is another viewer
+                // entirely: reaching this line means a catalog row was routed to the wrong one.
+                throw new Error(
+                    `Modelo 3D "${tilesetId}" declara a forma "${forma}", que o visualizador Cesium nao desenha`
+                );
+        }
     }
     _currentTilesetId = tilesetId;
     cesiumState.currentTilesetId = tilesetId;
@@ -1193,16 +1237,34 @@ function initCameraButtons() {
 }
 
 /**
+ * O handler vivo do botão de fechar o chip, guardado para poder ser retirado.
+ *
+ * Sem esta referência não há como remover uma função anônima, e era exatamente esse o
+ * vazamento: `registerToolEventListeners` roda a CADA abertura do visualizador, o botão
+ * `#active-tool-chip-3d-close` é estático e nunca sai do documento, então cada abertura
+ * pendurava mais um listener nele. Medido em 2026-08-31 numa bancada de catorze ciclos:
+ * +1 listener vivo por ciclo, sem patamar, confirmado pela contagem do próprio Chrome.
+ * As duas irmãs desta função na mesma `registerToolEventListeners` já se protegiam (o laço
+ * dos `.button-tool-3d` remove antes de adicionar, e `initCameraButtons` troca o elemento
+ * por um clone); só esta ficara de fora. Preso por `tests/e2e-ui/vazamento-viewers.spec.js`.
+ * @type {Function|null}
+ */
+let fecharChipHandler = null;
+
+/**
  * Initializes the active tool chip close button and ESC key handler
  */
 function initActiveToolChip3D() {
     const closeBtn = document.getElementById('active-tool-chip-3d-close');
+    if (!closeBtn) return;
 
-    if (closeBtn) {
-        closeBtn.addEventListener('click', () => {
-            deactivateCurrentTool3D();
-        });
+    if (fecharChipHandler) {
+        closeBtn.removeEventListener('click', fecharChipHandler);
     }
+    fecharChipHandler = () => {
+        deactivateCurrentTool3D();
+    };
+    closeBtn.addEventListener('click', fecharChipHandler);
 }
 
 /**
