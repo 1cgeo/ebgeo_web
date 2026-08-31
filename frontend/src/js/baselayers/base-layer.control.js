@@ -27,6 +27,7 @@ import imagensLayer from './imagens_layer.js';
 import bdgexLayer from './bdgex_layer.js';
 import config from '../config.js';
 import { resolveBasemapStyle, firstStyledBasemap } from './basemap-style.js';
+import { faixaDeZoom, aplicarFaixaDeZoom } from './basemap-zoom.js';
 // DO ARQUIVO, e não do barrel `@js/terrain`: o barrel arrasta os dois gerentes de camada, e
 // este controle é do caminho de boot do mapa.
 import { getLayerFailureNotice } from '../terrain/layer-failure-notice.js';
@@ -314,8 +315,33 @@ class BaseLayerControl {
             // Disable sky/fog - setStyle resets it (background is set via CSS)
             this.map.setSky(undefined);
         }
+        // FORA do `if` acima, e essa é a metade que importa. O getter de `currentLayer` devolve
+        // `carta-topografica` quando não há estado, e o mapa NASCE com esse estilo
+        // (`map_sig.js`), então no boot mais comum o bloco inteiro é pulado, e a faixa do mapa
+        // base inicial nunca seria aplicada. O mesmo vale para uma troca que o MapLibre resolve
+        // como diff vazio.
+        this._applyBasemapZoom(layer);
         await this._updateHillshadeVisibility();
         this.syncVisualState(layer);
+    }
+
+    /**
+     * Aperta a câmera na faixa de zoom DAQUELE mapa base.
+     *
+     * É o único nível de zoom configurável do produto (decisão do dono, 2026-08-31): a
+     * aplicação é fixa em [2, 21] (`config.map2d`) e o atlas não tem zoom nenhum. O mapa base
+     * aperta dentro da faixa fixa, declarado em `config.minzoom`/`maxzoom` da linha de catálogo
+     * e servido em `config.basemaps[id]`.
+     *
+     * A DECISÃO E A ORDEM DE ESCRITA moram em `basemap-zoom.js`, puras e dirigíveis por um mapa
+     * falso que impõe as guardas reais do MapLibre. O que fica aqui é a leitura do catálogo,
+     * que é o que este controle já faz para estilo e para nome.
+     *
+     * @private
+     * @param {string} id - Id do mapa base já resolvido (depois do fallback).
+     */
+    _applyBasemapZoom(id) {
+        aplicarFaixaDeZoom(this.map, faixaDeZoom(config.basemaps?.[id], config.map2d), config.map2d.minZoom);
     }
 
     syncVisualState(layer = null) {

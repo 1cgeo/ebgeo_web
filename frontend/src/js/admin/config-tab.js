@@ -112,8 +112,17 @@ class ConfigTab {
         form.appendChild(signupHint);
 
         heading(form, 'Mapa 2D');
-        const minZoom = number(form, 'Zoom mínimo', 'admin-config-map2d-minzoom', eff.map2d?.minZoom);
-        const maxZoom = number(form, 'Zoom máximo', 'admin-config-map2d-maxzoom', eff.map2d?.maxZoom);
+        // A FAIXA DE ZOOM NÃO É EDITÁVEL AQUI desde 2026-08-31 (decisão do dono): a da aplicação
+        // é fixa em [2, 21] e o servidor recusa o override das duas com 422. Quem aperta é o MAPA
+        // BASE, na aba Catálogo, linha a linha, e lá o produtor da OM dona também alcança.
+        //
+        // A LINHA DE AJUDA FICA, e não é enfeite: sem ela, "sumiu o campo de zoom" vira chamado.
+        const zoomHint = document.createElement('p');
+        zoomHint.className = 'admin-form__hint';
+        zoomHint.textContent = `A aplicação vai de ${eff.map2d?.minZoom ?? 2} a ${eff.map2d?.maxZoom ?? 21}, `
+            + 'e isso é fixo. Para limitar o zoom de um mapa base específico, use os campos '
+            + '"Zoom mínimo" e "Zoom máximo" dele na aba Catálogo.';
+        form.appendChild(zoomHint);
         const maxPitch = number(form, 'Inclinação máxima', 'admin-config-map2d-maxpitch', eff.map2d?.maxPitch);
         const globe = check(form, 'Projeção globo', 'admin-config-map2d-globe', !!eff.map2d?.globe_projection);
 
@@ -187,8 +196,8 @@ class ConfigTab {
             if (Object.keys(featDiff).length) payload.features = featDiff;
 
             const map2dDiff = {};
-            diffNum(map2dDiff, 'minZoom', minZoom, eff.map2d?.minZoom);
-            diffNum(map2dDiff, 'maxZoom', maxZoom, eff.map2d?.maxZoom);
+            // Sem `minZoom`/`maxZoom`: o servidor os recusa com 422, então mandá-los reprovaria
+            // o salvamento INTEIRO da aba, e não só a parte do zoom.
             diffNum(map2dDiff, 'maxPitch', maxPitch, eff.map2d?.maxPitch);
             diffBool(map2dDiff, 'globe_projection', globe.checked, !!eff.map2d?.globe_projection);
             if (Object.keys(map2dDiff).length) payload.map2d = map2dDiff;

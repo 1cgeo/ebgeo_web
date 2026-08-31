@@ -4,7 +4,6 @@
 //  - env URLs: service/tile/terrain URLs from config.appConfig
 //  - static UI: app/features/map2d/map3d defaults from config.static
 import config from '../../config.js';
-import { ValidationError } from '../../utils/errors.js';
 import { createAudit } from '../../utils/audit.js';
 import { canDeliverAccountMail } from '../../utils/mailer.js';
 import { query, tx } from '../../database/index.js';
@@ -40,32 +39,33 @@ export async function getConfigOverrides() {
 }
 
 /**
- * Enforces cross-field invariants on the EFFECTIVE config, which is what the app receives.
+ * Tira a faixa de zoom da aplicação do documento de OVERRIDE, onde ela deixou de ser
+ * configurável (decisão do dono, 2026-08-31): [2, 21] é fixo em `MAP2D_BASE`.
  *
- * Joi validates the PARTIAL body at the route, and `map2d`'s min<=max check only fires when both
- * keys are in the same payload. Neither the merge nor the static base is in scope there, so two
- * gaps stayed open: the invariant could be split across successive saves, and — the reachable one
- * — a lone `{"map2d":{"minZoom":20}}` conflicts with the STATIC `MAP2D_BASE.maxZoom` (17.9) that
- * `getAppConfig` layers underneath. Validating the merged OVERRIDES alone would not catch that,
- * because the overrides document has no maxZoom at all; only the effective document does.
+ * ISTO NÃO DUPLICA O `forbidden()` DO SCHEMA, e a diferença é a linha JÁ GRAVADA. O schema
+ * (`config.admin.schemas.js`) valida o CORPO da requisição, e `updateConfigOverrides` funde
+ * esse corpo sobre o documento persistido: uma linha `app_config` escrita ANTES desta mudança
+ * carrega `map2d.minZoom` que nenhum corpo novo menciona, sobrevive a toda fusão seguinte e
+ * continua vencendo o valor fixo no deep-merge de `getAppConfig`. Um valor que o banco derruba
+ * não é fixo, e a borda de entrada sozinha não alcança o que já está lá dentro.
  *
- * It matters because the failure is total and silent: the frontend hands both values straight to
- * the MapLibre constructor, which throws, and boot is fail-fast on GET /api/config with no static
- * fallback. The app stops loading for everyone, anonymous included, while the admin sees a 200.
- * The admin panel produces exactly this payload through normal use, since it sends only the field
- * that changed.
+ * Por isso a poda roda nos DOIS caminhos: aqui, na escrita, para a linha velha CICATRIZAR na
+ * primeira gravação seguinte, e outra vez na leitura de `getAppConfig`, para que o documento
+ * servido esteja certo mesmo que ninguém nunca mais salve.
  *
- * @param {Object} merged - The full override document about to be persisted.
- * @throws {ValidationError} When the resulting effective config would be inconsistent.
+ * Substituiu um `assertEffectiveInvariants` que cruzava `minZoom <= maxZoom` sobre o
+ * documento efetivo. Ele ficou sem o que cruzar: as duas pontas não entram mais no override,
+ * e o par fixo é válido por construção.
+ *
+ * @param {Object} doc - Documento de override (mutado no lugar).
+ * @returns {Object} O mesmo documento.
  */
-function assertEffectiveInvariants(merged) {
-  const map2d = { ...S.MAP2D_BASE, ...(merged.map2d || {}) };
-  if (map2d.minZoom != null && map2d.maxZoom != null && map2d.minZoom > map2d.maxZoom) {
-    throw new ValidationError(
-      `map2d.minZoom (${map2d.minZoom}) não pode ser maior que map2d.maxZoom (${map2d.maxZoom}). `
-      + 'Considerando os valores em vigor, não apenas os enviados nesta requisição.'
-    );
+function podarZoomDeAplicacao(doc) {
+  if (doc?.map2d && typeof doc.map2d === 'object') {
+    delete doc.map2d.minZoom;
+    delete doc.map2d.maxZoom;
   }
+  return doc;
 }
 
 /**
@@ -104,10 +104,7 @@ function assertEffectiveInvariants(merged) {
 export async function updateConfigOverrides(partial, userId, req = null) {
   const merged = await tx(async (t) => {
     const current = (await t.one(Q.LOCK_CONFIG_OVERRIDES, [OVERRIDES_KEY])).value ?? {};
-    const next = deepMerge(current, partial);
-    // Inside the transaction: a rejected payload rolls back the placeholder row too, so a failed
-    // save never leaves a `{}` document behind where there was none.
-    assertEffectiveInvariants(next);
+    const next = podarZoomDeAplicacao(deepMerge(current, partial));
     const value = (await t.one(Q.UPSERT_CONFIG_OVERRIDES, [
       OVERRIDES_KEY,
       JSON.stringify(next),
@@ -323,7 +320,13 @@ async function buildAppConfig() {
   };
 
   // Admin overrides (app/features/map2d/map3d/service URLs) win over the STATIC/ENV assembly.
+  // MENOS a faixa de zoom da aplicação, que não é configurável: a poda roda DEPOIS da fusão
+  // para que um documento gravado antes de 2026-08-31 não derrube o valor fixo, e os dois
+  // valores voltam de `MAP2D_BASE` logo em seguida. Ver `podarZoomDeAplicacao`.
   const merged = deepMerge(payload, overrides);
+  podarZoomDeAplicacao(merged);
+  merged.map2d.minZoom = S.MAP2D_BASE.minZoom;
+  merged.map2d.maxZoom = S.MAP2D_BASE.maxZoom;
 
   // Trailing-slash normalization runs AFTER the merge, not before: `optionalBase`
   // in `src/config.js` already cleans the env var, but the admin "Avancado (JSON)"

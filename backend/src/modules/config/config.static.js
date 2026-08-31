@@ -34,8 +34,19 @@ export const MAP2D_BASE = {
     [-58.1, -33.4],
     [-48.7, -27.1],
   ],
-  minZoom: 1,
-  maxZoom: 17.9,
+  // A FAIXA DA APLICAÇÃO É FIXA, e desde 2026-08-31 ela NÃO é configurável (decisão do dono).
+  // `config.admin.schemas.js` recusa as duas chaves com 422 nomeado, em vez de deixá-las cair
+  // em `config_settings`, que é deep-merge SOBRE este documento, e portanto derrubaria o valor
+  // fixo em silêncio. O único nível de zoom que um administrador ou um produtor ajusta é o do
+  // MAPA BASE (`basemaps.config.minzoom`/`maxzoom`), que aperta dentro desta faixa e nunca a
+  // afrouxa. Zoom de ATLAS não existe: existiu como contrato reservado e foi removido junto.
+  //
+  // O TETO ERA 17.9 e virou 21. O 17.9 estava ABAIXO do `maxzoom` de toda fonte de mapa base
+  // (18 a 20), então era ele que segurava as cinco, e nenhuma chegava ao próprio limite. Subir
+  // para 21 só é honesto porque as cinco linhas semeadas passaram a declarar a faixa delas
+  // (`005_catalogo.sql`); sem isso, a mudança entregaria overzoom borrado em todas.
+  minZoom: 2,
+  maxZoom: 21,
   maxPitch: 65,
   globe_projection: true,
   sourceTileLodParams: [5, 6.0],

@@ -1417,7 +1417,7 @@ export async function importAtlas(userId, data) {
     // `settings` is MERGED over the column DEFAULT (`settings || $4::jsonb`), not
     // written over it. The import used to pass the payload verbatim — and '{}' when
     // the payload had none — while createAtlas omits the column and inherits the full
-    // default document (003_atlas.sql: features/basemaps/min_zoom/available_*). An
+    // default document (003_atlas.sql: features/basemaps/bounds_2d/available_*). An
     // atlas that arrived through "save my local atlas to the server" therefore
     // answered GET /settings with a DIFFERENT shape from one created on the server,
     // and settings is exactly the overlay the frontend reads to gate 3D/360/layers per

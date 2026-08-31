@@ -115,7 +115,7 @@ const CENSO = [
             + 'concedido entra por aqui, e o estilo dele viaja numa segunda chave.',
     },
     {
-        arquivo: 'src/js/baselayers/base-layer.control.js', gatilho: 'catalogo', n: 3,
+        arquivo: 'src/js/baselayers/base-layer.control.js', gatilho: 'catalogo', n: 4,
         classe: BASELINE,
         motivo: 'O seletor de camada base, que resolve o estilo por demanda contra '
             + '`config.basemapStyles`. Montar a tabela de estilos no construtor (como fazia antes da '
@@ -125,7 +125,12 @@ const CENSO = [
             + 'falha nomeando a camada (`config.basemaps[layer].name`) antes de cair no fallback. '
             + 'Ela é o oposto de um vazamento: é o que faz a queda silenciosa descrita acima '
             + 'deixar de ser silenciosa. Nomear é possível AQUI e só aqui, porque quem pediu '
-            + 'ainda está na variável, antes da reatribuição.',
+            + 'ainda está na variável, antes da reatribuição. A QUARTA entrou em 2026-08-31 com '
+            + 'a faixa de zoom por mapa base (`_applyBasemapZoom`), e é de NÚMERO: `minzoom` e '
+            + '`maxzoom` da linha de catálogo, que viram `setMinZoom`/`setMaxZoom` da câmera. Ela '
+            + 'lê o mesmo objeto `config.basemaps[id]` das outras, e o que ela expõe a um '
+            + 'visitante é a faixa de um mapa base que ele JÁ está vendo, depois do fallback: '
+            + 'quem não alcança o basemap privado nunca chega a esta linha com o id dele.',
     },
     {
         arquivo: 'src/js/3d_models_viewer_tool/add_3d_models_viewer_control.js', gatilho: 'catalogo', n: 3,

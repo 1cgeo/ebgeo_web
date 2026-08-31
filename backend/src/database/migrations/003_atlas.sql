@@ -20,6 +20,17 @@ CREATE TABLE atlas (
     map_order       UUID[] NOT NULL DEFAULT '{}',
 
     -- Flexible settings: controls which app-level resources are available in this atlas.
+    --
+    -- NÃO HÁ ZOOM DE ATLAS, e a ausência é a decisão (do dono, 2026-08-31). Existiram aqui
+    -- `min_zoom` e `max_zoom`: validados por `atlas.schemas.js`, persistidos, clonados e
+    -- cobertos por teste, e LIDOS POR NINGUÉM: `grep min_zoom frontend/src` não devolvia uma
+    -- linha. Eram contrato reservado que nunca virou comportamento, e o preço de mantê-los era
+    -- um relato de "o limite de zoom do atlas não funciona" que não seria bug.
+    --
+    -- A faixa de zoom passou a ter DOIS níveis e só um deles é configurável: a aplicação é fixa
+    -- em [2, 21] (`config.static.js`, `MAP2D_BASE`), e o MAPA BASE aperta dentro dela por
+    -- `config.minzoom`/`config.maxzoom` da linha de `basemaps`. Não recrie estas duas chaves
+    -- por simetria com `bounds_2d`: quem restringe zoom é o mapa base, não o atlas.
     settings        JSONB NOT NULL DEFAULT '{
         "features": {
             "map_3d": true,
@@ -31,8 +42,6 @@ CREATE TABLE atlas (
         "basemaps": [],
         "default_basemap": null,
         "bounds_2d": null,
-        "min_zoom": null,
-        "max_zoom": null,
         "available_analysis_layers": [],
         "available_data_layers": [],
         "available_3d_models": [],

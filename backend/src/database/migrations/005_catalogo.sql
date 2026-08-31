@@ -116,15 +116,41 @@ CREATE TABLE config_settings (
 -- ---------------------------------------------------------------------------
 -- SEED (config já no shape de GET /api/v1/config)
 -- ---------------------------------------------------------------------------
+-- A FAIXA DE ZOOM É DO MAPA BASE, e o seed a declara nas cinco linhas (decisão do dono,
+-- 2026-08-31). A aplicação é fixa em [2, 21] (`MAP2D_BASE`, `config.static.js`) e não é
+-- configurável; o mapa base APERTA dentro dela, nunca afrouxa, e o schema de escrita
+-- (`catalog.schemas.js`) recusa valor fora de [2, 21] e `minzoom > maxzoom`.
+--
+-- OS VALORES NÃO SÃO ARBITRÁRIOS: cada `maxzoom` é o da FONTE do estilo daquele mapa base
+-- (`config.static.js` e `frontend/src/js/baselayers/`), porque passar dele não trava nada,
+-- o MapLibre faz overzoom e escala o último tile, e a pessoa continua dando zoom para ver
+-- borrão. Antes desta mudança o teto da aplicação era 17.9, ABAIXO de todas as fontes, e era
+-- ele que segurava as cinco; subir o teto para 21 sem declarar estas chaves entregaria
+-- borrão em todo mapa base no mesmo dia.
+--
+-- O PISO É 2 NAS CINCO, por decisão, e não porque alguma fonte o exija.
+--
+-- `carta-ortoimagem` leva 18 por decisão do dono e não por leitura de fonte: o módulo do
+-- cliente (`frontend/src/js/baselayers/carta_ortoimagem.js`) ainda é a URL de demonstração
+-- do MapLibre, um placeholder que não declara zoom nenhum.
+--
+-- CHAVE MINÚSCULA (`minzoom`/`maxzoom`), como em `data_layers` abaixo e como
+-- `utils/audit-diff.js` já as lista. Um `minZoom` camelCase ao lado criaria dois
+-- vocabulários para a mesma coisa.
 INSERT INTO basemaps (id, name, sort_order, config) VALUES
   ('carta-topografica', 'Topográfica', 1, jsonb_build_object(
-    'enabled', true, 'image', './images/layers/carta-topografica-thumb.png', 'priority', 1)),
+    'enabled', true, 'image', './images/layers/carta-topografica-thumb.png', 'priority', 1,
+    'minzoom', 2, 'maxzoom', 19)),
   ('carta-ortoimagem', 'Ortoimagem', 2, jsonb_build_object(
-    'enabled', true, 'image', './images/layers/carta-ortoimagem-thumb.png', 'priority', 2)),
+    'enabled', true, 'image', './images/layers/carta-ortoimagem-thumb.png', 'priority', 2,
+    'minzoom', 2, 'maxzoom', 18)),
   ('bdgex', 'BDGEx', 3, jsonb_build_object(
-    'enabled', true, 'image', './images/layers/bdgex-thumb.png', 'priority', 3)),
-  ('osm', 'OpenStreetMaps', 4, jsonb_build_object('enabled', true, 'priority', 4)),
-  ('imagens', 'Imagens do Google', 5, jsonb_build_object('enabled', true, 'priority', 5));
+    'enabled', true, 'image', './images/layers/bdgex-thumb.png', 'priority', 3,
+    'minzoom', 2, 'maxzoom', 18)),
+  ('osm', 'OpenStreetMaps', 4, jsonb_build_object(
+    'enabled', true, 'priority', 4, 'minzoom', 2, 'maxzoom', 19)),
+  ('imagens', 'Imagens do Google', 5, jsonb_build_object(
+    'enabled', true, 'priority', 5, 'minzoom', 2, 'maxzoom', 20));
 
 INSERT INTO analysis_layers (id, name, sort_order, config) VALUES
   ('hillshade', 'Sombreamento do Relevo', 1, '{}'::jsonb),

@@ -31,8 +31,17 @@ export const atlasSettingsSchema = Joi.object({
   basemaps: Joi.array().items(Joi.string()),
   default_basemap: Joi.string().allow(null),
   bounds_2d: boundsSchema.allow(null),
-  min_zoom: Joi.number().min(0).max(22).allow(null),
-  max_zoom: Joi.number().min(0).max(22).allow(null),
+  // NÃO HÁ `min_zoom`/`max_zoom` DE ATLAS desde 2026-08-31 (decisão do dono), e a ausência é
+  // a decisão. As duas eram validadas, persistidas, clonadas e cobertas por teste, e nenhum
+  // consumidor do frontend as lia: contrato reservado que nunca virou comportamento. Quem
+  // restringe zoom agora é o MAPA BASE (`basemaps.config.minzoom`/`maxzoom`), dentro da faixa
+  // fixa da aplicação, [2, 21].
+  //
+  // NÃO VIRAM `forbidden()`, ao contrário do que `config.admin.schemas.js` fez com as chaves
+  // homônimas da aplicação, e a assimetria foi medida: `validate.js` roda este schema com
+  // `stripUnknown`, então uma chave que saiu daqui é DESCARTADA antes de chegar ao banco, e
+  // um PATCH antigo não grava nada. Lá o objeto é `.unknown(true)` e a chave seria GRAVADA,
+  // por isso lá a recusa precisa ser explícita.
   available_analysis_layers: Joi.array().items(Joi.string()),
   available_data_layers: Joi.array().items(Joi.string()),
   available_3d_models: Joi.array().items(Joi.string()),
@@ -41,15 +50,12 @@ export const atlasSettingsSchema = Joi.object({
   // The `any.custom` template is '{{#label}} failed custom validation because
   // {{#error.message}}' — it reads the local named `error`, not one named `message`.
   // Passing `{ message }` left the sentence dangling ('"value" failed custom
-  // validation because ') and the two rules below became indistinguishable to the
-  // caller: a 422 that says a rule failed without saying WHICH is a validation error
-  // the admin panel cannot render into an actionable message.
+  // validation because '), and a 422 that says a rule failed without saying WHICH is a
+  // validation error the admin panel cannot render into an actionable message. Sobrou UMA
+  // regra aqui (a irmã cruzava `min_zoom <= max_zoom` e saiu com o zoom de atlas), e o
+  // `reject` fica: uma regra só ainda precisa dizer o próprio nome ao chamador.
   const reject = (message) => helpers.error('any.custom', { error: new Error(message) });
 
-  // Custom validation: min_zoom < max_zoom
-  if (value.min_zoom != null && value.max_zoom != null && value.min_zoom > value.max_zoom) {
-    return reject('min_zoom must be less than or equal to max_zoom');
-  }
   // default_basemap must be in basemaps list
   if (value.default_basemap && value.basemaps && value.basemaps.length > 0) {
     if (!value.basemaps.includes(value.default_basemap)) {

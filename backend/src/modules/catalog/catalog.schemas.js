@@ -72,13 +72,60 @@ const previewVideoSchema = Joi.string()
     'string.pattern.base': 'O vídeo de prévia é um endereço, não um arquivo embutido (data URL).',
   });
 
+// A TERCEIRA CHAVE VIGIADA, e ela é SÓ DO MAPA BASE: a faixa de zoom (decisão do dono,
+// 2026-08-31).
+//
+// O ZOOM PASSOU A TER UM NÍVEL CONFIGURÁVEL SÓ, e é este. A aplicação é FIXA em [2, 21]
+// (`config.static.js`, `MAP2D_BASE`, e `config.admin.schemas.js` recusa o override das duas),
+// e o atlas não tem zoom nenhum (existiu como contrato reservado e foi removido). O mapa base
+// APERTA dentro da faixa da aplicação e nunca a afrouxa, e é por isso que o teto aqui é 21 e o
+// piso é 2: um valor fora disso não teria onde ser honrado, porque a câmera não sai da faixa
+// fixa. Quem edita é o administrador ou o produtor da OM dona da linha, pelo gate que já
+// existia (`requireCatalogProducer` mais o `fn_can_produce_resource` do `WHERE` da escrita).
+//
+// AS DUAS SÃO OPCIONAIS, e a omissão é VALOR, não lacuna: mapa base sem elas vale [2, 21], que
+// é a faixa inteira. Torná-las obrigatórias quebraria o `PUT` de toda linha já gravada.
+//
+// `.custom()` E NÃO DUAS BORDAS SOLTAS, porque `minzoom > maxzoom` é a única falha que
+// nenhuma das duas chaves vê sozinha, e é a que produz o pior estado: o MapLibre recebe
+// `setMinZoom` acima do `setMaxZoom` e a câmera fica presa onde nenhum tile desenha. Sem
+// `.messages()`, pela convenção da casa: a tradução é feita no EDGE
+// (`utils/validation-messages.js`) e um texto escrito aqui seria descartado.
+//
+// A CHAVE É MINÚSCULA (`minzoom`/`maxzoom`) porque é o nome que a casa já usa: o `config` de
+// `data_layers` (seed em `005_catalogo.sql`), o formulário do painel e a lista de campos
+// auditáveis de `utils/audit-diff.js`. Um `minZoom` camelCase ao lado criaria dois
+// vocabulários para a mesma coisa, que é como um eixo se perde.
+//
+// SÓ O MAPA BASE GANHA A RÉGUA. `data_layers` tem `minzoom`/`maxzoom` no `config` desde o
+// seed, mas ali eles são da FONTE vetorial (a partir de que zoom o tile existe), não da
+// câmera, e apertá-los em [2, 21] recusaria configuração legítima de tile server.
+const ZOOM_PISO = 2;
+const ZOOM_TETO = 21;
+const zoomDeMapaBase = Joi.number().min(ZOOM_PISO).max(ZOOM_TETO);
+
+/** Recusa `minzoom > maxzoom` no `config` do mapa base. */
+const ordemDoZoom = (value, helpers) => {
+  const { minzoom, maxzoom } = value || {};
+  if (minzoom != null && maxzoom != null && minzoom > maxzoom) {
+    return helpers.error('any.custom', {
+      error: new Error('config.minzoom não pode ser maior que config.maxzoom'),
+    });
+  }
+  return value;
+};
+
 const configSchema = Joi.object({
   [CAMPO_FORMA_3D]: Joi.string().valid(...FORMAS_3D),
   previewVideo: previewVideoSchema,
 }).unknown(true);
 
 /**
- * O MESMO `config`, com o vídeo de prévia RECUSADO. É o schema do mapa base.
+ * O `config` DO MAPA BASE: vídeo de prévia RECUSADO, faixa de zoom ACEITA e vigiada.
+ *
+ * As duas diferenças moram no mesmo schema porque são a mesma pergunta (o que o mapa base
+ * tem de diferente das outras três tabelas de catálogo), e porque `schemasDeEscrita` já
+ * escolhe este objeto por tabela.
  *
  * `forbidden()` e não omissão: `configSchema` é `.unknown(true)`, então tirar a chave da
  * lista a deixaria passar como qualquer outra desconhecida. O que se quer aqui é a recusa
@@ -86,6 +133,8 @@ const configSchema = Joi.object({
  */
 const configSchemaSemPreviewVideo = Joi.object({
   [CAMPO_FORMA_3D]: Joi.string().valid(...FORMAS_3D),
+  minzoom: zoomDeMapaBase,
+  maxzoom: zoomDeMapaBase,
   // SEM `.messages()` AQUI, e a ausência é a convenção da casa, não esquecimento: a
   // tradução das falhas de validação é feita no EDGE, por tipo de erro
   // (`utils/validation-messages.js`), e uma mensagem escrita no schema seria descartada
@@ -93,7 +142,7 @@ const configSchemaSemPreviewVideo = Joi.object({
   // campo (`config.previewVideo` não é aceito aqui), e o PORQUÊ vive na cláusula 2.4 da
   // constituição e no comentário do topo deste arquivo.
   previewVideo: Joi.any().forbidden(),
-}).unknown(true);
+}).unknown(true).custom(ordemDoZoom, 'minzoom<=maxzoom');
 
 /** A tabela cujo `config` recusa o vídeo de prévia. Uma só, e a constituição diz qual. */
 const TABELA_SEM_PREVIEW_VIDEO = 'basemaps';

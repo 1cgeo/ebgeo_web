@@ -1,9 +1,13 @@
 // Path: tests/unit/atlas-settings-schema.test.js
-// Item 73. `atlasSettingsSchema` carries a custom validator (atlas.schemas.js:36-48)
-// enforcing min_zoom <= max_zoom and default_basemap ∈ basemaps. Every PATCH in the
-// integration suite sends a VALID pair, so the custom branch has never executed with
-// a violating payload: delete it, or invert the comparison, and everything stays
-// green. This is pure Joi, no database.
+// Item 73. `atlasSettingsSchema` carries a custom validator (`atlas.schemas.js`) enforcing
+// default_basemap ∈ basemaps. Every PATCH in the integration suite sends a VALID payload, so
+// the custom branch has never executed with a violating one: delete it, or invert the
+// comparison, and everything stays green. This is pure Joi, no database.
+//
+// O ZOOM DE ATLAS SAIU em 2026-08-31 (decisão do dono), e a regra irmã que cruzava
+// `min_zoom <= max_zoom` saiu com ele. O que ficou no lugar não é a ausência de teste: é o
+// teste da REMOÇÃO, abaixo, que reprova tanto o estado anterior (par invertido era 422, par
+// válido era gravado) quanto uma reintrodução silenciosa da chave.
 //
 // The options must match validate.js exactly (`abortEarly:false, stripUnknown:true`),
 // otherwise the unit test would be checking a schema nobody runs.
@@ -16,42 +20,26 @@ const VALIDATION_OPTIONS = { abortEarly: false, stripUnknown: true };
 const check = (payload) => atlasSettingsSchema.validate(payload, VALIDATION_OPTIONS);
 
 describe('atlasSettingsSchema — the custom cross-field validator', () => {
-  it('rejects min_zoom > max_zoom, and SAYS SO', () => {
-    const { error } = check({ min_zoom: 15, max_zoom: 8 });
-    assert.ok(error, 'an inverted zoom window must not be accepted');
-    // The message is part of the contract: two different rules share the
-    // `any.custom` code, so without it a 422 cannot be rendered into anything
-    // actionable. It used to come back as '"value" failed custom validation
-    // because ' — the reason silently dropped.
-    assert.match(error.message, /min_zoom/);
-  });
-
-  it('accepts min_zoom === max_zoom (the comparison is >, not >=)', () => {
-    const { error, value } = check({ min_zoom: 10, max_zoom: 10 });
-    assert.equal(error, undefined);
-    assert.equal(value.min_zoom, 10);
-    assert.equal(value.max_zoom, 10);
-  });
-
-  it('accepts each bound ALONE — the guard needs both to be non-null', () => {
-    assert.equal(check({ min_zoom: 15 }).error, undefined);
-    assert.equal(check({ max_zoom: 8 }).error, undefined);
-    assert.equal(check({ min_zoom: null, max_zoom: 8 }).error, undefined);
-    assert.equal(check({ min_zoom: 15, max_zoom: null }).error, undefined);
-  });
-
-  it('holds the 0..22 zoom borders', () => {
-    assert.equal(check({ min_zoom: 0 }).error, undefined);
-    assert.equal(check({ max_zoom: 22 }).error, undefined);
-    assert.ok(check({ min_zoom: -1 }).error, 'below the floor');
-    assert.ok(check({ max_zoom: 23 }).error, 'above the ceiling');
+  // O TESTE DA REMOÇÃO, e ele mede o DESTINO do valor, não a ausência de erro: `stripUnknown`
+  // faz uma chave removida do schema virar 200 silencioso, então "não deu erro" sozinho passa
+  // igual antes e depois. O que separa os dois mundos é `value.min_zoom` não existir.
+  //
+  // O PAR INVERTIDO é o insumo de propósito: ele era 422 antes desta mudança, e um `min_zoom`
+  // reintroduzido no schema por descuido o faria voltar a ser 422 (ou, sem a regra irmã, o
+  // faria ser GRAVADO invertido). Nos dois casos este teste fica vermelho.
+  it('o zoom de atlas foi removido: min_zoom/max_zoom são DESCARTADOS, nunca gravados', () => {
+    const { error, value } = check({ min_zoom: 15, max_zoom: 8, bounds_2d: null });
+    assert.equal(error, undefined, 'a chave que saiu do schema não é erro, é descarte');
+    assert.equal(value.min_zoom, undefined, 'min_zoom não pode chegar ao banco');
+    assert.equal(value.max_zoom, undefined, 'max_zoom não pode chegar ao banco');
+    assert.ok('bounds_2d' in value, 'o irmão declarado sobrevive ao mesmo payload');
   });
 
   it('rejects a default_basemap that is not in the basemaps list, and SAYS SO', () => {
     const { error } = check({ basemaps: ['osm'], default_basemap: 'satellite' });
     assert.ok(error);
     assert.match(error.message, /default_basemap/);
-    assert.ok(!error.message.includes('min_zoom'), 'the two rules are distinguishable');
+    assert.ok(!error.message.includes('bounds_2d'), 'a regra que falhou se nomeia');
   });
 
   it('accepts a default_basemap present in the list', () => {
@@ -79,9 +67,9 @@ describe('atlasSettingsSchema — the custom cross-field validator', () => {
   });
 
   it('an unknown key is stripped, not rejected (stripUnknown, as validate.js runs it)', () => {
-    const { error, value } = check({ foo: 1, min_zoom: 3 });
+    const { error, value } = check({ foo: 1, basemaps: ['osm'] });
     assert.equal(error, undefined);
     assert.equal(value.foo, undefined);
-    assert.equal(value.min_zoom, 3, 'the known sibling survives');
+    assert.deepEqual(value.basemaps, ['osm'], 'the known sibling survives');
   });
 });

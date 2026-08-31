@@ -35,17 +35,28 @@ export const configOverridesSchema = Joi.object({
     // the merged value. `password_reset_email` is NOT here: it mirrors SMTP config, frozen at boot.
     self_registration: Joi.boolean(),
   }).unknown(true),
+  // A FAIXA DE ZOOM DA APLICAÇÃO SAIU DAQUI em 2026-08-31, por decisão do dono: ela é fixa em
+  // [2, 21] (`config.static.js`, `MAP2D_BASE`) e o único nível ajustável passou a ser o do MAPA
+  // BASE, na linha de catálogo dele.
+  //
+  // `forbidden()` E NÃO OMISSÃO, e a diferença aqui é a que decide se a norma existe: este
+  // objeto é `.unknown(true)`, então apenas apagar as duas linhas as deixaria passar como
+  // qualquer chave desconhecida e gravá-las em `config_settings`, que é DEEP-MERGE sobre o
+  // documento montado, e portanto voltaria a derrubar o valor fixo, em silêncio e para sempre.
+  // Valor fixo que um documento gravado derruba não é fixo. É o mesmo gesto de
+  // `catalog.schemas.js` com `previewVideo`, e pela mesma razão.
+  //
+  // Sem `.messages()`: a tradução das falhas de validação é feita no EDGE, por tipo de erro
+  // (`utils/validation-messages.js`), e um texto escrito aqui seria descartado ali.
+  //
+  // Some junto o `.custom('min<=max')`, que ficou sem o que cruzar: as duas pontas que ele
+  // comparava não entram mais no documento de override.
   map2d: Joi.object({
-    minZoom: Joi.number().min(0).max(24),
-    maxZoom: Joi.number().min(0).max(24),
+    minZoom: Joi.any().forbidden(),
+    maxZoom: Joi.any().forbidden(),
     maxPitch: Joi.number().min(0).max(85),
     globe_projection: Joi.boolean(),
-  }).unknown(true).custom((value, helpers) => {
-    if (value.minZoom != null && value.maxZoom != null && value.minZoom > value.maxZoom) {
-      return helpers.message('map2d.minZoom não pode ser maior que map2d.maxZoom');
-    }
-    return value;
-  }, 'min<=max'),
+  }).unknown(true),
   map3d: Joi.object({
     viewer: Joi.object().pattern(Joi.string(), Joi.boolean()).unknown(true),
   }).unknown(true),

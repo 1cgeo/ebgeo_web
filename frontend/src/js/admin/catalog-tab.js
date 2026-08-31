@@ -166,6 +166,12 @@ const TEMPLATES = {
         enabled: true,
         image: './images/layers/EXEMPLO-thumb.webp',
         priority: 1,
+        // A FAIXA INTEIRA da aplicação, que é o que um mapa base novo vale por omissão. O
+        // template a escreve EXPLÍCITA em vez de deixar os dois campos vazios, porque campo
+        // vazio não diz ao produtor o que ele está aceitando: ele leria "sem limite" onde a
+        // resposta é [2, 21].
+        minzoom: 2,
+        maxzoom: 21,
     },
 };
 
@@ -186,7 +192,18 @@ const TEMPLATES = {
  */
 const CONFIG_FIELDS = Object.freeze({
     basemap: {
-        scalar: [],
+        // O ÚNICO NÍVEL DE ZOOM CONFIGURÁVEL DO PRODUTO (decisão do dono, 2026-08-31). A
+        // aplicação é fixa em [2, 21] e a aba Configuração não a edita mais; o atlas não tem
+        // zoom nenhum. O mapa base APERTA dentro da faixa fixa, e o servidor recusa valor fora
+        // dela e `minzoom > maxzoom` (`catalog.schemas.js`). Chave minúscula, como em
+        // `data_layer` logo abaixo.
+        //
+        // Vazio REMOVE a chave (`kind: 'num'`), e a linha volta a valer a faixa inteira: a
+        // omissão é valor, não lacuna.
+        scalar: [
+            { path: 'minzoom', label: 'Zoom mínimo (2 a 21)', kind: 'num' },
+            { path: 'maxzoom', label: 'Zoom máximo (2 a 21)', kind: 'num' },
+        ],
         json: [{ key: 'style', label: 'Estilo MapLibre (JSON, opcional)', maplibre: true }],
     },
     data_layer: {

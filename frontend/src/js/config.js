@@ -28,9 +28,17 @@ const config = {
   analysisLayers: { enabled: true, layers: [] },
   dataLayers: { enabled: true, layers: [] },
   // Structural fail-safe floor — only the keys map_sig.js reads unguarded at map creation.
+  //
+  // OS DOIS ZOOMS SÃO O PAR FIXO DA APLICAÇÃO, [2, 21], e batem com `MAP2D_BASE` do servidor
+  // porque desde 2026-08-31 eles não são configuráveis por ninguém. Antes o piso dizia 1 e 18
+  // enquanto o servidor dizia 1 e 17.9, e as duas cópias discordavam: um boot que caísse neste
+  // piso (payload sem `map2d`) desenhava um mapa com limite diferente do de todo mundo.
+  //
+  // Quem aperta a faixa é o MAPA BASE, em `base-layer.control.js`, lendo
+  // `config.basemaps[id].minzoom`/`maxzoom`. Este objeto é só o chão de onde a câmera parte.
   map2d: {
-    minZoom: 1,
-    maxZoom: 18,
+    minZoom: 2,
+    maxZoom: 21,
     maxPitch: 60,
     globe_projection: true,
     sourceTileLodParams: [5, 6.0],
