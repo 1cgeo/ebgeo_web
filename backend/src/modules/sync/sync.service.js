@@ -1486,15 +1486,195 @@ function integrityRejectionReason(err) {
 }
 
 /**
+ * A MENSAGEM da linha agregada de recusa, exportada para nao ser string digitada duas
+ * vezes: o teste asserta sobre ela e o operador a usa como filtro
+ * (`npm run diag -- linhas --filtro "operacoes recusadas"`). Sem acento de proposito, para
+ * que o filtro no terminal nao dependa de digitar corretamente um cedilha ou um til.
+ */
+export const MSG_RECUSA_DE_LOTE = 'sync: operacoes recusadas no lote';
+
+/**
+ * Cotas da linha agregada. A primeira e a que carrega o peso.
+ *
+ * UM DOS MOTIVOS E PARCIALMENTE ESCRITO PELO CLIENTE: `unknownTargetDenialReason`
+ * interpola o `entityType` que chegou no envelope, e `op.target` para esse caso e a mesma
+ * string. Um cliente que mande cem tipos inventados produziria cem grupos distintos e a
+ * linha agregada voltaria a ser a rolagem que ela existe para substituir (a agregacao por
+ * lote conteria a contagem de LINHAS e nao a de bytes). Os demais motivos sao constantes
+ * deste arquivo e nao passam de meia duzia, entao a cota nunca morde o caso legitimo.
+ */
+const RECUSAS_MAX_GRUPOS = 12;
+const RECUSAS_MAX_MAPAS_POR_GRUPO = 5;
+const RECUSAS_MAX_CLIENTES = 3;
+/** Corte de todo texto que possa vir do cliente (alvo, tipo de operacao, id de mapa). */
+const RECUSAS_MAX_TEXTO = 60;
+/** Corte do MOTIVO, que e frase do servidor e precisa caber inteira. Ver `textoDeRecusa`. */
+const RECUSAS_MAX_MOTIVO = 200;
+
+/**
+ * Texto limitado, ou null. Nunca lanca: isto roda no caminho de log.
+ *
+ * O TETO DO MOTIVO E OUTRO, e a primeira versao errou nisto de um jeito instrutivo: com 60
+ * para tudo, os motivos do proprio servidor (que tem entre 40 e 75 caracteres) saiam
+ * cortados no meio da frase, e o log entregava «este servidor nao conhece o tipo de en...»
+ * a quem investiga. A parte controlada pelo cliente ja vem truncada em 40 pelo proprio
+ * `unknownTargetDenialReason`; o resto do motivo e constante deste arquivo, entao o teto
+ * largo nao alarga superficie nenhuma.
+ * @param {*} v
+ * @param {number} [teto]
+ * @returns {string|null}
+ */
+function textoDeRecusa(v, teto = RECUSAS_MAX_TEXTO) {
+  if (v === null || v === undefined) return null;
+  const s = String(v);
+  if (s.length === 0) return null;
+  return s.length > teto ? `${s.slice(0, teto)}...` : s;
+}
+
+/**
+ * A linha AGREGADA das operacoes que este lote jogou fora, ou `null` quando nao jogou
+ * nenhuma.
+ *
+ * O BURACO QUE ELA FECHA. A recusa POR OPERACAO e o unico caminho em que o produto
+ * descarta trabalho do usuario de proposito, e ate 2026-09-01 ela nao escrevia nada em
+ * lugar nenhum: o lote respondia 200, o ack levava `rejected` ao cliente e o servidor nao
+ * guardava traco. O SyncLedger cobriria isso e morre em producao por gate de ambiente
+ * (`isTraceEnabled`), entao em producao nao havia evidencia, e quem relatasse "minha
+ * edicao sumiu" ou "minha fila congelou" nao podia ser confirmado nem desmentido.
+ *
+ * UMA LINHA POR LOTE, NUNCA UMA POR OPERACAO. Op recusada raramente vem sozinha (a recusa
+ * e deterministica, entao a mesma fila reenviada produz a mesma recusa), e uma linha por op
+ * transformaria o registro do defeito num ataque ao proprio arquivo de log. A unidade de
+ * agregacao e o LOTE porque e a unidade que o cliente reenvia. Consequencia declarada: o
+ * frame `operation` do socket e um lote de UM, entao um cliente em laco NAQUELA porta
+ * produz uma linha por recusa; este cliente nao usa essa porta (`sendOperation`, em
+ * `frontend/src/js/store/sync/ws-client.js`, nao tem chamador em `frontend/src/`), e quem
+ * usa paga uma ida ao banco por frame, serializada pelo lock de push do atlas.
+ *
+ * NIVEL `warn`, E FORA DO RELATORIO DE ERROS, e a escolha e deliberada. `ehErro`
+ * (`src/utils/diag-consulta.js`) tem TRES termos em OU: `level >= 50`, a PRESENCA de `err`
+ * e `statusCode >= 400`. Esta linha e `warn` (40), nao carrega `err` e nao carrega
+ * `statusCode`, entao falha nos tres e NAO aparece em `npm run diag -- erros`. O motivo:
+ * recusar a escrita num mapa travado, recusar exclusao de mapa a um Editor ou recusar
+ * referencia a recurso que o autor nao enxerga e o produto funcionando, com resposta 200, e
+ * despejar isso no relatorio de erros soterraria o 500 raro sob o comportamento correto
+ * frequente, que e a inversao exata que `agruparErros` existe para evitar. Ela continua
+ * alcancavel por `npm run diag -- linhas --filtro`, e e por isso que `MSG_RECUSA_DE_LOTE` e
+ * um simbolo. O que E defeito e a recusa EM LACO, e isso nao e propriedade da linha e sim
+ * da SERIE delas: `erros` conta ocorrencias e nao taxa, entao promove-la a `error` nao
+ * responderia a pergunta e ainda pagaria o preco acima. A recusa por VIOLACAO DE
+ * INTEGRIDADE mantem, a parte desta, o seu `logger.warn` com o erro cru: aquele carrega
+ * `err`, logo entra no relatorio de erros, e e o unico lugar onde o nome da constraint pode
+ * aparecer.
+ *
+ * SEM PAYLOAD. A op carrega geometria, texto de comentario e nome de feicao. Aqui so entram
+ * identificadores (atlas, usuario, cliente, mapa), o tipo de alvo, o tipo de operacao, o
+ * motivo e as contagens. O `mapId` e o `alvo` vem do envelope do cliente, entao passam por
+ * `textoDeRecusa`.
+ *
+ * @param {Object} params
+ * @param {string} params.atlasId - Atlas da ROTA.
+ * @param {string|null} [params.userId] - Principal que empurrou (bruto: um visitante de link
+ *   publico chega como `public-<uuid>`, e essa distincao e diagnostico).
+ * @param {'rest'|'ws'} [params.via] - A porta por onde o lote entrou.
+ * @param {number} [params.batchSize] - Quantas ops o lote trazia (o denominador: 3 de 100 e
+ *   outro fato que 100 de 100).
+ * @param {Array<{reason: string, target: *, type: *, mapId: *, clientId: *}>} [params.refusals]
+ * @returns {Object|null} O payload do log, ou null quando nao houve recusa.
+ */
+export function refusedOpsLogPayload({
+  atlasId, userId = null, via = 'rest', batchSize = 0, refusals = [],
+} = {}) {
+  if (!Array.isArray(refusals) || refusals.length === 0) return null;
+
+  const porChave = new Map();
+  const clientes = new Set();
+  for (const r of refusals) {
+    const motivo = textoDeRecusa(r?.reason, RECUSAS_MAX_MOTIVO) ?? '(sem motivo)';
+    const alvo = textoDeRecusa(r?.target) ?? '(sem alvo)';
+    const operacao = textoDeRecusa(r?.type) ?? '(sem tipo)';
+    const chave = `${motivo} | ${alvo} | ${operacao}`;
+    let grupo = porChave.get(chave);
+    if (!grupo) {
+      grupo = { chave, motivo, alvo, operacao, total: 0, mapas: [], mapasOmitidos: 0, vistos: new Set() };
+      porChave.set(chave, grupo);
+    }
+    grupo.total += 1;
+    const mapa = textoDeRecusa(r?.mapId);
+    if (mapa !== null && !grupo.vistos.has(mapa)) {
+      grupo.vistos.add(mapa);
+      if (grupo.mapas.length < RECUSAS_MAX_MAPAS_POR_GRUPO) grupo.mapas.push(mapa);
+      else grupo.mapasOmitidos += 1;
+    }
+    const cliente = textoDeRecusa(r?.clientId);
+    if (cliente !== null) clientes.add(cliente);
+  }
+
+  // Ordem DETERMINISTICA: mais frequente primeiro, e a chave inteira como desempate. Sem o
+  // desempate, dois grupos de mesma contagem trocariam de lugar entre execucoes e a cota
+  // abaixo cortaria um diferente a cada vez, fazendo a mesma falha produzir linhas
+  // diferentes.
+  const ordenados = [...porChave.values()].sort(
+    (a, b) => b.total - a.total || (a.chave < b.chave ? -1 : a.chave > b.chave ? 1 : 0),
+  );
+  const grupos = ordenados.slice(0, RECUSAS_MAX_GRUPOS).map(
+    ({ motivo, alvo, operacao, total, mapas, mapasOmitidos }) => (
+      mapasOmitidos > 0
+        ? { motivo, alvo, operacao, total, mapas, mapasOmitidos }
+        : { motivo, alvo, operacao, total, mapas }
+    ),
+  );
+
+  const listaDeClientes = [...clientes];
+  return {
+    atlasId: textoDeRecusa(atlasId),
+    userId: textoDeRecusa(userId),
+    via,
+    // NEM `err` NEM `statusCode`: ver a decisao de nivel no cabecalho. Acrescentar
+    // qualquer um dos dois joga esta linha dentro de `npm run diag -- erros`.
+    recusadas: refusals.length,
+    doLote: Number.isFinite(batchSize) ? batchSize : 0,
+    clientes: listaDeClientes.slice(0, RECUSAS_MAX_CLIENTES),
+    clientesOmitidos: Math.max(0, listaDeClientes.length - RECUSAS_MAX_CLIENTES),
+    grupos,
+    gruposOmitidos: ordenados.length - grupos.length,
+  };
+}
+
+/**
+ * Escreve a linha agregada, se houver o que escrever. Separada do montador pelo mesmo
+ * motivo de `logQueryError`/`dbErrorLogPayload` (`src/database/index.js`): sob
+ * `NODE_ENV=test` o pino esta em `silent`, entao um teste que espiasse a saida passaria
+ * verde com o defeito intacto. O que se asserta e o OBJETO.
+ * @param {Object} params - Igual ao de {@link refusedOpsLogPayload}.
+ * @returns {Object|null} O payload escrito, ou null quando nada foi escrito.
+ */
+export function logRefusedOps(params) {
+  const payload = refusedOpsLogPayload(params);
+  if (payload) logger.warn(payload, MSG_RECUSA_DE_LOTE);
+  return payload;
+}
+
+/**
  * Pushes a batch of operations to the server.
  * Operations are applied and recorded in the operations log.
  * Accepts both frontend format (entityType, operationType, entityId) and
  * legacy format (target, type, targetId).
  * @param {'owner'|'manage'|'write'|'comment'|'read'} [permission='owner'] - Resolved atlas
  *   permission (passed by the HTTP route / WS handler; defaults to owner for trusted internal calls).
+ * @param {Object} [opcoes]
+ * @param {'rest'|'ws'} [opcoes.via='rest'] - A porta por onde o lote entrou, e SO isso: ela
+ *   nao muda comportamento nenhum, entra na linha agregada de recusa (ver
+ *   `refusedOpsLogPayload`) e existe porque uma investigacao precisa saber se a fila que
+ *   congelou empurrava por HTTP ou pelo socket. O default cobre o chamador interno.
  */
-export async function pushOperations(atlasId, operations, userId, permission = 'owner') {
+export async function pushOperations(atlasId, operations, userId, permission = 'owner', { via = 'rest' } = {}) {
   const acks = [];
+  // As recusas POR OPERACAO deste lote, acumuladas para UMA linha agregada depois do
+  // commit (ver `refusedOpsLogPayload`). Depois do commit, e nao dentro do `tx`, porque um
+  // lote que rola de volta nao descartou nada: quem lesse a linha contaria como perdido um
+  // trabalho que o cliente vai reenviar.
+  const recusas = [];
 
   await tx(async (t) => {
     // P2 — serialize pushes per atlas.
@@ -1548,6 +1728,13 @@ export async function pushOperations(atlasId, operations, userId, permission = '
       // do ledger, e é por isso que ele é parâmetro: as três recusas precisam continuar
       // distinguíveis lá.
       const recusarOperacao = (reason, outcome) => {
+        // O FATO CRU DA RECUSA, sem uma linha de log aqui: e por operacao que ela
+        // acontece e por LOTE que ela e registrada. Nada de payload entra: so o motivo
+        // (texto do servidor, ou o tipo truncado no caso do alvo desconhecido) e os
+        // identificadores que nomeiam onde a perda caiu.
+        recusas.push({
+          reason, target: op.target, type: op.type, mapId: op.mapId, clientId: op.clientId,
+        });
         acks.push({
           opId: rawOp.id,
           serverVersion: null,
@@ -1736,6 +1923,17 @@ export async function pushOperations(atlasId, operations, userId, permission = '
         });
       }
     }
+  });
+
+  // UMA linha por lote que descartou trabalho, e nenhuma quando nao descartou. Aqui,
+  // depois do `tx`, porque so o que COMMITOU e perda de verdade: se o lote inteiro rolou
+  // de volta, `pushOperations` lancou e este ponto nao e alcancado.
+  logRefusedOps({
+    atlasId,
+    userId,
+    via,
+    batchSize: Array.isArray(operations) ? operations.length : 0,
+    refusals: recusas,
   });
 
   // Get current version (outside transaction)

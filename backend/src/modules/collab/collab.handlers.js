@@ -271,11 +271,26 @@ export async function handleOperation(ws, data) {
   const op = ops[0];
 
   try {
+    // A RECUSA POR OPERACAO NAO TEM GEMEO AQUI, e nao ter e a resposta certa. As cinco
+    // recusas (atlas alheio, alvo desconhecido, politica, mapa travado, recurso invisivel)
+    // e a de violacao de integridade sao TODAS decididas dentro de `pushOperations`, que e
+    // o unico caminho de escrita das duas portas; escrever aqui uma segunda montagem da
+    // linha agregada produziria duas gramaticas para o mesmo fato, que e exatamente o que
+    // uma investigacao nao pode pagar. O que esta porta acrescenta ao registro e a sua
+    // IDENTIDADE (`via`), sem a qual a linha nao distingue uma fila congelada no socket de
+    // uma congelada no HTTP.
+    //
+    // O QUE ELA NAO CONSEGUE AGREGAR, dito em voz alta: este frame carrega UMA op, logo o
+    // lote e de um, logo um cliente em laco produz aqui uma linha por recusa. A unidade de
+    // agregacao e o lote porque e a unidade que o cliente reenvia, e quem quiser o
+    // agrupamento manda `operations` (o `handleOperations` abaixo), que e o que este
+    // produto faz por REST. Ver `refusedOpsLogPayload` em sync.service.js.
     const result = await syncService.pushOperations(
       ws.atlasId,
       [op],
       ws.userId,
-      ws.permission
+      ws.permission,
+      { via: 'ws' }
     );
 
     // Send ack to sender (per-op result included for confident dequeue)
@@ -326,11 +341,15 @@ export async function handleOperations(ws, data) {
   if (!ops) return;
 
   try {
+    // `via: 'ws'` pelo mesmo motivo do `handleOperation` acima, e aqui o lote e um lote de
+    // verdade: as ops recusadas deste frame saem numa linha so, agrupadas por motivo e por
+    // alvo, exatamente como as da porta REST.
     const result = await syncService.pushOperations(
       ws.atlasId,
       ops,
       ws.userId,
-      ws.permission
+      ws.permission,
+      { via: 'ws' }
     );
 
     // Send batch ack to sender (per-op results for confident dequeue)
