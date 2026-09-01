@@ -147,8 +147,12 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   servidor de tiles; até ali o endpoint respondia sobre a CREDENCIAL e nunca sobre a CAMADA, então
   qualquer chave viva baixava o tile de qualquer camada privada, de outra OM inclusive. O predicado
   do ramo privado é o mesmo do 3D (`recursoPrivadoLiberado`, que se chamava assetLiberado até
-  aquela data), e o do ramo público é um índice em memória do catálogo
-  (`src/modules/nomes/tile-regime.js`), reconstruído só na escrita: uma ida ao banco por tile poria
+  aquela data), e o do ramo público é um índice em memória do catálogo QUE PODE ESTAR VELHO
+  (`src/modules/nomes/tile-regime.js`), reconstruído só na escrita, e que CAI para o último índice
+  bom quando a reconstrução falha: um recurso recém-marcado privado segue sendo servido como
+  público enquanto o banco estiver fora. Desde 2026-09-01 essa queda deixa UMA linha de transição
+  (`src/modules/nomes/regime-vencido.js`), com a idade do índice, nunca uma linha por consulta.
+  Uma ida ao banco por tile poria
   a vazão de um deslocamento de mapa no mesmo pool de dez conexões que serve o sync e o
   `GET /api/config`. Duas inversões que mordem quem chega pelo irmão do 3D: caminho NÃO reivindicado
   por linha de catálogo é 401 aqui e é público lá (lá o Node serve arquivo legítimo fora do

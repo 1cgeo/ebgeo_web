@@ -106,7 +106,7 @@ Sucesso é sempre `{ data }`; 204 vem sem corpo (o cliente precisa tolerar). O d
 
 ## Acesso público
 
-`GET /atlas/public/:link` é a única rota da família sem `auth`, protegida por `publicLinkLimiter` **porque o link é enumerável** (16 bytes hex, `backend/src/modules/atlas/atlas.service.js`). A busca exige `is_public = true AND deleted_at IS NULL`, logo desativar o link invalida o acesso na hora, sem propagação.
+`GET /atlas/public/:link` é a única rota da família sem `auth`, protegida por `publicLinkLimiter`. O motivo escrito aqui até 2026-09-01 era que "o link é enumerável", e ele é FALSO: são 16 bytes de `randomBytes`, isto é 128 bits, que não se enumera. O limitador existe contra abuso da rota anônima, não contra força bruta do espaço de chaves. A distinção importa porque o link, sendo inadivinhável, é uma capacidade portadora: quem o tem, entra, e é por isso que ele deixou de ser gravado literalmente na trilha de auditoria (ver [[auditoria]]). A busca exige `is_public = true AND deleted_at IS NULL`, logo desativar o link invalida o acesso na hora, sem propagação.
 
 O `publicToken` devolvido é JWT de **1 hora sem refresh**, válido para REST e WebSocket. Sessão pública longa exige reobter o token pelo mesmo endpoint; não há caminho de renovação. Ver [[link-publico]] e [[hardening-borda-api]].
 

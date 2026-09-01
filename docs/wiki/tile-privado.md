@@ -12,7 +12,7 @@ A consequência prática é que aqui **o catálogo esconde a URL e não move byt
 
 ## Como ele funciona hoje
 
-O nginx pergunta ao backend, antes de fazer o proxy, por `auth_request` contra `GET /api/v1/auth/tile-access`. O gate (`requireTileAccess`, `backend/src/modules/auth/tile-access.js`) resolve o caminho pedido contra um índice em memória de catálogo (`backend/src/modules/nomes/tile-regime.js`) e responde um de quatro desfechos:
+O nginx pergunta ao backend, antes de fazer o proxy, por `auth_request` contra `GET /api/v1/auth/tile-access`. O gate (`requireTileAccess`, `backend/src/modules/auth/tile-access.js`) resolve o caminho pedido contra um índice em memória de catálogo (`backend/src/modules/nomes/tile-regime.js`) e responde um de quatro desfechos (mais dois que esta página não contava: um **503** quando o índice nunca chegou a ser construído, e, desde 2026-09-01, os mesmos quatro desfechos decididos a partir de um índice VENCIDO, quando a reconstrução falhou e o gate caiu para o último índice bom; esse segundo caso era MUDO e hoje deixa uma linha de transição, ver [[observabilidade]]):
 
 | caminho | resposta |
 |---|---|
