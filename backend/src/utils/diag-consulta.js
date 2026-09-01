@@ -14,6 +14,21 @@
  * exatamente essa a forma do incidente de 2026-08-30: dezenove linhas idênticas no console,
  * uma causa só.
  *
+ * CADA AGREGAÇÃO TEM DUAS PORTAS, e a de fluxo é a original. `resumirStatus`,
+ * `resumirLatencia` e `agruparErros` recebem a janela inteira e são hoje FACHADAS de um
+ * acumulador (`criarResumoDeStatus`, `criarResumoDeLatencia`, `criarAgrupadorDeErros`) que
+ * recebe um registro por vez e nunca segura a lista. Quem tem a janela em memória é a rota
+ * (`diag.service.js`, sob um anel de 200 mil); o comando (`scripts/diag.js`) lê em fluxo e
+ * não tem teto. Uma segunda implementação por porta faria as duas divergirem no dia em que
+ * alguém consertasse uma, e é por isso que a fachada delega em vez de repetir.
+ *
+ * O ENDEREÇO ENTRA AGREGADO, DENTRO DO GRUPO, E NUNCA NA ASSINATURA. `enderecos` responde
+ * "este pico de 401 é UM endereço ou trezentos", que é pergunta sem comando até aqui; pôr o
+ * endereço na assinatura explodiria a cardinalidade e desfaria o agrupamento, que é a decisão
+ * que este módulo inteiro existe para sustentar. Ver `resumirEnderecos` e
+ * `criarCensoDeEnderecos`, que é o par dele: a leitura de um grupo com endereço único depende
+ * do censo da janela e não do grupo.
+ *
  * O ÚNICO IMPORT DAQUI é o marcador da amostra de saúde, e ele é import justamente para não
  * ser uma string digitada duas vezes: `amostra-de-saude.js` é folha de zero imports (não
  * arrasta `config.js`, que exigiria `DATABASE_URL` para ler log), e é essa propriedade que
@@ -210,31 +225,235 @@ export function fundirPorRequisicao(registros) {
   return saida;
 }
 
+/** Quantos endereços cada grupo NOMEIA, no máximo. Ver `resumirEnderecos`. */
+export const MAX_ENDERECOS_PRINCIPAIS = 5;
+
 /**
- * Agrupa erros por assinatura, do mais frequente para o menos.
+ * O endereço que uma linha registra, ou `null` quando ela não registra nenhum.
+ *
+ * AUSENTE NÃO É `'unknown'`, e os dois estados precisam continuar distinguíveis. O campo
+ * nasceu em 2026-08-31 (`clientAddress`, `middleware/request-logger.js`), então a esmagadora
+ * maioria das linhas existentes não o tem, e nenhuma linha fora do ciclo HTTP jamais terá
+ * (o sweep do WS, um job, a amostra de saúde). Já `'unknown'` é uma resposta do produtor:
+ * ele olhou o socket e não havia endereço. Este lado devolve `null` para o primeiro e a
+ * string para o segundo, que é o que faz `'unknown'` aparecer no relatório como o valor que
+ * ele é, em vez de sumir dentro da contagem de quem não tem campo nenhum.
+ * @param {Object} reg
+ * @returns {string|null}
+ */
+function enderecoDe(reg) {
+  const ip = reg && reg.ip;
+  if (typeof ip !== 'string') return null;
+  const limpo = ip.trim();
+  return limpo || null;
+}
+
+/**
+ * Endereços agregados: quantos DISTINTOS, e quais dominam.
+ *
+ * A FORMA É AGREGADA, e o `exemplo` do grupo não serve para isto. O exemplo é a ocorrência
+ * mais RECENTE (é o que `adicionar` mantém), então publicar o endereço dele sobre um grupo
+ * de mil lê como "a origem" quando é só o último a chegar. A pergunta que o campo responde
+ * é outra e não tem outro comando: "este pico de 401 é UM endereço ou trezentos".
+ *
+ * A ORDEM É TOTAL E DETERMINÍSTICA (contagem decrescente, e o próprio endereço como
+ * desempate), porque o corte em `MAX_ENDERECOS_PRINCIPAIS` é feito DEPOIS dela: com empate
+ * desempatado pela ordem de chegada, dois endereços de mesma contagem trocariam de lugar
+ * conforme a ordem de leitura, e o que muda com eles é QUEM APARECE, não só onde.
+ * @param {Map<string, number>} contagem
+ * @returns {{distintos: number, principais: Array<{ip: string, total: number}>}}
+ */
+function resumirEnderecos(contagem) {
+  const principais = [...contagem.entries()]
+    .map(([ip, total]) => ({ ip, total }))
+    .sort((a, b) => b.total - a.total || (a.ip < b.ip ? -1 : (a.ip > b.ip ? 1 : 0)))
+    .slice(0, MAX_ENDERECOS_PRINCIPAIS);
+  return { distintos: contagem.size, principais };
+}
+
+/**
+ * Os `reqId` que têm linha RICA (com `err`) na janela. É a primeira das duas passadas.
+ *
+ * Sem este índice não há agrupamento em FLUXO: para decidir o que fazer com a linha do
+ * `request-logger` é preciso saber se existe, em QUALQUER lugar da janela, uma linha do
+ * `errorHandler` com o mesmo `reqId` — inclusive depois dela. Guardar toda linha até o fim
+ * para descobrir isso é exatamente o que o fluxo existe para não fazer.
+ * @param {Object[]} registros
+ * @returns {Set<string>}
+ */
+export function indexarRequisicoesComErro(registros) {
+  const indice = criarIndiceDeRequisicoesComErro();
+  for (const reg of registros) indice.ver(reg);
+  return indice.resultado();
+}
+
+/**
+ * O mesmo índice, em FLUXO, e ele existe para que "linha RICA" tenha UMA definição.
+ *
+ * A primeira passada do comando poderia perguntar `reg.reqId && reg.err` na cara, e foi
+ * assim que ela nasceu: são nove caracteres. O problema é o dia em que a definição de linha
+ * rica mudar aqui dentro e a passada de fora continuar com a antiga, porque a divergência
+ * não dá erro nenhum, ela só deixa de fundir algumas requisições e o relatório passa a
+ * contar erros a mais, com cara de relatório certo.
+ * @returns {{ver: (reg: Object) => void, resultado: () => Set<string>}}
+ */
+export function criarIndiceDeRequisicoesComErro() {
+  const ricos = new Set();
+  return {
+    ver(reg) {
+      if (reg && reg.reqId && reg.err) ricos.add(reg.reqId);
+    },
+    resultado() {
+      return ricos;
+    },
+  };
+}
+
+/**
+ * O agrupador de erros em FLUXO: recebe um registro por vez e nunca segura a janela.
+ *
+ * A REGRA DE FUSÃO NÃO É REESCRITA AQUI. `fundirPorRequisicao` continua sendo a única
+ * definição dela, e este agrupador só decide QUEM precisa esperar por ela: as linhas de um
+ * `reqId` que o índice acusa como tendo erro (duas por requisição falha, e nada mais) ficam
+ * num buffer até o fim; todo o resto é agregado na hora e o registro é solto. O que sobra na
+ * memória é proporcional ao número de ERROS da janela, não ao número de linhas dela, e é essa
+ * a propriedade toda: num log saudável de 400 mil linhas o buffer tem dezenas.
+ *
+ * O AGRUPAMENTO É INDEPENDENTE DA ORDEM DE CHEGADA, e isso é obrigação, não conveniência: os
+ * registros fundidos entram todos no fim, muito depois dos que passaram intactos, e a saída
+ * precisa ser a mesma da versão que percorria a lista fundida em ordem. Por isso cada
+ * registro carrega a POSIÇÃO que tinha no fluxo, e ela decide os dois desempates que a ordem
+ * decidia sozinha: qual registro vira `exemplo` quando dois empatam no instante mais recente
+ * (o de posição menor, que era o primeiro a ser visto), e qual grupo vem antes quando total e
+ * `ultima` empatam (o que apareceu primeiro, que era a ordem de inserção no Map).
+ *
+ * @param {Set<string>} reqIdsComErro - saída de `indexarRequisicoesComErro` sobre a MESMA janela
+ * @returns {{ver: (reg: Object) => void, grupos: () => Array<Object>}}
+ */
+export function criarAgrupadorDeErros(reqIdsComErro) {
+  const mapa = new Map();
+  // Só linhas de requisição que TÊM erro: o buffer é limitado pelos erros da janela.
+  const espera = [];
+  const posicaoDoRico = new Map();
+  const enderecoDoPedido = new Map();
+  let posicao = 0;
+
+  function adicionar(reg, pos, ip) {
+    const chave = assinaturaDeErro(reg);
+    const t = typeof reg.time === 'number' ? reg.time : 0;
+    let g = mapa.get(chave);
+    if (!g) {
+      g = {
+        assinatura: chave, total: 0, primeira: t, ultima: t, exemplo: reg,
+        posicaoInicial: pos, posicaoDoExemplo: pos, enderecos: new Map(),
+      };
+      mapa.set(chave, g);
+    }
+    g.total += 1;
+    if (t < g.primeira) g.primeira = t;
+    if (t > g.ultima || (t === g.ultima && pos < g.posicaoDoExemplo)) {
+      g.ultima = t;
+      g.exemplo = reg;
+      g.posicaoDoExemplo = pos;
+    }
+    if (pos < g.posicaoInicial) g.posicaoInicial = pos;
+    // O ENDEREÇO NÃO ENTRA NA ASSINATURA, e a tentação é real: ele explodiria a cardinalidade
+    // e desfaria o agrupamento, que é a decisão que este módulo inteiro existe para sustentar.
+    // Ele é contado DENTRO do grupo, que é onde a pergunta "um endereço ou trezentos" mora.
+    if (ip) g.enderecos.set(ip, (g.enderecos.get(ip) || 0) + 1);
+  }
+
+  return {
+    ver(reg) {
+      const pos = posicao;
+      posicao += 1;
+      if (!reg || typeof reg !== 'object') return;
+      if (reg.reqId && reqIdsComErro.has(reg.reqId)) {
+        espera.push(reg);
+        if (reg.err) posicaoDoRico.set(reg.reqId, pos);
+        // O ENDEREÇO DA REQUISIÇÃO VEM DA OUTRA LINHA, e sem isto o campo nasceria vazio no
+        // caso mais comum de todos: a linha do `errorHandler` (`requestErrorLogPayload`) NÃO
+        // carrega `ip`, e é justamente ela que a fusão mantém. O endereço é o primeiro que
+        // qualquer linha daquele `reqId` registrar, que na prática é a do `request-logger`.
+        const ip = enderecoDe(reg);
+        if (ip && !enderecoDoPedido.has(reg.reqId)) enderecoDoPedido.set(reg.reqId, ip);
+        return;
+      }
+      if (ehErro(reg)) adicionar(reg, pos, enderecoDe(reg));
+    },
+    grupos() {
+      for (const fundido of fundirPorRequisicao(espera)) {
+        if (!ehErro(fundido)) continue;
+        // `posicaoDoRico` sempre tem a chave quando o índice veio da mesma janela. O default
+        // cobre o caso em que o arquivo cresceu ENTRE as duas passadas: ali a linha rica pode
+        // ter sumido do buffer, `fundirPorRequisicao` devolve os registros intactos e o pior
+        // que acontece é um desempate decidido por posição zero.
+        const pos = posicaoDoRico.get(fundido.reqId) ?? 0;
+        adicionar(fundido, pos, enderecoDe(fundido) || enderecoDoPedido.get(fundido.reqId) || null);
+      }
+      espera.length = 0;
+      return [...mapa.values()]
+        .sort((a, b) => b.total - a.total || b.ultima - a.ultima || a.posicaoInicial - b.posicaoInicial)
+        .map((g) => ({
+          assinatura: g.assinatura,
+          total: g.total,
+          primeira: g.primeira,
+          ultima: g.ultima,
+          exemplo: g.exemplo,
+          enderecos: resumirEnderecos(g.enderecos),
+        }));
+    },
+  };
+}
+
+/**
+ * Agrupa erros por assinatura, do mais frequente para o menos, com a janela toda em memória.
+ *
+ * É a fachada de `criarAgrupadorDeErros` para quem já tem a lista (a rota de diagnóstico, que
+ * lê sob um anel de 200 mil). Uma segunda implementação do agrupamento aqui faria as duas
+ * portas divergirem no dia em que alguém consertasse uma.
  *
  * O desempate é pela ocorrência MAIS RECENTE, e não é enfeite: duas assinaturas com a mesma
  * contagem quase sempre são o mesmo incidente visto de dois ângulos, e quem investiga quer
  * o lado que ainda está acontecendo em cima.
  * @param {Object[]} registros
- * @returns {Array<{assinatura: string, total: number, primeira: number, ultima: number, exemplo: Object}>}
+ * @returns {Array<{assinatura: string, total: number, primeira: number, ultima: number, exemplo: Object, enderecos: Object}>}
  */
 export function agruparErros(registros) {
-  const mapa = new Map();
-  for (const reg of fundirPorRequisicao(registros)) {
-    if (!ehErro(reg)) continue;
-    const chave = assinaturaDeErro(reg);
-    const t = typeof reg.time === 'number' ? reg.time : 0;
-    const atual = mapa.get(chave);
-    if (!atual) {
-      mapa.set(chave, { assinatura: chave, total: 1, primeira: t, ultima: t, exemplo: reg });
-      continue;
-    }
-    atual.total += 1;
-    if (t < atual.primeira) atual.primeira = t;
-    if (t > atual.ultima) { atual.ultima = t; atual.exemplo = reg; }
-  }
-  return [...mapa.values()].sort((a, b) => b.total - a.total || b.ultima - a.ultima);
+  const agrupador = criarAgrupadorDeErros(indexarRequisicoesComErro(registros));
+  for (const reg of registros) agrupador.ver(reg);
+  return agrupador.grupos();
+}
+
+/**
+ * O CENSO DE ENDEREÇOS DA JANELA INTEIRA, que é o que desambigua o grupo de um endereço só.
+ *
+ * Um grupo com `distintos: 1` e muitas ocorrências tem DUAS leituras, e nenhuma das duas é
+ * dedutível de dentro do grupo: pode ser um endereço único insistindo, ou pode ser
+ * `TRUST_PROXY_HOPS` em desacordo com o número de proxies à frente, caso em que TODA linha
+ * registra o endereço do proxy e o campo vira constante (o `fileoverview` de `clientAddress`
+ * teme esse caso em voz alta e nada o vigiava). O que separa as duas está FORA do grupo: se a
+ * janela inteira tem um endereço só, a hipótese do proxy está viva; se ela tem trezentos, o
+ * grupo está concentrado e a hipótese do proxy não explica o resto do arquivo.
+ *
+ * Ele conta LINHAS, não requisições, e de propósito: a pergunta aqui é sobre o campo, e uma
+ * requisição falha escreve duas linhas das quais só uma o carrega.
+ * @returns {{ver: (reg: Object) => void, resultado: () => {distintos: number, linhas: number, principais: Array<{ip: string, total: number}>}}}
+ */
+export function criarCensoDeEnderecos() {
+  const contagem = new Map();
+  let linhas = 0;
+  return {
+    ver(reg) {
+      const ip = enderecoDe(reg);
+      if (!ip) return;
+      linhas += 1;
+      contagem.set(ip, (contagem.get(ip) || 0) + 1);
+    },
+    resultado() {
+      return { ...resumirEnderecos(contagem), linhas };
+    },
+  };
 }
 
 /**
@@ -262,25 +481,45 @@ export function percentil(ordenados, p) {
  * @returns {Array<{rota: string, n: number, p50: number, p95: number, max: number}>}
  */
 export function resumirLatencia(registros) {
+  const resumo = criarResumoDeLatencia();
+  for (const reg of registros) resumo.ver(reg);
+  return resumo.resultado();
+}
+
+/**
+ * A mesma latência, em FLUXO.
+ *
+ * É a única agregação desta casa que precisa de amostra, e ela precisa: percentil por posto
+ * exige a distribuição, e não existe forma exata de obtê-lo de contadores. O que ela guarda,
+ * porém, são NÚMEROS e não registros — oito bytes por requisição, contra as centenas de bytes
+ * de um objeto de log. Dois milhões de linhas ficam na ordem de 16 MB, que é o preço de
+ * responder p95 sem estimador aproximado.
+ * @returns {{ver: (reg: Object) => void, resultado: () => Array<Object>}}
+ */
+export function criarResumoDeLatencia() {
   const porRota = new Map();
-  for (const reg of registros) {
-    if (!reg || typeof reg.duration !== 'number' || !reg.url) continue;
-    const rota = `${reg.method || ''} ${normalizarRota(reg.url)}`.trim();
-    if (!porRota.has(rota)) porRota.set(rota, []);
-    porRota.get(rota).push(reg.duration);
-  }
-  const linhas = [];
-  for (const [rota, valores] of porRota) {
-    valores.sort((a, b) => a - b);
-    linhas.push({
-      rota,
-      n: valores.length,
-      p50: percentil(valores, 50),
-      p95: percentil(valores, 95),
-      max: valores[valores.length - 1],
-    });
-  }
-  return linhas.sort((a, b) => b.p95 - a.p95);
+  return {
+    ver(reg) {
+      if (!reg || typeof reg.duration !== 'number' || !reg.url) return;
+      const rota = `${reg.method || ''} ${normalizarRota(reg.url)}`.trim();
+      if (!porRota.has(rota)) porRota.set(rota, []);
+      porRota.get(rota).push(reg.duration);
+    },
+    resultado() {
+      const linhas = [];
+      for (const [rota, valores] of porRota) {
+        valores.sort((a, b) => a - b);
+        linhas.push({
+          rota,
+          n: valores.length,
+          p50: percentil(valores, 50),
+          p95: percentil(valores, 95),
+          max: valores[valores.length - 1],
+        });
+      }
+      return linhas.sort((a, b) => b.p95 - a.p95);
+    },
+  };
 }
 
 /**
@@ -289,15 +528,29 @@ export function resumirLatencia(registros) {
  * @returns {{total: number, porFaixa: Object<string, number>}}
  */
 export function resumirStatus(registros) {
+  const resumo = criarResumoDeStatus();
+  for (const reg of registros) resumo.ver(reg);
+  return resumo.resultado();
+}
+
+/**
+ * A mesma contagem por faixa, em FLUXO. Ela é puro contador: nada aqui precisa da amostra.
+ * @returns {{ver: (reg: Object) => void, resultado: () => {total: number, porFaixa: Object<string, number>}}}
+ */
+export function criarResumoDeStatus() {
   const porFaixa = {};
   let total = 0;
-  for (const reg of registros) {
-    if (!reg || typeof reg.statusCode !== 'number') continue;
-    total += 1;
-    const faixa = `${Math.floor(reg.statusCode / 100)}xx`;
-    porFaixa[faixa] = (porFaixa[faixa] || 0) + 1;
-  }
-  return { total, porFaixa };
+  return {
+    ver(reg) {
+      if (!reg || typeof reg.statusCode !== 'number') return;
+      total += 1;
+      const faixa = `${Math.floor(reg.statusCode / 100)}xx`;
+      porFaixa[faixa] = (porFaixa[faixa] || 0) + 1;
+    },
+    resultado() {
+      return { total, porFaixa };
+    },
+  };
 }
 
 /**

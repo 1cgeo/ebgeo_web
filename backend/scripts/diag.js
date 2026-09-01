@@ -11,6 +11,31 @@
  * A lógica de agregação não mora aqui, e sim em `src/utils/diag-consulta.js`, que é puro e
  * testado. Aqui fica leitura de disco, argumentos e formatação.
  *
+ * A LEITURA É EM FLUXO, E O COMANDO NÃO TEM TETO DE REGISTROS. As duas metades da frase são
+ * decisão, e a segunda é a que se perde ao "reusar o leitor da rota": `diag.service.js`
+ * retém um anel de 200 mil linhas porque ele responde dentro de um processo que também
+ * atende sync, e uma resposta sua pode ser truncada. Aqui não: o comando vê o arquivo
+ * INTEIRO, e é isso que faz `diag -- saude` contar buracos numa janela longa. Importar
+ * aquele anel para cá mudaria respostas em silêncio, trocando o conjunto por uma amostra sem
+ * dizer que virou amostra.
+ *
+ * O que saiu foi o `readFileSync().split('\n')`, que era teto de outro tipo, e mais duro:
+ * acima de 512 MiB de string o node levanta `ERR_STRING_TOO_LONG`, o que na densidade deste
+ * log dá algo entre dois e dois milhões e meio de linhas num dia, sem escape por reduzir a
+ * janela, porque o arquivo era lido e parseado INTEIRO antes do filtro por tempo (medido:
+ * 382 ms com `--desde 5m` contra 433 ms com `24h`). Medido nesta máquina, num arquivo de
+ * 108 MB com 402 mil linhas: pico de 410 a 488 MB de working set antes, 60 a 78 MB depois.
+ *
+ * TODA AGREGAÇÃO É INCREMENTAL, com duas exceções declaradas. A latência precisa da amostra
+ * porque percentil por posto exige a distribuição, mas guarda NÚMEROS (`criarResumoDeLatencia`),
+ * não registros. E `erros` faz DUAS passadas pelo arquivo, porque a fusão das duas linhas de
+ * uma requisição falha (`fundirPorRequisicao`) precisa saber se existe linha rica para aquele
+ * `reqId` em QUALQUER lugar da janela, inclusive depois da linha que está sendo lida; a
+ * primeira passada só indexa esses `reqId`, e a segunda agrega. O preço é ler o arquivo duas
+ * vezes (medido: 572 ms antes, 720 ms depois, no mesmo arquivo de 108 MB), e a alternativa
+ * seria segurar toda linha com `reqId` até o fim, que é a memória que este trabalho existe
+ * para tirar.
+ *
  * Uso:
  *   npm run diag -- erros [--desde 24h] [--limite 20]
  *   npm run diag -- lento [--desde 24h] [--limite 15]
@@ -22,10 +47,14 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import readline from 'node:readline';
+import { fileURLToPath } from 'node:url';
 import {
-  parseJanela, parseIntervalo, diasDaJanela, parseLinha, agruparErros,
-  resumirLatencia, resumirStatus, resumirAmostras, ehErro,
+  parseJanela, parseIntervalo, diasDaJanela, parseLinha, resumirAmostras, ehErro,
+  criarAgrupadorDeErros, criarIndiceDeRequisicoesComErro, criarCensoDeEnderecos,
+  criarResumoDeLatencia, criarResumoDeStatus, MAX_ENDERECOS_PRINCIPAIS,
 } from '../src/utils/diag-consulta.js';
+import { MARCADOR_AMOSTRA } from '../src/utils/amostra-de-saude.js';
 
 const COMANDOS = new Set(['erros', 'lento', 'status', 'saude', 'linhas']);
 
@@ -56,32 +85,57 @@ diag — consulta o log em arquivo do EBGeo
   --dir <caminho>   lê outro diretório de log (default: o de LOG_DIR)
   janela: 30m, 24h, 7d
   --intervalo: 30s, 5m, 1h (sem isto, ele é INFERIDO da própria série)
+  --filtro: casa a LINHA COMO ESTÁ NO DISCO, então nome de campo ("time", "msg")
+            casa toda linha que o tenha. Procure pelo valor.
 `);
 }
 
 /**
- * Lê os registros da janela.
+ * Percorre os registros da janela, um a um, e não devolve nenhum.
  *
  * Abre só os arquivos dos dias que a janela toca, e depois filtra por `time`: sem o
  * segundo passo, `--desde 1h` às 00h30 devolveria o dia de ontem inteiro.
+ *
+ * NADA É ACUMULADO AQUI, e é isso que separa esta função da que ela substituiu. Quem chama
+ * decide o que reter, e nenhum dos cinco comandos retém a janela: erros e status são
+ * contadores, saúde fica só com as linhas de amostra (uma a cada poucos minutos), latência
+ * fica com números e `linhas` com um anel do tamanho do `--limite`.
+ *
+ * A LINHA CRUA VAI JUNTO com o registro, e não é conveniência: é o texto que existe no
+ * disco, e é contra ele que `--filtro` casa. Re-serializar o objeto para filtrar produz um
+ * texto que nunca existiu em lugar nenhum.
+ *
+ * @param {string} dir
+ * @param {number} desdeMs
+ * @param {Date} agora
+ * @param {(reg: Object, linha: string) => void} aoRegistro
+ * @returns {Promise<{arquivosLidos: number, linhas: number, inicio: Date}>}
  */
-function lerRegistros(dir, desdeMs, agora) {
+export async function percorrerRegistros(dir, desdeMs, agora, aoRegistro) {
   const inicio = new Date(agora.getTime() - desdeMs);
-  const registros = [];
   let arquivosLidos = 0;
+  let linhas = 0;
 
   for (const dia of diasDaJanela(inicio, agora)) {
     const alvo = path.join(dir, `ebgeo-${dia}.jsonl`);
     if (!fs.existsSync(alvo)) continue;
     arquivosLidos += 1;
-    for (const linha of fs.readFileSync(alvo, 'utf8').split('\n')) {
-      const reg = parseLinha(linha);
-      if (!reg) continue;
-      if (typeof reg.time === 'number' && reg.time < inicio.getTime()) continue;
-      registros.push(reg);
+    const entrada = fs.createReadStream(alvo, 'utf8');
+    const leitor = readline.createInterface({ input: entrada, crlfDelay: Infinity });
+    try {
+      for await (const linha of leitor) {
+        const reg = parseLinha(linha);
+        if (!reg) continue;
+        if (typeof reg.time === 'number' && reg.time < inicio.getTime()) continue;
+        linhas += 1;
+        aoRegistro(reg, linha);
+      }
+    } finally {
+      leitor.close();
+      entrada.destroy();
     }
   }
-  return { registros, arquivosLidos, inicio };
+  return { arquivosLidos, linhas, inicio };
 }
 
 const hora = (t) => (typeof t === 'number' ? new Date(t).toLocaleString('pt-BR') : '?');
@@ -105,16 +159,81 @@ function duracao(ms) {
   return h % 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : `${Math.floor(h / 24)}d`;
 }
 
-function imprimirErros(registros, limite) {
-  const grupos = agruparErros(registros);
+/**
+ * Os endereços de UM grupo, e o formato muda com o número deles porque a pergunta muda.
+ *
+ * Com um só, a linha é curta e é a que dispara a nota da ambiguidade adiante. Com vários, um
+ * por linha e alinhados, porque aí o que se lê é a COMPARAÇÃO entre as contagens.
+ *
+ * Grupo sem endereço nenhum não escreve nada, e a explicação sai UMA vez, depois da lista:
+ * o campo nasceu em 2026-08-31 e vai faltar na maioria das linhas existentes, então uma
+ * frase por grupo seria a mesma frase vinte vezes no mesmo relatório.
+ */
+function imprimirEnderecosDoGrupo(g) {
+  const { distintos, principais } = g.enderecos;
+  if (!distintos) return;
+  if (distintos === 1) {
+    process.stdout.write(`         1 endereço só, em ${principais[0].total} das ${g.total} ocorrência(s): ${principais[0].ip}\n`);
+    return;
+  }
+  process.stdout.write(`         ${distintos} endereço(s) distinto(s):\n`);
+  for (const e of principais) {
+    process.stdout.write(`           ${String(e.total).padStart(5)}x  ${e.ip}\n`);
+  }
+  if (distintos > MAX_ENDERECOS_PRINCIPAIS) {
+    process.stdout.write(`           ... e mais ${distintos - MAX_ENDERECOS_PRINCIPAIS}, fora dos ${MAX_ENDERECOS_PRINCIPAIS} maiores\n`);
+  }
+}
+
+/**
+ * A nota do endereço, que sai UMA vez e NOMEIA AS DUAS LEITURAS em vez de escolher uma.
+ *
+ * "Um endereço só" sobre muitas ocorrências pode ser um atacante único ou pode ser
+ * `TRUST_PROXY_HOPS` em desacordo com o número de proxies à frente, caso em que toda linha
+ * registra o endereço do proxy e o campo vira constante. O `fileoverview` de `clientAddress`
+ * (`middleware/request-logger.js`) teme esse caso em voz alta e nada o vigiava; esta é a
+ * primeira coisa do produto capaz de acusá-lo, e ela só pode acusar porque tem o CENSO da
+ * janela inteira, que é a evidência que nenhum grupo carrega sozinho.
+ *
+ * Afirmar uma das duas leituras seria inventar veredito, que é a mesma classe de erro da nota
+ * de disco em `imprimirNotaDeDisco`, logo abaixo, e pela mesma razão a redação descreve o
+ * mecanismo e devolve o juízo a quem lê.
+ */
+function imprimirNotaDeEndereco(censo, algumGrupoConcentrado) {
+  if (!censo.linhas) {
+    process.stdout.write('\nNenhuma linha desta janela registra endereço, então nada se afirma sobre origem. O\n');
+    process.stdout.write('campo `ip` nasceu em 2026-08-31 na linha de requisição, e linha fora do ciclo HTTP\n');
+    process.stdout.write('(o sweep do WS, um job, a amostra de saúde) não o tem nem vai ter.\n');
+    return;
+  }
+  process.stdout.write(`\nNa janela inteira: ${censo.distintos} endereço(s) distinto(s) em ${censo.linhas} linha(s) com endereço.\n`);
+  if (!algumGrupoConcentrado) return;
+
+  process.stdout.write('UM ENDEREÇO SÓ NUM GRUPO TEM DUAS LEITURAS, e este comando não escolhe entre elas: pode\n');
+  process.stdout.write('ser um endereço único insistindo, ou pode ser TRUST_PROXY_HOPS em desacordo com o número\n');
+  process.stdout.write('de proxies à frente, caso em que TODA linha registra o endereço do proxy e o campo vira\n');
+  process.stdout.write('constante. O censo acima é o que separa as duas, e é INDÍCIO, não veredito:\n');
+  if (censo.distintos === 1) {
+    process.stdout.write(`  a janela INTEIRA tem um endereço (${censo.principais[0].ip}), que é o que a hipótese do\n`);
+    process.stdout.write('  proxy prevê e também o que um serviço com um cliente só produz. Confira TRUST_PROXY_HOPS\n');
+    process.stdout.write('  contra o número de proxies do deploy antes de tratar o endereço como origem.\n');
+    return;
+  }
+  process.stdout.write(`  a janela tem ${censo.distintos} endereços distintos, então o campo NÃO é constante aqui e a\n`);
+  process.stdout.write('  concentração é do grupo, não do instrumento.\n');
+}
+
+function imprimirErros(grupos, limite, censo) {
   if (!grupos.length) {
     process.stdout.write('Nenhum erro na janela.\n');
     return;
   }
   process.stdout.write(`${grupos.length} assinatura(s) de erro, ${grupos.reduce((s, g) => s + g.total, 0)} ocorrência(s):\n\n`);
-  for (const g of grupos.slice(0, limite)) {
+  const mostrados = grupos.slice(0, limite);
+  for (const g of mostrados) {
     process.stdout.write(`[${String(g.total).padStart(5)}x] ${g.assinatura}\n`);
     process.stdout.write(`         primeira ${hora(g.primeira)}   última ${hora(g.ultima)}\n`);
+    imprimirEnderecosDoGrupo(g);
     const e = g.exemplo.err;
     if (e && e.stack) {
       process.stdout.write(`         ${String(e.stack).split('\n').slice(0, 3).join('\n         ')}\n`);
@@ -122,10 +241,13 @@ function imprimirErros(registros, limite) {
     process.stdout.write('\n');
   }
   if (grupos.length > limite) process.stdout.write(`... e mais ${grupos.length - limite} assinatura(s). Use --limite.\n`);
+  // A ambiguidade é do grupo com UM endereço e MAIS DE UMA ocorrência: uma ocorrência só não
+  // tem o que concentrar. O limiar é esse e não um número escolhido a dedo, que seria palpite
+  // com cara de medição.
+  imprimirNotaDeEndereco(censo, mostrados.some((g) => g.enderecos.distintos === 1 && g.total > 1));
 }
 
-function imprimirLento(registros, limite) {
-  const linhas = resumirLatencia(registros);
+function imprimirLento(linhas, limite) {
   if (!linhas.length) {
     process.stdout.write('Nenhuma requisição com duração na janela.\n');
     return;
@@ -138,14 +260,12 @@ function imprimirLento(registros, limite) {
   }
 }
 
-function imprimirStatus(registros) {
-  const { total, porFaixa } = resumirStatus(registros);
+function imprimirStatus({ total, porFaixa }, erros) {
   process.stdout.write(`${total} requisição(ões) na janela\n`);
   for (const faixa of Object.keys(porFaixa).sort()) {
     const n = porFaixa[faixa];
     process.stdout.write(`  ${faixa}: ${String(n).padStart(6)}  (${((n / total) * 100).toFixed(1)}%)\n`);
   }
-  const erros = registros.filter(ehErro).length;
   process.stdout.write(`\n${erros} registro(s) de erro. Detalhe: npm run diag -- erros\n`);
 }
 
@@ -303,12 +423,38 @@ function imprimirSaude(registros, opcoes) {
   }
 }
 
-function imprimirLinhas(registros, filtro, limite) {
-  const alvo = filtro ? registros.filter((r) => JSON.stringify(r).includes(filtro)) : registros;
-  for (const reg of alvo.slice(-limite)) {
-    process.stdout.write(`${JSON.stringify(reg)}\n`);
+/**
+ * O despejo cru, e ele é CRU dos dois lados: o que se casa e o que se imprime é a linha COMO
+ * ELA ESTÁ NO DISCO.
+ *
+ * Até 2026-09-01 o filtro casava contra `JSON.stringify(reg)`, um texto re-serializado que
+ * nunca existiu em arquivo nenhum, e a linha impressa era essa mesma re-serialização. Casar
+ * o disco é mais rápido (nenhum objeto é re-serializado) e é a única versão em que o
+ * resultado do comando é conferível com um `grep` no mesmo arquivo.
+ *
+ * A DIFERENÇA APARECE NO ESCAPE, e é a única que aparece: `JSON.parse` seguido de
+ * `JSON.stringify` normaliza `"café"` para `"café"`, então o filtro antigo casava a
+ * forma que o disco NÃO tem e não casava a que ele tem. Nome de campo casa dos dois jeitos,
+ * porque ele é texto na linha também, e é disso que trata a nota do fim.
+ *
+ * @param {string[]} linhas - as últimas que casaram, em ordem cronológica
+ * @param {number} casaram - quantas casaram ao todo (antes do corte)
+ * @param {number} naJanela - quantas linhas a janela tem
+ * @param {string|null} filtro
+ */
+function imprimirLinhas(linhas, casaram, naJanela, filtro) {
+  for (const linha of linhas) process.stdout.write(`${linha}\n`);
+  process.stdout.write(`\n(${casaram} linha(s) casaram; mostrando as ${linhas.length} últimas)\n`);
+
+  // O filtro que casa TUDO não estreitou nada, e quem digitou um nome de campo (`time`,
+  // `level`, `msg`) merece saber por que, em vez de concluir que o comando está quebrado ou,
+  // pior, que aquelas 402 mil linhas têm todas a ver com o que ele procura.
+  if (filtro && naJanela > 0 && casaram === naJanela) {
+    process.stdout.write(`\nO filtro casou TODAS as ${naJanela} linha(s) da janela, ou seja, não estreitou nada. O texto\n`);
+    process.stdout.write('conferido é a linha como ela está no disco, e ali o NOME de cada campo também é texto:\n');
+    process.stdout.write('"time", "level" e "msg" aparecem em toda linha que os tenha. Procure pelo VALOR (um\n');
+    process.stdout.write('endereço, um uuid, um trecho de mensagem), não pelo nome do campo.\n');
   }
-  process.stdout.write(`\n(${alvo.length} linha(s) casaram; mostrando as ${Math.min(limite, alvo.length)} últimas)\n`);
 }
 
 async function main() {
@@ -353,21 +499,117 @@ async function main() {
   }
 
   const agora = new Date();
-  const { registros, arquivosLidos, inicio } = lerRegistros(dir, janela, agora);
-  process.stdout.write(`# ${path.resolve(dir)} | ${arquivosLidos} arquivo(s) | desde ${inicio.toLocaleString('pt-BR')} | ${registros.length} linha(s)\n\n`);
-
-  if (op.comando === 'erros') imprimirErros(registros, op.limite || 20);
-  else if (op.comando === 'lento') imprimirLento(registros, op.limite || 15);
-  else if (op.comando === 'status') imprimirStatus(registros);
-  else if (op.comando === 'saude') {
-    // As DUAS pontas da janela vão junto: o começo, para nomear como DESCONHECIDO o trecho
-    // anterior à primeira amostra, e o agora, porque a distância até a última amostra é o
-    // sinal do presente. Sem elas o resumo saberia só o que aconteceu entre amostras.
-    imprimirSaude(registros, { intervaloMs: intervalo, agora: agora.getTime(), inicio: inicio.getTime() });
-  } else imprimirLinhas(registros, op.filtro, op.limite || 50);
+  const relatorio = await coletar(op, dir, janela, agora);
+  const { arquivosLidos, linhas, inicio } = relatorio.leitura;
+  process.stdout.write(`# ${path.resolve(dir)} | ${arquivosLidos} arquivo(s) | desde ${inicio.toLocaleString('pt-BR')} | ${linhas} linha(s)\n\n`);
+  relatorio.imprimir(inicio, agora, intervalo);
 }
 
-main().catch((err) => {
-  process.stderr.write(`diag falhou: ${err && err.stack ? err.stack : err}\n`);
-  process.exit(1);
-});
+/**
+ * Uma passada por comando (duas em `erros`), com o acumulador que aquele comando precisa.
+ *
+ * O DESPACHO É AQUI, ANTES DA LEITURA, e não depois: é o que permite a cada comando reter só
+ * o seu. Um leitor único que devolvesse a lista para todos obrigaria os cinco a pagar a
+ * memória do mais caro, que é justamente o defeito que saiu.
+ *
+ * A impressão fica numa função de retorno em vez de acontecer aqui porque o CABEÇALHO (com a
+ * contagem de linhas) vem antes do corpo e só se conhece depois da leitura.
+ */
+async function coletar(op, dir, janela, agora) {
+  if (op.comando === 'erros') {
+    // PRIMEIRA PASSADA: só os `reqId` que têm linha rica. Ver o `fileoverview`.
+    const indice = criarIndiceDeRequisicoesComErro();
+    await percorrerRegistros(dir, janela, agora, (reg) => indice.ver(reg));
+    const agrupador = criarAgrupadorDeErros(indice.resultado());
+    const censo = criarCensoDeEnderecos();
+    const leitura = await percorrerRegistros(dir, janela, agora, (reg) => {
+      agrupador.ver(reg);
+      // O censo é da JANELA, não dos erros: é ele que diz se o endereço é constante no
+      // arquivo inteiro, que é o que desambigua um grupo de endereço único.
+      censo.ver(reg);
+    });
+    const grupos = agrupador.grupos();
+    return { leitura, imprimir: () => imprimirErros(grupos, op.limite || 20, censo.resultado()) };
+  }
+
+  if (op.comando === 'lento') {
+    const resumo = criarResumoDeLatencia();
+    const leitura = await percorrerRegistros(dir, janela, agora, (reg) => resumo.ver(reg));
+    const rotas = resumo.resultado();
+    return { leitura, imprimir: () => imprimirLento(rotas, op.limite || 15) };
+  }
+
+  if (op.comando === 'status') {
+    const resumo = criarResumoDeStatus();
+    let erros = 0;
+    const leitura = await percorrerRegistros(dir, janela, agora, (reg) => {
+      resumo.ver(reg);
+      if (ehErro(reg)) erros += 1;
+    });
+    const contagem = resumo.resultado();
+    return { leitura, imprimir: () => imprimirStatus(contagem, erros) };
+  }
+
+  if (op.comando === 'saude') {
+    // O ÚNICO comando que retém registros, e retém só as linhas de AMOSTRA: uma a cada
+    // poucos minutos por processo, ou seja, centenas num dia contra centenas de milhares de
+    // linhas de requisição. `resumirAmostras` precisa da série inteira (ela mede DISTÂNCIAS
+    // entre pontos consecutivos e um percentil sobre elas), e essa série é pequena por
+    // construção. Filtrar aqui, e não lá dentro, é o que impede o resto de entrar.
+    const amostras = [];
+    const leitura = await percorrerRegistros(dir, janela, agora, (reg) => {
+      if (reg.amostra === MARCADOR_AMOSTRA) amostras.push(reg);
+    });
+    return {
+      leitura,
+      // As DUAS pontas da janela vão junto: o começo, para nomear como DESCONHECIDO o trecho
+      // anterior à primeira amostra, e o agora, porque a distância até a última amostra é o
+      // sinal do presente. Sem elas o resumo saberia só o que aconteceu entre amostras.
+      imprimir: (inicio, fim, intervalo) => imprimirSaude(
+        amostras, { intervaloMs: intervalo, agora: fim.getTime(), inicio: inicio.getTime() }
+      ),
+    };
+  }
+
+  // `linhas`: um anel do tamanho do `--limite`, e nada mais. Guardar tudo para mostrar as 50
+  // últimas era o caso mais caro de todos, e o mais fácil de não notar.
+  const limite = op.limite || 50;
+  const anel = new Array(limite);
+  let casaram = 0;
+  const leitura = await percorrerRegistros(dir, janela, agora, (reg, linha) => {
+    if (op.filtro && !linha.includes(op.filtro)) return;
+    anel[casaram % limite] = linha;
+    casaram += 1;
+  });
+  const corte = casaram % limite;
+  const ultimas = casaram > limite
+    ? [...anel.slice(corte, limite), ...anel.slice(0, corte)]
+    : anel.slice(0, casaram);
+  return { leitura, imprimir: () => imprimirLinhas(ultimas, casaram, leitura.linhas, op.filtro) };
+}
+
+/**
+ * Este arquivo é comando E módulo: os testes importam `percorrerRegistros` para medir a
+ * leitura sem dirigir o comando inteiro, e sem esta guarda o simples import executaria
+ * `main()` com os argumentos do corredor de testes.
+ *
+ * A COMPARAÇÃO É DE CAMINHO RESOLVIDO, e ela é frouxa quanto à caixa no Windows de
+ * propósito: o npm pode entregar o drive em caixa diferente da que `import.meta.url`
+ * resolve, e um falso negativo aqui não daria erro nenhum, apenas um comando que não faz
+ * nada. Quem vigia isso é `tests/unit/diag-saude-impressao.test.js`, que dirige o comando de
+ * verdade por `spawnSync` e ficaria vermelho na hora.
+ */
+function ehEntrada() {
+  const esteArquivo = fileURLToPath(import.meta.url);
+  const chamado = process.argv[1] ? path.resolve(process.argv[1]) : '';
+  return process.platform === 'win32'
+    ? chamado.toLowerCase() === esteArquivo.toLowerCase()
+    : chamado === esteArquivo;
+}
+
+if (ehEntrada()) {
+  main().catch((err) => {
+    process.stderr.write(`diag falhou: ${err && err.stack ? err.stack : err}\n`);
+    process.exit(1);
+  });
+}
