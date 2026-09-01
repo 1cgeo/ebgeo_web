@@ -37,6 +37,7 @@ import path from 'node:path';
 // custaram um vazamento medido cada uma, e uma copia que nao as recebesse repetiria os dois
 // defeitos noutro prefixo, com o mesmo desfecho e sem nenhum sinal.
 import { normalizarRel, ordenarEntradas, acharEntrada } from './caminho-de-recurso.js';
+import { criarVigiaDeRegime } from './regime-vencido.js';
 import { query } from '../../database/index.js';
 import { SELECT_LINHAS_DE_CATALOGO } from '../catalog/catalog.tables.js';
 import config from '../../config.js';
@@ -66,6 +67,14 @@ const TTL_MS = 60_000;
 let entrada = null;
 /** @type {Array|null} The last index that BUILT, kept so a database blip does not close the route. */
 let ultimoBom = null;
+/**
+ * Quem torna ESCRITA a queda para o `ultimoBom`, que era muda. A janela que o comentário de
+ * `invalidarRegimeDeAssets3d()` abaixo declara em vez de esconder passou a falar: uma linha
+ * na entrada em regime vencido e uma na volta, nunca uma por consulta. O porquê da forma e
+ * do nível está em `regime-vencido.js`, compartilhado com `tile-regime.js` porque a
+ * pergunta "este índice está velho, e há quanto tempo" não depende do que ele indexa.
+ */
+const vigia = criarVigiaDeRegime('assets3d');
 
 /**
  * Drops the index so the next asset request rebuilds it.
@@ -151,6 +160,9 @@ function lerIndice() {
   const promise = query(INDICE_SQL, []).then(({ rows }) => {
     const indice = montarIndice(rows);
     ultimoBom = indice;
+    // AFTER publishing: this stamps the age of the last good index, and it is what writes
+    // the back-to-normal line when we were stale.
+    vigia.anotarConstrucao();
     return indice;
   });
 
@@ -189,6 +201,9 @@ export async function regimeDoCaminho(rel) {
     indice = await lerIndice();
   } catch (err) {
     if (!ultimoBom) throw err;
+    // After the rethrow branch on purpose: that one answers 503 and is loud by itself,
+    // while THIS one was serving stale state without a word anywhere.
+    vigia.anotarQueda(err);
     indice = ultimoBom; // stale, but a stale answer beats closing the route on a blip
   }
 

@@ -54,6 +54,7 @@ import config from '../../config.js';
 import { query } from '../../database/index.js';
 import { SELECT_LINHAS_DE_CATALOGO } from '../catalog/catalog.tables.js';
 import { normalizarRel, ordenarEntradas, acharEntrada } from './caminho-de-recurso.js';
+import { criarVigiaDeRegime } from './regime-vencido.js';
 
 /** As tabelas cujos endereços saem pelo prefixo de tiles. `tilesets` não é uma delas. */
 const TIPOS_DE_TILE = Object.freeze(['data_layer', 'analysis_layer', 'basemap']);
@@ -74,6 +75,12 @@ const TTL_MS = 60_000;
 let entrada = null;
 /** @type {Array|null} O último índice que CONSTRUIU, para que uma falha de banco não feche tudo. */
 let ultimoBom = null;
+/**
+ * Quem torna ESCRITA a queda para o `ultimoBom`, que era muda. Uma linha na entrada em
+ * regime vencido e uma na volta, nunca uma por consulta: o porquê da forma e do nível está
+ * no cabeçalho de `regime-vencido.js`, e este arquivo não decide nada disso.
+ */
+const vigia = criarVigiaDeRegime('tile');
 
 /**
  * Descarta o índice, para que o próximo pedido o reconstrua.
@@ -240,6 +247,9 @@ function lerIndice() {
   const promise = query(SELECT_LINHAS_DE_CATALOGO, []).then(({ rows }) => {
     const indice = montarIndiceDeTile(rows);
     ultimoBom = indice;
+    // DEPOIS de publicar: é isto que carimba a idade do último bom, e é o que escreve a
+    // linha de volta ao normal quando estávamos vencidos.
+    vigia.anotarConstrucao();
     return indice;
   });
 
@@ -267,6 +277,9 @@ export async function regimeDoTile(caminho) {
     indice = await lerIndice();
   } catch (erro) {
     if (!ultimoBom) throw erro;
+    // Depois do relançamento, de propósito: aquele ramo responde 503 e é alto por si; este
+    // é o que servia estado velho em silêncio.
+    vigia.anotarQueda(erro);
     indice = ultimoBom;
   }
   const achada = acharEntrada(indice, caminho);
