@@ -1614,6 +1614,26 @@
     cursor: help;
 }
 
+/* A UNIDADE DO NÚMERO, sob ele e só na lista do navegador. Ela existe porque a nota da seção é um
+   parágrafo, e parágrafo se pula: o número daquela lista é um acumulado VITALÍCIO de relatos, e sem
+   duas palavras coladas nele um olhar de dois segundos volta a lê-lo como contagem da janela. A
+   escada de peso continua no elemento de fora, então a unidade precisa desfazer o corpo e o peso
+   herdados, senão "relatos no total" sai em corpo de título ao lado de uma contagem de massa. */
+.admin-diag__contagem-valor,
+.admin-diag__contagem-unidade {
+    display: block;
+    line-height: var(--line-height-tight);
+}
+
+/* `nowrap`: quebrada em duas linhas ela deixa de se ler como legenda e vira mais um texto na tela.
+   O crachá cresce um pouco em vez disso, o que a aba (desktop-only por decisão) comporta. */
+.admin-diag__contagem-unidade {
+    font-size: var(--font-size-2xs);
+    font-weight: var(--font-weight-normal);
+    white-space: nowrap;
+    opacity: 0.75;
+}
+
 /* Ocorrência única: o degrau mais baixo, e o mais discreto. É também onde cai a contagem que NÃO
    chegou, e por isso ele não pode alarmar. */
 .admin-diag__contagem--unica {

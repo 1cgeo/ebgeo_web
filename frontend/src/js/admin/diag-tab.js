@@ -29,8 +29,13 @@
  * LAYOUT e nunca por segurança.
  *
  * A CONTAGEM MANDA NA TELA. Ela é o primeiro elemento de cada linha, com peso visual em escada
- * logarítmica (`pesoDaContagem`), e a lista é reordenada aqui por contagem: quem abre esta aba
- * está escolhendo o que consertar primeiro. Ver o `@fileoverview` de `diag-phrases.js`.
+ * logarítmica (`pesoDaContagem`): quem abre esta aba está escolhendo o que consertar primeiro.
+ *
+ * MAS SÓ A LISTA DO SERVIDOR É ORDENADA POR ELA, e a exceção é o conserto de 2026-09-01. A
+ * contagem do lado do NAVEGADOR é um acumulado vitalício de relatos, e o servidor corta aquela
+ * lista pelas mais RECENTES: ordenar por contagem produzia um pódio sobre uma amostra escolhida
+ * por outro critério, sem nada na tela dizendo isso. Aquela lista agora sai por recência, com a
+ * legenda do número acima dela. Ver `ordenarItensCliente` e `clientErrorsListaNotice`.
  */
 
 import { apiClient } from '@store/sync/api-client.js';
@@ -50,8 +55,11 @@ import {
     clientErrorsEmptyHint,
     clientErrorsEmptyNotice,
     clientErrorsFailureNotice,
+    clientErrorsListaNotice,
     clientErrorsScopeNotice,
     contagemDetalhe,
+    contagemHistoricaDetalhe,
+    contagemHistoricaUnidade,
     contagemLabel,
     cortadaNotice,
     estadoDaContagemDeErros,
@@ -533,7 +541,8 @@ class DiagTab {
     _pintarErrosCliente(host, resultado, janela) {
         host.replaceChildren();
         host.appendChild(sectionHeader('Erros do navegador', {
-            subtitle: 'O que quebrou na tela de quem estava usando o produto',
+            subtitle: 'O que quebrou na tela de quem estava usando o produto, das mais recentes '
+                + 'para as mais antigas',
         }));
 
         const escopo = document.createElement('p');
@@ -558,10 +567,27 @@ class DiagTab {
             return;
         }
 
+        const linhas = ordenarItensCliente(itens);
+        // A NOTA VEM ANTES DA LISTA, e não depois como o corte das outras seções: aqui ela não é
+        // uma ressalva sobre a leitura, é a legenda da coluna de números. Lida depois, ela chega
+        // quando a pessoa já escolheu no que clicar a partir do número que ela desmente.
+        const nota = document.createElement('p');
+        nota.className = 'admin-diag__nota';
+        nota.dataset.testid = 'admin-diag-cliente-recorte';
+        nota.textContent = clientErrorsListaNotice({
+            mostrados: linhas.length,
+            // `totalAssinaturas` é o total ANTES do corte de 50. Servidor de versão anterior não o
+            // manda, e `estadoDoCorte` degrada sem inventar número: ver `clientErrorsListaNotice`.
+            total: resultado.value?.totalAssinaturas,
+            limite: LIMITE_ERROS_CLIENTE,
+            janela,
+        });
+        host.insertBefore(nota, wrap);
+
         const lista = document.createElement('ul');
         lista.className = 'admin-diag__lista';
         lista.dataset.testid = 'admin-diag-cliente-lista';
-        for (const item of ordenarItensCliente(itens)) {
+        for (const item of linhas) {
             lista.appendChild(linhaDeErroDeCliente(item));
         }
         wrap.appendChild(lista);
@@ -689,17 +715,32 @@ function tile(rotulo, valor, testid, { estado } = {}) {
  * O PESO É CLASSE, e não só texto. Mil ocorrências de um defeito e uma de outro não podem ter o
  * mesmo peso visual, e o valor da escada (`pesoDaContagem`) é o que permite à folha de estilo
  * separá-los sem que esta função saiba de cor nenhuma.
+ *
+ * A UNIDADE É OPCIONAL PORQUE AS DUAS LISTAS CONTAM COISAS DIFERENTES, e o crachá é o único lugar
+ * em que isso cabe em duas palavras: o `total` de um grupo do servidor é da janela, e o número do
+ * lado do navegador é um acumulado vitalício de relatos. Ver `clientErrorsCountNotice`.
  * @param {*} n
+ * @param {{detalhe?: string, unidade?: string}} [opts]
  * @returns {HTMLElement}
  */
-function contagemBadge(n) {
+function contagemBadge(n, { detalhe, unidade } = {}) {
     const el = document.createElement('span');
     const peso = pesoDaContagem(n);
     el.className = `admin-diag__contagem admin-diag__contagem--${peso}`;
     el.dataset.testid = 'admin-diag-contagem';
     el.dataset.peso = peso;
-    el.textContent = contagemLabel(n);
-    el.title = contagemDetalhe(n);
+    if (unidade) {
+        const valor = document.createElement('span');
+        valor.className = 'admin-diag__contagem-valor';
+        valor.textContent = contagemLabel(n);
+        const u = document.createElement('span');
+        u.className = 'admin-diag__contagem-unidade';
+        u.textContent = unidade;
+        el.append(valor, u);
+    } else {
+        el.textContent = contagemLabel(n);
+    }
+    el.title = detalhe ?? contagemDetalhe(n);
     return el;
 }
 
@@ -739,7 +780,12 @@ function linhaDeErroDeCliente(item) {
 
     const cabeca = document.createElement('div');
     cabeca.className = 'admin-diag__item-cabeca';
-    cabeca.appendChild(contagemBadge(item?.ocorrencias));
+    // O NÚMERO SAI NOMEADO PELO QUE ELE É: acumulado de relatos, com as duas pontas do intervalo no
+    // `title`. O crachá sem unidade (o do servidor) fica como está, porque aquele total É da janela.
+    cabeca.appendChild(contagemBadge(item?.ocorrencias, {
+        unidade: contagemHistoricaUnidade(),
+        detalhe: contagemHistoricaDetalhe(item),
+    }));
 
     const texto = document.createElement('div');
     texto.className = 'admin-diag__item-texto';

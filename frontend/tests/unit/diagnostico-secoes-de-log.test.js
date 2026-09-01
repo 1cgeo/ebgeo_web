@@ -225,3 +225,67 @@ describe('o ladrilho de erros do pulso, do lado do consumidor', () => {
         expect(corpo).not.toMatch(/\?\s*'erro'\s*:\s*'ok'/);
     });
 });
+
+/**
+ * O corpo de uma função de topo do arquivo, sem comentários. Mesmo recorte grosseiro dos métodos
+ * da classe: o fecho de uma função de topo é o único `}` na coluna zero.
+ * @param {string} nome
+ * @returns {string}
+ */
+function corpoDeFuncao(nome) {
+    const inicio = FONTE.indexOf(`function ${nome}(`);
+    if (inicio === -1) return '';
+    const fim = FONTE.indexOf('\n}\n', inicio);
+    return fim === -1 ? '' : semComentarios(FONTE.slice(inicio, fim));
+}
+
+describe('a lista de erros do navegador, e a contagem VITALÍCIA que ela desenha', () => {
+    // O QUE ESTE BLOCO PRENDE, e por que ele é estrutural: a mentira era do CONSUMIDOR. As frases
+    // e a ordenação estão presas como funções puras em `diagnostico-frases.test.js`, e nada disso
+    // impede `diag-tab.js` de continuar desenhando o `title` antigo ("12.000 ocorrências") ao lado
+    // de um número que é um acumulado de relatos de seis meses, nem de esquecer a nota do recorte.
+    // É a mesma classe de buraco que esta suíte nasceu para fechar no Pulso.
+
+    it('a nota do recorte sai com `totalAssinaturas` e com o teto que a consulta pediu', () => {
+        const secao = secoesDaAba().find((s) => s.nome === '_pintarErrosCliente');
+        expect(secao).toBeTruthy();
+        expect(secao.corpo).toContain('clientErrorsListaNotice(');
+        // Os dois argumentos que não se adivinham: sem `totalAssinaturas` a nota não tem como
+        // dizer o tamanho do corte, e sem o teto ela não sabe distinguir "lista curta" de "lista
+        // cortada", que é o ramo que a impede de alarmar em toda carga.
+        expect(secao.corpo).toContain('totalAssinaturas');
+        expect(secao.corpo).toContain('limite: LIMITE_ERROS_CLIENTE');
+    });
+
+    it('a legenda do número vem ANTES da lista, e não depois dela', () => {
+        // Lida depois, ela chega quando a pessoa já escolheu no que clicar a partir do número que
+        // a legenda desmente. É a diferença entre uma legenda e uma errata.
+        const secao = secoesDaAba().find((s) => s.nome === '_pintarErrosCliente');
+        const nota = secao.corpo.indexOf('clientErrorsListaNotice(');
+        const lista = secao.corpo.indexOf('admin-diag-cliente-lista');
+        expect(nota).toBeGreaterThan(-1);
+        expect(lista).toBeGreaterThan(-1);
+        expect(nota).toBeLessThan(lista);
+    });
+
+    it('o crachá daquela lista é nomeado por RELATO ACUMULADO, e não pelo detalhe da janela', () => {
+        const corpo = corpoDeFuncao('linhaDeErroDeCliente');
+        expect(corpo.length).toBeGreaterThan(200);
+        expect(corpo).toContain('contagemHistoricaDetalhe(');
+        expect(corpo).toContain('contagemHistoricaUnidade(');
+        // `contagemDetalhe` diz "12.000 ocorrências", que é falso duas vezes deste lado: o número
+        // é acumulado de sempre, e conta relatos (uma sessão relata a mesma assinatura uma vez só).
+        expect(corpo).not.toContain('contagemDetalhe(');
+    });
+
+    it('e o crachá do SERVIDOR continua sem a unidade, porque aquele total É da janela', () => {
+        // A DISCRIMINAÇÃO DO CONTROLE ACIMA: sem esta asserção, carimbar "relatos no total" nas
+        // duas listas passaria verde, e a segunda mentira seria simétrica à primeira.
+        const corpo = corpoDeFuncao('metaDeGrupo') + semComentarios(
+            FONTE.slice(FONTE.indexOf('    _linhaDeGrupo('), FONTE.indexOf('\n    }\n', FONTE.indexOf('    _linhaDeGrupo('))),
+        );
+        expect(corpo.length).toBeGreaterThan(200);
+        expect(corpo).toContain('contagemBadge(grupo?.total)');
+        expect(corpo).not.toContain('contagemHistorica');
+    });
+});

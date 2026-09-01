@@ -20,6 +20,14 @@
  * defeitos é de ordem de grandeza, não de unidade; e daí `ordenarGrupos`, que põe o mais alto em
  * cima em vez de confiar na ordem em que a rota devolveu.
  *
+ * MAS AS DUAS CONTAGENS DA ABA NÃO SÃO A MESMA COISA, e tratá-las como uma só foi o defeito que
+ * `clientErrorsListaNotice` existe para desfazer. O `total` de um grupo de erro do SERVIDOR é da
+ * janela (ele sai da varredura do log daquele período). O `ocorrencias` de um erro do NAVEGADOR é
+ * VITALÍCIO, vindo de um contador de banco que nada zera, enquanto a janela filtra só a data da
+ * última vez; e ele conta RELATO, não ocorrência, porque o cliente deduplica uma assinatura por
+ * sessão. Por isso só a lista do servidor é ordenada por contagem: a do navegador é ordenada por
+ * RECÊNCIA, que é o critério pelo qual o servidor a corta. Ver `ordenarItensCliente`.
+ *
  * O VAZIO É UMA BOA NOTÍCIA E TEM DE PARECER UMA. "Nenhum erro nas últimas 24 horas" é o melhor
  * desfecho possível desta tela, e desenhá-lo com a mesma cara de uma falha de carregamento ensina
  * a pessoa a ler saúde como defeito. Por isso `estadoDaSecao` separa QUATRO estados e não dois, e
@@ -567,14 +575,32 @@ export function ordenarGrupos(grupos) {
 }
 
 /**
- * Os erros do navegador, do mais frequente para o menos. Mesma regra dos grupos do servidor.
+ * Os erros do navegador, do mais RECENTE para o mais antigo. NÃO é a regra dos grupos do servidor,
+ * e a divergência é o conserto.
+ *
+ * ORDENAR POR UM CRITÉRIO E CORTAR POR OUTRO É UM RANKING SOBRE UMA AMOSTRA ESCOLHIDA POR TERCEIRO.
+ * Esta lista vem do BANCO com `ORDER BY ultima_em DESC LIMIT 50`: o servidor escolhe as cinquenta
+ * mais RECENTES e só depois o cliente as via. Reordená-las por `ocorrencias` desenhava um pódio que
+ * se lê como "os defeitos que mais dóem no período" e é, na verdade, "os mais frequentes de sempre
+ * entre os cinquenta que dispararam por último". O defeito de número cinquenta e um, com o dobro da
+ * contagem do primeiro, simplesmente não estava na amostra, e nada na tela dizia isso.
+ *
+ * POR QUE RECÊNCIA E NÃO A OUTRA SAÍDA (manter a contagem e avisar do recorte): porque a contagem
+ * desta seção é VITALÍCIA (`client_errors.ocorrencias` só cresce, e a janela filtra `ultima_em`),
+ * então ordenar por ela é ordenar por um número que não fala da janela nenhuma. Duas incoerências
+ * empilhadas, e a de cima é insanável sem mudar o servidor. Recência é o único critério que a
+ * janela, o corte e a ordem podem compartilhar hoje, e é o que `clientErrorsListaNotice` promete em
+ * voz alta. A contagem continua na tela, com peso visual e nomeada pelo que é.
+ *
+ * O desempate é pela contagem e depois pelo id, para que duas leituras da mesma lista desenhem a
+ * mesma ordem.
  * @param {*} itens
  * @returns {Array<Object>}
  */
 export function ordenarItensCliente(itens) {
     if (!Array.isArray(itens)) return [];
-    return [...itens].sort((a, b) => numeroOuZero(b?.ocorrencias) - numeroOuZero(a?.ocorrencias)
-        || numeroOuZero(instanteDe(b?.ultimaEm)?.getTime()) - numeroOuZero(instanteDe(a?.ultimaEm)?.getTime())
+    return [...itens].sort((a, b) => numeroOuZero(instanteDe(b?.ultimaEm)?.getTime()) - numeroOuZero(instanteDe(a?.ultimaEm)?.getTime())
+        || numeroOuZero(b?.ocorrencias) - numeroOuZero(a?.ocorrencias)
         || String(a?.id ?? '').localeCompare(String(b?.id ?? '')));
 }
 
@@ -746,6 +772,160 @@ export function clientErrorsFailureNotice() {
 export function clientErrorsScopeNotice() {
     return 'Só aparece aqui o que o navegador conseguiu relatar: sessão sem rede, aba fechada '
         + 'no instante da falha e bloqueador de scripts não deixam rastro.';
+}
+
+/**
+ * A frase que tira a mentira da coluna de números do lado do navegador, e ela é o motivo desta
+ * família de funções existir.
+ *
+ * O NÚMERO NÃO É DA JANELA, E A TELA DIZIA QUE ERA. `client_errors.ocorrencias` é um contador
+ * VITALÍCIO: o upsert o incrementa desde a primeira vez que a assinatura apareceu e nada o zera,
+ * enquanto a listagem filtra por `ultima_em`. O efeito é o pior que um painel de diagnóstico pode
+ * ter: um defeito de seis meses atrás com doze mil relatos, que disparou UMA vez hoje, aparecia na
+ * janela "últimas 24 horas" com doze mil e o peso visual máximo, roubando a linha de cima de um
+ * defeito que está acontecendo agora. A janela decide QUAIS assinaturas aparecem, e nunca o
+ * tamanho do número ao lado delas.
+ *
+ * E O NÚMERO TAMBÉM NÃO É "OCORRÊNCIAS", que é a segunda metade da mentira e a menos óbvia: o
+ * cliente deduplica uma assinatura POR SESSÃO (`session/erro-telemetria-assinatura.js`), então as
+ * dezenove ocorrências em segundos do incidente que originou esta camada valeriam 1, e um laço de
+ * `requestAnimationFrame` também vale 1. O que o contador conta é RELATO, ou seja, sessão distinta
+ * que viu aquela assinatura pelo menos uma vez. Chamar isso de ocorrência subestima em ordens de
+ * grandeza justamente o defeito em laço, que é o mais urgente.
+ *
+ * O CONSERTO AQUI É DE RÓTULO, e é deliberadamente parcial: o número por janela exige o servidor
+ * (decisão do dono, tomada em 2026-09-01, com o número por janela ficando para depois). O que esta
+ * frase compra é que o número passe a ser verdadeiro sobre si mesmo, e as duas datas que já vêm no
+ * payload (`primeiraEm` e `ultimaEm`) são o que torna isso barato: "12.000 desde 3 de março, a
+ * última hoje" é uma frase verdadeira e útil, enquanto "12.000 ocorrências nas últimas 24 horas"
+ * é falsa.
+ * @returns {string}
+ */
+export function clientErrorsCountNotice() {
+    return 'O número ao lado de cada erro é o total acumulado desde a primeira vez que aquela '
+        + 'assinatura apareceu, e não a contagem desta janela: a janela decide quais erros '
+        + 'aparecem, nunca o tamanho do número. E ele conta RELATOS, não ocorrências, porque cada '
+        + 'sessão relata a mesma assinatura uma vez só: um erro em laço vale 1.';
+}
+
+/**
+ * A unidade que acompanha o número na tela, para quem não lê a nota.
+ *
+ * ELA VAI DENTRO DO PRÓPRIO CRACHÁ porque a nota da seção é um parágrafo, e parágrafo se pula. Duas
+ * palavras coladas ao número são o que sobrevive a um olhar de dois segundos, que é o modo como
+ * esta lista é lida de verdade.
+ * @returns {string}
+ */
+export function contagemHistoricaUnidade() {
+    return 'relatos no total';
+}
+
+/**
+ * O `title` do crachá de um erro de navegador: o número por extenso COM as duas pontas do
+ * intervalo, que é o que o transforma de número solto em fato datado.
+ * @param {Object} [item]
+ * @param {{timeZone?: string}} [opts] - `timeZone` existe para o teste ser determinístico.
+ * @returns {string}
+ */
+export function contagemHistoricaDetalhe(item, { timeZone } = {}) {
+    const n = item?.ocorrencias;
+    if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) return 'sem contagem';
+    const inteiro = Math.round(n);
+    const quantos = inteiro === 1 ? '1 relato' : `${FORMATADOR_DE_NUMERO.format(inteiro)} relatos`;
+    const primeira = horaLocalCompleta(item?.primeiraEm, { timeZone });
+    const ultima = horaLocalCompleta(item?.ultimaEm, { timeZone });
+    if (primeira && ultima && primeira !== ultima) {
+        return `${quantos} no total, o primeiro em ${primeira} e o último em ${ultima}.`;
+    }
+    if (ultima) return `${quantos} no total, em ${ultima}.`;
+    if (primeira) return `${quantos} no total, desde ${primeira}.`;
+    // SEM DATA NENHUMA a frase ainda tem de dizer que o número é acumulado, porque é justamente
+    // aqui que ele fica sozinho na tela e volta a se parecer com contagem da janela.
+    return `${quantos} no total, desde a primeira vez que esta assinatura apareceu.`;
+}
+
+/**
+ * Os três desfechos do recorte de uma lista cortada pelo servidor.
+ * @type {Readonly<Object<string, string>>}
+ */
+export const CORTE = Object.freeze({
+    COMPLETA: 'completa',
+    CORTADA: 'cortada',
+    DESCONHECIDA: 'desconhecida',
+});
+
+/**
+ * Se a lista na tela é a janela inteira, um pedaço dela, ou algo que não dá para afirmar.
+ *
+ * O QUARTO ESTADO DA CASA, aqui reduzido a três porque a lista vazia não chega até esta função:
+ * "o servidor não informou" é distinto de zero e distinto de "não houve corte", e é a mesma
+ * distinção que `uso-phrases.js` faz com o horizonte. Um servidor de versão anterior não manda
+ * `totalAssinaturas`, e as duas saídas fáceis são as duas erradas: inventar o número (dizer
+ * "50 de 50") afirma completude que ninguém verificou, e calar afirma o mesmo por omissão.
+ *
+ * A PRIMEIRA PERGUNTA NÃO É PELO TOTAL, E ESSA É A PARTE QUE SALVA A DEGRADAÇÃO. Quando a lista
+ * veio com MENOS itens que o limite pedido, não houve corte, e isso se sabe sem o servidor
+ * informar coisa alguma: um `LIMIT 50` que devolve 7 linhas devolveu todas as que casavam. Sem
+ * este ramo, um servidor antigo com sete erros na janela desenharia "pode haver mais fora da
+ * lista" em toda carga, que é o alarme que ensina a ignorar alarme.
+ * @param {Object} [entrada]
+ * @param {*} [entrada.mostrados] - Quantos itens a tela desenhou.
+ * @param {*} [entrada.total] - O `totalAssinaturas` do payload, ou `undefined` num servidor antigo.
+ * @param {*} [entrada.limite] - O teto que a consulta pediu.
+ * @returns {string} Um valor de {@link CORTE}.
+ */
+export function estadoDoCorte({ mostrados, total, limite } = {}) {
+    if (typeof mostrados !== 'number' || !Number.isFinite(mostrados) || mostrados < 0) {
+        return CORTE.DESCONHECIDA;
+    }
+    if (typeof limite === 'number' && Number.isFinite(limite) && mostrados < limite) {
+        return CORTE.COMPLETA;
+    }
+    if (typeof total !== 'number' || !Number.isFinite(total) || total < 0) return CORTE.DESCONHECIDA;
+    return total > mostrados ? CORTE.CORTADA : CORTE.COMPLETA;
+}
+
+/**
+ * A nota da lista de erros do navegador: quantas assinaturas distintas a janela teve, qual é o
+ * recorte que está na tela, e o que o número grande de cada linha significa.
+ *
+ * AS DUAS AFIRMAÇÕES SÃO O PEDIDO INTEIRO: a janela é sobre ASSINATURAS DISTINTAS (é o que a
+ * consulta filtra), e o número de cada linha é HISTÓRICO (é o que o contador acumula). Ditas
+ * juntas, a coluna deixa de mentir sem que nada no servidor mude.
+ *
+ * A ORDEM SAI DITA porque a lista é ordenada por recência para casar com o corte do servidor: uma
+ * promessa de ordem que a pessoa pode conferir com os olhos vale mais que a mesma promessa num
+ * comentário. Ver `ordenarItensCliente`.
+ * @param {Object} [entrada]
+ * @param {*} [entrada.mostrados]
+ * @param {*} [entrada.total] - `totalAssinaturas`, ausente num servidor de versão anterior.
+ * @param {*} [entrada.limite]
+ * @param {*} [entrada.janela]
+ * @returns {string}
+ */
+export function clientErrorsListaNotice({ mostrados, total, limite, janela } = {}) {
+    const estado = estadoDoCorte({ mostrados, total, limite });
+    const quando = janelaEmPalavras(janela);
+    let recorte;
+    if (estado === CORTE.CORTADA) {
+        recorte = `${cortadaNotice(mostrados, total, 'assinaturas distintas')} São as mais recentes `
+            + `${quando}, e a lista abaixo está nessa ordem.`;
+    } else if (estado === CORTE.COMPLETA) {
+        const n = typeof total === 'number' && Number.isFinite(total) && total >= 0
+            ? total
+            : mostrados;
+        recorte = n === 1
+            ? `1 assinatura distinta ${quando}.`
+            : `${contagemLabel(n)} assinaturas distintas ${quando}, todas na lista abaixo, da mais `
+                + 'recente para a mais antiga.';
+    } else {
+        // A DEGRADAÇÃO NÃO INVENTA E NÃO CALA: sem `totalAssinaturas` e com a lista no teto, o
+        // único fato disponível é que o teto foi atingido, e é só isso que a frase afirma.
+        recorte = `A lista abaixo bateu no teto da consulta e traz as assinaturas mais recentes `
+            + `${quando}. Esta versão do servidor não informa quantas houve ao todo no período, `
+            + 'então pode haver mais fora dela.';
+    }
+    return `${recorte} ${clientErrorsCountNotice()}`;
 }
 
 /** @param {*} janela @returns {string} */

@@ -38,6 +38,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     CONTAGEM,
+    CORTE,
     ESTADO,
     FAIXAS,
     JANELAS,
@@ -45,10 +46,15 @@ import {
     LATENCIA,
     PESO,
     assinaturaLabel,
+    clientErrorsCountNotice,
     clientErrorsEmptyNotice,
+    clientErrorsListaNotice,
     contagemDetalhe,
+    contagemHistoricaDetalhe,
+    contagemHistoricaUnidade,
     contagemLabel,
     cortadaNotice,
+    estadoDoCorte,
     estadoDaContagemDeErros,
     estadoDaLatencia,
     estadoDaSecao,
@@ -378,7 +384,7 @@ describe('a latência', () => {
     });
 });
 
-describe('as três ordenações — a contagem é a informação', () => {
+describe('as três ordenações, e o que cada uma de fato ordena', () => {
     it('os grupos do servidor vêm do mais alto para o mais baixo, sem confiar no ORDER BY da rota', () => {
         const entrada = [
             { assinatura: 'b', total: 3, ultima: 10 },
@@ -399,12 +405,40 @@ describe('as três ordenações — a contagem é a informação', () => {
         expect(ordenarGrupos(entrada).map((g) => g.assinatura)).toEqual(['a', 'm', 'z']);
     });
 
-    it('os erros de navegador seguem a mesma regra, por ocorrências', () => {
+    it('os erros de navegador NÃO seguem a mesma regra: eles vêm por RECÊNCIA', () => {
+        // ORDENAR POR UM CRITÉRIO E CORTAR POR OUTRO É UM PÓDIO SOBRE AMOSTRA ALHEIA. O servidor
+        // devolve as cinquenta mais recentes (`ORDER BY ultima_em DESC LIMIT 50`), e a contagem
+        // daquela lista é VITALÍCIA: o item de 90 relatos aqui é o mais antigo dos dois, e a
+        // ordenação anterior o punha em cima como se ele fosse o defeito do período. Reverter a
+        // troca (voltar a comparar `ocorrencias` primeiro) deixa esta asserção vermelha.
         const entrada = [
-            { id: '2', ocorrencias: 2, ultimaEm: '2026-08-30T10:00:00Z' },
             { id: '1', ocorrencias: 90, ultimaEm: '2026-08-29T10:00:00Z' },
+            { id: '2', ocorrencias: 2, ultimaEm: '2026-08-30T10:00:00Z' },
         ];
-        expect(ordenarItensCliente(entrada).map((i) => i.id)).toEqual(['1', '2']);
+        expect(ordenarItensCliente(entrada).map((i) => i.id)).toEqual(['2', '1']);
+        // NÃO MUTA a entrada, como as outras duas.
+        expect(entrada.map((i) => i.id)).toEqual(['1', '2']);
+    });
+
+    it('empatados no instante, a contagem desempata, e depois o id (ordem estável)', () => {
+        // A contagem NÃO some da ordenação, ela só deixa de mandar: entre dois erros que
+        // dispararam no mesmo instante, o mais relatado ainda vem antes.
+        const entrada = [
+            { id: 'c', ocorrencias: 5, ultimaEm: '2026-08-30T10:00:00Z' },
+            { id: 'a', ocorrencias: 5, ultimaEm: '2026-08-30T10:00:00Z' },
+            { id: 'b', ocorrencias: 900, ultimaEm: '2026-08-30T10:00:00Z' },
+        ];
+        expect(ordenarItensCliente(entrada).map((i) => i.id)).toEqual(['b', 'a', 'c']);
+    });
+
+    it('item sem data cai para o fim, e não para o topo', () => {
+        // `instanteDe(undefined)` é `null`, e `numeroOuZero(null)` é 0: o item sem data tem de
+        // ficar ABAIXO de qualquer item datado, e nunca ganhar o topo por acidente aritmético.
+        const entrada = [
+            { id: 'x', ocorrencias: 4000 },
+            { id: 'y', ocorrencias: 1, ultimaEm: '2026-08-30T10:00:00Z' },
+        ];
+        expect(ordenarItensCliente(entrada).map((i) => i.id)).toEqual(['y', 'x']);
     });
 
     it('as rotas vêm por P95, e não por máximo nem por número de chamadas', () => {
@@ -552,5 +586,138 @@ describe('os três avisos que desfazem uma leitura errada da tela', () => {
         expect(cortadaNotice(20, undefined, 'assinaturas')).toBe('');
         expect(cortadaNotice(undefined, 400, 'assinaturas')).toBe('');
         expect(cortadaNotice(20, NaN, 'assinaturas')).toBe('');
+    });
+});
+
+describe('a contagem do lado do navegador é VITALÍCIA, e a tela tem de dizer isso', () => {
+    // O CONTADOR NÃO ZERA. `client_errors.ocorrencias` é incrementado pelo upsert desde a primeira
+    // vez que a assinatura apareceu, e a listagem filtra só `ultima_em`: um defeito de seis meses
+    // atrás com doze mil relatos, disparado UMA vez hoje, entra na janela de 24 horas com doze mil
+    // e peso visual máximo. A tela chamava isso de "ocorrências" e ordenava por ele.
+    //
+    // O QUE ESTAS ASSERÇÕES PROVARIAM SE O CÓDIGO ESTIVESSE ERRADO: que a única coluna que existe
+    // para decidir o que consertar primeiro está nomeada pelo que ela é (relato acumulado, e não
+    // ocorrência do período), e que a nota diz quantas assinaturas distintas a janela teve.
+
+    it('o crachá é nomeado por RELATO, e não por ocorrência da janela', () => {
+        expect(contagemHistoricaUnidade()).toBe('relatos no total');
+    });
+
+    it('a frase do número diz as DUAS coisas: que é acumulado e que é relato, não ocorrência', () => {
+        // AS DUAS METADES SÃO SEPARADAS, e uma sem a outra continua enganando: "acumulado" sozinho
+        // deixa a pessoa multiplicar mentalmente por dezenove o laço que valeu 1, e "relato"
+        // sozinho deixa o número de seis meses passar por número do dia.
+        expect(clientErrorsCountNotice()).toBe(
+            'O número ao lado de cada erro é o total acumulado desde a primeira vez que aquela '
+            + 'assinatura apareceu, e não a contagem desta janela: a janela decide quais erros '
+            + 'aparecem, nunca o tamanho do número. E ele conta RELATOS, não ocorrências, porque '
+            + 'cada sessão relata a mesma assinatura uma vez só: um erro em laço vale 1.',
+        );
+    });
+
+    it('o detalhe DATA as duas pontas, que é o que torna o rótulo honesto barato', () => {
+        // "12.000 desde 3 de março, o último hoje" é verdadeiro e útil; "12.000 ocorrências nas
+        // últimas 24 horas" é falso. As duas datas já vinham no payload e ninguém as usava aqui.
+        const item = {
+            ocorrencias: 12000,
+            primeiraEm: Date.UTC(2026, 2, 3, 14, 22, 10),
+            ultimaEm: Date.UTC(2026, 7, 31, 9, 1, 44),
+        };
+        expect(contagemHistoricaDetalhe(item, UTC)).toBe(
+            '12.000 relatos no total, o primeiro em 03/03/2026, 14:22:10 e o último em '
+            + '31/08/2026, 09:01:44.',
+        );
+    });
+
+    it('uma ponta só, ou nenhuma, ainda diz que o número é acumulado', () => {
+        const base = { ocorrencias: 3 };
+        const t = Date.UTC(2026, 7, 30, 14, 32, 7);
+        // Pontas iguais: a data não se repete, e o "no total" fica, porque três relatos no mesmo
+        // segundo continuam sendo três sessões distintas.
+        expect(contagemHistoricaDetalhe({ ...base, primeiraEm: t, ultimaEm: t }, UTC))
+            .toBe('3 relatos no total, em 30/08/2026, 14:32:07.');
+        expect(contagemHistoricaDetalhe({ ...base, ultimaEm: t }, UTC))
+            .toBe('3 relatos no total, em 30/08/2026, 14:32:07.');
+        expect(contagemHistoricaDetalhe({ ...base, primeiraEm: t }, UTC))
+            .toBe('3 relatos no total, desde 30/08/2026, 14:32:07.');
+        expect(contagemHistoricaDetalhe(base, UTC))
+            .toBe('3 relatos no total, desde a primeira vez que esta assinatura apareceu.');
+        expect(contagemHistoricaDetalhe({ ocorrencias: 1 }, UTC))
+            .toBe('1 relato no total, desde a primeira vez que esta assinatura apareceu.');
+    });
+
+    it('sem contagem não se inventa número, como em `contagemDetalhe`', () => {
+        expect(contagemHistoricaDetalhe({}, UTC)).toBe('sem contagem');
+        expect(contagemHistoricaDetalhe(null, UTC)).toBe('sem contagem');
+        expect(contagemHistoricaDetalhe({ ocorrencias: NaN }, UTC)).toBe('sem contagem');
+        expect(contagemHistoricaDetalhe({ ocorrencias: -2 }, UTC)).toBe('sem contagem');
+    });
+});
+
+describe('o recorte da lista de erros do navegador', () => {
+    it('lista menor que o teto é COMPLETA sem o servidor informar nada', () => {
+        // ESTE RAMO É O QUE SALVA A DEGRADAÇÃO. Um `LIMIT 50` que devolveu 7 linhas devolveu todas
+        // as que casavam, e isso se sabe sem `totalAssinaturas`. Sem ele, um servidor de versão
+        // anterior com sete erros na janela desenharia "pode haver mais fora da lista" em TODA
+        // carga, que é o alarme que ensina a ignorar alarme.
+        expect(estadoDoCorte({ mostrados: 7, limite: 50 })).toBe(CORTE.COMPLETA);
+        expect(estadoDoCorte({ mostrados: 0, limite: 50 })).toBe(CORTE.COMPLETA);
+    });
+
+    it('no teto e com o total, ele decide: cortada ou completa', () => {
+        expect(estadoDoCorte({ mostrados: 50, total: 128, limite: 50 })).toBe(CORTE.CORTADA);
+        expect(estadoDoCorte({ mostrados: 50, total: 50, limite: 50 })).toBe(CORTE.COMPLETA);
+        // Total MENOR que o mostrado é contrato quebrado, e não corte: não se anuncia recorte.
+        expect(estadoDoCorte({ mostrados: 50, total: 3, limite: 50 })).toBe(CORTE.COMPLETA);
+    });
+
+    it('no teto e SEM o total, o desfecho é DESCONHECIDO, e não completo nem cortado', () => {
+        // O QUARTO ESTADO DA CASA. As duas saídas fáceis são as duas erradas: tratar a ausência
+        // como "não houve corte" afirma completude que ninguém verificou, e tratá-la como corte
+        // inventa um número que não chegou.
+        expect(estadoDoCorte({ mostrados: 50, total: undefined, limite: 50 }))
+            .toBe(CORTE.DESCONHECIDA);
+        expect(estadoDoCorte({ mostrados: 50, total: null, limite: 50 })).toBe(CORTE.DESCONHECIDA);
+        expect(estadoDoCorte({ mostrados: 50, total: NaN, limite: 50 })).toBe(CORTE.DESCONHECIDA);
+        expect(estadoDoCorte({ mostrados: 50, total: '128', limite: 50 })).toBe(CORTE.DESCONHECIDA);
+        // Sem saber quantos itens a tela desenhou não há afirmação possível sobre recorte nenhum.
+        expect(estadoDoCorte({ total: 128, limite: 50 })).toBe(CORTE.DESCONHECIDA);
+        expect(estadoDoCorte()).toBe(CORTE.DESCONHECIDA);
+    });
+
+    it('a nota cortada nomeia o critério do corte, que é o mesmo da ordem da lista', () => {
+        expect(clientErrorsListaNotice({ mostrados: 50, total: 128, limite: 50, janela: '24h' }))
+            .toBe('Mostrando 50 de 128 assinaturas distintas. São as mais recentes nas últimas '
+                + `24 horas, e a lista abaixo está nessa ordem. ${clientErrorsCountNotice()}`);
+    });
+
+    it('a nota completa conta as assinaturas DISTINTAS da janela, e concorda no singular', () => {
+        expect(clientErrorsListaNotice({ mostrados: 7, total: 7, limite: 50, janela: '7d' }))
+            .toBe('7 assinaturas distintas nos últimos 7 dias, todas na lista abaixo, da mais '
+                + `recente para a mais antiga. ${clientErrorsCountNotice()}`);
+        expect(clientErrorsListaNotice({ mostrados: 1, total: 1, limite: 50, janela: '1h' }))
+            .toBe(`1 assinatura distinta na última hora. ${clientErrorsCountNotice()}`);
+        // Servidor antigo COM lista curta: o número sai do que a tela desenhou, e a frase é a
+        // mesma, porque a afirmação é a mesma.
+        expect(clientErrorsListaNotice({ mostrados: 1, limite: 50, janela: '1h' }))
+            .toBe(`1 assinatura distinta na última hora. ${clientErrorsCountNotice()}`);
+    });
+
+    it('sem `totalAssinaturas` e no teto, a nota não inventa e não cala', () => {
+        // A DEGRADAÇÃO AFIRMA SÓ O QUE SE SABE: que o teto foi atingido. Ela não diz "50 de 50"
+        // (completude não verificada) nem omite o assunto (completude afirmada por silêncio).
+        const texto = clientErrorsListaNotice({ mostrados: 50, limite: 50, janela: '24h' });
+        expect(texto).toBe('A lista abaixo bateu no teto da consulta e traz as assinaturas mais '
+            + 'recentes nas últimas 24 horas. Esta versão do servidor não informa quantas houve '
+            + `ao todo no período, então pode haver mais fora dela. ${clientErrorsCountNotice()}`);
+        // E não sai número nenhum de total inventado no lugar do que não veio.
+        expect(texto).not.toContain('de 50 assinaturas');
+        expect(texto).not.toContain('undefined');
+        expect(texto).not.toContain('NaN');
+    });
+
+    it('a janela estranha cai no padrão, como no resto da aba', () => {
+        expect(clientErrorsListaNotice({ mostrados: 2, total: 2, limite: 50, janela: '30d' }))
+            .toContain('nas últimas 24 horas');
     });
 });
