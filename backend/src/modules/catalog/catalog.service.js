@@ -11,6 +11,9 @@ import { NotFoundError, ConflictError, BadRequestError } from '../../utils/error
 import { validateMapLibreStyle } from '../../utils/maplibre-style-validate.js';
 import { invalidateAppConfigCache } from '../config/config.cache.js';
 import { assertTable, assertProductionTypeOf, CATALOG_TABLES } from './catalog.tables.js';
+
+/** A única tabela cujo `config.style` é um documento MapLibre inteiro. Ver `assertValidStyle`. */
+const BASEMAP_TABLE = 'basemaps';
 import { catalogAuthorizationPredicate } from './catalog.queries.js';
 // A CONTAGEM DE REFERÊNCIAS ATRAVESSA O MÓDULO, e o import diz de onde vem a autoridade: a
 // consulta e a declaração de cobertura moram ao lado da IRMÃ dela (`COLLECT_ATLAS_RESOURCE_REFS`),
@@ -102,8 +105,25 @@ function accessPredicate(visibleTo, base, tipoProducao) {
 /**
  * Rejects an invalid MapLibre `config.style` (basemap style override) before it is persisted and
  * later served verbatim in the public GET /config basemapStyles.
+ *
+ * SÓ PARA `basemaps`, e o recorte É a correção: a palavra `style` tem DOIS significados no
+ * catálogo. No mapa base ela é um documento MapLibre INTEIRO, servido verbatim no `GET /config`,
+ * e um documento malformado ali trava o mapa de todo mundo. Numa camada de dados ela é um
+ * RECORTE de pintura (`fill` / `border` / `label`), que por construção não tem `version`, nem
+ * `sources`, nem `layers`, e portanto reprova naquele validador SEMPRE.
+ *
+ * Enquanto esta função rodava para as quatro tabelas, o template padrão de camada de dados do
+ * painel (que já nasce com um `style.border`) era recusado com 400, ou seja, registrar camada de
+ * dados pela tela era impossível, e a mensagem cobrava `version: 8` de uma coisa que nunca teve.
+ * O cliente já fazia o recorte certo e escrevia o porquê em comentário
+ * (`frontend/src/js/admin/catalog-tab.js`, onde a validação de estilo inteiro é gateada por
+ * categoria); quem validava demais era o servidor. Preso por
+ * `backend/tests/integration/catalogo-estilo-de-camada.repro.test.js`, que cobra os DOIS
+ * sentidos: o recorte passa em camada de dados, e o estilo quebrado continua reprovando em mapa
+ * base.
  */
-function assertValidStyle(config) {
+function assertValidStyle(table, config) {
+  if (table !== BASEMAP_TABLE) return;
   if (config && config.style !== undefined) {
     const result = validateMapLibreStyle(config.style);
     if (!result.ok) {
@@ -221,7 +241,7 @@ export async function createCatalogItem(table, data, actor) {
     // tomado" é tudo o que o chamador pode aprender, e nada sobre de quem ele é.
     throw new ConflictError('Já existe um item de catálogo com este ID.');
   }
-  assertValidStyle(data.config);
+  assertValidStyle(t, data.config);
 
   const values = [
     data.id,
@@ -293,7 +313,7 @@ export async function createCatalogItem(table, data, actor) {
 export async function updateCatalogItem(table, id, data, actor) {
   const t = assertTable(table);
   const tipo = assertProductionTypeOf(t);
-  assertValidStyle(data.config);
+  assertValidStyle(t, data.config);
   // L12 — only the soft-delete filter is added here: a deleted item must not be
   // editable back into visibility through this route.
   //
