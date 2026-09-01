@@ -128,6 +128,23 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
     muda entre rodadas do mesmo commit é a evidência de que o instrumento, e não o código,
     está variando. Olhe o denominador antes de acreditar na porcentagem.
 
+  **O MAPA DE QUEM POSSUI O QUÊ, medido em 2026-09-01**, porque descobrimos estas fronteiras
+  uma a uma, cada vez pagando uma colisão. Duas sessões só colidem se compartilharem uma
+  linha desta tabela:
+
+  | camada | porta | banco | escreve `coverage/tmp`? |
+  |---|---|---|---|
+  | `test:frontend` (vitest) | nenhuma | nenhum | não |
+  | `test:backend` | nenhuma | `ebgeo_test` (`TEST_DB_NAME` sobrepõe) | SIM, sob c8 |
+  | `test:e2e` (contrato, 3ª perna da raiz) | 3911 | `ebgeo_e2e` | não |
+  | `test:e2e:ui` e `test:e2e:mega` (Playwright) | 3912 | `ebgeo_ui_e2e` | não |
+
+  A consequência que mais surpreende, e que evita coordenação desnecessária: o `npm test` da
+  RAIZ e o Playwright **não colidem em nada**, porque a perna de e2e da raiz é outra porta e
+  outro banco, e o Playwright sobe o backend por `spawn` sem passar por c8. Quem roda a raiz
+  só precisa combinar com quem roda `test:backend`. E o inverso também vale: quem roda
+  Playwright durante uma medição de cobertura alheia não a contamina.
+
   **O TERCEIRO RECURSO COMPARTILHADO É A PORTA, e ela é o contra-exemplo útil.** O backend
   do `test:e2e:ui` sobe na 3912, e um órfão de rodada interrompida a segura. Essa colisão
   GRITA, e se nomeia: `frontend/tests/e2e-ui/backend.js` recusa subir dizendo "a porta 3912
