@@ -9,6 +9,7 @@
 import { query, tx } from '../../database/index.js';
 import { NotFoundError, ConflictError } from '../../utils/errors.js';
 import { createAudit } from '../../utils/audit.js';
+import { impressaoDeValor } from '../../utils/audit-diff.js';
 import * as atlasService from '../atlas/atlas.service.js';
 import { assertCanAdministerGroup } from '../access-groups/access-groups.service.js';
 import { PERMISSION_LEVELS } from '../../middleware/permissions.js';
@@ -37,10 +38,41 @@ const atlasAudit = (action, atlasId, actorId, details) => ({
   action, actorId, targetType: 'ATLAS', targetId: atlasId, details,
 });
 
+/**
+ * Publica o atlas, e grava na trilha a IMPRESSÃO do link, nunca o link.
+ *
+ * O LINK PÚBLICO É UMA CREDENCIAL PORTADORA, não um identificador. São 128 bits de
+ * `randomBytes(16)` (`generatePublicLink`, em `src/modules/atlas/atlas.service.js`), e a rota que
+ * os consome (`GET /atlas/public/:link`, em `src/modules/atlas/atlas.routes.js`) não monta `auth`
+ * nenhum: só o limitador. Quem lê o link exerce o acesso sem identidade e sem sessão.
+ *
+ * E A TRILHA NÃO SE EDITA. Gravá-lo literal punha a credencial VIVA num registro append-only: ela
+ * continua valendo enquanto o atlas seguir publicado, que é o estado normal e sem prazo, e nesse
+ * intervalo a linha da trilha vale tanto quanto o próprio link para quem a lê num dump, numa
+ * réplica ou num backup. Como a rota não pergunta quem é, quem a leu segue exercendo o acesso
+ * DEPOIS de perder a conta. Revogar (`disablePublicSharing`) mata aquela cópia, mas não apaga a
+ * string da trilha, e é essa parte que não tem conserto depois do fato. É o mesmo motivo pelo qual
+ * `audit-diff.js` põe todo ENDEREÇO no regime de impressão; o que faltava aqui é que este `details`
+ * é escrito à MÃO e nunca passa por aquele motor.
+ *
+ * A IMPRESSÃO RESPONDE A PERGUNTA QUE A TRILHA RESPONDIA. Ninguém investiga uma trilha para
+ * descobrir qual era o link; investiga para saber se ele MUDOU entre dois atos (republicar gera
+ * link novo, e é isso que se lê comparando duas linhas). `impressaoDeValor` é determinística para o
+ * mesmo par (valor, chave do servidor) e não é reversível, então as duas linhas continuam
+ * comparáveis e nenhuma delas carrega a capacidade.
+ *
+ * `null` QUANDO NÃO HÁ LINK, e não a impressão de `null`: a impressão de ausência é uma constante
+ * igual em todo atlas, que na gaveta se leria como um valor real e comum a todos.
+ *
+ * VALE PARA O QUE NASCE DAQUI EM DIANTE. As linhas ANTIGAS de `SHARING_CHANGE` continuam com o
+ * `details.publicLink` literal, e nenhuma migração as alcança: reescrever trilha append-only seria
+ * defeito pior que o que ela carrega. Tirá-las é ato de operador, deliberado e registrado.
+ */
 export async function enablePublicSharing(atlasId, actorId = null, req = null) {
   const result = await atlasService.enablePublicSharing(atlasId);
+  const link = result?.publicLink ?? result?.public_link ?? null;
   await createAudit(req, atlasAudit('SHARING_CHANGE', atlasId, actorId, {
-    isPublic: true, publicLink: result?.publicLink ?? result?.public_link ?? null,
+    isPublic: true, publicLinkImpressao: link ? impressaoDeValor(link) : null,
   }));
   return result;
 }

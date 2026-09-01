@@ -470,6 +470,28 @@ describe('audit-phrases — a SEGUNDA seção da gaveta, e o motivo da queda em 
         expect(conhecida.texto).not.toBe('USER_DEMOTION');
     });
 
+    it('a impressão do link público tem verbete, e o valor sai como código', () => {
+        // A trilha deixou de gravar o link público literal (uma credencial portadora de 128
+        // bits, exercível sem sessão) e passou a gravar a impressão dele. Na gaveta, a chave
+        // PRECISA dizer que é impressão: sem verbete ela sairia crua, e doze hexadecimais sem
+        // rótulo se leem como um valor utilizável.
+        const [linha, ...resto] = linhasDeDetalhe({ publicLinkImpressao: '3f2a91bc44de' });
+        expect(resto).toEqual([]);
+        expect(linha.chave).toBe('Impressão do link público');
+        expect(linha.chaveEhCodigo, 'a chave tem verbete, então não sai crua').toBe(false);
+        expect(linha.texto).toBe('3f2a91bc44de');
+        // O valor sai como TEXTO, não marcado como código: 'textoEhCodigo' só é verdadeiro
+        // para valor de vocabulário fechado não traduzido e para objeto. Quem carrega o
+        // significado aqui é o RÓTULO, e é por isso que o verbete acima é obrigatório: sem
+        // ele a gaveta mostraria doze hexadecimais sem uma palavra dizendo o que são.
+        expect(linha.textoEhCodigo, 'string simples não é marcada como código').toBe(false);
+
+        // Atlas sem link registra `null`, e NÃO a impressão de `null`, que seria uma constante
+        // idêntica em todo atlas e se leria na tela como um valor real compartilhado.
+        const [semLink] = linhasDeDetalhe({ publicLinkImpressao: null });
+        expect(semLink.texto).toBe('—');
+    });
+
     it('a chave sem verbete sai crua e marcada, e a de-para nunca sai duas vezes', () => {
         const linhas = linhasDeDetalhe({
             origem: 'USER_DEMOTION',

@@ -594,6 +594,12 @@ const CHAVES_DE_DETALHE = Object.freeze({
     grantsAffected: 'Concessões derrubadas',
     grantsReparented: 'Concessões preservadas por outro caminho',
     sessionsRevoked: 'Sessões encerradas',
+    // A palavra IMPRESSÃO é o verbete inteiro: sem ela, doze hexadecimais soltos se leem
+    // como um valor, e o valor que esta chave substituiu era o link público literal, que
+    // é uma credencial portadora. Um rótulo que não diz que aquilo é impressão convida a
+    // tentar usar a string como link, e a tentativa falha em silêncio depois de a pessoa
+    // ter tratado a trilha como fonte de acesso.
+    publicLinkImpressao: 'Impressão do link público',
 });
 
 /**
