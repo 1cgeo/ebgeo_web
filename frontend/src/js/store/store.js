@@ -23,10 +23,8 @@ import {
     initializeRepository,
     seedBlankDefaultMap,
     clearAllAtlasStores,
-    setAppSetting,
-    getColorUsage
+    setAppSetting
 } from './repository.js';
-
 import mapManager from './store-state-manager.js';
 import { mapResolver, awaitMapResolverReady } from './services/map-resolver.service.js';
 // A decisão de qual mapa o boot abre, e com que identificador. Folha, pura e testada à parte:
@@ -34,7 +32,16 @@ import { mapResolver, awaitMapResolverReady } from './services/map-resolver.serv
 import { escolherMapaDeEntrada } from './mapa-de-entrada.js';
 // `getSettingCompat` é a leitura de ajuste do repositório (o irmão do `setAppSetting` que este
 // arquivo já importa de `repository.js`, que só exporta a escrita).
-import { getSettingCompat, getRepository } from './repositories/index.js';
+// O `getColorUsage` DO BARRIL E O COMPAT, e a troca e de 2026-09-01. O irmao de `repository.js`
+// monta a chave com o NOME cru (`color_usage_${mapName}`), enquanto o escritor
+// (`setColorUsageCompat`) a monta com a chave RESOLVIDA, que num mapa keyado por UUID e o UUID.
+// Os dois batem no mesmo store de settings, entao a divergencia e so a string, e o resultado
+// medido e uma perda silenciosa: gravado sob `color_usage_<uuid>`, lido sob
+// `color_usage_<nome>`, o leitor cru devolve `{}` e a secao some do `.ebgeo` e do envio ao
+// servidor. Vale para TODO mapa de chave UUID, que e todo mapa de atlas sincronizado ou
+// importado. `store-state-manager.js` ja importava o compat sob este mesmo apelido: o barril
+// e que tinha ficado para tras.
+import { getSettingCompat, getRepository, getColorUsageCompat as getColorUsage } from './repositories/index.js';
 import { EventTypes } from '../events';
 import { sessionContext } from './sync/session-context.js';
 import {

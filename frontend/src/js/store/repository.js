@@ -420,15 +420,18 @@ export async function setAppSetting(key, value) {
     await appStore().setItem(key, value);
 }
 
-// ===== COLOR USAGE (needed by store.js for getColorUsage export) =====
-
-/**
- * Gets color usage data for a map.
- * @param {string} mapName - Map name
- * @returns {Promise<Object>} Color usage data
- */
-export async function getColorUsage(mapName) {
-    const data = await appStore().getItem(`color_usage_${mapName}`);
-    return data || {};
-}
+// ===== COLOR USAGE =====
+//
+// O `getColorUsage` que morava aqui SAIU em 2026-09-01, e o motivo e que ele lia a chave errada.
+// Ele montava `color_usage_${mapName}` com o nome CRU, enquanto o escritor
+// (`setColorUsageCompat`, em `repositories/index.js`) monta a chave RESOLVIDA, que num mapa
+// keyado por UUID e o UUID. Os dois batem neste mesmo store de settings, entao a divergencia era
+// so a string, e medida ela custava a secao inteira: gravado sob `color_usage_<uuid>`, lido sob
+// `color_usage_<nome>`, o retorno era `{}` e o `colorUsage` sumia do `.ebgeo` e do envio ao
+// servidor de todo mapa de atlas sincronizado ou importado.
+//
+// Nao foi substituido por nada aqui de proposito. O leitor com resolucao e fallback ja existia
+// (`getColorUsageCompat`), `store-state-manager.js` ja o usava, e o barril passou a exporta-lo
+// sob o mesmo apelido. Deixar o irmao errado de pe, ainda que sem chamador, so daria a alguem o
+// que reimportar. Guarda: `frontend/tests/integration/coloruso-le-a-chave-resolvida.test.js`.
 
