@@ -39,7 +39,11 @@ class ContextMenuControl {
         this._selectionManager = selectionManager;
         this._contextMenu = null;
         this._lastCoordinates = null;
+        this._lastPoint = null;
         this._cleanupLongPress = null;
+        // Bumped by every _rebuildContextMenu: a build that awaits must not
+        // append into a menu a newer build already cleared.
+        this._menuBuildId = 0;
 
         this._onRightClick = this._onRightClick.bind(this);
         this._onMapClick = this._onMapClick.bind(this);
@@ -94,6 +98,7 @@ class ContextMenuControl {
         };
         const coordinates = this._map.unproject([point.x, point.y]);
         this._lastCoordinates = { lat: coordinates.lat, lng: coordinates.lng };
+        this._lastPoint = { x: point.x, y: point.y };
 
         // Rebuild and show the menu
         await this._rebuildContextMenu();
@@ -133,6 +138,12 @@ class ContextMenuControl {
 
     async _rebuildContextMenu() {
         if (!this._contextMenu) return;
+
+        // Two right-clicks in quick succession overlap: the second rebuild clears
+        // the menu while the first is still awaiting the layer/map lists, and the
+        // first would then append its items into the second's menu. Only the
+        // newest generation may write.
+        const buildId = ++this._menuBuildId;
 
         this._contextMenu.innerHTML = '';
 
@@ -180,8 +191,11 @@ class ContextMenuControl {
         }
 
         if (hasSelectedFeatures && !locked) {
-            const layerOptionsAdded = await this._addLayerMoveOptions(groupingAnalysis.selectedFeatures);
-            const mapOptionsAdded = await this._addMapMoveOptions(groupingAnalysis.selectedFeatures);
+            const layerOptionsAdded = await this._addLayerMoveOptions(groupingAnalysis.selectedFeatures, buildId);
+            if (this._isStaleBuild(buildId)) return;
+
+            const mapOptionsAdded = await this._addMapMoveOptions(groupingAnalysis.selectedFeatures, buildId);
+            if (this._isStaleBuild(buildId)) return;
 
             // Only add separator if something was actually added
             if (layerOptionsAdded || mapOptionsAdded) {
@@ -191,6 +205,17 @@ class ContextMenuControl {
         }
 
         this._addDefaultOptions();
+    }
+
+    /**
+     * True when a newer `_rebuildContextMenu` started while this one was awaiting.
+     * A stale build must not append: the newer one already cleared the menu.
+     * @param {number} buildId
+     * @returns {boolean}
+     * @private
+     */
+    _isStaleBuild(buildId) {
+        return buildId !== this._menuBuildId;
     }
 
     _addGroupingOptions(analysis) {
@@ -331,8 +356,16 @@ class ContextMenuControl {
         }
     }
 
-    async _addLayerMoveOptions(selectedFeatures) {
+    /**
+     * Adds the layer move submenu.
+     * @param {Array} selectedFeatures - Selected features
+     * @param {number} [buildId] - Menu generation this build belongs to.
+     * @returns {Promise<boolean>} Whether options were added
+     */
+    async _addLayerMoveOptions(selectedFeatures, buildId) {
         const layers = await getLayers();
+        if (buildId !== undefined && this._isStaleBuild(buildId)) return false;
+
         const activeLayerId = getActiveLayerIdSync();
 
         const currentLayerId = selectedFeatures[0]?.properties?.layerId || 'default';
@@ -438,16 +471,21 @@ class ContextMenuControl {
     /**
      * Adds map move submenu options
      * @param {Array} selectedFeatures - Selected features
-     * @returns {boolean} Whether options were added
+     * @param {number} [buildId] - Menu generation this build belongs to.
+     * @returns {Promise<boolean>} Whether options were added
      */
-    async _addMapMoveOptions(selectedFeatures) {
+    async _addMapMoveOptions(selectedFeatures, buildId) {
         const allMaps = await getAllMapNamesStore();
+        if (buildId !== undefined && this._isStaleBuild(buildId)) return false;
+
         const currentMapName = getCurrentMapNameSync();
 
         // Filter out current map and locked maps
         const lockedChecks = await Promise.all(
             allMaps.map(async name => ({ name, locked: await isMapLocked(name) }))
         );
+        if (buildId !== undefined && this._isStaleBuild(buildId)) return false;
+
         const availableMaps = lockedChecks
             .filter(m => m.name !== currentMapName && !m.locked)
             .map(m => m.name);
@@ -536,7 +574,8 @@ class ContextMenuControl {
     }
 
     _addDefaultOptions() {
-        const hasSelected = this._selectionManager?.getAllSelectedFeatures().length > 0;
+        const selectedFeatures = this._selectionManager?.getAllSelectedFeatures() || [];
+        const hasSelected = selectedFeatures.length > 0;
         const locked = isCurrentMapLockedSync();
 
         if (hasSelected) {
@@ -556,6 +595,11 @@ class ContextMenuControl {
 
             const separator = this._createSeparator();
             this._contextMenu.appendChild(separator);
+        }
+
+        const clipboardAdded = this._addClipboardOptions(selectedFeatures, locked);
+        if (clipboardAdded) {
+            this._contextMenu.appendChild(this._createSeparator());
         }
 
         const copyItem = this._createMenuItem('Copiar Coordenadas', this._onCopyCoordinates);
@@ -604,6 +648,9 @@ class ContextMenuControl {
         item.className = 'context-menu-item disabled';
         item.textContent = text;
         item.title = tooltip;
+        // The item stays in the DOM and stays readable, so assistive tech must
+        // hear that it is refused, and why (the tooltip names the state).
+        item.setAttribute('aria-disabled', 'true');
         return item;
     }
 
@@ -711,11 +758,164 @@ class ContextMenuControl {
         });
     }
 
+    /**
+     * Adds the copy/paste block. Copy acts on the selection, or - when nothing
+     * is selected - on the feature under the cursor, WITHOUT selecting it
+     * (selecting here would open the attributes panel behind the menu).
+     * Paste anchors the copied set on the clicked position.
+     *
+     * Building this block is SYNCHRONOUS on purpose: deciding whether "Copiar
+     * Feição" shows up only needs the rendered-features hit-test, so the common
+     * right-click does not wait for a source read before the menu opens. The
+     * complete feature is read inside the item's own click handler.
+     *
+     * @param {Array<Object>} selectedFeatures - Current selection.
+     * @param {boolean} locked - Whether the current map is locked.
+     * @returns {boolean} True when at least one item was added.
+     * @private
+     */
+    _addClipboardOptions(selectedFeatures, locked) {
+        const clipboardManager = getControl('ClipboardManager');
+        if (!clipboardManager) return false;
+
+        let added = false;
+
+        if (selectedFeatures.length > 0) {
+            const copiable = clipboardManager.filterCopiableFeatures(selectedFeatures);
+            const copyItem = copiable.length > 0
+                ? this._createMenuItem('Copiar Feições', () => this._handleCopyFeatures())
+                : this._createDisabledMenuItem(
+                    'Copiar Feições',
+                    'Nenhuma feição selecionada pode ser copiada'
+                );
+            this._contextMenu.appendChild(copyItem);
+            added = true;
+        } else {
+            const hit = this._findCopiableHitUnderCursor(clipboardManager);
+            if (hit) {
+                this._contextMenu.appendChild(this._createMenuItem(
+                    'Copiar Feição',
+                    () => this._handleCopyFeatureUnderCursor(hit)
+                ));
+                added = true;
+            }
+        }
+
+        if (clipboardManager.hasClipboardData()) {
+            const count = clipboardManager.clipboard.features.length;
+            const label = `Colar Aqui (${count})`;
+
+            if (locked) {
+                this._contextMenu.appendChild(
+                    this._createDisabledMenuItem(label, 'Mapa bloqueado')
+                );
+            } else {
+                const lockedLayers = clipboardManager.getLockedDestinationLayers();
+                if (lockedLayers.length > 0) {
+                    this._contextMenu.appendChild(this._createDisabledMenuItem(
+                        label,
+                        `Camada de destino bloqueada: ${lockedLayers.join(', ')}`
+                    ));
+                } else {
+                    this._contextMenu.appendChild(this._createMenuItem(
+                        label,
+                        () => this._handlePasteHere()
+                    ));
+                }
+            }
+            added = true;
+        }
+
+        return added;
+    }
+
+    /**
+     * Reference to the topmost copiable feature under the last gesture, from the
+     * SYNCHRONOUS rendered-features hit-test. Never changes selection and never
+     * reads the source: only `{toolType, id}` is kept, and the complete feature
+     * is fetched when the menu item is clicked.
+     * @param {Object} clipboardManager
+     * @returns {{toolType: string, id: string}|null}
+     * @private
+     */
+    _findCopiableHitUnderCursor(clipboardManager) {
+        if (!this._lastPoint || !this._selectionManager) return null;
+
+        const clicked = this._selectionManager.getAllClickedCustomFeatures(
+            [this._lastPoint.x, this._lastPoint.y]
+        );
+        if (clicked.length === 0) return null;
+
+        const target = clicked[0];
+        if (clipboardManager.filterCopiableFeatures([target]).length === 0) return null;
+
+        return { toolType: target.toolType, id: target.properties.id };
+    }
+
+    /**
+     * Copies the feature the menu was opened over. The complete geometry is read
+     * from the map source HERE (not while the menu is being built) so the right
+     * click itself never waits for it.
+     * @param {{toolType: string, id: string}} hit
+     * @private
+     */
+    async _handleCopyFeatureUnderCursor(hit) {
+        try {
+            const complete = await this._selectionManager?.getCompleteFeatureFromSource(
+                hit.toolType,
+                hit.id
+            );
+
+            if (!complete) {
+                showWarning('Não foi possível ler a feição para copiar');
+                return;
+            }
+
+            this._handleCopyFeatures([complete]);
+        } catch (error) {
+            console.error('Error copying feature under cursor:', error);
+            showError('Erro ao copiar feição');
+        }
+    }
+
+    /**
+     * @param {Array<Object>|null} [features] - Defaults to the selection.
+     * @private
+     */
+    _handleCopyFeatures(features = null) {
+        const clipboardManager = getControl('ClipboardManager');
+        if (!clipboardManager) {
+            showWarning('Área de transferência não disponível');
+            return;
+        }
+
+        const count = clipboardManager.copy(features);
+        if (count > 0) {
+            showSuccess(`${count} feição(ões) copiada(s)`);
+        }
+    }
+
+    /** @private */
+    async _handlePasteHere() {
+        try {
+            const clipboardManager = getControl('ClipboardManager');
+            if (!clipboardManager) {
+                showWarning('Área de transferência não disponível');
+                return;
+            }
+
+            await clipboardManager.paste({ targetLngLat: this._lastCoordinates });
+        } catch (error) {
+            console.error('Error pasting features:', error);
+            showError('Erro ao colar feições');
+        }
+    }
+
     async _handleDuplicateSelected() {
         try {
             const clipboardManager = getControl('ClipboardManager');
             if (!clipboardManager) {
-                showWarning('Clipboard não disponível');
+                showWarning('Área de transferência não disponível');
                 return;
             }
 
@@ -784,6 +984,7 @@ class ContextMenuControl {
 
         const coordinates = this._map.unproject([e.offsetX, e.offsetY]);
         this._lastCoordinates = { lat: coordinates.lat, lng: coordinates.lng };
+        this._lastPoint = { x: e.offsetX, y: e.offsetY };
 
         await this._rebuildContextMenu();
 

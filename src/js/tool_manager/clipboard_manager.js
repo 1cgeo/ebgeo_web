@@ -15,9 +15,11 @@ import {
     hasImageResource,
     getStateManager,
     isCurrentMapLockedSync,
-    buildLayerMappingForMove
+    buildLayerMappingForMove,
+    getLayers
 } from '../store';
 import { IDUtils, ToastService } from '../utilities';
+import { computePasteAnchor, calculateOffsetToTarget } from './clipboard-offset.js';
 import { generatePointImage, needsPerFeatureImage } from '../draw_tools/point_tool/point-marker-symbols.js';
 import { parseCustomMarker, registerCustomFeatureImage } from '../draw_tools/point_tool/point-custom-icons.js';
 
@@ -62,44 +64,79 @@ class ClipboardManager {
     // =========================================================================
 
     /**
-     * Copy selected features to clipboard.
+     * Copy features to clipboard.
+     * @param {Array<Object>|null} [features] - Features to copy; defaults to the
+     *   current selection. The context menu passes the feature under the cursor
+     *   so copying does not have to change the selection.
+     * @returns {number} How many features actually landed on the clipboard.
      */
-    copy() {
-        const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
+    copy(features = null) {
+        const sourceFeatures = Array.isArray(features)
+            ? features
+            : this.selectionManager.getAllSelectedFeatures();
 
-        if (allSelectedFeatures.length === 0) {
+        if (sourceFeatures.length === 0) {
             ToastService.showWarning('Nenhuma feição selecionada para copiar');
-            return;
+            return 0;
         }
 
-        const copyableFeatures = this.filterCopiableFeatures(allSelectedFeatures);
+        const copyableFeatures = this.filterCopiableFeatures(sourceFeatures);
 
         if (copyableFeatures.length === 0) {
             ToastService.showWarning('Nenhuma feição válida para copiar');
-            return;
+            return 0;
         }
 
-        const features = copyableFeatures.map(feature => ({
-            type: feature.properties.source,
-            feature: this.cleanFeatureForCopy(feature)
-        }));
+        const clipboardItems = copyableFeatures
+            .map(feature => ({
+                type: feature.properties.source,
+                feature: this.cleanFeatureForCopy(feature)
+            }))
+            .filter(item => item.feature);
+
+        if (clipboardItems.length === 0) {
+            ToastService.showWarning('Nenhuma feição válida para copiar');
+            return 0;
+        }
 
         try {
-            getStateManager().setClipboard(features, getCurrentMapNameSync());
+            getStateManager().setClipboard(clipboardItems, getCurrentMapNameSync());
         } catch (_e) {
             console.warn('StateManager not available for clipboard');
+            return 0;
         }
+
+        return clipboardItems.length;
     }
 
     /**
      * Paste features from clipboard.
-     * Applies offset only when pasting on the same map.
+     * Without a target the legacy behaviour applies: a 30 px nudge when pasting
+     * on the same map, no offset across maps. With `targetLngLat` (the context
+     * menu's "Colar Aqui") the copied set is anchored so the center of its
+     * bounding box lands on that position.
+     * @param {{targetLngLat?: {lng: number, lat: number}|Array<number>|null}} [options]
      */
-    async paste() {
-        if (isCurrentMapLockedSync()) return;
+    async paste({ targetLngLat = null } = {}) {
+        if (isCurrentMapLockedSync()) {
+            ToastService.showWarning('Mapa bloqueado: desbloqueie o mapa para colar');
+            return;
+        }
 
         if (!this.hasClipboardData()) {
             ToastService.showWarning('Nenhuma feição copiada');
+            return;
+        }
+
+        // The destination layer is the ORIGIN layer, and `addFeatures` only guards
+        // the MAP lock, so this refusal has to live here: the context menu merely
+        // disables its item, while Ctrl+V and "Duplicar Seleção" reach paste()
+        // directly and would otherwise write into a locked layer.
+        const lockedLayers = this.getLockedDestinationLayers();
+        if (lockedLayers.length > 0) {
+            ToastService.showWarning(
+                `Camada bloqueada: "${lockedLayers.join('", "')}". Desbloqueie a camada para colar`
+            );
             return;
         }
 
@@ -107,9 +144,7 @@ class ClipboardManager {
             const currentMapName = getCurrentMapNameSync();
             const clipboardData = this.clipboard;
             const isSameMap = clipboardData.sourceMapName === currentMapName;
-            const offset = isSameMap ?
-                this.calculatePixelToMetersOffset(clipboardData.pixelOffset) :
-                { dx: 0, dy: 0 };
+            const offset = this._resolvePasteOffset(clipboardData, isSameMap, targetLngLat);
 
             // Build layer ID mapping for cross-map paste
             let layerIdMapping = null;
@@ -283,6 +318,77 @@ class ClipboardManager {
     // =========================================================================
     // OFFSET CALCULATION
     // =========================================================================
+
+    /**
+     * Resolve the `{dx, dy}` in degrees applied to every pasted feature.
+     * Falls back to the legacy offset when no target was given, or when the
+     * clipboard set has no usable coordinate to anchor on.
+     * @param {Object} clipboardData
+     * @param {boolean} isSameMap
+     * @param {{lng: number, lat: number}|Array<number>|null} targetLngLat
+     * @returns {{dx: number, dy: number}}
+     * @private
+     */
+    _resolvePasteOffset(clipboardData, isSameMap, targetLngLat) {
+        const target = this._toLngLatPair(targetLngLat);
+
+        if (target) {
+            const anchor = computePasteAnchor(
+                clipboardData.features.map(item => item.feature)
+            );
+            const offset = calculateOffsetToTarget(anchor, target);
+            if (offset) return offset;
+        }
+
+        return isSameMap
+            ? this.calculatePixelToMetersOffset(clipboardData.pixelOffset)
+            : { dx: 0, dy: 0 };
+    }
+
+    /**
+     * Accept both `{lng, lat}` (what the map's `unproject` returns) and
+     * `[lng, lat]`, rejecting anything non-finite.
+     * @param {*} value
+     * @returns {Array<number>|null}
+     * @private
+     */
+    _toLngLatPair(value) {
+        if (!value) return null;
+        const lng = Array.isArray(value) ? value[0] : value.lng;
+        const lat = Array.isArray(value) ? value[1] : value.lat;
+        if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+        return [lng, lat];
+    }
+
+    /**
+     * Names of the locked layers the clipboard content would be pasted into.
+     * Pasting keeps the ORIGIN layer, so this only resolves for a same-map
+     * paste; across maps the destination layers are resolved (and possibly
+     * created) by `buildLayerMappingForMove` at paste time, so nothing is
+     * reported here.
+     * @returns {Array<string>} Locked destination layer names (possibly empty).
+     */
+    getLockedDestinationLayers() {
+        try {
+            const clipboardData = this.clipboard;
+            if (clipboardData.features.length === 0) return [];
+            if (clipboardData.sourceMapName !== getCurrentMapNameSync()) return [];
+
+            const layersById = new Map(getLayers().map(layer => [layer.id, layer]));
+            const lockedNames = new Set();
+
+            for (const item of clipboardData.features) {
+                const layerId = item.feature?.properties?.layerId;
+                if (!layerId) continue;
+                const layer = layersById.get(layerId);
+                if (layer?.locked) lockedNames.add(layer.name || layerId);
+            }
+
+            return Array.from(lockedNames);
+        } catch (_e) {
+            return [];
+        }
+    }
 
     /**
      * Convert pixel offset to geographic coordinate offset.

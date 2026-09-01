@@ -9,6 +9,11 @@
  * trajectory edits for the "feature moved" direction; the "anchor moved" direction
  * lives in the trajectory editor (it also owns the geometry write). No DOM / store
  * here so they stay unit-testable.
+ *
+ * PASTE is the other direction, and it is NOT re-anchoring: a paste writes a new
+ * feature elsewhere, so the whole route travels with it (`translateTrajectory` /
+ * `translateOnPaste`). Reusing `reanchorOnMove` there moved kp 0 alone and left
+ * the copy's route bending back to the original position.
  */
 
 import { normalizeTrajectory } from './temporal-model.js';
@@ -30,6 +35,66 @@ export function repositionAnchor(trajetoria, lng, lat) {
     if (sorted.length === 0) return null;
     if (sorted[0].lng === lng && sorted[0].lat === lat) return null;
     return sorted.map((kp, i) => (i === 0 ? { ...kp, lng, lat } : { ...kp }));
+}
+
+/**
+ * Returns a chronologically-normalized copy of `trajetoria` with EVERY keypoint
+ * displaced by `{dx, dy}` degrees, or null when there is no usable trajectory.
+ *
+ * This is the PASTE counterpart of `repositionAnchor`: a paste creates a copy of
+ * the whole feature somewhere else, so the whole route travels with it. Moving
+ * only the anchor (what a drag does) would leave the pasted copy's route running
+ * back to the original one.
+ *
+ * A non-finite `dx`/`dy` yields the copy WITHOUT displacement instead of a route
+ * full of NaN, so a broken offset degrades to "pasted in place", never to a
+ * trajectory that can no longer be drawn.
+ *
+ * @param {Array<{t:number, lng:number, lat:number}>|undefined} trajetoria
+ * @param {number} dx - Longitude delta in degrees.
+ * @param {number} dy - Latitude delta in degrees.
+ * @returns {Array<{t:number, lng:number, lat:number}>|null}
+ */
+export function translateTrajectory(trajetoria, dx, dy) {
+    if (!Array.isArray(trajetoria) || trajetoria.length === 0) return null;
+    const sorted = normalizeTrajectory(trajetoria);
+    if (sorted.length === 0) return null;
+
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) {
+        return sorted.map((kp) => ({ ...kp }));
+    }
+
+    return sorted.map((kp) => ({ ...kp, lng: kp.lng + dx, lat: kp.lat + dy }));
+}
+
+/**
+ * Property patch for a trajectory feature being PASTED with offset `{dx, dy}`:
+ * the whole route travels, and so does the persisted home (`_temporalHome`), so
+ * a copy taken while the feature was temporally displaced keeps home and route
+ * in the same relative position as the original.
+ *
+ * Unlike `reanchorOnMove` there is no "transient drag" case to refuse: a paste
+ * writes a brand-new feature, never a live one.
+ *
+ * @param {Object} props - Feature properties (trajetoria, optional _temporalHome).
+ * @param {number} dx - Longitude delta in degrees.
+ * @param {number} dy - Latitude delta in degrees.
+ * @returns {{trajetoria: Array, _temporalHome?: [number, number]}|null}
+ */
+export function translateOnPaste(props, dx, dy) {
+    const moved = translateTrajectory(props?.trajetoria, dx, dy);
+    if (!moved) return null;
+
+    const patch = { trajetoria: moved };
+
+    const home = props._temporalHome;
+    if (Array.isArray(home) && Number.isFinite(home[0]) && Number.isFinite(home[1])) {
+        patch._temporalHome = Number.isFinite(dx) && Number.isFinite(dy)
+            ? [home[0] + dx, home[1] + dy]
+            : [home[0], home[1]];
+    }
+
+    return patch;
 }
 
 /**

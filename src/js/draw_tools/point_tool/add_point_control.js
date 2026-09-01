@@ -9,7 +9,7 @@ import { LABEL_ZOOM_PROPERTIES, recalcLabelSize } from '../../tool_manager/helpe
 import { getSnappingService } from '../../snapping/snapping.service.js';
 import { generatePointImage, needsPerFeatureImage } from './point-marker-symbols.js';
 import { parseCustomMarker, registerCustomFeatureImage } from './point-custom-icons.js';
-import { reanchorOnMove } from '@js/temporal/trajectory-anchor.js';
+import { reanchorOnMove, translateOnPaste } from '@js/temporal/trajectory-anchor.js';
 
 /** Maximum circle-radius (in pixels) for zoom-corrected points. */
 const MAX_POINT_RADIUS = 500;
@@ -354,6 +354,11 @@ class AddPointControl extends BaseControl {
             effectiveZoom
         );
 
+        // Pasting copies the feature somewhere else, so the WHOLE trajectory
+        // travels by the same delta (re-anchoring, which only moves kp 0, would
+        // leave the copy's route running back to the original one).
+        const anchorPatch = translateOnPaste(feature.properties, offset.dx, offset.dy);
+
         return {
             ...feature,
             geometry: {
@@ -362,6 +367,7 @@ class AddPointControl extends BaseControl {
             },
             properties: {
                 ...feature.properties,
+                ...(anchorPatch || null),
                 selectionBox: newSelectionBox,
             }
         };

@@ -17,7 +17,7 @@ import {
     applyZoomCorrections as applyZoomCorrectionsUtil,
     syncZoomCorrectedProperty,
 } from '@tools/helpers/zoom-correction.helpers.js';
-import { reanchorOnMove } from '@js/temporal/trajectory-anchor.js';
+import { reanchorOnMove, translateOnPaste } from '@js/temporal/trajectory-anchor.js';
 
 class AddMilitarySymbolControl extends BaseControl {
     featureType = 'military_symbol';
@@ -205,11 +205,17 @@ class AddMilitarySymbolControl extends BaseControl {
       effectiveZoom
     );
 
+    // Pasting copies the feature somewhere else, so the WHOLE trajectory travels
+    // by the same delta (re-anchoring, which only moves kp 0, would leave the
+    // copy's route running back to the original one).
+    const anchorPatch = translateOnPaste(feature.properties, offset.dx, offset.dy);
+
     return {
       ...feature,
       geometry: this.geometry.generate(newCoordinates),
       properties: {
         ...feature.properties,
+        ...(anchorPatch || null),
         selectionBox: newSelectionBox,
       },
     };
