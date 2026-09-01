@@ -129,7 +129,7 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
     está variando. Olhe o denominador antes de acreditar na porcentagem.
 
   **O TERCEIRO RECURSO COMPARTILHADO É A PORTA, e ela é o contra-exemplo útil.** O backend
-do `test:e2e:ui` sobe na 3912, e um órfão de rodada interrompida a segura. Essa colisão
+  do `test:e2e:ui` sobe na 3912, e um órfão de rodada interrompida a segura. Essa colisão
   GRITA, e se nomeia: `frontend/tests/e2e-ui/backend.js` recusa subir dizendo "a porta 3912
   já responde /api/v1/health antes de subirmos: outro backend está de pé (tipicamente órfão
   de uma rodada anterior interrompida)". Achar o dono é `Get-NetTCPConnection -LocalPort 3912
