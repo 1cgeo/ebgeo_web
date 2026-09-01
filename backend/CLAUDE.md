@@ -149,8 +149,13 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   do ramo privado é o mesmo do 3D (`recursoPrivadoLiberado`, que se chamava assetLiberado até
   aquela data), e o do ramo público é um índice em memória do catálogo QUE PODE ESTAR VELHO
   (`src/modules/nomes/tile-regime.js`), reconstruído só na escrita, e que CAI para o último índice
-  bom quando a reconstrução falha: um recurso recém-marcado privado segue sendo servido como
-  público enquanto o banco estiver fora. Desde 2026-09-01 essa queda deixa UMA linha de transição
+  bom quando a reconstrução falha: um recurso recém-marcado privado seguia sendo servido como
+  público enquanto o banco estivesse fora, e hoje isso tem TETO (`REGIME_STALE_MAX_MS`, cinco
+  minutos), passado o qual a resposta que ENTREGA bytes vira 503 e só ela (o ramo privado
+  pergunta ao banco, não ao índice). Repare na assimetria entre os dois índices, que é o que
+  se lê errado: no de tiles o caminho não reivindicado já é 401, mas no de 3D ele é PÚBLICO e
+  é servido, então lá o teto fecha o acervo inteiro e não só as linhas públicas do catálogo.
+  Essa queda deixa UMA linha de transição
   (`src/modules/nomes/regime-vencido.js`), com a idade do índice, nunca uma linha por consulta.
   Uma ida ao banco por tile poria
   a vazão de um deslocamento de mapa no mesmo pool de dez conexões que serve o sync e o
@@ -352,6 +357,14 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   (HTTP, sempre `asyncHandler`, lê `req`, escreve `res.json({ data })`/`201`/`204`) · `.service.js`
   (toda a lógica) · `.queries.js` (SQL `UPPER_SNAKE`, `$1..$n`) · `.schemas.js` (Joi) · `index.js` (re-export).
 - **Validação Joi na borda** (`validate({ body })` na rota), nunca no controller. Toda rota de escrita valida.
+- **Erro que TRADUZ outro erro preserva o original em `cause`** (quarto parâmetro opcional de
+  `AppError`, desde 2026-09-01; em `ValidationError` ele é o terceiro, porque `details` já ocupa
+  o segundo). Sem isso, um `EACCES` num bundle de dezenas de GB vira "arquivo corrompido" e o
+  operador procura corrupção onde há permissão. O que torna seguro pendurar um erro de driver
+  ali: o serializer do pino NÃO copia a causa como campo, ele dobra `message` e `stack`, então
+  o `detail` com dado de linha simplesmente não viaja (medido, não suposto). A regra que
+  sustenta isso: pendure a causa em `cause`, NUNCA concatenada no `message` nem noutro campo
+  enumerável, porque o `message` vai para o cliente e o campo enumerável escapa da dobra.
 - **Erros**: lance subclasses de `AppError` (`NotFoundError`404 · `ForbiddenError`403 ·
   `UnauthorizedError`401 · `ConflictError`409 · `ValidationError`422 · `BadRequestError`400); o
   `errorHandler` (último em `app.js`) mapeia e mascara stack em prod. Sem try/catch por rota (`asyncHandler`).

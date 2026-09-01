@@ -123,6 +123,20 @@ verde e sem flaky) e ficou sem causa identificada. Registrado aqui em vez de esq
 voltar, o primeiro passo é procurar `[queda]` na saída, e o segundo é conferir se alguma outra
 rodada da suíte estava viva ao mesmo tempo.
 
+## Outros dois que flakeiam na rodada LONGA e passam isolados (2026-09-01)
+
+`browser-collab-three-client-flow.spec.js:179` e `exportar-le-todo-mapa.spec.js:78`. Medido:
+na rodada completa de `test:e2e:ui` os dois reprovaram na primeira tentativa e passaram na
+retentativa (a rodada fecha verde com `2 flaky` na saída, que é o desfecho que o `retries: 1`
+do config produz); rodados em série três vezes, só os dois, passaram **3/3 na primeira
+tentativa**, sem retentativa nenhuma.
+
+A leitura, e ela é a mesma da mega: **isolar muda as condições**, então 3/3 isolado é evidência
+mais fraca que 3/3 dentro da rodada longa, onde há carga e ordenação. O que essa assimetria
+sustenta é o negativo (não é defeito do produto que a spec exercita, senão reproduziria
+isolado), não o positivo. Antes de gastar uma rodada de 47 minutos investigando um destes,
+confirme primeiro em série: se passar isolado, o suspeito é o arnês sob carga.
+
 ## A mega FLAKEIA em `pollPeerFeatureWhere`, e a taxa está medida (2026-09-01)
 
 Medido em duas rodadas de `npm run test:e2e:mega`, nesta ordem: a primeira REPROVOU nas duas
