@@ -31,7 +31,7 @@ import {
  * Um `fs` de mentira, em memória. Só os quatro métodos que o módulo usa.
  * `falharEm` permite mandar um deles quebrar, que é como se mede a degradação.
  */
-function fsFalso({ falharEm = null, arquivosExistentes = [] } = {}) {
+function fsFalso({ falharEm = null, arquivosExistentes = [], fluxoTravado = false } = {}) {
   const escritos = new Map();
   const apagados = [];
   const diretoriosCriados = [];
@@ -57,7 +57,8 @@ function fsFalso({ falharEm = null, arquivosExistentes = [] } = {}) {
     createWriteStream(alvo) {
       if (falharEm === 'create') throw new Error('ENOSPC: disco cheio');
       const nome = alvo.split(/[/\\]/).pop();
-      const ouvintes = [];
+      const ouvintes = new Map();
+      const emitir = (evento, arg) => { for (const cb of ouvintes.get(evento) || []) cb(arg); };
       const fluxo = {
         nome,
         encerrado: false,
@@ -65,10 +66,21 @@ function fsFalso({ falharEm = null, arquivosExistentes = [] } = {}) {
           if (falharEm === 'write') throw new Error('ENOSPC: disco cheio');
           escritos.set(nome, (escritos.get(nome) || '') + linha);
         },
-        end() { fluxo.encerrado = true; },
-        on(evento, cb) { if (evento === 'error') ouvintes.push(cb); return fluxo; },
+        end() {
+          fluxo.encerrado = true;
+          // Um `fs.WriteStream` de verdade só emite 'finish'/'close' DEPOIS de escoar a
+          // fila, e sempre num turno seguinte: emitir aqui, síncrono, faria o teste do
+          // prazo passar por acidente. `fluxoTravado` é o disco que nunca responde.
+          if (fluxoTravado) return;
+          setImmediate(() => { emitir('finish'); emitir('close'); });
+        },
+        on(evento, cb) {
+          if (!ouvintes.has(evento)) ouvintes.set(evento, []);
+          ouvintes.get(evento).push(cb);
+          return fluxo;
+        },
         /** Dispara o erro assíncrono que o disco produziria. */
-        emitirErro(err) { for (const cb of ouvintes) cb(err); },
+        emitirErro(err) { emitir('error', err); },
       };
       fluxos.push(fluxo);
       inventario.push(nome);
@@ -250,5 +262,80 @@ describe('log-diario — o destino', () => {
     assert.match(avisos[0], /podar/);
     assert.doesNotMatch(avisos[0], /DESLIGADO/);
     assert.equal(fsys.escritos.get('ebgeo-2026-08-30.jsonl'), 'a\n', 'a linha foi escrita assim mesmo');
+  });
+});
+
+// ============================================================================
+// `fechar()` é o que salva a última linha, e até 2026-09-01 ele não tinha um só chamador
+// em `src/`: o `process.exit(0)` do desligamento era dado com a fila do `fs.WriteStream`
+// pendente, e o que se perdia eram justamente as linhas do desligamento e as da queda.
+//
+// O QUE ESTES VERDES PROVAM. Que fechar ESPERA (e não só chama `end()` e segue), que a
+// espera tem TETO (sem ele, disco cheio vira processo que nunca termina, o orquestrador o
+// mata no prazo dele e se perde o log E o desligamento limpo), e que o desfecho é DEVOLVIDO
+// em vez de engolido, porque quem chama está registrando a própria morte.
+//
+// Controle negativo: tire o ouvinte de 'finish'/'close' e o caso do escoamento devolve
+// 'prazo'; tire o `setTimeout` e o caso do fluxo travado deixa de resolver, pendurando a
+// suíte no lugar de reprovar.
+// ============================================================================
+describe('log-diario — fechar()', () => {
+  it('ESPERA a fila escoar e devolve o desfecho', async () => {
+    const fsys = fsFalso();
+    const t = relogio('2026-08-30T10:00:00');
+    const destino = criarLogDiario({ diretorio: '/logs', agora: t.agora, sistemaDeArquivos: fsys });
+
+    destino.write('{"msg":"a última linha do processo"}\n');
+    const r = await destino.fechar();
+
+    assert.deepEqual(r, { desfecho: 'fechado' });
+    assert.equal(fsys.fluxos[0].encerrado, true, 'o fluxo tem de ser encerrado, não só esquecido');
+    assert.equal(destino.diaAtual(), null, 'o destino não pode continuar apontando para o arquivo fechado');
+  });
+
+  it('sem arquivo aberto resolve na hora', async () => {
+    // O processo que morre antes de logar qualquer coisa, e o destino que já degradou.
+    // Ficar esperando um fluxo que não existe seria pendurar a saída pelo motivo mais bobo.
+    const fsys = fsFalso();
+    const destino = criarLogDiario({ diretorio: '/logs', sistemaDeArquivos: fsys });
+
+    assert.deepEqual(await destino.fechar(), { desfecho: 'nada-aberto' });
+    assert.equal(fsys.fluxos.length, 0);
+  });
+
+  it('respeita o TETO quando o fluxo nunca termina de escoar', async () => {
+    const fsys = fsFalso({ fluxoTravado: true });
+    const t = relogio('2026-08-30T10:00:00');
+    const destino = criarLogDiario({ diretorio: '/logs', agora: t.agora, sistemaDeArquivos: fsys });
+    destino.write('a\n');
+
+    const comecou = Date.now();
+    const r = await destino.fechar({ prazoMs: 40 });
+    const decorrido = Date.now() - comecou;
+
+    assert.deepEqual(r, { desfecho: 'prazo' }, 'o desfecho tem de DIZER que houve linha perdida');
+    assert.ok(decorrido < 2000, `esperou ${decorrido}ms com um teto pedido de 40ms`);
+  });
+
+  it('erro do fluxo durante o fechamento resolve como erro, e não trava a saída', async () => {
+    const fsys = fsFalso({ fluxoTravado: true });
+    const t = relogio('2026-08-30T10:00:00');
+    const destino = criarLogDiario({ diretorio: '/logs', agora: t.agora, sistemaDeArquivos: fsys });
+    destino.write('a\n');
+
+    const promessa = destino.fechar({ prazoMs: 5000 });
+    fsys.fluxos[0].emitirErro(new Error('ENOSPC: disco cheio'));
+
+    assert.deepEqual(await promessa, { desfecho: 'erro' });
+  });
+
+  it('fechar duas vezes não pendura a segunda chamada', async () => {
+    const fsys = fsFalso();
+    const t = relogio('2026-08-30T10:00:00');
+    const destino = criarLogDiario({ diretorio: '/logs', agora: t.agora, sistemaDeArquivos: fsys });
+    destino.write('a\n');
+
+    assert.deepEqual(await destino.fechar(), { desfecho: 'fechado' });
+    assert.deepEqual(await destino.fechar(), { desfecho: 'nada-aberto' });
   });
 });

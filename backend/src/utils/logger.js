@@ -167,6 +167,17 @@ export function errSerializer(err) {
  * suíte sujaria o disco a cada rodada — e ali o `level` já é `silent`, então não há nada
  * para escrever de qualquer modo.
  */
+/**
+ * O destino de ARQUIVO, guardado para que a saída do processo consiga ESPERÁ-LO.
+ *
+ * Ele é o único destino desta casa com fila própria e o único que sobrevive à sessão, então
+ * é o único que precisa ser descarregado antes de um `process.exit()`. Guardar a referência
+ * aqui é o que torna `descarregarLog()` possível: o objeto nasce dentro de `montarDestinos`
+ * e o `pino.multistream` não devolve caminho de volta até ele (a lista interna guarda o
+ * stream, mas atravessá-la seria depender do interno de outra biblioteca para achar o nosso).
+ */
+let destinoDiario = null;
+
 function montarDestinos() {
   const destinos = [];
 
@@ -177,16 +188,17 @@ function montarDestinos() {
   });
 
   if (config.log.emArquivo && !config.isTest) {
-    destinos.push({
-      stream: criarLogDiario({
-        diretorio: config.log.dir,
-        retencaoDias: config.log.retencaoDias,
-      }),
+    destinoDiario = criarLogDiario({
+      diretorio: config.log.dir,
+      retencaoDias: config.log.retencaoDias,
     });
+    destinos.push({ stream: destinoDiario });
   }
 
   return pino.multistream(destinos);
 }
+
+const destinos = montarDestinos();
 
 const logger = pino({
   level: config.isTest ? 'silent' : config.logLevel,
@@ -205,6 +217,165 @@ const logger = pino({
     ],
     censor: '[REDACTED]',
   },
-}, montarDestinos());
+}, destinos);
+
+/** Teto padrão da descarga de saída. Ver `descarregarLog`. */
+export const PRAZO_DE_DESCARGA_MS = 2000;
+
+/**
+ * Descarrega os destinos de log antes de o processo morrer, COM PRAZO.
+ *
+ * O QUE O PINO GARANTE AQUI, E O QUE NÃO GARANTE, medido nesta versão (pino 8):
+ * `logger.flush(cb)` (`lib/proto.js`) só chama `stream.flush` se o destino tiver um, e
+ * `pino.multistream` NÃO tem `flush`, então chamá-lo devolveria o controle na hora tendo
+ * descarregado nada, o que é pior que não existir, porque tem cara de descarga. O que o
+ * multistream tem é `flushSync`, e ele percorre os destinos chamando `flushSync` NAQUELES
+ * QUE TIVEREM UM. Nenhum dos nossos três tem: `process.stdout` não tem, o `Transform` do
+ * `pino-pretty` não tem, e o destino diário é um objeto com `write`. Hoje, portanto,
+ * `flushSync()` é uma varredura que não descarrega nada; ela é chamada assim mesmo por ser
+ * o único gancho que o pino oferece, e assim um destino futuro que traga `flushSync` (um
+ * `pino.destination` assíncrono, por exemplo) fica coberto sem ninguém precisar lembrar
+ * deste arquivo.
+ *
+ * A DESCARGA REAL É A DO ARQUIVO, e ela é nossa: `fechar()` espera o `fs.WriteStream`
+ * escoar, com teto. Fica DE FORA, declarado: o stdout. Ele não expõe descarga síncrona e,
+ * quando é um cano (o caso do container), a escrita é assíncrona no POSIX, então um
+ * `process.exit()` pode truncar a última linha do terminal. O arquivo é o destino que esta
+ * função existe para salvar, e é ele o que sobrevive ao fechamento do terminal.
+ *
+ * NUNCA LANÇA. Todo chamador dela está saindo, e uma exceção aqui trocaria uma linha
+ * perdida por uma saída pelo caminho errado, com outro código.
+ *
+ * @param {{prazoMs?: number}} [opts]
+ * @returns {Promise<{desfecho: string}>}
+ */
+export async function descarregarLog({ prazoMs = PRAZO_DE_DESCARGA_MS } = {}) {
+  try {
+    destinos.flushSync();
+  } catch {
+    // Um destino que quebre ao descarregar não pode impedir a saída: quem chama está
+    // morrendo, e sair com o código certo importa mais que a última linha.
+  }
+  if (!destinoDiario) return { desfecho: 'sem-arquivo' };
+  try {
+    return await destinoDiario.fechar({ prazoMs });
+  } catch {
+    return { desfecho: 'erro' };
+  }
+}
+
+/**
+ * O nível da linha de queda.
+ *
+ * `fatal` (60) é padrão do pino e é o único acima de `error`, então é ele que separa "o
+ * processo MORREU" de "uma requisição falhou" num arquivo onde as duas coisas moram lado a
+ * lado. Ele satisfaz também o primeiro termo de `ehErro` (`utils/diag-consulta.js`,
+ * `level >= 50`), de modo que a queda aparece em `npm run diag -- erros` sem fiação nova.
+ * Se um dia esta casa declarar `customLevels` sem `fatal`, a chamada viraria um
+ * "is not a function" DENTRO do handler de queda, que é o pior lugar possível para uma
+ * segunda exceção: por isso o teste assere que o nível existe no logger real.
+ */
+export const NIVEL_DA_QUEDA = 'fatal';
+
+/**
+ * O código de saída de uma queda.
+ *
+ * É 1 de propósito, que é exatamente o que o node já usa para exceção não tratada e, desde
+ * que o modo `throw` virou o default, também para rejeição não tratada. O ganho desta
+ * camada é o REGISTRO, não um número novo: inventar um aqui mudaria em silêncio o que o
+ * supervisor e a política de reinício do container veem hoje, sem contar nada que a linha
+ * de log já não conte melhor.
+ */
+export const CODIGO_DE_SAIDA_NA_QUEDA = 1;
+
+/** Os dois eventos do node que significam "este processo não sabe mais o que faz". */
+export const TIPO_DE_QUEDA = Object.freeze({
+  EXCECAO: 'uncaughtException',
+  REJEICAO: 'unhandledRejection',
+});
+
+const MENSAGEM_DE_QUEDA = Object.freeze({
+  uncaughtException: 'Exceção não tratada: o processo vai encerrar',
+  unhandledRejection: 'Rejeição de promessa não tratada: o processo vai encerrar',
+});
+
+/** Teto do texto do valor bruto de uma rejeição que não é `Error`. */
+const TETO_DO_VALOR_BRUTO = 300;
+
+/**
+ * Um texto curto para o valor de uma rejeição que não é `Error`.
+ *
+ * DUAS ARMADILHAS. A primeira: descrever pode LANÇAR (referência circular no
+ * `JSON.stringify`, `toString` hostil, getter que explode, `BigInt` dentro do objeto), e
+ * este é o último lugar do sistema onde uma exceção pode aparecer, porque ela mataria
+ * justamente o registro da morte. A segunda: o valor rejeitado costuma ser um corpo de
+ * resposta ou um objeto de erro de biblioteca, ou seja, exatamente o tipo de coisa que
+ * carrega credencial, então ele passa por `scrubSecrets` ANTES de virar texto. Depois de
+ * virar texto não há mais nome de campo para redigir.
+ */
+function descreverValorBruto(valor) {
+  try {
+    if (valor === undefined) return 'undefined';
+    if (valor === null) return 'null';
+    const texto = typeof valor === 'object'
+      ? JSON.stringify(scrubSecrets(valor))
+      : String(valor);
+    return String(texto ?? Object.prototype.toString.call(valor)).slice(0, TETO_DO_VALOR_BRUTO);
+  } catch {
+    return '[valor não descritível]';
+  }
+}
+
+/**
+ * `Promise.reject('boom')` é legal, e `Promise.reject()` também.
+ *
+ * O serializer de erro do pino espera algo com `stack`; entregar-lhe uma string produz uma
+ * linha sem pilha e sem tipo, que é o mesmo silêncio que esta camada existe para fechar. Um
+ * `Error` sintético carrega a pilha DAQUI (que ao menos nomeia o handler) e guarda o valor
+ * original num campo próprio.
+ */
+function erroSintetico(tipo, valor) {
+  const err = new Error(`${tipo} com um valor que não é Error (${typeof valor})`);
+  err.name = 'QuedaSemErro';
+  err.valorBruto = descreverValorBruto(valor);
+  return err;
+}
+
+/**
+ * Monta a linha de uma queda: o que se loga, em que nível e com que código de saída.
+ *
+ * PURA DE PROPÓSITO, e é essa a razão de ela existir separada do handler. O handler mata o
+ * processo, então ele não é exercível dentro de um runner; e asserir contra o `logger` não
+ * serviria, porque sob `NODE_ENV=test` ele está em `silent` e um teste assim passaria
+ * verde com o defeito intacto. É o mesmo desenho de `queryLogPayload` e `dbErrorLogPayload`
+ * (`database/index.js`).
+ *
+ * `causa` é aceita em qualquer forma: um `Error` de outro realm (um `vm`, um `worker`)
+ * reprova no `instanceof` e mesmo assim tem pilha, então o reconhecimento é por FORMA.
+ *
+ * @param {string} tipo - um valor de `TIPO_DE_QUEDA`.
+ * @param {unknown} causa - o erro, ou o que quer que tenha sido rejeitado.
+ * @param {string} [origem] - o `origin` que o node passa ao `uncaughtException`.
+ * @returns {{nivel: string, mensagem: string, campos: Object, codigoDeSaida: number}}
+ */
+export function payloadDeQueda(tipo, causa, origem) {
+  const pareceErro = causa instanceof Error
+    || (Boolean(causa) && typeof causa === 'object' && typeof causa.stack === 'string');
+  const campos = { err: pareceErro ? causa : erroSintetico(tipo, causa), queda: tipo };
+  // O `origin` só acrescenta quando diverge do evento (o caso do `uncaughtException`
+  // levantado a partir de uma rejeição), senão ele repetiria o campo `queda`.
+  if (origem && origem !== tipo) campos.origem = origem;
+
+  return {
+    nivel: NIVEL_DA_QUEDA,
+    // `Object.hasOwn` e não `MENSAGEM_DE_QUEDA[tipo] ?? ...`: um tipo chamado 'constructor'
+    // ou 'toString' devolveria função herdada em vez de cair no default.
+    mensagem: Object.hasOwn(MENSAGEM_DE_QUEDA, tipo)
+      ? MENSAGEM_DE_QUEDA[tipo]
+      : 'Queda não classificada: o processo vai encerrar',
+    campos,
+    codigoDeSaida: CODIGO_DE_SAIDA_NA_QUEDA,
+  };
+}
 
 export default logger;

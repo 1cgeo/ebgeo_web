@@ -2,7 +2,12 @@
 import { createServer } from 'http';
 import app from './app.js';
 import config, { validateEnvVariables } from './config.js';
-import logger from './utils/logger.js';
+import logger, {
+  descarregarLog,
+  payloadDeQueda,
+  CODIGO_DE_SAIDA_NA_QUEDA,
+  TIPO_DE_QUEDA,
+} from './utils/logger.js';
 import { pgp, one, db } from './database/index.js';
 import { attachWebSocket, closeAllSockets } from './modules/collab/index.js';
 import { blobPool } from './utils/sqlite-blob-pool.js';
@@ -69,7 +74,44 @@ if (decisaoDaAmostra.ligar) {
 // which on Windows can leave SQLite handles open and break the next start.
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
+/**
+ * Teto da descarga do log na saída. Curto por desenho, e é a metade que quase nunca se
+ * escreve: descarregar antes de sair é o ponto, mas espera SEM teto transforma disco cheio
+ * ou cano entupido num processo que nunca termina, e aí quem encerra é o orquestrador, no
+ * prazo dele, perdendo o log E o desligamento limpo. Dois segundos é muito para uma fila de
+ * algumas linhas e pouco para qualquer prazo de supervisor.
+ */
+const LOG_FLUSH_TIMEOUT_MS = 2_000;
+
 let shuttingDown = false;
+let encerrando = false;
+
+/**
+ * A ÚNICA saída do processo: descarrega o log e então morre com o código pedido.
+ *
+ * POR QUE UMA SÓ, e não uma descarga por caminho de saída. São quatro caminhos que acabam
+ * em `process.exit` (desligamento limpo, erro no desligamento, prazo do desligamento,
+ * queda), e quem esquecesse a descarga em um deles perderia exatamente as linhas daquele
+ * caminho, que são as que explicam o que aconteceu. Concentrar aqui também mantém UM
+ * mecanismo de prazo por camada, em vez de dois concorrentes.
+ *
+ * A RE-ENTRADA É SAÍDA DURA, e é assim que ela se integra ao `forceExit` do `shutdown`:
+ * aquele temporizador continua ARMADO durante a descarga, de propósito, porque ele é o teto
+ * de fora. Se ele disparar enquanto a descarga está em voo, este segundo chamador não
+ * espera nada e mata o processo na hora. Quem chega segundo é sempre um prazo estourado.
+ *
+ * @param {number} codigo
+ */
+function encerrar(codigo) {
+  if (encerrando) {
+    process.exit(codigo);
+    return;
+  }
+  encerrando = true;
+  descarregarLog({ prazoMs: LOG_FLUSH_TIMEOUT_MS })
+    .catch(() => {})
+    .finally(() => process.exit(codigo));
+}
 
 /**
  * Graceful shutdown.
@@ -78,6 +120,12 @@ let shuttingDown = false;
  * waits for every connection to end) never fired its callback while one was open:
  * `blobPool.closeAll()`, `pgp.end()` and `process.exit(0)` were all skipped. The
  * sockets are now closed first, and a force-exit timer bounds the whole thing.
+ *
+ * A ORDEM TEM UM ÚLTIMO DEGRAU, desde 2026-09-01: o LOG fecha depois de todo o resto
+ * (`encerrar`), porque tudo o que os outros disserem ao morrer ainda precisa caber no
+ * arquivo. Antes disso o `process.exit(0)` daqui era dado com a fila do `fs.WriteStream`
+ * pendente, e `fechar()` não tinha um só chamador em `src/`: perdiam-se justamente as
+ * linhas do desligamento, que são as que explicam um deploy.
  */
 async function shutdown(signal) {
   if (shuttingDown) return; // a second SIGINT must not re-enter
@@ -90,7 +138,7 @@ async function shutdown(signal) {
 
   const forceExit = setTimeout(() => {
     logger.warn({ timeoutMs: SHUTDOWN_TIMEOUT_MS }, 'Graceful shutdown timed out, forcing exit');
-    process.exit(1);
+    encerrar(1);
   }, SHUTDOWN_TIMEOUT_MS);
   forceExit.unref(); // the timer itself must not hold the process open
 
@@ -100,13 +148,79 @@ async function shutdown(signal) {
     await new Promise((resolve) => server.close(resolve));
     await blobPool.closeAll().catch(() => {});
     pgp.end();
-    clearTimeout(forceExit);
-    process.exit(0);
+    logger.info({ signal }, 'Desligamento concluído');
+    encerrar(0);
   } catch (err) {
     logger.error({ err }, 'Error during shutdown');
-    process.exit(1);
+    encerrar(1);
   }
 }
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+
+/**
+ * A MORTE DO PROCESSO PRECISA DEIXAR LINHA NO ARQUIVO.
+ *
+ * O BURACO QUE ISTO FECHA. Sem handler, o node imprime a pilha no STDERR e sai, e o stderr
+ * não é destino do pino nesta casa: o log estruturado vai para o stdout e para o `.jsonl`
+ * diário. O processo morria e o arquivo, que é a única evidência que sobrevive ao
+ * fechamento do terminal, não registrava nada. A metade complementar é a série de saúde,
+ * cujo sinal de queda é o BURACO (`npm run diag -- saude`): um amostrador dentro do
+ * processo não testemunha a própria morte. Desde 2026-09-01 o buraco tem leitor e a queda
+ * tem causa, e a linha entra em `npm run diag -- erros` de graça, porque `fatal` satisfaz
+ * o `level >= 50` de `ehErro`.
+ *
+ * LOGA E MORRE, nunca só loga. Um processo que segue vivo depois de exceção não tratada
+ * está em estado desconhecido, e trocar uma queda barulhenta por um zumbi silencioso é o
+ * oposto do objetivo. Vale em dobro para `unhandledRejection`: registrar o handler já tira
+ * o default do node (que é derrubar o processo), então NÃO sair aqui seria engolir a
+ * rejeição, que é como um teste quebrado passa verde.
+ *
+ * O HANDLER NÃO PODE SER A SEGUNDA CAUSA DA QUEDA. Tudo o que monta a linha está dentro de
+ * um `try`, e a saída acontece nos dois ramos: se o próprio registro falhar, sobra o
+ * stderr com o erro original, e sair continua sendo obrigatório.
+ *
+ * ELES SÃO REGISTRADOS AQUI, NO BOOT, e não na avaliação de `utils/logger.js`. A suíte
+ * importa `app.js` e os utilitários em todo arquivo de teste; um handler global que
+ * nascesse de um módulo importado ficaria pendurado no processo do runner, engolindo a
+ * rejeição não tratada de um caso e mascarando a falha de outro. `src/index.js` só é
+ * avaliado no boot de verdade e em subprocessos de teste que o exercitam de propósito.
+ */
+function avisarNoStderr(texto) {
+  try {
+    process.stderr.write(`${texto}\n`);
+  } catch {
+    // Nem o stderr aceita mais escrita. Não sobra canal nenhum, e sair com o código certo
+    // passa a ser a única informação que este processo ainda consegue dar.
+  }
+}
+
+function registrarQuedaESair(tipo, causa, origem) {
+  // O STDERR CONTINUA FALANDO, e isso não é redundância. É o que o node fazia sozinho antes
+  // deste handler existir, e é o único canal que NENHUMA configuração desliga: o log
+  // estruturado fica `silent` sob NODE_ENV=test, pode estar acima do nível, e o destino de
+  // arquivo se auto-desliga ao degradar (disco cheio, permissão). Tirar o stderr para "não
+  // duplicar" reintroduziria o mesmo buraco pelo outro lado, numa configuração em que a
+  // queda não deixaria rastro nenhum. Vem PRIMEIRO porque nada abaixo é garantido.
+  avisarNoStderr(
+    `[queda] ${tipo}\n${causa && causa.stack ? causa.stack : String(causa)}`
+  );
+
+  let codigo = CODIGO_DE_SAIDA_NA_QUEDA;
+  try {
+    const { nivel, mensagem, campos, codigoDeSaida } = payloadDeQueda(tipo, causa, origem);
+    codigo = codigoDeSaida;
+    logger[nivel](campos, mensagem);
+  } catch (err) {
+    avisarNoStderr(`[queda] ${tipo} sem linha no log: ${err && err.message ? err.message : err}`);
+  }
+  encerrar(codigo);
+}
+
+process.on(TIPO_DE_QUEDA.EXCECAO, (err, origem) => {
+  registrarQuedaESair(TIPO_DE_QUEDA.EXCECAO, err, origem);
+});
+process.on(TIPO_DE_QUEDA.REJEICAO, (motivo) => {
+  registrarQuedaESair(TIPO_DE_QUEDA.REJEICAO, motivo);
+});

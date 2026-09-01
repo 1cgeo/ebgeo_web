@@ -14,7 +14,7 @@
  * dá (nome de arquivo, decisão do que podar), recebe `agora` e `fs` por injeção, e nunca
  * engole um erro sem falar.
  *
- * AS TRÊS PROPRIEDADES QUE ELE PRECISA TER, e cada uma já é a lápide de um jeito ingênuo:
+ * AS QUATRO PROPRIEDADES QUE ELE PRECISA TER, e cada uma já é a lápide de um jeito ingênuo:
  *
  * 1. **Nunca derrubar quem loga.** Um `throw` daqui subiria pelo `logger.info` de dentro de
  *    um handler HTTP e transformaria "não consegui escrever o log" em "a requisição falhou".
@@ -28,6 +28,12 @@
  * 3. **Podar só o que é nosso.** A varredura casa `<prefixo>-AAAA-MM-DD.jsonl` e mais nada.
  *    Um `readdir` + `unlink` frouxo num diretório que o operador aponte para o lugar errado
  *    apagaria arquivo alheio, e essa é a classe de erro que não tem desfazer.
+ * 4. **Fechar é ESPERAR, com prazo.** `fechar()` devolve promessa e só resolve quando o
+ *    `fs.WriteStream` terminou de escoar a fila. Quem a chama é um processo prestes a
+ *    morrer, e `process.exit()` com fila pendente descarta justamente as linhas do
+ *    desligamento e as da queda, que são as que explicam um deploy e um incidente. A espera
+ *    é LIMITADA: sem teto, disco cheio ou cano entupido viram um processo que nunca termina,
+ *    o orquestrador o mata no prazo dele, e aí se perde o log E o desligamento limpo.
  *
  * O DIA É O LOCAL, não UTC, e isso é escolha: quem lê o log procura pelo dia em que o
  * problema aconteceu para ELE. O custo é que a virada de arquivo acompanha o fuso do
@@ -39,6 +45,12 @@ import path from 'node:path';
 
 /** Casa exatamente o que ESTE módulo escreve, e nada mais. */
 const PADRAO_ARQUIVO = /^(.+)-(\d{4}-\d{2}-\d{2})\.jsonl$/;
+
+/**
+ * Teto da espera de `fechar()`. Curto de propósito: quem chama está saindo, e a alternativa
+ * a desistir não é "esperar mais um pouco", é não sair nunca.
+ */
+const PRAZO_DE_FECHAMENTO_MS = 2000;
 
 /**
  * O dia local de uma data, em AAAA-MM-DD.
@@ -117,7 +129,7 @@ export function diaLimiteDaRetencao(hoje, dias) {
  * @param {() => Date} [opts.agora] - relógio injetável (teste)
  * @param {Object} [opts.sistemaDeArquivos] - `fs` injetável (teste)
  * @param {(msg: string) => void} [opts.avisar] - canal do aviso de falha (stderr)
- * @returns {{write: (linha: string) => void, fechar: () => void, diaAtual: () => string|null}}
+ * @returns {{write: (linha: string) => void, fechar: (opts?: {prazoMs?: number}) => Promise<{desfecho: string}>, diaAtual: () => string|null}}
  */
 export function criarLogDiario({
   diretorio,
@@ -183,10 +195,54 @@ export function criarLogDiario({
         degradar('falha ao escrever', err);
       }
     },
-    fechar() {
-      if (fluxo) fluxo.end();
+    /**
+     * Fecha o arquivo do dia ESPERANDO a fila do fluxo escoar, com prazo. Ver a propriedade
+     * (4) do cabeçalho.
+     *
+     * O DESFECHO É DEVOLVIDO, e não engolido, porque quem chama está registrando a própria
+     * morte: `'fechado'` (a fila escoou), `'prazo'` (o teto estourou, e há linha perdida),
+     * `'erro'` (o fluxo reclamou) ou `'nada-aberto'` (nunca houve o que escoar: destino
+     * degradado, ou processo que não chegou a logar).
+     *
+     * O TEMPORIZADOR NÃO É `unref`, ao contrário do `forceExit` do boot, e a diferença é o
+     * que faz o código de saída valer: no fim de um desligamento o laço de eventos pode
+     * estar vazio, e um temporizador `unref` deixaria o node encerrar sozinho, com código
+     * 0, no meio da espera, transformando a queda que se quer registrar num desligamento
+     * limpo. Ele segura o processo por `prazoMs` no pior caso, que é o teto do teto.
+     *
+     * @param {{prazoMs?: number}} [opts]
+     * @returns {Promise<{desfecho: 'fechado'|'prazo'|'erro'|'nada-aberto'}>}
+     */
+    fechar({ prazoMs = PRAZO_DE_FECHAMENTO_MS } = {}) {
+      const alvo = fluxo;
       fluxo = null;
       dia = null;
+      if (!alvo) return Promise.resolve({ desfecho: 'nada-aberto' });
+
+      return new Promise((resolve) => {
+        let pronto = false;
+        let temporizador = null;
+        const terminar = (desfecho) => {
+          if (pronto) return;
+          pronto = true;
+          if (temporizador) clearTimeout(temporizador);
+          resolve({ desfecho });
+        };
+
+        temporizador = setTimeout(() => terminar('prazo'), prazoMs);
+        try {
+          // 'finish' diz que a fila escoou e 'close' que o descritor foi fechado. Os dois
+          // são ouvidos porque o segundo é o que carrega a durabilidade e o primeiro é o
+          // que chega em todo `Writable`.
+          alvo.on('finish', () => terminar('fechado'));
+          alvo.on('close', () => terminar('fechado'));
+          alvo.on('error', () => terminar('erro'));
+          alvo.end();
+        } catch (err) {
+          avisar(`[log-diario] falha ao fechar o arquivo do dia: ${err && err.message ? err.message : err}`);
+          terminar('erro');
+        }
+      });
     },
     /** O dia do arquivo aberto, ou null antes da primeira escrita. Existe para o teste. */
     diaAtual() {
