@@ -58,7 +58,8 @@ npm test              # raiz: test:frontend + test:backend + test:e2e (contrato,
 npm run test:e2e:ui   # Playwright com o backend REAL de backend/; fora do npm test
 npm run build         # compila para dist/ ;  npm run deploy publica (symlink swap)
 npm run knip          # dead-code
-npm run diag -- erros --desde 24h   # consulta o log em arquivo (tambem: lento, status, linhas).
+npm run diag -- erros --desde 24h   # consulta o log em arquivo (tambem: lento, status, linhas
+                      #   e saude, que conta os buracos na serie de amostras).
                       #   O log vira um .jsonl por dia em backend/data/logs, em DEV tambem, e e'
                       #   a unica evidencia que sobrevive ao fechamento do terminal. Ver
                       #   docs/wiki/observabilidade.md

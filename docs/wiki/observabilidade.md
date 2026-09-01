@@ -23,6 +23,14 @@ A separação não é gosto. Um arquivo JSONL rotativo é sequencial: ótimo par
 
 **O volume do compose é o ponto todo, não um detalhe.** Sem `ebgeo_logs:/app/data/logs` o `.jsonl` vive na camada de escrita do container e some no `up` seguinte, ou seja, some no deploy, que é precisamente quando se quer comparar o antes e o depois.
 
+## O que NÃO entra numa linha de log
+
+São DOIS mecanismos independentes, e nenhum cobre o alcance do outro. `redactUrl` (`backend/src/utils/redact-url.js`) reescreve a URL da requisição antes do log, e é ele que impede a chave de API vinda da query string de virar registro permanente. `elidirSql` (`backend/src/utils/elidir-sql.js`) troca por marcador todo literal e todo número dentro de um TEXTO DE SQL, e existe por uma razão que só se descobre lendo o driver: pgFormatting fica no default `false`, então o pg-promise interpola os valores no texto ANTES de emitir o evento e antes de mandar ao servidor. O texto que chega ao log, portanto, não tem placeholder nenhum: tem a chave de API, o hash de refresh token ou o hash de senha por extenso. Ligar pgFormatting não é a saída, e não é questão de gosto: o código depende do motor de formatação (parâmetro nomeado, modificador de lista, os construtores de coluna), e com a bandeira ligada o valor apenas muda de campo.
+
+A segunda porta do mesmo vazamento é o objeto de erro. O driver pendura o texto da query, os parâmetros e os campos de detalhe no erro, e o DETALHE de uma violação de CHECK é a linha inteira que falhou, com o que ela tiver dentro (em `users`, o hash de senha). Por isso a elisão roda também no serializer de erro de `backend/src/utils/logger.js`, e não só no hook do banco: são caminhos distintos até o mesmo arquivo, e fechar um deixa o outro aberto. É assim que se sabe que são dois, e não um: revertida uma das duas correções, o conjunto de testes que fica vermelho é DIFERENTE.
+
+O guarda anterior media uma forma que o driver nunca produz, e por isso era verde por construção. O de hoje provoca um erro REAL contra o banco: `backend/tests/integration/db-erro-real-nao-vaza-credencial.test.js`, com guarda de não-vacuidade exigindo que o erro CRU carregue o segredo antes de exigir que o log não o carregue.
+
 ## `req.id`: a costura que faltava
 
 Uma requisição que falha produz **duas** linhas: a do `errorHandler` (com o objeto de erro e a pilha) e a do `request-logger` (com `statusCode` e `duration`). Até 2026-08-30 nada as ligava, e a consequência foi **medida contra o backend real**: o primeiro relatório dizia "4 ocorrências" para 2 erros, em 4 assinaturas, porque as duas linhas da mesma requisição não têm o mesmo formato e caíam em grupos diferentes.
@@ -33,15 +41,16 @@ Existe um vão declarado: falha ANTERIOR ao logger de requisição (corpo malfor
 
 ## O comando
 
-`npm run diag -- erros | lento | status | linhas`, com `--desde 24h`. Agregação em `backend/src/utils/diag-consulta.js` (pura e testada), leitura e formatação em `backend/scripts/diag.js`.
+`npm run diag -- erros | lento | status | linhas | saude`, com `--desde 24h` (e `--intervalo`, que só o `saude` lê). Agregação em `backend/src/utils/diag-consulta.js` (pura e testada), leitura e formatação em `backend/scripts/diag.js`.
 
-Três decisões que não se adivinham lendo:
+As decisões que não se adivinham lendo:
 
 - **O agrupamento é por ASSINATURA, não por linha**, com a rota normalizada (`/atlas/:id/sync`). Sem normalizar, cada atlas é uma assinatura e o relatório volta a ser a rolagem que ele existe para substituir. Mil ocorrências do mesmo defeito são uma linha com contagem mil, senão o defeito raro (que costuma ser o grave) fica soterrado pelo barulhento.
 - **`parseJanela` devolve `null` no que não entende**, em vez de cair num default. Um comando que aceita `--desde 24hs` calado e mostra a última hora responde a outra pergunta sem avisar, e quem lê a saída acha que viu as 24 horas.
 - **O `config.js` é importado tarde e só quando falta `--dir`.** Ele exige `DATABASE_URL` e `JWT_SECRET` na avaliação do módulo, e um diagnóstico de log não pode depender de o banco estar configurado: a hora em que se lê log é justamente a hora em que alguma coisa não está.
+- **O `saude` infere o intervalo da PRÓPRIA série, nunca do `config.js`.** `resumirAmostras` toma a MEDIANA das distâncias entre amostras consecutivas, e a média não serve: medido, um buraco de seis horas vira o intervalo inferido e o relatório passa a dizer que nada faltou. `parseIntervalo` aceita `--intervalo` para sobrepor e recusa o número nu, que seria ambíguo com o valor em milissegundos do ambiente. A origem do intervalo sai declarada na saída, porque a contagem de faltantes é uma conta sobre uma premissa, e premissa invisível não se confere. Duas honestidades ficam presas por controle negativo: ausência devolve nulo e nunca zero, porque "0 faltantes" se lê como "nenhuma queda"; e o trecho da janela ANTERIOR à primeira amostra é desconhecido, não buraco, senão um deploy de dez minutos inventa mil quedas.
 
-`ehErro` tem dois termos, e o segundo é o que se esquece: `level >= 50` pega o que foi logado como erro, mas o `errorHandler` desta casa loga 4xx em `warn` de propósito. Sem o segundo termo, todo 400, 401, 403 e 404 sumiria do relatório, **inclusive o 400 em laço que motivou a ferramenta**.
+`ehErro` tem TRÊS termos, e a contagem já custou caro: `level >= 50` pega o que foi logado como erro, a presença do campo de erro pega o registro que carrega o objeto com tipo e pilha, e `statusCode >= 400` pega o 4xx que o `errorHandler` desta casa loga em `warn` de propósito. Sem o terceiro, todo 400, 401, 403 e 404 sumiria do relatório, **inclusive o 400 em laço que motivou a ferramenta**. Esta linha disse DOIS até 2026-08-31, e a subcontagem não ficou no papel: foi ela que fez o comentário do amostrador de saúde raciocinar sobre um `ehErro` menor que o real e escolher um nível que nenhum dos três termos alcança.
 
 ## A amostra de saúde
 
@@ -50,6 +59,10 @@ Três decisões que não se adivinham lendo:
 Ela não vai para tabela nenhuma, e isso é decisão: uma série temporal de baixa cardinalidade no arquivo é consultável pelas mesmas ferramentas do resto, e uma tabela a mais seria uma segunda verdade para manter.
 
 **O limite honesto, escrito também no `.env.example`: um amostrador dentro do processo não testemunha a própria morte.** OOM, event loop travado e máquina reiniciada não produzem amostra dizendo isso, produzem **silêncio**. O que revela a queda é o **buraco na série**, então a pergunta certa é "quantas amostras faltaram e quando", nunca "alguma amostra disse que caiu". Pelo mesmo motivo o boot **loga o motivo** quando decide não ligar o amostrador: sem isso, "não há amostra no log" seria indistinguível de "o amostrador quebrou".
+
+**A pergunta que ele existe para responder passou a ter comando em 2026-08-31**: `npm run diag -- saude`, sobre `resumirAmostras`. Enquanto ele não existiu, `MARCADOR_AMOSTRA` era um símbolo exportado para um leitor que nunca nasceu, e a decisão de que o sinal de queda é o buraco na série estava escrita nos dois lugares sem meio de ser exercida. Decisão sem instrumento é indistinguível de decisão esquecida.
+
+**O NÍVEL da linha é contrato com o relatório, e não estilo.** A amostra saudável sai em `info`, porque ela sai a cada intervalo para sempre e promovê-la faria de "está tudo bem" a campeã do relatório agrupado. A de banco fora sai em `error`, e os dois motivos juntos, porque `level >= 50` é o único termo do `ehErro` que uma linha de amostra consegue satisfazer: o texto da falha não mora no campo de erro e não há `statusCode`. Até 2026-08-31 ela saía em `warn`, sob um comentário que afirmava que o relatório contava `warn` como erro, e o efeito medido era exato: o diagnóstico enxergava o amostrador quebrado e não enxergava o Postgres caído. Preso por `backend/tests/unit/amostra-de-saude.test.js`, que importa o `ehErro` real em vez de asserir sobre o número do nível, e que por isso continua valendo se o critério mudar.
 
 Duas finuras que se perdem numa reescrita desatenta: a sonda ao banco distingue **prazo** de **erro** (o Postgres fora e o nosso pool entupido pedem providências opostas), e o prazo dela é MAIOR que o do `GET /api/v1/health` de propósito, porque aquele responde a um orquestrador (para quem resposta atrasada já não serve) e esta escreve história (onde distinguir "lento" de "morto" é o registro).
 
@@ -75,6 +88,8 @@ Limitação conhecida: o campo `release` carrega hoje a versão do `package.json
 Aba **Diagnóstico** em `admin.html`, só para o administrador. Ela consome quatro rotas, todas com gate de administração e janela com teto de 7 dias (ler trinta arquivos numa requisição HTTP seria derrubar o servidor pela porta do diagnóstico).
 
 **O campo que decide a honestidade da tela é `diretorioAusente`.** As rotas que leem log respondem **200 com lista vazia** quando não há diretório, e sem tratar isso a aba desenharia a boa notícia verde ("nenhum erro nas últimas 24 horas") a partir de um **instrumento desligado**, que é cobertura vazia passando verde na forma de interface. O estado de leitor cego vem ANTES do ramo de vazio. Na mesma linha estão `truncado` (a janela perdeu os registros mais antigos) e as contagens antes do corte, sem as quais "20 assinaturas" é indistinguível de "20 de 400".
+
+**A regra valia para DUAS das três seções de log até 2026-08-31.** O Pulso não consultava `leitorCego` nem as notas de leitura, embora os dois campos viessem no payload dele: com o log desligado ele desenhava "nenhuma requisição registrada" ao lado de duas seções dizendo que o leitor estava cego, e sob truncamento mostrava o total DEPOIS do corte como se fosse o do período, sendo ele o único número da aba que sofre o corte. A latência tinha a nota só no ramo da tabela, então o vazio dela saía sem dizer o que foi varrido. Quem sustenta a frase agora é `frontend/tests/unit/diagnostico-secoes-de-log.test.js`, e a forma dele é o ponto: ele DERIVA a lista de seções do próprio código (seção nova nasce cobrada), exige que quem não lê log se declare fora com o motivo escrito, e conta os desfechos informativos de cada seção contra as chamadas de nota. A primeira versão dele cobrava só presença de chamada e ficou VERDE sobre a latência muda, que é o guarda afirmando o contrário do que a tela faz.
 
 **Um número da tela parece contradizer o outro, e não contradiz:** o `erros` de `/diag/status` conta REGISTROS (uma requisição falha produz duas linhas de log), enquanto `/diag/erros` conta defeitos distintos, porque funde por `reqId` antes de agrupar. É a mesma conta que o CLI faz, mantida igual de propósito.
 

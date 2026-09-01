@@ -93,6 +93,34 @@ trace-gated with a graceful fallback to the original store poll, so the existing
 keep working. Demo spec: `browser-collab-ledger.spec.js`. Tracing turns on via
 `?trace=sync` / `localStorage` (browser) and `EBGEO_TRACE=1` / `NODE_ENV=test` (backend).
 
+## A mega FLAKEIA em `pollPeerFeatureWhere`, e a taxa está medida (2026-09-01)
+
+Medido em duas rodadas de `npm run test:e2e:mega`, nesta ordem: a primeira REPROVOU nas duas
+tentativas (a inicial e a retentativa), a segunda passou. Sempre no mesmo ponto, o
+`pollPeerFeatureWhere` do passo CROSS-EDIT (`browser-collab-mega.spec.js`), com a mensagem
+`Timeout 8000ms exceeded` apesar de o chamador ter pedido 35000.
+
+O que já está DESCARTADO como causa, com evidência da mesma bateria:
+
+- **Não é regressão de sync.** Na mesma rodada, as 38 specs `browser-collab-*` focadas passaram,
+  incluindo `browser-collab-full-chain.spec.js` (o UPDATE atravessando a cadeia inteira até o par),
+  que é exatamente a dimensão em que a mega reprova, e o `browser-collab-ledger.spec.js`.
+- **Não é o conserto de 2026-08-28 ter faltado.** O `operationType: 'update'` está lá, e o
+  `fileoverview` de `pollPeerFeatureWhere` (`helpers/collab-helpers.js`) descreve este mesmo
+  sintoma como tendo sido, uma vez, defeito do INSTRUMENTO e não do produto.
+
+O que NÃO foi investigado, e é por onde a próxima pessoa começa: nos DOIS ramos do helper o poll de
+confirmação cai para 8 s fixos, inclusive no `catch`, que trata a expiração do gate como se o trace
+tivesse funcionado. Ou seja, o timeout que o chamador pediu por saber que aquela atualização vem
+atrás de uma fila de ops é descartado justamente no caso que ele previu. A pergunta a responder
+ANTES de mexer é qual dos dois ramos roda quando a mega reprova, porque o conserto é diferente em
+cada um, e subir o teto sem saber disso é trocar um vermelho honesto por um verde que não prova
+nada.
+
+Enquanto isso: **a mega vermelha sozinha não é sinal de regressão**. Confirme em série (a
+constituição pede a taxa, não uma rodada) e olhe primeiro se alguma `browser-collab-*` focada
+também caiu. Se só a mega cai, é este flake.
+
 ## Full-chain specs (the robust collab pattern)
 
 A collab spec should not just assert "the feature eventually showed up on B". It should
