@@ -103,6 +103,37 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   o prefixo na mesma linha). Reconfirme o vermelho sozinho antes de tratá-lo como
   código quebrado: é a mesma regra do banco reaproveitado do `test:fast`.
 
+  **E O BANCO NÃO É O ÚNICO RECURSO COMPARTILHADO: A COBERTURA TAMBÉM COLIDE, e essa
+  colisão é PIOR, porque não grita** (medido em 2026-09-01). O `c8` coleta por
+  `NODE_V8_COVERAGE` num diretório temporário (`backend/coverage/tmp`) e o `.c8rc.json`
+  tem `clean: true`: duas rodadas simultâneas apagam os arquivos de cobertura uma da
+  outra. O sintoma não é erro nenhum, é um NÚMERO PLAUSÍVEL E MENOR, com todos os
+  testes passando, e o piso reprovando por causa dele. Medido no mesmo dia, sobre o
+  MESMO commit e os MESMOS 4368 casos verdes, três rodadas contaminadas deram statements
+  de 90,11%, 97,37% e 97,9%, com o piso reprovando nas duas primeiras; duas rodadas
+  isoladas deram 97,9% (43434/44362), idênticas no numerador e no denominador.
+
+  Três coisas que essa medição ensinou e que a intuição erra:
+
+  - **o número baixo é o artefato, não o alto.** A leitura natural ("cobertura caiu,
+    alguém commitou código sem teste") aponta para código e para pessoa, e foi assim que
+    uma sessão acusou o lote de outra sem ter isolado o instrumento;
+  - **contaminação não só SUBTRAI.** O argumento de que ela só pode derrubar o número
+    (perde-se arquivo de cobertura, nunca teste) é quase certo e não é hermético: as duas
+    rodadas medem a mesma suíte, então o que a outra escreveu no diretório pode SOMAR
+    cobertura à sua. Um verde obtido com o diretório compartilhado, portanto, também não
+    prova nada;
+  - **o denominador denuncia.** Com `all: true` o total de funções deveria ser fixo pelo
+    conjunto de arquivos; nas três rodadas contaminadas ele foi 882, 887 e 925. Total que
+    muda entre rodadas do mesmo commit é a evidência de que o instrumento, e não o código,
+    está variando. Olhe o denominador antes de acreditar na porcentagem.
+
+  A saída é isolar os DOIS eixos, não um: banco por `TEST_DB_NAME` e diretório de
+  cobertura próprio, rodando `npx c8 --temp-directory <dir> node scripts/run-tests.js`
+  de dentro de `backend/` (com `NODE_V8_COVERAGE` posto pelo c8, `run-tests.js` não
+  se auto-eleva de novo, então não há dupla instrumentação). Isolar só o banco deixa a
+  cobertura exposta, e foi o que produziu duas das três medições divergentes.
+
   **E o runner monta o ambiente do processo de teste EXPLICITAMENTE, sem ler o
   arquivo .env.test.** Variável posta lá fica inócua com cara de configurada, que é a
   classe "o verificador também quebra calado": ela tem de entrar na lista de
