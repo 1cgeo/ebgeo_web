@@ -128,6 +128,25 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
     muda entre rodadas do mesmo commit é a evidência de que o instrumento, e não o código,
     está variando. Olhe o denominador antes de acreditar na porcentagem.
 
+  **ANTES DA TABELA, A PERGUNTA QUE A ANTECEDE: as duas sessões estão no MESMO diretório de
+  trabalho?** Nesta máquina, em 2026-09-01, estavam. Isso é uma classe acima de tudo o que vem
+  abaixo, porque ali o que se compartilha não é um recurso do teste, é o SUJEITO dele: a sua
+  rodada mede os arquivos da outra pessoa, meio escritos inclusive, e o `git status` que você
+  lê como "minha árvore" é a árvore das duas. O HEAD anda sob os seus pés sem você dar um pull.
+
+  O sintoma é bem mais silencioso que uma colisão de porta ou de banco, e ele foi medido:
+  duas rodadas de `test:e2e:ui` do mesmo lote deram **307 e 308 casos**, as duas verdes, e a
+  diferença era uma spec que a outra sessão acrescentara entre elas. Ficou meia hora como
+  "divergência não explicada" porque a primeira investigação comparou conjuntos de spec e
+  linha, respondeu "nenhuma diferença" e estava errada; um `grep` pelo nome do arquivo nas
+  duas saídas achou na hora. Contagem de casos que muda entre rodadas é a mesma família do
+  denominador de cobertura que muda: **contradição interna, e ela sempre vence a hipótese de
+  que o número é sobre o código.**
+
+  Na prática: antes de tratar qualquer diferença entre duas rodadas como regressão, pergunte
+  se alguém escreveu no diretório entre elas (`git log --since` mais `git status`), e depois
+  procure a tabela.
+
   **O MAPA DE QUEM POSSUI O QUÊ, medido em 2026-09-01**, porque descobrimos estas fronteiras
   uma a uma, cada vez pagando uma colisão. Duas sessões só colidem se compartilharem uma
   linha desta tabela:
