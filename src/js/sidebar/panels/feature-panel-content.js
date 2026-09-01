@@ -16,7 +16,7 @@ import { createGroupTypeSelector } from '../components/group-type-selector.js';
 import { createMultiSelectionActions } from '../components/multi-selection-actions.js';
 import { isCurrentMapLockedSync, startBatchUndo, commitBatchUndo, discardBatchUndo, getControl } from '@store/index.js';
 import { renderReadOnlyAttributesSection } from '@js/user_data/attributes_tab_renderer.js';
-import { createTemporalAttributesSection, createTrajectorySection, createTemporalReadonlySection } from '@js/temporal/temporal-attributes-section.js';
+import { createTemporalAttributesSection, createTrajectorySection, createTemporalReadonlySection, releaseTemporalSection } from '@js/temporal/temporal-attributes-section.js';
 import { COORDINATE_FORMATS, formatCoordinates } from '@utils/index.js';
 import { createModernSelect, createObservationsSection } from '@tools/helpers/index.js';
 import {
@@ -772,7 +772,10 @@ export async function createFeaturePanelContent({
             // Read-only temporal summary (validity window + trajectory), only when
             // the feature actually carries temporal data.
             const temporalReadonly = createTemporalReadonlySection({ feature });
-            if (temporalReadonly) container.appendChild(temporalReadonly);
+            if (temporalReadonly) {
+                container.appendChild(temporalReadonly);
+                cleanupFunctions.push(() => releaseTemporalSection(temporalReadonly));
+            }
         }
 
         // For mixed types in locked mode: show read-only type summary
@@ -972,11 +975,16 @@ export async function createFeaturePanelContent({
     // trajectory features (so selecting a non-trajectory feature hides it).
     getControl('TrajectoryEditControl')?.hide();
     if (isSingleSelection && !mapLocked) {
-        container.appendChild(
-            createTemporalAttributesSection({ feature, featureType, selectedFeatures, control })
-        );
+        const temporalSection = createTemporalAttributesSection({ feature, featureType, selectedFeatures, control });
+        container.appendChild(temporalSection);
+        // Release the time-context subscriptions with the panel: the sidebar runs
+        // this chain on every rebuild, and a handle drop rebuilds the panel.
+        cleanupFunctions.push(() => releaseTemporalSection(temporalSection));
         const trajectorySection = createTrajectorySection({ feature, featureType, map });
-        if (trajectorySection) container.appendChild(trajectorySection);
+        if (trajectorySection) {
+            container.appendChild(trajectorySection);
+            cleanupFunctions.push(() => releaseTemporalSection(trajectorySection));
+        }
     }
 
     // 6. Delete button (hidden when map locked)
