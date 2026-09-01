@@ -143,6 +143,14 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   denominador de cobertura que muda: **contradição interna, e ela sempre vence a hipótese de
   que o número é sobre o código.**
 
+  E há uma janela que NENHUMA das duas fontes reconstrói depois: o arquivo ainda NÃO commitado.
+  Um agente da outra sessão escrevendo agora aparece só no `git status` DAQUELE instante, e some
+  de lá quando o dono commita; a partir daí o `git log` o data pelo commit, que é posterior ao
+  momento em que ele já tinha entrado na sua rodada. Das fontes de divergência entre duas
+  rodadas, esta é a única que não se reconstrói a posteriori: quando você for investigar, ela
+  não está em lugar nenhum. O que resta é combinar antes, e é por isso que o aviso vale mais
+  que a arqueologia.
+
   Na prática: antes de tratar qualquer diferença entre duas rodadas como regressão, pergunte
   se alguém escreveu no diretório entre elas (`git log --since` mais `git status`), e depois
   procure a tabela.
