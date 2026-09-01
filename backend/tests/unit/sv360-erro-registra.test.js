@@ -144,18 +144,67 @@ describe('sv360ErrorLogPayload: a mesma gramatica do handler global', () => {
     assert.equal(payload.userId, 'u-1');
   });
 
-  it('o erro viaja INTEIRO no campo err, nunca como texto ja formatado', () => {
-    // O campo `err` e o unico que passa pelo `errSerializer`, que e quem elide os
-    // campos que o driver do Postgres pendura no erro. Serializar aqui contornaria a
-    // unica peca que impede o vazamento.
+  it('o erro chega ELIDIDO, nunca como texto ja formatado nem com o campo cru do driver', () => {
+    // ESTE CASO MEDIA O MECANISMO E PASSOU A MEDIR A PROPRIEDADE, em 2026-09-01. Ele exigia
+    // que `payload.err` fosse o MESMO objeto, para garantir que a elisao do `errSerializer`
+    // acontecesse. Desde que a pilha passou a sair das linhas 4xx, o payload serializa aqui
+    // (apagar a pilha e agir sobre a forma ja serializada), e a identidade de referencia
+    // deixou de valer sem que a propriedade mudasse: quem serializa e o MESMO
+    // `errSerializer`, entao a elisao continua acontecendo, um passo antes.
+    //
+    // Asserir a propriedade e mais forte que asserir a referencia: a versao antiga passaria
+    // verde se alguem trocasse o serializer por um que nao elide, contanto que o objeto
+    // fosse o mesmo.
     const err = new Error('boom');
     err.code = '23505';
     err.detail = 'Failing row contains (..., $2b$12$hash)';
     const payload = sv360ErrorLogPayload(err, mockReq());
 
     assert.ok(payload.err, 'o payload precisa carregar o campo err');
-    assert.equal(payload.err, err, 'o erro precisa ser o MESMO objeto, nao uma copia nem uma string');
-    assert.notEqual(typeof payload.err, 'string');
+    assert.notEqual(typeof payload.err, 'string', 'nunca texto ja formatado por quem loga');
+
+    // NAO-VACUIDADE: o erro CRU carrega o hash, senao o resto passaria verde sobre um erro
+    // que nunca teve o campo perigoso.
+    assert.match(err.detail, /2b\$12\$hash/, 'o erro cru precisa carregar o hash');
+
+    assert.equal(payload.err.detail, '[REDACTED]', 'o detail do driver nao pode chegar ao log');
+    assert.equal(payload.err.type, 'Error', 'o tipo sobrevive a serializacao (a assinatura o usa)');
+    assert.equal(payload.err.message, 'boom');
+    assert.equal(payload.err.code, '23505', 'o SQLSTATE nomeia a regra e fica');
+  });
+
+  it('a pilha so vai no 5xx, e o 4xx fica pequeno', () => {
+    // MEDIDO nos .jsonl reais: 80% dos bytes de uma linha de erro eram pilha, e a do 4xx
+    // descreve o caminho do HANDLER e nao o caso (o mesmo quadro para toda URL). Este modulo
+    // e o que serve as rotas SEM limitador de taxa, ou seja onde um laco de 404 amplifica
+    // mais: era a ultima superficie 4xx que ainda escrevia pilha.
+    const doCliente = new Error("nao encontrado");
+    doCliente.statusCode = 404;
+    const doServidor = new Error("estourou");
+    doServidor.statusCode = 500;
+
+    // NAO-VACUIDADE: os dois erros CRUS tem pilha, senao a ausencia abaixo nao provaria nada.
+    assert.ok(doCliente.stack, "o erro cru de cliente tem pilha");
+    assert.ok(doServidor.stack, "o erro cru de servidor tem pilha");
+
+    const p4xx = sv360ErrorLogPayload(doCliente, mockReq());
+    const p5xx = sv360ErrorLogPayload(doServidor, mockReq());
+
+    assert.equal(p4xx.err.stack, undefined, "o 4xx nao carrega pilha");
+    assert.ok(p5xx.err.stack, "o 5xx carrega pilha: e nela que mora o sitio do defeito");
+
+    // O QUE SOBRA no 4xx precisa bastar para diagnosticar: tipo, mensagem e status. Sem esta
+    // parte, tirar a pilha poderia ter levado junto o que se usa para achar o defeito.
+    assert.equal(p4xx.err.type, "Error");
+    assert.equal(p4xx.err.message, "nao encontrado");
+    assert.equal(p4xx.err.statusCode, 404);
+
+    // DISCRIMINACAO por tamanho: a linha 4xx precisa ser pequena de verdade, senao a
+    // propriedade acima poderia valer com a pilha migrada para outro campo.
+    assert.ok(
+      JSON.stringify(p4xx).length < JSON.stringify(p5xx).length / 2,
+      "a linha 4xx tem de ser bem menor que a 5xx"
+    );
   });
 
   it('a URL e a originalUrl, redigida', () => {
@@ -196,7 +245,7 @@ describe('sv360ErrorHandler: registra, e o corpo continua PLANO', () => {
     const [rec] = spy.records;
     assert.equal(rec.level, 'error');
     assert.equal(rec.msg, 'Request error', 'a mensagem e a mesma do handler global');
-    assert.equal(rec.obj.err, err);
+    assert.equal(rec.obj.err.message, err.message, "a linha carrega o erro daquela falha");
     assert.equal(rec.obj.reqId, 'req-42');
     assert.equal(rec.obj.method, 'GET');
     assert.equal(rec.obj.url, '/api/v1/sv360/photos/x');
@@ -215,7 +264,7 @@ describe('sv360ErrorHandler: registra, e o corpo continua PLANO', () => {
 
     assert.equal(spy.records.length, 1);
     assert.equal(spy.records[0].level, 'warn');
-    assert.equal(spy.records[0].obj.err, err);
+    assert.equal(spy.records[0].obj.err.message, err.message, "a linha carrega o erro daquela falha");
 
     assert.equal(res.statusCode, 404);
     assert.equal(typeof res.body.error, 'string');
@@ -243,7 +292,7 @@ describe('sv360ErrorHandler: registra, e o corpo continua PLANO', () => {
     assert.equal(spy.records.length, 1);
     assert.equal(spy.records[0].level, 'warn', '409 e 4xx');
     // O diagnostico fica no log (dentro de `err`, que o serializer limpa) e nao no corpo.
-    assert.equal(spy.records[0].obj.err, err);
+    assert.equal(spy.records[0].obj.err.message, err.message, "a linha carrega o erro daquela falha");
     assert.equal(res.statusCode, 409);
     assert.equal(typeof res.body.error, 'string');
     assert.ok(!res.body.error.includes('projects_slug_key'));

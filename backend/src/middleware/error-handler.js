@@ -1,39 +1,93 @@
 // Path: src/middleware/error-handler.js
-import logger from '../utils/logger.js';
+import logger, { errSerializer } from '../utils/logger.js';
 import { AppError, ValidationError } from '../utils/errors.js';
 import { redactUrl } from '../utils/redact-url.js';
 import config from '../config.js';
 import { toValidationDetails } from '../utils/validation-messages.js';
 
 /**
+ * The line a failed request writes: level, fields and message.
+ *
+ * Split out of the handler so the SHAPE is testable. Under `NODE_ENV=test` the logger runs
+ * at level `silent`, so a test spying on pino's output would report green with the whole
+ * record gone. Same split, and for the same reason, as `limiterDenialPayload`
+ * (`middleware/rate-limit.js`) and `queryLogPayload` (`database/index.js`).
+ *
+ * WHY THE STACK IS DECIDED HERE, of all places. Measured over the `.jsonl` files this house
+ * had written up to 2026-09-01: an error line costs ~1665 bytes against ~242 for a normal
+ * request line, 79% of those bytes are the stack, and the whole corpus holds EIGHT distinct
+ * stacks. A `NotFoundError` from the router emits the same 1.4 kB of express frames for
+ * every URL: it describes the path through the handler, never the case. So a 4xx logs
+ * WITHOUT the stack and a 5xx keeps it, and the decision cannot live in `errSerializer`,
+ * because the serializer only ever sees the error and this is the only place that knows the
+ * status. There is no ceiling, no sampling and no state anywhere on this path.
+ *
+ * WHAT SURVIVES, and it is what diagnosing the looping 400 of 2026-08-30 actually used:
+ * `err.type`, `err.message`, `err.code`, `err.statusCode`, the Joi `details` (which field
+ * failed), plus `reqId`, `method` and the redacted `url` that `normalizarRota` groups by.
+ * The one thing that goes is the throw SITE, which for a 4xx is either a constant
+ * (`Route not found`) or already implied by the route.
+ *
+ * NO top-level `statusCode` here, and that is deliberate for the same reason
+ * `limiterDenialPayload` states: `resumirStatus` (`utils/diag-consulta.js`) counts one
+ * request per record carrying one, so a failed request would be counted TWICE by
+ * `npm run diag -- status`. The status is already in `err.statusCode`, and
+ * `fundirPorRequisicao` copies the request line's own into the fused record.
+ *
+ * @param {Error & {statusCode?: number, isJoi?: boolean}} err
+ * @param {import('express').Request} req
+ * @returns {{nivel: string, statusRegistrado: number, campos: object, mensagem: string}}
+ */
+export function requestErrorLogPayload(err, req) {
+  // Client-caused errors (4xx: Joi, AppError 4xx, body-parser malformed JSON, etc.) are
+  // logged at `warn` so they don't pollute the error stream as if they were server faults;
+  // genuine 5xx stay at `error`.
+  const statusRegistrado = typeof err?.statusCode === 'number'
+    ? err.statusCode
+    : (err?.isJoi ? 422 : 500);
+  const comPilha = statusRegistrado >= 500;
+
+  // Serialized HERE rather than handed to pino raw, because dropping the stack means acting
+  // on the serialized shape. `errSerializer` marks its own output and short-circuits on it,
+  // so pino's second pass over this object is a no-op instead of the silent wreck it would
+  // otherwise be (it rewrites `type` to `'Object'`; see the marker in `utils/logger.js`).
+  const erro = errSerializer(err);
+  // `erro` pode não ser objeto: `next('boom')` é legal no Express e o serializer devolve a
+  // string crua. Ali não há pilha para tirar nem nada que se possa apagar.
+  if (!comPilha && erro !== null && typeof erro === 'object') delete erro.stack;
+
+  return {
+    nivel: comPilha ? 'error' : 'warn',
+    statusRegistrado,
+    campos: {
+      err: erro,
+      // O mesmo id que `request-logger.js` carimba na linha de requisição. É o que permite a
+      // `scripts/diag.js` fundir as DUAS linhas que uma requisição falha produz, em vez de
+      // contar o mesmo erro duas vezes em duas assinaturas diferentes. Ausente quando a
+      // falha precede o logger de requisição (corpo malformado), e ali a fusão não é
+      // necessária porque a outra linha não existe.
+      reqId: req?.id,
+      method: req?.method,
+      // `originalUrl` pela mesma razão de `request-logger.js`: aqui a pilha de routers está
+      // ainda mais garantidamente em pé (o erro veio de dentro dela), então `req.url` é o
+      // caminho relativo ao mount, e as duas linhas da MESMA requisição sairiam com URLs
+      // diferentes, o oposto do que o `reqId` acima existe para permitir.
+      url: redactUrl(req?.originalUrl || req?.url),
+      userId: req?.user?.id,
+    },
+    mensagem: 'Request error',
+  };
+}
+
+/**
  * Centralized error handler middleware.
  * Must be registered last in the middleware chain.
  */
 export function errorHandler(err, req, res, next) {
-  // Client-caused errors (4xx: Joi, AppError 4xx, body-parser malformed JSON,
-  // etc.) are logged at `warn` so they don't pollute the error stream as if they
-  // were server faults; genuine 5xx stay at `error`. The URL is redacted so a
-  // credential passed via ?api_key= never lands in the logs.
-  const loggedStatus = typeof err.statusCode === 'number'
-    ? err.statusCode
-    : (err.isJoi ? 422 : 500);
-  const logFn = loggedStatus < 500 ? logger.warn : logger.error;
-  logFn.call(logger, {
-    err,
-    // O mesmo id que `request-logger.js` carimba na linha de requisição. É o que permite a
-    // `scripts/diag.js` fundir as DUAS linhas que uma requisição falha produz, em vez de
-    // contar o mesmo erro duas vezes em duas assinaturas diferentes. Ausente quando a
-    // falha precede o logger de requisição (corpo malformado), e ali a fusão não é
-    // necessária porque a outra linha não existe.
-    reqId: req.id,
-    method: req.method,
-    // `originalUrl` pela mesma razão de `request-logger.js`: aqui a pilha de routers está
-    // ainda mais garantidamente em pé (o erro veio de dentro dela), então `req.url` é o
-    // caminho relativo ao mount, e as duas linhas da MESMA requisição sairiam com URLs
-    // diferentes — o oposto do que o `reqId` acima existe para permitir.
-    url: redactUrl(req.originalUrl || req.url),
-    userId: req.user?.id,
-  }, 'Request error');
+  // The URL is redacted so a credential passed via ?api_key= never lands in the logs; the
+  // level and the stack are decided in `requestErrorLogPayload`.
+  const linha = requestErrorLogPayload(err, req);
+  logger[linha.nivel](linha.campos, linha.mensagem);
 
   // Once the status line and headers are on the wire, there is no response left to
   // write: `res.json()` calls `res.set('Content-Type', …)` → `setHeader()` after

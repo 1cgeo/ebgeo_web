@@ -103,6 +103,34 @@ function elidirCamposDoPg(base, depth = 0) {
 }
 
 /**
+ * A marca de que um objeto JÁ é a SAÍDA de `errSerializer`, e não um erro a serializar.
+ *
+ * POR QUE ELA PRECISA EXISTIR. O pino aplica o serializer ao campo `err` sempre, e quem
+ * precisa DECIDIR alguma coisa sobre a forma serializada (o `error-handler`, que é o único
+ * que sabe o status e por isso é o único que pode tirar a pilha de um 4xx) só consegue
+ * decidir serializando ANTES. Uma segunda passada pelo serializer do pino sobre a saída da
+ * primeira não é inócua, e o estrago é silencioso: `isErrorLike` do `pino-std-serializers`
+ * pergunta só por `typeof err.message === 'string'`, então um objeto simples passa, e aí
+ * `_err.type` é recalculado a partir de `err.constructor.name`, que para objeto simples é
+ * `'Object'`. Medido: `NotFoundError` vira `Object` na segunda passada, e `type` é um dos
+ * termos de `assinaturaDeErro` (`utils/diag-consulta.js`), ou seja, o relatório inteiro
+ * colapsaria numa assinatura só, verde e errado.
+ *
+ * Símbolo, e não campo: `for...in` e `JSON.stringify` não enxergam símbolo, então a marca
+ * não vaza para a linha de log nem para `scrubSecrets`.
+ */
+const JA_SERIALIZADO = Symbol('err-ja-serializado');
+
+/**
+ * O objeto já serializado, para quem for repassá-lo ao pino.
+ * @param {unknown} valor
+ * @returns {boolean}
+ */
+export function ehErroJaSerializado(valor) {
+  return Boolean(valor) && typeof valor === 'object' && valor[JA_SERIALIZADO] === true;
+}
+
+/**
  * Error serializer that keeps pino's standard output but drops the payload that
  * validation errors drag along.
  *
@@ -127,6 +155,10 @@ function elidirCamposDoPg(base, depth = 0) {
  * every one of them is a channel for the value that failed. See `elidirCamposDoPg`.
  */
 export function errSerializer(err) {
+  // Re-entrada: ver `JA_SERIALIZADO`. Devolver o objeto intacto é o comportamento correto,
+  // porque ele já passou pelas duas redações e pela elisão do pg.
+  if (ehErroJaSerializado(err)) return err;
+
   const base = elidirCamposDoPg(pino.stdSerializers.err(err));
 
   // Joi's copy of the whole submitted body. Never useful in a log, and the direct
@@ -143,7 +175,15 @@ export function errSerializer(err) {
     }));
   }
 
-  return scrubSecrets(base);
+  const saida = scrubSecrets(base);
+  // O que NÃO é objeto sai sem marca, e sai intacto: `next('boom')` é legal no Express, e
+  // `pino.stdSerializers.err` devolve a string crua porque `isErrorLike` pede uma `message`.
+  // Marcar ali levantaria um TypeError DENTRO do serializer de log, que é o pior lugar
+  // possível para uma segunda exceção. Sem marca, a re-entrada é inócua: o objeto simples é
+  // que precisava da guarda.
+  if (saida === null || typeof saida !== 'object') return saida;
+  Object.defineProperty(saida, JA_SERIALIZADO, { value: true });
+  return saida;
 }
 
 /**

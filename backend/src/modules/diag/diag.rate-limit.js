@@ -16,9 +16,17 @@
  * POR QUE ELE NASCE AQUI, e não em `src/middleware/rate-limit.js`. Precedente literal: o
  * `configLimiter` nasceu dentro do módulo de config porque aquele arquivo estava sendo
  * editado em paralelo, e foi dobrado para lá assim que as duas edições pousaram. Este está
- * na mesma situação. O que NÃO se copia daquele episódio é a duplicação do envelope 429,
- * que é contrato documentado (`docs/wiki/erros-api.md`): quando este arquivo for dobrado
- * para o middleware, é o `handler` compartilhado de lá que fica.
+ * na mesma situação, e a metade que já pôde ser dobrada foi: o `handler` é o
+ * `makeLimiterHandler` compartilhado desde 2026-09-01. A configuração continua aqui porque a
+ * ROTA é daqui; o que não podia continuar era a RECUSA MUDA.
+ *
+ * A DOBRA DO HANDLER, e por que ela não é cosmética. Este arquivo repetia o envelope 429 e
+ * não registrava nada, ou seja, ele recusava e ninguém ficava sabendo, que é exatamente o
+ * defeito que `makeLimiterHandler` existe para ter fechado no resto da casa. Num endpoint
+ * ANÔNIMO que ESCREVE no banco, a recusa é o único sinal de que alguém está enchendo a
+ * tabela: sem ela o ataque é indistinguível de silêncio. O envelope não mudou, e a
+ * identidade foi conferida antes da dobra (mesmo status, mesmo JSON byte a byte), porque
+ * ele é contrato documentado em `docs/wiki/erros-api.md`.
  *
  * OS NÚMEROS. 60 relatos por minuto por endereço. O cliente honesto manda pouquíssimos (ele
  * dedupe por assinatura antes de falar), então o teto é folgado para o pior caso legítimo —
@@ -28,6 +36,7 @@
  */
 
 import rateLimit from 'express-rate-limit';
+import { makeLimiterHandler } from '../../middleware/rate-limit.js';
 import config from '../../config.js';
 
 const teto = (nome, padrao) => {
@@ -45,11 +54,9 @@ export const clientErrorLimiter = rateLimit({
   // checagens avisariam a cada rodada sem indicar problema real. As demais ficam LIGADAS,
   // inclusive as que gritam quando `req.ip` é o endereço do proxy.
   validate: { trustProxy: !config.isTest, xForwardedForHeader: !config.isTest },
-  handler: (req, res) => {
-    res.status(429).json({
-      error: { code: 'TOO_MANY_REQUESTS', message: 'Muitas tentativas. Tente novamente mais tarde.' },
-    });
-  },
+  // O nome viaja na linha de recusa e é o que separa esta rota de todo outro limitador: o
+  // `req` sozinho não o carrega. Ver `limiterDenialPayload`.
+  handler: makeLimiterHandler('client-error'),
   // O store em memória acumularia pela rodada inteira (o app é importado uma vez), então o
   // default em teste é pular; `RATE_LIMIT_FORCE=1` religa para o caso dedicado.
   skip: () => config.isTest && process.env.RATE_LIMIT_FORCE !== '1',

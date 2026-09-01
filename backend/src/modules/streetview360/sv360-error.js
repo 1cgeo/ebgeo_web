@@ -29,7 +29,7 @@
 // (e o `23505` logo abaixo e exatamente um erro desses). Formatar aqui contornaria
 // o serializer e devolveria o vazamento pela porta de tras.
 import config from '../../config.js';
-import logger from '../../utils/logger.js';
+import logger, { errSerializer } from '../../utils/logger.js';
 import { redactUrl } from '../../utils/redact-url.js';
 
 /**
@@ -59,8 +59,21 @@ export function sv360StatusDoErro(err) {
  * @returns {{err: Object, reqId: string|undefined, method: string|undefined, url: string|undefined, userId: string|undefined}}
  */
 export function sv360ErrorLogPayload(err, req) {
+  // A PILHA SO VAI NO 5xx, a mesma regra de `requestErrorLogPayload` no handler global, e
+  // pela mesma medicao: 80% dos bytes de uma linha de erro eram pilha, e a do 4xx descreve o
+  // caminho do HANDLER, nao o caso (o mesmo quadro para toda URL). Este modulo era a ultima
+  // superficie 4xx que ainda escrevia pilha, e ele e justamente o que serve as rotas SEM
+  // limitador de taxa, ou seja onde um laco de 404 amplifica mais.
+  //
+  // Serializa AQUI, e nao entrega o erro cru ao pino, porque apagar a pilha e agir sobre a
+  // forma ja serializada. O `errSerializer` marca a propria saida e curto-circuita na
+  // segunda passada do pino; sem essa marca, a re-serializacao reescreveria `type` para
+  // 'Object' e colapsaria a assinatura do relatorio.
+  const erro = errSerializer(err);
+  if (sv360StatusDoErro(err) < 500 && erro !== null && typeof erro === 'object') delete erro.stack;
+
   return {
-    err,
+    err: erro,
     // O mesmo id que o logger de requisicao carimba. E o que permite fundir as duas
     // linhas da mesma requisicao em vez de contar o erro duas vezes.
     reqId: req?.id,
