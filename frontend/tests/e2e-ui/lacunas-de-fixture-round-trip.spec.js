@@ -20,12 +20,20 @@
  *
  * Este caso cobre a PRIMEIRA e a SEGUNDA, semeando as duas pela aplicacao real antes de exportar.
  *
- * A TERCEIRA FICA DECLARADAMENTE DE FORA, e o motivo e que um duplo seria pior que a ausencia:
- * `processed_los` e `processed_visibility` sao SAIDA de algoritmo sobre terreno, e produzi-las
- * exige o servico de elevacao no ar respondendo a consulta de perfil. Um objeto montado a mao com
- * a forma de uma saida processada mediria a serializacao de um literal que este arquivo mesmo
- * escreveu, e chamaria isso de cobertura de analise. Buraco declarado vale mais que cobertura
- * fingida; quando houver elevacao nesta camada, o caso nasce ao lado deste.
+ * A TERCEIRA NAO ESTA AQUI, mas NAO e por impossibilidade, e a versao anterior desta linha
+ * afirmava que era. Ela dizia que produzir `processed_los` e `processed_visibility` "exige o
+ * servico de elevacao no ar respondendo a consulta de perfil". ISSO E FALSO, e foi refutado por
+ * medicao em 2026-09-01, depois de o dono apontar: nao ha servico nenhum no caminho.
+ * `getTerrainElevation` (`terrain/terrain.control.js`) so chama `map.getTerrain()` e
+ * `map.queryTerrainElevation()`, ambos do MapLibre, e a unica guarda e
+ * `isTerrainAvailable(map) => map.getTerrain() !== null`, que faz `activate()` das duas
+ * ferramentas recusar. Ou seja, a dependencia e TERRENO LIGADO, e terreno se liga.
+ *
+ * A cobertura das duas vive em `tests/e2e-ui/analise-processada-round-trip.spec.js`, que instala
+ * um terreno sintetico com uma colina, dirige as ferramentas REAIS e mede o round-trip. O que
+ * aquele arquivo NAO faz, e o que continua valendo desta linha, e montar a saida a mao: um
+ * literal com a forma de uma feicao processada mediria a serializacao de um literal que a propria
+ * spec escreveu, e chamaria isso de cobertura de analise.
  *
  * ---------------------------------------------------------------------------
  * POR QUE O CASO PRECISA DE LOGIN, e isto NAO e detalhe de harness
