@@ -4,8 +4,14 @@
  * @fileoverview Feature header components for attribute panels.
  */
 
-import { getLayers, isFeatureEffectivelyLocked, addFeature, removeFeature, removeImage, updateFeature, storeImage, getGroupManager, getControl, startBatchUndo, commitBatchUndo } from '../../store';
+import { getLayers, isFeatureEffectivelyLocked, isCurrentMapLockedSync, addFeature, removeFeature, removeImage, updateFeature, storeImage, getGroupManager, getControl, startBatchUndo, commitBatchUndo } from '../../store';
 import { IDUtils } from '../../utilities';
+import {
+    LINEAR_SOURCES,
+    LINEAR_CONVERSION_LABELS,
+    canConvertLinear,
+    lockedConversionReason
+} from './linear-conversion.model.js';
 
 // ── Arrow merge/split helpers ─────────────────────────────────────────────────
 // These inline checks avoid a static import from military_tools (which would
@@ -282,36 +288,51 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
         }
     }
 
-    // Add conversion options for line features (single selection only)
-    if (selectedFeatures.length === 1 && currentFeature?.properties?.source === 'line') {
+    // Conversion between the three linear types (single selection only).
+    // The matrix is 3x2: every linear type offers the two it is not. The check
+    // is the model's, so the tooltip on a refused item and the toast the click
+    // would have produced are the same sentence.
+    const linearSource = currentFeature?.properties?.source;
+    if (selectedFeatures.length === 1 && LINEAR_SOURCES.includes(linearSource)) {
         const separator2 = document.createElement('div');
         separator2.className = 'feature-menu-separator';
         dropdown.appendChild(separator2);
 
-        const convertToArrowButton = document.createElement('button');
-        convertToArrowButton.className = 'feature-menu-button';
-        convertToArrowButton.textContent = 'Converter para Seta';
-
-        convertToArrowButton.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            await convertLineToArrow(currentFeature, selectionManager, uiManager);
-            closeAllFeatureDropdowns(true);
+        const stateReason = lockedConversionReason({
+            mapLocked: isCurrentMapLockedSync(),
+            featureLocked: isFeatureEffectivelyLocked(currentFeature)
         });
-        dropdown.appendChild(convertToArrowButton);
 
-        const convertToBoundaryButton = document.createElement('button');
-        convertToBoundaryButton.className = 'feature-menu-button';
-        convertToBoundaryButton.textContent = 'Converter para Linha de Limite';
+        for (const targetSource of LINEAR_SOURCES) {
+            if (targetSource === linearSource) continue;
 
-        convertToBoundaryButton.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            await convertLineToBoundary(currentFeature, selectionManager, uiManager);
-            closeAllFeatureDropdowns(true);
-        });
-        dropdown.appendChild(convertToBoundaryButton);
+            const convertButton = document.createElement('button');
+            convertButton.className = 'feature-menu-button';
+            convertButton.textContent = LINEAR_CONVERSION_LABELS[targetSource];
 
+            const eligibility = canConvertLinear(currentFeature, targetSource);
+            const blockedReason = eligibility.ok ? stateReason : eligibility.reason;
+
+            if (blockedReason) {
+                convertButton.disabled = true;
+                convertButton.setAttribute('aria-disabled', 'true');
+                convertButton.title = blockedReason;
+            } else {
+                convertButton.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeAllFeatureDropdowns(true);
+                    const { convertLinearFeature } = await import('./linear-conversion.helpers.js');
+                    await convertLinearFeature(currentFeature, targetSource, selectionManager, uiManager);
+                });
+            }
+
+            dropdown.appendChild(convertButton);
+        }
+    }
+
+    // "Cortar Linha" stays exclusive to lines (single selection only)
+    if (selectedFeatures.length === 1 && linearSource === 'line') {
         const splitLineButton = document.createElement('button');
         splitLineButton.className = 'feature-menu-button';
         splitLineButton.textContent = 'Cortar Linha';
@@ -791,7 +812,7 @@ const STYLE_KEYS_BY_TYPE = {
     text: ['size', 'color', 'textHaloWidth', 'justify', 'showBackground', 'backgroundFillColor', 'backgroundFillOpacity', 'backgroundBorderColor', 'backgroundBorderOpacity', 'backgroundBorderWidth'],
     brush: ['lineColor', 'lineWidth'],
     image: ['size', 'opacity'],
-    arrow: ['width', 'fillColor', 'lineColor', 'lineWidth', 'fillOpacity', 'lineOpacity', 'headLengthRatio', 'showArrowHead'],
+    arrow: ['width', 'fillColor', 'lineColor', 'lineWidth', 'fillOpacity', 'lineOpacity', 'headLengthRatio', 'showArrowHead', 'doubleHeaded'],
     boundary: ['color', 'lineWidth', 'opacity', 'echelon', 'symbol_size', 'text_size'],
     occupied_front: ['color', 'lineWidth', 'opacity'],
     los: ['opacity', 'width'],
@@ -1006,210 +1027,7 @@ async function selectAllFeaturesOfSameStyle(selectedFeatures, selectionManager, 
     uiManager.updatePanels();
 }
 
-// ===== LINE CONVERSION FUNCTIONS =====
-
-/**
- * Converts a line feature to an arrow feature.
- *
- * @param {Object} lineFeature - Line feature to convert
- * @param {Object} selectionManager - SelectionManager instance
- * @param {Object} uiManager - UIManager instance
- */
-async function convertLineToArrow(lineFeature, selectionManager, uiManager) {
-    try {
-        const map = selectionManager.map;
-        const arrowControl = selectionManager.controls.get('arrow');
-
-        if (!arrowControl) {
-            console.error('Arrow control not found');
-            return;
-        }
-
-        // Get base coordinates from line
-        const baseCoordinates = lineFeature.geometry.coordinates;
-        if (!baseCoordinates || baseCoordinates.length < 2) {
-            console.error('Line does not have enough coordinates');
-            return;
-        }
-
-        // Generate new ID and name for arrow
-        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
-        const featureName = await IDUtils.generateFeatureName('arrow', map);
-
-        // Get default arrow properties
-        const AddArrowControl = arrowControl.constructor;
-        const defaultProps = AddArrowControl.DEFAULT_PROPERTIES || {};
-
-        // Calculate adaptive width based on current zoom
-        const currentZoom = map.getZoom();
-        const adaptiveWidth = arrowControl.calculateWidthForZoom
-            ? arrowControl.calculateWidthForZoom(currentZoom)
-            : 500;
-
-        // Map line properties to arrow properties
-        const arrowProperties = {
-            ...defaultProps,
-            layerId: lineFeature.properties.layerId,
-            width: adaptiveWidth,
-            fillColor: lineFeature.properties.lineColor || defaultProps.fillColor,
-            lineColor: lineFeature.properties.lineColor || defaultProps.lineColor,
-            fillOpacity: lineFeature.properties.opacity || defaultProps.fillOpacity,
-            lineOpacity: lineFeature.properties.opacity || defaultProps.lineOpacity,
-            baseCoordinates: [...baseCoordinates],
-            id: featureId,
-            nome: lineFeature.properties.nome || featureName,
-            descricao: lineFeature.properties.descricao || '',
-            visivel: lineFeature.properties.visivel !== false,
-            bloqueado: lineFeature.properties.bloqueado || false
-        };
-
-        // Generate arrow geometry
-        const arrowGeometry = arrowControl.geometry.generate(baseCoordinates, arrowProperties);
-
-        const arrowFeature = {
-            type: 'Feature',
-            id: geoJsonId,
-            properties: arrowProperties,
-            geometry: arrowGeometry
-        };
-
-        // Deselect current line
-        selectionManager.deselectAllFeatures();
-
-        const lineId = lineFeature.properties.id;
-
-        // Batch the add+remove so a single Ctrl+Z undoes the whole conversion
-        // as one unit (avoids the partial-undo inconsistency of two records).
-        startBatchUndo();
-        try {
-            // Add the arrow FIRST so a persist failure cannot lose the source line.
-            await addFeature('arrows', arrowFeature);
-
-            const arrowData = await map.getSource('arrows').getData();
-            arrowData.features.push(arrowFeature);
-            map.getSource('arrows').setData(arrowData);
-
-            // Only after the add succeeded do we remove the line.
-            await removeFeature('lines', lineId);
-
-            const lineData = await map.getSource('lines').getData();
-            lineData.features = lineData.features.filter(f => f.properties.id !== lineId);
-            map.getSource('lines').setData(lineData);
-        } finally {
-            commitBatchUndo();
-        }
-
-        // Select the new arrow
-        await selectionManager.toggleFeatureSelection('arrow', featureId, arrowFeature);
-
-        uiManager.updateSelectionHighlight();
-        uiManager.updatePanels();
-    } catch (error) {
-        console.error('Error converting line to arrow:', error);
-    }
-}
-
-/**
- * Converts a line feature to a boundary feature.
- *
- * @param {Object} lineFeature - Line feature to convert
- * @param {Object} selectionManager - SelectionManager instance
- * @param {Object} uiManager - UIManager instance
- */
-async function convertLineToBoundary(lineFeature, selectionManager, uiManager) {
-    try {
-        const map = selectionManager.map;
-        const boundaryControl = selectionManager.controls.get('boundary');
-
-        if (!boundaryControl) {
-            console.error('Boundary control not found');
-            return;
-        }
-
-        // Get base coordinates from line
-        const baseCoordinates = lineFeature.geometry.coordinates;
-        if (!baseCoordinates || baseCoordinates.length < 2) {
-            console.error('Line does not have enough coordinates');
-            return;
-        }
-
-        // Generate new ID and name for boundary
-        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
-        const featureName = await IDUtils.generateFeatureName('boundary', map);
-
-        // Get default boundary properties
-        const AddBoundaryControl = boundaryControl.constructor;
-        const defaultProps = AddBoundaryControl.DEFAULT_PROPERTIES || {};
-
-        // Calculate adaptive symbol size based on current zoom
-        const currentZoom = map.getZoom();
-        const adaptiveSymbolSize = boundaryControl.calculateSymbolSizeForZoom
-            ? boundaryControl.calculateSymbolSizeForZoom(currentZoom)
-            : 1;
-
-        // Map line properties to boundary properties
-        const boundaryProperties = {
-            ...defaultProps,
-            layerId: lineFeature.properties.layerId,
-            color: lineFeature.properties.lineColor || defaultProps.color,
-            lineWidth: lineFeature.properties.lineWidth || defaultProps.lineWidth,
-            opacity: lineFeature.properties.opacity || defaultProps.opacity,
-            symbol_size: adaptiveSymbolSize,
-            baseCoordinates: [...baseCoordinates],
-            id: featureId,
-            nome: lineFeature.properties.nome || featureName,
-            descricao: lineFeature.properties.descricao || '',
-            visivel: lineFeature.properties.visivel !== false,
-            bloqueado: lineFeature.properties.bloqueado || false
-        };
-
-        // Generate boundary geometry
-        const boundaryGeometry = boundaryControl.geometry.generate(boundaryProperties);
-
-        const boundaryFeature = {
-            type: 'Feature',
-            id: geoJsonId,
-            properties: boundaryProperties,
-            geometry: boundaryGeometry
-        };
-
-        // Deselect current line
-        selectionManager.deselectAllFeatures();
-
-        const lineId = lineFeature.properties.id;
-
-        // Batch the add+remove so a single Ctrl+Z undoes the whole conversion.
-        startBatchUndo();
-        try {
-            // Add the boundary FIRST so a persist failure cannot lose the source line.
-            await addFeature('boundarys', boundaryFeature);
-
-            const boundaryData = await map.getSource('boundarys').getData();
-            boundaryData.features.push(boundaryFeature);
-            map.getSource('boundarys').setData(boundaryData);
-
-            // Update dependent features (circles and texts)
-            await boundaryControl.updateDependentFeatures(boundaryFeature);
-
-            // Only after the add succeeded do we remove the line.
-            await removeFeature('lines', lineId);
-
-            const lineData = await map.getSource('lines').getData();
-            lineData.features = lineData.features.filter(f => f.properties.id !== lineId);
-            map.getSource('lines').setData(lineData);
-        } finally {
-            commitBatchUndo();
-        }
-
-        // Select the new boundary
-        await selectionManager.toggleFeatureSelection('boundary', featureId, boundaryFeature);
-
-        uiManager.updateSelectionHighlight();
-        uiManager.updatePanels();
-    } catch (error) {
-        console.error('Error converting line to boundary:', error);
-    }
-}
+// ===== ARROW UTILITIES =====
 
 /**
  * Reverses an arrow feature by inverting its base coordinates.
