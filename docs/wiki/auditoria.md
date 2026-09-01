@@ -99,6 +99,36 @@ O regime de impressão é fácil de ler como propriedade do motor de `audit-diff
 
 Duas consequências que ficam: as linhas ANTIGAS continuam com o link literal, e nenhum script alcança dumps já tirados, então a resposta honesta para uma base já publicada é despublicar e republicar o atlas, o que rotaciona o link e mata as cópias vazadas. E a gaveta do painel mostra a impressão com verbete próprio, porque doze hexadecimais sem rótulo se leem como um valor utilizável.
 
+### As linhas antigas, e por que rotacionar vale mais que limpar
+
+A mudança de 2026-09-01 vale para o que NASCE dali em diante. Linhas gravadas antes seguem com
+o link literal, e a pergunta operacional é uma só: **algum banco com essas linhas já saiu da
+máquina?** Dump, réplica, backup, instância implantada. As duas contagens que respondem, ambas
+somente leitura, e que se rodam contra a base que se quer avaliar (a de desenvolvimento deu
+ZERO nas duas em 2026-09-01, então lá não há nada a fazer):
+
+```sql
+-- quantos atlas publicados hoje, e quantos têm link vivo
+SELECT count(*) FILTER (WHERE public_link IS NOT NULL) AS com_link, count(*) AS publicos
+  FROM atlas WHERE is_public = true AND deleted_at IS NULL;
+
+-- quantas linhas de trilha ainda carregam o valor literal
+SELECT count(*) FROM audit_trail
+ WHERE action = 'SHARING_CHANGE' AND details ? 'publicLink';
+```
+
+**Rotacionar o link é o único ato que neutraliza de verdade**, porque alcança as cópias que já
+saíram, e nenhum script alcança. Despublicar e republicar o atlas gera link novo e mata o
+antigo em toda cópia, dump inclusive. O preço é conhecido e é o mesmo do vazamento: quem tem o
+link em mãos perde acesso e precisa do novo.
+
+**Reescrever a trilha NÃO é o conserto, e por padrão não se faz.** Ela é append-only, essa
+propriedade vale mais que arrumação, e uma limpeza não alcança nenhuma cópia já tirada: ela
+troca um risco real por uma sensação de resolvido. Se ainda assim alguém quiser fazê-la depois
+de rotacionar, aí é higiene e não remédio, e exige decisão registrada, execução única com
+`dry-run` por padrão, contagem antes e depois, e uma linha de trilha registrando a própria
+higienização.
+
 ## O `details` carrega um de-para SELETIVO, e o que ele não carrega é o ponto
 
 Até 2026-08-21 `CATALOG_UPDATE` gravava só os NOMES dos campos tocados (`details.fields`), e a regra era escrita: `details` nunca carrega valor. O motivo continua válido e é o que governa o desenho novo: `config` guarda URL de serviço (às vezes com credencial na query string) e as miniaturas são data URL de até 256 kB; a trilha é lida por qualquer administrador e, desde o eixo de OM, por qualquer produtor da OM dona; e **a trilha não se edita**, então o que entra ali entra para sempre.

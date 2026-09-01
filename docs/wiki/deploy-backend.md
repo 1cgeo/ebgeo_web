@@ -56,6 +56,10 @@ Cada regra existe por um estrago observado, não por higiene (`config.js`):
 
 **Armadilha do `optional()`** (`config.js`): é `process.env[key] || fallback`, então **string vazia cai no fallback**. Não existe caminho por env vazia para "desabilitar" uma URL cujo default é não-vazio.
 
+**Rotacionar o `JWT_SECRET` tem um efeito FORA da autenticação, e ele responde errado em vez de quebrar.** A mesma chave deriva a impressão digital da trilha de auditoria (`impressaoDeValor`, `backend/src/utils/audit-diff.js`), que é o que permite responder "este valor mudou entre os dois atos?" sem guardar o valor. Trocado o segredo, toda impressão anterior fica incomparável com as posteriores, e a gaveta do painel passa a afirmar que mudou o que não mudou. Sem erro, sem aviso, sem marcador na linha.
+
+O que torna isso caro é a coincidência de momento: rotacionar segredo é higiene obrigatória depois de um vazamento, ou seja, exatamente o dia em que alguém vai LER a trilha para entender o que houve. Enquanto a linha não carregar a época da chave (e hoje não carrega), a mitigação é operacional: **anote a data da rotação**, e trate como sem valor qualquer comparação de impressões que cruze aquele instante.
+
 **A topologia de porta inverte entre dev e compose**, e isso já derrubou o boot uma vez. Em dev o backend é **:8080** e o Vite **:3000**, que faz proxy de `/api` (`backend/.env.example`). No `backend/docker-compose.yml` o app escuta **:3000** e o `CORS_ORIGIN` aponta para :8080. Cada um é coerente consigo, mas ler um e aplicar no outro produz um CORS que recusa exatamente a origem certa. Confira de qual dos dois mundos veio o valor antes de copiá-lo.
 
 `NODE_ENV=production` é o **interruptor único de segurança**: liga HSTS 180 dias (`backend/src/app.js`), cookies `Secure`/`SameSite=strict`, exige `JWT_SECRET` >= 32 e desliga self-registration por default (`config.js`). `COOKIE_SECRET` e `USE_HTTPS` **não existem no código**, configurá-las é no-op. TLS termina no NGINX.
