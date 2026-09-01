@@ -19,6 +19,7 @@ import {
     getMapGroups,
     getLayers,
     setMapLayers,
+    flushPendingLayerWrites,
     getMapPosition,
     getMapOrder,
     setMapOrder,
@@ -286,6 +287,15 @@ export class ExportImportService {
      * @returns {Promise<Object>} The export data object.
      */
     async buildExportDataObject(mapsToExport) {
+        // ANTES DE QUALQUER LEITURA, e uma vez so para o documento inteiro. As secoes de camada
+        // e de grupo leem o REPOSITORIO (ver o cabecalho de `export-optional-sections.js`: ler
+        // memoria entregava as camadas de todo mapa nao visitado como uma `default` inventada,
+        // e a secao de grupos vazia). A escrita de camada e adiada em 300 ms, entao sem este
+        // descarregamento o documento sairia com o estado anterior a ultima edicao, que e trocar
+        // uma perda grande por uma pequena. Nao ha o que descarregar para grupos: eles
+        // persistem por `setTimeout(..., 0)`, sem represa.
+        await flushPendingLayerWrites();
+
         const currentMapName = await getCurrentMapName();
         const exportCurrentMap = mapsToExport.includes(currentMapName) ? currentMapName : mapsToExport[0];
         const fullMapOrder = await getMapOrder();

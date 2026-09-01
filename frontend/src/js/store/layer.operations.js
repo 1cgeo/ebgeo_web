@@ -239,6 +239,18 @@ export async function loadLayersToMemory(mapName) {
     return deps.layerManager.loadLayersToMemory(mapName);
 }
 
+/**
+ * Descarrega a escrita de camada represada pelo debounce, de TODO mapa.
+ *
+ * Quem le camada do REPOSITORIO precisa chamar isto antes, senao le o estado de ate 300 ms
+ * atras. O unico chamador hoje e `buildExportDataObject`; ver o cabecalho de
+ * `layerManager.flushPendingWrites`.
+ * @returns {Promise<void>}
+ */
+export async function flushPendingLayerWrites() {
+    return deps.layerManager.flushPendingWrites();
+}
+
 // ===== IMPORT OPERATIONS =====
 
 /**

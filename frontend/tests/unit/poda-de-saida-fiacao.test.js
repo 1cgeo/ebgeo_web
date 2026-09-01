@@ -44,8 +44,13 @@ vi.mock('@store', () => ({
     getCurrentBaseLayer: vi.fn(async () => 'carta-topografica'),
     getColorUsage: vi.fn(async () => ({})),
     getMapNotes: vi.fn(async () => null),
+    // O exportador lê os gêmeos de REPOSITÓRIO; os síncronos ficam porque o import aditivo do
+    // mesmo serviço os usa. Ver o duplo de `tests/unit/export-import-service.test.js`.
+    getMapGroupsFromDB: vi.fn(async () => ({})),
+    getLayersRepo: vi.fn(async () => []),
     getMapGroups: vi.fn(() => ({})),
     getLayers: vi.fn(async () => []),
+    flushPendingLayerWrites: vi.fn(async () => {}),
     getCesium3dDataForExport: vi.fn(async () => ({
         cameraPositions: {}, markers: [{ id: 'm1', tilesetId: 'tileset-restrito' }], measurements: [], viewsheds: [],
     })),

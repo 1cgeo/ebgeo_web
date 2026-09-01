@@ -772,7 +772,8 @@ export {
     setLayerLocked,
     setLayerOpacity,
     reorderLayers,
-    setMapLayers
+    setMapLayers,
+    flushPendingLayerWrites
 } from './layer.operations.js';
 
 // ===== RE-EXPORTS FROM GROUP OPERATIONS =====

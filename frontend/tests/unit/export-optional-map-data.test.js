@@ -52,8 +52,15 @@ const h = vi.hoisted(() => ({
 vi.mock('@store', () => ({
     getColorUsage: vi.fn(async () => h.colorUsage),
     getMapNotes: vi.fn(async () => h.mapNotes),
-    getMapGroups: vi.fn(() => h.groups),
-    getLayers: vi.fn(() => h.layers),
+    // OS GEMEOS DE REPOSITORIO, e os nomes importam. Ate 2026-09-01 a tabela chamava
+    // `getMapGroups`/`getLayers`, que sao SINCRONOS e leem `memoryStore`, hidratado so para o
+    // mapa corrente: exportar sem visitar um mapa mandava as camadas dele como uma `default`
+    // inventada e a secao de grupos vazia. Este arquivo NAO prova a fonte (ele dubla o barril
+    // inteiro, entao qualquer nome que a tabela chame vira um duplo); quem prova e
+    // `tests/integration/export-le-do-repositorio.test.js`. O que ele prova aqui e o que sempre
+    // provou: que o predicado casa com o TIPO devolvido.
+    getMapGroupsFromDB: vi.fn(async () => h.groups),
+    getLayersRepo: vi.fn(async () => h.layers),
     getCesium3dDataForExport: vi.fn(async () => h.cesium3d),
     getStreetview360DataForExport: vi.fn(async () => h.streetview360),
     getMapTemporalConfig: vi.fn(async () => h.temporal),

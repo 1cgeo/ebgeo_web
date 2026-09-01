@@ -337,6 +337,26 @@ class LayerManager {
     // ===== LIFECYCLE / PERSISTENCE =====
 
     /**
+     * Descarrega TODA escrita de camada ainda represada pelo debounce.
+     *
+     * POR QUE ELA EXISTE, e por que e publica. A escrita de camada e adiada em 300 ms
+     * (`_persistLayersAsync` -> `DebouncedPersist.schedule`), entao quem le do REPOSITORIO logo
+     * depois de uma edicao le o estado ANTERIOR. O exportador passou a ler do repositorio (era
+     * memoria, e memoria so existe para o mapa corrente, o que apagava em silencio as camadas de
+     * todo mapa nao visitado na sessao); sem este descarregamento a troca compraria a perda
+     * grande pagando com uma pequena, a de renomear uma camada e exportar em seguida.
+     *
+     * O PRECEDENTE E INTERNO: `loadLayersToMemory` ja faz `flush` antes de ler, pelo mesmo
+     * motivo. Isto so promove aquele gesto a `flushAll`, para alcancar TODO mapa com escrita
+     * pendente e nao apenas um.
+     * @returns {Promise<void>}
+     */
+    async flushPendingWrites() {
+        await this._layersPersist.flushAll();
+        await this._activeLayerPersist.flushAll();
+    }
+
+    /**
      * Load layers from IndexedDB to in-memory cache.
      * @param {string} mapName
      */

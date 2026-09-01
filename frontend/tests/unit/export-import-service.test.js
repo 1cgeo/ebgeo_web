@@ -17,11 +17,26 @@ vi.mock('@store', () => ({
     getCurrentBaseLayer: vi.fn(async () => 'carta-ortoimagem'),
     getColorUsage: vi.fn(async () => ({ '#ff0000': 2 })),
     getMapNotes: vi.fn(async () => ({ title: 'Titulo', description: 'Desc' })),
-    // getMapGroups is SYNCHRONOUS (store/group.operations.js:89) and returns a PLAIN OBJECT
-    // keyed by group id (NOT a Map) — the exact shape the bug mishandled, on both the export
-    // and the additive-import side. importGroupsDirectly expects this same shape.
+    // QUATRO NOMES PARA DUAS COISAS, e a divisão é o assunto de 2026-09-01.
+    //
+    // O EXPORTADOR lê do REPOSITÓRIO (`getMapGroupsFromDB`, `getLayersRepo`), que é assíncrono e
+    // alcança QUALQUER mapa. Enquanto ele lia os gêmeos SÍNCRONOS abaixo, que devolvem
+    // `memoryStore` (hidratado só para o mapa corrente), exportar sem visitar um mapa mandava as
+    // camadas dele como uma `default` inventada e a seção de grupos vazia.
+    //
+    // O IMPORT ADITIVO continua lendo os síncronos, para detectar colisão de nome e de id contra
+    // o que já está na tela, e é por isso que os quatro precisam existir neste duplo.
+    //
+    // A forma devolvida é a mesma nos dois: OBJETO simples chaveado por id de grupo, nunca um
+    // `Map`, que é a forma que o defeito de 1f2b3428 tratou errado. `importGroupsDirectly`
+    // espera exatamente esta.
+    getMapGroupsFromDB: vi.fn(async () => ({ g1: { id: 'g1', name: 'Grupo 1', features: [{ type: 'point', id: 'p1' }] } })),
+    getLayersRepo: vi.fn(async () => [{ id: 'default', name: 'Padrão', order: 0, visible: true, locked: false, opacity: 1 }]),
     getMapGroups: vi.fn(() => ({ g1: { id: 'g1', name: 'Grupo 1', features: [{ type: 'point', id: 'p1' }] } })),
     getLayers: vi.fn(async () => [{ id: 'default', name: 'Padrão', order: 0, visible: true, locked: false, opacity: 1 }]),
+    // Descarrega a escrita adiada de camada antes de o documento ser montado. Sem ela no duplo,
+    // `buildExportDataObject` lança e TODO caso deste arquivo cai.
+    flushPendingLayerWrites: vi.fn(async () => {}),
     getCesium3dDataForExport: vi.fn(async () => ({ cameraPositions: {}, markers: [{ id: 'm1', tilesetId: 't1' }], measurements: [], viewsheds: [] })),
     getStreetview360DataForExport: vi.fn(async () => ({ orientations: {}, markers: [{ id: 's1', photoName: 'p' }] })),
     getMapTemporalConfig: vi.fn(async () => ({ ativo: true, modo: 'absoluto', unidade: 'h', inicio: 0, fim: 1000, origem: 0 })),
@@ -65,7 +80,7 @@ describe('ExportImportService.buildExportDataObject — .ebgeo coverage (P9/P11)
         expect(data.mapOrder).toEqual(['Mapa A']);
     });
 
-    it('REGRESSION: exports groups when getMapGroups returns a plain object', async () => {
+    it('REGRESSION: exports groups when getMapGroupsFromDB returns a plain object', async () => {
         // The bug: the export task used a Map-only check (`v?.size` / `Object.fromEntries`) against a
         // plain object, so groups NEVER reached the .ebgeo (local AND remote). Guard it: a non-empty
         // plain object MUST be exported, keyed by group id, matching importGroupsDirectly's contract.
