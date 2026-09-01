@@ -3,6 +3,7 @@ import pino from 'pino';
 import pretty from 'pino-pretty';
 import config from '../config.js';
 import { criarLogDiario } from './log-diario.js';
+import { elidirSql } from './elidir-sql.js';
 
 /**
  * Fields that must never reach the logs, whatever object they arrive inside.
@@ -34,6 +35,74 @@ export function scrubSecrets(value, depth = 0) {
 }
 
 /**
+ * Fields a PostgreSQL error carries that are FREE TEXT built out of the offending
+ * ROW, not out of the schema. `detail` on a CHECK violation reads
+ * `Failing row contains (…)` and prints the whole tuple, which for `users` includes
+ * the bcrypt `password_hash`; `where` is the PL/pgSQL call context and echoes the
+ * arguments a function was called with. Neither has a shape worth parsing, so they
+ * are replaced rather than elided, and the marker stays so a reader can tell the
+ * driver DID say something and that it was dropped on purpose.
+ *
+ * `constraint`, `table`, `column`, `schema` and `code` are NOT here: those name the
+ * rule that fired, carry no row data, and are the whole diagnostic value of a pg
+ * error.
+ */
+const CAMPOS_PG_COM_LINHA = ['detail', 'where'];
+
+/**
+ * Fields a pg-promise / pg error carries that are SQL text, already formatted with the
+ * values inlined (see utils/elidir-sql.js for why the values are in the text at all).
+ * `internalQuery` is the statement of an inner PL/pgSQL frame.
+ */
+const CAMPOS_PG_COM_SQL = ['query', 'internalQuery'];
+
+/**
+ * Strips the value-bearing fields the PostgreSQL driver hangs off an error.
+ *
+ * THE LEAK THIS CLOSES. `lib/query.js` of pg-promise stamps `err.query = err.query ||
+ * query` and `err.params = err.params || params` before rejecting, and pino's default
+ * err serializer copies EVERY enumerable property. With `pgFormatting` at its default
+ * `false` that `query` is the statement with the credential substituted into it, so
+ * every failed query wrote the api_key, the refresh-token hash or the password hash to
+ * the log at level `error` — always on, and 30 days of retention in `data/logs`. The
+ * `redact.paths` below could never have caught it: it matches by FIELD NAME, and the
+ * field is called `query`.
+ *
+ * `params` is DELETED rather than elided. On the paths where pg-promise fills it (the
+ * ones where its own formatting threw) it is the raw values array, and an array of
+ * values has no shape left to preserve once the values are gone.
+ *
+ * @param {Record<string, unknown>} base - the object pino's err serializer produced.
+ * @returns {Record<string, unknown>} the same object, mutated.
+ */
+function elidirCamposDoPg(base, depth = 0) {
+  if (depth > 3 || base === null || typeof base !== 'object') return base;
+
+  for (const campo of CAMPOS_PG_COM_SQL) {
+    if (typeof base[campo] === 'string') base[campo] = elidirSql(base[campo]);
+  }
+  for (const campo of CAMPOS_PG_COM_LINHA) {
+    if (base[campo] !== undefined && base[campo] !== null) base[campo] = '[REDACTED]';
+  }
+  delete base.params;
+
+  // pino's own serializer recurses into error-like properties (`aggregateErrors`, and
+  // any enumerable field holding an Error), and those inner objects come back with the
+  // driver's fields intact. Following them is not thoroughness for its own sake: a
+  // pg-promise transaction rejects with the FIRST error nested under the batch one.
+  if (Array.isArray(base.aggregateErrors)) {
+    base.aggregateErrors.forEach((e) => elidirCamposDoPg(e, depth + 1));
+  }
+  for (const chave of Object.keys(base)) {
+    const valor = base[chave];
+    if (valor && typeof valor === 'object' && !Array.isArray(valor) && typeof valor.stack === 'string') {
+      elidirCamposDoPg(valor, depth + 1);
+    }
+  }
+  return base;
+}
+
+/**
  * Error serializer that keeps pino's standard output but drops the payload that
  * validation errors drag along.
  *
@@ -52,9 +121,13 @@ export function scrubSecrets(value, depth = 0) {
  * Scrubbing by field NAME rather than by pino `redact` paths is deliberate: paths
  * require knowing the shape in advance, and the shape here (`err._original.password`)
  * is an internal of a third-party library that can change on any upgrade.
+ *
+ * THE SECOND LEAK IT CLOSES, found in 2026-08-31 and of the same family: a PostgreSQL
+ * error arrives carrying `query`, `params`, `detail`, `where` and `internalQuery`, and
+ * every one of them is a channel for the value that failed. See `elidirCamposDoPg`.
  */
 export function errSerializer(err) {
-  const base = pino.stdSerializers.err(err);
+  const base = elidirCamposDoPg(pino.stdSerializers.err(err));
 
   // Joi's copy of the whole submitted body. Never useful in a log, and the direct
   // carrier of the credential.
