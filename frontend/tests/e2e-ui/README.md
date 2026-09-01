@@ -93,6 +93,36 @@ trace-gated with a graceful fallback to the original store poll, so the existing
 keep working. Demo spec: `browser-collab-ledger.spec.js`. Tracing turns on via
 `?trace=sync` / `localStorage` (browser) and `EBGEO_TRACE=1` / `NODE_ENV=test` (backend).
 
+## O óbito do backend NÃO distingue queda de encerramento (2026-09-01)
+
+O arnês anota em disco quando o backend filho morre (`OBITO_FILE`, escrito pelo listener de
+`exit` em `backend.js`), e a mensagem `[ui-e2e] ATENCAO: o backend do harness MORREU durante a
+rodada` é o que impede uma queda no meio do caminho de se disfarçar de dezenas de casos falhando
+por elemento inexistente. Ele funciona, e foi ele que acusou uma morte real numa rodada de
+2026-09-01.
+
+**O que ele NÃO diz, e custou meia hora descobrir: no Windows, `code=1, signal=null` é a MESMA
+assinatura de um encerramento normal do arnês.** Matar o filho no teardown produz exatamente esses
+dois valores, então o óbito prova que o processo acabou e não prova COMO. Dois óbitos no arquivo da
+mesma porta, com poucos minutos de diferença, costumam ser duas rodadas distintas (a segunda
+sobrescreve a primeira), e não um respawn: `backend.js` tem UM `spawn` e nenhuma lógica de
+reinício.
+
+**O discriminador é o stderr.** Desde 2026-09-01 o backend escreve uma linha começando por
+`[queda]` com o tipo e a pilha ao morrer de exceção ou de rejeição não tratada, ANTES de tentar o
+log estruturado e independentemente dele (o handler está em `backend/src/index.js`; sob
+`NODE_ENV=test` o log estruturado fica mudo, então o stderr é o único canal). O `stdio` do filho é
+herdado, então essa linha cai na mesma saída da rodada. A regra de leitura:
+
+- óbito **com** `[queda]` na saída: o processo caiu por conta própria, e a pilha diz por quê;
+- óbito **sem** `[queda]`: o processo foi ENCERRADO de fora (teardown, outro processo, o sistema),
+  e procurar defeito no código do servidor é caçar o bug errado.
+
+A morte de 2026-09-01 caiu no segundo caso, não reproduziu (a rodada seguinte fechou 307/307,
+verde e sem flaky) e ficou sem causa identificada. Registrado aqui em vez de esquecido: se ela
+voltar, o primeiro passo é procurar `[queda]` na saída, e o segundo é conferir se alguma outra
+rodada da suíte estava viva ao mesmo tempo.
+
 ## A mega FLAKEIA em `pollPeerFeatureWhere`, e a taxa está medida (2026-09-01)
 
 Medido em duas rodadas de `npm run test:e2e:mega`, nesta ordem: a primeira REPROVOU nas duas

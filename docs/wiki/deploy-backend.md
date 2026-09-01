@@ -102,7 +102,7 @@ Armadilhas que custam dados:
 
 O mesmo NGINX serve o bundle web a partir de um symlink trocado a cada publicação, com uma armadilha própria: [[deploy-web]].
 
-`trust proxy` **não** é configurado no código. Atrás do NGINX, `req.ip` é o IP do proxy, o que degrada a parte IP da chave do rate limiter e agrupa todo o tráfego do link público sob um único IP ([[hardening-borda-api]], [[link-publico]]).
+`trust proxy` **é** configurado no código, por `TRUST_PROXY_HOPS` (default 1 hop, que casa com o NGINX único deste deploy), então `req.ip` é o endereço do CLIENTE e não o do proxy. Esta linha afirmou o contrário até 2026-09-01, e a inversão era do tipo que gera trabalho errado: ela dizia que a parte IP da chave do limitador estava degradada e que registrar endereço não serviria para nada, o oposto do que o código faz desde que o `app.set` de proxy existe. O que continua verdadeiro é a DEPENDÊNCIA: se o número de hops deixar de casar com o que está na frente, `req.ip` passa a devolver a MESMA resposta em toda linha, que é pior do que não ter o campo, porque tem cara de medição. É por isso que as validações de proxy do limitador ficam ligadas fora de teste ([[hardening-borda-api]], [[link-publico]]).
 
 ## Superfície anônima herdada da ordem de montagem
 

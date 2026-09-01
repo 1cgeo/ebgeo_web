@@ -31,6 +31,7 @@ O único lock com enforcement server-side é o do **mapa**:
 
 - Antes de aplicar uma op de alvo filho (o conjunto `LOCKABLE_CHILD_TARGETS`), o servidor consulta `maps.locked` e **recusa aquela op**, sem derrubar o lote (`lockedMapDenialReason`, `backend/src/modules/sync/sync.service.js`). Op de nível mapa não passa por esse gate, que é justamente o que permite ao dono destravar.
 - Deletar mapa exige `manage` ou acima; virar o `locked` é exclusivo do `owner` (`operationDenialReason`). Ambos são recusa por-op, não 403 do lote.
+- As duas, e as outras quatro da família, passaram a deixar UMA linha agregada por lote no log do servidor em 2026-09-01 (`refusedOpsLogPayload`). Antes disso a recusa por-op era invisível dos dois lados, que é o que tornava impossível confirmar ou negar um relato de fila congelada.
 
 > **Nota histórica.** Até `aec63f8` (2026-07-24) o mapa travado lançava `ConflictError` de dentro do `tx()` do lote inteiro e respondia **409**. Como o cliente não desenfileira lote recusado, uma op parada na fila offline mirando um mapa que foi travado nesse meio-tempo congelava o sync daquele usuário para TODOS os mapas, indefinidamente, com só um `console.warn`. É o caso que motivou os dois regimes da seção 6.
 

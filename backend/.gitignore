@@ -16,6 +16,10 @@ node_modules/
 data/images/
 data/test-images/
 data/e2e-images/
+# O Playwright usa OUTRO diretorio, escrito em frontend/tests/e2e-ui/backend.js (IMAGES_DIR),
+# e ele ficou de fora desta lista ate 2026-09-01: uma rodada de test:e2e:ui deixa dezenas de PNG
+# aqui, e um git add . os levava para o repositorio.
+data/ui-e2e-images/
 data/assets3d/
 data/sv360/
 data/sv360-tmp/

@@ -17,9 +17,11 @@ A separação não é gosto. Um arquivo JSONL rotativo é sequencial: ótimo par
 
 `backend/src/utils/log-diario.js`, ligado em `backend/src/utils/logger.js`. Um arquivo por dia, poda por idade, `LOG_DIR` / `LOG_RETENTION_DAYS` / `LOG_TO_FILE`.
 
-**A rotação é escrita à mão, e a alternativa recusada foi uma dependência** (`pino-roll`, da própria organização do pino). Decisão do dono, com o custo declarado: isto é código de infraestrutura no caminho onde a falha silenciosa apaga justamente o que se quer ler. O preço foi pago em desenho: o módulo é puro onde dá, recebe relógio e `fs` por injeção, e nunca engole erro sem falar. As três propriedades estão no `fileoverview` dele e cada uma é a lápide de um jeito ingênuo de escrever isso.
+**A rotação é escrita à mão, e a alternativa recusada foi uma dependência** (`pino-roll`, da própria organização do pino). Decisão do dono, com o custo declarado: isto é código de infraestrutura no caminho onde a falha silenciosa apaga justamente o que se quer ler. O preço foi pago em desenho: o módulo é puro onde dá, recebe relógio e `fs` por injeção, e nunca engole erro sem falar. As propriedades dele estão no `fileoverview`, e cada uma é a lápide de um jeito ingênuo de escrever isso. Elas eram três e passaram a ser quatro em 2026-09-01, quando o fechamento do arquivo ganhou prazo; a contagem saiu daqui de propósito, porque número em prosa envelhece calado e o `fileoverview` é a fonte.
 
 **O arquivo vale em desenvolvimento também**, e essa é a parte que se lê como descuido. Não é: o incidente que motivou tudo aconteceu em DEV, e a mensagem do servidor morreu junto com a rolagem de um terminal. Em teste ele fica desligado (e ali o nível já é `silent`).
+
+**O arquivo é DESCARREGADO na saída, e isso não era verdade até 2026-09-01.** `process.exit` com fila pendente no fluxo descarta o que ainda não foi para o disco, e o que fica pendente no fim é justamente o registro do desligamento. Hoje `descarregarLog` espera o fluxo terminar, sob prazo, e o log é o ÚLTIMO a fechar na sequência de desligamento, porque tudo o que os outros disserem ao morrer ainda precisa caber no arquivo. Duas coisas medidas e declaradas: o `multistream` do pino **não tem `flush`**, e o `flushSync` dele só alcança destino que tenha um, o que nenhum dos três nossos tem, então quem descarrega de fato é o nosso fechamento; e o **stdout fica de fora**, sem descarga síncrona exposta, de modo que num cano a última linha do terminal ainda pode ser truncada. O arquivo é o destino que esta camada existe para salvar.
 
 **O volume do compose é o ponto todo, não um detalhe.** Sem `ebgeo_logs:/app/data/logs` o `.jsonl` vive na camada de escrita do container e some no `up` seguinte, ou seja, some no deploy, que é precisamente quando se quer comparar o antes e o depois.
 
@@ -58,7 +60,7 @@ As decisões que não se adivinham lendo:
 
 Ela não vai para tabela nenhuma, e isso é decisão: uma série temporal de baixa cardinalidade no arquivo é consultável pelas mesmas ferramentas do resto, e uma tabela a mais seria uma segunda verdade para manter.
 
-**O limite honesto, escrito também no `.env.example`: um amostrador dentro do processo não testemunha a própria morte.** OOM, event loop travado e máquina reiniciada não produzem amostra dizendo isso, produzem **silêncio**. O que revela a queda é o **buraco na série**, então a pergunta certa é "quantas amostras faltaram e quando", nunca "alguma amostra disse que caiu". Pelo mesmo motivo o boot **loga o motivo** quando decide não ligar o amostrador: sem isso, "não há amostra no log" seria indistinguível de "o amostrador quebrou".
+**O limite honesto, escrito também no `.env.example`: um amostrador dentro do processo não testemunha a própria morte.** OOM, SIGKILL, event loop travado e máquina reiniciada não produzem amostra dizendo isso, produzem **silêncio**. O recorte ficou MENOR em 2026-09-01, e vale saber qual: exceção e rejeição não tratadas passaram a deixar uma linha `fatal` com o marcador `queda` no mesmo arquivo, por `payloadDeQueda`, então essas duas mortes agora se explicam. O que sobra para o silêncio é a lista acima, e para ela o que revela a queda é o **buraco na série**, então a pergunta certa é "quantas amostras faltaram e quando", nunca "alguma amostra disse que caiu". Pelo mesmo motivo o boot **loga o motivo** quando decide não ligar o amostrador: sem isso, "não há amostra no log" seria indistinguível de "o amostrador quebrou".
 
 **A pergunta que ele existe para responder passou a ter comando em 2026-08-31**: `npm run diag -- saude`, sobre `resumirAmostras`. Enquanto ele não existiu, `MARCADOR_AMOSTRA` era um símbolo exportado para um leitor que nunca nasceu, e a decisão de que o sinal de queda é o buraco na série estava escrita nos dois lugares sem meio de ser exercida. Decisão sem instrumento é indistinguível de decisão esquecida.
 
@@ -80,6 +82,7 @@ Quatro coisas que não se adivinham lendo o código:
 - **`assinatura` tem teto de 300 porque é chave única em btree**, que recusa valor acima de ~2.700 bytes. Sem o teto, o modo de falha seria um 500 no caminho que existe para registrar falhas.
 - **`atlasId` só viaja se for UUID.** Um atlas LOCAL é chaveado por nome, e mandá-lo derrubaria o envio inteiro por causa do campo mais dispensável dele.
 - **`user_id` é `ON DELETE SET NULL`**, divergindo do "FK sem `ON DELETE`" que a casa usa em toda parte: telemetria não pode fazer a exclusão de uma conta falhar.
+- **A tabela TEM prazo de validade desde 2026-09-01**, e antes não tinha: nenhum `DELETE` existia no pacote inteiro, e a rota que a alimenta aceita anônimo. A poda usa a MESMA idade do arquivo de log (`LOG_RETENTION_DAYS`), porque telemetria de defeito envelhece junto com o log do servidor que a explica, e roda de forma OPORTUNISTA na própria escrita (`talvezPodar`), no máximo uma vez por hora, sem agendador e sem timer: se ninguém escreve, nada cresce, logo nada precisa ser podado. O critério é `ultima_em` e não `primeira_em`, porque uma assinatura vista pela primeira vez há um ano e ainda ocorrendo hoje é o dado mais valioso da tabela. O ponto cego da escolha, declarado: uma tabela que para de receber escrita guarda para sempre as últimas linhas vencidas, ou seja, a poda limita CRESCIMENTO e não IDADE.
 
 Limitação conhecida: o campo `release` carrega hoje a versão do `package.json`, que é constante entre builds e **não distingue deploys**. Enquanto for assim, ele não serve para dizer "isto foi corrigido na versão seguinte".
 
@@ -93,7 +96,7 @@ Aba **Diagnóstico** em `admin.html`, só para o administrador. Ela consome quat
 
 **Um número da tela parece contradizer o outro, e não contradiz:** o `erros` de `/diag/status` conta REGISTROS (uma requisição falha produz duas linhas de log), enquanto `/diag/erros` conta defeitos distintos, porque funde por `reqId` antes de agrupar. É a mesma conta que o CLI faz, mantida igual de propósito.
 
-O resto do desenho é da tela e está nos `fileoverview` dos dois arquivos dela: a contagem manda (peso visual em escada logarítmica, porque mil ocorrências e uma não podem ter o mesmo tamanho), o p95 é a coluna com peso (é ele que corresponde a "está lento", não a média), e o vazio NOMEIA a janela, senão afirmaria sobre a história inteira do sistema.
+O resto do desenho é da tela e está nos `fileoverview` dos dois arquivos dela: o peso visual é escada logarítmica, porque mil e um não podem ter o mesmo tamanho, o p95 é a coluna com peso (é ele que corresponde a "está lento", não a média), e o vazio NOMEIA a janela, senão afirmaria sobre a história inteira do sistema.
 
 ## O uso
 
@@ -110,6 +113,15 @@ Três armadilhas que o código não conta sozinho:
 **O regime de cada métrica é campo, não frase** (`regime: HOJE|PERIODO` em `uso-phrases.js`): contas ativas e atlas vivos são de HOJE, o resto é do período. Escrever isso à mão em oito ladrilhos é a forma de errar um sem nada ficar vermelho, e rotular um estoque acumulado como se fosse do período infla o número sem parecer defeito.
 
 Sobre o CUSTO: as consultas do resumo perguntam pelo período SEM atlas, e o índice que existia (`idx_operations_atlas_created`) é composto com `atlas_id` na frente, então não guiava nenhuma delas. Quatro caíam em varredura sequencial na tabela que mais cresce do sistema; `backend/src/database/migrations/015_uso_indice_operations.sql` fecha as quatro, e o cabeçalho dele carrega as medições e o custo do lock.
+
+## O que o servidor registra, e o que ele registrava até 2026-09-01
+
+Quatro caminhos passaram a falar no mesmo dia, e a razão de estarem juntos aqui é que os quatro eram o mesmo defeito: o produto sabia de um fato e não o escrevia em lugar nenhum.
+
+- **A recusa POR OPERAÇÃO do sync** (`refusedOpsLogPayload`, `backend/src/modules/sync/sync.service.js`) é o único caminho em que o produto descarta trabalho de propósito, responde 200 e não deixava rastro. A linha é UMA por lote, agregada por motivo e por alvo, com contagem, sem payload. Ela sai em `warn` **sem `err` e sem `statusCode`**, ou seja de propósito FORA do `diag -- erros`: recusar escrita em mapa travado é o produto funcionando, e despejar isso no relatório de erros soterraria o 500 raro sob o comportamento correto frequente. Lê-se com `diag -- linhas --filtro`, e é por isso que a mensagem dela é um símbolo exportado e escrita sem acento.
+- **O endereço do cliente** entra em toda linha de requisição (`clientAddress`, `backend/src/middleware/request-logger.js`). Ele é o único lugar onde a pergunta "quem está tentando entrar" tem resposta, porque a ação LOGIN_FAILED não existe: ela é uma IMPOSSIBILIDADE de esquema, declarada na própria baseline de auditoria, já que o ator é NOT NULL e numa tentativa falha não há ator. A contra-intuição que decide como se lê: quem revela uma varredura de muitas contas NÃO é o 429, porque a chave daquele limitador inclui o usuário e mil contas tentadas uma vez cada são mil baldes com um acerto; quem revela é o 401 repetido sob o mesmo endereço.
+- **A recusa do limitador** (`limiterDenialPayload`, `backend/src/middleware/rate-limit.js`) fala UMA vez por janela, e não por recusa, senão o limitador viraria o amplificador da rajada dentro do disco. A agregação é DERIVADA do contador que o próprio limitador já mantém, nunca guardada num mapa, que trocaria a rajada no disco por uma no heap.
+- **O handler de erro do 360** (`sv360ErrorLogPayload`) era mudo, e um erro daquele módulo saía sem mensagem e sem pilha, colapsando numa assinatura genérica. Ele agora loga na MESMA gramática do handler global (mesmo `reqId`, mesma URL redigida), porque divergir ali produziria assinatura própria e quebraria a fusão, que é pior que o silêncio: passaria a contar errado.
 
 ## O que ainda não existe
 
