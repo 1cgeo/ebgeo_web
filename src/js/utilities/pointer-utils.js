@@ -57,18 +57,6 @@ export function getTouchesMidpoint(touches) {
 }
 
 /**
- * Calculates the angle between two touches (for rotation gestures).
- * @param {TouchList} touches
- * @returns {number} Angle in degrees
- */
-export function getTouchesAngle(touches) {
-    if (touches.length < 2) return 0;
-    const dx = touches[1].clientX - touches[0].clientX;
-    const dy = touches[1].clientY - touches[0].clientY;
-    return Math.atan2(dy, dx) * (180 / Math.PI);
-}
-
-/**
  * Calculates the distance between two touches (for pinch-zoom gestures).
  * @param {TouchList} touches
  * @returns {number}
@@ -183,7 +171,13 @@ export function createTwoFingerTapHandler(element, callback, options = {}) {
             currentMidpoint.y - twoFingerStart.midpoint.y
         );
 
-        if (dist > maxDistance) {
+        // The midpoint alone does not move during a symmetric pinch, so a fast
+        // pinch used to end as a two-finger tap. Spread change cancels it too.
+        const spreadChange = Math.abs(
+            getTouchesDistance(e.touches) - twoFingerStart.distance
+        );
+
+        if (dist > maxDistance || spreadChange > maxDistance) {
             twoFingerStart = null;
         }
     }
@@ -214,76 +208,6 @@ export function createTwoFingerTapHandler(element, callback, options = {}) {
         element.removeEventListener('touchmove', onTouchMove);
         element.removeEventListener('touchend', onTouchEnd);
         element.removeEventListener('touchcancel', onTouchCancel);
-    };
-}
-
-/**
- * Creates a handler for two-finger drag gestures (rotation/pitch).
- * @param {HTMLElement} element
- * @param {Object} callbacks
- * @param {Function} callbacks.onStart - Called with (initialState)
- * @param {Function} callbacks.onMove - Called with (angleDelta, midpointDelta, currentMidpoint)
- * @param {Function} callbacks.onEnd - Called when gesture ends
- * @returns {Function} Cleanup function to remove all listeners
- */
-export function createTwoFingerDragHandler(element, callbacks) {
-    const { onStart, onMove, onEnd } = callbacks;
-
-    let initialState = null;
-    let isActive = false;
-
-    function onTouchStart(e) {
-        if (e.touches.length !== 2) return;
-
-        e.preventDefault();
-        isActive = true;
-
-        initialState = {
-            angle: getTouchesAngle(e.touches),
-            midpoint: getTouchesMidpoint(e.touches),
-            distance: getTouchesDistance(e.touches)
-        };
-
-        onStart?.(initialState);
-    }
-
-    function onTouchMove(e) {
-        if (!isActive || e.touches.length !== 2 || !initialState) return;
-
-        e.preventDefault();
-
-        const currentAngle = getTouchesAngle(e.touches);
-        const currentMidpoint = getTouchesMidpoint(e.touches);
-
-        const angleDelta = currentAngle - initialState.angle;
-        const midpointDelta = {
-            x: currentMidpoint.x - initialState.midpoint.x,
-            y: currentMidpoint.y - initialState.midpoint.y
-        };
-
-        onMove?.(angleDelta, midpointDelta, currentMidpoint);
-    }
-
-    function onTouchEnd(e) {
-        if (!isActive) return;
-
-        if (e.touches.length < 2) {
-            isActive = false;
-            initialState = null;
-            onEnd?.();
-        }
-    }
-
-    element.addEventListener('touchstart', onTouchStart, { passive: false });
-    element.addEventListener('touchmove', onTouchMove, { passive: false });
-    element.addEventListener('touchend', onTouchEnd);
-    element.addEventListener('touchcancel', onTouchEnd);
-
-    return function cleanup() {
-        element.removeEventListener('touchstart', onTouchStart);
-        element.removeEventListener('touchmove', onTouchMove);
-        element.removeEventListener('touchend', onTouchEnd);
-        element.removeEventListener('touchcancel', onTouchEnd);
     };
 }
 

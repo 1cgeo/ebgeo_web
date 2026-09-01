@@ -369,6 +369,20 @@
     touch-action: manipulation;
 }
 
+/**
+ * The vendored MapLibre stylesheet drives touch-action from the
+ * .maplibregl-touch-zoom-rotate / .maplibregl-touch-drag-pan classes, which are
+ * removed whenever something calls dragPan.disable() (drawing tools, the move
+ * handler). Losing the class mid-gesture flips touch-action back to
+ * "pan-x pan-y" and the browser cancels the pinch. Pinning it here keeps the
+ * gesture ours for the whole map surface; specificity (1,1,0) beats the
+ * vendor's strongest touch-action selector, which is (0,3,0).
+ */
+#map-sig .maplibregl-canvas-container,
+#map-sig .maplibregl-canvas {
+    touch-action: none;
+}
+
 /* ===== MARKER PREVIEW POPUPS (shared by 3D Model and Street View) ===== */
 
 .model-preview-popup-container,

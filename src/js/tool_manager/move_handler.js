@@ -227,6 +227,11 @@ class MoveHandler {
         // Only handle left mouse button
         if (e.originalEvent.button !== 0) return;
 
+        // Ctrl/Meta and Shift belong to the camera gesture (pitch/bearing).
+        // Without this guard the feature moves while the map rotates, and
+        // _endDrag re-enables dragPan in the middle of the rotation.
+        if (e.originalEvent.ctrlKey || e.originalEvent.metaKey || e.originalEvent.shiftKey) return;
+
         this._startDrag(e);
 
         if (this.isDragging) {

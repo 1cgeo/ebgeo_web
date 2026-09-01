@@ -123,8 +123,23 @@ export function createMap() {
         maxZoom: config.map2d.maxZoom,
         maxPitch: config.map2d.maxPitch,
         bounds: config.map2d.bounds,
-        validateStyle: false
+        validateStyle: false,
+        // Handlers we never want. Declared here rather than on 'load' so there
+        // is no window in which boxZoom/dragRotate/doubleClickZoom are live.
+        boxZoom: false,
+        dragRotate: false,
+        doubleClickZoom: false,
+        // Two-finger pitch fights pinch-zoom: MapLibre's touchPitch engages
+        // after 2 px of parallel vertical movement and then locks zoom and
+        // rotation out for the rest of the gesture, which is what made pinch
+        // on a tablet feel like it tilted instead of zooming.
+        touchPitch: false
     });
+
+    // Touch rotation stays ON: MapLibre only engages it past a real twist
+    // (~10-19 deg depending on finger spread), the same as Google Maps.
+    // If accidental rotation is still reported on tablets, the line to add is:
+    //   map.touchZoomRotate.disableRotation();
 
     map.setSourceTileLodParams(...config.map2d.sourceTileLodParams);
     if (config.map2d.maxBounds) {
@@ -748,9 +763,8 @@ export function initializeApp(map, controlsPromise) {
     // Map load handler — fires when MapLibre finishes rendering tiles.
     // Must be registered synchronously to avoid race with async createControls().
     map.on('load', async () => {
-        map.doubleClickZoom.disable();
-        map.boxZoom.disable();
-        map.dragRotate.disable();
+        // boxZoom / dragRotate / doubleClickZoom / touchPitch are off from the
+        // Map constructor (see createMap), not from here.
 
         // Wait for both IndexedDB state and controls to be ready
         const [, controls] = await Promise.all([statePromise, controlsPromise]);
