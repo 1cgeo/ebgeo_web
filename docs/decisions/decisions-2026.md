@@ -1607,9 +1607,7 @@ da 6.3 fica [em obra], com os três itens acima nomeados.
 
 **Status:** aceita.
 
----
-
-## 2026-09-01 — O índice de regime vencido tem TETO DE IDADE, e passado ele o 3D fecha INTEIRO
+### 2026-09-01: o índice de regime vencido ganha teto de idade, e passado ele o 3D fecha inteiro
 
 **O problema.** Os índices de regime de acesso (`tile-regime.js` e `assets3d-regime.js`) caem para o
 último índice bom quando a reconstrução falha, e seguem servindo. Isso é resiliência deliberada: uma
