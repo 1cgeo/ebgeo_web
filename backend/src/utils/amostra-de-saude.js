@@ -48,6 +48,12 @@
  * `diag-consulta.js`, porque casar pela `msg` deixaria o relatório calado e correto na
  * aparência no dia em que alguém reescrevesse a frase.
  *
+ * O NÍVEL DA LINHA É CONTRATO COM O RELATÓRIO, não estilo: `ehErro` (`diag-consulta.js`)
+ * só reconhece um registro como erro por `level >= 50`, por ter `err` ou por
+ * `statusCode >= 400`, e a amostra não tem os dois últimos. Por isso banco fora sai em
+ * `error` e a amostra saudável fica em `info`. O porquê, a alternativa recusada e o que
+ * acontece com `prazo` estão no comentário do ponto de emissão, em `amostrarAgora`.
+ *
  * REGRA ÚNICA DE CAMPO AUSENTE: um campo que não pôde ser medido **não aparece** na linha.
  * Uma convenção só para a linha inteira (em vez de `null` num campo e ausência noutro) é o
  * que permite ao leitor concluir "não foi possível medir" sem consultar tabela nenhuma.
@@ -264,12 +270,43 @@ export function criarAmostradorDeSaude({
         uptimeS: lerUptime(),
         sockets: contarSockets ? contarSockets() : null,
       });
-      // Banco fora é `warn`, não `error`: é um fato observado sobre a dependência, e o
-      // relatório desta casa já conta `warn` como erro (`ehErro` em diag-consulta.js), então
-      // ele não some da consulta por ser warn. `error` fica reservado para o amostrador
-      // quebrado, que é outra coisa e precisa se distinguir na saída.
+      // BANCO FORA SAI EM `error`, E QUEM DECIDE ISSO É O `ehErro` REAL, não a impressão de
+      // gravidade. `ehErro` (`diag-consulta.js`) classifica um registro por UM de três
+      // termos: `level >= 50`, a presença do campo `err`, ou `statusCode >= 400`. Esta linha
+      // não tem os dois últimos, e nem poderia: o texto da falha mora em `banco.erro`, que é
+      // um nome de campo diferente de `err`. Em `warn`, como esteve até 2026-08-31, ela não
+      // satisfazia termo nenhum, e o efeito medido foi o pior possível para uma camada de
+      // observabilidade: `npm run diag -- erros` enxergava o amostrador QUEBRADO (que carrega
+      // `err`) e NÃO enxergava o banco de dados caído. Isso não é o limite declarado no topo
+      // deste arquivo (o amostrador não testemunha a própria morte); a queda do Postgres é
+      // justamente o caso que ele CONSEGUE testemunhar, e estava deixando escapar.
+      //
+      // O comentário que morava aqui justificava o `warn` afirmando que "o relatório desta
+      // casa já conta warn como erro". Isso nunca foi verdade, e a afirmação é o defeito:
+      // ela fez a escolha de nível parecer conferida, então ninguém foi ler `ehErro`.
+      //
+      // A ALTERNATIVA RECUSADA foi manter o `warn` e acrescentar um campo `err` à linha para
+      // satisfazer o segundo termo. Ela cria dois nomes para a mesma falha na mesma linha, e
+      // `err` não é um campo qualquer no lado do relatório: `fundirPorRequisicao` e
+      // `assinaturaDeErro` o tratam como objeto de erro com `type` e `message`, então a
+      // amostra passaria a se parecer com uma requisição falha. Mudar o NÍVEL não mexe na
+      // forma da linha nem na regra de campo ausente, e é o termo que o `ehErro` cobra
+      // primeiro.
+      //
+      // PRAZO E ERRO SAEM OS DOIS EM `error`, de propósito. A distinção da propriedade (3)
+      // continua inteira e continua onde sempre esteve, no campo `banco.motivo`, que é o que
+      // diz se a providência é levantar o Postgres ou destravar o pool. O nível responde a
+      // OUTRA pergunta ("isto entra no relatório de erros?") e para ela os dois têm a mesma
+      // resposta: o servidor não está falando com o banco. Deixar `prazo` em `warn` esconderia
+      // da consulta exatamente o incidente que a propriedade (3) existe para testemunhar, o
+      // pool esgotado, que seria este mesmo defeito de novo, só que mais estreito.
+      //
+      // A AMOSTRA SAUDÁVEL FICA EM `info`, o nível baixo de hoje. Ela sai a cada intervalo,
+      // para sempre, e o que denuncia a queda nela é o BURACO na série, não o nível. Promovê-la
+      // faria de todo intervalo saudável um erro, e como o relatório agrupa por assinatura, a
+      // campeã absoluta da lista de erros passaria a ser a linha que diz que está tudo bem.
       if (banco && banco.ok) registrar.info(linha, MSG_AMOSTRA);
-      else registrar.warn(linha, MSG_AMOSTRA);
+      else registrar.error(linha, MSG_AMOSTRA);
       return linha;
     } catch (err) {
       // Chega aqui quem quebrou no CAMINHO da amostra: `process.memoryUsage` de um processo

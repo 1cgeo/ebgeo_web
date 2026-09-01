@@ -13,7 +13,18 @@
 //   (3) a sonda ao banco tem prazo PRÓPRIO, e os três desfechos (ok / erro / prazo) são
 //       distinguíveis — colapsar erro e prazo apagaria a diferença entre "o Postgres caiu" e
 //       "o nosso pool está entupido", que pedem providências opostas;
-//   (4) o gate de ambiente: em teste ela não liga, e o motivo é nomeado.
+//   (4) o gate de ambiente: em teste ela não liga, e o motivo é nomeado;
+//   (5) o NÍVEL da linha, medido pelo `ehErro` REAL de `src/utils/diag-consulta.js`, e nunca
+//       pelo número. `ehErro` reconhece um registro por `level >= 50`, por ter o campo `err`
+//       ou por `statusCode >= 400`, e a amostra não tem os dois últimos (o texto da falha
+//       mora em `banco.erro`, que é outro nome de campo). Enquanto banco fora saía em
+//       `warn`, a amostra que dizia "o Postgres está fora" era INVISÍVEL para
+//       `npm run diag -- erros`, e a do amostrador quebrado aparecia: o relatório enxergava
+//       o termômetro quebrado e não o incêndio. Por isso os casos daqui importam os DOIS
+//       módulos no mesmo processo e perguntam ao `ehErro` de verdade, no espírito de
+//       `frontend/tests/unit/sync-trace-espelha-backend.test.js`. Asserir `level === 50`
+//       ficaria verde no dia em que o critério do relatório mudasse, que é exatamente a
+//       divergência que causou o defeito.
 //
 // Relógio, temporizador, sonda, leituras e logger são todos INJETADOS: nada aqui espera
 // tempo real nem toca banco, que é a razão de o módulo ter sido escrito com essas costuras.
@@ -28,10 +39,15 @@
 //   - troque `if (isTest)` por `if (isTest && !ativa)` em `deveAmostrar` e o caso do gate de
 //     ambiente cai (é a forma exata de "ligar em teste sem querer");
 //   - devolva `{ emUso: NaN }` em vez de `null` em `descreverPool` e o caso da regra de campo
-//     ausente cai.
+//     ausente cai;
+//   - volte o `registrar.error` do ramo de banco fora para `registrar.warn` (a forma exata do
+//     defeito de origem) e os dois casos de CLASSIFICAÇÃO de banco fora caem, com a mensagem
+//     "banco fora tem de entrar no relatório de erros ...". Conferido em 2026-08-31.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import pino from 'pino';
+import { ehErro } from '../../src/utils/diag-consulta.js';
 import {
   MARCADOR_AMOSTRA,
   descreverPool,
@@ -45,12 +61,18 @@ import {
 /** Um logger de mentira que guarda o que recebeu, por nível. */
 function loggerFalso({ falharEm = null } = {}) {
   const linhas = { info: [], warn: [], error: [] };
+  // As emissões em ORDEM e COM o nível, que é o que `comoNoArquivo` precisa para remontar o
+  // registro. As listas por nível acima ficam, porque é por elas que se lê "saiu uma linha, e
+  // só uma".
+  const emitidas = [];
   const registrar = (nivel) => (obj, msg) => {
     if (falharEm === nivel) throw new Error('logger quebrado');
     linhas[nivel].push({ obj, msg });
+    emitidas.push({ nivel, obj, msg });
   };
   return {
     linhas,
+    emitidas,
     info: registrar('info'),
     warn: registrar('warn'),
     error: registrar('error'),
@@ -80,6 +102,21 @@ function temporizadorFalso({ dispararNaHora = false } = {}) {
       cancelados.push(id);
     },
   };
+}
+
+/**
+ * O registro como ele CHEGA ao `.jsonl` diário, a partir do que o logger falso recebeu.
+ *
+ * É a ponte que o teste precisa atravessar para perguntar ao `ehErro` de verdade: o
+ * amostrador chama `registrar.error(obj, msg)`, e quem transforma isso numa linha de arquivo
+ * é o pino, que espalha o objeto no topo do registro e carimba `level` NUMÉRICO. O número vem
+ * de `pino.levels.values`, do próprio pino, e não digitado aqui: 40 e 50 escritos à mão
+ * seriam a minha lembrança do contrato, não o contrato. (`src/utils/logger.js` não define
+ * `formatters.level`, então o `level` do arquivo é mesmo o número; um `formatters` que o
+ * transformasse em string desligaria o primeiro termo do `ehErro` sem nada ficar vermelho.)
+ */
+function comoNoArquivo({ nivel, obj, msg }) {
+  return { level: pino.levels.values[nivel], time: Date.now(), msg, ...obj };
 }
 
 /** Deixa a fila de microtasks/immediates rodar, sem esperar tempo de relógio. */
@@ -287,15 +324,17 @@ describe('amostra de saúde — o amostrador', () => {
     });
   });
 
-  it('banco fora: MESMO marcador, nível `warn` (é fato observado, não amostrador quebrado)', async () => {
+  it('banco fora: UMA linha, com o MESMO marcador e o motivo preservado', async () => {
     const { amostrador, registrar } = montarAmostrador({
       sondarBanco: async () => ({ ok: false, ms: 5000, motivo: 'prazo' }),
     });
 
     const linha = await amostrador.amostrarAgora();
 
-    assert.equal(registrar.linhas.warn.length, 1);
-    assert.equal(registrar.linhas.error.length, 0);
+    // Uma emissão, não duas. O que ela vale para o relatório é o bloco de CLASSIFICAÇÃO
+    // adiante, que pergunta ao `ehErro` em vez de contar níveis.
+    assert.equal(registrar.emitidas.length, 1);
+    assert.equal(registrar.linhas.info.length, 0);
     assert.equal(linha.amostra, MARCADOR_AMOSTRA);
     assert.equal(linha.banco.motivo, 'prazo');
   });
@@ -356,6 +395,75 @@ describe('amostra de saúde — o amostrador', () => {
     amostrador.parar();
     assert.equal(relogio.cancelados.length, 1);
     assert.equal(relogio.cancelados[0], relogio.agendados[0]);
+  });
+
+  it('CLASSIFICAÇÃO: banco fora por ERRO entra no relatório de erros', async () => {
+    const { amostrador, registrar } = montarAmostrador({
+      sondarBanco: async () => ({ ok: false, ms: 12, motivo: 'erro', erro: 'ECONNREFUSED' }),
+    });
+
+    await amostrador.amostrarAgora();
+
+    assert.equal(registrar.emitidas.length, 1);
+    const reg = comoNoArquivo(registrar.emitidas[0]);
+    // Os dois termos que o `ehErro` NÃO tem como usar aqui, ditos em voz alta: sem isto, um
+    // caso verde não distinguiria "o nível está certo" de "alguém acrescentou um campo
+    // `err` à linha", que é a alternativa recusada no comentário do amostrador.
+    assert.equal(reg.err, undefined, 'o texto da falha mora em `banco.erro`, não em `err`');
+    assert.equal(reg.statusCode, undefined);
+    assert.equal(
+      ehErro(reg),
+      true,
+      'banco fora tem de entrar no relatório de erros: em warn, a amostra que diz que o Postgres caiu é invisível para o diag'
+    );
+  });
+
+  it('CLASSIFICAÇÃO: banco fora por PRAZO também entra (pool entupido não pode ser mudo)', async () => {
+    const { amostrador, registrar } = montarAmostrador({
+      sondarBanco: async () => ({ ok: false, ms: 5000, motivo: 'prazo' }),
+    });
+
+    await amostrador.amostrarAgora();
+
+    const reg = comoNoArquivo(registrar.emitidas[0]);
+    assert.equal(
+      ehErro(reg),
+      true,
+      'banco fora tem de entrar no relatório de erros: o prazo é o incidente que a propriedade (3) existe para testemunhar'
+    );
+    // A distinção da propriedade (3) não se perde por os dois desfechos caírem no mesmo
+    // relatório: ela vive no CAMPO, que é onde a providência se lê.
+    assert.equal(reg.banco.motivo, 'prazo');
+  });
+
+  it('CLASSIFICAÇÃO: a amostra SAUDÁVEL não é erro (senão todo intervalo vira um)', async () => {
+    const { amostrador, registrar } = montarAmostrador({
+      sondarBanco: async () => ({ ok: true, ms: 3 }),
+    });
+
+    await amostrador.amostrarAgora();
+
+    const reg = comoNoArquivo(registrar.emitidas[0]);
+    assert.equal(
+      ehErro(reg),
+      false,
+      'amostra saudável classificada como erro faria do firehose a campeã do relatório'
+    );
+  });
+
+  it('CLASSIFICAÇÃO: o AMOSTRADOR quebrado continua sendo erro', async () => {
+    const { amostrador, registrar } = montarAmostrador({
+      sondarBanco: async () => { throw new Error('sonda quebrada'); },
+    });
+
+    await amostrador.amostrarAgora();
+
+    const reg = comoNoArquivo(registrar.emitidas[0]);
+    assert.equal(reg.falhou, true);
+    // Este passa por DOIS termos do `ehErro` (o `err` e o nível), e é de propósito: era o
+    // ÚNICO desfecho que o relatório enxergava, e o contraste com o outro é que dava a
+    // leitura errada de "o amostrador quebra e o banco nunca cai".
+    assert.equal(ehErro(reg), true);
   });
 
   it('sem contarSockets, a linha simplesmente não fala de sockets', async () => {
