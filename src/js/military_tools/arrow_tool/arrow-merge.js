@@ -8,7 +8,7 @@ import AddArrowGeometry from './add_arrow_geometry.js';
  * Per-branch geometric properties extracted from an arrow feature
  */
 const BRANCH_GEOMETRIC_PROPS = [
-    'baseCoordinates', 'width', 'showArrowHead',
+    'baseCoordinates', 'width', 'showArrowHead', 'doubleHeaded',
     'headLengthRatio', 'airmobile', 'airmobilePosition'
 ];
 
@@ -123,6 +123,7 @@ export async function mergeArrows(features, map, selectionManager) {
         baseCoordinates: allBranches[0].baseCoordinates,
         width: allBranches[0].width,
         showArrowHead: allBranches[0].showArrowHead,
+        doubleHeaded: allBranches[0].doubleHeaded === true,
         headLengthRatio: allBranches[0].headLengthRatio,
         airmobile: allBranches[0].airmobile,
         airmobilePosition: allBranches[0].airmobilePosition
@@ -229,6 +230,7 @@ export async function splitArrows(mergedFeature, map, selectionManager) {
                 baseCoordinates: branch.baseCoordinates,
                 width: branch.width,
                 showArrowHead: branch.showArrowHead !== false,
+                doubleHeaded: branch.doubleHeaded === true,
                 headLengthRatio: branch.headLengthRatio || 1.5,
                 airmobile: branch.airmobile || false,
                 airmobilePosition: branch.airmobilePosition || 0.7

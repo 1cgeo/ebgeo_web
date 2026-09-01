@@ -7,9 +7,59 @@ import { BaseGeometry } from '@tools';
  * Handles all geometric calculations and handle management for arrow features
  */
 class AddArrowGeometry extends BaseGeometry {
+    /**
+     * Cosmetic budget for the two heads of a double-headed arrow, as a fraction
+     * of the axis length. Only consulted when `doubleHeaded` is on: a
+     * single-headed arrow keeps the unclamped nominal head it always had.
+     */
+    static MAX_TOTAL_HEAD_LENGTH_RATIO = 1.0;
+
     constructor(properties = {}) {
         super(properties);
         this.MIN_DISTANCE_METERS = 10;
+    }
+
+    /**
+     * Compute the three points of an arrow head around an anchor.
+     * @param {Array} anchor - Anchor coordinate [lng, lat] (the axis endpoint)
+     * @param {number} bearing - Bearing the head points to, in degrees
+     * @param {number} headBaseWidth - Full width of the head base, in meters
+     * @param {number} headLength - Distance from anchor to tip, in meters
+     * @returns {{cornerLeft: Array, cornerRight: Array, tip: Array}} Head coordinates
+     */
+    computeHeadPoints(anchor, bearing, headBaseWidth, headLength) {
+        return {
+            cornerLeft: turf.destination(anchor, headBaseWidth / 2, bearing - 90, { units: 'meters' }).geometry.coordinates,
+            cornerRight: turf.destination(anchor, headBaseWidth / 2, bearing + 90, { units: 'meters' }).geometry.coordinates,
+            tip: turf.destination(anchor, headLength, bearing, { units: 'meters' }).geometry.coordinates
+        };
+    }
+
+    /**
+     * Resolve the length of each head. Without `doubleHeaded` this returns the
+     * nominal length untouched and never calls turf, so single-headed arrows
+     * keep exactly the geometry they had before the flag existed.
+     * @param {Object} mainLine - turf LineString feature of the axis
+     * @param {number} nominalHeadLength - Head length derived from width/ratio, in meters
+     * @param {boolean} doubleHeaded - Whether a tail head is drawn too
+     * @returns {{headLength: number, tailLength: number}} Lengths in meters
+     */
+    resolveHeadLengths(mainLine, nominalHeadLength, doubleHeaded) {
+        if (!doubleHeaded) return { headLength: nominalHeadLength, tailLength: 0 };
+
+        const axisLength = turf.length(mainLine, { units: 'meters' });
+        const total = nominalHeadLength * 2;
+        const budget = axisLength * AddArrowGeometry.MAX_TOTAL_HEAD_LENGTH_RATIO;
+
+        // `!(total > budget)` rather than `total <= budget` so a non-finite
+        // nominal length falls through to the unclamped branch instead of
+        // reaching the division below.
+        if (!Number.isFinite(axisLength) || axisLength <= 0 || !(total > budget)) {
+            return { headLength: nominalHeadLength, tailLength: nominalHeadLength };
+        }
+
+        const scale = budget / total;
+        return { headLength: nominalHeadLength * scale, tailLength: nominalHeadLength * scale };
     }
 
     /**
@@ -40,6 +90,7 @@ class AddArrowGeometry extends BaseGeometry {
         const showArrowHead = properties.showArrowHead !== false;
         const airmobile = properties.airmobile || false;
         const airmobilePosition = properties.airmobilePosition || 0.7;
+        const doubleHeaded = properties.doubleHeaded === true;
 
         if (coords.length < 2) {
             console.warn('Insufficient coordinates for arrow:', coords);
@@ -53,12 +104,12 @@ class AddArrowGeometry extends BaseGeometry {
 
             if (airmobile) {
                 return this.generateAirmobileArrowGeometry(
-                    mainLine, width, headLengthRatio, airmobilePosition, showArrowHead
+                    mainLine, width, headLengthRatio, airmobilePosition, showArrowHead, doubleHeaded
                 );
             }
 
             return this.generateNormalArrowGeometry(
-                mainLine, width, headLengthRatio, absHalfBodyWidth, showArrowHead
+                mainLine, width, headLengthRatio, absHalfBodyWidth, showArrowHead, doubleHeaded
             );
 
         } catch (error) {
@@ -84,7 +135,8 @@ class AddArrowGeometry extends BaseGeometry {
                 headLengthRatio: branch.headLengthRatio || properties.headLengthRatio || 1.5,
                 showArrowHead: branch.showArrowHead !== false,
                 airmobile: branch.airmobile || false,
-                airmobilePosition: branch.airmobilePosition || 0.7
+                airmobilePosition: branch.airmobilePosition || 0.7,
+                doubleHeaded: branch.doubleHeaded === true
             });
 
             if (branchGeom && branchGeom.type !== 'LineString') {
@@ -116,8 +168,9 @@ class AddArrowGeometry extends BaseGeometry {
 
     /**
      * Generate normal (non-airmobile) arrow geometry
+     * @param {boolean} [doubleHeaded=false] - Also draw a head on the first vertex
      */
-    generateNormalArrowGeometry(mainLine, width, headLengthRatio, absHalfBodyWidth, showArrowHead) {
+    generateNormalArrowGeometry(mainLine, width, headLengthRatio, absHalfBodyWidth, showArrowHead, doubleHeaded = false) {
         const coords = mainLine.geometry.coordinates;
 
         const leftLine = turf.lineOffset(mainLine, absHalfBodyWidth, { units: 'meters' });
@@ -142,23 +195,36 @@ class AddArrowGeometry extends BaseGeometry {
         }
 
         const absHeadBaseWidth = Math.abs(width * 2.5);
-        const headLength = absHeadBaseWidth * headLengthRatio;
+        const nominalHeadLength = absHeadBaseWidth * headLengthRatio;
+        const { headLength, tailLength } = this.resolveHeadLengths(mainLine, nominalHeadLength, doubleHeaded);
 
-        const perpendicularBearingLeft = bearing - 90;
-        const perpendicularBearingRight = bearing + 90;
-        const headCornerLeft = turf.destination(p_last, absHeadBaseWidth / 2, perpendicularBearingLeft, { units: 'meters' });
-        const headCornerRight = turf.destination(p_last, absHeadBaseWidth / 2, perpendicularBearingRight, { units: 'meters' });
-        const headTip = turf.destination(p_last, headLength, bearing, { units: 'meters' });
+        const head = this.computeHeadPoints(p_last, bearing, absHeadBaseWidth, headLength);
 
         const arrowPolygonCoords = [];
 
         arrowPolygonCoords.push(...leftLine.geometry.coordinates);
-        arrowPolygonCoords.push(headCornerRight.geometry.coordinates);
-        arrowPolygonCoords.push(headTip.geometry.coordinates);
-        arrowPolygonCoords.push(headCornerLeft.geometry.coordinates);
+        arrowPolygonCoords.push(head.cornerRight);
+        arrowPolygonCoords.push(head.tip);
+        arrowPolygonCoords.push(head.cornerLeft);
 
         const rightLineReversed = [...rightLine.geometry.coordinates].reverse();
         arrowPolygonCoords.push(...rightLineReversed);
+
+        if (doubleHeaded) {
+            // Second head on the first vertex, pointing back down the axis. The
+            // ring arrives here on the `tailBearing + 90` side of the axis
+            // (which is the same side as `bearing - 90`), so the corners are
+            // emitted cornerRight, tip, cornerLeft, mirroring the leading head
+            // and keeping the ring free of self-intersections.
+            const p_first = coords[0];
+            const tailBearing = turf.bearing(coords[1], p_first);
+            const tail = this.computeHeadPoints(p_first, tailBearing, absHeadBaseWidth, tailLength);
+
+            arrowPolygonCoords.push(tail.cornerRight);
+            arrowPolygonCoords.push(tail.tip);
+            arrowPolygonCoords.push(tail.cornerLeft);
+        }
+
         arrowPolygonCoords.push(arrowPolygonCoords[0]);
 
         return {
@@ -169,8 +235,12 @@ class AddArrowGeometry extends BaseGeometry {
 
     /**
      * Generate airmobile arrow geometry (crossed pattern)
+     * @param {boolean} [doubleHeaded=false] - Also draw a head on the first vertex.
+     *   The tail head goes into polygon 1 (the rear half of the crossed pattern),
+     *   which ends on the same side of the axis as the leading head starts, so the
+     *   corner order is the same and the ring stays simple.
      */
-    generateAirmobileArrowGeometry(mainLine, width, headLengthRatio, airmobilePosition, showArrowHead) {
+    generateAirmobileArrowGeometry(mainLine, width, headLengthRatio, airmobilePosition, showArrowHead, doubleHeaded = false) {
         const coords = mainLine.geometry.coordinates;
         const absHalfBodyWidth = Math.abs(width / 2);
         const mainLineLength = turf.length(mainLine, { units: 'meters' });
@@ -208,22 +278,25 @@ class AddArrowGeometry extends BaseGeometry {
             const p_second_last = coords[coords.length - 2];
             const bearing = turf.bearing(p_second_last, p_last);
             const absHeadBaseWidth = Math.abs(width * 2.5);
-            const headLength = absHeadBaseWidth * headLengthRatio;
+            const nominalHeadLength = absHeadBaseWidth * headLengthRatio;
+            const { headLength, tailLength } = this.resolveHeadLengths(mainLine, nominalHeadLength, doubleHeaded);
 
-            const perpendicularBearingLeft = bearing - 90;
-            const perpendicularBearingRight = bearing + 90;
-            const headCornerLeft = turf.destination(p_last, absHeadBaseWidth / 2, perpendicularBearingLeft, { units: 'meters' });
-            const headCornerRight = turf.destination(p_last, absHeadBaseWidth / 2, perpendicularBearingRight, { units: 'meters' });
-            const headTip = turf.destination(p_last, headLength, bearing, { units: 'meters' });
+            const head = this.computeHeadPoints(p_last, bearing, absHeadBaseWidth, headLength);
+
+            let tailHead = null;
+            if (doubleHeaded) {
+                const p_first = coords[0];
+                const tailBearing = turf.bearing(coords[1], p_first);
+                tailHead = this.computeHeadPoints(p_first, tailBearing, absHeadBaseWidth, tailLength);
+            }
 
             return this.createCrossedPolygonsWithHead(
-                left1, left2, right1, right2, handleCoord,
-                headCornerLeft, headCornerRight, headTip
+                left1, left2, right1, right2, handleCoord, head, tailHead
             );
 
         } catch (error) {
             console.warn('Error in airmobile geometry, using normal:', error);
-            return this.generateNormalArrowGeometry(mainLine, width, headLengthRatio, absHalfBodyWidth, showArrowHead);
+            return this.generateNormalArrowGeometry(mainLine, width, headLengthRatio, absHalfBodyWidth, showArrowHead, doubleHeaded);
         }
     }
 
@@ -256,20 +329,29 @@ class AddArrowGeometry extends BaseGeometry {
 
     /**
      * Create crossed polygons with arrow head
+     * @param {{cornerLeft: Array, cornerRight: Array, tip: Array}} head - Leading head points
+     * @param {{cornerLeft: Array, cornerRight: Array, tip: Array}|null} [tailHead=null] - Trailing head points
      */
-    createCrossedPolygonsWithHead(left1, left2, right1, right2, handleCoord, headCornerLeft, headCornerRight, headTip) {
+    createCrossedPolygonsWithHead(left1, left2, right1, right2, handleCoord, head, tailHead = null) {
         const polygon1Coords = [];
         polygon1Coords.push(...[...left1.geometry.coordinates].slice(0, -1));
         polygon1Coords.push(handleCoord);
         const right1Reversed = [...right1.geometry.coordinates].reverse();
         polygon1Coords.push(...right1Reversed.slice(1));
+
+        if (tailHead) {
+            polygon1Coords.push(tailHead.cornerRight);
+            polygon1Coords.push(tailHead.tip);
+            polygon1Coords.push(tailHead.cornerLeft);
+        }
+
         polygon1Coords.push(polygon1Coords[0]);
 
         const polygon2Coords = [];
         polygon2Coords.push(...[...left2.geometry.coordinates].slice(1));
-        polygon2Coords.push(headCornerRight.geometry.coordinates);
-        polygon2Coords.push(headTip.geometry.coordinates);
-        polygon2Coords.push(headCornerLeft.geometry.coordinates);
+        polygon2Coords.push(head.cornerRight);
+        polygon2Coords.push(head.tip);
+        polygon2Coords.push(head.cornerLeft);
         const right2Reversed = [...right2.geometry.coordinates].reverse();
         polygon2Coords.push(...right2Reversed.slice(0, -1));
         polygon2Coords.push(handleCoord);
@@ -384,7 +466,15 @@ class AddArrowGeometry extends BaseGeometry {
         const showArrowHead = branchProps.showArrowHead !== false;
         if (showArrowHead) {
             const headLengthRatio = branchProps.headLengthRatio || 1.5;
-            const headLength = headBaseWidth * headLengthRatio;
+            const doubleHeaded = branchProps.doubleHeaded === true;
+            // Keep the handle on the tip that is actually drawn: with two heads
+            // the nominal length may be clamped. Without the flag this returns
+            // the nominal length untouched.
+            const { headLength } = this.resolveHeadLengths(
+                doubleHeaded ? turf.lineString(coords) : null,
+                headBaseWidth * headLengthRatio,
+                doubleHeaded
+            );
             const headTipPoint = turf.destination(lastPoint, headLength, bearing, { units: 'meters' });
 
             handles.push({
