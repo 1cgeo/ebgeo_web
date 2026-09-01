@@ -54,6 +54,7 @@ import {
     contagemDetalhe,
     contagemLabel,
     cortadaNotice,
+    estadoDaContagemDeErros,
     estadoDaLatencia,
     estadoDaSecao,
     ESTADO,
@@ -350,16 +351,30 @@ class DiagTab {
             }));
             return;
         }
+        // A TERCEIRA SEÇÃO QUE LÊ O MESMO LOG, e a ordem é a mesma das outras duas: o leitor cego
+        // vem ANTES do vazio. Sem o diretório de log a rota responde com SUCESSO e total zero, e
+        // "nenhuma requisição registrada nas últimas 24 horas" seria a boa notícia desenhada a
+        // partir de um instrumento desligado, ao lado de duas seções dizendo que estão cegas.
+        if (leitorCego(dados)) {
+            wrap.appendChild(failureState(leitorCegoNotice(), {
+                onRetry: () => { if (this._alive) this._carregar(); },
+            }));
+            this._notasDaLeitura(host, dados);
+            return;
+        }
         if (total === 0) {
             wrap.appendChild(emptyState(pulsoEmptyNotice(janela), { hint: pulsoEmptyHint() }));
+            this._notasDaLeitura(host, dados);
             return;
         }
 
         const tiras = document.createElement('div');
         tiras.className = 'admin-diag__pulso';
         tiras.appendChild(tile('Requisições', contagemLabel(total), 'admin-diag-pulso-total'));
+        // O LADRILHO DE ERROS TEM TRÊS ESTADOS, e o terceiro é o conserto: `erros` ausente
+        // desenhava travessão com a cor de zero erro. Ver `estadoDaContagemDeErros`.
         tiras.appendChild(tile('Erros', contagemLabel(dados?.erros), 'admin-diag-pulso-erros',
-            { estado: numeroPositivo(dados?.erros) ? 'erro' : 'ok' }));
+            { estado: estadoDaContagemDeErros(dados?.erros) }));
         const taxa = taxaDoPulso(dados);
         if (taxa) {
             tiras.appendChild(tile('Taxa de erro', taxa, 'admin-diag-pulso-taxa',
@@ -387,6 +402,10 @@ class DiagTab {
             }
             wrap.appendChild(lista);
         }
+        // O TRUNCAMENTO PESA MAIS AQUI QUE EM QUALQUER OUTRA SEÇÃO, e é por isso que a nota não
+        // podia faltar justo nesta: este é o único lugar da aba em que um NÚMERO sofre o corte do
+        // anel de leitura. Sem a frase, o total DEPOIS do corte se lê como o total do período.
+        this._notasDaLeitura(host, dados);
     }
 
     /**
@@ -501,6 +520,14 @@ class DiagTab {
 
     /**
      * @private Seção 3: os erros relatados pelos navegadores.
+     *
+     * `@nao-le-log`: A ÚNICA DAS QUATRO QUE NÃO LÊ ARQUIVO DE LOG. Esta lista vem do BANCO
+     * (`client_errors`, em `client-errors.service.js`), então `diretorioAusente` e `truncado` não
+     * existem no payload dela e `leitorCego`/`_notasDaLeitura` não teriam o que dizer. A ressalva
+     * que ELA precisa dar é outra, e já está na tela acima da lista (`clientErrorsScopeNotice`):
+     * quem ficou sem rede, fechou a aba ou usa bloqueador não deixa rastro aqui. A marca acima é
+     * lida por `frontend/tests/unit/diagnostico-secoes-de-log.test.js`, que sem ela reprova esta
+     * seção; seção nova só escapa da varredura declarando o mesmo, com o motivo.
      * @param {HTMLElement} host @param {PromiseSettledResult<*>} resultado @param {string} janela
      */
     _pintarErrosCliente(host, resultado, janela) {
@@ -574,10 +601,16 @@ class DiagTab {
             wrap.appendChild(failureState(leitorCegoNotice(), {
                 onRetry: () => { if (this._alive) this._carregar(); },
             }));
+            this._notasDaLeitura(host, payload);
             return;
         }
+        // A NOTA VAI NOS TRÊS DESFECHOS INFORMATIVOS, e não só no da tabela. Ela morava apenas no
+        // ramo da lista, de modo que "nenhuma rota com latência medida" saía sem dizer o que foi
+        // varrido e sem acusar truncamento: o vazio que a seção mais precisa qualificar era o
+        // único que não vinha qualificado.
         if (estado === ESTADO.VAZIO) {
             wrap.appendChild(emptyState(slowEmptyNotice(janela), { hint: slowEmptyHint() }));
+            this._notasDaLeitura(host, payload);
             return;
         }
 
@@ -617,11 +650,6 @@ class DiagTab {
 
 // ===== small DOM builders =====
 
-/** @param {*} v @returns {boolean} */
-function numeroPositivo(v) {
-    return typeof v === 'number' && Number.isFinite(v) && v > 0;
-}
-
 /**
  * A taxa de erro do pulso. A aritmética (e as duas saídas que não são o número) mora em
  * `diag-phrases.js`.
@@ -642,6 +670,9 @@ function tile(rotulo, valor, testid, { estado } = {}) {
     const el = document.createElement('div');
     el.className = estado ? `admin-diag__tile admin-diag__tile--${estado}` : 'admin-diag__tile';
     el.dataset.testid = testid;
+    // O estado também sai como dado, como no p95 da tabela de latência: a cor é o que a pessoa lê,
+    // e o atributo é o que uma captura de tela consegue afirmar.
+    if (estado) el.dataset.estado = estado;
     const v = document.createElement('span');
     v.className = 'admin-diag__tile-valor';
     v.textContent = valor;

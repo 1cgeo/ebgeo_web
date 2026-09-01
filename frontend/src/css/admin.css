@@ -1502,6 +1502,13 @@
     color: color-mix(in srgb, var(--color-error) 78%, var(--gray-900));
 }
 
+/* O número que NÃO CHEGOU não é zero, e portanto não pode ser verde: é a mesma decisão de
+   `.admin-diag__faixa--desconhecida` e de `estadoDaLatencia`. Ausência de dado não é ausência de
+   erro, e o cinza apagado é a única cor honesta ao lado do travessão que `contagemLabel` desenha. */
+.admin-diag__tile--desconhecida .admin-diag__tile-valor {
+    color: var(--gray-400);
+}
+
 /* A distribuição por faixa. AS QUATRO APARECEM SEMPRE, zeradas inclusive: uma barra que não é
    desenhada se lê como dado que não chegou, e "zero 5xx" é justamente a informação buscada. */
 .admin-diag__faixas {

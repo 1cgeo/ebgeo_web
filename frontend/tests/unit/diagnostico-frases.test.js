@@ -37,6 +37,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+    CONTAGEM,
     ESTADO,
     FAIXAS,
     JANELAS,
@@ -48,6 +49,7 @@ import {
     contagemDetalhe,
     contagemLabel,
     cortadaNotice,
+    estadoDaContagemDeErros,
     estadoDaLatencia,
     estadoDaSecao,
     faixaEstado,
@@ -307,6 +309,18 @@ describe('taxaDeErro', () => {
         expect(taxaDeErro()).toBeNull();
     });
 
+    it('SEM A CONTAGEM DE ERROS também não há taxa: o numerador ausente não vale zero', () => {
+        // O chip verde "0%" ao lado do ladrilho que diz "—" eram duas afirmações opostas sobre o
+        // mesmo campo, e a verde era a falsa. Voltar a `numeroOuZero(erros)` deixa isto vermelho.
+        expect(taxaDeErro({ total: 500 })).toBeNull();
+        expect(taxaDeErro({ total: 500, erros: null })).toBeNull();
+        expect(taxaDeErro({ total: 500, erros: NaN })).toBeNull();
+        expect(taxaDeErro({ total: 500, erros: '0' })).toBeNull();
+        // E o zero de VERDADE continua virando o chip verde, que é a informação que a pessoa veio
+        // buscar: recusar tudo esconderia a boa notícia junto com a mentira.
+        expect(taxaDeErro({ total: 500, erros: 0 })).toBe('0%');
+    });
+
     it('percentual em pt-BR, com o zero exato distinguido do quase zero', () => {
         expect(taxaDeErro({ total: 1000, erros: 0 })).toBe('0%');
         expect(taxaDeErro({ total: 1000, erros: 24 })).toBe('2,4%');
@@ -343,6 +357,24 @@ describe('a latência', () => {
         expect(estadoDaLatencia(undefined)).toBe(LATENCIA.DESCONHECIDA);
         expect(estadoDaLatencia(NaN)).toBe(LATENCIA.DESCONHECIDA);
         expect(estadoDaLatencia('12')).toBe(LATENCIA.DESCONHECIDA);
+    });
+
+    it('QUINTO CONTROLE NEGATIVO: o ladrilho de erros do pulso tem TRÊS estados, não dois', () => {
+        // A forma óbvia (e a que estava no código) é o ternário `contagem > 0 ? 'erro' : 'ok'`,
+        // que devolve VERDE para o número que não chegou. É o mesmo defeito de pintar um p95
+        // ausente de verde, num lugar pior: o ladrilho fica ao lado do travessão que
+        // `contagemLabel` desenha, ou seja, a tela diz "não tenho o número" e "está tudo bem" na
+        // mesma linha. Voltar ao ternário deixa as três últimas asserções vermelhas.
+        expect(estadoDaContagemDeErros(0)).toBe(CONTAGEM.OK);
+        expect(estadoDaContagemDeErros(1)).toBe(CONTAGEM.ERRO);
+        expect(estadoDaContagemDeErros(9999)).toBe(CONTAGEM.ERRO);
+        expect(estadoDaContagemDeErros(undefined)).toBe(CONTAGEM.DESCONHECIDA);
+        expect(estadoDaContagemDeErros(null)).toBe(CONTAGEM.DESCONHECIDA);
+        expect(estadoDaContagemDeErros(NaN)).toBe(CONTAGEM.DESCONHECIDA);
+        expect(estadoDaContagemDeErros('0')).toBe(CONTAGEM.DESCONHECIDA);
+        // Negativa acompanha o travessão de `contagemLabel`: cor de fato onde não há fato, não.
+        expect(estadoDaContagemDeErros(-3)).toBe(CONTAGEM.DESCONHECIDA);
+        expect(contagemLabel(-3)).toBe('—');
     });
 });
 
@@ -482,9 +514,16 @@ describe('os três avisos que desfazem uma leitura errada da tela', () => {
         // As duas seções que leem arquivo de log respondem 200 com lista vazia quando o diretório
         // não existe. Sem `leitorCego`, a tela desenharia a boa notícia ("nenhum erro nas últimas
         // 24 horas") a partir de um instrumento desligado, que é a cobertura vazia da constituição
-        // aplicada a uma tela: o verde não estaria provando nada. Tirar a chamada de `diag-tab.js`
-        // não deixa esta suíte vermelha, e é por isso que a asserção nomeia o campo do servidor:
-        // ele é o único sinal que separa os dois desfechos.
+        // aplicada a uma tela: o verde não estaria provando nada. A asserção nomeia o campo do
+        // servidor porque ele é o único sinal que separa os dois desfechos.
+        //
+        // ESTA SUÍTE PRENDE A FUNÇÃO, E NÃO O CONSUMIDOR DELA, e enquanto essa era a frase
+        // inteira o buraco estava declarado por escrito aqui: tirar a chamada de `diag-tab.js`
+        // não deixava nada vermelho. Foi por ele que o defeito entrou, e `_pintarPulso` passou a
+        // existência inteira sem chamar `leitorCego` nem as notas de leitura, com
+        // `diretorioAusente` e `truncado` chegando no próprio payload dela. Quem cobra a CHAMADA
+        // agora é `tests/unit/diagnostico-secoes-de-log.test.js`, que varre `diag-tab.js` e deriva
+        // do código a lista de seções, para que a quinta nasça cobrada.
         expect(leitorCego({ diretorioAusente: true, grupos: [] })).toBe(true);
         // A discriminação, senão "devolva true sempre" (que esconderia toda boa notícia) passaria.
         expect(leitorCego({ diretorioAusente: false, grupos: [] })).toBe(false);

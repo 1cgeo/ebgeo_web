@@ -339,14 +339,21 @@ function numeroOuZero(v) {
 /**
  * A taxa de erro do período, em percentual pt-BR.
  *
- * DUAS CASAS DE SAÍDA QUE NÃO SÃO O NÚMERO: sem total não há taxa (`null`, e a tela não desenha o
- * chip), e uma taxa positiva menor que um décimo de por cento vira "<0,1%" em vez de "0,0%",
- * porque arredondar um erro real para zero é dizer que ele não houve.
+ * TRÊS CASAS DE SAÍDA QUE NÃO SÃO O NÚMERO: sem total não há taxa (`null`, e a tela não desenha o
+ * chip), SEM A CONTAGEM DE ERROS também não há, e uma taxa positiva menor que um décimo de por
+ * cento vira "<0,1%" em vez de "0,0%", porque arredondar um erro real para zero é dizer que ele
+ * não houve.
+ *
+ * A SEGUNDA SAÍDA É IRMÃ DE `estadoDaContagemDeErros`, e por isso pergunta a ele: enquanto o
+ * numerador ausente virava zero por `numeroOuZero`, esta função desenhava um chip VERDE de "0%" ao
+ * lado de um ladrilho que já dizia, com um travessão, que o número de erros não chegou. Duas
+ * afirmações opostas sobre o mesmo campo, na mesma linha da tela, e a mentirosa era a verde.
  * @param {{total?: *, erros?: *}} [entrada]
  * @returns {string|null}
  */
 export function taxaDeErro({ total, erros } = {}) {
     if (typeof total !== 'number' || !Number.isFinite(total) || total <= 0) return null;
+    if (estadoDaContagemDeErros(erros) === CONTAGEM.DESCONHECIDA) return null;
     const n = numeroOuZero(erros);
     const pct = (n / total) * 100;
     if (pct === 0) return '0%';
@@ -396,6 +403,35 @@ export function estadoDaLatencia(p95) {
     if (p95 < 300) return LATENCIA.OK;
     if (p95 < 1000) return LATENCIA.ATENCAO;
     return LATENCIA.LENTA;
+}
+
+/**
+ * Os estados do ladrilho de contagem do pulso.
+ * @type {Readonly<Object<string, string>>}
+ */
+export const CONTAGEM = Object.freeze({
+    OK: 'ok',
+    ERRO: 'erro',
+    DESCONHECIDA: 'desconhecida',
+});
+
+/**
+ * O estado do ladrilho "Erros" do pulso, a partir da contagem.
+ *
+ * TRÊS ESTADOS E NÃO DOIS, pela mesma razão de `faixaEstado` e de `estadoDaLatencia`: AUSÊNCIA DE
+ * DADO NÃO É AUSÊNCIA DE ERRO. A forma anterior era `contagem > 0 ? 'erro' : 'ok'`, que pinta de
+ * VERDE um campo que não chegou (rota antiga, contrato mudado, payload aparado por um proxy),
+ * bem ao lado de um travessão dizendo que o número falta. É a boa notícia mais barata do produto:
+ * o número desapareceu e a tela afirmou saúde.
+ *
+ * Contagem NEGATIVA cai em `DESCONHECIDA` junto com o resto, para casar com `contagemLabel`, que
+ * já desenha travessão nela: o ladrilho não pode ter cor de fato onde o texto diz "sem número".
+ * @param {*} n
+ * @returns {string} Um valor de {@link CONTAGEM}.
+ */
+export function estadoDaContagemDeErros(n) {
+    if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) return CONTAGEM.DESCONHECIDA;
+    return n > 0 ? CONTAGEM.ERRO : CONTAGEM.OK;
 }
 
 /**
