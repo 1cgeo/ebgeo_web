@@ -145,6 +145,15 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   só precisa combinar com quem roda `test:backend`. E o inverso também vale: quem roda
   Playwright durante uma medição de cobertura alheia não a contamina.
 
+  **A RAIZ NÃO É UMA LINHA DA TABELA, ELA SÃO AS TRÊS PRIMEIRAS**, e é aqui que a leitura
+  apressada erra em favor de si mesma. `npm test` encadeia `test:frontend`, `test:backend` e
+  `test:e2e`, então ele HERDA a linha do meio inteira: toma `ebgeo_test` e **escreve em
+  `coverage/tmp` sob c8**, porque o `run-tests.js` se auto-eleva ao rodar a suíte completa.
+  Duas coisas seguem daí, e nenhuma delas se lê na tabela sozinha: duas RAÍZES colidem entre
+  si, e rodar a raiz durante uma medição de cobertura alheia **contamina** a medição. A frase
+  acima isenta o Playwright, não a raiz, e a diferença importa porque a raiz é o comando que a
+  constituição manda rodar antes de todo commit, ou seja, o mais frequente dos quatro.
+
   **O TERCEIRO RECURSO COMPARTILHADO É A PORTA, e ela é o contra-exemplo útil.** O backend
   do `test:e2e:ui` sobe na 3912, e um órfão de rodada interrompida a segura. Essa colisão
   GRITA, e se nomeia: `frontend/tests/e2e-ui/backend.js` recusa subir dizendo "a porta 3912
