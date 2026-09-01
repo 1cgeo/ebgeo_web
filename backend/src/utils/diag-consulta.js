@@ -326,6 +326,41 @@ export function parseIntervalo(texto) {
 }
 
 /**
+ * A leitura de disco de UMA linha de amostra, ou `null` se ela não trouxer nenhuma.
+ *
+ * ABSENTE NÃO É ZERO, e aqui isso é correção e não estilo: zero byte livre é o valor mais
+ * ALARMANTE que o campo pode carregar, então converter ausência em zero inverteria o alarme
+ * na direção mais cara possível. `montarAmostra` (`amostra-de-saude.js`) omite o campo que
+ * não pôde medir, e é essa convenção que este lado precisa preservar.
+ *
+ * A VALIDAÇÃO SE REPETE DE PROPÓSITO, embora `descreverDisco` já valide na escrita: o que
+ * chega aqui não veio daquela função, veio de `JSON.parse` de uma linha de arquivo, que pode
+ * ser de um build anterior ao campo, de outro produtor, ou editada à mão. Aceitar o que não é
+ * par de números publicaria `undefined MB livres` no relatório.
+ *
+ * NADA É DERIVADO. Nem fração, nem faixa, nem rótulo: o comando publica o que a amostra
+ * registrou, e quem julga é quem lê. Um limiar escolhido sem distribuição observada seria
+ * palpite com cara de medição, e a decisão de recusar a fração já foi tomada na escrita, com
+ * o argumento por extenso no `fileoverview` de `descreverDisco`.
+ * @param {Object} reg
+ * @returns {{livreMb: number, totalMb: number}|null}
+ */
+function lerDisco(reg) {
+  const d = reg && reg.disco;
+  if (!d || typeof d !== 'object') return null;
+  if (!Number.isFinite(d.livreMb) || !Number.isFinite(d.totalMb)) return null;
+  return { livreMb: d.livreMb, totalMb: d.totalMb };
+}
+
+/**
+ * O percentil das distâncias que estima o intervalo nominal do amostrador.
+ *
+ * Baixo de propósito, e o número é orçamento medido: ver "O PERCENTIL É UM ORÇAMENTO" no
+ * `fileoverview` de `resumirAmostras`, que é onde a escolha está justificada.
+ */
+const PERCENTIL_DO_INTERVALO = 10;
+
+/**
  * A série da AMOSTRA PERIÓDICA DE SAÚDE, e sobretudo os BURACOS dela.
  *
  * O `fileoverview` de `amostra-de-saude.js` diz o que esta função existe para exercer: um
@@ -338,13 +373,38 @@ export function parseIntervalo(texto) {
  * `DATABASE_URL` e `JWT_SECRET` na avaliação do módulo, e a hora em que se lê log é
  * justamente a hora em que o banco pode não estar configurado (é o mesmo motivo pelo qual
  * `scripts/diag.js` importa o config tarde e `diag.service.js` não o importa). Ele é
- * INFERIDO dos próprios dados, pela MEDIANA das distâncias entre amostras consecutivas, e a
- * mediana e não a média porque um único buraco de seis horas puxaria a média para cima e
- * faria o relatório concluir que nada faltou. `intervaloMs` sobrepõe a inferência, e a saída
- * diz qual dos dois caminhos valeu (`intervaloOrigem`): sem isso o número de faltantes é uma
- * conta sobre uma premissa invisível.
+ * INFERIDO dos próprios dados, por um PERCENTIL BAIXO das distâncias entre amostras
+ * consecutivas (`PERCENTIL_DO_INTERVALO`). `intervaloMs` sobrepõe a inferência, e a saída diz
+ * qual dos dois caminhos valeu (`intervaloOrigem`), com que percentil e sobre quantas
+ * distâncias: sem isso o número de faltantes é uma conta sobre uma premissa invisível.
  *
- * DUAS AUSÊNCIAS QUE NÃO SÃO BOA NOTÍCIA, e é por isso que `situacao` é campo de primeira
+ * PERCENTIL BAIXO E NÃO MEDIANA, e a mediana esteve aqui até 2026-09-01, mentindo. O
+ * argumento é do domínio e não de estatística: um timer ATRASA e nunca adianta, então as
+ * MENORES distâncias são as que melhor estimam a cadência nominal, e as MAIORES são
+ * justamente os buracos que se quer contar. Buraco só ALONGA distância, nunca encurta, de
+ * modo que o viés da mediana é de mão única e para o lado tranquilizador: quando a queda vira
+ * MAIORIA das distâncias, a mediana sobe junto com a queda e a conta de faltantes desaparece
+ * exatamente no incidente que esta função existe para achar. Foi observado, não deduzido:
+ * amostrador nominal de 5 min, oito horas reiniciando de hora em hora, e o comando dizia
+ * "Intervalo considerado: 55min (INFERIDO)" mais "Nenhuma amostra faltando", enquanto
+ * `--intervalo 5m` sobre o MESMO arquivo achava 74 faltando de 85.
+ *
+ * O PERCENTIL É UM ORÇAMENTO, e o número saiu de medição. Com posto (nearest-rank), pK
+ * atravessa até (100 menos K) por cento de distâncias que são BURACO e tolera até (K menos 1)
+ * por cento de distâncias CURTAS DEMAIS, que é a rajada de um processo reiniciando mais
+ * rápido que o próprio intervalo: p50 aguenta 50 e 49, p25 aguenta 75 e 24, p10 aguenta 90 e
+ * 9. A escolha é p10 porque os dois erros NÃO custam o mesmo. Estimativa alta demais produz
+ * SILÊNCIO ("nada faltou"), que é a mentira que ninguém investiga; estimativa baixa demais
+ * produz um número absurdo ao lado do intervalo absurdo que a saída imprime na linha de cima,
+ * que é ruído alto e acionável. O orçamento se gasta do lado do buraco, que é o incidente.
+ *
+ * O QUE NENHUM PERCENTIL ALCANÇA, declarado em vez de escondido: uma série em que NENHUMA
+ * distância é nominal (o processo emitiu UMA amostra por reinício e morreu antes do tique
+ * seguinte) não carrega a cadência em lugar nenhum, e a inferência devolve o buraco como se
+ * fosse o intervalo. Só `--intervalo` resolve esse caso, e é por isso que toda linha
+ * tranquilizadora da saída NOMEIA a premissa em vez de afirmar saúde sozinha.
+ *
+ * TRÊS AUSÊNCIAS QUE NÃO SÃO BOA NOTÍCIA, e é por isso que `situacao` é campo de primeira
  * classe em vez de sair como zero:
  *  - `sem-amostras` não é "nenhuma queda", é instrumento que não produziu NADA (amostrador
  *    desligado, `LOG_TO_FILE=off`, processo que nunca subiu na janela). Uma tela que
@@ -352,6 +412,35 @@ export function parseIntervalo(texto) {
  *  - `amostra-unica` não tem distância nenhuma para medir: não há intervalo a inferir e não
  *    dá para afirmar coisa alguma sobre buraco. `faltantes` e `esperadas` saem `null`, nunca
  *    zero, mesmo com `--intervalo` informado.
+ *  - INTERVALO INESTIMÁVEL com a série de pé (`intervaloMs: null` e `situacao: 'medida'`): a
+ *    inferência exige DUAS distâncias úteis, porque UMA dividida por si mesma dá zero
+ *    faltantes por aritmética pura, sem que nada avise. A guarda antiga contava AMOSTRAS, e
+ *    era por isso que duas amostras a seis horas de distância saíam como "nada faltou".
+ *    `faltantes`, `esperadas` e `ultimaAtrasada` saem `null`, e quem imprime tem de honrar
+ *    esse terceiro estado: `imprimirSaude` (`scripts/diag.js`) escrevia "FALTARAM null" e
+ *    desreferenciava `maiorBuraco` nulo, saindo com código 1.
+ *
+ * O BURACO TEM DUAS CAUSAS E UMA ASSINATURA SÓ, e é isso que o `disco` da amostra desfaz (o
+ * campo nasceu em `amostra-de-saude.js`, cujo `fileoverview` traz o argumento inteiro). Quando
+ * o volume do log enche, `log-diario.js` desliga o destino de arquivo sozinho e a série some
+ * do `.jsonl` com o processo VIVO, produzindo um buraco idêntico ao da queda. Cada buraco
+ * carrega então a leitura de disco da amostra que o ABRE, porque a amostra que falta é
+ * justamente a que não existe para ser lida, e um resumo da janela responderia sobre outro
+ * instante.
+ *
+ * TRÊS COISAS QUE O CAMPO NÃO FAZ, e cada uma foi uma tentação:
+ *  - ele não afirma CAUSA. Pouco espaço livre antes de um buraco é INDÍCIO, e o processo pode
+ *    ter morrido por outro motivo com o disco cheio por coincidência. Quem publica número
+ *    deixa a conclusão para quem lê; quem publica veredito manda consertar a coisa errada.
+ *  - ele não deriva LIMIAR. Nada de "pouco espaço", nada de porcentagem de corte: sem
+ *    distribuição observada, um corte é palpite com cara de medição. Saem `livreMb` e
+ *    `totalMb` como a amostra os registrou, que é o par de que o leitor precisa (800 MB é
+ *    folga num volume de 20 GB e é véspera de incidente num de 2 TB).
+ *  - ele não trata AUSÊNCIA como zero. O campo é novo e vai faltar na maioria das linhas
+ *    existentes; zero byte livre, ao contrário, é o valor mais alarmante que ele pode
+ *    carregar. `buracos[].disco` sai `null` quando a amostra anterior não trouxe leitura, e
+ *    `amostrasComDisco` diz se ALGUMA linha da janela trouxe, que é o que separa "a janela é
+ *    anterior ao campo" de "faltou justo naquela amostra".
  *
  * O TRECHO ANTES DA PRIMEIRA AMOSTRA É DESCONHECIDO, NÃO BURACO (`desconhecidoAntesMs`).
  * Contá-lo como faltantes inventaria queda toda vez que a janela for mais larga que o tempo
@@ -372,7 +461,10 @@ export function parseIntervalo(texto) {
  * @returns {Object}
  */
 export function resumirAmostras(registros, { intervaloMs = null, agora = Date.now(), inicio = null } = {}) {
-  const instantes = [];
+  // PONTOS, e não só instantes: cada amostra carrega junto a leitura de disco dela, porque a
+  // testemunha de um buraco é a amostra ANTERIOR a ele (ver o parágrafo da ambiguidade). Um
+  // vetor paralelo se desalinharia na ordenação, que é onde esse tipo de erro não aparece.
+  const pontos = [];
   let semHorario = 0;
   let falhasDoAmostrador = 0;
   let bancoFora = 0;
@@ -385,10 +477,11 @@ export function resumirAmostras(registros, { intervaloMs = null, agora = Date.no
     // de descartada calada: a série ficaria mais curta do que foi, e o relatório inventaria
     // um buraco que é do instrumento de leitura, não do processo.
     if (typeof reg.time !== 'number') { semHorario += 1; continue; }
-    instantes.push(reg.time);
+    pontos.push({ t: reg.time, disco: lerDisco(reg) });
   }
 
-  instantes.sort((a, b) => a - b);
+  pontos.sort((a, b) => a.t - b.t);
+  const instantes = pontos.map((p) => p.t);
   const total = instantes.length;
   const primeira = total ? instantes[0] : null;
   const ultima = total ? instantes[total - 1] : null;
@@ -397,10 +490,25 @@ export function resumirAmostras(registros, { intervaloMs = null, agora = Date.no
   for (let i = 1; i < total; i += 1) distancias.push(instantes[i] - instantes[i - 1]);
   distancias.sort((a, b) => a - b);
 
+  // Distância ZERO é carimbo repetido (duas linhas no mesmo milissegundo), nunca cadência.
+  // Mantê-la na base de estimativa fazia o percentil devolver 0, e intervalo 0 não é
+  // intervalo: era daí que saía o `faltantes: null` que o comando desreferenciava. Ela
+  // continua na série e continua valendo 0 faltantes na contagem de buracos; o que ela não
+  // pode é ESTIMAR.
+  const uteis = distancias.filter((d) => d > 0);
+
   const informado = Number.isFinite(intervaloMs) && intervaloMs > 0;
-  const inferido = percentil(distancias, 50);
+  // DUAS distâncias, não duas amostras: com UMA, o percentil devolve a própria distância e a
+  // divisão dá zero faltantes por aritmética, que é como "duas amostras a seis horas de
+  // distância" virava um relatório tranquilo.
+  const inferido = uteis.length >= 2 ? percentil(uteis, PERCENTIL_DO_INTERVALO) : null;
   const intervalo = informado ? intervaloMs : inferido;
-  const situacao = total === 0 ? 'sem-amostras' : (total === 1 ? 'amostra-unica' : 'medida');
+  // Abaixo de dez distâncias o posto do p10 é 1, ou seja, a estimativa É a menor distância e
+  // perde toda a tolerância à rajada de reinício. O limiar não é gosto, é a aritmética do
+  // nearest-rank, e por isso ele é DERIVADO em vez de escrito como número.
+  const posto = inferido === null ? 0 : Math.ceil((PERCENTIL_DO_INTERVALO / 100) * uteis.length);
+  // A guarda conta DISTÂNCIA, não amostra: é a distância que se divide pelo intervalo.
+  const situacao = total === 0 ? 'sem-amostras' : (distancias.length === 0 ? 'amostra-unica' : 'medida');
 
   const buracos = [];
   if (situacao === 'medida' && intervalo) {
@@ -409,7 +517,18 @@ export function resumirAmostras(registros, { intervaloMs = null, agora = Date.no
       // Arredondar, e não dividir seco: o timer tem deriva, e uma distância de 61 s num
       // intervalo de 60 s não é meia amostra faltando, é a mesma amostra atrasada.
       const faltaram = Math.max(0, Math.round(duracaoMs / intervalo) - 1);
-      if (faltaram > 0) buracos.push({ inicio: instantes[i - 1], fim: instantes[i], duracaoMs, faltantes: faltaram });
+      // A leitura de disco viaja DENTRO do buraco, e é a da amostra que o ABRE: a amostra que
+      // falta é justamente a que não existe para ser lida, e um resumo de disco da janela
+      // inteira responderia sobre outro instante que não o da véspera do silêncio.
+      if (faltaram > 0) {
+        buracos.push({
+          inicio: instantes[i - 1],
+          fim: instantes[i],
+          duracaoMs,
+          faltantes: faltaram,
+          disco: pontos[i - 1].disco,
+        });
+      }
     }
   }
 
@@ -425,6 +544,15 @@ export function resumirAmostras(registros, { intervaloMs = null, agora = Date.no
     janela: { inicio, fim: agora },
     intervaloMs: intervalo ?? null,
     intervaloOrigem: intervalo ? (informado ? 'informado' : 'inferido') : null,
+    // A PROCEDÊNCIA da estimativa é do relatório, não do leitor: "nenhuma amostra faltando"
+    // só é honesto acompanhado do intervalo suposto, de onde ele veio e de quantas distâncias
+    // o sustentam. Sem estes campos a frase tranquilizadora não tem como nomear a premissa, e
+    // foi exatamente ela que enganou.
+    distancias: distancias.length,
+    distanciasUteis: uteis.length,
+    intervaloPercentil: informado || inferido === null ? null : PERCENTIL_DO_INTERVALO,
+    intervaloBase: informado || inferido === null ? null : uteis.length,
+    estimativaFragil: informado || inferido === null ? null : posto === 1,
     // Derivadas dos buracos, e NÃO da largura da janela dividida pelo intervalo: a janela
     // antes da primeira amostra é desconhecida, e a conta pela largura a transformaria em
     // ausência medida.
@@ -436,6 +564,13 @@ export function resumirAmostras(registros, { intervaloMs = null, agora = Date.no
       : null,
     desconhecidoAntesMs: inicio !== null && primeira !== null ? Math.max(0, primeira - inicio) : null,
     desdeUltimaMs: ultima === null ? null : agora - ultima,
+    // Quantas amostras da janela trouxeram leitura de disco. Ela distingue os DOIS silêncios
+    // que um buraco sem leitura pode ter: a janela inteira é anterior ao campo (nenhuma tem),
+    // ou o campo existe e faltou justo naquela amostra (alguma tem).
+    amostrasComDisco: pontos.filter((p) => p.disco !== null).length,
+    // A testemunha do silêncio que AINDA está aberto é a última amostra, pela mesma regra dos
+    // buracos: a que não veio não pode ser lida.
+    discoNaUltima: total ? pontos[total - 1].disco : null,
     ultimaAtrasada: ultima === null || !intervalo ? null : agora - ultima > intervalo,
     falhasDoAmostrador,
     bancoFora,

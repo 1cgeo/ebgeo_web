@@ -150,6 +150,31 @@ function imprimirStatus(registros) {
 }
 
 /**
+ * A nota que diz o que a leitura de disco significa, e sobretudo o que ela NÃO significa.
+ *
+ * Ela sai UMA vez, depois da lista, e em duas versões conforme o estado do campo na janela.
+ * Repeti-la por buraco treinaria o olho a pular a lista inteira; omiti-la deixaria um número
+ * de MB solto ao lado de um incidente, que é um convite a concluir causa.
+ *
+ * A REDAÇÃO É DELIBERADA: ela descreve o mecanismo (o destino de arquivo se desliga sozinho e
+ * a série some com o processo vivo) e devolve o juízo a quem lê. "O log parou por disco
+ * cheio" seria mais curta e mandaria consertar a coisa errada quando o processo tiver morrido
+ * por outro motivo com o volume apertado por coincidência.
+ */
+function imprimirNotaDeDisco(r) {
+  if (r.amostrasComDisco) {
+    process.stdout.write('\nO disco acima é o que a amostra ANTERIOR a cada buraco registrou, e é INDÍCIO, não\n');
+    process.stdout.write('veredito: quando o volume do log enche, o destino de arquivo se desliga sozinho e a\n');
+    process.stdout.write('série some do .jsonl com o processo VIVO, produzindo um buraco igual ao da queda.\n');
+    process.stdout.write('Compare o livre com o total e julgue: nem o comando nem a amostra afirmam a causa.\n');
+    return;
+  }
+  process.stdout.write('\nNenhuma amostra desta janela traz leitura de disco (o campo é novo, ou a medição não\n');
+  process.stdout.write('estava disponível), então o buraco continua AMBÍGUO: processo morto e log em arquivo\n');
+  process.stdout.write('desligado por falta de espaço produzem a mesma série, e daqui não dá para separar.\n');
+}
+
+/**
  * A saúde do PROCESSO pela série de amostras, e sobretudo pelos buracos dela.
  *
  * A ordem das linhas é a decisão desta função, e não é estética. Primeiro a ÚLTIMA amostra,
@@ -158,7 +183,16 @@ function imprimirStatus(registros) {
  * por último, que é histórico. Um relatório que abrisse pela lista enterraria o "pode estar
  * fora agora" no meio de vinte linhas de passado.
  *
- * As duas ausências saem com todas as letras em vez de virarem zero: ver `resumirAmostras`.
+ * As TRÊS ausências saem com todas as letras em vez de virarem zero: nenhuma amostra, uma
+ * amostra só, e intervalo INESTIMÁVEL com a série de pé (ver `resumirAmostras`). A terceira
+ * foi acrescentada em 2026-09-01 e é a que custou: `faltantes` e `esperadas` chegam `null`,
+ * esta função imprimia "FALTARAM null amostra(s) de null esperada(s)" e caía na linha
+ * seguinte desreferenciando `maiorBuraco`, saindo com código 1. Um ramo que não existe não é
+ * um ramo silencioso, é um `TypeError` na frente do operador durante o incidente.
+ *
+ * E TODA AFIRMAÇÃO SOBRE FALTANTE CARREGA A PREMISSA (`premissa`), inclusive a
+ * tranquilizadora. "Nenhuma amostra faltando" sozinha foi a frase que mentiu: ela lê como
+ * saúde medida, quando é só uma divisão pelo intervalo que o próprio comando inferiu.
  */
 function imprimirSaude(registros, opcoes) {
   const r = resumirAmostras(registros, opcoes);
@@ -179,6 +213,12 @@ function imprimirSaude(registros, opcoes) {
     process.stdout.write('  ATENÇÃO: passou do intervalo. O processo pode estar FORA agora, e nenhuma\n');
     process.stdout.write('  amostra vai dizer isso: um amostrador dentro do processo não testemunha a\n');
     process.stdout.write('  própria morte. Confira se ele está de pé.\n');
+    // O silêncio que ainda está aberto tem a MESMA ambiguidade dos buracos fechados, e a
+    // mesma testemunha possível: a última amostra. Sem juízo aqui também, só o número.
+    if (r.discoNaUltima) {
+      process.stdout.write(`  Nela o disco do log estava em ${r.discoNaUltima.livreMb} MB livres de ${r.discoNaUltima.totalMb} MB (indício,\n`);
+      process.stdout.write('  não veredito: log em arquivo desligado produz este mesmo silêncio).\n');
+    }
   }
   process.stdout.write(`Primeira amostra: ${hora(r.primeira)}\n`);
   process.stdout.write(`${r.total} amostra(s) na janela.\n`);
@@ -186,8 +226,12 @@ function imprimirSaude(registros, opcoes) {
   if (r.intervaloMs) {
     const comoSoube = r.intervaloOrigem === 'informado'
       ? 'informado em --intervalo'
-      : 'INFERIDO da mediana das distâncias, não lido da configuração';
+      : `INFERIDO do p${r.intervaloPercentil} de ${r.intervaloBase} distância(s), não lido da configuração`;
     process.stdout.write(`Intervalo considerado: ${duracao(r.intervaloMs)} (${comoSoube})\n`);
+    if (r.estimativaFragil) {
+      process.stdout.write(`  ESTIMATIVA FRÁGIL: com ${r.intervaloBase} distância(s), o p${r.intervaloPercentil} É a MENOR delas, então um\n`);
+      process.stdout.write('  único reinício rápido decide este número. Confirme com --intervalo.\n');
+    }
   }
 
   if (r.desconhecidoAntesMs) {
@@ -195,17 +239,56 @@ function imprimirSaude(registros, opcoes) {
     process.stdout.write('  (não é buraco medido: pode ser processo que ainda não tinha subido).\n');
   }
 
+  // A premissa vai DENTRO da frase, e não numa linha acima que o olho pula: "nenhuma amostra
+  // faltando" sozinha é a frase que mentiu, porque ela lê como saúde medida quando é só uma
+  // divisão por um intervalo que o próprio comando chutou.
+  const premissa = r.intervaloOrigem === 'informado'
+    ? `supondo o intervalo de ${duracao(r.intervaloMs)} que você informou`
+    : `supondo intervalo de ${duracao(r.intervaloMs)}, INFERIDO do p${r.intervaloPercentil} de ${r.intervaloBase} distância(s)`;
+
   if (r.situacao === 'amostra-unica') {
     process.stdout.write('\nUMA AMOSTRA SÓ: não há distância entre amostras, então não dá para inferir o\n');
     process.stdout.write('intervalo nem afirmar nada sobre buraco. Alargue a janela com --desde.\n');
+  } else if (r.faltantes === null) {
+    // O terceiro estado. Ele nasce de duas séries diferentes (uma distância só, ou distâncias
+    // todas de duração zero), e das duas o número de faltantes fica em ABERTO: imprimi-lo
+    // como zero seria a mesma mentira tranquilizadora, e imprimi-lo como `null` era o que
+    // derrubava o comando na linha seguinte.
+    process.stdout.write('\nNÃO FOI POSSÍVEL ESTIMAR O INTERVALO, e por isso NADA se afirma sobre buraco.\n');
+    process.stdout.write(`A série tem ${r.distancias} distância(s) entre amostras, ${r.distanciasUteis} com duração maior que zero,\n`);
+    process.stdout.write('e a inferência exige duas: uma distância dividida por si mesma dá zero faltantes\n');
+    process.stdout.write('por aritmética, não por medição.\n');
+    process.stdout.write('Isto NÃO é "nada faltou". Passe --intervalo (5m, ou o que estiver em\n');
+    process.stdout.write('HEALTH_SAMPLE_INTERVAL_MS, que é em ms) para a conta sair sobre premissa declarada.\n');
+    if (r.desdeUltimaMs !== null) {
+      process.stdout.write(`Sem intervalo também não dá para dizer se a última amostra (há ${duracao(r.desdeUltimaMs)})\n`);
+      process.stdout.write('está atrasada, e é por isso que o aviso do presente saiu mudo lá em cima.\n');
+    }
   } else if (r.faltantes === 0) {
-    process.stdout.write(`\nNenhuma amostra faltando entre a primeira e a última (${r.esperadas} esperada(s)).\n`);
+    process.stdout.write(`\nNenhuma amostra faltando entre a primeira e a última, ${premissa}\n`);
+    process.stdout.write(`(${r.total} amostra(s), ${r.esperadas} esperada(s) sob essa premissa).\n`);
+    if (r.estimativaFragil) {
+      process.stdout.write('  Mas a estimativa é frágil (veja a linha do intervalo): esta tranquilidade vale o\n');
+      process.stdout.write('  que vale a premissa. Confirme com --intervalo antes de concluir que está tudo bem.\n');
+    }
   } else {
-    process.stdout.write(`\nFALTARAM ${r.faltantes} amostra(s) de ${r.esperadas} esperada(s), em ${r.buracos.length} buraco(s):\n`);
+    // A premissa vai junto TAMBÉM aqui, e não só na linha tranquilizadora: uma estimativa
+    // baixa demais infla esta contagem, e quem lê precisa poder desconfiar do número sem
+    // procurar de onde ele veio.
+    process.stdout.write(`\nFALTARAM ${r.faltantes} amostra(s) de ${r.esperadas} esperada(s), em ${r.buracos.length} buraco(s), ${premissa}:\n`);
     for (const b of r.buracos) {
       process.stdout.write(`  [${String(b.faltantes).padStart(4)} faltando] ${hora(b.inicio)} → ${hora(b.fim)}  (${duracao(b.duracaoMs)})\n`);
+      // A leitura vai LOGO ABAIXO do buraco a que pertence, porque ela é daquela amostra e de
+      // nenhuma outra. Sem leitura na janela inteira não se escreve nada por buraco: a nota
+      // sai uma vez, adiante.
+      if (b.disco) {
+        process.stdout.write(`       disco na amostra anterior: ${b.disco.livreMb} MB livres de ${b.disco.totalMb} MB\n`);
+      } else if (r.amostrasComDisco) {
+        process.stdout.write('       disco na amostra anterior: sem leitura nessa amostra\n');
+      }
     }
     process.stdout.write(`Maior buraco: ${duracao(r.maiorBuraco.duracaoMs)}, a partir de ${hora(r.maiorBuraco.inicio)}\n`);
+    imprimirNotaDeDisco(r);
   }
 
   if (r.falhasDoAmostrador || r.bancoFora || r.semHorario) process.stdout.write('\n');
