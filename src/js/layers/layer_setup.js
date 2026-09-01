@@ -312,15 +312,19 @@ function restoreMeasurements(features) {
 function restoreBoundaryDependentFeatures(features, mapInstance) {
     try {
         const boundaryControl = getControl('AddBoundaryControl');
-        const emptyCollection = { type: 'FeatureCollection', features: [] };
 
-        // Clear existing circles and texts before restoring (fixes persistence bug on map switch)
-        mapInstance.getSource('boundary-circles')?.setData(emptyCollection);
-        mapInstance.getSource('boundary-texts')?.setData(emptyCollection);
+        if (!boundaryControl) {
+            // No control to rebuild with: at least leave no children of the
+            // previous map behind (the persistence bug this used to fix).
+            const emptyCollection = { type: 'FeatureCollection', features: [] };
+            mapInstance.getSource('boundary-circles')?.setData(emptyCollection);
+            mapInstance.getSource('boundary-texts')?.setData(emptyCollection);
+            return;
+        }
 
-        if (!boundaryControl || !features.boundarys?.length) return;
+        const validBoundaries = [];
 
-        features.boundarys.forEach((boundaryFeature, index) => {
+        (features.boundarys || []).forEach((boundaryFeature, index) => {
             try {
                 if (!boundaryFeature?.properties) {
                     console.warn(`Invalid boundary feature ${index}:`, boundaryFeature);
@@ -358,12 +362,19 @@ function restoreBoundaryDependentFeatures(features, mapInstance) {
                 }
 
                 boundaryFeature.properties.baseCoordinates = validCoords;
-                boundaryControl.updateDependentFeatures(boundaryFeature);
+                validBoundaries.push(boundaryFeature);
 
             } catch (featureError) {
                 console.error(`Error processing boundary ${index}:`, featureError);
             }
         });
+
+        // ONE rebuild for the whole map, and it also does the clearing: the
+        // per-boundary call this used to make read the same (empty) collection N
+        // times without awaiting, so only the last boundary's labels and circles
+        // survived. That is why a reloaded map showed the labels of a single
+        // boundary until something else touched the others.
+        boundaryControl.rebuildAllDependentFeatures(validBoundaries);
 
     } catch (error) {
         console.error('Error restoring boundary dependent features:', error);

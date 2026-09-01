@@ -1360,6 +1360,11 @@
     display: none;
 }
 
+/* Slider hidden by a dependent toggle (e.g. reference zoom vs zoom correction) */
+.attr-modern-slider--hidden {
+    display: none;
+}
+
 .attr-modern-tabs-wrapper {
     width: 100%;
 }

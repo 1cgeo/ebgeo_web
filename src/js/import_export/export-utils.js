@@ -6,12 +6,21 @@
  */
 
 import { deepClone } from '@utils/deep-utils.js';
+// Leaf module (zero imports of its own), so reaching for the boundary control
+// here does not pull the store into every exporter.
+import { getControl } from '@store/control.registry.js';
+// Leaf too (zero imports); `layers/styles/tactical.layers.js` already reaches for
+// it from the same side of the graph.
+import { isScreenAnchored } from '@js/military_tools/boundary_tool/boundary-zoom.model.js';
 
 /**
  * Source configurations for zoom-invariant feature correction.
  * Each entry describes a GeoJSON source whose features have a
  * `createdAtZoom` property and a size/width that must be scaled
  * to match the export zoom level.
+ *
+ * `enabledProperty` names a boolean that opts a feature OUT when it is `false`
+ * (the feature is pinned to screen pixels, so the export zoom is irrelevant).
  */
 const ZOOM_INVARIANT_SOURCES = [
     { sourceName: 'texts', property: 'calculatedSize', baseProperty: 'size', maxValue: 255 },
@@ -19,12 +28,33 @@ const ZOOM_INVARIANT_SOURCES = [
     { sourceName: 'images', property: 'calculatedSize', baseProperty: 'size', maxValue: 10 },
     { sourceName: 'military_symbols', property: 'calculatedSize', baseProperty: 'size', maxValue: 10 },
     { sourceName: 'coordination-measures-source', property: 'calculatedSize', baseProperty: 'size', maxValue: 10 },
+    {
+        sourceName: 'boundarys',
+        property: 'calculatedLineWidth',
+        baseProperty: 'lineWidth',
+        maxValue: 60,
+        enabledProperty: 'zoomCorrectionEnabled',
+    },
+    {
+        sourceName: 'boundary-texts',
+        property: 'calculatedTextSize',
+        baseProperty: 'text_size',
+        maxValue: 255,
+        enabledProperty: 'zoomCorrectionEnabled',
+    },
+    {
+        sourceName: 'boundary-circles',
+        property: 'calculatedStrokeWidth',
+        baseProperty: 'strokeWidth',
+        maxValue: 60,
+        enabledProperty: 'zoomCorrectionEnabled',
+    },
 ];
 
 /**
  * Corrects a single GeoJSON source's features for the export zoom level.
  * @param {maplibregl.Map} hiddenMap - The off-screen map used for rendering
- * @param {{ sourceName: string, property: string, baseProperty: string, maxValue: number }} config
+ * @param {{ sourceName: string, property: string, baseProperty: string, maxValue: number, enabledProperty?: string }} config
  * @param {number} finalZoom - The target export zoom level
  * @returns {Promise<boolean>} Whether any features were changed
  */
@@ -42,6 +72,7 @@ async function correctSourceFeatures(hiddenMap, config, finalZoom) {
             if (!feature?.properties) continue;
             if (typeof feature.properties.createdAtZoom !== 'number') continue;
             if (typeof feature.properties[config.baseProperty] !== 'number') continue;
+            if (config.enabledProperty && feature.properties[config.enabledProperty] === false) continue;
 
             const zoomDiff = finalZoom - feature.properties.createdAtZoom;
             const scale = Math.pow(2, zoomDiff);
@@ -67,6 +98,68 @@ async function correctSourceFeatures(hiddenMap, config, finalZoom) {
 }
 
 /**
+ * Rebuilds the boundary geometry for the export zoom.
+ *
+ * `applyZoomCorrections` redraws EVERY boundary at the target zoom (the echelon
+ * of a screen-pinned one is geometry in KILOMETRES sized by
+ * `2 ** (createdAtZoom - zoom)`; the others are zoom-invariant but still bounded
+ * by the length of their own line). Only the screen-pinned ones change SHAPE
+ * with the zoom, so only their circles and labels (both placed in kilometres)
+ * have to be rebuilt with them.
+ *
+ * Silently does nothing when the boundary control is not registered, which is the
+ * case in an export started before the tool ever ran.
+ *
+ * @param {maplibregl.Map} hiddenMap - The off-screen map used for rendering
+ * @param {number} finalZoom - The target export zoom level
+ * @returns {Promise<boolean>} Whether any features were changed
+ */
+async function correctBoundaryGroundGeometry(hiddenMap, finalZoom) {
+    try {
+        const control = getControl('AddBoundaryControl');
+        if (typeof control?.applyZoomCorrections !== 'function' || !control.geometry) return false;
+
+        const source = hiddenMap.getSource('boundarys');
+        if (!source) return false;
+
+        const data = await source.getData();
+        if (!data?.features?.length) return false;
+
+        const corrected = control.applyZoomCorrections(data.features, finalZoom);
+        source.setData({ ...data, features: corrected });
+
+        const rebuilt = corrected.filter(feature => isScreenAnchored(feature.properties));
+        if (rebuilt.length === 0) return true;
+
+        const rebuiltIds = new Set(rebuilt.map(feature => feature.properties.id));
+        // The export zoom goes into the builders too: the label offset and the
+        // circle radius ride the echelon's effective size, which is a function of
+        // that zoom and NOT of the derived value stored in the feature.
+        const dependents = [
+            { sourceName: 'boundary-circles', build: (f) => control.geometry.generateBoundaryCircles(f, finalZoom) },
+            { sourceName: 'boundary-texts', build: (f) => control.geometry.generateBoundaryTexts(f, finalZoom) },
+        ];
+
+        for (const { sourceName, build } of dependents) {
+            const dependentSource = hiddenMap.getSource(sourceName);
+            if (!dependentSource) continue;
+
+            const dependentData = await dependentSource.getData();
+            const kept = (dependentData?.features || []).filter(f => !rebuiltIds.has(f.properties?.parent));
+            for (const feature of rebuilt) {
+                kept.push(...build(feature));
+            }
+            dependentSource.setData({ type: 'FeatureCollection', features: kept });
+        }
+
+        return true;
+    } catch (error) {
+        console.error('Error rebuilding screen-pinned boundaries for export:', error);
+        return false;
+    }
+}
+
+/**
  * Adjusts zoom-dependent feature sizes for the export zoom level.
  * Features whose `createdAtZoom` differs from the export zoom get their
  * calculated size/width scaled so they render at the correct visual size.
@@ -77,6 +170,13 @@ async function correctSourceFeatures(hiddenMap, config, finalZoom) {
  */
 export async function correctZoomInvariantFeatures(hiddenMap, finalZoom) {
     let anyChanges = false;
+
+    // Runs first so the generic pass below sees the final set of text and circle
+    // features. The two do not overlap: this one only touches the boundaries the
+    // generic pass skips (`zoomCorrectionEnabled === false`).
+    if (await correctBoundaryGroundGeometry(hiddenMap, finalZoom)) {
+        anyChanges = true;
+    }
 
     for (const config of ZOOM_INVARIANT_SOURCES) {
         const changed = await correctSourceFeatures(hiddenMap, config, finalZoom);

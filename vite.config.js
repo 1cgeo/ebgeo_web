@@ -136,6 +136,14 @@ export default defineConfig(({ mode: _mode }) => ({
 
           // ===== TOOL CHUNKS =====
 
+          // boundary-zoom.model.js is a zero-import leaf (pure zoom math for the
+          // boundary tool). It lives under military_tools/ but is statically imported
+          // by layers/styles/tactical.layers and import_export/export-utils (both core),
+          // so leaving it in military-tools would recreate the core <-> military-tools
+          // cycle. Same pattern as keyboard-service-3d above.
+          if (id.includes('boundary_tool/boundary-zoom.model')) {
+            return 'core';
+          }
           // Military tools (large bundle)
           if (id.includes('military_tools')) {
             return 'military-tools';
