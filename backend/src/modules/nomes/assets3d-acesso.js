@@ -141,8 +141,13 @@ export function gateDeAsset3d(req, res, next) {
     try {
       regime = await regimeDoCaminho(req.params[0]);
     } catch {
-      // No index and no way to build one. Serving would leak and denying would take the
-      // public models down, so neither is answered: 503 says "I cannot decide", out loud.
+      // DOIS casos, e os dois dizem a mesma coisa. (a) Sem índice e sem como construir um.
+      // (b) Desde 2026-09-01, índice vencido além do teto (`REGIME_STALE_MAX_MS`) na resposta
+      // que ENTREGA bytes, e aqui elas são duas: a linha pública e o caminho que ninguém
+      // reivindica, porque este índice publica o não reivindicado. Servir vazaria e negar
+      // derrubaria os modelos públicos, então nenhum dos dois é respondido: 503 diz "não
+      // consigo decidir", em voz alta. O ramo privado abaixo NÃO é alcançado pelo teto: ele
+      // pergunta ao banco a cada decisão.
       return next(new ServiceUnavailableError('Catálogo indisponível'));
     }
     req.assetPrivado = regime.privado;

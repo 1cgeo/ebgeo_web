@@ -38,6 +38,15 @@
  *      (`fn_can_see_resource`, por `recursoPrivadoLiberado`), memoizado por (chamador,
  *      empréstimo, recurso).
  *
+ * E UM QUINTO, que não é desfecho de acesso: 503, "não consigo decidir". Ele sai quando o
+ * índice de regime não pode ser construído e não há cópia anterior, e desde 2026-09-01
+ * também quando a cópia anterior está vencida além do teto (`REGIME_STALE_MAX_MS`, cinco
+ * minutos por padrão). O teto fecha uma janela que era ilimitada: enquanto o banco estivesse
+ * fora, o desfecho 2 saía de um índice velho, de modo que uma fonte recém-marcada privada
+ * continuava sendo servida a qualquer um, e com `Cache-Control: public, immutable`. Repare
+ * que ele alcança SÓ o desfecho 2: o 1 já é 401 (a leitura fechada do índice velho não
+ * precisa de limite) e os desfechos 3 e 4 não dependem deste índice para dizer não.
+ *
  * O CUSTO, e ele é a razão de o índice existir: ZERO consulta no caminho público. O
  * regime sai de um índice em memória, reconstruído só na escrita de catálogo
  * (`tile-regime.js`), e a decisão do privado é memoizada por 30 s. Um mapa com cinco
@@ -63,6 +72,7 @@
  * prazo escrito.
  */
 import config from '../../config.js';
+import { ServiceUnavailableError } from '../../utils/errors.js';
 import { API_KEY_SCOPES } from '../users/api-key-terms.js';
 import { regimeDoTile } from '../nomes/tile-regime.js';
 import { recursoPrivadoLiberado } from '../nomes/assets3d-acesso.js';
@@ -161,11 +171,21 @@ export async function requireTileAccess(req, res, next) {
   let regime;
   try {
     regime = await regimeDoTile(caminho);
-  } catch (erro) {
-    // Sem índice e sem cópia anterior não há decisão possível. Servir vazaria e recusar
-    // derrubaria o acervo público inteiro, então nenhum dos dois é respondido em silêncio:
-    // 503 diz "não consigo decidir", e o nginx o repassa como erro em vez de como negação.
-    return next(erro);
+  } catch {
+    // DOIS casos caem aqui, e os dois significam a mesma coisa: sem índice e sem cópia
+    // anterior, e cópia anterior vencida além do teto (`REGIME_STALE_MAX_MS`). Servir
+    // vazaria e recusar derrubaria o acervo público inteiro, então nenhum dos dois é
+    // respondido em silêncio: 503 diz "não consigo decidir", e o nginx, que só repassa 401 e
+    // 403 ao cliente, o trata como erro em vez de como negação.
+    //
+    // A TRADUÇÃO PARA 503 É EXPLÍCITA, e até 2026-09-01 ela não existia: este ramo fazia
+    // `next(erro)` com o erro cru do driver, que não é `AppError` e cujo SQLSTATE não está no
+    // mapa do `errorHandler`, então o desfecho REAL era 500 enquanto este comentário dizia
+    // 503. O erro é descartado porque o `errorHandler` só o repetiria: a causa de banco já é
+    // registrada por `dbErrorLogPayload` (`src/database/index.js`), e a entrada em regime
+    // vencido por `regime-vencido.js`. Mesmo desfecho e mesma frase do irmão do 3D
+    // (`gateDeAsset3d`, `modules/nomes/assets3d-acesso.js`), de propósito.
+    return next(new ServiceUnavailableError('Catálogo indisponível'));
   }
 
   // 1. Decisão 4: o que ninguém reivindica não sai.

@@ -23,7 +23,12 @@
 //     would match every request; such an entry is dropped in BOTH directions (a private
 //     root would deny the whole route, a public root would shadow every private prefix).
 //  3. Anything the catalog does not describe. A path no row claims is PUBLIC, which is
-//     exactly today's behavior and is what keeps the public model from regressing.
+//     exactly today's behavior and is what keeps the public model from regressing. ATENÇÃO,
+//     e esta é a inversão que separa este índice do irmão de tiles: aqui o caminho NÃO
+//     REIVINDICADO é uma resposta que ENTREGA bytes, enquanto lá ele é 401. Por isso o teto
+//     de regime vencido (ver `regimeDoCaminho`) alcança os DOIS lados do "não é privado"
+//     (a linha pública e o caminho que ninguém reivindica), e não só o primeiro. Quem
+//     copiar daqui a fiação do irmão, ou vice-versa, precisa refazer essa conta.
 //
 // `active` IS NOT FILTERED, and that is not an oversight: a soft-deleted private row keeps
 // its bytes on disk, so dropping it from the index would turn "delete a private tileset"
@@ -37,7 +42,11 @@ import path from 'node:path';
 // custaram um vazamento medido cada uma, e uma copia que nao as recebesse repetiria os dois
 // defeitos noutro prefixo, com o mesmo desfecho e sem nenhum sinal.
 import { normalizarRel, ordenarEntradas, acharEntrada } from './caminho-de-recurso.js';
-import { criarVigiaDeRegime } from './regime-vencido.js';
+import {
+  criarVigiaDeRegime,
+  afirmacaoPublicaVencida,
+  RegimeVencidoAlemDoTetoError,
+} from './regime-vencido.js';
 import { query } from '../../database/index.js';
 import { SELECT_LINHAS_DE_CATALOGO } from '../catalog/catalog.tables.js';
 import config from '../../config.js';
@@ -83,10 +92,12 @@ const vigia = criarVigiaDeRegime('assets3d');
  * calls. It does NOT clear `ultimoBom`: that copy is the fallback for a rebuild that FAILS,
  * and throwing it away would trade a stale answer for no answer at all.
  *
- * The one window this leaves open, written down rather than hidden: a row flipped
- * public -> private whose very next rebuild fails keeps being served under the old regime
- * until some rebuild succeeds. It takes the database breaking inside the seconds after that
- * write, and the alternative (fail closed on any blip) takes the public models down with it.
+ * A janela que isto abre, e ela deixou de ser ilimitada em 2026-09-01: uma linha virada
+ * public -> private cuja reconstrução seguinte falha continua sendo servida pelo regime
+ * antigo até que alguma reconstrução dê certo, mas agora só até o teto
+ * (`REGIME_STALE_MAX_MS`, 5 min por padrão), depois do qual a resposta pública deixa de sair
+ * e vira 503. A alternativa (fechar em qualquer piscada) derruba os modelos públicos junto,
+ * e é por isso que o teto é folgado em vez de zero.
  */
 export function invalidarRegimeDeAssets3d() {
   entrada = null;
@@ -189,14 +200,30 @@ function lerIndice() {
  * the test would let the hole back in through the variant. See `normalizarRel` and
  * `chaveDeCasamento` for the two spellings that were measured serving private bytes.
  *
+ * O TETO ALCANÇA UMA RESPOSTA SÓ, E É A QUE ENTREGA BYTES SEM CREDENCIAL. Passado o prazo
+ * de `afirmacaoPublicaVencida`, um índice vencido perde o direito de dizer "isto não é
+ * privado", e é aí que a inversão declarada no item 3 do cabeçalho cobra o seu preço: aqui
+ * essa afirmação são DUAS, a linha pública e o caminho que nenhuma linha reivindica, porque
+ * as duas são servidas. No irmão de tiles a segunda já é 401 e fica de fora. A consequência
+ * precisa ser dita em voz alta, porque é a mais cara desta mudança: com o banco fora por
+ * mais que o teto, esta rota passa a responder 503 para o acervo 3D INTEIRO, público e não
+ * catalogado inclusive, e não só para as linhas públicas do catálogo.
+ *
+ * O ramo PRIVADO segue intacto nos dois lados do teto, e não por descuido: este índice não
+ * decide o privado, só diz o tipo e o id; quem decide é `fn_can_see_resource`, no banco, por
+ * `assets3d-acesso.js`. Fechá-lo junto derrubaria o gate que continua funcionando.
+ *
  * @param {string} rel - `req.params[0]`, as the route received it.
  * @returns {Promise<{privado: boolean, tipo?: string, resourceId?: string}>}
- * @throws When the index has never been built and cannot be. The caller answers 503: with no
- *   index there is no honest answer, and guessing means choosing between denying the public
- *   models and serving the private ones.
+ * @throws When the index has never been built and cannot be, or when the NOT-PRIVATE answer
+ *   would come from an index stale beyond the ceiling. The caller answers 503 in both cases:
+ *   with no trustworthy index there is no honest answer, and guessing means choosing between
+ *   denying the public models and serving the private ones.
  */
 export async function regimeDoCaminho(rel) {
   let indice;
+  /** @type {number|null} `null` = o índice desta resposta é o vigente. */
+  let vencidoHaMs = null;
   try {
     indice = await lerIndice();
   } catch (err) {
@@ -204,11 +231,18 @@ export async function regimeDoCaminho(rel) {
     // After the rethrow branch on purpose: that one answers 503 and is loud by itself,
     // while THIS one was serving stale state without a word anywhere.
     vigia.anotarQueda(err);
+    vencidoHaMs = vigia.vencidoHaMs();
     indice = ultimoBom; // stale, but a stale answer beats closing the route on a blip
   }
 
   const e = acharEntrada(indice, rel);
-  if (e) return { privado: e.privado, tipo: e.tipo, resourceId: e.resourceId };
+  if (e && e.privado) return { privado: true, tipo: e.tipo, resourceId: e.resourceId };
+  // Sem linha de log: a transição para o regime vencido já foi registrada uma vez, com a
+  // idade, e este caminho corre uma vez por tile do Cesium. Ver `regime-vencido.js`.
+  if (afirmacaoPublicaVencida(vencidoHaMs)) {
+    throw new RegimeVencidoAlemDoTetoError('assets3d', vencidoHaMs, config.regimeIndex.staleMaxMs);
+  }
+  if (e) return { privado: false, tipo: e.tipo, resourceId: e.resourceId };
   return { privado: false };
 }
 

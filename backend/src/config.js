@@ -326,6 +326,27 @@ const config = Object.freeze({
     ttlMs: parseInt(optional('CONFIG_CACHE_TTL_MS', '30000'), 10), // 30 s
   }),
 
+  // POR QUANTO TEMPO UM ÍNDICE DE REGIME VENCIDO AINDA PODE DIZER "ISTO É PÚBLICO".
+  //
+  // `tile-regime.js` e `assets3d-regime.js` mantêm em memória o regime de acesso do
+  // catálogo e, quando a reconstrução falha, caem para o último índice bom e seguem
+  // servindo. A queda é deliberada (fechar derrubaria o acervo público inteiro por uma
+  // piscada de banco) e desde 2026-09-01 ela deixa uma linha de transição
+  // (`src/modules/nomes/regime-vencido.js`). O que faltava era LIMITE: sem teto, um recurso
+  // recém-marcado privado segue sendo servido como público, e com `immutable`, enquanto o
+  // banco estiver fora, por tempo indeterminado.
+  //
+  // CINCO MINUTOS, e o número sai de duas medidas do próprio sistema: o TTL do índice é de
+  // 60 s e uma piscada de deploy dura segundos, então o padrão dá cinco vezes a folga do
+  // ciclo normal de reconstrução. Muito abaixo disso, o teto transforma manutenção rotineira
+  // de banco em falha de mapa; acima, a janela que ele existe para fechar volta a ser longa.
+  //
+  // 0 É VÁLIDO e é o regime mais estrito: nenhuma afirmação pública sai de índice vencido,
+  // nem por um milissegundo.
+  regimeIndex: Object.freeze({
+    staleMaxMs: parseInt(optional('REGIME_STALE_MAX_MS', '300000'), 10), // 5 min
+  }),
+
   security: Object.freeze({
     allowSelfRegistration: resolveAllowSelfRegistration(nodeEnv, process.env.ALLOW_SELF_REGISTRATION),
     // There is no "verification mode" knob. There used to be one, read at its own
@@ -460,6 +481,15 @@ export const NUMERIC_ENV_RULES = Object.freeze({
   // /config). É a única entrada desta tabela cujo piso é zero, e é o que permite
   // desligar a memoização por env sem editar código.
   CONFIG_CACHE_TTL_MS: { min: 0 },
+  // Teto do regime vencido dos índices de catálogo (ver `regimeIndex` acima). 0 é VÁLIDO e
+  // é o regime mais estrito (nenhuma afirmação pública sai de índice vencido); o teto de um
+  // dia é o ponto em que "resiliência" deixa de se distinguir da janela aberta que o knob
+  // existe para fechar. A faixa entra na tabela no MESMO commit que o knob, de propósito:
+  // sem ela `REGIME_STALE_MAX_MS=abc` vira NaN, e `idade >= NaN` é SEMPRE falso, ou seja, um
+  // teto que nunca fecha, e o gate voltaria a servir estado velho para sempre com a aparência
+  // de estar configurado. É o estrago do `setInterval(NaN)` registrado acima, agora na
+  // direção do acesso, que é a pior das duas.
+  REGIME_STALE_MAX_MS: { min: 0, max: 86400000 },
   // Hop count for Express `trust proxy`. NaN here is the worst of the set: a
   // numeric `trust proxy` is compared as `i < val`, and `i < NaN` is always
   // false, so the app silently trusts NO hop — req.ip becomes the proxy's

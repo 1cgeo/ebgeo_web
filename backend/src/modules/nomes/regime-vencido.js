@@ -1,7 +1,8 @@
 // Path: src/modules/nomes/regime-vencido.js
 /**
- * @fileoverview QUANDO UM ÍNDICE DE REGIME PASSA A RESPONDER POR ESTADO VELHO, E QUANDO
- * ELE VOLTA AO NORMAL. A única cópia dessa contabilidade, compartilhada pelos dois índices.
+ * @fileoverview QUANDO UM ÍNDICE DE REGIME PASSA A RESPONDER POR ESTADO VELHO, QUANDO ELE
+ * VOLTA AO NORMAL, E ATÉ QUANDO O ESTADO VELHO AINDA VALE. A única cópia dessa
+ * contabilidade, compartilhada pelos dois índices.
  *
  * ============================================================================
  * O FATO QUE ESTE ARQUIVO EXISTE PARA TORNAR ESCRITO. `tile-regime.js` e
@@ -12,11 +13,16 @@
  * gravidade: a invalidação na escrita preserva o `ultimoBom` de propósito, então uma linha
  * recém-marcada PRIVADA continua a ser servida como pública, e com
  * `Cache-Control: public, immutable`, enquanto o banco estiver fora. Um gate de acesso
- * operando sobre estado velho sem dizer que está.
+ * operando sobre estado velho sem dizer que está. (Desde 2026-09-01 esse "enquanto" tem
+ * limite: ver `afirmacaoPublicaVencida`. O que ele NÃO tem limite de é a linha de log, que
+ * continua sendo uma por transição.)
  *
- * O ESCOPO AQUI É SÓ FAZER O FATO EXISTIR POR ESCRITO. Nada neste módulo muda quem é
- * servido, nem por quanto tempo, nem o cabeçalho de cache. Se o regime vencido deve fechar
- * em vez de servir, isso é decisão do dono e é outra mudança.
+ * O ESCOPO ERA SÓ FAZER O FATO EXISTIR POR ESCRITO, e deixou de ser em 2026-09-01, quando o
+ * dono decidiu o TETO (ver `afirmacaoPublicaVencida` abaixo). O que este módulo passou a
+ * decidir é UMA coisa, e é bom nomear as três que ele continua não decidindo: ele NÃO muda o
+ * `Cache-Control`, NÃO muda o ramo privado e NÃO recusa nada por si (quem recusa é o índice,
+ * que lança, e o gate, que responde). O que ele decide é por quanto tempo um índice vencido
+ * ainda tem direito de AFIRMAR que um caminho pode ser servido sem credencial.
  * ============================================================================
  *
  * UMA LINHA POR TRANSIÇÃO, NUNCA POR CONSULTA, e esta é a decisão de forma inteira. O
@@ -77,6 +83,7 @@
  * do mesmo pedido e DESCARTAR uma das duas, que é a perda que este arquivo existe para
  * impedir.
  */
+import config from '../../config.js';
 import logger from '../../utils/logger.js';
 
 /** Teto do texto do motivo. A mensagem do pg é curta; o teto é contra o caso patológico. */
@@ -164,6 +171,78 @@ export function saidaDeRegimeVencidoPayload({ indice, vencidoDesde, agora }) {
 }
 
 /**
+ * ATÉ QUANDO UM ÍNDICE VENCIDO AINDA PODE AFIRMAR QUE UM CAMINHO É SERVÍVEL SEM CREDENCIAL.
+ *
+ * A DECISÃO INTEIRA, escrita aqui porque é a única linha deste arquivo que muda o que o
+ * usuário recebe. A queda para o último índice bom é resiliência comprada de propósito, e
+ * ela era ILIMITADA: enquanto o banco estivesse fora, um recurso recém-marcado privado
+ * seguia saindo como público e `immutable`. O teto derruba SÓ a afirmação que um índice
+ * velho não tem direito de fazer, e é por isso que ele mora numa função que só o lado
+ * PÚBLICO chama: o ramo privado continua consultando `fn_can_see_resource` a cada decisão
+ * (memoizada por 30 s em `assets3d-acesso.js`), então ele não depende deste índice para
+ * dizer "não", e passar o teto não pode fechá-lo junto.
+ *
+ * O SENTIDO DA COMPARAÇÃO É `>=`, e não `>`, porque é o que dá significado ao teto ZERO: com
+ * `>` um teto de zero ainda deixaria passar a consulta do instante exato da queda, e o
+ * regime mais estrito que a configuração oferece não seria estrito.
+ *
+ * `null` (regime NORMAL) NUNCA vence, e as DUAS guardas são explícitas em vez de um `!=
+ * null`, porque `idade >= NaN` é sempre falso e um NaN em qualquer dos lados viraria um teto
+ * que NUNCA FECHA, com a aparência de estar configurado. As duas guardas são assimétricas de
+ * propósito:
+ *
+ *   - a IDADE só é ignorada quando não é número ou é NaN. Uma idade INFINITA vence (é o
+ *     limite de "velho"), e tratá-la como regime normal seria a única forma de a função
+ *     abrir a janela sozinha;
+ *   - o TETO não-finito devolve `false`, que é o lado aberto, e essa escolha só é aceitável
+ *     porque ela é INALCANÇÁVEL: `REGIME_STALE_MAX_MS` tem faixa em `NUMERIC_ENV_RULES` e o
+ *     boot é fail-fast, então um teto ilegível não chega até aqui. Fechar nesse caso
+ *     derrubaria o acervo público inteiro por um erro de digitação já pego no boot.
+ *
+ * @param {number|null} vencidoHaMs - de `vigia.vencidoHaMs()`; `null` em regime normal.
+ * @param {number} [teto] - o teto configurado, em ms.
+ * @returns {boolean} se a afirmação pública deste índice já não vale.
+ */
+export function afirmacaoPublicaVencida(vencidoHaMs, teto = config.regimeIndex.staleMaxMs) {
+  if (typeof vencidoHaMs !== 'number' || Number.isNaN(vencidoHaMs)) return false;
+  if (!Number.isFinite(teto)) return false;
+  return vencidoHaMs >= teto;
+}
+
+/**
+ * O que um índice lança quando o teto acima é ultrapassado.
+ *
+ * NÃO é um `AppError`, e isso é a mesma separação que o cabeçalho de `tile-regime.js` já
+ * declara ("este módulo não decide a recusa"): os índices resolvem caminho, e quem traduz
+ * uma falha em status HTTP é o gate. Os dois gates a traduzem para 503, que é o desfecho
+ * que os dois já usam para "não consigo decidir", e não para 401: passado o teto o servidor
+ * não está NEGANDO acesso, está dizendo que não tem como decidir. Para o nginx, que só
+ * repassa 401 e 403 ao cliente, essa diferença é justamente a que separa negação de erro.
+ *
+ * ELA NÃO CHEGA AO LOG, e isso precisa estar escrito para não ser lido ao contrário: os
+ * dois gates a DESCARTAM ao traduzir para 503, então o `errorHandler` registra a frase
+ * genérica do `ServiceUnavailableError` e o 503 do teto é indistinguível do 503 de índice
+ * que nunca foi construído. Quem distingue é a linha de TRANSIÇÃO deste mesmo arquivo, que
+ * já saiu antes com a idade e o motivo, e é assim de propósito: uma linha por 503 seria uma
+ * linha por tile. Os três campos existem para o teste e para o dia em que alguém quiser
+ * levar a causa adiante; não conte com eles num relatório.
+ */
+export class RegimeVencidoAlemDoTetoError extends Error {
+  /**
+   * @param {string} indice
+   * @param {number} vencidoHaMs
+   * @param {number} teto
+   */
+  constructor(indice, vencidoHaMs, teto) {
+    super(`índice de regime '${indice}' vencido há ${vencidoHaMs} ms (teto ${teto} ms)`);
+    this.name = 'RegimeVencidoAlemDoTetoError';
+    this.indice = indice;
+    this.vencidoHaMs = vencidoHaMs;
+    this.teto = teto;
+  }
+}
+
+/**
  * O nível de cada uma das duas linhas, como TABELA e não como `if`, para que a decisão
  * argumentada no cabeçalho seja um dado asserível em vez de um ramo enterrado no escritor.
  * Mudar um valor aqui muda se o fato alcança `npm run diag -- erros`, e é por isso que há um
@@ -231,6 +310,23 @@ export function criarVigiaDeRegime(indice, escrever = escreverNoLog) {
       vencidoDesde = agora;
       escrever('entrada', entradaEmRegimeVencidoPayload({ indice, erro, ultimoBomEm, agora }));
       return true;
+    },
+
+    /**
+     * Há quanto tempo estamos servindo pelo último índice bom, ou `null` em regime normal.
+     *
+     * CONTA DESDE A QUEDA, e não desde a última construção boa, e a diferença é o que o teto
+     * mede. Enquanto o banco responde, o índice é reconstruído a cada escrita de catálogo e,
+     * no pior caso, a cada TTL, então a idade da CONSTRUÇÃO é limitada por desenho e não diz
+     * nada sobre risco. O que abre a janela é o tempo em que não se consegue mais confirmar
+     * nada, e ele começa na queda. Uma recuperação zera (via `anotarConstrucao`), então dois
+     * incidentes separados por um minuto bom não somam idade, que seria a leitura errada.
+     *
+     * @param {number} [agora]
+     * @returns {number|null}
+     */
+    vencidoHaMs(agora = Date.now()) {
+      return vencidoDesde === null ? null : agora - vencidoDesde;
     },
   };
 }

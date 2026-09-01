@@ -54,7 +54,11 @@ import config from '../../config.js';
 import { query } from '../../database/index.js';
 import { SELECT_LINHAS_DE_CATALOGO } from '../catalog/catalog.tables.js';
 import { normalizarRel, ordenarEntradas, acharEntrada } from './caminho-de-recurso.js';
-import { criarVigiaDeRegime } from './regime-vencido.js';
+import {
+  criarVigiaDeRegime,
+  afirmacaoPublicaVencida,
+  RegimeVencidoAlemDoTetoError,
+} from './regime-vencido.js';
 
 /** As tabelas cujos endereços saem pelo prefixo de tiles. `tilesets` não é uma delas. */
 const TIPOS_DE_TILE = Object.freeze(['data_layer', 'analysis_layer', 'basemap']);
@@ -265,14 +269,27 @@ function lerIndice() {
 /**
  * O regime de um caminho servido sob o prefixo de tiles.
  *
+ * O TETO ALCANÇA UMA RESPOSTA SÓ, E É A PÚBLICA. Passado o prazo de
+ * `afirmacaoPublicaVencida`, um índice vencido perde o direito de dizer "esta fonte é
+ * pública, sirva sem credencial", que é a única afirmação daqui que ENTREGA bytes. As outras
+ * duas seguem intactas de propósito: o caminho NÃO REIVINDICADO já é 401 pela decisão 4, ou
+ * seja, o índice velho já está sendo lido na direção fechada e não há nada a limitar; e a
+ * linha PRIVADA não é decidida por este índice, que só diz o tipo e o id: quem decide é
+ * `fn_can_see_resource`, no banco, a cada decisão. Fechar o privado junto seria derrubar o
+ * gate que continua funcionando, e passar o teto derrubaria o produto inteiro em vez de
+ * derrubar a afirmação sem lastro.
+ *
  * @param {string} caminho - O caminho que o nginx repassou, sem o prefixo.
  * @returns {Promise<{reivindicado: boolean, privado: boolean, tipo?: string, resourceId?: string}>}
- * @throws Se o índice não puder ser construído E não houver cópia anterior. O chamador
- *   responde 503: servir vazaria e recusar derrubaria o acervo público inteiro, então
- *   nenhum dos dois é respondido em silêncio.
+ * @throws Se o índice não puder ser construído E não houver cópia anterior, ou se a resposta
+ *   PÚBLICA viesse de um índice vencido além do teto. O chamador responde 503 nos dois
+ *   casos: servir vazaria e recusar derrubaria o acervo público inteiro, então nenhum dos
+ *   dois é respondido em silêncio.
  */
 export async function regimeDoTile(caminho) {
   let indice;
+  /** @type {number|null} `null` = o índice desta resposta é o vigente. */
+  let vencidoHaMs = null;
   try {
     indice = await lerIndice();
   } catch (erro) {
@@ -280,10 +297,18 @@ export async function regimeDoTile(caminho) {
     // Depois do relançamento, de propósito: aquele ramo responde 503 e é alto por si; este
     // é o que servia estado velho em silêncio.
     vigia.anotarQueda(erro);
+    vencidoHaMs = vigia.vencidoHaMs();
     indice = ultimoBom;
   }
   const achada = acharEntrada(indice, caminho);
   if (!achada) return { reivindicado: false, privado: false };
+  // Sem linha de log: a transição para o regime vencido JÁ foi registrada uma vez, com a
+  // idade, e o índice é consultado uma vez por tile. Uma linha por recusa poria o
+  // amplificador de log no caminho mais quente do sistema, que é o defeito que
+  // `regime-vencido.js` inteiro existe para não cometer.
+  if (!achada.privado && afirmacaoPublicaVencida(vencidoHaMs)) {
+    throw new RegimeVencidoAlemDoTetoError('tile', vencidoHaMs, config.regimeIndex.staleMaxMs);
+  }
   return {
     reivindicado: true,
     privado: achada.privado,
