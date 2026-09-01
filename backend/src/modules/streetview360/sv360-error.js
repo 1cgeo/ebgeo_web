@@ -6,14 +6,105 @@
 // envelope { error: 'message string' }.
 //
 // Status codes are preserved from AppError subclasses (404/403/401/409/...).
-// Joi validation errors → 422. 500s never leak internals outside dev.
+// Joi validation errors -> 422. 500s never leak internals outside dev.
+//
+// PORQUE ELE REGISTRA, E POR QUE COM A GRAMATICA DO HANDLER GLOBAL. Interceptar
+// antes do `errorHandler` custava o REGISTRO junto com o envelope: ate 2026-09-01
+// este arquivo nao logava nada, entao todo erro do 360 saia sem mensagem e sem
+// pilha, e no `npm run diag -- erros` sobrava so a linha do logger de requisicao,
+// sem `err`, colapsada numa assinatura generica. Visualizador 360 quebrado na tela
+// era silencio do lado do servidor.
+//
+// A linha copia campo a campo a de `src/middleware/error-handler.js` (`err`,
+// `reqId`, `method`, `url` por `redactUrl`, `userId`, e a mesma mensagem
+// 'Request error'), e isso NAO e simetria estetica: `fundirPorRequisicao`
+// (`src/utils/diag-consulta.js`) funde as DUAS linhas de uma requisicao falha pelo
+// `reqId`, e `assinaturaDeErro` agrupa por rota mais tipo mais mensagem. Divergir
+// aqui produziria assinatura propria, que conta o mesmo erro duas vezes: pior que
+// o silencio de ontem, porque passa a contar errado.
+//
+// O ERRO VAI COMO `err`, INTEIRO, e nunca como texto ja formatado: o campo `err` e
+// o unico que passa pelo `errSerializer` de `src/utils/logger.js`, que e quem
+// elide `query`/`params`/`detail`/`where` que o driver do Postgres pendura no erro
+// (e o `23505` logo abaixo e exatamente um erro desses). Formatar aqui contornaria
+// o serializer e devolveria o vazamento pela porta de tras.
 import config from '../../config.js';
+import logger from '../../utils/logger.js';
+import { redactUrl } from '../../utils/redact-url.js';
+
+/**
+ * O status que ESTE handler vai responder.
+ *
+ * Existe a parte para que o NIVEL do log e o corpo da resposta nao possam divergir:
+ * os dois derivam daqui, e um ramo novo abaixo que esqueca esta funcao aparece como
+ * 500 logado contra 409 respondido.
+ * @param {Object} err
+ * @returns {number}
+ */
+export function sv360StatusDoErro(err) {
+  if (err?.isJoi) return 422;
+  if (err?.code === '23505' || err?.code === '23503') return 409;
+  return err?.statusCode || 500;
+}
+
+/**
+ * Monta o objeto da linha de log, sem escrever nada.
+ *
+ * Separado da escrita pelo mesmo motivo de `queryLogPayload`/`dbErrorLogPayload`
+ * (`src/database/index.js`): sob `NODE_ENV=test` o pino fica em nivel `silent`,
+ * entao um teste que espiasse o stream passaria verde com o defeito intacto. O que
+ * se asserta e o objeto construido.
+ * @param {Object} err
+ * @param {Object} req
+ * @returns {{err: Object, reqId: string|undefined, method: string|undefined, url: string|undefined, userId: string|undefined}}
+ */
+export function sv360ErrorLogPayload(err, req) {
+  return {
+    err,
+    // O mesmo id que o logger de requisicao carimba. E o que permite fundir as duas
+    // linhas da mesma requisicao em vez de contar o erro duas vezes.
+    reqId: req?.id,
+    method: req?.method,
+    // `originalUrl` e nao `req.url`: aqui dentro do router o segundo e o caminho
+    // relativo ao mount, e as duas linhas da MESMA requisicao sairiam com URLs
+    // diferentes, que e o oposto do que o `reqId` acima existe para permitir.
+    url: redactUrl(req?.originalUrl || req?.url),
+    userId: req?.user?.id,
+  };
+}
+
+/**
+ * Escreve a linha no nivel certo.
+ *
+ * 4xx em `warn` e 5xx em `error`, a mesma regra do handler global: erro do cliente
+ * nao e falha do servidor e nao pode poluir o fluxo de erro. O 4xx NAO some do
+ * relatorio por causa disso, e isso foi conferido no `ehErro` real
+ * (`src/utils/diag-consulta.js`), que tem TRES termos em OU: `level >= 50`, a
+ * PRESENCA de `err` e `statusCode >= 400`. Como esta linha sempre carrega `err`,
+ * ela entra pelo segundo termo em qualquer nivel. Escolher `error` para 4xx seria
+ * ganhar nada e perder a distincao que o operador usa para separar as duas coisas.
+ * @param {Object} err
+ * @param {Object} req
+ * @param {number} status
+ */
+function registrar(err, req, status) {
+  const logFn = status < 500 ? logger.warn : logger.error;
+  logFn.call(logger, sv360ErrorLogPayload(err, req), 'Request error');
+}
 
 // The 4-arg signature (err, req, res, next) is what marks this as an Express
-// error handler — `next` must stay in the signature even when only used for the
+// error handler. `next` must stay in the signature even when only used for the
 // headersSent re-throw path.
 export function sv360ErrorHandler(err, req, res, next) {
+  // O registro vem DEPOIS desta guarda, ao contrario do handler global, e a
+  // assimetria e o desenho: la o `next(err)` cai no finalhandler, que nao loga, e
+  // perder o registro ali torna a falha invisivel; aqui o `next(err)` cai no
+  // proprio `errorHandler`, que loga com esta mesma gramatica. Logar antes daria
+  // duas linhas para a mesma falha.
   if (res.headersSent) return next(err);
+
+  const status = sv360StatusDoErro(err);
+  registrar(err, req, status);
 
   if (err.isJoi) {
     return res.status(422).json({ error: err.details?.[0]?.message || 'Falha na validação' });
@@ -31,7 +122,6 @@ export function sv360ErrorHandler(err, req, res, next) {
     return res.status(409).json({ error: 'O registro referenciado não existe ou ainda está em uso.' });
   }
 
-  const status = err.statusCode || 500;
   const message = status >= 500 ? (config.isDev ? err.message : 'Erro interno do servidor.') : err.message;
   return res.status(status).json({ error: message });
 }
