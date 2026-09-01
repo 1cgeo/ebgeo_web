@@ -1606,3 +1606,52 @@ da 6.3 fica [em obra], com os três itens acima nomeados.
 **Raio de explosão.** O de maior alcance é o reaproveitamento do tileset, porque muda o que acontece ao reabrir o mesmo modelo: nada é rebaixado, mas a cena volta a partir do estado que ficou. Conferido por captura de tela em três aberturas seguidas (o modelo desenha igual na terceira) e pelo caminho de risco, que é a TROCA: com um segundo modelo registrado para o teste, trocar continua criando um tileset novo, destruindo o anterior e deixando exatamente um vivo e um na cena. O desligamento do laço tem o modo de falha "tela parada sem erro no console", e o teste dele é a captura depois da reabertura, não o número.
 
 **Status:** aceita.
+
+---
+
+## 2026-09-01 — O índice de regime vencido tem TETO DE IDADE, e passado ele o 3D fecha INTEIRO
+
+**O problema.** Os índices de regime de acesso (`tile-regime.js` e `assets3d-regime.js`) caem para o
+último índice bom quando a reconstrução falha, e seguem servindo. Isso é resiliência deliberada: uma
+piscada de banco não derruba o mapa. Mas o índice velho responde "este recurso é público" sem ter como
+confirmar, e a invalidação preserva o último bom de propósito, então um recurso recém-marcado PRIVADO
+continuava a ser entregue como `public, immutable` **enquanto o banco estivesse fora**, sem limite, e
+sem uma linha em lugar nenhum até 2026-09-01.
+
+**A decisão.** Teto por `REGIME_STALE_MAX_MS` (cinco minutos por padrão, faixa validada). Passado ele, a
+resposta que ENTREGA bytes deixa de ser dada e o gate responde 503. O ramo privado não é alcançado:
+ele pergunta ao banco, não ao índice.
+
+**A assimetria entre os dois índices, que é o ponto desta entrada.** No índice de tiles, caminho não
+reivindicado já é 401, então o teto derruba só a afirmação pública. No de 3D, o não reivindicado é
+PÚBLICO e é servido (está declarado no cabeçalho daquele arquivo), então ali as afirmações sem lastro
+são DUAS, e o teto cobre as duas: **passado o teto, `/api/v1/assets3d` fecha para o acervo inteiro**,
+público e não catalogado inclusive. Isso é decisão, não efeito colateral, e está asserido em teste para
+não ser lido como defeito por quem passar depois.
+
+**A alternativa recusada** (alcance estreito, uma linha: gatear só a linha pública do catálogo e deixar
+o não reivindicado passar). Ela reabre exatamente o caso que motivou o teto, porque uma linha privada
+criada pouco antes da queda tem caminho que o índice velho não reivindica, e seria servida. Três
+argumentos fecharam a favor do amplo:
+
+1. **Assimetria dos erros.** Fechar amplo falha alto e reversível (503 por minutos, volta com o banco).
+   Estreitar falha silencioso e irreversível: bytes privados entregues com `public, immutable`, retidos
+   em cache por um ano depois de o incidente ter passado.
+2. **O estreito compra pouco.** Ele preserva a entrega de 3D público durante uma queda MAIOR que cinco
+   minutos, janela em que o memo do `/api/config` já pode ter expirado e o boot do mapa é fail-fast
+   nele: beneficia principalmente quem já estava com a página aberta.
+3. **O conservador com knob mantém as duas opções alcançáveis em runtime; o estreito assa a permissiva
+   no código.** Se o fechamento amplo doer, sobe-se a variável, sem tocar em código nem publicar imagem.
+   O caminho inverso exigiria mudança de código.
+
+**O que fica declarado como custo.** O knob é UM para os dois índices, então subi-lo para ganhar
+disponibilidade de 3D afrouxa também o de tiles, que é onde o risco de vazamento é mais concreto. Dois
+knobs não foram construídos porque seria especular sobre um caso que ainda não aconteceu; as linhas de
+transição agora carregam a idade real do índice, que é o dado com que essa escolha se refaz.
+
+**De passagem, um defeito de terceiro que a implementação encontrou:** `tile-access.js` NUNCA respondeu
+503 quando o índice não existia. Ele fazia `next` com o erro cru do driver, que não é `AppError` e não
+está no mapa do `errorHandler`, então o desfecho real era 500, enquanto o comentário logo acima prometia
+503 e a wiki repetia a promessa. Os dois casos agora são 503 de verdade.
+
+**Status:** aceita.
