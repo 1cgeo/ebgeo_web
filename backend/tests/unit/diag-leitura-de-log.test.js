@@ -23,7 +23,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { lerJanela, erros, lento, status } from '../../src/modules/diag/diag.service.js';
+import { lerJanela, erros, lento, status, mapearGrupo } from '../../src/modules/diag/diag.service.js';
 
 /**
  * O dia local em AAAA-MM-DD, escrito à mão e não importado de `log-diario.js`: um teste que
@@ -247,5 +247,91 @@ describe('diag — as três consultas sobre o arquivo', () => {
     assert.deepEqual(s.porFaixa, {});
     assert.equal(s.total, 0);
     assert.equal(s.erros, 0);
+  });
+});
+
+// ===== o recorte de um grupo: o que atravessa e o que morre nele =====
+//
+// A PERGUNTA QUE ESTE BLOCO PRENDE é "este pico de 401 é UM endereço ou trezentos?", e ela
+// só tem resposta se a agregação por endereço (`enderecos`, cunhada em `agruparErros`)
+// atravessar o recorte. Ela é a única coisa que passou a atravessar: o `exemplo` continua
+// com as MESMAS quatro chaves, e é por isso que a asserção é de IGUALDADE DE CONJUNTO e não
+// de presença. Presença deixa a lista crescer sem ninguém ver, e o campo que cresceria
+// primeiro é justamente o `ip` do registro cru, que é dado pessoal de UMA ocorrência e não
+// responde a pergunta de cima.
+//
+// CONTROLE NEGATIVO (verificado, com a mensagem observada):
+//  - apagar `if (g.enderecos) saida.enderecos = g.enderecos;` de `mapearGrupo`: o primeiro
+//    caso reprova em `Expected values to be strictly deep-equal`, com `enderecos` ausente
+//    do conjunto de chaves;
+//  - acrescentar `ip: reg.ip` ao `exemplo`: o segundo e o quarto casos reprovam nomeando a
+//    chave a mais, que é exatamente o alargamento silencioso que a igualdade impede.
+describe('diag — o recorte de um grupo (`mapearGrupo`)', () => {
+  const agora = new Date('2026-08-30T15:00:00');
+
+  const grupoCru = (extra = {}) => ({
+    assinatura: 'POST /api/v1/auth/login | Error | credenciais inválidas [401]',
+    total: 312,
+    primeira: 1,
+    ultima: 2,
+    exemplo: {
+      level: 40,
+      time: 2,
+      reqId: 'req-2',
+      // O que o recorte existe para MATAR, e as duas primeiras são o assunto desta mudança:
+      // o endereço de uma ocorrência e o usuário.
+      ip: '203.0.113.9',
+      userId: 'u-1',
+      duration: 12,
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      statusCode: 401,
+      err: { type: 'Error', message: 'credenciais inválidas', stack: 'Error: x\n  at y' },
+    },
+    ...extra,
+  });
+
+  it('o campo de endereços atravessa inteiro, e por identidade de valor', () => {
+    const enderecos = { distintos: 2, principais: [{ ip: '203.0.113.9', total: 300 }, { ip: '198.51.100.4', total: 12 }] };
+    const g = mapearGrupo(grupoCru({ enderecos }));
+
+    assert.deepEqual(Object.keys(g).sort(), ['assinatura', 'enderecos', 'exemplo', 'primeira', 'total', 'ultima']);
+    assert.deepEqual(g.enderecos, enderecos, 'o agregado passa como veio: quem o apara é a tela');
+  });
+
+  it('e o `exemplo` continua com as mesmas quatro chaves, sem o endereço cru nem o usuário', () => {
+    const g = mapearGrupo(grupoCru({ enderecos: { distintos: 1, principais: [{ ip: '203.0.113.9', total: 312 }] } }));
+
+    assert.deepEqual(Object.keys(g.exemplo).sort(), ['method', 'stack', 'statusCode', 'url']);
+    assert.equal(g.exemplo.statusCode, 401);
+    assert.equal(g.exemplo.url, '/api/v1/auth/login');
+  });
+
+  it('sem o campo, a CHAVE não nasce: ausente e zero são estados diferentes na tela', () => {
+    // Um `enderecos: undefined` posto sempre some do JSON e sobrevive como chave no objeto,
+    // e é essa discordância entre a resposta e o objeto que esta asserção impede. O cliente
+    // lê a ausência como "esta versão do servidor não informa", que não é "zero endereços".
+    const g = mapearGrupo(grupoCru());
+    assert.equal(Object.hasOwn(g, 'enderecos'), false);
+    assert.deepEqual(Object.keys(g).sort(), ['assinatura', 'exemplo', 'primeira', 'total', 'ultima']);
+
+    // E zero distintos ATRAVESSA, porque zero é uma afirmação do agregador: são as linhas
+    // sem `ip` nenhum (erro fora do ciclo HTTP, ou linha anterior ao campo).
+    const comZero = mapearGrupo(grupoCru({ enderecos: { distintos: 0, principais: [] } }));
+    assert.deepEqual(comZero.enderecos, { distintos: 0, principais: [] });
+  });
+
+  it('e o caminho vivo de `erros()` continua entregando o mesmo `exemplo` recortado', async () => {
+    // A asserção acima é sobre a função; esta é sobre a ROTA, e ela não pode afirmar nada
+    // sobre `enderecos`, que é campo da agregação e não deste arquivo. O que ela prende é o
+    // que este arquivo controla dos dois lados: o recorte do exemplo no caminho real.
+    const t = agora.getTime() - 60_000;
+    escrever(agora, [
+      { level: 50, time: t, reqId: 'z', method: 'POST', url: '/api/v1/auth/login', ip: '203.0.113.9', userId: 'u-1', msg: 'Request error', err: { type: 'Error', message: 'credenciais inválidas', stack: 'Error: c\n  at y' } },
+      { level: 40, time: t + 1, reqId: 'z', method: 'POST', url: '/api/v1/auth/login', ip: '203.0.113.9', statusCode: 401, duration: 5, msg: 'request error' },
+    ]);
+    const r = await erros({ diretorio: dir, desde: '1h', limite: 20, agora });
+    assert.equal(r.grupos.length, 1);
+    assert.deepEqual(Object.keys(r.grupos[0].exemplo).sort(), ['method', 'stack', 'statusCode', 'url']);
   });
 });

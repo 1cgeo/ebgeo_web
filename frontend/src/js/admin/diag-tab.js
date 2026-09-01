@@ -26,7 +26,13 @@
  * user agent de um erro de navegador são texto arbitrário escrito pela máquina de quem visitou a
  * página PÚBLICA: nada aqui monta HTML, tudo entra por `textContent`, e a pilha vai para um
  * `<pre>` cujo conteúdo também é `textContent`. `resumirTexto` (`diag-phrases.js`) corta por
- * LAYOUT e nunca por segurança.
+ * LAYOUT e nunca por segurança. O ENDEREÇO DO CLIENTE ENTRA NESSA MESMA CONTA: com um proxy à
+ * frente ele sai do `X-Forwarded-For`, escrito por quem chamou.
+ *
+ * E ELE É DADO PESSOAL NUMA TELA, então entra AGREGADO e nunca como lista de ocorrências: quantos
+ * endereços distintos, e os poucos mais frequentes com contagem (`blocoDeEnderecos`). A pergunta
+ * que a coluna existe para responder ("este pico de 401 é um endereço ou trezentos?") é de
+ * contagem, e a lista longa acrescentaria exposição sem acrescentar resposta.
  *
  * A CONTAGEM MANDA NA TELA. Ela é o primeiro elemento de cada linha, com peso visual em escada
  * logarítmica (`pesoDaContagem`): quem abre esta aba está escolhendo o que consertar primeiro.
@@ -62,9 +68,14 @@ import {
     contagemHistoricaUnidade,
     contagemLabel,
     cortadaNotice,
+    enderecoLabel,
+    ENDERECOS,
+    enderecosAusentesNotice,
+    enderecosNotice,
     estadoDaContagemDeErros,
     estadoDaLatencia,
     estadoDaSecao,
+    estadoDosEnderecos,
     ESTADO,
     faixasOrdenadas,
     horaLocal,
@@ -84,6 +95,7 @@ import {
     ordenarRotas,
     paginaLabel,
     pesoDaContagem,
+    principaisDeEnderecos,
     pulsoEmptyHint,
     pulsoEmptyNotice,
     pulsoFailureNotice,
@@ -454,6 +466,18 @@ class DiagTab {
         }
 
         const linhas = ordenarGrupos(grupos);
+        // A AUSÊNCIA DO ENDEREÇO É DITA UMA VEZ, ACIMA DA LISTA, e não vinte vezes dentro dela:
+        // ela é propriedade do SERVIDOR (uma versão anterior à agregação por endereço não manda o
+        // campo), igual em toda linha, e repetida por linha vira o alarme que ensina a ignorar
+        // alarme. Só quando NENHUM grupo traz o campo, porque um payload em que só alguns trazem é
+        // afirmação sobre aqueles grupos, e aí quem fala é a linha.
+        if (linhas.every((g) => estadoDosEnderecos(g) === ENDERECOS.AUSENTE)) {
+            const semEnderecos = document.createElement('p');
+            semEnderecos.className = 'admin-diag__nota';
+            semEnderecos.dataset.testid = 'admin-diag-servidor-sem-enderecos';
+            semEnderecos.textContent = enderecosAusentesNotice();
+            host.insertBefore(semEnderecos, wrap);
+        }
         const lista = document.createElement('ul');
         lista.className = 'admin-diag__lista';
         lista.dataset.testid = 'admin-diag-servidor-lista';
@@ -518,6 +542,8 @@ class DiagTab {
         }
         texto.appendChild(titulo);
         texto.appendChild(metaDeGrupo(grupo));
+        const enderecos = blocoDeEnderecos(grupo);
+        if (enderecos) texto.appendChild(enderecos);
         cabeca.appendChild(texto);
         li.appendChild(cabeca);
 
@@ -766,6 +792,66 @@ function metaDeGrupo(grupo) {
         p.appendChild(el);
     }
     return p;
+}
+
+/**
+ * De quais endereços veio um grupo de erros do servidor.
+ *
+ * A PERGUNTA QUE ESTE BLOCO RESPONDE é "este pico de 401 é UM endereço ou trezentos?", e até ele
+ * existir ela só se respondia no terminal, com `npm run diag -- linhas`. A resposta é a CONTAGEM, e
+ * é por isso que a frase vem primeiro e a lista depois: os endereços mais frequentes ilustram a
+ * forma da distribuição, a frase é que a afirma.
+ *
+ * O ESTADO SAI COMO DADO (`data-estado`), como no ladrilho do pulso e no p95 da tabela: a cor é o
+ * que a pessoa lê, e o atributo é o que uma captura de tela consegue afirmar.
+ *
+ * NADA AQUI MONTA HTML. Com um proxy à frente, `req.ip` sai do `X-Forwarded-For`, que é texto
+ * escrito por quem chamou: é dado de fora por definição, e sai por `textContent` como a pilha e a
+ * mensagem. O valor inteiro fica no `title`, que é propriedade e não markup.
+ *
+ * DEVOLVE `null` NO ESTADO AUSENTE, porque quem fala por ele é a nota da SEÇÃO: um bloco por linha
+ * repetiria vinte vezes um fato do servidor. Ver `enderecosAusentesNotice`.
+ * @param {Object} grupo
+ * @returns {HTMLElement|null}
+ */
+function blocoDeEnderecos(grupo) {
+    const estado = estadoDosEnderecos(grupo);
+    if (estado === ENDERECOS.AUSENTE) return null;
+
+    const box = document.createElement('div');
+    box.className = `admin-diag__enderecos admin-diag__enderecos--${estado}`;
+    box.dataset.testid = 'admin-diag-enderecos';
+    box.dataset.estado = estado;
+
+    const frase = document.createElement('p');
+    frase.className = 'admin-diag__enderecos-frase';
+    frase.textContent = enderecosNotice(grupo);
+    box.appendChild(frase);
+
+    const principais = principaisDeEnderecos(grupo);
+    if (principais.length) {
+        const lista = document.createElement('ul');
+        lista.className = 'admin-diag__enderecos-lista';
+        lista.dataset.testid = 'admin-diag-enderecos-lista';
+        for (const entrada of principais) {
+            const li = document.createElement('li');
+            li.className = 'admin-diag__endereco';
+            const ip = document.createElement('span');
+            ip.className = 'admin-diag__endereco-ip';
+            ip.textContent = enderecoLabel(entrada.ip);
+            // O corte de `enderecoLabel` é de LAYOUT: o valor inteiro continua alcançável, porque
+            // é ele que se copia para procurar noutro lugar.
+            ip.title = entrada.ip;
+            const total = document.createElement('span');
+            total.className = 'admin-diag__endereco-total';
+            total.textContent = contagemLabel(entrada.total);
+            total.title = contagemDetalhe(entrada.total);
+            li.append(ip, total);
+            lista.appendChild(li);
+        }
+        box.appendChild(lista);
+    }
+    return box;
 }
 
 /**

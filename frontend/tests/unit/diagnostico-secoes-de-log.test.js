@@ -289,3 +289,64 @@ describe('a lista de erros do navegador, e a contagem VITALÍCIA que ela desenha
         expect(corpo).not.toContain('contagemHistorica');
     });
 });
+
+describe('de quais endereços veio um grupo, do lado do CONSUMIDOR', () => {
+    // POR QUE ESTRUTURAL, E POR QUE AQUI: as frases e os cinco estados estão presos como funções
+    // puras em `diagnostico-frases.test.js`, e nada disso impede `diag-tab.js` de nunca chamá-las,
+    // que é exatamente o buraco que esta suíte nasceu para fechar no Pulso ("a mentira era do
+    // consumidor"). O bloco de endereços é a primeira tela capaz de acusar um `TRUST_PROXY_HOPS`
+    // mal configurado, e uma chamada ausente aqui devolve o produto ao estado anterior sem que
+    // uma linha fique vermelha.
+    //
+    // CONTROLE NEGATIVO (verificado, com a mensagem observada):
+    //  - tirar `blocoDeEnderecos(grupo)` de `_linhaDeGrupo`: o primeiro caso reprova em
+    //    `expected '…' to contain 'blocoDeEnderecos('`;
+    //  - trocar o `enderecosNotice(grupo)` do bloco pelo texto escrito ali dentro: o segundo caso
+    //    reprova, que é a regra da casa de a frase morar em `diag-phrases.js`;
+    //  - tirar a nota de seção: o terceiro reprova nomeando `enderecosAusentesNotice(`;
+    //  - ler o endereço de `grupo.exemplo.ip`: o quarto reprova, e ele é o que impede a volta do
+    //    dado pessoal de UMA ocorrência apresentado como se fosse a origem do grupo.
+
+    it('a linha de um grupo chama o bloco de endereços', () => {
+        const corpo = semComentarios(FONTE.slice(
+            FONTE.indexOf('    _linhaDeGrupo('),
+            FONTE.indexOf('\n    }\n', FONTE.indexOf('    _linhaDeGrupo(')),
+        ));
+        expect(corpo.length).toBeGreaterThan(200);
+        expect(corpo).toContain('blocoDeEnderecos(grupo)');
+    });
+
+    it('o bloco tira a frase e a lista de `diag-phrases.js`, e nada dele monta HTML', () => {
+        const corpo = corpoDeFuncao('blocoDeEnderecos');
+        expect(corpo.length).toBeGreaterThan(200);
+        expect(corpo).toContain('estadoDosEnderecos(grupo)');
+        expect(corpo).toContain('enderecosNotice(grupo)');
+        expect(corpo).toContain('principaisDeEnderecos(grupo)');
+        // O ENDEREÇO É DADO DE FORA POR DEFINIÇÃO: com um proxy à frente ele sai do
+        // `X-Forwarded-For`, que é texto escrito por quem chamou.
+        expect(corpo).toContain('textContent');
+        expect(corpo).not.toContain('innerHTML');
+        // E ele é cortado por LAYOUT antes de entrar na linha, com o valor inteiro no `title`.
+        expect(corpo).toContain('enderecoLabel(');
+    });
+
+    it('a ausência do campo é dita UMA vez pela seção, e não por linha', () => {
+        const secao = secoesDaAba().find((s) => s.nome === '_pintarErrosServidor');
+        expect(secao).toBeTruthy();
+        expect(secao.corpo).toContain('enderecosAusentesNotice()');
+        // A condição é "NENHUM grupo traz o campo": um payload em que só alguns trazem é
+        // afirmação sobre AQUELES grupos, e aí quem fala é a linha.
+        expect(secao.corpo).toContain('ENDERECOS.AUSENTE');
+        // E o bloco de linha devolve vazio nesse estado, senão a mesma frase sairia vinte vezes.
+        expect(corpoDeFuncao('blocoDeEnderecos')).toContain('return null');
+    });
+
+    it('o endereço vem do AGREGADO, nunca do exemplo do grupo', () => {
+        // O `exemplo` é a ocorrência mais RECENTE, então o endereço dele sobre um grupo de mil lê
+        // como "a origem" quando é só o último a chegar. É por isso que `mapearGrupo` (backend)
+        // recorta o exemplo em quatro campos e o endereço viaja em campo próprio.
+        const corpo = semComentarios(FONTE);
+        expect(corpo).not.toMatch(/exemplo\??\.ip\b/);
+        expect(corpo).toContain('principaisDeEnderecos(');
+    });
+});

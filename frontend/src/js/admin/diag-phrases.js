@@ -42,6 +42,12 @@
  * envelope pela razão inversa e simétrica: um servidor que devolva a lista crua tem dado de
  * verdade para mostrar, e chamá-lo de falha esconderia erro real.
  *
+ * O ENDEREÇO DE QUEM GEROU UM GRUPO DE ERROS ENTRA AGREGADO, E SÓ AGREGADO: quantos distintos, e
+ * os mais frequentes com contagem. A pergunta que ele responde ("este pico de 401 é UM endereço ou
+ * trezentos?") é de CONTAGEM, então a lista longa não acrescentaria resposta e acrescentaria
+ * exposição de dado pessoal numa tela. Ver `TETO_DE_ENDERECOS`, e ver `enderecosNotice` para a
+ * única leitura que esta tela se recusa a fazer sozinha.
+ *
  * TODO TEXTO DAQUI SAI PARA A TELA POR `textContent`. Mensagem, pilha, user agent e URL vêm de
  * erro do NAVEGADOR de quem visita a página pública: é texto arbitrário de terceiro, e este
  * arquivo não monta uma linha de HTML. `resumirTexto` existe para o layout, nunca como sanitização.
@@ -950,4 +956,185 @@ export function slowFailureNotice() {
 export function slowScopeNotice() {
     return 'O p95 é a coluna que corresponde a "está lento": em vinte chamadas, uma passa dele. '
         + 'A média esconde a cauda e o máximo é uma chamada só.';
+}
+
+// ===== os endereços de quem gerou um grupo de erros =====
+
+/**
+ * O valor que o servidor grava quando não há endereço a determinar na conexão.
+ *
+ * ELE É UMA CÓPIA DECLARADA de `UNKNOWN_ADDRESS` (`backend/src/middleware/request-logger.js`), e a
+ * duplicação está escrita aqui em voz alta porque não há import possível entre os dois pacotes.
+ * Sem ela a tela leria a sentinela como um endereço de verdade e diria "todas as ocorrências
+ * vieram do mesmo endereço" sobre o valor que significa exatamente o contrário: que o servidor
+ * olhou e a conexão não tinha o que informar. O dia em que o outro lado mudar essa string, esta
+ * linha fica silenciosamente errada, e o custo é uma frase a menos, nunca uma frase falsa: sem
+ * casar, o estado cai em {@link ENDERECOS}.UNICO, que já nomeia as duas leituras.
+ * @type {string}
+ */
+export const ENDERECO_DESCONHECIDO = 'unknown';
+
+/**
+ * Quantos endereços de um grupo a linha desenha.
+ *
+ * TRÊS, E O TETO É DE APRESENTAÇÃO, não do payload: quem apara de verdade é a agregação, e esta
+ * lista é um resumo dentro de uma linha de lista, não um inventário. Três é o menor número que
+ * ainda responde a pergunta que a coluna existe para responder, que é se a massa está CONCENTRADA
+ * ou espalhada: com um só não se vê concentração nenhuma (todo primeiro colocado parece
+ * dominante), com dois não se vê a cauda, e do terceiro em diante a forma já está dita, porque o
+ * espalhamento quem carrega é a contagem de distintos. O teto também é minimização de dado
+ * pessoal: vinte grupos na tela por dez endereços cada seriam duzentos endereços numa tela cuja
+ * pergunta ("um ou trezentos?") se responde com a CONTAGEM, não com a lista.
+ *
+ * O AGREGADOR TEM TETO PRÓPRIO, e este não o repete nem o pressupõe: se ele vier menor, a lista
+ * sai mais curta e nenhuma frase daqui fica falsa, porque nenhuma afirma completude ("os mais
+ * frequentes", nunca "todos"). Repetir o número do outro pacote seria a lista fechada de sempre,
+ * com o agravante de morar longe de onde ela é decidida.
+ * @type {number}
+ */
+export const TETO_DE_ENDERECOS = 3;
+
+/**
+ * Os desfechos da leitura de endereços de um grupo.
+ * @type {Readonly<Object<string, string>>}
+ */
+export const ENDERECOS = Object.freeze({
+    AUSENTE: 'ausente',
+    NENHUM: 'nenhum',
+    DESCONHECIDO: 'desconhecido',
+    UNICO: 'unico',
+    VARIOS: 'varios',
+});
+
+/**
+ * Os endereços mais frequentes de um grupo, validados e cortados pelo teto de exibição.
+ *
+ * A VALIDAÇÃO É POR ENTRADA, e não pela lista inteira: um payload meio certo não pode derrubar a
+ * metade certa dele. Entrada sem `ip` de texto ou sem contagem finita sai fora, porque a linha da
+ * tela é "endereço mais contagem" e metade dela não responde nada.
+ * @param {Object} [grupo]
+ * @returns {Array<{ip: string, total: number}>}
+ */
+export function principaisDeEnderecos(grupo) {
+    const bloco = grupo?.enderecos;
+    if (!bloco || typeof bloco !== 'object' || Array.isArray(bloco)) return [];
+    if (!Array.isArray(bloco.principais)) return [];
+    const validas = [];
+    for (const entrada of bloco.principais) {
+        const ip = typeof entrada?.ip === 'string' ? entrada.ip.trim() : '';
+        const total = entrada?.total;
+        if (!ip) continue;
+        if (typeof total !== 'number' || !Number.isFinite(total) || total < 0) continue;
+        validas.push({ ip, total: Math.round(total) });
+        if (validas.length === TETO_DE_ENDERECOS) break;
+    }
+    return validas;
+}
+
+/**
+ * O que se pode AFIRMAR sobre os endereços de um grupo.
+ *
+ * O CAMPO AUSENTE E O ZERO SÃO ESTADOS DIFERENTES, e nenhum dos dois é "um endereço". Ausente é
+ * afirmação sobre o SERVIDOR (uma versão anterior à agregação por endereço não manda o campo);
+ * zero é afirmação do agregador sobre as LINHAS (erro registrado fora do ciclo de uma requisição
+ * não tem endereço nenhum, e linha escrita antes de o campo existir também não). Tratar os dois
+ * como um faria a tela dizer "nenhum endereço" sobre um servidor que nunca foi perguntado, que é
+ * a mesma classe de fato inventado que o `?? []` recusado em `estadoDaSecao`.
+ *
+ * MALFORMADO CAI EM AUSENTE, pela mesma razão de `estadoDoCorte` ter um DESCONHECIDA: o que não se
+ * entende não vira zero.
+ * @param {Object} [grupo]
+ * @returns {string} Um valor de {@link ENDERECOS}.
+ */
+export function estadoDosEnderecos(grupo) {
+    const bloco = grupo?.enderecos;
+    if (!bloco || typeof bloco !== 'object' || Array.isArray(bloco)) return ENDERECOS.AUSENTE;
+    const distintos = bloco.distintos;
+    if (typeof distintos !== 'number' || !Number.isFinite(distintos) || distintos < 0) {
+        return ENDERECOS.AUSENTE;
+    }
+    if (distintos === 0) return ENDERECOS.NENHUM;
+    if (distintos > 1) return ENDERECOS.VARIOS;
+    const primeiro = principaisDeEnderecos(grupo)[0];
+    return primeiro?.ip === ENDERECO_DESCONHECIDO ? ENDERECOS.DESCONHECIDO : ENDERECOS.UNICO;
+}
+
+/**
+ * A frase de uma lista inteira cujo servidor não informa endereço nenhum.
+ *
+ * ELA É DE SEÇÃO, E NÃO DE LINHA, e a diferença não é de estilo: a ausência é propriedade do
+ * SERVIDOR, igual nas vinte linhas, e repeti-la vinte vezes é o alarme que ensina a ignorar
+ * alarme. É a mesma voz baixa de `horizonteDesconhecidoNotice` (`uso-phrases.js`): servidor de
+ * versão anterior não é incidente.
+ * @returns {string}
+ */
+export function enderecosAusentesNotice() {
+    return 'Esta versão do servidor não informa de quais endereços vieram os erros, então não dá '
+        + 'para dizer se um pico veio de um endereço só ou de muitos.';
+}
+
+/**
+ * O que a linha de um grupo diz sobre os endereços dele.
+ *
+ * A LEITURA DE UM ENDEREÇO SÓ SOBRE MUITAS OCORRÊNCIAS É AMBÍGUA, E A TELA NOMEIA AS DUAS. Um
+ * endereço só pode ser um cliente só (a varredura de credencial que esta coluna existe para
+ * mostrar), e pode ser o servidor enxergando o proxy no lugar de quem chamou, que é o que acontece
+ * quando TRUST_PROXY_HOPS não corresponde aos proxies à frente. As duas pedem providências opostas
+ * (bloquear um endereço contra reconfigurar o servidor) e nada nesta tela as separa, então afirmar
+ * qualquer uma seria inventar fato. O comentário de `clientAddress`
+ * (`backend/src/middleware/request-logger.js`) teme esse caso em voz alta e não o vigia: esta é a
+ * primeira tela capaz de acusá-lo.
+ *
+ * A AUSÊNCIA DEVOLVE STRING VAZIA, e isso não é calar: quem a diz é `enderecosAusentesNotice`, uma
+ * vez para a seção inteira.
+ * @param {Object} [grupo]
+ * @returns {string}
+ */
+export function enderecosNotice(grupo) {
+    const estado = estadoDosEnderecos(grupo);
+    if (estado === ENDERECOS.AUSENTE) return '';
+    if (estado === ENDERECOS.NENHUM) {
+        return 'Nenhuma destas linhas trouxe endereço: é o que acontece com erro registrado fora '
+            + 'do ciclo de uma requisição (uma tarefa de fundo, por exemplo) e com linha escrita '
+            + 'antes de o servidor passar a gravar o endereço.';
+    }
+    if (estado === ENDERECOS.DESCONHECIDO) {
+        return 'O endereço saiu como "unknown" em todas estas ocorrências, que é o valor gravado '
+            + 'quando a conexão não tem endereço a informar: ele não diz quem chamou.';
+    }
+    const principais = principaisDeEnderecos(grupo);
+    const total = grupo?.total;
+    const muitas = typeof total === 'number' && Number.isFinite(total) && total > 1;
+    if (estado === ENDERECOS.VARIOS) {
+        const quantas = muitas ? ` em ${contagemLabel(total)} ocorrências` : '';
+        const lista = principais.length ? ', e os mais frequentes estão abaixo' : '';
+        return `${contagemLabel(grupo.enderecos.distintos)} endereços distintos${quantas}${lista}.`;
+    }
+    // O ENDEREÇO ENTRA ENTRE PARÊNTESES e nunca como sujeito, pela mesma razão escrita em
+    // `horizonteVazioNotice`: ele é texto variável, e um payload que o omita deixaria a frase
+    // agramatical em silêncio.
+    const qual = principais.length ? ` (${enderecoLabel(principais[0].ip)})` : '';
+    if (muitas) {
+        return `${contagemLabel(total)} ocorrências, todas do mesmo endereço${qual}. São duas `
+            + 'leituras possíveis, e esta tela não separa uma da outra: ou foi mesmo um cliente '
+            + 'só, ou o servidor está gravando o endereço do proxy em toda linha, que é o que '
+            + 'acontece quando TRUST_PROXY_HOPS não corresponde ao número de proxies à frente.';
+    }
+    if (total === 1) return `1 ocorrência, de um endereço só${qual}.`;
+    return `Um endereço só${qual}. Sem a contagem de ocorrências não dá para dizer se ele é o `
+        + 'cliente ou o proxy à frente dele.';
+}
+
+/**
+ * O endereço como ele aparece na linha.
+ *
+ * O CORTE É DE LAYOUT, como o de `resumirTexto`, e existe porque este texto NÃO é necessariamente
+ * um endereço: com um proxy à frente, `req.ip` sai do `X-Forwarded-For`, que é texto escrito por
+ * quem chamou. Um cabeçalho de dez mil caracteres empurraria a lista inteira para fora da tela. O
+ * valor inteiro continua no `title` da mesma célula.
+ * @param {*} ip
+ * @returns {string}
+ */
+export function enderecoLabel(ip) {
+    return resumirTexto(ip, 60);
 }

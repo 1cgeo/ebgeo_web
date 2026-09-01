@@ -1710,6 +1710,63 @@
     color: var(--gray-600);
 }
 
+/* ----- de quais endereços veio um grupo de erros ----- */
+
+/* O BLOCO SEGUE O METADADO E NÃO O SUBSTITUI: ele responde outra pergunta ("quantos clientes?")
+   que a linha de rota, status e hora não responde. Corpo pequeno pela mesma razão do metadado, e
+   com o dobro do respiro acima, porque é um assunto novo dentro da mesma linha. */
+.admin-diag__enderecos {
+    margin: var(--space-2) 0 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+}
+
+.admin-diag__enderecos-frase {
+    margin: 0;
+}
+
+/* O ÚNICO ESTADO COM COR é o de um endereço só sobre muitas ocorrências, e a cor é de ATENÇÃO e
+   não de erro: a frase nomeia DUAS leituras (um cliente só, ou o proxy no lugar dele) e a tela não
+   separa uma da outra, então pintar de vermelho afirmaria a primeira. Os outros três estados são
+   descrição, não alarme, e ficam na cor do metadado. */
+.admin-diag__enderecos--unico .admin-diag__enderecos-frase {
+    color: var(--color-warning-strong);
+}
+
+.admin-diag__enderecos-lista {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-2);
+    margin: var(--space-1) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.admin-diag__endereco {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-1);
+    padding: 0 var(--space-1);
+    border-radius: var(--radius-sm);
+    background: var(--gray-100);
+}
+
+/* MONOESPAÇADO como o alvo do metadado, porque a leitura é de caractere e não de palavra: o que se
+   compara entre dois endereços costuma ser um octeto no meio. `anywhere` porque com um proxy à
+   frente este texto vem do `X-Forwarded-For` e pode não ter espaço nenhum. */
+.admin-diag__endereco-ip {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    color: var(--gray-700);
+    overflow-wrap: anywhere;
+}
+
+.admin-diag__endereco-total {
+    font-size: var(--font-size-2xs);
+    font-variant-numeric: tabular-nums;
+    color: var(--gray-500);
+    cursor: help;
+}
+
 /* ----- o bloco expansível com a pilha ----- */
 
 .admin-diag__pilha {

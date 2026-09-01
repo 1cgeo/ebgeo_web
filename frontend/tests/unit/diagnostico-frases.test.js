@@ -54,7 +54,13 @@ import {
     contagemHistoricaUnidade,
     contagemLabel,
     cortadaNotice,
+    enderecoLabel,
+    ENDERECOS,
+    ENDERECO_DESCONHECIDO,
+    enderecosAusentesNotice,
+    enderecosNotice,
     estadoDoCorte,
+    estadoDosEnderecos,
     estadoDaContagemDeErros,
     estadoDaLatencia,
     estadoDaSecao,
@@ -78,7 +84,9 @@ import {
     ordenarRotas,
     paginaLabel,
     pesoDaContagem,
+    principaisDeEnderecos,
     resumirTexto,
+    TETO_DE_ENDERECOS,
     rotaLabel,
     serverErrorsEmptyNotice,
     serverErrorsScanNotice,
@@ -719,5 +727,189 @@ describe('o recorte da lista de erros do navegador', () => {
     it('a janela estranha cai no padrão, como no resto da aba', () => {
         expect(clientErrorsListaNotice({ mostrados: 2, total: 2, limite: 50, janela: '30d' }))
             .toContain('nas últimas 24 horas');
+    });
+});
+
+/**
+ * OS ENDEREÇOS DE UM GRUPO DE ERROS, e a única leitura que a tela se recusa a fazer sozinha.
+ *
+ * OS CONTROLES NEGATIVOS deste bloco (o que fica vermelho ao voltar cada peça ao óbvio), com a
+ * mensagem observada ao reverter:
+ *
+ *   1. **Ausente tratado como zero.** Trocar o `return ENDERECOS.AUSENTE` do campo que não veio
+ *      por `ENDERECOS.NENHUM` faz a tela afirmar "nenhuma destas linhas trouxe endereço" sobre um
+ *      servidor que nunca foi perguntado. Revertido: `expected 'nenhum' to be 'ausente'`, mais a
+ *      frase de linha aparecendo onde deveria haver a nota de seção.
+ *   2. **A ambiguidade de `distintos: 1` reduzida a uma leitura.** Cortar a segunda metade da
+ *      frase (a do proxy) deixa a tela afirmando "foi um cliente só" sobre um estado que também é
+ *      produzido por `TRUST_PROXY_HOPS` mal configurado, que é a exata classe de fato inventado.
+ *      Revertido: a asserção por extenso reprova mostrando a frase curta.
+ *   3. **O teto de exibição afrouxado.** Subir `TETO_DE_ENDERECOS` para 10 põe dez endereços por
+ *      linha em vinte linhas. Revertido: `expected 10 to be 3` e a lista de quatro entradas
+ *      passando inteira.
+ *   4. **A sentinela lida como endereço.** Tirar o ramo de `ENDERECO_DESCONHECIDO` faz "unknown"
+ *      virar um endereço de verdade, e a tela diz que 312 ocorrências vieram todas do mesmo lugar
+ *      quando o que houve foi o servidor não ter o que registrar. Revertido: `expected 'unico' to
+ *      be 'desconhecido'`.
+ */
+describe('os endereços de um grupo de erros do servidor', () => {
+    const grupo = (enderecos, total = 312) => ({ assinatura: 'x', total, enderecos });
+
+    it('os cinco estados, e o AUSENTE não é o zero', () => {
+        // O campo que NÃO VEIO é afirmação sobre o servidor; `distintos: 0` é afirmação do
+        // agregador sobre as linhas. Nenhum dos dois é "um endereço".
+        expect(estadoDosEnderecos(grupo(undefined))).toBe(ENDERECOS.AUSENTE);
+        expect(estadoDosEnderecos({ total: 3 })).toBe(ENDERECOS.AUSENTE);
+        expect(estadoDosEnderecos()).toBe(ENDERECOS.AUSENTE);
+        expect(estadoDosEnderecos(grupo({ distintos: 0, principais: [] }))).toBe(ENDERECOS.NENHUM);
+
+        expect(estadoDosEnderecos(grupo({ distintos: 1, principais: [{ ip: '10.0.0.1', total: 312 }] })))
+            .toBe(ENDERECOS.UNICO);
+        expect(estadoDosEnderecos(grupo({ distintos: 2, principais: [{ ip: '10.0.0.1', total: 300 }] })))
+            .toBe(ENDERECOS.VARIOS);
+        // A SENTINELA NÃO É UM ENDEREÇO: ela é o que o servidor grava quando olhou e a conexão não
+        // tinha o que informar. Lida como endereço, ela produziria a acusação mais forte da tela.
+        expect(estadoDosEnderecos(grupo({ distintos: 1, principais: [{ ip: ENDERECO_DESCONHECIDO, total: 312 }] })))
+            .toBe(ENDERECOS.DESCONHECIDO);
+    });
+
+    it('o payload malformado cai em AUSENTE, e não em zero', () => {
+        // Mesma decisão de `estadoDoCorte`: o que não se entende não vira uma afirmação.
+        expect(estadoDosEnderecos(grupo(null))).toBe(ENDERECOS.AUSENTE);
+        expect(estadoDosEnderecos(grupo([]))).toBe(ENDERECOS.AUSENTE);
+        expect(estadoDosEnderecos(grupo('2'))).toBe(ENDERECOS.AUSENTE);
+        expect(estadoDosEnderecos(grupo({ distintos: '2', principais: [] }))).toBe(ENDERECOS.AUSENTE);
+        expect(estadoDosEnderecos(grupo({ distintos: NaN, principais: [] }))).toBe(ENDERECOS.AUSENTE);
+        expect(estadoDosEnderecos(grupo({ distintos: -1, principais: [] }))).toBe(ENDERECOS.AUSENTE);
+        // `distintos` sozinho basta: a lista de principais é ILUSTRAÇÃO, e um agregador que corte
+        // a lista em zero ainda sabe dizer quantos distintos houve.
+        expect(estadoDosEnderecos(grupo({ distintos: 4 }))).toBe(ENDERECOS.VARIOS);
+    });
+
+    it('UM endereço sobre MUITAS ocorrências nomeia AS DUAS leituras, e não escolhe uma', () => {
+        // A FRASE INTEIRA, e não um `toContain`: o que se está prendendo é que a segunda leitura
+        // (o proxy) continue dita. Um `toContain('mesmo endereço')` passaria verde com ela fora.
+        const texto = enderecosNotice(grupo({
+            distintos: 1,
+            principais: [{ ip: '203.0.113.9', total: 312 }],
+        }, 312));
+        expect(texto).toBe('312 ocorrências, todas do mesmo endereço (203.0.113.9). São duas '
+            + 'leituras possíveis, e esta tela não separa uma da outra: ou foi mesmo um cliente '
+            + 'só, ou o servidor está gravando o endereço do proxy em toda linha, que é o que '
+            + 'acontece quando TRUST_PROXY_HOPS não corresponde ao número de proxies à frente.');
+        // As duas leituras pedem providências opostas, e é por isso que as duas precisam estar na
+        // frase: bloquear um endereço contra reconfigurar o servidor.
+        expect(texto).toContain('um cliente');
+        expect(texto).toContain('proxy');
+        expect(texto).toContain('TRUST_PROXY_HOPS');
+    });
+
+    it('com UMA ocorrência não há ambiguidade a levantar, e a frase não a inventa', () => {
+        // Uma linha só não diz nada sobre proxy nenhum: repetir ali o alarme das muitas seria
+        // alarmar sobre a ausência de evidência.
+        expect(enderecosNotice(grupo({ distintos: 1, principais: [{ ip: '203.0.113.9', total: 1 }] }, 1)))
+            .toBe('1 ocorrência, de um endereço só (203.0.113.9).');
+        // Sem contagem de ocorrências a tela não sabe em qual dos dois casos está, e diz isso.
+        expect(enderecosNotice({ enderecos: { distintos: 1, principais: [{ ip: '203.0.113.9', total: 4 }] } }))
+            .toBe('Um endereço só (203.0.113.9). Sem a contagem de ocorrências não dá para dizer '
+                + 'se ele é o cliente ou o proxy à frente dele.');
+    });
+
+    it('zero distintos nomeia as DUAS razões de não haver endereço', () => {
+        expect(enderecosNotice(grupo({ distintos: 0, principais: [] })))
+            .toBe('Nenhuma destas linhas trouxe endereço: é o que acontece com erro registrado '
+                + 'fora do ciclo de uma requisição (uma tarefa de fundo, por exemplo) e com linha '
+                + 'escrita antes de o servidor passar a gravar o endereço.');
+    });
+
+    it('a sentinela é dita pelo que ela é, e não como se fosse quem chamou', () => {
+        expect(enderecosNotice(grupo({ distintos: 1, principais: [{ ip: ENDERECO_DESCONHECIDO, total: 312 }] })))
+            .toBe('O endereço saiu como "unknown" em todas estas ocorrências, que é o valor '
+                + 'gravado quando a conexão não tem endereço a informar: ele não diz quem chamou.');
+    });
+
+    it('vários endereços dizem quantos, sobre quantas ocorrências', () => {
+        expect(enderecosNotice(grupo({
+            distintos: 37,
+            principais: [{ ip: '203.0.113.9', total: 40 }, { ip: '198.51.100.4', total: 30 }],
+        }, 312))).toBe('37 endereços distintos em 312 ocorrências, e os mais frequentes estão '
+            + 'abaixo.');
+        // SEM LISTA, a frase não promete uma: "estão abaixo" sobre nada é a promessa que o
+        // `<details>` vazio faz, e que `blocoDePilha` recusa pelo mesmo motivo.
+        expect(enderecosNotice(grupo({ distintos: 37, principais: [] }, 312)))
+            .toBe('37 endereços distintos em 312 ocorrências.');
+    });
+
+    it('o campo AUSENTE não vira frase de linha, e a nota de seção o diz uma vez só', () => {
+        // Repetir "esta versão do servidor não informa" em vinte linhas é o alarme que ensina a
+        // ignorar alarme. Quem fala é a seção, com a voz baixa de `horizonteDesconhecidoNotice`.
+        expect(enderecosNotice(grupo(undefined))).toBe('');
+        expect(enderecosNotice({})).toBe('');
+        expect(enderecosAusentesNotice()).toBe('Esta versão do servidor não informa de quais '
+            + 'endereços vieram os erros, então não dá para dizer se um pico veio de um endereço '
+            + 'só ou de muitos.');
+        // E ela não inventa número nenhum no lugar do que não chegou.
+        expect(enderecosAusentesNotice()).not.toContain('0');
+        expect(enderecosAusentesNotice()).not.toContain('undefined');
+    });
+
+    it('a lista desenhada tem TETO, e ele é de exibição', () => {
+        expect(TETO_DE_ENDERECOS).toBe(3);
+        const principais = principaisDeEnderecos(grupo({
+            distintos: 9,
+            principais: [
+                { ip: 'a', total: 40 }, { ip: 'b', total: 30 },
+                { ip: 'c', total: 20 }, { ip: 'd', total: 10 },
+            ],
+        }));
+        expect(principais).toHaveLength(TETO_DE_ENDERECOS);
+        // A ORDEM DO SERVIDOR É PRESERVADA: ela já é a de contagem decrescente, e reordenar aqui
+        // faria a tela e o comando responderem em ordens diferentes à mesma pergunta.
+        expect(principais.map((p) => p.ip)).toEqual(['a', 'b', 'c']);
+        expect(principais[0]).toEqual({ ip: 'a', total: 40 });
+    });
+
+    it('entrada malformada sai FORA sem derrubar a lista inteira', () => {
+        // Um payload meio certo não pode derrubar a metade certa dele: a linha da tela é "endereço
+        // mais contagem", e metade dela não responde nada.
+        const principais = principaisDeEnderecos({
+            enderecos: {
+                distintos: 5,
+                principais: [
+                    { ip: '  10.0.0.1  ', total: 9 },
+                    { ip: '', total: 8 },
+                    { ip: '10.0.0.2' },
+                    { ip: '10.0.0.3', total: '7' },
+                    { ip: '10.0.0.4', total: NaN },
+                    null,
+                    { ip: '10.0.0.5', total: 2.6 },
+                ],
+            },
+        });
+        expect(principais).toEqual([{ ip: '10.0.0.1', total: 9 }, { ip: '10.0.0.5', total: 3 }]);
+        // E a lista que não é lista devolve vazio, nunca `undefined`, porque quem chama itera.
+        expect(principaisDeEnderecos({ enderecos: { distintos: 2, principais: 'x' } })).toEqual([]);
+        expect(principaisDeEnderecos({})).toEqual([]);
+        expect(principaisDeEnderecos()).toEqual([]);
+    });
+
+    it('o endereço é cortado por LAYOUT, porque nem sempre é um endereço', () => {
+        // Com um proxy à frente, `req.ip` sai do `X-Forwarded-For`, escrito por quem chamou: um
+        // cabeçalho de dez mil caracteres empurraria a lista para fora da tela. O corte não é
+        // sanitização, que é o `textContent` do consumidor.
+        expect(enderecoLabel('203.0.113.9')).toBe('203.0.113.9');
+        const longo = enderecoLabel('9'.repeat(500));
+        expect(longo).toHaveLength(60);
+        expect(longo.endsWith('…')).toBe(true);
+        expect(enderecoLabel(undefined)).toBe('');
+        expect(enderecoLabel(42)).toBe('');
+    });
+
+    it('a sentinela é uma cópia DECLARADA do valor do servidor', () => {
+        // `UNKNOWN_ADDRESS`, em `backend/src/middleware/request-logger.js`. Não há import possível
+        // entre os pacotes, então a duplicação é declarada em vez de escondida; se ela deixar de
+        // casar, o estado cai em UNICO, que ainda nomeia as duas leituras. O custo é uma frase a
+        // menos, nunca uma frase falsa.
+        expect(ENDERECO_DESCONHECIDO).toBe('unknown');
     });
 });

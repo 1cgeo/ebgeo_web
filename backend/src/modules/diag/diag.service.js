@@ -150,11 +150,30 @@ function metadados(j) {
  * O `exemplo` é um RECORTE do registro cru, e não o registro. O que fica é o que responde
  * "onde e o quê"; o que sai é todo o resto, porque uma linha de log desta casa pode
  * carregar `userId` e outros campos que ninguém pediu e que só engordam o payload.
+ *
+ * O ENDEREÇO DO CLIENTE NÃO ENTRA NO `exemplo`, E É POR ISSO QUE ELE PRECISOU DE CAMPO
+ * PRÓPRIO. `requestLogPayload` (`src/middleware/request-logger.js`) carimba `ip` em toda
+ * linha de requisição, então o registro cru já carrega o endereço de UMA ocorrência, e
+ * deixá-lo passar pelo recorte seria a pior das duas saídas: um dado pessoal na tela que
+ * não responde a pergunta que ele parece responder ("este pico de 401 é um endereço ou
+ * trezentos?"), porque um exemplo não distingue um cliente de trezentos. Quem responde é a
+ * AGREGAÇÃO por grupo (`enderecos`, cunhada em `agruparErros`), e é só ela que atravessa.
+ *
+ * A AUSÊNCIA DO CAMPO É UM ESTADO QUE O CLIENTE LÊ, distinto de zero endereços distintos, e
+ * é por isso que a chave só nasce quando o agregador a produziu. Um `enderecos: undefined`
+ * escrito sempre some do JSON e sobrevive como CHAVE no objeto, o que faria a resposta e o
+ * objeto discordarem sobre o que existe.
+ *
+ * EXPORTADA PARA QUE A FORMA SEJA TESTÁVEL, pelo mesmo motivo de `requestLogPayload` estar
+ * separada do middleware que a usa: o que se quer prender aqui é o CONJUNTO DE CHAVES, e
+ * cobrá-lo por dentro de `erros()` só alcança o recorte que a agregação vigente produz.
+ * @param {Object} g - Um grupo de `agruparErros`.
+ * @returns {Object}
  */
-function mapearGrupo(g) {
+export function mapearGrupo(g) {
   const reg = g.exemplo || {};
   const stack = reg.err && reg.err.stack ? String(reg.err.stack) : null;
-  return {
+  const saida = {
     assinatura: g.assinatura,
     total: g.total,
     primeira: g.primeira,
@@ -170,6 +189,8 @@ function mapearGrupo(g) {
       stack: stack ? stack.slice(0, MAX_STACK) : null,
     },
   };
+  if (g.enderecos) saida.enderecos = g.enderecos;
+  return saida;
 }
 
 /**
