@@ -16,8 +16,11 @@ import {
     storeImage,
     setSchemaVersion,
     setGridStyle,
+    // `getMapGroups` (memoria) fica, e e o certo no unico ponto que o usa: o import aditivo o
+    // consulta sobre um mapa CRIADO segundos antes, que nao tem grupo nenhum, entao o `{}` que
+    // ele devolve e a resposta verdadeira e nao um cache frio.
     getMapGroups,
-    getLayers,
+    getLayersRepo,
     setMapLayers,
     flushPendingLayerWrites,
     getMapPosition,
@@ -995,8 +998,26 @@ export class ExportImportService {
                     continue;
                 }
 
-                // For existing maps, merge with existing layers
-                const existingLayers = await getLayers(finalMapName) || [];
+                // RAMO HOJE INALCANCAVEL, e a blindagem e deliberada. O laco de import aditivo
+                // (`handleImport`) da a TODO mapa do arquivo um nome inedito, com sufixo `_1`,
+                // `_2`, ate nao colidir, e registra cada um em `newlyCreatedMaps`, entao a guarda
+                // logo acima sempre desvia e nunca se chega aqui. Ele so acorda no dia em que o
+                // import aditivo passar a FUNDIR com um mapa existente.
+                //
+                // Mesmo assim ele le do REPOSITORIO, nao da memoria, porque acordar lendo
+                // `memoryStore` seria acordar quebrado: a memoria de camada e hidratada UM MAPA
+                // POR VEZ, e o mapa alvo de uma fusao e por definicao um mapa que ja existia e
+                // pode nunca ter sido visitado. `getLayers` devolveria a camada `default`
+                // FABRICADA por `_ensureMapLayersExist`, e `existingIds` nasceria sem os ids
+                // reais: a colisao de ID (nao a de nome) passaria batida e uma camada importada
+                // reusaria o id de uma que ja esta la. Foi essa mesma leitura de memoria que
+                // custou as camadas e os grupos de todo mapa nao visitado na saida do `.ebgeo`
+                // (ver o cabecalho de `export-optional-sections.js`).
+                //
+                // Preso por `tests/unit/import-aditivo-funde-do-repositorio.test.js`, que chama
+                // este metodo direto com um `newlyCreatedMaps` vazio, que e a unica forma de
+                // exercitar o ramo enquanto o chamador de producao nao o alcanca.
+                const existingLayers = await getLayersRepo(finalMapName) || [];
                 const existingNames = new Set(existingLayers.map(l => l.name));
                 const existingIds = new Set(existingLayers.map(l => l.id));
 
