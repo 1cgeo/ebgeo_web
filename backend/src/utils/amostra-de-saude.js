@@ -20,6 +20,24 @@
  * `curl` no `/health` a partir de outra máquina) é a única coisa que testemunha a morte, e
  * ele não existe aqui; esta camada não substitui aquilo e não promete substituir.
  *
+ * O BURACO NA SÉRIE TINHA DUAS CAUSAS E UMA ASSINATURA SÓ, e é isso que o campo `disco`
+ * desfaz. Quando o disco enche, `log-diario.js` DESLIGA o destino de arquivo e avisa uma vez
+ * no stderr, que num container não sobrevive a ninguém. Da segunda amostra em diante a série
+ * some do `.jsonl`, exatamente como se o processo tivesse morrido: o `npm run diag -- saude`
+ * conta os mesmos buracos e a wiki manda lê-los como queda. Ou seja, a ÚNICA pergunta que
+ * esta camada existe para responder tinha duas respostas possíveis e nenhum meio de
+ * separá-las. Publicar o espaço livre do volume onde mora o `LOG_DIR` é o que separa: a
+ * amostra ANTERIOR ao buraco diz se o disco estava acabando. Se dizia, o buraco é o destino
+ * de arquivo desligado e o processo pode estar vivo e servindo; se não dizia, o buraco é o
+ * que a wiki afirma. A leitura é sempre da amostra anterior, nunca da que falta, porque a
+ * amostra que falta é justamente a que não existe.
+ *
+ * De todas as métricas que faltam aqui (atraso de event loop, ocupação de CPU e outras), esta
+ * é a única que foi acrescentada, e o critério não é a utilidade: é que só ela produzia sinal
+ * AMBÍGUO. As outras faltavam produzindo sinal NENHUM, que é um buraco de cobertura honesto;
+ * um instrumento cuja saída tem dois significados é pior que um instrumento ausente, porque
+ * ele é lido com confiança.
+ *
  * AS QUATRO PROPRIEDADES QUE ELE PRECISA TER, cada uma com teste próprio:
  *
  * 1. **Nunca ser o motivo de uma queda.** Ele roda em timer, fora de toda requisição, então
@@ -57,8 +75,14 @@
  * REGRA ÚNICA DE CAMPO AUSENTE: um campo que não pôde ser medido **não aparece** na linha.
  * Uma convenção só para a linha inteira (em vez de `null` num campo e ausência noutro) é o
  * que permite ao leitor concluir "não foi possível medir" sem consultar tabela nenhuma.
- * Hoje isso vale para `pool` (se o objeto do pg mudar de forma) e para `sockets` (que só
- * existe quando quem monta o amostrador tem o `WebSocketServer` em mãos).
+ * Hoje isso vale para `pool` (se o objeto do pg mudar de forma), para `sockets` (que só
+ * existe quando quem monta o amostrador tem o `WebSocketServer` em mãos) e para `disco`.
+ *
+ * No `disco` a regra deixa de ser convenção e vira correção: zero byte livre é um valor
+ * LEGÍTIMO, e é o mais alarmante que o campo pode carregar. Publicar zero para dizer "não
+ * consegui medir" inverteria o alarme, e inverteria justo na direção que produz a leitura
+ * errada mais cara possível, um disco saudável se declarando cheio no meio de um incidente.
+ * É por isso que `descreverDisco` recusa a medição inteira em vez de aparar campo a campo.
  */
 
 /**
@@ -71,6 +95,13 @@ export const MARCADOR_AMOSTRA = 'saude';
 export const MSG_AMOSTRA = 'amostra de saúde';
 
 const BYTES_POR_MB = 1024 * 1024;
+
+/**
+ * O prazo default da medição de disco, em ms. Curto de propósito: ver `criarMedidorDeDisco`.
+ * Ele NÃO vem de `config.js` porque quem monta o amostrador passa o que quiser; o default é a
+ * segunda amarra, para o uso programático que não passa pelo boot, como em `deveAmostrar`.
+ */
+export const PRAZO_DISCO_MS_PADRAO = 2000;
 
 /**
  * Descreve o pool de conexões a partir do objeto do `pg-pool` (`db.$pool` do pg-promise).
@@ -113,6 +144,66 @@ export function descreverMemoria(uso) {
   return {
     heapMb: Math.round(uso.heapUsed / BYTES_POR_MB),
     rssMb: Math.round(uso.rss / BYTES_POR_MB),
+  };
+}
+
+/**
+ * Descreve o sistema de arquivos onde mora o `LOG_DIR`, a partir da saída de `fs.statfs`.
+ *
+ * QUE CAMPOS SAEM, E POR QUÊ SÃO DOIS. A pergunta que este campo precisa responder é "o log
+ * vai parar de escrever em breve, e por isso a série pode sumir sem o processo ter morrido".
+ * `livreMb` sozinho não a responde: 800 MB livres é folga num volume de 20 GB e é véspera de
+ * incidente num de 2 TB, e quem lê a linha meses depois não tem como saber qual dos dois era.
+ * `totalMb` é a escala que falta, e com os dois o leitor deriva o que quiser.
+ *
+ * A FRAÇÃO FOI RECUSADA, embora `descreverPool` publique um derivado (`emUso`). Dois motivos:
+ * ela é subtração de dois números que já estão na linha, ao contrário de `emUso`, que nomeia
+ * um estado sem outro nome; e ela é o derivado ERRADO para esta pergunta, porque o que decide
+ * se o log para de escrever é o número ABSOLUTO de MB que a rotação ainda precisa, não uma
+ * proporção. Uma fração arredondada a inteiro ainda perderia resolução exatamente na faixa
+ * perigosa, onde 0% cobre de 0 a 5 GB num volume grande.
+ *
+ * `bavail` E NÃO `bfree`, medido: no Windows os dois são iguais, no Linux `bfree` inclui a
+ * reserva do root, que o processo do servidor não pode gastar. Publicar `bfree` anunciaria
+ * uma folga que o escritor do log não tem, e o erro sairia na direção de tranquilizar.
+ *
+ * `files`/`ffree` (inodes) FICAM DE FORA, e a razão é a regra de campo ausente do cabeçalho:
+ * medido nesta plataforma, o Windows devolve ZERO nos dois, não porque acabaram, mas porque
+ * o conceito não existe ali. Publicá-los faria toda amostra do Windows anunciar "zero inodes
+ * livres", que é o alarme máximo, com valor de aparência plausível. Esgotamento de inode com
+ * bytes de sobra é modo de falha real no Linux e continua SEM cobertura aqui, declarado.
+ *
+ * `type` também sai: é 0 no Windows e não carrega decisão nenhuma.
+ *
+ * Puro e defensivo pela mesma razão de `descreverPool`, com uma amarra a mais: `bsize` zero
+ * (que uma forma inesperada produziria) zeraria os dois produtos e a linha diria "disco
+ * cheio". Por isso a recusa é da medição INTEIRA, e é `null` que sai daqui.
+ *
+ * @param {{bsize?: number, blocks?: number, bavail?: number}|null} estatistica - saída de `fs.statfs`
+ * @returns {{livreMb: number, totalMb: number}|null}
+ */
+export function descreverDisco(estatistica) {
+  if (!estatistica) return null;
+  const { bsize, blocks, bavail } = estatistica;
+  if (!Number.isFinite(bsize) || !Number.isFinite(blocks) || !Number.isFinite(bavail)) {
+    return null;
+  }
+  // Zero e negativo não são medições, são formas quebradas: ver o parágrafo do `bsize` acima.
+  if (bsize <= 0 || blocks <= 0 || bavail < 0) return null;
+
+  const livre = bsize * bavail;
+  const total = bsize * blocks;
+  // `isSafeInteger` cobre de uma vez o finito, o inteiro e o teto de precisão do double. Ele
+  // recusa volume acima de ~9 PB, e recusar é o desfecho certo: acima disso a aritmética já
+  // não é exata, e número inexato numa série é o que estraga média e gráfico sem parecer
+  // errado. `livre > total` pega a forma incoerente que nenhum dos testes acima pegaria.
+  if (!Number.isSafeInteger(livre) || !Number.isSafeInteger(total) || livre > total) {
+    return null;
+  }
+
+  return {
+    livreMb: Math.round(livre / BYTES_POR_MB),
+    totalMb: Math.round(total / BYTES_POR_MB),
   };
 }
 
@@ -179,6 +270,93 @@ export async function sondarBancoComPrazo({
 }
 
 /**
+ * Cria o medidor de disco: uma função que devolve a saída crua de `fs.statfs`, ou `null`, e
+ * NUNCA rejeita nem lança. O `null` vira ausência do campo, pela regra do cabeçalho.
+ *
+ * TEM PRAZO PRÓPRIO, pela mesma razão da propriedade (3), e a razão aqui é ainda mais direta:
+ * `statfs` é uma chamada de sistema ao VOLUME, e num volume de rede (um NFS ou um SMB
+ * pendurado, que é cenário plausível para um diretório de log) ela não retorna nem falha, ela
+ * espera. Sem prazo, a amostra inteira ficaria pendurada atrás do campo novo, e o campo que
+ * existe para explicar buracos na série passaria a ABRIR buracos nela. Dois segundos de
+ * default: uma leitura de metadados de volume local custa microssegundos, então qualquer
+ * coisa perto disso já é o volume em apuros, e o valor cabe com folga dentro do intervalo de
+ * amostragem, que é de minutos.
+ *
+ * A GUARDA DE VOO É A METADE QUE O PRAZO NÃO RESOLVE, e ela é o que impede o medidor de virar
+ * o incidente. O prazo abandona a ESPERA, não a chamada: o `fs.statfs` do Node roda no
+ * threadpool do libuv, que tem QUATRO slots por default, e é o MESMO threadpool que serve o
+ * DNS, o zlib e a escrita em arquivo do próprio log. Num volume pendurado, uma medição por
+ * intervalo satura os quatro slots em quatro amostras e leva junto o subsistema que grava o
+ * `.jsonl`. É a armadilha que a propriedade (3) descreve para o pool do banco ("cada amostra
+ * ainda ENFILEIRARIA mais um"), na versão de sistema de arquivos. Enquanto uma medição não
+ * assentou, a próxima não é emitida: ela devolve `null` na hora, e o campo some. Campo ausente
+ * durante um travamento de volume é a resposta certa, e não perda de dado: o que o leitor
+ * precisa saber daquele momento não é o espaço livre, é que a medição não voltou.
+ *
+ * A ALTERNATIVA RECUSADA foi `statfsSync`. Ela dispensa prazo e guarda, e é justamente por
+ * isso que é pior: sem threadpool para segurar o dano, o volume pendurado trava o EVENT LOOP
+ * inteiro, e o servidor para de responder a todo mundo por causa do amostrador de saúde, que
+ * é a piada da propriedade (1) escrita de outro jeito.
+ *
+ * @param {Object} opts
+ * @param {string} opts.caminho - o diretório a medir (o `config.log.dir`)
+ * @param {(caminho: string) => Promise<Object>} opts.statfs - injetado (`fs.promises.statfs`)
+ * @param {number} [opts.prazoMs]
+ * @param {(fn: Function, ms: number) => any} [opts.agendar]
+ * @param {(id: any) => void} [opts.cancelar]
+ * @returns {() => Promise<Object|null>}
+ */
+export function criarMedidorDeDisco({
+  caminho,
+  statfs,
+  prazoMs = PRAZO_DISCO_MS_PADRAO,
+  agendar = setTimeout,
+  cancelar = clearTimeout,
+}) {
+  let emVoo = false;
+
+  return async function medirDisco() {
+    if (emVoo) return null;
+    emVoo = true;
+
+    let id = null;
+    const marcaPrazo = Symbol('prazo');
+    // O `Promise.resolve().then` existe para que um `statfs` que lance SINCRONAMENTE (um
+    // duplo mal montado, ou o campo não sendo função) vire rejeição tratável em vez de uma
+    // exceção subindo por um callback de timer, que é o que a propriedade (1) proíbe.
+    // A baixa do `emVoo` é pendurada na MEDIÇÃO, não na corrida: é isso que faz a guarda
+    // valer enquanto a chamada ainda ocupa o slot do threadpool, que é o ponto dela.
+    const medicao = Promise.resolve()
+      .then(() => statfs(caminho))
+      .then(
+        (estatistica) => { emVoo = false; return estatistica; },
+        (err) => { emVoo = false; throw err; }
+      );
+
+    try {
+      const resultado = await Promise.race([
+        medicao,
+        new Promise((resolve) => {
+          id = agendar(() => resolve(marcaPrazo), prazoMs);
+          // Nem o prazo daqui segura o event loop: propriedade (2).
+          if (id && typeof id.unref === 'function') id.unref();
+        }),
+      ]);
+      return resultado === marcaPrazo ? null : resultado;
+    } catch {
+      // ENOENT (o LOG_DIR ainda não existe), EACCES, volume desmontado. Todos são "não
+      // consegui medir", que é ausência do campo, nunca um número.
+      return null;
+    } finally {
+      cancelar(id);
+    }
+    // Se o prazo vence e a medição rejeita DEPOIS, a rejeição já tem dono: `Promise.race`
+    // assina todas as promessas que recebe, então ela é absorvida ali e não vira
+    // `unhandledRejection`. É a mesma propriedade de que `sondarBancoComPrazo` depende.
+  };
+}
+
+/**
  * O conteúdo da amostra, dado um estado. Puro: é aqui que se testa O QUE a linha diz.
  *
  * @param {Object} estado
@@ -187,9 +365,17 @@ export async function sondarBancoComPrazo({
  * @param {Object|null} [estado.memoria] - saída de `process.memoryUsage()`
  * @param {number} [estado.uptimeS] - `process.uptime()`
  * @param {number|null} [estado.sockets] - conexões WebSocket vivas, se alcançáveis
+ * @param {Object|null} [estado.disco] - saída de `fs.statfs` sobre o `LOG_DIR`, crua
  * @returns {Object} a linha, sem a mensagem
  */
-export function montarAmostra({ banco, pool = null, memoria = null, uptimeS, sockets = null }) {
+export function montarAmostra({
+  banco,
+  pool = null,
+  memoria = null,
+  uptimeS,
+  sockets = null,
+  disco = null,
+}) {
   const linha = { amostra: MARCADOR_AMOSTRA, banco };
 
   const descricaoPool = descreverPool(pool);
@@ -197,6 +383,9 @@ export function montarAmostra({ banco, pool = null, memoria = null, uptimeS, soc
 
   const descricaoMemoria = descreverMemoria(memoria);
   if (descricaoMemoria) linha.memoria = descricaoMemoria;
+
+  const descricaoDisco = descreverDisco(disco);
+  if (descricaoDisco) linha.disco = descricaoDisco;
 
   // Segundos inteiros: a fração não distingue nada e polui a comparação entre duas amostras.
   if (Number.isFinite(uptimeS)) linha.uptimeS = Math.round(uptimeS);
@@ -240,6 +429,7 @@ export function deveAmostrar({ ativa, isTest, intervaloMs } = {}) {
  * @param {() => Object} [opts.lerMemoria]
  * @param {() => number} [opts.lerUptime]
  * @param {(() => number)|null} [opts.contarSockets] - null quando não alcançável
+ * @param {(() => Promise<Object|null>)|null} [opts.medirDisco] - de `criarMedidorDeDisco`
  * @param {{info: Function, warn: Function, error: Function}} opts.registrar - o logger da casa
  * @param {(fn: Function, ms: number) => any} [opts.agendar]
  * @param {(id: any) => void} [opts.cancelar]
@@ -252,10 +442,36 @@ export function criarAmostradorDeSaude({
   lerMemoria = () => process.memoryUsage(),
   lerUptime = () => process.uptime(),
   contarSockets = null,
+  medirDisco = null,
   registrar,
   agendar = setInterval,
   cancelar = clearInterval,
 }) {
+  /**
+   * A medição de disco com um `try/catch` PRÓPRIO, e essa é a diferença que não se adivinha
+   * olhando o vizinho: `contarSockets` que lança derruba a amostra INTEIRA para a linha
+   * `falhou: true`, e isso está certo lá, porque ele é a leitura síncrona de um objeto
+   * dentro do processo, e uma que lance significa que o processo está em apuros.
+   *
+   * O disco não é isso. Ele atravessa para o sistema operacional, e o sistema de arquivos em
+   * apuros é PRECISAMENTE o cenário que o campo existe para testemunhar. Deixar a exceção
+   * subir trocaria a linha rica por uma linha de falha exatamente no incidente, apagando
+   * banco, pool, memória e uptime junto, e reabrindo o buraco na série pela mão do campo que
+   * foi acrescentado para explicar buracos. A regra fica: falha da MEDIÇÃO custa o CAMPO,
+   * nunca a linha.
+   *
+   * `criarMedidorDeDisco` já não rejeita por construção; esta é a segunda amarra, para o
+   * medidor que outra pessoa monte à mão.
+   */
+  async function medirDiscoSemPerderALinha() {
+    if (!medirDisco) return null;
+    try {
+      return await medirDisco();
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Uma amostra. NUNCA rejeita: ver a propriedade (1) do cabeçalho.
    * @returns {Promise<Object|null>} a linha emitida, ou null se nem isso deu certo
@@ -263,12 +479,14 @@ export function criarAmostradorDeSaude({
   async function amostrarAgora() {
     try {
       const banco = await sondarBanco();
+      const disco = await medirDiscoSemPerderALinha();
       const linha = montarAmostra({
         banco,
         pool: lerPool(),
         memoria: lerMemoria(),
         uptimeS: lerUptime(),
         sockets: contarSockets ? contarSockets() : null,
+        disco,
       });
       // BANCO FORA SAI EM `error`, E QUEM DECIDE ISSO É O `ehErro` REAL, não a impressão de
       // gravidade. `ehErro` (`diag-consulta.js`) classifica um registro por UM de três

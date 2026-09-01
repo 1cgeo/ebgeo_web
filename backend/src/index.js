@@ -10,9 +10,11 @@ import logger, {
 } from './utils/logger.js';
 import { pgp, one, db } from './database/index.js';
 import { attachWebSocket, closeAllSockets } from './modules/collab/index.js';
+import { promises as fsp } from 'fs';
 import { blobPool } from './utils/sqlite-blob-pool.js';
 import {
   criarAmostradorDeSaude,
+  criarMedidorDeDisco,
   deveAmostrar,
   sondarBancoComPrazo,
 } from './utils/amostra-de-saude.js';
@@ -57,6 +59,17 @@ if (decisaoDaAmostra.ligar) {
     // o campo em vez de publicar NaN na série.
     lerPool: () => db.$pool,
     contarSockets: () => wss.clients.size,
+    // O DISCO DO LOG_DIR, e ele existe para desfazer uma AMBIGUIDADE, nao para completar
+    // um painel. Quando o disco enche, log-diario.js desliga o destino de arquivo e avisa
+    // uma vez num stderr que num container nao sobrevive: a serie de amostras para. So que
+    // o buraco na serie e, por decisao registrada, o sinal de que o PROCESSO morreu, e as
+    // duas coisas passam a ter a mesma assinatura. A testemunha possivel e a amostra
+    // ANTERIOR ao buraco, e e por isso que o campo precisa estar em toda linha e nao num
+    // aviso na hora de encher: na hora de encher ja nao ha onde escrever.
+    //
+    // statfs e INJETADO, pela mesma razao do relogio e do fs: o modulo e puro onde da, e o
+    // teste nao pode depender do volume desta maquina.
+    medirDisco: criarMedidorDeDisco({ caminho: config.log.dir, statfs: fsp.statfs }),
     registrar: logger,
   });
   logger.info(

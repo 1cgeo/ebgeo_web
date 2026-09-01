@@ -43,15 +43,58 @@
 //   - volte o `registrar.error` do ramo de banco fora para `registrar.warn` (a forma exata do
 //     defeito de origem) e os dois casos de CLASSIFICAÇÃO de banco fora caem, com a mensagem
 //     "banco fora tem de entrar no relatório de erros ...". Conferido em 2026-08-31.
+//
+// O CAMPO `disco`, e por que ele é o único que foi acrescentado. Quando o disco enche,
+// `log-diario.js` desliga o destino de arquivo e avisa uma vez no stderr, que num container
+// some: da segunda amostra em diante a série para de aparecer no `.jsonl`, com a MESMA
+// assinatura de um processo morto. `npm run diag -- saude` conta os buracos e a wiki manda
+// lê-los como queda, então a única pergunta que esta camada existe para responder passou a ter
+// duas respostas sem meio de separá-las. O espaço livre publicado na amostra ANTERIOR ao
+// buraco é o que separa. As outras métricas que faltam (atraso de event loop, ocupação e
+// companhia) produzem sinal NENHUM, que é buraco de cobertura honesto; esta produzia sinal
+// AMBÍGUO, que é pior, porque é lido com confiança.
+//
+// CONTROLE NEGATIVO dos casos do disco (conferido revertendo cada um, 2026-09-01):
+//   - troque `bavail` por `bfree` em `descreverDisco` e o caso da reserva do root cai
+//     ("expected { livreMb: 100 ... } to deeply equal { livreMb: 10 ... }");
+//   - tire a guarda `bsize <= 0` e o caso da regra de campo ausente cai já na primeira forma
+//     que ela cobre, dizendo "bsize zero ... tinha de recusar a medição INTEIRA";
+//   - troque a recusa por `{ livreMb: 0, totalMb: 0 }` e o mesmo caso cai, que é a inversão
+//     do alarme escrita por extenso;
+//   - tire o `try/catch` de `medirDiscoSemPerderALinha` e o caso da medição que rejeita cai
+//     em "a amostra não pode se perder por causa do campo novo";
+//   - tire o `if (emVoo) return null` e o caso da guarda de voo cai em "medição em voo NÃO
+//     pode empilhar outra chamada de sistema";
+//   - solte o `emVoo` só no ramo de sucesso e o caso do ENOENT cai em "a segunda medição foi
+//     de fato tentada";
+//   - tire o `Promise.resolve().then` e o caso do `statfs` síncrono deixa de reprovar: ele
+//     LANÇA de dentro do `await`, derrubando o caso em vez de devolver `null`;
+//   - tire o ramo do prazo de `criarMedidorDeDisco` e o caso do volume pendurado não fica
+//     vermelho, fica PENDURADO até o timeout do runner ("test timed out after 8000ms", com
+//     `--test-timeout`), que é o sintoma que ele descreve;
+//   - troque `livre / BYTES_POR_MB` por `bavail / BYTES_POR_MB` (esquecer o `bsize`, que é o
+//     erro de UNIDADE clássico) e os casos da forma medida caem dizendo `livreMb: 27` onde
+//     havia 109343: 27 é um número pequeno e plausível, e é por isso que o par de controle
+//     medido por caminho independente está no comentário da fixture;
+//   - acrescente `if (!(estatistica.files > 0)) return null` (a sobre-validação que mata toda
+//     amostra do Windows) e cai o caso dos campos zerados, junto com mais quatro;
+//   - troque `if (descricaoDisco) linha.disco = ...` por atribuição INCONDICIONAL e caem sete
+//     casos, entre eles dois que já existiam antes deste campo, porque `disco: null` vazando
+//     para a linha é a violação da regra de campo ausente na forma mais direta;
+//   - tire o `cancelar(id)` do `finally` de `criarMedidorDeDisco` e o caminho feliz cai em "o
+//     temporizador do prazo é sempre cancelado".
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import pino from 'pino';
 import { ehErro } from '../../src/utils/diag-consulta.js';
 import {
   MARCADOR_AMOSTRA,
   descreverPool,
   descreverMemoria,
+  descreverDisco,
+  criarMedidorDeDisco,
   montarAmostra,
   deveAmostrar,
   sondarBancoComPrazo,
@@ -83,6 +126,28 @@ function loggerFalso({ falharEm = null } = {}) {
 function poolFalso({ total = 4, ocioso = 3, esperando = 0, max = 10 } = {}) {
   return { totalCount: total, idleCount: ocioso, waitingCount: esperando, options: { max } };
 }
+
+/**
+ * A saída LITERAL de `fs.statfsSync()` nesta plataforma, copiada de uma sondagem real em
+ * `%TEMP%` (Windows, volume C: de 1 TB). Ela é fixture e não invenção porque a unidade e o
+ * significado de cada campo são exatamente o que se escreve errado sem perceber: um `bsize`
+ * tomado por bytes livres, ou `bfree` por `bavail`, produz um número GRANDE e PLAUSÍVEL, que
+ * é a forma de erro que passa despercebida numa série temporal.
+ *
+ * Três coisas medidas que o campo precisa respeitar: `bsize` é o tamanho da unidade de
+ * alocação em bytes (não um total), `bfree` e `bavail` são IGUAIS no Windows (no Linux não
+ * são, ver o caso do `bavail`), e `type`, `files` e `ffree` vêm ZERADOS porque o conceito não
+ * existe nesta plataforma, não porque acabaram.
+ */
+const STATFS_MEDIDO_NO_WINDOWS = Object.freeze({
+  type: 0,
+  bsize: 4096,
+  blocks: 244273919,
+  bfree: 27991933,
+  bavail: 27991933,
+  files: 0,
+  ffree: 0,
+});
 
 /** Um par agendar/cancelar espião, com `unref` observável. */
 function temporizadorFalso({ dispararNaHora = false } = {}) {
@@ -473,5 +538,288 @@ describe('amostra de saúde — o amostrador', () => {
     });
     const linha = await amostrador.amostrarAgora();
     assert.ok(!('sockets' in linha));
+  });
+
+  it('DISCO: a medição entra na linha ao lado dos outros campos', async () => {
+    const { amostrador } = montarAmostrador({
+      sondarBanco: async () => ({ ok: true, ms: 1 }),
+      extras: { medirDisco: async () => STATFS_MEDIDO_NO_WINDOWS },
+    });
+
+    const linha = await amostrador.amostrarAgora();
+
+    assert.deepEqual(linha.disco, { livreMb: 109343, totalMb: 954195 });
+  });
+
+  it('DISCO: medição que REJEITA custa o CAMPO, nunca a linha', async () => {
+    const { amostrador, registrar } = montarAmostrador({
+      sondarBanco: async () => ({ ok: true, ms: 1 }),
+      extras: { medirDisco: async () => { throw new Error('EIO no volume'); } },
+    });
+
+    const linha = await amostrador.amostrarAgora();
+
+    // A linha SAIU, e saiu inteira. Se a exceção subisse, `amostrarAgora` cairia no ramo
+    // `falhou: true` e apagaria banco, pool, memória e uptime junto, que é o buraco na série
+    // aberto pela mão do campo que existe para explicar buracos.
+    assert.notEqual(linha, null, 'a amostra não pode se perder por causa do campo novo');
+    assert.equal(registrar.linhas.info.length, 1);
+    assert.equal(registrar.linhas.error.length, 0, 'falha de medição não é falha do amostrador');
+    assert.ok(!('disco' in linha), 'não medido é AUSENTE, nunca zero');
+    assert.deepEqual(linha.banco, { ok: true, ms: 1 });
+    assert.deepEqual(linha.memoria, { heapMb: 10, rssMb: 20 });
+    assert.equal(linha.uptimeS, 60);
+  });
+
+  it('DISCO: medição que devolve `null` (prazo vencido) some da linha', async () => {
+    const { amostrador } = montarAmostrador({
+      sondarBanco: async () => ({ ok: true, ms: 1 }),
+      extras: { medirDisco: async () => null },
+    });
+
+    const linha = await amostrador.amostrarAgora();
+
+    assert.ok(!('disco' in linha));
+    assert.equal(linha.amostra, MARCADOR_AMOSTRA);
+  });
+
+  it('DISCO: sem medidor, a linha simplesmente não fala de disco', async () => {
+    const { amostrador } = montarAmostrador({
+      sondarBanco: async () => ({ ok: true, ms: 1 }),
+    });
+    const linha = await amostrador.amostrarAgora();
+    assert.ok(!('disco' in linha), 'o default é não medir, e não medir é não publicar');
+  });
+});
+
+describe('amostra de saúde — o espaço livre onde mora o LOG_DIR', () => {
+  it('MEDIDO NO WINDOWS: a forma real do fs.statfs vira livre e total plausíveis', () => {
+    // Esta é a saída LITERAL de `fs.statfsSync(os.tmpdir())` nesta máquina (Windows), copiada
+    // de uma sondagem, e conferida por caminho INDEPENDENTE: `Get-PSDrive C` devolveu
+    // Used=885891588096 e Free=114654384128, cuja soma bate byte a byte com `bsize * blocks`
+    // daqui (1000545972224), e cujo Free bate com `bsize * bavail` a menos da escrita que a
+    // máquina fez entre as duas leituras. Sem esse par, "um número grande e plausível" é
+    // exatamente o que uma unidade trocada produz.
+    assert.deepEqual(descreverDisco(STATFS_MEDIDO_NO_WINDOWS), {
+      livreMb: 109343,
+      totalMb: 954195,
+    });
+  });
+
+  it('MEDIDO NO WINDOWS: `files`/`ffree`/`type` ZERADOS não invalidam a medição', () => {
+    // O Windows devolve zero nos três, e não porque acabaram: o conceito não existe ali. Um
+    // validador que os cobrasse recusaria TODA amostra desta plataforma, e o campo nasceria
+    // morto no ambiente em que foi escrito, sem nada ficar vermelho.
+    assert.equal(STATFS_MEDIDO_NO_WINDOWS.files, 0);
+    assert.equal(STATFS_MEDIDO_NO_WINDOWS.ffree, 0);
+    assert.equal(STATFS_MEDIDO_NO_WINDOWS.type, 0);
+    assert.notEqual(descreverDisco(STATFS_MEDIDO_NO_WINDOWS), null);
+  });
+
+  it('usa `bavail` e NÃO `bfree`: a reserva do root não é folga do servidor', () => {
+    // No Linux `bfree` inclui os blocos reservados ao root, que o processo do servidor não
+    // pode gastar. Aqui os dois divergem de propósito: se a implementação lesse `bfree`, o
+    // campo anunciaria 100 MB de folga onde há 10, e erraria na direção de tranquilizar.
+    const linux = { bsize: 4096, blocks: 25600, bfree: 25600, bavail: 2560 };
+    assert.deepEqual(descreverDisco(linux), { livreMb: 10, totalMb: 100 });
+  });
+
+  it('DISCO CHEIO é um valor legítimo, e sai como zero', () => {
+    // O contraponto de toda a regra de campo ausente: zero livre não é "não medi", é o
+    // alarme. Se este caso e o de baixo dessem o mesmo resultado, o campo não serviria para
+    // nada, porque a única leitura que ele precisa suportar é justamente a distinção.
+    assert.deepEqual(
+      descreverDisco({ bsize: 4096, blocks: 25600, bavail: 0 }),
+      { livreMb: 0, totalMb: 100 }
+    );
+  });
+
+  it('REGRA DE CAMPO AUSENTE: forma que não dá para medir vira `null`, nunca zero', () => {
+    const naoMensuraveis = {
+      'nada': null,
+      'forma desconhecida': { livre: 123, total: 456 },
+      'bsize ausente': { blocks: 100, bavail: 50 },
+      'bavail ausente': { bsize: 4096, blocks: 100 },
+      'bsize zero (zeraria os dois produtos e diria DISCO CHEIO)': {
+        bsize: 0, blocks: 100, bavail: 50,
+      },
+      'bsize negativo': { bsize: -4096, blocks: 100, bavail: 50 },
+      'blocks zero (volume de tamanho zero não é volume)': { bsize: 4096, blocks: 0, bavail: 0 },
+      'bavail negativo': { bsize: 4096, blocks: 100, bavail: -1 },
+      'não numérico': { bsize: '4096', blocks: 100, bavail: 50 },
+      'NaN': { bsize: 4096, blocks: Number.NaN, bavail: 50 },
+      'Infinity': { bsize: 4096, blocks: Infinity, bavail: 50 },
+      'livre maior que o total (forma incoerente)': { bsize: 4096, blocks: 10, bavail: 11 },
+      'acima do teto de precisão do double': {
+        bsize: 4096, blocks: Number.MAX_SAFE_INTEGER, bavail: 1,
+      },
+    };
+
+    for (const [nome, forma] of Object.entries(naoMensuraveis)) {
+      assert.equal(
+        descreverDisco(forma),
+        null,
+        `${nome}: tinha de recusar a medição INTEIRA, porque zero é alarme e não ausência`
+      );
+    }
+    // O laço acima itera uma coleção de tamanho não asserido se ninguém disser o tamanho: com
+    // a coleção vazia ele passaria verde sem verificar nada.
+    assert.equal(Object.keys(naoMensuraveis).length, 13);
+  });
+
+  it('a linha OMITE `disco` quando a medição não veio', () => {
+    const linha = montarAmostra({
+      banco: { ok: true, ms: 1 },
+      uptimeS: 10,
+      disco: { bsize: 0, blocks: 100, bavail: 50 },
+    });
+    assert.deepEqual(Object.keys(linha), ['amostra', 'banco', 'uptimeS']);
+    assert.ok(!('disco' in linha), 'campo não medido não aparece, nem como 0 nem como null');
+  });
+});
+
+describe('amostra de saúde — o medidor de disco tem prazo e guarda de voo', () => {
+  it('caminho feliz: devolve a estatística CRUA, e cancela o prazo', async () => {
+    const relogio = temporizadorFalso();
+    const medir = criarMedidorDeDisco({
+      caminho: '/var/log/ebgeo',
+      statfs: async (p) => ({ ...STATFS_MEDIDO_NO_WINDOWS, caminhoPedido: p }),
+      prazoMs: 2000,
+      agendar: relogio.agendar,
+      cancelar: relogio.cancelar,
+    });
+
+    const estatistica = await medir();
+
+    assert.equal(estatistica.caminhoPedido, '/var/log/ebgeo', 'mede o LOG_DIR, não outra coisa');
+    assert.equal(estatistica.bavail, STATFS_MEDIDO_NO_WINDOWS.bavail);
+    assert.equal(relogio.cancelados.length, 1, 'o temporizador do prazo é sempre cancelado');
+  });
+
+  it('volume PENDURADO vence o prazo e vira ausência, sem pendurar a amostra', async () => {
+    const relogio = temporizadorFalso({ dispararNaHora: true });
+    const medir = criarMedidorDeDisco({
+      caminho: '/mnt/nfs/logs',
+      statfs: () => new Promise(() => {}),   // NFS pendurado: nem resolve nem rejeita
+      prazoMs: 2000,
+      agendar: relogio.agendar,
+      cancelar: relogio.cancelar,
+    });
+
+    // O `await` É a asserção: sem prazo, este caso nunca terminaria.
+    assert.equal(await medir(), null);
+    assert.equal(relogio.agendados[0].ms, 2000, 'o prazo agendado é o pedido');
+    assert.equal(relogio.agendados[0].unrefChamado, true, 'nem o prazo segura o event loop');
+  });
+
+  it('GUARDA DE VOO: enquanto a medição não assentou, a próxima não é emitida', async () => {
+    let chamadas = 0;
+    let liberar = null;
+    // O prazo vence na hora nas duas primeiras medições (o volume pendurado) e deixa de vencer
+    // na terceira, para que ela possa mostrar o valor de verdade. Um temporizador que vencesse
+    // SEMPRE faria a terceira devolver `null` por prazo, e o caso passaria a verde medindo o
+    // temporizador em vez da guarda.
+    let vencerNaHora = true;
+    const agendados = [];
+    const agendar = (fn, ms) => {
+      const id = { ms, unrefChamado: false, unref() { id.unrefChamado = true; } };
+      agendados.push(id);
+      if (vencerNaHora) fn();
+      return id;
+    };
+    const medir = criarMedidorDeDisco({
+      caminho: '/mnt/nfs/logs',
+      statfs: () => { chamadas += 1; return new Promise((r) => { liberar = r; }); },
+      prazoMs: 2000,
+      agendar,
+      cancelar: () => {},
+    });
+
+    assert.equal(await medir(), null, 'a primeira vence o prazo');
+    assert.equal(chamadas, 1);
+
+    // O prazo abandonou a ESPERA, não a chamada: ela continua ocupando um dos quatro slots do
+    // threadpool do libuv, que é o mesmo que grava o `.jsonl`. Sem esta guarda, uma amostra
+    // por intervalo satura os quatro e o amostrador de saúde vira o incidente.
+    assert.equal(await medir(), null);
+    assert.equal(chamadas, 1, 'medição em voo NÃO pode empilhar outra chamada de sistema');
+
+    liberar(STATFS_MEDIDO_NO_WINDOWS);
+    await proximoTique();
+
+    vencerNaHora = false;
+    const promessa = medir();
+    await proximoTique();   // deixa o `statfs` da terceira medição ser de fato chamado
+    liberar(STATFS_MEDIDO_NO_WINDOWS);
+    const depois = await promessa;
+
+    assert.equal(chamadas, 2, 'assentada a anterior, a guarda solta');
+    assert.equal(depois.bavail, STATFS_MEDIDO_NO_WINDOWS.bavail);
+    // DUAS, não três: a medição barrada pela guarda não agenda nem prazo. Ela custa zero.
+    assert.equal(agendados.length, 2);
+    assert.equal(agendados[1].unrefChamado, true);
+  });
+
+  it('NUNCA rejeita: ENOENT, EACCES e afins viram ausência', async () => {
+    const relogio = temporizadorFalso();
+    const medir = criarMedidorDeDisco({
+      caminho: '/nao/existe',
+      statfs: async () => {
+        const err = new Error("ENOENT: no such file or directory, statfs '/nao/existe'");
+        err.code = 'ENOENT';
+        throw err;
+      },
+      agendar: relogio.agendar,
+      cancelar: relogio.cancelar,
+    });
+
+    assert.equal(await medir(), null);
+    // E a guarda de voo SOLTA no caminho de erro: se ela só soltasse no sucesso, um volume
+    // que rejeitasse depressa mataria o campo para sempre, em silêncio.
+    assert.equal(await medir(), null);
+    assert.equal(relogio.agendados.length, 2, 'a segunda medição foi de fato tentada');
+  });
+
+  it('NUNCA rejeita: nem um `statfs` que lança SINCRONAMENTE', async () => {
+    const relogio = temporizadorFalso();
+    const medir = criarMedidorDeDisco({
+      caminho: '/var/log/ebgeo',
+      statfs: () => { throw new TypeError('statfs não é função'); },
+      agendar: relogio.agendar,
+      cancelar: relogio.cancelar,
+    });
+
+    // Exceção síncrona daqui subiria por um callback de TIMER, que é o que a propriedade (1)
+    // proíbe: no Node 22 ela derruba o processo.
+    assert.equal(await medir(), null);
+  });
+});
+
+describe('FIACAO: o boot liga o medidor de disco', () => {
+  // GUARDA DO IRMAO ESQUECIDO. O campo de disco e OPCIONAL por desenho (campo que nao pode
+  // ser medido nao aparece na linha), entao desfiar o medidor no boot nao produz erro
+  // nenhum: produz exatamente a ausencia que o desenho trata como normal. O defeito ficaria
+  // invisivel justamente no incidente que o campo existe para explicar, e a suite inteira
+  // continuaria verde, porque todo o resto do modulo e exercitado com o medidor INJETADO.
+  //
+  // Por isso a assercao e sobre o FONTE do boot: src/index.js nao e importavel aqui (ao ser
+  // avaliado ele sobe servidor HTTP, WebSocket e pool), e um teste que o importasse estaria
+  // medindo outra coisa.
+  it('o boot passa o medidor de disco para o amostrador', () => {
+    const fonte = readFileSync(new URL('../../src/index.js', import.meta.url), 'utf8');
+
+    // PISO: sem isto, um arquivo renomeado, vazio ou ilegivel passaria verde em todas as
+    // ausencias abaixo, que e cobertura vazia na forma mais barata de escrever.
+    assert.ok(fonte.includes('criarAmostradorDeSaude({'), 'o boot ainda monta o amostrador');
+
+    assert.ok(
+      fonte.includes('criarMedidorDeDisco('),
+      'o boot precisa CONSTRUIR o medidor de disco, senao o campo some em silencio'
+    );
+    assert.match(
+      fonte,
+      /medirDisco:\s*criarMedidorDeDisco\(/,
+      'o medidor precisa ser PASSADO como medirDisco: construi-lo e nao fia-lo e o mesmo que nao te-lo'
+    );
   });
 });
