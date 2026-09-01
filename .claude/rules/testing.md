@@ -128,6 +128,30 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
     muda entre rodadas do mesmo commit é a evidência de que o instrumento, e não o código,
     está variando. Olhe o denominador antes de acreditar na porcentagem.
 
+  **O TERCEIRO RECURSO COMPARTILHADO É A PORTA, e ela é o contra-exemplo útil.** O backend
+do `test:e2e:ui` sobe na 3912, e um órfão de rodada interrompida a segura. Essa colisão
+  GRITA, e se nomeia: `frontend/tests/e2e-ui/backend.js` recusa subir dizendo "a porta 3912
+  já responde /api/v1/health antes de subirmos: outro backend está de pé (tipicamente órfão
+  de uma rodada anterior interrompida)". Achar o dono é `Get-NetTCPConnection -LocalPort 3912
+  -State Listen`.
+
+  Postos lado a lado, os três dizem uma coisa que nenhum deles diz sozinho: **a graduação não
+  é de gravidade do recurso, é de quanto o modo de falha foi instrumentado.** A porta grita e
+  se nomeia, porque alguém escreveu aquela frase; o banco grita mal, com `3D000` e `42P01` em
+  arquivos sem relação com o que se mexeu; a cobertura não grita, e devolve uma porcentagem
+  crível que acusa o código de outra pessoa. O trabalho, quando um recurso novo passar a ser
+  compartilhado, é escrever a frase, não descobrir o sintoma depois.
+
+  **E NÃO USE `backend/coverage/tmp` COMO SEMÁFORO DE RODADA VIVA.** É a verificação que a
+  leitura deste texto sugere e ela responde sempre a mesma coisa: o `clean: true` limpa no
+  INÍCIO da rodada, então o resíduo de uma rodada TERMINADA fica lá até a próxima começar.
+  Medido em 2026-09-01 com ZERO processos node vivos: 819 arquivos no diretório. Diretório
+  cheio é o estado de repouso, e quem o usar como semáforo lê "ocupado" sempre, ignora o
+  semáforo em uma semana e volta a medir cobertura contaminada achando que conferiu. O sinal
+  válido é a lista de processos (`tasklist | grep -c node.exe`, ou o equivalente do seu
+  shell), e ele foi o que de fato acusou a rodada paralela naquele dia; a contagem de
+  arquivos foi citada junto, como se corroborasse, e não corroborava nada.
+
   A saída é isolar os DOIS eixos, não um: banco por `TEST_DB_NAME` e diretório de
   cobertura próprio, rodando `npx c8 --temp-directory <dir> node scripts/run-tests.js`
   de dentro de `backend/` (com `NODE_V8_COVERAGE` posto pelo c8, `run-tests.js` não
