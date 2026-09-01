@@ -119,8 +119,12 @@ function contarTiles(tdb) {
  * @param {string|null} tilesDbPath - caminho do `{slug}_tiles.db`, ou null/ausente
  * @param {string[]} photoIds - as fotos vivas do manifesto
  * @returns {Map<string, Object>} photoId -> descritor pronto para `gravarPiramides`
- * @throws {BadRequestError} 400 quando o arquivo existe e não serve (não é SQLite,
- *   não tem `tile_pyramids`, ou a tabela não tem as colunas que fazem a escada)
+ * @throws {BadRequestError} 400 quando o arquivo existe e não serve. A enumeração que
+ *   esta linha carregava (não é SQLite, não tem `tile_pyramids`, faltam colunas) era
+ *   só a metade previsível: o mesmo 400 sai de tudo o que impede ABRIR ou LER o
+ *   arquivo (`EBUSY`, `EACCES`, `SQLITE_CANTOPEN_ISDIR`, `EMFILE`, disco cheio, I/O),
+ *   e é por isso que o original viaja em `cause`. O texto do cliente é único de
+ *   propósito; quem separa os desfechos é a linha de log.
  */
 export function lerPiramides(tilesDbPath, photoIds) {
   const piramides = new Map();
@@ -129,8 +133,14 @@ export function lerPiramides(tilesDbPath, photoIds) {
   let tdb;
   try {
     tdb = new Database(tilesDbPath, { readonly: true, fileMustExist: true });
-  } catch {
-    throw new BadRequestError('tiles.db is not a valid SQLite file');
+  } catch (err) {
+    // A CAUSA VAI JUNTO, e este é o sítio em que ela mais paga: o que falha ao ABRIR
+    // quase nunca é o formato. `EBUSY` (outro processo segurando o arquivo), `EACCES`
+    // (permissão), `EMFILE` e disco cheio chegam todos aqui, e traduzi-los sem a causa
+    // manda o operador procurar corrupção num arquivo perfeito. A mensagem do cliente
+    // NÃO muda: a causa viaja em `cause`, que só o log lê. Ver o contrato no topo de
+    // `src/utils/errors.js`.
+    throw new BadRequestError('tiles.db is not a valid SQLite file', { cause: err });
   }
   try {
     // O construtor NÃO pega arquivo que não é SQLite: `sqlite3_open()` não lê o
@@ -192,7 +202,11 @@ export function lerPiramides(tilesDbPath, photoIds) {
     }
   } catch (err) {
     if (err instanceof AppError) throw err;
-    throw new BadRequestError('tiles.db is not a valid SQLite file');
+    // Idem: aqui cai o `SQLITE_NOTADB` do primeiro statement (que é o caso que a
+    // mensagem descreve), mas cai também I/O de leitura, arquivo truncado no meio e
+    // `SQLITE_CORRUPT` de página, e os quatro são desfechos diferentes com o mesmo
+    // texto. `cause` é a única coisa que os separa depois do fato.
+    throw new BadRequestError('tiles.db is not a valid SQLite file', { cause: err });
   } finally {
     try {
       tdb.close();
