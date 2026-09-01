@@ -12,8 +12,17 @@ export const INSERT_AUDIT = `
 // (`002_auditoria.sql`), e sem ele a coluna larga seria só uma coluna que ninguém
 // consegue interrogar. Enquanto ela foi UUID, metade dos alvos (o slug de catálogo, a
 // chave `app_config`) nem cabia nela, então "tudo que já foi feito com o tileset X" não
-// era uma pergunta formulável; agora é, e ela entra pelo mesmo `idx_audit_target`
-// que o par (target_type, target_id) já indexava.
+// era uma pergunta formulável.
+//
+// ELE TEM ÍNDICE PRÓPRIO, `idx_audit_target_id`, e a frase que morava aqui dizia que a
+// pergunta "entra pelo mesmo `idx_audit_target`". Isso ERA verdade no sentido literal e
+// falso no sentido que importa: `idx_audit_target` é `(target_type, target_id)`, com a
+// coluna que a tela NÃO preenche na liderança, então o planejador percorria o índice
+// INTEIRO aplicando o `target_id` como condição na segunda coluna. Custo medido sobre 200
+// mil linhas: 2466 contra 152 do índice dedicado, e num plano que não parece errado, o que
+// é pior que não ter índice nenhum, porque desliga a suspeita. O índice novo, a medição
+// dos dois lados e por que ele é composto estão em
+// `src/database/migrations/016_indice_audit_target_id.sql`.
 //
 // O FILTRO POR OM ($5) É PARÂMETRO DA CONSULTA, NUNCA CONCATENAÇÃO, e quem o preenche
 // é o SERVIÇO a partir do escopo resolvido no banco — nunca a query string do

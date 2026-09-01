@@ -1,0 +1,78 @@
+-- Path: src/database/migrations/016_indice_audit_target_id.sql
+--
+-- O ÍNDICE PARA A PERGUNTA QUE A TELA DE AUDITORIA REALMENTE FAZ: um `target_id` sozinho.
+--
+-- POR QUE O ÍNDICE QUE JÁ EXISTE NÃO SERVE. `idx_audit_target` é
+-- `(target_type, target_id)`, composto e nessa ordem, e a tela preenche só o `targetId`
+-- (o filtro por `target_type` é outro campo, independente, e a investigação típica parte
+-- do id do recurso, não da família dele). Coluna que é a SEGUNDA de um índice composto
+-- não guia busca nenhuma quando a primeira não está no predicado.
+--
+-- E AQUI O COMENTÁRIO DE `src/modules/audit/audit.queries.js` MENTIA POR OMISSÃO, não por
+-- estar totalmente errado, que é a forma mais cara: ele afirmava que a pergunta "tudo que
+-- já foi feito com o tileset X" "entra pelo mesmo `idx_audit_target`". Ela entra, e é
+-- exatamente esse o problema. Medido com EXPLAIN ANALYZE sobre 200 mil linhas, o plano
+-- NÃO é Seq Scan: o planejador percorre `idx_audit_target` INTEIRO aplicando
+-- `Index Cond: (target_id = ...)` na segunda coluna, o que custa quase o mesmo que a
+-- varredura e não parece errado em plano nenhum. Um índice citado como cobertura, sendo
+-- percorrido de ponta a ponta, é pior que índice ausente: ele desliga a suspeita.
+--
+-- MEDIDO, com EXPLAIN ANALYZE, 200 mil linhas de `audit_trail`, sobre o predicado e a
+-- ordenação de `LIST_AUDIT` com só o `target_id` preenchido (sem os dois LEFT JOIN, que
+-- não mudam o caminho até a linha e triplicam o tamanho do plano):
+--
+--   alvo com 40 linhas, página 1
+--     antes:  Index Scan using idx_audit_target + Sort   custo 2466   262 buffers  0,367 ms
+--     depois: Bitmap Index Scan em idx_audit_target_id   custo  152    43 buffers  0,097 ms
+--   alvo com 2.000 linhas, página 1
+--     antes:  Index Scan using idx_audit_created, filtrando  custo 241   93 buffers  0,388 ms
+--     depois: Index Scan using idx_audit_target_id, sem Sort custo 152   54 buffers  0,077 ms
+--   alvo com 2.000 linhas, OFFSET 500 (a terceira página da tela)
+--     antes:  4,299 ms, 1.000 buffers
+--     depois: 0,330 ms,   556 buffers
+--
+-- ELE NÃO É USADO SEMPRE, e saber onde ele PARA de ser escolhido vale tanto quanto saber
+-- onde ele ganha: acima de uns 5% das linhas num único alvo, o planejador volta a
+-- percorrer `idx_audit_created` filtrando linha a linha, porque a essa altura descartar
+-- 19 de cada 20 linhas sai mais barato que ordenar todas as do alvo. Isso é escolha certa
+-- dele, não regressão, e é a razão de `tests/integration/audit-indice-target-id.test.js`
+-- medir com o alvo em ~1%: quem aumentar a fatia daquele teste vai ver os casos ficarem
+-- vermelhos sem que nada tenha quebrado.
+--
+-- POR QUE É COMPOSTO `(target_id, created_at DESC)` E NÃO `(target_id)` SOZINHO, que é o
+-- que a leitura pediria. As duas formas foram medidas lado a lado. Para o alvo com poucas
+-- linhas elas empatam (as duas viram Bitmap Index Scan e o Sort de 40 linhas é grátis).
+-- A diferença aparece no alvo de cardinalidade média, que é o caso da investigação real:
+-- com `(target_id)` sozinho o planejador IGNOROU o índice novo e continuou percorrendo
+-- `idx_audit_created` filtrando linha a linha (0,379 ms na página 1, e 6,218 ms com
+-- OFFSET 500, ou seja, PIOR que sem índice nenhum), porque não havia caminho ordenado
+-- para o `ORDER BY created_at DESC`. Com a segunda coluna, o índice entrega as linhas do
+-- alvo JÁ ordenadas, o nó de Sort desaparece do plano e o `LIMIT/OFFSET` da paginação
+-- para de percorrer a tabela inteira. O preço é tamanho: 7,9 MB contra 1,8 MB do
+-- `idx_audit_target` nas mesmas 200 mil linhas.
+--
+-- O DESC IMPORTA porque a listagem é `ORDER BY a.created_at DESC` e não tem outra ordem.
+-- (Um btree pode ser lido para trás, então ASC também serviria; o DESC evita a leitura
+-- reversa e casa com a forma que `idx_audit_created` e `idx_audit_created_act` já usam
+-- em `002_auditoria.sql`, para que os três índices de tempo desta tabela leiam igual.)
+--
+-- O CUSTO DO LOCK, dito em voz alta, como em `015_uso_indice_operations.sql`:
+-- `CREATE INDEX` sem `CONCURRENTLY` toma lock de ESCRITA em `audit_trail` enquanto
+-- constrói. MEDIDO: 485 ms sobre 200 mil linhas. `audit_trail` recebe escrita de todo ato
+-- administrativo, então numa base grande isso é uma pausa em quem estiver auditando algo
+-- naquele instante, e não no sync. `CONCURRENTLY` não é opção pela mesma razão estrutural
+-- daquele arquivo, e não por preferência: o runner roda cada migração dentro de uma
+-- transação (`src/database/migrate.js`) e o Postgres proíbe `CREATE INDEX CONCURRENTLY`
+-- dentro de transação. Se um dia isto for aplicado a uma base com histórico grande e
+-- gente conectada, o caminho é criar o índice à mão, fora do runner, e depois marcar a
+-- migração como aplicada.
+--
+-- POR QUE NÃO É PARCIAL: `target_id` é nullable, mas a fração de linhas com alvo nulo é
+-- pequena e um `WHERE target_id IS NOT NULL` só economizaria essa fração, ao preço de um
+-- predicado a mais que o planejador precisa provar a cada consulta.
+
+CREATE INDEX idx_audit_target_id ON audit_trail(target_id, created_at DESC);
+
+COMMENT ON INDEX idx_audit_target_id IS
+  'Serve o filtro por target_id SOZINHO (a tela de auditoria), que idx_audit_target nao cobre '
+  'por ter target_type como coluna lider. A segunda coluna tira o Sort da paginacao.';

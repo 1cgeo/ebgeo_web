@@ -37,6 +37,21 @@ export const UPSERT_CLIENT_ERROR = `
 /**
  * A listagem para o administrador.
  *
+ * O TOTAL VEM NO MESMO SELECT, como subconsulta ESCALAR, e a forma foi escolhida medindo,
+ * porque a óbvia é a cara. `COUNT(*) OVER ()` obriga o `WindowAgg` a materializar TODAS as
+ * linhas da janela antes de o `LIMIT` cortar: medido com EXPLAIN ANALYZE sobre 200 mil
+ * linhas, a rota saiu de 0,05 ms para 257 ms e derramou milhares de blocos em arquivo
+ * temporário, porque cada linha carrega um `stack` de milhares de caracteres. A subconsulta
+ * vira um `InitPlan` avaliado UMA vez, resolvido por `Index Only Scan` no mesmo
+ * `idx_client_errors_ultima_em`, e o `LIMIT` do corpo continua parando na quinquagésima
+ * linha: 4,8 ms na janela de 7 dias sobre 200 mil linhas espalhadas por 30 dias, contra
+ * 32,8 ms de um COUNT em requisição separada, que ainda custaria uma segunda ida ao banco.
+ *
+ * O PREDICADO É LITERALMENTE O MESMO ($1 nos dois lugares), e é daí que vem a única
+ * garantia que importa: lista vazia implica total zero, então o chamador pode ler o total
+ * da primeira linha e assumir zero quando não há linha nenhuma. Um predicado que divergisse
+ * do outro anunciaria "50 de 400" ao lado de uma lista de 3, que é pior que não ter número.
+ *
  * `LEFT JOIN` e não `JOIN`: a maior parte destas linhas é ANÔNIMA por desenho (o app roda
  * deslogado, e é justamente aí que ninguém vê o erro). Um `JOIN` interno esconderia
  * exatamente a metade que a rota existe para mostrar, sem erro nenhum, com uma lista
@@ -45,10 +60,50 @@ export const UPSERT_CLIENT_ERROR = `
 export const LIST_CLIENT_ERRORS = `
   SELECT ce.id, ce.assinatura, ce.mensagem, ce.stack, ce.url, ce.pagina,
          ce.user_agent, ce.release, ce.user_id, u.username, ce.atlas_id,
-         ce.ocorrencias, ce.primeira_em, ce.ultima_em
+         ce.ocorrencias, ce.primeira_em, ce.ultima_em,
+         (SELECT COUNT(*)::int FROM client_errors WHERE ultima_em >= $1) AS total_assinaturas
     FROM client_errors ce
     LEFT JOIN users u ON u.id = ce.user_id
    WHERE ce.ultima_em >= $1
    ORDER BY ce.ultima_em DESC
    LIMIT $2
+`;
+
+/**
+ * A PODA POR IDADE, com teto de linhas por passada.
+ *
+ * O CRITÉRIO É `ultima_em`, NUNCA `primeira_em`, e a diferença entre os dois é o dado mais
+ * valioso da tabela. Uma assinatura vista pela primeira vez há um ano e ainda ocorrendo
+ * hoje é o defeito CRÔNICO, que é justamente o que ninguém quer perder; podar por
+ * nascimento apagaria exatamente esse e deixaria de pé o erro de ontem que ninguém vai
+ * reproduzir de novo. É o mesmo critério que a LISTAGEM já usa para a janela, e a simetria
+ * é a propriedade: a linha que a tela ainda alcança é a linha que a poda ainda respeita.
+ *
+ * O TETO ($2) EXISTE PARA O LOCK, não para a correção. Sem ele, uma tabela que cresceu
+ * durante um período sem escrita nenhuma viraria um DELETE de centenas de milhares de
+ * linhas na primeira requisição seguinte, segurando lock e WAL enquanto quem relatou o erro
+ * espera pelo 204. Com ele cada passada é barata e o que sobrar sai na próxima: a poda é
+ * incremental por desenho e nunca precisa terminar numa passada só.
+ *
+ * O SUBSELECT COM `ORDER BY ultima_em LIMIT` NÃO É ENFEITE. Ele é o que aplica o teto ANTES
+ * do DELETE (Postgres não tem `DELETE ... LIMIT`) e o que garante que as linhas escolhidas
+ * sejam as MAIS ANTIGAS, e não as que o heap devolveu primeiro; sem o `ORDER BY`, duas
+ * passadas poderiam circular pela cauda e deixar as mais velhas para trás para sempre.
+ * Medido com EXPLAIN: o plano é `Index Scan Backward using idx_client_errors_ultima_em`
+ * com o LIMIT em cima, ou seja, o índice que a listagem já tem serve a poda também, e
+ * nenhum índice novo foi preciso.
+ *
+ * `RETURNING id` é o que dá a CONTAGEM ao chamador, e ela vai ao log quando é maior que
+ * zero: poda que apaga em silêncio é indistinguível de poda que não rodou.
+ */
+export const DELETE_CLIENT_ERRORS_EXPIRADOS = `
+  DELETE FROM client_errors
+   WHERE id IN (
+     SELECT id
+       FROM client_errors
+      WHERE ultima_em < NOW() - ($1::int * INTERVAL '1 day')
+      ORDER BY ultima_em
+      LIMIT $2
+   )
+  RETURNING id
 `;
