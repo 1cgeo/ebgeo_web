@@ -27,6 +27,7 @@ import {
     updateActiveLayerIndicators,
     updateLayerVisibilityIndicator,
     updateLayerLockIndicator,
+    closeLayerActionsMenu,
 } from './layer-list.component.js';
 import {
     handleFeatureClick,
@@ -66,13 +67,36 @@ import {
     getStorageTypeFromSource,
     getStateManager,
     moveFeaturesToLayer,
+    transferLayerToMap,
+    TransferMode,
 } from '@store';
 import { EventTypes } from '@events';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
-import { showConfirm } from '@modals';
+import { showConfirm, showLayerTransferModal } from '@modals';
 import { isViewer3DOpen } from '@utils/viewer3d-state.js';
-import { showError } from '@utils';
+import { showError, showSuccess } from '@utils';
+import { showInChannel } from '@utils/toast_service.js';
+import { denialNotice } from '@store/denial-phrases.js';
 import { isStreetView360Open } from '@utils/streetview360-state.js';
+
+/**
+ * Why a layer transfer was refused, in words, keyed by the machine reason the store
+ * operation returns.
+ *
+ * TWO REASONS ARE ABSENT ON PURPOSE. `analysis_features_present` carries a COUNT, so its
+ * sentence is built in `_reportTransferRefusal`; and `permission_denied` is keyed by
+ * CAPABILITY, not by this table, because the sentence has to be true for whoever reads it
+ * (`denialNotice`, `store/denial-phrases.js`) and a single canned line would lie to every
+ * rung above the lowest one.
+ * @constant {Object<string, string>}
+ */
+const TRANSFER_REFUSAL_PHRASES = Object.freeze({
+    target_map_locked: 'O mapa de destino está travado. Destrave-o para receber a camada.',
+    map_locked: 'Mapa travado. Destrave-o para mover a camada, ou copie-a.',
+    layer_locked: 'Camada travada. Destrave-a para movê-la, ou copie-a.',
+    layer_not_found: 'A camada não existe mais neste mapa.',
+    target_write_incomplete: 'Não foi possível gravar no mapa de destino. Nada saiu da origem.'
+});
 
 /**
  * FeaturesTab class - Main orchestrator for the features panel.
@@ -449,6 +473,156 @@ export class FeaturesTab {
         await this.loadFeatures();
     }
 
+    /**
+     * Handles moving or copying a whole layer to another map of the atlas.
+     *
+     * ORDER MATTERS: the store operation runs FIRST and the MapLibre sources are stripped
+     * only after it reports success. Stripping them up front (the shape the delete flow
+     * uses) makes a refused operation look like the features were lost, and nothing in
+     * this tab reads the store back to restore them, because `loadFeatures()` rebuilds
+     * from the sources.
+     *
+     * @param {string} layerId - Layer ID
+     * @param {string} mode - TransferMode.MOVE or TransferMode.COPY
+     * @returns {Promise<void>} Resolves once the transfer settled
+     */
+    async handleTransferLayer(layerId, mode) {
+        const layers = await getLayers();
+        const layer = layers.find((l) => l.id === layerId);
+        if (!layer) return;
+
+        const targetMapName = await showLayerTransferModal({ layerName: layer.name, mode });
+        if (!targetMapName) return;
+
+        const isMove = mode === TransferMode.MOVE;
+
+        try {
+            if (isMove) {
+                // The operation emits LAYERS_CHANGED for the destination and
+                // `deleteLayerOnly` emits one for the source, both while the MapLibre
+                // sources still hold the moved features.
+                this._suppressLayersChangedRefresh = true;
+            }
+
+            const result = await transferLayerToMap(layerId, targetMapName, { mode });
+
+            if (!result?.success) {
+                this._suppressLayersChangedRefresh = false;
+                this._reportTransferRefusal(result);
+                return;
+            }
+
+            if (isMove) {
+                // Only after the operation succeeded: a refusal must not cost the user a
+                // selection that nothing else touched.
+                this._deselectFeaturesOfLayer(layerId);
+                await this._syncMapSourcesAfterDelete(layerId);
+                this._suppressLayersChangedRefresh = false;
+            }
+
+            await this.loadFeatures();
+            this._emitLayersChanged();
+            showSuccess(this._buildTransferMessage(layer.name, targetMapName, result));
+        } catch (error) {
+            this._suppressLayersChangedRefresh = false;
+            console.error('Error transferring layer:', error);
+            showError('Erro ao transferir camada: ' + error.message);
+        }
+    }
+
+    /**
+     * Says why a transfer was refused, when the generic store toast would be wrong or too
+     * vague.
+     *
+     * The operation emits STORE_OPERATION_BLOCKED for every refusal, and the house listener
+     * turns that into the map-lock sentence or the capability sentence. Those are right for
+     * two of the reasons and false for the rest, so the specific phrase goes into the SAME
+     * toast channel, replacing it.
+     *
+     * @param {Object} result - Result from `transferLayerToMap`
+     * @returns {void}
+     */
+    _reportTransferRefusal(result) {
+        const reason = result?.reason;
+        if (!reason) return;
+
+        if (reason === 'analysis_features_present') {
+            const count = result.skippedCount || 0;
+            const plural = count === 1 ? 'feição de análise' : 'feições de análise';
+            showInChannel(
+                'store-blocked',
+                `A camada tem ${count} ${plural} (LOS/visibilidade), que não podem ` +
+                'ser movidas. Copie a camada ou exclua essas feições antes.',
+                'warning',
+                { duration: 6000 }
+            );
+            return;
+        }
+
+        // THE CAPABILITY, NOT A CANNED LINE. `denialNotice` keys on the `PermissionAction`
+        // the guard actually refused on, so an Editor denied the DELETE half of a move is
+        // not told they cannot edit a project they were just editing.
+        if (reason === 'permission_denied') {
+            showInChannel('store-blocked', denialNotice(result.required), 'warning', { duration: 4000 });
+            return;
+        }
+
+        // `Object.hasOwn`, not `[reason] ?? null`: a reason of "toString" would otherwise
+        // hand back a function from the prototype chain.
+        const phrase = Object.hasOwn(TRANSFER_REFUSAL_PHRASES, reason)
+            ? TRANSFER_REFUSAL_PHRASES[reason]
+            : null;
+        if (phrase) {
+            showInChannel('store-blocked', phrase, 'warning', { duration: 4000 });
+        }
+    }
+
+    /**
+     * Builds the success message for a layer transfer.
+     * @param {string} layerName - Layer name
+     * @param {string} targetMapName - Destination map name
+     * @param {Object} result - Result from `transferLayerToMap`
+     * @returns {string} The sentence to show
+     */
+    _buildTransferMessage(layerName, targetMapName, result) {
+        const verb = result.mode === TransferMode.MOVE ? 'movida' : 'copiada';
+        const count = result.movedCount || 0;
+        const plural = count === 1 ? 'feição' : 'feições';
+
+        let message = `Camada "${layerName}" ${verb} para "${targetMapName}" (${count} ${plural})`;
+
+        if (result.sourceLayerRemoved === false) {
+            message += '. A camada vazia continuou no mapa de origem';
+        }
+
+        if (result.skippedCount > 0) {
+            const skippedPlural = result.skippedCount === 1 ? 'feição' : 'feições';
+            const levada = result.skippedCount === 1 ? 'foi levada' : 'foram levadas';
+            message += `. ${result.skippedCount} ${skippedPlural} de análise (LOS/visibilidade) não ${levada}`;
+        }
+
+        return message;
+    }
+
+    /**
+     * Drops the selection when it points at features of a layer about to leave.
+     * @param {string} layerId - Layer ID
+     * @returns {void}
+     */
+    _deselectFeaturesOfLayer(layerId) {
+        try {
+            const selected = this.selectionManager?.getAllSelectedFeatures?.() || [];
+            const touchesLayer = selected.some(
+                (feature) => (feature?.properties?.layerId || 'default') === layerId
+            );
+            if (touchesLayer) {
+                this.selectionManager.deselectAllFeatures();
+            }
+        } catch (error) {
+            console.debug('Could not clear selection before transfer:', error.message);
+        }
+    }
+
     // =========================================================================
     // FEATURE METHODS
     // =========================================================================
@@ -616,6 +790,10 @@ export class FeaturesTab {
      * @param {Array} organizedLayers - Organized layer data
      */
     _renderOrganizedFeatures(organizedLayers) {
+        // The actions menu hangs off a header button and lives in <body>, so a re-render
+        // under an open menu would leave it floating over a header that no longer exists.
+        closeLayerActionsMenu();
+
         const featuresList = this.container.querySelector('.features-list');
         featuresList.innerHTML = '';
 
@@ -675,6 +853,7 @@ export class FeaturesTab {
             onToggleLayerVisibility: (id) => this.handleToggleLayerVisibility(id),
             onToggleLayerLock: (id) => this.handleToggleLayerLock(id),
             onDeleteLayer: (id) => this.handleDeleteLayer(id),
+            onTransferLayer: (id, mode) => this.handleTransferLayer(id, mode),
             onToggleGroupExpansion: (id) => this.toggleGroupExpansion(id),
             onToggleGroupVisibility: (id, vis) => this.toggleGroupVisibility(id, vis),
             onToggleGroupLock: (id, lock) => this.toggleGroupLock(id, lock),

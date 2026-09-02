@@ -5,6 +5,7 @@
  */
 
 import { FEATURES_TAB_ICONS } from './features_tab.icons.js';
+import { layerMenuActions, LayerMenuAction } from './layer-menu-actions.js';
 import {
     getLayers,
     getActiveLayerIdSync,
@@ -14,9 +15,14 @@ import {
     setLayerOpacity,
     deleteLayer,
     renameLayer,
+    getAllMapNamesStore,
+    getCurrentMapNameSync,
+    isCurrentMapLockedSync,
+    TransferMode,
 } from '@store';
+import { checkPermission } from '@store/sync/permission-guard.js';
 import { showPrompt, showConfirm } from '@modals';
-import { IDUtils, showError } from '@utils';
+import { IDUtils, showError, showToast } from '@utils';
 
 /**
  * @typedef {Object} LayerListCallbacks
@@ -24,6 +30,7 @@ import { IDUtils, showError } from '@utils';
  * @property {Function} onLayersChanged - Called when layers change
  * @property {Function} onRefresh - Called to refresh the entire list
  * @property {Function} onSyncMapSources - Called to sync map sources after delete
+ * @property {Function} [onTransferLayer] - Called with (layerId, mode) to move/copy a layer
  */
 
 /**
@@ -133,12 +140,256 @@ function createLayerControls(layer, callbacks) {
         handleDeleteLayer(layer.id, callbacks);
     };
 
+    // "Mais acoes" stays drawn on a locked map, exactly like its four siblings above: the
+    // lock is a reversible STATE, and it is the menu ITEM that names it. Hiding the button
+    // would leave the person with nowhere to learn why.
+    const menuBtn = document.createElement('button');
+    menuBtn.className = 'layer-menu-btn';
+    menuBtn.innerHTML = FEATURES_TAB_ICONS.MORE;
+    menuBtn.title = 'Mais ações';
+    menuBtn.setAttribute('aria-haspopup', 'menu');
+    menuBtn.setAttribute('aria-expanded', 'false');
+    menuBtn.onclick = (e) => {
+        e.stopPropagation();
+        showLayerActionsMenu(layer, menuBtn, callbacks).catch((error) => {
+            console.error('Error opening layer actions menu:', error);
+            showError('Erro ao abrir o menu da camada: ' + error.message);
+        });
+    };
+
     controls.appendChild(visBtn);
     controls.appendChild(lockBtn);
     controls.appendChild(tableBtn);
+    controls.appendChild(menuBtn);
     controls.appendChild(deleteBtn);
 
     return controls;
+}
+
+// ===== LAYER ACTIONS MENU =====
+
+/** Module-level single-menu state (only one layer menu can be open at a time). */
+let openMenuEl = null;
+let openMenuAnchor = null;
+let openMenuCloseHandler = null;
+
+/**
+ * Monotonic token for the map-list read the menu awaits before it can be built.
+ * A second click during that window would otherwise append a second menu and orphan the
+ * first, listener included.
+ */
+let menuRequestId = 0;
+
+/** Label and icon per command, keyed by the pure model's ids. */
+const LAYER_MENU_ITEMS = Object.freeze({
+    [LayerMenuAction.MOVE]: { label: 'Mover para outro mapa…', icon: 'MOVE' },
+    [LayerMenuAction.COPY]: { label: 'Copiar para outro mapa…', icon: 'COPY' }
+});
+
+/**
+ * Closes the layer actions menu and removes its outside-click listener.
+ *
+ * Both go together: a menu removed without its listener leaks a document handler that keeps
+ * firing for every click in the app. Exported so the tab can close it when it re-renders the
+ * list under an open menu, which would otherwise leave the menu floating over a header that
+ * no longer exists.
+ * @returns {void}
+ */
+export function closeLayerActionsMenu() {
+    // Invalidate any map-list read still in flight. Without this, a menu opened just before
+    // a re-render would still be born after it, anchored to a button already thrown away.
+    menuRequestId++;
+
+    if (openMenuCloseHandler) {
+        document.removeEventListener('click', openMenuCloseHandler);
+        openMenuCloseHandler = null;
+    }
+    if (openMenuAnchor) {
+        openMenuAnchor.setAttribute('aria-expanded', 'false');
+    }
+    if (openMenuEl) {
+        openMenuEl.remove();
+    }
+    openMenuEl = null;
+    openMenuAnchor = null;
+}
+
+/**
+ * Positions the menu below its anchor, flipping when it would leave the viewport.
+ * Inline styles here are the runtime-computed exception: the coordinates only exist at
+ * click time.
+ *
+ * @param {HTMLElement} menu - Menu element (already in the document)
+ * @param {HTMLElement} anchorEl - Button the menu hangs from
+ * @returns {void}
+ */
+function positionLayerActionsMenu(menu, anchorEl) {
+    const rect = anchorEl.getBoundingClientRect();
+    const menuRect = menu.getBoundingClientRect();
+    const padding = 8;
+
+    let top = rect.bottom + 4;
+    let left = rect.right - menuRect.width;
+
+    if (left < padding) {
+        left = rect.left;
+    }
+    if (left + menuRect.width > window.innerWidth - padding) {
+        left = window.innerWidth - menuRect.width - padding;
+    }
+    if (top + menuRect.height > window.innerHeight - padding) {
+        top = rect.top - menuRect.height - 4;
+    }
+
+    menu.style.top = `${top}px`;
+    menu.style.left = `${left}px`;
+}
+
+/**
+ * Builds one menu row.
+ *
+ * A row blocked by STATE carries `aria-disabled` and NEVER the `disabled` property: a
+ * disabled button fires no click, and the click is exactly how the reason reaches the
+ * person.
+ *
+ * @param {{id: string, blocked: string|null}} action - One entry from `layerMenuActions`
+ * @param {Function} handler - What a live click runs
+ * @returns {HTMLElement} The row
+ */
+function createLayerMenuItem(action, handler) {
+    const item = LAYER_MENU_ITEMS[action.id];
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'layer-context-menu-item'
+        + (action.blocked ? ' layer-context-menu-item--blocked' : '');
+    button.setAttribute('role', 'menuitem');
+    if (action.blocked) {
+        button.setAttribute('aria-disabled', 'true');
+        button.title = action.blocked;
+    }
+
+    const icon = document.createElement('span');
+    icon.className = 'layer-context-menu-icon';
+    icon.innerHTML = FEATURES_TAB_ICONS[item.icon];
+
+    const label = document.createElement('span');
+    label.textContent = item.label;
+
+    button.appendChild(icon);
+    button.appendChild(label);
+
+    button.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeLayerActionsMenu();
+        if (action.blocked) {
+            showToast(action.blocked, 'warning');
+            return;
+        }
+        handler();
+    });
+
+    return button;
+}
+
+/**
+ * Shows the "more actions" menu for a layer.
+ *
+ * @param {Object} layer - Layer data object
+ * @param {HTMLElement} anchorEl - Button the menu hangs from
+ * @param {LayerListCallbacks} callbacks - Callback functions
+ * @returns {Promise<void>} Resolves once the menu is on screen (or was toggled shut)
+ */
+async function showLayerActionsMenu(layer, anchorEl, callbacks) {
+    // Toggle: clicking the same button closes the menu.
+    if (openMenuEl && openMenuAnchor === anchorEl) {
+        closeLayerActionsMenu();
+        return;
+    }
+    closeLayerActionsMenu();
+
+    const requestId = ++menuRequestId;
+    const allMapNames = await getAllMapNamesStore();
+    // Two ways this read goes stale: another open superseded it, or the list re-rendered and
+    // took our anchor out of the document. A menu hung on a detached button positions itself
+    // at 0,0 and never closes on click.
+    if (requestId !== menuRequestId || !anchorEl.isConnected) return;
+
+    const currentMapName = getCurrentMapNameSync();
+    const otherMaps = (allMapNames || []).filter((name) => name !== currentMapName);
+
+    const actions = layerMenuActions({
+        can: (key) => checkPermission(key).allowed,
+        sourceLocked: isCurrentMapLockedSync(),
+        layerLocked: layer.locked === true,
+        hasOtherMaps: otherMaps.length > 0
+    });
+
+    // Every command hidden by RANK: there is nothing to draw and nothing this screen could
+    // explain, so no menu opens. The toast exists because a button that does nothing at all
+    // reads as broken.
+    //
+    // "I DO NOT KNOW YET" IS NOT "YOU MAY NOT". While the per-atlas role is still the
+    // hydration seed, `checkPermission` refuses with `pending: true` (the field exists for
+    // exactly this, and had no consumer until now). Quoting the rank sentence there tells the
+    // OWNER of an atlas, one instant after opening it, that their level forbids the action.
+    if (actions.length === 0) {
+        const perm = checkPermission('CREATE_FEATURE');
+        showToast(
+            perm.pending
+                ? 'Ainda confirmando seu nível neste atlas. Tente de novo em instantes.'
+                : 'Seu nível neste atlas não permite mover ou copiar camadas.',
+            'warning'
+        );
+        return;
+    }
+
+    const menu = document.createElement('div');
+    menu.className = 'layer-context-menu';
+    menu.setAttribute('role', 'menu');
+    openMenuEl = menu;
+    openMenuAnchor = anchorEl;
+
+    const modeById = {
+        [LayerMenuAction.MOVE]: TransferMode.MOVE,
+        [LayerMenuAction.COPY]: TransferMode.COPY
+    };
+    for (const action of actions) {
+        menu.appendChild(createLayerMenuItem(action, () =>
+            handleTransferLayer(layer.id, modeById[action.id], callbacks)
+        ));
+    }
+
+    document.body.appendChild(menu);
+    anchorEl.setAttribute('aria-expanded', 'true');
+    positionLayerActionsMenu(menu, anchorEl);
+
+    openMenuCloseHandler = (e) => {
+        if (!menu.contains(e.target) && !anchorEl.contains(e.target)) {
+            closeLayerActionsMenu();
+        }
+    };
+    setTimeout(() => {
+        if (openMenuCloseHandler) {
+            document.addEventListener('click', openMenuCloseHandler);
+        }
+    }, 0);
+}
+
+/**
+ * Routes a transfer request to the tab, which owns the map sources and the selection.
+ * Without a handler the command would fail silently, so say so.
+ *
+ * @param {string} layerId - Layer ID
+ * @param {string} mode - TransferMode.MOVE or TransferMode.COPY
+ * @param {LayerListCallbacks} callbacks - Callback functions
+ * @returns {void}
+ */
+function handleTransferLayer(layerId, mode, callbacks) {
+    if (typeof callbacks.onTransferLayer !== 'function') {
+        showToast('Ação indisponível nesta tela.', 'warning');
+        return;
+    }
+    callbacks.onTransferLayer(layerId, mode);
 }
 
 /**

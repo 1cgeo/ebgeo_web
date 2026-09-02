@@ -27,6 +27,7 @@ import { createGroupItemInLayer } from './group-item.component.js';
  * @property {Function} onToggleFeatureLock - Called to toggle feature lock
  * @property {Function} propagatePropertyToSource - Called to propagate property
  * @property {Function} onOpenAttributeTable - Called to open attribute table for layer
+ * @property {Function} [onTransferLayer] - Called with (layerId, mode) to move/copy a layer
  */
 
 /**
@@ -58,6 +59,7 @@ export function createLayerContainer(layerInfo, callbacks) {
         onRefresh: callbacks.onRefresh,
         onSyncMapSources: callbacks.onSyncMapSources,
         onOpenAttributeTable: callbacks.onOpenAttributeTable,
+        onTransferLayer: callbacks.onTransferLayer,
     };
 
     const header = createLayerHeader(layer, isActive, featureCount, headerCallbacks);

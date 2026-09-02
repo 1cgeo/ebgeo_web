@@ -26,7 +26,13 @@
  * must not take it. The known composites, all verified unlocked: `moveFeaturesToMap`,
  * `addFeatureToMap`, `removeFeatureFromMap`'s caller, `toggleCatalogLayerVisibility`,
  * `updateCatalogLayerStatus`, `batchUpdateLOSFeatures` / `batchUpdateVisibilityFeatures`,
- * `drainPendingFeatureOps` and the two inbound paths that drain it.
+ * `transferLayerToMap`, `drainPendingFeatureOps` and the two inbound paths that drain it.
+ *
+ * `transferLayerToMap` is the one that touches TWO map documents, and it still takes
+ * neither key: it awaits `addFeatures` on the destination and `deleteLayerFeatures` on the
+ * source, and each of those takes its own key. Wrapping the composite in the SOURCE key
+ * would deadlock on the removal step, which is the last thing it does, so the freeze would
+ * arrive after the destination already held the data.
  *
  * Deferred effects are exempt by construction: `runTransaction`'s commit runs `deferSync`
  * synchronously (it cannot await) and starts `deferAsync` without awaiting it, so an

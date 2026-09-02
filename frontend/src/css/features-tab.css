@@ -177,6 +177,90 @@
     color: #dc3545 !important;
 }
 
+/* =========================================================================
+   LAYER ACTIONS MENU ("mais ações")
+   The button had rules only inside the coarse-pointer media query, so on a
+   mouse it inherited nothing but `.layer-controls button`. This is its base.
+   The menu itself is appended to <body>, hence fixed-positioned: inside the
+   sidebar it would be clipped by the panel's overflow.
+   ========================================================================= */
+
+.layer-controls .layer-menu-btn[aria-expanded="true"] {
+    color: var(--primary);
+    background: #f0f0f0;
+}
+
+.layer-context-menu {
+    position: fixed;
+    z-index: 10000;
+    min-width: 220px;
+    padding: var(--space-1);
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    animation: layer-context-menu-fade-in 0.15s ease-out;
+}
+
+@keyframes layer-context-menu-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.layer-context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--gray-700);
+    font-size: var(--font-size-sm);
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.layer-context-menu-item:hover {
+    background: var(--gray-100);
+}
+
+.layer-context-menu-icon {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    color: var(--gray-500);
+}
+
+.layer-context-menu-item:hover .layer-context-menu-icon {
+    color: var(--gray-700);
+}
+
+/* Blocked by STATE: dimmed, but still clickable, because the click is how the
+   reason reaches the person. Never `:disabled` here. */
+.layer-context-menu-item--blocked {
+    color: var(--gray-400);
+    cursor: not-allowed;
+}
+
+.layer-context-menu-item--blocked .layer-context-menu-icon,
+.layer-context-menu-item--blocked:hover .layer-context-menu-icon {
+    color: var(--gray-400);
+}
+
+.layer-context-menu-item--blocked:hover {
+    background: var(--gray-50);
+}
+
 .layer-opacity-row {
     display: flex;
     align-items: center;

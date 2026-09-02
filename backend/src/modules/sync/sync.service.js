@@ -2659,9 +2659,40 @@ async function applyOperation(t, atlasId, op, userId, permission) {
       // killed locally by the next snapshot: permanent data loss in the most common gesture
       // of the product.
       //
-      // The `WHERE <table>.deleted_at IS NOT NULL` guard is load-bearing: it keeps the old
-      // DO NOTHING semantics for rows that are still ALIVE, so a replayed/stale create can
-      // never clobber newer data on a live row. Only tombstones are revived.
+      // The `WHERE` on the DO UPDATE decides which conflicting creates may write, and it is
+      // load-bearing. For every target BUT `feature` it is unchanged: `deleted_at IS NOT NULL`,
+      // i.e. the old DO NOTHING semantics for rows that are still ALIVE, so a replayed or stale
+      // create can never clobber newer data on a live row. Only tombstones are revived.
+      //
+      // MOVE-ON-CREATE (2026-09-02), and it is a rule about FEATURES ONLY. A create that lands
+      // on a LIVE feature naming a DIFFERENT map of the SAME atlas is a MOVE, and the last one
+      // to arrive wins, like every other conflict in this server-arrival LWW model. It is how
+      // "move a whole layer to another map" reaches the server: the client mints a NEW layer in
+      // the destination, replays each feature create there with the SAME entity id, and deletes
+      // the SOURCE layer. It deliberately emits no feature delete, because a delete of the id it
+      // just moved would kill the row it had moved (decision of 2026-09-02). Without the second
+      // disjunct below the destination came back empty and the features stayed in the source
+      // map, which is what `frontend/tests/e2e/layer-transfer.e2e.test.js` measured.
+      //
+      // Groups, layers, cesium3d and streetview360 also carry a `map_id` and are NOT part of
+      // this rule: today only a feature moves between maps, and a layer transfer mints a new
+      // layer id on purpose (layer ids are not unique across maps).
+      //
+      // What stays protected: a replay of the create in the SAME map is still inert, because the
+      // row is alive AND `map_id` is not distinct from the proposed one. The cross-atlas guard is
+      // untouched, and it is NOT this clause that carries it: the INSERT ... SELECT ... WHERE
+      // EXISTS materialises no row for a mapId of a foreign atlas, so there is no conflict to
+      // resolve and nothing moves.
+      //
+      // The cost, accepted with eyes open: a LATE create from a client that still had the feature
+      // in the OLD map drags it back there. That is LWW by arrival, the same trade the whole
+      // model makes, and the outbound queue compacts CREATE+UPDATE of the same entity into one
+      // op, so the window is a client reconnecting without ever having seen the move.
+      //
+      // Two consequences downstream of a move, both desired. The §2.2 layer-delete cascade below
+      // is scoped `WHERE layer_id = $1 AND map_id = $2`, and a moved row changed BOTH, so
+      // deleting the source layer never reaches it. And `buildSoftDeleteQuery` is scoped by
+      // `map_id` too, so a delete aimed at the source map is a no-op on a row that already left.
       // Handle create operations for different targets
       if (target === 'feature' && op.data && op.mapId) {
         const data = op.data;
@@ -2675,10 +2706,12 @@ async function applyOperation(t, atlasId, op, userId, permission) {
             SET geometry   = EXCLUDED.geometry,
                 properties = EXCLUDED.properties,
                 layer_id   = EXCLUDED.layer_id,
+                map_id     = EXCLUDED.map_id,
                 deleted_at = NULL,
                 updated_at = NOW(),
                 version    = features.version + 1
             WHERE features.deleted_at IS NOT NULL
+               OR features.map_id IS DISTINCT FROM EXCLUDED.map_id
         `, [
           op.targetId,
           op.mapId,

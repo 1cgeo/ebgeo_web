@@ -698,13 +698,21 @@ async function applyRemoteFeatureOpLocked(opType, featureId, mapId, data, server
 /**
  * Applies a remote layer operation.
  *
+ * The DELETE branch mirrors the server's layer cascade through
+ * {@link cascadeRemoteLayerDelete}: deleting the layer deletes its features in this map. See
+ * that helper's header for why the cascade belongs to whoever APPLIES the delete, and not to a
+ * feature op emitted by the author.
+ *
  * @param {string} opType - Operation type
  * @param {string} layerId - Layer UUID
  * @param {string} mapId - Map UUID
  * @param {Object} data - Layer data
+ * @returns {Promise<void>} Resolves once persisted and announced
  */
 async function applyRemoteLayerOp(opType, layerId, mapId, data) {
     const repo = getRepository();
+    /** @type {Array<{featureId: string, featureType: string}>} */
+    let cascaded = [];
     // Persist the layer to the local store like the map/feature handlers do. Emitting
     // an event alone left the peer WITHOUT the layer — the desktop has no subscriber
     // that persists LAYER_* events — so a collaborator's new/edited/deleted layer never
@@ -722,6 +730,12 @@ async function applyRemoteLayerOp(opType, layerId, mapId, data) {
             next = layers.filter((l) => l.id !== layerId);
         }
         await repo.saveLayers?.(mapId, next);
+        // The cascade runs AFTER the layer leaves the list, in the server's own order, and the
+        // harvest is emitted outside the `try` so that a persistence failure cannot announce a
+        // deletion that did not happen.
+        if (opType === OperationType.DELETE) {
+            cascaded = await cascadeRemoteLayerDelete(layerId, mapId);
+        }
         // Refresh the in-memory layer cache so getVisibleLayerIds() and the features panel
         // see the new/changed layer immediately. The visibility filter reads memoryStore
         // (not the repo), so without this a peer's features on a brand-new layer are filtered
@@ -744,10 +758,71 @@ async function applyRemoteLayerOp(opType, layerId, mapId, data) {
             break;
         case OperationType.DELETE:
             emit(EventTypes.LAYER_DELETED, { layerId, mapId });
+            // One per feature, in the SAME shape the feature-delete branch uses, because that
+            // is the event the render layer and the features tab listen to. Nothing to emit
+            // when the cascade removed nothing, which is the idempotent case.
+            for (const { featureId, featureType } of cascaded) {
+                emit(EventTypes.FEATURE_DELETED, { featureId, featureType, mapId });
+            }
             break;
     }
 
     emit(EventTypes.LAYERS_CHANGED, { mapName: mapId });
+}
+
+/**
+ * MIRRORS THE SERVER'S LAYER CASCADE: deleting a LAYER deletes its features.
+ *
+ * In the same transaction as the layer delete, the server runs
+ * `UPDATE features SET deleted_at ... WHERE layer_id = $1 AND map_id = $2`
+ * (`backend/src/modules/sync/sync.service.js`, the block marked as the layer cascade). The
+ * client emits NO feature op on that path: `deleteLayerFeatures` empties the local document
+ * without logging anything, so the only envelope that travels is the layer delete. While this
+ * branch merely filtered the layer list, the peer kept every feature of the deleted layer
+ * inside its map document, i.e. the database and the peer disagreed until the next snapshot.
+ *
+ * AND IT CANNOT BE FIXED BY EMITTING `feature delete` ON THE AUTHOR'S SIDE, which is the
+ * obvious move: moving a layer between maps (`transferLayerToMap`) KEEPS the feature id and
+ * relocates it through a `feature create` stamped with the DESTINATION map. Under LWW by
+ * arrival order, a `feature delete` for that same id arriving behind it would erase exactly
+ * what had just moved. The cascade belongs to whoever APPLIES the layer delete, on both sides
+ * of the envelope.
+ *
+ * SAME SCOPE AS THE SERVER: layer AND map. No other map is touched, and the `layerId`
+ * comparison is STRICT (no fallback to the local `'default'`), because in a server atlas every
+ * layer carries a UUID and that fallback only exists for the synthesized layer of a LOCAL
+ * atlas, which never arrives as a remote op.
+ *
+ * IDEMPOTENT: nothing to remove is the normal case (a re-applied delete, or an empty layer).
+ *
+ * @param {string} layerId - Layer UUID whose features go with it
+ * @param {string} mapId - Map UUID that owns them
+ * @returns {Promise<Array<{featureId: string, featureType: string}>>} What was removed
+ */
+function cascadeRemoteLayerDelete(layerId, mapId) {
+    // Same lock key as `applyRemoteFeatureOp`: this is a read-modify-write of the SAME map
+    // document, and it races the user's local drawing.
+    return withMapDocument(mapId, 'applyRemoteLayerOp:cascade', async () => {
+        const repo = getRepository();
+        const mapData = await repo.getMap(mapId);
+        if (!mapData?.features) return [];
+
+        const removed = [];
+        for (const arr of Object.values(mapData.features)) {
+            if (!Array.isArray(arr) || arr.length === 0) continue;
+            for (let i = arr.length - 1; i >= 0; i--) {
+                if (arr[i]?.properties?.layerId !== layerId) continue;
+                removed.push({
+                    featureId: arr[i].properties?.id,
+                    featureType: arr[i].properties?.source || 'point'
+                });
+                arr.splice(i, 1);
+            }
+        }
+
+        if (removed.length > 0) await repo.saveMap(mapId, mapData);
+        return removed;
+    });
 }
 
 /** Index of a layer by its `id` (layers have a top-level id, not properties.id). */
