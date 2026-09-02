@@ -4,6 +4,10 @@ import { AppError, ValidationError } from '../utils/errors.js';
 import { redactUrl } from '../utils/redact-url.js';
 import config from '../config.js';
 import { toValidationDetails } from '../utils/validation-messages.js';
+import {
+  anotarDefeitoDeServidor,
+  defeitoDeRequisicao,
+} from '../modules/diag/defeitos-de-servidor.js';
 
 /**
  * The line a failed request writes: level, fields and message.
@@ -106,6 +110,40 @@ export function errorHandler(err, req, res, next) {
   // level and the stack are decided in `requestErrorLogPayload`.
   const linha = requestErrorLogPayload(err, req);
   logger[linha.nivel](linha.campos, linha.mensagem);
+
+  // O 5xx TAMBÉM VIRA DEFEITO, e só ele. A anotação é um `Map.set` em memória, descarregada
+  // em lote a cada dez segundos (`modules/diag/defeitos-de-servidor.js`); nada de banco
+  // acontece nesta linha, porque um handler de erro que escreve no banco vira a segunda
+  // fonte de erro exatamente quando a causa do 5xx É o banco.
+  //
+  // O 4xx FICA DE FORA, e é a mesma escolha que o Sentry faz por padrão: um 404, um 401 ou
+  // um 422 é o cliente errando, não o produto quebrando, e despejá-los aqui soterraria o 500
+  // raro sob o comportamento correto frequente. É o mesmo argumento pelo qual a recusa por
+  // operação do sync sai do `diag -- erros` (ver `refusedOpsLogPayload`). O corte é o MESMO
+  // `>= 500` que decide o nível da linha e a presença da pilha, e não um segundo limiar: dois
+  // limiares divergem no dia em que alguém mexe num só.
+  //
+  // DEPOIS DO LOG, nunca antes: o `.jsonl` é a evidência que sobrevive a tudo, e ele não pode
+  // depender de nada que esta linha faça.
+  //
+  // O `try` NÃO É CINTO DE SEGURANÇA REDUNDANTE, e a diferença é o LUGAR. As duas funções
+  // não lançam POR CONTRATO, mas contrato é promessa de quem escreve, e este é o ÚLTIMO
+  // handler da cadeia: uma exceção aqui não tem para onde ir. O Express a entrega ao
+  // `finalhandler`, que só sabe destruir o socket, então quem paga é o CLIENTE, com resposta
+  // truncada, e o erro original some substituído por um de contabilidade da telemetria. É a
+  // mesma razão pela qual a linha do `res.headersSent` logo abaixo existe.
+  //
+  // O `catch` é MUDO de propósito: qualquer coisa que ele tentasse escrever passaria pelo
+  // mesmo logger que acabou de escrever a linha real, e um erro dentro do handler de erro
+  // que tenta se logar é o laço que derruba o processo. O erro do cliente já está no
+  // `.jsonl` uma linha acima; o que se perde aqui é só o AGRUPAMENTO daquela ocorrência.
+  if (linha.statusRegistrado >= 500) {
+    try {
+      anotarDefeitoDeServidor(defeitoDeRequisicao(linha));
+    } catch {
+      // Ver acima: a resposta ao cliente vale mais que o agrupamento deste 5xx.
+    }
+  }
 
   // Once the status line and headers are on the wire, there is no response left to
   // write: `res.json()` calls `res.set('Content-Type', …)` → `setHeader()` after

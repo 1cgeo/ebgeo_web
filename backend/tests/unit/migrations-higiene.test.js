@@ -7,11 +7,13 @@
 // verificáveis por leitura dos .sql, sem banco.
 //
 // A LISTA DE EXCEÇÕES DESTRUTIVAS carrega hoje só o que a última migração
-// forward-only precisou derrubar. As migrações são baselines por domínio escritas no
-// ESTADO FINAL do schema, então nada é criado ali para ser derrubado depois: as entradas
-// que esta lista já teve (o `catalog_layers.id` UUID -> TEXT, os CHECK que caíam para
-// alargar, o `DROP TABLE streetview_markers`) desapareceram porque o tipo, o CHECK e a
-// ausência da tabela nascem prontos.
+// forward-only precisou derrubar. As BASELINES por domínio são escritas no ESTADO FINAL do
+// schema, então nada é criado dentro delas para ser derrubado depois, e foi por isso que
+// esta lista chegou a ficar vazia (o `catalog_layers.id` UUID -> TEXT, os CHECK que caíam
+// para alargar e o `DROP TABLE streetview_markers` sumiram quando o tipo, o CHECK e a
+// ausência da tabela passaram a nascer prontos). Ela voltou a ter uma linha com a primeira
+// migração forward-only que precisou ALARGAR um CHECK já publicado, que é a única forma
+// destrutiva sem alternativa aditiva no Postgres.
 //
 // Uma linha aqui significa uma de duas coisas, e vale investigar qual: ou uma migração
 // NOVA e legítima (aí a linha é o ato explícito que a convenção exige), ou uma baseline
@@ -55,15 +57,26 @@ function todasAsLinhas(arquivos = FILES) {
 // DDL destrutiva DELIBERADA, com o arquivo onde mora. Acrescentar uma linha aqui é
 // o ato explícito que a convenção exige; esquecer de acrescentar reprova o teste.
 //
-// AS DUAS DE HOJE são da última migração forward-only, e cada uma existe por um motivo
-// que não tem forma aditiva: apagar uma coluna, e alargar um CHECK (o Postgres não tem
-// `ALTER CONSTRAINT` para expressão, então o constraint cai e volta).
+// A ÚNICA DE HOJE é o alargamento de um CHECK, que é a forma destrutiva que não tem
+// alternativa aditiva: o Postgres não tem `ALTER CONSTRAINT` para expressão, então o
+// constraint cai e volta. Alargar é compatível para trás (todo valor aceito antes continua
+// aceito) e mesmo assim conta como destrutivo, porque entre o DROP e o ADD a tabela fica
+// sem a regra — e porque um DROP escrito por engano se parece exatamente com este.
 //
 // O `trecho` é o STATEMENT INTEIRO e não o prefixo comum, de propósito: dois
 // `ALTER TABLE x DROP CONSTRAINT ...` começam iguais, e um prefixo compartilhado faria os
 // dois casarem a MESMA entrada — a contagem acusaria "DDL a mais" e a lista deixaria de
 // discriminar qual foi autorizada.
-const EXCECOES_DESTRUTIVAS = [];
+const EXCECOES_DESTRUTIVAS = [
+  {
+    arquivo: '018_defeitos_e_ocorrencias.sql',
+    trecho: 'ALTER TABLE defeitos DROP CONSTRAINT IF EXISTS defeitos_origem_check;',
+    // O vocabulário de `origem` passou de dez para onze valores (`'servidor'`, o 5xx do
+    // próprio backend virando defeito). O `IF EXISTS` é o que mantém a migração idempotente
+    // numa segunda aplicação, e a recriação vem logo abaixo dele, na mesma transação: não
+    // existe janela em que a tabela fique sem a regra fora dessa transação.
+  },
+];
 const PADROES_DESTRUTIVOS = [
   /\bDROP\s+TABLE\b/i,
   /\bDROP\s+COLUMN\b/i,

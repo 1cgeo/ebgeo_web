@@ -21,7 +21,7 @@ import {
 
 const ESPERADAS = [
     'boot', 'nao-tratado', 'rejeicao', 'console', 'store',
-    'ws', 'maplibre', 'cesium', 'sv360', 'indisponivel',
+    'ws', 'maplibre', 'cesium', 'sv360', 'indisponivel', 'servidor',
 ];
 
 describe('o vocabulário de origem de erro do backend espelha o do frontend', () => {
@@ -32,7 +32,7 @@ describe('o vocabulário de origem de erro do backend espelha o do frontend', ()
         expect(Object.keys(BackendOrigemDeErro).length).toBe(BACKEND_ORIGENS_DE_ERRO.length);
     });
 
-    it('os dez valores são exatamente os esperados, dos DOIS lados e na mesma ordem', () => {
+    it('os onze valores são exatamente os esperados, dos DOIS lados e na mesma ordem', () => {
         expect([...ORIGENS_DE_ERRO]).toEqual(ESPERADAS);
         expect([...BACKEND_ORIGENS_DE_ERRO]).toEqual(ESPERADAS);
     });

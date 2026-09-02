@@ -2,7 +2,8 @@
 // AS QUATRO COLUNAS DE `017_erro_cliente_identidade.sql` (`sessao_id`, `stack_bruta`,
 // `origem`, `contexto`), da borda até o banco e de volta na listagem.
 //
-// O QUE ELAS MUDAM NA PERGUNTA. `client_errors` respondia "qual defeito e quantas vezes";
+// O QUE ELAS MUDAM NA PERGUNTA. `defeitos` (que se chamava `client_errors` até
+// `018_defeitos_e_ocorrencias.sql`) respondia "qual defeito e quantas vezes";
 // com estas colunas ela responde também de qual ABA (a mesma sessão que o servidor carimba
 // nas linhas de log), com que pilha REAL, por qual porta o erro entrou e em que estado o
 // app estava. Sem elas, o erro do navegador e as linhas do servidor do mesmo instante
@@ -11,7 +12,7 @@
 // CONTROLE NEGATIVO (o que fica vermelho ao reverter cada peça):
 //  - tornar qualquer um dos quatro obrigatório no Joi: o caso do relato SEM nenhum deles
 //    passa a 422, e ele é o caso de todo navegador com script antigo em cache;
-//  - trocar `COALESCE(client_errors.stack_bruta, EXCLUDED.stack_bruta)` pela ordem normal:
+//  - trocar `COALESCE(defeitos.stack_bruta, EXCLUDED.stack_bruta)` pela ordem normal:
 //    o caso da assimetria fica vermelho, e a linha passa a ter pilha de uma build com o
 //    `release` de outra, que é pior que pilha nenhuma porque parece endereço;
 //  - tirar o CHECK da migração: o caso do INSERT direto com origem inventada passa a
@@ -46,7 +47,7 @@ describe('Erro do navegador — identidade, pilha crua, origem e contexto', () =
     return a;
   }
 
-  const linhaDe = (a) => db.query('SELECT * FROM client_errors WHERE assinatura = $1', [a])
+  const linhaDe = (a) => db.query('SELECT * FROM defeitos WHERE assinatura = $1', [a])
     .then((r) => r.rows[0]);
 
   const relatar = (corpo) => supertest(app).post('/api/v1/diag/erro-cliente').send(corpo);
@@ -63,7 +64,7 @@ describe('Erro do navegador — identidade, pilha crua, origem e contexto', () =
   });
 
   after(async () => {
-    await db.query('DELETE FROM client_errors WHERE assinatura = ANY($1::text[])', [assinaturas]);
+    await db.query('DELETE FROM defeitos WHERE assinatura = ANY($1::text[])', [assinaturas]);
     await teardownTestEnv(db);
   });
 
@@ -232,12 +233,12 @@ describe('Erro do navegador — identidade, pilha crua, origem e contexto', () =
   });
 
   // ── o CHECK do banco, que é a segunda porta ──
-  it('o CHECK recusa a origem inventada mesmo por INSERT DIRETO, e aceita as dez', async () => {
+  it('o CHECK recusa a origem inventada mesmo por INSERT DIRETO, e aceita as ONZE', async () => {
     // O Joi protege a borda; o CHECK protege TODA escrita, inclusive a que não passa por
     // ela (um roteiro, um INSERT à mão, um controller futuro). Sem o par positivo abaixo,
     // este caso passaria idêntico se o CHECK recusasse tudo.
     const inserir = (origem) => db.query(
-      'INSERT INTO client_errors (assinatura, mensagem, origem) VALUES ($1, $2, $3)',
+      'INSERT INTO defeitos (assinatura, mensagem, origem) VALUES ($1, $2, $3)',
       [`${marca}-check-${origem}`, 'direto', origem]
     );
     assinaturas.push(`${marca}-check-inventada`);
@@ -246,27 +247,31 @@ describe('Erro do navegador — identidade, pilha crua, origem e contexto', () =
       () => inserir('inventada'),
       (err) => {
         assert.equal(err.code, '23514', 'violação de CHECK');
-        assert.match(err.constraint, /client_errors_origem_check/);
+        assert.match(err.constraint, /defeitos_origem_check/);
         return true;
       }
     );
 
-    assert.equal(ORIGENS_DE_ERRO.length, 10);
+    // ONZE e não dez desde `018_defeitos_e_ocorrencias.sql`: o CHECK precisa aceitar
+    // `'servidor'` porque é a MESMA coluna que o agregador de 5xx escreve. A borda ANÔNIMA é
+    // que recorta (`ORIGENS_DO_CLIENTE`, `tests/unit/diag-origem-de-erro.test.js`), e as duas
+    // listas não podem ser confundidas: aqui vale a do banco.
+    assert.equal(ORIGENS_DE_ERRO.length, 11);
     for (const origem of ORIGENS_DE_ERRO) {
       assinaturas.push(`${marca}-check-${origem}`);
       await inserir(origem);
     }
     const { rows } = await db.query(
-      "SELECT origem FROM client_errors WHERE assinatura LIKE $1 ORDER BY origem",
+      "SELECT origem FROM defeitos WHERE assinatura LIKE $1 ORDER BY origem",
       [`${marca}-check-%`]
     );
-    assert.equal(rows.length, 10, 'as dez entraram');
+    assert.equal(rows.length, 11, 'as onze entraram');
   });
 
   it('o CHECK aceita NULL: relato que não declara origem continua entrando por qualquer porta', async () => {
     const a = `${marca}-check-nula`;
     assinaturas.push(a);
-    await db.query('INSERT INTO client_errors (assinatura, mensagem) VALUES ($1, $2)', [a, 'sem origem']);
+    await db.query('INSERT INTO defeitos (assinatura, mensagem) VALUES ($1, $2)', [a, 'sem origem']);
     const linha = await linhaDe(a);
     assert.equal(linha.origem, null);
   });

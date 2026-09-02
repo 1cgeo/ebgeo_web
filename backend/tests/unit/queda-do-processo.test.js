@@ -27,6 +27,7 @@ import assert from 'node:assert/strict';
 import logger, {
   payloadDeQueda,
   descarregarLog,
+  prazoRestante,
   NIVEL_DA_QUEDA,
   CODIGO_DE_SAIDA_NA_QUEDA,
   TIPO_DE_QUEDA,
@@ -144,6 +145,54 @@ describe('payloadDeQueda — rejeição que não é Error', () => {
 
     // E o que sai continua sendo uma linha, não um vazio.
     assert.equal(typeof payloadDeQueda(TIPO_DE_QUEDA.REJEICAO, circular).campos.err.valorBruto, 'string');
+  });
+});
+
+describe('prazoRestante — o orçamento de morte é UM, e não um por descarga', () => {
+  // O CAMINHO DE QUEDA TEM DUAS DESCARGAS antes do `process.exit`: os defeitos agregados e o
+  // log. Dar a cada uma o teto cheio SOMA os dois, e o pior caso de morrer vira o dobro do
+  // que a constante anuncia, com o servidor HTTP ainda escutando. A aritmética mora aqui
+  // porque `src/index.js` não é importável (importá-lo sobe o servidor), e sem esta função
+  // ela seria a única parte do caminho de morte sem cobertura possível.
+
+  it('devolve o que sobra do orçamento', () => {
+    const morteAte = 10_000;
+    assert.equal(prazoRestante(morteAte, 8_000), 2_000, 'nada gasto ainda');
+    assert.equal(prazoRestante(morteAte, 9_500), 500, 'a primeira descarga gastou 1,5 s');
+  });
+
+  it('o piso é ZERO: orçamento estourado não vira espera negativa', () => {
+    // `setTimeout` com valor negativo dispara imediatamente, então o zero não muda o
+    // comportamento do timer; o que ele muda é `descarregarLog({ prazoMs })`, que receberia
+    // um número negativo e o compararia com o relógio.
+    assert.equal(prazoRestante(10_000, 10_000), 0, 'consumido exatamente');
+    assert.equal(prazoRestante(10_000, 12_345), 0, 'estourado');
+    assert.ok(prazoRestante(10_000, 12_345) >= 0);
+  });
+
+  it('as DUAS chamadas do caminho de queda somam, no máximo, o orçamento', () => {
+    // A propriedade que a correção comprou, escrita como asserção: seja qual for o instante
+    // em que a primeira descarga termina, a segunda nunca recebe mais que o que sobrou, e a
+    // soma das duas esperas é limitada pelo orçamento.
+    const ORCAMENTO = 2_000;
+    const inicio = 1_000_000;
+    const morteAte = inicio + ORCAMENTO;
+    for (const gasto of [0, 1, 500, 1_999, 2_000, 5_000]) {
+      const primeira = prazoRestante(morteAte, inicio);
+      const segunda = prazoRestante(morteAte, inicio + gasto);
+      assert.ok(segunda <= ORCAMENTO, `segunda espera acima do orçamento com gasto ${gasto}`);
+      assert.ok(Math.min(gasto, primeira) + segunda <= ORCAMENTO,
+        `a soma estourou o orçamento com gasto ${gasto}`);
+    }
+  });
+
+  it('entrada não numérica degrada para zero, nunca para NaN', () => {
+    // `NaN` num `setTimeout` vira 1 ms e num `prazoMs` vira comparação sempre falsa: os dois
+    // são silenciosos. Zero é o desfecho honesto de "não sei quanto sobra, então não espere".
+    assert.equal(prazoRestante(undefined, 1), 0);
+    assert.equal(prazoRestante(1, undefined), 0);
+    assert.equal(prazoRestante(Number.NaN, 1), 0);
+    assert.equal(prazoRestante(Infinity, 1), 0);
   });
 });
 

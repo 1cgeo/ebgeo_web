@@ -2,7 +2,7 @@
 import config from '../../config.js';
 import { asyncHandler } from '../../utils/async-handler.js';
 import * as diagService from './diag.service.js';
-import * as clientErrors from './client-errors.service.js';
+import * as defeitos from './defeitos.service.js';
 
 /**
  * O DIRETÓRIO DE LOG É DECIDIDO AQUI E NUNCA PELO CHAMADOR.
@@ -66,10 +66,42 @@ export const registrarErroDeCliente = asyncHandler(async (req, res) => {
     ...req.body,
     userAgent: (req.get('user-agent') || req.body.userAgent || '').slice(0, 300),
   };
-  await clientErrors.registrarErroDeCliente(relato, req.user?.id ?? null);
+  await defeitos.registrarErroDeCliente(relato, req.user?.id ?? null);
   res.status(204).end();
 });
 
+/**
+ * A listagem TRANSITÓRIA, com o shape de quando a tabela se chamava `client_errors`.
+ *
+ * Ela sobrevive à renomeação porque a aba de Administração ainda a consome; o consumidor
+ * troca para `defeitos` no lote seguinte, e é aí que esta rota sai. Enquanto isso, ela lê a
+ * tabela nova recortada em `origem IS DISTINCT FROM 'servidor'`, ou seja, responde exatamente
+ * o que respondia antes de o erro de servidor entrar na mesma tabela.
+ */
 export const listarErrosDeCliente = asyncHandler(async (req, res) => {
-  res.json({ data: await clientErrors.listarErrosDeCliente(req.query) });
+  res.json({ data: await defeitos.listarErrosDeCliente(req.query) });
+});
+
+/**
+ * Os DEFEITOS da janela, com ciclo de vida.
+ *
+ * `req.query` VAI INTEIRO para o serviço, e isso é seguro por uma razão que precisa
+ * continuar valendo: `validate()` roda com `stripUnknown`, então o que chega aqui é
+ * exatamente o que `defeitosQuerySchema` declara, com os defaults já aplicados. Um filtro
+ * novo que não passe pelo schema chegaria como `undefined` e sumiria calado.
+ */
+export const listarDefeitos = asyncHandler(async (req, res) => {
+  res.json({ data: await defeitos.listarDefeitos(req.query) });
+});
+
+/**
+ * As ocorrências de um defeito (no máximo vinte, ver `TETO_DE_OCORRENCIAS`).
+ *
+ * SEM 404 PARA DEFEITO INEXISTENTE, de propósito: a poda por idade pode ter passado entre a
+ * listagem que o administrador está lendo e o clique dele, e um 404 ali leria como "a rota
+ * quebrou" em vez de "isto envelheceu". Lista vazia é a resposta honesta para as duas
+ * causas, e a tela já precisa desenhar o vazio de qualquer jeito.
+ */
+export const listarOcorrencias = asyncHandler(async (req, res) => {
+  res.json({ data: await defeitos.listarOcorrencias(req.params.id) });
 });

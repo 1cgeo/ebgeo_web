@@ -17,7 +17,7 @@
 //    os campos do default do pino ficam vermelhos, que é o modo de falha silencioso desta
 //    mudança (o hostname é o que separa duas instâncias no mesmo arquivo);
 //  - tirar o `slice`: o caso do valor longo deixa de ser cortado e passa a poder exceder o
-//    teto de 100 que a coluna `client_errors.release` compartilha com o cliente.
+//    teto de 100 que a coluna `defeitos.release` compartilha com o cliente.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

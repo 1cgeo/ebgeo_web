@@ -195,13 +195,19 @@ const CENSO_ROTA = [
 
   // Diagnóstico. As três primeiras devolvem AGREGAÇÃO do log em arquivo (assinatura, contagem,
   // percentil), nunca definição de recurso de catálogo, então a poda não tem o que fazer nelas e
-  // atravessá-la não custa nada. `erros-cliente` devolve linhas de `client_errors`, que também não
+  // atravessá-la não custa nada. `erros-cliente` devolve linhas de `defeitos`, que também não
   // carregam id de catálogo. `POST /erro-cliente` responde 204: sem corpo, sem poda.
   json('src/modules/diag/diag.routes.js', 'POST /erro-cliente'),
   json('src/modules/diag/diag.routes.js', 'GET /erros'),
   json('src/modules/diag/diag.routes.js', 'GET /lento'),
   json('src/modules/diag/diag.routes.js', 'GET /status'),
   json('src/modules/diag/diag.routes.js', 'GET /erros-cliente'),
+  // As duas do DEFEITO (`018_defeitos_e_ocorrencias.sql`) são a MESMA família: agregação de
+  // telemetria. A ocorrência carrega `migalhas` e `contexto`, que são JSONB de forma fechada
+  // por Joi na borda (censados em `tests/integration/campos-livres-censo.test.js`) e não
+  // guardam id de catálogo, 360 nem 3D: não há referência de recurso para a poda resolver.
+  json('src/modules/diag/diag.routes.js', 'GET /defeitos'),
+  json('src/modules/diag/diag.routes.js', 'GET /defeitos/:id/ocorrencias'),
 
   // Relatório de uso: CONTAGENS agregadas (pessoas, atlas, produção por entidade e por dia)
   // mais nome de atlas e nome de dono. Nenhum id de catálogo, 360 ou 3D atravessa, e nenhuma

@@ -120,7 +120,7 @@ describe('A sessão do navegador atravessa CORS, log e fusão', () => {
       .send({ assinatura: `sessao-cors-${sessao}`, mensagem: 'x', sessaoId: sessao })
       .expect(204);
 
-    await db.query('DELETE FROM client_errors WHERE assinatura = $1', [`sessao-cors-${sessao}`]);
+    await db.query('DELETE FROM defeitos WHERE assinatura = $1', [`sessao-cors-${sessao}`]);
   });
 
   // ── a jornada da linha ──

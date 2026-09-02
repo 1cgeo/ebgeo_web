@@ -18,7 +18,8 @@
 
 import Joi from 'joi';
 import { parseJanela } from '../../utils/diag-consulta.js';
-import { ORIGENS_DE_ERRO } from './origens-de-erro.js';
+import { ORIGENS_DE_ERRO, ORIGENS_DO_CLIENTE } from './origens-de-erro.js';
+import { ESTADOS_DE_DEFEITO } from './estados-de-defeito.js';
 
 /** O maior período que uma requisição HTTP pode pedir. Ver o cabeçalho. */
 export const TETO_DA_JANELA_MS = 7 * 86_400_000;
@@ -65,6 +66,45 @@ export const statusQuerySchema = Joi.object({
 export const errosDeClienteQuerySchema = Joi.object({
   desde: janela('7d'),
   limite: Joi.number().integer().min(1).max(200).default(50),
+});
+
+/**
+ * Os filtros de `GET /diag/defeitos`.
+ *
+ * TODO FILTRO É OPCIONAL E NENHUM TEM DEFAULT (salvo `novos` e `limite`), porque a ausência
+ * já significa "não filtre por isto" no SQL (`LIST_DEFEITOS` compara `$n::text IS NULL`).
+ * Dar default a `estado` seria decidir pela tela qual recorte é o normal, e o recorte normal
+ * muda com o incidente.
+ *
+ * `estado` e `origem` SAEM DOS ESPELHOS, nunca escritos à mão aqui: uma segunda cópia
+ * divergiria do CHECK e o sintoma seria uma lista VAZIA (o valor não casa com linha nenhuma),
+ * que é indistinguível de "não há defeito nesse estado" e não acusa nada.
+ *
+ * `novos` É BOOLEANO COM `truthy('1')` porque a tela manda `?novos=1`, que é o que uma query
+ * string escreve naturalmente. Sem isso o Joi de boolean recusaria `'1'` com 422, e a tela
+ * teria de mandar `novos=true`, forma que ninguém digita à mão. O default é `false`
+ * explícito e não a ausência: o SQL faz `NOT $6::boolean`, e `undefined` ali avaliaria NULL,
+ * o que devolveria ZERO linhas, calado.
+ */
+export const defeitosQuerySchema = Joi.object({
+  desde: janela('7d'),
+  estado: Joi.string().valid(...ESTADOS_DE_DEFEITO),
+  origem: Joi.string().valid(...ORIGENS_DE_ERRO),
+  release: Joi.string().max(100),
+  pagina: Joi.string().max(500),
+  novos: Joi.boolean().truthy('1').falsy('0').default(false),
+  limite: Joi.number().integer().min(1).max(200).default(50),
+});
+
+/**
+ * O id do defeito, em `GET /diag/defeitos/:id/ocorrencias`.
+ *
+ * `guid()` e não `string()`: a coluna é UUID, e um valor com outra forma derrubaria a
+ * consulta com 22P02, que a borda traduz num 400 genérico sem relação aparente com o
+ * assunto. Com o schema, a recusa é 422 e nomeia o campo.
+ */
+export const ocorrenciasParamsSchema = Joi.object({
+  id: Joi.string().guid().required(),
 });
 
 /**
@@ -126,7 +166,14 @@ export const erroDeClienteSchema = Joi.object({
   // A lista vem do espelho do CHECK (`origens-de-erro.js`), NUNCA escrita à mão aqui: uma
   // segunda cópia divergiria do banco e o sintoma seria um 400 opaco vindo do 23514, em vez
   // do 422 que nomeia o campo.
-  origem: Joi.string().valid(...ORIGENS_DE_ERRO),
+  //
+  // `ORIGENS_DO_CLIENTE` E NÃO `ORIGENS_DE_ERRO`, e a diferença é UMA palavra que muda o
+  // sentido da coluna: `'servidor'` é aceito pelo CHECK (a mesma coluna guarda o 5xx que o
+  // backend registra sobre si) e RECUSADO aqui. Esta é a rota anônima; sem o recorte,
+  // qualquer visitante carimbaria um relato como se fosse o servidor falando, e o filtro
+  // `origem=servidor` da tela deixaria de significar procedência. As duas listas são
+  // derivadas uma da outra, então a origem nova entra nas duas de graça.
+  origem: Joi.string().valid(...ORIGENS_DO_CLIENTE),
 
   // O ESTADO DO APP no instante do erro. A forma é FECHADA campo a campo, e a coluna é
   // JSONB só porque o conjunto útil ainda está sendo descoberto: livre no armazenamento não
@@ -157,4 +204,50 @@ export const erroDeClienteSchema = Joi.object({
     // Status HTTP: a faixa é a do protocolo, e o inteiro fora dela é dado inventado.
     status: Joi.number().integer().min(100).max(599),
   }).unknown(false),
+
+  // ── as MIGALHAS, de `018_defeitos_e_ocorrencias.sql` ──
+  //
+  // O RASTRO DOS ÚLTIMOS PASSOS antes do erro, na ideia do breadcrumb do Sentry: a pergunta
+  // que nem a mensagem nem a pilha respondem é "o que a pessoa estava fazendo". Elas só
+  // existem na OCORRÊNCIA, nunca na linha do defeito, e o motivo está em
+  // `defeitos.service.js`: agregar migalha por assinatura guardaria as do último relato e
+  // jogaria fora as das outras dezenove, que é justamente a informação.
+  //
+  // O TETO É DUPLO E OS DOIS LADOS IMPORTAM: 30 itens, e cada item com tetos próprios. O
+  // pior caso é da ordem de 4 kB, a mesma grandeza do `stack`, e sem o teto de ITENS um
+  // cliente com defeito mandaria a sessão inteira num JSONB por ocorrência, com vinte
+  // ocorrências por defeito. Errar para cima aqui transformaria a telemetria no segundo
+  // incidente, que é o que o cabeçalho de `014_observabilidade.sql` recusa por extenso.
+  //
+  // `unknown(false)` NO ITEM, pelo mesmo argumento (e com o mesmo preço) do `contexto`
+  // acima: chave desconhecida dentro de uma migalha RECUSA O RELATO INTEIRO com 422, em vez
+  // de ser descartada em silêncio pelo `stripUnknown`. Os dois pacotes saem do mesmo commit,
+  // e o 422 nomeia o campo; o descarte produziria telemetria pela metade sem ninguém saber.
+  // As duas bordas precisam ser IGUAIS nisto: se uma recusasse e a outra descartasse, a
+  // mesma migalha teria dois destinos dependendo de qual campo ela sujasse.
+  //
+  // OS TRÊS CAMPOS SÃO OPCIONAIS, e isso NÃO é frouxidão. A alternativa (exigir `texto`)
+  // faria uma migalha malformada custar o RELATO INTEIRO, e o relato vale muito mais que o
+  // rastro: perder o erro para salvar a coerência da decoração é o câmbio errado. O
+  // `unknown(false)` já pega o erro que de fato acontece, que é o campo com nome trocado
+  // (`tempo` no lugar de `t`), porque ele chega como chave desconhecida e não como campo
+  // ausente.
+  //
+  //  - `t`     — o instante em EPOCH MS ABSOLUTO, o mesmo relógio do `time` das linhas do
+  //              `.jsonl`, e é isso que permite pôr a migalha lado a lado com o que o
+  //              servidor escreveu naquele instante. Relativo à carga da página seria mais
+  //              barato de produzir e não casaria com nada. `min(0)` porque não existe
+  //              instante antes da época; sem teto superior, porque um teto em anos seria
+  //              número inventado e o relógio do cliente pode estar adiantado;
+  //  - `tipo`  — a categoria (navegação, clique, rede, store...). Teto de 20, e o
+  //              vocabulário NÃO é fechado de propósito: fechá-lo obrigaria uma migração a
+  //              cada categoria nova do cliente, para um campo que não gateia nada e não
+  //              agrupa nada;
+  //  - `texto` — a descrição curta. Teto de 120 porque migalha é rótulo, não mensagem: o que
+  //              não couber ali pertence ao `contexto` ou à `mensagem`.
+  migalhas: Joi.array().max(30).items(Joi.object({
+    t: Joi.number().integer().min(0),
+    tipo: Joi.string().max(20),
+    texto: Joi.string().max(120),
+  }).unknown(false)),
 });

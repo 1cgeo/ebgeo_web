@@ -56,12 +56,17 @@ import { currentResourceAtlasId } from '@store/sync/resource-scope.js';
 // Os três vizinhos, todos folhas de zero imports pelo mesmo motivo (quatro páginas, três sem store).
 import { sessaoId as sessaoIdPadrao } from './sessao-id.js';
 import { filaDeRelatos } from './fila-de-relatos.js';
-import { OrigemDeErro, origemValida } from './origens-de-erro.js';
+import { OrigemDeErro, origemDoCliente } from './origens-de-erro.js';
+// A trilha das migalhas, também folha de zero imports. Ela é ALIMENTADA de três pontos daqui (o
+// embrulho de `console.error`, o de `console.warn` e a navegação da instalação) e LIDA num só, na
+// montagem do corpo.
+import { migalhas, configurarMigalhas, TipoDeMigalha } from './migalhas.js';
 import {
     MotivoDeEnvio,
     assinaturaDeErro,
     criarLimitador,
     montarCorpo,
+    normalizarMensagem,
     paginaDaUrl,
     textoDeErro,
 } from './erro-telemetria-assinatura.js';
@@ -118,7 +123,16 @@ const _estado = {
  * @returns {Object} Cópia rasa dos contadores.
  */
 export function estadoDaTelemetria() {
-    return { ..._estado, instalada: _instalacao !== null };
+    // A TRILHA ENTRA AQUI pelo mesmo argumento do parágrafo acima: ela também engole entrada ruim
+    // em silêncio (`descartadas`), e um `tamanho: 0` distingue "nada aconteceu" de "os
+    // alimentadores não estão ligados".
+    let trilha = null;
+    try {
+        trilha = migalhas.estado();
+    } catch {
+        trilha = null;
+    }
+    return { ..._estado, instalada: _instalacao !== null, migalhas: trilha };
 }
 
 /**
@@ -236,6 +250,24 @@ export function instalarTelemetriaDeErro({
 
         const limitador = criarLimitador({ max, intervaloMs, agora });
 
+        // A NORMALIZAÇÃO DA TRILHA SÓ EXISTE A PARTIR DAQUI, e é por isso que ela é injetada em vez
+        // de importada lá dentro: `session/migalhas.js` é folha de zero imports porque o cliente
+        // HTTP o carrega em node puro (ver o `fileoverview` dele). É a MESMA função que normaliza a
+        // mensagem do relato, de propósito: uma segunda regra faria a mesma URL virar dois textos
+        // diferentes na mesma linha do banco.
+        configurarMigalhas({ normalizar: normalizarMensagem });
+
+        // A PRIMEIRA MIGALHA É ONDE A CARGA COMEÇOU. Sem ela a trilha de um erro de boot começa no
+        // meio, e a página é justamente a primeira pergunta ("isto acontece no admin também?"). O
+        // caminho vai SEM a query, porque é ali que moram `?verify=` e `?atlasPublico=`, que são
+        // credenciais de uso único (o corpo do relato já as oculta, em `urlSegura`).
+        try {
+            const caminho = String(alvo?.location?.pathname ?? '').split('?')[0].split('#')[0];
+            migalhas.registrar(TipoDeMigalha.NAVEGACAO, `${paginaDaUrl(caminho)} ${caminho}`);
+        } catch {
+            _estado.falhasInternas++;
+        }
+
         /**
          * O transporte padrão. `keepalive` porque um erro levantado durante a saída da página é
          * justamente o que ninguém consegue reproduzir depois; o corpo cabe folgado no limite de
@@ -319,7 +351,8 @@ export function instalarTelemetriaDeErro({
          * O caminho inteiro de uma captura. Nunca lança, nunca reentra.
          * @param {*} valor - O erro, ou a razão da rejeição.
          * @param {Object} [opcoes]
-         * @param {string} [opcoes.origem] - Uma das dez de `OrigemDeErro`. Etiqueta, não chave.
+         * @param {string} [opcoes.origem] - Uma das dez de `ORIGENS_DO_CLIENTE`. Etiqueta, não
+         *   chave. O vocabulário tem onze; `servidor` não é do cliente.
          * @param {Object} [opcoes.contexto] - As cinco chaves enumeradas; o resto é descartado.
          * @param {boolean} [opcoes.enfileirarSempre] - Ver {@link relatarErro}.
          * @returns {boolean} Se um corpo foi produzido (não se ele chegou).
@@ -368,8 +401,17 @@ export function instalarTelemetriaDeErro({
                     // O VOCABULÁRIO se confere aqui, e não no módulo de decisão (que é folha de
                     // zero imports): uma origem inventada vira a padrão em vez de custar o relato
                     // inteiro num 422.
-                    origem: origemValida(origem) ? origem : OrigemDeErro.NAO_TRATADO,
+                    //
+                    // `origemDoCliente` E NÃO `origemValida`: são listas diferentes desde que o
+                    // vocabulário ganhou `servidor`, que é a origem que o BACKEND escreve ao
+                    // registrar na mesma tabela um defeito que ele mesmo viu. Ela é VÁLIDA e não é
+                    // do cliente, e mandá-la daqui seria o navegador se passando por servidor.
+                    origem: origemDoCliente(origem) ? origem : OrigemDeErro.NAO_TRATADO,
                     contexto,
+                    // A TRILHA, lida no ÚLTIMO instante possível: ela precisa conter tudo o que
+                    // aconteceu até este erro, e nada do que vier depois. `montarCorpo` a recebe
+                    // como valor (ele é folha de zero imports) e aplica os tetos.
+                    migalhas: migalhas.listar(),
                     // Best-effort e tolerante: fora de um atlas isto é `null` e o campo some.
                     atlasId: (() => {
                         try {
@@ -483,10 +525,34 @@ export function instalarTelemetriaDeErro({
         //      Uma linha de log repetida num laço também é uma assinatura só, porque a mensagem
         //      normaliza antes de virar chave.
         //
-        // `console.warn` FICA DE FORA, e a assimetria é deliberada: aviso é o canal do esperado (o
-        // `WsClient handler ... error`, o "renovação proativa desligada"), e embrulhá-lo gastaria o
-        // teto de vinte envios com coisas que ninguém pediu para saber.
+        // `console.warn` NÃO VIRA RELATO, e a assimetria continua deliberada: aviso é o canal do
+        // esperado (o `WsClient handler ... error`, o "renovação proativa desligada"), e relatá-lo
+        // gastaria o teto de vinte envios com coisas que ninguém pediu para saber. O que ele passou
+        // a fazer é deixar MIGALHA, que é barato (uma linha no anel, nada de rede) e é exatamente
+        // onde o aviso vale: "a conexão avisou três vezes antes de o erro acontecer" é a frase que
+        // o relato não conseguia contar.
         const consola = alvo?.console;
+
+        // A MIGALHA DE CONSOLE CARREGA A MENSAGEM COMO ELA FOI ESCRITA, então "nada de conteúdo
+        // de usuário" vale no SÍTIO DA CHAMADA: ver a propriedade 3 de `session/migalhas.js`.
+        /**
+         * O que de um `console.*` pode virar migalha: a primeira string, ou a mensagem do primeiro
+         * `Error`. Nada mais. `console.error(objeto)` é quase sempre um despejo de estado, e
+         * despejo de estado é dado de usuário: mesma porta que `formaDeValor` fecha do outro lado.
+         * @param {Array} args
+         * @returns {string} Vazio quando não há nada que possa viajar.
+         */
+        const textoDoConsole = (args) => {
+            try {
+                const primeiro = args[0];
+                if (primeiro instanceof Error) return String(primeiro.message ?? '');
+                if (typeof primeiro === 'string') return primeiro;
+                return '';
+            } catch {
+                return '';
+            }
+        };
+
         const erroOriginal = typeof consola?.error === 'function' ? consola.error : null;
         if (erroOriginal) {
             consola.error = function relatarDoConsole(...args) {
@@ -503,6 +569,32 @@ export function instalarTelemetriaDeErro({
                     if (!ehErro && !ehTexto) return;
                     const comPilha = args.find((arg) => arg instanceof Error);
                     capturar(comPilha ?? primeiro, { origem: OrigemDeErro.CONSOLE });
+                    // A MIGALHA VEM DEPOIS DA CAPTURA, de propósito: o relato que este mesmo
+                    // `console.error` acabou de produzir não pode carregar a si mesmo como última
+                    // linha da própria trilha. As migalhas descrevem o que veio ANTES.
+                    migalhas.registrar(TipoDeMigalha.CONSOLE, `erro: ${textoDoConsole(args)}`);
+                } catch {
+                    _estado.falhasInternas++;
+                }
+            };
+        }
+
+        const avisoOriginal = typeof consola?.warn === 'function' ? consola.warn : null;
+        if (avisoOriginal) {
+            consola.warn = function migalharDoConsole(...args) {
+                try {
+                    avisoOriginal.apply(consola, args);
+                } catch {
+                    // Console sequestrado: não há o que fazer, e não se lança daqui.
+                }
+                try {
+                    // A MESMA guarda de reentrância do irmão, e pelo mesmo motivo: um
+                    // `console.warn` de dentro do caminho de captura descreveria a telemetria, não
+                    // o produto.
+                    if (_dentroDoCapturador) return;
+                    const texto = textoDoConsole(args);
+                    if (!texto.trim()) return;
+                    migalhas.registrar(TipoDeMigalha.CONSOLE, `aviso: ${texto}`);
                 } catch {
                     _estado.falhasInternas++;
                 }
@@ -514,6 +606,7 @@ export function instalarTelemetriaDeErro({
                 alvo.removeEventListener?.('error', aoErro);
                 alvo.removeEventListener?.('unhandledrejection', aoRejeitar);
                 if (erroOriginal) consola.error = erroOriginal;
+                if (avisoOriginal) consola.warn = avisoOriginal;
             } catch {
                 // Alvo já destruído: não há o que soltar.
             }
@@ -546,8 +639,8 @@ export function instalarTelemetriaDeErro({
  *
  * @param {*} erro - O erro, ou o que houver: `textoDeErro` tolera qualquer coisa.
  * @param {Object} [opcoes]
- * @param {string} [opcoes.origem] - Uma das dez de `OrigemDeErro`. Fora do vocabulário, vira
- *   `NAO_TRATADO` em vez de custar o relato num 422.
+ * @param {string} [opcoes.origem] - Uma das dez de `ORIGENS_DO_CLIENTE`. Fora dela (inventada, ou
+ *   a `servidor`, que é do backend), vira `NAO_TRATADO` em vez de custar o relato num 422.
  * @param {Object} [opcoes.contexto] - Só as cinco chaves enumeradas (`atlasKind`, `conexao`,
  *   `causa`, `camada`, `status`); qualquer outra é DESCARTADA por `montarCorpo`. Nunca um objeto
  *   livre, e nunca dado de usuário.

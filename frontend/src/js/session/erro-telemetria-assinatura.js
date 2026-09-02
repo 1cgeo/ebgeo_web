@@ -68,6 +68,22 @@ export const TETOS_DE_CONTEXTO = Object.freeze({
     camada: 80,
 });
 
+/**
+ * Os tetos das MIGALHAS, que também ficam fora de {@link TETOS} e pela mesma razão mecânica do
+ * bloco acima: `migalhas` é um ARRAY de objetos no corpo, e o espelho que compara teto a teto com o
+ * Joi da rota casa `^\s{2}campo:` (o campo de primeiro nível, com um `.max()` de STRING). Misturá-lo
+ * ali faria o espelho comparar o teto de um texto com o de uma lista.
+ *
+ * Os números são os mesmos da rota, e o `itens` é o mesmo `TETO_DE_MIGALHAS` de
+ * `session/migalhas.js`: o anel já corta, e este é o segundo corte, porque o corpo também é montado
+ * a partir de uma lista que veio da FILA do `localStorage`, escrita por outra versão do produto.
+ */
+export const TETOS_DE_MIGALHA = Object.freeze({
+    itens: 30,
+    tipo: 20,
+    texto: 120,
+});
+
 /** Os três tipos de atlas que o contexto sabe nomear. Fora disso, o campo não viaja. */
 export const TIPOS_DE_ATLAS = Object.freeze(['local', 'servidor', 'publico']);
 
@@ -472,6 +488,49 @@ export function contextoSeguro(contexto) {
 }
 
 /**
+ * A TRILHA, reduzida ao que a rota aceita: no máximo trinta itens de EXATAMENTE três campos.
+ *
+ * ELA RECONSTRÓI CADA ITEM em vez de filtrar chave por chave, e a diferença é o contrato: a rota
+ * roda com `unknown(false)`, onde uma chave a mais no item derruba o relato INTEIRO num 422 (é a
+ * mesma armadilha já paga em `contexto`). Copiar os três campos para um objeto novo torna a chave
+ * extra impossível, e não apenas improvável.
+ *
+ * O CORTE É PELO FIM (`slice(-teto)`), ao contrário da fila de relatos, que corta pela frente: aqui
+ * o que interessa são os fatos mais PRÓXIMOS do erro, e eles estão no fim da lista.
+ *
+ * PURA E TOLERANTE: a lista pode ter vindo do `localStorage`, escrita por outra versão do produto,
+ * então item que não é objeto, `t` que não é número e texto vazio são descartados um a um, sem que
+ * o relato inteiro se perca por causa deles.
+ * @param {*} lista
+ * @returns {Array<{t: number, tipo: string, texto: string}>} Vazia quando não sobrou nada.
+ */
+export function migalhasSeguras(lista) {
+    try {
+        if (!Array.isArray(lista)) return [];
+        const saida = [];
+        for (const item of lista.slice(-TETOS_DE_MIGALHA.itens)) {
+            if (item === null || typeof item !== 'object') continue;
+            const t = Math.trunc(Number(item.t));
+            if (!Number.isFinite(t)) continue;
+            const tipo = truncar(
+                typeof item.tipo === 'string' ? item.tipo.trim() : '',
+                TETOS_DE_MIGALHA.tipo,
+            );
+            if (!tipo) continue;
+            const texto = truncar(
+                typeof item.texto === 'string' ? item.texto.replace(RE_ESPACO, ' ').trim() : '',
+                TETOS_DE_MIGALHA.texto,
+            );
+            if (!texto) continue;
+            saida.push({ t, tipo, texto });
+        }
+        return saida;
+    } catch {
+        return [];
+    }
+}
+
+/**
  * O corpo do POST, com todo campo já dentro do teto que a rota valida.
  *
  * OS OPCIONAIS SAEM QUANDO NÃO EXISTEM, em vez de irem como `null`. `release` só existe se o build
@@ -496,12 +555,19 @@ export function contextoSeguro(contexto) {
  * que é o que se abre quando alguém finalmente vai depurar. Descobrir no meio do diagnóstico que o
  * `<hash>` apagou justamente o nome do arquivo que se precisava custa o incidente inteiro. A
  * ASSINATURA NÃO MUDA por causa dela: quem assina é a normalizada, hoje como ontem.
+ *
+ * AS MIGALHAS CHEGAM COMO VALOR, e não por import: o anel vive em `session/migalhas.js` e quem o
+ * lê é a fiação, no último instante antes do envio. Este módulo é folha de zero imports, e
+ * importá-lo aqui custaria o contrato; recebê-lo como argumento ainda deixa o corte e a forma
+ * testáveis em node puro, que é o que interessa. Sobre o TAMANHO: trinta itens de 120 somam uns
+ * 4 kB, e o corpo inteiro (pilha normalizada mais crua, mais isto) continua folgado dentro do
+ * limite de 64 kB do `keepalive`, que é o transporte do envio.
  * @param {Object} entrada
  * @returns {Object} Os campos do contrato, todos truncados.
  */
 export function montarCorpo({
     assinatura, mensagem, stack, stackBruta, url, pagina, release, atlasId, userAgent,
-    sessaoId, origem, contexto,
+    sessaoId, origem, contexto, migalhas,
 } = {}) {
     const corpo = {
         // A ASSINATURA VIAJA, e é ela que o servidor agrupa. Ela é montada AQUI, no cliente, porque
@@ -536,6 +602,11 @@ export function montarCorpo({
     if (typeof origem === 'string' && RE_ORIGEM.test(origem)) corpo.origem = origem;
     const seguro = contextoSeguro(contexto);
     if (seguro) corpo.contexto = seguro;
+    // A TRILHA SÓ VIAJA SE EXISTIR, como os outros opcionais: uma lista vazia no corpo diria "não
+    // houve nada antes deste erro", que é a leitura errada de "os alimentadores não estavam
+    // ligados" (uma página sem barramento, um relato do primeiro instante do boot).
+    const trilha = migalhasSeguras(migalhas);
+    if (trilha.length > 0) corpo.migalhas = trilha;
     return corpo;
 }
 

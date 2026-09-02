@@ -30,8 +30,49 @@
 // vitest não pegava porque ela resolve o alias. É a única razão de este import destoar dos
 // irmãos deste lote.
 import { sessaoId } from '../../session/sessao-id.js';
+// Mesma folha, mesmo caminho RELATIVO e pela MESMA razão do import acima: os helpers do Playwright
+// carregam este arquivo em node puro, sem alias do Vite. `session/migalhas.js` é folha de zero
+// imports por causa disto (o `fileoverview` dele declara o contrato) e não toca armazenamento nem
+// rede, então importá-lo aqui não custa nada em node.
+import { migalhas, normalizarRota, TipoDeMigalha } from '../../session/migalhas.js';
 
 const DEFAULT_BASE_URL = '/api/v1';
+
+/**
+ * UMA MIGALHA POR PEDIDO TERMINADO. `POST /atlas/:id/sync 500 812ms`.
+ *
+ * É a metade que faltava na trilha do erro do navegador: a assinatura de um `TypeError` é a mesma
+ * quando o servidor respondeu 200 e quando respondeu 500 três vezes seguidas antes, e as duas
+ * pedem providências opostas.
+ *
+ * O QUE NÃO ENTRA: o corpo (que carrega feição, nome e coordenada), a query (que carrega `?verify=`
+ * e o termo que a pessoa digitou) e qualquer id de linha, que {@link normalizarRota} troca por
+ * `:id`/`:n`. O que sobra é a FORMA da rota, o código e a duração, todos escritos por programador
+ * ou pelo protocolo.
+ *
+ * O 401 QUE RENOVA E REPETE PRODUZ DUAS MIGALHAS, uma por pedido de verdade, e isso é o desenho: a
+ * renovação transparente É um fato da trilha, e escondê-la faria a duração dobrada de um pedido
+ * parecer lentidão do servidor.
+ *
+ * NUNCA LANÇA, e é por isso que ela é uma função e não três linhas soltas: telemetria não pode
+ * custar um pedido.
+ * @param {string} metodo
+ * @param {string} caminho - Relativo à base, como `_request` o recebe.
+ * @param {number|null} status - `null` quando não houve resposta (rede, abort, prazo).
+ * @param {number} ms
+ */
+function migalharPedido(metodo, caminho, status, ms) {
+    try {
+        const desfecho = Number.isFinite(status) ? String(status) : 'sem-resposta';
+        const duracao = Number.isFinite(ms) ? Math.max(0, Math.round(ms)) : 0;
+        migalhas.registrar(
+            TipoDeMigalha.API,
+            `${metodo} ${normalizarRota(caminho)} ${desfecho} ${duracao}ms`,
+        );
+    } catch {
+        // A trilha degrada para "sem esta linha", nunca para um pedido que falha.
+    }
+}
 
 /**
  * Error thrown for a non-2xx backend response, carrying the backend error code.
@@ -697,27 +738,39 @@ export class ApiClient {
         // nothing worth waiting for; the abort surfaces as a rejected fetch handled by the
         // caller's offline/anonymous fallback. All other requests (snapshot pull / op push) are
         // left UNBOUNDED so a large transfer on a slow/degrading network is never aborted (P6).
+        // O relógio da migalha começa AQUI, depois da renovação proativa e da montagem dos
+        // cabeçalhos: o que a trilha mede é o pedido, não a preparação dele.
+        const inicioDoPedido = Date.now();
         let res;
-        if (timeoutMs) {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), timeoutMs);
-            try {
+        try {
+            if (timeoutMs) {
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), timeoutMs);
+                try {
+                    res = await this._fetch(`${this.baseUrl}${path}`, {
+                        method,
+                        headers,
+                        body: body !== undefined ? JSON.stringify(body) : undefined,
+                        signal: controller.signal,
+                    });
+                } finally {
+                    clearTimeout(timer);
+                }
+            } else {
                 res = await this._fetch(`${this.baseUrl}${path}`, {
                     method,
                     headers,
                     body: body !== undefined ? JSON.stringify(body) : undefined,
-                    signal: controller.signal,
                 });
-            } finally {
-                clearTimeout(timer);
             }
-        } else {
-            res = await this._fetch(`${this.baseUrl}${path}`, {
-                method,
-                headers,
-                body: body !== undefined ? JSON.stringify(body) : undefined,
-            });
+        } catch (erroDeRede) {
+            // O PEDIDO QUE NÃO TEVE RESPOSTA É O MAIS INFORMATIVO DA TRILHA (servidor fora, prazo
+            // estourado, aba saindo), e é justamente o que um registro feito só no caminho feliz
+            // perderia. Ele deixa a migalha e segue rejeitando como sempre.
+            migalharPedido(method, path, null, Date.now() - inicioDoPedido);
+            throw erroDeRede;
         }
+        migalharPedido(method, path, res?.status ?? null, Date.now() - inicioDoPedido);
 
         // 204 No Content (logout) — nothing to parse.
         if (res.status === 204) return null;

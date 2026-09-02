@@ -26,7 +26,7 @@ router.post(
 );
 
 /**
- * As quatro de leitura: `auth` ESTRITO (401 sem credencial) e `requireAdmin` (403 para
+ * As de leitura: `auth` ESTRITO (401 sem credencial) e `requireAdmin` (403 para
  * qualquer outro papel global, credenciado e produtor inclusive — nenhum dos dois
  * administra o sistema).
  *
@@ -43,6 +43,34 @@ router.get(
   requireAdmin,
   validate({ query: schemas.errosDeClienteQuerySchema }),
   ctrl.listarErrosDeCliente
+);
+
+/**
+ * As duas do DEFEITO, com o mesmo par de gates das quatro acima.
+ *
+ * A ORDEM DAS DUAS ROTAS NO ARQUIVO É O CONTRATO DO EXPRESS, e não estilo: `/defeitos` casa
+ * antes de `/defeitos/:id/ocorrencias` só porque os caminhos têm profundidades diferentes,
+ * mas uma rota futura como `/defeitos/resumo` PRECISARIA vir antes de `/defeitos/:id/...`,
+ * senão `resumo` entraria como `:id` e morreria no `guid()` com 422. Fica escrito porque é o
+ * tipo de coisa que se descobre depurando.
+ *
+ * NÃO HÁ ROTA DE ESCRITA AQUI. O ciclo de vida (resolver, ignorar, reabrir) é ato de
+ * administrador e chega no lote seguinte; a única transição que existe hoje é automática e
+ * mora no CASE de `UPSERT_DEFEITO`.
+ */
+router.get(
+  '/defeitos',
+  auth,
+  requireAdmin,
+  validate({ query: schemas.defeitosQuerySchema }),
+  ctrl.listarDefeitos
+);
+router.get(
+  '/defeitos/:id/ocorrencias',
+  auth,
+  requireAdmin,
+  validate({ params: schemas.ocorrenciasParamsSchema }),
+  ctrl.listarOcorrencias
 );
 
 export { router as diagRoutes };

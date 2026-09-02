@@ -2,12 +2,15 @@
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
     OrigemDeErro,
     ORIGENS_DE_ERRO,
+    ORIGENS_DO_CLIENTE,
     ORIGEM_POR_SUPERFICIE,
     origemDeSuperficie,
+    origemDoCliente,
     origemValida,
 } from '@js/session/origens-de-erro.js';
 import { MODEL_3D_SURFACE } from '@js/3d_models_viewer_tool/model3d-failure.js';
@@ -22,11 +25,14 @@ import { PHOTO_360_SURFACE } from '@js/street_view_tool/photo360-failure.js';
 // páginas) e porque a chave da superfície pertence a quem desenha a superfície. Ele importa OS
 // DOIS LADOS e os compara: renomear qualquer das duas chaves fica vermelho aqui.
 
-describe('o vocabulário: dez valores, e dez distintos', () => {
-    it('a lista tem os dez, na ordem em que foram declarados', () => {
+describe('o vocabulário: onze valores, e onze distintos', () => {
+    it('a lista tem os onze, na ordem em que foram declarados', () => {
+        // A ORDEM É CONTRATO com o outro pacote e com o CHECK da coluna: valor novo entra no FIM,
+        // nunca no meio, senão os três espelhos passam a discordar sem que nenhum fique vermelho
+        // por conjunto.
         expect(ORIGENS_DE_ERRO).toEqual([
             'boot', 'nao-tratado', 'rejeicao', 'console', 'store', 'ws', 'maplibre', 'cesium',
-            'sv360', 'indisponivel',
+            'sv360', 'indisponivel', 'servidor',
         ]);
     });
 
@@ -129,5 +135,60 @@ describe('o contrato de folha, e o espelho do backend', () => {
         expect(doServidor.length, 'nenhuma origem encontrada: o recorte não casou')
             .toBeGreaterThan(0);
         expect(doServidor).toEqual([...ORIGENS_DE_ERRO]);
+    });
+});
+
+describe('`servidor` é do BACKEND, e este cliente nunca a manda', () => {
+    // A DÉCIMA PRIMEIRA ORIGEM entrou no vocabulário porque o servidor passou a registrar na MESMA
+    // tabela os defeitos que ele mesmo vê, e o vocabulário precisa ser UM (um segundo enum "quase
+    // igual" diverge do primeiro no primeiro dia). O que ela NÃO é: uma porta deste cliente.
+    // Mandá-la daqui seria o navegador se passando por servidor num relatório que ninguém confere.
+
+    it('ela é a ÚLTIMA do vocabulário (a ordem é contrato com o CHECK da coluna)', () => {
+        expect(ORIGENS_DE_ERRO[ORIGENS_DE_ERRO.length - 1]).toBe(OrigemDeErro.SERVIDOR);
+    });
+
+    it('`ORIGENS_DO_CLIENTE` é o vocabulário MENOS ela, e é derivada (nunca uma segunda lista)', () => {
+        expect(ORIGENS_DO_CLIENTE).toEqual(
+            ORIGENS_DE_ERRO.filter((origem) => origem !== 'servidor'),
+        );
+        expect(ORIGENS_DO_CLIENTE).toHaveLength(ORIGENS_DE_ERRO.length - 1);
+        expect(ORIGENS_DO_CLIENTE).not.toContain('servidor');
+        expect(Object.isFrozen(ORIGENS_DO_CLIENTE)).toBe(true);
+    });
+
+    it('`origemValida` a ACEITA e `origemDoCliente` a RECUSA: são perguntas diferentes', () => {
+        expect(origemValida(OrigemDeErro.SERVIDOR)).toBe(true);
+        expect(origemDoCliente(OrigemDeErro.SERVIDOR)).toBe(false);
+    });
+
+    it('`origemDoCliente` aceita as outras dez e recusa o resto', () => {
+        for (const origem of ORIGENS_DO_CLIENTE) expect(origemDoCliente(origem)).toBe(true);
+        for (const ruim of ['SERVIDOR', 'inventada', '', null, undefined, 42, {}, 'toString']) {
+            expect(origemDoCliente(ruim)).toBe(false);
+        }
+    });
+
+    it('NADA em `src/js/` passa `servidor` como origem de um relato', () => {
+        // Estrutural, e por varredura de `git ls-files` em vez de alvos escritos à mão: um sítio
+        // novo que a escrevesse nasceria coberto. O que se procura é a origem sendo PASSADA
+        // (`origem: 'servidor'`, `origem: OrigemDeErro.SERVIDOR`), nunca a declaração dela.
+        const raiz = fileURLToPath(new URL('../../', import.meta.url));
+        const arquivos = execSync('git ls-files -- src/js', { cwd: raiz, encoding: 'utf8' })
+            .split(/\r?\n/)
+            .map((linha) => linha.trim())
+            .filter((linha) => linha.endsWith('.js'));
+        // A guarda do próprio guarda: uma varredura vazia passaria verde sem ter lido nada.
+        expect(arquivos.length, 'a varredura não achou arquivo nenhum').toBeGreaterThan(300);
+
+        const culpados = [];
+        for (const relativo of arquivos) {
+            if (relativo.endsWith('session/origens-de-erro.js')) continue;   // é a declaração
+            const texto = readFileSync(fileURLToPath(new URL(`../../${relativo}`, import.meta.url)), 'utf8');
+            if (/origem\s*:\s*(?:'servidor'|"servidor"|OrigemDeErro\.SERVIDOR)/.test(texto)) {
+                culpados.push(relativo);
+            }
+        }
+        expect(culpados, 'o cliente não pode se passar por servidor').toEqual([]);
     });
 });

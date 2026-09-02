@@ -295,6 +295,33 @@ const logger = pino({
 export const PRAZO_DE_DESCARGA_MS = 2000;
 
 /**
+ * O que sobra de um ORÇAMENTO DE MORTE, em ms, nunca negativo.
+ *
+ * POR QUE UM ORÇAMENTO, E NÃO UM PRAZO POR ETAPA. O caminho de queda tem hoje DUAS descargas
+ * antes do `process.exit` (a dos defeitos agregados e a do log), e dar a cada uma o mesmo
+ * teto SOMA os dois: o pior caso de morrer vira o dobro do que a constante anuncia, com o
+ * servidor HTTP ainda escutando o tempo todo, num processo que já está em estado
+ * desconhecido. Pior que o número é a leitura: um comentário dizendo "o prazo é o mesmo do
+ * log" descreve com precisão um prazo que NÃO é compartilhado.
+ *
+ * A forma correta é um instante-limite calculado UMA vez (`agora + teto`), contra o qual cada
+ * etapa corre; a etapa seguinte recebe o resto. Zero é um valor legítimo e significa "não
+ * espere nada, apenas termine", que é o desfecho certo quando a primeira etapa consumiu tudo.
+ *
+ * PURA E EXPORTADA porque `src/index.js` não é importável por teste nenhum (importá-lo SOBE o
+ * servidor), e aritmética de prazo escrita inline lá seria a única parte do caminho de morte
+ * sem cobertura possível. Guarda: `tests/unit/queda-do-processo.test.js`.
+ *
+ * @param {number} ate - o instante-limite em epoch ms
+ * @param {number} [agora] - injetável para teste
+ * @returns {number} ms restantes, no piso de zero
+ */
+export function prazoRestante(ate, agora = Date.now()) {
+  if (!Number.isFinite(ate) || !Number.isFinite(agora)) return 0;
+  return Math.max(0, ate - agora);
+}
+
+/**
  * Descarrega os destinos de log antes de o processo morrer, COM PRAZO.
  *
  * O QUE O PINO GARANTE AQUI, E O QUE NÃO GARANTE, medido nesta versão (pino 8):

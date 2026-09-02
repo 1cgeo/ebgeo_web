@@ -38,14 +38,27 @@ const CENSO = {
   'slides.orientation': ['CLOSED', '{bearing, pitch, heading, lon, lat, fov}'],
   'slides.temporal_cursor': ['CLOSED', 'número (epoch ms) ou null'],
   'comments.data': ['CLOSED', 'comment.operations.js escreve só escalares; `text` é texto livre (teto)'],
-  // A ÚNICA JSONB QUE NÃO É DO ATLAS E MESMO ASSIM VEM DE UM CLIENTE: telemetria de erro do
-  // navegador, escrita por rota REST própria e ANÔNIMA, não por op de sync.
-  'client_errors.contexto': ['CLOSED',
+  // AS TRÊS JSONB QUE NÃO SÃO DO ATLAS E MESMO ASSIM VÊM DE UM CLIENTE: telemetria de erro do
+  // navegador, escrita por rota REST própria e ANÔNIMA, não por op de sync. A tabela se chamava
+  // `client_errors` até `018_defeitos_e_ocorrencias.sql`.
+  'defeitos.contexto': ['CLOSED',
     'forma fechada campo a campo no Joi de src/modules/diag/diag.schemas.js: cinco chaves '
     + 'ESCALARES (atlasKind, conexao, causa, camada, status), com unknown(false), que ali RECUSA '
     + 'a chave extra com 422 em vez de descartá-la. Escritor único: POST /diag/erro-cliente '
     + '(017_erro_cliente_identidade.sql). NÃO passa por free-field.schemas.js, e não deve passar: '
     + 'aquele guarda carga de ATLAS que chega por op de sync, e esta coluna não é carga de atlas.'],
+  'defeito_ocorrencias.contexto': ['CLOSED',
+    'a MESMA coluna da linha acima, copiada para a ocorrência pelo mesmo escritor e validada '
+    + 'pelo mesmo Joi: o defeito guarda o contexto do relato mais recente, e a ocorrência guarda '
+    + 'o daquele avistamento. Dois destinos, uma borda só (gravarDefeitoComOcorrencia, '
+    + 'src/modules/diag/defeitos.service.js).'],
+  'defeito_ocorrencias.migalhas': ['CLOSED',
+    'ARRAY de até 30 itens, cada um um objeto de três chaves ESCALARES (t inteiro, tipo até 20 '
+    + 'caracteres, texto até 120), com unknown(false) NO ITEM, que ali RECUSA a chave extra com '
+    + '422 em vez de descartá-la (o mesmo efeito medido do contexto). O teto é DUPLO, itens e '
+    + 'tamanho de cada campo, porque sem o de itens um cliente com defeito mandaria a sessão '
+    + 'inteira. Escritor único: POST /diag/erro-cliente. O caminho do SERVIDOR '
+    + '(defeitos-de-servidor.js) nunca escreve esta coluna: não há navegador para deixar rastro.'],
 
   // ---- SCRUBBED ------------------------------------------------------------
   'maps.analysis_layers': ['SCRUBBED', 'domínio de grade, com valor aninhado em contrato (los_result_*, {grid:{...}})'],

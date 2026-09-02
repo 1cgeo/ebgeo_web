@@ -22,6 +22,8 @@ import {
     textoDeErro,
     truncar,
     urlSegura,
+    TETOS_DE_MIGALHA,
+    migalhasSeguras,
 } from '@js/session/erro-telemetria-assinatura.js';
 import {
     instalarTelemetriaDeErro,
@@ -30,7 +32,8 @@ import {
     descarregarFilaDeRelatos,
     versaoDoBuild,
 } from '@js/session/erro-telemetria.js';
-import { OrigemDeErro, ORIGENS_DE_ERRO } from '@js/session/origens-de-erro.js';
+import { OrigemDeErro, ORIGENS_DE_ERRO, ORIGENS_DO_CLIENTE } from '@js/session/origens-de-erro.js';
+import { migalhas, TipoDeMigalha } from '@js/session/migalhas.js';
 import { criarFilaDeRelatos } from '@js/session/fila-de-relatos.js';
 import { deveEnfileirarIndisponivel, BlockingCause } from '@ui/unavailable-screen.js';
 
@@ -159,6 +162,9 @@ afterEach(() => {
     // independentes.
     ativa?.instalacao?.desinstalar?.();
     ativa = null;
+    // A TRILHA também é módulo-global (uma por página), e cada instalação lhe acrescenta a
+    // migalha de navegação: sem esvaziá-la, um caso leria a trilha do caso anterior.
+    migalhas.limpar();
 });
 
 describe('normalização: o que muda a cada carga da página não pode entrar na assinatura', () => {
@@ -663,6 +669,7 @@ describe('o corpo ESPELHA o Joi da borda, que está no outro pacote', () => {
         release: '1.0.0', atlasId: '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
         userAgent: 'Mozilla/5.0', sessaoId: SESSAO, origem: OrigemDeErro.BOOT,
         contexto: { atlasKind: 'servidor', causa: 'x', camada: 'y', conexao: 'ONLINE', status: 403 },
+        migalhas: [{ t: 1, tipo: 'navegacao', texto: 'mapa /index.html' }],
     });
 
     it('todo campo REQUIRED do servidor é mandado pelo cliente', () => {
@@ -1439,5 +1446,296 @@ describe('A5 — a tela de indisponibilidade escolhe entre a fila e a rede, e a 
             'utf8',
         );
         expect(fonte).toMatch(/enfileirarSempre: deveEnfileirarIndisponivel\(cause\)/);
+    });
+});
+
+describe('B — as MIGALHAS entram no corpo, com os tetos aplicados ANTES do envio', () => {
+    // A TRILHA responde o que o relato sozinho nunca respondeu: o CAMINHO até o defeito. A mesma
+    // assinatura de `Cannot read properties of undefined` é outra coisa quando um `POST /sync`
+    // voltou 500 três vezes antes, e as duas leituras pedem providências opostas.
+    //
+    // `montarCorpo` a recebe como VALOR e não por import, porque este módulo é folha de zero
+    // imports: quem lê o anel é a fiação, no último instante antes do envio.
+
+    /** Uma trilha de N migalhas bem formadas. */
+    const trilha = (n) => Array.from({ length: n }, (_, i) => ({
+        t: 1000 + i, tipo: 'evento', texto: `fato ${i}`,
+    }));
+
+    it('a trilha viaja no corpo quando existe', () => {
+        const corpo = montarCorpo({ mensagem: 'x', migalhas: trilha(3) });
+        expect(corpo.migalhas).toHaveLength(3);
+        expect(corpo.migalhas[0]).toEqual({ t: 1000, tipo: 'evento', texto: 'fato 0' });
+    });
+
+    it('a trilha VAZIA não vira campo (lista vazia diria "não houve nada antes")', () => {
+        expect(Object.hasOwn(montarCorpo({ mensagem: 'x', migalhas: [] }), 'migalhas')).toBe(false);
+        expect(Object.hasOwn(montarCorpo({ mensagem: 'x' }), 'migalhas')).toBe(false);
+        expect(Object.hasOwn(montarCorpo({ mensagem: 'x', migalhas: null }), 'migalhas')).toBe(false);
+    });
+
+    it('acima de trinta o corte é pelo FIM: sobra o que está mais perto do erro', () => {
+        // Ao contrário da fila de relatos, que corta pela frente. Aqui os fatos que explicam o
+        // desfecho são os últimos.
+        const corpo = montarCorpo({ mensagem: 'x', migalhas: trilha(45) });
+        expect(corpo.migalhas).toHaveLength(TETOS_DE_MIGALHA.itens);
+        expect(corpo.migalhas[TETOS_DE_MIGALHA.itens - 1].texto).toBe('fato 44');
+    });
+
+    it('cada item sai com EXATAMENTE três campos, e a chave a mais é impossível', () => {
+        // A rota roda com `unknown(false)`, onde a chave a mais derruba o relato INTEIRO num 422
+        // (é a mesma armadilha já paga em `contexto`). Por isso o item é RECONSTRUÍDO.
+        const corpo = montarCorpo({
+            mensagem: 'x',
+            migalhas: [{ t: 1, tipo: 'api', texto: 'GET /config 200 1ms', userId: 'u-1', payload: {} }],
+        });
+        expect(Object.keys(corpo.migalhas[0]).sort()).toEqual(['t', 'texto', 'tipo']);
+        expect(JSON.stringify(corpo.migalhas)).not.toContain('u-1');
+    });
+
+    it('tipo e texto são cortados nos tetos da rota', () => {
+        const corpo = montarCorpo({
+            mensagem: 'x',
+            migalhas: [{ t: 1, tipo: 't'.repeat(60), texto: 'x'.repeat(400) }],
+        });
+        expect(corpo.migalhas[0].tipo).toHaveLength(TETOS_DE_MIGALHA.tipo);
+        expect(corpo.migalhas[0].texto).toHaveLength(TETOS_DE_MIGALHA.texto);
+    });
+
+    it('item malformado é descartado UM A UM, e o relato inteiro sobrevive', () => {
+        // A lista pode ter vindo da fila do `localStorage`, escrita por outra versão do produto.
+        const corpo = montarCorpo({
+            mensagem: 'x',
+            migalhas: [
+                null, 42, 'texto solto', [],
+                { tipo: 'evento', texto: 'sem t' },
+                { t: 'ontem', tipo: 'evento', texto: 'com t inválido' },
+                { t: 5, tipo: '', texto: 'sem tipo' },
+                { t: 6, tipo: 'evento', texto: '   ' },
+                { t: 7, tipo: 'evento', texto: 'a única boa' },
+            ],
+        });
+        expect(corpo.migalhas).toEqual([{ t: 7, tipo: 'evento', texto: 'a única boa' }]);
+    });
+
+    it('`migalhasSeguras` nunca lança, para qualquer entrada', () => {
+        for (const ruim of [null, undefined, 42, 'texto', {}, new Set()]) {
+            expect(() => migalhasSeguras(ruim)).not.toThrow();
+            expect(migalhasSeguras(ruim)).toEqual([]);
+        }
+    });
+
+    it('o `t` fracionário vira inteiro (a coluna do servidor é inteira)', () => {
+        expect(migalhasSeguras([{ t: 12.9, tipo: 'e', texto: 'x' }])[0].t).toBe(12);
+    });
+});
+
+describe('B — as migalhas espelham o Joi da borda, que está no outro pacote', () => {
+    // MESMO PAPEL do espelho de cima: o alcance é o VOCABULÁRIO e os TETOS, nunca a semântica. Ele
+    // lê a FONTE do outro pacote (o Joi não é dependência do frontend).
+    //
+    // ELE SE PULA COM MOTIVO ESCRITO enquanto o backend não declarar o campo, e a distinção
+    // importa: um espelho que passasse verde contra um schema que não tem o campo seria cobertura
+    // vazia, e um que ficasse vermelho confundiria "o outro lado ainda não chegou" com "os dois
+    // lados divergem".
+    const SCHEMA = '../../../backend/src/modules/diag/diag.schemas.js';
+
+    /** @returns {string|null} A janela do campo `migalhas` no schema, ou `null` se ele não existe. */
+    function janelaDasMigalhas() {
+        const fonte = readFileSync(fileURLToPath(new URL(SCHEMA, import.meta.url)), 'utf8');
+        const inicio = fonte.search(/^\s{2}migalhas:/m);
+        if (inicio === -1) return null;
+        return fonte.slice(inicio, inicio + 1200);
+    }
+
+    const JANELA = janelaDasMigalhas();
+    const AUSENTE = JANELA === null;
+
+    describe.skipIf(AUSENTE)(
+        AUSENTE
+            ? 'PULADO: o `diag.schemas.js` do backend ainda não declara `migalhas`'
+            : 'o schema do servidor declara o campo com os tetos deste cliente',
+        () => {
+            it('`migalhas` é um ARRAY com teto de itens igual ao do cliente', () => {
+                expect(JANELA).toMatch(/migalhas:\s*Joi\.array\(\)/);
+                const casou = JANELA.match(/\.max\((\d+)\)/);
+                expect(casou, 'o `max()` da lista sumiu do servidor').toBeTruthy();
+                expect(Number(casou[1]), 'o teto de itens divergiu do servidor')
+                    .toBe(TETOS_DE_MIGALHA.itens);
+            });
+
+            it('o item tem os TRÊS campos, e `t` é inteiro', () => {
+                expect(JANELA).toMatch(/\bt:[^\n]*\.integer\(\)/);
+                expect(JANELA).toMatch(/\btipo:[^\n]*Joi\.string\(\)/);
+                expect(JANELA).toMatch(/\btexto:[^\n]*Joi\.string\(\)/);
+            });
+
+            it('os tetos de `tipo` e `texto` são os `TETOS_DE_MIGALHA` do cliente', () => {
+                let conferidos = 0;
+                for (const campo of ['tipo', 'texto']) {
+                    const casou = JANELA.match(new RegExp(`\\b${campo}:[^\\n]*?\\.max\\((\\d+)\\)`));
+                    expect(casou, `\`${campo}\` não tem \`max()\` no schema do servidor`).toBeTruthy();
+                    expect(Number(casou[1]), `teto de \`migalhas[].${campo}\` divergiu do servidor`)
+                        .toBe(TETOS_DE_MIGALHA[campo]);
+                    conferidos++;
+                }
+                // Cobertura vazia passa verde: sem esta linha, um recorte que parasse de casar
+                // reportaria sucesso sem ter comparado um número sequer.
+                expect(conferidos, 'nenhum teto de migalha foi comparado').toBe(2);
+            });
+
+            it('o item recusa chave desconhecida, como o `contexto`', () => {
+                // Se ele NÃO recusasse, uma chave a mais seria descartada em silêncio, e a
+                // telemetria chegaria pela metade sem ninguém saber.
+                expect(JANELA).toMatch(/unknown\(false\)/);
+            });
+
+            it('o corpo cheio deste cliente é aceito pela forma que o servidor declara', () => {
+                // Comparação pelo COMPORTAMENTO, e não por um número escrito duas vezes aqui.
+                const corpo = montarCorpo({
+                    mensagem: 'x',
+                    migalhas: [{ t: 1, tipo: 'a'.repeat(TETOS_DE_MIGALHA.tipo), texto: 'b'.repeat(TETOS_DE_MIGALHA.texto) }],
+                });
+                expect(corpo.migalhas[0].tipo).toHaveLength(TETOS_DE_MIGALHA.tipo);
+                expect(corpo.migalhas[0].texto).toHaveLength(TETOS_DE_MIGALHA.texto);
+            });
+        },
+    );
+});
+
+describe('B — os alimentadores de migalha que não dependem do barramento', () => {
+    // Estes três valem para as QUATRO páginas, e é por isso que eles moram na instalação da
+    // telemetria: as outras três bootam sem `initServices()` e portanto sem barramento nenhum.
+
+    it('a instalação registra ONDE a carga começou', () => {
+        migalhas.limpar();
+        ativa = instalarEspiao({ alvo: criarAlvo({ href: 'http://local/admin.html?aba=catalog' }) });
+        const [primeira] = migalhas.listar();
+        expect(primeira.tipo).toBe(TipoDeMigalha.NAVEGACAO);
+        expect(primeira.texto).toContain('admin');
+        expect(primeira.texto).toContain('/admin.html');
+        // A QUERY não entra: é ali que moram `?verify=` e `?atlasPublico=`.
+        expect(primeira.texto).not.toContain('aba=catalog');
+    });
+
+    it('`console.error` deixa migalha, DEPOIS de o relato ter sido montado', () => {
+        // A migalha vem depois da captura de propósito: o relato que este mesmo `console.error`
+        // produziu não pode carregar a si mesmo como última linha da própria trilha.
+        const alvo = criarAlvo({ comConsole: true });
+        migalhas.limpar();
+        ativa = instalarEspiao({ alvo });
+        alvo.console.error('[Store] falhou feio');
+        expect(ativa.enviados).toHaveLength(1);
+        // O relato leva a trilha ANTERIOR (a navegação da instalação) e NÃO a migalha do próprio
+        // `console.error` que o produziu.
+        expect(ativa.enviados[0].migalhas.map((m) => m.tipo)).toEqual([TipoDeMigalha.NAVEGACAO]);
+        const daConsola = migalhas.listar().filter((m) => m.tipo === TipoDeMigalha.CONSOLE);
+        expect(daConsola).toHaveLength(1);
+        expect(daConsola[0].texto).toBe('erro: [Store] falhou feio');
+    });
+
+    it('`console.warn` deixa migalha e NÃO vira relato', () => {
+        // A assimetria é deliberada: aviso é o canal do esperado, e relatá-lo gastaria o teto de
+        // vinte envios com coisas que ninguém pediu para saber. Mas "avisou três vezes antes do
+        // erro" é justamente a frase que o relato não conseguia contar.
+        const alvo = criarAlvo({ comConsole: true });
+        migalhas.limpar();
+        ativa = instalarEspiao({ alvo });
+        alvo.console.warn('[WsClient] socket caiu, tentando de novo');
+        expect(ativa.enviados).toHaveLength(0);
+        const daConsola = migalhas.listar().filter((m) => m.tipo === TipoDeMigalha.CONSOLE);
+        expect(daConsola).toHaveLength(1);
+        expect(daConsola[0].texto).toBe('aviso: [WsClient] socket caiu, tentando de novo');
+    });
+
+    it('`console.warn(objeto)` NÃO deixa migalha (despejo de estado é dado do usuário)', () => {
+        const alvo = criarAlvo({ comConsole: true });
+        migalhas.limpar();
+        ativa = instalarEspiao({ alvo });
+        alvo.console.warn({ nome: 'Cel Fulano', coords: [-22.123456] });
+        expect(migalhas.listar().filter((m) => m.tipo === TipoDeMigalha.CONSOLE)).toHaveLength(0);
+    });
+
+    it('`console.warn(rótulo, erro)` guarda o rótulo, e o `Error` sozinho guarda a mensagem', () => {
+        const alvo = criarAlvo({ comConsole: true });
+        migalhas.limpar();
+        ativa = instalarEspiao({ alvo });
+        alvo.console.warn('renovação proativa desligada', { detalhe: 'x' });
+        alvo.console.warn(new Error('token quase vencendo'));
+        const textos = migalhas.listar()
+            .filter((m) => m.tipo === TipoDeMigalha.CONSOLE)
+            .map((m) => m.texto);
+        expect(textos).toEqual([
+            'aviso: renovação proativa desligada',
+            'aviso: token quase vencendo',
+        ]);
+    });
+
+    it('desinstalar devolve o `console.warn` original', () => {
+        const alvo = criarAlvo({ comConsole: true });
+        const original = alvo.console.warn;
+        const espiao = instalarEspiao({ alvo });
+        expect(alvo.console.warn).not.toBe(original);
+        espiao.instalacao.desinstalar();
+        expect(alvo.console.warn).toBe(original);
+    });
+
+    it('o `console.warn` DA PRÓPRIA telemetria não vira migalha', () => {
+        const alvo = criarAlvo({ comConsole: true });
+        migalhas.limpar();
+        ativa = instalarEspiao({
+            alvo,
+            aoEnviar: () => { alvo.console.warn('aviso de dentro do envio'); },
+        });
+        alvo.console.error('o defeito de verdade');
+        const textos = migalhas.listar().map((m) => m.texto);
+        expect(textos).not.toContain('aviso: aviso de dentro do envio');
+    });
+
+    it('a trilha acumulada VIAJA no relato seguinte', () => {
+        const alvo = criarAlvo({ comConsole: true });
+        migalhas.limpar();
+        ativa = instalarEspiao({ alvo, intervaloMs: 0 });
+        alvo.console.warn('primeiro aviso');
+        ativa.avancar(10);
+        alvo.console.error('e então quebrou');
+        expect(ativa.enviados).toHaveLength(1);
+        const textos = ativa.enviados[0].migalhas.map((m) => m.texto);
+        expect(textos).toContain('aviso: primeiro aviso');
+        // A navegação da instalação é a primeira da trilha.
+        expect(ativa.enviados[0].migalhas[0].tipo).toBe(TipoDeMigalha.NAVEGACAO);
+    });
+
+    it('a normalização do relato vale para a trilha (o mesmo UUID vira o mesmo marcador)', () => {
+        const alvo = criarAlvo({ comConsole: true });
+        migalhas.limpar();
+        ativa = instalarEspiao({ alvo });
+        alvo.console.warn('atlas 3f2504e0-4f89-11d3-9a0c-0305e82c3301 sumiu');
+        const daConsola = migalhas.listar().filter((m) => m.tipo === TipoDeMigalha.CONSOLE);
+        expect(daConsola[0].texto).toBe('aviso: atlas <uuid> sumiu');
+    });
+});
+
+describe('B — `servidor` é do BACKEND: este cliente nunca a envia', () => {
+    it('`relatarErro` com origem `servidor` cai em `nao-tratado`', () => {
+        // Ela É válida no vocabulário (os dois pacotes compartilham a lista, e um segundo enum
+        // "quase igual" divergiria do primeiro no primeiro dia) e NÃO é do cliente: mandá-la daqui
+        // seria o navegador se passando por servidor num relatório que ninguém confere.
+        ativa = instalarEspiao();
+        relatarErro(new Error('boom'), { origem: 'servidor' });
+        expect(ativa.enviados).toHaveLength(1);
+        expect(ativa.enviados[0].origem).toBe(OrigemDeErro.NAO_TRATADO);
+    });
+
+    it('as outras dez continuam atravessando como etiqueta', () => {
+        let conferidos = 0;
+        for (const origem of ORIGENS_DO_CLIENTE) {
+            ativa?.instalacao?.desinstalar?.();
+            ativa = instalarEspiao({ intervaloMs: 0 });
+            relatarErro(new Error(`boom ${origem}`), { origem });
+            expect(ativa.enviados[0].origem).toBe(origem);
+            conferidos++;
+        }
+        expect(conferidos, 'nenhuma origem foi conferida').toBe(ORIGENS_DE_ERRO.length - 1);
     });
 });

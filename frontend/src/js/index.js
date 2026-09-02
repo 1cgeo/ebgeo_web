@@ -60,6 +60,10 @@ import { showVisitorBanner, destroyVisitorBanner } from './session/visitor-banne
 import {
     instalarTelemetriaDeErro, relatarErro, descarregarFilaDeRelatos,
 } from './session/erro-telemetria.js';
+// Pelo ARQUIVO, pelo mesmo motivo do vizinho acima. SÓ O MAPA o importa: as outras três páginas
+// bootam sem `initServices()` e portanto sem barramento, e as migalhas delas vêm dos alimentadores
+// que não dependem dele (API, console, navegação).
+import { instalarMigalhasDoBarramento } from './session/migalhas-do-barramento.js';
 import { OrigemDeErro } from './session/origens-de-erro.js';
 import { getViewModeController } from '@ui/view-mode.controller.js';
 import { showToast } from '@utils';
@@ -187,6 +191,12 @@ async function initApp() {
 
     // Phase 2: Services (EventBus, StateManager, LayerManager, GroupManager, MapResolver)
     initServices();
+
+    // AS MIGALHAS DO BARRAMENTO, e este é o primeiro instante em que elas podem existir:
+    // `getEventBus()` não responde antes de `initServices()`. Uma assinatura `onAny` só, com
+    // allowlist, idempotente, que nunca quebra a entrega de evento. Ela não participa do boot em
+    // mais nada, como a telemetria da Fase -2.
+    instalarMigalhasDoBarramento(getEventBus());
 
     // Keep the address-bar `?atlas=&map=` reconciled with the live connection from here on. Wired
     // early (before session restore / connect) so it reflects every open path; it never clears a

@@ -1,6 +1,7 @@
 // Path: tests/integration/diag-poda-de-erros-de-cliente.test.js
 //
-// A PODA OPORTUNISTA DE `client_errors`, e o total de antes do corte na listagem.
+// A PODA OPORTUNISTA DE `defeitos` (a tabela se chamava `client_errors` até
+// `018_defeitos_e_ocorrencias.sql`), e o total de antes do corte na listagem.
 //
 // O QUE ISTO FECHA. Até 2026-09-01 a tabela não tinha um DELETE em lugar nenhum do
 // pacote: nem rota, nem job, nem roteiro. A dedupe por assinatura só segura quando a
@@ -20,7 +21,7 @@
 //    passa a falhar, e o caso da falha fica vermelho;
 //  - tirar a guarda de intervalo: a segunda chamada seguida volta a podar;
 //  - tirar o gate de ambiente: a poda passa a rodar sozinha no meio da suíte;
-//  - tirar a subconsulta escalar de `LIST_CLIENT_ERRORS`: `totalAssinaturas` some do
+//  - tirar a subconsulta escalar de `LIST_ERROS_CLIENTE`: `totalAssinaturas` some do
 //    payload e a tela volta a não saber que a lista foi cortada.
 //
 // AS ASSERÇÕES SÃO SEMPRE SOBRE AS LINHAS MARCADAS DESTE ARQUIVO, nunca sobre contagem
@@ -39,10 +40,10 @@ import {
   registrarErroDeCliente,
   listarErrosDeCliente,
   INTERVALO_MINIMO_DE_PODA_MS,
-} from '../../src/modules/diag/client-errors.service.js';
-import { LIST_CLIENT_ERRORS } from '../../src/modules/diag/client-errors.queries.js';
+} from '../../src/modules/diag/defeitos.service.js';
+import { LIST_ERROS_CLIENTE } from '../../src/modules/diag/defeitos.queries.js';
 
-describe('client_errors: poda oportunista por idade e total antes do corte', () => {
+describe('defeitos: poda oportunista por idade e total antes do corte', () => {
   let app, db, admin, adminToken;
   const marca = randomUUID().slice(0, 8);
   const assinaturas = [];
@@ -67,7 +68,7 @@ describe('client_errors: poda oportunista por idade e total antes do corte', () 
    */
   async function semear(a, { primeiraHaDias, ultimaHaDias }) {
     await db.query(
-      `INSERT INTO client_errors (assinatura, mensagem, primeira_em, ultima_em)
+      `INSERT INTO defeitos (assinatura, mensagem, primeira_em, ultima_em)
        VALUES ($1, $2,
                NOW() - ($3::double precision * INTERVAL '1 day'),
                NOW() - ($4::double precision * INTERVAL '1 day'))`,
@@ -77,7 +78,7 @@ describe('client_errors: poda oportunista por idade e total antes do corte', () 
   }
 
   const existe = async (a) => {
-    const { rows } = await db.query('SELECT 1 FROM client_errors WHERE assinatura = $1', [a]);
+    const { rows } = await db.query('SELECT 1 FROM defeitos WHERE assinatura = $1', [a]);
     return rows.length === 1;
   };
 
@@ -90,7 +91,7 @@ describe('client_errors: poda oportunista por idade e total antes do corte', () 
   });
 
   after(async () => {
-    await db.query('DELETE FROM client_errors WHERE assinatura = ANY($1::text[])', [assinaturas]);
+    await db.query('DELETE FROM defeitos WHERE assinatura = ANY($1::text[])', [assinaturas]);
     await teardownTestEnv(db);
   });
 
@@ -289,7 +290,7 @@ describe('client_errors: poda oportunista por idade e total antes do corte', () 
 
     assert.deepEqual(r, { podou: false, motivo: 'falha' });
     assert.equal(avisos.length, 1, 'a falha de poda passou muda');
-    assert.match(avisos[0].msg, /podar client_errors/);
+    assert.match(avisos[0].msg, /podar defeitos/);
     assert.ok(avisos[0].obj.err, 'o aviso precisa carregar a causa, senão não diagnostica nada');
   });
 
@@ -379,19 +380,19 @@ describe('client_errors: poda oportunista por idade e total antes do corte', () 
     // do teste. O que se prende então é a PROPRIEDADE que torna a leitura correta: o
     // mesmo `$1` filtra a lista e alimenta a contagem, então zero linhas implica zero na
     // contagem. Divergir os dois é o que produziria "50 de 400" ao lado de uma lista de 3.
-    const ocorrencias = LIST_CLIENT_ERRORS.match(/ultima_em >= \$1/g) ?? [];
+    const ocorrencias = LIST_ERROS_CLIENTE.match(/ultima_em >= \$1/g) ?? [];
     assert.equal(
       ocorrencias.length,
       2,
       `esperava o mesmo predicado na contagem e no corpo, achei ${ocorrencias.length} ocorrência(s)`,
     );
     assert.match(
-      LIST_CLIENT_ERRORS,
-      /\(SELECT COUNT\(\*\)::int FROM client_errors WHERE ultima_em >= \$1\) AS total_assinaturas/,
+      LIST_ERROS_CLIENTE,
+      /\(SELECT COUNT\(\*\)::int FROM defeitos\s+WHERE ultima_em >= \$1 AND origem IS DISTINCT FROM 'servidor'\) AS total_assinaturas/,
       'a contagem deixou de ser a subconsulta escalar medida no cabeçalho da query',
     );
     // E o `COUNT(*) OVER ()`, que é a forma tentadora, fica fora: medido, ele materializa
     // a janela inteira antes do LIMIT e levou a rota de 0,05 ms a 257 ms.
-    assert.equal(/COUNT\(\*\) OVER/.test(LIST_CLIENT_ERRORS), false);
+    assert.equal(/COUNT\(\*\) OVER/.test(LIST_ERROS_CLIENTE), false);
   });
 });

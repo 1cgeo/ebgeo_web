@@ -1296,9 +1296,24 @@ const CENSO_ROTA = [
   { arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /status', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
   {
     arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /erros-cliente', classe: R_OUTRA, gate: 'requireAdmin',
-    motivo: `${SO_ADMIN} Serve \`client_errors\`, a telemetria de erro do NAVEGADOR. As linhas não `
+    motivo: `${SO_ADMIN} Serve \`defeitos\`, a telemetria de erro do NAVEGADOR. As linhas não `
       + 'carregam id de catálogo, 360 nem 3D: carregam mensagem, pilha e a página em que o defeito '
       + 'apareceu. O `atlas_id` que elas guardam é contexto sem FK, não referência de recurso.',
+  },
+  {
+    arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /defeitos', classe: R_OUTRA, gate: 'requireAdmin',
+    motivo: `${SO_ADMIN} A mesma tabela de \`GET /erros-cliente\`, sem o recorte por origem: ela `
+      + 'serve TAMBÉM o 5xx que o próprio servidor registra sobre si (`origem = servidor`). Nada '
+      + 'muda quanto a recurso: o que sai é assinatura, mensagem, pilha, contagem e ciclo de vida, '
+      + 'mais o `username` de quem resolveu, que vem de `users` por LEFT JOIN e não de catálogo.',
+  },
+  {
+    arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /defeitos/:id/ocorrencias', classe: R_OUTRA,
+    gate: 'requireAdmin',
+    motivo: `${SO_ADMIN} As evidências individuais de UM defeito (no máximo vinte). Os dois JSONB `
+      + 'que ela devolve (`contexto` e `migalhas`) têm forma FECHADA por Joi na borda, com chaves '
+      + 'escalares, e estão censados em `tests/integration/campos-livres-censo.test.js`: nenhuma '
+      + 'delas guarda id de catálogo, 360 ou 3D. O `sessao_id` identifica a ABA, nunca a pessoa.',
   },
   {
     arquivo: 'src/modules/uso/uso.routes.js', rota: 'GET /resumo', classe: R_OUTRA, gate: 'requireAdmin',

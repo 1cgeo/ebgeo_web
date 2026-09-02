@@ -39,7 +39,7 @@ describe('Erro do navegador — POST /diag/erro-cliente e GET /diag/erros-client
     return a;
   }
 
-  const linhaDe = (a) => db.query('SELECT * FROM client_errors WHERE assinatura = $1', [a])
+  const linhaDe = (a) => db.query('SELECT * FROM defeitos WHERE assinatura = $1', [a])
     .then((r) => r.rows[0]);
 
   before(async () => {
@@ -54,7 +54,7 @@ describe('Erro do navegador — POST /diag/erro-cliente e GET /diag/erros-client
   });
 
   after(async () => {
-    await db.query('DELETE FROM client_errors WHERE assinatura = ANY($1::text[])', [assinaturas]);
+    await db.query('DELETE FROM defeitos WHERE assinatura = ANY($1::text[])', [assinaturas]);
     await teardownTestEnv(db);
   });
 
@@ -113,7 +113,7 @@ describe('Erro do navegador — POST /diag/erro-cliente e GET /diag/erros-client
       await supertest(app).post('/api/v1/diag/erro-cliente').send(corpo).expect(204);
     }
 
-    const { rows } = await db.query('SELECT * FROM client_errors WHERE assinatura = $1', [a]);
+    const { rows } = await db.query('SELECT * FROM defeitos WHERE assinatura = $1', [a]);
     assert.equal(rows.length, 1, 'dezenove ocorrências, UMA linha');
     assert.equal(rows[0].ocorrencias, 19);
     assert.ok(
@@ -264,7 +264,7 @@ describe('Erro do navegador — POST /diag/erro-cliente e GET /diag/erros-client
     await supertest(app).post('/api/v1/diag/erro-cliente')
       .send({ assinatura: a, mensagem: 'antigo' }).expect(204);
     await db.query(
-      `UPDATE client_errors SET primeira_em = NOW() - INTERVAL '2 days',
+      `UPDATE defeitos SET primeira_em = NOW() - INTERVAL '2 days',
                                 ultima_em   = NOW() - INTERVAL '2 days'
         WHERE assinatura = $1`,
       [a]

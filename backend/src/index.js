@@ -5,6 +5,7 @@ import config, { validateEnvVariables } from './config.js';
 import logger, {
   descarregarLog,
   payloadDeQueda,
+  prazoRestante,
   CODIGO_DE_SAIDA_NA_QUEDA,
   TIPO_DE_QUEDA,
 } from './utils/logger.js';
@@ -18,6 +19,12 @@ import {
   deveAmostrar,
   sondarBancoComPrazo,
 } from './utils/amostra-de-saude.js';
+import {
+  anotarDefeitoDeServidor,
+  defeitoDaQueda,
+  descarregarDefeitosDeServidor,
+  INTERVALO_DE_DESCARGA_MS,
+} from './modules/diag/defeitos-de-servidor.js';
 
 // Fail fast and loudly on misconfiguration before accepting any connection.
 validateEnvVariables();
@@ -82,19 +89,55 @@ if (decisaoDaAmostra.ligar) {
   logger.info({ motivo: decisaoDaAmostra.motivo }, 'Amostra periódica de saúde desligada');
 }
 
+/**
+ * A DESCARGA PERIÓDICA DO AGREGADOR DE DEFEITOS DE SERVIDOR.
+ *
+ * ELA MORA AQUI PELA MESMA RAZÃO QUE A AMOSTRA DE SAÚDE LOGO ACIMA, e a razão é o supertest:
+ * `app.js` é importado por todo arquivo de teste, então um timer que nascesse de lá subiria
+ * em cada rodada e escreveria no banco de teste no meio das asserções de outro arquivo. O
+ * gate `config.isTest` é a segunda amarra da mesma decisão, não a única, e o teste que
+ * QUISER descarregar chama `descarregarDefeitosDeServidor()` de propósito, que é o caminho
+ * explícito.
+ *
+ * `unref()` NÃO É DETALHE: sem ele este intervalo sozinho segura o event loop e o processo
+ * nunca termina por conta própria, o que num container transforma todo desligamento num
+ * `SIGKILL` do orquestrador. Com ele, o timer só existe enquanto houver outra razão para o
+ * processo viver.
+ *
+ * O `catch` VAZIO É REDUNDANTE POR DESENHO: `descarregarDefeitosDeServidor` não lança por
+ * contrato. Ele está aqui porque uma promessa sem dono que rejeitasse viraria
+ * `unhandledRejection`, e no Node 22 isso derruba o processo, ou seja, a telemetria mataria
+ * o servidor. Uma linha de defesa contra um contrato que alguém pode quebrar depois.
+ */
+let descargaDeDefeitos = null;
+if (!config.isTest) {
+  descargaDeDefeitos = setInterval(() => {
+    descarregarDefeitosDeServidor().catch(() => {});
+  }, INTERVALO_DE_DESCARGA_MS);
+  descargaDeDefeitos.unref();
+}
+
 // How long to wait for a graceful close before forcing the exit. Without this,
 // a stuck connection keeps the process alive until the supervisor SIGKILLs it —
 // which on Windows can leave SQLite handles open and break the next start.
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 /**
- * Teto da descarga do log na saída. Curto por desenho, e é a metade que quase nunca se
- * escreve: descarregar antes de sair é o ponto, mas espera SEM teto transforma disco cheio
- * ou cano entupido num processo que nunca termina, e aí quem encerra é o orquestrador, no
- * prazo dele, perdendo o log E o desligamento limpo. Dois segundos é muito para uma fila de
- * algumas linhas e pouco para qualquer prazo de supervisor.
+ * O ORÇAMENTO INTEIRO da saída, não o prazo de UMA descarga.
+ *
+ * Curto por desenho, e é a metade que quase nunca se escreve: descarregar antes de sair é o
+ * ponto, mas espera SEM teto transforma disco cheio ou cano entupido num processo que nunca
+ * termina, e aí quem encerra é o orquestrador, no prazo dele, perdendo o log E o
+ * desligamento limpo. Dois segundos é muito para uma fila de algumas linhas e pouco para
+ * qualquer prazo de supervisor.
+ *
+ * ELE É COMPARTILHADO POR TODAS AS DESCARGAS DE UM MESMO CAMINHO DE SAÍDA, e é isso que o
+ * nome diz. O caminho de queda tem DUAS (os defeitos agregados e o log), e dar a cada uma
+ * este teto somaria os dois: o pior caso de morrer viraria quatro segundos com o servidor
+ * HTTP ainda escutando. O instante-limite é calculado UMA vez em `registrarQuedaESair` e o
+ * resto é repassado por `prazoRestante` (`utils/logger.js`).
  */
-const LOG_FLUSH_TIMEOUT_MS = 2_000;
+const ORCAMENTO_DE_SAIDA_MS = 2_000;
 
 let shuttingDown = false;
 let encerrando = false;
@@ -113,15 +156,21 @@ let encerrando = false;
  * de fora. Se ele disparar enquanto a descarga está em voo, este segundo chamador não
  * espera nada e mata o processo na hora. Quem chega segundo é sempre um prazo estourado.
  *
+ * O PRAZO É PARÂMETRO, com o orçamento inteiro por padrão. Quem já gastou parte do
+ * orçamento antes de chegar aqui (o caminho de queda, que descarrega os defeitos primeiro)
+ * passa o RESTO; os outros três caminhos não gastaram nada e ficam com o default. Sem isso a
+ * última etapa reabriria um teto cheio e o orçamento deixaria de ser um.
+ *
  * @param {number} codigo
+ * @param {number} [prazoMs] - o que sobrou do orçamento de saída
  */
-function encerrar(codigo) {
+function encerrar(codigo, prazoMs = ORCAMENTO_DE_SAIDA_MS) {
   if (encerrando) {
     process.exit(codigo);
     return;
   }
   encerrando = true;
-  descarregarLog({ prazoMs: LOG_FLUSH_TIMEOUT_MS })
+  descarregarLog({ prazoMs })
     .catch(() => {})
     .finally(() => process.exit(codigo));
 }
@@ -147,6 +196,11 @@ async function shutdown(signal) {
   // escreveria uma linha de banco fora no desligamento, e um incidente falso no fim de todo
   // deploy é como uma série de saúde perde o valor.
   amostrador?.parar();
+  // O timer para ANTES do `pgp.end()` pela mesma razão que a amostra: uma descarga que caísse
+  // depois do pool fechado escreveria uma linha de falha no desligamento, e um incidente
+  // falso no fim de todo deploy é como uma série de saúde perde o valor. O que estava na
+  // janela sai na descarga logo abaixo, com o pool ainda de pé.
+  if (descargaDeDefeitos) clearInterval(descargaDeDefeitos);
   logger.info(`${signal} received, shutting down gracefully`);
 
   const forceExit = setTimeout(() => {
@@ -159,6 +213,10 @@ async function shutdown(signal) {
     // Close collab sockets FIRST, or server.close() below waits on them forever.
     await closeAllSockets();
     await new Promise((resolve) => server.close(resolve));
+    // A ÚLTIMA DESCARGA, com o pool ainda aberto: sem ela, todo desligamento perderia até
+    // dez segundos de defeitos agregados, e o desligamento é justamente o fim de um deploy
+    // ruim, que é quando eles importam. Ela não lança e é barata quando a janela está vazia.
+    await descarregarDefeitosDeServidor().catch(() => {});
     await blobPool.closeAll().catch(() => {});
     pgp.end();
     logger.info({ signal }, 'Desligamento concluído');
@@ -228,7 +286,38 @@ function registrarQuedaESair(tipo, causa, origem) {
   } catch (err) {
     avisarNoStderr(`[queda] ${tipo} sem linha no log: ${err && err.message ? err.message : err}`);
   }
-  encerrar(codigo);
+
+  // A QUEDA TAMBÉM É UM DEFEITO, e é o mais grave que este servidor produz: ela não tem
+  // requisição, não tem status e não passa pelo `errorHandler`, então sem esta anotação ela
+  // seria a única classe de falha do produto que nunca vira linha em `defeitos`.
+  //
+  // ANOTAR E DESCARREGAR NA MESMA RESPIRAÇÃO, porque não há próxima janela: o processo está
+  // saindo. Isso é o oposto do caminho normal, em que anotar é síncrono e a escrita espera
+  // dez segundos.
+  //
+  // AS DUAS DESCARGAS DIVIDEM UM ORÇAMENTO SÓ, e este é o único ponto do processo em que há
+  // duas. `morteAte` é o instante-limite, calculado UMA vez: a descarga dos defeitos corre
+  // contra ele e `encerrar` recebe o que sobrar. Dar `ORCAMENTO_DE_SAIDA_MS` a cada uma
+  // somaria os dois e dobraria o pior caso de morrer, com o servidor HTTP ainda escutando
+  // num processo que já está em estado desconhecido.
+  //
+  // O PRAZO EXISTE porque um banco que não responde é uma causa PLAUSÍVEL da própria queda,
+  // e sem teto ele transformaria "morrer com registro" em "não morrer": quem encerraria
+  // seria o orquestrador, no prazo dele, perdendo o log E o desligamento. `Promise.race` com
+  // um timer `unref`ado, e não `setTimeout` nu, senão o timer segura o processo que ele
+  // existe para não segurar.
+  const morteAte = Date.now() + ORCAMENTO_DE_SAIDA_MS;
+  try {
+    anotarDefeitoDeServidor(defeitoDaQueda(tipo, causa, origem));
+  } catch (err) {
+    avisarNoStderr(`[queda] ${tipo} sem defeito anotado: ${err && err.message ? err.message : err}`);
+  }
+  const prazoDaDescarga = new Promise((resolve) => {
+    setTimeout(resolve, prazoRestante(morteAte)).unref();
+  });
+  Promise.race([descarregarDefeitosDeServidor().catch(() => {}), prazoDaDescarga])
+    .catch(() => {})
+    .finally(() => encerrar(codigo, prazoRestante(morteAte)));
 }
 
 process.on(TIPO_DE_QUEDA.EXCECAO, (err, origem) => {

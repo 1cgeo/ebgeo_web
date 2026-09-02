@@ -44,7 +44,7 @@ const nodeEnv = optional('NODE_ENV', 'development');
  *
  * 100 é o MESMO teto que `erroDeClienteSchema` (`src/modules/diag/diag.schemas.js`) impõe
  * ao `release` que o navegador relata, e a coincidência é o ponto: os dois lados da
- * telemetria acabam na mesma coluna `client_errors.release`, então um teto maior aqui
+ * telemetria acabam na mesma coluna `defeitos.release`, então um teto maior aqui
  * produziria um valor de servidor que o valor de cliente nunca poderia igualar.
  */
 export const TETO_DO_RELEASE = 100;

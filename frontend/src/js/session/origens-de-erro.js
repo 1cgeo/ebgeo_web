@@ -1,7 +1,7 @@
 // Path: js/session/origens-de-erro.js
 
 /**
- * @fileoverview DE QUAL PORTA O ERRO ENTROU. Dez valores, e nada mais.
+ * @fileoverview DE QUAL PORTA O ERRO ENTROU. Onze valores, e nada mais.
  *
  * ZERO IMPORTS por contrato, como os outros módulos de decisão da telemetria: ele é lido pelas
  * QUATRO páginas (três delas bootam sem a store), pelo painel de falha de camada, pelo cliente de
@@ -20,11 +20,14 @@
  */
 
 /**
- * As dez portas por onde um erro chega à telemetria.
+ * As onze portas por onde um erro chega à telemetria.
  *
  * `NAO_TRATADO` e `REJEICAO` são os dois automáticos do navegador (`error` e
- * `unhandledrejection`) e continuam sendo o padrão de quem não diz nada; os outros oito são
- * relatos deliberados, feitos por quem sabe algo que o navegador não sabe.
+ * `unhandledrejection`) e continuam sendo o padrão de quem não diz nada; os outros oito do
+ * CLIENTE são relatos deliberados, feitos por quem sabe algo que o navegador não sabe.
+ *
+ * A DÉCIMA PRIMEIRA NÃO É DO CLIENTE, e ela é a única do vocabulário com essa propriedade: ver
+ * {@link ORIGENS_DO_CLIENTE}.
  */
 export const OrigemDeErro = Object.freeze({
     /** O boot da página falhou (o `catch` de `initApp`). */
@@ -47,24 +50,61 @@ export const OrigemDeErro = Object.freeze({
     SV360: 'sv360',
     /** A tela de indisponibilidade foi ao ar: não sobrou o que renderizar. */
     INDISPONIVEL: 'indisponivel',
+    /**
+     * O SERVIDOR foi quem originou o relato, e não o navegador.
+     *
+     * ELA É A ÚNICA DO VOCABULÁRIO QUE O CLIENTE NUNCA ENVIA, e por isso ela é a ÚLTIMA da lista:
+     * o vocabulário é ordenado e espelhado no outro pacote e no CHECK da coluna, então valor novo
+     * entra no fim, nunca no meio. Quem a escreve é o backend, ao registrar na mesma tabela um
+     * defeito que ele mesmo viu. Do lado do cliente ela só existe para que o vocabulário seja UM
+     * (um segundo enum "quase igual" diverge do primeiro no primeiro dia); mandá-la daqui seria o
+     * navegador se passando por servidor num relatório que ninguém confere. Ver
+     * {@link ORIGENS_DO_CLIENTE}.
+     */
+    SERVIDOR: 'servidor',
 });
 
 /**
- * As dez, na ordem em que foram declaradas.
+ * As onze, na ordem em que foram declaradas.
  *
- * É a lista que o cliente usa para RECUSAR uma origem inventada antes do envio: a rota valida o
- * vocabulário, e um valor fora dele custaria o relato INTEIRO num 422 por causa do campo mais
- * dispensável dele. Mesmo argumento do `atlasId` que não é UUID.
+ * É a lista do VOCABULÁRIO, que o espelho compara com a do backend e com o CHECK da coluna. Para
+ * decidir o que este cliente pode ENVIAR, use {@link ORIGENS_DO_CLIENTE}, que é menor.
  */
 export const ORIGENS_DE_ERRO = Object.freeze(Object.values(OrigemDeErro));
 
 /**
- * Se uma origem existe no vocabulário.
+ * As DEZ que o cliente pode enviar: o vocabulário menos {@link OrigemDeErro.SERVIDOR}.
+ *
+ * É esta lista que a fiação usa para RECUSAR uma origem antes do envio, e ela recusa por dois
+ * motivos diferentes que dão no mesmo lugar: uma origem INVENTADA custaria o relato INTEIRO num
+ * 422 (mesmo argumento do `atlasId` que não é UUID), e a origem `servidor` seria o navegador
+ * mentindo sobre a procedência de um fato. Os dois viram {@link OrigemDeErro.NAO_TRATADO}, que é
+ * a verdade sobre um relato cuja porta não se sabe nomear.
+ *
+ * DERIVADA, e não escrita à mão: uma segunda lista de dez valores ao lado de uma de onze é a
+ * cópia que envelhece na próxima origem que alguém acrescentar.
+ */
+export const ORIGENS_DO_CLIENTE = Object.freeze(
+    ORIGENS_DE_ERRO.filter((origem) => origem !== OrigemDeErro.SERVIDOR),
+);
+
+/**
+ * Se uma origem existe no vocabulário. Ela NÃO responde "o cliente pode mandar isto": para essa
+ * pergunta existe {@link origemDoCliente}.
  * @param {*} origem
  * @returns {boolean}
  */
 export function origemValida(origem) {
     return typeof origem === 'string' && ORIGENS_DE_ERRO.includes(origem);
+}
+
+/**
+ * Se uma origem é uma das que ESTE cliente pode enviar.
+ * @param {*} origem
+ * @returns {boolean}
+ */
+export function origemDoCliente(origem) {
+    return typeof origem === 'string' && ORIGENS_DO_CLIENTE.includes(origem);
 }
 
 /**
