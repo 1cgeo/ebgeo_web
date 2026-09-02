@@ -59,12 +59,43 @@ export function getActiveTimeContext() {
 }
 
 /**
+ * Unsubscribe functions keyed by section element, so a host that runs a cleanup
+ * chain can release the subscription the moment it rebuilds, instead of waiting
+ * for the next temporal event to notice the section left the DOM.
+ *
+ * EVERY host that mounts one of these sections runs such a chain, and each one
+ * calls `releaseTemporalSection` from it: the sidebar feature panel
+ * (`cleanupFunctions` in `createFeaturePanelContent`, run on every rebuild) and
+ * the 3D/360 marker panels (`createMarkerPanelContent` and
+ * `createMarkerPanel360Content`, run on close). The lazy `isConnected` probe below
+ * is the safety net for a host that forgets, never the primary path.
+ */
+const sectionUnsubs = new WeakMap();
+
+/**
+ * Releases the time-context subscription of a temporal section immediately.
+ * Safe to call on any element, subscribed or not, and more than once.
+ * @param {HTMLElement|null|undefined} host - The section element returned by a builder.
+ */
+export function releaseTemporalSection(host) {
+    if (!host) return;
+    const off = sectionUnsubs.get(host);
+    if (off) {
+        sectionUnsubs.delete(host);
+        off();
+    }
+}
+
+/**
  * Re-renders a temporal section whenever the active map's time lens changes
  * (mode/unit/origin), so an open attribute panel reflects timeline-bar edits
  * live. The lens never mutates feature times — only how they're displayed/entered
  * (offset vs date, unit letter), so a rebuild is all that's needed. The
- * subscription self-removes once `host` leaves the DOM (panel closed or rebuilt),
- * since these presentation-only sections expose no explicit cleanup hook.
+ * subscription is released by `releaseTemporalSection`, which every host calls
+ * from its own cleanup chain. Failing that, it self-removes once `host` leaves
+ * the DOM, but only if another temporal event happens to arrive: a cancellation
+ * conditioned on a future event is not a cancellation, which is the leak this
+ * WeakMap exists to close.
  * @param {HTMLElement} host - The section element (doubles as the liveness probe).
  * @param {() => void} render - Rebuilds the section's body from current state.
  */
@@ -77,16 +108,22 @@ function bindTimeContextRerender(host, render) {
     }
     if (!bus) return;
     const unsubs = [];
+    const off = () => {
+        unsubs.forEach((unsub) => unsub());
+        unsubs.length = 0;
+    };
     const handler = () => {
         if (!host.isConnected) {
-            unsubs.forEach((off) => off());
-            unsubs.length = 0;
+            off();
             return;
         }
         render();
     };
     unsubs.push(bus.on(EventTypes.TEMPORAL_CONFIG_CHANGED, handler));
     unsubs.push(bus.on(EventTypes.MAP_TEMPORAL_CHANGED, handler));
+    // Without this, every panel rebuild (one per handle drop while editing)
+    // stacked two listeners that only went away on the next temporal event.
+    sectionUnsubs.set(host, off);
 }
 
 /**

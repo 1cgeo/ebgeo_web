@@ -32,7 +32,7 @@ import {
     createSectionDivider
 } from '@tools/helpers/index.js';
 import { getTilesetName, createDescriptionSection, buildPhotoGallerySection } from './panel-shared-3d.js';
-import { createTemporalValiditySection } from '@js/temporal/temporal-attributes-section.js';
+import { createTemporalValiditySection, releaseTemporalSection } from '@js/temporal/temporal-attributes-section.js';
 
 /**
  * Icons used in the component.
@@ -119,19 +119,22 @@ export function createMarkerPanelContent(marker, tilesetId, onClose) {
         await updateMarkerProperties(currentMarker.id, { position: currentMarker.position });
     });
 
-    // 6. Temporal validity section (near location)
-    container.appendChild(
-        createTemporalValiditySection({
-            inicio: currentMarker.properties?.temporalInicio,
-            fim: currentMarker.properties?.temporalFim,
-            onChange: async (prop, epoch) => {
-                const value = Number.isFinite(epoch) ? epoch : null;
-                currentMarker.properties = { ...currentMarker.properties, [prop]: value };
-                const { updateMarkerProperties } = await getMarkerTool();
-                await updateMarkerProperties(currentMarker.id, { properties: { [prop]: value } });
-            },
-        })
-    );
+    // 6. Temporal validity section (near location). It subscribes to the time-lens
+    // events, so it has to be released here: this panel is rebuilt on every marker
+    // selection, and the lazy `isConnected` fallback only fires on the NEXT
+    // temporal event, which may never come.
+    const temporalSection = createTemporalValiditySection({
+        inicio: currentMarker.properties?.temporalInicio,
+        fim: currentMarker.properties?.temporalFim,
+        onChange: async (prop, epoch) => {
+            const value = Number.isFinite(epoch) ? epoch : null;
+            currentMarker.properties = { ...currentMarker.properties, [prop]: value };
+            const { updateMarkerProperties } = await getMarkerTool();
+            await updateMarkerProperties(currentMarker.id, { properties: { [prop]: value } });
+        },
+    });
+    container.appendChild(temporalSection);
+    cleanupFunctions.push(() => releaseTemporalSection(temporalSection));
 
     // 7. Delete button at the end
     buildDeleteButton(container, currentMarker, onClose);

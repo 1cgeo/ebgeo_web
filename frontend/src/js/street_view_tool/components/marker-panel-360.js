@@ -23,7 +23,7 @@ import {
 import { showSuccess, showToast, showWarning } from '@utils/index.js';
 import { showConfirm } from '@modals/index.js';
 import { deepClone } from '@utils/deep-utils.js';
-import { createTemporalValiditySection } from '@js/temporal/temporal-attributes-section.js';
+import { createTemporalValiditySection, releaseTemporalSection } from '@js/temporal/temporal-attributes-section.js';
 import {
     createModernSlider,
     createModernColorPicker,
@@ -99,7 +99,7 @@ export function createMarkerPanel360Content(marker, photoName, onClose) {
     buildLocationSection(locationPlaceholder, currentMarker, photoName);
 
     // 6. Temporal validity section (optional start/end visibility window)
-    buildTemporalSection(container, currentMarker);
+    buildTemporalSection(container, currentMarker, cleanupFunctions);
 
     // 7. Delete button at the end
     buildDeleteButton(container, currentMarker, onClose);
@@ -788,21 +788,26 @@ function buildLocationSection(placeholder, marker, photoName) {
  * Builds the temporal validity section (start/end datetime).
  * Empty fields mean the marker is permanent (visible at any cursor).
  * Changes persist additively into marker.properties via updateMarker360.
+ * The section subscribes to the time-lens events, so its release is pushed onto
+ * the panel's cleanup chain: this panel is rebuilt on every marker selection, and
+ * the lazy `isConnected` fallback only fires on the NEXT temporal event, which may
+ * never come.
  * @param {HTMLElement} container - Parent container.
  * @param {Object} marker - Current marker state.
+ * @param {Array<Function>} cleanupFunctions - The panel's cleanup chain.
  */
-function buildTemporalSection(container, marker) {
-    container.appendChild(
-        createTemporalValiditySection({
-            inicio: marker.properties?.temporalInicio,
-            fim: marker.properties?.temporalFim,
-            onChange: async (prop, epoch) => {
-                const value = Number.isFinite(epoch) ? epoch : null;
-                marker.properties = { ...marker.properties, [prop]: value };
-                await updateMarker360(marker.id, { properties: { [prop]: value } });
-            },
-        })
-    );
+function buildTemporalSection(container, marker, cleanupFunctions) {
+    const section = createTemporalValiditySection({
+        inicio: marker.properties?.temporalInicio,
+        fim: marker.properties?.temporalFim,
+        onChange: async (prop, epoch) => {
+            const value = Number.isFinite(epoch) ? epoch : null;
+            marker.properties = { ...marker.properties, [prop]: value };
+            await updateMarker360(marker.id, { properties: { [prop]: value } });
+        },
+    });
+    container.appendChild(section);
+    cleanupFunctions.push(() => releaseTemporalSection(section));
 }
 
 /**
