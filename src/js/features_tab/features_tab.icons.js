@@ -77,5 +77,21 @@ export const FEATURES_TAB_ICONS = Object.freeze({
         <line x1="3" y1="9" x2="21" y2="9"/>
         <line x1="3" y1="15" x2="21" y2="15"/>
         <line x1="9" y1="3" x2="9" y2="21"/>
+    </svg>`,
+
+    MORE: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="5" r="1"/>
+        <circle cx="12" cy="12" r="1"/>
+        <circle cx="12" cy="19" r="1"/>
+    </svg>`,
+
+    MOVE: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="4" y1="12" x2="19" y2="12"/>
+        <polyline points="13 6 19 12 13 18"/>
+    </svg>`,
+
+    COPY: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
     </svg>`
 });

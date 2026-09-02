@@ -58,6 +58,7 @@ export function createLayerContainer(layerInfo, callbacks) {
         onRefresh: callbacks.onRefresh,
         onSyncMapSources: callbacks.onSyncMapSources,
         onOpenAttributeTable: callbacks.onOpenAttributeTable,
+        onTransferLayer: callbacks.onTransferLayer,
     };
 
     const header = createLayerHeader(layer, isActive, featureCount, headerCallbacks);

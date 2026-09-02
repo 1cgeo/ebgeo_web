@@ -55,6 +55,7 @@ import {
     setLayerDependencies,
     deleteLayerOnly
 } from './layer.operations.js';
+import { setLayerTransferDependencies } from './layer-transfer.operations.js';
 import { setGroupDependencies } from './group.operations.js';
 import { setCesium3dDependencies, loadCesium3dDataToMemory, clearCesium3dCache } from './cesium3d.operations.js';
 import { setStreetview360Dependencies, loadStreetview360DataToMemory, clearStreetview360Cache } from './streetview360.operations.js';
@@ -91,6 +92,7 @@ export function initStoreEvents(eventBus, groupManager, layerManager) {
     setFeatureDependencies(dependencies);
     setMapDependencies(dependencies);
     setLayerDependencies(dependencies);
+    setLayerTransferDependencies(dependencies);
     setGroupDependencies(dependencies);
     setCesium3dDependencies({ eventBus });
     setStreetview360Dependencies({ eventBus });
@@ -365,6 +367,13 @@ export {
     reorderLayers,
     setMapLayers
 } from './layer.operations.js';
+
+// ===== RE-EXPORTS FROM LAYER TRANSFER OPERATIONS =====
+
+export {
+    transferLayerToMap,
+    TransferMode
+} from './layer-transfer.operations.js';
 
 // ===== RE-EXPORTS FROM GROUP OPERATIONS =====
 

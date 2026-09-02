@@ -6,7 +6,7 @@
 
 import { cleanFeature } from './repository.utils.js';
 import { getMapDataCompat, updateMapDataCompat, getLayersCompat } from './repositories/index.js';
-import { FEATURE_TYPE_MAPPINGS, getAllStorageTypes, getStorageTypeFromSource, IMAGE_RESOURCE_FEATURE_TYPES } from './store.constants.js';
+import { FEATURE_TYPE_MAPPINGS, getAllStorageTypes, getStorageTypeFromSource, getSourceTypeFromStorage, IMAGE_RESOURCE_FEATURE_TYPES } from './store.constants.js';
 import { removeImage } from './settings.operations.js';
 import mapManager from './store-state-manager.js';
 import { memoryStore } from './memory-store.js';
@@ -922,11 +922,19 @@ export async function batchUpdateVisibilityFeatures(visibilityFeature, processed
 
 /**
  * Deletes all features from a specific layer.
+ *
+ * `releaseImages: false` detaches the features from the map WITHOUT destroying
+ * their image blobs. The blob store is global and keyed by the feature id, so a
+ * move to another map carries the same ids and must keep the blobs alive:
+ * releasing them here would leave the just-moved features pointing at nothing.
+ *
  * @param {string} layerId - Layer ID
  * @param {string} [mapName=null] - Target map name
+ * @param {Object} [options]
+ * @param {boolean} [options.releaseImages=true] - Whether to delete image blobs
  * @returns {Promise<boolean>} Whether any features were deleted
  */
-export async function deleteLayerFeatures(layerId, mapName = null) {
+export async function deleteLayerFeatures(layerId, mapName = null, { releaseImages = true } = {}) {
     const targetMap = resolveMap(mapName);
     if (guardWrite(GuardAction.DELETE_FEATURE, 'deleteLayerFeatures', targetMap).blocked) return false;
     const currentMapData = await getMapDataCompat(targetMap);
@@ -943,10 +951,14 @@ export async function deleteLayerFeatures(layerId, mapName = null) {
             if (featureLayerId === layerId) {
                 const featureId = feature.properties?.id;
                 if (featureId) {
-                    groupCleanups.push({ storageType, featureId });
+                    // Groups index features by the SINGULAR source type, which is
+                    // what every other caller passes; handing them the plural
+                    // storage type matched nothing and left orphan references.
+                    const sourceType = feature.properties?.source || getSourceTypeFromStorage(storageType);
+                    groupCleanups.push({ sourceType, featureId });
                     // Deleting a whole layer bypasses the per-tool deleteFeatures,
                     // so release the image blob here for image-bearing feature types.
-                    if (IMAGE_RESOURCE_FEATURE_TYPES.includes(feature.properties?.source)) {
+                    if (releaseImages && IMAGE_RESOURCE_FEATURE_TYPES.includes(feature.properties?.source)) {
                         imageCleanups.push(featureId);
                     }
                 }
@@ -964,8 +976,8 @@ export async function deleteLayerFeatures(layerId, mapName = null) {
         await runTransaction(async (tx) => {
             if (groupCleanups.length > 0) {
                 tx.deferSync(() => {
-                    for (const { storageType, featureId } of groupCleanups) {
-                        deps.groupManager.removeFeatureFromAllGroups(storageType, featureId, targetMap);
+                    for (const { sourceType, featureId } of groupCleanups) {
+                        deps.groupManager.removeFeatureFromAllGroups(sourceType, featureId, targetMap);
                     }
                 });
             }
@@ -1001,6 +1013,36 @@ export async function getLayerFeatures(layerId, mapName = null) {
             if (featureLayerId === layerId) {
                 result.push(feature);
             }
+        }
+    }
+    return result;
+}
+
+/**
+ * Gets a layer's features KEYED BY STORAGE TYPE (the shape `addFeatures` eats).
+ *
+ * The flat `getLayerFeatures` loses the bucket a feature came from, and
+ * rebuilding it from `properties.source` is lossy: a feature with no `source`
+ * would be filed under a bucket that does not exist. Reading the buckets
+ * straight from the map data keeps the key exact.
+ *
+ * Features come deep-cloned (via getCurrentMapFeatures), so the caller may
+ * reshape them without touching what is stored.
+ *
+ * @param {string} layerId - Layer ID
+ * @param {string} [mapName=null] - Target map name
+ * @returns {Promise<Object<string, Object[]>>} Features by storage type (empty buckets omitted)
+ */
+export async function getLayerFeaturesByStorageType(layerId, mapName = null) {
+    const features = await getCurrentMapFeatures(mapName);
+    const result = {};
+
+    for (const storageType of getAllStorageTypes()) {
+        const typeFeatures = (features[storageType] || []).filter(feature =>
+            (feature.properties?.layerId || 'default') === layerId
+        );
+        if (typeFeatures.length > 0) {
+            result[storageType] = typeFeatures;
         }
     }
     return result;
