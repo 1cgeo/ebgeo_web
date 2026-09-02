@@ -63,6 +63,11 @@ npm run diag -- erros --desde 24h   # consulta o log em arquivo (tambem: lento, 
                       #   O log vira um .jsonl por dia em backend/data/logs, em DEV tambem, e e'
                       #   a unica evidencia que sobrevive ao fechamento do terminal. Ver
                       #   docs/wiki/observabilidade.md
+npm run diag -- defeitos --estado aberto        # a tabela de defeitos: LE O BANCO, nao o log
+npm run diag -- defeitos --id <uuid>            # um defeito, com ocorrencias e migalhas
+npm run diag -- pilha --id <uuid> --mapas <dir> # desminifica a pilha crua contra os .map DAQUELA
+                      #   release; sem build que a declare, sai com codigo 2 sem resolver nada.
+                      #   --json em qualquer um dos sete: UM documento no stdout e nada mais ali.
 ```
 
 Arquivos `.js`/`.css` editados passam por lint automático (hook PostToolUse), e a saída aparece depois de cada escrita.

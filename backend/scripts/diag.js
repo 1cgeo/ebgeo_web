@@ -36,13 +36,30 @@
  * seria segurar toda linha com `reqId` até o fim, que é a memória que este trabalho existe
  * para tirar.
  *
+ * OS DOIS ÚLTIMOS COMANDOS LEEM O BANCO, e não o arquivo. `defeitos` e `pilha` consultam as
+ * tabelas do lote B (`defeitos` e `defeito_ocorrencias`), o que os obriga a importar o
+ * `config.js` e o pool, SEMPRE e não só quando falta `--dir`. A assimetria é declarada aqui
+ * porque ela inverte a promessa dos cinco primeiros: os de log respondem com o banco fora, e
+ * estes dois não podem, porque a resposta É o banco. Quem estiver diagnosticando um Postgres
+ * caído tem `erros`, que agrega o mesmo assunto a partir do `.jsonl`.
+ *
+ * `--json` VALE PARA TODOS OS SETE, e o contrato dele é curto: UM documento JSON no stdout e
+ * NADA MAIS ali. As notas que o modo humano escreve (o cabeçalho com o diretório, as
+ * ressalvas sobre indício e premissa) ou viram campo do documento ou saem no stderr. É o que
+ * torna a saída consumível por `| jq` e por um agente sem nenhum recorte de texto, que é o
+ * consumidor que esta ferramenta existe para servir (ver `docs/wiki/observabilidade.md`).
+ *
  * Uso:
  *   npm run diag -- erros [--desde 24h] [--limite 20]
  *   npm run diag -- lento [--desde 24h] [--limite 15]
- *   npm run diag -- status [--desde 1h]
+ *   npm run diag -- status [--desde 24h]
  *   npm run diag -- saude [--desde 24h] [--intervalo 5m]
- *   npm run diag -- linhas [--desde 1h] [--filtro texto] [--limite 50]
+ *   npm run diag -- linhas [--desde 24h] [--filtro texto] [--limite 50]
+ *   npm run diag -- defeitos [--desde 24h] [--estado aberto] [--origem store] [--novos]
+ *   npm run diag -- defeitos --id <uuid>
+ *   npm run diag -- pilha --id <uuid> --mapas <dir>
  *   (--dir <caminho> para ler um diretório de log que não seja o configurado)
+ *   (--json em qualquer um deles)
  */
 
 import fs from 'node:fs';
@@ -55,38 +72,100 @@ import {
   criarResumoDeLatencia, criarResumoDeStatus, MAX_ENDERECOS_PRINCIPAIS,
 } from '../src/utils/diag-consulta.js';
 import { MARCADOR_AMOSTRA } from '../src/utils/amostra-de-saude.js';
+// Os DOIS vocabulários entram por import e nunca como literal: são os mesmos que o Joi da
+// rota valida e que o CHECK do banco impõe, e os dois arquivos têm zero imports por
+// contrato, então trazê-los aqui não arrasta `config.js` nem o pool para dentro dos cinco
+// comandos que rodam sem banco. Uma cópia à mão desta lista envelheceria na próxima origem
+// nova, e envelheceria falhando FECHADO: o comando recusaria um valor que o banco aceita.
+import { ESTADOS_DE_DEFEITO } from '../src/modules/diag/estados-de-defeito.js';
+import { ORIGENS_DE_ERRO } from '../src/modules/diag/origens-de-erro.js';
+import {
+  analisarPilha, resolverQuadros, localizarReleaseDeMapas,
+} from './diag/pilha.js';
+import { resolver as resolverPosicao } from './diag/mapa-de-fonte.js';
 
-const COMANDOS = new Set(['erros', 'lento', 'status', 'saude', 'linhas']);
+const COMANDOS = new Set(['erros', 'lento', 'status', 'saude', 'linhas', 'defeitos', 'pilha']);
+
+/**
+ * Os que consultam o Postgres, e por isso NÃO respondem com o banco fora.
+ *
+ * A separação é usada em UM lugar só (o despacho de `main`) e mesmo assim é constante
+ * nomeada: ela é a fronteira entre a promessa dos cinco comandos de log ("funciona quando
+ * nada mais funciona") e a destes dois, e um `op.comando === 'defeitos' || ...` solto no
+ * meio do fluxo seria exatamente a lista fechada que esta casa proíbe, com o mesmo modo de
+ * falha (o comando de banco que alguém acrescentar depois cairia no ramo do arquivo e
+ * morreria procurando `.jsonl`).
+ */
+const COMANDOS_DE_BANCO = new Set(['defeitos', 'pilha']);
 
 function lerArgumentos(argv) {
   const [comando, ...resto] = argv;
-  const op = { comando, desde: '24h', limite: null, filtro: null, dir: null, intervalo: null };
+  const op = {
+    comando, desde: '24h', limite: null, filtro: null, dir: null, intervalo: null,
+    json: false, estado: null, origem: null, release: null, pagina: null, novos: false,
+    id: null, mapas: null, limiteBruto: null,
+  };
   for (let i = 0; i < resto.length; i += 1) {
     const a = resto[i];
     if (a === '--desde') op.desde = resto[++i];
-    else if (a === '--limite') op.limite = parseInt(resto[++i], 10);
+    // O TEXTO CRU DO `--limite` É GUARDADO ao lado do número, e ele é o que distingue os
+    // TRÊS estados que o número sozinho colapsa: não passado, passado e válido, passado e
+    // lixo. Sem ele, `--limite abc` (NaN) e `--limite 0` caem no mesmo `|| 20` do default,
+    // e o comando responde OUTRA pergunta em silêncio, que é a mesma classe do
+    // `--desde 24hs` que `parseJanela` existe para recusar.
+    else if (a === '--limite') { op.limiteBruto = resto[++i]; op.limite = parseInt(op.limiteBruto, 10); }
     else if (a === '--filtro') op.filtro = resto[++i];
     else if (a === '--dir') op.dir = resto[++i];
     else if (a === '--intervalo') op.intervalo = resto[++i];
+    else if (a === '--json') op.json = true;
+    else if (a === '--estado') op.estado = resto[++i];
+    else if (a === '--origem') op.origem = resto[++i];
+    else if (a === '--release') op.release = resto[++i];
+    else if (a === '--pagina') op.pagina = resto[++i];
+    else if (a === '--novos') op.novos = true;
+    else if (a === '--id') op.id = resto[++i];
+    else if (a === '--mapas') op.mapas = resto[++i];
   }
   return op;
 }
 
-function ajuda() {
-  process.stdout.write(`
-diag — consulta o log em arquivo do EBGeo
+/**
+ * A ajuda, e o DESTINO dela é argumento porque `--json` o muda.
+ *
+ * Sob `--json` o contrato é que o stdout carregue UM documento e nada mais; um texto de
+ * ajuda ali quebraria todo `| jq` no exato caso em que o operador errou o comando, que é
+ * quando ele mais precisa ler o erro. Escrever no stderr mantém as duas coisas: a ajuda
+ * chega ao terminal e o stdout continua parseável (vazio).
+ *
+ * @param {{write: (s: string) => unknown}} destino
+ */
+function ajuda(destino) {
+  destino.write(`
+diag — consulta o log em arquivo e as tabelas de defeito do EBGeo
 
   npm run diag -- erros  [--desde 24h] [--limite 20]   erros agrupados por assinatura
   npm run diag -- lento  [--desde 24h] [--limite 15]   latência por rota (p50/p95/máx)
-  npm run diag -- status [--desde 1h]                  contagem por faixa de status
+  npm run diag -- status [--desde 24h]                 contagem por faixa de status
   npm run diag -- saude  [--desde 24h] [--intervalo 5m] buracos na amostra de saúde
-  npm run diag -- linhas [--desde 1h] [--filtro texto] despejo cru filtrado
+  npm run diag -- linhas [--desde 24h] [--filtro texto] despejo cru filtrado
+  npm run diag -- defeitos [--desde 24h] [--estado x] [--origem y] [--release h]
+                           [--pagina p] [--novos] [--limite 50] [--id <uuid>]
+  npm run diag -- pilha --id <uuid> --mapas <dir>      desminifica a pilha crua
 
   --dir <caminho>   lê outro diretório de log (default: o de LOG_DIR)
-  janela: 30m, 24h, 7d
+  --json            UM documento JSON no stdout e nada mais ali
+  janela: 30m, 24h, 7d (o default de TODO comando é 24h; os colchetes acima mostram esse
+          default, não uma sugestão por comando)
   --intervalo: 30s, 5m, 1h (sem isto, ele é INFERIDO da própria série)
   --filtro: casa a LINHA COMO ESTÁ NO DISCO, então nome de campo ("time", "msg")
             casa toda linha que o tenha. Procure pelo valor.
+
+  defeitos e pilha LEEM O BANCO (precisam de DATABASE_URL); os outros cinco leem
+  arquivo e respondem com o Postgres fora.
+  --estado: ${ESTADOS_DE_DEFEITO.join(' | ')}
+  --origem: ${ORIGENS_DE_ERRO.join(' | ')}
+  --mapas: o diretório da build (com release.json) ou o que contém as builds. A
+           pilha é resolvida SÓ contra a release que a produziu; sem ela, saída 2.
 `);
 }
 
@@ -457,11 +536,494 @@ function imprimirLinhas(linhas, casaram, naJanela, filtro) {
   }
 }
 
+/**
+ * O ÚNICO documento que o modo `--json` escreve no stdout.
+ *
+ * O ENVELOPE TEM TRÊS CAMPOS FIXOS e o resto é a estrutura do comando, espalhada na raiz:
+ *
+ *   `comando`   — qual dos sete respondeu. Uma saída salva em arquivo perde o comando que a
+ *                 produziu, e sem ele `total` e `itens` não dizem de que assunto se trata;
+ *   `janela`    — o recorte, e a PROCEDÊNCIA dele (ver a chamada em `main`);
+ *   `gerado_em` — quando. Em EPOCH MS, como toda data desta família (o `time` do pino, o
+ *                 `primeiraEm` das rotas de defeito). Duas unidades de tempo no mesmo
+ *                 documento é conversão errada esperando para acontecer, e ISO aqui ao lado
+ *                 de epoch nos itens seria exatamente isso.
+ *
+ * `null, 2` E NÃO UMA LINHA SÓ, de propósito: o consumidor é um agente ou um `| jq`, e os
+ * dois leem indentado; um documento de uma linha com centenas de kB é ilegível no terminal
+ * quando alguém esquece o `| jq` e não ganha nada em troca.
+ *
+ * O `\n` FINAL EXISTE porque um documento sem quebra deixa o prompt colado na última chave.
+ *
+ * @param {string} comando
+ * @param {Object|null} janela
+ * @param {Object} estrutura
+ */
+function escreverJson(comando, janela, estrutura) {
+  // O ENVELOPE VEM DEPOIS DO ESPALHAMENTO, e a ordem é a guarda: com ele antes, uma
+  // estrutura que um dia ganhasse um campo `janela` (ou `comando`, ou `gerado_em`)
+  // SOBRESCREVERIA a procedência, calada, e o documento passaria a mentir sobre de onde
+  // veio. Invertida, a procedência sempre ganha. E a colisão não passa em silêncio pelo
+  // outro lado: um campo do comando desaparecendo do documento é defeito igual, só que
+  // mais difícil de notar, então ela LANÇA em vez de escolher um vencedor.
+  for (const chave of ['comando', 'janela', 'gerado_em']) {
+    if (Object.hasOwn(estrutura, chave)) {
+      throw new Error(`estrutura de "${comando}" colide com o campo de envelope "${chave}"`);
+    }
+  }
+  process.stdout.write(`${JSON.stringify({
+    ...estrutura, comando, janela, gerado_em: Date.now(),
+  }, null, 2)}\n`);
+}
+
+/* ------------------------------------------------------------------------------------- *
+ *  `defeitos` e `pilha`: a metade que lê o BANCO.
+ * ------------------------------------------------------------------------------------- */
+
+/**
+ * O pool, aberto TARDE e uma vez só.
+ *
+ * `src/database/index.js` cria o pool na avaliação do módulo e importa `config.js`, que
+ * exige `DATABASE_URL` e `JWT_SECRET`. Um `import` no topo deste arquivo faria os CINCO
+ * comandos de log passarem a exigir banco configurado, que é exatamente a propriedade que o
+ * comentário de `--dir` existe para preservar: a hora de ler log é a hora em que alguma
+ * coisa não está de pé.
+ */
+let bancoAberto = null;
+
+async function abrirBanco() {
+  if (!bancoAberto) bancoAberto = await import('../src/database/index.js');
+  return bancoAberto;
+}
+
+/**
+ * Fecha o pool, senão o processo NÃO SAI.
+ *
+ * O `pg-promise` mantém as conexões do pool vivas, e um handle aberto segura o loop de
+ * eventos: sem isto o comando imprime a resposta inteira e fica pendurado no terminal, que
+ * se lê como consulta lenta. `pgp.end()` devolve `undefined` em algumas versões, então nada
+ * de encadear nele (o mesmo cuidado está em `scripts/models3d-adotar.js`).
+ */
+async function fecharBanco() {
+  if (!bancoAberto) return;
+  await Promise.resolve(bancoAberto.pgp.end()).catch(() => {});
+  bancoAberto = null;
+}
+
+/** UUID v4 canônico, o formato que a coluna `id` de `defeitos` tem. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Corta um texto no comprimento pedido, marcando o corte.
+ *
+ * A MARCA É OBRIGATÓRIA e é a razão de a função existir: uma mensagem de erro cortada em
+ * silêncio no meio de uma frase se lê como a mensagem INTEIRA, e quem procura o texto no
+ * código não acha. O `--json` nunca corta nada, e é lá que está o valor completo.
+ */
+function cortar(texto, tamanho) {
+  const t = texto === null || texto === undefined ? '' : String(texto).replace(/\s+/g, ' ');
+  return t.length <= tamanho ? t : `${t.slice(0, tamanho - 1)}…`;
+}
+
+/** `hora()` com os milissegundos, que a linha do tempo de migalhas precisa para ordenar. */
+function horaFina(t) {
+  if (typeof t !== 'number') return '?';
+  return `${hora(t)}.${String(new Date(t).getMilliseconds()).padStart(3, '0')}`;
+}
+
+/**
+ * A tabela de defeitos, uma linha por assinatura.
+ *
+ * O ID SAI CURTO (oito caracteres) e isso é uma aposta declarada: ele serve para o olho
+ * reconhecer a linha, e `--id` exige o UUID inteiro, que sai no `--json`. Imprimir os 36 na
+ * tabela empurraria a mensagem, que é a coluna que se lê de fato, para fora da largura do
+ * terminal.
+ *
+ * A CONTAGEM DE ANTES DO CORTE VEM JUNTO pelo mesmo motivo do `totalAssinaturas` da rota:
+ * "50 defeitos" é indistinguível de "50 de 400", e quem lê conclui que viu tudo.
+ */
+function imprimirDefeitos({ totalDefeitos, itens }, limite) {
+  if (!itens.length) {
+    process.stdout.write('Nenhum defeito na janela com estes filtros.\n');
+    return;
+  }
+  process.stdout.write(`${totalDefeitos} defeito(s) na janela; mostrando ${itens.length}.\n\n`);
+  process.stdout.write(
+    `${'estado'.padEnd(10)} ${'ocorr'.padStart(7)}  ${'origem'.padEnd(12)} ${'1ª release'.padEnd(14)} ${'últ. release'.padEnd(14)} ${'página'.padEnd(10)} ${'mensagem'.padEnd(44)} id\n`
+  );
+  for (const d of itens) {
+    process.stdout.write(
+      `${cortar(d.estado, 10).padEnd(10)} ${String(d.ocorrencias).padStart(7)}  `
+      + `${cortar(d.origem, 12).padEnd(12)} ${cortar(d.primeiraRelease, 14).padEnd(14)} `
+      + `${cortar(d.ultimaRelease, 14).padEnd(14)} ${cortar(d.pagina, 10).padEnd(10)} `
+      + `${cortar(d.mensagem, 44).padEnd(44)} ${String(d.id).slice(0, 8)}\n`
+    );
+  }
+  if (totalDefeitos > itens.length) {
+    process.stdout.write(`\n... e mais ${totalDefeitos - itens.length}, fora do --limite de ${limite}.\n`);
+  }
+  process.stdout.write('\nDetalhe de um: npm run diag -- defeitos --id <uuid>   (o uuid inteiro sai no --json)\n');
+}
+
+/**
+ * UM defeito com suas ocorrências, e as MIGALHAS como linha do tempo.
+ *
+ * A LINHA DO TEMPO É O MOTIVO DE A TELA EXISTIR. A linha agregada responde "o quê e quantas
+ * vezes"; a ocorrência responde "em qual aba, em qual página, com qual requisição"; e a
+ * migalha responde "o que a pessoa tinha acabado de fazer", que é a única das três que
+ * costuma explicar o defeito. Ela sai em ordem CRONOLÓGICA (como o cliente a montou), com o
+ * horário fino, porque migalhas de um mesmo gesto caem no mesmo segundo e a ordem é a
+ * informação.
+ */
+function imprimirUmDefeito(d, ocorrencias) {
+  process.stdout.write(`${d.id}   [${d.estado}]   ${d.ocorrencias} ocorrência(s)\n`);
+  process.stdout.write(`assinatura : ${d.assinatura}\n`);
+  process.stdout.write(`mensagem   : ${d.mensagem}\n`);
+  process.stdout.write(`origem     : ${d.origem ?? '-'}   página: ${d.pagina ?? '-'}   atlas: ${d.atlasId ?? '-'}\n`);
+  process.stdout.write(`release    : primeira ${d.primeiraRelease ?? '-'} → última ${d.ultimaRelease ?? '-'}\n`);
+  process.stdout.write(`visto      : ${hora(d.primeiraEm)} → ${hora(d.ultimaEm)}\n`);
+  process.stdout.write(`url        : ${d.url ?? '-'}\n`);
+  process.stdout.write(`usuário    : ${d.username ?? '(anônimo)'}   sessão: ${d.sessaoId ?? '-'}\n`);
+  if (d.estado === 'resolvido' || d.estado === 'regrediu') {
+    process.stdout.write(
+      `resolvido  : ${hora(d.resolvidoEm)} por ${d.resolvidoPorUsername ?? '?'} na release ${d.resolvidoNaRelease ?? '(não anotada)'}`
+      + `${d.resolvidoNoCommit ? ` (commit ${d.resolvidoNoCommit})` : ''}\n`
+    );
+  }
+  if (d.stackBruta) {
+    process.stdout.write('\npilha crua (da PRIMEIRA vez; desminifique com: npm run diag -- pilha --id <uuid> --mapas <dir>):\n');
+    for (const linha of String(d.stackBruta).split(/\r?\n/).slice(0, 6)) {
+      process.stdout.write(`  ${linha}\n`);
+    }
+  }
+
+  if (!ocorrencias.length) {
+    process.stdout.write('\nNenhuma ocorrência guardada. Isto NÃO é "nunca ocorreu": a tabela de ocorrências\n');
+    process.stdout.write('nasceu depois da de defeitos, e a poda por idade apaga as duas juntas.\n');
+    return;
+  }
+  process.stdout.write(`\n${ocorrencias.length} ocorrência(s) guardada(s), da mais recente para a mais antiga:\n`);
+  for (const o of ocorrencias) {
+    process.stdout.write(`\n  ${hora(o.em)}   release ${o.release ?? '-'}   página ${o.pagina ?? '-'}   sessão ${o.sessaoId ?? '-'}\n`);
+    if (o.rota || o.statusCode || o.reqId) {
+      process.stdout.write(`      rota ${o.rota ?? '-'}   status ${o.statusCode ?? '-'}   req ${o.reqId ?? '-'}\n`);
+    }
+    const migalhas = Array.isArray(o.migalhas) ? o.migalhas : [];
+    if (!migalhas.length) continue;
+    process.stdout.write('      migalhas:\n');
+    for (const m of migalhas) {
+      process.stdout.write(`        ${horaFina(m.t).padEnd(26)} ${cortar(m.tipo, 12).padEnd(12)} ${m.texto ?? ''}\n`);
+    }
+  }
+}
+
+/**
+ * A pilha desminificada, quadro a quadro.
+ *
+ * O QUADRO CRU VAI JUNTO DO RESOLVIDO, indentado embaixo, e não é redundância: é a evidência
+ * de onde a resposta veio. Sem ele, um mapeamento errado (coluna deslocada por um, mapa de
+ * outro chunk com o mesmo nome) é indistinguível de um certo, e a saída deste comando é
+ * justamente o tipo de coisa que se copia para um relatório sem conferir.
+ *
+ * OS TRÊS MOTIVOS DE NÃO RESOLVER SAEM COM NOMES DIFERENTES (ver `resolverQuadros`), porque
+ * "não achei o `.map`" e "achei e a posição não cai em segmento nenhum" mandam procurar
+ * coisas opostas: a primeira é build publicada sem mapa, a segunda é coluna ou mapa errados.
+ */
+function imprimirPilha(quadros) {
+  for (const q of quadros) {
+    if (q.motivo === 'sem-quadro') {
+      process.stdout.write(`${q.bruta}\n`);
+      continue;
+    }
+    if (q.resolvido) {
+      // A COLUNA SAI 1-BASED AQUI, e só aqui. O `.map` é 0-based nas duas coordenadas, mas
+      // a LINHA já sai 1-based (o formato conta a partir de zero e a referência humana
+      // conta a partir de um), então imprimir a coluna crua ao lado dela produziria
+      // `arquivo:10:6` com DOIS sistemas de contagem na mesma referência, e um editor abre
+      // isso na coluna errada. O `--json` continua 0-based em `colunaOriginal`, porque lá o
+      // consumidor é código e a convenção do formato é a que vale; a diferença está escrita
+      // no cabeçalho de `scripts/diag/mapa-de-fonte.js`.
+      const coluna = q.colunaOriginal + 1;
+      process.stdout.write(`  ${q.fonte}:${q.linhaOriginal}:${coluna}${q.nome ? ` (${q.nome})` : ''}\n`);
+    } else {
+      const marca = q.motivo === 'sem-mapa' ? '[sem mapa]' : '[sem segmento]';
+      process.stdout.write(`  ${marca} ${q.arquivo ?? q.url}:${q.linha}:${q.coluna}${q.erroDoMapa ? `  (${q.erroDoMapa})` : ''}\n`);
+    }
+    process.stdout.write(`      ← ${q.bruta.trim()}\n`);
+  }
+}
+
+/**
+ * A explicação da recusa, ESCRITA UMA VEZ e usada pelas duas saídas.
+ *
+ * Ela sai no stderr no modo humano e vai dentro do documento no `--json`, e é a mesma string
+ * nos dois porque duas redações da mesma recusa divergem no dia em que alguém melhorar uma:
+ * é o argumento que este repositório aplica a `denialNotice` no cliente e ao par de frases do
+ * 360, e vale igual aqui.
+ */
+const EXPLICACAO_DA_RECUSA = 'NADA foi resolvido, de propósito: os endereços desta pilha só significam alguma coisa '
+  + 'lidos contra o bundle que a produziu. Contra outra build a resolução NÃO falha, ela devolve '
+  + 'funções e linhas plausíveis e ERRADAS, que é pior que pilha nenhuma.';
+
+/**
+ * O bloco que sai quando NENHUMA build declara a release da pilha.
+ *
+ * ELE É A PEÇA CENTRAL DO COMANDO, e não um caso de erro. Ver o cabeçalho de
+ * `scripts/diag/pilha.js`: resolver contra outra build não falha, devolve nomes e linhas
+ * plausíveis e errados, e um relatório assim custa mais que pilha nenhuma. As candidatas vão
+ * junto porque elas separam os dois diagnósticos ("digitei o caminho errado" e "a build foi
+ * podada"), e a pilha crua vai junto porque ela é o que o operador ainda pode usar.
+ */
+function imprimirPilhaSemRelease(release, raiz, candidatas, stackBruta) {
+  process.stderr.write(`NENHUMA BUILD SOB ${path.resolve(raiz)} DECLARA A RELEASE "${release}".\n`);
+  process.stderr.write(`${EXPLICACAO_DA_RECUSA}\n`);
+  if (candidatas.length) {
+    process.stderr.write(`\nO que há ali (${candidatas.length}):\n`);
+    for (const c of candidatas) process.stderr.write(`  ${c.release}   ${c.diretorio}\n`);
+  } else {
+    process.stderr.write('\nNenhum release.json foi encontrado ali, nem na raiz nem um nível abaixo. Aponte\n');
+    process.stderr.write('--mapas para o dist/ de uma build ou para o diretório que contém as builds.\n');
+  }
+  process.stderr.write('\npilha crua:\n');
+  process.stdout.write(`${stackBruta}\n`);
+}
+
+/**
+ * Busca um defeito pelo id, validando o formato ANTES de ir ao banco.
+ *
+ * A VALIDAÇÃO É NA BORDA porque o desfecho sem ela é ilegível: `id` é UUID, e um texto que
+ * não seja UUID levanta `22P02` no driver, que chega ao terminal como um erro de sintaxe de
+ * entrada para tipo uuid, sem relação aparente com o argumento que o operador digitou. É a
+ * mesma razão pela qual `audit_trail.target_id` nasceu TEXT (ver `backend/CLAUDE.md`).
+ *
+ * @returns {Promise<{defeito: Object|null, erro: string|null}>}
+ */
+async function buscarDefeito(id) {
+  if (!id) return { defeito: null, erro: 'Falta --id <uuid>.' };
+  if (!UUID.test(id)) return { defeito: null, erro: `--id não é um uuid: "${id}".` };
+  // A CONSULTA E O MAPEAMENTO VÊM DO SERVIÇO, como a listagem logo abaixo: `obterDefeito` é
+  // a mesma função que a rota usaria, sobre o mesmo mapeador. Enquanto o módulo esteve
+  // congelado isto morou fora de `src/`, com uma cópia do SELECT e do mapeamento de colunas;
+  // a cópia morreu quando o SQL voltou para casa, e é isso que garante que `defeitos` e
+  // `defeitos --id` respondam o MESMO objeto sobre o mesmo defeito, que é a comparação que
+  // um agente faz para se orientar.
+  //
+  // O `abrirBanco()` continua aqui e não é redundante: ele é o que REGISTRA o módulo do
+  // banco para `fecharBanco()`, e sem o par o pool fica aberto e o comando pendura o
+  // terminal depois de imprimir a resposta inteira.
+  await abrirBanco();
+  const { obterDefeito } = await import('../src/modules/diag/defeitos.service.js');
+  const defeito = await obterDefeito(id);
+  if (!defeito) {
+    return {
+      defeito: null,
+      erro: `Nenhum defeito com id ${id}. A poda por idade apaga defeito e ocorrências juntos,`
+        + ' então um id que a listagem mostrou minutos atrás pode ter envelhecido.',
+    };
+  }
+  return { defeito, erro: null };
+}
+
+/**
+ * `defeitos`: a listagem, ou UM defeito com suas ocorrências.
+ *
+ * A LISTAGEM VEM INTEIRA DE `listarDefeitos` (`src/modules/diag/defeitos.service.js`), a
+ * mesma função que serve `GET /diag/defeitos`. Nem o SQL, nem os filtros, nem o mapeamento
+ * de colunas são reescritos aqui: uma segunda verdade sobre o que "defeito aberto na janela"
+ * significa faria a tela e o comando divergirem no dia em que um dos dois fosse consertado,
+ * e o comando é o que um agente lê.
+ *
+ * @returns {Promise<{codigo: number, estrutura: Object|null}>}
+ */
+async function comandoDefeitos(op) {
+  const limite = op.limite || 50;
+
+  if (op.id !== null) {
+    const { defeito, erro } = await buscarDefeito(op.id);
+    if (!defeito) {
+      process.stderr.write(`${erro}\n`);
+      return { codigo: 1, estrutura: null };
+    }
+    const { listarOcorrencias } = await import('../src/modules/diag/defeitos.service.js');
+    const { itens } = await listarOcorrencias(defeito.id);
+    return { codigo: 0, estrutura: { defeito, ocorrencias: itens }, imprimir: () => imprimirUmDefeito(defeito, itens) };
+  }
+
+  const { listarDefeitos } = await import('../src/modules/diag/defeitos.service.js');
+  const r = await listarDefeitos({
+    desde: op.desde,
+    estado: op.estado,
+    origem: op.origem,
+    release: op.release,
+    pagina: op.pagina,
+    novos: op.novos,
+    limite,
+  });
+  const filtros = {
+    estado: op.estado, origem: op.origem, release: op.release, pagina: op.pagina, novos: op.novos, limite,
+  };
+  return {
+    codigo: 0,
+    estrutura: { totalDefeitos: r.totalDefeitos, itens: r.itens, filtros },
+    imprimir: () => imprimirDefeitos(r, limite),
+  };
+}
+
+/**
+ * `pilha`: desminifica `stack_bruta` contra os `.map` da release que a produziu.
+ *
+ * OS CÓDIGOS DE SAÍDA SÃO TRÊS E SIGNIFICAM COISAS DIFERENTES: 0 resolveu (ainda que alguns
+ * quadros fiquem sem mapa), 1 é erro de uso ou defeito inexistente, e 2 é a recusa
+ * deliberada, quando nenhuma build sob `--mapas` declara a release. O 2 existe separado
+ * justamente para que um roteiro possa distinguir "não deu para responder" de "respondi", em
+ * vez de tratar a recusa como falha genérica.
+ *
+ * @returns {Promise<{codigo: number, estrutura: Object|null}>}
+ */
+async function comandoPilha(op) {
+  const { defeito, erro } = await buscarDefeito(op.id);
+  if (!defeito) {
+    process.stderr.write(`${erro}\n`);
+    return { codigo: 1, estrutura: null };
+  }
+  if (!defeito.stackBruta) {
+    process.stderr.write(`O defeito ${defeito.id} não tem pilha crua (\`stack_bruta\` nula), então não há o que desminificar.\n`);
+    process.stderr.write('Ela só é gravada quando o relato do cliente a traz, e fica fixada na PRIMEIRA vez.\n');
+    return { codigo: 1, estrutura: null };
+  }
+
+  // `primeira_release` É OPCIONAL, e sem ela não há PERGUNTA a fazer ao disco. Cair na
+  // recusa genérica produzia a frase 'NENHUMA BUILD ... DECLARA A RELEASE "null"', que
+  // manda o operador procurar uma build chamada null; e passar `null` à busca casaria com
+  // qualquer `release.json` que também não declarasse a sua, ou seja, resolveria contra uma
+  // build arbitrária, que é exatamente o que este comando existe para não fazer. Código 1
+  // e não 2: o 2 significa "a build não está aqui", e aqui o que falta é o dado.
+  if (!defeito.primeiraRelease) {
+    process.stderr.write(`O defeito ${defeito.id} não tem release do primeiro avistamento (\`primeira_release\` nula).\n`);
+    process.stderr.write('A pilha crua só pode ser lida contra o bundle que a produziu, e sem esse campo não\n');
+    process.stderr.write('há como saber qual foi. Ela é gravada quando o relato traz a release, e relato sem\n');
+    process.stderr.write('ela deixa a coluna vazia para sempre: a pilha crua fica fixada no PRIMEIRO avistamento.\n');
+    return { codigo: 1, estrutura: null };
+  }
+
+  const quadros = analisarPilha(defeito.stackBruta);
+  const { diretorio, candidatas } = localizarReleaseDeMapas(op.mapas, defeito.primeiraRelease);
+  const cabecalho = {
+    defeito: { id: defeito.id, estado: defeito.estado, mensagem: defeito.mensagem, ocorrencias: defeito.ocorrencias },
+    release: defeito.primeiraRelease,
+    mapas: path.resolve(op.mapas),
+    candidatas,
+  };
+
+  if (!diretorio) {
+    return {
+      codigo: 2,
+      estrutura: {
+        ...cabecalho,
+        diretorio: null,
+        // A RECUSA É UM CAMPO, e não a ausência de `diretorio`, porque o consumidor do
+        // `--json` é um roteiro: ele precisa de algo que se leia como decisão declarada, não
+        // de um nulo que se possa interpretar como "não consegui". A explicação vem da mesma
+        // constante que o modo humano imprime.
+        recusa: { motivo: 'release-nao-encontrada', explicacao: EXPLICACAO_DA_RECUSA },
+        stackBruta: defeito.stackBruta,
+        quadros,
+      },
+      imprimir: () => imprimirPilhaSemRelease(defeito.primeiraRelease, op.mapas, candidatas, defeito.stackBruta),
+    };
+  }
+
+  const resolvidos = resolverQuadros(quadros, diretorio, resolverPosicao);
+  return {
+    codigo: 0,
+    estrutura: { ...cabecalho, diretorio, quadros: resolvidos },
+    imprimir: () => {
+      process.stdout.write(`# defeito ${defeito.id} [${defeito.estado}] | release ${defeito.primeiraRelease} | ${diretorio}\n\n`);
+      imprimirPilha(resolvidos);
+    },
+  };
+}
+
+/**
+ * Roda `defeitos` ou `pilha`, decide a saída e FECHA O POOL, sempre.
+ *
+ * O `finally` NÃO É HIGIENE, É O QUE FAZ O COMANDO TERMINAR: uma conexão de pool aberta
+ * segura o loop de eventos, e sem ele o processo imprime a resposta inteira e fica pendurado
+ * no terminal, o que se lê como consulta lenta e não como handle esquecido.
+ *
+ * O CÓDIGO DE SAÍDA VAI EM `process.exitCode`, NUNCA `process.exit()`: o segundo mataria o
+ * processo antes de o `pgp.end()` terminar, deixando conexões penduradas no Postgres a cada
+ * invocação. Com `exitCode`, o processo sai sozinho quando o último handle fecha, carregando
+ * o código.
+ *
+ * A VALIDAÇÃO DE `--estado` E `--origem` É AQUI, contra os vocabulários importados, e ela
+ * RECLAMA em vez de repassar: um valor não reconhecido chega ao SQL como filtro de igualdade
+ * e devolve LISTA VAZIA, que se lê como "nenhum defeito assim" quando na verdade é um erro de
+ * digitação. É o mesmo argumento de `parseJanela` devolver `null` no que não entende.
+ */
+async function comandoDeBanco(op, janela) {
+  for (const [bandeira, valor, aceitos] of [
+    ['--estado', op.estado, ESTADOS_DE_DEFEITO],
+    ['--origem', op.origem, ORIGENS_DE_ERRO],
+  ]) {
+    if (valor !== null && !aceitos.includes(valor)) {
+      process.stderr.write(`${bandeira} inválido: "${valor}". Aceitos: ${aceitos.join(', ')}.\n`);
+      process.stderr.write('Um valor não reconhecido não filtraria nada, devolveria lista VAZIA e se leria como\n');
+      process.stderr.write('"nenhum defeito assim", que é a resposta errada com cara de resposta.\n');
+      process.exitCode = 1;
+      return;
+    }
+  }
+
+  // `--mapas` É ARGUMENTO DE ARQUIVO, então ele é cobrado ANTES do pool: abrir conexão para
+  // descobrir que falta uma bandeira é trabalho jogado fora e, pior, com o Postgres fora do ar
+  // trocaria a frase certa ("falta --mapas") pela errada ("não consegui abrir o banco").
+  if (op.comando === 'pilha' && !op.mapas) {
+    process.stderr.write('Falta --mapas <dir>: o diretório da build (com release.json) ou o que contém as builds.\n');
+    process.exitCode = 1;
+    return;
+  }
+
+  // O POOL É ABERTO AQUI, ANTES DO DESPACHO, e não onde ele é usado. Foi um defeito real e
+  // ele é o tipo que se descobre pelo sintoma errado: `comandoDefeitos` chegava ao banco pelo
+  // `listarDefeitos` do serviço, que importa `database/index.js` por conta própria, então o
+  // pool nascia sem `bancoAberto` nunca ter sido preenchido, o `finally` abaixo não fechava
+  // nada e o comando imprimia a resposta INTEIRA e ficava pendurado no terminal. Quem usa o
+  // pool e quem o fecha precisam ser a mesma decisão, e ela é esta linha.
+  try {
+    await abrirBanco();
+  } catch (err) {
+    process.stderr.write(`Não foi possível abrir o banco: ${err.message}\n`);
+    process.stderr.write('`defeitos` e `pilha` leem as tabelas, e não o log: eles exigem DATABASE_URL e JWT_SECRET.\n');
+    process.stderr.write('Para diagnosticar com o Postgres fora, use os comandos de log (erros, lento, status, saude, linhas).\n');
+    process.exitCode = 1;
+    return;
+  }
+
+  try {
+    const r = op.comando === 'pilha' ? await comandoPilha(op) : await comandoDefeitos(op);
+    process.exitCode = r.codigo;
+    if (!r.estrutura) return;
+    if (op.json) {
+      // `pilha` não tem janela nenhuma (ela responde sobre UMA linha, achada por id), e
+      // `null` diz isso melhor que uma janela inventada de 24h que não filtrou coisa alguma.
+      const janelaDoComando = op.comando === 'pilha' || op.id !== null
+        ? null
+        : { desde: op.desde, desdeMs: janela, inicio: Date.now() - janela, fim: Date.now() };
+      escreverJson(op.comando, janelaDoComando, r.estrutura);
+      return;
+    }
+    r.imprimir();
+  } finally {
+    await fecharBanco();
+  }
+}
+
 async function main() {
   const op = lerArgumentos(process.argv.slice(2));
 
   if (!COMANDOS.has(op.comando)) {
-    ajuda();
+    ajuda(op.json ? process.stderr : process.stdout);
     process.exit(op.comando ? 1 : 0);
   }
 
@@ -478,6 +1040,26 @@ async function main() {
     process.stderr.write(`Intervalo inválido: "${op.intervalo}". Use algo como 30s, 5m ou 1h.\n`);
     process.stderr.write('O sufixo é obrigatório: um número nu seria ambíguo com HEALTH_SAMPLE_INTERVAL_MS, que é em ms.\n');
     process.exit(1);
+  }
+
+  // Mesmo contrato de `--desde` e `--intervalo`: forma não reconhecida RECLAMA. `parseInt`
+  // aceita `12abc` e devolve 12, e devolve NaN em `abc`; os dois, mais o zero, caíam no
+  // default calado e faziam o comando cortar a lista num tamanho que ninguém pediu.
+  if (op.limiteBruto !== null && !/^[1-9][0-9]*$/.test(String(op.limiteBruto).trim())) {
+    process.stderr.write(`Limite inválido: "${op.limiteBruto}". Use um inteiro maior que zero.\n`);
+    process.stderr.write('Zero é um número fácil de digitar e não é um limite: ele cairia no default e o\n');
+    process.stderr.write('comando cortaria a lista num tamanho que você não pediu, sem dizer nada.\n');
+    process.exit(1);
+  }
+
+  if (COMANDOS_DE_BANCO.has(op.comando)) {
+    // O DESVIO É AQUI, DEPOIS DA JANELA E ANTES DO DIRETÓRIO. Depois da janela porque
+    // `defeitos` usa a mesma gramática de `--desde` e o mesmo erro serve aos dois; antes do
+    // diretório porque estes dois não leem `.jsonl` nenhum, e cair no `existsSync` de
+    // LOG_DIR faria um `diag -- defeitos` morrer por falta de um diretório de log que ele
+    // não vai abrir.
+    await comandoDeBanco(op, janela);
+    return;
   }
 
   // O config é importado tarde e só quando `--dir` não foi dado: ele exige DATABASE_URL e
@@ -501,8 +1083,46 @@ async function main() {
   const agora = new Date();
   const relatorio = await coletar(op, dir, janela, agora);
   const { arquivosLidos, linhas, inicio } = relatorio.leitura;
+
+  if (op.json) {
+    // O CABEÇALHO HUMANO VIRA `janela`, e não some. Ele carrega o diretório resolvido, a
+    // contagem de arquivos e a de linhas, que são o que torna a resposta FALSIFICÁVEL: sem
+    // eles, um `assinaturas: []` de um diretório errado é indistinguível de uma janela
+    // limpa, e o consumidor desta saída (um agente) não tem terminal para desconfiar.
+    escreverJson(op.comando, {
+      desde: op.desde,
+      desdeMs: janela,
+      inicio: inicio.getTime(),
+      fim: agora.getTime(),
+      dir: path.resolve(dir),
+      arquivos: arquivosLidos,
+      linhas,
+    }, relatorio.estrutura(inicio, agora, intervalo));
+    return;
+  }
+
   process.stdout.write(`# ${path.resolve(dir)} | ${arquivosLidos} arquivo(s) | desde ${inicio.toLocaleString('pt-BR')} | ${linhas} linha(s)\n\n`);
   relatorio.imprimir(inicio, agora, intervalo);
+}
+
+/**
+ * O resumo de saúde pronto para o envelope, com o `janela` DELE renomeado.
+ *
+ * ESTE É O ÚNICO CHOQUE DE NOME DO PRODUTO, e ele era silencioso: `resumirAmostras` devolve
+ * um campo `janela` (`{ inicio, fim }`, as pontas que ele recebeu), e o envelope de `--json`
+ * tem outro `janela`, com a procedência inteira (diretório, arquivos, linhas). Enquanto o
+ * envelope era escrito ANTES do espalhamento, o resumo o SOBRESCREVIA, e o documento de
+ * `saude --json` saía sem dizer de qual diretório veio nem quantas linhas leu, ou seja, sem
+ * a única metade que o torna falsificável. Nada ficava vermelho.
+ *
+ * Renomear é melhor que descartar: as duas pontas continuam sendo o que o resumo usou para
+ * decidir o que é buraco e o que é desconhecido, e um leitor que compare `janelaDaSerie` com
+ * `janela` está fazendo a conferência certa. Quem lança na colisão é `escreverJson`, e foi
+ * ele que achou este caso.
+ */
+function estruturaDeSaude(amostras, opcoes) {
+  const { janela: janelaDaSerie, ...resto } = resumirAmostras(amostras, opcoes);
+  return { ...resto, janelaDaSerie };
 }
 
 /**
@@ -529,14 +1149,35 @@ async function coletar(op, dir, janela, agora) {
       censo.ver(reg);
     });
     const grupos = agrupador.grupos();
-    return { leitura, imprimir: () => imprimirErros(grupos, op.limite || 20, censo.resultado()) };
+    const limiteDeErros = op.limite || 20;
+    return {
+      leitura,
+      imprimir: () => imprimirErros(grupos, limiteDeErros, censo.resultado()),
+      // O `--limite` É RESPEITADO TAMBÉM AQUI, e a alternativa (mandar tudo, já que JSON não
+      // tem largura de terminal) foi recusada: o mesmo comando com os mesmos argumentos tem
+      // de responder à mesma pergunta nos dois modos, senão comparar as duas saídas deixa de
+      // provar qualquer coisa. O que NÃO se perde é a contagem de antes do corte, que vai
+      // ao lado.
+      estrutura: () => ({
+        totalDeAssinaturas: grupos.length,
+        totalDeOcorrencias: grupos.reduce((soma, g) => soma + g.total, 0),
+        limite: limiteDeErros,
+        assinaturas: grupos.slice(0, limiteDeErros),
+        enderecos: censo.resultado(),
+      }),
+    };
   }
 
   if (op.comando === 'lento') {
     const resumo = criarResumoDeLatencia();
     const leitura = await percorrerRegistros(dir, janela, agora, (reg) => resumo.ver(reg));
     const rotas = resumo.resultado();
-    return { leitura, imprimir: () => imprimirLento(rotas, op.limite || 15) };
+    const limiteDeRotas = op.limite || 15;
+    return {
+      leitura,
+      imprimir: () => imprimirLento(rotas, limiteDeRotas),
+      estrutura: () => ({ totalDeRotas: rotas.length, limite: limiteDeRotas, rotas: rotas.slice(0, limiteDeRotas) }),
+    };
   }
 
   if (op.comando === 'status') {
@@ -547,7 +1188,11 @@ async function coletar(op, dir, janela, agora) {
       if (ehErro(reg)) erros += 1;
     });
     const contagem = resumo.resultado();
-    return { leitura, imprimir: () => imprimirStatus(contagem, erros) };
+    return {
+      leitura,
+      imprimir: () => imprimirStatus(contagem, erros),
+      estrutura: () => ({ ...contagem, erros }),
+    };
   }
 
   if (op.comando === 'saude') {
@@ -568,6 +1213,14 @@ async function coletar(op, dir, janela, agora) {
       imprimir: (inicio, fim, intervalo) => imprimirSaude(
         amostras, { intervaloMs: intervalo, agora: fim.getTime(), inicio: inicio.getTime() }
       ),
+      // `resumirAmostras` É CHAMADO DE NOVO AQUI, e não reaproveitado do `imprimir`: os dois
+      // modos são exclusivos (só um deles roda numa invocação), então não há cálculo em
+      // dobro, e amarrar os dois a um resultado compartilhado obrigaria `imprimirSaude` a
+      // receber o resumo pronto, mudando a assinatura que
+      // `tests/unit/diag-saude-impressao.test.js` exercita pelo comando de verdade.
+      estrutura: (inicio, fim, intervalo) => estruturaDeSaude(
+        amostras, { intervaloMs: intervalo, agora: fim.getTime(), inicio: inicio.getTime() }
+      ),
     };
   }
 
@@ -585,7 +1238,15 @@ async function coletar(op, dir, janela, agora) {
   const ultimas = casaram > limite
     ? [...anel.slice(corte, limite), ...anel.slice(0, corte)]
     : anel.slice(0, casaram);
-  return { leitura, imprimir: () => imprimirLinhas(ultimas, casaram, leitura.linhas, op.filtro) };
+  return {
+    leitura,
+    imprimir: () => imprimirLinhas(ultimas, casaram, leitura.linhas, op.filtro),
+    // AS LINHAS VÃO COMO TEXTO CRU dentro do documento, e não reparseadas em objeto. É a
+    // mesma decisão do `--filtro`: o que este comando entrega é o que existe no disco, e
+    // reparsear entregaria uma normalização (do escape, principalmente) que nenhum arquivo
+    // tem. Quem quiser os objetos tem `jq -R 'fromjson'` sobre elas.
+    estrutura: () => ({ casaram, naJanela: leitura.linhas, filtro: op.filtro, linhas: ultimas }),
+  };
 }
 
 /**
