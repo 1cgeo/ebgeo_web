@@ -17,6 +17,34 @@ const TYPE_DISPLAY_NAMES = {
     'polygons': 'Polígono'
 };
 
+/**
+ * CEILING on how many features to prepare between two progress updates.
+ *
+ * There is no cap on how many geometries an import may carry (the 1000-geometry
+ * limit was removed on 2026-09-02 at the owner's request), so the per-feature
+ * preparation loop is the only step that can block the main thread for a long
+ * time: line features run a terrain-profile pass with dozens of turf calls each.
+ * Every step the loop repaints the progress bar and yields the event loop,
+ * which is what keeps the browser responsive on large files.
+ *
+ * The step actually used is ADAPTIVE (see prepareProgressStep): a fixed 100
+ * would leave the bar pinned at 0% for every import under 100 geometries, which
+ * is most of them. This constant only bounds it from above, so a huge import
+ * does not pay for a repaint plus a macrotask every few features.
+ * Persistence stays a single batched write; it is NOT chunked.
+ */
+const PREPARE_PROGRESS_STEP = 100;
+
+/**
+ * Progress-update stride for a run of this many features: about twenty updates,
+ * never coarser than PREPARE_PROGRESS_STEP and never finer than every feature.
+ * @param {number} total - Number of features about to be prepared
+ * @returns {number} Features to prepare between two progress updates
+ */
+function prepareProgressStep(total) {
+    return Math.max(1, Math.min(PREPARE_PROGRESS_STEP, Math.ceil(total / 20)));
+}
+
 class AddImportControl {
     static FILE_LIMITS = {
         maxSize: 50 * 1024 * 1024,
@@ -176,12 +204,18 @@ class AddImportControl {
         });
     }
 
-    _showProgressIndicator() {
+    /**
+     * Shows the blocking progress overlay.
+     * @param {string} [initialMessage] - First line shown above the bar.
+     * @returns {(percent: number, message?: string) => void} Updater; the second
+     *   argument is optional so existing single-argument callers keep working.
+     */
+    _showProgressIndicator(initialMessage = 'Importando arquivo...') {
         const progressDiv = document.createElement('div');
         progressDiv.className = 'import-progress';
 
         const label = document.createElement('div');
-        label.textContent = 'Importando arquivo...';
+        label.textContent = initialMessage;
 
         const barContainer = document.createElement('div');
         barContainer.className = 'import-progress__bar-container';
@@ -196,8 +230,9 @@ class AddImportControl {
 
         this._progressElement = progressDiv;
 
-        return (percent) => {
+        return (percent, message) => {
             bar.style.width = `${percent}%`;
+            if (message) label.textContent = message;
         };
     }
 
@@ -662,10 +697,6 @@ class AddImportControl {
             }
         }
 
-        if (totalFeaturesToImport > 1000) {
-            throw new Error(`Muitas geometrias para importar: ${totalFeaturesToImport}. Limite máximo: 1000 geometrias.`);
-        }
-
         if (totalFeaturesToImport === 0) {
             throw new Error('Nenhuma geometria válida encontrada para importar');
         }
@@ -674,17 +705,51 @@ class AddImportControl {
         const importLayer = await createLayerForImport(uniqueLayerName);
         const importLayerId = importLayer.id;
 
-        for (const { feature, targetType } of decomposedFeatures) {
-            const preparedFeature = await this.prepareFeatureForImportAsync(
-                feature,
-                targetType,
-                typeCounters,
-                importLayerId
-            );
-            featuresByType[targetType].push(preparedFeature);
-        }
+        // Preparation is the only per-feature step (line features run a terrain
+        // profile with dozens of turf calls), so it is the one that can freeze
+        // the UI now that the geometry count is unbounded. Report progress and
+        // yield the event loop periodically; persistence below stays a single
+        // batched write, which must NOT be chunked (each chunk would rewrite the
+        // whole map).
+        const updateProgress = this._showProgressIndicator(
+            `Preparando ${totalFeaturesToImport} geometrias...`
+        );
+        let totalCount = 0;
 
-        const totalCount = await this.saveAndUpdateMap(featuresByType);
+        const progressStep = prepareProgressStep(totalFeaturesToImport);
+
+        try {
+            let preparedCount = 0;
+
+            for (const { feature, targetType } of decomposedFeatures) {
+                const preparedFeature = await this.prepareFeatureForImportAsync(
+                    feature,
+                    targetType,
+                    typeCounters,
+                    importLayerId
+                );
+                featuresByType[targetType].push(preparedFeature);
+                preparedCount++;
+
+                if (preparedCount % progressStep === 0) {
+                    updateProgress(
+                        (preparedCount / totalFeaturesToImport) * 100,
+                        `Preparando geometrias: ${preparedCount} de ${totalFeaturesToImport}`
+                    );
+                    // Hand the thread back so the browser can repaint the bar.
+                    await new Promise((resolve) => setTimeout(resolve, 0));
+                }
+            }
+
+            updateProgress(100, `Salvando ${totalFeaturesToImport} geometrias...`);
+            // Yield once more so the "Salvando" message is actually painted
+            // before the single batched write takes the thread.
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            totalCount = await this.saveAndUpdateMap(featuresByType);
+        } finally {
+            this._hideProgressIndicator();
+        }
 
         // Emit layers-changed event via EventBus
         getEventBus().emit(EventTypes.LAYERS_CHANGED, {

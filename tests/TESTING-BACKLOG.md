@@ -174,7 +174,7 @@ csv `_parseNumber` (vírgula), line-split `canSplitLine` (bloqueado string), mil
 | `csv/csv-coordinate-converter.js` | `convertRowToLatLng` (+`_parseUTMZone`/`_parseSingleDMS`) | alto | Override BR 'S'=Sul (vs banda real); bandas inválidas I/O; **`_parseNumber` replace(',') só 1ª→`'1,234,5'`→1.234**; minutos/segundos>=60→null; O/L PT-BR | `'23K'`→Sul; min=60→null; sinal vs direção (Math.abs vence) | sim | M |
 | `csv/csv-parser.js` | `parseCSV` | alto | Quoted-separator; `""` escape; newline em quotes; CRLF/LF/CR; linhas ragged; headers dup | quoted comma; round-trip simples | sim | M |
 | idem | `detectSeparator` | médio | Vazio→','; dentro de quotes não conta; tie→',' (primeiro); consistência min-count | `;`→';'; `\t`→'\t' | sim/não | S |
-| `csv/csv-to-geojson.js` | `csvToGeoJSON` | alto | 0 linhas/>1000→throw; all-inválido→throw distinto; **rowNumber=index+2**; coluna-coord excluída de props; ordem [lng,lat] | offset linha; 1001→limite; cols coord ausentes de props | não | M |
+| `csv/csv-to-geojson.js` | `csvToGeoJSON` | alto | 0 linhas→throw; **SEM teto de linhas** (o limite de 1000 saiu em 2026-09-02); all-inválido→throw distinto; **rowNumber=index+2**; coluna-coord excluída de props; ordem [lng,lat] | offset linha; 1500 linhas→1500 feições; 1001 com 1 inválida→1000 + skippedCount 1; cols coord ausentes de props | não | M |
 
 ### Domínio: ie-pdf / ie-ebgeo (cartográfico — extrair privados)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |

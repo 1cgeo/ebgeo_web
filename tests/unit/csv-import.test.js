@@ -622,11 +622,31 @@ describe('csvToGeoJSON', () => {
             .toThrow(/Nenhuma coordenada válida/);
     });
 
-    it('throws when exceeding the 1000-feature limit', () => {
-        const rows = Array.from({ length: 1001 }, (_, i) => `P${i},-22.5,-44.5`).join('\n');
+    // The 1000-row cap was removed on 2026-09-02: a CSV larger than the old
+    // limit must now convert in full, and the only rows lost are the invalid
+    // ones. These two cases are what a reinstated cap would break.
+    it('converts more rows than the removed 1000-row cap', () => {
+        const rows = Array.from({ length: 1500 }, (_, i) => `P${i},-22.5,-44.5`).join('\n');
         const csvText = `nome,lat,lng\n${rows}`;
-        expect(() => csvToGeoJSON({ ...baseConfig, csvText }))
-            .toThrow(/Muitas linhas/);
+        const { geoJSON, errors, skippedCount } = csvToGeoJSON({ ...baseConfig, csvText });
+        expect(geoJSON.features).toHaveLength(1500);
+        expect(skippedCount).toBe(0);
+        expect(errors).toHaveLength(0);
+    });
+
+    it('past the old cap, only invalid rows are skipped', () => {
+        const rows = Array.from(
+            { length: 1001 },
+            // One out-of-range latitude in the middle of an otherwise valid file.
+            (_, i) => (i === 500 ? `P${i},999,-44.5` : `P${i},-22.5,-44.5`)
+        ).join('\n');
+        const csvText = `nome,lat,lng\n${rows}`;
+        const { geoJSON, errors, skippedCount } = csvToGeoJSON({ ...baseConfig, csvText });
+        expect(geoJSON.features).toHaveLength(1000);
+        expect(skippedCount).toBe(1);
+        expect(errors).toHaveLength(1);
+        // Header is row 1, so data row index 500 is spreadsheet row 502.
+        expect(errors[0].row).toBe(502);
     });
 });
 
