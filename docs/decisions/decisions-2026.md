@@ -1653,3 +1653,128 @@ está no mapa do `errorHandler`, então o desfecho real era 500, enquanto o come
 503 e a wiki repetia a promessa. Os dois casos agora são 503 de verdade.
 
 **Status:** aceita.
+
+---
+
+### 2026-09-01: Ctrl inclina, Shift rotaciona, e a pinça no tablet volta a ser só zoom
+
+- **Contexto:** o gesto de câmera por mouse era UM só: Ctrl e arrastar movia bearing e pitch ao mesmo
+  tempo. Ninguém arrasta uma linha perfeitamente vertical, então quem inclinava girava junto e lia isso
+  como imprecisão do próprio trackpad. No toque o defeito era outro e maior: o app tinha um manipulador
+  de arraste de dois dedos PRÓPRIO, que engatava no primeiro pixel e somava com o `touchPitch` do
+  MapLibre (que engata com 2 px de movimento vertical paralelo e depois TRAVA zoom e rotação pelo resto
+  do gesto). No tablet isso se lê como uma pinça que inclina em vez de dar zoom. E uma pinça rápida
+  ainda terminava como toque de dois dedos, abrindo o menu de multisseleção, porque
+  `createTwoFingerTapHandler` cancelava o toque só pelo deslocamento do PONTO MÉDIO, que numa pinça
+  simétrica não anda um pixel.
+- **Decisão:** separar os eixos por modificador, num modelo puro
+  (`frontend/src/js/map/drag-rotate.model.js`, zero imports, testável em node): Ctrl (ou Cmd, no macOS)
+  inclina, Shift rotaciona, Ctrl+Shift faz os dois, com limiar de 3 px (`DRAG_THRESHOLD_PX`) para
+  preservar o Shift+clique da multisseleção. No toque, o manipulador de dois dedos do app SAI e o gesto
+  inteiro passa a ser do MapLibre, com `touchPitch: false`; o toque de dois dedos passa a ser cancelado
+  também por variação de ABERTURA, usando o `getTouchesDistance` que o handler já gravava e nunca lia.
+  `boxZoom`, `dragRotate`, `doubleClickZoom` e `touchPitch` viram opções do construtor em `createMap`,
+  e não chamadas no `load`, porque desligar no `load` deixava uma janela em que os quatro estavam vivos.
+- **Alternativas rejeitadas:**
+  - *Manter o gesto único e só baixar a sensibilidade do eixo indesejado*: o defeito é de EIXO, não de
+    escala. Um giro pequeno continua sendo um giro que a pessoa não pediu, e a sensibilidade menor
+    piora justamente o eixo que ela quer.
+  - *Usar a opção pitchWithRotate do MapLibre* (nome do vendor, escrito sem crase porque não existe
+    neste repositório): ela desacopla os dois eixos dentro do dragRotate NATIVO, que é do botão
+    direito, e aqui o botão direito é do menu de contexto e do encerramento de desenho. Além disso o
+    MapLibre não remapeia esse gesto para Shift, então adotá-la exigiria o manipulador próprio de
+    qualquer jeito.
+  - *Desligar também a rotação por toque*: recusada por ora. O MapLibre só a engata passada uma torção
+    real (de 10 a 19 graus, conforme a abertura dos dedos), que é a mesma barra do Google Maps. A linha
+    de saída (uma chamada de disableRotation sobre o touchZoomRotate do mapa, os dois nomes do vendor)
+    fica escrita em `createMap` para o dia em que o tablet reclamar, e ela preserva o zoom.
+- **Consequências:** o `MoveHandler` passa a ignorar mousedown com Ctrl/Meta/Shift, senão a feição se
+  move enquanto o mapa gira e o `_endDrag` dele religa o `dragPan` no meio da rotação. O `dragPan` só é
+  religado ao fim do gesto se estava ligado no mousedown (`_dragPanWasEnabled`), porque há 15 sítios
+  que o desligam e um `enable()` incondicional devolvia o pan a uma ferramenta de desenho ativa. O
+  canvas do mapa 2D fixa `touch-action: none` no CSS, ancorado em `#map-sig`: o vendor tira as classes
+  que dirigem esse valor sempre que alguém chama `dragPan.disable()`, e perdê-las no meio do gesto faz
+  o NAVEGADOR cancelar a pinça. O clique sintético do fim do arraste passa a ser engolido, porque o
+  suppressClick do MapLibre (nome do vendor) só cobre os gestos que os handlers dele dirigiram, e o
+  nosso chegava em `map.on('click')`, onde o `SelectionManager` desmarca a seleção em terreno vazio e o
+  `CommentOverlay` planta um alfinete. Fica DECLARADO, e não consertado, que o cursor remoto de outro
+  usuário salta durante a rotação: `presence-bridge.js` publica posição por mousemove e não sabe que a
+  câmera está girando.
+- **Status:** aceita.
+
+---
+
+### 2026-09-01: "Colar Aqui" ancora no CENTRO da caixa envolvente, e o Ctrl+V perde o gate de trava
+
+- **Contexto:** o menu de contexto do mapa ganhou copiar e colar, e as duas metades da decisão
+  nasceram do mesmo diagnóstico. O menu montava o bloco de seleção olhando `hasSelected` e a trava
+  do mapa, e permissão NENHUMA: um Leitor num atlas de servidor recebia "Duplicar Seleção", que é
+  `copy()` seguido de `paste()`, que chega em `addFeatures`, cujo `guardWrite` recusa devolvendo
+  `undefined` em silêncio. Ninguém lia esse retorno, então a colagem seguia até `updateMapSources`,
+  `autoSelectPastedFeatures` e um toast de SUCESSO, ao lado do toast de recusa que
+  `store-error-listener.js` já estava mostrando. No F5 as feições sumiam. Do outro lado, `paste()`
+  abria com uma recusa MUDA para o mapa travado, e o Ctrl+V tinha um segundo gate de trava na frente
+  dela: os dois juntos faziam a tecla não fazer nada e não dizer nada.
+- **Decisão:** (a) a âncora da colagem é o CENTRO DA CAIXA ENVOLVENTE do conjunto copiado, levado ao
+  ponto do clique, com o delta de longitude MÍNIMO (`pasteAnchor` e `offsetToTarget`, em
+  `frontend/src/js/tool_manager/clipboard-offset.js`); (b) `paste()` passa a recusar ANTES do
+  trabalho e a devolver contagem, com o posto dito por `denialNotice` e a trava emitida como
+  `STORE_OPERATION_BLOCKED`; (c) o gate de trava do Ctrl+V é REMOVIDO, deixando `paste()` como dono
+  único da recusa; (d) quem decide o que o menu desenha é uma tabela pura,
+  `frontend/src/js/context-menu/clipboard-menu-actions.js`, e "Duplicar Seleção" entra nela.
+- **Alternativas rejeitadas:**
+  - *Ancorar no CENTROIDE do conjunto*: derivaria para a parte com mais vértices, que num conjunto
+    copiado é acidente de autoria, e custaria uma dependência de turf num módulo que hoje é puro.
+  - *Ancorar na PRIMEIRA feição copiada*: barato e imprevisível. Copiar cinco feições e colar leva o
+    conjunto para um lugar que depende da ordem de seleção, que a pessoa não vê.
+  - *Manter o gate de trava no Ctrl+V e só fazer `paste()` falar*: deixaria duas fontes de verdade
+    para a mesma recusa, e é o desenho que produziu o silêncio original.
+  - *Dizer a frase da trava dentro de `paste()`*: escreveria uma quarta cópia de uma sentença que já
+    existe, num módulo de `core`, que teria de importar a camada que fala.
+  - *Recusar a colagem em CAMADA travada*: fora de escopo, e declarado. `guardWrite` não consulta
+    `layers.locked` e o servidor também não, então recusar só no menu deixaria o menu mais estrito
+    que o Ctrl+V para o mesmo gesto.
+- **Consequências:** o clipboard passa a ser esvaziado na troca de atlas (ele vive no `StateManager`,
+  em memória, e sobrevivia ao `clearAllDataStore`; colar num atlas novo levava
+  `buildLayerMappingForMove` a ler as camadas de um mapa não carregado, leitura que falha ABERTO e
+  chega a fabricar camada). `copy()` virou assíncrona para garantir a ferramenta antes de filtrar,
+  porque com a carga tardia uma feição de tipo nunca carregado era descartada com um aviso de
+  console e a pessoa lia "Nenhuma feição válida para copiar". `trajetoria` e `_temporalHome` passam
+  a viajar com a geometria, em UM lugar (`translatePositionProperties`), e o segundo é o que falhava
+  calado: `cleanFeature` reescreve a geometria de um Point A PARTIR do `_temporalHome` na entrada do
+  repositório, então copiar durante o playback colava a cópia por cima da original com o toast de
+  sucesso por cima. Fica DECLARADO, e não consertado, que colar uma feição de IMAGEM num atlas de
+  servidor duplica o blob só localmente: `duplicateImageResource` grava no IndexedDB e nunca chama
+  `uploadImageBlob`, então o colaborador recebe a feição e um quadro vazio.
+- **Status:** aceita.
+
+---
+
+### 2026-09-01: o modelo de zoom da divisa mora em `tool_manager/helpers/`, e a vista salva passa na frente do desenho
+
+- **Contexto:** a divisa ganhou o mesmo interruptor de zoom do simbolo militar (`createdAtZoom` mais `zoomCorrectionEnabled`), e a conta dele precisa ser lida em DOIS pontos que rodam sem clique nenhum: `setupBoundaryLayers` (`frontend/src/js/layers/styles/tactical.layers.js`), quando o mapa redesenha o que ja estava salvo, e `correctZoomInvariantFeatures` (`frontend/src/js/import_export/export-utils.js`), quando um PDF e produzido. Os dois sao core. A ferramenta de divisa, porem, e TARDIA desde a onda de carga sob demanda, e `frontend/tests/unit/teto-de-peso-da-pagina-do-mapa.test.js` fixa a pasta `military_tools` em EXATAMENTE zero modulos ansiosos. Escrever o modelo ao lado da ferramenta, como o branch de referencia fez, traria os 47 modulos daquela pasta de volta para o payload do boot.
+- **Decisao:** (a) o modelo puro vive em `frontend/src/js/tool_manager/helpers/boundary-zoom.model.js`, vizinho de `zoom-correction.helpers.js` e no chunk `core` por regra ja existente do `vite.config.js`, que nao foi tocado; (b) a tabela de ferramentas ganha uma coluna nova, `zoomModelo`, para a ferramenta cuja correcao nao cabe na tripla `size`/`calculatedSize` do simbolo, e o stand-in do boot responde com os NUMEROS de forma sincrona enquanto pede a ferramenta em segundo plano; (c) em `switchMap` (`frontend/src/js/baselayers/base-layer.control.js`), `applyMapSavedPosition` passa a rodar ANTES de `setupMapFeatures`.
+- **Alternativas rejeitadas:**
+  - *Modelo em `military_tools/boundary_tool/`, como no branch de referencia*: a referencia nao tem carga tardia de ferramenta nem orcamento de peso por pasta, entao la a aresta e gratis e aqui custa a pasta inteira. Implementacao de referencia responde "como se escreve", nunca "o que este branch precisa".
+  - *Levantar a linha de `military_tools` no orcamento*: o orcamento reprova nos DOIS sentidos de proposito, e subir o teto para caber uma folha de zero imports gastaria o guarda inteiro por 300 linhas de aritmetica.
+  - *O stand-in regenerar tambem a GEOMETRIA no boot*: a geometria le Turf em todo passo, e o stand-in existe justamente para nao baixar nem a ferramenta nem os 619 kB do Turf sem clique. Ele devolve os numeros e deixa a forma para a primeira passada de zoom depois que o modulo sobe.
+  - *Deixar `setupMapFeatures` antes da vista salva*: era a ordem anterior, e ela e a razao de o desenho nascer ancorado no zoom inicial do mapa e so ser corrigido pelo evento de zoom seguinte, que num `jumpTo` pode cair no mesmo quadro do restore dos dependentes.
+- **Consequencias:** a inversao de `switchMap` alcanca TODA ferramenta que reancora no setup das camadas (ponto, pincel, etiqueta, simbolo militar, divisa), nao so a divisa, e por isso e decisao e nao detalhe: o que mudou foi o zoom em que aquela passada roda. `applySharedBasemap` fica como estava, porque o link carrega a propria camera e aplicar a posicao salva a sobrescreveria. A quarta ferramenta que precisar de uma conta propria de zoom acrescenta uma coluna, nao um caso especial no stand-in.
+- **Adendo do mesmo dia, visto na captura do Playwright e nao em suite nenhuma:** com o texto pinado ao norte, os dois rotulos de uma divisa DIAGONAL se cruzavam sobre a linha (LESTE e OESTE ilegiveis), porque a caixa de cada rotulo passou a se estender leste-oeste enquanto o deslocamento continua perpendicular a linha. A saida e `computeTextAnchor` (`frontend/src/js/tool_manager/helpers/boundary-zoom.model.js`): o rotulo pinado ao norte pendura pela BORDA que encara a linha (as oito ancoras do MapLibre, escolhidas pelo oitante da direcao linha para rotulo, e `text-anchor` e dirigido por dado na camada), e o rotulo colado a linha continua centrado. Cada caixa fica inteira no proprio semiplano, sem mexer no ponto de colocacao nem no handle de distancia. A alternativa de aumentar o deslocamento foi recusada porque a distancia certa depende da largura do texto, que so o renderizador conhece.
+- **Status:** aceita.
+
+---
+
+### 2026-09-01: converter feicao linear e um CREATE novo mais um DELETE antigo, e o menu esconde por POSTO e recusa por ESTADO
+
+- **Contexto:** havia DUAS conversoes, `convertLineToArrow` e `convertLineToBoundary`, escritas a mao dentro do arquivo do menu de feicao. As duas saiam de linha e mais nada (a volta nao existia, nem a travessia entre seta e limite), e as duas carregavam a mesma familia de defeitos medidos: nenhum gate (`addFeature` recusa devolvendo `undefined` para um Leitor e para um mapa travado, e ninguem lia esse retorno, entao a tela ganhava a nova feicao, perdia a antiga e no F5 o inverso), `||` no lugar de `??` (uma opacidade de 0 virava a do padrao, um `layerId` de 0 ou vazio virava a camada implicita), copia rasa do eixo e das instancias de simbolo do limite, e artefato orfao na tela (a etiqueta de medicao da linha e os circulos e rotulos do limite, chaveados por `parent`, que so os controles deles sabem apagar).
+- **Decisao:** (a) os SEIS sentidos entre `line`, `arrow` e `boundary` passam a existir, decididos por `linearConversionActions` num modulo puro, `frontend/src/js/tool_manager/helpers/linear-conversion.model.js`, e executados por `convertLinearFeature` em `frontend/src/js/tool_manager/helpers/linear-conversion.helpers.js`; (b) a afordancia segue a assimetria de 2026-08-24: POSTO some (o comando nao e desenhado) e ESTADO desenha com `aria-disabled` mais `title` e recusa o CLIQUE nomeando o estado, nunca a propriedade `disabled`; (c) o gate de posto pede AS DUAS capacidades de `LINEAR_CONVERSION_CAPABILITIES`, porque converter e um CREATE mais um DELETE e as duas resolvem para flags diferentes; (d) a perda de GRUPO e aceita e ANUNCIADA no mesmo toast do sucesso, em vez de consertada.
+- **Alternativas rejeitadas:**
+  - *Uma unica operacao de sync de "conversao"*: exigiria alvo novo no servidor para um efeito que o par ja reconstroi a partir do par CREATE mais DELETE. O e2e de contrato (`frontend/tests/e2e/feature-convert.e2e.test.js`) e o de integracao (`backend/tests/integration/sync-conversao-de-feicao.test.js`) medem que o par viaja num push so, com dois acks, e que o mapa travado recusa AS DUAS metades: e a recusa PARCIAL que produziria duplicacao silenciosa, e ela nao acontece porque `feature` esta entre os alvos filhos do cadeado.
+  - *Recolocar a feicao no grupo da antiga*: nao existe operacao de store que ACRESCENTE feicao a grupo existente, e `removeFeature` chama `removeFeatureFromAllGroups`. Inventar a operacao aqui seria mudanca de sync dentro de uma mudanca de UI.
+  - *Gatear so por `CREATE_FEATURE`*: ofereceria a quem edita e nao apaga uma travessia que morre na metade, deixando as DUAS feicoes vivas e uma op recusada congelando a fila de saida.
+  - *Esconder o comando na seta COMBINADA*: e estado reversivel, e o desfaz ("Separar Setas") esta a duas linhas no MESMO menu. Esconder ensinaria menos que recusar nomeando.
+  - *Copiar as propriedades da origem e filtrar as que nao servem*: e a forma que deixa `isMerged` e os ramos numa feicao que nao e mais seta. O bloco nasce dos padroes do DESTINO mais uma lista explicita de preservados, e `DROPPED_BY_SOURCE` fica como DECLARACAO cobrada por teste nos seis sentidos.
+- **Consequencias:** `canSplitArrows` passou a derivar de `isMergedArrow`, tirando a terceira copia daquele predicado (`canMergeArrows` NAO foi tocado: ele tem espelho proprio em `military_tools/arrow_tool/arrow-merge.js`, com guarda que compara os dois corpos). A limpeza do artefato de origem reusa o que cada controle ja tem (`deleteFeatures` do limite, que roda na fila serial dele e filtra as duas fontes derivadas por `parent`; `removeFeatureMeasurement` da linha), em vez de refazer o filtro aqui e competir com aquela fila. Converter para limite grava a ancora de zoom e chama `computeBoundaryZoomSizes` DEPOIS do bloco inteiro, senao os quatro derivados do padrao ficam por cima dos reais. `lineWidth` e grampeado na faixa do painel do DESTINO (`LINE_WIDTH_RANGE`: a linha vai a 15, seta e limite param em 10), porque escrever 14 numa seta produz um cursor que mostra um valor que ele mesmo nao reproduz. O controle de destino e carregado por `ensureControl` antes de qualquer coisa, porque seta e limite sao ferramentas tardias e converter e justamente o gesto que alcanca um tipo sem clicar no botao dele. O lote de desfazer ganhou duas saidas (`discardBatchUndo` no fracasso), e `attributes` passou a atravessar a conversao, o que as duas antigas nao faziam. As conversoes de PONTO ficaram FORA desta mudanca e seguem sem gate: divida declarada, nao simetria.
+- **Status:** aceita.
+

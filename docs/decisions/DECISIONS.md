@@ -115,6 +115,11 @@ viram commit, teste e, se ensinaram algo, linha no [`docs/livro-razao.md`](../li
 | 2026-08-30 | A troca de atlas volta a NAVEGAR para atlas.html; o modal de troca ao vivo sai (a capacidade fica) | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-31 | O visualizador 3D deixa de vazar listener e de refazer o tileset a cada abertura; o laço de render para quando ele fecha | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-31 | O zoom mínimo e máximo passa a ser do mapa base; o da aplicação vira fixo em [2, 21] e o do atlas é removido | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-01 | o índice de regime vencido ganha teto de idade, e passado ele o 3D fecha inteiro | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-01 | Ctrl inclina, Shift rotaciona, e a pinça no tablet volta a ser só zoom | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-01 | "Colar Aqui" ancora no centro da caixa envolvente, e o Ctrl+V perde o gate de trava | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-01 | O modelo de zoom da divisa mora em `tool_manager/helpers/`, e a vista salva passa na frente do desenho | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-01 | Converter feicao linear e um CREATE novo mais um DELETE antigo, e o menu esconde por POSTO e recusa por ESTADO | [decisions-2026.md](decisions-2026.md) |
 
 As duas linhas de 2026-08-16 acima entraram em 2026-08-18: as entradas integrais existiam no arquivo
 do ano e ninguém acrescentara a linha aqui, que é a metade do procedimento que falha calada (o índice
