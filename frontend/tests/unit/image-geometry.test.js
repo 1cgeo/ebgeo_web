@@ -7,12 +7,16 @@
  * - `calculateZoomAdjustedSize`: the clamp is 10 here, NOT the 255 of the text tool,
  *   and it is a one-sided clamp applied AFTER the power, so a base above 10 is
  *   capped even with zoom difference 0, and a negative base is not bounded at all.
- * - `calculateSelectionBoxGeometry`: the wiring only. The pixel-to-degree math is
- *   the caller's (`uiManager`), so it is stubbed and its ARGUMENTS are asserted:
- *   the 0.625 scale, the padding counted twice, and the `effectiveZoom !== null`
- *   test that keeps zoom 0 a usable zoom instead of a falsy one.
- * - `createSelectionBoxFromDegrees`: the ring is closed with five vertices and the
- *   fifth repeats the first.
+ * - `calculateSelectionBoxGeometry`: the wiring only, PLUS the coercion of the
+ *   dimensions (2026-09-02), because this is the single funnel through which an
+ *   image's width and height reach the drawing. The pixel-to-degree math is the
+ *   caller's (`uiManager`), so it is stubbed and its ARGUMENTS are asserted: the
+ *   0.625 scale, the padding counted twice, the finiteness test that keeps zoom 0 a
+ *   usable zoom instead of a falsy one, and the fallbacks for a feature whose
+ *   `width`/`height`/`size`/`createdAtZoom` are missing or not finite.
+ * - `createSelectionBoxFromDegrees`: the ring is closed with five vertices, the
+ *   fifth repeats the first, and a non-finite span falls back per axis instead of
+ *   putting NaN into every vertex.
  * - `getBoundingBox`: it divides BOTH axes by 111320 with no cos(lat) correction,
  *   which is a real divergence from the selection box that the tests state out loud.
  * - `normalizeCoordinates`, `moveImage`, `generate`, `createHandles`,
@@ -43,7 +47,7 @@ vi.mock('@tools', () => ({
     },
 }));
 
-const { default: AddImageGeometry } = await import('../../src/js/draw_tools/image_tool/add_image_geometry.js');
+const { default: AddImageGeometry, IMAGE_BOX_FALLBACKS } = await import('../../src/js/draw_tools/image_tool/add_image_geometry.js');
 
 const geom = new AddImageGeometry();
 
@@ -330,6 +334,62 @@ describe('AddImageGeometry.calculateSelectionBoxGeometry', () => {
         expect(ui.pixelsToDegrees.mock.calls[0][2]).toBe(9);
     });
 
+    // ------------------------------------------------------------------
+    // Coercao das dimensoes (2026-09-02). Esta funcao e o FUNIL UNICO por onde a
+    // largura e a altura de uma imagem entram no desenho: os seis sitios de
+    // `add_image_control.js` leem `properties.width`/`properties.height` cru, e um
+    // `.ebgeo` antigo traz esses numeros com outro nome (`largura`/`altura`) e sem
+    // `createdAtZoom` nenhum. Sem a coercao, todo produto abaixo era NaN.
+    // ------------------------------------------------------------------
+
+    it('width/height ausentes caem na dimensao declarada, sem NaN', () => {
+        const ui = makeUiManager();
+        geom.calculateSelectionBoxGeometry([0, 0], undefined, undefined, 1, 0, 12, ui);
+        // 100 * 1 * 0.625 = 62.5 pelo stub identidade; +10 do padding nos dois lados.
+        expect(ui.calculateExpandedDimensions).toHaveBeenCalledWith(62.5, 62.5, 0);
+        expect(ui.pixelsToDegrees.mock.calls[0][0]).toBeCloseTo(72.5, 10);
+    });
+
+    it('width/height NaN, zero e negativo caem no mesmo fallback', () => {
+        for (const par of [[NaN, NaN], [0, 0], [-10, -10], [Infinity, Infinity]]) {
+            const ui = makeUiManager();
+            geom.calculateSelectionBoxGeometry([0, 0], par[0], par[1], 1, 0, 12, ui);
+            expect(ui.calculateExpandedDimensions).toHaveBeenCalledWith(62.5, 62.5, 0);
+        }
+    });
+
+    it('size e rotation nao finitos caem em 1 e 0; rotation negativa e legitima', () => {
+        const ui = makeUiManager();
+        geom.calculateSelectionBoxGeometry([0, 0], 100, 40, NaN, NaN, 12, ui);
+        expect(ui.calculateExpandedDimensions).toHaveBeenCalledWith(62.5, 25, 0);
+
+        const ui2 = makeUiManager();
+        geom.calculateSelectionBoxGeometry([0, 0], 100, 40, 1, -45, 12, ui2);
+        expect(ui2.calculateExpandedDimensions).toHaveBeenCalledWith(62.5, 25, -45);
+    });
+
+    // CONTROLE POSITIVO: a coercao nao reescreve o caso bom. Sem esta linha, uma
+    // guarda que devolvesse SEMPRE o fallback deixaria os tres casos acima verdes.
+    it('controle: width/height finitos passam intactos pela coercao', () => {
+        const ui = makeUiManager();
+        geom.calculateSelectionBoxGeometry([0, 0], 100, 40, 2, 30, 12, ui);
+        expect(ui.calculateExpandedDimensions).toHaveBeenCalledWith(125, 50, 30);
+    });
+
+    it('sem zoom usavel o poligono sai finito, pelo fallback em graus', () => {
+        // `pixelsToDegrees` real devolve NaN para zoom undefined; aqui o stub imita
+        // isso para medir o que o funil faz com o resultado.
+        const ui = {
+            calculateExpandedDimensions: vi.fn((w, h) => ({ width: w, height: h })),
+            pixelsToDegrees: vi.fn((px, _lat, zoom) => (Number.isFinite(zoom) ? px : NaN)),
+        };
+        const box = geom.calculateSelectionBoxGeometry([10, 20], undefined, undefined, 1, 0, undefined, ui);
+        for (const p of box.coordinates[0]) {
+            expect(Number.isFinite(p[0])).toBe(true);
+            expect(Number.isFinite(p[1])).toBe(true);
+        }
+    });
+
     it('devolve um Polygon centrado nas coordenadas', () => {
         const ui = makeUiManager();
         const box = geom.calculateSelectionBoxGeometry([10, 20], 1000, 1000, 1, 0, 12, ui);
@@ -375,10 +435,40 @@ describe('AddImageGeometry.createSelectionBoxFromDegrees', () => {
         expect(ring[2]).toEqual([-1, 1]);
     });
 
-    it('NaN de entrada vira NaN em todo vertice, sem erro', () => {
+    // CORRIGIDO EM 2026-09-02 (antes: "NaN de entrada vira NaN em todo vertice").
+    // Um vertice NaN nao levanta erro nenhum: ele chega ao MapLibre e deixa de ser
+    // observavel como valor. Agora a extensao nao finita cai no fallback declarado,
+    // e o eixo SAO tratado de forma independente: so o eixo poluido e substituido.
+    it('NaN de entrada cai no fallback declarado, sem NaN em vertice nenhum', () => {
         const ring = geom.createSelectionBoxFromDegrees([0, 0], NaN, 2).coordinates[0];
         expect(ring.length).toBe(5);
-        for (const p of ring) expect(Number.isNaN(p[0])).toBe(true);
+        for (const p of ring) {
+            expect(Number.isFinite(p[0])).toBe(true);
+            expect(Number.isFinite(p[1])).toBe(true);
+        }
+        const lngs = ring.map(p => p[0]);
+        const lats = ring.map(p => p[1]);
+        expect(Math.max(...lngs) - Math.min(...lngs)).toBeCloseTo(IMAGE_BOX_FALLBACKS.extentDegrees, 12);
+        // O eixo sadio passa intacto: 2 graus continuam 2 graus.
+        expect(Math.max(...lats) - Math.min(...lats)).toBeCloseTo(2, 12);
+    });
+
+    it('Infinity tambem cai no fallback (a outra metade do nao-finito)', () => {
+        const ring = geom.createSelectionBoxFromDegrees([0, 0], Infinity, -Infinity).coordinates[0];
+        for (const p of ring) {
+            expect(Number.isFinite(p[0])).toBe(true);
+            expect(Number.isFinite(p[1])).toBe(true);
+        }
+    });
+
+    // CONTROLE POSITIVO do fallback: ele nao substitui tudo. Uma entrada finita
+    // qualquer, zero e negativo inclusive, continua passando verbatim (os dois casos
+    // acima), senao esta guarda estaria verde por recusar todo mundo.
+    it('controle: entrada finita normal nao e tocada pelo fallback', () => {
+        const ring = geom.createSelectionBoxFromDegrees([10, 20], 2, 4).coordinates[0];
+        expect(ring).toEqual([
+            [9, 22], [11, 22], [11, 18], [9, 18], [9, 22],
+        ]);
     });
 
     it('propriedade: anel fechado, largura e altura exatas e centro preservado', () => {

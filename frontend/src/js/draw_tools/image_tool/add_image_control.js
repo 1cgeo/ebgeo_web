@@ -64,6 +64,31 @@ class AddImageControl extends BaseControl {
   static MAX_IMAGE_DIMENSION = 800;
   static IMAGE_QUALITY = 0.7;
 
+  /**
+   * Pixel dimensions used when a feature's own `width`/`height` cannot be trusted.
+   *
+   * A legacy `.ebgeo` can carry an image whose dimensions were written under other
+   * names (`largura`/`altura`), so `properties.width` reads `undefined` and every
+   * derived number turns into NaN. There is no image to measure at that point (the
+   * blob may not even be decoded yet), so a declared square is the fallback: it
+   * draws something the person can see, select and resize, instead of a NaN that
+   * reaches native placement code.
+   */
+  static FALLBACK_IMAGE_DIMENSION = 100;
+
+  /**
+   * The ONE zoom-correction config of this tool, shared by every path that derives
+   * `calculatedSize`. `fallbackValue` is not optional here: the image layer reads a
+   * bare `['get', 'calculatedSize']` (`layers/styles/content.layers.js`), so it has
+   * no default of its own to fall back to.
+   */
+  static ZOOM_CORRECTION_CONFIG = {
+    sourceProperty: 'size',
+    calculatedProperty: 'calculatedSize',
+    maxValue: 10,
+    fallbackValue: AddImageControl.DEFAULT_PROPERTIES.calculatedSize,
+  };
+
   // ===== SINGLE SOURCE OF TRUTH =====
 
   // ===== MAPBOX CONTROL INTERFACE =====
@@ -123,12 +148,34 @@ class AddImageControl extends BaseControl {
     return [];
   }
 
+  /**
+   * Zoom a feature's selection box must be sized at.
+   *
+   * `null` means "use the feature's own `createdAtZoom`", which is what keeps the box
+   * glued to the terrain while the correction is on. Two states have no such anchor
+   * to honour, and both answer with the zoom the person is actually looking at:
+   * the correction switched off (the box is pinned to the screen), and a feature
+   * whose `createdAtZoom` is not a finite number. That second one is the defect this
+   * guard exists for: passing a missing anchor down makes `pixelsToDegrees` return
+   * NaN and puts NaN coordinates into the polygon, which raises nothing.
+   *
+   * @param {Object} properties - Image feature properties
+   * @param {number} [zoom] - Zoom to use in place of the live map zoom
+   * @returns {number|null} A finite zoom, or `null` to defer to `createdAtZoom`
+   */
+  selectionBoxZoom(properties, zoom = null) {
+    const live = Number.isFinite(zoom) ? zoom : this.map.getZoom();
+    if (properties?.zoomCorrectionEnabled === false) return live;
+    if (!Number.isFinite(properties?.createdAtZoom)) return live;
+    return null;
+  }
+
   createSelectionBox(feature) {
     if (feature.properties.selectionBox) {
       return { geometry: feature.properties.selectionBox };
     }
 
-    const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
+    const effectiveZoom = this.selectionBoxZoom(feature.properties);
     const selectionBox = this.geometry.calculateSelectionBoxGeometry(
       feature.geometry.coordinates,
       feature.properties.width,
@@ -178,7 +225,7 @@ class AddImageControl extends BaseControl {
       oldCoordinates[1] + offset.dy,
     ];
 
-    const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
+    const effectiveZoom = this.selectionBoxZoom(feature.properties);
     const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
       newCoordinates,
       feature.properties.width,
@@ -208,7 +255,7 @@ class AddImageControl extends BaseControl {
   updateFeatureForMove(feature, dx, dy, newCoords) {
     const newCoordinates = [newCoords.lng, newCoords.lat];
 
-    const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
+    const effectiveZoom = this.selectionBoxZoom(feature.properties);
     const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
       newCoordinates,
       feature.properties.width,
@@ -368,14 +415,30 @@ class AddImageControl extends BaseControl {
     });
   };
 
+  /**
+   * First usable pixel dimension of the candidates, or the declared fallback.
+   *
+   * "Usable" is `Number.isFinite(x) && x > 0`: `x ?? fallback` would accept NaN and
+   * `x || fallback` would accept Infinity, and both feed the same native calls.
+   *
+   * @param {...*} candidates - Dimensions to try, in order of preference
+   * @returns {number} A finite dimension above zero
+   */
+  static usableDimension(...candidates) {
+    const usable = candidates.find((value) => Number.isFinite(value) && value > 0);
+    return usable ?? AddImageControl.FALLBACK_IMAGE_DIMENSION;
+  }
+
   createImageFeature = (lngLat, imageId, width, height) => {
     return {
       type: "Feature",
       id: IDUtils.generateGeoJSONId(),
       properties: {
         ...AddImageControl.DEFAULT_PROPERTIES,
-        width,
-        height,
+        // Stamped through the coercion so a feature is never BORN with a dimension
+        // that cannot be drawn. Everything downstream reads these two back.
+        width: AddImageControl.usableDimension(width),
+        height: AddImageControl.usableDimension(height),
         id: imageId,
         layerId: getActiveLayerIdSync(),
       },
@@ -388,7 +451,13 @@ class AddImageControl extends BaseControl {
   resizeImage = (imageBase64, callback) => {
     const img = new Image();
     img.onload = () => {
-      let { width, height } = img;
+      // `naturalWidth`/`naturalHeight` are the decoded size and the only pair that
+      // cannot be styled away; `width`/`height` are the layout attributes and read 0
+      // for an SVG with no intrinsic size. Both are coerced because everything below
+      // (the aspect ratio, the canvas, and the dimensions stamped on the feature)
+      // divides by them, and a 0 or NaN here reaches `canvas.width` as a native call.
+      let width = AddImageControl.usableDimension(img.naturalWidth, img.width);
+      let height = AddImageControl.usableDimension(img.naturalHeight, img.height);
       const aspectRatio = width / height;
 
       if (
@@ -397,10 +466,10 @@ class AddImageControl extends BaseControl {
       ) {
         if (width > height) {
           width = AddImageControl.MAX_IMAGE_DIMENSION;
-          height = Math.round(width / aspectRatio);
+          height = AddImageControl.usableDimension(Math.round(width / aspectRatio));
         } else {
           height = AddImageControl.MAX_IMAGE_DIMENSION;
-          width = Math.round(height * aspectRatio);
+          width = AddImageControl.usableDimension(Math.round(height * aspectRatio));
         }
       }
 
@@ -448,11 +517,11 @@ class AddImageControl extends BaseControl {
   };
 
   applyZoomCorrections = (features) => {
-    return applyZoomCorrectionsUtil(features, this.map.getZoom(), {
-      sourceProperty: 'size',
-      calculatedProperty: 'calculatedSize',
-      maxValue: 10,
-    });
+    return applyZoomCorrectionsUtil(
+      features,
+      this.map.getZoom(),
+      AddImageControl.ZOOM_CORRECTION_CONFIG,
+    );
   };
 
   updateAllImageSizes = async () => {
@@ -477,11 +546,18 @@ class AddImageControl extends BaseControl {
     let hasChanges = false;
 
     data.features.forEach((feature) => {
-      let newCalculatedSize;
+      // ONE derivation for both branches. The disabled branch used to read `size`
+      // straight and the enabled one carried its own copy of the `2 ** Δzoom` maths,
+      // so a feature with no `createdAtZoom` (legacy `.ebgeo`) produced NaN here on
+      // every zoom step and wrote it back into the source. The shared helper answers
+      // with the base value when there is no zoom reference, and never with NaN.
+      const newCalculatedSize = calculateZoomCorrectedValue(
+        feature.properties,
+        currentZoom,
+        AddImageControl.ZOOM_CORRECTION_CONFIG,
+      );
 
       if (feature.properties.zoomCorrectionEnabled === false) {
-        newCalculatedSize = feature.properties.size;
-
         // Recalculate selection box for features with zoom correction disabled
         const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
           feature.geometry.coordinates,
@@ -495,13 +571,6 @@ class AddImageControl extends BaseControl {
         );
         feature.properties.selectionBox = newSelectionBox;
         hasChanges = true;
-      } else {
-        const zoomDifference = currentZoom - feature.properties.createdAtZoom;
-        const scaleFactor = Math.pow(2, zoomDifference);
-        newCalculatedSize = Math.min(
-          feature.properties.size * scaleFactor,
-          10
-        );
       }
 
       if (feature.properties.calculatedSize !== newCalculatedSize) {
@@ -609,15 +678,17 @@ class AddImageControl extends BaseControl {
     currentZoom = null,
     forceRecalculateSelectionBox = false
   ) => {
-    const zoom = currentZoom || this.map.getZoom();
+    // `currentZoom || this.map.getZoom()` swallowed a legitimate zoom 0 and let a NaN
+    // argument through untouched; the finiteness test is the same one the helper uses.
+    const zoom = Number.isFinite(currentZoom) ? currentZoom : this.map.getZoom();
 
     feature.properties.calculatedSize = calculateZoomCorrectedValue(
       feature.properties, zoom,
-      { sourceProperty: 'size', maxValue: 10 }
+      AddImageControl.ZOOM_CORRECTION_CONFIG
     );
 
     if (forceRecalculateSelectionBox || !feature.properties.selectionBox) {
-      const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? zoom : null;
+      const effectiveZoom = this.selectionBoxZoom(feature.properties, zoom);
       feature.properties.selectionBox =
         this.geometry.calculateSelectionBoxGeometry(
           feature.geometry.coordinates,
