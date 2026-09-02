@@ -148,6 +148,20 @@ export function getStorageTypeFromSource(sourceType) {
 }
 
 /**
+ * Storage-type (plural) view of IMAGE_RESOURCE_FEATURE_TYPES: the buckets of a
+ * feature collection whose features draw a MapLibre image registered under their
+ * own `properties.id` (the symbol layers declare `icon-image: [get, id]`).
+ * Both the boot path and the paste path read this list to know which images to
+ * register, so a new image-backed type only has to be added to the source list.
+ * Derived, never hand-written: the plurals are irregular (`boundary` ->
+ * `boundarys`), so appending an "s" would silently miss buckets.
+ * @constant {string[]}
+ */
+export const IMAGE_RESOURCE_STORAGE_TYPES = Object.freeze(
+    IMAGE_RESOURCE_FEATURE_TYPES.map(getStorageTypeFromSource)
+);
+
+/**
  * Gets the source type (singular) from a storage type.
  * @param {string} storageType - e.g. 'points'
  * @returns {string} e.g. 'point'

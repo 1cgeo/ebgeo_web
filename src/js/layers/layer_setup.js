@@ -14,6 +14,7 @@ import { generatePointImage, needsPerFeatureImage } from '../draw_tools/point_to
 import { parseCustomMarker, registerCustomFeatureImage } from '../draw_tools/point_tool/point-custom-icons.js';
 import { updateAllLayerFilters, invalidateFilterCache, updateMeasurementLabelVisibility } from './visibility-filter.js';
 import { applyLayerOpacities, invalidateOpacityCache } from './layer-opacity-applier.js';
+import { collectImageResourceIds } from './feature-images.js';
 import {
     setupPointLayers,
     setupLineLayers,
@@ -158,18 +159,10 @@ async function loadSingleImage(imageId, mapInstance) {
  * @param {Object} mapInstance - MapLibre map instance
  */
 async function setImages(features, mapInstance) {
-    const allImageFeatures = [
-        ...features.images,
-        ...features.military_symbols,
-        ...(features.coordination_measures || []),
-        ...(features.magnetic_declinations || [])
-    ];
-
     const imagePromises = [];
 
-    for (const feature of allImageFeatures) {
-        const imageId = feature.properties.id;
-        if (!imageId || mapInstance.hasImage(imageId)) continue;
+    for (const imageId of collectImageResourceIds(features)) {
+        if (mapInstance.hasImage(imageId)) continue;
         imagePromises.push(loadSingleImage(imageId, mapInstance));
     }
 

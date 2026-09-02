@@ -22,6 +22,7 @@ import { IDUtils, ToastService } from '../utilities';
 import { computePasteAnchor, calculateOffsetToTarget } from './clipboard-offset.js';
 import { generatePointImage, needsPerFeatureImage } from '../draw_tools/point_tool/point-marker-symbols.js';
 import { parseCustomMarker, registerCustomFeatureImage } from '../draw_tools/point_tool/point-custom-icons.js';
+import { collectImageResourceIds } from '@layers/feature-images.js';
 
 class ClipboardManager {
     constructor(selectionManager, map) {
@@ -457,15 +458,7 @@ class ClipboardManager {
     async loadPastedImages(newFeaturesByType) {
         const imagePromises = [];
 
-        const allImageFeatures = [
-            ...(newFeaturesByType.images || []),
-            ...(newFeaturesByType.military_symbols || [])
-        ];
-
-        for (const feature of allImageFeatures) {
-            const imageId = feature.properties.id;
-            if (!imageId) continue;
-
+        for (const imageId of collectImageResourceIds(newFeaturesByType)) {
             if (this.map.hasImage(imageId)) continue;
 
             const imagePromise = this.loadSingleImageForPaste(imageId);
