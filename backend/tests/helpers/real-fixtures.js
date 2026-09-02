@@ -141,6 +141,60 @@ export function realRectangleFeature({ id = randomUUID(), ...over } = {}) {
   );
 }
 
+/** O eixo autoral que os três tipos LINEARES carregam em `properties.baseCoordinates`. */
+const EIXO = [C, [-43.18, -22.88], [-43.16, -22.90]];
+
+/**
+ * A real ARROW feature (military_tools/arrow_tool). Twin of the same name in
+ * `frontend/tests/helpers/real-fixtures.js`.
+ *
+ * THREE GOTCHAS a generic point never had: the geometry is a `Polygon` (the drawn OUTLINE)
+ * while the authored spine lives in `properties.baseCoordinates`; colour and opacity come in
+ * TWO pairs (body and outline), not one; and `doubleHeaded` is the type's newest key, the one
+ * every hand-written list loses.
+ * @param {Object} [overrides] - `id` and any property overrides
+ * @returns {Object} GeoJSON feature in the exact shape the tool emits
+ */
+export function realArrowFeature({ id = randomUUID(), ...over } = {}) {
+  return feature(
+    { type: 'Polygon', coordinates: [[C, [-43.18, -22.88], [-43.16, -22.90], [-43.19, -22.91], C]] },
+    baseProps('arrow', id, {
+      width: 500, fillColor: '#3f4fb5', lineColor: '#3f4fb5', lineWidth: 3,
+      fillOpacity: 0.8, lineOpacity: 1.0, headLengthRatio: 1.5, showArrowHead: true,
+      doubleHeaded: false, airmobile: false, airmobilePosition: 0.7,
+      geometryType: 'arrow', baseCoordinates: EIXO,
+      ...over,
+    }),
+  );
+}
+
+/**
+ * A real BOUNDARY feature (military_tools/boundary_tool). Twin of the same name in
+ * `frontend/tests/helpers/real-fixtures.js`.
+ *
+ * The geometry is a `MultiLineString`, because the echelon gaps are already CUT OUT of the
+ * line, and the authored spine is in `properties.baseCoordinates`. It carries the zoom anchor
+ * (`createdAtZoom` + `zoomCorrectionEnabled`) and the four `calculated*` derivatives, which
+ * are a client cache and travel through the envelope like any other property.
+ * @param {Object} [overrides] - `id` and any property overrides
+ * @returns {Object} GeoJSON feature in the exact shape the tool emits
+ */
+export function realBoundaryFeature({ id = randomUUID(), ...over } = {}) {
+  return feature(
+    { type: 'MultiLineString', coordinates: [[C, [-43.18, -22.88]], [[-43.17, -22.89], [-43.16, -22.90]]] },
+    baseProps('boundary', id, {
+      color: '#000000', lineWidth: 4, opacity: 1, type: 'boundary',
+      symbol_instances: [{ ratio: 0.5, showLabels: true }], symbol_size: 1, text_size: 35,
+      echelon: 'XXX', text_top: '1º BI Mtz', text_bottom: '2º BI Mtz', text_distance_ratio: 0.9,
+      createdAtZoom: 12.3, zoomCorrectionEnabled: true, text_north_facing: false,
+      calculatedLineWidth: 4, calculatedTextSize: 35, calculatedStrokeWidth: 2,
+      calculatedSymbolSize: 1,
+      baseCoordinates: EIXO,
+      ...over,
+    }),
+  );
+}
+
 /** Returns the matching real fixture for a source, or a generic Point with the same gotchas. */
 export function realFeature(source, overrides = {}) {
   const byType = {
@@ -151,6 +205,8 @@ export function realFeature(source, overrides = {}) {
     text: realTextFeature,
     circle: realCircleFeature,
     rectangle: realRectangleFeature,
+    arrow: realArrowFeature,
+    boundary: realBoundaryFeature,
   };
   if (byType[source]) return byType[source](overrides);
   const { id = randomUUID(), ...over } = overrides;

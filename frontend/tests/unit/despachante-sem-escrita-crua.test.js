@@ -76,12 +76,15 @@ const ESCRITA_CRUA_DE_PROPOSITO = new Map([
             + ' despachante possui, onde não existe fila para perder.',
     }],
     ['frontend/src/js/import_export/export-utils.js', {
-        chamadas: 1,
+        chamadas: 3,
         motivo: 'escreve no `hiddenMap`, o mapa fora de tela que o export monta e descarta. O'
             + ' registro do despachante é por (map, sourceId) e esse mapa não tem despachante'
             + ' nenhum, então não há fila para substituir. A varredura não prova isso porque o id'
             + ' vem de `ZOOM_INVARIANT_SOURCES`, e provar identidade de instância de mapa é'
-            + ' análise de outra ordem.',
+            + ' análise de outra ordem. Eram 1 até 2026-09-01, e viraram 3 com o limite: a'
+            + ' correção genérica só escala números, e uma divisa presa à TELA muda de forma'
+            + ' (o escalão é geometria em km), então `correctBoundaryGroundGeometry` reescreve'
+            + ' `boundarys` e reconstrói as duas sources derivadas dela no mesmo mapa oculto.',
     }],
     ['frontend/src/js/tool_manager/helpers/label-tab.helpers.js', {
         chamadas: 1,
@@ -131,6 +134,9 @@ const DISPATCHER_DINAMICO_DE_PROPOSITO = new Map([
     ['frontend/src/js/sidebar/components/multi-selection-actions.js', '`storageType` da seleção múltipla'],
     ['frontend/src/js/tool_manager/clipboard_manager.js', '`storageType` da colagem'],
     ['frontend/src/js/tool_manager/helpers/label-tab.helpers.js', '`sourceName` da ferramenta que criou o handler'],
+    ['frontend/src/js/tool_manager/helpers/linear-conversion.helpers.js',
+        '`getStorageTypeFromSource(source|target)` da conversão linha/seta/limite: as TRÊS sources'
+        + ' (lines, arrows, boundarys) já são reivindicadas pelos controles literais das ferramentas'],
 ]);
 
 // ---------------------------------------------------------------------------

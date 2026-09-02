@@ -224,7 +224,11 @@ describe('LocalRepository — real feature shape round-trips', () => {
         // A couple of extra real types via the generic factory, to widen coverage
         // beyond line/military_symbol without copying the happy-path sweep.
         const circle = realFeature('circle');
-        const arrow = realFeature('arrow'); // generic Point envelope, same gotchas
+        // A seta deixou de cair no envelope genérico de PONTO: desde que
+        // `realArrowFeature` existe, ela vem com a geometria `Polygon` (o contorno
+        // DESENHADO) e o eixo autoral em `properties.baseCoordinates`, que é uma forma
+        // bem mais exigente para o round-trip do repositório.
+        const arrow = realFeature('arrow');
 
         await repo.saveMap('map-mix', {
             name: 'Mix',
