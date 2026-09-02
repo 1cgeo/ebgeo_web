@@ -412,3 +412,526 @@ export const COORTE_DE_RETENCAO = `
    ORDER BY t.semana DESC
    LIMIT $3
 `;
+
+/* =========================================================================
+ * O USO DE PRODUTO, desde 2026-09-02: a metade que NÃO é derivada de outra coisa.
+ *
+ * Tudo acima desta linha é consulta sobre tabelas que já existiam por outros motivos. O que
+ * segue lê e escreve as três tabelas de `020_uso_de_produto.sql`, que são instrumentação
+ * NOVA, e por isso a régua muda: aqui há UPSERT vindo de rota anônima, e há uma passada de
+ * manutenção que APAGA linha. As decisões de forma (contador em vez de evento, dia do
+ * servidor, saturação em vez de estouro) estão no cabeçalho daquela migração, que é a fonte;
+ * o que segue é só o que morde quem lê o SQL sem abri-la.
+ *
+ * A JANELA CONTINUA CHEGANDO PRONTA, mas ela encosta em colunas `date` e não em
+ * `timestamptz`, então a comparação é `dia >= $1::date AND dia <= $2::date`, INCLUSIVA nas
+ * duas pontas. É a única família de consultas do módulo que não usa `>=`/`<`, e a diferença
+ * não é descuido: um `<` sobre o dia do FIM apagaria o dia corrente da resposta inteira, que
+ * é justamente o dia que alguém está olhando quando abre a tela.
+ * ========================================================================= */
+
+/**
+ * A ESCRITA DAS CONTAGENS: um lote inteiro em UMA instrução.
+ *
+ * `unnest` DE TRÊS ARRAYS, e não uma instrução por evento: cinquenta idas ao banco dentro de
+ * uma transação aberta por rota ANÔNIMA é o jeito de a telemetria competir com o sync pelo
+ * pool de dez conexões. Os três arrays viajam como parâmetro, então o SQL continua 100%
+ * parametrizado e não há montagem de texto com dado de chamador.
+ *
+ * O `GROUP BY` NÃO É OTIMIZAÇÃO, É CORREÇÃO, e sem ele a rota quebra com um erro que não tem
+ * relação aparente com o assunto: `ON CONFLICT DO UPDATE` recusa afetar a MESMA linha duas
+ * vezes na mesma instrução (`21000`, "cannot affect row a second time"), e um cliente que
+ * mande duas entradas com o mesmo par (evento, qualificador) no mesmo lote produz exatamente
+ * isso. Agregar antes torna a instrução correta para QUALQUER lote, em vez de correta para
+ * os lotes que o nosso cliente costuma montar.
+ *
+ * A SOMA SATURA EM `INT_MAX` EM VEZ DE ESTOURAR. `contagem + EXCLUDED.contagem` em `integer`
+ * é um `22003` alcançável por chamador anônimo (ver o cabeçalho da migração), ou seja um 500
+ * na rota que existe para medir. A soma é feita em `bigint` e presa por `LEAST`: um contador
+ * que satura diz "muitíssimas", e um erro do driver não diz nada.
+ *
+ * O `dia` SAI DO `ultimoSinal` DO LOTE, já aparado contra o relógio do servidor, e é o dia do
+ * FUSO DA SESSÃO do Postgres, o mesmo de `PRODUCAO_POR_DIA`. Um lote que atravesse a
+ * meia-noite cai no dia em que foi DESCARREGADO, e não no dia de cada gesto: o cliente não
+ * carimba instante por evento, de propósito (é o que impediria de reconstruir a sequência de
+ * uma pessoa), então essa precisão não existe para ser preservada.
+ */
+export const UPSERT_EVENTOS_DIA = `
+  INSERT INTO uso_eventos_dia (dia, pagina, evento, prop, contagem)
+  SELECT ($1::timestamptz)::date, $2::text, e.evento, e.prop, SUM(e.contagem)::int
+    FROM unnest($3::text[], $4::text[], $5::int[]) AS e(evento, prop, contagem)
+   GROUP BY e.evento, e.prop
+  ON CONFLICT (dia, pagina, evento, prop) DO UPDATE
+     SET contagem = LEAST(uso_eventos_dia.contagem::bigint + EXCLUDED.contagem, 2147483647)::int
+`;
+
+/**
+ * A ESCRITA DA SESSÃO, e as regras de conflito NÃO são todas a mesma regra.
+ *
+ * Cada coluna tem uma razão própria para escolher entre o valor que já está lá e o que
+ * chegou, e escrever "o último vence" para todas seria perder três medidas diferentes:
+ *
+ *  - `ultimo_sinal` é `GREATEST`, nunca `EXCLUDED`: lotes podem chegar fora de ordem (rede,
+ *    fila offline), e um lote atrasado empurraria a sessão para TRÁS, encurtando a duração;
+ *  - `eventos` SOMA, com a mesma saturação da tabela de contagens, porque cada lote traz os
+ *    eventos daquela descarga e não o acumulado da aba;
+ *  - `erros` é `GREATEST` e não soma, porque o cliente manda o acumulado da sessão: somar
+ *    contaria o mesmo erro uma vez por descarga, e a taxa "sessões com erro" que a saúde de
+ *    release publica passaria a crescer com a duração da sessão em vez de com o defeito;
+ *  - `user_id` é `COALESCE(EXCLUDED, atual)`, ou seja o ÚLTIMO não nulo vence: a aba começa
+ *    anônima e a pessoa entra no meio, que é o caminho normal deste produto. O contrário
+ *    (primeiro vence) deixaria toda sessão que começou deslogada contada como anônima para
+ *    sempre, e `usuarios_distintos` mediria só quem já chegou logado;
+ *  - `release` e `navegador` são `COALESCE(atual, EXCLUDED)`, o PRIMEIRO não nulo: eles
+ *    identificam a build e o navegador em que a sessão COMEÇOU, e é essa a pergunta da saúde
+ *    de release;
+ *  - os quatro VITAIS se dividem em dois pares, e a divisão é a natureza da métrica. `lcp_ms`
+ *    e `tempo_ate_mapa_ms` são números de CARGA: acontecem uma vez, e o valor certo é o
+ *    primeiro que chegou (`COALESCE(atual, EXCLUDED)`). `inp_ms` e `cls` CRESCEM ao longo da
+ *    sessão (o pior atraso de interação até agora, o deslocamento acumulado até agora), e o
+ *    valor certo é o mais recente (`COALESCE(EXCLUDED, atual)`). Trocar os pares faz o
+ *    percentil de dois deles congelar no instante da carga.
+ *
+ * `dia` E `pagina_inicial` NÃO SÃO ATUALIZADOS, e é por isso que a segunda se chama assim: a
+ * sessão pertence ao dia e à página em que o servidor ouviu falar dela pela primeira vez.
+ * Deixá-los mover faria uma aba longa migrar de dia no meio do caminho, e o agregado do dia
+ * fechado deixaria de bater com a soma que já foi publicada.
+ */
+export const UPSERT_SESSAO = `
+  INSERT INTO uso_sessoes (
+    sessao_id, dia, user_id, pagina_inicial, release, navegador,
+    inicio, ultimo_sinal, eventos, erros, lcp_ms, inp_ms, cls, tempo_ate_mapa_ms
+  ) VALUES (
+    $1, ($7::timestamptz)::date, $2, $3, $4, $5,
+    $6, $7, $8, $9, $10, $11, $12, $13
+  )
+  ON CONFLICT (sessao_id) DO UPDATE SET
+    ultimo_sinal      = GREATEST(uso_sessoes.ultimo_sinal, EXCLUDED.ultimo_sinal),
+    eventos           = LEAST(uso_sessoes.eventos::bigint + EXCLUDED.eventos, 2147483647)::int,
+    erros             = GREATEST(uso_sessoes.erros, EXCLUDED.erros),
+    user_id           = COALESCE(EXCLUDED.user_id, uso_sessoes.user_id),
+    release           = COALESCE(uso_sessoes.release, EXCLUDED.release),
+    navegador         = COALESCE(uso_sessoes.navegador, EXCLUDED.navegador),
+    lcp_ms            = COALESCE(uso_sessoes.lcp_ms, EXCLUDED.lcp_ms),
+    tempo_ate_mapa_ms = COALESCE(uso_sessoes.tempo_ate_mapa_ms, EXCLUDED.tempo_ate_mapa_ms),
+    inp_ms            = COALESCE(EXCLUDED.inp_ms, uso_sessoes.inp_ms),
+    cls               = COALESCE(EXCLUDED.cls, uso_sessoes.cls)
+`;
+
+/**
+ * A AGREGAÇÃO DO DIA FECHADO, que é o que sobrevive à poda.
+ *
+ * ELA CONVERGE, E ATÉ 2026-09-02 ELA NÃO CONVERGIA. A primeira versão usava
+ * `ON CONFLICT DO NOTHING`, o que tirava o agregado de um dia UMA vez e nunca mais: uma sessão
+ * que chegasse tarde para um dia já agregado (a fila offline descarregando de manhã, que é o
+ * caso normal e não o excêntrico) sumia dos DOIS lados, porque `SESSOES_POR_DIA` deixa
+ * `uso_diario` vencer onde ele existe. O dado entrava no banco e não aparecia em lugar nenhum.
+ *
+ * HOJE É `DO UPDATE`, e o dia é RE-AGREGADO a cada passada enquanto ainda tiver sessão viva.
+ * A poda só remove depois da retenção, então a linha converge para o valor final e para de
+ * mudar. A única perda que sobra, e ela está aqui em voz alta: uma sessão que chegue DEPOIS de
+ * a poda ter levado as sessões daquele dia não entra mais, porque não há mais com o que
+ * re-agregar. Isso exige um lote atrasado por mais tempo que `LOG_RETENTION_DAYS`, que é a
+ * mesma janela em que `instantesDoLote` já para de aceitar o instante.
+ *
+ * O `WHERE EXCLUDED.sessoes >= uso_diario.sessoes` NÃO É ZELO, É O QUE IMPEDE A CONVERGÊNCIA
+ * DE ANDAR PARA TRÁS. A poda é por `ultimo_sinal` e a agregação agrupa por `dia`, então na
+ * fronteira da retenção um dia pode ter PARTE das sessões apagada; sem a condição, a passada
+ * seguinte recomputaria aquele dia a partir do subconjunto sobrevivente e sobrescreveria um
+ * número correto por um menor, plausível e definitivo. Com ela, a atualização só ACRESCE.
+ *
+ * O PISO fecha a outra ponta: sem ele a varredura reagregaria o histórico inteiro a cada
+ * passada, e um dia de onde a poda já levou tudo teria sua linha recomputada a partir de zero
+ * sessões (a condição acima o impediria de encolher, mas o trabalho seria pago mesmo assim).
+ * Com o piso, a passada olha só a janela em que ainda pode haver sessão.
+ *
+ * O PISO É `retenção + 1` DIAS, E O DIA A MAIS NÃO É FOLGA. A poda mira um INSTANTE
+ * (`ultimo_sinal < NOW() - retenção`) e a agregação agrupa por DIA, então os dois recortes não
+ * coincidem: com o piso em `hoje - retenção` existiria uma faixa de um dia que a poda apaga e
+ * que a agregação já parou de olhar, ou seja sessões destruídas sem nunca terem virado número.
+ * Com o dia extra, todo dia que a poda alcança ainda está dentro do alcance da agregação na
+ * MESMA passada, e é isso que torna a ordem "agregar, depois podar" uma garantia e não uma
+ * coincidência de calendário.
+ *
+ * O QUE O PISO CUSTA, declarado: um dia que saia da retenção sem que nenhuma passada tenha
+ * rodado no meio (servidor calado por mais tempo que `LOG_RETENTION_DAYS`) perde as sessões
+ * sem virar agregado. Nesse cenário não houve escrita nenhuma, logo não havia sessão nova para
+ * agregar; o caso é declarado por ser o único em que a convergência não acontece.
+ *
+ * `percentile_cont` IGNORA NULO, e é isso que permite `lcp_ms` só existir na página que
+ * carrega mapa: a mediana de uma coluna vazia é NULL, e o NULL sobrevive até o payload
+ * porque zero milissegundo é uma MEDIDA. Ver `decimalOuNulo` em `uso.horizonte.js`.
+ *
+ * O `GREATEST(0, ...)` NA DURAÇÃO É CINTO, e não a regra: `instantesDoLote` (`uso.lote.js`)
+ * já prende `inicio` ao teto de `ultimoSinal` na escrita, então a linha nasce com duração não
+ * negativa. Ele fica porque a linha pode ter nascido de um lote e recebido `ultimo_sinal` de
+ * outro, e uma mediana negativa não se lê como defeito, se lê como medida.
+ *
+ * `COUNT(DISTINCT user_id)` IGNORA NULO DE GRAÇA, que é o comportamento certo: uma sessão
+ * anônima não é uma pessoa a mais. Ela continua contada em `sessoes`, que é outra pergunta.
+ */
+export const AGREGAR_DIAS_FECHADOS = `
+  INSERT INTO uso_diario (
+    dia, pagina, sessoes, sessoes_autenticadas, usuarios_distintos, sessoes_com_erro,
+    duracao_mediana_s, lcp_p75_ms, inp_p75_ms, cls_p75, tempo_ate_mapa_p75_ms
+  )
+  SELECT s.dia,
+         s.pagina_inicial,
+         COUNT(*)::int,
+         COUNT(*) FILTER (WHERE s.user_id IS NOT NULL)::int,
+         COUNT(DISTINCT s.user_id)::int,
+         COUNT(*) FILTER (WHERE s.erros > 0)::int,
+         percentile_cont(0.5) WITHIN GROUP (
+           ORDER BY GREATEST(0, EXTRACT(EPOCH FROM (s.ultimo_sinal - s.inicio)))::double precision
+         )::int,
+         percentile_cont(0.75) WITHIN GROUP (ORDER BY s.lcp_ms::double precision)::int,
+         percentile_cont(0.75) WITHIN GROUP (ORDER BY s.inp_ms::double precision)::int,
+         percentile_cont(0.75) WITHIN GROUP (ORDER BY s.cls::double precision)::numeric(6,3),
+         percentile_cont(0.75) WITHIN GROUP (ORDER BY s.tempo_ate_mapa_ms::double precision)::int
+    FROM uso_sessoes s
+   WHERE s.dia < ($1::timestamptz)::date
+     AND s.dia >= (($1::timestamptz)::date - ($2::int + 1))
+   GROUP BY s.dia, s.pagina_inicial
+  ON CONFLICT (dia, pagina) DO UPDATE SET
+    sessoes               = EXCLUDED.sessoes,
+    sessoes_autenticadas  = EXCLUDED.sessoes_autenticadas,
+    usuarios_distintos    = EXCLUDED.usuarios_distintos,
+    sessoes_com_erro      = EXCLUDED.sessoes_com_erro,
+    duracao_mediana_s     = EXCLUDED.duracao_mediana_s,
+    lcp_p75_ms            = EXCLUDED.lcp_p75_ms,
+    inp_p75_ms            = EXCLUDED.inp_p75_ms,
+    cls_p75               = EXCLUDED.cls_p75,
+    tempo_ate_mapa_p75_ms = EXCLUDED.tempo_ate_mapa_p75_ms
+  WHERE EXCLUDED.sessoes >= uso_diario.sessoes
+  RETURNING dia, pagina
+`;
+
+/**
+ * A PODA DAS SESSÕES, com o mesmo desenho de `DELETE_DEFEITOS_EXPIRADOS`.
+ *
+ * O TETO POR PASSADA EXISTE PELO LOCK: um `DELETE` sem limite sobre uma tabela grande segura
+ * a transação e as linhas por tempo indefinido, e o que sobrar sai na passada seguinte. A
+ * ordenação por `ultimo_sinal` faz a passada apagar sempre o mais velho primeiro, de modo que
+ * o atraso se concentra no que menos importa.
+ *
+ * A ORDEM COM A AGREGAÇÃO É O CONTRATO INTEIRO, e ela é imposta pelo chamador
+ * (`uso.eventos.service.js`): agregar e SÓ ENTÃO apagar. Invertida, a poda leva embora as
+ * sessões de um dia que ainda não virou linha em `uso_diario`, e o dia some do relatório sem
+ * erro nenhum e sem nada ficar vermelho.
+ */
+export const DELETE_SESSOES_EXPIRADAS = `
+  DELETE FROM uso_sessoes
+   WHERE sessao_id IN (
+     SELECT sessao_id
+       FROM uso_sessoes
+      WHERE ultimo_sinal < NOW() - ($1::int * INTERVAL '1 day')
+      ORDER BY ultimo_sinal
+      LIMIT $2
+   )
+  RETURNING sessao_id
+`;
+
+/**
+ * A SÉRIE DIÁRIA DE SESSÕES, E A COSTURA ENTRE O DIA FECHADO E O DIA ABERTO.
+ *
+ * ESTA É A CONSULTA QUE PRECISA SER LIDA ANTES DE MEXER EM QUALQUER OUTRA DESTA FAMÍLIA. O
+ * mesmo dia pode ter DUAS fontes (a linha de `uso_diario`, escrita quando ele fechou, e as
+ * linhas de `uso_sessoes`, que sobrevivem até a retenção), e somar as duas contaria tudo em
+ * dobro. A regra é: `uso_diario` VENCE onde existir, e as sessões cobrem o resto.
+ *
+ * O `NOT EXISTS` É POR (dia, PÁGINA), e não por dia, e a diferença importa num caso real: a
+ * agregação insere todas as páginas de um dia na mesma instrução, mas `ON CONFLICT DO
+ * NOTHING` significa que uma página cuja primeira sessão só apareceu DEPOIS da passada nunca
+ * entra em `uso_diario`. Com o teste por dia, aquelas sessões seriam descartadas e a página
+ * sumiria do relatório; com o teste por par, elas entram pelo ramo aberto.
+ *
+ * POR QUE O RAMO ABERTO TAMBÉM AGRUPA POR PÁGINA, mesmo devolvendo série por DIA: para que os
+ * dois lados da costura sejam a MESMA grandeza. `usuarios_distintos` de `uso_diario` é
+ * distinto DENTRO da página, então a soma do dia conta duas vezes quem usou duas páginas;
+ * fazer o ramo aberto contar distinto no dia inteiro produziria um número menor pela mesma
+ * pessoa, e a série teria um degrau na fronteira entre o dia fechado e o aberto, que se lê
+ * como queda de uso. Consistência dos dois lados vale mais que precisão de um só.
+ *
+ * O `generate_series` PREENCHE OS BURACOS, pela mesma razão de `PRODUCAO_POR_DIA`: um dia sem
+ * sessão é zero, e uma série que pula dias é lida como queda quando é ausência de linha.
+ */
+export const SESSOES_POR_DIA = `
+  WITH dias AS (
+    SELECT generate_series(
+             date_trunc('day', $1::timestamptz),
+             date_trunc('day', $2::timestamptz),
+             interval '1 day'
+           )::date AS dia
+  ),
+  fechados AS (
+    SELECT d.dia, d.sessoes, d.sessoes_autenticadas, d.usuarios_distintos, d.sessoes_com_erro
+      FROM uso_diario d
+     WHERE d.dia >= ($1::timestamptz)::date
+       AND d.dia <= ($2::timestamptz)::date
+  ),
+  abertos AS (
+    SELECT s.dia,
+           COUNT(*)::int                                     AS sessoes,
+           COUNT(*) FILTER (WHERE s.user_id IS NOT NULL)::int AS sessoes_autenticadas,
+           COUNT(DISTINCT s.user_id)::int                     AS usuarios_distintos,
+           COUNT(*) FILTER (WHERE s.erros > 0)::int           AS sessoes_com_erro
+      FROM uso_sessoes s
+     WHERE s.dia >= ($1::timestamptz)::date
+       AND s.dia <= ($2::timestamptz)::date
+       AND NOT EXISTS (
+         SELECT 1 FROM uso_diario d
+          WHERE d.dia = s.dia AND d.pagina = s.pagina_inicial
+       )
+     GROUP BY s.dia, s.pagina_inicial
+  ),
+  unido AS (
+    SELECT * FROM fechados
+    UNION ALL
+    SELECT * FROM abertos
+  )
+  SELECT to_char(d.dia, 'YYYY-MM-DD')                  AS dia,
+         COALESCE(SUM(u.sessoes), 0)::int              AS sessoes,
+         COALESCE(SUM(u.sessoes_autenticadas), 0)::int AS sessoes_autenticadas,
+         COALESCE(SUM(u.usuarios_distintos), 0)::int   AS usuarios_distintos,
+         COALESCE(SUM(u.sessoes_com_erro), 0)::int     AS sessoes_com_erro
+    FROM dias d
+    LEFT JOIN unido u ON u.dia = d.dia
+   GROUP BY d.dia
+   ORDER BY d.dia
+`;
+
+/**
+ * As DUAS medidas da janela que NÃO se derivam do agregado diário.
+ *
+ * "Quantas PESSOAS distintas" e "qual a duração MEDIANA" são as duas perguntas que somar
+ * linhas de `uso_diario` não responde: contagem distinta não se soma entre dias, e mediana
+ * não se re-agrega a partir de medianas. Elas saem, portanto, das SESSÕES RETIDAS, e isso
+ * tem uma consequência que a tela precisa dizer: quando a janela pedida ultrapassa
+ * `LOG_RETENTION_DAYS`, os dois números cobrem só a parte retida da janela, ou seja são um
+ * PISO. Quem permite ao consumidor perceber isso é `horizonte.usoSessoesDesde`, que viaja no
+ * mesmo payload e na mesma unidade, pela mesma razão de o horizonte de `operations` viajar ao
+ * lado de `desde`: dois instantes dão quatro desfechos, um booleano daria dois.
+ */
+export const USO_NA_JANELA = `
+  SELECT COUNT(*)::int                  AS sessoes_retidas,
+         COUNT(DISTINCT s.user_id)::int AS usuarios_distintos,
+         percentile_cont(0.5) WITHIN GROUP (
+           ORDER BY GREATEST(0, EXTRACT(EPOCH FROM (s.ultimo_sinal - s.inicio)))::double precision
+         ) AS duracao_mediana_s
+    FROM uso_sessoes s
+   WHERE s.dia >= ($1::timestamptz)::date
+     AND s.dia <= ($2::timestamptz)::date
+`;
+
+/**
+ * OS GESTOS MAIS FREQUENTES DA JANELA, do mais para o menos.
+ *
+ * O NOME DO BLOCO NO PAYLOAD É `ferramentas` E A CONSULTA NÃO FILTRA POR FERRAMENTA, e isso é
+ * deliberado: o bloco responde "o que as pessoas fazem", e cortar tudo o que não é
+ * `ferramenta.ativada` esconderia justamente os desfechos caros (o 3D que subiu, o PDF que
+ * saiu, o `.ebgeo` que entrou), que são poucos e são os que decidem prioridade. O nome é o da
+ * TELA, não o do recorte.
+ *
+ * O DESEMPATE POR (evento, qualificador) não é enfeite, e a lição é a mesma de `TOP_ATLAS`:
+ * sem ele, duas linhas de contagem igual trocam de lugar entre execuções e o corte em `$3`
+ * faz uma delas entrar ou sair a cada carga da tela, com o relatório parecendo instável sem
+ * que nada tenha mudado.
+ */
+export const EVENTOS_TOP = `
+  SELECT evento, prop, SUM(contagem)::bigint AS contagem
+    FROM uso_eventos_dia
+   WHERE dia >= ($1::timestamptz)::date
+     AND dia <= ($2::timestamptz)::date
+   GROUP BY evento, prop
+   ORDER BY SUM(contagem) DESC, evento ASC, prop ASC
+   LIMIT $3
+`;
+
+/**
+ * O DESEMPENHO POR PÁGINA, calculado sobre as SESSÕES RETIDAS.
+ *
+ * ESTE É O NÚMERO VERDADEIRO, e é ele que o serviço prefere sempre que existir amostra: um
+ * percentil se calcula sobre a distribuição, e a distribuição são as sessões. O irmão
+ * (`DESEMPENHO_DIARIO`) só entra quando não há nenhuma sessão retida da página na janela, e o
+ * payload DIZ qual dos dois respondeu, no campo `origem`.
+ */
+export const DESEMPENHO_POR_SESSAO = `
+  SELECT s.pagina_inicial AS pagina,
+         COUNT(*)::int    AS amostras,
+         percentile_cont(0.75) WITHIN GROUP (ORDER BY s.lcp_ms::double precision)::int AS lcp_p75_ms,
+         percentile_cont(0.75) WITHIN GROUP (ORDER BY s.inp_ms::double precision)::int AS inp_p75_ms,
+         percentile_cont(0.75) WITHIN GROUP (
+           ORDER BY s.cls::double precision
+         )::numeric(6,3) AS cls_p75,
+         percentile_cont(0.75) WITHIN GROUP (
+           ORDER BY s.tempo_ate_mapa_ms::double precision
+         )::int AS tempo_ate_mapa_p75_ms
+    FROM uso_sessoes s
+   WHERE s.dia >= ($1::timestamptz)::date
+     AND s.dia <= ($2::timestamptz)::date
+   GROUP BY s.pagina_inicial
+   ORDER BY s.pagina_inicial
+`;
+
+/**
+ * O DESEMPENHO POR PÁGINA quando as sessões já foram podadas: a MEDIANA DAS P75 DIÁRIAS.
+ *
+ * ELA NÃO É O P75 DA JANELA, E NÃO PODE SER APRESENTADA COMO SE FOSSE. Um percentil não se
+ * re-agrega a partir de percentis: a mediana de trinta p75 diários é uma medida de TENDÊNCIA
+ * CENTRAL DOS DIAS, não o percentil 75 da distribuição de sessões daqueles trinta dias, e os
+ * dois divergem tanto mais quanto mais desiguais forem os dias. Ela é útil (responde "como os
+ * dias costumavam estar"), e por isso existe; o que ela não pode é chegar ao consumidor sem
+ * etiqueta, e é o `origem: 'diario'` do payload que a etiqueta.
+ *
+ * A MEDIANA E NÃO A MÉDIA, porque um único dia patológico (um deploy ruim, um incidente de
+ * rede) desloca a média de um mês inteiro e não desloca a mediana, e a pergunta desta linha é
+ * "como os dias costumavam estar", não "quanto a soma dos dias vale".
+ *
+ * `amostras` AQUI CONTA DIAS, e no irmão conta SESSÕES. Os dois campos têm o mesmo nome e
+ * grandezas diferentes, e é por isso que `origem` viaja junto: sem ele, "amostras: 30"
+ * pareceria trinta sessões.
+ */
+export const DESEMPENHO_DIARIO = `
+  SELECT d.pagina,
+         COUNT(*)::int AS amostras,
+         percentile_cont(0.5) WITHIN GROUP (
+           ORDER BY d.lcp_p75_ms::double precision
+         )::int AS lcp_p75_ms,
+         percentile_cont(0.5) WITHIN GROUP (
+           ORDER BY d.inp_p75_ms::double precision
+         )::int AS inp_p75_ms,
+         percentile_cont(0.5) WITHIN GROUP (
+           ORDER BY d.cls_p75::double precision
+         )::numeric(6,3) AS cls_p75,
+         percentile_cont(0.5) WITHIN GROUP (
+           ORDER BY d.tempo_ate_mapa_p75_ms::double precision
+         )::int AS tempo_ate_mapa_p75_ms
+    FROM uso_diario d
+   WHERE d.dia >= ($1::timestamptz)::date
+     AND d.dia <= ($2::timestamptz)::date
+   GROUP BY d.pagina
+   ORDER BY d.pagina
+`;
+
+/**
+ * QUANTAS PESSOAS BATERAM NA TELA DE INDISPONIBILIDADE, por dia.
+ *
+ * É a única medida de disponibilidade VISTA DA PONTA que este produto tem, e ela não é
+ * derivável de nada no servidor: o boot do mapa é fail-fast em `GET /api/config`, e quando o
+ * backend está fora não existe requisição para o log em arquivo registrar. O evento é
+ * relatado quando o servidor VOLTA (o cliente guarda a contagem e a descarrega depois), então
+ * ele mede a ausência pelo único caminho possível.
+ *
+ * A SÉRIE É PREENCHIDA COM ZERO, pela razão de sempre, e aqui ela tem uma leitura invertida
+ * que vale dizer: o zero é a BOA notícia. Um dia sem linha não pode aparecer como buraco,
+ * porque um buraco ao lado de um pico se lê como "não sabemos", e aqui sabemos.
+ */
+export const DISPONIBILIDADE_POR_DIA = `
+  WITH dias AS (
+    SELECT generate_series(
+             date_trunc('day', $1::timestamptz),
+             date_trunc('day', $2::timestamptz),
+             interval '1 day'
+           )::date AS dia
+  ),
+  vistos AS (
+    SELECT dia, SUM(contagem)::bigint AS total
+      FROM uso_eventos_dia
+     WHERE evento = 'indisponivel.visto'
+       AND dia >= ($1::timestamptz)::date
+       AND dia <= ($2::timestamptz)::date
+     GROUP BY dia
+  )
+  SELECT to_char(d.dia, 'YYYY-MM-DD') AS dia,
+         COALESCE(v.total, 0)         AS vistos
+    FROM dias d
+    LEFT JOIN vistos v ON v.dia = d.dia
+   ORDER BY d.dia
+`;
+
+/**
+ * ATÉ ONDE O DADO DE USO ALCANÇA, e são DUAS fontes que limitam metades diferentes.
+ *
+ * `sessoes_desde` é o instante da sessão retida mais antiga, e ele limita tudo o que se
+ * calcula sobre sessões: pessoas distintas na janela, duração mediana e o desempenho quando a
+ * origem é `sessoes`. `diario_desde` é o dia agregado mais antigo, e ele limita a série e os
+ * totais, que sobrevivem à poda.
+ *
+ * SEM `WHERE`: a pergunta não é sobre a janela, é sobre a tabela. É a mesma decisão, e o
+ * mesmo argumento, de `HORIZONTE` lá em cima: o registro mais antigo que ainda EXISTE é o que
+ * diz se um pedido de 90 dias está sendo respondido sobre 90 dias ou sobre 20.
+ *
+ * `MIN(dia)` VIRA `timestamptz` AQUI e não no JS: o dia é uma data local do servidor, e
+ * convertê-la fora do banco exigiria adivinhar o fuso dele. É a mesma razão pela qual a
+ * semana da coorte viaja como string.
+ */
+export const HORIZONTE_DE_USO = `
+  SELECT
+    (SELECT MIN(inicio) FROM uso_sessoes)          AS sessoes_desde,
+    (SELECT MIN(dia)::timestamptz FROM uso_diario) AS diario_desde
+`;
+
+/**
+ * A SAÚDE POR RELEASE: das builds que estiveram no ar na janela, quantas sessões, quantas com
+ * erro, quantos defeitos NASCERAM nelas e quantas REGRESSÕES foram atribuídas a elas.
+ *
+ * ELA CRUZA AS DUAS METADES DA OBSERVABILIDADE, e é a única consulta do repositório que faz
+ * isso: `uso_sessoes` é telemetria de USO e `defeitos` é telemetria de ERRO, e a pergunta que
+ * só o cruzamento responde é "esta build está pior que a anterior". Nem o número de defeitos
+ * sozinho responde (uma build usada por dez pessoas tem menos defeitos que uma usada por
+ * mil), nem o número de sessões.
+ *
+ * O RECORTE É POR SOBREPOSIÇÃO, E NÃO POR INÍCIO, e a diferença tem nome: a pergunta é quais
+ * builds ESTIVERAM NO AR na janela, e uma sessão que começou antes dela e ainda respirava
+ * dentro dela é a resposta mais literal possível para isso. A primeira versão comparava só
+ * `s.inicio`, e com o `desde` curto que a rota do pulso usa por padrão (1h) isso significava
+ * "builds em que alguém ABRIU uma aba na última hora", que é outra coisa e é a mais frágil das
+ * duas: numa madrugada sem ninguém abrindo aba nova, a build no ar sumiria da tela. A condição
+ * de sobreposição de dois intervalos é `fim_a >= inicio_b AND inicio_a < fim_b`, e é ela que
+ * está escrita abaixo.
+ *
+ * A ORDEM CONTINUA POR `MAX(s.inicio)`, e não pelo último sinal, e a assimetria é deliberada:
+ * o que se quer no topo é a build mais NOVA (a recém-implantada), e o sinal mais recente é da
+ * build mais USADA, que pode ser a velha com muitas abas abertas.
+ *
+ * A JANELA SELECIONA QUAIS RELEASES, E NÃO QUAIS DEFEITOS, e essa assimetria é deliberada.
+ * `sessoes` e `sessoes_com_erro` são da janela, porque são medida de tráfego; `defeitos_novos`
+ * e `regressoes` NÃO têm recorte de tempo, porque "quantos defeitos nasceram nesta build" é
+ * uma propriedade da BUILD e não do período em que se olha. Recortar os dois pela mesma
+ * janela faria uma build recém-implantada parecer limpa por não ter tido tempo, que é a
+ * afirmação oposta à útil.
+ *
+ * A ORDEM É PELO ÚLTIMO SINAL, E NÃO PELA CONTAGEM, e o `LIMIT` corta as mais ANTIGAS: a
+ * pergunta é sobre as builds que estão no ar AGORA, e ordenar por volume poria a build velha
+ * e muito usada acima da recém-implantada, que é exatamente a que se quer olhar.
+ *
+ * A CADEIA `release IS NOT NULL AND <> ''` existe porque `EBGEO_RELEASE` é opcional: uma
+ * instalação que não o declara manda `null`, e agrupar por isso produziria uma linha "sem
+ * release" que não responde nada e ocuparia uma das três vagas.
+ */
+export const SAUDE_POR_RELEASE = `
+  WITH releases AS (
+    SELECT s.release,
+           MAX(s.inicio)                            AS ultima,
+           COUNT(*)::int                            AS sessoes,
+           COUNT(*) FILTER (WHERE s.erros > 0)::int AS sessoes_com_erro
+      FROM uso_sessoes s
+     WHERE s.release IS NOT NULL
+       AND s.release <> ''
+       AND s.ultimo_sinal >= $1
+       AND s.inicio < $2
+     GROUP BY s.release
+     ORDER BY MAX(s.inicio) DESC
+     LIMIT $3
+  )
+  SELECT r.release,
+         r.sessoes,
+         r.sessoes_com_erro,
+         (SELECT COUNT(*) FROM defeitos d
+           WHERE d.primeira_release = r.release)::int AS defeitos_novos,
+         (SELECT COUNT(*) FROM defeitos d
+           WHERE d.estado = 'regrediu'
+             AND d.ultima_release = r.release)::int   AS regressoes
+    FROM releases r
+   ORDER BY r.ultima DESC
+`;

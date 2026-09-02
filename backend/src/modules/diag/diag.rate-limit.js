@@ -38,15 +38,11 @@
 import rateLimit from 'express-rate-limit';
 import { makeLimiterHandler } from '../../middleware/rate-limit.js';
 import config from '../../config.js';
-
-const teto = (nome, padrao) => {
-  const bruto = parseInt(process.env[nome] ?? '', 10);
-  return Number.isFinite(bruto) && bruto > 0 ? bruto : padrao;
-};
+import { tetoDeEnv } from '../../utils/teto-de-env.js';
 
 export const clientErrorLimiter = rateLimit({
-  windowMs: teto('RATE_LIMIT_CLIENT_ERROR_WINDOW_MS', 60_000),
-  max: teto('RATE_LIMIT_CLIENT_ERROR_MAX', 60),
+  windowMs: tetoDeEnv('RATE_LIMIT_CLIENT_ERROR_WINDOW_MS', 60_000),
+  max: tetoDeEnv('RATE_LIMIT_CLIENT_ERROR_MAX', 60),
   standardHeaders: true,
   legacyHeaders: false,
   // Mesmos dois desligamentos de `src/middleware/rate-limit.js`, e pelo mesmo motivo: a

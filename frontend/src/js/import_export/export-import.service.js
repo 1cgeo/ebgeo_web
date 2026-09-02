@@ -68,6 +68,10 @@ import { atlasNameFromFilename } from '@js/projects/import-ebgeo.service.js';
 import JSZip from 'jszip';
 import config from '@js/config.js';
 import { pruneCatalogLayerDefinitions } from '@catalog/catalog-layer.ref.js';
+// Por ARQUIVO, de dois modulos folha. As duas contagens ficam no caminho de SUCESSO de cada lado:
+// um `.ebgeo` que nao chegou a sair, ou que o `catch` recusou, nao e saida nem entrada de arquivo.
+import { registrarUso } from '@js/session/uso-lote.js';
+import { EventoDeUso } from '@js/session/eventos-de-uso.js';
 
 /**
  * Whether an import right now would be writing into a SERVER atlas's databases.
@@ -500,6 +504,7 @@ export class ExportImportService {
             URL.revokeObjectURL(url);
 
             this.showSaveSuccess(mapsToExport.length);
+            registrarUso(EventoDeUso.EBGEO_EXPORTADO);
 
         } catch (error) {
             console.error('Erro ao exportar dados:', error);
@@ -764,6 +769,7 @@ export class ExportImportService {
 
             const importType = isAdditiveImport ? 'adicionados' : 'carregados';
             this.showLoadSuccess(importedMapsCount, importType);
+            registrarUso(EventoDeUso.EBGEO_IMPORTADO);
 
             if (newLocalAtlasName) {
                 showToast(

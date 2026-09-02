@@ -27,6 +27,10 @@ import { BlockingCause, blockingScreenContent } from './blocking-screen-phrases.
 // as três chamam `instalarTelemetriaDeErro` na primeira linha.
 import { relatarErro } from '@js/session/erro-telemetria.js';
 import { OrigemDeErro } from '@js/session/origens-de-erro.js';
+// Os dois folhas do uso, pelo mesmo argumento de import do vizinho acima. Ver o `fileoverview`
+// sobre o que esta contagem de fato consegue contar.
+import { descarregarUso, registrarUso } from '@js/session/uso-lote.js';
+import { EventoDeUso } from '@js/session/eventos-de-uso.js';
 
 /** The cause currently painted, or null. Module state: the screen replaces the whole page. */
 let _shownCause = null;
@@ -87,6 +91,16 @@ export function showUnavailableScreen(cause = BlockingCause.SERVER_UNREACHABLE) 
             contexto: { causa: cause },
             enfileirarSempre: deveEnfileirarIndisponivel(cause),
         });
+
+        // A CONTAGEM DE USO VAI JUNTO, E ELA CONTA MENOS DO QUE O NOME PROMETE. Não há fila do
+        // lado do uso (é decisão, e o `fileoverview` de `session/uso-lote.js` diz por quê), então
+        // esta descarga sai contra o servidor AGORA: com `SERVER_UNREACHABLE` ela falha por
+        // definição e o lote morre, e o que de fato chega ao banco é quase só a tela de
+        // `APP_ERROR`. A queda de servidor NÃO se perde — ela é o relato acima, que enfileira e
+        // sai no próximo boot. Quem ler a série "Indisponibilidade vista pelo cliente" como
+        // "quantas vezes o servidor caiu" lerá o número errado.
+        registrarUso(EventoDeUso.INDISPONIVEL_VISTO);
+        descarregarUso({ motivo: 'indisponivel' });
     }
 
     // The boot splash (#initial-loader) is normally removed once the app finishes loading; on a

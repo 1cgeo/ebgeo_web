@@ -98,6 +98,10 @@ import { showChoice } from '@modals/confirm.modal.js';
 import { showError } from '@utils/toast_service.js';
 import { reapplyAtlasAppearance } from '@store/atlas-appearance.service.js';
 import { EventTypes } from '@events/event_types.js';
+// Por ARQUIVO, de dois modulos folha (o catalogo tem zero imports, e o acumulador importa so o
+// catalogo): contar nao pode arrastar grafo nenhum para dentro do pipeline de abertura.
+import { registrarUso } from '@js/session/uso-lote.js';
+import { EventoDeUso, PropDeUso } from '@js/session/eventos-de-uso.js';
 
 // =================================================================================================
 // TAB-LOCK KEY: which atlas this tab holds
@@ -657,6 +661,12 @@ export async function openRemoteAtlas(atlasId, { mapId = null } = {}) {
     // do snapshot chegar.
     await reapplyAtlasAppearance(getControl('TerrainControl'), globalThis.__ebgeoMap);
     startAutoFlush();
+    // AQUI, E NAO NO BARRAMENTO: `ATLAS_SWITCHED` so e anunciado por `switchAtlas`, que hoje e
+    // alcancada pelo gancho de medicao e por mais nada, entao um tap de barramento contaria quase
+    // nada. Esta e a UNICA porta de abertura de atlas de SERVIDOR (o comentario de
+    // `switchAtlas` diz por que ela nao pode ter uma segunda), e a linha fica depois do
+    // `startAutoFlush` para contar so o que de fato abriu.
+    registrarUso(EventoDeUso.ATLAS_ABERTO, PropDeUso.ATLAS_SERVIDOR);
     return true;
 }
 
@@ -879,6 +889,10 @@ async function switchToExistingLocalAtlas(atlasId, mapId) {
     // releitura, o relevo de um projeto de servidor continuaria valendo no slot local.
     await reapplyAtlasAppearance(getControl('TerrainControl'), globalThis.__ebgeoMap);
 
+    // A TROCA VIVA PARA UM SLOT LOCAL TAMBEM E UMA ABERTURA, e ela nao passa pelo boot: quem conta
+    // o local no boot e a cadeia de roteamento de `index.js`, e este caminho nao a atravessa. Sem
+    // esta linha, so a PRIMEIRA entrada num slot local por carga de pagina apareceria no relatorio.
+    registrarUso(EventoDeUso.ATLAS_ABERTO, PropDeUso.ATLAS_LOCAL);
     return { ok: true, changed: true };
 }
 

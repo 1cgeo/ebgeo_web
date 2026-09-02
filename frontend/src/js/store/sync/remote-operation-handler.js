@@ -1158,7 +1158,14 @@ async function applyRemoteMapSettingOp(entityType, mapId, data) {
                 });
                 emit(EventTypes.TEMPORAL_CONFIG_CHANGED, { mapName, config: data });
                 if (typeof data.ativo === 'boolean') {
-                    emit(EventTypes.MAP_TEMPORAL_CHANGED, { mapName, enabled: data.ativo });
+                    // `remoto: true` MARCA A PROCEDENCIA, e ele existe para um assinante so: a
+                    // telemetria de uso conta `temporal.ativado` neste evento, e esta emissao
+                    // acontece a cada op de ENTRADA que carregue a config temporal, sem deteccao
+                    // de mudanca. Sem a marca, o colega que liga a linha do tempo uma vez conta
+                    // uma vez em cada aba do atlas, e a metrica passa a medir o tamanho da equipe.
+                    // Nenhum outro assinante o le, e a ausencia do campo (emissor local) e o
+                    // estado normal.
+                    emit(EventTypes.MAP_TEMPORAL_CHANGED, { mapName, enabled: data.ativo, remoto: true });
                 }
             }
             break;

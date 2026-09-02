@@ -25,6 +25,9 @@ import {
 import { ANGLE_UNITS } from './measurement.constants.js';
 import { createAngleResultsPanel } from './measurement-results-panel.js';
 import { getControl } from '@store';
+// Por ARQUIVO, de dois modulos folha: a contagem nao pode participar da ativacao.
+import { registrarUso } from '@js/session/uso-lote.js';
+import { EventoDeUso } from '@js/session/eventos-de-uso.js';
 
 export class MeasurementAngleControl {
     constructor(toolManager) {
@@ -60,6 +63,11 @@ export class MeasurementAngleControl {
     activate() {
         if (!this.map || this.isActive) return;
         this.isActive = true;
+        // A GUARDA ACIMA E O QUE TORNA ISTO UMA CONTAGEM DE ABERTURA: `isActive` ja saiu com
+        // `return`, entao reativar a ferramenta que ja esta ativa nao conta de novo. As tres
+        // medicoes compartilham este evento de proposito: a pergunta e quanto se mede, e a
+        // distincao entre distancia, area e angulo ja vem por `ferramenta.ativada`.
+        registrarUso(EventoDeUso.MEDICAO_ABERTA);
         this._points = [];
         this._cursorPos = null;
         this._finalized = false;

@@ -714,6 +714,193 @@ export const NUMEROS_DA_SAUDE = Object.freeze([
     }),
 ]);
 
+// ----- a saúde por release VINDA DO SERVIDOR -----
+
+/**
+ * De ONDE o cartão de saúde tirou os números desta carga.
+ *
+ * SÃO TRÊS E NÃO DOIS, e o terceiro é o que a primeira versão colapsava. Ela tinha um booleano,
+ * então "o pulso foi recusado", "este servidor não manda o bloco" e "o servidor mandou o bloco
+ * como `null` porque o banco não respondeu" caíam todos no mesmo `false`, e a frase acusava
+ * VERSÃO ANTERIOR nos três. Duas dessas três são falhas de AGORA, e mandar o administrador
+ * atualizar o servidor por causa de um banco que não respondeu é a mesma classe de erro que a
+ * aba Uso paga em `HORIZONTE.DESCONHECIDO`: afirmar causa que não se sabe.
+ * @type {Readonly<Object<string, string>>}
+ */
+export const FONTE_DA_SAUDE = Object.freeze({
+    /** O servidor respondeu a lista: é ela que está na tela. */
+    SERVIDOR: 'servidor',
+    /** O campo não veio. É o que um servidor de versão anterior faz. */
+    AUSENTE: 'ausente',
+    /** O pulso falhou, ou o servidor mandou o bloco como nulo (o banco dele não respondeu). */
+    INDISPONIVEL: 'indisponivel',
+});
+
+/**
+ * O desfecho da leitura do resumo por release.
+ *
+ * A ORDEM DOS RAMOS É O CONTRATO, e é a mesma de `estadoDoHorizonte` na aba irmã: a falha da
+ * REQUISIÇÃO vem antes de tudo, depois o `null` explícito (que é o servidor dizendo que não
+ * conseguiu montar a lista), depois o campo AUSENTE, e só então o formato. Um `releases` que não
+ * seja lista nem `null` é uma resposta que esta tela não sabe ler, e ela é INDISPONÍVEL e nunca
+ * vazia: desenhar "nenhuma release" sobre um servidor que respondeu outra coisa é a afirmação
+ * mais perigosa que uma tela de medição pode fazer.
+ * @param {Object} [entrada]
+ * @param {boolean} [entrada.pulsoFalhou] - A leitura de `/diag/status` foi recusada.
+ * @param {*} [entrada.releases] - O campo, como o payload o trouxe.
+ * @returns {string} Um valor de {@link FONTE_DA_SAUDE}.
+ */
+export function desfechoDaSaude({ pulsoFalhou = false, releases } = {}) {
+    if (pulsoFalhou) return FONTE_DA_SAUDE.INDISPONIVEL;
+    if (releases === null) return FONTE_DA_SAUDE.INDISPONIVEL;
+    if (releases === undefined) return FONTE_DA_SAUDE.AUSENTE;
+    return Array.isArray(releases) ? FONTE_DA_SAUDE.SERVIDOR : FONTE_DA_SAUDE.INDISPONIVEL;
+}
+
+/**
+ * A saúde por release COMO O SERVIDOR A CONTA, normalizada e com a taxa derivada.
+ *
+ * ELA RESPONDE OUTRA PERGUNTA QUE {@link saudeDasReleases}, e é por isso que as duas coexistem em
+ * vez de uma substituir a outra no código. A do cliente conta DEFEITOS sobre a lista carregada (a
+ * janela, os filtros e o teto da consulta); esta conta SESSÕES sobre o histórico do servidor, que
+ * é o denominador que faltava: "sete defeitos novos" não diz nada sem saber se a release rodou em
+ * setenta sessões ou em sete mil. A tela prefere esta quando ela existe e diz qual está mostrando
+ * ({@link saudeFonteNotice}), porque as duas contas dão números diferentes sobre a mesma coisa e
+ * uma tela que não diz qual delas está no ar é uma tela em que não se pode confiar.
+ *
+ * A TAXA É DERIVADA AQUI, e não pedida ao servidor: ela é uma divisão entre dois números que já
+ * vieram, e um terceiro campo com o mesmo conteúdo é a oportunidade de os dois divergirem. Ela é
+ * `null` quando não há sessão, e nunca zero — 0% de zero sessões é uma afirmação sobre o conjunto
+ * vazio, a mesma armadilha que `percentualLabel` fecha na aba Uso.
+ *
+ * A ORDEM É A DO SERVIDOR, preservada: ele é quem sabe qual release é a mais recente, e reordenar
+ * aqui por nome não funcionaria de qualquer forma (`versao+hash` não é ordenável).
+ * @param {*} releases
+ * @param {{limite?: number}} [opts]
+ * @returns {Array<{release: string, sessoes: number, sessoesComErro: number, taxa: number|null,
+ *   defeitosNovos: number, regressoes: number}>}
+ */
+export function saudeDoServidor(releases, { limite = TETO_DE_RELEASES } = {}) {
+    if (!Array.isArray(releases)) return [];
+    const teto = Number.isFinite(limite) && limite > 0 ? Math.floor(limite) : TETO_DE_RELEASES;
+    return releases
+        .filter((r) => r && typeof r === 'object' && typeof r.release === 'string'
+            && r.release.trim() !== '')
+        .map((r) => {
+            const sessoes = numeroOuZero(r.sessoes);
+            const comErro = numeroOuZero(r.sessoesComErro);
+            return {
+                release: r.release.trim(),
+                sessoes,
+                sessoesComErro: comErro,
+                taxa: sessoes > 0 ? (comErro / sessoes) * 100 : null,
+                defeitosNovos: numeroOuZero(r.defeitosNovos),
+                regressoes: numeroOuZero(r.regressoes),
+            };
+        })
+        .slice(0, teto);
+}
+
+/**
+ * Os números que cada release mostra quando o SERVIDOR é a fonte.
+ *
+ * SÃO CINCO, E A ORDEM É DE LEITURA: o denominador primeiro (quantas sessões), depois o numerador
+ * (quantas com erro), depois a razão entre os dois, e só então as duas contagens de defeito. Um
+ * cartão que começasse pela taxa mostraria "100%" de uma release com uma sessão, que é o número
+ * mais alarmante e menos informativo desta tela.
+ *
+ * O `campo` AMARRA RÓTULO E NÚMERO, como em {@link NUMEROS_DA_SAUDE}: com os cinco literais
+ * escritos no desenho, trocar dois de lugar não ficaria vermelho em lugar nenhum.
+ * @type {ReadonlyArray<{campo: string, rotulo: string, formato: string, titulo: string}>}
+ */
+export const NUMEROS_DA_SAUDE_DO_SERVIDOR = Object.freeze([
+    Object.freeze({
+        campo: 'sessoes',
+        rotulo: 'sessões',
+        formato: 'contagem',
+        titulo: 'Abas que relataram uso enquanto esta build estava no ar. É o denominador de tudo '
+            + 'o mais nesta linha.',
+    }),
+    Object.freeze({
+        campo: 'sessoesComErro',
+        rotulo: 'com erro',
+        formato: 'contagem',
+        titulo: 'Dessas sessões, as que capturaram ao menos um erro de navegador.',
+    }),
+    Object.freeze({
+        campo: 'taxa',
+        rotulo: 'taxa',
+        formato: 'percentual',
+        titulo: 'A fração das sessões desta build que viu ao menos um erro. Sem sessão não há '
+            + 'fração, e a tela mostra um travessão em vez de 0%.',
+    }),
+    Object.freeze({
+        campo: 'defeitosNovos',
+        rotulo: 'nascidos aqui',
+        formato: 'contagem',
+        titulo: 'Defeitos cuja PRIMEIRA ocorrência foi vista nesta release. É outra conta de '
+            + '"novo": o filtro acima é da janela, e o selo de cada linha é da sua última visita.',
+    }),
+    Object.freeze({
+        campo: 'regressoes',
+        rotulo: 'regressões',
+        formato: 'contagem',
+        titulo: 'Defeitos que estavam resolvidos e voltaram a ocorrer numa build diferente '
+            + 'daquela em que foram consertados.',
+    }),
+]);
+
+/**
+ * A taxa de erro de uma release, em percentual pt-BR.
+ *
+ * ELA MORA AQUI E A CONTAGEM MORA EM `diag-phrases.js`, e a assimetria não é descuido: este
+ * arquivo é ZERO IMPORTS por contrato, então importar `contagemLabel` para escrever uma única
+ * função de despacho custaria a propriedade que mantém `admin.html` sem a store. O despacho por
+ * `formato` fica no desenho, que já tem as duas à mão.
+ *
+ * TRAVESSÃO E NÃO "0%" QUANDO NÃO HÁ SESSÃO: sem denominador não há fração, e escrever zero por
+ * cento sobre uma release que ninguém usou afirmaria saúde a partir de ausência de dado. É a mesma
+ * regra de `percentualLabel` na aba Uso, repetida aqui porque os dois arquivos são folhas
+ * independentes de propósito.
+ * @param {*} taxa
+ * @returns {string}
+ */
+export function taxaDeErroLabel(taxa) {
+    if (typeof taxa !== 'number' || !Number.isFinite(taxa) || taxa < 0) return '—';
+    if (taxa > 0 && taxa < 0.1) return '<0,1%';
+    return `${taxa.toFixed(1).replace('.', ',')}%`;
+}
+
+/**
+ * QUAL DAS DUAS CONTAS ESTÁ NA TELA, dito em voz alta, e POR QUE quando não é a do servidor.
+ *
+ * ELA NÃO É OPCIONAL, e é a única frase deste arquivo que existe por causa de uma AMBIGUIDADE e
+ * não de uma ausência: as duas contas têm o mesmo título ("Saúde por release"), os mesmos nomes de
+ * release e dois rótulos em comum, e dão números diferentes. Sem esta linha, um administrador que
+ * abrisse a aba antes e depois de o servidor ganhar o bloco veria os números mudarem sem nada
+ * explicar, e a conclusão natural é que a tela está errada.
+ *
+ * O TERCEIRO RAMO NÃO AFIRMA CAUSA. Ele existe porque a primeira versão tinha dois e acusava
+ * "versão anterior" também quando o pulso falhou e quando o próprio servidor mandou o bloco como
+ * nulo: nos dois casos ele está atualizado e não conseguiu responder AGORA, e mandar o
+ * administrador atualizar o servidor manda procurar o problema no lugar errado.
+ * @param {*} fonte - Um valor de {@link FONTE_DA_SAUDE}.
+ * @returns {string}
+ */
+export function saudeFonteNotice(fonte) {
+    if (fonte === FONTE_DA_SAUDE.SERVIDOR) {
+        return 'Contado pelo SERVIDOR, sobre o histórico dele: as sessões e os defeitos de cada '
+            + 'build, independentemente da janela e dos filtros desta tela.';
+    }
+    const conta = 'Contado pelo CLIENTE, sobre os defeitos que esta lista carregou: a janela, os '
+        + 'filtros e o teto da consulta valem aqui também. ';
+    if (fonte === FONTE_DA_SAUDE.INDISPONIVEL) {
+        return `${conta}Não deu para ler o resumo do servidor nesta carga, e daqui não dá para `
+            + 'dizer se foi a requisição ou o banco dele; o que está acima é a conta do cliente.';
+    }
+    return `${conta}O servidor desta instalação não informa o resumo por release.`;
+}
+
 /**
  * O alcance da conta acima, dito na tela.
  * @returns {string}

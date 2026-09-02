@@ -335,7 +335,26 @@ describe('Relatório de uso — funil de entrada e coorte de retenção', () => 
       // distinguem quatro desfechos (cobre, encurtado, vazio, servidor não informou) e o
       // booleano distingue dois. Ver o `fileoverview` de `uso.horizonte.js`.
       const d = await usoService.resumo({ desde: '7d', agora: FIM_FUNIL });
-      assert.deepEqual(Object.keys(d.horizonte).sort(), ['operacoesDesde', 'trilhaDesde']);
+      // A LISTA CRESCEU EM 2026-09-02 e a REGRA não: `usoDesde` e `usoSessoesDesde` são dois
+      // INSTANTES, da mesma natureza dos dois primeiros, e entraram porque limitam metades
+      // diferentes do bloco de sessões (ver `HORIZONTE_DE_USO`). O que este caso prende é a
+      // FORMA de tudo o que mora aqui, e não a contagem: nenhum campo de `horizonte` pode ser
+      // um veredito. Um booleano passaria pela lista de chaves de uma versão anterior deste
+      // caso, que só as ordenava, e é por isso que a segunda asserção existe.
+      assert.deepEqual(
+        Object.keys(d.horizonte).sort(),
+        ['operacoesDesde', 'trilhaDesde', 'usoDesde', 'usoSessoesDesde']
+      );
+      const vereditos = Object.entries(d.horizonte)
+        .filter(([, v]) => typeof v === 'boolean')
+        .map(([k]) => k);
+      assert.deepEqual(vereditos, [], 'nenhum campo de `horizonte` pode ser um veredito');
+
+      const foraDeForma = Object.entries(d.horizonte)
+        .filter(([, v]) => v !== null && !Number.isFinite(v))
+        .map(([k]) => k);
+      assert.deepEqual(foraDeForma, [], 'todo campo de `horizonte` é epoch ms ou `null`');
+
       assert.ok(!Object.hasOwn(d.funil, 'piso'));
     });
   });

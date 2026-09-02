@@ -1052,7 +1052,12 @@ describe('o funil de entrada', () => {
         // As duas frases não podem ser a mesma, e nenhuma delas pode afirmar o que a outra diz.
         expect(funilNaoInformadoNotice()).not.toBe(funilVazioNotice('30d'));
         expect(funilNaoInformadoNotice()).toMatch(/servidor/);
-        expect(funilNaoInformadoNotice()).toMatch(/não quer dizer/);
+        expect(funilNaoInformadoNotice()).toMatch(/quer dizer/);
+        // E ELA NÃO AFIRMA CAUSA, desde a revisão do lote de uso: o bloco pode faltar porque o
+        // servidor é de versão anterior OU porque ele não conseguiu montá-lo desta vez, e daqui
+        // não dá para distinguir. Mandar atualizar o servidor por causa de um banco que não
+        // respondeu é procurar o problema no lugar errado.
+        expect(funilNaoInformadoNotice()).toMatch(/não dá para dizer/);
         expect(funilVazioNotice('30d')).not.toMatch(/servidor/);
     });
 

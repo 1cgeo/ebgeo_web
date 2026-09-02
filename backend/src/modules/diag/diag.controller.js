@@ -4,6 +4,7 @@ import { asyncHandler } from '../../utils/async-handler.js';
 import { NotFoundError } from '../../utils/errors.js';
 import * as diagService from './diag.service.js';
 import * as defeitos from './defeitos.service.js';
+import * as usoService from '../uso/uso.service.js';
 
 /**
  * O DIRETÓRIO DE LOG É DECIDIDO AQUI E NUNCA PELO CHAMADOR.
@@ -44,10 +45,44 @@ export const lento = asyncHandler(async (req, res) => {
  * declarou release", e a tela precisa poder dizer isso em voz alta em vez de calar. É o oposto
  * da regra do `enderecos` no relatório de erros, onde a chave ausente distingue servidor antigo
  * de zero endereços.
+ *
+ * ─── `releases`, desde 2026-09-02: a SAÚDE das builds que estiveram no ar ───
+ *
+ * `release` (singular) diz qual build ESTE processo é; `releases` (plural) diz como as builds
+ * que responderam na janela estão se saindo: sessões, sessões com erro, defeitos que nasceram
+ * nelas e regressões atribuídas a elas. As duas respondem perguntas diferentes e a segunda só
+ * existe porque a telemetria de USO passou a existir: sem contagem de sessões, "esta build tem
+ * mais defeitos" é indistinguível de "esta build foi mais usada".
+ *
+ * A CONSULTA MORA EM `uso`, E ESTE CONTROLLER É QUEM COMPÕE, e a direção não é acidente:
+ * `diag.service.js` não importa `config` nem o banco, e essa ausência é declarada no
+ * `fileoverview` de lá porque é ela que o mantém exercível em node puro. Pôr uma consulta de
+ * `uso_sessoes` lá dentro derrubaria a propriedade por uma linha de payload. Aqui, ao lado do
+ * `config.release` que já era lido, o custo é zero. O paralelo com `diagService.status` é
+ * deliberado: uma lê DISCO e a outra lê BANCO, então elas não competem por recurso nenhum.
+ *
+ * ─── O `catch` NÃO É DEFENSIVO, ELE É O CONTRATO DESTA ROTA ───
+ *
+ * `GET /diag/status` é o PULSO, e até 2026-09-02 ela era a única rota de diagnóstico que
+ * respondia com o banco fora, porque tudo o que ela lia era arquivo. Um `Promise.all` cru com
+ * a consulta de release desfazia exatamente isso: a rota que o administrador abre QUANDO algo
+ * está errado passaria a morrer junto com o Postgres, e o bloco de disco (contagens, faixas de
+ * status, taxa de erro), que continuava perfeitamente legível, iria embora com ele. O
+ * diagnóstico não pode ser a primeira coisa a cair.
+ *
+ * `releases: null` E NÃO `[]`, e a distinção é a resposta: `[]` significa "nenhuma build
+ * respondeu nesta janela", que é um FATO sobre o produto; `null` significa "não deu para
+ * perguntar", que é um fato sobre o SERVIDOR. Colapsar os dois faria a tela anunciar silêncio
+ * de tráfego no exato momento em que o banco está fora, que é a leitura mais errada possível.
+ * É a mesma regra do `enderecos` no relatório de erros, pelo outro lado.
  */
 export const status = asyncHandler(async (req, res) => {
-  const dados = await diagService.status({ diretorio: diretorio(), desde: req.query.desde });
-  res.json({ data: { ...dados, release: config.release ?? null } });
+  const [dados, releases] = await Promise.all([
+    diagService.status({ diretorio: diretorio(), desde: req.query.desde }),
+    // Ver o cabeçalho: o banco fora não pode levar junto a metade de DISCO desta rota.
+    usoService.saudeDasReleases({ desde: req.query.desde }).catch(() => null),
+  ]);
+  res.json({ data: { ...dados, release: config.release ?? null, releases } });
 });
 
 /**

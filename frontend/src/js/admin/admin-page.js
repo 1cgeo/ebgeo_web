@@ -40,6 +40,10 @@ import { startIdleWatch } from '../session/idle-watch.js';
 // Pelo ARQUIVO, como os vizinhos de `session/` (a pasta não tem barrel). Best-effort e sem rede na
 // instalação: ver a chamada no topo de `initAdminPage`.
 import { instalarTelemetriaDeErro, descarregarFilaDeRelatos } from '@js/session/erro-telemetria.js';
+// A IRMA DE USO, logo ao lado: mesma divisao (fiacao aqui, decisao em `uso-lote.js`) e mesma
+// promessa de nao participar do boot. Esta pagina nao tem barramento, entao o que ela conta e a
+// carga dela propria.
+import { instalarUso } from '@js/session/uso-telemetria.js';
 // Por ARQUIVO, nunca por barrel: este modulo alcanca o store por folhas, e e isso que o torna
 // importavel de uma pagina que boota sem `initServices()`.
 import {
@@ -165,6 +169,9 @@ async function initAdminPage() {
     // consegue reproduzir depois. Síncrona, sem rede, e nada abaixo depende dela — a página sobe
     // igual com a rota ausente.
     instalarTelemetriaDeErro();
+    // Logo depois da de erro, e pela mesma razao de ordem: `pagina.vista` e o denominador de todo
+    // o resto, e uma pagina que morra antes de desenhar continua tendo sido uma carga de pagina.
+    instalarUso();
 
     configureApiClient({ baseUrl: resolveBackendBaseUrl() });
 

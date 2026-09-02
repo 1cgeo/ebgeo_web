@@ -6,6 +6,9 @@
  */
 
 import { getStateManager } from '../store';
+// Por ARQUIVO, de dois modulos folha: contar uma ativacao nao pode participar dela.
+import { registrarUso } from '@js/session/uso-lote.js';
+import { EventoDeUso } from '@js/session/eventos-de-uso.js';
 
 class ToolManager {
     constructor() {
@@ -113,7 +116,17 @@ class ToolManager {
         // Emit activation event
         this._emit('toolActivated', tool);
 
-        // Sync to StateManager for reactive UI updates
+        // Sync to StateManager for reactive UI updates, and COUNT with the same derived type.
+        //
+        // A CONTAGEM VEM DEPOIS DA ATIVACAO, e o ramo de TOGGLE acima ja saiu com `return`: clicar
+        // no mesmo botao para DESLIGAR nao e uma ativacao, e conta-la dobraria o numero de quem
+        // liga e desliga.
+        //
+        // O TIPO E O QUE `_syncToStateManager` JA COMPUTOU, e nao uma segunda chamada de
+        // `_inferToolType` aqui fora. Duas razoes: duas derivacoes do mesmo nome divergem no
+        // primeiro controle novo, e `_inferToolType` le `tool.constructor.name`, que LANCA para um
+        // `tool` sem prototipo. Uma excecao aqui derrubaria a ativacao que ela so deveria contar,
+        // e este metodo nao tem `try` nenhum em volta.
         this._syncToStateManager(tool);
     }
 
@@ -188,12 +201,27 @@ class ToolManager {
      * @param {Object|null} tool - Active tool or null
      */
     _syncToStateManager(tool) {
+        // O TIPO E A CONTAGEM VEM PRIMEIRO, e num `try` PROPRIO, por duas razoes que se somam. A
+        // derivacao le `tool.constructor.name` e LANCA para um `tool` sem prototipo, e este metodo
+        // e chamado de `setActiveTool`, que nao tem `try` nenhum: uma excecao aqui derrubaria a
+        // ativacao que ela so deveria contar. E o bloco e separado do de baixo para que uma pagina
+        // sem StateManager (teste, headless) nao perca a contagem por causa dele: sao dois
+        // efeitos independentes, e um nao pode custar o outro.
+        let toolType = null;
+        try {
+            if (tool) {
+                toolType = this._inferToolType(tool);
+                registrarUso(EventoDeUso.FERRAMENTA_ATIVADA, toolType);
+            }
+        } catch (_e) {
+            // Tool sem prototipo, ou derivacao impossivel: nao se conta, e nao se lanca.
+        }
+
         try {
             const stateManager = getStateManager();
 
             if (tool) {
-                const toolType = this._inferToolType(tool);
-                stateManager.setActiveTool(toolType, {});
+                stateManager.setActiveTool(toolType ?? this._inferToolType(tool), {});
             } else {
                 stateManager.setActiveTool(null);
             }

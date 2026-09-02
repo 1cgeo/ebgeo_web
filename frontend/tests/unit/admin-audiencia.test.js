@@ -109,6 +109,13 @@ const DISPENSADOS = Object.freeze({
         + 'palavra por palavra, de `erro-telemetria-assinatura.js` acima: nomear as quatro '
         + 'páginas é o oposto de decidir quem entra numa delas. O módulo é folha de zero imports '
         + 'por contrato, então consumir a definição aqui seria justamente o que ele não pode.',
+    'src/js/admin/uso-phrases.js':
+        'Cita "Administração" como RÓTULO de `admin.html` em `paginaDeUsoLabel`, que nomeia a '
+        + 'página numa TABELA DE DESEMPENHO ("como o produto respondeu em cada uma das quatro '
+        + 'páginas"). Terceiro caso idêntico ao de `erro-telemetria-assinatura.js` e ao de '
+        + '`defeito-phrases.js`: nomear as quatro páginas é o oposto de decidir quem entra numa '
+        + 'delas. O módulo é folha de zero imports por contrato, então consumir a definição aqui '
+        + 'seria justamente o que ele não pode.',
     'src/js/modals/create-atlas.modal.js':
         'Cita "Administração" numa FRASE DE AJUDA ("Você não administra nenhum grupo. Crie um em '
         + 'Administração > Grupos"), e não numa decisão sobre quem vê a porta: o modal não '

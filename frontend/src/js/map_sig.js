@@ -101,6 +101,9 @@ import AddBrushControl from './draw_tools/brush_tool/add_brush_control.js';
 
 // Snapping
 import { SnappingService } from './snapping/snapping.service.js';
+// Folha de zero imports: a marca do instante em que o mapa ficou pronto, que fecha a medida
+// `tempo-ate-mapa`. Ela nao participa do boot em mais nada.
+import { vitais } from './session/vitais.js';
 
 // ============================================================================
 // CONSTANTS
@@ -820,6 +823,10 @@ export function initializeApp(map, controlsPromise, { pintarSlotLocal = true } =
     // Map load handler — fires when MapLibre finishes rendering tiles.
     // Must be registered synchronously to avoid race with async createControls().
     map.on('load', async () => {
+        // A PRIMEIRA LINHA DO MANIPULADOR, e antes do `try`: o que se quer medir e o instante em
+        // que o MapLibre terminou, e nao o instante em que o boot do store terminou depois dele.
+        // `marcarMapaPronto` nunca lanca, entao ela nao precisa da protecao do bloco abaixo.
+        vitais.marcarMapaPronto();
         try {
             // boxZoom, dragRotate e doubleClickZoom sairam DAQUI e viraram opcoes do
             // construtor (ver `createMap`), ao lado do touchPitch, que ninguem desligava:

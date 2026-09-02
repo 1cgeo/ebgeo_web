@@ -18,6 +18,12 @@
  * para que produtor e credenciado não batam em 403 na montagem, que é a pior forma de dizer não. É
  * a mesma razão de `users`, `config`, `personnel` e `diagnostico` serem recortadas.
  *
+ * DUAS METADES, DUAS FONTES, e a linha divisória é desenhada (`_cabecalhoDeUso`). As seções acima
+ * contam o que o SERVIDOR registrou; as quatro de uso do produto contam o que NAVEGADORES
+ * relataram, por um lote sem fila. Comparar um número de uma metade com um da outra é comparar
+ * duas perguntas, e é por isso que a divisória é visível em vez de implícita: o `@fileoverview` de
+ * `uso-phrases.js` diz o resto.
+ *
  * UMA ROTA SÓ, e por isso um desfecho só. A aba irmã (Diagnóstico) lê quatro rotas num `allSettled`
  * porque cada seção lá é independente; aqui os três blocos vêm juntos, e têm de vir juntos: um
  * pico de produção sem saber quantas pessoas entraram no mesmo período pode ser mil feições de uma
@@ -51,8 +57,10 @@ import {
 } from '@utils/event-cleanup.js';
 import { sectionHeader, card, emptyState, failureState, ICON_USO } from './admin-dom.js';
 import {
+    COLUNAS_DE_DESEMPENHO,
     COLUNAS_DE_RETENCAO,
     ESTADO,
+    FONTE_DO_HORIZONTE_DE_USO,
     FONTE_DO_PISO_DO_FUNIL,
     HORIZONTE,
     JANELAS,
@@ -62,9 +70,26 @@ import {
     REGIME,
     avisosDeHorizonte,
     dadosDoPayload,
+    desempenhoHint,
+    desempenhoNaoInformadoNotice,
+    desempenhoSubtitulo,
+    desempenhoTitulo,
+    desempenhoVaziaHint,
+    desempenhoVaziaNotice,
+    disponibilidadeGraficoLegenda,
+    disponibilidadeHint,
+    disponibilidadeNaoInformadoNotice,
+    disponibilidadeSubtitulo,
+    disponibilidadeTitulo,
+    disponibilidadeVaziaNotice,
     estadoDaFonte,
     estadoDaTela,
     falhaNotice,
+    ferramentasHint,
+    ferramentasNaoInformadoNotice,
+    ferramentasSubtitulo,
+    ferramentasTitulo,
+    ferramentasVaziaNotice,
     funilEscopoHint,
     funilHint,
     funilInformado,
@@ -83,6 +108,9 @@ import {
     janelaLabel,
     larguraDaBarra,
     lerMetricas,
+    lerMetricasDeSessoes,
+    linhasDeDesempenho,
+    linhasDeFerramentas,
     linhasDeRetencao,
     normalizarJanela,
     numeroLabel,
@@ -106,9 +134,23 @@ import {
     retencaoTitulo,
     retencaoVaziaHint,
     retencaoVaziaNotice,
+    serieDeDisponibilidade,
+    serieDeSessoes,
+    sessoesGraficoLegenda,
+    sessoesNaoInformadoNotice,
+    sessoesSubtitulo,
+    sessoesTitulo,
+    sessoesVaziaHint,
+    sessoesVaziaNotice,
+    sessoesInformado,
+    sessoesRetidasNotice,
     tabSubtitle,
+    tituloDeBarraDeIndisponibilidade,
+    tituloDeBarraDeSessao,
     topHint,
     topVazioNotice,
+    usoDoProdutoHint,
+    usoHorizonteNotice,
     vazioHint,
     vazioNotice,
 } from './uso-phrases.js';
@@ -384,6 +426,17 @@ class UsoTab {
         this._corpo.appendChild(this._secaoDeProducao(dados?.producao, janela));
         this._corpo.appendChild(this._secaoDeTop(dados?.atlas?.top, janela));
 
+        // AS QUATRO SEÇÕES DE USO DO PRODUTO VÊM AQUI, entre o "quanto se produziu" e as duas de
+        // coorte, e a posição é de leitura: elas ainda respondem "quanto", mas medem o USO (o que
+        // o navegador de quem trabalha relatou) e não a PRODUÇÃO (o que o servidor recebeu). Os
+        // dois conjuntos não se somam nem se conferem: são fontes diferentes, com falhas
+        // diferentes, e é por isso que elas entram com cabeçalho próprio dizendo isso.
+        this._corpo.appendChild(this._cabecalhoDeUso(dados, janela));
+        this._corpo.appendChild(this._secaoDeSessoes(dados?.sessoes, janela));
+        this._corpo.appendChild(this._secaoDeFerramentas(dados?.ferramentas, janela));
+        this._corpo.appendChild(this._secaoDeDesempenho(dados?.desempenho, janela));
+        this._corpo.appendChild(this._secaoDeDisponibilidade(dados?.disponibilidade, janela));
+
         // AS DUAS SEÇÕES DE COORTE VÊM DEPOIS DO "QUANTO", e a ordem é de leitura: as quatro
         // primeiras respondem o tamanho do uso, e estas duas o que acontece DEPOIS de alguém
         // chegar. Elas ficam abaixo do ramo de período parado de propósito, porque uma janela
@@ -629,6 +682,269 @@ class UsoTab {
         sec.appendChild(nota);
         return sec;
     }
+
+    /**
+     * @private O cabeçalho das quatro seções de uso: de onde elas vêm, e até onde alcançam.
+     *
+     * ELE EXISTE PORQUE A FONTE MUDA AQUI, e essa é a única coisa que a pessoa precisa saber antes
+     * de ler os próximos quatro blocos: tudo acima é o que o SERVIDOR registrou, e tudo abaixo é o
+     * que NAVEGADORES relataram. Sem a linha, um administrador compara "1.200 operações" com "40
+     * sessões" e conclui que alguém produziu trinta operações por sessão — quando os dois números
+     * têm denominadores diferentes e falhas diferentes.
+     *
+     * O HORIZONTE DAQUI NÃO ENTRA NOS AVISOS DO TOPO, e o motivo está em
+     * `FONTE_DO_HORIZONTE_DE_USO`: aqueles falam de PODA, e este fala de IDADE da medição.
+     * @param {*} dados @param {string} janela
+     * @returns {HTMLElement}
+     */
+    _cabecalhoDeUso(dados, janela) {
+        const sec = document.createElement('section');
+        sec.className = 'admin-uso__section admin-uso__section--uso';
+        sec.dataset.testid = 'admin-uso-cabecalho';
+
+        const estado = estadoDaFonte({
+            desde: dados?.desde,
+            horizonte: dados?.horizonte,
+            chave: FONTE_DO_HORIZONTE_DE_USO,
+        });
+        const aviso = usoHorizonteNotice(estado, {
+            alcance: dados?.horizonte?.[FONTE_DO_HORIZONTE_DE_USO],
+            janela,
+        });
+        if (aviso) {
+            const p = document.createElement('p');
+            // ENCURTADO e VAZIO são aviso (o trecho abaixo está incompleto); DESCONHECIDO é nota
+            // de voz baixa, pela mesma régua dos avisos do topo: versão anterior não é incidente.
+            const grave = estado === HORIZONTE.ENCURTADO || estado === HORIZONTE.VAZIO;
+            p.className = grave ? 'admin-uso__aviso' : 'admin-uso__nota';
+            p.dataset.testid = 'admin-uso-horizonte-uso';
+            p.dataset.estado = estado;
+            p.textContent = aviso;
+            sec.appendChild(p);
+        }
+
+        sec.appendChild(notaDeSecao(usoDoProdutoHint(), 'admin-uso-produto-hint'));
+        return sec;
+    }
+
+    /**
+     * @private As sessões: cinco ladrilhos e a série diária.
+     * @param {*} sessoes @param {string} janela
+     * @returns {HTMLElement}
+     */
+    _secaoDeSessoes(sessoes, janela) {
+        const sec = document.createElement('section');
+        sec.className = 'admin-uso__section';
+        sec.dataset.testid = 'admin-uso-sessoes';
+        sec.appendChild(sectionHeader(sessoesTitulo(), { subtitle: sessoesSubtitulo(janela) }));
+
+        const wrap = card({ testid: 'admin-uso-sessoes-card' });
+        sec.appendChild(wrap);
+
+        // O BLOCO AUSENTE VEM ANTES DO ZERO, como no funil e na retenção: um servidor de versão
+        // anterior não manda `sessoes`, e "nenhuma sessão" ali seria uma afirmação inventada.
+        if (!sessoesInformado(sessoes)) {
+            wrap.appendChild(notaDeSecao(sessoesNaoInformadoNotice(), 'admin-uso-sessoes-ausente'));
+            return sec;
+        }
+
+        const grade = document.createElement('div');
+        grade.className = 'admin-uso__tiles';
+        for (const m of lerMetricasDeSessoes(sessoes, janela)) {
+            grade.appendChild(ladrilho(m));
+        }
+        wrap.appendChild(grade);
+
+        // A RESSALVA DE RETENÇÃO FICA COLADA NOS LADRILHOS, e não no fim da seção: ela fala de
+        // DOIS deles, e um aviso depois do gráfico é lido depois de a leitura errada acontecer.
+        const retidas = sessoesRetidasNotice(sessoes);
+        if (retidas) {
+            const p = document.createElement('p');
+            p.className = 'admin-uso__aviso';
+            p.dataset.testid = 'admin-uso-sessoes-retidas';
+            p.textContent = retidas;
+            wrap.appendChild(p);
+        }
+
+        const serie = serieDeSessoes(sessoes?.porDia);
+        const resumo = resumoDaSerie(serie);
+        if (resumo.dias === 0) {
+            wrap.appendChild(emptyState(sessoesVaziaNotice(janela), { hint: sessoesVaziaHint() }));
+        } else {
+            wrap.appendChild(grafico(serie, resumo, {
+                testid: 'admin-uso-sessoes-grafico',
+                legenda: sessoesGraficoLegenda(),
+                tituloDe: tituloDeBarraDeSessao,
+            }));
+        }
+        return sec;
+    }
+
+    /**
+     * @private O que foi mais acionado no período.
+     * @param {*} ferramentas @param {string} janela
+     * @returns {HTMLElement}
+     */
+    _secaoDeFerramentas(ferramentas, janela) {
+        const sec = document.createElement('section');
+        sec.className = 'admin-uso__section';
+        sec.dataset.testid = 'admin-uso-ferramentas';
+        sec.appendChild(sectionHeader(ferramentasTitulo(), {
+            subtitle: ferramentasSubtitulo(janela),
+        }));
+
+        if (!Array.isArray(ferramentas)) {
+            const ausente = card({ testid: 'admin-uso-ferramentas-card' });
+            ausente.appendChild(
+                notaDeSecao(ferramentasNaoInformadoNotice(), 'admin-uso-ferramentas-ausente')
+            );
+            sec.appendChild(ausente);
+            return sec;
+        }
+
+        const linhas = linhasDeFerramentas(ferramentas);
+        if (!linhas.length) {
+            const vazio = card({ testid: 'admin-uso-ferramentas-card' });
+            vazio.appendChild(emptyState(ferramentasVaziaNotice(janela)));
+            sec.appendChild(vazio);
+            return sec;
+        }
+
+        const wrap = card({ testid: 'admin-uso-ferramentas-card', padded: false });
+        const table = document.createElement('table');
+        table.className = 'admin-users__table admin-uso__table';
+        table.dataset.testid = 'admin-uso-ferramentas-tabela';
+
+        const thead = document.createElement('thead');
+        const hrow = document.createElement('tr');
+        for (const h of ['Ação', 'Alvo', 'Vezes', 'Fatia']) {
+            const th = document.createElement('th');
+            th.textContent = h;
+            hrow.appendChild(th);
+        }
+        thead.appendChild(hrow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        for (const linha of linhas) {
+            tbody.appendChild(linhaDeFerramenta(linha));
+        }
+        table.appendChild(tbody);
+        wrap.appendChild(table);
+        sec.appendChild(wrap);
+
+        sec.appendChild(notaDeSecao(ferramentasHint(), 'admin-uso-ferramentas-hint'));
+        return sec;
+    }
+
+    /**
+     * @private O desempenho no navegador, uma linha por página.
+     * @param {*} desempenho @param {string} janela
+     * @returns {HTMLElement}
+     */
+    _secaoDeDesempenho(desempenho, janela) {
+        const sec = document.createElement('section');
+        sec.className = 'admin-uso__section';
+        sec.dataset.testid = 'admin-uso-desempenho';
+        sec.appendChild(sectionHeader(desempenhoTitulo(), {
+            subtitle: desempenhoSubtitulo(janela),
+        }));
+
+        if (!Array.isArray(desempenho)) {
+            const ausente = card({ testid: 'admin-uso-desempenho-card' });
+            ausente.appendChild(
+                notaDeSecao(desempenhoNaoInformadoNotice(), 'admin-uso-desempenho-ausente')
+            );
+            sec.appendChild(ausente);
+            return sec;
+        }
+
+        const linhas = linhasDeDesempenho(desempenho);
+        if (!linhas.length) {
+            const vazio = card({ testid: 'admin-uso-desempenho-card' });
+            vazio.appendChild(emptyState(desempenhoVaziaNotice(janela), {
+                hint: desempenhoVaziaHint(),
+            }));
+            sec.appendChild(vazio);
+            return sec;
+        }
+
+        const wrap = card({ testid: 'admin-uso-desempenho-card', padded: false });
+        const table = document.createElement('table');
+        table.className = 'admin-users__table admin-uso__table admin-uso__desempenho-tabela';
+        table.dataset.testid = 'admin-uso-desempenho-tabela';
+
+        const thead = document.createElement('thead');
+        const hrow = document.createElement('tr');
+        const th0 = document.createElement('th');
+        th0.textContent = 'Página';
+        hrow.appendChild(th0);
+        // OS CABEÇALHOS VÊM DA TABELA, e não de literais aqui: é a mesma amarração de
+        // `NUMEROS_DA_SAUDE` na aba irmã, e ela existe para que trocar duas colunas de lugar não
+        // passe despercebido.
+        for (const coluna of COLUNAS_DE_DESEMPENHO) {
+            const th = document.createElement('th');
+            th.className = 'admin-uso__numero';
+            th.textContent = coluna.rotulo;
+            th.title = coluna.detalhe;
+            hrow.appendChild(th);
+        }
+        thead.appendChild(hrow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        for (const linha of linhas) {
+            tbody.appendChild(linhaDeDesempenho(linha));
+        }
+        table.appendChild(tbody);
+        wrap.appendChild(table);
+        sec.appendChild(wrap);
+
+        sec.appendChild(notaDeSecao(desempenhoHint(), 'admin-uso-desempenho-hint'));
+        return sec;
+    }
+
+    /**
+     * @private As telas de indisponibilidade que o cliente relatou.
+     * @param {*} disponibilidade @param {string} janela
+     * @returns {HTMLElement}
+     */
+    _secaoDeDisponibilidade(disponibilidade, janela) {
+        const sec = document.createElement('section');
+        sec.className = 'admin-uso__section';
+        sec.dataset.testid = 'admin-uso-disponibilidade';
+        sec.appendChild(sectionHeader(disponibilidadeTitulo(), {
+            subtitle: disponibilidadeSubtitulo(janela),
+        }));
+
+        const wrap = card({ testid: 'admin-uso-disponibilidade-card' });
+        sec.appendChild(wrap);
+
+        if (!Array.isArray(disponibilidade)) {
+            wrap.appendChild(notaDeSecao(
+                disponibilidadeNaoInformadoNotice(), 'admin-uso-disponibilidade-ausente'
+            ));
+            return sec;
+        }
+
+        const serie = serieDeDisponibilidade(disponibilidade);
+        const resumo = resumoDaSerie(serie);
+        if (resumo.dias === 0) {
+            wrap.appendChild(emptyState(disponibilidadeVaziaNotice(janela)));
+        } else {
+            wrap.appendChild(grafico(serie, resumo, {
+                testid: 'admin-uso-disponibilidade-grafico',
+                legenda: disponibilidadeGraficoLegenda(),
+                tituloDe: tituloDeBarraDeIndisponibilidade,
+            }));
+        }
+
+        // A RESSALVA FICA FORA DO RAMO DE VAZIO, e é justamente ali que ela mais vale: um gráfico
+        // vazio de indisponibilidade se lê como "não houve queda", e o que ele de fato diz é
+        // "nenhum relato chegou", que é outra coisa quando a causa é o servidor fora.
+        sec.appendChild(notaDeSecao(disponibilidadeHint(), 'admin-uso-disponibilidade-hint'));
+        return sec;
+    }
 }
 
 // ===== small DOM builders =====
@@ -691,16 +1007,20 @@ function ladrilho(m) {
  * único estilo posto por JS nesta aba, e é o caso que a convenção admite (valor computado em
  * runtime). O dia sem produção NÃO some: ele fica com a coluna dele, altura zero, sobre a linha de
  * base — buraco no eixo se lê como dado que não chegou, que é a afirmação oposta.
+ * TRÊS SÉRIES USAM ESTA FUNÇÃO (produção, sessões e indisponibilidade), e o que varia entre elas é
+ * só o `testid`, a legenda e o substantivo do `title` de cada barra. Copiá-la três vezes por causa
+ * disso é o que produz, meses depois, um gráfico de sessões cuja barra diz "operações".
  * @param {Array<{dia: string, total: number}>} serie
  * @param {{dias: number, total: number, media: number|null, pico: *}} resumo
+ * @param {{testid?: string, legenda?: string, tituloDe?: Function}} [opcoes]
  * @returns {HTMLElement}
  */
-function grafico(serie, resumo) {
-    const { maximo, barras } = geometriaDaSerie(serie);
+function grafico(serie, resumo, { testid, legenda, tituloDe } = {}) {
+    const { maximo, barras } = geometriaDaSerie(serie, tituloDe ? { tituloDe } : {});
 
     const fig = document.createElement('figure');
     fig.className = 'admin-uso__grafico';
-    fig.dataset.testid = 'admin-uso-grafico';
+    fig.dataset.testid = testid ?? 'admin-uso-grafico';
 
     const moldura = document.createElement('div');
     moldura.className = 'admin-uso__grafico-moldura';
@@ -723,11 +1043,11 @@ function grafico(serie, resumo) {
     moldura.appendChild(colunas);
     fig.appendChild(moldura);
 
-    const legenda = document.createElement('figcaption');
-    legenda.className = 'admin-uso__grafico-legenda';
-    legenda.dataset.testid = 'admin-uso-grafico-legenda';
-    legenda.textContent = `${resumoDaSerieLabel(resumo)} ${graficoLegenda()}`;
-    fig.appendChild(legenda);
+    const rodape = document.createElement('figcaption');
+    rodape.className = 'admin-uso__grafico-legenda';
+    rodape.dataset.testid = `${testid ?? 'admin-uso-grafico'}-legenda`;
+    rodape.textContent = `${resumoDaSerieLabel(resumo)} ${legenda ?? graficoLegenda()}`;
+    fig.appendChild(rodape);
     return fig;
 }
 
@@ -825,6 +1145,79 @@ function linhaDeAtlas(linha) {
     ops.className = 'admin-uso__numero';
     ops.textContent = numeroLabel(linha.operacoes);
     tr.appendChild(ops);
+    return tr;
+}
+
+/**
+ * Uma linha da tabela "mais usados".
+ *
+ * O ID CRU VAI PARA O `title` E PARA O `dataset`, e não some da tela: o rótulo em pt-BR é para
+ * quem lê, e o `evento prop` é o que se procura no código quando a pergunta vira "de onde veio
+ * esta contagem". Uma tabela que só mostrasse o rótulo bonito obrigaria a adivinhar o mapeamento.
+ * @param {{evento: string, prop: string, rotulo: string, alvo: string, bruto: string, contagem: number, fatia: string|null}} linha
+ * @returns {HTMLTableRowElement}
+ */
+function linhaDeFerramenta(linha) {
+    const tr = document.createElement('tr');
+    tr.dataset.testid = 'admin-uso-ferramenta-linha';
+    tr.dataset.evento = linha.evento;
+    if (linha.prop) tr.dataset.prop = linha.prop;
+
+    const acao = document.createElement('td');
+    acao.className = 'admin-uso__atlas-nome';
+    acao.textContent = linha.rotulo;
+    acao.title = linha.bruto;
+    tr.appendChild(acao);
+
+    const alvo = document.createElement('td');
+    alvo.textContent = linha.alvo;
+    tr.appendChild(alvo);
+
+    const vezes = document.createElement('td');
+    vezes.className = 'admin-uso__numero';
+    vezes.textContent = numeroLabel(linha.contagem);
+    tr.appendChild(vezes);
+
+    const fatia = document.createElement('td');
+    fatia.className = 'admin-uso__numero admin-uso__tipo-fatia';
+    fatia.textContent = linha.fatia ?? '';
+    tr.appendChild(fatia);
+    return tr;
+}
+
+/**
+ * Uma linha da tabela de desempenho.
+ *
+ * A CÉLULA SEM AMOSTRA LEVA MARCA, e não só texto diferente: ela ocupa o lugar de um número e não
+ * é um, então a folha de estilo precisa tirar o peso dela. Sem isso, "sem amostra" numa coluna de
+ * p75 se lê com a mesma autoridade de "1.240 ms".
+ * @param {{pagina: string, rotulo: string, celulas: Array<Object>}} linha
+ * @returns {HTMLTableRowElement}
+ */
+function linhaDeDesempenho(linha) {
+    const tr = document.createElement('tr');
+    tr.dataset.testid = 'admin-uso-desempenho-linha';
+    tr.dataset.pagina = linha.pagina;
+    // A FONTE SAI COMO DADO, como o `estado` dos ladrilhos da aba irmã: a unidade da coluna de
+    // amostras depende dela, e uma captura de tela precisa poder afirmar qual delas respondeu.
+    if (linha.origem) tr.dataset.origem = linha.origem;
+
+    const pagina = document.createElement('td');
+    pagina.className = 'admin-uso__atlas-nome';
+    pagina.textContent = linha.rotulo;
+    tr.appendChild(pagina);
+
+    for (const celula of linha.celulas) {
+        const td = document.createElement('td');
+        td.className = celula.vazia
+            ? 'admin-uso__numero admin-uso__sem-amostra'
+            : 'admin-uso__numero';
+        td.dataset.campo = celula.campo;
+        if (celula.vazia) td.dataset.vazia = 'true';
+        td.title = celula.detalhe;
+        td.textContent = celula.texto;
+        tr.appendChild(td);
+    }
     return tr;
 }
 

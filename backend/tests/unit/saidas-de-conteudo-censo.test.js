@@ -216,6 +216,9 @@ const CENSO_ROTA = [
   // consulta do módulo toca tabela de recurso — mas ela sai por `res.json`, e portanto pela
   // poda global, como toda a família.
   json('src/modules/uso/uso.routes.js', 'GET /resumo'),
+  // A ESCRITA de telemetria de uso responde 204: sem corpo, sem poda. Ela é a irmã anônima de
+  // `POST /diag/erro-cliente`, e o emissor está declarado abaixo, em `uso.controller.js`.
+  json('src/modules/uso/uso.routes.js', 'POST /eventos'),
 
   json('src/modules/images/images.routes.js', 'GET /'),
   json('src/modules/images/images.routes.js', 'POST /'),
@@ -396,6 +399,13 @@ const CENSO_EMISSOR = [
     classe: E_SEM_CORPO, motivo: `${SEM_CORPO} É o aceite do relato de erro do navegador: quem `
       + 'relata não tem o que fazer com um corpo, e devolver a linha gravada daria a um chamador '
       + 'ANÔNIMO uma leitura do que já está na tabela.' },
+
+  { arquivo: 'src/modules/uso/uso.controller.js', texto: 'res.status(204).end();', n: 1,
+    classe: E_SEM_CORPO, motivo: `${SEM_CORPO} É o aceite do lote de telemetria de USO, e a `
+      + 'razão de não haver corpo é a MESMA da linha acima, com o mesmo peso: a rota é ANÔNIMA, '
+      + 'e um corpo de resposta aqui transformaria a porta de escrita numa porta de leitura da '
+      + 'telemetria agregada da instalação inteira. Quem lê é `GET /uso/resumo`, atrás de '
+      + '`auth` estrito mais `requireAdmin`.' },
 
   { arquivo: 'src/modules/auth/tile-access.js', texto: 'res.status(401).end();', n: 1,
     classe: E_SEM_CORPO, motivo: `${SEM_CORPO} Este e o NAO do auth_request do nginx (clausula 10.7). `

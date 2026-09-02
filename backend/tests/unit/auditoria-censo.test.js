@@ -180,6 +180,24 @@ const CENSO = [
     acao: 'DEFEITO_ESTADO', emissor: 'src/modules/diag/defeitos.service.js',
   },
 
+  // ---------------- uso: telemetria de produto --------------------------------
+  // A IRMÃ DE `POST /erro-cliente`, e ela é isenta pelo MESMO argumento, com um agravante
+  // próprio: aquela escreve uma linha por DEFEITO distinto (a dedupe por assinatura já
+  // colapsa a repetição), e esta escreve uma linha de CONTAGEM por (dia, página, evento,
+  // qualificador), que é uma tabela cujo tamanho não depende do tráfego. Auditar seria uma
+  // linha de trilha por descarga de aba, vinda de chamador anônimo em altíssima frequência,
+  // sobre um ato que não move eixo de acesso nenhum.
+  {
+    arquivo: 'src/modules/uso/uso.routes.js', rota: 'POST /eventos', classe: ISENTA,
+    motivo: 'Lote de telemetria de USO do navegador, anônimo por desenho (o app roda deslogado, '
+      + 'e a pergunta que a rota existe para responder, quantas pessoas viram a tela de '
+      + 'indisponibilidade, é sobre gente que não conseguiu entrar). Não move eixo de acesso '
+      + 'nenhum, não cria nem apaga entidade, e o que ela escreve são CONTAGENS agregadas por '
+      + 'dia mais uma linha por aba, sem nada que identifique pessoa além do `user_id` que sai '
+      + 'do token quando há sessão. Auditá-la seria uma linha de trilha por descarga de aba, ou '
+      + 'seja, afogar a trilha com o comportamento correto frequente.',
+  },
+
   // ---------------- conteúdo de atlas ----------------------------------------
   { arquivo: 'src/modules/images/images.routes.js', rota: 'POST /', classe: ISENTA, motivo: CONTEUDO_DE_ATLAS },
   { arquivo: 'src/modules/images/images.routes.js', rota: 'POST /bulk', classe: ISENTA, motivo: CONTEUDO_DE_ATLAS },

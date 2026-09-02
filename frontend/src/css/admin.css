@@ -2680,6 +2680,33 @@
     color: var(--gray-500);
 }
 
+/* ----- as quatro seções de uso do produto -----
+
+   ELAS TÊM FONTE DIFERENTE DO RESTO DA ABA, e o desenho precisa dizer isso antes do primeiro
+   número: tudo acima vem do que o SERVIDOR registrou, e estas quatro vêm do que NAVEGADORES
+   relataram. O cabeçalho (`--uso`) é a linha divisória, e ele leva uma régua no topo em vez de
+   um título próprio, porque um quinto nível de título competiria com os das seções logo abaixo.
+
+   "SEM AMOSTRA" NÃO PODE TER O PESO DE UM NÚMERO. Ele ocupa a mesma célula de um p75, e com a
+   mesma cor e o mesmo tamanho ele se lê com a mesma autoridade — o que é exatamente o oposto do
+   que ele diz. Itálico e a cor mais fraca da paleta, como a célula aberta da tabela de retenção,
+   que é o mesmo problema com outro nome. */
+
+.admin-uso__section--uso {
+    margin-top: var(--space-8);
+    padding-top: var(--space-5);
+    border-top: 1px solid var(--gray-200);
+}
+
+.admin-uso__desempenho-tabela {
+    font-variant-numeric: tabular-nums;
+}
+
+.admin-uso__sem-amostra {
+    color: var(--gray-400);
+    font-style: italic;
+}
+
 /* ==========================================================================
    O PAINEL É DESKTOP-ONLY, e isto é decisão, não omissão.
 

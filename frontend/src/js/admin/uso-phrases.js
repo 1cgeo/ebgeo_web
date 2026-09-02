@@ -73,6 +73,14 @@
  * horizonte: `audit_trail` não é podada, e o piso vem do `LOGIN` ser best-effort. Fundi-los faria
  * a tela mandar procurar uma poda que não houve.
  *
+ * DESDE 2026-09-02 A ABA TEM DUAS METADES COM FONTES DIFERENTES, e é a distinção mais cara de
+ * perder deste arquivo. Tudo acima vem do que o SERVIDOR já registrava (operações de sync, trilha
+ * de auditoria, `users`, `atlas`): ele mede o que ACONTECEU. As quatro seções de uso do produto
+ * (sessões, mais usados, desempenho no cliente e indisponibilidade vista da ponta) vêm do que
+ * NAVEGADORES RELATARAM, por um lote sem fila, e por isso todo número delas é um PISO: um zero ali
+ * significa "ninguém fez" OU "ninguém conseguiu contar", e a tela não sabe qual. A seção própria
+ * delas, mais abaixo, carrega as três consequências que precisam estar escritas NA TELA.
+ *
  * TODO TEXTO DAQUI SAI PARA A TELA POR `textContent`. Nome de atlas e nome de dono são dado de
  * usuário; este arquivo não monta uma linha de HTML.
  */
@@ -614,11 +622,19 @@ export function periodoSemMovimento(dados) {
     const atlas = objeto(dados.atlas) ? dados.atlas : {};
     const pessoas = objeto(dados.pessoas) ? dados.pessoas : {};
     const producao = objeto(dados.producao) ? dados.producao : {};
+    // A SESSÃO ENTRA NA CONTA DESDE QUE ELA EXISTE, e ela é o termo que os outros cinco não
+    // alcançam: o EBGeo roda ANÔNIMO por desenho, então uma janela inteira de visitantes que
+    // olharam o mapa e não produziram nada deixa os cinco números acima em zero. Sem este termo, o
+    // período seria declarado PARADO e as quatro seções de uso, que são justamente as que têm o
+    // que mostrar, não seriam desenhadas. Servidor de versão anterior não manda `sessoes`, e aí o
+    // termo vale zero e nada muda.
+    const sessoes = objeto(dados.sessoes) ? dados.sessoes : {};
     return numeroOuZero(producao.total) === 0
         && numeroOuZero(atlas.criados) === 0
         && numeroOuZero(atlas.excluidos) === 0
         && numeroOuZero(pessoas.novasContas) === 0
-        && numeroOuZero(pessoas.entraram) === 0;
+        && numeroOuZero(pessoas.entraram) === 0
+        && numeroOuZero(sessoes.total) === 0;
 }
 
 /**
@@ -947,11 +963,16 @@ export function preencherDias(porDia) {
  * setecentos pixels viram uma tarja preta. Primeiro e último sempre aparecem, porque são as pontas
  * do período; os do meio saem espaçados por igual.
  *
+ * O `title` DE CADA BARRA CHEGA DE FORA, e é o único parâmetro desta função que não é geometria.
+ * A razão é que a aba desenha TRÊS séries com a mesma matemática e três substantivos diferentes
+ * (operações, sessões, telas), e a alternativa seria copiar a função inteira por causa de uma
+ * palavra — que é como uma delas acabaria com o rótulo da outra depois de um "corrigir aqui".
+ *
  * @param {*} serie - Já passada por {@link preencherDias}.
- * @param {{maxRotulos?: number}} [opts]
+ * @param {{maxRotulos?: number, tituloDe?: (dia: string, total: number) => string}} [opts]
  * @returns {{maximo: number, dias: number, barras: Array<{dia: string, total: number, alturaPct: number, zero: boolean, rotulo: string, titulo: string, mostrarRotulo: boolean}>}}
  */
-export function geometriaDaSerie(serie, { maxRotulos = 8 } = {}) {
+export function geometriaDaSerie(serie, { maxRotulos = 8, tituloDe = tituloDeBarra } = {}) {
     const linhas = Array.isArray(serie) ? serie.filter((l) => objeto(l) && diaValido(l.dia)) : [];
     const dias = linhas.length;
     if (dias === 0) return { maximo: 0, dias: 0, barras: [] };
@@ -972,7 +993,7 @@ export function geometriaDaSerie(serie, { maxRotulos = 8 } = {}) {
             alturaPct,
             zero,
             rotulo: rotuloCurtoDeDia(l.dia),
-            titulo: tituloDeBarra(l.dia, total),
+            titulo: (typeof tituloDe === 'function' ? tituloDe : tituloDeBarra)(l.dia, total),
             mostrarRotulo: i === 0 || i === dias - 1 || i % passo === 0,
         };
     });
@@ -1408,9 +1429,10 @@ export function funilInformado(funil) {
  * @returns {string}
  */
 export function funilNaoInformadoNotice() {
-    return 'O servidor não informou o funil de entrada, então ele não é desenhado aqui. É o que '
-        + 'acontece com uma versão anterior do servidor, e não quer dizer que ninguém tenha '
-        + 'criado conta no período.';
+    return 'O servidor não informou o funil de entrada, então ele não é desenhado aqui. '
+        + 'Daqui não dá para dizer se é um servidor de versão anterior ou se ele não '
+        + 'conseguiu montar o bloco desta vez, e nenhum dos dois quer dizer que ninguém '
+        + 'tenha criado conta no período.';
 }
 
 /** @param {*} janela @returns {string} */
@@ -1600,8 +1622,10 @@ export function retencaoInformada(retencao) {
  */
 export function retencaoNaoInformadaNotice() {
     return 'O servidor não informou a retenção por semana de cadastro, então a tabela não é '
-        + 'desenhada aqui. É o que acontece com uma versão anterior do servidor, e não quer '
-        + 'dizer que ninguém tenha criado conta no período.';
+        + 'desenhada aqui. '
+        + 'Daqui não dá para dizer se é um servidor de versão anterior ou se ele não '
+        + 'conseguiu montar o bloco desta vez, e nenhum dos dois quer dizer que ninguém '
+        + 'tenha criado conta no período.';
 }
 
 /** @param {*} janela @returns {string} */
@@ -1623,4 +1647,878 @@ export function retencaoColunaCoorte() {
 /** O cabeçalho da coluna do tamanho da coorte. @returns {string} */
 export function retencaoColunaTamanho() {
     return 'Contas';
+}
+
+// =================================================================================================
+// AS QUATRO SEÇÕES DE USO DO PRODUTO
+//
+// ELAS SÃO A ÚNICA PARTE DESTA ABA QUE VEM DE INSTRUMENTAÇÃO DO CLIENTE, e essa é a diferença que
+// atravessa tudo o que vem daqui para baixo. As seções acima contam o que o SERVIDOR já registrava
+// (operações de sync, trilha de auditoria, linhas de `users` e `atlas`): elas medem o que
+// aconteceu. Estas quatro contam o que NAVEGADORES RELATARAM, e por isso um zero aqui tem dois
+// sentidos que a tela não consegue separar sozinha — ninguém fez, ou ninguém conseguiu contar.
+//
+// TRÊS CONSEQUÊNCIAS QUE PRECISAM ESTAR ESCRITAS NA TELA, e não só aqui:
+//
+//   1. **NÃO HÁ FILA DO LADO DO USO** (`session/uso-lote.js`), então um lote que não sai morre.
+//      Toda contagem daqui é um PISO.
+//   2. **A INSTRUMENTAÇÃO TEM IDADE**, e ela é mais nova que qualquer outra fonte desta aba. Pedir
+//      90 dias a uma instrumentação de uma semana devolve uma semana, e o gráfico de sessões
+//      pareceria uma queda catastrófica ao lado de um gráfico de produção inteiro. É o que
+//      {@link usoHorizonteNotice} diz.
+//   3. **A TELA DE INDISPONIBILIDADE CONTA MENOS DO QUE O NOME PROMETE.** Ver
+//      {@link disponibilidadeHint}: com o servidor fora, a descarga que aquela tela dispara falha
+//      por definição.
+// =================================================================================================
+
+/**
+ * A chave do horizonte que limita as quatro seções de uso.
+ *
+ * ELA NÃO É UMA QUINTA ENTRADA DE {@link FONTES_DE_HORIZONTE}, e a recusa é deliberada. Aquelas
+ * duas fontes falam de PODA: as frases delas dizem "ou o histórico foi apagado por inteiro", e
+ * `operations` e `audit_trail` são de fato podáveis. O horizonte do uso não é poda, é IDADE: a
+ * instrumentação nasceu num dia, e antes dele não havia o que registrar. Pôr as duas coisas sob a
+ * mesma frase mandaria o administrador procurar um expurgo que nunca houve, que é exatamente a
+ * classe de erro que o aviso de horizonte existe para impedir.
+ */
+export const FONTE_DO_HORIZONTE_DE_USO = 'usoDesde';
+
+/**
+ * A frase do alcance das quatro seções de uso, a partir do estado do horizonte.
+ *
+ * OS QUATRO ESTADOS DE {@link HORIZONTE} SÃO REUSADOS, e o que muda é só o que cada um significa
+ * aqui. `COBRE` não desenha nada (é o caso normal, e um aviso a cada carga vira ruído);
+ * `ENCURTADO` diz desde quando se mede; `VAZIO` diz que nenhum navegador relatou ainda, que é o
+ * estado de uma instalação recém-atualizada; `DESCONHECIDO` é o servidor de versão anterior, e é
+ * a única das quatro em que a tela não pode afirmar nada.
+ * @param {*} estado - Um valor de {@link HORIZONTE}.
+ * @param {Object} [opcoes]
+ * @param {*} [opcoes.alcance] - Epoch ms do começo do dado.
+ * @param {*} [opcoes.janela]
+ * @param {string} [opcoes.timeZone]
+ * @returns {string} Vazio quando não há o que dizer.
+ */
+export function usoHorizonteNotice(estado, { alcance, janela, timeZone } = {}) {
+    if (estado === HORIZONTE.ENCURTADO) {
+        const data = dataLocal(alcance, { timeZone });
+        const desde = data ? ` desde ${data}` : '';
+        return `O uso do produto é medido${desde}, e você pediu ${janelaEmPalavras(janela)}: as `
+            + 'quatro seções abaixo cobrem só o trecho medido. Um começo baixo aqui é a idade da '
+            + 'medição, e não uma queda de uso.';
+    }
+    if (estado === HORIZONTE.VAZIO) {
+        return 'Nenhum navegador relatou uso ainda. É o estado de uma instalação que acabou de '
+            + 'receber a medição: as quatro seções abaixo se preenchem à medida que as pessoas '
+            + 'usarem o produto.';
+    }
+    if (estado === HORIZONTE.DESCONHECIDO) {
+        return 'O servidor não informou desde quando o uso do produto é medido, então não dá para '
+            + 'afirmar que as quatro seções abaixo cobrem o período inteiro.';
+    }
+    return '';
+}
+
+/**
+ * A ressalva que vale para as QUATRO seções e não se repete em cada uma.
+ *
+ * ELA DIZ A COISA QUE O NÚMERO NÃO DIZ: a contagem chega por um lote que o navegador manda a cada
+ * trinta segundos e na saída da página, sem fila. Uma aba fechada no instante errado, uma rede que
+ * caiu, um bloqueador: em todos esses casos o lote some, e o que se lê é menos do que aconteceu.
+ * @returns {string}
+ */
+export function usoDoProdutoHint() {
+    return 'Estas quatro seções vêm do navegador de quem usa, e não do servidor: cada número é um '
+        + 'PISO. O lote é mandado a cada 30 segundos e na saída da página, sem fila, então o que '
+        + 'não sai é perdido em vez de guardado.';
+}
+
+// ===== sessões =====
+
+/**
+ * Se o servidor INFORMOU o bloco de sessões. Mesma régua de {@link funilInformado}: bloco ausente
+ * não é zero, e desenhar "nenhuma sessão" sobre um servidor de versão anterior seria afirmar o
+ * contrário do que se sabe.
+ * @param {*} sessoes
+ * @returns {boolean}
+ */
+export function sessoesInformado(sessoes) {
+    return objeto(sessoes);
+}
+
+/** @returns {string} */
+export function sessoesNaoInformadoNotice() {
+    return 'O servidor não informou as sessões do produto, então esta seção não é desenhada '
+        + 'aqui. '
+        + 'Daqui não dá para dizer se é um servidor de versão anterior ou se ele não '
+        + 'conseguiu montar o bloco desta vez, e nenhum dos dois quer dizer que ninguém '
+        + 'tenha usado o EBGeo no período.';
+}
+
+/**
+ * As sessões ANÔNIMAS: o total menos as autenticadas.
+ *
+ * DERIVADA, E COM PISO EM ZERO. Ela é a métrica que o produto mais precisa e a que o servidor não
+ * manda pronta: o EBGeo roda anônimo por desenho, e a fração de quem usa sem entrar é a pergunta.
+ * O piso existe porque a subtração é entre dois números medidos por consultas diferentes, e um
+ * negativo na tela se lê como tela quebrada em vez de como divergência de fonte.
+ * @param {*} sessoes
+ * @returns {number|null} `null` quando alguma das duas pontas não é contagem.
+ */
+export function sessoesAnonimas(sessoes) {
+    const total = objeto(sessoes) ? sessoes.total : undefined;
+    const autenticadas = objeto(sessoes) ? sessoes.autenticadas : undefined;
+    if (!numeroContavel(total) || !numeroContavel(autenticadas)) return null;
+    return Math.max(0, total - autenticadas);
+}
+
+/**
+ * Uma duração em segundos, por extenso e curta.
+ *
+ * TRÊS FAIXAS, e a razão é de leitura e não de precisão: abaixo de um minuto o segundo é a única
+ * unidade que diz alguma coisa ("38 s"), entre um minuto e uma hora o segundo é ruído ("12 min"),
+ * e acima de uma hora o minuto ainda importa ("1 h 20 min"). Uma unidade só produziria "4820 s"
+ * ou "0,1 h", e nenhum dos dois se lê.
+ *
+ * O SÍMBOLO NÃO FLEXIONA (`s`, `min`, `h`), o que resolve o plural sem um ramo — a mesma razão de
+ * {@link medianaLabel}.
+ * @param {*} segundos
+ * @returns {string} Travessão quando não é contagem, pela régua de {@link numeroLabel}.
+ */
+export function duracaoLabel(segundos) {
+    if (!numeroContavel(segundos)) return '—';
+    const s = Math.round(segundos);
+    if (s < 60) return `${s} s`;
+    const minutos = Math.round(s / 60);
+    if (minutos < 60) return `${minutos} min`;
+    const horas = Math.floor(minutos / 60);
+    const resto = minutos % 60;
+    return resto === 0 ? `${horas} h` : `${horas} h ${resto} min`;
+}
+
+/**
+ * Os ladrilhos da seção de sessões.
+ *
+ * TODOS SÃO `PERIODO`, e nenhum é estoque: uma sessão é um evento, não um saldo. A tabela existe
+ * pelo mesmo motivo das outras duas (`METRICAS_DE_PESSOAS`, `METRICAS_DE_ATLAS`): escrever a
+ * legenda de regime à mão em cinco ladrilhos é a forma de errar um deles sem nada ficar vermelho.
+ *
+ * `derivada` MARCA O QUE NÃO VEM PRONTO DO SERVIDOR. Hoje é um só (as anônimas), e o campo existe
+ * para que {@link lerMetricasDeSessoes} não precise de uma lista de exceções escrita ao lado.
+ * @type {ReadonlyArray<{chave: string, rotulo: string, regime: string, detalhe: string,
+ *   formato?: string, derivada?: boolean}>}
+ */
+export const METRICAS_DE_SESSOES = Object.freeze([
+    Object.freeze({
+        chave: 'total',
+        rotulo: 'Sessões',
+        regime: REGIME.PERIODO,
+        detalhe: 'abas que relataram uso',
+    }),
+    Object.freeze({
+        chave: 'usuariosDistintos',
+        rotulo: 'Pessoas distintas',
+        regime: REGIME.PERIODO,
+        detalhe: 'contas distintas por trás dessas sessões (a visita anônima não entra)',
+    }),
+    Object.freeze({
+        chave: 'anonimas',
+        rotulo: 'Sessões anônimas',
+        regime: REGIME.PERIODO,
+        detalhe: 'sessões sem ninguém autenticado, que é o modo em que o EBGeo roda por desenho',
+        derivada: true,
+    }),
+    Object.freeze({
+        chave: 'duracaoMedianaS',
+        rotulo: 'Duração mediana',
+        regime: REGIME.PERIODO,
+        detalhe: 'metade das sessões durou mais que isto, e metade menos',
+        formato: 'duracao',
+    }),
+    Object.freeze({
+        chave: 'comErro',
+        rotulo: 'Sessões com erro',
+        regime: REGIME.PERIODO,
+        detalhe: 'sessões em que ao menos um erro de navegador foi capturado',
+    }),
+]);
+
+/**
+ * Os cinco ladrilhos de sessões, prontos para desenhar.
+ *
+ * Irmã de {@link lerMetricas}, e separada dela por causa das duas propriedades que aquela não tem:
+ * uma métrica DERIVADA (as anônimas) e um FORMATO que não é contagem (a duração). Alargar
+ * `lerMetricas` para as duas coisas faria as três seções pagarem por uma.
+ * @param {*} sessoes
+ * @param {*} janela
+ * @returns {Array<Object>}
+ */
+export function lerMetricasDeSessoes(sessoes, janela) {
+    const fonte = objeto(sessoes) ? sessoes : {};
+    const anonimas = sessoesAnonimas(sessoes);
+    return METRICAS_DE_SESSOES.map((m) => {
+        const valor = m.derivada ? anonimas : fonte[m.chave];
+        return {
+            chave: m.chave,
+            rotulo: m.rotulo,
+            regime: m.regime,
+            valor,
+            texto: m.formato === 'duracao' ? duracaoLabel(valor) : numeroLabel(valor),
+            regimeTexto: regimeLabel(m.regime, janela),
+            detalhe: metricaDetalhe(m, janela),
+        };
+    });
+}
+
+/**
+ * A série diária de sessões, na mesma forma que o gráfico de produção já desenha.
+ *
+ * ELA ACEITA DUAS CHAVES PARA A CONTAGEM (`total` e `sessoes`), e isso é tolerância declarada e
+ * não descuido: o contrato desta seção nasceu junto com o servidor que a alimenta, e a série de
+ * produção, que é a irmã dela, usa `total`. Ler as duas custa uma linha e evita que uma diferença
+ * de nome vire um gráfico vazio sem erro nenhum. Dia inválido sai, dia repetido soma, buraco é
+ * preenchido: tudo isso é {@link preencherDias}, reusada de propósito para que as duas séries da
+ * aba tenham exatamente o mesmo comportamento.
+ * @param {*} porDia
+ * @returns {Array<{dia: string, total: number}>}
+ */
+export function serieDeSessoes(porDia) {
+    if (!Array.isArray(porDia)) return [];
+    return preencherDias(porDia.map((l) => (objeto(l)
+        ? { dia: l.dia, total: numeroContavel(l.total) ? l.total : l.sessoes }
+        : l)));
+}
+
+/**
+ * A ressalva de que DOIS dos cinco ladrilhos saem de um conjunto menor que os outros três.
+ *
+ * `usuariosDistintos` e `duracaoMedianaS` são calculados sobre as sessões AINDA RETIDAS (a linha
+ * por sessão é podada por idade), enquanto o total, as autenticadas e as com erro vêm do agregado
+ * diário, que sobrevive à poda. Numa janela cuja retenção já passou, os dois primeiros vêm vazios
+ * ao lado de um total cheio, e sem esta frase a leitura é "o servidor perdeu o dado" ou, pior,
+ * "mil sessões e zero pessoas".
+ *
+ * ELA SÓ APARECE QUANDO A DIVERGÊNCIA É VISÍVEL, e é isso que a impede de virar ruído: com
+ * sessões retidas na janela, os cinco números concordam e não há o que explicar.
+ * @param {*} sessoes
+ * @returns {string} Vazio quando não há ressalva.
+ */
+export function sessoesRetidasNotice(sessoes) {
+    if (!objeto(sessoes)) return '';
+    const total = numeroOuZero(sessoes.total);
+    const retidas = sessoes.sessoesRetidas;
+    if (total === 0) return '';
+    if (!numeroContavel(retidas) || retidas > 0) return '';
+    return 'As pessoas distintas e a duração mediana saem das sessões ainda guardadas uma a uma, '
+        + 'e nesta janela não sobrou nenhuma: a retenção já as removeu. O total, as anônimas e as '
+        + 'com erro vêm do resumo diário, que não é podado, e continuam valendo.';
+}
+
+/** @returns {string} */
+export function sessoesTitulo() {
+    return 'Sessões';
+}
+
+/** @param {*} janela @returns {string} */
+export function sessoesSubtitulo(janela) {
+    return `Abas que relataram uso ${janelaEmPalavras(janela)}, quem estava por trás delas e `
+        + 'quanto tempo duraram';
+}
+
+/** @param {*} janela @returns {string} */
+export function sessoesVaziaNotice(janela) {
+    return `Nenhuma sessão relatada ${janelaEmPalavras(janela)}.`;
+}
+
+/** @returns {string} */
+export function sessoesVaziaHint() {
+    return 'Ou ninguém abriu o EBGeo no período, ou nenhum lote conseguiu chegar ao servidor. As '
+        + 'duas coisas desenham esta mesma tela.';
+}
+
+/** @returns {string} */
+export function sessoesGraficoLegenda() {
+    return 'Cada barra é um dia. Dia sem sessão fica na linha de base, e não some do eixo.';
+}
+
+/**
+ * O `title` de uma barra da série de sessões.
+ *
+ * Irmã de {@link tituloDeBarra} e separada dela pela palavra: uma barra que diga "operações" numa
+ * seção que conta sessões é o tipo de cópia que ninguém revisa depois de colar.
+ * @param {*} dia @param {*} total
+ * @returns {string}
+ */
+export function tituloDeBarraDeSessao(dia, total) {
+    const data = rotuloLongoDeDia(dia);
+    const n = numeroOuZero(total);
+    const quanto = n === 1 ? '1 sessão' : `${numeroLabel(n)} sessões`;
+    return data ? `${data}: ${quanto}` : quanto;
+}
+
+// ===== ferramentas mais usadas =====
+
+/**
+ * Os nomes em pt-BR dos EVENTOS de uso.
+ *
+ * A CHAVE É O EVENTO DO CATÁLOGO (`session/eventos-de-uso.js`), e esta tabela é uma tradução de
+ * EXIBIÇÃO, nunca uma segunda definição do vocabulário — a mesma régua de {@link ENTIDADE_LABEL}.
+ * Ela não valida nada, e um evento que este build não conhece continua aparecendo na tela com a
+ * chave crua (ver {@link eventoDeUsoLabel}). Sumir com o desconhecido esconderia uso real, que é o
+ * oposto do que esta aba existe para fazer.
+ * @type {Readonly<Object<string, string>>}
+ */
+export const EVENTO_DE_USO_LABEL = Object.freeze({
+    'pagina.vista': 'Página aberta',
+    'atlas.aberto': 'Atlas aberto',
+    'ferramenta.ativada': 'Ferramenta',
+    'medicao.aberta': 'Medição',
+    'visualizador3d.aberto': 'Visualizador 3D',
+    'visualizador360.aberto': 'Visualizador 360',
+    'primeira-pessoa.aberto': 'Primeira pessoa',
+    'briefing.apresentado': 'Briefing apresentado',
+    'temporal.ativado': 'Linha do tempo',
+    'pdf.exportado': 'PDF exportado',
+    'ebgeo.exportado': 'Arquivo .ebgeo gerado',
+    'ebgeo.importado': 'Arquivo .ebgeo aberto',
+    'indisponivel.visto': 'Tela de indisponibilidade',
+});
+
+/**
+ * Os nomes em pt-BR das FERRAMENTAS do mapa, indexados pelo `tipoDeUi` de
+ * `tool_manager/tool-registry.js`.
+ *
+ * ELA ENVELHECE, E O DESENHO ADMITE ISSO. A lista de ferramentas cresce a cada `new-tool`, e nada
+ * obriga quem cria uma a vir aqui; é a mesma situação de {@link ENTIDADE_LABEL}, e a saída é a
+ * mesma: a ferramenta que este build não conhece aparece com o id cru, que é feio e é honesto.
+ * Trocá-la por "Outra" fundiria todas as desconhecidas numa linha que não localiza nada.
+ * @type {Readonly<Object<string, string>>}
+ */
+export const FERRAMENTA_LABEL = Object.freeze({
+    point: 'Ponto',
+    line: 'Linha',
+    polygon: 'Polígono',
+    text: 'Texto',
+    image: 'Imagem',
+    brush: 'Pincel',
+    rectangle: 'Retângulo',
+    circle: 'Círculo',
+    ellipse: 'Elipse',
+    sector: 'Setor',
+    azimuth_distance: 'Azimute e distância',
+    militarysymbol: 'Símbolo militar',
+    coordinationmeasure: 'Medida de coordenação',
+    declination: 'Declinação magnética',
+    arrow: 'Seta',
+    boundary: 'Limite',
+    occupiedfront: 'Frente ocupada',
+    los: 'Linha de visada',
+    visibility: 'Visibilidade',
+    measurementdistance: 'Medir distância',
+    measurementarea: 'Medir área',
+    measurementangle: 'Medir ângulo',
+    vectortileinfo: 'Informação de camada',
+    rectangleselection: 'Seleção por caixa',
+});
+
+/**
+ * O nome de um evento de uso.
+ * @param {*} evento
+ * @returns {string}
+ */
+export function eventoDeUsoLabel(evento) {
+    if (typeof evento !== 'string') return 'Sem evento';
+    const chave = evento.trim();
+    if (!chave) return 'Sem evento';
+    return Object.hasOwn(EVENTO_DE_USO_LABEL, chave) ? EVENTO_DE_USO_LABEL[chave] : chave;
+}
+
+/**
+ * O NOME DE CADA QUALIFICADOR, POR EVENTO.
+ *
+ * INDEXADA PELO EVENTO, E NÃO UMA TABELA ÚNICA, porque `prop` é um vocabulário POR EVENTO
+ * (`PROPS_PERMITIDAS`, em `session/eventos-de-uso.js`): `local` é uma procedência de atlas e
+ * `folha` é um motor de PDF, e nada impede que amanhã nasça uma ferramenta com um desses ids. Uma
+ * tabela única faria a coluna "Alvo" chamar um PDF de ferramenta, e a divergência só apareceria
+ * na tela de quem estivesse lendo o relatório.
+ *
+ * SÓ OS EVENTOS COM LISTA FECHADA ENTRAM. Os que não têm qualificador nenhum não têm o que
+ * traduzir, e `ferramenta.ativada` é o único LIVRE, com tabela própria ({@link FERRAMENTA_LABEL})
+ * porque ela cresce a cada `new-tool` e a lista dela não é contrato de nada.
+ * @type {Readonly<Object<string, Readonly<Object<string, string>>>>}
+ */
+export const PROP_LABEL_POR_EVENTO = Object.freeze({
+    'ferramenta.ativada': FERRAMENTA_LABEL,
+    // A procedência do atlas, que é a pergunta de produto mais cara de responder por outro meio:
+    // quanto do uso é offline, quanto é de servidor, e quanto é visita sem conta nenhuma.
+    'atlas.aberto': Object.freeze({
+        local: 'Local',
+        servidor: 'Servidor',
+        publico: 'Público',
+    }),
+    // Os DOIS motores do mesmo painel, e a diferença não é de tamanho: a folha única sai
+    // georreferenciada por GDAL, o mosaico sai por jsPDF e não sai.
+    'pdf.exportado': Object.freeze({
+        folha: 'Folha única',
+        mosaico: 'Mosaico',
+    }),
+});
+
+/**
+ * O nome de um alvo (`prop`), quando ele tem um.
+ *
+ * A TABELA É ESCOLHIDA PELO EVENTO ({@link PROP_LABEL_POR_EVENTO}), e é por isso que esta função
+ * recebe os dois campos. Ver lá o porquê de não haver uma tabela só.
+ * @param {*} evento
+ * @param {*} prop
+ * @returns {string} Vazio quando não há `prop`.
+ */
+export function propDeUsoLabel(evento, prop) {
+    if (typeof prop !== 'string' || !prop.trim()) return '';
+    const chave = prop.trim();
+    const tabela = Object.hasOwn(PROP_LABEL_POR_EVENTO, evento)
+        ? PROP_LABEL_POR_EVENTO[evento]
+        : null;
+    if (tabela && Object.hasOwn(tabela, chave)) return tabela[chave];
+    // A RESERVA DO DESCONHECIDO, e não o caminho normal: um qualificador que este build não
+    // conhece aparece cru, que é feio e é honesto, como em {@link entidadeLabel}.
+    return chave;
+}
+
+/** Quantas linhas a tabela de ferramentas mostra. O servidor já corta em 20; este é o teto local. */
+export const LIMITE_DE_FERRAMENTAS = 20;
+
+/**
+ * As linhas da tabela "mais usadas", da maior para a menor.
+ *
+ * ORDENAR AQUI E NÃO CONFIAR NA ROTA, pela mesma razão de {@link ordenarTopAtlas}: a tela promete
+ * que a primeira linha é a maior, e a promessa não pode depender de um `ORDER BY` que ninguém aqui
+ * verifica. O desempate é pelo RÓTULO já traduzido, para que a ordem lida seja a ordem vista.
+ *
+ * A FATIA É SOBRE A SOMA DA LISTA, e não sobre um total do servidor, pelo mesmo argumento de
+ * {@link producaoPorEntidade}: a lista é um recorte (as vinte mais), e uma fatia calculada sobre
+ * um total maior somaria menos de 100% sem explicar por quê.
+ * @param {*} ferramentas
+ * @param {number} [limite]
+ * @returns {Array<{evento: string, prop: string, rotulo: string, alvo: string, bruto: string,
+ *   contagem: number, fatia: string|null}>}
+ */
+export function linhasDeFerramentas(ferramentas, limite = LIMITE_DE_FERRAMENTAS) {
+    if (!Array.isArray(ferramentas)) return [];
+    const teto = Number.isFinite(limite) && limite > 0
+        ? Math.floor(limite)
+        : LIMITE_DE_FERRAMENTAS;
+    const linhas = ferramentas
+        .filter((l) => objeto(l))
+        .map((l) => {
+            const evento = typeof l.evento === 'string' ? l.evento.trim() : '';
+            const prop = typeof l.prop === 'string' ? l.prop.trim() : '';
+            return {
+                evento,
+                prop,
+                rotulo: eventoDeUsoLabel(evento),
+                alvo: propDeUsoLabel(evento, prop),
+                // O ID CRU VAI PARA O `title`, e não some da tela: é ele que se procura no código
+                // quando alguém quiser saber de onde a contagem veio.
+                bruto: prop ? `${evento} ${prop}` : evento,
+                contagem: numeroOuZero(l.contagem),
+            };
+        });
+    const soma = linhas.reduce((acc, l) => acc + l.contagem, 0);
+    return linhas
+        .sort((a, b) => b.contagem - a.contagem
+            || a.rotulo.localeCompare(b.rotulo, 'pt-BR')
+            || a.alvo.localeCompare(b.alvo, 'pt-BR'))
+        .slice(0, teto)
+        .map((l) => ({ ...l, fatia: percentualLabel(l.contagem, soma) }));
+}
+
+/** @returns {string} */
+export function ferramentasTitulo() {
+    return 'Mais usados';
+}
+
+/** @param {*} janela @returns {string} */
+export function ferramentasSubtitulo(janela) {
+    return `O que as pessoas acionaram ${janelaEmPalavras(janela)}, do mais para o menos`;
+}
+
+/** @param {*} janela @returns {string} */
+export function ferramentasVaziaNotice(janela) {
+    return `Nenhum acionamento relatado ${janelaEmPalavras(janela)}.`;
+}
+
+/** @returns {string} */
+export function ferramentasHint() {
+    return 'A contagem é de ACIONAMENTOS, e não de tempo de uso: abrir a mesma ferramenta dez '
+        + 'vezes conta dez. Reativar a que já está ativa não conta, porque desligar não é ligar.';
+}
+
+/** @returns {string} */
+export function ferramentasNaoInformadoNotice() {
+    return 'O servidor não informou o que foi mais usado, então esta seção não é desenhada '
+        + 'aqui. '
+        + 'Daqui não dá para dizer se é um servidor de versão anterior ou se ele não '
+        + 'conseguiu montar o bloco desta vez, e nenhum dos dois quer dizer que ninguém '
+        + 'tenha acionado nada no período.';
+}
+
+// ===== desempenho no cliente =====
+
+/** O texto de um p75 que não tem amostra nenhuma. */
+export const SEM_AMOSTRA = 'sem amostra';
+
+/**
+ * Um p75 em milissegundos.
+ *
+ * AUSÊNCIA NUNCA VIRA ZERO, e aqui a regra é ainda mais dura que em {@link numeroLabel}: zero
+ * milissegundos é a MELHOR nota possível, então um campo que não chegou desenhado como "0 ms"
+ * anunciaria desempenho perfeito sobre uma medição que não houve. Daí a frase em palavras
+ * ({@link SEM_AMOSTRA}) em vez do travessão, que é ambíguo entre "não medimos" e "deu zero".
+ * @param {*} ms
+ * @returns {string}
+ */
+export function p75Label(ms) {
+    if (!numeroContavel(ms)) return SEM_AMOSTRA;
+    return `${numeroLabel(ms)} ms`;
+}
+
+/**
+ * O CLS, que é o único número desta aba sem unidade.
+ *
+ * TRÊS CASAS DECIMAIS porque a faixa inteira que interessa cabe abaixo de 0,25 (o limiar de "ruim"
+ * do padrão é 0,25 e o de "bom" é 0,1): com uma casa, metade das instalações desenharia "0,1" e a
+ * outra metade "0,0", e a coluna deixaria de discriminar.
+ * @param {*} valor
+ * @returns {string}
+ */
+export function clsLabel(valor) {
+    if (!numeroContavel(valor)) return SEM_AMOSTRA;
+    return valor.toFixed(3).replace('.', ',');
+}
+
+/**
+ * O nome de uma das quatro páginas.
+ *
+ * O NOME DO PRODUTO, e não o do arquivo: `index.html` não diz nada a quem lê um relatório, e
+ * "Administração" é o rótulo que aquela página tem para o administrador (para as outras audiências
+ * ela se chama outra coisa, mas quem lê ESTA tela é sempre o administrador).
+ * @param {*} pagina
+ * @returns {string}
+ */
+export function paginaDeUsoLabel(pagina) {
+    if (typeof pagina !== 'string' || !pagina.trim()) return 'Sem página';
+    const chave = pagina.trim();
+    const NOMES = { mapa: 'Mapa', atlas: 'Seus atlas', admin: 'Administração', calibracao: 'Calibração' };
+    return Object.hasOwn(NOMES, chave) ? NOMES[chave] : chave;
+}
+
+/**
+ * As colunas da tabela de desempenho, com o que cada uma significa.
+ *
+ * A TABELA É DADO E NÃO LITERAL NA TELA, pela mesma razão de `NUMEROS_DA_SAUDE` em
+ * `defeito-phrases.js`: com os quatro cabeçalhos escritos na aba, trocar duas colunas de lugar não
+ * ficaria vermelho em lugar nenhum.
+ *
+ * O `formato` DECIDE A FUNÇÃO DE TEXTO, e é por isso que o CLS não precisa de um caso especial no
+ * desenho: ele é a única coluna adimensional, e a diferença mora aqui.
+ * @type {ReadonlyArray<{campo: string, rotulo: string, formato: string, detalhe: string}>}
+ */
+export const COLUNAS_DE_DESEMPENHO = Object.freeze([
+    Object.freeze({
+        campo: 'lcpP75Ms',
+        rotulo: 'LCP p75',
+        formato: 'ms',
+        detalhe: 'Largest Contentful Paint: quanto tempo até o maior conteúdo da tela aparecer. '
+            + 'Três em cada quatro cargas foram mais rápidas que este número.',
+    }),
+    Object.freeze({
+        campo: 'inpP75Ms',
+        rotulo: 'INP p75',
+        formato: 'ms',
+        detalhe: 'Interaction to Next Paint: quanto tempo a interface demorou para responder à '
+            + 'pior interação da sessão.',
+    }),
+    Object.freeze({
+        campo: 'clsP75',
+        rotulo: 'CLS p75',
+        formato: 'cls',
+        detalhe: 'Cumulative Layout Shift: quanto a página se mexeu sozinha enquanto carregava. '
+            + 'Abaixo de 0,100 é bom; acima de 0,250 é ruim.',
+    }),
+    Object.freeze({
+        campo: 'tempoAteMapaP75Ms',
+        rotulo: 'Até o mapa',
+        formato: 'ms',
+        detalhe: 'Do início do aplicativo até o MapLibre terminar de carregar. Só a página do '
+            + 'mapa tem esta medida.',
+    }),
+    Object.freeze({
+        campo: 'amostras',
+        rotulo: 'Amostras',
+        formato: 'amostras',
+        detalhe: 'Sobre quantas medidas o percentil foi calculado. A UNIDADE muda com a fonte da '
+            + 'linha (sessões ou dias), e por isso ela vem escrita ao lado do número: um p75 '
+            + 'sobre poucas amostras não é um percentil, é um exemplo.',
+    }),
+]);
+
+/**
+ * As DUAS fontes de uma linha de desempenho, e o que a palavra "amostra" significa em cada uma.
+ *
+ * O SERVIDOR MANDA `origem` JUSTAMENTE PARA QUE A TELA NÃO MINTA AQUI. Quando as sessões daquela
+ * janela ainda existem uma a uma, o p75 é o percentil de verdade e `amostras` conta SESSÕES;
+ * quando a retenção já as levou, o que resta é o agregado diário, e a linha passa a ser a mediana
+ * dos p75 de cada dia, com `amostras` contando DIAS. Os dois números têm o mesmo nome, grandezas
+ * diferentes e ordens de grandeza diferentes ("412" contra "30"), e sem a unidade escrita ao lado
+ * a segunda leitura é indistinguível de uma queda brutal de uso.
+ * @type {Readonly<Object<string, {unidadeSingular: string, unidadePlural: string, detalhe: string}>>}
+ */
+export const ORIGENS_DE_DESEMPENHO = Object.freeze({
+    sessoes: Object.freeze({
+        unidadeSingular: 'sessão',
+        unidadePlural: 'sessões',
+        detalhe: 'Percentil calculado sobre as sessões desta janela, uma a uma. É o p75 de '
+            + 'verdade.',
+    }),
+    diario: Object.freeze({
+        unidadeSingular: 'dia',
+        unidadePlural: 'dias',
+        detalhe: 'As sessões desta janela já foram podadas, então o número é a MEDIANA dos p75 '
+            + 'de cada dia, e não o p75 do período. É a melhor resposta que sobra, e não a mesma '
+            + 'conta.',
+    }),
+});
+
+/**
+ * O texto da célula de amostras: o número mais a unidade que a fonte daquela linha define.
+ *
+ * A UNIDADE NUNCA É OMITIDA, nem quando a origem é desconhecida: sem ela a coluna volta a ser o
+ * número ambíguo que `ORIGENS_DE_DESEMPENHO` existe para desfazer. Origem que este build não
+ * conhece cai em "amostras", que é vago e é honesto.
+ * @param {*} amostras
+ * @param {*} origem
+ * @returns {string}
+ */
+export function amostrasLabel(amostras, origem) {
+    const n = numeroOuZero(amostras);
+    const info = typeof origem === 'string' && Object.hasOwn(ORIGENS_DE_DESEMPENHO, origem)
+        ? ORIGENS_DE_DESEMPENHO[origem]
+        : null;
+    const unidade = info
+        ? (n === 1 ? info.unidadeSingular : info.unidadePlural)
+        : 'amostras';
+    return `${numeroLabel(amostras)} ${unidade}`;
+}
+
+/**
+ * O `title` da célula de amostras: o que aquela fonte significa.
+ * @param {*} origem
+ * @returns {string}
+ */
+export function origemDeDesempenhoDetalhe(origem) {
+    if (typeof origem === 'string' && Object.hasOwn(ORIGENS_DE_DESEMPENHO, origem)) {
+        return ORIGENS_DE_DESEMPENHO[origem].detalhe;
+    }
+    return 'O servidor não declarou a fonte desta linha, então não dá para dizer se as amostras '
+        + 'são sessões ou dias.';
+}
+
+/**
+ * O texto de uma célula de desempenho, pelo formato declarado na coluna.
+ * @param {*} valor
+ * @param {*} formato
+ * @returns {string}
+ */
+export function celulaDeDesempenho(valor, formato, origem) {
+    if (formato === 'cls') return clsLabel(valor);
+    if (formato === 'amostras') return amostrasLabel(valor, origem);
+    if (formato === 'contagem') return numeroLabel(valor);
+    return p75Label(valor);
+}
+
+/**
+ * As linhas da tabela de desempenho, uma por página.
+ *
+ * A ORDEM É A DAS QUATRO PÁGINAS e não a do servidor: elas são um conjunto FIXO e pequeno, e uma
+ * ordem que mude entre duas cargas faz a pessoa desconfiar do dado certo (o mesmo argumento de
+ * {@link ordenarTopAtlas}). Página que o servidor não conhece vai para o fim, com o id cru.
+ * @param {*} desempenho
+ * @returns {Array<{pagina: string, origem: string, rotulo: string, celulas: Array<Object>, amostras: number}>}
+ */
+export function linhasDeDesempenho(desempenho) {
+    if (!Array.isArray(desempenho)) return [];
+    const ordem = ['mapa', 'atlas', 'admin', 'calibracao'];
+    return desempenho
+        .filter((l) => objeto(l))
+        .map((l) => {
+            const pagina = typeof l.pagina === 'string' ? l.pagina.trim() : '';
+            const origem = typeof l.origem === 'string' ? l.origem : '';
+            return {
+                pagina,
+                origem,
+                rotulo: paginaDeUsoLabel(pagina),
+                amostras: numeroOuZero(l.amostras),
+                celulas: COLUNAS_DE_DESEMPENHO.map((c) => ({
+                    campo: c.campo,
+                    rotulo: c.rotulo,
+                    // A COLUNA DE AMOSTRAS TROCA O `title` PELO DA FONTE, e é a única que troca:
+                    // o que ela precisa dizer não é o que a coluna mede (isso está no cabeçalho),
+                    // é o que a UNIDADE daquela linha significa.
+                    detalhe: c.formato === 'amostras'
+                        ? origemDeDesempenhoDetalhe(origem)
+                        : c.detalhe,
+                    texto: celulaDeDesempenho(l[c.campo], c.formato, origem),
+                    // `vazia` é o que a folha de estilo usa para tirar o peso do "sem amostra":
+                    // ele ocupa a mesma célula de um número e não é um.
+                    vazia: c.formato !== 'contagem' && c.formato !== 'amostras'
+                        && !numeroContavel(l[c.campo]),
+                })),
+            };
+        })
+        .sort((a, b) => {
+            const ia = ordem.indexOf(a.pagina);
+            const ib = ordem.indexOf(b.pagina);
+            const pa = ia === -1 ? ordem.length : ia;
+            const pb = ib === -1 ? ordem.length : ib;
+            return pa - pb || a.rotulo.localeCompare(b.rotulo, 'pt-BR');
+        });
+}
+
+/** @returns {string} */
+export function desempenhoTitulo() {
+    return 'Desempenho no cliente';
+}
+
+/** @param {*} janela @returns {string} */
+export function desempenhoSubtitulo(janela) {
+    return `Como o produto respondeu no navegador de quem usa, ${janelaEmPalavras(janela)}, por `
+        + 'página';
+}
+
+/**
+ * A ressalva do percentil, e ela tem DUAS metades que nenhuma outra seção tem.
+ *
+ * A PRIMEIRA É O PERÍODO INTEIRO: o p75 é calculado sobre a janela toda, e não por dia, então uma
+ * semana ruim no meio de noventa dias desaparece dentro do número. Quem procura "quando piorou"
+ * não acha aqui.
+ *
+ * A SEGUNDA É A DO DIA QUE NÃO FECHOU, e ela é a mesma ressalva das células abertas da tabela de
+ * retenção: as amostras de hoje ainda estão chegando, então o número de hoje ainda se move, e uma
+ * comparação feita de manhã com a de ontem compara um dia inteiro com um pedaço de dia.
+ * @returns {string}
+ */
+export function desempenhoHint() {
+    return 'O p75 é calculado sobre o período inteiro, e não por dia: uma semana ruim no meio de '
+        + 'noventa some dentro do número. E o dia de hoje ainda não fechou, então estes valores '
+        + 'ainda se movem até a virada.';
+}
+
+/** @param {*} janela @returns {string} */
+export function desempenhoVaziaNotice(janela) {
+    return `Nenhuma medida de desempenho chegou ${janelaEmPalavras(janela)}.`;
+}
+
+/** @returns {string} */
+export function desempenhoVaziaHint() {
+    return 'As três métricas padronizadas (LCP, INP e CLS) dependem de o navegador saber medi-las: '
+        + 'o INP, por exemplo, não existe no Safari. Uma tabela vazia pode ser ausência de uso ou '
+        + 'ausência de suporte.';
+}
+
+/** @returns {string} */
+export function desempenhoNaoInformadoNotice() {
+    return 'O servidor não informou o desempenho no cliente, então esta seção não é desenhada '
+        + 'aqui. '
+        + 'Daqui não dá para dizer se é um servidor de versão anterior ou se ele não '
+        + 'conseguiu montar o bloco desta vez, e nenhum dos dois quer dizer que ninguém '
+        + 'tenha usado o EBGeo no período.';
+}
+
+// ===== indisponibilidade vista pelo cliente =====
+
+/**
+ * A série diária das telas de indisponibilidade.
+ *
+ * A CHAVE DA CONTAGEM É `vistos`, que é o nome do contrato. Ela passa por {@link preencherDias}
+ * como as outras duas séries, para que o dia sem incidente seja uma barra de altura zero e não um
+ * buraco — e aqui isso vale o dobro: num gráfico de FALHA, o buraco se leria como "não medimos",
+ * que é a leitura mais perigosa possível.
+ * @param {*} disponibilidade
+ * @returns {Array<{dia: string, total: number}>}
+ */
+export function serieDeDisponibilidade(disponibilidade) {
+    if (!Array.isArray(disponibilidade)) return [];
+    return preencherDias(disponibilidade.map((l) => (objeto(l)
+        ? { dia: l.dia, total: l.vistos }
+        : l)));
+}
+
+/** @returns {string} */
+export function disponibilidadeTitulo() {
+    return 'Indisponibilidade vista pelo cliente';
+}
+
+/** @param {*} janela @returns {string} */
+export function disponibilidadeSubtitulo(janela) {
+    return `Quantas vezes a tela "EBGeo indisponível" foi ao ar ${janelaEmPalavras(janela)}`;
+}
+
+/**
+ * A ressalva SEM A QUAL ESTA SEÇÃO MENTE, e ela é o motivo de a seção existir com este nome.
+ *
+ * A tela de indisponibilidade tem DUAS causas: o servidor não respondeu, ou o nosso código quebrou
+ * com o servidor de pé. O relato de USO desta tela é mandado na hora e não tem fila, então na
+ * PRIMEIRA causa ele falha por definição — o servidor que deveria recebê-lo é justamente o que
+ * está fora. O que chega aqui é quase só a segunda causa.
+ *
+ * A QUEDA DE SERVIDOR NÃO SE PERDE, e a frase precisa dizer para onde ela foi, senão a ressalva
+ * vira só uma desculpa: ela é contada pelo lado dos DEFEITOS, onde o relato ENFILEIRA e sai no
+ * próximo boot que conseguir falar.
+ * @returns {string}
+ */
+export function disponibilidadeHint() {
+    return 'Esta contagem é quase só da tela por ERRO DO PROGRAMA: quando a causa é o servidor '
+        + 'fora, o relato de uso não tem para onde ir e se perde. A queda de servidor aparece na '
+        + 'aba Diagnóstico, entre os defeitos de origem "indisponivel", porque aquele relato '
+        + 'espera a próxima carga da página em vez de morrer.';
+}
+
+/**
+ * A legenda do gráfico de indisponibilidade, e ela NÃO é {@link disponibilidadeHint}.
+ *
+ * A CAPTURA MOSTROU AS DUAS FRASES NA MESMA SEÇÃO, uma na legenda e outra na nota logo abaixo,
+ * palavra por palavra. Repetir uma ressalva não a reforça: ela passa a ser lida como erro de
+ * montagem, e a segunda ocorrência ensina a pular a primeira. A legenda diz o que a BARRA é (é o
+ * papel dela, como nas outras duas séries) e a ressalva de causa fica só na nota.
+ * @returns {string}
+ */
+export function disponibilidadeGraficoLegenda() {
+    return 'Cada barra é um dia. Aqui o zero é a boa notícia, e por isso o dia sem incidente fica '
+        + 'na linha de base em vez de sumir do eixo.';
+}
+
+/** @param {*} janela @returns {string} */
+export function disponibilidadeVaziaNotice(janela) {
+    return `Nenhuma tela de indisponibilidade relatada ${janelaEmPalavras(janela)}.`;
+}
+
+/** @returns {string} */
+export function disponibilidadeNaoInformadoNotice() {
+    return 'O servidor não informou a indisponibilidade vista pelo cliente, então esta seção '
+        + 'não é desenhada aqui. '
+        + 'Daqui não dá para dizer se é um servidor de versão anterior ou se ele não '
+        + 'conseguiu montar o bloco desta vez, e nenhum dos dois quer dizer que ninguém '
+        + 'tenha visto a tela no período.';
+}
+
+/**
+ * O `title` de uma barra da série de indisponibilidade.
+ * @param {*} dia @param {*} total
+ * @returns {string}
+ */
+export function tituloDeBarraDeIndisponibilidade(dia, total) {
+    const data = rotuloLongoDeDia(dia);
+    const n = numeroOuZero(total);
+    const quanto = n === 1 ? '1 tela' : `${numeroLabel(n)} telas`;
+    return data ? `${data}: ${quanto}` : quanto;
 }

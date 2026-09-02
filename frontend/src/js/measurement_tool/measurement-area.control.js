@@ -28,6 +28,9 @@ import { createAreaResultsPanel } from './measurement-results-panel.js';
 import { addFeature, getActiveLayerIdSync, getControl, isCurrentMapLockedSync } from '@store';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { IDUtils, showToast } from '@utils';
+// Por ARQUIVO, de dois modulos folha: a contagem nao pode participar da ativacao.
+import { registrarUso } from '@js/session/uso-lote.js';
+import { EventoDeUso } from '@js/session/eventos-de-uso.js';
 
 export class MeasurementAreaControl {
     constructor(toolManager) {
@@ -64,6 +67,11 @@ export class MeasurementAreaControl {
     activate() {
         if (!this.map || this.isActive) return;
         this.isActive = true;
+        // A GUARDA ACIMA E O QUE TORNA ISTO UMA CONTAGEM DE ABERTURA: `isActive` ja saiu com
+        // `return`, entao reativar a ferramenta que ja esta ativa nao conta de novo. As tres
+        // medicoes compartilham este evento de proposito: a pergunta e quanto se mede, e a
+        // distincao entre distancia, area e angulo ja vem por `ferramenta.ativada`.
+        registrarUso(EventoDeUso.MEDICAO_ABERTA);
         this._vertices = [];
         this._cursorPos = null;
         this._finalized = false;

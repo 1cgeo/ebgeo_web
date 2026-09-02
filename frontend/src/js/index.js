@@ -64,6 +64,14 @@ import {
 // bootam sem `initServices()` e portanto sem barramento, e as migalhas delas vêm dos alimentadores
 // que não dependem dele (API, console, navegação).
 import { instalarMigalhasDoBarramento } from './session/migalhas-do-barramento.js';
+// A TELEMETRIA DE USO, irmã da de erro e com a mesma divisão: a fiação (`uso-telemetria.js`) sabe
+// quem é a aba e onde fica a rota; a decisão (`uso-lote.js`) acumula e descarrega. O tap do
+// barramento é o irmão do de migalhas e só o mapa o instala, pelo mesmo motivo.
+import { instalarUso } from './session/uso-telemetria.js';
+import { vitais, MARCA_CONFIG, MARCA_INICIO } from './session/vitais.js';
+import { instalarUsoDoBarramento } from './session/uso-do-barramento.js';
+import { registrarUso } from './session/uso-lote.js';
+import { EventoDeUso, PropDeUso } from './session/eventos-de-uso.js';
 import { OrigemDeErro } from './session/origens-de-erro.js';
 import { getViewModeController } from '@ui/view-mode.controller.js';
 import { showToast } from '@utils';
@@ -87,6 +95,11 @@ async function initApp() {
     // vê nenhum deles. Síncrona, sem rede e best-effort: ela não participa desta função em mais
     // nada, e o fail-fast do `GET /api/config` mais abaixo continua sendo o único portão do mapa.
     instalarTelemetriaDeErro();
+
+    // Phase -1.9: TELEMETRIA DE USO, logo depois da de erro e pela mesma razão de ordem: ela conta
+    // `pagina.vista`, que é o denominador de todo o resto, e um boot que morra no fail-fast do
+    // `GET /api/config` continua tendo sido uma carga de página. Também síncrona e best-effort.
+    instalarUso();
 
     // Capture the URL deep-link params at the VERY TOP, before any async boot work. The store boot
     // (initializeWithLastActiveMap, kicked off inside initializeApp) and initAtlasUrlSync emit
@@ -165,6 +178,11 @@ async function initApp() {
     // espera pela telemetria, e a promessa nunca rejeita.
     descarregarFilaDeRelatos();
 
+    // E AQUI TAMBÉM A MARCA DO DESEMPENHO, pelo mesmo motivo: este é o instante em que a
+    // configuração ficou pronta, e é dele que se mede o resto do boot. Ela não vira campo do lote
+    // sozinha; quem a usa é o `performance` do navegador, ao lado de `mapa-pronto`.
+    vitais.marcar(MARCA_CONFIG);
+
     initializeAppConfig();
     initConfigHelpers();
 
@@ -197,6 +215,10 @@ async function initApp() {
     // allowlist, idempotente, que nunca quebra a entrega de evento. Ela não participa do boot em
     // mais nada, como a telemetria da Fase -2.
     instalarMigalhasDoBarramento(getEventBus());
+    // O IRMÃO DE USO, na mesma assinatura de barramento e com a mesma allowlist: cinco eventos de
+    // ciclo de vida viram contagem. Ver `session/uso-do-barramento.js` sobre por que estes cinco
+    // chegam por aqui e os outros oito chegam pelo sítio.
+    instalarUsoDoBarramento(getEventBus());
 
     // Keep the address-bar `?atlas=&map=` reconciled with the live connection from here on. Wired
     // early (before session restore / connect) so it reflects every open path; it never clears a
@@ -356,7 +378,15 @@ async function initApp() {
 
         if (await openPublicAtlasFromUrl(bootPublicLink)) return;
         if (await openAtlasFromUrl(bootAtlasLink)) return;
-        if (await enterLocalMapOnBoot()) return;
+        if (await enterLocalMapOnBoot()) {
+            // AQUI, E NÃO LÁ DENTRO: a função é reentrante por `clearMountedAtlasIfGranted` (ela
+            // é o próprio callback de "Usar aqui"), e este ramo da cadeia roda uma vez por carga
+            // de página. Conta mesmo quando o descarte do dado remoto falhou, porque este boot É
+            // um boot local de qualquer forma, e contar só o caminho feliz subdeclararia
+            // justamente as sessões com problema.
+            registrarUso(EventoDeUso.ATLAS_ABERTO, PropDeUso.ATLAS_LOCAL);
+            return;
+        }
         openAtlasChooserOnBoot();
     } finally {
         // O caminho feliz do `?atlas=` ja pintou o atlas de SERVIDOR (`openRemoteAtlas` termina em
@@ -448,6 +478,10 @@ async function enterLocalMapOnBoot() {
     } catch (error) {
         console.warn('[boot] local map entry failed:', error);
     }
+    // A CONTAGEM NÃO MORA AQUI, e a razão é a reentrância: `clearMountedAtlasIfGranted` recebe
+    // ESTA MESMA função como callback de "Usar aqui", então uma aba bloqueada que ganha o lock
+    // executa `enterLocalMapOnBoot` de novo e contaria o mesmo boot duas vezes. Quem conta é o
+    // chamador da cadeia de roteamento, que roda uma vez por carga de página.
     return true;
 }
 
@@ -696,6 +730,11 @@ async function openPublicAtlasFromUrl(link = new URLSearchParams(window.location
         if (!showVisitorBanner(atlas.name)) {
             showToast('Visualização pública, somente leitura', 'info');
         }
+        // A VISITA PÚBLICA É A TERCEIRA NATUREZA DE ABERTURA, e ela não passa por
+        // `openRemoteAtlas`: este caminho monta o namespace por conta própria, e por isso a
+        // contagem mora aqui e não lá. Ela é o único acesso ao produto sem conta nenhuma, que é
+        // justamente o que se quer contar à parte.
+        registrarUso(EventoDeUso.ATLAS_ABERTO, PropDeUso.ATLAS_PUBLICO);
         return true;
     } catch (error) {
         console.warn('[boot] public atlas open failed:', error);
@@ -803,9 +842,11 @@ initApp().catch(error => {
 // ============================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
-    if (window.performance?.mark) {
-        window.performance.mark('app-init');
-    }
+    // PELA CONSTANTE, e por `vitais.marcar`, que já tem a guarda de `performance` ausente dentro.
+    // A marca era um literal aqui e uma constante lá (`MARCA_INICIO`), e é ELA que `measure` usa
+    // como ponto de partida de `tempo-ate-mapa`: renomeá-la de um lado só não quebra nada, apenas
+    // faz a medida deixar de existir, e o campo some do lote em silêncio.
+    vitais.marcar(MARCA_INICIO);
 });
 
 // ============================================================================

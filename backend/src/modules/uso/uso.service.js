@@ -2,10 +2,30 @@
 /**
  * @fileoverview O RELATÓRIO DE USO: quem usa, o quê, quanto.
  *
- * É a última peça da observabilidade (ver `docs/wiki/observabilidade.md`, seção "O que
- * ainda não existe"), e a que NÃO instrumenta nada: `operations`, `audit_trail`, `users` e
- * `atlas` já guardam tudo o que ele responde. Instrumentação nova aqui seria uma segunda
- * verdade para manter.
+ * ELE TEM DUAS METADES DESDE 2026-09-02, E A DISTINÇÃO É A PRIMEIRA COISA A SABER. A metade
+ * antiga é DERIVADA: `operations`, `audit_trail`, `users` e `atlas` já guardavam o que ela
+ * responde, e instrumentar de novo seria criar uma segunda verdade para manter. A metade nova
+ * (sessões, gestos, desempenho, disponibilidade vista da ponta) é INSTRUMENTADA, porque
+ * nenhuma dessas perguntas tem resposta em tabela alguma que já existisse: `operations` sabe
+ * quantas feições nasceram e não sabe se alguém abriu o 3D. A escrita dela mora noutro
+ * arquivo (`uso.eventos.service.js`), e o porquê está no cabeçalho de lá.
+ *
+ * ESTE ARQUIVO NÃO ESCREVE NADA, e a linha acima não muda isso: ele continua sendo só
+ * leitura, atrás de `requireAdmin`.
+ *
+ * AS DUAS METADES NÃO USAM A MESMA JANELA, E ISSO PRECISA SER LIDO ANTES DE COMPARAR NÚMEROS
+ * DAS DUAS. A metade derivada compara INSTANTES (`created_at >= $1 AND < $2`), então "30d"
+ * ali significa exatamente 720 horas contadas para trás. A metade nova encosta em colunas
+ * `date`, e a comparação é `dia >= $1::date AND dia <= $2::date`: ela ARREDONDA PARA O DIA nas
+ * DUAS pontas, e é INCLUSIVA nas duas. Um pedido de "30d" feito às 14h cobre 31 dias de
+ * calendário, com o primeiro e o último parciais. Não é descuido: um `<` sobre o dia do fim
+ * apagaria o dia corrente da resposta inteira, que é justamente o dia que alguém está olhando
+ * quando abre a tela, e um `>` no começo cortaria o dia em que a janela nasceu.
+ *
+ * A CONSEQUÊNCIA QUE ENGANA: a soma da série de sessões NÃO tem de bater com a soma da série
+ * de produção da mesma janela, porque elas cobrem intervalos diferentes por construção. Para
+ * que a tela possa dizer isso em vez de deixar a pessoa descobrir, a faixa EFETIVA viaja no
+ * payload (`sessoes.faixa`), em dias, do jeito que a série já viaja.
  *
  * IRMÃO DE `modules/diag/` EM FORMA E EM GATE, e as duas semelhanças são deliberadas: a
  * mesma gramática de janela (`parseJanela`, um só significado para "30d" no produto
@@ -31,6 +51,9 @@ import {
   HORIZONTE, PESSOAS, ATLAS_RESUMO, TOP_ATLAS,
   PRODUCAO_POR_ENTIDADE, PRODUCAO_POR_DIA,
   FUNIL_DE_ENTRADA, COORTE_DE_RETENCAO,
+  HORIZONTE_DE_USO, SESSOES_POR_DIA, USO_NA_JANELA, EVENTOS_TOP,
+  DESEMPENHO_POR_SESSAO, DESEMPENHO_DIARIO, DISPONIBILIDADE_POR_DIA,
+  SAUDE_POR_RELEASE,
 } from './uso.queries.js';
 
 /**
@@ -93,6 +116,81 @@ export const SEMANAS_DE_RETENCAO = 4;
  * @param {Object} linha - a linha crua da consulta
  * @returns {Array<number|null>} uma entrada por semana de {@link SEMANAS_DE_RETENCAO}
  */
+/**
+ * Quantos pares (gesto, qualificador) entram no bloco `ferramentas`.
+ *
+ * Vinte, e o argumento é o de `TOP_ATLAS_LIMITE`: o número existe para que a lista caiba numa
+ * tela, e torná-lo parâmetro de query abriria um `?limite=` sobre uma agregação, atrás de um
+ * gate de administrador. Ele é MAIOR que o do ranking de atlas porque o vocabulário é maior:
+ * treze eventos mais os qualificadores livres de `ferramenta.ativada`, e cortar em dez
+ * esconderia toda a cauda de ferramentas, que é justamente o que o bloco existe para mostrar.
+ */
+export const EVENTOS_TOP_LIMITE = 20;
+
+/**
+ * Quantas releases a saúde de release acompanha.
+ *
+ * TRÊS, e o número é o da PERGUNTA e não o da tela: "a que está no ar está pior que a
+ * anterior?" precisa de duas, e a terceira é a folga que permite ver se a anterior já era
+ * ruim. Uma lista longa aqui viraria histórico, que é outro relatório e outra janela.
+ */
+export const RELEASES_NA_SAUDE = 3;
+
+/**
+ * O desempenho por página, escolhendo entre as DUAS fontes e DIZENDO qual respondeu.
+ *
+ * A REGRA É "SESSÃO VENCE ONDE HOUVER SESSÃO", e ela não é arbitrária: um percentil se
+ * calcula sobre a distribuição, e a distribuição são as sessões retidas. O agregado diário só
+ * tem p75 POR DIA, e a mediana de p75 diários não é o p75 da janela (ver `DESEMPENHO_DIARIO`);
+ * ela é a melhor resposta disponível quando as sessões já foram podadas, e a pior quando elas
+ * existem.
+ *
+ * `origem` VIAJA NO PAYLOAD, e é o que impede a segunda fonte de mentir por omissão. Sem ele,
+ * `amostras` teria duas grandezas com o mesmo nome (sessões num caso, DIAS no outro) e a tela
+ * leria "30 amostras" das duas maneiras. Um número que muda de significado sem mudar de nome
+ * é a forma mais barata de um relatório enganar.
+ *
+ * @param {Object[]} porSessao - linhas de `DESEMPENHO_POR_SESSAO`
+ * @param {Object[]} porDiario - linhas de `DESEMPENHO_DIARIO`
+ * @returns {Object[]} uma linha por página, ordenada pelo nome da página
+ */
+function desempenhoDaJanela(porSessao, porDiario) {
+  const linha = (l, origem) => ({
+    pagina: l.pagina,
+    origem,
+    amostras: inteiro(l.amostras),
+    // `decimalOuNulo` e NUNCA `inteiro`: um percentil sobre conjunto vazio é NULL (a página
+    // não carrega mapa, ninguém interagiu), e zero milissegundo seria uma MEDIDA.
+    lcpP75Ms: decimalOuNulo(l.lcp_p75_ms),
+    inpP75Ms: decimalOuNulo(l.inp_p75_ms),
+    clsP75: decimalOuNulo(l.cls_p75),
+    tempoAteMapaP75Ms: decimalOuNulo(l.tempo_ate_mapa_p75_ms),
+  });
+
+  const porPagina = new Map();
+  for (const l of porDiario) porPagina.set(l.pagina, linha(l, 'diario'));
+  for (const l of porSessao) porPagina.set(l.pagina, linha(l, 'sessoes'));
+  return [...porPagina.values()].sort((a, b) => a.pagina.localeCompare(b.pagina));
+}
+
+/**
+ * O menor de dois instantes que podem não existir.
+ *
+ * `Math.min(a, null)` é `0` em JavaScript, ou seja 1970, que é o horizonte mais confortável e
+ * mais falso que este relatório poderia publicar. É a mesma armadilha que `paraEpoch` fecha do
+ * outro lado, e ela precisa ser fechada de novo aqui porque o menor de UM instante é aquele
+ * instante, e o menor de NENHUM é `null`.
+ *
+ * @param {number|null} a
+ * @param {number|null} b
+ * @returns {number|null}
+ */
+function menorInstante(a, b) {
+  if (a === null) return b;
+  if (b === null) return a;
+  return Math.min(a, b);
+}
+
 function celulasDeRetencao(linha) {
   const completas = inteiro(linha.semanas_completas);
   const brutos = [linha.w1, linha.w2, linha.w3, linha.w4];
@@ -129,6 +227,36 @@ export async function resumo({ desde, agora = new Date() }) {
     any(COORTE_DE_RETENCAO, [...p, MAX_SEMANAS_DE_COORTE]),
   ]);
 
+  // A SEGUNDA ONDA, E ELA É SEQUENCIAL EM RELAÇÃO À PRIMEIRA DE PROPÓSITO. O pool desta
+  // aplicação tem DEZ conexões e serve o sync e o `GET /api/config`; disparar as quinze
+  // consultas do relatório de uma vez tomaria o pool inteiro e faria o resto do produto
+  // esperar por uma tela de administração. Em duas ondas de oito e sete, o pico é oito e
+  // sobram duas conexões. O custo é uma ida a mais de latência numa rota que ninguém carrega
+  // em laço, e a alternativa (uma transação para tudo) prenderia UMA conexão pelo tempo
+  // somado das quinze, que é pior nos dois eixos.
+  //
+  // A JANELA É A MESMA `p` das oito de cima, e é isso que mantém o relatório sendo o retrato
+  // de UM período. Ver o cabeçalho de `uso.queries.js`.
+  //
+  // MAS ELA É LIDA DE OUTRO JEITO AQUI: estas sete comparam DIA, não instante, e o recorte é
+  // inclusivo nas duas pontas (ver o `fileoverview`). Os mesmos dois parâmetros produzem, nas
+  // oito de cima, um intervalo meio-aberto de instantes, e nestas, um intervalo fechado de
+  // dias de calendário. É por isso que `sessoes.faixa` existe: sem ela, a única forma de
+  // saber sobre quais dias a resposta fala seria refazer o arredondamento no cliente, e para
+  // isso ele precisaria adivinhar o fuso do servidor.
+  const [
+    horizonteDeUso, sessoesPorDia, naJanela, eventosTop,
+    desempPorSessao, desempPorDiario, disponibilidade,
+  ] = await Promise.all([
+    one(HORIZONTE_DE_USO),
+    any(SESSOES_POR_DIA, p),
+    one(USO_NA_JANELA, p),
+    any(EVENTOS_TOP, [...p, EVENTOS_TOP_LIMITE]),
+    any(DESEMPENHO_POR_SESSAO, p),
+    any(DESEMPENHO_DIARIO, p),
+    any(DISPONIBILIDADE_POR_DIA, p),
+  ]);
+
   const desdeMs = inicio.getTime();
   const operacoesDesde = paraEpoch(horizonte.operacoes_desde);
   const trilhaDesde = paraEpoch(horizonte.trilha_desde);
@@ -162,7 +290,26 @@ export async function resumo({ desde, agora = new Date() }) {
     // `operacoesDesde` limita a produção (total, por entidade, série diária, ranking e
     // `editaram`), e `trilhaDesde` limita `entraram`. Publicar um horizonte só faria o
     // consumidor avisar sobre o bloco errado.
-    horizonte: { operacoesDesde, trilhaDesde },
+    //
+    // AS DUAS DE USO ENTRARAM EM 2026-09-02 E SÃO DUAS PELO MESMO ARGUMENTO, não por simetria.
+    // `usoDesde` é o começo do dado de uso como um todo (o menor entre a sessão retida mais
+    // antiga e o dia agregado mais antigo), e é o que a aba usa para dizer desde quando esta
+    // instalação mede uso: antes da primeira descarga de qualquer navegador ele é `null`, e
+    // `null` aqui significa "esta instalação nunca mediu", que é diferente de "ninguém usou".
+    // `usoSessoesDesde` é mais estreito e limita METADE do bloco de sessões: pessoas distintas
+    // na janela, duração mediana e o desempenho de origem `sessoes` saem das sessões RETIDAS,
+    // e a retenção é bem menor que o teto da janela. Publicar um horizonte só faria o
+    // consumidor avisar sobre o bloco errado, que é exatamente o erro que a separação entre
+    // `operacoesDesde` e `trilhaDesde` já evita do outro lado.
+    horizonte: {
+      operacoesDesde,
+      trilhaDesde,
+      usoDesde: menorInstante(
+        paraEpoch(horizonteDeUso.sessoes_desde),
+        paraEpoch(horizonteDeUso.diario_desde)
+      ),
+      usoSessoesDesde: paraEpoch(horizonteDeUso.sessoes_desde),
+    },
 
     pessoas: {
       contasAtivas: inteiro(pessoas.contas_ativas),
@@ -242,5 +389,131 @@ export async function resumo({ desde, agora = new Date() }) {
         }))
         .reverse(),
     },
+
+    // ─── O USO DE PRODUTO, desde 2026-09-02 ───
+    //
+    // Daqui para baixo nada é derivado de `operations` nem da trilha: tudo sai das três
+    // tabelas de `020_uso_de_produto.sql`, alimentadas por `POST /uso/eventos`. É a metade
+    // que responde o que a pessoa FAZ, e não quanto ela produziu.
+
+    // SESSÕES: a série é somável e vem da costura entre dia fechado e dia aberto
+    // (`SESSOES_POR_DIA`, que é a consulta a ler antes de qualquer outra desta família).
+    //
+    // OS TOTAIS DA JANELA SAEM DE DUAS FONTES DIFERENTES, E ISSO PRECISA ESTAR DITO. `total`,
+    // `autenticadas` e `comErro` são a SOMA da série, e portanto exatos: eles são aditivos, e
+    // somar a série é a única forma de o total não poder discordar do gráfico logo acima dele.
+    // `usuariosDistintos` e `duracaoMedianaS` NÃO são aditivos (contagem distinta não se soma
+    // entre dias, mediana não se re-agrega a partir de medianas), então saem das SESSÕES
+    // RETIDAS e são um PISO quando a janela ultrapassa a retenção. Quem permite ao consumidor
+    // perceber isso é `horizonte.usoSessoesDesde`, no mesmo payload e na mesma unidade.
+    //
+    // `usuariosDistintos` DA SÉRIE DIÁRIA E O DA JANELA NÃO SÃO A MESMA GRANDEZA, e a
+    // diferença é estrutural, não um defeito a consertar: o diário é distinto DENTRO de cada
+    // página (é o que `uso_diario` guarda), somado sobre as páginas do dia, então quem usou
+    // duas páginas conta duas vezes ali; o da janela é distinto de verdade. Somar a coluna da
+    // série e comparar com o total é, por construção, comparar duas perguntas.
+    sessoes: {
+      // A FAIXA EFETIVA, em dias de calendário do SERVIDOR, derivada da própria série densa.
+      //
+      // DERIVADA E NÃO CONSULTADA: `SESSOES_POR_DIA` já produz um `generate_series` sobre
+      // exatamente as duas fronteiras arredondadas, então a primeira e a última linha SÃO a
+      // faixa. Uma nona consulta para perguntar ao banco o que a oitava já respondeu seria
+      // mais uma ida ao pool e uma segunda chance de os dois números discordarem.
+      //
+      // `null` QUANDO A SÉRIE ESTÁ VAZIA, o que não acontece hoje (o `generate_series` sempre
+      // devolve ao menos um dia), e é escrito assim mesmo porque um `undefined` vindo de uma
+      // série vazia sumiria do JSON e o consumidor leria "campo não informado", que é o
+      // estado de servidor ANTIGO e significa outra coisa.
+      faixa: {
+        deDia: sessoesPorDia[0]?.dia ?? null,
+        ateDia: sessoesPorDia[sessoesPorDia.length - 1]?.dia ?? null,
+      },
+      porDia: sessoesPorDia.map((l) => ({
+        dia: l.dia,
+        sessoes: inteiro(l.sessoes),
+        sessoesAutenticadas: inteiro(l.sessoes_autenticadas),
+        usuariosDistintos: inteiro(l.usuarios_distintos),
+        sessoesComErro: inteiro(l.sessoes_com_erro),
+      })),
+      total: sessoesPorDia.reduce((s, l) => s + inteiro(l.sessoes), 0),
+      autenticadas: sessoesPorDia.reduce((s, l) => s + inteiro(l.sessoes_autenticadas), 0),
+      comErro: sessoesPorDia.reduce((s, l) => s + inteiro(l.sessoes_com_erro), 0),
+      usuariosDistintos: inteiro(naJanela.usuarios_distintos),
+      // `decimalOuNulo` e não `inteiro`: sem sessão retida na janela não há mediana nenhuma, e
+      // zero segundo seria uma medida ("todo mundo fechou a aba no instante em que abriu").
+      duracaoMedianaS: decimalOuNulo(naJanela.duracao_mediana_s),
+      // Quantas sessões sustentam os DOIS números acima. Ele é o que separa "ninguém usou" de
+      // "a retenção já levou as sessões da janela": nos dois casos os dois números seriam
+      // vazios, e só num deles isso é uma afirmação sobre o uso.
+      sessoesRetidas: inteiro(naJanela.sessoes_retidas),
+    },
+
+    // GESTOS: o bloco se chama `ferramentas` porque é o nome da tela, e ele NÃO é filtrado por
+    // ferramenta. Ver `EVENTOS_TOP`: cortar tudo o que não é `ferramenta.ativada` esconderia
+    // os desfechos caros (3D, 360, PDF, `.ebgeo`), que são poucos e são os que decidem
+    // prioridade.
+    //
+    // `prop` VAZIO É UM VALOR, e não ausência: ele é a linha do gesto SEM qualificador, que
+    // acontece quando o cliente não soube qualificá-lo. Publicá-lo como `null` faria a tela
+    // ter de inventar uma frase para um estado que já tem nome.
+    ferramentas: eventosTop.map((l) => ({
+      evento: l.evento,
+      prop: l.prop,
+      contagem: inteiro(l.contagem),
+    })),
+
+    // DESEMPENHO: uma linha por página, com a FONTE declarada em `origem`. Ver
+    // `desempenhoDaJanela`: `sessoes` é o p75 de verdade, `diario` é a mediana das p75
+    // diárias, e as duas trazem `amostras` em grandezas diferentes (sessões e DIAS).
+    desempenho: desempenhoDaJanela(desempPorSessao, desempPorDiario),
+
+    // DISPONIBILIDADE VISTA DA PONTA: quantas pessoas bateram na tela de indisponibilidade.
+    // É a única medida que o log em arquivo não pode ter, porque quando o backend está fora
+    // não existe requisição para registrar. A série é preenchida com zero, e aqui o zero é a
+    // BOA notícia: um buraco ao lado de um pico se leria como "não sabemos".
+    disponibilidade: disponibilidade.map((l) => ({
+      dia: l.dia,
+      vistos: inteiro(l.vistos),
+    })),
   };
+}
+
+/**
+ * A SAÚDE POR RELEASE: das builds que estiveram no ar na janela, quantas sessões tiveram,
+ * quantas delas com erro, e quantos defeitos nasceram ou regrediram nelas.
+ *
+ * ELA MORA AQUI E É CONSUMIDA POR `GET /diag/status`, e a direção da dependência é essa
+ * mesmo: `diag` importa de `uso`, nunca o contrário. O motivo é estrutural e precisa
+ * continuar valendo. `diag.service.js` NÃO IMPORTA `config` NEM O BANCO, e a ausência é
+ * declarada no `fileoverview` de lá: é ela que o mantém exercível em node puro, sem
+ * `DATABASE_URL` e sem `JWT_SECRET`. Pendurar esta consulta lá dentro derrubaria essa
+ * propriedade por uma linha de payload. Quem compõe é o CONTROLLER de `diag`, que já importa
+ * `config` e já importa `defeitos.service.js` (e portanto o banco), e que já era o lugar onde
+ * o `release` do processo entra na resposta.
+ *
+ * A JANELA É A DA ROTA QUE CHAMA, e no `/diag/status` ela é curta por padrão (1h) e limitada a
+ * 7d. Isso não é um descuido de reuso: aquela rota é o PULSO, e a pergunta ao lado do pulso é
+ * "quais builds estão respondendo agora". Um histórico longo de releases é outro relatório.
+ *
+ * @param {Object} opts
+ * @param {string} opts.desde - a janela, na gramática de `parseJanela`
+ * @param {Date} [opts.agora] - o fim da janela
+ * @returns {Promise<Object[]>} uma linha por release, da mais recente para a mais antiga
+ */
+export async function saudeDasReleases({ desde, agora = new Date() }) {
+  const fim = agora;
+  const inicio = new Date(fim.getTime() - parseJanela(desde));
+  const linhas = await any(SAUDE_POR_RELEASE, [inicio, fim, RELEASES_NA_SAUDE]);
+
+  return linhas.map((l) => ({
+    release: l.release,
+    sessoes: inteiro(l.sessoes),
+    sessoesComErro: inteiro(l.sessoes_com_erro),
+    // Os DOIS de defeito não têm recorte de tempo, ao contrário dos dois de cima: ver
+    // `SAUDE_POR_RELEASE`. "Quantos defeitos nasceram nesta build" é propriedade da BUILD, e
+    // recortá-la pela janela faria uma build recém-implantada parecer limpa por não ter tido
+    // tempo, que é a afirmação oposta à útil.
+    defeitosNovos: inteiro(l.defeitos_novos),
+    regressoes: inteiro(l.regressoes),
+  }));
 }

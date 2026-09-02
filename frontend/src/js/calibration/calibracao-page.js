@@ -48,6 +48,10 @@ import { startIdleWatch } from '../session/idle-watch.js';
 // Pelo ARQUIVO, como os vizinhos de `session/` (a pasta nao tem barrel). Best-effort e sem rede na
 // instalacao: ver a chamada no topo de `initCalibracaoPage`.
 import { instalarTelemetriaDeErro, descarregarFilaDeRelatos } from '@js/session/erro-telemetria.js';
+// A IRMA DE USO, logo ao lado: mesma divisao (fiacao aqui, decisao em `uso-lote.js`) e mesma
+// promessa de nao participar do boot. Esta pagina nao tem barramento, entao o que ela conta e a
+// carga dela propria.
+import { instalarUso } from '@js/session/uso-telemetria.js';
 // Pelo ARQUIVO, nunca por barrel, que e o que o mantem carregavel numa pagina sem
 // `initServices()`. Mesma importacao que `admin-page.js` e `projects-page.js` fazem.
 import {
@@ -261,6 +265,9 @@ async function initCalibracaoPage() {
     // gate manda para o mapa quem nao calibra, entao um erro levantado antes dele so existe nesta
     // aba e por um instante. Sincrona, sem rede, e nada abaixo depende dela.
     instalarTelemetriaDeErro();
+    // Logo depois da de erro, e pela mesma razao de ordem: `pagina.vista` e o denominador de todo
+    // o resto, e uma pagina que morra antes de desenhar continua tendo sido uma carga de pagina.
+    instalarUso();
 
     configureApiClient({ baseUrl: resolveBackendBaseUrl() });
 

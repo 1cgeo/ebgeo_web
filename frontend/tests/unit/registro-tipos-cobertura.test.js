@@ -229,6 +229,10 @@ const CENSO = [
         arquivo: 'import_export/export-utils.js',
         motivo: 'ZOOM_INVARIANT_SOURCES: the sources whose pixel sizes are rescaled for the export zoom. It is a list of SOURCES, not of types, and it only carries the ones that store a `createdAtZoom` and a base size; a type that has no zoom anchor has nothing to correct. It crossed the sweep threshold when the boundary joined it (its three entries are `boundarys` plus two hyphenated derived sources the vocabulary regex cannot see). A type missing here exports at the size it was authored at, which is visible in the PDF and not silent.',
     },
+    {
+        arquivo: 'admin/uso-phrases.js',
+        motivo: 'FERRAMENTA_LABEL: the pt-BR names of the MAP TOOLS, keyed by the `tipoDeUi` of `tool_manager/tool-registry.js`, for the "mais usados" table of the Uso tab. It is a list of TOOL ids and not of feature types, and 14 of the 24 keys coincide with the vocabulary only because a tool is usually named after what it draws — which is exactly why it is declared here instead of being discovered later. A feature type born WITHOUT a tool needs no entry here; a TOOL born without one shows up on screen with its raw id, which is ugly and honest, the same degradation `ENTIDADE_LABEL` chose in the same file. Nothing here is a gate: this table decides display, never behaviour.',
+    },
 ];
 
 // ============================================================================

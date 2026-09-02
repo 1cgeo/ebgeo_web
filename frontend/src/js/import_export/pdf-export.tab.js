@@ -35,6 +35,10 @@ import {
 import { composeLayout, loadLogoImage } from './pdf-cartographic-elements.js'
 import { isMapTemporalEnabledSync, getControl } from '@store'
 import { isTemporallyVisible } from '@js/temporal/temporal-model.js'
+// Por ARQUIVO, de dois modulos folha. A `prop` separa os DOIS motores do mesmo painel: `folha` e
+// o caminho do GDAL (saida georreferenciada) e `mosaico` e o do jsPDF, que nao georreferencia.
+import { registrarUso } from '@js/session/uso-lote.js'
+import { EventoDeUso, PropDeUso } from '@js/session/eventos-de-uso.js'
 
 export default class PDFExportTab {
     constructor(map) {
@@ -924,6 +928,9 @@ export default class PDFExportTab {
             });
 
             if (ok) {
+                // DENTRO DO `ok`, e nao depois do `try`: `exportMosaicPdf` devolve falso quando a
+                // pessoa CANCELA no meio, e um mosaico cancelado nao e um PDF exportado.
+                registrarUso(EventoDeUso.PDF_EXPORTADO, PropDeUso.PDF_MOSAICO);
                 // Capture the modal locally so a quick second export (which reassigns
                 // this._progress) is not dismissed by this stale timeout.
                 const progress = this._progress;
@@ -1158,6 +1165,11 @@ export default class PDFExportTab {
             a.download = fileName;
             a.click();
             URL.revokeObjectURL(url);
+
+            // DEPOIS DO DOWNLOAD DISPARADO, dentro do `try`: todo caminho de cancelamento acima
+            // sai por `return` e todo erro cai no `catch`, entao esta linha so e alcancada quando
+            // o arquivo de fato saiu.
+            registrarUso(EventoDeUso.PDF_EXPORTADO, PropDeUso.PDF_FOLHA);
 
             // Capture locally so a quick second export does not get its modal
             // dismissed by this stale timeout (this._progress may be reassigned).

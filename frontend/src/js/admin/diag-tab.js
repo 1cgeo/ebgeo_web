@@ -62,6 +62,14 @@
  * convenção da casa para bloqueio REVERSÍVEL: botão desabilitado não dispara clique, e o clique é
  * como o motivo chega à pessoa. Não há bloqueio por POSTO a desenhar aqui, porque a aba inteira já
  * é de um papel só.
+ *
+ * O CARTÃO DE SAÚDE POR RELEASE TEM DUAS CONTAS DESDE 2026-09-02, e a do SERVIDOR vence. Ela vem
+ * de `releases`, no mesmo payload do pulso, e traz o denominador que a conta do cliente nunca teve
+ * (quantas SESSÕES cada build rodou): "sete defeitos novos" não diz nada sem saber se a build
+ * rodou em setenta sessões ou em sete mil. A conta derivada da lista carregada continua de pé como
+ * reserva para o servidor de versão anterior, e `saudeFonteNotice` diz QUAL das duas está no ar —
+ * sem essa linha os números mudariam de um dia para o outro sem nada explicar, e a leitura natural
+ * é que a tela quebrou.
  */
 
 import { apiClient } from '@store/sync/api-client.js';
@@ -125,6 +133,7 @@ import {
     ESTADOS,
     FILTRO_TODOS,
     NUMEROS_DA_SAUDE,
+    NUMEROS_DA_SAUDE_DO_SERVIDOR,
     ORIGENS,
     PAGINAS,
     acaoEmVooLabel,
@@ -186,10 +195,15 @@ import {
     releasesDoDefeito,
     resolucaoNotice,
     rotaEStatusLabel,
+    FONTE_DA_SAUDE,
+    desfechoDaSaude,
     saudeDasReleases,
+    saudeDoServidor,
+    saudeFonteNotice,
     saudeNotice,
     saudeTitulo,
     saudeVaziaNotice,
+    taxaDeErroLabel,
     secaoSubtitulo,
     secaoTitulo,
     sessaoCurta,
@@ -357,6 +371,8 @@ class DiagTab {
         this._filtros = { estado: '', origem: '', release: '', pagina: '', novos: false };
         this._defeitos = [];
         this._release = null;
+        this._releases = null;
+        this._fonteDaSaude = FONTE_DA_SAUDE.AUSENTE;
         // TODO ESTADO DE TELA VIVE FORA DA ÁRVORE DO DOM, e a lista é fechada de propósito: a
         // tabela é repintada inteira a cada ato de ciclo de vida e a cada resposta de gaveta, e o
         // que não estiver aqui é PERDIDO nesse repinte, calado. Foi assim que se perderam o hash
@@ -693,6 +709,20 @@ class DiagTab {
         // providência se a v2 é a que está rodando). Falha do pulso degrada para `null`, que a
         // frase nomeia em voz alta.
         this._release = status.status === 'fulfilled' ? status.value?.release ?? null : null;
+        // E O RESUMO POR RELEASE DO SERVIDOR, lido do MESMO payload e pelo mesmo motivo: ele é a
+        // fonte PREFERIDA do cartão de saúde, e o cartão é desenhado por `_pintarDefeitos`, logo
+        // abaixo.
+        //
+        // O DESFECHO VIAJA JUNTO, e não só o valor. Um `null` sozinho colapsa TRÊS coisas que a
+        // frase do cartão precisa separar: o pulso recusado, o servidor que não manda o bloco, e
+        // o servidor que o manda NULO porque o banco dele não respondeu. Só a do meio é "versão
+        // anterior", e acusá-la nas três manda procurar o problema no lugar errado.
+        const pulsoFalhou = status.status !== 'fulfilled';
+        this._releases = pulsoFalhou ? null : status.value?.releases ?? null;
+        this._fonteDaSaude = desfechoDaSaude({
+            pulsoFalhou,
+            releases: pulsoFalhou ? undefined : status.value?.releases,
+        });
 
         this._pintarPulso(this._secaoPulso, status, janela);
         this._pintarDefeitos(this._secaoDefeitos, defeitos, janela);
@@ -931,7 +961,18 @@ class DiagTab {
     }
 
     /**
-     * @private O cartão de saúde por release, derivado da lista carregada.
+     * @private O cartão de saúde por release.
+     *
+     * DUAS FONTES, E A DO SERVIDOR VENCE. Ele conta SESSÕES por build, sobre o histórico dele, e
+     * é o denominador que a conta do cliente nunca teve: "sete defeitos novos" não diz nada sem
+     * saber se a build rodou em setenta sessões ou em sete mil. A conta do cliente
+     * (`saudeDasReleases`, sobre a lista carregada) continua de pé como reserva, e a frase do
+     * cartão diz QUAL das duas está no ar — sem ela, os números mudariam de um dia para o outro
+     * sem nada explicar, e a leitura natural é que a tela quebrou.
+     *
+     * A RESERVA TEM DOIS MOTIVOS, e a frase os separa: o servidor pode não MANDAR o bloco (versão
+     * anterior) ou não CONSEGUIR montá-lo agora (o pulso falhou, ou ele mandou `null` porque o
+     * banco não respondeu). `desfechoDaSaude` é quem decide, e é ele que sai no `dataset`.
      * @returns {HTMLElement}
      */
     _cartaoDeSaude() {
@@ -950,7 +991,16 @@ class DiagTab {
         cabeca.append(titulo, build);
         box.appendChild(cabeca);
 
-        const releases = saudeDasReleases(this._defeitos);
+        const fonte = this._fonteDaSaude;
+        const doServidor = fonte === FONTE_DA_SAUDE.SERVIDOR;
+        const releases = doServidor
+            ? saudeDoServidor(this._releases)
+            : saudeDasReleases(this._defeitos);
+        const definicoes = doServidor ? NUMEROS_DA_SAUDE_DO_SERVIDOR : NUMEROS_DA_SAUDE;
+        // O DESFECHO SAI COMO DADO, e não só a metade booleana: é ele que uma captura de tela
+        // consegue afirmar, e são três estados, não dois.
+        box.dataset.fonte = fonte;
+
         if (releases.length === 0) {
             const vazio = document.createElement('p');
             vazio.className = 'admin-diag__saude-vazio';
@@ -961,24 +1011,41 @@ class DiagTab {
             lista.className = 'admin-diag__saude-lista';
             lista.dataset.testid = 'admin-diag-saude-lista';
             for (const r of releases) {
-                lista.appendChild(this._blocoDeRelease(r));
+                lista.appendChild(this._blocoDeRelease(r, definicoes));
             }
             box.appendChild(lista);
         }
 
-        const nota = document.createElement('p');
-        nota.className = 'admin-diag__saude-nota';
-        nota.textContent = saudeNotice();
-        box.appendChild(nota);
+        const rodape = document.createElement('p');
+        rodape.className = 'admin-diag__saude-nota';
+        rodape.dataset.testid = 'admin-diag-saude-fonte';
+        rodape.textContent = saudeFonteNotice(fonte);
+        box.appendChild(rodape);
+
+        // A NOTA DE ALCANCE SÓ VALE PARA A CONTA DO CLIENTE: ela diz que a janela, os filtros e o
+        // teto da consulta limitam o número, e nenhum dos três limita o resumo do servidor.
+        // Repeti-la sob a conta do servidor seria uma ressalva falsa, que custa mais que ressalva
+        // nenhuma.
+        if (!doServidor) {
+            const nota = document.createElement('p');
+            nota.className = 'admin-diag__saude-nota';
+            nota.textContent = saudeNotice();
+            box.appendChild(nota);
+        }
         return box;
     }
 
     /**
      * @private Um bloco do cartão de saúde.
-     * @param {{release: string, defeitos: number, novos: number, regressoes: number}} r
+     *
+     * AS DEFINIÇÕES CHEGAM DE FORA, e é isso que faz o mesmo desenho servir as duas contas: quem
+     * escolhe a fonte é `_cartaoDeSaude`, e uma segunda função de bloco divergiria da primeira no
+     * primeiro ajuste de estilo.
+     * @param {Object} r - Uma linha de `saudeDoServidor` ou de `saudeDasReleases`.
+     * @param {ReadonlyArray<{campo: string, rotulo: string, titulo: string, formato?: string}>} definicoes
      * @returns {HTMLElement}
      */
-    _blocoDeRelease(r) {
+    _blocoDeRelease(r, definicoes) {
         const li = document.createElement('li');
         li.className = 'admin-diag__saude-item';
         li.dataset.testid = 'admin-diag-saude-item';
@@ -995,7 +1062,7 @@ class DiagTab {
 
         const numeros = document.createElement('span');
         numeros.className = 'admin-diag__saude-numeros';
-        for (const definicao of NUMEROS_DA_SAUDE) {
+        for (const definicao of definicoes) {
             numeros.appendChild(numeroDaSaude(definicao, r[definicao.campo]));
         }
         li.appendChild(numeros);
@@ -1656,11 +1723,16 @@ function tile(rotulo, valor, testid, { estado } = {}) {
 /**
  * Um par número/rótulo do cartão de saúde.
  *
- * O RÓTULO E O QUE ELE SIGNIFICA vêm de `NUMEROS_DA_SAUDE` (`defeito-phrases.js`), e o `campo`
- * amarra os dois ao número: com os três literais escritos aqui, trocar dois deles de lugar não
- * ficaria vermelho em lugar nenhum. É lá também que mora a razão de o primeiro não se chamar
- * "novos", que é a terceira palavra "novo" desta tela.
- * @param {{campo: string, rotulo: string, titulo: string}} definicao @param {number} valor
+ * O RÓTULO E O QUE ELE SIGNIFICA vêm de `NUMEROS_DA_SAUDE` / `NUMEROS_DA_SAUDE_DO_SERVIDOR`
+ * (`defeito-phrases.js`), e o `campo` amarra os dois ao número: com os literais escritos aqui,
+ * trocar dois deles de lugar não ficaria vermelho em lugar nenhum. É lá também que mora a razão de
+ * "nascidos aqui" não se chamar "novos", que é a terceira palavra "novo" desta tela.
+ *
+ * O `formato` DESPACHA A FUNÇÃO DE TEXTO aqui, e não no módulo de frases: `taxaDeErroLabel` mora
+ * em `defeito-phrases.js` (que é zero imports) e `contagemLabel` em `diag-phrases.js`, então este
+ * é o único ponto que tem as duas à mão sem quebrar o contrato de nenhum dos dois.
+ * @param {{campo: string, rotulo: string, titulo: string, formato?: string}} definicao
+ * @param {number} valor
  * @returns {HTMLElement}
  */
 function numeroDaSaude(definicao, valor) {
@@ -1669,7 +1741,9 @@ function numeroDaSaude(definicao, valor) {
     el.dataset.testid = `admin-diag-saude-${definicao.campo}`;
     el.title = definicao.titulo;
     const n = document.createElement('strong');
-    n.textContent = contagemLabel(valor);
+    n.textContent = definicao.formato === 'percentual'
+        ? taxaDeErroLabel(valor)
+        : contagemLabel(valor);
     const r = document.createElement('span');
     r.textContent = ` ${definicao.rotulo}`;
     el.append(n, r);
