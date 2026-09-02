@@ -10,6 +10,10 @@
  *
  * The import is relative and the registry has zero imports of its own, which is what keeps
  * this module loadable in plain node with no alias resolution.
+ *
+ * `IMAGE_RESOURCE_STORAGE_TYPES` is not a seventh one of those: it is a SECOND-ORDER view,
+ * derived from `IMAGE_RESOURCE_FEATURE_TYPES` through `getStorageTypeFromSource`, and it is
+ * declared beside that function rather than up here for that reason.
  */
 
 import { FEATURE_TYPE_REGISTRY } from './feature-type.registry.js';
@@ -96,6 +100,25 @@ const ALL_STORAGE_TYPES = Object.freeze(Object.values(FEATURE_TYPE_MAPPINGS));
 export function getStorageTypeFromSource(sourceType) {
     return FEATURE_TYPE_MAPPINGS[sourceType] || `${sourceType}s`;
 }
+
+/**
+ * The PLURAL view of `IMAGE_RESOURCE_FEATURE_TYPES`: the keys of `FEATURE_TYPE_MAPPINGS`
+ * whose features draw an image registered on the map under `properties.id`, which is what
+ * `'icon-image': ['get', 'id']` resolves against.
+ *
+ * Two code paths read a feature collection keyed by storage type and have to register those
+ * images: pasting (`tool_manager/clipboard_manager.js`) and the map/reload setup
+ * (`layers/layer_setup.js`). Both used to write the plurals out by hand, and pasting was two
+ * types behind, so a pasted coordination measure or magnetic declination drew nothing until
+ * a reload.
+ *
+ * DERIVED and not written out, because the plurals are irregular: `boundary` becomes
+ * `boundarys`, so a hand-written list is a spelling bet on every new row.
+ * @constant {string[]}
+ */
+export const IMAGE_RESOURCE_STORAGE_TYPES = Object.freeze(
+    IMAGE_RESOURCE_FEATURE_TYPES.map(getStorageTypeFromSource)
+);
 
 /**
  * Gets the source type (singular) from a storage type.

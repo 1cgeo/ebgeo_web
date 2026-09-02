@@ -54,6 +54,7 @@ import { denialNotice } from '@store/denial-phrases.js';
 import { IDUtils, ToastService } from '../utilities';
 import { pasteAnchor, offsetToTarget, translatePositionProperties } from './clipboard-offset.js';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+import { collectImageResourceIds } from '@layers/feature-images.js';
 import { generatePointImage, needsPerFeatureImage } from '../draw_tools/point_tool/point-marker-symbols.js';
 import { parseCustomMarker, registerCustomFeatureImage } from '../draw_tools/point_tool/point-custom-icons.js';
 
@@ -535,20 +536,19 @@ class ClipboardManager {
 
     /**
      * Load pasted images into MapLibre for immediate rendering.
+     *
+     * THE BUCKETS ARE DERIVED, never written out here. This loop used to name `images` and
+     * `military_symbols` by hand, and it was two families behind the identical sweep in
+     * `layers/layer_setup.js`: a pasted coordination measure or magnetic declination got a
+     * fresh id and a duplicated blob, and nobody registered that blob on the map, so it drew
+     * nothing until a reload. Both sweeps now read `collectImageResourceIds`.
+     *
      * @param {Object} newFeaturesByType
      */
     async loadPastedImages(newFeaturesByType) {
         const imagePromises = [];
 
-        const allImageFeatures = [
-            ...(newFeaturesByType.images || []),
-            ...(newFeaturesByType.military_symbols || [])
-        ];
-
-        for (const feature of allImageFeatures) {
-            const imageId = feature.properties.id;
-            if (!imageId) continue;
-
+        for (const imageId of collectImageResourceIds(newFeaturesByType)) {
             if (this.map.hasImage(imageId)) continue;
 
             const imagePromise = this.loadSingleImageForPaste(imageId);

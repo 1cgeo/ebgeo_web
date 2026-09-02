@@ -6,6 +6,7 @@
 
 import { getCurrentMapFeatures, getImage, hasImage, getCurrentMapNameSync, getGridStyle, getCatalogLayers, getControl } from '../store';
 import { getImageRegenerator } from './image-regen-registry.js';
+import { collectImageResourceFeatures } from './feature-images.js';
 import { ensureTurf } from '../utilities/turf-loader.js';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
 import { catalogLayerReferenceId } from '../catalog/catalog-layer.ref.js';
@@ -176,18 +177,15 @@ async function loadSingleImage(imageId, mapInstance) {
  * @param {Object} mapInstance - MapLibre map instance
  */
 async function setImages(features, mapInstance) {
-    const allImageFeatures = [
-        ...features.images,
-        ...features.military_symbols,
-        ...(features.coordination_measures || []),
-        ...(features.magnetic_declinations || [])
-    ];
-
+    // THE BUCKETS ARE DERIVED (`collectImageResourceFeatures`), never written out here. The
+    // hand-written list this replaces was the COMPLETE one, and its twin in
+    // `tool_manager/clipboard_manager.js` was two families behind it, which is exactly the
+    // divergence a single derived sweep removes. The PAIR is what this path needs: the
+    // regenerator branch below rebuilds the raster from the feature's own properties.
     const imagePromises = [];
 
-    for (const feature of allImageFeatures) {
-        const imageId = feature.properties.id;
-        if (!imageId || mapInstance.hasImage(imageId)) continue;
+    for (const { imageId, feature } of collectImageResourceFeatures(features)) {
+        if (mapInstance.hasImage(imageId)) continue;
 
         // Military symbols / coordination measures / declinations render a client-generated
         // PNG that is NEVER uploaded (it's deterministically rebuildable from props). On a
