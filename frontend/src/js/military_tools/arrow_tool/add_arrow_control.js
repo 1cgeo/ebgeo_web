@@ -1,13 +1,26 @@
 // Path: js/military_tools/arrow_tool/add_arrow_control.js
 
-import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
-import { IDUtils, showWarning } from '../../utilities';
+import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync, getFeatureById } from '../../store';
+import { IDUtils, showWarning, showToast, deepClone } from '../../utilities';
 import { getPointerPosition, isTouchDevice } from '../../utilities/pointer-utils';
 import { addArrowAttributesToPanel } from './arrow_attributes_panel.js';
 import AddArrowGeometry from './add_arrow_geometry.js';
 import { BaseControl } from '../../tool_manager';
 import { DrawingFinishButton } from '../../draw_tools/drawing-touch-helpers';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+import {
+    anchorFor,
+    buildExtendedProperties,
+    extendCoordinates,
+    previewCoordinates,
+    resolveEndpoints,
+    storedSpineMatches
+} from '@tools/helpers/line-extension.model.js';
+import {
+    extensionDenialReason,
+    hideExtensionHandles,
+    showExtensionHandles
+} from '@tools/helpers/line-extension.helpers.js';
 
 /**
  * The dispatcher that owns the `arrows` source.
@@ -64,6 +77,10 @@ class AddArrowControl extends BaseControl {
 
         // Pointer event state for edit handles
         this._activePointerId = null;
+
+        // Continuation session, set while the user is extending an existing arrow from one of
+        // its ends. See startExtending / finishExtending.
+        this._extending = null;
 
         // Bind pointer event handlers
         this._onEditPointerDown = this._onEditPointerDown.bind(this);
@@ -292,6 +309,10 @@ class AddArrowControl extends BaseControl {
     }
 
     deactivate = () => {
+        // Dropped FIRST: Esc and switching tools both land here, and a continuation writes
+        // nothing before it is committed, so forgetting the session leaves the original arrow
+        // untouched by construction.
+        this._extending = null;
         this.isActive = false;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = '';
@@ -387,6 +408,14 @@ class AddArrowControl extends BaseControl {
             this.drawPoints.push(finalPoint);
         }
 
+        // AFTER the push of the point under the cursor, which is how this tool already finishes
+        // a drawing: the right click contributes its own vertex.
+        if (this._extending) {
+            this.map.off('mousemove', this.handlePreviewMouseMove);
+            await this.finishExtending();
+            return;
+        }
+
         if (this.drawPoints.length >= 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
             await this.createFeature();
@@ -418,6 +447,8 @@ class AddArrowControl extends BaseControl {
 
         if (this.isDraggingHandle && selectedFeature && this.activeHandleType) {
             this.updateArrowPreview(this.lastPreviewPosition);
+        } else if (this._extending) {
+            this._updateExtensionPreview();
         } else if (this.lastPreviewPoints && this.lastPreviewPoints.length >= 2) {
             const isAirmobile = AddArrowControl.DEFAULT_PROPERTIES.airmobile;
             const debounceTime = isAirmobile ? 12 : 8;
@@ -524,6 +555,178 @@ class AddArrowControl extends BaseControl {
         }
     }
 
+    // ===== CONTINUING AN EXISTING ARROW =====
+
+    /**
+     * Enter "continue this arrow" mode from one of its ends.
+     *
+     * THE ORDER IS THE CONTRACT: `setActiveTool` deselects everything (which is what removes
+     * the handle the user just clicked) and then calls `activate()`, which empties
+     * `drawPoints`. The anchor is therefore seeded AFTER the tool switch, never before, or the
+     * switch would throw it away.
+     *
+     * Continuing from `'start'` PREPENDS, so the head stays on the last coordinate and
+     * `showArrowHead`, `doubleHeaded`, `width` and `airmobilePosition` are never touched.
+     *
+     * @param {Object} feature - Arrow feature to continue
+     * @param {string} end - Which end to continue from ('start' | 'end')
+     */
+    startExtending = (feature, end) => {
+        // Asked again here, not only when the handle was drawn: a peer can lock the map while
+        // the handle sits on screen, and this is where the state gets to name itself.
+        const reason = extensionDenialReason(feature);
+        if (reason) {
+            showWarning(reason);
+            return;
+        }
+
+        // The same tool already active means a drawing is in progress. Seeding the anchor below
+        // overwrites `drawPoints`, so without this the gesture would discard that work in
+        // silence. Length 1 is the anchor of a continuation already open (a double click on the
+        // handle), which is safe to re-seed.
+        if (this.toolManager.activeTool === this && this.drawPoints.length > 1) {
+            showWarning('Conclua ou cancele o desenho em andamento antes de continuar uma feição.');
+            return;
+        }
+
+        const endpoints = resolveEndpoints(feature);
+        if (!endpoints) return;
+
+        const sourceFeature = deepClone(feature);
+
+        if (this.toolManager.activeTool !== this) {
+            this.toolManager.setActiveTool(this);
+        }
+
+        this._extending = {
+            featureId: feature.properties.id,
+            end,
+            existing: endpoints.spine,
+            sourceFeature
+        };
+
+        this.drawPoints = [anchorFor(endpoints.spine, end)];
+
+        // The tool arms the drawing preview on the FIRST click; here that click already
+        // happened (on the handle), so the listener is armed by hand.
+        this.map.off('mousemove', this.handlePreviewMouseMove);
+        this.map.on('mousemove', this.handlePreviewMouseMove);
+        this.map.getCanvas().style.cursor = 'crosshair';
+        this._finishButton?.updateState(this.drawPoints.length, 2);
+
+        showToast('Clique no mapa para continuar a seta. Botão direito para concluir.', 'info');
+    }
+
+    /**
+     * Draw the WHOLE feature (existing spine plus what is being added) while the cursor moves,
+     * instead of only the new segment.
+     * @private
+     */
+    _updateExtensionPreview = () => {
+        const session = this._extending;
+        if (!session) return;
+
+        const coordinates = previewCoordinates(
+            session.existing,
+            this.drawPoints.slice(1),
+            this.lastPreviewPosition,
+            session.end
+        );
+        if (coordinates.length < 2) return;
+
+        // The FEATURE's own properties, never the tool defaults: width, head ratio, second head
+        // and the airmobile mark all shape the polygon, so defaults would preview an arrow that
+        // is not the one being edited.
+        const properties = buildExtendedProperties(session.sourceFeature, coordinates);
+        const debounceTime = properties.airmobile ? 12 : 8;
+
+        clearTimeout(this.geometryDebounceTimer);
+        this.geometryDebounceTimer = setTimeout(() => {
+            const previewGeometry = this.geometry.generate(coordinates, properties);
+            if (previewGeometry) {
+                this.showPreview(previewGeometry);
+            }
+        }, debounceTime);
+    }
+
+    /**
+     * Commit the continuation: ONE `updateFeature` on the SAME feature, so the id, the name and
+     * every style survive and a single Ctrl+Z undoes it.
+     *
+     * THE ORDER OF WRITES IS THE CONTRACT, and it is the reverse of what the other edit paths in
+     * this file do: gate BEFORE any write, then the store, then a RE-READ, and only a re-read
+     * that carries the new spine authorizes touching the MapLibre source. `updateFeature`
+     * returns `undefined` on every path, success included, so the re-read is the only
+     * confirmation there is; painting the source first would leave the screen showing a
+     * continuation nothing persisted. See `finishExtending` in `add_line_control.js`, which
+     * carries the long form of this note.
+     *
+     * @returns {Promise<void>} Resolves once the arrow is saved and reselected
+     */
+    finishExtending = async () => {
+        const session = this._extending;
+        if (!session) return;
+
+        const added = this.drawPoints.slice(1);
+        this._extending = null;
+
+        if (added.length === 0) {
+            showToast('Continuação cancelada: nenhum ponto novo.', 'info');
+            this.toolManager.deactivateCurrentTool();
+            return;
+        }
+
+        const reason = extensionDenialReason(session.sourceFeature);
+        if (reason) {
+            showWarning(reason);
+            this.toolManager.deactivateCurrentTool();
+            return;
+        }
+
+        const coordinates = extendCoordinates(session.existing, added, session.end);
+        const properties = buildExtendedProperties(session.sourceFeature, coordinates);
+
+        try {
+            const geometry = this.geometry.generate(coordinates, properties);
+            if (!geometry) {
+                showWarning('Não foi possível gerar a seta continuada');
+                this.toolManager.deactivateCurrentTool();
+                return;
+            }
+
+            const updatedFeature = {
+                ...session.sourceFeature,
+                properties,
+                geometry
+            };
+
+            // `updateFeature` directly, not `saveFeatureChanges`: that helper swallows its own
+            // errors, so a failure would reach the re-read below dressed as a refusal.
+            await updateFeature('arrows', updatedFeature);
+
+            const stored = await getFeatureById('arrows', session.featureId);
+            if (!storedSpineMatches(stored, coordinates)) {
+                // Refused (rank, lock, or a feature that is no longer there). Nothing was
+                // painted, so nothing has to be put back.
+                this.toolManager.deactivateCurrentTool();
+                await this.selectionManager.selectFeature('arrow', session.featureId, session.sourceFeature);
+                this.updateUIAfterEdit();
+                return;
+            }
+
+            await this.forceUpdateMainSource(stored);
+
+            this.toolManager.deactivateCurrentTool();
+
+            await this.selectionManager.selectFeature('arrow', session.featureId, stored);
+            this.updateUIAfterEdit();
+        } catch (error) {
+            console.error('Error continuing arrow:', error);
+            showWarning('Erro ao continuar a seta');
+            this.toolManager.deactivateCurrentTool();
+        }
+    }
+
     // ===== EDIT HANDLES SYSTEM =====
 
     selectFeature = (feature) => {
@@ -538,6 +741,7 @@ class AddArrowControl extends BaseControl {
     }
 
     deselectFeature = () => {
+        hideExtensionHandles(this.map);
         this.isDraggingHandle = false;
         this.activeHandle = null;
         this.activeHandleType = null;
@@ -568,9 +772,17 @@ class AddArrowControl extends BaseControl {
             type: 'FeatureCollection',
             features: handles
         });
+
+        // The continuation buttons ride with the vertex handles: every path that moves a vertex
+        // (drag, move, insert, remove, property change) ends here, and this is also what keeps
+        // them out of a locked map, where `selectFeature` never calls this method at all.
+        showExtensionHandles(this.map, feature, this);
     }
 
     clearEditHandles = () => {
+        // Mirror of createEditHandles: whoever tears down the vertex circles (deselection, but
+        // also the attribute table) tears down the continuation buttons with them.
+        hideExtensionHandles(this.map);
         this.map.getSource('arrow-edit-handles').setData({
             type: 'FeatureCollection',
             features: []
@@ -1184,6 +1396,12 @@ class AddArrowControl extends BaseControl {
         if (!this.isActive || this.drawPoints.length < 2) return;
 
         this.map.off('mousemove', this.handlePreviewMouseMove);
+
+        if (this._extending) {
+            await this.finishExtending();
+            return;
+        }
+
         await this.createFeature();
         this.toolManager.deactivateCurrentTool();
     }
@@ -1192,7 +1410,11 @@ class AddArrowControl extends BaseControl {
      * Undo last drawn point (touch device helper)
      */
     _undoLastPoint = () => {
-        if (!this.isActive || this.drawPoints.length === 0) return;
+        // While continuing, index 0 is the ANCHOR (the endpoint the user clicked the handle
+        // on), not a point they drew: undoing past it would detach the continuation from the
+        // arrow.
+        const floor = this._extending ? 1 : 0;
+        if (!this.isActive || this.drawPoints.length <= floor) return;
 
         this.drawPoints.pop();
 
@@ -1210,6 +1432,7 @@ class AddArrowControl extends BaseControl {
     }
 
     removeAllEventListeners = () => {
+        hideExtensionHandles(this.map);
         this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick);
         this.map.off('click', this.handleMapClick);
         this.map.off('mousemove', this.handlePreviewMouseMove);

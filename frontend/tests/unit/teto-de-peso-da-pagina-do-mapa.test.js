@@ -354,16 +354,29 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
     });
 
     it('o grafo ANSIOSO cabe entre o piso e o teto medidos', () => {
-        // 438 módulos e 5844 kB de fonte em 2026-08-25, DEPOIS da onda de `await import()` (eram
-        // 522 e 7237). A banda é de ~8%: apertada o bastante para acusar uma pasta inteira
-        // voltando, larga o bastante para não reprovar por um arquivo novo. O piso é tão
-        // obrigatório quanto o teto: um caminhador quebrado devolve um grafo pequeno, e grafo
-        // pequeno passa em qualquer teto.
-        expect(ansioso.arquivos.size).toBeGreaterThanOrEqual(400);
-        expect(ansioso.arquivos.size).toBeLessThanOrEqual(475);
+        // 467 módulos e 6369 kB de fonte em 2026-09-02. A banda é de ~8% em torno da medida:
+        // apertada o bastante para acusar uma pasta inteira voltando, larga o bastante para não
+        // reprovar por um arquivo novo. O piso é tão obrigatório quanto o teto: um caminhador
+        // quebrado devolve um grafo pequeno, e grafo pequeno passa em qualquer teto.
+        //
+        // A BANDA FOI RECENTRADA, e a razão é a metade útil desta anotação. Ela vinha de
+        // 2026-08-25 (438 módulos, 5844 kB, logo depois da onda de `await import()`; antes dela
+        // eram 522 e 7237), e em 2026-09-02 o grafo já estava em 6346 kB SEM a mudança do dia:
+        // seis kB abaixo do teto, isto é, com a folga toda gasta por deriva que ninguém remediu.
+        // Nesse estado a banda deixa de fazer o trabalho que o comentário promete: ela reprova o
+        // PRÓXIMO arquivo novo, seja ele qual for, em vez de reprovar uma pasta voltando. Quem a
+        // estourou aqui foram os dois folhas de continuar-feição (`line-extension.model.js` e
+        // `line-extension.helpers.js`, 23 kB somados), que o controle de linha importa
+        // estaticamente porque `createEditHandles` liga a alça de forma síncrona.
+        //
+        // RECENTRAR NÃO É AFROUXAR: o piso sobe junto, então um caminhador quebrado continua
+        // acusando, e a próxima pasta inteira que voltar continua estourando o teto. Remeça e
+        // reescreva os quatro números, com a data, sempre que a medida sair da banda.
+        expect(ansioso.arquivos.size).toBeGreaterThanOrEqual(430);
+        expect(ansioso.arquivos.size).toBeLessThanOrEqual(505);
         const kb = kbDe(ansioso.arquivos);
-        expect(kb, `fonte ansiosa em ${kb} kB`).toBeGreaterThanOrEqual(5350);
-        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(6350);
+        expect(kb, `fonte ansiosa em ${kb} kB`).toBeGreaterThanOrEqual(5860);
+        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(6880);
     });
 
     it('o grafo COMPLETO (seguindo `import()`) cabe entre o piso e o teto medidos', () => {

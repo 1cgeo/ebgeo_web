@@ -272,6 +272,81 @@ export const currentMapKeyIsUuid = (page) =>
     });
 
 /**
+ * Projeta UM lng/lat para pixel de viewport, NO INSTANTE DO CLIQUE, e clica lá.
+ *
+ * EXTRAÍDO de dentro de `drawViaToolUI` em 2026-09-02, sem uma linha de mudança de
+ * comportamento: quem continua uma feição pela alça de ponta precisa exatamente deste gesto
+ * (clicar num lng/lat do mapa) sem passar pela barra de ferramentas, porque a ferramenta já foi
+ * aberta pela alça. Copiar o corpo para o spec novo era a alternativa, e ela perde as três
+ * lições que este helper carrega e que ninguém reinventa numa cópia.
+ *
+ * PROJETAR A CADA CLIQUE, e não todos os pontos antes do primeiro: projetar de uma vez é uma
+ * foto que envelhece durante o desenho. O que a invalida é o próprio produto: ao terminar uma
+ * feição, `createFeature` chama `toggleFeatureSelection` + `updateUI()`, que ABRE o painel de
+ * atributos e REDIMENSIONA o canvas do mapa. Num spec que desenha duas feições seguidas, a
+ * segunda projetaria seus pixels enquanto o painel da primeira ainda anima, e os cliques cairiam
+ * em lng/lat que não são os pedidos, às vezes fora da tela, às vezes perto demais um do outro,
+ * e aí `isPointTooClose` descarta o vértice final e a feição de um ponto só é jogada fora SEM
+ * erro nenhum.
+ *
+ * ESPERAR O PONTO FICAR ALCANÇÁVEL antes de clicar. MEDIDO: `drawPoints: 1, isActive: true` com
+ * `[-43.18,-22.89] <- div.toolbar-popup-grid`, isto é, o clique de finalizar caiu na PALETA de
+ * ferramentas. A paleta fecha por `visibility: hidden`, que não recebe clique, mas a regra tem
+ * `transition: ... visibility 200ms`: durante a transição ela ainda é alvo. A espera é pela
+ * CONDIÇÃO (o ponto pertence ao canvas), não pelo modelo de quem o cobre.
+ *
+ * ANOTA, NÃO REPROVA. A cobertura é PISTA forte para um desenho que não acontece, e não é prova
+ * de que o clique se perdeu: transformá-la em erro reprovou de imediato um caso que estava verde
+ * (`browser-collab-maps-layers`, cujo primeiro vértice cai sob `.features-tab-content` e ainda
+ * assim desenha). Por isso o veredito volta no retorno, para o chamador compor o diagnóstico.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {[number, number]} lngLat
+ * @param {{button?: 'left'|'right'}} [opcoes]
+ * @returns {Promise<{x: number, y: number, coberto: boolean, porQuem: string|null}>}
+ */
+export async function clicarNoMapaUI(page, lngLat, { button = 'left' } = {}) {
+    await page.waitForFunction((ll) => {
+        const map = globalThis.__ebgeoMap;
+        const canvas = map.getCanvas();
+        const rect = canvas.getBoundingClientRect();
+        const pt = map.project(ll);
+        const topo = document.elementFromPoint(
+            Math.round(rect.left + pt.x),
+            Math.round(rect.top + pt.y),
+        );
+        return !!topo && (topo === canvas || canvas.contains(topo));
+    }, lngLat, { timeout: 5000 }).catch(() => { /* anotado no retorno */ });
+
+    const p = await page.evaluate(([lo, la]) => {
+        const map = globalThis.__ebgeoMap;
+        const canvas = map.getCanvas();
+        const rect = canvas.getBoundingClientRect();
+        const pt = map.project([lo, la]);
+        const x = Math.round(rect.left + pt.x);
+        const y = Math.round(rect.top + pt.y);
+        // QUEM ESTÁ POR CIMA DESTE PIXEL? O clique vai para o elemento do TOPO, e os handlers de
+        // desenho estão no CANVAS: o de finalizar (`contextmenu`) é registrado nele diretamente.
+        // Terminar uma feição abre o painel de atributos, que cobre parte do mapa, então num
+        // spec que desenha várias feições seguidas um vértice pode cair SOB o painel. Aí o
+        // evento é do painel, o canvas nunca o vê, e o desenho fica pendurado: tool ativo,
+        // vértices de menos, nenhuma feição e nenhum erro. Nomear o elemento que interceptou
+        // transforma esse silêncio em diagnóstico.
+        const topo = document.elementFromPoint(x, y);
+        const coberto = topo && topo !== canvas && !canvas.contains(topo);
+        return {
+            x,
+            y,
+            coberto: !!coberto,
+            porQuem: coberto ? `${topo.tagName.toLowerCase()}.${String(topo.className || '').slice(0, 60)}` : null,
+        };
+    }, [lngLat[0], lngLat[1]]);
+
+    await page.mouse.click(p.x, p.y, button === 'right' ? { button: 'right' } : undefined);
+    return p;
+}
+
+/**
  * @private Shared draw driver, exactly like a user: fit the map to the coords, activate the tool
  * from the draw toolbar, click the canvas at each vertex (multi-vertex tools finish on a
  * right-click of the last point), and return the freshly-created feature's id (the tool generates
@@ -440,95 +515,23 @@ async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
         sm.collapseSidebar?.();
     });
 
-    /**
-     * Projeta UM lng/lat para pixel de viewport, NO INSTANTE DO CLIQUE.
-     *
-     * Projetar todos os pontos de uma vez, antes do primeiro clique, era uma foto que envelhecia
-     * durante o desenho. O que a invalida é o próprio produto: ao terminar uma feição,
-     * `createFeature` chama `selectionManager.toggleFeatureSelection` + `updateUI()`, que ABRE o
-     * painel de atributos e REDIMENSIONA o canvas do mapa. Num spec que desenha duas linhas
-     * seguidas (o caso §14.9), a segunda projeta seus pixels enquanto o painel da primeira ainda
-     * está animando, e os cliques caem em lng/lat que não são os pedidos — às vezes fora da tela,
-     * às vezes perto demais um do outro, e aí `isPointTooClose` descarta o vértice final e a linha
-     * de um ponto só é jogada fora SEM erro nenhum. O sintoma é sempre o mesmo timeout mudo de 20 s
-     * apontando para o tool, que está certo.
-     *
-     * Reprojetar por clique custa um round-trip por vértice e remove a premissa inteira.
-     * @param {[number, number]} lngLat
-     * @returns {Promise<{x: number, y: number}>}
-     */
-    const projetar = ([lng, lat]) => page.evaluate(([lo, la]) => {
-        const map = globalThis.__ebgeoMap;
-        const canvas = map.getCanvas();
-        const rect = canvas.getBoundingClientRect();
-        const p = map.project([lo, la]);
-        const x = Math.round(rect.left + p.x);
-        const y = Math.round(rect.top + p.y);
-        // QUEM ESTÁ POR CIMA DESTE PIXEL? O clique vai para o elemento do TOPO, e os handlers de
-        // desenho estão no CANVAS: o de finalizar (`contextmenu`) é registrado nele diretamente.
-        // Terminar uma feição abre o painel de atributos (`toggleFeatureSelection` + `updateUI`),
-        // que cobre parte do mapa, então num spec que desenha várias feições seguidas um vértice
-        // pode cair SOB o painel. Aí o evento é do painel, o canvas nunca o vê, e o desenho fica
-        // pendurado: tool ativo, vértices de menos, nenhuma feição e nenhum erro. Nomear o
-        // elemento que interceptou transforma esse silêncio em diagnóstico.
-        const topo = document.elementFromPoint(x, y);
-        const coberto = topo && topo !== canvas && !canvas.contains(topo);
-        return {
-            x,
-            y,
-            coberto: !!coberto,
-            porQuem: coberto ? `${topo.tagName.toLowerCase()}.${String(topo.className || '').slice(0, 60)}` : null,
-        };
-    }, [lng, lat]);
-
-
     /** Pontos de clique que tinham outro elemento por cima, para o diagnóstico da falha. */
     const cobertos = [];
 
     /**
      * Clica num lng/lat, anotando se havia outro elemento por cima do ponto.
+     *
+     * O gesto inteiro (esperar o ponto ficar alcançável, projetar no instante do clique, clicar)
+     * mora em `clicarNoMapaUI`, no topo deste arquivo, com os motivos medidos de cada metade. O
+     * que sobra aqui é só a ANOTAÇÃO: a cobertura entra no diagnóstico da falha lá embaixo, onde
+     * responde a pergunta certa ("o clique chegou ao canvas?") sem inventar um veredito.
      * @param {[number, number]} lngLat
      * @param {{button?: 'left'|'right'}} [opcoes]
      * @returns {Promise<void>}
      */
-    const clicarNoMapa = async (lngLat, { button = 'left' } = {}) => {
-        // ESPERE O PONTO FICAR ALCANÇÁVEL ANTES DE CLICAR.
-        //
-        // MEDIDO, não suposto: o diagnóstico de uma falha real trouxe
-        // `drawPoints: 1, isActive: true` com `[-43.18,-22.89] <- div.toolbar-popup-grid`, isto é, o
-        // clique de finalizar caiu na PALETA DE FERRAMENTAS que este mesmo helper abre para escolher
-        // o tool. A paleta fecha por `visibility: hidden`, que não recebe clique, mas a regra tem
-        // `transition: ... visibility 200ms`: durante a transição ela ainda é alvo. Clicar dentro
-        // dessa janela entrega o evento à paleta, o canvas nunca vê, e o desenho fica pendurado sem
-        // erro nenhum.
-        //
-        // A espera é pela CONDIÇÃO de que se precisa (o ponto pertence ao canvas), não pelo modelo
-        // de quem o cobre: serve para a paleta, para o painel de atributos e para o próximo overlay
-        // que alguém acrescentar. Se não liberar, clica assim mesmo e ANOTA, porque um clique a
-        // menos com diagnóstico é melhor que uma espera que reprova sozinha (a versão anterior disto
-        // era um `throw` e reprovou de imediato um caso que estava verde).
-        await page.waitForFunction((ll) => {
-            const map = globalThis.__ebgeoMap;
-            const canvas = map.getCanvas();
-            const rect = canvas.getBoundingClientRect();
-            const pt = map.project(ll);
-            const topo = document.elementFromPoint(
-                Math.round(rect.left + pt.x),
-                Math.round(rect.top + pt.y),
-            );
-            return !!topo && (topo === canvas || canvas.contains(topo));
-        }, lngLat, { timeout: 5000 }).catch(() => { /* anotado abaixo */ });
-
-        const p = await projetar(lngLat);
-        // ANOTA, NÃO REPROVA. A cobertura é uma PISTA forte para um desenho que não acontece, e foi
-        // ela que explicou o polígono pendurado; mas ela não é prova de que o clique se perdeu, e
-        // transformá-la em erro reprovou de imediato um caso que estava verde
-        // (`browser-collab-maps-layers`, cujo primeiro vértice cai sob `.features-tab-content` e
-        // ainda assim desenha). Guarda que reprova comportamento correto é pior que guarda nenhum:
-        // vira ruído e alguém o desliga. Então isto entra no diagnóstico da falha lá embaixo, onde
-        // responde a pergunta certa ("o clique chegou ao canvas?") sem inventar um veredito.
+    const clicarNoMapa = async (lngLat, opcoes) => {
+        const p = await clicarNoMapaUI(page, lngLat, opcoes);
         if (p.coberto) cobertos.push(`[${lngLat}] <- ${p.porQuem}`);
-        await page.mouse.click(p.x, p.y, button === 'right' ? { button: 'right' } : undefined);
     };
 
     if (!multi) {
