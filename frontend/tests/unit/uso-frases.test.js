@@ -42,7 +42,10 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+    CELULA_ABERTA,
+    COLUNAS_DE_RETENCAO,
     ESTADO,
+    FONTE_DO_PISO_DO_FUNIL,
     HORIZONTE,
     JANELAS,
     JANELA_PADRAO,
@@ -50,6 +53,7 @@ import {
     MAX_DIAS_DA_SERIE,
     METRICAS_DE_ATLAS,
     METRICAS_DE_PESSOAS,
+    PASSOS_DO_FUNIL,
     PISO_DA_BARRA_PCT,
     REGIME,
     atlasNomeLabel,
@@ -62,8 +66,20 @@ import {
     diasEntre,
     donoLabel,
     entidadeLabel,
+    estadoDaFonte,
     estadoDaTela,
     estadoDoHorizonte,
+    funilEscopoHint,
+    funilHint,
+    funilInformado,
+    funilNaoInformadoNotice,
+    funilPassos,
+    funilPisoNotice,
+    funilSubtitulo,
+    funilTemPiso,
+    funilTitulo,
+    funilVazioHint,
+    funilVazioNotice,
     geometriaDaSerie,
     horizonteCompromete,
     instalacaoSemUso,
@@ -72,7 +88,9 @@ import {
     janelaValida,
     larguraDaBarra,
     lerMetricas,
+    linhasDeRetencao,
     mediaLabel,
+    medianaLabel,
     metricaDetalhe,
     normalizarJanela,
     numeroLabel,
@@ -87,7 +105,17 @@ import {
     regimeLabel,
     resumoDaSerie,
     resumoDaSerieLabel,
+    retencaoColunaCoorte,
+    retencaoColunaTamanho,
+    retencaoHint,
+    retencaoInformada,
+    retencaoNaoInformadaNotice,
+    retencaoSubtitulo,
+    retencaoTitulo,
+    retencaoVaziaHint,
+    retencaoVaziaNotice,
     rotuloCurtoDeDia,
+    rotuloDeCoorte,
     rotuloDeJanela,
     rotuloLongoDeDia,
     tituloDeBarra,
@@ -292,7 +320,12 @@ describe('o horizonte — até onde o dado alcança', () => {
         // dedução erra: `operations` limita TAMBÉM "Produziram" e "Com edição", e a "trilha de
         // auditoria" NÃO limita as contas novas nem os atlas criados, embora o nome sugira.
         expect(avisos[0].texto).toContain('gráfico diário, quebra por tipo e atlas mais ativos');
-        expect(avisos[0].texto).toContain('"Produziram" e "Com edição"');
+        // Os nomes entram um a um, e não como uma frase inteira: a lista cresceu quando o funil
+        // de entrada nasceu, e uma asserção sobre o texto costurado reprovaria por causa da
+        // vírgula, sem dizer nada sobre a propriedade que interessa.
+        expect(avisos[0].texto).toContain('"Produziram"');
+        expect(avisos[0].texto).toContain('"Com edição"');
+        expect(avisos[0].texto).toContain('funil de entrada');
         // E ela NÃO AFIRMA CAUSA: uma instalação de dez dias e uma podada ontem produzem o mesmo
         // horizonte, e este módulo não tem como distingui-las.
         expect(avisos[0].texto).not.toMatch(/\bpodad/i);
@@ -816,5 +849,339 @@ describe('os atlas mais ativos', () => {
         ]);
         // Limite inválido cai no padrão em vez de cortar tudo.
         expect(ordenarTopAtlas([{ nome: 'A' }, { nome: 'B' }], 0)).toHaveLength(2);
+    });
+});
+
+// ===== o funil de entrada e a coorte de retenção =====
+//
+// AS DUAS SEÇÕES DE COORTE, e o que elas acrescentam de errável ao resto do arquivo é UMA coisa:
+// elas leem o período de outro jeito. Nas outras seções a janela recorta o FATO medido; aqui ela
+// recorta a COORTE, e a contagem segue até hoje. Isso não é testável a partir das frases (quem
+// decide é o SQL), e por isso o que se prende aqui é a metade que É deste lado: que a tela DIGA
+// isso, que a conversão nomeie o denominador, que a mediana ausente não vire zero e que a célula
+// não fechada não vire zero.
+//
+// OS CONTROLES NEGATIVOS DESTA PARTE, isto é, o que ficaria vermelho se o código voltasse ao
+// óbvio. Os quatro foram RODADOS (reverter, ver o vermelho, restaurar):
+//
+//   1. **A conversão como percentual nu.** Trocar `conversaoLabel` por `percentualLabel` cru
+//      deixa "40%" sozinho ao lado de um passo, e num funil isso é ambíguo entre "40% de quem se
+//      cadastrou" e "40% de quem criou o primeiro atlas". Os dois números existem, são
+//      diferentes, e nada na tela diria qual está sendo mostrado.
+//   2. **O piso do funil como `estado === ENCURTADO`.** É o que se escreve sem pensar, e ele
+//      falha ABERTO exatamente nos dois casos sem evidência: servidor que não informou o alcance
+//      e registro de produção vazio passariam a apresentar o terceiro passo como se estivesse
+//      inteiro. `funilTemPiso` compara com `COBRE`, que é o único desfecho que autoriza silêncio.
+//   3. **A mediana ausente perdendo a guarda.** Tirar o `numeroContavel` de `medianaLabel` NÃO
+//      escreve "mediana de 0 h", como esta linha dizia: `mediaLabel(null)` devolve travessão, e o
+//      que sai é a frase agramatical "mediana de — h" numa linha que não deveria existir. O
+//      defeito é o mesmo (a seção afirma uma medida sobre um passo a que ninguém chegou), e o
+//      sintoma é outro; escrever o sintoma errado manda quem for depurar procurar um zero que
+//      nunca aparece. Foi RODADO, e é assim que a frase foi corrigida.
+//   4. **A célula não fechada virando "0 de 3".** Colapsar `null` e número na tabela de retenção
+//      faz uma semana que ainda está correndo se ler como abandono, que é a afirmação oposta à
+//      verdadeira. E o terceiro estado (a posição que o servidor não mandou) não pode virar
+//      "ainda não", que inventaria o motivo do vazio.
+
+describe('o funil de entrada', () => {
+    const funilDe = (o = {}) => ({
+        cadastraram: 0, criaramAtlas: 0, produziram: 0,
+        horasAteAtlas: null, horasAteProducao: null, ...o,
+    });
+
+    it('os três passos são de PERÍODO, e o último é o único que depende da produção', () => {
+        // A marca é do PASSO e não da posição: um passo novo entre os dois primeiros herdaria a
+        // ressalva errada se ela fosse "o último da lista".
+        expect(PASSOS_DO_FUNIL.map((p) => p.chave))
+            .toEqual(['cadastraram', 'criaramAtlas', 'produziram']);
+        for (const passo of PASSOS_DO_FUNIL) {
+            expect(passo.regime).toBe(REGIME.PERIODO);
+        }
+        expect(PASSOS_DO_FUNIL.filter((p) => p.dependeDaProducao).map((p) => p.chave))
+            .toEqual(['produziram']);
+        // O primeiro passo não tem mediana: a distância entre o cadastro e ele é zero por
+        // definição, e escrevê-la seria inventar uma medida.
+        expect(PASSOS_DO_FUNIL[0].mediana).toBeNull();
+        expect(PASSOS_DO_FUNIL[1].mediana).toBe('horasAteAtlas');
+        expect(PASSOS_DO_FUNIL[2].mediana).toBe('horasAteProducao');
+    });
+
+    it('a conversão NOMEIA o denominador, e é a do passo anterior', () => {
+        const passos = funilPassos(funilDe({ cadastraram: 10, criaramAtlas: 5, produziram: 2 }));
+        expect(passos[0].conversao).toBeNull();
+        expect(passos[1].conversao).toBe('50,0% de quem criou conta');
+        // 2 de 5 (o passo ANTERIOR), e não 2 de 10: sem o nome do denominador na frase, os dois
+        // números seriam indistinguíveis na tela.
+        expect(passos[2].conversao).toBe('40,0% de quem criou o primeiro atlas');
+    });
+
+    it('a barra é fração do TOPO, e é ela que faz o funil parecer um funil', () => {
+        const passos = funilPassos(funilDe({ cadastraram: 10, criaramAtlas: 5, produziram: 2 }));
+        expect(passos.map((p) => p.largura)).toEqual([100, 50, 20]);
+    });
+
+    it('produção ínfima ainda desenha barra: o piso separa existir de não existir', () => {
+        const passos = funilPassos(funilDe({ cadastraram: 10000, criaramAtlas: 1, produziram: 0 }));
+        expect(passos[1].largura).toBe(PISO_DA_BARRA_PCT);
+        // Zero é zero: nada aconteceu, e a barra não pode afirmar o contrário.
+        expect(passos[2].largura).toBe(0);
+    });
+
+    it('topo zerado não vira 0%: sem denominador não há fração', () => {
+        const passos = funilPassos(funilDe());
+        expect(passos[1].conversao).toBeNull();
+        expect(passos[1].largura).toBe(0);
+        expect(passos.map((p) => p.texto)).toEqual(['0', '0', '0']);
+    });
+
+    it('a mediana ausente NÃO vira zero: ninguém chegou ao passo', () => {
+        const passos = funilPassos(funilDe({ cadastraram: 3, criaramAtlas: 1 }));
+        expect(passos[1].mediana).toBeNull();
+        expect(passos[2].mediana).toBeNull();
+        expect(medianaLabel(null)).toBeNull();
+        expect(medianaLabel(undefined)).toBeNull();
+        // Medida negativa é defeito do outro lado, e desenhá-la seria repassá-lo como medida.
+        expect(medianaLabel(-3)).toBeNull();
+        expect(medianaLabel('duas horas')).toBeNull();
+    });
+
+    it('ZERO hora é medida e aparece: quem criou o atlas no mesmo instante existe', () => {
+        expect(medianaLabel(0)).toBe('mediana de 0 h');
+    });
+
+    it('a mediana é arredondada AQUI, num lugar só, e em pt-BR', () => {
+        // O servidor manda a medida crua; quem arredonda é a frase. Duas casas de arredondamento
+        // são dois vereditos sobre a mesma medida.
+        expect(medianaLabel(6.0166666666666666)).toBe('mediana de 6 h');
+        expect(medianaLabel(2.55)).toBe('mediana de 2,6 h');
+        expect(medianaLabel(1)).toBe('mediana de 1 h');
+        // A unidade não flexiona, e é por isso que ela é 'h' e não 'horas': nenhum ramo de plural
+        // para alguém manter.
+        expect(medianaLabel(2)).toBe('mediana de 2 h');
+    });
+
+    it('o piso marca SÓ o passo que depende da produção', () => {
+        const comPiso = funilPassos(
+            funilDe({ cadastraram: 3, criaramAtlas: 2, produziram: 1 }), { piso: true }
+        );
+        expect(comPiso.map((p) => p.piso)).toEqual([false, false, true]);
+        const semPiso = funilPassos(funilDe({ cadastraram: 3, criaramAtlas: 2, produziram: 1 }));
+        expect(semPiso.map((p) => p.piso)).toEqual([false, false, false]);
+    });
+
+    it('o piso é derivado do horizonte e falha FECHADO nos três estados sem cobertura', () => {
+        // O erro que se escreve sem pensar é `estado === ENCURTADO`, e ele deixa passar como
+        // íntegro justamente o vazio e o desconhecido, que são os dois casos SEM evidência.
+        expect(funilTemPiso(HORIZONTE.COBRE)).toBe(false);
+        expect(funilTemPiso(HORIZONTE.ENCURTADO)).toBe(true);
+        expect(funilTemPiso(HORIZONTE.VAZIO)).toBe(true);
+        expect(funilTemPiso(HORIZONTE.DESCONHECIDO)).toBe(true);
+    });
+
+    it('a ressalva do piso tem frase própria por estado, e nenhuma no estado que cobre', () => {
+        expect(funilPisoNotice(HORIZONTE.COBRE)).toBe('');
+        const encurtado = funilPisoNotice(HORIZONTE.ENCURTADO);
+        const vazio = funilPisoNotice(HORIZONTE.VAZIO);
+        const desconhecido = funilPisoNotice(HORIZONTE.DESCONHECIDO);
+        for (const texto of [encurtado, vazio, desconhecido]) {
+            expect(texto.length).toBeGreaterThan(0);
+            // Cada frase nomeia que os DOIS primeiros passos continuam valendo: uma ressalva que
+            // não localiza o estrago ensina a desconfiar do funil inteiro.
+            expect(texto).toMatch(/dois primeiros|último passo/);
+        }
+        expect(new Set([encurtado, vazio, desconhecido]).size).toBe(3);
+        // Nenhuma delas AFIRMA causa: instalação jovem e histórico podado são indistinguíveis.
+        expect(encurtado).not.toMatch(/podad/i);
+    });
+
+    it('o estado do funil sai da MESMA leitura do horizonte que os avisos do topo', () => {
+        // Duas leituras da mesma chave divergem no dia em que alguém corrigir uma delas, e a tela
+        // passaria a avisar que a produção está curta e, três seções abaixo, a mostrar o terceiro
+        // passo como se estivesse inteiro.
+        const desde = Date.UTC(2026, 7, 1);
+        expect(FONTE_DO_PISO_DO_FUNIL).toBe('operacoesDesde');
+        expect(estadoDaFonte({
+            desde, horizonte: { operacoesDesde: Date.UTC(2026, 6, 1) }, chave: FONTE_DO_PISO_DO_FUNIL,
+        })).toBe(HORIZONTE.COBRE);
+        expect(estadoDaFonte({
+            desde, horizonte: { operacoesDesde: Date.UTC(2026, 7, 10) }, chave: FONTE_DO_PISO_DO_FUNIL,
+        })).toBe(HORIZONTE.ENCURTADO);
+        // `null` e ausente NÃO são o mesmo estado, e é a distinção inteira deste arquivo.
+        expect(estadoDaFonte({
+            desde, horizonte: { operacoesDesde: null }, chave: FONTE_DO_PISO_DO_FUNIL,
+        })).toBe(HORIZONTE.VAZIO);
+        expect(estadoDaFonte({ desde, horizonte: {}, chave: FONTE_DO_PISO_DO_FUNIL }))
+            .toBe(HORIZONTE.DESCONHECIDO);
+        expect(estadoDaFonte({ desde, chave: FONTE_DO_PISO_DO_FUNIL }))
+            .toBe(HORIZONTE.DESCONHECIDO);
+    });
+
+    it('o aviso do topo NOMEIA o terceiro passo entre o que a produção limita', () => {
+        // Sem isso a pessoa lê "a produção está curta" e não tem como saber que o funil abaixo
+        // também está: um aviso que não localiza o estrago é o mesmo que nenhum.
+        const [aviso] = avisosDeHorizonte({
+            desde: Date.UTC(2026, 7, 1),
+            horizonte: { operacoesDesde: Date.UTC(2026, 7, 10), trilhaDesde: Date.UTC(2020, 0, 1) },
+            janela: '30d',
+            agora: Date.UTC(2026, 7, 31),
+            ...UTC,
+        });
+        expect(aviso.chave).toBe('operacoesDesde');
+        expect(aviso.texto).toMatch(/funil/);
+    });
+
+    it('payload malformado não quebra o funil, e desenha três zeros', () => {
+        for (const lixo of [null, undefined, [], 'x', 42]) {
+            const passos = funilPassos(lixo);
+            expect(passos).toHaveLength(3);
+            expect(passos.map((p) => p.total)).toEqual([0, 0, 0]);
+        }
+    });
+
+    it('bloco AUSENTE não é conta zero, e as duas frases são diferentes', () => {
+        // O caso inteiro: um servidor de versão anterior não manda `funil`, os três passos leem
+        // zero, e a leitura ingênua desenha "Nenhuma conta foi criada no período" ao lado do
+        // ladrilho "Contas novas" dizendo outra coisa na MESMA tela. Duas afirmações opostas
+        // custam mais que uma seção que não aparece.
+        expect(funilInformado({ cadastraram: 0, criaramAtlas: 0, produziram: 0 })).toBe(true);
+        expect(funilInformado(undefined)).toBe(false);
+        expect(funilInformado(null)).toBe(false);
+        // Array e escalar não são o bloco: é a mesma régua de `dadosDoPayload`.
+        expect(funilInformado([])).toBe(false);
+        expect(funilInformado(3)).toBe(false);
+        // As duas frases não podem ser a mesma, e nenhuma delas pode afirmar o que a outra diz.
+        expect(funilNaoInformadoNotice()).not.toBe(funilVazioNotice('30d'));
+        expect(funilNaoInformadoNotice()).toMatch(/servidor/);
+        expect(funilNaoInformadoNotice()).toMatch(/não quer dizer/);
+        expect(funilVazioNotice('30d')).not.toMatch(/servidor/);
+    });
+
+    it('as frases da seção dizem o que a tela pode ser lida ao contrário', () => {
+        // O período escolhe a coorte, e NÃO fecha a contagem: sem isso a coorte mais recente
+        // pareceria a que menos converte só por ter tido menos tempo.
+        expect(funilHint()).toMatch(/coorte/);
+        expect(funilHint()).toMatch(/até hoje/);
+        // E o funil não conta quem só edita atlas alheio: sem dizê-lo, o número pareceria baixo
+        // sem explicação numa instalação em que trabalhar no atlas de outra pessoa é o normal.
+        expect(funilEscopoHint()).toMatch(/alheio|de outra pessoa/);
+        expect(funilTitulo()).toBe('Funil de entrada');
+        expect(funilSubtitulo('30d')).toMatch(/nos últimos 30 dias/);
+        expect(funilVazioNotice('7d')).toMatch(/nos últimos 7 dias/);
+        expect(funilVazioHint().length).toBeGreaterThan(0);
+    });
+});
+
+describe('a coorte de retenção', () => {
+    const linhaDe = (o = {}) => ({ semana: '2003-06-02', cadastrados: 3, retidos: [2, 0, 1, null], ...o });
+
+    it('as quatro colunas casam com o array `retidos` POR POSIÇÃO', () => {
+        // Uma coluna a mais leria `undefined`; uma a menos esconderia uma semana que o servidor
+        // mandou. O número é contrato com `SEMANAS_DE_RETENCAO`, do servidor.
+        expect(COLUNAS_DE_RETENCAO.map((c) => c.semana)).toEqual([1, 2, 3, 4]);
+        expect(COLUNAS_DE_RETENCAO.map((c) => c.rotulo)).toEqual(['S+1', 'S+2', 'S+3', 'S+4']);
+        for (const coluna of COLUNAS_DE_RETENCAO) {
+            expect(coluna.detalhe.length).toBeGreaterThan(0);
+        }
+    });
+
+    it('a célula medida diz "n de m" e a fatia, e o título diz "pelo menos"', () => {
+        const [linha] = linhasDeRetencao([linhaDe()]);
+        expect(linha.cadastrados).toBe(3);
+        expect(linha.cadastradosTexto).toBe('3');
+        expect(linha.celulas[0].texto).toBe('2 de 3');
+        expect(linha.celulas[0].percentual).toBe('66,7%');
+        expect(linha.celulas[0].aberta).toBe(false);
+        // "pelo menos" porque o LOGIN é best-effort: uma falha de escrita da trilha some da conta.
+        expect(linha.celulas[0].titulo).toMatch(/^Pelo menos 2 de 3:/);
+    });
+
+    it('a célula não fechada é "ainda não", e NUNCA "0 de 3"', () => {
+        // O caso inteiro: a semana ainda corre, o número ainda vai crescer, e um zero ali se lê
+        // como abandono, que é a afirmação oposta à verdadeira.
+        const [linha] = linhasDeRetencao([linhaDe()]);
+        const aberta = linha.celulas[3];
+        expect(aberta.texto).toBe(CELULA_ABERTA);
+        expect(aberta.texto).toBe('ainda não');
+        expect(aberta.aberta).toBe(true);
+        expect(aberta.percentual).toBeNull();
+        expect(aberta.titulo).toMatch(/ainda não passou|ainda vai crescer/);
+        // E o par que fecha a discriminação: a semana FECHADA sem retorno é ZERO, e é medida.
+        expect(linha.celulas[1].texto).toBe('0 de 3');
+        expect(linha.celulas[1].aberta).toBe(false);
+        expect(linha.celulas[1].percentual).toBe('0%');
+    });
+
+    it('a posição que o servidor NÃO mandou é um terceiro estado, e não "ainda não"', () => {
+        // `null` é o contrato dizendo "esta semana ainda não terminou"; ausente é um servidor que
+        // não respondeu. Colapsá-los inventaria o motivo do vazio.
+        const [linha] = linhasDeRetencao([linhaDe({ retidos: [1] })]);
+        expect(linha.celulas[0].texto).toBe('1 de 3');
+        for (const i of [1, 2, 3]) {
+            expect(linha.celulas[i].desconhecida).toBe(true);
+            expect(linha.celulas[i].aberta).toBe(false);
+            expect(linha.celulas[i].texto).toBe('—');
+        }
+    });
+
+    it('a coorte é nomeada pela segunda-feira, montada à mão e sem deslizar de fuso', () => {
+        const [linha] = linhasDeRetencao([linhaDe()]);
+        expect(linha.rotulo).toBe('Semana de 02/06/2003');
+        expect(rotuloDeCoorte('2026-01-05')).toBe('Semana de 05/01/2026');
+        // Passar a string por uma `Date` faria a semana recuar um dia a oeste de Greenwich, e a
+        // coorte passaria a ser nomeada pelo domingo anterior.
+        expect(rotuloDeCoorte('lixo')).toBe('');
+        expect(rotuloDeCoorte(null)).toBe('');
+    });
+
+    it('as linhas saem da mais antiga para a mais nova, que é a que tem menos células fechadas', () => {
+        const linhas = linhasDeRetencao([
+            linhaDe({ semana: '2003-06-16', retidos: [0, null, null, null] }),
+            linhaDe({ semana: '2003-06-02' }),
+            linhaDe({ semana: '2003-06-09', retidos: [1, 1, null, null] }),
+        ]);
+        expect(linhas.map((l) => l.semana)).toEqual(['2003-06-02', '2003-06-09', '2003-06-16']);
+    });
+
+    it('semana que não se resolve sai da lista, e lixo devolve vazio', () => {
+        // Uma coorte que a tela não consegue nomear não tem como ser comparada com as outras.
+        expect(linhasDeRetencao([linhaDe({ semana: '2003-02-30' })])).toEqual([]);
+        expect(linhasDeRetencao([linhaDe({ semana: 'ontem' }), null, 7])).toEqual([]);
+        expect(linhasDeRetencao(null)).toEqual([]);
+        expect(linhasDeRetencao([])).toEqual([]);
+    });
+
+    it('coorte de UMA conta não quebra a fração, e 1 de 1 é 100%', () => {
+        const [linha] = linhasDeRetencao([linhaDe({ cadastrados: 1, retidos: [1, 0, null, null] })]);
+        expect(linha.celulas[0].texto).toBe('1 de 1');
+        expect(linha.celulas[0].percentual).toBe('100,0%');
+        expect(linha.celulas[1].percentual).toBe('0%');
+    });
+
+    it('bloco AUSENTE não é coorte vazia, e o piso de reconhecimento é a LISTA', () => {
+        // Um `retencao` sem `semanas` não é uma coorte vazia, é uma resposta que esta tela não
+        // sabe ler; e a lista VAZIA é o fato honesto de que ninguém criou conta no período.
+        expect(retencaoInformada({ semanas: [] })).toBe(true);
+        expect(retencaoInformada({ semanas: [linhaDe()] })).toBe(true);
+        expect(retencaoInformada({})).toBe(false);
+        expect(retencaoInformada(undefined)).toBe(false);
+        expect(retencaoInformada(null)).toBe(false);
+        expect(retencaoInformada({ semanas: 'nenhuma' })).toBe(false);
+        expect(retencaoNaoInformadaNotice()).not.toBe(retencaoVaziaNotice('30d'));
+        expect(retencaoNaoInformadaNotice()).toMatch(/servidor/);
+        expect(retencaoVaziaNotice('30d')).not.toMatch(/servidor/);
+    });
+
+    it('a ressalva diz o piso E a âncora, porque são duas coisas diferentes', () => {
+        // O piso NÃO vem de poda (a trilha não é podada): vem do LOGIN best-effort. Dizer "piso"
+        // sem dizer de onde ele vem faria a pessoa procurar poda que não houve.
+        expect(retencaoHint()).toMatch(/pelo menos/);
+        expect(retencaoHint()).toMatch(/best-effort/);
+        expect(retencaoHint()).toMatch(/segunda-feira/);
+        expect(retencaoTitulo()).toBe('Retenção por semana de cadastro');
+        expect(retencaoSubtitulo('90d')).toMatch(/nos últimos 90 dias/);
+        expect(retencaoVaziaNotice('30d')).toMatch(/nos últimos 30 dias/);
+        expect(retencaoVaziaHint().length).toBeGreaterThan(0);
+        expect(retencaoColunaCoorte()).toBe('Coorte');
+        expect(retencaoColunaTamanho()).toBe('Contas');
     });
 });

@@ -4,6 +4,12 @@
 // `users` e `atlas` — não instrumentação nova. Gate completo (anônimo 401, comum 403,
 // produtor 403, credenciado 403, administrador 200) e os NÚMEROS contra dado semeado.
 //
+// AS DUAS METADES DE COORTE DA MESMA ROTA (o funil de entrada e a retenção por semana de
+// cadastro) moram em `uso-funil-e-retencao.test.js`, e a separação é por CENÁRIO e não por
+// assunto: elas precisam de contas nascendo em semanas ISO distintas e de conversão
+// acontecendo DEPOIS do fim da janela, que é o oposto do que este arquivo semeia. Aqui delas
+// fica só a FORMA no caso do contrato.
+//
 // COMO ESTE ARQUIVO CONSEGUE ASSERIR NÚMERO EXATO NUMA TABELA COMPARTILHADA, que é a
 // pergunta difícil: as tabelas são da rodada inteira e toda outra suíte escreve nelas com
 // `NOW()`. A saída é a `agora` INJETÁVEL do serviço. Os casos de conteúdo semeiam dado num
@@ -242,6 +248,23 @@ describe('Relatório de uso — GET /uso/resumo', () => {
       assert.equal(typeof d.producao.total, 'number');
       assert.ok(Array.isArray(d.producao.porEntidade));
       assert.ok(Array.isArray(d.producao.porDia));
+
+      // Os dois blocos de COORTE. O comportamento deles está em
+      // `uso-funil-e-retencao.test.js`, com cenário próprio; o que se prende AQUI é a
+      // FORMA, porque é este o caso que responde "o payload do contrato tem tudo", e um
+      // bloco que sumisse do serviço passaria por ele sem nada ficar vermelho.
+      for (const chave of ['cadastraram', 'criaramAtlas', 'produziram']) {
+        assert.equal(typeof d.funil[chave], 'number', `funil.${chave} precisa ser número`);
+      }
+      // As medianas precisam EXISTIR como chave mesmo valendo null, e a razão NÃO é a mesma
+      // das duas do horizonte: lá a distinção chega à tela (são avisos diferentes), aqui não
+      // chega, porque `medianaLabel`, no cliente, trata `null` e ausência do mesmo jeito. A
+      // razão é de CONTRATO: sem esta asserção o campo pode sumir do payload numa reescrita
+      // da consulta ou do mapeamento sem nada ficar vermelho.
+      for (const chave of ['horasAteAtlas', 'horasAteProducao']) {
+        assert.ok(Object.hasOwn(d.funil, chave), `funil.${chave} ausente`);
+      }
+      assert.ok(Array.isArray(d.retencao.semanas));
     });
 
     it('janela malformada é 422, e não um default silencioso', async () => {

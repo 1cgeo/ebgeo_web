@@ -1,7 +1,9 @@
 // Path: src/modules/uso/uso.horizonte.js
 /**
- * @fileoverview As duas conversões que o relatório de uso precisa fazer entre o driver e o
- * payload. Ambas são a lápide de um jeito ingênuo de escrever a mesma linha.
+ * @fileoverview As conversões que o relatório de uso precisa fazer entre o driver e o
+ * payload. Cada uma é a lápide de um jeito ingênuo de escrever a mesma linha, e a lista viva
+ * são os `export` daqui: a contagem morava nesta frase e envelheceu na primeira conversão
+ * acrescentada.
  *
  * ZERO IMPORTS, de propósito: sem eles o módulo é testável em node puro, sem `DATABASE_URL`
  * nem `JWT_SECRET`, que são as variáveis que a avaliação de `config.js` exige.
@@ -54,4 +56,28 @@ export function paraEpoch(valor) {
 export function inteiro(valor) {
   const n = Number(valor ?? 0);
   return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Uma medida FRACIONÁRIA que pode não existir, e a ausência dela é `null`, jamais zero.
+ *
+ * É a irmã de {@link inteiro} e é o AVESSO dela, o que faz das duas um par fácil de confundir
+ * na hora de escolher. `percentile_cont` sobre conjunto vazio devolve NULL: ninguém da coorte
+ * chegou àquele passo, então não há mediana nenhuma. Passar esse NULL por `inteiro()` produz
+ * `0`, e `0` ali é uma MEDIDA ("chegaram lá no mesmo instante em que se cadastraram"), isto é,
+ * a afirmação mais forte que este relatório poderia inventar sobre um conjunto vazio. O par de
+ * conversões existe justamente porque contagem ausente É zero e medida ausente NÃO é.
+ *
+ * NÃO ARREDONDA, e isso é decisão: o número que a tela diz tem de ser o número que o servidor
+ * mandou, então quem arredonda é a frase, num lugar só. Arredondar nos dois lados são dois
+ * vereditos sobre a mesma medida, e eles divergem no dia em que um dos dois mudar de casa
+ * decimal.
+ *
+ * @param {string|number|null|undefined} valor
+ * @returns {number|null} o número, ou null quando não há medida
+ */
+export function decimalOuNulo(valor) {
+  if (valor === null || valor === undefined) return null;
+  const n = Number(valor);
+  return Number.isFinite(n) ? n : null;
 }

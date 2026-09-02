@@ -1,8 +1,17 @@
 // Path: js/admin/uso-tab.js
 
 /**
- * @fileoverview Aba "Uso" — quem usa o EBGeo, o que se produz nele e quanto, em quatro seções sobre
- * o MESMO período: pessoas, atlas, produção (com a série diária) e os atlas mais ativos.
+ * @fileoverview Aba "Uso": quem usa o EBGeo, o que se produz nele e quanto, em seções sobre o
+ * MESMO período: pessoas, atlas, produção (com a série diária), os atlas mais ativos, o funil de
+ * entrada e a coorte de retenção. (A contagem de seções morava nesta linha e envelheceu no dia em
+ * que duas nasceram; a lista viva são as chamadas de `_pintarDados`.)
+ *
+ * AS DUAS ÚLTIMAS SEÇÕES LEEM O PERÍODO DE OUTRO JEITO, e isso não é detalhe de apresentação: nas
+ * quatro primeiras o período recorta o FATO medido, e nelas o período recorta a COORTE, com a
+ * contagem seguindo até hoje. O `@fileoverview` de `uso-phrases.js` diz por quê; o que importa
+ * aqui é que as duas trazem a ressalva junto (`funilHint`, `retencaoHint`), porque um número que
+ * responde a outra pergunta ao lado de sete que respondem à mesma é o tipo de coisa que ninguém
+ * nota.
  *
  * SÓ O ADMINISTRADOR GLOBAL a recebe (`ABAS_DO_ADMINISTRADOR`, em `admin-audience.js`), e a rota
  * exige administração no servidor. O recorte no cliente não é a fronteira de segurança: ele existe
@@ -42,7 +51,9 @@ import {
 } from '@utils/event-cleanup.js';
 import { sectionHeader, card, emptyState, failureState, ICON_USO } from './admin-dom.js';
 import {
+    COLUNAS_DE_RETENCAO,
     ESTADO,
+    FONTE_DO_PISO_DO_FUNIL,
     HORIZONTE,
     JANELAS,
     JANELA_PADRAO,
@@ -51,8 +62,20 @@ import {
     REGIME,
     avisosDeHorizonte,
     dadosDoPayload,
+    estadoDaFonte,
     estadoDaTela,
     falhaNotice,
+    funilEscopoHint,
+    funilHint,
+    funilInformado,
+    funilNaoInformadoNotice,
+    funilPassos,
+    funilPisoNotice,
+    funilSubtitulo,
+    funilTemPiso,
+    funilTitulo,
+    funilVazioHint,
+    funilVazioNotice,
     geometriaDaSerie,
     graficoLegenda,
     janelaEmPalavras,
@@ -60,6 +83,7 @@ import {
     janelaLabel,
     larguraDaBarra,
     lerMetricas,
+    linhasDeRetencao,
     normalizarJanela,
     numeroLabel,
     ordenarTopAtlas,
@@ -70,8 +94,18 @@ import {
     preencherDias,
     producaoPorEntidade,
     producaoVaziaNotice,
+    regimeLabel,
     resumoDaSerie,
     resumoDaSerieLabel,
+    retencaoColunaCoorte,
+    retencaoColunaTamanho,
+    retencaoHint,
+    retencaoInformada,
+    retencaoNaoInformadaNotice,
+    retencaoSubtitulo,
+    retencaoTitulo,
+    retencaoVaziaHint,
+    retencaoVaziaNotice,
     tabSubtitle,
     topHint,
     topVazioNotice,
@@ -349,6 +383,130 @@ class UsoTab {
 
         this._corpo.appendChild(this._secaoDeProducao(dados?.producao, janela));
         this._corpo.appendChild(this._secaoDeTop(dados?.atlas?.top, janela));
+
+        // AS DUAS SEÇÕES DE COORTE VÊM DEPOIS DO "QUANTO", e a ordem é de leitura: as quatro
+        // primeiras respondem o tamanho do uso, e estas duas o que acontece DEPOIS de alguém
+        // chegar. Elas ficam abaixo do ramo de período parado de propósito, porque uma janela
+        // sem movimento também não tem coorte para acompanhar, e desenhar duas tabelas vazias
+        // ali repetiria com números o que a frase acima já disse.
+        this._corpo.appendChild(this._secaoDeFunil(dados, janela));
+        this._corpo.appendChild(this._secaoDeRetencao(dados?.retencao, janela));
+    }
+
+    /**
+     * @private O funil de entrada: cadastro, primeiro atlas, primeira edição.
+     *
+     * O ESTADO DO HORIZONTE É LIDO UMA VEZ AQUI e desce para as frases, em vez de cada peça
+     * consultar o bloco de novo: é a mesma leitura que os avisos do topo já fizeram, e duas
+     * leituras da mesma chave divergem no dia em que alguém corrigir uma delas.
+     * @param {*} dados @param {string} janela
+     * @returns {HTMLElement}
+     */
+    _secaoDeFunil(dados, janela) {
+        const sec = document.createElement('section');
+        sec.className = 'admin-uso__section';
+        sec.dataset.testid = 'admin-uso-funil';
+        sec.appendChild(sectionHeader(funilTitulo(), { subtitle: funilSubtitulo(janela) }));
+
+        const estado = estadoDaFonte({
+            desde: dados?.desde,
+            horizonte: dados?.horizonte,
+            chave: FONTE_DO_PISO_DO_FUNIL,
+        });
+        const piso = funilTemPiso(estado);
+        const passos = funilPassos(dados?.funil, { piso });
+
+        const wrap = card({ testid: 'admin-uso-funil-card' });
+        sec.appendChild(wrap);
+
+        // O BLOCO AUSENTE VEM ANTES DO ZERO, e a ordem é o contrato. Sem este ramo, um servidor
+        // de versão anterior desenha "Nenhuma conta foi criada no período" ao lado do ladrilho
+        // "Contas novas" dizendo outra coisa, na mesma tela: duas afirmações opostas custam mais
+        // que uma seção que não aparece. É a mesma distinção que `HORIZONTE.DESCONHECIDO` faz.
+        if (!funilInformado(dados?.funil)) {
+            wrap.appendChild(notaDeSecao(funilNaoInformadoNotice(), 'admin-uso-funil-ausente'));
+            return sec;
+        }
+        if (passos[0].total === 0) {
+            wrap.appendChild(emptyState(funilVazioNotice(janela), { hint: funilVazioHint() }));
+            return sec;
+        }
+
+        const lista = document.createElement('ol');
+        lista.className = 'admin-uso__funil';
+        lista.dataset.testid = 'admin-uso-funil-passos';
+        for (const passo of passos) {
+            lista.appendChild(degrauDoFunil(passo, janela));
+        }
+        wrap.appendChild(lista);
+
+        // A RESSALVA DE PISO MORA DENTRO DA SEÇÃO, e não junto dos avisos do topo, porque ela
+        // fala de UM passo desta lista. O aviso de cima já disse que a produção está curta; este
+        // diz o que isso faz com o número que está logo acima dele.
+        const ressalva = funilPisoNotice(estado);
+        if (ressalva) {
+            const p = document.createElement('p');
+            p.className = 'admin-uso__aviso';
+            p.dataset.testid = 'admin-uso-funil-piso';
+            p.dataset.estado = estado;
+            p.textContent = ressalva;
+            sec.appendChild(p);
+        }
+
+        for (const [testid, texto] of [
+            ['admin-uso-funil-hint', funilHint()],
+            ['admin-uso-funil-escopo', funilEscopoHint()],
+        ]) {
+            const p = document.createElement('p');
+            p.className = 'admin-uso__nota';
+            p.dataset.testid = testid;
+            p.textContent = texto;
+            sec.appendChild(p);
+        }
+        return sec;
+    }
+
+    /**
+     * @private A coorte de retenção por semana de cadastro.
+     * @param {*} retencao @param {string} janela
+     * @returns {HTMLElement}
+     */
+    _secaoDeRetencao(retencao, janela) {
+        const sec = document.createElement('section');
+        sec.className = 'admin-uso__section';
+        sec.dataset.testid = 'admin-uso-retencao';
+        sec.appendChild(sectionHeader(retencaoTitulo(), { subtitle: retencaoSubtitulo(janela) }));
+
+        // O bloco AUSENTE antes da lista vazia, pela mesma razão do funil.
+        if (!retencaoInformada(retencao)) {
+            const wrap = card({ testid: 'admin-uso-retencao-card' });
+            wrap.appendChild(
+                notaDeSecao(retencaoNaoInformadaNotice(), 'admin-uso-retencao-ausente')
+            );
+            sec.appendChild(wrap);
+            return sec;
+        }
+
+        const linhas = linhasDeRetencao(retencao?.semanas);
+        if (!linhas.length) {
+            const wrap = card({ testid: 'admin-uso-retencao-card' });
+            wrap.appendChild(emptyState(retencaoVaziaNotice(janela), {
+                hint: retencaoVaziaHint(),
+            }));
+            sec.appendChild(wrap);
+            return sec;
+        }
+
+        const wrap = card({ testid: 'admin-uso-retencao-card', padded: false });
+        wrap.appendChild(tabelaDeRetencao(linhas));
+        sec.appendChild(wrap);
+
+        const nota = document.createElement('p');
+        nota.className = 'admin-uso__nota';
+        nota.dataset.testid = 'admin-uso-retencao-hint';
+        nota.textContent = retencaoHint();
+        sec.appendChild(nota);
+        return sec;
     }
 
     /**
@@ -474,6 +632,25 @@ class UsoTab {
 }
 
 // ===== small DOM builders =====
+
+/**
+ * Uma nota de voz baixa dentro de uma seção.
+ *
+ * NÃO É `emptyState`, e a diferença é de PESO: o vazio afirma um fato sobre o período ("ninguém
+ * criou conta"), e esta nota afirma um fato sobre o SERVIDOR ("ele não mandou este bloco"). Dar
+ * ao segundo a moldura do primeiro é o que faz uma versão anterior do servidor parecer uma
+ * instalação sem uso.
+ * @param {string} texto
+ * @param {string} testid
+ * @returns {HTMLElement}
+ */
+function notaDeSecao(texto, testid) {
+    const p = document.createElement('p');
+    p.className = 'admin-uso__nota';
+    p.dataset.testid = testid;
+    p.textContent = texto;
+    return p;
+}
 
 /**
  * Um ladrilho: número grande, rótulo, e o REGIME embaixo.
@@ -649,4 +826,169 @@ function linhaDeAtlas(linha) {
     ops.textContent = numeroLabel(linha.operacoes);
     tr.appendChild(ops);
     return tr;
+}
+
+/**
+ * Um degrau do funil: a barra proporcional ao topo, a contagem, a conversão do degrau de cima e
+ * a mediana de tempo até ele.
+ *
+ * A BARRA É O ÚNICO ESTILO POSTO POR JS AQUI, como a altura da coluna do gráfico: valor computado
+ * em runtime, a exceção declarada da convenção.
+ *
+ * O PISO ENTRA COMO MARCA NO DEGRAU, e não só como parágrafo no fim da seção: a ressalva é sobre
+ * ESTE número, e um aviso três parágrafos abaixo é lido depois do número, quando a leitura errada
+ * já aconteceu. A marca não repete a frase, ela aponta para ela.
+ * @param {{chave: string, rotulo: string, regime: string, detalhe: string, total: number, texto: string, largura: number, conversao: string|null, mediana: string|null, piso: boolean}} passo
+ * @param {string} janela
+ * @returns {HTMLElement}
+ */
+function degrauDoFunil(passo, janela) {
+    const li = document.createElement('li');
+    li.className = 'admin-uso__degrau';
+    li.dataset.testid = `admin-uso-degrau-${passo.chave}`;
+    li.dataset.regime = passo.regime;
+    if (passo.piso) li.dataset.piso = 'true';
+
+    const cabeca = document.createElement('div');
+    cabeca.className = 'admin-uso__degrau-cabeca';
+
+    const rotulo = document.createElement('span');
+    rotulo.className = 'admin-uso__degrau-rotulo';
+    rotulo.textContent = passo.rotulo;
+    rotulo.title = passo.detalhe;
+
+    const valor = document.createElement('span');
+    valor.className = 'admin-uso__degrau-valor';
+    valor.textContent = passo.texto;
+    cabeca.append(rotulo, valor);
+    li.appendChild(cabeca);
+
+    const trilho = document.createElement('span');
+    trilho.className = 'admin-uso__degrau-trilho';
+    const barra = document.createElement('span');
+    barra.className = 'admin-uso__degrau-barra';
+    // Valor computado em runtime, como as outras duas barras desta aba.
+    barra.style.width = `${passo.largura}%`;
+    trilho.appendChild(barra);
+    li.appendChild(trilho);
+
+    const pe = document.createElement('div');
+    pe.className = 'admin-uso__degrau-pe';
+    for (const [classe, texto] of [
+        ['admin-uso__degrau-conversao', passo.conversao],
+        ['admin-uso__degrau-mediana', passo.mediana],
+        ['admin-uso__degrau-piso', passo.piso ? 'piso' : null],
+        ['admin-uso__degrau-regime', regimeLabel(passo.regime, janela)],
+    ]) {
+        if (!texto) continue;
+        const span = document.createElement('span');
+        span.className = classe;
+        span.textContent = texto;
+        pe.appendChild(span);
+    }
+    li.appendChild(pe);
+    return li;
+}
+
+/**
+ * A tabela de retenção: uma linha por coorte, uma coluna por semana acompanhada.
+ *
+ * `tabular-nums` VEM DO CSS e não daqui, mas a razão vale escrita perto do desenho: são cinco
+ * colunas de números que se comparam VERTICALMENTE, e com largura de dígito variável as casas não
+ * se alinham, que é justamente a leitura que a tabela existe para permitir.
+ *
+ * A CÉLULA ABERTA NÃO É UM VAZIO, e é por isso que ela leva texto e não uma célula em branco:
+ * branco se lê como "zero" ou como coluna quebrada, e o que se quer dizer é "esta semana ainda não
+ * terminou".
+ * @param {Array<Object>} linhas
+ * @returns {HTMLTableElement}
+ */
+function tabelaDeRetencao(linhas) {
+    const table = document.createElement('table');
+    table.className = 'admin-users__table admin-uso__table admin-uso__retencao-tabela';
+    table.dataset.testid = 'admin-uso-retencao-tabela';
+
+    const thead = document.createElement('thead');
+    const hrow = document.createElement('tr');
+    for (const [texto, titulo] of [
+        [retencaoColunaCoorte(), 'a semana em que aquelas contas foram criadas'],
+        [retencaoColunaTamanho(), 'quantas contas nasceram naquela semana'],
+    ]) {
+        const th = document.createElement('th');
+        th.textContent = texto;
+        th.title = titulo;
+        hrow.appendChild(th);
+    }
+    for (const coluna of COLUNAS_DE_RETENCAO) {
+        const th = document.createElement('th');
+        th.className = 'admin-uso__retencao-celula';
+        th.textContent = coluna.rotulo;
+        th.title = coluna.detalhe;
+        hrow.appendChild(th);
+    }
+    thead.appendChild(hrow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    for (const linha of linhas) {
+        tbody.appendChild(linhaDeRetencao(linha));
+    }
+    table.appendChild(tbody);
+    return table;
+}
+
+/**
+ * Uma linha da tabela de retenção.
+ * @param {{semana: string, rotulo: string, cadastradosTexto: string, celulas: Array<Object>}} linha
+ * @returns {HTMLTableRowElement}
+ */
+function linhaDeRetencao(linha) {
+    const tr = document.createElement('tr');
+    tr.dataset.testid = 'admin-uso-retencao-linha';
+    tr.dataset.semana = linha.semana;
+
+    const coorte = document.createElement('td');
+    coorte.className = 'admin-uso__retencao-coorte';
+    coorte.textContent = linha.rotulo;
+    tr.appendChild(coorte);
+
+    const tamanho = document.createElement('td');
+    tamanho.className = 'admin-uso__numero';
+    tamanho.textContent = linha.cadastradosTexto;
+    tr.appendChild(tamanho);
+
+    for (const celula of linha.celulas) {
+        tr.appendChild(celulaDeRetencaoTd(celula));
+    }
+    return tr;
+}
+
+/**
+ * Uma célula de retenção, nos três estados dela.
+ * @param {{semana: number, texto: string, percentual: string|null, aberta: boolean, desconhecida: boolean, titulo: string}} celula
+ * @returns {HTMLTableCellElement}
+ */
+function celulaDeRetencaoTd(celula) {
+    const td = document.createElement('td');
+    td.className = 'admin-uso__retencao-celula';
+    td.dataset.testid = 'admin-uso-retencao-celula';
+    td.dataset.semana = String(celula.semana);
+    if (celula.aberta) td.dataset.aberta = 'true';
+    if (celula.desconhecida) td.dataset.desconhecida = 'true';
+    td.title = celula.titulo;
+
+    const valor = document.createElement('span');
+    valor.className = celula.aberta
+        ? 'admin-uso__retencao-valor admin-uso__retencao-valor--aberta'
+        : 'admin-uso__retencao-valor';
+    valor.textContent = celula.texto;
+    td.appendChild(valor);
+
+    if (celula.percentual) {
+        const pct = document.createElement('span');
+        pct.className = 'admin-uso__retencao-pct';
+        pct.textContent = celula.percentual;
+        td.appendChild(pct);
+    }
+    return td;
 }

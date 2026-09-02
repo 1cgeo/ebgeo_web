@@ -14,19 +14,23 @@
  * observabilidade defende (o arquivo é sequencial e serve à investigação; o banco agrupa e
  * pagina, e serve ao resumo).
  *
- * CINCO CONSULTAS EM PARALELO, com o mesmo par (início, fim). Elas são independentes e nada
- * aqui é transacional de propósito: um relatório não precisa de instantâneo consistente do
- * banco, e abrir transação para cinco `SELECT` prenderia uma conexão do pool de dez que
- * serve o sync e o `GET /api/config`. O que ELAS PRECISAM compartilhar é a JANELA, e isso
- * se resolve passando os mesmos dois parâmetros, não segurando uma transação.
+ * AS CONSULTAS RODAM EM PARALELO, com o mesmo par (início, fim). Elas são independentes e
+ * nada aqui é transacional de propósito: um relatório não precisa de instantâneo consistente
+ * do banco, e abrir transação para uma dúzia de `SELECT` prenderia uma conexão do pool de dez
+ * que serve o sync e o `GET /api/config`. O que ELAS PRECISAM compartilhar é a JANELA, e isso
+ * se resolve passando os mesmos dois parâmetros, não segurando uma transação. (Esta linha
+ * carregava a contagem, e ela envelheceu na primeira consulta acrescentada; o que vale é a
+ * propriedade.)
  */
 
 import { one, any } from '../../database/index.js';
 import { parseJanela } from '../../utils/diag-consulta.js';
-import { paraEpoch, inteiro } from './uso.horizonte.js';
+import { paraEpoch, inteiro, decimalOuNulo } from './uso.horizonte.js';
+import { TETO_DA_JANELA_MS } from './uso.schemas.js';
 import {
   HORIZONTE, PESSOAS, ATLAS_RESUMO, TOP_ATLAS,
   PRODUCAO_POR_ENTIDADE, PRODUCAO_POR_DIA,
+  FUNIL_DE_ENTRADA, COORTE_DE_RETENCAO,
 } from './uso.queries.js';
 
 /**
@@ -38,6 +42,64 @@ import {
  * Quem quer o ranking inteiro tem SQL no servidor.
  */
 export const TOP_ATLAS_LIMITE = 10;
+
+/** Uma semana em milissegundos. Usada só para derivar o teto de linhas da coorte. */
+const SEMANA_MS = 7 * 86_400_000;
+
+/**
+ * Quantas linhas de coorte a resposta pode trazer, no máximo.
+ *
+ * DERIVADO DO TETO DA JANELA, e não escolhido: cada segunda-feira tocada pelo intervalo é uma
+ * coorte. Uma constante escrita à mão aqui seria um segundo teto para a mesma coisa, e os dois
+ * divergem no dia em que o primeiro mudar; um número MENOR cortaria coortes reais em silêncio,
+ * que é o jeito de a tabela mentir sem parecer.
+ *
+ * O `ceil` NÃO É FOLGA, É O NÚMERO CERTO, e o `floor` que morava aqui estava ERRADO por um. A
+ * conta depende da FASE da janela dentro da semana, não só do comprimento dela: 365 dias são 52
+ * semanas mais um dia, então uma janela que comece perto do fim de uma semana toca 54
+ * segundas-feiras, e `floor(365/7) + 1` dá 53. O erro tem exatamente o tamanho que ninguém
+ * percebe, e o sintoma seria uma coorte a menos na tabela, sem aviso nenhum. As fases estão
+ * enumeradas em `tests/integration/uso-funil-e-retencao.test.js`, que prova o máximo em vez de
+ * repetir a fórmula (repeti-la seria o teste concordando com o defeito).
+ *
+ * ELE É UM CINTO, e não a regra: o recorte de verdade é o `WHERE` da consulta, que só agrupa
+ * quem nasceu na janela. O `LIMIT` existe para que uma janela absurda (relógio do servidor
+ * saltando, um `desde` que passe pela borda por outro caminho) não vire uma resposta de
+ * milhares de linhas numa rota de administração. E, se ele morder, quem cai é a coorte mais
+ * ANTIGA, porque a consulta ordena decrescente e a reversão acontece aqui: ver
+ * `COORTE_DE_RETENCAO`.
+ */
+export const MAX_SEMANAS_DE_COORTE = Math.ceil(TETO_DA_JANELA_MS / SEMANA_MS) + 1;
+
+/**
+ * As quatro semanas de retenção que a coorte acompanha.
+ *
+ * QUATRO, e o número está no SQL também (`w1`..`w4` e o `LEAST(4, …)`): mudar aqui sem mudar
+ * lá encurta a tabela sem erro nenhum. Elas são o primeiro mês, que é o horizonte em que a
+ * decisão de continuar usando o produto se toma; uma quinta coluna só adiaria a resposta da
+ * coorte mais recente por mais uma semana.
+ */
+export const SEMANAS_DE_RETENCAO = 4;
+
+/**
+ * As células de retenção de uma linha de coorte.
+ *
+ * A CÉLULA AINDA NÃO ALCANÇADA É `null`, E NUNCA ZERO, e é `semanas_completas` (calculado no
+ * SQL, onde o fuso é conhecido) quem decide quantas já fecharam. Um zero numa semana que ainda
+ * corre se lê como abandono, que é a afirmação oposta à verdadeira; e um número que ainda vai
+ * crescer, publicado como se fosse final, ensina a desconfiar da tabela inteira quando ele
+ * mudar na carga seguinte.
+ *
+ * @param {Object} linha - a linha crua da consulta
+ * @returns {Array<number|null>} uma entrada por semana de {@link SEMANAS_DE_RETENCAO}
+ */
+function celulasDeRetencao(linha) {
+  const completas = inteiro(linha.semanas_completas);
+  const brutos = [linha.w1, linha.w2, linha.w3, linha.w4];
+  return brutos
+    .slice(0, SEMANAS_DE_RETENCAO)
+    .map((valor, i) => (i < completas ? inteiro(valor) : null));
+}
 
 /**
  * O resumo de uso da janela.
@@ -56,13 +118,15 @@ export async function resumo({ desde, agora = new Date() }) {
   const inicio = new Date(fim.getTime() - parseJanela(desde));
   const p = [inicio, fim];
 
-  const [horizonte, pessoas, atlas, top, porEntidade, porDia] = await Promise.all([
+  const [horizonte, pessoas, atlas, top, porEntidade, porDia, funil, coorte] = await Promise.all([
     one(HORIZONTE),
     one(PESSOAS, p),
     one(ATLAS_RESUMO, p),
     any(TOP_ATLAS, [...p, TOP_ATLAS_LIMITE]),
     any(PRODUCAO_POR_ENTIDADE, p),
     any(PRODUCAO_POR_DIA, p),
+    one(FUNIL_DE_ENTRADA, p),
+    any(COORTE_DE_RETENCAO, [...p, MAX_SEMANAS_DE_COORTE]),
   ]);
 
   const desdeMs = inicio.getTime();
@@ -130,6 +194,53 @@ export async function resumo({ desde, agora = new Date() }) {
       total: entidades.reduce((soma, e) => soma + e.total, 0),
       porEntidade: entidades,
       porDia: porDia.map((l) => ({ dia: l.dia, total: inteiro(l.total) })),
+    },
+
+    // O FUNIL DE ENTRADA: dos que criaram conta na janela, quantos chegaram ao primeiro
+    // atlas e quantos chegaram à primeira edição. Os três números são MONOTÔNICOS por
+    // construção (ver `FUNIL_DE_ENTRADA`), e é isso que autoriza a tela a chamá-los de
+    // conversão: um terceiro passo maior que o segundo daria percentual acima de 100% com o
+    // dado inteiro e correto.
+    //
+    // AS DUAS MEDIANAS SÃO `null` QUANDO NINGUÉM CHEGOU AO PASSO, e nunca zero: ver
+    // `decimalOuNulo`. Elas vêm em HORAS, cruas, sem arredondamento: quem arredonda é a
+    // frase, num lugar só, porque o número que a tela diz tem de ser o número que o servidor
+    // mandou.
+    //
+    // O TERCEIRO PASSO DEPENDE DE `operations`, LOGO DEPENDE DO HORIZONTE, e não há booleano
+    // de veredito aqui pela mesma razão declarada no bloco acima: `horizonte.operacoesDesde`
+    // e `desde` viajam no mesmo payload, na mesma unidade, e a comparação entre eles dá ao
+    // consumidor os quatro desfechos que um booleano colapsaria em dois. Os passos 1 e 2 saem
+    // de `users` e `atlas`, que não são podáveis, e por isso nenhum horizonte os limita.
+    funil: {
+      cadastraram: inteiro(funil.cadastraram),
+      criaramAtlas: inteiro(funil.criaram_atlas),
+      produziram: inteiro(funil.produziram),
+      horasAteAtlas: decimalOuNulo(funil.horas_ate_atlas),
+      horasAteProducao: decimalOuNulo(funil.horas_ate_producao),
+    },
+
+    // A COORTE DE RETENÇÃO, uma linha por semana ISO em que alguém se cadastrou.
+    //
+    // SEMANA SEM CADASTRO NÃO TEM LINHA (ver `COORTE_DE_RETENCAO`), e isso é o avesso do
+    // preenchimento da série diária: lá o zero é fato, aqui não há coorte, e uma linha de
+    // denominador zero não tem retenção nenhuma para mostrar.
+    //
+    // `audit_trail` NÃO É PODADA, então esta metade da resposta não tem horizonte. O que ela
+    // tem é o piso do `LOGIN` best-effort, que é outra coisa e mora na frase da tela.
+    //
+    // A CONSULTA DEVOLVE DECRESCENTE E O PAYLOAD SAI CRESCENTE. A ordem do SQL existe só para
+    // escolher quem o `LIMIT` corta (a coorte mais antiga, e não a que a pessoa está olhando);
+    // a ordem da tela é a cronológica, porque a coorte mais velha é a única com as quatro
+    // semanas fechadas e é ela que serve de referência para ler as de cima.
+    retencao: {
+      semanas: coorte
+        .map((l) => ({
+          semana: l.semana,
+          cadastrados: inteiro(l.cadastrados),
+          retidos: celulasDeRetencao(l),
+        }))
+        .reverse(),
     },
   };
 }

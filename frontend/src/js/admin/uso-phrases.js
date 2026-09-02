@@ -57,6 +57,22 @@
  * afirmação oposta. O preenchimento de dias (`preencherDias`) existe justamente para não depender
  * de o servidor ter lembrado de mandar o zero.
  *
+ * DUAS SEÇÕES NÃO RESPONDEM "QUANTO", RESPONDEM "O QUE ACONTECE DEPOIS", e elas leem o MESMO
+ * payload de um jeito que o resto da aba não lê. O funil de entrada
+ * ({@link PASSOS_DO_FUNIL}) e a coorte de retenção ({@link COLUNAS_DE_RETENCAO}) recortam pelo
+ * período a COORTE, e não o fato medido: quem se cadastrou na janela conta no segundo passo mesmo
+ * criando o atlas depois dela, e a coorte de uma semana é acompanhada nas quatro semanas
+ * seguintes, que podem estar fora do período. Sem isso, a coorte mais recente sempre pareceria a
+ * pior, por ter tido menos tempo, e o relatório mediria idade em vez de comportamento. As duas
+ * seções são `REGIME.PERIODO` porque é o período que as define; o que ele NÃO fecha é a contagem,
+ * e é o que {@link funilHint} e {@link retencaoHint} dizem em voz alta.
+ *
+ * AS DUAS TÊM UM PISO CADA, E ELES TÊM ORIGENS DIFERENTES, que é o que impede uma frase só. O do
+ * funil é de HORIZONTE: o terceiro passo sai de `operations`, que é podável, e por isso ele reusa
+ * os quatro estados de {@link HORIZONTE} ({@link funilPisoNotice}). O da retenção NÃO é de
+ * horizonte: `audit_trail` não é podada, e o piso vem do `LOGIN` ser best-effort. Fundi-los faria
+ * a tela mandar procurar uma poda que não houve.
+ *
  * TODO TEXTO DAQUI SAI PARA A TELA POR `textContent`. Nome de atlas e nome de dono são dado de
  * usuário; este arquivo não monta uma linha de HTML.
  */
@@ -370,8 +386,8 @@ export const FONTES_DE_HORIZONTE = Object.freeze([
     Object.freeze({
         chave: 'operacoesDesde',
         fonte: 'o registro de produção',
-        alcanca: 'a produção inteira (gráfico diário, quebra por tipo e atlas mais ativos), mais '
-            + '"Produziram" e "Com edição"',
+        alcanca: 'a produção inteira (gráfico diário, quebra por tipo e atlas mais ativos), '
+            + '"Produziram", "Com edição" e o terceiro passo do funil de entrada',
     }),
     Object.freeze({
         chave: 'trilhaDesde',
@@ -448,6 +464,40 @@ export function horizonteDesconhecidoNotice(fonte) {
 }
 
 /**
+ * O alcance de uma fonte dentro do bloco `horizonte`, preservando a distinção que decide tudo.
+ *
+ * O CAMPO AUSENTE E O CAMPO `undefined` SÃO O MESMO CASO, e os dois têm de sair daqui como
+ * `undefined`, que {@link estadoDoHorizonte} lê como DESCONHECIDO: um bloco `horizonte` que não
+ * veio não pode virar silêncio. Um `bloco[chave]` direto sobre um payload sem o campo já produz
+ * `undefined`, mas o `Object.hasOwn` deixa a intenção escrita e sobrevive a um bloco que herde a
+ * chave de outro lugar.
+ * @param {*} horizonte
+ * @param {string} chave
+ * @returns {*}
+ */
+function alcanceDaFonte(horizonte, chave) {
+    const bloco = objeto(horizonte) ? horizonte : {};
+    return Object.hasOwn(bloco, chave) ? bloco[chave] : undefined;
+}
+
+/**
+ * O desfecho de UMA fonte do horizonte, pela chave dela no bloco.
+ *
+ * ELE EXISTE PARA QUE HAJA UMA LEITURA SÓ. Os avisos do topo da aba e o piso do funil perguntam a
+ * mesma coisa sobre a mesma fonte, e duas leituras da mesma chave divergem no dia em que alguém
+ * corrigir uma delas: a tela passaria a avisar que a produção está curta e, três seções abaixo,
+ * a apresentar o terceiro passo do funil como se estivesse inteiro.
+ * @param {Object} [entrada]
+ * @param {*} [entrada.desde]
+ * @param {*} [entrada.horizonte]
+ * @param {string} [entrada.chave]
+ * @returns {string} Um valor de {@link HORIZONTE}.
+ */
+export function estadoDaFonte({ desde, horizonte, chave } = {}) {
+    return estadoDoHorizonte({ desde, alcance: alcanceDaFonte(horizonte, chave) });
+}
+
+/**
  * Os avisos de horizonte a desenhar, um por fonte que mereça frase.
  *
  * A GUARDA DE CADA FONTE É INDEPENDENTE, e isso já custou um defeito na família de `origins` e
@@ -463,14 +513,9 @@ export function horizonteDesconhecidoNotice(fonte) {
  * @returns {Array<{chave: string, estado: string, texto: string}>}
  */
 export function avisosDeHorizonte({ desde, horizonte, janela, agora, timeZone } = {}) {
-    const bloco = horizonte && typeof horizonte === 'object' && !Array.isArray(horizonte)
-        ? horizonte
-        : {};
     const avisos = [];
     for (const fonte of FONTES_DE_HORIZONTE) {
-        // O campo AUSENTE e o campo `undefined` são o mesmo caso, e os dois caem em DESCONHECIDO:
-        // um bloco `horizonte` que não veio não pode virar silêncio.
-        const alcance = Object.hasOwn(bloco, fonte.chave) ? bloco[fonte.chave] : undefined;
+        const alcance = alcanceDaFonte(horizonte, fonte.chave);
         const estado = estadoDoHorizonte({ desde, alcance });
         if (estado === HORIZONTE.COBRE) continue;
         let texto = '';
@@ -1116,4 +1161,466 @@ export function topHint() {
 /** @returns {string} */
 export function graficoLegenda() {
     return 'Cada barra é um dia. Dia sem produção fica na linha de base, e não some do eixo.';
+}
+
+// ===== o funil de entrada =====
+
+/**
+ * Os três passos do funil, na ordem em que se desce.
+ *
+ * O REGIME DOS TRÊS É `PERIODO`, e é preciso ler o que isso significa aqui, porque não é o mesmo
+ * que nos ladrilhos: o que pertence ao período é a COORTE (quem criou conta nele), e não o
+ * momento em que a pessoa desceu o degrau seguinte. Alguém que se cadastrou no último dia da
+ * janela e criou o atlas depois dela CONTA no segundo passo, de propósito. A alternativa fecharia
+ * a conversão no fim do período e faria a coorte mais recente parecer a que menos converte, quando
+ * ela é apenas a que teve menos tempo. É a razão de {@link funilHint} existir.
+ *
+ * `mediana` É A CHAVE DA MEDIANA NO PAYLOAD, e o primeiro passo não tem nenhuma: a distância entre
+ * o cadastro e ele próprio é zero por definição, e desenhar "mediana de 0 h" ali seria uma medida
+ * inventada com cara de resultado.
+ *
+ * `denominador` É CAMPO E NÃO DERIVAÇÃO DO RÓTULO, e a razão é gramatical, a mesma que
+ * `horizonteEncurtadoNotice` paga logo acima. Os rótulos estão na terceira pessoa do PLURAL
+ * ("Criaram conta"), e a conversão os encaixa depois de "de quem", que em português rege
+ * SINGULAR: derivar a frase minusculando o rótulo produz "de quem criaram conta". Foi MEDIDO,
+ * saiu agramatical na primeira rodada, e nenhum teste lê português sozinho, então o degrau novo
+ * que alguém acrescentar tem de trazer a própria flexão em vez de herdar uma regra que não
+ * existe.
+ *
+ * `dependeDaProducao` MARCA O ÚNICO PASSO COM HORIZONTE. Cadastro e atlas saem de `users` e
+ * `atlas`, que não são podáveis; a primeira edição sai de `operations`, que é. É esse campo, e não
+ * a posição na lista, que decide qual passo ganha a ressalva de piso: um passo novo entre os dois
+ * primeiros herdaria a ressalva errada se ela fosse "o último".
+ * @type {ReadonlyArray<{chave: string, rotulo: string, denominador: string, regime: string, detalhe: string, mediana: string|null, dependeDaProducao: boolean}>}
+ */
+export const PASSOS_DO_FUNIL = Object.freeze([
+    Object.freeze({
+        chave: 'cadastraram',
+        rotulo: 'Criaram conta',
+        denominador: 'criou conta',
+        regime: REGIME.PERIODO,
+        detalhe: 'contas criadas no período',
+        mediana: null,
+        dependeDaProducao: false,
+    }),
+    Object.freeze({
+        chave: 'criaramAtlas',
+        rotulo: 'Criaram o primeiro atlas',
+        denominador: 'criou o primeiro atlas',
+        regime: REGIME.PERIODO,
+        detalhe: 'dessas contas, as que passaram a ser donas de ao menos um atlas',
+        mediana: 'horasAteAtlas',
+        dependeDaProducao: false,
+    }),
+    Object.freeze({
+        chave: 'produziram',
+        rotulo: 'Fizeram a primeira edição',
+        denominador: 'fez a primeira edição',
+        regime: REGIME.PERIODO,
+        detalhe: 'dessas, as que geraram ao menos uma operação de sync depois de criar o atlas',
+        mediana: 'horasAteProducao',
+        dependeDaProducao: true,
+    }),
+]);
+
+/** A chave do horizonte que limita o funil. Ver {@link PASSOS_DO_FUNIL}. */
+export const FONTE_DO_PISO_DO_FUNIL = 'operacoesDesde';
+
+/**
+ * A mediana de horas até um passo, em palavras.
+ *
+ * `null` E NÃO TRAVESSÃO quando não há mediana, e a diferença é de desenho: a tela simplesmente
+ * NÃO escreve a linha, em vez de escrever um travessão que se lê como "medimos e não deu nada".
+ * Ninguém ter chegado ao passo é a informação, e ela já está na contagem ao lado.
+ *
+ * ZERO É MEDIDA E APARECE ("mediana de 0 h"): quem cria o atlas no mesmo minuto do cadastro é o
+ * caso mais interessante da tabela, não um vazio.
+ *
+ * A UNIDADE É `h` E NÃO "horas" por uma razão gramatical e não de espaço: símbolo de unidade não
+ * flexiona, então "1 h" e "2 h" saem certos sem um ramo de plural que alguém teria de manter.
+ * @param {*} horas
+ * @returns {string|null}
+ */
+export function medianaLabel(horas) {
+    if (!numeroContavel(horas)) return null;
+    return `mediana de ${mediaLabel(horas)} h`;
+}
+
+/**
+ * A conversão de um passo em relação ao ANTERIOR, com o denominador NOMEADO.
+ *
+ * O DENOMINADOR VAI NA FRASE, e é isso que a torna legível. "40%" sozinho num funil é ambíguo
+ * entre "40% de quem se cadastrou" e "40% de quem criou o primeiro atlas", e os dois números
+ * existem e são diferentes. Escrever de quem é a porcentagem custa cinco palavras e remove a
+ * única leitura errada possível.
+ *
+ * PASSO ANTERIOR VAZIO NÃO VIRA 0%: sem denominador não há fração, e {@link percentualLabel}
+ * devolve `null`, que a tela não desenha. "0% de quem criou conta" quando ninguém criou conta é
+ * uma afirmação sobre o conjunto vazio.
+ * @param {*} total - a contagem deste passo
+ * @param {*} anterior - a contagem do passo anterior
+ * @param {*} denominador - a flexão SINGULAR do passo anterior ('criou conta'), do campo
+ *   `denominador` de {@link PASSOS_DO_FUNIL} e NUNCA derivada do rótulo
+ * @returns {string|null}
+ */
+export function conversaoLabel(total, anterior, denominador) {
+    const pct = percentualLabel(total, anterior);
+    if (pct === null) return null;
+    const nome = typeof denominador === 'string' ? denominador.trim() : '';
+    if (!nome) return pct;
+    return `${pct} de quem ${nome}`;
+}
+
+/**
+ * Os três passos prontos para desenhar.
+ *
+ * A LARGURA É FRAÇÃO DO PRIMEIRO PASSO, e não do anterior: é ela que faz o funil PARECER um
+ * funil. A conversão em palavras é do anterior (ver {@link conversaoLabel}), e as duas coexistem
+ * porque respondem a perguntas diferentes: a barra mostra quanto sobrou do topo, e a frase mostra
+ * quanto passou do degrau de cima.
+ *
+ * O PISO É PROPRIEDADE DO PASSO, e chega de fora: quem sabe o estado do horizonte é a aba, que já
+ * o leu por {@link estadoDaFonte}. Recalculá-lo aqui exigiria receber `desde` e `horizonte` e
+ * abriria a segunda leitura que {@link estadoDaFonte} existe para impedir.
+ * @param {*} funil - o bloco `funil` da resposta
+ * @param {{piso?: boolean}} [opts] - `piso` quando o registro de produção não cobre a janela
+ * @returns {Array<{chave: string, rotulo: string, regime: string, detalhe: string, total: number, texto: string, largura: number, conversao: string|null, mediana: string|null, piso: boolean}>}
+ */
+export function funilPassos(funil, { piso = false } = {}) {
+    const fonte = objeto(funil) ? funil : {};
+    const topo = numeroOuZero(fonte[PASSOS_DO_FUNIL[0].chave]);
+    return PASSOS_DO_FUNIL.map((passo, i) => {
+        const total = numeroOuZero(fonte[passo.chave]);
+        const anterior = i === 0 ? null : PASSOS_DO_FUNIL[i - 1];
+        return {
+            chave: passo.chave,
+            rotulo: passo.rotulo,
+            regime: passo.regime,
+            detalhe: passo.detalhe,
+            total,
+            texto: numeroLabel(fonte[passo.chave]),
+            largura: larguraDaBarra(total, topo),
+            conversao: anterior
+                ? conversaoLabel(total, numeroOuZero(fonte[anterior.chave]), anterior.denominador)
+                : null,
+            mediana: passo.mediana ? medianaLabel(fonte[passo.mediana]) : null,
+            piso: piso && passo.dependeDaProducao,
+        };
+    });
+}
+
+/**
+ * A ressalva do passo que depende do registro de produção, a partir do estado do horizonte.
+ *
+ * ELA REUSA OS QUATRO ESTADOS DE {@link HORIZONTE} em vez de inventar um vocabulário próprio, e a
+ * consequência que importa é o DESCONHECIDO: um servidor que não informou o alcance também produz
+ * ressalva, porque não afirmar que o passo está completo é diferente de afirmar que está. A falha
+ * é FECHADA, e é o inverso do que se escreve sem pensar (`estado === ENCURTADO`).
+ *
+ * OS DOIS PRIMEIROS PASSOS SÃO NOMEADOS COMO ÍNTEGROS em cada frase, porque uma ressalva que não
+ * localiza o estrago ensina a desconfiar do funil inteiro, e dois terços dele estão certos.
+ * @param {*} estado - um valor de {@link HORIZONTE}
+ * @returns {string} Vazio quando não há ressalva.
+ */
+export function funilPisoNotice(estado) {
+    if (estado === HORIZONTE.ENCURTADO) {
+        return 'O último passo é um PISO: o registro de produção não alcança o começo do período, '
+            + 'então quem editou antes disso não aparece nele, e a conversão desenhada é a menor '
+            + 'possível. Os dois primeiros passos não dependem dele e estão inteiros.';
+    }
+    if (estado === HORIZONTE.VAZIO) {
+        return 'Não há uma linha sequer no registro de produção, então o último passo está zerado '
+            + 'por essa razão, e não porque ninguém editou. Os dois primeiros passos não '
+            + 'dependem dele e continuam valendo.';
+    }
+    if (estado === HORIZONTE.DESCONHECIDO) {
+        return 'O servidor não informou até onde o registro de produção alcança, então o último '
+            + 'passo é um piso: não dá para afirmar que ele está completo.';
+    }
+    return '';
+}
+
+/**
+ * Se o último passo do funil precisa ser lido como piso.
+ *
+ * TUDO QUE NÃO É `COBRE` É PISO. Ver {@link funilPisoNotice} sobre a falha fechada.
+ * @param {*} estado - um valor de {@link HORIZONTE}
+ * @returns {boolean}
+ */
+export function funilTemPiso(estado) {
+    return estado !== HORIZONTE.COBRE;
+}
+
+/** @returns {string} */
+export function funilTitulo() {
+    return 'Funil de entrada';
+}
+
+/** @param {*} janela @returns {string} */
+export function funilSubtitulo(janela) {
+    return `De quem criou conta ${janelaEmPalavras(janela)}, quantos chegaram ao primeiro atlas e `
+        + 'à primeira edição';
+}
+
+/**
+ * A ressalva que a tela inteira pode ser lida ao contrário: o período define QUEM entra no funil,
+ * e não até quando a conversão é contada.
+ * @returns {string}
+ */
+export function funilHint() {
+    return 'O período escolhe a coorte (quem criou conta nele); os dois passos seguintes contam '
+        + 'até hoje, mesmo que a pessoa tenha chegado lá depois do fim do período. Sem isso, a '
+        + 'coorte mais recente pareceria a que menos converte só por ter tido menos tempo.';
+}
+
+/**
+ * A nota que declara o que o funil NÃO conta, e ela não é opcional: o número pareceria baixo sem
+ * explicação nenhuma numa instalação em que trabalhar no atlas de outra pessoa é o normal.
+ * @returns {string}
+ */
+export function funilEscopoHint() {
+    return 'O terceiro passo conta a edição no atlas que a própria pessoa criou. Quem só edita '
+        + 'atlas de outra pessoa não aparece nele, e é essa restrição que mantém cada passo como '
+        + 'subconjunto do anterior.';
+}
+
+/**
+ * Se o servidor INFORMOU o bloco do funil.
+ *
+ * BLOCO AUSENTE NÃO É ZERO, e colapsar os dois é o mesmo defeito que `estadoDoHorizonte` existe
+ * para impedir, uma seção abaixo. Um servidor de versão anterior não manda `funil`, e a leitura
+ * ingênua (três zeros, logo "nenhuma conta foi criada no período") CONTRADIZ o ladrilho "Contas
+ * novas" que está na mesma tela, com o número certo, algumas linhas acima. Duas afirmações
+ * opostas na mesma tela custam mais que uma seção que não aparece: elas ensinam a não acreditar
+ * em nenhuma das duas.
+ * @param {*} funil
+ * @returns {boolean}
+ */
+export function funilInformado(funil) {
+    return objeto(funil);
+}
+
+/**
+ * A frase do bloco que o servidor não informou.
+ *
+ * É NOTA DE VOZ BAIXA, e não aviso, pela mesma régua de {@link horizonteDesconhecidoNotice}:
+ * versão anterior do servidor não é incidente, e alarmar a cada carga ensina a ignorar o alarme.
+ * @returns {string}
+ */
+export function funilNaoInformadoNotice() {
+    return 'O servidor não informou o funil de entrada, então ele não é desenhado aqui. É o que '
+        + 'acontece com uma versão anterior do servidor, e não quer dizer que ninguém tenha '
+        + 'criado conta no período.';
+}
+
+/** @param {*} janela @returns {string} */
+export function funilVazioNotice(janela) {
+    return `Nenhuma conta foi criada ${janelaEmPalavras(janela)}, então não há funil para `
+        + 'desenhar.';
+}
+
+/** @returns {string} */
+export function funilVazioHint() {
+    return 'Amplie o período para alcançar a última leva de cadastros.';
+}
+
+// ===== a coorte de retenção =====
+
+/**
+ * As colunas da tabela de retenção, uma por semana acompanhada.
+ *
+ * QUATRO SEMANAS, e o número é contrato com o servidor (`SEMANAS_DE_RETENCAO`, em
+ * `backend/src/modules/uso/uso.service.js`, mais os `w1`..`w4` da consulta): esta lista lê o array
+ * `retidos` POR POSIÇÃO, então uma coluna a mais aqui leria `undefined` e uma a menos esconderia
+ * uma semana que o servidor mandou.
+ *
+ * O RÓTULO É "S+1" E NÃO "Semana 1" por causa da largura: a tabela tem cinco colunas e o cabeçalho
+ * não pode ser mais largo que a célula. O que a coluna significa fica no `title`, que é
+ * `detalhe`.
+ * @type {ReadonlyArray<{semana: number, rotulo: string, detalhe: string}>}
+ */
+export const COLUNAS_DE_RETENCAO = Object.freeze([
+    Object.freeze({ semana: 1, rotulo: 'S+1', detalhe: 'entraram na semana seguinte à do cadastro' }),
+    Object.freeze({ semana: 2, rotulo: 'S+2', detalhe: 'entraram na segunda semana após o cadastro' }),
+    Object.freeze({ semana: 3, rotulo: 'S+3', detalhe: 'entraram na terceira semana após o cadastro' }),
+    Object.freeze({ semana: 4, rotulo: 'S+4', detalhe: 'entraram na quarta semana após o cadastro' }),
+]);
+
+/** O texto de uma célula cuja semana ainda não terminou. */
+export const CELULA_ABERTA = 'ainda não';
+
+/**
+ * O rótulo de uma coorte: a semana em que aquelas contas nasceram.
+ *
+ * O SERVIDOR MANDA A SEGUNDA-FEIRA COMO 'AAAA-MM-DD', e o rótulo é montado à mão por
+ * {@link rotuloLongoDeDia} pela mesma razão dele: passar essa string por uma `Date` faria a
+ * semana recuar um dia para quem está a oeste de Greenwich, e a coorte passaria a ser nomeada
+ * pelo domingo anterior.
+ * @param {*} semana
+ * @returns {string} Vazio quando a semana não se resolve.
+ */
+export function rotuloDeCoorte(semana) {
+    const data = rotuloLongoDeDia(semana);
+    return data ? `Semana de ${data}` : '';
+}
+
+/**
+ * Uma célula da tabela, nos TRÊS estados que ela tem.
+ *
+ * OS TRÊS SÃO DIFERENTES E SÓ UM DELES É NÚMERO, e colapsá-los é o defeito desta seção:
+ *
+ *   - `null` é o contrato dizendo "esta semana ainda não terminou por inteiro". Ela ainda vai
+ *     crescer, então publicá-la como número final ensinaria a desconfiar da tabela quando o valor
+ *     mudasse na carga seguinte; e um ZERO ali se lê como abandono, que é a afirmação oposta.
+ *   - um número é a medida, e é PISO (ver {@link retencaoHint}).
+ *   - qualquer outra coisa (a posição que o servidor não mandou, lixo) é DESCONHECIDA e vira
+ *     travessão. Ela não pode virar "ainda não", que seria inventar o motivo do vazio.
+ * @param {*} valor
+ * @param {*} cadastrados
+ * @param {{semana: number, detalhe: string}} coluna
+ * @returns {{semana: number, texto: string, percentual: string|null, aberta: boolean, desconhecida: boolean, titulo: string}}
+ */
+export function celulaDeRetencao(valor, cadastrados, coluna) {
+    const quantas = numeroOuZero(cadastrados);
+    const detalhe = typeof coluna?.detalhe === 'string' ? coluna.detalhe : '';
+    const semana = typeof coluna?.semana === 'number' ? coluna.semana : 0;
+    if (valor === null) {
+        return {
+            semana,
+            texto: CELULA_ABERTA,
+            percentual: null,
+            aberta: true,
+            desconhecida: false,
+            titulo: 'Esta semana ainda não passou por inteiro, e o número só fecha quando ela '
+                + 'passa: publicá-lo agora seria mostrar um valor que ainda vai crescer.',
+        };
+    }
+    if (!numeroContavel(valor)) {
+        return {
+            semana,
+            texto: '—',
+            percentual: null,
+            aberta: false,
+            desconhecida: true,
+            titulo: 'O servidor não informou esta semana.',
+        };
+    }
+    return {
+        semana,
+        texto: `${numeroLabel(valor)} de ${numeroLabel(quantas)}`,
+        percentual: percentualLabel(valor, quantas),
+        aberta: false,
+        desconhecida: false,
+        titulo: `Pelo menos ${numeroLabel(valor)} de ${numeroLabel(quantas)}: ${detalhe}.`,
+    };
+}
+
+/**
+ * As linhas da tabela de retenção, da coorte mais antiga para a mais nova.
+ *
+ * A ORDEM É CRESCENTE de propósito, e é a que o servidor já devolve. A coorte mais antiga é a
+ * única com as quatro semanas fechadas, e é ela que serve de referência para ler as de cima;
+ * inverter a ordem poria no topo justamente a linha com mais células abertas, e a tabela se leria
+ * como um instrumento que não mede nada.
+ *
+ * SEMANA QUE NÃO SE RESOLVE SAI DA LISTA, e não vira linha sem rótulo: uma coorte que a tela não
+ * consegue nomear não tem como ser comparada com as outras.
+ * @param {*} semanas - o array `retencao.semanas` da resposta
+ * @returns {Array<{semana: string, rotulo: string, cadastrados: number, cadastradosTexto: string, celulas: Array<Object>}>}
+ */
+export function linhasDeRetencao(semanas) {
+    if (!Array.isArray(semanas)) return [];
+    return semanas
+        .filter((l) => objeto(l) && diaValido(l.semana))
+        .map((l) => {
+            const cadastrados = numeroOuZero(l.cadastrados);
+            const retidos = Array.isArray(l.retidos) ? l.retidos : [];
+            return {
+                semana: l.semana.trim(),
+                rotulo: rotuloDeCoorte(l.semana),
+                cadastrados,
+                cadastradosTexto: numeroLabel(l.cadastrados),
+                celulas: COLUNAS_DE_RETENCAO.map(
+                    (c, i) => celulaDeRetencao(retidos[i], cadastrados, c)
+                ),
+            };
+        })
+        // ISO de largura fixa ordena lexicograficamente na mesma ordem em que ordena
+        // cronologicamente, como na série diária.
+        .sort((a, b) => (a.semana < b.semana ? -1 : a.semana > b.semana ? 1 : 0));
+}
+
+/** @returns {string} */
+export function retencaoTitulo() {
+    return 'Retenção por semana de cadastro';
+}
+
+/** @param {*} janela @returns {string} */
+export function retencaoSubtitulo(janela) {
+    return `De quem criou conta em cada semana ${janelaEmPalavras(janela)}, quantos voltaram a `
+        + 'entrar nas quatro semanas seguintes';
+}
+
+/**
+ * A ressalva da tabela, e ela tem DUAS metades que não podem ser fundidas.
+ *
+ * A PRIMEIRA É O PISO, e ele NÃO vem de poda: `audit_trail` não é podada, então esta seção não
+ * tem horizonte nenhum a descontar. O que ela tem é o `LOGIN` best-effort: a linha da trilha é
+ * escrita fora do caminho da requisição, e uma falha ali some da conta. Dizer "piso" sem dizer de
+ * onde ele vem faria a pessoa procurar poda que não houve.
+ *
+ * A SEGUNDA É A ÂNCORA. A semana é contada a partir da SEGUNDA-FEIRA da coorte, e não do instante
+ * de cada cadastro, e sem isso "S+1" parece prometer sete dias corridos por pessoa.
+ * @returns {string}
+ */
+export function retencaoHint() {
+    return 'Cada célula é "pelo menos": o login é registrado em best-effort, então uma falha de '
+        + 'escrita da trilha some da conta. As semanas são contadas a partir da segunda-feira da '
+        + 'coorte, e não do instante de cada cadastro, para que a mesma célula signifique o mesmo '
+        + 'intervalo para todo mundo da linha.';
+}
+
+/**
+ * Se o servidor INFORMOU o bloco da retenção.
+ *
+ * O PISO DE RECONHECIMENTO É `semanas` SER UM ARRAY, e não o bloco existir: um `retencao` sem a
+ * lista não é uma coorte vazia, é uma resposta que esta tela não sabe ler. Ver
+ * {@link funilInformado} sobre por que a lista vazia e o bloco ausente não podem ter a mesma
+ * frase.
+ * @param {*} retencao
+ * @returns {boolean}
+ */
+export function retencaoInformada(retencao) {
+    return Array.isArray(objeto(retencao) ? retencao.semanas : undefined);
+}
+
+/**
+ * A frase da tabela que o servidor não informou. Nota de voz baixa, como a irmã do funil.
+ * @returns {string}
+ */
+export function retencaoNaoInformadaNotice() {
+    return 'O servidor não informou a retenção por semana de cadastro, então a tabela não é '
+        + 'desenhada aqui. É o que acontece com uma versão anterior do servidor, e não quer '
+        + 'dizer que ninguém tenha criado conta no período.';
+}
+
+/** @param {*} janela @returns {string} */
+export function retencaoVaziaNotice(janela) {
+    return `Nenhuma conta foi criada ${janelaEmPalavras(janela)}, então não há coorte para `
+        + 'acompanhar.';
+}
+
+/** @returns {string} */
+export function retencaoVaziaHint() {
+    return 'A primeira linha aparece na semana em que alguém criar conta.';
+}
+
+/** O cabeçalho da coluna que nomeia a coorte. @returns {string} */
+export function retencaoColunaCoorte() {
+    return 'Coorte';
+}
+
+/** O cabeçalho da coluna do tamanho da coorte. @returns {string} */
+export function retencaoColunaTamanho() {
+    return 'Contas';
 }

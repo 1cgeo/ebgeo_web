@@ -8,13 +8,15 @@
  *
  *  1. `>=`/`<` é a convenção que `audit.queries.js` já usa, e pelo mesmo motivo: um `<=` no
  *     fim faria a linha nascida exatamente na virada cair em dois baldes.
- *  2. O FIM DA JANELA É UM PARÂMETRO E NÃO `NOW()`. São cinco consultas em cinco idas ao
- *     banco, e com `NOW()` cada uma teria um fim próprio, alguns milissegundos à frente da
- *     anterior. O relatório deixaria de ser um retrato de um período e passaria a ser cinco
- *     retratos de cinco períodos quase iguais: a soma da série diária poderia divergir do
- *     total por uma operação que chegou no meio da leitura, e ninguém saberia dizer se a
- *     divergência é do relógio ou de um defeito de agregação. Com o fim fixado em JS as
- *     cinco respondem sobre o MESMO intervalo, e a igualdade vira invariante conferível.
+ *  2. O FIM DA JANELA É UM PARÂMETRO E NÃO `NOW()`. Cada consulta daqui é uma ida ao banco, e
+ *     com `NOW()` cada uma teria um fim próprio, alguns milissegundos à frente da anterior. O
+ *     relatório deixaria de ser um retrato de um período e passaria a ser um retrato por
+ *     consulta, de períodos quase iguais: a soma da série diária poderia divergir do total
+ *     por uma operação que chegou no meio da leitura, e ninguém saberia dizer se a
+ *     divergência é do relógio ou de um defeito de agregação. Com o fim fixado em JS todas
+ *     respondem sobre o MESMO intervalo, e a igualdade vira invariante conferível. (A
+ *     contagem de consultas morava nesta linha e envelheceu na primeira que se acrescentou;
+ *     o que vale é a propriedade, e a lista viva são os `export` deste arquivo.)
  *
  * NENHUMA CONSULTA AQUI TOCA TABELA DE RECURSO (catálogo, `sv360`, `a3d`) nem devolve id de
  * recurso: o que sai é contagem, nome de atlas e nome de dono. Por isso o módulo não tem
@@ -140,8 +142,7 @@ export const TOP_ATLAS = `
  * SEM `LIMIT`, ao contrário do ranking de atlas: `entity_type` é vocabulário FECHADO do
  * protocolo de sync (algumas dezenas de valores, não uma dimensão que cresce com o uso), e
  * cortar a cauda esconderia justamente o tipo raro. É também o que torna a soma desta lista
- * igual ao total da produção, propriedade que o serviço usa em vez de uma sexta ida ao
- * banco.
+ * igual ao total da produção, propriedade que o serviço usa em vez de mais uma ida ao banco.
  */
 export const PRODUCAO_POR_ENTIDADE = `
   SELECT entity_type AS entidade, COUNT(*) AS total
@@ -215,4 +216,199 @@ export const PRODUCAO_POR_DIA = `
     FROM dias d
     LEFT JOIN producao p ON p.dia = d.dia
    ORDER BY d.dia
+`;
+
+/**
+ * O FUNIL DE ENTRADA: de quem criou conta no período, quantos chegaram ao primeiro atlas e
+ * quantos chegaram à primeira edição.
+ *
+ * ELE É ANINHADO, E ISSO É A DECISÃO INTEIRA. `com_producao` sai de `com_atlas`, e não de
+ * `novos`: o terceiro passo é um SUBCONJUNTO do segundo, por construção. A alternativa
+ * (contar as duas etapas contra a coorte inteira) é a que se escreve sem pensar, e ela
+ * produz um número maior no passo 3 que no passo 2 assim que uma pessoa editar o atlas de
+ * outra sem nunca ter criado o seu, que é caso comum: `write` num atlas compartilhado é o
+ * modo normal de trabalhar aqui. O funil deixaria de ser monotônico e a conversão da tela
+ * passaria de 100% sem nada estar errado no dado. O preço, dito em voz alta: quem só edita
+ * atlas alheio não aparece no terceiro passo. É a leitura certa para a pergunta que o funil
+ * faz, que é se o cadastro leva à produção PRÓPRIA.
+ *
+ * O RECORTE DA JANELA É SÓ DA COORTE. `novos` é quem nasceu entre `$1` e `$2`; os passos 2 e
+ * 3 NÃO têm teto de tempo, porque a pergunta é "dos que entraram naquele período, quantos
+ * chegaram lá", e a conversão acontece depois. Em produção `$2` é agora, então não existe
+ * nada à direita dele e as duas leituras coincidem; o que muda é o SENTIDO, e ele precisa
+ * ser o do funil, senão a coorte da última semana pareceria a que menos converte só por ter
+ * tido menos tempo.
+ *
+ * OS DOIS PISOS DE TEMPO (`a.created_at >= n.created_at` e `o.created_at >= c.created_at`)
+ * existem para que a MEDIANA não possa ser negativa. O dono de um atlas pode mudar (a
+ * transferência obrigatória antes do hard-delete de conta reescreve `atlas.owner_id`), e sem
+ * o piso um atlas de 2024 adotado por uma conta de 2026 entraria como "criou o primeiro
+ * atlas dezessete mil horas ANTES de se cadastrar". Um negativo ali não quebra nada: sai na
+ * tela como se fosse medida.
+ *
+ * `o.created_at >= $1` É REDUNDANTE E É O QUE PAGA O ÍNDICE. Toda op que interessa é de uma
+ * conta nascida na janela e vem depois dela, logo já é `>= $1`; a cláusula não muda uma linha
+ * do resultado. O que ela muda é o PLANO: `operations` não tem índice em `user_id`
+ * (conferido em `004_sync.sql`), então sem uma constante de faixa o planejador varre a tabela
+ * inteira, e com ela usa o índice de `015_uso_indice_operations.sql` para se restringir à
+ * janela, que é a mesma leitura que as outras consultas deste módulo já fazem.
+ *
+ * MEDIDO em 2026-09-02 com `EXPLAIN (ANALYZE, BUFFERS)` sobre 100.000 operações, 2.000 contas
+ * e 1.500 atlas, janela de 90 dias, no schema real (mesmos índices):
+ *   sem a cláusula -> `Seq Scan on operations`, 100.000 linhas lidas, 10,35 ms
+ *   com a cláusula -> `Bitmap Index Scan on idx_operations_created`, 10.195 linhas, 2,52 ms
+ * É por isso que esta fase NÃO acrescenta migração nenhuma: o índice que resolve já existe, e
+ * o que faltava era dar ao planejador a constante com que usá-lo. Um índice em
+ * `operations(user_id)` também fecharia o caso, e seria pagar um `CREATE INDEX` com lock de
+ * escrita na maior tabela do sistema (ver o cabeçalho de `015_uso_indice_operations.sql`)
+ * para comprar o que uma linha de SQL já compra.
+ *
+ * `percentile_cont` SOBRE CONJUNTO VAZIO DEVOLVE NULL, e o `null` precisa sobreviver até o
+ * payload: zero hora é uma medida ("criou o atlas no mesmo instante"), e nenhuma medida é
+ * outra coisa. Quem preserva isso é `decimalOuNulo`; `inteiro()` NÃO serve aqui, porque ele
+ * devolveria 0.
+ */
+export const FUNIL_DE_ENTRADA = `
+  WITH novos AS (
+    SELECT id, created_at
+      FROM users
+     WHERE created_at >= $1 AND created_at < $2
+  ),
+  com_atlas AS (
+    SELECT n.id, n.created_at, MIN(a.created_at) AS em
+      FROM novos n
+      JOIN atlas a ON a.owner_id = n.id
+                  AND a.created_at >= n.created_at
+     GROUP BY n.id, n.created_at
+  ),
+  com_producao AS (
+    SELECT c.id, c.created_at, MIN(o.created_at) AS em
+      FROM com_atlas c
+      JOIN operations o ON o.user_id = c.id
+                       AND o.created_at >= c.created_at
+                       AND o.created_at >= $1
+     GROUP BY c.id, c.created_at
+  )
+  SELECT
+    (SELECT COUNT(*) FROM novos)        AS cadastraram,
+    (SELECT COUNT(*) FROM com_atlas)    AS criaram_atlas,
+    (SELECT COUNT(*) FROM com_producao) AS produziram,
+    (SELECT percentile_cont(0.5) WITHIN GROUP (
+              ORDER BY EXTRACT(EPOCH FROM (em - created_at)) / 3600.0)
+       FROM com_atlas)                  AS horas_ate_atlas,
+    (SELECT percentile_cont(0.5) WITHIN GROUP (
+              ORDER BY EXTRACT(EPOCH FROM (em - created_at)) / 3600.0)
+       FROM com_producao)               AS horas_ate_producao
+`;
+
+/**
+ * A COORTE DE RETENÇÃO: de quem criou conta em cada semana do período, quantos voltaram a
+ * entrar na semana seguinte, na segunda, na terceira e na quarta.
+ *
+ * A ÂNCORA É A SEMANA DA COORTE, NUNCA O INSTANTE DE CADA CADASTRO, e essa escolha decide se
+ * a tabela pode ser lida. `date_trunc('week', …)` do Postgres corta na SEGUNDA (semana ISO),
+ * e a janela "S+1" de uma coorte é `[semana + 7d, semana + 14d)` para todos os membros dela.
+ * A alternativa por pessoa (de 7 a 13 dias depois DAQUELE cadastro) é mais precisa e é
+ * impossível de rotular: os membros da mesma coorte atravessariam a fronteira em dias
+ * diferentes, então a célula estaria fechada para uns e aberta para outros, e nenhuma frase
+ * honesta cabe num número assim. Com a âncora comum, a célula ou está inteira no passado ou
+ * não está, e é isso que `semanas_completas` decide.
+ *
+ * `semanas_completas` É ARITMÉTICA, E NÃO QUATRO BOOLEANOS, e ela é calculada AQUI e não em
+ * JS por uma razão de fuso: `semana` viaja como a string 'AAAA-MM-DD' do contrato (mesma
+ * decisão de `PRODUCAO_POR_DIA`, pelo mesmo motivo), e refazer a fronteira a partir daquela
+ * string do outro lado exigiria adivinhar o fuso do servidor. A célula `n` está fechada quando
+ * `semana + 7*(n+1) dias <= $2`, e o par `LEAST`/`GREATEST` prende o resultado entre 0 e 4.
+ *
+ * TUDO AQUI CONTA SEMANA DE CALENDÁRIO, E NADA CONTA 604800 SEGUNDOS, e essa é a correção que
+ * a primeira versão não tinha. A faixa do `JOIN` sempre foi de calendário, porque somar
+ * `interval '7 days'` a um `timestamptz` no Postgres preserva a hora local e portanto atravessa
+ * o horário de verão como a pessoa o vive; o `n` daquela versão vinha de
+ * `EXTRACT(EPOCH …) / 604800`, que são 168 horas EXATAS. Nas semanas em que o relógio anda uma
+ * hora, as duas grades divergem: um login perto da fronteira entra na faixa por calendário e é
+ * classificado no `n` anterior, ou seja, cai numa célula onde não pertence, ou some das quatro.
+ * Não há fuso com horário de verão em produção HOJE, o que torna o defeito invisível e não o
+ * torna inexistente: `TZ` é do ambiente, não do código. A grade única é `date_trunc('week', …)`
+ * dos dois lados, subtraída como DATA (`::date`), porque `date - date` devolve um inteiro de
+ * dias e a diferença entre duas segundas-feiras locais é múltipla de sete em qualquer regime.
+ * Dividir INTERVALO por intervalo não é opção: o Postgres não define o operador.
+ *
+ * CÉLULA ABERTA É `null` NO PAYLOAD, E NUNCA ZERO. Uma semana que ainda corre subconta por
+ * construção, e um zero ali se lê como abandono, que é a afirmação oposta à verdadeira. É a
+ * mesma armadilha do buraco na série diária, pelo outro lado.
+ *
+ * SEMANA SEM CADASTRO NÃO VIRA LINHA, e isso é o AVESSO do preenchimento de dias. Lá o zero é
+ * fato ("ninguém produziu naquele dia"); aqui não há coorte, e uma linha de denominador zero
+ * não tem retenção nenhuma para mostrar, porque 0 de 0 não é 0%.
+ *
+ * `a.created_at >= $1` É REDUNDANTE E PAGA O ÍNDICE, como no funil: `semana` é no máximo a
+ * segunda-feira anterior ao cadastro, então `semana + 7d` é sempre posterior a `$1`, e a
+ * cláusula não muda uma linha do resultado. A intuição diz que aqui ela é só folga, porque
+ * `idx_audit_actor` existe e a coorte é pequena; a MEDIÇÃO diz o contrário, e é por isso que
+ * ela fica: em 2026-09-02, com 100.000 linhas de trilha e 2.000 contas, o planejador escolheu
+ * `Bitmap Index Scan on idx_audit_created` (9.836 linhas, 3,54 ms no total da consulta), ou
+ * seja, é a faixa de tempo que ele usa e não o ator. Palpite sobre plano não substitui
+ * `EXPLAIN`.
+ *
+ * O `DISTINCT` DE `retencao` É O QUE FAZ A CONTA SER DE PESSOAS: três logins da mesma pessoa
+ * na mesma semana são uma linha só. O `COUNT(r.id) FILTER (…)` sobre ela conta contas
+ * distintas, e o `LEFT JOIN` mantém com zero a coorte que não teve nenhum retorno, em vez de
+ * sumir com a linha.
+ *
+ * A SEMANA ZERO É EXCLUÍDA DUAS VEZES, e saber disso é o que impede uma "simplificação" de
+ * parecer segura. O login dentro da PRÓPRIA semana do cadastro não é retorno, e quem o barra
+ * é o `>= c.semana + interval '7 days'` E o `FILTER (WHERE r.n = 1)`, cada um sozinho já
+ * bastando. Medido revertendo: tirar UMA das duas deixa a suíte verde, e só tirar as DUAS
+ * muda o número (a célula S+1 do teste vai de 2 para 4). A consequência prática é que nenhuma
+ * das duas serve como controle negativo sozinha, e é por isso que
+ * `tests/integration/uso-funil-e-retencao.test.js` declara a redundância em vez de fingir uma
+ * guarda única.
+ *
+ * A ORDEM AQUI É DECRESCENTE E A DA TELA É CRESCENTE, e a inversão é deliberada: quem reverte
+ * é o serviço, e o `ORDER BY` existe para escolher QUEM O `LIMIT` CORTA. Com `ASC` o corte
+ * apaga a coorte mais RECENTE, que é a que a pessoa está olhando e a única que ela não tem como
+ * suspeitar que falta; com `DESC` ele apaga a mais antiga, que é a que já rendeu o que tinha a
+ * render. O teto não deveria morder nunca (ver `MAX_SEMANAS_DE_COORTE`), e é por isso mesmo que
+ * a escolha precisa estar certa: um corte que nunca acontece é um corte que ninguém vai depurar
+ * no dia em que acontecer.
+ *
+ * O NÚMERO É UM PISO, e a razão NÃO é poda: `audit_trail` não é podada. É o `LOGIN` ser
+ * best-effort (ver `PESSOAS`), então uma falha de escrita da trilha some da conta. A tela diz
+ * "pelo menos" por causa disto, e não por causa do horizonte.
+ */
+export const COORTE_DE_RETENCAO = `
+  WITH coortes AS (
+    SELECT date_trunc('week', created_at) AS semana, id
+      FROM users
+     WHERE created_at >= $1 AND created_at < $2
+  ),
+  tamanho AS (
+    SELECT semana, COUNT(*) AS cadastrados
+      FROM coortes
+     GROUP BY semana
+  ),
+  retencao AS (
+    SELECT DISTINCT c.semana, c.id,
+           ((date_trunc('week', a.created_at)::date - c.semana::date) / 7)::int AS n
+      FROM coortes c
+      JOIN audit_trail a ON a.actor_id = c.id
+                        AND a.action = 'LOGIN'
+                        AND a.created_at >= c.semana + interval '7 days'
+                        AND a.created_at <  c.semana + interval '35 days'
+                        AND a.created_at >= $1
+  )
+  SELECT to_char(t.semana, 'YYYY-MM-DD') AS semana,
+         t.cadastrados,
+         COUNT(r.id) FILTER (WHERE r.n = 1) AS w1,
+         COUNT(r.id) FILTER (WHERE r.n = 2) AS w2,
+         COUNT(r.id) FILTER (WHERE r.n = 3) AS w3,
+         COUNT(r.id) FILTER (WHERE r.n = 4) AS w4,
+         LEAST(4, GREATEST(0,
+           ((date_trunc('week', $2::timestamptz)::date - t.semana::date) / 7)::int - 1
+         )) AS semanas_completas
+    FROM tamanho t
+    LEFT JOIN retencao r ON r.semana = t.semana
+   GROUP BY t.semana, t.cadastrados
+   ORDER BY t.semana DESC
+   LIMIT $3
 `;
