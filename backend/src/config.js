@@ -40,6 +40,38 @@ function optionalInt(key) {
 const nodeEnv = optional('NODE_ENV', 'development');
 
 /**
+ * O teto do identificador de build. Ver `parseRelease`.
+ *
+ * 100 é o MESMO teto que `erroDeClienteSchema` (`src/modules/diag/diag.schemas.js`) impõe
+ * ao `release` que o navegador relata, e a coincidência é o ponto: os dois lados da
+ * telemetria acabam na mesma coluna `client_errors.release`, então um teto maior aqui
+ * produziria um valor de servidor que o valor de cliente nunca poderia igualar.
+ */
+export const TETO_DO_RELEASE = 100;
+
+/**
+ * O identificador da BUILD implantada (`EBGEO_RELEASE`), ou `undefined`.
+ *
+ * AUSENTE É UM ESTADO LEGÍTIMO, e é o de todo desenvolvimento: quem roda `npm run dev` não
+ * tem imagem, não tem build e não tem hash de deploy. Por isso não há default. Um default
+ * (a versão do `package.json`, por exemplo) seria a pior das opções: ele é CONSTANTE entre
+ * deploys, então carimbaria toda linha de log com um valor que não distingue nada e ainda
+ * faria a ausência de release parecer resolvida.
+ *
+ * O CORTE É SILENCIOSO, e é escolha: este valor não decide comportamento nenhum, só rotula
+ * evidência, e derrubar o boot do servidor por causa de um rótulo longo demais trocaria uma
+ * etiqueta truncada por uma indisponibilidade.
+ *
+ * @param {unknown} bruto - o valor cru da variável de ambiente.
+ * @returns {string|undefined} o valor limpo, ou `undefined` quando não há nenhum.
+ */
+export function parseRelease(bruto) {
+  if (typeof bruto !== 'string') return undefined;
+  const limpo = bruto.trim();
+  return limpo === '' ? undefined : limpo.slice(0, TETO_DO_RELEASE);
+}
+
+/**
  * Resolves whether self-registration (`POST /auth/register`) is enabled.
  * Pure helper (testable in isolation). Default: disabled in production,
  * enabled in development/test so the existing suite and local dev keep working.
@@ -86,6 +118,17 @@ const config = Object.freeze({
   port: parseInt(optional('PORT', '3000'), 10),
   nodeEnv,
   logLevel: optional('LOG_LEVEL', 'info'),
+
+  /**
+   * QUAL BUILD ESTÁ NO AR (`EBGEO_RELEASE`), ou `undefined`. Ver `parseRelease`.
+   *
+   * Ele é carimbado pela construção da IMAGEM (`ARG EBGEO_RELEASE` no `Dockerfile`) e vale
+   * o hash do commit implantado. Sem ele, "isto foi corrigido no deploy seguinte" é uma
+   * pergunta que o log não responde: duas linhas idênticas de dois deploys diferentes são
+   * indistinguíveis, e a primeira coisa que se quer saber diante de um erro que voltou é se
+   * ele voltou na MESMA build.
+   */
+  release: parseRelease(process.env.EBGEO_RELEASE),
 
   /**
    * O log em ARQUIVO (`src/utils/log-diario.js`), que é o que faz a evidência sobreviver à

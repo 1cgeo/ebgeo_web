@@ -55,7 +55,11 @@ export default [
                 // NÃO é substituído (é nome de propriedade, não identificador), então quem o lê o lê
                 // sempre por identificador nu, atrás de um `typeof` — fora do bundle (vitest em node)
                 // ele simplesmente não existe.
-                __APP_VERSION__: 'readonly'
+                __APP_VERSION__: 'readonly',
+                // Mesmo mecanismo, outro carimbo: o commit curto do HEAD no momento do build, para
+                // que `release` distinga dois deploys da mesma `version`. Lido só por
+                // `versaoDoBuild` (`src/js/session/erro-telemetria.js`), atrás de `typeof`.
+                __APP_RELEASE__: 'readonly'
             }
         },
 

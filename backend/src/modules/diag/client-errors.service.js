@@ -158,6 +158,14 @@ export async function registrarErroDeCliente(relato, userId, opcoesDePoda) {
     vazioVirando(relato.release),
     userId ?? null,
     vazioVirando(relato.atlasId),
+    vazioVirando(relato.sessaoId),
+    vazioVirando(relato.stackBruta),
+    vazioVirando(relato.origem),
+    // O JSONB vai como OBJETO, não como texto: o pg-promise serializa objeto para JSON, e
+    // um `JSON.stringify` aqui gravaria a STRING JSON dentro do JSONB (aspas e escapes
+    // inclusive), que lê como um valor plausível e quebra toda consulta por chave. O
+    // `vazioVirando` continua servindo porque o cliente pode mandar o campo ausente.
+    vazioVirando(relato.contexto),
   ]);
 
   await talvezPodar(opcoesDePoda);
@@ -199,6 +207,15 @@ export async function listarErrosDeCliente({ desde, limite }) {
       userId: l.user_id,
       username: l.username,
       atlasId: l.atlas_id,
+      // As quatro de `017_erro_cliente_identidade.sql`. Elas saem SEMPRE, com `null` quando
+      // o relato não as trouxe, ao contrário do que a metade A faz com `enderecos`: ali a
+      // chave ausente distingue "servidor antigo" de "zero endereços", e aqui não há esse
+      // segundo estado — a coluna existe para toda linha, e `null` significa exatamente uma
+      // coisa, que é "o cliente não declarou".
+      sessaoId: l.sessao_id,
+      stackBruta: l.stack_bruta,
+      origem: l.origem,
+      contexto: l.contexto,
       ocorrencias: l.ocorrencias,
       // Epoch ms, como toda data desta família de rotas: a metade A carimba `primeira` e
       // `ultima` assim (é o `time` do pino), e duas unidades de tempo na mesma tela é

@@ -18,6 +18,19 @@
  * they default to the global `fetch` and a same-origin `/api/v1` base.
  */
 
+// Módulo FOLHA de zero imports: o id desta aba, para o cabeçalho `X-EBGeo-Sessao`.
+// Ele NÃO é o `generateUUID()` da casa, e o motivo está no `fileoverview` dele: aquele
+// chama `crypto.getRandomValues` sem guarda e lança em contexto não seguro, o que este
+// caminho (todo pedido REST das quatro páginas) não pode pagar.
+//
+// CAMINHO RELATIVO DE PROPÓSITO, e não o alias `@js/`: este arquivo é importado em NODE
+// pelos helpers do Playwright (`tests/e2e-ui/helpers/collab-helpers.js` e
+// `collab.fixtures.js`), onde nenhum alias do Vite existe. Com o alias, toda spec de UI
+// morria em "Cannot find package '@js/session'" antes de abrir o navegador, e a suíte do
+// vitest não pegava porque ela resolve o alias. É a única razão de este import destoar dos
+// irmãos deste lote.
+import { sessaoId } from '../../session/sessao-id.js';
+
 const DEFAULT_BASE_URL = '/api/v1';
 
 /**
@@ -667,6 +680,17 @@ export class ApiClient {
         const headers = {};
         if (body !== undefined) headers['Content-Type'] = 'application/json';
         if (auth && this._accessToken) headers['Authorization'] = `Bearer ${this._accessToken}`;
+        // O ID DESTA ABA, em TODO pedido, autenticado ou não. Ele costura a linha do log do
+        // servidor com o relato de erro do navegador (que manda o mesmo valor no corpo), que é o
+        // que transforma "um 500 aconteceu" e "um erro de tela aconteceu" em UM incidente. Não é
+        // credencial e não autoriza nada: quem é a pessoa continua sendo assunto do token.
+        // O `try` é porque um único cabeçalho não pode custar o pedido: `sessaoId()` já degrada
+        // sozinho para um id de memória, mas o caminho é o de todo pedido REST do produto.
+        try {
+            headers['X-EBGeo-Sessao'] = sessaoId();
+        } catch {
+            // Sem id: o pedido segue igual.
+        }
 
         // Boot-critical requests (config + session restore) pass a `timeoutMs` so a hung backend
         // can't block boot (P1), and so does the logout revoke (LOGOUT_TIMEOUT_MS), which carries

@@ -16,11 +16,23 @@
  *
  * `mensagem` é a exceção e sobrescreve sempre: ela é NOT NULL, então "vazia" não é um
  * estado possível, e a mais recente é a que corresponde ao `stack` e à `url` recém-gravados.
+ *
+ * `stack_bruta` É A SEGUNDA EXCEÇÃO, E ELA VAI NA DIREÇÃO CONTRÁRIA: o argumento da ordem
+ * está invertido (`COALESCE(client_errors.stack_bruta, EXCLUDED.stack_bruta)`), de modo que
+ * o PRIMEIRO valor não-nulo é o que fica para sempre. O motivo é o `release`: a pilha crua
+ * carrega o hash do bundle, e só faz sentido lida contra a build que a produziu. Como
+ * `release` segue a regra normal (o relato NOVO vence), deixar a pilha crua também seguir
+ * faria as duas colunas descreverem builds DIFERENTES na mesma linha — uma pilha de um
+ * bundle apontando linhas de outro é pior que pilha nenhuma, porque parece endereço. Fixada
+ * na primeira, a linha responde "onde isto quebrou quando foi visto pela primeira vez", que
+ * é uma pergunta que ela pode responder inteira. Guarda:
+ * `tests/integration/diag-erro-de-cliente-identidade.test.js`.
  */
 export const UPSERT_CLIENT_ERROR = `
   INSERT INTO client_errors
-    (assinatura, mensagem, stack, url, pagina, user_agent, release, user_id, atlas_id)
-  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    (assinatura, mensagem, stack, url, pagina, user_agent, release, user_id, atlas_id,
+     sessao_id, stack_bruta, origem, contexto)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
   ON CONFLICT (assinatura) DO UPDATE SET
     ocorrencias = client_errors.ocorrencias + 1,
     ultima_em   = NOW(),
@@ -31,7 +43,11 @@ export const UPSERT_CLIENT_ERROR = `
     user_agent  = COALESCE(EXCLUDED.user_agent, client_errors.user_agent),
     release     = COALESCE(EXCLUDED.release, client_errors.release),
     user_id     = COALESCE(EXCLUDED.user_id, client_errors.user_id),
-    atlas_id    = COALESCE(EXCLUDED.atlas_id, client_errors.atlas_id)
+    atlas_id    = COALESCE(EXCLUDED.atlas_id, client_errors.atlas_id),
+    sessao_id   = COALESCE(EXCLUDED.sessao_id, client_errors.sessao_id),
+    stack_bruta = COALESCE(client_errors.stack_bruta, EXCLUDED.stack_bruta),
+    origem      = COALESCE(EXCLUDED.origem, client_errors.origem),
+    contexto    = COALESCE(EXCLUDED.contexto, client_errors.contexto)
 `;
 
 /**
@@ -60,6 +76,7 @@ export const UPSERT_CLIENT_ERROR = `
 export const LIST_CLIENT_ERRORS = `
   SELECT ce.id, ce.assinatura, ce.mensagem, ce.stack, ce.url, ce.pagina,
          ce.user_agent, ce.release, ce.user_id, u.username, ce.atlas_id,
+         ce.sessao_id, ce.stack_bruta, ce.origem, ce.contexto,
          ce.ocorrencias, ce.primeira_em, ce.ultima_em,
          (SELECT COUNT(*)::int FROM client_errors WHERE ultima_em >= $1) AS total_assinaturas
     FROM client_errors ce

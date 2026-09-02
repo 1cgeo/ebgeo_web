@@ -29,6 +29,22 @@ FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 
+# WHICH BUILD IS RUNNING. Passed at build time (`docker build --build-arg
+# EBGEO_RELEASE=$(git rev-parse --short HEAD)`) and baked into the image, because the
+# commit hash is a property of the BUILD and not of the host that runs it: an env var set
+# in the compose file would drift from the image the moment someone redeploys the same
+# stack with a new tag. It reaches every `.jsonl` line through pino's `base`
+# (`src/utils/logger.js`) and the payload of `GET /api/v1/diag/status`, which is behind
+# `requireAdmin`. It is deliberately NOT in `GET /api/v1/health`: that route carries no
+# credential, and the deployed commit names the exact code that is running.
+#
+# UNSET IS FINE AND STAYS FINE: with no `--build-arg`, `EBGEO_RELEASE` expands to the empty
+# string, which `parseRelease` (`src/config.js`) reads as absent — no field is stamped
+# anywhere. That is the honest outcome for an image built without the argument, and it is
+# why nothing here invents a fallback.
+ARG EBGEO_RELEASE
+ENV EBGEO_RELEASE=$EBGEO_RELEASE
+
 # Non-root user for runtime
 RUN groupadd --system --gid 1001 ebgeo \
   && useradd --system --uid 1001 --gid ebgeo ebgeo

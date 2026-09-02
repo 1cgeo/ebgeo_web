@@ -159,6 +159,13 @@ function metadados(j) {
  * trezentos?"), porque um exemplo não distingue um cliente de trezentos. Quem responde é a
  * AGREGAÇÃO por grupo (`enderecos`, cunhada em `agruparErros`), e é só ela que atravessa.
  *
+ * A SESSÃO DO NAVEGADOR (`sessaoId`) SEGUE A MESMA REGRA DO ENDEREÇO, e por isso também
+ * fica de fora deste recorte. O registro fundido a carrega (é o que liga o erro do servidor
+ * ao erro que o navegador relatou na mesma aba), mas o `exemplo` é a ocorrência mais
+ * RECENTE: publicar UMA sessão sobre um grupo de mil se lê como "foi esta aba", quando a
+ * pergunta que interessa é se o pico veio de uma aba ou de trezentas. O recorte é uma
+ * ALLOWLIST justamente para que campo novo na linha de log não vaze para cá por omissão.
+ *
  * A AUSÊNCIA DO CAMPO É UM ESTADO QUE O CLIENTE LÊ, distinto de zero endereços distintos, e
  * é por isso que a chave só nasce quando o agregador a produziu. Um `enderecos: undefined`
  * escrito sempre some do JSON e sobrevive como CHAVE no objeto, o que faria a resposta e o

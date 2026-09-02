@@ -56,25 +56,43 @@ export function requestErrorLogPayload(err, req) {
   // string crua. Ali não há pilha para tirar nem nada que se possa apagar.
   if (!comPilha && erro !== null && typeof erro === 'object') delete erro.stack;
 
+  const campos = {
+    err: erro,
+    // O mesmo id que `request-logger.js` carimba na linha de requisição. É o que permite a
+    // `scripts/diag.js` fundir as DUAS linhas que uma requisição falha produz, em vez de
+    // contar o mesmo erro duas vezes em duas assinaturas diferentes. Ausente quando a
+    // falha precede o logger de requisição (corpo malformado), e ali a fusão não é
+    // necessária porque a outra linha não existe.
+    reqId: req?.id,
+    method: req?.method,
+    // `originalUrl` pela mesma razão de `request-logger.js`: aqui a pilha de routers está
+    // ainda mais garantidamente em pé (o erro veio de dentro dela), então `req.url` é o
+    // caminho relativo ao mount, e as duas linhas da MESMA requisição sairiam com URLs
+    // diferentes, o oposto do que o `reqId` acima existe para permitir.
+    url: redactUrl(req?.originalUrl || req?.url),
+    userId: req?.user?.id,
+  };
+
+  // A SESSÃO DO NAVEGADOR, quando ela existe. `req.sessaoId` já vem validado por
+  // `sessaoDaRequisicao` (`middleware/request-logger.js`), então aqui não há segunda
+  // gramática: esta linha ECOA, e é isso que impede as duas linhas da mesma requisição de
+  // divergirem sobre quem a fez.
+  //
+  // O ECO É O QUE FAZ O CAMPO SOBREVIVER À FUSÃO. `fundirPorRequisicao`
+  // (`utils/diag-consulta.js`) fica com o registro que carrega `err`, ou seja, com ESTA
+  // linha; sem o eco, o `sessaoId` da linha de requisição seria descartado junto com ela em
+  // todo erro de rota. (A fusão também o copia da outra linha, e as duas metades são de
+  // propósito: esta cobre o relatório que não funde, aquela cobre a linha antiga.)
+  //
+  // Chave só quando há valor, nunca `sessaoId: null`: o mesmo motivo escrito em
+  // `requestLogPayload`. O vão declarado é o de sempre, o mesmo do `reqId`: falha ANTERIOR
+  // ao logger de requisição não tem `req.sessaoId`, porque ninguém leu o cabeçalho ainda.
+  if (req?.sessaoId) campos.sessaoId = req.sessaoId;
+
   return {
     nivel: comPilha ? 'error' : 'warn',
     statusRegistrado,
-    campos: {
-      err: erro,
-      // O mesmo id que `request-logger.js` carimba na linha de requisição. É o que permite a
-      // `scripts/diag.js` fundir as DUAS linhas que uma requisição falha produz, em vez de
-      // contar o mesmo erro duas vezes em duas assinaturas diferentes. Ausente quando a
-      // falha precede o logger de requisição (corpo malformado), e ali a fusão não é
-      // necessária porque a outra linha não existe.
-      reqId: req?.id,
-      method: req?.method,
-      // `originalUrl` pela mesma razão de `request-logger.js`: aqui a pilha de routers está
-      // ainda mais garantidamente em pé (o erro veio de dentro dela), então `req.url` é o
-      // caminho relativo ao mount, e as duas linhas da MESMA requisição sairiam com URLs
-      // diferentes, o oposto do que o `reqId` acima existe para permitir.
-      url: redactUrl(req?.originalUrl || req?.url),
-      userId: req?.user?.id,
-    },
+    campos,
     mensagem: 'Request error',
   };
 }

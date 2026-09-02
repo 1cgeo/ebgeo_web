@@ -85,6 +85,8 @@ import {
     layerLoadFailureCauseNotice, layerLoadFailureStatusDetail,
     loadFailureHeadline, layerNoticeRegionLabel,
 } from './data-layer-phrases.js';
+import { relatarErro } from '@js/session/erro-telemetria.js';
+import { origemDeSuperficie } from '@js/session/origens-de-erro.js';
 
 /**
  * How long failures are collected before the notice is drawn.
@@ -216,6 +218,19 @@ export class LayerFailureNotice {
 
     /**
      * Records ONE failure against ONE layer, however many requests produced it.
+     *
+     * THIS IS ALSO THE ONE PLACE THAT REPORTS A SURFACE FAILURE TO THE ERROR TELEMETRY, and it is
+     * the only one on purpose. The 3D and 360 viewers report THROUGH here
+     * (`createLoaderFailureSurface` ends in this call), so a second `relatarErro` inside
+     * `model3d-failure.js` or `photo360-failure.js` would send TWO reports with TWO signatures for
+     * ONE failure, spending twice the session's budget of twenty. Which door a `kind` belongs to is
+     * `origemDeSuperficie` (`session/origens-de-erro.js`), which answers MAPLIBRE for every surface
+     * the map itself fetches.
+     *
+     * WHAT TRAVELS IS `layerId` AND NEVER `entry.name`. The id is ours (a config key, a tileset id,
+     * a photo id); the NAME is a human label that can be typed by a person, and telemetry is the
+     * kind of data that ends up in a log, a report and an e-mail attachment. The de-dup by
+     * signature also collapses the burst: dozens of failed tiles of one layer are one report.
      * @param {string} kind - Surface key, or {@link BASEMAP_SURFACE}.
      * @param {string} layerId
      * @param {*} [status] - HTTP status, when a response arrived at all.
@@ -229,6 +244,14 @@ export class LayerFailureNotice {
         // request) is NOT a response and must not be recorded as one.
         if (Number.isInteger(code) && code >= 100 && code <= 599) entry.statuses.add(code);
         this._failures.set(key, entry);
+        // O `layerId` ENTRA NA MENSAGEM, e portanto na assinatura, de propósito: sem ele duas
+        // camadas diferentes da mesma superfície viravam UM relato só, e a segunda sumia como
+        // duplicata. A cardinalidade é limitada e conhecida (id de catálogo, id de tileset, id de
+        // foto), então isto não abre a porta para um grupo por tile.
+        relatarErro(`Superfície do mapa não carregou: ${kind} ${layerId}`, {
+            origem: origemDeSuperficie(kind),
+            contexto: { camada: layerId, status: code },
+        });
         // Already named on screen: a second failed tile of the same layer is the same news.
         if (this._announced.has(key)) return;
         this._scheduleNotice();

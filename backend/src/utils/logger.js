@@ -1,4 +1,5 @@
 // Path: src/utils/logger.js
+import os from 'node:os';
 import pino from 'pino';
 import pretty from 'pino-pretty';
 import config from '../config.js';
@@ -218,6 +219,31 @@ export function errSerializer(err) {
  */
 let destinoDiario = null;
 
+/**
+ * O `base` do pino: os campos que TODA linha carrega, sem ninguém precisar lembrar deles.
+ *
+ * POR QUE `base` E NÃO UM CAMPO EM CADA PAYLOAD. Os produtores de linha desta casa são
+ * muitos e nascem em lugares que não se conhecem (`requestLogPayload`, o `errorHandler`, a
+ * amostra de saúde, `payloadDeQueda`, o hook do banco, o limitador), e um rótulo de build
+ * que precise ser lembrado em cada um deles é um rótulo que vai faltar justamente na linha
+ * nova. Pelo `base` ele viaja em todas, inclusive nas que ainda não existem — a amostra de
+ * saúde ganha `release` sem uma linha de fiação, e é isso que o teste dela assere.
+ *
+ * ELE DEVOLVE `undefined` QUANDO NÃO HÁ RELEASE, e o chamador OMITE a opção em vez de
+ * passá-la: o default do pino é `{ pid, hostname }`, e escrever `base: { release }` sem os
+ * dois apagaria da linha o pid e o hostname, que é uma perda silenciosa num arquivo onde o
+ * hostname é o que separa duas instâncias. Escrever `release: undefined` seria pior ainda:
+ * o campo some do JSON e sobrevive como chave, de modo que o objeto e a linha discordariam
+ * sobre o que existe.
+ *
+ * @param {string|undefined} release - `config.release`.
+ * @returns {{pid: number, hostname: string, release: string}|undefined}
+ */
+export function baseDoLogger(release) {
+  if (typeof release !== 'string' || release === '') return undefined;
+  return { pid: process.pid, hostname: os.hostname(), release };
+}
+
 function montarDestinos() {
   const destinos = [];
 
@@ -240,9 +266,15 @@ function montarDestinos() {
 
 const destinos = montarDestinos();
 
+const base = baseDoLogger(config.release);
+
 const logger = pino({
   level: config.isTest ? 'silent' : config.logLevel,
   serializers: { err: errSerializer },
+  // A opção só existe quando há release: ver `baseDoLogger`. `Object.assign` copia chave
+  // com valor `undefined`, então passar `base: undefined` NÃO cairia no default do pino,
+  // apagaria pid e hostname de toda linha.
+  ...(base ? { base } : {}),
   // Defense in depth for shapes the serializer never sees: anything logged directly
   // as a field rather than nested inside `err`.
   //

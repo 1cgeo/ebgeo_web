@@ -168,6 +168,11 @@ export function createApp() {
           timer.unref?.();
         }),
       ]);
+      // O PAYLOAD É `{ status: 'ok' }` E NADA MAIS, e a ausência aqui é decisão, não
+      // esquecimento: esta rota não tem credencial nenhuma, e o commit implantado é
+      // informação de ADMINISTRADOR (ele nomeia a versão exata do código no ar, que é meio
+      // caminho para quem procura vulnerabilidade conhecida). Quem precisa saber qual build
+      // está rodando pergunta a `GET /api/v1/diag/status`, atrás de `auth` + `requireAdmin`.
       res.json({ status: 'ok' });
     } catch {
       res.status(503).json({

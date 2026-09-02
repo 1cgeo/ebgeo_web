@@ -25,8 +25,28 @@ export const lento = asyncHandler(async (req, res) => {
   res.json({ data: await diagService.lento({ diretorio: diretorio(), desde, limite }) });
 });
 
+/**
+ * O pulso do serviço, MAIS a build que está no ar.
+ *
+ * POR QUE O `release` ENTRA AQUI E NÃO NO `/health`. O commit implantado nomeia a versão exata
+ * do código rodando, e o `/health` não tem credencial nenhuma: publicá-lo lá seria entregar
+ * essa informação a quem só sabe o endereço do servidor. Esta rota já é `auth` + `requireAdmin`
+ * (`diag.routes.js`), e o administrador é justamente quem precisa dela — a primeira pergunta
+ * diante de um erro que voltou é se ele voltou na MESMA build, e a resposta tem de estar ao
+ * lado das contagens que ele acabou de ler.
+ *
+ * POR QUE NO CONTROLLER E NÃO NO SERVIÇO. `diag.service.js` não importa `config`, e a ausência
+ * é declarada no `fileoverview` dele: é o que o mantém exercível em node sem `DATABASE_URL` nem
+ * `JWT_SECRET`. Ler a env aqui é a mesma decisão (e o mesmo lugar) do `diretorio()` acima.
+ *
+ * `?? null` E NUNCA A CHAVE AUSENTE: aqui o `null` significa uma coisa só, "esta instalação não
+ * declarou release", e a tela precisa poder dizer isso em voz alta em vez de calar. É o oposto
+ * da regra do `enderecos` no relatório de erros, onde a chave ausente distingue servidor antigo
+ * de zero endereços.
+ */
 export const status = asyncHandler(async (req, res) => {
-  res.json({ data: await diagService.status({ diretorio: diretorio(), desde: req.query.desde }) });
+  const dados = await diagService.status({ diretorio: diretorio(), desde: req.query.desde });
+  res.json({ data: { ...dados, release: config.release ?? null } });
 });
 
 /**

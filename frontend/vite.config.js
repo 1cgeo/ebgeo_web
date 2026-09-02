@@ -3,8 +3,84 @@ import { defineConfig } from 'vite';
 import legacy from '@vitejs/plugin-legacy';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { execSync } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * O commit curto do HEAD, ou string vazia.
+ *
+ * POR QUE O COMMIT E NÃO SÓ A VERSÃO: `__APP_VERSION__` vem do `version` do `package.json` e muda
+ * uma vez por lançamento, então dez builds seguidos se dizem `1.0.0`. A pergunta que um relato de
+ * erro precisa responder é "de QUAL build veio isto", e entre dois builds da mesma versão só o
+ * commit responde. Ele é lido no momento de montar a configuração, uma vez, porque um `execSync`
+ * por chunk custaria um processo por arquivo emitido.
+ *
+ * O `try/catch` NÃO É ZELO: build a partir de um tarball, de uma imagem de container sem o `.git`,
+ * ou numa máquina sem `git` no PATH são os três casos normais em que o comando não existe ou
+ * falha. O desfecho é um carimbo sem hash (`1.0.0`), nunca um build que não acontece: o `stderr`
+ * vai para `ignore` para que o "not a git repository" não polua a saída de quem só quer compilar.
+ * @returns {string}
+ */
+function commitDoBuild() {
+  try {
+    return execSync('git rev-parse --short HEAD', {
+      cwd: __dirname,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return '';
+  }
+}
+
+const APP_VERSION = process.env.npm_package_version || '1.0.0';
+const APP_HASH = commitDoBuild();
+/** `versao+hash`, e só `versao` quando o hash não existe. O teto de 100 é o da coluna da rota. */
+const APP_RELEASE = (APP_HASH ? `${APP_VERSION}+${APP_HASH}` : APP_VERSION).slice(0, 100);
+const APP_BUILT_AT = new Date().toISOString();
+
+/**
+ * Escreve `release.json` na raiz do `dist/`.
+ *
+ * PARA QUE ELE SERVE: o `release` viaja dentro do bundle (via `define`), o que responde "de qual
+ * build veio este relato". Este arquivo responde a pergunta INVERSA, que é a que se faz olhando o
+ * servidor: "o que está publicado agora?". Sem ele, descobrir isso exige abrir um JS minificado e
+ * procurar a string.
+ *
+ * ESCRITO POR `writeBundle` E `fs`, NÃO POR `emitFile` EM `generateBundle`. A primeira versão fazia
+ * o segundo, o teste unitário com um `emitFile` espião ficava verde, e o `npm run build` real
+ * terminava sem o arquivo: o Rolldown (Vite 8) não materializa asset emitido nesse ponto. O
+ * `writeBundle` roda depois de o bundler ter escrito o `dist/`, recebe o diretório de saída e a
+ * escrita é a nossa, então o que o teste prova é o que o build faz.
+ *
+ * A GUARDA DE UMA VEZ SÓ é necessária, e não defensiva: o `@vitejs/plugin-legacy` faz os hooks de
+ * saída rodarem mais de uma vez por build (a passada moderna e a legada). `APP_BUILT_AT` é congelado
+ * no topo pela mesma razão: duas leituras do relógio dariam dois conteúdos para o mesmo nome.
+ *
+ * NADA DE `deploy/` AQUI. Este plugin escreve dentro do `dist/`, que é saída de build; a publicação
+ * é outro assunto e outro dono.
+ * @returns {Object} Um plugin de Vite.
+ */
+function pluginReleaseJson() {
+  let escrito = false;
+  return {
+    name: 'ebgeo-release-json',
+    writeBundle(opcoes) {
+      if (escrito) return;
+      escrito = true;
+      const dir = opcoes?.dir || resolve(__dirname, 'dist');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(resolve(dir, 'release.json'), `${JSON.stringify({
+        release: APP_RELEASE,
+        version: APP_VERSION,
+        hash: APP_HASH,
+        builtAt: APP_BUILT_AT,
+      }, null, 2)}\n`);
+    },
+  };
+}
 
 export default defineConfig(({ mode: _mode }) => ({
   // ===== ROOT E ESTRUTURA =====
@@ -504,13 +580,18 @@ export default defineConfig(({ mode: _mode }) => ({
       additionalLegacyPolyfills: ['regenerator-runtime/runtime'],
       // Do not include polyfills in modern bundle
       modernPolyfills: false
-    })
+    }),
+    pluginReleaseJson()
   ],
 
   // ===== GLOBAL DEFINITIONS =====
   define: {
-    __APP_VERSION__: JSON.stringify(process.env.npm_package_version || '1.0.0'),
-    __BUILD_TIME__: JSON.stringify(new Date().toISOString())
+    __APP_VERSION__: JSON.stringify(APP_VERSION),
+    // O COMMIT, não o `release` inteiro: quem soma os dois é `versaoDoBuild()`
+    // (`src/js/session/erro-telemetria.js`), que já lê `__APP_VERSION__` e precisa continuar
+    // funcionando quando o hash não existe. Vazio é o valor honesto de "build sem git".
+    __APP_RELEASE__: JSON.stringify(APP_HASH),
+    __BUILD_TIME__: JSON.stringify(APP_BUILT_AT)
   },
 
     // ===== ESBUILD OPTIONS =====

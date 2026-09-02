@@ -39,7 +39,7 @@ import { classifyRequestFailure, RequestFailure } from '@utils/request-failure.j
 import { startIdleWatch } from '../session/idle-watch.js';
 // Pelo ARQUIVO, como os vizinhos de `session/` (a pasta não tem barrel). Best-effort e sem rede na
 // instalação: ver a chamada no topo de `initAdminPage`.
-import { instalarTelemetriaDeErro } from '../session/erro-telemetria.js';
+import { instalarTelemetriaDeErro, descarregarFilaDeRelatos } from '@js/session/erro-telemetria.js';
 // Por ARQUIVO, nunca por barrel: este modulo alcanca o store por folhas, e e isso que o torna
 // importavel de uma pagina que boota sem `initServices()`.
 import {
@@ -67,7 +67,14 @@ const CONFIG_BOOT_RETRY_MS = 1000;
 async function bootConfig() {
     for (let attempt = 1; attempt <= CONFIG_BOOT_ATTEMPTS; attempt++) {
         const result = await applyRuntimeConfig({ apiClient });
-        if (result.applied) return true;
+        if (result.applied) {
+            // A FILA DE RELATOS SAI AQUI TAMBÉM, e não só no mapa: este é o primeiro instante em
+            // que se sabe que o servidor responde. Um `APP_ERROR` desta página guardou o relato
+            // num armazenamento que só quem drena esvazia, e esperar que a pessoa abra o mapa
+            // para a notícia chegar é atraso sem motivo. Sem `await`: a promessa nunca rejeita.
+            descarregarFilaDeRelatos();
+            return true;
+        }
         if (attempt < CONFIG_BOOT_ATTEMPTS) {
             await new Promise((resolve) => setTimeout(resolve, CONFIG_BOOT_RETRY_MS));
         }

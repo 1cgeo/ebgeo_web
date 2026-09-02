@@ -27,6 +27,8 @@ import { apiClient as defaultApiClient } from './api-client.js';
 import { clientIdInstallation, getClientId } from './operation-factory.js';
 import { record } from './diag/trace-core.js';
 import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
+import { relatarErro } from '@js/session/erro-telemetria.js';
+import { OrigemDeErro } from '@js/session/origens-de-erro.js';
 
 const DEFAULT_HEARTBEAT_MS = 25000;
 const DEFAULT_RECONNECT_BASE_MS = 1000;
@@ -615,8 +617,32 @@ export class WsClient {
         }
     }
 
-    /** @private Invokes a registered handler. */
+    /**
+     * @private Invokes a registered handler.
+     *
+     * O RELATO DE ERRO SAI DAQUI, e não dos quatro pontos que emitem `error`, por duas razões. A
+     * primeira é alcance: os quatro (`socket`, `server`, `closed`, `connect`) são as quatro formas
+     * de o transporte falhar, e um quinto que nascesse amanhã ficaria de fora de uma fiação feita
+     * ponto a ponto. A segunda é que o teste da transição mora aqui, ao lado do contador.
+     *
+     * SÓ NA TRANSIÇÃO, NUNCA POR TENTATIVA DE RECONEXÃO. `_reconnectAttempts` é zero na PRIMEIRA
+     * falha de uma sequência (`_scheduleReconnect` só o incrementa depois deste ponto) e volta a
+     * zero quando o handshake completa, então `=== 0` é exatamente "esta é a notícia nova". Sem a
+     * guarda, um servidor fora do ar por dez minutos produziria uma dezena de relatos idênticos
+     * espaçados pelo backoff, gastando o teto de vinte envios da sessão com a MESMA queda: o
+     * dedupe por assinatura pegaria a maioria, mas `closed` carrega o `code` e `connect` carrega
+     * a mensagem do erro, que variam entre tentativas.
+     *
+     * A `causa` É O `kind`, que é vocabulário fechado do protocolo; nada do payload viaja, porque
+     * `message` de um erro de servidor pode carregar texto sobre a entidade que a pessoa editava.
+     */
     _emit(event, payload) {
+        if (event === 'error' && this._reconnectAttempts === 0) {
+            relatarErro(`WebSocket de colaboração: ${payload?.kind ?? 'desconhecido'}`, {
+                origem: OrigemDeErro.WS,
+                contexto: { causa: payload?.kind, conexao: this._conn?.getState?.() },
+            });
+        }
         const handler = this._handlers[event];
         if (handler) {
             try {

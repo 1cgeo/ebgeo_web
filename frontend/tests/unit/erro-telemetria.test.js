@@ -1,13 +1,19 @@
+// Path: tests/unit/erro-telemetria.test.js
+
 import { describe, it, expect, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
     TETOS,
+    TETOS_DE_CONTEXTO,
+    TIPOS_DE_ATLAS,
     MotivoDeEnvio,
     SEM_MENSAGEM,
     SEM_QUADRO,
     assinaturaDeErro,
+    contextoSeguro,
     criarLimitador,
+    formaDeValor,
     montarCorpo,
     normalizarMensagem,
     normalizarStack,
@@ -20,7 +26,13 @@ import {
 import {
     instalarTelemetriaDeErro,
     estadoDaTelemetria,
+    relatarErro,
+    descarregarFilaDeRelatos,
+    versaoDoBuild,
 } from '@js/session/erro-telemetria.js';
+import { OrigemDeErro, ORIGENS_DE_ERRO } from '@js/session/origens-de-erro.js';
+import { criarFilaDeRelatos } from '@js/session/fila-de-relatos.js';
+import { deveEnfileirarIndisponivel, BlockingCause } from '@ui/unavailable-screen.js';
 
 // A TELEMETRIA DE ERRO DO NAVEGADOR, e as quatro propriedades que valem mais que ela.
 //
@@ -53,12 +65,30 @@ import {
 // entries chamarem a instalação — isso é o teste estrutural do fim do arquivo, que lê os quatro
 // arquivos e nada mais.
 
+/** Um armazenamento de mentira, com a superfície que as duas folhas usam. */
+function criarArmazenamento(inicial = {}) {
+    const dados = new Map(Object.entries(inicial));
+    return {
+        dados,
+        getItem: (k) => (dados.has(k) ? dados.get(k) : null),
+        setItem: (k, v) => { dados.set(k, String(v)); },
+        removeItem: (k) => { dados.delete(k); },
+    };
+}
+
 /** Um alvo de eventos de mentira, com a superfície que o instalador usa. */
-function criarAlvo({ href = 'http://local/index.html' } = {}) {
+function criarAlvo({ href = 'http://local/index.html', comConsole = false } = {}) {
     const ouvintes = new Map();
     const url = new URL(href);
+    const linhas = [];
     return {
         location: { href, pathname: url.pathname },
+        // O embrulho de `console.error` só existe quando o alvo TEM console: um caso que não
+        // pede console não pode acabar embrulhando o do vitest.
+        console: comConsole
+            ? { error: (...args) => { linhas.push(args); }, warn: () => {} }
+            : undefined,
+        linhas,
         addEventListener(tipo, fn) {
             if (!ouvintes.has(tipo)) ouvintes.set(tipo, []);
             ouvintes.get(tipo).push(fn);
@@ -83,6 +113,7 @@ function instalarEspiao(opcoes = {}) {
     const alvo = opcoes.alvo ?? criarAlvo();
     const enviados = [];
     let relogio = 0;
+    const fila = opcoes.fila ?? criarFilaDeRelatos({ storage: criarArmazenamento() });
     const instalacao = instalarTelemetriaDeErro({
         alvo,
         agora: () => relogio,
@@ -92,6 +123,8 @@ function instalarEspiao(opcoes = {}) {
         },
         resolverAtlasId: opcoes.resolverAtlasId ?? (() => null),
         resolverBase: () => '/api/v1',
+        resolverSessaoId: opcoes.resolverSessaoId ?? (() => SESSAO),
+        fila,
         max: opcoes.max,
         intervaloMs: opcoes.intervaloMs,
     });
@@ -99,6 +132,7 @@ function instalarEspiao(opcoes = {}) {
         alvo,
         enviados,
         instalacao,
+        fila,
         avancar: (ms) => { relogio += ms; },
     };
 }
@@ -109,6 +143,9 @@ function erroCom(mensagem, stack) {
     e.stack = stack;
     return e;
 }
+
+/** Um id de aba de mentira, com a forma que o servidor valida. */
+const SESSAO = '11111111-2222-4333-8444-555555555555';
 
 const PILHA = [
     'TypeError: Cannot read properties of undefined (reading nome)',
@@ -267,15 +304,20 @@ describe('textoDeErro: o argumento quase nunca é um Error', () => {
         expect(textoDeErro(false).mensagem).toBe('false');
     });
 
-    it('objeto que não é Error vira JSON (mais útil que [object Object])', () => {
-        expect(textoDeErro({ status: 500, code: 'X' }).mensagem).toBe('{"status":500,"code":"X"}');
+    it('objeto que não é Error vira a FORMA dele, nunca o conteúdo', () => {
+        // Era `JSON.stringify` até 2026-09-01, e a troca é de PRIVACIDADE: ver o `fileoverview`
+        // de `formaDeValor` e o repro em `relato-sem-conteudo-de-usuario.repro.test.js`. O que se
+        // perdeu foi o despejo; o diagnóstico continua, porque `code`/`message`/`status` viajam
+        // por valor.
+        expect(textoDeErro({ status: 500, code: 'X' }).mensagem)
+            .toBe('Object{code,status} code=X status=500');
     });
 
-    it('objeto CIRCULAR não lança', () => {
+    it('objeto CIRCULAR não lança (e agora nem depende do JSON para isso)', () => {
         const circ = { a: 1 };
         circ.self = circ;
         expect(() => textoDeErro(circ)).not.toThrow();
-        expect(textoDeErro(circ).mensagem).toBe('[object Object]');
+        expect(textoDeErro(circ).mensagem).toBe('Object{a,self}');
     });
 
     it('objeto cujo `message` EXPLODE não lança', () => {
@@ -617,9 +659,10 @@ describe('o corpo ESPELHA o Joi da borda, que está no outro pacote', () => {
 
     /** Um corpo com TODOS os campos preenchidos: é o que o cliente pode mandar no máximo. */
     const CORPO_CHEIO = montarCorpo({
-        mensagem: 'boom', stack: PILHA, url: 'http://local/', pagina: 'mapa',
+        mensagem: 'boom', stack: PILHA, stackBruta: PILHA, url: 'http://local/', pagina: 'mapa',
         release: '1.0.0', atlasId: '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
-        userAgent: 'Mozilla/5.0',
+        userAgent: 'Mozilla/5.0', sessaoId: SESSAO, origem: OrigemDeErro.BOOT,
+        contexto: { atlasKind: 'servidor', causa: 'x', camada: 'y', conexao: 'ONLINE', status: 403 },
     });
 
     it('todo campo REQUIRED do servidor é mandado pelo cliente', () => {
@@ -640,6 +683,87 @@ describe('o corpo ESPELHA o Joi da borda, que está no outro pacote', () => {
             expect(new RegExp(`^\\s{2}${campo}:`, 'm').test(bloco), `\`${campo}\` não existe no schema`)
                 .toBe(true);
         }
+    });
+
+    /**
+     * O recorte do `contexto`, que é um objeto ANINHADO e por isso não cai no recorte de cima.
+     * @returns {string} Da abertura de `contexto: Joi.object({` até o `})` que a fecha.
+     */
+    function blocoDoContexto() {
+        const bloco = blocoDoSchema();
+        const inicio = bloco.indexOf('contexto: Joi.object({');
+        expect(inicio, 'o `contexto` sumiu do schema — este espelho perdeu o alvo')
+            .toBeGreaterThan(-1);
+        const fim = bloco.indexOf('}).unknown(', inicio);
+        expect(fim, 'o fecho do `contexto` mudou de forma — o recorte não casou')
+            .toBeGreaterThan(inicio);
+        return bloco.slice(inicio, fim);
+    }
+
+    it('o `contexto` do servidor tem exatamente as CINCO chaves que o cliente sabe montar', () => {
+        // O servidor roda com `unknown(false)`, e ali isso VENCE o `stripUnknown`: uma chave que o
+        // cliente invente derruba o relato INTEIRO num 422, não só o campo. É a razão de este
+        // espelho existir, e de ele comparar o CONJUNTO em vez de só procurar o que ele conhece.
+        const campos = [...blocoDoContexto().matchAll(/^\s{4}(\w+):/gm)].map((m) => m[1]);
+        expect(campos.sort())
+            .toEqual(['atlasKind', 'camada', 'causa', 'conexao', 'status']);
+    });
+
+    it('os três tetos de texto do `contexto` são os `TETOS_DE_CONTEXTO` do cliente', () => {
+        const bloco = blocoDoContexto();
+        let conferidos = 0;
+        for (const [campo, teto] of Object.entries(TETOS_DE_CONTEXTO)) {
+            const casou = bloco.match(new RegExp(`^\\s{4}${campo}:[^\\n]*?\\.max\\((\\d+)\\)`, 'm'));
+            expect(casou, `\`${campo}\` não tem \`max()\` no schema do servidor`).toBeTruthy();
+            expect(Number(casou[1]), `teto de \`contexto.${campo}\` divergiu do servidor`).toBe(teto);
+            conferidos++;
+        }
+        // Cobertura vazia passa verde: sem esta linha, um recorte que parasse de casar reportaria
+        // sucesso sem ter comparado um número sequer.
+        expect(conferidos, 'nenhum teto de contexto foi comparado').toBe(3);
+    });
+
+    it('os três `atlasKind` do servidor são os `TIPOS_DE_ATLAS` do cliente', () => {
+        const casou = blocoDoContexto().match(/atlasKind:[^\n]*?\.valid\(([^)]*)\)/);
+        expect(casou, 'o `valid()` de `atlasKind` sumiu do servidor').toBeTruthy();
+        const doServidor = [...casou[1].matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
+        expect(doServidor).toEqual([...TIPOS_DE_ATLAS]);
+    });
+
+    it('a faixa de `status` do servidor é a que o cliente aplica', () => {
+        const bloco = blocoDoContexto();
+        const min = bloco.match(/status:[^\n]*?\.min\((\d+)\)/);
+        const max = bloco.match(/status:[^\n]*?\.max\((\d+)\)/);
+        expect(min, 'o `min()` de `status` sumiu do servidor').toBeTruthy();
+        expect(max, 'o `max()` de `status` sumiu do servidor').toBeTruthy();
+        const piso = Number(min[1]);
+        const teto = Number(max[1]);
+        // Comparado pelo COMPORTAMENTO do cliente, e não contra um número escrito duas vezes aqui:
+        // o que precisa casar é a faixa que `contextoSeguro` deixa passar.
+        expect(contextoSeguro({ status: piso })).toEqual({ status: piso });
+        expect(contextoSeguro({ status: teto })).toEqual({ status: teto });
+        expect(contextoSeguro({ status: piso - 1 })).toBeNull();
+        expect(contextoSeguro({ status: teto + 1 })).toBeNull();
+    });
+
+    it('o cabeçalho que o cliente manda é o que o servidor lê', () => {
+        // O backend NÃO se importa daqui (o `request-logger.js` puxa a config e exige
+        // `DATABASE_URL`: importá-lo derruba a suíte hermética), então lê-se a FONTE, como no
+        // espelho do Joi logo acima. O servidor guarda o nome em minúsculas, porque é assim que o
+        // Node normaliza `req.headers`; o cliente escreve na forma canônica.
+        const LOGGER = '../../../backend/src/middleware/request-logger.js';
+        const fonteDoLogger = readFileSync(fileURLToPath(new URL(LOGGER, import.meta.url)), 'utf8');
+        const doServidor = fonteDoLogger.match(/CABECALHO_DE_SESSAO\s*=\s*'([^']+)'/);
+        expect(doServidor, 'o `CABECALHO_DE_SESSAO` sumiu do backend — este espelho perdeu o alvo')
+            .toBeTruthy();
+
+        const fonteDoCliente = readFileSync(
+            fileURLToPath(new URL('../../src/js/store/sync/api-client.js', import.meta.url)),
+            'utf8',
+        );
+        const doCliente = fonteDoCliente.match(/headers\['([^']+)'\]\s*=\s*sessaoId\(\)/);
+        expect(doCliente, 'o cliente parou de carimbar o cabeçalho em `_request`').toBeTruthy();
+        expect(doCliente[1].toLowerCase()).toBe(doServidor[1].toLowerCase());
     });
 
     it('os TETOS do cliente são os `max()` do servidor, campo a campo', () => {
@@ -678,5 +802,642 @@ describe('fiação: as QUATRO páginas instalam a telemetria', () => {
         expect(fonte).toContain('erro-telemetria.js');
         // A CHAMADA, e não só o import: um import sem chamada é fiação que não liga nada.
         expect(fonte).toMatch(/instalarTelemetriaDeErro\(/);
+    });
+});
+
+describe('A6 — a FORMA do valor, nunca o conteúdo', () => {
+    // CONTROLE NEGATIVO: devolva o `JSON.stringify(valor).slice(0, TETOS.mensagem)` ao ramo de
+    // objeto de `textoDeErro` e os dois primeiros casos daqui ficam vermelhos, mais o repro
+    // inteiro de `relato-sem-conteudo-de-usuario.repro.test.js`.
+
+    it('nomeia o tipo e as chaves de topo, ORDENADAS', () => {
+        expect(formaDeValor({ b: 1, a: 2 })).toBe('Object{a,b}');
+        expect(formaDeValor([1, 2, 3])).toBe('Array{0,1,2}');
+    });
+
+    it('a ordem de inserção NÃO muda a saída (senão a assinatura mudaria de grupo)', () => {
+        expect(formaDeValor({ z: 1, a: 2, m: 3 })).toBe(formaDeValor({ a: 2, m: 3, z: 1 }));
+    });
+
+    it('corta em doze chaves e diz quantas sobraram', () => {
+        const largo = Object.fromEntries(
+            Array.from({ length: 20 }, (_, i) => [`k${String(i).padStart(2, '0')}`, i]),
+        );
+        const saida = formaDeValor(largo);
+        expect(saida).toContain(',+8}');
+        expect(saida).toContain('k00');
+        expect(saida).not.toContain('k12');
+    });
+
+    it('só DUAS chaves têm o VALOR mostrado, e só quando são string ou número', () => {
+        expect(formaDeValor({ code: 'E1', status: 404, message: 42, nome: 'Cel Fulano' }))
+            .toBe('Object{code,message,nome,status} code=E1 status=404');
+        // O valor de `nome` não aparece; o NOME da chave sim, porque nome de chave é esquema.
+        expect(formaDeValor({ nome: 'Cel Fulano' })).toBe('Object{nome}');
+    });
+
+    it('`message` NÃO tem o valor mostrado: é texto livre de procedência desconhecida', () => {
+        // Era a terceira chave do vocabulário e saiu em 2026-09-01: `message` é justamente o campo
+        // em que um servidor ecoa o que o usuário escreveu, e deixá-la passar era o resíduo do
+        // vazamento que este bloco inteiro existe para fechar.
+        const saida = formaDeValor({ message: "a feição 'Posto do Cel Fulano' não pôde ser salva" });
+        expect(saida).toBe('Object{message}');
+        expect(saida).not.toContain('Fulano');
+    });
+
+    it('valor de vocabulário longo é cortado', () => {
+        expect(formaDeValor({ code: 'x'.repeat(200) }).length).toBeLessThan(80);
+    });
+
+    it('objeto hostil (constructor e keys que explodem) não lança', () => {
+        const hostil = new Proxy({}, {
+            get() { throw new Error('explodi'); },
+            ownKeys() { throw new Error('explodi'); },
+        });
+        expect(() => formaDeValor(hostil)).not.toThrow();
+        expect(typeof formaDeValor(hostil)).toBe('string');
+    });
+
+    it('classe nomeada mantém o nome (é metade do diagnóstico)', () => {
+        class RespostaDoServidor { constructor() { this.status = 502; } }
+        expect(formaDeValor(new RespostaDoServidor())).toBe('RespostaDoServidor{status} status=502');
+    });
+});
+
+describe('A4 — a pilha CRUA viaja ao lado da normalizada', () => {
+    it('a ASSINATURA é idêntica com e sem `stackBruta`', () => {
+        // Se a bruta entrasse na chave, cada carga da página viraria um grupo novo — que é
+        // exatamente o defeito que `normalizarStack` existe para impedir.
+        const com = montarCorpo({ mensagem: 'boom', stack: PILHA, stackBruta: PILHA });
+        const sem = montarCorpo({ mensagem: 'boom', stack: PILHA });
+        expect(com.assinatura).toBe(sem.assinatura);
+        expect(com.mensagem).toBe(sem.mensagem);
+        expect(com.stack).toBe(sem.stack);
+    });
+
+    it('a normalizada troca o hash; a bruta o preserva (é o que resolve o sourcemap)', () => {
+        const corpo = montarCorpo({ mensagem: 'boom', stack: PILHA, stackBruta: PILHA });
+        expect(corpo.stack).toContain('core-<hash>.js');
+        expect(corpo.stackBruta).toContain('core-Ab12Cd34.js');
+    });
+
+    it('ausente ou vazia, o campo simplesmente não existe', () => {
+        expect(Object.hasOwn(montarCorpo({ mensagem: 'x' }), 'stackBruta')).toBe(false);
+        expect(Object.hasOwn(montarCorpo({ mensagem: 'x', stackBruta: '' }), 'stackBruta'))
+            .toBe(false);
+    });
+
+    it('é cortada no mesmo teto de 4000 da rota', () => {
+        const corpo = montarCorpo({ mensagem: 'x', stackBruta: 'b'.repeat(9000) });
+        expect(corpo.stackBruta).toHaveLength(TETOS.stackBruta);
+    });
+
+    it('a captura de verdade manda as duas', () => {
+        ativa = instalarEspiao();
+        ativa.alvo.emitir('error', { error: erroCom('boom', PILHA) });
+        expect(ativa.enviados[0].stack).toContain('core-<hash>.js');
+        expect(ativa.enviados[0].stackBruta).toContain('core-Ab12Cd34.js');
+    });
+});
+
+describe('A2 — o id da aba entra no corpo, com o mesmo filtro do atlasId', () => {
+    it('UUID entra', () => {
+        expect(montarCorpo({ mensagem: 'x', sessaoId: SESSAO }).sessaoId).toBe(SESSAO);
+    });
+
+    it('o que não é UUID NÃO entra (a coluna é `uuid`, e o 422 custaria o relato inteiro)', () => {
+        for (const ruim of ['abc', '', null, undefined, 42, `${SESSAO}x`]) {
+            expect(Object.hasOwn(montarCorpo({ mensagem: 'x', sessaoId: ruim }), 'sessaoId'))
+                .toBe(false);
+        }
+    });
+
+    it('a captura de verdade carimba o id, e o resolvedor que EXPLODE não custa o envio', () => {
+        ativa = instalarEspiao();
+        ativa.alvo.emitir('error', { error: erroCom('boom', PILHA) });
+        expect(ativa.enviados[0].sessaoId).toBe(SESSAO);
+        ativa.instalacao.desinstalar();
+
+        ativa = instalarEspiao({ resolverSessaoId: () => { throw new Error('sem storage'); } });
+        ativa.alvo.emitir('error', { error: erroCom('outro', PILHA) });
+        expect(ativa.enviados).toHaveLength(1);
+        expect(Object.hasOwn(ativa.enviados[0], 'sessaoId')).toBe(false);
+    });
+});
+
+describe('A3 — origem é ETIQUETA, contexto é ENUMERAÇÃO', () => {
+    it('a origem NÃO entra na assinatura: o mesmo defeito por duas portas é um grupo só', () => {
+        const a = montarCorpo({ mensagem: 'boom', stack: PILHA, origem: OrigemDeErro.CONSOLE });
+        const b = montarCorpo({ mensagem: 'boom', stack: PILHA, origem: OrigemDeErro.STORE });
+        expect(a.assinatura).toBe(b.assinatura);
+        expect(a.origem).not.toBe(b.origem);
+    });
+
+    it('origem com forma estranha não viaja', () => {
+        for (const ruim of ['MAIÚSCULA', 'com espaço', 'x'.repeat(40), 42, {}, null]) {
+            expect(Object.hasOwn(montarCorpo({ mensagem: 'x', origem: ruim }), 'origem')).toBe(false);
+        }
+    });
+
+    it('as dez origens do vocabulário passam pela forma que `montarCorpo` exige', () => {
+        for (const origem of ORIGENS_DE_ERRO) {
+            expect(montarCorpo({ mensagem: 'x', origem }).origem).toBe(origem);
+        }
+    });
+
+    it('o contexto só deixa passar as CINCO chaves; qualquer outra some', () => {
+        const seguro = contextoSeguro({
+            atlasKind: 'servidor',
+            conexao: 'ONLINE',
+            causa: 'STORE_PERSIST_ERROR',
+            camada: 'relevo-sombreado',
+            status: 403,
+            // O que um objeto livre traria, e que é justamente o que não pode viajar.
+            feature: { nome: 'Posto Fulano', coords: [-22.123456, -43.987654] },
+            payload: 'texto do usuário',
+        });
+        expect(Object.keys(seguro).sort())
+            .toEqual(['atlasKind', 'camada', 'causa', 'conexao', 'status']);
+        expect(JSON.stringify(seguro)).not.toContain('Fulano');
+        expect(JSON.stringify(seguro)).not.toContain('22.12');
+    });
+
+    it('atlasKind fora dos três não viaja', () => {
+        for (const kind of TIPOS_DE_ATLAS) {
+            expect(contextoSeguro({ atlasKind: kind }).atlasKind).toBe(kind);
+        }
+        expect(contextoSeguro({ atlasKind: 'inventado' })).toBeNull();
+    });
+
+    it('cada campo de texto tem o teto declarado', () => {
+        for (const [campo, teto] of Object.entries(TETOS_DE_CONTEXTO)) {
+            expect(contextoSeguro({ [campo]: 'z'.repeat(500) })[campo]).toHaveLength(teto);
+        }
+    });
+
+    it('status fora da faixa HTTP não viaja (o 0 do fetch não é resposta)', () => {
+        expect(contextoSeguro({ status: 403 }).status).toBe(403);
+        expect(contextoSeguro({ status: 0 })).toBeNull();
+        expect(contextoSeguro({ status: 99 })).toBeNull();
+        expect(contextoSeguro({ status: 600 })).toBeNull();
+        expect(contextoSeguro({ status: 403.5 })).toBeNull();
+        expect(contextoSeguro({ status: NaN })).toBeNull();
+        expect(contextoSeguro({ status: '403' })).toBeNull();
+    });
+
+    it('contexto vazio, ausente ou de tipo errado não cria o campo', () => {
+        for (const ruim of [undefined, null, 'texto', 42, [], {}, { nada: 1 }]) {
+            expect(Object.hasOwn(montarCorpo({ mensagem: 'x', contexto: ruim }), 'contexto'))
+                .toBe(false);
+        }
+    });
+
+    it('o corpo CHEIO tem os doze campos do contrato, e nem um a mais', () => {
+        const corpo = montarCorpo({
+            mensagem: 'x', stack: PILHA, stackBruta: PILHA, url: 'http://local/', pagina: 'mapa',
+            release: '1.0.0', atlasId: '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+            userAgent: 'Mozilla/5.0', sessaoId: SESSAO, origem: OrigemDeErro.WS,
+            contexto: { causa: 'closed' },
+        });
+        expect(Object.keys(corpo).sort()).toEqual([
+            'assinatura', 'atlasId', 'contexto', 'mensagem', 'origem', 'pagina', 'release',
+            'sessaoId', 'stack', 'stackBruta', 'url', 'userAgent',
+        ]);
+    });
+});
+
+describe('A3 — `relatarErro`: a porta manual atravessa o MESMO portão', () => {
+    it('antes da instalação é inerte, e CONTA (nunca lança)', () => {
+        const antes = estadoDaTelemetria().naoInstalado;
+        expect(relatarErro(new Error('cedo demais'), { origem: OrigemDeErro.STORE })).toBe(false);
+        expect(estadoDaTelemetria().naoInstalado).toBe(antes + 1);
+        expect(estadoDaTelemetria().instalada).toBe(false);
+    });
+
+    it('instalada, ela produz um corpo com a origem pedida', () => {
+        ativa = instalarEspiao();
+        expect(relatarErro(erroCom('manual', PILHA), {
+            origem: OrigemDeErro.STORE,
+            contexto: { causa: 'STORE_PERSIST_ERROR' },
+        })).toBe(true);
+        expect(ativa.enviados).toHaveLength(1);
+        expect(ativa.enviados[0].origem).toBe(OrigemDeErro.STORE);
+        expect(ativa.enviados[0].contexto).toEqual({ causa: 'STORE_PERSIST_ERROR' });
+    });
+
+    it('origem fora do vocabulário vira a padrão, em vez de custar o relato num 422', () => {
+        ativa = instalarEspiao();
+        relatarErro(erroCom('manual', PILHA), { origem: 'inventada' });
+        expect(ativa.enviados[0].origem).toBe(OrigemDeErro.NAO_TRATADO);
+    });
+
+    it('o MESMO defeito por duas portas é UM envio (a origem não separa)', () => {
+        ativa = instalarEspiao({ intervaloMs: 0 });
+        const erro = erroCom('mesmo defeito', PILHA);
+        relatarErro(erro, { origem: OrigemDeErro.STORE });
+        ativa.avancar(10);
+        ativa.alvo.emitir('error', { error: erro });
+        expect(ativa.enviados).toHaveLength(1);
+        expect(ativa.enviados[0].origem).toBe(OrigemDeErro.STORE);
+    });
+
+    it('ela respeita o teto da sessão como os automáticos', () => {
+        ativa = instalarEspiao({ max: 2, intervaloMs: 0 });
+        for (let i = 0; i < 6; i++) {
+            ativa.avancar(10);
+            relatarErro(erroCom(`manual ${i}`, `at f (http://local/m${i}.js:1:1)`), {
+                origem: OrigemDeErro.WS,
+            });
+        }
+        expect(ativa.enviados).toHaveLength(2);
+    });
+
+    it('os dois automáticos carimbam as origens certas', () => {
+        ativa = instalarEspiao({ intervaloMs: 0 });
+        ativa.alvo.emitir('error', { error: erroCom('a', 'at f (http://local/a.js:1:1)') });
+        ativa.avancar(10);
+        ativa.alvo.emitir('unhandledrejection', {
+            reason: erroCom('b', 'at f (http://local/b.js:1:1)'),
+        });
+        expect(ativa.enviados.map((c) => c.origem))
+            .toEqual([OrigemDeErro.NAO_TRATADO, OrigemDeErro.REJEICAO]);
+    });
+});
+
+describe('A3 — o embrulho de `console.error`', () => {
+    it('o original é SEMPRE chamado, e antes de tudo', () => {
+        const alvo = criarAlvo({ comConsole: true });
+        ativa = instalarEspiao({ alvo });
+        alvo.console.error('falhou de verdade');
+        expect(alvo.linhas).toHaveLength(1);
+        expect(alvo.linhas[0][0]).toBe('falhou de verdade');
+    });
+
+    it('string vira relato com origem `console`', () => {
+        const alvo = criarAlvo({ comConsole: true });
+        ativa = instalarEspiao({ alvo });
+        alvo.console.error('[Store] falhou');
+        expect(ativa.enviados).toHaveLength(1);
+        expect(ativa.enviados[0].origem).toBe(OrigemDeErro.CONSOLE);
+        expect(ativa.enviados[0].mensagem).toContain('[Store] falhou');
+    });
+
+    it('objeto no primeiro argumento NÃO vira relato (despejo de estado é dado do usuário)', () => {
+        const alvo = criarAlvo({ comConsole: true });
+        ativa = instalarEspiao({ alvo });
+        alvo.console.error({ nome: 'Cel Fulano', coords: [-22.123456] });
+        expect(ativa.enviados).toHaveLength(0);
+        expect(alvo.linhas).toHaveLength(1);
+    });
+
+    it('`console.error(rótulo, erro)` relata o ERRO, e dedupe com o relato explícito', () => {
+        // É a forma dominante no produto, e é o que impede DOIS grupos para um defeito só.
+        const alvo = criarAlvo({ comConsole: true });
+        ativa = instalarEspiao({ alvo, intervaloMs: 0 });
+        const erro = erroCom('boom de boot', PILHA);
+        alvo.console.error('Application initialization failed:', erro);
+        ativa.avancar(10);
+        relatarErro(erro, { origem: OrigemDeErro.BOOT });
+        expect(ativa.enviados).toHaveLength(1);
+        expect(ativa.enviados[0].mensagem).toContain('boom de boot');
+    });
+
+    it('o log DA PRÓPRIA telemetria não vira captura', () => {
+        const alvo = criarAlvo({ comConsole: true });
+        ativa = instalarEspiao({
+            alvo,
+            intervaloMs: 0,
+            aoEnviar: () => { alvo.console.error('erro dentro do envio'); },
+        });
+        alvo.console.error('primeiro');
+        expect(ativa.enviados).toHaveLength(1);
+        expect(estadoDaTelemetria().reentrancias).toBeGreaterThanOrEqual(1);
+    });
+
+    it('a mesma linha num laço é UMA assinatura', () => {
+        const alvo = criarAlvo({ comConsole: true });
+        ativa = instalarEspiao({ alvo, intervaloMs: 0 });
+        for (let i = 0; i < 19; i++) {
+            ativa.avancar(10);
+            alvo.console.error('a mesma linha');
+        }
+        expect(ativa.enviados).toHaveLength(1);
+        expect(alvo.linhas).toHaveLength(19);
+    });
+
+    it('desinstalar devolve o `console.error` original', () => {
+        const alvo = criarAlvo({ comConsole: true });
+        const original = alvo.console.error;
+        const espiao = instalarEspiao({ alvo });
+        expect(alvo.console.error).not.toBe(original);
+        espiao.instalacao.desinstalar();
+        expect(alvo.console.error).toBe(original);
+    });
+
+    it('alvo SEM console não embrulha nada (e não toca o console do processo)', () => {
+        ativa = instalarEspiao();
+        expect(ativa.instalacao.instalada).toBe(true);
+    });
+});
+
+describe('A5 — a fila: o que não sai fica guardado, e sai no próximo boot', () => {
+    it('promessa rejeitada enfileira o corpo', async () => {
+        const fila = criarFilaDeRelatos({ storage: criarArmazenamento() });
+        ativa = instalarEspiao({ fila, aoEnviar: () => Promise.reject(new Error('sem rede')) });
+        ativa.alvo.emitir('error', { error: erroCom('boom', PILHA) });
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(fila.tamanho()).toBe(1);
+        expect(estadoDaTelemetria().enfileirados).toBeGreaterThanOrEqual(1);
+    });
+
+    it('resposta NÃO-2xx também enfileira (um 502 descarta tão calado quanto um cabo solto)', async () => {
+        const fila = criarFilaDeRelatos({ storage: criarArmazenamento() });
+        ativa = instalarEspiao({ fila, aoEnviar: () => Promise.resolve({ ok: false, status: 502 }) });
+        ativa.alvo.emitir('error', { error: erroCom('boom', PILHA) });
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(fila.tamanho()).toBe(1);
+    });
+
+    it('4xx que recusa o RELATO (422) não enfileira e conta como recusado', async () => {
+        // Reenviar o mesmo corpo no próximo boot receberia o mesmo 422; guardá-lo ocuparia para
+        // sempre uma das trinta vagas. 408 e 429 são a exceção: o servidor pede para voltar depois.
+        const fila = criarFilaDeRelatos({ storage: criarArmazenamento() });
+        const antes = estadoDaTelemetria().recusados;
+        ativa = instalarEspiao({ fila, aoEnviar: () => Promise.resolve({ ok: false, status: 422 }) });
+        ativa.alvo.emitir('error', { error: erroCom('boom', PILHA) });
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(fila.tamanho()).toBe(0);
+        expect(estadoDaTelemetria().recusados).toBe(antes + 1);
+        expect(estadoDaTelemetria().falhasDeEnvio).toBeGreaterThanOrEqual(1);
+    });
+
+    it('429 e 408 enfileiram (o servidor pediu para voltar depois)', async () => {
+        for (const status of [429, 408]) {
+            ativa?.instalacao.desinstalar();
+            const fila = criarFilaDeRelatos({ storage: criarArmazenamento() });
+            ativa = instalarEspiao({ fila, aoEnviar: () => Promise.resolve({ ok: false, status }) });
+            ativa.alvo.emitir('error', { error: erroCom(`boom ${status}`, PILHA) });
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(fila.tamanho(), `status ${status}`).toBe(1);
+        }
+    });
+
+    it('resposta 2xx NÃO enfileira', async () => {
+        const fila = criarFilaDeRelatos({ storage: criarArmazenamento() });
+        ativa = instalarEspiao({ fila, aoEnviar: () => Promise.resolve({ ok: true, status: 204 }) });
+        ativa.alvo.emitir('error', { error: erroCom('boom', PILHA) });
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(fila.tamanho()).toBe(0);
+    });
+
+    it('`descarregarFilaDeRelatos` manda o que estava guardado, EM SÉRIE, e esvazia', async () => {
+        const armazenamento = criarArmazenamento();
+        const fila = criarFilaDeRelatos({ storage: armazenamento });
+        fila.enfileirar(montarCorpo({ mensagem: 'de ontem 1', stack: 'at f (http://local/a.js:1:1)' }));
+        fila.enfileirar(montarCorpo({ mensagem: 'de ontem 2', stack: 'at f (http://local/b.js:1:1)' }));
+        ativa = instalarEspiao({ fila, intervaloMs: 2000 });
+        const chegaram = await descarregarFilaDeRelatos();
+        expect(chegaram).toBe(2);
+        expect(ativa.enviados.map((c) => c.mensagem)).toEqual(['de ontem 1', 'de ontem 2']);
+        expect(fila.tamanho()).toBe(0);
+        expect(estadoDaTelemetria().descarregados).toBeGreaterThanOrEqual(2);
+    });
+
+    it('o INTERVALO não corta o descarregamento (senão vinte e nove itens morriam no mesmo ms)', async () => {
+        // CONTROLE NEGATIVO: tire o `ignorarIntervalo` de `permite` e este caso cai para 1.
+        const fila = criarFilaDeRelatos({ storage: criarArmazenamento() });
+        for (let i = 0; i < 5; i++) {
+            fila.enfileirar(montarCorpo({
+                mensagem: `guardado ${i}`, stack: `at f (http://local/g${i}.js:1:1)`,
+            }));
+        }
+        ativa = instalarEspiao({ fila, intervaloMs: 10_000 });
+        expect(await descarregarFilaDeRelatos()).toBe(5);
+    });
+
+    it('o TETO da sessão continua valendo, e o recusado por ele VOLTA para a fila', async () => {
+        const fila = criarFilaDeRelatos({ storage: criarArmazenamento() });
+        for (let i = 0; i < 4; i++) {
+            fila.enfileirar(montarCorpo({
+                mensagem: `guardado ${i}`, stack: `at f (http://local/g${i}.js:1:1)`,
+            }));
+        }
+        ativa = instalarEspiao({ fila, max: 2, intervaloMs: 0 });
+        expect(await descarregarFilaDeRelatos()).toBe(2);
+        // Os dois que sobraram não morreram: a próxima carga da página tem orçamento novo.
+        expect(fila.tamanho()).toBe(2);
+    });
+
+    it('o que falha de novo é REENFILEIRADO, não perdido', async () => {
+        const fila = criarFilaDeRelatos({ storage: criarArmazenamento() });
+        fila.enfileirar(montarCorpo({ mensagem: 'insistente', stack: 'at f (http://local/a.js:1:1)' }));
+        ativa = instalarEspiao({ fila, aoEnviar: () => Promise.reject(new Error('ainda fora')) });
+        expect(await descarregarFilaDeRelatos()).toBe(0);
+        expect(fila.tamanho()).toBe(1);
+    });
+
+    it('fila vazia é um no-op silencioso', async () => {
+        ativa = instalarEspiao();
+        expect(await descarregarFilaDeRelatos()).toBe(0);
+        expect(ativa.enviados).toHaveLength(0);
+    });
+
+    it('sem instalação, descarregar é inerte e CONTA', async () => {
+        const antes = estadoDaTelemetria().naoInstalado;
+        expect(await descarregarFilaDeRelatos()).toBe(0);
+        expect(estadoDaTelemetria().naoInstalado).toBe(antes + 1);
+    });
+
+    it('`enfileirarSempre` guarda SEM tocar a rede (o servidor está fora, por definição)', () => {
+        const fila = criarFilaDeRelatos({ storage: criarArmazenamento() });
+        ativa = instalarEspiao({ fila });
+        expect(relatarErro('EBGeo indisponível: server-unreachable', {
+            origem: OrigemDeErro.INDISPONIVEL,
+            contexto: { causa: 'server-unreachable' },
+            enfileirarSempre: true,
+        })).toBe(true);
+        expect(ativa.enviados).toHaveLength(0);
+        expect(fila.tamanho()).toBe(1);
+        expect(fila.drenar()[0].origem).toBe(OrigemDeErro.INDISPONIVEL);
+    });
+
+    it('com a fila RECUSANDO, `enfileirarSempre` cai na rede em vez de perder o relato', () => {
+        // Armazenamento bloqueado (modo privado) é o caso: a rede é o que sobra.
+        const fila = criarFilaDeRelatos({ storage: null });
+        ativa = instalarEspiao({ fila });
+        relatarErro('EBGeo indisponível: app-error', {
+            origem: OrigemDeErro.INDISPONIVEL,
+            enfileirarSempre: true,
+        });
+        expect(ativa.enviados).toHaveLength(1);
+    });
+});
+
+describe('A1 — `versaoDoBuild`: versão MAIS commit', () => {
+    afterEach(() => {
+        delete globalThis.__APP_VERSION__;
+        delete globalThis.__APP_RELEASE__;
+    });
+
+    it('fora do bundle (nenhum dos dois definidos) devolve null, nunca ReferenceError', () => {
+        expect(() => versaoDoBuild()).not.toThrow();
+        expect(versaoDoBuild()).toBeNull();
+    });
+
+    it('com hash, `versao+hash`', () => {
+        globalThis.__APP_VERSION__ = '1.2.3';
+        globalThis.__APP_RELEASE__ = 'a1b2c3d';
+        expect(versaoDoBuild()).toBe('1.2.3+a1b2c3d');
+    });
+
+    it('sem hash (build sem git), só a versão', () => {
+        globalThis.__APP_VERSION__ = '1.2.3';
+        globalThis.__APP_RELEASE__ = '';
+        expect(versaoDoBuild()).toBe('1.2.3');
+    });
+
+    it('cortado no teto de 100 que a rota valida', () => {
+        globalThis.__APP_VERSION__ = 'v'.repeat(90);
+        globalThis.__APP_RELEASE__ = 'h'.repeat(90);
+        expect(versaoDoBuild()).toHaveLength(TETOS.release);
+    });
+
+    it('o `release` do corpo é o que `versaoDoBuild` devolve', () => {
+        globalThis.__APP_VERSION__ = '9.9.9';
+        globalThis.__APP_RELEASE__ = 'deadbee';
+        ativa = instalarEspiao();
+        ativa.alvo.emitir('error', { error: erroCom('boom', PILHA) });
+        expect(ativa.enviados[0].release).toBe('9.9.9+deadbee');
+    });
+});
+
+describe('fiação dos emissores: cada porta chama `relatarErro` com a origem dela', () => {
+    // ESTRUTURAL de propósito, como o teste das quatro páginas logo acima: os cinco emissores
+    // vivem em módulos que precisam de MapLibre, de Cesium, de Three.js ou do barril do store, e
+    // a camada hermética não os executa. O que se prende de graça é que a chamada não SAIA numa
+    // refatoração — que é como a telemetria volta a não ver nada sem ninguém perceber.
+    const EMISSORES = [
+        ['src/js/index.js', 'OrigemDeErro.BOOT'],
+        ['src/js/store/store-error-listener.js', 'OrigemDeErro.STORE'],
+        ['src/js/store/sync/ws-client.js', 'OrigemDeErro.WS'],
+        ['src/js/ui/unavailable-screen.js', 'OrigemDeErro.INDISPONIVEL'],
+    ];
+
+    it.each(EMISSORES)('%s relata com %s', (relativo, origem) => {
+        const fonte = readFileSync(
+            fileURLToPath(new URL(`../../${relativo}`, import.meta.url)),
+            'utf8',
+        );
+        expect(fonte).toMatch(/relatarErro\(/);
+        expect(fonte).toContain(origem);
+    });
+
+    it('o painel de falha de camada relata pela superfície, com UM ponto só', () => {
+        const fonte = readFileSync(
+            fileURLToPath(new URL('../../src/js/terrain/layer-failure-notice.js', import.meta.url)),
+            'utf8',
+        );
+        expect(fonte).toMatch(/relatarErro\(/);
+        expect(fonte).toContain('origemDeSuperficie(kind)');
+        // O NOME humano da camada nunca viaja; o id, sim.
+        expect(fonte).toMatch(/camada: layerId/);
+    });
+
+    it('o cabeçalho `X-EBGeo-Sessao` sai de `_request`, e de um lugar só', () => {
+        const fonte = readFileSync(
+            fileURLToPath(new URL('../../src/js/store/sync/api-client.js', import.meta.url)),
+            'utf8',
+        );
+        // A ATRIBUIÇÃO, e não a string solta: a contagem anterior casava também o comentário que
+        // a explica, então apagar (ou acrescentar) um comentário mexia num número que deveria
+        // falar só sobre código.
+        expect([...fonte.matchAll(/headers\['X-EBGeo-Sessao'\]/g)]).toHaveLength(1);
+        // RELATIVO, e não `@js/`: `api-client.js` é importado em node pelos helpers do
+        // Playwright, onde o alias não existe. O alias aqui derrubava toda spec de UI.
+        expect(fonte).toContain("import { sessaoId } from '../../session/sessao-id.js'");
+    });
+
+    it('o boot do MAPA descarrega a fila DEPOIS do `applyRuntimeConfig` que deu certo', () => {
+        const fonte = readFileSync(
+            fileURLToPath(new URL('../../src/js/index.js', import.meta.url)),
+            'utf8',
+        );
+        const iConfig = fonte.indexOf('runtimeConfig.applied');
+        const iDrenar = fonte.indexOf('descarregarFilaDeRelatos()');
+        expect(iConfig).toBeGreaterThan(-1);
+        expect(iDrenar).toBeGreaterThan(iConfig);
+    });
+
+    it.each([
+        'src/js/index.js',
+        'src/js/projects/projects-page.js',
+        'src/js/admin/admin-page.js',
+        'src/js/calibration/calibracao-page.js',
+    ])('%s DRENA a fila (senão o relato fica preso na página que o guardou)', (relativo) => {
+        // As TRÊS páginas sem mapa também guardam relato (o `APP_ERROR` do admin é o caso), e uma
+        // fila que só o mapa esvazia faz a notícia esperar uma visita que pode não acontecer.
+        const fonte = readFileSync(
+            fileURLToPath(new URL(`../../${relativo}`, import.meta.url)),
+            'utf8',
+        );
+        expect(fonte).toMatch(/descarregarFilaDeRelatos\(\)/);
+        expect(fonte).toContain('erro-telemetria.js');
+    });
+});
+
+describe('A5 — a tela de indisponibilidade escolhe entre a fila e a rede, e a escolha é por CAUSA', () => {
+    // O DEFEITO QUE ISTO IMPEDE: enfileirar SEMPRE. As duas causas dizem coisas opostas sobre o
+    // servidor, e tratá-las juntas atrasava até a próxima visita (que pode não acontecer) a única
+    // notícia de um erro do NOSSO código, num momento em que a rede estava perfeitamente de pé.
+
+    it('servidor inalcançável ENFILEIRA: o relato daquele fato não tem para onde ir', () => {
+        expect(deveEnfileirarIndisponivel(BlockingCause.SERVER_UNREACHABLE)).toBe(true);
+    });
+
+    it('erro do aplicativo ENVIA: o servidor respondeu, e a frase da tela diz isso', () => {
+        expect(deveEnfileirarIndisponivel(BlockingCause.APP_ERROR)).toBe(false);
+    });
+
+    it('causa desconhecida ENVIA (falha para o lado da notícia que chega agora)', () => {
+        for (const ruim of [undefined, null, '', 'inventada', 42, {}]) {
+            expect(deveEnfileirarIndisponivel(ruim)).toBe(false);
+        }
+    });
+
+    it('as duas causas produzem desfechos DIFERENTES no transporte', () => {
+        // O par, contra a telemetria de verdade: uma vai para a fila sem tocar a rede, a outra sai.
+        const fila = criarFilaDeRelatos({ storage: criarArmazenamento() });
+        ativa = instalarEspiao({ fila, intervaloMs: 0 });
+
+        relatarErro(`EBGeo indisponível: ${BlockingCause.SERVER_UNREACHABLE}`, {
+            origem: OrigemDeErro.INDISPONIVEL,
+            contexto: { causa: BlockingCause.SERVER_UNREACHABLE },
+            enfileirarSempre: deveEnfileirarIndisponivel(BlockingCause.SERVER_UNREACHABLE),
+        });
+        expect(ativa.enviados).toHaveLength(0);
+        expect(fila.tamanho()).toBe(1);
+
+        ativa.avancar(10);
+        relatarErro(`EBGeo indisponível: ${BlockingCause.APP_ERROR}`, {
+            origem: OrigemDeErro.INDISPONIVEL,
+            contexto: { causa: BlockingCause.APP_ERROR },
+            enfileirarSempre: deveEnfileirarIndisponivel(BlockingCause.APP_ERROR),
+        });
+        expect(ativa.enviados).toHaveLength(1);
+        expect(ativa.enviados[0].contexto).toEqual({ causa: BlockingCause.APP_ERROR });
+        expect(fila.tamanho()).toBe(1);
+    });
+
+    it('a tela usa a função, e não repete a decisão à mão', () => {
+        const fonte = readFileSync(
+            fileURLToPath(new URL('../../src/js/ui/unavailable-screen.js', import.meta.url)),
+            'utf8',
+        );
+        expect(fonte).toMatch(/enfileirarSempre: deveEnfileirarIndisponivel\(cause\)/);
     });
 });

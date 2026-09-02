@@ -38,6 +38,14 @@ const CENSO = {
   'slides.orientation': ['CLOSED', '{bearing, pitch, heading, lon, lat, fov}'],
   'slides.temporal_cursor': ['CLOSED', 'número (epoch ms) ou null'],
   'comments.data': ['CLOSED', 'comment.operations.js escreve só escalares; `text` é texto livre (teto)'],
+  // A ÚNICA JSONB QUE NÃO É DO ATLAS E MESMO ASSIM VEM DE UM CLIENTE: telemetria de erro do
+  // navegador, escrita por rota REST própria e ANÔNIMA, não por op de sync.
+  'client_errors.contexto': ['CLOSED',
+    'forma fechada campo a campo no Joi de src/modules/diag/diag.schemas.js: cinco chaves '
+    + 'ESCALARES (atlasKind, conexao, causa, camada, status), com unknown(false), que ali RECUSA '
+    + 'a chave extra com 422 em vez de descartá-la. Escritor único: POST /diag/erro-cliente '
+    + '(017_erro_cliente_identidade.sql). NÃO passa por free-field.schemas.js, e não deve passar: '
+    + 'aquele guarda carga de ATLAS que chega por op de sync, e esta coluna não é carga de atlas.'],
 
   // ---- SCRUBBED ------------------------------------------------------------
   'maps.analysis_layers': ['SCRUBBED', 'domínio de grade, com valor aninhado em contrato (los_result_*, {grid:{...}})'],

@@ -57,7 +57,10 @@ import { sessionRestoreNotice } from './session/session-restore-phrases.js';
 import { showVisitorBanner, destroyVisitorBanner } from './session/visitor-banner.js';
 // Pelo ARQUIVO (a pasta `session/` não tem barrel), e de um módulo que não participa do boot: ver
 // a chamada no topo de `initApp`.
-import { instalarTelemetriaDeErro } from './session/erro-telemetria.js';
+import {
+    instalarTelemetriaDeErro, relatarErro, descarregarFilaDeRelatos,
+} from './session/erro-telemetria.js';
+import { OrigemDeErro } from './session/origens-de-erro.js';
 import { getViewModeController } from '@ui/view-mode.controller.js';
 import { showToast } from '@utils';
 import { createMap, createControls, initializeApp, setupCleanupHandlers } from './map_sig.js';
@@ -150,6 +153,13 @@ async function initApp() {
         showUnavailableScreen();
         return;
     }
+
+    // AQUI, E NÃO ANTES: este é o primeiro instante do boot em que se SABE que o servidor responde,
+    // e a fila de relatos guarda justamente o que não conseguiu sair numa carga anterior (o caso
+    // que ela existe para cobrir é este `applyRuntimeConfig` ter falhado da última vez). Mandar
+    // antes seria gastar pedido contra um servidor que ainda não respondeu. Sem `await`: o boot não
+    // espera pela telemetria, e a promessa nunca rejeita.
+    descarregarFilaDeRelatos();
 
     initializeAppConfig();
     initConfigHelpers();
@@ -771,7 +781,11 @@ async function openAtlasChooserOnBoot() {
 
 // Start initialization immediately (map container exists in static HTML)
 initApp().catch(error => {
+    // O `console.error` FICA, e o relato é acrescentado ao lado dele. Ele é o que a pessoa que
+    // está com o console aberto lê agora; o relato é o que sobrevive ao fechamento da aba, que é
+    // quando quase todo defeito de boot acontece.
     console.error('Application initialization failed:', error);
+    relatarErro(error, { origem: OrigemDeErro.BOOT });
 });
 
 // ============================================================================

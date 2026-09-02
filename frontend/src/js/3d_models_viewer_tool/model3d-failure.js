@@ -43,6 +43,15 @@ import { SURFACE_NOUN } from '@js/terrain/data-layer-phrases.js';
 /** Key the 3D models are filed under in the shared notice. */
 export const MODEL_3D_SURFACE = 'modelo3d';
 
+// A ORIGEM COM QUE A TELEMETRIA DE ERRO MARCA ESTA SUPERFÍCIE é `cesium`, e ela é declarada
+// em `session/origens-de-erro.js` (`ORIGEM_POR_SUPERFICIE`), indexada pela chave logo acima.
+//
+// O RELATO NÃO SAI DAQUI, e isso é decisão, não esquecimento: `model3dFailures.report` termina em
+// `report(kind, id, status)` do painel compartilhado (`terrain/layer-failure-notice.js`), que é
+// quem chama `relatarErro`. Um segundo relato neste arquivo mandaria DOIS relatos com DUAS
+// assinaturas para UMA falha, gastando em dobro o teto de vinte envios por sessão. Quem casa a
+// chave com a origem é `frontend/tests/unit/origens-de-erro.test.js`, que importa os dois lados.
+
 /**
  * The one reporter for 3D models, shared by the control (which attaches the map) and the engine
  * (which reports). A module singleton because there is one map per page and the surface is a

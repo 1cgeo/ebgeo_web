@@ -41,6 +41,47 @@ export function clientAddress(req) {
 }
 
 /**
+ * The header the browser stamps with the id of ITS session.
+ *
+ * Lowercase because `req.headers` is lowercase-keyed by Node's parser, and reading the map
+ * directly (rather than `req.get`) is what keeps every function here callable with a plain
+ * object in a test.
+ */
+export const CABECALHO_DE_SESSAO = 'x-ebgeo-sessao';
+
+/**
+ * Strict UUID shape, case-insensitive. Anchored at both ends on purpose: an unanchored
+ * match would accept a UUID with anything glued around it, and this value is written to a
+ * durable log verbatim.
+ */
+const RE_SESSAO = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The browser session id this request declares, or `null`.
+ *
+ * WHY IT IS VALIDATED RATHER THAN LOGGED RAW. This is caller-supplied text on a field that
+ * reaches a file kept for `LOG_RETENTION_DAYS` days, so anything accepted here is anything
+ * an anonymous caller can write into our log: a megabyte of junk, a fake `reqId`, a line
+ * break to forge a second record. A closed shape makes the field mean exactly one thing —
+ * "the browser tab that produced this" — and the UUID is minted by the client, never by us.
+ *
+ * INVALID IS THE SAME AS ABSENT, and the field is then OMITTED rather than written as
+ * `null` or `'unknown'`. This is the opposite call from `clientAddress` above, and the
+ * difference is who produces the value: the address comes from OUR socket, so "we looked
+ * and found nothing" is a fact worth recording; the session comes from the CALLER, so a
+ * placeholder would only record that somebody sent us garbage, which is not a property of
+ * the request being logged. It also keeps the correlation honest: a query for lines with
+ * `sessaoId` returns exactly the lines that carry a real one.
+ *
+ * @param {{headers?: Record<string, unknown>}} req - the Express request.
+ * @returns {string|null} the accepted id, or null.
+ */
+export function sessaoDaRequisicao(req) {
+  const bruto = req?.headers?.[CABECALHO_DE_SESSAO];
+  return typeof bruto === 'string' && RE_SESSAO.test(bruto) ? bruto : null;
+}
+
+/**
  * Builds the object handed to pino for one finished request. Separated from the
  * middleware so the SHAPE is testable: under `NODE_ENV=test` the logger runs at level
  * `silent`, so a test that spies on pino's output would pass green with the field gone.
@@ -52,7 +93,7 @@ export function clientAddress(req) {
  * @returns {object} the pino payload.
  */
 export function requestLogPayload(req, res, duration) {
-  return {
+  const payload = {
     reqId: req.id,
     // O ENDEREÇO É DADO PESSOAL, e entra aqui porque é a única forma de responder "quem
     // está tentando entrar". A pergunta não tem outra fonte neste servidor: `LOGIN_FAILED`
@@ -92,6 +133,19 @@ export function requestLogPayload(req, res, duration) {
     duration,
     userId: req.user?.id,
   };
+
+  // THE KEY IS ONLY BORN WHEN THERE IS A VALUE, and never written as `undefined`. An
+  // `undefined` disappears from the JSON line and SURVIVES as a key on the object, so the
+  // record on disk and the object this function returns would disagree about what exists —
+  // the same trap `mapearGrupo` (`modules/diag/diag.service.js`) documents for `enderecos`.
+  //
+  // Derived from the header rather than read off `req.sessaoId` so this function stays
+  // usable on its own: the middleware below sets that property from the SAME function, so
+  // the two can never disagree, and neither depends on the other having run.
+  const sessaoId = sessaoDaRequisicao(req);
+  if (sessaoId) payload.sessaoId = sessaoId;
+
+  return payload;
 }
 
 /**
@@ -115,6 +169,12 @@ export function requestLogPayload(req, res, duration) {
 export function requestLogger(req, res, next) {
   const start = Date.now();
   req.id = randomUUID();
+  // Published on the request so the OTHER writers of this request's lines can echo it
+  // without re-reading (and re-validating) the header: `requestErrorLogPayload`
+  // (`middleware/error-handler.js`) is the one that matters, because the error line is the
+  // one `fundirPorRequisicao` keeps. `null` when the caller sent nothing usable, which is
+  // what makes `if (req.sessaoId)` the whole test at every call site.
+  req.sessaoId = sessaoDaRequisicao(req);
 
   res.on('finish', () => {
     const logData = requestLogPayload(req, res, Date.now() - start);

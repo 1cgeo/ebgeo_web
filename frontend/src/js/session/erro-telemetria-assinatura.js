@@ -27,8 +27,12 @@
  *     {@link criarLimitador} é o que decide, e ele recusa por TRÊS motivos distintos que valem ser
  *     distinguidos no estado interno: assinatura repetida, teto da sessão e intervalo mínimo.
  *
- * O QUE ELE DELIBERADAMENTE NÃO FAZ: não enfileira o que recusou. Uma fila de erros é uma fila que
- * é despejada de uma vez na volta, que é o mesmo pico com atraso.
+ * O QUE ELE DELIBERADAMENTE NÃO FAZ: não enfileira o que RECUSOU. A distinção passou a importar em
+ * 2026-09-01, quando nasceu `session/fila-de-relatos.js`, e ler as duas como uma só desfaz o
+ * desenho: o que a fila guarda é o relato que o limitador APROVOU e cujo ENVIO falhou (servidor
+ * fora, que é justamente o incidente que a telemetria não conseguia registrar). O que o limitador
+ * recusa continua morrendo aqui, sem fila, porque uma fila do recusado é a rajada de volta com
+ * atraso, que é o pico que ele existe para impedir.
  */
 
 /**
@@ -40,11 +44,32 @@ export const TETOS = Object.freeze({
     assinatura: 300,
     mensagem: 500,
     stack: 4000,
+    stackBruta: 4000,
     url: 500,
     pagina: 500,
     release: 100,
     userAgent: 300,
 });
+
+/**
+ * Os tetos dos campos de {@link contextoSeguro}, que são pequenos de propósito.
+ *
+ * ELES FICAM FORA DE {@link TETOS} porque o contexto é um objeto ANINHADO no corpo, e o espelho
+ * que compara teto a teto com o Joi da rota casa `^\s{2}campo:` — isto é, o campo de primeiro
+ * nível. Misturá-los ali faria o espelho procurar no lugar errado e passar verde sem comparar.
+ *
+ * Os números são o tamanho de um RÓTULO, não o de uma frase: `causa` carrega o nome de um evento
+ * ou de um estado (`STORE_PERSIST_ERROR`, `closed`), `camada` carrega um id de camada, e nenhum
+ * dos dois é texto escrito por gente.
+ */
+export const TETOS_DE_CONTEXTO = Object.freeze({
+    conexao: 20,
+    causa: 40,
+    camada: 80,
+});
+
+/** Os três tipos de atlas que o contexto sabe nomear. Fora disso, o campo não viaja. */
+export const TIPOS_DE_ATLAS = Object.freeze(['local', 'servidor', 'publico']);
 
 /** Quantos envios uma sessão pode fazer, no total. */
 export const MAX_ENVIOS_POR_SESSAO = 20;
@@ -96,6 +121,90 @@ const RE_ESPACO = /\s+/g;
 const RE_QUADRO = /([^\s()]+?):(\d+):(\d+)/g;
 
 /**
+ * As ÚNICAS chaves cujo VALOR pode viajar, e o que elas têm em comum: as duas são CÓDIGO, não
+ * texto. Um `code` é um símbolo de protocolo (`FORBIDDEN`, `ECONNRESET`) e um `status` é um número
+ * do HTTP: nenhum dos dois é escrito por gente.
+ *
+ * `message` ESTEVE NESTA LISTA E SAIU, e a retirada é a mesma correção do repro. Uma `message` é
+ * texto livre de procedência desconhecida: ela é o campo em que um servidor ecoa o que o usuário
+ * mandou ("a feição 'Posto do Cel Fulano' não pôde ser salva"), e deixá-la passar era o resíduo
+ * exato do vazamento que {@link formaDeValor} existe para fechar. O `message` de um `Error` de
+ * verdade continua inteiro, porque ele é escrito por programador e nem chega a este ramo.
+ */
+const CHAVES_COM_VALOR = Object.freeze(['code', 'status']);
+
+/** Quantas chaves de topo são nomeadas. Doze descreve a forma; a lista inteira vira um despejo. */
+const MAX_CHAVES_DA_FORMA = 12;
+
+/** Teto do valor de uma das três chaves acima. Um código, não um parágrafo. */
+const TETO_DO_VALOR = 40;
+
+/**
+ * A FORMA de um objeto que não é `Error`: o tipo, as chaves de topo, e o valor de no máximo três
+ * chaves de um vocabulário fechado.
+ *
+ * ISTO SUBSTITUIU UM `JSON.stringify`, E A TROCA É DE PRIVACIDADE, NÃO DE ESTILO. A razão original
+ * do JSON era boa (o objeto rejeitado quase sempre é um corpo de resposta, e `{"status":500}` é
+ * muito mais útil que `[object Object]`), mas ele serializa o que estiver ali, e o que costuma
+ * estar ali no EBGeo é dado do usuário: um `Promise.reject(feature)` manda o `nome` da feição, a
+ * `descricao` escrita pela pessoa e as coordenadas decimais da posição dela, e a telemetria é
+ * justamente o tipo de dado que acaba num log, num relatório e num anexo de e-mail. Uma
+ * `FeatureCollection` rejeitada por engano vazaria o mapa inteiro, quinhentos caracteres por vez.
+ *
+ * O QUE SOBRA AINDA DIAGNOSTICA: `Object{features,type}` diz que alguém rejeitou um GeoJSON, que
+ * é a informação que faz alguém achar a linha; `Response{status,statusText} status=500` diz o que
+ * o JSON dizia. O que se perde é o conteúdo, que nunca foi o que se estava lendo.
+ *
+ * NUNCA LANÇA, e cada leitura tem `try` próprio: `constructor`, `Object.keys` e o acesso a uma
+ * propriedade são três coisas que um `Proxy` hostil (ou um objeto de outro realm) faz explodir.
+ * @param {Object|Function} valor
+ * @returns {string} Nunca vazia.
+ */
+export function formaDeValor(valor) {
+    try {
+        let nome = 'Object';
+        try {
+            const construtor = valor?.constructor?.name;
+            if (typeof construtor === 'string' && construtor) nome = construtor;
+            else if (Array.isArray(valor)) nome = 'Array';
+        } catch {
+            nome = 'Object';
+        }
+
+        let chaves = [];
+        try {
+            // ORDENADAS: a ordem de inserção varia entre dois objetos com a mesma forma, e uma
+            // forma que muda de texto é uma assinatura que muda de grupo.
+            chaves = Object.keys(valor).sort();
+        } catch {
+            chaves = [];
+        }
+        const mostradas = chaves.slice(0, MAX_CHAVES_DA_FORMA);
+        const sobra = chaves.length - mostradas.length;
+        const lista = mostradas.join(',') + (sobra > 0 ? `,+${sobra}` : '');
+
+        const partes = [`${nome}{${lista}}`];
+        for (const chave of CHAVES_COM_VALOR) {
+            let bruto;
+            try {
+                if (!Object.hasOwn(valor, chave)) continue;
+                bruto = valor[chave];
+            } catch {
+                continue;
+            }
+            if (typeof bruto === 'number' && Number.isFinite(bruto)) {
+                partes.push(`${chave}=${bruto}`);
+            } else if (typeof bruto === 'string' && bruto.trim()) {
+                partes.push(`${chave}=${bruto.trim().slice(0, TETO_DO_VALOR)}`);
+            }
+        }
+        return partes.join(' ');
+    } catch {
+        return SEM_MENSAGEM;
+    }
+}
+
+/**
  * Extrai mensagem e pilha de QUALQUER coisa que um capturador de erro possa receber.
  *
  * O ARGUMENTO NÃO É UM `Error`, e presumir que seja é o defeito clássico deste ponto do código.
@@ -127,17 +236,8 @@ export function textoDeErro(valor) {
             return { mensagem: `${nome}${valor.message}`.trim(), stack };
         }
 
-        // Objeto que não é `Error`. O JSON é MUITO mais útil que `[object Object]` (é quase sempre
-        // um corpo de resposta ou um payload), mas ele é circular com frequência e enorme com
-        // frequência, então é tentativa com rede embaixo.
-        let serializado = '';
-        try {
-            serializado = JSON.stringify(valor) ?? '';
-        } catch {
-            serializado = '';
-        }
-        const mensagem = serializado.slice(0, TETOS.mensagem) || String(valor);
-        return { mensagem: mensagem.trim() || SEM_MENSAGEM, stack };
+        // Objeto que não é `Error`: descreve-se a FORMA, nunca o conteúdo. Ver {@link formaDeValor}.
+        return { mensagem: formaDeValor(valor), stack };
     } catch {
         return { mensagem: SEM_MENSAGEM, stack: '' };
     }
@@ -321,6 +421,57 @@ export function urlSegura(href) {
 const RE_UUID_INTEIRO = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
+ * A forma de uma origem. Ver {@link montarCorpo}: o VOCABULÁRIO é conferido pela fiação.
+ *
+ * O DÍGITO É OBRIGATÓRIO NA CLASSE, e a primeira versão desta linha o esqueceu: `sv360` é uma das
+ * dez, e sem ele a origem do visualizador 360 sumia do corpo em silêncio, que é a pior forma de
+ * uma etiqueta falhar (o relato chega, o filtro não acha).
+ */
+const RE_ORIGEM = /^[a-z][a-z0-9-]{0,19}$/;
+
+/**
+ * O contexto, reduzido às cinco chaves que ele pode ter.
+ *
+ * ELE É UMA ENUMERAÇÃO, E NUNCA UM OBJETO LIVRE, e essa é a decisão inteira. Um campo de contexto
+ * aberto é um convite a `{ feature }`, `{ payload }`, `{ resposta }`, e cada um deles é dado do
+ * usuário indo para um log — o mesmo vazamento que {@link formaDeValor} acabou de fechar do outro
+ * lado, reaberto por uma porta com nome amigável. O que passa é: de que TIPO era o atlas, em que
+ * estado estava a conexão, o RÓTULO da causa, o ID (nunca o nome) da camada e um código HTTP.
+ *
+ * O QUE NÃO PASSA SOME EM SILÊNCIO, de propósito: quem escreveu `{ feature }` não pode ser
+ * recompensado com um 422 que derruba o relato inteiro, e também não pode ser recompensado com o
+ * vazamento. A chave desconhecida simplesmente não existe na saída.
+ *
+ * `status` FORA DA FAIXA HTTP NÃO VIAJA. O `0` que o `fetch` reporta para pedido bloqueado ou
+ * abortado não é resposta nenhuma, e mandá-lo como se fosse põe um número medido na tela de quem
+ * não mediu nada (mesma regra que `LayerFailureNotice.report` já aplica).
+ * @param {*} contexto
+ * @returns {Object|null} `null` quando não sobrou nada, para que o campo simplesmente não exista.
+ */
+export function contextoSeguro(contexto) {
+    try {
+        if (contexto === null || typeof contexto !== 'object' || Array.isArray(contexto)) {
+            return null;
+        }
+        const saida = {};
+        if (typeof contexto.atlasKind === 'string' && TIPOS_DE_ATLAS.includes(contexto.atlasKind)) {
+            saida.atlasKind = contexto.atlasKind;
+        }
+        for (const campo of Object.keys(TETOS_DE_CONTEXTO)) {
+            const bruto = contexto[campo];
+            if (typeof bruto !== 'string') continue;
+            const limpo = bruto.replace(RE_ESPACO, ' ').trim();
+            if (limpo) saida[campo] = limpo.slice(0, TETOS_DE_CONTEXTO[campo]);
+        }
+        const status = contexto.status;
+        if (Number.isInteger(status) && status >= 100 && status <= 599) saida.status = status;
+        return Object.keys(saida).length > 0 ? saida : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
  * O corpo do POST, com todo campo já dentro do teto que a rota valida.
  *
  * OS OPCIONAIS SAEM QUANDO NÃO EXISTEM, em vez de irem como `null`. `release` só existe se o build
@@ -335,12 +486,22 @@ const RE_UUID_INTEIRO = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
  * NENHUM CAMPO DE USUÁRIO, e a ausência é o contrato: quem está falando é assunto do token (ou do
  * cookie) que o navegador anexa, e um `userId` no corpo é um `userId` que qualquer um escreve. O
  * `userAgent` não é identidade: é o navegador, e é o primeiro campo que qualquer diagnóstico de
- * defeito de tela pergunta.
+ * defeito de tela pergunta. O `sessaoId` também não é: ele é a ABA, cunhado no cliente, sem nome e
+ * sem conta atrás, e é o que separa "cinco pessoas com o mesmo defeito" de "uma pessoa cinco
+ * vezes" — as duas leituras pedem respostas opostas e eram indistinguíveis sem ele.
+ *
+ * `stack` E `stackBruta` VIAJAM AS DUAS, e a redundância é o ponto. A normalizada é a que o
+ * agrupamento usa (sem hash de build, sem UUID, sem carimbo de HMR), e é ela que faz duas cargas
+ * do mesmo defeito caírem no mesmo grupo; a bruta é a que permite ler o sourcemap DAQUELE build,
+ * que é o que se abre quando alguém finalmente vai depurar. Descobrir no meio do diagnóstico que o
+ * `<hash>` apagou justamente o nome do arquivo que se precisava custa o incidente inteiro. A
+ * ASSINATURA NÃO MUDA por causa dela: quem assina é a normalizada, hoje como ontem.
  * @param {Object} entrada
  * @returns {Object} Os campos do contrato, todos truncados.
  */
 export function montarCorpo({
-    assinatura, mensagem, stack, url, pagina, release, atlasId, userAgent,
+    assinatura, mensagem, stack, stackBruta, url, pagina, release, atlasId, userAgent,
+    sessaoId, origem, contexto,
 } = {}) {
     const corpo = {
         // A ASSINATURA VIAJA, e é ela que o servidor agrupa. Ela é montada AQUI, no cliente, porque
@@ -363,6 +524,18 @@ export function montarCorpo({
         corpo.userAgent = truncar(userAgent, TETOS.userAgent);
     }
     if (typeof atlasId === 'string' && RE_UUID_INTEIRO.test(atlasId)) corpo.atlasId = atlasId;
+    // Mesmo filtro do `atlasId`, e pela mesma razão: a coluna é `uuid` do outro lado, e um valor
+    // de outra forma derruba o relato INTEIRO num 422 por causa do campo mais dispensável dele.
+    if (typeof sessaoId === 'string' && RE_UUID_INTEIRO.test(sessaoId)) corpo.sessaoId = sessaoId;
+    if (typeof stackBruta === 'string' && stackBruta) {
+        corpo.stackBruta = truncar(stackBruta, TETOS.stackBruta);
+    }
+    // A FORMA se confere aqui; o VOCABULÁRIO das dez origens se confere na fiação
+    // (`session/erro-telemetria.js`, contra `ORIGENS_DE_ERRO`), porque este módulo é folha de zero
+    // imports e uma segunda cópia da lista divergiria da primeira em silêncio.
+    if (typeof origem === 'string' && RE_ORIGEM.test(origem)) corpo.origem = origem;
+    const seguro = contextoSeguro(contexto);
+    if (seguro) corpo.contexto = seguro;
     return corpo;
 }
 
@@ -376,6 +549,14 @@ export function montarCorpo({
  * O RECUSADO NÃO É MEMORIZADO, e isso é deliberado: só o envio bem-sucedido carimba a assinatura e
  * o relógio. Memorizar o recusado por intervalo faria o primeiro erro de uma rajada consumir a
  * assinatura sem nunca a enviar, e o defeito nunca chegaria ao servidor.
+ *
+ * O `ignorarIntervalo` EXISTE PARA UM CHAMADOR SÓ, o descarregamento da fila de relatos, e ele não
+ * afrouxa nada dos outros dois. O intervalo mínimo protege contra o LAÇO VIVO (um erro dentro de um
+ * `requestAnimationFrame` são sessenta por segundo), e a fila não é um laço: ela é limitada pelo
+ * teto de trinta itens, sai uma vez por boot e vai em SÉRIE, um pedido esperando o anterior. Passar
+ * a fila pelo relógio faria o primeiro item sair e os vinte e nove seguintes serem descartados no
+ * mesmo milissegundo, que é perder a evidência guardada de propósito. A duplicata e o teto da
+ * sessão continuam valendo para ela, e são eles que impedem o despejo de virar rajada.
  * @param {Object} [opcoes]
  * @param {number} [opcoes.max] - Teto de envios da sessão.
  * @param {number} [opcoes.intervaloMs] - Espera mínima entre dois envios.
@@ -394,7 +575,13 @@ export function criarLimitador({
     let ultimoEnvio = null;
 
     return {
-        permite(assinatura) {
+        /**
+         * @param {*} assinatura
+         * @param {{ignorarIntervalo?: boolean}} [opcoes] - Ver o `fileoverview` desta função: só o
+         *   descarregamento da fila usa a bandeira, e ela NÃO dispensa a duplicata nem o teto.
+         * @returns {{ok: boolean, motivo: string}}
+         */
+        permite(assinatura, { ignorarIntervalo = false } = {}) {
             const chave = typeof assinatura === 'string' ? assinatura : String(assinatura ?? '');
             if (vistas.has(chave)) {
                 duplicadas++;
@@ -406,7 +593,7 @@ export function criarLimitador({
             }
             const t = Number(agora());
             const relogioVale = Number.isFinite(t);
-            if (relogioVale && ultimoEnvio !== null && (t - ultimoEnvio) < intervaloMs) {
+            if (!ignorarIntervalo && relogioVale && ultimoEnvio !== null && (t - ultimoEnvio) < intervaloMs) {
                 limitadas++;
                 return { ok: false, motivo: MotivoDeEnvio.INTERVALO };
             }

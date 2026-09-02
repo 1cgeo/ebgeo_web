@@ -360,10 +360,13 @@ describe('client_errors: poda oportunista por idade e total antes do corte', () 
     // pode ter vazado para dentro do item.
     const item = res.body.data.itens[0];
     assert.ok(item, 'a janela precisa ter ao menos um item, senão o caso não mede nada');
+    // As quatro últimas nasceram em `017_erro_cliente_identidade.sql` (2026-09-01) e são
+    // ADITIVAS: nenhum nome anterior mudou, e é isso que esta lista continua cobrando.
     assert.deepEqual(
       Object.keys(item).sort(),
-      ['assinatura', 'atlasId', 'id', 'mensagem', 'ocorrencias', 'pagina', 'primeiraEm',
-        'release', 'stack', 'ultimaEm', 'url', 'userAgent', 'userId', 'username'],
+      ['assinatura', 'atlasId', 'contexto', 'id', 'mensagem', 'ocorrencias', 'origem',
+        'pagina', 'primeiraEm', 'release', 'sessaoId', 'stack', 'stackBruta', 'ultimaEm',
+        'url', 'userAgent', 'userId', 'username'],
       'o shape do item mudou',
     );
   });

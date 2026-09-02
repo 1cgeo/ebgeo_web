@@ -16,6 +16,8 @@ import { overwriteNotice } from './sync/overwrite-notice.js';
 import { presenceStore } from '../presence/presence-store.js';
 import { EventTypes } from '../events/event_types.js';
 import { showInChannel } from '../utilities/toast_service.js';
+import { relatarErro } from '@js/session/erro-telemetria.js';
+import { OrigemDeErro } from '@js/session/origens-de-erro.js';
 
 /** Minimum interval between "blocked" toasts (ms) */
 const BLOCKED_DEBOUNCE_MS = 3000;
@@ -35,6 +37,15 @@ const _lastBlockedToastAt = { lock: 0, denied: 0, explicit: 0 };
  * @param {import('../events/event_bus.js').EventBus} eventBus
  */
 export function registerStoreErrorListeners(eventBus) {
+    // OS DOIS EVENTOS DE ERRO RELATAM; O DE BLOQUEIO NÃO, e a assimetria é a linha entre defeito e
+    // decisão. `STORE_PERSIST_ERROR` e `STORE_SYNC_ERROR` são coisas quebrando (IndexedDB recusando
+    // escrita, fila de saída falhando em série), e são exatamente o tipo de falha que a pessoa vê
+    // como um toast e ninguém mais fica sabendo. `STORE_OPERATION_BLOCKED` é o produto RECUSANDO de
+    // propósito (mapa travado, papel insuficiente): relatá-lo encheria o teto de vinte envios com
+    // o funcionamento normal do gate, e as recusas legítimas superam em muito as falhas reais.
+    //
+    // A `causa` É O NOME DO EVENTO, e não a frase do toast: a frase é escrita para gente, muda
+    // quando alguém a melhora, e agrupar por ela faria uma revisão de texto virar um grupo novo.
     eventBus.on(StoreErrorEvents.STORE_PERSIST_ERROR, (payload) => {
         showInChannel(
             'store-persist-error',
@@ -43,6 +54,10 @@ export function registerStoreErrorListeners(eventBus) {
             { duration: 5000 }
         );
         console.error('[Store] Persistence error:', payload);
+        relatarErro(payload?.error ?? payload, {
+            origem: OrigemDeErro.STORE,
+            contexto: { causa: 'STORE_PERSIST_ERROR' },
+        });
     });
 
     eventBus.on(StoreErrorEvents.STORE_SYNC_ERROR, (payload) => {
@@ -54,6 +69,13 @@ export function registerStoreErrorListeners(eventBus) {
                 { duration: 4000 }
             );
         }
+        // FORA DO `if`, de propósito: o limiar de três existe para não incomodar a pessoa com uma
+        // falha passageira, e a primeira falha é justamente a que descreve a causa. O dedupe por
+        // assinatura já garante que uma fila que falha em laço vire um relato só.
+        relatarErro(payload?.error ?? payload, {
+            origem: OrigemDeErro.STORE,
+            contexto: { causa: 'STORE_SYNC_ERROR' },
+        });
     });
 
     eventBus.on(StoreErrorEvents.STORE_OPERATION_BLOCKED, (payload) => {

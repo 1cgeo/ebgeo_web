@@ -175,6 +175,12 @@ export function assinaturaDeErro(reg) {
  * que tem tipo e pilha; o outro é descartado com o `statusCode` copiado para dentro dele,
  * que é a única informação que só ele tinha.
  *
+ * DUAS COISAS ATRAVESSAM HOJE, NÃO UMA: o `statusCode` e o `sessaoId`. O segundo entrou em
+ * 2026-09-01 e a regra dele é a mesma do endereço em `criarAgrupadorDeErros` — quem escreve
+ * a sessão é a linha do `request-logger`, e é ela que a fusão descarta. O `errorHandler`
+ * passou a ecoar o campo no mesmo commit, então esta cópia é a REDE, não o caminho
+ * principal: ela alcança o log já escrito antes do eco existir.
+ *
  * Registro sem `reqId` passa intacto: é o caso da falha anterior ao logger de requisição, e
  * o de qualquer `logger.error` fora do ciclo HTTP (o sweep do WS, um job).
  *
@@ -202,9 +208,19 @@ export function assinaturaDeErro(reg) {
 export function fundirPorRequisicao(registros) {
   const ricos = new Map();
   const candidatos = new Map();
+  const sessoes = new Map();
   for (const reg of registros) {
     if (!reg || !reg.reqId) continue;
     if (reg.err) ricos.set(reg.reqId, reg);
+    // A SESSÃO SEGUE A MESMA REGRA DO ENDEREÇO, e pela mesma razão: ela é escrita pela
+    // linha do `request-logger`, e a fusão fica com a do `errorHandler`. Ele hoje ECOA o
+    // campo, então o caso comum não depende desta cópia; ela é o que mantém a correlação
+    // viva sobre log JÁ ESCRITO (antes do eco existir) e sobre qualquer produtor futuro que
+    // esqueça de ecoá-lo. O primeiro valor visto vence, porque uma requisição tem uma
+    // sessão só e a segunda leitura seria a mesma.
+    if (typeof reg.sessaoId === 'string' && reg.sessaoId && !sessoes.has(reg.reqId)) {
+      sessoes.set(reg.reqId, reg.sessaoId);
+    }
     if (typeof reg.statusCode !== 'number') continue;
     const par = candidatos.get(reg.reqId);
     if (!par) candidatos.set(reg.reqId, [reg]);
@@ -220,7 +236,15 @@ export function fundirPorRequisicao(registros) {
     // que a assinatura mostra entre colchetes.
     const pares = candidatos.get(reg.reqId);
     const par = pares && (pares[0] !== rico ? pares[0] : pares[1]);
-    saida.push(par ? { ...rico, statusCode: par.statusCode } : rico);
+    const sessao = rico.sessaoId ? null : sessoes.get(reg.reqId);
+    // O registro sai INTACTO quando não há nada a acrescentar, e a identidade importa:
+    // `criarAgrupadorDeErros` compara referências para decidir desempate, e clonar por via
+    // das dúvidas trocaria um objeto por outro igual em todo caminho de fusão.
+    if (!par && !sessao) { saida.push(rico); continue; }
+    const fundido = { ...rico };
+    if (par) fundido.statusCode = par.statusCode;
+    if (sessao) fundido.sessaoId = sessao;
+    saida.push(fundido);
   }
   return saida;
 }
