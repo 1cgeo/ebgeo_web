@@ -38,6 +38,20 @@
     background-color: transparent;
 }
 
+/* Blocked by the map's STATE (locked), not by the person's rank: the command stays
+   CLICKABLE on purpose, because the click is what names the state. It reads as unavailable
+   and keeps the pointer, so nobody mistakes it for a rendering glitch.
+
+   No `cursor: not-allowed` here, and that is the difference from `.disabled` above: the
+   crossed-out cursor says "there is nothing to click", which is the opposite of true. */
+.context-menu-item--blocked {
+    color: #999;
+}
+
+.context-menu-item--blocked:hover {
+    background-color: #f5f5f5;
+}
+
 /* ===== TOUCH OVERRIDES ===== */
 
 .context-menu--touch .context-menu-item {

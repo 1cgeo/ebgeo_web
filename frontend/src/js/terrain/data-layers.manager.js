@@ -4,6 +4,7 @@ import config from '../config.js';
 import { LAYOUT_PROPS } from '@layers/layer-style/layer-style.schema.js';
 import { generatePointImage, needsPerFeatureImage, getSymbolIds } from '@js/draw_tools/point_tool/point-marker-symbols.js';
 import { getLayerFailureNotice } from './layer-failure-notice.js';
+import { antimeridianSafeLngSpan } from '@utils/geometry-utils.js';
 
 /** Prefix every source and sub-layer of a data layer carries on the map. */
 const SOURCE_PREFIX = 'data-';
@@ -28,41 +29,6 @@ export const DATA_SURFACE = 'data';
  */
 function numberOr(value, fallback) {
     return Number.isFinite(value) ? value : fallback;
-}
-
-/**
- * Tightest longitude span covering every value, unwrapped across the antimeridian.
- *
- * Plain min/max turned a layer sitting on the date line into the box of the WHOLE
- * WORLD, mirrored: 179 and -179 became west -179 / east 179, so `fitBounds` framed
- * everything EXCEPT the layer and zoomed out until the planet fit.
- *
- * The method is the largest empty arc: sort the longitudes, find the widest gap
- * between neighbours (the wrap from the last back to the first included), and keep
- * the complement. When the widest gap IS the wrap, the answer is the ordinary
- * [min, max]. Otherwise the span is expressed with an `east` beyond 180, which
- * keeps west < east so the box still has positive width.
- *
- * @param {number[]} lngs - Finite longitudes, at least one
- * @returns {[number, number]} [west, east], with east possibly greater than 180
- */
-function antimeridianSafeLngSpan(lngs) {
-    const sorted = [...lngs].sort((a, b) => a - b);
-    const last = sorted.length - 1;
-
-    let widestGap = sorted[0] + 360 - sorted[last]; // the wrap-around gap
-    let gapStart = -1;                              // -1 means "the wrap wins"
-
-    for (let i = 0; i < last; i++) {
-        const gap = sorted[i + 1] - sorted[i];
-        if (gap > widestGap) {
-            widestGap = gap;
-            gapStart = i;
-        }
-    }
-
-    if (gapStart === -1) return [sorted[0], sorted[last]];
-    return [sorted[gapStart + 1], sorted[gapStart] + 360];
 }
 
 /**

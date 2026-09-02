@@ -32,7 +32,7 @@
  * "over the pole" translation, and a wrap would mirror the shape.
  */
 
-import { wrapLongitude, clampLatitude } from '@utils/geometry-utils.js';
+import { wrapLongitude, clampLatitude, translateKeypoints } from '@utils/geometry-utils.js';
 
 // ============================================================================
 // HELPERS (module-private)
@@ -187,18 +187,12 @@ function translateCenterProperty(center, deltaLng, deltaLat, lngShift) {
  * @returns {Array<Object>|null}
  */
 function translateTrajectory(trajetoria, deltaLng, deltaLat, lngShift) {
-    if (!Array.isArray(trajetoria)) return null;
-
-    const moved = [];
-    for (const keypoint of trajetoria) {
-        if (!keypoint || !Number.isFinite(keypoint.lng) || !Number.isFinite(keypoint.lat)) return null;
-        moved.push({
-            ...keypoint,
-            lng: keypoint.lng + deltaLng + lngShift,
-            lat: clampLatitude(keypoint.lat + deltaLat),
-        });
-    }
-    return moved;
+    // Promoted to `@utils/geometry-utils.js` in 2026-09-01, because the clipboard paste
+    // needs the same walk and core must never import from `phone/`. The shift stays a
+    // SEPARATE argument there for the reason spelled out in that function's JSDoc: the
+    // sum has to associate exactly as `translatePosition` associates it, or the route
+    // drifts a hair away from the geometry it belongs to.
+    return translateKeypoints(trajetoria, deltaLng, deltaLat, lngShift);
 }
 
 // ============================================================================

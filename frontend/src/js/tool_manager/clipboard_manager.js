@@ -3,6 +3,36 @@
 /**
  * @fileoverview Clipboard manager for copy/paste operations on features.
  * Delegates clipboard state to StateManager.
+ *
+ * ================= PASTE REFUSES OUT LOUD, AND BEFORE THE WORK ================
+ *
+ * `paste()` used to open with `if (isCurrentMapLockedSync()) return;` - a MUTE refusal - and
+ * it consulted no permission at all. The second half was the expensive one: a Leitor on a
+ * remote atlas reached `addFeatures`, whose `guardWrite` returns `undefined` in silence, and
+ * nothing here read that return. The paste went on to update the map sources, auto-select
+ * the "pasted" features and toast SUCCESS, right beside the refusal toast the store's own
+ * listener was showing. On F5 the features were gone.
+ *
+ * Both gates now run BEFORE any work, and they speak through DIFFERENT channels on purpose:
+ *
+ *   - RANK is said here, with `denialNotice(perm.required)`, which is keyed by the
+ *     capability the gate consulted and is therefore true for whoever reads it.
+ *   - THE LOCK is said by `store/store-error-listener.js`, reached by emitting
+ *     `STORE_OPERATION_BLOCKED` with `reason: 'map_locked'` - the same event every store op
+ *     emits for the same state. This module lives in the `core` chunk and the toast channel
+ *     that owns the lock sentence lives with the listener; emitting is how core says
+ *     something without importing the layer that says it, and it costs zero new phrases.
+ *
+ * `paste()` returns a COUNT, and so does `copy()`, because "it worked" is a fact only the
+ * caller can announce honestly: the context menu says how many were copied, and a zero from
+ * either means the refusal has already been shown.
+ *
+ * KNOWN HOLE, DECLARED (pre-existing, and widened by "Colar Aqui" making paste easier to
+ * reach): pasting an IMAGE feature into a SERVER atlas duplicates the blob LOCALLY ONLY.
+ * `IDUtils.duplicateImageResource` does `getImage` + `storeImage`, both IndexedDB, and never
+ * `uploadImageBlob` (`store/sync/image-sync.js`). The collaborator receives the feature and
+ * an empty frame. The server half of the fix already exists (`POST /atlas/:atlasId/images/bulk`
+ * accepts a client-chosen `localId`); the client half is not in this change.
  */
 
 import {
@@ -15,9 +45,14 @@ import {
     hasImageResource,
     getStateManager,
     isCurrentMapLockedSync,
-    buildLayerMappingForMove
+    buildLayerMappingForMove,
+    emitStoreError,
+    StoreErrorEvents
 } from '../store';
+import { checkPermission, GuardAction } from '@store/sync/permission-guard.js';
+import { denialNotice } from '@store/denial-phrases.js';
 import { IDUtils, ToastService } from '../utilities';
+import { pasteAnchor, offsetToTarget, translatePositionProperties } from './clipboard-offset.js';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { generatePointImage, needsPerFeatureImage } from '../draw_tools/point_tool/point-marker-symbols.js';
 import { parseCustomMarker, registerCustomFeatureImage } from '../draw_tools/point_tool/point-custom-icons.js';
@@ -29,6 +64,10 @@ class ClipboardManager {
 
         // Pixel offset is local config, not state
         this._pixelOffset = 30;
+
+        // The copy() currently loading its lazy tool, if any. `paste()` awaits it so that a
+        // paste issued right behind a copy sees THAT copy and not the previous clipboard.
+        this._copyInFlight = null;
     }
 
     // =========================================================================
@@ -63,54 +102,155 @@ class ClipboardManager {
     // =========================================================================
 
     /**
-     * Copy selected features to clipboard.
+     * Copy features to the clipboard.
+     *
+     * ASYNC BECAUSE OF LAZY TOOLS, not because copying is slow. Since 2026-08-25 only six
+     * controls are eager; every other tool becomes an instance on first use. Both
+     * `filterCopiableFeatures` and `cleanFeatureForCopy` read `selectionManager.controls`
+     * DIRECTLY, so a feature drawn by a tool this session never loaded found no control,
+     * failed `canCopy` and was dropped with a `console.warn` - the user got "Nenhuma feição
+     * válida para copiar" and no way to tell that from a real refusal. It is reachable most
+     * easily by the gesture this change adds, copying the feature under the cursor WITHOUT
+     * selecting it, because selecting is what used to load the tool.
+     *
+     * @param {Array<Object>|null} [features] - Features to copy; defaults to the current
+     *   selection. The context menu passes the feature under the cursor so copying does not
+     *   have to change the selection.
+     * @returns {Promise<number>} How many features actually landed on the clipboard. Zero
+     *   means the refusal has already been shown.
      */
-    copy() {
-        const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
-
-        if (allSelectedFeatures.length === 0) {
-            ToastService.showWarning('Nenhuma feição selecionada para copiar');
-            return;
-        }
-
-        const copyableFeatures = this.filterCopiableFeatures(allSelectedFeatures);
-
-        if (copyableFeatures.length === 0) {
-            ToastService.showWarning('Nenhuma feição válida para copiar');
-            return;
-        }
-
-        const features = copyableFeatures.map(feature => ({
-            type: feature.properties.source,
-            feature: this.cleanFeatureForCopy(feature)
-        }));
-
+    async copy(features = null) {
+        // Record the promise BEFORE awaiting it: a caller that fires copy() and paste() in the
+        // same tick (Ctrl+C then Ctrl+V while the tool is still loading, or the Playwright
+        // driver of "Duplicar Seleção", which did exactly that and duplicated the PREVIOUS
+        // clipboard) must find it already set when paste() starts.
+        this._copyInFlight = this._copyNow(features);
         try {
-            getStateManager().setClipboard(features, getCurrentMapNameSync());
-        } catch (_e) {
-            console.warn('StateManager not available for clipboard');
+            return await this._copyInFlight;
+        } finally {
+            this._copyInFlight = null;
         }
     }
 
     /**
-     * Paste features from clipboard.
-     * Applies offset only when pasting on the same map.
+     * The copy proper. See `copy` for the in-flight promise around it.
+     * @param {Array<Object>|null} features - As in `copy`
+     * @returns {Promise<number>} As in `copy`
+     * @private
      */
-    async paste() {
-        if (isCurrentMapLockedSync()) return;
+    async _copyNow(features) {
+        const sourceFeatures = Array.isArray(features)
+            ? features
+            : this.selectionManager.getAllSelectedFeatures();
+
+        if (sourceFeatures.length === 0) {
+            ToastService.showWarning('Nenhuma feição selecionada para copiar');
+            return 0;
+        }
+
+        await this.ensureControlsFor(sourceFeatures.map(f => f?.properties?.source));
+
+        const copyableFeatures = this.filterCopiableFeatures(sourceFeatures);
+
+        if (copyableFeatures.length === 0) {
+            ToastService.showWarning('Nenhuma feição válida para copiar');
+            return 0;
+        }
+
+        // `cleanFeatureForCopy` returns null when the tool has no `prepareForCopy`, and the
+        // nulls used to reach the clipboard as `{type, feature: null}` items that failed one
+        // by one at paste time, far from here.
+        const clipboardItems = copyableFeatures
+            .map(feature => ({
+                type: feature.properties.source,
+                feature: this.cleanFeatureForCopy(feature)
+            }))
+            .filter(item => item.feature);
+
+        if (clipboardItems.length === 0) {
+            ToastService.showWarning('Nenhuma feição válida para copiar');
+            return 0;
+        }
+
+        try {
+            getStateManager().setClipboard(clipboardItems, getCurrentMapNameSync());
+        } catch (_e) {
+            console.warn('StateManager not available for clipboard');
+            return 0;
+        }
+
+        return clipboardItems.length;
+    }
+
+    /**
+     * Loads the lazy control of every distinct feature type in `types`, so the SYNCHRONOUS
+     * `controls.get` lookups downstream find an instance instead of falling through to a
+     * `console.warn`.
+     * @param {Array<string|undefined>} types - Feature types (`properties.source`)
+     * @returns {Promise<void>}
+     */
+    async ensureControlsFor(types) {
+        if (typeof this.selectionManager?.ensureControlFor !== 'function') return;
+
+        const distinct = [...new Set(types.filter(Boolean))];
+        await Promise.all(distinct.map(type => this.selectionManager.ensureControlFor(type)));
+    }
+
+    /**
+     * Paste features from the clipboard.
+     *
+     * WITHOUT a target the legacy behaviour applies: a 30 px nudge when pasting onto the same
+     * map, no offset across maps. WITH `targetLngLat` (the context menu's "Colar Aqui") the
+     * copied set is anchored so the centre of its bounding box lands on that position.
+     *
+     * THE TWO REFUSALS COME FIRST, before a single id is minted or a single image blob is
+     * duplicated. See this file's fileoverview for why they speak through different channels.
+     *
+     * @param {Object} [options]
+     * @param {{lng: number, lat: number}|Array<number>|null} [options.targetLngLat] - Where
+     *   the centre of the copied set should land.
+     * @returns {Promise<number>} Features actually pasted. Zero means nothing was written and
+     *   the reason has already been shown.
+     */
+    async paste({ targetLngLat = null } = {}) {
+        // RANK. Said here, keyed by the capability the gate consulted. `addFeatures` would
+        // refuse this too, but silently and only AFTER the ids, the names and the duplicated
+        // image blobs had been produced - and the old code went on to toast success over it.
+        const perm = checkPermission(GuardAction.CREATE_FEATURE);
+        if (!perm.allowed) {
+            ToastService.showWarning(denialNotice(perm.required));
+            return 0;
+        }
+
+        // STATE. Emitted, not spoken: `store-error-listener.js` owns the lock sentence and
+        // the toast channel that keeps a burst of them to one line.
+        if (isCurrentMapLockedSync()) {
+            emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+                operation: 'paste',
+                reason: 'map_locked'
+            });
+            return 0;
+        }
+
+        // A copy still loading its lazy tool has not reached the clipboard yet: without this
+        // wait, the paste right behind it read the PREVIOUS clipboard and duplicated that.
+        if (this._copyInFlight) await this._copyInFlight;
 
         if (!this.hasClipboardData()) {
             ToastService.showWarning('Nenhuma feição copiada');
-            return;
+            return 0;
         }
 
         try {
             const currentMapName = getCurrentMapNameSync();
             const clipboardData = this.clipboard;
             const isSameMap = clipboardData.sourceMapName === currentMapName;
-            const offset = isSameMap ?
-                this.calculatePixelToMetersOffset(clipboardData.pixelOffset) :
-                { dx: 0, dy: 0 };
+            const offset = this._resolvePasteOffset(clipboardData, isSameMap, targetLngLat);
+
+            // The lazy tools have to be present before the loop below: `prepareFeatureForPaste`
+            // reads `controls.get` synchronously, and a missing control drops the feature with
+            // a `console.warn` while the toast still counts the ones that survived.
+            await this.ensureControlsFor(clipboardData.features.map(item => item.type));
 
             // Build layer ID mapping for cross-map paste
             let layerIdMapping = null;
@@ -192,9 +332,12 @@ class ClipboardManager {
 
             ToastService.showSuccess(`${totalFeatures} feição(ões) colada(s) com sucesso`);
 
+            return totalFeatures;
+
         } catch (error) {
             console.error('Erro ao colar feições:', error);
             ToastService.showError('Erro ao colar feições');
+            return 0;
         }
     }
 
@@ -265,25 +408,70 @@ class ClipboardManager {
 
     /**
      * Prepare feature for pasting using tool-centric approach.
+     *
+     * THE PROPERTY PATCH IS APPLIED HERE, in ONE place, and not inside each control's
+     * `prepareForPaste`. Every control translates its own GEOMETRY (and whatever it
+     * regenerates from it, like `center` or the selection box), but `trajetoria` and
+     * `_temporalHome` are common properties that no control owns; spreading the same three
+     * lines through seventeen tools is how the three that got it end up disagreeing with the
+     * fourteen that did not.
+     *
+     * `_temporalHome` is the one that fails silently: `cleanFeature` rewrites a Point's
+     * geometry FROM it on the way into the repository, so a copy taken during playback would
+     * land on top of the original with a success toast over it.
+     *
      * @param {Object} feature
-     * @param {Object} offset
-     * @param {string} type
+     * @param {Object} offset - `{dx, dy}` in degrees
+     * @param {string} type - Feature type (`properties.source`)
      * @returns {Object|null}
      */
     prepareFeatureForPaste(feature, offset, type) {
         const control = this.selectionManager.controls.get(type);
 
-        if (control && typeof control.prepareForPaste === 'function') {
-            return control.prepareForPaste(feature, offset);
+        if (!control || typeof control.prepareForPaste !== 'function') {
+            console.warn(`Tool ${type} does not implement prepareForPaste interface`);
+            return null;
         }
 
-        console.warn(`Tool ${type} does not implement prepareForPaste interface`);
-        return null;
+        const pasted = control.prepareForPaste(feature, offset);
+        if (!pasted) return null;
+
+        const patch = translatePositionProperties(pasted.properties, offset.dx, offset.dy);
+        if (Object.keys(patch).length === 0) return pasted;
+
+        return { ...pasted, properties: { ...pasted.properties, ...patch } };
     }
 
     // =========================================================================
     // OFFSET CALCULATION
     // =========================================================================
+
+    /**
+     * The `{dx, dy}` in degrees applied to every pasted feature.
+     *
+     * Falls back to the legacy offset when no target was given, AND when the clipboard set
+     * carries no usable coordinate to anchor on. That second fallback is the one worth
+     * spelling out: a set of features whose geometries are all unreadable would otherwise
+     * anchor at NaN, and every tool would happily add NaN to its coordinates and persist a
+     * feature that draws nowhere.
+     *
+     * @param {Object} clipboardData
+     * @param {boolean} isSameMap
+     * @param {{lng: number, lat: number}|Array<number>|null} targetLngLat
+     * @returns {{dx: number, dy: number}}
+     * @private
+     */
+    _resolvePasteOffset(clipboardData, isSameMap, targetLngLat) {
+        if (targetLngLat) {
+            const anchor = pasteAnchor(clipboardData.features.map(item => item.feature));
+            const anchored = anchor ? offsetToTarget(anchor, targetLngLat) : null;
+            if (anchored) return anchored;
+        }
+
+        return isSameMap
+            ? this.calculatePixelToMetersOffset(clipboardData.pixelOffset)
+            : { dx: 0, dy: 0 };
+    }
 
     /**
      * Convert pixel offset to geographic coordinate offset.

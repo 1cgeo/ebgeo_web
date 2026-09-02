@@ -14,11 +14,18 @@ import {
     getAllMapNamesStore,
     getControl,
     isCurrentMapLockedSync,
-    isMapLocked
+    isMapLocked,
+    isUncopyableFeatureType
 } from '@store';
 import { EventTypes } from '@events';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { fitBounds, ANIMATION_DURATION } from '@js/map/animation.service.js';
+import { flattenPositions, antimeridianSafeLngSpan } from '@utils/geometry-utils.js';
+import { checkPermission } from '@store/sync/permission-guard.js';
+import {
+    ClipboardMenuAction,
+    clipboardMenuActions
+} from './clipboard-menu-actions.js';
 // ── Portões de combinar/separar setas ─────────────────────────────────────────────────────────
 //
 // POR QUE OS PREDICADOS ESTÃO AQUI, COPIADOS. O import estático de `arrow-merge.js` prendia
@@ -80,6 +87,10 @@ class ContextMenuControl {
         this._selectionManager = selectionManager;
         this._contextMenu = null;
         this._lastCoordinates = null;
+        // The same gesture in SCREEN space. `_lastCoordinates` answers "where on the world",
+        // which is what a paste needs; this answers "which pixel", which is what the
+        // rendered-features hit-test needs to find the feature under the cursor.
+        this._lastPoint = null;
         this._cleanupLongPress = null;
 
         this._onRightClick = this._onRightClick.bind(this);
@@ -135,6 +146,7 @@ class ContextMenuControl {
         };
         const coordinates = this._map.unproject([point.x, point.y]);
         this._lastCoordinates = { lat: coordinates.lat, lng: coordinates.lng };
+        this._lastPoint = [point.x, point.y];
 
         // Rebuild and show the menu
         await this._rebuildContextMenu();
@@ -231,7 +243,7 @@ class ContextMenuControl {
             }
         }
 
-        this._addDefaultOptions();
+        this._addDefaultOptions(groupingAnalysis.selectedFeatures);
     }
 
     _addGroupingOptions(analysis) {
@@ -572,9 +584,29 @@ class ContextMenuControl {
         }
     }
 
-    _addDefaultOptions() {
-        const hasSelected = this._selectionManager?.getAllSelectedFeatures().length > 0;
+    /**
+     * @param {Array<Object>} [selectedFeatures] - The selection this build was analysed with.
+     *   Passed in rather than re-read so the whole menu describes ONE instant.
+     * @private
+     */
+    _addDefaultOptions(selectedFeatures = null) {
+        const selection = selectedFeatures ?? this._selectionManager?.getAllSelectedFeatures() ?? [];
+        const hasSelected = selection.length > 0;
         const locked = isCurrentMapLockedSync();
+
+        // ONE decision for every command that writes through the clipboard, taken by a pure
+        // table (`clipboard-menu-actions.js`) so it is testable in node and so "Duplicar
+        // Seleção" cannot drift away from "Colar Aqui": both are a copy followed by a paste,
+        // and until 2026-09-01 Duplicar was offered to a Leitor, wrote nothing, and toasted
+        // success anyway.
+        const commands = clipboardMenuActions({
+            can: (key) => checkPermission(key).allowed,
+            locked,
+            selectedCount: selection.length,
+            hasFeatureUnderCursor: !!this._findCopiableHitUnderCursor(selection),
+            clipboardCount: this._clipboardCount()
+        });
+        const commandById = new Map(commands.map((c) => [c.id, c]));
 
         if (hasSelected) {
             const zoomItem = this._createMenuItem(
@@ -583,16 +615,17 @@ class ContextMenuControl {
             );
             this._contextMenu.appendChild(zoomItem);
 
-            if (!locked) {
-                const duplicateItem = this._createMenuItem(
-                    'Duplicar Seleção',
-                    () => this._handleDuplicateSelected()
-                );
-                this._contextMenu.appendChild(duplicateItem);
-            }
+            // Duplicar keeps its historical slot even though its decision now comes from the
+            // clipboard table: it acts on the SELECTION, so it belongs next to the other
+            // selection commands rather than in the copy/paste block below.
+            this._appendClipboardCommand(commandById.get(ClipboardMenuAction.DUPLICATE_SELECTION));
 
             const separator = this._createSeparator();
             this._contextMenu.appendChild(separator);
+        }
+
+        if (this._addClipboardOptions(commandById, selection)) {
+            this._contextMenu.appendChild(this._createSeparator());
         }
 
         const copyItem = this._createMenuItem('Copiar Coordenadas', this._onCopyCoordinates);
@@ -636,11 +669,52 @@ class ContextMenuControl {
         return separator;
     }
 
+    /**
+     * An INERT row: the command exists but has nothing to act on right now (two features in
+     * different layers, a map already facing north). It carries no click, so assistive tech
+     * has to be told it is refused, and the tooltip is where the reason lives.
+     * @param {string} text
+     * @param {string} tooltip
+     * @returns {HTMLElement}
+     * @private
+     */
     _createDisabledMenuItem(text, tooltip) {
         const item = document.createElement('div');
         item.className = 'context-menu-item disabled';
         item.textContent = text;
         item.title = tooltip;
+        item.setAttribute('aria-disabled', 'true');
+        return item;
+    }
+
+    /**
+     * A row blocked by the map's STATE, which is a different animal from the inert one above
+     * and must NOT reuse it: the state is reversible, the person right-clicking may be the
+     * very owner who can reverse it, and the CLICK is how the reason reaches them. So this
+     * one keeps its listener and answers with the sentence.
+     *
+     * `aria-disabled`, never the `disabled` property - a disabled control fires no click, and
+     * the click is the carrier. (`div` has no `disabled` property anyway, which is exactly
+     * how this rule gets broken by accident the day someone turns the row into a `button`.)
+     *
+     * @param {string} text - The label, drawn in full.
+     * @param {string} notice - The sentence naming the state.
+     * @returns {HTMLElement}
+     * @private
+     */
+    _createBlockedMenuItem(text, notice) {
+        const item = document.createElement('div');
+        item.className = 'context-menu-item context-menu-item--blocked';
+        item.textContent = text;
+        item.title = notice;
+        item.setAttribute('aria-disabled', 'true');
+
+        item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showWarning(notice);
+            this._hideMenu();
+        });
+
         return item;
     }
 
@@ -748,15 +822,210 @@ class ContextMenuControl {
         });
     }
 
+    // =========================================================================
+    // CLIPBOARD BLOCK
+    // =========================================================================
+
+    /**
+     * The copy/paste rows, appended between the selection commands and "Copiar Coordenadas".
+     *
+     * BUILDING THIS IS SYNCHRONOUS ON PURPOSE. Deciding whether "Copiar Feição" appears needs
+     * only the rendered-features hit-test, which is synchronous; the COMPLETE feature (the one
+     * with the full geometry) is read inside the row's own click handler. Doing it the other
+     * way would make every ordinary right-click wait for a source round-trip before the menu
+     * appears, for the sake of a row most right-clicks do not use.
+     *
+     * @param {Map<string, {id: string, count: number|null, blocked: string|null}>} commandById
+     * @param {Array<Object>} selection
+     * @returns {boolean} True when at least one row was added.
+     * @private
+     */
+    _addClipboardOptions(commandById, selection) {
+        const copySelection = commandById.get(ClipboardMenuAction.COPY_SELECTION);
+        const copyUnderCursor = commandById.get(ClipboardMenuAction.COPY_UNDER_CURSOR);
+        const pasteHere = commandById.get(ClipboardMenuAction.PASTE_HERE);
+
+        let added = false;
+        added = this._appendClipboardCommand(copySelection, selection) || added;
+        added = this._appendClipboardCommand(copyUnderCursor, selection) || added;
+        added = this._appendClipboardCommand(pasteHere, selection) || added;
+        return added;
+    }
+
+    /**
+     * Renders ONE decision from `clipboardMenuActions`. A command the table left out is
+     * simply absent (rank), one it marked `blocked` is drawn and refuses the click (state).
+     * @param {{id: string, count: number|null, blocked: string|null}|undefined} command
+     * @param {Array<Object>} [selection]
+     * @returns {boolean} Whether a row was appended.
+     * @private
+     */
+    _appendClipboardCommand(command, selection = []) {
+        if (!command) return false;
+
+        const LABELS = {
+            [ClipboardMenuAction.DUPLICATE_SELECTION]: () => 'Duplicar Seleção',
+            [ClipboardMenuAction.COPY_SELECTION]: (n) => `Copiar Feições (${n})`,
+            [ClipboardMenuAction.COPY_UNDER_CURSOR]: () => 'Copiar Feição',
+            [ClipboardMenuAction.PASTE_HERE]: (n) => `Colar Aqui (${n})`
+        };
+        const HANDLERS = {
+            [ClipboardMenuAction.DUPLICATE_SELECTION]: () => this._handleDuplicateSelected(),
+            [ClipboardMenuAction.COPY_SELECTION]: () => this._handleCopySelection(),
+            [ClipboardMenuAction.COPY_UNDER_CURSOR]: () => this._handleCopyUnderCursor(
+                this._findCopiableHitUnderCursor(selection)
+            ),
+            [ClipboardMenuAction.PASTE_HERE]: () => this._handlePasteHere()
+        };
+
+        const label = LABELS[command.id](command.count);
+
+        this._contextMenu.appendChild(
+            command.blocked
+                ? this._createBlockedMenuItem(label, command.blocked)
+                : this._createMenuItem(label, HANDLERS[command.id])
+        );
+        return true;
+    }
+
+    /** @returns {number} How many features the clipboard holds. @private */
+    _clipboardCount() {
+        const clipboardManager = getControl('ClipboardManager');
+        return clipboardManager?.clipboard?.features?.length ?? 0;
+    }
+
+    /**
+     * A reference to the topmost COPIABLE feature under the gesture, from the synchronous
+     * rendered-features hit-test. It never changes the selection and never reads the source:
+     * only `{toolType, id}` is kept.
+     *
+     * The hit-test already skips a feature that is locked or on a hidden layer
+     * (`getAllClickedCustomFeatures`), which is the behaviour we want and is worth naming:
+     * "Copiar Feição" will not appear over a feature the person cannot even select, so it
+     * never promises a copy of something invisible.
+     *
+     * THE ONLY THING ASKED ABOUT THE TYPE IS `isUncopyableFeatureType`, and asking anything
+     * more is what this used to get wrong. The gate was `filterCopiableFeatures([target])`,
+     * which is SYNCHRONOUS and looks the tool up in `selectionManager.controls`: a tool that
+     * has not been loaded yet is not in that map, so the filter fell through to a
+     * `console.warn` and returned false. Only six controls are eager, so a right click over a
+     * circle, a rectangle, a sector, an arrow, a boundary or a military symbol offered no
+     * "Copiar Feição" at all, and said nothing about why - and it came back a click later,
+     * once something else had loaded the tool, which reads as a broken menu rather than a
+     * rule.
+     *
+     * The tool's own `canCopy` is not skipped, only DEFERRED to where it can be awaited:
+     * `_handleCopyUnderCursor` calls `copy([complete])`, which runs `ensureControlsFor`
+     * BEFORE `filterCopiableFeatures`, so the real control answers for itself. A type that
+     * genuinely refuses there produces the toast `copy()` already owns.
+     *
+     * @param {Array<Object>} selection - Current selection; a non-empty one makes the cursor
+     *   irrelevant, and skipping the hit-test then also skips a `queryRenderedFeatures`.
+     * @returns {{toolType: string, id: string}|null}
+     * @private
+     */
+    _findCopiableHitUnderCursor(selection) {
+        if (selection.length > 0) return null;
+        if (!this._lastPoint || !this._selectionManager) return null;
+
+        if (!getControl('ClipboardManager')) return null;
+
+        const target = this._selectionManager.getClickedCustomFeature(this._lastPoint);
+        if (!target?.properties?.id) return null;
+
+        // `toolType` and the rendered feature's own `properties.source` are the same string:
+        // it is what the hit-test matched on.
+        if (isUncopyableFeatureType(target.toolType)) return null;
+
+        return { toolType: target.toolType, id: target.properties.id };
+    }
+
+    /** @private */
+    async _handleCopySelection() {
+        try {
+            const clipboardManager = getControl('ClipboardManager');
+            if (!clipboardManager) {
+                showWarning('Área de transferência não disponível');
+                return;
+            }
+
+            const count = await clipboardManager.copy();
+            if (count > 0) showSuccess(`${count} feição(ões) copiada(s)`);
+        } catch (error) {
+            console.error('Error copying selection:', error);
+            showError('Erro ao copiar feições');
+        }
+    }
+
+    /**
+     * Copies the feature the menu was opened over, WITHOUT selecting it: selecting would open
+     * the attributes panel behind the menu and replace whatever the person had chosen before.
+     *
+     * The complete geometry is read HERE and not while the menu was being built, so the right
+     * click itself never waits for it.
+     * @param {{toolType: string, id: string}|null} hit
+     * @private
+     */
+    async _handleCopyUnderCursor(hit) {
+        try {
+            if (!hit) {
+                showWarning('Nenhuma feição sob o cursor');
+                return;
+            }
+
+            const clipboardManager = getControl('ClipboardManager');
+            if (!clipboardManager) {
+                showWarning('Área de transferência não disponível');
+                return;
+            }
+
+            const complete = await this._selectionManager?.getCompleteFeatureFromSource(
+                hit.toolType,
+                hit.id
+            );
+            if (!complete) {
+                showWarning('Não foi possível ler a feição para copiar');
+                return;
+            }
+
+            const count = await clipboardManager.copy([complete]);
+            if (count > 0) showSuccess(`${count} feição(ões) copiada(s)`);
+        } catch (error) {
+            console.error('Error copying feature under cursor:', error);
+            showError('Erro ao copiar feição');
+        }
+    }
+
+    /**
+     * Pastes so that the CENTRE of the copied set's bounding box lands on the clicked
+     * position. No toast of our own on failure: `paste()` owns every refusal and has already
+     * said which one it was.
+     * @private
+     */
+    async _handlePasteHere() {
+        try {
+            const clipboardManager = getControl('ClipboardManager');
+            if (!clipboardManager) {
+                showWarning('Área de transferência não disponível');
+                return;
+            }
+
+            await clipboardManager.paste({ targetLngLat: this._lastCoordinates });
+        } catch (error) {
+            console.error('Error pasting features:', error);
+            showError('Erro ao colar feições');
+        }
+    }
+
     async _handleDuplicateSelected() {
         try {
             const clipboardManager = getControl('ClipboardManager');
             if (!clipboardManager) {
-                showWarning('Clipboard não disponível');
+                showWarning('Área de transferência não disponível');
                 return;
             }
 
-            clipboardManager.copy();
+            await clipboardManager.copy();
             await clipboardManager.paste();
         } catch (error) {
             console.error('Error duplicating features:', error);
@@ -764,52 +1033,39 @@ class ContextMenuControl {
         }
     }
 
+    /**
+     * ANTIMERIDIAN: the longitude span comes from `antimeridianSafeLngSpan`, not from
+     * min/max. A selection straddling the date line used to produce west -179 / east 179,
+     * i.e. the box of the whole world mirrored, so this command framed everything EXCEPT
+     * what was selected and zoomed out until the planet fit. The fix arrived for free with
+     * the promotion of that helper out of `terrain/data-layers.manager.js`, which had the
+     * identical bug and had already paid for it.
+     * @private
+     */
     _handleZoomToSelection() {
         const selectedFeatures = this._selectionManager.getAllSelectedFeatures();
         if (selectedFeatures.length === 0) return;
 
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        const lngs = [];
+        let minY = Infinity, maxY = -Infinity;
 
         for (const feature of selectedFeatures) {
-            const coords = this._extractCoordinates(feature.geometry);
-            for (const [x, y] of coords) {
-                if (x < minX) minX = x;
+            for (const [x, y] of flattenPositions(feature.geometry)) {
+                if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+                lngs.push(x);
                 if (y < minY) minY = y;
-                if (x > maxX) maxX = x;
                 if (y > maxY) maxY = y;
             }
         }
 
-        if (!isFinite(minX)) return;
+        if (lngs.length === 0) return;
 
-        fitBounds(this._map, [[minX, minY], [maxX, maxY]], {
+        const [west, east] = antimeridianSafeLngSpan(lngs);
+
+        fitBounds(this._map, [[west, minY], [east, maxY]], {
             duration: ANIMATION_DURATION.FAST,
             padding: 80
         });
-    }
-
-    /**
-     * Extracts flat array of [lng, lat] pairs from any GeoJSON geometry.
-     * @param {Object} geometry - GeoJSON geometry
-     * @returns {Array<[number, number]>} Coordinate pairs
-     */
-    _extractCoordinates(geometry) {
-        if (!geometry || !geometry.coordinates) return [];
-
-        const type = geometry.type;
-        if (type === 'Point') {
-            return [geometry.coordinates];
-        } else if (type === 'MultiPoint' || type === 'LineString') {
-            return geometry.coordinates;
-        } else if (type === 'MultiLineString' || type === 'Polygon') {
-            return geometry.coordinates.flat();
-        } else if (type === 'MultiPolygon') {
-            return geometry.coordinates.flat(2);
-        } else if (type === 'GeometryCollection') {
-            return geometry.geometries.flatMap(g => this._extractCoordinates(g));
-        }
-
-        return [];
     }
 
     async _onRightClick(e) {
@@ -821,6 +1077,9 @@ class ContextMenuControl {
 
         const coordinates = this._map.unproject([e.offsetX, e.offsetY]);
         this._lastCoordinates = { lat: coordinates.lat, lng: coordinates.lng };
+        // The SAME pair `unproject` was just given, so the hit-test and the paste target
+        // cannot disagree about which pixel the gesture was on.
+        this._lastPoint = [e.offsetX, e.offsetY];
 
         await this._rebuildContextMenu();
 

@@ -61,7 +61,9 @@ describeOrSkip('Selection context actions: duplicate / combine / split / cut (re
                     sm.addToSelection('lines', String(b), fb);
                 });
                 const clipboard = getControl('ClipboardManager');
-                clipboard.copy();
+                // copy() é assíncrona desde a carga tardia das ferramentas (2026-09-01), e o
+                // item de menu a espera; sem o await aqui, paste() colava o clipboard anterior.
+                await clipboard.copy();
                 await clipboard.paste();
             }, { a: origA, b: origB });
 

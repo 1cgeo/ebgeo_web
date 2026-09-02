@@ -14,7 +14,12 @@
  *   §23/§16.6 Escape with a feature selected deselects it (the feature panel collapses to
  *     data-expanded="false");
  *   §23 Escape with an active draw tool deactivates it (the toolbar draw group flips
- *     data-active="false").
+ *     data-active="false");
+ *   §16.3 Ctrl+V on a LOCKED map REFUSES OUT LOUD. Until 2026-09-01 the shortcut carried its
+ *     own lock gate in front of a `paste()` that was itself mute, so the two together made
+ *     the key do nothing and say nothing: the person pressed it, watched an unchanged map,
+ *     and had no way to learn the padlock was the reason. The gate was removed and `paste()`
+ *     became the single owner of the refusal, so every door into it answers the same way.
  *
  * The app boots from the Vite dev server; no login is needed (toolbar + map render on boot).
  */
@@ -117,6 +122,51 @@ describeOrSkip('§16.3,6 + §23 Keyboard shortcuts (real browser, local UI)', ()
         await expect(page.locator('.feature-panel')).toHaveAttribute('data-expanded', 'false', {
             timeout: 5000,
         });
+    });
+
+    test('§16.3 Ctrl+V on a LOCKED map refuses out loud and writes nothing', async ({ page }) => {
+        await bootApp(page);
+        await seedSelectedPoint(page);
+
+        await page.keyboard.press('Control+c');
+
+        const countPoints = () => page.evaluate(async () => {
+            const store = await import('/src/js/store/index.js');
+            return ((await store.getCurrentMapFeatures())?.points || []).length;
+        });
+        const before = await countPoints();
+
+        // Lock the current map (owner-only; on the local store the guard is permissive).
+        const locked = await page.evaluate(async () => {
+            const store = await import('/src/js/store/index.js');
+            return store.toggleMapLock(store.getCurrentMapNameSync());
+        });
+        expect(locked, 'the local map locked').toBe(true);
+
+        await page.keyboard.press('Control+v');
+
+        // THE REFUSAL IS SAID. The sentence comes from `store-error-listener.js`, reached by
+        // the `STORE_OPERATION_BLOCKED` event `paste()` emits - this spec does not care which
+        // module wrote it, only that the person is told something.
+        await expect(page.locator('.toast--warning, .toast--error').first())
+            .toBeVisible({ timeout: 6000 });
+        // And it is NOT the success toast.
+        await expect(page.locator('.toast--success', { hasText: /colada/i })).toHaveCount(0);
+
+        // Nothing was written, which is the half a toast alone would not prove.
+        await page.waitForTimeout(1500);
+        expect(await countPoints()).toBe(before);
+
+        // CONTROL: unlock and the SAME keystroke pastes. Without this the case would pass for
+        // a Ctrl+V that had simply stopped working.
+        await page.evaluate(async () => {
+            const store = await import('/src/js/store/index.js');
+            return store.toggleMapLock(store.getCurrentMapNameSync());
+        });
+        await page.keyboard.press('Control+v');
+        await expect(page.locator('.toast--success', { hasText: /colada/i }))
+            .toBeVisible({ timeout: 6000 });
+        await expect.poll(countPoints, { timeout: 8000 }).toBeGreaterThan(before);
     });
 
     test('§23 Escape deactivates an active draw tool', async ({ page }) => {

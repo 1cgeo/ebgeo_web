@@ -216,6 +216,132 @@ export function clampLatitude(lat) {
 }
 
 // ============================================================================
+// GEOMETRY TRAVERSAL
+// ============================================================================
+
+/**
+ * Flat list of `[lng, lat]` positions from any GeoJSON geometry, at any nesting
+ * depth (rings and holes, multi-parts and GeometryCollection included).
+ *
+ * WHY IT LIVES HERE. Three copies of this walk existed, each written for its own
+ * caller and each slightly different: the context menu's zoom-to-selection, the
+ * paste anchor, and the data-layer bounding box. `coordinates` nests to a
+ * different depth per geometry type, so the copies did not diverge in style but
+ * in WHICH TYPES they handled, which is the kind of difference nothing reports.
+ *
+ * Positions are returned as they are STORED, unwrapped: a caller that needs a
+ * span across the antimeridian must run {@link antimeridianSafeLngSpan} over the
+ * longitudes rather than min/max them.
+ *
+ * @param {Object|null|undefined} geometry - GeoJSON geometry
+ * @returns {Array<Array<number>>} Position pairs, possibly empty. Never null.
+ *
+ * @example
+ * flattenPositions({ type: 'Point', coordinates: [1, 2] });  // [[1, 2]]
+ */
+export function flattenPositions(geometry) {
+    if (!geometry || typeof geometry !== 'object') return [];
+
+    if (geometry.type === 'GeometryCollection') {
+        if (!Array.isArray(geometry.geometries)) return [];
+        return geometry.geometries.flatMap(g => flattenPositions(g));
+    }
+
+    const coordinates = geometry.coordinates;
+    if (!Array.isArray(coordinates)) return [];
+
+    switch (geometry.type) {
+        case 'Point':
+            return [coordinates];
+        case 'MultiPoint':
+        case 'LineString':
+            return coordinates;
+        case 'MultiLineString':
+        case 'Polygon':
+            return coordinates.flat();
+        case 'MultiPolygon':
+            return coordinates.flat(2);
+        default:
+            return [];
+    }
+}
+
+/**
+ * Tightest longitude span covering every value, unwrapped across the antimeridian.
+ *
+ * Plain min/max turned a layer sitting on the date line into the box of the WHOLE
+ * WORLD, mirrored: 179 and -179 became west -179 / east 179, so `fitBounds` framed
+ * everything EXCEPT the layer and zoomed out until the planet fit.
+ *
+ * The method is the largest empty arc: sort the longitudes, find the widest gap
+ * between neighbours (the wrap from the last back to the first included), and keep
+ * the complement. When the widest gap IS the wrap, the answer is the ordinary
+ * [min, max]. Otherwise the span is expressed with an `east` beyond 180, which
+ * keeps west < east so the box still has positive width.
+ *
+ * @param {number[]} lngs - Finite longitudes, at least one
+ * @returns {[number, number]} [west, east], with east possibly greater than 180
+ */
+export function antimeridianSafeLngSpan(lngs) {
+    const sorted = [...lngs].sort((a, b) => a - b);
+    const last = sorted.length - 1;
+
+    let widestGap = sorted[0] + 360 - sorted[last]; // the wrap-around gap
+    let gapStart = -1;                              // -1 means "the wrap wins"
+
+    for (let i = 0; i < last; i++) {
+        const gap = sorted[i + 1] - sorted[i];
+        if (gap > widestGap) {
+            widestGap = gap;
+            gapStart = i;
+        }
+    }
+
+    if (gapStart === -1) return [sorted[0], sorted[last]];
+    return [sorted[gapStart + 1], sorted[gapStart] + 360];
+}
+
+/**
+ * Translate every keypoint of a temporal trajectory (`{ t, lng, lat }`) by a
+ * lng/lat delta, preserving each `t` and every other field on the keypoint.
+ *
+ * ALL OR NOTHING, and that is the contract worth keeping: one unusable keypoint
+ * refuses the WHOLE trajectory (null), because a route half of whose points moved
+ * is a route that no longer describes anything, and it would be persisted without
+ * a single error. The caller decides what to do with the refusal — the phone move
+ * refuses the whole gesture, the clipboard paste simply leaves the trajectory
+ * untouched.
+ *
+ * Latitude is CLAMPED rather than wrapped, matching the geometry walk: there is no
+ * meaningful "over the pole" translation, and a wrap would mirror the route.
+ *
+ * @param {Array<Object>|null|undefined} trajetoria - Keypoints `{ t, lng, lat }`
+ * @param {number} dLng - Longitude delta in degrees
+ * @param {number} dLat - Latitude delta in degrees
+ * @param {number} [lngShift=0] - Extra whole-multiple-of-360 shift applied to every
+ *   keypoint. It is a SEPARATE argument, and not folded into `dLng` by the caller,
+ *   so the sum here is `lng + dLng + lngShift`, associated exactly as the geometry
+ *   walk associates it. Pre-summing `dLng + lngShift` would swallow a small delta
+ *   into a 360 (`360 + 1e-13 === 360`) and let the route drift a hair away from the
+ *   geometry it belongs to, which is the tear this shift exists to prevent.
+ * @returns {Array<Object>|null} New keypoints, or null when any is unusable
+ */
+export function translateKeypoints(trajetoria, dLng, dLat, lngShift = 0) {
+    if (!Array.isArray(trajetoria)) return null;
+
+    const moved = [];
+    for (const keypoint of trajetoria) {
+        if (!keypoint || !Number.isFinite(keypoint.lng) || !Number.isFinite(keypoint.lat)) return null;
+        moved.push({
+            ...keypoint,
+            lng: keypoint.lng + dLng + lngShift,
+            lat: clampLatitude(keypoint.lat + dLat),
+        });
+    }
+    return moved;
+}
+
+// ============================================================================
 // DISTANCE CALCULATIONS
 // ============================================================================
 

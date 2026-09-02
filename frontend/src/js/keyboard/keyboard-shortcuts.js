@@ -364,7 +364,7 @@ class KeyboardShortcuts {
                 const hasTextSelection = !!sel && !sel.isCollapsed && sel.toString().trim().length > 0;
                 if (!hasFeatureSelection || hasTextSelection) return;
                 e.preventDefault();
-                this.clipboardManager.copy();
+                await this.clipboardManager.copy();
                 break;
             }
 
@@ -373,9 +373,15 @@ class KeyboardShortcuts {
                 // browser paste natively.
                 if (!this.clipboardManager.hasClipboardData()) return;
                 e.preventDefault();
-                if (!isCurrentMapLockedSync()) {
-                    await this.clipboardManager.paste();
-                }
+                // NO LOCK GATE HERE ANY MORE, and removing it is the point rather than a
+                // simplification. The gate stood in front of a `paste()` that was itself mute,
+                // so the two together made Ctrl+V on a locked map do NOTHING and say NOTHING:
+                // the person pressed it, watched an empty map and had no way to learn that the
+                // padlock was the reason. `paste()` now refuses out loud (rank and lock alike),
+                // and it is the ONE owner of that decision, so every door into it - Ctrl+V, the
+                // menu's "Colar Aqui", "Duplicar Seleção" - refuses the same way. A second gate
+                // here could only diverge from it.
+                await this.clipboardManager.paste();
                 break;
             }
         }

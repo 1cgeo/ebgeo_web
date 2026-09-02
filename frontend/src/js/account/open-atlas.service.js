@@ -54,7 +54,7 @@
  */
 
 import { syncEngine } from '@store/sync/sync-engine.js';
-import { getControl, getEventBus } from '@store';
+import { getControl, getEventBus, getStateManager } from '@store';
 import { startAutoFlush, stopAutoFlush } from '@store/sync/sync-flush.js';
 import {
     clearAllDataStore,
@@ -414,6 +414,34 @@ async function claimRemoteAtlas(atlasId) {
 }
 
 /**
+ * Empties the feature clipboard, because it is the one piece of live state that SURVIVES a
+ * change of atlas and has no business doing so.
+ *
+ * It lives in `StateManager`, in memory, so `clearAllDataStore` never reaches it and
+ * `clearClipboard()` had no caller anywhere in the product. Copy in atlas A, switch to B,
+ * paste: the clipboard still holds A's features, and every downstream step then works on a
+ * map that is not there. `sourceMapName` no longer matches, so the paste takes the
+ * cross-map branch, where `buildLayerMappingForMove` reads the layers of a map the memory
+ * store never loaded - and THAT read fails OPEN (`.claude/rules/architecture.md`, Data
+ * Model), fabricating a default layer rather than coming back empty. An image feature is
+ * worse still: its blob is looked up in the NEW atlas's namespace, where it does not exist,
+ * so the feature arrives with an empty frame.
+ *
+ * Clearing beats fixing each of those: the copied set belongs to a scope the person has
+ * left, and nothing downstream has to learn about scopes.
+ *
+ * Best-effort by construction. This runs on the way into an atlas, and a services container
+ * that is not up yet is not a reason to refuse the open.
+ */
+function clearFeatureClipboard() {
+    try {
+        getStateManager().clearClipboard();
+    } catch (_e) {
+        // No StateManager (boot paths that run before initServices): nothing to clear.
+    }
+}
+
+/**
  * Wipes the atlas THIS TAB HAS MOUNTED, and only if the lock says it may.
  *
  * The two boot paths (`enterLocalMapOnBoot`, `openAtlasChooserOnBoot` in `index.js`) called
@@ -458,6 +486,7 @@ export async function clearMountedAtlasIfGranted(replay = null) {
             return false;
         }
     }
+    clearFeatureClipboard();
     await clearAllDataStore();
     return true;
 }
@@ -598,6 +627,7 @@ export async function openRemoteAtlas(atlasId, { mapId = null } = {}) {
     // `markLocal: false`: the very next line marks REMOTE, and the marker is global to the
     // installation. Flipping it to LOCAL in between announced, to every other tab, an origin
     // that contradicts what this one had already mounted.
+    clearFeatureClipboard();
     await clearAllDataStore({ markLocal: false });
     // Mark REMOTE before connecting (durable intent): if the tab dies mid-pull, the boot guard sees
     // 'remote' and discards the partial data instead of mislabeling it as a permanent local atlas.
@@ -828,6 +858,13 @@ async function switchToExistingLocalAtlas(atlasId, mapId) {
 
     await mountLocalAtlas(entry.id);
     syncAtlasLockKey();
+    // THE SAME RELATIVE POINT AS THE OTHER THREE ATLAS ENTRIES: right after the destination
+    // namespace is mounted and before anything touches its content. This was the only entry that
+    // did not clear the clipboard, and the gap is not a decision: the call sat glued to
+    // `clearAllDataStore` in the other three and this one has no wipe. The copied set belongs to
+    // the atlas the person has just left, and `adoptMountedLocalAtlas` is precisely the
+    // non-destructive half of that wipe.
+    clearFeatureClipboard();
     await adoptMountedLocalAtlas(mapId);
     // A ORIGEM POR ULTIMO, como nas outras entradas: o marcador e GLOBAL a instalacao, entao
     // declara-lo antes de o namespace estar montado anunciaria as outras abas uma origem que
@@ -911,6 +948,7 @@ export async function switchToNewLocalAtlas(name) {
     // it would push ghosts (or lose edits) the next time that atlas is opened. Whether the queue in
     // reach is even the same one is a property of the queue's own addressing, and this line must
     // not depend on which way that is settled.
+    clearFeatureClipboard();
     await clearAllDataStore({ markLocal: false, clearQueue: false });
     await markStoreLocal();
 

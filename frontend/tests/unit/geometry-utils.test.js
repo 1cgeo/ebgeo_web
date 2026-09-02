@@ -8,7 +8,10 @@ import {
     calculateDistance,
     calculateBearing,
     wrapLongitude,
-    clampLatitude
+    clampLatitude,
+    flattenPositions,
+    antimeridianSafeLngSpan,
+    translateKeypoints
 } from '../../src/js/utilities/geometry-utils.js';
 
 // ============================================================================
@@ -323,5 +326,229 @@ describe('clampLatitude', () => {
                 }
             )
         );
+    });
+});
+
+
+// ============================================================================
+// flattenPositions
+//
+// Promovida em 2026-09-01 de `context-menu.control.js` (`_extractCoordinates`), onde era uma
+// de TRÊS cópias do mesmo passeio. As cópias não divergiam em estilo, divergiam em QUAIS
+// TIPOS tratavam, que é a diferença que nada reporta: um tipo esquecido devolve lista vazia,
+// e lista vazia é resposta bem-formada.
+// ============================================================================
+
+describe('flattenPositions', () => {
+    it('reads a Point as one position', () => {
+        expect(flattenPositions({ type: 'Point', coordinates: [1, 2] })).toEqual([[1, 2]]);
+    });
+
+    it('reads a LineString and a MultiPoint as a flat list', () => {
+        const coords = [[0, 0], [1, 1]];
+        expect(flattenPositions({ type: 'LineString', coordinates: coords })).toEqual(coords);
+        expect(flattenPositions({ type: 'MultiPoint', coordinates: coords })).toEqual(coords);
+    });
+
+    it('descends one ring level for Polygon and MultiLineString', () => {
+        const polygon = { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] };
+        expect(flattenPositions(polygon)).toEqual([[0, 0], [1, 0], [1, 1], [0, 0]]);
+
+        const multiLine = { type: 'MultiLineString', coordinates: [[[0, 0], [1, 1]], [[2, 2]]] };
+        expect(flattenPositions(multiLine)).toEqual([[0, 0], [1, 1], [2, 2]]);
+    });
+
+    it('includes a POLYGON HOLE, which sits at the same depth as the exterior ring', () => {
+        const withHole = {
+            type: 'Polygon',
+            coordinates: [
+                [[0, 0], [10, 0], [10, 10], [0, 0]],
+                [[2, 2], [3, 2], [3, 3], [2, 2]],
+            ],
+        };
+        expect(flattenPositions(withHole)).toHaveLength(8);
+        expect(flattenPositions(withHole)).toContainEqual([2, 2]);
+    });
+
+    it('descends two levels for MultiPolygon', () => {
+        const multi = {
+            type: 'MultiPolygon',
+            coordinates: [
+                [[[0, 0], [1, 0], [1, 1], [0, 0]]],
+                [[[5, 5], [6, 5], [6, 6], [5, 5]]],
+            ],
+        };
+        expect(flattenPositions(multi)).toEqual([
+            [0, 0], [1, 0], [1, 1], [0, 0],
+            [5, 5], [6, 5], [6, 6], [5, 5],
+        ]);
+    });
+
+    it('recurses through a GeometryCollection, mixing depths', () => {
+        const collection = {
+            type: 'GeometryCollection',
+            geometries: [
+                { type: 'Point', coordinates: [1, 1] },
+                { type: 'Polygon', coordinates: [[[0, 0], [2, 0], [2, 2], [0, 0]]] },
+            ],
+        };
+        expect(flattenPositions(collection)).toEqual([[1, 1], [0, 0], [2, 0], [2, 2], [0, 0]]);
+    });
+
+    it('returns an EMPTY ARRAY, never null, for anything unusable', () => {
+        // The caller loops over the result; a null here would throw far from the cause.
+        expect(flattenPositions(null)).toEqual([]);
+        expect(flattenPositions(undefined)).toEqual([]);
+        expect(flattenPositions({})).toEqual([]);
+        expect(flattenPositions({ type: 'Point' })).toEqual([]);
+        expect(flattenPositions({ type: 'GeometryCollection' })).toEqual([]);
+        expect(flattenPositions({ type: 'Nada Disso', coordinates: [[1, 2]] })).toEqual([]);
+        expect(flattenPositions('LineString')).toEqual([]);
+    });
+});
+
+// ============================================================================
+// antimeridianSafeLngSpan
+//
+// Movida literalmente de `terrain/data-layers.manager.js`, onde já tinha pago o defeito que
+// os casos abaixo descrevem. Os exemplos são os do comentário original.
+// ============================================================================
+
+describe('antimeridianSafeLngSpan', () => {
+    it('an ordinary span is just [min, max]', () => {
+        expect(antimeridianSafeLngSpan([-43.5, -43.1, -43.3])).toEqual([-43.5, -43.1]);
+    });
+
+    it('a single longitude spans nothing', () => {
+        expect(antimeridianSafeLngSpan([10])).toEqual([10, 10]);
+    });
+
+    it('THE DEFECT: 179 and -179 give a 2-degree span, not the whole world mirrored', () => {
+        const [west, east] = antimeridianSafeLngSpan([179, -179]);
+        expect(west).toBe(179);
+        expect(east).toBe(181);
+        // The old min/max answer was [-179, 179], a 358-degree box that framed everything
+        // EXCEPT the data. The number that tells the two apart is the WIDTH.
+        expect(east - west).toBe(2);
+    });
+
+    it('keeps west < east by expressing east beyond 180', () => {
+        const [west, east] = antimeridianSafeLngSpan([170, 175, -175, -170]);
+        expect(west).toBe(170);
+        expect(east).toBe(190);
+        expect(east).toBeGreaterThan(west);
+    });
+
+    it('picks the LARGEST empty arc, which need not be the wrap', () => {
+        // Two clusters straddling the date line plus one lone point at Greenwich. The wrap gap
+        // is only 2 degrees wide, so it LOSES: the widest empty arc is one of the two
+        // 178-degree oceans, and the span is its complement.
+        const [west, east] = antimeridianSafeLngSpan([178, 179, -179, -178, 0]);
+        expect([west, east]).toEqual([0, 182]);
+        // Every input is inside, counting -179 as 181 and -178 as 182.
+        expect(east - west).toBe(182);
+    });
+
+    it('a TIE between two equally wide gaps is broken by the FIRST one, going east', () => {
+        // Written down because it is arbitrary and because both answers are correct: the set
+        // above has two 178-degree gaps (0->178 and -178->0), and the loop keeps the first
+        // because it compares with `>` and not `>=`. Anyone changing that operator flips this
+        // span to [178, 360], which is the same set of meridians expressed differently, and
+        // this case is what tells them the change was theirs.
+        const [west] = antimeridianSafeLngSpan([178, 179, -179, -178, 0]);
+        expect(west).toBe(0);
+    });
+
+    it('does not mutate the caller\'s array', () => {
+        const lngs = [10, -170, 170];
+        antimeridianSafeLngSpan(lngs);
+        expect(lngs).toEqual([10, -170, 170]);
+    });
+
+    it('INVARIANT: the span always covers every input longitude, modulo 360', () => {
+        fc.assert(fc.property(
+            fc.array(fc.double({ min: -180, max: 180, noNaN: true }), { minLength: 1, maxLength: 15 }),
+            (lngs) => {
+                const [west, east] = antimeridianSafeLngSpan(lngs);
+                expect(east).toBeGreaterThanOrEqual(west);
+                for (const lng of lngs) {
+                    const inside = (lng >= west - 1e-9 && lng <= east + 1e-9)
+                        || (lng + 360 >= west - 1e-9 && lng + 360 <= east + 1e-9);
+                    expect(inside).toBe(true);
+                }
+            },
+        ));
+    });
+});
+
+// ============================================================================
+// translateKeypoints
+//
+// Promovida de `phone/phone-move-geometry.js`, e o controle negativo dela é aquele arquivo:
+// `phone-move-geometry.test.js` dirige `translateFeature`, que agora chega aqui, então
+// quebrar esta função deixa AS DUAS suítes vermelhas. É a única das três promoções que já
+// nasce com um chamador coberto do outro lado.
+// ============================================================================
+
+describe('translateKeypoints', () => {
+    const rota = () => [
+        { t: 1000, lng: 0, lat: 0 },
+        { t: 2000, lng: 1, lat: 1 },
+    ];
+
+    it('moves every keypoint and preserves `t` and any extra field', () => {
+        const moved = translateKeypoints(
+            [{ t: 5, lng: 10, lat: 20, rotulo: 'alvo' }], 1, -2,
+        );
+        expect(moved).toEqual([{ t: 5, lng: 11, lat: 18, rotulo: 'alvo' }]);
+    });
+
+    it('clamps latitude to the pole rather than mirroring over it', () => {
+        expect(translateKeypoints([{ t: 0, lng: 0, lat: 80 }], 0, 20)[0].lat).toBe(90);
+        expect(translateKeypoints([{ t: 0, lng: 0, lat: -80 }], 0, -20)[0].lat).toBe(-90);
+    });
+
+    it('does NOT wrap longitude: an unwrapped result is the caller\'s to interpret', () => {
+        // The geometry walk does the same, and a per-vertex wrap would tear a shape that
+        // straddles the antimeridian into two halves on opposite edges of the world.
+        expect(translateKeypoints([{ t: 0, lng: 179, lat: 0 }], 3, 0)[0].lng).toBe(182);
+    });
+
+    it('applies the optional shift ON TOP of the delta, associated as the geometry walk does', () => {
+        expect(translateKeypoints([{ t: 0, lng: 179, lat: 0 }], 3, 0, -360)[0].lng).toBe(-178);
+    });
+
+    it('ALL OR NOTHING: one broken keypoint refuses the whole route', () => {
+        expect(translateKeypoints([{ t: 0, lng: 0, lat: 0 }, { t: 1, lng: NaN, lat: 0 }], 1, 1)).toBeNull();
+        expect(translateKeypoints([{ t: 0, lng: 0, lat: 0 }, null], 1, 1)).toBeNull();
+        expect(translateKeypoints([{ t: 0, lng: '0', lat: 0 }], 1, 1)).toBeNull();
+        expect(translateKeypoints([{ t: 0, lng: 0, lat: Infinity }], 1, 1)).toBeNull();
+    });
+
+    it('refuses a non-array, and accepts an empty array as an empty route', () => {
+        expect(translateKeypoints(null, 1, 1)).toBeNull();
+        expect(translateKeypoints(undefined, 1, 1)).toBeNull();
+        expect(translateKeypoints('rota', 1, 1)).toBeNull();
+        expect(translateKeypoints([], 1, 1)).toEqual([]);
+    });
+
+    it('never mutates the input keypoints', () => {
+        const original = rota();
+        translateKeypoints(original, 10, 10);
+        expect(original).toEqual(rota());
+    });
+
+    it('INVARIANT: the shape of the route survives (every gap between keypoints is kept)', () => {
+        fc.assert(fc.property(
+            fc.double({ min: -50, max: 50, noNaN: true }),
+            fc.double({ min: -50, max: 50, noNaN: true }),
+            (dLng, dLat) => {
+                const moved = translateKeypoints(rota(), dLng, dLat);
+                expect(moved[1].lng - moved[0].lng).toBeCloseTo(1, 9);
+                // Latitude only survives while the clamp is not in play, which is the whole
+                // range this property is generated over.
+                expect(moved[1].lat - moved[0].lat).toBeCloseTo(1, 9);
+            },
+        ));
     });
 });
