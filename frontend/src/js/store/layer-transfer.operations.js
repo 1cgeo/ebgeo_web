@@ -51,12 +51,22 @@
  * DELETE here instead would be the obvious fix and the wrong one: with LWW by arrival order
  * it would erase the very row the create had just moved.
  *
- * WHAT DOES NOT SYNC, declared rather than discovered later: a moved feature leaves the
- * GROUPS of the source map through `removeFeatureFromAllGroups`, which logs no operation.
- * A collaborator therefore keeps seeing the moved feature listed inside the source
- * group until their next full snapshot. Inventing a group op here would be worse: group
- * membership has no incremental op of its own in this build, and a fabricated one would
- * be rejected by the server and freeze the outbound queue.
+ * THE GROUP SIDE SYNCS SINCE 2026-09-02, AND NOTHING HERE HAD TO CHANGE FOR IT. This
+ * paragraph used to declare the opposite as a known gap, on a premise that was simply
+ * wrong: it said group membership had no incremental op in this build and that a
+ * fabricated one would be rejected by the server and freeze the outbound queue. The
+ * server has always had the `group_feature` target. What was missing was the CLIENT side,
+ * and it now exists: a moved feature still leaves the GROUPS of the source map through
+ * `removeFeatureFromAllGroups`, which now logs one `group_feature` DELETE per affected
+ * group (plus a `group` DELETE for a group that falls to one member or none, mirroring the
+ * soft-delete it already did locally). This function calls that one already, so the fix
+ * reaches the transfer without a line here.
+ *
+ * Do NOT 'simplify' that into a `group` update carrying the new member list. `groups` has
+ * no members column (`UPDATE_FIELDS.group` in `backend/src/modules/sync/sync.service.js`),
+ * so such an update is applied with the list silently dropped, while the peer converges
+ * anyway because its inbound replaces the whole group document. That combination is why
+ * the wrong design passes a two-browser test and leaves the server stale.
  */
 
 import { getLayersCompat, setLayersCompat, getMapDataCompat } from './repositories/index.js';
@@ -73,12 +83,12 @@ import {
 } from './feature.operations.js';
 import { deleteLayerOnly } from './layer.operations.js';
 import { isCurrentMapLockedSync, isMapLocked } from './map.operations.js';
-import { isRemoteStoreSync } from './store-origin.js';
+import { uploadCopiedBlobsIfRemote } from './upload-copied-blobs.js';
 import mapManager from './store-state-manager.js';
 import { memoryStore } from './memory-store.js';
 import { mapResolver } from './services/map-resolver.service.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
-import { logLayerOperation, OperationType, apiClient, syncEngine } from './sync/index.js';
+import { logLayerOperation, OperationType } from './sync/index.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { runTransaction } from './store-transaction.js';
 import {
@@ -197,58 +207,6 @@ async function duplicateImageBlob(oldId, newId) {
     if (!blob) return false;
     await storeImage(newId, blob);
     return true;
-}
-
-/**
- * Sends the freshly minted blobs to the server, when the atlas is a server atlas.
- *
- * WHY THIS EXISTS AT ALL: `storeImage` writes to the LOCAL blob store and uploads
- * nothing, and there is no incremental sync op for an image. In a server atlas a copy
- * therefore produced features pointing at ids the server had never heard of, and every
- * other collaborator saw a broken image with no error anywhere. The bulk route is the
- * only path that can claim a chosen id: the server preserves `localId` as the id on the
- * first occurrence (guard: `frontend/tests/e2e/bulk-image-preserve-id.e2e.test.js`).
- *
- * IT RUNS BEFORE `addFeatures`, on purpose: the outbound flush leaves every 1.5 s, so a
- * feature op that reached a peer before its blob would render as a hole.
- *
- * BEST-EFFORT, and the asymmetry is deliberate: a failed upload costs a picture, while
- * aborting would cost the whole transfer. `import_export/atlas-image-upload.js` is
- * reached by a dynamic import so the store's static graph does not grow an edge into the
- * import/export chunk group.
- *
- * @param {Array<{oldId: string, newId: string}>} pairs - Blobs duplicated locally
- * @returns {Promise<void>} Resolves once the upload was attempted
- * @private
- */
-async function uploadCopiedBlobsToServer(pairs) {
-    if (pairs.length === 0) return;
-    if (!isRemoteStoreSync()) return;
-
-    const atlasId = syncEngine?.atlasId;
-    if (!atlasId) return;
-
-    try {
-        const { buildImageUploads, uploadImagesInChunks } =
-            await import('@js/import_export/atlas-image-upload.js');
-
-        const blobs = [];
-        for (const { newId } of pairs) {
-            const blob = await getImage(newId);
-            if (blob) blobs.push([newId, blob]);
-        }
-        if (blobs.length === 0) return;
-
-        const { uploads } = await buildImageUploads(blobs);
-        if (uploads.length === 0) return;
-
-        const { failed } = await uploadImagesInChunks(apiClient, atlasId, uploads);
-        if (failed.length > 0) {
-            console.warn(`transferLayerToMap: ${failed.length} image blob(s) refused by the server`);
-        }
-    } catch (error) {
-        console.warn('transferLayerToMap: image blobs could not be uploaded:', error);
-    }
 }
 
 /**
@@ -507,9 +465,11 @@ export async function transferLayerToMap(layerId, targetMapName, options = {}) {
         if (failed > 0) {
             console.warn(`transferLayerToMap: ${failed} image blob(s) could not be duplicated`);
         }
-        await uploadCopiedBlobsToServer(
-            blobPairs.filter(pair => duplicatedImageIds.includes(pair.newId))
-        );
+        // BEFORE `addFeatures`, on purpose, and only for the ids the duplication actually
+        // wrote: the outbound flush leaves every 1.5 s, so a feature op that reached a peer
+        // ahead of its blob would render as a hole. The remote gate lives inside the helper
+        // (`store/upload-copied-blobs.js`), which is a no-op in a local atlas.
+        await uploadCopiedBlobsIfRemote(duplicatedImageIds, { context: 'transferLayerToMap' });
     }
 
     if (total > 0) {

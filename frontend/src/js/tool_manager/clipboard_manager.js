@@ -27,12 +27,32 @@
  * caller can announce honestly: the context menu says how many were copied, and a zero from
  * either means the refusal has already been shown.
  *
- * KNOWN HOLE, DECLARED (pre-existing, and widened by "Colar Aqui" making paste easier to
- * reach): pasting an IMAGE feature into a SERVER atlas duplicates the blob LOCALLY ONLY.
- * `IDUtils.duplicateImageResource` does `getImage` + `storeImage`, both IndexedDB, and never
- * `uploadImageBlob` (`store/sync/image-sync.js`). The collaborator receives the feature and
- * an empty frame. The server half of the fix already exists (`POST /atlas/:atlasId/images/bulk`
- * accepts a client-chosen `localId`); the client half is not in this change.
+ * ================= A PASTED BLOB EITHER TRAVELS OR IS REBUILT ==================
+ *
+ * `IDUtils.duplicateImageResource` is `getImage` + `storeImage`, both IndexedDB: copying a
+ * feature that owns a picture writes the copy to THIS machine and to nowhere else, and there
+ * is no incremental sync op for an image. So in a SERVER atlas every id this method mints has
+ * to be answered on the peer's side by one of exactly two mechanisms, and which one applies is
+ * a property of the TYPE:
+ *
+ *   - REBUILT. Military symbol, coordination measure and magnetic declination draw a raster
+ *     generated on the client from their own synced properties, and the peer regenerates it
+ *     through `layers/image-regen-registry.js`. Their bytes are never uploaded, by design.
+ *   - UPLOADED. Everything else (today: the image feature) carries bytes nothing can
+ *     reconstruct, so the copy goes up the bulk route, which is the only one that preserves a
+ *     client-chosen id, through `uploadCopiedBlobsIfRemote` (`store/upload-copied-blobs.js`)
+ *     and BEFORE `addFeatures` logs the feature ops.
+ *
+ * The registry is what tells the two apart here: it is filled eagerly at map boot by
+ * `initToolRegistry` (`tool_manager/tool-registry.js`), so `paste` can ask by type instead of
+ * carrying a list of its own. This file already paid for a hand-written list of image types
+ * once, in `loadPastedImages`, and it was two families behind its twin.
+ *
+ * Until 2026-09-02 the upload half simply did not happen, and the failure was mute on both
+ * sides: the collaborator got the feature and an empty frame, because `getImage` misses
+ * locally, falls back to the backend, and takes a 404 that the loader turns into the error
+ * placeholder. Guards: `frontend/tests/integration/colar-imagem-sobe-ao-servidor.repro.test.js`
+ * and `frontend/tests/e2e-ui/browser-collab-colar-imagem.spec.js`.
  */
 
 import {
@@ -51,10 +71,12 @@ import {
 } from '../store';
 import { checkPermission, GuardAction } from '@store/sync/permission-guard.js';
 import { denialNotice } from '@store/denial-phrases.js';
+import { uploadCopiedBlobsIfRemote } from '@store/upload-copied-blobs.js';
 import { IDUtils, ToastService } from '../utilities';
 import { pasteAnchor, offsetToTarget, translatePositionProperties } from './clipboard-offset.js';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { collectImageResourceIds } from '@layers/feature-images.js';
+import { getImageRegenerator } from '@layers/image-regen-registry.js';
 import { generatePointImage, needsPerFeatureImage } from '../draw_tools/point_tool/point-marker-symbols.js';
 import { parseCustomMarker, registerCustomFeatureImage } from '../draw_tools/point_tool/point-custom-icons.js';
 
@@ -264,6 +286,7 @@ class ClipboardManager {
 
             const idMapping = new Map();
             const resourceDuplicationTasks = [];
+            const blobsToUpload = [];
 
             for (const clipboardItem of clipboardData.features) {
                 const { type, feature } = clipboardItem;
@@ -276,12 +299,21 @@ class ClipboardManager {
                     resourceDuplicationTasks.push(
                         IDUtils.duplicateImageResource(oldId, newId, this.getFeatureStorageType(type))
                     );
+                    // Only the blob NOBODY can rebuild has to travel. Asking the regeneration
+                    // registry (which the tool registry fills eagerly at map boot) is what
+                    // keeps this from becoming a fourth hand-written list of types.
+                    if (!getImageRegenerator(type)) blobsToUpload.push(newId);
                 }
             }
 
             if (resourceDuplicationTasks.length > 0) {
                 await Promise.allSettled(resourceDuplicationTasks);
             }
+
+            // The duplication above only wrote to IndexedDB, so in a SERVER atlas the blob has
+            // to reach the backend before the feature op does. No-op in a local atlas; never
+            // throws (see `store/upload-copied-blobs.js`).
+            await uploadCopiedBlobsIfRemote(blobsToUpload, { context: 'paste' });
 
             const newFeaturesByType = {};
 
