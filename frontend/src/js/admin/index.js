@@ -28,9 +28,66 @@ import { createPersonnelTab } from './personnel-tab.js';
 import { createGroupsTab } from './groups-tab.js';
 import { createGrantsTab } from './grants-tab.js';
 import { createAuditTab } from './audit-tab.js';
-import { createDiagTab } from './diag-tab.js';
-import { createUsoTab } from './uso-tab.js';
 import { createAccountTab } from './account-tab.js';
+// As DUAS abas tardias entram por metadado + `import()`, nunca por import estático: ver
+// `lazy-tab.js` para a medida e para as três propriedades que o embrulho garante. Os ícones já
+// moravam em `admin-dom.js` (compartilhado com o trilho), então nada foi duplicado para cá.
+import { lazyTab } from './lazy-tab.js';
+import { ICON_DIAG, ICON_USO } from './admin-dom.js';
+
+/**
+ * O metadado ANSIOSO das duas abas tardias: o que o trilho de navegação precisa saber antes de
+ * qualquer clique (`_buildRail`, `admin-panel.js`).
+ *
+ * ELE É A CÓPIA DO QUE A FÁBRICA REAL DEVOLVE, e essa duplicação é o preço declarado da carga
+ * tardia: adiar o rótulo faria o painel abrir com um trilho de botões sem nome. Quem impede as
+ * duas cópias de divergirem é `frontend/tests/unit/admin-abas-tardias.test.js`, que lê os dois
+ * literais da FONTE (não importa nenhum dos dois módulos, justamente para não arrastar aqui a
+ * superfície que esta mudança tirou dali) e exige igualdade campo a campo. O ícone NÃO é cópia:
+ * ele vem do mesmo `admin-dom.js` que a aba real usa.
+ * @type {import('./lazy-tab.js').AbaTardiaMeta}
+ */
+const META_DIAGNOSTICO = Object.freeze({
+    id: 'diagnostico',
+    label: 'Diagnóstico',
+    testid: 'admin-tab-diagnostico',
+    icon: ICON_DIAG,
+});
+
+/** @type {import('./lazy-tab.js').AbaTardiaMeta} Irmã de {@link META_DIAGNOSTICO}. */
+const META_USO = Object.freeze({
+    id: 'uso',
+    label: 'Uso',
+    testid: 'admin-tab-uso',
+    icon: ICON_USO,
+});
+
+/**
+ * As fábricas das duas abas TARDIAS, e a razão de elas serem tardias é de PAYLOAD, não de
+ * audiência: `diagnostico` e `uso` são as duas telas mais caras do painel e só o administrador
+ * global as recebe, mas o bundler não lê `adminAudience` — ele empacota o que o grafo de imports
+ * alcança, e o import estático que morava no topo deste arquivo mandava as duas para o chunk de
+ * entrada de TODA audiência, inclusive a do credenciado, que recebe duas abas e nenhuma é destas.
+ *
+ * ELAS SÃO CONSTANTES NOMEADAS, e não literais dentro do registro abaixo, por um motivo que se
+ * descobriu quebrando: o registro é lido por VARREDURA DE FONTE em duas suítes
+ * (`admin-audiencia.test.js` e `admin-abas-tardias.test.js`), e o parser mais antigo recorta o
+ * literal até a primeira chave de fechamento. Um corpo de função dentro do literal o encerrava no
+ * meio, e o guarda passava a medir metade do registro. Uma linha por id é a forma que as duas
+ * varreduras leem, e ela também é a que se lê de relance.
+ * @param {Object} principal - O perfil, repassado à fábrica real como num import estático.
+ * @returns {import('./admin-panel.js').AdminTab}
+ */
+const carregarDiagnostico = (principal) => lazyTab(META_DIAGNOSTICO, async () => {
+    const { createDiagTab } = await import('./diag-tab.js');
+    return createDiagTab(principal);
+});
+
+/** @param {Object} principal @returns {import('./admin-panel.js').AdminTab} Irmã da de cima. */
+const carregarUso = (principal) => lazyTab(META_USO, async () => {
+    const { createUsoTab } = await import('./uso-tab.js');
+    return createUsoTab(principal);
+});
 
 /**
  * As fábricas por id de aba. A ORDEM de montagem é a de `tabIds`, não a deste objeto: um mapa
@@ -44,8 +101,8 @@ const TAB_FACTORIES = Object.freeze({
     catalog: createCatalogTab,
     personnel: createPersonnelTab,
     audit: createAuditTab,
-    diagnostico: createDiagTab,
-    uso: createUsoTab,
+    diagnostico: carregarDiagnostico,
+    uso: carregarUso,
     account: createAccountTab,
 });
 
