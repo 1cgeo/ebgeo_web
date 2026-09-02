@@ -3,18 +3,17 @@
 /**
  * @fileoverview Converts configured CSV data to GeoJSON FeatureCollection.
  * Combines csv-parser and csv-coordinate-converter to produce importable GeoJSON.
+ *
+ * There is NO row cap: the 1000-row limit was removed on 2026-09-02 at the
+ * owner's request, together with the twin geometry cap in import.control.js.
+ * Rows that fail coordinate conversion are still skipped (counted in
+ * skippedCount), and an all-invalid file still throws.
  * @dependencies csv-parser, csv-coordinate-converter
  */
 
 import { parseCSV } from './csv-parser.js';
 import { convertRowToLatLng } from './csv-coordinate-converter.js';
 import { toEpoch } from '@js/temporal/temporal.utils.js';
-
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-const MAX_FEATURES = 1000;
 
 // ============================================================================
 // PUBLIC API
@@ -46,10 +45,6 @@ export function csvToGeoJSON(config) {
 
     if (totalRows === 0) {
         throw new Error('Nenhuma linha de dados encontrada no arquivo CSV');
-    }
-
-    if (totalRows > MAX_FEATURES) {
-        throw new Error(`Muitas linhas (${totalRows}). Limite máximo: ${MAX_FEATURES}`);
     }
 
     // Determine which columns hold coordinate data (exclude from attributes)

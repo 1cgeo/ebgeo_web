@@ -5,7 +5,12 @@
 // which per the File API dispatches 'abort' + 'loadend' but NEVER 'error' — so on a
 // timeout the fixed-position overlay (`.import-progress`, z-index 10000) stayed on
 // screen forever, blocking the app, and each later import just leaked another one.
-// The fix moves the cleanup to `onloadend`, the single exit shared by all outcomes.
+// The fix moves the cleanup to `onloadend`, the single exit shared by all outcomes.//
+// SECOND SUBJECT, since 2026-09-02: the same overlay is now also opened by
+// `importGeoJSON` for the per-feature preparation loop, which became unbounded when
+// the 1000-geometry cap was removed. `prepareProgressStep` is the pure stride that
+// loop uses, and it is asserted below; the loop itself needs the whole store graph
+// and is out of reach of this file.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
@@ -21,7 +26,7 @@ vi.mock('@store', () => ({
 vi.mock('@js/terrain', () => ({ getTerrainElevation: vi.fn(async () => 0) }));
 vi.mock('@js/user_data', () => ({ userDataManager: { getUserData: vi.fn(() => ({})) } }));
 
-const { default: AddImportControl } = await import('../../src/js/import_export/import.control.js');
+const { default: AddImportControl, prepareProgressStep } = await import('../../src/js/import_export/import.control.js');
 
 /** Minimal `document` double: the overlay is built with createElement + body.appendChild. */
 function makeDocumentStub() {
@@ -154,5 +159,33 @@ describe('AddImportControl._readFileWithProgress — progress overlay lifecycle'
         await expect(control._readFileWithProgress({ size: 0, name: 'v.geojson' }, 'text')).rejects.toThrow(/Arquivo vazio/);
         expect(FakeFileReader.instances).toHaveLength(0);
         expect(globalThis.document.body.children).toHaveLength(0);
+    });
+});
+
+// ============================================================================
+// prepareProgressStep — the stride of the unbounded preparation loop
+// ============================================================================
+
+describe('prepareProgressStep', () => {
+    it('aims for about twenty updates on a large import, capped at 100', () => {
+        // 5000 / 20 = 250, above the ceiling, so the ceiling wins.
+        expect(prepareProgressStep(5000)).toBe(100);
+        // 1500 / 20 = 75, below the ceiling, so the adaptive value wins.
+        expect(prepareProgressStep(1500)).toBe(75);
+    });
+
+    it('updates on every feature for a small import', () => {
+        // A fixed step of 100 would leave the bar pinned at 0% for all of these.
+        expect(prepareProgressStep(1)).toBe(1);
+        expect(prepareProgressStep(20)).toBe(1);
+        expect(prepareProgressStep(21)).toBe(2);
+    });
+
+    it('EDGE: never returns 0, which would make `count % step` throw off the loop', () => {
+        // importGeoJSON refuses an empty import before reaching the loop, but a step
+        // of 0 would make every `preparedCount % step` evaluate to NaN, silently
+        // killing every progress update, so the floor is asserted rather than assumed.
+        expect(prepareProgressStep(0)).toBe(1);
+        expect(prepareProgressStep(-5)).toBe(1);
     });
 });
