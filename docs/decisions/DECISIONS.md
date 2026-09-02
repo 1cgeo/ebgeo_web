@@ -120,6 +120,11 @@ viram commit, teste e, se ensinaram algo, linha no [`docs/livro-razao.md`](../li
 | 2026-09-01 | "Colar Aqui" ancora no centro da caixa envolvente, e o Ctrl+V perde o gate de trava | [decisions-2026.md](decisions-2026.md) |
 | 2026-09-01 | O modelo de zoom da divisa mora em `tool_manager/helpers/`, e a vista salva passa na frente do desenho | [decisions-2026.md](decisions-2026.md) |
 | 2026-09-01 | Converter feicao linear e um CREATE novo mais um DELETE antigo, e o menu esconde por POSTO e recusa por ESTADO | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-02 | A lista de buckets que carregam imagem por feição é DERIVADA, e vale para colar e para o F5 | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-02 | A importação de formato externo perde o teto de 1000 geometrias, e a preparação passa a mostrar progresso | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-02 | A área da medição 3D sai em metros e quilômetros quadrados, sem hectares, e a exibição deriva do VALOR | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-02 | Continuar uma feição linear é um UPDATE da MESMA feição, e a alça anda presa à alça de vértice | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-02 | mover ou copiar uma camada inteira para outro mapa, e a transferência é COMPOSTA | [decisions-2026.md](decisions-2026.md) |
 
 As duas linhas de 2026-08-16 acima entraram em 2026-08-18: as entradas integrais existiam no arquivo
 do ano e ninguém acrescentara a linha aqui, que é a metade do procedimento que falha calada (o índice

@@ -40,6 +40,21 @@ A consequência que só esta página pode dar: **esse 503 é o único erro TRANS
 
 `buildUpdateQuery` (`backend/src/modules/sync/sync.service.js`) **não** filtra `deleted_at IS NULL` nos ramos de feature/layer/group, mas também não limpa `deleted_at`. Um UPDATE que chega depois de um DELETE altera colunas de uma linha já morta e **não a ressuscita**; o snapshot segue não a devolvendo. O comportamento correto emerge da ausência de uma cláusula: quem "consertar" acrescentando o filtro não muda nada visível, quem acrescentar `deleted_at = NULL` quebra o modelo.
 
+## Create sobre linha viva: inerte no mesmo mapa, MOVER noutro
+
+O `create` é um UPSERT por id (`applyOperation`, `backend/src/modules/sync/sync.service.js`), e o que a cláusula do `DO UPDATE` decide é QUAIS creates em conflito podem escrever. Para todo alvo menos feição ela é só a lápide (a linha viva não se sobrescreve, então um create repetido ou atrasado é acked e não aplicado), e reviver a lápide é o que faz o Ctrl+Z depois de um delete funcionar, porque o desfazer do cliente reenvia a entidade ORIGINAL, com o id original.
+
+**Feição tem um segundo disjunto desde 2026-09-02, e ele é regra de conflito, não exceção:** um create que chega para uma linha VIVA nomeando um mapa DIFERENTE do MESMO atlas é um MOVER, e o último a chegar vence, como em todo o resto desta página. É assim que "mover uma camada inteira para outro mapa" chega ao servidor: o cliente cunha uma camada nova no destino, reemite ali cada create de feição com o MESMO id e apaga a camada de origem, sem emitir delete de feição nenhum (um delete daquele id mataria a linha que acabou de se mudar). Enquanto o disjunto não existia, `map_id` nunca mudava por op: o destino voltava vazio, as feições ficavam na origem e todas as ops voltavam acked como sucesso.
+
+Quatro consequências que a cláusula não entrega sozinha:
+
+- **O replay no MESMO mapa continua inerte.** É a metade antiga do guard, e é o que o disjunto novo não podia custar.
+- **Quem barra o mapa de OUTRO atlas não é essa cláusula**, e sim o `INSERT ... SELECT ... WHERE EXISTS` acima dela: sem linha materializada não há conflito a resolver, então o create cross-atlas segue escrevendo zero linhas e a feição não se move.
+- **É regra de FEIÇÃO só.** Grupo, camada, 3D e 360 também carregam `map_id` e não mudam de mapa hoje, e a transferência de camada cunha id novo de propósito, porque id de camada não é único entre mapas.
+- **A cascata de exclusão de camada não alcança a linha movida**, porque ela mira `layer_id` E `map_id` e o move trocou os dois; pelo mesmo motivo o soft-delete de feição (`buildSoftDeleteQuery`), escopado por `map_id`, vira no-op quando mira a origem. As duas propriedades são o que torna o passo final da transferência seguro.
+
+O custo é o desta página inteira: um create ATRASADO de um cliente que ainda tinha a feição no mapa antigo a traz de volta. A janela é estreitada pela compactação de CREATE+UPDATE da [[fila-operacoes-outbound]], nunca fechada por garantia. Guardas: `backend/tests/integration/sync-feicao-muda-de-mapa.test.js` e `frontend/tests/e2e/layer-transfer.e2e.test.js`.
+
 ## Armadilhas
 
 - **O guard é `>=`, não `>`** (`shouldApplyVersion`, `frontend/src/js/store/sync/remote-operation-handler.js`). Versões iguais reaplicam. Só ocorre em replay/snapshot e reaplicar é idempotente no efeito. Não "conserte" para `>` sem entender o replay de ops adiadas.
@@ -67,6 +82,7 @@ Idempotência por `UNIQUE (atlas_id, op_id)` + `ON CONFLICT DO NOTHING`: reenvia
 
 ## Histórico
 
+- 2026-09-02: acrescentada a seção "Create sobre linha viva", que descreve o upsert de create pelo lado do servidor. A página descrevia o LWW por chegada e a regra de delete-vence-update, e não dizia nada sobre o que um create faz quando o id já existe; enquanto isso, "o upsert por entityId move a linha" era premissa de quem escrevia cliente, e o e2e de contrato da transferência de camada a refutou.
 - 2026-07-25: absorvida a página que existia só para dizer o que a seção "Por que não é CRDT" já dizia. Eram três páginas para um conceito (esta, aquela e [[idempotencia-e-convergence-guard]]) repetindo os mesmos quatro fatos, e foi por esse caminho que a formulação ampla demais de "escrita só via sync" se propagou. `sintese-` é para conhecimento que **cruza** páginas; o porquê de uma decisão pertence à página da decisão.
 - 2026-07-25: removido um `[!CONTRADICAO]` que negava a existência do `lock_timeout` de 5 s ("`grep` no backend não retorna nada") e mandava tratar o esgotamento de pool como dívida aberta. **O marcador nunca foi verdadeiro:** a mitigação entrou antes de o marcador ser escrito, no mesmo dia. Enquanto durou, [[sintese-limites-collab]] descrevia a mitigação corretamente e esta página a negava, com a página errada sendo a que carregava o marcador que acorda o gate. Lição: um `grep` que volta vazio prova que a busca falhou, não que o código não existe.
 
