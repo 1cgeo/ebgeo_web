@@ -84,12 +84,71 @@ function queueStore() {
 
 /**
  * Key prefix for queue entries.
- * Format: op_{timestamp}_{id} for chronological ordering.
+ * Format: op_{timestamp}_{sequence}_{id}. See {@link SEQ_WIDTH} for why the sequence is there.
  */
 const KEY_PREFIX = 'op_';
 
+/**
+ * Digits the Lamport sequence is zero-padded to inside a queue key.
+ *
+ * THE KEY IS THE OUTBOUND ORDER, AND THE WALL CLOCK IS NOT FINE ENOUGH TO DECIDE IT.
+ * `_getOrderedKeys` sorts lexicographically, `peek` hands that order to `pushOperations`, and
+ * the server applies the array in order. `createOperation` stamps `Date.now()`, so every
+ * operation of one gesture logged in the same tick carries the SAME timestamp; the old key was
+ * `op_{timestamp}_{uuid}`, so inside that tick the tie was broken by a RANDOM uuid.
+ *
+ * That is not a cosmetic ordering. `createGroup` logs one `group` create plus one
+ * `group_feature` create per member, all in the same tick, and the insert of `group_features`
+ * on the server is gated by an EXISTS over `groups`: a `group_feature` that arrives before its
+ * `group` writes zero rows and is acked as success. With three members the random order put at
+ * least one child ahead of the parent about three times out of four.
+ *
+ * The sequence is `operation.lamportTimestamp`, which is `++lamportClock` in BOTH factories of
+ * `operation-factory.js`, so it is strictly increasing per client in creation order and it
+ * already travels in the envelope (nothing new to persist). Zero-padded because the sort is
+ * over text, not numbers.
+ *
+ * TWELVE DIGITS, and the bound is what the width has to survive: the clock only ever grows by
+ * one per local operation and by `advanceLamportClock` on an inbound one, so reaching 10^12
+ * would take a thousand billion operations in a single tab. Above that the padding stops
+ * padding and the ordering degrades to the pre-2026-09-02 behaviour (uuid tie-break) rather
+ * than to something worse, which is why no runtime guard is spent on it.
+ *
+ * TWO CASES THE SEQUENCE DELIBERATELY DOES NOT FIX, both pre-existing and both unreachable
+ * inside one millisecond: the clock restarts at zero on reload (a reload takes far more than
+ * the one millisecond that would be needed for the new numbering to collide with the old), and
+ * two tabs writing one queue would keep their own clocks (they cannot: the tab lock refuses two
+ * tabs on the same address).
+ */
+const SEQ_WIDTH = 12;
+
+/** Shape of the sequence segment, used to tell a new key from a pre-sequence one. */
+const SEQ_PATTERN = /^[0-9]+$/;
+
 /** Maximum operations before compaction triggers */
 const MAX_QUEUE_SIZE = 10000;
+
+/**
+ * How far the queue must grow PAST the size the last compaction left behind before another
+ * compaction is attempted.
+ *
+ * THE CEILING ALONE IS NOT A TRIGGER, IT IS A LEVEL, and a level that the queue can sit above
+ * indefinitely. Compaction only removes an operation that another operation of the SAME entity
+ * supersedes; N creates of N distinct entities compact to N, which is what an import of N
+ * features enqueues. So the first compaction above the ceiling frees nothing, the queue stays
+ * above it, and without this step EVERY later `enqueue` ran a full compaction: one `keys()` for
+ * the recount, another inside the compaction, and then a serial `getItem` over the whole queue.
+ * Measured on 12000 creates of distinct entities: 2000 compactions, 4000 key listings and
+ * 22,001,000 reads, 12.9 s. The queue paid a full read of itself for every operation the user
+ * produced, which is quadratic in the size of the backlog, and the backlog is exactly the state
+ * an offline burst produces.
+ *
+ * A TENTH OF THE CEILING, so an oversized queue is still swept about ten times per ceiling's
+ * worth of new work: enough for a CREATE+UPDATE pair to be merged well before the pair ages out,
+ * and far from the per-operation sweep. The watermark is never a licence to skip: it only delays,
+ * and it is dropped the moment the queue is known to be at or below the ceiling.
+ */
+const COMPACTION_STEP = MAX_QUEUE_SIZE / 10;
 
 /**
  * How many envelopes {@link OperationQueue#count} reads from IndexedDB at the same time.
@@ -141,9 +200,16 @@ export function operationBelongsToScope(operation, scopeSuffix) {
 /**
  * The operation id carried by a queue key, or null when the key is not a queue entry.
  *
- * Splits on the FIRST separator after the prefix, not the last: the timestamp can never
- * contain an underscore but an id can, and the previous parse (`lastIndexOf`) truncated
- * such an id to its final segment, so it could not be dequeued after a reload.
+ * IT READS BOTH FORMATS, and it has to: a queue persisted before the sequence existed still
+ * holds `op_{timestamp}_{id}` keys, and they have to stay dequeueable. The two are told apart
+ * structurally, from the LEFT: after the timestamp, a segment of exactly {@link SEQ_WIDTH}
+ * digits followed by another separator is the sequence, and everything after it is the id.
+ *
+ * IT IS NOT `lastIndexOf`, on purpose, and that is the trap this function already fell into
+ * once: the timestamp and the sequence can never contain an underscore but an ID CAN, and
+ * splitting on the last separator truncated such an id to its final segment, so the operation
+ * could not be dequeued after a reload. Parsing the fixed-shape head keeps the id opaque, which
+ * is the property that fixed that bug.
  *
  * @param {string} key
  * @returns {string|null}
@@ -153,7 +219,12 @@ function operationIdFromKey(key) {
     const rest = key.slice(KEY_PREFIX.length);
     const cut = rest.indexOf('_');
     if (cut === -1) return null;
-    const id = rest.slice(cut + 1);
+
+    let id = rest.slice(cut + 1);
+    const next = id.indexOf('_');
+    if (next === SEQ_WIDTH && SEQ_PATTERN.test(id.slice(0, SEQ_WIDTH))) {
+        id = id.slice(next + 1);
+    }
     return id.length > 0 ? id : null;
 }
 
@@ -185,6 +256,21 @@ class OperationQueue {
         this._countedSuffix = null;
 
         /**
+         * The size {@link _totalKeys} has to reach before compaction is attempted again, or
+         * null when the next crossing of {@link MAX_QUEUE_SIZE} may compact straight away.
+         *
+         * It is only ever set by a compaction that RAN and left the queue still above the
+         * ceiling, which is the state where compacting again immediately does the same full
+         * read of the queue and frees the same nothing. It is dropped as soon as the queue is
+         * known to be at or below the ceiling, and it is scoped to {@link _countedSuffix} for
+         * the same reason the count is: a level measured in another atlas's database means
+         * nothing in this one.
+         * @type {number|null}
+         * @private
+         */
+        this._compactionWatermark = null;
+
+        /**
          * Whether compaction is currently running (prevent re-entrancy).
          * @type {boolean}
          * @private
@@ -196,12 +282,22 @@ class OperationQueue {
 
     /**
      * Builds the storage key for an operation.
+     *
+     * The sequence between the timestamp and the id is what makes the key MONOTONIC in creation
+     * order inside one millisecond; see {@link SEQ_WIDTH} for the defect that bought it. An
+     * envelope without a usable `lamportTimestamp` (a hand-built double, an operation restored
+     * from a shape that predates it) falls back to zero, which is the old behaviour for those
+     * and not a new failure: they tie, and the uuid decides.
      * @private
      * @param {import('./operation-factory.js').Operation} operation
      * @returns {string}
      */
     _buildKey(operation) {
-        return `${KEY_PREFIX}${operation.timestamp}_${operation.id}`;
+        const seq = Number.isFinite(operation.lamportTimestamp) && operation.lamportTimestamp > 0
+            ? Math.trunc(operation.lamportTimestamp)
+            : 0;
+        const padded = String(seq).padStart(SEQ_WIDTH, '0');
+        return `${KEY_PREFIX}${operation.timestamp}_${padded}_${operation.id}`;
     }
 
     /**
@@ -338,6 +434,7 @@ class OperationQueue {
             await store.removeItem(key);
         }
         this._totalKeys = null;
+        this._compactionWatermark = null;
     }
 
     /**
@@ -372,7 +469,21 @@ class OperationQueue {
     // ===== PRIVATE HELPERS =====
 
     /**
-     * Gets queue keys in chronological order.
+     * Gets queue keys in creation order.
+     *
+     * THIS ORDER IS THE ORDER THE SERVER APPLIES: `peek` reads it, `pushOperations` sends the
+     * array as it is, and the server walks it. Lexicographic sorting is enough because the key
+     * is `timestamp` then zero-padded `sequence`, both fixed-shape and both numeric, so the
+     * text order IS the numeric order.
+     *
+     * MIXING THE TWO KEY SHAPES IS SAFE IN PRACTICE, and the reason is not the sort, it is the
+     * clock. A pre-sequence key (`op_{timestamp}_{uuid}`) survives only from a session that
+     * ended before the build changed, so its timestamp is at least one whole page load older
+     * than any key written afterwards; the two shapes never share a millisecond. If they ever
+     * did, the padded sequence starts with a zero and would sort before a uuid starting with
+     * any other hex digit, i.e. the new entry would go first. That inversion is bounded to a
+     * single millisecond during one upgrade, which is why it is documented instead of
+     * engineered away.
      * @private
      * @returns {Promise<string[]>} Ordered keys
      */
@@ -380,7 +491,7 @@ class OperationQueue {
         const keys = await queueStore().keys();
         return keys
             .filter(k => k.startsWith(KEY_PREFIX))
-            .sort(); // Lexicographic sort works since keys are timestamp-prefixed
+            .sort();
     }
 
     /**
@@ -415,14 +526,26 @@ class OperationQueue {
     async _growAndMaybeCompact(added) {
         const suffix = activeScopeSuffix();
         if (this._totalKeys === null || this._countedSuffix !== suffix) {
+            if (this._countedSuffix !== suffix) this._compactionWatermark = null;
             this._totalKeys = (await this._getOrderedKeys()).length;
             this._countedSuffix = suffix;
         } else {
             this._totalKeys += added;
         }
-        if (this._totalKeys > MAX_QUEUE_SIZE && !this._compacting) {
-            await this._compact();
+
+        if (this._totalKeys <= MAX_QUEUE_SIZE) {
+            // Below the ceiling there is nothing to defer, and a level left over from an
+            // earlier burst would otherwise keep deferring the next one. This is the "the
+            // queue drained" half of the watermark, and it covers the drain by flush, by
+            // purge and by another tab, none of which know the level exists.
+            this._compactionWatermark = null;
+            return;
         }
+
+        if (this._compacting) return;
+        if (this._compactionWatermark !== null && this._totalKeys < this._compactionWatermark) return;
+
+        await this._compact();
     }
 
     // ===== COMPACTION =====
@@ -458,7 +581,10 @@ class OperationQueue {
             this._countedSuffix = activeScopeSuffix();
 
             const allOps = await this._loadOperations(keys);
-            if (allOps.length <= MAX_QUEUE_SIZE) return;
+            if (allOps.length <= MAX_QUEUE_SIZE) {
+                this._compactionWatermark = null;
+                return;
+            }
 
             const keyById = new Map();
             for (const key of keys) {
@@ -508,10 +634,36 @@ class OperationQueue {
                 await queueStore().setItem(key, op);
             }
 
-            this._totalKeys = null;
+            // The exact size on disk, not `null`. `null` means "recount from the database on
+            // the next enqueue", and that recount is a second full `keys()` listing per
+            // operation, which is half of the quadratic COMPACTION_STEP exists to remove.
+            // Nothing here is a guess: the listing was just read and the removals are known.
+            // `Set` because two operations may share an id (see
+            // `tests/unit/compactacao-id-nao-unico.test.js`), and a key removed twice must
+            // still only count once.
+            this._noteCompaction(keys.length - new Set(keysToRemove).size);
         } finally {
             this._compacting = false;
         }
+    }
+
+    /**
+     * Records what a compaction left behind: the size on disk, and the level the queue has to
+     * reach before another compaction is worth its cost.
+     * @private
+     * @param {number} sizeAfter - Entries left in the queue database.
+     * @returns {void}
+     */
+    _noteCompaction(sizeAfter) {
+        // The listing this counts was read at the START of the compaction, so an `enqueue` that
+        // landed while it ran is not in it and the number can sit one or two below the disk. It
+        // is a heuristic feeding a 10000 ceiling, where being off by two changes nothing, and
+        // the recount on the next scope change or drain re-anchors it anyway.
+        this._totalKeys = Math.max(0, sizeAfter);
+        this._countedSuffix = activeScopeSuffix();
+        this._compactionWatermark = this._totalKeys > MAX_QUEUE_SIZE
+            ? this._totalKeys + COMPACTION_STEP
+            : null;
     }
 
     /**

@@ -25,7 +25,9 @@ const TYPE_DISPLAY_NAMES = {
  * There is no cap on how many geometries an import may carry (the 1000-geometry
  * limit was removed on 2026-09-02 at the owner's request), so the per-feature
  * preparation loop is the only step that can block the main thread for a long
- * time: line features run a terrain-profile pass with dozens of turf calls each.
+ * time. It got much cheaper per feature when the terrain profile stopped being
+ * computed for every imported line (see shouldComputeProfileOnImport), and that
+ * is not the same as bounded: the geometry count still is not.
  * Every step the loop repaints the progress bar and yields the event loop,
  * which is what keeps the browser responsive on large files.
  *
@@ -50,6 +52,37 @@ const PREPARE_PROGRESS_STEP = 100;
  */
 export function prepareProgressStep(total) {
     return Math.max(1, Math.min(PREPARE_PROGRESS_STEP, Math.ceil(total / 20)));
+}
+
+/**
+ * Whether an imported line feature must carry an elevation profile from birth.
+ *
+ * IT IS THE SAME CONDITION EVERY OTHER LINE SITE ALREADY USES, and the import was the only
+ * one that did not ask it. `recalculateMovedLineFeatures`, the two vertex editors, the
+ * continuation of a line and `line-split.js` all guard their `calculateProfile` with
+ * `properties.profile`; the import computed one for EVERY line unconditionally, while the
+ * default properties of the line control are born `profile: false`. Nothing could read it:
+ * `showProfilePanel` needs `profileData` AND `profile`, and the only gesture that turns
+ * `profile` on (`line_attributes_panel.js`) goes through `updateFeaturesProperty`, which
+ * recalculates the profile from `baseCoordinates` at that moment. The imported profile was
+ * therefore recomputed before it was ever shown.
+ *
+ * The cost it was paying is per line and not per import: 26 `turf.along` plus 26 terrain
+ * queries (two `queryTerrainElevation` each), and about 1.6 kB of JSON written to IndexedDB
+ * and pushed through sync. Measured on a synthetic 2000-line file, that is 52k `turf.along`
+ * calls, 104k terrain queries and 3.2 MB of dead payload.
+ *
+ * It reads the flag rather than answering a constant `false` so that a line control whose
+ * defaults ever ship `profile: true` keeps getting a profile at import time without anyone
+ * having to remember this file.
+ *
+ * Pure and exported for unit testing; it deliberately does NOT live in a module of its own,
+ * for the same reason as {@link prepareProgressStep}.
+ * @param {{profile?: boolean}|null|undefined} properties - The prepared feature properties.
+ * @returns {boolean}
+ */
+export function shouldComputeProfileOnImport(properties) {
+    return properties?.profile === true;
 }
 
 class AddImportControl {
@@ -680,9 +713,14 @@ class AddImportControl {
         switch (targetType) {
             case 'lines':
                 baseProperties.baseCoordinates = feature.geometry.coordinates;
-                baseProperties.profileData = JSON.stringify(
-                    await this.calculateProfile(feature.geometry.coordinates)
-                );
+                // Only when the profile is ON, which is the convention of every other line
+                // site (see shouldComputeProfileOnImport). A line born `profile: false`
+                // gets its profile the moment the panel switch turns it on.
+                if (shouldComputeProfileOnImport(baseProperties)) {
+                    baseProperties.profileData = JSON.stringify(
+                        await this.calculateProfile(feature.geometry.coordinates)
+                    );
+                }
                 break;
 
             case 'polygons': {
@@ -758,10 +796,9 @@ class AddImportControl {
         const importLayer = await createLayerForImport(uniqueLayerName);
         const importLayerId = importLayer.id;
 
-        // Preparation is the only per-feature step (line features run a terrain
-        // profile with dozens of turf calls), so it is the one that can freeze the
-        // UI now that the geometry count is unbounded. Report progress and yield the
-        // event loop periodically; persistence below stays a single batched write,
+        // Preparation is the only per-feature step, so it is the one that can freeze
+        // the UI now that the geometry count is unbounded. Report progress and yield
+        // the event loop periodically; persistence below stays a single batched write,
         // which must NOT be chunked (each chunk would rewrite the whole map).
         //
         // The overlay is a single slot (this._progressElement), and no caller reaches

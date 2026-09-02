@@ -637,17 +637,33 @@ class AddLineControl extends BaseControl {
         const featureName = await IDUtils.generateFeatureName('line', this.map);
         const coordinates = [...this.drawPoints];
 
+        const properties = {
+            ...AddLineControl.DEFAULT_PROPERTIES,
+            layerId: getActiveLayerIdSync(),
+            id: featureId,
+            nome: featureName,
+            baseCoordinates: coordinates
+        };
+
+        // Only when the profile is ON, which is this file's convention everywhere else, and the
+        // last site that did not follow it. `DEFAULT_PROPERTIES` is born `profile: false` and
+        // nothing above overrides it, so the profile computed here could not be read: the panel
+        // needs `profileData` AND `profile`, and the switch that turns `profile` on
+        // (`line_attributes_panel.js`) goes through `updateFeaturesProperty`, which recalculates
+        // from `baseCoordinates` at that moment. `profileData` stays the `null` of the defaults.
+        //
+        // Same reasoning as `shouldComputeProfileOnImport` in `import_export/import.control.js`,
+        // and the predicate is NOT imported from there: the name is about the import, and this
+        // file would drag the whole importer graph (JSZip, shpjs, togeojson) into the line tool
+        // to reuse one comparison.
+        if (properties.profile) {
+            properties.profileData = JSON.stringify(await this.calculateProfile(coordinates));
+        }
+
         const feature = {
             type: 'Feature',
             id: geoJsonId,
-            properties: {
-                ...AddLineControl.DEFAULT_PROPERTIES,
-                layerId: getActiveLayerIdSync(),
-                id: featureId,
-                nome: featureName,
-                baseCoordinates: coordinates,
-                profileData: JSON.stringify(await this.calculateProfile(coordinates))
-            },
+            properties,
             geometry: this.geometry.generate(coordinates)
         };
 
