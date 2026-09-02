@@ -18,6 +18,8 @@
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
 import { any, oneOrNone, tx } from '../../database/index.js';
+import { createAudit } from '../../utils/audit.js';
+import { ValidationError } from '../../utils/errors.js';
 import { parseJanela } from '../../utils/diag-consulta.js';
 import {
   UPSERT_DEFEITO,
@@ -26,6 +28,9 @@ import {
   LIST_OCORRENCIAS,
   LIST_DEFEITOS,
   SELECT_DEFEITO_POR_ID,
+  SELECT_ESTADO_DE_DEFEITO,
+  UPDATE_ESTADO_DE_DEFEITO,
+  SELECT_ATOR_POR_USERNAME,
   LIST_ERROS_CLIENTE,
   DELETE_DEFEITOS_EXPIRADOS,
 } from './defeitos.queries.js';
@@ -454,4 +459,180 @@ export async function listarOcorrencias(defeitoId) {
       statusCode: l.status_code,
     })),
   };
+}
+
+/**
+ * A AÇÃO DA TRILHA para os três atos de ciclo de vida.
+ *
+ * UMA para as três transições, e não uma por transição. A pergunta que `idx_audit_target`
+ * responde é "tudo que já foi feito com este defeito", e três ações partiriam a história de
+ * um mesmo defeito em três listas que não se cruzam. O que distingue os atos é o `de`/`para`
+ * dos detalhes, que é onde a informação de fato está. O argumento por extenso está no
+ * cabeçalho de `019_defeito_estado_auditado.sql`.
+ */
+export const ACAO_DE_ESTADO = 'DEFEITO_ESTADO';
+
+/**
+ * O teto do `target_name` desta linha de trilha.
+ *
+ * `audit_trail.target_name` é `VARCHAR(255)` e a `assinatura` é `VARCHAR(300)`: sem corte,
+ * uma assinatura longa derruba o INSERT com 22001 DENTRO da transação do ato, e o
+ * administrador recebe 500 ao resolver um defeito, por um motivo sem relação aparente com o
+ * que ele pediu. 200 e não 255 porque a folga também precisa sobreviver a alguém alargar a
+ * assinatura depois; o valor inteiro continua na própria linha de `defeitos`, que a trilha
+ * referencia por `target_id`.
+ */
+export const TETO_DO_ALVO_NA_TRILHA = 200;
+
+/**
+ * O TETO DO `commit`, e ele mora AQUI porque as bordas são DUAS.
+ *
+ * O CHECK da coluna (`018_defeitos_e_ocorrencias.sql`) recusa acima de 64, que é o
+ * comprimento de um SHA-256 em hexadecimal. A rota já tinha o teto no Joi e respondia 422
+ * nomeando o campo; o COMANDO não tinha nada, e um `--commit` de 65 caracteres descia até o
+ * banco e voltava como 23514 com pilha crua no terminal, ou seja, a mesma classe de erro
+ * ilegível que a validação de uuid na borda existe para evitar.
+ *
+ * A CORREÇÃO É O PONTO COMUM, e não uma segunda cópia do teto no comando: uma verificação
+ * por borda é uma verificação que a próxima borda esquece, e já são duas. Aqui ela vale para
+ * as duas e valeria para uma terceira. O Joi da rota CONTINUA existindo, e isso não é
+ * redundância inútil: ele recusa ANTES de abrir transação e devolve o 422 que o contrato
+ * HTTP promete, enquanto este é o piso que nenhum chamador contorna.
+ *
+ * RECUSA E NÃO TRUNCAGEM. Aparar um hash de commit em silêncio produziria uma referência que
+ * não resolve em `git show`, com cara de referência boa; a frase nomeia o campo e o
+ * comprimento, que é o que a pessoa precisa para corrigir.
+ */
+export const TETO_DO_COMMIT = 64;
+
+/**
+ * Resolve a conta que o COMANDO vai usar como ator, ou diz por que não dá.
+ *
+ * ELE EXISTE PORQUE O TERMINAL NÃO TEM SESSÃO e `audit_trail.actor_id` é `NOT NULL`. As duas
+ * saídas fáceis foram recusadas: ator nulo esbarra no schema, e um id de sistema inventado
+ * produziria uma trilha em que o ato mais consequente deste módulo não tem autor. Quem
+ * digitou o comando foi uma pessoa, e `--como` obriga a dizer qual.
+ *
+ * `--como` NÃO É AUTENTICAÇÃO, e a honestidade sobre isso é o que impede alguém de tratá-lo
+ * como se fosse: quem tem shell no servidor já tem `DATABASE_URL` e pode escrever na tabela
+ * direto. O que a bandeira compra é ATRIBUIÇÃO, não controle de acesso, ou seja a trilha
+ * passa a dizer quem operou em vez de dizer "o sistema", que é a resposta que nenhuma
+ * investigação aceita. O gate de papel existe pela mesma razão de ser honesto: o comando não
+ * deve permitir carimbar como ator uma conta que a ROTA equivalente recusaria, senão a
+ * trilha ganharia atos de administrador assinados por quem não administra nada.
+ *
+ * A DISTINÇÃO ENTRE OS DOIS MOTIVOS É O PONTO DA FUNÇÃO. "Não existe" e "não é
+ * administrador" mandam fazer coisas opostas (conferir o que se digitou, ou pedir a outra
+ * pessoa), e é por isso que o papel NÃO entra no predicado do SQL: filtrado lá, os dois
+ * casos voltariam como a mesma lista vazia e o comando teria de escolher uma frase, errada
+ * em metade das vezes.
+ *
+ * @param {string} username
+ * @returns {Promise<{ator: {id: string, username: string}|null, motivo: string|null}>}
+ */
+export async function resolverAtorAdministrador(username) {
+  const linha = await oneOrNone(SELECT_ATOR_POR_USERNAME, [username]);
+  if (!linha) return { ator: null, motivo: 'inexistente' };
+  // O EIXO AQUI É O GLOBAL, e ele NÃO é uma escada: `producer` e `credenciado` não contêm
+  // nem são contidos por `admin`, então a comparação é de igualdade e nunca de ordem. É o
+  // mesmo gate de `requireAdmin` (`src/middleware/require-admin.js`), pela mesma razão:
+  // manter acervo e ler recurso privado não são administrar o sistema.
+  if (linha.role !== 'admin') return { ator: null, motivo: 'sem-papel' };
+  return { ator: { id: linha.id, username: linha.username }, motivo: null };
+}
+
+/**
+ * Muda o ESTADO de um defeito, e deixa trilha. É o ato do lote C.
+ *
+ * TODA TRANSIÇÃO É PERMITIDA A PARTIR DE QUALQUER ESTADO, e a ausência de máquina de estados
+ * é decisão, não esquecimento. O ganho de proibir (digamos) ignorar um defeito já ignorado
+ * seria nenhum; o custo é concreto e cai sempre sobre a pessoa certa pelo motivo errado: um
+ * administrador que clicou em "resolvido" por engano precisa poder reabrir, e um que
+ * resolveu sem anotar o commit precisa poder resolver de novo com ele. Uma guarda aqui
+ * transformaria o conserto de um erro humano num 409 sem saída pela tela. O estado ANTERIOR
+ * não se perde: ele vai para a trilha, em `details.de`, e é ali que a sequência de atos fica
+ * legível.
+ *
+ * `regrediu` NÃO É ESCRITO POR AQUI, e quem impede são as duas bordas: `ESTADOS_MANUAIS` no
+ * Joi da rota e a mesma lista na validação do comando. Ele é a única transição automática do
+ * produto (o CASE de `UPSERT_DEFEITO`) e significa um FATO sobre duas releases, não um juízo.
+ *
+ * A TRILHA VAI NA MESMA TRANSAÇÃO (`createAudit(req, payload, t)`), e não em best-effort: um
+ * estado que muda sem linha de trilha é exatamente o buraco que `LOGIN`, `LOGOUT` e
+ * `ATLAS_DELETE` tiveram desde o primeiro dia, e o custo de perder a linha aqui é mais alto
+ * que o de recusar o ato, porque o ato é raro e refazível. O oposto vale para o LOGIN, e é
+ * por isso que ele usa `createAuditBestEffort`: lá a trilha vale menos que a operação.
+ *
+ * O `de` VEM DE UM `SELECT ... FOR UPDATE`, e não da leitura otimista: `UPSERT_DEFEITO`
+ * escreve a mesma linha a cada relato e pode mover `resolvido` para `regrediu` no meio. Ver
+ * `SELECT_ESTADO_DE_DEFEITO`.
+ *
+ * A RELEASE É A DO SERVIDOR (`config.release`), NUNCA um campo do corpo. Ela responde "em
+ * qual build o conserto entrou", e o único que sabe isso é o processo que está rodando o
+ * conserto. Aceitá-la do chamador deixaria um administrador anotar uma build que nunca
+ * existiu, e `resolvido_na_release` é justamente a coluna que decide REGRESSÃO: um valor
+ * inventado ali faz o produto acusar (ou deixar de acusar) regressão para sempre. Em
+ * desenvolvimento ela é `undefined`, e o `?? null` a grava como "não anotada", que é o que
+ * `imprimirUmDefeito` já sabe dizer.
+ *
+ * O QUE "NÃO ANOTADA" CUSTA, e a leitura natural é o INVERSO do fato. A tentação é concluir
+ * que sem release o defeito fica resolvido para sempre; é o contrário: `NULL` faz o
+ * `IS DISTINCT FROM` do CASE de `UPSERT_DEFEITO` ser VERDADEIRO contra qualquer valor, então
+ * a próxima ocorrência que TRAGA release reabre o defeito como `regrediu`. É o desfecho
+ * conservador certo (sem saber em qual build o conserto entrou, não dá para afirmar que a
+ * ocorrência nova veio da build velha), e o comando avisa em voz alta, porque quem resolveu
+ * precisa esperar ver o defeito voltar. Ocorrência SEM release não move nada, pelo
+ * `AND EXCLUDED.release IS NOT NULL` do mesmo CASE.
+ *
+ * @param {Object} params
+ * @param {string} params.id - UUID do defeito; a forma é validada por quem chama
+ * @param {string} params.estado - um de `ESTADOS_MANUAIS`
+ * @param {string|null} [params.commit] - só faz sentido com `resolvido`
+ * @param {string} params.userId - o ator; da sessão na rota, de `--como` no comando
+ * @param {Object|null} [params.req] - Express req, ou um parcial `{ ip, get }` (o comando
+ *   não tem nenhum, e `createAudit` degrada para `ip: 'system'`)
+ * @returns {Promise<{item: Object, de: string, para: string}|null>} `null` se o id não existe
+ */
+export async function mudarEstadoDoDefeito({ id, estado, commit = null, userId, req = null }) {
+  const release = config.release ?? null;
+  const commitLimpo = vazioVirando(commit);
+
+  // A GUARDA VEM ANTES DA TRANSAÇÃO, e a ordem importa: dentro dela a recusa custaria um
+  // `SELECT ... FOR UPDATE` e um rollback para dizer que um argumento estava longo demais.
+  if (commitLimpo !== null && commitLimpo.length > TETO_DO_COMMIT) {
+    throw new ValidationError(
+      `commit: no máximo ${TETO_DO_COMMIT} caracteres (recebi ${commitLimpo.length}). `
+      + 'É o teto do CHECK da coluna, que é o comprimento de um SHA-256 em hexadecimal.'
+    );
+  }
+
+  return tx(async (t) => {
+    const antes = await t.oneOrNone(SELECT_ESTADO_DE_DEFEITO, [id]);
+    // NULO E NÃO EXCEÇÃO: id inexistente é desfecho normal aqui pela mesma razão de
+    // `obterDefeito`. A poda por idade apaga defeito e ocorrências juntos, então um id que a
+    // tela mostrou minutos atrás pode ter envelhecido, e quem chama precisa poder dizer isso
+    // com as próprias palavras (404 na rota, frase própria no comando).
+    if (!antes) return null;
+
+    await t.none(UPDATE_ESTADO_DE_DEFEITO, [id, estado, userId, release, commitLimpo]);
+
+    await createAudit(req, {
+      action: ACAO_DE_ESTADO,
+      actorId: userId,
+      // 'SYSTEM' porque um defeito não é recurso de acesso: não pertence a OM nenhuma, não é
+      // concedível e não tem dono. E `targetId` VAI PREENCHIDO, que é o que separa este uso
+      // do abuso que o cabeçalho de `002_auditoria.sql` denuncia: 'SYSTEM' significa
+      // sistema, e já foi depósito do alvo que não coube.
+      targetType: 'SYSTEM',
+      targetId: id,
+      targetName: String(antes.assinatura ?? '').slice(0, TETO_DO_ALVO_NA_TRILHA),
+      // O `de`/`para` é o que faz UMA ação servir às três transições. `commit` entra mesmo
+      // nulo: a ausência dele numa linha de `resolvido` é informação (ninguém anotou), e
+      // omitir a chave faria "não anotou" e "versão antiga do servidor" ficarem iguais.
+      details: { de: antes.estado, para: estado, commit: commitLimpo },
+    }, t);
+
+    const depois = await t.one(SELECT_DEFEITO_POR_ID, [id]);
+    return { item: itemDeDefeitoCompleto(depois), de: antes.estado, para: estado };
+  });
 }

@@ -55,3 +55,24 @@ export const EstadoDeDefeito = Object.freeze({
   IGNORADO: 'ignorado',
   REGREDIU: 'regrediu',
 });
+
+/**
+ * Os TRÊS que um administrador pode escrever à mão, DERIVADOS da lista completa.
+ *
+ * DERIVADOS E NÃO ESCRITOS À MÃO, pelo mesmo argumento de `ORIGENS_DO_CLIENTE`
+ * (`origens-de-erro.js`): uma segunda cópia divergiria da primeira no dia em que um estado
+ * novo nascesse, e divergiria falhando FECHADO (a borda recusaria um valor que o CHECK
+ * aceita), que é o modo de falha silencioso.
+ *
+ * O QUE FICA DE FORA É `regrediu`, E ISSO É O CONTRATO INTEIRO DESTA CONSTANTE. Ele é o
+ * único estado a que só a MÁQUINA leva, pelo CASE de `UPSERT_DEFEITO`, e a razão de proibir
+ * a mão não é purismo: `regrediu` significa "voltou a ocorrer numa release DIFERENTE daquela
+ * em que foi resolvido", e essa é uma afirmação sobre duas colunas (`resolvido_na_release` e
+ * a release da ocorrência que chegou), não uma opinião. Escrito à mão, ele seria um rótulo
+ * sem o fato por trás, e a tela passaria a mostrar regressão onde não houve nenhuma, que é
+ * exatamente como um campo de ciclo de vida vira decoração e passa a ser ignorado. Quem quer
+ * reabrir um defeito usa `aberto`; a regressão é conclusão do produto, nunca do operador.
+ */
+export const ESTADOS_MANUAIS = Object.freeze(
+  ESTADOS_DE_DEFEITO.filter((e) => e !== EstadoDeDefeito.REGREDIU)
+);

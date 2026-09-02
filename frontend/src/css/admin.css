@@ -1412,8 +1412,10 @@
 
 /* ===== Aba Diagnóstico =====
 
-   Quatro seções sobre a MESMA janela de tempo (pulso, erros do servidor, erros do navegador,
-   latência), e um seletor só, no cabeçalho da aba.
+   Três seções sobre a MESMA janela de tempo (pulso, defeitos, latência), e um seletor só, no
+   cabeçalho da aba. Eram quatro até 2026-09-02: as duas listas de erro (a do servidor, lida do
+   arquivo de log, e a do navegador, lida do banco) viraram a seção "Defeitos", que é a única com
+   ciclo de vida e a única com barra de filtros própria.
 
    A CONTAGEM É O ELEMENTO DA ABA, como o chip de prazo é o da aba Concessões, e é o único que
    ganha escada de peso: quem abre esta tela está escolhendo o que consertar primeiro, e uma lista
@@ -1603,6 +1605,12 @@
 /* A CONTAGEM, primeiro elemento de toda linha e o único com escada de peso. Largura mínima fixa e
    dígitos tabulares para que a coluna de números não dance entre uma linha e a seguinte. */
 .admin-diag__contagem {
+    /* `inline-block` E NÃO O `inline` PADRÃO DO SPAN: com a unidade dentro, o crachá tem DOIS
+       filhos de bloco, e uma caixa inline com filhos de bloco se parte em caixas anônimas. Na
+       lista antiga isso não aparecia porque o pai era flex (que blocifica o filho); na célula da
+       tabela de defeitos ele apareceu como três retângulos cinza soltos, medido na captura de
+       2026-09-02. */
+    display: inline-block;
     flex: 0 0 auto;
     min-width: 3.5rem;
     padding: var(--space-1) var(--space-2);
@@ -1873,6 +1881,386 @@
 .admin-diag__ok .admin-empty__message {
     color: color-mix(in srgb, var(--color-success) 80%, var(--gray-900));
     font-weight: var(--font-weight-semibold);
+}
+
+/* ----- seção 2: os defeitos, com ciclo de vida -----
+
+   ELA SUBSTITUIU DUAS SEÇÕES em 2026-09-02 (erros do servidor, lidos do arquivo de log, e erros do
+   navegador, lidos do banco). O que muda no desenho não é a lista, é a COLUNA DE ESTADO: sem ela,
+   um defeito consertado tinha na tela exatamente a mesma cara de um que ninguém olhou, e a única
+   forma de tirá-lo de lá era esperar a janela passar por cima.
+
+   O CHIP DE ESTADO É O SEGUNDO ELEMENTO DA ABA a ganhar cor própria, ao lado da contagem, e as
+   quatro cores NÃO formam uma escada: `regrediu` é o mais alto (vermelho) porque é o único que
+   afirma que um conserto falhou; `aberto` é neutro porque é o estado de nascimento e a maior parte
+   da tabela está nele, e pintá-lo de alarme faria a tabela inteira gritar; `resolvido` é verde,
+   como o vazio que é boa notícia; e `ignorado` é DELIBERADAMENTE apagado, porque a decisão que ele
+   registra é "não quero mais ouvir sobre isto", e um selo vistoso desfaria o único ato da tela que
+   existe para calar ruído conhecido. O quinto (`desconhecido`) leva a moldura tracejada de
+   `.admin-chip--desconhecido`, e pelo mesmo motivo: estado que este build não entende não herda a
+   cor de nenhum que ele entende.
+
+   O BOTÃO EM VOO NÃO É `disabled`, e o estilo tem de acompanhar isso: ele fica esmaecido, mas
+   continua recebendo ponteiro e clique, porque o clique é como o motivo chega à pessoa
+   (`acaoEmVooNotice`). Um `pointer-events: none` aqui reproduziria em CSS exatamente o que a
+   convenção da casa proíbe em JS. */
+
+.admin-diag__filtros {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+
+.admin-diag__filtro {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.admin-diag__filtro--caixa {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+    padding-bottom: var(--space-1);
+}
+
+.admin-diag__filtro-label {
+    font-size: var(--font-size-sm);
+    color: var(--gray-600);
+}
+
+/* ----- o cartão de saúde por release ----- */
+
+.admin-diag__saude:empty {
+    display: none;
+}
+
+.admin-diag__saude-cartao {
+    padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-3);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-md);
+    background: var(--gray-50);
+}
+
+.admin-diag__saude-cabeca {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.admin-diag__saude-titulo {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-900);
+}
+
+/* A build no ar é o número que dá sentido ao cartão: duas regressões numa release só pedem
+   providência se ela for a que está rodando. */
+.admin-diag__saude-build {
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+}
+
+.admin-diag__saude-lista {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+    margin: var(--space-3) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.admin-diag__saude-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-md);
+    background: #fff;
+}
+
+/* A release que está NO AR ganha a moldura, e não uma cor de estado: ela não é boa nem má, é a
+   que a próxima providência alcança. */
+.admin-diag__saude-item--no-ar {
+    border-color: var(--primary-300);
+    box-shadow: inset 3px 0 0 var(--primary-600);
+}
+
+.admin-diag__saude-release {
+    max-width: 22ch;
+    overflow: hidden;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--font-size-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.admin-diag__saude-numeros {
+    display: flex;
+    gap: var(--space-3);
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+}
+
+.admin-diag__saude-nota,
+.admin-diag__saude-vazio {
+    margin: var(--space-2) 0 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+}
+
+/* ----- a tabela de defeitos ----- */
+
+.admin-diag__defeitos td {
+    vertical-align: top;
+}
+
+/* NADA DE `display: flex` NUMA `<td>`: isso tira a célula do algoritmo de tabela e a coluna
+   deixa de alinhar com o cabeçalho (medido na captura de 2026-09-02, com a coluna Estado solta do
+   resto da linha). Os dois selos são inline, e o espaço entre eles é margem. */
+.admin-diag__estado-celula {
+    white-space: nowrap;
+}
+
+.admin-diag__estado-celula > * + * {
+    margin-left: var(--space-1);
+}
+
+.admin-diag__estado {
+    display: inline-block;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-full);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    white-space: nowrap;
+}
+
+.admin-diag__estado--aberto {
+    background: var(--gray-100);
+    color: var(--gray-700);
+}
+
+.admin-diag__estado--resolvido {
+    background: color-mix(in srgb, var(--color-success) 15%, transparent);
+    color: color-mix(in srgb, var(--color-success) 80%, var(--gray-900));
+}
+
+/* Apagado de propósito: ver o cabeçalho da seção. */
+.admin-diag__estado--ignorado {
+    background: transparent;
+    color: var(--gray-400);
+}
+
+.admin-diag__estado--regrediu {
+    background: color-mix(in srgb, var(--color-error) 15%, transparent);
+    color: var(--color-error-strong);
+}
+
+.admin-diag__estado--desconhecido {
+    background: transparent;
+    border: 1px dashed var(--gray-400);
+    color: var(--gray-700);
+}
+
+/* O selo "novo" é do LEITOR, e não do defeito: ele compara com a marca da última visita gravada
+   no navegador desta pessoa. Azul de `--color-info` porque é outro eixo, como o chip do produtor:
+   ele não diz gravidade, diz "isto você ainda não viu". */
+.admin-diag__novo {
+    padding: 1px var(--space-2);
+    border-radius: var(--radius-full);
+    background: color-mix(in srgb, var(--color-info) 15%, transparent);
+    color: color-mix(in srgb, var(--color-info) 78%, var(--gray-900));
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+}
+
+.admin-diag__mensagem {
+    max-width: 34rem;
+}
+
+.admin-diag__origem,
+.admin-diag__pagina,
+.admin-diag__quando {
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+    white-space: nowrap;
+}
+
+.admin-diag__releases {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+    white-space: nowrap;
+}
+
+.admin-diag__resolucao {
+    margin: var(--space-1) 0 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+}
+
+.admin-diag__gaveta-botao {
+    margin-top: var(--space-1);
+    padding: 0;
+    font-size: var(--font-size-xs);
+}
+
+/* ----- os atos de ciclo de vida ----- */
+
+.admin-diag__acoes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: flex-start;
+}
+
+.admin-diag__acao {
+    white-space: nowrap;
+}
+
+/* Esmaecido, e NÃO inerte: o clique tem de continuar chegando, senão o motivo não chega. */
+.admin-diag__acao[aria-disabled="true"] {
+    opacity: 0.6;
+}
+
+.admin-diag__commit {
+    display: flex;
+    flex-direction: column;
+    flex-basis: 100%;
+    gap: var(--space-1);
+    padding: var(--space-2);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-md);
+    background: var(--gray-50);
+}
+
+.admin-diag__commit-dica {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+}
+
+/* ----- a gaveta de ocorrências ----- */
+
+.admin-diag__gaveta {
+    padding: var(--space-3) var(--space-4);
+    background: var(--gray-50);
+}
+
+.admin-diag__gaveta-assinatura {
+    margin: 0 0 var(--space-2);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--font-size-xs);
+    color: var(--gray-700);
+    word-break: break-word;
+}
+
+.admin-diag__ocorrencias-titulo {
+    margin: 0 0 var(--space-2);
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+}
+
+.admin-diag__ocorrencias-lista {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin: 0 0 var(--space-3);
+    padding: 0;
+    list-style: none;
+}
+
+.admin-diag__ocorrencia-botao {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    background: #fff;
+    font-size: var(--font-size-xs);
+    color: var(--gray-700);
+    text-align: left;
+    cursor: pointer;
+}
+
+.admin-diag__ocorrencia-botao:hover {
+    border-color: var(--gray-300);
+}
+
+/* A selecionada é a que a trilha abaixo descreve, então ela precisa ser óbvia sem cor de estado:
+   a barra à esquerda diz "é esta" sem competir com o chip da linha. */
+.admin-diag__ocorrencia-botao--ativa {
+    border-color: var(--primary-300);
+    box-shadow: inset 3px 0 0 var(--primary-600);
+}
+
+.admin-diag__meta-release,
+.admin-diag__meta-sessao {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    color: var(--gray-500);
+}
+
+.admin-diag__meta-navegador {
+    color: var(--gray-600);
+}
+
+/* ----- a trilha de migalhas da ocorrência selecionada ----- */
+
+.admin-diag__migalhas-titulo {
+    margin: 0 0 var(--space-1);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-700);
+}
+
+.admin-diag__migalhas-vazia {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+}
+
+.admin-diag__migalhas-lista {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.admin-diag__migalha {
+    display: flex;
+    gap: var(--space-2);
+    font-size: var(--font-size-xs);
+    color: var(--gray-700);
+}
+
+.admin-diag__migalha-quando {
+    flex: 0 0 auto;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    color: var(--gray-500);
+}
+
+.admin-diag__migalha-tipo {
+    flex: 0 0 6rem;
+    color: var(--gray-500);
+}
+
+.admin-diag__migalha-texto {
+    word-break: break-word;
+}
+
+.admin-diag__pilha-bruta {
+    margin-top: var(--space-2);
 }
 
 /* ===== Aba Uso =====
@@ -2160,6 +2548,136 @@
 .admin-uso__atlas-nome {
     font-weight: var(--font-weight-medium);
     color: var(--gray-900);
+}
+
+/* ----- o funil de entrada -----
+
+   O DEGRAU É UMA BARRA HORIZONTAL, e a largura é fração do PRIMEIRO passo (posta por JS, valor
+   computado em runtime, como as outras duas barras desta aba). É isso que faz o funil parecer um
+   funil: três barras de mesma altura só seriam uma lista.
+
+   O PÉ DO DEGRAU CARREGA TRÊS COISAS DIFERENTES lado a lado, e por isso elas não podem ter o mesmo
+   peso: a conversão é o número que se lê (`--conversao`), a mediana é contexto, e o regime é a
+   etiqueta miúda que todo número desta aba carrega. O selo de PISO é o único com cor, porque ele
+   não é informação sobre o número, é uma ressalva sobre a confiança nele. */
+
+.admin-uso__funil {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.admin-uso__degrau-cabeca {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-4);
+    margin-bottom: var(--space-2);
+}
+
+.admin-uso__degrau-rotulo {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-800);
+}
+
+.admin-uso__degrau-valor {
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-900);
+    font-variant-numeric: tabular-nums;
+}
+
+.admin-uso__degrau-trilho {
+    display: block;
+    height: 10px;
+    border-radius: var(--radius-full);
+    background: var(--gray-200);
+}
+
+.admin-uso__degrau-barra {
+    display: block;
+    height: 100%;
+    border-radius: var(--radius-full);
+    background: color-mix(in srgb, var(--color-info) 70%, transparent);
+}
+
+.admin-uso__degrau-pe {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-2);
+}
+
+.admin-uso__degrau-conversao {
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+}
+
+.admin-uso__degrau-mediana {
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+    font-variant-numeric: tabular-nums;
+}
+
+.admin-uso__degrau-regime {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+}
+
+.admin-uso__degrau-piso {
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--color-warning) 18%, transparent);
+    color: var(--gray-800);
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+/* ----- a coorte de retenção -----
+
+   `tabular-nums` NA TABELA INTEIRA, e não só na coluna do tamanho: as cinco colunas de números se
+   comparam VERTICALMENTE (é o que uma tabela de coorte existe para permitir), e com largura de
+   dígito variável as casas não se alinham entre as linhas.
+
+   A CÉLULA ABERTA É TEXTO, E DE VOZ BAIXA. Ela não pode ficar em branco (branco se lê como zero,
+   ou como coluna quebrada) nem ter o mesmo peso de um número (ela não é medida nenhuma), então
+   fica em itálico e na cor mais fraca da paleta de texto. */
+
+.admin-uso__retencao-tabela {
+    font-variant-numeric: tabular-nums;
+}
+
+.admin-uso__retencao-coorte {
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-900);
+    white-space: nowrap;
+}
+
+.admin-uso__retencao-celula {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.admin-uso__retencao-valor {
+    font-size: var(--font-size-sm);
+    color: var(--gray-900);
+}
+
+.admin-uso__retencao-valor--aberta {
+    color: var(--gray-400);
+    font-style: italic;
+}
+
+.admin-uso__retencao-pct {
+    display: block;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
 }
 
 /* ==========================================================================

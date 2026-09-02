@@ -159,10 +159,14 @@ describe('GET /diag/{erros,lento,status} — log em arquivo', () => {
     const d = res.body.data;
     assert.equal(d.total, 2, 'duas linhas com statusCode dentro da janela');
     assert.deepEqual(d.porFaixa, { '2xx': 1, '4xx': 1 });
-    // DOIS, e não um: `erros` conta REGISTROS de erro, e a requisição falha escreveu duas
-    // linhas. É a mesma conta que `npm run diag -- status` faz, de propósito — quem quer o
-    // número de DEFEITOS pergunta a /erros, que funde por requisição antes de agrupar.
-    assert.equal(d.erros, 2);
+    // UM, e não dois. O pulso conta REQUISIÇÃO desde 2026-09-02: a requisição falha escreveu
+    // DUAS linhas (a do `errorHandler`, com `err` e sem `statusCode` no topo, e a do
+    // `request-logger`), e só a segunda entra. Enquanto `erros` contava REGISTRO e `total`
+    // contava requisição, a razão ia a 2 com tudo falhando, e a aba mostrou "taxa de erro
+    // 200,0%". Quem quer o número de DEFEITOS pergunta a /erros, que funde por requisição
+    // antes de agrupar; aquele número segue diferente, e agora por um motivo explicável.
+    assert.equal(d.erros, 1);
+    assert.ok(d.erros <= d.total, 'a taxa fica entre 0 e 100');
   });
 
   it('a janela padrão de cada rota é aplicada quando `desde` não vem', async () => {

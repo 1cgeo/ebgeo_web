@@ -54,9 +54,12 @@ router.get(
  * senão `resumo` entraria como `:id` e morreria no `guid()` com 422. Fica escrito porque é o
  * tipo de coisa que se descobre depurando.
  *
- * NÃO HÁ ROTA DE ESCRITA AQUI. O ciclo de vida (resolver, ignorar, reabrir) é ato de
- * administrador e chega no lote seguinte; a única transição que existe hoje é automática e
- * mora no CASE de `UPSERT_DEFEITO`.
+ * A ESCRITA DO CICLO DE VIDA ENTROU EM 2026-09-02, e é o `PATCH` logo abaixo. Ela é a ÚNICA
+ * rota de escrita autenticada deste módulo (a outra, `POST /erro-cliente`, é a anônima do
+ * topo), e é a única AUDITADA: o relato de erro é isento no censo porque é telemetria em
+ * altíssima frequência, enquanto isto é um administrador afirmando um juízo que apaga um
+ * alerta para todo mundo que olhar a tela depois. O argumento inteiro está no cabeçalho de
+ * `019_defeito_estado_auditado.sql`.
  */
 router.get(
   '/defeitos',
@@ -71,6 +74,27 @@ router.get(
   requireAdmin,
   validate({ params: schemas.ocorrenciasParamsSchema }),
   ctrl.listarOcorrencias
+);
+
+/**
+ * A transição de estado: resolver, ignorar, reabrir.
+ *
+ * `auth` ESTRITO e não `flexibleAuth`, como toda rota de escrita da casa, e aqui isso tem uma
+ * consequência que se perde de vista: desde 2026-08-29 o `auth` recusa com 401 o principal
+ * que chegou por COOKIE nos métodos que escrevem. O `PATCH` é um deles, então a tela precisa
+ * mandar `Authorization: Bearer`, e não depender do cookie que o navegador envia sozinho.
+ *
+ * `ocorrenciasParamsSchema` É REUSADO para os params, e não copiado: ele é exatamente
+ * `{ id: guid().required() }`, que é o mesmo contrato, e uma segunda cópia divergiria no dia
+ * em que a coluna mudasse de forma. O nome envelheceu, e trocá-lo agora renomearia um
+ * símbolo citado noutro arquivo por ganho nenhum.
+ */
+router.patch(
+  '/defeitos/:id',
+  auth,
+  requireAdmin,
+  validate({ params: schemas.ocorrenciasParamsSchema, body: schemas.estadoDeDefeitoSchema }),
+  ctrl.mudarEstadoDeDefeito
 );
 
 export { router as diagRoutes };

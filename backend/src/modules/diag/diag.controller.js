@@ -1,6 +1,7 @@
 // Path: src/modules/diag/diag.controller.js
 import config from '../../config.js';
 import { asyncHandler } from '../../utils/async-handler.js';
+import { NotFoundError } from '../../utils/errors.js';
 import * as diagService from './diag.service.js';
 import * as defeitos from './defeitos.service.js';
 
@@ -104,4 +105,42 @@ export const listarDefeitos = asyncHandler(async (req, res) => {
  */
 export const listarOcorrencias = asyncHandler(async (req, res) => {
   res.json({ data: await defeitos.listarOcorrencias(req.params.id) });
+});
+
+/**
+ * Resolve, ignora ou reabre um defeito. É a única ESCRITA de administrador deste módulo.
+ *
+ * 404 E NÃO 204, ao contrário da rota irmã de ocorrências logo acima, e a assimetria é
+ * deliberada. Lá, defeito inexistente devolve lista VAZIA porque a pergunta é de LEITURA e a
+ * poda pode ter passado entre a listagem e o clique: um 404 ali leria como "a rota quebrou".
+ * Aqui a pergunta é de ESCRITA, e responder 200 sobre uma linha que não existe diria ao
+ * administrador que o ato dele valeu quando ele não mudou nada. Um ato que não aconteceu tem
+ * de ser dito.
+ *
+ * O ATOR SAI DE `req.user`, NUNCA DO CORPO. É o mesmo gate de identidade de
+ * `registrarErroDeCliente`, e aqui ele pesa mais: este valor vai para `resolvido_por` E para
+ * `actor_id` da trilha, ou seja, aceitá-lo do corpo deixaria um administrador assinar o ato
+ * no nome de outro. `estadoDeDefeitoSchema` não tem campo para isso, e `stripUnknown`
+ * descartaria um que viesse.
+ *
+ * A RESPOSTA É O ITEM INTEIRO, no mesmo shape de `GET /diag/defeitos`, e não um `{ ok: true }`:
+ * a tela precisa redesenhar a linha com `resolvidoEm`, `resolvidoPorUsername` e
+ * `resolvidoNaRelease` já preenchidos, e um segundo GET para isso abriria a janela em que
+ * outro relato chega e a tela mostra um estado que não é o do ato que ela acabou de fazer.
+ */
+export const mudarEstadoDeDefeito = asyncHandler(async (req, res) => {
+  const r = await defeitos.mudarEstadoDoDefeito({
+    id: req.params.id,
+    estado: req.body.estado,
+    commit: req.body.commit,
+    userId: req.user.id,
+    req,
+  });
+  if (!r) {
+    throw new NotFoundError(
+      'Defeito não encontrado. A poda por idade apaga defeito e ocorrências juntos, então '
+      + 'um id que a listagem mostrou minutos atrás pode ter envelhecido.'
+    );
+  }
+  res.json({ data: r.item });
 });

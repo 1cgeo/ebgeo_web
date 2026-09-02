@@ -1,5 +1,9 @@
 // Path: src/config.js
 import { createHmac } from 'node:crypto';
+// FOLHA DE ZERO IMPORTS, e é isso que a torna importável daqui sem risco de ciclo: este
+// arquivo é avaliado antes de quase tudo, e qualquer módulo que leia `config` de volta
+// fecharia um laço na avaliação. Ver o `fileoverview` de `query-lenta.js`.
+import { parseLimiteDeQueryLenta } from './utils/query-lenta.js';
 
 function required(key) {
   const val = process.env[key];
@@ -149,6 +153,19 @@ const config = Object.freeze({
     connectionString: required('DATABASE_URL'),
     poolMin: parseInt(optional('DATABASE_POOL_MIN', '2'), 10),
     poolMax: parseInt(optional('DATABASE_POOL_MAX', '10'), 10),
+
+    /**
+     * O LIMITE ACIMA DO QUAL UMA QUERY VIRA LINHA DE LOG (`SLOW_QUERY_MS`, default 500 ms,
+     * piso 1). A regra de leitura, o piso e o porquê de ausência e lixo caírem no default
+     * em vez de derrubarem o boot estão em `src/utils/query-lenta.js`; o hook que a
+     * consome é o `receive` de `src/database/index.js`.
+     *
+     * `optional()` NÃO SERVE AQUI, e a razão é a armadilha dele: `process.env[key] ||
+     * fallback` trata `'0'` como ausente, e `0` é justamente o valor que alguém escreve
+     * querendo "acuse tudo". Com o parser dedicado, `0` é aparado para o piso, que é uma
+     * resposta, em vez de virar 500 em silêncio, que é outra pergunta.
+     */
+    slowQueryMs: parseLimiteDeQueryLenta(process.env.SLOW_QUERY_MS),
   }),
 
   jwt: Object.freeze({

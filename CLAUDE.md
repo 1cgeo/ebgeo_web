@@ -63,11 +63,19 @@ npm run diag -- erros --desde 24h   # consulta o log em arquivo (tambem: lento, 
                       #   O log vira um .jsonl por dia em backend/data/logs, em DEV tambem, e e'
                       #   a unica evidencia que sobrevive ao fechamento do terminal. Ver
                       #   docs/wiki/observabilidade.md
+npm run diag -- resumo --desde 24h  # UMA tela com cinco blocos, e o UNICO comando que le o
+                      #   arquivo E o banco: bloco cuja fonte nao respondeu DIZ isso em vez de
+                      #   imprimir zero, e cada bloco publica a premissa dele.
 npm run diag -- defeitos --estado aberto        # a tabela de defeitos: LE O BANCO, nao o log
 npm run diag -- defeitos --id <uuid>            # um defeito, com ocorrencias e migalhas
 npm run diag -- pilha --id <uuid> --mapas <dir> # desminifica a pilha crua contra os .map DAQUELA
                       #   release; sem build que a declare, sai com codigo 2 sem resolver nada.
-                      #   --json em qualquer um dos sete: UM documento no stdout e nada mais ali.
+npm run diag -- resolver|ignorar|reabrir <uuid> --como <usuario> [--commit <hash>]
+                      #   o ciclo de vida do defeito, pelo terminal. ESCREVE no banco e deixa
+                      #   linha na trilha (DEFEITO_ESTADO); --como e obrigatorio porque
+                      #   audit_trail.actor_id e NOT NULL e o terminal nao tem sessao. O estado
+                      #   'regrediu' nao se escreve a mao em lugar nenhum.
+                      #   --json em qualquer um deles: UM documento no stdout e nada mais ali.
 ```
 
 Arquivos `.js`/`.css` editados passam por lint automático (hook PostToolUse), e a saída aparece depois de cada escrita.

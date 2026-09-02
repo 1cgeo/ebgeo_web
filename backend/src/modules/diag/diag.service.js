@@ -33,7 +33,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import {
   parseJanela, diasDaJanela, parseLinha,
-  agruparErros, resumirLatencia, resumirStatus, ehErro,
+  agruparErros, resumirLatencia, resumirStatus,
 } from '../../utils/diag-consulta.js';
 
 /** O prefixo que `criarLogDiario` usa por padrão, e portanto o que existe no disco. */
@@ -227,20 +227,23 @@ export async function lento({ diretorio, desde, limite, agora }) {
 }
 
 /**
- * Contagem por faixa de status, mais o total de registros de ERRO.
+ * O PULSO: quantas REQUISIÇÕES, em que faixas, e quantas falharam.
  *
- * As duas contagens não são o mesmo número e a diferença é o ponto: `porFaixa` conta
- * requisições (linha do `requestLogger`), enquanto `erros` usa `ehErro`, que alcança
- * também o que foi logado fora do ciclo HTTP (o sweep do WS, um job) e não tem status.
+ * AS TRÊS CONTAGENS SAEM DO MESMO DENOMINADOR desde 2026-09-02, e a correção tem número:
+ * a aba mostrou **144 requisições, 288 erros e taxa de erro 200,0%**. `erros` era contado
+ * aqui, com `ehErro` sobre a janela inteira, enquanto `total` vinha de `resumirStatus`, que
+ * conta só a linha do `request-logger`. Uma requisição falha escreve DUAS linhas, então a
+ * razão ia exatamente a 2 quando tudo falhava. A wiki DECLARAVA a contagem por registro, e a
+ * declaração não salvava: uma taxa acima de 100% não se lê como decisão de contagem, se lê
+ * como tela quebrada. A regra passou para dentro de `criarResumoDeStatus`, onde numerador e
+ * denominador são incrementados no mesmo ramo e não têm como divergir de fonte.
  *
- * `erros` conta REGISTROS, não defeitos, e a distinção morde: uma requisição falha escreve
- * DUAS linhas, então ela soma dois. É a mesma conta de `npm run diag -- status`, mantida
- * igual de propósito — a pergunta desta rota é "como está o serviço agora", e quem quer o
- * número de defeitos distintos usa `/diag/erros`, que funde por requisição antes de agrupar.
+ * O QUE CONTINUA DIFERENTE, de propósito: `/diag/erros` conta assinaturas DISTINTAS, depois
+ * de fundir as duas linhas por `reqId`. Aquela pergunta é "quantos defeitos"; esta é "quantas
+ * requisições falharam", e os dois números seguem sem ter de bater.
  * @param {{diretorio: string, desde: string, agora?: Date}} opts
  */
 export async function status({ diretorio, desde, agora }) {
   const j = await lerJanela({ diretorio, desdeMs: parseJanela(desde), agora });
-  const { total, porFaixa } = resumirStatus(j.registros);
-  return { ...metadados(j), total, porFaixa, erros: j.registros.filter(ehErro).length };
+  return { ...metadados(j), ...resumirStatus(j.registros) };
 }

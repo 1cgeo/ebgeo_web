@@ -208,6 +208,8 @@ const CENSO_ROTA = [
   // guardam id de catálogo, 360 nem 3D: não há referência de recurso para a poda resolver.
   json('src/modules/diag/diag.routes.js', 'GET /defeitos'),
   json('src/modules/diag/diag.routes.js', 'GET /defeitos/:id/ocorrencias'),
+  // O ato de ciclo de vida devolve o item do defeito por `res.json`, como a listagem.
+  json('src/modules/diag/diag.routes.js', 'PATCH /defeitos/:id'),
 
   // Relatório de uso: CONTAGENS agregadas (pessoas, atlas, produção por entidade e por dia)
   // mais nome de atlas e nome de dono. Nenhum id de catálogo, 360 ou 3D atravessa, e nenhuma

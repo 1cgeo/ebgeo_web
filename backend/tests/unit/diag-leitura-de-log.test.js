@@ -213,21 +213,25 @@ describe('diag — as três consultas sobre o arquivo', () => {
     assert.equal(r.rotas[1].rota, 'GET /api/v1/config');
   });
 
-  it('status: contagem por faixa, e `erros` conta também o que não tem status', async () => {
+  it('status: contagem por faixa, e `erros` conta REQUISIÇÕES com status >= 400', async () => {
     const t = agora.getTime() - 60_000;
     escrever(agora, [
       requisicao(t, { statusCode: 200 }),
       requisicao(t + 1, { statusCode: 204 }),
       requisicao(t + 2, { statusCode: 404, level: 40 }),
       requisicao(t + 3, { statusCode: 500, level: 50 }),
-      // Falha FORA do ciclo HTTP (o sweep do WS, um job): sem statusCode nenhum.
+      // Falha FORA do ciclo HTTP (o sweep do WS, um job): sem statusCode nenhum. Ela fica FORA
+      // do Pulso de propósito: `erros` e `total` saem do mesmo ramo (linha de requisição), senão
+      // a taxa passa de 100% (medido na aba: 144 requisições, 288 erros). Quem a alcança é o
+      // `diag -- erros`, pelo termo `level >= 50` de `ehErro`.
       { level: 50, time: t + 4, msg: 'sweep falhou', err: { type: 'Error', message: 'x' } },
     ]);
 
     const r = await status({ diretorio: dir, desde: '1h', agora });
     assert.equal(r.total, 4, 'quatro requisições com status');
     assert.deepEqual(r.porFaixa, { '2xx': 2, '4xx': 1, '5xx': 1 });
-    assert.equal(r.erros, 3, '404 + 500 + a falha sem status');
+    assert.equal(r.erros, 2, '404 + 500; a falha sem status não é requisição');
+    assert.ok(r.erros <= r.total, 'a taxa nunca passa de 100%');
   });
 
   it('as três respondem bem-formadas com o diretório ausente', async () => {

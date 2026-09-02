@@ -113,6 +113,11 @@ const CENSO = [
     motivo: 'O gate de administração do sistema. É o sítio que a fase F4 mais precisa NÃO tocar: o credenciado recebe 403 aqui, e o teste de F4 afirma isso por nome.',
   },
   {
+    arquivo: 'src/modules/diag/defeitos.service.js',
+    trecho: "if (linha.role !== 'admin')", n: 1, classe: PODER,
+    motivo: 'resolverAtorAdministrador: quem o `npm run diag -- resolver|ignorar|reabrir` carimba como ATOR da trilha, vindo de `--como <username>`. É o mesmo gate de require-admin, pelo mesmo eixo e pela mesma razão: manter acervo (producer) e ler recurso privado (credenciado) não são administrar o sistema, e o comando não pode assinar como administrador um ato que a rota equivalente recusaria. Ele NÃO é autenticação e não pretende ser (quem tem shell tem DATABASE_URL): o que ele compra é ATRIBUIÇÃO, para a trilha dizer quem operou em vez de dizer "o sistema". O papel é lido do banco e não de token nenhum, porque não há sessão no terminal.',
+  },
+  {
     arquivo: 'src/middleware/permissions.js',
     trecho: "if (req.user?.role === 'admin')", n: 1, classe: PODER,
     motivo: 'Admin global é tratado como dono de QUALQUER atlas em requireAtlasPermission. Credenciado não vira dono de atlas: ele vê recurso de catálogo, não o conteúdo de projeto alheio.',

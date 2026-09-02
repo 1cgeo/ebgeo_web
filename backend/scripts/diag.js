@@ -36,14 +36,24 @@
  * seria segurar toda linha com `reqId` até o fim, que é a memória que este trabalho existe
  * para tirar.
  *
- * OS DOIS ÚLTIMOS COMANDOS LEEM O BANCO, e não o arquivo. `defeitos` e `pilha` consultam as
- * tabelas do lote B (`defeitos` e `defeito_ocorrencias`), o que os obriga a importar o
- * `config.js` e o pool, SEMPRE e não só quando falta `--dir`. A assimetria é declarada aqui
- * porque ela inverte a promessa dos cinco primeiros: os de log respondem com o banco fora, e
- * estes dois não podem, porque a resposta É o banco. Quem estiver diagnosticando um Postgres
- * caído tem `erros`, que agrega o mesmo assunto a partir do `.jsonl`.
+ * OS COMANDOS SE DIVIDEM EM TRÊS FAMÍLIAS, e a divisão é por FONTE, não por assunto. Os
+ * cinco de LOG (`erros`, `lento`, `status`, `saude`, `linhas`) leem o `.jsonl` e respondem
+ * com o Postgres fora, que é metade da razão de o arquivo existir. Os de BANCO (`defeitos`,
+ * `pilha` e os três verbos de ciclo de vida) consultam as tabelas do lote B (`defeitos` e
+ * `defeito_ocorrencias`), o que os obriga a importar o `config.js` e o pool, SEMPRE e não só
+ * quando falta `--dir`; eles NÃO podem responder com o banco fora, porque a resposta É o
+ * banco. E há UM híbrido, `resumo`, que lê as duas fontes e tolera a ausência de cada uma:
+ * o bloco cuja fonte não respondeu diz isso em vez de imprimir zero (ver `montarResumo`, em
+ * `src/utils/diag-consulta.js`).
  *
- * `--json` VALE PARA TODOS OS SETE, e o contrato dele é curto: UM documento JSON no stdout e
+ * OS TRÊS VERBOS DE CICLO DE VIDA SÃO A ÚNICA ESCRITA DESTE COMANDO. Eles chamam a MESMA
+ * função de serviço que a rota `PATCH /diag/defeitos/:id` chama, pela regra de sempre (uma
+ * segunda verdade sobre o que "resolver" significa faria a tela e o terminal divergirem), e
+ * exigem `--como <usuário>`: `audit_trail.actor_id` é NOT NULL, o terminal não tem sessão, e
+ * um ato de administrador sem autor na trilha não responde a pergunta que a trilha existe
+ * para responder. Ver `comandoCicloDeVida`.
+ *
+ * `--json` VALE PARA TODOS ELES, e o contrato dele é curto: UM documento JSON no stdout e
  * NADA MAIS ali. As notas que o modo humano escreve (o cabeçalho com o diretório, as
  * ressalvas sobre indício e premissa) ou viram campo do documento ou saem no stderr. É o que
  * torna a saída consumível por `| jq` e por um agente sem nenhum recorte de texto, que é o
@@ -51,13 +61,17 @@
  *
  * Uso:
  *   npm run diag -- erros [--desde 24h] [--limite 20]
- *   npm run diag -- lento [--desde 24h] [--limite 15]
+ *   npm run diag -- lento [--desde 24h] [--limite 15] [--por-release]
  *   npm run diag -- status [--desde 24h]
  *   npm run diag -- saude [--desde 24h] [--intervalo 5m]
  *   npm run diag -- linhas [--desde 24h] [--filtro texto] [--limite 50]
+ *   npm run diag -- resumo [--desde 24h] [--intervalo 5m]
  *   npm run diag -- defeitos [--desde 24h] [--estado aberto] [--origem store] [--novos]
  *   npm run diag -- defeitos --id <uuid>
  *   npm run diag -- pilha --id <uuid> --mapas <dir>
+ *   npm run diag -- resolver <uuid> --como <usuário> [--commit <hash>]
+ *   npm run diag -- ignorar <uuid> --como <usuário>
+ *   npm run diag -- reabrir <uuid> --como <usuário>
  *   (--dir <caminho> para ler um diretório de log que não seja o configurado)
  *   (--json em qualquer um deles)
  */
@@ -67,24 +81,50 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import {
-  parseJanela, parseIntervalo, diasDaJanela, parseLinha, resumirAmostras, ehErro,
+  parseJanela, parseIntervalo, diasDaJanela, parseLinha, resumirAmostras,
   criarAgrupadorDeErros, criarIndiceDeRequisicoesComErro, criarCensoDeEnderecos,
-  criarResumoDeLatencia, criarResumoDeStatus, MAX_ENDERECOS_PRINCIPAIS,
+  criarResumoDeLatencia, criarResumoDeStatus, montarResumo, MAX_ENDERECOS_PRINCIPAIS,
+  ROTULO_SEM_RELEASE,
 } from '../src/utils/diag-consulta.js';
 import { MARCADOR_AMOSTRA } from '../src/utils/amostra-de-saude.js';
+// A MESMA REGRA DOS DOIS VOCABULÁRIOS ABAIXO: o marcador da query lenta é importado do
+// escritor e nunca redigitado. `query-lenta.js` é folha de zero imports (é o que o
+// `fileoverview` dele existe para garantir), então trazê-lo aqui não arrasta `config.js`
+// nem o pool para dentro dos comandos que rodam com o Postgres fora.
+import { MARCADOR_QUERY_LENTA } from '../src/utils/query-lenta.js';
 // Os DOIS vocabulários entram por import e nunca como literal: são os mesmos que o Joi da
 // rota valida e que o CHECK do banco impõe, e os dois arquivos têm zero imports por
 // contrato, então trazê-los aqui não arrasta `config.js` nem o pool para dentro dos cinco
 // comandos que rodam sem banco. Uma cópia à mão desta lista envelheceria na próxima origem
 // nova, e envelheceria falhando FECHADO: o comando recusaria um valor que o banco aceita.
-import { ESTADOS_DE_DEFEITO } from '../src/modules/diag/estados-de-defeito.js';
+import {
+  ESTADOS_DE_DEFEITO, ESTADOS_MANUAIS, EstadoDeDefeito,
+} from '../src/modules/diag/estados-de-defeito.js';
 import { ORIGENS_DE_ERRO } from '../src/modules/diag/origens-de-erro.js';
 import {
   analisarPilha, resolverQuadros, localizarReleaseDeMapas,
 } from './diag/pilha.js';
 import { resolver as resolverPosicao } from './diag/mapa-de-fonte.js';
 
-const COMANDOS = new Set(['erros', 'lento', 'status', 'saude', 'linhas', 'defeitos', 'pilha']);
+/**
+ * Os três atos de CICLO DE VIDA, e o estado que cada um escreve.
+ *
+ * O MAPA EXISTE PARA QUE O VERBO NÃO SEJA O ESTADO. "reabrir" escreve `aberto`, e as outras
+ * duas coincidem por acaso: um `op.comando` usado direto como estado funcionaria para dois
+ * dos três e falharia no terceiro com 23514 vindo do banco, que é a pior forma de descobrir
+ * isso. Os valores saem de `EstadoDeDefeito` e não são literais, pelo mesmo motivo de
+ * sempre: erro de digitação aqui não é visto por ninguém até o CHECK reclamar.
+ */
+const ESTADO_DO_VERBO = Object.freeze({
+  resolver: EstadoDeDefeito.RESOLVIDO,
+  ignorar: EstadoDeDefeito.IGNORADO,
+  reabrir: EstadoDeDefeito.ABERTO,
+});
+
+const COMANDOS = new Set([
+  'erros', 'lento', 'status', 'saude', 'linhas', 'resumo', 'defeitos', 'pilha',
+  ...Object.keys(ESTADO_DO_VERBO),
+]);
 
 /**
  * Os que consultam o Postgres, e por isso NÃO respondem com o banco fora.
@@ -96,14 +136,26 @@ const COMANDOS = new Set(['erros', 'lento', 'status', 'saude', 'linhas', 'defeit
  * falha (o comando de banco que alguém acrescentar depois cairia no ramo do arquivo e
  * morreria procurando `.jsonl`).
  */
-const COMANDOS_DE_BANCO = new Set(['defeitos', 'pilha']);
+const COMANDOS_DE_BANCO = new Set(['defeitos', 'pilha', ...Object.keys(ESTADO_DO_VERBO)]);
+
+/**
+ * O HÍBRIDO, e ele é o único: `resumo` lê o ARQUIVO **e** o BANCO.
+ *
+ * Ele não cabe em nenhum dos dois conjuntos acima, e forçá-lo num deles quebraria a promessa
+ * daquele conjunto: no de arquivo, a ida ao banco derrubaria o comando com o Postgres fora;
+ * no de banco, o `existsSync` de LOG_DIR nunca rodaria. O que ele faz é o que nenhum outro
+ * faz: tolera a ausência das DUAS fontes, uma de cada vez, e o bloco cuja fonte não
+ * respondeu DIZ isso em vez de imprimir zero. É o desenho inteiro do comando, e está no
+ * `fileoverview` de `montarResumo`.
+ */
+const COMANDO_HIBRIDO = 'resumo';
 
 function lerArgumentos(argv) {
   const [comando, ...resto] = argv;
   const op = {
     comando, desde: '24h', limite: null, filtro: null, dir: null, intervalo: null,
     json: false, estado: null, origem: null, release: null, pagina: null, novos: false,
-    id: null, mapas: null, limiteBruto: null,
+    id: null, mapas: null, limiteBruto: null, commit: null, como: null, porRelease: false,
   };
   for (let i = 0; i < resto.length; i += 1) {
     const a = resto[i];
@@ -125,6 +177,20 @@ function lerArgumentos(argv) {
     else if (a === '--novos') op.novos = true;
     else if (a === '--id') op.id = resto[++i];
     else if (a === '--mapas') op.mapas = resto[++i];
+    else if (a === '--commit') op.commit = resto[++i];
+    else if (a === '--como') op.como = resto[++i];
+    else if (a === '--por-release') op.porRelease = true;
+    // O ID TAMBÉM VEM SOLTO, mas SÓ NOS TRÊS VERBOS DE CICLO DE VIDA, e o recorte é o
+    // conserto de uma versão anterior que aceitava posicional em TODO comando. Os dois
+    // estragos daquela versão: um `diag -- defeitos aberto` (o operador quis `--estado
+    // aberto`) virava "--id não é um uuid", que manda procurar o erro no lugar errado; e o
+    // VALOR de uma bandeira que este parser não conhece caía aqui e virava id, silenciosamente.
+    //
+    // Os verbos aceitam posicional porque `diag -- resolver <uuid>` é a forma natural de um
+    // comando que age sobre UMA coisa; `defeitos` e `pilha` continuam só com `--id`, que é o
+    // que eles sempre pediram. O primeiro token solto vence e o segundo é ignorado: reclamar
+    // exigiria uma gramática por comando, e o id lido sai impresso na resposta.
+    else if (!a.startsWith('--') && op.id === null && ESTADO_DO_VERBO[comando] !== undefined) op.id = a;
   }
   return op;
 }
@@ -145,12 +211,33 @@ diag — consulta o log em arquivo e as tabelas de defeito do EBGeo
 
   npm run diag -- erros  [--desde 24h] [--limite 20]   erros agrupados por assinatura
   npm run diag -- lento  [--desde 24h] [--limite 15]   latência por rota (p50/p95/máx)
+         [--por-release]                               uma linha por rota E POR BUILD
   npm run diag -- status [--desde 24h]                 contagem por faixa de status
   npm run diag -- saude  [--desde 24h] [--intervalo 5m] buracos na amostra de saúde
   npm run diag -- linhas [--desde 24h] [--filtro texto] despejo cru filtrado
+  npm run diag -- resumo [--desde 24h]                 UMA tela: defeitos, latência contra a
+                                                       janela anterior, saúde, queda vista
+                                                       pelo cliente e status
   npm run diag -- defeitos [--desde 24h] [--estado x] [--origem y] [--release h]
                            [--pagina p] [--novos] [--limite 50] [--id <uuid>]
   npm run diag -- pilha --id <uuid> --mapas <dir>      desminifica a pilha crua
+
+  ciclo de vida do defeito (ESCREVE no banco, e deixa linha na trilha de auditoria):
+  npm run diag -- resolver <uuid> --como <usuário> [--commit <hash>]
+  npm run diag -- ignorar  <uuid> --como <usuário>
+  npm run diag -- reabrir  <uuid> --como <usuário>
+
+  --como <usuário>  QUEM está operando. É obrigatório nos três verbos acima porque
+                    audit_trail.actor_id é NOT NULL e o terminal não tem sessão: sem ele o
+                    ato mais consequente deste módulo ficaria sem autor na trilha. Ele NÃO
+                    é autenticação (quem tem shell tem DATABASE_URL); ele é ATRIBUIÇÃO. A
+                    conta precisa existir, estar ativa e ter papel de administrador, que é
+                    o mesmo gate da rota equivalente.
+  --commit <hash>   só faz sentido com "resolver"; a release é a do SERVIDOR (EBGEO_RELEASE)
+                    e nunca vem da linha de comando, porque é ela que decide REGRESSÃO.
+  O estado "regrediu" não se escreve à mão em lugar nenhum: é a única transição automática
+  do produto, e significa um FATO sobre duas releases. Para desfazer um "resolvido", use
+  "reabrir".
 
   --dir <caminho>   lê outro diretório de log (default: o de LOG_DIR)
   --json            UM documento JSON no stdout e nada mais ali
@@ -160,8 +247,9 @@ diag — consulta o log em arquivo e as tabelas de defeito do EBGeo
   --filtro: casa a LINHA COMO ESTÁ NO DISCO, então nome de campo ("time", "msg")
             casa toda linha que o tenha. Procure pelo valor.
 
-  defeitos e pilha LEEM O BANCO (precisam de DATABASE_URL); os outros cinco leem
-  arquivo e respondem com o Postgres fora.
+  LEEM O BANCO (precisam de DATABASE_URL): defeitos, pilha, resolver, ignorar, reabrir.
+  LEEM O ARQUIVO e respondem com o Postgres fora: erros, lento, status, saude, linhas.
+  resumo le OS DOIS, e cada bloco dele diz quando a fonte daquele bloco nao respondeu.
   --estado: ${ESTADOS_DE_DEFEITO.join(' | ')}
   --origem: ${ORIGENS_DE_ERRO.join(' | ')}
   --mapas: o diretório da build (com release.json) ou o que contém as builds. A
@@ -326,26 +414,61 @@ function imprimirErros(grupos, limite, censo) {
   imprimirNotaDeEndereco(censo, mostrados.some((g) => g.enderecos.distintos === 1 && g.total > 1));
 }
 
-function imprimirLento(linhas, limite) {
+/**
+ * A tabela de latência, com uma coluna a mais quando o agrupamento é por BUILD.
+ *
+ * A COLUNA DE RELEASE SÓ APARECE COM `--por-release`, e não sempre com um traço: sem a
+ * bandeira o campo é `null` em TODA linha por construção (`criarResumoDeLatencia` só o
+ * preenche quando agrupa por ele), e uma coluna inteira de traços ocuparia a largura que a
+ * rota usa, sugerindo que a informação não existe no log quando ela existe e não foi pedida.
+ *
+ * A LINHA SEM BUILD SAI NOMEADA e nunca sumida (`ROTULO_SEM_RELEASE`). `EBGEO_RELEASE` só
+ * existe desde o lote A, então num arquivo que atravesse aquele dia esse grupo é o maior de
+ * todos; escondê-lo faria a comparação entre duas builds ser feita ignorando a mais antiga
+ * das duas, sem dizer que ignorou.
+ */
+function imprimirLento(linhas, limite, porRelease) {
   if (!linhas.length) {
     process.stdout.write('Nenhuma requisição com duração na janela.\n');
     return;
   }
-  process.stdout.write('     n     p50     p95     máx  rota\n');
+  const coluna = porRelease ? `  ${'release'.padEnd(20)}` : '';
+  process.stdout.write(`     n     p50     p95     máx${coluna}  rota\n`);
   for (const l of linhas.slice(0, limite)) {
+    const build = porRelease ? `  ${cortar(l.release ?? ROTULO_SEM_RELEASE, 20).padEnd(20)}` : '';
     process.stdout.write(
-      `${String(l.n).padStart(6)}  ${String(l.p50).padStart(5)}ms ${String(l.p95).padStart(5)}ms ${String(l.max).padStart(5)}ms  ${l.rota}\n`
+      `${String(l.n).padStart(6)}  ${String(l.p50).padStart(5)}ms ${String(l.p95).padStart(5)}ms ${String(l.max).padStart(5)}ms${build}  ${l.rota}\n`
     );
   }
+  if (!porRelease) return;
+  // A NOTA SAI UMA VEZ, no fim, e ela existe porque a tabela agrupada CONVIDA a uma leitura
+  // errada: duas linhas da mesma rota com p95 diferente NÃO provam que o deploy piorou nada.
+  // Cada linha tem o `n` dela, e uma build que serviu vinte requisições contra outra que
+  // serviu vinte mil produz um p95 que oscila por amostragem, não por código.
+  process.stdout.write('\nDuas linhas da mesma rota são duas BUILDS, e a comparação entre elas vale o que vale o\n');
+  process.stdout.write('`n` da menor: p95 sobre poucas dezenas de requisições oscila por amostragem. A linha\n');
+  process.stdout.write(`"${ROTULO_SEM_RELEASE}" é anterior ao carimbo de build (EBGEO_RELEASE), não é uma build sem nome.\n`);
 }
 
-function imprimirStatus({ total, porFaixa }, erros) {
+/**
+ * O pulso. As TRÊS contagens saem do mesmo denominador (ver `criarResumoDeStatus`), e é
+ * isso que mantém a taxa entre 0 e 100.
+ *
+ * A LINHA FINAL DIZ "requisição", e não "registro": a palavra é o que faz a diferença com
+ * `diag -- erros` ser legível. Aqui a unidade é a requisição que falhou; lá é a assinatura
+ * distinta, depois de fundir as duas linhas de uma requisição por `reqId`. Os dois números
+ * seguem diferentes de propósito, e agora a diferença é explicável em vez de ser o mesmo
+ * fato contado duas vezes de um dos lados.
+ */
+function imprimirStatus({ total, porFaixa, erros }) {
   process.stdout.write(`${total} requisição(ões) na janela\n`);
   for (const faixa of Object.keys(porFaixa).sort()) {
     const n = porFaixa[faixa];
     process.stdout.write(`  ${faixa}: ${String(n).padStart(6)}  (${((n / total) * 100).toFixed(1)}%)\n`);
   }
-  process.stdout.write(`\n${erros} registro(s) de erro. Detalhe: npm run diag -- erros\n`);
+  // Taxa só existe com denominador: numa janela sem tráfego ela não é 0%, ela não existe.
+  const taxa = total > 0 ? `  (${((erros / total) * 100).toFixed(1)}%)` : '';
+  process.stdout.write(`\n${erros} requisição(ões) com erro${taxa}. Detalhe: npm run diag -- erros\n`);
 }
 
 /**
@@ -592,7 +715,19 @@ function escreverJson(comando, janela, estrutura) {
 let bancoAberto = null;
 
 async function abrirBanco() {
-  if (!bancoAberto) bancoAberto = await import('../src/database/index.js');
+  if (bancoAberto) return bancoAberto;
+  // O LOGGER DA APLICAÇÃO É SILENCIADO ANTES DO POOL, e isso não é higiene: é o contrato do
+  // `--json`. O hook `error` de `database/index.js` loga em `error`, que está sempre ligado,
+  // e o pino escreve no STDOUT — ou seja, um Postgres fora fazia a linha "DB Error" (com
+  // pilha, em várias linhas) sair ANTES do documento JSON, quebrando todo `| jq` exatamente
+  // no cenário que o `resumo` existe para atravessar. O comando relata a falha com as
+  // próprias palavras, no stderr, e é essa mensagem que serve a quem lê.
+  //
+  // Vale para os cinco comandos de banco pelo mesmo motivo, e tem um efeito colateral
+  // desejado: uma LEITURA de diagnóstico deixa de escrever no `.jsonl` que ela está lendo.
+  const { default: registrador } = await import('../src/utils/logger.js');
+  registrador.level = 'silent';
+  bancoAberto = await import('../src/database/index.js');
   return bancoAberto;
 }
 
@@ -944,8 +1079,446 @@ async function comandoPilha(op) {
   };
 }
 
+
 /**
- * Roda `defeitos` ou `pilha`, decide a saída e FECHA O POOL, sempre.
+ * `resolver`, `ignorar`, `reabrir`: os três atos de ciclo de vida, pelo terminal.
+ *
+ * OS TRÊS CHAMAM A MESMA FUNÇÃO QUE A ROTA CHAMA (`mudarEstadoDoDefeito`,
+ * `src/modules/diag/defeitos.service.js`), e isso é a regra deste comando desde o `defeitos`:
+ * uma segunda verdade sobre o que "resolver um defeito" significa faria a tela e o terminal
+ * divergirem no dia em que um dos dois fosse consertado. Aqui o preço de divergir seria
+ * maior que na leitura, porque este caminho ESCREVE: um UPDATE próprio aqui perderia a
+ * limpeza das quatro colunas ao reabrir, ou a linha de trilha, ou as duas, e nada ficaria
+ * vermelho.
+ *
+ * A ORDEM DAS RECUSAS É DELIBERADA, e é a mesma de `comandoDeBanco`: o que se confere sem
+ * banco vem primeiro. Falta de `--id`, id malformado, verbo desconhecido e falta de `--como`
+ * são erros de USO, e cobrá-los antes do pool troca a frase errada ("não consegui abrir o
+ * banco", quando o Postgres está fora) pela certa.
+ *
+ * O `--como` É RESOLVIDO ANTES DO DEFEITO, e não depois. As duas ordens funcionam, e esta é
+ * a que erra menos: um operador que digitou o usuário errado descobre isso sem que nada
+ * tenha sido lido nem escrito, e a mensagem fala do argumento que ele acabou de digitar.
+ *
+ * @returns {Promise<{codigo: number, estrutura: Object|null, imprimir?: Function}>}
+ */
+async function comandoCicloDeVida(op) {
+  const estado = ESTADO_DO_VERBO[op.comando];
+
+  if (!op.id) {
+    process.stderr.write(`Falta o id do defeito: npm run diag -- ${op.comando} <uuid> --como <usuário>\n`);
+    process.stderr.write('O uuid inteiro sai no `npm run diag -- defeitos --json` (a tabela mostra só os 8 primeiros).\n');
+    return { codigo: 1, estrutura: null };
+  }
+  if (!UUID.test(op.id)) {
+    process.stderr.write(`--id não é um uuid: "${op.id}".\n`);
+    return { codigo: 1, estrutura: null };
+  }
+  if (!op.como) {
+    process.stderr.write('Falta --como <usuário>: este comando ESCREVE e deixa linha na trilha de auditoria,\n');
+    process.stderr.write('e `audit_trail.actor_id` é NOT NULL. O terminal não tem sessão, então quem opera\n');
+    process.stderr.write('precisa se nomear; sem isso o ato mais consequente deste módulo ficaria sem autor.\n');
+    process.stderr.write('Ele NÃO é autenticação (quem tem shell no servidor tem DATABASE_URL): é ATRIBUIÇÃO.\n');
+    return { codigo: 1, estrutura: null };
+  }
+
+  const { resolverAtorAdministrador, mudarEstadoDoDefeito } = await import('../src/modules/diag/defeitos.service.js');
+
+  const { ator, motivo } = await resolverAtorAdministrador(op.como);
+  if (!ator) {
+    // AS DUAS RECUSAS TÊM FRASES DIFERENTES porque mandam fazer coisas opostas: conferir o
+    // que se digitou, ou pedir a outra pessoa. Colapsá-las numa só ("não pude usar essa
+    // conta") economizaria três linhas e devolveria a resposta errada em metade das vezes.
+    if (motivo === 'inexistente') {
+      process.stderr.write(`Não há conta ATIVA com o usuário "${op.como}".\n`);
+      process.stderr.write('Confira o nome; conta desativada também não serve como ator, porque a rota\n');
+      process.stderr.write('equivalente a recusaria com 401 antes de qualquer gate de papel.\n');
+    } else {
+      process.stderr.write(`A conta "${op.como}" existe e NÃO é administrador do sistema.\n`);
+      process.stderr.write('O eixo aqui é o papel GLOBAL, e ele não é uma escada: manter o acervo da própria OM\n');
+      process.stderr.write('(producer) e ler todo recurso privado (credenciado) não são administrar o sistema.\n');
+      process.stderr.write('O comando não pode assinar como administrador um ato que a rota recusaria.\n');
+    }
+    return { codigo: 1, estrutura: null };
+  }
+
+  // A RECUSA DO SERVIÇO VIRA FRASE, e não pilha. Sem este `catch`, um `--commit` longo
+  // demais subia até `main().catch`, que imprime "diag falhou:" mais o rastro inteiro: o
+  // operador leria um erro de programa onde há um argumento errado. `ValidationError` é a
+  // única que se espera aqui, e o CÓDIGO dela é o filtro: qualquer outra coisa (banco fora,
+  // defeito de código) continua subindo com a pilha, que é onde ela serve.
+  //
+  // O FILTRO É `code`, E NÃO `name`, e isso foi MEDIDO em vez de suposto: as subclasses de
+  // `AppError` (`src/utils/errors.js`) não escrevem `this.name`, então `err.name` herda
+  // `Error.prototype.name` e vale a string "Error" para TODAS elas. Um filtro por `name`
+  // rejeitaria a própria recusa que este ramo existe para tratar, e o sintoma seria a pilha
+  // crua de volta. `code` é o identificador de máquina, posto pelo construtor de propósito.
+  let r;
+  try {
+    r = await mudarEstadoDoDefeito({
+      id: op.id, estado, commit: op.commit, userId: ator.id,
+    });
+  } catch (err) {
+    if (err?.code !== 'VALIDATION_ERROR') throw err;
+    process.stderr.write(`${err.message}\n`);
+    process.stderr.write('Nada foi alterado.\n');
+    return { codigo: 1, estrutura: null };
+  }
+  if (!r) {
+    process.stderr.write(`Nenhum defeito com id ${op.id}. Nada foi alterado.\n`);
+    process.stderr.write('A poda por idade apaga defeito e ocorrências juntos, então um id que a listagem\n');
+    process.stderr.write('mostrou minutos atrás pode ter envelhecido.\n');
+    return { codigo: 1, estrutura: null };
+  }
+
+  return {
+    codigo: 0,
+    estrutura: { defeito: r.item, transicao: { de: r.de, para: r.para }, ator },
+    imprimir: () => imprimirTransicao(r, ator),
+  };
+}
+
+/**
+ * O que o terminal mostra depois de um ato de ciclo de vida.
+ *
+ * O `de` SAI JUNTO DO `para`, e não só o estado final. Um comando que respondesse apenas
+ * "resolvido" seria indistinguível quando o defeito JÁ estava resolvido, e essa é
+ * exatamente a situação em que o operador precisa saber que não mudou nada (ele acabou de
+ * repetir um comando, ou outra pessoa chegou antes). A transição sem efeito sai NOMEADA.
+ *
+ * A RELEASE ANOTADA SAI SEMPRE QUE HÁ UMA, e a ausência dela também, porque
+ * `resolvido_na_release` é a coluna que decide REGRESSÃO. O efeito de resolver SEM ela é o
+ * INVERSO do que a leitura natural sugere, e esta linha já afirmou o inverso: NULA, a coluna
+ * faz o `IS DISTINCT FROM` do UPSERT ser VERDADEIRO contra qualquer valor, então a próxima
+ * ocorrência que TRAGA release reabre o defeito como `regrediu`. Não é que ele congele
+ * resolvido, é que ele volta assim que alguém relatar de uma build identificada (ocorrência
+ * SEM release não move nada, pelo `AND EXCLUDED.release IS NOT NULL` do mesmo CASE). Quem
+ * resolve em desenvolvimento, onde `EBGEO_RELEASE` não existe, precisa saber disso na hora,
+ * para não ler a volta do defeito como conserto que não pegou.
+ */
+function imprimirTransicao(r, ator) {
+  const d = r.item;
+  process.stdout.write(`${d.id}\n`);
+  process.stdout.write(`${cortar(d.mensagem, 100)}\n\n`);
+  if (r.de === r.para) {
+    process.stdout.write(`estado: ${r.para}  (já estava assim; nada mudou de estado)\n`);
+  } else {
+    process.stdout.write(`estado: ${r.de} → ${r.para}\n`);
+  }
+  process.stdout.write(`por    : ${ator.username}\n`);
+
+  if (r.para === EstadoDeDefeito.RESOLVIDO) {
+    process.stdout.write(`release: ${d.resolvidoNaRelease ?? '(não anotada)'}`);
+    process.stdout.write(`${d.resolvidoNoCommit ? `   commit: ${d.resolvidoNoCommit}` : ''}\n`);
+    if (!d.resolvidoNaRelease) {
+      process.stdout.write('\nSEM RELEASE ANOTADA, e isso tem consequência: `resolvido_na_release` é a coluna que\n');
+      process.stdout.write('decide REGRESSÃO, e o UPSERT compara com `IS DISTINCT FROM`. Com ela NULA, a próxima\n');
+      process.stdout.write('ocorrência que TRAGA release reabre este defeito como `regrediu`, porque qualquer valor\n');
+      process.stdout.write('é distinto de NULL. É o desfecho conservador certo (sem saber em qual build o conserto\n');
+      process.stdout.write('entrou, não dá para afirmar que a ocorrência nova veio da build velha), mas espere ver\n');
+      process.stdout.write('o defeito voltar. Ocorrência SEM release não move nada. A release é a do SERVIDOR\n');
+      process.stdout.write('(EBGEO_RELEASE), e em desenvolvimento não existe nenhuma.\n');
+    }
+  }
+  if (r.para === EstadoDeDefeito.ABERTO && r.de !== EstadoDeDefeito.ABERTO) {
+    process.stdout.write('\nAs quatro colunas de conserto foram LIMPAS (quem, quando, release, commit). É o que\n');
+    process.stdout.write('faz "reaberto" significar "esqueça o conserto anterior": deixadas para trás, toda\n');
+    process.stdout.write('tela que as mostra diria "resolvido por fulano" ao lado do estado "aberto".\n');
+  }
+}
+
+
+/**
+ * Quantos defeitos o `resumo` pede ao banco.
+ *
+ * É o TETO do Joi da rota irmã, e de propósito: o bloco 1 calcula "os cinco maiores" sobre a
+ * lista que veio, e quanto mais linhas vierem menos frequente é a discordância entre esse
+ * topo e o topo real. Ele não pode ser ilimitado (a tabela cresce com a VARIEDADE de
+ * defeitos, que é limitada, mas não é um), e a lista PARCIAL sai declarada na premissa do
+ * bloco, que é o que impede o número de mentir quando o corte morde.
+ */
+const DEFEITOS_DO_RESUMO = 200;
+
+/** O diretório de log a usar: `--dir`, o de `LOG_DIR`, ou o default embutido. */
+async function resolverDiretorioDeLog(op) {
+  if (op.dir) return op.dir;
+  try {
+    return (await import('../src/config.js')).default.log.dir;
+  } catch {
+    return './data/logs';
+  }
+}
+
+/**
+ * `resumo`: UMA tela com os cinco blocos, e o único comando HÍBRIDO.
+ *
+ * ELE TOLERA A AUSÊNCIA DE CADA FONTE, uma de cada vez, e é isso que o separa dos outros
+ * sete. Os cinco de arquivo morrem com `Diretório de log não encontrado` e código 1; os dois
+ * de banco morrem com `Não foi possível abrir o banco`. Aqui as duas coisas são NORMAIS: o
+ * relatório continua saindo, com os blocos que a fonte viva sustenta, e cada bloco órfão diz
+ * por que está vazio em vez de imprimir zero. Um relatório de uma tela que morresse inteiro
+ * porque metade dele não pôde ser calculada seria inútil justamente durante o incidente, que
+ * é quando uma das duas fontes está fora.
+ *
+ * A LEITURA É UMA PASSADA SOBRE O DOBRO DA JANELA, e não duas passadas. O bloco 2 compara a
+ * janela atual com a ANTERIOR do mesmo tamanho, então o arquivo precisa ser varrido de
+ * `agora - 2j` até agora, e cada registro cai num dos dois acumuladores pelo `time`. Duas
+ * passadas custariam o dobro de leitura de disco para separar o que uma comparação já separa
+ * (o `erros` faz duas passadas por outro motivo, que é precisar de um índice completo ANTES
+ * de agregar; aqui não há essa dependência).
+ *
+ * AS LINHAS DA PREMISSA SÃO AS DA JANELA ATUAL, e não as do dobro. `percorrerRegistros`
+ * devolve o total que ele leu, e publicar esse número faria a premissa do relatório dizer o
+ * dobro do que os blocos mediram, que é pior que não ter número: ele é justamente o campo
+ * que existe para tornar a resposta falsificável.
+ *
+ * @returns {Promise<void>}
+ */
+async function comandoResumo(op, janela) {
+  const agora = new Date();
+  const inicio = agora.getTime() - janela;
+  const dir = await resolverDiretorioDeLog(op);
+  const ausente = !fs.existsSync(dir);
+
+  let leitura;
+  let latencia = [];
+  let latenciaAnterior = [];
+  let amostras = null;
+  let status = null;
+  const queriesLentas = { janela: 0, anterior: 0 };
+
+  if (!ausente) {
+    const atual = criarResumoDeLatencia();
+    const passada = criarResumoDeLatencia();
+    const contagem = criarResumoDeStatus();
+    const linhasDeAmostra = [];
+    let linhasNaJanela = 0;
+
+    const lida = await percorrerRegistros(dir, janela * 2, agora, (reg) => {
+      // SEM `time` A LINHA CONTA COMO DA JANELA ATUAL, e não é descuido: `percorrerRegistros`
+      // já a deixou passar pelo mesmo critério (ele só corta o que TEM `time` e é antigo), e
+      // mandá-la para a janela anterior a colocaria na base de comparação de um período que
+      // ela não representa. A direção do erro é conservadora: ela infla o "agora", que é o
+      // lado que o operador olha com atenção.
+      const naJanela = typeof reg.time !== 'number' || reg.time >= inicio;
+      if (!naJanela) {
+        passada.ver(reg);
+        if (reg.msg === MARCADOR_QUERY_LENTA) queriesLentas.anterior += 1;
+        return;
+      }
+      linhasNaJanela += 1;
+      atual.ver(reg);
+      contagem.ver(reg);
+      if (reg.amostra === MARCADOR_AMOSTRA) linhasDeAmostra.push(reg);
+      if (reg.msg === MARCADOR_QUERY_LENTA) queriesLentas.janela += 1;
+    });
+
+    leitura = {
+      diretorio: path.resolve(dir), ausente: false, arquivos: lida.arquivosLidos, linhas: linhasNaJanela,
+    };
+    latencia = atual.resultado();
+    latenciaAnterior = passada.resultado();
+    amostras = resumirAmostras(linhasDeAmostra, {
+      intervaloMs: op.intervalo === null ? null : parseIntervalo(op.intervalo),
+      agora: agora.getTime(),
+      inicio,
+    });
+    status = contagem.resultado();
+  } else {
+    leitura = { diretorio: path.resolve(dir), ausente: true, arquivos: 0, linhas: 0 };
+  }
+
+  let defeitos = null;
+  let defeitosErro = null;
+  try {
+    await abrirBanco();
+    const { listarDefeitos } = await import('../src/modules/diag/defeitos.service.js');
+    defeitos = await listarDefeitos({ desde: op.desde, limite: op.limite || DEFEITOS_DO_RESUMO });
+  } catch (err) {
+    // A MENSAGEM DO DRIVER VIAJA, e não uma frase genérica: "o banco não respondeu" não
+    // distingue Postgres fora de `DATABASE_URL` ausente, e as duas pedem coisas opostas.
+    defeitosErro = `o banco não respondeu (${err.message})`;
+  } finally {
+    await fecharBanco();
+  }
+
+  const relatorio = montarResumo({
+    periodo: { desde: op.desde, desdeMs: janela, inicio, fim: agora.getTime() },
+    leitura,
+    defeitos,
+    defeitosErro,
+    latencia,
+    latenciaAnterior,
+    queriesLentas,
+    amostras,
+    status,
+  });
+
+  if (op.json) {
+    escreverJson('resumo', {
+      desde: op.desde,
+      desdeMs: janela,
+      inicio,
+      fim: agora.getTime(),
+      dir: path.resolve(dir),
+      diretorioAusente: ausente,
+      arquivos: leitura.arquivos,
+      linhas: leitura.linhas,
+      banco: defeitosErro === null,
+    }, relatorio);
+    return;
+  }
+
+  process.stdout.write(`# ${path.resolve(dir)} | ${leitura.arquivos} arquivo(s) | desde ${new Date(inicio).toLocaleString('pt-BR')} | ${leitura.linhas} linha(s)\n`);
+  imprimirResumo(relatorio);
+}
+
+/**
+ * O cabeçalho de um bloco: o nome, e a premissa OU o motivo da ausência.
+ *
+ * ELE É UMA FUNÇÃO SÓ PARA OS CINCO BLOCOS, e é isso que garante a propriedade que o
+ * relatório inteiro promete: nenhum bloco pode imprimir contagem sem antes ter passado por
+ * aqui, e aqui a ausência de fonte SEMPRE fala. Cinco cabeçalhos escritos à mão seriam cinco
+ * chances de esquecer um, e o esquecido imprimiria zero com cara de boa notícia, que é
+ * exatamente o defeito que a aba de Diagnóstico já pagou.
+ *
+ * @returns {boolean} se o bloco tem o que imprimir
+ */
+function cabecalhoDeBloco(titulo, bloco) {
+  process.stdout.write(`\n── ${titulo} ${'─'.repeat(Math.max(0, 66 - titulo.length))}\n`);
+  if (!bloco.disponivel) {
+    process.stdout.write(`   SEM FONTE: ${bloco.motivo}\n`);
+    process.stdout.write('   (nenhum número é impresso aqui de propósito: zero se leria como "nada aconteceu")\n');
+    return false;
+  }
+  const p = bloco.premissa;
+  if (p.fonte === 'banco') {
+    process.stdout.write(`   premissa: ${p.vistos} de ${p.total} defeito(s) da janela`);
+    process.stdout.write(p.parcial ? ', LISTA PARCIAL (o topo é o maior DENTRE OS QUE VIERAM)\n' : '\n');
+  } else {
+    process.stdout.write(`   premissa: ${p.arquivos} arquivo(s), ${p.linhas} linha(s) na janela\n`);
+  }
+  return true;
+}
+
+/** Um delta de p95, com o sinal explícito e a ausência de base nomeada. */
+function deltaLegivel(l) {
+  if (l.p95 === null) return '-';
+  if (l.delta === null) return `${l.p95}ms  (sem base na janela anterior)`;
+  const sinal = l.delta > 0 ? '+' : '';
+  const pct = l.deltaPct === null ? '' : ` / ${sinal}${l.deltaPct}%`;
+  return `${l.p95}ms  (era ${l.p95Anterior}ms, ${sinal}${l.delta}ms${pct})`;
+}
+
+/**
+ * O relatório de uma tela, em texto.
+ *
+ * A ORDEM DOS BLOCOS É A DA PERGUNTA, e não a da fonte: primeiro o que quebrou (defeitos),
+ * depois o que está devagar (latência), depois se o processo esteve de pé (saúde), depois se
+ * o CLIENTE viu queda (indisponibilidade) e por fim o volume (status). Agrupar por fonte
+ * (banco, banco, arquivo, arquivo, arquivo) seria a ordem conveniente para quem escreveu, e
+ * separaria os dois blocos que só valem lidos JUNTOS, que são saúde e indisponibilidade.
+ */
+function imprimirResumo(r) {
+  if (cabecalhoDeBloco('DEFEITOS', r.defeitos)) {
+    const d = r.defeitos;
+    process.stdout.write(`   ${d.novos} novo(s) na janela, ${d.regressoes} regressão(ões)\n`);
+    process.stdout.write(`   origem: ${d.porOrigem.servidor} do servidor, ${d.porOrigem.cliente} do navegador, ${d.porOrigem.semOrigem} sem origem declarada\n`);
+    if (!d.topo.length) {
+      process.stdout.write('   Nenhum defeito na janela.\n');
+    } else {
+      process.stdout.write('\n');
+      for (const t of d.topo) {
+        process.stdout.write(
+          `   ${String(t.ocorrencias).padStart(6)}x  ${cortar(t.estado, 9).padEnd(9)} ${cortar(t.origem ?? '-', 11).padEnd(11)} `
+          + `${cortar(t.mensagem, 44).padEnd(44)} ${String(t.id).slice(0, 8)}\n`
+        );
+      }
+      process.stdout.write('\n   Detalhe de um: npm run diag -- defeitos --id <uuid>   (o uuid inteiro sai no --json)\n');
+    }
+  }
+
+  if (cabecalhoDeBloco('LATÊNCIA (p95, contra a janela anterior do mesmo tamanho)', r.latencia)) {
+    const l = r.latencia;
+    if (!l.rotas.length) {
+      process.stdout.write('   Nenhuma requisição com duração na janela.\n');
+    } else {
+      for (const rota of l.rotas) {
+        process.stdout.write(`   ${String(rota.n).padStart(7)}x  ${cortar(rota.rota, 34).padEnd(34)} ${deltaLegivel(rota)}\n`);
+      }
+      process.stdout.write('   (as MAIS CHAMADAS, não as mais lentas: é o que o produto usa que um deploy piora de forma visível)\n');
+    }
+    process.stdout.write(`   queries lentas: ${l.queriesLentas.janela} na janela, ${l.queriesLentas.anterior} na anterior`);
+    process.stdout.write('   (SLOW_QUERY_MS; leia com: diag -- linhas --filtro "db: query lenta")\n');
+  }
+
+  if (cabecalhoDeBloco('SAÚDE DO PROCESSO (o que o servidor sabe de si)', r.saude)) {
+    const s = r.saude;
+    if (s.situacao !== 'medida') {
+      process.stdout.write(`   ${s.amostras} amostra(s): "${s.situacao}". NADA se afirma sobre buraco. Detalhe: npm run diag -- saude\n`);
+    } else if (s.faltantes === null) {
+      process.stdout.write(`   ${s.amostras} amostra(s), mas o INTERVALO não foi estimável: nada se afirma sobre buraco.\n`);
+      process.stdout.write('   Isto NÃO é "nada faltou". Detalhe e --intervalo: npm run diag -- saude\n');
+    } else {
+      const premissa = s.intervaloOrigem === 'informado'
+        ? `intervalo informado de ${duracao(s.intervaloMs)}`
+        : `intervalo de ${duracao(s.intervaloMs)}, INFERIDO da própria série`;
+      process.stdout.write(`   ${s.amostras} amostra(s), ${s.faltantes} faltando de ${s.esperadas} em ${s.buracos} buraco(s), supondo ${premissa}\n`);
+      if (s.estimativaFragil) {
+        process.stdout.write('   ESTIMATIVA FRÁGIL do intervalo: confirme com --intervalo antes de concluir.\n');
+      }
+      if (s.maiorBuracoMs !== null) process.stdout.write(`   maior buraco: ${duracao(s.maiorBuracoMs)}\n`);
+    }
+    process.stdout.write(`   última amostra há ${duracao(s.desdeUltimaMs)}${s.ultimaAtrasada ? '  ATRASADA: o processo pode estar FORA agora' : ''}\n`);
+    if (s.discoNaUltima) {
+      process.stdout.write(`   disco do log na última amostra: ${s.discoNaUltima.livreMb} MB livres de ${s.discoNaUltima.totalMb} MB (indício, não veredito)\n`);
+    }
+  }
+
+  if (cabecalhoDeBloco('INDISPONIBILIDADE VISTA PELO CLIENTE', r.indisponivel)) {
+    const i = r.indisponivel;
+    process.stdout.write(`   ${i.defeitos} assinatura(s) de origem "indisponivel", ${i.ocorrencias} ocorrência(s)\n`);
+    // A NOTA SAI SEMPRE, inclusive com zero, e é a única do relatório que sai sobre uma boa
+    // notícia. O motivo é que o zero AQUI é o mais fácil de ler errado: o relato de
+    // indisponibilidade ENFILEIRA quando o servidor está fora (está fora por definição) e só
+    // chega na próxima carga bem-sucedida da página, então uma queda EM CURSO não aparece.
+    process.stdout.write('   Zero aqui NÃO prova disponibilidade: o relato dessa tela é enfileirado no cliente e\n');
+    process.stdout.write('   só chega na próxima carga bem-sucedida, então uma queda em curso ainda não chegou.\n');
+    process.stdout.write('   Lido ao lado da SAÚDE acima, ele desambigua o buraco na série: buraco COM relato é\n');
+    process.stdout.write('   queda; buraco SEM relato é, mais provavelmente, o log em arquivo tendo se desligado.\n');
+  }
+
+  if (cabecalhoDeBloco('STATUS', r.status)) {
+    const s = r.status;
+    const faixas = Object.keys(s.porFaixa).sort().map((f) => `${f}: ${s.porFaixa[f]}`).join('   ');
+    process.stdout.write(`   ${s.total} requisição(ões)   ${faixas}\n`);
+    process.stdout.write(`   ${s.erros} requisição(ões) com erro`);
+    process.stdout.write(s.taxaDeErro === null
+      ? '   (sem taxa: a janela não teve requisição nenhuma)\n'
+      : `   taxa ${s.taxaDeErro}%\n`);
+    process.stdout.write('   Detalhe: npm run diag -- erros\n');
+  }
+}
+
+/**
+ * Qual função responde por cada comando de banco.
+ *
+ * TABELA E NÃO TERNÁRIO. Enquanto eram dois, `op.comando === 'pilha' ? a : b` cabia; com
+ * cinco, um encadeamento de ternários faria o comando NOVO cair no ramo `else` de alguém, e
+ * o modo de falha é o pior possível: `reabrir` respondendo a listagem de defeitos, com
+ * código 0 e nada de errado na tela. A tabela transforma "esqueci de ligar o verbo" num
+ * `undefined` que estoura na hora.
+ */
+const DESPACHO_DE_BANCO = Object.freeze({
+  defeitos: comandoDefeitos,
+  pilha: comandoPilha,
+  resolver: comandoCicloDeVida,
+  ignorar: comandoCicloDeVida,
+  reabrir: comandoCicloDeVida,
+});
+
+/**
+ * Roda um dos comandos de banco, decide a saída e FECHA O POOL, sempre.
  *
  * O `finally` NÃO É HIGIENE, É O QUE FAZ O COMANDO TERMINAR: uma conexão de pool aberta
  * segura o loop de eventos, e sem ele o processo imprime a resposta inteira e fica pendurado
@@ -975,6 +1548,18 @@ async function comandoDeBanco(op, janela) {
     }
   }
 
+  // O ESTADO ESCRITO À MÃO É CONFERIDO CONTRA `ESTADOS_MANUAIS`, e não contra o mapa de
+  // verbos, e o cinto é redundante de propósito: o mapa não pode ganhar um verbo que escreva
+  // `regrediu` sem que esta linha reprove primeiro. É a mesma regra do Joi da rota, e ela
+  // vale nas DUAS bordas porque as duas escrevem na mesma coluna.
+  const estadoDoVerbo = ESTADO_DO_VERBO[op.comando];
+  if (estadoDoVerbo !== undefined && !ESTADOS_MANUAIS.includes(estadoDoVerbo)) {
+    process.stderr.write(`O verbo "${op.comando}" escreveria o estado "${estadoDoVerbo}", que NÃO é um ato de\n`);
+    process.stderr.write(`administrador. Aceitos à mão: ${ESTADOS_MANUAIS.join(', ')}.\n`);
+    process.exitCode = 1;
+    return;
+  }
+
   // `--mapas` É ARGUMENTO DE ARQUIVO, então ele é cobrado ANTES do pool: abrir conexão para
   // descobrir que falta uma bandeira é trabalho jogado fora e, pior, com o Postgres fora do ar
   // trocaria a frase certa ("falta --mapas") pela errada ("não consegui abrir o banco").
@@ -994,19 +1579,24 @@ async function comandoDeBanco(op, janela) {
     await abrirBanco();
   } catch (err) {
     process.stderr.write(`Não foi possível abrir o banco: ${err.message}\n`);
-    process.stderr.write('`defeitos` e `pilha` leem as tabelas, e não o log: eles exigem DATABASE_URL e JWT_SECRET.\n');
-    process.stderr.write('Para diagnosticar com o Postgres fora, use os comandos de log (erros, lento, status, saude, linhas).\n');
+    process.stderr.write(`\`${op.comando}\` lê as tabelas, e não o log. São CINCO os comandos de banco`
+      + ' (defeitos, pilha, resolver, ignorar, reabrir), e os cinco exigem DATABASE_URL e JWT_SECRET.\n');
+    process.stderr.write('Para diagnosticar com o Postgres fora: os cinco comandos de log (erros,\n');
+    process.stderr.write('lento, status, saude, linhas), ou o `resumo`, que sai com os blocos de banco\n');
+    process.stderr.write('cegos e o resto do relatório inteiro.\n');
     process.exitCode = 1;
     return;
   }
 
   try {
-    const r = op.comando === 'pilha' ? await comandoPilha(op) : await comandoDefeitos(op);
+    const r = await DESPACHO_DE_BANCO[op.comando](op);
     process.exitCode = r.codigo;
     if (!r.estrutura) return;
     if (op.json) {
       // `pilha` não tem janela nenhuma (ela responde sobre UMA linha, achada por id), e
       // `null` diz isso melhor que uma janela inventada de 24h que não filtrou coisa alguma.
+      // O mesmo vale para os três verbos de ciclo de vida, e a condição já os cobre sem uma
+      // linha nova: eles exigem `--id`, então `op.id !== null` é sempre verdadeiro ali.
       const janelaDoComando = op.comando === 'pilha' || op.id !== null
         ? null
         : { desde: op.desde, desdeMs: janela, inicio: Date.now() - janela, fim: Date.now() };
@@ -1052,6 +1642,15 @@ async function main() {
     process.exit(1);
   }
 
+  // O HÍBRIDO SAI ANTES DOS DOIS RAMOS, e é o único que sai. Ele não pode cair no ramo de
+  // banco (nunca abriria o log) nem no de arquivo (o `existsSync` abaixo mata o processo com
+  // código 1, e para ele diretório ausente é um bloco que se declara cego, não um erro
+  // fatal). Ver `comandoResumo`.
+  if (op.comando === COMANDO_HIBRIDO) {
+    await comandoResumo(op, janela);
+    return;
+  }
+
   if (COMANDOS_DE_BANCO.has(op.comando)) {
     // O DESVIO É AQUI, DEPOIS DA JANELA E ANTES DO DIRETÓRIO. Depois da janela porque
     // `defeitos` usa a mesma gramática de `--desde` e o mesmo erro serve aos dois; antes do
@@ -1065,14 +1664,9 @@ async function main() {
   // O config é importado tarde e só quando `--dir` não foi dado: ele exige DATABASE_URL e
   // JWT_SECRET na avaliação do módulo, e um diagnóstico de log não pode depender de o banco
   // estar configurado — a hora em que se lê log é justamente a hora em que algo não está.
-  let dir = op.dir;
-  if (!dir) {
-    try {
-      dir = (await import('../src/config.js')).default.log.dir;
-    } catch {
-      dir = './data/logs';
-    }
-  }
+  // (A resolução mora em `resolverDiretorioDeLog` porque o `resumo` a usa também, e uma
+  // segunda cópia dela divergiria no default embutido.)
+  const dir = await resolverDiretorioDeLog(op);
 
   if (!fs.existsSync(dir)) {
     process.stderr.write(`Diretório de log não encontrado: ${path.resolve(dir)}\n`);
@@ -1169,29 +1763,39 @@ async function coletar(op, dir, janela, agora) {
   }
 
   if (op.comando === 'lento') {
-    const resumo = criarResumoDeLatencia();
+    const resumo = criarResumoDeLatencia({ porRelease: op.porRelease });
     const leitura = await percorrerRegistros(dir, janela, agora, (reg) => resumo.ver(reg));
     const rotas = resumo.resultado();
     const limiteDeRotas = op.limite || 15;
     return {
       leitura,
-      imprimir: () => imprimirLento(rotas, limiteDeRotas),
-      estrutura: () => ({ totalDeRotas: rotas.length, limite: limiteDeRotas, rotas: rotas.slice(0, limiteDeRotas) }),
+      imprimir: () => imprimirLento(rotas, limiteDeRotas, op.porRelease),
+      estrutura: () => ({
+        totalDeRotas: rotas.length,
+        limite: limiteDeRotas,
+        // O MODO VAI NO DOCUMENTO, e não só na tabela impressa. Sem ele, dois documentos
+        // do mesmo comando sobre o mesmo arquivo teriam a mesma forma e contagens de
+        // `rotas` diferentes, e nada diria por quê: quem lê o JSON não viu a linha de
+        // comando. É a mesma razão pela qual o envelope carrega `comando`.
+        porRelease: op.porRelease,
+        rotas: rotas.slice(0, limiteDeRotas),
+      }),
     };
   }
 
   if (op.comando === 'status') {
+    // `erros` VEM DO ACUMULADOR, e não de um contador aqui fora. Ele era contado neste
+    // ponto, com `ehErro` sobre a janela inteira, e a aba mostrou o resultado: 144
+    // requisições, 288 erros, taxa de 200%. O argumento inteiro está em
+    // `criarResumoDeStatus`; o que importa aqui é que o ponto de uso deixou de ter uma
+    // regra própria, porque foi tê-la em TRÊS pontos de uso que produziu a divergência.
     const resumo = criarResumoDeStatus();
-    let erros = 0;
-    const leitura = await percorrerRegistros(dir, janela, agora, (reg) => {
-      resumo.ver(reg);
-      if (ehErro(reg)) erros += 1;
-    });
+    const leitura = await percorrerRegistros(dir, janela, agora, (reg) => resumo.ver(reg));
     const contagem = resumo.resultado();
     return {
       leitura,
-      imprimir: () => imprimirStatus(contagem, erros),
-      estrutura: () => ({ ...contagem, erros }),
+      imprimir: () => imprimirStatus(contagem),
+      estrutura: () => contagem,
     };
   }
 

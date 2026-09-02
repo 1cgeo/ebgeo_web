@@ -29,8 +29,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ESTADOS_DE_DEFEITO, EstadoDeDefeito } from '../../src/modules/diag/estados-de-defeito.js';
-import { defeitosQuerySchema } from '../../src/modules/diag/diag.schemas.js';
+import { ESTADOS_DE_DEFEITO, ESTADOS_MANUAIS, EstadoDeDefeito } from '../../src/modules/diag/estados-de-defeito.js';
+import { defeitosQuerySchema, estadoDeDefeitoSchema } from '../../src/modules/diag/diag.schemas.js';
 
 const RAIZ = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const MIGRACAO = path.join(RAIZ, 'src/database/migrations/018_defeitos_e_ocorrencias.sql');
@@ -119,5 +119,74 @@ describe('O Joi do filtro deriva a lista, e recusa o que está fora dela', () =>
     // Os dois que TÊM default, porque a ausência deles não tem tradução no SQL.
     assert.equal(value.novos, false);
     assert.equal(value.limite, 50);
+  });
+});
+
+describe('ESTADOS_MANUAIS: o que a MÃO pode escrever, e o que só a máquina escreve', () => {
+  it('é DERIVADO da lista completa, e não uma segunda cópia', () => {
+    // Uma cópia escrita à mão divergiria no dia em que um estado novo nascesse, e divergiria
+    // falhando FECHADO: a borda recusaria um valor que o CHECK aceita, e o sintoma seria um
+    // 422 sobre um estado legítimo.
+    assert.deepEqual(
+      ESTADOS_MANUAIS,
+      ESTADOS_DE_DEFEITO.filter((e) => e !== EstadoDeDefeito.REGREDIU)
+    );
+    // E o controle ABSOLUTO ao lado, porque a igualdade acima sozinha passaria verde com as
+    // duas listas erradas do mesmo jeito.
+    assert.deepEqual([...ESTADOS_MANUAIS], ['aberto', 'resolvido', 'ignorado']);
+  });
+
+  it('`regrediu` está FORA, e é o único que está', () => {
+    // Ele é a única transição automática do produto (o CASE de `UPSERT_DEFEITO`) e significa
+    // um FATO sobre duas releases, não uma opinião. Escrito à mão seria um rótulo sem o fato
+    // por trás, e a tela mostraria regressão onde não houve nenhuma.
+    assert.equal(ESTADOS_MANUAIS.includes(EstadoDeDefeito.REGREDIU), false);
+    assert.equal(ESTADOS_DE_DEFEITO.length - ESTADOS_MANUAIS.length, 1);
+  });
+
+  it('é congelado: ninguém acrescenta estado manual em runtime', () => {
+    assert.equal(Object.isFrozen(ESTADOS_MANUAIS), true);
+  });
+
+  it('o Joi do PATCH aceita os três e recusa `regrediu` nomeando o campo', () => {
+    // O TAMANHO PRIMEIRO: laço sobre coleção vazia é zero asserção e verde vazio, que é
+    // exatamente o que `ebgeo-tests/no-unasserted-loop-assert` existe para pegar.
+    assert.equal(ESTADOS_MANUAIS.length, 3);
+    for (const estado of ESTADOS_MANUAIS) {
+      const { error, value } = estadoDeDefeitoSchema.validate({ estado });
+      assert.equal(error, undefined, `estado ${estado}`);
+      assert.equal(value.estado, estado);
+    }
+    const { error } = estadoDeDefeitoSchema.validate({ estado: EstadoDeDefeito.REGREDIU });
+    assert.ok(error, '`regrediu` tem de reprovar na borda de ESCRITA');
+    assert.equal(error.details[0].path[0], 'estado');
+
+    // NÃO-VACUIDADE PELO CONTRASTE COM O FILTRO: a MESMA string é aceita pelo schema de
+    // LEITURA, o que prova que a recusa é do recorte e não de uma regra genérica.
+    assert.equal(defeitosQuerySchema.validate({ estado: EstadoDeDefeito.REGREDIU }).error, undefined);
+  });
+
+  it('o corpo do PATCH exige `estado` e limita `commit` a 64', () => {
+    assert.ok(estadoDeDefeitoSchema.validate({}).error, 'sem estado não há ato');
+    assert.ok(estadoDeDefeitoSchema.validate({ estado: 'aberto', commit: 'x'.repeat(65) }).error);
+    // 64 é o comprimento de um SHA-256 em hexadecimal, e o teto ESPELHA o CHECK da coluna
+    // (`018_defeitos_e_ocorrencias.sql`): sem ele a recusa viria do banco como 23514, que a
+    // borda traduz num erro sem relação aparente com o campo.
+    assert.equal(estadoDeDefeitoSchema.validate({ estado: 'aberto', commit: 'x'.repeat(64) }).error, undefined);
+    // Vazio e nulo são aceitos: "resolvi e não sei o commit" é o caso comum, e um campo
+    // vazio vindo de formulário é a forma que ele toma.
+    assert.equal(estadoDeDefeitoSchema.validate({ estado: 'resolvido', commit: '' }).error, undefined);
+    assert.equal(estadoDeDefeitoSchema.validate({ estado: 'resolvido', commit: null }).error, undefined);
+  });
+
+  it('o corpo é FECHADO: campo desconhecido não vira coluna escrita por engano', () => {
+    // `stripUnknown` descarta, e é o que impede um `resolvidoPor` no corpo de chegar ao
+    // serviço: o ator sai de `req.user`, sempre.
+    const { error, value } = estadoDeDefeitoSchema.validate(
+      { estado: 'aberto', resolvidoPor: 'outra-pessoa' },
+      { abortEarly: false, stripUnknown: true }
+    );
+    assert.equal(error, undefined);
+    assert.deepEqual(Object.keys(value), ['estado']);
   });
 });

@@ -223,9 +223,13 @@ describe('diag --json: a estrutura de cada comando', () => {
     const { doc } = documento(['status', '--dir', dir]);
     assert.equal(doc.total, 2);
     assert.deepEqual(doc.porFaixa, { '2xx': 1, '5xx': 1 });
-    // Quatro: os três `level: 50` mais a requisição com status 500 (o terceiro termo de
-    // `ehErro`, que é o que faz o 4xx logado em `warn` aparecer).
-    assert.equal(doc.erros, 4);
+    // UM, e não quatro. O pulso conta REQUISIÇÃO desde 2026-09-02: a única linha com
+    // `statusCode >= 400` da fixture. Antes ele contava REGISTRO, com `ehErro` sobre a
+    // janela inteira, e somava os três `level: 50` (que não são requisições) mais a
+    // requisição com 500 — quatro erros sobre duas requisições, ou seja, 200%. Ver
+    // `criarResumoDeStatus`.
+    assert.equal(doc.erros, 1);
+    assert.ok(doc.erros <= doc.total, 'o numerador nunca passa do denominador');
   });
 
   it('saude: o resumo inteiro, com a situação e a origem do intervalo', () => {

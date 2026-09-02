@@ -126,6 +126,11 @@ const ACOES = Object.freeze({
     // --- sistema -------------------------------------------------------------
     CONFIG_UPDATE: { rotulo: 'Configuração alterada', familia: 'sistema' },
     CONFIG_CLEAR: { rotulo: 'Configuração restaurada ao padrão', familia: 'sistema' },
+    // O CICLO DE VIDA DE UM DEFEITO (resolver, ignorar, reabrir), auditado desde 2026-09-02. O
+    // rótulo NÃO nomeia a transição, porque uma ação só cobre as três e o estado alvo viaja nos
+    // metadados da linha: escrever "Defeito resolvido" aqui faria a trilha afirmar o desfecho
+    // errado em dois terços das linhas.
+    DEFEITO_ESTADO: { rotulo: 'Estado de defeito alterado', familia: 'sistema' },
 });
 
 /**

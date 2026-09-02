@@ -3,6 +3,9 @@ import pgPromise from 'pg-promise';
 import config from '../config.js';
 import logger from '../utils/logger.js';
 import { elidirSql, TETO_PADRAO } from '../utils/elidir-sql.js';
+import {
+  MARCADOR_QUERY_LENTA, duracaoDeQuery, deveAcusarQueryLenta,
+} from '../utils/query-lenta.js';
 
 /** Ceiling of the per-query debug line, kept short because it fires on EVERY query. */
 const TETO_DA_LINHA_DE_DEBUG = 80;
@@ -79,9 +82,73 @@ export function logQueryError(err, e) {
   logger.error(dbErrorLogPayload(err, e), 'DB Error');
 }
 
+/** Ceiling of the slow-query line. Wider than the debug one: this line is rare and is read. */
+const TETO_DA_LINHA_LENTA = 300;
+
+/**
+ * Builds the payload of the slow-query line.
+ *
+ * THE VALUES NEVER TRAVEL, and this is the same door `queryLogPayload` above closes:
+ * `pgFormatting` is at pg-promise's default (`false`), so by the time any event fires the
+ * placeholders are gone and the text carries the literal credential. `elidirSql` keeps the
+ * SHAPE and drops the values, which is exactly the half that answers "which statement is
+ * slow". `e.ctx.params` and `e.ctx.values` are NOT read here, at all: the arity is not the
+ * question, and reading them would reintroduce by hand the leak the elision closes.
+ *
+ * `rows` COMES FROM THE RESULT AND NOT FROM `data.length`, because they are not the same
+ * question on every path: `result.rowCount` is what the server reported, while `data` is
+ * the array pg-promise is about to hand to the caller, which a `.one()`/`.none()` shape
+ * check can still reject afterwards. The number worth having beside a duration is what the
+ * database actually produced.
+ *
+ * Exported for the same reason `queryLogPayload` is: the invariant is asserted against the
+ * object the code BUILDS, not against a logger sitting at level 'silent' under
+ * NODE_ENV=test, which would mask everything and pass green.
+ *
+ * @param {{ctx?: {query?: unknown}, result?: {duration?: number, rowCount?: number}}} e
+ * @returns {{query: string, duration: number|null, rows: number|null}}
+ */
+export function queryLentaPayload(e) {
+  const rows = e?.result?.rowCount;
+  return {
+    query: elidirSql(e?.ctx?.query, { teto: TETO_DA_LINHA_LENTA }),
+    duration: duracaoDeQuery(e?.result),
+    rows: Number.isFinite(rows) ? rows : null,
+  };
+}
+
+/**
+ * pg-promise `receive` hook: one `warn` line per query slower than `SLOW_QUERY_MS`.
+ *
+ * IT MUST NEVER THROW, and that is not defensive style: `Events.receive`
+ * (`node_modules/pg-promise/lib/events.js`) catches whatever this handler throws and
+ * REJECTS THE QUERY with it. So a bug in the logging of a slow query would turn a slow
+ * query into a FAILED query, i.e. the instrument breaking the thing it measures, in the
+ * hottest path of the application. The `try` wraps the decision as well as the log for
+ * that reason, and the `catch` is deliberately silent: the only thing left to do with an
+ * error here is to log it, which is the operation that just failed.
+ *
+ * THE THRESHOLD IS READ AT CALL TIME, from `config`, and not captured in a module-level
+ * constant. It costs a property access per query and buys the property that matters for
+ * a test: the hook and the configuration cannot be observed disagreeing.
+ *
+ * @param {Object} e - `{data, result, ctx}`, as `Events.receive` builds it.
+ */
+export function receberResultado(e) {
+  try {
+    const duracaoMs = duracaoDeQuery(e?.result);
+    if (!deveAcusarQueryLenta({ duracaoMs, limiteMs: config.db.slowQueryMs })) return;
+    logger.warn(queryLentaPayload(e), MARCADOR_QUERY_LENTA);
+  } catch {
+    // Sem re-log: o que falhou aqui foi justamente a escrita de log, e uma segunda
+    // tentativa dentro do `catch` correria o mesmo risco no mesmo caminho quente.
+  }
+}
+
 const initOptions = {
   query: logQueryEvent,
   error: logQueryError,
+  receive: receberResultado,
 };
 
 const pgp = pgPromise(initOptions);

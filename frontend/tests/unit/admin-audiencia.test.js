@@ -103,6 +103,12 @@ const DISPENSADOS = Object.freeze({
         + 'ninguém a lugar nenhum, não desenha porta e não mede audiência: nomear as quatro '
         + 'páginas é o oposto de decidir quem entra numa delas. Mesmo caso do modal abaixo, e '
         + 'classificar é mais barato que torcer o código para escapar da varredura.',
+    'src/js/admin/defeito-phrases.js':
+        'Cita "Administração" como RÓTULO de `admin.html` na lista `PAGINAS`, que é o seletor de '
+        + 'página do filtro de defeitos ("em qual das quatro páginas isto quebrou"). Mesmo caso, '
+        + 'palavra por palavra, de `erro-telemetria-assinatura.js` acima: nomear as quatro '
+        + 'páginas é o oposto de decidir quem entra numa delas. O módulo é folha de zero imports '
+        + 'por contrato, então consumir a definição aqui seria justamente o que ele não pode.',
     'src/js/modals/create-atlas.modal.js':
         'Cita "Administração" numa FRASE DE AJUDA ("Você não administra nenhum grupo. Crie um em '
         + 'Administração > Grupos"), e não numa decisão sobre quem vê a porta: o modal não '

@@ -4,10 +4,14 @@
  * @fileoverview A LÓGICA PURA da aba "Diagnóstico": qual estado desenhar, quanto pesa uma
  * contagem, o que é um instante, e como cada número vira texto.
  *
- * A ABA É QUATRO ROTAS SOBRE UMA JANELA SÓ, e nenhuma delas existe em node. O que se testa aqui é
+ * A ABA É TRÊS ROTAS SOBRE UMA JANELA SÓ, e nenhuma delas existe em node. O que se testa aqui é
  * o que decide a tela ANTES de qualquer DOM: `estadoDaSecao`, `listaDoPayload`, `pesoDaContagem`,
- * as três ordenações e as formatações. `diag-tab.js` fica de fora de propósito (é DOM e rede), e
- * é por isso que toda decisão que valia a pena prender saiu de lá para `diag-phrases.js`.
+ * a ordenação das rotas e as formatações. `diag-tab.js` fica de fora de propósito (é DOM e rede),
+ * e é por isso que toda decisão que valia a pena prender saiu de lá para `diag-phrases.js`.
+ *
+ * ERAM TRÊS ORDENAÇÕES ATÉ 2026-09-02, e duas saíram com as seções que as usavam (erros do
+ * servidor e erros do navegador). A herdeira das duas é `ordenarDefeitos`, presa em
+ * `defeito-frases.test.js` com o mesmo argumento que estava aqui.
  *
  * OS TRÊS CONTROLES NEGATIVOS desta suíte, isto é, o que ficaria vermelho se o código voltasse ao
  * óbvio:
@@ -38,29 +42,17 @@
 import { describe, it, expect } from 'vitest';
 import {
     CONTAGEM,
-    CORTE,
     ESTADO,
     FAIXAS,
     JANELAS,
     JANELA_PADRAO,
     LATENCIA,
     PESO,
-    assinaturaLabel,
-    clientErrorsCountNotice,
-    clientErrorsEmptyNotice,
-    clientErrorsListaNotice,
     contagemDetalhe,
     contagemHistoricaDetalhe,
     contagemHistoricaUnidade,
     contagemLabel,
     cortadaNotice,
-    enderecoLabel,
-    ENDERECOS,
-    ENDERECO_DESCONHECIDO,
-    enderecosAusentesNotice,
-    enderecosNotice,
-    estadoDoCorte,
-    estadoDosEnderecos,
     estadoDaContagemDeErros,
     estadoDaLatencia,
     estadoDaSecao,
@@ -77,20 +69,15 @@ import {
     leitorCegoNotice,
     listaDoPayload,
     mensagemLabel,
-    metodoEUrl,
     normalizarJanela,
-    ordenarGrupos,
-    ordenarItensCliente,
     ordenarRotas,
     paginaLabel,
     pesoDaContagem,
-    principaisDeEnderecos,
+    pulsoEmptyNotice,
     resumirTexto,
-    TETO_DE_ENDERECOS,
     rotaLabel,
-    serverErrorsEmptyNotice,
     serverErrorsScanNotice,
-    statusLabel,
+    slowEmptyNotice,
     taxaDeErro,
     truncamentoNotice,
     usuarioLabel,
@@ -118,9 +105,13 @@ describe('a janela de tempo', () => {
     });
 
     it('a frase de vazio NOMEIA a janela: "nenhum erro" sem período fala da história inteira', () => {
-        expect(serverErrorsEmptyNotice('24h')).toBe('Nenhum erro de servidor nas últimas 24 horas.');
-        expect(serverErrorsEmptyNotice('1h')).toBe('Nenhum erro de servidor na última hora.');
-        expect(clientErrorsEmptyNotice('7d')).toBe('Nenhum erro de navegador nos últimos 7 dias.');
+        // As duas frases de vazio que sobraram nesta camada nomeiam a janela; a da seção de
+        // defeitos mora em `defeito-phrases.js` e é cobrada em `defeito-frases.test.js`.
+        expect(pulsoEmptyNotice('24h'))
+            .toBe('Nenhuma requisição registrada nas últimas 24 horas.');
+        expect(pulsoEmptyNotice('1h')).toBe('Nenhuma requisição registrada na última hora.');
+        expect(slowEmptyNotice('7d'))
+            .toBe('Nenhuma rota com latência medida nos últimos 7 dias.');
         // Janela inválida degrada para a frase do padrão, e não para uma frase sem período.
         expect(janelaEmPalavras('bobagem')).toBe('nas últimas 24 horas');
     });
@@ -392,62 +383,11 @@ describe('a latência', () => {
     });
 });
 
-describe('as três ordenações, e o que cada uma de fato ordena', () => {
-    it('os grupos do servidor vêm do mais alto para o mais baixo, sem confiar no ORDER BY da rota', () => {
-        const entrada = [
-            { assinatura: 'b', total: 3, ultima: 10 },
-            { assinatura: 'a', total: 1200, ultima: 5 },
-            { assinatura: 'c', total: 40, ultima: 7 },
-        ];
-        expect(ordenarGrupos(entrada).map((g) => g.assinatura)).toEqual(['a', 'c', 'b']);
-        // NÃO MUTA a entrada: a lista original continua na ordem em que chegou.
-        expect(entrada.map((g) => g.assinatura)).toEqual(['b', 'a', 'c']);
-    });
-
-    it('o desempate é pela ocorrência mais RECENTE, e depois pela assinatura (ordem estável)', () => {
-        const entrada = [
-            { assinatura: 'z', total: 5, ultima: 100 },
-            { assinatura: 'a', total: 5, ultima: 900 },
-            { assinatura: 'm', total: 5, ultima: 900 },
-        ];
-        expect(ordenarGrupos(entrada).map((g) => g.assinatura)).toEqual(['a', 'm', 'z']);
-    });
-
-    it('os erros de navegador NÃO seguem a mesma regra: eles vêm por RECÊNCIA', () => {
-        // ORDENAR POR UM CRITÉRIO E CORTAR POR OUTRO É UM PÓDIO SOBRE AMOSTRA ALHEIA. O servidor
-        // devolve as cinquenta mais recentes (`ORDER BY ultima_em DESC LIMIT 50`), e a contagem
-        // daquela lista é VITALÍCIA: o item de 90 relatos aqui é o mais antigo dos dois, e a
-        // ordenação anterior o punha em cima como se ele fosse o defeito do período. Reverter a
-        // troca (voltar a comparar `ocorrencias` primeiro) deixa esta asserção vermelha.
-        const entrada = [
-            { id: '1', ocorrencias: 90, ultimaEm: '2026-08-29T10:00:00Z' },
-            { id: '2', ocorrencias: 2, ultimaEm: '2026-08-30T10:00:00Z' },
-        ];
-        expect(ordenarItensCliente(entrada).map((i) => i.id)).toEqual(['2', '1']);
-        // NÃO MUTA a entrada, como as outras duas.
-        expect(entrada.map((i) => i.id)).toEqual(['1', '2']);
-    });
-
-    it('empatados no instante, a contagem desempata, e depois o id (ordem estável)', () => {
-        // A contagem NÃO some da ordenação, ela só deixa de mandar: entre dois erros que
-        // dispararam no mesmo instante, o mais relatado ainda vem antes.
-        const entrada = [
-            { id: 'c', ocorrencias: 5, ultimaEm: '2026-08-30T10:00:00Z' },
-            { id: 'a', ocorrencias: 5, ultimaEm: '2026-08-30T10:00:00Z' },
-            { id: 'b', ocorrencias: 900, ultimaEm: '2026-08-30T10:00:00Z' },
-        ];
-        expect(ordenarItensCliente(entrada).map((i) => i.id)).toEqual(['b', 'a', 'c']);
-    });
-
-    it('item sem data cai para o fim, e não para o topo', () => {
-        // `instanteDe(undefined)` é `null`, e `numeroOuZero(null)` é 0: o item sem data tem de
-        // ficar ABAIXO de qualquer item datado, e nunca ganhar o topo por acidente aritmético.
-        const entrada = [
-            { id: 'x', ocorrencias: 4000 },
-            { id: 'y', ocorrencias: 1, ultimaEm: '2026-08-30T10:00:00Z' },
-        ];
-        expect(ordenarItensCliente(entrada).map((i) => i.id)).toEqual(['y', 'x']);
-    });
+describe('a ordenação das rotas lentas', () => {
+    // ERAM TRÊS ORDENAÇÕES ATÉ 2026-09-02, e duas saíram com as seções que as usavam. A
+    // regra que elas carregavam NÃO se perdeu: `ordenarDefeitos` (`defeito-phrases.js`) é a
+    // herdeira das duas, e o argumento que a governa é o mesmo que estava aqui, ordenar por
+    // um critério e cortar por outro é um pódio sobre amostra escolhida por terceiro.
 
     it('as rotas vêm por P95, e não por máximo nem por número de chamadas', () => {
         // O `max` é uma chamada só (pode ser um cliente que dormiu) e `n` é volume, não lentidão.
@@ -456,17 +396,16 @@ describe('as três ordenações, e o que cada uma de fato ordena', () => {
             { rota: '/lenta', n: 3, p50: 900, p95: 1500, max: 1600 },
         ];
         expect(ordenarRotas(entrada).map((r) => r.rota)).toEqual(['/lenta', '/rapida']);
+        // NÃO MUTA a entrada: a lista original continua na ordem em que chegou.
+        expect(entrada.map((r) => r.rota)).toEqual(['/rapida', '/lenta']);
     });
 
-    it('entrada que não é lista não explode: as três devolvem array vazio', () => {
-        for (const fn of [ordenarGrupos, ordenarItensCliente, ordenarRotas]) {
-            expect(fn(null)).toEqual([]);
-            expect(fn(undefined)).toEqual([]);
-            expect(fn({})).toEqual([]);
-        }
-        // E linhas malformadas dentro de uma lista boa não derrubam a ordenação.
-        expect(ordenarGrupos([null, { total: 5 }, undefined]).length).toBe(3);
-        expect(ordenarGrupos([null, { total: 5 }, undefined])[0].total).toBe(5);
+    it('entrada que não é lista não explode, e linha malformada não derruba a ordem', () => {
+        expect(ordenarRotas(null)).toEqual([]);
+        expect(ordenarRotas(undefined)).toEqual([]);
+        expect(ordenarRotas({})).toEqual([]);
+        expect(ordenarRotas([null, { p95: 5 }, undefined]).length).toBe(3);
+        expect(ordenarRotas([null, { p95: 5 }, undefined])[0].p95).toBe(5);
     });
 });
 
@@ -481,14 +420,6 @@ describe('os rótulos de linha — nada de travessão onde há dado', () => {
         for (const v of [null, undefined, 42, {}, '']) expect(resumirTexto(v)).toBe('');
         // Máximo inválido não zera o texto (seria pior que não cortar).
         expect(resumirTexto('abc', NaN)).toBe('abc');
-    });
-
-    it('a assinatura cai no exemplo antes de virar "sem assinatura"', () => {
-        expect(assinaturaLabel({ assinatura: ' TypeError: x ' })).toBe('TypeError: x');
-        expect(assinaturaLabel({ assinatura: '   ', exemplo: { url: '/api/v1/atlas' } }))
-            .toBe('/api/v1/atlas');
-        expect(assinaturaLabel({})).toBe('Erro sem assinatura');
-        expect(assinaturaLabel(null)).toBe('Erro sem assinatura');
     });
 
     it('a mensagem do navegador cai na assinatura antes de virar "sem mensagem"', () => {
@@ -509,23 +440,6 @@ describe('os rótulos de linha — nada de travessão onde há dado', () => {
         expect(paginaLabel({ pagina: 'atlas.html' })).toBe('atlas.html');
         expect(paginaLabel({ url: 'https://x/index.html?a=1' })).toBe('https://x/index.html?a=1');
         expect(paginaLabel({})).toBe('—');
-    });
-
-    it('método e URL valem cada um por si: metade da identidade ainda localiza o defeito', () => {
-        expect(metodoEUrl({ method: 'get', url: '/api/v1/atlas' })).toBe('GET /api/v1/atlas');
-        expect(metodoEUrl({ method: 'POST' })).toBe('POST');
-        expect(metodoEUrl({ url: '/x' })).toBe('/x');
-        expect(metodoEUrl({})).toBe('');
-        expect(metodoEUrl(undefined)).toBe('');
-    });
-
-    it('o status só sai quando é um código HTTP de verdade', () => {
-        expect(statusLabel(500)).toBe('500');
-        expect(statusLabel(100)).toBe('100');
-        expect(statusLabel(599)).toBe('599');
-        for (const v of [99, 600, 200.5, '500', null, undefined, NaN]) {
-            expect(statusLabel(v)).toBe('');
-        }
     });
 
     it('a rota sem nome é dita, e não desenhada como célula vazia', () => {
@@ -597,8 +511,8 @@ describe('os três avisos que desfazem uma leitura errada da tela', () => {
     });
 });
 
-describe('a contagem do lado do navegador é VITALÍCIA, e a tela tem de dizer isso', () => {
-    // O CONTADOR NÃO ZERA. `client_errors.ocorrencias` é incrementado pelo upsert desde a primeira
+describe('a contagem de um defeito é VITALÍCIA, e a tela tem de dizer isso', () => {
+    // O CONTADOR NÃO ZERA. `defeitos.ocorrencias` é incrementado pelo upsert desde a primeira
     // vez que a assinatura apareceu, e a listagem filtra só `ultima_em`: um defeito de seis meses
     // atrás com doze mil relatos, disparado UMA vez hoje, entra na janela de 24 horas com doze mil
     // e peso visual máximo. A tela chamava isso de "ocorrências" e ordenava por ele.
@@ -609,18 +523,6 @@ describe('a contagem do lado do navegador é VITALÍCIA, e a tela tem de dizer i
 
     it('o crachá é nomeado por RELATO, e não por ocorrência da janela', () => {
         expect(contagemHistoricaUnidade()).toBe('relatos no total');
-    });
-
-    it('a frase do número diz as DUAS coisas: que é acumulado e que é relato, não ocorrência', () => {
-        // AS DUAS METADES SÃO SEPARADAS, e uma sem a outra continua enganando: "acumulado" sozinho
-        // deixa a pessoa multiplicar mentalmente por dezenove o laço que valeu 1, e "relato"
-        // sozinho deixa o número de seis meses passar por número do dia.
-        expect(clientErrorsCountNotice()).toBe(
-            'O número ao lado de cada erro é o total acumulado desde a primeira vez que aquela '
-            + 'assinatura apareceu, e não a contagem desta janela: a janela decide quais erros '
-            + 'aparecem, nunca o tamanho do número. E ele conta RELATOS, não ocorrências, porque '
-            + 'cada sessão relata a mesma assinatura uma vez só: um erro em laço vale 1.',
-        );
     });
 
     it('o detalhe DATA as duas pontas, que é o que torna o rótulo honesto barato', () => {
@@ -659,257 +561,5 @@ describe('a contagem do lado do navegador é VITALÍCIA, e a tela tem de dizer i
         expect(contagemHistoricaDetalhe(null, UTC)).toBe('sem contagem');
         expect(contagemHistoricaDetalhe({ ocorrencias: NaN }, UTC)).toBe('sem contagem');
         expect(contagemHistoricaDetalhe({ ocorrencias: -2 }, UTC)).toBe('sem contagem');
-    });
-});
-
-describe('o recorte da lista de erros do navegador', () => {
-    it('lista menor que o teto é COMPLETA sem o servidor informar nada', () => {
-        // ESTE RAMO É O QUE SALVA A DEGRADAÇÃO. Um `LIMIT 50` que devolveu 7 linhas devolveu todas
-        // as que casavam, e isso se sabe sem `totalAssinaturas`. Sem ele, um servidor de versão
-        // anterior com sete erros na janela desenharia "pode haver mais fora da lista" em TODA
-        // carga, que é o alarme que ensina a ignorar alarme.
-        expect(estadoDoCorte({ mostrados: 7, limite: 50 })).toBe(CORTE.COMPLETA);
-        expect(estadoDoCorte({ mostrados: 0, limite: 50 })).toBe(CORTE.COMPLETA);
-    });
-
-    it('no teto e com o total, ele decide: cortada ou completa', () => {
-        expect(estadoDoCorte({ mostrados: 50, total: 128, limite: 50 })).toBe(CORTE.CORTADA);
-        expect(estadoDoCorte({ mostrados: 50, total: 50, limite: 50 })).toBe(CORTE.COMPLETA);
-        // Total MENOR que o mostrado é contrato quebrado, e não corte: não se anuncia recorte.
-        expect(estadoDoCorte({ mostrados: 50, total: 3, limite: 50 })).toBe(CORTE.COMPLETA);
-    });
-
-    it('no teto e SEM o total, o desfecho é DESCONHECIDO, e não completo nem cortado', () => {
-        // O QUARTO ESTADO DA CASA. As duas saídas fáceis são as duas erradas: tratar a ausência
-        // como "não houve corte" afirma completude que ninguém verificou, e tratá-la como corte
-        // inventa um número que não chegou.
-        expect(estadoDoCorte({ mostrados: 50, total: undefined, limite: 50 }))
-            .toBe(CORTE.DESCONHECIDA);
-        expect(estadoDoCorte({ mostrados: 50, total: null, limite: 50 })).toBe(CORTE.DESCONHECIDA);
-        expect(estadoDoCorte({ mostrados: 50, total: NaN, limite: 50 })).toBe(CORTE.DESCONHECIDA);
-        expect(estadoDoCorte({ mostrados: 50, total: '128', limite: 50 })).toBe(CORTE.DESCONHECIDA);
-        // Sem saber quantos itens a tela desenhou não há afirmação possível sobre recorte nenhum.
-        expect(estadoDoCorte({ total: 128, limite: 50 })).toBe(CORTE.DESCONHECIDA);
-        expect(estadoDoCorte()).toBe(CORTE.DESCONHECIDA);
-    });
-
-    it('a nota cortada nomeia o critério do corte, que é o mesmo da ordem da lista', () => {
-        expect(clientErrorsListaNotice({ mostrados: 50, total: 128, limite: 50, janela: '24h' }))
-            .toBe('Mostrando 50 de 128 assinaturas distintas. São as mais recentes nas últimas '
-                + `24 horas, e a lista abaixo está nessa ordem. ${clientErrorsCountNotice()}`);
-    });
-
-    it('a nota completa conta as assinaturas DISTINTAS da janela, e concorda no singular', () => {
-        expect(clientErrorsListaNotice({ mostrados: 7, total: 7, limite: 50, janela: '7d' }))
-            .toBe('7 assinaturas distintas nos últimos 7 dias, todas na lista abaixo, da mais '
-                + `recente para a mais antiga. ${clientErrorsCountNotice()}`);
-        expect(clientErrorsListaNotice({ mostrados: 1, total: 1, limite: 50, janela: '1h' }))
-            .toBe(`1 assinatura distinta na última hora. ${clientErrorsCountNotice()}`);
-        // Servidor antigo COM lista curta: o número sai do que a tela desenhou, e a frase é a
-        // mesma, porque a afirmação é a mesma.
-        expect(clientErrorsListaNotice({ mostrados: 1, limite: 50, janela: '1h' }))
-            .toBe(`1 assinatura distinta na última hora. ${clientErrorsCountNotice()}`);
-    });
-
-    it('sem `totalAssinaturas` e no teto, a nota não inventa e não cala', () => {
-        // A DEGRADAÇÃO AFIRMA SÓ O QUE SE SABE: que o teto foi atingido. Ela não diz "50 de 50"
-        // (completude não verificada) nem omite o assunto (completude afirmada por silêncio).
-        const texto = clientErrorsListaNotice({ mostrados: 50, limite: 50, janela: '24h' });
-        expect(texto).toBe('A lista abaixo bateu no teto da consulta e traz as assinaturas mais '
-            + 'recentes nas últimas 24 horas. Esta versão do servidor não informa quantas houve '
-            + `ao todo no período, então pode haver mais fora dela. ${clientErrorsCountNotice()}`);
-        // E não sai número nenhum de total inventado no lugar do que não veio.
-        expect(texto).not.toContain('de 50 assinaturas');
-        expect(texto).not.toContain('undefined');
-        expect(texto).not.toContain('NaN');
-    });
-
-    it('a janela estranha cai no padrão, como no resto da aba', () => {
-        expect(clientErrorsListaNotice({ mostrados: 2, total: 2, limite: 50, janela: '30d' }))
-            .toContain('nas últimas 24 horas');
-    });
-});
-
-/**
- * OS ENDEREÇOS DE UM GRUPO DE ERROS, e a única leitura que a tela se recusa a fazer sozinha.
- *
- * OS CONTROLES NEGATIVOS deste bloco (o que fica vermelho ao voltar cada peça ao óbvio), com a
- * mensagem observada ao reverter:
- *
- *   1. **Ausente tratado como zero.** Trocar o `return ENDERECOS.AUSENTE` do campo que não veio
- *      por `ENDERECOS.NENHUM` faz a tela afirmar "nenhuma destas linhas trouxe endereço" sobre um
- *      servidor que nunca foi perguntado. Revertido: `expected 'nenhum' to be 'ausente'`, mais a
- *      frase de linha aparecendo onde deveria haver a nota de seção.
- *   2. **A ambiguidade de `distintos: 1` reduzida a uma leitura.** Cortar a segunda metade da
- *      frase (a do proxy) deixa a tela afirmando "foi um cliente só" sobre um estado que também é
- *      produzido por `TRUST_PROXY_HOPS` mal configurado, que é a exata classe de fato inventado.
- *      Revertido: a asserção por extenso reprova mostrando a frase curta.
- *   3. **O teto de exibição afrouxado.** Subir `TETO_DE_ENDERECOS` para 10 põe dez endereços por
- *      linha em vinte linhas. Revertido: `expected 10 to be 3` e a lista de quatro entradas
- *      passando inteira.
- *   4. **A sentinela lida como endereço.** Tirar o ramo de `ENDERECO_DESCONHECIDO` faz "unknown"
- *      virar um endereço de verdade, e a tela diz que 312 ocorrências vieram todas do mesmo lugar
- *      quando o que houve foi o servidor não ter o que registrar. Revertido: `expected 'unico' to
- *      be 'desconhecido'`.
- */
-describe('os endereços de um grupo de erros do servidor', () => {
-    const grupo = (enderecos, total = 312) => ({ assinatura: 'x', total, enderecos });
-
-    it('os cinco estados, e o AUSENTE não é o zero', () => {
-        // O campo que NÃO VEIO é afirmação sobre o servidor; `distintos: 0` é afirmação do
-        // agregador sobre as linhas. Nenhum dos dois é "um endereço".
-        expect(estadoDosEnderecos(grupo(undefined))).toBe(ENDERECOS.AUSENTE);
-        expect(estadoDosEnderecos({ total: 3 })).toBe(ENDERECOS.AUSENTE);
-        expect(estadoDosEnderecos()).toBe(ENDERECOS.AUSENTE);
-        expect(estadoDosEnderecos(grupo({ distintos: 0, principais: [] }))).toBe(ENDERECOS.NENHUM);
-
-        expect(estadoDosEnderecos(grupo({ distintos: 1, principais: [{ ip: '10.0.0.1', total: 312 }] })))
-            .toBe(ENDERECOS.UNICO);
-        expect(estadoDosEnderecos(grupo({ distintos: 2, principais: [{ ip: '10.0.0.1', total: 300 }] })))
-            .toBe(ENDERECOS.VARIOS);
-        // A SENTINELA NÃO É UM ENDEREÇO: ela é o que o servidor grava quando olhou e a conexão não
-        // tinha o que informar. Lida como endereço, ela produziria a acusação mais forte da tela.
-        expect(estadoDosEnderecos(grupo({ distintos: 1, principais: [{ ip: ENDERECO_DESCONHECIDO, total: 312 }] })))
-            .toBe(ENDERECOS.DESCONHECIDO);
-    });
-
-    it('o payload malformado cai em AUSENTE, e não em zero', () => {
-        // Mesma decisão de `estadoDoCorte`: o que não se entende não vira uma afirmação.
-        expect(estadoDosEnderecos(grupo(null))).toBe(ENDERECOS.AUSENTE);
-        expect(estadoDosEnderecos(grupo([]))).toBe(ENDERECOS.AUSENTE);
-        expect(estadoDosEnderecos(grupo('2'))).toBe(ENDERECOS.AUSENTE);
-        expect(estadoDosEnderecos(grupo({ distintos: '2', principais: [] }))).toBe(ENDERECOS.AUSENTE);
-        expect(estadoDosEnderecos(grupo({ distintos: NaN, principais: [] }))).toBe(ENDERECOS.AUSENTE);
-        expect(estadoDosEnderecos(grupo({ distintos: -1, principais: [] }))).toBe(ENDERECOS.AUSENTE);
-        // `distintos` sozinho basta: a lista de principais é ILUSTRAÇÃO, e um agregador que corte
-        // a lista em zero ainda sabe dizer quantos distintos houve.
-        expect(estadoDosEnderecos(grupo({ distintos: 4 }))).toBe(ENDERECOS.VARIOS);
-    });
-
-    it('UM endereço sobre MUITAS ocorrências nomeia AS DUAS leituras, e não escolhe uma', () => {
-        // A FRASE INTEIRA, e não um `toContain`: o que se está prendendo é que a segunda leitura
-        // (o proxy) continue dita. Um `toContain('mesmo endereço')` passaria verde com ela fora.
-        const texto = enderecosNotice(grupo({
-            distintos: 1,
-            principais: [{ ip: '203.0.113.9', total: 312 }],
-        }, 312));
-        expect(texto).toBe('312 ocorrências, todas do mesmo endereço (203.0.113.9). São duas '
-            + 'leituras possíveis, e esta tela não separa uma da outra: ou foi mesmo um cliente '
-            + 'só, ou o servidor está gravando o endereço do proxy em toda linha, que é o que '
-            + 'acontece quando TRUST_PROXY_HOPS não corresponde ao número de proxies à frente.');
-        // As duas leituras pedem providências opostas, e é por isso que as duas precisam estar na
-        // frase: bloquear um endereço contra reconfigurar o servidor.
-        expect(texto).toContain('um cliente');
-        expect(texto).toContain('proxy');
-        expect(texto).toContain('TRUST_PROXY_HOPS');
-    });
-
-    it('com UMA ocorrência não há ambiguidade a levantar, e a frase não a inventa', () => {
-        // Uma linha só não diz nada sobre proxy nenhum: repetir ali o alarme das muitas seria
-        // alarmar sobre a ausência de evidência.
-        expect(enderecosNotice(grupo({ distintos: 1, principais: [{ ip: '203.0.113.9', total: 1 }] }, 1)))
-            .toBe('1 ocorrência, de um endereço só (203.0.113.9).');
-        // Sem contagem de ocorrências a tela não sabe em qual dos dois casos está, e diz isso.
-        expect(enderecosNotice({ enderecos: { distintos: 1, principais: [{ ip: '203.0.113.9', total: 4 }] } }))
-            .toBe('Um endereço só (203.0.113.9). Sem a contagem de ocorrências não dá para dizer '
-                + 'se ele é o cliente ou o proxy à frente dele.');
-    });
-
-    it('zero distintos nomeia as DUAS razões de não haver endereço', () => {
-        expect(enderecosNotice(grupo({ distintos: 0, principais: [] })))
-            .toBe('Nenhuma destas linhas trouxe endereço: é o que acontece com erro registrado '
-                + 'fora do ciclo de uma requisição (uma tarefa de fundo, por exemplo) e com linha '
-                + 'escrita antes de o servidor passar a gravar o endereço.');
-    });
-
-    it('a sentinela é dita pelo que ela é, e não como se fosse quem chamou', () => {
-        expect(enderecosNotice(grupo({ distintos: 1, principais: [{ ip: ENDERECO_DESCONHECIDO, total: 312 }] })))
-            .toBe('O endereço saiu como "unknown" em todas estas ocorrências, que é o valor '
-                + 'gravado quando a conexão não tem endereço a informar: ele não diz quem chamou.');
-    });
-
-    it('vários endereços dizem quantos, sobre quantas ocorrências', () => {
-        expect(enderecosNotice(grupo({
-            distintos: 37,
-            principais: [{ ip: '203.0.113.9', total: 40 }, { ip: '198.51.100.4', total: 30 }],
-        }, 312))).toBe('37 endereços distintos em 312 ocorrências, e os mais frequentes estão '
-            + 'abaixo.');
-        // SEM LISTA, a frase não promete uma: "estão abaixo" sobre nada é a promessa que o
-        // `<details>` vazio faz, e que `blocoDePilha` recusa pelo mesmo motivo.
-        expect(enderecosNotice(grupo({ distintos: 37, principais: [] }, 312)))
-            .toBe('37 endereços distintos em 312 ocorrências.');
-    });
-
-    it('o campo AUSENTE não vira frase de linha, e a nota de seção o diz uma vez só', () => {
-        // Repetir "esta versão do servidor não informa" em vinte linhas é o alarme que ensina a
-        // ignorar alarme. Quem fala é a seção, com a voz baixa de `horizonteDesconhecidoNotice`.
-        expect(enderecosNotice(grupo(undefined))).toBe('');
-        expect(enderecosNotice({})).toBe('');
-        expect(enderecosAusentesNotice()).toBe('Esta versão do servidor não informa de quais '
-            + 'endereços vieram os erros, então não dá para dizer se um pico veio de um endereço '
-            + 'só ou de muitos.');
-        // E ela não inventa número nenhum no lugar do que não chegou.
-        expect(enderecosAusentesNotice()).not.toContain('0');
-        expect(enderecosAusentesNotice()).not.toContain('undefined');
-    });
-
-    it('a lista desenhada tem TETO, e ele é de exibição', () => {
-        expect(TETO_DE_ENDERECOS).toBe(3);
-        const principais = principaisDeEnderecos(grupo({
-            distintos: 9,
-            principais: [
-                { ip: 'a', total: 40 }, { ip: 'b', total: 30 },
-                { ip: 'c', total: 20 }, { ip: 'd', total: 10 },
-            ],
-        }));
-        expect(principais).toHaveLength(TETO_DE_ENDERECOS);
-        // A ORDEM DO SERVIDOR É PRESERVADA: ela já é a de contagem decrescente, e reordenar aqui
-        // faria a tela e o comando responderem em ordens diferentes à mesma pergunta.
-        expect(principais.map((p) => p.ip)).toEqual(['a', 'b', 'c']);
-        expect(principais[0]).toEqual({ ip: 'a', total: 40 });
-    });
-
-    it('entrada malformada sai FORA sem derrubar a lista inteira', () => {
-        // Um payload meio certo não pode derrubar a metade certa dele: a linha da tela é "endereço
-        // mais contagem", e metade dela não responde nada.
-        const principais = principaisDeEnderecos({
-            enderecos: {
-                distintos: 5,
-                principais: [
-                    { ip: '  10.0.0.1  ', total: 9 },
-                    { ip: '', total: 8 },
-                    { ip: '10.0.0.2' },
-                    { ip: '10.0.0.3', total: '7' },
-                    { ip: '10.0.0.4', total: NaN },
-                    null,
-                    { ip: '10.0.0.5', total: 2.6 },
-                ],
-            },
-        });
-        expect(principais).toEqual([{ ip: '10.0.0.1', total: 9 }, { ip: '10.0.0.5', total: 3 }]);
-        // E a lista que não é lista devolve vazio, nunca `undefined`, porque quem chama itera.
-        expect(principaisDeEnderecos({ enderecos: { distintos: 2, principais: 'x' } })).toEqual([]);
-        expect(principaisDeEnderecos({})).toEqual([]);
-        expect(principaisDeEnderecos()).toEqual([]);
-    });
-
-    it('o endereço é cortado por LAYOUT, porque nem sempre é um endereço', () => {
-        // Com um proxy à frente, `req.ip` sai do `X-Forwarded-For`, escrito por quem chamou: um
-        // cabeçalho de dez mil caracteres empurraria a lista para fora da tela. O corte não é
-        // sanitização, que é o `textContent` do consumidor.
-        expect(enderecoLabel('203.0.113.9')).toBe('203.0.113.9');
-        const longo = enderecoLabel('9'.repeat(500));
-        expect(longo).toHaveLength(60);
-        expect(longo.endsWith('…')).toBe(true);
-        expect(enderecoLabel(undefined)).toBe('');
-        expect(enderecoLabel(42)).toBe('');
-    });
-
-    it('a sentinela é uma cópia DECLARADA do valor do servidor', () => {
-        // `UNKNOWN_ADDRESS`, em `backend/src/middleware/request-logger.js`. Não há import possível
-        // entre os pacotes, então a duplicação é declarada em vez de escondida; se ela deixar de
-        // casar, o estado cai em UNICO, que ainda nomeia as duas leituras. O custo é uma frase a
-        // menos, nunca uma frase falsa.
-        expect(ENDERECO_DESCONHECIDO).toBe('unknown');
     });
 });

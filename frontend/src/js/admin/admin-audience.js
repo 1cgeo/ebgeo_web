@@ -107,7 +107,7 @@
  * `diagnostico` ENTROU EM 2026-08-30, entre `audit` e `account`, e a posição vem da mesma régua:
  * as abas de consulta ficam no fim, e entre elas a pessoal (`grants`) vem antes das do sistema.
  * ELA É DELE E DE MAIS NINGUÉM, e é a única aba além de `users`, `config` e `personnel` com esse
- * recorte: as quatro rotas de `/diag` exigem administração do sistema, então oferecê-la ao
+ * recorte: as rotas de `/diag` exigem administração do sistema, então oferecê-la ao
  * produtor ou ao credenciado seria 403 na primeira requisição, que é a pior forma de dizer não.
  * A diferença para `audit` é o assunto, e é ela que impede a fusão das duas: a trilha registra
  * ATO de gente (quem fez o quê), o diagnóstico registra FALHA de máquina (o que quebrou, quantas

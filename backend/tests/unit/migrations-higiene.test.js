@@ -76,6 +76,20 @@ const EXCECOES_DESTRUTIVAS = [
     // numa segunda aplicação, e a recriação vem logo abaixo dele, na mesma transação: não
     // existe janela em que a tabela fique sem a regra fora dessa transação.
   },
+  {
+    arquivo: '019_defeito_estado_auditado.sql',
+    trecho: 'ALTER TABLE audit_trail DROP CONSTRAINT IF EXISTS audit_trail_action_check;',
+    // O vocabulário de `audit_trail.action` ganhou `DEFEITO_ESTADO`, para o ato de
+    // administrador que resolve, ignora ou reabre um defeito (`PATCH /diag/defeitos/:id` e
+    // os três comandos do `npm run diag`). Este é o primeiro alargamento do CHECK de
+    // AÇÃO fora da baseline: até `018_defeitos_e_ocorrencias.sql` toda ação nova nascia
+    // larga em `002_auditoria.sql`,
+    // porque nenhuma baseline tinha sido aplicada fora deste branch. A leitura do censo
+    // (`tests/unit/auditoria-censo.test.js`) varre as migrações em ordem DECRESCENTE, então
+    // é este arquivo, e não a baseline, que passa a declarar o vocabulário vigente.
+    // Idempotente pelo `IF EXISTS`, e sem janela sem regra porque o `ADD` vem logo abaixo,
+    // na mesma transação do migrador.
+  },
 ];
 const PADROES_DESTRUTIVOS = [
   /\bDROP\s+TABLE\b/i,

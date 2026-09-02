@@ -19,7 +19,7 @@
 import Joi from 'joi';
 import { parseJanela } from '../../utils/diag-consulta.js';
 import { ORIGENS_DE_ERRO, ORIGENS_DO_CLIENTE } from './origens-de-erro.js';
-import { ESTADOS_DE_DEFEITO } from './estados-de-defeito.js';
+import { ESTADOS_DE_DEFEITO, ESTADOS_MANUAIS } from './estados-de-defeito.js';
 
 /** O maior período que uma requisição HTTP pode pedir. Ver o cabeçalho. */
 export const TETO_DA_JANELA_MS = 7 * 86_400_000;
@@ -105,6 +105,37 @@ export const defeitosQuerySchema = Joi.object({
  */
 export const ocorrenciasParamsSchema = Joi.object({
   id: Joi.string().guid().required(),
+});
+
+/**
+ * O corpo de `PATCH /diag/defeitos/:id`: os TRÊS atos de ciclo de vida.
+ *
+ * `ESTADOS_MANUAIS` E NÃO `ESTADOS_DE_DEFEITO`, e a diferença é a linha inteira deste
+ * schema: `regrediu` está no CHECK do banco (a máquina o escreve, pelo CASE de
+ * `UPSERT_DEFEITO`) e é RECUSADO aqui com 422. É o mesmo recorte, pelo mesmo motivo, de
+ * `ORIGENS_DO_CLIENTE` na rota anônima: uma coluna cujo valor significa um FATO apurado pelo
+ * produto não pode aceitar esse valor como opinião de quem chama. Marcado à mão, `regrediu`
+ * seria um rótulo sem os dois `release` por trás, e a tela passaria a mostrar regressão onde
+ * não houve nenhuma. A lista é DERIVADA da completa, então estado novo entra nas duas de
+ * graça (ver `estados-de-defeito.js`).
+ *
+ * `commit` SÓ FAZ SENTIDO COM `resolvido`, e mesmo assim ele NÃO é condicionado por Joi. A
+ * dependência é fácil de escrever (`Joi.when`) e paga mal: um `commit` enviado junto de
+ * `ignorado` é inofensivo (o CASE de `UPDATE_ESTADO_DE_DEFEITO` simplesmente não o usa), e
+ * trocar isso por um 422 daria ao cliente uma recusa sobre um campo que ele mandou por
+ * excesso de zelo. O que a borda precisa garantir é o TETO, e esse ela garante.
+ *
+ * O TETO É 64 E ELE ESPELHA O CHECK DA COLUNA (`018_defeitos_e_ocorrencias.sql`), que é o
+ * comprimento de um SHA-256 em hexadecimal. Sem ele a recusa viria do banco como 23514, que
+ * a borda traduz num erro sem relação aparente com o campo; com ele, o 422 nomeia `commit`.
+ *
+ * `allow('', null)` porque "resolvi e não sei o commit" é o caso comum, e um campo vazio
+ * vindo de um formulário é a forma que ele toma. `vazioVirando` (`defeitos.service.js`) o
+ * transforma em NULL antes do UPDATE, que é o que a coluna guarda.
+ */
+export const estadoDeDefeitoSchema = Joi.object({
+  estado: Joi.string().valid(...ESTADOS_MANUAIS).required(),
+  commit: Joi.string().trim().max(64).allow('', null),
 });
 
 /**

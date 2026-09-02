@@ -496,16 +496,28 @@ export function percentil(ordenados, p) {
 }
 
 /**
+ * O rótulo do grupo cuja linha NÃO declara `release`.
+ *
+ * ELE É DE APRESENTAÇÃO, e o dado continua sendo `release: null`. A distinção não é
+ * cerimônia: `null` é falsificável (o consumidor do `--json` sabe que o campo faltou), e uma
+ * string mágica no dado se confunde com uma release que alguém chamasse assim. O rótulo mora
+ * aqui, e não no comando, porque quem imprime a tabela de `lento` e quem imprime o bloco de
+ * latência do `resumo` são dois sítios, e duas redações do mesmo grupo divergem.
+ */
+export const ROTULO_SEM_RELEASE = '(sem release)';
+
+/**
  * Latência por rota, a partir do `duration` que o `requestLogger` já carimba em toda
  * requisição. Nenhuma instrumentação nova: a medição já existia e ninguém a guardava.
  *
  * Ordenado por p95 e não por média, porque média esconde exatamente a cauda que faz o
  * usuário dizer "está lento".
  * @param {Object[]} registros
- * @returns {Array<{rota: string, n: number, p50: number, p95: number, max: number}>}
+ * @param {{porRelease?: boolean}} [opcoes] - ver `criarResumoDeLatencia`
+ * @returns {Array<{rota: string, release: string|null, n: number, p50: number, p95: number, max: number}>}
  */
-export function resumirLatencia(registros) {
-  const resumo = criarResumoDeLatencia();
+export function resumirLatencia(registros, opcoes) {
+  const resumo = criarResumoDeLatencia(opcoes);
   for (const reg of registros) resumo.ver(reg);
   return resumo.resultado();
 }
@@ -518,38 +530,87 @@ export function resumirLatencia(registros) {
  * porém, são NÚMEROS e não registros — oito bytes por requisição, contra as centenas de bytes
  * de um objeto de log. Dois milhões de linhas ficam na ordem de 16 MB, que é o preço de
  * responder p95 sem estimador aproximado.
+ *
+ * ─── `porRelease`, E POR QUE ELE NÃO É UM SEGUNDO ACUMULADOR ───
+ *
+ * Com a opção ligada, a chave do agrupamento passa a ser o PAR (rota, release), e a mesma
+ * rota aparece numa linha por build. A pergunta que só essa forma responde é a que um deploy
+ * levanta: "isto ficou mais lento depois de subir?". Sem ela, a média de duas builds numa
+ * linha só ESCONDE a regressão em proporção ao tempo que a build antiga dominou a janela, e
+ * esconde mais justamente na janela larga, que é a que se olha depois de um deploy ruim.
+ *
+ * Um irmão `criarResumoDeLatenciaPorRelease` seria uma segunda cópia de percentil, de
+ * ordenação e de normalização de rota, e a segunda cópia é a que fica para trás no dia em
+ * que a primeira for consertada. O que muda de fato é UMA linha, a da chave.
+ *
+ * A LINHA SEM `release` NÃO É DESCARTADA, e isso é o ponto que se erra: `EBGEO_RELEASE` só
+ * existe desde o lote A, e num arquivo que atravesse aquele dia a maioria das linhas não tem
+ * o campo. Filtrá-las faria a tabela responder sobre uma fatia sem dizer que era uma fatia,
+ * ou seja, a comparação entre duas builds seria feita ignorando a mais antiga das duas. Elas
+ * caem num grupo próprio, com `release: null` (rótulo em `ROTULO_SEM_RELEASE`).
+ *
+ * `release` NÃO-STRING TAMBÉM CAI NO GRUPO NULO. O campo vem de `JSON.parse` de uma linha de
+ * arquivo, que pode ter sido escrita por outro produtor ou editada à mão: um número ali
+ * viraria uma chave de agrupamento que nenhuma outra linha casa, e a tabela ganharia um
+ * grupo de uma linha só com cara de build.
+ *
+ * @param {{porRelease?: boolean}} [opcoes]
  * @returns {{ver: (reg: Object) => void, resultado: () => Array<Object>}}
  */
-export function criarResumoDeLatencia() {
-  const porRota = new Map();
+export function criarResumoDeLatencia({ porRelease = false } = {}) {
+  // A CHAVE É COMPOSTA COM O BYTE NULO, e não com espaço nem barra: os dois aparecem dentro
+  // uma rota normalizada (`POST /atlas/:id/sync`) e dentro de uma release (`1.0.0+abc def`
+  // não é impossível), e um separador que ocorra no valor faz duas chaves diferentes
+  // colidirem numa só, calado. O byte nulo não é produzido nem pelo
+  // carimbo de release nem pela normalização de rota, e vai escrito como escape
+  // (`\u0000`) porque byte de controle literal em fonte não sobrevive a um editor
+  // descuidado.
+  const porChave = new Map();
   return {
     ver(reg) {
       if (!reg || typeof reg.duration !== 'number' || !reg.url) return;
       const rota = `${reg.method || ''} ${normalizarRota(reg.url)}`.trim();
-      if (!porRota.has(rota)) porRota.set(rota, []);
-      porRota.get(rota).push(reg.duration);
+      const release = porRelease && typeof reg.release === 'string' && reg.release !== ''
+        ? reg.release
+        : null;
+      const chave = porRelease ? `${rota}\u0000${release ?? ''}` : rota;
+      if (!porChave.has(chave)) porChave.set(chave, { rota, release, valores: [] });
+      porChave.get(chave).valores.push(reg.duration);
     },
     resultado() {
       const linhas = [];
-      for (const [rota, valores] of porRota) {
+      for (const { rota, release, valores } of porChave.values()) {
         valores.sort((a, b) => a - b);
         linhas.push({
           rota,
+          // `release` sai SEMPRE, e vale `null` quando o agrupamento não é por build. Um
+          // campo que existisse só num dos modos faria o consumidor do `--json` precisar
+          // saber qual modo produziu o documento para saber se pode lê-lo.
+          release,
           n: valores.length,
           p50: percentil(valores, 50),
           p95: percentil(valores, 95),
           max: valores[valores.length - 1],
         });
       }
-      return linhas.sort((a, b) => b.p95 - a.p95);
+      // O DESEMPATE É PELA ROTA e depois pela release, e ele existe para a saída ser
+      // DETERMINÍSTICA: com `porRelease`, duas builds da mesma rota empatam em p95 com
+      // frequência (a mesma rota rápida em duas builds mede o mesmo), e sem desempate a
+      // ordem passa a ser a de inserção no Map, ou seja, a ordem em que as linhas caíram no
+      // disco. Duas rodadas sobre o mesmo arquivo dariam tabelas diferentes.
+      return linhas.sort((a, b) => (
+        b.p95 - a.p95
+        || a.rota.localeCompare(b.rota)
+        || String(a.release ?? '').localeCompare(String(b.release ?? ''))
+      ));
     },
   };
 }
 
 /**
- * Contagem por faixa de status, para a pergunta "como está o serviço agora".
+ * Contagem por REQUISIÇÃO, para a pergunta "como está o serviço agora".
  * @param {Object[]} registros
- * @returns {{total: number, porFaixa: Object<string, number>}}
+ * @returns {{total: number, porFaixa: Object<string, number>, erros: number}}
  */
 export function resumirStatus(registros) {
   const resumo = criarResumoDeStatus();
@@ -558,21 +619,60 @@ export function resumirStatus(registros) {
 }
 
 /**
- * A mesma contagem por faixa, em FLUXO. Ela é puro contador: nada aqui precisa da amostra.
- * @returns {{ver: (reg: Object) => void, resultado: () => {total: number, porFaixa: Object<string, number>}}}
+ * A mesma contagem, em FLUXO. Puro contador: nada aqui precisa da amostra.
+ *
+ * ─── AS TRÊS SAEM DO MESMO DENOMINADOR, E ISSO É CORREÇÃO DE 2026-09-02 ───
+ *
+ * `erros` NASCEU AQUI DENTRO naquela data, e antes era contado FORA, pelos três chamadores,
+ * com `ehErro` sobre a janela inteira. O sintoma foi medido na captura da aba: **144
+ * requisições, 288 erros, taxa de erro 200,0%**. Um número impossível na tela.
+ *
+ * A causa não era um defeito de contagem, era um denominador diferente do numerador.
+ * `ehErro` (logo acima) tem TRÊS termos de propósito, porque a pergunta DELE é "esta LINHA é
+ * um registro de erro?", e ela precisa alcançar o que foi logado fora do ciclo HTTP (o sweep
+ * do WS, um job, a amostra de saúde com o banco fora). A pergunta do PULSO é outra: "quantas
+ * REQUISIÇÕES falharam?". Uma requisição que falha escreve DUAS linhas (a do `errorHandler`,
+ * com `err`, e a do `request-logger`, com `statusCode`), e `ehErro` pega as duas enquanto
+ * `total` conta só a segunda. Com todas as requisições falhando, a razão vai exatamente a 2.
+ *
+ * A wiki DECLARAVA esse comportamento ("o `erros` de `/diag/status` conta REGISTROS"), e a
+ * declaração não o salvava: uma taxa acima de 100% não se lê como decisão de contagem, se lê
+ * como tela quebrada, e uma tela que se lê como quebrada não é consultada. Documentar uma
+ * razão de duas fontes diferentes é mais barato que corrigi-la e vale menos que nada.
+ *
+ * A CORREÇÃO É O NUMERADOR CAIR DENTRO DO MESMO `if` DO DENOMINADOR, e a estrutura é a
+ * garantia: as três contagens são incrementadas no mesmo ramo, sobre a mesma linha, então
+ * elas não têm como divergir de fonte. Contá-lo fora, mesmo com o predicado certo, é o que
+ * já divergiu uma vez — e divergiu em TRÊS chamadores, que é o que acontece quando a regra
+ * mora no ponto de uso em vez de no acumulador.
+ *
+ * O QUE ESTA MUDANÇA **NÃO** ALCANÇA, e continua certo: `diag -- erros` e `GET /diag/erros`
+ * seguem usando `ehErro` e seguem contando OUTRA coisa (assinaturas distintas, depois de
+ * fundir as duas linhas por `reqId`). Os dois números continuam diferentes de propósito, e a
+ * diferença agora é explicável (defeitos distintos contra requisições falhas) em vez de ser
+ * o mesmo fato contado duas vezes num dos lados.
+ *
+ * @returns {{ver: (reg: Object) => void, resultado: () => {total: number, porFaixa: Object<string, number>, erros: number}}}
  */
 export function criarResumoDeStatus() {
   const porFaixa = {};
   let total = 0;
+  let erros = 0;
   return {
     ver(reg) {
+      // A LINHA DO `errorHandler` NÃO ENTRA, nem no numerador nem no denominador, e é ela
+      // que a guarda abaixo barra: ela carrega `err` e NÃO carrega `statusCode` no topo (o
+      // handler o omite de propósito, senão a requisição seria contada duas vezes aqui). O
+      // `statusCode` daquela requisição chega pela linha do `request-logger`, que é uma por
+      // requisição, e é essa linha que o pulso conta.
       if (!reg || typeof reg.statusCode !== 'number') return;
       total += 1;
+      if (reg.statusCode >= 400) erros += 1;
       const faixa = `${Math.floor(reg.statusCode / 100)}xx`;
       porFaixa[faixa] = (porFaixa[faixa] || 0) + 1;
     },
     resultado() {
-      return { total, porFaixa };
+      return { total, porFaixa, erros };
     },
   };
 }
@@ -872,4 +972,300 @@ export function parseLinha(linha) {
   } catch {
     return null;
   }
+}
+
+/** Quantos defeitos o bloco 1 nomeia. Cinco é o que cabe numa tela sem virar rolagem. */
+export const TOPO_DE_DEFEITOS = 5;
+
+/** Quantas rotas o bloco 2 compara entre as duas janelas. */
+export const ROTAS_COMPARADAS = 5;
+
+/**
+ * A COMPARAÇÃO ENTRE DUAS JANELAS, para UMA rota.
+ *
+ * `null` NA JANELA ANTERIOR NÃO É ZERO, e é a distinção inteira desta função: uma rota que
+ * não existia antes (deploy que a criou, ou janela anterior fora do arquivo) não ficou
+ * infinitamente mais lenta, ela simplesmente não tem base de comparação. Zero ali produziria
+ * um delta enorme em toda rota nova, ou seja, o relatório gritaria exatamente onde não há
+ * nada a dizer, e quem lê aprenderia a ignorar a coluna.
+ *
+ * O PERCENTUAL SÓ EXISTE COM BASE MAIOR QUE ZERO, pelo mesmo motivo aritmético: dividir por
+ * um p95 anterior de 0 ms devolve `Infinity`, que se imprime como um número e não é um.
+ *
+ * @param {number|null} agora - p95 da janela atual
+ * @param {number|null} antes - p95 da janela anterior
+ * @returns {{p95: number|null, p95Anterior: number|null, delta: number|null, deltaPct: number|null}}
+ */
+export function compararP95(agora, antes) {
+  const temAgora = Number.isFinite(agora);
+  const temAntes = Number.isFinite(antes);
+  return {
+    p95: temAgora ? agora : null,
+    p95Anterior: temAntes ? antes : null,
+    delta: temAgora && temAntes ? agora - antes : null,
+    deltaPct: temAgora && temAntes && antes > 0
+      ? Math.round(((agora - antes) / antes) * 1000) / 10
+      : null,
+  };
+}
+
+/**
+ * O RELATÓRIO DE UMA TELA: `npm run diag -- resumo`.
+ *
+ * ELE NÃO LÊ NADA, e essa é a razão de morar aqui em vez de no comando: recebe as peças já
+ * calculadas e só COMPÕE. Quem abre arquivo, quem abre pool e quem decide a janela é
+ * `scripts/diag.js`. O que se ganha é o que esta casa ganha sempre com a separação, e desta
+ * vez com um caso extra: a composição tem cinco blocos com cinco modos de indisponibilidade
+ * diferentes, e um teste que precisasse de disco e de Postgres para exercer "o banco está
+ * fora" não seria escrito.
+ *
+ * ─── A REGRA QUE VALE PARA OS CINCO BLOCOS, E ELA É A RAZÃO DESTA FUNÇÃO EXISTIR ───
+ *
+ * **Bloco cuja fonte não respondeu DIZ ISSO, e nunca imprime zero.** É a lição que a aba de
+ * Diagnóstico já pagou com `diretorioAusente` (ver `docs/wiki/observabilidade.md`): "nenhum
+ * erro nas últimas 24 horas" desenhado a partir de um instrumento DESLIGADO é cobertura
+ * vazia passando verde na forma de interface, e num relatório de uma tela isso é pior, porque
+ * as cinco linhas aparecem juntas e a boa notícia falsa fica ao lado de quatro verdadeiras.
+ * Aqui a diferença é estrutural: cada bloco carrega `disponivel` e, quando `false`, um
+ * `motivo`. Nenhuma contagem sai ao lado de `disponivel: false`.
+ *
+ * **E todo bloco carrega a PREMISSA, mesmo quando a notícia é boa.** É a mesma correção que
+ * `resumirAmostras` levou em 2026-09-01: uma frase tranquilizadora sem a premissa visível
+ * ("nenhuma amostra faltando") mentiu por meses. Aqui a premissa tem forma diferente por
+ * bloco, e cada uma responde a uma pergunta que a contagem sozinha não responde: os dois
+ * blocos de banco declaram se a lista veio PARCIAL (o `LIMIT` da consulta é menor que o total
+ * da janela, então "os cinco maiores" são os cinco maiores DENTRE OS QUE VIERAM); os três
+ * blocos de arquivo declaram diretório, arquivos abertos e linhas lidas, que é o que torna
+ * uma lista vazia falsificável.
+ *
+ * ─── OS CINCO BLOCOS ───
+ *
+ *  1. `defeitos`     — novos, regressões, os cinco maiores e o recorte cliente/servidor;
+ *  2. `latencia`     — p95 das rotas mais chamadas, contra a janela ANTERIOR do mesmo
+ *                      tamanho, mais a contagem de queries lentas;
+ *  3. `saude`        — buracos na série de amostras e o disco da última;
+ *  4. `indisponivel` — os defeitos de origem `indisponivel`, que é a queda vista pelo
+ *                      CLIENTE;
+ *  5. `status`       — requisições, erros e taxa.
+ *
+ * **O BLOCO 4 NÃO É REDUNDANTE COM O 3, E É A JUNÇÃO QUE DÁ VALOR AOS DOIS.** O 3 é o que o
+ * SERVIDOR sabe de si (buraco na série de amostras), e o `fileoverview` de
+ * `amostra-de-saude.js` diz em voz alta o que ele não alcança: um amostrador dentro do
+ * processo não testemunha a própria morte, e o buraco tem duas causas indistinguíveis (o
+ * processo caiu, ou o log em arquivo se desligou). O 4 é o que o NAVEGADOR viu (a tela
+ * "EBGeo indisponível", relatada com origem `indisponivel`), e ele é a única testemunha da
+ * queda que vem de FORA do processo. Lidos lado a lado eles se desambiguam: buraco na série
+ * COM relato de indisponibilidade é queda; buraco SEM relato nenhum é, mais provavelmente, o
+ * log tendo se desligado com o servidor de pé.
+ *
+ * ─── O NOME `periodo`, E POR QUE NÃO `janela` ───
+ *
+ * O envelope do `--json` já tem um campo `janela`, com a PROCEDÊNCIA da leitura, e
+ * `escreverJson` LANÇA quando a estrutura do comando colide com ele. Esse choque já
+ * aconteceu uma vez, calado, com `resumirAmostras` (ver `estruturaDeSaude` em
+ * `scripts/diag.js`): o resumo sobrescrevia o envelope e o documento saía sem dizer de qual
+ * diretório veio. Aqui o campo nasce com outro nome de propósito.
+ *
+ * @param {Object} p
+ * @param {{desde: string, desdeMs: number, inicio: number, fim: number}} p.periodo
+ * @param {{diretorio: string, ausente: boolean, arquivos: number, linhas: number}|null} p.leitura
+ *   - a procedência do ARQUIVO; `null` significa que nem se tentou ler.
+ * @param {{itens: Object[], totalDefeitos: number}|null} p.defeitos - de `listarDefeitos`
+ * @param {string|null} [p.defeitosErro] - por que o banco não respondeu
+ * @param {Object[]} [p.latencia] - de `resumirLatencia` sobre a janela ATUAL
+ * @param {Object[]} [p.latenciaAnterior] - o mesmo, sobre a janela anterior
+ * @param {{janela: number, anterior: number}} [p.queriesLentas]
+ * @param {Object|null} [p.amostras] - de `resumirAmostras`
+ * @param {{total: number, porFaixa: Object, erros: number}|null} [p.status]
+ * @returns {Object}
+ */
+export function montarResumo({
+  periodo,
+  leitura = null,
+  defeitos = null,
+  defeitosErro = null,
+  latencia = [],
+  latenciaAnterior = [],
+  queriesLentas = null,
+  amostras = null,
+  status = null,
+}) {
+  // A INDISPONIBILIDADE DO ARQUIVO É UM ESTADO SÓ para os três blocos que o leem, e é
+  // decidida UMA vez: diretório ausente e leitura nem tentada dizem a mesma coisa para quem
+  // lê ("não há como afirmar nada a partir do log"), e distingui-las em três lugares
+  // produziria três frases levemente diferentes para o mesmo fato.
+  const arquivoCego = leitura === null || leitura.ausente === true;
+  const premissaDeArquivo = arquivoCego
+    ? null
+    : {
+      fonte: 'arquivo',
+      diretorio: leitura.diretorio ?? null,
+      arquivos: leitura.arquivos ?? 0,
+      linhas: leitura.linhas ?? 0,
+    };
+  const motivoDeArquivo = leitura === null
+    ? 'o log em arquivo não foi lido nesta invocação'
+    : 'o diretório de log não existe: o instrumento está CEGO, e isto não é "nada aconteceu"';
+
+  const bancoCego = defeitos === null;
+  const motivoDeBanco = defeitosErro
+    || 'o banco não respondeu: `defeitos` e o recorte de indisponibilidade vêm das tabelas, não do log';
+
+  // A PREMISSA DOS DOIS BLOCOS DE BANCO É A MESMA LISTA, e ela é montada uma vez pelo mesmo
+  // motivo: os dois recortam a MESMA consulta, então uma lista parcial os afeta igualmente e
+  // duas premissas separadas poderiam divergir por descuido.
+  const premissaDeBanco = bancoCego
+    ? null
+    : {
+      fonte: 'banco',
+      vistos: defeitos.itens.length,
+      total: defeitos.totalDefeitos,
+      // PARCIAL É O CAMPO QUE SALVA O "TOPO 5" DE MENTIR: a consulta ordena por `ultima_em`
+      // e corta por `LIMIT`, então os cinco maiores calculados aqui são os cinco maiores
+      // DENTRE OS QUE VIERAM. Com a lista completa isso é a mesma coisa; com ela cortada,
+      // não é, e a diferença precisa estar escrita ao lado do número.
+      parcial: defeitos.itens.length < defeitos.totalDefeitos,
+    };
+
+  const itens = bancoCego ? [] : defeitos.itens;
+  const dentroDaJanela = (t) => Number.isFinite(t) && t >= periodo.inicio;
+
+  const blocoDefeitos = bancoCego
+    ? { disponivel: false, motivo: motivoDeBanco, premissa: null }
+    : {
+      disponivel: true,
+      premissa: premissaDeBanco,
+      // NOVO É `primeira_em` DENTRO DA JANELA, e não "ainda aberto": um defeito nascido
+      // hoje e já resolvido continua sendo novo, e é justamente o que se quer ver depois
+      // de um dia de trabalho.
+      novos: itens.filter((d) => dentroDaJanela(d.primeiraEm)).length,
+      // REGRESSÃO É O ESTADO, e o estado é escrito pela máquina (o CASE de
+      // `UPSERT_DEFEITO`), nunca à mão. O recorte é por `ultima_em` porque é a ocorrência
+      // NOVA que caracteriza a regressão; um defeito marcado `regrediu` semanas atrás e
+      // parado desde então não é notícia desta janela.
+      regressoes: itens.filter((d) => d.estado === 'regrediu' && dentroDaJanela(d.ultimaEm)).length,
+      porOrigem: {
+        // O RECORTE É TERNÁRIO E NÃO BINÁRIO, e o terceiro balde é o maior deles na
+        // prática: a esmagadora maioria das linhas tem `origem` NULA (o cliente não
+        // declarou), e somá-las ao lado do cliente inventaria procedência, enquanto
+        // escondê-las faria as duas contagens não fecharem com o total.
+        servidor: itens.filter((d) => d.origem === 'servidor').length,
+        cliente: itens.filter((d) => typeof d.origem === 'string' && d.origem !== 'servidor').length,
+        semOrigem: itens.filter((d) => d.origem === null || d.origem === undefined).length,
+      },
+      topo: [...itens]
+        .sort((a, b) => (b.ocorrencias ?? 0) - (a.ocorrencias ?? 0) || String(a.id).localeCompare(String(b.id)))
+        .slice(0, TOPO_DE_DEFEITOS)
+        .map((d) => ({
+          id: d.id,
+          mensagem: d.mensagem,
+          estado: d.estado,
+          origem: d.origem ?? null,
+          ocorrencias: d.ocorrencias,
+          primeiraEm: d.primeiraEm,
+          ultimaEm: d.ultimaEm,
+        })),
+    };
+
+  // AS ROTAS COMPARADAS SÃO AS MAIS CHAMADAS, E NÃO AS MAIS LENTAS. `resumirLatencia` já
+  // devolve ordenado por p95, e reusar aquela ordem aqui responderia outra pergunta: as mais
+  // lentas de um sistema são quase sempre as mesmas poucas rotas caras chamadas duas vezes
+  // por dia, cujo p95 oscila com qualquer coisa. O que um deploy piora de forma visível é o
+  // que o produto de fato usa, e "usa" é `n`.
+  const anteriorPorRota = new Map(latenciaAnterior.map((l) => [l.rota, l]));
+  const blocoLatencia = arquivoCego
+    ? { disponivel: false, motivo: motivoDeArquivo, premissa: null }
+    : {
+      disponivel: true,
+      premissa: {
+        ...premissaDeArquivo,
+        // A JANELA ANTERIOR VAI DECLARADA, porque o delta é uma conta entre DOIS períodos e
+        // quem lê precisa saber qual foi o segundo. Ela tem exatamente o mesmo tamanho da
+        // atual: comparar 24h com 7d produziria um p95 anterior mais estável por
+        // construção, e todo delta pareceria uma piora.
+        janelaAnterior: {
+          inicio: periodo.inicio - periodo.desdeMs,
+          fim: periodo.inicio,
+        },
+      },
+      rotas: [...latencia]
+        .sort((a, b) => b.n - a.n || a.rota.localeCompare(b.rota))
+        .slice(0, ROTAS_COMPARADAS)
+        .map((l) => ({
+          rota: l.rota,
+          n: l.n,
+          ...compararP95(l.p95, anteriorPorRota.get(l.rota)?.p95 ?? null),
+        })),
+      // A CONTAGEM DE QUERY LENTA MORA NO BLOCO DE LATÊNCIA e não num sexto bloco: ela
+      // responde à mesma pergunta ("o que está devagar") por outro andar, e um número solto
+      // longe da tabela de rotas obrigaria quem lê a costurar os dois de cabeça. Ela sai
+      // com a janela anterior ao lado pela mesma razão que o p95 sai.
+      queriesLentas: queriesLentas ?? { janela: 0, anterior: 0 },
+    };
+
+  const blocoSaude = arquivoCego || amostras === null
+    ? { disponivel: false, motivo: motivoDeArquivo, premissa: null }
+    : {
+      disponivel: true,
+      premissa: premissaDeArquivo,
+      // O RESUMO INTEIRO NÃO CABE NUMA TELA, então o bloco carrega o RECORTE que responde
+      // "o processo esteve de pé?" e nada mais. Quem precisa dos buracos um a um tem
+      // `diag -- saude`, que é o comando dedicado, e o campo `situacao` viaja junto para
+      // que os três estados de ausência (`sem-amostras`, `amostra-unica`, intervalo
+      // inestimável) cheguem inteiros em vez de virarem zero.
+      situacao: amostras.situacao,
+      amostras: amostras.total,
+      faltantes: amostras.faltantes,
+      esperadas: amostras.esperadas,
+      buracos: amostras.buracos.length,
+      maiorBuracoMs: amostras.maiorBuraco ? amostras.maiorBuraco.duracaoMs : null,
+      desdeUltimaMs: amostras.desdeUltimaMs,
+      ultimaAtrasada: amostras.ultimaAtrasada,
+      // A PREMISSA DO NÚMERO DE FALTANTES VIAJA JUNTO, e não só a premissa da leitura: a
+      // contagem é uma divisão por um intervalo que o próprio comando costuma INFERIR, e
+      // foi exatamente a frase sem esta procedência que mentiu por meses.
+      intervaloMs: amostras.intervaloMs,
+      intervaloOrigem: amostras.intervaloOrigem,
+      estimativaFragil: amostras.estimativaFragil,
+      discoNaUltima: amostras.discoNaUltima,
+    };
+
+  const blocoIndisponivel = bancoCego
+    ? { disponivel: false, motivo: motivoDeBanco, premissa: null }
+    : {
+      disponivel: true,
+      premissa: premissaDeBanco,
+      // A QUEDA VISTA PELO CLIENTE. `indisponivel` é escrita pela tela "EBGeo indisponível"
+      // uma vez por vida da página, e o relato ENFILEIRA sem tentar quando a causa é o
+      // servidor inalcançável, ou seja, ele chega DEPOIS, na próxima carga bem-sucedida.
+      // Isso tem uma consequência que precisa estar escrita: uma queda em curso NÃO aparece
+      // aqui, e a ausência de relato numa janela recente não é prova de disponibilidade.
+      defeitos: itens.filter((d) => d.origem === 'indisponivel').length,
+      ocorrencias: itens
+        .filter((d) => d.origem === 'indisponivel')
+        .reduce((s, d) => s + (d.ocorrencias ?? 0), 0),
+    };
+
+  const blocoStatus = arquivoCego || status === null
+    ? { disponivel: false, motivo: motivoDeArquivo, premissa: null }
+    : {
+      disponivel: true,
+      premissa: premissaDeArquivo,
+      total: status.total,
+      porFaixa: status.porFaixa,
+      erros: status.erros,
+      // A TAXA É `null` COM ZERO REQUISIÇÕES, e nunca 0: uma janela sem tráfego nenhum não
+      // tem taxa de erro de 0%, ela não tem taxa. Imprimir 0,0% ali afirmaria saúde a
+      // partir de ausência de medição, que é o mesmo erro do `faltantes` da amostra.
+      taxaDeErro: status.total > 0 ? Math.round((status.erros / status.total) * 1000) / 10 : null,
+    };
+
+  return {
+    periodo,
+    defeitos: blocoDefeitos,
+    latencia: blocoLatencia,
+    saude: blocoSaude,
+    indisponivel: blocoIndisponivel,
+    status: blocoStatus,
+  };
 }

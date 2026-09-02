@@ -357,3 +357,122 @@ export const DELETE_DEFEITOS_EXPIRADOS = `
    )
   RETURNING id
 `;
+
+/**
+ * O estado ATUAL de um defeito, TRAVADO para a transição.
+ *
+ * `FOR UPDATE` NÃO É ZELO, e a corrida que ele fecha é real e frequente: `UPSERT_DEFEITO`
+ * escreve a MESMA linha a cada relato, e o CASE dele pode mover `resolvido` para `regrediu`.
+ * Sem o lock, um administrador que resolve enquanto uma ocorrência chega leria `de: 'aberto'`
+ * e gravaria na trilha uma transição que não foi a que aconteceu. A trilha é o registro de um
+ * ATO, e um "de" errado nela é pior que ausência: ele afirma um estado anterior que nunca
+ * existiu, e é a única coisa da linha que ninguém pode conferir depois.
+ *
+ * A `assinatura` VEM JUNTO porque ela é o `target_name` da trilha, e buscá-la numa segunda
+ * consulta abriria a mesma janela que o lock acaba de fechar.
+ */
+export const SELECT_ESTADO_DE_DEFEITO = `
+  SELECT id, estado, assinatura
+    FROM defeitos
+   WHERE id = $1
+     FOR UPDATE
+`;
+
+/**
+ * A TRANSIÇÃO DE ESTADO, uma instrução para os três atos de administrador.
+ *
+ * UMA QUERY E NÃO TRÊS, e o motivo é o mesmo do `$14` de `UPSERT_DEFEITO`: três instruções
+ * seriam três cópias da mesma regra sobre as mesmas cinco colunas, e três cópias divergem no
+ * dia em que alguém consertar uma. O que muda entre os atos é só o que cada coluna vale, e
+ * isso cabe num CASE por coluna.
+ *
+ * ─── O QUE CADA ATO FAZ COM AS QUATRO COLUNAS `resolvido_*` ───
+ *
+ *  - `resolvido` ESCREVE as quatro (agora, quem, em qual build, em qual commit);
+ *  - `aberto` (reabrir) LIMPA as quatro, porque elas são o REGISTRO de um conserto que a
+ *    reabertura acaba de declarar sem efeito. Deixadas para trás, todo consumidor que
+ *    renderize as colunas (`itemDeDefeitoCompleto`, a listagem, a aba) mostra "resolvido em
+ *    <data> por <fulano> na release <v1>" ao lado do estado `aberto`, e a linha passa a
+ *    contradizer a si mesma. Limpar é o que faz "reaberto" significar "esqueça o conserto
+ *    anterior".
+ *
+ *    O QUE A LIMPEZA **NÃO** FAZ, e a primeira redação desta linha afirmava que fazia: ela
+ *    não impede uma regressão espúria. O CASE de `UPSERT_DEFEITO` é gateado em
+ *    `defeitos.estado = 'resolvido'`, e um defeito reaberto não está nesse estado, então
+ *    `resolvido_na_release` parada ali nunca chegaria a ser comparada. A afirmação foi
+ *    conferida REVERTENDO a limpeza desta coluna: o caso de ponta a ponta continuou verde, e
+ *    só o caso que assere as colunas cruas ficou vermelho. Fica escrito porque um argumento
+ *    forte e falso ao lado do código faz a próxima pessoa proteger a coisa errada.
+ *  - `ignorado` NÃO TOCA em nenhuma das quatro, e isso também é decisão: ignorar um defeito
+ *    que já foi resolvido antes não desfaz o fato de ele ter sido resolvido, e apagar quem
+ *    resolveu jogaria fora a única evidência de autoria que a linha tem. `ignorado` não
+ *    transiciona por nada (ver `estados-de-defeito.js`), então a coluna de release parada
+ *    ali não move mais nada.
+ *
+ * OS PARÂMETROS SÃO COMPARADOS CONTRA LITERAIS DE ESTADO, e não contra a lista importada:
+ * é SQL, e o único jeito de a lista chegar aqui seria concatenação, que é a porta de injeção
+ * que a casa proíbe. Quem garante que os literais destes CASE continuam sendo estados
+ * válidos é o CHECK da coluna, que recusa `$2` desconhecido com 23514 antes de qualquer
+ * CASE ser avaliado.
+ *
+ * NÃO HÁ `RETURNING`, e a ausência é decisão. A tentação é usá-lo para distinguir
+ * "atualizei" de "não havia linha", mas essa pergunta JÁ foi respondida uma linha antes, por
+ * `SELECT_ESTADO_DE_DEFEITO`, e o `FOR UPDATE` dele segura a linha até o fim da transação:
+ * entre as duas instruções ninguém pode apagá-la, então um `RETURNING` aqui seria uma
+ * segunda resposta para uma pergunta já fechada. A primeira versão o carregava e a query
+ * rodava por `t.none`, que LANÇA quando o comando devolve linha ("No return data was
+ * expected") — o erro apareceu como 500 em toda transição, sem relação aparente com o
+ * assunto. É o mesmo aviso que `backend/CLAUDE.md` dá sobre `SELECT` solto em migração.
+ */
+export const UPDATE_ESTADO_DE_DEFEITO = `
+  UPDATE defeitos SET
+    estado = $2,
+    resolvido_em = CASE
+      WHEN $2 = 'resolvido' THEN NOW()
+      WHEN $2 = 'aberto'    THEN NULL
+      ELSE resolvido_em
+    END,
+    resolvido_por = CASE
+      WHEN $2 = 'resolvido' THEN $3::uuid
+      WHEN $2 = 'aberto'    THEN NULL
+      ELSE resolvido_por
+    END,
+    resolvido_na_release = CASE
+      WHEN $2 = 'resolvido' THEN $4::text
+      WHEN $2 = 'aberto'    THEN NULL
+      ELSE resolvido_na_release
+    END,
+    resolvido_no_commit = CASE
+      WHEN $2 = 'resolvido' THEN $5::text
+      WHEN $2 = 'aberto'    THEN NULL
+      ELSE resolvido_no_commit
+    END
+  WHERE id = $1
+`;
+
+/**
+ * A conta que o comando vai USAR COMO ATOR, resolvida por nome de usuário.
+ *
+ * ELA EXISTE PORQUE `audit_trail.actor_id` É `NOT NULL`. O terminal não tem sessão, e a
+ * saída óbvia (deixar o ator nulo, ou inventar um id de sistema) esbarra no schema e, pior,
+ * produziria uma trilha em que o ato mais consequente do módulo não tem autor. A trilha
+ * existe para responder "quem decidiu que isto estava resolvido", e "o sistema" não é uma
+ * resposta: quem digitou o comando foi uma pessoa.
+ *
+ * O PAPEL VEM JUNTO E NÃO ENTRA NO PREDICADO, de propósito. Filtrar por `role = 'admin'` aqui
+ * faria "usuário não existe" e "usuário não é administrador" produzirem a MESMA lista vazia,
+ * e o comando teria de escolher uma frase para os dois casos, que é a resposta errada em
+ * metade das vezes. Com o papel na resposta, quem decide é `resolverAtorAdministrador`
+ * (`defeitos.service.js`), que nomeia o motivo certo; ele é o sítio classificado no censo de
+ * papel global.
+ *
+ * `is_active` ESTÁ NO PREDICADO, e este sim pode estar: uma conta desativada não é um ator
+ * possível em nenhuma leitura, e o middleware `auth` a recusa com 401 antes de qualquer gate
+ * de papel. Deixá-la passar aqui daria ao terminal um caminho que a rota não tem.
+ */
+export const SELECT_ATOR_POR_USERNAME = `
+  SELECT id, username, role
+    FROM users
+   WHERE username = $1
+     AND is_active = true
+`;

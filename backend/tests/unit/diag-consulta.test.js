@@ -236,17 +236,60 @@ describe('diag — latência', () => {
 });
 
 describe('diag — status e parsing', () => {
-  it('resumirStatus conta por faixa', () => {
+  it('resumirStatus conta por faixa, e os erros saem do MESMO denominador', () => {
     const r = resumirStatus([
       { statusCode: 200 }, { statusCode: 204 }, { statusCode: 404 }, { statusCode: 500 },
     ]);
     assert.equal(r.total, 4);
     assert.deepEqual(r.porFaixa, { '2xx': 2, '4xx': 1, '5xx': 1 });
+    assert.equal(r.erros, 2, '4xx e 5xx, contados na mesma passada que o total');
   });
 
   it('resumirStatus ignora linha sem status (o log do errorHandler não tem)', () => {
     const r = resumirStatus([{ err: {} }, { statusCode: 200 }]);
     assert.equal(r.total, 1);
+  });
+
+  // ── O PULSO CONTA REQUISIÇÃO, E ISSO É CORREÇÃO DE 2026-09-02 ──
+  //
+  // A aba mostrou 144 requisições, 288 erros e taxa de 200,0%. `erros` era contado FORA
+  // deste acumulador, com `ehErro` sobre a janela inteira, enquanto `total` contava só a
+  // linha do `request-logger`. Uma requisição falha escreve DUAS linhas, então com tudo
+  // falhando a razão ia exatamente a 2. Uma taxa acima de 100% não se lê como decisão de
+  // contagem, se lê como tela quebrada.
+  it('uma requisição falha em DUAS linhas conta UM erro, e a taxa fica em 50%', () => {
+    // A fixture é a forma real: a linha do `errorHandler` (com `err`, SEM `statusCode` no
+    // topo) e a do `request-logger` (com `statusCode`), o MESMO `reqId`, mais uma
+    // requisição bem-sucedida.
+    const r = resumirStatus([
+      { reqId: 'r1', err: { type: 'ValidationError', message: 'x' }, msg: 'request error' },
+      { reqId: 'r1', statusCode: 422, method: 'POST', url: '/atlas/x/sync', duration: 3 },
+      { reqId: 'r2', statusCode: 200, method: 'GET', url: '/api/config', duration: 1 },
+    ]);
+    assert.equal(r.total, 2, 'duas REQUISIÇÕES, e não três registros');
+    assert.equal(r.erros, 1, 'uma delas falhou');
+    assert.equal((r.erros / r.total) * 100, 50, 'a taxa fica entre 0 e 100');
+  });
+
+  it('a linha do errorHandler SOZINHA não vira requisição nem erro', () => {
+    // O controle que fecha a direção oposta: se ela entrasse só no numerador, a taxa
+    // voltaria a passar de 100 em qualquer janela com erro.
+    const r = resumirStatus([{ err: { type: 'Error' } }, { err: { type: 'Error' } }]);
+    assert.equal(r.total, 0);
+    assert.equal(r.erros, 0, 'sem denominador não há erro a contar');
+  });
+
+  it('a taxa NUNCA passa de 100, mesmo com tudo falhando em duas linhas cada', () => {
+    // A reprodução exata do sintoma: 4 requisições, todas falhas, 8 linhas.
+    const linhas = [];
+    for (let i = 0; i < 4; i += 1) {
+      linhas.push({ reqId: `r${i}`, err: { type: 'Error' } });
+      linhas.push({ reqId: `r${i}`, statusCode: 500 });
+    }
+    const r = resumirStatus(linhas);
+    assert.equal(r.total, 4);
+    assert.equal(r.erros, 4);
+    assert.ok(r.erros <= r.total, 'o numerador não pode passar do denominador');
   });
 
   it('parseLinha devolve null para linha pela metade, em vez de morrer', () => {
