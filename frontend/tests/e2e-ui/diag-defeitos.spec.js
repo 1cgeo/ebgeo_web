@@ -27,6 +27,12 @@
  * a leitura ingênua ("chegou ocorrência depois de eu resolver, logo regrediu") acusaria todo
  * defeito consertado sempre que um navegador com o bundle velho em cache disparasse o erro de
  * novo. O caso mede a regra certa.
+ *
+ * O PASSO 5 AMARRA A SEÇÃO "RESUMO" À MESMA REGRESSÃO, e ele existe porque aquele cartão lê OUTRA
+ * rota (`GET /diag/resumo`) e outra composição (`montarResumo`, no servidor): os dois números saem
+ * da mesma tabela e nada obriga os dois caminhos a concordarem. Ele fica AQUI, e não num arquivo
+ * próprio, porque o fato que ele conta é o que este caso acabou de provocar, e semeá-lo de novo
+ * noutra spec custaria o dobro para medir menos.
  */
 
 import { test, expect } from '@playwright/test';
@@ -163,5 +169,28 @@ describeOrSkip('Painel — aba Diagnóstico, o ciclo de vida de um defeito', () 
             .toContainText('GET /x 200 5ms', { timeout: 15000 });
         await expect(gaveta.locator('[data-testid="admin-diag-migalha"]').first())
             .toContainText('api');
+
+        // ----- 5. O RESUMO CONTA A REGRESSÃO ---------------------------------------
+        // O CARTÃO LÊ OUTRA ROTA (`GET /diag/resumo`) e outra composição (`montarResumo`, no
+        // servidor), então ele pode divergir da tabela acima sem nada ficar vermelho: os dois
+        // números vêm da mesma tabela do banco, mas por caminhos que ninguém obriga a concordar.
+        // Este caso é o que os amarra, e ele é da MESMA rodada porque a regressão que ele conta é a
+        // que o passo 3 acabou de provocar.
+        const cartao = page.locator('[data-testid="admin-diag-resumo-cartao"][data-bloco="defeitos"]');
+        // O DESFECHO PRIMEIRO, e não o número: um cartão sem fonte não desenha contagem nenhuma, e
+        // sem esta linha um `toMatch` que não casasse nada seria indistinguível de "zero
+        // regressões". É a mesma regra que o cartão impõe à tela.
+        await expect(cartao).toHaveAttribute('data-desfecho', 'disponivel', { timeout: 15000 });
+        const texto = await cartao.locator('[data-testid="admin-diag-resumo-corpo-defeitos"]').innerText();
+        const regressoes = /(\d+) regress/.exec(texto);
+        expect(regressoes, `o cartão não disse quantas regressões: ${texto.slice(0, 200)}`).toBeTruthy();
+        // MAIOR OU IGUAL A UM, e não igual: o banco desta camada é UM só para a rodada inteira e
+        // outras specs relatam erros nele, então afirmar o número exato mediria o trabalho alheio.
+        // O que ESTE caso semeou é a regressão do passo 3, e é a existência dela que se cobra.
+        expect(Number(regressoes[1])).toBeGreaterThanOrEqual(1);
+        // E a premissa sai junto do número, que é a regra dos seis cartões: contagem sem
+        // procedência é a frase tranquilizadora que já mentiu por meses no comando.
+        await expect(cartao.locator('[data-testid="admin-diag-resumo-premissa"]'))
+            .toContainText('Premissa:');
     });
 });

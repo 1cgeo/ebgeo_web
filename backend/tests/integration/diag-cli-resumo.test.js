@@ -175,6 +175,24 @@ describe('diag CLI: resumo, o comando híbrido', () => {
     assert.equal(ja.fim - ja.inicio, 2 * HORA);
   });
 
+  it('a premissa NÃO carrega `truncado`: o leitor de fluxo não tem anel para estourar', () => {
+    // O CAMPO É DA OUTRA PORTA. `GET /diag/resumo` lê pelo anel de 200 mil de
+    // `diag.service.js`, que descarta o registro mais ANTIGO (a base do delta) e declara
+    // `truncado` na premissa de cada bloco de arquivo. Aqui o leitor é `percorrerRegistros`,
+    // em fluxo e sem teto, então a chave não nasce: um `truncado: false` seria uma promessa
+    // sobre um mecanismo ausente, indistinguível da rota tendo medido e não cortado.
+    const doc = JSON.parse(rodar(['resumo', '--dir', dir, '--desde', '2h', '--json']).saida);
+    for (const bloco of ['latencia', 'saude', 'status']) {
+      assert.equal(doc[bloco].premissa.fonte, 'arquivo', 'não-vacuidade: a premissa existe');
+      assert.equal(
+        Object.hasOwn(doc[bloco].premissa, 'truncado'), false,
+        `${bloco} não pode declarar corte de anel: este leitor não tem anel`
+      );
+    }
+    // E o ENVELOPE deste comando também não o carrega, pela mesma razão.
+    assert.equal(Object.hasOwn(doc.janela, 'truncado'), false);
+  });
+
   it('as queries lentas são contadas nas DUAS janelas, e as contagens diferem', () => {
     const doc = JSON.parse(rodar(['resumo', '--dir', dir, '--desde', '2h', '--json']).saida);
     assert.deepEqual(doc.latencia.queriesLentas, { janela: 3, anterior: 1 });

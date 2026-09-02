@@ -1,9 +1,17 @@
 // Path: js/admin/diag-tab.js
 
 /**
- * @fileoverview Aba "Diagnóstico" — a saúde do servidor e dos navegadores em TRÊS seções sobre a
- * MESMA janela de tempo: o pulso de requisições, os DEFEITOS (com ciclo de vida) e a latência por
- * rota.
+ * @fileoverview Aba "Diagnóstico" — a saúde do servidor e dos navegadores em QUATRO seções sobre a
+ * MESMA janela de tempo: o RESUMO, o pulso de requisições, os DEFEITOS (com ciclo de vida) e a
+ * latência por rota.
+ *
+ * O RESUMO É A PRIMEIRA SEÇÃO DESDE 2026-09-02, e ele é o `npm run diag -- resumo` na tela. A
+ * decisão do dono naquele dia foi que o relatório de uma tela não vira digesto diário por e-mail:
+ * ele aparece onde já está quem pode agir. O documento é composto pelo SERVIDOR (`montarResumo`,
+ * `backend/src/utils/diag-consulta.js`), o mesmo que o comando imprime, e o que esta aba faz é
+ * desenhá-lo em cartões. A regra dele atravessa os seis: cartão cuja fonte não respondeu DIZ isso
+ * e nunca desenha zero, e todo cartão publica a premissa, inclusive na boa notícia. As palavras
+ * estão em `resumo-phrases.js`.
  *
  * ERAM QUATRO ATÉ 2026-09-02, e a fusão é a mudança inteira. Havia uma lista de erros do SERVIDOR
  * (varredura do arquivo de log) e outra de erros do NAVEGADOR (tabela), lado a lado: o mesmo
@@ -30,9 +38,10 @@
  * FILTROS DE DEFEITO, ao contrário, são só da seção deles, e é por isso que a barra deles mora lá
  * dentro: eles não recortam o pulso nem a latência.
  *
- * AS TRÊS CHAMADAS FALHAM SEPARADAS. Elas saem juntas num `allSettled` e cada seção pinta o
- * próprio desfecho: uma rota que ainda não exista (404) ou uma rede ruim que derrube a terceira
- * não pode esconder as outras duas, e cada falha tem o seu botão de tentar de novo. É o mesmo
+ * AS CHAMADAS FALHAM SEPARADAS, uma por seção. Elas saem juntas num `allSettled` e cada seção
+ * pinta o próprio desfecho: uma rota que ainda não exista (404, que é o estado do Resumo numa
+ * implantação anterior a ele) ou uma rede ruim que derrube uma delas não pode esconder as
+ * demais, e cada falha tem o seu botão de tentar de novo. É o mesmo
  * arranjo da aba Concessões, inclusive o embrulho `settle`, que existe porque
  * `Promise.allSettled` só protege de promessa REJEITADA: um erro SÍNCRONO na montagem do
  * argumento (o método não existir no cliente HTTP) escapa por cima dele e deixa a aba em
@@ -212,6 +221,45 @@ import {
     textoDeMigalhaLabel,
     tipoDeMigalhaLabel,
 } from './defeito-phrases.js';
+import {
+    BLOCOS_DO_RESUMO,
+    RESUMO_DESFECHO,
+    blocoAusenteNotice,
+    blocoDoPayload,
+    compostoEmNotice,
+    defeitosResumoNotice,
+    defeitosVazioNotice,
+    deltaNotice,
+    deltaTom,
+    deltaTruncadoNotice,
+    discoNotice,
+    desfechoDoBloco,
+    estimativaFragilNotice,
+    indisponivelNotice,
+    indisponivelRessalva,
+    janelaAnteriorNotice,
+    maiorBuracoNotice,
+    maisChamadasNotice,
+    origensNotice,
+    premissaDoBloco,
+    queriesLentasFonteNotice,
+    queriesLentasHint,
+    queriesLentasNotice,
+    resumoDesconhecidoNotice,
+    resumoEscopoNotice,
+    resumoFailureNotice,
+    resumoReconhecido,
+    resumoSubtitulo,
+    resumoTitulo,
+    rotasVaziasNotice,
+    saudeSituacaoNotice,
+    semFonteNotice,
+    statusDetalheNotice,
+    statusVazioNotice,
+    topoTitulo,
+    totalTruncadoNotice,
+    ultimaAmostraNotice,
+} from './resumo-phrases.js';
 
 /**
  * Os tetos de cada lista.
@@ -273,14 +321,19 @@ function escreverMarcaDeVisita(userId, agora) {
 }
 
 /**
- * As três rotas, montadas a partir da janela e (só a de defeitos) dos filtros.
+ * As rotas da aba, montadas a partir da janela e (só a de defeitos) dos filtros.
+ *
+ * O RESUMO NÃO LEVA OS FILTROS DE DEFEITO, e isso é contrato com o servidor: ele compõe o
+ * relatório sobre a janela inteira, e recortá-lo por estado ou por release faria a linha "3
+ * defeitos novos" falar de um subconjunto enquanto a premissa dela diz "da janela".
  * @param {string} janela
  * @param {Object} filtros
- * @returns {{status: string, lento: string, defeitos: string}}
+ * @returns {{resumo: string, status: string, lento: string, defeitos: string}}
  */
 function rotasDaJanela(janela, filtros) {
     const desde = encodeURIComponent(janela);
     return {
+        resumo: `/diag/resumo?desde=${desde}`,
         status: `/diag/status?desde=${desde}`,
         lento: `/diag/lento?desde=${desde}&limite=${LIMITE_LENTO}`,
         defeitos: rotaDeDefeitos(janela, filtros),
@@ -410,7 +463,7 @@ class DiagTab {
     }
 
     /**
-     * @private A moldura, desenhada UMA vez. Trocar a janela repinta as três seções e deixa o
+     * @private A moldura, desenhada UMA vez. Trocar a janela repinta as seções e deixa o
      * cabeçalho onde está: um seletor que se redesenha a cada uso perde o foco do teclado no meio
      * do gesto.
      */
@@ -430,10 +483,13 @@ class DiagTab {
         dica.textContent = janelaHint();
         c.appendChild(dica);
 
+        // O RESUMO VEM PRIMEIRO porque ele é a resposta curta e as outras três são o detalhe: quem
+        // abre esta aba quer saber se há algo a fazer antes de escolher onde olhar.
+        this._secaoResumo = this._secao('admin-diag-resumo');
         this._secaoPulso = this._secao('admin-diag-pulso');
         this._secaoDefeitos = this._montarSecaoDefeitos();
         this._secaoLatencia = this._secao('admin-diag-latencia');
-        c.append(this._secaoPulso, this._secaoDefeitos, this._secaoLatencia);
+        c.append(this._secaoResumo, this._secaoPulso, this._secaoDefeitos, this._secaoLatencia);
 
         this._carregar();
     }
@@ -532,9 +588,9 @@ class DiagTab {
     /**
      * @private A barra de filtros da seção de defeitos.
      *
-     * ELA RECARREGA A ABA INTEIRA a cada mudança, e não só a seção: as três chamadas saem juntas e
-     * o contador de geração já cobre a corrida. Recarregar só uma delas economizaria duas
-     * requisições baratas ao custo de um segundo caminho de carga para manter.
+     * ELA RECARREGA A ABA INTEIRA a cada mudança, e não só a seção: sai uma chamada por seção e o
+     * contador de geração já cobre a corrida. Recarregar só uma delas economizaria requisições
+     * baratas ao custo de um segundo caminho de carga para manter.
      * @returns {HTMLElement}
      */
     _barraDeFiltros() {
@@ -676,13 +732,23 @@ class DiagTab {
     }
 
     /**
-     * @private Lê as três rotas e pinta as três seções.
+     * @private Lê uma rota por seção e pinta cada uma com o próprio desfecho.
+     *
+     * O RESUMO FICA FORA DO `allSettled`, E A RAZÃO É LATÊNCIA, NÃO FALHA. O `allSettled` protege
+     * contra a rota que REJEITA e não contra a que demora: ele resolve no MAIS LENTO do conjunto, e
+     * o resumo é de longe o mais caro (uma passada sobre o DOBRO da janela de log, mais a lista de
+     * defeitos, numa requisição só). Junto com as outras, ele deixava o Pulso, os Defeitos e a
+     * Latência em "Carregando…" à espera de um cartão que nenhuma delas precisa, e o mesmo atraso
+     * segurava o `<select>` de janela recusando o gesto. Ele pinta pelo próprio `then`, com a MESMA
+     * guarda de geração: a proteção contra a troca rápida de janela não pode depender de estar no
+     * mesmo `await` das irmãs.
      */
     async _carregar() {
         const geracao = ++this._geracao;
         const janela = this._janela;
         const rotas = rotasDaJanela(janela, this._filtros);
 
+        this._pintarCarregando(this._secaoResumo, resumoTitulo());
         this._pintarCarregando(this._secaoPulso, 'Pulso de requisições');
         this._defeitosCarregando();
         this._pintarCarregando(this._secaoLatencia, 'Latência por rota');
@@ -691,6 +757,14 @@ class DiagTab {
             this._select.setAttribute('aria-disabled', 'true');
             this._select.title = janelaEmVooNotice();
         }
+
+        // O RESUMO SEGUE SOZINHO, e a guarda dele é feita no destino porque este caminho não passa
+        // pelo `await` de baixo. O embrulho `settle` continua valendo pelo mesmo motivo das irmãs:
+        // um erro SÍNCRONO na montagem do argumento escaparia por cima de um `catch` posto depois.
+        settle(() => pedirDiag(rotas.resumo)).then(
+            (value) => this._resumoRespondeu(geracao, janela, { status: 'fulfilled', value }),
+            (reason) => this._resumoRespondeu(geracao, janela, { status: 'rejected', reason }),
+        );
 
         const [status, defeitos, lento] = await Promise.allSettled([
             settle(() => pedirDiag(rotas.status)),
@@ -727,6 +801,21 @@ class DiagTab {
         this._pintarPulso(this._secaoPulso, status, janela);
         this._pintarDefeitos(this._secaoDefeitos, defeitos, janela);
         this._pintarLatencia(this._secaoLatencia, lento, janela);
+    }
+
+    /**
+     * @private A resposta do resumo, que chega FORA do compasso das outras seções.
+     *
+     * A GUARDA É A MESMA, e é ela que faz a saída antecipada valer: sem a comparação de geração, a
+     * resposta lenta de uma janela já abandonada pintaria por cima da rápida da janela nova, que é
+     * exatamente a corrida que o contador existe para cobrir. Ele não mexe em `_carregando` nem no
+     * seletor de janela: quem os libera é o `await` das irmãs, e prendê-los aqui devolveria o
+     * atraso que tirar o resumo do `allSettled` foi feito para remover.
+     * @param {number} geracao @param {string} janela @param {PromiseSettledResult<*>} resultado
+     */
+    _resumoRespondeu(geracao, janela, resultado) {
+        if (!this._alive || geracao !== this._geracao) return;
+        this._pintarResumo(this._secaoResumo, resultado, janela);
     }
 
     /**
@@ -776,6 +865,137 @@ class DiagTab {
         const el = failureState(detalhe, { onRetry: () => { if (this._alive) this._carregar(); } });
         host.appendChild(el);
         return el;
+    }
+
+    /**
+     * @private Seção 0: o RESUMO, o relatório de uma tela.
+     *
+     * `@cegueira-por-bloco`: ELA LÊ O LOG E NÃO CHAMA `leitorCego`, e a marca acima é a declaração
+     * disso. O servidor resolve a cegueira do arquivo POR BLOCO (`montarResumo` publica
+     * `disponivel`, `motivo` e `premissa` dentro de cada um), então com o diretório ausente os três
+     * cartões de arquivo já dizem, cada um, que a fonte deles não respondeu, e dizem MELHOR do que
+     * uma faixa de seção: eles nomeiam quais números somem e deixam de pé os dois cartões de banco,
+     * que continuam valendo com o log fora. Uma acusação de seção ali esconderia justamente a
+     * indisponibilidade vista pelo cliente, que é a testemunha que sobra quando o log se cala.
+     *
+     * O QUE ELA AINDA DEVE, E PAGA: `_notasDaLeitura` sobre o envelope `janela` da resposta, porque
+     * o TRUNCAMENTO não aparece em cartão nenhum. Esta rota lê com anel (o comando lê em fluxo e
+     * não trunca), e sem a frase um pico no começo da janela some calado enquanto seis cartões
+     * afirmam números sobre o período inteiro. O envelope tem `arquivos`, `linhas` e `truncado`, e
+     * é ele que se passa, nunca o payload nu: no topo desta resposta aqueles campos não existem, e
+     * `serverErrorsScanNotice` diria "sem varredura" sobre um documento que varreu.
+     *
+     * A GRADE INTEIRA CAI JUNTA, ao contrário dos blocos: a rota é uma só, e um 404 dela é o estado
+     * de uma implantação anterior ao resumo. Isso é FALHA de seção (com botão), e nunca seis
+     * cartões dizendo "o servidor não informou", que se leria como seis fatos quando o fato é um.
+     * @param {HTMLElement} host @param {PromiseSettledResult<*>} resultado @param {string} janela
+     */
+    _pintarResumo(host, resultado, janela) {
+        host.replaceChildren();
+        host.appendChild(sectionHeader(resumoTitulo(), { subtitle: resumoSubtitulo() }));
+
+        // A JANELA SAI DO SERVIDOR QUANDO ELE RESPONDE, e do estado local só quando não há
+        // resposta: `periodo.desde` é o recorte que ele DE FATO usou, e o seletor é o que foi
+        // pedido. Os dois coincidem hoje, e é justamente por isso que a preferência tem de estar
+        // escrita: no dia em que a rota aparar a janela (o teto de sete dias é dela), quem lê
+        // precisa ver o que foi medido, não o que foi pedido.
+        const payload = resultado.status === 'fulfilled' ? resultado.value : null;
+        const desdeMedido = typeof payload?.periodo?.desde === 'string' ? payload.periodo.desde : '';
+
+        const escopo = document.createElement('p');
+        escopo.className = 'admin-diag__nota';
+        escopo.dataset.testid = 'admin-diag-resumo-escopo';
+        // E A HORA DA COMPOSIÇÃO ENTRA AQUI, porque a aba não recarrega sozinha: um resumo lido às
+        // onze pode ter sido composto às nove, e todas as contagens dele são de então.
+        escopo.textContent = [
+            `${resumoEscopoNotice()} Janela: ${janelaEmPalavras(desdeMedido || janela)}.`,
+            compostoEmNotice(payload, horaLocal),
+        ].filter(Boolean).join(' ');
+        host.appendChild(escopo);
+
+        const wrap = card({ testid: 'admin-diag-resumo-card', padded: false });
+        host.appendChild(wrap);
+
+        if (resultado.status === 'rejected') {
+            this._falha(wrap, resumoFailureNotice(), resultado.reason);
+            return;
+        }
+        if (!resumoReconhecido(payload)) {
+            wrap.appendChild(failureState(`${resumoFailureNotice()} ${resumoDesconhecidoNotice()}`, {
+                onRetry: () => { if (this._alive) this._carregar(); },
+            }));
+            return;
+        }
+
+        const grade = document.createElement('div');
+        grade.className = 'admin-diag__resumo';
+        grade.dataset.testid = 'admin-diag-resumo-grade';
+        for (const definicao of BLOCOS_DO_RESUMO) {
+            grade.appendChild(this._cartaoDeResumo(definicao, payload));
+        }
+        wrap.appendChild(grade);
+        // O ENVELOPE `janela` E NÃO O PAYLOAD NU: é ele que carrega arquivos, linhas e `truncado`,
+        // e é o truncamento que nenhum cartão menciona.
+        this._notasDaLeitura(host, payload?.janela);
+    }
+
+    /**
+     * @private UM cartão do resumo, e o ÚNICO caminho até um número dele.
+     *
+     * ELE É O `cabecalhoDeBloco` DO COMANDO, na tela e com a mesma propriedade: nenhum corpo é
+     * chamado sem passar por aqui, e aqui a ausência de fonte SEMPRE fala. Seis cabeçalhos
+     * escritos à mão seriam seis chances de esquecer um, e o esquecido desenharia zero com cara de
+     * boa notícia, que é exatamente o defeito que esta aba já pagou com `diretorioAusente`.
+     *
+     * O DESFECHO É TERNÁRIO, e o terceiro é o que a tela tem e o comando não: `AUSENTE` é o
+     * servidor que não conhece o bloco (implantação anterior) e `SEM_FONTE` é o que conhece e não
+     * conseguiu ler. A providência é oposta, e por isso as frases são duas.
+     * @param {{id: string, campo: string, titulo: string}} definicao
+     * @param {*} payload
+     * @returns {HTMLElement}
+     */
+    _cartaoDeResumo(definicao, payload) {
+        const bloco = blocoDoPayload(payload, definicao.campo);
+        const desfecho = desfechoDoBloco(bloco);
+
+        const art = document.createElement('article');
+        // O DESFECHO SAI DAS DUAS FORMAS, e nenhuma é redundante: a CLASSE é o que a folha de estilo
+        // consulta (o resto de `admin.css` é BEM, e um seletor de atributo ali seria a exceção do
+        // arquivo), e o DADO é o que uma captura de tela e um teste conseguem afirmar sem depender
+        // do texto, como o `data-fonte` do cartão de saúde e o `data-estado` do p95.
+        art.className = `admin-diag__resumo-cartao admin-diag__resumo-cartao--${desfecho}`;
+        art.dataset.testid = 'admin-diag-resumo-cartao';
+        art.dataset.bloco = definicao.id;
+        art.dataset.desfecho = desfecho;
+
+        const titulo = document.createElement('h4');
+        titulo.className = 'admin-diag__resumo-titulo';
+        titulo.textContent = definicao.titulo;
+        art.appendChild(titulo);
+
+        if (desfecho === RESUMO_DESFECHO.AUSENTE) {
+            art.appendChild(notaDeResumo(blocoAusenteNotice(), 'admin-diag__resumo-sem-fonte',
+                'admin-diag-resumo-sem-fonte'));
+            return art;
+        }
+        if (desfecho === RESUMO_DESFECHO.SEM_FONTE) {
+            art.appendChild(notaDeResumo(semFonteNotice(bloco), 'admin-diag__resumo-sem-fonte',
+                'admin-diag-resumo-sem-fonte'));
+            return art;
+        }
+
+        const premissa = premissaDoBloco(bloco);
+        if (premissa) {
+            art.appendChild(notaDeResumo(premissa, 'admin-diag__resumo-premissa',
+                'admin-diag-resumo-premissa'));
+        }
+        // O TRUNCAMENTO VIAJA ATÉ O CORPO, e não fica só na nota do rodapé: a premissa de bloco não
+        // o carrega (`montarResumo` a monta com diretório, arquivos e linhas), e o efeito dele é
+        // ESPECÍFICO de quem compara duas janelas. Ver `deltaTruncadoNotice`.
+        art.appendChild(CORPO_DO_RESUMO[definicao.id](bloco, {
+            truncado: payload?.janela?.truncado === true,
+        }));
+        return art;
     }
 
     /**
@@ -2001,3 +2221,292 @@ function bomVazio(mensagem, dica) {
     el.dataset.testid = 'admin-diag-ok';
     return el;
 }
+
+// ===== os seis cartões do Resumo =====
+
+/**
+ * Uma linha de prosa de um cartão. Frase vazia não vira parágrafo: um `<p>` em branco abre um vão
+ * no cartão que se lê como conteúdo que não carregou.
+ * @param {string} texto @param {string} className @param {string} [testid]
+ * @returns {HTMLElement|null}
+ */
+function notaDeResumo(texto, className, testid) {
+    if (typeof texto !== 'string' || !texto.trim()) return null;
+    const p = document.createElement('p');
+    p.className = className;
+    if (testid) p.dataset.testid = testid;
+    p.textContent = texto;
+    return p;
+}
+
+/**
+ * O corpo de um cartão, com as frases que existirem.
+ * @param {string} testid @param {Array<HTMLElement|null>} filhos
+ * @returns {HTMLElement}
+ */
+function corpoDeResumo(testid, filhos) {
+    const box = document.createElement('div');
+    box.className = 'admin-diag__resumo-corpo';
+    box.dataset.testid = testid;
+    box.append(...filhos.filter(Boolean));
+    return box;
+}
+
+/** @param {string} texto @returns {HTMLElement|null} */
+function linhaDeResumo(texto) {
+    return notaDeResumo(texto, 'admin-diag__resumo-linha');
+}
+
+/** @param {string} texto @returns {HTMLElement|null} */
+function ressalvaDeResumo(texto) {
+    return notaDeResumo(texto, 'admin-diag__resumo-ressalva');
+}
+
+/**
+ * Cartão 1: os defeitos, com o pódio por ocorrências.
+ *
+ * O PÓDIO É POR OCORRÊNCIAS AQUI, e a lista da seção de Defeitos é por RECÊNCIA, e as duas estão
+ * certas: quem ordena este é o SERVIDOR, sobre a lista que ele mesmo leu, e a premissa do cartão
+ * diz em voz alta quando essa lista veio parcial. Reordenar a tabela de baixo por contagem seria o
+ * defeito que `ordenarDefeitos` existe para impedir.
+ * @param {Object} bloco
+ * @returns {HTMLElement}
+ */
+function corpoDeDefeitos(bloco) {
+    const topo = Array.isArray(bloco?.topo) ? bloco.topo : [];
+    const filhos = [
+        linhaDeResumo(defeitosResumoNotice(bloco)),
+        notaDeResumo(origensNotice(bloco?.porOrigem), 'admin-diag__resumo-nota'),
+    ];
+    if (topo.length === 0) {
+        filhos.push(notaDeResumo(defeitosVazioNotice(), 'admin-diag__resumo-vazio',
+            'admin-diag-resumo-defeitos-vazio'));
+        return corpoDeResumo('admin-diag-resumo-corpo-defeitos', filhos);
+    }
+    filhos.push(notaDeResumo(topoTitulo(), 'admin-diag__resumo-subtitulo'));
+
+    const lista = document.createElement('ul');
+    lista.className = 'admin-diag__resumo-topo';
+    lista.dataset.testid = 'admin-diag-resumo-topo';
+    for (const item of topo) {
+        const li = document.createElement('li');
+        li.className = 'admin-diag__resumo-topo-item';
+        li.dataset.testid = 'admin-diag-resumo-topo-item';
+        li.dataset.estado = String(item?.estado ?? '');
+
+        const contagem = document.createElement('span');
+        contagem.className = 'admin-diag__resumo-topo-contagem';
+        contagem.textContent = contagemLabel(item?.ocorrencias);
+        contagem.title = contagemHistoricaDetalhe(item);
+        li.appendChild(contagem);
+
+        const estado = document.createElement('span');
+        estado.className = `admin-diag__estado admin-diag__estado--${estadoTom(item?.estado)}`;
+        estado.textContent = estadoLabel(item?.estado);
+        estado.title = estadoDescricao(item?.estado);
+        li.appendChild(estado);
+
+        const origem = document.createElement('span');
+        origem.className = 'admin-diag__resumo-chip';
+        origem.dataset.testid = 'admin-diag-resumo-origem';
+        origem.textContent = origemLabel(item?.origem);
+        li.appendChild(origem);
+
+        // A MENSAGEM É TEXTO DE TERCEIRO, como toda a aba: `textContent`, e o corte é de layout.
+        const mensagem = document.createElement('span');
+        mensagem.className = 'admin-diag__resumo-topo-mensagem';
+        mensagem.textContent = resumirTexto(item?.mensagem, 90) || '—';
+        if (typeof item?.mensagem === 'string' && item.mensagem.trim()) {
+            mensagem.title = item.mensagem;
+        }
+        li.appendChild(mensagem);
+        lista.appendChild(li);
+    }
+    filhos.push(lista);
+    return corpoDeResumo('admin-diag-resumo-corpo-defeitos', filhos);
+}
+
+/**
+ * Cartão 2: a latência das rotas mais chamadas, contra a janela anterior.
+ *
+ * O DELTA TEM TOM, E O TOM NÃO É O ACENTO DO PRODUTO: ele é verde, vermelho ou neutro pelos tokens
+ * semânticos, porque a pergunta aqui é "melhorou ou piorou", e o acento significa "isto é do
+ * EBGeo", que é outra coisa. Sem base de comparação o tom é neutro de propósito: pintar de
+ * vermelho uma rota que não existia na janela anterior gritaria onde não há nada a dizer.
+ *
+ * O TRUNCAMENTO ENTRA AQUI COM VOZ DE AVISO, e não como a nota de rodapé da seção: o que o anel
+ * descarta é o mais ANTIGO, que é literalmente a janela de comparação, então sob truncamento a
+ * coluna do delta compara uma janela cheia com uma pela metade. Ver `deltaTruncadoNotice`.
+ * @param {Object} bloco
+ * @param {{truncado?: boolean}} [contexto]
+ * @returns {HTMLElement}
+ */
+function corpoDeLatencia(bloco, contexto) {
+    const rotas = Array.isArray(bloco?.rotas) ? bloco.rotas : [];
+    const filhos = [];
+    if (rotas.length === 0) {
+        filhos.push(notaDeResumo(rotasVaziasNotice(), 'admin-diag__resumo-vazio',
+            'admin-diag-resumo-latencia-vazio'));
+    } else {
+        const lista = document.createElement('ul');
+        lista.className = 'admin-diag__resumo-rotas';
+        lista.dataset.testid = 'admin-diag-resumo-rotas';
+        for (const rota of rotas) {
+            const li = document.createElement('li');
+            li.className = 'admin-diag__resumo-rota';
+            li.dataset.testid = 'admin-diag-resumo-rota';
+
+            // A CONTAGEM VEM PRIMEIRO, como na lista de defeitos ao lado e como na linha do
+            // comando: ela é o critério do recorte (as MAIS CHAMADAS), e no meio da linha, entre um
+            // nome de rota e um tempo em ms, um número nu se lê como mais uma medida de latência.
+            const chamadas = document.createElement('span');
+            chamadas.className = 'admin-diag__resumo-rota-n';
+            chamadas.textContent = contagemLabel(rota?.n);
+            chamadas.title = contagemDetalhe(rota?.n);
+            li.appendChild(chamadas);
+
+            const nome = document.createElement('span');
+            nome.className = 'admin-diag__resumo-rota-nome';
+            nome.textContent = rotaLabel(rota);
+            if (typeof rota?.rota === 'string' && rota.rota.trim()) nome.title = rota.rota;
+            li.appendChild(nome);
+
+            const tom = deltaTom(rota);
+            const delta = document.createElement('span');
+            delta.className = `admin-diag__resumo-delta admin-diag__resumo-delta--${tom}`;
+            delta.dataset.testid = 'admin-diag-resumo-delta';
+            delta.dataset.tom = tom;
+            delta.textContent = deltaNotice(rota, latenciaLabel);
+            li.appendChild(delta);
+            lista.appendChild(li);
+        }
+        filhos.push(lista);
+        // COLADA NA COLUNA QUE ELA CORRÓI, e antes da nota de por que estas rotas: é o delta que
+        // fica sem base, não a escolha das rotas.
+        if (contexto?.truncado === true) {
+            filhos.push(notaDeResumo(deltaTruncadoNotice(), 'admin-diag__resumo-alerta',
+                'admin-diag-resumo-truncado'));
+        }
+        filhos.push(ressalvaDeResumo(maisChamadasNotice()));
+    }
+    filhos.push(ressalvaDeResumo(janelaAnteriorNotice(bloco, horaLocal)));
+    return corpoDeResumo('admin-diag-resumo-corpo-latencia', filhos);
+}
+
+/**
+ * Cartão 3: a saúde do processo, pelos buracos na série de amostras.
+ * @param {Object} bloco
+ * @returns {HTMLElement}
+ */
+function corpoDeSaude(bloco) {
+    return corpoDeResumo('admin-diag-resumo-corpo-saude', [
+        linhaDeResumo(saudeSituacaoNotice(bloco)),
+        notaDeResumo(estimativaFragilNotice(bloco), 'admin-diag__resumo-alerta'),
+        notaDeResumo(maiorBuracoNotice(bloco), 'admin-diag__resumo-nota'),
+        linhaDeResumo(ultimaAmostraNotice(bloco)),
+        ressalvaDeResumo(discoNotice(bloco?.discoNaUltima)),
+    ]);
+}
+
+/**
+ * Cartão 4: a queda vista pelo NAVEGADOR.
+ * @param {Object} bloco
+ * @returns {HTMLElement}
+ */
+function corpoDeIndisponivel(bloco) {
+    return corpoDeResumo('admin-diag-resumo-corpo-indisponivel', [
+        linhaDeResumo(indisponivelNotice(bloco)),
+        ressalvaDeResumo(indisponivelRessalva()),
+    ]);
+}
+
+/**
+ * Cartão 5: o pulso resumido.
+ *
+ * OS TRÊS LADRILHOS SÃO OS MESMOS DA SEÇÃO DE PULSO, pelas mesmas funções (`contagemLabel`,
+ * `estadoDaContagemDeErros`, `taxaDeErro`): duas contas para o mesmo número divergiriam no
+ * primeiro conserto, e as duas apareceriam na MESMA tela, uma acima da outra.
+ *
+ * O `taxaDeErro` DO PAYLOAD É IGNORADO DE PROPÓSITO, e isto fica escrito porque a próxima leitura
+ * "conserta" na direção errada: o servidor já manda a taxa pronta, e usá-la daria dois formatos e
+ * dois arredondamentos para o mesmo número na mesma tela. O daqui tem as duas saídas que não são
+ * número, e são elas que valem: o "<0,1%", que impede um erro real de virar zero, e o `null`, que
+ * impede a taxa de nascer de um numerador ausente. A regra é a dos ladrilhos: o Pulso logo abaixo
+ * recalcula do total e dos erros, e o resumo tem de dizer o MESMO.
+ *
+ * O TRUNCAMENTO AQUI É OUTRO FATO, e não o do delta: o anel come as requisições mais ANTIGAS do
+ * período, então o total sai SUB-RELATADO. Ver `totalTruncadoNotice`.
+ * @param {Object} bloco
+ * @param {{truncado?: boolean}} [contexto]
+ * @returns {HTMLElement}
+ */
+function corpoDeStatus(bloco, contexto) {
+    const truncado = contexto?.truncado === true
+        ? notaDeResumo(totalTruncadoNotice(), 'admin-diag__resumo-alerta',
+            'admin-diag-resumo-total-truncado')
+        : null;
+    const total = typeof bloco?.total === 'number' ? bloco.total : null;
+    if (total === 0) {
+        return corpoDeResumo('admin-diag-resumo-corpo-status', [
+            notaDeResumo(statusVazioNotice(), 'admin-diag__resumo-vazio',
+                'admin-diag-resumo-status-vazio'),
+            truncado,
+        ]);
+    }
+    const tiras = document.createElement('div');
+    tiras.className = 'admin-diag__pulso admin-diag__resumo-pulso';
+    tiras.appendChild(tile('Requisições', contagemLabel(bloco?.total), 'admin-diag-resumo-total'));
+    tiras.appendChild(tile('Erros', contagemLabel(bloco?.erros), 'admin-diag-resumo-erros',
+        { estado: estadoDaContagemDeErros(bloco?.erros) }));
+    const taxa = taxaDeErro({ total: bloco?.total, erros: bloco?.erros });
+    if (taxa) {
+        tiras.appendChild(tile('Taxa de erro', taxa, 'admin-diag-resumo-taxa',
+            { estado: taxa === '0%' ? 'ok' : 'erro' }));
+    }
+    return corpoDeResumo('admin-diag-resumo-corpo-status', [
+        tiras,
+        truncado,
+        ressalvaDeResumo(statusDetalheNotice()),
+    ]);
+}
+
+/**
+ * Cartão 6: a contagem de query lenta, que mora DENTRO do bloco de latência no documento do
+ * servidor. Ela diz de onde vem, senão o cartão se lê como uma sexta fonte que não existe.
+ *
+ * ELE TAMBÉM PUBLICA UM "ANTERIOR", e por isso leva a MESMA ressalva de truncamento do delta: o
+ * anel descarta o mais antigo, que é a janela de comparação, então "5 na anterior" sob truncamento
+ * é uma contagem sobre um pedaço dela. A frase é a mesma de propósito, porque o fato é o mesmo.
+ * @param {Object} bloco - O bloco de LATÊNCIA.
+ * @param {{truncado?: boolean}} [contexto]
+ * @returns {HTMLElement}
+ */
+function corpoDeQueriesLentas(bloco, contexto) {
+    return corpoDeResumo('admin-diag-resumo-corpo-queries', [
+        linhaDeResumo(queriesLentasNotice(bloco?.queriesLentas)),
+        contexto?.truncado === true
+            ? notaDeResumo(deltaTruncadoNotice(), 'admin-diag__resumo-alerta',
+                'admin-diag-resumo-truncado')
+            : null,
+        notaDeResumo(queriesLentasFonteNotice(), 'admin-diag__resumo-nota'),
+        ressalvaDeResumo(queriesLentasHint()),
+    ]);
+}
+
+/**
+ * Quem desenha o corpo de cada cartão.
+ *
+ * TABELA E NÃO ENCADEAMENTO DE `if`, pelo mesmo motivo do `DESPACHO_DE_BANCO` do comando: com seis
+ * ramos, o cartão novo cai no `else` de alguém, e o modo de falha é o pior possível (o cartão de
+ * "Queries lentas" desenhando os números da latência, sem nada de errado na tela). A tabela
+ * transforma "esqueci de ligar o cartão" num `undefined` que estoura na hora.
+ * @type {Readonly<Object<string, Function>>}
+ */
+const CORPO_DO_RESUMO = Object.freeze({
+    defeitos: corpoDeDefeitos,
+    latencia: corpoDeLatencia,
+    saude: corpoDeSaude,
+    indisponivel: corpoDeIndisponivel,
+    status: corpoDeStatus,
+    queriesLentas: corpoDeQueriesLentas,
+});

@@ -1295,6 +1295,14 @@ const CENSO_ROTA = [
   { arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /lento', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
   { arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /status', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
   {
+    arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /resumo', classe: R_OUTRA, gate: 'requireAdmin',
+    motivo: `${SO_ADMIN} O relatório de UMA TELA (2026-09-02), e a única rota HÍBRIDA do módulo: `
+      + 'ela soma a agregação do log em arquivo (percentil por rota, contagem por faixa de status, '
+      + 'buracos na série de amostras) às contagens de `defeitos`. É a UNIÃO do que as quatro irmãs '
+      + 'já serviam, em contagens, e por isso não abre superfície nova: nenhum id de catálogo, 360 '
+      + 'ou 3D atravessa, e o diretório continua sendo decidido pelo servidor, sem `?dir=`.',
+  },
+  {
     arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /erros-cliente', classe: R_OUTRA, gate: 'requireAdmin',
     motivo: `${SO_ADMIN} Serve \`defeitos\`, a telemetria de erro do NAVEGADOR. As linhas não `
       + 'carregam id de catálogo, 360 nem 3D: carregam mensagem, pilha e a página em que o defeito '

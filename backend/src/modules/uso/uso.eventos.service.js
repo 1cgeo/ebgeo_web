@@ -96,8 +96,9 @@ export const MAX_SESSOES_POR_PASSADA = 5_000;
  * O RELÓGIO DA GUARDA É DO PROCESSO, com a mesma consequência (e a mesma resposta) do
  * relógio de `talvezPodar`: com N instâncias do backend no ar, a manutenção roda até N vezes
  * por hora em vez de uma. Isso é inofensivo e deliberado, porque as duas metades são
- * idempotentes por construção (o `ON CONFLICT DO NOTHING` da agregação e o `DELETE` que
- * simplesmente não acha mais linha), e uma tabela de controle compartilhada custaria uma
+ * idempotentes por construção (o `ON CONFLICT DO UPDATE` da agregação só reescreve a linha
+ * com uma contagem maior ou igual, então duas passadas convergem para o mesmo número, e o
+ * `DELETE` simplesmente não acha mais linha), e uma tabela de controle compartilhada custaria uma
  * escrita e um round-trip a mais em TODA requisição de telemetria para economizar isso.
  */
 let ultimaManutencaoEm = 0;

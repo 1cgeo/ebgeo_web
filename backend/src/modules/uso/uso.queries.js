@@ -901,9 +901,10 @@ export const HORIZONTE_DE_USO = `
  * janela faria uma build recém-implantada parecer limpa por não ter tido tempo, que é a
  * afirmação oposta à útil.
  *
- * A ORDEM É PELO ÚLTIMO SINAL, E NÃO PELA CONTAGEM, e o `LIMIT` corta as mais ANTIGAS: a
- * pergunta é sobre as builds que estão no ar AGORA, e ordenar por volume poria a build velha
- * e muito usada acima da recém-implantada, que é exatamente a que se quer olhar.
+ * O `LIMIT` CORTA PELO MESMO CRITÉRIO DA ORDEM (`MAX(s.inicio)`), ou seja, as builds mais
+ * ANTIGAS saem primeiro: a pergunta é sobre as builds que estão no ar AGORA, e cortar por
+ * volume poria a build velha e muito usada acima da recém-implantada, que é exatamente a que
+ * se quer olhar.
  *
  * A CADEIA `release IS NOT NULL AND <> ''` existe porque `EBGEO_RELEASE` é opcional: uma
  * instalação que não o declara manda `null`, e agrupar por isso produziria uma linha "sem

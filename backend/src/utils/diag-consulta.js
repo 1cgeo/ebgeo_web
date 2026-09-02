@@ -1068,8 +1068,10 @@ export function compararP95(agora, antes) {
  *
  * @param {Object} p
  * @param {{desde: string, desdeMs: number, inicio: number, fim: number}} p.periodo
- * @param {{diretorio: string, ausente: boolean, arquivos: number, linhas: number}|null} p.leitura
- *   - a procedência do ARQUIVO; `null` significa que nem se tentou ler.
+ * @param {{diretorio: string, ausente: boolean, arquivos: number, linhas: number,
+ *          truncado?: boolean}|null} p.leitura
+ *   - a procedência do ARQUIVO; `null` significa que nem se tentou ler. `truncado` é
+ *   OPCIONAL de propósito: ver a premissa de arquivo, adiante.
  * @param {{itens: Object[], totalDefeitos: number}|null} p.defeitos - de `listarDefeitos`
  * @param {string|null} [p.defeitosErro] - por que o banco não respondeu
  * @param {Object[]} [p.latencia] - de `resumirLatencia` sobre a janela ATUAL
@@ -1102,6 +1104,18 @@ export function montarResumo({
       diretorio: leitura.diretorio ?? null,
       arquivos: leitura.arquivos ?? 0,
       linhas: leitura.linhas ?? 0,
+      // `truncado` NASCE SÓ QUANDO O LEITOR TEM TETO, e a chave AUSENTE é o terceiro estado.
+      //
+      // Ele pertence à premissa de ARQUIVO inteira, e não só ao bloco de latência, porque o
+      // anel descarta o registro mais ANTIGO: o que se perde primeiro é a janela de
+      // comparação do delta, mas a contagem por faixa de status e a série de amostras saem
+      // recortadas pelo mesmo corte.
+      //
+      // O CLI lê em FLUXO, sem teto, e por isso não passa o campo: um `truncado: false` lá
+      // seria uma promessa sobre um mecanismo que não existe naquela porta, indistinguível
+      // da rota tendo medido e não cortado. `false` VINDO DA ROTA é medição (o anel rodou e
+      // não mordeu) e por isso é publicado; a ausência é "a pergunta não se aplica".
+      ...(leitura.truncado === undefined ? {} : { truncado: leitura.truncado }),
     };
   const motivoDeArquivo = leitura === null
     ? 'o log em arquivo não foi lido nesta invocação'

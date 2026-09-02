@@ -87,11 +87,15 @@ import {
   ROTULO_SEM_RELEASE,
 } from '../src/utils/diag-consulta.js';
 import { MARCADOR_AMOSTRA } from '../src/utils/amostra-de-saude.js';
-// A MESMA REGRA DOS DOIS VOCABULÁRIOS ABAIXO: o marcador da query lenta é importado do
-// escritor e nunca redigitado. `query-lenta.js` é folha de zero imports (é o que o
-// `fileoverview` dele existe para garantir), então trazê-lo aqui não arrasta `config.js`
-// nem o pool para dentro dos comandos que rodam com o Postgres fora.
-import { MARCADOR_QUERY_LENTA } from '../src/utils/query-lenta.js';
+// O ACUMULADOR DO `resumo`, COMPARTILHADO COM A ROTA `GET /diag/resumo`. Ele é importado
+// ESTATICAMENTE, e isso só é possível porque `resumo.service.js` não traz `defeitos.service.js`
+// no topo (ele o carrega por `import()` tardio, pelo mesmo motivo de `abrirBanco` aqui):
+// `config.js` e o pool exigem `DATABASE_URL` e `JWT_SECRET` na avaliação do módulo, e os cinco
+// comandos de log existem justamente para responder quando alguma coisa não está de pé. O
+// marcador da query lenta deixou de ser importado aqui porque quem o lê passou a ser aquele
+// acumulador; ele continua sendo símbolo do escritor (`utils/query-lenta.js`, folha de zero
+// imports) e nunca uma string digitada duas vezes.
+import { criarColetaDoResumo, DEFEITOS_DO_RESUMO } from '../src/modules/diag/resumo.service.js';
 // Os DOIS vocabulários entram por import e nunca como literal: são os mesmos que o Joi da
 // rota valida e que o CHECK do banco impõe, e os dois arquivos têm zero imports por
 // contrato, então trazê-los aqui não arrasta `config.js` nem o pool para dentro dos cinco
@@ -664,7 +668,7 @@ function imprimirLinhas(linhas, casaram, naJanela, filtro) {
  *
  * O ENVELOPE TEM TRÊS CAMPOS FIXOS e o resto é a estrutura do comando, espalhada na raiz:
  *
- *   `comando`   — qual dos sete respondeu. Uma saída salva em arquivo perde o comando que a
+ *   `comando`   — qual comando respondeu. Uma saída salva em arquivo perde o comando que a
  *                 produziu, e sem ele `total` e `itens` não dizem de que assunto se trata;
  *   `janela`    — o recorte, e a PROCEDÊNCIA dele (ver a chamada em `main`);
  *   `gerado_em` — quando. Em EPOCH MS, como toda data desta família (o `time` do pino, o
@@ -1228,16 +1232,12 @@ function imprimirTransicao(r, ator) {
 }
 
 
-/**
- * Quantos defeitos o `resumo` pede ao banco.
- *
- * É o TETO do Joi da rota irmã, e de propósito: o bloco 1 calcula "os cinco maiores" sobre a
- * lista que veio, e quanto mais linhas vierem menos frequente é a discordância entre esse
- * topo e o topo real. Ele não pode ser ilimitado (a tabela cresce com a VARIEDADE de
- * defeitos, que é limitada, mas não é um), e a lista PARCIAL sai declarada na premissa do
- * bloco, que é o que impede o número de mentir quando o corte morde.
+/*
+ * Quantos defeitos o `resumo` pede ao banco é `DEFEITOS_DO_RESUMO`, importado de
+ * `src/modules/diag/resumo.service.js` (onde o porquê do número está escrito) e NÃO
+ * redigitado aqui: duas cópias fariam a MESMA janela sair "parcial" numa porta e completa na
+ * outra, sobre os mesmos defeitos.
  */
-const DEFEITOS_DO_RESUMO = 200;
 
 /** O diretório de log a usar: `--dir`, o de `LOG_DIR`, ou o default embutido. */
 async function resolverDiretorioDeLog(op) {
@@ -1272,6 +1272,12 @@ async function resolverDiretorioDeLog(op) {
  * dobro do que os blocos mediram, que é pior que não ter número: ele é justamente o campo
  * que existe para tornar a resposta falsificável.
  *
+ * AS DUAS REGRAS ACIMA (o corte entre as janelas e a contagem de linhas) MORAM HOJE EM
+ * `criarColetaDoResumo` (`src/modules/diag/resumo.service.js`), porque desde 2026-09-02 a
+ * mesma coleta serve `GET /api/v1/diag/resumo`, que é como o resumo chega à aba de
+ * Administração. O que este comando NÃO compartilha é o leitor: aqui é fluxo sem teto, lá é o
+ * anel de 200 mil. Ver o `fileoverview` daquele arquivo.
+ *
  * @returns {Promise<void>}
  */
 async function comandoResumo(op, janela) {
@@ -1285,45 +1291,29 @@ async function comandoResumo(op, janela) {
   let latenciaAnterior = [];
   let amostras = null;
   let status = null;
-  const queriesLentas = { janela: 0, anterior: 0 };
+  let queriesLentas = { janela: 0, anterior: 0 };
 
   if (!ausente) {
-    const atual = criarResumoDeLatencia();
-    const passada = criarResumoDeLatencia();
-    const contagem = criarResumoDeStatus();
-    const linhasDeAmostra = [];
-    let linhasNaJanela = 0;
-
-    const lida = await percorrerRegistros(dir, janela * 2, agora, (reg) => {
-      // SEM `time` A LINHA CONTA COMO DA JANELA ATUAL, e não é descuido: `percorrerRegistros`
-      // já a deixou passar pelo mesmo critério (ele só corta o que TEM `time` e é antigo), e
-      // mandá-la para a janela anterior a colocaria na base de comparação de um período que
-      // ela não representa. A direção do erro é conservadora: ela infla o "agora", que é o
-      // lado que o operador olha com atenção.
-      const naJanela = typeof reg.time !== 'number' || reg.time >= inicio;
-      if (!naJanela) {
-        passada.ver(reg);
-        if (reg.msg === MARCADOR_QUERY_LENTA) queriesLentas.anterior += 1;
-        return;
-      }
-      linhasNaJanela += 1;
-      atual.ver(reg);
-      contagem.ver(reg);
-      if (reg.amostra === MARCADOR_AMOSTRA) linhasDeAmostra.push(reg);
-      if (reg.msg === MARCADOR_QUERY_LENTA) queriesLentas.janela += 1;
+    // A ACUMULAÇÃO É COMPARTILHADA COM `GET /diag/resumo`, e só ela: o LEITOR continua sendo
+    // o de FLUXO daqui, sem teto, e a rota usa o anel de 200 mil de `diag.service.js`. A
+    // assimetria é deliberada (ver o `fileoverview` de `resumo.service.js`), e é por isso que
+    // o que se compartilha é o acumulador, que recebe um registro por vez e não sabe de onde
+    // ele veio. Compartilhar o leitor traria o anel para cá e mudaria respostas em silêncio.
+    const coleta = criarColetaDoResumo({ inicio });
+    const lida = await percorrerRegistros(dir, janela * 2, agora, (reg) => coleta.ver(reg));
+    const disco = coleta.resultado({
+      intervaloMs: op.intervalo === null ? null : parseIntervalo(op.intervalo),
+      agora: agora.getTime(),
     });
 
     leitura = {
-      diretorio: path.resolve(dir), ausente: false, arquivos: lida.arquivosLidos, linhas: linhasNaJanela,
+      diretorio: path.resolve(dir), ausente: false, arquivos: lida.arquivosLidos, linhas: disco.linhas,
     };
-    latencia = atual.resultado();
-    latenciaAnterior = passada.resultado();
-    amostras = resumirAmostras(linhasDeAmostra, {
-      intervaloMs: op.intervalo === null ? null : parseIntervalo(op.intervalo),
-      agora: agora.getTime(),
-      inicio,
-    });
-    status = contagem.resultado();
+    latencia = disco.latencia;
+    latenciaAnterior = disco.latenciaAnterior;
+    queriesLentas = disco.queriesLentas;
+    amostras = disco.amostras;
+    status = disco.status;
   } else {
     leitura = { diretorio: path.resolve(dir), ausente: true, arquivos: 0, linhas: 0 };
   }

@@ -61,11 +61,24 @@
  * existir é a mesma que aqueles tinham: as frases estão presas como funções puras em
  * `defeito-frases.test.js`, e nada disso impede `diag-tab.js` de nunca chamá-las.
  *
- * A SAÍDA DECLARADA. Nem toda seção da aba lê arquivo de log: "Defeitos" vem do BANCO, e nela
- * `diretorioAusente` e `truncado` não existem. Ela escapa da varredura escrevendo `@nao-le-log`
- * no próprio JSDoc, com o motivo ao lado, que é o padrão de censo da casa (a seção nova reprova
- * até ser CLASSIFICADA). A declaração é cobrada dos dois lados: quem se declara fora não pode
- * chamar `leitorCego`, senão a marca está mentindo sobre a própria seção.
+ * AS DUAS SAÍDAS DECLARADAS, E ELAS DISPENSAM COISAS DIFERENTES. `@nao-le-log` é de quem não lê
+ * arquivo de log ("Defeitos" vem do BANCO, e nela `diretorioAusente` e `truncado` não existem):
+ * dispensa as duas chamadas. `@cegueira-por-bloco`, que nasceu em 2026-09-02 com a seção "Resumo",
+ * dispensa SÓ o `leitorCego`, e o motivo é que a cegueira chega resolvida POR BLOCO: o payload dela
+ * é o documento que `montarResumo` compõe no servidor, em que cada bloco carrega `disponivel`,
+ * `motivo` e `premissa`, então com o diretório ausente os três cartões de arquivo já dizem que a
+ * fonte deles não respondeu, e dizem melhor do que uma faixa de seção (eles nomeiam quais números
+ * somem e deixam de pé os dois cartões de banco, que continuam valendo com o log fora). O que ela
+ * NÃO dispensa é `_notasDaLeitura`, e é aí que está o dente: o TRUNCAMENTO não aparece em cartão
+ * nenhum, aquela rota lê com anel, e sem a frase um pico no começo da janela some calado enquanto
+ * seis cartões afirmam números sobre o período inteiro.
+ *
+ * As duas se escrevem no próprio JSDoc, com o motivo ao lado, que é o padrão de censo da casa (a
+ * seção nova reprova até ser CLASSIFICADA), e cada uma é cobrada de três lados: quem se declara não
+ * pode chamar `leitorCego` (senão a marca está mentindo sobre a própria seção), a lista de quem se
+ * declara é asserida por NOME em igualdade absoluta (contagem deixaria uma seção trocar de lugar
+ * com outra sem nada ficar vermelho), e cada declaração tem de trazer o motivo escrito. Uma marca
+ * que passasse a dispensar as duas chamadas virou `@nao-le-log`, e é isso que deve estar escrito.
  *
  * O QUE ELA NÃO ALCANÇA, dito para que o verde não seja lido como mais do que é: ela vê CHAMADA,
  * não semântica. Uma `_notasDaLeitura` chamada num ramo morto, ou chamada com o payload errado,
@@ -77,6 +90,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { BLOCOS_DO_RESUMO } from '@js/admin/resumo-phrases.js';
 
 const RAIZ = fileURLToPath(new URL('../../', import.meta.url));
 const ARQUIVO = 'src/js/admin/diag-tab.js';
@@ -87,6 +101,18 @@ const FONTE = readFileSync(path.join(RAIZ, ARQUIVO), 'utf8').replace(/\r\n/g, '\
 
 /** A marca de saída, escrita no JSDoc da seção que não lê arquivo de log. */
 const MARCA_SEM_LOG = '@nao-le-log';
+
+/**
+ * A SEGUNDA marca, e ela dispensa MENOS que a primeira: a seção lê arquivo de log e continua
+ * devendo `_notasDaLeitura` (a varredura e o truncamento), mas não chama `leitorCego` porque a
+ * cegueira do arquivo chega resolvida POR BLOCO, e cada bloco a declara sozinho na tela.
+ *
+ * ELA NÃO É UM SEGUNDO NOME PARA A PRIMEIRA, e a diferença é o que a torna uma classificação e
+ * não uma fresta: quem se declara aqui ainda é cobrado pela nota da leitura, e o piso por soma
+ * continua valendo. Se um dia ela dispensar as duas coisas, ela virou `@nao-le-log` e é isso que
+ * deve estar escrito.
+ */
+const MARCA_CEGUEIRA_POR_BLOCO = '@cegueira-por-bloco';
 
 /**
  * Tira comentários do corpo, para que a busca por chamada não case com prosa. É o mesmo motivo de
@@ -148,6 +174,24 @@ function corpoDeMetodo(nome) {
     return fim === -1 ? '' : semComentarios(FONTE.slice(m.index, fim));
 }
 
+/**
+ * O corpo de uma FUNÇÃO de topo do módulo, sem comentários. Irmã de `corpoDeMetodo`, e ela existe
+ * porque os construtores de DOM da aba não são métodos da classe: o fecho deles é o `}` na coluna
+ * zero, e não o de quatro espaços.
+ *
+ * Devolve string vazia quando não acha, e é por isso que todo caso que a usa tem PISO DE TAMANHO:
+ * busca em string vazia é sempre "não achou", o que faria a asserção passar verde sobre nada.
+ * @param {string} nome
+ * @returns {string}
+ */
+function fatiaDeFuncao(nome) {
+    const re = new RegExp(`^function ${nome}\\(`, 'm');
+    const m = re.exec(FONTE);
+    if (!m) return '';
+    const fim = FONTE.indexOf('\n}\n', m.index);
+    return fim === -1 ? '' : semComentarios(FONTE.slice(m.index, fim));
+}
+
 describe('as seções da aba Diagnóstico que leem arquivo de log', () => {
     const secoes = secoesDaAba();
 
@@ -155,9 +199,10 @@ describe('as seções da aba Diagnóstico que leem arquivo de log', () => {
         // A COBERTURA VAZIA É O MODO DE FALHA DESTE ARQUIVO: uma expressão que deixe de casar
         // (uma indentação diferente, um `#pintar` privado, a classe virando função) esvazia a
         // lista e todo o resto abaixo passa sobre zero itens. Daí o piso e o corpo mínimo.
-        expect(secoes.length).toBeGreaterThanOrEqual(3);
+        expect(secoes.length).toBeGreaterThanOrEqual(4);
         expect(secoes.map((s) => s.nome)).toContain('_pintarPulso');
         expect(secoes.map((s) => s.nome)).toContain('_pintarDefeitos');
+        expect(secoes.map((s) => s.nome)).toContain('_pintarResumo');
         // O corpo recortado tem de ser um corpo de verdade: um `indexOf` que devolvesse -1 no
         // fecho do método daria uma fatia vazia, e busca em string vazia é sempre "não achou".
         const curtas = secoes.filter((s) => s.corpo.length < 200).map((s) => s.nome);
@@ -171,7 +216,9 @@ describe('as seções da aba Diagnóstico que leem arquivo de log', () => {
         const faltas = [];
         for (const secao of secoes) {
             if (secao.bloco.includes(MARCA_SEM_LOG)) continue;
-            if (!secao.corpo.includes('leitorCego(')) {
+            // A SEGUNDA MARCA DISPENSA SÓ O `leitorCego`, e a nota continua cobrada logo abaixo:
+            // é ela que carrega o truncamento, que nenhum bloco declara sozinho.
+            if (!secao.bloco.includes(MARCA_CEGUEIRA_POR_BLOCO) && !secao.corpo.includes('leitorCego(')) {
                 faltas.push(`${ARQUIVO} › ${secao.nome}: não chama leitorCego(), então desenha a `
                     + 'boa notícia sem saber se o leitor estava ligado');
             }
@@ -241,9 +288,212 @@ describe('as seções da aba Diagnóstico que leem arquivo de log', () => {
             .map((s) => `${ARQUIVO} › ${s.nome}: declara ${MARCA_SEM_LOG} e mesmo assim chama `
                 + 'leitorCego()');
         expect(contraditorias).toEqual([]);
-        // E a saída não é gratuita: hoje existe exatamente UMA seção declarada fora (a que lê o
-        // banco). Zero significaria que a marca deixou de ser lida e a varredura virou vácuo.
-        expect(secoes.filter((s) => s.bloco.includes(MARCA_SEM_LOG)).length).toBe(1);
+        // E A SAÍDA NÃO É GRATUITA: a lista de quem se declara fora é asserida por NOME e em
+        // igualdade absoluta, e não por contagem. Contagem deixaria uma seção nova trocar de lugar
+        // com outra sem nada ficar vermelho, e é justamente a declaração que precisa ser conferida
+        // por quem lê. Zero significaria que a marca deixou de ser lida e a varredura virou vácuo.
+        expect(secoes.filter((s) => s.bloco.includes(MARCA_SEM_LOG)).map((s) => s.nome))
+            .toEqual(['_pintarDefeitos']);
+        // E cada declaração traz o MOTIVO junto, senão a marca é um interruptor que desliga a
+        // varredura sem prestar contas.
+        for (const secao of secoes.filter((s) => s.bloco.includes(MARCA_SEM_LOG))) {
+            expect(secao.bloco.length, secao.nome).toBeGreaterThan(400);
+        }
+    });
+
+    it('quem se declara com cegueira POR BLOCO também não consulta o leitor, e paga a nota', () => {
+        // A SEGUNDA MARCA É MAIS ESTREITA, e as três asserções abaixo são o que a mantém assim: ela
+        // dispensa o `leitorCego` (a cegueira chega resolvida por bloco), continua devendo a nota
+        // da leitura, e é ASSERIDA POR NOME. Sem a terceira, ela viraria a fresta por onde uma
+        // seção qualquer sai da varredura escrevendo uma palavra no JSDoc.
+        const marcadas = secoes.filter((s) => s.bloco.includes(MARCA_CEGUEIRA_POR_BLOCO));
+        expect(marcadas.map((s) => s.nome)).toEqual(['_pintarResumo']);
+        for (const secao of marcadas) {
+            expect(secao.corpo, `${secao.nome} declara ${MARCA_CEGUEIRA_POR_BLOCO} e chama leitorCego()`)
+                .not.toContain('leitorCego(');
+            expect(secao.corpo, `${secao.nome} não chama this._notasDaLeitura()`)
+                .toContain('this._notasDaLeitura(');
+            // E ela passa o ENVELOPE, não o payload nu: no topo daquela resposta `arquivos`,
+            // `linhas` e `truncado` não existem, e a nota sairia muda sobre um documento que
+            // varreu o log.
+            expect(secao.corpo).toContain('this._notasDaLeitura(host, payload?.janela)');
+            // As duas marcas são exclusivas: uma seção que carregasse as duas estaria dizendo que
+            // lê e que não lê o log.
+            expect(secao.bloco).not.toContain(MARCA_SEM_LOG);
+        }
+    });
+});
+
+describe('a seção de Resumo, do lado do CONSUMIDOR', () => {
+    // POR QUE ESTRUTURAL, E POR QUE AQUI: as frases estão presas como funções puras em
+    // `resumo-frases.test.js`, e nada disso impede `diag-tab.js` de nunca chamá-las. É o mesmo
+    // buraco que esta suíte nasceu para fechar no Pulso ("a mentira era do consumidor"), e aqui
+    // ele é maior, porque a seção se declara FORA da varredura de log: o que substitui `leitorCego`
+    // e `_notasDaLeitura` nela é `_cartaoDeResumo`, e é ele que precisa estar preso.
+    //
+    // CONTROLES NEGATIVOS (o que fica vermelho ao voltar cada peça ao óbvio):
+    //  - desenhar o corpo de um cartão antes de perguntar pelo desfecho: o segundo caso reprova, e
+    //    é o que impede zero de sair ao lado de `disponivel: false`;
+    //  - colapsar "ausente" e "sem fonte" numa frase só: o segundo caso reprova;
+    //  - deixar a premissa de fora do caminho: o segundo caso reprova;
+    //  - trocar a tabela de corpos por um encadeamento de `if`: o terceiro caso reprova, e é o que
+    //    impede o cartão novo de cair no ramo de outro sem nada de errado na tela.
+
+    const secao = secoesDaAba().find((s) => s.nome === '_pintarResumo');
+
+    it('a seção se declara com cegueira por bloco, com o motivo, e a grade cai junta', () => {
+        expect(secao).toBeTruthy();
+        expect(secao.bloco).toContain(MARCA_CEGUEIRA_POR_BLOCO);
+        // O MOTIVO NOMEIA A FUNÇÃO DO SERVIDOR, que é o que torna a declaração conferível: quem
+        // duvidar abre `montarResumo` e vê a cegueira resolvida por bloco.
+        expect(secao.bloco).toContain('montarResumo');
+        // A ROTA É UMA SÓ, então payload irreconhecível é FALHA de seção (com botão), e nunca seis
+        // cartões dizendo "o servidor não informou": seis frases se leem como seis fatos.
+        expect(secao.corpo).toContain('resumoReconhecido(payload)');
+        // A JANELA DA FRASE É A QUE O SERVIDOR MEDIU (`periodo.desde`), com o estado local só como
+        // queda: os dois coincidem hoje, e no dia em que a rota aparar a janela quem lê precisa ver
+        // o que foi medido, e não o que foi pedido.
+        expect(secao.corpo).toContain('payload?.periodo?.desde');
+        expect(secao.corpo).toContain('janelaEmPalavras(desdeMedido || janela)');
+        // E A HORA DA COMPOSIÇÃO SAI NA TELA: `gerado_em` chegava e não aparecia, e a aba não
+        // recarrega sozinha, então nada dizia que o cartão podia ter duas horas de idade.
+        expect(secao.corpo).toContain('compostoEmNotice(payload, horaLocal)');
+        expect(secao.corpo).toContain('failureState(');
+        expect(secao.corpo).toContain('BLOCOS_DO_RESUMO');
+        expect(secao.corpo).toContain('this._cartaoDeResumo(');
+        // E ela NÃO desenha número nenhum por fora do cartão: o único caminho até um valor é
+        // `_cartaoDeResumo`, que cobra a premissa antes.
+        expect(secao.corpo).not.toContain('contagemLabel(');
+        expect(secao.corpo).not.toContain('tile(');
+    });
+
+    it('nenhum cartão desenha número sem antes ter passado pelo desfecho e pela premissa', () => {
+        // ELE É O `cabecalhoDeBloco` DO COMANDO, e a propriedade que se cobra é a mesma: os dois
+        // ramos de ausência de fonte RETORNAM antes do corpo, e a premissa entra no caminho que
+        // sobra. Seis cabeçalhos escritos à mão seriam seis chances de esquecer um, e o esquecido
+        // desenharia zero com cara de boa notícia.
+        const corpo = corpoDeMetodo('_cartaoDeResumo');
+        expect(corpo.length).toBeGreaterThan(400);
+        expect(corpo).toContain('desfechoDoBloco(bloco)');
+        expect(corpo).toContain('blocoAusenteNotice()');
+        expect(corpo).toContain('semFonteNotice(bloco)');
+        expect(corpo).toContain('premissaDoBloco(bloco)');
+        expect(corpo).toContain('CORPO_DO_RESUMO[definicao.id](bloco, {');
+        // O TRUNCAMENTO ATRAVESSA ATÉ O CORPO, porque a premissa de bloco não o carrega e o efeito
+        // dele é de quem compara duas janelas: o anel descarta o mais ANTIGO, que é a base do
+        // delta. Sem esta linha o aviso ficaria só no rodapé da seção, longe da coluna que ele
+        // desmente.
+        expect(corpo).toContain('payload?.janela?.truncado === true');
+
+        // A ORDEM É O CONTRATO: os dois desfechos sem fonte vêm ANTES da premissa, e a premissa
+        // antes do corpo. Invertê-los é sutil e devolve exatamente o defeito que a seção existe
+        // para impedir.
+        const ausente = corpo.indexOf('blocoAusenteNotice()');
+        const semFonte = corpo.indexOf('semFonteNotice(bloco)');
+        const premissa = corpo.indexOf('premissaDoBloco(bloco)');
+        const despacho = corpo.indexOf('CORPO_DO_RESUMO[definicao.id](bloco, {');
+        expect(ausente).toBeLessThan(semFonte);
+        expect(semFonte).toBeLessThan(premissa);
+        expect(premissa).toBeLessThan(despacho);
+        // E os dois ramos sem fonte SAEM da função: sem o `return` o corpo seria desenhado logo
+        // abaixo da frase que diz que não há fonte.
+        expect(corpo.slice(ausente, premissa)).toMatch(/return art;[\s\S]*return art;/);
+        // O desfecho sai também como DADO, que é o que uma captura de tela consegue afirmar.
+        expect(corpo).toContain("art.dataset.desfecho = desfecho");
+    });
+
+    it('todo cartão declarado tem corpo registrado, e o despacho é TABELA e não `if`', () => {
+        // A LISTA VEM DO MÓDULO DE FRASES, e não escrita aqui: um cartão novo nasce cobrado.
+        const tabela = FONTE.slice(
+            FONTE.indexOf('const CORPO_DO_RESUMO = Object.freeze({'),
+            FONTE.indexOf('});', FONTE.indexOf('const CORPO_DO_RESUMO = Object.freeze({')),
+        );
+        expect(tabela.length).toBeGreaterThan(100);
+        const faltas = BLOCOS_DO_RESUMO
+            .filter((b) => !new RegExp(`\\b${b.id}:\\s*corpoDe`).test(tabela))
+            .map((b) => `${ARQUIVO}: o cartão "${b.id}" não tem corpo registrado em CORPO_DO_RESUMO`);
+        expect(faltas).toEqual([]);
+        // E a tabela não tem entrada a mais: um corpo órfão é um cartão que ninguém desenha.
+        const chaves = [...tabela.matchAll(/^ {4}(\w+):/gm)].map((m) => m[1]);
+        expect(chaves.sort()).toEqual(BLOCOS_DO_RESUMO.map((b) => b.id).sort());
+    });
+
+    it('o resumo NÃO espera as irmãs, e mesmo assim carrega a guarda de geração', () => {
+        // O `allSettled` PROTEGE CONTRA FALHA, NÃO CONTRA LATÊNCIA: ele resolve no mais lento, e o
+        // resumo é o mais caro do conjunto (uma passada sobre o DOBRO da janela de log, mais a
+        // lista de defeitos). Dentro dele, o Pulso, os Defeitos e a Latência ficavam em
+        // "Carregando…" esperando um cartão que nenhuma delas precisa, e o seletor de janela ficava
+        // recusando o gesto pelo mesmo tempo. A asserção é estrutural porque o defeito é de
+        // ARRANJO: não há nada de errado em nenhuma das quatro chamadas.
+        const carregar = corpoDeMetodo('_carregar');
+        expect(carregar.length).toBeGreaterThan(400);
+        expect(carregar).toContain('settle(() => pedirDiag(rotas.resumo)).then(');
+        // Ele fica FORA da lista do `allSettled`, e é isso que a próxima reescrita desfaz sem
+        // perceber, porque juntar as quatro parece arrumação.
+        const allSettled = carregar.slice(carregar.indexOf('Promise.allSettled(['));
+        expect(allSettled).not.toContain('rotas.resumo');
+        // E as três irmãs continuam juntas: separá-las também seria mudança, e sem base.
+        for (const rota of ['rotas.status', 'rotas.defeitos', 'rotas.lento']) {
+            expect(allSettled, rota).toContain(rota);
+        }
+        // A GUARDA VIAJA JUNTO. Sem ela, a resposta lenta de uma janela abandonada pintaria por
+        // cima da rápida da janela nova, que é a corrida que o contador de geração existe para
+        // cobrir; e ela não pode ser a do `await`, porque este caminho não passa por lá.
+        const destino = corpoDeMetodo('_resumoRespondeu');
+        expect(destino.length).toBeGreaterThan(80);
+        expect(destino).toContain('!this._alive || geracao !== this._geracao');
+        expect(destino).toContain('return');
+        // E ele NÃO devolve o seletor de janela: fazer isso aqui devolveria o atraso que a
+        // separação removeu, porque o gesto voltaria a esperar o mais lento.
+        expect(destino).not.toContain('_carregando');
+        expect(destino).not.toContain('aria-disabled');
+    });
+
+    it('todo cartão que publica um "anterior" acusa o truncamento, e são DOIS', () => {
+        // O ANEL DESCARTA O MAIS ANTIGO, que é exatamente a janela de comparação: sob truncamento a
+        // latência compara uma janela cheia com uma pela metade, e a contagem de query lenta
+        // "anterior" é de um pedaço dela. Os dois cartões publicam um número daquela janela, então
+        // os dois devem a ressalva; deixá-la só na latência silenciaria metade do defeito.
+        for (const nome of ['corpoDeLatencia', 'corpoDeQueriesLentas']) {
+            const corpo = fatiaDeFuncao(nome);
+            expect(corpo.length, nome).toBeGreaterThan(150);
+            expect(corpo, `${nome} não acusa o truncamento ao lado do número da janela anterior`)
+                .toContain('deltaTruncadoNotice()');
+            expect(corpo, `${nome} ignora o contexto que carrega o truncamento`)
+                .toContain('contexto?.truncado === true');
+        }
+        // E ela é a MESMA frase nos dois: duas redações do mesmo fato divergiriam no primeiro
+        // conserto, e as duas apareceriam na mesma grade.
+        expect(semComentarios(FONTE).split('deltaTruncadoNotice()').length - 1).toBe(2);
+    });
+
+    it('o TOTAL do pulso resumido também acusa o corte, e com OUTRA frase', () => {
+        // O ANEL COME AS REQUISIÇÕES MAIS ANTIGAS, então o total sai SUB-RELATADO: "156
+        // requisições" vira um piso, e comparar com ontem passa a ser comparar um total com um
+        // pedaço. O ladrilho era o único número da grade que sofria o corte sem dizer.
+        const corpo = fatiaDeFuncao('corpoDeStatus');
+        expect(corpo.length).toBeGreaterThan(200);
+        expect(corpo).toContain('contexto?.truncado === true');
+        expect(corpo).toContain('totalTruncadoNotice()');
+        // A FRASE É OUTRA, e não a do delta: lá falta a BASE de comparação, aqui o número em si
+        // está incompleto. Reusar uma descreveria um problema que não é o daquele ladrilho e
+        // deixaria o que é passar batido.
+        expect(corpo).not.toContain('deltaTruncadoNotice()');
+        // E ela sai nos DOIS desfechos do cartão, o vazio inclusive: um total zero sob truncamento
+        // é o caso em que a boa notícia é mais fácil de acreditar e mais fácil de estar errada.
+        expect(corpo.split('truncado,').length - 1).toBe(2);
+    });
+
+    it('o cartão de defeitos escreve a mensagem de terceiro por `textContent`, como o resto da aba', () => {
+        // A MENSAGEM DO TOPO É TEXTO DE TERCEIRO, pelo mesmo caminho da tabela de baixo: ela vem do
+        // navegador de quem visitou a página pública. A varredura de `innerHTML` já é do arquivo
+        // inteiro; o que este caso prende é que o corte é de LAYOUT e o texto inteiro fica no
+        // `title`, senão a única cópia da mensagem na tela seria a cortada.
+        const corpo = fatiaDeFuncao('corpoDeDefeitos');
+        expect(corpo.length).toBeGreaterThan(200);
+        expect(corpo).toContain('resumirTexto(item?.mensagem');
+        expect(corpo).toContain('mensagem.title = item.mensagem');
+        expect(corpo).toContain('textContent');
     });
 });
 

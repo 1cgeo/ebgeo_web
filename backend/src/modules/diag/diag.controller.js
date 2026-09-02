@@ -4,6 +4,7 @@ import { asyncHandler } from '../../utils/async-handler.js';
 import { NotFoundError } from '../../utils/errors.js';
 import * as diagService from './diag.service.js';
 import * as defeitos from './defeitos.service.js';
+import { montarResumoCompleto } from './resumo.service.js';
 import * as usoService from '../uso/uso.service.js';
 
 /**
@@ -83,6 +84,29 @@ export const status = asyncHandler(async (req, res) => {
     usoService.saudeDasReleases({ desde: req.query.desde }).catch(() => null),
   ]);
   res.json({ data: { ...dados, release: config.release ?? null, releases } });
+});
+
+/**
+ * O RELATÓRIO DE UMA TELA, das DUAS fontes, que é o que a aba de Diagnóstico mostra.
+ *
+ * ELE É A SEGUNDA PORTA DE `npm run diag -- resumo`, e a composição é literalmente a mesma
+ * função (`montarResumo`, pura, em `src/utils/diag-consulta.js`): o documento que sai daqui é
+ * o do `--json` do comando menos o campo `comando`. Uma segunda verdade sobre o que "os cinco
+ * blocos" significam faria a tela e o terminal divergirem no dia em que um dos dois fosse
+ * consertado, e o comando é o que um agente lê.
+ *
+ * O `catch` NÃO ESTÁ AQUI, e essa é a diferença para `status` logo acima. Lá o embrulho é do
+ * controller porque a consulta de release é um ACRÉSCIMO a uma rota que sempre foi de disco;
+ * aqui a tolerância às duas fontes é o CONTRATO do relatório, e ela mora dentro de
+ * `montarResumoCompleto`, ao lado da leitura que pode falhar. Pôr um `.catch` aqui devolveria
+ * `data: null` no exato caso que a rota existe para atravessar.
+ *
+ * O DIRETÓRIO SAI DE `diretorio()`, pela mesma razão das outras três: um `?dir=` seria um
+ * leitor de arquivo arbitrário do servidor atrás de um gate de administrador.
+ */
+export const resumo = asyncHandler(async (req, res) => {
+  const { desde, limite } = req.query;
+  res.json({ data: await montarResumoCompleto({ diretorio: diretorio(), desde, limite }) });
 });
 
 /**

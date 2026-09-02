@@ -37,6 +37,16 @@ router.post(
 router.get('/erros', auth, requireAdmin, validate({ query: schemas.errosQuerySchema }), ctrl.erros);
 router.get('/lento', auth, requireAdmin, validate({ query: schemas.lentoQuerySchema }), ctrl.lento);
 router.get('/status', auth, requireAdmin, validate({ query: schemas.statusQuerySchema }), ctrl.status);
+/**
+ * `GET /resumo` é a ÚNICA rota HÍBRIDA do módulo: ela lê o `.jsonl` E o Postgres na mesma
+ * requisição, e continua respondendo 200 com a metade que a fonte viva sustentar. As quatro
+ * acima são de uma fonte só, e as três de arquivo respondem com o banco fora por construção.
+ * A tolerância é o contrato do relatório e mora em `resumo.service.js`, não aqui.
+ *
+ * O padrão de janela dela é `7d` e não `24h` (ver `resumoQuerySchema`): a aba é lida por
+ * rotina e o que ela precisa mostrar é a semana. O teto de 7 dias é o mesmo das irmãs.
+ */
+router.get('/resumo', auth, requireAdmin, validate({ query: schemas.resumoQuerySchema }), ctrl.resumo);
 router.get(
   '/erros-cliente',
   auth,

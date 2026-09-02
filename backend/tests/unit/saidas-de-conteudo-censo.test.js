@@ -201,6 +201,11 @@ const CENSO_ROTA = [
   json('src/modules/diag/diag.routes.js', 'GET /erros'),
   json('src/modules/diag/diag.routes.js', 'GET /lento'),
   json('src/modules/diag/diag.routes.js', 'GET /status'),
+  // O RELATÓRIO DE UMA TELA (2026-09-02), única rota HÍBRIDA do módulo: agregação do log em
+  // arquivo (percentil, contagem por faixa, buracos na série de amostras) somada a contagens de
+  // `defeitos`. Mesma família das irmãs: nenhuma definição de recurso de catálogo, 360 ou 3D
+  // atravessa, e o corpo sai por `res.json`, logo pela poda global.
+  json('src/modules/diag/diag.routes.js', 'GET /resumo'),
   json('src/modules/diag/diag.routes.js', 'GET /erros-cliente'),
   // As duas do DEFEITO (`018_defeitos_e_ocorrencias.sql`) são a MESMA família: agregação de
   // telemetria. A ocorrência carrega `migalhas` e `contexto`, que são JSONB de forma fechada

@@ -20,6 +20,11 @@ import Joi from 'joi';
 import { parseJanela } from '../../utils/diag-consulta.js';
 import { ORIGENS_DE_ERRO, ORIGENS_DO_CLIENTE } from './origens-de-erro.js';
 import { ESTADOS_DE_DEFEITO, ESTADOS_MANUAIS } from './estados-de-defeito.js';
+// O PADRÃO E O TETO DO `limite` DO RESUMO VÊM DA CONSTANTE, nunca de um literal repetido aqui.
+// Este arquivo é avaliado por `app.js` e por `scripts/diag.js`, e o import é seguro porque o
+// grafo ESTÁTICO de `resumo.service.js` não alcança `config.js` nem o pool (ele carrega
+// `defeitos.service.js` por `import()` tardio, e é o `fileoverview` de lá que guarda a razão).
+import { DEFEITOS_DO_RESUMO } from './resumo.service.js';
 
 /** O maior período que uma requisição HTTP pode pedir. Ver o cabeçalho. */
 export const TETO_DA_JANELA_MS = 7 * 86_400_000;
@@ -66,6 +71,33 @@ export const statusQuerySchema = Joi.object({
 export const errosDeClienteQuerySchema = Joi.object({
   desde: janela('7d'),
   limite: Joi.number().integer().min(1).max(200).default(50),
+});
+
+/**
+ * `GET /diag/resumo`: o relatório de UMA TELA, das duas fontes.
+ *
+ * O PADRÃO É `7d` E O DO COMANDO CONTINUA SENDO `24h`, e a divergência é escolha, não
+ * descuido. O terminal responde a uma pergunta de INCIDENTE ("o que aconteceu desde ontem"),
+ * digitada por quem já sabe que algo está errado e que muda a janela num argumento. A aba é
+ * lida por rotina, e o que ela precisa mostrar é a SEMANA: um defeito nascido na terça e uma
+ * regressão de quinta não cabem em 24 horas, e uma tela que abrisse com a janela curta
+ * ensinaria que "não há nada" quando há. Sete dias é também o teto desta porta, então o padrão
+ * é o maior que ela aceita, e quem quiser mais tem o comando. `desde` continua sendo a MESMA
+ * gramática e o MESMO teto das outras rotas, por `janela()`: o que muda é só o padrão.
+ *
+ * O `limite` É O DA CONSULTA DE DEFEITOS, e ele decide `premissa.parcial` dos dois blocos de
+ * banco. O teto E o padrão são `DEFEITOS_DO_RESUMO` (`resumo.service.js`), a MESMA constante
+ * que o comando usa, IMPORTADA e não redigitada: dois literais 200 aqui fariam a MESMA janela
+ * sair "parcial" numa porta e completa na outra no dia em que um dos dois mudasse, e o
+ * comentário que prometia a constante teria continuado verde enquanto isso.
+ *
+ * O TETO ACOMPANHAR O PADRÃO é o que faz `parcial` significar alguma coisa: pedir mais que o
+ * padrão não estreita nada (a consulta já traz o máximo) e um teto MAIOR convidaria a puxar
+ * mais linhas por requisição do que a tela usa, dentro do ciclo HTTP.
+ */
+export const resumoQuerySchema = Joi.object({
+  desde: janela('7d'),
+  limite: Joi.number().integer().min(1).max(DEFEITOS_DO_RESUMO).default(DEFEITOS_DO_RESUMO),
 });
 
 /**

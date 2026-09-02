@@ -2263,6 +2263,207 @@
     margin-top: var(--space-2);
 }
 
+/* ----- a seção Resumo: o relatório de uma tela, em seis cartões -----
+
+   CADA CARTÃO É UM BLOCO DO DOCUMENTO que o servidor compõe, e o desenho carrega a regra dele: a
+   PREMISSA e o "sem fonte" são a mesma faixa de voz baixa no topo do corpo, porque os dois
+   respondem à mesma pergunta ("o que sustenta o que vem abaixo"), e o cartão sem fonte simplesmente
+   não tem o abaixo. Um cartão em que a premissa some quando a notícia é boa devolveria exatamente
+   o defeito que a seção existe para impedir.
+
+   O DELTA TEM COR SEMÂNTICA E NUNCA O ACENTO. Verde e vermelho aqui significam "melhorou" e
+   "piorou"; o acento do produto significa "isto é do EBGeo", e usá-lo numa comparação faria a cor
+   dizer duas coisas na mesma tela. Sem base de comparação a cor é neutra, pela mesma razão de
+   `.admin-diag__p95--desconhecida`: pintar de vermelho uma rota que não existia na janela anterior
+   gritaria onde não há nada a dizer.
+
+   A GRADE SE ACOMODA POR `auto-fill`, e não por media query: a aba inteira é desktop-only por
+   decisão declarada no topo deste arquivo, e o que muda aqui é a largura da janela do painel, não
+   a classe de dispositivo. */
+
+.admin-diag__resumo {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(24rem, 1fr));
+    gap: var(--space-4);
+    padding: var(--space-4);
+}
+
+.admin-diag__resumo-cartao {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-md);
+    background: var(--gray-50);
+}
+
+/* O cartão SEM FONTE fica apagado e com a moldura tracejada de `.admin-chip--desconhecido`: ele
+   não é um alarme (nada quebrou) e não é uma boa notícia (nada foi medido).
+
+   O SELETOR É O MODIFICADOR BEM, e não o `[data-desfecho]` que o elemento também carrega: o dado
+   existe para a captura de tela e para o teste afirmarem o desfecho sem depender do texto, e a
+   folha de estilo desta casa se consulta por classe. Os dois saem do mesmo valor, em
+   `_cartaoDeResumo`. */
+.admin-diag__resumo-cartao--ausente,
+.admin-diag__resumo-cartao--sem-fonte {
+    border-style: dashed;
+    background: transparent;
+}
+
+.admin-diag__resumo-titulo {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--gray-500);
+}
+
+.admin-diag__resumo-premissa,
+.admin-diag__resumo-sem-fonte {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+}
+
+.admin-diag__resumo-sem-fonte {
+    font-style: italic;
+}
+
+.admin-diag__resumo-corpo {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.admin-diag__resumo-linha {
+    margin: 0;
+    font-size: var(--font-size-base);
+    color: var(--gray-900);
+}
+
+.admin-diag__resumo-nota,
+.admin-diag__resumo-subtitulo {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--gray-600);
+}
+
+.admin-diag__resumo-subtitulo {
+    font-weight: var(--font-weight-semibold);
+}
+
+/* A ressalva é de voz baixa, mas ela NÃO é opcional: é ela que impede o zero de se ler como boa
+   notícia (a de indisponibilidade sai inclusive com zero, e é a única do resumo assim). */
+.admin-diag__resumo-ressalva {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    line-height: var(--line-height-normal);
+    color: var(--gray-500);
+}
+
+/* A estimativa frágil do intervalo é o único aviso ACIONÁVEL do resumo (há uma bandeira que a
+   confirma), e por isso ele tem cor de aviso em vez de voz baixa. */
+.admin-diag__resumo-alerta {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--color-warning-strong);
+}
+
+/* O vazio de um cartão é a BOA NOTÍCIA da vez, e verde aqui é o mesmo sinal de `.admin-diag__ok`.
+   Ele só é alcançado com o bloco DISPONÍVEL: o cartão cego para antes, na faixa de "sem fonte". */
+.admin-diag__resumo-vazio {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: color-mix(in srgb, var(--color-success) 80%, var(--gray-900));
+}
+
+.admin-diag__resumo-topo,
+.admin-diag__resumo-rotas {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.admin-diag__resumo-topo-item,
+.admin-diag__resumo-rota {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    font-size: var(--font-size-xs);
+}
+
+.admin-diag__resumo-topo-contagem,
+.admin-diag__resumo-rota-n {
+    min-width: 4ch;
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-semibold);
+    text-align: right;
+    color: var(--gray-900);
+}
+
+.admin-diag__resumo-chip {
+    padding: 1px var(--space-2);
+    border-radius: var(--radius-full);
+    background: var(--gray-100);
+    color: var(--gray-600);
+    white-space: nowrap;
+}
+
+.admin-diag__resumo-topo-mensagem,
+.admin-diag__resumo-rota-nome {
+    flex: 1;
+    overflow: hidden;
+    color: var(--gray-700);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.admin-diag__resumo-rota-nome {
+    font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.admin-diag__resumo-delta {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--gray-600);
+}
+
+.admin-diag__resumo-delta--piora {
+    color: var(--color-error-strong);
+    font-weight: var(--font-weight-semibold);
+}
+
+.admin-diag__resumo-delta--melhora {
+    color: color-mix(in srgb, var(--color-success) 80%, var(--gray-900));
+}
+
+/* Estável, sem base e desconhecido ficam NEUTROS, e os três de propósito: nenhum deles é um juízo
+   sobre a rota. */
+.admin-diag__resumo-delta--estavel,
+.admin-diag__resumo-delta--sem-base,
+.admin-diag__resumo-delta--desconhecido {
+    color: var(--gray-500);
+}
+
+/* Os ladrilhos do pulso resumido são os mesmos da seção de Pulso, só menores: é a mesma conta e
+   tem de ser a mesma leitura. */
+.admin-diag__resumo-pulso {
+    gap: var(--space-4);
+}
+
+.admin-diag__resumo-pulso .admin-diag__tile {
+    min-width: 5rem;
+}
+
+.admin-diag__resumo-pulso .admin-diag__tile-valor {
+    font-size: var(--font-size-xl);
+}
+
 /* ===== Aba Uso =====
 
    Quem usa, o quê, e quanto: quatro seções sobre o MESMO período (pessoas, atlas, produção com a
