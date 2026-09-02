@@ -80,6 +80,11 @@
     padding: var(--space-2);
     opacity: 0;
     visibility: hidden;
+
+    /* The popup stays in the hit-test tree for the whole hide transition
+       (visibility only flips at its end), and a click on the map during those
+       200 ms landed on the invisible palette instead of the canvas. */
+    pointer-events: none;
     transform: translateX(10px);
     transition: opacity var(--transition-normal), transform var(--transition-normal), visibility var(--transition-normal);
 }
@@ -87,6 +92,7 @@
 .toolbar-popup[data-visible="true"] {
     opacity: 1;
     visibility: visible;
+    pointer-events: auto;
     transform: translateX(0);
 }
 
