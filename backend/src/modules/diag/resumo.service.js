@@ -47,7 +47,8 @@
  */
 
 import {
-  parseJanela, criarResumoDeLatencia, criarResumoDeStatus, resumirAmostras, montarResumo,
+  parseJanela, parseIntervalo, criarResumoDeLatencia, criarResumoDeStatus, resumirAmostras,
+  montarResumo,
 } from '../../utils/diag-consulta.js';
 import { MARCADOR_AMOSTRA } from '../../utils/amostra-de-saude.js';
 import { MARCADOR_QUERY_LENTA } from '../../utils/query-lenta.js';
@@ -181,6 +182,8 @@ const SEM_ARQUIVO = Object.freeze({
  * @param {string} p.diretorio - onde os `.jsonl` moram; quem decide é o controller
  * @param {string} p.desde - a janela, na gramática de `parseJanela` (já validada na borda)
  * @param {Date} [p.agora] - fim da janela (injetável para teste)
+ * @param {string|null} [p.intervalo] - o `--intervalo` do comando, na gramática de
+ *   `parseIntervalo` (já validada na borda); ausente, o bloco de saúde INFERE da própria série
  * @param {number} [p.limite] - quantos defeitos a consulta traz
  * @param {Function} [p.ler] - o leitor de disco; default é o anel de `diag.service.js`
  * @param {Function} [p.lerDefeitos] - o leitor de banco; default é o import tardio
@@ -190,6 +193,7 @@ export async function montarResumoCompleto({
   diretorio,
   desde,
   agora = new Date(),
+  intervalo = null,
   limite = DEFEITOS_DO_RESUMO,
   ler = lerJanela,
   lerDefeitos = null,
@@ -204,7 +208,14 @@ export async function montarResumoCompleto({
   if (!j.diretorioAusente) {
     const coleta = criarColetaDoResumo({ inicio });
     for (const reg of j.registros) coleta.ver(reg);
-    disco = coleta.resultado({ agora: fim });
+    // O INTERVALO ATRAVESSA COMO TEXTO até aqui, como `desde`, e é reconvertido no último
+    // ponto: o Joi da borda valida a FORMA e guarda a string, para que a recusa possa citar o
+    // que a pessoa escreveu. Ausente, `resumirAmostras` infere do p10 das distâncias e DIZ na
+    // resposta que inferiu — é a premissa do bloco de saúde, e ela não pode ficar invisível.
+    disco = coleta.resultado({
+      agora: fim,
+      intervaloMs: intervalo ? parseIntervalo(intervalo) : null,
+    });
   }
 
   let defeitos = null;

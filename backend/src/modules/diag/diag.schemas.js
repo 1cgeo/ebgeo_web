@@ -17,7 +17,7 @@
  */
 
 import Joi from 'joi';
-import { parseJanela } from '../../utils/diag-consulta.js';
+import { parseJanela, parseIntervalo } from '../../utils/diag-consulta.js';
 import { ORIGENS_DE_ERRO, ORIGENS_DO_CLIENTE } from './origens-de-erro.js';
 import { ESTADOS_DE_DEFEITO, ESTADOS_MANUAIS } from './estados-de-defeito.js';
 // O PADRÃO E O TETO DO `limite` DO RESUMO VÊM DA CONSTANTE, nunca de um literal repetido aqui.
@@ -54,18 +54,112 @@ function janela(padrao) {
     });
 }
 
+/**
+ * O parâmetro `intervalo`, lido por `saude` e por `resumo`.
+ *
+ * UM HELPER E NÃO DUAS DECLARAÇÕES, pela mesma razão de `janela()`: as duas rotas alimentam o
+ * MESMO `resumirAmostras`, e o valor é o DENOMINADOR da contagem de amostras faltando. Duas
+ * cópias divergiriam num aceite (uma passa `90s`, a outra não) sem nada ficar vermelho, e o
+ * sintoma seria um número de faltantes diferente nas duas telas sobre a mesma série.
+ *
+ * A GRAMÁTICA É A DE `parseIntervalo`, e não a de `parseJanela`: ela aceita SEGUNDOS (`30s`),
+ * porque a cadência de um amostrador pode ser menor que um minuto e a janela nunca é.
+ *
+ * O NÚMERO NU É RECUSADO, como no comando: `300000` seria ambíguo com
+ * `HEALTH_SAMPLE_INTERVAL_MS`, que é em milissegundos, e um sufixo esquecido faria a conta sair
+ * sobre uma premissa cinco ordens de grandeza errada.
+ *
+ * SEM DEFAULT, e a ausência é o contrato: sem o parâmetro, `resumirAmostras` INFERE o intervalo
+ * da própria série (pelo p10 das distâncias) e DIZ na resposta que inferiu, com que percentil e
+ * sobre quantas distâncias. Um default esconderia a inferência atrás de um número que ninguém
+ * pediu, que é exatamente a premissa invisível que aquela função existe para não ter.
+ *
+ * @returns {Joi.StringSchema}
+ */
+function intervalo() {
+  return Joi.string()
+    .custom((valor, helpers) => (parseIntervalo(valor) === null ? helpers.error('intervalo.forma') : valor))
+    .messages({
+      'intervalo.forma': 'Intervalo inválido: use um número seguido de s, m ou h (por exemplo 30s, 5m, 1h). '
+        + 'O sufixo é obrigatório: um número nu seria ambíguo com HEALTH_SAMPLE_INTERVAL_MS, que é em ms.',
+    });
+}
+
 export const errosQuerySchema = Joi.object({
   desde: janela('24h'),
   limite: Joi.number().integer().min(1).max(100).default(20),
 });
 
+/**
+ * `GET /diag/lento`: latência por rota.
+ *
+ * `porRelease` É O `--por-release` DO COMANDO, e ele entrou aqui em 2026-09-02 porque a wiki
+ * passou a afirmar que a porta HTTP cobre o comando inteiro: uma afirmação dessas só é
+ * verdadeira se ninguém precisar do terminal para uma pergunta que a tela já faz. A pergunta é
+ * a de todo deploy ("isto ficou mais lento depois de subir?"), e a média de duas builds numa
+ * linha só a ESCONDE, em proporção ao tempo que a build antiga dominou a janela.
+ *
+ * `truthy('1')` PORQUE `?porRelease=1` É O QUE UMA QUERY STRING ESCREVE NATURALMENTE, e é a
+ * mesma decisão (e o mesmo motivo) do `novos` de `defeitosQuerySchema`: sem isso o Joi de
+ * boolean recusaria `'1'` com 422 e o chamador teria de escrever `porRelease=true`, forma que
+ * ninguém digita à mão. O default é `false` EXPLÍCITO e não a ausência, porque o valor
+ * atravessa até `criarResumoDeLatencia`, onde `undefined` e `false` levam ao mesmo lugar hoje
+ * e não há razão para depender disso.
+ */
 export const lentoQuerySchema = Joi.object({
   desde: janela('24h'),
   limite: Joi.number().integer().min(1).max(100).default(15),
+  porRelease: Joi.boolean().truthy('1').falsy('0').default(false),
 });
 
 export const statusQuerySchema = Joi.object({
   desde: janela('1h'),
+});
+
+/** `GET /diag/saude`: os buracos na série de amostras. Ver `intervalo()` acima. */
+export const saudeQuerySchema = Joi.object({
+  desde: janela('24h'),
+  intervalo: intervalo(),
+});
+
+/**
+ * `GET /diag/linhas`: o despejo cru filtrado.
+ *
+ * `filtro` É OBRIGATÓRIO AQUI E OPCIONAL NO COMANDO, e essa é a única divergência de contrato
+ * entre as duas portas. A razão é a mesma do teto de 7 dias: sem filtro, a resposta é a janela
+ * INTEIRA atravessando o ciclo HTTP, e o `limite` não salva porque a leitura acontece de
+ * qualquer jeito. No terminal isso é uma rolagem; aqui é um jeito de derrubar o servidor pela
+ * porta do diagnóstico.
+ *
+ * O PISO DE DOIS CARACTERES não é higiene, é a mesma aritmética da busca de atlas do
+ * administrador: um filtro de um caractere casa quase toda linha de JSON (`e`, `:`, `1`), e o
+ * que ele devolve não é um recorte, é o teto do `limite` sobre a janela, com cara de resposta.
+ * O `casouTudo` do payload cobre o caso geral; este piso tira o caso degenerado da mesa.
+ *
+ * O TETO DE 200 CARACTERES espelha os campos de texto curto do relato: é entrada externa
+ * entrando num `String.prototype.includes` executado uma vez por linha da janela.
+ *
+ * `limite` VAI ATÉ 2000 e não 100 como o das rotas de agregação, e a diferença é a natureza do
+ * item: lá cada item é um GRUPO (uma assinatura com contagem), e cem grupos já são mais do que
+ * alguém lê; aqui cada item é uma LINHA, e a pergunta típica ("o que aconteceu em volta desta
+ * sessão") tem dezenas a centenas de linhas de resposta.
+ *
+ * O `limite` NÃO É O ÚNICO CORTE, e o outro não cabe num parâmetro: um `limite` de 2000 linhas
+ * de tamanho patológico é uma resposta de dezenas de MB, e quem escolhe o tamanho da linha é
+ * quem escreveu o log, não quem consulta. Existe por isso um ORÇAMENTO DE BYTES em `linhas()`
+ * (`diag.service.js`), aplicado depois do `limite` e a partir das linhas mais RECENTES, e o
+ * payload diz `truncadoPorBytes: true` quando ele morde. Contar item e não byte é o erro
+ * clássico desta família de rotas.
+ *
+ * O PADRÃO É `24h`, O MESMO DO COMANDO, e o alinhamento é o ponto: as duas portas respondem à
+ * mesma pergunta, e um default diferente faria o MESMO comando com os MESMOS argumentos
+ * devolver janelas diferentes conforme a porta, o que tira todo valor de comparar as duas
+ * saídas.
+ */
+export const linhasQuerySchema = Joi.object({
+  desde: janela('24h'),
+  filtro: Joi.string().min(2).max(200).required(),
+  limite: Joi.number().integer().min(1).max(2000).default(200),
 });
 
 export const errosDeClienteQuerySchema = Joi.object({
@@ -98,6 +192,12 @@ export const errosDeClienteQuerySchema = Joi.object({
 export const resumoQuerySchema = Joi.object({
   desde: janela('7d'),
   limite: Joi.number().integer().min(1).max(DEFEITOS_DO_RESUMO).default(DEFEITOS_DO_RESUMO),
+  // `--intervalo` DO COMANDO, que o bloco de saúde do resumo lê exatamente como `GET
+  // /diag/saude` o lê. Ele entrou em 2026-09-02 junto com `porRelease` do `lento`, e pela
+  // mesma razão: enquanto faltasse, a afirmação de que a porta HTTP cobre o comando inteiro
+  // era falsa por duas bandeiras, e uma delas decide a contagem de amostras faltando do
+  // relatório que a sessão remota abre lendo.
+  intervalo: intervalo(),
 });
 
 /**

@@ -1,7 +1,9 @@
 // Path: tests/unit/diag-cli-mapa-de-fonte.test.js
 //
-// O decodificador de source map de `npm run diag -- pilha` (`scripts/diag/mapa-de-fonte.js`),
-// que existe para que o comando NÃO ganhe uma dependência (ver o cabeçalho daquele arquivo).
+// O decodificador de source map de `npm run diag -- pilha` (`src/utils/mapa-de-fonte.js`), que
+// existe para que o comando NÃO ganhe uma dependência (ver o cabeçalho daquele arquivo). Ele
+// morava em `scripts/diag/` e mudou de casa em 2026-09-02, quando a rota
+// `GET /api/v1/diag/defeitos/:id/pilha` passou a desminificar do lado do servidor.
 //
 // A FIXTURE É ESCRITA À MÃO, e é o ponto inteiro deste arquivo. O `mappings` abaixo é uma
 // STRING LITERAL, montada caractere a caractere a partir das regras do formato, com as
@@ -27,9 +29,35 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   decodificarVlq, decodificarMappings, indiceDoSegmento, resolver,
-} from '../../scripts/diag/mapa-de-fonte.js';
+} from '../../src/utils/mapa-de-fonte.js';
+
+const MODULO = fileURLToPath(new URL('../../src/utils/mapa-de-fonte.js', import.meta.url));
+
+describe('mapa-de-fonte: o contrato de FOLHA', () => {
+  it('o módulo tem ZERO imports, e isso é contrato e não estilo', () => {
+    // O IRMÃO `origens-de-erro.js` TEM ESTA GUARDA E ESTE NÃO TINHA, o que é pior que não ter
+    // nenhuma: o `fileoverview` deste arquivo PROMETE zero imports desde que ele nasceu, e uma
+    // promessa em prosa sem guarda é exatamente o que apodrece calado. Ela passou a valer mais
+    // em 2026-09-02, quando o módulo saiu de `scripts/` para `src/utils/` e ficou ao alcance
+    // de quem edita o servidor: um `import config from '../config.js'` acrescentado aqui
+    // levaria `DATABASE_URL` e `JWT_SECRET` para dentro de um comando que existe para
+    // responder quando alguma coisa NÃO está de pé.
+    //
+    // A regex é a mesma de `diag-origem-de-erro.test.js` de propósito: duas formas de fazer a
+    // mesma pergunta divergem, e a divergência aqui seria uma das duas parar de perguntar.
+    const fonte = fs.readFileSync(MODULO, 'utf8');
+    const imports = fonte.match(/^\s*import\s/gm);
+    assert.equal(imports, null, `mapa-de-fonte.js precisa continuar sem imports: ${imports}`);
+    // A guarda da guarda: sem isto, um caminho errado leria um arquivo vazio e passaria verde.
+    assert.match(fonte, /export function resolver\(/, 'guarda: o arquivo lido é o certo');
+    assert.equal(path.basename(MODULO), 'mapa-de-fonte.js');
+  });
+});
 
 /**
  * A fixture, com a conta de cada segmento escrita ao lado.

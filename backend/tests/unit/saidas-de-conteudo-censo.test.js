@@ -201,6 +201,21 @@ const CENSO_ROTA = [
   json('src/modules/diag/diag.routes.js', 'GET /erros'),
   json('src/modules/diag/diag.routes.js', 'GET /lento'),
   json('src/modules/diag/diag.routes.js', 'GET /status'),
+  // AS DUAS DE 2026-09-02, quando a superfície HTTP virou a porta primária do diagnóstico (o
+  // caso comum é um agente de fora do host, e o comando é o gêmeo de quem tem shell).
+  // `saude` é agregação da série de amostras (contagem, buracos, distâncias): a linha de
+  // amostra carrega banco, pool, memória e uptime, e nada de catálogo.
+  json('src/modules/diag/diag.routes.js', 'GET /saude'),
+  // `linhas` É A ÚNICA DESTA FAMÍLIA QUE NÃO AGREGA: ela devolve REGISTROS do `.jsonl`, um por
+  // linha casada, e por isso merece a frase por extenso. O que uma linha de log desta casa
+  // carrega é o que `requestLogPayload` e o `errorHandler` escrevem (rota, método, status,
+  // duração, `reqId`, `sessaoId`, `ip`, o objeto de erro), mais a amostra de saúde: nenhuma
+  // DEFINIÇÃO de recurso de catálogo, 360 ou 3D atravessa, porque o log guarda o CAMINHO
+  // pedido e nunca o documento servido. Um id de catálogo pode aparecer dentro de uma URL, e
+  // isso é o mesmo que já sai em `GET /erros` (o `exemplo` de cada grupo traz `url`): é
+  // referência, não definição, e a poda por conteúdo resolve DEFINIÇÃO. O corpo sai por
+  // `res.json`, logo pela poda global, como todas as irmãs.
+  json('src/modules/diag/diag.routes.js', 'GET /linhas'),
   // O RELATÓRIO DE UMA TELA (2026-09-02), única rota HÍBRIDA do módulo: agregação do log em
   // arquivo (percentil, contagem por faixa, buracos na série de amostras) somada a contagens de
   // `defeitos`. Mesma família das irmãs: nenhuma definição de recurso de catálogo, 360 ou 3D
@@ -212,7 +227,16 @@ const CENSO_ROTA = [
   // por Joi na borda (censados em `tests/integration/campos-livres-censo.test.js`) e não
   // guardam id de catálogo, 360 nem 3D: não há referência de recurso para a poda resolver.
   json('src/modules/diag/diag.routes.js', 'GET /defeitos'),
+  // UM defeito pelo id: o MESMO item da listagem acima, pelo mesmo mapeador.
+  json('src/modules/diag/diag.routes.js', 'GET /defeitos/:id'),
   json('src/modules/diag/diag.routes.js', 'GET /defeitos/:id/ocorrencias'),
+  // A PILHA DESMINIFICADA de um defeito. O que sai é derivado de DOIS textos: a `stack_bruta`
+  // que o cliente relatou (que já sai inteira em `GET /diag/defeitos`) e os `sources`/`names`
+  // do `.map` da build, ou seja, caminhos de arquivo do REPOSITÓRIO e nomes de função. Nada
+  // de catálogo, e nenhum caminho do sistema de arquivos do host: `quadroPublico`
+  // (`pilha.service.js`) é uma allowlist que deixa `mapa`, `erroDoMapa` e `fonteBruta` de
+  // fora justamente por isso.
+  json('src/modules/diag/diag.routes.js', 'GET /defeitos/:id/pilha'),
   // O ato de ciclo de vida devolve o item do defeito por `res.json`, como a listagem.
   json('src/modules/diag/diag.routes.js', 'PATCH /defeitos/:id'),
 

@@ -1,7 +1,10 @@
 // Path: tests/unit/diag-cli-pilha.test.js
 //
-// A metade de `npm run diag -- pilha` que não toca no banco (`scripts/diag/pilha.js`): ler o
-// texto do rastro, achar a build certa e casar cada quadro com o seu `.map`.
+// A metade de `npm run diag -- pilha` que não toca no banco, hoje em
+// `src/modules/diag/pilha.service.js`: ler o texto do rastro, achar a build certa e casar cada
+// quadro com o seu `.map`. Ela morava em `scripts/diag/pilha.js` e mudou de casa em 2026-09-02,
+// quando `GET /api/v1/diag/defeitos/:id/pilha` passou a chamar as MESMAS funções; o nome deste
+// arquivo continua dizendo `cli` porque é o comando que ele dirige, e a rota tem os seus.
 //
 // O CASO QUE JUSTIFICA O ARQUIVO É A RECUSA. `localizarReleaseDeMapas` casa por IGUALDADE do
 // campo `release` de `release.json`, e a tentação de "usar a build mais recente quando não
@@ -38,8 +41,8 @@ import path from 'node:path';
 import {
   analisarPilha, nomeDoArquivo, colunaDeQuadro, caminhosDoMapa, fonteLegivel,
   lerReleaseJson, localizarReleaseDeMapas, resolverQuadros,
-} from '../../scripts/diag/pilha.js';
-import { resolver } from '../../scripts/diag/mapa-de-fonte.js';
+} from '../../src/modules/diag/pilha.service.js';
+import { resolver } from '../../src/utils/mapa-de-fonte.js';
 
 const temporarios = [];
 after(() => {
@@ -79,7 +82,7 @@ function buildCom(release, { mapa = MAPA, semMapa = false, mapaPodre = false } =
 }
 
 describe('pilha: analisarPilha', () => {
-  it('lê as três formas de quadro que os motores escrevem', () => {
+  it('lê as três formas de quadro que os motores escrevem', async () => {
     const quadros = analisarPilha([
       'TypeError: x is not a function',
       '    at iniciar (https://ebgeo.mil.br/assets/core-Ab12Cd34.js:1:31)',
@@ -104,14 +107,14 @@ describe('pilha: analisarPilha', () => {
     assert.equal(quadros[3].coluna, 11);
   });
 
-  it('um caminho com DRIVE do Windows não é cortado no dois-pontos', () => {
+  it('um caminho com DRIVE do Windows não é cortado no dois-pontos', async () => {
     const [quadro] = analisarPilha('    at algo (C:\\build\\dist\\assets\\core-Ab12Cd34.js:1:31)');
     assert.equal(quadro.url, 'C:\\build\\dist\\assets\\core-Ab12Cd34.js');
     assert.equal(quadro.arquivo, 'core-Ab12Cd34.js');
     assert.equal(quadro.linha, 1);
   });
 
-  it('texto vazio ou nulo devolve uma lista de UM item, e não estoura', () => {
+  it('texto vazio ou nulo devolve uma lista de UM item, e não estoura', async () => {
     // O comando só chega aqui com `stack_bruta` não nula, mas uma pilha de uma linha só é o
     // que um relato pobre traz, e ela precisa sair do outro lado como linha crua.
     assert.equal(analisarPilha('').length, 1);
@@ -121,7 +124,7 @@ describe('pilha: analisarPilha', () => {
 });
 
 describe('pilha: nomes, colunas e caminhos', () => {
-  it('o nome do arquivo ignora query e fragmento', () => {
+  it('o nome do arquivo ignora query e fragmento', async () => {
     assert.equal(nomeDoArquivo('https://h/assets/core-Ab12.js?t=17000'), 'core-Ab12.js');
     assert.equal(nomeDoArquivo('https://h/assets/core-Ab12.js#x'), 'core-Ab12.js');
     assert.equal(nomeDoArquivo('C:\\d\\core-Ab12.js'), 'core-Ab12.js');
@@ -129,7 +132,7 @@ describe('pilha: nomes, colunas e caminhos', () => {
     assert.equal(nomeDoArquivo(null), null);
   });
 
-  it('a coluna do rastro (1-based) vira a do source map (0-based), com piso em zero', () => {
+  it('a coluna do rastro (1-based) vira a do source map (0-based), com piso em zero', async () => {
     // O erro por um é invisível: ele devolve o segmento vizinho, ou seja, outro nome de
     // função, sem levantar nada.
     assert.equal(colunaDeQuadro(1), 0);
@@ -137,7 +140,7 @@ describe('pilha: nomes, colunas e caminhos', () => {
     assert.equal(colunaDeQuadro(0), 0);
   });
 
-  it('os dois candidatos de `.map`: o caminho do endereço e depois `assets/<nome>`', () => {
+  it('os dois candidatos de `.map`: o caminho do endereço e depois `assets/<nome>`', async () => {
     const candidatos = caminhosDoMapa('https://ebgeo.mil.br/assets/core-Ab12.js', '/r/1');
     assert.equal(candidatos.length, 1);
     assert.equal(candidatos[0], path.join('/r/1', 'assets', 'core-Ab12.js.map'));
@@ -150,7 +153,7 @@ describe('pilha: nomes, colunas e caminhos', () => {
     assert.equal(comPrefixo[1], path.join('/r/1', 'assets', 'core-Ab12.js.map'));
   });
 
-  it('candidato que SAI da release por `..` no endereço é descartado', () => {
+  it('candidato que SAI da release por `..` no endereço é descartado', async () => {
     // Medido antes da guarda: `path.join('/r/1', 'assets/../../../../etc/passwd.map')`
     // resolve para `/etc/passwd.map`, fora de `--mapas`. O endereço vem de uma pilha escrita
     // por quem relata o erro, então isto é entrada de atacante, não caso de borda.
@@ -172,7 +175,7 @@ describe('pilha: nomes, colunas e caminhos', () => {
     ]);
   });
 
-  it('a fronteira é de CAMINHO, não `startsWith` de string: `/r/10` não é `/r/1`', () => {
+  it('a fronteira é de CAMINHO, não `startsWith` de string: `/r/10` não é `/r/1`', async () => {
     // Sem o `path.sep` na comparação, uma release em `/r/1` aceitaria caminhos de `/r/10` e
     // `/r/1-antigo`. É o mesmo argumento (e o mesmo modo de falha) de `credencialDeTile` no
     // cliente, que compara origem MAIS fronteira de caminho.
@@ -186,7 +189,7 @@ describe('pilha: nomes, colunas e caminhos', () => {
     assert.equal(candidatos[0], path.join('/r/1', 'assets', 'core-Ab12.js.map'));
   });
 
-  it('a fonte legível tira os pontos e prefixa o pacote, mantendo o resto', () => {
+  it('a fonte legível tira os pontos e prefixa o pacote, mantendo o resto', async () => {
     assert.equal(fonteLegivel('../../src/js/store/services.js'), 'frontend/src/js/store/services.js');
     assert.equal(fonteLegivel('./src/css/style.css'), 'frontend/src/css/style.css');
     // O que não começa em `src/` sai como está: um módulo de `node_modules` não é do frontend
@@ -197,15 +200,15 @@ describe('pilha: nomes, colunas e caminhos', () => {
 });
 
 describe('pilha: localizarReleaseDeMapas', () => {
-  it('aceita `--mapas` apontando DIRETO para a build', () => {
+  it('aceita `--mapas` apontando DIRETO para a build', async () => {
     const dir = buildCom('1.0.0+ab12cd');
-    const achado = localizarReleaseDeMapas(dir, '1.0.0+ab12cd');
+    const achado = await localizarReleaseDeMapas(dir, '1.0.0+ab12cd');
     assert.equal(achado.diretorio, dir);
     assert.equal(achado.candidatas.length, 1);
     assert.equal(achado.candidatas[0].release, '1.0.0+ab12cd');
   });
 
-  it('acha UM NÍVEL abaixo, entre várias builds, e lista todas como candidatas', () => {
+  it('acha UM NÍVEL abaixo, entre várias builds, e lista todas como candidatas', async () => {
     const raiz = pastaTemporaria();
     for (const [nome, release] of [['r1', '1.0.0+aaaaaa'], ['r2', '1.0.0+bbbbbb'], ['r3', '1.0.0+cccccc']]) {
       const dir = path.join(raiz, nome);
@@ -215,13 +218,13 @@ describe('pilha: localizarReleaseDeMapas', () => {
     // Um vizinho sem `release.json`, que a varredura precisa pular sem morrer.
     fs.mkdirSync(path.join(raiz, 'logs'), { recursive: true });
 
-    const achado = localizarReleaseDeMapas(raiz, '1.0.0+bbbbbb');
+    const achado = await localizarReleaseDeMapas(raiz, '1.0.0+bbbbbb');
     assert.equal(achado.diretorio, path.join(raiz, 'r2'));
     assert.equal(achado.candidatas.length, 3);
     assert.deepEqual(achado.candidatas.map((c) => c.release).sort(), ['1.0.0+aaaaaa', '1.0.0+bbbbbb', '1.0.0+cccccc']);
   });
 
-  it('RECUSA quando nenhuma build declara a release, e nomeia as que há', () => {
+  it('RECUSA quando nenhuma build declara a release, e nomeia as que há', async () => {
     // É a peça central do comando. Devolver a mais recente aqui produziria uma pilha
     // plausível e errada, que é o desfecho que este arquivo existe para tornar impossível.
     const raiz = pastaTemporaria();
@@ -230,24 +233,24 @@ describe('pilha: localizarReleaseDeMapas', () => {
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, 'release.json'), JSON.stringify({ release }));
     }
-    const achado = localizarReleaseDeMapas(raiz, '1.0.0+zzzzzz');
+    const achado = await localizarReleaseDeMapas(raiz, '1.0.0+zzzzzz');
     assert.equal(achado.diretorio, null);
     assert.equal(achado.candidatas.length, 2);
   });
 
-  it('diretório inexistente devolve recusa vazia, e não uma exceção', () => {
-    const achado = localizarReleaseDeMapas(path.join(pastaTemporaria(), 'nao-existe'), '1.0.0+aaaaaa');
+  it('diretório inexistente devolve recusa vazia, e não uma exceção', async () => {
+    const achado = await localizarReleaseDeMapas(path.join(pastaTemporaria(), 'nao-existe'), '1.0.0+aaaaaa');
     assert.equal(achado.diretorio, null);
     assert.equal(achado.candidatas.length, 0);
   });
 
-  it('`release.json` sem o campo `release`, ou ilegível, não vira candidata', () => {
+  it('`release.json` sem o campo `release`, ou ilegível, não vira candidata', async () => {
     const raiz = pastaTemporaria();
     fs.writeFileSync(path.join(raiz, 'release.json'), '{"version":"1.0.0"}');
-    assert.equal(lerReleaseJson(raiz), null);
+    assert.equal(await lerReleaseJson(raiz), null);
     fs.writeFileSync(path.join(raiz, 'release.json'), 'nao e json');
-    assert.equal(lerReleaseJson(raiz), null);
-    assert.equal(localizarReleaseDeMapas(raiz, '1.0.0+aaaaaa').candidatas.length, 0);
+    assert.equal(await lerReleaseJson(raiz), null);
+    assert.equal((await localizarReleaseDeMapas(raiz, '1.0.0+aaaaaa')).candidatas.length, 0);
   });
 });
 
@@ -259,9 +262,9 @@ describe('pilha: resolverQuadros', () => {
     '    at https://ebgeo.mil.br/assets/vendor-Zz99.js:1:4',
   ].join('\n');
 
-  it('resolve os quadros do chunk mapeado e nomeia os três motivos de não resolver', () => {
+  it('resolve os quadros do chunk mapeado e nomeia os três motivos de não resolver', async () => {
     const dir = buildCom('1.0.0+ab12cd');
-    const quadros = resolverQuadros(analisarPilha(RASTRO), dir, resolver);
+    const quadros = await resolverQuadros(analisarPilha(RASTRO), dir, resolver);
     assert.equal(quadros.length, 4);
 
     // A mensagem do topo: não é quadro nenhum.
@@ -287,13 +290,13 @@ describe('pilha: resolverQuadros', () => {
     assert.equal(quadros[3].motivo, 'sem-mapa');
   });
 
-  it('mapa CORROMPIDO diz `sem-mapa` COM o motivo, e SEM citar o conteúdo do arquivo', () => {
+  it('mapa CORROMPIDO diz `sem-mapa` COM o motivo, e SEM citar o conteúdo do arquivo', async () => {
     // Sem o motivo, um `.map` que virou página de 404 no proxy se lê como `.map` ausente, e o
     // operador vai procurar build sem sourcemap em vez de olhar o servidor de arquivos. Mas a
     // mensagem nativa do `JSON.parse` CITA o começo do arquivo (`Unexpected token '<',
     // "<html>404..."`), e essa saída acaba colada em relatório: o caminho basta.
     const dir = buildCom('1.0.0+ab12cd', { mapaPodre: true });
-    const quadros = resolverQuadros(analisarPilha(RASTRO), dir, resolver);
+    const quadros = await resolverQuadros(analisarPilha(RASTRO), dir, resolver);
     assert.equal(quadros[1].resolvido, false);
     assert.equal(quadros[1].motivo, 'sem-mapa');
     assert.equal(quadros[1].erroDoMapa, 'não é um source map válido (JSON ilegível)');
@@ -303,12 +306,12 @@ describe('pilha: resolverQuadros', () => {
     assert.equal(quadros[1].mapa, path.join(dir, 'assets', 'core-Ab12Cd34.js.map'));
   });
 
-  it('posição fora de qualquer segmento é `sem-segmento`, e NÃO cai no vizinho', () => {
+  it('posição fora de qualquer segmento é `sem-segmento`, e NÃO cai no vizinho', async () => {
     const dir = buildCom('1.0.0+ab12cd');
     // Coluna 1 do rastro vira 0 do mapa, e a linha gerada 2 só tem segmento a partir da
     // coluna 4: colapsar isto em `sem-mapa` mandaria procurar o arquivo errado, e "aproveitar"
     // o segmento seguinte inventaria uma origem.
-    const [quadro] = resolverQuadros(
+    const [quadro] = await resolverQuadros(
       analisarPilha('    at x (https://ebgeo.mil.br/assets/core-Ab12Cd34.js:2:1)'), dir, resolver
     );
     assert.equal(quadro.resolvido, false);
@@ -316,11 +319,11 @@ describe('pilha: resolverQuadros', () => {
     assert.equal(typeof quadro.mapa, 'string');
   });
 
-  it('a linha CRUA sobrevive em todos os quadros, resolvidos ou não', () => {
+  it('a linha CRUA sobrevive em todos os quadros, resolvidos ou não', async () => {
     // É a evidência de onde a resposta veio: sem ela um mapeamento deslocado é
     // indistinguível de um certo.
     const dir = buildCom('1.0.0+ab12cd');
-    const quadros = resolverQuadros(analisarPilha(RASTRO), dir, resolver);
+    const quadros = await resolverQuadros(analisarPilha(RASTRO), dir, resolver);
     assert.equal(quadros.length, 4);
     for (const q of quadros) {
       assert.equal(typeof q.bruta, 'string');

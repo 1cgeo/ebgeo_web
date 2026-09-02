@@ -81,6 +81,13 @@ npm run diag -- resolver|ignorar|reabrir <uuid> --como <usuario> [--commit <hash
                       #   audit_trail.actor_id e NOT NULL e o terminal nao tem sessao. O estado
                       #   'regrediu' nao se escreve a mao em lugar nenhum.
                       #   --json em qualquer um deles: UM documento no stdout e nada mais ali.
+                      # SESSAO REMOTA ABRE POR GET /api/v1/diag/resumo (token de administrador,
+                      #   nunca chave de API: requireAdmin recusa toda chave); a de host abre
+                      #   pelo CLI. Desde 2026-09-02 a porta HTTP e a PRIMARIA e cobre os onze
+                      #   comandos, bandeiras inclusive (?porRelease=1, ?intervalo=). Continuam
+                      #   so do host: a janela SEM TETO, o --dir e o --mapas (nao ha ?dir= nem
+                      #   ?mapas=, de proposito). Ver docs/wiki/observabilidade.md, secao "O
+                      #   agente de fora".
 ```
 
 Arquivos `.js`/`.css` editados passam por lint automático (hook PostToolUse), e a saída aparece depois de cada escrita.

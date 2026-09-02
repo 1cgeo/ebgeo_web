@@ -105,10 +105,16 @@ import {
   ESTADOS_DE_DEFEITO, ESTADOS_MANUAIS, EstadoDeDefeito,
 } from '../src/modules/diag/estados-de-defeito.js';
 import { ORIGENS_DE_ERRO } from '../src/modules/diag/origens-de-erro.js';
+// A DESMINIFICAÇÃO MUDOU DE CASA EM 2026-09-02, e o import é o registro disso: ela morava em
+// `scripts/diag/` e passou a ser compartilhada com `GET /api/v1/diag/defeitos/:id/pilha`, que
+// existe para o agente que opera de fora do host e não tem os `.map` na máquina dele. Os dois
+// arquivos continuam sem `config.js` e sem pool (`pilha.service.js` só traz `node:fs`,
+// `node:path` e o decodificador folha), então trazê-los aqui não custa banco aos cinco
+// comandos de log. O comportamento e os testes do comando não mudaram: só o caminho.
 import {
   analisarPilha, resolverQuadros, localizarReleaseDeMapas,
-} from './diag/pilha.js';
-import { resolver as resolverPosicao } from './diag/mapa-de-fonte.js';
+} from '../src/modules/diag/pilha.service.js';
+import { resolver as resolverPosicao } from '../src/utils/mapa-de-fonte.js';
 
 /**
  * Os três atos de CICLO DE VIDA, e o estado que cada um escreve.
@@ -881,7 +887,7 @@ function imprimirPilha(quadros) {
       // `arquivo:10:6` com DOIS sistemas de contagem na mesma referência, e um editor abre
       // isso na coluna errada. O `--json` continua 0-based em `colunaOriginal`, porque lá o
       // consumidor é código e a convenção do formato é a que vale; a diferença está escrita
-      // no cabeçalho de `scripts/diag/mapa-de-fonte.js`.
+      // no cabeçalho de `src/utils/mapa-de-fonte.js`.
       const coluna = q.colunaOriginal + 1;
       process.stdout.write(`  ${q.fonte}:${q.linhaOriginal}:${coluna}${q.nome ? ` (${q.nome})` : ''}\n`);
     } else {
@@ -908,7 +914,7 @@ const EXPLICACAO_DA_RECUSA = 'NADA foi resolvido, de propósito: os endereços d
  * O bloco que sai quando NENHUMA build declara a release da pilha.
  *
  * ELE É A PEÇA CENTRAL DO COMANDO, e não um caso de erro. Ver o cabeçalho de
- * `scripts/diag/pilha.js`: resolver contra outra build não falha, devolve nomes e linhas
+ * `src/modules/diag/pilha.service.js`: resolver contra outra build não falha, devolve nomes e linhas
  * plausíveis e errados, e um relatório assim custa mais que pilha nenhuma. As candidatas vão
  * junto porque elas separam os dois diagnósticos ("digitei o caminho errado" e "a build foi
  * podada"), e a pilha crua vai junto porque ela é o que o operador ainda pode usar.
@@ -1046,7 +1052,11 @@ async function comandoPilha(op) {
   }
 
   const quadros = analisarPilha(defeito.stackBruta);
-  const { diretorio, candidatas } = localizarReleaseDeMapas(op.mapas, defeito.primeiraRelease);
+  // AS DUAS VIRARAM ASSÍNCRONAS EM 2026-09-02, quando a rota passou a chamá-las: ler o `.map`
+  // com `readFileSync` dentro de uma requisição para o processo que também atende sync, e um
+  // chunk grande custa da ordem de 48 ms. Aqui isso não muda nada (o comando é um processo só),
+  // e é por isso que a mudança coube no chamador sem tocar no comportamento.
+  const { diretorio, candidatas } = await localizarReleaseDeMapas(op.mapas, defeito.primeiraRelease);
   const cabecalho = {
     defeito: { id: defeito.id, estado: defeito.estado, mensagem: defeito.mensagem, ocorrencias: defeito.ocorrencias },
     release: defeito.primeiraRelease,
@@ -1072,7 +1082,7 @@ async function comandoPilha(op) {
     };
   }
 
-  const resolvidos = resolverQuadros(quadros, diretorio, resolverPosicao);
+  const resolvidos = await resolverQuadros(quadros, diretorio, resolverPosicao);
   return {
     codigo: 0,
     estrutura: { ...cabecalho, diretorio, quadros: resolvidos },

@@ -120,7 +120,21 @@ const arquivosVersionados = () =>
     // que os padrões os enxergam (os controles negativos lá embaixo). Sem a exclusão o
     // varredor se acusa, e o jeito de calar isso seria tirar as amostras, que é justamente
     // o que dá valor ao guarda.
-    .filter((s) => !s.endsWith('citacao-de-migracao.test.js'));
+    .filter((s) => !s.endsWith('citacao-de-migracao.test.js'))
+    // O ARQUIVO QUE O `-c` LISTA E O DISCO NÃO TEM, e ele existe de verdade: `ls-files -c`
+    // enumera o ÍNDICE, então um arquivo RASTREADO que foi apagado na árvore de trabalho e
+    // ainda não teve a remoção adicionada continua na lista, e o `readFileSync` de baixo morre
+    // com ENOENT. O caso vive na janela entre apagar e commitar, e o sintoma é o pior possível
+    // para um censo: os QUATRO casos deste arquivo caem de uma vez, todos com a mesma exceção,
+    // apontando para um arquivo que ninguém está mexendo. Aconteceu na mudança de casa de
+    // `scripts/diag/` para `src/` em 2026-09-02.
+    //
+    // PULAR ERRA PARA O LADO ESTRITO, que é o único lado em que pular é seguro: o inventário
+    // fica MENOR, então citação quebrada em arquivo que existe continua sendo acusada, e o
+    // piso de 20 citações e o de 100 arquivos continuam cobrando que a varredura alcance o
+    // pacote. É o mesmo argumento (e o mesmo trade) do `ENOENT` tolerado por
+    // `frontend/tests/unit/docs-integridade.test.js`.
+    .filter((s) => fs.existsSync(path.join(RAIZ, s)));
 
 /**
  * O texto de COMENTÁRIO de um arquivo .js, linha a linha.

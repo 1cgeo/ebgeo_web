@@ -149,6 +149,27 @@ const config = Object.freeze({
     emArquivo: optional('LOG_TO_FILE', 'on') !== 'off',
   }),
 
+  /**
+   * ONDE MORAM OS `.map` DAS BUILDS PUBLICADAS (`EBGEO_MAPAS_DIR`), ou `undefined`.
+   *
+   * É o diretório de RELEASES que o deploy escreve: uma pasta por build, cada uma com o seu
+   * `release.json` e os `assets/*.map`. Ele serve UM caminho só,
+   * `GET /api/v1/diag/defeitos/:id/pilha`, que desminifica a pilha crua de um defeito do lado
+   * do SERVIDOR, para o agente com credencial de administrador que opera de FORA do host e
+   * portanto não tem os mapas na máquina dele (o gêmeo é `npm run diag -- pilha --mapas`, que
+   * recebe o diretório de quem digitou).
+   *
+   * SEM DEFAULT, E É DECISÃO. Um caminho embutido faria a rota procurar mapas num diretório
+   * que a instalação nunca declarou e responder "nenhuma build declara esta release", que
+   * manda investigar a BUILD quando o que falta é configuração. Ausente, ela responde 200
+   * dizendo que a desminificação não está disponível neste servidor, e nomeia a variável.
+   *
+   * ELE NÃO DERRUBA O BOOT quando aponta para lugar nenhum, ao contrário do que `LOG_DIR`
+   * merece: um diretório de mapas ausente degrada um caminho de diagnóstico e o anuncia,
+   * enquanto um log sem destino apaga a única evidência que sobrevive ao terminal.
+   */
+  mapasDir: process.env.EBGEO_MAPAS_DIR || undefined,
+
   db: Object.freeze({
     connectionString: required('DATABASE_URL'),
     poolMin: parseInt(optional('DATABASE_POOL_MIN', '2'), 10),

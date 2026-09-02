@@ -5,6 +5,7 @@ import { NotFoundError } from '../../utils/errors.js';
 import * as diagService from './diag.service.js';
 import * as defeitos from './defeitos.service.js';
 import { montarResumoCompleto } from './resumo.service.js';
+import { resolverPilhaDeDefeito } from './pilha.service.js';
 import * as usoService from '../uso/uso.service.js';
 
 /**
@@ -18,14 +19,66 @@ import * as usoService from '../uso/uso.service.js';
  */
 const diretorio = () => config.log.dir;
 
+/**
+ * A frase do 404 das TRÊS rotas que agem sobre UM defeito.
+ *
+ * Uma constante e não três literais: ela nomeia a causa mais provável (a poda por idade passou
+ * entre a listagem e o clique), e três cópias divergiriam no dia em que o critério da poda
+ * mudasse, deixando duas rotas explicando o produto de um jeito que deixou de ser verdade.
+ */
+const DEFEITO_INEXISTENTE = 'Defeito não encontrado. A poda por idade apaga defeito e '
+  + 'ocorrências juntos, então um id que a listagem mostrou minutos atrás pode ter envelhecido.';
+
 export const erros = asyncHandler(async (req, res) => {
   const { desde, limite } = req.query;
   res.json({ data: await diagService.erros({ diretorio: diretorio(), desde, limite }) });
 });
 
 export const lento = asyncHandler(async (req, res) => {
-  const { desde, limite } = req.query;
-  res.json({ data: await diagService.lento({ diretorio: diretorio(), desde, limite }) });
+  const { desde, limite, porRelease } = req.query;
+  res.json({ data: await diagService.lento({ diretorio: diretorio(), desde, limite, porRelease }) });
+});
+
+/**
+ * OS BURACOS NA SÉRIE DE AMOSTRAS: a queda que nenhuma amostra pode declarar.
+ *
+ * É a segunda porta de `npm run diag -- saude`, e ela nasceu em 2026-09-02 pela decisão de que
+ * o caso comum é um agente com credencial de administrador operando de FORA do host. O que ela
+ * responde não está em nenhuma das irmãs: um amostrador dentro do processo não testemunha a
+ * própria morte, então o sinal de queda é o SILÊNCIO entre duas amostras, e contá-lo é a única
+ * pergunta desta família que o `.jsonl` responde e o banco não.
+ *
+ * `intervalo` ATRAVESSA COMO TEXTO até o serviço, como `desde`: o Joi valida a forma e guarda
+ * a string para que a recusa possa citar o que a pessoa escreveu.
+ */
+export const saude = asyncHandler(async (req, res) => {
+  const { desde, intervalo } = req.query;
+  res.json({ data: await diagService.saude({ diretorio: diretorio(), desde, intervalo }) });
+});
+
+/**
+ * O DESPEJO CRU FILTRADO: o `grep` no `.jsonl`, pela porta HTTP.
+ *
+ * ELA É A ÚNICA ROTA DESTA FAMÍLIA QUE NÃO AGREGA, e é por isso que ela existe: as outras
+ * respondem "quais defeitos" e "o que está devagar", agrupando; esta responde "o que o servidor
+ * escreveu em volta DESTE id", que é a costura entre o erro que o navegador relatou (o
+ * `sessaoId` que viaja em `X-EBGeo-Sessao`) e as linhas do mesmo instante. Quem tem shell no
+ * host faz isso com `grep`; quem não tem, não fazia de jeito nenhum.
+ *
+ * O QUE SAI É O QUE O ARQUIVO TEM. A redação de credencial acontece na ESCRITA (`redactUrl`
+ * sobre a URL da requisição, `elidirSql` sobre o texto de SQL, nos dois caminhos que chegam ao
+ * arquivo), e esta rota não redige nada por cima: um segundo filtro aqui faria a resposta
+ * divergir do arquivo que ela afirma estar mostrando, e o operador que comparasse as duas
+ * concluiria que uma delas está errada. O gate é `auth` + `requireAdmin`, e o que ele libera é
+ * o log do servidor.
+ *
+ * `?dir=` NÃO EXISTE AQUI TAMPOUCO, e aqui a ausência pesa mais que nas irmãs: elas agregam, e
+ * esta devolve LINHA. Com um diretório do chamador, ela seria um leitor de arquivo arbitrário
+ * do servidor com "linha que faz JSON.parse" como única peneira.
+ */
+export const linhas = asyncHandler(async (req, res) => {
+  const { desde, filtro, limite } = req.query;
+  res.json({ data: await diagService.linhas({ diretorio: diretorio(), desde, filtro, limite }) });
 });
 
 /**
@@ -101,12 +154,17 @@ export const status = asyncHandler(async (req, res) => {
  * `montarResumoCompleto`, ao lado da leitura que pode falhar. Pôr um `.catch` aqui devolveria
  * `data: null` no exato caso que a rota existe para atravessar.
  *
- * O DIRETÓRIO SAI DE `diretorio()`, pela mesma razão das outras três: um `?dir=` seria um
+ * O DIRETÓRIO SAI DE `diretorio()`, pela mesma razão das irmãs de log: um `?dir=` seria um
  * leitor de arquivo arbitrário do servidor atrás de um gate de administrador.
+ *
+ * `intervalo` ENTROU EM 2026-09-02 e é o `--intervalo` do comando. Sem ele, o bloco de saúde
+ * deste relatório respondia SEMPRE sobre o intervalo inferido, e a bandeira que existe
+ * justamente para o caso em que a inferência não alcança (uma série em que nenhuma distância é
+ * nominal) não tinha porta HTTP nenhuma.
  */
 export const resumo = asyncHandler(async (req, res) => {
-  const { desde, limite } = req.query;
-  res.json({ data: await montarResumoCompleto({ diretorio: diretorio(), desde, limite }) });
+  const { desde, limite, intervalo } = req.query;
+  res.json({ data: await montarResumoCompleto({ diretorio: diretorio(), desde, limite, intervalo }) });
 });
 
 /**
@@ -155,6 +213,63 @@ export const listarDefeitos = asyncHandler(async (req, res) => {
 });
 
 /**
+ * UM defeito, pelo id, no MESMO shape da listagem.
+ *
+ * ELA EXISTIA SÓ NO COMANDO (`npm run diag -- defeitos --id <uuid>`) até 2026-09-02, e a
+ * ausência dela na porta HTTP obrigava o agente de fora a paginar a listagem procurando um id
+ * que ele já tinha em mãos, com os filtros e a janela dela por cima. `obterDefeito` é a MESMA
+ * função de serviço que o comando chama, sobre o MESMO mapeador da listagem: é isso que
+ * garante que `GET /diag/defeitos` e `GET /diag/defeitos/:id` respondam o mesmo objeto sobre o
+ * mesmo defeito, que é a comparação que um agente faz para se orientar.
+ *
+ * 404 E NÃO LISTA VAZIA, ao contrário da rota de ocorrências logo abaixo, e a assimetria não é
+ * inconsistência: lá a pergunta é "o que este defeito registrou", e zero evidências é uma
+ * resposta legítima; aqui a pergunta é "me dê ESTE defeito", e um 200 com corpo vazio diria
+ * que ele existe e não tem conteúdo. É a mesma regra do `PATCH`: o que não existe tem de ser
+ * dito.
+ *
+ * A JANELA NÃO ENTRA AQUI. `SELECT_DEFEITO_POR_ID` busca pelo id e nada mais, então um defeito
+ * que caiu fora da janela de sete dias continua alcançável enquanto a poda por idade não
+ * passar. É o que faz esta rota servir para conferir um id anotado ontem sem ter de adivinhar
+ * qual `?desde=` o traria de volta.
+ */
+export const obterDefeito = asyncHandler(async (req, res) => {
+  const item = await defeitos.obterDefeito(req.params.id);
+  if (!item) throw new NotFoundError(DEFEITO_INEXISTENTE);
+  res.json({ data: item });
+});
+
+/**
+ * A PILHA CRUA DE UM DEFEITO, DESMINIFICADA DO LADO DO SERVIDOR.
+ *
+ * ELA EXISTIA SÓ NO COMANDO, e não por acaso: `npm run diag -- pilha` precisa dos `.map` da
+ * build, que moram no HOST. É justamente por isso que ela é a rota mais necessária das quatro
+ * que nasceram em 2026-09-02: o agente de fora não tem aqueles arquivos e não tem como obtê-los.
+ * O diretório vem de `EBGEO_MAPAS_DIR` (`config.mapasDir`), decidido pelo servidor, pela mesma
+ * razão do `diretorio()` do log: um `?mapas=` seria um leitor de arquivo arbitrário do host
+ * atrás de um gate de administrador.
+ *
+ * O DESFECHO É TERNÁRIO, e só um dos três é 404. Defeito inexistente é 404 (a pergunta era
+ * sobre uma linha que não está lá); tudo o mais é 200 com `disponivel: false` e um motivo em
+ * CÓDIGO, porque "o servidor não tem os mapas", "o relato não trouxe a pilha" e "a build foi
+ * podada" são três providências diferentes, e duas delas nem são de quem está lendo. Um 500 em
+ * qualquer desses casos diria que o diagnóstico quebrou.
+ *
+ * A ENTRADA É HOSTIL POR CONSTRUÇÃO, e isso decide o desenho de `pilha.service.js`:
+ * `stack_bruta` é texto livre que chegou pela ÚNICA rota anônima deste servidor
+ * (`POST /diag/erro-cliente`), então os endereços de dentro dela são escolhidos por quem
+ * relata. O caminho do `.map` derivado deles é filtrado por FRONTEIRA DE CAMINHO contra o
+ * diretório da release (`dentroDaRaiz`), e o quadro cujo candidato escapa resolve como
+ * `sem-mapa`, sem tocar o disco fora dali. Nenhuma mensagem deste caminho ecoa conteúdo de
+ * arquivo, e o payload não publica caminho nenhum do host.
+ */
+export const pilhaDeDefeito = asyncHandler(async (req, res) => {
+  const defeito = await defeitos.obterDefeito(req.params.id);
+  if (!defeito) throw new NotFoundError(DEFEITO_INEXISTENTE);
+  res.json({ data: await resolverPilhaDeDefeito({ defeito, mapasDir: config.mapasDir }) });
+});
+
+/**
  * As ocorrências de um defeito (no máximo vinte, ver `TETO_DE_OCORRENCIAS`).
  *
  * SEM 404 PARA DEFEITO INEXISTENTE, de propósito: a poda por idade pode ter passado entre a
@@ -195,11 +310,6 @@ export const mudarEstadoDeDefeito = asyncHandler(async (req, res) => {
     userId: req.user.id,
     req,
   });
-  if (!r) {
-    throw new NotFoundError(
-      'Defeito não encontrado. A poda por idade apaga defeito e ocorrências juntos, então '
-      + 'um id que a listagem mostrou minutos atrás pode ter envelhecido.'
-    );
-  }
+  if (!r) throw new NotFoundError(DEFEITO_INEXISTENTE);
   res.json({ data: r.item });
 });

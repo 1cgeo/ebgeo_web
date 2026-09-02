@@ -1295,6 +1295,27 @@ const CENSO_ROTA = [
   { arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /lento', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
   { arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /status', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
   {
+    arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /saude', classe: R_OUTRA, gate: 'requireAdmin',
+    motivo: `${SO_ADMIN} Os buracos na série de AMOSTRAS DE SAÚDE (2026-09-02), que é a única `
+      + 'pergunta desta família que o banco não responde. O que a linha de amostra carrega é '
+      + 'estado de PROCESSO (banco, pool, memória, uptime, espaço em disco), e o que sai daqui '
+      + 'é contagem e distância entre instantes: nenhum id de catálogo, 360 ou 3D existe nessa '
+      + 'fonte. O diretório continua sendo decidido pelo servidor, sem `?dir=`.',
+  },
+  {
+    arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /linhas', classe: R_OUTRA, gate: 'requireAdmin',
+    motivo: `${SO_ADMIN} A ÚNICA desta família que NÃO agrega: ela devolve os registros do `
+      + '`.jsonl` que casam um texto, que é o `grep` do host pela porta HTTP (2026-09-02). O que '
+      + 'sai é linha de log: rota, método, status, duração, `reqId`, `sessaoId`, `ip` e o objeto '
+      + 'de erro. Um id de catálogo pode aparecer DENTRO de uma URL registrada, como já aparece '
+      + 'no `exemplo` de `GET /erros`, e isso é referência e não definição de recurso: o log '
+      + 'guarda o caminho PEDIDO, nunca o documento servido. A credencial que porventura '
+      + 'viajasse na query string já foi redigida na ESCRITA (`redactUrl`), e o literal de SQL '
+      + 'por `elidirSql`; esta rota não redige por cima, senão a resposta divergiria do arquivo '
+      + 'que ela afirma mostrar. Sem `?dir=`, pela mesma razão das irmãs e com mais peso, '
+      + 'porque esta devolve LINHA e não contagem.',
+  },
+  {
     arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /resumo', classe: R_OUTRA, gate: 'requireAdmin',
     motivo: `${SO_ADMIN} O relatório de UMA TELA (2026-09-02), e a única rota HÍBRIDA do módulo: `
       + 'ela soma a agregação do log em arquivo (percentil por rota, contagem por faixa de status, '
@@ -1314,6 +1335,26 @@ const CENSO_ROTA = [
       + 'serve TAMBÉM o 5xx que o próprio servidor registra sobre si (`origem = servidor`). Nada '
       + 'muda quanto a recurso: o que sai é assinatura, mensagem, pilha, contagem e ciclo de vida, '
       + 'mais o `username` de quem resolveu, que vem de `users` por LEFT JOIN e não de catálogo.',
+  },
+  {
+    arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /defeitos/:id', classe: R_OUTRA,
+    gate: 'requireAdmin',
+    motivo: `${SO_ADMIN} UM defeito pelo id (2026-09-02), no MESMO shape e pelo MESMO mapeador `
+      + 'da listagem logo acima: ela não abre superfície nenhuma que `GET /diag/defeitos` já não '
+      + 'abrisse, só dispensa quem já tem o id de paginar a lista para achá-lo.',
+  },
+  {
+    arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /defeitos/:id/pilha', classe: R_OUTRA,
+    gate: 'requireAdmin',
+    motivo: `${SO_ADMIN} A pilha crua do defeito DESMINIFICADA contra o source map da build `
+      + 'que a produziu (2026-09-02, `EBGEO_MAPAS_DIR`). O que sai é derivado de dois textos que não '
+      + 'são catálogo: a `stack_bruta` do relato, que já sai inteira na listagem, e os `sources` '
+      + 'e `names` do source map, ou seja, caminhos do REPOSITÓRIO e nomes de função. Ela é a '
+      + 'rota deste módulo com a entrada mais hostil (a pilha vem da rota anônima), e por isso '
+      + 'carrega duas guardas próprias que não são sobre recurso: o candidato a `.map` é '
+      + 'filtrado por FRONTEIRA DE CAMINHO contra o diretório da release (`dentroDaRaiz`), e o '
+      + 'payload não publica caminho do host nem conteúdo de arquivo lido (`quadroPublico` é '
+      + 'allowlist). O diretório é do servidor, sem `?mapas=`.',
   },
   {
     arquivo: 'src/modules/diag/diag.routes.js', rota: 'GET /defeitos/:id/ocorrencias', classe: R_OUTRA,
