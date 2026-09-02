@@ -70,7 +70,10 @@ import { fileURLToPath } from 'node:url';
 
 const RAIZ = fileURLToPath(new URL('../../', import.meta.url));
 const ARQUIVO = 'src/js/admin/diag-tab.js';
-const FONTE = readFileSync(path.join(RAIZ, ARQUIVO), 'utf8');
+// Normalized to LF: a checkout on Windows materializes the file with CRLF, and the
+// method-closing probe below ('\n    }\n') would then find nothing, turning every
+// section into an empty body and the whole census red on a clean tree.
+const FONTE = readFileSync(path.join(RAIZ, ARQUIVO), 'utf8').replace(/\r\n/g, '\n');
 
 /** A marca de saída, escrita no JSDoc da seção que não lê arquivo de log. */
 const MARCA_SEM_LOG = '@nao-le-log';
