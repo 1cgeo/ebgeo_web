@@ -208,6 +208,7 @@ describe('extractBranches (via mergeArrows)', () => {
             id: '1',
             width: 0,
             showArrowHead: false,
+            doubleHeaded: false,
             headLengthRatio: 0,
             airmobile: false,
             airmobilePosition: 0,
@@ -215,10 +216,11 @@ describe('extractBranches (via mergeArrows)', () => {
         await mergeArrows([falsyButSet, arrow({ id: '2' })], {}, selectionManager);
         const branch = mergedProps().branches[0];
         expect(Object.keys(branch).sort()).toEqual(
-            ['airmobile', 'airmobilePosition', 'baseCoordinates', 'headLengthRatio', 'showArrowHead', 'width'],
+            ['airmobile', 'airmobilePosition', 'baseCoordinates', 'doubleHeaded', 'headLengthRatio', 'showArrowHead', 'width'],
         );
         expect(branch.width).toBe(0);
         expect(branch.showArrowHead).toBe(false);
+        expect(branch.doubleHeaded).toBe(false);
         expect(branch.headLengthRatio).toBe(0);
         expect(branch.airmobile).toBe(false);
         expect(branch.airmobilePosition).toBe(0);
@@ -435,5 +437,84 @@ describe('splitArrows: guarda de entrada', () => {
             expect(created[1].properties.headLengthRatio).toBe(1.5);
             expect(created[1].properties.airmobilePosition).toBe(0.7);
         });
+    });
+});
+
+// ============================================================================
+// doubleHeaded atravessa combinar e separar
+// ----------------------------------------------------------------------------
+// A flag copia a forma de `showArrowHead`, e a forma é ASSIMÉTRICA de propósito:
+// no merge o valor vai CRU (o topo é o espelho do primeiro ramo para o leitor
+// antigo, e normalizar ali devolveria uma seta diferente da que o merge
+// consumiu), no split ele passa por `=== true` (a flag nasce DESLIGADA, então a
+// ausência tem de resolver para `false`, espelhando o `!== false` com que
+// `showArrowHead` nasce LIGADA). Escrever `||` num dos dois lados, como faz a
+// implementação de referência, perderia o `false` explícito de um lado e o
+// `0`/`''` do outro.
+// ============================================================================
+
+describe('doubleHeaded no combinar e no separar', () => {
+    it('o ramo carrega a flag LIGADA', async () => {
+        await mergeArrows([arrow({ id: '1', doubleHeaded: true }), arrow({ id: '2' })], {}, selectionManager);
+        expect(mergedProps().branches[0].doubleHeaded).toBe(true);
+        // O ramo que não declara nada continua sem a chave: a flag desligada é a
+        // AUSÊNCIA, e inventá-la aqui engordaria toda seta combinada do disco.
+        expect(Object.keys(mergedProps().branches[1])).toEqual(['baseCoordinates']);
+    });
+
+    it('o prop de topo espelha o PRIMEIRO ramo, cru', async () => {
+        await mergeArrows([arrow({ id: '1', doubleHeaded: true }), arrow({ id: '2' })], {}, selectionManager);
+        expect(mergedProps().doubleHeaded).toBe(true);
+
+        calls.added = [];
+        await mergeArrows([arrow({ id: '1' }), arrow({ id: '2', doubleHeaded: true })], {}, selectionManager);
+        // O SEGUNDO ramo estar ligado não liga o topo: o espelho é do primeiro.
+        expect(mergedProps().doubleHeaded).toBeUndefined();
+    });
+
+    it('o split resolve a AUSÊNCIA para `false`, não para `undefined`', async () => {
+        const merged = {
+            properties: {
+                id: 'm', source: 'arrow', isMerged: true,
+                branches: [
+                    { baseCoordinates: [[0, 0], [1, 1]], doubleHeaded: true },
+                    { baseCoordinates: [[5, 5], [6, 6]] },
+                ],
+            },
+        };
+        const created = await splitArrows(merged, {}, selectionManager);
+        expect(created.length).toBe(2);
+        expect(created[0].properties.doubleHeaded).toBe(true);
+        // Absoluto: `false`, e não `undefined`. A seta que sai do split é uma
+        // feição nova e completa; deixar a chave indefinida faria
+        // `hasFeatureChanged` acusar mudança no primeiro toggle e o painel
+        // desenhar um estado que ninguém escolheu.
+        expect(created[1].properties.doubleHeaded).toBe(false);
+    });
+
+    it('o split NÃO liga a cauda por um valor apenas truthy', async () => {
+        const merged = {
+            properties: {
+                id: 'm', source: 'arrow', isMerged: true,
+                branches: [
+                    { baseCoordinates: [[0, 0], [1, 1]], doubleHeaded: 1 },
+                    { baseCoordinates: [[5, 5], [6, 6]], doubleHeaded: 'sim' },
+                ],
+            },
+        };
+        const created = await splitArrows(merged, {}, selectionManager);
+        expect(created.map((f) => f.properties.doubleHeaded)).toEqual([false, false]);
+    });
+
+    it('ida e volta: combinar e separar devolve a mesma flag em cada ramo', async () => {
+        await mergeArrows(
+            [arrow({ id: '1', doubleHeaded: true }), arrow({ id: '2', doubleHeaded: false })],
+            {}, selectionManager,
+        );
+        const combinada = calls.added[0].feature;
+
+        calls.added = [];
+        const created = await splitArrows(combinada, {}, selectionManager);
+        expect(created.map((f) => f.properties.doubleHeaded)).toEqual([true, false]);
     });
 });

@@ -220,7 +220,7 @@ o que sobrou aberto no domínio.
 | `brazilian_svg_postprocessing.js` | `hexToRgb` (+`applyBrazilianModifications`) | alto | **3-dígitos `#fff`→`rgb(255,NaN,NaN)`**; lowercase; sem `#` | `#fff`→NaN (flag bug); 4 cores engagement substituídas | não | M |
 | `engagement-bar.section.js` | encode/decode (extrair; nomes sugeridos, ainda não existem) | alto | `'STAGE-WEAPON'`; `R:` prefix; desambiguação stage-vs-weapon; round-trip com valores contendo `<` | extrair pure; round-trip stage×weapon×remote | sim | M |
 
-### Domínio: mil-arrow — CONCLUÍDO em 2026-08-24 (arrow-geometry + arrow-merge)
+### Domínio: mil-arrow — CONCLUÍDO em 2026-08-24 (arrow-geometry + arrow-merge); `doubleHeaded` acrescentado em 2026-09-01
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `military_tools/arrow_tool/add_arrow_geometry.js` | `normalizeBaseCoordinates` | alto | JSON malformado→[]; `'null'`/`'42'`→retorna null/42 (shape ruim); array passa por ref | round-trip; `'42'`→documenta bug | sim | S |
@@ -229,6 +229,8 @@ o que sobrou aberto no domínio.
 | `frontend/src/js/military_tools/arrow_tool/arrow-merge.js` | `extractBranches` | alto | **width=0/false/airmobilePosition=0 (falsy-mas-definido) DEVEM ser copiados**; baseCoordinates deep-copy | width:0 preservado; mutação isolada | não | M |
 | idem | `canMergeArrows`/`canSplitArrows` | médio | <2→false; source≠arrow; layerId ausente→'default' bucket; isMerged+branches | 2 arrows sem layerId→mergeable | não | S |
 | idem | `_applyWidthFromHandle` (extrair sideSign) | alto | Cross-product esquerda(>0)/direita; colinear `>0` estrito→não inverte | extrair `sideSign(a,b,p)`; esquerda→>0 | sim | M |
+| idem | `resolveHeadLengths` (nova em 2026-09-01) | alto | Sem a flag devolve o nominal e NÃO mede o eixo; eixo 0/negativo/não-finito não divide por zero; a fronteira soma==eixo não encolhe | `arrow-geometry.test.js`; invariante de que as duas cabeças cabem no eixo | sim | S |
+| idem | `computeHeadPoints` + a cauda de `doubleHeaded` (nova em 2026-09-01) | alto | ORDEM dos três vértices (a ordem errada faz gravata borboleta e o stub planar é CEGO para isso); flag estritamente `=== true`; aeromóvel põe a cauda no polígono 1 | `arrow-geometry-turf-real.test.js` (turf vendorizado por `vm.runInThisContext`, `turf.kinks`); `arrow-control-doubleheaded.test.js` para as quatro listas do controle | não | M |
 
 ### Domínio: mil-boundary — CONCLUÍDO em 2026-08-24 (boundary-geometry-coordenadas-e-echelon)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |

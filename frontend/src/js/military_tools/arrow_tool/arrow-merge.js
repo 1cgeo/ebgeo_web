@@ -10,7 +10,7 @@ import { ensureTurf } from '@utils/turf-loader.js';
  * Per-branch geometric properties extracted from an arrow feature
  */
 const BRANCH_GEOMETRIC_PROPS = [
-    'baseCoordinates', 'width', 'showArrowHead',
+    'baseCoordinates', 'width', 'showArrowHead', 'doubleHeaded',
     'headLengthRatio', 'airmobile', 'airmobilePosition'
 ];
 
@@ -159,6 +159,10 @@ export async function mergeArrows(features, map, selectionManager) {
         baseCoordinates: allBranches[0].baseCoordinates,
         width: allBranches[0].width,
         showArrowHead: allBranches[0].showArrowHead,
+        // Raw, like `showArrowHead` right above it: the top-level props are the
+        // MIRROR of the first branch for the old reader, and normalising here
+        // would hand back an arrow the merge did not consume.
+        doubleHeaded: allBranches[0].doubleHeaded,
         headLengthRatio: allBranches[0].headLengthRatio,
         airmobile: allBranches[0].airmobile,
         airmobilePosition: allBranches[0].airmobilePosition
@@ -268,6 +272,10 @@ export async function splitArrows(mergedFeature, map, selectionManager) {
                 baseCoordinates: branch.baseCoordinates,
                 width: branch.width,
                 showArrowHead: branch.showArrowHead !== false,
+                // `=== true`, the mirror image of the line above: the flag is
+                // OFF by default, so an absent value has to resolve to false the
+                // same way an absent `showArrowHead` resolves to true.
+                doubleHeaded: branch.doubleHeaded === true,
                 // `??`, not `||`: `mergeArrows` preserves a branch that stored 0
                 // (it copies every DEFINED key), so `||` here would hand a different
                 // arrow back than the one the merge consumed.

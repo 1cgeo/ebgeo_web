@@ -80,6 +80,7 @@ class AddArrowControl extends BaseControl {
         lineOpacity: 1.0,
         headLengthRatio: 1.5,
         showArrowHead: true,
+        doubleHeaded: false,
         airmobile: false,
         airmobilePosition: 0.7,
         source: 'arrow',
@@ -944,11 +945,11 @@ class AddArrowControl extends BaseControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                if (['width', 'headLengthRatio', 'showArrowHead', 'airmobile', 'airmobilePosition', 'baseCoordinates', 'branches'].includes(property)) {
+                if (['width', 'headLengthRatio', 'showArrowHead', 'doubleHeaded', 'airmobile', 'airmobilePosition', 'baseCoordinates', 'branches'].includes(property)) {
                     // For merged arrows, generateMergedGeometry reads each branch's own
                     // value (branch.X || properties.X), so a top-level change is ignored
                     // unless we also write it into every branch.
-                    const BRANCH_PROPS = ['width', 'headLengthRatio', 'showArrowHead', 'airmobile', 'airmobilePosition'];
+                    const BRANCH_PROPS = ['width', 'headLengthRatio', 'showArrowHead', 'doubleHeaded', 'airmobile', 'airmobilePosition'];
                     if (Array.isArray(sourceFeature.properties.branches) && BRANCH_PROPS.includes(property)) {
                         for (const branch of sourceFeature.properties.branches) {
                             branch[property] = value;
@@ -1049,6 +1050,7 @@ class AddArrowControl extends BaseControl {
             feature.properties.width !== initialProperties.width ||
             feature.properties.headLengthRatio !== initialProperties.headLengthRatio ||
             feature.properties.showArrowHead !== initialProperties.showArrowHead ||
+            feature.properties.doubleHeaded !== initialProperties.doubleHeaded ||
             feature.properties.airmobile !== initialProperties.airmobile ||
             feature.properties.airmobilePosition !== initialProperties.airmobilePosition ||
             feature.properties.nome !== initialProperties.nome ||

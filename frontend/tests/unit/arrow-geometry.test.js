@@ -22,20 +22,40 @@
  *   -180/180 bearing wrap, the 100 m dead zone, the `width || 500` fallback.
  * - `_applyAirmobileFromHandle`: the [0.01, 0.99] clamp.
  * - `updateFromHandle`: which branches guard their index and which do not.
+ * - The four GOLDEN inline snapshots of the one-headed arrow, recorded with the
+ *   tree clean BEFORE `doubleHeaded` existed. They say nothing about the arrow
+ *   being right; they say it did not change.
+ * - `resolveHeadLengths`, which is pure arithmetic and takes the axis length as a
+ *   NUMBER, so it needs no stub at all.
+ * - The `doubleHeaded` tail, STRUCTURALLY: how many vertices it adds, which end it
+ *   is anchored to, which of the two `bearing()` calls it uses, that the flag is
+ *   strictly `=== true`, and that `showArrowHead` is the master switch.
+ * - `createCrossedPolygonsWithHead` called DIRECTLY (it is pure: it takes lines and
+ *   points already computed), which is what says the tail goes into polygon 1.
+ * - The `headLength` handle of `createSingleHandles`, including its clamp.
  *
  * WHAT IT DOES NOT REACH
  * - Anything that needs real turf: the polygon SHAPE of a generated arrow is only
  *   asserted structurally (vertex count, closed ring, ordering of the head
  *   points), never metrically. `lineOffset`, `destination` and `bearing` are
- *   planar stubs, so no statement here is evidence about geodesy.
- * - `generateAirmobileArrowGeometry` / `createCrossedPolygons*`, `createHandles`,
- *   `createMergedHandles`, `createAirmobileHandle`, `getBoundingBox` and
- *   `generateMergedGeometry`: those are turf-shape orchestration, not pure logic.
+ *   planar stubs, so no statement here is evidence about geodesy. Worse, the
+ *   stub's `lineOffset` sign is the INVERSE of the vendored turf's (positive
+ *   moves NORTH here, i.e. LEFT of an eastward course, while real turf moves
+ *   RIGHT), so no argument about SIDES may be made from this file. Absence of
+ *   self-intersection in the double-headed tail is measured in
+ *   `arrow-geometry-turf-real.test.js`, against the real bundle.
+ * - `generateAirmobileArrowGeometry` end to end: the stub has no `lineSlice` nor
+ *   `lineIntersect`, so every airmobile call here lands in the `catch` and comes
+ *   back as a normal arrow. That path IS pinned (the rescue must carry the flag),
+ *   but the crossed geometry itself is only reached in the real-turf file.
+ * - `createMergedHandles`, `createAirmobileHandle`, `getBoundingBox`.
  * - `isPointTooClose` (thin wrapper over the same haversine as `validate`).
- * - `extractBranches` and the merge/split gates live in `arrow-merge.test.js`.
+ * - `extractBranches` and the merge/split gates live in `arrow-merge.test.js`; the
+ *   four `doubleHeaded` lists of the control live in
+ *   `arrow-control-doubleheaded.test.js`.
  */
 
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import fc from 'fast-check';
 import { calculateDistance as realHaversine } from '../../src/js/utilities/geometry-utils.js';
 
@@ -140,6 +160,12 @@ beforeAll(() => {
         pointToLineDistance: () => turfState.pointToLineDistance,
         nearestPointOnLine: () => ({ properties: { location: turfState.nearestLocation } }),
         along: (_line, d) => feat([d, 0]),
+        // Only `createSingleHandles` reads it; planar midpoint is enough.
+        midpoint: (a, b) => {
+            const [x1, y1] = coordOf(a);
+            const [x2, y2] = coordOf(b);
+            return feat([(x1 + x2) / 2, (y1 + y2) / 2]);
+        },
         bbox: () => [0, 0, 1, 1],
         feature: (g) => ({ type: 'Feature', geometry: g }),
     };
@@ -747,5 +773,660 @@ describe('CONSERTADO: o ramo LEGADO `vertex-N` não conferia limite nenhum', () 
             .toEqual([[0, 0], [1, 0], [2, 0]]);
         expect(geom.updateFromHandle('midpoint-abc', [9, 9], arrowFeature()).properties.baseCoordinates)
             .toEqual([[0, 0], [1, 0], [2, 0]]);
+    });
+});
+
+// ============================================================================
+// GOLDEN da seta de UMA cabeça
+// ----------------------------------------------------------------------------
+// Gravados com a árvore da seta LIMPA, ANTES de `doubleHeaded` existir. Eles não
+// afirmam que a geometria está CERTA: o stub é planar e o sinal do `lineOffset`
+// dele é o INVERSO do turf real, então nada aqui é evidência sobre geodesia.
+// Eles afirmam que ela não MUDOU. São o controle negativo da refatoração que
+// extraiu `computeHeadPoints` e `resolveHeadLengths` de dentro dos dois
+// geradores: qualquer desvio numérico no caminho SEM a flag (que é o caminho de
+// toda seta que já existe no disco de alguém) aparece aqui como diff de
+// snapshot, e não como um bug de desenho descoberto meses depois.
+//
+// Se um destes falhar, a pergunta não é "atualizo o snapshot?": é qual seta
+// existente passou a ser desenhada de outro jeito.
+// ============================================================================
+
+describe('GOLDEN: a seta de uma cabeça é byte a byte a de antes', () => {
+    beforeEach(() => {
+        // O estado do stub é de módulo e os blocos anteriores o mutam. Fixá-lo
+        // aqui é o que torna estes quatro casos independentes da ordem.
+        turfState.bearing = 90;
+        turfState.tipBearing = null;
+        turfState.length = 500;
+        globalThis.turf.__resetBearingCalls();
+    });
+
+    it('reta de três vértices', () => {
+        expect(geom.generateSingleArrow([[0, 0], [1, 0], [2, 0]], { width: 1000, headLengthRatio: 1.5 }))
+            .toMatchInlineSnapshot(`
+              {
+                "coordinates": [
+                  [
+                    [
+                      0,
+                      500,
+                    ],
+                    [
+                      1,
+                      500,
+                    ],
+                    [
+                      2,
+                      500,
+                    ],
+                    [
+                      1252,
+                      180,
+                    ],
+                    [
+                      3752,
+                      90,
+                    ],
+                    [
+                      1252,
+                      0,
+                    ],
+                    [
+                      2,
+                      -500,
+                    ],
+                    [
+                      1,
+                      -500,
+                    ],
+                    [
+                      0,
+                      -500,
+                    ],
+                    [
+                      0,
+                      500,
+                    ],
+                  ],
+                ],
+                "type": "Polygon",
+              }
+            `);
+    });
+
+    it('eixo em "V"', () => {
+        expect(geom.generateSingleArrow([[0, 0], [1, 1], [2, 0]], { width: 800 }))
+            .toMatchInlineSnapshot(`
+              {
+                "coordinates": [
+                  [
+                    [
+                      0,
+                      400,
+                    ],
+                    [
+                      1,
+                      401,
+                    ],
+                    [
+                      2,
+                      400,
+                    ],
+                    [
+                      1002,
+                      180,
+                    ],
+                    [
+                      3002,
+                      90,
+                    ],
+                    [
+                      1002,
+                      0,
+                    ],
+                    [
+                      2,
+                      -400,
+                    ],
+                    [
+                      1,
+                      -399,
+                    ],
+                    [
+                      0,
+                      -400,
+                    ],
+                    [
+                      0,
+                      400,
+                    ],
+                  ],
+                ],
+                "type": "Polygon",
+              }
+            `);
+    });
+
+    it('sem cabeça (`showArrowHead: false`)', () => {
+        expect(geom.generateSingleArrow([[0, 0], [1, 0], [2, 0]], { width: 1000, showArrowHead: false }))
+            .toMatchInlineSnapshot(`
+              {
+                "coordinates": [
+                  [
+                    [
+                      0,
+                      500,
+                    ],
+                    [
+                      1,
+                      500,
+                    ],
+                    [
+                      2,
+                      500,
+                    ],
+                    [
+                      2,
+                      -500,
+                    ],
+                    [
+                      1,
+                      -500,
+                    ],
+                    [
+                      0,
+                      -500,
+                    ],
+                    [
+                      0,
+                      500,
+                    ],
+                  ],
+                ],
+                "type": "Polygon",
+              }
+            `);
+    });
+
+    it('largura negativa', () => {
+        expect(geom.generateSingleArrow([[0, 0], [1, 0], [2, 0]], { width: -1000 }))
+            .toMatchInlineSnapshot(`
+              {
+                "coordinates": [
+                  [
+                    [
+                      0,
+                      500,
+                    ],
+                    [
+                      1,
+                      500,
+                    ],
+                    [
+                      2,
+                      500,
+                    ],
+                    [
+                      1252,
+                      180,
+                    ],
+                    [
+                      3752,
+                      90,
+                    ],
+                    [
+                      1252,
+                      0,
+                    ],
+                    [
+                      2,
+                      -500,
+                    ],
+                    [
+                      1,
+                      -500,
+                    ],
+                    [
+                      0,
+                      -500,
+                    ],
+                    [
+                      0,
+                      500,
+                    ],
+                  ],
+                ],
+                "type": "Polygon",
+              }
+            `);
+    });
+});
+
+// ============================================================================
+// resolveHeadLengths — aritmética pura, SEM turf
+// ----------------------------------------------------------------------------
+// Ela recebe o comprimento do eixo como NÚMERO justamente para poder ser medida
+// aqui sem stub nenhum: quem chama `turf.length` é o gerador, dentro do ternário
+// da flag. As duas propriedades que valem: sem a flag o nominal sobrevive
+// intocado (é o caminho de toda seta que já existe), e com a flag as duas
+// cabeças somadas nunca passam do eixo.
+// ============================================================================
+
+describe('AddArrowGeometry.resolveHeadLengths', () => {
+    it('sem a flag devolve o nominal e cauda ZERO', () => {
+        expect(geom.resolveHeadLengths(10000, 3750, false)).toEqual({ headLength: 3750, tailLength: 0 });
+    });
+
+    it('sem a flag ignora o eixo, inclusive um eixo absurdo', () => {
+        // Um eixo de 1 m NÃO encolhe a cabeça de uma seta de uma ponta só: o
+        // clamp é orçamento das DUAS cabeças e não existe fora da flag.
+        expect(geom.resolveHeadLengths(1, 3750, false)).toEqual({ headLength: 3750, tailLength: 0 });
+    });
+
+    it('com a flag, cabeças que cabem no eixo ficam nominais', () => {
+        // 3750 * 2 = 7500 <= 100000: nada a repartir.
+        expect(geom.resolveHeadLengths(100000, 3750, true)).toEqual({ headLength: 3750, tailLength: 3750 });
+    });
+
+    it('com a flag, cabeças que não cabem encolhem JUNTAS até o eixo', () => {
+        // 3750 * 2 = 7500 > 5000 → escala 2/3 nas duas.
+        expect(geom.resolveHeadLengths(5000, 3750, true)).toEqual({ headLength: 2500, tailLength: 2500 });
+        // Absoluto que não depende da escala: a soma é exatamente o eixo.
+        const { headLength, tailLength } = geom.resolveHeadLengths(5000, 3750, true);
+        expect(headLength + tailLength).toBe(5000);
+    });
+
+    it('a fronteira exata (soma == eixo) NÃO encolhe', () => {
+        expect(geom.resolveHeadLengths(7500, 3750, true)).toEqual({ headLength: 3750, tailLength: 3750 });
+    });
+
+    it('eixo zero ou negativo não divide por zero nem devolve NaN', () => {
+        for (const axis of [0, -0, -1000]) {
+            const out = geom.resolveHeadLengths(axis, 3750, true);
+            expect(Number.isFinite(out.headLength)).toBe(true);
+            expect(Number.isFinite(out.tailLength)).toBe(true);
+            expect(out).toEqual({ headLength: 3750, tailLength: 3750 });
+        }
+    });
+
+    it('eixo não-finito cai no ramo sem clamp em vez de propagar NaN', () => {
+        for (const axis of [NaN, Infinity, -Infinity, undefined, null]) {
+            expect(geom.resolveHeadLengths(axis, 3750, true)).toEqual({ headLength: 3750, tailLength: 3750 });
+        }
+    });
+
+    it('PROPRIEDADE: sem a flag o nominal sobrevive para QUALQUER eixo', () => {
+        fc.assert(fc.property(
+            fc.oneof(
+                fc.double(),
+                fc.constantFrom(0, -0, NaN, Infinity, -Infinity, -1),
+            ),
+            fc.double({ min: 0, max: 1e6, noNaN: true }),
+            (axis, nominal) => {
+                const out = geom.resolveHeadLengths(axis, nominal, false);
+                expect(out.headLength).toBe(nominal);
+                expect(out.tailLength).toBe(0);
+            },
+        ));
+    });
+
+    it('PROPRIEDADE: com a flag e eixo finito positivo, as duas cabeças cabem no eixo', () => {
+        fc.assert(fc.property(
+            fc.double({ min: 1e-3, max: 1e7, noNaN: true }),
+            fc.double({ min: 0, max: 1e7, noNaN: true }),
+            (axis, nominal) => {
+                const { headLength, tailLength } = geom.resolveHeadLengths(axis, nominal, true);
+                expect(headLength).toBe(tailLength);
+                // As duas cabeças somadas nunca passam do eixo. A folga relativa é
+                // de ponto flutuante: `budget / total` não fecha exato em binário.
+                expect(headLength + tailLength).toBeLessThanOrEqual(axis * (1 + 1e-9));
+                expect(Number.isNaN(headLength)).toBe(false);
+            },
+        ));
+    });
+});
+
+// ============================================================================
+// generate — a flag `doubleHeaded`
+// ----------------------------------------------------------------------------
+// Sob o stub planar. O que se prende aqui é ESTRUTURA (quantos vértices, em que
+// ordem, ancorados em qual ponta e com qual rumo), nunca forma: o sinal do
+// `lineOffset` do stub é o inverso do turf real, então a ausência de gravata
+// borboleta é medida em `arrow-geometry-turf-real.test.js`, com turf de verdade.
+// ============================================================================
+
+describe('AddArrowGeometry.generate — doubleHeaded', () => {
+    const straight = [[0, 0], [1, 0], [2, 0]];
+
+    beforeEach(() => {
+        turfState.bearing = 90;
+        turfState.tipBearing = null;
+        // Eixo largo: as duas cabeças cabem, então o clamp fica FORA do caminho
+        // e cada caso mede uma coisa só.
+        turfState.length = 100000;
+        globalThis.turf.__resetBearingCalls();
+    });
+
+    const ring = (props) => geom.generateSingleArrow(straight, { width: 1000, ...props }).coordinates[0];
+
+    it('acrescenta EXATAMENTE três vértices à seta reta', () => {
+        expect(ring({ doubleHeaded: true }).length - ring({}).length).toBe(3);
+    });
+
+    it('a cauda é ancorada no PRIMEIRO vértice e usa o rumo do segmento INVERTIDO', () => {
+        // O stub devolve `tipBearing` na SEGUNDA chamada de `bearing`, que é
+        // exatamente `bearing(coords[1], coords[0])`. Se a cauda reusasse o rumo
+        // da cabeça, estes três números seriam outros.
+        turfState.tipBearing = 270;
+        globalThis.turf.__resetBearingCalls();
+
+        const coords = ring({ doubleHeaded: true });
+        const tail = coords.slice(-4, -1);
+
+        // `destination` do stub codifica os próprios argumentos: [x + dist, y + brg].
+        // Âncora [0, 0], meia base 1250, cauda nominal 2500 * 1.5 = 3750.
+        expect(tail).toEqual([
+            [1250, 360],   // cornerRight: 270 + 90
+            [3750, 270],   // tip: rumo da cauda, comprimento nominal
+            [1250, 180],   // cornerLeft: 270 - 90
+        ]);
+    });
+
+    it('a ordem é cornerRight, tip, cornerLeft (o mesmo do bico, espelhado)', () => {
+        turfState.tipBearing = 270;
+        globalThis.turf.__resetBearingCalls();
+
+        const coords = ring({ doubleHeaded: true });
+        const [cornerRight, tip, cornerLeft] = coords.slice(-4, -1);
+
+        // O que a ordem significa no stub: os dois cantos estão à mesma distância
+        // da âncora e o bico está mais longe, no rumo da cauda.
+        expect(cornerRight[0]).toBe(cornerLeft[0]);
+        expect(tip[1]).toBe(270);
+        expect(cornerRight[1] - 270).toBe(90);
+        expect(cornerLeft[1] - 270).toBe(-90);
+    });
+
+    it('o anel continua fechado', () => {
+        const coords = ring({ doubleHeaded: true });
+        expect(coords[0]).toEqual(coords[coords.length - 1]);
+    });
+
+    it('`showArrowHead: false` é o toggle MESTRE: nem bico nem cauda', () => {
+        const off = ring({ doubleHeaded: true, showArrowHead: false });
+        expect(off).toEqual(ring({ showArrowHead: false }));
+        // Absoluto: um corpo de três vértices vira anel de 3 + 3 + 1.
+        expect(off.length).toBe(7);
+    });
+
+    it('largura negativa: a cauda usa o módulo, como o bico', () => {
+        turfState.tipBearing = 270;
+        globalThis.turf.__resetBearingCalls();
+        const negative = ring({ width: -1000, doubleHeaded: true }).slice(-4, -1);
+
+        turfState.tipBearing = 270;
+        globalThis.turf.__resetBearingCalls();
+        const positive = ring({ width: 1000, doubleHeaded: true }).slice(-4, -1);
+
+        expect(negative).toEqual(positive);
+    });
+
+    it('eixo em "V" também ganha os três vértices', () => {
+        const v = [[0, 0], [1, 1], [2, 0]];
+        const withFlag = geom.generateSingleArrow(v, { width: 800, doubleHeaded: true }).coordinates[0];
+        globalThis.turf.__resetBearingCalls();
+        const without = geom.generateSingleArrow(v, { width: 800 }).coordinates[0];
+        expect(withFlag.length - without.length).toBe(3);
+    });
+
+    it('o clamp encurta as DUAS cabeças quando somadas passariam do eixo', () => {
+        // Eixo 5000 contra nominal 3750 cada: escala 2/3, as duas viram 2500.
+        turfState.length = 5000;
+        turfState.tipBearing = 270;
+        globalThis.turf.__resetBearingCalls();
+
+        const coords = ring({ doubleHeaded: true });
+        // Anel de 13: 0..2 corpo esquerdo, 3..5 bico, 6..8 corpo direito,
+        // 9..11 cauda, 12 fechamento.
+        const headTip = coords[4];
+        const tailTip = coords[10];
+
+        // Bico: âncora [2, 0], rumo 90 (primeira chamada de bearing).
+        expect(headTip).toEqual([2 + 2500, 90]);
+        // Cauda: âncora [0, 0], rumo 270 (segunda chamada).
+        expect(tailTip).toEqual([2500, 270]);
+    });
+
+    it('o clamp NÃO morde a seta de uma cabeça só (eixo curtíssimo)', () => {
+        turfState.length = 1;
+        globalThis.turf.__resetBearingCalls();
+        const coords = ring({});
+        // Bico nominal intocado: 2500 * 1.5 = 3750, âncora [2, 0], rumo 90.
+        expect(coords[4]).toEqual([2 + 3750, 90]);
+    });
+
+    it('sem a flag o eixo NUNCA é medido (`turf.length` fica no ternário)', () => {
+        const original = globalThis.turf.length;
+        let calls = 0;
+        globalThis.turf.length = (...args) => { calls++; return original(...args); };
+        try {
+            geom.generateSingleArrow(straight, { width: 1000 });
+            expect(calls).toBe(0);
+
+            globalThis.turf.__resetBearingCalls();
+            geom.generateSingleArrow(straight, { width: 1000, doubleHeaded: true });
+            expect(calls).toBe(1);
+        } finally {
+            globalThis.turf.length = original;
+        }
+    });
+});
+
+describe('AddArrowGeometry.generate — a flag é ESTRITAMENTE `=== true`', () => {
+    const straight = [[0, 0], [1, 0], [2, 0]];
+
+    beforeEach(() => {
+        turfState.bearing = 90;
+        turfState.tipBearing = null;
+        turfState.length = 100000;
+        globalThis.turf.__resetBearingCalls();
+    });
+
+    it('ausente, false, undefined, null, 0, 1 e "sim" dão a MESMA seta', () => {
+        // O par que importa é 1 e "sim": um `Boolean(x)` aqui ligaria a cauda
+        // para o dado que voltasse do jsonb com outra forma, e ninguém saberia.
+        const baseline = JSON.stringify(geom.generateSingleArrow(straight, { width: 1000 }));
+
+        for (const value of [false, undefined, null, 0, 1, 'sim', '', 'true']) {
+            globalThis.turf.__resetBearingCalls();
+            const out = geom.generateSingleArrow(straight, { width: 1000, doubleHeaded: value });
+            expect(JSON.stringify(out)).toBe(baseline);
+        }
+    });
+
+    it('CONTROLE: o booleano `true` de fato muda a saída', () => {
+        const baseline = JSON.stringify(geom.generateSingleArrow(straight, { width: 1000 }));
+        globalThis.turf.__resetBearingCalls();
+        expect(JSON.stringify(geom.generateSingleArrow(straight, { width: 1000, doubleHeaded: true })))
+            .not.toBe(baseline);
+    });
+});
+
+describe('AddArrowGeometry.generate — doubleHeaded em entrada degenerada', () => {
+    beforeEach(() => {
+        turfState.bearing = 90;
+        turfState.tipBearing = null;
+        turfState.length = 100000;
+        globalThis.turf.__resetBearingCalls();
+    });
+
+    it('menos de dois vértices continua recusando, com ou sem a flag', () => {
+        expect(geom.generateSingleArrow([[0, 0]], { width: 1000, doubleHeaded: true })).toBeNull();
+        expect(geom.generateSingleArrow([], { width: 1000, doubleHeaded: true })).toBeNull();
+    });
+
+    it('dois vértices COINCIDENTES não produzem NaN nenhum', () => {
+        turfState.length = 0;
+        const out = geom.generateSingleArrow([[5, 5], [5, 5]], { width: 1000, doubleHeaded: true });
+        const flat = out.coordinates[0].flat();
+        expect(flat.length).toBeGreaterThan(0);
+        expect(flat.every((n) => Number.isFinite(n))).toBe(true);
+    });
+});
+
+// ============================================================================
+// createCrossedPolygonsWithHead — o aeromóvel, medido DIRETO
+// ----------------------------------------------------------------------------
+// Por que direto e não por `generateSingleArrow({ airmobile: true })`: o stub não
+// tem `lineSlice` nem `lineIntersect`, então o caminho aeromóvel inteiro cai no
+// `catch` e volta como seta normal. A montagem dos dois polígonos, porém, é pura
+// (recebe linhas e pontos prontos), e é o que decide EM QUAL metade a cauda entra.
+// O aeromóvel de ponta a ponta está em `arrow-geometry-turf-real.test.js`.
+// ============================================================================
+
+describe('AddArrowGeometry.createCrossedPolygonsWithHead', () => {
+    const line = (coords) => ({ geometry: { coordinates: coords } });
+    const left1 = line([[0, 1], [1, 1]]);
+    const left2 = line([[1, 1], [2, 1]]);
+    const right1 = line([[0, -1], [1, -1]]);
+    const right2 = line([[1, -1], [2, -1]]);
+    const handle = [1, 0];
+    const head = { cornerRight: [9, 1], tip: [10, 0], cornerLeft: [9, -1] };
+    const tail = { cornerRight: [-9, -1], tip: [-10, 0], cornerLeft: [-9, 1] };
+
+    it('CONTROLE: sem cauda, os dois polígonos são os de sempre', () => {
+        const out = geom.createCrossedPolygonsWithHead(left1, left2, right1, right2, handle, head);
+        expect(out.type).toBe('MultiPolygon');
+        expect(out.coordinates[0][0]).toEqual([[0, 1], handle, [0, -1], [0, 1]]);
+        expect(out.coordinates[1][0]).toEqual([[2, 1], [9, 1], [10, 0], [9, -1], [2, -1], handle, [2, 1]]);
+    });
+
+    it('a cauda entra no polígono 1 (a metade TRASEIRA), antes do fechamento', () => {
+        const out = geom.createCrossedPolygonsWithHead(left1, left2, right1, right2, handle, head, tail);
+        expect(out.coordinates[0][0]).toEqual([
+            [0, 1], handle, [0, -1],
+            [-9, -1], [-10, 0], [-9, 1],   // cornerRight, tip, cornerLeft
+            [0, 1],
+        ]);
+    });
+
+    it('o polígono 2 (a metade da FRENTE) fica idêntico', () => {
+        const semCauda = geom.createCrossedPolygonsWithHead(left1, left2, right1, right2, handle, head);
+        const comCauda = geom.createCrossedPolygonsWithHead(left1, left2, right1, right2, handle, head, tail);
+        expect(comCauda.coordinates[1]).toEqual(semCauda.coordinates[1]);
+        expect(comCauda.coordinates[0][0].length - semCauda.coordinates[0][0].length).toBe(3);
+    });
+
+    it('`null` e ausente são o mesmo (o default é o desligado)', () => {
+        const ausente = geom.createCrossedPolygonsWithHead(left1, left2, right1, right2, handle, head);
+        const nulo = geom.createCrossedPolygonsWithHead(left1, left2, right1, right2, handle, head, null);
+        expect(nulo).toEqual(ausente);
+    });
+});
+
+describe('AddArrowGeometry — o socorro do aeromóvel carrega a flag', () => {
+    // O `catch` de `generateAirmobileArrowGeometry` refaz a seta pelo caminho
+    // normal. Se ele esquecesse `doubleHeaded`, a seta de duas pontas perderia a
+    // cauda EXATAMENTE quando a geometria cruzada falhasse, sem um erro na tela.
+    // O stub não tem `lineSlice`, então este é o caminho que ele exercita.
+    beforeEach(() => {
+        turfState.bearing = 90;
+        turfState.tipBearing = null;
+        turfState.length = 100000;
+        globalThis.turf.__resetBearingCalls();
+    });
+
+    it('cai no caminho normal e ainda desenha a cauda', () => {
+        const semFlag = geom.generateSingleArrow([[0, 0], [1, 0], [2, 0]], { width: 1000, airmobile: true });
+        globalThis.turf.__resetBearingCalls();
+        const comFlag = geom.generateSingleArrow([[0, 0], [1, 0], [2, 0]], { width: 1000, airmobile: true, doubleHeaded: true });
+
+        expect(semFlag.type).toBe('Polygon');
+        expect(comFlag.coordinates[0].length - semFlag.coordinates[0].length).toBe(3);
+    });
+});
+
+describe('AddArrowGeometry.generateMergedGeometry — doubleHeaded por RAMO', () => {
+    beforeEach(() => {
+        turfState.bearing = 90;
+        turfState.tipBearing = null;
+        turfState.length = 100000;
+        globalThis.turf.__resetBearingCalls();
+    });
+
+    it('só o ramo com a flag ganha a cauda', () => {
+        // O stub não tem `turf.union`, então a combinação cai no fallback de
+        // MultiPolygon, que é o que deixa cada ramo legível separadamente.
+        const merged = geom.generate(null, {
+            isMerged: true,
+            width: 1000,
+            branches: [
+                { baseCoordinates: [[0, 0], [1, 0], [2, 0]], doubleHeaded: true },
+                { baseCoordinates: [[0, 0], [1, 0], [2, 0]] },
+            ],
+        });
+
+        expect(merged.type).toBe('MultiPolygon');
+        expect(merged.coordinates[0][0].length - merged.coordinates[1][0].length).toBe(3);
+    });
+
+    it('o valor do TOPO não vaza para um ramo que não o declara', () => {
+        // `generateMergedGeometry` lê `branch.doubleHeaded === true` e não faz
+        // `branch.X || properties.X` como faz com largura: ligar no topo sem
+        // escrever nos ramos não pode ligar a cauda de ninguém.
+        const merged = geom.generate(null, {
+            isMerged: true,
+            width: 1000,
+            doubleHeaded: true,
+            branches: [
+                { baseCoordinates: [[0, 0], [1, 0], [2, 0]] },
+                { baseCoordinates: [[0, 0], [1, 0], [2, 0]] },
+            ],
+        });
+        expect(merged.coordinates[0][0].length).toBe(merged.coordinates[1][0].length);
+    });
+});
+
+// ============================================================================
+// createSingleHandles — a alça de comprimento de cabeça
+// ----------------------------------------------------------------------------
+// Risco 4 do plano: quando o clamp morde, a alça desenhada no bico NOMINAL fica
+// fora da seta e o arrasto seguinte parece grudento, porque
+// `_applyHeadLengthFromHandle` não sabe do clamp.
+// ============================================================================
+
+describe('AddArrowGeometry.createSingleHandles — alça headLength e o clamp', () => {
+    const handleFor = (props) => {
+        globalThis.turf.__resetBearingCalls();
+        const feature = {
+            type: 'Feature',
+            properties: { id: 'a1', baseCoordinates: [[0, 0], [2, 0]], width: 1000, ...props },
+        };
+        return geom.createSingleHandles(feature).find((h) => h.properties.handleType === 'headLength');
+    };
+
+    beforeEach(() => {
+        turfState.bearing = 90;
+        turfState.tipBearing = null;
+        turfState.length = 100000;
+    });
+
+    it('sem a flag a alça fica no bico NOMINAL', () => {
+        // `destination([2, 0], 2500 * 1.5, 90)` no stub → [2 + 3750, 0 + 90].
+        expect(handleFor({}).geometry.coordinates).toEqual([3752, 90]);
+    });
+
+    it('com a flag e eixo folgado a alça também fica no nominal', () => {
+        expect(handleFor({ doubleHeaded: true }).geometry.coordinates).toEqual([3752, 90]);
+    });
+
+    it('com a flag e eixo apertado a alça SEGUE o bico encurtado', () => {
+        turfState.length = 5000;
+        expect(handleFor({ doubleHeaded: true }).geometry.coordinates).toEqual([2502, 90]);
+    });
+
+    it('`showArrowHead: false` continua sem alça de comprimento, com ou sem a flag', () => {
+        expect(handleFor({ showArrowHead: false, doubleHeaded: true })).toBeUndefined();
     });
 });

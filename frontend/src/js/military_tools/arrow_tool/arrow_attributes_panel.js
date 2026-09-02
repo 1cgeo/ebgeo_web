@@ -156,6 +156,14 @@ function _addSingleGeometryControls(panel, feature, arrowControl, selectedFeatur
             arrowControl.updateFeaturesProperty(selectedFeatures, 'showArrowHead', checked);
         }
     }));
+
+    panel.appendChild(createModernToggle({
+        label: 'Seta nas Duas Pontas',
+        checked: feature.properties.doubleHeaded === true,
+        onChange: (checked) => {
+            arrowControl.updateFeaturesProperty(selectedFeatures, 'doubleHeaded', checked);
+        }
+    }));
 }
 
 /**
@@ -192,6 +200,14 @@ function _addBranchGeometryControls(panel, feature, arrowControl, selectedFeatur
             checked: branch.showArrowHead !== false,
             onChange: (checked) => {
                 _updateBranchProperty(feature, arrowControl, selectedFeatures, idx, 'showArrowHead', checked);
+            }
+        }));
+
+        panel.appendChild(createModernToggle({
+            label: 'Seta nas Duas Pontas',
+            checked: branch.doubleHeaded === true,
+            onChange: (checked) => {
+                _updateBranchProperty(feature, arrowControl, selectedFeatures, idx, 'doubleHeaded', checked);
             }
         }));
     });
