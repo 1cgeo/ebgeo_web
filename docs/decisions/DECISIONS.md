@@ -125,6 +125,10 @@ viram commit, teste e, se ensinaram algo, linha no [`docs/livro-razao.md`](../li
 | 2026-09-02 | A área da medição 3D sai em metros e quilômetros quadrados, sem hectares, e a exibição deriva do VALOR | [decisions-2026.md](decisions-2026.md) |
 | 2026-09-02 | Continuar uma feição linear é um UPDATE da MESMA feição, e a alça anda presa à alça de vértice | [decisions-2026.md](decisions-2026.md) |
 | 2026-09-02 | mover ou copiar uma camada inteira para outro mapa, e a transferência é COMPOSTA | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-02 | o blob COLADO sobe pela porta bulk, e quem NÃO sobe é quem o par regenera | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-02 | a saída de uma feição do grupo é uma op de `group_feature`, e a lista dentro de um `group` update é descartada em silêncio | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-02 | a importação para de calcular perfil de elevação, e a chave da fila ganha sequência e marca d'água | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-02 | feição sem referência de zoom vale fator 1, e nenhum NaN sai da correção de zoom | [decisions-2026.md](decisions-2026.md) |
 
 As duas linhas de 2026-08-16 acima entraram em 2026-08-18: as entradas integrais existiam no arquivo
 do ano e ninguém acrescentara a linha aqui, que é a metade do procedimento que falha calada (o índice
