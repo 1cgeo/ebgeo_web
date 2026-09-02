@@ -253,6 +253,22 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   dimensão dela já está coberta pelas specs `browser-collab-*` focadas), e é
   legítima; o que não é legítimo é ler "`test:e2e:ui` verde" como "a pasta
   `tests/e2e-ui/` inteira passou". Não passou: um arquivo dela não rodou.
+- **O Playwright lê `aria-disabled` como desabilitado, e isso colide de frente com a regra "o
+  ESTADO recusa o clique"** (medido em 2026-09-02, três rodadas perdidas num spec do menu de camada).
+  O comando bloqueado por estado é desenhado com `aria-disabled` e NUNCA com a propriedade
+  `disabled`, porque o clique é como o motivo chega à pessoa. Mas o `click()` do Playwright espera o
+  alvo ficar "enabled" e trata `aria-disabled="true"` como não habilitado, então ele espera para
+  sempre por um botão que a casa desenha assim de propósito; e `toBeEnabled()` reprova pelo mesmo
+  motivo, medindo o CONTRÁRIO do que a regra pede. No spec, clique o item bloqueado por
+  `dispatchEvent('click')` e afirme a ausência da propriedade por
+  `evaluate((el) => el.disabled === true)` igual a falso, além do atributo. Modelo:
+  `frontend/tests/e2e-ui/browser-layer-transfer-permissions.spec.js`. Da mesma família: um handler
+  que REMOVE o próprio botão (a alça de continuação, a linha do menu de conversão) também só se
+  clica por `dispatchEvent`, porque o `click()` tenta de novo ao ver o alvo sumir no meio do gesto.
+  E rode o Playwright de DENTRO de `frontend/` (`cd frontend && npx playwright test ...`): da raiz
+  do monorepo o runner carrega os specs com outra instância de `@playwright/test`, acusa
+  "did not expect test.beforeEach() to be called here" e termina com "No tests found", sem
+  executar nada, com cara de rodada.
 - There is **no CI of any kind and no git hooks**: everything is run manually.
   (The GitHub Pages workflow was removed on 2026-07-18 along with the dead
   `prepare-deploy.js` it depended on; see [[deploy-web]].)
