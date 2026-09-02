@@ -34,6 +34,7 @@ import {
     createSectionDivider
 } from '@tools/helpers/index.js';
 import { getTilesetName, createDescriptionSection, buildPhotoGallerySection } from './panel-shared-3d.js';
+import { formatMeasurementResult3D } from '@js/3d_models_viewer_tool/measurement-format-3d.js';
 
 /**
  * Icons used in the component.
@@ -251,7 +252,9 @@ function buildResultSection(container, measurement) {
 
     const resultValue = document.createElement('div');
     resultValue.className = 'measurement-result-value';
-    resultValue.textContent = measurement.result?.formatted || '-';
+    // Derived from the numeric value, so a measurement saved (or synced from a peer)
+    // when 3D areas still read in hectares now shows the current units.
+    resultValue.textContent = formatMeasurementResult3D(measurement) || '-';
 
     section.appendChild(header);
     section.appendChild(resultValue);
