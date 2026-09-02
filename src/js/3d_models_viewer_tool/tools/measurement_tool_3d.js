@@ -16,6 +16,11 @@ import {
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
 import { hexToCesiumColor } from '../services/cesium-color.js';
+import {
+    formatArea3D,
+    formatDistance3D,
+    formatMeasurementResult3D
+} from '@js/3d_models_viewer_tool/measurement-format-3d.js';
 
 // ===== MODULE STATE =====
 
@@ -67,33 +72,6 @@ function initColors() {
  */
 function resolveStyle(measurementStyle) {
     return { ...DEFAULT_MEASUREMENT_STYLE, ...(measurementStyle || {}) };
-}
-
-/**
- * Formats distance value.
- * @param {number} meters - Distance in meters
- * @returns {string} Formatted distance
- */
-function formatDistance(meters) {
-    if (meters >= 1000) {
-        return `${(meters / 1000).toFixed(2)} km`;
-    }
-    return `${meters.toFixed(2)} m`;
-}
-
-/**
- * Formats area value.
- * @param {number} sqMeters - Area in square meters
- * @returns {string} Formatted area
- */
-function formatArea(sqMeters) {
-    if (sqMeters >= 1000000) {
-        return `${(sqMeters / 1000000).toFixed(2)} km²`;
-    }
-    if (sqMeters >= 10000) {
-        return `${(sqMeters / 10000).toFixed(2)} ha`;
-    }
-    return `${sqMeters.toFixed(2)} m²`;
 }
 
 /**
@@ -266,7 +244,7 @@ function updateTempVisualization() {
             id: 'temp-measurement-label',
             position: cartesians[midIndex],
             label: {
-                text: formatDistance(distance),
+                text: formatDistance3D(distance),
                 font: '14px Inter, sans-serif',
                 style: Cesium.LabelStyle.FILL_AND_OUTLINE,
                 outlineWidth: 2,
@@ -317,7 +295,7 @@ function updateTempVisualization() {
             id: 'temp-measurement-label',
             position: centroid,
             label: {
-                text: formatArea(area),
+                text: formatArea3D(area),
                 font: '14px Inter, sans-serif',
                 style: Cesium.LabelStyle.FILL_AND_OUTLINE,
                 outlineWidth: 2,
@@ -415,7 +393,7 @@ function createMeasurementEntities(measurement) {
             id: `measurement-3d-label-${measurement.id}`,
             position: labelPosition,
             label: {
-                text: measurement.result?.formatted || formatDistance(measurement.result?.value || 0),
+                text: formatMeasurementResult3D(measurement) || formatDistance3D(0),
                 font: `${style.labelSize}px Inter, sans-serif`,
                 style: Cesium.LabelStyle.FILL_AND_OUTLINE,
                 outlineWidth: style.labelOutlineWidth,
@@ -503,7 +481,7 @@ function createMeasurementEntities(measurement) {
                 id: `measurement-3d-label-${measurement.id}`,
                 position: centroid,
                 label: {
-                    text: measurement.result?.formatted || formatArea(measurement.result?.value || 0),
+                    text: formatMeasurementResult3D(measurement) || formatArea3D(0),
                     font: `${style.labelSize}px Inter, sans-serif`,
                     style: Cesium.LabelStyle.FILL_AND_OUTLINE,
                     outlineWidth: style.labelOutlineWidth,
@@ -727,14 +705,14 @@ async function finalizeMeasurement() {
 
     if (currentToolType === 'distance') {
         value = calculateDistance(tempPositions);
-        formatted = formatDistance(value);
+        formatted = formatDistance3D(value);
     } else if (currentToolType === 'area') {
         if (tempPositions.length < 3) {
             cancelDrawing();
             return;
         }
         value = calculateArea(tempPositions);
-        formatted = formatArea(value);
+        formatted = formatArea3D(value);
     }
 
     // Clear temporary visualization
