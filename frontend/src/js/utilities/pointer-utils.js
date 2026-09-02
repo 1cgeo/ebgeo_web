@@ -41,9 +41,18 @@ export function getPointerPosition(event, canvas) {
 export function getTouchesMidpoint(touches) {
     // An EMPTY list degrades like the two siblings (`getTouchesDistance` and
     // `getTouchesAngle` both answer 0 for it) instead of throwing on
-    // `touches[0].clientX`. The three are called together, from the same handlers,
-    // so one of them throwing on an input the other two accept is a gesture that
-    // dies mid-way.
+    // `touches[0].clientX`: a helper that throws on an input its siblings accept
+    // is a gesture that dies mid-way.
+    //
+    // THEY ARE NO LONGER CALLED TOGETHER, and this comment said they were until
+    // 2026-09-01. `createTwoFingerDragHandler` was the one caller that read all
+    // three, and it went when rotation moved to `map/drag-rotate.handler.js`.
+    // Today only this file calls any of them: `createTwoFingerTapHandler` reads
+    // the midpoint and the distance, and `getTouchesAngle` has NO caller in
+    // `src/` at all. It stays on purpose, by test contract
+    // (`tests/unit/pointer-utils-gestos.test.js`) and for the next two-finger
+    // gesture that needs a bearing; the uniform degradation is what keeps the
+    // three interchangeable for whoever writes it.
     if (touches.length === 0) {
         return { x: 0, y: 0 };
     }
@@ -183,7 +192,15 @@ export function createTwoFingerTapHandler(element, callback, options = {}) {
             currentMidpoint.y - twoFingerStart.midpoint.y
         );
 
-        if (dist > maxDistance) {
+        // The midpoint alone does NOT move during a symmetric pinch, so a fast
+        // pinch used to end as a two-finger tap and open the multi-selection menu
+        // on a tablet. Spread change cancels the tap too; `distance` was already
+        // captured at touchstart and was never read until now.
+        const spreadChange = Math.abs(
+            getTouchesDistance(e.touches) - twoFingerStart.distance
+        );
+
+        if (dist > maxDistance || spreadChange > maxDistance) {
             twoFingerStart = null;
         }
     }
@@ -214,76 +231,6 @@ export function createTwoFingerTapHandler(element, callback, options = {}) {
         element.removeEventListener('touchmove', onTouchMove);
         element.removeEventListener('touchend', onTouchEnd);
         element.removeEventListener('touchcancel', onTouchCancel);
-    };
-}
-
-/**
- * Creates a handler for two-finger drag gestures (rotation/pitch).
- * @param {HTMLElement} element
- * @param {Object} callbacks
- * @param {Function} callbacks.onStart - Called with (initialState)
- * @param {Function} callbacks.onMove - Called with (angleDelta, midpointDelta, currentMidpoint)
- * @param {Function} callbacks.onEnd - Called when gesture ends
- * @returns {Function} Cleanup function to remove all listeners
- */
-export function createTwoFingerDragHandler(element, callbacks) {
-    const { onStart, onMove, onEnd } = callbacks;
-
-    let initialState = null;
-    let isActive = false;
-
-    function onTouchStart(e) {
-        if (e.touches.length !== 2) return;
-
-        e.preventDefault();
-        isActive = true;
-
-        initialState = {
-            angle: getTouchesAngle(e.touches),
-            midpoint: getTouchesMidpoint(e.touches),
-            distance: getTouchesDistance(e.touches)
-        };
-
-        onStart?.(initialState);
-    }
-
-    function onTouchMove(e) {
-        if (!isActive || e.touches.length !== 2 || !initialState) return;
-
-        e.preventDefault();
-
-        const currentAngle = getTouchesAngle(e.touches);
-        const currentMidpoint = getTouchesMidpoint(e.touches);
-
-        const angleDelta = currentAngle - initialState.angle;
-        const midpointDelta = {
-            x: currentMidpoint.x - initialState.midpoint.x,
-            y: currentMidpoint.y - initialState.midpoint.y
-        };
-
-        onMove?.(angleDelta, midpointDelta, currentMidpoint);
-    }
-
-    function onTouchEnd(e) {
-        if (!isActive) return;
-
-        if (e.touches.length < 2) {
-            isActive = false;
-            initialState = null;
-            onEnd?.();
-        }
-    }
-
-    element.addEventListener('touchstart', onTouchStart, { passive: false });
-    element.addEventListener('touchmove', onTouchMove, { passive: false });
-    element.addEventListener('touchend', onTouchEnd);
-    element.addEventListener('touchcancel', onTouchEnd);
-
-    return function cleanup() {
-        element.removeEventListener('touchstart', onTouchStart);
-        element.removeEventListener('touchmove', onTouchMove);
-        element.removeEventListener('touchend', onTouchEnd);
-        element.removeEventListener('touchcancel', onTouchEnd);
     };
 }
 

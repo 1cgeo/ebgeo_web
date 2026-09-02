@@ -46,7 +46,9 @@ const SHORTCUTS_DATA = {
         title: 'Navegação no Mapa',
         icon: SHORTCUT_ICONS.navigation,
         shortcuts: [
-            { key: 'Ctrl+Arrastar', description: 'Inclinar e rotacionar o mapa' },
+            { key: 'Ctrl+Arrastar', description: 'Inclinar o mapa (pitch)' },
+            { key: 'Shift+Arrastar', description: 'Rotacionar o mapa (bearing)' },
+            { key: 'Ctrl+Shift+Arrastar', description: 'Inclinar e rotacionar juntos' },
             { key: 'Scroll', description: 'Zoom in / zoom out' },
         ],
     },

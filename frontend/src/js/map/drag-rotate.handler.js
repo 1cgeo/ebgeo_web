@@ -1,26 +1,46 @@
 // Path: js/map/drag-rotate.handler.js
-import { createTwoFingerDragHandler } from '../utilities/pointer-utils';
+import {
+    DRAG_MODE,
+    clampPitch,
+    computeCameraDelta,
+    exceedsDragThreshold,
+    resolveDragMode
+} from './drag-rotate.model.js';
 
-const PITCH_MIN = 0;
-const PITCH_MAX = 85;
-const MOUSE_BEARING_SENSITIVITY = 0.5;
-const MOUSE_PITCH_SENSITIVITY = 0.2;
-const TOUCH_PITCH_SENSITIVITY = 0.3;
+/**
+ * Mouse-only camera gesture: Ctrl drags the pitch, Shift drags the bearing,
+ * Ctrl+Shift drags both. The native `dragRotate` is disabled at map creation,
+ * so this is the only source of mouse-driven rotation.
+ *
+ * Touch is deliberately NOT handled here: two-finger zoom/rotate is left to
+ * MapLibre's own `touchZoomRotate`, which has activation thresholds. The custom
+ * two-finger path that used to live here fired from the first pixel and summed
+ * with the native handler, which is what made pinch-zoom jitter and rotate.
+ */
+const CURSOR_BY_MODE = {
+    [DRAG_MODE.PITCH]: 'ns-resize',
+    [DRAG_MODE.BEARING]: 'ew-resize',
+    [DRAG_MODE.BOTH]: 'grabbing'
+};
 
 class DragRotateHandler {
     constructor(map) {
         this._map = map;
         this._canvas = null;
-        this._isRotating = false;
+        this._mode = DRAG_MODE.NONE;
+        this._engaged = false;
         this._startPoint = null;
+        this._accumDx = 0;
+        this._accumDy = 0;
         this._originalCursor = '';
-        this._initialBearing = 0;
-        this._initialPitch = 0;
-        this._cleanupTwoFingerDrag = null;
+        this._dragPanWasEnabled = false;
+        this._swallowClick = null;
+        this._swallowTimer = null;
 
         this._onMouseDown = this._onMouseDown.bind(this);
         this._onMouseMove = this._onMouseMove.bind(this);
         this._onMouseUp = this._onMouseUp.bind(this);
+        this._onWindowBlur = this._onWindowBlur.bind(this);
     }
 
     enable() {
@@ -32,7 +52,8 @@ class DragRotateHandler {
         this._canvas.addEventListener('mousedown', this._onMouseDown);
         window.addEventListener('mouseup', this._onMouseUp);
         window.addEventListener('mousemove', this._onMouseMove);
-        this._setupTwoFingerDrag();
+        // A lost mouseup (Alt+Tab mid-drag) would otherwise leave dragPan disabled.
+        window.addEventListener('blur', this._onWindowBlur);
     }
 
     disable() {
@@ -42,87 +63,157 @@ class DragRotateHandler {
 
         window.removeEventListener('mouseup', this._onMouseUp);
         window.removeEventListener('mousemove', this._onMouseMove);
+        window.removeEventListener('blur', this._onWindowBlur);
 
-        if (this._cleanupTwoFingerDrag) {
-            this._cleanupTwoFingerDrag();
-            this._cleanupTwoFingerDrag = null;
-        }
-
-        if (this._isRotating) {
-            this._endRotation();
-        }
-    }
-
-    _setupTwoFingerDrag() {
-        this._cleanupTwoFingerDrag = createTwoFingerDragHandler(
-            this._canvas,
-            {
-                onStart: () => {
-                    this._initialBearing = this._map.getBearing();
-                    this._initialPitch = this._map.getPitch();
-                    this._beginRotation();
-                },
-                onMove: (angleDelta, midpointDelta) => {
-                    this._map.setBearing(this._initialBearing + angleDelta);
-
-                    const pitchDelta = -midpointDelta.y * TOUCH_PITCH_SENSITIVITY;
-                    const newPitch = clampPitch(this._initialPitch + pitchDelta);
-                    this._map.setPitch(newPitch);
-                },
-                onEnd: () => {
-                    this._endRotation();
-                }
-            }
-        );
+        this._endDrag();
+        // `_endDrag` may have just armed the one-tick click swallow; tearing the
+        // handler down must not leave a window listener (and a timer) behind.
+        this._disarmClickSwallow();
     }
 
     _onMouseDown(e) {
-        if (!e.ctrlKey || e.button !== 0) return;
+        const mode = resolveDragMode(e);
+        if (mode === DRAG_MODE.NONE) return;
 
-        this._isRotating = true;
+        this._mode = mode;
+        this._engaged = false;
         this._startPoint = { x: e.clientX, y: e.clientY };
-        this._beginRotation();
+        this._accumDx = 0;
+        this._accumDy = 0;
+
+        // dragPan must go down at mousedown: MapLibre's mousePan accepts
+        // Shift+left button, so it would pan while we rotate.
+        this._dragPanWasEnabled = Boolean(this._map.dragPan?.isEnabled?.());
+        if (this._dragPanWasEnabled) {
+            this._map.dragPan.disable();
+        }
+
         e.preventDefault();
     }
 
     _onMouseMove(e) {
-        if (!this._isRotating || !this._startPoint) return;
+        if (this._mode === DRAG_MODE.NONE || !this._startPoint) return;
 
         const dx = e.clientX - this._startPoint.x;
         const dy = e.clientY - this._startPoint.y;
-
-        this._map.setBearing(this._map.getBearing() - dx * MOUSE_BEARING_SENSITIVITY);
-        this._map.setPitch(clampPitch(this._map.getPitch() - dy * MOUSE_PITCH_SENSITIVITY));
-
         this._startPoint = { x: e.clientX, y: e.clientY };
-    }
 
-    _onMouseUp() {
-        if (this._isRotating) {
-            this._endRotation();
+        this._accumDx += dx;
+        this._accumDy += dy;
+
+        if (!this._engaged) {
+            if (!exceedsDragThreshold(this._accumDx, this._accumDy)) return;
+            this._engage();
+        }
+
+        const { bearingDelta, pitchDelta } = computeCameraDelta(this._mode, dx, dy);
+
+        if (bearingDelta !== 0) {
+            this._map.setBearing(this._map.getBearing() + bearingDelta);
+        }
+        if (pitchDelta !== 0) {
+            const nextPitch = clampPitch(
+                this._map.getPitch() + pitchDelta,
+                this._map.getMinPitch(),
+                this._map.getMaxPitch()
+            );
+            this._map.setPitch(nextPitch);
         }
     }
 
-    _beginRotation() {
-        this._isRotating = true;
-        this._map.dragPan.disable();
-        this._originalCursor = this._canvas.style.cursor;
-        this._canvas.style.cursor = 'grabbing';
+    _onMouseUp(e) {
+        // Only the left button drives the gesture. A right-click (context menu)
+        // released mid-drag must not end it: ending it re-enables dragPan while
+        // the left button is still down, and MapLibre would resume panning from
+        // the stale mousedown point.
+        if (e && e.button !== 0) return;
+        this._endDrag();
     }
 
-    _endRotation() {
-        this._isRotating = false;
-        this._startPoint = null;
-        this._map.dragPan.enable();
+    _onWindowBlur() {
+        this._endDrag();
+    }
 
+    _engage() {
+        this._engaged = true;
         if (this._canvas) {
+            this._originalCursor = this._canvas.style.cursor;
+            this._canvas.style.cursor = CURSOR_BY_MODE[this._mode] ?? 'grabbing';
+        }
+    }
+
+    _endDrag() {
+        if (this._mode === DRAG_MODE.NONE) return;
+
+        const wasEngaged = this._engaged;
+
+        this._mode = DRAG_MODE.NONE;
+        this._startPoint = null;
+        this._accumDx = 0;
+        this._accumDy = 0;
+
+        // Restore dragPan only if it was on at mousedown, so a drawing tool that
+        // already had it off keeps it off. Known limit: a tool activated by
+        // keyboard DURING the drag (which disables dragPan) gets it re-enabled
+        // here, because this snapshot predates that call. There are 15 sites
+        // calling dragPan.disable() in the app; a snapshot is the only thing that
+        // survives all of them without a registry nobody would keep up to date.
+        if (this._dragPanWasEnabled) {
+            this._map.dragPan?.enable?.();
+            this._dragPanWasEnabled = false;
+        }
+
+        if (wasEngaged && this._canvas) {
             this._canvas.style.cursor = this._originalCursor;
         }
-    }
-}
+        this._engaged = false;
 
-function clampPitch(value) {
-    return Math.max(PITCH_MIN, Math.min(PITCH_MAX, value));
+        if (wasEngaged) {
+            this._swallowClickAfterDrag();
+        }
+    }
+
+    /**
+     * Swallows the synthetic `click` the browser fires at the end of the drag.
+     *
+     * The browser fires `click` after mousedown+mouseup on the same element even
+     * when the pointer travelled hundreds of pixels, and MapLibre's own
+     * `suppressClick` only covers gestures ITS handlers drove — this one is ours,
+     * so nothing suppresses it. The click then reaches `map.on('click')`, where
+     * `selection_manager` deselects everything on empty ground and
+     * `comment_tool/comment-overlay.js` plants a comment pin: a rotation would
+     * silently undo the selection the person was rotating around.
+     *
+     * Capture phase on `window` is what makes this work: MapLibre listens on the
+     * canvas container, so stopping propagation above it beats every listener
+     * below. Only armed when the drag actually ENGAGED (past the 3 px threshold),
+     * so a Shift+click that never moved still selects.
+     * @private
+     */
+    _swallowClickAfterDrag() {
+        if (this._swallowClick) return;
+
+        this._swallowClick = (event) => {
+            event.stopPropagation();
+            event.preventDefault();
+        };
+        window.addEventListener('click', this._swallowClick, true);
+        // One tick only: the click we are eating is dispatched synchronously
+        // right after this mouseup, so anything later is a real click.
+        this._swallowTimer = setTimeout(() => this._disarmClickSwallow(), 0);
+    }
+
+    /** @private */
+    _disarmClickSwallow() {
+        if (this._swallowTimer) {
+            clearTimeout(this._swallowTimer);
+            this._swallowTimer = null;
+        }
+        if (this._swallowClick) {
+            window.removeEventListener('click', this._swallowClick, true);
+            this._swallowClick = null;
+        }
+    }
 }
 
 export default DragRotateHandler;

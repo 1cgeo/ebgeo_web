@@ -115,4 +115,122 @@ describeOrSkip('§15 Map gestures (real browser, local pointer/wheel on canvas)'
         await page.evaluate(() => globalThis.__ebgeoMap.setPitch(0));
         await expect.poll(() => pitch(page), { timeout: 6000 }).toBeLessThan(1);
     });
+
+    // ========================================================================
+    // §15.5 a §15.7 — o gesto de CAMERA por mouse (map/drag-rotate.handler.js).
+    //
+    // Ate 2026-09-01 Ctrl+arrastar movia OS DOIS eixos, e ninguem arrasta uma
+    // linha perfeitamente vertical: quem inclinava girava junto, e culpava o
+    // trackpad. §15.5 e §15.6 medem o TRAVAMENTO de eixo no mapa real, que e a
+    // unica camada onde ele existe (o modelo puro esta preso em
+    // tests/unit/drag-rotate-model.test.js). §15.1 e o controle das duas: um
+    // arrasto SEM modificador continua deslocando o centro.
+    // ========================================================================
+
+    /** Zera a camera para que os deltas medidos nao dependam da posicao salva. */
+    async function resetCamera(page) {
+        await page.evaluate(() => {
+            globalThis.__ebgeoMap.setBearing(0);
+            globalThis.__ebgeoMap.setPitch(0);
+        });
+        await expect.poll(() => pitch(page), { timeout: 6000 }).toBeLessThan(1);
+        await expect.poll(async () => Math.abs(await bearing(page)), { timeout: 6000 }).toBeLessThan(1);
+    }
+
+    test('§15.5 Ctrl+arrastar inclina e NAO gira, mesmo com componente horizontal', async ({ page }) => {
+        await bootMap(page);
+        await resetCamera(page);
+
+        const { x, y } = await canvasCenter(page);
+        const b0 = await bearing(page);
+
+        // 150 px para CIMA (0.3 deg/px => ~45 deg de pitch) e 60 px para a
+        // DIREITA. Se o eixo horizontal vazasse, o bearing andaria ~30 deg.
+        await page.keyboard.down('Control');
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x + 60, y - 150, { steps: 15 });
+        await page.mouse.up();
+        await page.keyboard.up('Control');
+
+        await expect.poll(() => pitch(page), { timeout: 6000 }).toBeGreaterThan(20);
+        expect(
+            Math.abs((await bearing(page)) - b0),
+            'Ctrl+arrastar girou o mapa: o eixo do bearing nao esta travado',
+        ).toBeLessThan(0.5);
+    });
+
+    test('§15.6 Shift+arrastar gira, NAO inclina e nao desloca o centro', async ({ page }) => {
+        await bootMap(page);
+        await resetCamera(page);
+
+        const { x, y } = await canvasCenter(page);
+        const b0 = await bearing(page);
+        const c0 = await center(page);
+
+        // 140 px para a ESQUERDA (0.5 deg/px => ~70 deg de bearing) e 60 px para
+        // CIMA. O componente vertical e para cima DE PROPOSITO: com o pitch em 0,
+        // um vazamento para BAIXO seria absorvido pelo clamp e ficaria invisivel.
+        await page.keyboard.down('Shift');
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x - 140, y - 60, { steps: 15 });
+        await page.mouse.up();
+        await page.keyboard.up('Shift');
+
+        await expect
+            .poll(async () => Math.abs((await bearing(page)) - b0), { timeout: 6000 })
+            .toBeGreaterThan(20);
+        expect(
+            await pitch(page),
+            'Shift+arrastar inclinou o mapa: o eixo do pitch nao esta travado',
+        ).toBeLessThan(0.5);
+        // O dragPan tem de ficar DESLIGADO durante o gesto: o mousePan do MapLibre
+        // aceita Shift+botao esquerdo, entao sem isso o mapa panorama enquanto gira.
+        const c1 = await center(page);
+        expect(
+            Math.abs(c1.lng - c0.lng) + Math.abs(c1.lat - c0.lat),
+            'o centro andou durante a rotacao: o dragPan continuou vivo sob o gesto',
+        ).toBeLessThan(1e-6);
+    });
+
+    test('§15.7 o fim de um arrasto de camera NAO chega como clique no mapa', async ({ page }) => {
+        await bootMap(page);
+        await resetCamera(page);
+
+        // O navegador dispara `click` depois de mousedown+mouseup no mesmo elemento
+        // ainda que o ponteiro tenha andado 140 px, e o `suppressClick` do MapLibre
+        // so cobre os gestos que OS HANDLERS DELE dirigiram. Sem a supressao do
+        // nosso lado, esse clique sintetico chega em `map.on('click')`, onde o
+        // selection_manager desmarca a selecao em terreno vazio e o comment-overlay
+        // planta um alfinete: rotacionar desfazia a selecao em volta da qual a
+        // pessoa estava rotacionando.
+        await page.evaluate(() => {
+            globalThis.__ebgeoCliquesNoMapa = 0;
+            globalThis.__ebgeoMap.on('click', () => { globalThis.__ebgeoCliquesNoMapa += 1; });
+        });
+
+        const { x, y } = await canvasCenter(page);
+
+        await page.keyboard.down('Shift');
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x - 140, y, { steps: 15 });
+        await page.mouse.up();
+        await page.keyboard.up('Shift');
+
+        // O clique sintetico e sincrono com o mouseup; a espera e folga, nao corrida.
+        await page.waitForTimeout(300);
+        expect(
+            await page.evaluate(() => globalThis.__ebgeoCliquesNoMapa),
+            'o arrasto de camera chegou ao mapa como clique',
+        ).toBe(0);
+
+        // CONTROLE DO INSTRUMENTO: sem ele, um contador que nunca incrementa
+        // (ouvinte no barramento errado, mapa trocado) daria o mesmo verde.
+        await page.mouse.click(x, y);
+        await expect
+            .poll(() => page.evaluate(() => globalThis.__ebgeoCliquesNoMapa), { timeout: 6000 })
+            .toBe(1);
+    });
 });

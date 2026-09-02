@@ -133,6 +133,19 @@ export function createMap() {
         maxPitch: config.map2d.maxPitch,
         bounds: config.map2d.bounds,
         validateStyle: false,
+        // Handlers we never want. Declared HERE and not on 'load' so there is no
+        // window in which boxZoom/dragRotate/doubleClickZoom are live: the person
+        // can already drag before the first tile finishes painting.
+        boxZoom: false,
+        // Mouse rotation is ours (`map/drag-rotate.handler.js`): Ctrl tilts, Shift
+        // rotates. MapLibre's dragRotate would run on the same buttons and sum.
+        dragRotate: false,
+        doubleClickZoom: false,
+        // Two-finger pitch fights pinch-zoom: MapLibre's touchPitch engages after
+        // 2 px of parallel vertical movement and then locks zoom and rotation out
+        // for the rest of the gesture, which is what made a pinch on a tablet feel
+        // like it tilted instead of zooming.
+        touchPitch: false,
         // What stamps the credential on the 360 tiles, and on NOTHING else. The MVT
         // route is flexibleAuth: with no principal it answers 200 with the PUBLIC
         // subset, so serving the 360 from another origin (SV360_SERVICE_URL) makes the
@@ -141,6 +154,13 @@ export function createMap() {
         // everything else (basemap, glyphs, BDGEx) — MapLibre's "leave it alone".
         transformRequest: credencialDeTile
     });
+
+    // Touch ROTATION stays ON, and that is a decision, not an omission: MapLibre only
+    // engages it past a real twist (~10-19 deg depending on how far apart the fingers
+    // are), which is the same bar Google Maps uses. If accidental rotation is still
+    // reported on tablets, the single line to add is:
+    //   map.touchZoomRotate.disableRotation();
+    // It preserves pinch-zoom; only the twist goes away.
 
     map.setSourceTileLodParams(...config.map2d.sourceTileLodParams);
     if (config.map2d.maxBounds) {
@@ -801,13 +821,16 @@ export function initializeApp(map, controlsPromise, { pintarSlotLocal = true } =
     // Must be registered synchronously to avoid race with async createControls().
     map.on('load', async () => {
         try {
-            map.doubleClickZoom.disable();
-            map.boxZoom.disable();
-            map.dragRotate.disable();
-            // Disable sky/fog - universe background is set via CSS on #map-sig container. SOBE
-            // PARA JUNTO DOS OUTROS TRES: e uma chamada sincrona do mapa, sem nada do store, e no
-            // ponto antigo (depois da pintura) ela ficava presa atras de `renderBootMap`, que hoje
-            // pode nao rodar neste manipulador.
+            // boxZoom, dragRotate e doubleClickZoom sairam DAQUI e viraram opcoes do
+            // construtor (ver `createMap`), ao lado do touchPitch, que ninguem desligava:
+            // desligar no 'load' deixava uma janela em que os tres estavam vivos, porque a
+            // pessoa ja consegue arrastar antes de o primeiro tile terminar de pintar.
+            //
+            // Disable sky/fog - universe background is set via CSS on #map-sig container. Esta
+            // chamada FICA aqui, e continua sendo a primeira linha do manipulador pelo mesmo
+            // motivo que subiu ate ele: e sincrona, nao depende do store, e no ponto antigo
+            // (depois da pintura) ficava presa atras de `renderBootMap`, que hoje pode nao rodar
+            // neste manipulador. O construtor nao a aceita como opcao.
             map.setSky(undefined);
 
             // Wait for both IndexedDB state and controls to be ready
