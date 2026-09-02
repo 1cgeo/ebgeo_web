@@ -586,7 +586,14 @@ function payloadDe(html) {
 const PAGINAS_DIST = Object.freeze([
     { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 80, minKb: 2450, maxKb: 3000 },
     { html: 'atlas.html', entrada: 'atlas', minArq: 18, maxArq: 40, minKb: 320, maxKb: 700 },
-    { html: 'admin.html', entrada: 'admin', minArq: 14, maxArq: 34, minKb: 380, maxKb: 800 },
+    // admin.html: 800 -> 950 em 2026-09-02, com a medida na mao: 882 kB em 24 arquivos, build
+    // fresco em 7a35c84f. O que pesou foi o painel de administracao ganhar as abas Diagnostico
+    // (defeitos com ciclo de vida, gaveta de ocorrencias, Resumo) e Uso (funil, retencao, sessoes,
+    // desempenho), com os folhas de frase de cada uma; os dois chunks pesados sao admin-*.js
+    // (258 kB) e admin-legacy-*.js (358 kB). O teto anterior passou verde por semanas porque esta
+    // metade le o dist/, e dist velho da verde velho. A reducao pretendida e carregar as duas abas
+    // por import() ao abrir, e ela DESCE este teto no mesmo commit, como a regra desta tabela manda.
+    { html: 'admin.html', entrada: 'admin', minArq: 14, maxArq: 34, minKb: 380, maxKb: 950 },
     { html: 'calibracao.html', entrada: 'calibracao', minArq: 12, maxArq: 32, minKb: 520, maxKb: 1100 }
 ]);
 
