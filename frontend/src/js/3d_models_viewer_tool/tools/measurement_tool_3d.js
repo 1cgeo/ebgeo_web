@@ -36,6 +36,13 @@ const PREVIEW_THROTTLE_MS = 50; // Update preview max every 50ms
 // Persisted measurements
 const measurementEntities = new Map(); // measurementId -> { entities: Cesium.Entity[] }
 let selectedMeasurementId = null;
+// Unsubscribe callbacks for the module-level event listeners (paired in cleanup),
+// mirroring `marker_tool_3d.js`, the only one of the three sibling tools that already
+// had them. LATENT, not live: today the viewer is built once and `cleanup3DFeatures`
+// only runs on beforeunload, so the cost is one stray listener per page. It becomes a
+// real leak the day the viewer is torn down and rebuilt (an atlas switch, say), and it
+// is the asymmetry with the sibling that would make that day silent.
+const busUnsubscribers = [];
 
 // ===== CONSTANTS =====
 
@@ -1057,6 +1064,12 @@ export function cleanupMeasurementTool() {
         selectionHandler = null;
     }
 
+    // Unsubscribe the module-level event listeners (paired with on() in init).
+    for (const off of busUnsubscribers) {
+        if (typeof off === 'function') off();
+    }
+    busUnsubscribers.length = 0;
+
     currentViewer = null;
     currentTilesetId = null;
     selectedMeasurementId = null;
@@ -1086,16 +1099,23 @@ export async function refreshMeasurementsForCurrentTileset() {
 
 /**
  * Initializes measurement tool event listeners.
+ * Called from `setupTools` on every viewer creation, so it is idempotent and keeps
+ * the unsubscribe callbacks for `cleanupMeasurementTool`.
  */
 export function initMeasurementToolListeners() {
     const eventBus = getEventBus();
     if (!eventBus) return;
 
-    eventBus.on(EventTypes.LAYERS_CHANGED, () => {
+    // Avoid double registration if called more than once.
+    if (busUnsubscribers.length > 0) return;
+
+    const offLayers = eventBus.on(EventTypes.LAYERS_CHANGED, () => {
         if (currentViewer && currentTilesetId) {
             refreshMeasurementsForCurrentTileset();
         }
     });
+
+    busUnsubscribers.push(offLayers);
 }
 
 /**

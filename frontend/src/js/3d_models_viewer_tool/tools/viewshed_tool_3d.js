@@ -25,6 +25,13 @@ const viewshedObjects = new Map(); // viewshedId -> { cesiumViewsheds: Cesium.Vi
 let selectedViewshedId = null;
 let selectionHandler = null;
 let pendingViewshed = null; // Temporary storage for viewshed being created
+// Unsubscribe callbacks for the module-level event listeners (paired in cleanup),
+// mirroring `marker_tool_3d.js`, the only one of the three sibling tools that already
+// had them. LATENT, not live: today the viewer is built once and `cleanup3DFeatures`
+// only runs on beforeunload, so the cost is one stray listener per page. It becomes a
+// real leak the day the viewer is torn down and rebuilt (an atlas switch, say), and it
+// is the asymmetry with the sibling that would make that day silent.
+const busUnsubscribers = [];
 
 // Default viewshed parameters
 const DEFAULT_VIEWSHED_PARAMS = {
@@ -830,6 +837,12 @@ export function cleanupViewshedTool() {
         selectionHandler = null;
     }
 
+    // Unsubscribe the module-level event listeners (paired with on() in init).
+    for (const off of busUnsubscribers) {
+        if (typeof off === 'function') off();
+    }
+    busUnsubscribers.length = 0;
+
     currentViewer = null;
     currentTilesetId = null;
 }
@@ -863,16 +876,23 @@ export async function refreshViewshedsForCurrentTileset() {
 
 /**
  * Initializes viewshed tool event listeners.
+ * Called from `setupTools` on every viewer creation, so it is idempotent and keeps
+ * the unsubscribe callbacks for `cleanupViewshedTool`.
  */
 export function initViewshedToolListeners() {
     const eventBus = getEventBus();
     if (!eventBus) return;
 
-    eventBus.on(EventTypes.LAYERS_CHANGED, () => {
+    // Avoid double registration if called more than once.
+    if (busUnsubscribers.length > 0) return;
+
+    const offLayers = eventBus.on(EventTypes.LAYERS_CHANGED, () => {
         if (currentViewer && currentTilesetId) {
             refreshViewshedsForCurrentTileset();
         }
     });
+
+    busUnsubscribers.push(offLayers);
 }
 
 /**
