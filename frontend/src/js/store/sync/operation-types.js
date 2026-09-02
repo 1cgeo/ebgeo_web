@@ -11,6 +11,13 @@ export const EntityType = Object.freeze({
     FEATURE: 'feature',
     LAYER: 'layer',
     GROUP: 'group',
+    // Group MEMBERSHIP, the join between a group and one feature. It is a type of its own
+    // because the server has no `features` column on `groups`: a `group` create/update
+    // writes name/visible/locked/style/parent_id and NOTHING else, so the members list
+    // travels only as `group_feature` rows (see `backend/src/modules/sync/sync.service.js`,
+    // TARGET_TABLE_MAP). The op payload is `{ group_id, feature_id, feature_type }`; the
+    // server reads the first two and the peer needs the third to rebuild the `{type,id}` ref.
+    GROUP_FEATURE: 'group_feature',
 
     MARKER_3D: 'marker3d',
     MEASUREMENT_3D: 'measurement3d',

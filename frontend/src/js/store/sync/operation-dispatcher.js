@@ -10,7 +10,7 @@ import { createOperation, createBatchOperations } from './operation-factory.js';
 import { operationQueue } from './operation-queue.js';
 import { EntityType, OperationType } from './operation-types.js';
 import { StoreErrorEvents, emitStoreError } from '../store-errors.js';
-import { isValidUUID } from '../../utilities/uuid.js';
+import { generateUUID, isValidUUID } from '../../utilities/uuid.js';
 import { record } from './diag/trace-core.js';
 import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
 import { markLocalEditPending, CONVERGENCE_GUARDED } from './remote-operation-handler.js';
@@ -282,6 +282,36 @@ export const logLayerOperation = createEntityLogger(EntityType.LAYER);
 
 /** Logs a group operation. */
 export const logGroupOperation = createEntityLogger(EntityType.GROUP);
+
+/**
+ * Logs a group MEMBERSHIP operation: one feature entering or leaving one group.
+ *
+ * Why this is not a `group` update. The server stores a group's members in the
+ * `group_features` join table, and `UPDATE_FIELDS.group` (backend `sync.service.js`) lists
+ * name/visible/locked/style/parent_id only. A `group` op carrying `data.features` is therefore
+ * applied with the members list SILENTLY DROPPED: peers converge live (the inbound handler
+ * replaces the group document wholesale) while the server keeps the old membership, so the next
+ * snapshot or F5 restores it. `group_feature` create/delete is the only channel the server has.
+ *
+ * The entity id is a FRESH UUID per op, and both halves of that matter:
+ *  - `operations.entity_id` is a UUID column, so a composite `<group>:<feature>` key is out;
+ *  - queue compaction groups by `scopeSuffix:entityType:entityId` and keeps ONE op per group
+ *    (`operation-queue.js`), so reusing the GROUP id would collapse several membership changes
+ *    of the same group into one and drop the rest. A unique id per op keeps every one of them.
+ *
+ * @param {string} opType - OperationType.CREATE (link) or OperationType.DELETE (unlink)
+ * @param {string} groupId - Group UUID
+ * @param {string} featureId - Feature UUID
+ * @param {string} featureType - Feature source type, for the peer's `{type, id}` ref
+ * @param {string|null} mapId - Map context UUID
+ * @returns {Promise<void>}
+ */
+export async function logGroupFeatureOperation(opType, groupId, featureId, featureType, mapId) {
+    await logOperation(
+        EntityType.GROUP_FEATURE, opType, generateUUID(), mapId,
+        { group_id: groupId, feature_id: featureId, feature_type: featureType }, null,
+    );
+}
 
 /** Logs a map operation (atlas-level, mapId is always null). */
 export const logMapOperation = createEntityLogger(EntityType.MAP, true);

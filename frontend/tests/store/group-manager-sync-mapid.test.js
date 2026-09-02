@@ -20,6 +20,7 @@ const MAP_UUID = '4a22f7df-df6d-47df-80bb-f26df86d31ec';
 const h = vi.hoisted(() => ({
     memoryStore: { currentMap: 'Mapa Tático', groups: {} },
     logGroupOperation: vi.fn(),
+    logGroupFeatureOperation: vi.fn(),
     resolveToId: vi.fn(),
 }));
 
@@ -33,6 +34,7 @@ vi.mock('../../src/js/store/index.js', () => ({
 // Capture every logged group op.
 vi.mock('../../src/js/store/sync/index.js', () => ({
     logGroupOperation: h.logGroupOperation,
+    logGroupFeatureOperation: h.logGroupFeatureOperation,
     OperationType: { CREATE: 'create', UPDATE: 'update', DELETE: 'delete' },
 }));
 

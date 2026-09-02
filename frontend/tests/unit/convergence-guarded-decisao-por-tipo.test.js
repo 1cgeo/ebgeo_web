@@ -104,6 +104,16 @@ const FORA = new Map([
         'no-op inbound de propósito: o `case` existe só para não cair no `warn`, e não escreve'
         + ' nada. Slides convergem pela op do `briefing` pai, que ESTÁ no Set. Guardar um handler'
         + ' que não escreve não guardaria nada.'],
+    [EntityType.GROUP_FEATURE,
+        'a razão é ESTRUTURAL e é o inverso das sub-entidades de mapa: lá cinco fluxos'
+        + ' dividem um `entityId`, aqui CADA OP tem o seu, um UUID descartável cunhado por'
+        + ' `logGroupFeatureOperation` (a entidade de que a op fala viaja em `data`). Um guarda'
+        + ' por `entityId` nunca reconheceria duas ops como sendo da mesma entidade: a checagem'
+        + ' de versão jamais casaria e `lastAppliedVersion` cresceria sem limite, um por op'
+        + ' recebida. E ele não é necessário: `applyRemoteGroupFeatureOp` edita a lista de'
+        + ' membros EM SEPARADO (tira ou põe um id), nunca substitui o documento do grupo, então'
+        + ' não existe a escrita em bloco que é o critério do Set. Duas remoções concorrentes de'
+        + ' membros DIFERENTES comutam; a mesma remoção duas vezes é idempotente.'],
     [EntityType.SETTING,
         'o payload é patch parcial de preferências de atlas e o inbound aplica chave a chave'
         + ' (`applyRemoteAppStateSettings`), sem substituir o objeto de settings. Um guarda por'

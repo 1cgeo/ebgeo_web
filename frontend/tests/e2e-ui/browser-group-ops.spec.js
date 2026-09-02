@@ -9,10 +9,15 @@
  * toggles / "Desagrupar" invoke), and every assertion reads the live app store
  * (getMapGroups + getCurrentMapFeatures).
  *
- * Test 2 (group_feature link/unlink + EXISTS edge) stays a backend transport probe:
- * `group_feature` is a SERVER-ONLY join with NO client EntityType / factory and NO UI
- * gesture (linking a phantom id has no UI at all), so its wire envelope is hand-built and
- * asserted against the persisted `pullSync` snapshot. See the no-UI note on that test.
+ * Test 2 (group_feature link/unlink + EXISTS edge) stays a backend transport probe, and its
+ * reason NARROWED in 2026-09-02. `group_feature` used to be a server-only join with NO client
+ * EntityType at all, which is why the envelope here is hand-built. It now HAS one
+ * (`EntityType.GROUP_FEATURE`, logged by `logGroupFeatureOperation`), because membership never
+ * travelled otherwise: a `group` create/update is applied with `data.features` dropped, so the
+ * members list only ever moves through this target. What is still true, and is what keeps this
+ * test hand-built, is the EXISTS-guard edge: linking a PHANTOM feature id has no UI gesture and
+ * no store op. The gesture side (agrupar, and a member leaving when a feature is deleted) is
+ * covered with two browsers in `browser-collab-grupo-perde-membro.spec.js`.
  *
  * The atlas/map/share SETUP is API-only (sharing has no UI); login + open + the test-1
  * gestures are real UI.
@@ -114,11 +119,9 @@ describeOrSkip('Group ops + group_feature membership (real Chromium + real backe
     test('group_feature link then unlink: membership appears, then is removed (group + feature survive)', async ({
         page,
     }) => {
-        // no-UI: `group_feature` is a SERVER-ONLY join table with no frontend EntityType,
-        // no client factory and no UI gesture (and linking a non-existent feature, the
-        // EXISTS-guard edge, has no UI at all). This test asserts the raw wire-envelope
-        // contract + EXISTS guard against the persisted snapshot, so it stays a pure
-        // transport probe driven via page.evaluate against the backend.
+        // no-UI: linking a NON-EXISTENT feature (the EXISTS-guard edge) has no UI gesture and
+        // no store op, so this stays a raw wire-envelope + EXISTS-guard probe asserted against
+        // the persisted snapshot. The TARGET is no longer client-less: see the header.
         const user = await createVerifiedUser({ prefix: 'gf', nome: 'GroupFeature User' });
         await page.goto('/');
 
@@ -149,9 +152,9 @@ describeOrSkip('Group ops + group_feature membership (real Chromium + real backe
                 createOperation('group', 'create', groupId, mapId, { name: 'Bravo', visible: true }),
             ]);
 
-            // `group_feature` has no client factory (not in EntityType); hand-build the
-            // wire-shape op the backend accepts. The backend reads data.group_id /
-            // data.feature_id; entityId is a filler the apply path ignores for this target.
+            // Hand-built because this case also pushes a PHANTOM feature id, which no client
+            // path can produce. The backend reads data.group_id / data.feature_id; entityId is
+            // a filler the apply path ignores for this target.
             const linkOp = (opType, fid) => ({
                 id: crypto.randomUUID(),
                 entityType: 'group_feature',

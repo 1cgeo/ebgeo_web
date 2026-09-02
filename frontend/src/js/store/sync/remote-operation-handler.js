@@ -477,6 +477,11 @@ async function applyRemoteOperationInner(operation, guarded) {
         case EntityType.GROUP:
             await applyRemoteGroupOp(operationType, entityId, mapId, data);
             break;
+        case EntityType.GROUP_FEATURE:
+            // `entityId` is a throwaway UUID here (see logGroupFeatureOperation); the pair
+            // this op is about travels in `data`.
+            entityPersisted = await applyRemoteGroupFeatureOp(operationType, mapId, data);
+            break;
         case EntityType.BRIEFING:
             await applyRemoteBriefingOp(operationType, entityId, data);
             break;
@@ -924,6 +929,70 @@ async function applyRemoteGroupOp(opType, groupId, mapId, data) {
     }
 
     emit(EventTypes.GROUPS_CHANGED, {});
+}
+
+/**
+ * Applies a remote group MEMBERSHIP operation: one feature entering or leaving one group.
+ *
+ * The peer keeps membership inside the group document (`group.features`, a list of
+ * `{type, id}`), while the server keeps it in a join table; this is where the two meet. It
+ * edits the list IN PLACE instead of replacing the document, which is the whole point: the
+ * author's `group` op is not resent on a membership change, so a blind replace here would
+ * have nothing to replace with.
+ *
+ * Returns whether anything was written, so the caller does not record an `apply.persist`
+ * span for an op that found no group (the same contract as the buffered-feature path).
+ *
+ * @param {string} opType - Operation type
+ * @param {string} mapId - Map UUID
+ * @param {Object} data - `{ group_id, feature_id, feature_type }`
+ * @returns {Promise<boolean>} True when the local group document was updated
+ */
+async function applyRemoteGroupFeatureOp(opType, mapId, data) {
+    const groupId = data?.group_id;
+    const featureId = data?.feature_id;
+    if (!groupId || !featureId) return false;
+
+    const repo = getRepository();
+    try {
+        const mapName = mapResolver.resolveToName(mapId) || mapId;
+        const groups = (await repo.getGroups?.(mapId)) || {};
+        const group = groups[groupId];
+        // No group locally: nothing to attach the member to. The `group` op that creates it
+        // is logged BEFORE its membership ops, so in order this cannot be a race; an op for a
+        // group this peer never received is residue, and inventing a group from it would put
+        // a nameless entry in the tab.
+        if (!group || !Array.isArray(group.features)) return false;
+
+        // ONE identity predicate for both branches. A member is the PAIR (type, id), which is
+        // what `GroupManager.getFeatureGroup` matches on locally; using it on the delete and
+        // the plain id on the create would let a create and the delete that undoes it disagree
+        // about what "the same member" is. A legacy op with no `feature_type` degrades to
+        // matching by id alone, on both sides.
+        const featureType = data.feature_type ?? null;
+        const sameMember = (f) => f.id === featureId
+            && (featureType === null || f.type === featureType);
+
+        const before = group.features.length;
+        if (opType === OperationType.DELETE) {
+            group.features = group.features.filter((f) => !sameMember(f));
+        } else if (!group.features.some(sameMember)) {
+            group.features = [...group.features, { type: featureType, id: featureId }];
+        }
+        if (group.features.length === before) return false;
+
+        groups[groupId] = group;
+        if (!memoryStore.groups[mapName]) memoryStore.groups[mapName] = {};
+        memoryStore.groups[mapName][groupId] = group;
+        await repo.saveGroups?.(mapId, groups);
+
+        emit(EventTypes.GROUP_MODIFIED, { groupId, mapId, group });
+        emit(EventTypes.GROUPS_CHANGED, {});
+        return true;
+    } catch (err) {
+        console.warn('Remote group membership op persist failed:', err);
+        return false;
+    }
 }
 
 /**

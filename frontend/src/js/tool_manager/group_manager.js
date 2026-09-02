@@ -4,7 +4,7 @@ import { memoryStore, setMapGroups, getMapGroupsFromDB } from '../store';
 import { generateUUID } from '../utilities/uuid.js';
 import { EventTypes } from '../events';
 import { createSyncMetadata, touchSyncMetadata, markDeleted, isActive } from '../store/sync/sync-metadata.js';
-import { logGroupOperation, OperationType } from '../store/sync/index.js';
+import { logGroupOperation, logGroupFeatureOperation, OperationType } from '../store/sync/index.js';
 import { mapResolver } from '../store/services/map-resolver.service.js';
 
 /**
@@ -69,7 +69,14 @@ class GroupManager {
         // Tag the sync op with the map's UUID (not its name) — a non-UUID map id would be
         // rejected by the backend and POISON A's whole flush batch (every op queued after
         // it would never reach peers), the same flush-poison class as feature/layer/temporal.
-        logGroupOperation(OperationType.CREATE, groupId, mapResolver.resolveToId(targetMap), newGroup);
+        const mapId = mapResolver.resolveToId(targetMap);
+        logGroupOperation(OperationType.CREATE, groupId, mapId, newGroup);
+        // The members list is NOT part of the `group` row: `data.features` is dropped by the
+        // server's group insert, so membership has to travel as its own ops, AFTER the group
+        // exists (the join insert is gated on the group row being there).
+        for (const member of newGroup.features) {
+            logGroupFeatureOperation(OperationType.CREATE, groupId, member.id, member.type, mapId);
+        }
 
         return newGroup;
     }
@@ -148,7 +155,13 @@ class GroupManager {
         this._notifyGroupsChanged();
 
         // Log create operation for the combined group
-        logGroupOperation(OperationType.CREATE, newGroupId, mapResolver.resolveToId(targetMap), combinedGroup);
+        const combinedMapId = mapResolver.resolveToId(targetMap);
+        logGroupOperation(OperationType.CREATE, newGroupId, combinedMapId, combinedGroup);
+        // Membership of the NEW group (see createGroup). The old groups' rows are left alone:
+        // they are soft-deleted above, so they no longer surface in any snapshot.
+        for (const member of combinedGroup.features) {
+            logGroupFeatureOperation(OperationType.CREATE, newGroupId, member.id, member.type, combinedMapId);
+        }
 
         return combinedGroup;
     }
@@ -491,33 +504,70 @@ class GroupManager {
     }
 
     /**
-     * Remove feature from all groups (when feature is deleted)
+     * Remove a feature from every group of a map, and SYNC that removal.
+     *
+     * Called from the delete/move paths (feature delete, move to another map, layer
+     * transfer), all of which run it inside a `tx.deferSync`. The op loggers are
+     * fire-and-forget there, exactly as in {@link updateGroupProperty}: `logOperation`
+     * swallows and reports its own failures, so nothing rejects into the transaction.
+     *
+     * TWO ops per affected group, because they say different things to the server:
+     *  - `group_feature` DELETE removes the join row, which is the ONLY place the server
+     *    keeps membership (a `group` update never touches it, see
+     *    {@link logGroupFeatureOperation});
+     *  - `group` DELETE, when the group drops to one member or none, mirrors the
+     *    soft-delete this function already did locally. Without it the peer and the server
+     *    kept a group this client had already dissolved.
+     *
+     * Idempotent by construction: a group that did not hold the feature is skipped whole,
+     * so it logs nothing. That skip also FIXED a live hazard rather than just adding one:
+     * the previous code soft-deleted every active group with one member or none on ANY
+     * call, related or not, and once that soft-delete became a synced op it would have
+     * dissolved a peer's unrelated group as a side effect of deleting some other feature.
+     *
+     * @param {string} type - Feature source type
+     * @param {string} featureId - Feature ID
+     * @param {string} [mapName=null] - Map name (null = current map)
      */
     removeFeatureFromAllGroups(type, featureId, mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
         this._ensureMapGroupsExist(targetMap);
 
         const groupsCache = this.memoryStore.groups[targetMap];
+        // Resolved once: same NAME->UUID rule as every other op logged here (a raw map name
+        // would be dropped pre-flush, or poison the batch if it reached the server).
+        const mapId = mapResolver.resolveToId(targetMap);
         let modified = false;
 
         for (const group of Object.values(groupsCache)) {
             // Skip deleted groups
             if (!isActive(group.sync)) continue;
 
-            const initialLength = group.features.length;
-            group.features = group.features.filter(f =>
+            // Held BEFORE the filter, because `filter` returns a NEW array and the previous
+            // one is what `previousData` has to carry: a shallow copy taken after the
+            // reassignment would ship the already-reduced list as the "previous" state, i.e.
+            // an undo payload missing the very member that was removed.
+            const previousFeatures = group.features;
+            const remaining = previousFeatures.filter(f =>
                 !(f.type === type && f.id === featureId)
             );
+            // This group did not hold the feature: nothing changed, nothing to log.
+            if (remaining.length === previousFeatures.length) continue;
+            group.features = remaining;
 
-            if (group.features.length <= 1) {
-                // Soft delete the group if only 0-1 features left
+            logGroupFeatureOperation(OperationType.DELETE, group.id, featureId, type, mapId);
+
+            if (remaining.length <= 1) {
+                // Soft delete the group if only 0-1 features left. `group.sync` is still the
+                // pre-delete metadata at this point, so the copy is the whole prior document.
+                const oldGroup = { ...group, features: previousFeatures };
                 group.sync = markDeleted(group.sync);
-                modified = true;
-            } else if (group.features.length < initialLength) {
+                logGroupOperation(OperationType.DELETE, group.id, mapId, null, oldGroup);
+            } else {
                 // Update sync metadata if features were removed
                 group.sync = touchSyncMetadata(group.sync);
-                modified = true;
             }
+            modified = true;
         }
 
         if (modified) {

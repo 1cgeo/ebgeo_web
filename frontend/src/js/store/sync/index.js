@@ -93,6 +93,7 @@ export {
     logFeatureOperation,
     logLayerOperation,
     logGroupOperation,
+    logGroupFeatureOperation,
     logMapOperation,
     logMarker3dOperation,
     logMeasurement3dOperation,
