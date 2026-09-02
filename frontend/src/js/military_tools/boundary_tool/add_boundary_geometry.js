@@ -1,6 +1,15 @@
 // Path: js/military_tools/boundary_tool/add_boundary_geometry.js
 
 import { BaseGeometry } from '@tools';
+import {
+    computeTextRotation,
+    computeTextAnchor,
+    isScreenAnchored,
+    getGroundZoomFactor,
+    maxSymbolSizeForLine,
+    BOUNDARY_ZOOM_DEFAULTS,
+    BOUNDARY_ZOOM_LIMITS,
+} from '@tools/helpers/boundary-zoom.model.js';
 
 /**
  * Boundary Geometry Operations
@@ -27,8 +36,11 @@ class AddBoundaryGeometry extends BaseGeometry {
         POSITION_RATIO_MAX: 0.99        // Maximum position ratio
     };
 
-    /** Fallback symbol size, the same one `createHandles` and `updateFromHandle` use. */
-    static DEFAULT_SYMBOL_SIZE = 2;
+    // The old `DEFAULT_SYMBOL_SIZE = 2` is gone: every caller that used to fall
+    // back to it (the label offset, the size handle, the text-distance handle)
+    // now goes through `resolveSymbolSize`, whose fallback is the model's own
+    // `BOUNDARY_ZOOM_DEFAULTS.symbolSizeKm` (1 km). Two fallbacks for one value
+    // is how a boundary drew its label off one size and its symbol off another.
 
     /** Fallback label distance ratio for `generateBoundaryTexts`. */
     static DEFAULT_TEXT_DISTANCE_RATIO = 0.9;
@@ -36,6 +48,126 @@ class AddBoundaryGeometry extends BaseGeometry {
     constructor(properties = {}) {
         super(properties);
         this.MIN_DISTANCE_METERS = AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_DISTANCE_METERS;
+    }
+
+    /**
+     * How many echelon symbols one instance draws.
+     * Mirrors the fallback `createLineWithGaps` has always used, so the gap the
+     * line reserves and the cap that bounds it agree on the symbol count.
+     * @param {string} [echelon] - Echelon string ('X', 'XX', 'oII'...)
+     * @returns {number} Symbols per instance
+     */
+    echelonSymbolCount(echelon) {
+        return (echelon && echelon.length > 0) ? echelon.length : 3;
+    }
+
+    /**
+     * Length of a boundary's spine in kilometres, or NaN when it cannot be measured.
+     * @param {Array} coordinates - Already-normalized base coordinates
+     * @returns {number} Length in km (NaN means "no cap by line length")
+     */
+    measureLengthKm(coordinates) {
+        try {
+            if (!Array.isArray(coordinates) || coordinates.length < 2) return NaN;
+            return turf.length(turf.lineString(coordinates), { units: 'kilometers' });
+        } catch (_error) {
+            return NaN;
+        }
+    }
+
+    /**
+     * THE single place that decides how big the echelon is drawn, in kilometres.
+     *
+     * The size is a function of (authored properties, CURRENT zoom, line length)
+     * and never of a stored derived value: `calculatedSymbolSize` is a cache the
+     * zoom pass writes into the SOURCE, so every copy of a feature living
+     * anywhere else (the selection, a paste buffer, the panel's undo snapshot,
+     * the feature the move handler hands back) carries the size of some other
+     * zoom. Reading it was what made the symbols draw at one scale and the line
+     * cut its gaps at another.
+     *
+     * When no zoom is supplied (callers with no map: the conversion helper, the
+     * geometry tests) the derived cache is the only evidence of the current
+     * scale, so the legacy behaviour is kept: trust it, but only in the one state
+     * where it is allowed to differ from the authored size.
+     *
+     * @param {Object} [properties] - Boundary feature properties
+     * @param {number} [currentZoom] - Current map zoom (non-finite = no map)
+     * @param {number} [totalLengthKm] - Spine length, for the cap (non-finite = no cap)
+     * @returns {{base: number, groundFactor: number, cap: number, effective: number}}
+     *   `base` authored size, `groundFactor` the screen-pinning factor, `cap` the
+     *   line-length ceiling, `effective` what the drawing must use (always finite
+     *   and positive).
+     */
+    resolveSymbolSize(properties, currentZoom, totalLengthKm) {
+        const props = properties || {};
+        const authored = props.symbol_size;
+        const base = (Number.isFinite(authored) && authored > 0)
+            ? authored
+            : BOUNDARY_ZOOM_DEFAULTS.symbolSizeKm;
+
+        let groundFactor;
+        if (Number.isFinite(currentZoom)) {
+            groundFactor = getGroundZoomFactor(props, currentZoom);
+        } else {
+            const derived = props.calculatedSymbolSize;
+            groundFactor = (isScreenAnchored(props) && Number.isFinite(derived) && derived > 0)
+                ? derived / base
+                : 1;
+        }
+
+        const cap = maxSymbolSizeForLine(
+            totalLengthKm,
+            this.getSymbolInstances(props).length,
+            this.echelonSymbolCount(props.echelon),
+        );
+
+        const scaled = Math.max(base * groundFactor, BOUNDARY_ZOOM_LIMITS.MIN_SYMBOL_SIZE_KM);
+        return { base, groundFactor, cap, effective: Math.min(scaled, cap) };
+    }
+
+    /**
+     * Bounds for the "Tamanho do símbolo" control: the size DRAWN NOW (km on
+     * the ground at `currentZoom`), the authored base behind it, the factor
+     * between the two, and the range the drawn size may take on THIS line. The
+     * top is the line-length cap, so the control never offers a size the
+     * geometry would refuse to draw; the bottom is the authored minimum scaled
+     * to the current zoom, so a screen-pinned boundary zoomed far in still has
+     * room to shrink.
+     * @param {Object} properties - Boundary feature properties
+     * @param {number} [currentZoom] - Current map zoom (omit: legacy behaviour)
+     * @returns {{ base: number, groundFactor: number, effective: number, min: number, max: number, lengthKm: number }}
+     */
+    symbolSizeBounds(properties, currentZoom) {
+        const coords = this.normalizeBaseCoordinates(properties?.baseCoordinates);
+        const lengthKm = this.measureLengthKm(coords);
+
+        const { base, groundFactor, effective, cap } = this.resolveSymbolSize(properties, currentZoom, lengthKm);
+        const max = Number.isFinite(cap) ? cap : BOUNDARY_ZOOM_LIMITS.MAX_SYMBOL_SIZE_KM;
+        const min = Math.min(
+            max,
+            Math.max(
+                BOUNDARY_ZOOM_LIMITS.MIN_SYMBOL_SIZE_KM,
+                AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_SIZE_KM * groundFactor,
+            ),
+        );
+
+        return { base, groundFactor, effective, min, max, lengthKm };
+    }
+
+    /**
+     * Symbol size actually used for drawing, in kilometres.
+     * Shortcut over `resolveSymbolSize` for callers that have neither a zoom nor
+     * a measured line; a missing `symbol_size` falls back to the model default
+     * (1 km) rather than propagating `undefined` into `turf.destination`.
+     *
+     * @param {Object} [properties] - Boundary feature properties
+     * @param {number} [currentZoom] - Current map zoom
+     * @param {number} [totalLengthKm] - Spine length, for the cap
+     * @returns {number} Effective size in km
+     */
+    effectiveSymbolSize(properties, currentZoom, totalLengthKm) {
+        return this.resolveSymbolSize(properties, currentZoom, totalLengthKm).effective;
     }
 
     /**
@@ -111,10 +243,11 @@ class AddBoundaryGeometry extends BaseGeometry {
     /**
      * Generate boundary geometry with symbols and gaps
      * @param {Object} properties - Boundary properties including baseCoordinates
+     * @param {number} [currentZoom] - Current map zoom (omitted = no map, legacy behaviour)
      * @returns {Object} GeoJSON MultiLineString geometry
      */
-    generate(properties) {
-        return this.generateBoundaryGeometry(properties);
+    generate(properties, currentZoom) {
+        return this.generateBoundaryGeometry(properties, currentZoom);
     }
 
     /**
@@ -190,10 +323,11 @@ class AddBoundaryGeometry extends BaseGeometry {
     /**
      * Generate main boundary geometry with gaps for symbols
      * @param {Object} properties - Feature properties
+     * @param {number} [currentZoom] - Current map zoom (omitted = no map, legacy behaviour)
      * @returns {Object} GeoJSON MultiLineString geometry
      */
-    generateBoundaryGeometry(properties) {
-        let { baseCoordinates, symbol_size, echelon } = properties;
+    generateBoundaryGeometry(properties, currentZoom) {
+        let { baseCoordinates, echelon } = properties;
 
         baseCoordinates = this.normalizeBaseCoordinates(baseCoordinates);
 
@@ -216,8 +350,14 @@ class AddBoundaryGeometry extends BaseGeometry {
 
         try {
             const instances = this.getSymbolInstances(properties);
-            const lineWithGaps = this.createLineWithGaps(baseCoordinates, instances, symbol_size, echelon);
-            const symbolLines = this.createEchelonSymbolLines(baseCoordinates, instances, symbol_size, echelon);
+            // Measured here and not inside the two builders: the size the gap is
+            // cut for and the size the symbol is drawn at MUST be the same
+            // number, and the cap that bounds it needs the line length.
+            const symbolSize = this.resolveSymbolSize(
+                properties, currentZoom, this.measureLengthKm(baseCoordinates),
+            ).effective;
+            const lineWithGaps = this.createLineWithGaps(baseCoordinates, instances, symbolSize, echelon);
+            const symbolLines = this.createEchelonSymbolLines(baseCoordinates, instances, symbolSize, echelon);
             const allLines = [...lineWithGaps, ...symbolLines];
 
             if (allLines.length === 0) {
@@ -274,7 +414,7 @@ class AddBoundaryGeometry extends BaseGeometry {
                 return [validCoords];
             }
 
-            const numSymbols = (echelon && echelon.length > 0) ? echelon.length : 3;
+            const numSymbols = this.echelonSymbolCount(echelon);
             const symbolWidth = numSymbols * symbolSize * SYMBOL_WIDTH_MULTIPLIER;
             const gapWidth = symbolWidth * GAP_WIDTH_MULTIPLIER;
 
@@ -461,11 +601,12 @@ class AddBoundaryGeometry extends BaseGeometry {
     /**
      * Generate circles for 'o' symbols in echelon
      * @param {Object} boundaryFeature - Boundary feature
+     * @param {number} [currentZoom] - Current map zoom (omitted = no map, legacy behaviour)
      * @returns {Array} Array of circle features
      */
-    generateBoundaryCircles(boundaryFeature) {
+    generateBoundaryCircles(boundaryFeature, currentZoom) {
         const circles = [];
-        const { echelon, symbol_size } = boundaryFeature.properties;
+        const { echelon } = boundaryFeature.properties;
 
         // Normalize baseCoordinates to handle string format from persistence
         const baseCoordinates = this.normalizeBaseCoordinates(boundaryFeature.properties.baseCoordinates);
@@ -477,10 +618,13 @@ class AddBoundaryGeometry extends BaseGeometry {
         try {
             const line = turf.lineString(baseCoordinates);
             const totalLength = turf.length(line, { units: 'kilometers' });
+            const symbolSize = this.resolveSymbolSize(
+                boundaryFeature.properties, currentZoom, totalLength,
+            ).effective;
             const instances = this.getSymbolInstances(boundaryFeature.properties);
 
             instances.forEach((inst, instanceIndex) => {
-                const { polygons } = this.buildEchelonAtRatio(line, totalLength, inst.ratio, symbol_size, echelon);
+                const { polygons } = this.buildEchelonAtRatio(line, totalLength, inst.ratio, symbolSize, echelon);
 
                 polygons.forEach((polygon, polyIndex) => {
                     circles.push({
@@ -492,6 +636,14 @@ class AddBoundaryGeometry extends BaseGeometry {
                             layerId: boundaryFeature.properties.layerId,
                             color: boundaryFeature.properties.color,
                             opacity: boundaryFeature.properties.opacity,
+                            // Zoom model: `strokeWidth` is the authored base and
+                            // `calculatedStrokeWidth` the value the layer reads. The
+                            // anchor travels along so the zoom listener and the PDF
+                            // export can recompute the circle without its parent.
+                            strokeWidth: BOUNDARY_ZOOM_DEFAULTS.circleStrokeWidth,
+                            calculatedStrokeWidth: boundaryFeature.properties.calculatedStrokeWidth,
+                            createdAtZoom: boundaryFeature.properties.createdAtZoom,
+                            zoomCorrectionEnabled: boundaryFeature.properties.zoomCorrectionEnabled,
                             source: 'boundary-circle'
                         }
                     });
@@ -507,11 +659,21 @@ class AddBoundaryGeometry extends BaseGeometry {
     /**
      * Generate text features for boundary
      * @param {Object} boundaryFeature - Boundary feature
+     * @param {number} [currentZoom] - Current map zoom (omitted = no map, legacy behaviour)
      * @returns {Array} Array of text features
      */
-    generateBoundaryTexts(boundaryFeature) {
+    generateBoundaryTexts(boundaryFeature, currentZoom) {
         const textFeatures = [];
-        const { text_top, text_bottom, text_size, symbol_size, text_distance_ratio } = boundaryFeature.properties;
+        const {
+            text_top,
+            text_bottom,
+            text_size,
+            text_distance_ratio,
+            calculatedTextSize,
+            createdAtZoom,
+            zoomCorrectionEnabled,
+            text_north_facing,
+        } = boundaryFeature.properties;
 
         // Normalize baseCoordinates to handle string format from persistence
         const baseCoordinates = this.normalizeBaseCoordinates(boundaryFeature.properties.baseCoordinates);
@@ -523,17 +685,21 @@ class AddBoundaryGeometry extends BaseGeometry {
         try {
             const line = turf.lineString(baseCoordinates);
             const totalLength = turf.length(line, { units: 'kilometers' });
-            // Neither factor may go through `||`: a ratio of 0 ("label glued to the
+            // The ratio may not go through `||`: a ratio of 0 ("label glued to the
             // symbol") is a value a persisted or imported boundary can carry, and it
-            // used to come back as the 0.9 default; and a MISSING symbol_size made the
-            // product NaN, which flowed into `turf.destination` and out into the
-            // emitted text feature's coordinates, with no error anywhere.
+            // used to come back as the 0.9 default.
             const ratio = Number.isFinite(text_distance_ratio)
                 ? text_distance_ratio
                 : AddBoundaryGeometry.DEFAULT_TEXT_DISTANCE_RATIO;
-            const size = Number.isFinite(symbol_size)
-                ? symbol_size
-                : AddBoundaryGeometry.DEFAULT_SYMBOL_SIZE;
+            // The label sits at a distance measured in kilometres, so it rides the
+            // echelon's effective size and stays put relative to the symbol. The
+            // resolver also owns the guard that used to live here: a MISSING
+            // symbol_size made the product NaN, which flowed into `turf.destination`
+            // and out into the emitted text feature's coordinates, with no error
+            // anywhere.
+            const size = this.resolveSymbolSize(
+                boundaryFeature.properties, currentZoom, totalLength,
+            ).effective;
             const labelOffset = size * ratio;
             const instances = this.getSymbolInstances(boundaryFeature.properties);
 
@@ -543,8 +709,24 @@ class AddBoundaryGeometry extends BaseGeometry {
 
                 const { centerPoint, localBearing } = this.getCenterAndBearing(line, totalLength, inst.ratio);
 
+                // Placement stays perpendicular to the line; pinning the label to
+                // north changes the glyph orientation and the anchor, never the point.
                 const textPlacementBearing = localBearing - 90;
-                const textRotation = (localBearing <= 0 || localBearing >= 180) ? localBearing + 90 : localBearing - 90;
+                const textRotation = computeTextRotation({
+                    northFacing: text_north_facing === true,
+                    lineBearing: localBearing,
+                });
+                // Pinned to north, each label hangs from the edge that faces the
+                // line, so the two boxes stay in their own half-planes (see
+                // `computeTextAnchor`). Glued to the line they stay centred.
+                const anchorTop = computeTextAnchor({
+                    northFacing: text_north_facing === true,
+                    placementBearing: textPlacementBearing,
+                });
+                const anchorBottom = computeTextAnchor({
+                    northFacing: text_north_facing === true,
+                    placementBearing: textPlacementBearing + 180,
+                });
 
                 if (text_top) {
                     const pTop = turf.destination(centerPoint, labelOffset, textPlacementBearing, { units: 'kilometers' });
@@ -560,7 +742,11 @@ class AddBoundaryGeometry extends BaseGeometry {
                             layerId: boundaryFeature.properties.layerId,
                             text: text_top,
                             rotation: textRotation,
+                            anchor: anchorTop,
                             text_size: text_size,
+                            calculatedTextSize: calculatedTextSize ?? text_size,
+                            createdAtZoom: createdAtZoom,
+                            zoomCorrectionEnabled: zoomCorrectionEnabled,
                             color: boundaryFeature.properties.color,
                             opacity: boundaryFeature.properties.opacity,
                             source: 'boundary-text'
@@ -582,7 +768,11 @@ class AddBoundaryGeometry extends BaseGeometry {
                             layerId: boundaryFeature.properties.layerId,
                             text: text_bottom,
                             rotation: textRotation,
+                            anchor: anchorBottom,
                             text_size: text_size,
+                            calculatedTextSize: calculatedTextSize ?? text_size,
+                            createdAtZoom: createdAtZoom,
+                            zoomCorrectionEnabled: zoomCorrectionEnabled,
                             color: boundaryFeature.properties.color,
                             opacity: boundaryFeature.properties.opacity,
                             source: 'boundary-text'
@@ -598,11 +788,37 @@ class AddBoundaryGeometry extends BaseGeometry {
     }
 
     /**
+     * Build the circles and texts of MANY boundaries in one pass.
+     *
+     * The restore path used to call the per-feature update once per boundary,
+     * each of which read the (still empty) collection and wrote back only its
+     * own children: with N boundaries only the last one's labels survived. A
+     * single build has no read at all, so there is nothing to lose.
+     *
+     * @param {Array} features - Boundary features (already carrying fresh derived sizes)
+     * @param {number} [currentZoom] - Current map zoom
+     * @returns {{circles: Array, texts: Array}} Every dependent feature, by source
+     */
+    buildDependentFeatures(features, currentZoom) {
+        const circles = [];
+        const texts = [];
+
+        for (const feature of features || []) {
+            if (!feature?.properties) continue;
+            circles.push(...this.generateBoundaryCircles(feature, currentZoom));
+            texts.push(...this.generateBoundaryTexts(feature, currentZoom));
+        }
+
+        return { circles, texts };
+    }
+
+    /**
      * Create edit handles for boundary
      * @param {Object} feature - Boundary feature
+     * @param {number} [currentZoom] - Current map zoom (omitted = no map, legacy behaviour)
      * @returns {Array} Array of handle features
      */
-    createHandles(feature) {
+    createHandles(feature, currentZoom) {
         const handles = [];
         if (!feature || !feature.properties.baseCoordinates) return handles;
 
@@ -709,7 +925,10 @@ class AddBoundaryGeometry extends BaseGeometry {
                 const anchor = this.getAnchorInstance(instances);
                 const { centerPoint: symbolPoint, localBearing } = this.getCenterAndBearing(line, totalLength, anchor.ratio);
 
-                const size = feature.properties.symbol_size || 2;
+                // Always a finite positive number (the resolver falls back to the
+                // model default), so the handles land on the symbol that is
+                // actually drawn instead of on a size nobody used.
+                const size = this.resolveSymbolSize(feature.properties, currentZoom, totalLength).effective;
                 const sizeHandlePoint = turf.destination(symbolPoint, size / 2, localBearing + 45, { units: 'kilometers' });
                 handles.push({
                     type: 'Feature',
@@ -771,9 +990,10 @@ class AddBoundaryGeometry extends BaseGeometry {
      * @param {Array} newPosition - New position [lng, lat]
      * @param {Object} feature - Feature being edited
      * @param {number} handleIndex - Index for vertex/midpoint handles
+     * @param {number} [currentZoom] - Current map zoom (omitted = no map, legacy behaviour)
      * @returns {Object} Updated properties and geometry
      */
-    updateFromHandle(handleType, newPosition, feature, handleIndex = null) {
+    updateFromHandle(handleType, newPosition, feature, handleIndex = null, currentZoom) {
         if (!newPosition || !Array.isArray(newPosition) || newPosition.length < 2 ||
             typeof newPosition[0] !== 'number' || typeof newPosition[1] !== 'number' ||
             isNaN(newPosition[0]) || isNaN(newPosition[1])) {
@@ -807,7 +1027,29 @@ class AddBoundaryGeometry extends BaseGeometry {
                 const totalLength = turf.length(line, { units: 'kilometers' });
                 const centerPoint = turf.along(line, totalLength * ratio, { units: 'kilometers' });
                 const newSize = turf.distance(centerPoint, turf.point(newPosition), { units: 'kilometers' }) * 2;
-                updatedProperties.symbol_size = Math.max(AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_SIZE_KM, newSize);
+
+                // The drag measures an EFFECTIVE size on the ground, but what the
+                // feature stores is the authored BASE: divide by the factor the
+                // model is applying at THIS zoom.
+                //
+                // Nothing writes `calculatedSymbolSize` here. It is a cache owned
+                // by the zoom pass, and writing it from the drag would be one more
+                // way a stale value reaches a feature copy; the geometry does not
+                // read it when a zoom is available anyway.
+                const { groundFactor } = this.resolveSymbolSize(feature.properties, currentZoom, totalLength);
+                const cap = maxSymbolSizeForLine(
+                    totalLength,
+                    this.getSymbolInstances(feature.properties).length,
+                    this.echelonSymbolCount(feature.properties.echelon),
+                );
+
+                // The cap is on the EFFECTIVE size, so it converts to a bound on
+                // the base by the same factor. Dragging past it is not refused,
+                // it simply stops growing, which is what the drawing does too.
+                updatedProperties.symbol_size = Math.max(
+                    AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_SIZE_KM,
+                    Math.min(newSize / groundFactor, cap / groundFactor),
+                );
                 break;
             }
 
@@ -836,7 +1078,9 @@ class AddBoundaryGeometry extends BaseGeometry {
                 const textTotalLength = turf.length(textLine, { units: 'kilometers' });
                 const textCenterPoint = turf.along(textLine, textTotalLength * textRatio, { units: 'kilometers' });
                 const newDistance = turf.distance(textCenterPoint, turf.point(newPosition), { units: 'kilometers' });
-                const symbolSize = feature.properties.symbol_size || 2;
+                const symbolSize = this.resolveSymbolSize(
+                    feature.properties, currentZoom, textTotalLength,
+                ).effective;
                 const newRatio = newDistance / symbolSize;
                 updatedProperties.text_distance_ratio = Math.max(AddBoundaryGeometry.GEOMETRY_CONSTANTS.TEXT_DISTANCE_MIN, Math.min(AddBoundaryGeometry.GEOMETRY_CONSTANTS.TEXT_DISTANCE_MAX, newRatio));
                 break;
@@ -865,7 +1109,7 @@ class AddBoundaryGeometry extends BaseGeometry {
                 return null;
         }
 
-        const updatedGeometry = this.generateBoundaryGeometry(updatedProperties);
+        const updatedGeometry = this.generateBoundaryGeometry(updatedProperties, currentZoom);
 
         return {
             properties: updatedProperties,

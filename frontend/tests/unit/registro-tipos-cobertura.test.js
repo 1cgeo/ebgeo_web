@@ -225,6 +225,10 @@ const CENSO = [
         arquivo: 'processing/algorithms/algorithm.interface.js',
         motivo: 'The type names appear in the JSDoc example of supportedGeometryTypes. Documentation, not a list.',
     },
+    {
+        arquivo: 'import_export/export-utils.js',
+        motivo: 'ZOOM_INVARIANT_SOURCES: the sources whose pixel sizes are rescaled for the export zoom. It is a list of SOURCES, not of types, and it only carries the ones that store a `createdAtZoom` and a base size; a type that has no zoom anchor has nothing to correct. It crossed the sweep threshold when the boundary joined it (its three entries are `boundarys` plus two hyphenated derived sources the vocabulary regex cannot see). A type missing here exports at the size it was authored at, which is visible in the PDF and not silent.',
+    },
 ];
 
 // ============================================================================

@@ -20,8 +20,23 @@
  *   drag handle cannot produce (it clamps at TEXT_DISTANCE_MIN 0.1) but a persisted
  *   or imported boundary can carry, and `||` turned it into 0.9, almost the default.
  *
- * FIX: both factors go through `Number.isFinite`, falling back to the shared
- * `DEFAULT_SYMBOL_SIZE` / `DEFAULT_TEXT_DISTANCE_RATIO`.
+ * FIX: the ratio goes through `Number.isFinite` and falls back to the shared
+ * `DEFAULT_TEXT_DISTANCE_RATIO`; the size goes through `resolveSymbolSize`, whose
+ * own fallback is the zoom model's `BOUNDARY_ZOOM_DEFAULTS.symbolSizeKm` (1 km).
+ *
+ * THAT DEFAULT MOVED, from 2 km to 1 km, when the boundary drawing became a
+ * function of the zoom: `resolveSymbolSize` became the ONE place that answers
+ * "how big is the echelon", and the geometry's own `DEFAULT_SYMBOL_SIZE = 2` was
+ * deleted rather than kept beside it. Two fallbacks for one value is how a
+ * boundary drew its label off one size and its symbol off another. The bug this
+ * file pins is untouched: what changed is the number the fallback lands on.
+ *
+ * TWO THINGS IN THE STUB EXIST FOR THE CAP. The same resolver bounds the size by
+ * what the LINE can carry (all the echelon gaps together may take at most half of
+ * it), so the fixture declares a single 'X' and the stub line is 100 km: the cap
+ * lands at 27.8 km, well above the sizes authored below, and these assertions
+ * keep measuring the offset formula instead of the cap. The cap has its own
+ * coverage in `tests/unit/boundary-geometry-coordenadas-e-echelon.test.js`.
  *
  * The turf stub below ENCODES its arguments, so every coordinate asserted here is a
  * readout of what the module ASKED for. That is the right instrument for this bug
@@ -37,15 +52,15 @@ vi.mock('@tools', () => ({
 const coordOf = (p) => (p && p.geometry ? p.geometry.coordinates : p);
 const pointFeature = (coords) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: coords } });
 
-// Line length 10, default instance ratio 0.5, so the symbol centre sits at x = 5 and
-// `destination` adds the requested offset to it.
-const SYMBOL_CENTER_X = 5;
+// Line length 100, default instance ratio 0.5, so the symbol centre sits at x = 50
+// and `destination` adds the requested offset to it.
+const SYMBOL_CENTER_X = 50;
 
 beforeAll(() => {
     globalThis.turf = {
         lineString: (coords) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords } }),
         point: (c) => pointFeature(c),
-        length: () => 10,
+        length: () => 100,
         along: (_line, dist) => pointFeature([dist, 0]),
         bearing: () => 90,
         destination: (p, dist, brg) => pointFeature([coordOf(p)[0] + dist, coordOf(p)[1] + brg]),
@@ -70,6 +85,8 @@ const boundary = (props = {}) => ({
         id: 'b1',
         baseCoordinates: [[0, 0], [1, 0]],
         text_top: 'CIMA',
+        // See the header: a single symbol keeps the line-length cap out of the way.
+        echelon: 'X',
         ...props,
     },
 });
@@ -92,9 +109,9 @@ describe('repro: o rótulo do limite precisa de coordenada finita e de distânci
         const [lng, lat] = texts[0].geometry.coordinates;
         expect(Number.isFinite(lng)).toBe(true);
         expect(Number.isFinite(lat)).toBe(true);
-        // Absolute anchor: DEFAULT_SYMBOL_SIZE (2) times DEFAULT_TEXT_DISTANCE_RATIO
+        // Absolute anchor: the model default (1 km) times DEFAULT_TEXT_DISTANCE_RATIO
         // (0.9). Without it, any finite garbage would satisfy the assertion above.
-        expect(lng).toBeCloseTo(SYMBOL_CENTER_X + 1.8, 10);
+        expect(lng).toBeCloseTo(SYMBOL_CENTER_X + 0.9, 10);
     });
 
     it('CONTROLE: com symbol_size definido a conta continua sendo tamanho vezes razão', () => {

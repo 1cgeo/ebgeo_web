@@ -27,11 +27,16 @@
  *      estes tres campos como descritor ansioso e resolve o modulo so quando a selecao de fato
  *      acontece (ver `registrarNoSelectionManager`).
  *
- *   3. `zoom` / `regenImagem` — o boot desenha o que ja estava no mapa. `layers/styles/*.js`
- *      chama `applyZoomCorrections` de forma SINCRONA no setup das camadas, e `layer_setup.js`
- *      regenera o PNG local de simbolo militar quando um snapshot remoto chega. Os dois entram
- *      aqui como REGISTRO ANSIOSO de uma closure: o registro custa uma funcao, o modulo so vem
- *      na primeira feicao que precisar dele.
+ *   3. `zoom` / `zoomModelo` / `regenImagem` — o boot desenha o que ja estava no mapa.
+ *      `layers/styles/*.js` chama `applyZoomCorrections` de forma SINCRONA no setup das
+ *      camadas, e `layer_setup.js` regenera o PNG local de simbolo militar quando um snapshot
+ *      remoto chega. Os dois entram aqui como REGISTRO ANSIOSO de uma closure: o registro custa
+ *      uma funcao, o modulo so vem na primeira feicao que precisar dele. `zoomModelo` e a
+ *      variante do limite: a conta dele nao cabe na tripla `size`/`calculatedSize`, entao a
+ *      tabela declara a FUNCAO PURA que a faz (`withBoundaryZoomSizes`), e o stand-in devolve
+ *      so os numeros. A geometria, que e a outra metade do que o controle de verdade refaz,
+ *      NAO pode ser sincrona aqui (ela le Turf), e por isso chega na primeira passada de zoom
+ *      depois que o modulo sobe.
  *
  * TODO ESPECIFICADOR DE `import()` E UM LITERAL DE STRING, e isso nao e estilo. O guarda de
  * peso (`tests/unit/teto-de-peso-da-pagina-do-mapa.test.js`) percorre o grafo por regex e so
@@ -44,6 +49,9 @@
 import { registerControl } from '../store/index.js';
 import { registerImageRegenerator } from '../layers/image-regen-registry.js';
 import { applyZoomCorrections as aplicarCorrecaoDeZoom } from './helpers/zoom-correction.helpers.js';
+// Folha de zero imports, como a de cima, e no MESMO chunk (core): declarar a conta do limite
+// aqui nao traz `military_tools` de volta para o payload do boot.
+import { withBoundaryZoomSizes as comTamanhosDeZoomDoLimite } from './helpers/boundary-zoom.model.js';
 import { ensureTurf } from '@utils/turf-loader.js';
 
 // ============================================================================================
@@ -59,6 +67,9 @@ import { ensureTurf } from '@utils/turf-loader.js';
  * @property {string|null} alcaDeEdicao - Fonte das alcas de edicao (`getEditHandleSource`).
  * @property {boolean} [ansiosa] - Instanciada no boot por `map_sig.js` e semeada aqui.
  * @property {Object} [zoom] - Config de `applyZoomCorrections`, quando a camada a chama no boot.
+ * @property {(props: Object, zoom: number) => Object} [zoomModelo] - Alternativa a `zoom` para a
+ *   ferramenta cuja correcao nao cabe na tripla `size`/`calculatedSize`: funcao PURA que devolve
+ *   as propriedades com os derivados daquele zoom.
  * @property {string} [regenImagem] - `properties.source` cujo PNG local ela sabe regenerar.
  * @property {string[]} [encaminhados] - Metodos que o stand-in encaminha de forma assincrona.
  * @property {() => Promise<Object>} carregar - `import()` do modulo do controle.
@@ -178,9 +189,14 @@ export const FERRAMENTAS = Object.freeze({
     boundaryControl: {
         tipoDeUi: 'boundary', classe: 'AddBoundaryControl',
         tipoDeFeicao: 'boundary', fontes: ['boundarys'], alcaDeEdicao: 'boundary-edit-handles',
-        // `layer_setup.js` redesenha circulos e rotulos de limite no boot chamando este metodo.
-        // Ele nao devolve valor, entao o stand-in pode encaminha-lo depois do `await`.
-        encaminhados: ['updateDependentFeatures'],
+        // `layers/styles/tactical.layers.js` reancora o limite ao zoom corrente de forma
+        // SINCRONA no setup das camadas, como o simbolo militar, so que com uma conta propria.
+        zoomModelo: comTamanhosDeZoomDoLimite,
+        // `layer_setup.js` redesenha circulos e rotulos de limite no boot chamando estes
+        // metodos. Nenhum devolve valor, entao o stand-in pode encaminha-los depois do `await`.
+        // O segundo e o que o restore usa: UMA reconstrucao para o mapa inteiro, porque a
+        // chamada por feicao lia N vezes a mesma colecao vazia.
+        encaminhados: ['updateDependentFeatures', 'rebuildAllDependentFeatures'],
         carregar: () => import('../military_tools/boundary_tool/add_boundary_control.js')
     },
     occupiedFrontControl: {
@@ -456,6 +472,36 @@ function criarStandIn(controlKey) {
                 });
             }
             return aplicarCorrecaoDeZoom(lista, dependencias.map.getZoom(), ferramenta.zoom);
+        };
+    }
+
+    if (ferramenta.zoomModelo) {
+        // Irmao do ramo acima: mesma chamada SINCRONA vinda do setup das camadas, mesma
+        // resposta imediata, so que pela conta propria da ferramenta.
+        //
+        // DUAS diferencas, e as duas sao decisao:
+        //
+        // 1. SEM `comTurf: false`. O opt-out de cima vale porque a conta do simbolo e
+        //    aritmetica pura sobre `size` e o controle de verdade nao tem sitio de `turf.`.
+        //    Aqui o controle de verdade refaz TAMBEM a geometria (escalao em km, vao da
+        //    linha), e cada passo disso le Turf. Pedir a ferramenta sem Turf entregaria um
+        //    controle que falha na primeira passada de zoom.
+        // 2. O stand-in devolve so os NUMEROS. Ele nao tem `geometry`, entao a geometria
+        //    fica com a que estava salva ate o modulo subir; a primeira passada de zoom
+        //    depois disso a refaz. Regenerar aqui exigiria carregar a ferramenta de forma
+        //    sincrona no boot, que e exatamente o que esta tabela existe para nao fazer.
+        standIn.applyZoomCorrections = (features) => {
+            const lista = Array.isArray(features) ? features : [];
+            if (lista.length > 0) {
+                ensureControl(controlKey).catch((erro) => {
+                    console.warn(`Falha ao carregar ${controlKey} para corrigir zoom:`, erro);
+                });
+            }
+            const zoom = dependencias.map.getZoom();
+            return lista.map((feature) => ({
+                ...feature,
+                properties: ferramenta.zoomModelo(feature.properties, zoom)
+            }));
         };
     }
 

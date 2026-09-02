@@ -589,6 +589,22 @@
     background-color: transparent;
 }
 
+/* Comando bloqueado por ESTADO (mapa travado, feição bloqueada, seta combinada): ele CONTINUA
+   clicável, porque o clique é o que carrega o motivo até a pessoa. Por isso a marcação é
+   `aria-disabled` e uma classe, nunca a propriedade `disabled` (que mata o clique) nem o
+   seletor `:disabled` acima. Irmão de `.map-context-menu-item--blocked` em `sidebar.css`. */
+.feature-menu-button--blocked {
+    color: var(--gray-400);
+    cursor: default;
+}
+
+/* Classe DOBRADA de propósito: `.feature-menu-button:hover:not(:disabled)` acima tem a mesma
+   especificidade que a forma simples, e empatar deixaria a cor de realce depender da ordem
+   das regras no arquivo. */
+.feature-menu-button.feature-menu-button--blocked:hover {
+    background-color: var(--gray-50);
+}
+
 .feature-menu-separator {
     height: 1px;
     background: #e0e0e0;
@@ -1357,6 +1373,11 @@
 
 /* Hidden buttons container */
 .attr-modern-buttons-hidden {
+    display: none;
+}
+
+/* Slider hidden by a dependent toggle (e.g. reference zoom vs zoom correction) */
+.attr-modern-slider--hidden {
     display: none;
 }
 

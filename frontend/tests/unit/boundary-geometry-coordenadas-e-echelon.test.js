@@ -19,9 +19,19 @@
  * - `generateBoundaryGeometry`: which fallback each bad input actually reaches.
  * - `createEchelonSymbol`: the line/polygon arithmetic (2 per X, 1 per I, one polygon
  *   per o) and what an unknown character does.
- * - `generateBoundaryTexts`: the finite-guarded ratio/size fallbacks and the
- *   rotation seam at bearing 0 and 180.
+ * - `generateBoundaryTexts`: the finite-guarded ratio fallback, the size fallback
+ *   that now comes from the zoom model, the cap by line length, the zoom anchor
+ *   the label carries, and the rotation seam at bearing 0 and 180 plus the
+ *   north-facing pair.
  * - `updateFromHandle` for `vertex` and `midpoint`: the asymmetric index guards.
+ *
+ * WHY THE LABEL FIXTURES CARRY AN `echelon`. The label offset is `effective size
+ * * ratio`, and the effective size is bounded by what the line can carry (all the
+ * gaps together may take at most half of it). The cap divides by the number of
+ * symbols, and a boundary with NO echelon falls back to three, which on this
+ * stub's 10 km line caps at 0.926 km. Fixtures that author 2 km therefore declare
+ * a single 'X', so that the numbers below measure the ratio and not the cap; the
+ * cap has a block of its own.
  *
  * WHAT IT DOES NOT REACH
  * - Real geodesy. `turf.destination`, `turf.along` and `turf.bearing` are planar
@@ -503,9 +513,16 @@ describe('AddBoundaryGeometry.createEchelonSymbol', () => {
 // ============================================================================
 
 describe('AddBoundaryGeometry.generateBoundaryTexts', () => {
+    // `echelon: 'X'` is not decoration: since the label offset rides the EFFECTIVE
+    // symbol size, it is bounded by the cap the line can carry, and the cap divides
+    // by the number of symbols. Without an echelon the fallback is THREE symbols,
+    // which on the stub's 10 km line caps the size at 0.926 km and would make every
+    // offset below a readout of the cap instead of of the ratio. A single 'X' caps
+    // at 2.78 km, above the 2 km these fixtures author. The cap itself is pinned in
+    // `AddBoundaryGeometry.generateBoundaryTexts: teto pelo comprimento da linha`.
     const withText = (extra = {}) => boundaryFeature({
         baseCoordinates: [[0, 0], [1, 0]],
-        text_top: 'CIMA', symbol_size: 2, ...extra,
+        text_top: 'CIMA', symbol_size: 2, echelon: 'X', ...extra,
     });
 
     it('sem texto nenhum, nada é emitido', () => {
@@ -543,7 +560,8 @@ describe('CONSERTADO: text_distance_ratio === 0 caía para 0.9 (forma falsy-zero
     // as 0.9, i.e. almost the default, with nothing reporting the substitution. The
     // fallback is now `Number.isFinite`, so only a MISSING ratio reaches the default.
     const withRatio = (ratio) => boundaryFeature({
-        baseCoordinates: [[0, 0], [1, 0]], text_top: 'CIMA', symbol_size: 2, text_distance_ratio: ratio,
+        baseCoordinates: [[0, 0], [1, 0]], text_top: 'CIMA', symbol_size: 2, echelon: 'X',
+        text_distance_ratio: ratio,
     });
 
     // The stub places the symbol centre at x = totalLength * ratio = 10 * 0.5 = 5 and
@@ -573,11 +591,16 @@ describe('CONSERTADO: text_distance_ratio === 0 caía para 0.9 (forma falsy-zero
 describe('CONSERTADO: symbol_size ausente produzia coordenada NaN, sem erro', () => {
     // `undefined * (ratio || 0.9)` is NaN, and NaN flowed straight into
     // `turf.destination` and out into the emitted feature's geometry. The size now
-    // falls back to the same DEFAULT_SYMBOL_SIZE the handles already assumed.
+    // goes through `resolveSymbolSize`, whose fallback is the zoom model's
+    // `BOUNDARY_ZOOM_DEFAULTS.symbolSizeKm` (1 km). It used to be the geometry's
+    // own DEFAULT_SYMBOL_SIZE (2 km), and that constant is GONE: two fallbacks for
+    // one value is how a boundary drew its label off one size and its symbol off
+    // another. The number below moved with it, from 1.8 to 0.9.
 
     it('CONTROLE: com symbol_size definido a coordenada é finita e vale o pedido', () => {
         const out = geom.generateBoundaryTexts(boundaryFeature({
-            baseCoordinates: [[0, 0], [1, 0]], text_top: 'CIMA', symbol_size: 2, text_distance_ratio: 1,
+            baseCoordinates: [[0, 0], [1, 0]], text_top: 'CIMA', symbol_size: 2, echelon: 'X',
+            text_distance_ratio: 1,
         }));
         expect(Number.isFinite(out[0].geometry.coordinates[0])).toBe(true);
         expect(out[0].geometry.coordinates[0]).toBe(7);   // centre 5 + offset 2
@@ -585,18 +608,18 @@ describe('CONSERTADO: symbol_size ausente produzia coordenada NaN, sem erro', ()
 
     it('emite coordenada finita sem symbol_size (antes emitia NaN)', () => {
         const out = geom.generateBoundaryTexts(boundaryFeature({
-            baseCoordinates: [[0, 0], [1, 0]], text_top: 'CIMA',
+            baseCoordinates: [[0, 0], [1, 0]], text_top: 'CIMA', echelon: 'X',
         }));
         expect(out.length).toBe(1);
         expect(Number.isFinite(out[0].geometry.coordinates[0])).toBe(true);
-        // Absolute anchor: DEFAULT_SYMBOL_SIZE 2 times the default ratio 0.9.
-        expect(out[0].geometry.coordinates[0]).toBeCloseTo(5 + 1.8, 10);
+        // Absolute anchor: the model default of 1 km times the default ratio 0.9.
+        expect(out[0].geometry.coordinates[0]).toBeCloseTo(5 + 0.9, 10);
     });
 
     it('symbol_size não-finito também cai no padrão', () => {
         for (const bad of [NaN, Infinity, '2', null]) {
             const out = geom.generateBoundaryTexts(boundaryFeature({
-                baseCoordinates: [[0, 0], [1, 0]], text_top: 'CIMA', symbol_size: bad,
+                baseCoordinates: [[0, 0], [1, 0]], text_top: 'CIMA', echelon: 'X', symbol_size: bad,
             }));
             expect(out.length).toBe(1);
             expect(Number.isFinite(out[0].geometry.coordinates[0])).toBe(true);
@@ -604,17 +627,106 @@ describe('CONSERTADO: symbol_size ausente produzia coordenada NaN, sem erro', ()
     });
 });
 
+describe('AddBoundaryGeometry.generateBoundaryTexts: teto pelo comprimento da linha', () => {
+    // The reason every label fixture above carries an `echelon`. The offset is
+    // `effective * ratio`, and `effective` is bounded by what the line can carry:
+    // gaps for all the instances together may take at most half of it, and one
+    // symbol costs `1.5 * 1.2` km of gap per km of size.
+    const SYMBOL_CENTER_X = 5;   // stub: length 10, single instance at ratio 0.5
+    const offsetOf = (props) => geom.generateBoundaryTexts(boundaryFeature({
+        baseCoordinates: [[0, 0], [1, 0]], text_top: 'CIMA', text_distance_ratio: 1, ...props,
+    }))[0].geometry.coordinates[0] - SYMBOL_CENTER_X;
+
+    it('um símbolo pequeno passa incólume pelo teto', () => {
+        expect(offsetOf({ symbol_size: 2, echelon: 'X' })).toBeCloseTo(2, 10);
+    });
+
+    it('um símbolo grande demais para a linha satura no teto', () => {
+        // 10 km, uma instância, um 'X': 10 * 0.5 / (1 * 1 * 1.8).
+        expect(offsetOf({ symbol_size: 40, echelon: 'X' })).toBeCloseTo(10 * 0.5 / 1.8, 10);
+    });
+
+    it('o teto cai com o número de símbolos do escalão e com o de instâncias', () => {
+        expect(offsetOf({ symbol_size: 40, echelon: 'XXX' })).toBeCloseTo(10 * 0.5 / (3 * 1.8), 10);
+        expect(offsetOf({
+            symbol_size: 40, echelon: 'X',
+            symbol_instances: [{ ratio: 0.5 }, { ratio: 0.9 }],
+        })).toBeCloseTo(10 * 0.5 / (2 * 1.8), 10);
+    });
+
+    it('sem escalão declarado o teto assume TRÊS símbolos, como o vão da linha', () => {
+        // `echelonSymbolCount` mirrors the fallback `createLineWithGaps` has always
+        // used, so the gap the line reserves and the cap agree on the symbol count.
+        expect(offsetOf({ symbol_size: 40 })).toBeCloseTo(10 * 0.5 / (3 * 1.8), 10);
+    });
+});
+
+describe('AddBoundaryGeometry.generateBoundaryTexts: eixo do zoom', () => {
+    // The two new properties the label carries, and the one it derives.
+    const anchored = (extra = {}) => boundaryFeature({
+        baseCoordinates: [[0, 0], [1, 0]], text_top: 'CIMA', text_bottom: 'BAIXO',
+        symbol_size: 2, echelon: 'X', text_size: 35, ...extra,
+    });
+
+    it('carrega o tamanho derivado do pai para os dois rótulos', () => {
+        const out = geom.generateBoundaryTexts(anchored({ calculatedTextSize: 70 }));
+        expect(out).toHaveLength(2);
+        expect(out.map((f) => f.properties.calculatedTextSize)).toEqual([70, 70]);
+        // The authored base travels along so the PDF export can rescale it.
+        expect(out.map((f) => f.properties.text_size)).toEqual([35, 35]);
+    });
+
+    it('cai no text_size quando o pai não tem derivado (legado)', () => {
+        expect(geom.generateBoundaryTexts(anchored())[0].properties.calculatedTextSize).toBe(35);
+    });
+
+    it('propaga a âncora, e a deixa indefinida no legado', () => {
+        const anchoredOut = geom.generateBoundaryTexts(anchored({
+            createdAtZoom: 12.5, zoomCorrectionEnabled: false,
+        }));
+        expect(anchoredOut[0].properties.createdAtZoom).toBe(12.5);
+        expect(anchoredOut[0].properties.zoomCorrectionEnabled).toBe(false);
+
+        // The export skips a feature with no `createdAtZoom`, which is what keeps a
+        // legacy boundary rendering exactly as it did.
+        const legacy = geom.generateBoundaryTexts(anchored());
+        expect(legacy[0].properties.createdAtZoom).toBeUndefined();
+        expect(legacy[0].properties.zoomCorrectionEnabled).toBeUndefined();
+    });
+});
+
 describe('AddBoundaryGeometry.generateBoundaryTexts: costura da rotação', () => {
-    const rotationAt = (bearing) => {
+    // The branch itself moved to `computeTextRotation` (the zoom model), and this
+    // block keeps measuring it THROUGH the geometry, which is the only place that
+    // decides whether the local bearing reaches it at all. The unit-level table of
+    // the function lives in `tests/unit/boundary-zoom-model.test.js`.
+    const rotationAt = (bearing, extra = {}) => {
         turfState.bearing = bearing;
         const out = geom.generateBoundaryTexts(boundaryFeature({
-            baseCoordinates: [[0, 0], [1, 0]], text_top: 'CIMA', symbol_size: 2,
+            baseCoordinates: [[0, 0], [1, 0]], text_top: 'CIMA', symbol_size: 2, ...extra,
         }));
         expect(out.length).toBe(1);
         return out[0].properties.rotation;
     };
 
     afterAll(() => { turfState.bearing = 90; });
+
+    it('o par do norte: `text_north_facing` zera a rotação em qualquer azimute', () => {
+        // With `text-rotation-alignment: 'map'` on the layer, 0 IS map north, so
+        // the label reads upright no matter how the line runs or the camera turns.
+        for (const bearing of [0, 45, 90, 137, 180, 270, -12]) {
+            expect(rotationAt(bearing, { text_north_facing: true })).toBe(0);
+        }
+    });
+
+    it('só o literal `true` liga o norte; o resto continua perpendicular', () => {
+        // Bearing 45 and NOT 90: the legacy branch answers 0 for a bearing of 90,
+        // the same as north-facing, so that case cannot tell the two apart.
+        expect(rotationAt(45, { text_north_facing: true })).toBe(0);
+        expect(rotationAt(45, { text_north_facing: 'sim' })).toBe(-45);
+        expect(rotationAt(45, { text_north_facing: 1 })).toBe(-45);
+        expect(rotationAt(45, {})).toBe(-45);
+    });
 
     it('o ramo `<= 0 || >= 180` soma 90; o do meio subtrai 90', () => {
         expect(rotationAt(0)).toBe(90);

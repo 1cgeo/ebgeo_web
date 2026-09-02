@@ -4,6 +4,7 @@
  * @fileoverview Tactical layer styles (boundary, occupied front, LOS, visibility).
  */
 
+import { getControl } from '../../store';
 import {
     setOrCreateSource,
     ensureSource,
@@ -11,6 +12,11 @@ import {
     VISIBLE_FILTER,
     POINT_TYPE_FILTER,
 } from './layer.helpers.js';
+import {
+    buildBoundaryLineWidthExpression,
+    buildBoundaryTextSizeExpression,
+    buildBoundaryCircleStrokeExpression,
+} from '@tools/helpers/boundary-zoom.model.js';
 
 /**
  * Sets up boundary layers on the map.
@@ -20,7 +26,18 @@ import {
 export function setupBoundaryLayers(features, mapInstance) {
     if (!features.boundarys) return;
 
-    setOrCreateSource(mapInstance, 'boundarys', features.boundarys);
+    // Re-anchor to the CURRENT zoom before the source is written, mirroring
+    // setupMilitarySymbolsLayers: the stored `calculatedLineWidth` was computed at
+    // whatever zoom the map was last at, and a boundary pinned to the screen also
+    // has its geometry rebuilt, because its echelon size in km follows the zoom.
+    // (The stand-in of `tool-registry.js` answers with the numbers only; the
+    // geometry catches up on the first zoom event after the module loads.)
+    const boundaryControl = getControl('AddBoundaryControl');
+    const correctedBoundaries = boundaryControl
+        ? boundaryControl.applyZoomCorrections(features.boundarys)
+        : features.boundarys;
+
+    setOrCreateSource(mapInstance, 'boundarys', correctedBoundaries);
     ensureSource(mapInstance, 'boundary-circles');
     ensureSource(mapInstance, 'boundary-texts');
     ensureSource(mapInstance, 'boundary-feedback');
@@ -47,7 +64,7 @@ export function setupBoundaryLayers(features, mapInstance) {
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
             'line-color': ['get', 'color'],
-            'line-width': ['get', 'lineWidth'],
+            'line-width': buildBoundaryLineWidthExpression(),
             'line-opacity': ['get', 'opacity'],
         },
         filter: VISIBLE_FILTER,
@@ -70,7 +87,7 @@ export function setupBoundaryLayers(features, mapInstance) {
         source: 'boundary-circles',
         paint: {
             'line-color': ['get', 'color'],
-            'line-width': 2,
+            'line-width': buildBoundaryCircleStrokeExpression(),
             'line-opacity': ['get', 'opacity'],
         },
         filter: VISIBLE_FILTER,
@@ -82,8 +99,20 @@ export function setupBoundaryLayers(features, mapInstance) {
         source: 'boundary-texts',
         layout: {
             'text-field': ['get', 'text'],
-            'text-size': ['coalesce', ['get', 'text_size'], 14],
+            'text-size': buildBoundaryTextSizeExpression(),
             'text-rotate': ['get', 'rotation'],
+            // `anchor` is 'center' for a label glued to the line and, for one
+            // pinned to north, the glyph-box edge that faces the line: the
+            // geometry picks it from the side the label sits on, so the two
+            // labels of a diagonal boundary cannot cross each other.
+            'text-anchor': ['coalesce', ['get', 'anchor'], 'center'],
+            // `rotation` is a GROUND bearing (0 = map north, bearing +- 90 = glued
+            // to the line). Without this the placement `point` default resolves to
+            // 'viewport' and the label drifts off the line by the camera bearing.
+            'text-rotation-alignment': 'map',
+            // Required companion: with rotation aligned to the map, a pitched
+            // camera would otherwise lay the glyphs flat on the ground.
+            'text-pitch-alignment': 'viewport',
             'text-allow-overlap': true,
             'text-ignore-placement': true,
             'symbol-spacing': 1,

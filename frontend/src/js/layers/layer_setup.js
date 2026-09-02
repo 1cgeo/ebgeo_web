@@ -385,16 +385,27 @@ async function restoreMeasurements(features) {
  */
 function restoreBoundaryDependentFeatures(features, mapInstance) {
     try {
-        const boundaryControl = getControl('AddBoundaryControl');
+        // THE CLEARING IS UNCONDITIONAL AND SYNCHRONOUS, and it is a separate step from the
+        // rebuild. It used to sit inside an `if (!boundaryControl)` branch that is DEAD:
+        // `getControl('AddBoundaryControl')` answers with the tool-registry stand-in, which
+        // always exists. So switching maps onto the same basemap left the previous map's
+        // circles and labels on screen until an asynchronous rebuild landed - and on a map
+        // with no boundary at all, nothing ever landed.
+        //
+        // These two sources keep their raw `setData` on purpose: they are BLOCKED from the
+        // GeoJSON dispatcher (their derived features carry a top-level id and no
+        // `properties.id`), which is written out in the fileoverview of
+        // `military_tools/boundary_tool/add_boundary_control.js`.
         const emptyCollection = { type: 'FeatureCollection', features: [] };
-
-        // Clear existing circles and texts before restoring (fixes persistence bug on map switch)
         mapInstance.getSource('boundary-circles')?.setData(emptyCollection);
         mapInstance.getSource('boundary-texts')?.setData(emptyCollection);
 
-        if (!boundaryControl || !features.boundarys?.length) return;
+        const boundaryControl = getControl('AddBoundaryControl');
+        if (!boundaryControl) return;
 
-        features.boundarys.forEach((boundaryFeature, index) => {
+        const validBoundaries = [];
+
+        (features.boundarys || []).forEach((boundaryFeature, index) => {
             try {
                 if (!boundaryFeature?.properties) {
                     console.warn(`Invalid boundary feature ${index}:`, boundaryFeature);
@@ -432,12 +443,26 @@ function restoreBoundaryDependentFeatures(features, mapInstance) {
                 }
 
                 boundaryFeature.properties.baseCoordinates = validCoords;
-                boundaryControl.updateDependentFeatures(boundaryFeature);
+                validBoundaries.push(boundaryFeature);
 
             } catch (featureError) {
                 console.error(`Error processing boundary ${index}:`, featureError);
             }
         });
+
+        // ONE rebuild for the whole map: the per-boundary call this used to make read the
+        // same (empty) collection N times without awaiting, so only the last boundary's
+        // labels and circles survived. That is why a reloaded map showed the labels of a
+        // single boundary until something else touched the others.
+        //
+        // AND ONLY WHEN THERE IS SOMETHING TO REBUILD. `rebuildAllDependentFeatures` is one of
+        // the stand-in's FORWARDED methods (`tool_manager/tool-registry.js`), so calling it
+        // awaits `ensureControl`, which downloads the boundary chunk AND the 619 kB of Turf.
+        // Called with an empty list it did that on EVERY boot, of every map, including the
+        // ones that have never had a boundary - undoing the lazy-load decision of 2026-08-25.
+        // An empty list needs the clearing above and nothing else.
+        if (validBoundaries.length === 0) return;
+        boundaryControl.rebuildAllDependentFeatures(validBoundaries);
 
     } catch (error) {
         console.error('Error restoring boundary dependent features:', error);

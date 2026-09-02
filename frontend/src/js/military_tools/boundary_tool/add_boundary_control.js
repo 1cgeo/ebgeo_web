@@ -1,10 +1,21 @@
 // Path: js/military_tools/boundary_tool/add_boundary_control.js
 
-import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
-import { IDUtils, deepClone, deepEqual } from '../../utilities';
+import {
+    addFeature,
+    updateFeature,
+    removeFeature,
+    getActiveLayerIdSync,
+    getStateManager,
+} from '../../store';
+import { IDUtils, deepClone, deepEqual, createSerialQueue } from '../../utilities';
 import { getPointerPosition, isTouchDevice } from '../../utilities/pointer-utils';
 import { addBoundaryAttributesToPanel } from './boundary_attributes_panel.js';
 import AddBoundaryGeometry from './add_boundary_geometry.js';
+import {
+    computeBoundaryZoomSizes,
+    withBoundaryZoomSizes,
+    isScreenAnchored,
+} from '@tools/helpers/boundary-zoom.model.js';
 import { BaseControl } from '../../tool_manager';
 import { DrawingFinishButton } from '../../draw_tools/drawing-touch-helpers';
 import { getSnappingService } from '../../snapping/snapping.service.js';
@@ -36,7 +47,9 @@ import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-
  *   `promoteId: 'id'` would resolve every key to null and leave the source permanently
  *   non-diffable. Enabling them means writing `properties.id` in `add_boundary_geometry.js` first,
  *   which is a separate change. The declaration side of this is recorded in
- *   `layers/styles/layer.helpers.js`.
+ *   `layers/styles/layer.helpers.js`. Because they keep the raw
+ *   `getData -> mutate -> setData` cycle, THEY are what `this._sourceQueue` serializes; see the
+ *   constructor.
  * @param {Object} map - MapLibre map instance
  * @returns {Object} dispatcher owning the `boundarys` source
  */
@@ -68,8 +81,26 @@ class AddBoundaryControl extends BaseControl {
 
         this.geometry = new AddBoundaryGeometry();
 
+        // Every read-modify-write of `boundary-texts` and `boundary-circles` goes
+        // through this queue. `getData()` is a round trip to the worker, so two
+        // overlapping cycles both read the pre-mutation clone and the second
+        // `setData` silently discards the first one's work. The `boundarys` source
+        // needs no help here (the dispatcher above coalesces its writes into a
+        // diff), but every method that touches BOTH runs inside a task anyway, so
+        // the pair stays consistent with the parent.
+        // Public methods below are the serialized shells; the `_xxxUnlocked` bodies
+        // are what runs inside a task, and they call only each other (calling a
+        // shell from inside a task waits for the task itself: it deadlocks).
+        this._sourceQueue = createSerialQueue();
+
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
+        this.zoomRafId = null;
+        // `pendingZoomUpdate` is held for the whole (async) pass so the frames of a
+        // zoom gesture cannot stack; `missedZoomUpdate` records the frames that
+        // arrive meanwhile, so the last zoom of the gesture is replayed, not lost.
+        this.pendingZoomUpdate = false;
+        this.missedZoomUpdate = false;
         this.lastPreviewPosition = null;
         this.lastPreviewPoints = null;
         this.geometryDebounceTimer = null;
@@ -100,6 +131,19 @@ class AddBoundaryControl extends BaseControl {
         text_top: '',
         text_bottom: '',
         text_distance_ratio: 0.9,
+        // Zoom anchor: ONE switch for the whole feature. On (the default), the
+        // pixel-sized parts (line, labels, circle stroke) scale 2x per zoom level
+        // from `createdAtZoom` and everything stays glued to the TERRAIN; off,
+        // they stay put and the echelon (km) shrinks instead, so everything stays
+        // glued to the SCREEN. See tool_manager/helpers/boundary-zoom.model.js.
+        createdAtZoom: 0,
+        zoomCorrectionEnabled: true,
+        calculatedLineWidth: 4,
+        calculatedTextSize: 35,
+        calculatedStrokeWidth: 2,
+        calculatedSymbolSize: 1,
+        // Label axis: pin the glyphs to map north instead of to the line.
+        text_north_facing: false,
         nome: '',
         descricao: '',
         visivel: true,
@@ -130,9 +174,17 @@ class AddBoundaryControl extends BaseControl {
 
     onAdd = (map) => {
         this.map = map;
+        this.setupZoomListener();
     }
 
     onRemove = () => {
+        this.map?.off('zoom', this.handleZoomChange);
+        if (this.zoomRafId) {
+            cancelAnimationFrame(this.zoomRafId);
+            this.zoomRafId = null;
+        }
+        this.pendingZoomUpdate = false;
+        this.missedZoomUpdate = false;
         this.deactivate();
         this.removeAllEventListeners();
         // Releases the queue, its settle timers and the two map listeners the dispatcher opens per
@@ -223,16 +275,23 @@ class AddBoundaryControl extends BaseControl {
             coord[1] + offset.dy
         ]);
 
+        // THE DERIVED PIXEL SIZES ARE RECOMPUTED, not carried over. `generate` resolves the
+        // echelon (km on the ground) from the zoom it is handed, so the GEOMETRY was already
+        // right; the paint properties are not geometry. `calculatedLineWidth`,
+        // `calculatedTextSize` and `calculatedStrokeWidth` are what the layers read, and the
+        // copy carries the ones cached at the zoom it was COPIED at: a boundary copied at z18
+        // and pasted at z12 drew its line at the z18 width until the next zoom event happened
+        // to rewrite the source. `withBoundaryZoomSizes` is a pure recompute from the authored
+        // sizes, so it is idempotent and cannot invent a size the zoom pass would not.
+        const properties = withBoundaryZoomSizes(
+            { ...feature.properties, baseCoordinates: newCoords },
+            this.getCurrentZoom(),
+        );
+
         return {
             ...feature,
-            properties: {
-                ...feature.properties,
-                baseCoordinates: newCoords
-            },
-            geometry: this.geometry.generate({
-                ...feature.properties,
-                baseCoordinates: newCoords
-            })
+            properties,
+            geometry: this.geometry.generate(properties, this.getCurrentZoom())
         };
     }
 
@@ -258,16 +317,19 @@ class AddBoundaryControl extends BaseControl {
             coord[1] + dy
         ]);
 
+        // Same recompute as `prepareForPaste`, and for the same reason: the move handler hands
+        // back its OWN copy of the feature, derived values and all. A drag does not change the
+        // zoom, so this is normally a no-op; it stops being one when the copy the handler holds
+        // predates a zoom pass, which is the state the paste bug was the loud version of.
+        const properties = withBoundaryZoomSizes(
+            { ...feature.properties, baseCoordinates: newBaseCoords },
+            this.getCurrentZoom(),
+        );
+
         const updatedFeature = {
             ...feature,
-            properties: {
-                ...feature.properties,
-                baseCoordinates: newBaseCoords
-            },
-            geometry: this.geometry.generate({
-                ...feature.properties,
-                baseCoordinates: newBaseCoords
-            })
+            properties,
+            geometry: this.geometry.generate(properties, this.getCurrentZoom())
         };
 
         return updatedFeature;
@@ -492,12 +554,17 @@ class AddBoundaryControl extends BaseControl {
                     const currentZoom = this.map.getZoom();
                     const previewSize = this.calculateSymbolSizeForZoom(currentZoom);
 
-                    const previewProperties = {
+                    // Derive the sizes instead of inheriting the defaults': the
+                    // shared DEFAULT_PROPERTIES carries a `calculatedSymbolSize`
+                    // belonging to another size, and the preview overrides only
+                    // the base.
+                    const previewProperties = withBoundaryZoomSizes({
                         ...AddBoundaryControl.DEFAULT_PROPERTIES,
                         symbol_size: previewSize,
+                        createdAtZoom: Math.round(currentZoom * 10) / 10,
                         baseCoordinates: previewPoints
-                    };
-                    const previewGeometry = this.geometry.generate(previewProperties);
+                    }, currentZoom);
+                    const previewGeometry = this.geometry.generate(previewProperties, currentZoom);
                     this.showPreview(previewGeometry);
                 }, 8);
             }
@@ -552,12 +619,17 @@ class AddBoundaryControl extends BaseControl {
             symbol_instances: deepClone(AddBoundaryControl.DEFAULT_PROPERTIES.symbol_instances),
             symbol_size: adaptiveSymbolSize,
             baseCoordinates: [...this.drawPoints],
+            createdAtZoom: Math.round(currentZoom * 10) / 10,
             id: featureId,
             nome: featureName,
             layerId: getActiveLayerIdSync(),
         };
 
-        const geometry = this.geometry.generate(properties);
+        // At creation the factor is 1 by construction; computing it anyway keeps
+        // the derived properties written in one place only.
+        Object.assign(properties, computeBoundaryZoomSizes(properties, currentZoom));
+
+        const geometry = this.geometry.generate(properties, currentZoom);
 
         if (!geometry || !geometry.coordinates) {
             console.error('Failed to generate valid geometry for boundary');
@@ -616,7 +688,7 @@ class AddBoundaryControl extends BaseControl {
     }
 
     createEditHandles = (feature) => {
-        const handles = this.geometry.createHandles(feature);
+        const handles = this.geometry.createHandles(feature, this.getCurrentZoom());
         if (!handles || handles.length === 0) return;
 
         this.map.getSource('boundary-feedback').setData({
@@ -755,7 +827,8 @@ class AddBoundaryControl extends BaseControl {
                 this.activeHandleType,
                 this.lastPreviewPosition,
                 selectedFeature,
-                this.activeHandleIndex
+                this.activeHandleIndex,
+                this.getCurrentZoom()
             );
 
             if (result) {
@@ -780,6 +853,10 @@ class AddBoundaryControl extends BaseControl {
         this.activeHandleIndex = null;
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
+
+        // The zoom pass steps aside while a handle is being dragged; replay the
+        // zoom it skipped now that the sources are ours again.
+        this.replayMissedZoomUpdate();
     }
 
     updateBoundaryPreview = (newPosition) => {
@@ -797,7 +874,8 @@ class AddBoundaryControl extends BaseControl {
                     currentHandleType,
                     newPosition,
                     currentFeature,
-                    currentHandleIndex
+                    currentHandleIndex,
+                    this.getCurrentZoom()
                 );
 
                 if (result) {
@@ -815,7 +893,7 @@ class AddBoundaryControl extends BaseControl {
         });
 
         const tempFeature = { properties, geometry };
-        const handles = this.geometry.createHandles(tempFeature);
+        const handles = this.geometry.createHandles(tempFeature, this.getCurrentZoom());
         this.map.getSource('boundary-edit-handles').setData({
             type: 'FeatureCollection',
             features: handles
@@ -896,7 +974,7 @@ class AddBoundaryControl extends BaseControl {
         const updatedFeature = {
             ...selectedFeature,
             properties: updatedProperties,
-            geometry: this.geometry.generate(updatedProperties)
+            geometry: this.geometry.generate(updatedProperties, this.getCurrentZoom())
         };
 
         // Apply updates
@@ -967,46 +1045,420 @@ class AddBoundaryControl extends BaseControl {
 
     // ===== DEPENDENT FEATURES MANAGEMENT =====
 
-    updateDependentFeatures = async (boundaryFeature) => {
-        await this.updateBoundaryCircles(boundaryFeature);
-        await this.updateBoundaryTexts(boundaryFeature);
+    /**
+     * Rebuild the circles and labels of ONE boundary. Serialized shell.
+     * @param {Object} boundaryFeature - Boundary feature
+     * @returns {Promise<void>} Resolves once both sources are written
+     */
+    updateDependentFeatures = async (boundaryFeature) =>
+        this._sourceQueue(() => this._updateDependentFeaturesUnlocked(boundaryFeature))
+
+    /**
+     * Rebuild the dependents of every boundary among the moved features.
+     * Serialized as ONE task: N separate tasks would be correct but would let a
+     * zoom pass interleave halfway through a multi-selection drag.
+     * @param {Array} movedFeatures - Features the move handler produced
+     * @returns {Promise<void>} Resolves once every boundary has been rebuilt
+     */
+    updateDependentFeaturesFromMovedFeatures = async (movedFeatures) => {
+        await this._sourceQueue(async () => {
+            for (const feature of movedFeatures) {
+                if (feature.properties.source === 'boundary') {
+                    await this._updateDependentFeaturesUnlocked(feature);
+                }
+            }
+        });
+
+        // A drag makes the zoom pass stand down; replay what it skipped.
+        this.replayMissedZoomUpdate();
     }
 
-    updateDependentFeaturesFromMovedFeatures = async (movedFeatures) => {
-        for (const feature of movedFeatures) {
-            if (feature.properties.source === 'boundary') {
-                await this.updateDependentFeatures(feature);
-            }
+    /**
+     * Replace the dependents of ALL boundaries in one write per source.
+     *
+     * The restore path (`restoreBoundaryDependentFeatures`) used to call the
+     * per-feature update once per boundary WITHOUT awaiting: every call read the
+     * same empty collection and wrote back only its own children, so on a map
+     * with N boundaries the labels of N-1 of them never appeared until something
+     * else touched the feature. Building the whole set at once has no read to
+     * lose.
+     *
+     * @param {Array} boundaryFeatures - Every boundary of the current map
+     * @returns {Promise<void>} Resolves once both sources are written
+     */
+    rebuildAllDependentFeatures = async (boundaryFeatures) =>
+        this._sourceQueue(() => this._rebuildAllDependentFeaturesUnlocked(boundaryFeatures))
+
+    /**
+     * @param {Object} boundaryFeature - Boundary feature
+     * @returns {Promise<void>} Resolves once both sources are written
+     * @private
+     */
+    _updateDependentFeaturesUnlocked = async (boundaryFeature) => {
+        await this._updateBoundaryCirclesUnlocked(boundaryFeature);
+        await this._updateBoundaryTextsUnlocked(boundaryFeature);
+    }
+
+    /**
+     * @param {Array} boundaryFeatures - Every boundary of the current map
+     * @returns {Promise<void>} Resolves once both sources are written
+     * @private
+     */
+    _rebuildAllDependentFeaturesUnlocked = async (boundaryFeatures) => {
+        try {
+            const circleSource = this.map?.getSource('boundary-circles');
+            const textSource = this.map?.getSource('boundary-texts');
+            if (!circleSource && !textSource) return;
+
+            const zoom = this.getCurrentZoom();
+            const prepared = (boundaryFeatures || []).map(feature => this.withZoomSizes(feature));
+            const { circles, texts } = this.geometry.buildDependentFeatures(prepared, zoom);
+
+            circleSource?.setData({ type: 'FeatureCollection', features: circles });
+            textSource?.setData({ type: 'FeatureCollection', features: texts });
+        } catch (error) {
+            // Called from a rAF callback that nobody awaits: a rejection here
+            // would be an unhandled one and the restore would fail in silence.
+            console.error('Error rebuilding boundary dependent features:', error);
         }
     }
 
-    updateBoundaryCircles = async (boundaryFeature) => {
+    /**
+     * @param {Object} boundaryFeature - Boundary feature
+     * @returns {Promise<void>} Resolves once the circle source is written
+     * @private
+     */
+    _updateBoundaryCirclesUnlocked = async (boundaryFeature) => {
         const circleData = await this.map.getSource('boundary-circles').getData();
         const featureId = boundaryFeature.properties.id;
 
         circleData.features = circleData.features.filter(f => f.properties.parent !== featureId);
 
-        const circles = this.geometry.generateBoundaryCircles(boundaryFeature);
+        const circles = this.geometry.generateBoundaryCircles(
+            this.withZoomSizes(boundaryFeature), this.getCurrentZoom(),
+        );
         circleData.features.push(...circles);
 
         this.map.getSource('boundary-circles').setData(circleData);
     }
 
-    updateBoundaryTexts = async (boundaryFeature) => {
+    /**
+     * @param {Object} boundaryFeature - Boundary feature
+     * @returns {Promise<void>} Resolves once the text source is written
+     * @private
+     */
+    _updateBoundaryTextsUnlocked = async (boundaryFeature) => {
         const textData = await this.map.getSource('boundary-texts').getData();
         const featureId = boundaryFeature.properties.id;
 
         textData.features = textData.features.filter(f => f.properties.parent !== featureId);
 
-        const texts = this.geometry.generateBoundaryTexts(boundaryFeature);
+        const texts = this.geometry.generateBoundaryTexts(
+            this.withZoomSizes(boundaryFeature), this.getCurrentZoom(),
+        );
         textData.features.push(...texts);
 
         this.map.getSource('boundary-texts').setData(textData);
     }
 
+    // ===== ZOOM CORRECTION =====
+
+    setupZoomListener = () => {
+        this.map.on('zoom', this.handleZoomChange);
+    }
+
+    handleZoomChange = () => {
+        // `pendingZoomUpdate` stays true for the WHOLE pass, not just until it
+        // starts: the pass is async (three `getData` reads, and a geometry rebuild
+        // for the screen-pinned boundaries), so clearing it early would let every
+        // frame of a zoom gesture stack another pass, and the one that started at
+        // the OLD zoom could finish last and write stale sizes.
+        if (this.pendingZoomUpdate) {
+            this.missedZoomUpdate = true;
+            return;
+        }
+
+        this.pendingZoomUpdate = true;
+        this.zoomRafId = requestAnimationFrame(this.updateAllBoundaryZoomSizes);
+    }
+
+    /**
+     * Run the zoom pass that a drag made stand down, if there was one.
+     * Called at the end of both drag paths (edit handle, feature move).
+     * @returns {void}
+     */
+    replayMissedZoomUpdate = () => {
+        if (this.missedZoomUpdate && this.map) {
+            this.handleZoomChange();
+        }
+    }
+
+    /**
+     * Current map zoom, or NaN when there is no map. The model reads a non-finite
+     * zoom as "no correction", which is the legacy render.
+     * @returns {number} Zoom level
+     */
+    getCurrentZoom = () => (this.map ? this.map.getZoom() : NaN)
+
+    /**
+     * Non-mutating copy of a boundary feature with its derived sizes refreshed.
+     * The restore path (`restoreBoundaryDependentFeatures`) hands us the raw
+     * stored feature, whose derived values were computed at another zoom.
+     * @param {Object} boundaryFeature - Boundary feature
+     * @returns {Object} Feature copy carrying fresh derived sizes
+     */
+    withZoomSizes = (boundaryFeature) => ({
+        ...boundaryFeature,
+        properties: withBoundaryZoomSizes(boundaryFeature.properties, this.getCurrentZoom()),
+    })
+
+    /**
+     * Bulk refresh used by `setupBoundaryLayers` before the source is written and
+     * by the PDF/Garmin export for its own zoom.
+     *
+     * EVERY boundary gets its GEOMETRY rebuilt, not only the screen-pinned ones.
+     * For a pinned one the echelon size in kilometres is a function of the zoom,
+     * so a map reopened at another zoom would draw it at the wrong scale; for the
+     * others the size is zoom-invariant but still bounded by the length of the
+     * line, and the stored geometry may predate that cap (or any other change to
+     * the drawing). It costs one rebuild per load, which is nothing next to a
+     * boundary that draws differently from how it will draw after the next zoom.
+     *
+     * The stand-in `tool-registry.js` registers before this control loads answers
+     * the same call with the NUMBERS only (it has no geometry and no Turf); the
+     * geometry catches up on the first zoom event after the real control arrives.
+     *
+     * @param {Array} features - Boundary features
+     * @param {number} [zoom] - Target zoom (defaults to the current map zoom)
+     * @returns {Array} New array with derived sizes (and geometry) for that zoom
+     */
+    applyZoomCorrections = (features, zoom = this.getCurrentZoom()) => {
+        if (!Array.isArray(features)) return [];
+
+        return features.map(feature => {
+            const properties = withBoundaryZoomSizes(feature.properties, zoom);
+            return { ...feature, properties, geometry: this.geometry.generate(properties, zoom) };
+        });
+    }
+
+    /**
+     * Whether a feature drag owns the screen right now.
+     *
+     * READ FROM THE STATE MANAGER, which is where the flag actually lives
+     * (`ui.isDragging`, written by `tool_manager/move_handler.js` and by
+     * `ui_manager.js`). The two call sites used to read `this.uiManager`, and this
+     * control has no such field: nothing ever assigns it, so both guards were dead
+     * and a zoom pass (or a handle-drag write) could land in the middle of a move.
+     * `selectionManager.uiManager` would work too, but it is set from `map_sig.js`
+     * after construction, so it is one more thing that can be absent; the state
+     * manager is the single source both writers agree on.
+     *
+     * Best-effort, like the sibling in `managers/selection-highlight.manager.js`: no
+     * services container means no drag either.
+     * @returns {boolean} True while a drag is in progress
+     * @private
+     */
+    _isDragging() {
+        try {
+            return getStateManager().getUnsafe('ui.isDragging') || false;
+        } catch (_e) {
+            return false;
+        }
+    }
+
+    /**
+     * Rewrite the derived sizes of every boundary and of its dependent texts and
+     * circles for the current zoom. Runs at most once per animation frame while
+     * zooming; the sources are only written when something actually changed, so a
+     * map with no anchored boundary costs nothing but the reads.
+     * @returns {Promise<void>} Resolves once the pass has finished
+     */
+    updateAllBoundaryZoomSizes = async () => {
+        this.zoomRafId = null;
+
+        // A drag OWNS the three sources for its duration (the move handler and
+        // the handle drag both write them from outside this pass), and a pass
+        // landing mid-drag would rewrite what the drag has not committed yet.
+        // Stand down and leave the flag up: the end of the drag replays it.
+        if (this.isDraggingHandle || this._isDragging()) {
+            this.pendingZoomUpdate = false;
+            this.missedZoomUpdate = true;
+            return;
+        }
+
+        // Frames that arrived before this line are covered by the zoom this pass
+        // is about to read; only what arrives from here on has to be replayed.
+        this.missedZoomUpdate = false;
+
+        try {
+            if (!this.map) return;
+            const currentZoom = this.map.getZoom();
+
+            // One task for the whole pass: three sources are read and written
+            // here, and a restore or a panel edit landing between the read and
+            // the write of any of them would be silently overwritten.
+            await this._sourceQueue(async () => {
+                const regenerated = await this._refreshBoundarySourceZoomSizes(currentZoom);
+
+                // The two derived sources are written HERE, with their ids
+                // spelled out, and not inside a helper taking the id as an
+                // argument. That is not style: `tests/unit/despachante-sem-escrita-crua.test.js`
+                // proves statically that no raw `setData` lands on a source the
+                // dispatcher owns, and a `getSource(variable)` is a target it
+                // cannot resolve, so it reports the write as unprovable.
+                const textSource = this.map?.getSource('boundary-texts');
+                if (textSource) {
+                    const textData = await textSource.getData();
+                    if (this.map && this._applyDerivedSizes(textData, currentZoom, ['calculatedTextSize'])) {
+                        textSource.setData(textData);
+                    }
+                }
+
+                const circleSource = this.map?.getSource('boundary-circles');
+                if (circleSource) {
+                    const circleData = await circleSource.getData();
+                    if (this.map && this._applyDerivedSizes(circleData, currentZoom, ['calculatedStrokeWidth'])) {
+                        circleSource.setData(circleData);
+                    }
+                }
+
+                // Only the screen-pinned boundaries changed shape, and only those
+                // need their circles and labels rebuilt (both placed in km).
+                for (const feature of regenerated) {
+                    if (!this.map) return;
+                    await this._updateDependentFeaturesUnlocked(feature);
+                }
+            });
+        } catch (error) {
+            // Nothing consumes this promise (it is a rAF callback), so a rejection
+            // here would be an unhandled one and the correction would freeze in
+            // silence. A style swap can remove a source mid-zoom; log and move on.
+            console.warn('Error refreshing boundary zoom sizes:', error);
+        } finally {
+            this.pendingZoomUpdate = false;
+            if (this.missedZoomUpdate && this.map) {
+                this.missedZoomUpdate = false;
+                this.handleZoomChange();
+            }
+        }
+    }
+
+    /**
+     * Recompute the `boundarys` source for a zoom level: derived pixel sizes for
+     * every feature, plus a geometry rebuild for the screen-pinned ones whose
+     * echelon size in kilometres moved.
+     *
+     * The write goes through the dispatcher as an upsert of only what changed,
+     * which is also why this method reads the collection: the previous property
+     * set is what decides whether there IS a change.
+     *
+     * @param {number} currentZoom - Current map zoom
+     * @returns {Promise<Array>} The features whose geometry was rebuilt
+     */
+    _refreshBoundarySourceZoomSizes = async (currentZoom) => {
+        const source = this.map?.getSource('boundarys');
+        if (!source) return [];
+
+        const dispatcher = boundarysSource(this.map);
+        await dispatcher.flush();
+        const data = await source.getData();
+        // The map can be gone (or restyled) by the time the read resolves.
+        if (!this.map || !data?.features?.length) return [];
+
+        const upserts = [];
+        const regenerated = [];
+
+        for (const feature of data.features) {
+            if (!feature?.properties) continue;
+
+            const sizes = computeBoundaryZoomSizes(feature.properties, currentZoom);
+            let changed = false;
+
+            for (const key of ['calculatedLineWidth', 'calculatedTextSize', 'calculatedStrokeWidth']) {
+                if (feature.properties[key] !== sizes[key]) {
+                    feature.properties[key] = sizes[key];
+                    changed = true;
+                }
+            }
+
+            // The kilometre value is only written where it can differ from the
+            // authored size; elsewhere it would be a stale copy waiting to be read.
+            if (isScreenAnchored(feature.properties)
+                && feature.properties.calculatedSymbolSize !== sizes.calculatedSymbolSize) {
+                feature.properties.calculatedSymbolSize = sizes.calculatedSymbolSize;
+                feature.geometry = this.geometry.generate(feature.properties, currentZoom);
+                changed = true;
+                regenerated.push(feature);
+            }
+
+            if (changed) upserts.push(feature);
+        }
+
+        if (upserts.length > 0) {
+            dispatcher.add(upserts);
+            await dispatcher.flush();
+        }
+
+        return regenerated;
+    }
+
+    /**
+     * Rewrite the listed derived properties on a collection ALREADY READ, in
+     * place, and say whether anything moved.
+     *
+     * It touches no source of its own on purpose: the caller keeps the
+     * `getSource` and the `setData`, with the id spelled out, so the static
+     * guard on raw writes can prove the target. It is also what keeps the write
+     * conditional, because on a map with no anchored boundary the pass must cost
+     * the reads and nothing else.
+     *
+     * @param {Object} data - Collection returned by `getData()`
+     * @param {number} currentZoom - Current map zoom
+     * @param {Array<string>} keys - Derived property names to write
+     * @returns {boolean} True when at least one value changed
+     * @private
+     */
+    _applyDerivedSizes = (data, currentZoom, keys) => {
+        if (!data?.features?.length) return false;
+
+        let hasChanges = false;
+
+        for (const feature of data.features) {
+            if (!feature?.properties) continue;
+
+            const sizes = computeBoundaryZoomSizes(feature.properties, currentZoom);
+            for (const key of keys) {
+                if (feature.properties[key] !== sizes[key]) {
+                    feature.properties[key] = sizes[key];
+                    hasChanges = true;
+                }
+            }
+        }
+
+        return hasChanges;
+    }
+
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
-    updateFeaturesProperty = async (features, property, value) => {
+    /**
+     * Write one property on every given feature and rebuild what depends on it.
+     * Serialized shell.
+     * @param {Array} features - Selected features
+     * @param {string} property - Property name
+     * @param {*} value - New value
+     * @returns {Promise<void>} Resolves once the sources are written
+     */
+    updateFeaturesProperty = async (features, property, value) =>
+        this._sourceQueue(() => this._updateFeaturesPropertyUnlocked(features, property, value))
+
+    /**
+     * @param {Array} features - Selected features
+     * @param {string} property - Property name
+     * @param {*} value - New value
+     * @returns {Promise<void>} Resolves once the sources are written
+     * @private
+     */
+    _updateFeaturesPropertyUnlocked = async (features, property, value) => {
         // The collection read survives here on purpose. Two things below need the PREVIOUS source
         // feature and no diff hands them back: whether the feature exists at all (an unknown id
         // must be skipped, not created) and its full property set, which `geometry.generate` and
@@ -1029,14 +1481,37 @@ class AddBoundaryControl extends BaseControl {
                     delete feature.properties.symbol_position_ratio;
                 }
 
-                if (['baseCoordinates', 'symbol_instances', 'symbol_size', 'echelon', 'text_distance_ratio'].includes(property)) {
-                    const newGeometry = this.geometry.generate(sourceFeature.properties);
+                if (property === 'createdAtZoom') {
+                    const roundedZoom = Math.round(value * 10) / 10;
+                    sourceFeature.properties[property] = roundedZoom;
+                    feature.properties[property] = roundedZoom;
+                }
+
+                // Any input of the zoom model invalidates the derived sizes.
+                if (['createdAtZoom', 'zoomCorrectionEnabled', 'lineWidth', 'text_size', 'symbol_size'].includes(property)) {
+                    const sizes = computeBoundaryZoomSizes(sourceFeature.properties, this.getCurrentZoom());
+                    Object.assign(sourceFeature.properties, sizes);
+                    Object.assign(feature.properties, sizes);
+                }
+
+                // `createdAtZoom` and `zoomCorrectionEnabled` are geometry inputs
+                // too: on a screen-pinned boundary they move the echelon's size in
+                // kilometres, which only the geometry can express.
+                if ([
+                    'baseCoordinates', 'symbol_instances', 'symbol_size', 'echelon', 'text_distance_ratio',
+                    'createdAtZoom', 'zoomCorrectionEnabled',
+                ].includes(property)) {
+                    const newGeometry = this.geometry.generate(sourceFeature.properties, this.getCurrentZoom());
                     sourceFeature.geometry = newGeometry;
                     feature.geometry = newGeometry;
                 }
 
-                if (['color', 'lineWidth', 'opacity', 'text_top', 'text_bottom', 'text_size', 'text_distance_ratio', 'echelon', 'symbol_instances', 'symbol_size'].includes(property)) {
-                    await this.updateDependentFeatures(sourceFeature);
+                if ([
+                    'color', 'lineWidth', 'opacity', 'text_top', 'text_bottom', 'text_size',
+                    'text_distance_ratio', 'echelon', 'symbol_instances', 'symbol_size',
+                    'createdAtZoom', 'zoomCorrectionEnabled', 'text_north_facing',
+                ].includes(property)) {
+                    await this._updateDependentFeaturesUnlocked(sourceFeature);
                 }
             }
         }
@@ -1062,7 +1537,24 @@ class AddBoundaryControl extends BaseControl {
         }
     }
 
-    saveFeatures = async (features, initialPropertiesMap) => {
+    /**
+     * Persist the features whose properties changed. Serialized shell: it only
+     * READS the source, but it reads it to decide what to persist, so it must
+     * not see a half-applied state from another cycle.
+     * @param {Array} features - Selected features
+     * @param {Map} initialPropertiesMap - Properties captured when the panel opened
+     * @returns {Promise<void>} Resolves once every change is persisted
+     */
+    saveFeatures = async (features, initialPropertiesMap) =>
+        this._sourceQueue(() => this._saveFeaturesUnlocked(features, initialPropertiesMap))
+
+    /**
+     * @param {Array} features - Selected features
+     * @param {Map} initialPropertiesMap - Properties captured when the panel opened
+     * @returns {Promise<void>} Resolves once every change is persisted
+     * @private
+     */
+    _saveFeaturesUnlocked = async (features, initialPropertiesMap) => {
         // Reads only, and it persists the SOURCE's version of each feature rather than the
         // selected one, so the queue has to be drained before the collection comes back.
         await boundarysSource(this.map).flush();
@@ -1082,13 +1574,28 @@ class AddBoundaryControl extends BaseControl {
     discardChangeFeatures = async (features, initialPropertiesMap) => {
         features.forEach(f => {
             Object.assign(f.properties, initialPropertiesMap.get(f.properties.id));
-            f.geometry = this.geometry.generate(f.properties);
+            f.geometry = this.geometry.generate(f.properties, this.getCurrentZoom());
         });
 
+        // `updateFeatures` is the serialized shell, and this method is NOT
+        // itself inside a task, so this is a plain call, not reentrancy.
         await this.updateFeatures(features, true);
     }
 
-    deleteFeatures = async (features) => {
+    /**
+     * Remove the given boundaries and their dependents. Serialized shell.
+     * @param {Array} features - Features to delete
+     * @returns {Promise<void>} Resolves once the three sources are written
+     */
+    deleteFeatures = async (features) =>
+        this._sourceQueue(() => this._deleteFeaturesUnlocked(features))
+
+    /**
+     * @param {Array} features - Features to delete
+     * @returns {Promise<void>} Resolves once the three sources are written
+     * @private
+     */
+    _deleteFeaturesUnlocked = async (features) => {
         if (features.length === 0) return;
 
         // The two derived sources still go through a read-filter-write: they are NOT diffable (see
@@ -1127,12 +1634,24 @@ class AddBoundaryControl extends BaseControl {
             nome: _nome,
             baseCoordinates: _baseCoordinates,
             symbol_instances: _symbolInstances,
+            // The anchor and everything derived from it belong to ONE feature:
+            // inheriting them would make every new boundary scale from an old zoom.
+            createdAtZoom: _createdAtZoom,
+            calculatedLineWidth: _calculatedLineWidth,
+            calculatedTextSize: _calculatedTextSize,
+            calculatedStrokeWidth: _calculatedStrokeWidth,
+            calculatedSymbolSize: _calculatedSymbolSize,
             ...styleProperties
         } = properties;
 
         Object.assign(AddBoundaryControl.DEFAULT_PROPERTIES, styleProperties);
     }
 
+    // The four `calculated*` properties are DELIBERATELY absent from the
+    // comparison below. They are a cache the zoom pass rewrites on every frame
+    // of a zoom gesture, so counting them as a change would enqueue an outbound
+    // sync operation per boundary per frame: hundreds of ops for a gesture that
+    // changed nothing the user authored. The peer recomputes them on arrival.
     hasFeatureChanged = (feature, initialProperties) => {
         if (!initialProperties) return true;
 
@@ -1142,6 +1661,10 @@ class AddBoundaryControl extends BaseControl {
             feature.properties.echelon !== initialProperties.echelon ||
             feature.properties.text_top !== initialProperties.text_top ||
             feature.properties.text_bottom !== initialProperties.text_bottom ||
+            feature.properties.text_size !== initialProperties.text_size ||
+            feature.properties.text_north_facing !== initialProperties.text_north_facing ||
+            feature.properties.createdAtZoom !== initialProperties.createdAtZoom ||
+            feature.properties.zoomCorrectionEnabled !== initialProperties.zoomCorrectionEnabled ||
             feature.properties.symbol_size !== initialProperties.symbol_size ||
             !deepEqual(feature.properties.symbol_instances, initialProperties.symbol_instances) ||
             feature.properties.text_distance_ratio !== initialProperties.text_distance_ratio ||
@@ -1153,7 +1676,23 @@ class AddBoundaryControl extends BaseControl {
         );
     }
 
-    updateFeatures = async (features, save = false) => {
+    /**
+     * Replace the given features in the source (and optionally persist them).
+     * Serialized shell.
+     * @param {Array} features - Features to write
+     * @param {boolean} [save] - Also persist through the store
+     * @returns {Promise<void>} Resolves once the sources are written
+     */
+    updateFeatures = async (features, save = false) =>
+        this._sourceQueue(() => this._updateFeaturesUnlocked(features, save))
+
+    /**
+     * @param {Array} features - Features to write
+     * @param {boolean} [save] - Also persist through the store
+     * @returns {Promise<void>} Resolves once the sources are written
+     * @private
+     */
+    _updateFeaturesUnlocked = async (features, save = false) => {
         if (features.length > 0) {
             // The collection read survives here too, and only for the existence check: an unknown
             // id must be skipped rather than created, which is what `add` would do. Draining first
@@ -1170,7 +1709,7 @@ class AddBoundaryControl extends BaseControl {
                     // replacement in MapLibre): the same result the whole-collection write
                     // produced, without the other N-1 features riding along.
                     upserts.push(feature);
-                    await this.updateDependentFeatures(feature);
+                    await this._updateDependentFeaturesUnlocked(feature);
 
                     if (save) {
                         await updateFeature('boundarys', feature);
@@ -1229,10 +1768,16 @@ class AddBoundaryControl extends BaseControl {
      * vertex-removal paths with a feature derived from the SELECTION, and `add` would CREATE an id
      * the source no longer has instead of the silent skip the old `if (sourceFeature)` produced.
      * The write itself is now a one-feature upsert rather than the whole collection.
+     *
+     * IT IS THE ONE WRITER THAT STAYS OUT OF `_sourceQueue`, and that is a
+     * decision, not an omission: it touches `boundarys` and nothing else, and
+     * that source is the dispatcher's, which already coalesces concurrent writes
+     * into one diff. Putting it in the queue would only make a handle drag wait
+     * behind a zoom pass it does not conflict with.
      * @param {Object} feature - Edited boundary feature
      */
     forceUpdateMainSource = async (feature) => {
-        if (this.uiManager && this.uiManager.isDragging) {
+        if (this._isDragging()) {
             return;
         }
 

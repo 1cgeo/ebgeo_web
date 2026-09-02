@@ -373,11 +373,21 @@ class BaseLayerControl {
         this._selectionManager.deselectAllFeatures();
 
         await this.switchLayer(baseLayer, { skipPersist });
-        await setupMapFeatures(this.map, this._analysisLayersManager, this._dataLayersManager, getEventBus());
 
+        // The saved position comes FIRST, and the order is the point: every tool
+        // that re-anchors its features to the zoom (military symbol, brush,
+        // label, boundary) does so inside `setupMapFeatures`, reading
+        // `map.getZoom()`. Restoring the view afterwards meant that pass ran at
+        // the map's initial zoom and the features were only fixed by the next
+        // zoom EVENT, which on a `jumpTo` may land in the same frame as the
+        // dependent-feature restore. `applyMapSavedPosition` reads persisted
+        // position and calls `jumpTo`; it needs nothing `setupMapFeatures`
+        // produces, so it can move ahead of it.
         if (applyPosition) {
             await this.applyMapSavedPosition(currentMapName);
         }
+
+        await setupMapFeatures(this.map, this._analysisLayersManager, this._dataLayersManager, getEventBus());
 
         getEventBus().emit(EventTypes.BASE_LAYER_CHANGED, { layer: baseLayer });
     }
