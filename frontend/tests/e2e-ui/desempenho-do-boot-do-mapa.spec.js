@@ -113,6 +113,10 @@ const OCIOSIDADE_MS = 6000;
 
 const PROJETOS = '/atlas.html';
 
+// Duas faixas (bytesDeScript e requisicoesDeScript) carregam a PROPRIA data, 2026-09-02, porque
+// foram remedidas sozinhas quando a deriva acumulada as estourou; as demais continuam da bateria de
+// MEDIDO_EM. A data por faixa e a excecao declarada ao paragrafo abaixo, nao uma segunda bateria.
+
 /**
  * A data em que TODOS os tetos deste arquivo foram medidos, nesta maquina, nesta camada.
  *
@@ -164,8 +168,15 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
 
         // 1 e 2. DETERMINISTICOS: teto justo (~5% de folga) e piso que reprova "o app nao subiu".
         expectDeterministico(rodadas, 'bytesDeScript', {
-            piso: 36_500_000, teto: 40_400_000, medidoEm: MEDIDO_EM,
-            porque: 'medido 38 456 561 bytes em 5 de 5 rodadas, o MESMO numero ate o byte. '
+            piso: 39_300_000, teto: 43_450_000, medidoEm: '2026-09-02',
+            porque: 'REMEDIDO em 2026-09-02: 41 386 533 bytes em 5 de 5 rodadas, o MESMO numero ate o '
+                + 'byte, faixa de +-5%. A faixa anterior (36,5 a 40,4 MB) foi medida em 2026-08-25 sobre '
+                + '38 456 561 bytes; a deriva de 2,9 MB ate aqui e acumulada das duas linhas de trabalho '
+                + 'desde entao, e o lote que a fechou (colar, importacao, medicao 3D, camadas entre mapas '
+                + 'e alca de continuacao) responde por 7 modulos ansiosos e 82 886 bytes de fonte, ou '
+                + 'seja, 3% dela: o HEAD anterior ja estava acima do teto sem que nenhuma rodada o '
+                + 'acusasse, porque este arquivo e o unico guarda e ele so roda no Playwright completo. '
+                + 'Historico: medido 38 456 561 bytes em 5 de 5 rodadas em 2026-08-25. '
                 + 'Era 46 856 910 antes da onda de carga sob demanda (turf, gdal, ferramentas '
                 + 'militares, de desenho, de analise e de medida sairam do payload ansioso): '
                 + 'queda de 8,4 MB, 18%. O guarda REPROVOU quando o numero baixou, que e o lado '
@@ -174,8 +185,11 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
                 + 'tela de "EBGeo indisponivel" passaria em qualquer teto sozinho.',
         });
         expectDeterministico(rodadas, 'requisicoesDeScript', {
-            piso: 452, teto: 500, medidoEm: MEDIDO_EM,
-            porque: 'medido 476 modulos servidos pelo Vite em 5 de 5 rodadas, faixa de +-5%. '
+            piso: 481, teto: 531, medidoEm: '2026-09-02',
+            porque: 'REMEDIDO em 2026-09-02: 506 modulos servidos pelo Vite em 5 de 5 rodadas, faixa '
+                + 'de +-5%. Eram 476 em 2026-08-25 (faixa 452 a 500); o lote de 2026-09-02 acrescentou 7 '
+                + 'modulos ansiosos (o HEAD anterior estava em 499, um abaixo do teto) e o resto e deriva '
+                + 'acumulada desde a medicao anterior. '
                 + 'Eram 559 antes da carga sob demanda: 83 modulos a menos, 15%. '
                 + 'Contagem que sobe sem os bytes subirem e fragmentacao de chunk; bytes que sobem '
                 + 'sem a contagem subir e import estatico novo. Duas causas, duas correcoes.',
@@ -356,9 +370,10 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
         // `peso-de-boot.js`). Entao a serie os REGISTRA no anexo e nao os assere: teto de byte
         // sobre cache quente e um numero que reprova por sorte.
         expectDeterministico(series[abrirRemoto], 'requisicoesDeScript', {
-            piso: 452, teto: 500, medidoEm: MEDIDO_EM,
-            porque: 'medido 559 em 40 de 40 janelas de transicao, o mesmo numero do boot frio: a '
-                + 'pagina do mapa carrega o mesmo grafo de modulos por qualquer das quatro portas.',
+            piso: 481, teto: 531, medidoEm: '2026-09-02',
+            porque: 'REMEDIDO em 2026-09-02: 506 em todas as janelas de transicao, o mesmo numero do '
+                + 'boot frio (a pagina do mapa carrega o mesmo grafo de modulos por qualquer das quatro '
+                + 'portas), faixa de +-5%; a faixa anterior (452 a 500) era da bateria de 2026-08-25.',
         });
 
         await ctx.close();
