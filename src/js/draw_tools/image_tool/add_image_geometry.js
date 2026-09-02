@@ -3,6 +3,53 @@
 import { BaseGeometry } from '../../tool_manager';
 
 /**
+ * Fallbacks for an image whose stored numbers cannot produce a drawable box.
+ *
+ * A legacy `.ebgeo` can carry an image with its dimensions under other names
+ * (`largura`/`altura`) and no `createdAtZoom` at all, so `width`, `height` and the
+ * zoom anchor all read `undefined` here. Every product below is then NaN, and a NaN
+ * polygon coordinate raises nothing: it is handed to MapLibre and stops being
+ * observable as a value.
+ *
+ * `extentDegrees` is the last-resort span of the box, used only when the caller
+ * could supply no usable zoom at all. It is deliberately small (roughly a hundred
+ * metres) rather than accurate: it exists so the feature stays selectable and
+ * resizable, and the honest fix is for the caller to pass the live map zoom.
+ */
+export const IMAGE_BOX_FALLBACKS = Object.freeze({
+    dimensionPx: 100,
+    size: 1,
+    rotation: 0,
+    extentDegrees: 0.001,
+});
+
+/**
+ * Coerce a value to a finite number above zero.
+ * `x ?? fallback` accepts NaN and `x || fallback` accepts Infinity; both reach the
+ * same arithmetic, so the test has to be `Number.isFinite`.
+ *
+ * @param {*} value - Candidate value
+ * @param {number} fallback - Value to use when `value` is unusable
+ * @returns {number} A finite number above zero
+ */
+function positiveOr(value, fallback) {
+    return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+/**
+ * Coerce a value to a finite number, keeping zero and negatives.
+ * Used where the sign and the degenerate case carry meaning and only NaN and
+ * Infinity have to be stopped.
+ *
+ * @param {*} value - Candidate value
+ * @param {number} fallback - Value to use when `value` is not finite
+ * @returns {number} A finite number
+ */
+function finiteOr(value, fallback) {
+    return Number.isFinite(value) ? value : fallback;
+}
+
+/**
  * Image Geometry Operations
  * Handles geometric calculations for image features (Point-based with selection boxes)
  */
@@ -101,16 +148,31 @@ class AddImageGeometry extends BaseGeometry {
      * @param {Object} uiManager - UI manager for utility functions
      * @param {number} [effectiveZoom] - Optional zoom to use for calculations (overrides createdAtZoom when zoom correction is disabled)
      * @returns {Object} GeoJSON Polygon geometry for selection box
+     *
+     * THIS IS THE SINGLE FUNNEL through which an image's pixel dimensions reach the
+     * drawing, so it is where they are coerced. All six call sites in
+     * `add_image_control.js` read `properties.width`/`properties.height` straight,
+     * and a feature that never carried them (or carries them under other names)
+     * would otherwise produce a polygon of NaN coordinates.
      */
     calculateSelectionBoxGeometry(coordinates, width, height, size, rotation, createdAtZoom, uiManager, effectiveZoom = null) {
-        const scaledWidth = width * size * 0.625;
-        const scaledHeight = height * size * 0.625;
+        const safeWidth = positiveOr(width, IMAGE_BOX_FALLBACKS.dimensionPx);
+        const safeHeight = positiveOr(height, IMAGE_BOX_FALLBACKS.dimensionPx);
+        const safeSize = positiveOr(size, IMAGE_BOX_FALLBACKS.size);
+        // Rotation may legitimately be zero or negative, so only finiteness is tested.
+        const safeRotation = Number.isFinite(rotation) ? rotation : IMAGE_BOX_FALLBACKS.rotation;
 
-        const expandedDimensions = uiManager.calculateExpandedDimensions(scaledWidth, scaledHeight, rotation);
+        const scaledWidth = safeWidth * safeSize * 0.625;
+        const scaledHeight = safeHeight * safeSize * 0.625;
+
+        const expandedDimensions = uiManager.calculateExpandedDimensions(scaledWidth, scaledHeight, safeRotation);
         const padding = 5;
 
         const centerLat = coordinates[1];
-        const zoomForCalculation = effectiveZoom !== null ? effectiveZoom : createdAtZoom;
+        // `effectiveZoom !== null` let an `undefined` argument through as the zoom.
+        // Zoom 0 is a legitimate anchor, so the test is finiteness on both, and a
+        // feature with no usable anchor falls through to the degree fallback below.
+        const zoomForCalculation = Number.isFinite(effectiveZoom) ? effectiveZoom : createdAtZoom;
         const widthDegrees = uiManager.pixelsToDegrees(
             expandedDimensions.width + (padding * 2),
             centerLat,
@@ -130,12 +192,22 @@ class AddImageGeometry extends BaseGeometry {
      * @param {Array} coordinates - Center coordinates [lng, lat]
      * @param {number} widthDegrees - Width in degrees
      * @param {number} heightDegrees - Height in degrees
-     * @returns {Object} GeoJSON Polygon geometry
+     * @returns {Object} GeoJSON Polygon geometry, with a finite span around the centre
+     *
+     * Last line of defence: every selection box of this tool is built here, so a
+     * non-finite span is replaced rather than propagated. A non-finite span reaches
+     * this point even with the dimensions already coerced upstream, because
+     * `pixelsToDegrees` also needs a finite zoom, and the anchor is the one input
+     * this module cannot invent (the caller passes the live map zoom instead).
+     *
+     * ONLY finiteness is tested. A zero span (five vertices on the centre) and a
+     * negative one (an inverted ring) are both documented, harmless shapes; NaN and
+     * Infinity are the two that reach MapLibre and stop being observable.
      */
     createSelectionBoxFromDegrees(coordinates, widthDegrees, heightDegrees) {
         const [lng, lat] = coordinates;
-        const halfWidth = widthDegrees / 2;
-        const halfHeight = heightDegrees / 2;
+        const halfWidth = finiteOr(widthDegrees, IMAGE_BOX_FALLBACKS.extentDegrees) / 2;
+        const halfHeight = finiteOr(heightDegrees, IMAGE_BOX_FALLBACKS.extentDegrees) / 2;
 
         return {
             type: 'Polygon',

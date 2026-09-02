@@ -87,63 +87,81 @@ describe('calculateZoomCorrectedValue', () => {
 });
 
 // ============================================================================
-// calculateZoomCorrectedValue — non-finite inputs (DOCUMENTED current behavior)
+// calculateZoomCorrectedValue — non-finite inputs (GUARDED since 2026-09-02)
 // ============================================================================
 
-describe('calculateZoomCorrectedValue — non-finite input handling (documented)', () => {
+// This whole block used to pin the OPPOSITE, under the heading "documented current
+// behavior": every case below returned NaN or Infinity, flagged in TESTING-BACKLOG.md
+// as a fix that had to be deliberate. It was made deliberately on 2026-09-02, after a
+// legacy `.ebgeo` froze the page's main thread with one of these NaNs (the repro and
+// the measurement live in `tests/unit/zoom-correction-sem-referencia.repro.test.js`).
+// The rule now: no non-finite value leaves this module.
+describe('calculateZoomCorrectedValue — non-finite input handling (guarded)', () => {
     const cfg = { sourceProperty: 'size' };
 
-    // DOCUMENTED: `config.maxValue ?? Infinity` only guards null/undefined, NOT NaN.
-    // A NaN source `size` propagates through `NaN * scaleFactor` and `Math.min(NaN, ...)`,
-    // so the function returns NaN. This pins the CURRENT behavior — no guard added
-    // (see TESTING-BACKLOG.md: fix must be a deliberate, flagged change).
-    it('propagates NaN when the source size is NaN (no Number.isFinite guard)', () => {
+    // A base value that is not a number has nothing to correct, so the answer is the
+    // caller's declared fallback (undefined when none is declared, which MapLibre
+    // reads as absent and answers with the layout property's own default).
+    it('returns the fallback when the source size is NaN', () => {
         const props = { size: NaN, createdAtZoom: 10 };
-        expect(Number.isNaN(calculateZoomCorrectedValue(props, 11, cfg))).toBe(true);
+        expect(calculateZoomCorrectedValue(props, 11, cfg)).toBeUndefined();
+        expect(calculateZoomCorrectedValue(props, 11, { ...cfg, fallbackValue: 1 })).toBe(1);
     });
 
-    // DOCUMENTED: NaN createdAtZoom → zoomDifference NaN → scaleFactor NaN → NaN.
-    it('propagates NaN when createdAtZoom is NaN', () => {
+    // NaN createdAtZoom means NO ZOOM REFERENCE, so the factor is 1 and the base value
+    // comes out untouched. This is the legacy-feature case the defect was found in.
+    it('returns the base value when createdAtZoom is NaN', () => {
         const props = { size: 10, createdAtZoom: NaN };
-        expect(Number.isNaN(calculateZoomCorrectedValue(props, 11, cfg))).toBe(true);
+        expect(calculateZoomCorrectedValue(props, 11, cfg)).toBe(10);
     });
 
-    // DOCUMENTED: NaN currentZoom → NaN result.
-    it('propagates NaN when currentZoom is NaN', () => {
+    it('returns the base value when currentZoom is NaN', () => {
         const props = { size: 10, createdAtZoom: 10 };
-        expect(Number.isNaN(calculateZoomCorrectedValue(props, NaN, cfg))).toBe(true);
+        expect(calculateZoomCorrectedValue(props, NaN, cfg)).toBe(10);
     });
 
-    // DOCUMENTED: undefined source property → undefined * number = NaN.
-    it('returns NaN when the source property is missing (undefined * scaleFactor)', () => {
+    it('returns the fallback when the source property is missing', () => {
         const props = { createdAtZoom: 10 };
-        expect(Number.isNaN(calculateZoomCorrectedValue(props, 11, cfg))).toBe(true);
+        expect(calculateZoomCorrectedValue(props, 11, cfg)).toBeUndefined();
+        expect(calculateZoomCorrectedValue(props, 11, { ...cfg, fallbackValue: 7 })).toBe(7);
     });
 
-    // DOCUMENTED: a NaN maxValue is NOT replaced by Infinity (?? keeps NaN), and
-    // Math.min(finite, NaN) === NaN — so a NaN clamp poisons an otherwise valid result.
-    it('returns NaN when maxValue is NaN, even with a valid scaled value', () => {
+    // `config.maxValue ?? Infinity` did NOT guard a NaN clamp: `Math.min(x, NaN)` is
+    // NaN, so a poisoned clamp poisoned an otherwise valid result. It is ignored now.
+    it('ignores a NaN maxValue instead of letting it poison a valid result', () => {
         const props = { size: 10, createdAtZoom: 10 };
         const result = calculateZoomCorrectedValue(props, 11, { sourceProperty: 'size', maxValue: NaN });
-        expect(Number.isNaN(result)).toBe(true);
+        expect(result).toBe(20);
     });
 
-    // DOCUMENTED: +Infinity zoom difference with positive size → Infinity (Math.min keeps it
-    // below Infinity default, but here maxValue is default Infinity so it stays Infinity).
-    it('returns Infinity when currentZoom is +Infinity (unbounded scale)', () => {
+    // An infinite zoom is not a zoom: no reference, factor 1, base value out.
+    it('returns the base value when currentZoom is +Infinity (was Infinity)', () => {
         const props = { size: 10, createdAtZoom: 10 };
-        expect(calculateZoomCorrectedValue(props, Infinity, cfg)).toBe(Infinity);
+        expect(calculateZoomCorrectedValue(props, Infinity, cfg)).toBe(10);
     });
 
-    // DOCUMENTED: a huge negative zoom difference collapses the value toward 0.
-    it('returns 0 when currentZoom is -Infinity', () => {
+    it('returns the base value when currentZoom is -Infinity (was 0)', () => {
         const props = { size: 10, createdAtZoom: 10 };
-        expect(calculateZoomCorrectedValue(props, -Infinity, cfg)).toBe(0);
+        expect(calculateZoomCorrectedValue(props, -Infinity, cfg)).toBe(10);
     });
 
-    it('disabled correction returns the raw (even NaN) source value verbatim', () => {
+    it('disabled correction with a NaN source returns the fallback, not NaN', () => {
         const props = { size: NaN, createdAtZoom: 10, zoomCorrectionEnabled: false };
-        expect(Number.isNaN(calculateZoomCorrectedValue(props, 11, cfg))).toBe(true);
+        expect(calculateZoomCorrectedValue(props, 11, cfg)).toBeUndefined();
+        expect(calculateZoomCorrectedValue(props, 11, { ...cfg, fallbackValue: 1 })).toBe(1);
+    });
+
+    // A scale factor that overflows (or underflows to exactly zero) is no factor at
+    // all: the base value survives instead of becoming Infinity or vanishing.
+    it('a scale factor that overflows leaves the base value in place', () => {
+        expect(calculateZoomCorrectedValue({ size: 10, createdAtZoom: -5000 }, 5000, cfg)).toBe(10);
+        expect(calculateZoomCorrectedValue({ size: 10, createdAtZoom: 5000 }, -5000, cfg)).toBe(10);
+    });
+
+    // CONTROL: the guard discriminates. Without this line every assertion above
+    // would also pass against a function that ignored its inputs entirely.
+    it('controle: uma entrada boa continua sendo corrigida normalmente', () => {
+        expect(calculateZoomCorrectedValue({ size: 10, createdAtZoom: 10 }, 12, cfg)).toBe(40);
     });
 });
 
@@ -333,11 +351,23 @@ describe('syncZoomCorrectedProperty', () => {
         expect(selectedFeature.properties.calculatedSize).toBe(42);
     });
 
-    // DOCUMENTED: NaN source size propagates to the calculatedProperty on both features.
-    it('propagates NaN to both features when the source size is NaN (documented)', () => {
+    // GUARDED since 2026-09-02 (this used to pin the NaN propagating to both copies).
+    it('writes the fallback, not NaN, to both features when the source size is NaN', () => {
         const { sourceFeature, selectedFeature } = makePair({ size: NaN, createdAtZoom: 10 });
-        syncZoomCorrectedProperty(sourceFeature, selectedFeature, 'size', NaN, 11, cfg);
-        expect(Number.isNaN(sourceFeature.properties.calculatedSize)).toBe(true);
-        expect(Number.isNaN(selectedFeature.properties.calculatedSize)).toBe(true);
+        syncZoomCorrectedProperty(sourceFeature, selectedFeature, 'size', NaN, 11, { ...cfg, fallbackValue: 1 });
+        expect(sourceFeature.properties.calculatedSize).toBe(1);
+        expect(selectedFeature.properties.calculatedSize).toBe(1);
+    });
+
+    // A non-finite `createdAtZoom` must not be rounded into a stored anchor that
+    // looks like a number: `Math.round(NaN * 10) / 10` is NaN, and downstream that
+    // reads as "no reference" only because the guard tests finiteness, not shape.
+    it('does not round a non-finite createdAtZoom into the feature', () => {
+        const { sourceFeature, selectedFeature } = makePair({ size: 10, createdAtZoom: 10 });
+        syncZoomCorrectedProperty(sourceFeature, selectedFeature, 'createdAtZoom', NaN, 11, cfg);
+        expect(Number.isNaN(sourceFeature.properties.createdAtZoom)).toBe(true);
+        // The derived size survives it: no reference means factor 1, not NaN.
+        expect(sourceFeature.properties.calculatedSize).toBe(10);
+        expect(selectedFeature.properties.calculatedSize).toBe(10);
     });
 });
