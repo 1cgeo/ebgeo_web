@@ -1,7 +1,7 @@
 // Path: js/military_tools/boundary_tool/add_boundary_control.js
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
-import { IDUtils, deepClone, deepEqual, createSerialQueue } from '../../utilities';
+import { IDUtils, deepClone, deepEqual, createSerialQueue, showToast, showWarning } from '../../utilities';
 import { getPointerPosition, isTouchDevice } from '../../utilities/pointer-utils';
 import { addBoundaryAttributesToPanel } from './boundary_attributes_panel.js';
 import AddBoundaryGeometry from './add_boundary_geometry.js';
@@ -9,6 +9,18 @@ import { computeBoundaryZoomSizes, withBoundaryZoomSizes, isScreenAnchored } fro
 import { BaseControl } from '../../tool_manager';
 import { DrawingFinishButton } from '../../draw_tools/drawing-touch-helpers';
 import { getSnappingService } from '../../snapping/snapping.service.js';
+import {
+    anchorFor,
+    buildExtendedProperties,
+    extendCoordinates,
+    previewCoordinates,
+    resolveEndpoints
+} from '@tools/helpers/line-extension.model.js';
+import {
+    extensionDenialReason,
+    hideExtensionHandles,
+    showExtensionHandles
+} from '@tools/helpers/line-extension.helpers.js';
 
 /**
  * Boundary Tool Control
@@ -58,6 +70,10 @@ class AddBoundaryControl extends BaseControl {
         this.clickTimer = null;
         this.lastClickCoords = null;
         this._name = 'AddBoundaryControl';
+
+        // Continuation session, set while the user is extending an existing
+        // boundary from one of its ends. See startExtending / finishExtending.
+        this._extending = null;
 
         // Pointer event state for edit handles
         this._activePointerId = null;
@@ -300,6 +316,12 @@ class AddBoundaryControl extends BaseControl {
     }
 
     deactivate = () => {
+        // Dropped FIRST: Esc and switching tools both land here, and a
+        // continuation writes nothing before it is committed, so forgetting the
+        // session leaves the original boundary untouched by construction. The
+        // 250 ms click timer is cleared further down, by clearPreview ->
+        // cancelPendingUpdates.
+        this._extending = null;
         this.isActive = false;
         this.map.off('mousemove', this._onPreClickMouseMove);
         this.map.off('mousemove', this.handlePreviewMouseMove);
@@ -398,7 +420,9 @@ class AddBoundaryControl extends BaseControl {
         if (!this.isActive) return;
 
         const snapping = getSnappingService();
-        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
+        // While continuing, exclude the feature itself: its own vertices would
+        // otherwise capture every click, exactly as they do for a handle drag.
+        const snap = snapping?.resolve(this.map, e.point, e.lngLat, this._extending?.featureId) ?? e.lngLat;
         const newPoint = [snap.lng, snap.lat];
 
         if (this.geometry.isPointTooClose(newPoint, this.drawPoints)) {
@@ -436,12 +460,17 @@ class AddBoundaryControl extends BaseControl {
         const screenPoint = { x: e.offsetX, y: e.offsetY };
         const coordinates = this.map.unproject([screenPoint.x, screenPoint.y]);
         const snapping = getSnappingService();
-        const snap = snapping?.resolve(this.map, screenPoint, coordinates) ?? coordinates;
+        const snap = snapping?.resolve(this.map, screenPoint, coordinates, this._extending?.featureId) ?? coordinates;
         snapping?.hideIndicator(this.map);
         const finalPoint = [snap.lng, snap.lat];
 
         if (!this.geometry.isPointTooClose(finalPoint, this.drawPoints)) {
             this.drawPoints.push(finalPoint);
+        }
+
+        if (this._extending) {
+            await this.finishExtending();
+            return;
         }
 
         if (this.drawPoints.length >= 2) {
@@ -454,7 +483,7 @@ class AddBoundaryControl extends BaseControl {
     handlePreviewMouseMove = (e) => {
         if (this.drawPoints.length >= 1) {
             const snapping = getSnappingService();
-            const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
+            const snap = snapping?.resolve(this.map, e.point, e.lngLat, this._extending?.featureId) ?? e.lngLat;
 
             if (snap.snapped) {
                 snapping.showIndicator(this.map, snap, snap.snapType);
@@ -480,6 +509,8 @@ class AddBoundaryControl extends BaseControl {
 
         if (this.isDraggingHandle && this.getSelectedFeature() && this.activeHandleType) {
             this.updateBoundaryPreview(this.lastPreviewPosition);
+        } else if (this._extending) {
+            this._updateExtensionPreview();
         } else if (this.lastPreviewPoints && this.lastPreviewPoints.length >= 1) {
             const previewPoints = [...this.lastPreviewPoints];
             if (this.lastClickCoords) {
@@ -603,6 +634,179 @@ class AddBoundaryControl extends BaseControl {
         }
     }
 
+    // ===== CONTINUING AN EXISTING BOUNDARY =====
+
+    /**
+     * Enter "continue this boundary" mode from one of its ends.
+     *
+     * THE ORDER IS THE CONTRACT: `setActiveTool` deselects everything (which is
+     * what removes the handle the user just clicked) and then calls `activate()`,
+     * which empties `drawPoints`. The anchor is therefore seeded AFTER the tool
+     * switch, never before, or the switch would throw it away.
+     *
+     * @param {Object} feature - Boundary feature to continue
+     * @param {string} end - Which end to continue from ('start' | 'end')
+     */
+    startExtending = (feature, end) => {
+        // Asked again here, not only when the handle was drawn: the map can be
+        // locked while the handle sits on screen.
+        const reason = extensionDenialReason(feature);
+        if (reason) {
+            showWarning(reason);
+            return;
+        }
+
+        // The same tool already active means a drawing is in progress. Seeding
+        // the anchor below overwrites `drawPoints`, so without this the gesture
+        // would discard that work in silence. Length 1 is the anchor of a
+        // continuation already open (a double click on the handle), which is
+        // safe to re-seed.
+        if (this.toolManager.activeTool === this && this.drawPoints.length > 1) {
+            showWarning('Conclua ou cancele o desenho em andamento antes de continuar uma feição.');
+            return;
+        }
+
+        const endpoints = resolveEndpoints(feature);
+        if (!endpoints) return;
+
+        const sourceFeature = deepClone(feature);
+
+        if (this.toolManager.activeTool !== this) {
+            this.toolManager.setActiveTool(this);
+        }
+
+        this._extending = {
+            featureId: feature.properties.id,
+            end,
+            existing: endpoints.spine,
+            sourceFeature
+        };
+
+        this.drawPoints = [anchorFor(endpoints.spine, end)];
+
+        // `activate()` armed the pre-click snap indicator, which the drawing
+        // preview normally replaces on the FIRST click. Here that click already
+        // happened (on the handle), so the swap is done by hand.
+        this.map.off('mousemove', this._onPreClickMouseMove);
+        this.map.off('mousemove', this.handlePreviewMouseMove);
+        this.map.on('mousemove', this.handlePreviewMouseMove);
+        this.map.getCanvas().style.cursor = 'crosshair';
+        this._finishButton?.updateState(this.drawPoints.length, 2);
+
+        showToast('Clique no mapa para continuar a linha de limite. Botão direito para concluir.', 'info');
+    }
+
+    /**
+     * Draw the WHOLE feature (existing spine plus what is being added) while the
+     * cursor moves, instead of only the new segment.
+     * @private
+     */
+    _updateExtensionPreview = () => {
+        const session = this._extending;
+        if (!session) return;
+
+        const pending = this.drawPoints.slice(1);
+        if (this.lastClickCoords) {
+            pending.push(this.lastClickCoords);
+        }
+
+        const coordinates = previewCoordinates(
+            session.existing,
+            pending,
+            this.lastPreviewPosition,
+            session.end
+        );
+        if (coordinates.length < 2) return;
+
+        // The FEATURE's own properties, never the tool defaults: the echelon and
+        // the symbol instances carve the gaps in the line, so defaults would
+        // preview a boundary with an echelon the feature does not have.
+        const properties = buildExtendedProperties(session.sourceFeature, coordinates);
+
+        clearTimeout(this.geometryDebounceTimer);
+        this.geometryDebounceTimer = setTimeout(() => {
+            const previewGeometry = this.geometry.generate(properties, this.getCurrentZoom());
+            if (previewGeometry) {
+                this.showPreview(previewGeometry);
+            }
+        }, 8);
+    }
+
+    /**
+     * Commit the continuation: ONE `updateFeature` on the SAME feature, so the
+     * id, the name and every style survive and a single Ctrl+Z undoes it.
+     *
+     * `createdAtZoom` and `zoomCorrectionEnabled` are carried over untouched
+     * (re-stamping them would resize the whole feature under the user) and the
+     * `calculated*` cache is left to the zoom pass that owns it; the symbol
+     * ratios are kept, so the echelon slides along the longer line exactly as it
+     * does when a vertex is inserted.
+     *
+     * @returns {Promise<void>} Resolves once the boundary and its dependents are
+     *   rebuilt, saved and reselected
+     */
+    finishExtending = async () => {
+        const session = this._extending;
+        if (!session) return;
+
+        const added = this.drawPoints.slice(1);
+        this._extending = null;
+
+        if (added.length === 0) {
+            showToast('Continuação cancelada: nenhum ponto novo.', 'info');
+            this.toolManager.deactivateCurrentTool();
+            return;
+        }
+
+        const coordinates = extendCoordinates(session.existing, added, session.end);
+        const properties = buildExtendedProperties(session.sourceFeature, coordinates);
+
+        try {
+            const geometry = this.geometry.generate(properties, this.getCurrentZoom());
+            if (!geometry || !geometry.coordinates) {
+                showWarning('Não foi possível gerar a linha de limite continuada');
+                this.toolManager.deactivateCurrentTool();
+                return;
+            }
+
+            const updatedFeature = {
+                ...session.sourceFeature,
+                properties,
+                geometry
+            };
+
+            await this.forceUpdateMainSource(updatedFeature);
+            await this.updateDependentFeatures(updatedFeature);
+            // `updateFeature` directly, not `saveFeatureChanges`: that helper
+            // swallows its own errors, which would leave the restore below
+            // unreachable for the very failure it exists to undo.
+            await updateFeature('boundarys', updatedFeature);
+
+            this.toolManager.deactivateCurrentTool();
+
+            await this.selectionManager.selectFeature('boundary', updatedFeature.properties.id, updatedFeature);
+            this.updateUIAfterEdit();
+        } catch (error) {
+            console.error('Error continuing boundary:', error);
+
+            // The MapLibre source was written BEFORE the store. If the store
+            // write failed, the map is showing a continuation that nothing
+            // persisted, and a reload would make it vanish. Put the original
+            // back, so screen and store agree again.
+            // The texts and the circles were rebuilt on the extended line too,
+            // so they go back with it.
+            try {
+                await this.forceUpdateMainSource(session.sourceFeature);
+                await this.updateDependentFeatures(session.sourceFeature);
+            } catch (restoreError) {
+                console.error('Error restoring boundary after failed continuation:', restoreError);
+            }
+
+            showWarning('Erro ao continuar a linha de limite');
+            this.toolManager.deactivateCurrentTool();
+        }
+    }
+
     // ===== EDIT HANDLES SYSTEM =====
 
     selectFeature = (feature) => {
@@ -617,6 +821,7 @@ class AddBoundaryControl extends BaseControl {
     }
 
     deselectFeature = () => {
+        hideExtensionHandles(this.map);
         this.isDraggingHandle = false;
         this.activeHandleType = null;
         this.activeHandleIndex = null;
@@ -643,9 +848,17 @@ class AddBoundaryControl extends BaseControl {
             type: 'FeatureCollection',
             features: handles
         });
+
+        // The continuation buttons ride with the vertex handles: every path that
+        // moves a vertex (drag, move, insert, remove, property change) ends here.
+        showExtensionHandles(this.map, feature, this);
     }
 
     clearEditHandles = () => {
+        // Mirror of createEditHandles: whoever tears down the vertex circles
+        // (deselection, but also the attribute table) tears down the
+        // continuation buttons with them.
+        hideExtensionHandles(this.map);
         this.map.getSource('boundary-feedback').setData({
             type: 'FeatureCollection',
             features: []
@@ -1686,6 +1899,11 @@ class AddBoundaryControl extends BaseControl {
 
         getSnappingService()?.hideIndicator(this.map);
 
+        if (this._extending) {
+            await this.finishExtending();
+            return;
+        }
+
         await this.createFeature();
         this.stopDrawing();
     }
@@ -1694,7 +1912,11 @@ class AddBoundaryControl extends BaseControl {
      * Undo last drawn point (touch device helper)
      */
     _undoLastPoint = () => {
-        if (!this.isActive || this.drawPoints.length === 0) return;
+        // While continuing, index 0 is the ANCHOR (the endpoint the user clicked
+        // the handle on), not a point they drew: undoing past it would detach the
+        // continuation from the boundary.
+        const floor = this._extending ? 1 : 0;
+        if (!this.isActive || this.drawPoints.length <= floor) return;
 
         this.drawPoints.pop();
 
@@ -1714,6 +1936,7 @@ class AddBoundaryControl extends BaseControl {
     }
 
     removeAllEventListeners = () => {
+        hideExtensionHandles(this.map);
         this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick);
         this.map.off('mousemove', this._onPreClickMouseMove);
         this.map.off('mousemove', this.handlePreviewMouseMove);

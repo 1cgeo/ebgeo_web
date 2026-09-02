@@ -1,0 +1,65 @@
+/* Path: css/line-extension.css */
+
+/**
+ * @fileoverview Continuation handles: the button that sits above the first and
+ * the last vertex of a selected line, arrow or boundary and re-opens the drawing
+ * tool on that end.
+ *
+ * The button is carried by a maplibregl.Marker, so it lives inside the map's
+ * canvas container. It must read as a COMMAND (not as a vertex handle, which is
+ * a red circle drawn in the GeoJSON layer right below it), hence the filled
+ * square-ish chip with a plus glyph rather than another circle.
+ */
+
+.line-extension-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    color: #fff;
+    background-color: var(--primary-600);
+    border: 2px solid #fff;
+    border-radius: var(--radius-full);
+    box-shadow: var(--shadow-control);
+    cursor: pointer;
+    transition: background-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.line-extension-handle svg {
+    width: 14px;
+    height: 14px;
+}
+
+.line-extension-handle:hover {
+    background-color: var(--primary-700);
+    transform: scale(1.15);
+}
+
+.line-extension-handle:focus-visible {
+    outline: 2px solid var(--color-info);
+    outline-offset: 2px;
+}
+
+/* The two ends are the same command, so they look the same on purpose; the
+   modifiers exist so a future affordance can tell them apart without the
+   markup changing. */
+.line-extension-handle--start,
+.line-extension-handle--end {
+    z-index: var(--z-controls);
+}
+
+@media (hover: none) {
+    /* Touch: no hover to enlarge the target, so it is born at the comfortable
+       size instead. */
+    .line-extension-handle {
+        width: 32px;
+        height: 32px;
+    }
+
+    .line-extension-handle svg {
+        width: 18px;
+        height: 18px;
+    }
+}
