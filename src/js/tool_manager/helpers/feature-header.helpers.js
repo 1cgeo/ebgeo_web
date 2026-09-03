@@ -31,6 +31,26 @@ function canMergeArrows(selectedFeatures) {
     return { canMerge: true };
 }
 
+/**
+ * The linear types that can be cut in two, with the menu label and the module
+ * owning the temporary click mode. Loaded lazily for the same reason the arrow
+ * operations are: a static edge from here into a tool chunk would recreate the
+ * core ↔ tool circular chunk.
+ * @constant {Object<string, {label: string, load: Function}>}
+ */
+const SPLITTABLE_LINEAR_SOURCES = {
+    line: {
+        label: 'Cortar Linha',
+        load: () => import('../../draw_tools/line_tool/line-split.js')
+            .then(module => module.activateSplitMode),
+    },
+    boundary: {
+        label: 'Cortar Linha de Limite',
+        load: () => import('../../military_tools/boundary_tool/boundary-split.js')
+            .then(module => module.activateBoundarySplitMode),
+    },
+};
+
 /** Pure property check — no heavy imports needed */
 function canSplitArrows(selectedFeatures) {
     if (!selectedFeatures || selectedFeatures.length !== 1) return { canSplit: false };
@@ -331,20 +351,22 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
         }
     }
 
-    // "Cortar Linha" stays exclusive to lines (single selection only)
-    if (selectedFeatures.length === 1 && linearSource === 'line') {
-        const splitLineButton = document.createElement('button');
-        splitLineButton.className = 'feature-menu-button';
-        splitLineButton.textContent = 'Cortar Linha';
+    // Cutting in two: lines and boundaries (single selection only). An arrow has
+    // no cut of its own, its "Separar Setas" being the inverse of the merge.
+    const splitSpec = selectedFeatures.length === 1 ? SPLITTABLE_LINEAR_SOURCES[linearSource] : null;
+    if (splitSpec) {
+        const splitButton = document.createElement('button');
+        splitButton.className = 'feature-menu-button';
+        splitButton.textContent = splitSpec.label;
 
-        splitLineButton.addEventListener('click', async (e) => {
+        splitButton.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
             closeAllFeatureDropdowns(true);
-            const { activateSplitMode } = await import('../../draw_tools/line_tool/line-split.js');
-            await activateSplitMode(currentFeature, selectionManager.map, selectionManager);
+            const activate = await splitSpec.load();
+            await activate(currentFeature, selectionManager.map, selectionManager);
         });
-        dropdown.appendChild(splitLineButton);
+        dropdown.appendChild(splitButton);
     }
 
     // Add reverse option for arrow features (single selection only)

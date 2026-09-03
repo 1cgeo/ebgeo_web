@@ -144,6 +144,15 @@ export default defineConfig(({ mode: _mode }) => ({
           if (id.includes('boundary_tool/boundary-zoom.model')) {
             return 'core';
           }
+          // boundary-split.model.js is a pure leaf too (cut eligibility plus the
+          // echelon-ratio remap; its only import is tool_manager/helpers/
+          // linear-conversion.model, which is core). It lives under
+          // military_tools/ but the context menu (ui-components) imports it
+          // statically to gate its "Cortar Linha de Limite" entry, so it follows
+          // boundary-zoom.model into core for the same reason.
+          if (id.includes('boundary_tool/boundary-split.model')) {
+            return 'core';
+          }
           // Military tools (large bundle)
           if (id.includes('military_tools')) {
             return 'military-tools';
