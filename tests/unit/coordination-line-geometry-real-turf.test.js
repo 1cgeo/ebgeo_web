@@ -4,7 +4,7 @@ import { runInThisContext } from 'node:vm';
 import { readFileSync } from 'node:fs';
 
 /**
- * Barrier line geometry against the REAL turf bundle the app ships.
+ * Coordination line geometry against the REAL turf bundle the app ships.
  *
  * Everything here is a MEASUREMENT of the drawn coordinates, because the two
  * defects this symbol can have are both invisible to a stub: a diamond that does
@@ -38,7 +38,7 @@ vi.mock('@tools', () => ({
 
 const require = createRequire(import.meta.url);
 
-let AddBarrierLineGeometry;
+let AddCoordinationLineGeometry;
 let geom;
 let turf;
 
@@ -49,9 +49,9 @@ beforeAll(async () => {
     runInThisContext(code);
     turf = globalThis.turf;
 
-    ({ default: AddBarrierLineGeometry } =
-        await import('../../src/js/military_tools/barrier_line_tool/add_barrier_line_geometry.js'));
-    geom = new AddBarrierLineGeometry();
+    ({ default: AddCoordinationLineGeometry } =
+        await import('../../src/js/military_tools/coordination_line_tool/add_coordination_line_geometry.js'));
+    geom = new AddCoordinationLineGeometry();
 });
 
 /** Metres between two coordinates. */
@@ -87,7 +87,7 @@ function split(geometry) {
     return { diamonds, segments };
 }
 
-/** Build the properties a drawn barrier line would carry. */
+/** Build the properties a drawn coordination line would carry. */
 const props = (baseCoordinates, overrides = {}) => ({
     baseCoordinates,
     lineWidth: 4,
@@ -191,7 +191,7 @@ describe('worst case', () => {
     it('a size wider than its spacing does NOT eat the line', () => {
         // The raw request is 3 km diamonds every 1 km on a 96 km line. Measured
         // on 2026-09-03 without the invariant: 94 diamonds and 2 stray segments,
-        // i.e. no visible barrier at all.
+        // i.e. no visible line at all.
         const base = straightLine(96);
         const geometry = geom.generate(props(base, { symbol_size: 3, symbol_spacing: 1 }), 12);
 
@@ -213,7 +213,7 @@ describe('worst case', () => {
         );
 
         const { diamonds } = split(geometry);
-        expect(diamonds.length).toBeLessThanOrEqual(geom.maxDiamonds);
+        expect(diamonds.length).toBeLessThanOrEqual(geom.maxGlyphs);
 
         const vertexCount = geometry.coordinates.reduce((sum, coords) => sum + coords.length, 0);
         expect(vertexCount).toBeLessThan(2000);
@@ -355,12 +355,148 @@ describe('describeLayout', () => {
             props(straightLine(100), { createdAtZoom: 12, zoomCorrectionEnabled: false }),
             22,
         );
-        expect(capped.count).toBe(geom.maxDiamonds);
+        expect(capped.count).toBe(geom.maxGlyphs);
         expect(capped.capped).toBe(true);
     });
 
     it('reports zero for a line too short to carry one whole diamond', () => {
         const tiny = geom.describeLayout(props(straightLine(0.1), { symbol_size: 5 }), 12);
         expect(tiny.count).toBe(0);
+    });
+});
+
+// ============================================================================
+// THE CATALOGUE — one drawing problem, five symbols, two axes of variation
+// ============================================================================
+
+/**
+ * Total length of every emitted ring, in kilometres.
+ * @param {Object} geometry - Generated geometry
+ * @returns {number} Length in kilometres
+ */
+const totalDrawn = (geometry) => geometry.coordinates
+    .reduce((sum, coords) => sum + lengthKm(coords), 0);
+
+/** Rings of a given vertex count. */
+const ringsOfSize = (geometry, n) => geometry.coordinates.filter(c => c.length === n);
+
+/**
+ * The unbroken spine a non-interrupting symbol rides on: the one ring as long as
+ * the line itself. On a straight two-vertex line the spine is ALSO a two-point
+ * ring, so every count of strokes has to exclude it explicitly.
+ */
+const spineOf = (geometry, base) =>
+    geometry.coordinates.find(c => lengthKm(c) > lengthKm(base) * 0.99);
+
+/** Two-point strokes that are not the spine. */
+const strokesOf = (geometry, base) => geometry.coordinates
+    .filter(c => c.length === 2 && lengthKm(c) < lengthKm(base) * 0.5);
+
+describe('catalogo de simbolos lineares', () => {
+    const base = straightLine(10);
+
+    it('a linha de obstaculos (290100) desenha picos de tres pontos e INTERROMPE a linha', () => {
+        const geometry = geom.generate(props(base, { symbol_code: '290100' }), 12);
+        const picos = ringsOfSize(geometry, 3);
+
+        expect(picos.length).toBe(5);
+        // Interrupted: what is drawn is shorter than the spine plus the glyphs
+        // would be if the line ran whole underneath them.
+        expect(totalDrawn(geometry)).toBeLessThan(lengthKm(base) * 1.5);
+
+        for (const [left, apex, right] of picos) {
+            // The apex stands off the line; the two feet sit on it.
+            expect(metres(left, apex)).toBeGreaterThan(1);
+            expect(metres(apex, right)).toBeGreaterThan(1);
+            expect(metres(left, apex)).toBeCloseTo(metres(apex, right), 1);
+        }
+    });
+
+    it('a cerca de arame (290302) poe tres tracos por simbolo e NAO interrompe a linha', () => {
+        const geometry = geom.generate(props(base, { symbol_code: '290302' }), 12);
+        expect(strokesOf(geometry, base).length).toBe(5 * 3);
+
+        // The spine survives whole underneath: one ring covers the full length.
+        expect(spineOf(geometry, base)).toBeDefined();
+    });
+
+    it('a cerca de arame dupla (290303) poe seis tracos por simbolo', () => {
+        const geometry = geom.generate(props(base, { symbol_code: '290303' }), 12);
+        const esperado = geom.describeLayout(props(base, { symbol_code: '290303' }), 12).count;
+
+        expect(esperado).toBeGreaterThan(0);
+        expect(strokesOf(geometry, base).length).toBe(esperado * 6);
+        expect(spineOf(geometry, base)).toBeDefined();
+    });
+
+    it('a concertina (290307) desenha lacos fechados APOIADOS na linha, todos do mesmo lado', () => {
+        const properties = props(base, { symbol_code: '290307' });
+        const geometry = geom.generate(properties, 12);
+        const esperado = geom.describeLayout(properties, 12).count;
+
+        const lacos = ringsOfSize(geometry, 17);
+        expect(lacos.length).toBe(esperado);
+
+        // Measured against the DRAWN spine, not the clicked base line. The two
+        // differ by the great-circle bow (1.13 m on this 10 km line, measured on
+        // 2026-09-03), and the loop is placed by the same convention as the
+        // spine, so the spine is the honest reference.
+        const espinhaCoords = spineOf(geometry, base);
+        expect(espinhaCoords).toBeDefined();
+        const espinha = turf.lineString(espinhaCoords);
+        for (const laco of lacos) {
+            // Closed ring.
+            expect(laco[0]).toEqual(laco[laco.length - 1]);
+            // Every vertex on the same side, and the lowest one touching the line.
+            const lados = laco.map(p => Math.sign(
+                turf.pointToLineDistance(turf.point(p), espinha, { units: 'meters', method: 'planar' })
+            ));
+            const distancias = laco.map(p => Math.abs(
+                turf.pointToLineDistance(turf.point(p), espinha, { units: 'meters' })
+            ));
+            // The loop stands on the line to within a fraction of its own height.
+            // The residual is NOT slack in the glyph: it is the great-circle bow,
+            // measured at 1.13 m on this 10 km east-west line on 2026-09-03. The
+            // spine of a straight line is drawn between its two clicked vertices,
+            // while the loop is anchored at a turf.along point, and the two
+            // conventions differ by exactly that. Symbols that INTERRUPT the line
+            // do not show it, because both sides of their seam come from along
+            // (see the seam suite above, which measures 0.000 m).
+            const altura = Math.max(...distancias);
+            expect(Math.min(...distancias)).toBeLessThan(altura * 0.02);
+            expect(altura).toBeGreaterThan(100);
+            expect(new Set(lados.filter(s => s !== 0)).size).toBeLessThanOrEqual(1);
+        }
+    });
+
+    it('um codigo desconhecido cai no simbolo padrao em vez de lancar', () => {
+        const geometry = geom.generate(props(base, { symbol_code: '999999' }), 12);
+        const padrao = geom.generate(props(base, { symbol_code: '290199' }), 12);
+        expect(geometry).toEqual(padrao);
+    });
+
+    it('WORST CASE: todo simbolo do catalogo sobrevive aos insumos degenerados', () => {
+        const spine = straightLine(10);
+        const codigos = ['290100', '290199', '290302', '290303', '290307'];
+        const degenerados = [
+            ['linha de comprimento zero', [[-53, -30], [-53, -30]]],
+            ['vai-e-volta', [[-53, -30], [-52.95, -30], [-53, -30]]],
+        ];
+
+        for (const code of codigos) {
+            for (const [nome, coords] of degenerados) {
+                const geometry = geom.generate(props(coords, { symbol_code: code }), 12);
+                expect(geometry, `${code} / ${nome}`).toBeTruthy();
+                expect(['LineString', 'MultiLineString'], `${code} / ${nome}`).toContain(geometry.type);
+            }
+            // E o teto vale para todos, nao so para o losango.
+            const apertado = geom.generate(
+                props(spine, { symbol_code: code, symbol_size: 0.001, symbol_spacing: 0.002 }), 12,
+            );
+            expect(geom.describeLayout(
+                props(spine, { symbol_code: code, symbol_size: 0.001, symbol_spacing: 0.002 }), 12,
+            ).count, code).toBeLessThanOrEqual(geom.maxGlyphs);
+            expect(apertado.coordinates.length, code).toBeGreaterThan(0);
+        }
     });
 });

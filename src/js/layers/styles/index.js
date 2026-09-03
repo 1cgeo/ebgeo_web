@@ -10,5 +10,5 @@ export { setupPolygonLayers } from './polygon.layers.js';
 export { setupCircleLayers, setupRectangleLayers, setupEllipseLayers, setupSectorLayers } from './shape.layers.js';
 export { setupTextLayers, setupImageLayers, setupArrowLayers } from './content.layers.js';
 export { setupMilitarySymbolsLayers, setupCoordinationMeasureLayers, setupDeclinationLayers } from './symbol.layers.js';
-export { setupBoundaryLayers, setupOccupiedFrontLayers, setupBarrierLineLayers, setupLOSLayers, setupVisibilityLayers } from './tactical.layers.js';
+export { setupBoundaryLayers, setupOccupiedFrontLayers, setupCoordinationLineLayers, setupLOSLayers, setupVisibilityLayers } from './tactical.layers.js';
 export { setupLayerSeparators, setupAuxiliaryLayers } from './auxiliary.layers.js';

@@ -169,7 +169,7 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | 4 | **Seta** — desenhar seta | 🟡 `FEATURE_CREATED` via servidor ao completar. |
 | 5 | **Linha de Limite** — desenhar fronteira | 🟡 `FEATURE_CREATED` via servidor ao completar. |
 | 6 | **Frente Ocupada** — desenhar frente | 🟡 `FEATURE_CREATED` via servidor ao completar. |
-| 7 | **Linha de Barreiras** — desenhar barreiras | 🟡 `FEATURE_CREATED` via servidor ao completar. |
+| 7 | **Linha de Coordenação** — desenhar barreiras | 🟡 `FEATURE_CREATED` via servidor ao completar. |
 | 8 | **Declinação Magnética** — posicionar diagrama no mapa (cálculo WMM automático) | 🟡 `FEATURE_CREATED` via servidor ao completar. |
 
 ---

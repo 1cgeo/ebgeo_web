@@ -1314,7 +1314,7 @@ function _drawLegendSwatch(ctx, x, y, type, color) {
             break;
         case 'line':
         case 'brush':
-        case 'barrier_line':
+        case 'coordination_line':
             ctx.beginPath();
             ctx.moveTo(x, y + 12);
             ctx.lineTo(x + 16, y + 4);
@@ -1391,7 +1391,7 @@ function _getTypeDisplayName(type) {
         arrow: 'Setas',
         boundary: 'Limites',
         occupied_front: 'Frentes Ocupadas',
-        barrier_line: 'Linhas de Barreiras',
+        coordination_line: 'Linhas de Coordenação',
         military_symbol: 'Símbolos Militares',
         coordination_measure: 'Medidas de Coordenação',
         los: 'Linhas de Visada',

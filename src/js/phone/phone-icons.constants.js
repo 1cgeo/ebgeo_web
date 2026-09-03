@@ -24,7 +24,7 @@ export const FEATURE_TYPE_ICONS_14 = Object.freeze({
     arrow: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="3" y1="13" x2="13" y2="3"/><polyline points="7,3 13,3 13,9"/></svg>',
     boundary: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2"><rect x="2" y="2" width="12" height="12"/></svg>',
     occupied_front: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8h12"/><path d="M5 5l3 3-3 3M8 5l3 3-3 3"/></svg>',
-    barrier_line: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 8h4"/><path d="M5 8l3-3 3 3-3 3z"/><path d="M11 8h4"/></svg>',
+    coordination_line: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 8h4"/><path d="M5 8l3-3 3 3-3 3z"/><path d="M11 8h4"/></svg>',
     military_symbol: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="10" height="8"/><line x1="8" y1="4" x2="8" y2="2"/></svg>',
     coordination_measure: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg>',
 });

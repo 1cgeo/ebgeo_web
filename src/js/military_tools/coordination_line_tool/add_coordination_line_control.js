@@ -1,4 +1,4 @@
-// Path: js/military_tools/barrier_line_tool/add_barrier_line_control.js
+// Path: js/military_tools/coordination_line_tool/add_coordination_line_control.js
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '@store';
 import { IDUtils, deepClone, deepEqual, createSerialQueue, showToast, showWarning } from '@utils';
@@ -18,31 +18,34 @@ import {
     hideExtensionHandles,
     showExtensionHandles,
 } from '@tools/helpers/line-extension.helpers.js';
-import AddBarrierLineGeometry from './add_barrier_line_geometry.js';
-import { addBarrierLineAttributesToPanel } from './barrier_line_attributes_panel.js';
+import AddCoordinationLineGeometry from './add_coordination_line_geometry.js';
+import { DEFAULT_SYMBOL_CODE } from './coordination_line_catalog.js';
+import { addCoordinationLineAttributesToPanel } from './coordination_line_attributes_panel.js';
 import {
-    computeBarrierLineZoomSizes,
-    withBarrierLineZoomSizes,
+    computeCoordinationLineZoomSizes,
+    withCoordinationLineZoomSizes,
     isScreenAnchored,
-    BARRIER_LINE_ZOOM_LIMITS,
-} from './barrier-line-zoom.model.js';
+    COORDINATION_LINE_ZOOM_LIMITS,
+} from './coordination-line-zoom.model.js';
 
 /**
- * Barrier Line control ("Linha de Barreiras", MD33 code 290199, extension 01).
+ * Coordination Line control: the MD33 linear symbols (obstacle line, barrier line,
+ * wire fence, double wire fence, concertina).
  *
- * A polyline interrupted at regular intervals by a hollow diamond. Modelled on
+ * A polyline carrying a glyph repeated at a regular spacing, chosen from
+ * coordination_line_catalog.js. Modelled on
  * the boundary tool, which is the other military line with a repeating symbol
  * and a zoom anchor, minus everything the boundary needs for its labels and
  * echelon circles: this tool draws into ONE source, so it has no dependent
  * features to rebuild, no sibling sources to keep in step, and no restore hook.
  */
-class AddBarrierLineControl extends BaseControl {
-    featureType = 'barrier_line';
+class AddCoordinationLineControl extends BaseControl {
+    featureType = 'coordination_line';
 
     /**
-     * Sizes a freshly drawn barrier line is born with.
+     * Sizes a freshly drawn coordination line is born with.
      *
-     * The diamond is sized from the zoom so that a barrier drawn at any scale
+     * The glyph is sized from the zoom so that a line drawn at any scale
      * looks the same on screen, exactly as the boundary sizes its echelon. The
      * spacing follows the size, which keeps the gap fraction at 1/3, safely under
      * the model's 0.5 ceiling.
@@ -59,16 +62,18 @@ class AddBarrierLineControl extends BaseControl {
         color: '#000000',
         lineWidth: 4,
         opacity: 1,
-        source: 'barrier_line',
-        type: 'barrier_line',
-        // Diamond along-line diagonal and centre-to-centre distance, both in km.
+        source: 'coordination_line',
+        type: 'coordination_line',
+        // Which MD33 linear symbol this line draws. See coordination_line_catalog.js.
+        symbol_code: DEFAULT_SYMBOL_CODE,
+        // Glyph along-line size and centre-to-centre distance, both in km.
         symbol_size: 0.5,
         symbol_spacing: 1.5,
         // Zoom anchor: ONE switch for the whole feature. On (the default), the
         // stroke scales 2x per zoom level from `createdAtZoom` and the diamonds
         // keep their ground size, so everything stays glued to the TERRAIN; off,
         // the stroke stays put and the diamonds shrink in kilometres instead, so
-        // everything stays glued to the SCREEN. See barrier-line-zoom.model.js.
+        // everything stays glued to the SCREEN. See coordination-line-zoom.model.js.
         createdAtZoom: 0,
         zoomCorrectionEnabled: true,
         calculatedLineWidth: 4,
@@ -88,9 +93,9 @@ class AddBarrierLineControl extends BaseControl {
         this.activeHandleType = null;
         this.activeHandleIndex = null;
 
-        this.geometry = new AddBarrierLineGeometry();
+        this.geometry = new AddCoordinationLineGeometry();
 
-        // Every read-modify-write of `barrier_lines` goes through this queue.
+        // Every read-modify-write of `coordination_lines` goes through this queue.
         // `getData()` is a round trip to the worker, so two overlapping cycles
         // both read the pre-mutation clone and the second `setData` silently
         // discards the first one's work. The zoom pass, a panel edit and a paste
@@ -114,10 +119,10 @@ class AddBarrierLineControl extends BaseControl {
         this.clickTimer = null;
         this.lastClickCoords = null;
         this._finishButton = null;
-        this._name = 'AddBarrierLineControl';
+        this._name = 'AddCoordinationLineControl';
 
         // Continuation session, set while the user is extending an existing
-        // barrier line from one of its ends. See startExtending / finishExtending.
+        // coordination line from one of its ends. See startExtending / finishExtending.
         this._extending = null;
 
         this._activePointerId = null;
@@ -132,13 +137,13 @@ class AddBarrierLineControl extends BaseControl {
     // ========================================================================
 
     /**
-     * Diamond size for a barrier line born at a given zoom.
+     * Diamond size for a coordination line born at a given zoom.
      * @param {number} zoom - Current map zoom level
      * @returns {number} Diamond size in kilometres
      */
     calculateSymbolSizeForZoom(zoom) {
         const { ZOOM_BASE_MULTIPLIER, ZOOM_EXPONENT_BASE, DEFAULT_SIZE_KM, MIN_SIZE_KM } =
-            AddBarrierLineControl.SYMBOL_SIZE_CONSTANTS;
+            AddCoordinationLineControl.SYMBOL_SIZE_CONSTANTS;
 
         if (!Number.isFinite(zoom)) return DEFAULT_SIZE_KM;
 
@@ -154,7 +159,7 @@ class AddBarrierLineControl extends BaseControl {
      * @returns {number} Centre-to-centre distance in kilometres
      */
     calculateSpacingForSize(sizeKm) {
-        return sizeKm * AddBarrierLineControl.SYMBOL_SIZE_CONSTANTS.SPACING_RATIO;
+        return sizeKm * AddCoordinationLineControl.SYMBOL_SIZE_CONSTANTS.SPACING_RATIO;
     }
 
     // ========================================================================
@@ -185,30 +190,30 @@ class AddBarrierLineControl extends BaseControl {
 
     createAttributePanel(container, features, selectionManager, uiManager, options = {}) {
         const sectionPanel = document.createElement('div');
-        sectionPanel.className = 'barrier-line-attributes-section';
+        sectionPanel.className = 'coordination-line-attributes-section';
 
         try {
-            addBarrierLineAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager, options);
+            addCoordinationLineAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager, options);
             container.appendChild(sectionPanel);
         } catch (error) {
-            console.error('Error creating barrier line attribute panel:', error);
+            console.error('Error creating coordination line attribute panel:', error);
         }
     }
 
     getDragSources() {
-        return ['barrier_lines'];
+        return ['coordination_lines'];
     }
 
     getEditHandleSources() {
-        return ['barrier-line-edit-handles'];
+        return ['coordination-line-edit-handles'];
     }
 
     getSourceNames() {
-        return ['barrier_lines'];
+        return ['coordination_lines'];
     }
 
     getEditHandleSource() {
-        return 'barrier-line-edit-handles';
+        return 'coordination-line-edit-handles';
     }
 
     /**
@@ -219,7 +224,7 @@ class AddBarrierLineControl extends BaseControl {
      * @returns {string[]} Layer ids
      */
     getLayerIds() {
-        return ['barrier-line-layer'];
+        return ['coordination-line-layer'];
     }
 
     getSelectionBoxStrategy() {
@@ -240,7 +245,7 @@ class AddBarrierLineControl extends BaseControl {
             }
             return turf.bbox(feature);
         } catch (error) {
-            console.warn('Error creating barrier line selection box:', error);
+            console.warn('Error creating coordination line selection box:', error);
             return null;
         }
     }
@@ -324,7 +329,7 @@ class AddBarrierLineControl extends BaseControl {
     deactivate = () => {
         // Dropped FIRST: Esc and switching tools both land here, and a
         // continuation writes nothing before it is committed, so forgetting the
-        // session leaves the original barrier line untouched by construction.
+        // session leaves the original coordination line untouched by construction.
         // The 250 ms click timer is cleared further down, by clearPreview ->
         // cancelPendingUpdates.
         this._extending = null;
@@ -363,7 +368,7 @@ class AddBarrierLineControl extends BaseControl {
     onFeatureSelected = (feature) => {
         const normalizedCoords = this.geometry.normalizeBaseCoordinates(feature?.properties?.baseCoordinates);
         if (feature?.properties?.baseCoordinates && !(normalizedCoords && normalizedCoords.length >= 2)) {
-            console.warn('Cannot select barrier line - invalid coordinates:', feature.properties.baseCoordinates);
+            console.warn('Cannot select coordination line - invalid coordinates:', feature.properties.baseCoordinates);
             return;
         }
         if (normalizedCoords) {
@@ -401,7 +406,7 @@ class AddBarrierLineControl extends BaseControl {
 
         const normalizedCoords = this.geometry.normalizeBaseCoordinates(updatedFeature.properties.baseCoordinates);
         if (!normalizedCoords || normalizedCoords.length < 2) {
-            console.warn('Invalid coordinates in moved barrier line, keeping current selection');
+            console.warn('Invalid coordinates in moved coordination line, keeping current selection');
             return;
         }
 
@@ -505,7 +510,7 @@ class AddBarrierLineControl extends BaseControl {
         }
 
         if (this.isDraggingHandle && this.getSelectedFeature() && this.activeHandleType) {
-            this.updateBarrierLinePreview(this.lastPreviewPosition);
+            this.updateCoordinationLinePreview(this.lastPreviewPosition);
         } else if (this._extending) {
             this._updateExtensionPreview();
         } else if (this.lastPreviewPoints && this.lastPreviewPoints.length >= 1) {
@@ -521,8 +526,8 @@ class AddBarrierLineControl extends BaseControl {
                 // Derive the sizes instead of inheriting the defaults': the shared
                 // DEFAULT_PROPERTIES carries derived values belonging to another
                 // size, and the preview overrides only the authored pair.
-                const previewProperties = withBarrierLineZoomSizes({
-                    ...AddBarrierLineControl.DEFAULT_PROPERTIES,
+                const previewProperties = withCoordinationLineZoomSizes({
+                    ...AddCoordinationLineControl.DEFAULT_PROPERTIES,
                     symbol_size: previewSize,
                     symbol_spacing: this.calculateSpacingForSize(previewSize),
                     createdAtZoom: Math.round(currentZoom * 10) / 10,
@@ -537,7 +542,7 @@ class AddBarrierLineControl extends BaseControl {
     }
 
     showPreview = (geometry) => {
-        this.map.getSource('barrier-line-feedback')?.setData({
+        this.map.getSource('coordination-line-feedback')?.setData({
             type: 'Feature',
             geometry,
             properties: {},
@@ -546,7 +551,7 @@ class AddBarrierLineControl extends BaseControl {
 
     clearPreview = () => {
         this.cancelPendingUpdates();
-        this.map?.getSource('barrier-line-feedback')?.setData({
+        this.map?.getSource('coordination-line-feedback')?.setData({
             type: 'FeatureCollection',
             features: [],
         });
@@ -564,18 +569,18 @@ class AddBarrierLineControl extends BaseControl {
         if (this.drawPoints.length < 2) return;
 
         if (!this.geometry.validate(this.drawPoints)) {
-            console.warn('Insufficient valid points for barrier line creation');
+            console.warn('Insufficient valid points for coordination line creation');
             return;
         }
 
         const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
-        const featureName = await IDUtils.generateFeatureName('barrier_line', this.map);
+        const featureName = await IDUtils.generateFeatureName('coordination_line', this.map);
 
         const currentZoom = this.map.getZoom();
         const adaptiveSize = this.calculateSymbolSizeForZoom(currentZoom);
 
         const properties = {
-            ...AddBarrierLineControl.DEFAULT_PROPERTIES,
+            ...AddCoordinationLineControl.DEFAULT_PROPERTIES,
             symbol_size: adaptiveSize,
             symbol_spacing: this.calculateSpacingForSize(adaptiveSize),
             baseCoordinates: [...this.drawPoints],
@@ -587,24 +592,24 @@ class AddBarrierLineControl extends BaseControl {
 
         // At creation the factor is 1 by construction; computing it anyway keeps
         // the derived properties written in one place only.
-        Object.assign(properties, computeBarrierLineZoomSizes(properties, currentZoom));
+        Object.assign(properties, computeCoordinationLineZoomSizes(properties, currentZoom));
 
         const geometry = this.geometry.generate(properties, currentZoom);
 
         if (!geometry || !geometry.coordinates) {
-            console.error('Failed to generate valid geometry for barrier line');
+            console.error('Failed to generate valid geometry for coordination line');
             return;
         }
 
         const feature = { type: 'Feature', id: geoJsonId, properties, geometry };
 
         try {
-            await addFeature('barrier_lines', feature);
+            await addFeature('coordination_lines', feature);
 
             // One task: the append must not be split by another cycle reading the
             // source in between.
             await this._sourceQueue(async () => {
-                const source = this.map?.getSource('barrier_lines');
+                const source = this.map?.getSource('coordination_lines');
                 if (!source) return;
                 const data = await source.getData();
                 data.features.push(feature);
@@ -613,22 +618,22 @@ class AddBarrierLineControl extends BaseControl {
 
             this.drawPoints = [];
             this.toolManager.deactivateCurrentTool();
-            await this.selectionManager.toggleFeatureSelection('barrier_line', featureId, feature);
+            await this.selectionManager.toggleFeatureSelection('coordination_line', featureId, feature);
             this.selectionManager.updateUI();
         } catch (error) {
-            console.error('Error creating barrier line:', error);
+            console.error('Error creating coordination line:', error);
         }
     }
 
     // ========================================================================
-    // CONTINUING AN EXISTING BARRIER LINE
+    // CONTINUING AN EXISTING COORDINATION LINE
     // ========================================================================
 
     /**
-     * Open a continuation session from one end of an existing barrier line.
+     * Open a continuation session from one end of an existing coordination line.
      * Called by the continuation buttons that `showExtensionHandles` draws on the
      * two endpoints of the selected feature.
-     * @param {Object} feature - The barrier line to continue
+     * @param {Object} feature - The coordination line to continue
      * @param {string} end - Which end, `'start'` or `'end'`
      */
     startExtending = (feature, end) => {
@@ -677,7 +682,7 @@ class AddBarrierLineControl extends BaseControl {
         this.map.getCanvas().style.cursor = 'crosshair';
         this._finishButton?.updateState(this.drawPoints.length, 2);
 
-        showToast('Clique no mapa para continuar a linha de barreiras. Botão direito para concluir.', 'info');
+        showToast('Clique no mapa para continuar a linha de coordenação. Botão direito para concluir.', 'info');
     }
 
     /**
@@ -703,7 +708,7 @@ class AddBarrierLineControl extends BaseControl {
         if (coordinates.length < 2) return;
 
         // The FEATURE's own properties, never the tool defaults: the diamond size
-        // and spacing carve the gaps, so defaults would preview a barrier the
+        // and spacing carve the gaps, so defaults would preview a symbol the
         // feature does not have.
         const properties = buildExtendedProperties(session.sourceFeature, coordinates);
 
@@ -750,7 +755,7 @@ class AddBarrierLineControl extends BaseControl {
         try {
             const geometry = this.geometry.generate(properties, this.getCurrentZoom());
             if (!geometry || !geometry.coordinates) {
-                showWarning('Não foi possível gerar a linha de barreiras continuada');
+                showWarning('Não foi possível gerar a linha de coordenação continuada');
                 this.toolManager.deactivateCurrentTool();
                 return;
             }
@@ -761,16 +766,16 @@ class AddBarrierLineControl extends BaseControl {
             // `updateFeature` directly, not `saveFeatureChanges`: that helper
             // swallows its own errors, which would leave the restore below
             // unreachable for the very failure it exists to undo.
-            await updateFeature('barrier_lines', updatedFeature);
+            await updateFeature('coordination_lines', updatedFeature);
 
             this.toolManager.deactivateCurrentTool();
 
             await this.selectionManager.selectFeature(
-                'barrier_line', updatedFeature.properties.id, updatedFeature,
+                'coordination_line', updatedFeature.properties.id, updatedFeature,
             );
             this.updateUIAfterEdit();
         } catch (error) {
-            console.error('Error continuing barrier line:', error);
+            console.error('Error continuing coordination line:', error);
 
             // The MapLibre source was written BEFORE the store. If the store
             // write failed, the map is showing a continuation that nothing
@@ -779,10 +784,10 @@ class AddBarrierLineControl extends BaseControl {
             try {
                 await this.forceUpdateMainSource(session.sourceFeature);
             } catch (restoreError) {
-                console.error('Error restoring barrier line after failed continuation:', restoreError);
+                console.error('Error restoring coordination line after failed continuation:', restoreError);
             }
 
-            showWarning('Erro ao continuar a linha de barreiras');
+            showWarning('Erro ao continuar a linha de coordenação');
             this.toolManager.deactivateCurrentTool();
         }
     }
@@ -820,13 +825,13 @@ class AddBarrierLineControl extends BaseControl {
         const handles = this.geometry.createHandles(feature);
         if (!handles || handles.length === 0) return;
 
-        this.map.getSource('barrier-line-feedback')?.setData({
+        this.map.getSource('coordination-line-feedback')?.setData({
             type: 'Feature',
             geometry: feature.geometry,
             properties: {},
         });
 
-        this.map.getSource('barrier-line-edit-handles')?.setData({
+        this.map.getSource('coordination-line-edit-handles')?.setData({
             type: 'FeatureCollection',
             features: handles,
         });
@@ -841,8 +846,8 @@ class AddBarrierLineControl extends BaseControl {
         // tears down the continuation buttons with them.
         hideExtensionHandles(this.map);
         const empty = { type: 'FeatureCollection', features: [] };
-        this.map?.getSource('barrier-line-feedback')?.setData(empty);
-        this.map?.getSource('barrier-line-edit-handles')?.setData(empty);
+        this.map?.getSource('coordination-line-feedback')?.setData(empty);
+        this.map?.getSource('coordination-line-edit-handles')?.setData(empty);
     }
 
     setupEditEventListeners = () => {
@@ -878,7 +883,7 @@ class AddBarrierLineControl extends BaseControl {
         const point = getPointerPosition(e, canvas);
 
         const handleFeatures = this.map.queryRenderedFeatures([point.x, point.y], {
-            layers: ['barrier-line-edit-handles-layer'],
+            layers: ['coordination-line-edit-handles-layer'],
         });
         if (handleFeatures.length === 0) return;
 
@@ -983,7 +988,7 @@ class AddBarrierLineControl extends BaseControl {
         this.replayMissedZoomUpdate();
     }
 
-    updateBarrierLinePreview = (newPosition) => {
+    updateCoordinationLinePreview = (newPosition) => {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature || !this.activeHandleType) return;
 
@@ -1009,14 +1014,14 @@ class AddBarrierLineControl extends BaseControl {
     }
 
     showEditPreview = (geometry, properties) => {
-        this.map.getSource('barrier-line-feedback')?.setData({
+        this.map.getSource('coordination-line-feedback')?.setData({
             type: 'Feature',
             geometry,
             properties: {},
         });
 
         const handles = this.geometry.createHandles({ properties, geometry });
-        this.map.getSource('barrier-line-edit-handles')?.setData({
+        this.map.getSource('coordination-line-edit-handles')?.setData({
             type: 'FeatureCollection',
             features: handles,
         });
@@ -1057,12 +1062,12 @@ class AddBarrierLineControl extends BaseControl {
         }
     }
 
-    hasHandleAtPoint = (features) => features.some(f => f.layer?.id === 'barrier-line-edit-handles-layer')
+    hasHandleAtPoint = (features) => features.some(f => f.layer?.id === 'coordination-line-edit-handles-layer')
 
     hasSelectedFeatureAtPoint = (features) => {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return false;
-        return features.some(f => f.source === 'barrier_lines'
+        return features.some(f => f.source === 'coordination_lines'
             && f.properties.id === selectedFeature.properties.id);
     }
 
@@ -1076,7 +1081,7 @@ class AddBarrierLineControl extends BaseControl {
         if (!selectedFeature) return;
 
         const handleFeatures = this.map.queryRenderedFeatures([e.offsetX, e.offsetY], {
-            layers: ['barrier-line-edit-handles-layer'],
+            layers: ['coordination-line-edit-handles-layer'],
         });
 
         const vertexHandle = handleFeatures.find(f =>
@@ -1089,7 +1094,7 @@ class AddBarrierLineControl extends BaseControl {
 
         const coordinates = this.geometry.normalizeBaseCoordinates(selectedFeature.properties.baseCoordinates);
         if (!coordinates || coordinates.length <= 2) {
-            showWarning('Uma linha de barreiras precisa de pelo menos dois vértices.');
+            showWarning('Uma linha de coordenação precisa de pelo menos dois vértices.');
             return;
         }
 
@@ -1130,7 +1135,7 @@ class AddBarrierLineControl extends BaseControl {
         }
 
         this.pendingZoomUpdate = true;
-        this.zoomRafId = requestAnimationFrame(this.updateAllBarrierLineZoomSizes);
+        this.zoomRafId = requestAnimationFrame(this.updateAllCoordinationLineZoomSizes);
     }
 
     replayMissedZoomUpdate = () => {
@@ -1143,12 +1148,12 @@ class AddBarrierLineControl extends BaseControl {
 
     /**
      * A copy of the feature carrying freshly derived sizes.
-     * @param {Object} feature - Barrier line feature
+     * @param {Object} feature - Coordination line feature
      * @returns {Object} New feature object
      */
     withZoomSizes = (feature) => ({
         ...feature,
-        properties: withBarrierLineZoomSizes(feature.properties, this.getCurrentZoom()),
+        properties: withCoordinationLineZoomSizes(feature.properties, this.getCurrentZoom()),
     })
 
     /**
@@ -1168,7 +1173,7 @@ class AddBarrierLineControl extends BaseControl {
         if (!Array.isArray(features)) return [];
 
         return features.map(feature => {
-            const properties = withBarrierLineZoomSizes(feature.properties, zoom);
+            const properties = withCoordinationLineZoomSizes(feature.properties, zoom);
             return { ...feature, properties, geometry: this.geometry.generate(properties, zoom) };
         });
     }
@@ -1179,7 +1184,7 @@ class AddBarrierLineControl extends BaseControl {
      * pair (`createdAtZoom`, `zoomCorrectionEnabled`).
      * @returns {Promise<void>} Resolves once the source is written
      */
-    updateAllBarrierLineZoomSizes = async () => {
+    updateAllCoordinationLineZoomSizes = async () => {
         this.zoomRafId = null;
 
         // A drag OWNS the source for its duration (the move handler and the
@@ -1204,7 +1209,7 @@ class AddBarrierLineControl extends BaseControl {
             // Nothing consumes this promise (it is a rAF callback), so a rejection
             // here would be an unhandled one and the correction would freeze in
             // silence. A style swap can remove a source mid-zoom; log and move on.
-            console.warn('Error refreshing barrier line zoom sizes:', error);
+            console.warn('Error refreshing coordination line zoom sizes:', error);
         } finally {
             this.pendingZoomUpdate = false;
             if (this.missedZoomUpdate && this.map) {
@@ -1220,7 +1225,7 @@ class AddBarrierLineControl extends BaseControl {
      * @private
      */
     _refreshSourceZoomSizes = async (currentZoom) => {
-        const source = this.map?.getSource('barrier_lines');
+        const source = this.map?.getSource('coordination_lines');
         if (!source) return;
 
         const data = await source.getData();
@@ -1232,7 +1237,7 @@ class AddBarrierLineControl extends BaseControl {
         for (const feature of data.features) {
             if (!feature?.properties) continue;
 
-            const sizes = computeBarrierLineZoomSizes(feature.properties, currentZoom);
+            const sizes = computeCoordinationLineZoomSizes(feature.properties, currentZoom);
 
             if (feature.properties.calculatedLineWidth !== sizes.calculatedLineWidth) {
                 feature.properties.calculatedLineWidth = sizes.calculatedLineWidth;
@@ -1278,7 +1283,7 @@ class AddBarrierLineControl extends BaseControl {
      * @private
      */
     _updateFeaturesPropertyUnlocked = async (features, property, value) => {
-        const source = this.map?.getSource('barrier_lines');
+        const source = this.map?.getSource('coordination_lines');
         if (!source) return;
 
         const data = await source.getData();
@@ -1298,7 +1303,7 @@ class AddBarrierLineControl extends BaseControl {
             // Any input of the zoom model invalidates the derived sizes.
             if (['createdAtZoom', 'zoomCorrectionEnabled', 'lineWidth', 'symbol_size', 'symbol_spacing']
                 .includes(property)) {
-                const sizes = computeBarrierLineZoomSizes(sourceFeature.properties, currentZoom);
+                const sizes = computeCoordinationLineZoomSizes(sourceFeature.properties, currentZoom);
                 Object.assign(sourceFeature.properties, sizes);
                 Object.assign(feature.properties, sizes);
             }
@@ -1306,7 +1311,7 @@ class AddBarrierLineControl extends BaseControl {
             // `createdAtZoom` and `zoomCorrectionEnabled` are geometry inputs too:
             // on a screen-pinned line they move the diamonds' size in kilometres,
             // which only the geometry can express.
-            if (['baseCoordinates', 'symbol_size', 'symbol_spacing', 'createdAtZoom', 'zoomCorrectionEnabled']
+            if (['baseCoordinates', 'symbol_code', 'symbol_size', 'symbol_spacing', 'createdAtZoom', 'zoomCorrectionEnabled']
                 .includes(property)) {
                 const newGeometry = this.geometry.generate(sourceFeature.properties, currentZoom);
                 sourceFeature.geometry = newGeometry;
@@ -1333,7 +1338,7 @@ class AddBarrierLineControl extends BaseControl {
      * @private
      */
     _saveFeaturesUnlocked = async (features, initialPropertiesMap) => {
-        const source = this.map?.getSource('barrier_lines');
+        const source = this.map?.getSource('coordination_lines');
         if (!source) return;
 
         const currentData = await source.getData();
@@ -1345,7 +1350,7 @@ class AddBarrierLineControl extends BaseControl {
             const currentFeature = currentData.features.find(f =>
                 f.properties.id === selectedFeature.properties.id);
             if (currentFeature) {
-                await updateFeature('barrier_lines', currentFeature);
+                await updateFeature('coordination_lines', currentFeature);
             }
         }
     }
@@ -1362,7 +1367,7 @@ class AddBarrierLineControl extends BaseControl {
     }
 
     /**
-     * Remove the given barrier lines. Serialized shell.
+     * Remove the given coordination lines. Serialized shell.
      * @param {Array} features - Features to delete
      * @returns {Promise<void>} Resolves once the source is written
      */
@@ -1377,7 +1382,7 @@ class AddBarrierLineControl extends BaseControl {
     _deleteFeaturesUnlocked = async (features) => {
         if (features.length === 0) return;
 
-        const source = this.map?.getSource('barrier_lines');
+        const source = this.map?.getSource('coordination_lines');
         if (!source) return;
 
         const data = await source.getData();
@@ -1385,11 +1390,11 @@ class AddBarrierLineControl extends BaseControl {
         for (const feature of features) {
             try {
                 const featureId = feature.properties.id;
-                await removeFeature('barrier_lines', featureId);
+                await removeFeature('coordination_lines', featureId);
                 const idString = String(featureId);
                 data.features = data.features.filter(f => String(f.properties.id) !== idString);
             } catch (error) {
-                console.error(`Error removing barrier line ${feature.properties.id}:`, error);
+                console.error(`Error removing coordination line ${feature.properties.id}:`, error);
             }
         }
 
@@ -1402,7 +1407,7 @@ class AddBarrierLineControl extends BaseControl {
             nome: _nome,
             baseCoordinates: _baseCoordinates,
             // The anchor and everything derived from it belong to ONE feature:
-            // inheriting them would make every new barrier line scale from an old zoom.
+            // inheriting them would make every new coordination line scale from an old zoom.
             createdAtZoom: _createdAtZoom,
             calculatedLineWidth: _calculatedLineWidth,
             calculatedSymbolSize: _calculatedSymbolSize,
@@ -1410,7 +1415,7 @@ class AddBarrierLineControl extends BaseControl {
             ...styleProperties
         } = properties;
 
-        Object.assign(AddBarrierLineControl.DEFAULT_PROPERTIES, styleProperties);
+        Object.assign(AddCoordinationLineControl.DEFAULT_PROPERTIES, styleProperties);
     }
 
     hasFeatureChanged = (feature, initialProperties) => {
@@ -1420,6 +1425,7 @@ class AddBarrierLineControl extends BaseControl {
             feature.properties.color !== initialProperties.color
             || feature.properties.lineWidth !== initialProperties.lineWidth
             || feature.properties.opacity !== initialProperties.opacity
+            || feature.properties.symbol_code !== initialProperties.symbol_code
             || feature.properties.symbol_size !== initialProperties.symbol_size
             || feature.properties.symbol_spacing !== initialProperties.symbol_spacing
             || feature.properties.createdAtZoom !== initialProperties.createdAtZoom
@@ -1451,7 +1457,7 @@ class AddBarrierLineControl extends BaseControl {
     _updateFeaturesUnlocked = async (features, save = false) => {
         if (features.length === 0) return;
 
-        const source = this.map?.getSource('barrier_lines');
+        const source = this.map?.getSource('coordination_lines');
         if (!source) return;
 
         const data = await source.getData();
@@ -1462,7 +1468,7 @@ class AddBarrierLineControl extends BaseControl {
 
             data.features[featureIndex] = feature;
             if (save) {
-                await updateFeature('barrier_lines', feature);
+                await updateFeature('coordination_lines', feature);
             }
         }
 
@@ -1491,7 +1497,7 @@ class AddBarrierLineControl extends BaseControl {
         // undefined, so its guard never fires.
         if (this.selectionManager?.uiManager?.isDragging) return;
 
-        const source = this.map?.getSource('barrier_lines');
+        const source = this.map?.getSource('coordination_lines');
         if (!source) return;
 
         const data = await source.getData();
@@ -1508,12 +1514,12 @@ class AddBarrierLineControl extends BaseControl {
     // ========================================================================
 
     updateSelectionManagerFeature(feature) {
-        this.selectionManager.updateSelectedFeature('barrier_line', feature.properties.id, feature);
+        this.selectionManager.updateSelectedFeature('coordination_line', feature.properties.id, feature);
     }
 
     updateSelectionManagerFeatures(features) {
         features.forEach(feature => {
-            if (feature.properties.source === 'barrier_line') {
+            if (feature.properties.source === 'coordination_line') {
                 this.updateSelectionManagerFeature(feature);
             }
         });
@@ -1527,9 +1533,9 @@ class AddBarrierLineControl extends BaseControl {
 
     saveFeatureChanges = async (feature) => {
         try {
-            await updateFeature('barrier_lines', feature);
+            await updateFeature('coordination_lines', feature);
         } catch (error) {
-            console.error('Error saving barrier line changes:', error);
+            console.error('Error saving coordination line changes:', error);
         }
     }
 
@@ -1558,7 +1564,7 @@ class AddBarrierLineControl extends BaseControl {
     _undoLastPoint = () => {
         // While continuing, index 0 is the ANCHOR (the endpoint the user clicked
         // the handle on), not a point they drew: undoing past it would detach the
-        // continuation from the barrier line.
+        // continuation from the coordination line.
         const floor = this._extending ? 1 : 0;
         if (!this.isActive || this.drawPoints.length <= floor) return;
 
@@ -1613,9 +1619,9 @@ class AddBarrierLineControl extends BaseControl {
      * The diamond ceiling, so the panel can name it without importing the model.
      * @returns {number} Maximum diamonds per feature
      */
-    get maxDiamonds() {
-        return BARRIER_LINE_ZOOM_LIMITS.MAX_DIAMONDS;
+    get maxGlyphs() {
+        return COORDINATION_LINE_ZOOM_LIMITS.MAX_GLYPHS;
     }
 }
 
-export default AddBarrierLineControl;
+export default AddCoordinationLineControl;

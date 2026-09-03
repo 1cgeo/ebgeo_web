@@ -74,7 +74,7 @@ import {
     AddArrowControl,
     AddBoundaryControl,
     AddOccupiedFrontControl,
-    AddBarrierLineControl,
+    AddCoordinationLineControl,
     AddDeclinationControl
 } from './military_tools/index.js';
 
@@ -304,7 +304,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
     const arrowControl = new AddArrowControl(toolManager);
     const boundaryControl = new AddBoundaryControl(toolManager);
     const occupiedFrontControl = new AddOccupiedFrontControl(toolManager);
-    const barrierLineControl = new AddBarrierLineControl(toolManager);
+    const coordinationLineControl = new AddCoordinationLineControl(toolManager);
     const militarySymbolControl = new AddMilitarySymbolControl(toolManager);
     const brushControl = new AddBrushControl(toolManager);
     const coordinationMeasureControl = new AddCoordinationMeasureControl(toolManager);
@@ -333,7 +333,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         ['arrow', arrowControl],
         ['boundary', boundaryControl],
         ['occupied_front', occupiedFrontControl],
-        ['barrier_line', barrierLineControl],
+        ['coordination_line', coordinationLineControl],
         ['military_symbol', militarySymbolControl],
         ['brush', brushControl],
         ['coordination_measure', coordinationMeasureControl],
@@ -433,7 +433,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
             arrowControl,
             boundaryControl,
             occupiedFrontControl,
-            barrierLineControl,
+            coordinationLineControl,
             militarySymbolControl,
             brushControl,
             rectangleSelectionControl,
@@ -518,7 +518,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         arrowControl,
         boundaryControl,
         occupiedFrontControl,
-        barrierLineControl,
+        coordinationLineControl,
         militarySymbolControl,
         coordinationMeasureControl,
         declinationControl,
@@ -584,7 +584,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
             arrowControl,
             boundaryControl,
             occupiedFrontControl,
-            barrierLineControl,
+            coordinationLineControl,
             azimuthDistanceControl,
             sectorControl,
             losControl,
@@ -687,7 +687,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         ['AddArrowControl', arrowControl],
         ['AddBoundaryControl', boundaryControl],
         ['AddOccupiedFrontControl', occupiedFrontControl],
-        ['AddBarrierLineControl', barrierLineControl],
+        ['AddCoordinationLineControl', coordinationLineControl],
         // Analysis tools
         ['AddLOSControl', losControl],
         ['AddVisibilityControl', visibilityControl],

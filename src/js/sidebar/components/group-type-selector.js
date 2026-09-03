@@ -23,7 +23,7 @@ const FEATURE_TYPE_LABELS = {
     arrow: 'Setas',
     boundary: 'Limites',
     occupied_front: 'Frentes Ocupadas',
-    barrier_line: 'Linhas de Barreiras',
+    coordination_line: 'Linhas de Coordenação',
     military_symbol: 'Símbolos Militares',
     coordination_measure: 'Medidas de Coordenação',
     los: 'Linhas de Visada',

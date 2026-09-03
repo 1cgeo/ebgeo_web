@@ -144,11 +144,11 @@ export default defineConfig(({ mode: _mode }) => ({
           if (id.includes('boundary_tool/boundary-zoom.model')) {
             return 'core';
           }
-          // barrier-line-zoom.model.js is the same shape and joins core for the
+          // coordination-line-zoom.model.js is the same shape and joins core for the
           // same reason: a zero-import leaf under military_tools/ that
           // layers/styles/tactical.layers imports statically to build its
           // line-width expression.
-          if (id.includes('barrier_line_tool/barrier-line-zoom.model')) {
+          if (id.includes('coordination_line_tool/coordination-line-zoom.model')) {
             return 'core';
           }
           // boundary-split.model.js is a pure leaf too (cut eligibility plus the

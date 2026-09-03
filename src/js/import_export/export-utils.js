@@ -50,7 +50,7 @@ const ZOOM_INVARIANT_SOURCES = [
         enabledProperty: 'zoomCorrectionEnabled',
     },
     {
-        sourceName: 'barrier_lines',
+        sourceName: 'coordination_lines',
         property: 'calculatedLineWidth',
         baseProperty: 'lineWidth',
         maxValue: 60,
@@ -167,9 +167,9 @@ async function correctBoundaryGroundGeometry(hiddenMap, finalZoom) {
 }
 
 /**
- * Rebuilds screen-pinned BARRIER LINES for the export zoom.
+ * Rebuilds screen-pinned COORDINATION LINES for the export zoom.
  *
- * Same reason as the boundary above, and simpler: a barrier line has no
+ * Same reason as the boundary above, and simpler: a coordination line has no
  * dependent sources, so correcting the feature is the whole job. Only the
  * screen-pinned ones change SHAPE with the zoom (their diamonds are sized in
  * kilometres by `2 ** (createdAtZoom - zoom)`), but `applyZoomCorrections`
@@ -182,12 +182,12 @@ async function correctBoundaryGroundGeometry(hiddenMap, finalZoom) {
  * @param {number} finalZoom - The target export zoom level
  * @returns {Promise<boolean>} Whether any features were changed
  */
-async function correctBarrierLineGroundGeometry(hiddenMap, finalZoom) {
+async function correctCoordinationLineGroundGeometry(hiddenMap, finalZoom) {
     try {
-        const control = getControl('AddBarrierLineControl');
+        const control = getControl('AddCoordinationLineControl');
         if (typeof control?.applyZoomCorrections !== 'function') return false;
 
-        const source = hiddenMap.getSource('barrier_lines');
+        const source = hiddenMap.getSource('coordination_lines');
         if (!source) return false;
 
         const data = await source.getData();
@@ -196,7 +196,7 @@ async function correctBarrierLineGroundGeometry(hiddenMap, finalZoom) {
         source.setData({ ...data, features: control.applyZoomCorrections(data.features, finalZoom) });
         return true;
     } catch (error) {
-        console.error('Error rebuilding screen-pinned barrier lines for export:', error);
+        console.error('Error rebuilding screen-pinned coordination lines for export:', error);
         return false;
     }
 }
@@ -220,8 +220,8 @@ export async function correctZoomInvariantFeatures(hiddenMap, finalZoom) {
         anyChanges = true;
     }
 
-    // Same shape, no dependent sources: a barrier line is one feature.
-    if (await correctBarrierLineGroundGeometry(hiddenMap, finalZoom)) {
+    // Same shape, no dependent sources: a coordination line is one feature.
+    if (await correctCoordinationLineGroundGeometry(hiddenMap, finalZoom)) {
         anyChanges = true;
     }
 

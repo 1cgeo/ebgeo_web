@@ -48,7 +48,7 @@ const FEATURE_TYPE_NAMES = {
     'arrow': 'Seta',
     'boundary': 'Limite',
     'occupied_front': 'Frente Ocupada',
-    'barrier_line': 'Linha de Barreiras',
+    'coordination_line': 'Linha de Coordenação',
     'military_symbol': 'Símbolo Militar',
     'coordination_measure': 'Medida de Coordenação',
     'magnetic_declination': 'Declinação Magnética',

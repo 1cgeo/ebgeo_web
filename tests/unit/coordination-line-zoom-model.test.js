@@ -3,20 +3,20 @@ import fc from 'fast-check';
 
 // The model has zero imports by contract, so it needs no mocking at all.
 import {
-    BARRIER_LINE_ZOOM_LIMITS,
-    BARRIER_LINE_ZOOM_DEFAULTS,
+    COORDINATION_LINE_ZOOM_LIMITS,
+    COORDINATION_LINE_ZOOM_DEFAULTS,
     hasZoomReference,
     getPixelZoomFactor,
     getGroundZoomFactor,
     isScreenAnchored,
     clampSpacingForSize,
-    resolveDiamondLayout,
-    computeBarrierLineZoomSizes,
-    withBarrierLineZoomSizes,
-    buildBarrierLineWidthExpression,
-} from '../../src/js/military_tools/barrier_line_tool/barrier-line-zoom.model.js';
+    resolveGlyphLayout,
+    computeCoordinationLineZoomSizes,
+    withCoordinationLineZoomSizes,
+    buildCoordinationLineWidthExpression,
+} from '../../src/js/military_tools/coordination_line_tool/coordination-line-zoom.model.js';
 
-const { MAX_GAP_FRACTION, MAX_DIAMONDS, MAX_LINE_WIDTH_PX, MAX_SYMBOL_SIZE_KM } = BARRIER_LINE_ZOOM_LIMITS;
+const { MAX_GAP_FRACTION, MAX_GLYPHS, MAX_LINE_WIDTH_PX, MAX_SYMBOL_SIZE_KM } = COORDINATION_LINE_ZOOM_LIMITS;
 
 /** A feature pinned to the TERRAIN (the default). */
 const terrainAnchored = { createdAtZoom: 12, zoomCorrectionEnabled: true, lineWidth: 4, symbol_size: 0.5, symbol_spacing: 1.5 };
@@ -126,12 +126,12 @@ describe('clampSpacingForSize', () => {
 });
 
 // ============================================================================
-// resolveDiamondLayout — count, centring and the ceiling
+// resolveGlyphLayout — count, centring and the ceiling
 // ============================================================================
 
-describe('resolveDiamondLayout', () => {
+describe('resolveGlyphLayout', () => {
     it('centres the pattern, leaving equal tails of plain line at both ends', () => {
-        const layout = resolveDiamondLayout(10, 0.5, 2);
+        const layout = resolveGlyphLayout(10, 0.5, 2);
         expect(layout.count).toBe(5);
         expect(layout.spacing).toBe(2);
         expect(layout.start).toBeCloseTo(1, 10);
@@ -147,7 +147,7 @@ describe('resolveDiamondLayout', () => {
 
     it('WORST CASE: a size wider than its spacing is spread out, never drawn as asked', () => {
         // The raw request would put 96 diamonds on a 96 km line and eat it whole.
-        const layout = resolveDiamondLayout(96, 3, 1);
+        const layout = resolveGlyphLayout(96, 3, 1);
         expect(layout.spacing).toBeGreaterThanOrEqual(3 / MAX_GAP_FRACTION);
         // What survives is line, and there is more line than there is diamond.
         const visible = 96 - layout.count * layout.size;
@@ -156,8 +156,8 @@ describe('resolveDiamondLayout', () => {
 
     it('WORST CASE: the diamond ceiling holds, and widens the spacing instead of stopping midway', () => {
         // A 100 km line pinned to the screen at z=22 asks for 51,277 diamonds.
-        const layout = resolveDiamondLayout(100, 0.00049, 0.00195);
-        expect(layout.count).toBe(MAX_DIAMONDS);
+        const layout = resolveGlyphLayout(100, 0.00049, 0.00195);
+        expect(layout.count).toBe(MAX_GLYPHS);
         expect(layout.capped).toBe(true);
 
         // Still spans the line: the last diamond sits at the far end, not at 0.2%.
@@ -178,7 +178,7 @@ describe('resolveDiamondLayout', () => {
         ];
 
         for (const [name, args] of degenerate) {
-            const layout = resolveDiamondLayout(...args);
+            const layout = resolveGlyphLayout(...args);
             expect(layout.count, name).toBe(0);
             expect(layout.capped, name).toBe(false);
         }
@@ -190,8 +190,8 @@ describe('resolveDiamondLayout', () => {
             fc.double({ min: 0.001, max: 50, noNaN: true }),
             fc.double({ min: 0.001, max: 500, noNaN: true }),
             (length, size, spacing) => {
-                const layout = resolveDiamondLayout(length, size, spacing);
-                expect(layout.count).toBeLessThanOrEqual(MAX_DIAMONDS);
+                const layout = resolveGlyphLayout(length, size, spacing);
+                expect(layout.count).toBeLessThanOrEqual(MAX_GLYPHS);
                 if (layout.count > 0) {
                     // The guarantee the invariant actually buys, stated on what
                     // SURVIVES rather than on what the diamonds eat. `count` is
@@ -211,39 +211,39 @@ describe('resolveDiamondLayout', () => {
 });
 
 // ============================================================================
-// computeBarrierLineZoomSizes
+// computeCoordinationLineZoomSizes
 // ============================================================================
 
-describe('computeBarrierLineZoomSizes', () => {
+describe('computeCoordinationLineZoomSizes', () => {
     it('terrain-anchored grows the stroke and keeps the diamonds on the ground', () => {
-        const sizes = computeBarrierLineZoomSizes(terrainAnchored, 14);
+        const sizes = computeCoordinationLineZoomSizes(terrainAnchored, 14);
         expect(sizes.calculatedLineWidth).toBeCloseTo(16, 10);
         expect(sizes.calculatedSymbolSize).toBeCloseTo(0.5, 10);
         expect(sizes.calculatedSymbolSpacing).toBeCloseTo(1.5, 10);
     });
 
     it('screen-anchored shrinks the diamonds and keeps the stroke', () => {
-        const sizes = computeBarrierLineZoomSizes(screenAnchored, 14);
+        const sizes = computeCoordinationLineZoomSizes(screenAnchored, 14);
         expect(sizes.calculatedLineWidth).toBeCloseTo(4, 10);
         expect(sizes.calculatedSymbolSize).toBeCloseTo(0.125, 10);
         expect(sizes.calculatedSymbolSpacing).toBeCloseTo(0.375, 10);
     });
 
     it('clamps the stroke at the MapLibre ceiling instead of overflowing', () => {
-        const sizes = computeBarrierLineZoomSizes({ ...terrainAnchored, createdAtZoom: 1 }, 21);
+        const sizes = computeCoordinationLineZoomSizes({ ...terrainAnchored, createdAtZoom: 1 }, 21);
         expect(sizes.calculatedLineWidth).toBe(MAX_LINE_WIDTH_PX);
     });
 
     it('clamps the diamond in kilometres instead of wandering off the planet', () => {
-        const sizes = computeBarrierLineZoomSizes({ ...screenAnchored, createdAtZoom: 20 }, 1);
+        const sizes = computeCoordinationLineZoomSizes({ ...screenAnchored, createdAtZoom: 20 }, 1);
         expect(sizes.calculatedSymbolSize).toBe(MAX_SYMBOL_SIZE_KM);
     });
 
     it('falls back to the defaults for missing or unusable authored values', () => {
-        const sizes = computeBarrierLineZoomSizes({}, 12);
-        expect(sizes.calculatedLineWidth).toBe(BARRIER_LINE_ZOOM_DEFAULTS.lineWidth);
-        expect(sizes.calculatedSymbolSize).toBe(BARRIER_LINE_ZOOM_DEFAULTS.symbolSizeKm);
-        expect(sizes.calculatedSymbolSpacing).toBe(BARRIER_LINE_ZOOM_DEFAULTS.symbolSpacingKm);
+        const sizes = computeCoordinationLineZoomSizes({}, 12);
+        expect(sizes.calculatedLineWidth).toBe(COORDINATION_LINE_ZOOM_DEFAULTS.lineWidth);
+        expect(sizes.calculatedSymbolSize).toBe(COORDINATION_LINE_ZOOM_DEFAULTS.symbolSizeKm);
+        expect(sizes.calculatedSymbolSpacing).toBe(COORDINATION_LINE_ZOOM_DEFAULTS.symbolSpacingKm);
     });
 
     it('property: never returns NaN, for any input at all', () => {
@@ -257,7 +257,7 @@ describe('computeBarrierLineZoomSizes', () => {
             }),
             fc.oneof(fc.double({ min: 0, max: 24 }), fc.constant(NaN)),
             (props, zoom) => {
-                const sizes = computeBarrierLineZoomSizes(props, zoom);
+                const sizes = computeCoordinationLineZoomSizes(props, zoom);
                 expect(Number.isFinite(sizes.calculatedLineWidth)).toBe(true);
                 expect(Number.isFinite(sizes.calculatedSymbolSize)).toBe(true);
                 expect(Number.isFinite(sizes.calculatedSymbolSpacing)).toBe(true);
@@ -267,12 +267,12 @@ describe('computeBarrierLineZoomSizes', () => {
 });
 
 // ============================================================================
-// withBarrierLineZoomSizes and the paint expression
+// withCoordinationLineZoomSizes and the paint expression
 // ============================================================================
 
-describe('withBarrierLineZoomSizes', () => {
+describe('withCoordinationLineZoomSizes', () => {
     it('returns a NEW object and keeps the authored properties', () => {
-        const result = withBarrierLineZoomSizes(terrainAnchored, 14);
+        const result = withCoordinationLineZoomSizes(terrainAnchored, 14);
         expect(result).not.toBe(terrainAnchored);
         expect(result.symbol_size).toBe(0.5);
         expect(result.calculatedLineWidth).toBeCloseTo(16, 10);
@@ -280,13 +280,13 @@ describe('withBarrierLineZoomSizes', () => {
     });
 });
 
-describe('buildBarrierLineWidthExpression', () => {
+describe('buildCoordinationLineWidthExpression', () => {
     it('falls back through derived, authored and default', () => {
-        expect(buildBarrierLineWidthExpression()).toEqual([
+        expect(buildCoordinationLineWidthExpression()).toEqual([
             'coalesce',
             ['get', 'calculatedLineWidth'],
             ['get', 'lineWidth'],
-            BARRIER_LINE_ZOOM_DEFAULTS.lineWidth,
+            COORDINATION_LINE_ZOOM_DEFAULTS.lineWidth,
         ]);
     });
 });

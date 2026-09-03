@@ -38,7 +38,7 @@ const FEATURE_TYPE_NAMES = {
     arrow: { singular: 'seta', plural: 'setas' },
     boundary: { singular: 'limite', plural: 'limites' },
     occupied_front: { singular: 'frente ocupada', plural: 'frentes ocupadas' },
-    barrier_line: { singular: 'linha de barreiras', plural: 'linhas de barreiras' },
+    coordination_line: { singular: 'linha de coordenação', plural: 'linhas de coordenação' },
     military_symbol: { singular: 'símbolo militar', plural: 'símbolos militares' },
     coordination_measure: { singular: 'medida de coordenação', plural: 'medidas de coordenação' },
     los: { singular: 'linha de visada', plural: 'linhas de visada' },

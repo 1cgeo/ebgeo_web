@@ -1,10 +1,10 @@
-// Path: js/military_tools/barrier_line_tool/barrier-line-zoom.model.js
+// Path: js/military_tools/coordination_line_tool/coordination-line-zoom.model.js
 
 /**
- * @fileoverview Pure zoom and layout model for barrier line features (no imports,
+ * @fileoverview Pure zoom and layout model for coordination line features (no imports,
  * node-testable).
  *
- * A barrier line is a polyline whose course is interrupted at regular intervals
+ * A coordination line is a polyline whose course is interrupted at regular intervals
  * by a hollow diamond. Two authored numbers drive the pattern, both in kilometres:
  * `symbol_size` is the diamond's along-line diagonal, and `symbol_spacing` is the
  * distance between two diamond CENTRES.
@@ -24,7 +24,7 @@
  * file) gets a factor of 1 on both axes and draws exactly as it always did.
  *
  * Everything here is arithmetic on numbers. The turf part lives in
- * add_barrier_line_geometry.js, which imports this module; nothing imports back,
+ * add_coordination_line_geometry.js, which imports this module; nothing imports back,
  * so the constants below have exactly one home and need no parity test.
  */
 
@@ -43,7 +43,7 @@
  * line with `size > spacing` merges every gap into one and leaves NO visible
  * line at all (94 diamonds, 2 stray segments on a 96 km line).
  *
- * `MAX_DIAMONDS` is the ceiling that keeps a zoom gesture inside its frame
+ * `MAX_GLYPHS` is the ceiling that keeps a zoom gesture inside its frame
  * budget. Measured on 2026-09-03 against the bundled turf, on a 100 km line: one
  * feature costs 1.3 ms at 200 diamonds, but the zoom pass regenerates EVERY
  * screen-pinned feature per frame, and 30 features at 200 took 20.0 ms against
@@ -51,18 +51,18 @@
  * 100 km line pinned to the screen and zoomed to z=22 asks for 51,277 diamonds
  * (358,941 vertices, 14 MB of GeoJSON, 135 ms to build).
  */
-export const BARRIER_LINE_ZOOM_LIMITS = {
+export const COORDINATION_LINE_ZOOM_LIMITS = {
     MAX_LINE_WIDTH_PX: 60,
     MIN_SYMBOL_SIZE_KM: 0.001,
     MAX_SYMBOL_SIZE_KM: 50,
     MIN_SPACING_KM: 0.002,
     MAX_SPACING_KM: 500,
     MAX_GAP_FRACTION: 0.5,
-    MAX_DIAMONDS: 120,
+    MAX_GLYPHS: 120,
 };
 
 /** Fallbacks used when the authored value is missing or not a positive number. */
-export const BARRIER_LINE_ZOOM_DEFAULTS = {
+export const COORDINATION_LINE_ZOOM_DEFAULTS = {
     lineWidth: 4,
     symbolSizeKm: 0.5,
     symbolSpacingKm: 2,
@@ -175,10 +175,10 @@ export function isScreenAnchored(properties) {
 /**
  * Smallest spacing a given diamond size may sit at.
  *
- * This is the single invariant that keeps a barrier line from eating itself, and
+ * This is the single invariant that keeps a coordination line from eating itself, and
  * it is enforced HERE rather than at the panel because the panel is not the only
  * writer: a pasted feature, an imported `.ebgeo`, and the zoom correction all
- * reach the geometry without passing a slider. `computeBarrierLineZoomSizes`
+ * reach the geometry without passing a slider. `computeCoordinationLineZoomSizes`
  * clamps size and spacing independently, and independent clamps can land on a
  * pair that violates the ratio, so the geometry re-applies this at the point of
  * use, where nothing can route around it.
@@ -188,9 +188,9 @@ export function isScreenAnchored(properties) {
  * @returns {number} The requested spacing, or the smallest one the size allows
  */
 export function clampSpacingForSize(sizeKm, spacingKm) {
-    const size = positiveOr(sizeKm, BARRIER_LINE_ZOOM_DEFAULTS.symbolSizeKm);
-    const asked = positiveOr(spacingKm, BARRIER_LINE_ZOOM_DEFAULTS.symbolSpacingKm);
-    const floor = size / BARRIER_LINE_ZOOM_LIMITS.MAX_GAP_FRACTION;
+    const size = positiveOr(sizeKm, COORDINATION_LINE_ZOOM_DEFAULTS.symbolSizeKm);
+    const asked = positiveOr(spacingKm, COORDINATION_LINE_ZOOM_DEFAULTS.symbolSpacingKm);
+    const floor = size / COORDINATION_LINE_ZOOM_LIMITS.MAX_GAP_FRACTION;
     return Math.max(asked, floor);
 }
 
@@ -198,12 +198,12 @@ export function clampSpacingForSize(sizeKm, spacingKm) {
  * Place the diamonds along a line of a given length.
  *
  * The pattern is centred: whatever length the diamonds do not span is split
- * evenly between the two ends, so a barrier line always starts and ends with a
+ * evenly between the two ends, so a coordination line always starts and ends with a
  * stretch of plain line rather than with half a diamond.
  *
- * When the requested spacing would ask for more diamonds than `MAX_DIAMONDS`,
+ * When the requested spacing would ask for more diamonds than `MAX_GLYPHS`,
  * the spacing WIDENS instead of the pattern stopping midway: a capped line still
- * reads as a barrier from end to end, just a sparser one. Stopping at the cap
+ * reads as a coordination line end to end, just a sparser one. Stopping at the cap
  * would leave the tail of a long line looking like a plain line, which is a
  * different symbol.
  *
@@ -214,7 +214,7 @@ export function clampSpacingForSize(sizeKm, spacingKm) {
  *   `count` is 0 when no whole diamond fits, and then the caller draws a plain
  *   line. `start` is the distance along the line of the FIRST diamond's centre.
  */
-export function resolveDiamondLayout(totalLengthKm, sizeKm, spacingKm) {
+export function resolveGlyphLayout(totalLengthKm, sizeKm, spacingKm) {
     const empty = { count: 0, size: 0, spacing: 0, start: 0, capped: false };
 
     if (!Number.isFinite(totalLengthKm) || totalLengthKm <= 0) return empty;
@@ -230,8 +230,8 @@ export function resolveDiamondLayout(totalLengthKm, sizeKm, spacingKm) {
     let count = Math.floor(usable / spacing) + 1;
     let capped = false;
 
-    if (count > BARRIER_LINE_ZOOM_LIMITS.MAX_DIAMONDS) {
-        count = BARRIER_LINE_ZOOM_LIMITS.MAX_DIAMONDS;
+    if (count > COORDINATION_LINE_ZOOM_LIMITS.MAX_GLYPHS) {
+        count = COORDINATION_LINE_ZOOM_LIMITS.MAX_GLYPHS;
         capped = true;
         // Spread the survivors over the whole usable span. With `count > 1` this
         // is always at least the clamped spacing, since the cap only fires when
@@ -250,17 +250,17 @@ export function resolveDiamondLayout(totalLengthKm, sizeKm, spacingKm) {
  *
  * The kilometre pair is clamped independently of each other, which can produce a
  * pair that violates `MAX_GAP_FRACTION`; that is deliberate, and
- * `resolveDiamondLayout` is where the pair is reconciled. Clamping the ratio here
+ * `resolveGlyphLayout` is where the pair is reconciled. Clamping the ratio here
  * instead would silently rewrite the user's spacing into the stored feature.
  *
- * @param {Object} [properties] - Barrier line feature properties
+ * @param {Object} [properties] - Coordination line feature properties
  * @param {number} currentZoom - Current map zoom
  * @returns {{calculatedLineWidth: number, calculatedSymbolSize: number, calculatedSymbolSpacing: number}}
  */
-export function computeBarrierLineZoomSizes(properties, currentZoom) {
-    const authoredWidth = positiveOr(properties?.lineWidth, BARRIER_LINE_ZOOM_DEFAULTS.lineWidth);
-    const authoredSize = positiveOr(properties?.symbol_size, BARRIER_LINE_ZOOM_DEFAULTS.symbolSizeKm);
-    const authoredSpacing = positiveOr(properties?.symbol_spacing, BARRIER_LINE_ZOOM_DEFAULTS.symbolSpacingKm);
+export function computeCoordinationLineZoomSizes(properties, currentZoom) {
+    const authoredWidth = positiveOr(properties?.lineWidth, COORDINATION_LINE_ZOOM_DEFAULTS.lineWidth);
+    const authoredSize = positiveOr(properties?.symbol_size, COORDINATION_LINE_ZOOM_DEFAULTS.symbolSizeKm);
+    const authoredSpacing = positiveOr(properties?.symbol_spacing, COORDINATION_LINE_ZOOM_DEFAULTS.symbolSpacingKm);
 
     const pixelFactor = getPixelZoomFactor(properties, currentZoom);
     const groundFactor = getGroundZoomFactor(properties, currentZoom);
@@ -268,19 +268,19 @@ export function computeBarrierLineZoomSizes(properties, currentZoom) {
     return {
         calculatedLineWidth: clampSize(
             authoredWidth * pixelFactor,
-            BARRIER_LINE_ZOOM_LIMITS.MAX_LINE_WIDTH_PX,
+            COORDINATION_LINE_ZOOM_LIMITS.MAX_LINE_WIDTH_PX,
             authoredWidth,
         ),
         calculatedSymbolSize: clampRange(
             authoredSize * groundFactor,
-            BARRIER_LINE_ZOOM_LIMITS.MIN_SYMBOL_SIZE_KM,
-            BARRIER_LINE_ZOOM_LIMITS.MAX_SYMBOL_SIZE_KM,
+            COORDINATION_LINE_ZOOM_LIMITS.MIN_SYMBOL_SIZE_KM,
+            COORDINATION_LINE_ZOOM_LIMITS.MAX_SYMBOL_SIZE_KM,
             authoredSize,
         ),
         calculatedSymbolSpacing: clampRange(
             authoredSpacing * groundFactor,
-            BARRIER_LINE_ZOOM_LIMITS.MIN_SPACING_KM,
-            BARRIER_LINE_ZOOM_LIMITS.MAX_SPACING_KM,
+            COORDINATION_LINE_ZOOM_LIMITS.MIN_SPACING_KM,
+            COORDINATION_LINE_ZOOM_LIMITS.MAX_SPACING_KM,
             authoredSpacing,
         ),
     };
@@ -288,12 +288,12 @@ export function computeBarrierLineZoomSizes(properties, currentZoom) {
 
 /**
  * Return a NEW properties object carrying fresh derived sizes.
- * @param {Object} [properties] - Barrier line feature properties
+ * @param {Object} [properties] - Coordination line feature properties
  * @param {number} currentZoom - Current map zoom
  * @returns {Object} New properties object
  */
-export function withBarrierLineZoomSizes(properties, currentZoom) {
-    return { ...properties, ...computeBarrierLineZoomSizes(properties, currentZoom) };
+export function withCoordinationLineZoomSizes(properties, currentZoom) {
+    return { ...properties, ...computeCoordinationLineZoomSizes(properties, currentZoom) };
 }
 
 /**
@@ -301,11 +301,11 @@ export function withBarrierLineZoomSizes(properties, currentZoom) {
  * value, the authored one, and finally the default.
  * @returns {Array} MapLibre expression
  */
-export function buildBarrierLineWidthExpression() {
+export function buildCoordinationLineWidthExpression() {
     return [
         'coalesce',
         ['get', 'calculatedLineWidth'],
         ['get', 'lineWidth'],
-        BARRIER_LINE_ZOOM_DEFAULTS.lineWidth,
+        COORDINATION_LINE_ZOOM_DEFAULTS.lineWidth,
     ];
 }

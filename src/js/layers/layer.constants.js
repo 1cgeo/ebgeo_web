@@ -45,7 +45,7 @@ export const FEATURE_LAYER_IDS = [
     'boundary-circles-stroke-layer',
     'boundary-text-layer',
     'occupied-front-layer',
-    'barrier-line-layer',
+    'coordination-line-layer',
     'processed-los-layer',
     'visibility-visible-layer',
     'visibility-obstructed-layer'
@@ -97,7 +97,7 @@ export const FEATURE_SOURCES = {
     COORDINATION_MEASURES: 'coordination_measures',
     BOUNDARIES: 'boundarys',
     OCCUPIED_FRONTS: 'occupied_fronts',
-    BARRIER_LINES: 'barrier_lines',
+    COORDINATION_LINES: 'coordination_lines',
     LOS: 'los',
     VISIBILITY: 'visibility',
     SECTORS: 'setores'

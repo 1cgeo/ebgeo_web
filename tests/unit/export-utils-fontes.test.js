@@ -80,7 +80,7 @@ describe('ZOOM_INVARIANT_SOURCES aponta para fontes que existem', () => {
 
     it('reconhece as fontes que sabidamente existem', () => {
         const created = createdSourceNames();
-        for (const known of ['points', 'lines', 'boundarys', 'coordination_measures', 'barrier_lines']) {
+        for (const known of ['points', 'lines', 'boundarys', 'coordination_measures', 'coordination_lines']) {
             expect(created.has(known), known).toBe(true);
         }
     });

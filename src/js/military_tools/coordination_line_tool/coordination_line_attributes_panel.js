@@ -1,9 +1,10 @@
-// Path: js/military_tools/barrier_line_tool/barrier_line_attributes_panel.js
+// Path: js/military_tools/coordination_line_tool/coordination_line_attributes_panel.js
 
 import {
     createModernSlider,
     createModernColorPicker,
     createModernToggle,
+    createModernSelect,
     createModernInfoBox,
     createSectionDivider,
     createInitialPropertiesMap,
@@ -13,9 +14,10 @@ import {
 import {
     hasZoomReference,
     clampSpacingForSize,
-    BARRIER_LINE_ZOOM_LIMITS,
-    BARRIER_LINE_ZOOM_DEFAULTS,
-} from './barrier-line-zoom.model.js';
+    COORDINATION_LINE_ZOOM_LIMITS,
+    COORDINATION_LINE_ZOOM_DEFAULTS,
+} from './coordination-line-zoom.model.js';
+import { resolveSymbol, symbolOptions } from './coordination_line_catalog.js';
 
 /** BEM modifier that hides a slider (no inline styles, per the house rules). */
 const HIDDEN_SLIDER_CLASS = 'attr-modern-slider--hidden';
@@ -26,7 +28,7 @@ const MIN_SIZE_M = 10;
 /**
  * Convert a kilometre value to whole metres for display.
  * The two authored sizes are kilometres in storage, because that is what turf
- * takes, but a barrier's diamonds are tens or hundreds of metres across and a
+ * takes, but the glyphs are tens or hundreds of metres across and a
  * slider reading "0.05 km" is unusable.
  * @param {number} km - Value in kilometres
  * @param {number} fallbackKm - Value to use when `km` is unusable
@@ -41,15 +43,15 @@ function toMetres(km, fallbackKm) {
  * Largest diamond that still makes sense on a given line.
  * A diamond longer than the line cannot be drawn whole, and the geometry falls
  * back to a plain line, so the slider stops before offering that.
- * @param {Object} control - Barrier line control instance
- * @param {Object} feature - Barrier line feature
+ * @param {Object} control - Coordination line control instance
+ * @param {Object} feature - Coordination line feature
  * @returns {number} Maximum size in metres
  */
 function maxSizeMetres(control, feature) {
     const coordinates = control.geometry.normalizeBaseCoordinates(feature.properties.baseCoordinates);
     const lengthKm = control.geometry.measureLengthKm(coordinates);
     const byLine = Number.isFinite(lengthKm) && lengthKm > 0 ? (lengthKm / 2) * 1000 : Infinity;
-    const byModel = BARRIER_LINE_ZOOM_LIMITS.MAX_SYMBOL_SIZE_KM * 1000;
+    const byModel = COORDINATION_LINE_ZOOM_LIMITS.MAX_SYMBOL_SIZE_KM * 1000;
     return Math.max(MIN_SIZE_M * 2, Math.round(Math.min(byLine, byModel)));
 }
 
@@ -62,19 +64,23 @@ function maxSizeMetres(control, feature) {
  * The slider helper freezes min and max at creation, so this control is REBUILT
  * whenever the size moves rather than updated in place.
  *
- * @param {Object} feature - Barrier line feature
+ * @param {Object} feature - Coordination line feature
  * @param {Array} selectedFeatures - Every selected feature
- * @param {Object} control - Barrier line control instance
+ * @param {Object} control - Coordination line control instance
  * @param {Function} onChanged - Called after the write lands
  * @returns {HTMLElement} Slider element
  */
 function buildSpacingSlider(feature, selectedFeatures, control, onChanged) {
-    const sizeM = toMetres(feature.properties.symbol_size, BARRIER_LINE_ZOOM_DEFAULTS.symbolSizeKm);
-    const floorM = Math.ceil(sizeM / BARRIER_LINE_ZOOM_LIMITS.MAX_GAP_FRACTION);
-    const currentM = toMetres(feature.properties.symbol_spacing, BARRIER_LINE_ZOOM_DEFAULTS.symbolSpacingKm);
+    const sizeM = toMetres(feature.properties.symbol_size, COORDINATION_LINE_ZOOM_DEFAULTS.symbolSizeKm);
+    // The floor follows the glyph's real FOOTPRINT, not the authored size: a wide
+    // glyph (the double fence spans 1.6x) would otherwise let the slider offer a
+    // spacing that resolveGlyphLayout silently widens behind the user.
+    const spanM = sizeM * resolveSymbol(feature.properties.symbol_code).spanRatio;
+    const floorM = Math.ceil(spanM / COORDINATION_LINE_ZOOM_LIMITS.MAX_GAP_FRACTION);
+    const currentM = toMetres(feature.properties.symbol_spacing, COORDINATION_LINE_ZOOM_DEFAULTS.symbolSpacingKm);
 
     return createModernSlider({
-        label: 'Distância entre losangos',
+        label: 'Distância entre símbolos',
         min: floorM,
         max: Math.max(floorM * 10, currentM),
         step: 5,
@@ -92,20 +98,20 @@ function buildSpacingSlider(feature, selectedFeatures, control, onChanged) {
  * Build the read-only box that says how many diamonds the current settings draw.
  * It is the only place the user learns that the ceiling fired and widened their
  * spacing, which would otherwise look like the sliders ignoring them.
- * @param {Object} feature - Barrier line feature
- * @param {Object} control - Barrier line control instance
+ * @param {Object} feature - Coordination line feature
+ * @param {Object} control - Coordination line control instance
  * @returns {HTMLElement} Info box element
  */
 function buildLayoutInfo(feature, control) {
     const { count, capped } = control.geometry.describeLayout(feature.properties, control.getCurrentZoom());
 
-    const rows = [{ text: `${count} losango${count === 1 ? '' : 's'} nesta linha` }];
+    const rows = [{ text: `${count} símbolo${count === 1 ? '' : 's'} nesta linha` }];
 
     if (count === 0) {
-        rows.push({ text: 'A linha é curta demais para um losango inteiro, e sai sem símbolo.' });
+        rows.push({ text: 'A linha é curta demais para um símbolo inteiro, e sai sem símbolo.' });
     } else if (capped) {
         rows.push({
-            text: `Teto de ${control.maxDiamonds} losangos atingido: a distância foi alargada para cobrir a linha inteira.`,
+            text: `Teto de ${control.maxGlyphs} símbolos atingido: a distância foi alargada para cobrir a linha inteira.`,
         });
     }
 
@@ -113,20 +119,20 @@ function buildLayoutInfo(feature, control) {
 }
 
 /**
- * Add barrier line attributes to the panel.
+ * Add coordination line attributes to the panel.
  * @param {HTMLElement} panel - Panel container element
- * @param {Array} selectedFeatures - Selected barrier line features
- * @param {Object} barrierLineControl - Barrier line control instance
+ * @param {Array} selectedFeatures - Selected coordination line features
+ * @param {Object} coordinationLineControl - Coordination line control instance
  * @param {Object} selectionManager - Selection manager instance
  * @param {Object} uiManager - UI manager instance
  * @param {Object} [options={}] - Additional options
  * @param {boolean} [options.hideHeader=false] - Whether to hide the header section
  * @param {boolean} [options.hideButtons=false] - Whether to hide the action buttons
  */
-export function addBarrierLineAttributesToPanel(
+export function addCoordinationLineAttributesToPanel(
     panel,
     selectedFeatures,
-    barrierLineControl,
+    coordinationLineControl,
     selectionManager,
     uiManager,
     options = {},
@@ -141,8 +147,8 @@ export function addBarrierLineAttributesToPanel(
     createPanelHeader({
         panel,
         features: selectedFeatures,
-        featureType: 'barrier_line',
-        control: barrierLineControl,
+        featureType: 'coordination_line',
+        control: coordinationLineControl,
         selectionManager,
         uiManager,
         hideHeader: options.hideHeader,
@@ -154,7 +160,7 @@ export function addBarrierLineAttributesToPanel(
         label: 'Cor',
         value: feature.properties.color,
         onChange: (color) => {
-            barrierLineControl.updateFeaturesProperty(selectedFeatures, 'color', color);
+            coordinationLineControl.updateFeaturesProperty(selectedFeatures, 'color', color);
         },
     }));
 
@@ -163,10 +169,10 @@ export function addBarrierLineAttributesToPanel(
         min: 1,
         max: 10,
         step: 1,
-        value: feature.properties.lineWidth || BARRIER_LINE_ZOOM_DEFAULTS.lineWidth,
+        value: feature.properties.lineWidth || COORDINATION_LINE_ZOOM_DEFAULTS.lineWidth,
         unit: 'px',
         onChange: (value) => {
-            barrierLineControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', value);
+            coordinationLineControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', value);
         },
     }));
 
@@ -178,13 +184,26 @@ export function addBarrierLineAttributesToPanel(
         value: Math.round((feature.properties.opacity ?? 1) * 100),
         unit: '%',
         onChange: (value) => {
-            barrierLineControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
+            coordinationLineControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
         },
     }));
 
     // ===== THE DIAMOND PATTERN =====
 
-    panel.appendChild(createSectionDivider('Losangos'));
+    panel.appendChild(createSectionDivider('Símbolo'));
+
+    // Declared first: the symbol drives the glyph's footprint, which drives the
+    // spacing floor and the count, so changing it has to redraw both controls.
+    panel.appendChild(createModernSelect({
+        label: 'Símbolo',
+        value: feature.properties.symbol_code || '290199',
+        options: symbolOptions(),
+        onChange: async (code) => {
+            await coordinationLineControl.updateFeaturesProperty(selectedFeatures, 'symbol_code', code);
+            refreshSpacingSlider();
+            refreshLayoutInfo();
+        },
+    }));
 
     // Declared before the two sliders so their handlers can rebuild them. The
     // size drives the spacing's floor, and both drive the count, so a change to
@@ -193,34 +212,34 @@ export function addBarrierLineAttributesToPanel(
     let layoutInfo = null;
 
     const refreshLayoutInfo = () => {
-        const fresh = buildLayoutInfo(feature, barrierLineControl);
+        const fresh = buildLayoutInfo(feature, coordinationLineControl);
         layoutInfo.replaceWith(fresh);
         layoutInfo = fresh;
     };
 
     const refreshSpacingSlider = () => {
-        const fresh = buildSpacingSlider(feature, selectedFeatures, barrierLineControl, refreshLayoutInfo);
+        const fresh = buildSpacingSlider(feature, selectedFeatures, coordinationLineControl, refreshLayoutInfo);
         spacingSlider.replaceWith(fresh);
         spacingSlider = fresh;
     };
 
     panel.appendChild(createModernSlider({
-        label: 'Tamanho do losango',
+        label: 'Tamanho do símbolo',
         min: MIN_SIZE_M,
-        max: maxSizeMetres(barrierLineControl, feature),
+        max: maxSizeMetres(coordinationLineControl, feature),
         step: 5,
-        value: toMetres(feature.properties.symbol_size, BARRIER_LINE_ZOOM_DEFAULTS.symbolSizeKm),
+        value: toMetres(feature.properties.symbol_size, COORDINATION_LINE_ZOOM_DEFAULTS.symbolSizeKm),
         unit: 'm',
         onChange: async (value) => {
             const sizeKm = value / 1000;
-            await barrierLineControl.updateFeaturesProperty(selectedFeatures, 'symbol_size', sizeKm);
+            await coordinationLineControl.updateFeaturesProperty(selectedFeatures, 'symbol_size', sizeKm);
 
             // Growing the diamond can push the spacing below its floor. Write the
             // corrected spacing back rather than letting the geometry silently
             // draw at a spacing the stored feature does not carry.
             const correctedSpacing = clampSpacingForSize(sizeKm, feature.properties.symbol_spacing);
             if (correctedSpacing !== feature.properties.symbol_spacing) {
-                await barrierLineControl.updateFeaturesProperty(
+                await coordinationLineControl.updateFeaturesProperty(
                     selectedFeatures, 'symbol_spacing', correctedSpacing,
                 );
             }
@@ -230,10 +249,10 @@ export function addBarrierLineAttributesToPanel(
         },
     }));
 
-    spacingSlider = buildSpacingSlider(feature, selectedFeatures, barrierLineControl, () => refreshLayoutInfo());
+    spacingSlider = buildSpacingSlider(feature, selectedFeatures, coordinationLineControl, () => refreshLayoutInfo());
     panel.appendChild(spacingSlider);
 
-    layoutInfo = buildLayoutInfo(feature, barrierLineControl);
+    layoutInfo = buildLayoutInfo(feature, coordinationLineControl);
     panel.appendChild(layoutInfo);
 
     // ===== ZOOM ANCHOR =====
@@ -244,7 +263,7 @@ export function addBarrierLineAttributesToPanel(
     // CURRENT zoom, which is also what the toggle stamps below.
     const anchorZoom = hasZoomReference(feature.properties)
         ? feature.properties.createdAtZoom
-        : barrierLineControl.getCurrentZoom();
+        : coordinationLineControl.getCurrentZoom();
     const referenceZoom = Number.isFinite(anchorZoom) ? Math.round(anchorZoom * 10) / 10 : 1;
 
     // Built before the toggle so the toggle can hide it.
@@ -257,7 +276,7 @@ export function addBarrierLineAttributesToPanel(
         unit: '',
         onChange: async (value) => {
             const roundedValue = Math.round(parseFloat(value) * 10) / 10;
-            await barrierLineControl.updateFeaturesProperty(selectedFeatures, 'createdAtZoom', roundedValue);
+            await coordinationLineControl.updateFeaturesProperty(selectedFeatures, 'createdAtZoom', roundedValue);
             refreshLayoutInfo();
         },
     });
@@ -275,11 +294,11 @@ export function addBarrierLineAttributesToPanel(
             // freezing) from where it is now, with nothing jumping on the click.
             // Awaited in sequence because the two writes share one source read.
             if (!hasZoomReference(feature.properties)) {
-                await barrierLineControl.updateFeaturesProperty(
+                await coordinationLineControl.updateFeaturesProperty(
                     selectedFeatures, 'createdAtZoom', referenceZoom,
                 );
             }
-            await barrierLineControl.updateFeaturesProperty(
+            await coordinationLineControl.updateFeaturesProperty(
                 selectedFeatures, 'zoomCorrectionEnabled', enabled,
             );
             zoomSlider.classList.toggle(HIDDEN_SLIDER_CLASS, !enabled);
@@ -292,7 +311,7 @@ export function addBarrierLineAttributesToPanel(
     createActionButtons({
         panel,
         features: selectedFeatures,
-        control: barrierLineControl,
+        control: coordinationLineControl,
         selectionManager,
         initialPropertiesMap,
         hideButtons: options.hideButtons,

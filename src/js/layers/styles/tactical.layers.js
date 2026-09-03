@@ -1,7 +1,7 @@
 // Path: js/layers/styles/tactical.layers.js
 
 /**
- * @fileoverview Tactical layer styles (boundary, occupied front, barrier line, LOS, visibility).
+ * @fileoverview Tactical layer styles (boundary, occupied front, coordination line, LOS, visibility).
  */
 
 import { getControl } from '../../store';
@@ -17,7 +17,7 @@ import {
     buildBoundaryTextSizeExpression,
     buildBoundaryCircleStrokeExpression,
 } from '../../military_tools/boundary_tool/boundary-zoom.model.js';
-import { buildBarrierLineWidthExpression } from '../../military_tools/barrier_line_tool/barrier-line-zoom.model.js';
+import { buildCoordinationLineWidthExpression } from '../../military_tools/coordination_line_tool/coordination-line-zoom.model.js';
 
 /**
  * Sets up boundary layers on the map.
@@ -337,7 +337,7 @@ export function setupVisibilityLayers(features, mapInstance) {
 }
 
 /**
- * Sets up barrier line layers on the map.
+ * Sets up coordination line layers on the map.
  *
  * Three sources and three layers, and no more: the whole symbol (the surviving
  * line segments plus one closed ring per diamond) lives in ONE MultiLineString,
@@ -345,28 +345,28 @@ export function setupVisibilityLayers(features, mapInstance) {
  * That is the difference from the boundary, which needs sibling sources for its
  * echelon circles and labels.
  *
- * @param {Object} features - Feature collection with barrier lines
+ * @param {Object} features - Feature collection with coordination lines
  * @param {Object} mapInstance - MapLibre map instance
  */
-export function setupBarrierLineLayers(features, mapInstance) {
-    if (!features.barrier_lines) return;
+export function setupCoordinationLineLayers(features, mapInstance) {
+    if (!features.coordination_lines) return;
 
     // Correct before the first write: a line pinned to the SCREEN and reopened at
     // another zoom would otherwise draw its diamonds at the scale of the session
     // that saved it.
-    const barrierLineControl = getControl('AddBarrierLineControl');
-    const correctedLines = barrierLineControl
-        ? barrierLineControl.applyZoomCorrections(features.barrier_lines)
-        : features.barrier_lines;
+    const coordinationLineControl = getControl('AddCoordinationLineControl');
+    const correctedLines = coordinationLineControl
+        ? coordinationLineControl.applyZoomCorrections(features.coordination_lines)
+        : features.coordination_lines;
 
-    setOrCreateSource(mapInstance, 'barrier_lines', correctedLines);
-    ensureSource(mapInstance, 'barrier-line-feedback');
-    ensureSource(mapInstance, 'barrier-line-edit-handles');
+    setOrCreateSource(mapInstance, 'coordination_lines', correctedLines);
+    ensureSource(mapInstance, 'coordination-line-feedback');
+    ensureSource(mapInstance, 'coordination-line-edit-handles');
 
     ensureLayer(mapInstance, {
-        id: 'barrier-line-feedback-layer',
+        id: 'coordination-line-feedback-layer',
         type: 'line',
-        source: 'barrier-line-feedback',
+        source: 'coordination-line-feedback',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
             'line-color': '#ff0000',
@@ -378,22 +378,22 @@ export function setupBarrierLineLayers(features, mapInstance) {
     });
 
     ensureLayer(mapInstance, {
-        id: 'barrier-line-layer',
+        id: 'coordination-line-layer',
         type: 'line',
-        source: 'barrier_lines',
+        source: 'coordination_lines',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
             'line-color': ['get', 'color'],
-            'line-width': buildBarrierLineWidthExpression(),
+            'line-width': buildCoordinationLineWidthExpression(),
             'line-opacity': ['get', 'opacity'],
         },
         filter: VISIBLE_FILTER,
     });
 
     ensureLayer(mapInstance, {
-        id: 'barrier-line-edit-handles-layer',
+        id: 'coordination-line-edit-handles-layer',
         type: 'circle',
-        source: 'barrier-line-edit-handles',
+        source: 'coordination-line-edit-handles',
         paint: {
             'circle-radius': 8,
             // The handle kind travels in `type`, as it does for the boundary.

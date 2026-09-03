@@ -40,8 +40,8 @@ const TOOL_NAMES = {
     boundary: 'Linha de Limite',
     occupied_front: 'Frente Ocupada',
     occupiedfront: 'Frente Ocupada',
-    barrier_line: 'Linha de Barreiras',
-    barrierline: 'Linha de Barreiras',
+    coordination_line: 'Linha de Coordenação',
+    coordinationline: 'Linha de Coordenação',
     azimuth_distance: 'Azimute e Distância',
     azimuthdistance: 'Azimute e Distância',
 
@@ -68,7 +68,7 @@ const TOOLBAR_TOOLS = new Set([
     'point', 'line', 'polygon', 'rectangle', 'circle', 'ellipse', 'text', 'image', 'brush',
     // Military tools
     'military_symbol', 'militarysymbol', 'coordination_measure', 'coordinationmeasure',
-    'arrow', 'boundary', 'occupied_front', 'occupiedfront', 'barrier_line', 'barrierline',
+    'arrow', 'boundary', 'occupied_front', 'occupiedfront', 'coordination_line', 'coordinationline',
     // Analysis tools
     'los', 'visibility',
     // Measurement tools

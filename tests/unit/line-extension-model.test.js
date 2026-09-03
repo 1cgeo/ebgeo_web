@@ -234,7 +234,7 @@ describe('canExtendFeature', () => {
     it('refuses a type that is not linear, naming the three that are', () => {
         const verdict = canExtendFeature(feature({ source: 'polygon' }));
         expect(verdict.ok).toBe(false);
-        expect(verdict.reason).toBe('Só linha, seta, linha de limite e linha de barreiras podem ser continuadas');
+        expect(verdict.reason).toBe('Só linha, seta, linha de limite e linha de coordenação podem ser continuadas');
     });
 
     it('refuses a feature with no properties at all', () => {
@@ -280,7 +280,7 @@ describe('canExtendFeature', () => {
     });
 
     it('exposes exactly the three types and the two ends', () => {
-        expect([...EXTENDABLE_SOURCES]).toEqual(['line', 'arrow', 'boundary', 'barrier_line']);
+        expect([...EXTENDABLE_SOURCES]).toEqual(['line', 'arrow', 'boundary', 'coordination_line']);
         expect([...EXTENSION_ENDS]).toEqual(['start', 'end']);
     });
 });

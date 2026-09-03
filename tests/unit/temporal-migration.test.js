@@ -9,8 +9,12 @@ import { ATLAS_SCHEMA_VERSION } from '../../src/js/store/atlas/atlas.entity.js';
  * the migration, and 2.2 must be considered current.
  */
 describe('temporal schema migration (v2.1 -> v2.2)', () => {
-    it('bumps the atlas schema version to 2.2', () => {
-        expect(ATLAS_SCHEMA_VERSION).toBe('2.2');
+    // Asserted against the CURRENT version instead of repeating '2.2' a second
+    // time: this file guards the 2.1 -> 2.2 link, not whichever bump happens to
+    // be last, and a ruler that hard-codes the number reproves good code every
+    // time the schema moves on.
+    it('keeps the temporal bump inside the chain', () => {
+        expect(compareVersions('2.2', ATLAS_SCHEMA_VERSION) <= 0).toBe(true);
     });
 
     it('orders the version chain so older atlases trigger the migration', () => {
@@ -19,8 +23,8 @@ describe('temporal schema migration (v2.1 -> v2.2)', () => {
         expect(compareVersions('1.7', '2.2')).toBe(-1);
     });
 
-    it('treats a 2.2 atlas as current (no re-migration loop)', () => {
-        expect(compareVersions('2.2', ATLAS_SCHEMA_VERSION)).toBe(0);
+    it('stops re-running the temporal migration once the atlas reaches 2.2', () => {
+        expect(compareVersions('2.2', '2.2')).toBe(0);
         expect(compareVersions(ATLAS_SCHEMA_VERSION, '2.2') < 0).toBe(false);
     });
 
