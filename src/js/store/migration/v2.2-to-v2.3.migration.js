@@ -49,7 +49,15 @@ function migrateFeature(feature) {
 }
 
 /**
- * Move the old bucket onto the new one for a single map.
+ * Bring one map's feature collection to the v2.3 shape.
+ *
+ * Does TWO things, and the second is the one that is easy to forget: it renames
+ * the old bucket, AND it guarantees the new bucket EXISTS even on a map that
+ * never had a barrier line to rename. A map created before the tool shipped has
+ * neither key, and leaving it that way is not harmless: the layer setup would
+ * have no collection to build a source from, and the tool would activate, accept
+ * clicks and draw nothing. Normalising the shape is the migration's job, not the
+ * renderer's.
  *
  * Merges rather than overwrites: a map touched by a newer build could already
  * carry `coordination_lines`, and dropping those would lose work that the
@@ -59,20 +67,20 @@ function migrateFeature(feature) {
  * @returns {Object|null} New feature collection, or null when nothing changed
  */
 export function migrateBarrierLines(features) {
-    const legacy = features?.[OLD_BUCKET];
-    if (!Array.isArray(legacy) || legacy.length === 0) {
-        // Still drop an empty legacy bucket, so the shape converges.
-        if (features && OLD_BUCKET in features) {
-            const { [OLD_BUCKET]: _dropped, ...rest } = features;
-            return { ...rest, [NEW_BUCKET]: rest[NEW_BUCKET] || [] };
-        }
-        return null;
-    }
+    if (!features || typeof features !== 'object') return null;
+
+    const legacy = features[OLD_BUCKET];
+    const temLegado = OLD_BUCKET in features;
+    const temNovo = Array.isArray(features[NEW_BUCKET]);
+
+    // Nothing to rename and the bucket is already in shape: no write for this map.
+    if (!temLegado && temNovo) return null;
 
     const { [OLD_BUCKET]: _legacy, ...rest } = features;
-    const existing = Array.isArray(rest[NEW_BUCKET]) ? rest[NEW_BUCKET] : [];
+    const existente = Array.isArray(rest[NEW_BUCKET]) ? rest[NEW_BUCKET] : [];
+    const migradas = Array.isArray(legacy) ? legacy.map(migrateFeature) : [];
 
-    return { ...rest, [NEW_BUCKET]: [...existing, ...legacy.map(migrateFeature)] };
+    return { ...rest, [NEW_BUCKET]: [...existente, ...migradas] };
 }
 
 /**

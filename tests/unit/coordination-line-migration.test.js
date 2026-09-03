@@ -107,11 +107,25 @@ describe('migrateBarrierLines', () => {
         expect(resultado.coordination_lines).toEqual([]);
     });
 
-    it('nao reescreve mapa que nunca teve o balde velho', () => {
-        // Devolver null e o que evita uma escrita por mapa em todo atlas do usuario.
+    it('CRIA o balde novo no mapa que nunca teve linha nenhuma', () => {
+        // O caso que quebrou na primeira vez que a ferramenta foi usada. Um mapa
+        // criado antes dela nao tem NENHUM dos dois baldes, e sem este ramo a
+        // migracao o deixava assim: o setup de camadas nao tinha colecao para
+        // montar a fonte, e a ferramenta ativava, aceitava clique e nao desenhava.
+        // Normalizar a forma e trabalho da migracao, nao do renderizador.
+        const resultado = migrateBarrierLines({ points: [], lines: [] });
+        expect(resultado).not.toBeNull();
+        expect(resultado.coordination_lines).toEqual([]);
+        expect(resultado.points).toEqual([]);
+
+        expect(migrateBarrierLines({}).coordination_lines).toEqual([]);
+    });
+
+    it('nao reescreve mapa que ja esta na forma nova', () => {
+        // Aqui sim devolver null e o que evita uma escrita por mapa em todo atlas.
         expect(migrateBarrierLines({ points: [], coordination_lines: [] })).toBeNull();
-        expect(migrateBarrierLines({})).toBeNull();
         expect(migrateBarrierLines(undefined)).toBeNull();
+        expect(migrateBarrierLines(null)).toBeNull();
     });
 
     it('WORST CASE: insumo degenerado nao lanca e nao perde feicao', () => {
