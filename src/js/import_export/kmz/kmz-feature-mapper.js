@@ -320,8 +320,17 @@ async function mapSymbolFeature({
         regenerate: () => regenerateSymbol(featureType, properties),
     });
 
-    const nativeWidth = asset?.width || properties.width || POINT_ICON_NATIVE_PX;
-    const desired = (properties.width || nativeWidth)
+    // O `<scale>` do KML e sobre o tamanho NATIVO do arquivo, e o arquivo nem sempre tem o
+    // tamanho logico da feicao: a medida de coordenacao rasteriza acima para o simbolo nao
+    // borrar quando o zoom amplia o icone, e grava a razao em `pixelRatio`. Sem multiplicar
+    // por ela, o `iconScale` dava 1 e o Google Earth desenhava o bitmap inteiro, ou seja o
+    // icone saia `pixelRatio` vezes maior. Feicao sem a chave vale 1, como sempre foi.
+    const razaoDePixel = Number.isFinite(properties.pixelRatio) && properties.pixelRatio > 0
+        ? properties.pixelRatio
+        : 1;
+    const larguraLogica = properties.width || POINT_ICON_NATIVE_PX;
+    const nativeWidth = asset?.width || larguraLogica * razaoDePixel;
+    const desired = larguraLogica
         * (Number.isFinite(properties.size) ? properties.size : 1);
 
     const body = buildIconStyle({

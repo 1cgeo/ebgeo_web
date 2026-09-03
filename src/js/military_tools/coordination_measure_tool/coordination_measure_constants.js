@@ -179,9 +179,20 @@ export const UI_DATA = {
       options: Object.keys(SUPPLY_CLASSES)
     },
     status: {
-      label: "Status",
+      label: "Situação",
       type: "select",
-      options: ["ocupado", "preparado", "preparado-nao-ocupado"]
+      // Sempre tem valor: o Nucleo nasce ocupado. Por isso o campo nao oferece a opcao
+      // vazia, que so serviria para devolver o desenho ao estado sem escolha.
+      required: true,
+      options: ["ocupado", "preparado", "preparado-nao-ocupado"],
+      // Os valores gravados ficam como estao, porque projeto salvo ja os carrega. O que
+      // muda e o rotulo que aparece na tela.
+      optionLabels: {
+        "ocupado": "Ocupado",
+        "preparado": "Preparado",
+        "preparado-nao-ocupado": "Preparado e não ocupado"
+      },
+      help: "Ocupado desenha a elipse em traço contínuo; as demais, tracejada."
     },
     numeroConcentracao: {
       label: "Nº Concentração",

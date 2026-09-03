@@ -1707,6 +1707,10 @@
     min-height: 0;
 }
 
+.point-selector-ft {
+    margin-top: calc(var(--space-2) * -1);
+}
+
 .point-selector-subtype {
     margin-top: var(--space-2);
 }

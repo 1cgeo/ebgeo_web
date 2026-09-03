@@ -24,27 +24,6 @@ const ECHELON_SYMBOLS = {
 };
 
 // ============================================================================
-// ECHELON SYMBOLS - TASK FORCE
-// ============================================================================
-
-const ECHELON_SYMBOLS_FT = {
-  "00": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path></g></svg>`,
-  "11": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path><circle cx="100" cy="30" r="15" ></circle><path d="M80,40L120,20" ></path></g></svg>`,
-  "12": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path><circle cx="100" cy="30" r="7.5" fill="black" ></circle></g></svg>`,
-  "13": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path><circle cx="115" cy="30" r="7.5" fill="black" ></circle><circle cx="85" cy="30" r="7.5" fill="black" ></circle></g></svg>`,
-  "14": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path><circle cx="100" cy="30" r="7.5" fill="black" ></circle><circle cx="70" cy="30" r="7.5" fill="black" ></circle><circle cx="130" cy="30" r="7.5" fill="black" ></circle></g></svg>`,
-  "15": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path><path d="M100,40L100,15" ></path></g></svg>`,
-  "16": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path><path d="M90,40L90,15" ></path><path d="M110,40L110,15" ></path></g></svg>`,
-  "17": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path><path d="M100,40L100,15" ></path><path d="M120,40L120,15" ></path><path d="M80,40L80,15" ></path></g></svg>`,
-  "18": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path><path d="M87.5,40 l25,-25 m0,25 l-25,-25" ></path></g></svg>`,
-  "21": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path><path d="M70,40 l25,-25 m0,25 l-25,-25   M105,40 l25,-25 m0,25 l-25,-25" ></path></g></svg>`,
-  "22": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="272" height="104" viewBox="0 0 272 104"><g transform="translate(-104,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M45,50 L45,10 155,10 155,50" stroke-width="1.67" stroke="black" fill="none" ></path><path d="M52.5,40 l25,-25 m0,25 l-25,-25    M87.5,40 l25,-25 m0,25 l-25,-25    M122.5,40 l25,-25 m0,25 l-25,-25" ></path></g></svg>`,
-  "23": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="356" height="104" viewBox="0 0 356 104"><g transform="translate(-62,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M27.5,50 L27.5,10 172.5,10 172.5,50" stroke-width="1.67" stroke="black" fill="none" ></path><path d="M35,40 l25,-25 m0,25 l-25,-25   M70,40 l25,-25 m0,25 l-25,-25   M105,40 l25,-25 m0,25 l-25,-25    M140,40 l25,-25 m0,25 l-25,-25" ></path></g></svg>`,
-  "25": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="524" height="104" viewBox="0 0 524 104"><g transform="translate(22,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M-7.5,50 L-7.5,10 207.5,10 207.5,50" stroke-width="1.67" stroke="black" fill="none" ></path><path d="M0,40 l25,-25 m0,25 l-25,-25   M35,40 l25,-25 m0,25 l-25,-25   M70,40 l25,-25 m0,25 l-25,-25   M105,40 l25,-25 m0,25 l-25,-25    M140,40 l25,-25 m0,25 l-25,-25     M175,40 l25,-25 m0,25 l-25,-25" ></path></g></svg>`,
-  "26": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path><path d="M70,27.5 l25,0 m-12.5,12.5 l0,-25   M105,27.5 l25,0 m-12.5,12.5 l0,-25" ></path></g></svg>`
-};
-
-// ============================================================================
 // SUPPLY CLASS ICONS
 // ============================================================================
 
@@ -763,43 +742,319 @@ const BASE_POINTS = {
 };
 
 // ============================================================================
-// ECHELON POINT GENERATION
+// NUCLEO (MD33-M-02)
 // ============================================================================
 
 /**
- * Generate all echelon point definitions
- * @returns {Object} Map of echelon point codes to point definitions
+ * O NUCLEO e uma area sem tracado particular, delimitada e identificada. Aqui ele nao e
+ * uma area que o usuario desenha: e um SIMBOLO de elipse de tamanho FIXO, que o simbolo de
+ * escalao CORTA embaixo, e abaixo do escalao vem a identificacao. O tracado conta a
+ * situacao, continuo para ocupado e tracejado para preparado, e quem o aplica e o gerador,
+ * porque a situacao e propriedade da feicao e nao do catalogo.
+ *
+ * O corte e o gesto da figura do manual: a elipse nao passa por tras do escalao, ela ABRE
+ * na largura dele, e as duas pontas do arco encostam nos cantos de cima do simbolo. Por
+ * isso o contorno e um arco aberto (`path`), nunca um `ellipse` fechado.
+ *
+ * O codigo do ponto continua sendo `ECHELON_<n>` e `ECHELON_FT_<n>`: mudou o nome na tela,
+ * nao o identificador no disco. Renomear o codigo apagaria o simbolo de todo projeto ja
+ * salvo, que grava `pointCode` e `echelonCode` no arquivo e no IndexedDB.
+ */
+// O achatamento e a folga do corte saem da figura do manual, medida pixel a pixel: a
+// elipse de cima e 145 por 87 (1,67 para 1) e a de baixo 145 por 60 (2,42 para 1), e a
+// abertura para as barras de batalhao tem 28 px contra 12 px de simbolo, ou seja, sobra
+// mais de meia largura de simbolo de cada lado. Daqui saem 2,2 para 1 de achatamento e a
+// folga lateral do corte.
+const NUCLEO_RX = 220;
+const NUCLEO_RY = 100;
+// O traco NAO e 4 como no resto do catalogo, porque 4 nao quer dizer a mesma coisa aqui: a
+// espessura na TELA e o traco vezes a escala do quadro, e o quadro do nucleo e cinco vezes
+// mais largo que o do ponto generico `130100`. Com traco 4 o nucleo saia com 0,70 px contra
+// 3,64 px do generico.
+//
+// Mas casar os 3,64 px do generico tambem estava errado, e essa foi a licao: o que limita
+// aqui nao e a comparacao com o outro simbolo, e a DENSIDADE DE LINHAS do colchete de
+// Forca-Tarefa. Ele tem 25 px de largura na tela com cinco linhas dentro (duas pernas mais
+// as barras do escalao), ou seja um passo de 5 px. Com 3,6 px de traco sobra 1,4 px de
+// respiro e o colchete vira um borrao; com 2 px sobram 3 px e as barras se separam. Daqui
+// sai a espessura, olhada no tamanho real, nao deduzida.
+const NUCLEO_TRACO = 11;
+
+// O colchete de Forca-Tarefa e DESENHADO, nao copiado de um segundo jogo de simbolos. As
+// catorze versoes que existiam tinham o colchete com largura fixa de 90, o que dava 35 de
+// respiro no batalhao e 7,5 no pelotao, no corpo de exercito, no exercito e no teatro de
+// operacoes, onde as marcas quase encostavam nas pernas. E o topo do colchete coincidia
+// com o topo das marcas nos catorze, entao a barra de cima encostava no simbolo.
+//
+// Aqui a largura sai da MARCA, com um respiro minimo, e nunca abaixo da largura de sempre:
+// os escaloes folgados ficam como estavam e so os apertados alargam.
+const NUCLEO_FT_RESPIRO = 16;
+const NUCLEO_FT_MEIA_MINIMA = 54;
+const NUCLEO_FT_VAO_TOPO = 20;
+const NUCLEO_FT_SOBRA = 12;
+// Tamanho do quadro na tela, em pixels. O deslizante "Tamanho" continua por cima disto.
+//
+// Este numero anda JUNTO com o traco e com o corpo do texto, e e a licao que custou tres
+// rodadas: a espessura e o corpo na TELA sao o valor em unidades vezes a escala do quadro,
+// que e o quadro dividido pela largura do viewBox. Encolher o quadro sozinho devolve o
+// simbolo fino e o texto ilegivel, que foi o defeito de origem; engrossar sozinho devolve
+// o simbolo pesado. Ao mexer num, meca os tres.
+const NUCLEO_TAMANHO_BASE = 106;
+const NUCLEO_ESCALA_GLIFO = 0.5;
+// Espessura efetiva do traco nos simbolos de escalao do catalogo: o atributo vale 1.67
+// dentro de um grupo com `scale(2.4)`.
+const TRACO_NATIVO_DO_GLIFO = 4;
+const NUCLEO_FOLGA_CORTE = 26;
+const NUCLEO_VAO_TEXTO = 12;
+// Corpo do texto, medido pela mesma regua do traco. Num simbolo de 75 px de largura ele
+// nao pode ser o corpo do ponto generico, que sairia mais largo que a propria elipse: o
+// alvo aqui e o menor corpo que ainda se le no mapa.
+const NUCLEO_FONTE = 72;
+const NUCLEO_MARGEM = 8;
+// Teto do corte, para o escalao mais largo do catalogo nao abrir a elipse de lado a lado.
+const NUCLEO_CORTE_MAXIMO = 0.8;
+// A folga embaixo do texto reproduz a conta do `calculateDynamicViewBox` do gerador
+// (descida de 0.3 do corpo, mais a margem de 5 dele). O viewBox ja nasce grande o bastante
+// para caber o texto, e por isso o texto NAO empurra o desenho para fora do ponto clicado.
+const NUCLEO_FOLGA_TEXTO = NUCLEO_FONTE * 0.3 + 7;
+
+/**
+ * Extract viewBox of a catalog SVG
+ * @param {string} svg - SVG string
+ * @returns {Object} { minX, minY, width, height }
+ */
+function extrairViewBox(svg) {
+  const encontrado = String(svg).match(/viewBox="([^"]+)"/);
+  const valores = encontrado ? encontrado[1].trim().split(/\s+/).map(Number) : null;
+
+  if (!valores || valores.length !== 4 || valores.some(Number.isNaN)) {
+    throw new Error('Simbolo de escalao sem viewBox utilizavel');
+  }
+
+  return { minX: valores[0], minY: valores[1], width: valores[2], height: valores[3] };
+}
+
+/**
+ * Return only the inner content of an SVG, without the outer <svg> element
+ * @param {string} svg - SVG string
+ * @returns {string} Inner markup
+ */
+function conteudoInterno(svg) {
+  return String(svg).replace(/^[\s\S]*?<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '').trim();
+}
+
+/**
+ * Round to two decimals, to keep the generated SVG readable
+ * @param {number} valor - Value
+ * @returns {number} Rounded value
+ */
+function arredondar(valor) {
+  return Math.round(valor * 100) / 100;
+}
+
+/**
+ * Poe o traco do simbolo de escalao na MESMA espessura do contorno da elipse. Sao duas
+ * correcoes numa: desfazer a escala do glifo, que encolhe o `stroke-width` junto com o
+ * desenho, e levar da espessura nativa dele ate a do nucleo.
+ *
+ * @param {string} conteudo - Inner markup of the echelon glyph
+ * @param {number} escala - Applied scale
+ * @returns {string} Markup with compensated stroke widths
+ */
+function compensarTraco(conteudo, escala) {
+  const fator = NUCLEO_TRACO / (TRACO_NATIVO_DO_GLIFO * escala);
+
+  return conteudo.replace(
+    /stroke-width="([\d.]+)"/g,
+    (_, largura) => `stroke-width="${arredondar(Number(largura) * fator)}"`
+  );
+}
+
+/**
+ * Onde a elipse abre, dada a meia largura da abertura. As duas pontas do arco ficam nos
+ * cantos de cima do que entra pelo corte, e por isso o corte e mais largo e mais alto
+ * quanto mais largo for esse conteudo: o colchete de Forca-Tarefa abre muito mais que as
+ * barras de batalhao.
+ *
+ * @param {number} meiaAbertura - Metade da largura que precisa passar
+ * @returns {Object} { xCorte, yCorte } na moldura centrada na elipse
+ */
+function corteNaElipse(meiaAbertura) {
+  const cosseno = Math.min(meiaAbertura / NUCLEO_RX, NUCLEO_CORTE_MAXIMO);
+
+  return {
+    xCorte: arredondar(NUCLEO_RX * cosseno),
+    yCorte: arredondar(NUCLEO_RY * Math.sqrt(1 - cosseno * cosseno))
+  };
+}
+
+/**
+ * A geometria de um Nucleo, antes de virar SVG. Reune num lugar so as contas que o desenho
+ * e a altura do texto precisam, para as duas nao saírem de sincronia.
+ *
+ * @param {string} glifoSvg - SVG do simbolo de escalao SIMPLES
+ * @param {boolean} forcaTarefa - Se o escalao vai dentro do colchete de Forca-Tarefa
+ * @returns {Object} Medidas na moldura centrada na elipse
+ */
+function medidasDoNucleo(glifoSvg, forcaTarefa) {
+  const caixa = extrairViewBox(glifoSvg);
+  const escala = NUCLEO_ESCALA_GLIFO;
+  const largura = caixa.width * escala;
+  const altura = caixa.height * escala;
+
+  // A meia largura do colchete sai da MARCA, com respiro, e nunca abaixo da de sempre.
+  const meiaColchete = forcaTarefa
+    ? Math.max(NUCLEO_FT_MEIA_MINIMA, largura / 2 + NUCLEO_FT_RESPIRO)
+    : 0;
+
+  // O corte e SEMPRE mais largo que o que entra nele, com ou sem Forca-Tarefa. Sem esta
+  // folga a barra de cima do colchete tapava o corte na medida exata, e a elipse voltava a
+  // parecer fechada: o corte existe para ser VISTO.
+  const meiaAbertura = (forcaTarefa ? meiaColchete : largura / 2) + NUCLEO_FOLGA_CORTE;
+
+  const { xCorte, yCorte } = corteNaElipse(meiaAbertura);
+
+  // No Forca-Tarefa as marcas descem o vao do topo, para a barra de cima do colchete nao
+  // encostar nelas.
+  const topoDasMarcas = forcaTarefa ? yCorte + NUCLEO_FT_VAO_TOPO : yCorte;
+  const baseDasMarcas = topoDasMarcas + altura;
+  const base = forcaTarefa ? baseDasMarcas + NUCLEO_FT_SOBRA : baseDasMarcas;
+
+  return { caixa, escala, xCorte, yCorte, meiaColchete, topoDasMarcas, base };
+}
+
+/**
+ * Onde a identificacao cai, medida na familia INTEIRA. E a mesma altura para os treze
+ * escaloes, e nao a de cada um: posicao de texto que varia por codigo obriga treze
+ * configuracoes diferentes, e a primeira que sair do lugar sai calada. Toma o pior caso,
+ * que e o escalao cuja base desce mais.
+ *
+ * @param {Object} tabela - Echelon symbol table
+ * @returns {number} Text baseline, in the ellipse-centered frame
+ */
+function baseDaFamilia(forcaTarefa) {
+  const bases = Object.keys(ECHELON_CODES)
+    .map(code => medidasDoNucleo(ECHELON_SYMBOLS[code], forcaTarefa).base);
+
+  return Math.round(Math.max(...bases) + NUCLEO_VAO_TEXTO + NUCLEO_FONTE);
+}
+
+const NUCLEO_TEXTO_Y = baseDaFamilia(false);
+const NUCLEO_TEXTO_Y_FT = baseDaFamilia(true);
+
+/**
+ * Monta o simbolo de Nucleo a partir do simbolo de escalao.
+ *
+ * O desenho e SIMETRICO na vertical em torno do centro da elipse. O `icon-anchor` da
+ * camada e 'center', que ancora o meio do bitmap: sem a simetria, o ponto clicado cairia
+ * no meio do conjunto elipse-mais-escalao-mais-texto, e a elipse subiria.
+ *
+ * @param {string} glifoSvg - SVG do simbolo de escalao SIMPLES
+ * @param {number} textoY - Altura da identificacao, comum a familia
+ * @param {boolean} forcaTarefa - Se desenha o colchete de Forca-Tarefa em volta
+ * @returns {Object} { svg, textoY }
+ */
+function montarNucleo(glifoSvg, textoY, forcaTarefa) {
+  const { caixa, escala, xCorte, yCorte, meiaColchete, topoDasMarcas, base } =
+    medidasDoNucleo(glifoSvg, forcaTarefa);
+
+  const meiaAltura = Math.ceil(textoY + NUCLEO_FOLGA_TEXTO);
+  const meiaLargura = Math.ceil(Math.max(
+    NUCLEO_RX + NUCLEO_TRACO / 2 + NUCLEO_MARGEM,
+    xCorte + NUCLEO_MARGEM
+  ));
+
+  const largura = meiaLargura * 2;
+  const altura = meiaAltura * 2;
+
+  const deslocX = arredondar(-(caixa.minX + caixa.width / 2) * escala);
+  const deslocY = arredondar(topoDasMarcas - caixa.minY * escala);
+
+  const glifo = compensarTraco(conteudoInterno(glifoSvg), escala);
+
+  // Arco aberto, da ponta direita do corte ate a esquerda, pelo lado de CIMA: o `1 0` sao
+  // o arco maior e o sentido anti-horario, que e o caminho que passa pelo topo.
+  const contorno = `M ${xCorte} ${yCorte} A ${NUCLEO_RX} ${NUCLEO_RY} 0 1 0 ${-xCorte} ${yCorte}`;
+
+  // O colchete pendura DENTRO do corte, mais estreito que ele: sobra o vao da folga de
+  // cada lado, e e por esse vao que se ve a elipse cortada. Colchete da largura exata do
+  // corte tapa a abertura, e o desenho volta a parecer uma elipse fechada.
+  const colchete = forcaTarefa
+    ? `<path d="M ${-meiaColchete} ${arredondar(base)} L ${-meiaColchete} ${yCorte}`
+      + ` L ${meiaColchete} ${yCorte} L ${meiaColchete} ${arredondar(base)}"`
+      + ` stroke-width="${NUCLEO_TRACO}" stroke="black" fill="none"></path>`
+    : '';
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny"`
+    + ` width="${largura}" height="${altura}"`
+    + ` viewBox="${-meiaLargura} ${-meiaAltura} ${largura} ${altura}">`
+    + `<path data-nucleo="contorno" d="${contorno}"`
+    + ` stroke-width="${NUCLEO_TRACO}" stroke="black" fill="none"></path>`
+    + colchete
+    + `<g transform="translate(${deslocX},${deslocY}) scale(${escala})">${glifo}</g>`
+    + `</svg>`;
+
+  return { svg, textoY };
+}
+
+// ============================================================================
+// NUCLEO POINT GENERATION
+// ============================================================================
+
+/**
+ * Generate all nucleus point definitions
+ * @returns {Object} Map of nucleus point codes to point definitions
  */
 function generateEchelonPoints() {
   const echelonPoints = {};
 
-  Object.entries(ECHELON_CODES).forEach(([code, label]) => {
-    const pointCode = `ECHELON_${code}`;
-    echelonPoints[pointCode] = {
-      code: pointCode,
-      name: `Escalão - ${label}`,
-      category: "Escalão",
-      svg: `${ECHELON_SYMBOLS[code]}`,
-      anchor: "center",
-      isEchelon: true,
-      echelonCode: code,
-      textFields: {}
-    };
-  });
+  const familias = [
+    {
+      prefixo: 'ECHELON',
+      base: NUCLEO_TEXTO_Y,
+      nome: 'Núcleo',
+      categoria: 'Núcleo',
+      forcaTarefa: false
+    },
+    {
+      prefixo: 'ECHELON_FT',
+      base: NUCLEO_TEXTO_Y_FT,
+      nome: 'Núcleo FT',
+      categoria: 'Núcleo Força-Tarefa',
+      forcaTarefa: true
+    }
+  ];
 
-  Object.entries(ECHELON_CODES).forEach(([code, label]) => {
-    const pointCode = `ECHELON_FT_${code}`;
-    echelonPoints[pointCode] = {
-      code: pointCode,
-      name: `Escalão FT - ${label}`,
-      category: "Escalão Força-Tarefa",
-      svg: `${ECHELON_SYMBOLS_FT[code]}`,
-      anchor: "center",
-      isEchelon: true,
-      isForcaTarefa: true,
-      echelonCode: code,
-      textFields: {}
-    };
+  familias.forEach(familia => {
+    Object.entries(ECHELON_CODES).forEach(([code, label]) => {
+      const pointCode = `${familia.prefixo}_${code}`;
+      // As duas familias partem do MESMO simbolo de escalao: o que separa e o colchete,
+      // que o `montarNucleo` desenha em volta.
+      const { svg, textoY } = montarNucleo(ECHELON_SYMBOLS[code], familia.base, familia.forcaTarefa);
+
+      echelonPoints[pointCode] = {
+        code: pointCode,
+        name: `${familia.nome} - ${label}`,
+        category: familia.categoria,
+        svg,
+        anchor: "center",
+        tamanhoBase: NUCLEO_TAMANHO_BASE,
+        isEchelon: true,
+        isNucleo: true,
+        isForcaTarefa: familia.forcaTarefa,
+        echelonCode: code,
+        textFields: {
+          identificacao: {
+            position: { x: 0, y: textoY },
+            anchor: 'middle',
+            fontSize: NUCLEO_FONTE
+          }
+        },
+        // A situacao aparece no formulario ALEM do texto, e nao entra em `textFields`
+        // porque nao e desenhada como texto: ela troca o tracado da elipse.
+        uiFields: ['status', 'identificacao']
+      };
+    });
   });
 
   return echelonPoints;
@@ -864,13 +1119,23 @@ export function getTextFieldsConfig(pointCode) {
 }
 
 /**
- * Get available text field names for a point
+ * Get the field names the attribute form must offer for a point.
+ *
+ * Por padrao sao os campos de texto do simbolo. O ponto que precisa oferecer um campo que
+ * NAO vira texto no desenho (a situacao do nucleo, que troca o tracado da elipse) declara
+ * `uiFields`, e ai a lista do formulario deixa de ser a lista do desenho.
+ *
  * @param {string} pointCode - Point code
- * @returns {Array<string>} Array of text field names
+ * @returns {Array<string>} Array of field names
  */
 export function getAvailableTextFields(pointCode) {
-  const textFields = getTextFieldsConfig(pointCode);
-  return Object.keys(textFields);
+  const point = COORDINATION_POINTS_CATALOG[pointCode];
+
+  if (point && Array.isArray(point.uiFields)) {
+    return point.uiFields;
+  }
+
+  return Object.keys(getTextFieldsConfig(pointCode));
 }
 
 // ============================================================================

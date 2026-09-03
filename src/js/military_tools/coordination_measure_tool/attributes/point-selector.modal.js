@@ -10,7 +10,10 @@ import { addDomListener } from '@utils/event-cleanup.js';
 
 import {
     createDigitalComboBoxWithThumbnails,
+    createCheckbox,
     isEchelonPointCode,
+    isNucleoFT,
+    trocarFamiliaDoNucleo,
     getPointsGroupedOptions,
     getEchelonSubtypeOptions,
     clearAllTextModifiers,
@@ -19,6 +22,7 @@ import {
 import { createColorControlSection } from './color-control.section.js';
 import { createTextModifierField } from './text-modifiers.section.js';
 import { getAvailableTextFields } from '../coordination_points_catalog.js';
+import { NITIDEZ_DE_TELA } from '../coordination_measure_generator.js';
 import { UI_DATA } from '../coordination_measure_constants.js';
 
 /**
@@ -42,6 +46,17 @@ const ICONS = {
  */
 
 /**
+ * Miniaturas ja desenhadas, por codigo de ponto.
+ *
+ * Elas nao dependem das propriedades da feicao (a chamada passa `{}`), entao sao sempre a
+ * mesma imagem. Sem esta memoria, marcar Forca-Tarefa reconstruia o combobox de escalao e
+ * rasterizava as treze miniaturas OUTRA VEZ, e era isso que fazia a caixa demorar a
+ * responder. O modulo vive enquanto a pagina vive, e o catalogo nao muda em tempo de
+ * execucao, entao a memoria nunca fica velha.
+ */
+const miniaturas = new Map();
+
+/**
  * Generate thumbnail for combo box options.
  * @param {Object} coordinationMeasureControl - Control instance
  * @param {string} pointCode - Point code
@@ -55,12 +70,22 @@ async function generatePointThumbnailForCombo(coordinationMeasureControl, pointC
                 (pointCode === 'ECHELON' ? 'ECHELON_16' : 'ECHELON_FT_16');
         }
 
+        if (miniaturas.has(pointCode)) {
+            return miniaturas.get(pointCode);
+        }
+
+        // Miniatura de combobox tem umas dezenas de pixels: rasteriza-la na nitidez do
+        // mapa e trabalho jogado fora, treze vezes por troca de subtipo.
         const result = await coordinationMeasureControl.symbolGenerator.generate(
             pointCode,
-            {}
+            {},
+            { nitidez: NITIDEZ_DE_TELA }
         );
 
-        return result?.dataUrl || null;
+        const dataUrl = result?.dataUrl || null;
+        miniaturas.set(pointCode, dataUrl);
+
+        return dataUrl;
     } catch (error) {
         console.warn(`Error generating combo thumbnail: ${pointCode}`, error);
         return null;
@@ -95,7 +120,58 @@ export class PointSelectorModal extends ModalBase {
         this._previewToken = 0;
         this._previewImage = null;
         this._subtypeDropdown = null;
+        this._ftCheckWrapper = null;
         this._textModifiersContent = null;
+    }
+
+    /**
+     * O combo de tipo tem UMA opcao de Nucleo. A feicao guarda `ECHELON` ou `ECHELON_FT`,
+     * e as duas se exibem como a mesma opcao: quem separa as familias e a caixa
+     * Forca-Tarefa. Sem esta normalizacao, abrir um Nucleo FT ja salvo mostraria
+     * "Selecione..." no combo, porque `ECHELON_FT` nao esta mais na lista.
+     *
+     * @private
+     * @returns {string} Codigo que a lista de tipos conhece
+     */
+    _codigoDeTipoNaLista() {
+        return isEchelonPointCode(this._tempProperties.pointCode)
+            ? 'ECHELON'
+            : this._tempProperties.pointCode;
+    }
+
+    /**
+     * O codigo que o CATALOGO conhece. `ECHELON` e `ECHELON_FT` sao codigos de tela, e nao
+     * existem no catalogo: quem pergunta ao catalogo (os campos do formulario, a previa)
+     * tem de resolver antes, senao recebe lista vazia e o formulario nasce sem os campos.
+     *
+     * @private
+     * @returns {string} Codigo real do ponto
+     */
+    _codigoRealDoPonto() {
+        const codigo = this._tempProperties.pointCode;
+
+        if (codigo === 'ECHELON' || codigo === 'ECHELON_FT') {
+            return this._tempProperties.echelonCode
+                || (codigo === 'ECHELON' ? 'ECHELON_16' : 'ECHELON_FT_16');
+        }
+
+        return codigo;
+    }
+
+    /**
+     * O Nucleo nasce OCUPADO, que e o caso comum e o traco continuo. Sem isto a Situacao
+     * abre em "-- Selecione --", e o desenho fica dependendo de um valor que ninguem
+     * escolheu: quem olha a tela nao sabe se a elipse esta continua por decisao ou por
+     * omissao.
+     *
+     * @private
+     */
+    _semearPadraoDoNucleo() {
+        if (!isEchelonPointCode(this._tempProperties.pointCode)) return;
+
+        if (!this._tempProperties.status) {
+            this._tempProperties.status = 'ocupado';
+        }
     }
 
     /**
@@ -123,6 +199,8 @@ export class PointSelectorModal extends ModalBase {
      * @returns {HTMLElement}
      */
     _createBodyContent() {
+        this._semearPadraoDoNucleo();
+
         const content = document.createElement('div');
         content.className = 'point-selector-content';
 
@@ -139,7 +217,7 @@ export class PointSelectorModal extends ModalBase {
 
         const pointTypeCombo = createDigitalComboBoxWithThumbnails(
             getPointsGroupedOptions(),
-            this._tempProperties.pointCode,
+            this._codigoDeTipoNaLista(),
             (newValue) => this._handlePointTypeChange(newValue),
             'Tipo',
             generateThumbnail,
@@ -147,6 +225,11 @@ export class PointSelectorModal extends ModalBase {
             (previewCode) => this._previewPointCode(previewCode)
         );
         controlsColumn.appendChild(pointTypeCombo);
+
+        this._ftCheckWrapper = document.createElement('div');
+        this._ftCheckWrapper.className = 'point-selector-ft';
+        this._updateFtCheck();
+        controlsColumn.appendChild(this._ftCheckWrapper);
 
         this._subtypeDropdown = document.createElement('div');
         this._subtypeDropdown.className = 'point-selector-subtype';
@@ -169,7 +252,7 @@ export class PointSelectorModal extends ModalBase {
 
         this._textModifiersContent = document.createElement('div');
         this._textModifiersContent.className = 'point-selector-text-grid';
-        this._rebuildTextModifiersSection(this._tempProperties.pointCode);
+        this._rebuildTextModifiersSection(this._codigoRealDoPonto());
         textModifiersSection.appendChild(this._textModifiersContent);
         controlsColumn.appendChild(textModifiersSection);
 
@@ -243,6 +326,7 @@ export class PointSelectorModal extends ModalBase {
         }
 
         clearAllTextModifiers(this._tempProperties);
+        this._semearPadraoDoNucleo();
 
         if (isEchelon) {
             this._subtypeDropdown.style.display = 'block';
@@ -251,8 +335,49 @@ export class PointSelectorModal extends ModalBase {
             this._subtypeDropdown.style.display = 'none';
         }
 
-        this._rebuildTextModifiersSection(this._tempProperties.pointCode);
+        this._updateFtCheck();
+        this._rebuildTextModifiersSection(this._codigoRealDoPonto());
         this._updatePreviewDebounced();
+    }
+
+    /**
+     * Marcar a Forca-Tarefa troca a familia do simbolo e PRESERVA o escalao e os textos ja
+     * preenchidos: e a mesma medida com o colchete de FT, nunca um ponto novo. Por isso
+     * este caminho nao passa pelo `_handlePointTypeChange`, que limpa os modificadores.
+     *
+     * @private
+     * @param {boolean} marcado - Estado da caixa
+     */
+    _handleForcaTarefaChange(marcado) {
+        this._tempProperties.pointCode = marcado ? 'ECHELON_FT' : 'ECHELON';
+        this._tempProperties.echelonCode = trocarFamiliaDoNucleo(
+            this._tempProperties.echelonCode,
+            marcado
+        );
+
+        this._updateSubtypeCombo();
+        this._updatePreviewDebounced();
+    }
+
+    /**
+     * Rebuilds the task force checkbox, shown only for the nucleus.
+     * @private
+     */
+    _updateFtCheck() {
+        if (!this._ftCheckWrapper) return;
+
+        this._ftCheckWrapper.innerHTML = '';
+
+        const ehNucleo = isEchelonPointCode(this._tempProperties.pointCode);
+        this._ftCheckWrapper.style.display = ehNucleo ? 'block' : 'none';
+
+        if (!ehNucleo) return;
+
+        this._ftCheckWrapper.appendChild(createCheckbox(
+            'Força-Tarefa',
+            isNucleoFT(this._tempProperties.pointCode),
+            (marcado) => this._handleForcaTarefaChange(marcado)
+        ));
     }
 
     /**
@@ -260,6 +385,14 @@ export class PointSelectorModal extends ModalBase {
      * @private
      */
     _updateSubtypeCombo() {
+        // O dropdown do combo mora no `document.body`, fora deste no. Trocar o HTML sem
+        // chamar a limpeza deixaria um dropdown orfao no corpo do documento a cada troca
+        // de tipo ou de Forca-Tarefa.
+        const anterior = this._subtypeDropdown.firstElementChild;
+        if (anterior && anterior._cleanup) {
+            anterior._cleanup();
+        }
+
         this._subtypeDropdown.innerHTML = '';
 
         if (!isEchelonPointCode(this._tempProperties.pointCode)) return;
@@ -268,7 +401,7 @@ export class PointSelectorModal extends ModalBase {
             return generatePointThumbnailForCombo(this._coordinationMeasureControl, pointCode, defaultEchelonCode);
         };
 
-        const isFT = this._tempProperties.pointCode === 'ECHELON_FT';
+        const isFT = isNucleoFT(this._tempProperties.pointCode);
         const subtypeCombo = createDigitalComboBoxWithThumbnails(
             getEchelonSubtypeOptions(this._tempProperties.pointCode),
             this._tempProperties.echelonCode || (isFT ? 'ECHELON_FT_16' : 'ECHELON_16'),
@@ -276,7 +409,7 @@ export class PointSelectorModal extends ModalBase {
                 this._tempProperties.echelonCode = newValue;
                 this._updatePreviewDebounced();
             },
-            isFT ? 'Escalão Força-Tarefa' : 'Escalão',
+            'Escalão',
             generateThumbnail,
             this._dropdownState,
             (previewCode) => this._previewPointCode(previewCode)
@@ -331,7 +464,11 @@ export class PointSelectorModal extends ModalBase {
 
         let actualPointCode = pointCode;
         if (actualPointCode === 'ECHELON' || actualPointCode === 'ECHELON_FT') {
-            actualPointCode = actualPointCode === 'ECHELON' ? 'ECHELON_16' : 'ECHELON_FT_16';
+            // Com um Nucleo ja escolhido, a previa da propria opcao mostra o escalao e a
+            // familia correntes, e nao o batalhao padrao.
+            actualPointCode = (isEchelonPointCode(this._tempProperties.pointCode)
+                && this._tempProperties.echelonCode)
+                || (actualPointCode === 'ECHELON' ? 'ECHELON_16' : 'ECHELON_FT_16');
         }
 
         const token = ++this._previewToken;

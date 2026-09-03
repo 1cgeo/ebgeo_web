@@ -16,9 +16,13 @@ const DEFAULT_TIMEOUT_MS = 10000;
  * @param {Object}  [options]
  * @param {boolean} [options.replaceExisting=false] - Remove existing image before adding (needed when SVG is regenerated)
  * @param {number}  [options.timeout=10000]         - Timeout in milliseconds
+ * @param {number}  [options.pixelRatio=1]          - Bitmap pixels per pixel de tela. Quem rasteriza acima do
+ *                                                    tamanho logico passa o fator aqui, e o simbolo ocupa o MESMO
+ *                                                    espaco na tela, so que com mais detalhe. Sem isto o
+ *                                                    `icon-size` da camada amplia o bitmap e o desenho borra.
  * @returns {Promise<void>}
  */
-export function loadImageToMap(map, imageId, blob, { replaceExisting = false, timeout = DEFAULT_TIMEOUT_MS } = {}) {
+export function loadImageToMap(map, imageId, blob, { replaceExisting = false, timeout = DEFAULT_TIMEOUT_MS, pixelRatio = 1 } = {}) {
     const url = URL.createObjectURL(blob);
 
     return new Promise((resolve, reject) => {
@@ -36,7 +40,7 @@ export function loadImageToMap(map, imageId, blob, { replaceExisting = false, ti
                     map.removeImage(imageId);
                 }
                 if (!map.hasImage(imageId)) {
-                    map.addImage(imageId, image);
+                    map.addImage(imageId, image, { pixelRatio });
                 }
                 URL.revokeObjectURL(url);
                 resolve();

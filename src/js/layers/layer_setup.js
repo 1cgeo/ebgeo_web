@@ -14,7 +14,7 @@ import { generatePointImage, needsPerFeatureImage } from '../draw_tools/point_to
 import { parseCustomMarker, registerCustomFeatureImage } from '../draw_tools/point_tool/point-custom-icons.js';
 import { updateAllLayerFilters, invalidateFilterCache, updateMeasurementLabelVisibility } from './visibility-filter.js';
 import { applyLayerOpacities, invalidateOpacityCache } from './layer-opacity-applier.js';
-import { collectImageResourceIds } from './feature-images.js';
+import { collectImageResourceIds, collectImageResourceRatios } from './feature-images.js';
 import {
     setupPointLayers,
     setupLineLayers,
@@ -105,8 +105,10 @@ async function addErrorImageIfNeeded(imageId, mapInstance) {
  * Loads a single image to the map.
  * @param {string} imageId - Image ID
  * @param {Object} mapInstance - MapLibre map instance
+ * @param {number} [pixelRatio=1] - Bitmap pixels per screen pixel, para o simbolo
+ *   rasterizado acima do tamanho logico voltar do disco no tamanho certo
  */
-async function loadSingleImage(imageId, mapInstance) {
+async function loadSingleImage(imageId, mapInstance, pixelRatio = 1) {
     try {
         const blob = await getImage(imageId);
 
@@ -131,7 +133,7 @@ async function loadSingleImage(imageId, mapInstance) {
 
             image.onload = () => settle(() => {
                 if (!mapInstance.hasImage(imageId)) {
-                    mapInstance.addImage(imageId, image);
+                    mapInstance.addImage(imageId, image, { pixelRatio });
                 }
                 resolve();
             });
@@ -162,9 +164,11 @@ async function loadSingleImage(imageId, mapInstance) {
 async function setImages(features, mapInstance) {
     const imagePromises = [];
 
+    const razoes = collectImageResourceRatios(features);
+
     for (const imageId of collectImageResourceIds(features)) {
         if (mapInstance.hasImage(imageId)) continue;
-        imagePromises.push(loadSingleImage(imageId, mapInstance));
+        imagePromises.push(loadSingleImage(imageId, mapInstance, razoes.get(imageId) || 1));
     }
 
     await Promise.allSettled(imagePromises);

@@ -207,9 +207,17 @@ export async function resolveStoredImage(registry, featureId, { regenerate, keyP
     const generated = await regenerate();
     if (!generated?.blob) return null;
 
+    // `width` e `height` do registro sao a medida do ARQUIVO, que e o que o `<scale>` do
+    // KML toma por base. O gerador devolve o tamanho LOGICO mais a razao de pixels com que
+    // rasterizou, entao a conversao acontece aqui: gravar o logico faria o icone sair
+    // `pixelRatio` vezes maior no Google Earth.
+    const razao = Number.isFinite(generated.pixelRatio) && generated.pixelRatio > 0
+        ? generated.pixelRatio
+        : 1;
+
     return registry.add(key, generated.blob, {
-        width: generated.width,
-        height: generated.height,
+        width: generated.width * razao,
+        height: generated.height * razao,
     });
 }
 

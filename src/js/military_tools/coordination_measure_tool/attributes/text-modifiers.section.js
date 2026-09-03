@@ -31,16 +31,22 @@ export function createTextModifierField(fieldName, fieldDef, currentValue, onCha
         inputElement = document.createElement('select');
         inputElement.className = 'coord-text-field__select';
 
-        const emptyOption = document.createElement('option');
-        emptyOption.value = '';
-        emptyOption.textContent = '-- Selecione --';
-        inputElement.appendChild(emptyOption);
+        // Campo que sempre tem valor nao oferece a opcao vazia: escolher o vazio seria
+        // devolver o simbolo ao estado sem escolha, que e o que o padrao existe para evitar.
+        if (!fieldDef.required) {
+            const emptyOption = document.createElement('option');
+            emptyOption.value = '';
+            emptyOption.textContent = '-- Selecione --';
+            inputElement.appendChild(emptyOption);
+        }
 
         fieldDef.options.forEach(optKey => {
             const option = document.createElement('option');
             option.value = optKey;
 
-            if (fieldName === 'classeSuprimento') {
+            if (fieldDef.optionLabels && fieldDef.optionLabels[optKey]) {
+                option.textContent = fieldDef.optionLabels[optKey];
+            } else if (fieldName === 'classeSuprimento') {
                 option.textContent = SUPPLY_CLASSES[optKey] || optKey;
             } else {
                 option.textContent = optKey;

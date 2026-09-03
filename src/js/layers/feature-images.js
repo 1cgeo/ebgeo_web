@@ -41,3 +41,37 @@ export function collectImageResourceIds(featuresByStorageType) {
 
     return [...imageIds];
 }
+
+/**
+ * Collects the pixel ratio each image-backed feature was rasterized at.
+ *
+ * Quem rasteriza acima do tamanho logico (a medida de coordenacao, para o simbolo nao
+ * borrar quando o `icon-size` cresce com o zoom) grava a razao na feicao. Feicao antiga,
+ * salva antes disso, nao tem a chave: ela vale 1, que e o comportamento de sempre, e por
+ * isso projeto ja salvo continua do mesmo tamanho.
+ *
+ * @param {Object<string, Array<Object>>} [featuresByStorageType] - Feature collection
+ *   keyed by storage type. Missing or non-array buckets are skipped.
+ * @returns {Map<string, number>} Image id to pixel ratio, only for ids above 1
+ */
+export function collectImageResourceRatios(featuresByStorageType) {
+    const razoes = new Map();
+
+    if (!featuresByStorageType) return razoes;
+
+    for (const storageType of IMAGE_RESOURCE_STORAGE_TYPES) {
+        const features = featuresByStorageType[storageType];
+        if (!Array.isArray(features)) continue;
+
+        for (const feature of features) {
+            const imageId = feature?.properties?.id;
+            const razao = Number(feature?.properties?.pixelRatio);
+
+            if (imageId && Number.isFinite(razao) && razao > 1) {
+                razoes.set(imageId, razao);
+            }
+        }
+    }
+
+    return razoes;
+}

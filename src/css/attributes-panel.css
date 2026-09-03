@@ -2013,6 +2013,29 @@
     font-style: italic;
 }
 
+/* Caixa de marcacao (Forca-Tarefa do nucleo) */
+.coord-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.coord-check__input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: #0d6efd;
+}
+
+.coord-check__label {
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+}
+
 .coord-text-modifiers {
     padding-top: 15px;
 }
