@@ -349,15 +349,23 @@ export function setupVisibilityLayers(features, mapInstance) {
  * @param {Object} mapInstance - MapLibre map instance
  */
 export function setupCoordinationLineLayers(features, mapInstance) {
-    if (!features.coordination_lines) return;
+    // NO early return when the bucket is missing, unlike the boundary above.
+    // A map created before this tool existed has no `coordination_lines` key, and
+    // the v2.3 migration only adds one where a `barrier_lines` bucket existed to
+    // rename. Bailing out here would leave the source and the three layers
+    // uncreated on exactly those maps, and the tool would activate, accept clicks
+    // and draw NOTHING, because every write goes through `getSource(...)?.setData`
+    // and the optional chaining swallows the absence. An empty array is the right
+    // reading of "this map has no coordination lines yet".
+    const stored = Array.isArray(features?.coordination_lines) ? features.coordination_lines : [];
 
     // Correct before the first write: a line pinned to the SCREEN and reopened at
-    // another zoom would otherwise draw its diamonds at the scale of the session
+    // another zoom would otherwise draw its glyphs at the scale of the session
     // that saved it.
     const coordinationLineControl = getControl('AddCoordinationLineControl');
     const correctedLines = coordinationLineControl
-        ? coordinationLineControl.applyZoomCorrections(features.coordination_lines)
-        : features.coordination_lines;
+        ? coordinationLineControl.applyZoomCorrections(stored)
+        : stored;
 
     setOrCreateSource(mapInstance, 'coordination_lines', correctedLines);
     ensureSource(mapInstance, 'coordination-line-feedback');
