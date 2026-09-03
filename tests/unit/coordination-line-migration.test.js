@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { compareVersions } from '../../src/js/store/repository.utils.js';
 import { ATLAS_SCHEMA_VERSION } from '../../src/js/store/atlas/atlas.entity.js';
 import { migrateBarrierLines } from '../../src/js/store/migration/v2.2-to-v2.3.migration.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 /**
  * Guard for the Coordination Line rename (v2.2 -> v2.3).
@@ -127,5 +130,45 @@ describe('migrateBarrierLines', () => {
                 expect(Array.isArray(resultado.coordination_lines), nome).toBe(true);
             }
         }
+    });
+});
+
+// ============================================================================
+// O CAMINHO DO ARQUIVO
+// ============================================================================
+
+/**
+ * Um `.ebgeo` NUNCA passa pela migracao de IndexedDB: ele entra pelo importador,
+ * que valida a versao e normaliza a forma. Como MIN_SCHEMA_VERSION e 1.3, TODO
+ * arquivo aceito foi escrito antes da v2.3 e pode trazer o balde velho. Sem a
+ * chamada abaixo, essas feicoes chegam ao armazenamento num balde que ninguem le.
+ *
+ * Estatico porque o servico importa `@store` inteiro e nao carrega no ambiente
+ * `node`. Ele nao prova o COMPORTAMENTO (isso e o bloco de cima, na funcao pura),
+ * prova a FIACAO: que o importador continua chamando a mesma funcao.
+ */
+describe('a importacao de .ebgeo tambem renomeia o balde', () => {
+    const servico = readFileSync(
+        join(dirname(fileURLToPath(import.meta.url)), '..', '..',
+            'src', 'js', 'import_export', 'export-import.service.js'),
+        'utf8',
+    );
+
+    it('o importador importa a mesma funcao pura da migracao', () => {
+        expect(servico).toMatch(
+            /import \{ migrateBarrierLines \} from '@store\/migration\/v2\.2-to-v2\.3\.migration\.js';/,
+        );
+    });
+
+    it('e a CHAMA na normalizacao, nao apenas importa', () => {
+        // Uma linha de chamada de verdade, com atribuicao, e nao a palavra solta
+        // num comentario.
+        expect(servico).toMatch(/=\s*migrateBarrierLines\(mapData\.features\)/);
+    });
+
+    it('a normalizacao usa o retorno em vez de descarta-lo', () => {
+        // `migrateBarrierLines` devolve null quando nada muda, entao o resultado
+        // precisa ser testado antes de substituir as feicoes.
+        expect(servico).toMatch(/if \(renamedFeatures\) \{[\s\S]{0,120}mapData\.features = renamedFeatures;/);
     });
 });

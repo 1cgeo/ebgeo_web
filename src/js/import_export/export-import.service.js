@@ -41,6 +41,7 @@ import { IDUtils } from '@utils/id_utils.js';
 import { showToast, showSuccess, showError, showWarning } from '@utils/toast_service.js';
 import { createSyncMetadata } from '@store/sync/sync-metadata.js';
 import { ATLAS_SCHEMA_VERSION } from '@store/atlas/atlas.entity.js';
+import { migrateBarrierLines } from '@store/migration/v2.2-to-v2.3.migration.js';
 import { EventTypes } from '@events/event_types.js';
 import { showExportModal } from '@modals/export.modal.js';
 import JSZip from 'jszip';
@@ -125,7 +126,8 @@ function migrateImportDataToV2(data) {
 
 /**
  * Normalizes mapData structure to current version.
- * Ensures coordination_measures exists (added in v1.4).
+ * Ensures coordination_measures exists (added in v1.4) and rewrites the
+ * pre-v2.3 `barrier_lines` bucket onto `coordination_lines`.
  * Validates catalog layers availability.
  * @param {Object} mapData - Map data to normalize
  * @returns {{ mapData: Object, unavailableCatalogLayersCount: number }} Normalized map data and count of unavailable layers
@@ -139,6 +141,18 @@ function normalizeMapDataForCurrentVersion(mapData) {
     // Ensure coordination_measures exists (v1.4)
     if (!mapData.features.coordination_measures) {
         mapData.features.coordination_measures = [];
+    }
+
+    // Rename barrier_lines -> coordination_lines (v2.3). The IndexedDB half of
+    // this rename is `migrateToV2_3`, which a FILE never passes through: an
+    // .ebgeo written before the rename arrives here with the old bucket, and
+    // MIN_SCHEMA_VERSION is 1.3, so every accepted file predates it. Left alone,
+    // those features would land in a bucket nothing reads, in a source nothing
+    // creates, and disappear from the map without an error. Same pure function as
+    // the storage migration, so the two paths cannot drift apart.
+    const renamedFeatures = migrateBarrierLines(mapData.features);
+    if (renamedFeatures) {
+        mapData.features = renamedFeatures;
     }
 
     // Add sync metadata if missing (v2.0)
