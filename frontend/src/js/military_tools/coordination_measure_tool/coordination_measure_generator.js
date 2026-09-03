@@ -160,21 +160,38 @@ export class CoordinationMeasureGenerator {
   }
 
   /**
-   * Apply custom color by replacing rgb(255,255,255) with chosen color
+   * Aplica a cor personalizada ao simbolo.
+   *
+   * A cor pinta a TINTA: o traco e o preenchimento preto. O branco NAO e cor do simbolo,
+   * e mascara: no `290800` Travessia para carros de combate ele e a lagarta que INTERROMPE
+   * a linha, e pinta-lo deixava a linha preta, o contrario do pedido. Por isso o branco
+   * segue o mesmo caminho nos dois modos.
+   *
+   * A versao anterior trocava `rgb(255,255,255)` pela cor escolhida, o que so mexia nos
+   * simbolos com interior branco e deixava metade do catalogo inerte ao controle.
+   *
    * @param {string} svg - SVG string
-   * @param {string} color - Color in hex format (e.g. #11FF00)
-   * @returns {string} SVG with applied color
+   * @param {string} color - Cor em hexadecimal (ex: #11FF00), ou 'none' para o padrao
+   * @returns {string} SVG com a cor aplicada
    */
   applyCustomColor(svg, color) {
+    const semMascara = svg.replace(/fill="rgb\(255,\s*255,\s*255\)"/gi, 'fill="none"');
+
     if (color === 'none') {
-      return svg.replace(/fill="rgb\(255,\s*255,\s*255\)"/gi, 'fill="none"');
+      return semMascara;
     }
 
     const rgb = this.hexToRgb(color);
-    if (rgb) {
-      return svg.replace(/rgb\(255,\s*255,\s*255\)/gi, `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`);
+    if (!rgb) {
+      // Hex invalido e no-op byte a byte, contrato antigo que a suite fixa: entrada que
+      // nao se entende nao autoriza mexer no desenho, nem para abrir a mascara.
+      return svg;
     }
-    return svg;
+
+    // Tres grafias de preto convivem no catalogo: `black`, `#000` e `#000000`. Casar so
+    // uma delas deixava o `240601` inerte. `stroke="none"` e `fill="none"` ficam como estao.
+    const alvo = `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`;
+    return semMascara.replace(/(stroke|fill)="(?:black|#000|#000000)"/gi, (_, attr) => `${attr}="${alvo}"`);
   }
 
   /**

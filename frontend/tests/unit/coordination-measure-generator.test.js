@@ -8,8 +8,9 @@
  *  - `hexToRgb`: the strict 6-digit-only policy (3-digit and 8-digit are REJECTED).
  *    The namesake in `brazilian_svg_postprocessing.js` was NOT strict and now is;
  *    it is pinned in `tests/unit/brazilian-svg-postprocessing.test.js`;
- *  - `applyCustomColor`: the asymmetry between 'none' (fill only) and a real hex
- *    (every rgb(255,255,255), stroke included), plus the silent no-op on bad hex;
+ *  - `applyCustomColor`: 'none' opens the white mask (fill only, stroke untouched);
+ *    a real hex paints the INK (stroke and black fill, in the three spellings the
+ *    catalog uses) and leaves the white as mask; a bad hex is a byte-identical no-op;
  *  - `extractDimensions`: the viewBox parse and the fallback, including the
  *    leading-space case where the split yields five tokens;
  *  - `calculateDynamicViewBox`: which values count as "present" (0 does, '' does not),
@@ -127,12 +128,32 @@ describe('CoordinationMeasureGenerator.applyCustomColor', () => {
         expect(out).toBe('<a fill="none"/>');
     });
 
-    it('a valid hex rewrites EVERY white rgb, stroke included (asymmetric with none)', () => {
-        const out = gen.applyCustomColor(SVG, '#11FF00');
+    it('a real hex paints the INK, and the white stays a mask instead of taking the colour', () => {
+        // Esta assercao foi INVERTIDA em 2026-09-03. A anterior fixava a regra antiga, em
+        // que a cor substituia todo rgb(255,255,255). Duas coisas a derrubaram: o branco do
+        // catalogo e MASCARA e nao preenchimento (no 290800 Travessia para carros de combate
+        // ele e a lagarta que INTERROMPE a linha, e pinta-lo deixava a linha preta, o
+        // contrario do que se pede), e 53 dos 104 simbolos sao traco puro, sem branco nenhum,
+        // de modo que o controle "Usar cor personalizada" era inerte neles.
+        const svg = '<svg viewBox="0 0 40 40" width="40" height="40">'
+            + '<rect fill="rgb(255,255,255)" stroke="black"/>'
+            + '<path d="M0,0 1,1" stroke="#000" fill="black"/></svg>';
 
-        expect(out).toContain('fill="rgb(17, 255, 0)"');
+        const out = gen.applyCustomColor(svg, '#11FF00');
+
         expect(out).toContain('stroke="rgb(17, 255, 0)"');
+        expect(out).toContain('fill="rgb(17, 255, 0)"');
+        expect(out).toContain('fill="none"');
         expect(out).not.toContain('rgb(255,255,255)');
+        expect(out).not.toContain('"black"');
+        expect(out).not.toContain('"#000"');
+    });
+
+    it('a symbol made only of ink responds too, which the old rule could not do', () => {
+        const soTraco = '<svg viewBox="0 0 40 40" width="40" height="40">'
+            + '<path d="M0,0 1,1" stroke="black" fill="none"/></svg>';
+
+        expect(gen.applyCustomColor(soTraco, '#11FF00')).toContain('stroke="rgb(17, 255, 0)"');
     });
 
     it('an invalid hex is a SILENT no-op: the SVG comes back byte-identical', () => {

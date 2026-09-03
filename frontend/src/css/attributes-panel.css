@@ -2134,6 +2134,28 @@
     min-width: 200px;
 }
 
+.coord-combo__search {
+    width: 100%;
+    padding: 10px 15px;
+    border: none;
+    border-bottom: 2px solid #ddd;
+    font-size: 14px;
+    outline: none;
+    box-sizing: border-box;
+    background: #f8f9fa;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.coord-combo__no-results {
+    padding: 12px 15px;
+    font-size: 14px;
+    color: #999;
+    font-style: italic;
+    text-align: center;
+}
+
 .coord-combo__option {
     padding: 12px 15px;
     cursor: pointer;

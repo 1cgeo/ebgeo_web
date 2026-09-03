@@ -95,6 +95,8 @@ export class PointSelectorModal extends ModalBase {
         this._tempProperties = { ...config.feature.properties };
         this._dropdownState = createDropdownState();
         this._previewDebounceTimer = null;
+        // Sela cada pedido de previa: um render que chega atrasado nao sobrescreve o atual.
+        this._previewToken = 0;
         this._previewImage = null;
         this._subtypeDropdown = null;
         this._textModifiersContent = null;
@@ -164,7 +166,8 @@ export class PointSelectorModal extends ModalBase {
             (newValue) => this._handlePointTypeChange(newValue),
             'Tipo',
             generateThumbnail,
-            this._dropdownState
+            this._dropdownState,
+            (previewCode) => this._previewPointCode(previewCode)
         );
         this._combos.push(pointTypeCombo);
         controlsColumn.appendChild(pointTypeCombo);
@@ -181,7 +184,7 @@ export class PointSelectorModal extends ModalBase {
                 this._tempProperties.fillColor = newColor;
                 this._updatePreviewDebounced();
             },
-            'Cor do simbolo'
+            'Cor do símbolo'
         );
         controlsColumn.appendChild(colorControl);
 
@@ -300,9 +303,10 @@ export class PointSelectorModal extends ModalBase {
                 this._tempProperties.echelonCode = newValue;
                 this._updatePreviewDebounced();
             },
-            isFT ? 'Escalao Forca-Tarefa' : 'Escalao',
+            isFT ? 'Escalão Força-Tarefa' : 'Escalão',
             generateThumbnail,
-            this._dropdownState
+            this._dropdownState,
+            (previewCode) => this._previewPointCode(previewCode)
         );
 
         this._combos.push(subtypeCombo);
@@ -338,6 +342,47 @@ export class PointSelectorModal extends ModalBase {
     }
 
     /**
+     * Desenha a previa de um codigo SEM tocar no estado, para o mouseover do combobox.
+     * Com `null` desfaz a previa e devolve o desenho do que esta realmente escolhido.
+     *
+     * Nao se usa o onChange do combo para isto: aquele caminho limpa os modificadores de
+     * texto e reconstroi secoes, o que e destrutivo demais para um passar de mouse.
+     *
+     * @private
+     * @param {string|null} pointCode - Codigo a prever, ou null para desfazer
+     */
+    async _previewPointCode(pointCode) {
+        if (!pointCode) {
+            this._updatePreviewDebounced();
+            return;
+        }
+
+        let actualPointCode = pointCode;
+        if (actualPointCode === 'ECHELON' || actualPointCode === 'ECHELON_FT') {
+            actualPointCode = actualPointCode === 'ECHELON' ? 'ECHELON_16' : 'ECHELON_FT_16';
+        }
+
+        const token = ++this._previewToken;
+        try {
+            const result = await this._coordinationMeasureControl.symbolGenerator.generate(
+                actualPointCode,
+                { fillColor: this._tempProperties.fillColor }
+            );
+
+            if (token !== this._previewToken) {
+                return;
+            }
+
+            if (result && result.dataUrl) {
+                this._previewImage.src = result.dataUrl;
+                this._previewImage.style.display = 'block';
+            }
+        } catch (error) {
+            console.error('Erro ao gerar a previa do combobox:', error);
+        }
+    }
+
+    /**
      * Updates preview with debounce.
      * @private
      */
@@ -353,6 +398,7 @@ export class PointSelectorModal extends ModalBase {
      * @private
      */
     async _updatePreview() {
+        const token = ++this._previewToken;
         try {
             if (!this._tempProperties.pointCode) {
                 this._previewImage.style.display = 'none';
@@ -375,6 +421,10 @@ export class PointSelectorModal extends ModalBase {
                 actualPointCode,
                 this._tempProperties
             );
+
+            if (token !== this._previewToken) {
+                return;
+            }
 
             if (result && result.dataUrl) {
                 this._previewImage.src = result.dataUrl;
@@ -443,7 +493,15 @@ export class PointSelectorModal extends ModalBase {
             );
 
             if (updatedFeature) {
-                await this._coordinationMeasureControl.updateSymbolImage(updatedFeature);
+                try {
+                    await this._coordinationMeasureControl.updateSymbolImage(updatedFeature);
+                } catch (error) {
+                    // Codigo que sumiu do catalogo (uma feicao antiga de escalao "Nao
+                    // Especificado", por exemplo) fazia o gerador lancar e a modal ficar
+                    // aberta, sem gravar e sem avisar. O desenho falha, a edicao segue: o
+                    // simbolo cai no icone de erro que layer_setup ja instala.
+                    console.error('Nao foi possivel gerar o simbolo desta medida de coordenacao:', error);
+                }
                 this._coordinationMeasureControl.updateSelectionManagerFeature(updatedFeature);
             }
         }
