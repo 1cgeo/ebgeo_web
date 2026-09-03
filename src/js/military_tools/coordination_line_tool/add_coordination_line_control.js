@@ -29,8 +29,8 @@ import {
 } from './coordination-line-zoom.model.js';
 
 /**
- * Coordination Line control: the MD33 linear symbols (obstacle line, barrier line,
- * wire fence, double wire fence, concertina).
+ * Coordination Line control: the five MD33 linear symbols, chosen from a combo
+ * box (290100, 290199, 290302, 290303 and 290307). See coordination_line_catalog.js.
  *
  * A polyline carrying a glyph repeated at a regular spacing, chosen from
  * coordination_line_catalog.js. Modelled on

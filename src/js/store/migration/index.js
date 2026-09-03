@@ -30,4 +30,4 @@ export { migrateToV2_1 } from './v2-to-v2.1.migration.js';
 
 export { migrateToV2_2 } from './v2.1-to-v2.2.migration.js';
 
-export { migrateToV2_3, migrateBarrierLines } from './v2.2-to-v2.3.migration.js';
+export { migrateToV2_3, ensureCoordinationLines } from './v2.2-to-v2.3.migration.js';

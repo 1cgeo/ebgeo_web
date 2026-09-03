@@ -63,8 +63,8 @@ export const LINEAR_SYMBOLS = Object.freeze({
 
 /**
  * The symbol a line is born with, and the one every unknown code falls back to.
- * It is the barrier line because that is the symbol this tool shipped with, so a
- * feature drawn before the catalogue existed keeps drawing what it drew.
+ * The catalogue leads with it, and a feature whose code is missing or unreadable
+ * draws it rather than nothing.
  * @constant {string}
  */
 export const DEFAULT_SYMBOL_CODE = '290199';

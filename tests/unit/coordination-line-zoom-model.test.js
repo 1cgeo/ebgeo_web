@@ -103,7 +103,7 @@ describe('clampSpacingForSize', () => {
 
     it('WORST CASE: a spacing at or below the size is raised, not accepted', () => {
         // Measured on 2026-09-03: with size >= spacing every gap merges into one
-        // and a 96 km line kept 2 stray segments and no visible barrier at all.
+        // and a 96 km line kept 2 stray segments and no visible line at all.
         expect(clampSpacingForSize(1, 1)).toBe(2);
         expect(clampSpacingForSize(3, 1)).toBe(6);
     });

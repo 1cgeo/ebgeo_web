@@ -350,13 +350,13 @@ export function setupVisibilityLayers(features, mapInstance) {
  */
 export function setupCoordinationLineLayers(features, mapInstance) {
     // NO early return when the bucket is missing, unlike the boundary above.
-    // A map created before this tool existed has no `coordination_lines` key, and
-    // the v2.3 migration only adds one where a `barrier_lines` bucket existed to
-    // rename. Bailing out here would leave the source and the three layers
-    // uncreated on exactly those maps, and the tool would activate, accept clicks
-    // and draw NOTHING, because every write goes through `getSource(...)?.setData`
-    // and the optional chaining swallows the absence. An empty array is the right
-    // reading of "this map has no coordination lines yet".
+    // The v2.3 migration gives every stored map its `coordination_lines`
+    // collection, but this function also runs on data that never passed through
+    // it (a freshly built map object, a test fixture). Bailing out here would
+    // leave the source and the three layers uncreated, and the tool would
+    // activate, accept clicks and draw NOTHING, because every write goes through
+    // `getSource(...)?.setData` and the optional chaining swallows the absence.
+    // An empty array is the right reading of "no coordination lines yet".
     const stored = Array.isArray(features?.coordination_lines) ? features.coordination_lines : [];
 
     // Correct before the first write: a line pinned to the SCREEN and reopened at

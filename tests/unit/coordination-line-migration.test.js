@@ -1,39 +1,24 @@
 import { describe, it, expect } from 'vitest';
-import { compareVersions } from '../../src/js/store/repository.utils.js';
-import { ATLAS_SCHEMA_VERSION } from '../../src/js/store/atlas/atlas.entity.js';
-import { migrateBarrierLines } from '../../src/js/store/migration/v2.2-to-v2.3.migration.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { compareVersions } from '../../src/js/store/repository.utils.js';
+import { ATLAS_SCHEMA_VERSION } from '../../src/js/store/atlas/atlas.entity.js';
+import { ensureCoordinationLines } from '../../src/js/store/migration/v2.2-to-v2.3.migration.js';
 
 /**
- * Guard for the Coordination Line rename (v2.2 -> v2.3).
+ * Guarda da migracao v2.2 -> v2.3, que da forma aos mapas anteriores a Linha de
+ * Coordenacao.
  *
- * Unlike the temporal bump, this migration is NOT additive: the feature type
- * `barrier_line` became `coordination_line` and its bucket moved with it. A
- * feature the migration misses does not degrade, it DISAPPEARS, because nothing
- * reads the old bucket and nothing creates a source by the old name. Nothing
- * throws and nothing logs, so this file is the only place the loss can surface.
+ * A falha que ela existe para impedir e MUDA: um mapa sem o balde
+ * `coordination_lines` nao da erro, nao loga e nao avisa. O setup de camadas
+ * monta a fonte a partir dessa colecao, e sem ela a ferramenta ativa, aceita
+ * clique e nao desenha nada, porque toda escrita passa por
+ * `getSource(...)?.setData`. Este arquivo e o unico lugar onde essa perda aparece.
  *
- * The IndexedDB half is not unit-testable in `node`, which is exactly why the
- * rewrite lives in a pure exported function and is tested here.
+ * A metade de IndexedDB nao e testavel em `node`, e e exatamente por isso que a
+ * normalizacao vive numa funcao pura exportada e e provada aqui.
  */
-
-/** A stored feature as the old tool wrote it. */
-const legacyFeature = (id, extra = {}) => ({
-    type: 'Feature',
-    id,
-    properties: {
-        id,
-        source: 'barrier_line',
-        type: 'barrier_line',
-        color: '#000000',
-        symbol_size: 0.5,
-        baseCoordinates: [[-53, -30], [-52.9, -30]],
-        ...extra,
-    },
-    geometry: { type: 'LineString', coordinates: [[-53, -30], [-52.9, -30]] },
-});
 
 describe('cadeia de versao (v2.2 -> v2.3)', () => {
     it('a versao corrente ja passou de 2.2', () => {
@@ -50,100 +35,61 @@ describe('cadeia de versao (v2.2 -> v2.3)', () => {
     });
 });
 
-describe('migrateBarrierLines', () => {
-    it('move o balde, reescreve o tipo e carimba o simbolo do que ja existia', () => {
-        const resultado = migrateBarrierLines({
-            points: [],
-            barrier_lines: [legacyFeature('a'), legacyFeature('b')],
-        });
+describe('ensureCoordinationLines', () => {
+    it('CRIA o balde no mapa que nunca teve a ferramenta', () => {
+        const resultado = ensureCoordinationLines({ points: [], lines: [] });
 
-        expect(resultado.barrier_lines).toBeUndefined();
-        expect(resultado.coordination_lines).toHaveLength(2);
-
-        for (const feature of resultado.coordination_lines) {
-            expect(feature.properties.source).toBe('coordination_line');
-            expect(feature.properties.type).toBe('coordination_line');
-            // 290199 e a unica coisa que a ferramenta antiga sabia desenhar, entao
-            // a feicao migrada continua desenhando exatamente o que desenhava.
-            expect(feature.properties.symbol_code).toBe('290199');
-        }
-    });
-
-    it('preserva o resto da feicao, geometria e estilo inclusive', () => {
-        const [migrada] = migrateBarrierLines({
-            barrier_lines: [legacyFeature('a', { color: '#ff0000', nome: 'Barreira 1' })],
-        }).coordination_lines;
-
-        expect(migrada.properties.color).toBe('#ff0000');
-        expect(migrada.properties.nome).toBe('Barreira 1');
-        expect(migrada.properties.symbol_size).toBe(0.5);
-        expect(migrada.geometry.coordinates).toEqual([[-53, -30], [-52.9, -30]]);
-        expect(migrada.id).toBe('a');
-    });
-
-    it('nao sobrescreve um codigo de simbolo que a feicao ja tenha', () => {
-        const [migrada] = migrateBarrierLines({
-            barrier_lines: [legacyFeature('a', { symbol_code: '290307' })],
-        }).coordination_lines;
-
-        expect(migrada.properties.symbol_code).toBe('290307');
-    });
-
-    it('FUNDE com o balde novo em vez de descartar o que ja estava la', () => {
-        // Um mapa tocado por uma versao mais nova pode ter os dois baldes. Trocar
-        // um pelo outro perderia justamente o trabalho que a migracao protege.
-        const resultado = migrateBarrierLines({
-            barrier_lines: [legacyFeature('velha')],
-            coordination_lines: [legacyFeature('nova', { source: 'coordination_line', type: 'coordination_line' })],
-        });
-
-        expect(resultado.coordination_lines).toHaveLength(2);
-        expect(resultado.coordination_lines.map(f => f.id).sort()).toEqual(['nova', 'velha']);
-    });
-
-    it('some com o balde velho vazio, para a forma convergir', () => {
-        const resultado = migrateBarrierLines({ points: [], barrier_lines: [] });
-        expect(resultado.barrier_lines).toBeUndefined();
-        expect(resultado.coordination_lines).toEqual([]);
-    });
-
-    it('CRIA o balde novo no mapa que nunca teve linha nenhuma', () => {
-        // O caso que quebrou na primeira vez que a ferramenta foi usada. Um mapa
-        // criado antes dela nao tem NENHUM dos dois baldes, e sem este ramo a
-        // migracao o deixava assim: o setup de camadas nao tinha colecao para
-        // montar a fonte, e a ferramenta ativava, aceitava clique e nao desenhava.
-        // Normalizar a forma e trabalho da migracao, nao do renderizador.
-        const resultado = migrateBarrierLines({ points: [], lines: [] });
         expect(resultado).not.toBeNull();
         expect(resultado.coordination_lines).toEqual([]);
-        expect(resultado.points).toEqual([]);
-
-        expect(migrateBarrierLines({}).coordination_lines).toEqual([]);
     });
 
-    it('nao reescreve mapa que ja esta na forma nova', () => {
-        // Aqui sim devolver null e o que evita uma escrita por mapa em todo atlas.
-        expect(migrateBarrierLines({ points: [], coordination_lines: [] })).toBeNull();
-        expect(migrateBarrierLines(undefined)).toBeNull();
-        expect(migrateBarrierLines(null)).toBeNull();
+    it('preserva os outros baldes intactos', () => {
+        const antes = { points: [{ id: 'p' }], lines: [{ id: 'l' }], boundarys: [] };
+        const depois = ensureCoordinationLines(antes);
+
+        expect(depois.points).toEqual([{ id: 'p' }]);
+        expect(depois.lines).toEqual([{ id: 'l' }]);
+        expect(depois.boundarys).toEqual([]);
+        // Devolve objeto NOVO, para o chamador poder comparar por identidade.
+        expect(depois).not.toBe(antes);
+        expect(antes.coordination_lines).toBeUndefined();
     });
 
-    it('WORST CASE: insumo degenerado nao lanca e nao perde feicao', () => {
+    it('nao toca no mapa que ja esta na forma nova', () => {
+        // Devolver null e o que evita uma escrita por mapa em todo atlas do usuario.
+        expect(ensureCoordinationLines({ points: [], coordination_lines: [] })).toBeNull();
+        expect(ensureCoordinationLines({ coordination_lines: [{ id: 'a' }] })).toBeNull();
+    });
+
+    it('nao apaga linha de coordenacao ja existente', () => {
+        const existentes = [{ id: 'a' }, { id: 'b' }];
+        expect(ensureCoordinationLines({ coordination_lines: existentes })).toBeNull();
+    });
+
+    it('WORST CASE: insumo degenerado nao lanca', () => {
         const degenerados = [
-            ['balde que nao e array', { barrier_lines: 'nao sou array' }],
-            ['feicao sem properties', { barrier_lines: [{ type: 'Feature' }] }],
-            ['feicao nula', { barrier_lines: [null] }],
-            ['balde novo que nao e array', { barrier_lines: [legacyFeature('a')], coordination_lines: 'lixo' }],
+            ['sem features', undefined],
+            ['features nulo', null],
+            ['features nao e objeto', 'lixo'],
+            ['features vazio', {}],
+            ['balde corrompido', { coordination_lines: 'nao sou array' }],
+            ['balde nulo', { coordination_lines: null }],
         ];
 
         for (const [nome, features] of degenerados) {
-            expect(() => migrateBarrierLines(features), nome).not.toThrow();
-            const resultado = migrateBarrierLines(features);
+            expect(() => ensureCoordinationLines(features), nome).not.toThrow();
+            const resultado = ensureCoordinationLines(features);
             if (resultado) {
-                expect(resultado.barrier_lines, nome).toBeUndefined();
                 expect(Array.isArray(resultado.coordination_lines), nome).toBe(true);
             }
         }
+    });
+
+    it('um balde corrompido e substituido por uma colecao valida', () => {
+        // `setOrCreateSource` monta `{ type, features }` sem checar, entao um balde
+        // que nao e array viraria GeoJSON invalido na fonte do MapLibre.
+        const resultado = ensureCoordinationLines({ coordination_lines: 42 });
+        expect(resultado.coordination_lines).toEqual([]);
     });
 });
 
@@ -153,15 +99,14 @@ describe('migrateBarrierLines', () => {
 
 /**
  * Um `.ebgeo` NUNCA passa pela migracao de IndexedDB: ele entra pelo importador,
- * que valida a versao e normaliza a forma. Como MIN_SCHEMA_VERSION e 1.3, TODO
- * arquivo aceito foi escrito antes da v2.3 e pode trazer o balde velho. Sem a
- * chamada abaixo, essas feicoes chegam ao armazenamento num balde que ninguem le.
+ * que valida a versao e normaliza a forma. Como MIN_SCHEMA_VERSION e 1.3, todo
+ * arquivo aceito pode ter sido escrito antes da v2.3 e chegar sem o balde.
  *
  * Estatico porque o servico importa `@store` inteiro e nao carrega no ambiente
  * `node`. Ele nao prova o COMPORTAMENTO (isso e o bloco de cima, na funcao pura),
  * prova a FIACAO: que o importador continua chamando a mesma funcao.
  */
-describe('a importacao de .ebgeo tambem renomeia o balde', () => {
+describe('a importacao de .ebgeo tambem da forma ao mapa', () => {
     const servico = readFileSync(
         join(dirname(fileURLToPath(import.meta.url)), '..', '..',
             'src', 'js', 'import_export', 'export-import.service.js'),
@@ -170,19 +115,17 @@ describe('a importacao de .ebgeo tambem renomeia o balde', () => {
 
     it('o importador importa a mesma funcao pura da migracao', () => {
         expect(servico).toMatch(
-            /import \{ migrateBarrierLines \} from '@store\/migration\/v2\.2-to-v2\.3\.migration\.js';/,
+            /import \{ ensureCoordinationLines \} from '@store\/migration\/v2\.2-to-v2\.3\.migration\.js';/,
         );
     });
 
     it('e a CHAMA na normalizacao, nao apenas importa', () => {
-        // Uma linha de chamada de verdade, com atribuicao, e nao a palavra solta
-        // num comentario.
-        expect(servico).toMatch(/=\s*migrateBarrierLines\(mapData\.features\)/);
+        expect(servico).toMatch(/=\s*ensureCoordinationLines\(mapData\.features\)/);
     });
 
     it('a normalizacao usa o retorno em vez de descarta-lo', () => {
-        // `migrateBarrierLines` devolve null quando nada muda, entao o resultado
-        // precisa ser testado antes de substituir as feicoes.
-        expect(servico).toMatch(/if \(renamedFeatures\) \{[\s\S]{0,120}mapData\.features = renamedFeatures;/);
+        // A funcao devolve null quando nada muda, entao o resultado precisa ser
+        // testado antes de substituir as feicoes.
+        expect(servico).toMatch(/if \(shapedFeatures\) \{[\s\S]{0,120}mapData\.features = shapedFeatures;/);
     });
 });

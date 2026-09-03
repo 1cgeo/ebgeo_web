@@ -3,10 +3,10 @@ import { describe, it, expect, vi } from 'vitest';
 /**
  * As camadas da Linha de Coordenacao nascem AINDA QUE o mapa nunca tenha tido uma.
  *
- * Um mapa criado antes desta ferramenta nao tem a chave `coordination_lines`, e a
- * migracao v2.3 so acrescenta uma onde havia `barrier_lines` para renomear. Se o
- * setup desistir quando o balde falta, a fonte e as tres camadas nao sao criadas
- * JUSTAMENTE nesses mapas, e a ferramenta ativa, aceita clique e nao desenha nada:
+ * A migracao v2.3 da a todo mapa GRAVADO a sua chave `coordination_lines`, mas esta
+ * funcao tambem roda sobre dado que nunca passou por ela. Se o setup desistir
+ * quando o balde falta, a fonte e as tres camadas nao sao criadas, e a ferramenta
+ * ativa, aceita clique e nao desenha nada:
  * toda escrita passa por `getSource(...)?.setData`, e o encadeamento opcional
  * engole a ausencia sem erro, sem log e sem nada na tela.
  *
@@ -46,8 +46,8 @@ describe('setupCoordinationLineLayers', () => {
     });
 
     it('WORST CASE: cria tudo IGUAL num mapa que nunca teve o balde', () => {
-        // O caso real: mapa anterior a ferramenta, que a migracao nao toca porque
-        // nao havia `barrier_lines` para renomear.
+        // O caso real: dado que chega sem a chave, por nao ter passado pela
+        // migracao de armazenamento.
         const map = fakeMap();
         setupCoordinationLineLayers({ points: [], lines: [] }, map);
 

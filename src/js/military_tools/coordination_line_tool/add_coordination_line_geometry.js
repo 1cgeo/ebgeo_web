@@ -12,7 +12,7 @@ import { resolveSymbol } from './coordination_line_catalog.js';
  * Coordination Line Geometry Operations
  *
  * Draws the MD33 linear coordination symbols: a polyline carrying a glyph repeated
- * at a regular spacing. Some glyphs INTERRUPT the line (the barrier diamond, the
+ * at a regular spacing. Some glyphs INTERRUPT the line (the 290199 diamond, the
  * obstacle peak) and the line runs into the glyph and out of it; others ride on an
  * unbroken line (the fences, the concertina). The catalogue decides which.
  *
