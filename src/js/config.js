@@ -68,7 +68,12 @@ const config = {
   // ===== APPLICATION SETTINGS =====
   app: {
     title: "EBGeo",        // Título exibido na interface
-    tutorialUrl: './docs/doc.html'  // URL do tutorial (abre em nova janela)
+    tutorialUrl: './docs/doc.html',  // URL do tutorial (abre em nova janela)
+    // Aviso de servidor secundário. Com `true`, a aplicação abre ao iniciar uma tela
+    // avisando que esta instância é o servidor secundário do EBGeo (1° CGEO, Porto
+    // Alegre) e recomendando o principal, ebgeo.dsg.eb.mil.br (7° CTA, Brasília).
+    // Chave ausente, ou qualquer valor diferente de `true`, vale como false.
+    avisoServidorSecundario: false
   },
 
   features: {

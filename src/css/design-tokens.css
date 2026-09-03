@@ -177,6 +177,14 @@
 
     /* Tab lock overlay - above everything */
     --z-tab-lock: 10000;
+
+    /* Secondary-server notice (ui/secondary-server-notice.js). Above the loading
+       screen (base.css, 9999) so it reads while the map loads and still shows
+       if loading never finishes, and above the tab lock so the user reads the
+       notice before choosing which window keeps the session. The higher
+       ad-hoc values in the app (context menu, PDF export, feature panel)
+       belong to elements that do not exist at startup. */
+    --z-startup-notice: 10001;
 }
 
 /* =========================================================================

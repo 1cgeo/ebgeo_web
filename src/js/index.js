@@ -5,7 +5,7 @@
  * @description Application entry point.
  *
  * Orchestrates initialization in explicit sequential phases:
- * 1. Config — Apply app title, attach config helpers
+ * 1. Config — Apply app title, attach config helpers, show the secondary-server notice
  * 2. Services — EventBus, StateManager, LayerManager, GroupManager
  * 3. Map — MapLibre GL instance with tile error handling
  * 4. Controls — All tools, UI components, control registrations
@@ -14,6 +14,7 @@
 
 import { initializeAppConfig } from './config-loader.js';
 import { initConfigHelpers } from './config.helpers.js';
+import { initSecondaryServerNotice } from './ui/secondary-server-notice.js';
 import { cleanup3DFeatures } from './3d_models_viewer_tool/index.js';
 import { cleanupFirstPersonFeatures } from './first_person_3d_tool/index.js';
 import { initServices } from './store';
@@ -32,6 +33,10 @@ async function initApp() {
     // Phase 1: Config (synchronous, no dependencies)
     initializeAppConfig();
     initConfigHelpers();
+
+    // Secondary-server notice: needs only the config, so it goes up before the
+    // map and stays visible even if a later phase never completes.
+    initSecondaryServerNotice();
 
     // Phase 2: Services (EventBus, StateManager, LayerManager, GroupManager, MapResolver)
     initServices();
