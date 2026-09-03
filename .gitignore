@@ -82,3 +82,12 @@ nul
 # sao codigo: um `git add -A` distraido tentaria versionar o repositorio inteiro
 # dentro dele mesmo.
 .claude/worktrees/
+
+# ==============================================================================
+# Backups datados
+# ==============================================================================
+# Convencao da operacao: antes de editar arquivo no servidor, cp X X.bak-$(date).
+# Sao copias de trabalho, nao codigo.
+*.bak
+*.bak-*
+*.bak.*
