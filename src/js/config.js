@@ -73,7 +73,7 @@ const config = {
     // avisando que esta instância é o servidor secundário do EBGeo (1° CGEO, Porto
     // Alegre) e recomendando o principal, ebgeo.dsg.eb.mil.br (7° CTA, Brasília).
     // Chave ausente, ou qualquer valor diferente de `true`, vale como false.
-    avisoServidorSecundario: false
+    avisoServidorSecundario: true
   },
 
   features: {

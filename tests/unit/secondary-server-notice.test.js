@@ -45,8 +45,8 @@ describe('isSecondaryServerNoticeEnabled', () => {
         }
     });
 
-    it('o config do repositorio nasce com a tela desligada', () => {
-        expect(isSecondaryServerNoticeEnabled()).toBe(false);
+    it('o config do repositorio liga a tela (decisao do chefe, 2026-09-03); quem implanta no servidor principal poe false', () => {
+        expect(isSecondaryServerNoticeEnabled()).toBe(true);
     });
 });
 
