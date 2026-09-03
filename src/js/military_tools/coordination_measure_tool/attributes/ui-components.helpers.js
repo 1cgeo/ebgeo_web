@@ -115,43 +115,50 @@ export function getPointsGroupedOptions() {
         grouped[category].push(point);
     });
 
+    // Esta lista define ORDEM, nunca pertinencia. Ela ja foi escrita SEM acento enquanto
+    // as categorias do catalogo tinham acento, e o casamento exato descartava 61 dos 77
+    // pontos em silencio: o combobox mostrava 16. Por isso categoria que nao esteja aqui
+    // vai para o fim, em ordem alfabetica, e nunca some.
     const categoryOrder = [
         'Gerais',
         'Movimento e Manobra',
         'Passagens',
         'Fogos',
-        'Protecao - Obstaculos',
-        'Protecao - Fortificacao',
-        'Protecao - Minas',
-        'Protecao - QBRN',
-        'Logistica',
-        'Controle Aereo',
-        'Controle Maritimo'
+        'Proteção - Obstáculos',
+        'Proteção - Fortificação',
+        'Proteção - Minas',
+        'Proteção - QBRN',
+        'Logística',
+        'Controle Aéreo',
+        'Controle Marítimo'
     ];
 
-    categoryOrder.forEach(category => {
-        if (grouped[category]) {
-            grouped[category].forEach(point => {
-                options.push({
-                    value: point.code,
-                    label: `${point.label} (${category})`,
-                    iconCode: point.code,
-                    isEchelon: false
-                });
+    const categorias = [
+        ...categoryOrder.filter(c => grouped[c]),
+        ...Object.keys(grouped).filter(c => !categoryOrder.includes(c)).sort()
+    ];
+
+    categorias.forEach(category => {
+        grouped[category].forEach(point => {
+            options.push({
+                value: point.code,
+                label: `${point.label} (${category})`,
+                iconCode: point.code,
+                isEchelon: false
             });
-        }
+        });
     });
 
     options.push({
         value: 'ECHELON',
-        label: 'Escalao (requer subtipo)',
+        label: 'Escalão (requer subtipo)',
         iconCode: null,
         isEchelon: true,
         defaultEchelonCode: 'ECHELON_16'
     });
     options.push({
         value: 'ECHELON_FT',
-        label: 'Escalao Forca-Tarefa (requer subtipo)',
+        label: 'Escalão Força-Tarefa (requer subtipo)',
         iconCode: null,
         isEchelon: true,
         defaultEchelonCode: 'ECHELON_FT_16'
@@ -221,7 +228,7 @@ function createComboCleanup(dropdown, closeHandler, dropdownState) {
  * @param {DropdownState} dropdownState - Dropdown state manager
  * @returns {HTMLElement} Combo box container
  */
-export function createDigitalComboBoxWithThumbnails(options, currentValue, onChange, label, generateThumbnail, dropdownState) {
+export function createDigitalComboBoxWithThumbnails(options, currentValue, onChange, label, generateThumbnail, dropdownState, onPreview) {
     const container = document.createElement('div');
     container.className = 'coord-combo';
 
@@ -260,7 +267,72 @@ export function createDigitalComboBoxWithThumbnails(options, currentValue, onCha
         registerDropdown(dropdownState, dropdown);
     }
 
+    // Busca. So aparece quando a lista e longa o bastante para justificar: o seletor de
+    // ponto tem 80 opcoes, o de subtipo de escalao tem 13, e um campo de busca sobre treze
+    // itens e ruido. O mesmo gesto ja existe no military_symbol_tool.
+    const LIMIAR_BUSCA = 20;
+    const temBusca = options.length > LIMIAR_BUSCA;
+
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.className = 'coord-combo__search';
+    searchInput.placeholder = '\uD83D\uDD0D Digite para buscar...';
+    // Sem isto o ouvinte de clique no document fecharia o dropdown ao clicar no campo.
+    searchInput.onclick = (e) => e.stopPropagation();
+
+    const optionsWrap = document.createElement('div');
+    optionsWrap.className = 'coord-combo__options';
+
+    const semResultado = document.createElement('div');
+    semResultado.className = 'coord-combo__no-results';
+    semResultado.textContent = 'Nenhuma opção encontrada';
+    semResultado.style.display = 'none';
+
+    if (temBusca) {
+        dropdown.appendChild(searchInput);
+    }
+    dropdown.appendChild(optionsWrap);
+    dropdown.appendChild(semResultado);
+
+    const itens = [];
+
+    // Sair do dropdown desfaz a previa e devolve o desenho do valor realmente escolhido.
+    dropdown.onmouseleave = () => {
+        if (onPreview) onPreview(null);
+    };
+
+    /**
+     * Normaliza para busca: caixa baixa e SEM acento, para "protecao" achar "Proteção".
+     * @param {string} t - Texto
+     * @returns {string} Texto normalizado
+     */
+    function normalizar(t) {
+        return String(t).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    }
+
+    /**
+     * Mostra so os itens que casam com o termo. Filtra ESCONDENDO, nunca recriando, para
+     * as miniaturas ja carregadas nao serem perdidas a cada tecla.
+     * @param {string} termo - Termo de busca
+     */
+    function aplicarFiltro(termo) {
+        const t = normalizar(termo).trim();
+        let visiveis = 0;
+        for (const it of itens) {
+            const casa = !t || normalizar(it.option.label).includes(t);
+            it.el.style.display = casa ? '' : 'none';
+            if (casa) visiveis++;
+        }
+        semResultado.style.display = visiveis === 0 ? 'block' : 'none';
+    }
+
     let internalCurrentValue = currentValue;
+
+    function closeDropdown() {
+        dropdown.style.display = 'none';
+        selectDisplay.classList.remove('coord-combo__display--open');
+        if (onPreview) onPreview(null);
+    }
 
     async function updateDisplay(value) {
         const selected = options.find(opt => opt.value === value);
@@ -314,7 +386,11 @@ export function createDigitalComboBoxWithThumbnails(options, currentValue, onCha
 
         optionElement.appendChild(optionText);
 
-        optionElement.onmouseenter = () => { optionElement.style.backgroundColor = '#f8f9fa'; };
+        optionElement.onmouseenter = () => {
+            optionElement.style.backgroundColor = '#f8f9fa';
+            // Passar o mouse MOSTRA, so o clique escolhe: onPreview nao toca no estado.
+            if (onPreview) onPreview(option.value);
+        };
         optionElement.onmouseleave = () => {
             optionElement.style.backgroundColor = option.value === internalCurrentValue ? '#e9ecef' : 'transparent';
         };
@@ -335,8 +411,30 @@ export function createDigitalComboBoxWithThumbnails(options, currentValue, onCha
             optionElement.style.backgroundColor = '#e9ecef';
         };
 
-        dropdown.appendChild(optionElement);
+        optionsWrap.appendChild(optionElement);
+        itens.push({ option, el: optionElement });
     });
+
+    /**
+     * Teclado sobre a lista visivel: Enter escolhe a primeira, Escape fecha.
+     * @param {KeyboardEvent} e - Evento
+     */
+    searchInput.onkeydown = (e) => {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            closeDropdown();
+            return;
+        }
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            const primeiro = itens.find(it => it.el.style.display !== 'none');
+            if (primeiro) primeiro.el.click();
+        }
+    };
+
+    searchInput.oninput = (e) => aplicarFiltro(e.target.value);
 
     selectDisplay.onclick = (e) => {
         e.stopPropagation();
@@ -349,15 +447,15 @@ export function createDigitalComboBoxWithThumbnails(options, currentValue, onCha
             positionDropdown(dropdown, selectDisplay);
             dropdown.style.display = 'block';
             selectDisplay.classList.add('coord-combo__display--open');
+            if (temBusca) {
+                searchInput.value = '';
+                aplicarFiltro('');
+                setTimeout(() => searchInput.focus(), 50);
+            }
         } else {
             dropdown.style.display = 'none';
             selectDisplay.classList.remove('coord-combo__display--open');
         }
-    };
-
-    const closeDropdown = () => {
-        dropdown.style.display = 'none';
-        selectDisplay.classList.remove('coord-combo__display--open');
     };
 
     container._cleanup = createComboCleanup(dropdown, closeDropdown, dropdownState);

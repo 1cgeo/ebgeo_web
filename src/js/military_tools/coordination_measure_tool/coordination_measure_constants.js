@@ -1,7 +1,6 @@
 // Path: js/military_tools/coordination_measure_tool/coordination_measure_constants.js
 
 export const ECHELON_CODES = {
-  "00": "Não Especificado",
   "11": "Equipe/Guarnição",
   "12": "Esquadra",
   "13": "Seção",
@@ -67,6 +66,7 @@ export const UI_DATA = {
     { code: "281400", label: "Evento biológico", category: "Proteção - QBRN" },
     { code: "281700", label: "Evento radiológico", category: "Proteção - QBRN" },
     { code: "281500", label: "Evento nuclear", category: "Proteção - QBRN" },
+    { code: "321700", label: "Ponto de Suprimento genérico", category: "Logística" },
     { code: "SUPPLY_I", label: "Suprimento - Classe I (Víveres)", category: "Logística" },
     { code: "SUPPLY_II", label: "Suprimento - Classe II (Material de Intendência)", category: "Logística" },
     { code: "SUPPLY_III", label: "Suprimento - Classe III (Combustível)", category: "Logística" },
@@ -114,7 +114,6 @@ export const UI_DATA = {
   ],
 
   echelonSubtypes: [
-    { code: "ECHELON_00", label: "Não Especificado" },
     { code: "ECHELON_11", label: "Equipe/Guarnição" },
     { code: "ECHELON_12", label: "Esquadra" },
     { code: "ECHELON_13", label: "Seção" },
@@ -131,7 +130,6 @@ export const UI_DATA = {
   ],
 
   echelonFTSubtypes: [
-    { code: "ECHELON_FT_00", label: "Não Especificado" },
     { code: "ECHELON_FT_11", label: "Equipe/Guarnição" },
     { code: "ECHELON_FT_12", label: "Esquadra" },
     { code: "ECHELON_FT_13", label: "Seção" },

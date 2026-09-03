@@ -8,19 +8,19 @@ import { ECHELON_CODES, SUPPLY_CLASSES } from './coordination_measure_constants.
 
 const ECHELON_SYMBOLS = {
   "00": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "11": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "12": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "13": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "14": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "15": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "16": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "17": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "18": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "21": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "22": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "23": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "25": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "26": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`
+  "11": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="104" height="80" viewBox="0 0 104 80"><g transform="translate(-188,-32) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><circle cx="100" cy="30" r="15" ></circle><path d="M80,40L120,20" ></path></g></svg>`,
+  "12": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="44" height="44" viewBox="0 0 44 44"><g transform="translate(-218,-50) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><circle cx="100" cy="30" r="7.5" fill="black" ></circle></g></svg>`,
+  "13": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="116" height="44" viewBox="0 0 116 44"><g transform="translate(-182,-50) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><circle cx="115" cy="30" r="7.5" fill="black" ></circle><circle cx="85" cy="30" r="7.5" fill="black" ></circle></g></svg>`,
+  "14": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="188" height="44" viewBox="0 0 188 44"><g transform="translate(-146,-50) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><circle cx="100" cy="30" r="7.5" fill="black" ></circle><circle cx="70" cy="30" r="7.5" fill="black" ></circle><circle cx="130" cy="30" r="7.5" fill="black" ></circle></g></svg>`,
+  "15": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="8" height="68" viewBox="0 0 8 68"><g transform="translate(-236,-32) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M100,40L100,15" ></path></g></svg>`,
+  "16": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="56" height="68" viewBox="0 0 56 68"><g transform="translate(-212,-32) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M90,40L90,15" ></path><path d="M110,40L110,15" ></path></g></svg>`,
+  "17": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="104" height="68" viewBox="0 0 104 68"><g transform="translate(-188,-32) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M100,40L100,15" ></path><path d="M120,40L120,15" ></path><path d="M80,40L80,15" ></path></g></svg>`,
+  "18": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="68" height="68" viewBox="0 0 68 68"><g transform="translate(-206,-32) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M87.5,40 l25,-25 m0,25 l-25,-25" ></path></g></svg>`,
+  "21": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="152" height="68" viewBox="0 0 152 68"><g transform="translate(-164,-32) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M70,40 l25,-25 m0,25 l-25,-25   M105,40 l25,-25 m0,25 l-25,-25" ></path></g></svg>`,
+  "22": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="236" height="68" viewBox="0 0 236 68"><g transform="translate(-122,-32) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M52.5,40 l25,-25 m0,25 l-25,-25    M87.5,40 l25,-25 m0,25 l-25,-25    M122.5,40 l25,-25 m0,25 l-25,-25" ></path></g></svg>`,
+  "23": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="320" height="68" viewBox="0 0 320 68"><g transform="translate(-80,-32) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M35,40 l25,-25 m0,25 l-25,-25   M70,40 l25,-25 m0,25 l-25,-25   M105,40 l25,-25 m0,25 l-25,-25    M140,40 l25,-25 m0,25 l-25,-25" ></path></g></svg>`,
+  "25": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="488" height="68" viewBox="0 0 488 68"><g transform="translate(4,-32) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M0,40 l25,-25 m0,25 l-25,-25   M35,40 l25,-25 m0,25 l-25,-25   M70,40 l25,-25 m0,25 l-25,-25   M105,40 l25,-25 m0,25 l-25,-25    M140,40 l25,-25 m0,25 l-25,-25     M175,40 l25,-25 m0,25 l-25,-25" ></path></g></svg>`,
+  "26": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="152" height="68" viewBox="0 0 152 68"><g transform="translate(-164,-32) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M70,27.5 l25,0 m-12.5,12.5 l0,-25   M105,27.5 l25,0 m-12.5,12.5 l0,-25" ></path></g></svg>`
 };
 
 // ============================================================================
@@ -28,20 +28,20 @@ const ECHELON_SYMBOLS = {
 // ============================================================================
 
 const ECHELON_SYMBOLS_FT = {
-  "00": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "11": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "12": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "13": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "14": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "15": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "16": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "17": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "18": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "21": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "22": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "23": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "25": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "26": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`
+  "00": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path></g></svg>`,
+  "11": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path><circle cx="100" cy="30" r="15" ></circle><path d="M80,40L120,20" ></path></g></svg>`,
+  "12": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path><circle cx="100" cy="30" r="7.5" fill="black" ></circle></g></svg>`,
+  "13": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path><circle cx="115" cy="30" r="7.5" fill="black" ></circle><circle cx="85" cy="30" r="7.5" fill="black" ></circle></g></svg>`,
+  "14": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path><circle cx="100" cy="30" r="7.5" fill="black" ></circle><circle cx="70" cy="30" r="7.5" fill="black" ></circle><circle cx="130" cy="30" r="7.5" fill="black" ></circle></g></svg>`,
+  "15": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path><path d="M100,40L100,15" ></path></g></svg>`,
+  "16": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path><path d="M90,40L90,15" ></path><path d="M110,40L110,15" ></path></g></svg>`,
+  "17": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path><path d="M100,40L100,15" ></path><path d="M120,40L120,15" ></path><path d="M80,40L80,15" ></path></g></svg>`,
+  "18": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path><path d="M87.5,40 l25,-25 m0,25 l-25,-25" ></path></g></svg>`,
+  "21": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path><path d="M70,40 l25,-25 m0,25 l-25,-25   M105,40 l25,-25 m0,25 l-25,-25" ></path></g></svg>`,
+  "22": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="272" height="104" viewBox="0 0 272 104"><g transform="translate(-104,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M45,50 L45,10 155,10 155,50" stroke-width="1.67" stroke="black" fill="none" ></path><path d="M52.5,40 l25,-25 m0,25 l-25,-25    M87.5,40 l25,-25 m0,25 l-25,-25    M122.5,40 l25,-25 m0,25 l-25,-25" ></path></g></svg>`,
+  "23": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="356" height="104" viewBox="0 0 356 104"><g transform="translate(-62,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M27.5,50 L27.5,10 172.5,10 172.5,50" stroke-width="1.67" stroke="black" fill="none" ></path><path d="M35,40 l25,-25 m0,25 l-25,-25   M70,40 l25,-25 m0,25 l-25,-25   M105,40 l25,-25 m0,25 l-25,-25    M140,40 l25,-25 m0,25 l-25,-25" ></path></g></svg>`,
+  "25": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="524" height="104" viewBox="0 0 524 104"><g transform="translate(22,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M-7.5,50 L-7.5,10 207.5,10 207.5,50" stroke-width="1.67" stroke="black" fill="none" ></path><path d="M0,40 l25,-25 m0,25 l-25,-25   M35,40 l25,-25 m0,25 l-25,-25   M70,40 l25,-25 m0,25 l-25,-25   M105,40 l25,-25 m0,25 l-25,-25    M140,40 l25,-25 m0,25 l-25,-25     M175,40 l25,-25 m0,25 l-25,-25" ></path></g></svg>`,
+  "26": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="224" height="104" viewBox="0 0 224 104"><g transform="translate(-128,-20) scale(2.4)" stroke-width="1.67" stroke="black" fill="none"><path d="M55,50 L55,10 145,10 145,50" stroke-width="1.67" stroke="black" fill="none" ></path><path d="M70,27.5 l25,0 m-12.5,12.5 l0,-25   M105,27.5 l25,0 m-12.5,12.5 l0,-25" ></path></g></svg>`
 };
 
 // ============================================================================
@@ -49,18 +49,18 @@ const ECHELON_SYMBOLS_FT = {
 // ============================================================================
 
 const SUPPLY_CLASS_ICONS = {
-  "I": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "II": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "III": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "IV": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "V": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "VI": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "VII": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "VIII": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "IX": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "X": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "Agua": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
-  "Outras": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`
+  "I": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path><path d="m 60,30 80,0" stroke-width="4" stroke="black" fill="none"></path><g transform="translate(-69.2,-187.88) scale(1.7)" stroke-width="2.35" stroke="black" fill="none"><path d="M 111,115 C 96.3,110 96.3,89.5 111,84 100,79.7 87.5,86.3 87.5,99.5 87.5,113 100,119 111,115 Z" stroke-width="2.35" stroke="black" fill="none" ></path></g></svg>`,
+  "II": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path><path d="m 60,30 80,0" stroke-width="4" stroke="black" fill="none"></path><g transform="translate(0,-113.5) scale(1)" stroke-width="4" stroke="black" fill="none"><path d="m 115,95 c 0,15 15,15 15,0 0,-15 -15,-15 -15,0 z m 0,0 -45,0 0,10 10,0 0,-10" stroke-width="4" stroke="black" fill="none" ></path></g></svg>`,
+  "III": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path><path d="m 60,30 80,0" stroke-width="4" stroke="black" fill="none"></path><g transform="translate(-67.5,-186) scale(1.68)" stroke-width="2.39" stroke="black" fill="none"><path d="m 100,120 0,-20 -15,-20 30,0 -15,20 " stroke-width="2.39" stroke="black" fill="none" ></path></g></svg>`,
+  "IV": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path><path d="m 60,30 80,0" stroke-width="4" stroke="black" fill="none"></path><g transform="translate(60,-52.5) scale(0.4)" stroke-width="10" stroke="black" fill="none"><path d="M25,120 L100,52 175,120" stroke-width="10" stroke="black" fill="none" ></path><path d="M100,50L100,120" stroke-width="10" stroke="black" fill="none" ></path><path d="M60,90 L100,120" stroke-width="10" stroke="black" fill="none" ></path><path d="M100,120L140,90" stroke-width="10" stroke="black" fill="none" ></path></g></svg>`,
+  "V": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path><path d="m 60,30 80,0" stroke-width="4" stroke="black" fill="none"></path><g transform="translate(-91.43,-205.14) scale(1.91)" stroke-width="2.09" stroke="black" fill="none"><path d="m 90,115 0,-25 c 0,-10 20,-10 20,0 l 0,25 m -25,0 30,0" stroke-width="2.09" stroke="black" fill="none" ></path></g></svg>`,
+  "VI": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path><path d="m 60,30 80,0" stroke-width="4" stroke="black" fill="none"></path><g transform="translate(25,-93.5) scale(0.75)" stroke-width="5.33" stroke="black" fill="none"><path d="M60,120 L60,80 140,80 140,120 M100,80 L100,110" stroke-width="5.33" stroke="black" fill="none" ></path></g></svg>`,
+  "VII": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path><path d="m 60,30 80,0" stroke-width="4" stroke="black" fill="none"></path><g transform="translate(60,-52.5) scale(0.4)" stroke-width="10" stroke="black" fill="none"><path d="M25,50 100,93 100,77 175,120" stroke-width="10" stroke="black" fill="none" ></path></g></svg>`,
+  "VIII": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path><path d="m 60,30 80,0" stroke-width="4" stroke="black" fill="none"></path><g transform="translate(60,-52.5) scale(0.4)" stroke-width="10" stroke="black" fill="none"><path d="M100,120 l0,-70 M175,80 l-150,0" stroke-width="10" stroke="black" fill="none" ></path></g></svg>`,
+  "IX": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path><path d="m 60,30 80,0" stroke-width="4" stroke="black" fill="none"></path><g transform="translate(-67.67,-186) scale(1.68)" stroke-width="2.39" stroke="black" fill="none"><circle cx="100" cy="100" r="10" stroke-width="2.39" stroke="black" fill="none" ></circle><path d="m 100,110 0,10 m 0,-30 0,-10 m 8.7,14.2 8.4,-4.8 m -8.4,15.9 8,5.4 m -25.4,-5.4 -8.2,5.4 m 8.2,-16.3 -8,-5.4" stroke-width="2.39" stroke="black" fill="none" ></path></g></svg>`,
+  "X": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path><path d="m 60,30 80,0" stroke-width="4" stroke="black" fill="none"></path><g transform="translate(-106.79,-222.81) scale(2.07)" stroke-width="1.93" stroke="black" fill="none"><text x="100" y="115" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="1.93" stroke="none" fill="black" >X</text></g></svg>`,
+  "Agua": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path><path d="m 60,30 80,0" stroke-width="4" stroke="black" fill="none"></path><g transform="translate(14.29,-99.93) scale(0.86)" stroke-width="4.67" stroke="black" fill="none"><path d="m 65,90 50,0 c 10,0 20,10 20,20 m -40,-30 20,0 m -10,0 0,10" stroke-width="4.67" stroke="black" fill="none" ></path></g></svg>`,
+  "Outras": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path><path d="m 60,30 80,0" stroke-width="4" stroke="black" fill="none"></path><g transform="translate(-100,-217.5) scale(2)" stroke-width="2" stroke="black" fill="none"><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="2" stroke="black" fill="none" ></path></g></svg>`
 };
 
 // ============================================================================
@@ -177,7 +177,7 @@ const BASE_POINTS = {
     code: "271500",
     name: "Trilha/travessia para pessoas a pé",
     category: "Passagens",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="M 70,130 130,70" stroke-width="4" stroke="black" fill="none" ></path><circle cx="70" cy="130" r="16" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></circle><circle cx="130" cy="70" r="16" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></circle></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="76" height="128" viewBox="62 36 76 128"><path d="M 68,50 L 82,50 L 132,100 L 82,150 L 68,150 M 82,50 L 82,42 M 82,150 L 82,158" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -204,7 +204,7 @@ const BASE_POINTS = {
     code: "290800",
     name: "Travessia para carros de combate",
     category: "Passagens",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="128" height="96" viewBox="36 52 128 96"><path d="M 140,120 Q 100,80 60,120" stroke-width="4" stroke="black" fill="none" ></path><path d="m 60,90 15,15 m -15,0 15,-15" stroke-width="4" stroke="black" fill="none" ></path><path d="m 140,90 -15,15 m 15,0 -15,-15" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="68" height="118" viewBox="66 41 68 118"><path d="M 72,47 L 128,153" stroke-width="4" stroke="black" fill="none" ></path><path d="M 117.2,110.2 L 101.2,80.0 A 10.4,10.4 0 0 0 82.8,89.8 L 98.8,120.0 A 10.4,10.4 0 0 0 117.2,110.2 Z" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></path><path d="M 93.0,86.8 L 107.0,113.2" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -213,7 +213,7 @@ const BASE_POINTS = {
     code: "290899_EXT1",
     name: "Local de portada leve",
     category: "Passagens",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="128" height="96" viewBox="36 52 128 96"><path d="M 140,120 Q 100,80 60,120" stroke-width="4" stroke="black" fill="none" ></path><circle cx="60" cy="120" r="12" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></circle><circle cx="140" cy="120" r="12" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></circle></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="68" height="118" viewBox="66 41 68 118"><path d="M 72,47 L 128,153" stroke-width="4" stroke="black" fill="none" ></path><circle cx="100" cy="100" r="10" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></circle></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -222,7 +222,7 @@ const BASE_POINTS = {
     code: "290899_EXT2",
     name: "Local de portada pesada",
     category: "Passagens",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="128" height="96" viewBox="36 52 128 96"><path d="M 140,120 Q 100,80 60,120" stroke-width="4" stroke="black" fill="none" ></path><circle cx="60" cy="120" r="12" stroke-width="4" stroke="black" fill="black" ></circle><circle cx="140" cy="120" r="12" stroke-width="4" stroke="black" fill="black" ></circle></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="68" height="118" viewBox="66 41 68 118"><path d="M 72,47 L 128,153" stroke-width="4" stroke="black" fill="none" ></path><circle cx="100" cy="100" r="10" stroke-width="4" stroke="black" fill="black" ></circle></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -231,7 +231,7 @@ const BASE_POINTS = {
     code: "290700",
     name: "Local de passadeira",
     category: "Passagens",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="128" height="96" viewBox="36 52 128 96"><path d="M 140,120 Q 100,80 60,120" stroke-width="4" stroke="black" fill="none" ></path><path d="M 85,111 90,100 m 10,0 5,11 M 105,111 110,100 m 10,0 5,11" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="84" height="110" viewBox="58 45 84 110"><path d="M 77.5,69.3 L 122.5,130.7" stroke-width="4" stroke="black" fill="none" ></path><path d="M 64.5,51.6 L 89.4,66.9 L 77.5,69.3 L 71.6,79.9 Z" stroke-width="4" stroke="none" fill="black" ></path><path d="M 135.5,148.4 L 128.4,120.1 L 122.5,130.7 L 110.6,133.1 Z" stroke-width="4" stroke="none" fill="black" ></path></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -240,7 +240,7 @@ const BASE_POINTS = {
     code: "271400",
     name: "Ponte ou passagem tática",
     category: "Passagens",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="96" height="128" viewBox="52 36 96 128"><path d="M 70,60 70,140 M 130,60 130,140 M 70,100 130,100" stroke-width="4" stroke="black" fill="none" ></path><path d="M 80,50 90,60 M 80,150 90,140" stroke-width="4" stroke="black" fill="none" ></path><path d="M 120,50 110,60 M 120,150 110,140" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="56" height="136" viewBox="72 32 56 136"><path d="M 78,38 L 90,55 L 90,145 L 78,162 M 122,38 L 110,55 L 110,145 L 122,162" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -249,7 +249,7 @@ const BASE_POINTS = {
     code: "271300",
     name: "Local de travessia de assalto",
     category: "Passagens",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="128" height="68" viewBox="36 66 128 68"><path d="M 50,100 L 60,80 M 60,120 L 50,100 M 60,80 L 75,100 M 75,100 L 60,120 M 75,100 L 90,80 M 90,120 L 75,100 M 90,80 L 105,100 M 105,100 L 90,120 M 105,100 L 120,80 M 120,120 L 105,100 M 120,80 L 135,100 M 135,100 L 120,120 M 135,100 L 150,80 M 150,120 L 135,100" stroke-width="3" stroke="black" fill="none" ></path></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="132" height="104" viewBox="34 48 132 104"><path d="M 40,54 L 54,68 L 146,68 L 160,54 M 40,146 L 54,132 L 146,132 L 160,146" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -259,7 +259,7 @@ const BASE_POINTS = {
     code: "240601",
     name: "Concentração de fogos",
     category: "Fogos",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="M100 50v38m0 24v38m-50-50h38m24 0h38" stroke-width="2" stroke="#000" fill="none"/><circle cx="100" cy="100" r="5"/></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="M100 50v38m0 24v38m-50-50h38m24 0h38" stroke-width="2" stroke="black" fill="none"></path><circle cx="100" cy="100" r="5" stroke="none" fill="black"></circle></svg>`,
     anchor: "center",
     textFields: {
       numeroConcentracao: {
@@ -281,7 +281,7 @@ const BASE_POINTS = {
     code: "271201",
     name: "Destruição planejada",
     category: "Proteção - Obstáculos",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="128" height="96" viewBox="36 52 128 96"><path d="M 50,100 150,100" stroke-width="4" stroke="black" fill="none" ></path><path d="M 70,80 70,120 M 100,80 100,120 M 130,80 130,120" stroke-width="4" stroke="black" stroke-dasharray="8,4" fill="none" ></path></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="122" height="132" viewBox="39 34 122 132"><path d="M 45,160 L 127,40 M 73,160 L 155,40" stroke-width="4" stroke="black" stroke-dasharray="12,5" fill="none" ></path></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -290,7 +290,7 @@ const BASE_POINTS = {
     code: "271203",
     name: "Destruição preparada",
     category: "Proteção - Obstáculos",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="128" height="96" viewBox="36 52 128 96"><path d="M 50,100 150,100" stroke-width="4" stroke="black" fill="none" ></path><path d="M 70,80 70,120 M 100,80 100,120 M 130,80 130,120" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="122" height="132" viewBox="39 34 122 132"><path d="M 45,160 L 127,40 M 73,160 L 155,40" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -299,7 +299,7 @@ const BASE_POINTS = {
     code: "271204",
     name: "Destruição realizada",
     category: "Proteção - Obstáculos",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="128" height="96" viewBox="36 52 128 96"><path d="M 50,100 150,100" stroke-width="4" stroke="black" fill="none" ></path><path d="M 60,80 80,120 M 80,80 60,120 M 90,80 110,120 M 110,80 90,120 M 120,80 140,120 M 140,80 120,120" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="122" height="132" viewBox="39 34 122 132"><path d="M 45,160 L 127,40 M 73,160 L 155,40 M 155,160 L 73,40 M 127,160 L 45,40" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -309,7 +309,7 @@ const BASE_POINTS = {
     code: "280900",
     name: "Abrigo individual",
     category: "Proteção - Fortificação",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="m 65,65 0,70 70,0 0,-70 -70,0z" stroke-width="4" stroke="black" fill="black" ></path></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="93" viewBox="56 56 88 93"><path d="M 60,145 L 60,60 L 140,60 L 140,145" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -336,7 +336,7 @@ const BASE_POINTS = {
     code: "281200",
     name: "Local fortificado",
     category: "Proteção - Fortificação",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="m 135,65 15,-15 m -15,85 15,15 M 65,135 50,150 m 15,-85 0,70 70,0 0,-70 -70,0 -15,-15" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></path></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="158" height="158" viewBox="21 21 158 158"><path d="M 100,60 140,100 100,140 60,100 Z" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></path><path d="M 100,60 100,28 M 140,100 172,100 M 100,140 100,172 M 60,100 28,100" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -346,7 +346,7 @@ const BASE_POINTS = {
     code: "280600",
     name: "Mina de qualquer tipo",
     category: "Proteção - Minas",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="m 129,100 c 0,16.016 -12.984,29 -29,29 -16.0163,0 -29,-12.984 -29,-29 0,-16.0163 12.9837,-29 29,-29 16.016,0 29,12.9837 29,29 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></path></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="112" height="98" viewBox="44 51 112 98"><ellipse cx="100" cy="100" rx="50" ry="43" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></ellipse></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -355,7 +355,7 @@ const BASE_POINTS = {
     code: "280200",
     name: "Mina antipessoal",
     category: "Proteção - Minas",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="m 129,100 c 0,16.016 -12.984,29 -29,29 -16.0163,0 -29,-12.984 -29,-29 0,-16.0163 12.9837,-29 29,-29 16.016,0 29,12.9837 29,29 z" stroke-width="4" stroke="black" fill="black" ></path><path d="m 50,50 29.5,29.5 m 41,0 L 150,50" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></path></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="130" height="118" viewBox="35 31 130 118"><ellipse cx="100" cy="100" rx="50" ry="43" stroke-width="4" stroke="black" fill="black" ></ellipse><path d="M 70,66 L 41,37 M 130,66 L 159,37" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -364,7 +364,7 @@ const BASE_POINTS = {
     code: "280300",
     name: "Mina anticarro",
     category: "Proteção - Minas",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="m 129,100 c 0,16.016 -12.984,29 -29,29 -16.0163,0 -29,-12.984 -29,-29 0,-16.0163 12.9837,-29 29,-29 16.016,0 29,12.9837 29,29 z" stroke-width="4" stroke="black" fill="black" ></path></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="112" height="98" viewBox="44 51 112 98"><ellipse cx="100" cy="100" rx="50" ry="43" stroke-width="4" stroke="black" fill="black" ></ellipse></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -373,7 +373,7 @@ const BASE_POINTS = {
     code: "280700",
     name: "Armadilha",
     category: "Proteção - Minas",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="M 77.2413,87.9311 100,50 122.781,87.9687 M 130,100 c 0,10.24 -13.431,18.541 -30,18.541 -16.5685,0 -30,-8.301 -30,-18.541 0,-10.2399 13.4315,-18.541 30,-18.541 16.569,0 30,8.3011 30,18.541 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></path></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="126" height="132" viewBox="37 34 126 132"><ellipse cx="100" cy="132" rx="57" ry="28" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></ellipse><path d="M 52,117 L 100,40 L 148,117" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "bottom",
     textFields: {}
   },
@@ -382,7 +382,7 @@ const BASE_POINTS = {
     code: "270701",
     name: "Indicação pontual de campo minado",
     category: "Proteção - Minas",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="158" height="88" viewBox="21 61 158 88"><path d="m 25,65 0,70 150,0 0,-70 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></path></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="164" height="88" viewBox="18 56 164 88"><rect x="24" y="62" width="152" height="76" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></rect><ellipse cx="52" cy="106" rx="16" ry="14" stroke-width="4" stroke="black" fill="black" ></ellipse><ellipse cx="100" cy="106" rx="16" ry="14" stroke-width="4" stroke="black" fill="black" ></ellipse><ellipse cx="148" cy="106" rx="16" ry="14" stroke-width="4" stroke="black" fill="black" ></ellipse><path d="M 42,95 L 32,85 M 62,95 L 72,85" stroke-width="4" stroke="black" fill="none" ></path><path d="M 90,95 L 80,85 M 110,95 L 120,85" stroke-width="4" stroke="black" fill="none" ></path><path d="M 138,95 L 128,85 M 158,95 L 168,85" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -391,7 +391,7 @@ const BASE_POINTS = {
     code: "270800",
     name: "Área minada",
     category: "Proteção - Minas",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="M 50,50 150,50 150,150 50,150 Z" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></path><circle cx="80" cy="80" r="10" stroke-width="3" stroke="black" fill="rgb(255,255,255)" ></circle><circle cx="120" cy="80" r="10" stroke-width="3" stroke="black" fill="black" ></circle><circle cx="100" cy="120" r="10" stroke-width="3" stroke="black" fill="black" ></circle><text x="100" y="55" text-anchor="middle" font-size="18" font-family="Arial" font-weight="bold" fill="black">M</text></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="172" height="59" viewBox="16 64 172 59"><ellipse cx="40" cy="100" rx="22" ry="19" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></ellipse><ellipse cx="100" cy="100" rx="22" ry="19" stroke-width="4" stroke="black" fill="black" ></ellipse><ellipse cx="160" cy="100" rx="22" ry="19" stroke-width="4" stroke="black" fill="black" ></ellipse><path d="M 147,88 136,68 M 173,88 184,68" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -401,7 +401,7 @@ const BASE_POINTS = {
     code: "281301",
     name: "Evento químico",
     category: "Proteção - QBRN",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="158" height="118" viewBox="21 -14 158 118"><path d="M 110,60 C 110,40 115,25 80,20 M 90,60 C 90,40 85,25 120,20 m -20,80 -60,-110 120,0 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></path><path d="m 120,20 c 10,0 10,15 0,15 -10,0 -10,-15 0,-15 z M 80,35 c 10,0 10,-15 0,-15 -10,0 -10,15 0,15 z" stroke-width="4" stroke="black" fill="black" ></path><text x="100" y="20" text-anchor="middle" font-size="30" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >C</text><text x="100" y="85" text-anchor="middle" font-size="30" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >T</text></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="158" height="118" viewBox="21 -14 158 118"><path d="M 110,60 C 110,40 115,25 80,20 M 90,60 C 90,40 85,25 120,20 m -20,80 -60,-110 120,0 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></path><path d="m 120,20 c 10,0 10,15 0,15 -10,0 -10,-15 0,-15 z M 80,35 c 10,0 10,-15 0,-15 -10,0 -10,15 0,15 z" stroke-width="4" stroke="black" fill="black" ></path><text x="100" y="20" text-anchor="middle" font-size="30" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >Q</text></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -434,6 +434,37 @@ const BASE_POINTS = {
   },
 
   // ===== CONTROLE AÉREO =====
+  "321700": {
+    code: "321700",
+    name: "Ponto de Suprimento genérico",
+    category: "Logística",
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path><path d="m 60,30 80,0" stroke-width="4" stroke="black" fill="none"></path></svg>`,
+    anchor: "bottom",
+    textFields: {
+      tipo: {
+        position: { x: 100, y: -20 },
+        anchor: 'middle',
+        fontWeight: 'bold',
+        fontSize: 25
+      },
+      identificacao: {
+        position: { x: 150, y: -40 },
+        anchor: 'start',
+        fontSize: 20
+      },
+      gdhIni: {
+        position: { x: 50, y: -40 },
+        anchor: 'end',
+        fontSize: 20
+      },
+      gdhFim: {
+        position: { x: 50, y: -10 },
+        anchor: 'end',
+        fontSize: 20
+      }
+    }
+  },
+
   "180000": {
     code: "180000",
     name: "Ponto de Controle Aéreo",
@@ -455,7 +486,7 @@ const BASE_POINTS = {
     code: "210200",
     name: "Ponto de visada",
     category: "Controle Marítimo",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><circle cx="100" cy="100" r="15" stroke-width="4" stroke="black" fill="black" ></circle><circle cx="100" cy="100" r="35" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></circle><circle cx="100" cy="100" r="45" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></circle></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><circle cx="100" cy="100" r="45" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></circle><circle cx="100" cy="100" r="35" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></circle><circle cx="100" cy="100" r="17" stroke-width="4" stroke="black" fill="black" ></circle></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -509,7 +540,7 @@ const BASE_POINTS = {
     code: "210900",
     name: "Ponto de impacto previsto",
     category: "Controle Marítimo",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="m 50,100 40,-10 10,-40 10,40 40,10 -40,10 -10,40 -10,-40 -40,-10" stroke-width="4" stroke-dasharray="12,5" stroke="black" fill="rgb(255,255,255)" ></path></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="m 50,100 40,-10 10,-40 10,40 40,10 -40,10 -10,40 -10,-40 -40,-10 z" stroke-width="4" stroke-dasharray="12,5" stroke="black" fill="rgb(255,255,255)" ></path></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -536,7 +567,7 @@ const BASE_POINTS = {
     code: "211300",
     name: "Despistador - Contramedida eletrônica",
     category: "Controle Marítimo",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="m 80,120 -20,10 20,10 z m 30,0 -20,10 20,10 0,-20 z m 30,0 -20,10 20,10 z m -25,-20 c 0,10 -10,18 -19.4,14 -9.4,-2 -13.8,-14.7 -8,-22.5 5.2,-8.2 18.4,-8.7 24.4,-0.8 2,2.6 3,5.9 3,9.3 z" stroke-width="4" stroke="black" fill="black" ></path><path d="m 50,50 0,100 100,0 0,-100 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></path><text x="100" y="80" text-anchor="middle" font-size="30" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >ECM</text></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="M 50,50 150,50 150,150 50,150 Z" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></path><text x="100" y="80" text-anchor="middle" font-size="30" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >ECM</text><circle cx="100" cy="100" r="13" stroke-width="4" stroke="black" fill="black" ></circle><path d="M 58,130 78,119 78,141 Z M 90,130 110,119 110,141 Z M 122,130 142,119 142,141 Z" stroke-width="4" stroke="black" fill="black" ></path></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -545,7 +576,7 @@ const BASE_POINTS = {
     code: "211500",
     name: "Datum",
     category: "Controle Marítimo",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="m 100,50 0,50 50,0 C 150,72.3858 127.614,50 100,50 Z m 0,50 -50,0 c 0,27.614 22.3858,50 50,50 z" stroke-width="4" stroke="none" fill="black" ></path><circle cx="100" cy="100" r="50" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></circle></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><circle cx="100" cy="100" r="50" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></circle><path d="M 100,100 L 100,50 A 50,50 0 0 1 150,100 Z" stroke="none" fill="black" ></path><path d="M 100,100 L 100,150 A 50,50 0 0 1 50,100 Z" stroke="none" fill="black" ></path><circle cx="100" cy="100" r="50" stroke-width="4" stroke="black" fill="none" ></circle></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -581,7 +612,7 @@ const BASE_POINTS = {
     code: "212000",
     name: "Contato perdido",
     category: "Controle Marítimo",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 -4 108 108"><path d="m 65,0 70,0 m -35,80 0,-80 m 0,100 -45,-20 90,0 z" stroke-width="4" stroke="black" fill="black" ></path><text x="75" y="55" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >L</text><text x="125" y="55" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >C</text></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 -4 108 108"><path d="m 65,0 70,0 m -35,80 0,-80 m 0,100 -45,-20 90,0 z" stroke-width="4" stroke="black" fill="black" ></path><text x="75" y="55" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >C</text><text x="125" y="55" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >P</text></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -662,7 +693,7 @@ const BASE_POINTS = {
     code: "213000",
     name: "Posição do DIP",
     category: "Controle Marítimo",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="m 80,80 20,20 -20,20 40,0 -20,-20 20,-20 z M 50,150 150,50 M 50,50 150,150" stroke-width="4" stroke="black" fill="black" ></path><text x="60" y="115" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >D</text><text x="140" y="115" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >P</text></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="m 80,80 20,20 -20,20 40,0 -20,-20 20,-20 z M 50,150 150,50 M 50,50 150,150" stroke-width="4" stroke="black" fill="black" ></path><text x="60" y="115" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >P</text><text x="140" y="115" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >D</text></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -680,7 +711,7 @@ const BASE_POINTS = {
     code: "213200",
     name: "Área de busca",
     category: "Controle Marítimo",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="m 80,80 20,20 -20,20 40,0 -20,-20 20,-20 z M 50,150 150,50 M 50,50 150,150" stroke-width="4" stroke="black" fill="black" ></path><text x="60" y="115" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >S</text><text x="140" y="115" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >A</text></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="m 80,80 20,20 -20,20 40,0 -20,-20 20,-20 z M 50,150 150,50 M 50,50 150,150" stroke-width="4" stroke="black" fill="black" ></path><text x="60" y="115" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >A</text><text x="140" y="115" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >B</text></svg>`,
     anchor: "center",
     textFields: {}
   },
@@ -725,7 +756,7 @@ const BASE_POINTS = {
     code: "214700",
     name: "Posição estimada",
     category: "Controle Marítimo",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="128" height="128" viewBox="36 36 128 128"><path d="M 160,160 40,160 40,40 160,40 Z" stroke-width="4" stroke-dasharray="12,5" stroke="black" fill="rgb(255,255,255)" ></path><path d="m 140,100 c 1,26 -27,47 -51.8,38 C 63.1,131 51.5,98.3 67,77.4 c 13.8,-21.9 49,-23.2 64,-2.3 6,7 9,15.9 9,24.9 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></path><text x="100" y="115" text-anchor="middle" font-size="35" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >EP</text></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="128" height="128" viewBox="36 36 128 128"><path d="M 160,160 40,160 40,40 160,40 Z" stroke-width="4" stroke-dasharray="12,5" stroke="black" fill="rgb(255,255,255)" ></path><circle cx="100" cy="100" r="40" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></circle><text x="100" y="114" text-anchor="middle" font-size="35" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >PE</text></svg>`,
     anchor: "center",
     textFields: {}
   }

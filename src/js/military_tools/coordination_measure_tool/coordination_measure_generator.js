@@ -149,21 +149,38 @@ export class CoordinationMeasureGenerator {
   }
 
   /**
-   * Apply custom color by replacing rgb(255,255,255) with chosen color
+   * Aplica a cor personalizada ao simbolo.
+   *
+   * A cor personalizada pinta a TINTA: o traco e o preenchimento preto. O branco NAO e cor
+   * do simbolo, e mascara: no `290800` Travessia para carros de combate ele e a lagarta que
+   * INTERROMPE a linha, e pinta-lo de verde deixava a linha preta, que e o contrario do
+   * pedido. Por isso o branco segue o mesmo caminho nos dois modos, e a unica coisa que o
+   * controle muda e a cor do desenho.
+   *
+   * A versao anterior trocava `rgb(255,255,255)` pela cor escolhida, o que so mexia nos 51
+   * simbolos com interior branco e nao mexia em nada nos outros 53, que sao traco puro:
+   * escalao, forca-tarefa, boa parte do controle maritimo e as passagens.
+   *
    * @param {string} svg - SVG string
-   * @param {string} color - Color in hex format (e.g. #11FF00)
-   * @returns {string} SVG with applied color
+   * @param {string} color - Cor em hexadecimal (ex: #11FF00), ou 'none' para o padrao
+   * @returns {string} SVG com a cor aplicada
    */
   applyCustomColor(svg, color) {
+    const semMascara = svg.replace(/fill="rgb\(255,\s*255,\s*255\)"/gi, 'fill="none"');
+
     if (color === 'none') {
-      return svg.replace(/fill="rgb\(255,\s*255,\s*255\)"/gi, 'fill="none"');
+      return semMascara;
     }
 
     const rgb = this.hexToRgb(color);
-    if (rgb) {
-      return svg.replace(/rgb\(255,\s*255,\s*255\)/gi, `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`);
+    if (!rgb) {
+      return semMascara;
     }
-    return svg;
+
+    // Tres grafias de preto convivem no catalogo: `black`, `#000` e `#000000`. Casar so
+    // uma delas deixava o `240601` inerte. `stroke="none"` e `fill="none"` ficam como estao.
+    const alvo = `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`;
+    return semMascara.replace(/(stroke|fill)="(?:black|#000|#000000)"/gi, (_, attr) => `${attr}="${alvo}"`);
   }
 
   /**
