@@ -32,6 +32,7 @@ import {
     setupDeclinationLayers,
     setupBoundaryLayers,
     setupOccupiedFrontLayers,
+    setupBarrierLineLayers,
     setupLOSLayers,
     setupVisibilityLayers,
     setupLayerSeparators,
@@ -456,6 +457,7 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
         setupArrowLayers(features, mapInstance);
         setupVisibilityLayers(features, mapInstance);
         setupOccupiedFrontLayers(features, mapInstance);
+        setupBarrierLineLayers(features, mapInstance);
         setupBoundaryLayers(features, mapInstance);
         setupLineLayers(features, mapInstance);
         setupBrushLayers(features, mapInstance);

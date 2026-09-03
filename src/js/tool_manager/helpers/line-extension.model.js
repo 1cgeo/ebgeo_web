@@ -2,7 +2,7 @@
 
 /**
  * @fileoverview Pure model behind CONTINUING an existing linear feature (`line`,
- * `arrow`, `boundary`) from one of its two ends. No DOM, no store, no map, so it
+ * `arrow`, `boundary`, `barrier_line`) from one of its two ends. No DOM, no store, no map, so it
  * is node-testable and safe to import from anywhere.
  *
  * WHY A MODEL AT ALL. The whole operation reduces to one decision that is easy
@@ -31,8 +31,8 @@
 
 import { resolveSpineCoordinates } from './linear-conversion.model.js';
 
-/** The three types that can be continued from an end. @constant {string[]} */
-export const EXTENDABLE_SOURCES = Object.freeze(['line', 'arrow', 'boundary']);
+/** The types that can be continued from an end. @constant {string[]} */
+export const EXTENDABLE_SOURCES = Object.freeze(['line', 'arrow', 'boundary', 'barrier_line']);
 
 /** The two ends a feature can be continued from. @constant {string[]} */
 export const EXTENSION_ENDS = Object.freeze(['start', 'end']);
@@ -188,7 +188,7 @@ export function canExtendFeature(feature) {
     const props = feature?.properties;
 
     if (!EXTENDABLE_SOURCES.includes(props?.source)) {
-        return { ok: false, reason: 'Só linha, seta e linha de limite podem ser continuadas' };
+        return { ok: false, reason: 'Só linha, seta, linha de limite e linha de barreiras podem ser continuadas' };
     }
     if (props.bloqueado === true) {
         return { ok: false, reason: 'Feição está bloqueada' };

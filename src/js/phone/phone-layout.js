@@ -68,6 +68,7 @@ const CONTROL_KEY_TO_REGISTRY = {
     arrowControl: 'AddArrowControl',
     boundaryControl: 'AddBoundaryControl',
     occupiedFrontControl: 'AddOccupiedFrontControl',
+    barrierLineControl: 'AddBarrierLineControl',
     declinationControl: 'AddDeclinationControl',
     losControl: 'AddLOSControl',
     visibilityControl: 'AddVisibilityControl',

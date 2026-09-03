@@ -26,6 +26,7 @@ export const FEATURE_TYPE_CONFIG = {
     arrow: { label: 'Seta' },
     boundary: { label: 'Limite' },
     occupied_front: { label: 'Frente Ocupada' },
+    barrier_line: { label: 'Linha de Barreiras' },
     military_symbol: { label: 'Símbolo Militar' },
     coordination_measure: { label: 'Medida de Coordenação' },
     los: { label: 'Linha de Visada' },

@@ -49,6 +49,13 @@ const ZOOM_INVARIANT_SOURCES = [
         maxValue: 60,
         enabledProperty: 'zoomCorrectionEnabled',
     },
+    {
+        sourceName: 'barrier_lines',
+        property: 'calculatedLineWidth',
+        baseProperty: 'lineWidth',
+        maxValue: 60,
+        enabledProperty: 'zoomCorrectionEnabled',
+    },
 ];
 
 /**
@@ -160,6 +167,41 @@ async function correctBoundaryGroundGeometry(hiddenMap, finalZoom) {
 }
 
 /**
+ * Rebuilds screen-pinned BARRIER LINES for the export zoom.
+ *
+ * Same reason as the boundary above, and simpler: a barrier line has no
+ * dependent sources, so correcting the feature is the whole job. Only the
+ * screen-pinned ones change SHAPE with the zoom (their diamonds are sized in
+ * kilometres by `2 ** (createdAtZoom - zoom)`), but `applyZoomCorrections`
+ * regenerates every feature, which is also what the map load does.
+ *
+ * Silently does nothing when the control is not registered, which is the case in
+ * an export started before the tool ever ran.
+ *
+ * @param {maplibregl.Map} hiddenMap - The off-screen map used for rendering
+ * @param {number} finalZoom - The target export zoom level
+ * @returns {Promise<boolean>} Whether any features were changed
+ */
+async function correctBarrierLineGroundGeometry(hiddenMap, finalZoom) {
+    try {
+        const control = getControl('AddBarrierLineControl');
+        if (typeof control?.applyZoomCorrections !== 'function') return false;
+
+        const source = hiddenMap.getSource('barrier_lines');
+        if (!source) return false;
+
+        const data = await source.getData();
+        if (!data?.features?.length) return false;
+
+        source.setData({ ...data, features: control.applyZoomCorrections(data.features, finalZoom) });
+        return true;
+    } catch (error) {
+        console.error('Error rebuilding screen-pinned barrier lines for export:', error);
+        return false;
+    }
+}
+
+/**
  * Adjusts zoom-dependent feature sizes for the export zoom level.
  * Features whose `createdAtZoom` differs from the export zoom get their
  * calculated size/width scaled so they render at the correct visual size.
@@ -175,6 +217,11 @@ export async function correctZoomInvariantFeatures(hiddenMap, finalZoom) {
     // features. The two do not overlap: this one only touches the boundaries the
     // generic pass skips (`zoomCorrectionEnabled === false`).
     if (await correctBoundaryGroundGeometry(hiddenMap, finalZoom)) {
+        anyChanges = true;
+    }
+
+    // Same shape, no dependent sources: a barrier line is one feature.
+    if (await correctBarrierLineGroundGeometry(hiddenMap, finalZoom)) {
         anyChanges = true;
     }
 

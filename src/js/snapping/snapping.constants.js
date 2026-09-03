@@ -56,6 +56,7 @@ export const SNAPPABLE_LAYER_IDS = [
     'arrow-fill-layer',
     'arrow-layer',
     'occupied-front-layer',
+    'barrier-line-layer',
     'boundary-main-layer',
     'sector-fill-layer',
     'sectors-layer',

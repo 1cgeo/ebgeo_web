@@ -59,6 +59,7 @@ export function getEmptyMapData() {
             arrows: [],
             boundarys: [],
             occupied_fronts: [],
+            barrier_lines: [],
             military_symbols: [],
             setores: [],
             coordenadas: [],
