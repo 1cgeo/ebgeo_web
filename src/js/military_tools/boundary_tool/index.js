@@ -2,3 +2,7 @@
 export { default as AddBoundaryControl } from './add_boundary_control.js';
 export { default as AddBoundaryGeometry } from './add_boundary_geometry.js';
 export { addBoundaryAttributesToPanel } from './boundary_attributes_panel.js';
+
+// Split utilities
+export { canSplitBoundary } from './boundary-split.model.js';
+export { splitBoundaryAtPoint, activateBoundarySplitMode } from './boundary-split.js';

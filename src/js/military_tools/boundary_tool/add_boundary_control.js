@@ -1728,6 +1728,49 @@ class AddBoundaryControl extends BaseControl {
         this.map.getSource('boundary-circles').setData(circleData);
     }
 
+    /**
+     * Swap a boundary for the two halves a cut produced, across the three
+     * sources. Serialized shell.
+     * @param {string} originalId - Id of the boundary that was cut
+     * @param {Array} halves - The features that replace it
+     * @returns {Promise<void>} Resolves once the three sources are written
+     */
+    replaceSplitBoundary = async (originalId, halves) =>
+        this._sourceQueue(() => this._replaceSplitBoundaryUnlocked(originalId, halves))
+
+    /**
+     * ONE task, and one read per source. Removing the original and appending
+     * the halves through the public per-feature shells would be three tasks,
+     * and a zoom pass landing between them would rebuild the sources from a
+     * state holding neither the original nor both halves.
+     * @param {string} originalId - Id of the boundary that was cut
+     * @param {Array} halves - The features that replace it
+     * @returns {Promise<void>} Resolves once the three sources are written
+     * @private
+     */
+    _replaceSplitBoundaryUnlocked = async (originalId, halves) => {
+        const mainData = await this.map.getSource('boundarys').getData();
+        const textData = await this.map.getSource('boundary-texts').getData();
+        const circleData = await this.map.getSource('boundary-circles').getData();
+
+        const idString = String(originalId);
+        mainData.features = mainData.features.filter(f => String(f.properties.id) !== idString);
+        textData.features = textData.features.filter(f => f.properties.parent !== originalId);
+        circleData.features = circleData.features.filter(f => f.properties.parent !== originalId);
+
+        const zoom = this.getCurrentZoom();
+        for (const half of halves) {
+            const prepared = this.withZoomSizes(half);
+            mainData.features.push(half);
+            circleData.features.push(...this.geometry.generateBoundaryCircles(prepared, zoom));
+            textData.features.push(...this.geometry.generateBoundaryTexts(prepared, zoom));
+        }
+
+        this.map.getSource('boundarys').setData(mainData);
+        this.map.getSource('boundary-texts').setData(textData);
+        this.map.getSource('boundary-circles').setData(circleData);
+    }
+
     setDefaultProperties = (properties) => {
         const {
             id: _id,

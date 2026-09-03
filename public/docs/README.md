@@ -342,6 +342,8 @@ A Linha de Limite demarca a separação entre unidades (por exemplo, o limite en
 
 No painel é possível escolher o escalão, a cor, a espessura e a opacidade, e adicionar rótulos de texto acima e abaixo da linha.
 
+Um limite pode ser cortado em dois. Com ele selecionado, escolha "Cortar Linha de Limite" no menu do clique direito (ou no menu da feição, no painel) e clique no ponto do corte; Esc cancela. Cada metade fica com os símbolos de escalão que caíam no seu trecho, e a metade que ficar sem nenhum ganha um símbolo no centro. As duas herdam o escalão, a cor, a espessura, a opacidade e os rótulos do limite original.
+
 ##### Frente Ocupada (Atalho "F")
 
 A Frente Ocupada representa uma posição defensiva ocupada, no formato de dois braços em "V" que partem de um ponto central. Para criar, dê dois cliques: o ponto central e a ponta de um dos braços; o segundo braço é gerado automaticamente (ambos desenhados como curvas) e a frente é concluída logo após o segundo clique. No painel ajuste cor, espessura e opacidade. Os três pontos de base podem ser arrastados para reposicionar a frente.
@@ -368,7 +370,7 @@ Além de "Copiar coordenadas" e "Orientar para o norte", o clique direito oferec
 
 - Criar grupo, combinar grupos e desagrupar feições.
 - Combinar setas e separar setas.
-- Cortar uma linha em duas: selecione a opção "Cortar Linha" e depois clique sobre a linha no ponto onde deseja cortá-la (Esc cancela).
+- Cortar uma linha em duas: selecione a opção "Cortar Linha" e depois clique sobre a linha no ponto onde deseja cortá-la (Esc cancela). A Linha de Limite tem o mesmo corte, na opção "Cortar Linha de Limite".
 - Exportar para QAN (Quadro Auxiliar de Navegação).
 - Mover as feições para outra camada ou para outro mapa.
 - Dar zoom para a seleção e duplicar a seleção.

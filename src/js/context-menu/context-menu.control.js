@@ -19,6 +19,7 @@ import {
 import { EventTypes } from '@events';
 import { fitBounds, ANIMATION_DURATION } from '@js/map/animation.service.js';
 import { canMergeArrows, canSplitArrows, mergeArrows, splitArrows } from '@js/military_tools/arrow_tool/arrow-merge.js';
+import { canSplitBoundary } from '@js/military_tools/boundary_tool/boundary-split.model.js';
 
 /** Pure property check for line split eligibility (no heavy imports) */
 function canSplitLineCheck(selectedFeatures) {
@@ -30,6 +31,31 @@ function canSplitLineCheck(selectedFeatures) {
                   !f.properties?.bloqueado
     };
 }
+
+/**
+ * The types that can be cut in two, each with its menu label, its eligibility
+ * check and the module owning the temporary click mode.
+ *
+ * A line can be measured by the check above because its `geometry` IS its
+ * spine. A boundary's is a derived MultiLineString mixing segments and echelon
+ * strokes, so `geometry.coordinates.length` there counts parts, not vertices;
+ * its check reads `baseCoordinates` and therefore lives in the boundary model.
+ * @constant {Object<string, {label: string, canSplit: Function, load: Function}>}
+ */
+const SPLITTABLE_SOURCES = {
+    line: {
+        label: 'Cortar Linha',
+        canSplit: canSplitLineCheck,
+        load: () => import('@js/draw_tools/line_tool/line-split.js')
+            .then(module => module.activateSplitMode),
+    },
+    boundary: {
+        label: 'Cortar Linha de Limite',
+        canSplit: canSplitBoundary,
+        load: () => import('@js/military_tools/boundary_tool/boundary-split.js')
+            .then(module => module.activateBoundarySplitMode),
+    },
+};
 
 class ContextMenuControl {
     constructor(mouseCoordinatesControl, toolManager, selectionManager) {
@@ -174,10 +200,10 @@ class ContextMenuControl {
             }
         }
 
-        // Line split option
+        // Split option (line, boundary)
         if (hasSelectedFeatures && !locked) {
-            const lineSplitAdded = this._addLineSplitOption(groupingAnalysis.selectedFeatures);
-            if (lineSplitAdded) {
+            const splitAdded = this._addSplitOption(groupingAnalysis.selectedFeatures);
+            if (splitAdded) {
                 this._contextMenu.appendChild(this._createSeparator());
             }
         }
@@ -301,29 +327,31 @@ class ContextMenuControl {
     }
 
     /**
-     * Add line split option to context menu
+     * Add the split option of whichever cuttable type is selected.
      * @param {Array} selectedFeatures - Currently selected features
      * @returns {boolean} Whether the option was added
      */
-    _addLineSplitOption(selectedFeatures) {
-        const check = canSplitLineCheck(selectedFeatures);
-        if (!check.canSplit) return false;
+    _addSplitOption(selectedFeatures) {
+        if (!selectedFeatures || selectedFeatures.length !== 1) return false;
+
+        const spec = SPLITTABLE_SOURCES[selectedFeatures[0]?.properties?.source];
+        if (!spec || !spec.canSplit(selectedFeatures).canSplit) return false;
 
         const splitItem = this._createMenuItem(
-            'Cortar Linha',
-            () => this._handleSplitLine(selectedFeatures[0])
+            spec.label,
+            () => this._handleSplit(spec, selectedFeatures[0])
         );
         this._contextMenu.appendChild(splitItem);
         return true;
     }
 
-    async _handleSplitLine(lineFeature) {
+    async _handleSplit(spec, feature) {
         try {
-            const { activateSplitMode } = await import('@js/draw_tools/line_tool/line-split.js');
-            await activateSplitMode(lineFeature, this._map, this._selectionManager);
+            const activate = await spec.load();
+            await activate(feature, this._map, this._selectionManager);
         } catch (error) {
-            console.error('Error splitting line:', error);
-            showError('Erro ao cortar linha');
+            console.error('Error splitting feature:', error);
+            showError('Erro ao cortar a feição');
         }
     }
 
