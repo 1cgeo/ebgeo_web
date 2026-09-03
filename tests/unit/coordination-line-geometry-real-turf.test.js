@@ -500,3 +500,84 @@ describe('catalogo de simbolos lineares', () => {
         }
     });
 });
+
+// ============================================================================
+// INVERTER A LINHA
+// ============================================================================
+
+/**
+ * Inverter a espinha nao e cosmetico nos simbolos de UM LADO so.
+ *
+ * O apice do pico e o laco da concertina sao colocados a partir do rumo LOCAL da
+ * linha, sempre para `bearing - 90`. Invertendo a ordem dos vertices o rumo gira
+ * 180 graus, e o simbolo passa a apontar para o outro lado. E a pergunta
+ * doutrinaria de para onde o obstaculo aponta, e por isso o menu ganhou "Inverter
+ * Linha" ao lado do "Inverter Seta".
+ *
+ * O lado e medido por PRODUTO VETORIAL, e nao por `turf.pointToLineDistance`, que
+ * devolve distancia sem sinal: com ela o `Math.sign` da sempre 1 e o teste passa
+ * a medir nada.
+ */
+describe('inverter a linha vira o lado do simbolo', () => {
+    const base = straightLine(10);
+    const invertida = [...base].reverse();
+
+    /** Lado de um ponto em relacao ao segmento A->B: -1, 0 ou 1. */
+    const lado = (a, b, ponto) => Math.sign(
+        (b[0] - a[0]) * (ponto[1] - a[1]) - (b[1] - a[1]) * (ponto[0] - a[0]),
+    );
+
+    /** Lado do vertice mais afastado da espinha, medido SEMPRE contra a mesma referencia. */
+    const ladoDoApice = (coords, code) => {
+        const geometry = geom.generate(props(coords, { symbol_code: code }), 12);
+        const anel = geometry.coordinates.find(c => c.length === 3 || c.length === 17);
+        expect(anel, code).toBeDefined();
+
+        const espinha = turf.lineString(base);
+        const apice = anel.reduce((maior, ponto) => {
+            const d = Math.abs(turf.pointToLineDistance(turf.point(ponto), espinha, { units: 'meters' }));
+            return d > maior.d ? { ponto, d } : maior;
+        }, { ponto: null, d: -1 }).ponto;
+
+        // A referencia e SEMPRE base[0] -> base[1], nunca a espinha invertida, ou os
+        // dois sinais girariam juntos e o teste nao mediria nada.
+        return lado(base[0], base[1], apice);
+    };
+
+    it('o pico da linha de obstaculos troca de lado', () => {
+        const antes = ladoDoApice(base, '290100');
+        const depois = ladoDoApice(invertida, '290100');
+
+        expect(antes).not.toBe(0);
+        expect(depois).toBe(-antes);
+    });
+
+    it('o laco da concertina troca de lado', () => {
+        const antes = ladoDoApice(base, '290307');
+        const depois = ladoDoApice(invertida, '290307');
+
+        expect(antes).not.toBe(0);
+        expect(depois).toBe(-antes);
+    });
+
+    it('o losango, que e simetrico, ocupa as MESMAS posicoes invertido', () => {
+        // Contraprova: onde o simbolo nao tem lado, inverter nao muda onde ele cai.
+        // Se este passasse a falhar, os dois acima estariam medindo outra coisa.
+        const centros = (coords) => {
+            const geometry = geom.generate(props(coords, { symbol_code: '290199' }), 12);
+            const inicio = turf.point(base[0]);
+            return geometry.coordinates
+                .filter(c => c.length === 5)
+                .map(anel => turf.distance(inicio, turf.midpoint(
+                    turf.point(anel[0]), turf.point(anel[2]),
+                ), { units: 'kilometers' }))
+                .sort((x, y) => x - y);
+        };
+
+        const antes = centros(base);
+        const depois = centros(invertida);
+
+        expect(depois).toHaveLength(antes.length);
+        antes.forEach((d, i) => expect(depois[i]).toBeCloseTo(d, 3));
+    });
+});

@@ -39,14 +39,15 @@
 
 import { deepClone } from '@utils/deep-utils.js';
 
-/** The three interchangeable types, in menu order. @constant {string[]} */
-export const LINEAR_SOURCES = Object.freeze(['line', 'arrow', 'boundary']);
+/** The interchangeable linear types, in menu order. @constant {string[]} */
+export const LINEAR_SOURCES = Object.freeze(['line', 'arrow', 'boundary', 'coordination_line']);
 
 /** Menu labels (pt-BR). @constant {Object<string, string>} */
 export const LINEAR_CONVERSION_LABELS = Object.freeze({
     line: 'Converter para Linha',
     arrow: 'Converter para Seta',
     boundary: 'Converter para Linha de Limite',
+    coordination_line: 'Converter para Linha de Coordenação',
 });
 
 /** Type names used inside messages (pt-BR). @constant {Object<string, string>} */
@@ -54,6 +55,7 @@ export const LINEAR_TYPE_NAMES = Object.freeze({
     line: 'Linha',
     arrow: 'Seta',
     boundary: 'Linha de Limite',
+    coordination_line: 'Linha de Coordenação',
 });
 
 /**
@@ -66,6 +68,7 @@ export const LINE_WIDTH_RANGES = Object.freeze({
     line: Object.freeze({ min: 1, max: 15 }),
     arrow: Object.freeze({ min: 1, max: 10 }),
     boundary: Object.freeze({ min: 1, max: 10 }),
+    coordination_line: Object.freeze({ min: 1, max: 10 }),
 });
 
 /**
@@ -74,6 +77,15 @@ export const LINE_WIDTH_RANGES = Object.freeze({
  * the source actually carries them (so an absent key stays absent).
  * @constant {string[]}
  */
+/**
+ * Centre-to-centre spacing a converted coordination line is born with, as a
+ * multiple of the glyph size. Mirrors the tool's own SPACING_RATIO, and is
+ * duplicated here because this module has no imports from military_tools by
+ * contract; the pair is held together by the conversion test.
+ * @constant {number}
+ */
+export const COORDINATION_SPACING_RATIO = 3;
+
 export const PRESERVED_OPTIONAL_KEYS = Object.freeze([
     'attributes',
     'images',
@@ -126,6 +138,23 @@ export const DROPPED_BY_SOURCE = Object.freeze({
             key: 'text_bottom',
             label: 'rótulo inferior',
             carries: (v) => typeof v === 'string' && v !== '',
+        },
+    ]),
+    coordination_line: Object.freeze([
+        {
+            key: 'symbol_code',
+            label: 'símbolo do catálogo',
+            carries: (v) => typeof v === 'string' && v !== '',
+        },
+        {
+            key: 'symbol_size',
+            label: 'tamanho do símbolo',
+            carries: (v) => Number.isFinite(v) && v > 0,
+        },
+        {
+            key: 'symbol_spacing',
+            label: 'distância entre símbolos',
+            carries: (v) => Number.isFinite(v) && v > 0,
         },
     ]),
 });
@@ -269,7 +298,10 @@ export function canConvertLinear(feature, targetSource) {
     const source = props?.source;
 
     if (!LINEAR_SOURCES.includes(source)) {
-        return { ok: false, reason: 'Só linha, seta e linha de limite podem ser convertidas' };
+        return {
+            ok: false,
+            reason: 'Só linha, seta, linha de limite e linha de coordenação podem ser convertidas',
+        };
     }
     if (source === targetSource) {
         return { ok: false, reason: 'A feição já é desse tipo' };
@@ -396,6 +428,22 @@ export function buildConvertedProperties({
         // screen right now — same rule as `AddBoundaryControl.createFeature`.
         // The derived `calculated*` sizes are written by the caller, which owns
         // the boundary's own zoom model (see linear-conversion.helpers.js).
+        if (Number.isFinite(referenceZoom)) {
+            props.createdAtZoom = Math.round(referenceZoom * 10) / 10;
+        }
+    } else if (targetSource === 'coordination_line') {
+        if (strokeColor !== undefined) props.color = strokeColor;
+        props.lineWidth = lineWidth;
+        if (alpha !== undefined) props.opacity = alpha;
+        // The glyph size is the target tool's own zoom-adaptive value, and the
+        // spacing follows it, so a converted line is born with the same pattern
+        // a freshly drawn one would have at this zoom.
+        if (Number.isFinite(adaptiveSymbolSize) && adaptiveSymbolSize > 0) {
+            props.symbol_size = adaptiveSymbolSize;
+            props.symbol_spacing = adaptiveSymbolSize * COORDINATION_SPACING_RATIO;
+        }
+        // Born HERE, so the zoom anchor is the zoom on screen right now, exactly
+        // as in the boundary branch above.
         if (Number.isFinite(referenceZoom)) {
             props.createdAtZoom = Math.round(referenceZoom * 10) / 10;
         }

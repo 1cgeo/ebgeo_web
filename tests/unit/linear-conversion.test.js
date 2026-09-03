@@ -145,6 +145,28 @@ const boundaryFeature = (extra = {}) => ({
     geometry: { type: 'MultiLineString', coordinates: [SPINE.map(p => [...p])] },
 });
 
+const coordinationLineFeature = (extra = {}) => ({
+    type: 'Feature',
+    id: 'geo-coordination-line',
+    properties: {
+        source: 'coordination_line',
+        color: '#000000',
+        lineWidth: 4,
+        opacity: 1,
+        symbol_code: '290199',
+        symbol_size: 0.5,
+        symbol_spacing: 1.5,
+        createdAtZoom: 12,
+        zoomCorrectionEnabled: true,
+        id: 'coordination-line-1',
+        nome: 'Barreira Sul',
+        layerId: 'camada-7',
+        baseCoordinates: SPINE.map(p => [...p]),
+        ...extra,
+    },
+    geometry: { type: 'MultiLineString', coordinates: [SPINE.map(p => [...p])] },
+});
+
 /**
  * @param {Object} config
  * @returns {Object} Built properties, with the boilerplate arguments filled in
@@ -164,8 +186,8 @@ const build = ({ feature, targetSource, ...rest }) => buildConvertedProperties({
 // ============================================================================
 
 describe('linear conversion vocabulary', () => {
-    it('covers the three types in every table', () => {
-        expect(LINEAR_SOURCES).toEqual(['line', 'arrow', 'boundary']);
+    it('covers every linear type in every table', () => {
+        expect(LINEAR_SOURCES).toEqual(['line', 'arrow', 'boundary', 'coordination_line']);
         for (const source of LINEAR_SOURCES) {
             expect(typeof LINEAR_CONVERSION_LABELS[source]).toBe('string');
             expect(LINEAR_CONVERSION_LABELS[source].startsWith('Converter para ')).toBe(true);
@@ -283,11 +305,12 @@ describe('resolveSpineCoordinates', () => {
 // ============================================================================
 
 describe('canConvertLinear', () => {
-    it('allows all six directions', () => {
+    it('allows every direction between the linear types', () => {
         const features = {
             line: lineFeature(),
             arrow: arrowFeature(),
             boundary: boundaryFeature(),
+            coordination_line: coordinationLineFeature(),
         };
         const seen = [];
         for (const source of LINEAR_SOURCES) {
@@ -297,7 +320,7 @@ describe('canConvertLinear', () => {
                 seen.push(`${source}->${target}`);
             }
         }
-        expect(seen).toHaveLength(6);
+        expect(seen).toHaveLength(LINEAR_SOURCES.length * (LINEAR_SOURCES.length - 1));
     });
 
     it('refuses converting a feature into its own type', () => {
@@ -316,7 +339,9 @@ describe('canConvertLinear', () => {
         const polygon = { properties: { source: 'polygon', baseCoordinates: SPINE } };
         const verdict = canConvertLinear(polygon, 'line');
         expect(verdict.ok).toBe(false);
-        expect(verdict.reason).toBe('Só linha, seta e linha de limite podem ser convertidas');
+        expect(verdict.reason).toBe(
+            'Só linha, seta, linha de limite e linha de coordenação podem ser convertidas',
+        );
     });
 
     it('refuses a merged arrow, naming the way out', () => {

@@ -388,6 +388,28 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
         dropdown.appendChild(reverseArrowButton);
     }
 
+    // Reversing a coordination line is not cosmetic: the glyphs that sit on ONE
+    // side of the line (the obstacle peak, the concertina loop) are placed from
+    // the local bearing, so flipping the spine flips which side they face. That
+    // is the doctrinal question of which way an obstacle points.
+    if (selectedFeatures.length === 1 && currentFeature?.properties?.source === 'coordination_line') {
+        const separatorFlip = document.createElement('div');
+        separatorFlip.className = 'feature-menu-separator';
+        dropdown.appendChild(separatorFlip);
+
+        const reverseLineButton = document.createElement('button');
+        reverseLineButton.className = 'feature-menu-button';
+        reverseLineButton.textContent = 'Inverter Linha';
+
+        reverseLineButton.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            await reverseCoordinationLine(currentFeature, selectionManager, uiManager);
+            closeAllFeatureDropdowns(true);
+        });
+        dropdown.appendChild(reverseLineButton);
+    }
+
     // Add merge/split options for arrow features
     const allArrows = selectedFeatures.every(f => f.properties?.source === 'arrow');
     if (allArrows) {
@@ -1049,6 +1071,52 @@ async function selectAllFeaturesOfSameStyle(selectedFeatures, selectionManager, 
 
     uiManager.updateSelectionHighlight();
     uiManager.updatePanels();
+}
+
+// ===== COORDINATION LINE UTILITIES =====
+
+/**
+ * Reverses a coordination line by inverting its spine.
+ *
+ * Separate from `reverseArrow` on purpose: the two geometries take different
+ * arguments (`generate(coords, props)` against `generate(props, zoom)`), so a
+ * shared helper would have to branch on the type anyway. This one delegates to
+ * the control, whose `updateFeaturesProperty` already regenerates the geometry
+ * and rewrites the live source for `baseCoordinates`.
+ *
+ * @param {Object} feature - Coordination line to reverse
+ * @param {Object} selectionManager - SelectionManager instance
+ * @param {Object} uiManager - UIManager instance
+ * @returns {Promise<void>} Resolves once the flip is persisted
+ */
+async function reverseCoordinationLine(feature, selectionManager, uiManager) {
+    try {
+        const control = selectionManager.controls.get('coordination_line');
+        if (!control) {
+            console.error('Coordination line control not found');
+            return;
+        }
+
+        const spine = control.geometry.normalizeBaseCoordinates(feature.properties.baseCoordinates);
+        if (!spine || spine.length < 2) {
+            console.error('Coordination line does not have enough coordinates');
+            return;
+        }
+
+        const reversed = [...spine].reverse();
+
+        // One write: the control regenerates the geometry and rewrites the source.
+        await control.updateFeaturesProperty([feature], 'baseCoordinates', reversed);
+
+        control.updateSelectionManagerFeature(feature);
+        control.createEditHandles(feature);
+        await control.saveFeatureChanges(feature);
+
+        uiManager.updateSelectionHighlight();
+        uiManager.updatePanels();
+    } catch (error) {
+        console.error('Error reversing coordination line:', error);
+    }
 }
 
 // ===== ARROW UTILITIES =====

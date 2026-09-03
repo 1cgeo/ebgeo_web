@@ -59,7 +59,11 @@ const BOUNDARY_DEPENDENT_SOURCES = ['boundary-circles', 'boundary-texts'];
  * @returns {Object|null} GeoJSON geometry, or null
  */
 function generateTargetGeometry(control, targetSource, coordinates, properties) {
-    if (targetSource === 'boundary') return control.geometry.generate(properties);
+    // Both military lines take `(properties, zoom)`; the draw tools take the
+    // spine. Dispatching on the target is what keeps the three signatures apart.
+    if (targetSource === 'boundary' || targetSource === 'coordination_line') {
+        return control.geometry.generate(properties);
+    }
     if (targetSource === 'arrow') return control.geometry.generate(coordinates, properties);
     return control.geometry.generate(coordinates);
 }
@@ -167,6 +171,12 @@ export async function convertLinearFeature(feature, targetSource, selectionManag
                 '../../military_tools/boundary_tool/boundary-zoom.model.js'
             );
             Object.assign(properties, computeBoundaryZoomSizes(properties, currentZoom));
+        } else if (targetSource === 'coordination_line') {
+            // Same reason as the boundary above, and the same shape of model.
+            const { computeCoordinationLineZoomSizes } = await import(
+                '../../military_tools/coordination_line_tool/coordination-line-zoom.model.js'
+            );
+            Object.assign(properties, computeCoordinationLineZoomSizes(properties, currentZoom));
         }
 
         // Each type enforces its own minimum vertex spacing (line 1 m,
