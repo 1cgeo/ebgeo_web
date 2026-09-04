@@ -41,8 +41,14 @@ vi.mock('@layers/geojson-dispatcher.js', () => ({
     getGeoJsonDispatcher: vi.fn(() => dispatcher),
     destroyGeoJsonDispatcher: vi.fn(),
 }));
+// O perfil le o terreno pelo AMOSTRADOR (createTerrainSampler), construido uma vez por
+// calculo, com `elevation` sincrona. O duplo mantem o mesmo terreno deterministico.
 vi.mock('@js/terrain', () => ({
-    getTerrainElevation: vi.fn(async (_map, [lng, lat]) => 100 + ((lng * 37 + lat * 91) % 50)),
+    createTerrainSampler: vi.fn(() => ({
+        elevation: ([lng, lat]) => 100 + ((lng * 37 + lat * 91) % 50),
+        fast: true,
+        zoom: 12,
+    })),
 }));
 vi.mock('@utils/turf-loader.js', () => ({ ensureTurf: vi.fn(async () => {}) }));
 

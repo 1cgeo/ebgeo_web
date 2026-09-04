@@ -35,9 +35,17 @@ vi.mock('@tools', async () => {
     };
 });
 
-vi.mock('@js/terrain', () => ({ getTerrainElevation: vi.fn() }));
+// O terreno entra pelo AMOSTRADOR (createTerrainSampler), construido uma vez por calculo,
+// com `elevation` sincrona. O duplo separa a construcao da leitura porque as duas contam.
+vi.mock('@js/terrain', () => {
+    const elevation = vi.fn(() => 0);
+    return {
+        createTerrainSampler: vi.fn(() => ({ elevation, fast: true, zoom: 12 })),
+        __elevation: elevation,
+    };
+});
 
-const { getTerrainElevation } = await import('@js/terrain');
+const { createTerrainSampler, __elevation: amostraElevacao } = await import('@js/terrain');
 const { default: AddVisibilityGeometry } = await import(
     '../../src/js/analysis_tools/visibility_tool/add_visibility_geometry.js'
 );
@@ -48,12 +56,14 @@ const geom = new AddVisibilityGeometry();
 const UM_FIO_A_OESTE_DO_NORTE = [-1e-16, 1];
 
 beforeEach(() => {
-    vi.mocked(getTerrainElevation).mockResolvedValue(0);
+    vi.mocked(amostraElevacao).mockReturnValue(0);
     globalThis.turf = { distance: () => 100 };
 });
 
 afterEach(() => {
-    vi.mocked(getTerrainElevation).mockReset();
+    vi.mocked(amostraElevacao).mockReset();
+    vi.mocked(amostraElevacao).mockReturnValue(0);
+    vi.mocked(createTerrainSampler).mockClear();
     delete globalThis.turf;
 });
 

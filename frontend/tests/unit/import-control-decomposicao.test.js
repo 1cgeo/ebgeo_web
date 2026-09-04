@@ -52,7 +52,7 @@ vi.mock('@utils/id_utils.js', () => ({
     IDUtils: { generateFeatureIds: () => ({ id: 'fid', geoJsonId: 1 }) },
 }));
 vi.mock('@utils/toast_service.js', () => ({ showSuccess: vi.fn(), showError: vi.fn() }));
-vi.mock('@js/terrain', () => ({ getTerrainElevation: vi.fn(async () => 0) }));
+vi.mock('@js/terrain', () => ({ createTerrainSampler: vi.fn(() => ({ elevation: () => 0, fast: true, zoom: 12 })) }));
 vi.mock('@events', () => ({ EventTypes: { LAYERS_CHANGED: 'layers:changed' } }));
 vi.mock('@layers/geojson-dispatcher.js', () => ({ getGeoJsonDispatcher: vi.fn(() => ({ add: vi.fn() })) }));
 vi.mock('@js/user_data', () => ({

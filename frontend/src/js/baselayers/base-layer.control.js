@@ -29,6 +29,7 @@ import config from '../config.js';
 import { resolveBasemapStyle, firstStyledBasemap } from './basemap-style.js';
 import { faixaDeZoom, aplicarFaixaDeZoom } from './basemap-zoom.js';
 import { baseStyleAlreadyOnMap, collectStyleIds, mergeApplicationStyle } from './style-transform.js';
+import { applyTileLodParams } from '../map/tile-lod.js';
 // DO ARQUIVO, e não do barrel `@js/terrain`: o barrel arrasta os dois gerentes de camada, e
 // este controle é do caminho de boot do mapa.
 import { getLayerFailureNotice } from '../terrain/layer-failure-notice.js';
@@ -368,6 +369,14 @@ class BaseLayerControl {
             // fatal: the style is either already correct or MapLibre finishes
             // applying it on its own.
             await styleLoadPromise.catch((error) => console.warn(`[base-layer] ${error.message}`));
+
+            // O `calculateTileZoom` é estado por OBJETO de source, e o mapa base que acabou
+            // de entrar traz sources NOVAS, que nascem com o padrão do MapLibre. Antes do
+            // `transformStyle` o estilo inteiro era remontado e as 74 perdiam o parâmetro
+            // juntas; hoje só as da base nova, e esta linha é o que fecha os dois casos.
+            // Fica DENTRO do `if`: quando o portão decide "já está no mapa" não houve
+            // `setStyle`, logo não houve source nova.
+            applyTileLodParams(this.map, config.map2d.sourceTileLodParams);
 
             // Reapply globe projection after style change (setStyle resets projection)
             // Skip if terrain is active — globe + terrain is incompatible (MapLibre #4792)

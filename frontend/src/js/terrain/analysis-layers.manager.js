@@ -355,7 +355,16 @@ class AnalysisLayersManager {
 
         try {
             if (!this.map.getSource(sourceId)) {
-                this.map.addSource(sourceId, layerConfig.source);
+                // A CAIXA VALIDADA CHEGA À FONTE. `_validateLayersConfig` já exige um
+                // `bounds` bem formado para a camada existir, e ele era usado só no
+                // `fitBounds`: a fonte subia sem caixa, e uma fonte sem caixa é pedida em
+                // TODA posição da tela, cobertura ou não, com cada furo custando uma
+                // requisição mais um evento de erro. A da PRÓPRIA fonte vence, porque uma
+                // fonte servida por TileJSON traz a caixa do servidor, que é a verdadeira.
+                const source = layerConfig.source?.bounds || !layerConfig.bounds
+                    ? layerConfig.source
+                    : { ...layerConfig.source, bounds: layerConfig.bounds };
+                this.map.addSource(sourceId, source);
             }
 
             if (!this.map.getLayer(layerId)) {

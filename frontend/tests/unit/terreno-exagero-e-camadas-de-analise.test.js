@@ -7,13 +7,27 @@
  *
  * O QUE ESTA SUITE PRENDE:
  *
- *  1. `getTerrainElevation`, que e a unica aritmetica do arquivo: o terreno ausente devolve 0 sem
- *     consultar nada, a altitude e medida CONTRA um ponto fixo em [0,0] (e nao contra o zero
- *     absoluto), e o resultado e dividido pelo exagero para desfazer o esticamento visual.
- *  2. O DESACORDO INTERNO DO ARQUIVO sobre o exagero ZERO, medido nas duas pontas: o controle
- *     ACEITA e propaga `exaggeration: 0` (`initExaggeration`/`setExaggeration` nao clampam), e
- *     `getTerrainElevation` o LE COMO 1.5, por `terrain.exaggeration || 1.5`. As duas metades
- *     estao no mesmo arquivo e discordam.
+ *  1. `getTerrainElevation`, reescrita em 2026-09-04 e hoje morando em
+ *     `terrain/terrain-elevation.js` (o controle a REEXPORTA, e e por esse caminho historico que
+ *     esta suite a alcanca): o terreno ausente devolve 0 sem consultar nada, a consulta e UMA por
+ *     amostra, e o resultado e dividido pelo exagero para desfazer o esticamento visual.
+ *
+ *     O QUE MUDOU E POR QUE. Ate aqui a funcao consultava DUAS vezes, a amostra e um ponto fixo em
+ *     [0, 0], e subtraia a segunda da primeira. Lido no bundle vendorizado, o valor que o MapLibre
+ *     5.18 devolve e `getDEMElevation(...) * exaggeration`, sem termo de camera: nao ha
+ *     deslocamento a cancelar, entao a subtracao so tirava a altitude do ponto de referencia da
+ *     altitude pedida. Onde o DEM cobre [0, 0] (oceano, altitude 0) a conta acertava por acidente;
+ *     onde nao cobre, `queryTerrainElevation` devolve 0 e o acidente vira acerto de novo. O preco
+ *     era o dobro das consultas em toda leitura de terreno do aplicativo, cada uma com uma
+ *     travessia inteira de `coveringTiles`. O argumento `options` some junto, e por motivo
+ *     independente: `Map.queryTerrainElevation(e)` do bundle repassa so a coordenada, entao o
+ *     `{ exaggerated: false }` que este arquivo mandava nunca teve leitor.
+ *  2. O EXAGERO ZERO e o exagero AUSENTE, medidos nas duas pontas: o controle ACEITA e propaga
+ *     `exaggeration: 0` (`initExaggeration`/`setExaggeration` nao clampam), e a leitura responde 0
+ *     para a cena achatada em vez de dividir por um padrao. O divisor do exagero ausente e 1, e
+ *     nao o `DEFAULT_TERRAIN_EXAGGERATION` de 1.5 da aplicacao, porque quem divide tem de espelhar
+ *     o que o MAPA aplicou, e o construtor de `Terrain` do bundle escreve
+ *     `this.exaggeration = typeof options.exaggeration === 'number' ? options.exaggeration : 1`.
  *  3. `setExaggeration` contra `initExaggeration`: so a primeira toca o mapa, e so quando ja ha
  *     terreno ligado. E o que faz o valor restaurado no boot nao acender o terreno sozinho.
  *  4. `_validateLayersConfig`, que PODA a config compartilhada em vez de abortar o boot: bounds
@@ -55,87 +69,142 @@ function terrainMap(exaggeration, elevationAt) {
     return {
         queried,
         getTerrain: () => (exaggeration === null ? null : { exaggeration }),
-        queryTerrainElevation: async (coord, options) => {
+        queryTerrainElevation: (coord, options) => {
             queried.push([coord, options]);
             return elevationAt(coord);
         },
     };
 }
 
-/** Elevation function: `alto` everywhere except the [0,0] reference point. */
+/**
+ * Elevation function: `alto` everywhere except at [0, 0].
+ *
+ * O ponto fixo deixou de ser consultado, e este duplo continua distinguindo os dois valores
+ * DE PROPOSITO: e ele que reprova um retorno do ponto de referencia, porque uma leitura que
+ * voltasse a subtrair [0, 0] devolveria a diferenca em vez de `alhures`.
+ */
 const referencia = (noZero, alhures) => (coord) => {
     const [lng, lat] = Array.isArray(coord) ? coord : [coord.lng, coord.lat];
     return lng === 0 && lat === 0 ? noZero : alhures;
 };
 
-describe('1. getTerrainElevation: a altitude e relativa ao ponto fixo [0,0]', () => {
-    it('sem terreno ligado devolve 0 e NAO consulta elevacao nenhuma', async () => {
+describe('1. getTerrainElevation: UMA consulta por amostra, sem ponto fixo', () => {
+    it('sem terreno ligado devolve 0 e NAO consulta elevacao nenhuma', () => {
         const m = terrainMap(null, () => 500);
-        expect(await getTerrainElevation(m, [10, 10])).toBe(0);
+        expect(getTerrainElevation(m, [10, 10])).toBe(0);
         expect(m.queried).toHaveLength(0);
     });
 
-    it('a diferenca contra [0,0] e dividida pelo exagero', async () => {
-        // (100 - 20) / 2 = 40
-        expect(await getTerrainElevation(terrainMap(2, referencia(20, 100)), [10, 10])).toBe(40);
+    it('a elevacao lida e dividida pelo exagero, sem descontar ponto nenhum', () => {
+        // 100 / 2 = 50. Com a subtracao do ponto fixo dava (100 - 20) / 2 = 40, e os 20 m do
+        // outro lado do planeta nao tinham por que entrar nesta conta.
+        expect(getTerrainElevation(terrainMap(2, referencia(20, 100)), [10, 10])).toBe(50);
     });
 
-    it('o ponto de referencia consultado e literalmente [0, 0], e a consulta e feita DUAS vezes', async () => {
+    it('a consulta e UMA so, e e a da coordenada pedida', () => {
         const m = terrainMap(1, referencia(0, 30));
-        await getTerrainElevation(m, [10, 10]);
-        expect(m.queried).toHaveLength(2);
-        expect(m.queried[0][0]).toEqual([0, 0]);
-        expect(m.queried[1][0]).toEqual([10, 10]);
+        getTerrainElevation(m, [10, 10]);
+        expect(m.queried).toHaveLength(1);
+        expect(m.queried[0][0]).toEqual([10, 10]);
     });
 
-    it('as opcoes recebidas viajam para as DUAS consultas, e o padrao e exagerado:false', async () => {
+    it('a consulta viaja SEM opcoes: o segundo argumento do MapLibre nao existe', () => {
+        // `Map.queryTerrainElevation(e)` do bundle repassa so a coordenada. Mandar um objeto
+        // de opcoes era escrita para ninguem ler, e o `{ exaggerated: false }` que morava aqui
+        // sugeria um controle que nunca houve.
         const m = terrainMap(1, referencia(0, 10));
-        await getTerrainElevation(m, [1, 1], { exaggerated: true });
-        expect(m.queried.map(([, o]) => o)).toEqual([{ exaggerated: true }, { exaggerated: true }]);
-        const m2 = terrainMap(1, referencia(0, 10));
-        await getTerrainElevation(m2, [1, 1]);
-        expect(m2.queried[0][1]).toEqual({ exaggerated: false });
+        getTerrainElevation(m, [1, 1]);
+        expect(m.queried[0][1]).toBeUndefined();
     });
 
-    it('elevacao ABAIXO da referencia devolve altitude negativa (o sinal e preservado)', async () => {
-        expect(await getTerrainElevation(terrainMap(1, referencia(100, -50)), [1, 1])).toBe(-150);
+    it('elevacao NEGATIVA e devolvida como negativa (o sinal e preservado)', () => {
+        expect(getTerrainElevation(terrainMap(1, referencia(100, -50)), [1, 1])).toBe(-50);
     });
 
-    it('BORDA: consulta que devolve null/undefined/NaN vira 0, e nao NaN propagado', async () => {
+    it('BORDA: consulta que devolve null/undefined/NaN vira 0, e nao NaN propagado', () => {
         for (const vazio of [null, undefined, NaN]) {
-            const r = await getTerrainElevation(terrainMap(1, () => vazio), [1, 1]);
+            const r = getTerrainElevation(terrainMap(1, () => vazio), [1, 1]);
             expect(r).toBe(0);
             expect(Number.isNaN(r)).toBe(false);
         }
     });
 
-    it('BORDA: exagero ausente cai no padrao 1.5 do proprio operador `||`', async () => {
-        // 30 / 1.5 = 20
-        expect(await getTerrainElevation(terrainMap(undefined, referencia(0, 30)), [1, 1])).toBe(20);
+    it('BORDA: exagero ausente divide por 1, que e o que o MAPA aplicou, e nao por 1.5', () => {
+        // O padrao do MapLibre e 1 (`typeof options.exaggeration === 'number' ? ... : 1`); o
+        // 1.5 e o padrao com que a APLICACAO liga o terreno, e dividir por ele um valor que o
+        // mapa nunca esticou inventava uma altitude 33% menor.
+        expect(getTerrainElevation(terrainMap(undefined, referencia(0, 30)), [1, 1])).toBe(30);
+        // CONTROLE: o padrao da aplicacao continua sendo 1.5, e continua sendo o que o controle
+        // manda para o mapa. As duas coisas convivem, e a divisao segue a do mapa.
         expect(DEFAULT_TERRAIN_EXAGGERATION).toBe(1.5);
+        expect(getTerrainElevation(terrainMap(1.5, referencia(0, 30)), [1, 1])).toBe(20);
     });
 
-    it('BORDA: coordenada em objeto {lng,lat} tambem e aceita', async () => {
-        expect(await getTerrainElevation(terrainMap(1, referencia(0, 42)), { lng: 5, lat: 5 })).toBe(42);
+    it('BORDA: coordenada em objeto {lng,lat} tambem e aceita', () => {
+        expect(getTerrainElevation(terrainMap(1, referencia(0, 42)), { lng: 5, lat: 5 })).toBe(42);
+    });
+
+    it('a assinatura segue AGUARDAVEL, porque uma duzia de chamadores a trata como promessa', async () => {
+        expect(await getTerrainElevation(terrainMap(2, referencia(20, 100)), [10, 10])).toBe(50);
     });
 });
 
-describe('2. o desacordo do arquivo consigo mesmo sobre o exagero ZERO', () => {
-    it('CONSERTADO: `exaggeration: 0` nao e mais lido como 1.5, e nao vira Infinity', async () => {
-        // Uma diferenca real de 80 m saia como 53.33, que nao era nem a altitude verdadeira nem um
-        // erro: era a altitude dividida pelo exagero PADRAO, silenciosamente, porque 0 e falsy.
-        // Com a cena achatada nao ha o que desexagerar, entao a resposta honesta e 0.
-        const r = await getTerrainElevation(terrainMap(0, referencia(20, 100)), [1, 1]);
+/**
+ * Map double that OBEYS the physics the bundle implements: what the terrain returns is
+ * `DEM * exaggeration` (`getElevation(...) { return this.getDEMElevation(...) * this.exaggeration }`).
+ *
+ * O `terrainMap` acima e o duplo de LEITURA: ele devolve o que se manda, e por isso mede o que a
+ * funcao faz com um numero. Este mede a VOLTA INTEIRA, e e o unico que pode dizer se a divisao
+ * devolve o relevo de verdade. Foi ele quem pegou o unico caso em que os dois discordam: com
+ * exagero 0 o duplo de leitura pode devolver 100, e o mapa de verdade NAO pode.
+ * @param {number|undefined} exaggeration - exagero declarado no terreno
+ * @param {(coord: *) => number} demAt - o DEM cru, em metros
+ * @returns {Object} duplo de mapa
+ */
+function mapaFisico(exaggeration, demAt) {
+    const aplicado = typeof exaggeration === 'number' ? exaggeration : 1;
+    return {
+        getTerrain: () => ({ exaggeration }),
+        queryTerrainElevation: (coord) => demAt(coord) * aplicado,
+    };
+}
+
+describe('2. o exagero ZERO e o exagero ausente', () => {
+    it('CONSERTADO: `exaggeration: 0` nao e mais lido como 1.5, e nao vira Infinity', () => {
+        // Uma altitude real de 100 m saia como 66.67, que nao era nem a altitude verdadeira nem um
+        // erro: era a leitura dividida pelo exagero PADRAO, silenciosamente, porque 0 e falsy.
+        // Com a cena achatada a leitura ja e 0, e nao ha o que desexagerar.
+        const r = getTerrainElevation(mapaFisico(0, () => 100), [1, 1]);
         expect(r).toBe(0);
         expect(Number.isFinite(r)).toBe(true);
-        // CONTROLE: qualquer exagero finito e respeitado, o que prova que a asserção acima mede o
-        // zero e nao um clamp geral.
-        expect(await getTerrainElevation(terrainMap(4, referencia(20, 100)), [1, 1])).toBe(20);
-        expect(await getTerrainElevation(terrainMap(0.5, referencia(20, 100)), [1, 1])).toBe(160);
+        // CONTROLE: com exagero finito e positivo a volta inteira devolve o DEM de verdade, o que
+        // prova que a asserção acima mede o achatamento e nao um clamp geral.
+        expect(getTerrainElevation(mapaFisico(4, () => 100), [1, 1])).toBe(100);
+        expect(getTerrainElevation(mapaFisico(0.5, () => 100), [1, 1])).toBe(100);
+        expect(getTerrainElevation(mapaFisico(1.5, () => 100), [1, 1])).toBe(100);
     });
 
-    it('CONSERTADO: exagero NaN cai no padrao, que `?? 1.5` nao teria garantido', async () => {
-        expect(await getTerrainElevation(terrainMap(NaN, referencia(0, 30)), [1, 1])).toBe(20);
+    it('o divisor e o do MAPA: exagero ausente ja chega sem esticar, e sai inteiro', () => {
+        // O `?? 1.5` da versao antiga dividia por 1.5 um valor que o mapa nunca multiplicou, e
+        // devolvia 66.67 m para um morro de 100 m.
+        expect(getTerrainElevation(mapaFisico(undefined, () => 100), [1, 1])).toBe(100);
+    });
+
+    it('BORDA: o duplo de leitura sozinho NAO reprovaria o exagero zero, e por isso ha dois', () => {
+        // Registro do porque o `mapaFisico` existe: aqui o mapa afirma exagero 0 e devolve 100,
+        // o que nenhum mapa faz. A funcao entao passa o valor adiante (divisor 1), e uma suite
+        // que so tivesse este duplo aprovaria qualquer divisor para o zero.
+        expect(getTerrainElevation(terrainMap(0, () => 100), [1, 1])).toBe(100);
+    });
+
+    it('CONSERTADO: exagero NaN divide por 1, que `?? 1` nao teria garantido', () => {
+        expect(getTerrainElevation(terrainMap(NaN, referencia(0, 30)), [1, 1])).toBe(30);
+    });
+
+    it('BORDA: exagero NEGATIVO tambem cai em 1, e nao inverte o sinal da altitude', () => {
+        // Nada impede o controle de aceitar -3 (o caso logo abaixo mede isso), e uma altitude de
+        // 30 m que voltasse como -10 seria pior que um erro.
+        expect(getTerrainElevation(terrainMap(-3, referencia(0, 30)), [1, 1])).toBe(30);
     });
 
     it('OBSERVADO: o controle continua ACEITANDO o zero e propagando para o mapa', () => {
@@ -355,15 +424,75 @@ describe('5. o descritor de estilo da analise, e o zero que ele engole', () => {
     });
 });
 
+describe('6. os bounds validados chegam a FONTE, e nao so ao fitBounds', () => {
+    let original;
+    beforeEach(() => { original = config.analysisLayers; });
+    afterEach(() => { config.analysisLayers = original; });
+
+    /**
+     * Adds one layer through the manager and returns the config its source received.
+     * @param {Object} camada - a linha de `config.analysisLayers.layers`
+     * @returns {Object} a config entregue a `map.addSource`
+     */
+    function fonteDe(camada) {
+        const map = mapaInerte();
+        config.analysisLayers = { enabled: true, layers: [camada] };
+        const gerente = new AnalysisLayersManager(map);
+        gerente._addAnalysisLayer(config.analysisLayers.layers[0]);
+        expect(map.fontesAdicionadas).toHaveLength(1);
+        return map.fontesAdicionadas[0].cfg;
+    }
+
+    it('a caixa da camada entra na fonte quando a fonte nao declara a dela', () => {
+        // Sem bounds, o MapLibre pede um tile para cada posicao da tela, tenha cobertura ou
+        // nao, e cada erro volta como requisicao mais evento de erro. A caixa ja era validada
+        // (secao 4) e usada no `fitBounds`, e parava ali.
+        const cfg = fonteDe({ id: 'a', bounds: [-45, -23, -44, -22], source: { type: 'raster-dem', url: 'x' } });
+        expect(cfg.bounds).toEqual([-45, -23, -44, -22]);
+        expect(cfg.type).toBe('raster-dem');
+        expect(cfg.url).toBe('x');
+    });
+
+    it('a caixa da PROPRIA fonte vence a da camada, e nao e sobrescrita', () => {
+        // Uma fonte servida por TileJSON traz os bounds do servidor, que sao os verdadeiros.
+        const cfg = fonteDe({
+            id: 'a', bounds: [-45, -23, -44, -22],
+            source: { type: 'raster-dem', url: 'x', bounds: [-50, -30, -40, -20] },
+        });
+        expect(cfg.bounds).toEqual([-50, -30, -40, -20]);
+    });
+
+    it('o objeto de config do usuario NAO e mutado: a fonte recebe uma copia', () => {
+        const camada = { id: 'a', bounds: [-45, -23, -44, -22], source: { type: 'raster-dem', url: 'x' } };
+        const cfg = fonteDe(camada);
+        expect(camada.source.bounds).toBeUndefined();
+        expect(cfg).not.toBe(camada.source);
+    });
+
+    it('BORDA: camada sem caixa passa a fonte INTOCADA, e pelo mesmo objeto', () => {
+        // A validacao da secao 4 poda a camada sem bounds antes de chegar aqui, mas o
+        // `_addAnalysisLayer` tambem e chamado direto (retentativa, troca de base).
+        const map = mapaInerte();
+        config.analysisLayers = { enabled: true, layers: [] };
+        const gerente = new AnalysisLayersManager(map);
+        const fonte = { type: 'raster-dem', url: 'x' };
+        gerente._addAnalysisLayer({ id: 'a', source: fonte });
+        expect(map.fontesAdicionadas[0].cfg).toBe(fonte);
+    });
+});
+
 /** Map double that satisfies the failure-notice registration without doing anything. */
 function mapaInerte() {
     return {
         layers: new Set(), sources: new Set(), added: [], paint: {}, layout: {},
+        fontesAdicionadas: [],
         failPaint: null,
         on() {}, off() {},
         getLayer(id) { return this.layers.has(id) ? { id } : undefined; },
         getSource(id) { return this.sources.has(id) ? { id } : undefined; },
-        addSource(id) { this.sources.add(id); },
+        // A CONFIG da fonte fica guardada, e nao so o id: o que a fonte recebe decide de que
+        // area o MapLibre pede tile.
+        addSource(id, cfg) { this.sources.add(id); this.fontesAdicionadas.push({ id, cfg }); },
         removeSource(id) { this.sources.delete(id); },
         addLayer(l) { this.layers.add(l.id); this.added.push(l); },
         removeLayer(id) { this.layers.delete(id); },

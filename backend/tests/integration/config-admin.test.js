@@ -175,6 +175,43 @@ describe('Config — admin overrides (F4)', () => {
       .expect(422);
   });
 
+  // O LOD de tiles com a câmera inclinada (2026-09-04). A forma e os pisos estão presos em
+  // `tests/unit/config-lod-de-tiles.test.js`; o que se mede AQUI é a rota: que a recusa chega
+  // como 422 com o campo nomeado, e que o valor recusado NÃO fica gravado. A distinção importa
+  // porque `map2d` é `.unknown(true)` e o middleware roda com `stripUnknown`: antes da
+  // declaração este PUT respondia 200 e gravava o par, e um `[1, 10]` salvo pedia cerca de doze
+  // vezes os tiles do padrão a 60 graus, em todo navegador, para sempre.
+  it('o LOD de tiles inválido morre em 422 na rota, e o servido continua null', async () => {
+    const resposta = await supertest(app)
+      .put('/api/v1/config/admin')
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ map2d: { sourceTileLodParams: [1, 10.0] } })
+      .expect(422);
+    assert.match(JSON.stringify(resposta.body), /sourceTileLodParams/);
+
+    const cfg = await supertest(app).get('/api/v1/config').expect(200);
+    assert.equal(cfg.body.data.map2d.sourceTileLodParams, null);
+  });
+
+  it('o LOD de tiles VÁLIDO é gravado e chega ao cliente, e `null` volta atrás', async () => {
+    // CONTROLE POSITIVO da recusa acima: sem ele, uma borda que recusasse TUDO passaria.
+    await supertest(app)
+      .put('/api/v1/config/admin')
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ map2d: { sourceTileLodParams: [5, 6.0] } })
+      .expect(200);
+    let cfg = await supertest(app).get('/api/v1/config').expect(200);
+    assert.deepEqual(cfg.body.data.map2d.sourceTileLodParams, [5, 6.0]);
+
+    await supertest(app)
+      .put('/api/v1/config/admin')
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ map2d: { sourceTileLodParams: null } })
+      .expect(200);
+    cfg = await supertest(app).get('/api/v1/config').expect(200);
+    assert.equal(cfg.body.data.map2d.sourceTileLodParams, null);
+  });
+
   // Item 16 (testes-backend.md) — the gate on the DESTRUCTIVE verb.
   //
   // The first test of this file checks 403 for GET and PUT and was treated as if it

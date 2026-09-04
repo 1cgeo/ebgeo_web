@@ -7,7 +7,7 @@
  * @module draw_tools/line_tool/line_profile
  */
 
-import { getTerrainElevation } from '../../terrain';
+import { createTerrainSampler } from '../../terrain';
 import { ensureTurf } from '@utils/turf-loader.js';
 
 // ============================================================================
@@ -47,11 +47,15 @@ export async function calculateProfile(map, coordinates) {
     const stepLength = length / PROFILE_STEPS;
 
     const profileData = [];
+    // Um amostrador por perfil: o zoom de consulta se resolve UMA vez, e as 26 amostras
+    // seguintes viram leitura direta de pixel de DEM, sem a travessia de `coveringTiles`
+    // que a API publica faz por chamada.
+    const sampler = createTerrainSampler(map);
 
     // Sample elevation at each step along the line
     for (let i = 0; i <= PROFILE_STEPS; i++) {
         const point = turf.along(line, i * stepLength, { units: 'meters' });
-        const elevation = await getTerrainElevation(map, point.geometry.coordinates);
+        const elevation = sampler.elevation(point.geometry.coordinates);
 
         profileData.push({
             distance: i * stepLength,

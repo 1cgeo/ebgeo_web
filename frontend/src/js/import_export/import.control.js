@@ -5,7 +5,7 @@ import shp from 'shpjs';
 import { addFeatures, createLayerForImport, getLayers, getCurrentMapNameSync, getEventBus } from '@store';
 import { IDUtils } from '@utils/id_utils.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
-import { getTerrainElevation } from '@js/terrain';
+import { createTerrainSampler } from '@js/terrain';
 import { EventTypes } from '@events';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { userDataManager } from '@js/user_data';
@@ -68,9 +68,12 @@ export function prepareProgressStep(total) {
  * therefore recomputed before it was ever shown.
  *
  * The cost it was paying is per line and not per import: 26 `turf.along` plus 26 terrain
- * queries (two `queryTerrainElevation` each), and about 1.6 kB of JSON written to IndexedDB
- * and pushed through sync. Measured on a synthetic 2000-line file, that is 52k `turf.along`
- * calls, 104k terrain queries and 3.2 MB of dead payload.
+ * queries, and about 1.6 kB of JSON written to IndexedDB and pushed through sync. Measured
+ * on a synthetic 2000-line file, that is 52k `turf.along` calls, 52k terrain queries and
+ * 3.2 MB of dead payload. The figure was 104k queries when this was written, because each
+ * sample queried TWICE (a fixed reference point at [0, 0] that cancelled an offset MapLibre
+ * 5.18 does not apply); `terrain/terrain-elevation.js` ended the double query on
+ * 2026-09-04, and the batch sampler below made each of the 26 a single DEM read.
  *
  * It reads the flag rather than answering a constant `false` so that a line control whose
  * defaults ever ship `profile: true` keeps getting a profile at import time without anyone
@@ -614,10 +617,13 @@ class AddImportControl {
             const stepLength = length / steps;
 
             const profileData = [];
+            // Um amostrador por linha importada, e nao um por amostra: o zoom de consulta
+            // se resolve uma vez so para as 26.
+            const sampler = createTerrainSampler(this.map);
 
             for (let i = 0; i <= steps; i++) {
                 const point = turf.along(line, i * stepLength, { units: 'meters' });
-                const elevation = await getTerrainElevation(this.map, point.geometry.coordinates);
+                const elevation = sampler.elevation(point.geometry.coordinates);
                 profileData.push({
                     distance: i * stepLength,
                     elevation: elevation

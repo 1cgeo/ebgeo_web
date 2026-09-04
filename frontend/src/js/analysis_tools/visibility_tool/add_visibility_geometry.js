@@ -1,7 +1,7 @@
 // Path: js/analysis_tools/visibility_tool/add_visibility_geometry.js
 
 import { BaseGeometry } from '@tools';
-import { getTerrainElevation } from '@js/terrain';
+import { createTerrainSampler } from '@js/terrain';
 
 /**
  * Visibility Geometry Operations
@@ -304,10 +304,13 @@ class AddVisibilityGeometry extends BaseGeometry {
 
         if (progressCallback) {
             progressCallback(5, 'Obtendo elevação do observador...');
-            await this.delay(50);
+            await this.nextPaint();
         }
 
-        const observerElev = await getTerrainElevation(map, center) + observerHeight;
+        // One sampler for the whole viewshed: thousands of samples share one lookup
+        // zoom, so each one is a DEM pixel read and not a coveringTiles traversal.
+        const sampler = createTerrainSampler(map);
+        const observerElev = sampler.elevation(center) + observerHeight;
         const startAngle = bearing - aperture / 2;
         const numRays = Math.ceil(aperture / ANGULAR_STEP);
         const numPointsPerRay = Math.ceil(radius / distanceStep);
@@ -317,7 +320,7 @@ class AddVisibilityGeometry extends BaseGeometry {
 
         if (progressCallback) {
             progressCallback(10, 'Iniciando análise do terreno...');
-            await this.delay(50);
+            await this.nextPaint();
         }
 
         for (let rayIdx = 0; rayIdx <= numRays; rayIdx++) {
@@ -327,7 +330,7 @@ class AddVisibilityGeometry extends BaseGeometry {
             for (let ptIdx = 1; ptIdx <= numPointsPerRay; ptIdx++) {
                 const dist = ptIdx * distanceStep;
                 const coord = this.pointAtBearing(center, dist, angle);
-                const elev = await this.getCachedElevation(map, coord, elevationCache);
+                const elev = this.getCachedElevation(sampler, coord, elevationCache);
                 rayElevations.push({ dist, terrainElev: elev });
             }
 
@@ -355,16 +358,21 @@ class AddVisibilityGeometry extends BaseGeometry {
 
             resultGrid.push(rayResult);
 
-            if (rayIdx % 5 === 0 && progressCallback) {
-                const pct = 10 + 60 * (rayIdx / numRays);
-                progressCallback(pct, `Processando raio ${rayIdx + 1}/${numRays + 1}...`);
-                await this.delay(0);
+            // A cessão da thread é INCONDICIONAL: o caminho de colar chama esta varredura
+            // sem callback de progresso, e por isso corria os raios todos num bloco só,
+            // travando a página. Quem tem callback continua vendo o texto mudar.
+            if (rayIdx % 5 === 0) {
+                if (progressCallback) {
+                    const pct = 10 + 60 * (rayIdx / numRays);
+                    progressCallback(pct, `Processando raio ${rayIdx + 1}/${numRays + 1}...`);
+                }
+                await this.nextPaint();
             }
         }
 
         if (progressCallback) {
             progressCallback(72, 'Gerando células...');
-            await this.delay(50);
+            await this.nextPaint();
         }
 
         const cells = this.generateWedgeCells(
@@ -373,7 +381,7 @@ class AddVisibilityGeometry extends BaseGeometry {
 
         if (progressCallback) {
             progressCallback(78, 'Otimizando geometrias...');
-            await this.delay(50);
+            await this.nextPaint();
         }
 
         const optimizedCells = this.dissolveVisibilityCells(cells);
@@ -383,15 +391,15 @@ class AddVisibilityGeometry extends BaseGeometry {
 
     /**
      * Get terrain elevation with per-session cache.
-     * @param {Object} map - MapLibre map instance
+     * @param {{ elevation: function(Array): number }} sampler - Terrain sampler built once per calculation
      * @param {Array} coord - [lng, lat]
      * @param {Map} cache - Elevation cache
-     * @returns {Promise<number>} Elevation in meters
+     * @returns {number} Elevation in meters
      */
-    async getCachedElevation(map, coord, cache) {
+    getCachedElevation(sampler, coord, cache) {
         const key = `${coord[0].toFixed(5)},${coord[1].toFixed(5)}`;
         if (cache.has(key)) return cache.get(key);
-        const elev = await getTerrainElevation(map, coord);
+        const elev = sampler.elevation(coord);
         cache.set(key, elev);
         return elev;
     }
@@ -796,6 +804,17 @@ class AddVisibilityGeometry extends BaseGeometry {
      */
     delay(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /**
+     * Yields until the browser has painted a frame, so a progress modal can show
+     * its new text. Replaces fixed 50 ms waits: one frame is enough for the paint,
+     * and outside a browser (tests) it degrades to a macrotask hop.
+     * @returns {Promise<void>}
+     */
+    nextPaint() {
+        if (typeof requestAnimationFrame !== 'function') return this.delay(0);
+        return new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
     }
 }
 

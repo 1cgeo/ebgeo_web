@@ -24,7 +24,7 @@
  *
  * WHAT IT DOES NOT REACH
  * - Anything in `add_visibility_control.js` (MapLibre, store, modals).
- * - The real `getTerrainElevation`: it is mocked, so terrain querying, the DEM
+ * - The real terrain sampler: it is mocked, so terrain querying, the DEM
  *   round trip and the map wiring are out of scope. Only the classification math
  *   built on top of it is measured here.
  * - The real turf: only the methods the module calls are stubbed, so this suite
@@ -53,9 +53,21 @@ vi.mock('@tools', async () => {
     };
 });
 
-vi.mock('@js/terrain', () => ({ getTerrainElevation: vi.fn() }));
+// O terreno entra pelo AMOSTRADOR, construido UMA vez por calculo: ele resolve o zoom
+// de consulta da camera e devolve `elevation`, sincrona. O duplo separa a construcao
+// da leitura porque as duas sao medidas aqui.
+vi.mock('@js/terrain', () => {
+    const elevation = vi.fn(() => 0);
+    return {
+        createTerrainSampler: vi.fn(() => ({ elevation, fast: true, zoom: 12 })),
+        __elevation: elevation,
+    };
+});
 
-const { getTerrainElevation } = await import('@js/terrain');
+const { createTerrainSampler, __elevation: amostraElevacao } = await import('@js/terrain');
+
+/** Amostrador falso com a mesma forma do de verdade, para os casos que o recebem direto. */
+const amostrador = () => ({ elevation: amostraElevacao, fast: true, zoom: 12 });
 const { default: AddVisibilityGeometry } = await import(
     '../../src/js/analysis_tools/visibility_tool/add_visibility_geometry.js'
 );
@@ -75,7 +87,9 @@ beforeEach(() => {
 afterEach(() => {
     errSpy.mockRestore();
     warnSpy.mockRestore();
-    vi.mocked(getTerrainElevation).mockReset();
+    vi.mocked(amostraElevacao).mockReset();
+    vi.mocked(amostraElevacao).mockReturnValue(0);
+    vi.mocked(createTerrainSampler).mockClear();
 });
 
 // ============================================================================
@@ -899,32 +913,32 @@ describe('AddVisibilityGeometry.getBoundingBox / isTerrainAvailable', () => {
 
 describe('AddVisibilityGeometry.getCachedElevation', () => {
     it('consulta o terreno uma vez e serve o cache na segunda', async () => {
-        vi.mocked(getTerrainElevation).mockResolvedValue(42);
+        vi.mocked(amostraElevacao).mockReturnValue(42);
         const cache = new Map();
-        expect(await geom.getCachedElevation({}, [1.23456, 2.34567], cache)).toBe(42);
-        expect(await geom.getCachedElevation({}, [1.23456, 2.34567], cache)).toBe(42);
-        expect(getTerrainElevation).toHaveBeenCalledTimes(1);
+        expect(await geom.getCachedElevation(amostrador(), [1.23456, 2.34567], cache)).toBe(42);
+        expect(await geom.getCachedElevation(amostrador(), [1.23456, 2.34567], cache)).toBe(42);
+        expect(amostraElevacao).toHaveBeenCalledTimes(1);
         expect(cache.size).toBe(1);
     });
 
     it('a chave e arredondada a 5 casas: dois pontos distintos COLIDEM', () => {
-        vi.mocked(getTerrainElevation).mockResolvedValue(7);
+        vi.mocked(amostraElevacao).mockReturnValue(7);
         const cache = new Map();
         return Promise.all([
-            geom.getCachedElevation({}, [1.234561, 0], cache),
-            geom.getCachedElevation({}, [1.234562, 0], cache),
+            geom.getCachedElevation(amostrador(), [1.234561, 0], cache),
+            geom.getCachedElevation(amostrador(), [1.234562, 0], cache),
         ]).then(() => {
             expect(cache.size).toBe(1);
         });
     });
 
     it('pontos separados por mais de 1e-5 grau NAO colidem', async () => {
-        vi.mocked(getTerrainElevation).mockResolvedValue(7);
+        vi.mocked(amostraElevacao).mockReturnValue(7);
         const cache = new Map();
-        await geom.getCachedElevation({}, [1.23456, 0], cache);
-        await geom.getCachedElevation({}, [1.23458, 0], cache);
+        await geom.getCachedElevation(amostrador(), [1.23456, 0], cache);
+        await geom.getCachedElevation(amostrador(), [1.23458, 0], cache);
         expect(cache.size).toBe(2);
-        expect(getTerrainElevation).toHaveBeenCalledTimes(2);
+        expect(amostraElevacao).toHaveBeenCalledTimes(2);
     });
 });
 
@@ -940,7 +954,7 @@ describe('AddVisibilityGeometry.calculateViewshed', () => {
      * @param {Function} perfil - (distanceMeters) => elevation
      */
     function terrenoRadial(perfil) {
-        vi.mocked(getTerrainElevation).mockImplementation(async (_map, coord) => {
+        vi.mocked(amostraElevacao).mockImplementation((coord) => {
             const dx = coord[0] * Math.cos(0) * M_PER_DEG;
             const dy = coord[1] * M_PER_DEG;
             return perfil(Math.hypot(dx, dy));
@@ -1027,8 +1041,42 @@ describe('AddVisibilityGeometry.calculateViewshed', () => {
         terrenoRadial(() => 0);
         await geom.calculateViewshed([0, 0], RAIO, 0, ABERTURA, 2, 0, {});
         // 1 observer query + 3 rays x 4 points = 13 at most; the cache can only lower it.
-        expect(vi.mocked(getTerrainElevation).mock.calls.length).toBeLessThanOrEqual(13);
-        expect(vi.mocked(getTerrainElevation).mock.calls.length).toBeGreaterThan(0);
+        expect(vi.mocked(amostraElevacao).mock.calls.length).toBeLessThanOrEqual(13);
+        expect(vi.mocked(amostraElevacao).mock.calls.length).toBeGreaterThan(0);
+    });
+
+    it('UM amostrador para a varredura inteira, e nao um por amostra', async () => {
+        // O zoom de consulta se resolve uma vez por camera; as milhares de amostras
+        // seguintes sao leitura direta de pixel de DEM. Antes cada amostra pagava a
+        // travessia de `coveringTiles`, e em dobro, por causa do ponto fixo em [0, 0].
+        terrenoRadial(() => 0);
+        await geom.calculateViewshed([0, 0], RAIO, 0, ABERTURA, 2, 0, {});
+        expect(createTerrainSampler).toHaveBeenCalledTimes(1);
+        expect(amostraElevacao.mock.calls.length).toBeGreaterThan(1);
+    });
+
+    it('a thread e cedida a cada cinco raios TAMBEM sem callback de progresso', async () => {
+        // O caminho de COLAR chama esta varredura sem callback, e era ele que corria os
+        // raios todos num bloco so. A cessao passou a ser incondicional, e o callback
+        // decide so o TEXTO, nunca se a pagina respira.
+        terrenoRadial(() => 0);
+        const espia = vi.spyOn(geom, 'nextPaint');
+        await geom.calculateViewshed([0, 0], RAIO, 0, ABERTURA, 2, 0, {});
+        // 3 raios: so o indice 0 cai no `% 5`, mais nenhuma cessao de progresso.
+        expect(espia).toHaveBeenCalledTimes(1);
+        espia.mockRestore();
+    });
+
+    it('nenhuma espera de 50 ms sobrou na varredura: a pausa e de um quadro', async () => {
+        // CONTROLE NEGATIVO DA REGUA ACIMA: se `nextPaint` voltasse a ser `delay(50)`,
+        // um viewshed com callback gastaria mais de meio segundo em espera pura. Aqui a
+        // conta e a oposta: `delay` nao e chamado nenhuma vez no caminho da varredura.
+        terrenoRadial(() => 0);
+        const espiaDelay = vi.spyOn(geom, 'delay');
+        await geom.calculateViewshed([0, 0], RAIO, 0, ABERTURA, 2, 0, {}, () => {});
+        const esperasLongas = espiaDelay.mock.calls.filter(([ms]) => ms > 0);
+        expect(esperasLongas).toHaveLength(0);
+        espiaDelay.mockRestore();
     });
 
     it('o progressCallback e chamado em ordem crescente e termina em 78', async () => {
@@ -1057,7 +1105,7 @@ describe('AddVisibilityGeometry.createVisibilityFeature', () => {
     afterAll(() => { delete globalThis.turf; });
 
     it('cellData e as coordenadas nascem ALINHADOS, que e o que generateProcessedFeatures exige', async () => {
-        vi.mocked(getTerrainElevation).mockResolvedValue(0);
+        vi.mocked(amostraElevacao).mockReturnValue(0);
         const f = await geom.createVisibilityFeature([0, 0], [0, 0.001], { id: 'v9' }, {});
         expect(f.geometry.type).toBe('MultiPolygon');
         expect(f.properties.cellData).toHaveLength(f.geometry.coordinates.length);
@@ -1069,7 +1117,7 @@ describe('AddVisibilityGeometry.createVisibilityFeature', () => {
     });
 
     it('aplica os defaults de abertura 60, observador 2 e alvo 0', async () => {
-        vi.mocked(getTerrainElevation).mockResolvedValue(0);
+        vi.mocked(amostraElevacao).mockReturnValue(0);
         const f = await geom.createVisibilityFeature([0, 0], [0, 0.001], { id: 'v9' }, {});
         expect(f.properties.aperture).toBe(60);
         expect(f.properties.center).toEqual([0, 0]);
@@ -1078,7 +1126,7 @@ describe('AddVisibilityGeometry.createVisibilityFeature', () => {
     });
 
     it('abertura 0 explicita sobrevive ao ?? (nao vira 60)', async () => {
-        vi.mocked(getTerrainElevation).mockResolvedValue(0);
+        vi.mocked(amostraElevacao).mockReturnValue(0);
         const f = await geom.createVisibilityFeature(
             [0, 0], [0, 0.001], { id: 'v9', aperture: 0 }, {},
         );
@@ -1101,7 +1149,7 @@ describe('AddVisibilityGeometry.recalculateFromCoordinates', () => {
     });
 
     it('devolve geometria, cellData alinhado e o novo centro', async () => {
-        vi.mocked(getTerrainElevation).mockResolvedValue(0);
+        vi.mocked(amostraElevacao).mockReturnValue(0);
         const out = await geom.recalculateFromCoordinates(
             [1, 1], { properties: { radius: 100, bearing: 0, aperture: 2 } }, {},
         );

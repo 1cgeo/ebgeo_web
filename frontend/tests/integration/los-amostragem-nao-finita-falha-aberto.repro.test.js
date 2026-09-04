@@ -43,9 +43,17 @@ vi.mock('@tools', async () => {
     };
 });
 
-vi.mock('@js/terrain', () => ({ getTerrainElevation: vi.fn() }));
+// O terreno entra pelo AMOSTRADOR (createTerrainSampler), construido uma vez por calculo,
+// com `elevation` sincrona. O duplo separa a construcao da leitura porque as duas contam.
+vi.mock('@js/terrain', () => {
+    const elevation = vi.fn(() => 0);
+    return {
+        createTerrainSampler: vi.fn(() => ({ elevation, fast: true, zoom: 12 })),
+        __elevation: elevation,
+    };
+});
 
-const { getTerrainElevation } = await import('@js/terrain');
+const { createTerrainSampler, __elevation: amostraElevacao } = await import('@js/terrain');
 const { default: AddLOSGeometry } = await import(
     '../../src/js/analysis_tools/los_tool/add_los_geometry.js'
 );
@@ -97,13 +105,13 @@ function stubTurf(totalLength) {
 const montanhaDe5km = f => (f > 0.4 && f < 0.6 ? 5000 : 0);
 
 beforeEach(() => {
-    vi.mocked(getTerrainElevation).mockImplementation(
-        async (_map, coord) => montanhaDe5km(coord[0]),
-    );
+    vi.mocked(amostraElevacao).mockImplementation((coord) => montanhaDe5km(coord[0]));
 });
 
 afterEach(() => {
-    vi.mocked(getTerrainElevation).mockReset();
+    vi.mocked(amostraElevacao).mockReset();
+    vi.mocked(amostraElevacao).mockReturnValue(0);
+    vi.mocked(createTerrainSampler).mockClear();
     delete globalThis.turf;
 });
 
@@ -118,7 +126,7 @@ describe('repro: LOS com contagem de amostras nao finita falhava ABERTO', () => 
     it('CONTROLE do terreno: sem montanha, a mesma linha e toda visivel', async () => {
         // Ensures the assertions below are about the sample count and not about a sweep
         // that now reports obstruction for everything.
-        vi.mocked(getTerrainElevation).mockResolvedValue(0);
+        vi.mocked(amostraElevacao).mockReturnValue(0);
         stubTurf(1000);
         const r = await geom.calculateLOS(LINHA, {}, { samplePoints: 10 });
         expect(r.obstructed).toBeNull();
@@ -161,7 +169,7 @@ describe('repro: LOS com contagem de amostras nao finita falhava ABERTO', () => 
 
     it('a contagem finita continua sendo respeitada, o padrao NAO se impoe', async () => {
         // Guards against "fix" by hard-coding the default: 4 samples must still mean 4.
-        vi.mocked(getTerrainElevation).mockResolvedValue(0);
+        vi.mocked(amostraElevacao).mockReturnValue(0);
         const turfStub = stubTurf(1000);
         await geom.calculateLOS(LINHA, {}, { samplePoints: 4 });
         expect(turfStub.alongCalls).toEqual([250, 500, 750]);

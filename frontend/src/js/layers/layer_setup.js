@@ -20,6 +20,7 @@ import { clearAllMeasurementMarkers } from '../draw_tools/line_tool/line_measure
 import { resolveSetupMode } from './setup-mode.js';
 import { updateAllLayerFilters, invalidateFilterCache, updateMeasurementLabelVisibility } from './visibility-filter.js';
 import { applyLayerOpacities, invalidateOpacityCache } from './layer-opacity-applier.js';
+import { installEmptySourceVisibility } from './empty-source-visibility.js';
 import {
     setupPointLayers,
     setupLineLayers,
@@ -330,10 +331,10 @@ async function restoreCatalogLayers(mapInstance, analysisLayersManager, dataLaye
  * Clears all measurement labels from the map.
  */
 function clearAllMeasurements() {
-    const measurementLabels = document.querySelectorAll('.measurement-label');
     // Os marcadores primeiro, para que os ouvintes de mapa saiam com eles; a varredura do DOM
     // abaixo so alcanca rotulos criados fora do registro de marcadores.
     clearAllMeasurementMarkers();
+    const measurementLabels = document.querySelectorAll('.measurement-label');
     measurementLabels.forEach(label => {
         const parentMarker = label.closest('.maplibregl-marker');
         if (parentMarker) {
@@ -597,6 +598,12 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
             }
             if (layerVisibilityUnsub) layerVisibilityUnsub();
             layerVisibilityUnsub = setupLayerVisibilityListener(mapInstance, eventBus);
+            // MODO PRESERVADO: as coleções ficaram com as MESMAS sources, e com elas a
+            // visibilidade que a regra já tinha escrito, porque ela viaja dentro da layer
+            // serializada que o `mergeApplicationStyle` devolve. A sincronização roda assim
+            // mesmo, porque o mapa base que ENTROU traz camadas próprias, e o ouvinte precisa
+            // continuar registrado neste mapa.
+            installEmptySourceVisibility(mapInstance);
             return;
         }
 
@@ -633,6 +640,13 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
         layerVisibilityUnsub = setupLayerVisibilityListener(mapInstance, eventBus);
         updateAllLayerFilters(mapInstance);
         applyLayerOpacities(mapInstance);
+
+        // DEPOIS de toda source e toda layer estarem no mapa: esconde as camadas das sources
+        // que subiram vazias, e passa a acompanhar cada escrita daqui em diante. As
+        // reconstruções agendadas abaixo caem no mesmo ouvinte, e as escritas das dezesseis
+        // sources migradas também, porque o `updateData` do despachante dispara o mesmo
+        // `sourcedata` com `content` que o `setData` cru.
+        installEmptySourceVisibility(mapInstance);
 
         requestAnimationFrame(() => {
             clearAllMeasurements();
@@ -708,4 +722,9 @@ export function clearFeatureSources(mapInstance) {
 
 export { updateAllLayerFilters, invalidateFilterCache } from './visibility-filter.js';
 export { applyLayerOpacities, invalidateOpacityCache } from './layer-opacity-applier.js';
+export {
+    installEmptySourceVisibility,
+    syncSourceLayersVisibility,
+    syncAllSourcesVisibility,
+} from './empty-source-visibility.js';
 export { FEATURE_LAYER_IDS, HATCH_PATTERN_LAYERS, FEATURE_SOURCES } from './layer.constants.js';

@@ -30,6 +30,7 @@ import PDFExportTab from './import_export/pdf-export.tab.js';
 import { ToolManager, SelectionManager, UIManager, MoveHandler, ClipboardManager } from './tool_manager';
 import { initToolRegistry, seedControl } from './tool_manager/tool-registry.js';
 import { MapManager, DragRotateHandler } from './map';
+import { applyTileLodParams } from './map/tile-lod.js';
 import { FeaturesTab } from './features_tab';
 import { AddStreetViewControl } from './street_view_tool';
 // Static, and it costs no eager weight: the barrel above already pulls
@@ -167,7 +168,12 @@ export function createMap() {
     //   map.touchZoomRotate.disableRotation();
     // It preserves pinch-zoom; only the twist goes away.
 
-    map.setSourceTileLodParams(...config.map2d.sourceTileLodParams);
+    // VALIDADO E REAPLICADO, nunca espalhado direto. Duas coisas moravam nesta linha:
+    // o spread LANÇAVA quando o servidor não mandasse um par (e desde 2026-09-04 ele manda
+    // `null`, que é o padrão do MapLibre e o mais leve), e o parâmetro só alcançava as
+    // sources que existiam neste instante, ou seja, nenhuma das do primeiro `setStyle`.
+    // A reaplicação depois de cada troca de base está em `baselayers/base-layer.control.js`.
+    applyTileLodParams(map, config.map2d.sourceTileLodParams);
     if (config.map2d.maxBounds) {
         map.setMaxBounds(config.map2d.maxBounds);
     }

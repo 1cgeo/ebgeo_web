@@ -32,6 +32,10 @@ vi.mock('@js/analysis_tools/visibility_tool/visibility_attributes_panel.js', () 
 vi.mock('@js/analysis_tools/visibility_tool/add_visibility_geometry.js', () => ({
     default: class {
         delay() { return Promise.resolve(); }
+        // As pausas entre os passos do recálculo passaram de `delay(50)` a `nextPaint`
+        // em 2026-09-04; o duplo tem de oferecer as duas, senão um caso que chegue ao
+        // caminho de verdade morre em "nextPaint is not a function".
+        nextPaint() { return Promise.resolve(); }
         isTerrainAvailable() { return true; }
         normalizeCenter(center) { return center; }
     }

@@ -68,6 +68,22 @@ export const configOverridesSchema = Joi.object({
     maxZoom: Joi.any().forbidden(),
     maxPitch: Joi.number().min(0).max(85),
     globe_projection: Joi.boolean(),
+    // O NÍVEL DE DETALHE DOS TILES COM A CÂMERA INCLINADA (2026-09-04). Declarar não cria a
+    // capacidade, dá BORDA a ela: este objeto é `.unknown(true)`, então o editor "Avançado
+    // (JSON)" já gravava a chave sem checagem nenhuma, e um `[1, 10]` salvo ali pedia cerca
+    // de doze vezes os tiles do padrão a 60 graus de inclinação, em toda máquina, para
+    // sempre. O cliente recusa o mesmo par com aviso no console (`map/tile-lod.js`), e a
+    // recusa aqui é a que impede o valor de existir.
+    //
+    // `null` é resposta de primeira classe, e é o que `config.static.js` serve: mantém o
+    // padrão do MapLibre, `(9.314, 3)`, que é o mais leve. O piso de 2 no primeiro valor é o
+    // ponto em que a queda do zoom rumo ao horizonte para de existir.
+    //
+    // `ordered` e não `items`: as duas posições têm regras diferentes, e um par de três
+    // números não é um par. Sem `.messages()`, como as vizinhas: a tradução é do edge.
+    sourceTileLodParams: Joi.array()
+      .ordered(Joi.number().min(2).required(), Joi.number().min(1).required())
+      .allow(null),
   }).unknown(true),
   map3d: Joi.object({
     viewer: Joi.object().pattern(Joi.string(), Joi.boolean()).unknown(true),

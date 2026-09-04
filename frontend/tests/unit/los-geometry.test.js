@@ -22,7 +22,7 @@
  *
  * WHAT IT DOES NOT REACH
  * - `add_los_control.js` and `los_attributes_panel.js` (MapLibre, DOM, store).
- * - The real `getTerrainElevation` (mocked) and the real turf (stubbed with a
+ * - The real terrain sampler (mocked) and the real turf (stubbed with a
  *   deterministic 2-point linear model): this suite measures the module's logic on
  *   top of them, never their own correctness.
  * - The chart rendering of the profile, and the `processed_los` output as a NAMED
@@ -47,9 +47,19 @@ vi.mock('@tools', async () => {
     };
 });
 
-vi.mock('@js/terrain', () => ({ getTerrainElevation: vi.fn() }));
+// O terreno entra pelo AMOSTRADOR, e nao por leitura solta: `createTerrainSampler`
+// resolve o zoom de consulta UMA vez por camera e devolve `elevation`, sincrona. O
+// duplo separa as duas coisas de proposito, porque as duas sao medidas aqui: quantas
+// vezes o AMOSTRADOR e construido (uma por calculo) e quantas amostras ele serve.
+vi.mock('@js/terrain', () => {
+    const elevation = vi.fn(() => 0);
+    return {
+        createTerrainSampler: vi.fn(() => ({ elevation, fast: true, zoom: 12 })),
+        __elevation: elevation,
+    };
+});
 
-const { getTerrainElevation } = await import('@js/terrain');
+const { createTerrainSampler, __elevation: amostraElevacao } = await import('@js/terrain');
 const { default: AddLOSGeometry } = await import(
     '../../src/js/analysis_tools/los_tool/add_los_geometry.js'
 );
@@ -93,7 +103,7 @@ function stubTurf(totalLength) {
  * @param {Function} perfil - (fraction) => elevation in meters
  */
 function terrenoPorFracao(perfil) {
-    vi.mocked(getTerrainElevation).mockImplementation(async (_map, coord) => perfil(coord[0]));
+    vi.mocked(amostraElevacao).mockImplementation((coord) => perfil(coord[0]));
 }
 
 /** A straight west-to-east line whose longitude doubles as the progress fraction. */
@@ -108,7 +118,9 @@ beforeEach(() => {
 afterEach(() => {
     warnSpy.mockRestore();
     errSpy.mockRestore();
-    vi.mocked(getTerrainElevation).mockReset();
+    vi.mocked(amostraElevacao).mockReset();
+    vi.mocked(amostraElevacao).mockReturnValue(0);
+    vi.mocked(createTerrainSampler).mockClear();
     delete globalThis.turf;
 });
 
@@ -362,7 +374,20 @@ describe('AddLOSGeometry.calculateLOS', () => {
         stubTurf(1000);
         await expect(geom.calculateLOS([[0, 0]], {}))
             .rejects.toThrow('Invalid coordinates for LOS calculation');
-        expect(getTerrainElevation).not.toHaveBeenCalled();
+        expect(createTerrainSampler).not.toHaveBeenCalled();
+        expect(amostraElevacao).not.toHaveBeenCalled();
+    });
+
+    it('UM amostrador por calculo, e nao um por amostra', async () => {
+        // Isto e o conserto inteiro em uma asserção: o zoom de consulta se resolve uma
+        // vez por camera, e as 26 amostras seguintes sao leitura direta de pixel de DEM.
+        // Antes cada amostra fazia a travessia de `coveringTiles` por conta propria, e
+        // ainda por cima DUAS vezes, por causa do ponto fixo em [0, 0].
+        stubTurf(1000);
+        terrenoPorFracao(() => 0);
+        await geom.calculateLOS(LINHA, {}, { samplePoints: 25 });
+        expect(createTerrainSampler).toHaveBeenCalledTimes(1);
+        expect(amostraElevacao.mock.calls.length).toBeGreaterThan(20);
     });
 
     it('terreno plano: sem obstrucao, obstructed null e os comprimentos batem', async () => {

@@ -150,12 +150,12 @@ class DataLayersManager {
         const sourceId = `data-${layerConfig.id}`;
 
         try {
-            this._addSourceSafe(sourceId, layerConfig.source);
+            this._addSourceSafe(sourceId, this._withBounds(layerConfig.source, layerConfig.bounds));
 
             // Add label source if different from main source
             const labelSourceId = layerConfig.labelSource ? `data-${layerConfig.id}-label-source` : sourceId;
             if (layerConfig.labelSource) {
-                this._addSourceSafe(labelSourceId, layerConfig.labelSource);
+                this._addSourceSafe(labelSourceId, this._withBounds(layerConfig.labelSource, layerConfig.bounds));
             }
 
             this._registerMarkerImage(layerConfig);
@@ -423,6 +423,27 @@ class DataLayersManager {
         } catch (error) {
             console.warn(`Error setting layout ${prop} on ${layerId}:`, error);
         }
+    }
+
+    /**
+     * Source config with the layer's `bounds` applied when the source itself declares
+     * none. A vector source without bounds is asked for tiles over the whole view, and
+     * every tile outside the data's coverage is a wasted request plus an error event. The
+     * source's OWN bounds win: a TileJSON source carries the server's, which is the true
+     * one.
+     *
+     * The shape is checked here because, unlike `analysis-layers.manager.js`, this manager
+     * has no `_validateLayersConfig`: a three-number `bounds` handed to `addSource` throws
+     * and takes the whole layer down.
+     * @param {Object} sourceConfig - the layer's `source` (or `labelSource`)
+     * @param {Array<number>} [bounds] - [west, south, east, north] from the catalog row
+     * @returns {Object} the same object when there is nothing to add, a copy otherwise
+     */
+    _withBounds(sourceConfig, bounds) {
+        if (!sourceConfig || sourceConfig.bounds || !Array.isArray(bounds) || bounds.length !== 4) {
+            return sourceConfig;
+        }
+        return { ...sourceConfig, bounds };
     }
 
     /** Adds a source if it does not already exist */

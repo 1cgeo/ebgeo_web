@@ -14,10 +14,10 @@
  *
  * STRUCTURAL FAIL-SAFE DEFAULTS (NOT deploy data): `map2d` and `map3d` below carry a minimal
  * floor for ONLY the map-init-critical keys that map_sig.js / map_3d.js read WITHOUT guards
- * (e.g. the `...config.map2d.sourceTileLodParams` and `...config.map3d.viewer` spreads throw on
- * `undefined`). These are generic, non-deploy values; a partial `/api/config` deep-merges OVER
- * them so a missing key no longer crashes boot. The deploy CATALOG (basemaps, tilesets,
- * dataLayers/analysisLayers) is intentionally left empty — it comes from the backend.
+ * (e.g. the `...config.map3d.viewer` spread throws on `undefined`). These are generic,
+ * non-deploy values; a partial `/api/config` deep-merges OVER them so a missing key no longer
+ * crashes boot. The deploy CATALOG (basemaps, tilesets, dataLayers/analysisLayers) is
+ * intentionally left empty: it comes from the backend.
  */
 const config = {
   app: {},
@@ -41,7 +41,16 @@ const config = {
     maxZoom: 21,
     maxPitch: 60,
     globe_projection: true,
-    sourceTileLodParams: [5, 6.0],
+    // NÍVEL DE DETALHE DOS TILES COM A CÂMERA INCLINADA, e o piso aqui é `null` porque o
+    // servido passou a ser `null` (decisão do dono, 2026-09-04; `MAP2D_BASE` em
+    // `backend/src/modules/config/config.static.js`). É o par que as duas cópias têm de
+    // declarar igual, pelo mesmo motivo dos dois zooms acima: um boot que caísse neste piso
+    // desenharia um mapa com LOD diferente do de todo mundo.
+    //
+    // `null` significa "mantém o padrão do MapLibre", que é `(9.314, 3)` e é o mais leve.
+    // Quem lê isto é `applyTileLodParams` (`map/tile-lod.js`), que valida antes de aplicar e
+    // NÃO espalha o valor, então esta chave deixou de ser das que map_sig.js lê sem guarda.
+    sourceTileLodParams: null,
   },
   // Structural fail-safe floor — `bounds` (map_3d.js Cesium extent) + `viewer` (spread into the
   // Cesium Viewer constructor). Boolean UI flags mirror the Cesium viewer options map_3d reads.

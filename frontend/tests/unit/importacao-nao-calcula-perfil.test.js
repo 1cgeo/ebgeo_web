@@ -81,8 +81,14 @@ vi.mock('@store', () => ({
     getCurrentMapNameSync: vi.fn(() => 'Principal'),
     getEventBus: vi.fn(() => ({ emit: vi.fn() })),
 }));
+// O perfil le o terreno pelo AMOSTRADOR (createTerrainSampler), construido uma vez por
+// calculo, com `elevation` sincrona. O duplo mantem o mesmo terreno deterministico.
 vi.mock('@js/terrain', () => ({
-    getTerrainElevation: vi.fn(async (_map, [lng, lat]) => (lng * 37 + lat * 91) % 500),
+    createTerrainSampler: vi.fn(() => ({
+        elevation: ([lng, lat]) => (lng * 37 + lat * 91) % 500,
+        fast: true,
+        zoom: 12,
+    })),
 }));
 vi.mock('@js/user_data', () => ({
     userDataManager: {

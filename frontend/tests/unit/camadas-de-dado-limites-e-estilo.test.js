@@ -48,11 +48,14 @@ function mapaDuplo({ rendered = [], sourceFeatures = [] } = {}) {
     return {
         layers: new Set(), sources: new Set(), images: new Set(),
         added: [], paint: {}, layout: {}, imageOpts: null, fit: null,
-        renderedQueries: [], sourceQueries: [],
+        renderedQueries: [], sourceQueries: [], fontesAdicionadas: [],
         on() {}, off() {},
         getLayer(id) { return this.layers.has(id) ? { id } : undefined; },
         getSource(id) { return this.sources.has(id) ? { id } : undefined; },
-        addSource(id) { this.sources.add(id); },
+        // A CONFIG da fonte fica guardada, e nao so o id: o que a fonte recebe decide de
+        // que area o MapLibre pede tile, e sem isso a caixa da camada nao tem como ser
+        // medida do lado de dentro.
+        addSource(id, cfg) { this.sources.add(id); this.fontesAdicionadas.push({ id, cfg }); },
         removeSource(id) { this.sources.delete(id); },
         addLayer(l) { this.layers.add(l.id); this.added.push(l); },
         removeLayer(id) { this.layers.delete(id); },
@@ -536,5 +539,71 @@ describe('6. o marcador recusado que continua sendo referenciado', () => {
         } finally {
             delete globalThis.document;
         }
+    });
+});
+
+describe('7. a caixa da camada chega a FONTE, e nao so ao fitBounds', () => {
+    /**
+     * Adds one data layer through the manager and returns what each source received.
+     * @param {Object} camada - a linha de `config.dataLayers.layers`
+     * @returns {Array<{id: string, cfg: Object}>} fontes na ordem em que entraram
+     */
+    function fontesDe(camada) {
+        const [m, map] = comCamada(camada);
+        m.addDataLayer(camada.id);
+        return map.fontesAdicionadas;
+    }
+
+    it('a caixa da camada entra na fonte quando a fonte nao declara a dela', () => {
+        // Uma fonte vetorial sem `bounds` e pedida em toda posicao da tela, cobertura ou
+        // nao, e cada furo custa uma requisicao mais um evento de erro. A caixa vinha do
+        // catalogo (`catalog_layers.config.bounds`) e parava no `fitBounds`.
+        const [fonte] = fontesDe({
+            id: 'a', bounds: [-45, -23, -44, -22],
+            source: { type: 'vector', url: 'x' },
+        });
+        expect(fonte.cfg.bounds).toEqual([-45, -23, -44, -22]);
+        expect(fonte.cfg.type).toBe('vector');
+    });
+
+    it('a fonte de ROTULO, quando existe, recebe a mesma caixa', () => {
+        const fontes = fontesDe({
+            id: 'a', bounds: [-45, -23, -44, -22],
+            source: { type: 'vector', url: 'x' },
+            labelSource: { type: 'vector', url: 'y' },
+        });
+        expect(fontes).toHaveLength(2);
+        expect(fontes[1].cfg.bounds).toEqual([-45, -23, -44, -22]);
+        expect(fontes[1].cfg.url).toBe('y');
+    });
+
+    it('a caixa da PROPRIA fonte vence a da camada', () => {
+        const [fonte] = fontesDe({
+            id: 'a', bounds: [-45, -23, -44, -22],
+            source: { type: 'vector', url: 'x', bounds: [-50, -30, -40, -20] },
+        });
+        expect(fonte.cfg.bounds).toEqual([-50, -30, -40, -20]);
+    });
+
+    it('caixa mal formada e IGNORADA: tres numeros nao sao uma caixa', () => {
+        // O gerente de dados nao tem a validacao que o de analise tem, e uma caixa curta
+        // entregue ao MapLibre lanca no `addSource`, derrubando a camada inteira.
+        for (const ruim of [[1, 2, 3], [1, 2, 3, 4, 5], 'a,b,c,d', null, undefined]) {
+            const [fonte] = fontesDe({ id: 'a', bounds: ruim, source: { type: 'vector', url: 'x' } });
+            expect(fonte.cfg.bounds).toBeUndefined();
+        }
+    });
+
+    it('o objeto de config do usuario NAO e mutado: a fonte recebe uma copia', () => {
+        const camada = { id: 'a', bounds: [-45, -23, -44, -22], source: { type: 'vector', url: 'x' } };
+        const [fonte] = fontesDe(camada);
+        expect(camada.source.bounds).toBeUndefined();
+        expect(fonte.cfg).not.toBe(camada.source);
+    });
+
+    it('sem caixa nenhuma a fonte passa INTOCADA, e pelo mesmo objeto', () => {
+        const camada = { id: 'a', source: { type: 'vector', url: 'x' } };
+        const [fonte] = fontesDe(camada);
+        expect(fonte.cfg).toBe(camada.source);
     });
 });

@@ -7,33 +7,62 @@ import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
 import { DEFAULT_TERRAIN_EXAGGERATION } from '../store/atlas/atlas.entity.js';
 import { currentGlobeProjection } from '../store/atlas-appearance.service.js';
 
+// Elevation reads moved to a leaf module so the analysis geometry can be tested
+// against a fake map, and because they stopped querying twice per sample: the fixed
+// point at [0, 0] cancelled an offset that does not exist in MapLibre 5.18 (the
+// value is `DEM * exaggeration`, with no camera term). Re-exported here to keep the
+// historical import path, which a dozen call sites and their test doubles use.
+export { getTerrainElevation, createTerrainSampler, resolveTerrainLookupZoom } from './terrain-elevation.js';
+
 /**
- * Gets terrain elevation at given coordinates
- * @param {Object} map - MapLibre GL map instance
- * @param {Array|Object} coordinates - [lng, lat] or {lng, lat}
- * @param {Object} options - Query options
- * @returns {Promise<number>} Elevation in meters
+ * Resolves after the map has rendered one frame, which is when MapLibre applies
+ * the pending style changes (a hidden layer releases its tiles there).
+ * @param {Object} map - MapLibre map
+ * @returns {Promise<void>}
  */
-export async function getTerrainElevation(map, coordinates, options = { exaggerated: false }) {
-    const terrain = map.getTerrain();
-    if (!terrain) return 0;
+function afterNextRender(map) {
+    return new Promise((resolve) => {
+        map.once('render', () => resolve());
+        map.triggerRepaint();
+    });
+}
 
-    const fixedPoint = [0, 0];
-    const fixedPointElevation = await map.queryTerrainElevation(fixedPoint, options) || 0;
-    const sceneElevation = await map.queryTerrainElevation(coordinates, options) || 0;
-    const altitude = sceneElevation - fixedPointElevation;
-
-    // `exaggeration || 1.5` read a declared ZERO as the default, and zero IS
-    // reachable: `initExaggeration(0)` and `setExaggeration(0)` accept it and hand
-    // it to the map. Measured, a real 80 m difference came back as 53,33, which is
-    // neither the true altitude nor an error. With the scene flattened there is
-    // nothing to un-exaggerate, so the honest answer is 0, not a division by zero.
-    const exaggeration = Number.isFinite(terrain.exaggeration)
-        ? terrain.exaggeration
-        : DEFAULT_TERRAIN_EXAGGERATION;
-    if (exaggeration === 0) return 0;
-
-    return altitude / exaggeration;
+/**
+ * Changes the projection without leaving the hillshade tiles stuck.
+ *
+ * MapLibre 5.18 marks every non-raster source for reload when a layer on it
+ * changes or the projection changes, and its `raster-dem` `loadTile` only finishes
+ * a tile that has no actor yet or is `expired`: a LOADED tile put in `reloading`
+ * keeps that state for ever. Measured on 2026-09-03: after
+ * `setProjection({type:'mercator'})` with the hillshade visible, all 28 hillshade
+ * tiles stayed `reloading`, `map.loaded()` stayed false and `idle` never fired
+ * again, which is what the screenshot control waits for.
+ *
+ * The way out uses only public API and takes two frames: hide the hillshade layer,
+ * let one render release its tiles (a reload of a source with no tiles is a no-op),
+ * change the projection, and show the layer again so its tiles load fresh. Hiding
+ * and showing in the SAME frame does not work: the reload marker is processed
+ * before the tiles are released, and the tiles get stuck anyway.
+ *
+ * @param {Object} map - MapLibre map
+ * @param {{ type: string }} projection - Projection to apply
+ * @param {string} [hillshadeLayerId='hillshade']
+ * @returns {Promise<void>} Resolves once the projection is applied and the layer restored
+ */
+export async function setProjectionKeepingHillshade(map, projection, hillshadeLayerId = 'hillshade') {
+    const hasLayer = !!map.getLayer(hillshadeLayerId);
+    const wasVisible = hasLayer && map.getLayoutProperty(hillshadeLayerId, 'visibility') !== 'none';
+    if (!wasVisible) {
+        map.setProjection(projection);
+        return;
+    }
+    map.setLayoutProperty(hillshadeLayerId, 'visibility', 'none');
+    await afterNextRender(map);
+    map.setProjection(projection);
+    await afterNextRender(map);
+    if (map.getLayer(hillshadeLayerId)) {
+        map.setLayoutProperty(hillshadeLayerId, 'visibility', 'visible');
+    }
 }
 
 class TerrainControl {
@@ -102,7 +131,7 @@ class TerrainControl {
      * When activating: disables globe, enables terrain with pitch, enables hillshade.
      * When deactivating: resets pitch, restores globe.
      */
-    _toggleTerrain() {
+    async _toggleTerrain() {
         if (!this.terrainSourceConfig) {
             console.warn('Terrain configuration not available');
             return;
@@ -111,11 +140,13 @@ class TerrainControl {
         if (this._map.getTerrain()) {
             this._wasTerrainActive = false;
             this._map.setTerrain(null);
-            this._restoreGlobeProjection();
+            await this._restoreGlobeProjection();
             this._map.easeTo({ pitch: 0, duration: 500 });
         } else {
-            // Globe + terrain is a known MapLibre bug (#4792, #4927)
-            this._disableGlobeForTerrain();
+            // Globe + terrain is a known MapLibre bug (#4792, #4927). The projection
+            // change is AWAITED so the terrain never meets the globe, and because the
+            // swap now spends two frames hiding and restoring the hillshade.
+            await this._disableGlobeForTerrain();
             this._wasTerrainActive = true;
             this._map.setTerrain(this.terrainConfig);
             this._map.easeTo({ pitch: this._terrainPitch, duration: 500 });
@@ -160,23 +191,31 @@ class TerrainControl {
     async _handleBaseLayerChanged() {
         if (!this._wasTerrainActive) return;
 
-        this._disableGlobeForTerrain();
+        await this._disableGlobeForTerrain();
         await this._setupTerrainSources();
         this._map.setTerrain(this.terrainConfig);
     }
 
-    _disableGlobeForTerrain() {
+    /**
+     * Mercator for the terrain. Skips the projection call when the map is already
+     * there: the call ITSELF is what marks the DEM tiles for reload.
+     * @returns {Promise<void>}
+     */
+    async _disableGlobeForTerrain() {
         // Perguntado NA HORA, nunca guardado no construtor: a projeção passou a ser escolha do
         // atlas, e um campo lido no boot ficaria preso ao projeto que estava montado naquele
         // instante — o mesmo defeito que o handle de banco guardado no import.
-        if (currentGlobeProjection()) {
-            this._map.setProjection({ type: 'mercator' });
+        if (currentGlobeProjection() && this._map.getProjection?.()?.type !== 'mercator') {
+            await setProjectionKeepingHillshade(this._map, { type: 'mercator' });
         }
     }
 
-    _restoreGlobeProjection() {
+    /** @returns {Promise<void>} */
+    async _restoreGlobeProjection() {
         if (currentGlobeProjection()) {
-            this._map.setProjection({ type: 'globe' });
+            if (this._map.getProjection?.()?.type !== 'globe') {
+                await setProjectionKeepingHillshade(this._map, { type: 'globe' });
+            }
             this._map.setSky(undefined);
         }
     }

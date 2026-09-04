@@ -49,7 +49,25 @@ export const MAP2D_BASE = {
   maxZoom: 21,
   maxPitch: 65,
   globe_projection: true,
-  sourceTileLodParams: [5, 6.0],
+  // NÍVEL DE DETALHE DOS TILES COM A CÂMERA INCLINADA,
+  // `[maxZoomLevelsOnScreen, tileCountMaxMinRatio]`, e `null` desde 2026-09-04, por decisão
+  // do dono. `null` NÃO é omissão: significa "mantém o padrão do MapLibre", que é
+  // `(9.314, 3)` e é o mais leve dos três valores já servidos aqui.
+  //
+  // O QUE FOI MEDIDO. O primeiro número diz quão depressa o zoom dos tiles cai rumo ao
+  // horizonte, e quanto menor, mais tiles. Modelado com a inclinação de 60 graus que o botão
+  // de terreno impõe, o par `[1, 10.0]` de um deploy pedia cerca de doze vezes os tiles do
+  // padrão, e `[5, 6.0]` cerca de quatro. Na medida em Chromium, `[1, 10.0]` retinha oito
+  // vezes os tiles raster do padrão e o dobro dos de terreno. Ninguém pediu mais detalhe no
+  // horizonte, e o custo aparece justamente onde a máquina é fraca.
+  //
+  // O parâmetro também não alcança a fonte do DEM: o mesmo `calculateTileZoom` escolhe os
+  // tiles internos de render-to-texture do terreno (issue #7699 do MapLibre, aberta).
+  //
+  // Quem lê isto no cliente é `applyTileLodParams` (`frontend/src/js/map/tile-lod.js`), que
+  // valida antes de aplicar e reaplica depois de cada troca de mapa base; um primeiro valor
+  // abaixo de 2 é recusado lá com aviso, e aqui em 422, por `config.admin.schemas.js`.
+  sourceTileLodParams: null,
   hillshade: {
     enabled: false,
     name: 'Sombreamento do Relevo',
@@ -186,6 +204,15 @@ export function buildBasemapStyles(C) {
  * arrasta o pool do Postgres consigo, e a correção acima (um bug real de produção)
  * ficou sem teste de regressão justamente porque a função era privada de um módulo
  * que só se importa com banco de pé.
+ *
+ * A CAIXA DE COBERTURA (`bounds`) ENTRA POR UMA FORMA E NÃO PELA OUTRA, e a diferença é de
+ * requisições: a forma TileJSON traz os `bounds` do próprio servidor, e a de TEMPLATE não traz
+ * nada, então o MapLibre pede tile de DEM para toda posição da tela, tenha o modelo cobertura
+ * ali ou não, e cada furo custa uma requisição mais um evento de erro. Não há env para isso
+ * hoje, de propósito: quem serve por template serve por Martin, e o caminho barato é trocar a
+ * URL de `{z}/{x}/{y}` pela `tiles.json` da mesma fonte. O `bounds` continua podendo entrar
+ * pelo override do administrador, que é o que o editor "Avançado (JSON)" edita em
+ * `map2d.terrainSource`.
  *
  * @param {string} url
  * @param {number|undefined} minzoom
