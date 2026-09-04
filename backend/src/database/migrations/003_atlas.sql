@@ -250,7 +250,8 @@ CREATE TABLE features (
         'point', 'line', 'polygon', 'text', 'image',
         'circle', 'rectangle', 'ellipse', 'brush', 'sector',
         'arrow', 'boundary', 'occupied_front',
-        'military_symbol', 'coordination_measure', 'magnetic_declination',
+        'military_symbol', 'coordination_measure', 'coordination_line',
+        'magnetic_declination',
         'los', 'visibility',
         'processed_los', 'processed_visibility'
     ))

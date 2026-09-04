@@ -81,6 +81,12 @@ Os defaults de URL são placeholders DEV-only (OSM, Google, BDGEx, demotiles) e 
 - `MAP3D_TERRAIN_URL` default `''` (`config.js`): vazio faz o `config.service` publicar `enabled: false` (elipsoide plano) em vez de pedir ao Cesium um provider inalcançável.
 - `SV360_SERVICE_URL` default `/api/v1/sv360` (`config.js`), relativo, porque o 360 é módulo deste mesmo backend. O default absoluto anterior só funcionava por acidente, via proxy do Vite.
 
+**O aviso de servidor secundário é a única chave de implantação cujo default é LIGADO**, e é preciso saber disso antes de subir o principal. Esta instância (1º CGEO, Porto Alegre) é o servidor secundário; o recomendado é `ebgeo.dsg.eb.mil.br`, no 7º CTA em Brasília, com mais disponibilidade e fora dos problemas de energia e de rede daqui. `AVISO_SERVIDOR_SECUNDARIO` (default ligado) alimenta `app.avisoServidorSecundario` e `URL_SERVIDOR_PRINCIPAL` (default `https://ebgeo.dsg.eb.mil.br`) alimenta `app.urlServidorPrincipal`; com a primeira em `true` o cliente abre, a cada carga, a tela com a recomendação e o botão de saída. Quem desliga é a implantação do PRINCIPAL, e um checkout que ninguém configurou anuncia o secundário, que é o estado seguro. Três detalhes que custam uma implantação errada:
+
+- **Só o literal `true` liga**, e vazio ou ausente valem o default (também ligado). Qualquer outra coisa (`sim`, `1`, `yes`, um erro de digitação) desliga, porque o único motivo para alguém tocar nesta variável é querer o aviso fora. O parse é `resolveAvisoServidorSecundario` (`backend/src/config.js`), sem coerção por veracidade.
+- **A leitura é no BOOT.** Trocar a variável com o processo de pé não muda nada, nem derrubando o memo de `/api/config`: reinicie. É o passo que falha calado, e por isso ele está pinado em teste, não só escrito aqui.
+- **O administrador desliga sem reiniciar**, pelo override de `app` em `PUT /config/admin`, que vence sobre o env na fusão. As duas chaves são declaradas em `config.admin.schemas.js`, então um `"sim"` digitado no editor avançado morre em 422 em vez de virar string num documento que o cliente lê por `=== true`.
+
 Não existe tabela única `resources`: o catálogo tem uma tabela **por tipo**, com whitelist em `backend/src/modules/catalog/catalog.tables.js`. Ver [[resources-catalogo]].
 
 ## Stores binários e volumes

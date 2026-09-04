@@ -90,6 +90,35 @@ export function resolveAllowSelfRegistration(env, override) {
 }
 
 /**
+ * Resolves whether this deployment announces itself as the SECONDARY EBGeo server.
+ * Pure helper (testable in isolation), served as `app.avisoServidorSecundario`.
+ *
+ * THE DEFAULT IS ON, and that is a decision of the owner (2026-09-03), not a safe-looking
+ * guess: the 1 CGEO instance in Porto Alegre IS the secondary server, and a checkout is born
+ * announcing it. Only the principal deployment (URL_SERVIDOR_PRINCIPAL, at the 7 CTA in
+ * Brasilia) turns the notice off, by setting this variable.
+ *
+ * ABSENT AND PRESENT ARE READ DIFFERENTLY, on purpose. Absent means nobody configured it, so
+ * the shipped default applies. PRESENT means somebody did, and it is read STRICTLY: only the
+ * literal 'true' keeps the notice on, and any other value ('sim', '1', 'yes', a typo) turns it
+ * off. The asymmetry follows the only reason anyone ever sets this variable: leaving it alone
+ * already leaves the notice on, so a deployment that touches it is a deployment asking for the
+ * notice to go away. It also refuses truthy coercion, which would make every non-empty string
+ * mean `true` and quietly leave the principal server showing the notice forever.
+ *
+ * EMPTY COUNTS AS ABSENT, and that one is not taste: `optional()` in this same file reads an
+ * empty env var as "unset" (`process.env[key] || fallback`), an `.env` copied from the example
+ * carries empty values by construction, and a rule where `VAR=` means the OPPOSITE of the
+ * default is the kind of asymmetry nobody discovers until the wrong screen is in production.
+ * @param {string|undefined} override - AVISO_SERVIDOR_SECUNDARIO env value
+ * @returns {boolean}
+ */
+export function resolveAvisoServidorSecundario(override) {
+  if (override === undefined || override === '') return true;
+  return override === 'true';
+}
+
+/**
  * A rotulagem de domínio da chave de impressão da trilha de auditoria.
  *
  * Ela é literal e versionada porque é o que impede a chave derivada de ser a mesma
@@ -470,6 +499,23 @@ const config = Object.freeze({
   // sources are injected by deployment env so the frontend never needs a rebuild
   // to point at internal DGEO servers. Defaults are public DEV-only placeholders.
   appConfig: Object.freeze({
+    // THE SECONDARY-SERVER NOTICE, served as `app.avisoServidorSecundario` and
+    // `app.urlServidorPrincipal`. It lives here rather than in `config.static.js` because it
+    // is a DEPLOYMENT fact and not a UI default: which instance is answering is the question
+    // the screen exists to answer, and the answer changes per server, not per build. On the
+    // `main` line the same key sits in the client's VERSIONED config.js; here that file is
+    // only the shape, and this endpoint is what hydrates it.
+    //
+    // BORN ON (see `resolveAvisoServidorSecundario`): a checkout announces the secondary, and
+    // it is the PRINCIPAL deployment that turns the notice off.
+    //
+    // READ AT BOOT, like every env in this file: changing either one needs a process restart,
+    // and dropping the /api/config memo is not enough.
+    avisoServidorSecundario: resolveAvisoServidorSecundario(process.env.AVISO_SERVIDOR_SECUNDARIO),
+    // Where the "go to the principal server" button points. ABSOLUTE by default, unlike the
+    // rest of this block: the whole point of the button is to leave THIS origin, so a relative
+    // value would send the user back to the secondary server, which is the exact opposite.
+    urlServidorPrincipal: optional('URL_SERVIDOR_PRINCIPAL', 'https://ebgeo.dsg.eb.mil.br'),
     tileServerUrl: optional('TILE_SERVER_URL', ''),
     terrainUrl: optional('TERRAIN_URL', 'https://demotiles.maplibre.org/terrain-tiles/tiles.json'),
     hillshadeUrl: optional('HILLSHADE_URL', 'https://demotiles.maplibre.org/terrain-tiles/tiles.json'),

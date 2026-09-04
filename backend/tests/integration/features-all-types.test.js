@@ -1,6 +1,13 @@
 // Path: tests/integration/features-all-types.test.js
-// Integration tests for all 18 feature types via sync create and snapshot verify.
+// Integration tests for the feature types via sync create and snapshot verify.
 // Focus on types not well-covered elsewhere: image, ellipse, brush
+//
+// THE COUNT IS DELIBERATELY OUT OF THE PROSE. This header and the describe below both said
+// "18" while the CHECK, the Joi allowlist and the client agreed on 20, and a literal count in
+// a name does not detect drift, it FREEZES it and announces the wrong number to whoever reads
+// the green (the same lesson `features-real-shape.test.js` opens with). The number that still
+// appears below, in "all N feature type collections", is the length of a list written right
+// beside it, so it is checkable in one glance.
 // Also tests complex geometry (MultiPolygon with holes) and many custom properties.
 
 import { describe, it, before, after } from 'node:test';
@@ -55,7 +62,7 @@ async function findFeatureInSnapshot(app, token, atlasId, mapId, collectionName,
   return collection.find(f => f.properties.id === featureId);
 }
 
-describe('All 18 Feature Types via Sync', () => {
+describe('Every Feature Type via Sync', () => {
   let app, db, user, token, atlasId, mapId;
 
   before(async () => {
@@ -286,6 +293,24 @@ describe('All 18 Feature Types via Sync', () => {
       assert.ok(feature, 'coordination_measure should be in coordination_measures collection');
       assert.equal(feature.properties.source, 'coordination_measure');
     });
+
+    it('coordination_line -> coordination_lines collection', async () => {
+      // The MD33 linear-symbol tool (2026-09-03). The properties below are the ones the
+      // tool's own defaults carry; they are free-form JSONB (SCRUBBED regime), so the only
+      // thing the server had to be taught is the TYPE.
+      const { targetId, res } = await pushFeature(
+        app, token, atlasId, mapId,
+        'coordination_line',
+        { coordinates: [[-43.4, -22.92], [-43.3, -22.90], [-43.2, -22.93]] },
+        { symbol_code: '290100', symbol_size: 0.5, symbol_spacing: 1.5, zoomCorrectionEnabled: true }
+      );
+      assert.equal(res.status, 200);
+
+      const feature = await findFeatureInSnapshot(app, token, atlasId, mapId, 'coordination_lines', targetId);
+      assert.ok(feature, 'coordination_line should be in coordination_lines collection');
+      assert.equal(feature.properties.source, 'coordination_line');
+      assert.equal(feature.properties.symbol_code, '290100', 'the catalog code travels verbatim');
+    });
   });
 
   describe('Analysis Feature Types', () => {
@@ -470,7 +495,7 @@ describe('All 18 Feature Types via Sync', () => {
   });
 
   describe('All collections present in snapshot', () => {
-    it('snapshot has all 20 feature type collections', async () => {
+    it('snapshot has all 21 feature type collections', async () => {
       const res = await supertest(app)
         .get(`/api/v1/atlas/${atlasId}/sync/0`)
         .set('Authorization', `Bearer ${token}`)
@@ -483,7 +508,7 @@ describe('All 18 Feature Types via Sync', () => {
         'points', 'lines', 'polygons', 'texts', 'images',
         'circles', 'rectangles', 'ellipses', 'brushes', 'setores', 'arrows',
         'boundarys', 'occupied_fronts', 'military_symbols', 'coordination_measures',
-        'magnetic_declinations',
+        'coordination_lines', 'magnetic_declinations',
         'los', 'visibility', 'processed_los', 'processed_visibility',
       ];
 

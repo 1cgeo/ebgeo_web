@@ -38,6 +38,15 @@ const APPCONFIG_ENV = Object.freeze({
   IMAGENS_TILE_URL: 'imagensTileUrl',
   ORTOIMAGEM_TILE_URL: 'ortoimagemTileUrl',
   BDGEX_WMS_URL: 'bdgexWmsUrl',
+  // O par do aviso de servidor secundário (2026-09-03). Elas entram nesta tabela pela razão
+  // que a tabela existe: `importConfigWith()` APAGA toda chave listada aqui antes de medir os
+  // defaults, então uma env que alimenta `appConfig` e fica de fora faz a medição do default
+  // depender do ambiente de quem roda a suíte. `AVISO_SERVIDOR_SECUNDARIO` produz um BOOLEANO
+  // e o scanner de máquina-de-desenvolvimento abaixo só olha strings, então ela passa ao largo
+  // dele; `URL_SERVIDOR_PRINCIPAL` é uma URL absoluta e É escaneada, de propósito. O parse e a
+  // fiação das duas vivem em `tests/unit/aviso-servidor-secundario.test.js`.
+  AVISO_SERVIDOR_SECUNDARIO: 'avisoServidorSecundario',
+  URL_SERVIDOR_PRINCIPAL: 'urlServidorPrincipal',
 });
 
 let importCounter = 0;

@@ -24,6 +24,18 @@ export const configOverridesSchema = Joi.object({
   app: Joi.object({
     title: Joi.string().max(100),
     tutorialUrl: Joi.string().max(500).allow(''),
+    // O par do aviso de servidor secundário (2026-09-03). O padrão vem do env
+    // (`AVISO_SERVIDOR_SECUNDARIO` e `URL_SERVIDOR_PRINCIPAL`, lidos no BOOT) e o override
+    // vence sobre ele na fusão, o que dá ao administrador um jeito de desligar a tela sem
+    // reiniciar o processo.
+    //
+    // DECLARAR NÃO CRIA A CAPACIDADE, dá BORDA a ela: este objeto é `.unknown(true)`, então o
+    // editor "Avançado (JSON)" já gravava as duas chaves, sem checagem nenhuma. Um `"sim"`
+    // digitado ali virava string no documento efetivo, e o cliente lê a chave por `=== true`,
+    // então a tela ficaria desligada em silêncio, com o painel mostrando o valor salvo. Agora
+    // morre em 422 na borda, que é a mesma recusa que o parse do env faz.
+    avisoServidorSecundario: Joi.boolean(),
+    urlServidorPrincipal: Joi.string().uri().max(500),
   }).unknown(true),
   features: Joi.object({
     map_3d: Joi.boolean(),

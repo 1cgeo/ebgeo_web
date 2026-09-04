@@ -395,6 +395,45 @@ describe('Military Feature Types via Sync', () => {
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [targetId]);
       assert.equal(rows[0].feature_type, 'coordination_measure');
     });
+
+    it('creates a coordination_line feature via sync', async () => {
+      const targetId = randomUUID();
+      await supertest(app)
+        .post(`/api/v1/atlas/${atlas.id}/sync`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          operations: [{
+            id: randomUUID(),
+            type: 'create',
+            target: 'feature',
+            targetId: targetId,
+            mapId: map.id,
+            data: {
+              feature_type: 'coordination_line',
+              geometry: {
+                coordinates: [[-43.4, -22.92], [-43.3, -22.90], [-43.2, -22.93]],
+              },
+              properties: {
+                name: 'Limite de Progressao',
+                symbol_code: '290100',
+                symbol_size: 0.5,
+                symbol_spacing: 1.5,
+              },
+            },
+            timestamp: Date.now(),
+            clientId: 'test-client',
+          }],
+        })
+        .expect(200);
+
+      const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [targetId]);
+      // Floor before the field assertion: a type the CHECK refuses is rejected PER OP and the
+      // request still answers 200, so `rows[0].feature_type` would read from undefined and
+      // report a TypeError instead of the real diagnosis.
+      assert.equal(rows.length, 1, 'the row must exist: a type outside valid_feature_type is refused per-op, with HTTP 200');
+      assert.equal(rows[0].feature_type, 'coordination_line');
+      assert.equal(rows[0].properties.symbol_code, '290100');
+    });
   });
 });
 

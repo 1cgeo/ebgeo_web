@@ -243,7 +243,17 @@ async function buildAppConfig() {
   ]);
 
   const payload = {
-    app: S.APP,
+    app: {
+      ...S.APP,
+      // THE SECONDARY-SERVER NOTICE. `S.APP` holds the UI defaults that never change per
+      // deployment; these two are the opposite kind of fact, so they come from env
+      // (`config.appConfig`) and are spread in here, exactly as `features` does with
+      // `self_registration`. The client opens the notice screen at boot when the boolean is
+      // `true` and offers `urlServidorPrincipal` as the way out; on the `main` line the same
+      // pair is a literal in the client's versioned config.js, which this branch does not have.
+      avisoServidorSecundario: C.avisoServidorSecundario,
+      urlServidorPrincipal: C.urlServidorPrincipal,
+    },
     // self_registration tells the client whether to show the "Criar conta" affordance. It
     // starts at the ALLOW_SELF_REGISTRATION env default and the admin override (deep-merged
     // below) flips it at runtime. The /auth/register route reads the SAME merged value via
