@@ -1,4 +1,5 @@
 // Path: js/draw_tools/circle_tool/add_circle_control.js
+import { queryHoverFeatures } from '../../tool_manager/helpers/hover-query.helpers.js';
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
 import { IDUtils, showWarning } from '../../utilities';
 import { getPointerPosition } from '../../utilities/pointer-utils';
@@ -7,6 +8,13 @@ import AddCircleGeometry from './add_circle_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
 import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged, LABEL_ZOOM_PROPERTIES, recalcLabelSize, createLabelZoomHandler, syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
+/**
+ * Layers onHoverMove needs: 'circle-edit-handles' (hasHandleAtPoint) and 'circles'
+ * (hasSelectedFeatureAtPoint, rendered by the fill, the hatch fill and the outline).
+ * Ids confirmed in layers/styles/shape.layers.js:81-158 with prefix "circle".
+ */
+const HOVER_LAYER_IDS = ['circle-edit-handles-layer', 'circle-fill-layer', 'circle-fill-pattern-layer', 'circle-layer'];
+
 class AddCircleControl extends BaseControl {
     featureType = 'circle';
 
@@ -52,13 +60,13 @@ class AddCircleControl extends BaseControl {
     // ===== MAPBOX CONTROL INTERFACE =====
     onAdd = (map) => {
         this.map = map;
-        map.on('zoom', this._onZoomForLabels);
+        map.on('zoomend', this._onZoomForLabels);
     }
     onRemove = () => {
         this.deactivate();
         this.removeAllEventListeners();
         if (this.map) {
-            this.map.off('zoom', this._onZoomForLabels);
+            this.map.off('zoomend', this._onZoomForLabels);
         }
         this.#labelZoom.cleanup();
         this.map = undefined;
@@ -564,7 +572,7 @@ class AddCircleControl extends BaseControl {
     onHoverMove = (e) => {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
-        const features = this.map.queryRenderedFeatures(e.point);
+        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
         const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
         if (hasHandle) {

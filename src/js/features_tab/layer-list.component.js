@@ -18,6 +18,7 @@ import {
     getCurrentMapNameSync,
     TransferMode,
 } from '@store';
+import { previewLayerOpacity } from '@layers/layer-opacity-applier.js';
 import { showPrompt, showConfirm } from '@modals';
 import { IDUtils, showError, showToast } from '@utils';
 
@@ -378,8 +379,11 @@ export function createLayerOpacityRow(layer) {
     valueLabel.className = 'layer-opacity-value';
     valueLabel.textContent = `${initialPercent}%`;
 
-    // Coalesce store writes to at most one per animation frame so dragging the
-    // slider does not emit LAYERS_CHANGED (and rebuild all layer filters) every tick.
+    // During the drag only the map paint properties are touched, coalesced to one
+    // update per animation frame. Going through setLayerOpacity per frame emitted
+    // LAYERS_CHANGED (waking every listener, including the maps tab that reads a
+    // map document per map) and wrote one sync operation to IndexedDB per frame.
+    // The store is written ONCE, on `change`, at the end of the gesture.
     let rafId = null;
     let pendingOpacity = null;
     slider.addEventListener('input', () => {
@@ -389,9 +393,22 @@ export function createLayerOpacityRow(layer) {
         if (rafId === null) {
             rafId = requestAnimationFrame(() => {
                 rafId = null;
-                setLayerOpacity(layer.id, pendingOpacity);
+                // Without a map instance (no style loaded yet) fall back to the store
+                if (!previewLayerOpacity(layer.id, pendingOpacity)) {
+                    setLayerOpacity(layer.id, pendingOpacity);
+                }
             });
         }
+    });
+
+    slider.addEventListener('change', () => {
+        if (rafId !== null) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+        }
+        const percent = Number(slider.value);
+        valueLabel.textContent = `${percent}%`;
+        setLayerOpacity(layer.id, percent / 100);
     });
 
     row.appendChild(label);

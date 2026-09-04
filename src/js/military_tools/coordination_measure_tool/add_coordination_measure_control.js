@@ -1,5 +1,6 @@
 // Path: js/military_tools/coordination_measure_tool/add_coordination_measure_control.js
 
+import { queryHoverFeatures } from '../../tool_manager/helpers/hover-query.helpers.js';
 import {
   addFeature,
   updateFeature,
@@ -9,6 +10,7 @@ import {
 } from "../../store";
 import { CoordinationMeasureGenerator } from './coordination_measure_generator.js';
 import { IDUtils, showWarning as showWarningToast, loadImageToMap } from "../../utilities";
+import { readGeoJSONSourceDataAsync } from "../../utilities/geojson-source.js";
 import { addCoordinationMeasureAttributesToPanel } from "./attributes/index.js";
 import AddCoordinationMeasureGeometry from './add_coordination_measure_geometry.js';
 import { BaseControl } from "../../tool_manager";
@@ -17,6 +19,12 @@ import {
     syncZoomCorrectedProperty,
 } from '../../tool_manager/helpers/zoom-correction.helpers.js';
 import { reanchorOnMove, translateOnPaste } from '@js/temporal/trajectory-anchor.js';
+
+/**
+ * Layer onHoverMove needs: the only predicate matches source 'coordination_measures'.
+ * Id confirmed in layers/styles/symbol.layers.js:56.
+ */
+const HOVER_LAYER_IDS = ['coordination-measures-layer'];
 
 class AddCoordinationMeasureControl extends BaseControl {
   featureType = 'coordination_measure';
@@ -34,6 +42,8 @@ class AddCoordinationMeasureControl extends BaseControl {
 
     this.zoomRafId = null;
     this.pendingZoomUpdate = false;
+    this.zoomEndRafId = null;
+    this.pendingZoomEndUpdate = false;
     this._name = 'AddCoordinationMeasureControl';
   }
 
@@ -86,11 +96,17 @@ class AddCoordinationMeasureControl extends BaseControl {
 
   onRemove = () => {
     this.map.off("zoom", this.handleZoomChange);
+    this.map.off("zoomend", this.handleZoomEnd);
     if (this.zoomRafId) {
       cancelAnimationFrame(this.zoomRafId);
       this.zoomRafId = null;
     }
+    if (this.zoomEndRafId) {
+      cancelAnimationFrame(this.zoomEndRafId);
+      this.zoomEndRafId = null;
+    }
     this.pendingZoomUpdate = false;
+    this.pendingZoomEndUpdate = false;
     this.cancelPendingSymbolUpdates();
     this.deactivate();
     this.removeAllEventListeners();
@@ -696,14 +712,105 @@ class AddCoordinationMeasureControl extends BaseControl {
 
   // ===== ZOOM-INVARIANT SYSTEM =====
 
+  // The coordination-measure layer paints the zoom-scaled icon size with a style
+  // expression (layers/styles/zoom-expression.js), so `updateAllSymbolSizes` no
+  // longer feeds the drawing: it refreshes the stored `calculatedSize` for the
+  // consumers that read it (export, selection box, feature header), once per
+  // gesture, on `zoomend`. The per-frame handler is left with the job no
+  // expression can do, the selection box of the measures whose correction is OFF,
+  // which is expressed in degrees and has to be rebuilt at every zoom step.
   setupZoomListener = () => {
     this.map.on("zoom", this.handleZoomChange);
+    this.map.on("zoomend", this.handleZoomEnd);
   };
 
   handleZoomChange = () => {
     if (!this.pendingZoomUpdate) {
       this.pendingZoomUpdate = true;
-      this.zoomRafId = requestAnimationFrame(this.updateAllSymbolSizes);
+      this.zoomRafId = requestAnimationFrame(this.updateFixedMeasureGeometry);
+    }
+  };
+
+  handleZoomEnd = () => {
+    if (!this.pendingZoomEndUpdate) {
+      this.pendingZoomEndUpdate = true;
+      this.zoomEndRafId = requestAnimationFrame(this.updateAllSymbolSizes);
+    }
+  };
+
+  /**
+   * Per-frame pass: rebuild the selection box of the coordination measures whose
+   * zoom correction is disabled, and nothing else.
+   */
+  updateFixedMeasureGeometry = async () => {
+    const source = this.map?.getSource("coordination_measures");
+    if (!source) {
+      this.pendingZoomUpdate = false;
+      return;
+    }
+
+    const data = await readGeoJSONSourceDataAsync(source);
+    if (!data?.features?.length) {
+      this.pendingZoomUpdate = false;
+      return;
+    }
+
+    // Counted once per pass: with no fixed-size measure in the collection there is
+    // no geographic geometry to rebuild, and the frame ends here.
+    const fixedFeatures = data.features.filter(
+      (feature) => feature.properties.zoomCorrectionEnabled === false,
+    );
+    if (!fixedFeatures.length) {
+      this.pendingZoomUpdate = false;
+      return;
+    }
+
+    const currentZoom = this.map.getZoom();
+    fixedFeatures.forEach((feature) => {
+      feature.properties.selectionBox = this.geometry.calculateSelectionBoxGeometry(
+        feature.geometry.coordinates,
+        feature.properties.width,
+        feature.properties.height,
+        feature.properties.size,
+        feature.properties.rotation,
+        feature.properties.createdAtZoom,
+        this.selectionManager.uiManager,
+        feature.properties.anchor,
+        currentZoom
+      );
+      feature.properties.calculatedSize = feature.properties.size;
+    });
+
+    source.setData(data);
+    this.syncSelectedMeasureFeatures(data);
+    this.pendingZoomUpdate = false;
+  };
+
+  /**
+   * Push the freshly computed selection boxes onto the selected measures whose
+   * zoom correction is disabled, and refresh the highlight.
+   * @param {Object} data - The GeoJSON collection just written to the source
+   */
+  syncSelectedMeasureFeatures = (data) => {
+    const selectedFeatures = this.getSelectedFeatures();
+    const featuresWithDisabledZoomCorrection = selectedFeatures.filter(
+      f => f.properties.zoomCorrectionEnabled === false
+    );
+    if (featuresWithDisabledZoomCorrection.length === 0) return;
+
+    featuresWithDisabledZoomCorrection.forEach(selectedFeature => {
+      const freshFeature = data.features.find(f => f.properties.id === selectedFeature.properties.id);
+      if (freshFeature) {
+        this.selectionManager.updateSelectedFeature('coordination_measure', freshFeature.properties.id, freshFeature);
+        // Invalidate cache for this feature
+        if (this.selectionManager.uiManager.invalidateCache) {
+          this.selectionManager.uiManager.invalidateCache(freshFeature.properties.id);
+        }
+      }
+    });
+    // Update selection highlight
+    if (this.selectionManager.uiManager.updateSelectionHighlight) {
+      this.selectionManager.uiManager.updateSelectionHighlight();
     }
   };
 
@@ -715,14 +822,23 @@ class AddCoordinationMeasureControl extends BaseControl {
     });
   };
 
+  /**
+   * End-of-gesture pass: the full recalculation (calculated sizes, selection box
+   * of the fixed-size measures, selection sync) that used to run per frame.
+   */
   updateAllSymbolSizes = async () => {
-    if (!this.map.getSource("coordination_measures")) {
-      this.pendingZoomUpdate = false;
+    const source = this.map.getSource("coordination_measures");
+    if (!source) {
+      this.pendingZoomEndUpdate = false;
       return;
     }
 
     const currentZoom = this.map.getZoom();
-    const data = await this.map.getSource("coordination_measures").getData();
+    const data = await readGeoJSONSourceDataAsync(source);
+    if (!data?.features?.length) {
+      this.pendingZoomEndUpdate = false;
+      return;
+    }
     let hasChanges = false;
 
     data.features.forEach((feature) => {
@@ -761,32 +877,13 @@ class AddCoordinationMeasureControl extends BaseControl {
     });
 
     if (hasChanges) {
-      this.map.getSource("coordination_measures").setData(data);
+      source.setData(data);
 
       // Update SelectionManager with fresh features that have updated selectionBox
-      const selectedFeatures = this.getSelectedFeatures();
-      const featuresWithDisabledZoomCorrection = selectedFeatures.filter(
-        f => f.properties.zoomCorrectionEnabled === false
-      );
-      if (featuresWithDisabledZoomCorrection.length > 0) {
-        featuresWithDisabledZoomCorrection.forEach(selectedFeature => {
-          const freshFeature = data.features.find(f => f.properties.id === selectedFeature.properties.id);
-          if (freshFeature) {
-            this.selectionManager.updateSelectedFeature('coordination_measure', freshFeature.properties.id, freshFeature);
-            // Invalidate cache for this feature
-            if (this.selectionManager.uiManager.invalidateCache) {
-              this.selectionManager.uiManager.invalidateCache(freshFeature.properties.id);
-            }
-          }
-        });
-        // Update selection highlight
-        if (this.selectionManager.uiManager.updateSelectionHighlight) {
-          this.selectionManager.uiManager.updateSelectionHighlight();
-        }
-      }
+      this.syncSelectedMeasureFeatures(data);
     }
 
-    this.pendingZoomUpdate = false;
+    this.pendingZoomEndUpdate = false;
   };
 
   // ===== HOVER SYSTEM =====
@@ -803,7 +900,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     const selectedFeature = this.getSelectedFeature();
     if (!selectedFeature) return;
 
-    const features = this.map.queryRenderedFeatures(e.point);
+    const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
     const hasFeature = this.hasSelectedFeatureAtPoint(features);
 
     this.map.getCanvas().style.cursor = hasFeature ? "move" : "";
@@ -1159,7 +1256,12 @@ class AddCoordinationMeasureControl extends BaseControl {
       cancelAnimationFrame(this.zoomRafId);
       this.zoomRafId = null;
     }
+    if (this.zoomEndRafId) {
+      cancelAnimationFrame(this.zoomEndRafId);
+      this.zoomEndRafId = null;
+    }
     this.pendingZoomUpdate = false;
+    this.pendingZoomEndUpdate = false;
   };
 
   // ===== UI FEEDBACK METHODS =====

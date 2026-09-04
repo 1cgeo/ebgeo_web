@@ -1,5 +1,6 @@
 // Path: js/military_tools/military_symbol_tool/add_military_symbol_control.js
 
+import { queryHoverFeatures } from '../../tool_manager/helpers/hover-query.helpers.js';
 import { normalizeSIDC } from './brazilian_sidc_extension.js';
 import {
   addFeature,
@@ -10,6 +11,7 @@ import {
 } from '@store';
 import { MilitarySymbolGenerator } from './military_symbol_generator.js';
 import { IDUtils, showError, loadImageToMap } from '@utils';
+import { readGeoJSONSourceDataAsync } from '@utils/geojson-source.js';
 import { addMilitarySymbolAttributesToPanel } from './attributes/index.js';
 import AddMilitarySymbolGeometry from './add_military_symbol_geometry.js';
 import { BaseControl } from '@tools';
@@ -18,6 +20,12 @@ import {
     syncZoomCorrectedProperty,
 } from '@tools/helpers/zoom-correction.helpers.js';
 import { reanchorOnMove, translateOnPaste } from '@js/temporal/trajectory-anchor.js';
+
+/**
+ * Layer onHoverMove needs: the only predicate matches source 'military_symbols'.
+ * Id confirmed in layers/styles/symbol.layers.js:24.
+ */
+const HOVER_LAYER_IDS = ['military-symbols-layer'];
 
 class AddMilitarySymbolControl extends BaseControl {
     featureType = 'military_symbol';
@@ -34,6 +42,8 @@ class AddMilitarySymbolControl extends BaseControl {
 
     this.zoomRafId = null;
     this.pendingZoomUpdate = false;
+    this.zoomEndRafId = null;
+    this.pendingZoomEndUpdate = false;
     this._name = 'AddMilitarySymbolControl';
   }
 
@@ -91,11 +101,17 @@ class AddMilitarySymbolControl extends BaseControl {
 
   onRemove = () => {
     this.map.off("zoom", this.handleZoomChange);
+    this.map.off("zoomend", this.handleZoomEnd);
     if (this.zoomRafId) {
       cancelAnimationFrame(this.zoomRafId);
       this.zoomRafId = null;
     }
+    if (this.zoomEndRafId) {
+      cancelAnimationFrame(this.zoomEndRafId);
+      this.zoomEndRafId = null;
+    }
     this.pendingZoomUpdate = false;
+    this.pendingZoomEndUpdate = false;
     this.cancelPendingSymbolUpdates();
     this.deactivate();
     this.removeAllEventListeners();
@@ -602,14 +618,102 @@ class AddMilitarySymbolControl extends BaseControl {
     }
   };
 
+  // The symbol layer paints the zoom-scaled icon size with a style expression
+  // (layers/styles/zoom-expression.js), so `updateAllSymbolSizes` no longer feeds
+  // the drawing: it refreshes the stored `calculatedSize` for the consumers that
+  // read it (export, selection box, feature header), once per gesture, on
+  // `zoomend`. The per-frame handler is left with the job no expression can do,
+  // the selection box of the symbols whose correction is OFF, which is expressed
+  // in degrees and has to be rebuilt at every zoom step.
   setupZoomListener = () => {
     this.map.on("zoom", this.handleZoomChange);
+    this.map.on("zoomend", this.handleZoomEnd);
   };
 
   handleZoomChange = () => {
     if (!this.pendingZoomUpdate) {
       this.pendingZoomUpdate = true;
-      this.zoomRafId = requestAnimationFrame(this.updateAllSymbolSizes);
+      this.zoomRafId = requestAnimationFrame(this.updateFixedSymbolGeometry);
+    }
+  };
+
+  handleZoomEnd = () => {
+    if (!this.pendingZoomEndUpdate) {
+      this.pendingZoomEndUpdate = true;
+      this.zoomEndRafId = requestAnimationFrame(this.updateAllSymbolSizes);
+    }
+  };
+
+  /**
+   * Per-frame pass: rebuild the selection box of the symbols whose zoom
+   * correction is disabled, and nothing else.
+   */
+  updateFixedSymbolGeometry = async () => {
+    const source = this.map?.getSource("military_symbols");
+    if (!source) {
+      this.pendingZoomUpdate = false;
+      return;
+    }
+
+    const data = await readGeoJSONSourceDataAsync(source);
+    if (!data?.features?.length) {
+      this.pendingZoomUpdate = false;
+      return;
+    }
+
+    // Counted once per pass: with no fixed-size symbol in the collection there is
+    // no geographic geometry to rebuild, and the frame ends here.
+    const fixedFeatures = data.features.filter(
+      (feature) => feature.properties.zoomCorrectionEnabled === false,
+    );
+    if (!fixedFeatures.length) {
+      this.pendingZoomUpdate = false;
+      return;
+    }
+
+    const currentZoom = this.map.getZoom();
+    fixedFeatures.forEach((feature) => {
+      feature.properties.selectionBox = this.geometry.calculateSelectionBoxGeometry(
+        feature.geometry.coordinates,
+        feature.properties.width,
+        feature.properties.height,
+        feature.properties.size,
+        feature.properties.rotation,
+        feature.properties.createdAtZoom,
+        this.selectionManager.uiManager,
+        currentZoom
+      );
+      feature.properties.calculatedSize = feature.properties.size;
+    });
+
+    source.setData(data);
+    this.syncSelectedSymbolFeatures(data);
+    this.pendingZoomUpdate = false;
+  };
+
+  /**
+   * Push the freshly computed selection boxes onto the selected symbols whose
+   * zoom correction is disabled, and refresh the highlight.
+   * @param {Object} data - The GeoJSON collection just written to the source
+   */
+  syncSelectedSymbolFeatures = (data) => {
+    const selectedFeatures = this.getSelectedFeatures();
+    const featuresWithDisabledZoomCorrection = selectedFeatures.filter(
+      f => f.properties.zoomCorrectionEnabled === false
+    );
+    if (featuresWithDisabledZoomCorrection.length === 0) return;
+
+    featuresWithDisabledZoomCorrection.forEach(selectedFeature => {
+      const freshFeature = data.features.find(f => f.properties.id === selectedFeature.properties.id);
+      if (freshFeature) {
+        this.selectionManager.updateSelectedFeature('military_symbol', freshFeature.properties.id, freshFeature);
+        if (this.selectionManager.uiManager.invalidateCache) {
+          this.selectionManager.uiManager.invalidateCache(freshFeature.properties.id);
+        }
+      }
+    });
+    if (this.selectionManager.uiManager.updateSelectionHighlight) {
+      this.selectionManager.uiManager.updateSelectionHighlight();
     }
   };
 
@@ -621,14 +725,23 @@ class AddMilitarySymbolControl extends BaseControl {
     });
   };
 
+  /**
+   * End-of-gesture pass: the full recalculation (calculated sizes, selection box
+   * of the fixed-size symbols, selection sync) that used to run per frame.
+   */
   updateAllSymbolSizes = async () => {
-    if (!this.map.getSource("military_symbols")) {
-      this.pendingZoomUpdate = false;
+    const source = this.map.getSource("military_symbols");
+    if (!source) {
+      this.pendingZoomEndUpdate = false;
       return;
     }
 
     const currentZoom = this.map.getZoom();
-    const data = await this.map.getSource("military_symbols").getData();
+    const data = await readGeoJSONSourceDataAsync(source);
+    if (!data?.features?.length) {
+      this.pendingZoomEndUpdate = false;
+      return;
+    }
     let hasChanges = false;
 
     data.features.forEach((feature) => {
@@ -665,29 +778,12 @@ class AddMilitarySymbolControl extends BaseControl {
     });
 
     if (hasChanges) {
-      this.map.getSource("military_symbols").setData(data);
+      source.setData(data);
 
-      const selectedFeatures = this.getSelectedFeatures();
-      const featuresWithDisabledZoomCorrection = selectedFeatures.filter(
-        f => f.properties.zoomCorrectionEnabled === false
-      );
-      if (featuresWithDisabledZoomCorrection.length > 0) {
-        featuresWithDisabledZoomCorrection.forEach(selectedFeature => {
-          const freshFeature = data.features.find(f => f.properties.id === selectedFeature.properties.id);
-          if (freshFeature) {
-            this.selectionManager.updateSelectedFeature('military_symbol', freshFeature.properties.id, freshFeature);
-            if (this.selectionManager.uiManager.invalidateCache) {
-              this.selectionManager.uiManager.invalidateCache(freshFeature.properties.id);
-            }
-          }
-        });
-        if (this.selectionManager.uiManager.updateSelectionHighlight) {
-          this.selectionManager.uiManager.updateSelectionHighlight();
-        }
-      }
+      this.syncSelectedSymbolFeatures(data);
     }
 
-    this.pendingZoomUpdate = false;
+    this.pendingZoomEndUpdate = false;
   };
 
   setupHoverListeners = () => {
@@ -702,7 +798,7 @@ class AddMilitarySymbolControl extends BaseControl {
     const selectedFeature = this.getSelectedFeature();
     if (!selectedFeature) return;
 
-    const features = this.map.queryRenderedFeatures(e.point);
+    const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
     const hasFeature = this.hasSelectedFeatureAtPoint(features);
 
     this.map.getCanvas().style.cursor = hasFeature ? "move" : "";
@@ -1095,7 +1191,12 @@ class AddMilitarySymbolControl extends BaseControl {
       cancelAnimationFrame(this.zoomRafId);
       this.zoomRafId = null;
     }
+    if (this.zoomEndRafId) {
+      cancelAnimationFrame(this.zoomEndRafId);
+      this.zoomEndRafId = null;
+    }
     this.pendingZoomUpdate = false;
+    this.pendingZoomEndUpdate = false;
   };
 }
 

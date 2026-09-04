@@ -2,6 +2,7 @@
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
 import { IDUtils } from '../../utilities';
+import { readGeoJSONSourceDataAsync } from '../../utilities/geojson-source.js';
 import { addPointAttributesToPanel } from './point_attributes_panel.js';
 import AddPointGeometry from './add_point_geometry.js';
 import { BaseControl } from '../../tool_manager';
@@ -107,9 +108,26 @@ class AddPointControl extends BaseControl {
     // ===== MAPBOX CONTROL INTERFACE =====
 
     // ===== ZOOM CORRECTION (size + label) =====
+    // The point layer paints the zoom-scaled radius and label size with a style
+    // expression (layers/styles/zoom-expression.js), so this pass no longer feeds
+    // the drawing. It only refreshes the stored `calculatedSize` and
+    // `labelCalculatedSize` for the consumers that still read them (export,
+    // selection box, feature header), and that is worth doing ONCE per gesture:
+    // it runs on `zoomend`.
+    //
+    // What an expression cannot do is the ground geometry of a point whose size
+    // correction is OFF: its `selectionBox` is expressed in degrees and has to be
+    // rebuilt at every zoom step. Those features, and only those, keep a per-frame
+    // pass.
     #zoomPending = false;
     #zoomRafId = null;
+    #zoomEndPending = false;
+    #zoomEndRafId = null;
 
+    /**
+     * Per-frame pass, coalesced by rAF: rebuilds the ground-sized selection box of
+     * the points whose size correction is disabled, and nothing else.
+     */
     #handleZoom = () => {
         if (this.#zoomPending) return;
         this.#zoomPending = true;
@@ -117,8 +135,77 @@ class AddPointControl extends BaseControl {
             const source = this.map?.getSource('points');
             if (!source) { this.#zoomPending = false; return; }
 
+            const data = await readGeoJSONSourceDataAsync(source);
+            if (!data?.features?.length) { this.#zoomPending = false; return; }
+
+            // Counted once per pass: with no fixed-size point in the collection
+            // there is no geographic geometry to rebuild, and the frame ends here.
+            const fixedFeatures = data.features.filter(
+                f => f.properties.sizeZoomCorrectionEnabled === false
+            );
+            if (!fixedFeatures.length) { this.#zoomPending = false; return; }
+
             const currentZoom = this.map.getZoom();
-            const data = await source.getData();
+            for (const feature of fixedFeatures) {
+                const props = feature.properties;
+                const size = props.size || 10;
+                props.selectionBox = this.geometry.calculateSelectionBoxGeometry(
+                    feature.geometry.coordinates,
+                    size,
+                    props.lineWidth || 0,
+                    props.sizeCreatedAtZoom || 0,
+                    currentZoom
+                );
+                props.calculatedSize = size;
+            }
+
+            source.setData(data);
+            this.#syncSelectedPoints(data);
+            this.#zoomPending = false;
+        });
+    };
+
+    /**
+     * Copy the recalculated properties onto the selected point features and
+     * refresh the highlight.
+     * @param {Object} data - The GeoJSON collection just written to the source
+     */
+    #syncSelectedPoints = (data) => {
+        const selectedPoints = this.selectionManager?.getSelectedFeaturesByType?.('point');
+        if (!selectedPoints?.length) return;
+
+        for (const { id, feature: selFeature } of selectedPoints) {
+            const srcFeature = data.features.find(f => String(f.properties.id) === String(id));
+            if (!srcFeature) continue;
+
+            selFeature.properties.calculatedSize = srcFeature.properties.calculatedSize;
+            if (srcFeature.properties.labelCalculatedSize !== undefined) {
+                selFeature.properties.labelCalculatedSize = srcFeature.properties.labelCalculatedSize;
+            }
+            if (srcFeature.properties.sizeZoomCorrectionEnabled === false) {
+                selFeature.properties.selectionBox = srcFeature.properties.selectionBox;
+                if (this.selectionManager.uiManager?.invalidateCache) {
+                    this.selectionManager.uiManager.invalidateCache(id);
+                }
+            }
+        }
+        this.selectionManager.uiManager?.updateSelectionHighlight();
+    };
+
+    /**
+     * End-of-gesture pass: the full recalculation (sizes, the lazy
+     * `labelCreatedAtZoom` stamp, selection sync) that used to run per frame.
+     */
+    #handleZoomEnd = () => {
+        if (this.#zoomEndPending) return;
+        this.#zoomEndPending = true;
+        this.#zoomEndRafId = requestAnimationFrame(async () => {
+            const source = this.map?.getSource('points');
+            if (!source) { this.#zoomEndPending = false; return; }
+
+            const currentZoom = this.map.getZoom();
+            const data = await readGeoJSONSourceDataAsync(source);
+            if (!data?.features?.length) { this.#zoomEndPending = false; return; }
             let hasChanges = false;
 
             for (const feature of data.features) {
@@ -174,42 +261,30 @@ class AddPointControl extends BaseControl {
                 source.setData(data);
 
                 // Sync selected point features and refresh selection highlight
-                const selectedPoints = this.selectionManager?.getSelectedFeaturesByType?.('point');
-                if (selectedPoints?.length > 0) {
-                    for (const { id, feature: selFeature } of selectedPoints) {
-                        const srcFeature = data.features.find(f => String(f.properties.id) === String(id));
-                        if (srcFeature) {
-                            selFeature.properties.calculatedSize = srcFeature.properties.calculatedSize;
-                            if (srcFeature.properties.labelCalculatedSize !== undefined) {
-                                selFeature.properties.labelCalculatedSize = srcFeature.properties.labelCalculatedSize;
-                            }
-                            if (srcFeature.properties.sizeZoomCorrectionEnabled === false) {
-                                selFeature.properties.selectionBox = srcFeature.properties.selectionBox;
-                                if (this.selectionManager.uiManager?.invalidateCache) {
-                                    this.selectionManager.uiManager.invalidateCache(id);
-                                }
-                            }
-                        }
-                    }
-                    this.selectionManager.uiManager?.updateSelectionHighlight();
-                }
+                this.#syncSelectedPoints(data);
             }
-            this.#zoomPending = false;
+            this.#zoomEndPending = false;
         });
     };
 
     onAdd = (map) => {
         this.map = map;
         map.on('zoom', this.#handleZoom);
+        map.on('zoomend', this.#handleZoomEnd);
     }
 
     onRemove = () => {
         if (this.map) {
             this.map.off('zoom', this.#handleZoom);
+            this.map.off('zoomend', this.#handleZoomEnd);
         }
         if (this.#zoomRafId) {
             cancelAnimationFrame(this.#zoomRafId);
             this.#zoomRafId = null;
+        }
+        if (this.#zoomEndRafId) {
+            cancelAnimationFrame(this.#zoomEndRafId);
+            this.#zoomEndRafId = null;
         }
         this.deactivate();
         this.removeAllEventListeners();

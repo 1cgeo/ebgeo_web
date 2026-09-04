@@ -4,8 +4,13 @@
  * @fileoverview Polygon layer styles with hatch pattern support.
  */
 
-import { HatchPatternGenerator } from '../../tool_manager';
+import { getHatchPatternGenerator } from '../../tool_manager';
 import { syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
+import { zoomScaledExpression } from './zoom-expression.js';
+// Label sizes scale on the GPU (zoom-expression.js); the label pass of each tool
+// only refreshes `labelCalculatedSize` at the end of a gesture.
+const LABEL_SIZE = { base: ['coalesce', ['get', 'labelSize'], 14], anchor: 'labelCreatedAtZoom', disabledFlag: 'labelZoomCorrectionEnabled', maxValue: 255 };
+
 
 /**
  * Sets up polygon layers on the map.
@@ -44,7 +49,7 @@ export function setupPolygonLayers(features, mapInstance) {
         });
     }
 
-    const hatchGenerator = new HatchPatternGenerator();
+    const hatchGenerator = getHatchPatternGenerator();
     hatchGenerator.loadPatternsToMap(mapInstance, polygons);
 
     if (!mapInstance.getLayer('polygon-fill-layer')) {
@@ -135,7 +140,7 @@ export function setupPolygonLayers(features, mapInstance) {
             ],
             layout: {
                 'text-field': ['get', 'labelText'],
-                'text-size': ['coalesce', ['get', 'labelCalculatedSize'], 14],
+                'text-size': zoomScaledExpression(LABEL_SIZE),
                 'text-font': ['Noto Sans Bold'],
                 'text-anchor': 'center',
                 'text-allow-overlap': true,

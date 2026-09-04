@@ -7,7 +7,7 @@
  * @module draw_tools/line_tool/line_profile
  */
 
-import { getTerrainElevation } from '../../terrain';
+import { createTerrainSampler } from '../../terrain';
 
 // ============================================================================
 // CONSTANTS
@@ -41,11 +41,12 @@ export async function calculateProfile(map, coordinates) {
     const stepLength = length / PROFILE_STEPS;
 
     const profileData = [];
+    const sampler = createTerrainSampler(map);
 
     // Sample elevation at each step along the line
     for (let i = 0; i <= PROFILE_STEPS; i++) {
         const point = turf.along(line, i * stepLength, { units: 'meters' });
-        const elevation = await getTerrainElevation(map, point.geometry.coordinates);
+        const elevation = sampler.elevation(point.geometry.coordinates);
 
         profileData.push({
             distance: i * stepLength,

@@ -1,11 +1,19 @@
 // Path: js/military_tools/occupied_front_tool/add_occupied_front_control.js
 
+import { queryHoverFeatures } from '../../tool_manager/helpers/hover-query.helpers.js';
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '@store';
 import { IDUtils, showWarning } from '@utils';
 import { getPointerPosition } from '@utils/pointer-utils';
 import { addOccupiedFrontAttributesToPanel } from './occupied_front_attributes_panel.js';
 import AddOccupiedFrontGeometry from './add_occupied_front_geometry.js';
 import { BaseControl } from '@tools';
+
+/**
+ * Layers onHoverMove needs: 'occupied-front-edit-handles' (hasHandleAtPoint) and
+ * 'occupied_fronts' (hasSelectedFeatureAtPoint).
+ * Ids confirmed in layers/styles/tactical.layers.js:187 and :174.
+ */
+const HOVER_LAYER_IDS = ['occupied-front-edit-handles-layer', 'occupied-front-layer'];
 
 class AddOccupiedFrontControl extends BaseControl {
     featureType = 'occupied_front';
@@ -603,7 +611,7 @@ class AddOccupiedFrontControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
-        const features = this.map.queryRenderedFeatures(e.point);
+        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
         const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
 

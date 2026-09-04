@@ -95,10 +95,11 @@ export async function renderCatalogLayers(container, map, eventBus, analysisLaye
     if (!container) return;
 
     // Revalidate catalog layers against current config before rendering
-    // This ensures layers that are no longer in config are marked as unavailable
-    await revalidateCatalogLayers();
-
-    const layers = await getCatalogLayers();
+    // This ensures layers that are no longer in config are marked as unavailable.
+    // The revalidation already holds the map document, so it hands back the
+    // layers: a second getCatalogLayers() here would re-read (and re-deserialize)
+    // the whole map document, every drawn feature included, on every refresh.
+    const { layers } = await revalidateCatalogLayers();
 
     if (!layers || layers.length === 0) {
         container.style.display = 'none';

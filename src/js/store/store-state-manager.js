@@ -94,6 +94,8 @@ class MapManager {
     constructor() {
         this.memoryStore = memoryStore;
         this.projectColorCache = new LRUCache(200);
+        /** Pending single flush of the CURRENT map's color usage. @type {*} */
+        this._currentColorTimer = null;
     }
 
     // ===== MEMORY STORE MANAGEMENT =====
@@ -142,6 +144,13 @@ class MapManager {
         const previousMap = this.memoryStore.currentMap;
 
         if (previousMap && previousMap !== mapName) {
+            // Drop any pending flush for the outgoing map: the explicit save
+            // below writes its final counts, and a late timer would write the
+            // INCOMING map's cache under the outgoing map's name.
+            if (this._currentColorTimer !== null) {
+                clearTimeout(this._currentColorTimer);
+                this._currentColorTimer = null;
+            }
             await this.saveColorUsageToDB(previousMap);
             this.clearHistory(previousMap);
         }
@@ -329,7 +338,11 @@ class MapManager {
             if (newColor) {
                 adjustColorCount(this.memoryStore.colorUsageCache, newColor, 1);
             }
-            setTimeout(() => this.saveColorUsageToDB(targetMap), 100);
+            // One flush per burst, not one per call. The in-memory cache is
+            // already up to date and saveColorUsageToDB always writes the FINAL
+            // state, so a batch (N features x up to 8 color properties each)
+            // needs a single IndexedDB write instead of N timers and N writes.
+            this._scheduleCurrentColorPersist(targetMap);
         } else {
             // colorUsageCache holds the CURRENT map's counts; for another map we
             // accumulate the deltas and flush them in a SINGLE read-modify-write,
@@ -343,6 +356,20 @@ class MapManager {
         if (newColor) {
             adjustColorCount(this.projectColorCache, newColor, 1);
         }
+    }
+
+    /**
+     * Debounces a SINGLE persistence of the current map's color usage.
+     * The counts live in `memoryStore.colorUsageCache` and are already adjusted
+     * synchronously by the caller, so only the final write matters.
+     * @param {string} mapName - Current map name
+     */
+    _scheduleCurrentColorPersist(mapName) {
+        if (this._currentColorTimer !== null) return; // flush already scheduled
+        this._currentColorTimer = setTimeout(() => {
+            this._currentColorTimer = null;
+            this.saveColorUsageToDB(mapName);
+        }, 100);
     }
 
     /**

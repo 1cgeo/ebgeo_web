@@ -1,7 +1,7 @@
 // Path: js/analysis_tools/los_tool/add_los_geometry.js
 
 import { BaseGeometry } from '@tools';
-import { getTerrainElevation } from '@js/terrain';
+import { createTerrainSampler } from '@js/terrain';
 
 /**
  * Line of Sight Geometry Operations
@@ -96,8 +96,11 @@ class AddLOSGeometry extends BaseGeometry {
         const steps = Math.max(2, samplePoints);
         const stepLength = totalLength / steps;
 
-        const startTerrainElevation = await getTerrainElevation(map, startCoordinates);
-        const endTerrainElevation = await getTerrainElevation(map, endCoordinates);
+        // One sampler per calculation: the lookup zoom is resolved once, and each
+        // step is then a single DEM read instead of a full coveringTiles traversal.
+        const sampler = createTerrainSampler(map);
+        const startTerrainElevation = sampler.elevation(startCoordinates);
+        const endTerrainElevation = sampler.elevation(endCoordinates);
         const observerElevation = startTerrainElevation + observerHeight;
         const targetElevation = endTerrainElevation + targetHeight;
 
@@ -111,7 +114,7 @@ class AddLOSGeometry extends BaseGeometry {
 
             const progress = i / steps;
             const expectedLOSElevation = observerElevation + (targetElevation - observerElevation) * progress;
-            const terrainElevation = await getTerrainElevation(map, segmentCoordinates);
+            const terrainElevation = sampler.elevation(segmentCoordinates);
 
             if (terrainElevation > expectedLOSElevation) {
                 firstObstructedPoint = segmentCoordinates;
@@ -164,8 +167,9 @@ class AddLOSGeometry extends BaseGeometry {
         const length = turf.length(line, { units: 'meters' });
         const stepLength = length / profileSteps;
 
-        const startTerrainElevation = await getTerrainElevation(map, coordinates[0]);
-        const endTerrainElevation = await getTerrainElevation(map, coordinates[1]);
+        const sampler = createTerrainSampler(map);
+        const startTerrainElevation = sampler.elevation(coordinates[0]);
+        const endTerrainElevation = sampler.elevation(coordinates[1]);
         const observerElevation = startTerrainElevation + observerHeight;
         const targetElevation = endTerrainElevation + targetHeight;
 
@@ -173,7 +177,7 @@ class AddLOSGeometry extends BaseGeometry {
 
         for (let i = 0; i <= profileSteps; i++) {
             const point = turf.along(line, i * stepLength, { units: 'meters' });
-            const terrainElevation = await getTerrainElevation(map, point.geometry.coordinates);
+            const terrainElevation = sampler.elevation(point.geometry.coordinates);
 
             const progress = i / profileSteps;
             const losElevation = observerElevation + (targetElevation - observerElevation) * progress;

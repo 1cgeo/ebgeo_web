@@ -1,5 +1,6 @@
 // Path: js/draw_tools/image_tool/add_image_control.js
 
+import { queryHoverFeatures } from '../../tool_manager/helpers/hover-query.helpers.js';
 import {
   addFeature,
   updateFeature,
@@ -8,6 +9,7 @@ import {
   getActiveLayerIdSync
 } from "../../store";
 import { IDUtils, showError, loadImageToMap as utilLoadImageToMap } from "../../utilities";
+import { readGeoJSONSourceDataAsync } from "../../utilities/geojson-source.js";
 import { addImageAttributesToPanel } from "./image_attributes_panel.js";
 import AddImageGeometry from "./add_image_geometry.js";
 import { BaseControl } from "../../tool_manager";
@@ -15,6 +17,12 @@ import {
     applyZoomCorrections as applyZoomCorrectionsUtil,
     calculateZoomCorrectedValue,
 } from '../../tool_manager/helpers/zoom-correction.helpers.js';
+
+/**
+ * Layer onHoverMove needs: the only predicate matches source 'images'.
+ * Id confirmed in layers/styles/content.layers.js:197.
+ */
+const HOVER_LAYER_IDS = ['image-layer'];
 
 class AddImageControl extends BaseControl {
     featureType = 'image';
@@ -24,6 +32,8 @@ class AddImageControl extends BaseControl {
     this.geometry = new AddImageGeometry();
     this.zoomRafId = null;
     this.pendingZoomUpdate = false;
+    this.zoomEndRafId = null;
+    this.pendingZoomEndUpdate = false;
     this.zoomCorrectionEnabled = true;
     this._name = 'AddImageControl';
   }
@@ -82,11 +92,17 @@ class AddImageControl extends BaseControl {
 
   onRemove = () => {
     this.map.off("zoom", this.handleZoomChange);
+    this.map.off("zoomend", this.handleZoomEnd);
     if (this.zoomRafId) {
       cancelAnimationFrame(this.zoomRafId);
       this.zoomRafId = null;
     }
+    if (this.zoomEndRafId) {
+      cancelAnimationFrame(this.zoomEndRafId);
+      this.zoomEndRafId = null;
+    }
     this.pendingZoomUpdate = false;
+    this.pendingZoomEndUpdate = false;
     this.deactivate();
     this.removeAllEventListeners();
     this.map = undefined;
@@ -478,14 +494,108 @@ class AddImageControl extends BaseControl {
 
   // ===== ZOOM-INVARIANT SYSTEM =====
 
+  // The image layer paints the zoom-scaled icon size with a style expression
+  // (layers/styles/zoom-expression.js), so `updateAllImageSizes` no longer feeds
+  // the drawing: it refreshes the stored `calculatedSize` for the consumers that
+  // read it (export, selection box, feature header), once per gesture, on
+  // `zoomend`. The per-frame handler is left with the job no expression can do,
+  // the selection box of the images whose correction is OFF, which is expressed
+  // in degrees and has to be rebuilt at every zoom step.
   setupZoomListener = () => {
     this.map.on("zoom", this.handleZoomChange);
+    this.map.on("zoomend", this.handleZoomEnd);
   };
 
   handleZoomChange = () => {
     if (!this.pendingZoomUpdate) {
       this.pendingZoomUpdate = true;
-      this.zoomRafId = requestAnimationFrame(this.updateAllImageSizes);
+      this.zoomRafId = requestAnimationFrame(this.updateFixedImageGeometry);
+    }
+  };
+
+  handleZoomEnd = () => {
+    if (!this.pendingZoomEndUpdate) {
+      this.pendingZoomEndUpdate = true;
+      this.zoomEndRafId = requestAnimationFrame(this.updateAllImageSizes);
+    }
+  };
+
+  /**
+   * Per-frame pass: rebuild the selection box of the images whose zoom correction
+   * is disabled, and nothing else.
+   */
+  updateFixedImageGeometry = async () => {
+    const source = this.map?.getSource("images");
+    if (!source) {
+      this.pendingZoomUpdate = false;
+      return;
+    }
+
+    const data = await readGeoJSONSourceDataAsync(source);
+    if (!data?.features?.length) {
+      this.pendingZoomUpdate = false;
+      return;
+    }
+
+    // Counted once per pass: with no fixed-size image in the collection there is
+    // no geographic geometry to rebuild, and the frame ends here.
+    const fixedFeatures = data.features.filter(
+      (feature) => feature.properties.zoomCorrectionEnabled === false,
+    );
+    if (!fixedFeatures.length) {
+      this.pendingZoomUpdate = false;
+      return;
+    }
+
+    const currentZoom = this.map.getZoom();
+    fixedFeatures.forEach((feature) => {
+      feature.properties.selectionBox = this.geometry.calculateSelectionBoxGeometry(
+        feature.geometry.coordinates,
+        feature.properties.width,
+        feature.properties.height,
+        feature.properties.size,
+        feature.properties.rotation,
+        feature.properties.createdAtZoom,
+        this.selectionManager.uiManager,
+        currentZoom
+      );
+      feature.properties.calculatedSize = calculateZoomCorrectedValue(
+        feature.properties,
+        currentZoom,
+        AddImageControl.ZOOM_CORRECTION_CONFIG,
+      );
+    });
+
+    source.setData(data);
+    this.syncSelectedImageFeatures(data);
+    this.pendingZoomUpdate = false;
+  };
+
+  /**
+   * Push the freshly computed selection boxes onto the selected images whose zoom
+   * correction is disabled, and refresh the highlight.
+   * @param {Object} data - The GeoJSON collection just written to the source
+   */
+  syncSelectedImageFeatures = (data) => {
+    const selectedFeatures = this.getSelectedFeatures();
+    const featuresWithDisabledZoomCorrection = selectedFeatures.filter(
+      f => f.properties.zoomCorrectionEnabled === false
+    );
+    if (featuresWithDisabledZoomCorrection.length === 0) return;
+
+    featuresWithDisabledZoomCorrection.forEach(selectedFeature => {
+      const freshFeature = data.features.find(f => f.properties.id === selectedFeature.properties.id);
+      if (freshFeature) {
+        this.selectionManager.updateSelectedFeature('image', freshFeature.properties.id, freshFeature);
+        // Invalidate cache for this feature
+        if (this.selectionManager.uiManager.invalidateCache) {
+          this.selectionManager.uiManager.invalidateCache(freshFeature.properties.id);
+        }
+      }
+    });
+    // Update selection highlight
+    if (this.selectionManager.uiManager.updateSelectionHighlight) {
+      this.selectionManager.uiManager.updateSelectionHighlight();
     }
   };
 
@@ -497,14 +607,23 @@ class AddImageControl extends BaseControl {
     );
   };
 
+  /**
+   * End-of-gesture pass: the full recalculation (calculated sizes, selection box
+   * of the fixed-size images, selection sync) that used to run per frame.
+   */
   updateAllImageSizes = async () => {
-    if (!this.map.getSource("images")) {
-      this.pendingZoomUpdate = false;
+    const source = this.map.getSource("images");
+    if (!source) {
+      this.pendingZoomEndUpdate = false;
       return;
     }
 
     const currentZoom = this.map.getZoom();
-    const data = await this.map.getSource("images").getData();
+    const data = await readGeoJSONSourceDataAsync(source);
+    if (!data?.features?.length) {
+      this.pendingZoomEndUpdate = false;
+      return;
+    }
     let hasChanges = false;
 
     data.features.forEach((feature) => {
@@ -542,32 +661,13 @@ class AddImageControl extends BaseControl {
     });
 
     if (hasChanges) {
-      this.map.getSource("images").setData(data);
+      source.setData(data);
 
       // Update SelectionManager with fresh features that have updated selectionBox
-      const selectedFeatures = this.getSelectedFeatures();
-      const featuresWithDisabledZoomCorrection = selectedFeatures.filter(
-        f => f.properties.zoomCorrectionEnabled === false
-      );
-      if (featuresWithDisabledZoomCorrection.length > 0) {
-        featuresWithDisabledZoomCorrection.forEach(selectedFeature => {
-          const freshFeature = data.features.find(f => f.properties.id === selectedFeature.properties.id);
-          if (freshFeature) {
-            this.selectionManager.updateSelectedFeature('image', freshFeature.properties.id, freshFeature);
-            // Invalidate cache for this feature
-            if (this.selectionManager.uiManager.invalidateCache) {
-              this.selectionManager.uiManager.invalidateCache(freshFeature.properties.id);
-            }
-          }
-        });
-        // Update selection highlight
-        if (this.selectionManager.uiManager.updateSelectionHighlight) {
-          this.selectionManager.uiManager.updateSelectionHighlight();
-        }
-      }
+      this.syncSelectedImageFeatures(data);
     }
 
-    this.pendingZoomUpdate = false;
+    this.pendingZoomEndUpdate = false;
   };
 
   // ===== HOVER SYSTEM =====
@@ -584,7 +684,7 @@ class AddImageControl extends BaseControl {
     const selectedFeature = this.getSelectedFeature();
     if (!selectedFeature) return;
 
-    const features = this.map.queryRenderedFeatures(e.point);
+    const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
     const hasFeature = this.hasSelectedFeatureAtPoint(features);
 
     this.map.getCanvas().style.cursor = hasFeature ? "move" : "";
@@ -817,7 +917,12 @@ class AddImageControl extends BaseControl {
       cancelAnimationFrame(this.zoomRafId);
       this.zoomRafId = null;
     }
+    if (this.zoomEndRafId) {
+      cancelAnimationFrame(this.zoomEndRafId);
+      this.zoomEndRafId = null;
+    }
     this.pendingZoomUpdate = false;
+    this.pendingZoomEndUpdate = false;
   };
 }
 

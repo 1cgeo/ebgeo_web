@@ -1,8 +1,10 @@
 // Path: js/draw_tools/text_tool/add_text_control.js
 
+import { queryHoverFeatures } from '../../tool_manager/helpers/hover-query.helpers.js';
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
 import { IDUtils } from '../../utilities';
 import { getPointerPosition } from '../../utilities/pointer-utils';
+import { readGeoJSONSourceDataAsync } from '../../utilities/geojson-source.js';
 import { addTextAttributesToPanel } from './text_attributes_panel.js';
 import AddTextGeometry from './add_text_geometry.js';
 import { BaseControl } from '../../tool_manager';
@@ -10,6 +12,14 @@ import {
     applyZoomCorrections as applyZoomCorrectionsUtil,
     syncZoomCorrectedProperty,
 } from '../../tool_manager/helpers/zoom-correction.helpers.js';
+
+/**
+ * Layers onHoverMove needs: 'text-edit-handles' (hasHandleAtPoint) and 'texts'
+ * (hasSelectedFeatureAtPoint). The text-background layers draw from the separate
+ * 'text-backgrounds' source, which the predicate never matched.
+ * Ids confirmed in layers/styles/content.layers.js:153 and :129.
+ */
+const HOVER_LAYER_IDS = ['text-edit-handles-layer', 'text-layer'];
 
 class AddTextControl extends BaseControl {
     featureType = 'text';
@@ -20,6 +30,8 @@ class AddTextControl extends BaseControl {
 
         this.zoomRafId = null;
         this.pendingZoomUpdate = false;
+        this.zoomEndRafId = null;
+        this.pendingZoomEndUpdate = false;
         this.zoomCorrectionEnabled = true;
         this._name = 'AddTextControl';
 
@@ -73,11 +85,17 @@ class AddTextControl extends BaseControl {
 
     onRemove = () => {
         this.map.off('zoom', this.handleZoomChange);
+        this.map.off('zoomend', this.handleZoomEnd);
         if (this.zoomRafId) {
             cancelAnimationFrame(this.zoomRafId);
             this.zoomRafId = null;
         }
+        if (this.zoomEndRafId) {
+            cancelAnimationFrame(this.zoomEndRafId);
+            this.zoomEndRafId = null;
+        }
         this.pendingZoomUpdate = false;
+        this.pendingZoomEndUpdate = false;
         this.deactivate();
         this.removeAllEventListeners();
         this.map = undefined;
@@ -425,14 +443,112 @@ class AddTextControl extends BaseControl {
 
     // ===== ZOOM-INVARIANT SYSTEM =====
 
+    // The text layer paints the zoom-scaled size with a style expression
+    // (layers/styles/zoom-expression.js), so `updateAllTextSizes` no longer feeds
+    // the drawing: it only refreshes the stored `calculatedSize` for the consumers
+    // that read it (export, selection box, feature header), once per gesture, on
+    // `zoomend`. The per-frame handler is left with the job no expression can do,
+    // the ground geometry of the texts whose correction is OFF: their selection
+    // box and their background polygon live in degrees and have to be rebuilt at
+    // every zoom step.
     setupZoomListener = () => {
         this.map.on('zoom', this.handleZoomChange);
+        this.map.on('zoomend', this.handleZoomEnd);
     }
 
     handleZoomChange = () => {
         if (!this.pendingZoomUpdate) {
             this.pendingZoomUpdate = true;
-            this.zoomRafId = requestAnimationFrame(this.updateAllTextSizes);
+            this.zoomRafId = requestAnimationFrame(this.updateFixedTextGeometry);
+        }
+    }
+
+    handleZoomEnd = () => {
+        if (!this.pendingZoomEndUpdate) {
+            this.pendingZoomEndUpdate = true;
+            this.zoomEndRafId = requestAnimationFrame(this.updateAllTextSizes);
+        }
+    }
+
+    /**
+     * Per-frame pass: rebuild the geographic geometry (selection box and text
+     * background) of the texts whose zoom correction is disabled, and nothing else.
+     */
+    updateFixedTextGeometry = async () => {
+        const source = this.map?.getSource('texts');
+        if (!source) {
+            this.pendingZoomUpdate = false;
+            return;
+        }
+
+        // The rotation handle sits at a screen-space offset from the text, so it
+        // follows every frame of the gesture even when no text needs geometry
+        // rebuilt below; only the selected text has a handle, one small write.
+        const selectedFeature = this.getSelectedFeature();
+        if (selectedFeature && !this.isDraggingHandle) {
+            this.createEditHandles(selectedFeature);
+        }
+
+        const data = await readGeoJSONSourceDataAsync(source);
+        if (!data?.features?.length) {
+            this.pendingZoomUpdate = false;
+            return;
+        }
+
+        // Counted once per pass: with no fixed-size text in the collection there is
+        // no geographic geometry to rebuild, and the frame ends here.
+        const fixedFeatures = data.features.filter(
+            feature => feature.properties.zoomCorrectionEnabled === false
+        );
+        if (!fixedFeatures.length) {
+            this.pendingZoomUpdate = false;
+            return;
+        }
+
+        const currentZoom = this.map.getZoom();
+        fixedFeatures.forEach(feature => {
+            feature.properties.selectionBox = this.geometry.calculateSelectionBoxGeometry(
+                feature.geometry.coordinates,
+                feature.properties.text,
+                feature.properties.size,
+                feature.properties.rotation,
+                feature.properties.createdAtZoom,
+                this.selectionManager.uiManager,
+                feature.properties.showBackground,
+                feature.properties.backgroundBorderWidth,
+                currentZoom
+            );
+            feature.properties.calculatedSize = feature.properties.size;
+        });
+
+        source.setData(data);
+        await this.updateTextBackgroundsSource();
+        this.syncSelectedTextFeatures(data);
+        this.pendingZoomUpdate = false;
+    }
+
+    /**
+     * Push the freshly computed selection boxes onto the selected text features
+     * and refresh the highlight.
+     * @param {Object} data - The GeoJSON collection just written to the source
+     */
+    syncSelectedTextFeatures = (data) => {
+        const selectedFeatures = this.getSelectedFeatures();
+        if (!selectedFeatures.length) return;
+
+        selectedFeatures.forEach(selectedFeature => {
+            const freshFeature = data.features.find(f => f.properties.id === selectedFeature.properties.id);
+            if (freshFeature) {
+                this.selectionManager.updateSelectedFeature('text', freshFeature.properties.id, freshFeature);
+                // Invalidate cache for this feature
+                if (this.selectionManager.uiManager.invalidateCache) {
+                    this.selectionManager.uiManager.invalidateCache(freshFeature.properties.id);
+                }
+            }
+        });
+        // Update selection highlight
+        if (this.selectionManager.uiManager.updateSelectionHighlight) {
+            this.selectionManager.uiManager.updateSelectionHighlight();
         }
     }
 
@@ -444,14 +560,23 @@ class AddTextControl extends BaseControl {
         });
     }
 
+    /**
+     * End-of-gesture pass: the full recalculation (calculated sizes, geographic
+     * geometry of the fixed-size texts, selection sync) that used to run per frame.
+     */
     updateAllTextSizes = async () => {
-        if (!this.map.getSource('texts')) {
-            this.pendingZoomUpdate = false;
+        const source = this.map.getSource('texts');
+        if (!source) {
+            this.pendingZoomEndUpdate = false;
             return;
         }
 
         const currentZoom = this.map.getZoom();
-        const data = await this.map.getSource('texts').getData();
+        const data = await readGeoJSONSourceDataAsync(source);
+        if (!data?.features?.length) {
+            this.pendingZoomEndUpdate = false;
+            return;
+        }
         let hasChanges = false;
         let hasSelectionBoxChanges = false;
 
@@ -488,33 +613,18 @@ class AddTextControl extends BaseControl {
         });
 
         if (hasChanges || hasSelectionBoxChanges) {
-            this.map.getSource('texts').setData(data);
+            source.setData(data);
 
             // Update text backgrounds if any selection boxes changed
             if (hasSelectionBoxChanges) {
                 await this.updateTextBackgroundsSource();
 
                 // Update SelectionManager with fresh features that have updated selectionBox
-                const selectedFeatures = this.getSelectedFeatures();
-                if (selectedFeatures.length > 0) {
-                    selectedFeatures.forEach(selectedFeature => {
-                        const freshFeature = data.features.find(f => f.properties.id === selectedFeature.properties.id);
-                        if (freshFeature) {
-                            this.selectionManager.updateSelectedFeature('text', freshFeature.properties.id, freshFeature);
-                            // Invalidate cache for this feature
-                            if (this.selectionManager.uiManager.invalidateCache) {
-                                this.selectionManager.uiManager.invalidateCache(freshFeature.properties.id);
-                            }
-                        }
-                    });
-                    // Update selection highlight
-                    if (this.selectionManager.uiManager.updateSelectionHighlight) {
-                        this.selectionManager.uiManager.updateSelectionHighlight();
-                    }
-                }
+                this.syncSelectedTextFeatures(data);
             }
 
-            // Refresh rotation handle position on zoom (handle uses screen-space offset)
+            // Refresh rotation handle position at the end of the gesture (the
+            // handle sits at a screen-space offset from the text)
             if (!this.isDraggingHandle) {
                 const selectedFeature = this.getSelectedFeature();
                 if (selectedFeature) {
@@ -523,7 +633,7 @@ class AddTextControl extends BaseControl {
             }
         }
 
-        this.pendingZoomUpdate = false;
+        this.pendingZoomEndUpdate = false;
     }
 
     // ===== HOVER SYSTEM =====
@@ -540,7 +650,7 @@ class AddTextControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
-        const features = this.map.queryRenderedFeatures(e.point);
+        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
         const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
 
@@ -583,7 +693,8 @@ class AddTextControl extends BaseControl {
         }
 
         try {
-            const currentTextsData = await this.map.getSource('texts').getData();
+            const currentTextsData = await readGeoJSONSourceDataAsync(this.map.getSource('texts'));
+            if (!currentTextsData) return;
             const currentTexts = currentTextsData.features;
 
             const backgroundFeatures = currentTexts
@@ -1107,7 +1218,12 @@ class AddTextControl extends BaseControl {
             cancelAnimationFrame(this.zoomRafId);
             this.zoomRafId = null;
         }
+        if (this.zoomEndRafId) {
+            cancelAnimationFrame(this.zoomEndRafId);
+            this.zoomEndRafId = null;
+        }
         this.pendingZoomUpdate = false;
+        this.pendingZoomEndUpdate = false;
     }
 }
 

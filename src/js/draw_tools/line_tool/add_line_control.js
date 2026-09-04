@@ -15,6 +15,7 @@ import { addLineAttributesToPanel } from './line_attributes_panel.js';
 import AddLineGeometry from './add_line_geometry.js';
 import { BaseControl } from '../../tool_manager';
 import { getSnappingService } from '../../snapping/snapping.service.js';
+import { queryHoverFeatures } from '../../tool_manager/helpers/hover-query.helpers.js';
 import {
     anchorFor,
     buildExtendedProperties,
@@ -35,6 +36,13 @@ import {
     setMeasurementLabelSelected
 } from './line_measurement.js';
 import { calculateProfile } from './line_profile.js';
+
+/**
+ * Layers onHoverMove needs, one per source its two predicates filter by:
+ * 'line-edit-handles' (hasHandleAtPoint) and 'lines' (hasSelectedFeatureAtPoint).
+ * Ids confirmed in layers/styles/line.layers.js:61 and :44.
+ */
+const HOVER_LAYER_IDS = ['line-edit-handles-layer', 'line-layer'];
 
 class AddLineControl extends BaseControl {
     featureType = 'line';
@@ -617,7 +625,13 @@ class AddLineControl extends BaseControl {
                 id: featureId,
                 nome: featureName,
                 baseCoordinates: coordinates,
-                profileData: JSON.stringify(await this.calculateProfile(coordinates))
+                // The profile is only computed when the switch is on. The panel
+                // ignores `profileData` without `profile`, and turning the switch
+                // on recomputes it, so computing it here was 26 terrain reads
+                // per drawn line thrown away.
+                profileData: AddLineControl.DEFAULT_PROPERTIES.profile === true
+                    ? JSON.stringify(await this.calculateProfile(coordinates))
+                    : null
             },
             geometry: this.geometry.generate(coordinates)
         };
@@ -1243,7 +1257,7 @@ class AddLineControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
-        const features = this.map.queryRenderedFeatures(e.point);
+        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
         const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
 

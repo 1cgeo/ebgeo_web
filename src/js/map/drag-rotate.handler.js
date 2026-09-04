@@ -103,16 +103,22 @@ class DragRotateHandler {
 
         const { bearingDelta, pitchDelta } = computeCameraDelta(this._mode, dx, dy);
 
+        // One jumpTo for both axes: `setBearing` and `setPitch` are each a full
+        // jumpTo (matrix rebuild, move/rotate/pitch event cascade, repaint), so
+        // the Ctrl+Shift gesture used to pay that twice per mousemove.
+        const target = {};
         if (bearingDelta !== 0) {
-            this._map.setBearing(this._map.getBearing() + bearingDelta);
+            target.bearing = this._map.getBearing() + bearingDelta;
         }
         if (pitchDelta !== 0) {
-            const nextPitch = clampPitch(
+            target.pitch = clampPitch(
                 this._map.getPitch() + pitchDelta,
                 this._map.getMinPitch(),
                 this._map.getMaxPitch()
             );
-            this._map.setPitch(nextPitch);
+        }
+        if (target.bearing !== undefined || target.pitch !== undefined) {
+            this._map.jumpTo(target);
         }
     }
 

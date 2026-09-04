@@ -1,5 +1,6 @@
 // Path: js/analysis_tools/visibility_tool/add_visibility_control.js
 
+import { queryHoverFeatures } from '../../tool_manager/helpers/hover-query.helpers.js';
 import { addFeature, removeFeature, getCurrentMapFeatures, batchUpdateVisibilityFeatures, getActiveLayerIdSync } from '@store';
 import { IDUtils } from '@utils';
 import { getPointerPosition } from '@utils/pointer-utils';
@@ -7,6 +8,14 @@ import { addVisibilityAttributesToPanel, addVisibilityParametersToPanel } from '
 import AddVisibilityGeometry from './add_visibility_geometry.js';
 import { BaseControl } from '@tools';
 import { getSnappingService } from '@js/snapping';
+
+/**
+ * Layers onHoverMove needs: 'visibility-edit-handles' for the handle test, plus
+ * the two sources the feature test accepts, 'visibility' and 'processed-visibility'
+ * (the latter drawn by the visible and the obstructed layers).
+ * Ids confirmed in layers/styles/tactical.layers.js:320, :265, :275 and :286.
+ */
+const HOVER_LAYER_IDS = ['visibility-edit-handles-layer', 'visibility-layer', 'visibility-visible-layer', 'visibility-obstructed-layer'];
 
 /**
  * Visibility (Viewshed) analysis tool control.
@@ -510,7 +519,7 @@ class AddVisibilityControl extends BaseControl {
     onHoverMove = (e) => {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
-        const features = this.map.queryRenderedFeatures(e.point);
+        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
         const hasHandle = features.some(f =>
             f.source === 'visibility-edit-handles' && f.properties.user_isEditingHandle
         );
@@ -648,18 +657,18 @@ class AddVisibilityControl extends BaseControl {
             );
 
             this.updateProgress(85, 'Preparando features processadas...');
-            await this.geometry.delay(50);
+            await this.geometry.nextPaint();
 
             const processedFeatures = this.geometry.generateProcessedFeatures(visibilityFeature);
 
             this.updateProgress(88, 'Salvando no banco de dados...');
-            await this.geometry.delay(50);
+            await this.geometry.nextPaint();
 
             await addFeature('visibility', visibilityFeature);
             await batchUpdateVisibilityFeatures(visibilityFeature, processedFeatures);
 
             this.updateProgress(92, 'Atualizando mapa...');
-            await this.geometry.delay(50);
+            await this.geometry.nextPaint();
 
             const data = await this.map.getSource('visibility').getData();
             data.features.push(visibilityFeature);
@@ -670,7 +679,7 @@ class AddVisibilityControl extends BaseControl {
             this.map.getSource('processed-visibility').setData(processedData);
 
             this.updateProgress(100, 'Concluído!');
-            await this.geometry.delay(300);
+            await this.geometry.delay(150);
 
             await this.selectionManager.toggleFeatureSelection('visibility', visibilityFeature.properties.id, visibilityFeature);
             this.selectionManager.updateUI();
@@ -797,7 +806,7 @@ class AddVisibilityControl extends BaseControl {
         try {
             this.showProgressModal();
             this.updateProgress(5, 'Preparando recálculo...');
-            await this.geometry.delay(50);
+            await this.geometry.nextPaint();
 
             const data = await this.map.getSource('visibility').getData();
             const processedData = await this.map.getSource('processed-visibility').getData();
@@ -818,7 +827,7 @@ class AddVisibilityControl extends BaseControl {
                     );
 
                     this.updateProgress(85, 'Atualizando geometria...');
-                    await this.geometry.delay(50);
+                    await this.geometry.nextPaint();
 
                     sourceFeature.geometry = result.geometry;
                     sourceFeature.properties.cellData = result.cellData;
@@ -830,7 +839,7 @@ class AddVisibilityControl extends BaseControl {
                     const newProcessedFeatures = this.geometry.generateProcessedFeatures(sourceFeature);
 
                     this.updateProgress(88, 'Salvando no banco de dados...');
-                    await this.geometry.delay(50);
+                    await this.geometry.nextPaint();
 
                     await batchUpdateVisibilityFeatures(sourceFeature, newProcessedFeatures);
 
@@ -845,7 +854,7 @@ class AddVisibilityControl extends BaseControl {
             }
 
             this.updateProgress(95, 'Atualizando mapa...');
-            await this.geometry.delay(50);
+            await this.geometry.nextPaint();
 
             this.map.getSource('visibility').setData(data);
             this.map.getSource('processed-visibility').setData(processedData);
@@ -867,7 +876,7 @@ class AddVisibilityControl extends BaseControl {
             }
 
             this.updateProgress(100, 'Recálculo concluído!');
-            await this.geometry.delay(300);
+            await this.geometry.delay(150);
 
         } catch (error) {
             console.error('Error in parameter change recalculation:', error);
@@ -886,13 +895,13 @@ class AddVisibilityControl extends BaseControl {
                 try {
                     this.showProgressModal();
                     this.updateProgress(5, 'Detectando nova posição...');
-                    await this.geometry.delay(50);
+                    await this.geometry.nextPaint();
 
                     const newCenter = this.geometry.normalizeCenter(movedFeature.properties.center);
                     if (!newCenter) continue;
 
                     this.updateProgress(10, 'Preparando recálculo...');
-                    await this.geometry.delay(50);
+                    await this.geometry.nextPaint();
 
                     const result = await this.geometry.recalculateFromCoordinates(
                         newCenter,
@@ -902,7 +911,7 @@ class AddVisibilityControl extends BaseControl {
                     );
 
                     this.updateProgress(85, 'Atualizando geometria...');
-                    await this.geometry.delay(50);
+                    await this.geometry.nextPaint();
 
                     movedFeature.geometry = result.geometry;
                     movedFeature.properties.center = result.center;
@@ -911,12 +920,12 @@ class AddVisibilityControl extends BaseControl {
                     const newProcessedFeatures = this.geometry.generateProcessedFeatures(movedFeature);
 
                     this.updateProgress(90, 'Salvando no banco de dados...');
-                    await this.geometry.delay(50);
+                    await this.geometry.nextPaint();
 
                     await batchUpdateVisibilityFeatures(movedFeature, newProcessedFeatures);
 
                     this.updateProgress(95, 'Atualizando fontes do mapa...');
-                    await this.geometry.delay(50);
+                    await this.geometry.nextPaint();
 
                     await this.updateProcessedFeaturesAfterMove(movedFeature, newProcessedFeatures);
 
@@ -926,7 +935,7 @@ class AddVisibilityControl extends BaseControl {
                     }
 
                     this.updateProgress(100, 'Recálculo concluído!');
-                    await this.geometry.delay(300);
+                    await this.geometry.delay(150);
 
                 } catch (error) {
                     console.error('Error during visibility recalculation:', error);

@@ -1,5 +1,6 @@
 // Path: js/draw_tools/sector_tool/add_sector_control.js
 
+import { queryHoverFeatures } from '../../tool_manager/helpers/hover-query.helpers.js';
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
 import { IDUtils, showWarning } from '../../utilities';
 import { getPointerPosition } from '../../utilities/pointer-utils';
@@ -8,6 +9,14 @@ import AddSectorGeometry from './add_sector_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
 import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged, LABEL_ZOOM_PROPERTIES, recalcLabelSize, createLabelZoomHandler, syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
+
+/**
+ * Layers onHoverMove needs: 'sector-edit-handles' (hasHandleAtPoint) and 'setores'
+ * (hasSelectedFeatureAtPoint, rendered by the fill, the hatch fill and the outline).
+ * The outline id is "sectors-layer", not "sector-layer": shape.layers.js:210 passes
+ * outlineLayerId for this family alone.
+ */
+const HOVER_LAYER_IDS = ['sector-edit-handles-layer', 'sector-fill-layer', 'sector-fill-pattern-layer', 'sectors-layer'];
 
 /**
  * Sector drawing tool control.
@@ -62,14 +71,14 @@ class AddSectorControl extends BaseControl {
 
     onAdd = (map) => {
         this.map = map;
-        map.on('zoom', this._onZoomForLabels);
+        map.on('zoomend', this._onZoomForLabels);
     }
 
     onRemove = () => {
         this.deactivate();
         this.removeAllEventListeners();
         if (this.map) {
-            this.map.off('zoom', this._onZoomForLabels);
+            this.map.off('zoomend', this._onZoomForLabels);
         }
         this.#labelZoom.cleanup();
         this.map = undefined;
@@ -668,7 +677,7 @@ class AddSectorControl extends BaseControl {
     onHoverMove = (e) => {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
-        const features = this.map.queryRenderedFeatures(e.point);
+        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
         const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
         if (hasHandle) {

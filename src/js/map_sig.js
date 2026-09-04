@@ -21,6 +21,7 @@ import { BaseLayerControl } from './baselayers';
 import { AddImportControl, ScreenshotControl, DragDropHandler, ExportImportService, PDFExportTab } from './import_export';
 import { ToolManager, SelectionManager, UIManager, MoveHandler, ClipboardManager } from './tool_manager';
 import { MapManager, DragRotateHandler } from './map';
+import { applyTileLodParams } from './map/tile-lod.js';
 import { FeaturesTab } from './features_tab';
 import { AddStreetViewControl } from './street_view_tool';
 import { Add3DModelsViewerControl } from './3d_models_viewer_tool';
@@ -142,7 +143,9 @@ export function createMap() {
     // If accidental rotation is still reported on tablets, the line to add is:
     //   map.touchZoomRotate.disableRotation();
 
-    map.setSourceTileLodParams(...config.map2d.sourceTileLodParams);
+    // Re-applied after every setStyle in base-layer.control.js: the sources are
+    // new objects each time and would otherwise fall back to MapLibre's default.
+    applyTileLodParams(map, config.map2d.sourceTileLodParams);
     if (config.map2d.maxBounds) {
         map.setMaxBounds(config.map2d.maxBounds);
     }

@@ -89,6 +89,28 @@ export function removeMeasurement(featureId) {
 }
 
 /**
+ * Remove EVERY measurement marker, detaching the map listeners each one holds.
+ * Called on map and base-layer switches: removing only the DOM nodes left the
+ * previous map's markers alive in this registry, each with five map listeners
+ * (`move`, `moveend`, `terrain`, `projectiontransition`, `click`) firing on
+ * every camera frame for a label no longer on screen.
+ *
+ * @returns {number} How many markers were removed
+ */
+export function clearAllMeasurementMarkers() {
+    const count = activeMeasurementMarkers.size;
+    for (const marker of activeMeasurementMarkers.values()) {
+        try {
+            marker.remove();
+        } catch {
+            // A marker whose map is already gone has nothing left to detach.
+        }
+    }
+    activeMeasurementMarkers.clear();
+    return count;
+}
+
+/**
  * Set selection state on measurement label.
  *
  * @param {string} featureId - Feature ID

@@ -1250,6 +1250,12 @@ export class FeaturesTab {
         if (!this._isVisible) return;
         if (this._suppressRefresh) return;
         if (!this.FEATURE_SOURCES.includes(e.sourceId)) return;
+        // MapLibre fires `sourcedata` once per TILE a GeoJSON source produces, so
+        // just panning the map used to rebuild this whole panel (19 worker reads,
+        // every list item re-created) 150 ms after each stop. Only a `setData`
+        // carries `sourceDataType: 'content'`, and that is the one event that
+        // means the collection changed.
+        if (e.sourceDataType !== 'content') return;
         this._scheduleRefresh();
     }
 

@@ -12,15 +12,27 @@
 import { FEATURE_LAYER_IDS } from './layer.constants.js';
 import { getLayers } from '../store';
 
-/** Opacity-style paint properties found in feature MapLibre layers. */
-const OPACITY_PROPS = [
-    'fill-opacity',
-    'line-opacity',
-    'circle-opacity',
-    'circle-stroke-opacity',
-    'text-opacity',
-    'icon-opacity'
-];
+/**
+ * Opacity-style paint properties, BY LAYER TYPE. Asking a layer for a property of
+ * another type makes MapLibre throw, and the previous flat list of six props
+ * cost ~170 exceptions (each with a stack trace) per full pass over the 43
+ * feature layers. A layer type not listed here receives no opacity multiplier.
+ */
+const OPACITY_PROPS_BY_TYPE = {
+    fill: ['fill-opacity'],
+    line: ['line-opacity'],
+    circle: ['circle-opacity', 'circle-stroke-opacity'],
+    symbol: ['text-opacity', 'icon-opacity'],
+};
+
+/**
+ * Opacity paint properties a MapLibre layer can carry, from its type.
+ * @param {{ type?: string }|null|undefined} layer - `map.getLayer(id)`
+ * @returns {string[]}
+ */
+export function opacityPropsForLayer(layer) {
+    return OPACITY_PROPS_BY_TYPE[layer?.type] || [];
+}
 
 /**
  * Cache of original paint property expressions, keyed by `${layerId}:${prop}`.
@@ -31,6 +43,13 @@ const originalPaintCache = new Map();
 
 /** Last applied opacity signature, for short-circuiting redundant work. */
 let lastSignature = null;
+
+/**
+ * Last map instance handed to `applyLayerOpacities`, so a live preview can reach
+ * the map without threading the instance through the sidebar components.
+ * @type {Object|null}
+ */
+let lastMapInstance = null;
 
 /**
  * Captures the original paint property if not already cached.
@@ -92,8 +111,40 @@ function computeSignature(layers) {
  */
 export function applyLayerOpacities(mapInstance) {
     if (!mapInstance) return;
+    lastMapInstance = mapInstance;
+    applyOpacityExpressions(mapInstance, getLayers());
+}
 
-    const layers = getLayers();
+/**
+ * Applies an opacity that is NOT (yet) in the store, for live feedback while a
+ * slider is dragged. Writing the store per frame emits LAYERS_CHANGED and logs a
+ * sync operation on every frame; this path only touches paint properties.
+ *
+ * The signature bookkeeping is shared with `applyLayerOpacities`, so the single
+ * store write at the end of the gesture short-circuits instead of repainting.
+ * If the gesture never commits, the next real layer change re-applies the stored
+ * value and the preview is discarded.
+ *
+ * @param {string} layerId - Layer being dragged
+ * @param {number} opacity - Opacity 0..1 to preview
+ * @returns {boolean} True when the preview was applied to a map
+ */
+export function previewLayerOpacity(layerId, opacity) {
+    if (!lastMapInstance) return false;
+
+    const layers = getLayers().map(
+        layer => (layer.id === layerId ? { ...layer, opacity } : layer)
+    );
+    applyOpacityExpressions(lastMapInstance, layers);
+    return true;
+}
+
+/**
+ * Rebuilds the opacity multiplier expressions from a layer list.
+ * @param {Object} mapInstance - MapLibre map instance
+ * @param {Array<{id: string, opacity?: number}>} layers - Layers to apply
+ */
+function applyOpacityExpressions(mapInstance, layers) {
     const signature = computeSignature(layers);
     if (signature === lastSignature) return;
     lastSignature = signature;
@@ -101,9 +152,10 @@ export function applyLayerOpacities(mapInstance) {
     const opacityMatch = buildOpacityMatch(layers);
 
     for (const mapLayerId of FEATURE_LAYER_IDS) {
-        if (!mapInstance.getLayer(mapLayerId)) continue;
+        const mapLayer = mapInstance.getLayer(mapLayerId);
+        if (!mapLayer) continue;
 
-        for (const prop of OPACITY_PROPS) {
+        for (const prop of opacityPropsForLayer(mapLayer)) {
             const original = snapshotOriginal(mapInstance, mapLayerId, prop);
             if (original === undefined || original === null) continue;
 

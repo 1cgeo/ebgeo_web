@@ -12,9 +12,11 @@ import { EventTypes } from '../events';
 
 import { generatePointImage, needsPerFeatureImage } from '../draw_tools/point_tool/point-marker-symbols.js';
 import { parseCustomMarker, registerCustomFeatureImage } from '../draw_tools/point_tool/point-custom-icons.js';
+import { clearAllMeasurementMarkers } from '../draw_tools/line_tool/line_measurement.js';
 import { updateAllLayerFilters, invalidateFilterCache, updateMeasurementLabelVisibility } from './visibility-filter.js';
 import { applyLayerOpacities, invalidateOpacityCache } from './layer-opacity-applier.js';
 import { collectImageResourceIds, collectImageResourceRatios } from './feature-images.js';
+import { resolveSetupMode } from './setup-mode.js';
 import {
     setupPointLayers,
     setupLineLayers,
@@ -264,6 +266,9 @@ async function restoreCatalogLayers(mapInstance, analysisLayersManager, dataLaye
  * Clears all measurement labels from the map.
  */
 function clearAllMeasurements() {
+    // Markers first, so their map listeners go with them; the DOM sweep below
+    // only catches labels created outside the marker registry.
+    clearAllMeasurementMarkers();
     const measurementLabels = document.querySelectorAll('.measurement-label');
     measurementLabels.forEach(label => {
         const parentMarker = label.closest('.maplibregl-marker');
@@ -430,15 +435,30 @@ function setupLayerVisibilityListener(mapInstance, eventBus) {
 
 /**
  * Sets up all map feature layers and visibility system.
+ *
+ * Two modes (see `setup-mode.js`). In the full mode every collection is read
+ * from the store and written to its source. In the preserved mode, taken after a
+ * base-map change on the SAME atlas map with the sources kept by
+ * `transformStyle`, the collections, filters and opacities are already on the
+ * map and are left alone: only the separators, the terrain, the catalog and the
+ * grid are re-checked, all of which are idempotent.
+ *
  * @param {Object} mapInstance - MapLibre map instance
  * @param {Object} analysisLayersManager - Analysis layers manager
  * @param {Object} dataLayersManager - Data layers manager
  * @param {import('../events/event_bus.js').EventBus} eventBus - Event bus instance
+ * @param {{ contentPreserved?: boolean }} [options] - `contentPreserved` when the
+ *   atlas map did not change and the style swap kept the application content
  */
-export async function setupMapFeatures(mapInstance, analysisLayersManager, dataLayersManager, eventBus) {
+export async function setupMapFeatures(mapInstance, analysisLayersManager, dataLayersManager, eventBus, options = {}) {
     try {
-        invalidateFilterCache();
-        invalidateOpacityCache();
+        const mode = resolveSetupMode(options, !!mapInstance.getSource('points'));
+        const rebuild = mode === 'full';
+
+        if (rebuild) {
+            invalidateFilterCache();
+            invalidateOpacityCache();
+        }
 
         setupLayerSeparators(mapInstance);
 
@@ -448,6 +468,15 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
         await dataLayersManager.setupDataLayers();
 
         await restoreCatalogLayers(mapInstance, analysisLayersManager, dataLayersManager);
+
+        if (!rebuild) {
+            if (config.features.grid) {
+                await setupGridLayers(mapInstance);
+            }
+            if (layerVisibilityUnsub) layerVisibilityUnsub();
+            layerVisibilityUnsub = setupLayerVisibilityListener(mapInstance, eventBus);
+            return;
+        }
 
         const features = await getCurrentMapFeatures();
         await setImages(features, mapInstance);

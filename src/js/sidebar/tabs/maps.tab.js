@@ -104,6 +104,12 @@ export class MapsTab {
         this._currentMapName = null;
         this._sortableInstance = null;
         this._isLoadingMaps = false;
+        // Visibility gate: the tab only exists in the DOM while the sidebar shows
+        // it, and reloading the list deserializes one whole map document per map
+        // of the atlas. LAYERS_CHANGED fires from 33 places, so an invisible tab
+        // would pay that on every visibility, lock, order or opacity change.
+        this._isVisible = false;
+        this._needsReload = false;
 
         setupCleanup(this);
     }
@@ -156,6 +162,9 @@ export class MapsTab {
 
         // Setup event listeners
         this._setupEventListeners();
+
+        // render() is only called when the sidebar is opening this tab
+        this._isVisible = true;
 
         // Load initial data
         this._loadMaps();
@@ -312,6 +321,13 @@ export class MapsTab {
      * @private
      */
     async _loadMaps() {
+        // Skip the work while the tab is hidden and replay it once on reopen.
+        // Each pass reads a full map document per map of the atlas.
+        if (!this._isVisible) {
+            this._needsReload = true;
+            return;
+        }
+
         // Guard against concurrent calls
         if (this._isLoadingMaps) {
             return;
@@ -1144,16 +1160,27 @@ export class MapsTab {
     }
 
     /**
-     * Refreshes the tab content.
+     * Refreshes the tab content. Called by the sidebar when the tab is reopened.
      */
     refresh() {
+        this._isVisible = true;
+        this._needsReload = false;
         this._loadMaps();
+    }
+
+    /**
+     * Called by the sidebar when this tab stops being shown (tab switch or
+     * panel collapse). Stops the LAYERS_CHANGED reload until the tab reopens.
+     */
+    onDeactivate() {
+        this._isVisible = false;
     }
 
     /**
      * Destroys the component.
      */
     destroy() {
+        this._isVisible = false;
         this._closeContextMenu();
         // Row-scoped listeners are flushed by cleanup(this) below.
 

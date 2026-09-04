@@ -6,23 +6,59 @@ import { getCatalogLayers, toggleCatalogLayerVisibility } from '../store/catalog
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
 import { DEFAULT_TERRAIN_EXAGGERATION } from '../store/atlas/atlas.entity.js';
 
+// Elevation reads live in a leaf module so the analysis geometry can be tested
+// against a fake map. Re-exported here to keep the historical import path.
+export { getTerrainElevation, createTerrainSampler, resolveTerrainLookupZoom } from './terrain-elevation.js';
+
 /**
- * Gets terrain elevation at given coordinates
- * @param {Object} map - MapLibre GL map instance
- * @param {Array|Object} coordinates - [lng, lat] or {lng, lat}
- * @param {Object} options - Query options
- * @returns {Promise<number>} Elevation in meters
+ * Resolves after the map has rendered one frame, which is when MapLibre applies
+ * the pending style changes (a hidden layer releases its tiles there).
+ * @param {Object} map - MapLibre map
+ * @returns {Promise<void>}
  */
-export async function getTerrainElevation(map, coordinates, options = { exaggerated: false }) {
-    const terrain = map.getTerrain();
-    if (!terrain) return 0;
+function afterNextRender(map) {
+    return new Promise((resolve) => {
+        map.once('render', () => resolve());
+        map.triggerRepaint();
+    });
+}
 
-    const fixedPoint = [0, 0];
-    const fixedPointElevation = await map.queryTerrainElevation(fixedPoint, options) || 0;
-    const sceneElevation = await map.queryTerrainElevation(coordinates, options) || 0;
-    const altitude = sceneElevation - fixedPointElevation;
-
-    return altitude / (terrain.exaggeration || 1.5);
+/**
+ * Changes the projection without leaving the hillshade tiles stuck.
+ *
+ * MapLibre 5.18 marks every non-raster source for reload when a layer on it
+ * changes or the projection changes, and its `raster-dem` `loadTile` only
+ * finishes a tile that has no actor yet or is `expired`: a LOADED tile put in
+ * `reloading` keeps that state for ever. Measured on 2026-09-03: after
+ * `setProjection({type:'mercator'})` with the hillshade visible, all 28 hillshade
+ * tiles stayed `reloading`, `map.loaded()` stayed false and `idle` never fired
+ * again, which is what the screenshot control waits for.
+ *
+ * The way out uses only public API and takes two frames: hide the hillshade
+ * layer, let one render release its tiles (a reload of a source with no tiles is
+ * a no-op), change the projection, and show the layer again so its tiles load
+ * fresh. Hiding and showing in the SAME frame does not work: the reload marker
+ * is processed before the tiles are released, and the tiles get stuck anyway.
+ *
+ * @param {Object} map - MapLibre map
+ * @param {{ type: string }} projection - Projection to apply
+ * @param {string} [hillshadeLayerId='hillshade']
+ * @returns {Promise<void>} Resolves once the projection is applied and the layer restored
+ */
+export async function setProjectionKeepingHillshade(map, projection, hillshadeLayerId = 'hillshade') {
+    const hasLayer = !!map.getLayer(hillshadeLayerId);
+    const wasVisible = hasLayer && map.getLayoutProperty(hillshadeLayerId, 'visibility') !== 'none';
+    if (!wasVisible) {
+        map.setProjection(projection);
+        return;
+    }
+    map.setLayoutProperty(hillshadeLayerId, 'visibility', 'none');
+    await afterNextRender(map);
+    map.setProjection(projection);
+    await afterNextRender(map);
+    if (map.getLayer(hillshadeLayerId)) {
+        map.setLayoutProperty(hillshadeLayerId, 'visibility', 'visible');
+    }
 }
 
 class TerrainControl {
@@ -92,7 +128,7 @@ class TerrainControl {
      * When activating: disables globe, enables terrain with pitch, enables hillshade.
      * When deactivating: resets pitch, restores globe.
      */
-    _toggleTerrain() {
+    async _toggleTerrain() {
         if (!this.terrainSourceConfig) {
             console.warn('Terrain configuration not available');
             return;
@@ -101,11 +137,12 @@ class TerrainControl {
         if (this._map.getTerrain()) {
             this._wasTerrainActive = false;
             this._map.setTerrain(null);
-            this._restoreGlobeProjection();
+            await this._restoreGlobeProjection();
             this._map.easeTo({ pitch: 0, duration: 500 });
         } else {
-            // Globe + terrain is a known MapLibre bug (#4792, #4927)
-            this._disableGlobeForTerrain();
+            // Globe + terrain is a known MapLibre bug (#4792, #4927). The
+            // projection change is awaited so the terrain never meets the globe.
+            await this._disableGlobeForTerrain();
             this._wasTerrainActive = true;
             this._map.setTerrain(this.terrainConfig);
             this._map.easeTo({ pitch: this._terrainPitch, duration: 500 });
@@ -150,20 +187,28 @@ class TerrainControl {
     async _handleBaseLayerChanged() {
         if (!this._wasTerrainActive) return;
 
-        this._disableGlobeForTerrain();
+        await this._disableGlobeForTerrain();
         await this._setupTerrainSources();
         this._map.setTerrain(this.terrainConfig);
     }
 
-    _disableGlobeForTerrain() {
-        if (this._globeProjection) {
-            this._map.setProjection({ type: 'mercator' });
+    /**
+     * Mercator for the terrain. Skips the projection call when the map is
+     * already there: the call itself is what reloads the DEM tiles.
+     * @returns {Promise<void>}
+     */
+    async _disableGlobeForTerrain() {
+        if (this._globeProjection && this._map.getProjection?.()?.type !== 'mercator') {
+            await setProjectionKeepingHillshade(this._map, { type: 'mercator' });
         }
     }
 
-    _restoreGlobeProjection() {
+    /** @returns {Promise<void>} */
+    async _restoreGlobeProjection() {
         if (this._globeProjection) {
-            this._map.setProjection({ type: 'globe' });
+            if (this._map.getProjection?.()?.type !== 'globe') {
+                await setProjectionKeepingHillshade(this._map, { type: 'globe' });
+            }
             this._map.setSky(undefined);
         }
     }

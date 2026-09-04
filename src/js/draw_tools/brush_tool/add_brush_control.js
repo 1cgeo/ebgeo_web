@@ -3,11 +3,13 @@
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
 import { IDUtils } from '../../utilities';
 import { getPointerPosition, preventDefaultGestures, restoreDefaultGestures } from '../../utilities/pointer-utils';
+import { readGeoJSONSourceDataAsync } from '../../utilities/geojson-source.js';
 import { addBrushAttributesToPanel } from './brush_attributes_panel.js';
 import AddBrushGeometry from './add_brush_geometry.js';
 import { BaseControl } from '../../tool_manager';
 import {
     applyZoomCorrections as applyZoomCorrectionsUtil,
+    calculateZoomCorrectedValue,
     syncZoomCorrectedProperty,
 } from '../../tool_manager/helpers/zoom-correction.helpers.js';
 
@@ -66,7 +68,7 @@ class AddBrushControl extends BaseControl {
     }
 
     onRemove = () => {
-        this.map.off('zoom', this.handleZoomChange);
+        this.map.off('zoomend', this.handleZoomChange);
         if (this.zoomRafId) {
             cancelAnimationFrame(this.zoomRafId);
             this.zoomRafId = null;
@@ -450,8 +452,12 @@ class AddBrushControl extends BaseControl {
 
     // ===== ZOOM HANDLING =====
 
+    // The brush layer paints the zoom-scaled line width with a style expression
+    // (layers/styles/zoom-expression.js), so this pass no longer feeds the
+    // drawing: it refreshes the stored `calculatedLineWidth` for the consumers
+    // that read it, once at the end of the gesture.
     setupZoomListener = () => {
-        this.map.on('zoom', this.handleZoomChange);
+        this.map.on('zoomend', this.handleZoomChange);
     }
 
     handleZoomChange = () => {
@@ -462,20 +468,36 @@ class AddBrushControl extends BaseControl {
     }
 
     performZoomUpdate = async () => {
-        if(this.map.getSource('brushes')){
-            const data = await this.map.getSource('brushes').getData();
-            if (data && data.features) {
-                const updatedFeatures = data.features.map(feature =>
-                    this.applyZoomCorrections([feature])[0]
-                );
+        // The flag reset sat inside the `if (source)` branch: a style swap drops
+        // every source, so a frame that found none left `pendingZoomUpdate` true
+        // forever and `handleZoomChange` never scheduled another pass again.
+        const source = this.map?.getSource('brushes');
+        if (!source) { this.pendingZoomUpdate = false; return; }
 
-                this.map.getSource('brushes').setData({
-                    type: 'FeatureCollection',
-                    features: updatedFeatures
-                });
+        const data = await readGeoJSONSourceDataAsync(source);
+        if (!data?.features?.length) { this.pendingZoomUpdate = false; return; }
+
+        const currentZoom = this.map.getZoom();
+        let hasChanges = false;
+
+        for (const feature of data.features) {
+            const newLineWidth = calculateZoomCorrectedValue(feature.properties, currentZoom, {
+                sourceProperty: 'lineWidth',
+                calculatedProperty: 'calculatedLineWidth',
+            });
+            if (feature.properties.calculatedLineWidth !== newLineWidth) {
+                feature.properties.calculatedLineWidth = newLineWidth;
+                hasChanges = true;
             }
-            this.pendingZoomUpdate = false;
         }
+
+        // The only one of the fifteen zoom passes that used to write on every
+        // frame, empty collection included: a `setData` re-parses the collection,
+        // rebuilds the geojson-vt index and drops every loaded tile of the source.
+        if (hasChanges) {
+            source.setData(data);
+        }
+        this.pendingZoomUpdate = false;
     }
 
     applyZoomCorrections = (features) => {
@@ -631,7 +653,7 @@ class AddBrushControl extends BaseControl {
     removeAllEventListeners = () => {
         this.removeDrawingEventListeners();
         this.clearPreview();
-        this.map.off('zoom', this.handleZoomChange);
+        this.map.off('zoomend', this.handleZoomChange);
         if (this.zoomRafId) {
             cancelAnimationFrame(this.zoomRafId);
             this.zoomRafId = null;

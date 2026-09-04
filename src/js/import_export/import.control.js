@@ -5,7 +5,7 @@ import shp from 'shpjs';
 import { addFeatures, createLayerForImport, getLayers, getCurrentMapNameSync, getEventBus } from '@store';
 import { IDUtils } from '@utils/id_utils.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
-import { getTerrainElevation } from '@js/terrain';
+import { createTerrainSampler } from '@js/terrain';
 import { EventTypes } from '@events';
 import { userDataManager } from '@js/user_data';
 import { extractTemporalProperties, buildTrajectoryFromGpxFeature, extractGpxTimes, sanitizeImportedTrajectory } from '@js/temporal/temporal-import.js';
@@ -528,10 +528,11 @@ class AddImportControl {
             const stepLength = length / steps;
 
             const profileData = [];
+            const sampler = createTerrainSampler(this.map);
 
             for (let i = 0; i <= steps; i++) {
                 const point = turf.along(line, i * stepLength, { units: 'meters' });
-                const elevation = await getTerrainElevation(this.map, point.geometry.coordinates);
+                const elevation = sampler.elevation(point.geometry.coordinates);
                 profileData.push({
                     distance: i * stepLength,
                     elevation: elevation
@@ -627,9 +628,12 @@ class AddImportControl {
         switch (targetType) {
             case 'lines':
                 baseProperties.baseCoordinates = feature.geometry.coordinates;
-                baseProperties.profileData = JSON.stringify(
-                    await this.calculateProfile(feature.geometry.coordinates)
-                );
+                // Imported lines arrive with the profile switch off, and the panel
+                // only shows a profile when the switch is on; the switch recomputes
+                // it. Computing it here cost 26 terrain reads per imported line.
+                baseProperties.profileData = baseProperties.profile === true
+                    ? JSON.stringify(await this.calculateProfile(feature.geometry.coordinates))
+                    : null;
                 break;
 
             case 'polygons': {

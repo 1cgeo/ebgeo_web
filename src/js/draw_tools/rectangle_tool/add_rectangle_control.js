@@ -1,5 +1,6 @@
 // Path: js/draw_tools/rectangle_tool/add_rectangle_control.js
 
+import { queryHoverFeatures } from '../../tool_manager/helpers/hover-query.helpers.js';
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
 import { IDUtils, showWarning } from '../../utilities';
 import { getPointerPosition } from '../../utilities/pointer-utils';
@@ -8,6 +9,15 @@ import AddRectangleGeometry from './add_rectangle_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
 import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged, LABEL_ZOOM_PROPERTIES, recalcLabelSize, createLabelZoomHandler, syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
+
+/**
+ * Layers onHoverMove needs. hasHandleAtPoint matches the edit-handles LAYER id;
+ * hasSelectedFeatureAtPoint matches properties.source === 'rectangle', which rides
+ * on every feature of the rectangle family, so the label and feedback copies stay
+ * in the list to keep the cursor decision identical.
+ * Ids confirmed in layers/styles/shape.layers.js:81-158 with prefix "rectangle".
+ */
+const HOVER_LAYER_IDS = ['rectangle-edit-handles-layer', 'rectangle-fill-layer', 'rectangle-fill-pattern-layer', 'rectangle-layer', 'rectangle-label-layer', 'rectangle-feedback-layer'];
 
 class AddRectangleControl extends BaseControl {
     featureType = 'rectangle';
@@ -63,14 +73,14 @@ class AddRectangleControl extends BaseControl {
 
     onAdd = (map) => {
         this.map = map;
-        map.on('zoom', this._onZoomForLabels);
+        map.on('zoomend', this._onZoomForLabels);
     }
 
     onRemove = () => {
         this.deactivate();
         this.removeAllEventListeners();
         if (this.map) {
-            this.map.off('zoom', this._onZoomForLabels);
+            this.map.off('zoomend', this._onZoomForLabels);
         }
         this.#labelZoom.cleanup();
         this.map = undefined;
@@ -896,7 +906,7 @@ class AddRectangleControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
-        const features = this.map.queryRenderedFeatures(e.point);
+        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
         const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
 

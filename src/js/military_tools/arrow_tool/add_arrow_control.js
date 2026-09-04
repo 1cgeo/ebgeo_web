@@ -1,5 +1,6 @@
 // Path: js/military_tools/arrow_tool/add_arrow_control.js
 
+import { queryHoverFeatures } from '../../tool_manager/helpers/hover-query.helpers.js';
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
 import { IDUtils, showWarning, showToast, deepClone } from '../../utilities';
 import { getPointerPosition, isTouchDevice } from '../../utilities/pointer-utils';
@@ -19,6 +20,13 @@ import {
     hideExtensionHandles,
     showExtensionHandles
 } from '@tools/helpers/line-extension.helpers.js';
+
+/**
+ * Layers onHoverMove needs: 'arrow-edit-handles' (hasHandleAtPoint) and 'arrows'
+ * (hasSelectedFeatureAtPoint, rendered by both the fill and the outline).
+ * Ids confirmed in layers/styles/content.layers.js:260, :237 and :248.
+ */
+const HOVER_LAYER_IDS = ['arrow-edit-handles-layer', 'arrow-fill-layer', 'arrow-layer'];
 
 /**
  * Arrow Tool Control
@@ -1089,7 +1097,7 @@ class AddArrowControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
-        const features = this.map.queryRenderedFeatures(e.point);
+        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
         const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
 

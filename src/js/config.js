@@ -301,8 +301,14 @@ const config = {
     // Modo Globo
     globe_projection: true,
 
-    // Configurações avançadas de carregamento de tiles
-    sourceTileLodParams: [5, 6.0],  // [threshold, factor] para otimização de tiles
+    // Nível de detalhe dos tiles com a câmera inclinada:
+    // [maxZoomLevelsOnScreen, tileCountMaxMinRatio], aplicado a TODAS as fontes e
+    // reaplicado a cada troca de mapa base. `null` mantém o padrão do MapLibre
+    // (9.314, 3), que é o mais leve: o zoom dos tiles cai rumo ao horizonte.
+    // Um primeiro valor abaixo de 2 DESLIGA essa queda e é recusado (o par
+    // [1, 10.0] pedia ~12x os tiles do padrão com inclinação de 60 graus).
+    // Valores entre [7, 4] e o padrão dão mais detalhe no horizonte a custo de tiles.
+    sourceTileLodParams: null,
 
     // Limites geográficos opcionais (descomente para ativar)
     // maxBounds: [
@@ -316,6 +322,9 @@ const config = {
       type: "raster-dem",                                    // Tipo: sempre "raster-dem"
       url: "https://demotiles.maplibre.org/terrain-tiles/tiles.json",             // URL dos tiles de elevação
       tileSize: 256,
+      // bounds: [west, south, east, north],              // Cobertura do DEM. SEM bounds o mapa
+      //                                                  // pede tile do mundo inteiro (fonte com
+      //                                                  // `tiles:` nao traz bounds do servidor)
       // minzoom: 10,                                          // Zoom mínimo do terrain
       // maxzoom: 10                                           // Zoom máximo do terrain
       // Nota: Para URLs externas use: "https://example.com/terrain/{z}/{x}/{y}.png"
@@ -326,6 +335,7 @@ const config = {
       type: "raster-dem",                                    // Tipo: sempre "raster-dem"
       url: "https://demotiles.maplibre.org/terrain-tiles/tiles.json",             // URL dos tiles de elevação
       tileSize: 256,
+      // bounds: [west, south, east, north],              // Mesma cobertura do terrainSource
       // minzoom: 10,                                          // Zoom mínimo do hillshade
       // maxzoom: 10                                           // Zoom máximo do hillshade
     },

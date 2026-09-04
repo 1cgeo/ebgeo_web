@@ -13,6 +13,7 @@ import {
     getActiveLayerIdSync
 } from '@store';
 import { IDUtils, showError, loadImageToMap } from '@utils';
+import { readGeoJSONSourceDataAsync } from '@utils/geojson-source.js';
 import { calculateMagneticDeclination } from '@utils/geomagnetic/wmm_calculator.js';
 import { calculateMeridianConvergence } from '@utils/geomagnetic/meridian_convergence.js';
 import { convertSvgToPngBlob } from '../svg-to-png.js';
@@ -81,7 +82,7 @@ class AddDeclinationControl extends BaseControl {
     };
 
     onRemove = () => {
-        this.map.off('zoom', this.handleZoomChange);
+        this.map.off('zoomend', this.handleZoomChange);
         if (this.zoomRafId) {
             cancelAnimationFrame(this.zoomRafId);
             this.zoomRafId = null;
@@ -261,8 +262,12 @@ class AddDeclinationControl extends BaseControl {
 
     // ===== ZOOM CORRECTION =====
 
+    // The declination layer paints the zoom-scaled icon size with a style
+    // expression (layers/styles/zoom-expression.js), so this pass no longer feeds
+    // the drawing: it refreshes the stored `calculatedSize` and selection box for
+    // the consumers that read them, once at the end of the gesture.
     setupZoomListener = () => {
-        this.map.on('zoom', this.handleZoomChange);
+        this.map.on('zoomend', this.handleZoomChange);
     };
 
     handleZoomChange = () => {
@@ -273,13 +278,14 @@ class AddDeclinationControl extends BaseControl {
     };
 
     updateAllSizes = async () => {
-        if (!this.map.getSource('magnetic_declinations')) {
+        const source = this.map.getSource('magnetic_declinations');
+        if (!source) {
             this.pendingZoomUpdate = false;
             return;
         }
 
-        const data = await this.map.getSource('magnetic_declinations').getData();
-        if (data.features.length === 0) {
+        const data = await readGeoJSONSourceDataAsync(source);
+        if (!data?.features?.length) {
             this.pendingZoomUpdate = false;
             return;
         }
@@ -321,7 +327,7 @@ class AddDeclinationControl extends BaseControl {
         });
 
         if (hasChanges) {
-            this.map.getSource('magnetic_declinations').setData(data);
+            source.setData(data);
 
             const selectedFeatures = this.getSelectedFeatures();
             const featuresWithDisabledZoom = selectedFeatures.filter(

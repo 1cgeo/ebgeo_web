@@ -1404,6 +1404,10 @@ async function convertPointToCoordinationMeasure(pointFeature, selectionManager,
         feature.properties.width = result.width;
         feature.properties.height = result.height;
         feature.properties.anchor = result.anchor;
+        // The generator rasterises the Nucleo above its logical size and reports the ratio;
+        // dropping it here registered the bitmap 1:1 and drew the converted symbol four times
+        // larger than the same code drawn by the tool (see loadSymbolToMap below).
+        feature.properties.pixelRatio = result.pixelRatio || 1;
 
         // Recalculate selection box with real dimensions and anchor
         feature.properties.selectionBox = coordControl.geometry.calculateSelectionBoxGeometry(
@@ -1436,7 +1440,7 @@ async function convertPointToCoordinationMeasure(pointFeature, selectionManager,
             coordData.features.push(feature);
             map.getSource('coordination_measures').setData(coordData);
 
-            await coordControl.loadSymbolToMap(featureId, result.blob);
+            await coordControl.loadSymbolToMap(featureId, result.blob, result.pixelRatio);
 
             // Only after the add succeeded do we remove the source point.
             await removeFeature('points', pointId);

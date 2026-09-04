@@ -1,5 +1,6 @@
 // Path: js/draw_tools/polygon_tool/add_polygon_control.js
 
+import { queryHoverFeatures } from '../../tool_manager/helpers/hover-query.helpers.js';
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
 import { IDUtils, showWarning } from '../../utilities';
 import { isTouchDevice } from '../../utilities/pointer-utils';
@@ -9,6 +10,14 @@ import AddPolygonGeometry from './add_polygon_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
 import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged, LABEL_ZOOM_PROPERTIES, recalcLabelSize, createLabelZoomHandler, syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
+
+/**
+ * Layers onHoverMove needs, one per source its two predicates filter by:
+ * 'polygon-edit-handles' (hasHandleAtPoint) and 'polygons' (hasSelectedFeatureAtPoint,
+ * which the fill, the hatch fill and the outline all render).
+ * Ids confirmed in layers/styles/polygon.layers.js:155, :52, :69 and :101.
+ */
+const HOVER_LAYER_IDS = ['polygon-edit-handles-layer', 'polygon-fill-layer', 'polygon-fill-pattern-layer', 'polygon-layer'];
 
 class AddPolygonControl extends BaseControl {
     featureType = 'polygon';
@@ -64,14 +73,14 @@ class AddPolygonControl extends BaseControl {
 
     onAdd = (map) => {
         this.map = map;
-        map.on('zoom', this._onZoomForLabels);
+        map.on('zoomend', this._onZoomForLabels);
     }
 
     onRemove = () => {
         this.deactivate();
         this.removeAllEventListeners();
         if (this.map) {
-            this.map.off('zoom', this._onZoomForLabels);
+            this.map.off('zoomend', this._onZoomForLabels);
         }
         this.#labelZoom.cleanup();
         this.map = undefined;
@@ -874,7 +883,7 @@ class AddPolygonControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
-        const features = this.map.queryRenderedFeatures(e.point);
+        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
         const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
 

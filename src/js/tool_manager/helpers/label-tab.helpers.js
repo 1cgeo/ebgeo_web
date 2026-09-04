@@ -13,6 +13,7 @@ import {
     createSectionDivider,
 } from './index.js';
 import { formatAreaAuto } from '../../measurement_tool/measurement-geometry.js';
+import { readGeoJSONSourceDataAsync } from '../../utilities/geojson-source.js';
 
 export const LABEL_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>`;
 
@@ -136,8 +137,14 @@ export function syncLabelSource(map, labelSourceId, data) {
 }
 
 /**
- * Create a RAF-throttled zoom handler that recalculates label sizes for all
- * features in a MapLibre source. Each control should create one instance.
+ * Create a RAF-throttled handler that recalculates label sizes for all features
+ * in a MapLibre source. Each control should create one instance and register it
+ * on `zoomend`, NOT on `zoom`: the label layers paint the zoom-scaled text size
+ * with a style expression (layers/styles/zoom-expression.js), so the stored
+ * `labelCalculatedSize` only has to be right for the consumers that read it
+ * (export, feature header), once the gesture is over. The pass still stamps
+ * `labelCreatedAtZoom` on the features that lack one, and that now happens at
+ * the end of the gesture.
  * @param {Function} getMap - Returns the map instance (e.g. () => this.map)
  * @param {string} sourceName - MapLibre source name (e.g. 'circles')
  * @param {string} [labelSourceName] - Optional label source name for syncing
@@ -153,7 +160,8 @@ export function createLabelZoomHandler(getMap, sourceName, labelSourceName) {
         if (!source) { pendingUpdate = false; return; }
 
         const currentZoom = map.getZoom();
-        const data = await source.getData();
+        const data = await readGeoJSONSourceDataAsync(source);
+        if (!data?.features?.length) { pendingUpdate = false; return; }
         let hasChanges = false;
 
         for (const feature of data.features) {

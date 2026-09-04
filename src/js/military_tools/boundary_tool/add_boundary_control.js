@@ -1,8 +1,10 @@
 // Path: js/military_tools/boundary_tool/add_boundary_control.js
 
+import { queryHoverFeatures } from '../../tool_manager/helpers/hover-query.helpers.js';
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
 import { IDUtils, deepClone, deepEqual, createSerialQueue, showToast, showWarning } from '../../utilities';
 import { getPointerPosition, isTouchDevice } from '../../utilities/pointer-utils';
+import { readGeoJSONSourceDataAsync } from '../../utilities/geojson-source.js';
 import { addBoundaryAttributesToPanel } from './boundary_attributes_panel.js';
 import AddBoundaryGeometry from './add_boundary_geometry.js';
 import { computeBoundaryZoomSizes, withBoundaryZoomSizes, isScreenAnchored } from './boundary-zoom.model.js';
@@ -21,6 +23,13 @@ import {
     hideExtensionHandles,
     showExtensionHandles
 } from '@tools/helpers/line-extension.helpers.js';
+
+/**
+ * Layers onHoverMove needs. hasHandleAtPoint matches the handle LAYER id directly;
+ * hasSelectedFeatureAtPoint matches source 'boundarys'.
+ * Ids confirmed in layers/styles/tactical.layers.js:124 and :60.
+ */
+const HOVER_LAYER_IDS = ['boundary-handles-layer', 'boundary-main-layer'];
 
 /**
  * Boundary Tool Control
@@ -429,22 +438,41 @@ class AddBoundaryControl extends BaseControl {
             return;
         }
 
+        // A click that lands while an earlier one is still pending, inside the 250 ms window
+        // below, used to REPLACE it: the timer was cleared and re-armed with the new
+        // coordinates, so two quick clicks at different spots kept only the second vertex,
+        // silently. Measured in real Chromium on 2026-09-03: 100 ms apart, one vertex; 400 ms
+        // apart, two. A pending point far from the new one is a vertex the user drew, so it
+        // is committed now; only a repeat click on the same spot keeps re-arming the timer.
+        if (this.lastClickCoords && !this.geometry.isPointTooClose(newPoint, [this.lastClickCoords])) {
+            clearTimeout(this.clickTimer);
+            this._commitPendingClick();
+        }
+
         this.lastClickCoords = newPoint;
         clearTimeout(this.clickTimer);
-        this.clickTimer = setTimeout(() => {
-            this.drawPoints.push(this.lastClickCoords);
-            this.lastClickCoords = null;
+        this.clickTimer = setTimeout(() => this._commitPendingClick(), 250);
+    }
 
-            // Switch from pre-click snap indicator to preview listener when first point is added
-            if (this.drawPoints.length === 1) {
-                this.map.off('mousemove', this._onPreClickMouseMove);
-                this.map.on('mousemove', this.handlePreviewMouseMove);
-            }
+    /**
+     * Moves the pending click (the one the 250 ms timer is holding) into `drawPoints`.
+     * Shared by the timer, by the next distinct click and by the right-click that finishes.
+     * @private
+     */
+    _commitPendingClick = () => {
+        if (!this.lastClickCoords) return;
+        this.drawPoints.push(this.lastClickCoords);
+        this.lastClickCoords = null;
 
-            if (this._finishButton) {
-                this._finishButton.updateState(this.drawPoints.length, 2);
-            }
-        }, 250);
+        // Switch from pre-click snap indicator to preview listener when first point is added
+        if (this.drawPoints.length === 1) {
+            this.map.off('mousemove', this._onPreClickMouseMove);
+            this.map.on('mousemove', this.handlePreviewMouseMove);
+        }
+
+        if (this._finishButton) {
+            this._finishButton.updateState(this.drawPoints.length, 2);
+        }
     }
 
     handleRightClick = async (e) => {
@@ -455,7 +483,9 @@ class AddBoundaryControl extends BaseControl {
 
         clearTimeout(this.clickTimer);
         this.clickTimer = null;
-        this.lastClickCoords = null;
+        // The pending left click is a vertex, not noise: a right-click within 250 ms of it
+        // used to discard it and finish with the point under the cursor instead.
+        this._commitPendingClick();
 
         const screenPoint = { x: e.offsetX, y: e.offsetY };
         const coordinates = this.map.unproject([screenPoint.x, screenPoint.y]);
@@ -1200,7 +1230,7 @@ class AddBoundaryControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
-        const features = this.map.queryRenderedFeatures(e.point);
+        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
         const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
 
@@ -1314,7 +1344,9 @@ class AddBoundaryControl extends BaseControl {
      * @private
      */
     _updateBoundaryCirclesUnlocked = async (boundaryFeature) => {
-        const circleData = await this.map.getSource('boundary-circles').getData();
+        const circleSource = this.map.getSource('boundary-circles');
+        const circleData = await readGeoJSONSourceDataAsync(circleSource);
+        if (!circleData) return;
         const featureId = boundaryFeature.properties.id;
 
         circleData.features = circleData.features.filter(f => f.properties.parent !== featureId);
@@ -1324,7 +1356,7 @@ class AddBoundaryControl extends BaseControl {
         );
         circleData.features.push(...circles);
 
-        this.map.getSource('boundary-circles').setData(circleData);
+        circleSource.setData(circleData);
     }
 
     /**
@@ -1333,7 +1365,9 @@ class AddBoundaryControl extends BaseControl {
      * @private
      */
     _updateBoundaryTextsUnlocked = async (boundaryFeature) => {
-        const textData = await this.map.getSource('boundary-texts').getData();
+        const textSource = this.map.getSource('boundary-texts');
+        const textData = await readGeoJSONSourceDataAsync(textSource);
+        if (!textData) return;
         const featureId = boundaryFeature.properties.id;
 
         textData.features = textData.features.filter(f => f.properties.parent !== featureId);
@@ -1343,7 +1377,7 @@ class AddBoundaryControl extends BaseControl {
         );
         textData.features.push(...texts);
 
-        this.map.getSource('boundary-texts').setData(textData);
+        textSource.setData(textData);
     }
 
     // ===== ZOOM CORRECTION =====
@@ -1490,7 +1524,7 @@ class AddBoundaryControl extends BaseControl {
         const source = this.map?.getSource('boundarys');
         if (!source) return [];
 
-        const data = await source.getData();
+        const data = await readGeoJSONSourceDataAsync(source);
         // The map can be gone (or restyled) by the time the read resolves.
         if (!this.map || !data?.features?.length) return [];
 
@@ -1538,7 +1572,7 @@ class AddBoundaryControl extends BaseControl {
         const source = this.map?.getSource(sourceName);
         if (!source) return;
 
-        const data = await source.getData();
+        const data = await readGeoJSONSourceDataAsync(source);
         // The map can be gone (or restyled) by the time the read resolves.
         if (!this.map || !data?.features?.length) return;
 

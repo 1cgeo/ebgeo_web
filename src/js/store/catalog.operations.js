@@ -264,8 +264,13 @@ export async function updateCatalogLayerStatus(layerId, status, mapName = null) 
  * Re-validates all catalog layers and updates their status.
  * Performs a single read-modify-write cycle instead of per-layer persistence.
  *
+ * Returns the revalidated layers so callers do NOT need a second
+ * `getCatalogLayers()` call. Each such call reads the whole map document from
+ * IndexedDB (every drawn feature) just to reach a list of 2 or 3 catalog
+ * layers, and the feature panel refresh used to pay that price twice.
+ *
  * @param {string} [mapName=null] - Map name
- * @returns {Promise<{ reactivated: string[], stillUnavailable: string[] }>}
+ * @returns {Promise<{ layers: CatalogLayerState[], reactivated: string[], stillUnavailable: string[] }>}
  */
 export async function revalidateCatalogLayers(mapName = null) {
     const targetMap = resolveMapName(mapName);
@@ -299,5 +304,5 @@ export async function revalidateCatalogLayers(mapName = null) {
         await updateMapDataCompat(targetMap, mapData);
     }
 
-    return { reactivated, stillUnavailable };
+    return { layers: catalogLayers, reactivated, stillUnavailable };
 }

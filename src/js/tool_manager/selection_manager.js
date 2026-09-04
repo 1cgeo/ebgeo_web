@@ -19,6 +19,7 @@ import {
     getFeatureIcon
 } from '../store';
 import { createTwoFingerTapHandler } from '../utilities/pointer-utils';
+import { queryHoverFeatures } from './helpers/hover-query.helpers.js';
 
 class SelectionManager {
     /**
@@ -451,11 +452,13 @@ class SelectionManager {
             'streetview-markers-clusters', 'streetview-markers-pins'
         ];
 
-        const clickedLayers = this.map.queryRenderedFeatures(e.point)
-            .map(f => f.layer?.id)
-            .filter(Boolean);
+        // Ask only about those 5 layers. The unfiltered form walked every
+        // tileManager in the style (in production ~70 sources) and then threw
+        // all of it away but the layer ids; restricted to viewerLayers, any
+        // feature that comes back is by construction one of them.
+        const viewerFeatures = queryHoverFeatures(this.map, e.point, viewerLayers);
 
-        if (clickedLayers.some(layer => viewerLayers.includes(layer))) {
+        if (viewerFeatures.length > 0) {
             return; // Let viewer handlers process the click
         }
 

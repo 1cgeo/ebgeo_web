@@ -1,5 +1,24 @@
 // Path: js/tool_manager/hatch_pattern_generator.js
 
+/**
+ * Shared generator, so the pattern cache survives `setupMapFeatures`. Each
+ * style setup used to create its own instance, and the cache died with it: every
+ * hatch pattern was drawn on a canvas and read back with `getImageData` on every
+ * base-map or atlas-map switch, once per family that used it (polygons, circles,
+ * rectangles, ellipses, sectors).
+ * @type {HatchPatternGenerator|null}
+ */
+let sharedGenerator = null;
+
+/**
+ * The session-wide hatch pattern generator.
+ * @returns {HatchPatternGenerator}
+ */
+export function getHatchPatternGenerator() {
+    if (!sharedGenerator) sharedGenerator = new HatchPatternGenerator();
+    return sharedGenerator;
+}
+
 export class HatchPatternGenerator {
     constructor() {
         this.patternCache = new Map();
@@ -184,9 +203,10 @@ export class HatchPatternGenerator {
                     return;
                 }
 
-                if (map.hasImage(patternId)) {
-                    map.updateImage(patternId, imageData);
-                } else {
+                // The pattern is a pure function of its id (type, spacing, line
+                // width and colour), so an image already registered under that id
+                // is the right one: re-uploading it changed nothing on screen.
+                if (!map.hasImage(patternId)) {
                     map.addImage(patternId, imageData);
                 }
             } catch (error) {

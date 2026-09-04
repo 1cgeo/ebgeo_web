@@ -224,7 +224,13 @@ class AnalysisLayersManager {
 
         try {
             if (!this.map.getSource(sourceId)) {
-                this.map.addSource(sourceId, layerConfig.source);
+                // The validated `bounds` reach the SOURCE: without them MapLibre
+                // requests a tile for every position on screen, coverage or not,
+                // and each miss is a request plus an error event.
+                const source = layerConfig.source.bounds || !layerConfig.bounds
+                    ? layerConfig.source
+                    : { ...layerConfig.source, bounds: layerConfig.bounds };
+                this.map.addSource(sourceId, source);
             }
 
             if (!this.map.getLayer(layerId)) {

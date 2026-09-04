@@ -6,6 +6,7 @@
 
 import { getControl } from '../../store';
 import {
+
     setOrCreateSource,
     ensureSource,
     ensureLayer,
@@ -13,6 +14,9 @@ import {
     VISIBLE_FILTER,
     POINT_TYPE_FILTER
 } from './layer.helpers.js';
+import { zoomScaledExpression } from './zoom-expression.js';
+// Brush width scales on the GPU (zoom-expression.js), no clamp, like the tool.
+const BRUSH_WIDTH = { base: ['coalesce', ['get', 'lineWidth'], 10], anchor: 'createdAtZoom', disabledFlag: 'zoomCorrectionEnabled' };
 
 /**
  * Sets up line layers on the map.
@@ -105,7 +109,7 @@ export function setupBrushLayers(features, mapInstance) {
         },
         paint: {
             'line-color': ['get', 'lineColor'],
-            'line-width': ['get', 'calculatedLineWidth'],
+            'line-width': zoomScaledExpression(BRUSH_WIDTH),
             'line-opacity': 1,
         },
         filter: VISIBLE_FILTER,

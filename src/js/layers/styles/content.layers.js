@@ -5,6 +5,12 @@
  */
 
 import { getControl } from '../../store';
+import { zoomScaledExpression } from './zoom-expression.js';
+
+// GPU-side zoom scaling (zoom-expression.js); `calculatedSize` is refreshed by
+// the tools at the end of a gesture for the consumers that read it.
+const TEXT_SIZE = { base: ['coalesce', ['get', 'size'], 16], anchor: 'createdAtZoom', disabledFlag: 'zoomCorrectionEnabled', maxValue: 255 };
+const IMAGE_SIZE = { base: ['coalesce', ['get', 'size'], 1], anchor: 'createdAtZoom', disabledFlag: 'zoomCorrectionEnabled', maxValue: 10 };
 
 const EMPTY_COLLECTION = { type: 'FeatureCollection', features: [] };
 
@@ -131,7 +137,7 @@ export function setupTextLayers(features, mapInstance) {
         source: 'texts',
         layout: {
             'text-field': ['get', 'text'],
-            'text-size': ['get', 'calculatedSize'],
+            'text-size': zoomScaledExpression(TEXT_SIZE),
             'text-justify': ['get', 'justify'],
             'text-anchor': 'center',
             'text-rotate': ['get', 'rotation'],
@@ -162,19 +168,23 @@ export function setupTextLayers(features, mapInstance) {
         filter: ['==', '$type', 'Point']
     });
 
-    if (textControl && !textControl._backgroundUpdateListener) {
-        const textsSource = mapInstance.getSource('texts');
+    // Keep `text-backgrounds` in step with every write to `texts`. The mark lives
+    // on the SOURCE, not on the control: a base-map switch that drops the source
+    // creates a new one, and a mark on the control would leave it unpatched.
+    // The backgrounds are derived from the collection just written, so there is
+    // no worker round trip (`getData`) and no deferred timer here.
+    const textsSource = textControl && mapInstance.getSource('texts');
+    if (textsSource && !textsSource._ebgeoBackgroundsPatched) {
         const originalSetData = textsSource.setData.bind(textsSource);
         textsSource.setData = function (data) {
             originalSetData(data);
-            setTimeout(async () => {
-                const currentTexts = await textsSource.getData();
-                mapInstance.getSource('text-backgrounds').setData(
-                    featureCollection(toBackgroundFeatures(currentTexts.features))
-                );
-            }, 0);
+            const features = Array.isArray(data?.features) ? data.features : [];
+            mapInstance.getSource('text-backgrounds')?.setData(
+                featureCollection(toBackgroundFeatures(features))
+            );
+            return this;
         };
-        textControl._backgroundUpdateListener = true;
+        textsSource._ebgeoBackgroundsPatched = true;
     }
 }
 
@@ -198,7 +208,7 @@ export function setupImageLayers(features, mapInstance) {
         },
         layout: {
             'icon-image': ['get', 'id'],
-            'icon-size': ['get', 'calculatedSize'],
+            'icon-size': zoomScaledExpression(IMAGE_SIZE),
             'icon-rotate': ['get', 'rotation'],
             'icon-allow-overlap': true,
             'icon-ignore-placement': true

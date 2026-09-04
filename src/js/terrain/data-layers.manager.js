@@ -74,7 +74,7 @@ class DataLayersManager {
         const sourceId = `data-${layerConfig.id}`;
 
         try {
-            this._addSourceSafe(sourceId, layerConfig.source);
+            this._addSourceSafe(sourceId, this._withBounds(layerConfig.source, layerConfig.bounds));
 
             // Add label source if different from main source
             const labelSourceId = layerConfig.labelSource ? `data-${layerConfig.id}-label-source` : sourceId;
@@ -291,6 +291,21 @@ class DataLayersManager {
     }
 
     /** Adds a source if it does not already exist */
+    /**
+     * Source config with the layer's `bounds` applied when the source itself
+     * declares none. A vector source without bounds is asked for tiles over the
+     * whole view, and every tile outside the data's coverage is a wasted request.
+     * @param {Object} sourceConfig
+     * @param {Array<number>} [bounds] - [west, south, east, north]
+     * @returns {Object}
+     */
+    _withBounds(sourceConfig, bounds) {
+        if (!sourceConfig || sourceConfig.bounds || !Array.isArray(bounds) || bounds.length !== 4) {
+            return sourceConfig;
+        }
+        return { ...sourceConfig, bounds };
+    }
+
     _addSourceSafe(sourceId, sourceConfig) {
         if (!this.map.getSource(sourceId)) {
             this.map.addSource(sourceId, sourceConfig);

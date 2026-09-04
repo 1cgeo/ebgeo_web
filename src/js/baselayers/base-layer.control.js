@@ -26,6 +26,8 @@ import imagensLayer from './imagens_layer.js';
 import bdgexLayer from './bdgex_layer.js';
 import config from '../config.js';
 import { setupMapFeatures } from '../layers';
+import { applyTileLodParams } from '../map/tile-lod.js';
+import { collectStyleIds, mergeApplicationStyle } from './style-transform.js';
 import { showError } from '../utilities';
 
 const STYLE_MAP = {
@@ -59,6 +61,12 @@ class BaseLayerControl {
                 this.styleUrls[id] = STYLE_MAP[id];
             }
         }
+
+        // Ids the CURRENT base map owns. The map is created with the default
+        // style (map_sig.js), and every setStyle below records the next base's
+        // ids inside its transformStyle hook, so the application content can be
+        // told apart from the base by exclusion.
+        this._baseStyleIds = collectStyleIds(STYLE_MAP[DEFAULT_LAYER]);
     }
 
     get currentLayer() {
@@ -153,7 +161,9 @@ class BaseLayerControl {
 
         try {
             await setBaseLayer(newLayer);
-            await this.switchMap(false);
+            // Same atlas map, new base: the drawn content is kept by transformStyle
+            // and does not need to be written to the map again.
+            await this.switchMap(false, { sameMap: true });
         } catch (error) {
             console.error('Error changing base layer:', error);
             await setBaseLayer(previousLayer);
@@ -206,7 +216,17 @@ class BaseLayerControl {
                 map.on('styledata', handleStyleData);
             });
 
-            this.map.setStyle(styleUrl);
+            // transformStyle keeps the application's sources and layers (by
+            // reference, so the diff sees no change in them) and swaps only the
+            // base map. Without it the diff removed ~85 sources and ~128 layers
+            // and setupMapFeatures rebuilt them all, GeoJSON re-tiling included.
+            this.map.setStyle(styleUrl, {
+                transformStyle: (previous, next) => {
+                    const merged = mergeApplicationStyle(previous, next, this._baseStyleIds);
+                    this._baseStyleIds = collectStyleIds(next);
+                    return merged;
+                },
+            });
             // MapLibre diffs the incoming style against the current one and,
             // when the diff yields no operations, returns without ever firing
             // 'styledata' (Style.setState). That happens whenever two entries
@@ -215,6 +235,10 @@ class BaseLayerControl {
             // either already correct or MapLibre finishes applying it on its own.
             await styleLoadPromise.catch((error) => console.warn(`[base-layer] ${error.message}`));
             this.currentLayer = layer;
+
+            // setStyle replaced every source, and with them the tile LOD function
+            // `setSourceTileLodParams` had written on each one.
+            applyTileLodParams(this.map, config.map2d.sourceTileLodParams);
 
             // Reapply globe projection after style change (setStyle resets projection)
             // Skip if terrain is active — globe + terrain is incompatible (MapLibre #4792)
@@ -240,7 +264,12 @@ class BaseLayerControl {
         this.updateActiveState(targetLayer);
     }
 
-    async switchMap(applyPosition = true) {
+    /**
+     * @param {boolean} [applyPosition=true] - Restore the map's saved camera
+     * @param {{ sameMap?: boolean }} [options] - `sameMap` when the atlas map did
+     *   not change (base-map change only), so the feature content can be kept
+     */
+    async switchMap(applyPosition = true, options = {}) {
         const currentMapName = await getCurrentMapName();
         const skipPersist = isCurrentMapLockedSync();
 
@@ -273,7 +302,9 @@ class BaseLayerControl {
             await this.applyMapSavedPosition(currentMapName);
         }
 
-        await setupMapFeatures(this.map, this._analysisLayersManager, this._dataLayersManager, getEventBus());
+        await setupMapFeatures(this.map, this._analysisLayersManager, this._dataLayersManager, getEventBus(), {
+            contentPreserved: options.sameMap === true,
+        });
 
         getEventBus().emit(EventTypes.BASE_LAYER_CHANGED, { layer: baseLayer });
     }
@@ -302,7 +333,9 @@ class BaseLayerControl {
      */
     async applySharedBasemap(basemapId) {
         await this.switchLayer(config.getValidBasemapFallback(basemapId), { skipPersist: true });
-        await setupMapFeatures(this.map, this._analysisLayersManager, this._dataLayersManager, getEventBus());
+        await setupMapFeatures(this.map, this._analysisLayersManager, this._dataLayersManager, getEventBus(), {
+            contentPreserved: true,
+        });
 
         // READ BACK, never echo the argument: `switchLayer` has a SECOND fallback of
         // its own (a basemap enabled in config can still have no registered style),

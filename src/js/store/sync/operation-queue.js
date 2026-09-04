@@ -29,6 +29,15 @@ const KEY_PREFIX = 'op_';
 const MAX_QUEUE_SIZE = 10000;
 
 /**
+ * How much the queue must grow past the size left by the last compaction before
+ * compacting again. Without this floor, a queue of more than MAX_QUEUE_SIZE
+ * operations on DISTINCT entities (nothing to merge) re-ran the compaction on
+ * every following enqueue, and each run reads every operation back from
+ * IndexedDB one by one: ten thousand reads per edit, for ever.
+ */
+const COMPACT_REARM_STEP = 1000;
+
+/**
  * Operation queue for sync operations.
  * Operations are persisted to IndexedDB and can be:
  * - Enqueued: Added for later sync
@@ -51,6 +60,23 @@ class OperationQueue {
          * @private
          */
         this._compacting = false;
+
+        /**
+         * Queue size above which the next compaction may run. Raised after each
+         * compaction to the size it left plus COMPACT_REARM_STEP.
+         * @type {number}
+         * @private
+         */
+        this._compactFloor = 0;
+    }
+
+    /**
+     * Whether the queue has grown enough to be worth compacting.
+     * @private
+     * @returns {boolean}
+     */
+    _shouldCompact() {
+        return this._index.size > MAX_QUEUE_SIZE && this._index.size > this._compactFloor && !this._compacting;
     }
 
     // ===== INDEX MANAGEMENT =====
@@ -99,7 +125,7 @@ class OperationQueue {
         await queueStore.setItem(key, operation);
         this._index.set(operation.id, key);
 
-        if (this._index.size > MAX_QUEUE_SIZE && !this._compacting) {
+        if (this._shouldCompact()) {
             await this._compact();
         }
     }
@@ -118,7 +144,7 @@ class OperationQueue {
             this._index.set(operation.id, key);
         }
 
-        if (this._index.size > MAX_QUEUE_SIZE && !this._compacting) {
+        if (this._shouldCompact()) {
             await this._compact();
         }
     }
@@ -312,6 +338,8 @@ class OperationQueue {
             await this._ensureIndex();
         } finally {
             this._compacting = false;
+            // Re-arm only after real growth, whether or not anything was merged.
+            this._compactFloor = (this._index ? this._index.size : 0) + COMPACT_REARM_STEP;
         }
     }
 

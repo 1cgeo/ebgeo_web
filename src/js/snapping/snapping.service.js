@@ -170,6 +170,8 @@ export class SnappingService {
 
         this._stateManager = stateManager;
         this._ctrlHeld = false;
+        /** @type {boolean} Whether the snap indicator source currently holds a point */
+        this._indicatorShown = false;
 
         this._onKeyDown = this._onKeyDown.bind(this);
         this._onKeyUp = this._onKeyUp.bind(this);
@@ -253,6 +255,7 @@ export class SnappingService {
         if (!source) return;
 
         const style = SNAP_INDICATOR_STYLE[snapType] || SNAP_INDICATOR_STYLE.vertex;
+        this._indicatorShown = true;
 
         source.setData({
             type: 'Feature',
@@ -276,7 +279,14 @@ export class SnappingService {
      * @param {Object} map - MapLibre map instance
      */
     hideIndicator(map) {
+        // Twelve tools call this on the `else` branch of every mousemove, snapping
+        // on or off. Without this gate each call was a `setData` of an empty
+        // collection over an already empty source: a worker round trip plus a
+        // reload of the source's tiles, per mouse movement, for nothing.
+        if (!this._indicatorShown) return;
+
         const source = map.getSource(SNAP_INDICATOR_SOURCE);
+        this._indicatorShown = false;
         if (!source) return;
 
         source.setData({
