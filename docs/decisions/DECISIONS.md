@@ -134,6 +134,8 @@ viram commit, teste e, se ensinaram algo, linha no [`docs/livro-razao.md`](../li
 | 2026-09-03 | a Linha de Coordenação entra pela mesa de ferramentas TARDIAS, e o modelo de zoom mora nos helpers | [decisions-2026.md](decisions-2026.md) |
 | 2026-09-03 | dois cliques rápidos são dois vértices, e o Núcleo no KMZ desenha pelo código do escalão | [decisions-2026.md](decisions-2026.md) |
 | 2026-09-04 | o aviso de servidor secundário nasce DESLIGADO, e o administrador liga pela aba Sistema | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-04 | o porte de desempenho da `main` entra por lotes, e o despachante de diff manda no desenho | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-04 | o LOD de tiles servido passa a `null`, e o painel de administração valida o par | [decisions-2026.md](decisions-2026.md) |
 
 As duas linhas de 2026-08-16 acima entraram em 2026-08-18: as entradas integrais existiam no arquivo
 do ano e ninguém acrescentara a linha aqui, que é a metade do procedimento que falha calada (o índice

@@ -2,7 +2,7 @@
 
 O que prende uma biblioteca no payload inicial de `index.html`, e por que a alavanca óbvia (tirar o `proj4`) não paga o que promete.
 
-Estrutura dos grupos de chunk e a armadilha dos nomes gerados ficam em `.claude/rules/architecture.md`; publicação em [[deploy-web]]. Aqui fica só o que a leitura do `vite.config.js` não conta.
+Estrutura dos grupos de chunk e a armadilha dos nomes gerados ficam em `.claude/rules/architecture.md`; publicação em [[deploy-web]]. O custo de EXECUÇÃO do mapa (o quadro, o worker, o terreno), que é outra conta, está em [[desempenho-do-mapa-2d]]. Aqui fica só o que a leitura do `vite.config.js` não conta.
 
 ## O aviso de tamanho de chunk deixou de ser sinal limpo, de propósito
 

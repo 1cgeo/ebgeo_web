@@ -95,6 +95,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[deploy-web]] - publicação do bundle por troca de symlink, e por que ele precisa ser relativo.
 - [[observabilidade]] - como se olha para o EBGeo rodando: o log que sobrevive à sessão, o defeito com estado e ocorrências, o uso de produto contado sem rastro individual, o comando que consulta as duas fontes e as duas abas que mostram.
 - [[peso-do-pacote-web]] - o que prende uma biblioteca no payload inicial do mapa, com o ganho já medido de tirá-la.
+- [[desempenho-do-mapa-2d]] - onde o mapa 2D gastava o quadro (zoom pelo worker, elevação em dobro, troca de base que remontava tudo, camada vazia com terreno) e os quatro mecanismos que ficam, com a régua de cada um.
 
 ## Sínteses e quadros de decisão
 
