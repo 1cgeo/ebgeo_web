@@ -15,6 +15,7 @@ import { parseCustomMarker, registerCustomFeatureImage } from '../draw_tools/poi
 import { clearAllMeasurementMarkers } from '../draw_tools/line_tool/line_measurement.js';
 import { updateAllLayerFilters, invalidateFilterCache, updateMeasurementLabelVisibility } from './visibility-filter.js';
 import { applyLayerOpacities, invalidateOpacityCache } from './layer-opacity-applier.js';
+import { installEmptySourceVisibility } from './empty-source-visibility.js';
 import { collectImageResourceIds, collectImageResourceRatios } from './feature-images.js';
 import { resolveSetupMode } from './setup-mode.js';
 import {
@@ -475,6 +476,11 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
             }
             if (layerVisibilityUnsub) layerVisibilityUnsub();
             layerVisibilityUnsub = setupLayerVisibilityListener(mapInstance, eventBus);
+            // Preserved mode: the collections were kept by `transformStyle` and so
+            // was the hidden visibility, which travels inside the serialized layer
+            // the merge hands back. The sync still runs, because the base map that
+            // came in brings layers of its own.
+            installEmptySourceVisibility(mapInstance);
             return;
         }
 
@@ -512,6 +518,11 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
         updateAllLayerFilters(mapInstance);
         applyLayerOpacities(mapInstance);
 
+        // After every source and layer is on the map: hide the layers of the
+        // sources that came up empty, and keep following each `setData` from
+        // here on. The rebuilds scheduled below go through the same listener.
+        installEmptySourceVisibility(mapInstance);
+
         requestAnimationFrame(() => {
             clearAllMeasurements();
             restoreMeasurements(features);
@@ -524,4 +535,9 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
 
 export { updateAllLayerFilters, invalidateFilterCache } from './visibility-filter.js';
 export { applyLayerOpacities, invalidateOpacityCache } from './layer-opacity-applier.js';
+export {
+    installEmptySourceVisibility,
+    syncSourceLayersVisibility,
+    syncAllSourcesVisibility,
+} from './empty-source-visibility.js';
 export { FEATURE_LAYER_IDS, HATCH_PATTERN_LAYERS, FEATURE_SOURCES } from './layer.constants.js';
