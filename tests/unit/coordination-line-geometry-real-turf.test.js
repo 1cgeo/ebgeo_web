@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { createRequire } from 'node:module';
 import { runInThisContext } from 'node:vm';
 import { readFileSync } from 'node:fs';
+// O catalogo entra como FONTE das varreduras abaixo. Ele nao importa nada, entao
+// carrega fora do `beforeAll` sem precisar do turf global.
+import { LINEAR_SYMBOLS } from '../../src/js/military_tools/coordination_line_tool/coordination_line_catalog.js';
 
 /**
  * Coordination line geometry against the REAL turf bundle the app ships.
@@ -477,17 +480,45 @@ describe('catalogo de simbolos lineares', () => {
 
     it('WORST CASE: todo simbolo do catalogo sobrevive aos insumos degenerados', () => {
         const spine = straightLine(10);
-        const codigos = ['290100', '290199', '290302', '290303', '290307'];
+        // LIDO do catalogo, nunca copiado. A lista literal que estava aqui
+        // congelou em cinco codigos: quando o catalogo passou para dez, os cinco
+        // novos passaram por OMISSAO, aprovados sem nunca terem sido rodados.
+        const codigos = Object.keys(LINEAR_SYMBOLS);
         const degenerados = [
             ['linha de comprimento zero', [[-53, -30], [-53, -30]]],
             ['vai-e-volta', [[-53, -30], [-52.95, -30], [-53, -30]]],
         ];
 
+        // O eixo que a lista literal deixava de fora era o GLIFO, e e por ele que
+        // os builders se separam. Varrer os codigos so vale se a varredura cobre
+        // todo builder que existe.
+        expect(new Set(codigos.map(c => LINEAR_SYMBOLS[c].glyph)).size)
+            .toBe(new Set(Object.values(LINEAR_SYMBOLS).map(s => s.glyph)).size);
+
         for (const code of codigos) {
             for (const [nome, coords] of degenerados) {
                 const geometry = geom.generate(props(coords, { symbol_code: code }), 12);
                 expect(geometry, `${code} / ${nome}`).toBeTruthy();
-                expect(['LineString', 'MultiLineString'], `${code} / ${nome}`).toContain(geometry.type);
+                // Tres tipos, e nao dois. Um simbolo marcado `filled` no catalogo
+                // (hoje so o fosso anticarro 290202) tem de chegar na camada de
+                // preenchimento, e camada de fill so pinta POLIGONO: a geometria
+                // dele sai como MultiPolygon, um poligono por dente. Os demais
+                // saem como MultiLineString, e todo caminho degradado cai no
+                // LineString da espinha nua.
+                expect(['LineString', 'MultiLineString', 'MultiPolygon'], `${code} / ${nome}`)
+                    .toContain(geometry.type);
+                // Coordenada nao finita nao lanca: ela sai pela fonte e o MapLibre
+                // engole a feicao inteira calado. Cada tipo aninha um nivel a mais
+                // que o anterior, entao o achatamento acompanha.
+                const pontos = geometry.type === 'MultiPolygon'
+                    ? geometry.coordinates.flat(2)
+                    : (geometry.type === 'MultiLineString'
+                        ? geometry.coordinates.flat()
+                        : geometry.coordinates);
+                for (const [lng, lat] of pontos) {
+                    expect(Number.isFinite(lng) && Number.isFinite(lat), `${code} / ${nome}`).toBe(true);
+                    expect(Math.abs(lat) <= 90, `${code} / ${nome}`).toBe(true);
+                }
             }
             // E o teto vale para todos, nao so para o losango.
             const apertado = geom.generate(

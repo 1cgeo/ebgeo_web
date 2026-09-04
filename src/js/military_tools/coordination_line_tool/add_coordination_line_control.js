@@ -38,8 +38,10 @@ import {
 const HOVER_LAYER_IDS = ['coordination-line-edit-handles-layer', 'coordination-line-layer'];
 
 /**
- * Coordination Line control: the five MD33 linear symbols, chosen from a combo
- * box (290100, 290199, 290302, 290303 and 290307). See coordination_line_catalog.js.
+ * Coordination Line control: the MD33 linear symbols, chosen from a combo box.
+ * The catalogue is the one list of them, and no count is repeated here: a comment
+ * saying "the five symbols" is wrong the day a sixth lands, and says nothing the
+ * catalogue does not say better. See coordination_line_catalog.js.
  *
  * A polyline carrying a glyph repeated at a regular spacing, chosen from
  * coordination_line_catalog.js. Modelled on

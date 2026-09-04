@@ -41,6 +41,13 @@ const { addCoordinationLineAttributesToPanel } = await import(
     '../../src/js/military_tools/coordination_line_tool/coordination_line_attributes_panel.js'
 );
 
+// O catalogo entra como FONTE, nunca copiado para uma lista literal aqui: uma
+// lista a mao envelhece calada quando o catalogo cresce, e foi exatamente o que
+// aconteceu quando ele passou de 5 para 10 simbolos.
+const { LINEAR_SYMBOLS } = await import(
+    '../../src/js/military_tools/coordination_line_tool/coordination_line_catalog.js'
+);
+
 /** Painel de mentira que so guarda o que recebe. */
 const fakePanel = () => {
     const filhos = [];
@@ -98,25 +105,60 @@ describe('painel da linha de coordenacao', () => {
         expect(cor.value).toBe('#112233');
     });
 
-    it('monta a aparencia ANTES do simbolo, e o seletor de cor e o primeiro controle', () => {
+    it('o SIMBOLO e o primeiro controle do formulario, antes da aparencia', () => {
         const tipos = montar().map(n => n.tipo);
 
-        expect(tipos[0]).toBe('cor');
-        expect(tipos.indexOf('cor')).toBeLessThan(tipos.indexOf('divisor'));
+        // Pedido do chefe em 2026-09-03, e a ordem inverteu de proposito. Qual
+        // simbolo do MD33 a linha e decide o que o desenho SIGNIFICA, enquanto cor
+        // e espessura decidem so como ele aparece; e a escolha do simbolo ainda
+        // determina a pegada do glifo, logo o piso do espacamento e a contagem,
+        // que sao justamente os controles abaixo dele.
+        const iSelect = tipos.indexOf('select');
+        const iCor = tipos.indexOf('cor');
+
+        expect(iSelect).toBeGreaterThanOrEqual(0);
+        expect(iCor).toBeGreaterThanOrEqual(0);
+        expect(iSelect).toBeLessThan(iCor);
+
+        // Nada interativo antes dele: so o divisor da propria secao.
+        expect(tipos.slice(0, iSelect).every(t => t === 'divisor')).toBe(true);
+
         expect(tipos.filter(t => t === 'slider').length).toBeGreaterThanOrEqual(4);
-        expect(tipos).toContain('select');
         expect(tipos).toContain('info');
         expect(tipos).toContain('toggle');
     });
 
-    it('o combobox oferece os cinco simbolos do catalogo', () => {
+    it('o combobox oferece TODO o catalogo, e o rotulo traz a designacao do manual', () => {
         const select = montar().find(n => n.tipo === 'select');
+        const catalogo = Object.values(LINEAR_SYMBOLS);
 
-        expect(select.options).toHaveLength(5);
+        expect(catalogo.length).toBeGreaterThan(0);
+        expect(select.options).toHaveLength(catalogo.length);
         expect(select.value).toBe('290199');
-        expect(select.options.map(o => o.value)).toEqual(
-            ['290100', '290199', '290302', '290303', '290307'],
-        );
+        expect(select.options.map(o => o.value)).toEqual(catalogo.map(s => s.id));
+
+        // O rotulo e montado AQUI a partir do `code` e do `extension` da entrada,
+        // e nao pelo `symbolDesignation` do proprio modulo, ou o teste conferiria
+        // a funcao contra ela mesma. A extensao e o unico campo que separa a Sapa
+        // da Trincheira, que dividem o codigo 290999: sem ela as duas sairiam com
+        // o mesmo rotulo e o combobox ofereceria duas linhas indistinguiveis.
+        for (const simbolo of catalogo) {
+            const esperado = simbolo.extension
+                ? `${simbolo.name} (${simbolo.code}/${simbolo.extension})`
+                : `${simbolo.name} (${simbolo.code})`;
+            const opcao = select.options.find(o => o.value === simbolo.id);
+            expect(opcao, simbolo.id).toBeDefined();
+            expect(opcao.label, simbolo.id).toBe(esperado);
+        }
+
+        const rotulos = select.options.map(o => o.label);
+        expect(rotulos).toContain('Sapa (290999/01)');
+        expect(rotulos).toContain('Trincheira (290999/02)');
+        expect(rotulos).not.toContain('Sapa (290999)');
+        expect(rotulos).not.toContain('Trincheira (290999)');
+        // Nenhum rotulo repetido: dois iguais seriam duas linhas que o usuario
+        // nao consegue distinguir no menu.
+        expect(new Set(rotulos).size).toBe(catalogo.length);
     });
 
     it('trocar a cor escreve a propriedade `color` no controle', async () => {

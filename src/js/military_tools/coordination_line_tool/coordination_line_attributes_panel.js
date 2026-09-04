@@ -17,7 +17,7 @@ import {
     COORDINATION_LINE_ZOOM_LIMITS,
     COORDINATION_LINE_ZOOM_DEFAULTS,
 } from './coordination-line-zoom.model.js';
-import { resolveSymbol, symbolOptions } from './coordination_line_catalog.js';
+import { resolveSymbol, symbolOptions, DEFAULT_SYMBOL_CODE } from './coordination_line_catalog.js';
 
 /** BEM modifier that hides a slider (no inline styles, per the house rules). */
 const HIDDEN_SLIDER_CLASS = 'attr-modern-slider--hidden';
@@ -64,6 +64,12 @@ function maxSizeMetres(control, feature) {
  * The slider helper freezes min and max at creation, so this control is REBUILT
  * whenever the size moves rather than updated in place.
  *
+ * A CONTINUOUS symbol (the sap, the trench) has no spacing at all: the pattern
+ * runs end to end and `symbol_spacing` reaches no drawing code. The slider is
+ * built anyway and HIDDEN, because it is rebuilt in place when the symbol
+ * changes, and a control that came and went would leave the panel reordering
+ * itself under the user.
+ *
  * @param {Object} feature - Coordination line feature
  * @param {Array} selectedFeatures - Every selected feature
  * @param {Object} control - Coordination line control instance
@@ -72,14 +78,15 @@ function maxSizeMetres(control, feature) {
  */
 function buildSpacingSlider(feature, selectedFeatures, control, onChanged) {
     const sizeM = toMetres(feature.properties.symbol_size, COORDINATION_LINE_ZOOM_DEFAULTS.symbolSizeKm);
+    const symbol = resolveSymbol(feature.properties.symbol_code);
     // The floor follows the glyph's real FOOTPRINT, not the authored size: a wide
     // glyph (the double fence spans 1.6x) would otherwise let the slider offer a
     // spacing that resolveGlyphLayout silently widens behind the user.
-    const spanM = sizeM * resolveSymbol(feature.properties.symbol_code).spanRatio;
+    const spanM = sizeM * symbol.spanRatio;
     const floorM = Math.ceil(spanM / COORDINATION_LINE_ZOOM_LIMITS.MAX_GAP_FRACTION);
     const currentM = toMetres(feature.properties.symbol_spacing, COORDINATION_LINE_ZOOM_DEFAULTS.symbolSpacingKm);
 
-    return createModernSlider({
+    const slider = createModernSlider({
         label: 'Distância entre símbolos',
         min: floorM,
         max: Math.max(floorM * 10, currentM),
@@ -92,6 +99,10 @@ function buildSpacingSlider(feature, selectedFeatures, control, onChanged) {
             onChanged();
         },
     });
+
+    if (symbol.continuous) slider.classList.add(HIDDEN_SLIDER_CLASS);
+
+    return slider;
 }
 
 /**
@@ -104,14 +115,26 @@ function buildSpacingSlider(feature, selectedFeatures, control, onChanged) {
  */
 function buildLayoutInfo(feature, control) {
     const { count, capped } = control.geometry.describeLayout(feature.properties, control.getCurrentZoom());
+    const continuous = resolveSymbol(feature.properties.symbol_code).continuous;
 
-    const rows = [{ text: `${count} símbolo${count === 1 ? '' : 's'} nesta linha` }];
+    // A continuous symbol counts TEETH, not marks placed along a line, and its cap
+    // widens the tooth rather than the distance between symbols. Reporting the
+    // spacing wording there would point the user at a slider that is hidden and
+    // reaches no drawing code.
+    const unit = continuous ? 'dente' : 'símbolo';
+    const rows = [{ text: `${count} ${unit}${count === 1 ? '' : 's'} nesta linha` }];
 
     if (count === 0) {
-        rows.push({ text: 'A linha é curta demais para um símbolo inteiro, e sai sem símbolo.' });
+        rows.push({
+            text: continuous
+                ? 'A linha é curta demais para um dente inteiro, e sai sem símbolo.'
+                : 'A linha é curta demais para um símbolo inteiro, e sai sem símbolo.',
+        });
     } else if (capped) {
         rows.push({
-            text: `Teto de ${control.maxGlyphs} símbolos atingido: a distância foi alargada para cobrir a linha inteira.`,
+            text: continuous
+                ? `Teto de ${control.maxGlyphs} dentes atingido: o dente foi alargado para cobrir a linha inteira.`
+                : `Teto de ${control.maxGlyphs} símbolos atingido: a distância foi alargada para cobrir a linha inteira.`,
         });
     }
 
@@ -154,49 +177,19 @@ export function addCoordinationLineAttributesToPanel(
         hideHeader: options.hideHeader,
     });
 
-    // ===== APPEARANCE =====
-
-    panel.appendChild(createModernColorPicker({
-        label: 'Cor',
-        value: feature.properties.color,
-        onChange: (color) => {
-            coordinationLineControl.updateFeaturesProperty(selectedFeatures, 'color', color);
-        },
-    }));
-
-    panel.appendChild(createModernSlider({
-        label: 'Espessura',
-        min: 1,
-        max: 10,
-        step: 1,
-        value: feature.properties.lineWidth || COORDINATION_LINE_ZOOM_DEFAULTS.lineWidth,
-        unit: 'px',
-        onChange: (value) => {
-            coordinationLineControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', value);
-        },
-    }));
-
-    panel.appendChild(createModernSlider({
-        label: 'Opacidade',
-        min: 0,
-        max: 100,
-        step: 1,
-        value: Math.round((feature.properties.opacity ?? 1) * 100),
-        unit: '%',
-        onChange: (value) => {
-            coordinationLineControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
-        },
-    }));
-
-    // ===== THE DIAMOND PATTERN =====
+    // ===== THE SYMBOL =====
+    //
+    // FIRST control in the form, ahead of colour and width. Which of the MD33
+    // symbols this line is decides what the drawing means, while the appearance
+    // controls only decide how it looks; and it also drives the glyph's footprint,
+    // hence the spacing floor and the count, so a change here redraws the controls
+    // below it. Reading the form top to bottom now follows that order.
 
     panel.appendChild(createSectionDivider('Símbolo'));
 
-    // Declared first: the symbol drives the glyph's footprint, which drives the
-    // spacing floor and the count, so changing it has to redraw both controls.
     panel.appendChild(createModernSelect({
         label: 'Símbolo',
-        value: feature.properties.symbol_code || '290199',
+        value: feature.properties.symbol_code || DEFAULT_SYMBOL_CODE,
         options: symbolOptions(),
         onChange: async (code) => {
             await coordinationLineControl.updateFeaturesProperty(selectedFeatures, 'symbol_code', code);
@@ -254,6 +247,42 @@ export function addCoordinationLineAttributesToPanel(
 
     layoutInfo = buildLayoutInfo(feature, coordinationLineControl);
     panel.appendChild(layoutInfo);
+
+    // ===== APPEARANCE =====
+
+    panel.appendChild(createSectionDivider('Aparência'));
+
+    panel.appendChild(createModernColorPicker({
+        label: 'Cor',
+        value: feature.properties.color,
+        onChange: (color) => {
+            coordinationLineControl.updateFeaturesProperty(selectedFeatures, 'color', color);
+        },
+    }));
+
+    panel.appendChild(createModernSlider({
+        label: 'Espessura',
+        min: 1,
+        max: 10,
+        step: 1,
+        value: feature.properties.lineWidth || COORDINATION_LINE_ZOOM_DEFAULTS.lineWidth,
+        unit: 'px',
+        onChange: (value) => {
+            coordinationLineControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', value);
+        },
+    }));
+
+    panel.appendChild(createModernSlider({
+        label: 'Opacidade',
+        min: 0,
+        max: 100,
+        step: 1,
+        value: Math.round((feature.properties.opacity ?? 1) * 100),
+        unit: '%',
+        onChange: (value) => {
+            coordinationLineControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
+        },
+    }));
 
     // ===== ZOOM ANCHOR =====
 

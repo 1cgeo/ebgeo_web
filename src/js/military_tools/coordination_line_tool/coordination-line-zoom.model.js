@@ -246,6 +246,43 @@ export function resolveGlyphLayout(totalLengthKm, sizeKm, spacingKm) {
 }
 
 /**
+ * Place a CONTINUOUS pattern along a line: the sap and the trench, whose drawing
+ * is the course of the line rather than a mark placed along it.
+ *
+ * Two things separate this from `resolveGlyphLayout`, and both follow from the
+ * pattern having no gaps. The period is FITTED to the line (`total / round(total
+ * / period)`) rather than leaving the remainder split between the two ends,
+ * because a continuous pattern that stopped short would end in a stub of plain
+ * line, and plain line is a different symbol. And `symbol_spacing` plays no part
+ * at all, which is why the panel hides its slider for these two.
+ *
+ * The cap widens the period the same way the other layout does, and for the same
+ * reason: a capped line still reads end to end, just coarser.
+ *
+ * @param {number} totalLengthKm - Length of the line, in kilometres
+ * @param {number} periodKm - Requested length of one tooth
+ * @returns {{count: number, period: number, capped: boolean}} `count` is 0 when
+ *   not one whole tooth fits, and then the caller draws a plain line.
+ */
+export function resolveContinuousLayout(totalLengthKm, periodKm) {
+    const empty = { count: 0, period: 0, capped: false };
+
+    if (!Number.isFinite(totalLengthKm) || totalLengthKm <= 0) return empty;
+    if (!Number.isFinite(periodKm) || periodKm <= 0) return empty;
+    if (periodKm > totalLengthKm) return empty;
+
+    let count = Math.max(1, Math.round(totalLengthKm / periodKm));
+    let capped = false;
+
+    if (count > COORDINATION_LINE_ZOOM_LIMITS.MAX_GLYPHS) {
+        count = COORDINATION_LINE_ZOOM_LIMITS.MAX_GLYPHS;
+        capped = true;
+    }
+
+    return { count, period: totalLengthKm / count, capped };
+}
+
+/**
  * Derive every zoom-dependent size from the authored ones.
  *
  * The kilometre pair is clamped independently of each other, which can produce a

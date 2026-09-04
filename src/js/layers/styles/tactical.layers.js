@@ -18,6 +18,7 @@ import {
     buildBoundaryCircleStrokeExpression,
 } from '../../military_tools/boundary_tool/boundary-zoom.model.js';
 import { buildCoordinationLineWidthExpression } from '../../military_tools/coordination_line_tool/coordination-line-zoom.model.js';
+import { FILLED_SYMBOL_CODES } from '../../military_tools/coordination_line_tool/coordination_line_catalog.js';
 
 /**
  * Sets up boundary layers on the map.
@@ -383,6 +384,28 @@ export function setupCoordinationLineLayers(features, mapInstance) {
             'line-opacity': 0.8,
         },
         filter: ['!=', ['get', 'user_isEditingHandle'], true],
+    });
+
+    // BEFORE the line layer, so the outline lands on top of its own fill.
+    //
+    // The `symbol_code` clause is the load-bearing part, and it is not tidiness.
+    // Measured in the browser on 2026-09-03: MapLibre's fill layer CLOSES and
+    // paints any geometry handed to it, so an unfiltered fill over this source
+    // painted the inside of the 290199 diamond, the inside of every concertina
+    // loop, and the area between an open bent spine and its chord. Only the codes
+    // the catalogue marks `filled` emit polygons, and only they may be painted.
+    ensureLayer(mapInstance, {
+        id: 'coordination-line-fill-layer',
+        type: 'fill',
+        source: 'coordination_lines',
+        paint: {
+            'fill-color': ['get', 'color'],
+            'fill-opacity': ['get', 'opacity'],
+        },
+        filter: ['all',
+            VISIBLE_FILTER,
+            ['in', ['get', 'symbol_code'], ['literal', [...FILLED_SYMBOL_CODES]]],
+        ],
     });
 
     ensureLayer(mapInstance, {
