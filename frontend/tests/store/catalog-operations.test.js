@@ -852,7 +852,9 @@ describe('revalidateCatalogLayers', () => {
 
         const result = await revalidateCatalogLayers();
 
-        expect(result).toEqual({ reactivated: [], stillUnavailable: [] });
+        // `layers` came with the return value so that the feature panel stops reading the whole
+        // map document a second time just to list two or three catalog layers.
+        expect(result).toEqual({ layers: [], reactivated: [], stillUnavailable: [] });
         expect(updateMapDataCompat).not.toHaveBeenCalled();
     });
 });

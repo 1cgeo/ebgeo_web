@@ -94,6 +94,8 @@ class MapManager {
     constructor() {
         this.memoryStore = memoryStore;
         this.projectColorCache = new LRUCache(200);
+        /** Gravacao unica pendente do uso de cor do mapa CORRENTE. @type {*} */
+        this._currentColorTimer = null;
     }
 
     // ===== MEMORY STORE MANAGEMENT =====
@@ -154,6 +156,13 @@ class MapManager {
         const previousMap = this.memoryStore.currentMap;
 
         if (previousMap && previousMap !== mapName) {
+            // Descarta a gravacao pendente do mapa que sai: a gravacao explicita abaixo escreve
+            // as contagens finais dele, e um temporizador atrasado gravaria o cache do mapa que
+            // ENTRA sob o nome do que sai.
+            if (this._currentColorTimer !== null) {
+                clearTimeout(this._currentColorTimer);
+                this._currentColorTimer = null;
+            }
             await this.saveColorUsageToDB(previousMap);
             this.clearHistory(previousMap);
         }
@@ -337,7 +346,11 @@ class MapManager {
             if (newColor) {
                 adjustColorCount(this.memoryStore.colorUsageCache, newColor, 1);
             }
-            setTimeout(() => this.saveColorUsageToDB(targetMap), 100);
+            // Uma gravacao por rajada, e nao uma por chamada. O cache em memoria ja esta em dia
+            // e `saveColorUsageToDB` sempre escreve o estado FINAL, entao um lote (N feicoes x
+            // ate 8 propriedades de cor cada) precisa de UMA escrita no IndexedDB, e nao de N
+            // temporizadores e N escritas.
+            this._scheduleCurrentColorPersist(targetMap);
         } else {
             // colorUsageCache holds the CURRENT map's counts; for another map we
             // accumulate the deltas and flush them in a SINGLE read-modify-write,
@@ -351,6 +364,20 @@ class MapManager {
         if (newColor) {
             adjustColorCount(this.projectColorCache, newColor, 1);
         }
+    }
+
+    /**
+     * Agenda UMA gravacao do uso de cor do mapa corrente. As contagens vivem em
+     * `memoryStore.colorUsageCache` e ja foram ajustadas de forma sincrona por quem chamou,
+     * entao so a escrita final importa.
+     * @param {string} mapName - Nome do mapa corrente
+     */
+    _scheduleCurrentColorPersist(mapName) {
+        if (this._currentColorTimer !== null) return; // ja ha uma gravacao agendada
+        this._currentColorTimer = setTimeout(() => {
+            this._currentColorTimer = null;
+            this.saveColorUsageToDB(mapName);
+        }, 100);
     }
 
     /**

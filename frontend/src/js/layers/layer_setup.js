@@ -16,6 +16,7 @@ import { EventTypes } from '../events';
 
 import { generatePointImage, needsPerFeatureImage, pointImageSignature } from '../draw_tools/point_tool/point-marker-symbols.js';
 import { parseCustomMarker, registerCustomFeatureImage } from '../draw_tools/point_tool/point-custom-icons.js';
+import { clearAllMeasurementMarkers } from '../draw_tools/line_tool/line_measurement.js';
 import { resolveSetupMode } from './setup-mode.js';
 import { updateAllLayerFilters, invalidateFilterCache, updateMeasurementLabelVisibility } from './visibility-filter.js';
 import { applyLayerOpacities, invalidateOpacityCache } from './layer-opacity-applier.js';
@@ -330,6 +331,9 @@ async function restoreCatalogLayers(mapInstance, analysisLayersManager, dataLaye
  */
 function clearAllMeasurements() {
     const measurementLabels = document.querySelectorAll('.measurement-label');
+    // Os marcadores primeiro, para que os ouvintes de mapa saiam com eles; a varredura do DOM
+    // abaixo so alcanca rotulos criados fora do registro de marcadores.
+    clearAllMeasurementMarkers();
     measurementLabels.forEach(label => {
         const parentMarker = label.closest('.maplibregl-marker');
         if (parentMarker) {

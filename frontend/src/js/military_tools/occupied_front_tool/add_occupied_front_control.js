@@ -8,6 +8,14 @@ import AddOccupiedFrontGeometry from './add_occupied_front_geometry.js';
 import { BaseControl } from '@tools';
 import { createPreviewScheduler } from '@tools/helpers/preview-scheduler.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+import { queryHoverFeatures } from '@tools/helpers/hover-query.helpers.js';
+
+/**
+ * Layers onHoverMove needs: 'occupied-front-edit-handles' (hasHandleAtPoint) and the layer
+ * drawn from the 'occupied_fronts' source (hasSelectedFeatureAtPoint), in
+ * layers/styles/tactical.layers.js.
+ */
+const HOVER_LAYER_IDS = ['occupied-front-edit-handles-layer', 'occupied-front-layer'];
 
 /**
  * The dispatcher that owns the `occupied_fronts` source.
@@ -656,7 +664,7 @@ class AddOccupiedFrontControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
-        const features = this.map.queryRenderedFeatures(e.point);
+        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
         const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
 

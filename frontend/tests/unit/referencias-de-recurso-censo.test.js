@@ -203,7 +203,10 @@ const CENSO = [
     { arquivo: 'src/js/state/state_manager.js', campo: 'baseLayer', classe: RUNTIME },
     { arquivo: 'src/js/store/briefing.operations.js', campo: 'modelId', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/store/briefing.operations.js', campo: 'photoId', n: 1, classe: PERSISTE },
-    { arquivo: 'src/js/store/catalog.operations.js', campo: 'catalogLayers', n: 16, classe: PERSISTE },
+    // 17 e nao 16 desde que `revalidateCatalogLayers` passou a DEVOLVER a lista revalidada: o
+    // painel de feicoes lia o documento de mapa inteiro uma segunda vez, com todas as feicoes
+    // desenhadas dentro, so para chegar a duas ou tres camadas de catalogo.
+    { arquivo: 'src/js/store/catalog.operations.js', campo: 'catalogLayers', n: 17, classe: PERSISTE },
     { arquivo: 'src/js/store/cesium3d.operations.js', campo: 'tilesetId', n: 37, classe: PERSISTE },
     { arquivo: 'src/js/store/map.operations.js', campo: 'baseLayer', n: 4, classe: PERSISTE },
     { arquivo: 'src/js/store/repositories/local.repository.js', campo: 'baseLayer', n: 1, classe: PERSISTE },

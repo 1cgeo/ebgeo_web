@@ -62,6 +62,13 @@ const originalPaintCache = new Map();
 let lastSignature = null;
 
 /**
+ * A ultima instancia de mapa entregue a `applyLayerOpacities`, para que o preview ao vivo
+ * alcance o mapa sem passar a instancia pelos componentes da barra lateral.
+ * @type {Object|null}
+ */
+let ultimoMapa = null;
+
+/**
  * Se ALGUM multiplicador diferente de 1 ja foi escrito no estilo VIVO desde o ultimo
  * `invalidateOpacityCache()`.
  *
@@ -128,8 +135,42 @@ function computeSignature(layers) {
  */
 export function applyLayerOpacities(mapInstance) {
     if (!mapInstance) return;
+    ultimoMapa = mapInstance;
+    aplicarExpressoesDeOpacidade(mapInstance, getLayers());
+}
 
-    const layers = getLayers();
+/**
+ * Aplica uma opacidade que ainda NAO esta no store, para o retorno ao vivo enquanto o
+ * controle deslizante e arrastado.
+ *
+ * Escrever o store por quadro emite LAYERS_CHANGED (que acorda todos os ouvintes, a aba de
+ * mapas inclusive, que le um documento de mapa por mapa do atlas) e grava uma operacao de
+ * sync no IndexedDB por quadro. Este caminho toca so as propriedades de tinta.
+ *
+ * A contabilidade da assinatura e a mesma de `applyLayerOpacities`, entao a UNICA escrita do
+ * store no fim do gesto cai no curto-circuito em vez de repintar. Se o gesto nunca fechar, a
+ * proxima mudanca real de camada reaplica o valor guardado e o preview se perde.
+ *
+ * @param {string} layerId - Camada sendo arrastada
+ * @param {number} opacity - Opacidade 0..1 a prever
+ * @returns {boolean} Verdadeiro quando o preview chegou a um mapa
+ */
+export function previewLayerOpacity(layerId, opacity) {
+    if (!ultimoMapa) return false;
+
+    const layers = getLayers().map(
+        (layer) => (layer.id === layerId ? { ...layer, opacity } : layer),
+    );
+    aplicarExpressoesDeOpacidade(ultimoMapa, layers);
+    return true;
+}
+
+/**
+ * Reconstroi as expressoes de multiplicador a partir de uma lista de camadas.
+ * @param {Object} mapInstance - Instancia do mapa MapLibre
+ * @param {Array<{id: string, opacity?: number}>} layers - Camadas a aplicar
+ */
+function aplicarExpressoesDeOpacidade(mapInstance, layers) {
     const signature = computeSignature(layers);
     if (signature === lastSignature) return;
     lastSignature = signature;

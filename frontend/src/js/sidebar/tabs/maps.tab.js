@@ -150,6 +150,11 @@ export class MapsTab {
         this._isLoadingMaps = false;
         // Um pedido de refresh que chegou DURANTE um carregamento, honrado depois dele.
         this._loadMapsPendente = false;
+        // Porteira de visibilidade: a aba so existe no DOM enquanto a barra lateral a mostra, e
+        // recarregar a lista desserializa um documento de mapa INTEIRO por mapa do atlas.
+        // LAYERS_CHANGED e disparado de dezenas de lugares, entao uma aba invisivel pagaria esse
+        // preco a cada mudanca de visibilidade, trava, ordem ou opacidade.
+        this._estaVisivel = false;
 
         // Atlas header (name + origin chip) and the action buttons, keyed by action id so the
         // per-state visibility table can be applied by name instead of by hand-held references.
@@ -233,6 +238,9 @@ export class MapsTab {
 
         // Setup event listeners
         this._setupEventListeners();
+
+        // render() so e chamado quando a barra lateral esta abrindo esta aba
+        this._estaVisivel = true;
 
         // Load initial data
         this._loadMaps();
@@ -850,6 +858,12 @@ export class MapsTab {
      * @private
      */
     async _loadMaps() {
+        // Pula o trabalho enquanto a aba esta escondida. Nada se perde: `refresh()` recarrega
+        // sempre, e a barra lateral o chama em toda reabertura desta aba (`_getTabContent`),
+        // entao a lista que ficou para tras e refeita na hora em que volta a ser vista. Cada
+        // passada le um documento de mapa completo por mapa do atlas.
+        if (!this._estaVisivel) return;
+
         // Guard against concurrent calls
         // COALESCE, NAO DESCARTE. O guarda existe para nao rodar duas passadas ao mesmo tempo,
         // o que e correto; o errado era JOGAR FORA o pedido chegado durante uma passada, porque
@@ -1885,14 +1899,24 @@ export class MapsTab {
      * renamed from the project screen in another tab while this one sat on a different tab.
      */
     refresh() {
+        this._estaVisivel = true;
         this._refreshAtlasHeader();
         this._loadMaps();
+    }
+
+    /**
+     * Chamado pela barra lateral quando esta aba deixa de ser mostrada (troca de aba ou painel
+     * recolhido). Suspende a recarga por LAYERS_CHANGED ate a aba reabrir.
+     */
+    onDeactivate() {
+        this._estaVisivel = false;
     }
 
     /**
      * Destroys the component.
      */
     destroy() {
+        this._estaVisivel = false;
         this._closeContextMenu();
         this._commentsPanel?.destroy();
         // Row-scoped listeners are flushed by cleanup(this) below.

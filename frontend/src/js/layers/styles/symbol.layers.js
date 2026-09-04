@@ -6,6 +6,12 @@
 
 import { getControl } from '../../store';
 import { setOrCreateSource, ensureLayer, VISIBLE_FILTER } from './layer.helpers.js';
+import { zoomScaledExpression } from './zoom-expression.js';
+
+// GPU-side zoom scaling (zoom-expression.js). Symbols and coordination measures
+// default to size 1, the declination diagram to 0.6; all clamp at 10.
+const SYMBOL_SIZE = { base: ['coalesce', ['get', 'size'], 1], anchor: 'createdAtZoom', disabledFlag: 'zoomCorrectionEnabled', maxValue: 10 };
+const DECLINATION_SIZE = { base: ['coalesce', ['get', 'size'], 0.6], anchor: 'createdAtZoom', disabledFlag: 'zoomCorrectionEnabled', maxValue: 10 };
 
 /**
  * Sets up military symbol layers on the map.
@@ -29,7 +35,7 @@ export function setupMilitarySymbolsLayers(features, mapInstance) {
         },
         layout: {
             'icon-image': ['get', 'id'],
-            'icon-size': ['get', 'calculatedSize'],
+            'icon-size': zoomScaledExpression(SYMBOL_SIZE),
             'icon-rotate': ['get', 'rotation'],
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
@@ -61,7 +67,7 @@ export function setupCoordinationMeasureLayers(features, mapInstance) {
         },
         layout: {
             'icon-image': ['get', 'id'],
-            'icon-size': ['get', 'calculatedSize'],
+            'icon-size': zoomScaledExpression(SYMBOL_SIZE),
             'icon-rotate': ['get', 'rotation'],
             'icon-anchor': [
                 'coalesce',
@@ -98,7 +104,7 @@ export function setupDeclinationLayers(features, mapInstance) {
         },
         layout: {
             'icon-image': ['get', 'id'],
-            'icon-size': ['get', 'calculatedSize'],
+            'icon-size': zoomScaledExpression(DECLINATION_SIZE),
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
         },

@@ -8,6 +8,15 @@ import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
 import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged, LABEL_ZOOM_PROPERTIES, recalcLabelSize, createLabelZoomHandler, syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+import { queryHoverFeatures } from '@tools/helpers/hover-query.helpers.js';
+
+/**
+ * Layers onHoverMove needs: the edit handles (hasHandleAtPoint, source 'circle-edit-handles')
+ * and everything drawn from the 'circles' source (hasSelectedFeatureAtPoint): solid fill,
+ * hatch fill and outline. Ids built by `setupShapeType` in layers/styles/shape.layers.js
+ * with prefix 'circle'.
+ */
+const HOVER_LAYER_IDS = ['circle-edit-handles-layer', 'circle-fill-layer', 'circle-fill-pattern-layer', 'circle-layer'];
 
 /**
  * The dispatcher that owns the `circles` source.
@@ -88,13 +97,16 @@ class AddCircleControl extends BaseControl {
     // ===== MAPBOX CONTROL INTERFACE =====
     onAdd = (map) => {
         this.map = map;
-        map.on('zoom', this._onZoomForLabels);
+        // zoomend, not zoom: the label size is painted by a style expression
+        // (layers/styles/zoom-expression.js), so this pass only refreshes the stored
+        // labelCalculatedSize once the gesture is over. See createLabelZoomHandler.
+        map.on('zoomend', this._onZoomForLabels);
     }
     onRemove = () => {
         this.deactivate();
         this.removeAllEventListeners();
         if (this.map) {
-            this.map.off('zoom', this._onZoomForLabels);
+            this.map.off('zoomend', this._onZoomForLabels);
             // Releases the queue, its settle timers and the two map listeners the dispatcher opens
             // per dispatch. Dropping a batch here cannot lose a circle: the store write always
             // precedes the source write, so the redraw that follows a style switch repopulates
@@ -614,7 +626,7 @@ class AddCircleControl extends BaseControl {
     onHoverMove = (e) => {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
-        const features = this.map.queryRenderedFeatures(e.point);
+        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
         const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
         if (hasHandle) {

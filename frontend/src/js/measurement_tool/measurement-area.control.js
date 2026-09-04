@@ -46,11 +46,35 @@ export class MeasurementAreaControl {
         this._resultsPanel = null;
         /** @type {boolean} Whether measurement has been finalized */
         this._finalized = false;
+        /** @type {number|null} Pending rAF handle for the cursor preview */
+        this._previewRafId = null;
 
         this._onMapClick = this._onMapClick.bind(this);
         this._onMouseMove = this._onMouseMove.bind(this);
         this._onContextMenu = this._onContextMenu.bind(this);
         this._onDblClick = this._onDblClick.bind(this);
+        this._runPreviewUpdate = this._runPreviewUpdate.bind(this);
+    }
+
+    /**
+     * Cancel a preview frame that has not run yet.
+     * @private
+     */
+    _cancelPendingPreview() {
+        if (this._previewRafId !== null) {
+            cancelAnimationFrame(this._previewRafId);
+            this._previewRafId = null;
+        }
+    }
+
+    /**
+     * rAF callback: redraw once per frame with the cursor position last seen.
+     * @private
+     */
+    _runPreviewUpdate() {
+        this._previewRafId = null;
+        if (!this.isActive) return;
+        this._updateVisualization();
     }
 
     onAdd(map) {
@@ -95,6 +119,7 @@ export class MeasurementAreaControl {
         this.map.off('contextmenu', this._onContextMenu);
         this.map.off('dblclick', this._onDblClick);
 
+        this._cancelPendingPreview();
         this._vertices = [];
         this._cursorPos = null;
         clearAllSources(this.map);
@@ -116,8 +141,14 @@ export class MeasurementAreaControl {
     _onMouseMove(e) {
         if (!this.isActive || this._vertices.length === 0) return;
 
+        // Coalesce by frame: _updateVisualization runs turf.area, turf.length,
+        // turf.centroid and two turf calls per side, then writes 4 sources. With
+        // V vertices that is ~4(V+1)+8 throwaway GeoJSON objects; once per frame
+        // draws the same preview as once per event.
         this._cursorPos = [e.lngLat.lng, e.lngLat.lat];
-        this._updateVisualization();
+        if (this._previewRafId === null) {
+            this._previewRafId = requestAnimationFrame(this._runPreviewUpdate);
+        }
     }
 
     _onContextMenu(e) {
@@ -193,6 +224,7 @@ export class MeasurementAreaControl {
 
         this.map.off('mousemove', this._onMouseMove);
         this.map.getCanvas().style.cursor = '';
+        this._cancelPendingPreview();
         this._cursorPos = null;
 
         this._updateVisualization();
@@ -203,6 +235,7 @@ export class MeasurementAreaControl {
 
     _restart() {
         this._finalized = false;
+        this._cancelPendingPreview();
         this._vertices = [];
         this._cursorPos = null;
         clearAllSources(this.map);

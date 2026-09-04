@@ -157,8 +157,17 @@ export function syncLabelSource(map, labelSourceId, data) {
 }
 
 /**
- * Create a RAF-throttled zoom handler that recalculates label sizes for all
- * features in a MapLibre source. Each control should create one instance.
+ * Create a RAF-throttled handler that recalculates label sizes for all features in a
+ * MapLibre source. Each control should create one instance and register it on
+ * `zoomend`, NOT on `zoom`: the label layers paint the zoom-scaled text size with a
+ * style expression (layers/styles/zoom-expression.js), so the stored
+ * `labelCalculatedSize` only has to be right for the consumers that still read it
+ * (export, feature header), once the gesture is over. On `zoom` this pass cost one
+ * dispatcher flush plus one `getData()` worker round trip PER FRAME, per shape tool.
+ *
+ * The pass still stamps `labelCreatedAtZoom` on the features that lack one, and that
+ * now happens at the END of the gesture: a legacy label without an anchor stays at its
+ * nominal size for the duration of the first gesture that touches it.
  * @param {Function} getMap - Returns the map instance (e.g. () => this.map)
  * @param {string} sourceName - MapLibre source name (e.g. 'circles')
  * @param {string} [labelSourceName] - Optional label source name for syncing
@@ -183,6 +192,7 @@ export function createLabelZoomHandler(getMap, sourceName, labelSourceName) {
 
         const currentZoom = map.getZoom();
         const data = await source.getData();
+        if (!data?.features?.length) { pendingUpdate = false; return; }
         let hasChanges = false;
 
         for (const feature of data.features) {

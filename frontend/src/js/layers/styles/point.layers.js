@@ -8,6 +8,14 @@ import {
 import { LAYER_ADDITIONAL_FILTERS } from '../layer.constants.js';
 import { POINT_IMAGE_HALF_SIZE } from '../../draw_tools/point_tool/point-marker-symbols.js';
 import { getControl } from '../../store';
+import { zoomScaledExpression } from './zoom-expression.js';
+
+// Sizes scale on the GPU with the zoom (see zoom-expression.js); the JavaScript
+// pass only refreshes the stored `calculatedSize` at the end of a gesture.
+// The clamps mirror MAX_POINT_RADIUS and MAX_LABEL_SIZE in add_point_control.js,
+// and `anchorDefault: 0` mirrors the `props.sizeCreatedAtZoom || 0` that pass uses.
+const POINT_SIZE = { base: ['coalesce', ['get', 'size'], 10], anchor: 'sizeCreatedAtZoom', anchorDefault: 0, disabledFlag: 'sizeZoomCorrectionEnabled', maxValue: 500 };
+const POINT_LABEL_SIZE = { base: ['coalesce', ['get', 'labelSize'], 14], anchor: 'labelCreatedAtZoom', disabledFlag: 'labelZoomCorrectionEnabled', maxValue: 255 };
 
 /** Filter for circle-type markers (default or explicit 'circle'). */
 const CIRCLE_MARKER_FILTER = [
@@ -43,7 +51,7 @@ export function setupPointLayers(features, mapInstance) {
         type: 'circle',
         source: 'points',
         paint: {
-            'circle-radius': ['coalesce', ['get', 'calculatedSize'], ['get', 'size']],
+            'circle-radius': zoomScaledExpression(POINT_SIZE),
             'circle-color': ['get', 'fillColor'],
             'circle-opacity': ['get', 'opacity'],
             'circle-stroke-color': ['coalesce', ['get', 'lineColor'], 'transparent'],
@@ -61,7 +69,7 @@ export function setupPointLayers(features, mapInstance) {
         filter: MARKER_FILTER,
         layout: {
             'icon-image': ['get', 'id'],
-            'icon-size': ['/', ['coalesce', ['get', 'calculatedSize'], ['get', 'size'], 10], POINT_IMAGE_HALF_SIZE],
+            'icon-size': zoomScaledExpression({ ...POINT_SIZE, divideBy: POINT_IMAGE_HALF_SIZE }),
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
         },
@@ -94,7 +102,7 @@ export function setupPointLayers(features, mapInstance) {
         ],
         layout: {
             'text-field': ['get', 'labelText'],
-            'text-size': ['coalesce', ['get', 'labelCalculatedSize'], 14],
+            'text-size': zoomScaledExpression(POINT_LABEL_SIZE),
             'text-font': ['Noto Sans Bold'],
             'text-offset': [0.8, -0.8],
             'text-anchor': 'bottom-left',

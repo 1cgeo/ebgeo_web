@@ -431,14 +431,40 @@ describe('8. o indicador e o ciclo de vida do singleton', () => {
         expect(escrito.properties.snapType).toBe('inventado');
     });
 
-    it('hideIndicator esvazia a colecao, e fonte ausente nao lanca em nenhum dos dois', () => {
+    it('hideIndicator esvazia a colecao DEPOIS de mostrar, e fonte ausente nao lanca', () => {
         const s = servico(true);
-        let escrito = null;
-        s.hideIndicator({ getSource: () => ({ setData: (d) => { escrito = d; } }) });
-        expect(escrito).toEqual({ type: 'FeatureCollection', features: [] });
+        const escritas = [];
+        const mapa = { getSource: () => ({ setData: (d) => escritas.push(d) }) };
+
+        s.showIndicator(mapa, { lng: 1, lat: 2 }, 'vertex');
+        s.hideIndicator(mapa);
+
+        expect(escritas).toHaveLength(2);
+        expect(escritas[1]).toEqual({ type: 'FeatureCollection', features: [] });
+
         const semFonte = { getSource: () => undefined };
         expect(() => s.hideIndicator(semFonte)).not.toThrow();
         expect(() => s.showIndicator(semFonte, { lng: 0, lat: 0 }, 'edge')).not.toThrow();
+    });
+
+    it('hideIndicator sobre um indicador ja escondido NAO escreve nada', () => {
+        // Doze ferramentas chamam isto no ramo `else` de todo mousemove, com o snapping ligado
+        // ou desligado. Sem a porteira cada chamada era um setData de colecao vazia sobre uma
+        // fonte ja vazia: ida ao worker mais recarga dos tiles da fonte, por movimento de mouse.
+        const s = servico(true);
+        const escritas = [];
+        const mapa = { getSource: () => ({ setData: (d) => escritas.push(d) }) };
+
+        s.hideIndicator(mapa);
+        s.hideIndicator(mapa);
+        expect(escritas).toHaveLength(0);
+
+        s.showIndicator(mapa, { lng: 1, lat: 2 }, 'vertex');
+        s.hideIndicator(mapa);
+        s.hideIndicator(mapa);
+        s.hideIndicator(mapa);
+        // Uma escrita de mostrar mais UMA de esconder, e nao uma por chamada.
+        expect(escritas).toHaveLength(2);
     });
 
     it('o construtor devolve o singleton vivo, e destroy o libera', () => {

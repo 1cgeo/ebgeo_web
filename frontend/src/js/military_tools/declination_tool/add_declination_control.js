@@ -25,6 +25,7 @@ import {
     syncZoomCorrectedProperty,
 } from '@tools/helpers/zoom-correction.helpers.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+import { readGeoJSONSourceData } from '@utils/geojson-source.js';
 
 /**
  * The dispatcher that owns the `magnetic_declinations` source.
@@ -62,6 +63,8 @@ class AddDeclinationControl extends BaseControl {
 
         this.zoomRafId = null;
         this.pendingZoomUpdate = false;
+        this.fixedZoomRafId = null;
+        this.pendingFixedZoomUpdate = false;
         this._name = 'AddDeclinationControl';
 
         // Feature IDs with an in-flight convergence backfill (prevents the
@@ -111,6 +114,7 @@ class AddDeclinationControl extends BaseControl {
 
     onRemove = () => {
         this.map.off('zoom', this.handleZoomChange);
+        this.map.off('zoomend', this.handleZoomEnd);
         // Releases the queue, its settle timers and the two map listeners the dispatcher opens
         // per dispatch. Dropping a batch here cannot lose a diagram: the store write always
         // precedes the source write, so the redraw that follows a style switch repopulates
@@ -121,6 +125,11 @@ class AddDeclinationControl extends BaseControl {
             cancelAnimationFrame(this.zoomRafId);
             this.zoomRafId = null;
         }
+        if (this.fixedZoomRafId) {
+            cancelAnimationFrame(this.fixedZoomRafId);
+            this.fixedZoomRafId = null;
+        }
+        this.pendingFixedZoomUpdate = false;
         this.pendingZoomUpdate = false;
         this.deactivate();
         this.map = undefined;
@@ -311,15 +320,105 @@ class AddDeclinationControl extends BaseControl {
 
     // ===== ZOOM CORRECTION =====
 
+    /**
+     * The painted size comes from a style expression now (layers/styles/zoom-expression.js),
+     * so the full pass no longer feeds the drawing and is worth ONE run per gesture, on
+     * `zoomend`: it refreshes the stored `calculatedSize` for the consumers that still read
+     * it (export, feature header, selection box).
+     *
+     * What an expression cannot do is the ground geometry of a diagram whose correction is
+     * OFF: its `selectionBox` is expressed in degrees and has to be rebuilt at every zoom
+     * step. Those features, and only those, keep a per-frame pass.
+     */
     setupZoomListener = () => {
         this.map.on('zoom', this.handleZoomChange);
+        this.map.on('zoomend', this.handleZoomEnd);
     };
 
     handleZoomChange = () => {
+        if (!this.pendingFixedZoomUpdate) {
+            this.pendingFixedZoomUpdate = true;
+            this.fixedZoomRafId = requestAnimationFrame(this.updateFixedSelectionBoxes);
+        }
+    };
+
+    handleZoomEnd = () => {
         if (!this.pendingZoomUpdate) {
             this.pendingZoomUpdate = true;
             this.zoomRafId = requestAnimationFrame(this.updateAllSizes);
         }
+    };
+
+    /**
+     * The ground-sized selection box of one feature, at a given zoom. ONE derivation,
+     * shared by the per-frame pass and the end-of-gesture pass: a second copy of this
+     * argument list is how a fix lands in one of them and leaves the other wrong, with
+     * the suite still green.
+     * @param {Object} feature - Feature whose zoom correction is disabled
+     * @param {number} currentZoom - Current map zoom
+     * @returns {Object} Selection box geometry
+     */
+    _fixedSelectionBox = (feature, currentZoom) => this.geometry.calculateSelectionBoxGeometry(
+        feature.geometry.coordinates,
+        feature.properties.width,
+        feature.properties.height,
+        feature.properties.size,
+        0,
+        feature.properties.createdAtZoom,
+        this.selectionManager.uiManager,
+        currentZoom
+    );
+
+    /**
+     * Per-frame pass, coalesced by rAF: rebuilds the ground-sized selection box of the
+     * features whose correction is disabled, and nothing else. The collection is read
+     * SYNCHRONOUSLY (`utilities/geojson-source.js`), so a gesture over a map with none of
+     * them costs no worker traffic and no write at all. What changed goes out as a diff
+     * through the dispatcher, never as a whole-collection `setData`.
+     */
+    updateFixedSelectionBoxes = async () => {
+        try {
+            const source = this.map?.getSource('magnetic_declinations');
+            if (!source) return;
+
+            const data = readGeoJSONSourceData(source);
+            if (!data?.features?.length) return;
+
+            const fixed = data.features.filter(f => f.properties.zoomCorrectionEnabled === false);
+            if (!fixed.length) return;
+
+            const currentZoom = this.map.getZoom();
+            const dispatcher = declinationsSource(this.map);
+            const boxes = new Map();
+            for (const feature of fixed) {
+                const selectionBox = this._fixedSelectionBox(feature, currentZoom);
+                boxes.set(feature.properties.id, selectionBox);
+                dispatcher.patch(feature.properties.id, { setProps: { selectionBox } });
+            }
+            await dispatcher.flush();
+
+            this._syncFixedSelection(boxes);
+        } finally {
+            this.pendingFixedZoomUpdate = false;
+        }
+    };
+
+    /**
+     * Copy the recalculated boxes onto the selected features and refresh the highlight.
+     * @param {Map<string, Object>} boxes - Selection box per feature id
+     */
+    _syncFixedSelection = (boxes) => {
+        const selected = this.getSelectedFeatures?.() || [];
+        let touched = false;
+        for (const feature of selected) {
+            const box = boxes.get(feature.properties.id);
+            if (!box) continue;
+            feature.properties.selectionBox = box;
+            this.selectionManager.updateSelectedFeature?.('declination', feature.properties.id, feature);
+            this.selectionManager.uiManager?.invalidateCache?.(feature.properties.id);
+            touched = true;
+        }
+        if (touched) this.selectionManager.uiManager?.updateSelectionHighlight?.();
     };
 
     updateAllSizes = async () => {
@@ -355,17 +454,7 @@ class AddDeclinationControl extends BaseControl {
             if (feature.properties.zoomCorrectionEnabled === false) {
                 newCalculatedSize = feature.properties.size;
 
-                const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
-                    feature.geometry.coordinates,
-                    feature.properties.width,
-                    feature.properties.height,
-                    feature.properties.size,
-                    0,
-                    feature.properties.createdAtZoom,
-                    this.selectionManager.uiManager,
-                    currentZoom
-                );
-                feature.properties.selectionBox = newSelectionBox;
+                feature.properties.selectionBox = this._fixedSelectionBox(feature, currentZoom);
                 hasChanges = true;
             } else {
                 const zoomDifference = currentZoom - feature.properties.createdAtZoom;
@@ -806,6 +895,11 @@ class AddDeclinationControl extends BaseControl {
             cancelAnimationFrame(this.zoomRafId);
             this.zoomRafId = null;
         }
+        if (this.fixedZoomRafId) {
+            cancelAnimationFrame(this.fixedZoomRafId);
+            this.fixedZoomRafId = null;
+        }
+        this.pendingFixedZoomUpdate = false;
         this.pendingZoomUpdate = false;
     };
 }

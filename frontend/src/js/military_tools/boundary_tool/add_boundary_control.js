@@ -35,6 +35,16 @@ import {
     hideExtensionHandles,
     showExtensionHandles
 } from '@tools/helpers/line-extension.helpers.js';
+import { queryHoverFeatures } from '@tools/helpers/hover-query.helpers.js';
+import { readGeoJSONSourceData } from '../../utilities/geojson-source.js';
+
+/**
+ * Layers onHoverMove needs: 'boundary-handles-layer' (hasHandleAtPoint matches on the layer id
+ * itself) and the single layer drawn from the 'boundarys' source (hasSelectedFeatureAtPoint),
+ * in layers/styles/tactical.layers.js. The texts and circles of a boundary live in their own
+ * sources and the hover never consults them.
+ */
+const HOVER_LAYER_IDS = ['boundary-handles-layer', 'boundary-main-layer'];
 
 /**
  * The dispatcher that owns the `boundarys` source.
@@ -126,11 +136,16 @@ class AddBoundaryControl extends BaseControl {
             onFrame: (pointer) => this._updatePreClickSnap(pointer),
         });
         this.zoomRafId = null;
+        this.zoomEndRafId = null;
         // `pendingZoomUpdate` is held for the whole (async) pass so the frames of a
         // zoom gesture cannot stack; `missedZoomUpdate` records the frames that
         // arrive meanwhile, so the last zoom of the gesture is replayed, not lost.
+        // The `ZoomEnd` twins do the same for the once-per-gesture pass, which is async for
+        // the same reasons and can also land mid-drag.
         this.pendingZoomUpdate = false;
         this.missedZoomUpdate = false;
+        this.pendingZoomEndUpdate = false;
+        this.missedZoomEndUpdate = false;
         this.lastPreviewPosition = null;
         this.lastPreviewPoints = null;
 
@@ -210,12 +225,19 @@ class AddBoundaryControl extends BaseControl {
 
     onRemove = () => {
         this.map?.off('zoom', this.handleZoomChange);
+        this.map?.off('zoomend', this.handleZoomEnd);
         if (this.zoomRafId) {
             cancelAnimationFrame(this.zoomRafId);
             this.zoomRafId = null;
         }
+        if (this.zoomEndRafId) {
+            cancelAnimationFrame(this.zoomEndRafId);
+            this.zoomEndRafId = null;
+        }
         this.pendingZoomUpdate = false;
         this.missedZoomUpdate = false;
+        this.pendingZoomEndUpdate = false;
+        this.missedZoomEndUpdate = false;
         this.deactivate();
         this.removeAllEventListeners();
         // Releases the queue, its settle timers and the two map listeners the dispatcher opens per
@@ -1276,7 +1298,7 @@ class AddBoundaryControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
-        const features = this.map.queryRenderedFeatures(e.point);
+        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
         const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
 
@@ -1424,13 +1446,28 @@ class AddBoundaryControl extends BaseControl {
 
     // ===== ZOOM CORRECTION =====
 
+    // The three layers derive their pixel sizes from the zoom ON THE GPU now
+    // (`buildBoundaryLineWidthExpression`, `buildBoundaryTextSizeExpression`,
+    // `buildBoundaryCircleStrokeExpression`), so the per-frame pass no longer feeds the
+    // drawing of a terrain-pinned boundary. It is left with the one job no style expression
+    // can do: the echelon geometry of the SCREEN-pinned boundaries, whose symbol lives in
+    // kilometres and has to be rebuilt at every zoom step (with the circles and labels that
+    // hang off it, both placed in km too). Everything else, the stored `calculated*` the
+    // export, the selection box and the attribute panel read, is worth doing ONCE per
+    // gesture, on `zoomend`.
+    //
+    // On this branch the saving is larger than on the main, because the three sources are
+    // owned by the diff dispatcher: the old single pass paid a `flush` plus a `getData()`
+    // worker round trip on `boundarys`, `boundary-texts` and `boundary-circles`, three of
+    // them per FRAME of a gesture, with nothing anchored to the screen and nothing to write.
     setupZoomListener = () => {
         this.map.on('zoom', this.handleZoomChange);
+        this.map.on('zoomend', this.handleZoomEnd);
     }
 
     handleZoomChange = () => {
         // `pendingZoomUpdate` stays true for the WHOLE pass, not just until it
-        // starts: the pass is async (three `getData` reads, and a geometry rebuild
+        // starts: the pass is async (a source read, and a geometry rebuild
         // for the screen-pinned boundaries), so clearing it early would let every
         // frame of a zoom gesture stack another pass, and the one that started at
         // the OLD zoom could finish last and write stale sizes.
@@ -1440,18 +1477,30 @@ class AddBoundaryControl extends BaseControl {
         }
 
         this.pendingZoomUpdate = true;
-        this.zoomRafId = requestAnimationFrame(this.updateAllBoundaryZoomSizes);
+        this.zoomRafId = requestAnimationFrame(this.updateScreenAnchoredGeometry);
+    }
+
+    handleZoomEnd = () => {
+        // Same discipline as above, and needed for the same reason: `zoomend` fires once per
+        // gesture, but a wheel gesture is a burst of gestures, and this pass is async too.
+        if (this.pendingZoomEndUpdate) {
+            this.missedZoomEndUpdate = true;
+            return;
+        }
+
+        this.pendingZoomEndUpdate = true;
+        this.zoomEndRafId = requestAnimationFrame(this.updateAllBoundaryZoomSizes);
     }
 
     /**
-     * Run the zoom pass that a drag made stand down, if there was one.
+     * Run the zoom passes that a drag made stand down, if there were any.
      * Called at the end of both drag paths (edit handle, feature move).
      * @returns {void}
      */
     replayMissedZoomUpdate = () => {
-        if (this.missedZoomUpdate && this.map) {
-            this.handleZoomChange();
-        }
+        if (!this.map) return;
+        if (this.missedZoomUpdate) this.handleZoomChange();
+        if (this.missedZoomEndUpdate) this.handleZoomEnd();
     }
 
     /**
@@ -1528,13 +1577,25 @@ class AddBoundaryControl extends BaseControl {
     }
 
     /**
-     * Rewrite the derived sizes of every boundary and of its dependent texts and
-     * circles for the current zoom. Runs at most once per animation frame while
-     * zooming; the sources are only written when something actually changed, so a
-     * map with no anchored boundary costs nothing but the reads.
-     * @returns {Promise<void>} Resolves once the pass has finished
+     * THE PER-FRAME PASS, and nothing but: the echelon geometry of the boundaries pinned to
+     * the SCREEN, whose size in kilometres changes with every zoom step. Writes the sources,
+     * never the store.
+     *
+     * A collection with none of them writes nothing at all, and that is the common case: the
+     * zoom correction is ON by default, and a terrain-pinned boundary keeps both its geometry
+     * and (through the layers' expressions) its drawn sizes across the whole gesture.
+     *
+     * WHY THE READ IS `readGeoJSONSourceData` AND NOT `getData()`. `getData()` is a worker
+     * round trip with a structured clone of the whole collection, and paying it once per frame
+     * to discover that nothing is screen-pinned is exactly the cost this split exists to
+     * remove. `serialize()` answers the same question on the main thread for free. The price
+     * is that what comes back are the source's OWN feature objects, so nothing here mutates
+     * them: the changed features are rebuilt as copies and go out through the dispatcher (see
+     * the header of `utilities/geojson-source.js`).
+     *
+     * @returns {Promise<void>} Resolves once the sources are written
      */
-    updateAllBoundaryZoomSizes = async () => {
+    updateScreenAnchoredGeometry = async () => {
         this.zoomRafId = null;
 
         // A drag OWNS the three sources for its duration (the move handler and
@@ -1550,6 +1611,97 @@ class AddBoundaryControl extends BaseControl {
         // Frames that arrived before this line are covered by the zoom this pass
         // is about to read; only what arrives from here on has to be replayed.
         this.missedZoomUpdate = false;
+
+        try {
+            if (!this.map) return;
+            const currentZoom = this.map.getZoom();
+
+            // The gate runs BEFORE the serial queue: a frame with nothing to do must not even
+            // take a turn in it, or a gesture would serialize 90 empty tasks behind whatever
+            // the panel or a restore is doing.
+            const pending = this._collectScreenAnchoredWork(currentZoom);
+            if (pending.length === 0) return;
+
+            await this._sourceQueue(async () => {
+                const dispatcher = boundarysSource(this.map);
+                const regenerated = pending.map(({ feature, symbolSize }) => {
+                    const properties = { ...feature.properties, calculatedSymbolSize: symbolSize };
+                    return { ...feature, properties, geometry: this.geometry.generate(properties, currentZoom) };
+                });
+
+                dispatcher.add(regenerated);
+                await dispatcher.flush();
+
+                // Only the screen-pinned boundaries changed shape, and only those need their
+                // circles and labels rebuilt (both placed in km).
+                for (const feature of regenerated) {
+                    if (!this.map) return;
+                    await this._updateDependentFeaturesUnlocked(feature);
+                }
+            });
+        } catch (error) {
+            // Nothing consumes this promise (it is a rAF callback), so a rejection here would
+            // be an unhandled one and the correction would freeze in silence. A style swap can
+            // remove a source mid-zoom; log and move on.
+            console.warn('Error refreshing boundary zoom geometry:', error);
+        } finally {
+            this.pendingZoomUpdate = false;
+            if (this.missedZoomUpdate && this.map) {
+                this.missedZoomUpdate = false;
+                this.handleZoomChange();
+            }
+        }
+    }
+
+    /**
+     * The screen-pinned boundaries whose kilometre size MOVED at this zoom, read from the live
+     * source without touching the worker. Returns the source's own feature objects, which the
+     * caller copies before changing anything.
+     *
+     * @param {number} currentZoom - Zoom to derive sizes for
+     * @returns {Array<{feature: Object, symbolSize: number}>} Work for this frame
+     * @private
+     */
+    _collectScreenAnchoredWork = (currentZoom) => {
+        const data = readGeoJSONSourceData(this.map?.getSource('boundarys'));
+        if (!data?.features?.length) return [];
+
+        const pending = [];
+        for (const feature of data.features) {
+            if (!feature?.properties || !isScreenAnchored(feature.properties)) continue;
+
+            const { calculatedSymbolSize } = computeBoundaryZoomSizes(feature.properties, currentZoom);
+            if (feature.properties.calculatedSymbolSize === calculatedSymbolSize) continue;
+
+            pending.push({ feature, symbolSize: calculatedSymbolSize });
+        }
+        return pending;
+    }
+
+    /**
+     * THE ONCE-PER-GESTURE PASS, on `zoomend`: the derived sizes of every boundary and of its
+     * dependent texts and circles, plus the geometry of the screen-pinned ones. The sources are
+     * only written when something actually changed, so a map with no anchored boundary costs
+     * nothing but the reads.
+     *
+     * The `calculated*` properties no longer feed the drawing (the layers compute the same
+     * numbers on the GPU), but the export, the selection box and the attribute panel still read
+     * them, so they are refreshed here rather than dropped.
+     *
+     * @returns {Promise<void>} Resolves once the pass has finished
+     */
+    updateAllBoundaryZoomSizes = async () => {
+        this.zoomEndRafId = null;
+
+        // Same reason as the per-frame pass: a drag owns the three sources, so stand down and
+        // let the end of the drag replay this.
+        if (this.isDraggingHandle || this._isDragging()) {
+            this.pendingZoomEndUpdate = false;
+            this.missedZoomEndUpdate = true;
+            return;
+        }
+
+        this.missedZoomEndUpdate = false;
 
         try {
             if (!this.map) return;
@@ -1596,10 +1748,10 @@ class AddBoundaryControl extends BaseControl {
             // silence. A style swap can remove a source mid-zoom; log and move on.
             console.warn('Error refreshing boundary zoom sizes:', error);
         } finally {
-            this.pendingZoomUpdate = false;
-            if (this.missedZoomUpdate && this.map) {
-                this.missedZoomUpdate = false;
-                this.handleZoomChange();
+            this.pendingZoomEndUpdate = false;
+            if (this.missedZoomEndUpdate && this.map) {
+                this.missedZoomEndUpdate = false;
+                this.handleZoomEnd();
             }
         }
     }

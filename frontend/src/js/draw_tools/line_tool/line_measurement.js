@@ -89,6 +89,29 @@ export function removeMeasurement(featureId) {
 }
 
 /**
+ * Remove TODOS os rotulos de medicao, soltando os ouvintes de mapa que cada um segura.
+ *
+ * Chamado nas trocas de mapa e de mapa base: apagar so os nos do DOM deixava os marcadores do
+ * mapa anterior vivos neste registro, cada um com cinco ouvintes de mapa (`move`, `moveend`,
+ * `terrain`, `projectiontransition`, `click`) disparando a cada quadro de camera por um rotulo
+ * que nao esta mais na tela.
+ *
+ * @returns {number} Quantos marcadores foram removidos
+ */
+export function clearAllMeasurementMarkers() {
+    const total = activeMeasurementMarkers.size;
+    for (const marker of activeMeasurementMarkers.values()) {
+        try {
+            marker.remove();
+        } catch {
+            // Um marcador cujo mapa ja se foi nao tem mais o que soltar.
+        }
+    }
+    activeMeasurementMarkers.clear();
+    return total;
+}
+
+/**
  * Set selection state on measurement label.
  *
  * @param {string} featureId - Feature ID

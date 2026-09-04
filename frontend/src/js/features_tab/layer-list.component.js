@@ -20,6 +20,7 @@ import {
     isCurrentMapLockedSync,
     TransferMode,
 } from '@store';
+import { previewLayerOpacity } from '@layers/layer-opacity-applier.js';
 import { checkPermission } from '@store/sync/permission-guard.js';
 import { showPrompt, showConfirm } from '@modals';
 import { IDUtils, showError, showToast } from '@utils';
@@ -423,8 +424,11 @@ export function createLayerOpacityRow(layer) {
     valueLabel.className = 'layer-opacity-value';
     valueLabel.textContent = `${initialPercent}%`;
 
-    // Coalesce store writes to at most one per animation frame so dragging the
-    // slider does not emit LAYERS_CHANGED (and rebuild all layer filters) every tick.
+    // Durante o arrasto so as propriedades de tinta do mapa sao tocadas, coalescidas em uma
+    // atualizacao por quadro. Passar por setLayerOpacity a cada quadro emitia LAYERS_CHANGED
+    // (acordando todos os ouvintes, a aba de mapas inclusive, que le um documento de mapa por
+    // mapa do atlas) e gravava uma operacao de sync no IndexedDB por quadro. O store e escrito
+    // UMA vez, no `change`, no fim do gesto.
     let rafId = null;
     let pendingOpacity = null;
     slider.addEventListener('input', () => {
@@ -434,9 +438,22 @@ export function createLayerOpacityRow(layer) {
         if (rafId === null) {
             rafId = requestAnimationFrame(() => {
                 rafId = null;
-                setLayerOpacity(layer.id, pendingOpacity);
+                // Sem instancia de mapa (estilo ainda nao carregado) cai no store.
+                if (!previewLayerOpacity(layer.id, pendingOpacity)) {
+                    setLayerOpacity(layer.id, pendingOpacity);
+                }
             });
         }
+    });
+
+    slider.addEventListener('change', () => {
+        if (rafId !== null) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+        }
+        const percent = Number(slider.value);
+        valueLabel.textContent = `${percent}%`;
+        setLayerOpacity(layer.id, percent / 100);
     });
 
     row.appendChild(label);

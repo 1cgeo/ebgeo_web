@@ -24,7 +24,7 @@ export {
 } from './group_manager.js';
 
 // Hatch utilities
-export { HatchPatternGenerator } from './hatch_pattern_generator.js';
+export { HatchPatternGenerator, getHatchPatternGenerator } from './hatch_pattern_generator.js';
 
 // Tabbed attribute panel
 export { injectTabbedPanelStyles } from './tabbed_attribute_panel.js';

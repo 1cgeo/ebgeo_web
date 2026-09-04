@@ -4,7 +4,7 @@
  * @fileoverview Shape layer styles (circle, rectangle, ellipse, sector).
  */
 
-import { HatchPatternGenerator } from '../../tool_manager';
+import { getHatchPatternGenerator } from '../../tool_manager';
 import { syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
 import {
     setOrCreateSource,
@@ -16,6 +16,10 @@ import {
     HATCH_FILL_FILTER,
     POINT_TYPE_FILTER,
 } from './layer.helpers.js';
+import { zoomScaledExpression } from './zoom-expression.js';
+// Label sizes scale on the GPU (zoom-expression.js); the label pass of each tool
+// only refreshes `labelCalculatedSize` at the end of a gesture.
+const LABEL_SIZE = { base: ['coalesce', ['get', 'labelSize'], 14], anchor: 'labelCreatedAtZoom', disabledFlag: 'labelZoomCorrectionEnabled', maxValue: 255 };
 
 // --- Edit-handle paint expressions -----------------------------------------------
 
@@ -74,8 +78,8 @@ function setupShapeType(map, config) {
         }
     }
 
-    const hatch = new HatchPatternGenerator();
-    hatch.loadPatternsToMap(map, features || []);
+    // O gerador da sessao, nao um por montagem de estilo: ver polygon.layers.js.
+    getHatchPatternGenerator().loadPatternsToMap(map, features || []);
 
     ensureLayer(map, {
         id: `${prefix}-feedback-layer`,
@@ -138,7 +142,7 @@ function setupShapeType(map, config) {
         ],
         layout: {
             'text-field': ['get', 'labelText'],
-            'text-size': ['coalesce', ['get', 'labelCalculatedSize'], 14],
+            'text-size': zoomScaledExpression(LABEL_SIZE),
             'text-font': ['Noto Sans Bold'],
             'text-anchor': 'center',
             'text-allow-overlap': true,

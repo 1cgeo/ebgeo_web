@@ -38,6 +38,13 @@ import {
 } from './line_measurement.js';
 import { calculateProfile } from './line_profile.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+import { queryHoverFeatures } from '@tools/helpers/hover-query.helpers.js';
+
+/**
+ * Layers onHoverMove needs: 'line-edit-handles' (hasHandleAtPoint) and the single layer drawn
+ * from the 'lines' source (hasSelectedFeatureAtPoint), in layers/styles/line.layers.js.
+ */
+const HOVER_LAYER_IDS = ['line-edit-handles-layer', 'line-layer'];
 
 /**
  * The dispatcher that owns the `lines` source.
@@ -1328,7 +1335,7 @@ class AddLineControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
-        const features = this.map.queryRenderedFeatures(e.point);
+        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
         const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
 

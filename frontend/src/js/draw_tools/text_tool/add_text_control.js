@@ -10,6 +10,15 @@ import {
     applyZoomCorrections as applyZoomCorrectionsUtil,
     syncZoomCorrectedProperty,
 } from '../../tool_manager/helpers/zoom-correction.helpers.js';
+import { queryHoverFeatures } from '@tools/helpers/hover-query.helpers.js';
+import { readGeoJSONSourceData } from '@utils/geojson-source.js';
+
+/**
+ * Layers onHoverMove needs: 'text-edit-handles' (hasHandleAtPoint) and the layer drawn from
+ * the 'texts' source (hasSelectedFeatureAtPoint), in layers/styles/content.layers.js.
+ * The background layers read 'text-backgrounds', which the hover never consults.
+ */
+const HOVER_LAYER_IDS = ['text-edit-handles-layer', 'text-layer'];
 
 class AddTextControl extends BaseControl {
     featureType = 'text';
@@ -20,6 +29,8 @@ class AddTextControl extends BaseControl {
 
         this.zoomRafId = null;
         this.pendingZoomUpdate = false;
+        this.fixedZoomRafId = null;
+        this.pendingFixedZoomUpdate = false;
         this.zoomCorrectionEnabled = true;
         this._name = 'AddTextControl';
 
@@ -73,11 +84,8 @@ class AddTextControl extends BaseControl {
 
     onRemove = () => {
         this.map.off('zoom', this.handleZoomChange);
-        if (this.zoomRafId) {
-            cancelAnimationFrame(this.zoomRafId);
-            this.zoomRafId = null;
-        }
-        this.pendingZoomUpdate = false;
+        this.map.off('zoomend', this.handleZoomEnd);
+        this._cancelZoomFrames();
         this.deactivate();
         this.removeAllEventListeners();
         this.map = undefined;
@@ -431,15 +439,105 @@ class AddTextControl extends BaseControl {
 
     // ===== ZOOM-INVARIANT SYSTEM =====
 
+    /**
+     * The painted text size comes from a style expression now
+     * (layers/styles/zoom-expression.js), so the full pass no longer feeds the drawing and
+     * is worth ONE run per gesture, on `zoomend`: it refreshes the stored `calculatedSize`
+     * for the consumers that still read it (export, feature header, selection box).
+     *
+     * What an expression cannot do is the ground geometry of a text whose correction is
+     * OFF: its `selectionBox` is expressed in degrees, and the background polygon is drawn
+     * FROM that box, so both have to be rebuilt at every zoom step. Those features, and
+     * only those, keep a per-frame pass.
+     */
     setupZoomListener = () => {
         this.map.on('zoom', this.handleZoomChange);
+        this.map.on('zoomend', this.handleZoomEnd);
     }
 
     handleZoomChange = () => {
+        if (!this.pendingFixedZoomUpdate) {
+            this.pendingFixedZoomUpdate = true;
+            this.fixedZoomRafId = requestAnimationFrame(this.updateFixedSelectionBoxes);
+        }
+    }
+
+    handleZoomEnd = () => {
         if (!this.pendingZoomUpdate) {
             this.pendingZoomUpdate = true;
             this.zoomRafId = requestAnimationFrame(this.updateAllTextSizes);
         }
+    }
+
+    /**
+     * The ground-sized selection box of one text, at a given zoom. ONE derivation, shared
+     * by the per-frame pass and the end-of-gesture pass: a second copy of this argument
+     * list is how a fix lands in one of them and leaves the other wrong, with the suite
+     * still green.
+     * @param {Object} feature - Text feature
+     * @param {number} currentZoom - Current map zoom
+     * @returns {Object} Selection box geometry
+     */
+    _fixedSelectionBox = (feature, currentZoom) => this.geometry.calculateSelectionBoxGeometry(
+        feature.geometry.coordinates,
+        feature.properties.text,
+        feature.properties.size,
+        feature.properties.rotation,
+        feature.properties.createdAtZoom,
+        this.selectionManager.uiManager,
+        feature.properties.showBackground,
+        feature.properties.backgroundBorderWidth,
+        currentZoom
+    );
+
+    /**
+     * Per-frame pass, coalesced by rAF: rebuilds the ground-sized selection box of the
+     * texts whose correction is disabled, and nothing else. The collection is read
+     * SYNCHRONOUSLY (`utilities/geojson-source.js`), so a gesture over a map with no fixed
+     * text costs no worker traffic at all. `texts` has no dispatcher, so the write here is
+     * the source's own `setData`, which is also what mirrors the backgrounds
+     * (layers/styles/content.layers.js).
+     */
+    updateFixedSelectionBoxes = async () => {
+        try {
+            const source = this.map?.getSource('texts');
+            if (!source) return;
+
+            const data = readGeoJSONSourceData(source);
+            if (!data?.features?.length) return;
+
+            const fixed = data.features.filter(f => f.properties.zoomCorrectionEnabled === false);
+            if (!fixed.length) return;
+
+            const currentZoom = this.map.getZoom();
+            for (const feature of fixed) {
+                feature.properties.selectionBox = this._fixedSelectionBox(feature, currentZoom);
+                feature.properties.calculatedSize = feature.properties.size;
+            }
+
+            source.setData(data);
+            this._syncSelectedTexts(data);
+        } finally {
+            this.pendingFixedZoomUpdate = false;
+        }
+    }
+
+    /**
+     * Copy the recalculated selection boxes onto the selected text features and refresh
+     * the highlight.
+     * @param {Object} data - The collection just written to the source
+     */
+    _syncSelectedTexts = (data) => {
+        const selectedFeatures = this.getSelectedFeatures();
+        if (!selectedFeatures.length) return;
+
+        for (const selectedFeature of selectedFeatures) {
+            const freshFeature = data.features.find(f => f.properties.id === selectedFeature.properties.id);
+            if (!freshFeature) continue;
+            this.selectionManager.updateSelectedFeature('text', freshFeature.properties.id, freshFeature);
+            this.selectionManager.uiManager?.invalidateCache?.(freshFeature.properties.id);
+        }
+        this.selectionManager.uiManager?.updateSelectionHighlight?.();
     }
 
     applyZoomCorrections = (features) => {
@@ -468,18 +566,7 @@ class AddTextControl extends BaseControl {
                 newCalculatedSize = feature.properties.size;
 
                 // Recalculate selection box for features with zoom correction disabled
-                const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
-                    feature.geometry.coordinates,
-                    feature.properties.text,
-                    feature.properties.size,
-                    feature.properties.rotation,
-                    feature.properties.createdAtZoom,
-                    this.selectionManager.uiManager,
-                    feature.properties.showBackground,
-                    feature.properties.backgroundBorderWidth,
-                    currentZoom
-                );
-                feature.properties.selectionBox = newSelectionBox;
+                feature.properties.selectionBox = this._fixedSelectionBox(feature, currentZoom);
                 hasSelectionBoxChanges = true;
             } else {
                 const zoomDifference = currentZoom - feature.properties.createdAtZoom;
@@ -546,7 +633,7 @@ class AddTextControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
-        const features = this.map.queryRenderedFeatures(e.point);
+        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
         const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
 
@@ -1117,11 +1204,24 @@ class AddTextControl extends BaseControl {
         this.removeEditEventListeners();
         this.removeHoverListeners();
 
+        this._cancelZoomFrames();
+    }
+
+    /**
+     * Drop both pending zoom frames. Called from onRemove and from the listener teardown:
+     * a frame left scheduled writes the source of a map that is already gone.
+     */
+    _cancelZoomFrames = () => {
         if (this.zoomRafId) {
             cancelAnimationFrame(this.zoomRafId);
             this.zoomRafId = null;
         }
+        if (this.fixedZoomRafId) {
+            cancelAnimationFrame(this.fixedZoomRafId);
+            this.fixedZoomRafId = null;
+        }
         this.pendingZoomUpdate = false;
+        this.pendingFixedZoomUpdate = false;
     }
 }
 

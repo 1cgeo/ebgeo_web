@@ -9,6 +9,7 @@ import { BaseControl } from '../../tool_manager';
 import { createPreviewScheduler } from '@tools/helpers/preview-scheduler.js';
 import {
     applyZoomCorrections as applyZoomCorrectionsUtil,
+    calculateZoomCorrectedValue,
     syncZoomCorrectedProperty,
 } from '../../tool_manager/helpers/zoom-correction.helpers.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
@@ -90,7 +91,7 @@ class AddBrushControl extends BaseControl {
     }
 
     onRemove = () => {
-        this.map.off('zoom', this.handleZoomChange);
+        this.map.off('zoomend', this.handleZoomChange);
         // Releases the queue, its settle timers and the two map listeners the dispatcher opens per
         // dispatch. Dropping a batch here cannot lose a brush: the store write always precedes the
         // source write, so the redraw that follows a style switch repopulates `brushes` from
@@ -486,7 +487,13 @@ class AddBrushControl extends BaseControl {
     // ===== ZOOM HANDLING =====
 
     setupZoomListener = () => {
-        this.map.on('zoom', this.handleZoomChange);
+        // zoomend, not zoom: the brush width is painted by a style expression
+        // (layers/styles/zoom-expression.js), and this pass has NO ground geometry to
+        // rebuild (no selection box), so nothing it produces is needed mid-gesture. It
+        // only refreshes the stored calculatedLineWidth for export and the feature header,
+        // and it used to cost one dispatcher flush plus one getData worker round trip and
+        // one whole-collection write PER FRAME, empty collection included.
+        this.map.on('zoomend', this.handleZoomChange);
     }
 
     handleZoomChange = () => {
@@ -511,15 +518,31 @@ class AddBrushControl extends BaseControl {
             // copy read back would be missing whatever is queued and this write would then erase it.
             const dispatcher = brushesSource(this.map);
             await dispatcher.flush();
-            if (!this.map?.getSource('brushes')) return;
+            const source = this.map?.getSource('brushes');
+            if (!source) return;
 
-            const data = await this.map.getSource('brushes').getData();
-            if (data && data.features) {
-                const updatedFeatures = data.features.map(feature =>
-                    this.applyZoomCorrections([feature])[0]
-                );
+            const data = await source.getData();
+            // Empty collection: the old pass still wrote one, on every frame of every
+            // gesture, on a map with no brush at all. A whole-collection write re-parses
+            // the data, rebuilds the geojson-vt index and drops every loaded tile of the
+            // source, so a write with nothing to say is not free.
+            if (!data?.features?.length) return;
 
-                dispatcher.setData(updatedFeatures);
+            const currentZoom = this.map.getZoom();
+            let hasChanges = false;
+            for (const feature of data.features) {
+                const newLineWidth = calculateZoomCorrectedValue(feature.properties, currentZoom, {
+                    sourceProperty: 'lineWidth',
+                    calculatedProperty: 'calculatedLineWidth',
+                });
+                if (feature.properties.calculatedLineWidth !== newLineWidth) {
+                    feature.properties.calculatedLineWidth = newLineWidth;
+                    hasChanges = true;
+                }
+            }
+
+            if (hasChanges) {
+                dispatcher.setData(data.features);
                 await dispatcher.flush();
             }
         } finally {
@@ -696,7 +719,7 @@ class AddBrushControl extends BaseControl {
     removeAllEventListeners = () => {
         this.removeDrawingEventListeners();
         this.clearPreview();
-        this.map.off('zoom', this.handleZoomChange);
+        this.map.off('zoomend', this.handleZoomChange);
         if (this.zoomRafId) {
             cancelAnimationFrame(this.zoomRafId);
             this.zoomRafId = null;

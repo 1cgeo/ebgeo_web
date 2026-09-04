@@ -1,5 +1,24 @@
 // Path: js/tool_manager/hatch_pattern_generator.js
 
+/**
+ * Gerador compartilhado, para que o cache de padroes sobreviva a `setupMapFeatures`. Cada
+ * montagem de estilo criava a propria instancia, e o cache morria com ela: todo padrao de
+ * hachura era desenhado num canvas e lido de volta com `getImageData` a cada troca de mapa
+ * base ou de mapa do atlas, uma vez por familia que o usasse (poligonos, circulos,
+ * retangulos, elipses, setores).
+ * @type {HatchPatternGenerator|null}
+ */
+let geradorCompartilhado = null;
+
+/**
+ * O gerador de padroes de hachura da sessao.
+ * @returns {HatchPatternGenerator}
+ */
+export function getHatchPatternGenerator() {
+    if (!geradorCompartilhado) geradorCompartilhado = new HatchPatternGenerator();
+    return geradorCompartilhado;
+}
+
 export class HatchPatternGenerator {
     constructor() {
         this.patternCache = new Map();
@@ -184,9 +203,10 @@ export class HatchPatternGenerator {
                     return;
                 }
 
-                if (map.hasImage(patternId)) {
-                    map.updateImage(patternId, imageData);
-                } else {
+                // O padrao e funcao pura do seu id (tipo, espacamento, largura da linha e
+                // cor), entao uma imagem ja registrada sob esse id e a certa: reenvia-la nao
+                // mudava nada na tela.
+                if (!map.hasImage(patternId)) {
                     map.addImage(patternId, imageData);
                 }
             } catch (error) {

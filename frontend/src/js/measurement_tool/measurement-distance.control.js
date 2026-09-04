@@ -43,11 +43,35 @@ export class MeasurementDistanceControl {
         this._resultsPanel = null;
         /** @type {boolean} Whether measurement has been finalized */
         this._finalized = false;
+        /** @type {number|null} Pending rAF handle for the cursor preview */
+        this._previewRafId = null;
 
         this._onMapClick = this._onMapClick.bind(this);
         this._onMouseMove = this._onMouseMove.bind(this);
         this._onContextMenu = this._onContextMenu.bind(this);
         this._onDblClick = this._onDblClick.bind(this);
+        this._runPreviewUpdate = this._runPreviewUpdate.bind(this);
+    }
+
+    /**
+     * Cancel a preview frame that has not run yet.
+     * @private
+     */
+    _cancelPendingPreview() {
+        if (this._previewRafId !== null) {
+            cancelAnimationFrame(this._previewRafId);
+            this._previewRafId = null;
+        }
+    }
+
+    /**
+     * rAF callback: redraw once per frame with the cursor position last seen.
+     * @private
+     */
+    _runPreviewUpdate() {
+        this._previewRafId = null;
+        if (!this.isActive) return;
+        this._updateVisualization();
     }
 
     onAdd(map) {
@@ -92,6 +116,7 @@ export class MeasurementDistanceControl {
         this.map.off('contextmenu', this._onContextMenu);
         this.map.off('dblclick', this._onDblClick);
 
+        this._cancelPendingPreview();
         this._vertices = [];
         this._cursorPos = null;
         clearAllSources(this.map);
@@ -113,8 +138,13 @@ export class MeasurementDistanceControl {
     _onMouseMove(e) {
         if (!this.isActive || this._vertices.length === 0) return;
 
+        // Coalesce by frame: _updateVisualization rebuilds every segment label
+        // with turf and writes 3 sources, which at 120 mousemove/s is 120 of
+        // those per second. One per frame draws the same preview.
         this._cursorPos = [e.lngLat.lng, e.lngLat.lat];
-        this._updateVisualization();
+        if (this._previewRafId === null) {
+            this._previewRafId = requestAnimationFrame(this._runPreviewUpdate);
+        }
     }
 
     _onContextMenu(e) {
@@ -173,6 +203,7 @@ export class MeasurementDistanceControl {
 
         this.map.off('mousemove', this._onMouseMove);
         this.map.getCanvas().style.cursor = '';
+        this._cancelPendingPreview();
         this._cursorPos = null;
 
         const segmentDistances = [];
@@ -187,6 +218,7 @@ export class MeasurementDistanceControl {
 
     _restart() {
         this._finalized = false;
+        this._cancelPendingPreview();
         this._vertices = [];
         this._cursorPos = null;
         clearAllSources(this.map);

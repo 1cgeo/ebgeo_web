@@ -43,10 +43,34 @@ export class MeasurementAngleControl {
         this._resultsPanel = null;
         /** @type {boolean} Whether measurement has been finalized */
         this._finalized = false;
+        /** @type {number|null} Pending rAF handle for the cursor preview */
+        this._previewRafId = null;
 
         this._onMapClick = this._onMapClick.bind(this);
         this._onMouseMove = this._onMouseMove.bind(this);
         this._onContextMenu = this._onContextMenu.bind(this);
+        this._runPreviewUpdate = this._runPreviewUpdate.bind(this);
+    }
+
+    /**
+     * Cancel a preview frame that has not run yet.
+     * @private
+     */
+    _cancelPendingPreview() {
+        if (this._previewRafId !== null) {
+            cancelAnimationFrame(this._previewRafId);
+            this._previewRafId = null;
+        }
+    }
+
+    /**
+     * rAF callback: redraw once per frame with the cursor position last seen.
+     * @private
+     */
+    _runPreviewUpdate() {
+        this._previewRafId = null;
+        if (!this.isActive) return;
+        this._updateVisualization();
     }
 
     onAdd(map) {
@@ -89,6 +113,7 @@ export class MeasurementAngleControl {
         this.map.off('mousemove', this._onMouseMove);
         this.map.off('contextmenu', this._onContextMenu);
 
+        this._cancelPendingPreview();
         this._points = [];
         this._cursorPos = null;
         clearAllSources(this.map);
@@ -115,8 +140,13 @@ export class MeasurementAngleControl {
     _onMouseMove(e) {
         if (!this.isActive || this._points.length === 0) return;
 
+        // Coalesce by frame: _updateVisualization recomputes both bearings and
+        // regenerates the whole arc, then writes 3 to 4 sources. Once per frame
+        // draws the same preview as once per event.
         this._cursorPos = [e.lngLat.lng, e.lngLat.lat];
-        this._updateVisualization();
+        if (this._previewRafId === null) {
+            this._previewRafId = requestAnimationFrame(this._runPreviewUpdate);
+        }
     }
 
     _onContextMenu(e) {
@@ -197,6 +227,7 @@ export class MeasurementAngleControl {
 
         this.map.off('mousemove', this._onMouseMove);
         this.map.getCanvas().style.cursor = '';
+        this._cancelPendingPreview();
         this._cursorPos = null;
 
         const [p1, p2, p3] = this._points;
@@ -224,6 +255,7 @@ export class MeasurementAngleControl {
 
     _restart() {
         this._finalized = false;
+        this._cancelPendingPreview();
         this._points = [];
         this._cursorPos = null;
         clearAllSources(this.map);

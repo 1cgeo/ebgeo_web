@@ -11,6 +11,7 @@ import { generatePointImage, needsPerFeatureImage } from './point-marker-symbols
 import { parseCustomMarker, registerCustomFeatureImage } from './point-custom-icons.js';
 import { reanchorOnMove } from '@js/temporal/trajectory-anchor.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+import { readGeoJSONSourceData } from '@utils/geojson-source.js';
 
 /** Maximum circle-radius (in pixels) for zoom-corrected points. */
 const MAX_POINT_RADIUS = 500;
@@ -130,15 +131,101 @@ class AddPointControl extends BaseControl {
     // ===== MAPBOX CONTROL INTERFACE =====
 
     // ===== ZOOM CORRECTION (size + label) =====
+    // The point layer paints the zoom-scaled radius, the marker icon size and the label
+    // size with style expressions (layers/styles/zoom-expression.js), so this pass no
+    // longer feeds the drawing. It only refreshes the stored `calculatedSize` and
+    // `labelCalculatedSize` for the consumers that still read them (export, selection box,
+    // feature header), and that is worth doing ONCE per gesture: it runs on `zoomend`.
+    //
+    // What an expression cannot do is the ground geometry of a point whose size correction
+    // is OFF: its `selectionBox` is expressed in degrees and has to be rebuilt at every
+    // zoom step. Those features, and only those, keep a per-frame pass.
+    //
+    // Behaviour this changes, and it is the price of the trade: a legacy label with no
+    // `labelCreatedAtZoom` only gets its anchor at the END of the first gesture that
+    // touches it, and stays at its nominal size for that gesture.
     #zoomPending = false;
     #zoomRafId = null;
+    #zoomEndPending = false;
+    #zoomEndRafId = null;
 
+    /**
+     * Per-frame pass, coalesced by rAF: rebuilds the ground-sized selection box of the
+     * points whose size correction is disabled, and nothing else. The collection is read
+     * SYNCHRONOUSLY (`utilities/geojson-source.js`), so a gesture over a map with no
+     * fixed-size point costs no worker traffic and no write at all, and what does change
+     * leaves as a diff through the dispatcher.
+     */
     #handleZoom = () => {
         if (this.#zoomPending) return;
         this.#zoomPending = true;
         this.#zoomRafId = requestAnimationFrame(async () => {
+            try {
+                const source = this.map?.getSource('points');
+                if (!source) return;
+
+                const data = readGeoJSONSourceData(source);
+                if (!data?.features?.length) return;
+
+                const fixed = data.features.filter(
+                    f => f.properties.sizeZoomCorrectionEnabled === false
+                );
+                if (!fixed.length) return;
+
+                const currentZoom = this.map.getZoom();
+                const dispatcher = pointsSource(this.map);
+                const boxes = new Map();
+                for (const feature of fixed) {
+                    const props = feature.properties;
+                    const size = props.size || 10;
+                    const selectionBox = this.geometry.calculateSelectionBoxGeometry(
+                        feature.geometry.coordinates,
+                        size,
+                        props.lineWidth || 0,
+                        props.sizeCreatedAtZoom || 0,
+                        currentZoom
+                    );
+                    boxes.set(props.id, selectionBox);
+                    dispatcher.patch(props.id, { setProps: { selectionBox, calculatedSize: size } });
+                }
+                await dispatcher.flush();
+
+                this.#syncFixedPoints(boxes);
+            } finally {
+                this.#zoomPending = false;
+            }
+        });
+    };
+
+    /**
+     * Copy the recalculated boxes onto the selected points and refresh the highlight.
+     * @param {Map<string, Object>} boxes - Selection box per point id
+     */
+    #syncFixedPoints = (boxes) => {
+        const selectedPoints = this.selectionManager?.getSelectedFeaturesByType?.('point');
+        if (!selectedPoints?.length) return;
+
+        let touched = false;
+        for (const { id, feature: selFeature } of selectedPoints) {
+            const box = boxes.get(selFeature.properties.id);
+            if (!box) continue;
+            selFeature.properties.selectionBox = box;
+            this.selectionManager.uiManager?.invalidateCache?.(id);
+            touched = true;
+        }
+        if (touched) this.selectionManager.uiManager?.updateSelectionHighlight?.();
+    };
+
+    /**
+     * End-of-gesture pass: the full recalculation (sizes, the lazy `labelCreatedAtZoom`
+     * stamp, selection sync) that used to run per frame.
+     */
+    #handleZoomEnd = () => {
+        if (this.#zoomEndPending) return;
+        this.#zoomEndPending = true;
+        this.#zoomEndRafId = requestAnimationFrame(async () => {
             const source = this.map?.getSource('points');
-            if (!source) { this.#zoomPending = false; return; }
+            if (!source) { this.#zoomEndPending = false; return; }
 
             // NOT a diff, on purpose: every zoom-corrected point changes size on every zoom
             // step, so the delta IS the collection and a diff would carry one update entry per
@@ -147,7 +234,7 @@ class AddPointControl extends BaseControl {
             // whole-collection write would then erase it.
             const dispatcher = pointsSource(this.map);
             await dispatcher.flush();
-            if (!this.map) { this.#zoomPending = false; return; }
+            if (!this.map) { this.#zoomEndPending = false; return; }
 
             const currentZoom = this.map.getZoom();
             const data = await source.getData();
@@ -227,18 +314,20 @@ class AddPointControl extends BaseControl {
                     this.selectionManager.uiManager?.updateSelectionHighlight();
                 }
             }
-            this.#zoomPending = false;
+            this.#zoomEndPending = false;
         });
     };
 
     onAdd = (map) => {
         this.map = map;
         map.on('zoom', this.#handleZoom);
+        map.on('zoomend', this.#handleZoomEnd);
     }
 
     onRemove = () => {
         if (this.map) {
             this.map.off('zoom', this.#handleZoom);
+            this.map.off('zoomend', this.#handleZoomEnd);
             // Releases the queue, its settle timers and the two map listeners the dispatcher
             // opens per dispatch. Dropping a batch here cannot lose a point: the store write
             // always precedes the source write, so the redraw that follows a style switch
@@ -248,6 +337,10 @@ class AddPointControl extends BaseControl {
         if (this.#zoomRafId) {
             cancelAnimationFrame(this.#zoomRafId);
             this.#zoomRafId = null;
+        }
+        if (this.#zoomEndRafId) {
+            cancelAnimationFrame(this.#zoomEndRafId);
+            this.#zoomEndRafId = null;
         }
         this.deactivate();
         this.removeAllEventListeners();

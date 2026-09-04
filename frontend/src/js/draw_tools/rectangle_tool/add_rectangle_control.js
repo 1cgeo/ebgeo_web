@@ -9,6 +9,15 @@ import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
 import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged, LABEL_ZOOM_PROPERTIES, recalcLabelSize, createLabelZoomHandler, syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+import { queryHoverFeatures } from '@tools/helpers/hover-query.helpers.js';
+
+/**
+ * Layers onHoverMove needs. Wider than the other shapes because hasSelectedFeatureAtPoint here
+ * matches on `properties.source === 'rectangle'` (a feature property, set in DEFAULT_PROPERTIES),
+ * not on the MapLibre source: the label and the feedback carry it too. Ids built by
+ * `setupShapeType` in layers/styles/shape.layers.js with prefix 'rectangle'.
+ */
+const HOVER_LAYER_IDS = ['rectangle-edit-handles-layer', 'rectangle-fill-layer', 'rectangle-fill-pattern-layer', 'rectangle-layer', 'rectangle-label-layer', 'rectangle-feedback-layer'];
 
 /**
  * The dispatcher that owns the `rectangles` source.
@@ -98,14 +107,17 @@ class AddRectangleControl extends BaseControl {
 
     onAdd = (map) => {
         this.map = map;
-        map.on('zoom', this._onZoomForLabels);
+        // zoomend, not zoom: the label size is painted by a style expression
+        // (layers/styles/zoom-expression.js), so this pass only refreshes the stored
+        // labelCalculatedSize once the gesture is over. See createLabelZoomHandler.
+        map.on('zoomend', this._onZoomForLabels);
     }
 
     onRemove = () => {
         this.deactivate();
         this.removeAllEventListeners();
         if (this.map) {
-            this.map.off('zoom', this._onZoomForLabels);
+            this.map.off('zoomend', this._onZoomForLabels);
             // Releases the queue, its settle timers and the two map listeners the dispatcher opens
             // per dispatch. Dropping a batch here cannot lose a rectangle: the store write always
             // precedes the source write, so the redraw that follows a style switch repopulates
@@ -944,7 +956,7 @@ class AddRectangleControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
-        const features = this.map.queryRenderedFeatures(e.point);
+        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
         const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
 

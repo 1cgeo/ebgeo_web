@@ -22,6 +22,14 @@ import {
     hideExtensionHandles,
     showExtensionHandles
 } from '@tools/helpers/line-extension.helpers.js';
+import { queryHoverFeatures } from '@tools/helpers/hover-query.helpers.js';
+
+/**
+ * Layers onHoverMove needs: 'arrow-edit-handles' (hasHandleAtPoint) and both layers drawn from
+ * the 'arrows' source (hasSelectedFeatureAtPoint), fill and outline, in
+ * layers/styles/content.layers.js.
+ */
+const HOVER_LAYER_IDS = ['arrow-edit-handles-layer', 'arrow-fill-layer', 'arrow-layer'];
 
 /**
  * The dispatcher that owns the `arrows` source.
@@ -1123,7 +1131,7 @@ class AddArrowControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
-        const features = this.map.queryRenderedFeatures(e.point);
+        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
         const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
 
