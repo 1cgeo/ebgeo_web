@@ -31,6 +31,12 @@ O diretório continua pesado depois daquela limpeza, e a série de duas medidas 
 
 É exatamente o modo de falha que esta seção existe para vigiar, e ele reincidiu: o peso não cresce nos lugares onde alguém já olhou, cresce numa pasta nova que ninguém pensou em medir. Por isso a instrução é medir o **diretório inteiro** antes de acrescentar dado pesado ali (`du -sm frontend/public/*`, ordenado por tamanho), e não conferir as pastas grandes conhecidas. E prefira servir dado pesado pelo backend ([[assets3d-distribuicao]], [[streetview-360]], [[acervo-3d-convertido]]).
 
+## O MapLibre entrou no grafo, e o teto subiu sem engordar (2026-09-04)
+
+Até 2026-09-04 o MapLibre 5.18 era um `<script>` de `public/vendors/` nas duas páginas com mapa (`index.html` e `calibracao.html`), e por isso ficava FORA da conta do teto de peso, que só soma o que o bundler emite. Com a 6.7.0 pelo npm num ponto único (`frontend/src/js/map/maplibre.js`) a biblioteca entra no grafo, e o número que o teto vê muda de natureza antes de mudar de tamanho: `index.html` foi de 2909 kB mais 998 do vendor para 3889 kB no bundle (teto de 3000 para 4150, piso de 2450 para 3600), e `calibracao.html` de 845 mais 998 para 1824 (teto de 1100 para 1980). A prova de que é troca de balcão, e não engorda, são as páginas sem mapa: `atlas` (521 kB) e `admin` (673 kB) idênticas nos dois estados, e a razão entre o payload EXCLUSIVO do mapa e o das outras páginas invariante (4,34 antes, 4,35 depois). O que a conta NÃO vê é o worker separado, 620 kB (147 gzip), que o Vite emite como asset e o navegador baixa; somando, a biblioteca custa 1601 kB (403 gzip).
+
+A armadilha que a leitura do `vite.config.js` convida: dar à biblioteca um grupo de chunk próprio. Foi escrito, medido em três builds e desfeito, porque o `dist/` saiu byte a byte idêntico e o nome do chunk composto; regra inerte é pior que nenhuma. E o `optimizeDeps.exclude` que segurava o vendor global saiu com ele. O que a 6.7 muda no mapa está em [[desempenho-do-mapa-2d]].
+
 ## Histórico
 
 - **2026-08-23.** Duas correções de leitura, e as duas eram da mesma família (um absoluto lido como propriedade). O aviso de tamanho de chunk era descrito como "o único aviso esperado", o que fazia um build normal parecer regressão: o build emite outros avisos que não são de tamanho, e repete tudo na passada legacy. E a medida de `frontend/public` foi refeita, subindo de 156 MB para 185 MB sem que nenhuma das duas pastas nomeadas na medida antiga mudasse.
