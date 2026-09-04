@@ -230,9 +230,12 @@ describe('normalizeMapDataForCurrentVersion', () => {
         expect(unavailableCatalogLayersCount).toBe(0);
     });
 
-    it('EDGE: mapData sem `features` nenhum ganha o objeto e a chave, sem lancar', () => {
+    it('EDGE: mapData sem `features` nenhum ganha o objeto e as DUAS chaves, sem lancar', () => {
+        // DUAS desde 2026-09-03: `coordination_lines` entrou ao lado de
+        // `coordination_measures`, porque o mesmo arquivo antigo que nao tem uma nao tem a
+        // outra, e sem o balde a Linha de Coordenacao ativa, aceita clique e nao desenha nada.
         const { mapData } = normalizeMapDataForCurrentVersion({}, semCatalogo());
-        expect(mapData.features).toEqual({ coordination_measures: [] });
+        expect(mapData.features).toEqual({ coordination_measures: [], coordination_lines: [] });
     });
 
     it('EDGE: coordination_measures ja presente e PRESERVADO, inclusive nao vazio', () => {

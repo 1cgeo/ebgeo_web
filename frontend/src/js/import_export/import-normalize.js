@@ -26,6 +26,9 @@
 
 import { createSyncMetadata } from '@store/sync/sync-metadata.js';
 import { ATLAS_SCHEMA_VERSION } from '@store/atlas/atlas.entity.js';
+// A zero-import leaf, imported BY PATH and never through the `@store` barrel, which would
+// drag the whole store graph into a module written to run in the node test environment.
+import { ensureCoordinationLines } from '@store/repository.utils.js';
 
 /**
  * Migrates import data from v1.x to v2.0+ format.
@@ -98,7 +101,8 @@ export function migrateImportDataToV2(data) {
 
 /**
  * Normalizes mapData structure to current version.
- * Ensures coordination_measures exists (added in v1.4).
+ * Ensures coordination_measures exists (added in v1.4) and that the
+ * `coordination_lines` collection is present.
  * Validates catalog layers availability.
  * @param {Object} mapData - Map data to normalize
  * @param {(layers: Array) => {processed: Array, unavailableCount: number}} processCatalogLayers -
@@ -115,6 +119,17 @@ export function normalizeMapDataForCurrentVersion(mapData, processCatalogLayers)
     // Ensure coordination_measures exists (v1.4)
     if (!mapData.features.coordination_measures) {
         mapData.features.coordination_measures = [];
+    }
+
+    // Give the map the shape the Coordination Line tool needs. MIN_SCHEMA_VERSION is 1.3,
+    // so an accepted `.ebgeo` may well predate that tool and arrive without its collection;
+    // left alone, the tool would have no source to draw into on that map. THE SAME PURE
+    // FUNCTION the IndexedDB read and the server snapshot call, so the three entry paths
+    // cannot drift apart, and it is idempotent, so a file written by `main` at 2.3 (which
+    // already carries the bucket) passes through untouched.
+    const shapedFeatures = ensureCoordinationLines(mapData.features);
+    if (shapedFeatures) {
+        mapData.features = shapedFeatures;
     }
 
     // Add sync metadata if missing (v2.0)

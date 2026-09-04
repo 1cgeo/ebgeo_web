@@ -96,6 +96,7 @@
  * @property {Feature[]} arrows - Arrow features
  * @property {Feature[]} boundarys - Boundary features
  * @property {Feature[]} occupied_fronts - Occupied front features
+ * @property {Feature[]} coordination_lines - Coordination line features
  * @property {Feature[]} military_symbols - Military symbol features
  * @property {Feature[]} coordination_measures - Coordination measure features
  * @property {Feature[]} los - Line of sight features

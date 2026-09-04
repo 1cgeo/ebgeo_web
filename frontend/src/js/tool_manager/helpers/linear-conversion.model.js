@@ -59,23 +59,36 @@
 
 import { deepClone } from '@utils/deep-utils.js';
 import { computeBoundaryZoomSizes } from './boundary-zoom.model.js';
+import { computeCoordinationLineZoomSizes } from './coordination-line-zoom.model.js';
 
 /**
- * Os três tipos que compartilham um eixo de coordenadas e por isso se convertem entre si,
- * na ordem em que o menu os desenha.
+ * Os tipos que compartilham um eixo de coordenadas e por isso se convertem entre si, na
+ * ordem em que o menu os desenha.
  *
  * O polígono NÃO entra: ele fecha, e reabrir um anel produz um eixo cujo primeiro e último
  * vértice coincidem, o que a geometria da seta lê como comprimento zero no último segmento.
  * @type {readonly string[]}
  */
-export const LINEAR_SOURCES = Object.freeze(['line', 'arrow', 'boundary']);
+export const LINEAR_SOURCES = Object.freeze(['line', 'arrow', 'boundary', 'coordination_line']);
 
 /** O rótulo do comando que produz cada tipo. @type {Object<string, string>} */
 export const LINEAR_CONVERSION_LABELS = Object.freeze({
     line: 'Converter para Linha',
     arrow: 'Converter para Seta',
     boundary: 'Converter para Linha de Limite',
+    coordination_line: 'Converter para Linha de Coordenação',
 });
+
+/**
+ * O espaçamento com que uma linha de coordenação convertida nasce, como múltiplo do tamanho
+ * do glifo.
+ *
+ * ELE É CÓPIA do `SPACING_RATIO` do próprio controle, e a cópia é obrigatória: este módulo
+ * é folha de `tool_manager/helpers/` (chunk `core`) e não importa nada de `military_tools`,
+ * que é outro chunk. O par é preso pelo teste da conversão.
+ * @type {number}
+ */
+export const COORDINATION_SPACING_RATIO = 3;
 
 /**
  * As chaves de `GuardAction` que uma conversão consome, as DUAS. Exportada para que o
@@ -132,6 +145,10 @@ export const DROPPED_BY_SOURCE = Object.freeze({
         'text_distance_ratio', 'text_north_facing', 'createdAtZoom', 'zoomCorrectionEnabled',
         'calculatedLineWidth', 'calculatedTextSize', 'calculatedStrokeWidth', 'calculatedSymbolSize',
     ]),
+    coordination_line: Object.freeze([
+        'symbol_code', 'symbol_size', 'symbol_spacing', 'createdAtZoom', 'zoomCorrectionEnabled',
+        'calculatedLineWidth', 'calculatedSymbolSize', 'calculatedSymbolSpacing',
+    ]),
 });
 
 /**
@@ -161,6 +178,7 @@ export const LINE_WIDTH_RANGE = Object.freeze({
     line: Object.freeze({ min: 1, max: 15 }),
     arrow: Object.freeze({ min: 1, max: 10 }),
     boundary: Object.freeze({ min: 1, max: 10 }),
+    coordination_line: Object.freeze({ min: 1, max: 10 }),
 });
 
 /**
@@ -171,6 +189,7 @@ const LOSS_PHRASE = Object.freeze({
     line: 'a medição, o perfil do terreno e o estilo do traço',
     arrow: 'a largura, a cabeça, a ponta dupla e o traçado aeromóvel',
     boundary: 'o escalão, os rótulos e o tamanho do símbolo',
+    coordination_line: 'o símbolo do catálogo, o tamanho e a distância entre símbolos',
 });
 
 /**
@@ -273,7 +292,12 @@ export function canConvertLinear(feature, target) {
 function readLinearStyle(properties, source) {
     const p = properties || {};
     if (source === 'arrow') return { color: p.fillColor, lineWidth: p.lineWidth, opacity: p.fillOpacity };
-    if (source === 'boundary') return { color: p.color, lineWidth: p.lineWidth, opacity: p.opacity };
+    // As DUAS linhas militares guardam a cor em `color`, e não em `lineColor`: ler a linha de
+    // coordenação pelo ramo da linha comum devolveria `undefined` e a conversão nasceria com a
+    // cor do padrão, apagando em silêncio a cor que a pessoa escolheu.
+    if (source === 'boundary' || source === 'coordination_line') {
+        return { color: p.color, lineWidth: p.lineWidth, opacity: p.opacity };
+    }
     return { color: p.lineColor, lineWidth: p.lineWidth, opacity: p.opacity };
 }
 
@@ -374,6 +398,27 @@ export function buildConvertedProperties({
         props.lineOpacity = opacity;
         props.lineWidth = width;
         if (Number.isFinite(adaptiveWidth)) props.width = adaptiveWidth;
+    } else if (target === 'coordination_line') {
+        props.color = style.color ?? props.color;
+        props.lineWidth = width;
+        props.opacity = opacity;
+
+        // O tamanho do glifo é o valor adaptativo da PRÓPRIA ferramenta de destino, e o
+        // espaçamento o acompanha, então uma linha convertida nasce com o mesmo padrão que
+        // uma recém-desenhada teria neste zoom.
+        if (Number.isFinite(adaptiveSymbolSize) && adaptiveSymbolSize > 0) {
+            props.symbol_size = adaptiveSymbolSize;
+            props.symbol_spacing = adaptiveSymbolSize * COORDINATION_SPACING_RATIO;
+        }
+
+        // Nasce AQUI, mesma regra do limite abaixo: a âncora é o zoom que está na tela agora.
+        props.createdAtZoom = Number.isFinite(currentZoom)
+            ? Math.round(currentZoom * 10) / 10
+            : props.createdAtZoom;
+        props.zoomCorrectionEnabled = true;
+
+        // DEPOIS de o objeto estar inteiro, pelo mesmo motivo do limite.
+        Object.assign(props, computeCoordinationLineZoomSizes(props, currentZoom));
     } else {
         props.color = style.color ?? props.color;
         props.lineWidth = width;

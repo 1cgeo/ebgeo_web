@@ -18,6 +18,7 @@ import { EventTypes } from '../../events/event_types.js';
 import { getRepository, setSettingCompat } from '../repositories/index.js';
 import { localRepository } from '../repositories/local.repository.js';
 import { getStorageTypeFromSource } from '../store.constants.js';
+import { ensureMapDataShape } from '../repository.utils.js';
 import { applyRemoteAppearance } from '../atlas-appearance.service.js';
 import { getControl } from '../control.registry.js';
 import { mapResolver } from '../services/map-resolver.service.js';
@@ -1521,7 +1522,14 @@ async function reshapeSnapshotMap(repo, map) {
     if (baseLayer !== undefined) {
         reshaped.baseLayer = baseLayer;
     }
-    return reshaped;
+
+    // THE THIRD ENTRY PATH a map can take into this repository, alongside the `.ebgeo`
+    // importer and the IndexedDB read, and the one nobody thinks of: a map that has only
+    // ever lived on the server arrives here with whatever buckets its peer wrote, and a peer
+    // that predates the Coordination Line tool sends none. Without the collection the layer
+    // setup builds no source and the tool activates, accepts clicks and draws nothing. Same
+    // pure function as the other two, so the three cannot drift apart.
+    return ensureMapDataShape(reshaped) ?? reshaped;
 }
 
 /**

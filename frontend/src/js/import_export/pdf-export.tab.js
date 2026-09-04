@@ -1330,7 +1330,7 @@ export default class PDFExportTab {
         const sourceTypes = [
             'points', 'lines', 'polygons', 'texts', 'images',
             'circles', 'rectangles', 'ellipses', 'brushes',
-            'arrows', 'boundarys', 'occupied_fronts',
+            'arrows', 'boundarys', 'occupied_fronts', 'coordination_lines',
             'military_symbols', 'coordination_measures',
             'los', 'visibility', 'setores',
         ];
@@ -1341,6 +1341,7 @@ export default class PDFExportTab {
             texts: 'text', images: 'image', circles: 'circle',
             rectangles: 'rectangle', ellipses: 'ellipse', brushes: 'brush',
             arrows: 'arrow', boundarys: 'boundary', occupied_fronts: 'occupied_front',
+            coordination_lines: 'coordination_line',
             military_symbols: 'military_symbol', coordination_measures: 'coordination_measure',
             los: 'los', visibility: 'visibility', setores: 'sector',
         };

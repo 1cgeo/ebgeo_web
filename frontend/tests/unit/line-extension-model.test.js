@@ -54,8 +54,8 @@ const linha = (coords, extra = {}) => ({
 });
 
 describe('o vocabulário', () => {
-    it('são os TRÊS tipos lineares e as DUAS pontas, congelados', () => {
-        expect([...EXTENDABLE_SOURCES]).toEqual(['line', 'arrow', 'boundary']);
+    it('são os QUATRO tipos lineares e as DUAS pontas, congelados', () => {
+        expect([...EXTENDABLE_SOURCES]).toEqual(['line', 'arrow', 'boundary', 'coordination_line']);
         expect([...EXTENSION_ENDS]).toEqual(['start', 'end']);
         expect(Object.isFrozen(EXTENDABLE_SOURCES)).toBe(true);
         expect(Object.isFrozen(EXTENSION_ENDS)).toBe(true);

@@ -75,7 +75,7 @@ import { uploadCopiedBlobsIfRemote } from '@store/upload-copied-blobs.js';
 import { IDUtils, ToastService } from '../utilities';
 import { pasteAnchor, offsetToTarget, translatePositionProperties } from './clipboard-offset.js';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
-import { collectImageResourceIds } from '@layers/feature-images.js';
+import { collectImageResourceIds, collectImageResourceRatios } from '@layers/feature-images.js';
 import { getImageRegenerator } from '@layers/image-regen-registry.js';
 import { generatePointImage, needsPerFeatureImage } from '../draw_tools/point_tool/point-marker-symbols.js';
 import { parseCustomMarker, registerCustomFeatureImage } from '../draw_tools/point_tool/point-custom-icons.js';
@@ -580,10 +580,15 @@ class ClipboardManager {
     async loadPastedImages(newFeaturesByType) {
         const imagePromises = [];
 
+        // Colar cunha id novo, e o raster do id novo tem de ser registrado com a MESMA razao
+        // de pixels com que foi assado, senao a copia sai `pixelRatio` vezes maior que o
+        // original ao lado dela.
+        const razoes = collectImageResourceRatios(newFeaturesByType);
+
         for (const imageId of collectImageResourceIds(newFeaturesByType)) {
             if (this.map.hasImage(imageId)) continue;
 
-            const imagePromise = this.loadSingleImageForPaste(imageId);
+            const imagePromise = this.loadSingleImageForPaste(imageId, razoes.get(imageId) || 1);
             imagePromises.push(imagePromise);
         }
 
@@ -620,8 +625,9 @@ class ClipboardManager {
     /**
      * Load single image into MapLibre.
      * @param {string} imageId
+     * @param {number} [pixelRatio=1] - Bitmap pixels per screen pixel
      */
-    async loadSingleImageForPaste(imageId) {
+    async loadSingleImageForPaste(imageId, pixelRatio = 1) {
         try {
             const blob = await getImage(imageId);
             if (!blob) {
@@ -637,7 +643,7 @@ class ClipboardManager {
                 image.onload = () => {
                     try {
                         if (!this.map.hasImage(imageId)) {
-                            this.map.addImage(imageId, image);
+                            this.map.addImage(imageId, image, { pixelRatio });
                         }
                         URL.revokeObjectURL(url);
                         resolve();

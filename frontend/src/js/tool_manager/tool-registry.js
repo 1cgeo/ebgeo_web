@@ -52,6 +52,11 @@ import { applyZoomCorrections as aplicarCorrecaoDeZoom } from './helpers/zoom-co
 // Folha de zero imports, como a de cima, e no MESMO chunk (core): declarar a conta do limite
 // aqui nao traz `military_tools` de volta para o payload do boot.
 import { withBoundaryZoomSizes as comTamanhosDeZoomDoLimite } from './helpers/boundary-zoom.model.js';
+// Pelo mesmo motivo, e por isso o modelo da linha de coordenacao mora aqui e nao na pasta da
+// ferramenta: `layers/styles/` tambem le a expressao de largura dele.
+import {
+    withCoordinationLineZoomSizes as comTamanhosDeZoomDaLinhaDeCoordenacao
+} from './helpers/coordination-line-zoom.model.js';
 import { ensureTurf } from '@utils/turf-loader.js';
 
 // ============================================================================================
@@ -203,6 +208,19 @@ export const FERRAMENTAS = Object.freeze({
         tipoDeUi: 'occupiedfront', classe: 'AddOccupiedFrontControl',
         tipoDeFeicao: 'occupied_front', fontes: ['occupied_fronts'], alcaDeEdicao: 'occupied-front-edit-handles',
         carregar: () => import('../military_tools/occupied_front_tool/add_occupied_front_control.js')
+    },
+    coordinationLineControl: {
+        tipoDeUi: 'coordinationline', classe: 'AddCoordinationLineControl',
+        tipoDeFeicao: 'coordination_line', fontes: ['coordination_lines'],
+        alcaDeEdicao: 'coordination-line-edit-handles',
+        // Mesmo caso do limite: `layers/styles/tactical.layers.js` reancora a linha ao zoom
+        // corrente de forma SINCRONA no setup das camadas, e a conta nao cabe na tripla
+        // `size`/`calculatedSize` (sao tres derivados, dois deles em km). O stand-in devolve
+        // so os NUMEROS; a geometria, que le Turf, chega na primeira passada de zoom depois
+        // que o modulo sobe. Nao ha metodo encaminhado, porque esta ferramenta desenha numa
+        // fonte so e nao tem feicao dependente para reconstruir no boot.
+        zoomModelo: comTamanhosDeZoomDaLinhaDeCoordenacao,
+        carregar: () => import('../military_tools/coordination_line_tool/add_coordination_line_control.js')
     },
 
     // ---------- Analise: TARDIAS ----------

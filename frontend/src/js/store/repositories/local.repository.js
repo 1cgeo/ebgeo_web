@@ -18,7 +18,8 @@ import { isValidUUID } from '../../utilities/uuid.js';
 import {
     getDefaultLayer,
     getEmptyCesium3dData,
-    getEmptyStreetview360Data
+    getEmptyStreetview360Data,
+    ensureMapDataShape
 } from '../repository.utils.js';
 import {
     ATLAS_RECORD_KEY,
@@ -102,6 +103,28 @@ const commentStore = () => getScopedStore(StoreName.COMMENTS);
 // ===== HELPER FUNCTIONS =====
 
 /**
+ * Normalise a map document coming OUT of IndexedDB.
+ *
+ * This is one of the three read paths that `ensureMapDataShape` covers, and the one that
+ * matters most: a map written before the Coordination Line tool existed carries no
+ * `coordination_lines` bucket, no migration will ever run for it (the schema version did
+ * not move, by decision of 2026-09-03), and without the bucket the layer setup builds no
+ * source, so the tool activates, accepts clicks and draws nothing. The other two are the
+ * `.ebgeo` importer and the server snapshot.
+ *
+ * NOTHING IS WRITTEN BACK. The shaped document is what the caller gets; the stored one
+ * keeps whatever shape it had until the next save. That is deliberate: a read that
+ * rewrote every map of every atlas would be a migration wearing a different hat, and
+ * would mark documents dirty for sync over a change nobody authored.
+ *
+ * @param {Object|null} mapData - Document as it came out of the store
+ * @returns {Object|null} The same object when already in shape, a shaped copy otherwise
+ */
+function shapeStoredMap(mapData) {
+    return ensureMapDataShape(mapData) ?? mapData;
+}
+
+/**
  * Returns empty map data structure.
  * Exported for use by migration and other modules.
  * @returns {Object} Empty map data
@@ -130,6 +153,7 @@ export function getEmptyMapData() {
             arrows: [],
             boundarys: [],
             occupied_fronts: [],
+            coordination_lines: [],
             military_symbols: [],
             setores: [],
             coordenadas: [],
@@ -254,14 +278,14 @@ export class LocalRepository {
     async getMap(mapIdOrName) {
         // Direct lookup (works for UUID keys and legacy name keys)
         const directResult = await mapStore().getItem(mapIdOrName);
-        if (directResult) return directResult;
+        if (directResult) return shapeStoredMap(directResult);
 
         // Fast path: resolve name → ID via cache
         if (mapResolver.isInitialized) {
             const resolvedId = mapResolver.resolveToId(mapIdOrName);
             if (resolvedId !== mapIdOrName) {
                 const cachedResult = await mapStore().getItem(resolvedId);
-                if (cachedResult) return cachedResult;
+                if (cachedResult) return shapeStoredMap(cachedResult);
             }
         }
 
@@ -273,7 +297,7 @@ export class LocalRepository {
                 if (mapData.name) {
                     mapResolver.registerMap(mapData.name, key);
                 }
-                return mapData;
+                return shapeStoredMap(mapData);
             }
         }
 
@@ -287,7 +311,7 @@ export class LocalRepository {
      * @returns {Promise<Object|null>}
      */
     async getMapById(mapId) {
-        return await mapStore().getItem(mapId);
+        return shapeStoredMap(await mapStore().getItem(mapId));
     }
 
     /**

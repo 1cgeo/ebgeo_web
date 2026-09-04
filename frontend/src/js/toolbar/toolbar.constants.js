@@ -73,6 +73,9 @@ export const TOOLBAR_ICONS = {
     // Occupied Front - icon_occupied_front_black.svg
     occupiedFront: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" y1="18" x2="10" y2="10"/><line x1="10" y1="10" x2="10" y2="15"/><line x1="10" y1="15" x2="16" y2="5"/><line x1="16" y1="5" x2="13" y2="5"/><line x1="16" y1="5" x2="17" y2="8"/></g></svg>`,
 
+    // Coordination Line - icon_coordination_line_black.svg (line broken by a diamond)
+    coordinationLine: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="10" x2="6" y2="10"/><path d="M6 10 L10 6 L14 10 L10 14 Z"/><line x1="14" y1="10" x2="19" y2="10"/></g></svg>`,
+
     // Azimuth Distance - compass with directional needle and distance line
     azimuthDistance: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="3" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="21"/><line x1="3" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="21" y2="12"/><path d="M12 12 L17 5" stroke-width="2"/><circle cx="17" cy="5" r="2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/></svg>`,
 
@@ -148,6 +151,12 @@ export const TOOL_GROUPS = {
             { id: 'arrow', label: 'Seta', icon: TOOLBAR_ICONS.arrow, shortcut: 'S', controlKey: 'arrowControl' },
             { id: 'boundary', label: 'Linha de Limite', icon: TOOLBAR_ICONS.boundary, shortcut: 'D', controlKey: 'boundaryControl' },
             { id: 'occupiedFront', label: 'Frente Ocupada', icon: TOOLBAR_ICONS.occupiedFront, shortcut: 'F', controlKey: 'occupiedFrontControl' },
+            // NO `shortcut`, and that is a decision rather than an oversight: every free letter
+            // near this group is already taken, and inventing a two-key chord for one tool would
+            // break the one-letter rule the whole bar follows. `tool-button.js` renders the
+            // shortcut-less button without the badge (and without the literal "undefined" the
+            // unguarded template used to write).
+            { id: 'coordinationLine', label: 'Linha de Coordenação', icon: TOOLBAR_ICONS.coordinationLine, controlKey: 'coordinationLineControl' },
             { id: 'declination', label: 'Declinação Magnética', icon: TOOLBAR_ICONS.declination, shortcut: 'W', controlKey: 'declinationControl' },
         ],
     },

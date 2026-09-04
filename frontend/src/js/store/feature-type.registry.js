@@ -49,7 +49,7 @@
  * list is a separate commit, justified by the bug it causes, never by tidiness: three of
  * them decide observable output (the PDF legend, the KMZ export, the feature tab).
  *
- * NOT EVERY STORE BUCKET IS A TYPE. `getEmptyMapData` carries 21 buckets; the extra one is
+ * NOT EVERY STORE BUCKET IS A TYPE. `getEmptyMapData` carries 22 buckets; the extra one is
  * `coordenadas`, an ephemeral reading with no source, no layer and no place in the server
  * contract. It is deliberately absent here.
  */
@@ -141,6 +141,14 @@ export const FEATURE_TYPE_REGISTRY = Object.freeze([
     Object.freeze({
         type: 'occupied_front', storage: 'occupied_fronts',
         label: 'Frente Ocupada', icon: './images/icon_occupied_front_black.svg',
+        selectable: true, copiable: true, imageResource: false, selectionBox: false,
+    }),
+    Object.freeze({
+        // Regular plural, and the bucket every reader normalises into: a map stored
+        // before this tool existed has no such key, which `ensureCoordinationLines`
+        // fixes at READ time in all three entry paths. See that function.
+        type: 'coordination_line', storage: 'coordination_lines',
+        label: 'Linha de Coordenação', icon: './images/icon_coordination_line_black.svg',
         selectable: true, copiable: true, imageResource: false, selectionBox: false,
     }),
     Object.freeze({

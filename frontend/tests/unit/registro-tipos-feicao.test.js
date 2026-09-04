@@ -106,16 +106,17 @@ describe('registro de tipos: piso e forma', () => {
         // Without this, an empty (or undefined) registry would make every "no duplicates"
         // and "no unknown field" case below pass vacuously, in silence.
         expect(Array.isArray(FEATURE_TYPE_REGISTRY), 'FEATURE_TYPE_REGISTRY nao e array').toBe(true);
-        expect(FEATURE_TYPE_REGISTRY.length, 'o registro veio vazio: o import quebrou').toBeGreaterThanOrEqual(20);
+        expect(FEATURE_TYPE_REGISTRY.length, 'o registro veio vazio: o import quebrou').toBeGreaterThanOrEqual(21);
     });
 
-    it('ABSOLUTE: os vinte tipos, escritos por extenso', () => {
+    it('ABSOLUTE: os vinte e um tipos, escritos por extenso', () => {
         // Absolute, not derived: comparing the registry with something computed FROM the
         // registry is the tautology that passes green on an empty list.
         expect(FEATURE_TYPE_REGISTRY.map(r => r.type)).toEqual([
             'point', 'line', 'polygon', 'circle', 'ellipse', 'rectangle', 'sector',
             'text', 'image', 'brush',
-            'arrow', 'boundary', 'occupied_front', 'military_symbol', 'coordination_measure',
+            'arrow', 'boundary', 'occupied_front', 'coordination_line', 'military_symbol',
+            'coordination_measure',
             'los', 'visibility', 'processed_los', 'processed_visibility',
             'magnetic_declination',
         ]);

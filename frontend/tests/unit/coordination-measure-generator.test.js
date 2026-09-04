@@ -18,8 +18,8 @@
  *    three "is it filled in" guards share ONE predicate, `hasTextValue`, and that
  *    agreement is asserted value by value;
  *  - `validate` for the three rule families (supply / echelon / concentration);
- *  - `escapeXml`, `estimateTextWidth`, `hasExternalText`, `applyDashedStroke` and the
- *    catalog query helpers.
+ *  - `escapeXml`, `estimateTextWidth`, `hasExternalText`, `aplicarSituacaoDoNucleo`
+ *    and the catalog query helpers.
  *
  * WHAT IT DOES NOT REACH
  *  - `generateSymbolBlob` / `generate` / `convertToPngBlob`: canvas + FileReader,
@@ -170,26 +170,62 @@ describe('CoordinationMeasureGenerator.applyCustomColor', () => {
 });
 
 // ============================================================================
-// applyDashedStroke
+// aplicarSituacaoDoNucleo (era applyDashedStroke)
 // ============================================================================
 
-describe('CoordinationMeasureGenerator.applyDashedStroke', () => {
-    it('appends stroke-dasharray to every stroke attribute, keeping the colour', () => {
-        const out = gen.applyDashedStroke('<a stroke="black"/><b stroke="red"/>');
+/**
+ * ESTE BLOCO FOI INVERTIDO, NAO CONTORNADO (2026-09-03, porte do Nucleo).
+ *
+ * `applyDashedStroke` tracejava TODO `stroke=` do SVG, e este bloco fixava esse
+ * comportamento por escrito. Ele estava errado como regra do produto: o tracejado conta a
+ * SITUACAO do nucleo e vale so para o contorno da elipse, enquanto o simbolo de escalao e a
+ * identificacao seguem continuos. Escalao tracejado seria outro simbolo.
+ *
+ * O sucessor mira o elemento marcado com `data-nucleo="contorno"` e uma vez so. As
+ * assercoes abaixo foram reescritas para a regra nova, com o pior caso na frente: o SVG que
+ * tem OUTROS `stroke=` alem do contorno, que e o caso em que a regra velha errava.
+ */
+describe('CoordinationMeasureGenerator.aplicarSituacaoDoNucleo', () => {
+    const CONTORNO = '<path data-nucleo="contorno" d="M 1 1" stroke="black"></path>';
+    const ESCALAO = '<g><path stroke="black"></path><path stroke="red"></path></g>';
 
-        expect(out).toBe(
-            '<a stroke="black" stroke-dasharray="5,5"/><b stroke="red" stroke-dasharray="5,5"/>'
-        );
+    it('traceja SO o contorno, e deixa os outros traços do símbolo intactos', () => {
+        const out = gen.aplicarSituacaoDoNucleo(CONTORNO + ESCALAO, 'preparado');
+
+        expect(out.match(/stroke-dasharray/g)).toHaveLength(1);
+        expect(out).toMatch(/data-nucleo="contorno"[^>]*stroke-dasharray/);
+        expect(out.slice(out.indexOf('</path>'))).not.toContain('stroke-dasharray');
     });
 
-    it('is a no-op on an SVG with no stroke attribute', () => {
-        expect(gen.applyDashedStroke('<a fill="black"/>')).toBe('<a fill="black"/>');
+    it('vale para as duas situações que não são "ocupado"', () => {
+        for (const status of ['preparado', 'preparado-nao-ocupado']) {
+            expect(gen.aplicarSituacaoDoNucleo(CONTORNO, status), status)
+                .toMatch(/stroke-dasharray/);
+        }
     });
 
-    it('is NOT idempotent: applying it twice doubles the dash attribute', () => {
-        const once = gen.applyDashedStroke('<a stroke="black"/>');
+    it('é no-op para ocupado, para vazio e para ausente: o contínuo é o padrão', () => {
+        for (const status of ['ocupado', '', null, undefined]) {
+            expect(gen.aplicarSituacaoDoNucleo(CONTORNO, status), String(status)).toBe(CONTORNO);
+        }
+    });
 
-        expect(gen.applyDashedStroke(once)).not.toBe(once);
+    it('é no-op num SVG sem contorno marcado, em vez de tracejar o que achar', () => {
+        expect(gen.aplicarSituacaoDoNucleo(ESCALAO, 'preparado')).toBe(ESCALAO);
+    });
+
+    it('marca UM elemento por passada, e segue NAO idempotente', () => {
+        // A regra velha ja nao era idempotente, e esta tambem nao e: o `[^>]*?` casa o
+        // atributo que a primeira passada escreveu e a segunda escreve outro no mesmo
+        // elemento. Fica registrado porque e propriedade do chamador, nao do desenho: o
+        // `generateSymbolBlob` chama isto UMA vez, sempre a partir do SVG do catalogo.
+        const uma = gen.aplicarSituacaoDoNucleo(CONTORNO + ESCALAO, 'preparado');
+        const duas = gen.aplicarSituacaoDoNucleo(uma, 'preparado');
+
+        expect(uma.match(/stroke-dasharray/g)).toHaveLength(1);
+        expect(duas.match(/stroke-dasharray/g)).toHaveLength(2);
+        // E as duas marcas caem no MESMO elemento: o escalao continua limpo.
+        expect(duas.slice(duas.indexOf('</path>'))).not.toContain('stroke-dasharray');
     });
 });
 
@@ -663,9 +699,19 @@ describe('CoordinationMeasureGenerator catalog queries', () => {
 
     it('getAvailableTextFields returns [] for unknown points and for text-less ones', () => {
         expect(gen.getAvailableTextFields('nope')).toEqual([]);
-        expect(gen.getAvailableTextFields('ECHELON_16')).toEqual([]);
+        // 130600 continua sem campo nenhum. O ECHELON_16 SAIU desta linha em 2026-09-03:
+        // como Nucleo ele desenha a identificacao, e passou a declarar o campo.
+        expect(gen.getAvailableTextFields('130600')).toEqual([]);
         expect(gen.getAvailableTextFields('SUPPLY_I'))
             .toEqual(['identificacao', 'gdhIni', 'gdhFim']);
+    });
+
+    it('o método do GERADOR lê o DESENHO, e por isso ele diverge do do catálogo', () => {
+        // Divergencia deliberada, e ela e a razao de `uiFields` existir: o gerador pergunta
+        // "que texto eu escrevo no SVG" e o catalogo pergunta "que campo o formulario
+        // oferece". No Nucleo os dois nao coincidem, porque a situacao aparece no
+        // formulario e NAO vira texto: ela troca o tracado da elipse.
+        expect(gen.getAvailableTextFields('ECHELON_16')).toEqual(['identificacao']);
     });
 
     it('listAvailableCodes matches the catalog keys', () => {

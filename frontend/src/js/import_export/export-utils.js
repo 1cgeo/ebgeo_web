@@ -27,7 +27,7 @@ const ZOOM_INVARIANT_SOURCES = [
     { sourceName: 'brushes', property: 'calculatedLineWidth', baseProperty: 'lineWidth', maxValue: Infinity },
     { sourceName: 'images', property: 'calculatedSize', baseProperty: 'size', maxValue: 10 },
     { sourceName: 'military_symbols', property: 'calculatedSize', baseProperty: 'size', maxValue: 10 },
-    { sourceName: 'coordination-measures-source', property: 'calculatedSize', baseProperty: 'size', maxValue: 10 },
+    { sourceName: 'coordination_measures', property: 'calculatedSize', baseProperty: 'size', maxValue: 10 },
     {
         sourceName: 'boundarys',
         property: 'calculatedLineWidth',
@@ -46,6 +46,13 @@ const ZOOM_INVARIANT_SOURCES = [
         sourceName: 'boundary-circles',
         property: 'calculatedStrokeWidth',
         baseProperty: 'strokeWidth',
+        maxValue: 60,
+        enabledProperty: 'zoomCorrectionEnabled',
+    },
+    {
+        sourceName: 'coordination_lines',
+        property: 'calculatedLineWidth',
+        baseProperty: 'lineWidth',
         maxValue: 60,
         enabledProperty: 'zoomCorrectionEnabled',
     },
@@ -161,6 +168,42 @@ async function correctBoundaryGroundGeometry(hiddenMap, finalZoom) {
 }
 
 /**
+ * Rebuilds screen-pinned COORDINATION LINES for the export zoom.
+ *
+ * Same reason as the boundary above, and simpler: a coordination line has no dependent
+ * sources, so correcting the feature is the whole job. Only the screen-pinned ones change
+ * SHAPE with the zoom (their glyphs are sized in kilometres by `2 ** (createdAtZoom - zoom)`),
+ * but `applyZoomCorrections` regenerates every feature, which is also what the map load does.
+ *
+ * Silently does nothing when the control is not registered, which is the case in an export
+ * started before the tool ever ran. The stand-in of `tool-registry.js` answers
+ * `applyZoomCorrections` with the numbers only and carries no `geometry`, so the check below
+ * asks for BOTH before trusting the call to rebuild anything.
+ *
+ * @param {maplibregl.Map} hiddenMap - The off-screen map used for rendering
+ * @param {number} finalZoom - The target export zoom level
+ * @returns {Promise<boolean>} Whether any features were changed
+ */
+async function correctCoordinationLineGroundGeometry(hiddenMap, finalZoom) {
+    try {
+        const control = getControl('AddCoordinationLineControl');
+        if (typeof control?.applyZoomCorrections !== 'function' || !control.geometry) return false;
+
+        const source = hiddenMap.getSource('coordination_lines');
+        if (!source) return false;
+
+        const data = await source.getData();
+        if (!data?.features?.length) return false;
+
+        source.setData({ ...data, features: control.applyZoomCorrections(data.features, finalZoom) });
+        return true;
+    } catch (error) {
+        console.error('Error rebuilding screen-pinned coordination lines for export:', error);
+        return false;
+    }
+}
+
+/**
  * Adjusts zoom-dependent feature sizes for the export zoom level.
  * Features whose `createdAtZoom` differs from the export zoom get their
  * calculated size/width scaled so they render at the correct visual size.
@@ -176,6 +219,11 @@ export async function correctZoomInvariantFeatures(hiddenMap, finalZoom) {
     // features. The two do not overlap: this one only touches the boundaries the
     // generic pass skips (`zoomCorrectionEnabled === false`).
     if (await correctBoundaryGroundGeometry(hiddenMap, finalZoom)) {
+        anyChanges = true;
+    }
+
+    // Same shape, no dependent sources: a coordination line is one feature.
+    if (await correctCoordinationLineGroundGeometry(hiddenMap, finalZoom)) {
         anyChanges = true;
     }
 

@@ -13,10 +13,12 @@ import { describe, it, expect } from 'vitest';
 import { getPointsGroupedOptions } from '@js/military_tools/coordination_measure_tool/attributes/ui-components.helpers.js';
 import { UI_DATA } from '@js/military_tools/coordination_measure_tool/coordination_measure_constants.js';
 
-const ECHELON_OPTIONS = 2;
+// UMA desde 2026-09-03: o Escalao e o Escalao Forca-Tarefa viraram a MESMA opcao de
+// Nucleo, e quem separa as duas familias e a caixa Forca-Tarefa ao lado do escalao.
+const ECHELON_OPTIONS = 1;
 
 describe('getPointsGroupedOptions', () => {
-    it('emits every point of UI_DATA.pointsList plus the two echelon entries', () => {
+    it('emits every point of UI_DATA.pointsList plus the nucleus entry', () => {
         const options = getPointsGroupedOptions();
 
         expect(UI_DATA.pointsList.length).toBeGreaterThan(0);
@@ -46,9 +48,20 @@ describe('getPointsGroupedOptions', () => {
         }
     });
 
+    it('põe o Núcleo em primeiro, porque ele não pertence a categoria nenhuma', () => {
+        // Ele entrava no FIM da lista, atras de oitenta itens, e nao pertence a nenhuma das
+        // categorias que a ordem preferida enumera: nao ha onde encaixa-lo, entao ele abre.
+        const options = getPointsGroupedOptions();
+
+        expect(options[0].value).toBe('ECHELON');
+        expect(options[0].isEchelon).toBe(true);
+        expect(options.filter(o => o.isEchelon)).toHaveLength(1);
+    });
+
     it('emits the preferred categories before the leftovers', () => {
         const options = getPointsGroupedOptions();
-        const firstCode = options[0].value;
+        // O primeiro ponto de CATALOGO, depois do Nucleo, que nao esta em `pointsList`.
+        const firstCode = options.find(o => !o.isEchelon).value;
         const firstPoint = UI_DATA.pointsList.find(p => p.code === firstCode);
 
         expect(firstPoint.category).toBe('Gerais');

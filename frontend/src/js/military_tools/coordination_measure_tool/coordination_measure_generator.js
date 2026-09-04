@@ -5,6 +5,24 @@ import { convertSvgToPngBlob } from '../svg-to-png.js';
 
 const DEFAULT_SIZE = 80;
 
+// Quantos pixels de bitmap por pixel de tela. O `icon-size` da camada de medidas cresce
+// com o zoom (2^(zoom - createdAtZoom), com teto 10), entao um PNG no tamanho justo chega
+// a ser esticado varias vezes e o desenho borra, o que aparece primeiro na curva fina da
+// elipse do nucleo. Rasterizar acima e registrar a imagem com `pixelRatio` mantem o
+// simbolo do MESMO tamanho na tela e da nitidez ate ampliar duas vezes. O custo e memoria
+// de textura, que cresce com o QUADRADO deste numero, e o nucleo ja usa quadro de 200:
+// em 2 o bitmap dele tem 400 por 400, e em 4 teria 800 por 800, quatro vezes mais caro.
+const NITIDEZ = 4;
+
+// A previa do modal e as miniaturas do combobox nao vao para o mapa, entao nao precisam de
+// supersampling. Sao 13 miniaturas a cada troca de subtipo, e rasteriza-las na nitidez do
+// mapa era o que deixava marcar Forca-Tarefa lento.
+export const NITIDEZ_DE_TELA = 1;
+
+// Tracado do contorno do nucleo preparado. O periodo de 80 unidades da cerca de uma duzia
+// de tracos ao longo do arco de 220 por 100, como na figura do MD33-M-02.
+const NUCLEO_TRACEJADO = '58,22';
+
 /**
  * Coordination Measure Generator
  * Generates coordination measure symbols from SVG catalog
@@ -27,9 +45,11 @@ export class CoordinationMeasureGenerator {
    * Generate symbol blob for map rendering with dimensions
    * Public interface - matches Military Symbol Generator
    * @param {Object} properties - Feature properties including pointCode
-   * @returns {Promise<Object>} { blob: Blob, width: number, height: number, anchor: string }
+   * @param {Object} [opcoes] - Opcoes de rasterizacao
+   * @param {number} [opcoes.nitidez] - Pixels de bitmap por pixel de tela
+   * @returns {Promise<Object>} { blob, width, height, pixelRatio, anchor }
    */
-  async generateSymbolBlob(properties) {
+  async generateSymbolBlob(properties, { nitidez = NITIDEZ } = {}) {
     const pointCode = properties.pointCode;
     if (!pointCode) {
       throw new Error('Property pointCode is required');
@@ -45,11 +65,22 @@ export class CoordinationMeasureGenerator {
     const colorToApply = properties.fillColor || 'none';
     svg = this.applyCustomColor(svg, colorToApply);
 
+    // A SITUACAO roda DEPOIS da cor, e a ordem e contrato: a cor reescreve `stroke="black"`
+    // no contorno, e o tracejado e um atributo NOVO no mesmo elemento. Invertidas, o
+    // `stroke-dasharray` continuaria de pe, mas o alvo da cor teria mudado de forma.
+    if (pointData.isNucleo) {
+      svg = this.aplicarSituacaoDoNucleo(svg, properties.status);
+    }
+
     const baseViewBox = this.extractDimensions(svg);
     const hasText = this.hasExternalText(properties, pointData);
 
-    let finalWidth = DEFAULT_SIZE;
-    let finalHeight = DEFAULT_SIZE;
+    // O quadro na tela e do PONTO, nao do catalogo inteiro: o nucleo desenha uma area e
+    // pede mais espaco que um ponto, senao o traco e o texto dele saem finos e ilegiveis.
+    const tamanhoBase = pointData.tamanhoBase || DEFAULT_SIZE;
+
+    let finalWidth = tamanhoBase;
+    let finalHeight = tamanhoBase;
 
     if (hasText) {
       const expandedViewBox = this.calculateDynamicViewBox(svg, properties, pointData);
@@ -58,22 +89,26 @@ export class CoordinationMeasureGenerator {
       const growthFactorY = expandedViewBox.height / baseViewBox.height;
 
       if (growthFactorX > 1.01) {
-        finalWidth = Math.round(DEFAULT_SIZE * growthFactorX);
+        finalWidth = Math.round(tamanhoBase * growthFactorX);
       }
 
       if (growthFactorY > 1.01) {
-        finalHeight = Math.round(DEFAULT_SIZE * growthFactorY);
+        finalHeight = Math.round(tamanhoBase * growthFactorY);
       }
 
       svg = this.addExternalTexts(svg, properties, pointData);
     }
 
-    const blob = await this.convertToPngBlob(svg, finalWidth, finalHeight);
+    // O bitmap sai em `nitidez` vezes o tamanho logico. O `width` e o `height` devolvidos
+    // seguem sendo os LOGICOS, porque e deles que saem a caixa de selecao e o KMZ: quem
+    // traduz o bitmap grande de volta ao tamanho de tela e o `pixelRatio`.
+    const blob = await this.convertToPngBlob(svg, finalWidth * nitidez, finalHeight * nitidez);
 
     return {
       blob,
       width: finalWidth,
       height: finalHeight,
+      pixelRatio: nitidez,
       anchor: pointData.anchor
     };
   }
@@ -83,11 +118,12 @@ export class CoordinationMeasureGenerator {
    * Returns dataUrl instead of blob for backward compatibility with existing code
    * @param {string} pointCode - Point code (ex: "130100")
    * @param {Object} properties - Point properties
-   * @returns {Promise<Object>} { dataUrl: string, width: number, height: number, anchor: string, blob: Blob }
+   * @param {Object} [opcoes] - Opcoes de rasterizacao, repassadas ao generateSymbolBlob
+   * @returns {Promise<Object>} { dataUrl, blob, width, height, pixelRatio, anchor }
    */
-  async generate(pointCode, properties) {
+  async generate(pointCode, properties, opcoes) {
     const propsWithCode = { ...properties, pointCode };
-    const result = await this.generateSymbolBlob(propsWithCode);
+    const result = await this.generateSymbolBlob(propsWithCode, opcoes);
 
     const dataUrl = await new Promise((resolve) => {
       const reader = new FileReader();
@@ -100,6 +136,7 @@ export class CoordinationMeasureGenerator {
       blob: result.blob,
       width: result.width,
       height: result.height,
+      pixelRatio: result.pixelRatio,
       anchor: result.anchor
     };
   }
@@ -148,14 +185,26 @@ export class CoordinationMeasureGenerator {
   }
 
   /**
-   * Apply dashed stroke for "preparado" status symbols
+   * A situacao do nucleo muda o tracado da ELIPSE, e so dela: ocupado desenha continuo,
+   * preparado e preparado-nao-ocupado desenham tracejado (MD33-M-02). O simbolo de escalao
+   * e a identificacao seguem continuos, por isso o alvo e o elemento marcado com
+   * `data-nucleo="contorno"`, nunca todo `stroke=` do SVG.
+   *
+   * Situacao em branco desenha continuo, que e o caso comum e o que a figura do manual
+   * mostra como ocupado.
+   *
    * @param {string} svg - SVG string
-   * @returns {string} SVG with dashed stroke
+   * @param {string|null} status - ocupado | preparado | preparado-nao-ocupado
+   * @returns {string} SVG with the situation stroke applied
    */
-  applyDashedStroke(svg) {
+  aplicarSituacaoDoNucleo(svg, status) {
+    if (!status || status === 'ocupado') {
+      return svg;
+    }
+
     return svg.replace(
-      /stroke="([^"]*)"/g,
-      'stroke="$1" stroke-dasharray="5,5"'
+      /(<[a-z]+\b[^>]*\bdata-nucleo="contorno"[^>]*?)(\s*\/?>)/,
+      `$1 stroke-dasharray="${NUCLEO_TRACEJADO}"$2`
     );
   }
 

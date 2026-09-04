@@ -29,6 +29,11 @@ export { default as AddOccupiedFrontControl } from './occupied_front_tool/add_oc
 export { default as AddOccupiedFrontGeometry } from './occupied_front_tool/add_occupied_front_geometry.js';
 export { addOccupiedFrontAttributesToPanel } from './occupied_front_tool/occupied_front_attributes_panel.js';
 
+// Coordination Line tool
+export { default as AddCoordinationLineControl } from './coordination_line_tool/add_coordination_line_control.js';
+export { default as AddCoordinationLineGeometry } from './coordination_line_tool/add_coordination_line_geometry.js';
+export { addCoordinationLineAttributesToPanel } from './coordination_line_tool/coordination_line_attributes_panel.js';
+
 // Declination Diagram tool
 export { default as AddDeclinationControl } from './declination_tool/add_declination_control.js';
 export { default as AddDeclinationGeometry } from './declination_tool/add_declination_geometry.js';

@@ -23,7 +23,7 @@ import { pruneCatalogLayerDefinitions } from '@catalog/catalog-layer.ref.js';
 const VALID_FEATURE_TYPES = new Set([
     'point', 'line', 'polygon', 'text', 'image',
     'circle', 'rectangle', 'ellipse', 'brush', 'sector',
-    'arrow', 'boundary', 'occupied_front', 'military_symbol', 'coordination_measure',
+    'arrow', 'boundary', 'occupied_front', 'coordination_line', 'military_symbol', 'coordination_measure',
     'magnetic_declination',
     'los', 'visibility', 'processed_los', 'processed_visibility',
 ]);
@@ -37,6 +37,7 @@ const BUCKET_TO_SOURCE = {
     points: 'point', lines: 'line', polygons: 'polygon', texts: 'text', images: 'image',
     circles: 'circle', rectangles: 'rectangle', ellipses: 'ellipse', brushes: 'brush', setores: 'sector',
     arrows: 'arrow', boundarys: 'boundary', occupied_fronts: 'occupied_front', military_symbols: 'military_symbol',
+    coordination_lines: 'coordination_line',
     coordination_measures: 'coordination_measure', magnetic_declinations: 'magnetic_declination',
     los: 'los', visibility: 'visibility', processed_los: 'processed_los', processed_visibility: 'processed_visibility',
 };

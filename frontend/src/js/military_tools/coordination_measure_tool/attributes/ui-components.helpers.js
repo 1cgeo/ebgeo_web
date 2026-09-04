@@ -148,22 +148,68 @@ export function getPointsGroupedOptions() {
     categoryOrder.forEach(emitCategory);
     Object.keys(grouped).forEach(emitCategory);
 
-    options.push({
+    // O Nucleo entra UMA vez, e entra em PRIMEIRO: ele nao pertence a nenhuma das
+    // categorias da lista, e no fim ficava atras de oitenta itens. A Forca-Tarefa nao e
+    // outro tipo de ponto, e uma caixa de marcacao ao lado do escalao, e ela que decide
+    // entre `ECHELON` e `ECHELON_FT`.
+    const nucleo = {
         value: 'ECHELON',
-        label: 'Escalão (requer subtipo)',
-        iconCode: null,
+        label: 'Núcleo (requer escalão)',
+        iconCode: 'ECHELON',
         isEchelon: true,
         defaultEchelonCode: 'ECHELON_16'
-    });
-    options.push({
-        value: 'ECHELON_FT',
-        label: 'Escalão Força-Tarefa (requer subtipo)',
-        iconCode: null,
-        isEchelon: true,
-        defaultEchelonCode: 'ECHELON_FT_16'
-    });
+    };
 
-    return options;
+    return [nucleo, ...options];
+}
+
+/**
+ * Checks if a point code belongs to the task force family of the nucleus.
+ * @param {string} pointCode - Point code to check
+ * @returns {boolean}
+ */
+export function isNucleoFT(pointCode) {
+    if (!pointCode) return false;
+    return pointCode === 'ECHELON_FT' || pointCode.startsWith('ECHELON_FT_');
+}
+
+/**
+ * Troca a familia do codigo de escalao entre normal e Forca-Tarefa, PRESERVANDO o escalao
+ * escolhido: ECHELON_16 vira ECHELON_FT_16 e volta.
+ * @param {string} echelonCode - Current echelon code
+ * @param {boolean} forcaTarefa - Whether the task force bracket applies
+ * @returns {string} Echelon code in the requested family
+ */
+export function trocarFamiliaDoNucleo(echelonCode, forcaTarefa) {
+    const escalao = String(echelonCode || '').replace(/^ECHELON_(?:FT_)?/, '') || '16';
+    return forcaTarefa ? `ECHELON_FT_${escalao}` : `ECHELON_${escalao}`;
+}
+
+/**
+ * Creates a labeled checkbox in the coordination measure style.
+ * @param {string} label - Label text
+ * @param {boolean} checked - Initial state
+ * @param {Function} onChange - Callback receiving the new boolean state
+ * @returns {HTMLElement} Checkbox container
+ */
+export function createCheckbox(label, checked, onChange) {
+    const container = document.createElement('label');
+    container.className = 'coord-check';
+
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.className = 'coord-check__input';
+    input.checked = Boolean(checked);
+    input.onchange = (e) => onChange(e.target.checked);
+
+    const text = document.createElement('span');
+    text.className = 'coord-check__label';
+    text.textContent = label;
+
+    container.appendChild(input);
+    container.appendChild(text);
+
+    return container;
 }
 
 /**

@@ -125,9 +125,10 @@ async function loadControlFor(featureType) {
  * A geometria do destino para este eixo e estas propriedades.
  *
  * As TRÊS assinaturas divergem, e a divergência é do produto, não deste arquivo: a linha
- * recebe só as coordenadas, a seta recebe eixo mais propriedades, e o limite lê o eixo de
- * DENTRO das propriedades e ainda quer o zoom (é o zoom que decide o tamanho desenhado do
- * escalão). Concentrá-las aqui é o que deixa o resto do arquivo sem um `if` por tipo.
+ * recebe só as coordenadas, a seta recebe eixo mais propriedades, e as DUAS linhas militares
+ * leem o eixo de DENTRO das propriedades e ainda querem o zoom (é o zoom que decide o tamanho
+ * desenhado do escalão e dos glifos). Concentrá-las aqui é o que deixa o resto do arquivo sem
+ * um `if` por tipo.
  *
  * @param {Object} control - Controle do tipo de destino
  * @param {string} target - Tipo de destino
@@ -137,7 +138,9 @@ async function loadControlFor(featureType) {
  * @returns {Object|null} Geometria GeoJSON, ou null
  */
 function generateTargetGeometry(control, target, spine, properties, currentZoom) {
-    if (target === 'boundary') return control.geometry.generate(properties, currentZoom);
+    if (target === 'boundary' || target === 'coordination_line') {
+        return control.geometry.generate(properties, currentZoom);
+    }
     if (target === 'arrow') return control.geometry.generate(spine, properties);
     return control.geometry.generate(spine);
 }

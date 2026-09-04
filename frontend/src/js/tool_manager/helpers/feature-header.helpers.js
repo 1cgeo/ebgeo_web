@@ -260,20 +260,46 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
         }
     }
 
-    // "Cortar Linha" continua exclusivo da linha: ele não é uma conversão, é uma divisão.
-    if (selectedFeatures.length === 1 && currentFeature?.properties?.source === 'line') {
-        const splitLineButton = document.createElement('button');
-        splitLineButton.className = 'feature-menu-button';
-        splitLineButton.textContent = 'Cortar Linha';
+    // OS TIPOS LINEARES QUE SE CORTAM EM DUAS, cada um com o rótulo do menu e o módulo que
+    // guarda o modo de clique temporário. O carregamento é tardio pelo mesmo motivo das
+    // operações de seta: aresta estática daqui para um chunk de ferramenta recria o ciclo
+    // core <-> ferramenta. Continua não sendo conversão, é divisão, e a seta segue de fora,
+    // porque o "Separar Setas" dela é o inverso da combinação.
+    //
+    // A TABELA MORA AQUI DENTRO, e não no topo do arquivo, porque o rótulo da linha é a ÂNCORA
+    // de fim do recorte de `tests/unit/conversao-linear-menu-fiacao.test.js`: aquele guarda
+    // recorta o bloco de conversão da chamada a `linearConversionActions` até o comando
+    // seguinte, e uma tabela no topo levaria a âncora para ANTES do bloco, deixando o recorte
+    // vazio e todas as asserções de ausência vacuamente verdes.
+    const SPLITTABLE_LINEAR_SOURCES = {
+        line: {
+            label: 'Cortar Linha',
+            load: () => import('../../draw_tools/line_tool/line-split.js')
+                .then(module => module.activateSplitMode),
+        },
+        boundary: {
+            label: 'Cortar Linha de Limite',
+            load: () => import('../../military_tools/boundary_tool/boundary-split.js')
+                .then(module => module.activateBoundarySplitMode),
+        },
+    };
 
-        splitLineButton.addEventListener('click', async (e) => {
+    const splitSpec = selectedFeatures.length === 1
+        ? SPLITTABLE_LINEAR_SOURCES[currentFeature?.properties?.source]
+        : null;
+    if (splitSpec) {
+        const splitButton = document.createElement('button');
+        splitButton.className = 'feature-menu-button';
+        splitButton.textContent = splitSpec.label;
+
+        splitButton.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
             closeAllFeatureDropdowns(true);
-            const { activateSplitMode } = await import('../../draw_tools/line_tool/line-split.js');
-            await activateSplitMode(currentFeature, selectionManager.map, selectionManager);
+            const activate = await splitSpec.load();
+            await activate(currentFeature, selectionManager.map, selectionManager);
         });
-        dropdown.appendChild(splitLineButton);
+        dropdown.appendChild(splitButton);
     }
 
     // Add reverse option for arrow features (single selection only)
@@ -293,6 +319,28 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
             closeAllFeatureDropdowns(true);
         });
         dropdown.appendChild(reverseArrowButton);
+    }
+
+    // Reversing a coordination line is not cosmetic: the glyphs that sit on ONE side of the
+    // line (the obstacle peak, the concertina loop) are placed from the local bearing, so
+    // flipping the spine flips which side they face. That is the doctrinal question of which
+    // way an obstacle points.
+    if (selectedFeatures.length === 1 && currentFeature?.properties?.source === 'coordination_line') {
+        const separatorFlip = document.createElement('div');
+        separatorFlip.className = 'feature-menu-separator';
+        dropdown.appendChild(separatorFlip);
+
+        const reverseLineButton = document.createElement('button');
+        reverseLineButton.className = 'feature-menu-button';
+        reverseLineButton.textContent = 'Inverter Linha';
+
+        reverseLineButton.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            await reverseCoordinationLine(currentFeature, selectionManager, uiManager);
+            closeAllFeatureDropdowns(true);
+        });
+        dropdown.appendChild(reverseLineButton);
     }
 
     // Add merge/split options for arrow features
@@ -424,6 +472,7 @@ function getFeatureTypeName(featureType) {
         'arrow': 'Setas',
         'boundary': 'Limites',
         'occupied_front': 'Frentes Ocupadas',
+        'coordination_line': 'Linhas de Coordenação',
         'military_symbol': 'Símbolos Militares',
         'coordination_measure': 'Medidas de Coordenação',
         'magnetic_declination': 'Declinações Magnéticas',
@@ -744,6 +793,7 @@ const STYLE_KEYS_BY_TYPE = {
     arrow: ['width', 'fillColor', 'lineColor', 'lineWidth', 'fillOpacity', 'lineOpacity', 'headLengthRatio', 'showArrowHead', 'doubleHeaded'],
     boundary: ['color', 'lineWidth', 'opacity', 'echelon', 'symbol_size', 'text_size'],
     occupied_front: ['color', 'lineWidth', 'opacity'],
+    coordination_line: ['color', 'lineWidth', 'opacity', 'symbol_code', 'symbol_size', 'symbol_spacing'],
     los: ['opacity', 'width'],
     visibility: ['opacity'],
     military_symbol: ['size', 'opacity', 'fillColor'],
@@ -955,6 +1005,58 @@ async function selectAllFeaturesOfSameStyle(selectedFeatures, selectionManager, 
     uiManager.updateSelectionHighlight();
     uiManager.updatePanels();
 }
+
+// ===== COORDINATION LINE UTILITIES =====
+
+/**
+ * Reverses a coordination line by inverting its spine.
+ *
+ * Separate from `reverseArrow` on purpose: the two geometries take different arguments
+ * (`generate(coords, props)` against `generate(props, zoom)`), so a shared helper would
+ * have to branch on the type anyway. This one delegates to the control, whose
+ * `updateFeaturesProperty` already regenerates the geometry and rewrites the live source
+ * for `baseCoordinates`.
+ *
+ * @param {Object} feature - Coordination line to reverse
+ * @param {Object} selectionManager - SelectionManager instance
+ * @param {Object} uiManager - UIManager instance
+ * @returns {Promise<void>} Resolves once the flip is persisted
+ */
+async function reverseCoordinationLine(feature, selectionManager, uiManager) {
+    try {
+        // `selectionManager.controls`, like the four sibling helpers below. The tool is LAZY
+        // on this branch, and this is safe for the same reason theirs is: the menu only opens
+        // over a SELECTED feature, and selecting one is what makes `tool-registry.js` resolve
+        // the module and call `selectionManager.registerControl`.
+        const control = selectionManager.controls.get('coordination_line');
+        if (!control) {
+            console.error('Coordination line control not found');
+            return;
+        }
+
+        const spine = control.geometry.normalizeBaseCoordinates(feature.properties.baseCoordinates);
+        if (!spine || spine.length < 2) {
+            console.error('Coordination line does not have enough coordinates');
+            return;
+        }
+
+        const reversed = [...spine].reverse();
+
+        // One write: the control regenerates the geometry and rewrites the source.
+        await control.updateFeaturesProperty([feature], 'baseCoordinates', reversed);
+
+        control.updateSelectionManagerFeature(feature);
+        control.createEditHandles(feature);
+        await control.saveFeatureChanges(feature);
+
+        uiManager.updateSelectionHighlight();
+        uiManager.updatePanels();
+    } catch (error) {
+        console.error('Error reversing coordination line:', error);
+    }
+}
+
+// ===== ARROW UTILITIES =====
 
 /**
  * Reverses an arrow feature by inverting its base coordinates.
@@ -1248,6 +1350,10 @@ async function convertPointToCoordinationMeasure(pointFeature, selectionManager,
         feature.properties.width = result.width;
         feature.properties.height = result.height;
         feature.properties.anchor = result.anchor;
+        // The generator rasterises the Nucleo above its logical size and reports the ratio;
+        // dropping it here registered the bitmap 1:1 and drew the converted symbol four times
+        // larger than the same code drawn by the tool (see loadSymbolToMap below).
+        feature.properties.pixelRatio = result.pixelRatio || 1;
 
         // Recalculate selection box with real dimensions and anchor
         feature.properties.selectionBox = coordControl.geometry.calculateSelectionBoxGeometry(
@@ -1282,7 +1388,7 @@ async function convertPointToCoordinationMeasure(pointFeature, selectionManager,
 
             // Same ordering guarantee as the military symbol above: the image is registered
             // before the queued add reaches the source.
-            await coordControl.loadSymbolToMap(featureId, result.blob);
+            await coordControl.loadSymbolToMap(featureId, result.blob, result.pixelRatio);
 
             // Only after the add succeeded do we remove the source point.
             await removeFeature('points', pointId);

@@ -117,6 +117,7 @@ export function getEmptyMapData() {
             arrows: [],
             boundarys: [],
             occupied_fronts: [],
+            coordination_lines: [],
             military_symbols: [],
             setores: [],
             coordenadas: [],
@@ -129,6 +130,58 @@ export function getEmptyMapData() {
         bearing: null,
         pitch: null
     };
+}
+
+/** The feature collection the Coordination Line tool draws into. */
+const COORDINATION_LINE_BUCKET = 'coordination_lines';
+
+/**
+ * Bring one map's feature collection to the shape the Coordination Line tool needs.
+ *
+ * WHY THIS IS NOT A SCHEMA MIGRATION. A map created before the tool existed has no
+ * `coordination_lines` key, and that is NOT harmless: `setupCoordinationLineLayers`
+ * builds the MapLibre source out of that collection, and every write the tool makes
+ * goes through `getSource(...)?.setData`, whose optional chaining swallows the absence.
+ * The tool then activates, accepts clicks and draws NOTHING, with no error and no log.
+ *
+ * The `main` line of the product paid a schema bump (v2.3) for exactly this. Here the
+ * version stays at '2.3' by decision of 2026-09-03: this branch is in development with no
+ * user data to preserve, its own v2.3 is an INSTALLATION-level migration ("Meu Atlas"),
+ * and a shape a read can normalise on its own does not deserve a version. So this runs at
+ * READ time, in the three paths a map can enter by (`.ebgeo` import, server snapshot,
+ * IndexedDB read), all three calling THIS function so they cannot drift apart.
+ *
+ * Returns null when there is nothing to do, which is what keeps a caller from rewriting
+ * a document it only read. Idempotent, so a map that already carries the bucket (one
+ * written by `main` at 2.3, for instance) passes through untouched.
+ *
+ * Nothing is added to the features themselves. An empty bucket is the honest reading of
+ * "this map has no coordination lines yet".
+ *
+ * @param {Object} features - The map's feature collection
+ * @returns {Object|null} New feature collection, or null when already in shape
+ */
+export function ensureCoordinationLines(features) {
+    if (!features || typeof features !== 'object') return null;
+    if (Array.isArray(features[COORDINATION_LINE_BUCKET])) return null;
+
+    return { ...features, [COORDINATION_LINE_BUCKET]: [] };
+}
+
+/**
+ * Return a map document whose feature collection carries every bucket the app expects.
+ *
+ * The same null contract as `ensureCoordinationLines`, one level up: null means the
+ * document is already in shape and the caller should keep the object it has.
+ *
+ * @param {Object} mapData - A stored map document
+ * @returns {Object|null} New map document, or null when nothing changed
+ */
+export function ensureMapDataShape(mapData) {
+    if (!mapData || typeof mapData !== 'object') return null;
+
+    const features = ensureCoordinationLines(mapData.features);
+    return features ? { ...mapData, features } : null;
 }
 
 /**

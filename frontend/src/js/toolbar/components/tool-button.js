@@ -20,7 +20,7 @@ export class ToolButton {
      * @param {string} config.id - Tool identifier
      * @param {string} config.label - Display label
      * @param {string} config.icon - SVG icon HTML
-     * @param {string} config.shortcut - Keyboard shortcut
+     * @param {string} [config.shortcut] - Keyboard shortcut, absent for a tool that has none
      * @param {string} config.controlKey - Key to access control in controls map
      * @param {boolean} [config.requiresTerrain] - Whether tool requires terrain
      * @param {Function} onClick - Click handler
@@ -38,6 +38,18 @@ export class ToolButton {
     }
 
     /**
+     * Tooltip for the button: a tool without a keyboard shortcut shows its label alone,
+     * instead of the literal "undefined" the unguarded template produced.
+     * @returns {string} Tooltip text
+     * @private
+     */
+    _shortcutTitle() {
+        return this._config.shortcut
+            ? `${this._config.label} (${this._config.shortcut})`
+            : this._config.label;
+    }
+
+    /**
      * Renders the tool button.
      * @returns {HTMLButtonElement}
      */
@@ -47,20 +59,20 @@ export class ToolButton {
         this._button.dataset.toolId = this._config.id;
         this._button.dataset.active = 'false';
         this._button.setAttribute('aria-label', this._config.label);
-        this._button.title = `${this._config.label} (${this._config.shortcut})`;
+        this._button.title = this._shortcutTitle();
 
         if (this._layout === 'grid') {
             // Grid: icon + shortcut badge
             this._button.innerHTML = `
                 ${this._config.icon}
-                <span class="tool-shortcut-badge">${this._config.shortcut}</span>
+                ${this._config.shortcut ? `<span class="tool-shortcut-badge">${this._config.shortcut}</span>` : ''}
             `;
         } else {
             // List: icon + label + shortcut
             this._button.innerHTML = `
                 ${this._config.icon}
                 <span class="tool-label">${this._config.label}</span>
-                <span class="tool-shortcut">${this._config.shortcut}</span>
+                ${this._config.shortcut ? `<span class="tool-shortcut">${this._config.shortcut}</span>` : ''}
             `;
         }
 
@@ -119,7 +131,7 @@ export class ToolButton {
             this._button.classList.toggle('disabled', disabled);
             this._button.title = disabled && reason
                 ? reason
-                : `${this._config.label} (${this._config.shortcut})`;
+                : this._shortcutTitle();
         }
     }
 

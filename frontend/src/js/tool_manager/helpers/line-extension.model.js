@@ -2,7 +2,8 @@
 
 /**
  * @fileoverview Pure model behind CONTINUING an existing linear feature (`line`, `arrow`,
- * `boundary`) from one of its two ends: where the new points go, which vertex is the anchor,
+ * `boundary`, `coordination_line`) from one of its two ends: where the new points go, which
+ * vertex is the anchor,
  * what carries over, and whether the store actually took the write. No DOM, no store, no map,
  * so it loads in plain node and is testable without a browser.
  *
@@ -50,14 +51,22 @@
 
 import { isMergedArrow, resolveSpineCoordinates } from './linear-conversion.model.js';
 
-/** The three types that can be continued from an end. @type {readonly string[]} */
-export const EXTENDABLE_SOURCES = Object.freeze(['line', 'arrow', 'boundary']);
+/**
+ * The types that can be continued from an end.
+ *
+ * The coordination line needs no glyph remapping, unlike the boundary's echelon: its glyphs
+ * are placed by an ABSOLUTE spacing in kilometres, not by a ratio of the total length, so a
+ * longer line simply carries more of them and the ones already drawn do not move.
+ * @type {readonly string[]}
+ */
+export const EXTENDABLE_SOURCES = Object.freeze(['line', 'arrow', 'boundary', 'coordination_line']);
 
 /** The two ends a feature can be continued from. @type {readonly string[]} */
 export const EXTENSION_ENDS = Object.freeze(['start', 'end']);
 
-/** Refusal for anything that is not a line, an arrow or a boundary. @type {string} */
-export const NOT_EXTENDABLE_NOTICE = 'Só linha, seta e linha de limite podem ser continuadas.';
+/** Refusal for anything outside `EXTENDABLE_SOURCES`. @type {string} */
+export const NOT_EXTENDABLE_NOTICE =
+    'Só linha, seta, linha de limite e linha de coordenação podem ser continuadas.';
 
 /** Refusal for a feature carrying its own lock. @type {string} */
 export const LOCKED_FEATURE_NOTICE = 'Esta feição está bloqueada. Desbloqueie-a para continuá-la.';

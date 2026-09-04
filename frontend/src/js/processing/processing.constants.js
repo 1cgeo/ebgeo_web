@@ -103,7 +103,7 @@ export const SUPPORTED_GEOMETRY_TYPES = Object.freeze([
     // Point types (treated as Point by turf)
     'text', 'image', 'military_symbol', 'coordination_measure',
     // Line types (treated as LineString by turf)
-    'brush', 'arrow', 'boundary', 'occupied_front',
+    'brush', 'arrow', 'boundary', 'occupied_front', 'coordination_line',
 ]);
 
 /**

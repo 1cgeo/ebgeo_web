@@ -20,7 +20,7 @@ export const AREA_TYPES = Object.freeze(new Set([
 
 /** Feature types drawn as plain linework (LineStyle only). */
 export const LINE_TYPES = Object.freeze(new Set([
-    'line', 'brush', 'boundary', 'occupied_front',
+    'line', 'brush', 'boundary', 'occupied_front', 'coordination_line',
 ]));
 
 /** Feature types rendered as a stored or generated symbol image. */

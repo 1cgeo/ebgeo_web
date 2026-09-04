@@ -115,6 +115,7 @@ const CONTROL_KEY_TO_REGISTRY = {
     arrowControl: 'AddArrowControl',
     boundaryControl: 'AddBoundaryControl',
     occupiedFrontControl: 'AddOccupiedFrontControl',
+    coordinationLineControl: 'AddCoordinationLineControl',
     declinationControl: 'AddDeclinationControl',
     losControl: 'AddLOSControl',
     visibilityControl: 'AddVisibilityControl',

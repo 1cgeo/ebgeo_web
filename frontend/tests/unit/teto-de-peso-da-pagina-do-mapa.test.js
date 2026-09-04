@@ -380,13 +380,22 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
     });
 
     it('o grafo COMPLETO (seguindo `import()`) cabe entre o piso e o teto medidos', () => {
-        // 603 módulos e 9805 kB em 2026-08-25. Este teto guarda o tamanho da aplicação inteira, e a
+        // 638 módulos e 10740 kB em 2026-09-03. Este teto guarda o tamanho da aplicação inteira, e a
         // diferença para o ansioso é o que hoje está sob demanda.
-        expect(completo.arquivos.size).toBeGreaterThanOrEqual(550);
-        expect(completo.arquivos.size).toBeLessThanOrEqual(660);
+        //
+        // A BANDA FOI RECENTRADA em 2026-09-03, pela mesma regra do bloco ansioso acima. Ela vinha de
+        // 2026-08-25 (603 módulos, 9805 kB, teto em 10600), e o porte do dia trouxe 140 kB de fonte
+        // NOVA, quase toda sob demanda: a Linha de Coordenação (cinco arquivos, 124 kB, dos quais só
+        // 14 no grafo ansioso), o corte da Linha de Limite (22 kB) e o Núcleo das medidas de
+        // coordenação (27 kB). Medido na árvore integrada: 10740 kB, 140 acima do teto velho, e
+        // 10605 kB SEM o lote, isto é, o teto já estava vencido por deriva antes dele. O grafo
+        // ansioso ficou em 6467 kB, dentro da banda dele. Piso e teto sobem juntos (~8% em torno da
+        // medida), então o caminhador quebrado continua acusando.
+        expect(completo.arquivos.size).toBeGreaterThanOrEqual(580);
+        expect(completo.arquivos.size).toBeLessThanOrEqual(700);
         const kb = kbDe(completo.arquivos);
-        expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9000);
-        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(10600);
+        expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
+        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11600);
     });
 
     it('seguir `import()` de fato acrescenta grafo, e é isso que prova a regex dinâmica', () => {

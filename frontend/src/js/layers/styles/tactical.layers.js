@@ -1,7 +1,8 @@
 // Path: js/layers/styles/tactical.layers.js
 
 /**
- * @fileoverview Tactical layer styles (boundary, occupied front, LOS, visibility).
+ * @fileoverview Tactical layer styles (boundary, occupied front, coordination line, LOS,
+ * visibility).
  */
 
 import { getControl } from '../../store';
@@ -17,6 +18,7 @@ import {
     buildBoundaryTextSizeExpression,
     buildBoundaryCircleStrokeExpression,
 } from '@tools/helpers/boundary-zoom.model.js';
+import { buildCoordinationLineWidthExpression } from '@tools/helpers/coordination-line-zoom.model.js';
 
 /**
  * Sets up boundary layers on the map.
@@ -337,6 +339,94 @@ export function setupVisibilityLayers(features, mapInstance) {
             ],
             'circle-stroke-color': '#ffffff',
             'circle-stroke-width': 2,
+        },
+        filter: POINT_TYPE_FILTER,
+    });
+}
+
+/**
+ * Sets up coordination line layers on the map.
+ *
+ * Three sources and three layers, and no more: the whole symbol (the surviving line
+ * segments plus one closed ring per glyph) lives in ONE MultiLineString, so a single
+ * `line` layer draws it and the glyphs read as hollow for free. That is the difference
+ * from the boundary, which needs sibling sources for its echelon circles and labels.
+ *
+ * @param {Object} features - Feature collection with coordination lines
+ * @param {Object} mapInstance - MapLibre map instance
+ */
+export function setupCoordinationLineLayers(features, mapInstance) {
+    // NO early return when the bucket is missing, unlike the boundary above. The three read
+    // paths normalise stored data through `ensureCoordinationLines`, but this function also
+    // runs on data that never passed through them (a freshly built map object, a test
+    // fixture). Bailing out here would leave the source and the three layers uncreated, and
+    // the tool would activate, accept clicks and draw NOTHING, because every write goes
+    // through `getSource(...)?.setData` and the optional chaining swallows the absence. An
+    // empty array is the right reading of "no coordination lines yet", and it also tolerates a
+    // CORRUPTED bucket, because `setOrCreateSource` builds `{ type, features }` without
+    // checking and would store `features: undefined`, which is not valid GeoJSON.
+    const stored = Array.isArray(features?.coordination_lines) ? features.coordination_lines : [];
+
+    // Correct before the first write: a line pinned to the SCREEN and reopened at another
+    // zoom would otherwise draw its glyphs at the scale of the session that saved it. (The
+    // stand-in of `tool-registry.js` answers with the NUMBERS only; the geometry catches up on
+    // the first zoom event after the module loads.)
+    const coordinationLineControl = getControl('AddCoordinationLineControl');
+    const correctedLines = coordinationLineControl
+        ? coordinationLineControl.applyZoomCorrections(stored)
+        : stored;
+
+    setOrCreateSource(mapInstance, 'coordination_lines', correctedLines);
+    ensureSource(mapInstance, 'coordination-line-feedback');
+    ensureSource(mapInstance, 'coordination-line-edit-handles');
+
+    ensureLayer(mapInstance, {
+        id: 'coordination-line-feedback-layer',
+        type: 'line',
+        source: 'coordination-line-feedback',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+            'line-color': '#ff0000',
+            'line-width': 4,
+            'line-dasharray': [3, 3],
+            'line-opacity': 0.8,
+        },
+        filter: ['!=', ['get', 'user_isEditingHandle'], true],
+    });
+
+    ensureLayer(mapInstance, {
+        id: 'coordination-line-layer',
+        type: 'line',
+        source: 'coordination_lines',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+            'line-color': ['get', 'color'],
+            'line-width': buildCoordinationLineWidthExpression(),
+            'line-opacity': ['get', 'opacity'],
+        },
+        filter: VISIBLE_FILTER,
+    });
+
+    ensureLayer(mapInstance, {
+        id: 'coordination-line-edit-handles-layer',
+        type: 'circle',
+        source: 'coordination-line-edit-handles',
+        paint: {
+            'circle-radius': 8,
+            // The handle kind travels in `type`, as it does for the boundary.
+            'circle-color': [
+                'case',
+                ['==', ['get', 'type'], 'vertex'], '#ff0000',
+                ['==', ['get', 'type'], 'midpoint'], '#ffaa00',
+                '#000000',
+            ],
+            'circle-stroke-color': '#ffffff',
+            'circle-stroke-width': 2,
+            'circle-opacity': [
+                'case',
+                ['==', ['get', 'type'], 'midpoint'], 0.6,
+                1.0,
+            ],
         },
         filter: POINT_TYPE_FILTER,
     });

@@ -62,12 +62,19 @@ class AddCoordinationMeasureControl extends BaseControl {
   }
 
   static DEFAULT_PROPERTIES = {
-    pointCode: "130100",
-    echelonCode: null,
+    // Medida de coordenacao nova nasce NUCLEO de batalhao, que e o caso de longe mais
+    // comum no tracado. `ECHELON` e o codigo de tela, e sozinho nao existe no catalogo:
+    // quem resolve e o `echelonCode` ao lado, e por isso os dois andam juntos.
+    pointCode: "ECHELON",
+    echelonCode: "ECHELON_16",
 
     size: 1.0,
     width: 100,
     height: 100,
+    // Pixels de bitmap por pixel de tela. O gerador rasteriza acima do tamanho logico
+    // para o simbolo nao borrar quando o zoom amplia o icone, e e esta razao que devolve
+    // o desenho ao tamanho certo, agora e ao reabrir o projeto salvo.
+    pixelRatio: 1,
     opacity: 1.0,
     rotation: 0,
     fillColor: null,
@@ -469,6 +476,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       feature.properties.imageUrl = result.dataUrl;
       feature.properties.width = result.width;
       feature.properties.height = result.height;
+      feature.properties.pixelRatio = result.pixelRatio || 1;
       feature.properties.anchor = result.anchor;
 
       feature.properties.selectionBox = this.geometry.calculateSelectionBoxGeometry(
@@ -483,7 +491,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       );
 
       await storeImage(featureId, result.blob);
-      await this.loadSymbolToMap(featureId, result.blob);
+      await this.loadSymbolToMap(featureId, result.blob, result.pixelRatio);
 
       await addFeature("coordination_measures", feature);
 
@@ -505,8 +513,8 @@ class AddCoordinationMeasureControl extends BaseControl {
 
   // ===== SYMBOL PROCESSING =====
 
-  async loadSymbolToMap(symbolId, blob) {
-    return loadImageToMap(this.map, symbolId, blob, { replaceExisting: true });
+  async loadSymbolToMap(symbolId, blob, pixelRatio = 1) {
+    return loadImageToMap(this.map, symbolId, blob, { replaceExisting: true, pixelRatio });
   }
 
   /**
@@ -535,7 +543,10 @@ class AddCoordinationMeasureControl extends BaseControl {
     const result = await this.symbolGenerator.generate(actualPointCode, feature.properties);
     if (result?.blob) {
       await storeImage(feature.properties.id, result.blob);
-      await this.loadSymbolToMap(feature.properties.id, result.blob);
+      // A razao vem do RESULTADO, nunca de `feature.properties.pixelRatio`: quem regenera e
+      // o par, que nao tem o blob e acabou de assar o seu. Sem ela o simbolo do par saia
+      // `pixelRatio` vezes maior que o do autor, sem erro em lugar nenhum.
+      await this.loadSymbolToMap(feature.properties.id, result.blob, result.pixelRatio);
     }
   }
 
@@ -587,6 +598,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       feature.properties.imageUrl = result.dataUrl;
       feature.properties.width = result.width;
       feature.properties.height = result.height;
+      feature.properties.pixelRatio = result.pixelRatio || 1;
       feature.properties.anchor = result.anchor;
 
       // The read stays: the box is measured from the SOURCE geometry, which is the authority on
@@ -619,6 +631,10 @@ class AddCoordinationMeasureControl extends BaseControl {
             imageUrl: result.dataUrl,
             width: result.width,
             height: result.height,
+            // A razao viaja no patch junto com a medida: a caixa de selecao le o tamanho
+            // LOGICO, e quem traduz o bitmap de volta a ele e este numero. Deixa-lo de fora
+            // fazia a fonte guardar a medida nova com a razao velha.
+            pixelRatio: result.pixelRatio || 1,
             anchor: result.anchor,
             selectionBox: newSelectionBox,
           },
@@ -627,7 +643,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       }
 
       await storeImage(symbolId, result.blob);
-      await this.loadSymbolToMap(symbolId, result.blob);
+      await this.loadSymbolToMap(symbolId, result.blob, result.pixelRatio);
 
       if (this.selectionManager.uiManager.invalidateCache) {
         this.selectionManager.uiManager.invalidateCache(symbolId);
@@ -679,6 +695,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       feature.properties.imageUrl = result.dataUrl;
       feature.properties.width = result.width;
       feature.properties.height = result.height;
+      feature.properties.pixelRatio = result.pixelRatio || 1;
       feature.properties.anchor = result.anchor;
 
       // The read stays: the box is measured from the SOURCE geometry, which is the authority on
@@ -711,6 +728,10 @@ class AddCoordinationMeasureControl extends BaseControl {
             imageUrl: result.dataUrl,
             width: result.width,
             height: result.height,
+            // A razao viaja no patch junto com a medida: a caixa de selecao le o tamanho
+            // LOGICO, e quem traduz o bitmap de volta a ele e este numero. Deixa-lo de fora
+            // fazia a fonte guardar a medida nova com a razao velha.
+            pixelRatio: result.pixelRatio || 1,
             anchor: result.anchor,
             selectionBox: newSelectionBox,
           },
@@ -719,7 +740,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       }
 
       await storeImage(symbolId, result.blob);
-      await this.loadSymbolToMap(symbolId, result.blob);
+      await this.loadSymbolToMap(symbolId, result.blob, result.pixelRatio);
 
       if (this.selectionManager.uiManager.invalidateCache) {
         this.selectionManager.uiManager.invalidateCache(symbolId);
@@ -736,8 +757,8 @@ class AddCoordinationMeasureControl extends BaseControl {
     }
   }
 
-  async loadSymbolImageToMap(symbolId, blob) {
-    return this.loadSymbolToMap(symbolId, blob);
+  async loadSymbolImageToMap(symbolId, blob, pixelRatio = 1) {
+    return this.loadSymbolToMap(symbolId, blob, pixelRatio);
   }
 
   cancelPendingSymbolUpdates = () => {

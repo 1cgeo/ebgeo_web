@@ -79,3 +79,32 @@ export function collectImageResourceFeatures(featuresByStorageType) {
 export function collectImageResourceIds(featuresByStorageType) {
     return collectImageResourceFeatures(featuresByStorageType).map(par => par.imageId);
 }
+
+/**
+ * The same sweep again, this time answering "at what pixel ratio was each raster baked".
+ *
+ * Quem rasteriza ACIMA do tamanho logico (a medida de coordenacao, para o simbolo nao borrar
+ * quando o `icon-size` cresce com o zoom) grava a razao na propria feicao. Feicao antiga,
+ * salva antes disso, nao tem a chave: ela vale 1, que e o comportamento de sempre, e por isso
+ * projeto ja salvo continua desenhando do mesmo tamanho.
+ *
+ * Only ratios ABOVE 1 are reported, so the caller's `?? 1` fallback and this map never
+ * disagree, and a garbage value (0, negative, NaN, a string) is dropped rather than shrinking
+ * the icon to nothing.
+ *
+ * @param {Object|null|undefined} featuresByStorageType - Collection keyed by storage type
+ * @returns {Map<string, number>} Image id to pixel ratio, only for ids above 1
+ */
+export function collectImageResourceRatios(featuresByStorageType) {
+    const razoes = new Map();
+
+    for (const { imageId, feature } of collectImageResourceFeatures(featuresByStorageType)) {
+        const razao = Number(feature?.properties?.pixelRatio);
+
+        if (Number.isFinite(razao) && razao > 1) {
+            razoes.set(imageId, razao);
+        }
+    }
+
+    return razoes;
+}

@@ -22,9 +22,9 @@ const EMPTY_FC = { type: 'FeatureCollection', features: [] };
  *
  * All sources created through this helper carry a unique `properties.id`: points, lines, brushes,
  * circles, rectangles, ellipses, setores, military_symbols, coordination_measures,
- * magnetic_declinations, boundarys, occupied_fronts, los, processed-los, visibility and
- * processed-visibility. For `los` and `visibility` this is the ONLY id they get, since those two
- * families never wrote a top-level `feature.id`.
+ * magnetic_declinations, boundarys, occupied_fronts, coordination_lines, los, processed-los,
+ * visibility and processed-visibility. For `los` and `visibility` this is the ONLY id they get,
+ * since those two families never wrote a top-level `feature.id`.
  *
  * Two measured notes. First, promoteId changes what MapLibre reports as `feature.id` (integer
  * `geoJsonId` becomes the UUID) and nothing in `src/` reads `feature.id` off one of our GeoJSON

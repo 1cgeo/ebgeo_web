@@ -6,7 +6,7 @@
 
 import { getCurrentMapFeatures, getImage, hasImage, getCurrentMapNameSync, getGridStyle, getCatalogLayers, getControl } from '../store';
 import { getImageRegenerator } from './image-regen-registry.js';
-import { collectImageResourceFeatures } from './feature-images.js';
+import { collectImageResourceFeatures, collectImageResourceRatios } from './feature-images.js';
 import { ensureTurf } from '../utilities/turf-loader.js';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
 import { catalogLayerReferenceId } from '../catalog/catalog-layer.ref.js';
@@ -35,6 +35,7 @@ import {
     setupDeclinationLayers,
     setupBoundaryLayers,
     setupOccupiedFrontLayers,
+    setupCoordinationLineLayers,
     setupLOSLayers,
     setupVisibilityLayers,
     setupLayerSeparators,
@@ -122,8 +123,11 @@ async function addErrorImageIfNeeded(imageId, mapInstance) {
  * Loads a single image to the map.
  * @param {string} imageId - Image ID
  * @param {Object} mapInstance - MapLibre map instance
+ * @param {number} [pixelRatio=1] - Bitmap pixels per screen pixel, para o simbolo rasterizado
+ *   acima do tamanho logico voltar do disco no tamanho certo. O icone de ERRO nao recebe a
+ *   razao: ele e um raster 1:1, e aplica-la ali encolheria o aviso.
  */
-async function loadSingleImage(imageId, mapInstance) {
+async function loadSingleImage(imageId, mapInstance, pixelRatio = 1) {
     try {
         const blob = await getImage(imageId);
 
@@ -148,7 +152,7 @@ async function loadSingleImage(imageId, mapInstance) {
 
             image.onload = () => settle(() => {
                 if (!mapInstance.hasImage(imageId)) {
-                    mapInstance.addImage(imageId, image);
+                    mapInstance.addImage(imageId, image, { pixelRatio });
                 }
                 resolve();
             });
@@ -184,6 +188,10 @@ async function setImages(features, mapInstance) {
     // regenerator branch below rebuilds the raster from the feature's own properties.
     const imagePromises = [];
 
+    // A razao de pixels com que cada raster foi assado. So quem a DECLARA acima de 1 entra,
+    // entao feicao antiga (sem a chave) cai no 1 de sempre e continua do mesmo tamanho.
+    const razoes = collectImageResourceRatios(features);
+
     for (const { imageId, feature } of collectImageResourceFeatures(features)) {
         if (mapInstance.hasImage(imageId)) continue;
 
@@ -195,7 +203,7 @@ async function setImages(features, mapInstance) {
         if (regenerate) {
             imagePromises.push((async () => {
                 if (await hasImage(imageId)) {
-                    await loadSingleImage(imageId, mapInstance);
+                    await loadSingleImage(imageId, mapInstance, razoes.get(imageId) || 1);
                     return;
                 }
                 try {
@@ -208,7 +216,7 @@ async function setImages(features, mapInstance) {
             continue;
         }
 
-        imagePromises.push(loadSingleImage(imageId, mapInstance));
+        imagePromises.push(loadSingleImage(imageId, mapInstance, razoes.get(imageId) || 1));
     }
 
     await Promise.allSettled(imagePromises);
@@ -563,6 +571,7 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
         setupArrowLayers(features, mapInstance);
         setupVisibilityLayers(features, mapInstance);
         setupOccupiedFrontLayers(features, mapInstance);
+        setupCoordinationLineLayers(features, mapInstance);
         setupBoundaryLayers(features, mapInstance);
         setupLineLayers(features, mapInstance);
         setupBrushLayers(features, mapInstance);

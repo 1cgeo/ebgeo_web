@@ -168,8 +168,16 @@ describe('generated echelon entries', () => {
         flagged.forEach(([key]) => expect(key.startsWith('ECHELON_FT_')).toBe(true));
     });
 
-    it('declares NO text fields, so the unit name never travels as an SVG label', () => {
-        echelons.forEach(([key]) => expect(getAvailableTextFields(key)).toEqual([]));
+    // INVERTIDO EM 2026-09-03, NAO CONTORNADO. Esta assercao dizia "declares NO text
+    // fields, so the unit name never travels as an SVG label", e fixava por escrito o
+    // desenho antigo, em que o Escalao era o amplificador sozinho. Como NUCLEO (MD33-M-02)
+    // ele desenha a identificacao abaixo do escalao, entao o campo passou a existir, e a
+    // situacao entra por `uiFields` sem virar texto.
+    it('oferece SITUAÇÃO e IDENTIFICAÇÃO no formulário, e só a segunda vira texto', () => {
+        echelons.forEach(([key, point]) => {
+            expect(getAvailableTextFields(key), key).toEqual(['status', 'identificacao']);
+            expect(Object.keys(point.textFields), key).toEqual(['identificacao']);
+        });
     });
 });
 
@@ -263,7 +271,9 @@ describe('getTextFieldsConfig', () => {
     });
 
     it('returns {} for a point that declares no fields, never undefined', () => {
-        expect(getTextFieldsConfig('ECHELON_16')).toEqual({});
+        // Era o ECHELON_16 ate 2026-09-03, quando ele virou Nucleo e ganhou a
+        // identificacao. O 130600 e um ponto sem campo nenhum, que e o que este caso mede.
+        expect(getTextFieldsConfig('130600')).toEqual({});
     });
 
     it('LEAKS Object.prototype keys: "toString" resolves to a function, not {}', () => {
@@ -283,6 +293,13 @@ describe('getAvailableTextFields', () => {
 
     it('returns [] for unknown codes and for field-less points', () => {
         expect(getAvailableTextFields('nao-existe')).toEqual([]);
-        expect(getAvailableTextFields('ECHELON_11')).toEqual([]);
+        expect(getAvailableTextFields('130600')).toEqual([]);
+    });
+
+    it('lê `uiFields` quando o ponto o declara, e aí a lista NÃO é a do desenho', () => {
+        // O Nucleo e o unico ponto com as duas listas diferentes, e e por isso que
+        // `uiFields` existe: a situacao aparece no formulario e nao vira texto no SVG.
+        expect(getAvailableTextFields('ECHELON_11')).toEqual(['status', 'identificacao']);
+        expect(Object.keys(getTextFieldsConfig('ECHELON_11'))).toEqual(['identificacao']);
     });
 });

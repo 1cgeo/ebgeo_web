@@ -87,7 +87,10 @@ const FONTE = semComentarios(BRUTO);
  */
 function blocoDeConversao() {
     const inicio = FONTE.indexOf('linearConversionActions({');
-    const fim = FONTE.indexOf("'Cortar Linha'");
+    // Procurado a partir de `inicio`: uma tabela que cite 'Cortar Linha' ANTES do bloco (a de
+    // SPLITTABLE_LINEAR_SOURCES, por exemplo) levaria a âncora para trás e o recorte ficaria
+    // vazio, com toda asserção de ausência vacuamente verde.
+    const fim = FONTE.indexOf("'Cortar Linha'", inicio);
     if (inicio < 0 || fim < 0 || fim <= inicio) return '';
     return FONTE.slice(inicio, fim);
 }

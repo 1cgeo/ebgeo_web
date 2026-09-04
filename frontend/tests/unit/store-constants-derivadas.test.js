@@ -55,6 +55,7 @@ const ICONES_ESPERADOS = {
     arrow: './images/icon_arrow_black.svg',
     boundary: './images/icon_boundary_black.svg',
     occupied_front: './images/icon_occupied_front_black.svg',
+    coordination_line: './images/icon_coordination_line_black.svg',
     military_symbol: './images/icon_military_black.svg',
     coordination_measure: './images/icon_coordination_black.svg',
     los: './images/icon_los_black.svg',
@@ -76,6 +77,7 @@ const MAPEAMENTO_ESPERADO = {
     arrow: 'arrows',
     boundary: 'boundarys',
     occupied_front: 'occupied_fronts',
+    coordination_line: 'coordination_lines',
     military_symbol: 'military_symbols',
     coordination_measure: 'coordination_measures',
     los: 'los',
@@ -99,6 +101,7 @@ const NOMES_ESPERADOS = {
     arrow: 'Seta',
     boundary: 'Limite',
     occupied_front: 'Frente Ocupada',
+    coordination_line: 'Linha de Coordenação',
     military_symbol: 'Símbolo Militar',
     coordination_measure: 'Medida de Coordenação',
     los: 'Linha de Visada',
@@ -110,12 +113,12 @@ const NAO_COPIAVEIS_ESPERADOS = ['los', 'visibility'];
 
 const COM_IMAGEM_ESPERADOS = ['image', 'military_symbol', 'coordination_measure', 'magnetic_declination'];
 
-// The 18 selectable types, in canonical order. This is `SOURCE_TYPES`, which is module-private
+// The 19 selectable types, in canonical order. This is `SOURCE_TYPES`, which is module-private
 // and only observable through `getSelectionControlConfig`.
 const SELECIONAVEIS_ESPERADOS = [
     'point', 'line', 'polygon', 'circle', 'ellipse', 'rectangle', 'sector',
     'text', 'image', 'brush',
-    'arrow', 'boundary', 'occupied_front', 'military_symbol', 'coordination_measure',
+    'arrow', 'boundary', 'occupied_front', 'coordination_line', 'military_symbol', 'coordination_measure',
     'los', 'visibility',
     'magnetic_declination',
 ];
@@ -184,7 +187,7 @@ describe('constantes derivadas: a regressao que a derivacao poderia ter causado'
         // result into 'processed_loss' on the receiving peer.
         expect(getAllStorageTypes()).toContain('processed_los');
         expect(getAllStorageTypes()).toContain('processed_visibility');
-        expect(getAllStorageTypes()).toHaveLength(20);
+        expect(getAllStorageTypes()).toHaveLength(21);
     });
 });
 

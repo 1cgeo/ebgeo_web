@@ -491,22 +491,41 @@ class AddBoundaryControl extends BaseControl {
             return;
         }
 
+        // A click that lands while an earlier one is still pending, inside the 250 ms window
+        // below, used to REPLACE it: the timer was cleared and re-armed with the new
+        // coordinates, so two quick clicks at different spots kept only the second vertex,
+        // silently. Measured in real Chromium on 2026-09-03: 100 ms apart, one vertex; 400 ms
+        // apart, two. A pending point far from the new one is a vertex the user drew, so it
+        // is committed now; only a repeat click on the same spot keeps re-arming the timer.
+        if (this.lastClickCoords && !this.geometry.isPointTooClose(newPoint, [this.lastClickCoords])) {
+            clearTimeout(this.clickTimer);
+            this._commitPendingClick();
+        }
+
         this.lastClickCoords = newPoint;
         clearTimeout(this.clickTimer);
-        this.clickTimer = setTimeout(() => {
-            this.drawPoints.push(this.lastClickCoords);
-            this.lastClickCoords = null;
+        this.clickTimer = setTimeout(() => this._commitPendingClick(), 250);
+    }
 
-            // Switch from pre-click snap indicator to preview listener when first point is added
-            if (this.drawPoints.length === 1) {
-                this.map.off('mousemove', this._onPreClickMouseMove);
-                this.map.on('mousemove', this.handlePreviewMouseMove);
-            }
+    /**
+     * Moves the pending click (the one the 250 ms timer is holding) into `drawPoints`.
+     * Shared by the timer, by the next distinct click and by the right-click that finishes.
+     * @private
+     */
+    _commitPendingClick = () => {
+        if (!this.lastClickCoords) return;
+        this.drawPoints.push(this.lastClickCoords);
+        this.lastClickCoords = null;
 
-            if (this._finishButton) {
-                this._finishButton.updateState(this.drawPoints.length, 2);
-            }
-        }, 250);
+        // Switch from pre-click snap indicator to preview listener when first point is added
+        if (this.drawPoints.length === 1) {
+            this.map.off('mousemove', this._onPreClickMouseMove);
+            this.map.on('mousemove', this.handlePreviewMouseMove);
+        }
+
+        if (this._finishButton) {
+            this._finishButton.updateState(this.drawPoints.length, 2);
+        }
     }
 
     handleRightClick = async (e) => {
@@ -517,7 +536,9 @@ class AddBoundaryControl extends BaseControl {
 
         clearTimeout(this.clickTimer);
         this.clickTimer = null;
-        this.lastClickCoords = null;
+        // The pending left click is a vertex, not noise: a right-click within 250 ms of it
+        // used to discard it and finish with the point under the cursor instead.
+        this._commitPendingClick();
 
         const screenPoint = { x: e.offsetX, y: e.offsetY };
         const coordinates = this.map.unproject([screenPoint.x, screenPoint.y]);
@@ -1853,6 +1874,54 @@ class AddBoundaryControl extends BaseControl {
         // `String()` around it would miss a numeric key instead of protecting anything.
         const dispatcher = boundarysSource(this.map);
         dispatcher.remove(features.map(f => f.properties.id));
+        await dispatcher.flush();
+
+        this.map.getSource('boundary-texts').setData(textData);
+        this.map.getSource('boundary-circles').setData(circleData);
+    }
+
+    /**
+     * Swap a boundary for the two halves a cut produced, across the three
+     * sources. Serialized shell.
+     * @param {string} originalId - Id of the boundary that was cut
+     * @param {Array} halves - The features that replace it
+     * @returns {Promise<void>} Resolves once the three sources are written
+     */
+    replaceSplitBoundary = async (originalId, halves) =>
+        this._sourceQueue(() => this._replaceSplitBoundaryUnlocked(originalId, halves))
+
+    /**
+     * ONE task, and one read per derived source. Removing the original and
+     * appending the halves through the public per-feature shells would be three
+     * tasks, and a zoom pass landing between them would rebuild the sources from
+     * a state holding neither the original nor both halves.
+     * @param {string} originalId - Id of the boundary that was cut
+     * @param {Array} halves - The features that replace it
+     * @returns {Promise<void>} Resolves once the three sources are written
+     * @private
+     */
+    _replaceSplitBoundaryUnlocked = async (originalId, halves) => {
+        const textData = await this.map.getSource('boundary-texts').getData();
+        const circleData = await this.map.getSource('boundary-circles').getData();
+
+        textData.features = textData.features.filter(f => f.properties.parent !== originalId);
+        circleData.features = circleData.features.filter(f => f.properties.parent !== originalId);
+
+        const zoom = this.getCurrentZoom();
+        for (const half of halves) {
+            const prepared = this.withZoomSizes(half);
+            circleData.features.push(...this.geometry.generateBoundaryCircles(prepared, zoom));
+            textData.features.push(...this.geometry.generateBoundaryTexts(prepared, zoom));
+        }
+
+        // One removal plus two adds IS the diff a cut produces, so `boundarys` takes it
+        // as a diff and never a collection read. The key goes in raw, like
+        // `_deleteFeaturesUnlocked`: MapLibre keyed the feature by the very value sitting
+        // in `properties.id`, so a `String()` around it would miss a numeric key instead
+        // of protecting anything.
+        const dispatcher = boundarysSource(this.map);
+        dispatcher.remove(originalId);
+        dispatcher.add(halves);
         await dispatcher.flush();
 
         this.map.getSource('boundary-texts').setData(textData);

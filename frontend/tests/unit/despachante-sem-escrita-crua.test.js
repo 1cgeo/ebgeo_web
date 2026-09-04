@@ -76,7 +76,7 @@ const ESCRITA_CRUA_DE_PROPOSITO = new Map([
             + ' despachante possui, onde não existe fila para perder.',
     }],
     ['frontend/src/js/import_export/export-utils.js', {
-        chamadas: 3,
+        chamadas: 4,
         motivo: 'escreve no `hiddenMap`, o mapa fora de tela que o export monta e descarta. O'
             + ' registro do despachante é por (map, sourceId) e esse mapa não tem despachante'
             + ' nenhum, então não há fila para substituir. A varredura não prova isso porque o id'
@@ -84,7 +84,11 @@ const ESCRITA_CRUA_DE_PROPOSITO = new Map([
             + ' análise de outra ordem. Eram 1 até 2026-09-01, e viraram 3 com o limite: a'
             + ' correção genérica só escala números, e uma divisa presa à TELA muda de forma'
             + ' (o escalão é geometria em km), então `correctBoundaryGroundGeometry` reescreve'
-            + ' `boundarys` e reconstrói as duas sources derivadas dela no mesmo mapa oculto.',
+            + ' `boundarys` e reconstrói as duas sources derivadas dela no mesmo mapa oculto. A'
+            + ' quarta chegou em 2026-09-03 com a linha de coordenação, pelo MESMO motivo e sem'
+            + ' as derivadas: os losangos dela são geometria em km, então'
+            + ' `correctCoordinationLineGroundGeometry` reescreve `coordination_lines` inteira, e'
+            + ' a ferramenta desenha numa fonte só.',
     }],
     ['frontend/src/js/tool_manager/helpers/label-tab.helpers.js', {
         chamadas: 1,

@@ -1090,8 +1090,11 @@ describe('applyRemoteSnapshot', () => {
         expect(saved.grid_style).toBeUndefined();
         expect(saved.temporal_config).toBeUndefined();
         expect(saved.locked).toBeUndefined();
-        // Verbatim collaborative fields survive the reshape.
-        expect(saved.features).toEqual({ points: [] });
+        // Verbatim collaborative fields survive the reshape. `coordination_lines` is the ONE
+        // key the reshape adds (2026-09-03): a peer that predates the Coordination Line tool
+        // sends no such bucket, and without it the layer setup builds no source, so the tool
+        // activates, accepts clicks and draws nothing. See `ensureMapDataShape`.
+        expect(saved.features).toEqual({ points: [], coordination_lines: [] });
         expect(saved.layers).toEqual([]);
 
         // (b) Each side-store is populated under the correct key with the correct value.

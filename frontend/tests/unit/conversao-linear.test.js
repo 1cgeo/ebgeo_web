@@ -27,6 +27,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+    COORDINATION_SPACING_RATIO,
     DROPPED_BY_SOURCE,
     LINEAR_CONVERSION_CAPABILITIES,
     LINEAR_CONVERSION_LABELS,
@@ -81,7 +82,37 @@ const PADROES_LIMITE = {
     nome: '', descricao: '', visivel: true, bloqueado: false,
 };
 
-const PADROES_POR_DESTINO = { line: PADROES_LINHA, arrow: PADROES_SETA, boundary: PADROES_LIMITE };
+const PADROES_LINHA_COORD = {
+    color: '#000000', lineWidth: 4, opacity: 1,
+    source: 'coordination_line', type: 'coordination_line',
+    symbol_code: '290199', symbol_size: 0.5, symbol_spacing: 1.5,
+    createdAtZoom: 0, zoomCorrectionEnabled: true,
+    calculatedLineWidth: 4, calculatedSymbolSize: 0.5, calculatedSymbolSpacing: 1.5,
+    nome: '', descricao: '', visivel: true, bloqueado: false,
+};
+
+const PADROES_POR_DESTINO = {
+    line: PADROES_LINHA,
+    arrow: PADROES_SETA,
+    boundary: PADROES_LIMITE,
+    coordination_line: PADROES_LINHA_COORD,
+};
+
+/**
+ * Quantos DESTINOS um tipo qualquer oferece, DERIVADO da lista.
+ *
+ * Numero copiado reprova codigo certo na proxima vez que a lista crescer, e foi exatamente o
+ * que aconteceu quando a linha de coordenacao entrou: a suite dizia "os SEIS sentidos" e
+ * "DOIS itens" sobre uma lista que passou a ter quatro membros e doze sentidos.
+ */
+const OUTROS = LINEAR_SOURCES.length - 1;
+
+/**
+ * Os destinos de um tipo, na ordem da tabela, derivados dela.
+ * @param {string} origem - Tipo de origem
+ * @returns {string[]} Os demais tipos lineares
+ */
+const destinosDe = (origem) => LINEAR_SOURCES.filter((t) => t !== origem);
 
 const EIXO = [[-43.20, -22.90], [-43.15, -22.85], [-43.10, -22.80]];
 
@@ -121,8 +152,8 @@ const podeTudo = () => true;
 // ============================================================================
 
 describe('as tabelas do modelo', () => {
-    it('os três tipos lineares, congelados e na ordem do menu', () => {
-        expect(LINEAR_SOURCES).toEqual(['line', 'arrow', 'boundary']);
+    it('os QUATRO tipos lineares, congelados e na ordem do menu', () => {
+        expect(LINEAR_SOURCES).toEqual(['line', 'arrow', 'boundary', 'coordination_line']);
         expect(Object.isFrozen(LINEAR_SOURCES)).toBe(true);
         expect(Object.isFrozen(LINEAR_CONVERSION_LABELS)).toBe(true);
         expect(Object.isFrozen(DROPPED_BY_SOURCE)).toBe(true);
@@ -180,7 +211,7 @@ describe('as tabelas do modelo', () => {
         }
     });
 
-    it('os padrões copiados ainda existem nos três controles', () => {
+    it('os padrões copiados ainda existem nos quatro controles', () => {
         // A cópia acima é a única forma de rodar isto em node; este caso é o que a mantém
         // honesta. Ele cobra PRESENÇA textual das chaves de que as asserções dependem, o que
         // pega renomeação e remoção sem um extrator por arquivo (que é o tipo de leitor que já
@@ -189,6 +220,9 @@ describe('as tabelas do modelo', () => {
         const linha = fonte('../../src/js/draw_tools/line_tool/add_line_control.js');
         const seta = fonte('../../src/js/military_tools/arrow_tool/add_arrow_control.js');
         const limite = fonte('../../src/js/military_tools/boundary_tool/add_boundary_control.js');
+        const linhaCoord = fonte(
+            '../../src/js/military_tools/coordination_line_tool/add_coordination_line_control.js',
+        );
 
         for (const chave of ['lineColor', 'lineWidth', 'opacity', 'lineStyle', 'measure', 'profile']) {
             expect(linha, `add_line_control perdeu '${chave}'`).toContain(`${chave}:`);
@@ -198,6 +232,12 @@ describe('as tabelas do modelo', () => {
         }
         for (const chave of ['color', 'symbol_instances', 'symbol_size', 'text_size', 'echelon', 'createdAtZoom', 'zoomCorrectionEnabled', 'text_north_facing']) {
             expect(limite, `add_boundary_control perdeu '${chave}'`).toContain(`${chave}:`);
+        }
+
+        for (const chave of ['color', 'symbol_code', 'symbol_size', 'symbol_spacing',
+            'createdAtZoom', 'zoomCorrectionEnabled']) {
+            expect(linhaCoord, `add_coordination_line_control perdeu '${chave}'`)
+                .toContain(`${chave}:`);
         }
 
         // DISCRIMINAÇÃO: o leitor não devolve verdadeiro para qualquer coisa.
@@ -317,7 +357,7 @@ describe('isMergedArrow', () => {
 // ============================================================================
 
 describe('canConvertLinear', () => {
-    it('os SEIS sentidos entre os três tipos são possíveis', () => {
+    it('TODOS os sentidos entre os tipos lineares são possíveis', () => {
         const pares = [];
         for (const origem of LINEAR_SOURCES) {
             for (const destino of LINEAR_SOURCES) {
@@ -326,10 +366,11 @@ describe('canConvertLinear', () => {
                 expect(canConvertLinear(feicao(origem), destino), `${origem} -> ${destino}`).toBe(true);
             }
         }
-        expect(pares).toHaveLength(6);
+        // `n * (n - 1)`, derivado da lista: o número fixo reprovava código certo a cada tipo novo.
+        expect(pares).toHaveLength(LINEAR_SOURCES.length * OUTROS);
     });
 
-    it('converter para o MESMO tipo é recusado nos três', () => {
+    it('converter para o MESMO tipo é recusado em todos', () => {
         for (const tipo of LINEAR_SOURCES) {
             expect(canConvertLinear(feicao(tipo), tipo), tipo).toBe(false);
         }
@@ -574,6 +615,56 @@ describe('buildConvertedProperties: a âncora de zoom do limite', () => {
     });
 });
 
+describe('buildConvertedProperties: o ramo da linha de coordenação', () => {
+    it('a cor, a espessura e a opacidade atravessam, e a cor vem de `color`', () => {
+        // As DUAS linhas militares guardam a cor em `color`. Ler a de coordenação pelo ramo da
+        // linha comum (`lineColor`) devolveria `undefined` e apagaria em silêncio a cor
+        // escolhida, trocando-a pelo padrão preto.
+        const props = converter('boundary', 'coordination_line', { color: '#abcdef', lineWidth: 7, opacity: 0.4 });
+        expect(props.color).toBe('#abcdef');
+        expect(props.lineWidth).toBe(7);
+        expect(props.opacity).toBe(0.4);
+    });
+
+    it('nasce com o tamanho adaptativo e a distância derivada dele', () => {
+        const props = converter('line', 'coordination_line', {}, { adaptiveSymbolSize: 0.8 });
+        expect(props.symbol_size).toBe(0.8);
+        // A razão é a mesma `SPACING_RATIO` do controle, copiada no modelo porque ele não
+        // importa nada de `military_tools`. É este par que a cópia prende.
+        expect(props.symbol_spacing).toBeCloseTo(0.8 * COORDINATION_SPACING_RATIO, 10);
+    });
+
+    it('a âncora é o instante da conversão, com uma casa decimal, e a correção nasce ligada', () => {
+        const props = converter('line', 'coordination_line', {}, { currentZoom: 14.678 });
+        expect(props.createdAtZoom).toBe(14.7);
+        expect(props.zoomCorrectionEnabled).toBe(true);
+    });
+
+    it('os derivados são recalculados DEPOIS do bloco inteiro, não herdados do padrão', () => {
+        // O padrão carrega `calculatedLineWidth: 4`. Com a âncora no zoom corrente o fator é
+        // 1, então os derivados têm de refletir os valores AUTORAIS que vieram da origem.
+        const props = converter('line', 'coordination_line', { lineWidth: 9 },
+            { currentZoom: 12, adaptiveSymbolSize: 0.25 });
+        expect(props.calculatedLineWidth).toBe(9);
+        expect(props.calculatedSymbolSize).toBe(0.25);
+        expect(props.calculatedSymbolSpacing).toBeCloseTo(0.25 * COORDINATION_SPACING_RATIO, 10);
+    });
+
+    it('um tamanho adaptativo ausente ou degenerado não escreve o par', () => {
+        for (const ruim of [undefined, NaN, 0, -1, 'grande']) {
+            const props = converter('line', 'coordination_line', {}, { adaptiveSymbolSize: ruim });
+            expect(props.symbol_size, String(ruim)).toBe(PADROES_LINHA_COORD.symbol_size);
+            expect(props.symbol_spacing, String(ruim)).toBe(PADROES_LINHA_COORD.symbol_spacing);
+        }
+    });
+
+    it('sair da linha de coordenação NÃO leva o símbolo do catálogo para o destino', () => {
+        const props = converter('coordination_line', 'line', { symbol_code: '290307', symbol_size: 3 });
+        expect(props).not.toHaveProperty('symbol_code');
+        expect(props).not.toHaveProperty('symbol_spacing');
+    });
+});
+
 describe('buildConvertedProperties: o que NÃO atravessa', () => {
     it('nenhuma chave descartada da ORIGEM sobrevive, salvo as que o destino declara', () => {
         const cheia = {
@@ -587,6 +678,11 @@ describe('buildConvertedProperties: o que NÃO atravessa', () => {
                 text_size: 60, text_top: 'A', text_bottom: 'B', text_distance_ratio: 0.5,
                 text_north_facing: true, createdAtZoom: 8, zoomCorrectionEnabled: false,
                 calculatedLineWidth: 9, calculatedTextSize: 90, calculatedStrokeWidth: 5, calculatedSymbolSize: 7,
+            },
+            coordination_line: {
+                symbol_code: '290307', symbol_size: 3, symbol_spacing: 9,
+                createdAtZoom: 8, zoomCorrectionEnabled: false,
+                calculatedLineWidth: 9, calculatedSymbolSize: 7, calculatedSymbolSpacing: 21,
             },
         };
 
@@ -694,13 +790,14 @@ describe('describeConversionLoss', () => {
 // ============================================================================
 
 describe('linearConversionActions: POSTO', () => {
-    it('com as duas capacidades, os DOIS destinos aparecem, na ordem da tabela', () => {
-        expect(linearConversionActions({ source: 'line', can: podeTudo, feature: feicao('line') })
-            .map((a) => a.target)).toEqual(['arrow', 'boundary']);
-        expect(linearConversionActions({ source: 'arrow', can: podeTudo, feature: feicao('arrow') })
-            .map((a) => a.target)).toEqual(['line', 'boundary']);
-        expect(linearConversionActions({ source: 'boundary', can: podeTudo, feature: feicao('boundary') })
-            .map((a) => a.target)).toEqual(['line', 'arrow']);
+    it('com as duas capacidades, TODOS os destinos aparecem, na ordem da tabela', () => {
+        for (const origem of LINEAR_SOURCES) {
+            expect(
+                linearConversionActions({ source: origem, can: podeTudo, feature: feicao(origem) })
+                    .map((a) => a.target),
+                origem,
+            ).toEqual(destinosDe(origem));
+        }
     });
 
     it('CREATE negado esconde os dois comandos', () => {
@@ -727,7 +824,7 @@ describe('linearConversionActions: POSTO', () => {
         // E o controle POSITIVO ao lado: com as duas liberadas, os mesmos argumentos devolvem
         // dois comandos. Sem ele, um modelo quebrado que devolvesse sempre `[]` passaria aqui.
         expect(linearConversionActions({ source: 'line', can: podeTudo, feature: feicao('line') }))
-            .toHaveLength(2);
+            .toHaveLength(OUTROS);
     });
 
     it('FALHA FECHADA: predicado que lança esconde tudo', () => {
@@ -765,11 +862,11 @@ describe('linearConversionActions: POSTO', () => {
 // ============================================================================
 
 describe('linearConversionActions: ESTADO', () => {
-    it('mapa travado: DOIS itens, com a frase do cadeado', () => {
+    it('mapa travado: TODOS os itens, com a frase do cadeado', () => {
         const acoes = linearConversionActions({
             source: 'line', can: podeTudo, mapLocked: true, feature: feicao('line'),
         });
-        expect(acoes).toHaveLength(2);
+        expect(acoes).toHaveLength(OUTROS);
         for (const acao of acoes) expect(acao.blocked).toBe(LOCKED_MAP_NOTICE);
     });
 
@@ -782,33 +879,33 @@ describe('linearConversionActions: ESTADO', () => {
         expect(Object.keys(acao).sort()).toEqual(['blocked', 'target']);
     });
 
-    it('feição bloqueada: DOIS itens, com a frase do cadeado da feição', () => {
+    it('feição bloqueada: TODOS os itens, com a frase do cadeado da feição', () => {
         const acoes = linearConversionActions({
             source: 'boundary', can: podeTudo, featureLocked: true, feature: feicao('boundary'),
         });
-        expect(acoes).toHaveLength(2);
+        expect(acoes).toHaveLength(OUTROS);
         expect(acoes.every((a) => a.blocked === LOCKED_FEATURE_NOTICE)).toBe(true);
     });
 
-    it('seta combinada: DOIS itens, com a frase que manda separar', () => {
+    it('seta combinada: TODOS os itens, com a frase que manda separar', () => {
         // Reversível, e o desfaz ("Separar Setas") está no MESMO menu: esconder ensinaria
         // menos que recusar nomeando.
         const acoes = linearConversionActions({
             source: 'arrow', can: podeTudo,
             feature: feicao('arrow', { isMerged: true, branches: [{}, {}] }),
         });
-        expect(acoes.map((a) => a.target)).toEqual(['line', 'boundary']);
+        expect(acoes.map((a) => a.target)).toEqual(destinosDe('arrow'));
         expect(acoes.every((a) => a.blocked === MERGED_ARROW_NOTICE)).toBe(true);
     });
 
-    it('eixo curto: DOIS itens, com a frase do eixo', () => {
+    it('eixo curto: TODOS os itens, com a frase do eixo', () => {
         const curta = {
             type: 'Feature',
             properties: { source: 'line', baseCoordinates: [[-43.2, -22.9]] },
             geometry: { type: 'LineString', coordinates: [[-43.2, -22.9]] },
         };
         const acoes = linearConversionActions({ source: 'line', can: podeTudo, feature: curta });
-        expect(acoes).toHaveLength(2);
+        expect(acoes).toHaveLength(OUTROS);
         expect(acoes.every((a) => a.blocked === SHORT_SPINE_NOTICE)).toBe(true);
     });
 
@@ -830,6 +927,6 @@ describe('linearConversionActions: ESTADO', () => {
         const b = linearConversionActions({ source: 'line', can: podeTudo, feature: feicao('line') });
         expect(a).not.toBe(b);
         a.pop();
-        expect(b).toHaveLength(2);
+        expect(b).toHaveLength(OUTROS);
     });
 });
