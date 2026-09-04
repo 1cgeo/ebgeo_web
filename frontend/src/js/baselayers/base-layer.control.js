@@ -28,6 +28,7 @@ import bdgexLayer from './bdgex_layer.js';
 import config from '../config.js';
 import { resolveBasemapStyle, firstStyledBasemap } from './basemap-style.js';
 import { faixaDeZoom, aplicarFaixaDeZoom } from './basemap-zoom.js';
+import { baseStyleAlreadyOnMap, collectStyleIds, mergeApplicationStyle } from './style-transform.js';
 // DO ARQUIVO, e não do barrel `@js/terrain`: o barrel arrasta os dois gerentes de camada, e
 // este controle é do caminho de boot do mapa.
 import { getLayerFailureNotice } from '../terrain/layer-failure-notice.js';
@@ -46,7 +47,27 @@ const STYLE_MAP = {
     'bdgex': bdgexLayer
 };
 
-const DEFAULT_LAYER = 'carta-topografica';
+// A base com que o mapa NASCE, e este é o único lugar que diz qual é: `map_sig.js`
+// cria o mapa com `initialBaseStyle()`, e o controle guarda os ids dessa mesma base
+// para, na primeira troca, separar por exclusão o que é da base do que é da
+// aplicação. Um mapa nascido com um estilo e um controle assumindo outro fazem a
+// primeira troca manter a base velha INTEIRA por cima da nova, porque a exclusão é
+// feita contra os ids errados.
+export const DEFAULT_LAYER = 'carta-topografica';
+
+/**
+ * O estilo com que o mapa é criado: a mesma base que o controle assume.
+ *
+ * PASSA PELA MESMA RESOLUÇÃO QUE A TROCA USA (`resolveBasemapStyle`), e não pelo
+ * módulo direto, que era o que `map_sig.js` importava. Hoje as duas formas dão o
+ * MESMO objeto, porque o embutido ganha do publicado para os cinco ids que o
+ * cliente traz (`basemap-style.js`); ir pela resolução é o que mantém as duas em
+ * passo no dia em que o padrão deixar de ser um embutido.
+ * @returns {Object|string|null} Especificação de estilo de DEFAULT_LAYER
+ */
+export function initialBaseStyle() {
+    return resolveBasemapStyle(DEFAULT_LAYER, STYLE_MAP, config.basemapStyles);
+}
 
 class BaseLayerControl {
     constructor(uiManager, hillshadeConfig) {
@@ -62,6 +83,12 @@ class BaseLayerControl {
         this.changeDebounceTimer = null;
 
         config.validateBasemapsConfig();
+
+        // Os ids que a base ATUAL possui. O mapa é criado com `initialBaseStyle()`
+        // (`map_sig.js`), e cada `setStyle` abaixo grava os ids da próxima base dentro
+        // do próprio `transformStyle`, de modo que o conteúdo da aplicação se conhece
+        // por exclusão: é o que a base anterior não declarava.
+        this._baseStyleIds = collectStyleIds(initialBaseStyle());
     }
 
     /**
@@ -218,7 +245,11 @@ class BaseLayerControl {
 
         try {
             await setBaseLayer(newLayer);
-            await this.switchMap(false);
+            // MESMO mapa do atlas, base nova: o que está desenhado sobrevive ao
+            // `setStyle` pelo `transformStyle` e NÃO pode ser reescrito. Ver
+            // `layers/setup-mode.js` sobre por que reescrever aqui apaga o traço
+            // que o despachante de diff ainda não entregou.
+            await this.switchMap(false, { sameMap: true });
         } catch (error) {
             console.error('Error changing base layer:', error);
             await setBaseLayer(previousLayer);
@@ -271,7 +302,19 @@ class BaseLayerControl {
         this.uiManager?.saveChangesAndClosePanel?.();
 
         const styleUrl = this._styleFor(layer);
-        if (this.currentLayer !== layer) {
+        // DECIDE PELO QUE ESTÁ NO MAPA, nunca pelo que o controle acredita. A crença
+        // é um id guardado no StateManager, e um id não determina mais um estilo neste
+        // ramo: o de uma base NÃO embutida resolve por `config.basemapStyles`, tabela
+        // que `store/sync/atlas-settings.service.js` grava e apaga em tempo de execução
+        // conforme a concessão chega ou é retirada. Comparar id deixaria a base velha
+        // desenhada com o seletor marcando a nova.
+        //
+        // A decisão pelo mapa também DISPENSA a espera pelo `styledata` que nunca vem:
+        // `carta_topografica` e `osm_layer` são o mesmo estilo (ver
+        // `baselayer-style-uniqueness.repro.test.js`), o diff do MapLibre resolve em
+        // zero operações e não emite evento, e a espera cobrava os 10 s inteiros do
+        // temporizador abaixo.
+        if (!baseStyleAlreadyOnMap(this._styleOnMap(), styleUrl, (id) => !!this.map.getLayer(id))) {
             const styleLoadPromise = new Promise((resolve, reject) => {
                 const timeout = setTimeout(() => {
                     cleanup();
@@ -292,7 +335,31 @@ class BaseLayerControl {
                 map.on('styledata', handleStyleData);
             });
 
-            this.map.setStyle(styleUrl);
+            // `transformStyle` PRESERVA as sources e as layers da aplicação (pelas
+            // MESMAS referências, de modo que o diff do MapLibre não vê mudança nelas)
+            // e troca só o mapa base.
+            //
+            // SEM ELE, NESTA ÁRVORE, NÃO HAVIA SEQUER DIFF, e isso foi medido no
+            // Chromium em 2026-09-04, não deduzido do relatório de origem: o
+            // `diffStyles` do MapLibre 5.18 levantava sobre o estilo do app
+            // ("Unable to perform style diff: Cannot read properties of undefined
+            // (reading 'type'). Rebuilding the style from scratch"), e TODA troca de
+            // base caía na remontagem do estilo do zero, com as 74 sources e as 87
+            // layers do mapa destruídas e recriadas. Com o hook: uma source e uma
+            // layer removidas, que são exatamente as da base anterior.
+            //
+            // E AQUI ESTÁ A METADE QUE ESTE RAMO ACRESCENTA: dezesseis dessas sources
+            // são escritas pelo despachante de diff (`layers/geojson-dispatcher.js`),
+            // que guarda uma fila POR source. Recriar a source deixa a fila apontando
+            // para outro objeto, e a coleção inteira que a remontagem escreve em
+            // seguida é um `replaceAll` que DESCARTA o que estava na fila.
+            this.map.setStyle(styleUrl, {
+                transformStyle: (previous, next) => {
+                    const merged = mergeApplicationStyle(previous, next, this._baseStyleIds);
+                    this._baseStyleIds = collectStyleIds(next);
+                    return merged;
+                },
+            });
             // MapLibre diffs the incoming style against the current one and,
             // when the diff yields no operations, returns without ever firing
             // 'styledata' (Style.setState). That happens whenever two entries
@@ -301,7 +368,6 @@ class BaseLayerControl {
             // fatal: the style is either already correct or MapLibre finishes
             // applying it on its own.
             await styleLoadPromise.catch((error) => console.warn(`[base-layer] ${error.message}`));
-            this.currentLayer = layer;
 
             // Reapply globe projection after style change (setStyle resets projection)
             // Skip if terrain is active — globe + terrain is incompatible (MapLibre #4792)
@@ -315,6 +381,12 @@ class BaseLayerControl {
             // Disable sky/fog - setStyle resets it (background is set via CSS)
             this.map.setSky(undefined);
         }
+        // FORA do `if`, ao contrário de antes, e a razão é o próprio portão acima. Quando ele
+        // decide "já está no mapa", o estilo pedido ESTÁ desenhado, então a crença tem de dizer
+        // isso; deixada dentro do bloco ela ficaria presa no id anterior enquanto o seletor e o
+        // registro do mapa já mostram o novo. Quem paga isso é `applySharedBasemap`, que devolve
+        // `this.currentLayer` como a única resposta honesta sobre o que está na tela.
+        this.currentLayer = layer;
         // FORA do `if` acima, e essa é a metade que importa. O getter de `currentLayer` devolve
         // `carta-topografica` quando não há estado, e o mapa NASCE com esse estilo
         // (`map_sig.js`), então no boot mais comum o bloco inteiro é pulado, e a faixa do mapa
@@ -323,6 +395,30 @@ class BaseLayerControl {
         this._applyBasemapZoom(layer);
         await this._updateHillshadeVisibility();
         this.syncVisualState(layer);
+    }
+
+    /**
+     * O estilo que o mapa tem AGORA, ou `null` quando ele ainda não tem nenhum.
+     *
+     * O `try` não é decoração. `Map.getStyle()` chama `Style.serialize()`, que lê
+     * `this.stylesheet` sem guarda, e essa propriedade é `null` desde o construtor até o
+     * primeiro estilo terminar de carregar (medido no bundle em uso,
+     * `public/vendors/maplibre-gl.js`). `switchMap` é alcançável antes disso pelo caminho de
+     * boot que não passa pelo `load` do mapa, e o portão de `switchLayer` é a primeira linha
+     * deste arquivo a consultar o estilo.
+     *
+     * `null` é a resposta CERTA nesse caso, e não uma degradação: um mapa que ainda não tem
+     * estilo certamente não tem a base pedida, então o portão manda aplicar, que é o que o
+     * código fazia antes deste lote.
+     * @private
+     * @returns {Object|null}
+     */
+    _styleOnMap() {
+        try {
+            return this.map?.getStyle() || null;
+        } catch {
+            return null;
+        }
     }
 
     /**
@@ -354,7 +450,14 @@ class BaseLayerControl {
         this.updateActiveState(targetLayer);
     }
 
-    async switchMap(applyPosition = true) {
+    /**
+     * @param {boolean} [applyPosition=true] - Restaura a câmera salva do mapa.
+     * @param {{ sameMap?: boolean }} [options] - `sameMap` quando o mapa do atlas NÃO mudou
+     *   (troca só do mapa base), único caso em que o conteúdo desenhado pode ser mantido.
+     *   Ausente é o padrão certo: os outros dez chamadores (desfazer/refazer, troca de mapa,
+     *   import, briefing, busca) mudaram o CONTEÚDO, e ali remontar é a obrigação.
+     */
+    async switchMap(applyPosition = true, options = {}) {
         const currentMapName = await getCurrentMapName();
         const skipPersist = isCurrentMapLockedSync();
 
@@ -387,7 +490,9 @@ class BaseLayerControl {
             await this.applyMapSavedPosition(currentMapName);
         }
 
-        await setupMapFeatures(this.map, this._analysisLayersManager, this._dataLayersManager, getEventBus());
+        await setupMapFeatures(this.map, this._analysisLayersManager, this._dataLayersManager, getEventBus(), {
+            contentPreserved: options.sameMap === true,
+        });
 
         getEventBus().emit(EventTypes.BASE_LAYER_CHANGED, { layer: baseLayer });
     }
@@ -417,7 +522,14 @@ class BaseLayerControl {
      */
     async applySharedBasemap(basemapId) {
         await this.switchLayer(config.getValidBasemapFallback(basemapId), { skipPersist: true });
-        await setupMapFeatures(this.map, this._analysisLayersManager, this._dataLayersManager, getEventBus());
+        // `contentPreserved`: o link chega DEPOIS de o atlas estar montado e pintado (ver
+        // `deep-link/deep-link.js`, `applySharedView`), então o que está desenhado é o do
+        // mapa certo e o `transformStyle` acabou de mantê-lo. Se o MapLibre tiver caído na
+        // remontagem do estilo do zero, `resolveSetupMode` percebe pela source ausente e
+        // remonta assim mesmo.
+        await setupMapFeatures(this.map, this._analysisLayersManager, this._dataLayersManager, getEventBus(), {
+            contentPreserved: true,
+        });
 
         // READ BACK, never echo the argument: `switchLayer` has a SECOND fallback of
         // its own (a basemap enabled in config can still have no registered style),

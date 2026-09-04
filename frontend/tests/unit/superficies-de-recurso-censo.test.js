@@ -152,7 +152,7 @@ const CENSO = [
             + 'concedido entra por aqui, e o estilo dele viaja numa segunda chave.',
     },
     {
-        arquivo: 'src/js/baselayers/base-layer.control.js', gatilho: 'catalogo', n: 4,
+        arquivo: 'src/js/baselayers/base-layer.control.js', gatilho: 'catalogo', n: 5,
         classe: BASELINE,
         motivo: 'O seletor de camada base, que resolve o estilo por demanda contra '
             + '`config.basemapStyles`. Montar a tabela de estilos no construtor (como fazia antes da '
@@ -167,7 +167,16 @@ const CENSO = [
             + '`maxzoom` da linha de catálogo, que viram `setMinZoom`/`setMaxZoom` da câmera. Ela '
             + 'lê o mesmo objeto `config.basemaps[id]` das outras, e o que ela expõe a um '
             + 'visitante é a faixa de um mapa base que ele JÁ está vendo, depois do fallback: '
-            + 'quem não alcança o basemap privado nunca chega a esta linha com o id dele.',
+            + 'quem não alcança o basemap privado nunca chega a esta linha com o id dele. '
+            + 'A QUINTA entrou em 2026-09-04 e é a ÚNICA que não roda dentro do controle: '
+            + '`initialBaseStyle()` é uma função de módulo, chamada por `map_sig.js` para criar '
+            + 'o mapa com a MESMA base que o controle assume (`DEFAULT_LAYER`). Ela é a mesma '
+            + 'resolução das outras (`resolveBasemapStyle` sobre `STYLE_MAP` mais '
+            + '`config.basemapStyles`) e não amplia superfície nenhuma: o id que ela consulta é '
+            + 'uma constante, `carta-topografica`, para a qual o embutido sempre ganha do '
+            + 'publicado, então nenhum recurso concedido passa por ela. O que ela fecha é a '
+            + 'divergência entre o estilo com que o mapa NASCE e o que a troca de base assume, '
+            + 'que fazia a primeira troca preservar a base velha inteira por cima da nova.',
     },
     {
         arquivo: 'src/js/3d_models_viewer_tool/add_3d_models_viewer_control.js', gatilho: 'catalogo', n: 3,

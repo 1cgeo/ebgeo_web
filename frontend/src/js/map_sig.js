@@ -17,7 +17,7 @@ import { getEventBus, getStateManager, registerControl, initializeWithLastActive
 
 import { showConfirm } from './modals';
 
-import { BaseLayerControl } from './baselayers';
+import { BaseLayerControl, initialBaseStyle } from './baselayers';
 // Direct module imports instead of the './import_export' barrel: the barrel ALSO re-exports
 // garmin-kmz-export.js, which export.tab.js already loads with `await import()`. Reaching it
 // statically from here pins it (and its own JSZip edge) into the eager payload of index.html
@@ -51,7 +51,6 @@ import { createTrajectoryEditControl } from './temporal/trajectory-tool/trajecto
 import { createTemporalDerivationService } from './temporal/temporal-derivation.service.js';
 import config from './config.js';
 import { refreshAtlasAppearance, reapplyAtlasAppearance } from './store/atlas-appearance.service.js';
-import baseStyle from './baselayers/carta_topografica.js';
 import { hideLoadingScreen } from './ui/loading-screen.js';
 import { ContextMenuControl } from './context-menu';
 import { RectangleSelectionControl } from './selection_tools';
@@ -129,7 +128,10 @@ const CERTIFICATE_ERROR_SOURCES = {
 export function createMap() {
     const map = new maplibregl.Map({
         container: 'map-sig',
-        style: baseStyle,
+        // A MESMA base que o `BaseLayerControl` assume (o `DEFAULT_LAYER` dele). Importar
+        // o módulo do estilo aqui deixava os dois LIVRES para divergir, e é dessa
+        // divergência que nasce a troca que preserva a base velha inteira por cima da nova.
+        style: initialBaseStyle(),
         attributionControl: false,
         minZoom: config.map2d.minZoom,
         maxZoom: config.map2d.maxZoom,

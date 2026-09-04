@@ -16,6 +16,7 @@ import { EventTypes } from '../events';
 
 import { generatePointImage, needsPerFeatureImage, pointImageSignature } from '../draw_tools/point_tool/point-marker-symbols.js';
 import { parseCustomMarker, registerCustomFeatureImage } from '../draw_tools/point_tool/point-custom-icons.js';
+import { resolveSetupMode } from './setup-mode.js';
 import { updateAllLayerFilters, invalidateFilterCache, updateMeasurementLabelVisibility } from './visibility-filter.js';
 import { applyLayerOpacities, invalidateOpacityCache } from './layer-opacity-applier.js';
 import {
@@ -526,15 +527,37 @@ function setupLayerVisibilityListener(mapInstance, eventBus) {
 
 /**
  * Sets up all map feature layers and visibility system.
+ *
+ * DOIS MODOS, e a escolha é de `setup-mode.js`. No modo CHEIO cada coleção é lida do store e
+ * escrita na sua source, que é o que todo chamador precisa: desfazer, refazer, trocar de mapa
+ * do atlas, importar, apagar tudo. No modo PRESERVADO, tomado só depois de uma troca de mapa
+ * BASE no mesmo mapa do atlas, as coleções, os filtros e as opacidades já estão no mapa (o
+ * `transformStyle` manteve as sources pelas mesmas referências) e são deixados em paz: só os
+ * separadores, o terreno, o catálogo e a grade são reconferidos, e os quatro são idempotentes.
+ *
+ * O MODO PRESERVADO NÃO É SÓ ECONOMIA, e por isso ele não pode ser removido sob dúvida. As
+ * dezesseis sources migradas são escritas pelo despachante de diff, e a remontagem escreve cada
+ * uma INTEIRA (`setOrCreateSource` -> `writeWholeCollection`); coleção inteira é `replaceAll`,
+ * que pelo contrato do despachante DESCARTA o que aquela source tinha na fila. Medido nesta
+ * árvore em 2026-09-04 contra um mapa falso: uma feição enfileirada e ainda não liberada some
+ * depois de uma escrita dessas, sem erro em lugar nenhum. Trocar de mapa base apagaria o que a
+ * pessoa acabou de desenhar.
+ *
  * @param {Object} mapInstance - MapLibre map instance
  * @param {Object} analysisLayersManager - Analysis layers manager
  * @param {Object} dataLayersManager - Data layers manager
  * @param {import('../events/event_bus.js').EventBus} eventBus - Event bus instance
+ * @param {{ contentPreserved?: boolean }} [options] - `contentPreserved` quando o mapa do atlas
+ *   não mudou e a troca de estilo manteve o conteúdo da aplicação
  */
-export async function setupMapFeatures(mapInstance, analysisLayersManager, dataLayersManager, eventBus) {
+export async function setupMapFeatures(mapInstance, analysisLayersManager, dataLayersManager, eventBus, options = {}) {
     try {
-        invalidateFilterCache();
-        invalidateOpacityCache();
+        const rebuild = resolveSetupMode(options, !!mapInstance.getSource('points')) === 'full';
+
+        if (rebuild) {
+            invalidateFilterCache();
+            invalidateOpacityCache();
+        }
 
         setupLayerSeparators(mapInstance);
 
@@ -558,6 +581,20 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
         await dataLayersManager.setupDataLayers();
 
         await restoreCatalogLayers(mapInstance, analysisLayersManager, dataLayersManager);
+
+        if (!rebuild) {
+            // A GRADE E A ASSINATURA CONTINUAM, e as duas por motivo próprio. A grade é
+            // reconstruída pelo controle dela a cada `setStyle` (as camadas dela não passam
+            // pelo despachante), e o ouvinte de LAYERS_CHANGED tem de ser re-registrado aqui
+            // como no modo cheio, senão a troca de base o deixaria pendurado no fechamento
+            // antigo. Nenhum dos dois toca coleção de feição.
+            if (config.features.grid) {
+                await setupGridLayers(mapInstance);
+            }
+            if (layerVisibilityUnsub) layerVisibilityUnsub();
+            layerVisibilityUnsub = setupLayerVisibilityListener(mapInstance, eventBus);
+            return;
+        }
 
         const features = await getCurrentMapFeatures();
         await setImages(features, mapInstance);
