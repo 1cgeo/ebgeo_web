@@ -117,15 +117,25 @@ class AddCoordinationLineControl extends BaseControl {
 
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
+        this.preClickRafId = null;
+        this.pendingPreClickUpdate = false;
         this.zoomRafId = null;
+        this.zoomEndRafId = null;
         // `pendingZoomUpdate` is held for the whole (async) pass so the frames of
         // a zoom gesture cannot stack; `missedZoomUpdate` records the frames that
         // arrive meanwhile, so the last zoom of the gesture is replayed, not lost.
+        // The `ZoomEnd` twins do the same for the once-per-gesture pass, which is
+        // async for the same reasons and can also land mid-drag.
         this.pendingZoomUpdate = false;
         this.missedZoomUpdate = false;
+        this.pendingZoomEndUpdate = false;
+        this.missedZoomEndUpdate = false;
         this.lastPreviewPosition = null;
         this.lastPreviewPoints = null;
-        this.geometryDebounceTimer = null;
+        // What the raw mousemove leaves for the next frame to resolve: `point`
+        // and `lngLat`, the two things `snapping.resolve` needs.
+        this._previewPointer = null;
+        this._preClickPointer = null;
 
         this.clickTimer = null;
         this.lastClickCoords = null;
@@ -184,12 +194,19 @@ class AddCoordinationLineControl extends BaseControl {
 
     onRemove = () => {
         this.map?.off('zoom', this.handleZoomChange);
+        this.map?.off('zoomend', this.handleZoomEnd);
         if (this.zoomRafId) {
             cancelAnimationFrame(this.zoomRafId);
             this.zoomRafId = null;
         }
+        if (this.zoomEndRafId) {
+            cancelAnimationFrame(this.zoomEndRafId);
+            this.zoomEndRafId = null;
+        }
         this.pendingZoomUpdate = false;
         this.missedZoomUpdate = false;
+        this.pendingZoomEndUpdate = false;
+        this.missedZoomEndUpdate = false;
         this.deactivate();
         this.removeAllEventListeners();
         this.map = undefined;
@@ -361,10 +378,35 @@ class AddCoordinationLineControl extends BaseControl {
         }
     }
 
-    /** Snap indicator before the first click, when there is nothing to preview yet. */
+    /**
+     * Snap indicator before the first click, when there is nothing to preview yet.
+     *
+     * The raw `mousemove` only PARKS the pointer: `snapping.resolve` is a
+     * rendered-feature query, and a mouse can fire several moves inside one
+     * frame, so it runs once per frame from the rAF callback below. The
+     * indicator lands on the same pixel either way, since only the last position
+     * of the frame is ever drawn.
+     */
     _onPreClickMouseMove = (e) => {
+        this._preClickPointer = { point: e.point, lngLat: e.lngLat };
+
+        if (!this.pendingPreClickUpdate) {
+            this.pendingPreClickUpdate = true;
+            this.preClickRafId = requestAnimationFrame(this._updatePreClickSnap);
+        }
+    }
+
+    /** @private */
+    _updatePreClickSnap = () => {
+        this.preClickRafId = null;
+        this.pendingPreClickUpdate = false;
+
+        const pointer = this._preClickPointer;
+        this._preClickPointer = null;
+        if (!pointer || !this.map) return;
+
         const snapping = getSnappingService();
-        const snap = snapping?.resolve(this.map, e.point, e.lngLat);
+        const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat);
         if (snap?.snapped) {
             snapping.showIndicator(this.map, snap, snap.snapType);
         } else {
@@ -513,22 +555,15 @@ class AddCoordinationLineControl extends BaseControl {
         this.stopDrawing();
     }
 
+    /**
+     * Park the pointer and ask for a frame. The snap is resolved inside the rAF
+     * callback, once per frame, for the reason given on `_onPreClickMouseMove`.
+     */
     handlePreviewMouseMove = (e) => {
         if (this.drawPoints.length < 1) return;
 
-        const snapping = getSnappingService();
-        // While continuing, exclude the feature itself: its own vertices would
-        // otherwise capture every click, exactly as they do for a handle drag.
-        const snap = snapping?.resolve(this.map, e.point, e.lngLat, this._extending?.featureId) ?? e.lngLat;
-
-        if (snap.snapped) {
-            snapping.showIndicator(this.map, snap, snap.snapType);
-        } else {
-            snapping?.hideIndicator(this.map);
-        }
-
+        this._previewPointer = { point: e.point, lngLat: e.lngLat };
         this.lastPreviewPoints = [...this.drawPoints];
-        this.lastPreviewPosition = [snap.lng, snap.lat];
 
         if (!this.pendingPreviewUpdate) {
             this.pendingPreviewUpdate = true;
@@ -537,6 +572,27 @@ class AddCoordinationLineControl extends BaseControl {
     }
 
     performPreviewUpdate = () => {
+        // The handle drag resolves its own snap on the pointer event, so it never
+        // parks a pointer here; guard anyway, so a stale one from the drawing
+        // preview cannot move the handle under the user.
+        const pointer = this._previewPointer;
+        this._previewPointer = null;
+        if (pointer && !this.isDraggingHandle) {
+            const snapping = getSnappingService();
+            // While continuing, exclude the feature itself: its own vertices would
+            // otherwise capture every click, exactly as they do for a handle drag.
+            const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat, this._extending?.featureId)
+                ?? pointer.lngLat;
+
+            if (snap.snapped) {
+                snapping.showIndicator(this.map, snap, snap.snapType);
+            } else {
+                snapping?.hideIndicator(this.map);
+            }
+
+            this.lastPreviewPosition = [snap.lng, snap.lat];
+        }
+
         if (!this.lastPreviewPosition) {
             this.pendingPreviewUpdate = false;
             return;
@@ -551,24 +607,21 @@ class AddCoordinationLineControl extends BaseControl {
             if (this.lastClickCoords) previewPoints.push(this.lastClickCoords);
             previewPoints.push(this.lastPreviewPosition);
 
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = setTimeout(() => {
-                const currentZoom = this.map.getZoom();
-                const previewSize = this.calculateSymbolSizeForZoom(currentZoom);
+            const currentZoom = this.map.getZoom();
+            const previewSize = this.calculateSymbolSizeForZoom(currentZoom);
 
-                // Derive the sizes instead of inheriting the defaults': the shared
-                // DEFAULT_PROPERTIES carries derived values belonging to another
-                // size, and the preview overrides only the authored pair.
-                const previewProperties = withCoordinationLineZoomSizes({
-                    ...AddCoordinationLineControl.DEFAULT_PROPERTIES,
-                    symbol_size: previewSize,
-                    symbol_spacing: this.calculateSpacingForSize(previewSize),
-                    createdAtZoom: Math.round(currentZoom * 10) / 10,
-                    baseCoordinates: previewPoints,
-                }, currentZoom);
+            // Derive the sizes instead of inheriting the defaults': the shared
+            // DEFAULT_PROPERTIES carries derived values belonging to another
+            // size, and the preview overrides only the authored pair.
+            const previewProperties = withCoordinationLineZoomSizes({
+                ...AddCoordinationLineControl.DEFAULT_PROPERTIES,
+                symbol_size: previewSize,
+                symbol_spacing: this.calculateSpacingForSize(previewSize),
+                createdAtZoom: Math.round(currentZoom * 10) / 10,
+                baseCoordinates: previewPoints,
+            }, currentZoom);
 
-                this.showPreview(this.geometry.generate(previewProperties, currentZoom));
-            }, 8);
+            this.showPreview(this.geometry.generate(previewProperties, currentZoom));
         }
 
         this.pendingPreviewUpdate = false;
@@ -745,13 +798,10 @@ class AddCoordinationLineControl extends BaseControl {
         // feature does not have.
         const properties = buildExtendedProperties(session.sourceFeature, coordinates);
 
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            const previewGeometry = this.geometry.generate(properties, this.getCurrentZoom());
-            if (previewGeometry) {
-                this.showPreview(previewGeometry);
-            }
-        }, 8);
+        const previewGeometry = this.geometry.generate(properties, this.getCurrentZoom());
+        if (previewGeometry) {
+            this.showPreview(previewGeometry);
+        }
     }
 
     /**
@@ -1021,29 +1071,28 @@ class AddCoordinationLineControl extends BaseControl {
         this.replayMissedZoomUpdate();
     }
 
+    /**
+     * Draw the handle-drag preview. Called from inside the rAF callback, so it
+     * already runs at most once per frame; the 8 ms debounce this used to carry
+     * coalesced nothing (8 ms is under the 16.7 ms of a frame) and only pushed
+     * the drawing one timer late. Removed 2026-09-04.
+     * @param {Array} newPosition - The snapped `[lng, lat]` under the cursor
+     */
     updateCoordinationLinePreview = (newPosition) => {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature || !this.activeHandleType) return;
 
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            const currentHandleType = this.activeHandleType;
-            const currentHandleIndex = this.activeHandleIndex;
-            const currentFeature = this.getSelectedFeature();
-            if (!currentHandleType || !currentFeature) return;
+        const result = this.geometry.updateFromHandle(
+            this.activeHandleType,
+            newPosition,
+            selectedFeature,
+            this.activeHandleIndex,
+            this.getCurrentZoom(),
+        );
 
-            const result = this.geometry.updateFromHandle(
-                currentHandleType,
-                newPosition,
-                currentFeature,
-                currentHandleIndex,
-                this.getCurrentZoom(),
-            );
-
-            if (result) {
-                this.showEditPreview(result.geometry, result.properties);
-            }
-        }, 8);
+        if (result) {
+            this.showEditPreview(result.geometry, result.properties);
+        }
     }
 
     showEditPreview = (geometry, properties) => {
@@ -1152,8 +1201,18 @@ class AddCoordinationLineControl extends BaseControl {
     // ZOOM CORRECTION
     // ========================================================================
 
+    // The line layer derives the stroke width from the zoom on the GPU now
+    // (`buildCoordinationLineWidthExpression`), so the per-frame pass no longer
+    // feeds the drawing of a terrain-pinned line: it is left with the one job no
+    // style expression can do, the ground geometry of the SCREEN-pinned lines,
+    // whose diamonds live in kilometres and have to be rebuilt at every zoom
+    // step. Everything else (the stored `calculated*` properties the export, the
+    // selection box and the feature header read) is worth doing once per
+    // gesture, on `zoomend`. Measured on 2026-09-04: the old single pass wrote
+    // the whole collection 91 times in a 3 s gesture.
     setupZoomListener = () => {
         this.map.on('zoom', this.handleZoomChange);
+        this.map.on('zoomend', this.handleZoomEnd);
     }
 
     handleZoomChange = () => {
@@ -1168,13 +1227,26 @@ class AddCoordinationLineControl extends BaseControl {
         }
 
         this.pendingZoomUpdate = true;
-        this.zoomRafId = requestAnimationFrame(this.updateAllCoordinationLineZoomSizes);
+        this.zoomRafId = requestAnimationFrame(this.updateScreenAnchoredGeometry);
+    }
+
+    handleZoomEnd = () => {
+        // Same discipline as above, and needed for the same reason: `zoomend`
+        // fires once per gesture, but a wheel gesture is a burst of gestures, and
+        // this pass is async too.
+        if (this.pendingZoomEndUpdate) {
+            this.missedZoomEndUpdate = true;
+            return;
+        }
+
+        this.pendingZoomEndUpdate = true;
+        this.zoomEndRafId = requestAnimationFrame(this.updateAllCoordinationLineZoomSizes);
     }
 
     replayMissedZoomUpdate = () => {
-        if (this.missedZoomUpdate && this.map) {
-            this.handleZoomChange();
-        }
+        if (!this.map) return;
+        if (this.missedZoomUpdate) this.handleZoomChange();
+        if (this.missedZoomEndUpdate) this.handleZoomEnd();
     }
 
     getCurrentZoom = () => (this.map ? this.map.getZoom() : NaN)
@@ -1212,12 +1284,11 @@ class AddCoordinationLineControl extends BaseControl {
     }
 
     /**
-     * The per-frame zoom pass. Writes the live source only, never the store: the
-     * derived sizes are recomputed on read, and what persists is the authored
-     * pair (`createdAtZoom`, `zoomCorrectionEnabled`).
+     * The per-frame zoom pass: the screen-pinned features' geometry, and nothing
+     * else. Writes the live source only, never the store.
      * @returns {Promise<void>} Resolves once the source is written
      */
-    updateAllCoordinationLineZoomSizes = async () => {
+    updateScreenAnchoredGeometry = async () => {
         this.zoomRafId = null;
 
         // A drag OWNS the source for its duration (the move handler and the
@@ -1237,17 +1308,99 @@ class AddCoordinationLineControl extends BaseControl {
         try {
             if (!this.map) return;
             const currentZoom = this.map.getZoom();
-            await this._sourceQueue(() => this._refreshSourceZoomSizes(currentZoom));
+            await this._sourceQueue(() => this._refreshScreenAnchoredGeometry(currentZoom));
         } catch (error) {
             // Nothing consumes this promise (it is a rAF callback), so a rejection
             // here would be an unhandled one and the correction would freeze in
             // silence. A style swap can remove a source mid-zoom; log and move on.
-            console.warn('Error refreshing coordination line zoom sizes:', error);
+            console.warn('Error refreshing coordination line zoom geometry:', error);
         } finally {
             this.pendingZoomUpdate = false;
             if (this.missedZoomUpdate && this.map) {
                 this.missedZoomUpdate = false;
                 this.handleZoomChange();
+            }
+        }
+    }
+
+    /**
+     * Rebuild the diamonds of the SCREEN-pinned features, whose size in
+     * kilometres changes with every zoom step. A collection with none of them
+     * writes nothing at all, which is the common case: the correction is on by
+     * default, and a terrain-pinned line keeps both its ground geometry and (via
+     * the layer's expression) its drawn width across the whole gesture.
+     *
+     * @param {number} currentZoom - Zoom to derive sizes for
+     * @returns {Promise<void>} Resolves once the source is written
+     * @private
+     */
+    _refreshScreenAnchoredGeometry = async (currentZoom) => {
+        const source = this.map?.getSource('coordination_lines');
+        if (!source) return;
+
+        const data = await readGeoJSONSourceDataAsync(source);
+        // The map can be gone (or restyled) by the time the read resolves.
+        if (!this.map || !data?.features?.length) return;
+
+        let hasChanges = false;
+
+        for (const feature of data.features) {
+            if (!feature?.properties || !isScreenAnchored(feature.properties)) continue;
+
+            const sizes = computeCoordinationLineZoomSizes(feature.properties, currentZoom);
+            if (feature.properties.calculatedSymbolSize === sizes.calculatedSymbolSize
+                && feature.properties.calculatedSymbolSpacing === sizes.calculatedSymbolSpacing) {
+                continue;
+            }
+
+            feature.properties.calculatedSymbolSize = sizes.calculatedSymbolSize;
+            feature.properties.calculatedSymbolSpacing = sizes.calculatedSymbolSpacing;
+            feature.geometry = this.geometry.generate(feature.properties, currentZoom);
+            hasChanges = true;
+        }
+
+        if (hasChanges) {
+            source.setData(data);
+        }
+    }
+
+    /**
+     * The once-per-gesture pass, on `zoomend`: every feature's derived sizes,
+     * plus the geometry of the screen-pinned ones. Writes the live source only,
+     * never the store: the derived sizes are recomputed on read, and what
+     * persists is the authored pair (`createdAtZoom`, `zoomCorrectionEnabled`).
+     *
+     * `calculatedLineWidth` no longer feeds the drawing, but the export, the
+     * selection box and the feature header still read it, so it is refreshed
+     * here rather than dropped.
+     *
+     * @returns {Promise<void>} Resolves once the source is written
+     */
+    updateAllCoordinationLineZoomSizes = async () => {
+        this.zoomEndRafId = null;
+
+        // Same reason as the per-frame pass: a drag owns the source, so stand
+        // down and let the end of the drag replay this.
+        if (this.isDraggingHandle || this.selectionManager?.uiManager?.isDragging) {
+            this.pendingZoomEndUpdate = false;
+            this.missedZoomEndUpdate = true;
+            return;
+        }
+
+        this.missedZoomEndUpdate = false;
+
+        try {
+            if (!this.map) return;
+            const currentZoom = this.map.getZoom();
+            await this._sourceQueue(() => this._refreshSourceZoomSizes(currentZoom));
+        } catch (error) {
+            // A rAF callback consumes nobody's promise; see the per-frame pass.
+            console.warn('Error refreshing coordination line zoom sizes:', error);
+        } finally {
+            this.pendingZoomEndUpdate = false;
+            if (this.missedZoomEndUpdate && this.map) {
+                this.missedZoomEndUpdate = false;
+                this.handleZoomEnd();
             }
         }
     }
@@ -1619,16 +1772,18 @@ class AddCoordinationLineControl extends BaseControl {
             cancelAnimationFrame(this.previewRafId);
             this.previewRafId = null;
         }
+        if (this.preClickRafId) {
+            cancelAnimationFrame(this.preClickRafId);
+            this.preClickRafId = null;
+        }
         this.pendingPreviewUpdate = false;
+        this.pendingPreClickUpdate = false;
         this.lastPreviewPosition = null;
         this.lastPreviewPoints = null;
+        this._previewPointer = null;
+        this._preClickPointer = null;
         this.activeHandleType = null;
         this.activeHandleIndex = null;
-
-        if (this.geometryDebounceTimer) {
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = null;
-        }
 
         if (this.clickTimer) {
             clearTimeout(this.clickTimer);

@@ -134,7 +134,7 @@ class AddCoordinationLineGeometry extends BaseGeometry {
                 if (pattern.count === 0) {
                     return { type: 'LineString', coordinates: baseCoordinates };
                 }
-                const teeth = this.buildContinuousPattern(line, pattern, symbol);
+                const teeth = this.buildContinuousPattern(this.prepareSpine(line), pattern, symbol);
                 if (teeth.length === 0) {
                     return { type: 'LineString', coordinates: baseCoordinates };
                 }
@@ -164,7 +164,11 @@ class AddCoordinationLineGeometry extends BaseGeometry {
                 return { type: 'LineString', coordinates: baseCoordinates };
             }
 
-            const lines = this.buildSegmentsAndGlyphs(line, totalLength, layout, symbol);
+            // The spine is read ONCE here and handed down, instead of every glyph
+            // walking it again from the first vertex. See `prepareSpine`.
+            const lines = this.buildSegmentsAndGlyphs(
+                this.prepareSpine(line), totalLength, layout, symbol,
+            );
 
             if (lines.length === 0) {
                 return { type: 'LineString', coordinates: baseCoordinates };
@@ -187,27 +191,28 @@ class AddCoordinationLineGeometry extends BaseGeometry {
      * `size <= MAX_GAP_FRACTION * spacing`), but the cursor is what makes the
      * walk total rather than conditional on that invariant holding.
      *
-     * @param {Object} line - Turf lineString feature
+     * @param {Object} spine - Prepared spine, or a bare turf lineString feature
      * @param {number} totalLength - Line length in kilometres
      * @param {{count: number, size: number, spacing: number, start: number}} layout - Diamond layout
      * @returns {Array<Array>} Coordinate arrays for the MultiLineString
      */
-    buildSegmentsAndGlyphs(line, totalLength, layout, symbol) {
+    buildSegmentsAndGlyphs(spine, totalLength, layout, symbol) {
         const { MIN_LENGTH_KM } = AddCoordinationLineGeometry.GEOMETRY_CONSTANTS;
         const { count, size, spacing, start } = layout;
         const half = size / 2;
+        const prepared = this.spineOf(spine);
         const lines = [];
 
         // A symbol that rides ON the line needs the line whole underneath it, so
         // the spine goes in once and the walk below only adds glyphs.
         if (!symbol.interrupts) {
-            lines.push(this.sliceAlong(line, 0, totalLength));
+            lines.push(this.sliceAlong(prepared, 0, totalLength));
         }
 
         // The concertina rails are CONTINUOUS, so they are laid once for the whole
         // line rather than per glyph: a rail cut into per-glyph pieces would read
         // as a dashed line, which is a different symbol.
-        lines.push(...this.buildRails(line, size, symbol));
+        lines.push(...this.buildRails(prepared.line, size, symbol));
 
         let cursor = 0;
 
@@ -218,41 +223,268 @@ class AddCoordinationLineGeometry extends BaseGeometry {
 
             if (symbol.interrupts) {
                 if (glyphStart - cursor > MIN_LENGTH_KM) {
-                    lines.push(this.sliceAlong(line, cursor, glyphStart));
+                    lines.push(this.sliceAlong(prepared, cursor, glyphStart));
                 }
                 cursor = Math.max(cursor, glyphEnd);
             }
 
-            lines.push(...this.glyphRings(line, glyphStart, glyphEnd, symbol, size));
+            lines.push(...this.glyphRings(prepared, glyphStart, glyphEnd, symbol, size));
         }
 
         if (symbol.interrupts && totalLength - cursor > MIN_LENGTH_KM) {
-            lines.push(this.sliceAlong(line, cursor, totalLength));
+            lines.push(this.sliceAlong(prepared, cursor, totalLength));
         }
 
         return lines.filter(coords => Array.isArray(coords) && coords.length >= 2);
     }
 
+    // ========================================================================
+    // THE PREPARED SPINE
+    // ========================================================================
+
+    /**
+     * Read the spine ONCE per `generate`, so the glyphs stop re-reading it.
+     *
+     * `turf.along` and `turf.lineSliceAlong` both find their place by adding up
+     * every segment from the first vertex, which is O(V) per call. The glyph walk
+     * makes two `along` calls plus a slice per glyph, so a frame cost the PRODUCT
+     * `glyphs x vertices`. Measured in node on 2026-09-04 against the vendored
+     * turf, one 120-glyph feature on a 150 km line: the 290199 diamond cost
+     * 0.22 ms at 2 vertices, 0.83 ms at 50 and 5.22 ms at 400, and the 290309
+     * triple concertina 0.64, 1.08 and 4.06 ms, with 30 screen-pinned features
+     * regenerated per frame against a 16.7 ms budget. Prepared, the same six
+     * measurements are 0.15, 0.17, 0.26 and 0.60, 0.64, 0.81 ms: what is left
+     * grows with the vertices ONCE, in the pass below, and not per glyph.
+     *
+     * `cumulative[i]` is the distance in kilometres from the start to vertex `i`,
+     * accumulated in the SAME order and with the same `turf.distance` call turf
+     * makes itself, so a binary search over it lands on the same segment with the
+     * same remainder, bit for bit. `backBearings[i]` is the direction turf reads
+     * at vertex `i` (the bearing back to `i - 1`, turned around), which is the
+     * only other per-call work there was.
+     *
+     * @param {Object} line - Turf lineString feature or geometry
+     * @returns {{line: Object, coords: Array, cumulative: Array<number>, backBearings: Array<number>}}
+     *   The prepared spine
+     */
+    prepareSpine(line) {
+        const coords = line.geometry ? line.geometry.coordinates : line.coordinates;
+        const cumulative = new Array(coords.length);
+        const backBearings = new Array(coords.length);
+
+        cumulative[0] = 0;
+        let travelled = 0;
+
+        for (let i = 1; i < coords.length; i++) {
+            travelled += turf.distance(coords[i - 1], coords[i], { units: 'kilometers' });
+            cumulative[i] = travelled;
+            backBearings[i] = turf.bearing(coords[i], coords[i - 1]) - 180;
+        }
+
+        return { line, coords, cumulative, backBearings };
+    }
+
+    /**
+     * Accept either a prepared spine or the bare turf line the older callers and
+     * the tests still hand in, and never prepare the same line twice.
+     * @param {Object} spine - Prepared spine or turf lineString feature
+     * @returns {Object} Prepared spine
+     */
+    spineOf(spine) {
+        return spine && spine.cumulative ? spine : this.prepareSpine(spine);
+    }
+
+    /**
+     * Index of the first vertex whose running distance reaches `d`, by binary
+     * search, or -1 when the line ends short of it.
+     *
+     * This is the one thing turf does by walking, and the only reason its cost
+     * grows with the vertex count.
+     *
+     * @param {Array<number>} cumulative - Running distances, non-decreasing
+     * @param {number} d - Distance in kilometres
+     * @returns {number} Vertex index, or -1
+     */
+    firstVertexAtLeast(cumulative, d) {
+        let lo = 0;
+        let hi = cumulative.length - 1;
+
+        if (cumulative[hi] < d) return -1;
+
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (cumulative[mid] >= d) hi = mid;
+            else lo = mid + 1;
+        }
+
+        return lo;
+    }
+
+    /**
+     * The direction turf steps in when it lands inside the segment ending at
+     * vertex `i`: the bearing back to `i - 1`, turned around.
+     * @param {Object} prepared - Prepared spine
+     * @param {number} i - Vertex index
+     * @returns {number} Bearing in degrees
+     */
+    backBearing(prepared, i) {
+        const cached = prepared.backBearings[i];
+        if (cached !== undefined) return cached;
+
+        // Vertex 0 has nothing before it. Turf reaches here only for a NEGATIVE
+        // distance and throws on the missing coordinate, and the callers already
+        // catch that throw, so it is reproduced rather than smoothed over.
+        return turf.bearing(prepared.coords[i], prepared.coords[i - 1]) - 180;
+    }
+
+    /**
+     * `turf.along` on a prepared spine: the same arithmetic without the walk.
+     *
+     * Bit for bit the same point, which is a requirement and not a hope. The
+     * glyph anchors and the ends of the gaps around them both come from this
+     * call, so a rewrite that moved a point by one rounding step would open the
+     * very seam the symbol is drawn to close.
+     *
+     * @param {Object} prepared - Prepared spine
+     * @param {number} d - Distance along the line, in kilometres
+     * @returns {Object} Turf point feature
+     */
+    alongPrepared(prepared, d) {
+        const { coords, cumulative } = prepared;
+
+        // A distance that is not a number never reaches here from the layout, and
+        // if one ever did, turf's own walk is the reference for what it means.
+        if (!Number.isFinite(d)) return turf.along(prepared.line, d, { units: 'kilometers' });
+
+        const i = this.firstVertexAtLeast(cumulative, d);
+        if (i < 0) return turf.point(coords[coords.length - 1]);
+
+        const overshot = d - cumulative[i];
+        if (!overshot) return turf.point(coords[i]);
+
+        return turf.destination(
+            coords[i], overshot, this.backBearing(prepared, i), { units: 'kilometers' },
+        );
+    }
+
+    /**
+     * `turf.lineSliceAlong` on a prepared spine, coordinates only.
+     *
+     * Turf walks from the first vertex and emits nothing until it reaches the
+     * slice, so the walk is replaced by a jump straight to the first vertex that
+     * can emit anything; from there the loop below is turf's own, check for
+     * check, and it runs once per vertex the slice actually keeps.
+     *
+     * It THROWS where turf throws, on a start past the end of the line and on a
+     * slice that comes out with fewer than two points, because `sliceAlong` turns
+     * both into an empty slice and the drawing depends on that.
+     *
+     * @param {Object} prepared - Prepared spine
+     * @param {number} startDist - Start distance in kilometres
+     * @param {number} stopDist - End distance in kilometres
+     * @returns {Array} Coordinate array
+     */
+    slicePrepared(prepared, startDist, stopDist) {
+        const { coords, cumulative } = prepared;
+
+        if (!Number.isFinite(startDist) || !Number.isFinite(stopDist)) {
+            return turf.lineSliceAlong(
+                prepared.line, startDist, stopDist, { units: 'kilometers' },
+            ).geometry.coordinates;
+        }
+
+        const last = coords.length - 1;
+        const slice = [];
+
+        // Every vertex before this one fails all four of the tests below and
+        // emits nothing, which is what makes the skip safe. Both ends are
+        // consulted because a caller may hand in a stop BEFORE the start, and
+        // turf answers that on the stop.
+        const atStart = this.firstVertexAtLeast(cumulative, startDist);
+        const atStop = this.firstVertexAtLeast(cumulative, stopDist);
+        let i = Math.min(atStart < 0 ? last : atStart, atStop < 0 ? last : atStop);
+
+        for (; i <= last; i++) {
+            const travelled = cumulative[i];
+
+            if (startDist >= travelled && i === last) break;
+
+            if (travelled > startDist && slice.length === 0) {
+                const overshot = startDist - travelled;
+                if (!overshot) {
+                    slice.push(coords[i]);
+                    return this.closeSlice(slice);
+                }
+                slice.push(this.stepBack(prepared, i, overshot));
+            }
+
+            if (travelled >= stopDist) {
+                const overshot = stopDist - travelled;
+                if (overshot) slice.push(this.stepBack(prepared, i, overshot));
+                else slice.push(coords[i]);
+                return this.closeSlice(slice);
+            }
+
+            if (travelled >= startDist) slice.push(coords[i]);
+
+            if (i === last) return this.closeSlice(slice);
+        }
+
+        if (cumulative[last] < startDist) throw new Error('Start position is beyond line');
+
+        return [coords[last], coords[last]];
+    }
+
+    /**
+     * The interpolated coordinate turf drops inside the segment ending at vertex
+     * `i`, `overshot` kilometres back from it (the overshot is negative).
+     * @param {Object} prepared - Prepared spine
+     * @param {number} i - Vertex index
+     * @param {number} overshot - Signed distance back from the vertex, in kilometres
+     * @returns {Array} `[lng, lat]`
+     */
+    stepBack(prepared, i, overshot) {
+        return turf.destination(
+            prepared.coords[i], overshot, this.backBearing(prepared, i), { units: 'kilometers' },
+        ).geometry.coordinates;
+    }
+
+    /**
+     * Hand back a finished slice, refusing the one-point slice.
+     *
+     * `turf.lineSliceAlong` finishes with `turf.lineString`, which throws on
+     * fewer than two positions; `sliceAlong` catches that and draws nothing, so
+     * the refusal has to survive the rewrite.
+     *
+     * @param {Array} slice - Coordinates gathered so far
+     * @returns {Array} The same coordinates
+     */
+    closeSlice(slice) {
+        if (slice.length < 2) {
+            throw new Error('coordinates must be an array of two or more positions');
+        }
+        return slice;
+    }
+
     /**
      * Cut the stretch of line between two distances along it.
      *
-     * `turf.lineSliceAlong` and NOT `turf.lineSlice`: the latter takes points and
-     * re-projects them onto the line with a planar nearest-point, which disagrees
-     * with the great-circle interpolation `turf.along` uses to place the diamond
-     * vertices. Measured on 2026-09-03 against the bundled turf, that disagreement
-     * left a visible gap between the segment and the diamond it should touch: 1.13 m
-     * on a 10 km line and 113.59 m on a 100 km one, against 0.00 m for every case
-     * with `lineSliceAlong`.
+     * The semantics of `turf.lineSliceAlong` and NOT of `turf.lineSlice`: the
+     * latter takes points and re-projects them onto the line with a planar
+     * nearest-point, which disagrees with the great-circle interpolation `along`
+     * uses to place the diamond vertices. Measured on 2026-09-03 against the
+     * bundled turf, that disagreement left a visible gap between the segment and
+     * the diamond it should touch: 1.13 m on a 10 km line and 113.59 m on a
+     * 100 km one, against 0.00 m for every case with `lineSliceAlong`.
      *
-     * @param {Object} line - Turf lineString feature
+     * @param {Object} spine - Prepared spine, or a bare turf lineString feature
      * @param {number} from - Start distance in kilometres
      * @param {number} to - End distance in kilometres
      * @returns {Array} Coordinate array, empty when the slice cannot be built
      */
-    sliceAlong(line, from, to) {
+    sliceAlong(spine, from, to) {
         try {
-            const slice = turf.lineSliceAlong(line, from, to, { units: 'kilometers' });
-            return slice?.geometry?.coordinates ?? [];
+            return this.slicePrepared(this.spineOf(spine), from, to) ?? [];
         } catch (error) {
             console.warn('Error slicing coordination line:', error);
             return [];
@@ -262,19 +494,20 @@ class AddCoordinationLineGeometry extends BaseGeometry {
     /**
      * Build one closed diamond whose left and right vertices sit ON the line.
      *
-     * Both are read with `turf.along`, the same call the gap boundaries come
+     * Both are read with `alongPrepared`, the same call the gap boundaries come
      * from, which is what makes the join seamless. The transverse half-diagonal
      * is measured from the CHORD between them rather than from the requested
      * size, so a diamond straddling a bend stays a rhombus instead of stretching.
      *
-     * @param {Object} line - Turf lineString feature
+     * @param {Object} spine - Prepared spine, or a bare turf lineString feature
      * @param {number} from - Distance along the line of the left vertex
      * @param {number} to - Distance along the line of the right vertex
      * @returns {Array} Closed five-point ring (last point repeats the first)
      */
-    glyphRings(line, from, to, symbol, size) {
-        const left = turf.along(line, from, { units: 'kilometers' });
-        const right = turf.along(line, to, { units: 'kilometers' });
+    glyphRings(spine, from, to, symbol, size) {
+        const prepared = this.spineOf(spine);
+        const left = this.alongPrepared(prepared, from);
+        const right = this.alongPrepared(prepared, to);
 
         // Everything is measured from the CHORD between the two anchors, never
         // from the requested size: on a bend the arc is longer than the chord,
@@ -291,7 +524,7 @@ class AddCoordinationLineGeometry extends BaseGeometry {
         // number. `half` cannot stand in for it: on a bend the chord is shorter
         // than the arc, and a rail gap derived from the chord would drift away
         // from the rail it is supposed to reach.
-        const frame = { line, from, to, left, right, bearing, centre, half, size };
+        const frame = { spine: prepared, from, to, left, right, bearing, centre, half, size };
 
         switch (symbol.glyph) {
             case 'peak': return this.buildPeak(frame);
@@ -390,19 +623,20 @@ class AddCoordinationLineGeometry extends BaseGeometry {
      * pattern replaces the line entirely, so a sap that also drew its spine would
      * be a zigzag with a chord through it.
      *
-     * @param {Object} line - Turf lineString feature
+     * @param {Object} spine - Prepared spine, or a bare turf lineString feature
      * @param {{count: number, period: number}} pattern - Continuous layout
      * @param {Object} symbol - Catalogue entry
      * @returns {Array<Array>} Coordinate arrays for the MultiLineString
      */
-    buildContinuousPattern(line, pattern, symbol) {
+    buildContinuousPattern(spine, pattern, symbol) {
         const { count, period } = pattern;
+        const prepared = this.spineOf(spine);
         const teeth = [];
 
         for (let i = 0; i < count; i++) {
             const from = i * period;
             const to = from + period;
-            teeth.push(...this.zigzagTooth(line, from, to, symbol));
+            teeth.push(...this.zigzagTooth(prepared, from, to, symbol));
         }
 
         return teeth.filter(coords => Array.isArray(coords) && coords.length >= 2);
@@ -440,13 +674,13 @@ class AddCoordinationLineGeometry extends BaseGeometry {
      * apex); the trench carries a flat of 18 px on a 44 px period, 41% of it, with
      * a 31 px depth. Draw them with the same flat and they become the same symbol.
      *
-     * @param {Object} line - Turf lineString feature
+     * @param {Object} spine - Prepared spine, or a bare turf lineString feature
      * @param {number} from - Distance along the line where the tooth starts
      * @param {number} to - Distance along the line where it ends
      * @param {{depthRatio?: number, flatRatio?: number}} symbol - Catalogue entry
      * @returns {Array<Array>} One open polyline for the tooth
      */
-    zigzagTooth(line, from, to, symbol) {
+    zigzagTooth(spine, from, to, symbol) {
         const period = to - from;
         if (!(period > 0)) return [];
 
@@ -454,10 +688,11 @@ class AddCoordinationLineGeometry extends BaseGeometry {
         const vStart = from + flat;
         const vMid = from + flat + (period - flat) / 2;
 
-        const startPt = turf.along(line, from, { units: 'kilometers' });
-        const cornerPt = turf.along(line, vStart, { units: 'kilometers' });
-        const midPt = turf.along(line, vMid, { units: 'kilometers' });
-        const endPt = turf.along(line, to, { units: 'kilometers' });
+        const prepared = this.spineOf(spine);
+        const startPt = this.alongPrepared(prepared, from);
+        const cornerPt = this.alongPrepared(prepared, vStart);
+        const midPt = this.alongPrepared(prepared, vMid);
+        const endPt = this.alongPrepared(prepared, to);
 
         // The apex hangs off the FIRST HALF of the V, and deliberately not off the
         // chord from corner to end.
@@ -554,11 +789,11 @@ class AddCoordinationLineGeometry extends BaseGeometry {
      * @param {Object} frame - Shared glyph frame
      * @returns {Array<Array>} Six two-point strokes
      */
-    buildDoubleAsterisk({ line, from, to, bearing, half }) {
+    buildDoubleAsterisk({ spine, from, to, bearing, half }) {
         const span = to - from;
         const radius = half * 0.45;
-        const first = turf.along(line, from + span * 0.27, { units: 'kilometers' });
-        const second = turf.along(line, from + span * 0.73, { units: 'kilometers' });
+        const first = this.alongPrepared(spine, from + span * 0.27);
+        const second = this.alongPrepared(spine, from + span * 0.73);
 
         return [
             ...this.asteriskAt(first, bearing, radius),

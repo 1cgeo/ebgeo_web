@@ -24,8 +24,7 @@ import { fileURLToPath } from 'node:url';
  * The two lists below are the contract. This file reads the controls as text
  * because instantiating them needs `document`, and this suite runs on `node`.
  *
- * NOT listed on purpose: `military_tools/boundary_tool`,
- * `military_tools/coordination_line_tool` and
+ * NOT listed on purpose: `military_tools/boundary_tool` and
  * `tool_manager/managers/selection-highlight.manager.js`, which rebuild geometry
  * on every frame by design and stay on `zoom`.
  */
@@ -49,6 +48,10 @@ const ZOOM_AND_ZOOMEND = [
     'src/js/draw_tools/image_tool/add_image_control.js',
     'src/js/military_tools/military_symbol_tool/add_military_symbol_control.js',
     'src/js/military_tools/coordination_measure_tool/add_coordination_measure_control.js',
+    // The coordination line's ground geometry is its DIAMONDS: a line pinned to
+    // the screen sizes them in kilometres from the zoom, so they are rebuilt per
+    // frame while its stroke width comes from the layer's expression.
+    'src/js/military_tools/coordination_line_tool/add_coordination_line_control.js',
 ];
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -152,7 +155,7 @@ describe('the rules above reject the state they exist to catch', () => {
     });
 
     it('reads real files, not an empty list', () => {
-        expect(ZOOMEND_ONLY.length + ZOOM_AND_ZOOMEND.length).toBe(12);
+        expect(ZOOMEND_ONLY.length + ZOOM_AND_ZOOMEND.length).toBe(13);
         for (const relativePath of [...ZOOMEND_ONLY, ...ZOOM_AND_ZOOMEND]) {
             expect(readSource(relativePath).length).toBeGreaterThan(1000);
         }
@@ -561,5 +564,152 @@ describe('the text per-frame pass also refreshes the background polygons', () =>
         expect(backgrounds[0].features).toHaveLength(1);
         expect(backgrounds[0].features[0].properties.id).toBe('fixed_bg');
         expect(backgrounds[0].features[0].geometry).toEqual(texts.features[0].properties.selectionBox);
+    });
+});
+
+/**
+ * The coordination line split, driven.
+ *
+ * Its "ground geometry" is the diamonds, which a SCREEN-pinned line sizes in
+ * kilometres from the zoom, so the per-frame pass rebuilds those and nothing
+ * else; the stroke width comes from the layer expression
+ * (`buildCoordinationLineWidthExpression`) and the stored `calculated*` are
+ * refreshed once per gesture. The geometry helper is replaced by a recorder:
+ * WHICH features each pass touches is the point, and the turf maths has its own
+ * tests.
+ */
+describe('the coordination line split, driven', () => {
+    const originalRaf = globalThis.requestAnimationFrame;
+    const originalCancelRaf = globalThis.cancelAnimationFrame;
+    let pending;
+
+    beforeEach(() => {
+        pending = [];
+        let id = 0;
+        globalThis.requestAnimationFrame = (callback) => {
+            pending.push(Promise.resolve().then(callback));
+            return ++id;
+        };
+        globalThis.cancelAnimationFrame = () => {};
+    });
+
+    afterEach(() => {
+        globalThis.requestAnimationFrame = originalRaf;
+        globalThis.cancelAnimationFrame = originalCancelRaf;
+    });
+
+    function makeLine(id, overrides) {
+        return {
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: [[-53.8, -29.9], [-53.7, -29.8]] },
+            properties: {
+                id,
+                lineWidth: 4,
+                symbol_size: 0.5,
+                symbol_spacing: 1.5,
+                createdAtZoom: 10,
+                zoomCorrectionEnabled: true,
+                calculatedLineWidth: 4,
+                calculatedSymbolSize: 0.5,
+                calculatedSymbolSpacing: 1.5,
+                baseCoordinates: [[-53.8, -29.9], [-53.7, -29.8]],
+                ...overrides,
+            },
+        };
+    }
+
+    async function setup(features) {
+        const { default: AddCoordinationLineControl } = await import(
+            '../../src/js/military_tools/coordination_line_tool/add_coordination_line_control.js'
+        );
+        const control = new AddCoordinationLineControl({
+            selectionManager: { getSelectedFeaturesByType: () => [], uiManager: {} },
+        });
+
+        const generated = [];
+        control.geometry = {
+            generate: (properties) => {
+                generated.push(properties.id);
+                return { type: 'LineString', coordinates: [[0, 0], [1, 1]] };
+            },
+        };
+
+        const collection = { type: 'FeatureCollection', features };
+        const source = {
+            setDataCalls: 0,
+            serialize: () => ({ data: collection }),
+            setData(data) {
+                collection.features = data.features;
+                this.setDataCalls += 1;
+            },
+        };
+
+        const listeners = new Map();
+        const map = {
+            zoom: 10,
+            listeners,
+            getZoom() { return this.zoom; },
+            getSource: (name) => (name === 'coordination_lines' ? source : undefined),
+            getCanvas: () => ({ style: {} }),
+            on(event, handler) { listeners.set(event, handler); },
+            off(event, handler) {
+                if (listeners.get(event) === handler) listeners.delete(event);
+            },
+            fire(event) { listeners.get(event)?.(); },
+        };
+        control.onAdd(map);
+        return { control, map, source, generated };
+    }
+
+    it('the per-frame pass rebuilds only the screen-pinned lines', async () => {
+        const pinned = makeLine('pinned', { zoomCorrectionEnabled: false });
+        const scaled = makeLine('scaled', {});
+        const { map, source, generated } = await setup([pinned, scaled]);
+
+        expect(map.listeners.has('zoom')).toBe(true);
+        expect(map.listeners.has('zoomend')).toBe(true);
+
+        map.zoom = 12;
+        map.fire('zoom');
+        await Promise.all(pending);
+
+        expect(generated).toEqual(['pinned']);
+        // 0.5 km anchored at zoom 10, seen at 12: 0.5 / 2^2.
+        expect(pinned.properties.calculatedSymbolSize).toBeCloseTo(0.125, 10);
+        // The terrain-pinned line was left ALONE: its width is the layer
+        // expression's job now, and the stored copy waits for `zoomend`.
+        expect(scaled.properties.calculatedLineWidth).toBe(4);
+        expect(scaled.properties.calculatedSymbolSize).toBe(0.5);
+        expect(source.setDataCalls).toBe(1);
+    });
+
+    it('the per-frame pass writes nothing when no line is pinned to the screen', async () => {
+        const scaled = makeLine('scaled', {});
+        const { map, source, generated } = await setup([scaled]);
+
+        map.zoom = 13;
+        map.fire('zoom');
+        await Promise.all(pending);
+
+        expect(generated).toEqual([]);
+        expect(source.setDataCalls).toBe(0);
+        expect(scaled.properties.calculatedLineWidth).toBe(4);
+    });
+
+    it('the zoomend pass is the full one, derived widths included', async () => {
+        const pinned = makeLine('pinned', { zoomCorrectionEnabled: false });
+        const scaled = makeLine('scaled', {});
+        const { map, source, generated } = await setup([pinned, scaled]);
+
+        map.zoom = 12;
+        map.fire('zoomend');
+        await Promise.all(pending);
+
+        // 4 px anchored at zoom 10, seen at 12: 4 * 2^2.
+        expect(scaled.properties.calculatedLineWidth).toBe(16);
+        expect(pinned.properties.calculatedLineWidth).toBe(4);
+        expect(pinned.properties.calculatedSymbolSize).toBeCloseTo(0.125, 10);
+        expect(generated).toEqual(['pinned']);
+        expect(source.setDataCalls).toBe(1);
     });
 });

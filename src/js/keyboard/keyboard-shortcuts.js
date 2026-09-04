@@ -256,7 +256,10 @@ class KeyboardShortcuts {
             'k': this.controls.coordinationMeasureControl,
             'z': this.controls.azimuthDistanceControl,
             'u': this.controls.sectorControl,
-            'w': this.controls.declinationControl
+            'w': this.controls.declinationControl,
+            // Y: the one letter left without a tool (2026-09-04); Shift+K was the
+            // alternative, and would open a modifier row the handler has no branch for.
+            'y': this.controls.coordinationLineControl
         };
 
         const locked = isCurrentMapLockedSync();

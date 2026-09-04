@@ -148,7 +148,7 @@ export const TOOL_GROUPS = {
             { id: 'arrow', label: 'Seta', icon: TOOLBAR_ICONS.arrow, shortcut: 'S', controlKey: 'arrowControl' },
             { id: 'boundary', label: 'Linha de Limite', icon: TOOLBAR_ICONS.boundary, shortcut: 'D', controlKey: 'boundaryControl' },
             { id: 'occupiedFront', label: 'Frente Ocupada', icon: TOOLBAR_ICONS.occupiedFront, shortcut: 'F', controlKey: 'occupiedFrontControl' },
-            { id: 'coordinationLine', label: 'Linha de Coordenação', icon: TOOLBAR_ICONS.coordinationLine, controlKey: 'coordinationLineControl' },
+            { id: 'coordinationLine', label: 'Linha de Coordenação', icon: TOOLBAR_ICONS.coordinationLine, shortcut: 'Y', controlKey: 'coordinationLineControl' },
             { id: 'declination', label: 'Declinação Magnética', icon: TOOLBAR_ICONS.declination, shortcut: 'W', controlKey: 'declinationControl' },
         ],
     },

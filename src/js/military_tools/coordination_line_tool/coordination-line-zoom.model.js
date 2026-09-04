@@ -1,8 +1,11 @@
 // Path: js/military_tools/coordination_line_tool/coordination-line-zoom.model.js
 
+import { ZOOM_STOPS } from '../../layers/styles/zoom-expression.js';
+
 /**
- * @fileoverview Pure zoom and layout model for coordination line features (no imports,
- * node-testable).
+ * @fileoverview Pure zoom and layout model for coordination line features
+ * (node-testable; its one import is the integer zoom stops, from a module that
+ * imports nothing itself).
  *
  * A coordination line is a polyline whose course is interrupted at regular intervals
  * by a hollow diamond. Two authored numbers drive the pattern, both in kilometres:
@@ -334,15 +337,60 @@ export function withCoordinationLineZoomSizes(properties, currentZoom) {
 }
 
 /**
- * MapLibre expression for the stroke width, falling back through the derived
- * value, the authored one, and finally the default.
+ * MapLibre expression for the stroke width.
+ *
+ * It used to be a plain `coalesce` on `calculatedLineWidth`, which made the
+ * drawing depend on a JavaScript pass rewriting the WHOLE collection on every
+ * frame of a zoom gesture. Measured on 2026-09-04: 91 `setData` calls in a 3 s
+ * gesture with 30 lines, 9,100 features resent with 100. The composite
+ * interpolate below computes the same number on the GPU, so the pass is left
+ * with what no expression can do (the ground geometry of the screen-pinned
+ * lines) and runs once per gesture for the rest.
+ *
+ * Why the maths is exact between stops, and why the `min` inside each stop
+ * value deviates from a hard clamp inside one zoom level only: see the header of
+ * `layers/styles/zoom-expression.js`.
+ *
+ * Written here rather than through that module's `zoomScaledExpression` because
+ * this model's rules are stricter than the builder can express. The base falls
+ * back to the default unless it is a POSITIVE number (`positiveOr`), and the
+ * anchor counts only when it is positive too (`hasZoomReference`: zero is the
+ * "never anchored" sentinel, which the builder's `anchorDefault` would happily
+ * scale from).
+ *
  * @returns {Array} MapLibre expression
  */
 export function buildCoordinationLineWidthExpression() {
-    return [
-        'coalesce',
-        ['get', 'calculatedLineWidth'],
-        ['get', 'lineWidth'],
+    // `['get', ...]` yields `value`, which no arithmetic operator accepts, so
+    // every number goes through `['number', ..., 0]`: it returns the property
+    // when it IS a number and 0 otherwise, and never throws.
+    const width = ['number', ['get', 'lineWidth'], 0];
+    const anchor = ['number', ['get', 'createdAtZoom'], 0];
+
+    // The `Number.isFinite(n) && n > 0` of `positiveOr` and `hasZoomReference`.
+    // `n < 2n` holds for every positive finite number and fails for Infinity;
+    // NaN is already out on `n > 0`.
+    const isPositiveFinite = (n) => ['all', ['>', n, 0], ['<', n, ['*', 2, n]]];
+
+    const base = ['case',
+        isPositiveFinite(width), width,
         COORDINATION_LINE_ZOOM_DEFAULTS.lineWidth,
     ];
+
+    // `clampSize(base * factor, MAX_LINE_WIDTH_PX, base)`: base is positive and
+    // finite by construction and so is the factor, so the clamp is just a `min`,
+    // and it wraps the unscaled branches too (an authored width above the
+    // ceiling is clamped whether or not the correction is on).
+    const stopValue = (z) => ['min',
+        COORDINATION_LINE_ZOOM_LIMITS.MAX_LINE_WIDTH_PX,
+        ['case',
+            ['==', ['get', 'zoomCorrectionEnabled'], false], base,
+            ['!', isPositiveFinite(anchor)], base,
+            ['*', base, ['^', 2, ['-', z, anchor]]],
+        ],
+    ];
+
+    const expression = ['interpolate', ['exponential', 2], ['zoom']];
+    for (const z of ZOOM_STOPS) expression.push(z, stopValue(z));
+    return expression;
 }

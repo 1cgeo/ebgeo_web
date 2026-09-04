@@ -156,6 +156,21 @@ function interpolateLngLat(coordA, coordB, t) {
 let _instance = null;
 
 /**
+ * The snappable layers each map actually has, and the maps already listening for
+ * the style change that makes that answer stale.
+ *
+ * Keyed by the map and held WEAKLY, so a map that is torn down takes its entry
+ * with it. Module scope rather than instance state on purpose: the `styledata`
+ * handler below closes over these two and over nothing else, so it never keeps a
+ * destroyed service alive.
+ *
+ * @type {WeakMap<Object, string[]>}
+ */
+const _availableLayersByMap = new WeakMap();
+/** @type {WeakSet<Object>} Maps whose invalidation listener is already in place */
+const _invalidationWired = new WeakSet();
+
+/**
  * Snapping service — resolves screen coordinates to the nearest snap target.
  */
 export class SnappingService {
@@ -330,11 +345,37 @@ export class SnappingService {
 
     /**
      * Returns only those layers from SNAPPABLE_LAYER_IDS that exist on the map.
+     *
+     * Measured once and kept until the style says otherwise. `resolve` runs on
+     * every mousemove of every drawing tool, and this sweep asked the map
+     * `getLayer` eighteen times before the query could even be built: a hundred
+     * mouse movements cost 1800 lookups where the answer changed zero times.
+     * What the answer depends on is the STYLE, and MapLibre fires `styledata`
+     * exactly when a layer is added, removed or changed, so the listener below is
+     * the invalidation, registered once per map and never per call.
+     *
+     * A map with no `on` cannot tell us the style moved, so it is measured every
+     * time rather than memoized: a stale list would send `queryRenderedFeatures`
+     * after a layer that is gone, which throws and silently kills snapping.
+     *
      * @param {Object} map
      * @returns {string[]}
      */
     _getAvailableLayers(map) {
-        return SNAPPABLE_LAYER_IDS.filter(id => map.getLayer(id));
+        const cached = _availableLayersByMap.get(map);
+        if (cached) return cached;
+
+        const layers = SNAPPABLE_LAYER_IDS.filter(id => map.getLayer(id));
+
+        if (typeof map.on !== 'function') return layers;
+
+        if (!_invalidationWired.has(map)) {
+            _invalidationWired.add(map);
+            map.on('styledata', () => _availableLayersByMap.delete(map));
+        }
+
+        _availableLayersByMap.set(map, layers);
+        return layers;
     }
 
     /**
