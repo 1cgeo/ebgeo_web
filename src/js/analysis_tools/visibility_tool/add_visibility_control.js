@@ -403,7 +403,20 @@ class AddVisibilityControl extends BaseControl {
         this._previewScheduler.request({ point: { x: point.x, y: point.y }, lngLat });
     }
 
+    /**
+     * End of the handle drag.
+     *
+     * The FIRST thing here is the gate's `flush()`, because the code below reads
+     * `this.lastPreviewPosition`, which only the frame callback writes. A drag
+     * whose `pointerdown`, `pointermove` and `pointerup` all land inside ONE
+     * frame parks a pointer the scheduled callback never got to deliver, so that
+     * position would still be null and the edit would be dropped without a word.
+     * `flush` delivers the parked pointer now and cancels the frame it was
+     * waiting for; with nothing parked it is a redraw of what is already there.
+     */
     _onEditPointerUp(_e) {
+        this._previewScheduler.flush();
+
         const snapping = getSnappingService();
         snapping?.hideIndicator(this.map);
 

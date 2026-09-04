@@ -147,8 +147,6 @@ class AddCoordinationLineControl extends BaseControl {
         this.lastPreviewPosition = null;
         this.lastPreviewPoints = null;
 
-        this.clickTimer = null;
-        this.lastClickCoords = null;
         this._finishButton = null;
         this._name = 'AddCoordinationLineControl';
 
@@ -349,7 +347,6 @@ class AddCoordinationLineControl extends BaseControl {
     activate = () => {
         this.isActive = true;
         this.drawPoints = [];
-        this.lastClickCoords = null;
         this.map.getCanvas().style.cursor = 'crosshair';
         this.map.getCanvas().addEventListener('contextmenu', this.handleRightClick);
         this.map.on('mousemove', this._onPreClickMouseMove);
@@ -368,14 +365,11 @@ class AddCoordinationLineControl extends BaseControl {
         // Dropped FIRST: Esc and switching tools both land here, and a
         // continuation writes nothing before it is committed, so forgetting the
         // session leaves the original coordination line untouched by construction.
-        // The 250 ms click timer is cleared further down, by clearPreview ->
-        // cancelPendingUpdates.
         this._extending = null;
         this.isActive = false;
         this.map.off('mousemove', this._onPreClickMouseMove);
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.drawPoints = [];
-        this.lastClickCoords = null;
         this.map.getCanvas().style.cursor = '';
         this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick);
         getSnappingService()?.hideIndicator(this.map);
@@ -484,33 +478,26 @@ class AddCoordinationLineControl extends BaseControl {
         const snap = snapping?.resolve(this.map, e.point, e.lngLat, this._extending?.featureId) ?? e.lngLat;
         const newPoint = [snap.lng, snap.lat];
 
+        // The rejection that also does the dedup: a repeat click on the spot the
+        // previous click just committed is within MIN_DISTANCE_METERS of the LAST
+        // vertex, so it is dropped here. That is why the 250 ms hold this click
+        // used to sit in could go: it existed only to catch the repeat, and it
+        // caught it by re-arming a pending point, which silently kept the SECOND
+        // set of coordinates. Measured in real Chromium on 2026-09-04: 260 to
+        // 290 ms from click to vertex, invisible behind the preview on a mouse
+        // and plainly late on the touch finish button. Removed 2026-09-04.
         if (this.geometry.isPointTooClose(newPoint, this.drawPoints)) return;
 
-        // A click that lands while an earlier one is still pending, inside the 250 ms window
-        // below, used to REPLACE it: the timer was cleared and re-armed with the new
-        // coordinates, so two quick clicks at different spots kept only the second vertex,
-        // silently. Measured in real Chromium on 2026-09-03: 100 ms apart, one vertex; 400 ms
-        // apart, two. A pending point far from the new one is a vertex the user drew, so it
-        // is committed now; only a repeat click on the same spot keeps re-arming the timer.
-        if (this.lastClickCoords && !this.geometry.isPointTooClose(newPoint, [this.lastClickCoords])) {
-            clearTimeout(this.clickTimer);
-            this._commitPendingClick();
-        }
-
-        this.lastClickCoords = newPoint;
-        clearTimeout(this.clickTimer);
-        this.clickTimer = setTimeout(() => this._commitPendingClick(), 250);
+        this._commitPoint(newPoint);
     }
 
     /**
-     * Moves the pending click (the one the 250 ms timer is holding) into `drawPoints`.
-     * Shared by the timer, by the next distinct click and by the right-click that finishes.
+     * Push a vertex and keep the listeners and the finish button in step.
+     * @param {Array<number>} point - The vertex, [lng, lat]
      * @private
      */
-    _commitPendingClick = () => {
-        if (!this.lastClickCoords) return;
-        this.drawPoints.push(this.lastClickCoords);
-        this.lastClickCoords = null;
+    _commitPoint = (point) => {
+        this.drawPoints.push(point);
 
         // Switch from pre-click snap indicator to preview listener when first point is added
         if (this.drawPoints.length === 1) {
@@ -529,12 +516,7 @@ class AddCoordinationLineControl extends BaseControl {
         e.preventDefault();
         e.stopPropagation();
 
-        clearTimeout(this.clickTimer);
-        this.clickTimer = null;
-        // The pending left click is a vertex, not noise: a right-click within 250 ms of it
-        // used to discard it and finish with the point under the cursor instead.
-        this._commitPendingClick();
-
+        // Nothing pending to rescue: every left click is already a vertex.
         const screenPoint = { x: e.offsetX, y: e.offsetY };
         const coordinates = this.map.unproject([screenPoint.x, screenPoint.y]);
         const snapping = getSnappingService();
@@ -607,9 +589,9 @@ class AddCoordinationLineControl extends BaseControl {
         } else if (this._extending) {
             this._updateExtensionPreview();
         } else if (this.lastPreviewPoints && this.lastPreviewPoints.length >= 1) {
-            const previewPoints = [...this.lastPreviewPoints];
-            if (this.lastClickCoords) previewPoints.push(this.lastClickCoords);
-            previewPoints.push(this.lastPreviewPosition);
+            // No pending click to append: the click already put it in
+            // `drawPoints`, which is what `lastPreviewPoints` was copied from.
+            const previewPoints = [...this.lastPreviewPoints, this.lastPreviewPosition];
 
             const currentZoom = this.map.getZoom();
             const previewSize = this.calculateSymbolSizeForZoom(currentZoom);
@@ -649,7 +631,6 @@ class AddCoordinationLineControl extends BaseControl {
         this.map.off('mousemove', this.handlePreviewMouseMove);
         getSnappingService()?.hideIndicator(this.map);
         this.drawPoints = [];
-        this.lastClickCoords = null;
         this.clearPreview();
     }
 
@@ -783,9 +764,6 @@ class AddCoordinationLineControl extends BaseControl {
         if (!session) return;
 
         const pending = this.drawPoints.slice(1);
-        if (this.lastClickCoords) {
-            pending.push(this.lastClickCoords);
-        }
 
         const coordinates = previewCoordinates(
             session.existing,
@@ -1010,6 +988,12 @@ class AddCoordinationLineControl extends BaseControl {
     }
 
     _onEditPointerUp = async (_e) => {
+        // A drag born and dead inside ONE frame (down, move, up) parks its
+        // position and never reaches the frame callback, so `lastPreviewPosition`
+        // below would still be null and the vertex would not follow. Deliver the
+        // parked pointer now; `flush` cancels the frame it had asked for.
+        if (this._previewScheduler.pending) this._previewScheduler.flush();
+
         const canvas = this.map.getCanvasContainer();
 
         canvas.removeEventListener('pointermove', this._onEditPointerMove);
@@ -1663,17 +1647,20 @@ class AddCoordinationLineControl extends BaseControl {
         this._sourceQueue(() => this._forceUpdateMainSourceUnlocked(feature))
 
     /**
+     * No drag guard. This tool read the LIVE flag through `selectionManager`,
+     * where the other three read a `this.uiManager` a control is never handed,
+     * and the measure found the live one had nothing to protect either: a
+     * feature drag keeps its position in the selection boxes and writes the
+     * geometry only after the flag is down, so the source never holds a partial
+     * position. What the live guard did do was drop a forced write outright,
+     * with nothing to reapply it. Removed 2026-09-04, measured by
+     * tests/unit/force-update-during-drag-military.test.js.
+     *
      * @param {Object} feature - Feature to write
      * @returns {Promise<void>} Resolves once the source is written
      * @private
      */
     _forceUpdateMainSourceUnlocked = async (feature) => {
-        // The move handler owns the source while it drags. Reached through
-        // `selectionManager`, because a control is never handed a `uiManager` of
-        // its own: the boundary tool tests `this.uiManager`, which is always
-        // undefined, so its guard never fires.
-        if (this.selectionManager?.uiManager?.isDragging) return;
-
         const source = this.map?.getSource('coordination_lines');
         if (!source) return;
 
@@ -1723,10 +1710,6 @@ class AddCoordinationLineControl extends BaseControl {
     _finishFromTouch = async () => {
         if (!this.isActive || this.drawPoints.length < 2) return;
 
-        clearTimeout(this.clickTimer);
-        this.clickTimer = null;
-        this.lastClickCoords = null;
-
         getSnappingService()?.hideIndicator(this.map);
 
         if (this._extending) {
@@ -1766,11 +1749,6 @@ class AddCoordinationLineControl extends BaseControl {
         this.lastPreviewPoints = null;
         this.activeHandleType = null;
         this.activeHandleIndex = null;
-
-        if (this.clickTimer) {
-            clearTimeout(this.clickTimer);
-            this.clickTimer = null;
-        }
     }
 
     removeAllEventListeners = () => {

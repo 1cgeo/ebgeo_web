@@ -277,8 +277,8 @@ de uso unico que mediram a linha de coordenacao em 2026-09-04 (o achado esta em
 
 ## Ferramentas
 
-O nome curto e o contrato da linha de comando. O resto sai do app, e o autoteste cobra que cada
-entrada tenha as seis pecas.
+O nome curto e o contrato da linha de comando. O resto sai do app, e o `normalizarFerramenta()`
+cobra que cada entrada diga controle, tipo, fonte, feedback, painel e como conclui.
 
 | `--ferramenta` | controle | tipo no store e fonte do mapa | fonte de feedback | conclusao |
 |---|---|---|---|---|
@@ -288,6 +288,9 @@ entrada tenha as seis pecas.
 | `arrow` | `AddArrowControl` | `arrows` | `arrow-feedback` | botao direito depois de 3 cliques |
 | `occupied_front` | `AddOccupiedFrontControl` | `occupied_fronts` | `occupied-front-feedback` | o SEGUNDO clique |
 | `coordination_line` | `AddCoordinationLineControl` | `coordination_lines` | `coordination-line-feedback` | botao direito depois de 3 cliques |
+| `los` | `AddLOSControl` | `los` | `los-feedback` | o SEGUNDO clique (exige terreno) |
+| `visibility` | `AddVisibilityControl` | `visibility` | `visibility-feedback` | o SEGUNDO clique (exige terreno) |
+| `brush` | `AddBrushControl` | `brushes` | `brush-feedback` | o `pointerup` do arrasto |
 
 O controle vem do `CONTROL_REGISTRY` de `src/js/map_sig.js`, o tipo do `FEATURE_TYPE_MAPPINGS` de
 `src/js/store/store.constants.js` (o balde que `getCurrentMapFeatures` devolve) e a fonte do
@@ -295,23 +298,59 @@ O controle vem do `CONTROL_REGISTRY` de `src/js/map_sig.js`, o tipo do `FEATURE_
 segundo ja cria a feicao e nao ha botao direito, entao o cenario `conclusao` cronometra o clique
 final. O poligono cria por anel, porque menos de 3 pontos nao vira feicao.
 
+### O que muda no gesto das tres ultimas
+
+Nao ha API uniforme de desenho no app, e a bancada nao inventa uma: o descritor de cada ferramenta
+diz o que ela faz de diferente, e `normalizarFerramenta()` reprova o descritor que a bancada nao
+sabe medir (sem `conclusao`, `modoDesenho` desconhecido, semeadura desconhecida) na leitura do
+argumento, e nao a 90 segundos de carga.
+
+- **`los` e `visibility` sao de dois cliques e EXIGEM terreno.** O primeiro clique marca o
+  observador em `startPoint` (nao ha `drawPoints`), o segundo fecha a analise. Sem terreno,
+  `activate()` devolve falso e `handleMapClick` sai na primeira linha, entao o cenario sai
+  INVALIDO com `--terreno` na mensagem, em vez de medir uma ferramenta parada. A bancada liga o
+  terreno pelo botao do app (`TerrainControl._toggleTerrain()`), como a bancada de terreno faz.
+- **A analise nao para na feicao.** A LOS e a visibilidade derivam da feicao o trecho visivel e o
+  obstruido, que sao OUTRAS feicoes, em `processed-los` e `processed-visibility`. O cenario
+  `conclusao` cronometra as duas coisas a parte: `store ms` ate a feicao entrar no store, e
+  `proc ms` ate o resultado derivado entrar na fonte que a tela desenha. Cronometrar so o store
+  diria "39 ms" de uma analise que a tela ainda nao mostrou, e no caso da visibilidade a diferenca
+  e de 560 para 725 ms.
+- **A feicao delas custa uma varredura do terreno**, entao o padrao de `--feicoes` e da ferramenta:
+  15 na LOS e 8 na visibilidade (medido: 32 ms e 604 ms por feicao). `--feicoes` explicito manda.
+- **O pincel desenha por ARRASTO** (`modoDesenho: 'arrastar'`): `pointerdown`, muitos
+  `pointermove` com o botao apertado, `pointerup`. Nao ha clique que vire vertice, e o `pointerup`
+  ja cria a feicao, entao a conclusao dele E o `pointerup`. A prova do desenho e outra: `setData`
+  da fonte de feedback E o numero de pontos acumulados igual ao de eventos de movimento mais um (o
+  do `pointerdown`). O pincel acumula no evento BRUTO de proposito, porque um traco E a sequencia
+  de posicoes por onde o ponteiro passou, e escreve a fonte uma vez por quadro; ponto a menos aqui
+  e curva serrilhada. Medido em 2026-09-04: 183, 725 e 1.457 pontos para k de 1, 4 e 8, sem perder
+  nenhum.
+
 ## Cenarios, e a prova de cada um
 
 Nesta ordem, num contexto de navegador NOVO por rodada:
 
 1. **`desenho`**: a ferramenta ativa (`activate()`), UM ponto colocado por clique real, e `k`
    eventos `mousemove` sinteticos por quadro durante 3 s. Um caso por valor de `--k`.
-   **Prova**: `setData` da fonte de feedback maior que zero E `drawPoints.length === 1` E a
-   ferramenta `isActive`. **Metricas**: quadros, render p50/p95, intervalo p95, quadros acima de
-   33 ms, `setData` por fonte, `queryRenderedFeatures`, `map.project()`, e a latencia do feedback.
-2. **`zoom`**: `--feicoes N` criadas pelo caminho do proprio controle (`drawPoints` +
-   `createFeature()`), depois `easeTo` de zoom +1 em 1,5 s e a volta em 1,5 s.
-   **Prova**: N no store E pelo menos N na fonte do mapa. **Metrica principal**: `setData` da fonte
-   principal POR GESTO. E ela que separa a ferramenta que deriva o tamanho na GPU (1 por gesto) da
-   que reenvia a colecao a cada quadro (91 por gesto).
-3. **`conclusao`**: os cliques do desenho e o gesto que fecha a feicao, pelo caminho do usuario.
-   **Prova**: a contagem do store subiu, e os N cliques viraram vertice. **Metricas**: ms do gesto
-   ate o store e ate o painel de atributos.
+   **Prova**: `setData` da fonte de feedback maior que zero E um ponto colocado E a ferramenta
+   `isActive`. No `modoDesenho: 'arrastar'` (o pincel) nao ha clique: o caso e um traco entre
+   `pointerdown` e `pointerup`, e a prova troca o ponto colocado pelos pontos acumulados, que tem
+   de ser um por evento de movimento mais o do `pointerdown`. **Metricas**: quadros, render
+   p50/p95, intervalo p95, quadros acima de 33 ms, `setData` por fonte, `queryRenderedFeatures`,
+   `map.project()`, a latencia do feedback e os pontos do gesto.
+2. **`zoom`**: `--feicoes N` criadas pelo caminho do proprio controle (`createFeature()`, semeado
+   pela propriedade que a ferramenta usa), depois `easeTo` de zoom +1 em 1,5 s e a volta em 1,5 s.
+   **Prova**: o store tem o que ja tinha MAIS N, e a fonte do mapa mostra ao menos isso. (A soma
+   existe porque o `pointerup` do pincel ja conclui no cenario anterior, e comparar com N absoluto
+   reprovaria a bancada boa.) **Metrica principal**: `setData` da fonte principal POR GESTO. E ela
+   que separa a ferramenta que deriva o tamanho na GPU (1 por gesto) da que reenvia a colecao a
+   cada quadro (91 por gesto).
+3. **`conclusao`**: os cliques do desenho e o gesto que fecha a feicao, pelo caminho do usuario
+   (botao direito, clique final ou `pointerup`). **Prova**: a contagem do store subiu, os N cliques
+   viraram vertice, o traco do pincel tinha ao menos 2 pontos antes do `pointerup`, e a fonte
+   processada cresceu quando a ferramenta declara uma. **Metricas**: ms do gesto ate o store, ate o
+   resultado processado e ate o painel de atributos.
 
 O cronometro da conclusao parte do PROPRIO evento do usuario, na fase de captura dentro da pagina.
 Medi-lo do lado do Node somaria o tempo do canal do CDP a latencia da ferramenta.
@@ -327,6 +366,9 @@ export EBGEO_PLAYWRIGHT_DIR=/caminho/para/o/projeto/que/tem/node_modules/playwri
 node bench/ferramentas.mjs --ferramenta coordination_line --k 1,4 --feicoes 30 --rodadas 1
 node bench/ferramentas.mjs --ferramenta boundary --feicoes 10 --rodadas 1
 node bench/ferramentas.mjs --ferramenta occupied_front --terreno --cpu 4 --snapping
+node bench/ferramentas.mjs --ferramenta brush --rodadas 1
+node bench/ferramentas.mjs --ferramenta los --terreno --rodadas 1
+node bench/ferramentas.mjs --ferramenta visibility --terreno --rodadas 1
 node bench/autoteste-ferramentas.mjs
 ```
 
@@ -335,8 +377,8 @@ node bench/autoteste-ferramentas.mjs
 | `--url` | `http://localhost:3007/ebgeo/` (ou `EBGEO_URL`) | endereco do app |
 | `--ferramenta` | `coordination_line` | nome curto da tabela acima |
 | `--k` | `1,4,8` | `mousemove` por quadro no cenario `desenho`, um caso por valor |
-| `--feicoes` | 30 | feicoes criadas antes do cenario `zoom` |
-| `--terreno` | false | liga o terreno pelo botao do app antes de medir |
+| `--feicoes` | 30 (los 15, visibility 8) | feicoes criadas antes do cenario `zoom` |
+| `--terreno` | false | liga o terreno pelo botao do app antes de medir; OBRIGATORIO em `los` e `visibility` |
 | `--cpu` | 1 | estrangula a CPU pelo CDP (`4` = maquina quatro vezes mais lenta) |
 | `--snapping` | false | liga `ui.snapping.enabled` antes de medir |
 | `--rodadas` | 2 | a rodada 1 e aquecimento e fica fora da tabela |
@@ -363,24 +405,34 @@ contexto, e a rodada 2 acharia as feicoes da rodada 1 e mediria 2N com o rotulo 
 4. **App inteiro.** So mede com 160 camadas ou mais E a dupla (camadas, fontes) parada por 3 s.
 5. **A ferramenta existe no app.** Controle ausente do registro, fonte principal ausente ou fonte
    de feedback ausente derrubam a rodada com o nome do que faltou, antes de qualquer medida.
-6. **Desenho sem feedback e INVALIDO.** Zero `setData` da fonte de feedback significa que a
+6. **O descritor diz o que a bancada sabe medir.** `normalizarFerramenta()` roda na leitura da
+   linha de comando e lanca no descritor sem `conclusao`, com `modoDesenho`, `semeadura`, forma de
+   ponto ou gesto de conclusao desconhecidos, ou sem controle, fonte, feedback ou painel.
+7. **Ferramenta que exige terreno, medida sem terreno, e INVALIDA.** `requerTerreno` com
+   `getTerrain()` nulo reprova os tres cenarios e a rodada, dizendo para rodar com `--terreno`. A
+   LOS e a visibilidade nem ativam sem ele, e mediriam 180 quadros bonitos de uma ferramenta parada.
+8. **Desenho sem feedback e INVALIDO.** Zero `setData` da fonte de feedback significa que a
    ferramenta nao desenhou, e `setData` de OUTRA fonte nao substitui: o alvo sai contado a parte
-   justamente para o cenario inerte nao passar pela soma do vizinho.
-7. **Zoom sem feicao e INVALIDO.** Fonte vazia, fonte com menos feicoes que o pedido, ou store que
-   nao bate com o pedido derrubam o cenario.
-8. **Conclusao sem store e INVALIDA.** A contagem do store tem de SUBIR, e os N cliques tem de ter
-   virado vertice. Painel que nao abriu nao reprova sozinho, porque nem toda ferramenta abre um.
-9. **Assinatura do app.** `camadas/fontes` antes de mexer no mapa. Duas assinaturas diferentes
-   entre as cargas significam que a arvore mudou embaixo da medida, e toda rodada sai INVALIDA com
-   `APP MUDOU ENTRE AS CARGAS`.
-10. **Autoteste.** `node bench/autoteste-ferramentas.mjs` monta o pior caso de cada eixo e confirma
-    que sai marcado, e depois confirma que o insumo bom passa.
+   justamente para o cenario inerte nao passar pela soma do vizinho. No arrasto, pontos acumulados
+   diferentes dos eventos de movimento mais um tambem derrubam o cenario, nas DUAS direcoes.
+9. **Zoom sem feicao e INVALIDO.** Fonte vazia, fonte com menos feicoes que o esperado, ou store
+   que nao bate com o que havia mais o que foi criado derrubam o cenario.
+10. **Conclusao sem store e INVALIDA.** A contagem do store tem de SUBIR, os N cliques tem de ter
+    virado vertice, o traco do `pointerup` tem de ter 2 pontos ou mais, e a fonte processada tem de
+    crescer quando a ferramenta declara uma. Painel que nao abriu nao reprova sozinho, porque nem
+    toda ferramenta abre um.
+11. **Assinatura do app.** `camadas/fontes` antes de mexer no mapa. Duas assinaturas diferentes
+    entre as cargas significam que a arvore mudou embaixo da medida, e toda rodada sai INVALIDA com
+    `APP MUDOU ENTRE AS CARGAS`.
+12. **Autoteste.** `node bench/autoteste-ferramentas.mjs` monta o pior caso de cada eixo e confirma
+    que sai marcado, e depois confirma que o insumo bom passa. Sao 184 casos em 11 eixos.
 
 ## Valores medidos em 2026-09-04
 
 Vista da Serra Gaucha (`-50.87, -29.37`, zoom 12,5), viewport 1600x900, Chromium com janela
 visivel, GPU NVIDIA RTX A2000 12GB (ANGLE sobre Direct3D11), app em `vite dev` na 3007, uma rodada,
-sem terreno, sem snapping, CPU livre. App com assinatura `246c/99f` nas duas rodadas.
+sem snapping, CPU livre. Sem terreno, menos nas duas ferramentas de analise, que sem ele nem ativam.
+App com assinatura `246c/99f` em todas as cargas.
 
 `node bench/ferramentas.mjs --ferramenta coordination_line --k 1,4 --feicoes 30 --rodadas 1`
 
@@ -401,7 +453,48 @@ sem terreno, sem snapping, CPU livre. App com assinatura `246c/99f` nas duas rod
 | zoom | - | 182 | 3,2 | 4,7 | 16,8 | **91** | 368 | - | - | 0 | - | - |
 | conclusao | - | 20 | 2,5 | 3,7 | 16,9 | 1 | 2 | 13,0 | 1 | 1 | 31,9 | 11,0 |
 
-Leitura: o passe de zoom separa as duas. A linha de coordenacao manda UM `setData` no gesto inteiro
+`node bench/ferramentas.mjs --ferramenta brush --rodadas 1`
+
+| cenario | k | quadros | render p50 | render p95 | interv p95 | setData alvo | lat n | perdidos | store ms | painel ms | pontos |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| desenho | 1 | 180 | 1,9 | 4,3 | 17,0 | 181 | - | 180 | - | - | 183 |
+| desenho | 4 | 179 | 1,8 | 3,2 | 17,0 | 180 | - | 179 | - | - | 725 |
+| desenho | 8 | 180 | 3,0 | 3,9 | 17,1 | 181 | - | 180 | - | - | 1457 |
+| zoom | - | 182 | 3,5 | 5,6 | 17,0 | **1** | - | 0 | - | - | - |
+| conclusao | - | 21 | 2,8 | 4,5 | 133,7 | 1 | 2 | 0 | 37,4 | 16,1 | 53 |
+
+`node bench/ferramentas.mjs --ferramenta los --terreno --rodadas 1` (15 feicoes, terreno ligado)
+
+| cenario | k | quadros | render p50 | render p95 | interv p95 | setData alvo | lat n | perdidos | store ms | proc ms | painel ms |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| desenho | 1 | 180 | 5,0 | 5,9 | 17,0 | 180 | - | 179 | - | - | - |
+| desenho | 4 | 180 | 4,8 | 5,5 | 17,0 | 180 | - | 179 | - | - | - |
+| desenho | 8 | 181 | 4,7 | 5,3 | 17,0 | 181 | - | 180 | - | - | - |
+| zoom | - | 182 | 5,1 | 7,9 | 16,9 | **0** | - | 0 | - | - | - |
+| conclusao | - | 20 | 3,8 | 9,1 | 16,9 | 1 | 1 | 1 | 39,6 | 47,4 | 7,4 |
+
+`node bench/ferramentas.mjs --ferramenta visibility --terreno --rodadas 1` (8 feicoes, terreno ligado)
+
+| cenario | k | quadros | render p50 | render p95 | interv p95 | >33ms | setData alvo | store ms | proc ms | painel ms |
+|---|---|---|---|---|---|---|---|---|---|---|
+| desenho | 1 | 180 | 5,1 | 6,0 | 17,0 | 1 | 180 | - | - | - |
+| desenho | 4 | 180 | 5,0 | 5,8 | 17,0 | 1 | 180 | - | - | - |
+| desenho | 8 | 181 | 4,8 | 5,3 | 17,0 | 0 | 181 | - | - | - |
+| zoom | - | 183 | 5,2 | 7,6 | 17,0 | 0 | **0** | - | - | - |
+| conclusao | - | 31 | 3,8 | 8,1 | 40,1 | 2 | 1 | 560,4 | 725,5 | 0,8 |
+
+Leitura das tres: nenhuma das tres reenvia a colecao no gesto de zoom (1 `setData` no pincel, ZERO
+na LOS e na visibilidade), e o desenho corre a 60 fps cheios com `k` de 1 a 8. Com o terreno ligado
+o quadro parte de 5 ms em vez de 2, que e o custo do terreno e nao da ferramenta (ver a bancada de
+terreno). O pincel nao perdeu um ponto sequer: 183, 725 e 1.457 pontos para 182, 724 e 1.456
+eventos de movimento, um por evento mais o do `pointerdown`. A conclusao e onde as tres se separam:
+o pincel entrega a feicao ao store em 37 ms, a LOS em 40 ms com o perfil derivado em 47 ms, e a
+visibilidade leva 560 ms ate o store e 725 ms ate o setor visivel aparecer na tela, com dois quadros
+acima de 33 ms no meio (a varredura de 61 raios roda no fio principal, entre `nextPaint`). Criar
+uma feicao pelo caminho do controle custa 28 ms no pincel, 32 ms na LOS e 604 ms na visibilidade;
+por isso `--feicoes` tem padrao de ferramenta.
+
+Leitura da linha de coordenacao contra a de limite: o passe de zoom separa as duas. A linha de coordenacao manda UM `setData` no gesto inteiro
 (a largura ja e expressao na camada, e o passe de JavaScript so roda em `zoomend`); a linha de
 limite manda 91 com dez feicoes, um por quadro. O quadro nesta GPU nao denuncia a diferenca (3,2 ms
 nas duas), porque o custo do reenvio esta no worker e no re-tiling, nao no `_render`: e por isso
@@ -411,7 +504,10 @@ em nenhuma das duas (cerca de 2 ms por quadro, 60 fps cheios), com `k` de 1 a 8.
 Os numeros descrevem UMA maquina, UM dia e UM estado da arvore, e vieram de UMA rodada. O estado
 da arvore neste dia nao era o do commit `df457081`: as tres ferramentas de linha, o poligono, a
 seta e a frente ocupada estavam modificadas no disco por trabalho em curso, e o `vite dev` serve o
-disco. Nao os edite para a medida bater.
+disco. As tres tabelas do pincel, da LOS e da visibilidade sairam mais tarde no mesmo dia, sobre o
+commit `2ffc92b9` mais o `flush()` do fim de arrasto da visibilidade, e tambem com outras
+ferramentas modificadas no disco por sessoes paralelas (nenhuma delas e o controle medido). Todas
+as cargas deram a mesma assinatura, `246c/99f`. Nao edite os numeros para a medida bater.
 
 ## Armadilhas conhecidas
 
@@ -432,6 +528,24 @@ disco. Nao os edite para a medida bater.
 - **`page.mouse.move` com `steps` nao alcanca o mouse de alta taxa.** A sonda 1 de 2026-09-04 mediu
   ZERO quadro com 240 movimentos do Playwright. O mousemove sintetico despachado no canvas dentro
   de um laco de rAF alcanca: 8 por quadro sao 1.448 eventos em 3 s.
+- **Ponteiro sintetico nao se captura.** `_onPointerDown` do pincel faz `setPointerCapture(e.pointerId)`,
+  e capturar um ponteiro que nunca existiu lanca `NotFoundError` DENTRO do ouvinte: sairia como erro
+  da pagina, com o traco pela metade e sem nenhuma reprova. Por isso o `pointerdown` e o `pointerup`
+  do arrasto passam pelo mouse do Playwright (ponteiro de verdade), e so os `pointermove` do meio
+  sao sinteticos, com `buttons: 1`.
+- **O ouvinte do cronometro fica no CONTAINER do canvas, nao no canvas.** A captura do ponteiro
+  redireciona o `pointerup` para o container, e um ouvinte no canvas, que e filho dele, nunca veria
+  o evento que a bancada cronometra. Na fase de captura o container tambem ve o clique e o botao
+  direito, e ate antes do canvas.
+- **O piso de 3 px do pincel descarta o passo do laco de desenho.** `MIN_DISTANCE_PX` e 3, e a
+  elipse do mouse sintetico anda 2 a 3 px por evento: o traco sairia com metade dos pontos e a
+  culpa pareceria da ferramenta. No modo arrasto o passo angular e quatro vezes maior (8 a 13 px),
+  acima do piso em toda a volta.
+- **`painel ms` pode estar medindo um painel que ja estava aberto.** O cenario `zoom` cria feicoes
+  pelo `createFeature()` do controle, e varios controles selecionam a ultima feicao criada, o que
+  deixa a secao de atributos na tela. Quando a conclusao vem depois disso, `painel ms` sai perto de
+  zero (0,8 ms na visibilidade) porque o seletor ja casava no primeiro quadro. Leia `store ms` e
+  `proc ms`, que partem do gesto e medem estado que subiu de verdade.
 - **`getControl('ToolManager')` nao existe.** O `CONTROL_REGISTRY` nao registra o gerente, e a
   sonda 1 leu `null` e concluiu que a ferramenta nao estava ativa. Quem responde e o proprio
   controle (`isActive`), que e tambem o que o `SelectionManager` consulta para rotear o clique.

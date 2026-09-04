@@ -34,6 +34,26 @@ const RAIZ = path.resolve(AQUI, '..');
 // src/js/layers/layer.constants.js e `feedback` da fonte que o proprio
 // controle escreve no preview. `painel` e a secao de atributos que o controle
 // monta ao concluir.
+//
+// Os campos opcionais existem porque o app NAO tem uma API uniforme de desenho,
+// e inventar uma aqui seria medir um aplicativo que nao existe:
+//
+// - `modoDesenho`: `clique` (padrao) ou `arrastar`. No arrasto o traco nasce
+//   entre um pointerdown e um pointerup, com o botao apertado.
+// - `pontos`: onde o controle guarda o que o usuario ja colocou. `lista` conta
+//   o comprimento do vetor, `ponto` conta 1 quando a propriedade nao e nula.
+// - `semeadura`: como o cenario zoom entrega os pontos ao `createFeature()`.
+//   `drawPoints` e `points` atribuem a propriedade de mesmo nome; `startEnd`
+//   preenche `startPoint` e `endPoint`; `argumentos` passa os dois pontos como
+//   argumento da chamada.
+// - `requerTerreno`: a ferramenta nem ativa sem terreno. Sem `--terreno` o
+//   cenario sai INVALIDO, em vez de medir outra coisa com o mesmo rotulo.
+// - `feicoesPadrao`: o `--feicoes` que vale quando a linha de comando cala.
+//   Existe para a ferramenta cuja feicao custa uma amostragem do terreno.
+// - `processado`: a ferramenta de analise nao para na feicao. A LOS e a
+//   visibilidade derivam dela o trecho visivel e o obstruido, que sao OUTRAS
+//   feicoes, em outra fonte. O cenario conclusao cronometra as duas coisas a
+//   parte, porque a feicao no store nao e o que o usuario ve na tela.
 // --------------------------------------------------------------------------
 const FERRAMENTAS = {
     line: {
@@ -69,10 +89,99 @@ const FERRAMENTAS = {
         feedback: 'coordination-line-feedback', painel: '.coordination-line-attributes-section',
         pontosParaCriar: 4, conclusao: { gesto: 'botao-direito', cliquesAntes: 3, evento: 'contextmenu' },
     },
+    los: {
+        // Linha de visada. Dois cliques: o primeiro marca o observador em
+        // `startPoint`, o segundo ja calcula o perfil e cria a feicao. Nao tem
+        // alca de edicao nem botao direito. Sem terreno, `activate()` devolve
+        // falso e `handleMapClick` sai na primeira linha.
+        controle: 'AddLOSControl', tipo: 'los', fonte: 'los',
+        feedback: 'los-feedback', painel: '.los-attributes-section',
+        pontosParaCriar: 2, requerTerreno: true, feicoesPadrao: 15,
+        pontos: { propriedade: 'startPoint', forma: 'ponto' }, semeadura: 'startEnd',
+        processado: { tipo: 'processed_los', fonte: 'processed-los' },
+        conclusao: { gesto: 'clique-final', cliquesAntes: 1, evento: 'click' },
+    },
+    visibility: {
+        // Visibilidade (viewshed). Tambem de dois cliques, no estilo do setor: o
+        // primeiro e o observador, o segundo da o raio e o azimute (a abertura
+        // sai do DEFAULT_PROPERTIES). O segundo clique dispara a varredura do
+        // terreno com modal de progresso, entao a conclusao aqui e uma conta, e
+        // nao so um `addFeature`.
+        controle: 'AddVisibilityControl', tipo: 'visibility', fonte: 'visibility',
+        feedback: 'visibility-feedback', painel: '.visibility-attributes-section',
+        pontosParaCriar: 2, requerTerreno: true, feicoesPadrao: 8,
+        pontos: { propriedade: 'startPoint', forma: 'ponto' }, semeadura: 'argumentos',
+        processado: { tipo: 'processed_visibility', fonte: 'processed-visibility' },
+        conclusao: { gesto: 'clique-final', cliquesAntes: 1, evento: 'click' },
+    },
+    brush: {
+        // Pincel. Desenha com o botao apertado, e o pointerup ja cria a feicao:
+        // nao ha clique que vire vertice, e o traco morre com a feicao. O
+        // acumulo dos pontos fica no evento BRUTO de proposito (um traco E a
+        // sequencia de posicoes), e so o desenho do feedback e coalescido.
+        controle: 'AddBrushControl', tipo: 'brushes', fonte: 'brushes',
+        feedback: 'brush-feedback', painel: '.brush-attributes-section',
+        pontosParaCriar: 8, modoDesenho: 'arrastar',
+        pontos: { propriedade: 'points', forma: 'lista' }, semeadura: 'points',
+        conclusao: { gesto: 'pointerup', cliquesAntes: 0, evento: 'pointerup' },
+    },
 };
 
 const ORDEM_FERRAMENTAS = Object.keys(FERRAMENTAS);
 const ORDEM_CENARIOS = ['desenho', 'zoom', 'conclusao'];
+
+// Os valores que o descritor aceita. Valor fora daqui e erro na cara, e nao
+// ferramenta medida pelo caminho errado em silencio.
+const MODOS_DESENHO = ['clique', 'arrastar'];
+const FORMAS_DE_PONTO = ['lista', 'ponto'];
+const SEMEADURAS = ['drawPoints', 'points', 'startEnd', 'argumentos'];
+const GESTOS_CONCLUSAO = ['botao-direito', 'clique-final', 'pointerup'];
+const PONTOS_PADRAO = { propriedade: 'drawPoints', forma: 'lista' };
+
+/**
+ * Completa o descritor com os padroes e reprova o que a bancada nao sabe medir.
+ * Descritor sem `conclusao` nao diz como fechar a feicao, e `modoDesenho`
+ * desconhecido mediria o gesto errado com o nome certo.
+ *
+ * @param {string} nome - Nome curto da ferramenta
+ * @param {Object} [mapa] - Mapa de descritores (o autoteste passa os degenerados)
+ * @returns {Object} O descritor completo
+ */
+function normalizarFerramenta(nome, mapa = FERRAMENTAS) {
+    const f = mapa[nome];
+    if (!f) throw new Error(`ferramenta desconhecida: ${nome}. Conhecidas: ${Object.keys(mapa).join(', ')}`);
+    const cfg = {
+        ...f,
+        nome,
+        modoDesenho: f.modoDesenho || 'clique',
+        pontos: f.pontos || PONTOS_PADRAO,
+        semeadura: f.semeadura || 'drawPoints',
+        requerTerreno: !!f.requerTerreno,
+    };
+    for (const campo of ['controle', 'tipo', 'fonte', 'feedback', 'painel']) {
+        if (!cfg[campo]) throw new Error(`a ferramenta ${nome} nao declara "${campo}"`);
+    }
+    if (!MODOS_DESENHO.includes(cfg.modoDesenho)) {
+        throw new Error(`modoDesenho desconhecido em ${nome}: "${cfg.modoDesenho}". A bancada so sabe medir ${MODOS_DESENHO.join(' e ')}.`);
+    }
+    if (!FORMAS_DE_PONTO.includes(cfg.pontos.forma) || !cfg.pontos.propriedade) {
+        throw new Error(`pontos invalidos em ${nome}: ${JSON.stringify(cfg.pontos)}. Formas: ${FORMAS_DE_PONTO.join(', ')}.`);
+    }
+    if (!SEMEADURAS.includes(cfg.semeadura)) {
+        throw new Error(`semeadura desconhecida em ${nome}: "${cfg.semeadura}". Conhecidas: ${SEMEADURAS.join(', ')}.`);
+    }
+    const c = cfg.conclusao;
+    if (!c || !c.gesto || !c.evento) {
+        throw new Error(`a ferramenta ${nome} nao diz como conclui: falta conclusao: { gesto, cliquesAntes, evento }`);
+    }
+    if (!GESTOS_CONCLUSAO.includes(c.gesto)) {
+        throw new Error(`gesto de conclusao desconhecido em ${nome}: "${c.gesto}". Conhecidos: ${GESTOS_CONCLUSAO.join(', ')}.`);
+    }
+    if (!Number.isInteger(c.cliquesAntes) || c.cliquesAntes < 0) {
+        throw new Error(`cliquesAntes invalido em ${nome}: ${c.cliquesAntes}`);
+    }
+    return cfg;
+}
 
 // Vista de trabalho. A mesma das sondas de 2026-09-04 e da bancada de terreno.
 const VISTA = { center: [-50.87, -29.37], zoom: 12.5 };
@@ -106,6 +215,7 @@ function lerArgumentos(argv) {
         altura: 900,
         headless: false,
     };
+    let informouFeicoes = false;
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
         const proximo = () => argv[++i];
@@ -123,6 +233,7 @@ function lerArgumentos(argv) {
             p.k = proximo().split(',').map((s) => s.trim()).filter(Boolean).map(Number);
         } else if (a === '--feicoes') {
             p.feicoes = Number(proximo());
+            informouFeicoes = true;
         } else if (a === '--terreno') {
             p.terreno = booleana();
         } else if (a === '--cpu') {
@@ -145,9 +256,12 @@ function lerArgumentos(argv) {
             throw new Error(`argumento desconhecido: ${a}`);
         }
     }
-    if (!FERRAMENTAS[p.ferramenta]) {
-        throw new Error(`ferramenta desconhecida: ${p.ferramenta}. Conhecidas: ${ORDEM_FERRAMENTAS.join(', ')}`);
-    }
+    // Reprova aqui o descritor incompleto: melhor cair na leitura do argumento
+    // do que a 90 segundos de carga, com o app ja no ar.
+    const cfg = normalizarFerramenta(p.ferramenta);
+    // A feicao da LOS e da visibilidade custa uma varredura do terreno, entao a
+    // ferramenta pode pedir menos que as 30 do padrao. Pedido explicito manda.
+    if (!informouFeicoes && cfg.feicoesPadrao) p.feicoes = cfg.feicoesPadrao;
     if (!p.k.length) throw new Error('--k precisa de ao menos um valor (mousemove por quadro)');
     for (const k of p.k) {
         if (!Number.isInteger(k) || k < 1) throw new Error(`--k tem de ser lista de inteiros >= 1, veio "${k}"`);
@@ -174,8 +288,10 @@ Bancada de desempenho das ferramentas de desenho do EBGeo Web.
   --ferramenta <nome>  padrao coordination_line
                        ${ORDEM_FERRAMENTAS.join(', ')}
   --k <lista>          mousemove por quadro no cenario desenho (padrao 1,4,8)
-  --feicoes <n>        feicoes criadas antes do cenario zoom (padrao 30)
+  --feicoes <n>        feicoes criadas antes do cenario zoom (padrao 30; a
+                       ferramenta pode pedir menos: los 15, visibility 8)
   --terreno [bool]     padrao false. Liga o terreno pelo botao do app antes de medir.
+                       OBRIGATORIO em los e visibility: sem terreno elas nem ativam.
   --cpu <fator>        padrao 1. Estrangula a CPU pelo CDP (4 = maquina quatro vezes mais lenta).
   --snapping [bool]    padrao false. Liga ui.snapping.enabled antes de medir.
   --rodadas <n>        padrao 2 (a primeira e aquecimento e sai da tabela)
@@ -303,17 +419,42 @@ function avaliarCadencia(cadencia, cpu) {
 // Reguas dos cenarios. Puras: recebem a prova e a estatistica, devolvem a lista
 // de motivos de reprova. Sao elas que o autoteste ataca com o pior caso.
 // --------------------------------------------------------------------------
+// Ferramenta que declara `requerTerreno` mede outra coisa sem ele: a LOS e a
+// visibilidade nem ativam, e o cenario sairia com numero bonito de uma
+// ferramenta parada. Vale para os tres cenarios, entao mora num lugar so.
+function errosDeTerreno(prova) {
+    if (!prova || !prova.requerTerreno || prova.terreno) return [];
+    return ['a ferramenta exige terreno e getTerrain() esta nulo: rode com --terreno (sem terreno ela nem ativa)'];
+}
+
 const CENARIOS = {
     desenho: {
         rotulo: 'ferramenta ativa com 1 ponto, mouse sintetico por 3 s',
         validar: (prova, est) => {
-            const erros = [];
+            const erros = errosDeTerreno(prova);
             if (!est || !est.quadros) erros.push('zero quadros medidos');
             if (!prova.setDataAlvo) {
                 erros.push(`nenhum setData da fonte de feedback "${prova.fonteAlvo}" durante o desenho: a ferramenta nao desenhou`);
             }
-            if (prova.drawPoints !== 1) {
-                erros.push(`drawPoints ${prova.drawPoints}, esperado 1 ponto colocado por clique real`);
+            const modo = prova.modoDesenho || 'clique';
+            if (!MODOS_DESENHO.includes(modo)) {
+                erros.push(`modoDesenho "${modo}" desconhecido: a bancada so sabe medir ${MODOS_DESENHO.join(' e ')}`);
+            } else if (modo === 'arrastar') {
+                // O traco E a sequencia de posicoes: o pincel acumula no evento
+                // bruto de proposito. Ponto a menos aqui e ponto que a ferramenta
+                // (ou a bancada) jogou fora, e a curva sai serrilhada.
+                const esperado = prova.eventosDeMovimento === null || prova.eventosDeMovimento === undefined
+                    ? null : prova.eventosDeMovimento + 1;
+                if (prova.pontosAcumulados === null || prova.pontosAcumulados === undefined) {
+                    erros.push('nao deu para ler os pontos acumulados do traco antes do pointerup');
+                } else if (esperado === null) {
+                    erros.push('a bancada nao contou os eventos de movimento do arrasto');
+                } else if (prova.pontosAcumulados !== esperado) {
+                    erros.push(`${prova.pontosAcumulados} pontos acumulados para ${prova.eventosDeMovimento} eventos de movimento`
+                        + ` (esperado ${esperado}: o do pointerdown mais um por evento)`);
+                }
+            } else if (prova.pontosColocados !== 1) {
+                erros.push(`pontos colocados ${prova.pontosColocados}, esperado 1 por clique real`);
             }
             if (!prova.ferramentaAtiva) erros.push('a ferramenta nao ficou ativa (isActive falso)');
             if (prova.visibilidade !== 'visible') erros.push(`visibilityState ${prova.visibilidade}`);
@@ -323,16 +464,23 @@ const CENARIOS = {
     zoom: {
         rotulo: 'gesto de zoom +1 e volta, com N feicoes criadas',
         validar: (prova, est, alvo) => {
-            const erros = [];
+            const erros = errosDeTerreno(prova);
             if (!est || !est.quadros) erros.push('zero quadros medidos');
             const n = alvo && alvo.feicoes;
+            // O cenario desenho do pincel conclui a feicao no pointerup, entao o
+            // store ja pode ter feicao antes deste cenario. O alvo e o que estava
+            // la MAIS as criadas, e nao um numero absoluto que aprovaria a soma
+            // errada nas duas direcoes.
+            const base = prova.noStoreAntesDeCriar || 0;
+            const esperado = n ? n + base : null;
+            const comoSoma = base ? ` (${base} antes do cenario + ${n} criadas)` : '';
             if (!prova.naFonte) {
                 erros.push(`a fonte "${prova.fonteAlvo}" esta vazia: zoom sem feicao nao mede a ferramenta`);
-            } else if (n && prova.naFonte < n) {
-                erros.push(`${prova.naFonte} feicoes na fonte "${prova.fonteAlvo}", criadas ${n}: o mapa nao mostra o que o store guarda`);
+            } else if (esperado && prova.naFonte < esperado) {
+                erros.push(`${prova.naFonte} feicoes na fonte "${prova.fonteAlvo}", esperadas ${esperado}${comoSoma}: o mapa nao mostra o que o store guarda`);
             }
-            if (n && prova.noStore !== n) {
-                erros.push(`${prova.noStore} feicoes no store (${prova.tipo}), pedidas ${n}`);
+            if (esperado && prova.noStore !== esperado) {
+                erros.push(`${prova.noStore} feicoes no store (${prova.tipo}), esperadas ${esperado}${comoSoma}`);
             }
             if (prova.visibilidade !== 'visible') erros.push(`visibilityState ${prova.visibilidade}`);
             return erros;
@@ -341,7 +489,10 @@ const CENARIOS = {
     conclusao: {
         rotulo: 'concluir a feicao pelo caminho do usuario',
         validar: (prova) => {
-            const erros = [];
+            const erros = errosDeTerreno(prova);
+            if (prova.gesto === 'pointerup' && !(prova.pontosDoTraco >= 2)) {
+                erros.push(`o traco tinha ${prova.pontosDoTraco} pontos antes do pointerup: menos de 2 nao vira feicao`);
+            }
             if (prova.noStoreAntes === null || prova.noStore === null) {
                 erros.push('nao deu para ler o store antes e depois da conclusao');
             } else if (prova.noStore <= prova.noStoreAntes) {
@@ -349,6 +500,18 @@ const CENARIOS = {
             }
             if (prova.msStore === null || prova.msStore === undefined) {
                 erros.push('o store nao registrou a feicao dentro do limite de espera');
+            }
+            // A feicao no store nao e o que o usuario ve: a analise so vira tela
+            // quando o trecho visivel e o obstruido entram na fonte processada.
+            // Cronometrar so o store diria "28 ms" de uma analise que a tela
+            // ainda nao mostrou.
+            if (prova.processadoDeclarado) {
+                if (prova.msProcessado === null || prova.msProcessado === undefined) {
+                    erros.push('a ferramenta declara resultado processado e ele nao apareceu na fonte dentro do limite');
+                }
+                if (!(prova.naFonteProcessada > (prova.naFonteProcessadaAntes || 0))) {
+                    erros.push(`a fonte processada nao cresceu (${prova.naFonteProcessadaAntes} -> ${prova.naFonteProcessada}): a analise nao chegou a tela`);
+                }
             }
             if (prova.cliquesQuePegaram !== prova.cliquesPedidos) {
                 erros.push(`${prova.cliquesQuePegaram} de ${prova.cliquesPedidos} cliques viraram vertice: o desenho nao chegou inteiro ao gesto de conclusao`);
@@ -490,23 +653,40 @@ async function lerEstado(cfg) {
         return d && Array.isArray(d.features) ? d.features.length : (d && d.type === 'Feature' ? 1 : 0);
     };
     let noStore = null;
+    let noStoreProcessado = null;
     let erroStore = null;
     try {
         const f = await window.__store.getCurrentMapFeatures();
         noStore = Array.isArray(f && f[cfg.tipo]) ? f[cfg.tipo].length : null;
+        if (cfg.processado) {
+            noStoreProcessado = Array.isArray(f && f[cfg.processado.tipo]) ? f[cfg.processado.tipo].length : null;
+        }
     } catch (e) { erroStore = String(e && e.message ? e.message : e).slice(0, 120); }
     let snapping = null;
     try { snapping = !!window.__store.getStateManager().getUnsafe('ui.snapping.enabled'); } catch (_e) { snapping = null; }
     const estilo = map.getStyle();
+    // Pontos que o usuario ja colocou. Nao ha propriedade unica no app: a
+    // maioria acumula em `drawPoints`, o pincel em `points`, e a LOS e a
+    // visibilidade guardam so o observador em `startPoint`.
+    const p = cfg.pontos || { propriedade: 'drawPoints', forma: 'lista' };
+    const bruto = c ? c[p.propriedade] : undefined;
+    const pontosColocados = !c ? null
+        : (p.forma === 'ponto' ? (bruto ? 1 : 0) : (Array.isArray(bruto) ? bruto.length : null));
     return {
         controlePresente: !!c,
         ferramentaAtiva: !!(c && c.isActive),
-        drawPoints: c && Array.isArray(c.drawPoints) ? c.drawPoints.length : null,
+        pontosColocados,
+        requerTerreno: !!cfg.requerTerreno,
+        modoDesenho: cfg.modoDesenho || 'clique',
         tipo: cfg.tipo,
         noStore,
         erroStore,
         naFonte: contar(cfg.fonte),
         naFonteFeedback: contar(cfg.feedback),
+        // A feicao derivada (trecho visivel e obstruido), quando a ferramenta
+        // declara uma. E o que aparece na tela, e nao a feicao principal.
+        noStoreProcessado,
+        naFonteProcessada: cfg.processado ? contar(cfg.processado.fonte) : null,
         fontePrincipalExiste: !!map.getSource(cfg.fonte),
         fonteFeedbackExiste: !!map.getSource(cfg.feedback),
         painelAberto: !!document.querySelector(cfg.painel),
@@ -527,6 +707,20 @@ async function criarFeicoesPagina({ cfg, n, vista, pontos, anel }) {
     const c = window.__store.getControl(cfg.controle);
     if (!c || typeof c.createFeature !== 'function') return { ok: 0, erro: `controle ${cfg.controle} ausente ou sem createFeature` };
     const rnd = (a) => (Math.random() * 2 - 1) * a;
+    // Nao ha assinatura unica de createFeature no app, e chamar a errada cria
+    // zero feicao em silencio: a semeadura do descritor diz qual e a desta.
+    const semear = async (pts) => {
+        if (cfg.semeadura === 'argumentos') return c.createFeature(pts[0], pts[pts.length - 1]);
+        if (cfg.semeadura === 'startEnd') {
+            c.startPoint = pts[0];
+            c.endPoint = pts[pts.length - 1];
+            return c.createFeature();
+        }
+        c[cfg.semeadura === 'points' ? 'points' : 'drawPoints'] = pts;
+        return c.createFeature();
+    };
+    const t0 = performance.now();
+    const marcas = [];
     let ok = 0;
     let ultimoErro = null;
     for (let i = 0; i < n; i++) {
@@ -541,31 +735,52 @@ async function criarFeicoesPagina({ cfg, n, vista, pontos, anel }) {
         } else {
             for (let k = 0; k < pontos; k++) pts.push([cx + k * 0.006 + rnd(0.001), cy + rnd(0.004)]);
         }
-        c.drawPoints = pts;
-        try { await c.createFeature(); ok++; } catch (e) { ultimoErro = String(e && e.message ? e.message : e).slice(0, 120); }
+        const tf = performance.now();
+        try { await semear(pts); ok++; } catch (e) { ultimoErro = String(e && e.message ? e.message : e).slice(0, 120); }
+        marcas.push(+(performance.now() - tf).toFixed(1));
     }
     await new Promise((r) => setTimeout(r, 1500));
-    return { ok, erro: ultimoErro };
+    marcas.sort((a, b) => a - b);
+    return {
+        ok, erro: ultimoErro,
+        ms: +(performance.now() - t0).toFixed(0),
+        // A mediana por feicao e o que diz se `--feicoes 30` cabe no dia: a
+        // visibilidade varre o terreno raio a raio, e nao e um addFeature.
+        msPorFeicao: marcas.length ? marcas[Math.floor(marcas.length / 2)] : null,
+    };
 }
 
-// Mouse sintetico: k mousemove por quadro durante ms, andando em elipse pelo
+// Mouse sintetico: k eventos por quadro durante ms, andando em elipse pelo
 // mapa. O mouse do Playwright entrega um evento por chamada e nao alcanca a
 // taxa de um mouse de 500 Hz; o evento sintetico no rAF alcanca.
-function mouseSinteticoPagina({ k, ms }) {
+//
+// Com `arrastar`, o evento e `pointermove` com `buttons: 1` (botao apertado), e
+// o passo angular e quatro vezes maior: o pincel descarta movimento abaixo de
+// 3 px (MIN_DISTANCE_PX), e o passo de 2 a 3 px do laco de desenho sairia como
+// "a ferramenta perdeu pontos" quando quem os descartou foi a bancada. Com
+// divisor 150 o passo fica entre 8 e 13 px, acima do piso em toda a elipse.
+function mouseSinteticoPagina({ k, ms, arrastar = false }) {
     return new Promise((r) => {
         const canvas = window.__mapa.getCanvas();
         const rect = canvas.getBoundingClientRect();
         const cx = rect.left + rect.width / 2;
         const cy = rect.top + rect.height / 2;
+        const divisor = arrastar ? 150 : 600;
         let i = 0;
         const t0 = performance.now();
         const passo = () => {
             for (let j = 0; j < k; j++) {
-                const a = (i++ / 600) * Math.PI * 2;
-                canvas.dispatchEvent(new MouseEvent('mousemove', {
-                    bubbles: true, cancelable: true, buttons: 0,
-                    clientX: cx + Math.cos(a) * 300, clientY: cy + Math.sin(a) * 200,
-                }));
+                const a = (i++ / divisor) * Math.PI * 2;
+                const clientX = cx + Math.cos(a) * 300;
+                const clientY = cy + Math.sin(a) * 200;
+                canvas.dispatchEvent(arrastar
+                    ? new PointerEvent('pointermove', {
+                        bubbles: true, cancelable: true, buttons: 1,
+                        pointerId: 1, pointerType: 'mouse', isPrimary: true, clientX, clientY,
+                    })
+                    : new MouseEvent('mousemove', {
+                        bubbles: true, cancelable: true, buttons: 0, clientX, clientY,
+                    }));
                 window.__B.mousemove++;
             }
             if (performance.now() - t0 < ms) requestAnimationFrame(passo); else r();
@@ -577,28 +792,49 @@ function mouseSinteticoPagina({ k, ms }) {
 // Arma o cronometro da conclusao. O t0 sai do PROPRIO evento do usuario, na
 // fase de captura, e nao do relogio do Node: medir do lado do Node somaria o
 // tempo do canal do CDP a latencia da ferramenta.
-function armarConclusaoPagina({ cfg, evento, antes, limite }) {
+// O ouvinte fica no CONTAINER do canvas, e nao no canvas. O pincel captura o
+// ponteiro no container (`setPointerCapture`), e a captura redireciona o
+// pointerup para ele: um ouvinte no canvas, que e filho, nunca veria o evento
+// que a bancada esta cronometrando. Na fase de captura o container tambem ve o
+// clique e o botao direito, e ate antes do canvas.
+function armarConclusaoPagina({ cfg, evento, antes, antesProcessado, limite }) {
     return new Promise((resolve) => {
-        const canvas = window.__mapa.getCanvas();
+        const map = window.__mapa;
+        const canvas = map.getCanvasContainer();
+        const temProcessado = !!cfg.processado;
         let t0 = null;
         let msStore = null;
         let msPainel = null;
+        let msProcessado = null;
         const arranque = () => { if (t0 === null) t0 = performance.now(); };
         canvas.addEventListener(evento, arranque, true);
         const fim = () => {
             canvas.removeEventListener(evento, arranque, true);
-            resolve({ msStore, msPainel, disparou: t0 !== null });
+            resolve({ msStore, msPainel, msProcessado, disparou: t0 !== null });
+        };
+        // A feicao derivada, contada na fonte do MAPA: e o que a tela mostra, e
+        // a leitura e sincrona, entao cabe dentro do quadro.
+        const contarProcessadas = () => {
+            const src = map.getSource(cfg.processado.fonte);
+            if (!src) return null;
+            const d = typeof src.serialize === 'function' ? src.serialize().data : src._data;
+            if (typeof d === 'string') return null;
+            return d && Array.isArray(d.features) ? d.features.length : null;
         };
         const passo = async () => {
             if (t0 !== null) {
                 if (msPainel === null && document.querySelector(cfg.painel)) msPainel = +(performance.now() - t0).toFixed(1);
+                if (temProcessado && msProcessado === null) {
+                    const n = contarProcessadas();
+                    if (n !== null && n > antesProcessado) msProcessado = +(performance.now() - t0).toFixed(1);
+                }
                 if (msStore === null) {
                     try {
                         const f = await window.__store.getCurrentMapFeatures();
                         if ((f[cfg.tipo] || []).length > antes) msStore = +(performance.now() - t0).toFixed(1);
                     } catch (_e) { /* segue tentando ate o limite */ }
                 }
-                if (msStore !== null && msPainel !== null) return fim();
+                if (msStore !== null && msPainel !== null && (!temProcessado || msProcessado !== null)) return fim();
                 if (performance.now() - t0 > limite) return fim();
             }
             requestAnimationFrame(passo);
@@ -753,28 +989,49 @@ class Bancada {
         await dorme(300);
     }
 
-    async lerDrawPoints() {
+    // Pontos que o usuario ja colocou, pela propriedade que ESTA ferramenta usa.
+    async lerPontos() {
         return this.page.evaluate((cfg) => {
             const c = window.__store.getControl(cfg.controle);
-            return c && Array.isArray(c.drawPoints) ? c.drawPoints.length : null;
+            if (!c) return null;
+            const p = cfg.pontos;
+            const bruto = c[p.propriedade];
+            if (p.forma === 'ponto') return bruto ? 1 : 0;
+            return Array.isArray(bruto) ? bruto.length : null;
         }, this.cfg);
     }
 
-    // Clica de verdade e espera o vertice entrar em drawPoints. A linha de
+    // Clica de verdade e espera o ponto entrar no controle. A linha de
     // coordenacao e a de limite retem o clique 250 ms antes de virar vertice;
-    // ler drawPoints logo depois do clique acharia zero e reprovaria o app bom.
+    // ler a contagem logo depois do clique acharia zero e reprovaria o app bom.
     async clicarEEsperarVertice(x, y, limiteMs = 3000) {
-        const antes = await this.lerDrawPoints();
+        const antes = await this.lerPontos();
         await this.page.mouse.move(x, y);
         await dorme(60);
         const t0 = Date.now();
         await this.page.mouse.click(x, y);
         while (Date.now() - t0 < limiteMs) {
-            const n = await this.lerDrawPoints();
-            if (n !== null && antes !== null && n > antes) return { pegou: true, ms: Date.now() - t0, drawPoints: n };
+            const n = await this.lerPontos();
+            if (n !== null && antes !== null && n > antes) return { pegou: true, ms: Date.now() - t0, pontos: n };
             await dorme(25);
         }
-        return { pegou: false, ms: Date.now() - t0, drawPoints: await this.lerDrawPoints() };
+        return { pegou: false, ms: Date.now() - t0, pontos: await this.lerPontos() };
+    }
+
+    // Um arrasto: pointerdown REAL, k pointermove sinteticos por quadro, e o
+    // pointerup fica com quem chamou. O down e o up passam pelo mouse do
+    // Playwright de proposito: `_onPointerDown` faz `setPointerCapture` do
+    // pointerId, e capturar um ponteiro que nunca existiu lanca NotFoundError
+    // dentro do ouvinte, o que sairia como erro da pagina e nao como medida.
+    // Devolve os pontos acumulados ANTES do up, porque o fim do traco zera a
+    // lista ao criar a feicao.
+    async arrastar(x, y, k, ms) {
+        await this.page.mouse.move(x, y);
+        await this.page.mouse.down();
+        await dorme(80);
+        await this.page.evaluate(mouseSinteticoPagina, { k, ms, arrastar: true });
+        const pontos = await this.lerPontos();
+        return { pontos };
     }
 
     async criarFeicoes(n) {
@@ -807,21 +1064,41 @@ class Bancada {
 
     // Desenho: ferramenta ativa, 1 ponto colocado por CLIQUE REAL, e k eventos
     // de mousemove por quadro durante 3 s.
+    //
+    // No modo `arrastar` nao ha clique que fique: o traco vive entre o
+    // pointerdown e o pointerup, e o up ja cria a feicao. Cada valor de k tem
+    // entao o seu proprio traco, e os pontos acumulados sao lidos antes do up.
     async cenarioDesenho(ks) {
         const casos = [];
         const ativacao = await this.ativar();
-        const clique = ativacao.ok ? await this.clicarEEsperarVertice(...CLIQUES[0]) : { pegou: false, ms: null, drawPoints: null };
+        const arrastando = this.cfg.modoDesenho === 'arrastar';
+        const clique = (!arrastando && ativacao.ok)
+            ? await this.clicarEEsperarVertice(...CLIQUES[0])
+            : { pegou: null, ms: null, pontos: null };
         for (const k of ks) {
             await this.page.evaluate(() => window.__zerar());
-            await this.page.evaluate(mouseSinteticoPagina, { k, ms: MS_DESENHO });
+            let pontosAcumulados = null;
+            if (arrastando) {
+                const traco = await this.arrastar(...CLIQUES[0], k, MS_DESENHO);
+                pontosAcumulados = traco.pontos;
+            } else {
+                await this.page.evaluate(mouseSinteticoPagina, { k, ms: MS_DESENHO });
+            }
             const B = await this.colher();
             const est = estatistica(B);
+            if (arrastando) {
+                // O up depois de colher: a criacao da feicao nao entra na
+                // estatistica do desenho, que e do traco.
+                await this.page.mouse.up();
+                await dorme(600);
+            }
             const estado = await this.estado();
             const sd = resumirSetData(B.setData, this.cfg.feedback);
             const prova = {
                 ...sd, ...estado,
                 fonteAlvo: this.cfg.feedback,
                 ativacao, cliqueMs: clique.ms, cliquePegou: clique.pegou,
+                pontosAcumulados, eventosDeMovimento: B.mousemove ?? null,
             };
             casos.push({
                 cenario: 'desenho', k, estatistica: est, prova,
@@ -834,6 +1111,10 @@ class Bancada {
 
     // Zoom: N feicoes criadas pelo caminho do controle, e um gesto de zoom.
     async cenarioZoom(n) {
+        // O que ja estava no store ANTES de criar. Com o pincel o cenario
+        // anterior deixou uma feicao por valor de k, e comparar com N absoluto
+        // reprovaria a bancada boa (ou aprovaria a soma errada).
+        const base = await this.estado();
         const criacao = await this.criarFeicoes(n);
         const antes = await this.estado();
         await this.page.evaluate(() => window.__zerar());
@@ -842,7 +1123,10 @@ class Bancada {
         const est = estatistica(B);
         const estado = await this.estado();
         const sd = resumirSetData(B.setData, this.cfg.fonte);
-        const prova = { ...sd, ...estado, fonteAlvo: this.cfg.fonte, criacao, naFonteAntes: antes.naFonte };
+        const prova = {
+            ...sd, ...estado, fonteAlvo: this.cfg.fonte, criacao,
+            naFonteAntes: antes.naFonte, noStoreAntesDeCriar: base.noStore,
+        };
         return {
             cenario: 'zoom', k: null, estatistica: est, prova,
             erros: CENARIOS.zoom.validar(prova, est, { feicoes: n }),
@@ -861,15 +1145,29 @@ class Bancada {
             cliques.push(await this.clicarEEsperarVertice(x, y));
             await dorme(350);
         }
+        // O traco do pincel tem de existir ANTES de armar o cronometro: o que se
+        // mede e o pointerup ate a feicao no store, e nao o desenho.
+        let pontosDoTraco = null;
+        if (conc.gesto === 'pointerup') {
+            const traco = await this.arrastar(...CLIQUES[0], 2, 400);
+            pontosDoTraco = traco.pontos;
+        }
         await this.page.evaluate(() => window.__zerar());
         const espera = this.page.evaluate(armarConclusaoPagina, {
-            cfg: this.cfg, evento: conc.evento, antes: antesEstado.noStore || 0, limite: 5000,
+            cfg: this.cfg, evento: conc.evento,
+            antes: antesEstado.noStore || 0,
+            antesProcessado: antesEstado.naFonteProcessada || 0,
+            // O calculo da LOS e o da visibilidade sao varreduras do terreno, e
+            // nao um addFeature: o limite delas e outro.
+            limite: this.cfg.processado ? 30000 : 5000,
         });
         await dorme(120);
-        const [ux, uy] = CLIQUES[(conc.cliquesAntes - 1) % CLIQUES.length];
+        const [ux, uy] = CLIQUES[Math.max(0, conc.cliquesAntes - 1) % CLIQUES.length];
         if (conc.gesto === 'botao-direito') {
             await this.page.mouse.move(ux + DESLOCAMENTO_CONCLUSAO[0], uy + DESLOCAMENTO_CONCLUSAO[1]);
             await this.page.mouse.click(ux + DESLOCAMENTO_CONCLUSAO[0], uy + DESLOCAMENTO_CONCLUSAO[1], { button: 'right' });
+        } else if (conc.gesto === 'pointerup') {
+            await this.page.mouse.up();
         } else {
             const [x, y] = CLIQUES[conc.cliquesAntes % CLIQUES.length];
             await this.page.mouse.move(x, y);
@@ -887,12 +1185,16 @@ class Bancada {
             gesto: conc.gesto,
             ativacao,
             noStoreAntes: antesEstado.noStore,
+            processadoDeclarado: !!this.cfg.processado,
+            naFonteProcessadaAntes: antesEstado.naFonteProcessada,
             msStore: tempos.msStore,
             msPainel: tempos.msPainel,
+            msProcessado: tempos.msProcessado,
             gestoDisparou: tempos.disparou,
             cliquesPedidos: conc.cliquesAntes,
             cliquesQuePegaram: cliques.filter((c) => c.pegou).length,
             msPorClique: cliques.map((c) => c.ms),
+            pontosDoTraco,
         };
         await this.desativar();
         return {
@@ -934,7 +1236,13 @@ const METRICAS = [
     ['lat n', (c) => c.estatistica.latencia_ms && c.estatistica.latencia_ms.amostras],
     ['perdidos', (c) => c.estatistica.feedbackSuperados],
     ['store ms', (c) => c.prova.msStore],
+    // Do gesto ate a analise derivada entrar na fonte que a tela desenha. So a
+    // LOS e a visibilidade tem uma; nas outras a coluna sai com traco.
+    ['proc ms', (c) => c.prova.msProcessado],
     ['painel ms', (c) => c.prova.msPainel],
+    // Pontos que o gesto deixou no controle. No arrasto e o traco inteiro (um
+    // por evento, mais o do pointerdown), e e a prova de que nada se perdeu.
+    ['pontos', (c) => (c.prova.pontosAcumulados ?? c.prova.pontosDoTraco ?? c.prova.pontosColocados)],
 ];
 
 // Chave de linha: uma linha por (ferramenta, cenario, k). O k so existe no
@@ -1067,7 +1375,7 @@ async function principal() {
     const params = lerArgumentos(process.argv.slice(2));
     if (params.ajuda) { console.log(AJUDA); return; }
 
-    const cfg = { ...FERRAMENTAS[params.ferramenta], nome: params.ferramenta };
+    const cfg = normalizarFerramenta(params.ferramenta);
     const pw = await carregarPlaywright();
     fs.mkdirSync(params.saida, { recursive: true });
 
@@ -1147,6 +1455,14 @@ async function principal() {
 
             await bancada.irParaVista();
             reg.assentou = await bancada.assentar();
+            if (cfg.requerTerreno && !params.terreno) {
+                // Nao para a rodada: o cenario sai INVALIDO com a razao, e a
+                // tabela mostra o que a ferramenta parada faz. Parar aqui
+                // esconderia que ela nem ativa.
+                reg.valida = false;
+                reg.erros.push(`a ferramenta ${params.ferramenta} exige terreno e --terreno nao foi pedido`);
+                console.log(`  ** ${params.ferramenta} exige terreno: rode com --terreno`);
+            }
             if (params.terreno) {
                 reg.terreno = await bancada.ligarTerreno();
                 if (!reg.terreno.terreno) { reg.valida = false; reg.erros.push('--terreno pedido e getTerrain() continuou nulo'); }
@@ -1169,7 +1485,10 @@ async function principal() {
             const casos = [];
             casos.push(...await bancada.cenarioDesenho(params.k));
             await page.screenshot({ path: path.join(params.saida, `captura-${params.ferramenta}-desenho.png`) });
+            console.log(`  criando ${params.feicoes} feicoes para o cenario zoom...`);
             casos.push(await bancada.cenarioZoom(params.feicoes));
+            const cri = casos[casos.length - 1].prova.criacao || {};
+            console.log(`  criacao: ${cri.ok}/${params.feicoes} em ${cri.ms} ms (mediana ${cri.msPorFeicao} ms por feicao)`);
             await page.screenshot({ path: path.join(params.saida, `captura-${params.ferramenta}-zoom.png`) });
             casos.push(await bancada.cenarioConclusao());
             await page.screenshot({ path: path.join(params.saida, `captura-${params.ferramenta}-conclusao.png`) });
@@ -1186,6 +1505,7 @@ async function principal() {
                     + ` | query ${e.query} project ${e.proj}`
                     + `${e.latencia_ms ? ` | lat p50 ${e.latencia_ms.p50} p95 ${e.latencia_ms.p95} (${e.latencia_ms.amostras} assentaram, ${e.feedbackSuperados} perdidos)` : (e.feedbackSuperados ? ` | lat sem medida (${e.feedbackSuperados} perdidos)` : '')}`
                     + `${c.prova.msStore !== undefined && c.prova.msStore !== null ? ` | store ${c.prova.msStore} ms painel ${c.prova.msPainel} ms` : ''}`
+                    + `${c.prova.processadoDeclarado ? ` | processado ${c.prova.msProcessado} ms (${c.prova.naFonteProcessadaAntes} -> ${c.prova.naFonteProcessada} feicoes)` : ''}`
                     + `${c.erros.length ? `  ** CENARIO INVALIDO: ${c.erros.join('; ')}` : ''}`);
             }
         } catch (e) {
@@ -1241,7 +1561,8 @@ if (chamadoDireto) principal().catch((e) => { console.error(e); process.exit(1);
 
 export {
     FERRAMENTAS, ORDEM_FERRAMENTAS, ORDEM_CENARIOS, CENARIOS, METRICAS, VISTA,
-    lerArgumentos, carregarPlaywright, percentil, mediana, estatistica,
-    resumirSetData, avaliarCadencia, celula, chavesDaTabela, montarTabela,
-    escreverMarkdown,
+    MODOS_DESENHO, SEMEADURAS, GESTOS_CONCLUSAO, FORMAS_DE_PONTO, PONTOS_PADRAO,
+    normalizarFerramenta, lerArgumentos, carregarPlaywright, percentil, mediana,
+    estatistica, resumirSetData, avaliarCadencia, celula, chavesDaTabela,
+    montarTabela, escreverMarkdown,
 };

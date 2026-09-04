@@ -991,6 +991,12 @@ class AddLineControl extends BaseControl {
      * Complete edit operation and recalculate profile if enabled
      */
     onEditMouseUp = async () => {
+        // A drag born and dead inside ONE frame (down, move, up) parks its
+        // position and never reaches the frame callback, so `lastPreviewPosition`
+        // below would still be null and the vertex would not follow. Deliver the
+        // parked pointer now; `flush` cancels the frame it had asked for.
+        if (this._previewScheduler.pending) this._previewScheduler.flush();
+
         const selectedFeature = this.getSelectedFeature();
         if (this.isDraggingHandle && selectedFeature && this.activeHandleType && this.lastPreviewPosition) {
             try {
@@ -1556,11 +1562,21 @@ class AddLineControl extends BaseControl {
         }
     }
 
+    /**
+     * Write ONE feature's properties and geometry straight into the source.
+     *
+     * No drag guard. The one that stood here tested `this.uiManager`, which a
+     * control is never handed, so it never fired; and the measure that replaced
+     * it found nothing for it to protect. A feature drag keeps its position in
+     * the selection boxes and writes the geometry only after the flag is down,
+     * so the source never holds a partial position, and a guard on the live path
+     * would drop a write that nothing reapplies. Removed 2026-09-04, measured by
+     * tests/unit/force-update-during-drag-draw.test.js.
+     *
+     * @param {Object} feature - Feature to write
+     * @returns {Promise<void>} Resolves once the source is written
+     */
     forceUpdateMainSource = async (feature) => {
-        if (this.uiManager && this.uiManager.isDragging) {
-            return;
-        }
-
         const data = await this.map.getSource('lines').getData();
         const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
         if (sourceFeature) {

@@ -12,7 +12,8 @@
 
 import process from 'node:process';
 import {
-    FERRAMENTAS, ORDEM_CENARIOS, CENARIOS, lerArgumentos, estatistica,
+    FERRAMENTAS, ORDEM_CENARIOS, CENARIOS, MODOS_DESENHO, SEMEADURAS,
+    GESTOS_CONCLUSAO, normalizarFerramenta, lerArgumentos, estatistica,
     resumirSetData, avaliarCadencia, celula, chavesDaTabela, montarTabela,
     escreverMarkdown, percentil, mediana,
 } from './ferramentas.mjs';
@@ -49,8 +50,16 @@ function estFalsa({ quadros = 180, dt = 2, passo = 16.7, query = 0, proj = 0, la
 const provaDesenhoBoa = (extra = {}) => ({
     setDataAlvo: 180, feicoesAlvo: 180, setDataOutras: 0, porFonte: {},
     fonteAlvo: 'coordination-line-feedback',
-    ferramentaAtiva: true, drawPoints: 1, visibilidade: 'visible',
+    ferramentaAtiva: true, pontosColocados: 1, visibilidade: 'visible',
+    modoDesenho: 'clique', requerTerreno: false, terreno: false,
     controlePresente: true, ...extra,
+});
+
+// Prova boa do desenho por ARRASTO: um traco de 181 pontos para 180 eventos de
+// movimento (o do pointerdown mais um por evento).
+const provaArrastoBoa = (extra = {}) => provaDesenhoBoa({
+    fonteAlvo: 'brush-feedback', modoDesenho: 'arrastar',
+    pontosColocados: 0, pontosAcumulados: 181, eventosDeMovimento: 180, ...extra,
 });
 
 const provaZoomBoa = (extra = {}) => ({
@@ -172,13 +181,43 @@ function eixo4() {
     const soOutras = d(provaDesenhoBoa({ setDataAlvo: 0, setDataOutras: 300 }), est, {});
     checa('setData de outras fontes nao substitui o do feedback', soOutras.length > 0, JSON.stringify(soOutras));
 
-    checa('desenho com 0 pontos colocados reprova', d(provaDesenhoBoa({ drawPoints: 0 }), est, {}).length > 0);
-    checa('desenho com 2 pontos colocados reprova', d(provaDesenhoBoa({ drawPoints: 2 }), est, {}).length > 0);
-    checa('desenho com drawPoints ilegivel reprova', d(provaDesenhoBoa({ drawPoints: null }), est, {}).length > 0);
+    checa('desenho com 0 pontos colocados reprova', d(provaDesenhoBoa({ pontosColocados: 0 }), est, {}).length > 0);
+    checa('desenho com 2 pontos colocados reprova', d(provaDesenhoBoa({ pontosColocados: 2 }), est, {}).length > 0);
+    checa('desenho com a contagem de pontos ilegivel reprova', d(provaDesenhoBoa({ pontosColocados: null }), est, {}).length > 0);
     checa('desenho com a ferramenta inativa reprova', d(provaDesenhoBoa({ ferramentaAtiva: false }), est, {}).length > 0);
     checa('desenho com aba oculta reprova', d(provaDesenhoBoa({ visibilidade: 'hidden' }), est, {}).length > 0);
     const semQuadro = d(provaDesenhoBoa(), estFalsa({ quadros: 0 }), {});
     checa('desenho sem quadro medido reprova', /zero quadros/.test(semQuadro.join(' ')), semQuadro.join(' '));
+
+    // O caso do pedido: ferramenta que exige terreno medida sem terreno. Sem
+    // isso a LOS sairia com 180 quadros bonitos de uma ferramenta que nem ativa.
+    const semTerreno = d(provaDesenhoBoa({ requerTerreno: true, terreno: false }), est, {});
+    checa('ferramenta com requerTerreno medida sem terreno reprova', semTerreno.length > 0);
+    checa('a reprova manda ligar o terreno', /--terreno/.test(semTerreno.join(' ')), semTerreno.join(' '));
+    checa('a mesma ferramenta COM terreno passa', d(provaDesenhoBoa({ requerTerreno: true, terreno: true }), est, {}).length === 0);
+    checa('terreno ligado numa ferramenta que nao exige nao reprova',
+        d(provaDesenhoBoa({ requerTerreno: false, terreno: true }), est, {}).length === 0);
+
+    // O outro caso do pedido: modoDesenho que a bancada nao sabe medir. Sem
+    // esta reprova o gesto errado sairia com o rotulo certo.
+    const modoTorto = d(provaDesenhoBoa({ modoDesenho: 'girar' }), est, {});
+    checa('modoDesenho desconhecido reprova', modoTorto.length > 0);
+    checa('a reprova nomeia o modo que veio', /"girar"/.test(modoTorto.join(' ')), modoTorto.join(' '));
+    checa('modoDesenho ausente vale como clique', d(provaDesenhoBoa({ modoDesenho: undefined }), est, {}).length === 0);
+
+    // Arrasto: o traco E a sequencia de posicoes, entao ponto perdido e defeito.
+    checa('arrasto bom passa', d(provaArrastoBoa(), est, {}).length === 0, JSON.stringify(d(provaArrastoBoa(), est, {})));
+    const perdeu = d(provaArrastoBoa({ pontosAcumulados: 90 }), est, {});
+    checa('arrasto que perdeu metade dos pontos reprova', perdeu.length > 0);
+    checa('a reprova diz quantos pontos para quantos eventos', /90 pontos acumulados para 180 eventos/.test(perdeu.join(' ')), perdeu.join(' '));
+    checa('arrasto com um ponto a mais tambem reprova', d(provaArrastoBoa({ pontosAcumulados: 182 }), est, {}).length > 0);
+    checa('arrasto sem leitura dos pontos reprova', d(provaArrastoBoa({ pontosAcumulados: null }), est, {}).length > 0);
+    checa('arrasto sem contagem de eventos reprova', d(provaArrastoBoa({ eventosDeMovimento: null }), est, {}).length > 0);
+    // No arrasto o `pontosColocados` lido depois do pointerup e zero de direito:
+    // o traco morreu com a feicao, e cobrar 1 aqui reprovaria o pincel bom.
+    checa('arrasto nao e cobrado pela regra do clique', d(provaArrastoBoa({ pontosColocados: 0 }), est, {}).length === 0);
+    const arrastoSemFeedback = d(provaArrastoBoa({ setDataAlvo: 0 }), est, {});
+    checa('arrasto sem setData do feedback reprova', /a ferramenta nao desenhou/.test(arrastoSemFeedback.join(' ')));
 }
 eixo4();
 
@@ -205,6 +244,20 @@ function eixo5() {
     // Uma fonte que devolve MAIS feicoes que as linhas criadas e legitima: a
     // geometria de uma ferramenta pode render varias feicoes por linha.
     checa('fonte com mais feicoes que o store nao reprova sozinha', z(provaZoomBoa({ naFonte: 90 }), est, alvo).length === 0);
+
+    // O pincel conclui no cenario ANTERIOR (o pointerup do desenho cria a
+    // feicao), entao o store ja tem N0 antes do zoom. O alvo e N0 + criadas.
+    const comBase = provaZoomBoa({ noStoreAntesDeCriar: 3, noStore: 33, naFonte: 33 });
+    checa('store que ja tinha feicoes do cenario anterior passa pela soma', z(comBase, est, alvo).length === 0, JSON.stringify(z(comBase, est, alvo)));
+    const somaErrada = z(provaZoomBoa({ noStoreAntesDeCriar: 3, noStore: 30, naFonte: 30 }), est, alvo);
+    checa('store que nao somou as criadas as anteriores reprova', somaErrada.length > 0);
+    checa('a reprova mostra a soma esperada', /esperadas 33 \(3 antes do cenario \+ 30 criadas\)/.test(somaErrada.join(' ')), somaErrada.join(' '));
+    checa('base zero continua cobrando o numero pedido', z(provaZoomBoa({ noStoreAntesDeCriar: 0, noStore: 31 }), est, alvo).length > 0);
+
+    // Terreno, o mesmo eixo do desenho: a LOS sem terreno cria zero feicao.
+    checa('zoom de ferramenta com requerTerreno sem terreno reprova',
+        z(provaZoomBoa({ requerTerreno: true, terreno: false }), est, alvo).length > 0);
+    checa('zoom com terreno ligado passa', z(provaZoomBoa({ requerTerreno: true, terreno: true }), est, alvo).length === 0);
 }
 eixo5();
 
@@ -227,6 +280,41 @@ function eixo6() {
     // Painel que nao abriu nao invalida: nem toda ferramenta abre painel, e o
     // pedido pede o tempo, nao a existencia dele.
     checa('painel ausente nao reprova sozinho', c(provaConclusaoBoa({ msPainel: null }), est, {}).length === 0);
+
+    // Conclusao por pointerup (o pincel): sem traco na mao, o up nao cria nada,
+    // e a reprova tem de dizer isso em vez de so "o store nao subiu".
+    const pincelBom = provaConclusaoBoa({
+        gesto: 'pointerup', cliquesPedidos: 0, cliquesQuePegaram: 0, pontosDoTraco: 14,
+        fonteAlvo: 'brushes', tipo: 'brushes',
+    });
+    checa('conclusao do pincel com traco passa', c(pincelBom, est, {}).length === 0, JSON.stringify(c(pincelBom, est, {})));
+    const semTraco = c({ ...pincelBom, pontosDoTraco: 1 }, est, {});
+    checa('pointerup sem traco de 2 pontos reprova', semTraco.length > 0);
+    checa('a reprova diz que menos de 2 pontos nao vira feicao', /menos de 2 nao vira feicao/.test(semTraco.join(' ')), semTraco.join(' '));
+    checa('pointerup sem leitura do traco reprova', c({ ...pincelBom, pontosDoTraco: null }, est, {}).length > 0);
+    // Traco so e cobrado de quem conclui por pointerup.
+    checa('a conclusao por clique nao e cobrada pelo traco', c(provaConclusaoBoa({ pontosDoTraco: null }), est, {}).length === 0);
+
+    checa('conclusao de ferramenta com requerTerreno sem terreno reprova',
+        c(provaConclusaoBoa({ requerTerreno: true, terreno: false }), est, {}).length > 0);
+
+    // Analise (LOS, visibilidade): a feicao no store nao e o que a tela mostra.
+    // O trecho visivel e o obstruido sao OUTRAS feicoes, em outra fonte, e a
+    // conta que os produz e assincrona.
+    const analiseBoa = provaConclusaoBoa({
+        requerTerreno: true, terreno: true, processadoDeclarado: true,
+        naFonteProcessadaAntes: 30, naFonteProcessada: 32, msProcessado: 41.2,
+    });
+    checa('analise com resultado processado passa', c(analiseBoa, est, {}).length === 0, JSON.stringify(c(analiseBoa, est, {})));
+    const semProcessado = c({ ...analiseBoa, msProcessado: null, naFonteProcessada: 30 }, est, {});
+    checa('analise cuja fonte processada nao cresceu reprova', semProcessado.length > 0);
+    checa('a reprova diz que a analise nao chegou a tela', /nao chegou a tela/.test(semProcessado.join(' ')), semProcessado.join(' '));
+    // O caso que so olhar o store aprovaria: a feicao entrou em 28 ms e o
+    // resultado processado nunca apareceu.
+    const storeSemTela = c({ ...analiseBoa, msProcessado: null }, est, {});
+    checa('store que subiu sem o processado aparecer reprova', /nao apareceu na fonte dentro do limite/.test(storeSemTela.join(' ')), storeSemTela.join(' '));
+    checa('ferramenta sem resultado processado nao e cobrada por ele',
+        c(provaConclusaoBoa({ processadoDeclarado: false, msProcessado: null }), est, {}).length === 0);
 }
 eixo6();
 
@@ -336,6 +424,14 @@ function eixo9() {
     checa('--terreno false desliga', lerArgumentos(['--terreno', 'false']).terreno === false);
     checa('--headless sem valor liga', lerArgumentos(['--headless']).headless === true);
 
+    // A feicao da LOS e da visibilidade custa uma varredura do terreno, entao o
+    // padrao de --feicoes e da FERRAMENTA. Pedido explicito continua mandando.
+    checa('los pede menos feicoes que o padrao', lerArgumentos(['--ferramenta', 'los']).feicoes === FERRAMENTAS.los.feicoesPadrao,
+        String(lerArgumentos(['--ferramenta', 'los']).feicoes));
+    checa('visibility pede menos feicoes que o padrao', lerArgumentos(['--ferramenta', 'visibility']).feicoes === FERRAMENTAS.visibility.feicoesPadrao);
+    checa('--feicoes explicito manda na ferramenta', lerArgumentos(['--ferramenta', 'visibility', '--feicoes', '30']).feicoes === 30);
+    checa('ferramenta sem feicoesPadrao continua em 30', lerArgumentos(['--ferramenta', 'brush']).feicoes === 30);
+
     lanca('ferramenta desconhecida lanca', () => lerArgumentos(['--ferramenta', 'poligono']));
     lanca('ferramenta com o nome do CONTROLE lanca (o nome curto e o contrato)', () => lerArgumentos(['--ferramenta', 'AddBoundaryControl']));
     lanca('--k 0 lanca', () => lerArgumentos(['--k', '0']));
@@ -360,28 +456,96 @@ eixo9();
 function eixo10() {
     console.log('\n== eixo 10: o mapa de nomes das ferramentas');
     const nomes = Object.keys(FERRAMENTAS);
-    checa('as seis ferramentas do pedido estao no mapa',
-        ['line', 'polygon', 'boundary', 'arrow', 'occupied_front', 'coordination_line'].every((n) => nomes.includes(n)),
+    checa('as nove ferramentas do pedido estao no mapa',
+        ['line', 'polygon', 'boundary', 'arrow', 'occupied_front', 'coordination_line', 'los', 'visibility', 'brush']
+            .every((n) => nomes.includes(n)),
         nomes.join(','));
-    for (const [nome, f] of Object.entries(FERRAMENTAS)) {
-        checa(`${nome} tem controle, tipo, fonte, feedback, painel e conclusao`,
-            !!(f.controle && f.tipo && f.fonte && f.feedback && f.painel && f.conclusao && f.conclusao.gesto && f.conclusao.evento),
-            JSON.stringify(f));
+    for (const nome of nomes) {
+        // O normalizador e quem cobra: descritor incompleto lanca aqui, e nao a
+        // 90 segundos de carga com o app ja no ar.
+        checa(`${nome} passa pelo normalizador`, !!normalizarFerramenta(nome), nome);
     }
     checa('o controle sempre comeca com Add e termina em Control',
         Object.values(FERRAMENTAS).every((f) => /^Add.*Control$/.test(f.controle)));
     checa('a fonte principal e o tipo do store tem o mesmo nome (FEATURE_SOURCES)',
         Object.values(FERRAMENTAS).every((f) => f.fonte === f.tipo));
-    checa('a frente ocupada conclui por clique, nao por botao direito',
-        FERRAMENTAS.occupied_front.conclusao.gesto === 'clique-final' && FERRAMENTAS.occupied_front.conclusao.cliquesAntes === 1);
-    checa('as outras cinco concluem por botao direito depois de 3 cliques',
-        Object.entries(FERRAMENTAS).filter(([n]) => n !== 'occupied_front')
-            .every(([, f]) => f.conclusao.gesto === 'botao-direito' && f.conclusao.cliquesAntes === 3));
+    checa('a frente ocupada, a LOS e a visibilidade concluem no segundo clique',
+        ['occupied_front', 'los', 'visibility'].every((n) => FERRAMENTAS[n].conclusao.gesto === 'clique-final'
+            && FERRAMENTAS[n].conclusao.cliquesAntes === 1));
+    checa('as cinco de varios vertices concluem por botao direito depois de 3 cliques',
+        ['line', 'polygon', 'boundary', 'arrow', 'coordination_line']
+            .every((n) => FERRAMENTAS[n].conclusao.gesto === 'botao-direito' && FERRAMENTAS[n].conclusao.cliquesAntes === 3));
+    checa('o pincel conclui no pointerup, sem clique nenhum antes',
+        FERRAMENTAS.brush.conclusao.gesto === 'pointerup' && FERRAMENTAS.brush.conclusao.cliquesAntes === 0
+        && FERRAMENTAS.brush.conclusao.evento === 'pointerup');
+    checa('so o pincel desenha por arrasto',
+        nomes.filter((n) => FERRAMENTAS[n].modoDesenho === 'arrastar').join(',') === 'brush');
+    checa('so a LOS e a visibilidade exigem terreno',
+        nomes.filter((n) => FERRAMENTAS[n].requerTerreno).join(',') === 'los,visibility');
+    checa('quem exige terreno le o ponto do observador em startPoint',
+        ['los', 'visibility'].every((n) => FERRAMENTAS[n].pontos.propriedade === 'startPoint' && FERRAMENTAS[n].pontos.forma === 'ponto'));
+    checa('o pincel acumula o traco em points',
+        FERRAMENTAS.brush.pontos.propriedade === 'points' && FERRAMENTAS.brush.pontos.forma === 'lista');
+    checa('so as duas ferramentas de analise declaram resultado processado',
+        nomes.filter((n) => FERRAMENTAS[n].processado).join(',') === 'los,visibility');
+    checa('a fonte processada nao se confunde com a principal',
+        ['los', 'visibility'].every((n) => FERRAMENTAS[n].processado.fonte !== FERRAMENTAS[n].fonte
+            && FERRAMENTAS[n].processado.tipo !== FERRAMENTAS[n].tipo));
     checa('o poligono cria por anel, com 3 pontos ou mais', FERRAMENTAS.polygon.anel === true && FERRAMENTAS.polygon.pontosParaCriar >= 3);
     checa('nenhuma ferramenta repete a fonte de feedback',
         new Set(Object.values(FERRAMENTAS).map((f) => f.feedback)).size === Object.keys(FERRAMENTAS).length);
+    checa('nenhuma ferramenta repete o controle',
+        new Set(Object.values(FERRAMENTAS).map((f) => f.controle)).size === Object.keys(FERRAMENTAS).length);
 }
 eixo10();
+
+function eixo11() {
+    console.log('\n== eixo 11: o normalizador do descritor (o pior caso de cada campo)');
+    const bom = {
+        controle: 'AddXControl', tipo: 'xs', fonte: 'xs', feedback: 'x-feedback', painel: '.x-attributes-section',
+        pontosParaCriar: 2, conclusao: { gesto: 'clique-final', cliquesAntes: 1, evento: 'click' },
+    };
+    const com = (extra) => ({ x: { ...bom, ...extra } });
+
+    const padrao = normalizarFerramenta('x', com({}));
+    checa('descritor minimo ganha os padroes',
+        padrao.modoDesenho === 'clique' && padrao.semeadura === 'drawPoints'
+        && padrao.pontos.propriedade === 'drawPoints' && padrao.requerTerreno === false,
+        JSON.stringify(padrao));
+    checa('o nome curto entra no descritor', padrao.nome === 'x');
+
+    // O caso do pedido: descritor sem conclusao. A bancada nao teria gesto para
+    // fechar a feicao, e o cenario mediria o nada com o rotulo certo.
+    lanca('descritor sem conclusao lanca', () => normalizarFerramenta('x', { x: { ...bom, conclusao: undefined } }));
+    lanca('conclusao sem gesto lanca', () => normalizarFerramenta('x', com({ conclusao: { cliquesAntes: 1, evento: 'click' } })));
+    lanca('conclusao sem evento lanca', () => normalizarFerramenta('x', com({ conclusao: { gesto: 'clique-final', cliquesAntes: 1 } })));
+    lanca('gesto de conclusao desconhecido lanca', () => normalizarFerramenta('x', com({ conclusao: { gesto: 'balancar', cliquesAntes: 1, evento: 'click' } })));
+    lanca('cliquesAntes negativo lanca', () => normalizarFerramenta('x', com({ conclusao: { gesto: 'clique-final', cliquesAntes: -1, evento: 'click' } })));
+    lanca('cliquesAntes fracionario lanca', () => normalizarFerramenta('x', com({ conclusao: { gesto: 'clique-final', cliquesAntes: 1.5, evento: 'click' } })));
+
+    // O outro caso do pedido: modoDesenho desconhecido.
+    lanca('modoDesenho desconhecido lanca', () => normalizarFerramenta('x', com({ modoDesenho: 'girar' })));
+    lanca('semeadura desconhecida lanca', () => normalizarFerramenta('x', com({ semeadura: 'magica' })));
+    lanca('forma de ponto desconhecida lanca', () => normalizarFerramenta('x', com({ pontos: { propriedade: 'p', forma: 'nuvem' } })));
+    lanca('pontos sem propriedade lanca', () => normalizarFerramenta('x', com({ pontos: { forma: 'lista' } })));
+    lanca('descritor sem controle lanca', () => normalizarFerramenta('x', com({ controle: undefined })));
+    lanca('descritor sem fonte de feedback lanca', () => normalizarFerramenta('x', com({ feedback: undefined })));
+    lanca('ferramenta ausente do mapa lanca', () => normalizarFerramenta('y', com({})));
+
+    // A mensagem tem de dizer o que veio e o que a bancada aceita.
+    try { normalizarFerramenta('x', com({ modoDesenho: 'girar' })); } catch (e) {
+        checa('a reprova do modo diz o valor e as opcoes', /girar/.test(e.message) && MODOS_DESENHO.every((m) => e.message.includes(m)), e.message);
+    }
+    try { normalizarFerramenta('x', com({ semeadura: 'magica' })); } catch (e) {
+        checa('a reprova da semeadura lista as conhecidas', SEMEADURAS.every((s) => e.message.includes(s)), e.message);
+    }
+    try { normalizarFerramenta('x', { x: { ...bom, conclusao: undefined } }); } catch (e) {
+        checa('a reprova da conclusao mostra a forma esperada', /gesto, cliquesAntes, evento/.test(e.message), e.message);
+    }
+    checa('GESTOS_CONCLUSAO cobre os gestos que o mapa usa',
+        Object.values(FERRAMENTAS).every((f) => GESTOS_CONCLUSAO.includes(f.conclusao.gesto)));
+}
+eixo11();
 
 console.log(`\n${total - falhas}/${total} passaram.`);
 if (falhas) { console.log(`${falhas} FALHA(S): a bancada nao esta reprovando o que promete pegar.`); process.exit(1); }

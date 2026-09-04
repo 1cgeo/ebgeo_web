@@ -59,10 +59,19 @@ Depois, uma rodada por ferramenta, 10 feições, nesta GPU:
 
 Suíte: 141 arquivos, 3.120 testes verdes.
 
+## As cinco pendências, fechadas no mesmo dia (três agentes em arquivos disjuntos)
+
+1. **Guarda de arrasto morta, apagada nas nove.** `forceUpdateMainSource` lia `this.uiManager.isDragging`, campo que nenhum controle recebe. Os dois agentes mediram no `MoveHandler` a mesma coisa: o arrasto de feição só escreve `selection-boxes` e entrega a geometria em `_endDrag` com a flag já em falso, então a fonte principal nunca guarda posição parcial e não há retrocesso a evitar; e a única guarda viva (a da linha de coordenação, escrita hoje) descartava a escrita sem nada que a reaplicasse. Os agentes divergiram (um religou, outro apagou) e a arbitragem foi pelo apagar nas nove, com os testes `force-update-during-drag-{draw,military}.test.js` afirmando a política e o motivo, e as réguas `ui-manager-guard-regua-{draw,military}.test.js` proibindo `this.uiManager` em controle. Os passes de zoom do limite e da linha de coordenação mantêm a guarda deles, porque têm `replayMissedZoomUpdate`.
+2. **Arrasto de um quadro commita.** `if (this._previewScheduler.pending) this._previewScheduler.flush();` no início do fim do arrasto, nas ferramentas que usam o utilitário (linha, polígono, seta, frente ocupada, limite, linha de coordenação, visibilidade). A LOS não tem alça; o pincel acumula pontos no evento e não precisa; círculo, elipse, retângulo e setor ainda escrevem a posição no evento bruto e não tinham a regressão. Testes `drag-flush-{draw,military,analysis}.test.js`: `pointerdown`, um `move`, `up` sem quadro no meio, e a feição fica na posição nova; reprovavam o estado anterior.
+3. **Clique sem os 250 ms** no limite e na linha de coordenação: o vértice entra no clique (`_commitPoint`), a dedup fica por `isPointTooClose` contra o último vértice, que é o mesmo que o timer fazia com espera. `click-commit-military.test.js`: dois cliques no mesmo ponto em 100 ms dão um vértice; dois distintos dão dois; um clique vira vértice sem avançar relógio.
+4. **LOS, visibilidade e pincel na bancada**, com descritor próprio (`requerTerreno`, `modoDesenho: 'arrastar'`, semeadura, `processado`) e 184 autotestes. Medido: nenhuma das três reenvia a coleção no zoom; o pincel não perde ponto a 8 `mousemove` por quadro (1.457 pontos para 1.456 eventos); a visibilidade leva 560 ms até o store e 725 até o setor na tela, porque a varredura de 61 raios roda no fio principal.
+5. **A página do site público que "fechava sozinha"** aos 13 a 25 s na sonda: no Chrome de verdade a aba sobreviveu 73 s; nos 16 chunks do site não há `window.close`, `location.replace`, `assign`, `href` nem `submit()`; sem COOP, COEP ou CSP; o alvo da página é destruído sem evento de crash; e a saída do navegador no log do Chromium era o `browser.close()` da própria sonda. É artefato do Chromium do Playwright, não sintoma de usuário. O erro de `removeEventListener` no `beforeunload` é real e inofensivo; a varredura dos 52 controles registrados não achou o ouvinte torto.
+
+Depois, uma rodada, 10 feições, nesta GPU: limite desenho 2,8 ms por quadro, zoom 1 `setData`, conclusão 33 ms até o store; linha de coordenação 1,7 ms, 1 `setData`, 31 ms. Suíte: 149 arquivos, 3.197 testes verdes.
+
 ## O que fica
 
-- LOS, visibilidade e pincel receberam o utilitário mas a bancada ainda não os mapeia (`--ferramenta` cobre as seis de desenho e militares); as réguas de teste os cobrem.
-- Nove controles leem `this.uiManager && this.uiManager.isDragging` em `_forceUpdateMainSourceUnlocked`, um campo que nunca é atribuído: a guarda está morta e corrigi-la muda comportamento (passaria a pular a escrita durante arrasto), então ficou para decisão.
-- Um arrasto de alça que nasce e morre dentro do mesmo quadro não commita (a posição só é escrita no quadro); herdado do modelo e igual nas nove.
-- O clique retido 250 ms (só limite e linha de coordenação): o preview esconde, mas o botão de concluir em toque atualiza tarde.
+- Círculo, elipse, retângulo e setor ainda resolvem snap no evento bruto e escrevem a posição fora do quadro: a mesma dívida que as outras nove pagaram, com o utilitário pronto.
+- A visibilidade calcula os 61 raios no fio principal (dois quadros acima de 33 ms por feição).
+- O ouvinte sem `removeEventListener` no descarregar, que a varredura dos controles registrados não alcançou.
 - `updateFeaturesProperty` e irmãos ainda leem a fonte por `getData()` a cada evento de slider do painel; no 6.7 o `getData` resolve sem round trip, então o custo é o `generate()` por feição selecionada por evento.
