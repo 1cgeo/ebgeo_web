@@ -7,6 +7,7 @@ import { getPointerPosition, isTouchDevice } from '../../utilities/pointer-utils
 import { addArrowAttributesToPanel } from './arrow_attributes_panel.js';
 import AddArrowGeometry from './add_arrow_geometry.js';
 import { BaseControl } from '../../tool_manager';
+import { createPreviewScheduler } from '../../tool_manager/helpers/preview-scheduler.js';
 import { DrawingFinishButton } from '../../draw_tools/drawing-touch-helpers';
 import {
     anchorFor,
@@ -47,11 +48,18 @@ class AddArrowControl extends BaseControl {
 
         this.geometry = new AddArrowGeometry();
 
-        this.previewRafId = null;
-        this.pendingPreviewUpdate = false;
+        // ONE rAF gate for the whole preview, shared by the drawing and the
+        // handle drag (never live together: a drag needs a selected feature),
+        // which already shared this state. The arrow does not snap, so the frame
+        // only rebuilds the polygon; what the gate removes is the 8/12 ms timer
+        // that used to sit INSIDE the frame and only delayed the drawing.
+        this._previewScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this.performPreviewUpdate(pointer),
+        });
         this.lastPreviewPosition = null;
         this.lastPreviewPoints = null;
-        this.geometryDebounceTimer = null;
 
         // Pointer event state for edit handles
         this._activePointerId = null;
@@ -396,23 +404,33 @@ class AddArrowControl extends BaseControl {
         }
     }
 
+    /**
+     * Park the pointer and ask for a frame. A mouse fires several moves inside
+     * one frame and only the last one is ever drawn, so the spine is rebuilt in
+     * the frame callback, not here.
+     */
     handlePreviewMouseMove = (e) => {
-        if (this.drawPoints.length >= 1) {
-            this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
-            this.lastPreviewPoints = [...this.drawPoints, this.lastPreviewPosition];
+        if (this.drawPoints.length < 1) return;
 
-            if (!this.pendingPreviewUpdate) {
-                this.pendingPreviewUpdate = true;
-                this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-            }
-        }
+        this._previewScheduler.request({ point: e.point, lngLat: e.lngLat });
     }
 
-    performPreviewUpdate = () => {
-        if (!this.lastPreviewPosition) {
-            this.pendingPreviewUpdate = false;
-            return;
+    /**
+     * The frame callback: take the frame's last position and redraw once.
+     * @param {Object} [pointer] - The frame's last `{ point, lngLat }`, when a
+     *   pointer event parked one.
+     */
+    performPreviewUpdate = (pointer) => {
+        if (pointer) {
+            this.lastPreviewPosition = [pointer.lngLat.lng, pointer.lngLat.lat];
+            // The spine belongs to the DRAWING path only. A handle drag rebuilds
+            // from the feature itself, and its pointer handler never touched it.
+            if (!this.isDraggingHandle) {
+                this.lastPreviewPoints = [...this.drawPoints, this.lastPreviewPosition];
+            }
         }
+
+        if (!this.lastPreviewPosition) return;
 
         const selectedFeature = this.getSelectedFeature();
 
@@ -421,29 +439,27 @@ class AddArrowControl extends BaseControl {
         } else if (this._extending) {
             this._updateExtensionPreview();
         } else if (this.lastPreviewPoints && this.lastPreviewPoints.length >= 2) {
-            const isAirmobile = AddArrowControl.DEFAULT_PROPERTIES.airmobile;
-            const debounceTime = isAirmobile ? 12 : 8;
+            // No 8/12 ms debounce any more: this runs inside the frame gate, and
+            // both values are under the 16.7 ms of a frame, so they coalesced
+            // nothing and only pushed the drawing one timer late. The airmobile
+            // arrow is the heavier geometry, which is why it carried the longer
+            // timer; the gate caps it at one build per frame either way.
+            // Removed 2026-09-04.
+            const currentZoom = this.map.getZoom();
+            const previewWidth = this.calculateWidthForZoom(currentZoom);
 
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = setTimeout(() => {
-                const currentZoom = this.map.getZoom();
-                const previewWidth = this.calculateWidthForZoom(currentZoom);
-
-                const previewGeometry = this.geometry.generate(
-                    this.lastPreviewPoints,
-                    {
-                        ...AddArrowControl.DEFAULT_PROPERTIES,
-                        width: previewWidth
-                    }
-                );
-
-                if (previewGeometry) {
-                    this.showPreview(previewGeometry);
+            const previewGeometry = this.geometry.generate(
+                this.lastPreviewPoints,
+                {
+                    ...AddArrowControl.DEFAULT_PROPERTIES,
+                    width: previewWidth
                 }
-            }, debounceTime);
-        }
+            );
 
-        this.pendingPreviewUpdate = false;
+            if (previewGeometry) {
+                this.showPreview(previewGeometry);
+            }
+        }
     }
 
     showPreview = (geometry) => {
@@ -611,15 +627,13 @@ class AddArrowControl extends BaseControl {
         // ratio, second head and the airmobile mark all shape the polygon, so
         // defaults would preview an arrow that is not the one being edited.
         const properties = buildExtendedProperties(session.sourceFeature, coordinates);
-        const debounceTime = properties.airmobile ? 12 : 8;
 
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            const previewGeometry = this.geometry.generate(coordinates, properties);
-            if (previewGeometry) {
-                this.showPreview(previewGeometry);
-            }
-        }, debounceTime);
+        // No timer: reached from inside the frame gate, which already caps this
+        // at one build per frame.
+        const previewGeometry = this.geometry.generate(coordinates, properties);
+        if (previewGeometry) {
+            this.showPreview(previewGeometry);
+        }
     }
 
     /**
@@ -823,12 +837,9 @@ class AddArrowControl extends BaseControl {
         const point = getPointerPosition(e, canvas);
         const lngLat = this.map.unproject([point.x, point.y]);
 
-        this.lastPreviewPosition = [lngLat.lng, lngLat.lat];
-
-        if (!this.pendingPreviewUpdate) {
-            this.pendingPreviewUpdate = true;
-            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-        }
+        // Same gate as the drawing preview: the polygon is rebuilt once per
+        // frame, from the last position of that frame.
+        this._previewScheduler.request({ point, lngLat });
     }
 
     async _onEditPointerUp(_e) {
@@ -885,7 +896,15 @@ class AddArrowControl extends BaseControl {
     }
 
     /**
-     * Update arrow preview during handle dragging without mutating the source feature
+     * Update arrow preview during handle dragging without mutating the source feature.
+     *
+     * Called from inside the frame gate, so it already runs at most once per
+     * frame; the 8/12 ms debounce it used to carry coalesced nothing (both are
+     * under the 16.7 ms of a frame) and only pushed the drawing one timer late.
+     * With the timer gone the "re-check the state after the debounce" guard goes
+     * with it: the guard below now runs in the same turn as the drawing.
+     * Removed 2026-09-04.
+     *
      * @param {Array} newPosition - New handle position [lng, lat]
      */
     updateArrowPreview = (newPosition) => {
@@ -894,36 +913,25 @@ class AddArrowControl extends BaseControl {
             return;
         }
 
-        const isAirmobile = selectedFeature.properties.airmobile || false;
-        const debounceTime = isAirmobile ? 12 : 8;
+        // Use calculatePreview with separate type, index, and branchIndex
+        // No mutation of selectedFeature during drag - only visual preview
+        const preview = this.geometry.calculatePreview(
+            this.activeHandleType,
+            newPosition,
+            selectedFeature,
+            this.activeHandleIndex,
+            this.activeBranchIndex
+        );
 
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            // Re-check state inside callback as it may have changed during debounce
-            if (!this.activeHandleType || !this.isDraggingHandle) {
-                return;
-            }
+        if (preview) {
+            this.showEditPreview(preview.geometry);
 
-            // Use calculatePreview with separate type, index, and branchIndex
-            // No mutation of selectedFeature during drag - only visual preview
-            const preview = this.geometry.calculatePreview(
-                this.activeHandleType,
-                newPosition,
-                selectedFeature,
-                this.activeHandleIndex,
-                this.activeBranchIndex
-            );
-
-            if (preview) {
-                this.showEditPreview(preview.geometry);
-
-                // Update handles based on preview
-                this.map.getSource('arrow-edit-handles').setData({
-                    type: 'FeatureCollection',
-                    features: preview.handles
-                });
-            }
-        }, debounceTime);
+            // Update handles based on preview
+            this.map.getSource('arrow-edit-handles').setData({
+                type: 'FeatureCollection',
+                features: preview.handles
+            });
+        }
     }
 
     showEditPreview = (geometry) => {
@@ -1285,21 +1293,12 @@ class AddArrowControl extends BaseControl {
     // ===== UTILITY METHODS =====
 
     cancelPendingUpdates = () => {
-        if (this.previewRafId) {
-            cancelAnimationFrame(this.previewRafId);
-            this.previewRafId = null;
-        }
-        this.pendingPreviewUpdate = false;
+        this._previewScheduler.cancel();
         this.lastPreviewPosition = null;
         this.lastPreviewPoints = null;
         this.activeHandle = null;
         this.activeHandleType = null;
         this.activeBranchIndex = null;
-
-        if (this.geometryDebounceTimer) {
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = null;
-        }
     }
 
     forceUpdateMainSource = async (feature) => {

@@ -11,6 +11,7 @@ import { computeBoundaryZoomSizes, withBoundaryZoomSizes, isScreenAnchored } fro
 import { BaseControl } from '../../tool_manager';
 import { DrawingFinishButton } from '../../draw_tools/drawing-touch-helpers';
 import { getSnappingService } from '../../snapping/snapping.service.js';
+import { createPreviewScheduler } from '../../tool_manager/helpers/preview-scheduler.js';
 import {
     anchorFor,
     buildExtendedProperties,
@@ -64,17 +65,36 @@ class AddBoundaryControl extends BaseControl {
         // (calling a shell from inside a task waits for the task itself).
         this._sourceQueue = createSerialQueue();
 
-        this.previewRafId = null;
-        this.pendingPreviewUpdate = false;
+        // ONE rAF gate for the whole preview. The drawing, the continuation and
+        // the handle drag are never live together (a drag needs a selected
+        // feature, a drawing does not have one) and already shared this state, so
+        // they share the gate: the raw event parks a pointer, the frame resolves
+        // the snap once and draws once.
+        this._previewScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this.performPreviewUpdate(pointer),
+        });
+        // The indicator BEFORE the first click gets its own gate: it is armed by
+        // `activate()` and swapped for the drawing preview on that first click.
+        this._preClickScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this._updatePreClickSnap(pointer),
+        });
         this.zoomRafId = null;
+        this.zoomEndRafId = null;
         // `pendingZoomUpdate` is held for the whole (async) pass so the frames of a
         // zoom gesture cannot stack; `missedZoomUpdate` records the frames that
         // arrive meanwhile, so the last zoom of the gesture is replayed, not lost.
+        // The `ZoomEnd` twins do the same for the once-per-gesture pass, which is
+        // async for the same reasons and can also land mid-drag.
         this.pendingZoomUpdate = false;
         this.missedZoomUpdate = false;
+        this.pendingZoomEndUpdate = false;
+        this.missedZoomEndUpdate = false;
         this.lastPreviewPosition = null;
         this.lastPreviewPoints = null;
-        this.geometryDebounceTimer = null;
 
         this.clickTimer = null;
         this.lastClickCoords = null;
@@ -154,12 +174,19 @@ class AddBoundaryControl extends BaseControl {
 
     onRemove = () => {
         this.map?.off('zoom', this.handleZoomChange);
+        this.map?.off('zoomend', this.handleZoomEnd);
         if (this.zoomRafId) {
             cancelAnimationFrame(this.zoomRafId);
             this.zoomRafId = null;
         }
+        if (this.zoomEndRafId) {
+            cancelAnimationFrame(this.zoomEndRafId);
+            this.zoomEndRafId = null;
+        }
         this.pendingZoomUpdate = false;
         this.missedZoomUpdate = false;
+        this.pendingZoomEndUpdate = false;
+        this.missedZoomEndUpdate = false;
         this.deactivate();
         this.removeAllEventListeners();
         this.map = undefined;
@@ -350,10 +377,29 @@ class AddBoundaryControl extends BaseControl {
 
     // ===== PRE-CLICK SNAP INDICATOR =====
 
+    /**
+     * Snap indicator before the first click, when there is nothing to preview yet.
+     *
+     * The raw `mousemove` only PARKS the pointer: `snapping.resolve` is a
+     * rendered-feature query, and a mouse fires several moves inside one frame,
+     * so it runs once per frame from the gate's callback below. The indicator
+     * lands on the same pixel either way, since only the last position of the
+     * frame is ever drawn.
+     */
     _onPreClickMouseMove = (e) => {
+        this._preClickScheduler.request({ point: e.point, lngLat: e.lngLat });
+    }
+
+    /**
+     * @param {Object} pointer - The frame's last `{ point, lngLat }`
+     * @private
+     */
+    _updatePreClickSnap = (pointer) => {
+        if (!pointer || !this.map) return;
+
         const snapping = getSnappingService();
-        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
-        if (snap.snapped) {
+        const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat);
+        if (snap?.snapped) {
             snapping.showIndicator(this.map, snap, snap.snapType);
         } else {
             snapping?.hideIndicator(this.map);
@@ -510,10 +556,34 @@ class AddBoundaryControl extends BaseControl {
         this.stopDrawing();
     }
 
+    /**
+     * Park the pointer and ask for a frame. The snap is resolved inside the
+     * gate's callback, once per frame, for the reason on `_onPreClickMouseMove`.
+     */
     handlePreviewMouseMove = (e) => {
-        if (this.drawPoints.length >= 1) {
+        if (this.drawPoints.length < 1) return;
+
+        this._previewScheduler.request({ point: e.point, lngLat: e.lngLat });
+    }
+
+    /**
+     * The frame callback: resolve the snap ONCE, move the indicator, then draw.
+     * @param {Object} [pointer] - The frame's last `{ point, lngLat }`, when a
+     *   pointer event parked one.
+     */
+    performPreviewUpdate = (pointer) => {
+        const selectedFeature = this.getSelectedFeature();
+        const draggingHandle = Boolean(this.isDraggingHandle && selectedFeature && this.activeHandleType);
+
+        if (pointer) {
             const snapping = getSnappingService();
-            const snap = snapping?.resolve(this.map, e.point, e.lngLat, this._extending?.featureId) ?? e.lngLat;
+            // Exclude the feature itself in the two cases that have one: dragging
+            // its own handle, and continuing it. Its own vertices would otherwise
+            // capture every move.
+            const excludeId = draggingHandle
+                ? selectedFeature.properties?.id
+                : this._extending?.featureId;
+            const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat, excludeId) ?? pointer.lngLat;
 
             if (snap.snapped) {
                 snapping.showIndicator(this.map, snap, snap.snapType);
@@ -521,23 +591,15 @@ class AddBoundaryControl extends BaseControl {
                 snapping?.hideIndicator(this.map);
             }
 
-            this.lastPreviewPoints = [...this.drawPoints];
             this.lastPreviewPosition = [snap.lng, snap.lat];
-
-            if (!this.pendingPreviewUpdate) {
-                this.pendingPreviewUpdate = true;
-                this.previewRafId = requestAnimationFrame(this.performPreviewUpdate.bind(this));
-            }
-        }
-    }
-
-    performPreviewUpdate = () => {
-        if (!this.lastPreviewPosition) {
-            this.pendingPreviewUpdate = false;
-            return;
+            // Read here, not on the raw event: a drag has no drawn points, and
+            // the frame sees whatever a click committed meanwhile.
+            if (!draggingHandle) this.lastPreviewPoints = [...this.drawPoints];
         }
 
-        if (this.isDraggingHandle && this.getSelectedFeature() && this.activeHandleType) {
+        if (!this.lastPreviewPosition) return;
+
+        if (draggingHandle) {
             this.updateBoundaryPreview(this.lastPreviewPosition);
         } else if (this._extending) {
             this._updateExtensionPreview();
@@ -548,29 +610,24 @@ class AddBoundaryControl extends BaseControl {
             }
             previewPoints.push(this.lastPreviewPosition);
 
-            if (previewPoints.length >= 1) {
-                clearTimeout(this.geometryDebounceTimer);
-                this.geometryDebounceTimer = setTimeout(() => {
-                    const currentZoom = this.map.getZoom();
-                    const previewSize = this.calculateSymbolSizeForZoom(currentZoom);
+            const currentZoom = this.map.getZoom();
+            const previewSize = this.calculateSymbolSizeForZoom(currentZoom);
 
-                    // Derive the sizes instead of inheriting the defaults': the
-                    // shared DEFAULT_PROPERTIES carries a `calculatedSymbolSize`
-                    // belonging to another size, and the preview overrides only
-                    // the base.
-                    const previewProperties = withBoundaryZoomSizes({
-                        ...AddBoundaryControl.DEFAULT_PROPERTIES,
-                        symbol_size: previewSize,
-                        createdAtZoom: Math.round(currentZoom * 10) / 10,
-                        baseCoordinates: previewPoints
-                    }, currentZoom);
-                    const previewGeometry = this.geometry.generate(previewProperties, currentZoom);
-                    this.showPreview(previewGeometry);
-                }, 8);
-            }
+            // Derive the sizes instead of inheriting the defaults': the shared
+            // DEFAULT_PROPERTIES carries a `calculatedSymbolSize` belonging to
+            // another size, and the preview overrides only the base.
+            const previewProperties = withBoundaryZoomSizes({
+                ...AddBoundaryControl.DEFAULT_PROPERTIES,
+                symbol_size: previewSize,
+                createdAtZoom: Math.round(currentZoom * 10) / 10,
+                baseCoordinates: previewPoints
+            }, currentZoom);
+            // No timer: this already runs at most once per frame, and the 8 ms
+            // debounce it used to carry coalesced nothing (8 ms is under the
+            // 16.7 ms of a frame). Removed 2026-09-04.
+            const previewGeometry = this.geometry.generate(previewProperties, currentZoom);
+            this.showPreview(previewGeometry);
         }
-
-        this.pendingPreviewUpdate = false;
     }
 
     showPreview = (geometry) => {
@@ -753,13 +810,12 @@ class AddBoundaryControl extends BaseControl {
         // preview a boundary with an echelon the feature does not have.
         const properties = buildExtendedProperties(session.sourceFeature, coordinates);
 
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            const previewGeometry = this.geometry.generate(properties, this.getCurrentZoom());
-            if (previewGeometry) {
-                this.showPreview(previewGeometry);
-            }
-        }, 8);
+        // No timer, same reason as `performPreviewUpdate`: this is reached from
+        // inside the frame callback, which already runs once per frame.
+        const previewGeometry = this.geometry.generate(properties, this.getCurrentZoom());
+        if (previewGeometry) {
+            this.showPreview(previewGeometry);
+        }
     }
 
     /**
@@ -960,6 +1016,11 @@ class AddBoundaryControl extends BaseControl {
         }
     }
 
+    /**
+     * The handle drag rides the SAME gate as the drawing preview: the pointer is
+     * parked here and the snap is resolved once per frame in
+     * `performPreviewUpdate`, which excludes the dragged feature itself.
+     */
     _onEditPointerMove(e) {
         if (!e.isPrimary) return;
 
@@ -970,22 +1031,7 @@ class AddBoundaryControl extends BaseControl {
         const point = getPointerPosition(e, canvas);
         const lngLat = this.map.unproject([point.x, point.y]);
 
-        const snapping = getSnappingService();
-        const excludeId = selectedFeature.properties?.id;
-        const snap = snapping?.resolve(this.map, point, lngLat, excludeId) ?? lngLat;
-
-        if (snap.snapped) {
-            snapping.showIndicator(this.map, snap, snap.snapType);
-        } else {
-            snapping?.hideIndicator(this.map);
-        }
-
-        this.lastPreviewPosition = [snap.lng, snap.lat];
-
-        if (!this.pendingPreviewUpdate) {
-            this.pendingPreviewUpdate = true;
-            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-        }
+        this._previewScheduler.request({ point, lngLat });
     }
 
     _onEditPointerUp = async (_e) => {
@@ -1048,26 +1094,19 @@ class AddBoundaryControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature || !this.activeHandleType) return;
 
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            const currentHandleType = this.activeHandleType;
-            const currentFeature = this.getSelectedFeature();
-            const currentHandleIndex = this.activeHandleIndex;
+        // No timer, same reason as `performPreviewUpdate`: this is reached from
+        // inside the frame callback, which already runs once per frame.
+        const result = this.geometry.updateFromHandle(
+            this.activeHandleType,
+            newPosition,
+            selectedFeature,
+            this.activeHandleIndex,
+            this.getCurrentZoom()
+        );
 
-            if (currentHandleType && currentFeature) {
-                const result = this.geometry.updateFromHandle(
-                    currentHandleType,
-                    newPosition,
-                    currentFeature,
-                    currentHandleIndex,
-                    this.getCurrentZoom()
-                );
-
-                if (result) {
-                    this.showEditPreview(result.geometry, result.properties);
-                }
-            }
-        }, 8);
+        if (result) {
+            this.showEditPreview(result.geometry, result.properties);
+        }
     }
 
     showEditPreview = (geometry, properties) => {
@@ -1382,13 +1421,25 @@ class AddBoundaryControl extends BaseControl {
 
     // ===== ZOOM CORRECTION =====
 
+    // The three layers derive their pixel sizes from the zoom on the GPU now
+    // (`buildBoundaryLineWidthExpression`, `buildBoundaryTextSizeExpression`,
+    // `buildBoundaryCircleStrokeExpression`), so the per-frame pass no longer
+    // feeds the drawing of a terrain-pinned boundary: it is left with the one job
+    // no style expression can do, the echelon geometry of the SCREEN-pinned
+    // boundaries, whose symbol lives in kilometres and has to be rebuilt at every
+    // zoom step (with the circles and labels that hang off it, both placed in km
+    // too). Everything else (the stored `calculated*` properties the export, the
+    // selection box and the attribute panel read) is worth doing once per
+    // gesture, on `zoomend`. Measured on 2026-09-04: the old single pass wrote
+    // the collection 92 times in a 3 s gesture with 10 boundaries.
     setupZoomListener = () => {
         this.map.on('zoom', this.handleZoomChange);
+        this.map.on('zoomend', this.handleZoomEnd);
     }
 
     handleZoomChange = () => {
         // `pendingZoomUpdate` stays true for the WHOLE pass, not just until it
-        // starts: the pass is async (three `getData` reads, and a geometry rebuild
+        // starts: the pass is async (a `getData` read, and a geometry rebuild
         // for the screen-pinned boundaries), so clearing it early would let every
         // frame of a zoom gesture stack another pass, and the one that started at
         // the OLD zoom could finish last and write stale sizes.
@@ -1398,18 +1449,31 @@ class AddBoundaryControl extends BaseControl {
         }
 
         this.pendingZoomUpdate = true;
-        this.zoomRafId = requestAnimationFrame(this.updateAllBoundaryZoomSizes);
+        this.zoomRafId = requestAnimationFrame(this.updateScreenAnchoredGeometry);
+    }
+
+    handleZoomEnd = () => {
+        // Same discipline as above, and needed for the same reason: `zoomend`
+        // fires once per gesture, but a wheel gesture is a burst of gestures, and
+        // this pass is async too.
+        if (this.pendingZoomEndUpdate) {
+            this.missedZoomEndUpdate = true;
+            return;
+        }
+
+        this.pendingZoomEndUpdate = true;
+        this.zoomEndRafId = requestAnimationFrame(this.updateAllBoundaryZoomSizes);
     }
 
     /**
-     * Run the zoom pass that a drag made stand down, if there was one.
+     * Run the zoom passes that a drag made stand down, if there were any.
      * Called at the end of both drag paths (edit handle, feature move).
      * @returns {void}
      */
     replayMissedZoomUpdate = () => {
-        if (this.missedZoomUpdate && this.map) {
-            this.handleZoomChange();
-        }
+        if (!this.map) return;
+        if (this.missedZoomUpdate) this.handleZoomChange();
+        if (this.missedZoomEndUpdate) this.handleZoomEnd();
     }
 
     /**
@@ -1457,19 +1521,21 @@ class AddBoundaryControl extends BaseControl {
     }
 
     /**
-     * Rewrite the derived sizes of every boundary and of its dependent texts and
-     * circles for the current zoom. Runs at most once per animation frame while
-     * zooming; `setData` is only called for sources that actually changed, so a
-     * map with no anchored boundary costs nothing but the reads.
+     * The per-frame zoom pass: the screen-pinned boundaries' geometry, and
+     * nothing else. Writes the live sources only, never the store.
+     * @returns {Promise<void>} Resolves once the sources are written
      */
-    updateAllBoundaryZoomSizes = async () => {
+    updateScreenAnchoredGeometry = async () => {
         this.zoomRafId = null;
 
         // A drag OWNS the three sources for its duration (the move handler and
         // the handle drag both write them from outside this pass), and a pass
         // landing mid-drag would rewrite what the drag has not committed yet.
         // Stand down and leave the flag up: the end of the drag replays it.
-        if (this.isDraggingHandle || this.uiManager?.isDragging) {
+        // Through `selectionManager`, because a control is never handed a
+        // `uiManager` of its own: `this.uiManager` is always undefined here, so
+        // the feature-move half of this guard never fired.
+        if (this.isDraggingHandle || this.selectionManager?.uiManager?.isDragging) {
             this.pendingZoomUpdate = false;
             this.missedZoomUpdate = true;
             return;
@@ -1478,6 +1544,101 @@ class AddBoundaryControl extends BaseControl {
         // Frames that arrived before this line are covered by the zoom this pass
         // is about to read; only what arrives from here on has to be replayed.
         this.missedZoomUpdate = false;
+
+        try {
+            if (!this.map) return;
+            const currentZoom = this.map.getZoom();
+
+            // One task for the whole pass, as below: the boundary source and the
+            // two dependent ones are read and written here.
+            await this._sourceQueue(async () => {
+                const regenerated = await this._refreshScreenAnchoredGeometry(currentZoom);
+
+                // Only the screen-pinned boundaries changed shape, and only those
+                // need their circles and labels rebuilt (both placed in km).
+                for (const feature of regenerated) {
+                    if (!this.map) return;
+                    await this._updateDependentFeaturesUnlocked(feature);
+                }
+            });
+        } catch (error) {
+            // Nothing consumes this promise (it is a rAF callback), so a rejection
+            // here would be an unhandled one and the correction would freeze in
+            // silence. A style swap can remove a source mid-zoom; log and move on.
+            console.warn('Error refreshing boundary zoom geometry:', error);
+        } finally {
+            this.pendingZoomUpdate = false;
+            if (this.missedZoomUpdate && this.map) {
+                this.missedZoomUpdate = false;
+                this.handleZoomChange();
+            }
+        }
+    }
+
+    /**
+     * Rebuild the echelon of the SCREEN-pinned boundaries, whose size in
+     * kilometres changes with every zoom step. A collection with none of them
+     * writes nothing at all, which is the common case: the correction is on by
+     * default, and a terrain-pinned boundary keeps both its geometry and (via the
+     * layers' expressions) its drawn sizes across the whole gesture.
+     *
+     * @param {number} currentZoom - Zoom to derive sizes for
+     * @returns {Promise<Array>} The features whose geometry was rebuilt
+     * @private
+     */
+    _refreshScreenAnchoredGeometry = async (currentZoom) => {
+        const source = this.map?.getSource('boundarys');
+        if (!source) return [];
+
+        const data = await readGeoJSONSourceDataAsync(source);
+        // The map can be gone (or restyled) by the time the read resolves.
+        if (!this.map || !data?.features?.length) return [];
+
+        const regenerated = [];
+
+        for (const feature of data.features) {
+            if (!feature?.properties || !isScreenAnchored(feature.properties)) continue;
+
+            const sizes = computeBoundaryZoomSizes(feature.properties, currentZoom);
+            if (feature.properties.calculatedSymbolSize === sizes.calculatedSymbolSize) continue;
+
+            feature.properties.calculatedSymbolSize = sizes.calculatedSymbolSize;
+            feature.geometry = this.geometry.generate(feature.properties, currentZoom);
+            regenerated.push(feature);
+        }
+
+        if (regenerated.length) {
+            source.setData(data);
+        }
+
+        return regenerated;
+    }
+
+    /**
+     * The once-per-gesture pass, on `zoomend`: the derived sizes of every
+     * boundary and of its dependent texts and circles, plus the geometry of the
+     * screen-pinned ones. `setData` is only called for sources that actually
+     * changed, so a map with no anchored boundary costs nothing but the reads.
+     *
+     * The `calculated*` properties no longer feed the drawing, but the export,
+     * the selection box and the attribute panel still read them, so they are
+     * refreshed here rather than dropped.
+     *
+     * @returns {Promise<void>} Resolves once the sources are written
+     */
+    updateAllBoundaryZoomSizes = async () => {
+        this.zoomEndRafId = null;
+
+        // Same reason as the per-frame pass, `selectionManager` included: a drag
+        // owns the three sources, so stand down and let the end of the drag
+        // replay this.
+        if (this.isDraggingHandle || this.selectionManager?.uiManager?.isDragging) {
+            this.pendingZoomEndUpdate = false;
+            this.missedZoomEndUpdate = true;
+            return;
+        }
+
+        this.missedZoomEndUpdate = false;
 
         try {
             if (!this.map) return;
@@ -1504,10 +1665,10 @@ class AddBoundaryControl extends BaseControl {
             // silence. A style swap can remove a source mid-zoom; log and move on.
             console.warn('Error refreshing boundary zoom sizes:', error);
         } finally {
-            this.pendingZoomUpdate = false;
-            if (this.missedZoomUpdate && this.map) {
-                this.missedZoomUpdate = false;
-                this.handleZoomChange();
+            this.pendingZoomEndUpdate = false;
+            if (this.missedZoomEndUpdate && this.map) {
+                this.missedZoomEndUpdate = false;
+                this.handleZoomEnd();
             }
         }
     }
@@ -1901,20 +2062,13 @@ class AddBoundaryControl extends BaseControl {
     // ===== UTILITY METHODS =====
 
     cancelPendingUpdates = () => {
-        if (this.previewRafId) {
-            cancelAnimationFrame(this.previewRafId);
-            this.previewRafId = null;
-        }
-        this.pendingPreviewUpdate = false;
+        // Both gates: the drawing/drag preview and the pre-click indicator.
+        this._previewScheduler.cancel();
+        this._preClickScheduler.cancel();
         this.lastPreviewPosition = null;
         this.lastPreviewPoints = null;
         this.activeHandleType = null;
         this.activeHandleIndex = null;
-
-        if (this.geometryDebounceTimer) {
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = null;
-        }
 
         if (this.clickTimer) {
             clearTimeout(this.clickTimer);

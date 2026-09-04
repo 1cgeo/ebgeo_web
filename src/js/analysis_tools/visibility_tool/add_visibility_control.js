@@ -7,6 +7,7 @@ import { getPointerPosition } from '@utils/pointer-utils';
 import { addVisibilityAttributesToPanel, addVisibilityParametersToPanel } from './visibility_attributes_panel.js';
 import AddVisibilityGeometry from './add_visibility_geometry.js';
 import { BaseControl } from '@tools';
+import { createPreviewScheduler } from '@tools/helpers/preview-scheduler.js';
 import { getSnappingService } from '@js/snapping';
 
 /**
@@ -32,12 +33,24 @@ class AddVisibilityControl extends BaseControl {
         this.startPoint = null;
         this.geometry = new AddVisibilityGeometry();
 
-        // Drawing preview state
-        this.previewRafId = null;
-        this.pendingPreviewUpdate = false;
+        // Drawing preview state. ONE rAF gate for the whole preview: the sector
+        // being drawn and the handle drag are never live together, and already
+        // shared this state, so they share the gate. The raw event parks a
+        // pointer, the frame resolves the snap once and draws once.
+        this._previewScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this.performPreviewUpdate(pointer),
+        });
+        // The indicator BEFORE the first click gets its own gate: it is armed by
+        // `activate()` and swapped for the drawing preview on that first click.
+        this._preClickScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this._updatePreClickSnap(pointer),
+        });
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
-        this.geometryDebounceTimer = null;
 
         // Edit handle state
         this.isDraggingHandle = false;
@@ -372,6 +385,11 @@ class AddVisibilityControl extends BaseControl {
         }
     }
 
+    /**
+     * The handle drag rides the SAME gate as the drawing preview: the pointer is
+     * parked here and the snap is resolved once per frame in
+     * `performPreviewUpdate`, which excludes the dragged feature itself.
+     */
     _onEditPointerMove(e) {
         if (!e.isPrimary) return;
 
@@ -382,22 +400,7 @@ class AddVisibilityControl extends BaseControl {
         const point = getPointerPosition(e, canvas);
         const lngLat = this.map.unproject([point.x, point.y]);
 
-        const snapping = getSnappingService();
-        const excludeId = selectedFeature.properties?.id;
-        const snap = snapping?.resolve(this.map, { x: point.x, y: point.y }, lngLat, excludeId) ?? lngLat;
-
-        if (snap.snapped) {
-            snapping.showIndicator(this.map, snap, snap.snapType);
-        } else {
-            snapping?.hideIndicator(this.map);
-        }
-
-        this.lastPreviewPosition = [snap.lng, snap.lat];
-
-        if (!this.pendingPreviewUpdate) {
-            this.pendingPreviewUpdate = true;
-            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-        }
+        this._previewScheduler.request({ point: { x: point.x, y: point.y }, lngLat });
     }
 
     _onEditPointerUp(_e) {
@@ -538,10 +541,29 @@ class AddVisibilityControl extends BaseControl {
     }
 
 
+    /**
+     * Snap indicator before the first click, when there is nothing to preview yet.
+     *
+     * The raw `mousemove` only PARKS the pointer: `snapping.resolve` is a
+     * rendered-feature query, and a mouse fires several moves inside one frame,
+     * so it runs once per frame from the gate's callback below. The indicator
+     * lands on the same pixel either way, since only the last position of the
+     * frame is ever drawn.
+     */
     _onPreClickMouseMove = (e) => {
+        this._preClickScheduler.request({ point: e.point, lngLat: e.lngLat });
+    }
+
+    /**
+     * @param {Object} pointer - The frame's last `{ point, lngLat }`
+     * @private
+     */
+    _updatePreClickSnap = (pointer) => {
+        if (!pointer || !this.map) return;
+
         const snapping = getSnappingService();
-        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
-        if (snap.snapped) {
+        const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat);
+        if (snap?.snapped) {
             snapping.showIndicator(this.map, snap, snap.snapType);
         } else {
             snapping?.hideIndicator(this.map);
@@ -569,35 +591,46 @@ class AddVisibilityControl extends BaseControl {
         }
     }
 
+    /**
+     * Park the pointer and ask for a frame. The snap is resolved inside the
+     * gate's callback, once per frame, for the reason on `_onPreClickMouseMove`.
+     */
     handleMouseMove = (e) => {
         if (!this.isActive || !this.startPoint) return;
 
-        const snapping = getSnappingService();
-        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
-
-        if (snap.snapped) {
-            snapping.showIndicator(this.map, snap, snap.snapType);
-        } else {
-            snapping?.hideIndicator(this.map);
-        }
-
-        this.lastPreviewCenter = this.startPoint;
-        this.lastPreviewPosition = [snap.lng, snap.lat];
-
-        if (!this.pendingPreviewUpdate) {
-            this.pendingPreviewUpdate = true;
-            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-        }
+        this._previewScheduler.request({ point: e.point, lngLat: e.lngLat });
     }
 
-    performPreviewUpdate = () => {
-        if (!this.lastPreviewPosition) {
-            this.pendingPreviewUpdate = false;
-            return;
+    /**
+     * The frame callback: resolve the snap ONCE, move the indicator, then draw.
+     * @param {Object} [pointer] - The frame's last `{ point, lngLat }`, when a
+     *   pointer event parked one.
+     */
+    performPreviewUpdate = (pointer) => {
+        const selectedFeature = this.getSelectedFeature();
+        const draggingHandle = Boolean(this.isDraggingHandle && selectedFeature);
+
+        if (pointer) {
+            const snapping = getSnappingService();
+            // Exclude the feature itself while dragging one of its own handles:
+            // its own vertices would otherwise capture every move.
+            const excludeId = draggingHandle ? selectedFeature.properties?.id : null;
+            const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat, excludeId) ?? pointer.lngLat;
+
+            if (snap.snapped) {
+                snapping.showIndicator(this.map, snap, snap.snapType);
+            } else {
+                snapping?.hideIndicator(this.map);
+            }
+
+            this.lastPreviewPosition = [snap.lng, snap.lat];
+            // The drawing centre is the first click, never a drag's own state.
+            if (!draggingHandle) this.lastPreviewCenter = this.startPoint;
         }
 
-        const selectedFeature = this.getSelectedFeature();
-        if (this.isDraggingHandle && selectedFeature) {
+        if (!this.lastPreviewPosition) return;
+
+        if (draggingHandle) {
             this.updateHandlePreview(this.lastPreviewPosition);
         } else if (this.startPoint && this.lastPreviewCenter) {
             const aperture = AddVisibilityControl.DEFAULT_PROPERTIES.aperture;
@@ -606,8 +639,6 @@ class AddVisibilityControl extends BaseControl {
             );
             this.showPreview(previewCoordinates);
         }
-
-        this.pendingPreviewUpdate = false;
     }
 
     showPreview = (coordinates) => {
@@ -1189,18 +1220,11 @@ class AddVisibilityControl extends BaseControl {
 
 
     cancelPendingUpdates = () => {
-        if (this.previewRafId) {
-            cancelAnimationFrame(this.previewRafId);
-            this.previewRafId = null;
-        }
-        this.pendingPreviewUpdate = false;
+        // Both gates: the drawing/drag preview and the pre-click indicator.
+        this._previewScheduler.cancel();
+        this._preClickScheduler.cancel();
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
-
-        if (this.geometryDebounceTimer) {
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = null;
-        }
 
         if (this.parameterDebounceTimer) {
             clearTimeout(this.parameterDebounceTimer);

@@ -7,6 +7,7 @@ import { getPointerPosition } from '@utils/pointer-utils';
 import { addOccupiedFrontAttributesToPanel } from './occupied_front_attributes_panel.js';
 import AddOccupiedFrontGeometry from './add_occupied_front_geometry.js';
 import { BaseControl } from '@tools';
+import { createPreviewScheduler } from '../../tool_manager/helpers/preview-scheduler.js';
 
 /**
  * Layers onHoverMove needs: 'occupied-front-edit-handles' (hasHandleAtPoint) and
@@ -26,11 +27,18 @@ class AddOccupiedFrontControl extends BaseControl {
 
         this.geometry = new AddOccupiedFrontGeometry();
 
-        this.previewRafId = null;
-        this.pendingPreviewUpdate = false;
+        // ONE rAF gate for the whole preview, shared by the drawing and the
+        // handle drag (never live together: a drag needs a selected feature),
+        // which already shared this state. The occupied front does not snap, so
+        // the frame only rebuilds the geometry; what the gate removes is the
+        // 12/8 ms timer that used to sit INSIDE the frame.
+        this._previewScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this.performPreviewUpdate(pointer),
+        });
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
-        this.geometryDebounceTimer = null;
 
         // Pointer event state for edit handles
         this._activePointerId = null;
@@ -263,23 +271,33 @@ class AddOccupiedFrontControl extends BaseControl {
         }
     }
 
+    /**
+     * Park the pointer and ask for a frame. A mouse fires several moves inside
+     * one frame and only the last one is ever drawn, so the geometry is built in
+     * the frame callback, not here.
+     */
     handlePreviewMouseMove = (e) => {
-        if (this.drawPoints.length === 1) {
-            this.lastPreviewCenter = this.drawPoints[0];
-            this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
+        if (this.drawPoints.length !== 1) return;
 
-            if (!this.pendingPreviewUpdate) {
-                this.pendingPreviewUpdate = true;
-                this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-            }
-        }
+        this._previewScheduler.request({ point: e.point, lngLat: e.lngLat });
     }
 
-    performPreviewUpdate = () => {
-        if (!this.lastPreviewPosition) {
-            this.pendingPreviewUpdate = false;
-            return;
+    /**
+     * The frame callback: take the frame's last position and redraw once.
+     * @param {Object} [pointer] - The frame's last `{ point, lngLat }`, when a
+     *   pointer event parked one.
+     */
+    performPreviewUpdate = (pointer) => {
+        if (pointer) {
+            this.lastPreviewPosition = [pointer.lngLat.lng, pointer.lngLat.lat];
+            // The centre is the FIRST clicked point, so it belongs to the drawing
+            // path only; the handle drag never touched it.
+            if (!this.isDraggingHandle && this.drawPoints.length === 1) {
+                this.lastPreviewCenter = this.drawPoints[0];
+            }
         }
+
+        if (!this.lastPreviewPosition) return;
 
         const selectedFeature = this.getSelectedFeature();
         if (this.isDraggingHandle && selectedFeature) {
@@ -293,15 +311,14 @@ class AddOccupiedFrontControl extends BaseControl {
             const p3 = this.geometry.destination(p1, distance, bearing + 50);
 
             if (distance >= 10) {
-                clearTimeout(this.geometryDebounceTimer);
-                this.geometryDebounceTimer = setTimeout(() => {
-                    const previewGeometry = this.geometry.generate([p1, p2, p3]);
-                    this.showPreview(previewGeometry);
-                }, 12);
+                // No 12 ms debounce any more: this runs inside the frame gate,
+                // and 12 ms is under the 16.7 ms of a frame, so it coalesced
+                // nothing and only pushed the drawing one timer late.
+                // Removed 2026-09-04.
+                const previewGeometry = this.geometry.generate([p1, p2, p3]);
+                this.showPreview(previewGeometry);
             }
         }
-
-        this.pendingPreviewUpdate = false;
     }
 
     showPreview = (geometry) => {
@@ -494,12 +511,9 @@ class AddOccupiedFrontControl extends BaseControl {
         const point = getPointerPosition(e, canvas);
         const lngLat = this.map.unproject([point.x, point.y]);
 
-        this.lastPreviewPosition = [lngLat.lng, lngLat.lat];
-
-        if (!this.pendingPreviewUpdate) {
-            this.pendingPreviewUpdate = true;
-            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-        }
+        // Same gate as the drawing preview: the geometry is rebuilt once per
+        // frame, from the last position of that frame.
+        this._previewScheduler.request({ point, lngLat });
     }
 
     async _onEditPointerUp(_e) {
@@ -554,47 +568,47 @@ class AddOccupiedFrontControl extends BaseControl {
         this.map.getCanvas().style.cursor = '';
     }
 
+    /**
+     * Draw the handle-drag preview. Called from inside the frame gate, so it
+     * already runs at most once per frame; the 8 ms debounce it used to carry
+     * coalesced nothing (8 ms is under the 16.7 ms of a frame) and only pushed
+     * the drawing one timer late. The "recapture the state to avoid a stale
+     * closure" step went with the timer: nothing can change between the guard
+     * below and the drawing now. Removed 2026-09-04.
+     * @param {Array} newPosition - The `[lng, lat]` under the cursor
+     */
     updateOccupiedFrontPreview = (newPosition) => {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature || !this.activeHandleType) return;
 
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            // Recapture state inside setTimeout to avoid stale closures
-            const currentHandleType = this.activeHandleType;
-            const currentFeature = this.getSelectedFeature();
+        const result = this.geometry.updateFromHandle(
+            this.activeHandleType,
+            newPosition,
+            selectedFeature
+        );
 
-            if (!currentHandleType || !currentFeature) return;
+        if (!result) return;
 
-            const result = this.geometry.updateFromHandle(
-                currentHandleType,
-                newPosition,
-                currentFeature
-            );
+        const previewFeature = {
+            ...selectedFeature,
+            properties: { ...selectedFeature.properties, baseCoordinates: result.baseCoordinates },
+            geometry: result.geometry
+        };
 
-            if (!result) return;
+        this.map.getSource('occupied-front-feedback').setData({
+            type: 'Feature',
+            geometry: result.geometry,
+            properties: {
+                ...selectedFeature.properties,
+                isSelected: true
+            }
+        });
 
-            const previewFeature = {
-                ...currentFeature,
-                properties: { ...currentFeature.properties, baseCoordinates: result.baseCoordinates },
-                geometry: result.geometry
-            };
-
-            this.map.getSource('occupied-front-feedback').setData({
-                type: 'Feature',
-                geometry: result.geometry,
-                properties: {
-                    ...currentFeature.properties,
-                    isSelected: true
-                }
-            });
-
-            const previewHandles = this.geometry.createHandles(previewFeature);
-            this.map.getSource('occupied-front-edit-handles').setData({
-                type: 'FeatureCollection',
-                features: previewHandles
-            });
-        }, 8);
+        const previewHandles = this.geometry.createHandles(previewFeature);
+        this.map.getSource('occupied-front-edit-handles').setData({
+            type: 'FeatureCollection',
+            features: previewHandles
+        });
     }
 
     // ===== HOVER SYSTEM =====
@@ -784,19 +798,10 @@ class AddOccupiedFrontControl extends BaseControl {
     // ===== UTILITY METHODS =====
 
     cancelPendingUpdates = () => {
-        if (this.previewRafId) {
-            cancelAnimationFrame(this.previewRafId);
-            this.previewRafId = null;
-        }
-        this.pendingPreviewUpdate = false;
+        this._previewScheduler.cancel();
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
         this.activeHandleType = null;
-
-        if (this.geometryDebounceTimer) {
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = null;
-        }
     }
 
     forceUpdateMainSource = async (feature) => {

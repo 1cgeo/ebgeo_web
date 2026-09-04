@@ -323,20 +323,52 @@ describe('computeTextRotation', () => {
 // ============================================================================
 
 describe('boundary zoom expression builders', () => {
-    it('builds the exact line-width expression', () => {
-        expect(buildBoundaryLineWidthExpression())
-            .toEqual(['coalesce', ['get', 'calculatedLineWidth'], ['get', 'lineWidth'], 4]);
+    // The VALUE each expression paints, against this model and MapLibre's own
+    // parser, lives in boundary-zoom-expressions.test.js. Here it is only the
+    // shape: three zoom curves, not the property lookups they used to be.
+    const BUILDERS = [
+        ['line width', buildBoundaryLineWidthExpression, 'calculatedLineWidth', 'lineWidth', BOUNDARY_ZOOM_LIMITS.MAX_LINE_WIDTH_PX],
+        ['text size', buildBoundaryTextSizeExpression, 'calculatedTextSize', 'text_size', BOUNDARY_ZOOM_LIMITS.MAX_TEXT_SIZE_PX],
+        ['circle stroke', buildBoundaryCircleStrokeExpression, 'calculatedStrokeWidth', 'strokeWidth', BOUNDARY_ZOOM_LIMITS.MAX_CIRCLE_STROKE_PX],
+    ];
+
+    const DEFAULT_BY_BUILDER = new Map([
+        [buildBoundaryLineWidthExpression, BOUNDARY_ZOOM_DEFAULTS.lineWidth],
+        [buildBoundaryTextSizeExpression, BOUNDARY_ZOOM_DEFAULTS.textSize],
+        [buildBoundaryCircleStrokeExpression, BOUNDARY_ZOOM_DEFAULTS.circleStrokeWidth],
+    ]);
+
+    it.each(BUILDERS)('%s is a zoom curve, not a lookup of the derived value', (_label, build, derived, authored, max) => {
+        const expression = build();
+
+        expect(expression[0]).toBe('interpolate');
+        expect(expression[1]).toEqual(['exponential', 2]);
+        expect(expression[2]).toEqual(['zoom']);
+        expect(JSON.stringify(expression)).not.toContain(derived);
+        expect(JSON.stringify(expression)).toContain(`"${authored}"`);
+        expect(JSON.stringify(expression)).toContain(String(max));
     });
 
-    it('builds the exact text-size expression, ending in the legacy 14', () => {
-        const expr = buildBoundaryTextSizeExpression();
-        expect(expr).toEqual(['coalesce', ['get', 'calculatedTextSize'], ['get', 'text_size'], 14]);
-        expect(expr[expr.length - 1]).toBe(14);
+    it.each(BUILDERS)('%s falls back to the model default, read off the expression itself', (_label, build, _derived, _authored, max) => {
+        // Each stop value is `['min', max, ['case', ..., base, ..., base, scaled]]`,
+        // and the base is `['case', isPositiveFinite, authored, default]`. Reading
+        // the default out of that tree beats a substring search, which would trip
+        // over the zoom stop numbers.
+        const stopValue = build()[4];
+        expect(stopValue[0]).toBe('min');
+        expect(stopValue[1]).toBe(max);
+
+        const base = stopValue[2][2];
+        expect(base[0]).toBe('case');
+        expect(base[base.length - 1]).toBe(DEFAULT_BY_BUILDER.get(build));
     });
 
-    it('builds the exact circle-stroke expression, falling back to the legacy 2', () => {
-        expect(buildBoundaryCircleStrokeExpression())
-            .toEqual(['coalesce', ['get', 'calculatedStrokeWidth'], 2]);
+    it('reads 35 for the missing text size, not the legacy 14', () => {
+        // The 14 only ever showed between a label being drawn and the first zoom
+        // pass writing `calculatedTextSize`, which is `positiveOr(text_size, 35)`.
+        const base = buildBoundaryTextSizeExpression()[4][2][2];
+        expect(base[base.length - 1]).toBe(BOUNDARY_ZOOM_DEFAULTS.textSize);
+        expect(base[base.length - 1]).not.toBe(14);
     });
 
     it('returns a fresh array each call (layers must not share a mutable literal)', () => {

@@ -8,6 +8,7 @@ import { readGeoJSONSourceDataAsync } from '@utils/geojson-source.js';
 import { BaseControl } from '@tools';
 import { DrawingFinishButton } from '@js/draw_tools/drawing-touch-helpers';
 import { getSnappingService } from '@js/snapping/snapping.service.js';
+import { createPreviewScheduler } from '@tools/helpers/preview-scheduler.js';
 import {
     anchorFor,
     buildExtendedProperties,
@@ -115,10 +116,23 @@ class AddCoordinationLineControl extends BaseControl {
         // bodies are what runs inside a task, and they call only each other.
         this._sourceQueue = createSerialQueue();
 
-        this.previewRafId = null;
-        this.pendingPreviewUpdate = false;
-        this.preClickRafId = null;
-        this.pendingPreClickUpdate = false;
+        // ONE rAF gate for the whole preview. The drawing, the continuation and
+        // the handle drag are never live together (a drag needs a selected
+        // feature, a drawing does not have one) and already shared this state, so
+        // they share the gate: the raw event parks a pointer, the frame resolves
+        // the snap once and draws once.
+        this._previewScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this.performPreviewUpdate(pointer),
+        });
+        // The indicator BEFORE the first click gets its own gate: it is armed by
+        // `activate()` and swapped for the drawing preview on that first click.
+        this._preClickScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this._updatePreClickSnap(pointer),
+        });
         this.zoomRafId = null;
         this.zoomEndRafId = null;
         // `pendingZoomUpdate` is held for the whole (async) pass so the frames of
@@ -132,10 +146,6 @@ class AddCoordinationLineControl extends BaseControl {
         this.missedZoomEndUpdate = false;
         this.lastPreviewPosition = null;
         this.lastPreviewPoints = null;
-        // What the raw mousemove leaves for the next frame to resolve: `point`
-        // and `lngLat`, the two things `snapping.resolve` needs.
-        this._previewPointer = null;
-        this._preClickPointer = null;
 
         this.clickTimer = null;
         this.lastClickCoords = null;
@@ -388,21 +398,14 @@ class AddCoordinationLineControl extends BaseControl {
      * of the frame is ever drawn.
      */
     _onPreClickMouseMove = (e) => {
-        this._preClickPointer = { point: e.point, lngLat: e.lngLat };
-
-        if (!this.pendingPreClickUpdate) {
-            this.pendingPreClickUpdate = true;
-            this.preClickRafId = requestAnimationFrame(this._updatePreClickSnap);
-        }
+        this._preClickScheduler.request({ point: e.point, lngLat: e.lngLat });
     }
 
-    /** @private */
-    _updatePreClickSnap = () => {
-        this.preClickRafId = null;
-        this.pendingPreClickUpdate = false;
-
-        const pointer = this._preClickPointer;
-        this._preClickPointer = null;
+    /**
+     * @param {Object} pointer - The frame's last `{ point, lngLat }`
+     * @private
+     */
+    _updatePreClickSnap = (pointer) => {
         if (!pointer || !this.map) return;
 
         const snapping = getSnappingService();
@@ -556,32 +559,33 @@ class AddCoordinationLineControl extends BaseControl {
     }
 
     /**
-     * Park the pointer and ask for a frame. The snap is resolved inside the rAF
-     * callback, once per frame, for the reason given on `_onPreClickMouseMove`.
+     * Park the pointer and ask for a frame. The snap is resolved inside the
+     * gate's callback, once per frame, for the reason on `_onPreClickMouseMove`.
      */
     handlePreviewMouseMove = (e) => {
         if (this.drawPoints.length < 1) return;
 
-        this._previewPointer = { point: e.point, lngLat: e.lngLat };
-        this.lastPreviewPoints = [...this.drawPoints];
-
-        if (!this.pendingPreviewUpdate) {
-            this.pendingPreviewUpdate = true;
-            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-        }
+        this._previewScheduler.request({ point: e.point, lngLat: e.lngLat });
     }
 
-    performPreviewUpdate = () => {
-        // The handle drag resolves its own snap on the pointer event, so it never
-        // parks a pointer here; guard anyway, so a stale one from the drawing
-        // preview cannot move the handle under the user.
-        const pointer = this._previewPointer;
-        this._previewPointer = null;
-        if (pointer && !this.isDraggingHandle) {
+    /**
+     * The frame callback: resolve the snap ONCE, move the indicator, then draw.
+     * @param {Object} [pointer] - The frame's last `{ point, lngLat }`, when a
+     *   pointer event parked one.
+     */
+    performPreviewUpdate = (pointer) => {
+        const selectedFeature = this.getSelectedFeature();
+        const draggingHandle = Boolean(this.isDraggingHandle && selectedFeature && this.activeHandleType);
+
+        if (pointer) {
             const snapping = getSnappingService();
-            // While continuing, exclude the feature itself: its own vertices would
-            // otherwise capture every click, exactly as they do for a handle drag.
-            const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat, this._extending?.featureId)
+            // Exclude the feature itself in the two cases that have one: dragging
+            // its own handle, and continuing it. Its own vertices would otherwise
+            // capture every move.
+            const excludeId = draggingHandle
+                ? selectedFeature.properties?.id
+                : this._extending?.featureId;
+            const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat, excludeId)
                 ?? pointer.lngLat;
 
             if (snap.snapped) {
@@ -591,14 +595,14 @@ class AddCoordinationLineControl extends BaseControl {
             }
 
             this.lastPreviewPosition = [snap.lng, snap.lat];
+            // Read here, not on the raw event: a drag has no drawn points, and
+            // the frame sees whatever a click committed meanwhile.
+            if (!draggingHandle) this.lastPreviewPoints = [...this.drawPoints];
         }
 
-        if (!this.lastPreviewPosition) {
-            this.pendingPreviewUpdate = false;
-            return;
-        }
+        if (!this.lastPreviewPosition) return;
 
-        if (this.isDraggingHandle && this.getSelectedFeature() && this.activeHandleType) {
+        if (draggingHandle) {
             this.updateCoordinationLinePreview(this.lastPreviewPosition);
         } else if (this._extending) {
             this._updateExtensionPreview();
@@ -623,8 +627,6 @@ class AddCoordinationLineControl extends BaseControl {
 
             this.showPreview(this.geometry.generate(previewProperties, currentZoom));
         }
-
-        this.pendingPreviewUpdate = false;
     }
 
     showPreview = (geometry) => {
@@ -989,6 +991,11 @@ class AddCoordinationLineControl extends BaseControl {
         e.preventDefault();
     }
 
+    /**
+     * The handle drag rides the SAME gate as the drawing preview: the pointer is
+     * parked here and the snap is resolved once per frame in
+     * `performPreviewUpdate`, which excludes the dragged feature itself.
+     */
     _onEditPointerMove(e) {
         if (!e.isPrimary) return;
 
@@ -999,23 +1006,7 @@ class AddCoordinationLineControl extends BaseControl {
         const point = getPointerPosition(e, canvas);
         const lngLat = this.map.unproject([point.x, point.y]);
 
-        const snapping = getSnappingService();
-        // Exclude the feature itself: its own vertices would otherwise capture
-        // every move of one of its own handles.
-        const snap = snapping?.resolve(this.map, point, lngLat, selectedFeature.properties?.id) ?? lngLat;
-
-        if (snap.snapped) {
-            snapping.showIndicator(this.map, snap, snap.snapType);
-        } else {
-            snapping?.hideIndicator(this.map);
-        }
-
-        this.lastPreviewPosition = [snap.lng, snap.lat];
-
-        if (!this.pendingPreviewUpdate) {
-            this.pendingPreviewUpdate = true;
-            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-        }
+        this._previewScheduler.request({ point, lngLat });
     }
 
     _onEditPointerUp = async (_e) => {
@@ -1768,20 +1759,11 @@ class AddCoordinationLineControl extends BaseControl {
     }
 
     cancelPendingUpdates = () => {
-        if (this.previewRafId) {
-            cancelAnimationFrame(this.previewRafId);
-            this.previewRafId = null;
-        }
-        if (this.preClickRafId) {
-            cancelAnimationFrame(this.preClickRafId);
-            this.preClickRafId = null;
-        }
-        this.pendingPreviewUpdate = false;
-        this.pendingPreClickUpdate = false;
+        // Both gates: the drawing/drag preview and the pre-click indicator.
+        this._previewScheduler.cancel();
+        this._preClickScheduler.cancel();
         this.lastPreviewPosition = null;
         this.lastPreviewPoints = null;
-        this._previewPointer = null;
-        this._preClickPointer = null;
         this.activeHandleType = null;
         this.activeHandleIndex = null;
 

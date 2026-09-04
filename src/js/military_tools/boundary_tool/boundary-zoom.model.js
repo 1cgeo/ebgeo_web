@@ -1,7 +1,10 @@
 // Path: js/military_tools/boundary_tool/boundary-zoom.model.js
 
+import { ZOOM_STOPS } from '../../layers/styles/zoom-expression.js';
+
 /**
- * @fileoverview Pure zoom model for boundary features (no imports, node-testable).
+ * @fileoverview Pure zoom model for boundary features (node-testable; its one
+ * import is the integer zoom stops, from a module that imports nothing itself).
  *
  * A boundary anchors its pixel-sized parts (line width, label text size, circle
  * stroke) to the zoom level it was drawn at, so that they keep a constant size
@@ -277,25 +280,116 @@ export function computeTextRotation({ northFacing, lineBearing } = {}) {
 }
 
 /**
- * Line-width expression for `boundary-main-layer`.
+ * The three PIXEL sizes of a boundary, as one MapLibre expression each.
+ *
+ * They used to be plain `coalesce` lookups of the `calculated*` properties,
+ * which made the drawing depend on a JavaScript pass rewriting THREE whole
+ * collections on every frame of a zoom gesture. Measured on 2026-09-04: 92
+ * `setData` calls in a 3 s gesture with 10 boundaries. The composite
+ * interpolate below computes the same number on the GPU, so the pass is left
+ * with what no expression can do (the echelon geometry, in kilometres, of the
+ * screen-pinned boundaries) and runs once per gesture for the rest.
+ *
+ * Why the maths is exact between stops, and why the `min` inside each stop value
+ * deviates from a hard clamp inside one zoom level only: see the header of
+ * `layers/styles/zoom-expression.js`.
+ *
+ * Written here rather than through that module's `zoomScaledExpression` because
+ * this model's rules are stricter than the builder can express. The base falls
+ * back to the default unless it is a POSITIVE number (`positiveOr`), and the
+ * anchor counts only when it is positive too (`hasZoomReference`: zero is the
+ * "never anchored" sentinel, which the builder's `anchorDefault` would happily
+ * scale from).
+ *
+ * Domain: an anchor inside the map's zoom range, which is the only anchor the
+ * tool ever stamps. There `2 ** (zoom - createdAtZoom)` is finite and positive,
+ * so the "factor underflowed or overflowed, fall back to 1" guard of
+ * `getPixelZoomFactor` and the two non-finite guards of `clampSize` are
+ * unreachable, and the expression does not carry them.
+ *
+ * @param {string} baseProperty - Property holding the authored size
+ * @param {number} defaultValue - Size used when the authored one is not positive
+ * @param {number} maxValue - Upper clamp, in pixels
+ * @returns {Array} MapLibre expression
+ */
+function buildBoundarySizeExpression(baseProperty, defaultValue, maxValue) {
+    // `['get', ...]` yields `value`, which no arithmetic operator accepts, so
+    // every number goes through `['number', ..., 0]`: it returns the property
+    // when it IS a number and 0 otherwise, and never throws.
+    const authored = ['number', ['get', baseProperty], 0];
+    const anchor = ['number', ['get', 'createdAtZoom'], 0];
+
+    // The `Number.isFinite(n) && n > 0` of `positiveOr` and `hasZoomReference`.
+    // `n < 2n` holds for every positive finite number and fails for Infinity;
+    // NaN is already out on `n > 0`.
+    const isPositiveFinite = (n) => ['all', ['>', n, 0], ['<', n, ['*', 2, n]]];
+
+    const base = ['case', isPositiveFinite(authored), authored, defaultValue];
+
+    // `clampSize(base * factor, maxValue, base)`: base is positive and finite by
+    // construction and so is the factor, so the clamp is just a `min`, and it
+    // wraps the unscaled branches too (an authored size above the ceiling is
+    // clamped whether or not the correction is on).
+    const stopValue = (z) => ['min',
+        maxValue,
+        ['case',
+            ['==', ['get', 'zoomCorrectionEnabled'], false], base,
+            ['!', isPositiveFinite(anchor)], base,
+            ['*', base, ['^', 2, ['-', z, anchor]]],
+        ],
+    ];
+
+    const expression = ['interpolate', ['exponential', 2], ['zoom']];
+    for (const z of ZOOM_STOPS) expression.push(z, stopValue(z));
+    return expression;
+}
+
+/**
+ * Line-width expression for `boundary-main-layer`, reproducing
+ * `computeBoundaryZoomSizes().calculatedLineWidth`.
  * @returns {Array} MapLibre expression
  */
 export function buildBoundaryLineWidthExpression() {
-    return ['coalesce', ['get', 'calculatedLineWidth'], ['get', 'lineWidth'], BOUNDARY_ZOOM_DEFAULTS.lineWidth];
+    return buildBoundarySizeExpression(
+        'lineWidth', BOUNDARY_ZOOM_DEFAULTS.lineWidth, BOUNDARY_ZOOM_LIMITS.MAX_LINE_WIDTH_PX,
+    );
 }
 
 /**
- * Text-size expression for `boundary-text-layer`.
+ * Text-size expression for `boundary-text-layer`, reproducing
+ * `computeBoundaryZoomSizes().calculatedTextSize`.
+ *
+ * `text-size` is a LAYOUT property, but its spec entry declares
+ * `parameters: ['zoom', 'feature']`, so a zoom-and-property function is legal
+ * as long as the `interpolate` on `['zoom']` is the OUTERMOST node, which is
+ * what the builder produces.
+ *
+ * The missing-size fallback is the model's 35, not the 14 this expression
+ * carried until 2026-09-04. The 14 only ever showed between a label being drawn
+ * and the first zoom pass writing `calculatedTextSize`, which is
+ * `positiveOr(text_size, 35)`; the two numbers were a disagreement, not a
+ * feature.
+ *
  * @returns {Array} MapLibre expression
  */
 export function buildBoundaryTextSizeExpression() {
-    return ['coalesce', ['get', 'calculatedTextSize'], ['get', 'text_size'], 14];
+    return buildBoundarySizeExpression(
+        'text_size', BOUNDARY_ZOOM_DEFAULTS.textSize, BOUNDARY_ZOOM_LIMITS.MAX_TEXT_SIZE_PX,
+    );
 }
 
 /**
- * Stroke-width expression for `boundary-circles-stroke-layer`.
+ * Stroke-width expression for `boundary-circles-stroke-layer`, reproducing
+ * `computeBoundaryZoomSizes().calculatedStrokeWidth`.
+ *
+ * That layer is a `line` layer tracing the circle polygons, so the expression
+ * feeds `line-width`; the circle features carry their own `strokeWidth` base,
+ * which is what the model reads.
+ *
  * @returns {Array} MapLibre expression
  */
 export function buildBoundaryCircleStrokeExpression() {
-    return ['coalesce', ['get', 'calculatedStrokeWidth'], BOUNDARY_ZOOM_DEFAULTS.circleStrokeWidth];
+    return buildBoundarySizeExpression(
+        'strokeWidth', BOUNDARY_ZOOM_DEFAULTS.circleStrokeWidth, BOUNDARY_ZOOM_LIMITS.MAX_CIRCLE_STROKE_PX,
+    );
 }

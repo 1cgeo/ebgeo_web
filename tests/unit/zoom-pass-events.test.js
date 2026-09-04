@@ -1,9 +1,17 @@
 // Path: tests/unit/zoom-pass-events.test.js
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// The driven blocks below `import()` seven control module graphs, and the first
+// test to reach one pays the whole transform for it. Alone the file runs in
+// about 3 s; inside `npx vitest run`, with 140 files competing for the same
+// transform pipeline, that first import alone crossed the 5 s default and timed
+// out the point tool's first test (measured 2026-09-04, when the boundary block
+// was added). The budget is the instrument here, not the code under test.
+vi.setConfig({ testTimeout: 20000 });
 
 /**
  * Which map event each tool's JavaScript zoom pass hangs off.
@@ -24,9 +32,8 @@ import { fileURLToPath } from 'node:url';
  * The two lists below are the contract. This file reads the controls as text
  * because instantiating them needs `document`, and this suite runs on `node`.
  *
- * NOT listed on purpose: `military_tools/boundary_tool` and
- * `tool_manager/managers/selection-highlight.manager.js`, which rebuild geometry
- * on every frame by design and stay on `zoom`.
+ * NOT listed on purpose: `tool_manager/managers/selection-highlight.manager.js`,
+ * which rebuilds geometry on every frame by design and stays on `zoom`.
  */
 const ZOOMEND_ONLY = [
     'src/js/military_tools/declination_tool/add_declination_control.js',
@@ -52,6 +59,10 @@ const ZOOM_AND_ZOOMEND = [
     // the screen sizes them in kilometres from the zoom, so they are rebuilt per
     // frame while its stroke width comes from the layer's expression.
     'src/js/military_tools/coordination_line_tool/add_coordination_line_control.js',
+    // The boundary's is its ECHELON, sized in kilometres the same way, along with
+    // the circles and labels placed at a distance from it. Its three pixel sizes
+    // (line, label, circle stroke) come from the layers' expressions.
+    'src/js/military_tools/boundary_tool/add_boundary_control.js',
 ];
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -155,7 +166,7 @@ describe('the rules above reject the state they exist to catch', () => {
     });
 
     it('reads real files, not an empty list', () => {
-        expect(ZOOMEND_ONLY.length + ZOOM_AND_ZOOMEND.length).toBe(13);
+        expect(ZOOMEND_ONLY.length + ZOOM_AND_ZOOMEND.length).toBe(14);
         for (const relativePath of [...ZOOMEND_ONLY, ...ZOOM_AND_ZOOMEND]) {
             expect(readSource(relativePath).length).toBeGreaterThan(1000);
         }
@@ -711,5 +722,224 @@ describe('the coordination line split, driven', () => {
         expect(pinned.properties.calculatedSymbolSize).toBeCloseTo(0.125, 10);
         expect(generated).toEqual(['pinned']);
         expect(source.setDataCalls).toBe(1);
+    });
+});
+
+/**
+ * The boundary split, driven.
+ *
+ * Its "ground geometry" is the ECHELON, which a SCREEN-pinned boundary sizes in
+ * kilometres from the zoom, plus the circles and labels placed at a distance
+ * from it (also in km). The per-frame pass rebuilds those and nothing else; the
+ * three pixel sizes come from the layers' expressions
+ * (`buildBoundaryLineWidthExpression` and its two siblings) and the stored
+ * `calculated*` are refreshed once per gesture. The geometry helper is replaced
+ * by a recorder: WHICH features each pass touches is the point, and the turf
+ * maths has its own tests.
+ */
+describe('the boundary split, driven', () => {
+    const originalRaf = globalThis.requestAnimationFrame;
+    const originalCancelRaf = globalThis.cancelAnimationFrame;
+    let pending;
+
+    beforeEach(() => {
+        pending = [];
+        let id = 0;
+        globalThis.requestAnimationFrame = (callback) => {
+            pending.push(Promise.resolve().then(callback));
+            return ++id;
+        };
+        globalThis.cancelAnimationFrame = () => {};
+    });
+
+    afterEach(() => {
+        globalThis.requestAnimationFrame = originalRaf;
+        globalThis.cancelAnimationFrame = originalCancelRaf;
+    });
+
+    function makeBoundary(id, overrides) {
+        return {
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: [[-53.8, -29.9], [-53.7, -29.8]] },
+            properties: {
+                id,
+                lineWidth: 4,
+                text_size: 35,
+                symbol_size: 1,
+                echelon: 'XXX',
+                createdAtZoom: 10,
+                zoomCorrectionEnabled: true,
+                calculatedLineWidth: 4,
+                calculatedTextSize: 35,
+                calculatedStrokeWidth: 2,
+                calculatedSymbolSize: 1,
+                baseCoordinates: [[-53.8, -29.9], [-53.7, -29.8]],
+                ...overrides,
+            },
+        };
+    }
+
+    /** A label of the boundary's text source, carrying its own copy of the anchor. */
+    const makeText = (parent) => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [-53.75, -29.85] },
+        properties: {
+            parent, text: 'A', text_size: 35, calculatedTextSize: 35,
+            createdAtZoom: 10, zoomCorrectionEnabled: true,
+        },
+    });
+
+    /** A circle of the echelon, carrying its own `strokeWidth` base. */
+    const makeCircle = (parent) => ({
+        type: 'Feature',
+        geometry: { type: 'Polygon', coordinates: [[[0, 0], [0, 1], [1, 1], [0, 0]]] },
+        properties: {
+            parent, strokeWidth: 2, calculatedStrokeWidth: 2,
+            createdAtZoom: 10, zoomCorrectionEnabled: true,
+        },
+    });
+
+    function makeSource(features) {
+        const collection = { type: 'FeatureCollection', features };
+        return {
+            setDataCalls: 0,
+            collection,
+            serialize: () => ({ data: collection }),
+            getData: async () => collection,
+            setData(data) {
+                collection.features = data.features;
+                this.setDataCalls += 1;
+            },
+        };
+    }
+
+    async function setup(boundaries, texts = [], circles = []) {
+        const { default: AddBoundaryControl } = await import(
+            '../../src/js/military_tools/boundary_tool/add_boundary_control.js'
+        );
+        const control = new AddBoundaryControl({
+            selectionManager: { getSelectedFeaturesByType: () => [], uiManager: {} },
+        });
+
+        const generated = [];
+        control.geometry = {
+            generate: (properties) => {
+                generated.push(properties.id);
+                return { type: 'LineString', coordinates: [[0, 0], [1, 1]] };
+            },
+            generateBoundaryCircles: () => [],
+            generateBoundaryTexts: () => [],
+        };
+
+        const sources = {
+            boundarys: makeSource(boundaries),
+            'boundary-texts': makeSource(texts),
+            'boundary-circles': makeSource(circles),
+            // Not read by either zoom pass; `deactivate` clears them on removal.
+            'boundary-feedback': makeSource([]),
+            'boundary-edit-handles': makeSource([]),
+        };
+
+        const listeners = new Map();
+        // One canvas object, not a fresh one per call: `deactivate` removes the
+        // contextmenu listener it added, and that needs the same node back.
+        const canvas = { style: {}, addEventListener() {}, removeEventListener() {} };
+        const map = {
+            zoom: 10,
+            listeners,
+            getZoom() { return this.zoom; },
+            getSource: (name) => sources[name],
+            getCanvas: () => canvas,
+            getCanvasContainer: () => canvas,
+            dragPan: { enable() {}, disable() {} },
+            on(event, handler) { listeners.set(event, handler); },
+            off(event, handler) {
+                if (listeners.get(event) === handler) listeners.delete(event);
+            },
+            fire(event) { listeners.get(event)?.(); },
+        };
+        control.onAdd(map);
+        return { control, map, sources, generated };
+    }
+
+    it('the per-frame pass rebuilds only the screen-pinned boundaries', async () => {
+        const pinned = makeBoundary('pinned', { zoomCorrectionEnabled: false });
+        const scaled = makeBoundary('scaled', {});
+        const { map, sources, generated } = await setup(
+            [pinned, scaled], [makeText('scaled')], [makeCircle('scaled')],
+        );
+
+        expect(map.listeners.has('zoom')).toBe(true);
+        expect(map.listeners.has('zoomend')).toBe(true);
+
+        map.zoom = 12;
+        map.fire('zoom');
+        await Promise.all(pending);
+
+        expect(generated).toEqual(['pinned']);
+        // 1 km anchored at zoom 10, seen at 12: 1 / 2^2.
+        expect(pinned.properties.calculatedSymbolSize).toBeCloseTo(0.25, 10);
+        // The terrain-pinned boundary was left ALONE: its three pixel sizes are
+        // the layers' job now, and the stored copies wait for `zoomend`.
+        expect(scaled.properties.calculatedLineWidth).toBe(4);
+        expect(scaled.properties.calculatedTextSize).toBe(35);
+        expect(scaled.properties.calculatedStrokeWidth).toBe(2);
+        expect(sources.boundarys.setDataCalls).toBe(1);
+        // The dependent sources are rewritten once, for the pinned boundary whose
+        // children moved; the other boundary's label and circle keep their values.
+        expect(sources['boundary-texts'].setDataCalls).toBe(1);
+        expect(sources['boundary-circles'].setDataCalls).toBe(1);
+        expect(sources['boundary-texts'].collection.features[0].properties.calculatedTextSize).toBe(35);
+        expect(sources['boundary-circles'].collection.features[0].properties.calculatedStrokeWidth).toBe(2);
+    });
+
+    it('the per-frame pass writes nothing when no boundary is pinned to the screen', async () => {
+        const scaled = makeBoundary('scaled', {});
+        const { map, sources, generated } = await setup(
+            [scaled], [makeText('scaled')], [makeCircle('scaled')],
+        );
+
+        map.zoom = 13;
+        map.fire('zoom');
+        await Promise.all(pending);
+
+        expect(generated).toEqual([]);
+        expect(sources.boundarys.setDataCalls).toBe(0);
+        expect(sources['boundary-texts'].setDataCalls).toBe(0);
+        expect(sources['boundary-circles'].setDataCalls).toBe(0);
+        expect(scaled.properties.calculatedLineWidth).toBe(4);
+    });
+
+    it('the zoomend pass is the full one, all three derived sizes included', async () => {
+        const pinned = makeBoundary('pinned', { zoomCorrectionEnabled: false });
+        const scaled = makeBoundary('scaled', {});
+        const text = makeText('scaled');
+        const circle = makeCircle('scaled');
+        const { map, sources, generated } = await setup([pinned, scaled], [text], [circle]);
+
+        map.zoom = 12;
+        map.fire('zoomend');
+        await Promise.all(pending);
+
+        // 4 px, 35 px and 2 px anchored at zoom 10, seen at 12: times 2^2.
+        expect(scaled.properties.calculatedLineWidth).toBe(16);
+        expect(scaled.properties.calculatedTextSize).toBe(140);
+        expect(scaled.properties.calculatedStrokeWidth).toBe(8);
+        // The screen-pinned one keeps its pixels and moves its kilometres.
+        expect(pinned.properties.calculatedLineWidth).toBe(4);
+        expect(pinned.properties.calculatedSymbolSize).toBeCloseTo(0.25, 10);
+        expect(generated).toEqual(['pinned']);
+        // The sibling sources get the same treatment, each on its own property.
+        expect(text.properties.calculatedTextSize).toBe(140);
+        expect(circle.properties.calculatedStrokeWidth).toBe(8);
+        expect(sources.boundarys.setDataCalls).toBe(1);
+    });
+
+    it('onRemove takes both handlers off the map', async () => {
+        const { control, map } = await setup([makeBoundary('scaled', {})]);
+        control.onRemove();
+
+        expect(map.listeners.has('zoom')).toBe(false);
+        expect(map.listeners.has('zoomend')).toBe(false);
     });
 });

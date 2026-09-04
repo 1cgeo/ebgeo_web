@@ -42,8 +42,27 @@ O quadro em 2D nesta GPU não muda (3 ms), porque o custo do reenvio nunca estev
 - **Medida em node sem JIT mente por uma ordem de grandeza sobre o custo de turf.** Custo de função do app se mede no navegador, com o profiler do CDP, e o número em node vale só como razão entre casos.
 - **"Ferramenta lenta" é um sintoma com eixos:** mouse de alta taxa, terreno, escala de feições, CPU. Medir cada eixo separado é o que separa a ferramenta (o passe de zoom) do resto (o terreno na máquina fraca).
 
+## Os ensinamentos aplicados às demais ferramentas (mesmo dia, quatro agentes em arquivos disjuntos)
+
+1. **Linha de limite: largura, tamanho do texto e traço do círculo na GPU, passe em `zoomend`** (`boundary-zoom.model.js`, `add_boundary_control.js`). As três grandezas em pixels viraram `interpolate` exponencial de base 2 que reproduz `computeBoundaryZoomSizes` (teste `boundary-zoom-expressions.test.js`: 97 zooms por 14 casos por 3 grandezas contra o avaliador do MapLibre; as expressões antigas reprovam 27 de 42 casos e 9 de 9 checagens de forma). O `calculatedSymbolSize` fica em JavaScript de propósito: ele é quilômetro que vira GEOMETRIA (escalão, círculos e rótulos), e nenhuma expressão reescreve coordenadas; por isso o `zoom` por quadro fica, restrito às fronteiras fixadas na tela, e a ferramenta entra em `ZOOM_AND_ZOOMEND`. Achado colateral: o fallback do `text-size` era 14 na camada e 35 no modelo; alinhado ao modelo. A guarda de arrasto dos passes lia `this.uiManager`, que a classe nunca atribui; passou a ler `this.selectionManager?.uiManager`. Medido pela bancada nova, 10 limites: `setData` por gesto de zoom de **91 para 1**.
+2. **Utilitário comum de preview em nove ferramentas** (`tool_manager/helpers/preview-scheduler.js`): um gate de rAF que guarda o ÚLTIMO ponteiro e entrega uma vez por quadro, sem timer, com `raf`/`caf` injetáveis para teste. Adotado no desenho, no arrasto de alça e no pré-clique de linha, polígono, seta, frente ocupada, limite, linha de coordenação (inclusive o arrasto, que ainda resolvia snap no evento bruto), LOS, visibilidade e pincel (no pincel o acúmulo de pontos fica no evento, porque o traço É a sequência de posições; só a escrita do feedback passa pelo gate). Duas réguas guardam o padrão: `preview-timer-regua.test.js` lê os nove controles como texto e reprova `setTimeout` em método de preview e `resolve(` em handler de movimento; `preview-frame-gate-driven.test.js` constrói cada controle com mapa falso, dispara 5 a 10 `mousemove` no mesmo quadro e cobra UMA resolução de snap, UMA geometria e UM `setData` com a ÚLTIMA posição. Contra o estado anterior as duas reprovaram todas as nove (por exemplo, o limite fazia 7 resoluções por quadro no desenho e 6 no arrasto; a visibilidade 10).
+3. **Bancada durável `bench/ferramentas.mjs`** (com `bench/autoteste-ferramentas.mjs`, 118 autotestes, e seção no README): `--ferramenta`, cenários `desenho` (k `mousemove` por quadro, latência do feedback com cobertura e perdidos), `zoom` (`setData` da fonte principal por gesto) e `conclusao` (ms até o store e até o painel), com prova por cenário e os mesmos vereditos de instrumento da bancada de terreno. Contexto novo do navegador por rodada, porque o store persiste no IndexedDB do contexto.
+
+Depois, uma rodada por ferramenta, 10 feições, nesta GPU:
+
+| ferramenta | desenho k=1: quadro p50 / `setData` feedback | desenho k=4: `setData` feedback | zoom: `setData` principal por gesto | conclusão: até o store |
+|---|---|---|---|---|
+| linha de limite | 1,8 ms / 180 | 181 | **1** (era 91) | 37 ms |
+| linha de coordenação | 2,2 ms / 180 | 181 | 1 | 43 ms |
+| linha | 2,0 ms / 180 | 181 | 0 (não tem passe) | 32 ms |
+| polígono | 2,4 ms / 180 | 181 | 0 (não tem passe) | 32 ms |
+
+Suíte: 141 arquivos, 3.120 testes verdes.
+
 ## O que fica
 
-- A linha de limite com o passe por quadro, e as cinco ferramentas com o timer de 8 ms e o snapping por evento bruto.
-- O clique retido 250 ms (só a linha de coordenação e a de limite): o preview esconde, mas o botão de concluir em toque atualiza tarde.
+- LOS, visibilidade e pincel receberam o utilitário mas a bancada ainda não os mapeia (`--ferramenta` cobre as seis de desenho e militares); as réguas de teste os cobrem.
+- Nove controles leem `this.uiManager && this.uiManager.isDragging` em `_forceUpdateMainSourceUnlocked`, um campo que nunca é atribuído: a guarda está morta e corrigi-la muda comportamento (passaria a pular a escrita durante arrasto), então ficou para decisão.
+- Um arrasto de alça que nasce e morre dentro do mesmo quadro não commita (a posição só é escrita no quadro); herdado do modelo e igual nas nove.
+- O clique retido 250 ms (só limite e linha de coordenação): o preview esconde, mas o botão de concluir em toque atualiza tarde.
 - `updateFeaturesProperty` e irmãos ainda leem a fonte por `getData()` a cada evento de slider do painel; no 6.7 o `getData` resolve sem round trip, então o custo é o `generate()` por feição selecionada por evento.

@@ -1,12 +1,21 @@
 # Bancada de desempenho do EBGeo Web
 
-Mede o custo do quadro do mapa sob variantes de estado, com terreno e sem, e diz quando a
-propria medida nao vale. Nasceu da investigacao do engasgo com terreno ligado, em 2026-09-04.
+Duas bancadas, mesma doutrina: cada cenario devolve a PROVA do que fez, a bancada reprova a si
+mesma antes de mostrar numero, as rodadas se intercalam e a primeira se descarta, e a celula sai
+como mediana com amplitude. Nenhum caminho de maquina no codigo, e nenhum caminho absoluto gravado
+em artefato.
 
-Dois arquivos:
+- `desempenho-terreno.mjs` mede o custo do QUADRO DO MAPA sob variantes de estado, com terreno e
+  sem. Nasceu da investigacao do engasgo com terreno ligado, em 2026-09-04. `autoteste.mjs` prova
+  que ela reprova o insumo degenerado.
+- `ferramentas.mjs` mede o custo de USAR uma ferramenta de desenho: o feedback enquanto o mouse
+  anda, o passe de zoom com N feicoes e a latencia de concluir a feicao. Nasceu das seis sondas de
+  uso unico que mediram a linha de coordenacao no mesmo dia.
+  `autoteste-ferramentas.mjs` prova que ela reprova o insumo degenerado.
 
-- `desempenho-terreno.mjs`: a bancada.
-- `autoteste.mjs`: prova que a bancada reprova o insumo degenerado. Rode antes de confiar num numero.
+Rode o autoteste da bancada antes de confiar num numero dela.
+
+# Bancada de terreno (`desempenho-terreno.mjs`)
 
 ## O que a bancada mede
 
@@ -259,3 +268,176 @@ eles existem para reprovar a medida nova, e divergencia por fator 2 e achado, na
   de visivel para `none`, e quando o total e zero a variante sai INVALIDA dizendo que o app ja
   esconde sozinho. Nesse estado a variante deixou de contrastar com `terreno`, e a comparacao que
   interessa passa a ser contra uma versao do app sem o modulo.
+
+# Bancada de ferramentas (`ferramentas.mjs`)
+
+Mede o custo de USAR uma ferramenta de desenho, nao o custo do mapa parado. Nasceu das seis sondas
+de uso unico que mediram a linha de coordenacao em 2026-09-04 (o achado esta em
+`docs/ferramentas-linha-de-coordenacao-2026-09-04.md`); esta bancada e o que ficou delas.
+
+## Ferramentas
+
+O nome curto e o contrato da linha de comando. O resto sai do app, e o autoteste cobra que cada
+entrada tenha as seis pecas.
+
+| `--ferramenta` | controle | tipo no store e fonte do mapa | fonte de feedback | conclusao |
+|---|---|---|---|---|
+| `line` | `AddLineControl` | `lines` | `line-feedback` | botao direito depois de 3 cliques |
+| `polygon` | `AddPolygonControl` | `polygons` | `polygon-feedback` | botao direito depois de 3 cliques |
+| `boundary` | `AddBoundaryControl` | `boundarys` | `boundary-feedback` | botao direito depois de 3 cliques |
+| `arrow` | `AddArrowControl` | `arrows` | `arrow-feedback` | botao direito depois de 3 cliques |
+| `occupied_front` | `AddOccupiedFrontControl` | `occupied_fronts` | `occupied-front-feedback` | o SEGUNDO clique |
+| `coordination_line` | `AddCoordinationLineControl` | `coordination_lines` | `coordination-line-feedback` | botao direito depois de 3 cliques |
+
+O controle vem do `CONTROL_REGISTRY` de `src/js/map_sig.js`, o tipo do `FEATURE_TYPE_MAPPINGS` de
+`src/js/store/store.constants.js` (o balde que `getCurrentMapFeatures` devolve) e a fonte do
+`FEATURE_SOURCES` de `src/js/layers/layer.constants.js`. A frente ocupada e de DOIS cliques: o
+segundo ja cria a feicao e nao ha botao direito, entao o cenario `conclusao` cronometra o clique
+final. O poligono cria por anel, porque menos de 3 pontos nao vira feicao.
+
+## Cenarios, e a prova de cada um
+
+Nesta ordem, num contexto de navegador NOVO por rodada:
+
+1. **`desenho`**: a ferramenta ativa (`activate()`), UM ponto colocado por clique real, e `k`
+   eventos `mousemove` sinteticos por quadro durante 3 s. Um caso por valor de `--k`.
+   **Prova**: `setData` da fonte de feedback maior que zero E `drawPoints.length === 1` E a
+   ferramenta `isActive`. **Metricas**: quadros, render p50/p95, intervalo p95, quadros acima de
+   33 ms, `setData` por fonte, `queryRenderedFeatures`, `map.project()`, e a latencia do feedback.
+2. **`zoom`**: `--feicoes N` criadas pelo caminho do proprio controle (`drawPoints` +
+   `createFeature()`), depois `easeTo` de zoom +1 em 1,5 s e a volta em 1,5 s.
+   **Prova**: N no store E pelo menos N na fonte do mapa. **Metrica principal**: `setData` da fonte
+   principal POR GESTO. E ela que separa a ferramenta que deriva o tamanho na GPU (1 por gesto) da
+   que reenvia a colecao a cada quadro (91 por gesto).
+3. **`conclusao`**: os cliques do desenho e o gesto que fecha a feicao, pelo caminho do usuario.
+   **Prova**: a contagem do store subiu, e os N cliques viraram vertice. **Metricas**: ms do gesto
+   ate o store e ate o painel de atributos.
+
+O cronometro da conclusao parte do PROPRIO evento do usuario, na fase de captura dentro da pagina.
+Medi-lo do lado do Node somaria o tempo do canal do CDP a latencia da ferramenta.
+
+## Como rodar
+
+Mesmas regras da bancada de terreno: o app tem de estar no ar, e o Playwright vem de
+`EBGEO_PLAYWRIGHT_DIR` (o diretorio que CONTEM `node_modules/playwright`). Nenhum caminho de
+maquina vive no codigo.
+
+```sh
+export EBGEO_PLAYWRIGHT_DIR=/caminho/para/o/projeto/que/tem/node_modules/playwright
+node bench/ferramentas.mjs --ferramenta coordination_line --k 1,4 --feicoes 30 --rodadas 1
+node bench/ferramentas.mjs --ferramenta boundary --feicoes 10 --rodadas 1
+node bench/ferramentas.mjs --ferramenta occupied_front --terreno --cpu 4 --snapping
+node bench/autoteste-ferramentas.mjs
+```
+
+| opcao | padrao | o que faz |
+|---|---|---|
+| `--url` | `http://localhost:3007/ebgeo/` (ou `EBGEO_URL`) | endereco do app |
+| `--ferramenta` | `coordination_line` | nome curto da tabela acima |
+| `--k` | `1,4,8` | `mousemove` por quadro no cenario `desenho`, um caso por valor |
+| `--feicoes` | 30 | feicoes criadas antes do cenario `zoom` |
+| `--terreno` | false | liga o terreno pelo botao do app antes de medir |
+| `--cpu` | 1 | estrangula a CPU pelo CDP (`4` = maquina quatro vezes mais lenta) |
+| `--snapping` | false | liga `ui.snapping.enabled` antes de medir |
+| `--rodadas` | 2 | a rodada 1 e aquecimento e fica fora da tabela |
+| `--saida` | `bench/saida/<data-hora>/` | pasta dos artefatos |
+| `--largura` / `--altura` | 1600 / 900 | viewport |
+| `--headless` | false | ver a advertencia do relogio da bancada de terreno |
+
+Artefatos: `resultado.json` (tudo, provas e vereditos inclusive), `resultado.md` (a tabela
+`ferramenta | cenario | k | metricas | veredito`) e uma captura por cenario. O `bench/.gitignore`
+mantem `saida/` fora do versionamento.
+
+**Contexto NOVO por rodada**, e nao so uma recarga: o store do app persiste no IndexedDB do
+contexto, e a rodada 2 acharia as feicoes da rodada 1 e mediria 2N com o rotulo de N.
+
+## Como a bancada reprova a si mesma
+
+1. **Renderer.** `SwiftShader` ou `llvmpipe` marca `relogio: INVALIDO (GPU emulada)`, e a marca
+   entra no veredito de toda celula. So as contagens continuam valendo.
+2. **Aba visivel.** `document.visibilityState` diferente de `visible` invalida a rodada, e tambem
+   reprova cada cenario.
+3. **Cadencia ociosa do rAF.** 60 quadros sem pedir repaint, com o mapa assentado. p95 acima de
+   25 ms invalida a rodada. Com `--cpu` acima de 1 vira AVISO, porque o ocioso lento E a condicao
+   medida.
+4. **App inteiro.** So mede com 160 camadas ou mais E a dupla (camadas, fontes) parada por 3 s.
+5. **A ferramenta existe no app.** Controle ausente do registro, fonte principal ausente ou fonte
+   de feedback ausente derrubam a rodada com o nome do que faltou, antes de qualquer medida.
+6. **Desenho sem feedback e INVALIDO.** Zero `setData` da fonte de feedback significa que a
+   ferramenta nao desenhou, e `setData` de OUTRA fonte nao substitui: o alvo sai contado a parte
+   justamente para o cenario inerte nao passar pela soma do vizinho.
+7. **Zoom sem feicao e INVALIDO.** Fonte vazia, fonte com menos feicoes que o pedido, ou store que
+   nao bate com o pedido derrubam o cenario.
+8. **Conclusao sem store e INVALIDA.** A contagem do store tem de SUBIR, e os N cliques tem de ter
+   virado vertice. Painel que nao abriu nao reprova sozinho, porque nem toda ferramenta abre um.
+9. **Assinatura do app.** `camadas/fontes` antes de mexer no mapa. Duas assinaturas diferentes
+   entre as cargas significam que a arvore mudou embaixo da medida, e toda rodada sai INVALIDA com
+   `APP MUDOU ENTRE AS CARGAS`.
+10. **Autoteste.** `node bench/autoteste-ferramentas.mjs` monta o pior caso de cada eixo e confirma
+    que sai marcado, e depois confirma que o insumo bom passa.
+
+## Valores medidos em 2026-09-04
+
+Vista da Serra Gaucha (`-50.87, -29.37`, zoom 12,5), viewport 1600x900, Chromium com janela
+visivel, GPU NVIDIA RTX A2000 12GB (ANGLE sobre Direct3D11), app em `vite dev` na 3007, uma rodada,
+sem terreno, sem snapping, CPU livre. App com assinatura `246c/99f` nas duas rodadas.
+
+`node bench/ferramentas.mjs --ferramenta coordination_line --k 1,4 --feicoes 30 --rodadas 1`
+
+| cenario | k | quadros | render p50 | render p95 | interv p95 | setData alvo | project | lat p50 | lat n | perdidos | store ms | painel ms |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| desenho | 1 | 181 | 2,1 | 3,4 | 17,1 | 180 | 0 | 16,4 | 18 | 161 | - | - |
+| desenho | 4 | 181 | 2,3 | 3,2 | 17,3 | 181 | 0 | - | - | 180 | - | - |
+| zoom | - | 182 | 3,2 | 6,0 | 17,0 | **1** | 368 | - | - | 0 | - | - |
+| conclusao | - | 21 | 3,5 | 4,7 | 17,0 | 1 | 2 | 39,7 | 1 | 3 | 37,7 | 12,4 |
+
+`node bench/ferramentas.mjs --ferramenta boundary --feicoes 10 --rodadas 1`
+
+| cenario | k | quadros | render p50 | render p95 | interv p95 | setData alvo | project | lat p50 | lat n | perdidos | store ms | painel ms |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| desenho | 1 | 180 | 1,9 | 3,1 | 17,0 | 179 | 0 | 9,8 | 177 | 2 | - | - |
+| desenho | 4 | 181 | 2,1 | 2,8 | 17,0 | 180 | 0 | 10,0 | 180 | 0 | - | - |
+| desenho | 8 | 181 | 2,0 | 2,8 | 17,1 | 180 | 0 | 10,0 | 180 | 0 | - | - |
+| zoom | - | 182 | 3,2 | 4,7 | 16,8 | **91** | 368 | - | - | 0 | - | - |
+| conclusao | - | 20 | 2,5 | 3,7 | 16,9 | 1 | 2 | 13,0 | 1 | 1 | 31,9 | 11,0 |
+
+Leitura: o passe de zoom separa as duas. A linha de coordenacao manda UM `setData` no gesto inteiro
+(a largura ja e expressao na camada, e o passe de JavaScript so roda em `zoomend`); a linha de
+limite manda 91 com dez feicoes, um por quadro. O quadro nesta GPU nao denuncia a diferenca (3,2 ms
+nas duas), porque o custo do reenvio esta no worker e no re-tiling, nao no `_render`: e por isso
+que a coluna `setData alvo` existe, e nao so o relogio. O desenho em 2D nesta maquina nao e lento
+em nenhuma das duas (cerca de 2 ms por quadro, 60 fps cheios), com `k` de 1 a 8.
+
+Os numeros descrevem UMA maquina, UM dia e UM estado da arvore, e vieram de UMA rodada. O estado
+da arvore neste dia nao era o do commit `df457081`: as tres ferramentas de linha, o poligono, a
+seta e a frente ocupada estavam modificadas no disco por trabalho em curso, e o `vite dev` serve o
+disco. Nao os edite para a medida bater.
+
+## Armadilhas conhecidas
+
+- **`setData` que ninguem viu.** A latencia do feedback so vale para o `setData` que chegou a
+  assentar. O anterior, que o seguinte substituiu antes disso, nunca chegou a tela; cronometra-lo
+  ate o proximo quadro bom empilharia o atraso de todos no mesmo instante, e uma fila de 160
+  pendentes drenada de uma vez sairia como 160 medidas iguais e falsas. Por isso so o `setData`
+  mais recente conta, e o resto vai para a coluna `perdidos`. **Leia `lat p50` sempre com `lat n` e
+  `perdidos` ao lado**: 19 medidas em 180 escritas descrevem os 19 quadros que assentaram, nao a
+  ferramenta.
+- **A latencia depende da FASE entre o preview e o `_render`.** Ferramenta que escreve o preview
+  dentro do rAF, logo antes do quadro, quase nunca e vista com a fonte carregada, e a mesma
+  ferramenta com o preview num `setTimeout` seria. A diferenca entre `lat n` 19 e 177 nas duas
+  tabelas acima e disso, e nao necessariamente do custo. Nao chame de regressao sem testar a causa.
+- **O clique nao vira vertice na hora.** A linha de coordenacao e a de limite retem o clique 250 ms.
+  Ler `drawPoints` logo depois do clique acharia zero e reprovaria o app bom, entao a bancada
+  espera o vertice entrar, com limite, e conta os cliques que pegaram.
+- **`page.mouse.move` com `steps` nao alcanca o mouse de alta taxa.** A sonda 1 de 2026-09-04 mediu
+  ZERO quadro com 240 movimentos do Playwright. O mousemove sintetico despachado no canvas dentro
+  de um laco de rAF alcanca: 8 por quadro sao 1.448 eventos em 3 s.
+- **`getControl('ToolManager')` nao existe.** O `CONTROL_REGISTRY` nao registra o gerente, e a
+  sonda 1 leu `null` e concluiu que a ferramenta nao estava ativa. Quem responde e o proprio
+  controle (`isActive`), que e tambem o que o `SelectionManager` consulta para rotear o clique.
+- **`activate()` direto no controle nao passa pelo ToolManager.** Basta para medir, porque o
+  `SelectionManager.getActiveTool()` varre os controles por `isActive`, mas a ferramenta anterior
+  nao e desativada. A bancada ativa uma ferramenta por vez e desativa pelo `deactivate()`.
+- **Outra sessao editando a mesma arvore troca o app no meio da bancada.** O `vite dev` serve o
+  arquivo do disco. A assinatura `camadas/fontes` pega a mudanca de estilo, mas NAO pega mudanca
+  de comportamento em JavaScript: rode com a arvore parada, e anote o `git status` junto do numero.
