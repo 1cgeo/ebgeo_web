@@ -191,6 +191,12 @@ export async function startBackend({ corsOrigin, port, dbName = 'ebgeo_ui_e2e' }
             // the admin panel specs edit the catalog and the config through the real UI and
             // then expect the change to be there, which is the invalidation end to end.
             CONFIG_CACHE_FORCE: '1',
+            // The secondary-server notice is ON by default (a checkout is a secondary until the
+            // deployment says otherwise) and it is an overlay above the map that captures every
+            // keydown: left on, it would sit on top of every spec's first click. Off here; the
+            // notice has its own spec (secondary-server-notice.spec.js) that turns it on by
+            // patching GET /api/config in the browser.
+            AVISO_SERVIDOR_SECUNDARIO: 'false',
             TILE_SERVER_URL: 'http://127.0.0.1:9/tiles/{z}/{x}/{y}.png',
             SEARCH_API_URL: 'http://127.0.0.1:9/busca',
         },

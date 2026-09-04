@@ -5,7 +5,7 @@
  * @description Application entry point.
  *
  * Orchestrates initialization in explicit sequential phases:
- * 1. Config — Apply app title, attach config helpers
+ * 1. Config — Apply app title, attach config helpers, show the secondary-server notice
  * 1.5. Verify — consume a one-shot `?verify=` e-mail confirmation (it speaks before the map)
  * 2. Services — EventBus, StateManager, LayerManager, GroupManager
  * 3. Map — MapLibre GL instance with tile error handling
@@ -80,6 +80,7 @@ import { hideLoadingScreen } from '@ui/loading-screen.js';
 import { initTabLock, isTabLockBlocked, acquireTabLock, remoteAtlasKey } from '@utils/tab-lock.js';
 import { installWindowBridge, setTracing, resolveTraceFlag } from '@store/sync/diag/trace-core.js';
 import { showUnavailableScreen } from '@ui/unavailable-screen.js';
+import { initSecondaryServerNotice } from '@ui/secondary-server-notice.js';
 
 // ============================================================================
 // BOOTSTRAP
@@ -185,6 +186,20 @@ async function initApp() {
 
     initializeAppConfig();
     initConfigHelpers();
+
+    // O AVISO DE SERVIDOR SECUNDÁRIO, e o lugar dele é ESTE, entre a hidratação e o primeiro
+    // `await` longo que vem depois dela.
+    //
+    // O PISO é `applyRuntimeConfig`: `config.app` é uma casca vazia antes dela, então uma chamada
+    // acima leria `avisoServidorSecundario` como ausente e a tela nunca abriria, dissesse o que
+    // dissesse a implantação. O TETO é o `await` de `?verify=` logo abaixo, e depois dele
+    // `createControls` e a carga do mapa: a tela existe justamente para ser lida ENQUANTO o mapa
+    // carrega, e para continuar de pé se a carga nunca terminar, que é quando a recomendação mais
+    // importa. Pô-la depois de qualquer um desses awaits amarraria o aviso ao sucesso deles.
+    //
+    // Ela não participa do boot em mais nada: só precisa de `document.body`, que um módulo
+    // diferido já tem, e não devolve promessa.
+    initSecondaryServerNotice();
 
     // Phase 1.5: an e-mail-confirmation link (`?verify=<token>`), anonymous and one-shot.
     //
