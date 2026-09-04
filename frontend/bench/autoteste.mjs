@@ -18,6 +18,7 @@ import {
     validarBase, avaliarIdentidade, validarLeituraDeTiles, avaliarProntidao,
     avisosDaVariante,
 } from './desempenho-terreno.mjs';
+import { lerProxyDoAmbiente, resolverProxyDoNavegador } from './proxy-do-navegador.mjs';
 
 let falhas = 0;
 let total = 0;
@@ -312,6 +313,9 @@ function eixo6() {
     lanca('--bases vazia lanca', () => lerArgumentos(['--bases', ' , ']));
     lanca('--bases repetida lanca', () => lerArgumentos(['--bases', 'a,a']));
     lanca('--cpu 0 lanca', () => lerArgumentos(['--cpu', '0']));
+    checa('padrao de --proxy e ambiente', p.proxy === 'ambiente');
+    checa('--proxy sem-proxy e lido', lerArgumentos(['--proxy', 'sem-proxy']).proxy === 'sem-proxy');
+    lanca('--proxy desconhecido lanca', () => lerArgumentos(['--proxy', 'tunel']));
 }
 eixo6();
 
@@ -436,6 +440,34 @@ function eixo11() {
         PLANO_POPULAR.every((linha) => linha.length === 3));
 }
 eixo11();
+
+function eixo12() {
+    console.log('\n== eixo 12: o proxy do navegador, sem dialogo e sem vazar valor');
+    const comCredencial = { HTTPS_PROXY: 'http://fulano:s3nh%40@proxy.interno:3128', NO_PROXY: 'localhost, 127.0.0.1 .eb.mil.br' };
+    const lido = lerProxyDoAmbiente(comCredencial);
+    checa('usuario e senha saem da URL, decodificados', !!lido && lido.username === 'fulano' && lido.password === 's3nh@');
+    checa('o servidor fica sem a credencial', !!lido && lido.server === 'http://proxy.interno:3128', lido && lido.server);
+    checa('NO_PROXY com espaco e virgula vira lista por virgula', !!lido && lido.bypass === 'localhost,127.0.0.1,.eb.mil.br', lido && lido.bypass);
+    checa('sem credencial na URL nao ha proxy utilizavel (o dialogo voltaria)', lerProxyDoAmbiente({ HTTP_PROXY: 'http://proxy.interno:3128' }) === null);
+    checa('so usuario, sem senha, tambem nao serve', lerProxyDoAmbiente({ HTTP_PROXY: 'http://fulano@proxy.interno:3128' }) === null);
+    checa('ambiente vazio nao ha proxy', lerProxyDoAmbiente({}) === null);
+    checa('URL invalida nao derruba a bancada', lerProxyDoAmbiente({ HTTPS_PROXY: '::nao-e-url' }) === null);
+    const r = resolverProxyDoNavegador('ambiente', comCredencial);
+    checa('modo ambiente com credencial passa proxy ao launch e nenhum --no-proxy-server',
+        r.modo === 'ambiente' && !!r.launch.proxy && r.launch.proxy.username === 'fulano' && r.launch.proxy.password === 's3nh@' && r.launch.args.length === 0);
+    checa('a descricao cita a chave e nunca a senha nem o host', /HTTPS_PROXY/.test(r.descricao) && !/s3nh|proxy\.interno|fulano/.test(r.descricao), r.descricao);
+    const semCred = resolverProxyDoNavegador('ambiente', { HTTP_PROXY: 'http://proxy.interno:3128' });
+    checa('modo ambiente sem credencial cai para sem-proxy com --no-proxy-server',
+        semCred.modo === 'sem-proxy' && semCred.launch.args.includes('--no-proxy-server') && !semCred.launch.proxy);
+    const off = resolverProxyDoNavegador('sem-proxy', comCredencial);
+    checa('sem-proxy ignora a credencial do ambiente', off.launch.args.includes('--no-proxy-server') && !off.launch.proxy);
+    const sistema = resolverProxyDoNavegador('sistema', comCredencial);
+    checa('sistema nao mexe em nada', sistema.launch.args.length === 0 && !sistema.launch.proxy);
+    lanca('modo desconhecido lanca', () => resolverProxyDoNavegador('tunel', comCredencial));
+    checa('o que vai para o JSON de resultado (modo, args, descricao) nao carrega a senha',
+        !JSON.stringify({ modo: r.modo, args: r.launch.args, descricao: r.descricao }).includes('s3nh'));
+}
+eixo12();
 
 console.log(`\n${total - falhas}/${total} passaram.`);
 if (falhas) { console.log(`${falhas} FALHA(S): a bancada nao esta reprovando o que promete pegar.`); process.exit(1); }

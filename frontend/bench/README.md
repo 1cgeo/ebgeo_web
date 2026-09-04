@@ -43,6 +43,10 @@ e no `resultado.md` gravado em disco, que são UTF-8.
    `frontend/src/` troca o app no meio da rodada. As duas bancadas carregam uma impressão digital
    `camadas/fontes` por carga e invalidam tudo quando ela muda.
 
+### O proxy da máquina, sem diálogo
+
+O Chromium com cabeça herda o proxy do sistema, e numa máquina atrás de proxy autenticado todo pedido a host de fora (demotiles, OSM, BDGEx) abre a janela de usuário e senha, que trava a rodada até alguém digitar; em headless a mesma situação vira 407 calado, e é por isso que a suíte de Playwright nunca viu o problema e a bancada viu. `--proxy ambiente` (padrão) lê `HTTPS_PROXY` ou `HTTP_PROXY` do ambiente, na forma `http://usuario:senha@host:porta`, e entrega servidor, usuário e senha ao Playwright, que autentica sem diálogo; `NO_PROXY` vira o bypass. Sem credencial na URL o modo cai para `sem-proxy` (`--no-proxy-server`: host de fora falha, nada abre diálogo), e `--proxy sistema` deixa o proxy como está. Valor de credencial e host nunca vão para log, JSON ou relatório: a bancada cita a CHAVE da variável. Casos de pior caso em `proxy-do-navegador.mjs` e no eixo 12 do `autoteste.mjs`.
+
 ## O que foi CONFERIDO contra este app, e não herdado
 
 Esta bancada nasceu na branch `main` do repositório e foi reescrita para a `integracao_backend`.

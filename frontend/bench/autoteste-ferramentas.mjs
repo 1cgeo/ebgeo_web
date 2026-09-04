@@ -500,6 +500,9 @@ function eixo9() {
     checa('--terreno e --snapping sem valor ligam', p2.terreno === true && p2.snapping === true);
     checa('--terreno false desliga', lerArgumentos(['--terreno', 'false']).terreno === false);
     checa('--headless sem valor liga', lerArgumentos(['--headless']).headless === true);
+    checa('padrao de --proxy e ambiente', lerArgumentos([]).proxy === 'ambiente');
+    checa('--proxy sem-proxy e lido', lerArgumentos(['--proxy', 'sem-proxy']).proxy === 'sem-proxy');
+    lanca('--proxy desconhecido lanca', () => lerArgumentos(['--proxy', 'tunel']));
 
     // A feicao da LOS e da visibilidade custa uma varredura do terreno, entao o
     // padrao de --feicoes e da FERRAMENTA. Pedido explicito continua mandando.

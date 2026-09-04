@@ -18,6 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { resolverProxyDoNavegador, MODOS_DE_PROXY } from './proxy-do-navegador.mjs';
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 /** A raiz do PACOTE `frontend/`, que e onde `bench/` mora. */
@@ -89,6 +90,7 @@ function lerArgumentos(argv) {
         largura: 1600,
         altura: 900,
         headless: false,
+        proxy: 'ambiente',
         perfil: false,
         // Mapas base a comparar. 'atual' e o que o app abriu, sem troca.
         bases: ['atual'],
@@ -122,6 +124,9 @@ function lerArgumentos(argv) {
             p.altura = Number(proximo());
         } else if (a === '--headless') {
             p.headless = booleana();
+        } else if (a === '--proxy') {
+            p.proxy = proximo();
+            if (!MODOS_DE_PROXY.includes(p.proxy)) throw new Error(`--proxy desconhecido: ${p.proxy} (aceita ${MODOS_DE_PROXY.join(', ')})`);
         } else if (a === '--perfil') {
             p.perfil = booleana();
         } else if (a === '--bases') {
@@ -168,6 +173,9 @@ Bancada de desempenho do EBGeo Web (terreno e render-to-texture).
   --largura <px>       padrao 1600
   --altura <px>        padrao 900
   --headless [bool]    padrao false (headless usa SwiftShader: o relogio nao vale)
+  --proxy <modo>       padrao ambiente: HTTPS_PROXY/HTTP_PROXY com usuario:senha na URL entram
+                       no Chromium sem dialogo; sem credencial cai para sem-proxy. Outros modos:
+                       sem-proxy (--no-proxy-server) e sistema (o proxy como estiver).
   --perfil [bool]      padrao false (liga o profiler do CDP; ele infla o quadro)
   --bases <lista>      ids de mapa base do app, separados por virgula (padrao "atual", sem troca).
                        Cada caso base x variante parte de uma recarga e troca a base pelo mesmo
@@ -1540,9 +1548,15 @@ async function principal() {
     const pw = await carregarPlaywright();
     fs.mkdirSync(params.saida, { recursive: true });
 
+    // O proxy do sistema faz o Chromium com cabeca abrir dialogo de credencial em
+    // todo host de fora. A decisao mora em proxy-do-navegador.mjs e nunca vaza valor.
+    const proxyDoNavegador = resolverProxyDoNavegador(params.proxy, process.env);
+    console.log(`proxy do navegador: ${proxyDoNavegador.descricao}`);
     const navegador = await pw.chromium.launch({
         headless: params.headless,
+        ...(proxyDoNavegador.launch.proxy ? { proxy: proxyDoNavegador.launch.proxy } : {}),
         args: [
+            ...proxyDoNavegador.launch.args,
             // Aba oculta ou janela ocluida zera o rAF e a medida vira mentira.
             '--disable-backgrounding-occluded-windows',
             '--disable-renderer-backgrounding',
