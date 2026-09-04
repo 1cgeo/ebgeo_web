@@ -6,6 +6,7 @@ import { getPointerPosition, preventDefaultGestures, restoreDefaultGestures } fr
 import { addBrushAttributesToPanel } from './brush_attributes_panel.js';
 import AddBrushGeometry from './add_brush_geometry.js';
 import { BaseControl } from '../../tool_manager';
+import { createPreviewScheduler } from '@tools/helpers/preview-scheduler.js';
 import {
     applyZoomCorrections as applyZoomCorrectionsUtil,
     syncZoomCorrectedProperty,
@@ -44,8 +45,14 @@ class AddBrushControl extends BaseControl {
 
         this.geometry = new AddBrushGeometry();
 
-        this.previewRafId = null;
-        this.pendingPreviewUpdate = false;
+        // One rAF gate for the feedback DRAWING only. The stroke itself is built
+        // on the raw pointer event on purpose (see `_onPointerMove`), so this
+        // gate parks no pointer: it coalesces the `setData` alone.
+        this._previewScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: () => this.updatePreview(),
+        });
 
         this.zoomRafId = null;
         this.pendingZoomUpdate = false;
@@ -325,6 +332,14 @@ class AddBrushControl extends BaseControl {
 
     /**
      * Handle pointer move - add points while drawing
+     *
+     * The point ACCUMULATION stays on the raw event, unlike every other tool
+     * here: a brush stroke IS the sequence of positions the pointer passed
+     * through, and keeping only the last one of each frame would sand the curve
+     * down to one segment per frame. Only the DRAWING of the feedback is
+     * coalesced by the gate, so a burst inside one frame appends every point it
+     * carries and writes the source once, with all of them.
+     *
      * @param {PointerEvent} e
      */
     _onPointerMove(e) {
@@ -342,10 +357,9 @@ class AddBrushControl extends BaseControl {
         this.points.push([lngLat.lng, lngLat.lat]);
         this.lastPixelPoint = point;
 
-        if (!this.pendingPreviewUpdate) {
-            this.pendingPreviewUpdate = true;
-            this.previewRafId = requestAnimationFrame(this.updatePreview);
-        }
+        // No pointer parked: the frame reads `this.points`, which the line above
+        // has already grown.
+        this._previewScheduler.request();
     }
 
     /**
@@ -395,6 +409,7 @@ class AddBrushControl extends BaseControl {
         this.clearPreview();
     }
 
+    /** The frame callback: ONE write of the stroke as it stands. */
     updatePreview = () => {
         if (this.points.length > 1) {
             this.map.getSource('brush-feedback').setData({
@@ -410,15 +425,10 @@ class AddBrushControl extends BaseControl {
                 }
             });
         }
-        this.pendingPreviewUpdate = false;
     }
 
     clearPreview = () => {
-        if (this.previewRafId) {
-            cancelAnimationFrame(this.previewRafId);
-            this.previewRafId = null;
-        }
-        this.pendingPreviewUpdate = false;
+        this._previewScheduler.cancel();
 
         if (this.map && this.map.getSource('brush-feedback')) {
             this.map.getSource('brush-feedback').setData({

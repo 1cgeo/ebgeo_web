@@ -18,6 +18,7 @@ import {
     isScreenAnchored,
 } from '@tools/helpers/boundary-zoom.model.js';
 import { BaseControl } from '../../tool_manager';
+import { createPreviewScheduler } from '@tools/helpers/preview-scheduler.js';
 import { DrawingFinishButton } from '../../draw_tools/drawing-touch-helpers';
 import { getSnappingService } from '../../snapping/snapping.service.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
@@ -107,8 +108,23 @@ class AddBoundaryControl extends BaseControl {
         // shell from inside a task waits for the task itself: it deadlocks).
         this._sourceQueue = createSerialQueue();
 
-        this.previewRafId = null;
-        this.pendingPreviewUpdate = false;
+        // ONE rAF gate for the whole preview. The drawing, the continuation and
+        // the handle drag are never live together (a drag needs a selected
+        // feature, a drawing does not have one) and already shared this state, so
+        // they share the gate: the raw event parks a pointer, the frame resolves
+        // the snap once and draws once.
+        this._previewScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this.performPreviewUpdate(pointer),
+        });
+        // The indicator BEFORE the first click gets its own gate: it is armed by
+        // `activate()` and swapped for the drawing preview on that first click.
+        this._preClickScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this._updatePreClickSnap(pointer),
+        });
         this.zoomRafId = null;
         // `pendingZoomUpdate` is held for the whole (async) pass so the frames of a
         // zoom gesture cannot stack; `missedZoomUpdate` records the frames that
@@ -117,10 +133,7 @@ class AddBoundaryControl extends BaseControl {
         this.missedZoomUpdate = false;
         this.lastPreviewPosition = null;
         this.lastPreviewPoints = null;
-        this.geometryDebounceTimer = null;
 
-        this.clickTimer = null;
-        this.lastClickCoords = null;
         this._name = 'AddBoundaryControl';
 
         // Continuation session, set while the user is extending an existing boundary from one
@@ -362,7 +375,6 @@ class AddBoundaryControl extends BaseControl {
     activate = () => {
         this.isActive = true;
         this.drawPoints = [];
-        this.lastClickCoords = null;
         this.map.getCanvas().style.cursor = 'crosshair';
         this.map.getCanvas().addEventListener('contextmenu', this.handleRightClick);
         this.map.on('mousemove', this._onPreClickMouseMove);
@@ -381,14 +393,12 @@ class AddBoundaryControl extends BaseControl {
     deactivate = () => {
         // Dropped FIRST: Esc and switching tools both land here, and a continuation writes
         // nothing before it is committed, so forgetting the session leaves the original
-        // boundary untouched by construction. The 250 ms click timer is cleared further down,
-        // by clearPreview -> cancelPendingUpdates.
+        // boundary untouched by construction.
         this._extending = null;
         this.isActive = false;
         this.map.off('mousemove', this._onPreClickMouseMove);
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.drawPoints = [];
-        this.lastClickCoords = null;
         this.map.getCanvas().style.cursor = '';
         this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick);
         getSnappingService()?.hideIndicator(this.map);
@@ -403,10 +413,29 @@ class AddBoundaryControl extends BaseControl {
 
     // ===== PRE-CLICK SNAP INDICATOR =====
 
+    /**
+     * Snap indicator before the first click, when there is nothing to preview yet.
+     *
+     * The raw `mousemove` only PARKS the pointer: `snapping.resolve` is a
+     * rendered-feature query, and a mouse fires several moves inside one frame,
+     * so it runs once per frame from the gate's callback below. The indicator
+     * lands on the same pixel either way, since only the last position of the
+     * frame is ever drawn.
+     */
     _onPreClickMouseMove = (e) => {
+        this._preClickScheduler.request({ point: e.point, lngLat: e.lngLat });
+    }
+
+    /**
+     * @param {Object} pointer - The frame's last `{ point, lngLat }`
+     * @private
+     */
+    _updatePreClickSnap = (pointer) => {
+        if (!pointer || !this.map) return;
+
         const snapping = getSnappingService();
-        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
-        if (snap.snapped) {
+        const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat);
+        if (snap?.snapped) {
             snapping.showIndicator(this.map, snap, snap.snapType);
         } else {
             snapping?.hideIndicator(this.map);
@@ -487,35 +516,27 @@ class AddBoundaryControl extends BaseControl {
         const snap = snapping?.resolve(this.map, e.point, e.lngLat, this._extending?.featureId) ?? e.lngLat;
         const newPoint = [snap.lng, snap.lat];
 
+        // The rejection that also does the dedup: a repeat click on the spot the previous
+        // click just committed is within MIN_DISTANCE_METERS of the LAST vertex, so it is
+        // dropped here. That is why the 250 ms hold this click used to sit in could go: it
+        // existed only to catch the repeat, and it caught it by re-arming a pending point,
+        // which silently kept the SECOND set of coordinates. Measured in real Chromium on
+        // 2026-09-04: 260 to 290 ms from click to vertex, invisible behind the preview on a
+        // mouse and plainly late on the touch finish button. Removed 2026-09-04.
         if (this.geometry.isPointTooClose(newPoint, this.drawPoints)) {
             return;
         }
 
-        // A click that lands while an earlier one is still pending, inside the 250 ms window
-        // below, used to REPLACE it: the timer was cleared and re-armed with the new
-        // coordinates, so two quick clicks at different spots kept only the second vertex,
-        // silently. Measured in real Chromium on 2026-09-03: 100 ms apart, one vertex; 400 ms
-        // apart, two. A pending point far from the new one is a vertex the user drew, so it
-        // is committed now; only a repeat click on the same spot keeps re-arming the timer.
-        if (this.lastClickCoords && !this.geometry.isPointTooClose(newPoint, [this.lastClickCoords])) {
-            clearTimeout(this.clickTimer);
-            this._commitPendingClick();
-        }
-
-        this.lastClickCoords = newPoint;
-        clearTimeout(this.clickTimer);
-        this.clickTimer = setTimeout(() => this._commitPendingClick(), 250);
+        this._commitPoint(newPoint);
     }
 
     /**
-     * Moves the pending click (the one the 250 ms timer is holding) into `drawPoints`.
-     * Shared by the timer, by the next distinct click and by the right-click that finishes.
+     * Push a vertex and keep the listeners and the finish button in step.
+     * @param {Array<number>} point - The vertex, [lng, lat]
      * @private
      */
-    _commitPendingClick = () => {
-        if (!this.lastClickCoords) return;
-        this.drawPoints.push(this.lastClickCoords);
-        this.lastClickCoords = null;
+    _commitPoint = (point) => {
+        this.drawPoints.push(point);
 
         // Switch from pre-click snap indicator to preview listener when first point is added
         if (this.drawPoints.length === 1) {
@@ -534,12 +555,7 @@ class AddBoundaryControl extends BaseControl {
         e.preventDefault();
         e.stopPropagation();
 
-        clearTimeout(this.clickTimer);
-        this.clickTimer = null;
-        // The pending left click is a vertex, not noise: a right-click within 250 ms of it
-        // used to discard it and finish with the point under the cursor instead.
-        this._commitPendingClick();
-
+        // Nothing pending to rescue: every left click is already a vertex.
         const screenPoint = { x: e.offsetX, y: e.offsetY };
         const coordinates = this.map.unproject([screenPoint.x, screenPoint.y]);
         const snapping = getSnappingService();
@@ -566,10 +582,34 @@ class AddBoundaryControl extends BaseControl {
         this.stopDrawing();
     }
 
+    /**
+     * Park the pointer and ask for a frame. The snap is resolved inside the
+     * gate's callback, once per frame, for the reason on `_onPreClickMouseMove`.
+     */
     handlePreviewMouseMove = (e) => {
-        if (this.drawPoints.length >= 1) {
+        if (this.drawPoints.length < 1) return;
+
+        this._previewScheduler.request({ point: e.point, lngLat: e.lngLat });
+    }
+
+    /**
+     * The frame callback: resolve the snap ONCE, move the indicator, then draw.
+     * @param {Object} [pointer] - The frame's last `{ point, lngLat }`, when a
+     *   pointer event parked one.
+     */
+    performPreviewUpdate = (pointer) => {
+        const selectedFeature = this.getSelectedFeature();
+        const draggingHandle = Boolean(this.isDraggingHandle && selectedFeature && this.activeHandleType);
+
+        if (pointer) {
             const snapping = getSnappingService();
-            const snap = snapping?.resolve(this.map, e.point, e.lngLat, this._extending?.featureId) ?? e.lngLat;
+            // Exclude the feature itself in the two cases that have one: dragging
+            // its own handle, and continuing it. Its own vertices would otherwise
+            // capture every move.
+            const excludeId = draggingHandle
+                ? selectedFeature.properties?.id
+                : this._extending?.featureId;
+            const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat, excludeId) ?? pointer.lngLat;
 
             if (snap.snapped) {
                 snapping.showIndicator(this.map, snap, snap.snapType);
@@ -577,56 +617,42 @@ class AddBoundaryControl extends BaseControl {
                 snapping?.hideIndicator(this.map);
             }
 
-            this.lastPreviewPoints = [...this.drawPoints];
             this.lastPreviewPosition = [snap.lng, snap.lat];
-
-            if (!this.pendingPreviewUpdate) {
-                this.pendingPreviewUpdate = true;
-                this.previewRafId = requestAnimationFrame(this.performPreviewUpdate.bind(this));
-            }
-        }
-    }
-
-    performPreviewUpdate = () => {
-        if (!this.lastPreviewPosition) {
-            this.pendingPreviewUpdate = false;
-            return;
+            // Read here, not on the raw event: a drag has no drawn points, and
+            // the frame sees whatever a click committed meanwhile.
+            if (!draggingHandle) this.lastPreviewPoints = [...this.drawPoints];
         }
 
-        if (this.isDraggingHandle && this.getSelectedFeature() && this.activeHandleType) {
+        if (!this.lastPreviewPosition) return;
+
+        if (draggingHandle) {
             this.updateBoundaryPreview(this.lastPreviewPosition);
         } else if (this._extending) {
             this._updateExtensionPreview();
         } else if (this.lastPreviewPoints && this.lastPreviewPoints.length >= 1) {
-            const previewPoints = [...this.lastPreviewPoints];
-            if (this.lastClickCoords) {
-                previewPoints.push(this.lastClickCoords);
-            }
-            previewPoints.push(this.lastPreviewPosition);
+            // No pending click to append: the click already put it in
+            // `drawPoints`, which is what `lastPreviewPoints` was copied from.
+            const previewPoints = [...this.lastPreviewPoints, this.lastPreviewPosition];
 
-            if (previewPoints.length >= 1) {
-                clearTimeout(this.geometryDebounceTimer);
-                this.geometryDebounceTimer = setTimeout(() => {
-                    const currentZoom = this.map.getZoom();
-                    const previewSize = this.calculateSymbolSizeForZoom(currentZoom);
+            const currentZoom = this.map.getZoom();
+            const previewSize = this.calculateSymbolSizeForZoom(currentZoom);
 
-                    // Derive the sizes instead of inheriting the defaults': the
-                    // shared DEFAULT_PROPERTIES carries a `calculatedSymbolSize`
-                    // belonging to another size, and the preview overrides only
-                    // the base.
-                    const previewProperties = withBoundaryZoomSizes({
-                        ...AddBoundaryControl.DEFAULT_PROPERTIES,
-                        symbol_size: previewSize,
-                        createdAtZoom: Math.round(currentZoom * 10) / 10,
-                        baseCoordinates: previewPoints
-                    }, currentZoom);
-                    const previewGeometry = this.geometry.generate(previewProperties, currentZoom);
-                    this.showPreview(previewGeometry);
-                }, 8);
-            }
+            // Derive the sizes instead of inheriting the defaults': the
+            // shared DEFAULT_PROPERTIES carries a `calculatedSymbolSize`
+            // belonging to another size, and the preview overrides only
+            // the base.
+            const previewProperties = withBoundaryZoomSizes({
+                ...AddBoundaryControl.DEFAULT_PROPERTIES,
+                symbol_size: previewSize,
+                createdAtZoom: Math.round(currentZoom * 10) / 10,
+                baseCoordinates: previewPoints
+            }, currentZoom);
+            // No timer: this already runs at most once per frame, and the 8 ms
+            // debounce it used to carry coalesced nothing (8 ms is under the
+            // 16.7 ms of a frame). Removed 2026-09-04.
+            const previewGeometry = this.geometry.generate(previewProperties, currentZoom);
+            this.showPreview(previewGeometry);
         }
-
-        this.pendingPreviewUpdate = false;
     }
 
     showPreview = (geometry) => {
@@ -651,7 +677,6 @@ class AddBoundaryControl extends BaseControl {
         this.map.off('mousemove', this.handlePreviewMouseMove);
         getSnappingService()?.hideIndicator(this.map);
         this.drawPoints = [];
-        this.lastClickCoords = null;
         this.clearPreview();
     }
 
@@ -787,13 +812,8 @@ class AddBoundaryControl extends BaseControl {
         const session = this._extending;
         if (!session) return;
 
-        // The 250 ms click timer means a just-clicked vertex can still be pending in
-        // `lastClickCoords` instead of in `drawPoints`; without it the preview drops back a
-        // vertex for a quarter of a second after every click.
+        // Every click is already a vertex, so there is nothing pending to append here.
         const pending = this.drawPoints.slice(1);
-        if (this.lastClickCoords) {
-            pending.push(this.lastClickCoords);
-        }
 
         const coordinates = previewCoordinates(
             session.existing,
@@ -808,13 +828,12 @@ class AddBoundaryControl extends BaseControl {
         // echelon the feature does not have.
         const properties = buildExtendedProperties(session.sourceFeature, coordinates);
 
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            const previewGeometry = this.geometry.generate(properties, this.getCurrentZoom());
-            if (previewGeometry) {
-                this.showPreview(previewGeometry);
-            }
-        }, 8);
+        // No timer: reached from inside the frame gate, which already caps this at one build
+        // per frame.
+        const previewGeometry = this.geometry.generate(properties, this.getCurrentZoom());
+        if (previewGeometry) {
+            this.showPreview(previewGeometry);
+        }
     }
 
     /**
@@ -1027,6 +1046,11 @@ class AddBoundaryControl extends BaseControl {
         }
     }
 
+    /**
+     * The handle drag rides the SAME gate as the drawing preview: the pointer is
+     * parked here and the snap is resolved once per frame in
+     * `performPreviewUpdate`, which excludes the dragged feature itself.
+     */
     _onEditPointerMove(e) {
         if (!e.isPrimary) return;
 
@@ -1037,25 +1061,16 @@ class AddBoundaryControl extends BaseControl {
         const point = getPointerPosition(e, canvas);
         const lngLat = this.map.unproject([point.x, point.y]);
 
-        const snapping = getSnappingService();
-        const excludeId = selectedFeature.properties?.id;
-        const snap = snapping?.resolve(this.map, point, lngLat, excludeId) ?? lngLat;
-
-        if (snap.snapped) {
-            snapping.showIndicator(this.map, snap, snap.snapType);
-        } else {
-            snapping?.hideIndicator(this.map);
-        }
-
-        this.lastPreviewPosition = [snap.lng, snap.lat];
-
-        if (!this.pendingPreviewUpdate) {
-            this.pendingPreviewUpdate = true;
-            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-        }
+        this._previewScheduler.request({ point, lngLat });
     }
 
     _onEditPointerUp = async (_e) => {
+        // A drag born and dead inside ONE frame (down, move, up) parks its
+        // position and never reaches the frame callback, so `lastPreviewPosition`
+        // below would still be null and the vertex would not follow. Deliver the
+        // parked pointer now; `flush` cancels the frame it had asked for.
+        if (this._previewScheduler.pending) this._previewScheduler.flush();
+
         const canvas = this.map.getCanvasContainer();
 
         // Remove move/up listeners
@@ -1115,26 +1130,20 @@ class AddBoundaryControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature || !this.activeHandleType) return;
 
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            const currentHandleType = this.activeHandleType;
-            const currentFeature = this.getSelectedFeature();
-            const currentHandleIndex = this.activeHandleIndex;
+        // No timer, same reason as `performPreviewUpdate`: this is reached from
+        // inside the frame callback, which already runs once per frame. The
+        // "recapture the state after the debounce" step went with the timer.
+        const result = this.geometry.updateFromHandle(
+            this.activeHandleType,
+            newPosition,
+            selectedFeature,
+            this.activeHandleIndex,
+            this.getCurrentZoom()
+        );
 
-            if (currentHandleType && currentFeature) {
-                const result = this.geometry.updateFromHandle(
-                    currentHandleType,
-                    newPosition,
-                    currentFeature,
-                    currentHandleIndex,
-                    this.getCurrentZoom()
-                );
-
-                if (result) {
-                    this.showEditPreview(result.geometry, result.properties);
-                }
-            }
-        }, 8);
+        if (result) {
+            this.showEditPreview(result.geometry, result.properties);
+        }
     }
 
     showEditPreview = (geometry, properties) => {
@@ -2040,29 +2049,17 @@ class AddBoundaryControl extends BaseControl {
     // ===== UTILITY METHODS =====
 
     cancelPendingUpdates = () => {
-        if (this.previewRafId) {
-            cancelAnimationFrame(this.previewRafId);
-            this.previewRafId = null;
-        }
-        this.pendingPreviewUpdate = false;
+        // Both gates: the drawing/drag preview and the pre-click indicator.
+        this._previewScheduler.cancel();
+        this._preClickScheduler.cancel();
         this.lastPreviewPosition = null;
         this.lastPreviewPoints = null;
         this.activeHandleType = null;
         this.activeHandleIndex = null;
-
-        if (this.geometryDebounceTimer) {
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = null;
-        }
-
-        if (this.clickTimer) {
-            clearTimeout(this.clickTimer);
-            this.clickTimer = null;
-        }
     }
 
     /**
-     * Writes one edited boundary back into the source, unless a drag owns the screen.
+     * Writes one edited boundary back into the source.
      *
      * The read is kept, and only for the existence check: this is called from the handle-drag and
      * vertex-removal paths with a feature derived from the SELECTION, and `add` would CREATE an id
@@ -2074,13 +2071,20 @@ class AddBoundaryControl extends BaseControl {
      * that source is the dispatcher's, which already coalesces concurrent writes
      * into one diff. Putting it in the queue would only make a handle drag wait
      * behind a zoom pass it does not conflict with.
+     *
+     * NO DRAG GUARD, and the `_isDragging()` that stood here went with the dead
+     * `this.uiManager` guards of the other eight controls. The measure is in
+     * `move_handler.js`: `_performDragUpdate` writes `selection-boxes` alone,
+     * and `_endDrag` puts `isDragging` down (line 503) BEFORE it hands the
+     * geometry over (line 517 and 523). So `boundarys` never holds a partial
+     * position for a guard to protect, and a live guard here could only DISCARD
+     * a write that nothing reapplies. The zoom pass keeps its `_isDragging()`:
+     * that one runs per frame DURING the drag and is a different question.
+     * Removed 2026-09-04, measured by
+     * tests/unit/force-update-during-drag-military.test.js.
      * @param {Object} feature - Edited boundary feature
      */
     forceUpdateMainSource = async (feature) => {
-        if (this._isDragging()) {
-            return;
-        }
-
         const dispatcher = boundarysSource(this.map);
         await dispatcher.flush();
         const data = await this.map.getSource('boundarys').getData();
@@ -2114,10 +2118,6 @@ class AddBoundaryControl extends BaseControl {
      */
     _finishFromTouch = async () => {
         if (!this.isActive || this.drawPoints.length < 2) return;
-
-        clearTimeout(this.clickTimer);
-        this.clickTimer = null;
-        this.lastClickCoords = null;
 
         getSnappingService()?.hideIndicator(this.map);
 

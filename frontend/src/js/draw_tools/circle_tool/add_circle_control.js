@@ -898,10 +898,22 @@ class AddCircleControl extends BaseControl {
             this.geometryDebounceTimer = null;
         }
     }
+    /**
+     * Write ONE feature's properties and geometry straight into the source.
+     *
+     * No drag guard. The one that stood here tested `this.uiManager`, which a
+     * control is never handed, so it never fired; and the measure that replaced
+     * it found nothing for it to protect. A feature drag keeps its position in
+     * the selection boxes (`move_handler.js` `_performDragUpdate`) and hands the
+     * geometry over only in `_endDrag`, after `isDragging` is already false, so
+     * the source never holds a partial position and a guard on the live path
+     * would drop a write that nothing reapplies. Removed 2026-09-04, measured by
+     * tests/unit/force-update-during-drag-draw.test.js.
+     *
+     * @param {Object} feature - Feature to write
+     * @returns {Promise<void>} Resolves once the source is written
+     */
     forceUpdateMainSource = async (feature) => {
-        if (this.uiManager && this.uiManager.isDragging) {
-            return;
-        }
         // The read stays for the existence guard and for `syncLabelSource`: an id absent from the
         // source must be left alone, and `add` would CREATE it. Draining first keeps it fresh.
         const dispatcher = circlesSource(this.map);

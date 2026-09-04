@@ -15,6 +15,7 @@ import { addLineAttributesToPanel } from './line_attributes_panel.js';
 import AddLineGeometry from './add_line_geometry.js';
 import { BaseControl } from '../../tool_manager';
 import { getSnappingService } from '../../snapping/snapping.service.js';
+import { createPreviewScheduler } from '@tools/helpers/preview-scheduler.js';
 import {
     anchorFor,
     buildExtendedProperties,
@@ -72,10 +73,24 @@ class AddLineControl extends BaseControl {
 
         this.geometry = new AddLineGeometry();
 
-        this.previewRafId = null;
-        this.pendingPreviewUpdate = false;
+        // ONE rAF gate for the whole preview. The drawing and the handle drag are
+        // never live together (a drag needs a selected feature, a drawing does
+        // not have one) and already shared this state, so they share the gate:
+        // the raw event parks a pointer, the frame resolves the snap once and
+        // draws once.
+        this._previewScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this.performPreviewUpdate(pointer),
+        });
+        // The indicator BEFORE the first click gets its own gate: it is armed by
+        // `activate()` and swapped for the drawing preview on that first click.
+        this._preClickScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this._updatePreClickSnap(pointer),
+        });
         this.lastPreviewPosition = null;
-        this.geometryDebounceTimer = null;
 
         this.isCalculatingProfile = false;
 
@@ -418,10 +433,29 @@ class AddLineControl extends BaseControl {
 
     // ===== DRAWING SYSTEM =====
 
+    /**
+     * Snap indicator before the first click, when there is nothing to preview yet.
+     *
+     * The raw `mousemove` only PARKS the pointer: `snapping.resolve` is a
+     * rendered-feature query, and a mouse fires several moves inside one frame,
+     * so it runs once per frame from the gate's callback below. The indicator
+     * lands on the same pixel either way, since only the last position of the
+     * frame is ever drawn.
+     */
     _onPreClickMouseMove = (e) => {
+        this._preClickScheduler.request({ point: e.point, lngLat: e.lngLat });
+    }
+
+    /**
+     * @param {Object} pointer - The frame's last `{ point, lngLat }`
+     * @private
+     */
+    _updatePreClickSnap = (pointer) => {
+        if (!pointer || !this.map) return;
+
         const snapping = getSnappingService();
-        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
-        if (snap.snapped) {
+        const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat);
+        if (snap?.snapped) {
             snapping.showIndicator(this.map, snap, snap.snapType);
         } else {
             snapping?.hideIndicator(this.map);
@@ -545,11 +579,34 @@ class AddLineControl extends BaseControl {
         }
     }
 
+    /**
+     * Park the pointer and ask for a frame. The snap is resolved inside the
+     * gate's callback, once per frame, for the reason on `_onPreClickMouseMove`.
+     */
     handlePreviewMouseMove = (e) => {
-        if (this.drawPoints.length >= 1) {
+        if (this.drawPoints.length < 1) return;
+
+        this._previewScheduler.request({ point: e.point, lngLat: e.lngLat });
+    }
+
+    /**
+     * The frame callback: resolve the snap ONCE, move the indicator, then draw.
+     * @param {Object} [pointer] - The frame's last `{ point, lngLat }`, when a
+     *   pointer event parked one. Absent when a click or an undo asks for a redraw.
+     */
+    performPreviewUpdate = (pointer) => {
+        const selectedFeature = this.getSelectedFeature();
+        const draggingHandle = Boolean(this.isDraggingHandle && selectedFeature);
+
+        if (pointer) {
             const snapping = getSnappingService();
-            const snap = snapping?.resolve(this.map, e.point, e.lngLat, this._extending?.featureId) ?? e.lngLat;
-            this.lastPreviewPosition = [snap.lng, snap.lat];
+            // Exclude the feature itself in the two cases that have one: dragging
+            // its own handle, and continuing it. Its own vertices would otherwise
+            // capture every move.
+            const excludeId = draggingHandle
+                ? selectedFeature.properties?.id
+                : this._extending?.featureId;
+            const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat, excludeId) ?? pointer.lngLat;
 
             if (snap.snapped) {
                 snapping.showIndicator(this.map, snap, snap.snapType);
@@ -557,27 +614,16 @@ class AddLineControl extends BaseControl {
                 snapping?.hideIndicator(this.map);
             }
 
-            if (!this.pendingPreviewUpdate) {
-                this.pendingPreviewUpdate = true;
-                this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-            }
-        }
-    }
-
-    performPreviewUpdate = () => {
-        if (!this.lastPreviewPosition) {
-            this.pendingPreviewUpdate = false;
-            return;
+            this.lastPreviewPosition = [snap.lng, snap.lat];
         }
 
-        const selectedFeature = this.getSelectedFeature();
-        if (this.isDraggingHandle && selectedFeature) {
+        if (!this.lastPreviewPosition) return;
+
+        if (draggingHandle) {
             this.updateLinePreview(this.lastPreviewPosition);
         } else if (this.drawPoints.length >= 1) {
             this.updateDrawingPreview();
         }
-
-        this.pendingPreviewUpdate = false;
     }
 
     updateDrawingPreview = () => {
@@ -594,11 +640,12 @@ class AddLineControl extends BaseControl {
         }
 
         if (previewCoords.length >= 2) {
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = setTimeout(() => {
-                const previewGeometry = this.geometry.generate(previewCoords);
-                this.showPreview(previewGeometry);
-            }, 8);
+            // Reached from inside the frame callback, so this already runs at
+            // most once per frame; the 8 ms debounce it used to carry coalesced
+            // nothing (8 ms is under the 16.7 ms of a frame) and only pushed the
+            // drawing one timer late. Removed 2026-09-04.
+            const previewGeometry = this.geometry.generate(previewCoords);
+            this.showPreview(previewGeometry);
         }
     }
 
@@ -765,14 +812,13 @@ class AddLineControl extends BaseControl {
         );
         if (coordinates.length < 2) return;
 
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            try {
-                this.showPreview(this.geometry.generate(coordinates));
-            } catch (error) {
-                console.warn('Invalid preview while continuing line:', error);
-            }
-        }, 8);
+        // No timer, same reason as `updateDrawingPreview`: the frame gate above
+        // already limits this to once per frame.
+        try {
+            this.showPreview(this.geometry.generate(coordinates));
+        } catch (error) {
+            console.warn('Invalid preview while continuing line:', error);
+        }
     }
 
     /**
@@ -987,31 +1033,28 @@ class AddLineControl extends BaseControl {
         }
     }
 
+    /**
+     * The handle drag rides the SAME gate as the drawing preview: the pointer is
+     * parked here and the snap is resolved once per frame in
+     * `performPreviewUpdate`, which excludes the dragged feature itself.
+     */
     onEditMouseMove = (e) => {
         const selectedFeature = this.getSelectedFeature();
         if (!this.isDraggingHandle || !selectedFeature) return;
 
-        const snapping = getSnappingService();
-        const excludeId = selectedFeature.properties?.id;
-        const snap = snapping?.resolve(this.map, e.point, e.lngLat, excludeId) ?? e.lngLat;
-        this.lastPreviewPosition = [snap.lng, snap.lat];
-
-        if (snap.snapped) {
-            snapping.showIndicator(this.map, snap, snap.snapType);
-        } else {
-            snapping?.hideIndicator(this.map);
-        }
-
-        if (!this.pendingPreviewUpdate) {
-            this.pendingPreviewUpdate = true;
-            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-        }
+        this._previewScheduler.request({ point: e.point, lngLat: e.lngLat });
     }
 
     /**
      * Complete edit operation and recalculate profile if enabled
      */
     onEditMouseUp = async () => {
+        // A drag born and dead inside ONE frame (down, move, up) parks its
+        // position and never reaches the frame callback, so `lastPreviewPosition`
+        // below would still be null and the vertex would not follow. Deliver the
+        // parked pointer now; `flush` cancels the frame it had asked for.
+        if (this._previewScheduler.pending) this._previewScheduler.flush();
+
         const selectedFeature = this.getSelectedFeature();
         if (this.isDraggingHandle && selectedFeature && this.activeHandleType && this.lastPreviewPosition) {
             try {
@@ -1544,21 +1587,14 @@ class AddLineControl extends BaseControl {
     // ===== UTILITY METHODS =====
 
     cancelPendingUpdates = () => {
-        if (this.previewRafId) {
-            cancelAnimationFrame(this.previewRafId);
-            this.previewRafId = null;
-        }
-        this.pendingPreviewUpdate = false;
+        // Both gates: the drawing/drag preview and the pre-click indicator.
+        this._previewScheduler.cancel();
+        this._preClickScheduler.cancel();
         this.lastPreviewPosition = null;
 
         if (!this.isDraggingHandle) {
             this.activeHandle = null;
             this.activeHandleType = null;
-        }
-
-        if (this.geometryDebounceTimer) {
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = null;
         }
 
         if (this.dragRecalculateTimeout) {
@@ -1567,11 +1603,22 @@ class AddLineControl extends BaseControl {
         }
     }
 
+    /**
+     * Write ONE feature's properties and geometry straight into the source.
+     *
+     * No drag guard. The one that stood here tested `this.uiManager`, which a
+     * control is never handed, so it never fired; and the measure that replaced
+     * it found nothing for it to protect. A feature drag keeps its position in
+     * the selection boxes (`move_handler.js` `_performDragUpdate`) and hands the
+     * geometry over only in `_endDrag`, after `isDragging` is already false, so
+     * the source never holds a partial position and a guard on the live path
+     * would drop a write that nothing reapplies. Removed 2026-09-04, measured by
+     * tests/unit/force-update-during-drag-draw.test.js.
+     *
+     * @param {Object} feature - Feature to write
+     * @returns {Promise<void>} Resolves once the source is written
+     */
     forceUpdateMainSource = async (feature) => {
-        if (this.uiManager && this.uiManager.isDragging) {
-            return;
-        }
-
         // The read stays for the existence guard alone: an id absent from the source must be left
         // alone, and `add` would CREATE it. Draining first keeps the read from being stale.
         const dispatcher = linesSource(this.map);

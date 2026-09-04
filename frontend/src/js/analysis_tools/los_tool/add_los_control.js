@@ -5,6 +5,7 @@ import { IDUtils } from '@utils';
 import { addLOSAttributesToPanel, createLOSInfoSection, addLOSParametersToPanel } from './los_attributes_panel.js';
 import AddLOSGeometry from './add_los_geometry.js';
 import { BaseControl } from '@tools';
+import { createPreviewScheduler } from '@tools/helpers/preview-scheduler.js';
 import { getSnappingService } from '@js/snapping';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 
@@ -62,11 +63,22 @@ class AddLOSControl extends BaseControl {
         this.startPoint = null;
         this.endPoint = null;
         this.geometry = new AddLOSGeometry();
-        this.previewRafId = null;
-        this.pendingPreviewUpdate = false;
+        // ONE rAF gate for the segment preview: the raw `mousemove` parks a
+        // pointer, the frame resolves the snap once and draws once.
+        this._previewScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this.performPreviewUpdate(pointer),
+        });
+        // The indicator BEFORE the first click gets its own gate: it is armed by
+        // `activate()` and swapped for the drawing preview on that first click.
+        this._preClickScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this._updatePreClickSnap(pointer),
+        });
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
-        this.geometryDebounceTimer = null;
         this.dragRecalculateTimeout = null;
         this.toolManager.losControl = this;
         this._name = 'AddLOSControl';
@@ -452,10 +464,29 @@ class AddLOSControl extends BaseControl {
         await dispatcher.flush();
     }
 
+    /**
+     * Snap indicator before the first click, when there is nothing to preview yet.
+     *
+     * The raw `mousemove` only PARKS the pointer: `snapping.resolve` is a
+     * rendered-feature query, and a mouse fires several moves inside one frame,
+     * so it runs once per frame from the gate's callback below. The indicator
+     * lands on the same pixel either way, since only the last position of the
+     * frame is ever drawn.
+     */
     _onPreClickMouseMove = (e) => {
+        this._preClickScheduler.request({ point: e.point, lngLat: e.lngLat });
+    }
+
+    /**
+     * @param {Object} pointer - The frame's last `{ point, lngLat }`
+     * @private
+     */
+    _updatePreClickSnap = (pointer) => {
+        if (!pointer || !this.map) return;
+
         const snapping = getSnappingService();
-        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
-        if (snap.snapped) {
+        const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat);
+        if (snap?.snapped) {
             snapping.showIndicator(this.map, snap, snap.snapType);
         } else {
             snapping?.hideIndicator(this.map);
@@ -483,40 +514,43 @@ class AddLOSControl extends BaseControl {
         }
     }
 
+    /**
+     * Park the pointer and ask for a frame. The snap is resolved inside the
+     * gate's callback, once per frame, for the reason on `_onPreClickMouseMove`.
+     */
     handleMouseMove = (e) => {
         if (!this.isActive || !this.startPoint) return;
 
-        const snapping = getSnappingService();
-        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
-
-        if (snap.snapped) {
-            snapping.showIndicator(this.map, snap, snap.snapType);
-        } else {
-            snapping?.hideIndicator(this.map);
-        }
-
-        this.lastPreviewCenter = this.startPoint;
-        this.lastPreviewPosition = [snap.lng, snap.lat];
-
-        if (!this.pendingPreviewUpdate) {
-            this.pendingPreviewUpdate = true;
-            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate.bind(this));
-        }
+        this._previewScheduler.request({ point: e.point, lngLat: e.lngLat });
     }
 
-    performPreviewUpdate = () => {
-        if (!this.lastPreviewCenter || !this.lastPreviewPosition) {
-            this.pendingPreviewUpdate = false;
-            return;
+    /**
+     * The frame callback: resolve the snap ONCE, move the indicator, then draw.
+     * @param {Object} [pointer] - The frame's last `{ point, lngLat }`, when a
+     *   pointer event parked one.
+     */
+    performPreviewUpdate = (pointer) => {
+        if (pointer) {
+            const snapping = getSnappingService();
+            const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat) ?? pointer.lngLat;
+
+            if (snap.snapped) {
+                snapping.showIndicator(this.map, snap, snap.snapType);
+            } else {
+                snapping?.hideIndicator(this.map);
+            }
+
+            this.lastPreviewCenter = this.startPoint;
+            this.lastPreviewPosition = [snap.lng, snap.lat];
         }
 
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            const previewGeometry = this.geometry.generate([this.lastPreviewCenter, this.lastPreviewPosition]);
-            this.showPreview(previewGeometry);
-        }, 8);
+        if (!this.lastPreviewCenter || !this.lastPreviewPosition) return;
 
-        this.pendingPreviewUpdate = false;
+        // No timer: this already runs at most once per frame, and the 8 ms
+        // debounce it used to carry coalesced nothing (8 ms is under the 16.7 ms
+        // of a frame). Removed 2026-09-04.
+        const previewGeometry = this.geometry.generate([this.lastPreviewCenter, this.lastPreviewPosition]);
+        this.showPreview(previewGeometry);
     }
 
     showPreview = (geometry) => {
@@ -1024,18 +1058,11 @@ class AddLOSControl extends BaseControl {
     }
 
     cancelPendingUpdates = () => {
-        if (this.previewRafId) {
-            cancelAnimationFrame(this.previewRafId);
-            this.previewRafId = null;
-        }
-        this.pendingPreviewUpdate = false;
+        // Both gates: the drawing preview and the pre-click indicator.
+        this._previewScheduler.cancel();
+        this._preClickScheduler.cancel();
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
-
-        if (this.geometryDebounceTimer) {
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = null;
-        }
 
         if (this.dragRecalculateTimeout) {
             clearTimeout(this.dragRecalculateTimeout);
