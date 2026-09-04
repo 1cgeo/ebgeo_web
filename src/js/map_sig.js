@@ -126,6 +126,21 @@ export function createMap() {
         maxPitch: config.map2d.maxPitch,
         bounds: config.map2d.bounds,
         validateStyle: false,
+        // MapLibre 6.x: o `zoomLevelsToOverscale` deixou de ser experimental e
+        // passou a valer 4 por padrao, o que FATIA os tiles em vez de
+        // sobre-escalar acima de `maxzoom - 4`. O guia v5->v6 avisa: "It changes
+        // rendering and the results of queryRenderedFeatures ... you can set
+        // `zoomLevelsToOverscale: undefined` when initializing the map" para
+        // voltar ao anterior. A 5.18 nem expunha a opcao (o unico uso interno
+        // dela no bundle e `zoomLevelsToOverscale: this._source.maxzoom`), ou
+        // seja, sempre sobre-escalava, que e exatamente o `undefined` da 6.x.
+        // O app faz 40 chamadas de `queryRenderedFeatures` em 26 arquivos
+        // (selecao, snapping, hover, alcas de mover, desenho), entao a migracao
+        // preserva o comportamento e a troca de padrao fica para uma mudanca
+        // propria, com teste. A chave PRECISA aparecer no literal: o construtor
+        // funde por espalhamento (`{...om, ...e}`), e so assim o `undefined`
+        // sobrescreve o 4 do padrao.
+        zoomLevelsToOverscale: undefined,
         // Handlers we never want. Declared here rather than on 'load' so there
         // is no window in which boxZoom/dragRotate/doubleClickZoom are live.
         boxZoom: false,

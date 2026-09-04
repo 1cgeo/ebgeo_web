@@ -159,6 +159,10 @@ export async function exportMosaicPdf(config) {
             interactive: false,
             fadeDuration: 0,
             validateStyle: false,
+            // MapLibre 6.x: mesmo motivo do construtor principal em map_sig.js. Sem
+            // isto o padrao novo (4) fatia os tiles e desloca o rotulo de centro de
+            // poligono, e a imagem exportada deixaria de bater com a da tela.
+            zoomLevelsToOverscale: undefined,
         });
 
         await new Promise((resolve) => hiddenMap.once('load', resolve));

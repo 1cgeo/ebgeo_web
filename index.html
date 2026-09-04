@@ -10,7 +10,8 @@
     <!-- Vendors CSS (servidos de public/) -->
     <link rel="stylesheet" href="/vendors/cesium/Widgets/widgets.css" media="print"
         onload="this.media='all'; this.onload=null;">
-    <link rel="stylesheet" href="/vendors/maplibre-gl.css" media="print" onload="this.media='all'; this.onload=null;">
+    <!-- O CSS do MapLibre 6.x vem do pacote npm, importado por
+         src/js/map/maplibre.js. Nao ha mais copia em public/vendors/. -->
 
     <!-- CSS principal (processado pelo Vite) -->
     <link rel="stylesheet" href="/src/css/style.css">
@@ -656,7 +657,9 @@
          As demais foram migradas para npm e bundleadas pelo Vite
     ======================================== -->
     <!-- Críticos para inicialização do mapa -->
-    <script src="/vendors/maplibre-gl.js"></script>
+    <!-- O MapLibre 6.x nao tem mais bundle UMD, entao saiu daqui: ele entra
+         pelo npm, no primeiro import de /src/js/index.js (map/maplibre.js),
+         que publica o global `maplibregl` antes de qualquer uso. -->
     <script src="/vendors/turf.min.js"></script>
 
     <!-- Simbologia militar (defer) -->

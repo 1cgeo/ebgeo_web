@@ -178,7 +178,11 @@ class AddStreetViewControl {
                 zoom: 12.5,
                 minZoom: 11,
                 maxZoom: 17.9,
-                validateStyle: false
+                validateStyle: false,
+                // MapLibre 6.x: mesmo motivo do construtor principal em map_sig.js. Sem
+                // isto o padrao novo (4) fatia os tiles e desloca o rotulo de centro de
+                // poligono, e a imagem exportada deixaria de bater com a da tela.
+                zoomLevelsToOverscale: undefined,
             });
         }
 

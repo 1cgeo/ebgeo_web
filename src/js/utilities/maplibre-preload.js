@@ -45,6 +45,24 @@ export class MaplibrePreload {
     }
 
     /**
+     * A `Camera` que o `Map` COMPOE desde a 6.x.
+     *
+     * Ate a 5.18 o `Map` HERDAVA de `Camera`, entao `transform`, `cameraHelper`,
+     * `_normalizeBearing` e `_getTransformForUpdate` estavam no proprio mapa.
+     * Na 6.x a heranca virou composicao ("`Map` now composes a `Camera` rather
+     * than extending it", guia v5->v6), e a d.ts confirma: `declare class Map$1
+     * extends Evented` declara `_camera: Camera` e NAO declara nenhum dos
+     * quatro, que continuam so em `declare class Camera extends Evented`.
+     * Nao existe getter de delegacao no bundle.
+     *
+     * @private
+     * @returns {Object} a camera
+     */
+    get _cam() {
+        return this.map._camera;
+    }
+
+    /**
      * Patches map movement methods to inject tile preloading.
      * Saves original references for unpatch().
      * @private
@@ -293,7 +311,8 @@ export class MaplibrePreload {
      * @private
      */
     _getVisibleTileRange(source, { zoom, pitch }, factor) {
-        const tr = this.map.transform;
+        // 6.x: o transform mora na `Camera` composta, nao mais no `Map`.
+        const tr = this._cam.transform;
         const width = tr.width;
         const height = tr.height;
         const pitchLimit = pitch / 150;
@@ -425,7 +444,9 @@ export class MaplibrePreload {
      */
     _flyToFrames(options) {
         const totalFrames = Math.ceil((this.duration / 1000) * this.fps);
-        const tr = this.map._getTransformForUpdate();
+        // 6.x: `Camera#_getTransformForUpdate()` perdeu o underscore e virou
+        // `getTransformForUpdate()`, e saiu do `Map` junto com a `Camera`.
+        const tr = this._cam.getTransformForUpdate();
         const startCenter = tr.center;
         const startZoom = tr.zoom;
         const startBearing = tr.bearing;
@@ -437,15 +458,15 @@ export class MaplibrePreload {
             ? options.center
             : { lng: options.center[0], lat: options.center[1] };
         const bearing = 'bearing' in options
-            ? this.map._normalizeBearing(options.bearing, startBearing)
+            ? this._cam._normalizeBearing(options.bearing, startBearing)
             : startBearing;
         const pitch = 'pitch' in options ? +options.pitch : startPitch;
         const roll = 'roll' in options
-            ? this.map._normalizeBearing(options.roll, startRoll)
+            ? this._cam._normalizeBearing(options.roll, startRoll)
             : startRoll;
         const padding = 'padding' in options ? options.padding : startPadding;
 
-        const flyToHandler = this.map.cameraHelper.handleFlyTo(tr, {
+        const flyToHandler = this._cam.cameraHelper.handleFlyTo(tr, {
             bearing,
             pitch,
             roll,

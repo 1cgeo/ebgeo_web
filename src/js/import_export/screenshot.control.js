@@ -167,7 +167,11 @@ class ScreenshotControl {
                 center, zoom, bearing, pitch,
                 preserveDrawingBuffer: true,
                 interactive: false,
-                validateStyle: false
+                validateStyle: false,
+                // MapLibre 6.x: mesmo motivo do construtor principal em map_sig.js. Sem
+                // isto o padrao novo (4) fatia os tiles e desloca o rotulo de centro de
+                // poligono, e a imagem exportada deixaria de bater com a da tela.
+                zoomLevelsToOverscale: undefined,
             });
 
             const cleanupTempMap = () => {
@@ -332,7 +336,11 @@ class ScreenshotControl {
                     pitch: map.getPitch(),
                     preserveDrawingBuffer: true,
                     interactive: false,
-                    validateStyle: false
+                    validateStyle: false,
+                    // MapLibre 6.x: mesmo motivo do construtor principal em map_sig.js. Sem
+                    // isto o padrao novo (4) fatia os tiles e desloca o rotulo de centro de
+                    // poligono, e a imagem exportada deixaria de bater com a da tela.
+                    zoomLevelsToOverscale: undefined,
                 });
 
                 tempMap.once('load', () => {
