@@ -185,10 +185,6 @@ export default async function setup() {
             // only place where the memo — and the invalidation that keeps admin edits
             // immediate — is exercised the way a deployment runs it.
             CONFIG_CACHE_FORCE: '1',
-            // The secondary-server notice defaults to ON; it is browser-only UI, but the contract
-            // specs freeze the /config payload and the browser layer is where the overlay would
-            // capture clicks, so both harnesses spawn the backend with it OFF, deliberately.
-            AVISO_SERVIDOR_SECUNDARIO: 'false',
             // The frozen `/config` contract exposes `services.tileServerUrl` as a
             // non-empty URL string; it is env-driven (defaults to '' in the backend),
             // so set it for the spawned server like a real deployment would.

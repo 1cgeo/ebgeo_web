@@ -93,28 +93,29 @@ export function resolveAllowSelfRegistration(env, override) {
  * Resolves whether this deployment announces itself as the SECONDARY EBGeo server.
  * Pure helper (testable in isolation), served as `app.avisoServidorSecundario`.
  *
- * THE DEFAULT IS ON, and that is a decision of the owner (2026-09-03), not a safe-looking
- * guess: the 1 CGEO instance in Porto Alegre IS the secondary server, and a checkout is born
- * announcing it. Only the principal deployment (URL_SERVIDOR_PRINCIPAL, at the 7 CTA in
- * Brasilia) turns the notice off, by setting this variable.
+ * THE DEFAULT IS OFF since 2026-09-04, and that INVERTS the decision of the day before. The
+ * old default charged its cost everywhere the notice was not wanted: born on, it obliged every
+ * deployment and every developer checkout to turn it off, and both e2e harnesses had to spawn
+ * the backend with this variable set to 'false' just to keep an overlay from landing on the
+ * first click of every browser spec. A screen that every install has to disable is a screen
+ * whose default is wrong.
  *
- * ABSENT AND PRESENT ARE READ DIFFERENTLY, on purpose. Absent means nobody configured it, so
- * the shipped default applies. PRESENT means somebody did, and it is read STRICTLY: only the
- * literal 'true' keeps the notice on, and any other value ('sim', '1', 'yes', a typo) turns it
- * off. The asymmetry follows the only reason anyone ever sets this variable: leaving it alone
- * already leaves the notice on, so a deployment that touches it is a deployment asking for the
- * notice to go away. It also refuses truthy coercion, which would make every non-empty string
- * mean `true` and quietly leave the principal server showing the notice forever.
+ * WHO TURNS IT ON IS THE ADMINISTRATOR, from the "Sistema" tab of the admin panel: the override
+ * document (`app.avisoServidorSecundario`) is deep-merged OVER this value in
+ * `config.service.js`, the write drops the /api/config memo, and the next page load carries the
+ * notice, no restart. This variable stays for the install that has nobody to click, and for
+ * the deployment that wants the screen from the very first boot.
  *
- * EMPTY COUNTS AS ABSENT, and that one is not taste: `optional()` in this same file reads an
- * empty env var as "unset" (`process.env[key] || fallback`), an `.env` copied from the example
- * carries empty values by construction, and a rule where `VAR=` means the OPPOSITE of the
- * default is the kind of asymmetry nobody discovers until the wrong screen is in production.
+ * ONLY THE LITERAL 'true' TURNS IT ON. Absent, empty and every other value ('sim', '1', 'yes',
+ * 'TRUE', a typo) all read as off, and the strictness is what refuses truthy coercion:
+ * `Boolean('false')` is `true`, so a coerced parse would light the notice on the exact
+ * deployment that wrote `false` to keep it dark. Absent and empty need no special branch any
+ * more, which is the one simplification the inversion buys: with the default off they land on
+ * the same answer as everything else that is not 'true'.
  * @param {string|undefined} override - AVISO_SERVIDOR_SECUNDARIO env value
  * @returns {boolean}
  */
 export function resolveAvisoServidorSecundario(override) {
-  if (override === undefined || override === '') return true;
   return override === 'true';
 }
 
@@ -506,11 +507,14 @@ const config = Object.freeze({
     // `main` line the same key sits in the client's VERSIONED config.js; here that file is
     // only the shape, and this endpoint is what hydrates it.
     //
-    // BORN ON (see `resolveAvisoServidorSecundario`): a checkout announces the secondary, and
-    // it is the PRINCIPAL deployment that turns the notice off.
+    // BORN OFF (see `resolveAvisoServidorSecundario`): a checkout is silent, and it is the
+    // SECONDARY deployment that asks for the notice, by this variable or by the administrator
+    // ticking the box in the "Sistema" tab, which is the path that needs no restart.
     //
     // READ AT BOOT, like every env in this file: changing either one needs a process restart,
-    // and dropping the /api/config memo is not enough.
+    // and dropping the /api/config memo is not enough. The admin override is the OTHER door and
+    // it does not go through here at all: it is deep-merged over this block in
+    // `config.service.js`, so the panel reaches what the environment cannot.
     avisoServidorSecundario: resolveAvisoServidorSecundario(process.env.AVISO_SERVIDOR_SECUNDARIO),
     // Where the "go to the principal server" button points. ABSOLUTE by default, unlike the
     // rest of this block: the whole point of the button is to leave THIS origin, so a relative

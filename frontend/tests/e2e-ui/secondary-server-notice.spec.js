@@ -3,12 +3,18 @@
 /**
  * @fileoverview O aviso de servidor secundário, visto no navegador real.
  *
- * O servidor descartável da bancada sobe com AVISO_SERVIDOR_SECUNDARIO=false (ver backend.js),
- * senão a sobreposição sentaria em cima do primeiro clique de todo spec. Aqui a chave é LIGADA
- * por spec, remendando a resposta de GET /api/config a caminho do navegador: é a mesma porta por
- * onde a implantação real a hidrata, e o único ponto do app que a lê. O que se prova: a tela abre
- * acima do mapa, o botão do servidor principal aponta para a URL que o config publicou,
- * "Continuar" fecha, Escape fecha, e sem a chave nada é desenhado.
+ * O servidor descartável da bancada sobe SEM configurar nada, e desde 2026-09-04 isso já basta: o
+ * padrão do backend é DESLIGADO (`resolveAvisoServidorSecundario`), então a sobreposição não senta
+ * em cima do primeiro clique de nenhum spec. A linha `AVISO_SERVIDOR_SECUNDARIO=false` que os dois
+ * harnesses carregavam saiu junto com a inversão, porque ela passou a dizer o que já era verdade.
+ *
+ * Aqui a chave é LIGADA por spec, remendando a resposta de GET /api/config a caminho do navegador:
+ * é a mesma porta por onde a implantação real a hidrata, e o único ponto do app que a lê. O remendo
+ * é DELIBERADAMENTE independente do painel de administração: `admin-aviso-servidor-secundario.spec.js`
+ * prova o caminho do administrador, que grava no banco da bancada, e este arquivo continua provando
+ * a tela mesmo que aquele mude, falhe ou saia. O que se prova: a tela abre acima do mapa, o botão do
+ * servidor principal aponta para a URL que o config publicou, "Continuar" fecha, Escape fecha, e sem
+ * a chave nada é desenhado.
  */
 
 import { test, expect } from '@playwright/test';
@@ -81,7 +87,7 @@ describeOrSkip('aviso de servidor secundário (Chromium real + backend real)', (
         await expect(aviso).toHaveCount(0, { timeout: 5000 });
     });
 
-    test('com a chave desligada (o padrão da bancada) nada é desenhado', async ({ page }) => {
+    test('com a chave desligada (o padrão do servidor) nada é desenhado', async ({ page }) => {
         await abrirMapa(page);
         // Espera o boot avançar além da fase 1, onde a tela seria montada.
         await expect(page.locator('.toolbar-tool-btn').first()).toBeAttached({ timeout: 20000 });

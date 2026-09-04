@@ -12,12 +12,51 @@
  * admins actually change. Only CHANGED fields are still sent, so the stored override document holds
  * exactly what an admin set.
  *
+ * The "Aviso de servidor secundário" section (2026-09-04) is the one field group here whose
+ * effect is a BLOCKING SCREEN every user meets at map boot. Its server default is off, so this
+ * tab is the normal way it gets turned on; see the comment on the section for the merge path.
+ *
  * All dynamic text via textContent (never innerHTML with user data).
  */
 
 import { apiClient } from '@store/sync/api-client.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
 import { sectionHeader, ICON_CONFIG, failureState } from './admin-dom.js';
+
+/**
+ * Placeholder for the primary-server field: the address the BACKEND ships as the default of
+ * `URL_SERVIDOR_PRINCIPAL`. It is a hint, never a value: the field is prefilled from the
+ * effective config, so this text only shows on an install whose config carries no address, and
+ * an empty field is never sent (see `onSave`). Keeping it in step with `backend/src/config.js`
+ * is the point: an admin who ticks the notice on and leaves the address blank has to be able to
+ * see which server the deploy already points at.
+ */
+const URL_PRINCIPAL_EXEMPLO = 'https://ebgeo.dsg.eb.mil.br';
+
+/** Schemes the primary-server address may use. Mirrors `ui/secondary-server-notice.js`. */
+const PROTOCOLOS_ACEITOS = new Set(['http:', 'https:']);
+
+/**
+ * Whether a non-empty address is one the notice will actually draw a button for.
+ *
+ * THE SAME TEST THE CLIENT RUNS, on purpose. `urlDoServidorPrincipal`
+ * (`frontend/src/js/ui/secondary-server-notice.js`) drops the button for anything that is not
+ * http(s), SILENTLY, which is right there and wrong here: an admin who typed
+ * `ebgeo.dsg.eb.mil.br` without a scheme would save a 200, see the value echoed back in the
+ * form and get a notice with no way out, with nothing anywhere saying why. The server's Joi
+ * (`.uri()`) is looser than the client's reader, so this is not a duplicate of it.
+ * @param {string} texto - Trimmed field value (never empty here).
+ * @returns {boolean}
+ */
+function urlDeServidorValida(texto) {
+    let url;
+    try {
+        url = new URL(texto);
+    } catch {
+        return false;
+    }
+    return PROTOCOLOS_ACEITOS.has(url.protocol) && Boolean(url.hostname);
+}
 
 /**
  * Builds the "Sistema" tab definition for the admin panel.
@@ -95,6 +134,29 @@ class ConfigTab {
         heading(form, 'Aplicação');
         const appTitle = text(form, 'Título', 'admin-config-app-title', eff.app?.title ?? '');
         const appTutorial = text(form, 'URL do tutorial', 'admin-config-app-tutorial', eff.app?.tutorialUrl ?? '');
+
+        // O AVISO DE SERVIDOR SECUNDÁRIO, e ele é a única seção desta aba cujo efeito é uma tela
+        // que se abre sozinha para TODO mundo. O padrão do servidor é DESLIGADO desde
+        // 2026-09-04 (decisão do chefe; antes nascia ligado e toda implantação tinha de
+        // desligá-lo), e é daqui que o administrador o liga, sem reiniciar o processo: o
+        // override de `app` vence sobre o env na fusão de `config.service.js` e a escrita
+        // derruba o memo de `/api/config`.
+        //
+        // AS DUAS CHAVES SÃO DO BLOCO `app`, e por isso viajam no MESMO `appDiff` do título e da
+        // URL do tutorial, logo acima. O cabeçalho é separado porque o assunto é: quem procura
+        // "como tiro esse aviso da tela" procura pelo nome dele, não por "Aplicação".
+        heading(form, 'Aviso de servidor secundário');
+        const avisoLigado = check(form, 'Mostrar o aviso de servidor secundário ao abrir o mapa',
+            'admin-config-aviso-secundario', !!eff.app?.avisoServidorSecundario);
+        const avisoUrl = text(form, 'URL do servidor principal', 'admin-config-url-principal',
+            eff.app?.urlServidorPrincipal ?? '', { placeholder: URL_PRINCIPAL_EXEMPLO });
+        const avisoHint = document.createElement('p');
+        avisoHint.className = 'admin-form__hint';
+        avisoHint.textContent = 'Ligado, o aviso abre para TODO usuário a cada carregamento do mapa, '
+            + 'recomendando o servidor principal, e o botão dele leva ao endereço acima (deixado em '
+            + 'branco, a tela abre só com "Continuar neste servidor"). A mudança vale no próximo '
+            + 'carregamento da página, sem reiniciar o servidor.';
+        form.appendChild(avisoHint);
 
         heading(form, 'Funcionalidades');
         const fMap3d = check(form, 'Mapa 3D', 'admin-config-feat-map3d', !!eff.features?.map_3d);
@@ -207,6 +269,26 @@ class ConfigTab {
             const titleVal = appTitle.value.trim();
             if (titleVal && titleVal !== (eff.app?.title ?? '')) appDiff.title = titleVal;
             if (appTutorial.value.trim() !== (eff.app?.tutorialUrl ?? '')) appDiff.tutorialUrl = appTutorial.value.trim();
+            diffBool(appDiff, 'avisoServidorSecundario', avisoLigado.checked, !!eff.app?.avisoServidorSecundario);
+            // A URL DO SERVIDOR PRINCIPAL segue a regra do título e não a da URL do tutorial:
+            // `urlServidorPrincipal` é `Joi.string().uri()` SEM `.allow('')`, então mandar vazio
+            // reprovaria o salvamento INTEIRO da aba em 422, e não só este campo. Limpar o
+            // endereço, portanto, não se faz daqui; o que se faz é trocá-lo.
+            const urlVal = avisoUrl.value.trim();
+            if (urlVal && urlVal !== (eff.app?.urlServidorPrincipal ?? '')) {
+                // A CHECAGEM É SOBRE O QUE VAI SER ENVIADO, nunca sobre o campo inteiro: um
+                // valor esquisito que já esteja no config efetivo (veio do env, que não passa
+                // por Joi nenhum) travaria o salvamento de todas as OUTRAS seções desta aba.
+                if (!urlDeServidorValida(urlVal)) {
+                    const recusa = 'A URL do servidor principal precisa ser um endereço http:// ou '
+                        + 'https:// completo. O botão do aviso não é desenhado para nenhum outro esquema.';
+                    error.textContent = recusa;
+                    error.hidden = false;
+                    showError(recusa);
+                    return;
+                }
+                appDiff.urlServidorPrincipal = urlVal;
+            }
             if (Object.keys(appDiff).length) payload.app = appDiff;
 
             const featDiff = {};
@@ -295,15 +377,25 @@ function heading(form, label) {
     form.appendChild(h);
 }
 
-function text(form, label, testid, value) {
-    return field(form, label, testid, 'text', value);
+function text(form, label, testid, value, opts) {
+    return field(form, label, testid, 'text', value, opts);
 }
 
 function number(form, label, testid, value) {
     return field(form, label, testid, 'number', value ?? '');
 }
 
-function field(form, label, testid, type, value) {
+/**
+ * @param {HTMLElement} form
+ * @param {string} label
+ * @param {string} testid - Serves as `id`, `for` and `data-testid`.
+ * @param {string} type
+ * @param {string|number} value
+ * @param {{ placeholder?: string }} [opts] - `placeholder` is a HINT and never a value: an
+ *   empty field stays empty on save, as every diff in `onSave` compares the VALUE.
+ * @returns {HTMLInputElement}
+ */
+function field(form, label, testid, type, value, { placeholder } = {}) {
     const wrap = document.createElement('div');
     wrap.className = 'admin-form__field';
     const lab = document.createElement('label');
@@ -315,6 +407,7 @@ function field(form, label, testid, type, value) {
     input.id = testid;
     input.dataset.testid = testid;
     input.value = value;
+    if (placeholder) input.placeholder = placeholder;
     wrap.appendChild(input);
     form.appendChild(wrap);
     return input;
