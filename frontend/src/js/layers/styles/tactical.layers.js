@@ -418,15 +418,13 @@ export function setupCoordinationLineLayers(features, mapInstance) {
     // live under `tool_manager/helpers/`. The list and the geometry are held to
     // each other in `coordination-line-fosso-anticarro.test.js` instead.
     //
-    // LACUNA CONHECIDA, herdada da main e NAO consertada aqui: este id nao esta em
-    // `FEATURE_LAYER_IDS` (`layers/layer.constants.js:48` lista so a camada de linha),
-    // entao `updateAllLayerFilters` nunca reescreve o filtro dele. O `visivel` da propria
-    // feicao continua valendo (esta no filtro estatico acima), mas a pertinencia a uma
-    // camada do usuario e a janela temporal NAO: ocultar a camada apaga o contorno do
-    // fosso e deixa a faixa preenchida na tela. O conserto sao duas entradas em
-    // `layer.constants.js` (o id na lista, e a clausula de geometria em
-    // `LAYER_ADDITIONAL_FILTERS`, senao o filtro reescrito perde o recorte e volta a
-    // pintar o miolo do losango). Arquivo fora deste lote.
+    // O filtro abaixo e so o de NASCIMENTO. Quem manda depois e `updateAllLayerFilters`
+    // (`layers/visibility-filter.js`), que reescreve o filtro de toda camada listada em
+    // `FEATURE_LAYER_IDS` com a pertinencia de camada e a janela temporal; este id esta
+    // la, e o recorte de geometria viaja por `LAYER_ADDITIONAL_FILTERS`, senao a reescrita
+    // o perderia e o preenchimento voltaria a pintar o miolo do losango. Na `main` de
+    // 2026-09-04 o id ficou fora da lista, e ocultar a camada apagava o contorno do fosso
+    // deixando a faixa na tela; preso aqui por coordination-line-fill-filtro.test.js.
     ensureLayer(mapInstance, {
         id: 'coordination-line-fill-layer',
         type: 'fill',

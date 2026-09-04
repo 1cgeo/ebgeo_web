@@ -45,6 +45,10 @@ export const FEATURE_LAYER_IDS = [
     'boundary-circles-stroke-layer',
     'boundary-text-layer',
     'occupied-front-layer',
+    // O preenchimento vem ANTES da linha, como na criacao: o contorno pousa sobre o
+    // proprio preenchimento. Fora desta lista a camada nao recebia pertinencia de camada
+    // nem janela temporal (ocultar a camada apagava o contorno do fosso e deixava a faixa).
+    'coordination-line-fill-layer',
     'coordination-line-layer',
     'processed-los-layer',
     'visibility-visible-layer',
@@ -68,6 +72,12 @@ export const LAYER_ADDITIONAL_FILTERS = {
         ['==', ['get', 'showLabel'], true],
         ['has', 'labelText'],
         ['!=', ['get', 'labelText'], ''],
+    ],
+    // So o simbolo marcado como cheio (o fosso anticarro) vira MultiPolygon; sem este
+    // recorte o filtro reescrito pintaria o miolo de todo losango oco da mesma fonte.
+    // Preso por coordination-line-fill-filtro.test.js.
+    'coordination-line-fill-layer': [
+        ['==', ['geometry-type'], 'Polygon'],
     ],
 };
 
