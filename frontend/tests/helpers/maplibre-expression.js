@@ -5,13 +5,24 @@
  * repository writes, for tests that run in `node`.
  *
  * WHY IT EXISTS, and why it is not a hand-written guess. The right reference for
- * "what does the map draw" is the code the map runs, and the main branch of this
- * project gets it from `@maplibre/maplibre-gl-style-spec`, the npm package
- * `maplibre-gl` depends on. HERE MAPLIBRE IS VENDORED, not installed: it is the
- * browser UMD bundle at `public/vendors/maplibre-gl.js`, loaded by a `<script>`
- * tag, and it exports the `Map` class and nothing of the expression compiler.
- * Adding the npm package would touch the lockfile, which this branch does not do
- * for a test helper.
+ * "what does the map draw" is the code the map runs. This helper TRANSCRIBES that
+ * arithmetic instead of importing a compiler.
+ *
+ * IT WAS TRANSCRIBED from the vendored MapLibre 5.18 UMD bundle, back when
+ * `public/vendors/maplibre-gl.js` was how this app loaded MapLibre. Since 2026-09-04
+ * MapLibre comes from npm (6.7.0) and that file is gone, so the transcription was
+ * RE-CHECKED against the new source, function by function, and it holds:
+ * `node_modules/@maplibre/maplibre-gl-style-spec` ships
+ * `exponentialInterpolation(input, base, lowerValue, upperValue)` as `difference === 0`
+ * -> 0, `base === 1` -> `progress / difference`, else
+ * `(pow(base, progress) - 1) / (pow(base, difference) - 1)`, which is
+ * `interpolationFactor` below line for line.
+ *
+ * WHY STILL A TRANSCRIPTION, now that the compiler IS installed (it is a transitive
+ * dependency of `maplibre-gl`): importing it would mean depending on a package this
+ * `package.json` does not declare, and declaring it would add a direct dependency for
+ * a test helper. Swapping the two is a decision of its own, with its own measurement,
+ * and this header is the record that the option exists.
  *
  * So the arithmetic below is TRANSCRIBED from that same vendored bundle rather
  * than reconstructed from the documentation, function by function, so that a

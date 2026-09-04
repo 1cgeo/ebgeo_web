@@ -9,10 +9,11 @@ import { faixaDeZoom, aplicarFaixaDeZoom } from '../../src/js/baselayers/basemap
  * fácil, e sim que ela reprova o PIOR CASO que ela existe para pegar: a ordem de escrita das
  * duas propriedades do MapLibre, que levanta exceção quando aplicada na ordem ingênua.
  *
- * O MAPA FALSO IMPÕE AS GUARDAS REAIS, copiadas do bundle em uso
- * (`public/vendors/maplibre-gl.js`, `Map.setMinZoom` e `Map.setMaxZoom`), inclusive o clamp da
- * câmera. Um duplo permissivo aprovaria a implementação errada, que é o defeito que esta
- * suíte existe para não ter.
+ * O MAPA FALSO IMPÕE AS GUARDAS REAIS, copiadas do MapLibre em uso (`Map.setMinZoom` e
+ * `Map.setMaxZoom`), inclusive o clamp da câmera. Um duplo permissivo aprovaria a
+ * implementação errada, que é o defeito que esta suíte existe para não ter. Copiadas do
+ * bundle vendorizado 5.18; reconferidas na 6.7.0 do npm
+ * (`node_modules/maplibre-gl/src/ui/map.ts`), onde as duas guardas são as mesmas.
  */
 function mapaFalso({ minZoom = 2, maxZoom = 21, zoom = 10 } = {}) {
     const m = {

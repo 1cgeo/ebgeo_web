@@ -211,6 +211,16 @@ const ISENTOS = new Set([
     // arquivo. Só aparece porque a coleta passou a ser ampla — e é o único
     // falso-positivo que a inversão produziu em 65 páginas.
     './aman/x.json',
+    // APAGADO EM 2026-09-04, e citado nas decisões justamente como o lugar onde a medida foi
+    // FEITA à época. O MapLibre 5.18 vinha como bundle UMD em `public/vendors/`; a 6.x não
+    // publica UMD, então a biblioteca passou a vir do npm e a cópia foi apagada. As entradas de
+    // decisão que a citam são registro histórico e não se reescrevem: cada uma diz, ao lado, onde
+    // o mesmo código está hoje (`node_modules/maplibre-gl/src/...`).
+    //
+    // A isenção não deixa buraco: quem garante que o arquivo NÃO voltou é
+    // `frontend/tests/unit/maplibre-construtores-regua.test.js`, que cobra a ausência das duas
+    // cópias e a ausência da referência nas quatro páginas HTML.
+    'frontend/public/vendors/maplibre-gl.js',
 ]);
 
 /**

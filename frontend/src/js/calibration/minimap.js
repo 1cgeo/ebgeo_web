@@ -64,6 +64,14 @@ export function initMinimap(container, options = {}) {
         center: [-54.0, -29.0],
         zoom: 16,
         attributionControl: false,
+        // MapLibre 6.x: mesmo motivo do construtor principal em map_sig.js. Neste mapa a opcao NAO
+        // muda nada hoje, e a linha esta aqui de propósito: o estilo acima e raster, e
+        // `zoomLevelsToOverscale` so alcanca fonte VETORIAL (`tile_manager.ts`, o ramo
+        // `this._source.type === 'vector'`). Ela entra porque a regra da casa e que TODO construtor
+        // de mapa declare a chave, e a régua estática `maplibre-construtores-regua.test.js` cobra
+        // isso sem lista de exceção: uma exceção aqui teria de ser reavaliada no dia em que este
+        // estilo virar vetorial, e ninguém reavalia o que não reprova.
+        zoomLevelsToOverscale: undefined,
     });
 
     map.on('load', () => {

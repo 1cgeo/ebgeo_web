@@ -161,6 +161,30 @@ export default defineConfig(({ mode: _mode }) => ({
           groups: [{
             entriesAware: true,
             name(id) {
+          // ===== MAPLIBRE (npm, since 2026-09-04): THERE IS NO RULE HERE, AND THAT IS MEASURED =====
+          //
+          // The obvious move when the library stopped being a `<script>` vendor was a group of its
+          // own. It was written, built and thrown away, because it changed NOTHING measurable, and
+          // an inert rule is worse than no rule: it looks like it is doing something.
+          //
+          // What was measured on 2026-09-04, three builds of this tree:
+          //   - `entriesAware` already emits MapLibre as ONE chunk shared by `index.html` and
+          //     `calibracao.html`, the only two entries that reach it (981 kB, plus three tiny
+          //     modules also reachable from both). No group is needed to get that.
+          //   - `name(id)` IS called for node_modules ids (probed: they arrive as
+          //     `<root>/node_modules/maplibre-gl/dist/maplibre-gl.mjs`, forward slashes), and
+          //     returning `'maplibre'` for them produced a byte-identical `dist/`: same chunk,
+          //     same content hash.
+          //   - The emitted name never carried it either. Chunk names here are
+          //     `<group>~<entry>~<entry>` (probed: `calibration~main~calibracao`), so Rolldown
+          //     collapses group subdivisions that share an entry set and keeps ONE label. The
+          //     MapLibre chunk therefore ships as `calibration-*`, which is exactly the case the
+          //     "Naming caveat" above already describes: names are labels, not contents.
+          //
+          // The worker is a separate matter and it IS emitted on its own, without any rule:
+          // `?worker&url` in `src/js/map/maplibre.js` produces `assets/maplibre-gl-worker-*.js`
+          // (635 kB), fetched at map boot by `setWorkerUrl` and referenced by no HTML.
+
           // ===== STATICALLY-IMPORTED SERVICES (must resolve before lazy chunks) =====
 
           // keyboard-service-3d is statically imported by sig.js (entry point)
@@ -563,9 +587,14 @@ export default defineConfig(({ mode: _mode }) => ({
 
   // ===== OPTIMIZATIONS =====
   optimizeDeps: {
-    // Exclude global vendors (loaded via script tags)
+    // Exclude global vendors (loaded via script tags).
+    //
+    // `maplibre-gl` LEFT this list on 2026-09-04. It stopped being a global vendor: the 6.x has no
+    // UMD build, so it comes from npm through `src/js/map/maplibre.js` and is a normal graph
+    // dependency of two entries. Keeping it excluded would mean asking dev to serve it unbundled
+    // while the build bundles it, two different module identities for the same library, which is
+    // exactly the class of trap `bench/README.md` records under the `?t=` of the HMR.
     exclude: [
-      'maplibre-gl',
       '@turf/turf',
       'milsymbol',
       'cesium'

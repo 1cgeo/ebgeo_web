@@ -898,7 +898,7 @@ async function prepararFerramentaPagina(cfg) {
 async function lerEstado(cfg) {
     const map = window.__mapa;
     const c = window.__store.getControl(cfg.controle);
-    // Conta o que a fonte do MAPA mostra. No MapLibre 5.18 vendorizado o `_data`
+    // Conta o que a fonte do MAPA mostra. No MapLibre o `_data`
     // da fonte GeoJSON E um envelope (`{ updateable | url | geojson }`), e
     // `serialize().data` e o unico que devolve a colecao: ler `_data` direto
     // contaria toda fonte como vazia.

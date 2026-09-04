@@ -4,8 +4,9 @@
  * @fileoverview O CANVAS DO MAPA PRECISA SEGURAR O GESTO DE TOQUE, E QUEM DECIDE ISSO E
  * UMA REGRA DE CSS, nao uma linha de JavaScript.
  *
- * O DEFEITO, medido no bundle vendorizado e nao suposto. A folha do MapLibre
- * (`public/vendors/maplibre-gl.css`) dirige `touch-action` a partir das classes
+ * O DEFEITO, medido na folha que a pagina baixa e nao suposto. A folha do MapLibre
+ * (`node_modules/maplibre-gl/dist/maplibre-gl.css`, importada por `src/js/map/maplibre.js`;
+ * ate 2026-09-04 era a copia em `public/vendors/`) dirige `touch-action` a partir das classes
  * `.maplibregl-touch-zoom-rotate` e `.maplibregl-touch-drag-pan`, e o VENDOR REMOVE essas
  * classes toda vez que alguem chama `dragPan.disable()`. Neste app isso acontece em 15
  * sitios (ferramentas de desenho, o manipulador de mover feicao, o proprio manipulador de
@@ -82,10 +83,17 @@ describe('o canvas do mapa 2D nao solta o gesto de toque', () => {
         // (1,1,0) contra (0,4,0). Nao e aritmetica de sobra: a regra do vendor que perde
         // aqui esta VIVA na folha vendorizada, e e ela que reescreve `touch-action` quando
         // as classes voltam.
-        const vendor = readFileSync(resolve(FRONT, 'public/vendors/maplibre-gl.css'), 'utf8');
+        // A FOLHA DO MAPLIBRE VEM DO PACOTE npm desde 2026-09-04 (6.7.0), e nao mais de
+        // `public/vendors/maplibre-gl.css`, que foi apagado com o fim do bundle UMD. E o MESMO
+        // arquivo que `src/js/map/maplibre.js` importa, entao esta guarda continua lendo
+        // exatamente a folha que a pagina baixa. Conferido na 6.7: a regra que perde aqui segue
+        // viva, `.maplibregl-canvas-container.maplibregl-touch-zoom-rotate{touch-action:pan-x pan-y}`.
+        const vendor = readFileSync(
+            resolve(FRONT, 'node_modules/maplibre-gl/dist/maplibre-gl.css'), 'utf8'
+        );
         expect(
             vendor,
-            'a folha vendorizada parou de declarar touch-action: esta guarda ficou sem sujeito'
+            'a folha do MapLibre parou de declarar touch-action: esta guarda ficou sem sujeito'
         ).toMatch(/\.maplibregl-canvas-container[^{]*\{[^}]*touch-action/);
         // Um id vale mais que qualquer numero de classes, entao basta haver um id.
         for (const seletor of seletores.filter((s) => s.includes('maplibregl-canvas'))) {

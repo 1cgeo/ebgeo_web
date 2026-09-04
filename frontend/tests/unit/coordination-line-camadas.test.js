@@ -121,7 +121,7 @@ describe('setupCoordinationLineLayers', () => {
  * 2026-09-03). O filtro por tipo de geometria e o que separa os dois casos.
  *
  * `['geometry-type']` devolve 'Point', 'LineString' ou 'Polygon' e MAIS NADA: no bundle
- * vendorizado (`public/vendors/maplibre-gl.js`) o getter e
+ * (vendorizado 5.18 quando isto foi escrito, npm 6.7.0 desde 2026-09-04) o getter e
  * `geometryType(){...He[this.feature.type]...}` sobre `He=["Unknown","Point","LineString","Polygon"]`,
  * indexado pelo tipo NUMERICO do vector tile. Ou seja MultiPolygon responde 'Polygon' e
  * MultiLineString responde 'LineString', que e a premissa deste filtro.

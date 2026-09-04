@@ -10,7 +10,8 @@
     <!-- Vendors CSS (servidos de public/) -->
     <link rel="stylesheet" href="/vendors/cesium/Widgets/widgets.css" media="print"
         onload="this.media='all'; this.onload=null;">
-    <link rel="stylesheet" href="/vendors/maplibre-gl.css" media="print" onload="this.media='all'; this.onload=null;">
+    <!-- O CSS do MapLibre 6.x vem do pacote npm, importado por src/js/map/maplibre.js.
+         Não há mais cópia em public/vendors/: ela foi apagada, não deixada ao lado. -->
 
     <!-- CSS principal (processado pelo Vite) -->
     <link rel="stylesheet" href="/src/css/style.css">
@@ -656,8 +657,9 @@
          Bibliotecas grandes ou especializadas mantidas como scripts externos
          As demais foram migradas para npm e bundleadas pelo Vite
     ======================================== -->
-    <!-- Crítico para inicialização do mapa: o MapLibre não sai, porque o mapa É a página. -->
-    <script src="/vendors/maplibre-gl.js"></script>
+    <!-- O MapLibre 6.x não tem mais bundle UMD, então saiu daqui: ele entra pelo npm, no primeiro
+         import de /src/js/index.js (map/maplibre.js), que publica o global `maplibregl` antes de
+         qualquer uso. O mapa continua sendo a página; o que mudou é por onde a biblioteca chega. -->
 
     <!-- Turf: carregado SOB DEMANDA (js/utilities/turf-loader.js). São 619 kB, o maior
          item depois do MapLibre no script que esta página baixava no boot (3749 kB

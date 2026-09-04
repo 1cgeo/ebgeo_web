@@ -18,9 +18,11 @@
 //   3. ao TROCAR de atlas, a fonte e DEMOLIDA. Carimbar so no `transformRequest` produziria a
 //      URL certa no primeiro pedido de cada tile e ainda assim serviria o tile do atlas A
 //      dentro do atlas B, porque o MapLibre indexa o cache por `OverscaledTileID.key` e nunca
-//      pela URL. O ultimo bloco deste arquivo le o bundle vendorizado e prende essa premissa:
-//      se uma atualizacao do MapLibre mudar o modelo de cache, o teste manda medir de novo em
-//      vez de deixar a decisao de desenho apoiada numa lembranca.
+//      pela URL. O ultimo bloco deste arquivo le a FONTE do MapLibre instalado e prende essa
+//      premissa: se uma atualizacao do MapLibre mudar o modelo de cache, o teste manda medir de
+//      novo em vez de deixar a decisao de desenho apoiada numa lembranca. Na subida para a 6.7.0
+//      (2026-09-04) ele fez o trabalho dele: o modelo de cache nao mudou, mas o comportamento de
+//      `setTiles()` na fonte vetorial mudou, e esta escrito la.
 //
 // O QUE ESTE ARQUIVO NAO PRENDE: que o MapLibre de fato refaca o pedido de rede depois da
 // demolicao. Isso e um mapa vivo com Web Worker, ou seja Playwright, e esta nomeado no
@@ -235,35 +237,69 @@ describe('rebuildScopedSource: trocar de atlas DERRUBA a fonte, nao a reafina', 
 });
 
 // ============================================================
-// A PREMISSA MEDIDA NO BUNDLE VENDORIZADO
+// A PREMISSA MEDIDA NA FONTE DO MAPLIBRE INSTALADO
 // ============================================================
+//
+// ATE 2026-09-04 ESTE BLOCO LIA O BUNDLE MINIFICADO de `public/vendors/maplibre-gl.js` (5.18) e
+// cobrava trechos literais dele. O MapLibre passou a vir do npm (6.7.0, pinado exato) e aquele
+// arquivo foi apagado. A releitura foi feita contra `node_modules/maplibre-gl/src/`, o TypeScript
+// que o pacote PUBLICA, e nao contra o `dist/` minificado: e a mesma fonte primaria, sobrevive a
+// troca de minificador, e diz o que o codigo faz em vez de como ele ficou espremido.
+//
+// E A RELEITURA MUDOU UM DOS TRES, que e exatamente por que este bloco existe: na 6.x
+// `setTiles()` numa fonte VETORIAL passou a REFAZER o pedido. O detalhe esta no terceiro caso. A
+// decisao de desenho (demolir a fonte, em vez de carimbar no `transformRequest`) NAO depende
+// desse terceiro: ela se apoia no primeiro, e o primeiro continua verdadeiro.
 
 describe('a evidencia que elimina o carimbo no transformRequest', () => {
-    const bundle = readFileSync(
-        fileURLToPath(new URL('../../public/vendors/maplibre-gl.js', import.meta.url)),
-        'utf8'
-    );
+    const RAIZ = '../../node_modules/maplibre-gl/src/';
+    const ler = (rel) => readFileSync(fileURLToPath(new URL(RAIZ + rel, import.meta.url)), 'utf8');
+    const tileManager = ler('tile/tile_manager.ts');
+    const fonteVetorial = ler('source/vector_tile_source.ts');
+
+    it('CONTROLE DE VACUO: os arquivos lidos existem e tem corpo', () => {
+        // Sem isto, um pacote que parasse de publicar `src/` faria `readFileSync` estourar na
+        // coleta (falha ruidosa, aceitavel), mas um arquivo VAZIO deixaria todo `toContain`
+        // abaixo reprovando por motivo errado, e um dia alguem os "consertaria" apagando-os.
+        expect(tileManager.length).toBeGreaterThan(5000);
+        expect(fonteVetorial.length).toBeGreaterThan(3000);
+    });
 
     it('o cache de tile e indexado pela CHAVE do tile, nunca pela URL transformada', () => {
         // `_addTile` responde dos dois caches antes de qualquer pedido, e os dois sao
         // consultados por `tileID.key` (z/x/y/wrap). Nada ali conhece a URL.
-        expect(bundle).toContain('_addTile(e){let i=this._inViewTiles.getTileById(e.key);if(i)return i');
-        expect(bundle).toContain('i=this._outOfViewCache.getAndRemove(e)');
+        // Inalterado da 5.18 para a 6.7.
+        expect(tileManager).toContain('_addTile(tileID: OverscaledTileID): Tile {');
+        expect(tileManager).toContain('let tile = this._inViewTiles.getTileById(tileID.key);');
+        expect(tileManager).toContain('tile = this._outOfViewCache.getAndRemove(tileID);');
     });
 
     it('a URL do tile nasce da FONTE e so depois passa pelo transformRequest', () => {
-        expect(bundle).toContain('const t=e.tileID.canonical.url(this.tiles');
-        expect(bundle).toContain('request:this.map._requestManager.transformRequest(t,"Tile")');
+        // Inalterado da 5.18 para a 6.7, tirando o `await` que a 6.x acrescentou (o
+        // `transformRequest` agora PODE devolver Promise; o nosso e sincrono e continua valido).
+        expect(fonteVetorial).toContain('const url = tile.tileID.canonical.url(this.tiles');
+        expect(fonteVetorial)
+            .toContain('this.map._requestManager.transformRequest(url, ResourceType.Tile)');
     });
 
-    it('setTiles() numa fonte VETORIAL nao refaz o pedido: o worker so reparseia', () => {
-        // A fonte vetorial chama `load()` sem argumento (a raster chama `load(!0)`), entao
-        // `sourceDataChanged` e indefinido, o tile recarrega como "reloading" e o loadTile
-        // manda "RT". O handler de "RT" no worker le o que ja estava carregado.
-        expect(bundle).toContain('setSourceProperty(e){this._tileJSONRequest&&this._tileJSONRequest.abort(),e(),this.load();}setTiles(e)');
-        expect(bundle).toContain('"errored"!==a.state&&this._reloadTile(i,"reloading")');
-        expect(bundle).toContain('let a="RT";if(e.actor&&"expired"!==e.state)');
-        expect(bundle).toContain('const e=t.uid,o=this.tileState.getLoaded(e);');
+    it('MUDOU NA 6.x: setTiles() numa fonte VETORIAL passou a REFAZER o pedido', () => {
+        // 5.18: a fonte vetorial chamava `load()` sem argumento (so a raster chamava `load(!0)`),
+        // entao `sourceDataChanged` ficava indefinido, `reload()` marcava o tile como "reloading"
+        // e o `loadTile` mandava "RT" (reloadTile), que faz o worker REPARSEAR o que ja estava
+        // carregado, sem rede.
+        //
+        // 6.7: `setSourceProperty` chama `load(true)` tambem na vetorial, `reload(true)` marca o
+        // tile como "expired", e o `loadTile` cai no ramo `!tile.actor || tile.state === 'expired'`,
+        // que troca a mensagem para `loadTile` e pede o tile de novo, pela rede.
+        //
+        // ISSO NAO REABILITA O CARIMBO NO `transformRequest`: o que o eliminou foi o caso 1 (o
+        // cache por `tileID.key`), porque um tile do atlas A ja EM CACHE seria servido dentro do
+        // atlas B sem pedido nenhum. Fica registrado porque a proxima pessoa que ler o desenho vai
+        // querer saber se `setTiles` sozinho bastaria, e a resposta mudou com a versao.
+        expect(fonteVetorial).toContain('callback();\n\n        this.load(true);');
+        expect(tileManager).toContain("this._reloadTile(id, tile.state === 'errored' ? 'loading' : 'expired');");
+        expect(fonteVetorial).toContain("if (!tile.actor || tile.state === 'expired') {");
+        expect(fonteVetorial).toContain('messageType = MessageType.loadTile;');
     });
 });
 

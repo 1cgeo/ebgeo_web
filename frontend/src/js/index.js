@@ -13,6 +13,11 @@
  * 5+6. State + UI — IndexedDB load, map load handler, deep linking
  */
 
+// PRIMEIRO import, de propósito: publica `window.maplibregl` e o CSS do MapLibre antes de qualquer
+// módulo que os use. Até 2026-09-04 quem fazia isso era um `<script>` de `public/vendors/` no
+// `index.html`; a 6.x não tem mais bundle UMD. Ver `map/maplibre.js`.
+import './map/maplibre.js';
+
 import { initializeAppConfig } from './config-loader.js';
 import { initConfigHelpers } from './config.helpers.js';
 import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-config.js';

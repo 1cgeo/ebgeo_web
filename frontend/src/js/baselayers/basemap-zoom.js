@@ -14,8 +14,10 @@
  * que imponha as guardas REAIS, e é assim que a régua se prova contra o pior caso em vez de ser
  * vista passar no caso fácil.
  *
- * AS GUARDAS, medidas no bundle em uso (`public/vendors/maplibre-gl.js`), e não deduzidas da
- * documentação:
+ * AS GUARDAS, medidas no código do MapLibre em uso e não deduzidas da documentação.
+ * Medidas primeiro no bundle vendorizado 5.18; RECONFERIDAS na 6.7.0 vinda do npm
+ * (`node_modules/maplibre-gl/src/ui/map.ts`, `setMinZoom`/`setMaxZoom`), onde as duas são
+ * as mesmas, com `defaultMinZoom = -2` e `defaultMaxZoom = 22` nomeados em constante:
  *   - `Map.setMinZoom(e)` só age se `e >= -2 && e <= transform.maxZoom`; fora disso LEVANTA.
  *   - `Map.setMaxZoom(e)` só age se `e >= transform.minZoom`; fora disso LEVANTA.
  * As duas comparações são INCLUSIVAS, então uma faixa degenerada e legítima como [2, 2] passa.

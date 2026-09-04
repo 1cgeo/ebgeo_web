@@ -268,7 +268,11 @@ class AddStreetViewControl {
                 // flexibleAuth do mapa principal, e por isso precisa do mesmo
                 // carimbo. Sem ele, servindo o 360 de outra origem, o minimapa
                 // mostraria menos fotos que a trajetoria do mapa principal.
-                transformRequest: credencialDeTile
+                transformRequest: credencialDeTile,
+                // MapLibre 6.x: mesmo motivo do construtor principal em map_sig.js. Sem isto o
+                // padrão novo (4) fatia os tiles do mapa base do mini-mapa, e o enquadramento
+                // deixaria de bater com o do mapa principal na mesma coordenada.
+                zoomLevelsToOverscale: undefined,
             });
         }
 

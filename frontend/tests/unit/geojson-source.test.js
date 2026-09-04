@@ -19,7 +19,8 @@ function makeSource(collection) {
 // The OTHER kind of source on this branch: one of the sixteen the diff dispatcher owns
 // (`layers/geojson-dispatcher.js`), written by `updateData`. The first `updateData` turns
 // `_data` into `{updateable: Map}`, and `serialize()` then BUILDS a new collection on every
-// call. Copied from the branch the vendored bundle takes (`public/vendors/maplibre-gl.js`):
+// call. Copied from the branch the bundle takes (the vendored 5.18 when this was written;
+// re-read on 6.7.0 from npm, `src/source/geojson_source.ts`, where it is the same):
 //
 //   data: this._data.updateable
 //     ? {type:"FeatureCollection", features: Array.from(this._data.updateable.values())}

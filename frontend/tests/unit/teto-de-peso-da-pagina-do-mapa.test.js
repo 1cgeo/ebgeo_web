@@ -567,9 +567,15 @@ const DIST = join(FRONT, 'dist');
  * Vite injeta, ou seja, o chunk que o navegador baixa ANTES de rodar qualquer coisa. Contar só o
  * `src=` mediria três arquivos de sessenta e três.
  *
- * `/vendors/` sai porque não é payload do bundler: são estáticos de `public/` (Cesium, MapLibre,
- * Turf, GDAL), copiados sem passar pelo chunking, e o que esta metade guarda é a decisão de
+ * `/vendors/` sai porque não é payload do bundler: são estáticos de `public/` (Cesium, Turf,
+ * GDAL), copiados sem passar pelo chunking, e o que esta metade guarda é a decisão de
  * `codeSplitting`. Eles somam ~7,4 MB e afogariam qualquer variação do que se mede aqui.
+ *
+ * O MAPLIBRE SAIU DESSA LISTA EM 2026-09-04 e ENTROU na conta, e é a maior mudança que este
+ * arquivo já sofreu sem que o produto engordasse: a 6.x não publica bundle UMD, então o
+ * `<script src="/vendors/maplibre-gl.js">` deu lugar a um import de npm, e 981 kB atravessaram o
+ * balcão de "não é payload do bundler" para "é". Os números de antes e depois estão nas bandas
+ * abaixo, com a comparação honesta feita ali.
  * @param {string} html - Nome do arquivo em `dist/`.
  * @returns {{assets: string[], vendors: string[], kb: number}}
  */
@@ -606,7 +612,31 @@ function payloadDe(html) {
  * teto. É o vácuo desta metade, e ele é fácil de produzir: basta uma regra de `input` errada.
  */
 const PAGINAS_DIST = Object.freeze([
-    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 80, minKb: 2450, maxKb: 3000 },
+    // index.html: 3000 -> 4150 em 2026-09-04, e a SUBIDA NÃO É UMA REGRESSÃO, é uma troca de
+    // balcão. Medido nesta árvore, build fresco, nos dois estados do mesmo dia:
+    //
+    //   antes  71 arquivos, 2909 kB de assets + 1022 kB de `/vendors/maplibre-gl.js` (fora da
+    //          conta desta metade) = 3931 kB que a pessoa baixava para abrir o mapa;
+    //   depois 71 arquivos, 3889 kB de assets, zero MapLibre em `/vendors/`.
+    //
+    // Os mesmos 71 arquivos: o MapLibre não abriu um chunk novo, entrou num que já existia
+    // (`entriesAware` o compartilha com `calibracao.html`, que também o carregava por
+    // `<script>`). O teto sobe 1150 e o payload sobe 980, então a folga NÃO aumentou.
+    //
+    // O QUE ESTE NÚMERO NÃO CONTA, e precisa ficar dito porque é o custo real da migração: o
+    // worker. A 5.18 era um UMD de 998 kB (263 kB gzip) com o worker embutido, criado por Blob;
+    // a 6.x separa `assets/maplibre-gl-worker-*.js`, 620 kB (147 kB gzip), que `setWorkerUrl`
+    // busca no boot do mapa e que NENHUM HTML referencia, logo esta conta não o vê. Somando o que
+    // a pessoa de fato baixa: 998 kB (263 gzip) antes, 1601 kB (403 gzip) depois, ou seja +603 kB
+    // (+140 gzip) de MapLibre, que é o código compartilhado duplicado entre a thread principal e
+    // o worker. Quem paga isso ganha o outro lado da 6.x, medido na bancada e não aqui.
+    //
+    // O TETO CONTINUA NÃO SUBINDO SOZINHO. O `vite.config.js` registra 3,96 MB (4055 kB) como o
+    // payload de antes do `entriesAware`, e 4150 é maior que aquilo, mas os dois números não são
+    // do mesmo balcão: 4055 kB EXCLUÍA os 998 kB do MapLibre, e o equivalente de hoje seria
+    // 5053 kB. Contra o teto novo, aquela regressão continua reprovando com folga de 900 kB.
+    // A banda é de ~7% acima e ~7% abaixo da medida (3889), como o ORÇAMENTO por pasta.
+    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 80, minKb: 3600, maxKb: 4150 },
     { html: 'atlas.html', entrada: 'atlas', minArq: 18, maxArq: 40, minKb: 320, maxKb: 700 },
     // admin.html: 800 -> 950 -> 720 em 2026-09-02, com a medida na mao: 670 kB em 24 arquivos, build
     // fresco. As abas Diagnostico e Uso (com os folhas de frase) tinham levado a pagina a 882 kB
@@ -618,7 +648,16 @@ const PAGINAS_DIST = Object.freeze([
     // 45 kB), e e por isso que a contagem de arquivos NAO mudou: 24 antes e 24 depois. O piso subiu
     // junto, para o proximo ganho aparecer na tabela em vez de passar calado.
     { html: 'admin.html', entrada: 'admin', minArq: 14, maxArq: 34, minKb: 600, maxKb: 720 },
-    { html: 'calibracao.html', entrada: 'calibracao', minArq: 12, maxArq: 32, minKb: 520, maxKb: 1100 }
+    // calibracao.html: 1100 -> 1980 em 2026-09-04, pela MESMA troca de balcão de `index.html` e
+    // pelo MESMO arquivo. Esta página carregava o `<script src="/vendors/maplibre-gl.js">` para
+    // desenhar o mapa de projeto e o minimapa; agora ela alcança o chunk de MapLibre pelo grafo,
+    // o mesmo que o mapa alcança. Medido: 23 arquivos e 845 kB antes, 23 arquivos e 1824 kB
+    // depois, com os mesmos 23 arquivos e um deles 981 kB maior.
+    //
+    // Ela é a única das três páginas sem mapa que sobe, e isso é uma propriedade e não um acaso:
+    // `atlas.html` e `admin.html` não instanciam mapa nenhum, não alcançam o ponto único, e as
+    // medidas delas ficaram idênticas (521 e 673 kB) do outro lado da migração.
+    { html: 'calibracao.html', entrada: 'calibracao', minArq: 12, maxArq: 32, minKb: 1700, maxKb: 1980 }
 ]);
 
 describe('(b) o peso construído de cada página', () => {
@@ -694,15 +733,28 @@ describe('(b) o peso construído de cada página', () => {
         // reescrito), a conta cairia para zero e o piso de kB acusaria. Este caso acusa antes, e
         // nomeia o motivo: os vendores existem, e foram excluídos de propósito.
         //
-        // O PISO DESCEU DE 3 PARA 2 EM 2026-08-25, e a descida é o recibo de uma onda, não um
-        // afrouxamento. Os 619 kB de `/vendors/turf.min.js` saíram do `index.html` e passaram a
-        // carregar sob demanda por `src/js/utilities/turf-loader.js`, como o milsymbol (855 kB) e
-        // o GDAL (187 kB) já tinham saído. Restam DOIS: o `<script>` do MapLibre, que não sai
-        // porque o mapa é a página, e o `<link rel="prefetch">` do Cesium. Um piso de 2 continua
-        // sendo o controle de vácuo que este caso sempre foi: ele reprova o filtro que come tudo.
+        // O PISO DESCEU DE 3 PARA 2 EM 2026-08-25, e DE 2 PARA 1 EM 2026-09-04. As duas descidas
+        // são recibo de uma onda, não afrouxamento. Primeiro os 619 kB de `/vendors/turf.min.js`
+        // saíram do `index.html` para a carga sob demanda de `src/js/utilities/turf-loader.js`,
+        // como o milsymbol (855 kB) e o GDAL (187 kB) já tinham saído. Depois saiu o MapLibre, por
+        // outro motivo: a 6.x não publica bundle UMD, então `public/vendors/maplibre-gl.js` foi
+        // APAGADO e a biblioteca entrou no grafo do bundler.
+        //
+        // RESTA UM, o `<link rel="prefetch">` do Cesium, e por isso o piso de contagem sozinho
+        // deixaria de ser um controle de vácuo decente: com um só item, "pelo menos um" e "exatamente
+        // o que eu espero" ficaram longe demais. Então este caso passou a cobrar a IDENTIDADE, que é
+        // mais forte do que o piso de 2 jamais foi, e a cobrar dos dois lados: o Cesium está lá, e o
+        // MapLibre NÃO está. Se ele voltar para `public/vendors/`, este caso acusa antes de a
+        // metade (b) notar que a página emagreceu 981 kB por motivo errado.
         const { vendors } = payloadDe('index.html');
         expect(vendors.length, 'a página do mapa não referencia mais nenhum vendor de `public/`')
-            .toBeGreaterThanOrEqual(2);
+            .toBeGreaterThanOrEqual(1);
+        expect(vendors, 'o `prefetch` do Cesium é o último vendor de `public/` da página do mapa')
+            .toContain('/vendors/cesium/Cesium.js');
+        expect(
+            vendors.some((p) => p.includes('maplibre')),
+            'o MapLibre voltou a `public/vendors/`: a 6.x não tem bundle UMD'
+        ).toBe(false);
         for (const p of vendors) {
             expect(existsSync(join(DIST, p)), `${p} referenciado e ausente`).toBe(true);
         }
@@ -712,10 +764,39 @@ describe('(b) o peso construído de cada página', () => {
         // A propriedade que `paginas-sem-mapa-nao-arrastam-a-store.test.js` guarda no GRAFO, medida
         // aqui em kB construídos. As duas medidas podem divergir, e divergência entre elas é
         // defeito de chunking, não ruído.
-        const mapa = payloadDe('index.html').kb;
-        const outras = ['atlas.html', 'admin.html', 'calibracao.html'].map(payloadDe);
-        const maior = Math.max(...outras.map((p) => p.kb));
-        expect(mapa / maior, `mapa ${mapa} kB contra ${maior} kB da página sem mapa mais pesada`)
-            .toBeGreaterThanOrEqual(3);
+        //
+        // A CONTA É SOBRE O PAYLOAD EXCLUSIVO, e a mudança de 2026-09-04 é a razão. A conta antiga
+        // era a razão bruta entre os totais, com piso 3. Quando o MapLibre passou de `<script>` de
+        // vendor a chunk do bundler, ele entrou no total das DUAS páginas que o carregam, e a razão
+        // bruta caiu de 3,44 para 2,13 sem que uma única linha do app tivesse mudado de lugar. Ou
+        // seja: a razão bruta media, em parte, quanta BIBLIOTECA as duas dividem, e não quanta
+        // APLICAÇÃO só o mapa tem.
+        //
+        // Descontando de cada lado o que as duas páginas de fato COMPARTILHAM, a medida é invariante
+        // à migração: 4,34 antes e 4,35 depois para a calibração (o vizinho mais pesado), 8,8 para o
+        // admin e 17,4 para o atlas. Piso 3, o mesmo de sempre, agora sobre a grandeza certa.
+        //
+        // O piso continua sendo o controle contra o modo de falha que este caso existe para pegar:
+        // uma página sem mapa que passe a arrastar o app do mapa engorda o EXCLUSIVO dela, e nenhum
+        // desconto a salva.
+        const mapa = payloadDe('index.html');
+        for (const html of ['atlas.html', 'admin.html', 'calibracao.html']) {
+            const outra = payloadDe(html);
+            const comuns = outra.assets.filter((p) => mapa.assets.includes(p));
+            const kbComuns = Math.round(
+                comuns.reduce((a, p) => a + statSync(join(DIST, p)).size, 0) / 1024
+            );
+            const soMapa = mapa.kb - kbComuns;
+            const soEla = outra.kb - kbComuns;
+            // Sem esta linha o desconto poderia comer TUDO (duas páginas com o mesmo conjunto de
+            // assets dariam 0/0) e a divisão abaixo sairia `NaN`, que não reprova nada.
+            expect(soEla, `${html}: nada é exclusivo dela, o desconto comeu a conta`)
+                .toBeGreaterThan(0);
+            expect(
+                soMapa / soEla,
+                `mapa ${soMapa} kB exclusivos contra ${soEla} kB de ${html} `
+                + `(${kbComuns} kB em ${comuns.length} arquivos comuns)`
+            ).toBeGreaterThanOrEqual(3);
+        }
     });
 });

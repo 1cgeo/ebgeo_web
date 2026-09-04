@@ -16,7 +16,9 @@
  * Nada de PMTiles: este backend declara o PMTiles descontinuado e serve MVT do PostGIS. O modo
  * mapa nem consome tile vetorial — ele desenha uma fonte geojson montada deste payload.
  *
- * MapLibre GL vem do vendor da casa (/vendors/maplibre-gl.js) e esta em window.maplibregl.
+ * MapLibre GL vem do npm desde 2026-09-04 (6.7.0), pelo ponto unico `src/js/map/maplibre.js`,
+ * que o entry desta pagina importa primeiro e que publica `window.maplibregl`. Antes disso
+ * era um `<script>` de `/vendors/maplibre-gl.js`, apagado com o fim do bundle UMD.
  */
 
 import config from '@js/config.js';
@@ -121,6 +123,11 @@ function criarMapa() {
         style: estiloDeFundo(),
         center: [-54, -29],
         zoom: 14,
+        // MapLibre 6.x: mesmo motivo do construtor principal em map_sig.js. Aqui ele NAO e
+        // precaucao: o estilo vem do `/api/config` e pode ser vetorial, e este mapa consulta
+        // `queryRenderedFeatures` para achar a foto sob o clique (`pmap-photos`). Com o padrao
+        // novo (4) o clique passaria a acertar outro conjunto de feicoes acima de `maxzoom - 4`.
+        zoomLevelsToOverscale: undefined,
     });
 
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');

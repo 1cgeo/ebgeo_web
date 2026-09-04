@@ -244,9 +244,33 @@ const PAGINAS = Object.freeze([
         ancoras: [
             'src/js/store/sync/api-client.js',
             'src/js/store/sync/session-context.js',
-            'src/js/utilities/tab-lock.js'
+            'src/js/utilities/tab-lock.js',
+            // O PONTO ÚNICO do MapLibre, âncora desde 2026-09-04: sem ela, um dia em que o
+            // `calibracao-page.js` perdesse esse import a lista de `externos` abaixo voltaria a
+            // ser só `localforage` e este arquivo daria VERDE sobre uma página cujo mapa de
+            // projeto quebra em `new maplibregl.Map` com um `undefined`.
+            'src/js/map/maplibre.js'
         ],
-        externos: ['localforage']
+        // OS TRÊS DO MAPLIBRE ENTRARAM EM 2026-09-04, e a lista fechada fez o trabalho dela: ela
+        // reprovou a mudança antes de eu editá-la. É decisão, não efeito colateral (decisão do
+        // dono, mesma data): a 6.x não publica bundle UMD, então o `<script>` de
+        // `public/vendors/maplibre-gl.js` que esta página carregava deixou de existir e a
+        // biblioteca passa pelo grafo, pelo ponto único `src/js/map/maplibre.js`.
+        //
+        // SÃO TRÊS ESPECIFICADORES E NÃO UM, e cada um é uma coisa diferente: o módulo, a folha de
+        // estilo do pacote (que substitui a cópia apagada em `public/vendors/maplibre-gl.css`) e a
+        // URL do worker por `?worker&url`, sem a qual o Vite resolve o worker dentro de
+        // `node_modules/.vite/deps` e o mapa sobe SEM TILE NENHUM, calado.
+        //
+        // O que NÃO mudou, e é o assunto deste arquivo: a página continua sem alcançar um só
+        // barril (`@store`, `@utils`, `@modals`) nem uma ferramenta do mapa. Biblioteca de
+        // renderização não é a aplicação.
+        externos: [
+            'localforage',
+            'maplibre-gl',
+            'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url',
+            'maplibre-gl/dist/maplibre-gl.css'
+        ]
     }
 ]);
 

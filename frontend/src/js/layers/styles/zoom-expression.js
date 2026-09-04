@@ -25,10 +25,13 @@
  * only, which is invisible at the sizes the clamps guard (255 px text, 500 px
  * circles).
  *
- * Every operator used here was read out of the vendored MapLibre 5.18 bundle
- * (`public/vendors/maplibre-gl.js`) before this module was written: `interpolate`
- * and `exponential`, `coalesce`, `case`, `typeof`, and the arithmetic
- * `min`/`^`/`*`/`-`/`/`. The bundle is the contract, not the upstream docs.
+ * Every operator used here was read out of the MapLibre bundle before this module was
+ * written: `interpolate` and `exponential`, `coalesce`, `case`, `typeof`, and the
+ * arithmetic `min`/`^`/`*`/`-`/`/`. The bundle is the contract, not the upstream docs.
+ * First read on the vendored 5.18; re-checked on 6.7.0 (npm) after the move, where the
+ * whole expression registry lives in `dist/maplibre-gl-shared.mjs` and every one of
+ * those names is still there. `coordination-line-width-expression.test.js` holds the
+ * check that reads the installed bundle.
  *
  * The JavaScript pass keeps running at the END of a gesture (`zoomend`), so the
  * stored `calculated*` property is still right for the consumers that read it

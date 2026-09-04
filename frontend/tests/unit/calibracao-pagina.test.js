@@ -180,23 +180,44 @@ describe('pagina de calibracao 360 (porte do ebgeo_360)', () => {
         expect(VITE).toContain("return 'calibration';");
     });
 
-    it('calibracao.html aponta para o modulo, o CSS e o vendor local, e os tres existem', () => {
+    it('calibracao.html aponta para o modulo e o CSS, e os dois existem', () => {
         // REPROVA o HTML da origem, que nao tinha nem `calibracao-page.js` (o boot
-        // era inline), nem folha de estilo externa, nem vendor local.
+        // era inline) nem folha de estilo externa.
         const referencias = [
             '/src/js/calibration/calibracao-page.js',
             '/src/css/calibracao.css',
-            '/vendors/maplibre-gl.js',
         ];
         for (const url of referencias) {
             expect(HTML, `calibracao.html nao referencia ${url}`).toContain(url);
             expect(noDisco(url), `referencia sem arquivo no disco: ${url}`).not.toBeNull();
         }
 
-        // O modulo entra como `type="module"`; o MapLibre entra como script CLASSIC,
-        // porque `window.maplibregl` precisa existir antes do primeiro mapa montar.
         expect(HTML).toMatch(/<script\s+type="module"\s+src="\/src\/js\/calibration\/calibracao-page\.js"/);
-        expect(HTML).toMatch(/<script\s+src="\/vendors\/maplibre-gl\.js"><\/script>/);
+    });
+
+    it('o MapLibre desta pagina vem do npm pelo ponto unico, e nao de public/vendors', () => {
+        // ATE 2026-09-04 a biblioteca entrava por `<script src="/vendors/maplibre-gl.js">`, um
+        // bundle UMD, e a garantia de ordem era o script CLASSIC rodar antes de qualquer modulo.
+        // A 6.x nao publica UMD, entao a garantia de ordem passou a ser OUTRA: o ponto unico
+        // (`src/js/map/maplibre.js`) e o PRIMEIRO import do entry, e o corpo dele publica
+        // `window.maplibregl` antes de `minimap.js` e `project-map.js` instanciarem o primeiro
+        // mapa. Este caso cobra as duas metades da troca.
+        //
+        // A PRIMEIRA METADE, a que reprova a volta do vendor: nem script nem folha.
+        expect(HTML, 'calibracao.html voltou a carregar o MapLibre de public/vendors')
+            .not.toContain('/vendors/maplibre-gl');
+        expect(
+            existsSync(join(PACOTE, 'public/vendors/maplibre-gl.js')),
+            'public/vendors/maplibre-gl.js voltou a existir: a 6.x nao tem bundle UMD'
+        ).toBe(false);
+
+        // A SEGUNDA METADE, e ela e a que importa: sem esta asercao a primeira ficaria verde
+        // numa pagina que simplesmente nao carrega MapLibre nenhum, e o mapa de projeto quebraria
+        // no `new maplibregl.Map` com um `undefined`.
+        const ENTRY = readFileSync(join(PACOTE, 'src/js/calibration/calibracao-page.js'), 'utf8');
+        const imports = [...ENTRY.matchAll(/^import\s+(?:[^'"]*\s+from\s+)?'([^']+)'/gm)].map((m) => m[1]);
+        expect(imports[0], 'o ponto unico do MapLibre nao e o primeiro import do entry')
+            .toBe('@js/map/maplibre.js');
     });
 
     it('calibracao.html nao carrega nada de CDN externo nem usa importmap', () => {

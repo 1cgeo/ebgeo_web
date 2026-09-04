@@ -411,8 +411,9 @@ class BaseLayerControl {
      *
      * O `try` não é decoração. `Map.getStyle()` chama `Style.serialize()`, que lê
      * `this.stylesheet` sem guarda, e essa propriedade é `null` desde o construtor até o
-     * primeiro estilo terminar de carregar (medido no bundle em uso,
-     * `public/vendors/maplibre-gl.js`). `switchMap` é alcançável antes disso pelo caminho de
+     * primeiro estilo terminar de carregar (medido no bundle em uso: o vendorizado 5.18
+     * quando isto foi escrito, hoje `node_modules/maplibre-gl`, 6.7.0 pelo npm).
+     * `switchMap` é alcançável antes disso pelo caminho de
      * boot que não passa pelo `load` do mapa, e o portão de `switchLayer` é a primeira linha
      * deste arquivo a consultar o estilo.
      *

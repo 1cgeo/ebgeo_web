@@ -139,6 +139,24 @@ export function createMap() {
         maxPitch: config.map2d.maxPitch,
         bounds: config.map2d.bounds,
         validateStyle: false,
+        // MapLibre 6.x: `zoomLevelsToOverscale` deixou de ser experimental e passou a valer 4 por
+        // padrão, o que FATIA os tiles em vez de sobre-escalar acima de `maxzoom - 4`. O guia
+        // v5 -> v6 avisa que isso muda a renderização e o resultado de `queryRenderedFeatures`, e
+        // manda `zoomLevelsToOverscale: undefined` para voltar ao anterior. Medido nos dois lados,
+        // e não deduzido: a 5.18 vendorizada lia a opção pelo nome `experimentalZoomLevelsToOverscale`,
+        // que este app nunca passou, e com ela indefinida o `tileManager` caía em
+        // `maxzoom: this._source.maxzoom`, isto é, sempre sobre-escalava; a 6.7 traz
+        // `zoomLevelsToOverscale: 4` em `defaultOptions` (`src/ui/map.ts`). O app faz 40 chamadas
+        // de `queryRenderedFeatures` em 26 arquivos (seleção, snapping, hover, alças de mover,
+        // desenho), então a migração PRESERVA o comportamento e a troca de padrão fica para uma
+        // mudança própria, com medida e teste.
+        //
+        // A CHAVE PRECISA APARECER NO LITERAL, e o `undefined` não é decorativo: o construtor funde
+        // por espalhamento (`{...defaultOptions, ...options}`), e espalhamento copia propriedade
+        // própria mesmo com valor `undefined`. Chave ausente = o 4 do padrão. A régua estática que
+        // cobra isto em TODO construtor de mapa do repositório é
+        // `tests/unit/maplibre-construtores-regua.test.js`.
+        zoomLevelsToOverscale: undefined,
         // Handlers we never want. Declared HERE and not on 'load' so there is no
         // window in which boxZoom/dragRotate/doubleClickZoom are live: the person
         // can already drag before the first tile finishes painting.

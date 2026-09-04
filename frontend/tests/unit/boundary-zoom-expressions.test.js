@@ -6,9 +6,11 @@
  *
  * WHERE THE EVALUATOR COMES FROM, because it decides what this file is worth. The main branch
  * compiles the expression with `@maplibre/maplibre-gl-style-spec`, the package `maplibre-gl`
- * itself depends on. THIS branch has no such package: MapLibre is the vendored browser bundle
- * at `public/vendors/maplibre-gl.js`, loaded by a `<script>` tag, and it exports the `Map`
- * class and nothing of the expression compiler. So the evaluator is
+ * itself depends on. Here the evaluator is a TRANSCRIPTION instead, and it stayed one after
+ * the move to npm on 2026-09-04: the compiler is now installed, but only transitively, and
+ * depending on a package this `package.json` does not declare is a decision of its own. The
+ * transcription was re-checked against 6.7.0 and holds (see the header of
+ * `tests/helpers/maplibre-expression.js`). So the evaluator is
  * `tests/helpers/maplibre-expression.js`, whose arithmetic was TRANSCRIBED out of that same
  * vendored bundle. The same choice, and the same reasoning, as
  * `coordination-line-width-expression.test.js`.

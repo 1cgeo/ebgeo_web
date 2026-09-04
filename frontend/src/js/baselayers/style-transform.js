@@ -32,7 +32,9 @@
  * handled the same as an inline one.
  *
  * THE HOOK IS SUPPORTED BY THE BUNDLE IN USE, and that was read rather than
- * assumed (`public/vendors/maplibre-gl.js`, 5.18.0): `Map.setStyle` takes
+ * assumed (the vendored 5.18 bundle when this was written; the app now installs
+ * `maplibre-gl` 6.7.0 from npm, and `src/ui/map.ts` there takes the same route):
+ * `Map.setStyle` takes
  * `_diffStyle` -> `_updateDiff` -> `Style.setState(next, options)`, and
  * `setState` opens with `next = options.transformStyle(this.serialize(), next)`.
  * A URL style takes the same path after the fetch. When `setState` throws,

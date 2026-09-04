@@ -7,8 +7,13 @@
  * clone of the whole FeatureCollection back. The zoom passes used to call it on every
  * frame of a zoom gesture, once per tool, even with nothing drawn. The main thread never
  * needs that trip: it already holds the collection, and the public `serialize()` hands it
- * back. Read from the vendored MapLibre 5.18 bundle (`public/vendors/maplibre-gl.js`),
- * verbatim:
+ * back. Read from the MapLibre source the app ships, verbatim. First measured on the
+ * vendored 5.18 bundle; RE-READ on 6.7.0 after the move to npm
+ * (`node_modules/maplibre-gl/src/source/geojson_source.ts`, `serialize()`), where the
+ * branch is IDENTICAL: `_data` is still the three-shape envelope
+ * (`{url} | {geojson} | {updateable: Map}`) and `serialize()` still rebuilds the
+ * collection from the Map. The minified 5.18 form is kept below because it is the
+ * one this module was written against:
  *
  *   serialize(){return t.e({},this._options,{type:this.type,
  *     data:this._data.updateable

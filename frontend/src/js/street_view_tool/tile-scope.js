@@ -23,7 +23,10 @@
  * with.
  *
  * WHY ON THE SOURCE URL AND NOT IN `transformRequest`, WHICH ALREADY EXISTS. Measured in the
- * vendored bundle (`public/vendors/maplibre-gl.js`), and the measurement decides it:
+ * MapLibre source, and the measurement decides it. First measured on the vendored 5.18
+ * bundle; re-measured on 6.7.0 from npm, and one of the three findings CHANGED with the
+ * version and the conclusion did not. `tests/unit/tiles-360-escopo-de-atlas.test.js` holds
+ * the re-measurement, clause by clause:
  *
  *   - `VectorTileSource.loadTile` builds the address from the SOURCE template
  *     (`e.tileID.canonical.url(this.tiles, ...)`) and only then hands it to

@@ -21,8 +21,10 @@
  *
  * A data layer and an analysis layer are SOURCES added on top of the style. The basemap IS the
  * style (`map.setStyle(config.style)`), so it fails in two shapes and only ONE of them reaches
- * this file. Measured against the vendored MapLibre build (`frontend/public/vendors/maplibre-gl.js`,
- * 2026-08-24), not reasoned by analogy with the tile case:
+ * this file. Measured against the MapLibre source (the vendored 5.18 build on 2026-08-24;
+ * re-read on the npm 6.7.0 on 2026-09-04, where `Style` still parents every tile manager
+ * with `setEventedParent(this, () => ({..., sourceId: id}))`, so the stamping below holds),
+ * not reasoned by analogy with the tile case:
  *
  *   1. THE TILES OF THE STYLE FAIL (the style document loaded, its raster/vector sources 40x or
  *      time out). Every source a style declares gets `setEventedParent(style, () => ({sourceId}))`

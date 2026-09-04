@@ -24,9 +24,19 @@
  *   4. Monta — levanta a area de trabalho e liga o ciclo de vida da sessao.
  *
  * Sem `@store` alem do cliente HTTP e do contexto de sessao, e sem `initServices()`: a pagina nao
- * tem mapa, nem store, nem MapLibre do EBGeo. Puxar `@utils` ou `@modals` aqui traria a fundacao
- * do mapa inteira de volta pela porta dos fundos.
+ * tem a aplicacao do mapa, nem store, nem as ferramentas do EBGeo. Puxar `@utils` ou `@modals`
+ * aqui traria a fundacao do mapa inteira de volta pela porta dos fundos.
+ *
+ * A BIBLIOTECA MapLibre ela TEM, e sempre teve: o mapa de projeto e o minimapa sao mapas de
+ * verdade. Ate 2026-09-04 ela chegava por `<script>` de `public/vendors/` no `calibracao.html`;
+ * desde a 6.7.0 chega pelo npm, no primeiro import abaixo. Biblioteca nao e a aplicacao: continua
+ * valendo que esta pagina nao alcanca um so modulo de ferramenta, de store ou de barril do mapa.
  */
+
+// PRIMEIRO import, de proposito: publica `window.maplibregl` e o CSS do MapLibre antes de
+// `minimap.js` e `project-map.js`, que chamam `new maplibregl.Map` pelo global. Ver
+// `map/maplibre.js`, que e o unico lugar do repositorio que importa a biblioteca.
+import '@js/map/maplibre.js';
 
 import config from '@js/config.js';
 import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-config.js';

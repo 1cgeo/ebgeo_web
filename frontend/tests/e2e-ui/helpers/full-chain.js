@@ -44,7 +44,8 @@ const LINK_NAMES = {
  * produced by the bus-tap probe, and the probe cannot observe the truth here, for two
  * independent reasons.
  *   1. It reads `src._data` and expects `.features`, but this MapLibre stores
- *      `this._data = { geojson: data }` on `setData` (see `public/vendors/maplibre-gl.js`),
+ *      `this._data = { geojson: data }` on `setData` (see `geojson_source.ts` in the
+ *      installed `maplibre-gl`; unchanged from the vendored 5.18 to the npm 6.7.0),
  *      so `data.features` is ALWAYS undefined and every span records `inSource: false`.
  *      A wait for `inSource === true` can therefore never resolve — and a wait for
  *      `inSource === false` (delete) resolves vacuously, whatever the map is showing.

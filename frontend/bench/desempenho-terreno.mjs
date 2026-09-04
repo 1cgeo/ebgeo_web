@@ -61,10 +61,8 @@ const MS_ESTAVEL = 3000;
 
 // Referencia medida: VAZIA nesta branch, de proposito.
 //
-// A tabela da `main` (2026-09-04) descreve OUTRO aplicativo: outra versao do
-// MapLibre (a `main` roda a 6.7.0, esta branch tem a 5.18 vendorizada em
-// `frontend/public/vendors/maplibre-gl.js`), outro conjunto de camadas e outro
-// servidor de tiles. Copia-la para ca produziria DIVERGENTE em toda linha, e a
+// A tabela da `main` (2026-09-04) descreve OUTRO aplicativo: outro conjunto de
+// camadas e outro servidor de tiles. Copia-la para ca produziria DIVERGENTE em toda linha, e a
 // divergencia estaria certa pelo motivo errado: nao e o app que mudou, e a
 // referencia que e de outro app. Numero herdado mente com cara de medida.
 //
@@ -646,7 +644,7 @@ function lerProva() {
     for (const id in estiloAtual.sources) {
         if (estiloAtual.sources[id].type !== 'geojson') continue;
         const src = map.getSource(id);
-        // No MapLibre 5.18 vendorizado o `_data` da fonte GeoJSON E um envelope
+        // No MapLibre o `_data` da fonte GeoJSON E um envelope
         // (`{ updateable | url | geojson }`), e `serialize().data` e o unico que
         // devolve a colecao. Ler `_data` direto contaria toda fonte como vazia.
         const dados = src && typeof src.serialize === 'function' ? src.serialize().data : (src && src._data);
@@ -684,7 +682,7 @@ function levantarVazias() {
         if (estilo.sources[id].type !== 'geojson') continue;
         const src = map.getSource(id);
         if (!src) continue;
-        // serialize().data primeiro: na 5.18 vendorizada o `_data` e envelope, e
+        // serialize().data primeiro: o `_data` e envelope nas duas versoes, e
         // lido direto contaria TODA fonte como vazia.
         let dados = typeof src.serialize === 'function' ? src.serialize().data : undefined;
         if (dados === undefined) dados = src._data;

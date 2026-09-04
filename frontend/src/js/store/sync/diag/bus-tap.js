@@ -56,7 +56,7 @@ function probeRenderSource(featureId, featureType, mapId) {
         }
         const sourceId = featureType ? getStorageTypeFromSource(featureType) : null;
         const src = sourceId ? map.getSource(sourceId) : null;
-        // MapLibre 5 wraps what `setData` received: `_data` is `{ geojson }` (or
+        // MapLibre wraps what `setData` received: `_data` is `{ geojson }` (or
         // `{ url }`), NOT the collection itself. Reading `_data.features` gave
         // `undefined` on every call, so this probe reported `inSource: false`
         // ALWAYS — and a waiter on `inSource === false` (the delete case) was

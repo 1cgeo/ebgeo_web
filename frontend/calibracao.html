@@ -10,12 +10,10 @@
     <!-- CSS da página de calibração (manifesto próprio, sem o mapa) -->
     <link rel="stylesheet" href="/src/css/calibracao.css">
 
-    <!-- MapLibre GL: CSS não-bloqueante, porque o minimapa e o modo mapa só montam sob demanda.
-         media=print + onload aplica a folha depois do download; <noscript> garante o estilo sem JS. -->
-    <link rel="stylesheet" href="/vendors/maplibre-gl.css" media="print" onload="this.media='all'; this.onload=null;">
-    <noscript>
-        <link rel="stylesheet" href="/vendors/maplibre-gl.css">
-    </noscript>
+    <!-- O CSS do MapLibre 6.x vem do pacote npm, importado por src/js/map/maplibre.js, que é o
+         primeiro import do entry desta página. Não há mais cópia em public/vendors/, e com ela
+         saiu o par media=print + <noscript>: o Vite emite a folha como asset da página, e sem JS
+         esta página não monta mapa nenhum, logo não há estilo a garantir. -->
 
     <style>
         /* Splash de boot: duplicado do CSS para aparecer antes da folha de estilo resolver
@@ -80,10 +78,11 @@
         <div id="project-selector"></div>
     </div>
 
-    <!-- Único vendor desta página: o minimapa e o modo mapa desenham com MapLibre. Nada de Turf,
-         milsymbol, Cesium ou GDAL aqui. Script CLASSIC: executa antes de qualquer módulo, então
-         `window.maplibregl` já existe quando o primeiro mapa é instanciado. -->
-    <script src="/vendors/maplibre-gl.js"></script>
+    <!-- Esta página não referencia mais nenhum vendor de public/: o MapLibre 6.x não tem bundle
+         UMD e entra pelo npm, no PRIMEIRO import do entry abaixo (src/js/map/maplibre.js), que
+         publica `window.maplibregl` antes de `minimap.js` e `project-map.js` instanciarem o
+         primeiro mapa. Continua valendo o resto da frase que estava aqui: nada de Turf, milsymbol,
+         Cesium ou GDAL nesta página. -->
     <script type="module" src="/src/js/calibration/calibracao-page.js"></script>
 
     <script nomodule>

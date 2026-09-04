@@ -52,7 +52,13 @@ O Chromium com cabeça herda o proxy do sistema, e numa máquina atrás de proxy
 Esta bancada nasceu na branch `main` do repositório e foi reescrita para a `integracao_backend`.
 O que segue foi medido aqui, não copiado.
 
-- **MapLibre é o 5.18 vendorizado** (`frontend/public/vendors/maplibre-gl.js`, global `maplibregl`).
+- **MapLibre é o 6.7.0 do npm** desde 2026-09-04 (antes era o 5.18 vendorizado em
+  `frontend/public/vendors/maplibre-gl.js`, apagado). Ele chega pelo ponto único
+  `frontend/src/js/map/maplibre.js`, e o global `maplibregl` continua publicado ali.
+  **O POOL DE TEXTURAS DO RTT NÃO EXISTE MAIS NA 6.x**, e por isso a coluna `stamps/q`
+  sai vazia e `pool` sai `null`: a bancada já lia os dois atrás de uma guarda de
+  existência, então ela mede sem inventar. `_stacks` e `prepareForRender` continuam,
+  e são eles que a coluna de pilhas usa.
   Conferidos contra o bundle: `painter.renderToTexture._stacks`, `._renderableTiles`, `.pool`
   (com `stampObject` e `_objects`), `style._updateSources`, `style._updatePlacement`,
   `painter.render`, `painter.renderLayer`, `map.isSourceLoaded`, `map.triggerRepaint`.

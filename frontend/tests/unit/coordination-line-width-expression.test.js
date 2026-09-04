@@ -5,16 +5,18 @@
  * JavaScript model it replaced.
  *
  * WHERE THE EVALUATOR COMES FROM, because it decides what this file is worth.
- * The main branch compiles the expression with `@maplibre/maplibre-gl-style-spec`,
- * the package `maplibre-gl` itself depends on. THIS branch has no such package:
- * MapLibre is the vendored browser bundle at `public/vendors/maplibre-gl.js`,
- * loaded by a `<script>` tag, and it exports the `Map` class and nothing of the
- * expression compiler. So the evaluator is `tests/helpers/maplibre-expression.js`,
- * whose arithmetic was TRANSCRIBED out of that same vendored bundle, function by
- * function (`interpolationFactor`, the number interpolation, the below-first-stop
- * and above-last-stop rules, the assertion semantics). The first `describe` below
+ * The evaluator is `tests/helpers/maplibre-expression.js`, whose arithmetic was
+ * TRANSCRIBED out of the MapLibre bundle this app ships, function by function
+ * (`interpolationFactor`, the number interpolation, the below-first-stop and
+ * above-last-stop rules, the assertion semantics). The first `describe` below
  * exercises the evaluator itself against numbers computed by hand, so a bug in it
  * shows up as a failure here and not as a false pass downstream.
+ *
+ * The transcription was made from the vendored 5.18 UMD bundle; since 2026-09-04
+ * MapLibre comes from npm (6.7.0) and `public/vendors/maplibre-gl.js` is gone, so
+ * the operator check below reads `node_modules/maplibre-gl/dist/`. The arithmetic
+ * itself was re-checked against 6.7 and is unchanged. See the header of
+ * `tests/helpers/maplibre-expression.js` for what was compared and how.
  *
  * THE MAP IS STILL THE LAST WORD, and it is consulted: the browser check of this
  * change reads `line-width` off the real `coordination-line-layer` in Chromium
@@ -199,19 +201,26 @@ describe('buildCoordinationLineWidthExpression: shape', () => {
         expect(expression.slice(3).filter((_, i) => i % 2 === 0)).toEqual([...ZOOM_STOPS]);
     });
 
-    it('names only operators that appear in the vendored MapLibre bundle', () => {
-        // The bundle is the contract, not the upstream docs: this branch ships
-        // MapLibre 5.18 as a file, and an operator a later version added would
-        // paint NOTHING here, silently. This is a name check and not a semantic
-        // one, so it can pass an operator that exists with another signature; the
-        // browser is where the expression is compiled for real.
+    it('names only operators that appear in the installed MapLibre bundle', () => {
+        // The bundle is the contract, not the upstream docs: this app ships one
+        // pinned MapLibre (6.7.0, exact, no caret), and an operator a later version
+        // added would paint NOTHING here, silently. This is a name check and not a
+        // semantic one, so it can pass an operator that exists with another
+        // signature; the browser is where the expression is compiled for real.
         //
         // In the minified bundle the registry keys are quoted for the symbolic
         // operators (`"^":`) and bare identifiers for the word ones (`min:`), so
         // both forms are accepted.
-        const bundle = readFileSync(
-            new URL('../../public/vendors/maplibre-gl.js', import.meta.url), 'utf8',
-        );
+        //
+        // BOTH FILES, and that is measured, not belt-and-braces: since 6.x the
+        // package splits into `maplibre-gl.mjs` and `maplibre-gl-shared.mjs`, and
+        // the expression registry lives entirely in the SHARED one. Reading only
+        // the main file answers `false` for `interpolate`, `get`, `coalesce`,
+        // `case`, `==`, `literal`, `*`, `^`, `+` and `to-number`, that is, the
+        // check would reprove the expression this file exists to approve.
+        const dist = '../../node_modules/maplibre-gl/dist/';
+        const bundle = readFileSync(new URL(`${dist}maplibre-gl.mjs`, import.meta.url), 'utf8')
+            + readFileSync(new URL(`${dist}maplibre-gl-shared.mjs`, import.meta.url), 'utf8');
         const mentions = (name) => {
             const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             return new RegExp(`"${escaped}"|[{,;(]\\s*${escaped}\\s*:`).test(bundle);
