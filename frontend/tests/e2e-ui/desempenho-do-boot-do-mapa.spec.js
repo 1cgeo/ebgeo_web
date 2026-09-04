@@ -113,9 +113,10 @@ const OCIOSIDADE_MS = 6000;
 
 const PROJETOS = '/atlas.html';
 
-// Duas faixas (bytesDeScript e requisicoesDeScript) carregam a PROPRIA data, 2026-09-02, porque
-// foram remedidas sozinhas quando a deriva acumulada as estourou; as demais continuam da bateria de
-// MEDIDO_EM. A data por faixa e a excecao declarada ao paragrafo abaixo, nao uma segunda bateria.
+// Duas faixas (bytesDeScript e requisicoesDeScript) carregam a PROPRIA data (2026-09-04 e
+// 2026-09-02), porque foram remedidas sozinhas quando a deriva acumulada as estourou; as demais
+// continuam da bateria de MEDIDO_EM. A data por faixa e a excecao declarada ao paragrafo abaixo,
+// nao uma segunda bateria.
 
 /**
  * A data em que TODOS os tetos deste arquivo foram medidos, nesta maquina, nesta camada.
@@ -168,8 +169,19 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
 
         // 1 e 2. DETERMINISTICOS: teto justo (~5% de folga) e piso que reprova "o app nao subiu".
         expectDeterministico(rodadas, 'bytesDeScript', {
-            piso: 39_300_000, teto: 43_450_000, medidoEm: '2026-09-02',
-            porque: 'REMEDIDO em 2026-09-02: 41 386 533 bytes em 5 de 5 rodadas, o MESMO numero ate o '
+            piso: 47_280_000, teto: 52_260_000, medidoEm: '2026-09-04',
+            porque: 'REMEDIDO em 2026-09-04: 49 770 282 bytes em 4 de 5 rodadas e 49 766 269 na quinta, '
+                + 'faixa de +-5%. A subida de 8,4 MB sobre a faixa anterior tem causa medida com sonda '
+                + 'de respostas: o MapLibre 6.7.0 deixou de ser um vendor de 1 022 148 bytes por <script> '
+                + 'e passou a entrar pelo grafo do Vite, que em DEV o serve sem minificar em 8 respostas '
+                + 'somando 8 241 401 bytes (o pre-empacotado de .vite/deps com 4,06 MB e o modulo '
+                + 'compartilhado do worker com 3,69 MB sao os dois maiores). E peso de desenvolvimento: o '
+                + 'de producao e medido em build fresco por teto-de-peso-da-pagina-do-mapa.test.js, onde '
+                + 'a mesma troca deu 3889 kB no bundle contra 2909 mais 998 do vendor. O resto da '
+                + 'diferenca (cerca de 1,2 MB) e a deriva dos lotes de desempenho do mesmo dia (utilitario '
+                + 'de preview, expressao de zoom, hover, terreno, LOD, camada vazia, troca de base, '
+                + 'geometria da linha de coordenacao). '
+                + 'Historico: REMEDIDO em 2026-09-02: 41 386 533 bytes em 5 de 5 rodadas, o MESMO numero ate o '
                 + 'byte, faixa de +-5%. A faixa anterior (36,5 a 40,4 MB) foi medida em 2026-08-25 sobre '
                 + '38 456 561 bytes; a deriva de 2,9 MB ate aqui e acumulada das duas linhas de trabalho '
                 + 'desde entao, e o lote que a fechou (colar, importacao, medicao 3D, camadas entre mapas '
