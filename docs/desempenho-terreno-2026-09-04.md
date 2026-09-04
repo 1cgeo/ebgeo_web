@@ -187,6 +187,17 @@ O estilo da DSG intercala `symbol` e `circle` entre fills e lines, e cada interc
 
 O ganho é grande parado (metade do quadro, um sexto dos draw calls) e pequeno ou nulo nos gestos, e a reordenação muda a sobreposição visual dos rótulos, então é decisão de cartografia, não só de desempenho.
 
+### Por que o raster é mais rápido
+
+O raster chega pronto, e o vetorial é desenhado de novo no navegador. Quatro causas, cada uma com o número que a sustenta:
+
+1. **Draw calls.** Cada camada do estilo vira ao menos uma chamada de desenho por tile: 159 camadas na Topográfica contra 2 no raster. Medido parado com terreno: 127 draw calls por quadro contra 21 (231 na DSG vetorial).
+2. **Render-to-texture do terreno.** As camadas drapeáveis são rasterizadas numa textura por tile e coladas no relevo. Para o raster é um tile de imagem copiado; para o vetorial são 121 camadas de fill e line rasterizadas tile a tile, e refeitas sempre que o tile muda. Por isso a diferença cresce no pan e no zoom (populado: 10 e 12 ms contra 5 e 6).
+3. **Rótulos.** Símbolos não drapeiam: os 38 rótulos da base vetorial ficam fora do cache do terreno e são desenhados todo quadro, com o `placement` refeito nos gestos. No raster o topônimo já está na imagem. É o mesmo mecanismo que abre as 11 pilhas da DSG vetorial.
+4. **Laço por fonte.** `_updateSources` roda cobertura sobre a elevação por fonte a cada quadro: 9 fontes vetoriais contra 1 (1,1 ms por quadro na rotação contra 0,8).
+
+Fora do quadro, o worker pesa no mesmo sentido: o tile vetorial é decodificado, triangulado e estilizado antes de virar geometria de GPU, e o tile webp é só decode de imagem; é CPU que a máquina lenta paga na carga do tile. O que NÃO é: rede (tiles de tamanho parecido, 22 a 57 KB) e hillshade (igual nos três casos).
+
 ### O que o olho vê
 
 No raster os topônimos vêm gravados na imagem: drapejam sobre o relevo, deformam com a inclinação e não giram com o mapa. Nas duas bases vetoriais os rótulos ficam de pé e legíveis em qualquer bearing. Capturas em `captura-<base>-terreno.png` de cada rodada.
