@@ -347,10 +347,15 @@ export function setupVisibilityLayers(features, mapInstance) {
 /**
  * Sets up coordination line layers on the map.
  *
- * Three sources and three layers, and no more: the whole symbol (the surviving line
- * segments plus one closed ring per glyph) lives in ONE MultiLineString, so a single
- * `line` layer draws it and the glyphs read as hollow for free. That is the difference
- * from the boundary, which needs sibling sources for its echelon circles and labels.
+ * THREE sources, and no more: the whole symbol (the surviving line segments plus one
+ * closed ring per glyph) lives in ONE MultiLineString, so a single `line` layer draws
+ * it and the glyphs read as hollow for free. That is the difference from the boundary,
+ * which needs sibling sources for its echelon circles and labels.
+ *
+ * The FOURTH layer, the fill, is the one exception, and it is fed by the same source:
+ * a symbol the catalogue marks `filled` (the anti-tank ditch) comes out as a
+ * MultiPolygon, and only a fill layer paints a polygon. It is filtered to the polygons
+ * for the reason spelled out where it is created.
  *
  * @param {Object} features - Feature collection with coordination lines
  * @param {Object} mapInstance - MapLibre map instance
@@ -392,6 +397,48 @@ export function setupCoordinationLineLayers(features, mapInstance) {
             'line-opacity': 0.8,
         },
         filter: ['!=', ['get', 'user_isEditingHandle'], true],
+    });
+
+    // BEFORE the line layer, so the outline lands on top of its own fill.
+    //
+    // The geometry clause is the load-bearing part, and it is not tidiness.
+    // Measured in the browser on 2026-09-03: MapLibre's fill layer CLOSES and
+    // paints any geometry handed to it, so an unfiltered fill over this source
+    // painted the inside of the 290199 diamond, the inside of every concertina
+    // loop, and the area between an open bent spine and its chord.
+    //
+    // THE FILTER READS THE GEOMETRY, NOT THE CODE LIST, and the difference from
+    // the main is a chunking constraint, not a preference. Only the symbols the
+    // catalogue marks `filled` come out as a MultiPolygon (see
+    // `add_coordination_line_geometry.js`), and `['geometry-type']` answers
+    // 'Polygon' for exactly those, so the two selections are the same set. Reading
+    // `FILLED_SYMBOL_CODES` instead would make `layers/styles/` (chunk `core`)
+    // import `military_tools/`, which `teto-de-peso-da-pagina-do-mapa.test.js`
+    // pins at zero eager modules, and which is the whole reason the zoom models
+    // live under `tool_manager/helpers/`. The list and the geometry are held to
+    // each other in `coordination-line-fosso-anticarro.test.js` instead.
+    //
+    // LACUNA CONHECIDA, herdada da main e NAO consertada aqui: este id nao esta em
+    // `FEATURE_LAYER_IDS` (`layers/layer.constants.js:48` lista so a camada de linha),
+    // entao `updateAllLayerFilters` nunca reescreve o filtro dele. O `visivel` da propria
+    // feicao continua valendo (esta no filtro estatico acima), mas a pertinencia a uma
+    // camada do usuario e a janela temporal NAO: ocultar a camada apaga o contorno do
+    // fosso e deixa a faixa preenchida na tela. O conserto sao duas entradas em
+    // `layer.constants.js` (o id na lista, e a clausula de geometria em
+    // `LAYER_ADDITIONAL_FILTERS`, senao o filtro reescrito perde o recorte e volta a
+    // pintar o miolo do losango). Arquivo fora deste lote.
+    ensureLayer(mapInstance, {
+        id: 'coordination-line-fill-layer',
+        type: 'fill',
+        source: 'coordination_lines',
+        paint: {
+            'fill-color': ['get', 'color'],
+            'fill-opacity': ['get', 'opacity'],
+        },
+        filter: ['all',
+            VISIBLE_FILTER,
+            ['==', ['geometry-type'], 'Polygon'],
+        ],
     });
 
     ensureLayer(mapInstance, {

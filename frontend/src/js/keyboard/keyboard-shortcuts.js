@@ -278,7 +278,12 @@ class KeyboardShortcuts {
             'k': 'coordinationMeasureControl',
             'z': 'azimuthDistanceControl',
             'u': 'sectorControl',
-            'w': 'declinationControl'
+            'w': 'declinationControl',
+            // Y: the one letter left without a tool (2026-09-04); Shift+K was the
+            // alternative, and would open a modifier row the handler has no branch for.
+            // Ctrl+Y stays redo: `handleSystemShortcuts` claims it only when Ctrl is held,
+            // and `processShortcut` reaches this table only with no modifier at all.
+            'y': 'coordinationLineControl'
         };
 
         const locked = isCurrentMapLockedSync();

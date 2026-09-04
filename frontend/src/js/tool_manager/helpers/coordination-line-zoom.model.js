@@ -1,8 +1,11 @@
 // Path: js/tool_manager/helpers/coordination-line-zoom.model.js
 
+import { ZOOM_STOPS } from '@layers/styles/zoom-expression.js';
+
 /**
- * @fileoverview Pure zoom and layout model for coordination line features (no imports,
- * node-testable).
+ * @fileoverview Pure zoom and layout model for coordination line features
+ * (node-testable; its one import is the integer zoom stops, from a module that
+ * imports nothing itself).
  *
  * A coordination line is a polyline whose course is interrupted at regular intervals
  * by a hollow diamond. Two authored numbers drive the pattern, both in kilometres:
@@ -254,6 +257,43 @@ export function resolveGlyphLayout(totalLengthKm, sizeKm, spacingKm) {
 }
 
 /**
+ * Place a CONTINUOUS pattern along a line: the sap and the trench, whose drawing
+ * is the course of the line rather than a mark placed along it.
+ *
+ * Two things separate this from `resolveGlyphLayout`, and both follow from the
+ * pattern having no gaps. The period is FITTED to the line (`total / round(total
+ * / period)`) rather than leaving the remainder split between the two ends,
+ * because a continuous pattern that stopped short would end in a stub of plain
+ * line, and plain line is a different symbol. And `symbol_spacing` plays no part
+ * at all, which is why the panel hides its slider for these two.
+ *
+ * The cap widens the period the same way the other layout does, and for the same
+ * reason: a capped line still reads end to end, just coarser.
+ *
+ * @param {number} totalLengthKm - Length of the line, in kilometres
+ * @param {number} periodKm - Requested length of one tooth
+ * @returns {{count: number, period: number, capped: boolean}} `count` is 0 when
+ *   not one whole tooth fits, and then the caller draws a plain line.
+ */
+export function resolveContinuousLayout(totalLengthKm, periodKm) {
+    const empty = { count: 0, period: 0, capped: false };
+
+    if (!Number.isFinite(totalLengthKm) || totalLengthKm <= 0) return empty;
+    if (!Number.isFinite(periodKm) || periodKm <= 0) return empty;
+    if (periodKm > totalLengthKm) return empty;
+
+    let count = Math.max(1, Math.round(totalLengthKm / periodKm));
+    let capped = false;
+
+    if (count > COORDINATION_LINE_ZOOM_LIMITS.MAX_GLYPHS) {
+        count = COORDINATION_LINE_ZOOM_LIMITS.MAX_GLYPHS;
+        capped = true;
+    }
+
+    return { count, period: totalLengthKm / count, capped };
+}
+
+/**
  * Derive every zoom-dependent size from the authored ones.
  *
  * The kilometre pair is clamped independently of each other, which can produce a
@@ -305,15 +345,62 @@ export function withCoordinationLineZoomSizes(properties, currentZoom) {
 }
 
 /**
- * MapLibre expression for the stroke width, falling back through the derived
- * value, the authored one, and finally the default.
+ * MapLibre expression for the stroke width.
+ *
+ * It used to be a plain `coalesce` on `calculatedLineWidth`, which made the
+ * drawing depend on a JavaScript pass rewriting the WHOLE collection on every
+ * frame of a zoom gesture. On this branch that pass costs more than on the main:
+ * `coordination_lines` is one of the sixteen sources owned by
+ * `layers/geojson-dispatcher.js`, so each frame paid a `flush`, a `getData()`
+ * round trip to the worker and an `updateData` back. The composite interpolate
+ * below computes the same number on the GPU, so the pass is left with what no
+ * expression can do (the ground geometry of the screen-pinned lines) and runs
+ * once per gesture, on `zoomend`, for the rest.
+ *
+ * Why the maths is exact between stops, and why the `min` inside each stop
+ * value deviates from a hard clamp inside one zoom level only: see the header of
+ * `layers/styles/zoom-expression.js`.
+ *
+ * Written here rather than through that module's `zoomScaledExpression` because
+ * this model's rules are stricter than the builder can express. The base falls
+ * back to the default unless it is a POSITIVE number (`positiveOr`), and the
+ * anchor counts only when it is positive too (`hasZoomReference`: zero is the
+ * "never anchored" sentinel, which the builder's `anchorDefault` would happily
+ * scale from).
+ *
  * @returns {Array} MapLibre expression
  */
 export function buildCoordinationLineWidthExpression() {
-    return [
-        'coalesce',
-        ['get', 'calculatedLineWidth'],
-        ['get', 'lineWidth'],
+    // `['get', ...]` yields `value`, which no arithmetic operator accepts, so
+    // every number goes through `['number', ..., 0]`: it returns the property
+    // when it IS a number and 0 otherwise, and never throws.
+    const width = ['number', ['get', 'lineWidth'], 0];
+    const anchor = ['number', ['get', 'createdAtZoom'], 0];
+
+    // The `Number.isFinite(n) && n > 0` of `positiveOr` and `hasZoomReference`.
+    // `n < 2n` holds for every positive finite number and fails for Infinity;
+    // NaN is already out on `n > 0`.
+    const isPositiveFinite = (n) => ['all', ['>', n, 0], ['<', n, ['*', 2, n]]];
+
+    const base = ['case',
+        isPositiveFinite(width), width,
         COORDINATION_LINE_ZOOM_DEFAULTS.lineWidth,
     ];
+
+    // `clampSize(base * factor, MAX_LINE_WIDTH_PX, base)`: base is positive and
+    // finite by construction and so is the factor, so the clamp is just a `min`,
+    // and it wraps the unscaled branches too (an authored width above the
+    // ceiling is clamped whether or not the correction is on).
+    const stopValue = (z) => ['min',
+        COORDINATION_LINE_ZOOM_LIMITS.MAX_LINE_WIDTH_PX,
+        ['case',
+            ['==', ['get', 'zoomCorrectionEnabled'], false], base,
+            ['!', isPositiveFinite(anchor)], base,
+            ['*', base, ['^', 2, ['-', z, anchor]]],
+        ],
+    ];
+
+    const expression = ['interpolate', ['exponential', 2], ['zoom']];
+    for (const z of ZOOM_STOPS) expression.push(z, stopValue(z));
+    return expression;
 }

@@ -3,7 +3,8 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
 
-// The model has zero imports by contract, so it needs no mocking at all.
+// The model's only import is the integer zoom stops, from a module that imports
+// nothing itself, so it still needs no mocking at all.
 import {
     COORDINATION_LINE_ZOOM_LIMITS,
     COORDINATION_LINE_ZOOM_DEFAULTS,
@@ -283,12 +284,17 @@ describe('withCoordinationLineZoomSizes', () => {
 });
 
 describe('buildCoordinationLineWidthExpression', () => {
-    it('falls back through derived, authored and default', () => {
-        expect(buildCoordinationLineWidthExpression()).toEqual([
-            'coalesce',
-            ['get', 'calculatedLineWidth'],
-            ['get', 'lineWidth'],
-            COORDINATION_LINE_ZOOM_DEFAULTS.lineWidth,
-        ]);
+    // The VALUE the expression paints, against this model and an evaluator that
+    // reproduces MapLibre's own arithmetic, lives in
+    // coordination-line-width-expression.test.js. Here it is only the shape: a
+    // zoom curve, not the property lookup it used to be.
+    it('is a zoom curve over the integer stops, not a lookup of the derived value', () => {
+        const expression = buildCoordinationLineWidthExpression();
+
+        expect(expression[0]).toBe('interpolate');
+        expect(expression[1]).toEqual(['exponential', 2]);
+        expect(expression[2]).toEqual(['zoom']);
+        expect(JSON.stringify(expression)).not.toContain('calculatedLineWidth');
+        expect(JSON.stringify(expression)).toContain(String(COORDINATION_LINE_ZOOM_DEFAULTS.lineWidth));
     });
 });

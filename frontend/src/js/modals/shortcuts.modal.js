@@ -28,8 +28,13 @@ const SHORTCUT_ICONS = {
 
 /**
  * Shortcuts data organized by category.
+ *
+ * Exported so `tests/unit/toolbar-shortcuts.test.js` can hold this list and
+ * `toolbar.constants.js` to each other: the two are hand-kept lists of the same
+ * thing, and a tool documented in one and missing from the other is exactly the
+ * defect that left the coordination line without a shortcut.
  */
-const SHORTCUTS_DATA = {
+export const SHORTCUTS_DATA = {
     system: {
         title: 'Sistema',
         icon: SHORTCUT_ICONS.system,
@@ -78,6 +83,7 @@ const SHORTCUTS_DATA = {
             { key: 'S', icon: TOOLBAR_ICONS.arrow, description: 'Seta' },
             { key: 'D', icon: TOOLBAR_ICONS.boundary, description: 'Linha de limite' },
             { key: 'F', icon: TOOLBAR_ICONS.occupiedFront, description: 'Frente ocupada' },
+            { key: 'Y', icon: TOOLBAR_ICONS.coordinationLine, description: 'Linha de coordenação' },
             { key: 'W', icon: TOOLBAR_ICONS.declination, description: 'Declinação magnética' },
         ],
     },

@@ -156,7 +156,7 @@ export const TOOL_GROUPS = {
             // break the one-letter rule the whole bar follows. `tool-button.js` renders the
             // shortcut-less button without the badge (and without the literal "undefined" the
             // unguarded template used to write).
-            { id: 'coordinationLine', label: 'Linha de Coordenação', icon: TOOLBAR_ICONS.coordinationLine, controlKey: 'coordinationLineControl' },
+            { id: 'coordinationLine', label: 'Linha de Coordenação', icon: TOOLBAR_ICONS.coordinationLine, shortcut: 'Y', controlKey: 'coordinationLineControl' },
             { id: 'declination', label: 'Declinação Magnética', icon: TOOLBAR_ICONS.declination, shortcut: 'W', controlKey: 'declinationControl' },
         ],
     },

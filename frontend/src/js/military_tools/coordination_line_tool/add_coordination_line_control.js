@@ -14,6 +14,7 @@ import { BaseControl } from '@tools';
 import { createPreviewScheduler } from '@tools/helpers/preview-scheduler.js';
 import { DrawingFinishButton } from '@js/draw_tools/drawing-touch-helpers';
 import { getSnappingService } from '@js/snapping/snapping.service.js';
+import { queryHoverFeatures } from '@tools/helpers/hover-query.helpers.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import {
     anchorFor,
@@ -68,8 +69,19 @@ function coordinationLinesSource(map) {
 }
 
 /**
- * Coordination Line control: the five MD33 linear symbols, chosen from a combo box
- * (290100, 290199, 290302, 290303 and 290307). See coordination_line_catalog.js.
+ * Layers `onHoverMove` needs. `hasHandleAtPoint` matches the handle LAYER id directly;
+ * `hasSelectedFeatureAtPoint` matches the source `coordination_lines`, whose only
+ * hoverable layer is the line one (the fill beside it carries the same source and the
+ * same features, so naming it would only duplicate every hit).
+ * Ids confirmed in `layers/styles/tactical.layers.js`.
+ */
+const HOVER_LAYER_IDS = ['coordination-line-edit-handles-layer', 'coordination-line-layer'];
+
+/**
+ * Coordination Line control: the MD33 linear symbols, chosen from a combo box.
+ * The catalogue is the one list of them, and no count is repeated here: a comment
+ * saying "the five symbols" is wrong the day a sixth lands, and says nothing the
+ * catalogue does not say better. See coordination_line_catalog.js.
  *
  * A polyline carrying a glyph repeated at a regular spacing. Modelled on the boundary tool,
  * which is the other military line with a repeating symbol and a zoom anchor, minus
@@ -161,11 +173,20 @@ class AddCoordinationLineControl extends BaseControl {
             onFrame: (pointer) => this._updatePreClickSnap(pointer),
         });
         this.zoomRafId = null;
+        this.zoomEndRafId = null;
         // `pendingZoomUpdate` is held for the whole (async) pass so the frames of a zoom
         // gesture cannot stack; `missedZoomUpdate` records the frames that arrive meanwhile,
         // so the last zoom of the gesture is replayed, not lost.
+        // The `ZoomEnd` twins do the same for the once-per-gesture pass, which is async for
+        // the same reasons and can also land mid-drag.
         this.pendingZoomUpdate = false;
         this.missedZoomUpdate = false;
+        this.pendingZoomEndUpdate = false;
+        this.missedZoomEndUpdate = false;
+        // Whether the collection holds any SCREEN-pinned line, which is the only kind the
+        // per-frame pass has work for. `null` means "not measured yet". See
+        // `_noteScreenAnchored`.
+        this._hasScreenAnchored = null;
         this.lastPreviewPosition = null;
         this.lastPreviewPoints = null;
 
@@ -224,12 +245,19 @@ class AddCoordinationLineControl extends BaseControl {
 
     onRemove = () => {
         this.map?.off('zoom', this.handleZoomChange);
+        this.map?.off('zoomend', this.handleZoomEnd);
         if (this.zoomRafId) {
             cancelAnimationFrame(this.zoomRafId);
             this.zoomRafId = null;
         }
+        if (this.zoomEndRafId) {
+            cancelAnimationFrame(this.zoomEndRafId);
+            this.zoomEndRafId = null;
+        }
         this.pendingZoomUpdate = false;
         this.missedZoomUpdate = false;
+        this.pendingZoomEndUpdate = false;
+        this.missedZoomEndUpdate = false;
         this.deactivate();
         this.removeAllEventListeners();
         // Releases the queue, its settle timers and the two map listeners the dispatcher opens
@@ -1148,7 +1176,7 @@ class AddCoordinationLineControl extends BaseControl {
     onHoverMove = (e) => {
         if (!this.getSelectedFeature()) return;
 
-        const features = this.map.queryRenderedFeatures(e.point);
+        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
 
         if (this.hasHandleAtPoint(features)) {
             this.map.getCanvas().style.cursor = 'crosshair';
@@ -1216,8 +1244,21 @@ class AddCoordinationLineControl extends BaseControl {
     // ZOOM CORRECTION
     // ========================================================================
 
+    // The line layer derives the stroke width from the zoom on the GPU now
+    // (`buildCoordinationLineWidthExpression`), so the per-frame pass no longer feeds the
+    // drawing of a terrain-pinned line: it is left with the one job no style expression can
+    // do, the ground geometry of the SCREEN-pinned lines, whose glyphs live in kilometres and
+    // have to be rebuilt at every zoom step. Everything else (the stored `calculated*`
+    // properties that the export, the selection box and the feature header read) is worth
+    // doing once per gesture, on `zoomend`.
+    //
+    // On this branch the saving is bigger than on the main, because `coordination_lines` is
+    // owned by the diff dispatcher: the old single pass paid a `flush`, a `getData()` round
+    // trip to the worker and an `updateData` back ON EVERY FRAME of the gesture, for every
+    // line, whether or not anything the user could see had changed.
     setupZoomListener = () => {
         this.map.on('zoom', this.handleZoomChange);
+        this.map.on('zoomend', this.handleZoomEnd);
     }
 
     handleZoomChange = () => {
@@ -1232,16 +1273,54 @@ class AddCoordinationLineControl extends BaseControl {
         }
 
         this.pendingZoomUpdate = true;
-        this.zoomRafId = requestAnimationFrame(this.updateAllCoordinationLineZoomSizes);
+        this.zoomRafId = requestAnimationFrame(this.updateScreenAnchoredGeometry);
+    }
+
+    handleZoomEnd = () => {
+        // Same discipline as above, and needed for the same reason: `zoomend` fires once per
+        // gesture, but a wheel gesture is a burst of gestures, and this pass is async too.
+        if (this.pendingZoomEndUpdate) {
+            this.missedZoomEndUpdate = true;
+            return;
+        }
+
+        this.pendingZoomEndUpdate = true;
+        this.zoomEndRafId = requestAnimationFrame(this.updateAllCoordinationLineZoomSizes);
     }
 
     replayMissedZoomUpdate = () => {
-        if (this.missedZoomUpdate && this.map) {
-            this.handleZoomChange();
-        }
+        if (!this.map) return;
+        if (this.missedZoomUpdate) this.handleZoomChange();
+        if (this.missedZoomEndUpdate) this.handleZoomEnd();
     }
 
     getCurrentZoom = () => (this.map ? this.map.getZoom() : NaN)
+
+    /**
+     * Record whether a collection holds any SCREEN-pinned line.
+     *
+     * This is what lets the per-frame pass cost NOTHING in the ordinary case. The zoom
+     * correction is on by default, and a terrain-pinned line keeps both its ground geometry
+     * and (through the layer's expression) its drawn width across a whole gesture, so the
+     * per-frame pass has literally no work; but finding that out by reading the collection
+     * would cost the `getData()` round trip this change exists to remove. Every path in this
+     * file that reads the whole collection calls this, so the answer is refreshed once per
+     * gesture at the latest, without a read of its own.
+     *
+     * DELIBERATELY CONSERVATIVE while unknown: `null` means "never measured", and the
+     * per-frame pass then reads, exactly as it used to. The one gap this leaves is a
+     * screen-pinned line written by a CO-WRITER (paste, import, the attribute table, the
+     * features tab) between two gestures: its glyphs hold their previous ground size for that
+     * one gesture, and the `zoomend` pass below both fixes the drawing and updates this flag,
+     * so the next gesture is right from its first frame.
+     *
+     * @param {Array} features - The features just read or written
+     * @private
+     */
+    _noteScreenAnchored = (features) => {
+        if (!Array.isArray(features)) return;
+        this._hasScreenAnchored = features.some(feature => isScreenAnchored(feature?.properties));
+    }
 
     /**
      * Whether a feature drag owns the screen right now.
@@ -1294,6 +1373,10 @@ class AddCoordinationLineControl extends BaseControl {
     applyZoomCorrections = (features, zoom = this.getCurrentZoom()) => {
         if (!Array.isArray(features)) return [];
 
+        // The load path sees the whole stored collection, so it is the cheapest place to
+        // learn whether the per-frame pass will have anything to do this session.
+        this._noteScreenAnchored(features);
+
         return features.map(feature => {
             const properties = withCoordinationLineZoomSizes(feature.properties, zoom);
             return { ...feature, properties, geometry: this.geometry.generate(properties, zoom) };
@@ -1301,12 +1384,11 @@ class AddCoordinationLineControl extends BaseControl {
     }
 
     /**
-     * The per-frame zoom pass. Writes the live source only, never the store: the derived
-     * sizes are recomputed on read, and what persists is the authored pair (`createdAtZoom`,
-     * `zoomCorrectionEnabled`).
+     * The per-frame zoom pass: the screen-pinned features' geometry, and nothing else.
+     * Writes the live source only, never the store.
      * @returns {Promise<void>} Resolves once the source is written
      */
-    updateAllCoordinationLineZoomSizes = async () => {
+    updateScreenAnchoredGeometry = async () => {
         this.zoomRafId = null;
 
         // A drag OWNS the source for its duration (the move handler and the handle drag both
@@ -1326,17 +1408,109 @@ class AddCoordinationLineControl extends BaseControl {
         try {
             if (!this.map) return;
             const currentZoom = this.map.getZoom();
-            await this._sourceQueue(() => this._refreshSourceZoomSizes(currentZoom));
+            await this._sourceQueue(() => this._refreshScreenAnchoredGeometry(currentZoom));
         } catch (error) {
             // Nothing consumes this promise (it is a rAF callback), so a rejection here would
             // be an unhandled one and the correction would freeze in silence. A style swap can
             // remove a source mid-zoom; log and move on.
-            console.warn('Error refreshing coordination line zoom sizes:', error);
+            console.warn('Error refreshing coordination line zoom geometry:', error);
         } finally {
             this.pendingZoomUpdate = false;
             if (this.missedZoomUpdate && this.map) {
                 this.missedZoomUpdate = false;
                 this.handleZoomChange();
+            }
+        }
+    }
+
+    /**
+     * Rebuild the glyphs of the SCREEN-pinned features, whose size in kilometres changes with
+     * every zoom step. A collection with none of them is answered WITHOUT READING IT, which is
+     * the common case and the point of the change: the correction is on by default, and a
+     * terrain-pinned line keeps both its ground geometry and (through the layer's expression)
+     * its drawn width across the whole gesture.
+     *
+     * @param {number} currentZoom - Zoom to derive sizes for
+     * @returns {Promise<void>} Resolves once the source is written
+     * @private
+     */
+    _refreshScreenAnchoredGeometry = async (currentZoom) => {
+        // The flag, not a read. `false` is only ever set by a pass that DID read the whole
+        // collection, and `null` (never measured) falls through to the read below.
+        if (this._hasScreenAnchored === false) return;
+
+        const source = this.map?.getSource('coordination_lines');
+        if (!source) return;
+
+        // The read is what decides whether there IS a change, so the queue has to be drained
+        // before the collection comes back.
+        const dispatcher = coordinationLinesSource(this.map);
+        await dispatcher.flush();
+        const data = await source.getData();
+        // The map can be gone (or restyled) by the time the read resolves.
+        if (!this.map || !data?.features?.length) return;
+
+        this._noteScreenAnchored(data.features);
+
+        const upserts = [];
+
+        for (const feature of data.features) {
+            if (!feature?.properties || !isScreenAnchored(feature.properties)) continue;
+
+            const sizes = computeCoordinationLineZoomSizes(feature.properties, currentZoom);
+            if (feature.properties.calculatedSymbolSize === sizes.calculatedSymbolSize
+                && feature.properties.calculatedSymbolSpacing === sizes.calculatedSymbolSpacing) {
+                continue;
+            }
+
+            feature.properties.calculatedSymbolSize = sizes.calculatedSymbolSize;
+            feature.properties.calculatedSymbolSpacing = sizes.calculatedSymbolSpacing;
+            feature.geometry = this.geometry.generate(feature.properties, currentZoom);
+            upserts.push(feature);
+        }
+
+        if (upserts.length > 0) {
+            dispatcher.add(upserts);
+            await dispatcher.flush();
+        }
+    }
+
+    /**
+     * The once-per-gesture pass, on `zoomend`: every feature's derived sizes, plus the
+     * geometry of the screen-pinned ones. Writes the live source only, never the store: the
+     * derived sizes are recomputed on read, and what persists is the authored pair
+     * (`createdAtZoom`, `zoomCorrectionEnabled`).
+     *
+     * `calculatedLineWidth` no longer feeds the drawing, but the export, the selection box and
+     * the feature header still read it, so it is refreshed here rather than dropped.
+     *
+     * @returns {Promise<void>} Resolves once the source is written
+     */
+    updateAllCoordinationLineZoomSizes = async () => {
+        this.zoomEndRafId = null;
+
+        // Same reason as the per-frame pass: a drag owns the source, so stand down and let the
+        // end of the drag replay this.
+        if (this.isDraggingHandle || this._isDragging()) {
+            this.pendingZoomEndUpdate = false;
+            this.missedZoomEndUpdate = true;
+            return;
+        }
+
+        this.missedZoomEndUpdate = false;
+
+        try {
+            if (!this.map) return;
+            const currentZoom = this.map.getZoom();
+            await this._sourceQueue(() => this._refreshSourceZoomSizes(currentZoom));
+        } catch (error) {
+            // A rAF callback consumes nobody's promise; see the per-frame pass.
+            console.warn('Error refreshing coordination line zoom sizes:', error);
+        } finally {
+            this.pendingZoomEndUpdate = false;
+            if (this.missedZoomEndUpdate && this.map) {
+                this.missedZoomEndUpdate = false;
+                this.handleZoomEnd();
             }
         }
     }
@@ -1357,6 +1531,8 @@ class AddCoordinationLineControl extends BaseControl {
         const data = await source.getData();
         // The map can be gone (or restyled) by the time the read resolves.
         if (!this.map || !data?.features?.length) return;
+
+        this._noteScreenAnchored(data.features);
 
         const upserts = [];
 
@@ -1460,6 +1636,11 @@ class AddCoordinationLineControl extends BaseControl {
 
             upserts.push(sourceFeature);
         }
+
+        // Read AFTER the loop, so the toggle the user just flipped is what counts. This is the
+        // path `zoomCorrectionEnabled` travels when the panel switches a line from the terrain
+        // to the screen, and the per-frame zoom pass consults the answer.
+        this._noteScreenAnchored(data.features);
 
         // An upsert, not a property patch: a change to `baseCoordinates` and friends also
         // rewrites the geometry, and `add` is a total replacement in MapLibre, which is what
@@ -1683,6 +1864,12 @@ class AddCoordinationLineControl extends BaseControl {
             });
             await dispatcher.flush();
         }
+
+        // The incoming feature is the one the collection does not carry yet, so it stands in
+        // for its stored copy before the count.
+        this._noteScreenAnchored(
+            data.features.map(f => (f.properties?.id === feature.properties.id ? feature : f)),
+        );
     }
 
     // ========================================================================
