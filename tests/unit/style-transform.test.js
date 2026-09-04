@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
 
-import { collectStyleIds, mergeApplicationStyle } from '../../src/js/baselayers/style-transform.js';
+import { baseStyleAlreadyOnMap, collectStyleIds, mergeApplicationStyle } from '../../src/js/baselayers/style-transform.js';
 
 const baseA = {
     version: 8,
@@ -119,5 +119,32 @@ describe('mergeApplicationStyle', () => {
                     && layerIds[0] === 'orto';
             },
         ));
+    });
+});
+
+// The switch decides by the MAP, not by the control's belief. Worst cases
+// first: each one is a state that the belief would have got wrong.
+describe('baseStyleAlreadyOnMap', () => {
+    const overture = { version: 8, name: 'osm_overture_v1.3', sources: { base: { type: 'vector', url: 'o' } }, layers: [{ id: 'base_land', type: 'fill', source: 'base' }, { id: 'base_water', type: 'fill', source: 'base' }] };
+    const carta = { version: 8, name: 'topo_vector_tile_v1.0', sources: { asc: { type: 'vector', url: 'c' } }, layers: [{ id: 'asc_via', type: 'line', source: 'asc' }] };
+    const hasLayerOf = (style) => (id) => style.layers.some((l) => l.id === id);
+
+    it('2026-09-04: map born with the Topografica while the state says DSG, asked DSG: not applied', () => {
+        expect(baseStyleAlreadyOnMap(appOn(overture), carta, hasLayerOf(appOn(overture)))).toBe(false);
+    });
+
+    it('the base on the map, asked again: already applied (no setStyle, no styledata wait)', () => {
+        expect(baseStyleAlreadyOnMap(appOn(overture), overture, hasLayerOf(appOn(overture)))).toBe(true);
+    });
+
+    it('same name but a base layer missing from the map: not applied', () => {
+        const semAgua = { ...appOn(overture), layers: appOn(overture).layers.filter((l) => l.id !== 'base_water') };
+        expect(baseStyleAlreadyOnMap(semAgua, overture, hasLayerOf(semAgua))).toBe(false);
+    });
+
+    it('a URL style, a missing map style or an empty base are never "already applied"', () => {
+        expect(baseStyleAlreadyOnMap(appOn(overture), 'https://example.test/style.json', hasLayerOf(appOn(overture)))).toBe(false);
+        expect(baseStyleAlreadyOnMap(null, overture, () => true)).toBe(false);
+        expect(baseStyleAlreadyOnMap({ name: 'x', layers: [] }, { name: 'x', layers: [] }, () => true)).toBe(false);
     });
 });

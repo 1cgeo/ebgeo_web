@@ -79,6 +79,12 @@ function lerArgumentos(argv) {
         altura: 900,
         headless: false,
         perfil: false,
+        // Mapas base a comparar. 'atual' e o que o app abriu, sem troca.
+        bases: ['atual'],
+        // Fator de estrangulamento da CPU pelo CDP (1 = sem estrangular).
+        cpu: 1,
+        // Cria feicoes pelas ferramentas do app, uma vez, antes das rodadas.
+        populado: false,
     };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
@@ -107,6 +113,12 @@ function lerArgumentos(argv) {
             p.headless = booleana();
         } else if (a === '--perfil') {
             p.perfil = booleana();
+        } else if (a === '--bases') {
+            p.bases = proximo().split(',').map((s) => s.trim()).filter(Boolean);
+        } else if (a === '--cpu') {
+            p.cpu = Number(proximo());
+        } else if (a === '--populado') {
+            p.populado = booleana();
         } else if (a === '--ajuda' || a === '-h' || a === '--help') {
             p.ajuda = true;
         } else {
@@ -119,6 +131,9 @@ function lerArgumentos(argv) {
     // Mantem a ordem canonica, nao a ordem que o usuario digitou.
     p.variantes = ORDEM_VARIANTES.filter((v) => p.variantes.includes(v));
     if (!Number.isFinite(p.rodadas) || p.rodadas < 1) throw new Error('--rodadas tem de ser inteiro >= 1');
+    if (!p.bases.length) throw new Error('--bases precisa de ao menos um id de mapa base (ou "atual")');
+    if (new Set(p.bases).size !== p.bases.length) throw new Error(`--bases repete um id: ${p.bases.join(', ')}`);
+    if (!Number.isFinite(p.cpu) || p.cpu < 1) throw new Error('--cpu tem de ser numero >= 1');
     if (!p.saida) {
         const carimbo = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         p.saida = path.join(AQUI, 'saida', carimbo);
@@ -142,6 +157,12 @@ Bancada de desempenho do EBGeo Web.
   --altura <px>        padrao 900
   --headless [bool]    padrao false (headless usa SwiftShader: o relogio nao vale)
   --perfil [bool]      padrao false (liga o profiler do CDP; ele infla o quadro)
+  --bases <lista>      ids de mapa base do app, separados por virgula (padrao "atual", sem troca).
+                       Cada caso base x variante parte de uma recarga e troca a base pelo mesmo
+                       caminho do painel (BaseLayerControl.applySharedBasemap), sem persistir.
+  --cpu <fator>        padrao 1. Estrangula a CPU pelo CDP (4 = maquina quatro vezes mais lenta).
+  --populado [bool]    padrao false. Cria feicoes de 10 tipos pelas ferramentas do app, uma vez,
+                       antes das rodadas; elas voltam em toda recarga do mesmo contexto.
 
 Variavel de ambiente EBGEO_PLAYWRIGHT_DIR: diretorio que contem node_modules/playwright.
 `;
@@ -380,8 +401,21 @@ function lerProva() {
     try { projecao = map.getProjection && map.getProjection() ? map.getProjection().type : null; } catch { projecao = null; }
     // Camada sem `layout.visibility` conta como visivel: e o padrao do MapLibre.
     const camadasVisiveis = map.getStyle().layers.filter((l) => !l.layout || l.layout.visibility !== 'none').length;
+    // Feicoes vivas nas fontes GeoJSON do app: e a prova do estado populado.
+    const estiloAtual = map.getStyle();
+    let feicoes = 0;
+    for (const id in estiloAtual.sources) {
+        if (estiloAtual.sources[id].type !== 'geojson') continue;
+        const src = map.getSource(id);
+        // No MapLibre 6.x o _data da fonte GeoJSON e um envelope ({ geojson }),
+        // e o serialize().data e o que continua devolvendo o GeoJSON em 5.x e 6.x.
+        const dados = src && typeof src.serialize === 'function' ? src.serialize().data : (src && src._data);
+        if (dados && Array.isArray(dados.features)) feicoes += dados.features.length;
+    }
     return {
         terreno: !!map.getTerrain(),
+        estilo: estiloAtual.name || null,
+        feicoes,
         camadasVisiveis,
         pilhas: rtt ? rtt._stacks.length : null,
         tilesTerreno: rtt ? (rtt._renderableTiles ? rtt._renderableTiles.length : null) : null,
@@ -409,8 +443,10 @@ function levantarVazias() {
         if (estilo.sources[id].type !== 'geojson') continue;
         const src = map.getSource(id);
         if (!src) continue;
-        let dados = src._data;
-        if (dados === undefined && typeof src.serialize === 'function') dados = src.serialize().data;
+        // serialize().data primeiro: no 6.x o _data virou envelope ({ geojson }) e
+        // lido direto contava TODA fonte como vazia (2026-09-04).
+        let dados = typeof src.serialize === 'function' ? src.serialize().data : undefined;
+        if (dados === undefined) dados = src._data;
         if (typeof dados === 'string') { urlDesconhecida.push(id); continue; }
         const n = dados && Array.isArray(dados.features) ? dados.features.length
             : (dados && dados.type === 'Feature' ? 1 : 0);
@@ -418,6 +454,162 @@ function levantarVazias() {
     }
     const camadas = estilo.layers.filter((l) => vazias.includes(l.source)).map((l) => l.id);
     return { vazias, urlDesconhecida, camadas };
+}
+
+// --------------------------------------------------------------------------
+// Mapa base. A troca segue o caminho do painel (BaseLayerControl), e a prova
+// sai do proprio app: o estilo registrado no controle diz o nome, as fontes e
+// as camadas que a base tem de mostrar depois da troca. Nada aqui repete uma
+// constante do app; se o estilo mudar, o esperado muda junto.
+// --------------------------------------------------------------------------
+
+// O que a base pedida tem de apresentar, lido do controle do app.
+function lerEsperadoBase(id) {
+    const ctl = window.__store.getControl('BaseLayerControl');
+    if (!ctl) return { erro: 'BaseLayerControl ausente no store' };
+    const atual = ctl.currentLayer;
+    const estilo = ctl.styleUrls && ctl.styleUrls[id];
+    if (!estilo) return { erro: `base "${id}" nao esta registrada no app (registradas: ${Object.keys(ctl.styleUrls || {}).join(', ')})`, atual };
+    const map = window.__mapa;
+    const noMapa = map.getStyle();
+    const fontes = Object.keys(estilo.sources || {});
+    const camadas = (estilo.layers || []).map((l) => l.id);
+    // O que e de OUTRA base e esta no mapa agora, lido do MAPA e nao do que o
+    // controle acredita: em 2026-09-04 o controle dizia carta-topografica com
+    // o mapa nascido no Overture, e a prova que confiava nele aprovou uma
+    // troca que deixou 9 fontes e 159 camadas do Overture por cima do raster.
+    const presentes = new Set(Object.keys(noMapa.sources || {}));
+    const fontesAlheias = new Set();
+    const camadasAlheias = new Set();
+    for (const [k, s] of Object.entries(ctl.styleUrls)) {
+        if (k === id) continue;
+        for (const f of Object.keys(s.sources || {})) if (!fontes.includes(f) && presentes.has(f)) fontesAlheias.add(f);
+        for (const l of s.layers || []) if (!camadas.includes(l.id) && map.getLayer(l.id)) camadasAlheias.add(l.id);
+    }
+    const estiloDoControle = ctl.styleUrls[atual] ? (ctl.styleUrls[atual].name || null) : null;
+    return {
+        id,
+        atual,
+        estiloAntes: noMapa.name || null,
+        estiloDoControleAntes: estiloDoControle,
+        estilo: estilo.name || null,
+        fontes,
+        camadas,
+        // Fontes e camadas de outra base que estao no mapa antes da troca:
+        // depois dela nao podem sobrar.
+        fontesAnteriores: [...fontesAlheias],
+        camadasAnteriores: [...camadasAlheias],
+    };
+}
+
+async function trocarBasePagina(id) {
+    const ctl = window.__store.getControl('BaseLayerControl');
+    const t0 = performance.now();
+    // Sem persistir: e visita, nao edicao do mapa salvo.
+    const aplicado = await ctl.applySharedBasemap(id);
+    return { aplicado, ms: Math.round(performance.now() - t0) };
+}
+
+// Le o mapa depois da troca, com a vista assentada.
+function lerProvaBase(esperado) {
+    const map = window.__mapa;
+    const estilo = map.getStyle();
+    const tm = map.style.tileManagers || map.style.sourceCaches || {};
+    const carregadosPorFonte = {};
+    for (const f of esperado.fontes) {
+        const cache = tm[f];
+        if (!cache || !cache.getIds) { carregadosPorFonte[f] = null; continue; }
+        carregadosPorFonte[f] = cache.getIds().filter((k) => {
+            const t = cache.getTileByID ? cache.getTileByID(k) : (cache._tiles && cache._tiles[k]);
+            return t && t.state === 'loaded';
+        }).length;
+    }
+    const fontesPresentes = Object.keys(estilo.sources);
+    return {
+        estilo: estilo.name || null,
+        atual: window.__store.getControl('BaseLayerControl').currentLayer,
+        fontesPresentes: esperado.fontes.filter((f) => fontesPresentes.includes(f)),
+        fontesAusentes: esperado.fontes.filter((f) => !fontesPresentes.includes(f)),
+        fontesAnterioresRestantes: esperado.fontesAnteriores.filter((f) => fontesPresentes.includes(f)),
+        camadasAnterioresRestantes: (esperado.camadasAnteriores || []).filter((id) => !!map.getLayer(id)),
+        camadasPresentes: esperado.camadas.filter((id) => !!map.getLayer(id)).length,
+        carregadosPorFonte,
+        tilesCarregadosBase: Object.values(carregadosPorFonte).reduce((s, n) => s + (n || 0), 0),
+        camadas: estilo.layers.length,
+        fontes: fontesPresentes.length,
+    };
+}
+
+// Regua pura da troca de base. O pior caso que ela existe para pegar: a troca
+// que nao aconteceu (estilo da base anterior), a base velha que sobrou por
+// baixo, a camada que faltou e a base sem tile carregado (estilo certo com o
+// mapa em branco, que foi o defeito da porta 3009 em 2026-09-04).
+function validarBase(prova, esperado) {
+    if (esperado.erro) return [esperado.erro];
+    const erros = [];
+    // O controle tem de saber com que base o mapa esta ANTES da troca, senao a
+    // troca separa base de conteudo pelos ids errados (defeito do app).
+    if (esperado.estiloDoControleAntes !== undefined && esperado.estiloAntes !== undefined && esperado.estiloDoControleAntes !== esperado.estiloAntes) {
+        erros.push(`antes da troca o controle dizia "${esperado.atual}" (estilo "${esperado.estiloDoControleAntes}") e o mapa mostrava "${esperado.estiloAntes}": o app nao sabe que base tem`);
+    }
+    if (prova.atual !== esperado.id) erros.push(`o controle diz base "${prova.atual}", pedida "${esperado.id}"`);
+    if (prova.estilo !== esperado.estilo) erros.push(`estilo "${prova.estilo}", esperado "${esperado.estilo}": a troca nao aconteceu`);
+    if ((prova.fontesAusentes || []).length) erros.push(`fontes da base ausentes: ${prova.fontesAusentes.join(', ')}`);
+    if ((prova.fontesAnterioresRestantes || []).length) erros.push(`fontes da base anterior sobraram: ${prova.fontesAnterioresRestantes.join(', ')}`);
+    if ((prova.camadasAnterioresRestantes || []).length) erros.push(`${prova.camadasAnterioresRestantes.length} camadas de outra base sobraram (ex.: ${prova.camadasAnterioresRestantes.slice(0, 3).join(', ')})`);
+    if (prova.camadasPresentes !== esperado.camadas.length) erros.push(`${prova.camadasPresentes} camadas da base no mapa, esperadas ${esperado.camadas.length}`);
+    if (!prova.tilesCarregadosBase) erros.push('nenhum tile da base carregado: estilo certo com o mapa em branco');
+    return erros;
+}
+
+// Cria feicoes pelas ferramentas do app, em volta da vista. E o caminho do
+// usuario (createFeature de cada controle): persiste no store e volta na
+// recarga. Devolve quantas ficaram, por controle.
+async function popularPagina(vista) {
+    const { getControl } = window.__store;
+    const rnd = (a) => (Math.random() * 2 - 1) * a;
+    const perto = (r = 0.03) => [vista.center[0] + rnd(r), vista.center[1] + rnd(r)];
+    const caminho = (n, r = 0.01) => { const c = perto(0.025); const pts = []; for (let i = 0; i < n; i++) pts.push([c[0] + rnd(r) + i * 0.003, c[1] + rnd(r)]); return pts; };
+    const anel = (n, r = 0.004) => { const c = perto(0.025); const pts = []; for (let i = 0; i < n; i++) { const a = (i / n) * 2 * Math.PI; pts.push([c[0] + r * Math.cos(a), c[1] + r * Math.sin(a)]); } return pts; };
+    const plano = [
+        ['AddLineControl', 15, (c) => { c.drawPoints = caminho(5); return c.createFeature(); }],
+        ['AddPolygonControl', 10, (c) => { c.drawPoints = anel(6); return c.createFeature(); }],
+        ['AddCircleControl', 5, (c) => { const p = perto(); c.drawPoints = [p, [p[0] + 0.004, p[1]]]; return c.createFeature(); }],
+        ['AddSectorControl', 5, (c) => { const p = perto(); c.drawPoints = [p, [p[0] + 0.005, p[1] + 0.003]]; return c.createFeature(); }],
+        ['AddEllipseControl', 5, (c) => { const p = perto(); c.drawPoints = [p, [p[0] + 0.005, p[1] + 0.002]]; return c.createFeature(); }],
+        ['AddRectangleControl', 5, (c) => { const p = perto(); c.drawPoints = [p, [p[0] + 0.005, p[1] + 0.003]]; return c.createFeature(); }],
+        ['AddArrowControl', 5, (c) => { c.drawPoints = caminho(4); return c.createFeature(); }],
+        ['AddBrushControl', 3, (c) => { c.drawPoints = caminho(20, 0.002); return c.createFeature(); }],
+        ['AddBoundaryControl', 3, (c) => { c.drawPoints = caminho(4); return c.createFeature(); }],
+        ['AddCoordinationLineControl', 3, (c) => { c.drawPoints = caminho(4); return c.createFeature(); }],
+    ];
+    const porControle = {};
+    const ausentes = [];
+    let total = 0;
+    for (const [nome, n, cria] of plano) {
+        const ctrl = getControl(nome);
+        if (!ctrl || typeof ctrl.createFeature !== 'function') { ausentes.push(nome); continue; }
+        porControle[nome] = 0;
+        for (let i = 0; i < n; i++) {
+            try { await cria(ctrl); porControle[nome]++; total++; } catch (e) { /* conta so o que ficou */ }
+        }
+    }
+    // O que o STORE guardou e a verdade sobre o estado populado, nao o numero de
+    // chamadas: em 2026-09-04, 59 chamadas a createFeature persistiram 56.
+    await new Promise((r) => setTimeout(r, 1500));
+    let persistidas = null;
+    try {
+        const f = await window.__store.getCurrentMapFeatures();
+        persistidas = { total: 0, porTipo: {} };
+        for (const [tipo, lista] of Object.entries(f || {})) {
+            const n = Array.isArray(lista) ? lista.length : 0;
+            if (n) persistidas.porTipo[tipo] = n;
+            persistidas.total += n;
+        }
+    } catch (e) {
+        persistidas = { total: 0, erro: String(e && e.message ? e.message : e) };
+    }
+    return { total, porControle, ausentes, persistidas };
 }
 
 // --------------------------------------------------------------------------
@@ -602,7 +794,8 @@ class Bancada {
                 + `A bancada exige ${CAMADAS_MINIMAS} camadas ou mais: medir o app meio carregado da numero bonito e falso.`);
         }
         const instr = await this.page.evaluate(instrumentar);
-        return { ...pronto, ms: Date.now() - t0, instrumentacao: instr };
+        const baseAtual = await this.page.evaluate(() => { const c = window.__store.getControl('BaseLayerControl'); return c ? c.currentLayer : null; });
+        return { ...pronto, ms: Date.now() - t0, instrumentacao: instr, baseAtual };
     }
 
     async assentar(maxMs = 25000) {
@@ -631,6 +824,29 @@ class Bancada {
 
     async irParaVistaBase() {
         await this.page.evaluate((v) => { window.__mapa.jumpTo({ center: v.center, zoom: v.zoom, pitch: 0, bearing: 0 }); }, this.vista);
+    }
+
+    // Troca o mapa base pelo caminho do painel e devolve o esperado (lido do
+    // app) e o que a troca disse ter aplicado. A prova vem depois, com a vista
+    // assentada, em provarBase().
+    async trocarBase(id) {
+        const esperado = await this.page.evaluate(lerEsperadoBase, id);
+        if (esperado.erro) return { esperado, troca: null };
+        const troca = await this.page.evaluate(trocarBasePagina, id);
+        await this.assentar();
+        await this.esperarQuadros(3);
+        return { esperado, troca };
+    }
+
+    async provarBase(esperado) {
+        return this.page.evaluate(lerProvaBase, esperado);
+    }
+
+    async popular() {
+        const r = await this.page.evaluate(popularPagina, this.vista);
+        // As ferramentas deixam selecao e feedback no mapa; a recarga limpa.
+        await dorme(1500);
+        return r;
     }
 
     // --- acoes das variantes ---
@@ -827,12 +1043,13 @@ function montarTabela(resultado) {
     const nota = usadas.length ? `rodadas usadas: ${base.map((r) => r.rodada).join(', ')} (${aquece})`
         : 'NENHUMA rodada valida fora do aquecimento; a tabela usa TODAS as rodadas e o resultado nao vale';
     const linhas = [];
-    for (const variante of resultado.parametros.variantes) {
+    const bases = resultado.parametros.bases || ['atual'];
+    for (const variante of resultado.parametros.variantes) for (const nomeBase of bases) {
         for (const cenario of ORDEM_CENARIOS) {
             const celulas = [];
             const vereditos = new Set();
             for (const rod of base) {
-                const v = rod.variantes.find((x) => x.variante === variante);
+                const v = rod.variantes.find((x) => x.variante === variante && (x.base || 'atual') === nomeBase);
                 if (!v) continue;
                 const c = v.cenarios.find((x) => x.cenario === cenario);
                 if (!c) continue;
@@ -846,13 +1063,20 @@ function montarTabela(resultado) {
             if (resultado.ambiente.appMudou) vereditos.add('APP MUDOU ENTRE AS CARGAS');
             const veredito = vereditos.size ? [...vereditos].join('; ') : 'ok';
             linhas.push({
-                variante, cenario,
+                base: nomeBase, variante, cenario,
                 valores: METRICAS.map(([nome, ler]) => ({ nome, texto: celula(celulas.map(ler)) })),
                 veredito,
             });
         }
     }
     return { linhas, nota };
+}
+
+// A referencia foi medida na base com que o app abre. Caso de outra base fica
+// fora da conferencia, em vez de divergir por fator 2 e mentir sobre a causa.
+function casoNaBaseInicial(v, resultado) {
+    const b = v.base || 'atual';
+    return b === 'atual' || b === (resultado.ambiente && resultado.ambiente.baseInicial);
 }
 
 function conferirReferencia(resultado) {
@@ -867,7 +1091,7 @@ function conferirReferencia(resultado) {
         const ler = METRICA_REF[ref.metrica];
         const vals = [];
         for (const rod of base) {
-            const v = rod.variantes.find((x) => x.variante === ref.variante);
+            const v = rod.variantes.find((x) => x.variante === ref.variante && casoNaBaseInicial(x, resultado));
             const c = v && v.cenarios.find((x) => x.cenario === ref.cenario);
             if (c) { const x = ler(c); if (x !== null && x !== undefined) vals.push(x); }
         }
@@ -885,6 +1109,10 @@ function conferirReferencia(resultado) {
             situacao: (eTempo && !relogioVale) ? 'nao conferido (relogio invalido)' : (fora ? 'DIVERGENTE por fator 2 ou mais' : 'dentro do fator 2'),
         });
     }
+    const basesPedidas = resultado.parametros.bases || ['atual'];
+    if (!saida.length && basesPedidas.every((b) => b !== 'atual' && b !== (resultado.ambiente && resultado.ambiente.baseInicial))) {
+        saida.push({ item: 'conferencia', situacao: `pulada: a referencia e da base com que o app abre (${(resultado.ambiente && resultado.ambiente.baseInicial) || '?'}), e esta rodada mediu ${basesPedidas.join(', ')}` });
+    }
     return saida;
 }
 
@@ -896,6 +1124,7 @@ function escreverMarkdown(resultado, tabela, conferencia) {
     l.push(`URL: ${resultado.parametros.url} | vista: ${resultado.parametros.vista} | viewport: ${resultado.parametros.largura}x${resultado.parametros.altura} | headless: ${resultado.parametros.headless}`);
     l.push(`Renderer: ${resultado.ambiente.renderer}`);
     l.push(`Relogio: ${resultado.ambiente.relogio}`);
+    l.push(`Bases: ${(resultado.parametros.bases || ['atual']).join(', ')} (base com que o app abre: ${resultado.ambiente.baseInicial || '?'}) | CPU: ${resultado.ambiente.cpu || 1}x | populado: ${resultado.parametros.populado ? `${resultado.ambiente.populacao ? resultado.ambiente.populacao.total : '?'} feicoes pelas ferramentas` : 'nao'}`);
     l.push(`Playwright ${resultado.ambiente.playwrightVersao}, carregado de ${resultado.ambiente.playwrightOrigem}`);
     l.push(`Rodadas: ${resultado.parametros.rodadas}. ${tabela.nota}`);
     const ass = resultado.ambiente.assinaturasBase || {};
@@ -909,11 +1138,11 @@ function escreverMarkdown(resultado, tabela, conferencia) {
     l.push('');
     l.push('Celula com mais de uma rodada valida mostra `mediana (min..max)`.');
     l.push('');
-    const cab = ['variante', 'cenario', ...METRICAS.map(([n]) => n), 'veredito'];
+    const cab = ['base', 'variante', 'cenario', ...METRICAS.map(([n]) => n), 'veredito'];
     l.push(`| ${cab.join(' | ')} |`);
     l.push(`|${cab.map(() => '---').join('|')}|`);
     for (const linha of tabela.linhas) {
-        l.push(`| ${linha.variante} | ${linha.cenario} | ${linha.valores.map((v) => v.texto).join(' | ')} | ${linha.veredito} |`);
+        l.push(`| ${linha.base || 'atual'} | ${linha.variante} | ${linha.cenario} | ${linha.valores.map((v) => v.texto).join(' | ')} | ${linha.veredito} |`);
     }
     l.push('');
     l.push('## Conferencia contra a referencia de 2026-09-04');
@@ -930,7 +1159,7 @@ function escreverMarkdown(resultado, tabela, conferencia) {
         l.push(`- rodada ${rod.rodada}${rod.aquecimento ? ' (aquecimento)' : ''}: ${rod.valida ? 'valida' : `INVALIDA (${rod.erros.join('; ')})`}`);
         for (const v of rod.variantes) {
             const cad = v.cadenciaAssentada ? `cadencia p50 ${v.cadenciaAssentada.p50} p95 ${v.cadenciaAssentada.p95}` : 'cadencia ausente';
-            l.push(`  - ${v.variante}: ${v.valida ? 'prova ok' : `PROVA INVALIDA (${v.erros.join('; ')})`}; ${cad}`);
+            l.push(`  - ${v.base || 'atual'} / ${v.variante}: ${v.valida ? 'prova ok' : `PROVA INVALIDA (${v.erros.join('; ')})`}; ${cad}${v.avisos && v.avisos.length ? `; avisos: ${v.avisos.join('; ')}` : ''}`);
         }
     }
     l.push('');
@@ -938,10 +1167,10 @@ function escreverMarkdown(resultado, tabela, conferencia) {
     l.push('');
     const ultima = resultado.rodadas[resultado.rodadas.length - 1] || { variantes: [] };
     for (const v of ultima.variantes) {
-        l.push(`### ${v.variante}`);
+        l.push(`### ${v.base || 'atual'} / ${v.variante}`);
         l.push('');
         l.push('```json');
-        l.push(JSON.stringify({ prova: v.prova, detalhe: v.detalhe }, null, 2));
+        l.push(JSON.stringify({ prova: v.prova, detalhe: v.detalhe, trocaBase: v.troca, provaTrocaBase: v.provaTrocaBase }, null, 2));
         l.push('```');
         l.push('');
     }
@@ -950,8 +1179,8 @@ function escreverMarkdown(resultado, tabela, conferencia) {
 
 function imprimirTabela(tabela) {
     if (!tabela.linhas.length) { console.log('nenhuma linha medida'); return; }
-    const cab = ['variante', 'cenario', ...METRICAS.map(([n]) => n), 'veredito'];
-    const linhas = [cab, ...tabela.linhas.map((li) => [li.variante, li.cenario, ...li.valores.map((v) => v.texto), li.veredito])];
+    const cab = ['base', 'variante', 'cenario', ...METRICAS.map(([n]) => n), 'veredito'];
+    const linhas = [cab, ...tabela.linhas.map((li) => [li.base || 'atual', li.variante, li.cenario, ...li.valores.map((v) => v.texto), li.veredito])];
     const larg = cab.map((_, i) => Math.max(...linhas.map((r) => String(r[i]).length)));
     const sep = larg.map((w) => '-'.repeat(w)).join('-+-');
     console.log(linhas[0].map((c, i) => String(c).padEnd(larg[i])).join(' | '));
@@ -985,10 +1214,15 @@ async function principal() {
     page.on('console', (m) => { if (m.type() === 'error') erros.push(`console: ${m.text().slice(0, 200)}`); });
 
     const bancada = new Bancada(page, params);
+    if (params.perfil || params.cpu > 1) bancada.cdp = await page.context().newCDPSession(page);
     if (params.perfil) {
-        bancada.cdp = await page.context().newCDPSession(page);
         await bancada.cdp.send('Profiler.enable');
         await bancada.cdp.send('Profiler.setSamplingInterval', { interval: 250 });
+    }
+    if (params.cpu > 1) {
+        // Vale para a sessao inteira, recargas inclusive.
+        await bancada.cdp.send('Emulation.setCPUThrottlingRate', { rate: params.cpu });
+        console.log(`CPU estrangulada por ${params.cpu}x pelo CDP`);
     }
 
     const resultado = {
@@ -1005,18 +1239,37 @@ async function principal() {
             fornecedor: null,
             relogio: 'valido',
             perfilLigado: params.perfil,
+            cpu: params.cpu,
+            baseInicial: null,
+            populacao: null,
         },
         rodadas: [],
         errosDaPagina: erros,
     };
 
+    if (params.populado) {
+        // Uma vez, antes das rodadas: as ferramentas persistem no store do
+        // contexto, e toda recarga seguinte traz as feicoes de volta.
+        console.log('\n===== populando o mapa pelas ferramentas do app');
+        await bancada.carregar();
+        await bancada.irParaVistaBase();
+        await bancada.assentar();
+        const pop = await bancada.popular();
+        resultado.ambiente.populacao = pop;
+        console.log(`  chamadas a createFeature: ${pop.total} ${JSON.stringify(pop.porControle)}${pop.ausentes.length ? `  (controles ausentes: ${pop.ausentes.join(', ')})` : ''}`);
+        console.log(`  persistidas no store: ${pop.persistidas ? pop.persistidas.total : '?'} ${pop.persistidas && pop.persistidas.porTipo ? JSON.stringify(pop.persistidas.porTipo) : (pop.persistidas && pop.persistidas.erro) || ''}${pop.persistidas && pop.persistidas.total !== pop.total ? `  (${pop.total - pop.persistidas.total} chamadas nao viraram feicao persistida)` : ''}`);
+        if (!pop.persistidas || !pop.persistidas.total) throw new Error('--populado nao persistiu feicao nenhuma no store: o app nao expoe os controles esperados, ou o store nao gravou');
+    }
+
     for (let rodada = 1; rodada <= params.rodadas; rodada++) {
         const reg = { rodada, aquecimento: rodada === 1 && params.rodadas > 1, valida: true, erros: [], variantes: [] };
         console.log(`\n===== rodada ${rodada}${reg.aquecimento ? ' (aquecimento)' : ''}`);
-        for (const nome of params.variantes) {
+        // Base por dentro, variante por fora: os casos que se comparam ficam
+        // vizinhos no tempo, e a rodada ja intercala o resto.
+        for (const nome of params.variantes) for (const base of params.bases) {
             const def = VARIANTES[nome];
-            const rv = { variante: nome, valida: true, erros: [], cenarios: [] };
-            console.log(`--- ${nome}`);
+            const rv = { base, variante: nome, valida: true, erros: [], cenarios: [] };
+            console.log(`--- ${base} / ${nome}`);
             try {
                 const carga = await bancada.carregar();
                 rv.carga = carga;
@@ -1033,27 +1286,57 @@ async function principal() {
                 await page.evaluate(`window.__levantarVazias = ${levantarVazias.toString()}`);
 
                 rv.cadenciaCarregando = await bancada.cadencia();
+
+                // Impressao digital do app ANTES de trocar a base ou aplicar a
+                // variante. Todas as cargas de uma mesma bancada tem de dar a
+                // mesma. Em 2026-09-04 uma sessao paralela instalou
+                // empty-source-visibility.js no meio da rodada, e a variante
+                // `terreno` passou de 17 pilhas e 27 ms para 2 pilhas e 6,6 ms
+                // sem que nada na bancada mudasse. Sem esta impressao, a tabela
+                // compararia dois aplicativos diferentes.
+                const pb = await page.evaluate(lerProva);
+                rv.provaBase = pb;
+                rv.assinaturaBase = `${pb.camadas}c/${pb.fontes}f/${pb.camadasVisiveis}v`;
+                if (resultado.ambiente.baseInicial === null) resultado.ambiente.baseInicial = carga.baseAtual;
+
+                // Troca de base ANTES da vista, para os tiles da vista serem os da
+                // base pedida. A prova so se le com a vista assentada, abaixo.
+                let troca = null;
+                if (base !== 'atual') {
+                    troca = await bancada.trocarBase(base);
+                    rv.troca = troca;
+                }
+
                 await bancada.irParaVistaBase();
                 const assentouBase = await bancada.assentar();
                 rv.assentouBase = assentouBase;
                 rv.cadenciaAssentada = await bancada.cadencia();
                 if (rv.cadenciaAssentada.p95 > 25) {
-                    reg.valida = false;
-                    reg.erros.push(`${nome}: cadencia ociosa do rAF p95 ${rv.cadenciaAssentada.p95} ms acima de 25`);
+                    if (params.cpu > 1) {
+                        // Com a CPU estrangulada de proposito, o ocioso lento E a
+                        // condicao medida, nao defeito do instrumento: fica no registro
+                        // sem derrubar a rodada. Medido em 2026-09-04: 4x deixa a
+                        // Topografica populada em p95 33 ms ociosa e o raster da DSG em 17.
+                        rv.avisos = rv.avisos || [];
+                        rv.avisos.push(`cadencia ociosa do rAF p95 ${rv.cadenciaAssentada.p95} ms acima de 25 com CPU ${params.cpu}x`);
+                        console.log(`  aviso: ${rv.avisos[rv.avisos.length - 1]}`);
+                    } else {
+                        reg.valida = false;
+                        reg.erros.push(`${base}/${nome}: cadencia ociosa do rAF p95 ${rv.cadenciaAssentada.p95} ms acima de 25`);
+                    }
                 }
                 const vis = await page.evaluate(() => document.visibilityState);
                 rv.visibilidade = vis;
-                if (vis !== 'visible') { reg.valida = false; reg.erros.push(`${nome}: visibilityState ${vis}`); }
+                if (vis !== 'visible') { reg.valida = false; reg.erros.push(`${base}/${nome}: visibilityState ${vis}`); }
 
-                // Impressao digital do app ANTES de aplicar a variante. Todas as
-                // cargas de uma mesma bancada tem de dar a mesma. Em 2026-09-04
-                // uma sessao paralela instalou empty-source-visibility.js no meio
-                // da rodada, e a variante `terreno` passou de 17 pilhas e 27 ms
-                // para 2 pilhas e 6,6 ms sem que nada na bancada mudasse. Sem
-                // esta impressao, a tabela compararia dois aplicativos diferentes.
-                const pb = await page.evaluate(lerProva);
-                rv.provaBase = pb;
-                rv.assinaturaBase = `${pb.camadas}c/${pb.fontes}f/${pb.camadasVisiveis}v`;
+                if (troca) {
+                    const provaTroca = troca.esperado.erro ? null : await bancada.provarBase(troca.esperado);
+                    rv.provaTrocaBase = provaTroca;
+                    const errosBase = validarBase(provaTroca || {}, troca.esperado);
+                    if (errosBase.length) { rv.valida = false; rv.erros.push(...errosBase.map((e) => `base: ${e}`)); }
+                    const esp = troca.esperado;
+                    console.log(`  base: ${base} -> estilo ${provaTroca ? provaTroca.estilo : '-'}, ${provaTroca ? provaTroca.camadasPresentes : '-'}/${esp.camadas ? esp.camadas.length : '-'} camadas da base, tiles carregados ${provaTroca ? JSON.stringify(provaTroca.carregadosPorFonte) : '-'}${errosBase.length ? `  ** BASE INVALIDA: ${errosBase.join('; ')}` : ''}`);
+                }
 
                 const detalhe = await def.aplicar(bancada) || {};
                 await bancada.esperarQuadros(3);
@@ -1061,8 +1344,18 @@ async function principal() {
                 rv.prova = prova;
                 rv.detalhe = detalhe;
                 const errosProva = def.validar(prova, detalhe) || [];
-                if (errosProva.length) { rv.valida = false; rv.erros = errosProva; }
-                console.log(`  prova: terreno=${prova.terreno} pilhas=${prova.pilhas} tilesT=${prova.tilesTerreno} fontes=${prova.fontes} camadas=${prova.camadas} hillshade=${prova.hillshade} proj=${prova.projecao} pitch=${prova.pitch} zoom=${prova.zoom}${rv.valida ? '' : `  ** INVALIDA: ${rv.erros.join('; ')}`}`);
+                if (errosProva.length) { rv.valida = false; rv.erros.push(...errosProva); }
+                // Estado populado: as feicoes criadas antes das rodadas tem de
+                // ter voltado nesta recarga, senao o caso mediu o app vazio.
+                if (params.populado) {
+                    const pop = resultado.ambiente.populacao;
+                    const criadas = pop && pop.persistidas ? pop.persistidas.total : 0;
+                    if (!criadas || prova.feicoes < criadas) {
+                        rv.valida = false;
+                        rv.erros.push(`estado populado nao voltou: ${prova.feicoes} feicoes nas fontes, persistidas no store ${criadas}`);
+                    }
+                }
+                console.log(`  prova: estilo=${prova.estilo} feicoes=${prova.feicoes} terreno=${prova.terreno} pilhas=${prova.pilhas} tilesT=${prova.tilesTerreno} fontes=${prova.fontes} camadas=${prova.camadas} hillshade=${prova.hillshade} proj=${prova.projecao} pitch=${prova.pitch} zoom=${prova.zoom}${rv.valida ? '' : `  ** INVALIDA: ${rv.erros.join('; ')}`}`);
 
                 for (const cenario of ORDEM_CENARIOS) {
                     if (cenario === 'pitch' && !def.terreno) continue;
@@ -1078,15 +1371,15 @@ async function principal() {
                     const e = c.estatistica;
                     console.log(`  ${cenario.padEnd(8)} quadros ${String(e.quadros).padStart(4)} | render p50 ${e.render_ms ? e.render_ms.p50 : '-'} p95 ${e.render_ms ? e.render_ms.p95 : '-'} | interv p50 ${e.intervalo_ms ? e.intervalo_ms.p50 : '-'} p95 ${e.intervalo_ms ? e.intervalo_ms.p95 : '-'} | draw ${e.gl_por_quadro ? e.gl_por_quadro.draw : '-'} stamp ${e.gl_por_quadro ? e.gl_por_quadro.stamp : '-'}${c.erros.length ? `  ** ${c.erros.join('; ')}` : ''}`);
                     if (cenario === 'parado') {
-                        await page.screenshot({ path: path.join(params.saida, `captura-${nome}.png`) });
+                        await page.screenshot({ path: path.join(params.saida, `captura-${base}-${nome}.png`) });
                     }
                 }
             } catch (e) {
                 rv.valida = false;
                 rv.erros.push(`excecao: ${String(e && e.message ? e.message : e).slice(0, 300)}`);
                 reg.valida = false;
-                reg.erros.push(`${nome}: excecao`);
-                console.log(`  ** excecao em ${nome}: ${e && e.message}`);
+                reg.erros.push(`${base}/${nome}: excecao`);
+                console.log(`  ** excecao em ${base}/${nome}: ${e && e.message}`);
             }
             reg.variantes.push(rv);
         }
@@ -1103,7 +1396,7 @@ async function principal() {
         for (const v of rod.variantes) {
             if (!v.assinaturaBase) continue;
             if (!assinaturas.has(v.assinaturaBase)) assinaturas.set(v.assinaturaBase, []);
-            assinaturas.get(v.assinaturaBase).push(`r${rod.rodada}/${v.variante}`);
+            assinaturas.get(v.assinaturaBase).push(`r${rod.rodada}/${v.base || 'atual'}/${v.variante}`);
         }
     }
     resultado.ambiente.assinaturasBase = Object.fromEntries(assinaturas);
@@ -1147,4 +1440,5 @@ export {
     VISTAS, ORDEM_VARIANTES, ORDEM_CENARIOS, VARIANTES, REFERENCIA, METRICAS,
     lerArgumentos, carregarPlaywright, percentil, mediana, estatistica,
     agregarPerfil, celula, montarTabela, conferirReferencia, escreverMarkdown,
+    validarBase,
 };

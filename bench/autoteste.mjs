@@ -12,7 +12,7 @@
 import process from 'node:process';
 import {
     VARIANTES, lerArgumentos, estatistica, celula, montarTabela,
-    conferirReferencia, percentil, mediana, escreverMarkdown,
+    conferirReferencia, percentil, mediana, escreverMarkdown, validarBase,
 } from './desempenho-terreno.mjs';
 
 let falhas = 0;
@@ -177,6 +177,23 @@ function eixo4() {
     checa('app mudando derruba a validade da rodada', /RODADA INVALIDA/.test(tm.linhas[0].veredito));
     checa('app mudando aparece no markdown', /O APP MUDOU DURANTE A BANCADA/.test(escreverMarkdown(appMudou, tm, [])));
     checa('app estavel nao marca nada', montarTabela(bom).linhas[0].veredito === 'ok');
+
+    // Duas bases: cada uma tem de virar a sua linha, com a sua medida, e nunca
+    // a medida da vizinha com o mesmo rotulo de variante.
+    const duasBases = resultadoFalso({ rodadas: [
+        { rodada: 1, aquecimento: false, valida: true, erros: [], variantes: [
+            { ...varFalsa('terreno'), base: 'osm-overture' },
+            { ...varFalsa('terreno', { cenarios: [cenarioFalso('parado', { render_p50: 5 })] }), base: 'carta-topografica-raster' },
+        ] },
+    ] });
+    duasBases.parametros.bases = ['osm-overture', 'carta-topografica-raster'];
+    const t2 = montarTabela(duasBases);
+    checa('duas bases dao duas linhas, cada uma com a sua medida',
+        t2.linhas.length === 2 && t2.linhas[0].base === 'osm-overture' && t2.linhas[0].valores[0].texto === '27'
+        && t2.linhas[1].base === 'carta-topografica-raster' && t2.linhas[1].valores[0].texto === '5',
+        JSON.stringify(t2.linhas.map((l) => [l.base, l.valores[0].texto])));
+    checa('resultado sem campo base cai em "atual"', montarTabela(bom).linhas[0].base === 'atual');
+    checa('a base aparece na linha do markdown', /\| carta-topografica-raster \| terreno \| parado \| 5 \|/.test(escreverMarkdown(duasBases, t2, [])));
 }
 eixo4();
 
@@ -209,6 +226,20 @@ function eixo5() {
 
     const outraVista = { ...naReferencia, parametros: { ...naReferencia.parametros, vista: 'alegrete' } };
     checa('vista diferente pula a conferencia em vez de mentir', /pulada/.test(conferirReferencia(outraVista)[0].situacao));
+
+    // Caso medido em OUTRA base: 300 ms contra 27 esperados nao e divergencia,
+    // e outra base. A conferencia pula em vez de acusar.
+    const outraBase = resultadoFalso({ rodadas: [
+        { rodada: 1, aquecimento: false, valida: true, erros: [], variantes: [
+            { ...varFalsa('terreno', { cenarios: [cenarioFalso('parado', { render_p50: 300 })] }), base: 'carta-topografica-raster' },
+        ] },
+    ] });
+    outraBase.parametros.bases = ['carta-topografica-raster'];
+    outraBase.ambiente.baseInicial = 'osm-overture';
+    const c5 = conferirReferencia(outraBase);
+    checa('caso de outra base nao entra na conferencia', c5.length === 1 && /pulada/.test(c5[0].situacao), JSON.stringify(c5));
+    const mesmaBase = { ...outraBase, ambiente: { ...outraBase.ambiente, baseInicial: 'carta-topografica-raster' } };
+    checa('caso na base com que o app abre entra na conferencia', conferirReferencia(mesmaBase).some((x) => /render_p50/.test(x.item) && x.situacao.startsWith('DIVERGENTE')));
 }
 eixo5();
 
@@ -226,8 +257,36 @@ function eixo6() {
     lanca('variante desconhecida lanca', () => lerArgumentos(['--variantes', 'terreno,inventada']));
     lanca('rodadas zero lanca', () => lerArgumentos(['--rodadas', '0']));
     lanca('argumento desconhecido lanca', () => lerArgumentos(['--turbo']));
+    checa('padrao mede a base atual, sem estrangular CPU, sem popular', p.bases.join(',') === 'atual' && p.cpu === 1 && p.populado === false);
+    const p3 = lerArgumentos(['--bases', 'osm-overture, carta-topografica-raster', '--cpu', '4', '--populado']);
+    checa('--bases e lida na ordem digitada', p3.bases.join(',') === 'osm-overture,carta-topografica-raster', p3.bases.join(','));
+    checa('--cpu 4 e --populado sao lidos', p3.cpu === 4 && p3.populado === true);
+    lanca('--bases vazia lanca', () => lerArgumentos(['--bases', ' , ']));
+    lanca('--bases repetida lanca', () => lerArgumentos(['--bases', 'a,a']));
+    lanca('--cpu 0 lanca', () => lerArgumentos(['--cpu', '0']));
 }
 eixo6();
+
+function eixo7() {
+    console.log('\n== eixo 7: prova da troca de mapa base (o pior caso de cada eixo)');
+    const esperado = { id: 'carta-topografica-raster', atual: 'osm-overture', estilo: 'raster_v1', fontes: ['raster'], camadas: ['bg', 'raster'], fontesAnteriores: ['base', 'rotulos'] };
+    const boa = { estilo: 'raster_v1', atual: 'carta-topografica-raster', fontesPresentes: ['raster'], fontesAusentes: [], fontesAnterioresRestantes: [], camadasPresentes: 2, carregadosPorFonte: { raster: 12 }, tilesCarregadosBase: 12 };
+    checa('troca boa passa', validarBase(boa, esperado).length === 0, validarBase(boa, esperado).join('; '));
+    checa('base nao registrada reprova com a mensagem do app', /nao esta registrada/.test(validarBase({}, { erro: 'base "x" nao esta registrada no app' }).join(' ')));
+    checa('estilo da base anterior reprova (a troca nao aconteceu)', /a troca nao aconteceu/.test(validarBase({ ...boa, estilo: 'overture_v1' }, esperado).join(' ')));
+    checa('controle apontando outra base reprova', validarBase({ ...boa, atual: 'osm-overture' }, esperado).length > 0);
+    checa('fonte da base ausente reprova', validarBase({ ...boa, fontesPresentes: [], fontesAusentes: ['raster'] }, esperado).length > 0);
+    checa('fonte da base anterior que sobrou reprova', /sobraram/.test(validarBase({ ...boa, fontesAnterioresRestantes: ['base'] }, esperado).join(' ')));
+    checa('camada da base faltando reprova', validarBase({ ...boa, camadasPresentes: 1 }, esperado).length > 0);
+    checa('estilo certo sem tile carregado reprova (mapa em branco)', /mapa em branco/.test(validarBase({ ...boa, tilesCarregadosBase: 0, carregadosPorFonte: { raster: 0 } }, esperado).join(' ')));
+    // O caso de 2026-09-04: o controle dizia carta-topografica e o mapa mostrava
+    // o Overture. A troca "funcionou" e deixou o Overture inteiro por cima.
+    const controleCego = { ...esperado, estiloAntes: 'overture_v1', estiloDoControleAntes: 'topo_vector_v1' };
+    checa('controle que nao sabe que base tem reprova antes de medir', /o app nao sabe que base tem/.test(validarBase(boa, controleCego).join(' ')));
+    checa('controle e mapa de acordo passa', validarBase(boa, { ...esperado, estiloAntes: 'overture_v1', estiloDoControleAntes: 'overture_v1' }).length === 0);
+    checa('camada de outra base que sobrou reprova', /camadas de outra base sobraram/.test(validarBase({ ...boa, camadasAnterioresRestantes: ['base_land', 'base_water'] }, esperado).join(' ')));
+}
+eixo7();
 
 console.log(`\n${total - falhas}/${total} passaram.`);
 if (falhas) { console.log(`${falhas} FALHA(S): a bancada nao esta reprovando o que promete pegar.`); process.exit(1); }

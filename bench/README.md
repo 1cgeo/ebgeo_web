@@ -61,6 +61,9 @@ Opcoes:
 | `--largura` / `--altura` | 1600 / 900 | viewport |
 | `--headless` | false | ver a advertencia do relogio acima |
 | `--perfil` | false | liga o profiler do CDP (ver armadilhas) |
+| `--bases` | `atual` | ids de mapa base do app, separados por virgula (ver "Mapas base") |
+| `--cpu` | 1 | estrangula a CPU pelo CDP (`4` = maquina quatro vezes mais lenta) |
+| `--populado` | false | cria feicoes de 10 tipos pelas ferramentas do app antes das rodadas |
 
 Vistas embutidas:
 
@@ -75,14 +78,50 @@ Exemplo:
 ```sh
 node bench/desempenho-terreno.mjs --rodadas 2 --variantes 2d,terreno,terreno-vazias-escondidas
 node bench/desempenho-terreno.mjs --vista alegrete --perfil
+node bench/desempenho-terreno.mjs --bases osm-overture,carta-topografica,carta-topografica-raster --variantes 2d,terreno --rodadas 3
+node bench/desempenho-terreno.mjs --bases osm-overture,carta-topografica-raster --variantes terreno --populado --cpu 4
 node bench/autoteste.mjs
 ```
 
 Artefatos na pasta de saida: `resultado.json` (tudo, inclusive as provas e os vereditos),
-`resultado.md` (a tabela), `captura-<variante>.png` (uma por variante, tirada depois do cenario
+`resultado.md` (a tabela), `captura-<base>-<variante>.png` (uma por caso, tirada depois do cenario
 `parado`) e, com `--perfil`, um `.cpuprofile` por cenario. A tabela tambem sai no stdout.
 O `bench/.gitignore` mantem `saida/` fora do versionamento: uma rodada de tres variantes ja pesa
 5 MB de PNG, e tudo ali se regenera.
+
+## Mapas base
+
+`--bases` cruza cada variante com cada mapa base do app. O caso `base x variante` parte de uma
+recarga, le a impressao digital do app (a mesma para toda carga da bancada), troca a base pelo
+caminho do painel (`BaseLayerControl.applySharedBasemap`, que nao persiste a escolha no mapa
+salvo), leva a camera a vista e so entao aplica a variante. `atual` e a base com que o app abriu,
+sem troca. A base tem de estar REGISTRADA no app que esta no ar (`STYLE_MAP` do controle e
+`config.basemaps` com `enabled: true`); id desconhecido sai marcado com a lista das registradas.
+
+A prova da troca sai do proprio app, nunca de constante repetida na bancada: o estilo registrado
+no controle diz o nome, as fontes e as camadas que a base tem de mostrar. Depois da troca e com a
+vista assentada, a bancada confere o nome do estilo, o id que o controle diz estar ativo, as fontes
+e as camadas da base presentes, NENHUMA fonte da base anterior sobrando e pelo menos um tile da
+base em estado `loaded`. O ultimo item existe por causa da porta 3009 em 2026-09-04: estilo
+certo, mapa em branco. Caso que reprova sai `VARIANTE INVALIDA` na tabela e segue medindo os
+outros. A conferencia contra a referencia so olha os casos na base com que o app abre; caso de
+outra base fica de fora em vez de divergir por fator 2 e mentir sobre a causa.
+
+Base por dentro e variante por fora, para os casos que se comparam ficarem vizinhos no tempo. A
+base fica na primeira coluna da tabela e no nome da captura.
+
+`--populado` cria, uma vez antes das rodadas, feicoes de 10 tipos em volta da vista pelo
+`createFeature` de cada controle de desenho (linha, poligono, circulo, setor, elipse, retangulo,
+seta, pincel, limite e linha de coordenacao). O store as persiste no contexto do navegador, e toda
+recarga seguinte as traz de volta; cada caso confere que as feicoes voltaram (`feicoes` na prova)
+e reprova se mediu o app vazio. O caso vazio mente sobre o custo das camadas do app: medido em
+2026-09-04, a variante `terreno` com 56 feicoes custava o dobro da mesma variante sem nenhuma.
+
+`--cpu` manda `Emulation.setCPUThrottlingRate` ao CDP uma vez, e o fator vale para toda a
+sessao, recargas inclusive. E a "maquina pior" de forma reproduzivel; a GPU pior se escolhe por
+fora, com `--use-adapter-luid` no Chromium (ver a skill medir-desempenho-web do vault). Com `--cpu`
+acima de 1 a cadencia ociosa do rAF acima de 25 ms vira AVISO no caso, e nao rodada invalida: o ocioso
+lento e a condicao medida (4x deixa a Topografica populada em p95 33 ms e o raster da DSG em 17).
 
 ## Variantes
 

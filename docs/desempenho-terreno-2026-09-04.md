@@ -113,6 +113,103 @@ A rede muda quanto tempo o tile demora a CHEGAR, não a taxa de quadros. Nos tr�
 6. **Dois defeitos para o upstream.** O `_demMatrixCache` do 5.18 nunca acerta, porque a guarda lê a chave composta `dem + tile + e.key` e a escrita grava só `e.key`, alocando uma matriz por chamada em milhares de chamadas por quadro. E `terrain.tileManager.update` roda todo quadro, fora do gate de `_sourcesDirty`.
 7. **Um erro de página alheio a isto**, que aparece em toda rodada: `TypeError: element?.removeEventListener is not a function` em `utilities/event-cleanup.js:160`, vindo de `ToolbarGroup.destroy`.
 
+## Mapa base vetorial contra raster (2026-09-04, à tarde)
+
+Pergunta do chefe: com terreno e hillshade ligados, o mapa base vetorial custa mais do que a mesma carta já renderizada? Três bases entraram na bancada, pela opção `--bases`: a Topográfica (carta sobre os PMTiles do Overture, 159 camadas em 9 fontes, 38 delas `symbol`), a DSG vetorial (EDGV do Postgres, 103 camadas em 5 fontes, 38 `symbol`) e a DSG raster (o mbtiles `carta_topografica_sul_webp`, uma camada `raster` mais o fundo). Vista `serra-gaucha` (Gramado, zoom 12,5), viewport 1600x900, RTX A2000, MapLibre 6.7.0 com a camada de fonte vazia escondida. Três rodadas, a primeira descartada; célula com `mediana (min..max)` quando as rodadas divergem. Cada caso parte de uma recarga, troca a base pelo caminho do painel (`BaseLayerControl.applySharedBasemap`, sem persistir) e só mede depois de provar, no mapa, o nome do estilo, as fontes e camadas da base, nenhuma fonte de outra base sobrando e tile da base carregado. Tabelas completas em `bench/saida/bases-*/resultado.md` de quem rodar.
+
+### Estado vazio (nenhuma feição do app)
+
+| base | variante | cenário | render p50 ms | draw/quadro | pilhas RTT |
+|---|---|---|---|---|---|
+| Topográfica | 2d | parado | 1,9 (1,9..2,0) | 190 | - |
+| DSG vetorial | 2d | parado | 2,1 (1,8..2,4) | 127 | - |
+| DSG raster | 2d | parado | 1,1 (1,0..1,1) | 29 | - |
+| Topográfica | terreno | parado | 2,9 (2,8..3,0) | 127 | 2 |
+| Topográfica | terreno | rotação | 4,9 (4,3..5,4) | 142 | 2 |
+| Topográfica | terreno | pan | 4,4 (4,3..4,4) | 133 | 2 |
+| Topográfica | terreno | zoom | 4,6 (4,5..4,6) | 132 | 2 |
+| DSG vetorial | terreno | parado | 3,2 (3,1..3,2) | 231 | 11 |
+| DSG vetorial | terreno | rotação | 4,3 (4,2..4,3) | 244 | 11 |
+| DSG vetorial | terreno | pan | 4,3 | 244 | 11 |
+| DSG vetorial | terreno | zoom | 4,8 (4,7..4,9) | 225 | 11 |
+| DSG raster | terreno | parado | 1,9 (1,8..1,9) | 21 | 1 |
+| DSG raster | terreno | rotação | 3,0 (2,7..3,2) | 38 | 1 |
+| DSG raster | terreno | pan | 4,1 (3,4..4,7) | 31 | 1 |
+| DSG raster | terreno | zoom | 3,9 (2,8..4,9) | 35 | 1 |
+
+### Estado populado (56 feições de nove tipos criadas pelas ferramentas, sem seleção)
+
+`--populado` cria 59 feições pelo `createFeature` dos controles de desenho; o store persistiu 56 (os três pincéis não persistem), e é contra as 56 que cada recarga se prova.
+
+| base | cenário | render p50 ms | draw/quadro | pilhas RTT |
+|---|---|---|---|---|
+| Topográfica | parado | 4,6 (4,4..4,7) | 127 | 2 |
+| Topográfica | rotação | 7,4 (7,1..7,7) | 153 | 2 |
+| Topográfica | pan | 10,0 (7,0..13,0) | 133 | 2 |
+| Topográfica | zoom | 12,1 (8,1..16,0) | 517 (490..543) | 2 |
+| Topográfica | pitch | 5,7 (4,1..7,3) | 97 | 2 |
+| DSG vetorial | parado | 4,3 (4,2..4,3) | 231 | 11 |
+| DSG vetorial | rotação | 6,5 (6,5..6,6) | 254 | 11 |
+| DSG vetorial | pan | 6,5 (6,4..6,6) | 245 | 11 |
+| DSG vetorial | zoom | 8,1 (8,0..8,1) | 658 (650..665) | 11 |
+| DSG vetorial | pitch | 3,9 (3,8..4,0) | 168 | 11 |
+| DSG raster | parado | 2,9 (2,8..3,0) | 21 | 1 |
+| DSG raster | rotação | 4,6 (4,5..4,7) | 46 | 1 |
+| DSG raster | pan | 5,1 (5,0..5,2) | 32 | 1 |
+| DSG raster | zoom | 5,8 (5,1..6,6) | 241 (231..250) | 1 |
+| DSG raster | pitch | 3,5 (2,9..4,1) | 28 | 1 |
+
+### CPU quatro vezes mais lenta (`--cpu 4`, populado, duas rodadas, a primeira descartada)
+
+| base | cenário | render p50 ms | draw/quadro | pilhas RTT |
+|---|---|---|---|---|
+| Topográfica | parado | 33,7 | 127 | 2 |
+| Topográfica | rotação | 54,6 | 241 | 2 |
+| Topográfica | pan | 59,4 | 142 | 2 |
+| Topográfica | zoom | 72,9 | 543 | 2 |
+| Topográfica | pitch | 25,9 | 104 | 2 |
+| DSG raster | parado | 19,0 | 21 | 1 |
+| DSG raster | rotação | 38,6 | 75 | 1 |
+| DSG raster | pan | 35,1 | 42 | 1 |
+| DSG raster | zoom | 53,1 | 247 | 1 |
+| DSG raster | pitch | 21,0 | 30 | 1 |
+
+Com a CPU estrangulada a Topográfica populada não segura nem o ocioso a 60 fps (cadência do rAF com p95 de 33 a 67 ms), e o raster segura (p95 17 ms). A bancada registra isso como aviso do caso, não como rodada inválida, porque o ocioso lento é a condição medida.
+
+### A DSG vetorial e as 11 pilhas
+
+O estilo da DSG intercala `symbol` e `circle` entre fills e lines, e cada intercalação abre uma pilha de render-to-texture. A variante `terreno-quebra-pilha-topo` (move as 95 camadas desses tipos para o topo, na ordem relativa) mostra o que a reordenação do estilo compraria, no estado vazio, com uma rodada válida:
+
+| variante | parado | rotação | pan | zoom | pitch | draw/quadro | pilhas |
+|---|---|---|---|---|---|---|---|
+| terreno | 4,3 | 6,4 | 4,9 | 4,9 | 3,5 | 162 a 244 | 11 |
+| terreno-quebra-pilha-topo | 2,1 | 5,1 | 6,1 | 5,1 | 3,3 | 41 a 71 | 1 |
+
+O ganho é grande parado (metade do quadro, um sexto dos draw calls) e pequeno ou nulo nos gestos, e a reordenação muda a sobreposição visual dos rótulos, então é decisão de cartografia, não só de desempenho.
+
+### O que o olho vê
+
+No raster os topônimos vêm gravados na imagem: drapejam sobre o relevo, deformam com a inclinação e não giram com o mapa. Nas duas bases vetoriais os rótulos ficam de pé e legíveis em qualquer bearing. Capturas em `captura-<base>-terreno.png` de cada rodada.
+
+### O que o raster compra e o que cobra
+
+Compra: metade a um terço do quadro da Topográfica com terreno, um sexto dos draw calls, uma pilha de render-to-texture só, e na máquina quatro vezes mais lenta 19 ms contra 34 ms parado. Nesta GPU as três bases já ficam abaixo dos 16,7 ms, então a diferença aparece como folga, e é na máquina fraca que ela vira taxa de quadros. Cobra: rótulos gravados na imagem (sem rotação, sem colisão, deformados no 3D), cobertura só do recorte sul do mbtiles (fora dele o mapa fica branco, do zoom 4 ao 18), nenhuma consulta por feição no mapa base, e nenhuma mudança de estilo sem regerar o mbtiles. O tamanho do tile é da mesma ordem (webp de 22 a 26 KB no zoom 12 e 13, contra 17 KB do EDGV e 57 KB do `overture_base` no zoom 12). Qual base abre por padrão com o terreno ligado é decisão do chefe.
+
+### Defeito encontrado no caminho: o app não sabia com que base tinha nascido
+
+O `map_sig.js` criava o mapa com um arquivo de estilo importado direto, e o `BaseLayerControl` assumia a base do seu `DEFAULT_LAYER` (e a crença persistida no store). Quando os dois divergem, a primeira troca separa base de conteúdo do app pelos ids da carta errada e preserva a base velha INTEIRA por cima da nova: medido no apontamento local, 9 fontes e 159 camadas da Topográfica por cima do raster, com o seletor dizendo outra coisa. Conserto na `main`: `initialBaseStyle()` é a fonte única do estilo com que o mapa nasce (`map_sig.js` a usa), e `switchLayer` decide pelo que está no mapa (`baseStyleAlreadyOnMap`: mesmo nome de estilo e todas as camadas da base presentes), nunca pela crença; isso também dispensa a espera de 10 s pelo `styledata` que nunca vem quando dois ids partilham um estilo. Quatro testes cobrem o pior caso em `tests/unit/style-transform.test.js`.
+
+### Como conferir a comparação
+
+```sh
+node bench/desempenho-terreno.mjs --bases osm-overture,carta-topografica,carta-topografica-raster --variantes 2d,terreno --rodadas 3
+node bench/desempenho-terreno.mjs --bases osm-overture,carta-topografica,carta-topografica-raster --variantes terreno --rodadas 3 --populado
+node bench/desempenho-terreno.mjs --bases osm-overture,carta-topografica-raster --variantes terreno --rodadas 2 --cpu 4 --populado
+node bench/desempenho-terreno.mjs --bases carta-topografica --variantes terreno,terreno-quebra-pilha-topo --rodadas 2
+```
+
+As três bases têm de estar habilitadas no `config.basemaps` do app que está no ar e registradas no `STYLE_MAP` do controle.
+
 ## Como conferir
 
 ```

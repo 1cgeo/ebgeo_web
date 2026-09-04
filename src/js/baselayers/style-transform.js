@@ -35,6 +35,29 @@ export function collectStyleIds(style) {
 }
 
 /**
+ * Whether the base style asked for is already the one on the map, judged by
+ * the map itself: same style name AND every layer of the base present. The
+ * control's own record of the current base is a belief (persisted state) and
+ * is not consulted here.
+ *
+ * A URL style (string) is never "already on the map": it has to be fetched
+ * and applied.
+ *
+ * @param {Object|null|undefined} styleOnMap - `map.getStyle()`
+ * @param {Object|string|null|undefined} style - Style registered for the base
+ * @param {(id: string) => boolean} hasLayer - `map.getLayer(id)` as a predicate
+ * @returns {boolean}
+ */
+export function baseStyleAlreadyOnMap(styleOnMap, style, hasLayer) {
+    if (!styleOnMap || !style || typeof style !== 'object') return false;
+    if ((styleOnMap.name || null) !== (style.name || null)) return false;
+    const ids = collectStyleIds(style).layers;
+    if (!ids.size) return false;
+    for (const id of ids) if (!hasLayer(id)) return false;
+    return true;
+}
+
+/**
  * The style to apply: the new base map plus everything the application added on
  * top of the previous base, in the previous order, above the new base layers.
  *

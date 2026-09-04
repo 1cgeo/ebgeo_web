@@ -27,7 +27,7 @@ import bdgexLayer from './bdgex_layer.js';
 import config from '../config.js';
 import { setupMapFeatures } from '../layers';
 import { applyTileLodParams } from '../map/tile-lod.js';
-import { collectStyleIds, mergeApplicationStyle } from './style-transform.js';
+import { baseStyleAlreadyOnMap, collectStyleIds, mergeApplicationStyle } from './style-transform.js';
 import { showError } from '../utilities';
 
 const STYLE_MAP = {
@@ -38,7 +38,21 @@ const STYLE_MAP = {
     'bdgex': bdgexLayer
 };
 
-const DEFAULT_LAYER = 'carta-topografica';
+// The base the map is BORN with, and the only place that says so: map_sig.js
+// creates the map with initialBaseStyle(), and the control records the ids of
+// that same base to tell, on the first switch, base content from application
+// content. When the two disagreed (map born with one style, control assuming
+// another) the first switch kept the whole old base above the new one: 9
+// sources and 159 layers too many, measured on 2026-09-04.
+export const DEFAULT_LAYER = 'carta-topografica';
+
+/**
+ * The style the map is created with: the same base the control assumes.
+ * @returns {Object} Style specification of DEFAULT_LAYER
+ */
+export function initialBaseStyle() {
+    return STYLE_MAP[DEFAULT_LAYER];
+}
 
 class BaseLayerControl {
     constructor(uiManager, hillshadeConfig) {
@@ -195,7 +209,14 @@ class BaseLayerControl {
         this.uiManager?.saveChangesAndClosePanel?.();
 
         const styleUrl = this.styleUrls[layer];
-        if (this.currentLayer !== layer) {
+        // Decide by what is ON THE MAP, never by what the control believes: the
+        // belief comes from persisted state and can name a base the map never
+        // received (map born with one style, state defaulted to another; seen
+        // on 2026-09-04, when the picker said DSG over a Topografica map and
+        // the next switch kept the Topografica's 159 layers above the new
+        // base). Deciding by the map also skips the no-op diff that never
+        // fires 'styledata' when two ids share one style.
+        if (!baseStyleAlreadyOnMap(this.map.getStyle(), styleUrl, (id) => !!this.map.getLayer(id))) {
             const styleLoadPromise = new Promise((resolve, reject) => {
                 const timeout = setTimeout(() => {
                     cleanup();

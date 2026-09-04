@@ -17,7 +17,7 @@ import { getEventBus, getStateManager, registerControl, initializeWithLastActive
 
 import { showConfirm } from './modals';
 
-import { BaseLayerControl } from './baselayers';
+import { BaseLayerControl, initialBaseStyle } from './baselayers';
 import { AddImportControl, ScreenshotControl, DragDropHandler, ExportImportService, PDFExportTab } from './import_export';
 import { ToolManager, SelectionManager, UIManager, MoveHandler, ClipboardManager } from './tool_manager';
 import { MapManager, DragRotateHandler } from './map';
@@ -38,7 +38,7 @@ import { createTemporalDerivationService } from './temporal/temporal-derivation.
 import config from './config.js';
 import { getRepository } from './store/repositories/index.js';
 import { getAtlasTerrainExaggeration } from './store/atlas/atlas.entity.js';
-import baseStyle from './baselayers/carta_topografica.js';
+
 import { hideLoadingScreen } from './ui/loading-screen.js';
 import { ContextMenuControl } from './context-menu';
 import { RectangleSelectionControl } from './selection_tools';
@@ -119,7 +119,9 @@ const CERTIFICATE_ERROR_SOURCES = {
 export function createMap() {
     const map = new maplibregl.Map({
         container: 'map-sig',
-        style: baseStyle,
+        // The same base BaseLayerControl assumes at start (its DEFAULT_LAYER):
+        // importing a style file here directly let the two drift apart.
+        style: initialBaseStyle(),
         attributionControl: false,
         minZoom: config.map2d.minZoom,
         maxZoom: config.map2d.maxZoom,
