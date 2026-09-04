@@ -3690,6 +3690,20 @@
         "y": 882,
         "pixelRatio": 1
     },
+    "star-fill": {
+        "width": 9,
+        "height": 9,
+        "x": 425,
+        "y": 324,
+        "pixelRatio": 1
+    },
+    "capital": {
+        "width": 9,
+        "height":9,
+        "x": 431,
+        "y": 868,
+        "pixelRatio": 1
+    },
     "railway-dash":{
         "width": 8,
         "height": 2,
