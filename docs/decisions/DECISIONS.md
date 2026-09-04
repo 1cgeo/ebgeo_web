@@ -129,6 +129,10 @@ viram commit, teste e, se ensinaram algo, linha no [`docs/livro-razao.md`](../li
 | 2026-09-02 | a saída de uma feição do grupo é uma op de `group_feature`, e a lista dentro de um `group` update é descartada em silêncio | [decisions-2026.md](decisions-2026.md) |
 | 2026-09-02 | a importação para de calcular perfil de elevação, e a chave da fila ganha sequência e marca d'água | [decisions-2026.md](decisions-2026.md) |
 | 2026-09-02 | feição sem referência de zoom vale fator 1, e nenhum NaN sai da correção de zoom | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-03 | o aviso de servidor secundário nasce LIGADO e vem do servidor, e o tipo de feição novo entra editando a baseline | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-03 | a versão de esquema FICA em 2.3, e o balde novo se garante na LEITURA | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-03 | a Linha de Coordenação entra pela mesa de ferramentas TARDIAS, e o modelo de zoom mora nos helpers | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-03 | dois cliques rápidos são dois vértices, e o Núcleo no KMZ desenha pelo código do escalão | [decisions-2026.md](decisions-2026.md) |
 
 As duas linhas de 2026-08-16 acima entraram em 2026-08-18: as entradas integrais existiam no arquivo
 do ano e ninguém acrescentara a linha aqui, que é a metade do procedimento que falha calada (o índice
