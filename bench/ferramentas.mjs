@@ -1035,13 +1035,52 @@ async function lerEstado(cfg) {
     };
 }
 
+/**
+ * Os lotes de pontos com que o cenario zoom semeia as feicoes, PUROS.
+ *
+ * Saiu de dentro da pagina em 2026-09-05 para poder ser atacado pelo pior caso.
+ * O gerador antigo dava ao ponto seguinte o mesmo `cy` mais um ruido de 0,004
+ * grau, e so ao `cx` um passo fixo: para toda ferramenta de RAIO isso basta (a
+ * distancia e dominada pelo passo em longitude), mas o retangulo cobra o piso de
+ * 10 m em LARGURA E ALTURA por separado, e a altura saia so do ruido. Dois
+ * sorteios proximos davam um retangulo degenerado, `createFeature` avisava e
+ * voltava sem criar, e a bancada contava a chamada como criada: o cenario zoom do
+ * retangulo saia com "29 de 30 feicoes" sem que nada estivesse errado no app.
+ * Medido na linha de integracao com o controle portado E com o anterior, cinco
+ * rodadas de oito; aqui o mesmo invalido apareceu no aquecimento da rodada de
+ * 2026-09-05. Agora o passo fixo existe nos dois eixos e o ruido so o desloca.
+ *
+ * @param {Object} p - `{ n, pontos, anel, vista, aleatorio }`
+ * @returns {Array<Array<Array<number>>>} `n` lotes de `pontos` coordenadas
+ */
+function pontosDaSemeadura({ n, pontos, anel, vista, aleatorio = Math.random }) {
+    const rnd = (a) => (aleatorio() * 2 - 1) * a;
+    const lotes = [];
+    for (let i = 0; i < n; i++) {
+        const cx = vista.center[0] + rnd(0.03);
+        const cy = vista.center[1] + rnd(0.03);
+        const pts = [];
+        if (anel) {
+            for (let k = 0; k < pontos; k++) {
+                const a = (k / pontos) * 2 * Math.PI;
+                pts.push([cx + 0.004 * Math.cos(a), cy + 0.004 * Math.sin(a)]);
+            }
+        } else {
+            // Passo fixo nos DOIS eixos, com o ruido menor que metade do passo:
+            // e isso que garante separacao em latitude tambem.
+            for (let k = 0; k < pontos; k++) pts.push([cx + k * 0.006 + rnd(0.001), cy + k * 0.004 + rnd(0.001)]);
+        }
+        lotes.push(pts);
+    }
+    return lotes;
+}
+
 // Cria n feicoes pelo caminho do proprio controle (drawPoints + createFeature),
-// em volta da vista. Devolve quantas chamadas passaram; o que o STORE guardou e
-// a verdade, e sai da leitura de estado depois.
-async function criarFeicoesPagina({ cfg, n, vista, pontos, anel }) {
+// em volta da vista. Devolve quantas o STORE ganhou; as chamadas que voltaram
+// sem lancar ficam ao lado, porque as duas contagens divergem em silencio.
+async function criarFeicoesPagina({ cfg, lotes }) {
     const c = window.__store.getControl(cfg.controle);
     if (!c || typeof c.createFeature !== 'function') return { ok: 0, erro: `controle ${cfg.controle} ausente ou sem createFeature` };
-    const rnd = (a) => (Math.random() * 2 - 1) * a;
     // Nao ha assinatura unica de createFeature no app, e chamar a errada cria
     // zero feicao em silencio: a semeadura do descritor diz qual e a desta.
     const semear = async (pts) => {
@@ -1054,30 +1093,36 @@ async function criarFeicoesPagina({ cfg, n, vista, pontos, anel }) {
         c[cfg.semeadura === 'points' ? 'points' : 'drawPoints'] = pts;
         return c.createFeature();
     };
+    // O que o store tinha ANTES. `createFeature` recusa em silencio (avisa na
+    // tela e volta) o insumo que nao passa no piso da ferramenta, e nesse caso a
+    // chamada nao lanca: contar chamada que voltou daria "30/30" com 29 feicoes
+    // no store, que foi o que esta bancada imprimiu antes de 2026-09-05.
+    const contarNoStore = async () => {
+        try {
+            const f = await window.__store.getCurrentMapFeatures();
+            return Array.isArray(f && f[cfg.tipo]) ? f[cfg.tipo].length : null;
+        } catch (_e) { return null; }
+    };
+    const noStoreAntes = await contarNoStore();
     const t0 = performance.now();
     const marcas = [];
-    let ok = 0;
+    let chamadas = 0;
     let ultimoErro = null;
-    for (let i = 0; i < n; i++) {
-        const cx = vista.center[0] + rnd(0.03);
-        const cy = vista.center[1] + rnd(0.03);
-        const pts = [];
-        if (anel) {
-            for (let k = 0; k < pontos; k++) {
-                const a = (k / pontos) * 2 * Math.PI;
-                pts.push([cx + 0.004 * Math.cos(a), cy + 0.004 * Math.sin(a)]);
-            }
-        } else {
-            for (let k = 0; k < pontos; k++) pts.push([cx + k * 0.006 + rnd(0.001), cy + rnd(0.004)]);
-        }
+    for (const pts of lotes) {
         const tf = performance.now();
-        try { await semear(pts); ok++; } catch (e) { ultimoErro = String(e && e.message ? e.message : e).slice(0, 120); }
+        try { await semear(pts); chamadas++; } catch (e) { ultimoErro = String(e && e.message ? e.message : e).slice(0, 120); }
         marcas.push(+(performance.now() - tf).toFixed(1));
     }
     await new Promise((r) => setTimeout(r, 1500));
     marcas.sort((a, b) => a - b);
+    const noStoreDepois = await contarNoStore();
     return {
-        ok, erro: ultimoErro,
+        // `ok` e a contagem HONESTA: o que o store ganhou. Sem leitura de store
+        // (o balde nao existe) ela cai para as chamadas, e `chamadas` fica ao
+        // lado para o operador ver a diferenca.
+        ok: (noStoreAntes === null || noStoreDepois === null) ? chamadas : noStoreDepois - noStoreAntes,
+        chamadas, noStoreAntes, noStoreDepois,
+        erro: ultimoErro,
         ms: +(performance.now() - t0).toFixed(0),
         // A mediana por feicao e o que diz se `--feicoes 30` cabe no dia: a
         // visibilidade varre o terreno raio a raio, e nao e um addFeature.
@@ -1389,8 +1434,13 @@ class Bancada {
 
     async criarFeicoes(n) {
         const r = await this.page.evaluate(criarFeicoesPagina, {
-            cfg: this.cfg, n, vista: VISTA,
-            pontos: this.cfg.pontosParaCriar, anel: !!this.cfg.anel,
+            cfg: this.cfg,
+            // Os pontos saem do Node, por uma funcao pura: dentro da pagina o
+            // gerador nao era atacavel pelo pior caso, e foi ele que degenerou o
+            // retangulo. Ver `pontosDaSemeadura`.
+            lotes: pontosDaSemeadura({
+                n, pontos: this.cfg.pontosParaCriar, anel: !!this.cfg.anel, vista: VISTA,
+            }),
         });
         await this.assentar();
         await this.esperarQuadros(2);
@@ -1875,7 +1925,13 @@ async function principal() {
             console.log(`  criando ${params.feicoes} feicoes para o cenario zoom...`);
             casos.push(await bancada.cenarioZoom(params.feicoes));
             const cri = casos[casos.length - 1].prova.criacao || {};
-            console.log(`  criacao: ${cri.ok}/${params.feicoes} em ${cri.ms} ms (mediana ${cri.msPorFeicao} ms por feicao)`);
+            // `ok` e o que o STORE ganhou; `chamadas` e o que voltou sem lancar.
+            // Divergiram sempre que o insumo degenerou, e a diferenca calada era
+            // o defeito: o cenario zoom reprovava e a linha de cima dizia 30/30.
+            const recusadas = (cri.chamadas ?? cri.ok) - cri.ok;
+            console.log(`  criacao: ${cri.ok}/${params.feicoes} em ${cri.ms} ms (mediana ${cri.msPorFeicao} ms por feicao)`
+                + `${recusadas ? `  ** ${recusadas} chamada(s) voltaram sem criar (o controle recusou o insumo)` : ''}`
+                + `${cri.erro ? `  ** ultimo erro: ${cri.erro}` : ''}`);
             await page.screenshot({ path: path.join(params.saida, `captura-${params.ferramenta}-zoom.png`) });
             casos.push(await bancada.cenarioConclusao());
             await page.screenshot({ path: path.join(params.saida, `captura-${params.ferramenta}-conclusao.png`) });
@@ -1952,5 +2008,5 @@ export {
     normalizarFerramenta, lerArgumentos, baseDeModulos, avaliarProntidao, avaliarObstrucao,
     avaliarFeedback, instrumentar, FONTES_MINIMAS, carregarPlaywright, percentil, mediana,
     estatistica, resumirSetData, avaliarCadencia, celula, chavesDaTabela,
-    montarTabela, escreverMarkdown,
+    montarTabela, escreverMarkdown, pontosDaSemeadura, criarFeicoesPagina,
 };

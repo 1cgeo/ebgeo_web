@@ -660,3 +660,5 @@ as cargas deram a mesma assinatura, `246c/99f`. Nao edite os numeros para a medi
 - **Outra sessao editando a mesma arvore troca o app no meio da bancada.** O `vite dev` serve o
   arquivo do disco. A assinatura `camadas/fontes` pega a mudanca de estilo, mas NAO pega mudanca
   de comportamento em JavaScript: rode com a arvore parada, e anote o `git status` junto do numero.
+
+A semeadura do cenário de zoom (2026-09-05) dá passo fixo nos dois eixos, porque o retângulo recusa em silêncio a feição com menos de 10 m de altura e o gerador antigo, com passo só em longitude, deixava a separação em latitude cair a 0,0000011 grau; e a coluna de criação conta o que o STORE ganhou, com as chamadas a `createFeature` ao lado e a divergência denunciada no log. O eixo 14 do autoteste guarda o gerador antigo como pior caso.

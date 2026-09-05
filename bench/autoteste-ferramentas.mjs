@@ -4,9 +4,14 @@
 // Uma regua vista so passar em insumo bom nao foi vista funcionar. Este arquivo
 // constroi o pior caso de cada eixo que a bancada afirma medir (leitura da linha
 // de comando, estatistica, resumo do setData, cadencia do rAF, prova do
-// desenho, prova do zoom, prova da conclusao, montagem da tabela) e confirma que
-// cada um sai marcado. Depois confirma que o insumo bom passa, para a regua nao
-// ser um carimbo de reprovacao.
+// desenho, prova do zoom, prova da conclusao, montagem da tabela, o criterio de
+// `perdidos` e a semeadura do cenario zoom) e confirma que cada um sai marcado.
+// Depois confirma que o insumo bom passa, para a regua nao ser um carimbo de
+// reprovacao.
+//
+// O eixo 14 veio da linha de integracao em 2026-09-05: a semeadura degenerava o
+// retangulo (piso de 10 m em ALTURA, que so o ruido da latitude produzia) e a
+// bancada contava como criada a chamada que o controle recusou em silencio.
 //
 //   node bench/autoteste-ferramentas.mjs
 
@@ -16,7 +21,7 @@ import {
     GESTOS_CONCLUSAO, normalizarFerramenta, lerArgumentos, baseDeModulos,
     avaliarProntidao, avaliarObstrucao, avaliarFeedback, instrumentar, FONTES_MINIMAS, estatistica,
     resumirSetData, avaliarCadencia, celula, chavesDaTabela, montarTabela,
-    escreverMarkdown, percentil, mediana,
+    escreverMarkdown, percentil, mediana, pontosDaSemeadura, criarFeicoesPagina, VISTA,
 } from './ferramentas.mjs';
 
 let falhas = 0;
@@ -761,13 +766,99 @@ function eixo13() {
     // se alguem mudar um lado sem o outro, a regua pura deixa de descrever o que
     // a bancada mede, e a tabela mente sem ninguem ver.
     const fonte = String(instrumentar);
-    checa('o quadro da pagina zera o marcador de supersessao', /B\.superavel = null;/.test(fonte), 'nao achei "B.superavel = null;" em instrumentar');
+    // Ancorado no PUSH DO QUADRO, e nao no nome da variavel: `B.superavel = null`
+    // tambem aparece no `__zerar`, e a primeira versao desta linha passou verde
+    // com a zeragem do render apagada (medido em 2026-09-05, no controle negativo
+    // desta mesma regua). Verificacao que casa em outro sitio nao verifica este.
+    checa('o quadro da pagina zera o marcador de supersessao',
+        /B\.quadros\.push\([^;]*;[\s\S]{0,600}?B\.superavel = null;/.test(fonte),
+        'nao achei "B.superavel = null;" logo depois do push do quadro em instrumentar');
     checa('a escrita da pagina conta perdida pelo marcador do quadro', /if \(B\.superavel !== null\) B\.superadas\+\+;/.test(fonte),
         'nao achei a contagem por B.superavel em instrumentar');
     checa('a latencia da pagina continua saindo da ultima escrita', /B\.pendente = performance\.now\(\);/.test(fonte));
     checa('a pagina ainda exige a fonte assentada para cronometrar', /fonteCarregada\(cfg\.feedback\)/.test(fonte));
 }
 eixo13();
+
+function eixo14() {
+    console.log('\n== eixo 14: a semeadura do cenario zoom (o insumo que o controle recusa em silencio)');
+
+    // Um sorteio determinista, para o pior caso nao depender da sorte da rodada.
+    const semente = (s0) => { let s = s0; return () => { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; }; };
+
+    // Separacao minima entre pontos CONSECUTIVOS de um lote, em grau, nos dois
+    // eixos. E o que decide se o retangulo nasce: ele cobra o piso de 10 m em
+    // LARGURA E ALTURA por separado (`createFeature` em
+    // src/js/draw_tools/rectangle_tool/add_rectangle_control.js), e a altura sai
+    // so da latitude. Um grau de latitude vale cerca de 111 km, entao 10 m sao
+    // cerca de 0,00009 grau.
+    const separacoes = (lotes) => {
+        let dx = Infinity;
+        let dy = Infinity;
+        for (const pts of lotes) {
+            for (let k = 1; k < pts.length; k++) {
+                dx = Math.min(dx, Math.abs(pts[k][0] - pts[k - 1][0]));
+                dy = Math.min(dy, Math.abs(pts[k][1] - pts[k - 1][1]));
+            }
+        }
+        return { dx, dy };
+    };
+
+    // O GERADOR ANTIGO, o pior caso que esta regua existe para pegar: passo fixo
+    // so em longitude, latitude sorteada de novo a cada ponto.
+    const antigo = ({ n, pontos, vista, aleatorio }) => {
+        const rnd = (a) => (aleatorio() * 2 - 1) * a;
+        const lotes = [];
+        for (let i = 0; i < n; i++) {
+            const cx = vista.center[0] + rnd(0.03);
+            const cy = vista.center[1] + rnd(0.03);
+            const pts = [];
+            for (let k = 0; k < pontos; k++) pts.push([cx + k * 0.006 + rnd(0.001), cy + rnd(0.004)]);
+            lotes.push(pts);
+        }
+        return lotes;
+    };
+
+    const PISO_GRAU = 0.00009; // os 10 m que o retangulo cobra, em latitude
+    const velho = separacoes(antigo({ n: 2000, pontos: 2, vista: VISTA, aleatorio: semente(7) }));
+    checa('o gerador ANTIGO produz altura abaixo do piso de 10 m (o defeito medido)',
+        velho.dy < PISO_GRAU, `menor delta de latitude: ${velho.dy.toFixed(7)} grau`);
+    checa('e o gerador antigo nunca errava a LARGURA, que e por isso que so o retangulo caia',
+        velho.dx > PISO_GRAU, `menor delta de longitude: ${velho.dx.toFixed(7)} grau`);
+
+    const novo = separacoes(pontosDaSemeadura({ n: 2000, pontos: 2, anel: false, vista: VISTA, aleatorio: semente(7) }));
+    checa('o gerador NOVO garante altura muito acima do piso', novo.dy > 10 * PISO_GRAU, `${novo.dy.toFixed(7)} grau`);
+    checa('e continua garantindo a largura', novo.dx > 10 * PISO_GRAU, `${novo.dx.toFixed(7)} grau`);
+    // O ruido tem de ser menor que metade do passo, senao a garantia some.
+    checa('o ruido nao chega a metade do passo de latitude', novo.dy > 0.004 / 2, `${novo.dy.toFixed(7)} grau`);
+
+    // O anel (poligono) nao muda: ele ja nascia de um circulo de raio fixo. O
+    // ponto k=0 cai em (cx + 0,004, cy), entao o centro do lote se recupera dele.
+    const noRaio = (pts, raio) => {
+        const cx = pts[0][0] - raio;
+        const cy = pts[0][1];
+        return pts.every((p) => Math.abs(Math.hypot(p[0] - cx, p[1] - cy) - raio) < 1e-9);
+    };
+    const anel = pontosDaSemeadura({ n: 50, pontos: 6, anel: true, vista: VISTA, aleatorio: semente(3) });
+    checa('o anel continua fechando com o raio fixo', anel.length === 50 && anel[0].length === 6);
+    checa('os pontos do anel ficam a 0,004 grau do centro do lote', noRaio(anel[0], 0.004));
+    // ...e a conferencia acima nao e vacua: um anel de outro raio reprova nela.
+    checa('a conferencia do anel REPROVA um raio diferente', !noRaio(anel[0], 0.008));
+
+    checa('a semeadura devolve exatamente n lotes de `pontos` coordenadas',
+        pontosDaSemeadura({ n: 7, pontos: 4, anel: false, vista: VISTA, aleatorio: semente(1) })
+            .every((l) => l.length === 4), 'lote com comprimento errado');
+
+    // E a contagem de criadas passou a sair do STORE, e nao das chamadas que
+    // voltaram: `createFeature` recusa em silencio, sem lancar.
+    const fonte = String(criarFeicoesPagina);
+    checa('a criacao le o store antes e depois', /noStoreAntes/.test(fonte) && /noStoreDepois/.test(fonte));
+    checa('a criacao devolve `ok` como a diferenca no store, e nao as chamadas',
+        /ok: \(noStoreAntes === null \|\| noStoreDepois === null\) \? chamadas : noStoreDepois - noStoreAntes/.test(fonte),
+        'nao achei a diferenca de store em criarFeicoesPagina');
+    checa('a criacao ainda guarda as chamadas ao lado, para a diferenca aparecer', /chamadas, noStoreAntes, noStoreDepois/.test(fonte));
+}
+eixo14();
 
 console.log(`\n${total - falhas}/${total} passaram.`);
 if (falhas) { console.log(`${falhas} FALHA(S): a bancada nao esta reprovando o que promete pegar.`); process.exit(1); }
