@@ -84,6 +84,20 @@ const renderIdDoPainel = (page) => page.evaluate(
  * esperar por um novo é esperar pelo conteúdo certo.
  */
 async function openConversionRow(page, featureId, label) {
+    await selectAndSettle(page, featureId);
+    const menu = await openFeatureMenu(page);
+    return { menu, row: conversionRow(menu, label) };
+}
+
+/**
+ * Seleciona a feição e espera o painel ASSENTAR antes de qualquer clique na engrenagem.
+ *
+ * Era o corpo de `openConversionRow`, e só ela esperava: o caso do Leitor selecionava e abria a
+ * engrenagem em seguida, e a cascata de reconstruções do painel descartava o menu recém-aberto
+ * (1 em 3 rodadas isoladas, 2 de 2 sob a carga da rodada inteira em 2026-09-04). A espera é a
+ * mesma para todo caminho que vai clicar no painel depois de selecionar.
+ */
+async function selectAndSettle(page, featureId) {
     const antes = await renderIdDoPainel(page);
     await selectFeatureUI(page, featureId);
     await page.waitForFunction((id) => {
@@ -102,8 +116,6 @@ async function openConversionRow(page, featureId, label) {
         if (atual === ultimo) break;
         ultimo = atual;
     }
-    const menu = await openFeatureMenu(page);
-    return { menu, row: conversionRow(menu, label) };
 }
 
 /** O id da única feição daquele balde que ainda não estava lá. */
@@ -218,7 +230,9 @@ collabTest.describe('Conversão linear — POSTO (Leitor)', () => {
         await collab.expectFullSync({ entityId: lineId, type: 'lines', operationType: 'create' });
         await pollPeerFeature(B, 'lines', lineId);
 
-        await selectFeatureUI(B, lineId);
+        // A mesma espera dos outros caminhos: sem ela, a cascata de reconstruções do painel
+        // descartava o menu do Leitor logo depois de aberto (o caso instável de 2026-09-04).
+        await selectAndSettle(B, lineId);
         const menu = await openFeatureMenu(B);
 
         // AUSÊNCIA, nunca linha bloqueada: converter é um CREATE mais um DELETE, e um Leitor

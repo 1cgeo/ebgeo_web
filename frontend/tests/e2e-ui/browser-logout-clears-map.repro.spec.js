@@ -125,8 +125,21 @@ describeOrSkip('Sair da conta: o mapa do SERVIDOR some, o LOCAL fica', () => {
         // O BUG RELATADO: o traço visual. O store é a metade fácil; as sources vivas são o que o
         // usuário via na tela.
         await expect.poll(async () => (await snapshotTraces(page)).storeFeatures, { timeout: 15000 }).toBe(0);
-        const after = await snapshotTraces(page);
-        expect(after.sourceFeatures, 'nenhum traço da feição do servidor nas sources vivas após o logout').toBe(0);
+        // AS FONTES VIVAS ZERAM UM QUADRO DEPOIS, e a espera é por isso, não por prazo: o
+        // `ALL_DATA_CLEARED` da saída faz o despachante AGENDAR a escrita da coleção vazia para o
+        // quadro seguinte, e o worker do MapLibre a aplica em seguida. Medido em 2026-09-05 com
+        // sonda na fonte `points`: o `setData(points) 0` sai 2 ms depois do evento, e uma leitura
+        // única feita antes desse quadro via a feição do servidor (1 em 2 ou 3 rodadas), enquanto a
+        // releitura 3 s depois via zero. O teto é curto de propósito: um quadro e um worker, não
+        // uma rede. A leitura única aqui já acusou um defeito de verdade no mesmo dia (a origem do
+        // store lida depois do teardown, que pulava a limpeza inteira), então ela fica como poll e
+        // não como sono: o poll reprova do mesmo jeito quando a limpeza nunca vem.
+        await expect
+            .poll(async () => (await snapshotTraces(page)).sourceFeatures, {
+                timeout: 5000,
+                message: 'nenhum traço da feição do servidor nas sources vivas após o logout',
+            })
+            .toBe(0);
 
         await ctx.close();
     });
