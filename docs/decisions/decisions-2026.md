@@ -2029,3 +2029,43 @@ está no mapa do `errorHandler`, então o desfecho real era 500, enquanto o come
   - *Apagar o contorno da projeção porque a 6.7 não reproduz o defeito.* Contorno medido não se apaga sem medir; ele é API pública e dois quadros, e o cabeçalho registra a medida nas duas versões.
 - **Consequências:** `frontend/package-lock.json` ganha 223 linhas (22 pacotes da árvore do MapLibre e dois `@emnapi/*` dev/optional refrescados); os tetos de `index.html` e `calibracao.html` sobem de 3000 para 4150 e de 1100 para 1980 kB, com `atlas` e `admin` idênticas como prova; o worker separado (620 kB) fica fora da conta e declarado; draw calls com terreno caem cerca de 30% e os stamps de pool vão a zero; a régua `maplibre-construtores-regua.test.js` proíbe que página ou módulo volte a apontar o vendor. Página [[peso-do-pacote-web]].
 - **Status:** aceita.
+
+### 2026-09-05: o MapLibre se lê pelo ponto único, e a régua que prende isso é de escopo
+
+- **Contexto:** com o 6.7.0 pelo npm (decisão de 2026-09-04) o ponto único `frontend/src/js/map/maplibre.js` ainda gravava `window.maplibregl` para 20 módulos que liam o global (29 sítios; nove outros só citam em JSDoc, e `terrain/terrain-elevation.js` lia `globalThis.maplibregl?.LngLat`, forma que escapa ao `grep` por `maplibregl.`).
+- **Decisão:** todo módulo de `frontend/src` que usa a biblioteca importa `maplibregl` do ponto único; o global fica gravado só para quem está fora do bundle (a bancada, os `page.evaluate` do Playwright e a calibração por spec), e o cabeçalho do ponto único diz isso. A régua é uma regra de ESLint da casa (`eslint-rules/no-maplibre-global.js`), de ESCOPO e não de texto: acusa a referência ao identificador que não resolve para ligação local e as formas `window`, `globalThis` e `self`, com exceção só para o ponto único por caminho.
+- **Alternativas recusadas:**
+  - *`no-restricted-globals`.* Não alcança `window.maplibregl` nem `globalThis.maplibregl?.`, que era justamente a forma fora do grep.
+  - *Manter o global como contrato dos módulos.* Duas rotas para a mesma instância convidam a uma segunda cópia da biblioteca (medido no navegador: `mod.maplibregl === window.maplibregl`, 85 nomes, uma instância), e o import é o que o bundler vê.
+- **Consequências:** 39 arquivos; `terrain-elevation.js` ganhou de brinde um conserto real, a longitude além do antimeridiano que lia 0 m calado porque o objeto montado à mão não normalizava (`wrap()` do `LngLat` de verdade, com caso de teste); cinco testes trocam a costura do dublê por `vi.mock`; a régua vista reprovar os 20 arquivos reais, quatro formas construídas e um `window.maplibregl` reintroduzido. Páginas sem mapa idênticas kB a kB no build.
+- **Status:** aceita.
+
+### 2026-09-05: a caixa de seleção acompanha o quadro de zoom de verdade, com cache; o `zoomend` fica para o chefe
+
+- **Contexto:** o relatório da `main` e o lote de zoom deixaram escrito que a `selection-highlight` e as seleções remotas "seguem por quadro em JavaScript". Medido num gesto de 1,5 nível em 1,5 s: 92 eventos `zoom`, 92 chamadas do handler, e só 2 passadas locais e 1 render remoto, os dois depois do gesto. Os dois debounces cancelavam e reagendavam o próprio quadro: o MapLibre pede o quadro seguinte antes de emitir o `zoom` daquele quadro, a entrada dele vem na frente na lista e o handler mata a própria callback (183 cancelamentos de rAF por gesto contra 1 sem o defeito). A caixa só se atualizava quando o gesto parava.
+- **Decisão:** agendar uma vez em vez de cancelar e reagendar; separar a resolução do alvo (assíncrona, lê a fonte) da montagem da caixa (síncrona), reaproveitar a lista resolvida pelo quadro e invalidá-la pelos eventos que já existiam; guarda de escrita por referência na local e por conteúdo na remota. Medido com 1, 10 e 50 feições: passadas 2 para 47, escritas 2 para 3 (local) e 1 para 0 (remota), resoluções de fonte por gesto na remota de 50 para zero, JS por gesto até 10,7 ms com 50 feições, cadência p95 16,8 ms intacta. O lado da caixa em pixels ficou 2,828 com e sem o conserto para os seis controles que guardam `properties.selectionBox`; o que muda por quadro é a margem em pixels das treze ferramentas sem caixa guardada.
+- **Alternativas recusadas:**
+  - *Caixa como expressão de estilo.* Ela é feição de fonte própria, lida por painel, exportação e cabeçalho.
+  - *Tirar a quantização de 0,5 nível.* 23 vezes mais montagens de caixa com cadência idêntica; a quantização deriva até 19% de tamanho na tela e fica.
+- **Consequências:** `selection-highlight-passe-de-zoom` (8 casos, 4 vermelhos no estado anterior) e `remote-selections-passe-de-zoom` (6, 3 vermelhos); os dois gerentes e a camada de cursores remotos importam o ponto único do MapLibre. Fica para o chefe: `zoomend` em vez de por quadro (compra a margem certa nas treze ferramentas ao custo de até 10,7 ms de JS por gesto), e a assimetria entre o cache quantizado local e a remota que remonta do zero.
+- **Status:** aceita, com a pendência de `zoomend` declarada.
+
+### 2026-09-05: o teste do índice de auditoria afirma o caminho por `target_id`, porque o Postgres 18 escolhe o composto por skip scan
+
+- **Contexto:** `audit-indice-target-id.test.js` reprovava nesta máquina no caso com OFFSET 100, exigindo `idx_audit_target_id` no plano. No PostgreSQL 18.1 o planejador escolhe `idx_audit_target` (o composto antigo) com `Index Cond: (target_id = ...)` e `Index Searches: 2`, custo 426 contra 522: é o skip scan da 18, que com uma coluna líder de cardinalidade 1 responde a pergunta em duas buscas. Em buffers os dois caminhos empatam (306 contra 304, medido com o composto derrubado numa transação).
+- **Decisão:** o caso paginado afirma o CAMINHO (índice com `target_id` na condição, nunca `idx_audit_created` filtrando nem varredura), e a página 1 continua exigindo o índice novo e o plano sem Sort, que é o ganho que ele existe para dar. A premissa do arquivo ("condição só na segunda coluna custa o índice inteiro") vale até a 17 e está datada no comentário.
+- **Alternativas recusadas:**
+  - *Fixar a versão do Postgres do teste ou pular na 18.* Esconderia o que a 18 mudou de verdade, e a máquina de desenvolvimento é 18.
+  - *Apagar o índice novo porque o composto serve.* Serve para a busca; o ganho ordenado da página 1 (sem Sort) só o novo dá.
+- **Consequências:** 4 de 4 verdes; o backend fecha em 4.979 nesta máquina.
+- **Status:** aceita.
+
+### 2026-09-05: o menu da engrenagem acompanha a rolagem do próprio painel em vez de fechar
+
+- **Contexto:** o spec `browser-collab-conversao-linear` reprovava em cerca de metade das rodadas isoladas, e a hipótese herdada (a cascata de reconstruções do painel descartando o menu) estava errada: a sonda que registrou a pilha da remoção e os eventos entre o clique e o sumiço mostrou o menu anexado ao `body` e removido 1 a 11 ms depois por `dropdownScrollHandler`, sem reconstrução nenhuma (`renderId` igual). O `scroll` vinha de `.feature-panel-content`: o foco que o clique dá ao botão rola o contêiner para trazê-lo à vista, e o ouvinte global de `scroll`, registrado no documento em fase de captura, via qualquer rolagem de qualquer elemento.
+- **Decisão:** rolagem de um elemento que CONTÉM o botão ativo reposiciona o menu (`positionFeatureDropdown`), porque o menu é filho do `body` posicionado pelo `getBoundingClientRect()` do botão; rolagem da página, do mapa ou de outra lista continua fechando. A decisão é pura em `tool_manager/helpers/dropdown-scroll.model.js`, provada em node com objetos falsos, e o comportamento no navegador pelo spec (3 rodadas isoladas, 12 de 12).
+- **Alternativas recusadas:**
+  - *Só o spec esperar mais.* O menu sumia para o usuário, não para o teste: a régua acusava um defeito de produto.
+  - *Abrir o menu no quadro seguinte ao clique, depois da rolagem do foco.* Esconde a causa e depende da ordem entre foco, rolagem e quadro, que não está prometida.
+- **Consequências:** o mesmo ouvinte ganha o comportamento "acompanha ou fecha" para qualquer painel rolável que venha a segurar a engrenagem. A saída da conta ganhou, na mesma sessão, o conserto de `eraRemoto` lido antes do teardown (sem decisão de desenho: era corrida, e está no livro-razão e na régua de ordem).
+- **Status:** aceita.

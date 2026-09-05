@@ -137,6 +137,10 @@ viram commit, teste e, se ensinaram algo, linha no [`docs/livro-razao.md`](../li
 | 2026-09-04 | o porte de desempenho da `main` entra por lotes, e o despachante de diff manda no desenho | [decisions-2026.md](decisions-2026.md) |
 | 2026-09-04 | o LOD de tiles servido passa a `null`, e o painel de administração valida o par | [decisions-2026.md](decisions-2026.md) |
 | 2026-09-04 | o MapLibre 6.7.0 entra pelo npm num ponto único, e o vendorizado 5.18 sai | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-05 | o MapLibre se lê pelo ponto único, e a régua que prende isso é de escopo | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-05 | a caixa de seleção acompanha o quadro de zoom de verdade, com cache; o `zoomend` fica para o chefe | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-05 | o teste do índice de auditoria afirma o caminho por `target_id`, porque o Postgres 18 escolhe o composto por skip scan | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-05 | o menu da engrenagem acompanha a rolagem do próprio painel em vez de fechar | [decisions-2026.md](decisions-2026.md) |
 
 As duas linhas de 2026-08-16 acima entraram em 2026-08-18: as entradas integrais existiam no arquivo
 do ano e ninguém acrescentara a linha aqui, que é a metade do procedimento que falha calada (o índice
