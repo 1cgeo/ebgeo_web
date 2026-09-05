@@ -4,6 +4,12 @@
  * @fileoverview Layer constants and configuration for MapLibre layers.
  */
 
+// The fill layer of the coordination line paints only the codes the catalogue marks
+// `filled`; the rewritten filter must carry the same clause as the birth filter in
+// `layers/styles/tactical.layers.js`, or it would paint the inside of every hollow
+// glyph of the same source. The catalogue is a leaf (no imports), so no cycle.
+import { FILLED_SYMBOL_CODES } from '../military_tools/coordination_line_tool/coordination_line_catalog.js';
+
 /** MapLibre layer IDs that receive visibility filters by layerId. */
 export const FEATURE_LAYER_IDS = [
     'point-layer',
@@ -45,6 +51,10 @@ export const FEATURE_LAYER_IDS = [
     'boundary-circles-stroke-layer',
     'boundary-text-layer',
     'occupied-front-layer',
+    // The fill comes BEFORE the line, as at creation: the outline lands on its own fill.
+    // Outside this list the layer received neither layer membership nor the temporal
+    // window (hiding the user's layer erased the outline and left the filled band).
+    'coordination-line-fill-layer',
     'coordination-line-layer',
     'processed-los-layer',
     'visibility-visible-layer',
@@ -68,6 +78,12 @@ export const LAYER_ADDITIONAL_FILTERS = {
         ['==', ['get', 'showLabel'], true],
         ['has', 'labelText'],
         ['!=', ['get', 'labelText'], ''],
+    ],
+    // Only the symbol the catalogue marks `filled` (the anti-tank ditch) emits a polygon;
+    // without this clause the rewritten filter would paint the inside of every hollow
+    // diamond of the same source. Pinned by coordination-line-fill-filtro.test.js.
+    'coordination-line-fill-layer': [
+        ['in', ['get', 'symbol_code'], ['literal', [...FILLED_SYMBOL_CODES]]],
     ],
 };
 

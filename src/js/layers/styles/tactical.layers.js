@@ -394,6 +394,13 @@ export function setupCoordinationLineLayers(features, mapInstance) {
     // painted the inside of the 290199 diamond, the inside of every concertina
     // loop, and the area between an open bent spine and its chord. Only the codes
     // the catalogue marks `filled` emit polygons, and only they may be painted.
+    // The filter below is only the BIRTH filter. `updateAllLayerFilters`
+    // (`layers/visibility-filter.js`) rewrites the filter of every layer listed in
+    // `FEATURE_LAYER_IDS` with layer membership and the temporal window; this id is
+    // there, and the code clause travels through `LAYER_ADDITIONAL_FILTERS`, or the
+    // rewrite would lose it. Until 2026-09-05 the id was outside the list, and hiding
+    // the user's layer erased the outline while the band stayed on screen; pinned by
+    // coordination-line-fill-filtro.test.js.
     ensureLayer(mapInstance, {
         id: 'coordination-line-fill-layer',
         type: 'fill',
