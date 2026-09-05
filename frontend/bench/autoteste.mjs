@@ -13,11 +13,12 @@
 
 import process from 'node:process';
 import {
-    VARIANTES, PLANO_POPULAR, REFERENCIA, ORDEM_PASSES, lerArgumentos, estatistica, celula,
+    VARIANTES, PLANO_POPULAR, REFERENCIA, ORDEM_PASSES, ORDEM_VARIANTES, lerArgumentos, estatistica, celula,
     montarTabela, conferirReferencia, percentil, mediana, escreverMarkdown,
     validarBase, avaliarIdentidade, validarLeituraDeTiles, avaliarProntidao,
     avisosDaVariante, validarGerenteDeSelecao, validarRemendo, validarSelecao,
     validarPasseNoGesto, aplicarRegraDeDecisao,
+    posicaoAlvoDoHillshade, planoDeAgrupamento, validarLeituraDeDem, TIPOS_DRAPEAVEIS,
 } from './desempenho-terreno.mjs';
 import { lerProxyDoAmbiente, resolverProxyDoNavegador } from './proxy-do-navegador.mjs';
 
@@ -303,7 +304,10 @@ function eixo6() {
     checa('padrao usa serra-gaucha, 2 rodadas, 1600x900, com cabeca', p.vista === 'serra-gaucha' && p.rodadas === 2 && p.largura === 1600 && p.altura === 900 && p.headless === false);
     checa('o padrao de --url e o stack de desenvolvimento desta branch (Vite na 3000, sem prefixo)',
         p.url === (process.env.EBGEO_URL || 'http://localhost:3000/'), p.url);
-    checa('padrao usa todas as variantes', p.variantes.length === 7);
+    // DERIVADO da lista canonica, nunca um numero escrito aqui: um `7` a mao
+    // reprova a bancada certa no dia em que ela ganha a oitava variante, que e
+    // exatamente o dia em que este teste devia calar.
+    checa('padrao usa todas as variantes', p.variantes.length === ORDEM_VARIANTES.length, `${p.variantes.length} de ${ORDEM_VARIANTES.length}`);
     const p2 = lerArgumentos(['--variantes', 'terreno,2d', '--rodadas', '3', '--headless']);
     checa('variantes voltam na ordem canonica', p2.variantes.join(',') === '2d,terreno', p2.variantes.join(','));
     checa('--headless sem valor liga', p2.headless === true);
@@ -774,6 +778,300 @@ function eixo17() {
         !/A regra de decisao/.test(escreverMarkdown(dentro, montarTabela(dentro), [], [])));
 }
 eixo17();
+
+// --------------------------------------------------------------------------
+// As tres propostas do relatorio da `main` (itens 2, 3 e 4). Os eixos 18 a 21.
+//
+// Cada uma delas mexe na ORDEM ou na FONTE, e as duas se parecem muito com um
+// remendo que nao pegou: a camada continua no mapa, o estilo continua valido, e
+// so a leitura de volta separa "movi" de "chamei a funcao de mover".
+// --------------------------------------------------------------------------
+
+// Um estilo de exemplo com a forma dos dois casos que importam: a base RASTER
+// (que e a desta arvore, `carta-topografica` sobre tiles do OSM) e a base
+// VETORIAL (que e a da `main`, com rotulo proprio). Nenhum id aqui vem do app:
+// sao nomes de teste.
+const estiloRaster = () => [
+    { id: 'base-raster', type: 'raster', vis: 'visible' },
+    { id: 'sep', type: 'circle', vis: 'none' },
+    { id: 'app-fill', type: 'fill', vis: 'visible' },
+    { id: 'app-line', type: 'line', vis: 'visible' },
+    { id: 'app-label', type: 'symbol', vis: 'visible' },
+    { id: 'app-handles', type: 'circle', vis: 'visible' },
+];
+const estiloVetorial = () => [
+    { id: 'base-fundo', type: 'background', vis: 'visible' },
+    { id: 'base-agua', type: 'fill', vis: 'visible' },
+    { id: 'base-via', type: 'line', vis: 'visible' },
+    { id: 'base-rotulo', type: 'symbol', vis: 'visible' },
+    { id: 'sep', type: 'circle', vis: 'none' },
+    { id: 'app-fill', type: 'fill', vis: 'visible' },
+    { id: 'app-label', type: 'symbol', vis: 'visible' },
+];
+const IDS_RASTER = ['base-raster'];
+const IDS_VETORIAL = ['base-fundo', 'base-agua', 'base-via', 'base-rotulo'];
+
+function eixo18() {
+    console.log('\n== eixo 18: a posicao alvo do hillshade (item 3 do relatorio da main)');
+    checa('sem camada nenhuma nao inventa alvo', posicaoAlvoDoHillshade([], IDS_RASTER).alvo === null);
+    checa('sem os ids da base nao inventa alvo', posicaoAlvoDoHillshade(estiloRaster(), []).alvo === null);
+    checa('a recusa sem ids da base diz que faltou a lista', /nao leu os ids da base/.test(posicaoAlvoDoHillshade(estiloRaster(), []).motivo || ''));
+
+    // O pior caso do calculo: base sem cobertura drapeavel nenhuma. Devolver 0
+    // aqui poria o hillshade debaixo do mapa inteiro com cara de acerto.
+    const soSymbol = [{ id: 'base-rotulo', type: 'symbol' }, { id: 'app-fill', type: 'fill' }];
+    const semCobertura = posicaoAlvoDoHillshade(soSymbol, ['base-rotulo']);
+    checa('base sem camada drapeavel nao tem alvo', semCobertura.alvo === null);
+    checa('a recusa diz que nao existe "logo acima da cobertura"', /nao tem camada drapeavel/.test(semCobertura.motivo || ''), semCobertura.motivo);
+
+    // As duas condicoes que se contradizem: um rotulo da base ANTES da ultima
+    // cobertura dela. Nao ha posicao que satisfaca "acima da cobertura" e
+    // "abaixo do primeiro symbol" ao mesmo tempo.
+    const contraditoria = posicaoAlvoDoHillshade([
+        { id: 'base-agua', type: 'fill' }, { id: 'base-rotulo', type: 'symbol' }, { id: 'base-via', type: 'line' },
+    ], ['base-agua', 'base-rotulo', 'base-via']);
+    checa('rotulo da base antes da ultima cobertura nao tem alvo', contraditoria.alvo === null);
+    checa('a recusa nomeia as duas condicoes', /nao ha posicao que satisfaca as duas/.test(contraditoria.motivo || ''), contraditoria.motivo);
+
+    const raster = posicaoAlvoDoHillshade(estiloRaster(), IDS_RASTER);
+    checa('base raster: o alvo e logo depois do raster', raster.alvo === 1, JSON.stringify(raster));
+    checa('base raster: a ancora e a camada seguinte', raster.beforeId === 'sep', raster.beforeId);
+    const vetorial = posicaoAlvoDoHillshade(estiloVetorial(), IDS_VETORIAL);
+    checa('base vetorial: o alvo e depois da ultima cobertura, e nao depois do rotulo', vetorial.alvo === 3, JSON.stringify(vetorial));
+    checa('base vetorial: a ancora e o primeiro rotulo da base', vetorial.beforeId === 'base-rotulo', vetorial.beforeId);
+    checa('a ultima cobertura da base sai nomeada', vetorial.ultimaCoberturaBase === 'base-via', vetorial.ultimaCoberturaBase);
+
+    // O proprio hillshade nao conta como camada abaixo dele: com ele ja no meio
+    // do estilo, o alvo tem de ser o MESMO que sem ele, senao a variante nunca
+    // convergiria (cada aplicacao acharia um alvo novo).
+    const comEle = estiloRaster();
+    comEle.splice(3, 0, { id: 'hillshade', type: 'hillshade', vis: 'visible' });
+    const idempotente = posicaoAlvoDoHillshade(comEle, IDS_RASTER);
+    checa('o alvo nao muda por o hillshade ja estar no estilo', idempotente.alvo === raster.alvo, `${idempotente.alvo} contra ${raster.alvo}`);
+}
+eixo18();
+
+function eixo19() {
+    console.log('\n== eixo 19: o plano de agrupamento das camadas do app (item 2 do relatorio da main)');
+    checa('sem camada nenhuma nao produz plano', planoDeAgrupamento([], IDS_RASTER).ordem === null);
+    checa('sem os ids da base nao produz plano', planoDeAgrupamento(estiloRaster(), []).ordem === null);
+    const soBase = planoDeAgrupamento([{ id: 'base-raster', type: 'raster' }], IDS_RASTER);
+    checa('estilo so com a base nao produz plano', soBase.ordem === null);
+    checa('a recusa diz que o app nao pos camada', /o app nao pos camada/.test(soBase.motivo || ''), soBase.motivo);
+
+    // O pior caso do plano: camada da BASE no meio do bloco do app. Mover o
+    // bloco inteiro para o fim arrastaria a base junto e trocaria o mapa de
+    // baixo, com cara de agrupamento.
+    const atravessado = [
+        { id: 'base-raster', type: 'raster' }, { id: 'app-fill', type: 'fill' },
+        { id: 'base-rotulo', type: 'symbol' }, { id: 'app-label', type: 'symbol' },
+    ];
+    const p = planoDeAgrupamento(atravessado, ['base-raster', 'base-rotulo']);
+    checa('base no meio do bloco do app recusa o plano', p.ordem === null);
+    checa('a recusa nomeia a camada da base que atravessa', /base-rotulo/.test(p.motivo || ''), p.motivo);
+    checa('a recusa diz que agrupar arrastaria a base', /arrastaria a base junto/.test(p.motivo || ''), p.motivo);
+
+    const bom = planoDeAgrupamento(estiloRaster(), IDS_RASTER);
+    checa('as drapeaveis vem antes das quebra-pilha', bom.ordem.join(',') === 'app-fill,app-line,sep,app-label,app-handles', bom.ordem.join(','));
+    checa('a ordem relativa dentro de cada bloco se preserva', bom.ordem.indexOf('app-fill') < bom.ordem.indexOf('app-line')
+        && bom.ordem.indexOf('sep') < bom.ordem.indexOf('app-label'), bom.ordem.join(','));
+    checa('conta as drapeaveis do app', bom.drapeaveis === 2, String(bom.drapeaveis));
+    checa('conta as quebra-pilha do app', bom.quebraPilha === 3, String(bom.quebraPilha));
+    // O separador nasce `none`: contar a camada ESCONDIDA como quebra-pilha
+    // aprovaria um agrupamento que nao funde pilha nenhuma.
+    checa('so as quebra-pilha VISIVEIS contam para o efeito', bom.quebraPilhaVisiveis === 2, String(bom.quebraPilhaVisiveis));
+    checa('o bloco do app no fim do estilo nao tem ancora', bom.beforeId === null, String(bom.beforeId));
+
+    // O caso do `--selecionadas 0` desta arvore: o app so tem drapeavel visivel,
+    // e as quebra-pilha estao todas escondidas por fonte vazia.
+    const tudoEscondido = estiloRaster().map((l) => (TIPOS_DRAPEAVEIS.has(l.type) ? l : { ...l, vis: 'none' }));
+    checa('bloco com todas as quebra-pilha escondidas conta zero visiveis',
+        planoDeAgrupamento(tudoEscondido, IDS_RASTER).quebraPilhaVisiveis === 0);
+
+    // O bloco JA agrupado: a variante reordena, nada muda, e a celula sairia
+    // igual a de `terreno` com outro nome.
+    const jaOrdenado = [
+        { id: 'base-raster', type: 'raster', vis: 'visible' },
+        { id: 'app-fill', type: 'fill', vis: 'visible' },
+        { id: 'app-line', type: 'line', vis: 'visible' },
+        { id: 'app-label', type: 'symbol', vis: 'visible' },
+    ];
+    checa('bloco ja agrupado sai marcado como tal', planoDeAgrupamento(jaOrdenado, IDS_RASTER).jaAgrupado === true);
+    checa('bloco desordenado nao sai marcado como agrupado', bom.jaAgrupado === false);
+
+    // A ancora quando ha camada da base ACIMA do bloco do app.
+    const comAncora = [
+        { id: 'base-raster', type: 'raster', vis: 'visible' },
+        { id: 'app-label', type: 'symbol', vis: 'visible' },
+        { id: 'app-fill', type: 'fill', vis: 'visible' },
+        { id: 'base-topo', type: 'symbol', vis: 'visible' },
+    ];
+    const pa = planoDeAgrupamento(comAncora, ['base-raster', 'base-topo']);
+    checa('com base acima do bloco a ancora e ela', pa.beforeId === 'base-topo', String(pa.beforeId));
+    checa('e a ordem poe a drapeavel primeiro', pa.ordem.join(',') === 'app-fill,app-label', pa.ordem.join(','));
+}
+eixo19();
+
+function eixo20() {
+    console.log('\n== eixo 20: o leitor de DEM cego e o DEM sem cobertura (item 4 do relatorio da main)');
+    checa('sem terreno a regua nao opina', validarLeituraDeDem({ terreno: false, demFontes: 0, demTiles: 0 }).length === 0);
+    checa('prova ausente nao explode', validarLeituraDeDem(null).length === 0);
+    const semFonte = validarLeituraDeDem({ terreno: true, demFontes: 0, demTiles: 0 });
+    checa('terreno ligado sem fonte raster-dem reprova', semFonte.length > 0);
+    checa('a reprova diz que a bancada nao esta lendo a fonte', /nao esta lendo a fonte de elevacao/.test(semFonte.join(' ')), semFonte.join(' '));
+    // O pior caso DESTA regua e o instrumento cego: um leitor que devolve lista
+    // vazia deixaria toda celula sair com o terreno "medido".
+    const leitorCego = validarLeituraDeDem({ terreno: true, demFontes: 2, demTiles: 0, demCarregados: 0 });
+    checa('fonte de DEM sem tile residente reprova', leitorCego.length > 0);
+    checa('a reprova diz que a bancada nao esta lendo a fonte', /nao esta lendo a fonte de elevacao/.test(leitorCego.join(' ')), leitorCego.join(' '));
+    checa('uma fonte com tile carregado passa', validarLeituraDeDem({ terreno: true, demFontes: 1, demTiles: 74, demCarregados: 74, demErro: 0 }).length === 0);
+    checa('duas fontes com tile carregado passam', validarLeituraDeDem({ terreno: true, demFontes: 2, demTiles: 103, demCarregados: 103, demErro: 0 }).length === 0);
+    // O DEM sem COBERTURA nao e defeito da bancada, e nao reprova: o servidor
+    // respondeu e a leitura funcionou. Quem responde por ele e o aviso.
+    const todoErrado = { terreno: true, hillshade: 'ausente', hillshadeConfigurado: true, hillshadeDeclarado: true, demFontes: 1, demTiles: 25, demCarregados: 0, demErro: 25 };
+    checa('DEM inteiro com erro nao REPROVA a variante', validarLeituraDeDem(todoErrado).length === 0, validarLeituraDeDem(todoErrado).join('; '));
+    // ...e este e o estado medido nesta maquina: o `terrain-tiles` do demotiles
+    // cobre um grau quadrado nos Alpes, e devolve 404 sobre o Rio Grande do Sul.
+    // A contagem de tile RESIDENTE aprova esse estado; so o estado do tile o pega.
+    const avisoSemCobertura = avisosDaVariante(todoErrado);
+    checa('DEM inteiro com erro sai com aviso', avisoSemCobertura.length === 1, JSON.stringify(avisoSemCobertura));
+    checa('o aviso diz que o relevo medido e PLANO', /relevo medido e PLANO/.test(avisoSemCobertura.join(' ')), avisoSemCobertura.join(' '));
+    checa('o aviso diz quantos tiles vieram com erro', /25 de 25/.test(avisoSemCobertura.join(' ')), avisoSemCobertura.join(' '));
+    // Cobertura parcial tambem tem de aparecer: um relevo que so existe em meio
+    // quadro nao se compara com um que existe inteiro.
+    const parcial = avisosDaVariante({ ...todoErrado, demCarregados: 10, demErro: 15 });
+    checa('DEM parcial sai com aviso proprio', /DEM PARCIAL/.test(parcial.join(' ')), parcial.join(' '));
+    checa('DEM inteiro carregado nao ganha aviso de cobertura',
+        avisosDaVariante({ ...todoErrado, demCarregados: 25, demErro: 0 }).length === 0);
+    checa('em 2d o aviso de DEM nao aparece',
+        avisosDaVariante({ ...todoErrado, terreno: false }).length === 0);
+    // Resultado gravado antes das contagens novas nao pode inventar aviso.
+    checa('prova sem as contagens novas nao inventa aviso de DEM',
+        avisosDaVariante({ terreno: true, hillshade: 'ausente', hillshadeConfigurado: true, hillshadeDeclarado: true }).length === 0);
+}
+eixo20();
+
+function eixo21() {
+    console.log('\n== eixo 21: as quatro variantes novas, cada uma no pior caso dela');
+
+    // --- terreno-hillshade-app: a linha de base das duas de hillshade
+    const app = VARIANTES['terreno-hillshade-app'];
+    const provaApp = { terreno: true, hillshade: 'visible', hillshadeConfigurado: false, demFontes: 2, demTiles: 103 };
+    const TINTA = { 'hillshade-exaggeration': 0.5 };
+    const detApp = { hillshadeApp: { instalado: true, fonteDaCamada: 'fonte-do-hillshade', fonteDeclarada: 'fonte-do-hillshade', sobreFonteDoTerreno: false, tinta: TINTA, tintaDeclarada: TINTA } };
+    checa('hillshade-app bom passa', app.validar(provaApp, detApp).length === 0, app.validar(provaApp, detApp).join('; '));
+    checa('hillshade-app sem instalar reprova', app.validar(provaApp, { hillshadeApp: { instalado: false, motivo: 'config ausente' } }).length > 0);
+    checa('hillshade-app com a camada ausente reprova', app.validar({ ...provaApp, hillshade: 'ausente' }, detApp).length > 0);
+    const sobreOTerreno = app.validar(provaApp, { hillshadeApp: { ...detApp.hillshadeApp, fonteDaCamada: 'fonte-do-terreno', sobreFonteDoTerreno: true } });
+    checa('hillshade-app com a camada sobre a fonte do terreno reprova', sobreOTerreno.length > 0);
+    checa('a reprova diz que isso seria a outra variante', /seria a outra variante/.test(sobreOTerreno.join(' ')), sobreOTerreno.join(' '));
+    checa('hillshade-app com a tinta diferente da declarada reprova',
+        app.validar(provaApp, { hillshadeApp: { ...detApp.hillshadeApp, tinta: {} } }).length > 0);
+    // A linha de base E a duplicacao: uma fonte so ja seria a outra variante.
+    const umaFonte = app.validar({ ...provaApp, demFontes: 1 }, detApp);
+    checa('hillshade-app com uma fonte de DEM so reprova', umaFonte.length > 0);
+    checa('a reprova diz que a linha de base tem duas fontes', /a linha de base tem duas/.test(umaFonte.join(' ')), umaFonte.join(' '));
+    checa('hillshade-app com DEM sem tile reprova', app.validar({ ...provaApp, demTiles: 0 }, detApp).length > 0);
+    // A celula tem de DIZER que o hillshade e da bancada: sem isso ela se
+    // compararia com a de um deploy que o liga por configuracao.
+    const av = avisosDaVariante(provaApp);
+    checa('a celula com hillshade da bancada sai com aviso', av.length === 1, JSON.stringify(av));
+    checa('o aviso diz que a camada nasceu depois do boot', /nasceu depois do boot/.test(av.join(' ')), av.join(' '));
+    // A armadilha que a rodada de fumaca revelou: `TerrainControl.hillshadeConfig`
+    // E o mesmo objeto que `config.map2d.hillshade`, entao ligar a bandeira para
+    // instalar a camada tambem apaga o rastro de que o servidor a tinha
+    // desligada. Lido pelo valor VIVO, o aviso sumiria e a celula sairia com cara
+    // de deploy que o tem por configuracao.
+    const remendadoPorDentro = { ...provaApp, hillshadeConfigurado: true, hillshadeDeclarado: false };
+    checa('o hillshade instalado pela bancada continua marcado depois de a bandeira virar',
+        /LIGADO PELA BANCADA/.test(avisosDaVariante(remendadoPorDentro).join(' ')), JSON.stringify(avisosDaVariante(remendadoPorDentro)));
+    checa('num app que declara o hillshade ligado nao ha aviso',
+        avisosDaVariante({ ...provaApp, hillshadeConfigurado: true, hillshadeDeclarado: true }).length === 0);
+    // Resultado gravado antes do campo novo cai no valor vivo, que era o mesmo
+    // naquela epoca: a tabela de uma rodada velha continua se lendo.
+    checa('prova sem o campo novo cai no valor vivo',
+        /LIGADO PELA BANCADA/.test(avisosDaVariante(provaApp).join(' ')), JSON.stringify(avisosDaVariante(provaApp)));
+
+    // --- terreno-dem-unico: o degenerado nomeado e a FONTE NAO TROCADA
+    const unico = VARIANTES['terreno-dem-unico'];
+    const provaUnico = { terreno: true, hillshade: 'visible', hillshadeConfigurado: false, demFontes: 1, demTiles: 25 };
+    const instUnico = { instalado: true, sobreFonteDoTerreno: true, fonteDeclarada: 'fonte-do-hillshade', fonteAlvo: 'fonte-do-terreno', fonteDaCamada: 'fonte-do-terreno', tinta: TINTA, tintaDeclarada: TINTA };
+    const consBoa = { consolidado: true, fonteDoTerreno: 'fonte-do-terreno', fonteDoHillshade: 'fonte-do-terreno', demAntes: ['fonte-do-terreno', 'fonte-do-hillshade'], removidas: ['fonte-do-hillshade'], emUso: [], demDepois: ['fonte-do-terreno'], erroSetTerrain: null };
+    const detUnico = { hillshadeApp: instUnico, consolidacao: consBoa };
+    checa('dem-unico bom passa', unico.validar(provaUnico, detUnico).length === 0, unico.validar(provaUnico, detUnico).join('; '));
+    // O pior caso nomeado no brief: a FONTE NAO TROCADA. A camada continua sobre
+    // a fonte propria do hillshade, e o estilo continua valido.
+    const naoTrocou = unico.validar({ ...provaUnico, demFontes: 2 }, { hillshadeApp: { ...instUnico, fonteDaCamada: 'fonte-do-hillshade' }, consolidacao: { ...consBoa, fonteDoHillshade: 'fonte-do-hillshade', removidas: [], demDepois: ['fonte-do-terreno', 'fonte-do-hillshade'] } });
+    checa('dem-unico com a FONTE NAO TROCADA reprova', naoTrocou.length > 0);
+    checa('a reprova diz que os tiles continuam vindo duas vezes', /pedidos duas vezes/.test(naoTrocou.join(' ')), naoTrocou.join(' '));
+    checa('a reprova nomeia as duas fontes', /fonte-do-hillshade.*fonte-do-terreno/.test(naoTrocou.join(' ')), naoTrocou.join(' '));
+    // O caso que a contagem de fontes sozinha nao pegaria: a camada passou para a
+    // fonte do terreno e OUTRA camada ficou sobre a fonte velha, que por isso nao
+    // se removeu. A consolidacao nao pode calar sobre o que deixou para tras.
+    const sobrou = unico.validar({ ...provaUnico, demFontes: 2 }, { hillshadeApp: instUnico, consolidacao: { ...consBoa, removidas: [], emUso: [{ id: 'fonte-do-hillshade', camadas: ['hillshade-2'] }], demDepois: ['fonte-do-terreno', 'fonte-do-hillshade'] } });
+    checa('dem-unico com fonte de DEM alheia ainda em uso reprova', sobrou.length > 0);
+    checa('a reprova nomeia a fonte que sobrou', /fonte-do-hillshade/.test(sobrou.join(' ')), sobrou.join(' '));
+    checa('dem-unico que nao consolidou reprova',
+        unico.validar({ ...provaUnico, demFontes: 2 }, { hillshadeApp: instUnico, consolidacao: { consolidado: false, motivo: 'getTerrain() nao devolve fonte' } }).length > 0);
+    checa('dem-unico que perdeu a camada reprova', unico.validar({ ...provaUnico, hillshade: 'ausente' }, detUnico).length > 0);
+    // O remendo troca a FONTE da definicao, e mais nada.
+    const tintaPerdida = unico.validar(provaUnico, { hillshadeApp: { ...instUnico, tinta: {} }, consolidacao: consBoa });
+    checa('dem-unico cuja tinta nao e a declarada reprova', tintaPerdida.length > 0);
+    checa('a reprova diz que a celula compara duas camadas diferentes', /duas camadas diferentes/.test(tintaPerdida.join(' ')), tintaPerdida.join(' '));
+    checa('dem-unico cujo setTerrain lancou reprova',
+        unico.validar(provaUnico, { hillshadeApp: instUnico, consolidacao: { ...consBoa, erroSetTerrain: 'cannot load terrain' } }).length > 0);
+    checa('dem-unico com DEM sem tile reprova', unico.validar({ ...provaUnico, demTiles: 0 }, detUnico).length > 0);
+    checa('dem-unico com duas fontes de DEM no fim reprova', unico.validar({ ...provaUnico, demFontes: 2 }, detUnico).length > 0);
+
+    // --- terreno-hillshade-baixo: o degenerado nomeado e a CAMADA NAO MOVIDA
+    const baixo = VARIANTES['terreno-hillshade-baixo'];
+    const provaBaixo = { terreno: true, hillshade: 'visible', hillshadeConfigurado: false, demFontes: 2, demTiles: 103 };
+    const descidaBoa = { movido: true, noAlvo: true, indiceAntes: 40, indiceDepois: 1, primeiroSymbolDepois: 4, alvo: { alvo: 1, ultimaCoberturaBase: 'base-raster', motivo: null } };
+    const detBaixo = { hillshadeApp: { instalado: true }, descida: descidaBoa };
+    checa('hillshade-baixo bom passa', baixo.validar(provaBaixo, detBaixo).length === 0, baixo.validar(provaBaixo, detBaixo).join('; '));
+    const inerte = baixo.validar(provaBaixo, { hillshadeApp: { instalado: true }, descida: { ...descidaBoa, movido: false, indiceAntes: 1, indiceDepois: 1 } });
+    checa('hillshade-baixo com a CAMADA NAO MOVIDA reprova', inerte.length > 0);
+    checa('a reprova diz que o app ja o poe no alvo', /o app JA poe o hillshade no indice 1/.test(inerte.join(' ')), inerte.join(' '));
+    checa('a reprova diz que a variante nao contrasta mais', /nao contrasta mais com/.test(inerte.join(' ')), inerte.join(' '));
+    checa('hillshade-baixo que moveu e errou o alvo reprova',
+        baixo.validar(provaBaixo, { hillshadeApp: { instalado: true }, descida: { ...descidaBoa, noAlvo: false, indiceDepois: 3 } }).length > 0);
+    // A promessa e ficar ABAIXO do primeiro rotulo: moveu, caiu no alvo que o
+    // calculo pediu, e ainda assim ficou por cima.
+    const acimaDoRotulo = baixo.validar(provaBaixo, { hillshadeApp: { instalado: true }, descida: { ...descidaBoa, indiceDepois: 9, noAlvo: true, primeiroSymbolDepois: 4, alvo: { alvo: 9, ultimaCoberturaBase: 'base-raster', motivo: null } } });
+    checa('hillshade-baixo acima do primeiro symbol reprova', acimaDoRotulo.length > 0);
+    checa('a reprova nomeia os dois indices', /indice 9\).*indice 4/.test(acimaDoRotulo.join(' ')), acimaDoRotulo.join(' '));
+    checa('hillshade-baixo sem alvo possivel reprova',
+        baixo.validar(provaBaixo, { hillshadeApp: { instalado: true }, descida: { movido: false, alvo: { alvo: null, motivo: 'a base nao tem camada drapeavel nenhuma' } } }).length > 0);
+    checa('hillshade-baixo sem a camada reprova', baixo.validar({ ...provaBaixo, hillshade: 'ausente' }, detBaixo).length > 0);
+
+    // --- terreno-camadas-agrupadas: o degenerado nomeado e o GRUPO NAO CONTIGUO
+    const grupo = VARIANTES['terreno-camadas-agrupadas'];
+    const provaGrupo = { terreno: true, pilhas: 1, hillshade: 'ausente', hillshadeConfigurado: false };
+    const agrupBom = { aplicado: true, plano: { jaAgrupado: false, quebraPilha: 32, quebraPilhaVisiveis: 9, motivo: null }, ordemBate: true, mudaramDePosicao: 20, pilhasAntes: 9 };
+    checa('camadas-agrupadas bom passa', grupo.validar(provaGrupo, { agrupamento: agrupBom }).length === 0,
+        grupo.validar(provaGrupo, { agrupamento: agrupBom }).join('; '));
+    const naoContiguo = grupo.validar(provaGrupo, { agrupamento: { aplicado: false, plano: { motivo: 'as camadas da base base-rotulo estao DENTRO do bloco do app: agrupar arrastaria a base junto' } } });
+    checa('camadas-agrupadas com o GRUPO NAO CONTIGUO reprova', naoContiguo.length > 0);
+    checa('a reprova repete o motivo do plano', /estao DENTRO do bloco do app/.test(naoContiguo.join(' ')), naoContiguo.join(' '));
+    const jaEstava = grupo.validar(provaGrupo, { agrupamento: { ...agrupBom, plano: { ...agrupBom.plano, jaAgrupado: true } } });
+    checa('camadas-agrupadas num bloco ja agrupado reprova', jaEstava.length > 0);
+    checa('a reprova diz que nao contrasta mais com terreno', /nao contrasta mais com/.test(jaEstava.join(' ')), jaEstava.join(' '));
+    // O pior caso desta variante: a ordem LIDA do mapa nao e a do plano. O
+    // `moveLayer` pode ter falhado numa camada e a contagem de movidas nao sabe.
+    const ordemErrada = grupo.validar(provaGrupo, { agrupamento: { ...agrupBom, ordemBate: false } });
+    checa('camadas-agrupadas cuja ordem lida nao bate com o plano reprova', ordemErrada.length > 0);
+    checa('a reprova diz que a ordem LIDA e que manda', /ordem LIDA do mapa/.test(ordemErrada.join(' ')), ordemErrada.join(' '));
+    checa('camadas-agrupadas em que nada trocou de posicao reprova',
+        grupo.validar(provaGrupo, { agrupamento: { ...agrupBom, mudaramDePosicao: 0 } }).length > 0);
+    // O caso REAL do `--selecionadas 0` nesta arvore: as quebra-pilha do app
+    // estao todas escondidas por fonte vazia, entao nao ha pilha a fundir.
+    const soEscondidas = grupo.validar({ ...provaGrupo, pilhas: 1 }, { agrupamento: { ...agrupBom, plano: { ...agrupBom.plano, quebraPilhaVisiveis: 0 }, pilhasAntes: 1 } });
+    checa('camadas-agrupadas sem quebra-pilha VISIVEL reprova', soEscondidas.length > 0);
+    checa('a reprova diz que nao havia pilha a fundir', /nao havia pilha a fundir/.test(soEscondidas.join(' ')), soEscondidas.join(' '));
+    checa('camadas-agrupadas com a pilha teimosa reprova',
+        grupo.validar({ ...provaGrupo, pilhas: 9 }, { agrupamento: agrupBom }).length > 0);
+}
+eixo21();
 
 console.log(`\n${total - falhas}/${total} passaram.`);
 if (falhas) { console.log(`${falhas} FALHA(S): a bancada nao esta reprovando o que promete pegar.`); process.exit(1); }

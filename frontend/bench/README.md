@@ -7,7 +7,7 @@ em artefato.
 
 - `desempenho-terreno.mjs` mede o custo do QUADRO DO MAPA sob variantes de estado, com terreno e
   sem, e o custo do PASSE DA CAIXA DE SELEÇÃO sob variantes do próprio passe.
-  `autoteste.mjs` prova que ela reprova o insumo degenerado (236 casos, 17 eixos).
+  `autoteste.mjs` prova que ela reprova o insumo degenerado (330 casos, 21 eixos).
 - `ferramentas.mjs` mede o custo de USAR uma ferramenta de desenho: o feedback enquanto o mouse
   anda, o passe de zoom com N feições e a latência de concluir a feição.
   `autoteste-ferramentas.mjs` prova que ela reprova o insumo degenerado (232 casos, 12 eixos).
@@ -157,10 +157,21 @@ Por variante e por cenário, com o mapa já assentado:
   `painter.renderLayer` e os stamps do pool do render-to-texture.
 - **Estado**: pilhas do render-to-texture, tiles de terreno renderizáveis, fontes, camadas,
   visibilidade do hillshade, projeção, pitch e zoom.
+- **DEM, em TRÊS leituras**: `dem tiles` é o tile residente somado sobre todas as fontes
+  `raster-dem` do estilo, `dem ok` é quantos daqueles chegaram de fato (estado `loaded`), e
+  `dem rede` é o pedido de tile de DEM durante o cenário. As três falham por motivos diferentes, e
+  é por isso que são três. A de rede cai sozinha da segunda carga em diante, porque o cache do
+  navegador serve o mesmo tile sem pedir; a de residentes não cai, porque cada fonte que pede o
+  tile ainda o decodifica; e a de carregados é a única que separa relevo de terreno plano, porque
+  tile com erro também é residente.
 
 ### O que a bancada NÃO mede
 
-- **Rede.** Todo cenário começa com o mapa assentado.
+- **Rede, salvo o tile de DEM.** Todo cenário começa com o mapa assentado, e o que ele pede
+  depois disso não entra em nenhuma métrica, com uma exceção declarada: os pedidos de tile de
+  DEM, que a variante `terreno-dem-unico` existe para reduzir. Os prefixos de URL que contam
+  como DEM saem das fontes VIVAS do mapa (o template que a fonte resolveu do TileJSON), nunca de
+  um endereço escrito na bancada.
 - **O relógio em headless.** Com `--headless` o Chromium cai no SwiftShader (GPU emulada por CPU).
   A bancada detecta pelo `WEBGL_debug_renderer_info` e marca `relogio: INVALIDO (GPU emulada)`;
   nesse modo só as CONTAGENS valem.
@@ -174,6 +185,8 @@ node frontend/bench/desempenho-terreno.mjs --rodadas 2
 node frontend/bench/desempenho-terreno.mjs --variantes 2d,terreno --vista alegrete
 node frontend/bench/desempenho-terreno.mjs --bases osm,carta-ortoimagem --variantes 2d,terreno
 node frontend/bench/desempenho-terreno.mjs --variantes terreno --populado --cpu 4
+node frontend/bench/desempenho-terreno.mjs --populado --selecionadas 0,50 --rodadas 3 \
+  --variantes terreno,terreno-hillshade-app,terreno-dem-unico,terreno-hillshade-baixo,terreno-camadas-agrupadas
 ```
 
 | opção | padrão | o que faz |
@@ -206,6 +219,10 @@ Prova que não bate marca a variante INVÁLIDA na tabela, e a bancada segue medi
 | `2d` | estado base, pitch 0, sem terreno | `getTerrain()` nulo e pitch 0 |
 | `terreno` | o botão do app (`TerrainControl._toggleTerrain()`) | `getTerrain()` não nulo, pitch >= 55, ao menos uma pilha, e hillshade `visible` SE o app o declarar habilitado |
 | `terreno-sem-hillshade` | `visibility: none` no hillshade | hillshade `none`; reprova quando o servidor declara hillshade desligado, porque aí ela não contrasta com `terreno` |
+| `terreno-hillshade-app` | o terreno mais o hillshade instalado pelo caminho do PRÓPRIO app | camada `visible` sobre `hillshadeSource`, DUAS fontes `raster-dem` no estilo e tile de DEM residente |
+| `terreno-dem-unico` | o `hillshade` instalado sobre `terrainSource` e a fonte de DEM órfã fora do estilo | camada sobre a fonte do terreno lida do mapa, UMA fonte `raster-dem`, nenhuma fonte de DEM alheia com camada viva, a tinta igual à declarada |
+| `terreno-hillshade-baixo` | o `hillshade` movido para logo acima da última cobertura da BASE e abaixo do primeiro `symbol` | a camada MUDOU de índice, caiu no alvo calculado e ficou abaixo do primeiro `symbol` |
+| `terreno-camadas-agrupadas` | as camadas do app em dois blocos contíguos: as drapeáveis, depois as que quebram pilha | a ordem LIDA do mapa é a do plano, alguma camada trocou de posição, havia quebra-pilha VISÍVEL antes, e as pilhas CAÍRAM |
 | `terreno-quebra-pilha-topo` | move `symbol`, `circle`, `fill-extrusion` e `heatmap` para o topo | alguma camada movida E o número de pilhas CAIU |
 | `terreno-vazias-escondidas` | `visibility: none` nas camadas das fontes GeoJSON sem feição | alguma camada MUDOU de visível para none E a contagem de camadas intacta |
 | `terreno-vazias-removidas` | `removeLayer` e `removeSource` nas mesmas | fontes e camadas caíram |
@@ -214,6 +231,136 @@ Prova que não bate marca a variante INVÁLIDA na tabela, e a bancada segue medi
 Fonte GeoJSON vazia é a que tem coleção com zero feições. Fonte cujo dado é uma URL não dá para
 julgar do lado do cliente, então sai contada à parte em `fontesUrlDesconhecidas` e a bancada NÃO
 mexe nela: descarte silencioso costuma incluir justamente o que se procura.
+
+### As três propostas do relatório da `main`, medidas ANTES de existirem
+
+O relatório `docs/desempenho-terreno-2026-09-04.md` da `main` deixou três mudanças "para
+decidir" (itens 2, 3 e 4). As quatro variantes acima nascem daí, e nenhuma delas toca
+`frontend/src/`: a decisão de adotá-las é do chefe depois dos números, então elas são remendo em
+tempo de execução, como o `terreno-quebra-pilha-topo` já era.
+
+**Item 4, duas fontes de DEM com a mesma URL.** `config.map2d.terrainSource` e
+`config.map2d.hillshadeSource` apontam para o mesmo TileJSON, e o MapLibre pede os mesmos tiles
+duas vezes. `terreno-dem-unico` troca a FONTE na definição que o config declara para a camada, e
+deixa o app instalá-la: o estilo nasce com o `hillshade` sobre a fonte do terreno. Só depois a
+bancada tira do estilo a fonte de DEM que ficou órfã. A ordem importa e foi corrigida por medida:
+instalar a camada sobre a fonte própria e repontá-la depois mede outra coisa, porque a
+`hillshadeSource` já baixou os tiles que a mudança existe para não baixar (67 pedidos contra 25 na
+mesma vista). Do jeito certo, a fonte órfã nunca chega a pedir tile, porque o MapLibre não carrega
+fonte que nenhuma camada usa; ela sai do estilo porque uma variante que se diz "uma fonte de DEM
+só" com duas declaradas estaria mentindo pelo nome.
+
+No fim a bancada chama `setTerrain` de novo, de propósito: é o ÚNICO ponto em que o MapLibre
+percorre as camadas procurando um `hillshade` sobre a fonte do terreno para avisar contra a
+partilha (`maplibre-gl-dev.mjs`, dentro de `setTerrain`, um `warnOnce` por carga). Sem essa chamada
+o aviso nunca sairia, e a ausência dele seria lida como "não avisou". Ele sai, e vai para o
+`resultado.json` da variante.
+
+**Item 3, descer o hillshade.** `terreno-hillshade-baixo` move a camada para logo acima da última
+cobertura DRAPEÁVEL da base e abaixo do primeiro `symbol` do mapa. O alvo se CALCULA
+(`posicaoAlvoDoHillshade`), nunca se escreve: ele depende do estilo base que estiver montado, e um
+índice fixo aqui envelheceria na primeira base nova. O cálculo recusa dois estilos em vez de
+chutar um número: a base sem nenhuma cobertura drapeável (não existe "logo acima da cobertura", e
+devolver 0 poria o hillshade debaixo do mapa inteiro com cara de acerto) e a base cujo primeiro
+rótulo vem ANTES da última cobertura (as duas condições não se satisfazem juntas).
+
+**Item 2, agrupar as camadas do aplicativo.** `terreno-camadas-agrupadas` põe as camadas do app em
+dois blocos contíguos: primeiro as drapeáveis (`fill` e `line`), depois as que quebram pilha (os
+`*-label-layer`, de tipo `symbol`, e os `*-edit-handles-layer`, de tipo `circle`), preservando a
+ordem relativa dentro de cada bloco. O critério de corte é o TIPO, e não o sufixo do nome: é o
+tipo que o render-to-texture usa para decidir se drapeia ou abre pilha nova, e uma lista de
+sufixos deixaria de fora `boundary-handles-layer`, que é alça e não termina em
+`-edit-handles-layer`.
+
+#### O que a bancada NÃO repete do app
+
+| o que ela precisa | de onde ela tira | o que aconteceria com uma cópia local |
+|---|---|---|
+| quais camadas são da BASE e quais são do app | `BaseLayerControl._baseStyleIds`, que o próprio controle monta de `initialBaseStyle()` | uma lista escrita aqui chamaria de "camada do app" o que é da base na próxima base nova |
+| a definição da camada `hillshade` e da fonte de DEM | o `config` que o servidor entregou (`config.map2d.hillshade.layer` e `.hillshadeSource`) | montar a camada aqui mediria a bancada, e não o app |
+| a posição em que o app põe o hillshade | o próprio `TerrainControl.setHillshadeVisibility`, que chama `_addHillshadeLayerInCorrectPosition` | um `beforeId` copiado aprovaria uma descida que o app já fazia |
+| para onde descer, e em que ordem agrupar | calculado da ordem LIDA do mapa | um índice fixo envelheceria a cada base nova |
+| os prefixos de URL que contam como DEM | o template que a fonte VIVA resolveu do TileJSON | um endereço escrito aqui contaria zero pedido, e "não pediu" ficaria indistinguível de "não sei olhar" |
+
+#### As duas armadilhas
+
+**O servidor desta árvore declara `config.map2d.hillshade.enabled` FALSO.** O `TerrainControl` sai
+de `setHillshadeVisibility` na primeira linha, e a camada nunca nasce. As duas variantes de
+hillshade não teriam o que medir, então a bancada liga a bandeira no objeto de configuração VIVO e
+deixa o app instalar a camada e a fonte que o servidor já descreve. A célula sai marcada com
+`HILLSHADE LIGADO PELA BANCADA`, porque ela não se compara com a de um deploy que o liga por
+configuração: lá a camada nasce no boot, aqui ela nasce depois de o mapa estar montado.
+
+**`terreno` não serve de par para as duas variantes de hillshade nesta árvore**, e é por isso que
+existe `terreno-hillshade-app`. Com o hillshade desligado no servidor, `terreno` mede um terreno
+SEM o passe de hillshade, e a diferença contra `terreno-dem-unico` seria a existência da camada,
+não a fonte partilhada. A linha de base das duas é a que tem o hillshade instalado pelo caminho do
+app, com as duas fontes de DEM.
+
+#### O DEM desta árvore não cobre a área medida (2026-09-05)
+
+`config.map2d.terrainSource.url` e `hillshadeSource.url` apontam para
+`demotiles.maplibre.org/terrain-tiles/tiles.json`. O TileJSON declara `bounds` do mundo inteiro e
+`maxzoom` 12, mas o `name` dele é `jaxa_terrainrgb_N047E011`: é UM grau quadrado do AW3D30 da
+JAXA, nos Alpes. Sobre a vista `serra-gaucha` (Gramado, RS) todo tile responde **404**, medido no
+terminal e no navegador. O terreno liga, o `getTerrain()` não é nulo, o render-to-texture monta as
+pilhas, os tiles ficam residentes, e o relevo é PLANO.
+
+Duas consequências para quem lê a tabela. A comparação de RENDER entre `terreno` e
+`terreno-hillshade-app` é vazia: o hillshade não tem o que sombrear e as capturas dos dois saem
+byte a byte idênticas. A comparação de DEM continua valendo, e fica mais forte: os 42 tiles a mais
+que a segunda fonte pede são 42 respostas 404 de cerca de 9 KB cada, e o custo é real mesmo sem um
+pixel de relevo na tela.
+
+#### Números medidos em 2026-09-05 (grade completa, 3 rodadas, a primeira descartada)
+
+Vista `serra-gaucha`, base `carta-topografica`, `--populado` (56 feições persistidas),
+`--selecionadas 0,50`, RTX A2000, janela visível. Cinquenta células por carga de CPU. Célula com
+`mediana (min..max)`.
+
+A pegada de DEM, que é o que o item 4 decide (igual nas duas cargas de CPU):
+
+| variante | fontes `raster-dem` | dem tiles | dem ok | pedidos na montagem | na rotação | no zoom |
+|---|---|---|---|---|---|---|
+| `terreno` | 1 | 25 | 0 | 25 | 26 | 31,5 |
+| `terreno-hillshade-app` | 2 | 67 | 0 | 67 | 63,5 | 44,5 |
+| `terreno-dem-unico` | 1 | 25 | 0 | 25 | 26 | 32 |
+
+O quadro, com 50 selecionadas. A segunda fonte de DEM custa 0,3 a 0,5 ms por quadro com a CPU
+livre, e a coluna que se move junto é `_updateSources`, que é o laço que percorre toda fonte:
+
+| CPU | cenário | render p50, duas fontes | uma fonte | `updSrc/q`, duas | uma |
+|---|---|---|---|---|---|
+| 1x | rotação | 9,9 (9,8..10) | 9,35 (9,3..9,4) | 4,46 (4,38..4,55) | 4,17 (4,16..4,17) |
+| 1x | pan | 10,7 (10,6..10,8) | 10,2 | 5,14 (5,06..5,23) | 4,87 (4,83..4,91) |
+| 1x | zoom | 9,6 (9,4..9,8) | 9,2 (9,1..9,3) | 4,46 (4,37..4,56) | 4,22 (4,17..4,28) |
+| 4x | rotação | 52,85 (52,7..53) | 49,85 (47,9..51,8) | 22,98 | 21,66 (21,02..22,31) |
+| 4x | zoom | 49,1 (48,9..49,3) | 52,2 (51,9..52,5) | 21,54 | 21,3 (20,94..21,67) |
+
+Com a CPU livre as amplitudes não se sobrepõem em rotação, pan e zoom. Com `--cpu 4` o zoom
+INVERTE, e por isso a conclusão do item 4 se apoia na contagem de DEM, que é inequívoca, e não no
+quadro.
+
+O agrupamento (item 2), com 50 selecionadas, é o oposto: quase não muda o quadro com a CPU livre e
+muda muito com ela estrangulada, que é o esperado quando o que se corta é draw call.
+
+| CPU | cenário | draw/q antes | depois | render p50 antes | depois | cadência p95 antes | depois |
+|---|---|---|---|---|---|---|---|
+| 1x | parado | 184 | 32 | 5,25 | 5,05 | 16,85 | 16,85 |
+| 1x | zoom | 229 | 105 | 9,05 | 8,6 | 26,2 (25,2..27,2) | 27,65 (27,3..28) |
+| 1x | pitch | 137,5 | 46 | 6,15 | 6,1 | 16,95 | 17 |
+| 4x | pan | 191,5 | 50 | 46,45 (45,6..47,3) | 45 (44,5..45,5) | 74,1 (73,9..74,3) | 62,85 (61,6..64,1) |
+| 4x | zoom | 393,5 | 239 | 49,25 (48,2..50,3) | 47,65 (47,5..47,8) | 201,9 (200,7..203,1) | 183,3 (175,5..191,1) |
+| 4x | pitch | 150 | 55,5 | 28,8 (28,5..29,1) | 27,75 (27,4..28,1) | 65,1 (62,2..68) | 49,15 (46,7..51,6) |
+
+Pilhas de render-to-texture: 9 para 1 nas duas cargas. Com zero selecionadas não há o que agrupar,
+e a variante sai INVÁLIDA dizendo isso.
+
+`terreno-camadas-agrupadas` e `terreno-quebra-pilha-topo` são **indistinguíveis nesta árvore**,
+medidos na mesma sessão com 50 selecionadas (draw/quadro 33/64/41/103/46 contra 33/63/41/104/46,
+uma pilha nos dois). Com uma base de UMA camada, e ela drapeável, o conjunto que a antiga manda
+para o topo do estilo e o que a nova manda para o fim do bloco do app coincidem. Com a base
+vetorial da `main` elas divergiriam, porque lá a base tem 38 camadas `symbol` próprias.
 
 ### O passe da caixa de seleção (`--selecionadas` e `--passes`)
 
@@ -354,7 +501,32 @@ quantos ficaram desconhecidos):
     quadros está passando fome (foi defeito real nesta árvore); o `zoomend` que roda 47 vezes não
     desligou o ouvinte de `zoom`. E com zero selecionadas a passada não pode rodar, senão a linha
     de base não é a ausência do passe.
-14. **Autoteste.** `node frontend/bench/autoteste.mjs`: 236 casos em 17 eixos.
+14. **A posição alvo do hillshade existe.** Base sem nenhuma cobertura drapeável não tem "logo
+    acima da cobertura", e base cujo primeiro rótulo vem ANTES da última cobertura não tem posição
+    que satisfaça as duas condições. Nos dois casos a variante sai INVÁLIDA em vez de escolher um
+    índice qualquer.
+15. **A variante de posição MOVEU alguma coisa.** `terreno-hillshade-baixo` cuja camada já estava
+    no alvo, e `terreno-camadas-agrupadas` cujo bloco já estava agrupado, saem INVÁLIDAS com
+    "não contrasta mais": duas linhas iguais com nomes diferentes são pior que uma linha a menos.
+16. **A ordem é LIDA do mapa, nunca do retorno de quem moveu.** O agrupamento compara o bloco lido
+    depois do remendo com o plano, camada a camada. Reordenar uma lista já ordenada move todas e
+    não muda nada, então a contagem de `moveLayer` chamados não prova coisa alguma.
+17. **Havia pilha a fundir.** Camada com `visibility: none` não entra em pilha de
+    render-to-texture. Um agrupamento que só reordena camada escondida sai INVÁLIDO, porque a
+    célula sairia igual à de `terreno` com outro nome. É o que acontece com `--selecionadas 0`
+    nesta árvore: as 32 camadas quebra-pilha do app estão todas escondidas por fonte vazia.
+18. **O leitor de DEM não está cego, e a cobertura do DEM não passa calada.** São duas perguntas
+    diferentes, e juntá-las numa deixaria a segunda aprovada por omissão. Estilo sem fonte
+    `raster-dem`, ou fonte de DEM sem tile RESIDENTE, é defeito da bancada e INVALIDA o caso.
+    Tile residente que veio com ERRO é outra coisa: o servidor respondeu e a leitura funcionou, o
+    que falta é dado, e isso vira `DEM SEM COBERTURA` no veredito de toda célula. A diferença
+    importa porque a contagem de residentes APROVA um DEM que devolveu 404 inteiro: `getTerrain()`
+    continua não nulo, o render-to-texture roda, as pilhas existem, e o relevo é PLANO. Só o
+    ESTADO de cada tile separa os dois, e é por isso que a tabela tem `dem tiles` e `dem ok`.
+    Na bancada INTEIRA, zero PEDIDO de tile de DEM em todas as cargas com terreno invalida o
+    relógio, porque aí ou o prefixo de URL está errado ou o host não responde. Por carga isolada o
+    zero é legítimo (o cache serve), e é por isso que o escopo dessa régua é a bancada, não o caso.
+19. **Autoteste.** `node frontend/bench/autoteste.mjs`: 330 casos em 21 eixos.
 
 ### A tabela de referência está VAZIA, e isso é declarado
 

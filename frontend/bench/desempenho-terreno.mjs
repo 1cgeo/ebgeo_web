@@ -1,8 +1,9 @@
 // Bancada de desempenho do EBGeo Web: terreno, render-to-texture e pilhas.
 //
 // Mede o custo do quadro (map._render), o intervalo entre quadros, as fases do
-// MapLibre e os contadores de GL, sob variantes de estado do mapa. Cada variante
-// parte de uma recarga da pagina e devolve a PROVA de que aplicou o que prometeu.
+// MapLibre, os contadores de GL e o tile de DEM (residente e pedido na rede),
+// sob variantes de estado do mapa. Cada variante parte de uma recarga da pagina
+// e devolve a PROVA de que aplicou o que prometeu.
 // A bancada reprova a si mesma antes de medir: renderer emulado invalida o
 // relogio, aba oculta invalida a rodada, cadencia ociosa do rAF acima de 25 ms
 // (p95) invalida a rodada, e o modulo que a bancada importou tem de ser o MESMO
@@ -45,11 +46,46 @@ const ORDEM_VARIANTES = [
     '2d',
     'terreno',
     'terreno-sem-hillshade',
+    'terreno-hillshade-app',
+    'terreno-dem-unico',
+    'terreno-hillshade-baixo',
+    'terreno-camadas-agrupadas',
     'terreno-quebra-pilha-topo',
     'terreno-vazias-escondidas',
     'terreno-vazias-removidas',
     'terreno-vazias-escondidas-quebra-pilha-topo',
 ];
+
+// As tres propostas do relatorio da `main` de 2026-09-04 ("O que fica para
+// decidir", itens 2, 3 e 4), medidas ANTES de existirem no app. Todas as tres
+// nascem de remendo em tempo de execucao, porque adota-las e decisao do chefe
+// depois dos numeros.
+//
+//   terreno-hillshade-app     a linha de base das duas de hillshade: o terreno
+//                             ligado E o hillshade instalado pelo caminho do
+//                             PROPRIO app (`TerrainControl.setHillshadeVisibility`),
+//                             com duas fontes de DEM apontando para a mesma URL.
+//   terreno-dem-unico         o mesmo, com a camada `hillshade` repontada para
+//                             `terrainSource` e a `hillshadeSource` fora do
+//                             estilo. O `setTerrain` e chamado de novo depois da
+//                             troca, que e a ordem que a adocao real teria, e e
+//                             o unico momento em que o MapLibre emite o aviso
+//                             contra partilhar a fonte.
+//   terreno-hillshade-baixo   o `hillshade` movido para logo acima da ultima
+//                             cobertura da BASE e abaixo do primeiro `symbol`,
+//                             em vez de onde o app o poe.
+//   terreno-camadas-agrupadas as camadas do app em dois blocos contiguos: as
+//                             drapeaveis (fill, line) primeiro, depois as que
+//                             quebram pilha (os `*-label-layer` de tipo `symbol`
+//                             e os `*-edit-handles-layer` de tipo `circle`),
+//                             preservando a ordem relativa dentro de cada bloco.
+//
+// Nenhuma delas repete uma constante do app: a lista de camadas da BASE sai de
+// `BaseLayerControl._baseStyleIds` (que o proprio controle monta de
+// `initialBaseStyle()`), a definicao do hillshade e da fonte de DEM sai do
+// `config` que o servidor entregou, e a posicao alvo se calcula da ordem lida
+// do mapa. Um id escrito aqui envelheceria sozinho, e o modo de falha seria
+// medir o app intacto com o nome da variante.
 
 const ORDEM_CENARIOS = ['parado', 'rotacao', 'pan', 'zoom', 'pitch'];
 
@@ -442,10 +478,160 @@ function validarLeituraDeTiles(resumo) {
 function avisosDaVariante(prova) {
     if (!prova) return [];
     const avisos = [];
-    if (prova.terreno && prova.hillshadeConfigurado === false) {
+    // O que o SERVIDOR declarou na carga, e nao o valor vivo: a variante que
+    // instala o hillshade liga a bandeira no proprio objeto de configuracao do
+    // app, entao ler o valor vivo aqui devolveria "o servidor o tem" para uma
+    // camada que a bancada acabou de criar. Resultado gravado antes deste campo
+    // existir cai no valor vivo, que era o mesmo naquela epoca.
+    const declarado = prova.hillshadeDeclarado === undefined ? prova.hillshadeConfigurado : prova.hillshadeDeclarado;
+    // O hillshade LIGADO num app cujo servidor o declara desligado so pode ter
+    // vindo da bancada, e essa celula nao se compara com a de um deploy que o
+    // tem por configuracao: la a camada nasce no boot, aqui ela nasce depois de
+    // o mapa ja estar montado. Vem antes do aviso de ausencia porque os dois sao
+    // o mesmo campo lido nos dois sentidos.
+    if (prova.terreno && declarado === false && prova.hillshade === 'visible') {
+        avisos.push('HILLSHADE LIGADO PELA BANCADA (o servidor o declara desligado): a camada nasceu depois do boot, e nao no boot');
+    } else if (prova.terreno && declarado === false) {
         avisos.push('SEM HILLSHADE (o servidor o declara desligado): o custo medido nao inclui o passe de hillshade');
     }
+    // O DEM sem cobertura na area medida. O servidor responde, os tiles ficam
+    // residentes, o `getTerrain()` nao e nulo e o render-to-texture roda: so o
+    // ESTADO de cada tile separa "relevo" de "plano com o nome de relevo". Aviso
+    // e nao erro pelo mesmo motivo do hillshade acima: reprovar mediria a
+    // cobertura do servidor de DEM, e nao a variante. Calar seria pior, porque a
+    // celula sairia comparavel com a de uma area que tem elevacao.
+    if (prova.terreno && prova.demTiles > 0 && prova.demCarregados === 0) {
+        avisos.push(`DEM SEM COBERTURA (${prova.demErro || prova.demTiles} de ${prova.demTiles} tiles de elevacao vieram com erro): o relevo medido e PLANO e o hillshade nao tem o que sombrear`);
+    } else if (prova.terreno && prova.demErro > 0 && prova.demCarregados > 0) {
+        avisos.push(`DEM PARCIAL (${prova.demErro} de ${prova.demTiles} tiles de elevacao vieram com erro)`);
+    }
     return avisos;
+}
+
+// --------------------------------------------------------------------------
+// Reguas puras da ORDEM DE CAMADAS.
+//
+// As duas variantes de posicao (`terreno-hillshade-baixo` e
+// `terreno-camadas-agrupadas`) nao se provam por "a funcao rodou": elas se
+// provam pela ordem LIDA do mapa depois do remendo. O calculo do alvo mora aqui,
+// puro, para o autoteste poder construir o pior caso de cada uma sem navegador.
+// --------------------------------------------------------------------------
+
+/**
+ * Onde o `hillshade` tem de ficar para parar de lavar o rotulo: logo acima da
+ * ultima cobertura DRAPEAVEL da base e abaixo do primeiro `symbol` do mapa.
+ *
+ * O pior caso que ela existe para pegar e o alvo que nao existe: um estilo base
+ * sem nenhuma cobertura drapeavel (so `symbol`, por exemplo) nao tem "logo
+ * acima da cobertura", e devolver 0 ali poria o hillshade debaixo do mapa
+ * inteiro com cara de acerto.
+ *
+ * @param {Array<{id: string, type: string}>} camadas - A ordem lida do mapa
+ * @param {string[]} idsDaBase - Os ids que o app declara como sendo da base
+ * @returns {{alvo: number|null, beforeId: string|null, ultimaCoberturaBase: string|null, primeiroSymbol: string|null, motivo: string|null}}
+ */
+function posicaoAlvoDoHillshade(camadas, idsDaBase) {
+    const daBase = new Set(idsDaBase || []);
+    const lista = camadas || [];
+    if (!lista.length) return { alvo: null, beforeId: null, ultimaCoberturaBase: null, primeiroSymbol: null, motivo: 'o mapa nao devolveu camada nenhuma' };
+    if (!daBase.size) return { alvo: null, beforeId: null, ultimaCoberturaBase: null, primeiroSymbol: null, motivo: 'a bancada nao leu os ids da base do app: sem eles nao ha "cobertura da base"' };
+    let ultima = -1;
+    for (let i = 0; i < lista.length; i++) {
+        const l = lista[i];
+        if (l.id === 'hillshade') continue;
+        if (daBase.has(l.id) && TIPOS_DRAPEAVEIS.has(l.type)) ultima = i;
+    }
+    if (ultima < 0) {
+        return { alvo: null, beforeId: null, ultimaCoberturaBase: null, primeiroSymbol: null, motivo: 'a base nao tem camada drapeavel nenhuma: nao existe "logo acima da cobertura"' };
+    }
+    const iSymbol = lista.findIndex((l) => l.type === 'symbol');
+    const primeiroSymbol = iSymbol >= 0 ? lista[iSymbol].id : null;
+    // O alvo e a posicao SEGUINTE a ultima cobertura, contada na lista sem o
+    // hillshade: e assim que ela se compara com a posicao lida depois do
+    // movimento, que tambem exclui o proprio hillshade do que esta abaixo dele.
+    const semHillshade = lista.filter((l) => l.id !== 'hillshade');
+    const alvo = semHillshade.findIndex((l) => l.id === lista[ultima].id) + 1;
+    const beforeId = alvo < semHillshade.length ? semHillshade[alvo].id : null;
+    if (iSymbol >= 0 && semHillshade.findIndex((l) => l.id === primeiroSymbol) < alvo) {
+        return { alvo: null, beforeId: null, ultimaCoberturaBase: lista[ultima].id, primeiroSymbol, motivo: `o primeiro symbol (${primeiroSymbol}) vem ANTES da ultima cobertura da base (${lista[ultima].id}): nao ha posicao que satisfaca as duas condicoes` };
+    }
+    return { alvo, beforeId, ultimaCoberturaBase: lista[ultima].id, primeiroSymbol, motivo: null };
+}
+
+/**
+ * A ordem que `terreno-camadas-agrupadas` quer: as camadas do APP em dois blocos
+ * contiguos, as drapeaveis primeiro, cada bloco na ordem relativa que ja tinha.
+ *
+ * Os dois piores casos que ela existe para pegar: a camada do app espalhada
+ * entre camadas da base (mover o bloco passaria por cima da base, e o plano tem
+ * de RECUSAR em vez de reordenar o mapa inteiro), e o bloco que ja esta agrupado
+ * (a variante nao contrasta com nada e a celula sairia igual a de `terreno` com
+ * outro nome).
+ *
+ * @param {Array<{id: string, type: string, vis?: string}>} camadas - A ordem lida do mapa
+ * @param {string[]} idsDaBase - Os ids que o app declara como sendo da base
+ * @returns {{ordem: string[]|null, beforeId: string|null, drapeaveis: number, quebraPilha: number, quebraPilhaVisiveis: number, jaAgrupado: boolean, motivo: string|null}}
+ */
+function planoDeAgrupamento(camadas, idsDaBase) {
+    const vazio = { ordem: null, beforeId: null, drapeaveis: 0, quebraPilha: 0, quebraPilhaVisiveis: 0, jaAgrupado: false, motivo: null };
+    const daBase = new Set(idsDaBase || []);
+    const lista = camadas || [];
+    if (!lista.length) return { ...vazio, motivo: 'o mapa nao devolveu camada nenhuma' };
+    if (!daBase.size) return { ...vazio, motivo: 'a bancada nao leu os ids da base do app: sem eles nao ha como separar o app da base' };
+    const indices = [];
+    for (let i = 0; i < lista.length; i++) if (!daBase.has(lista[i].id)) indices.push(i);
+    if (!indices.length) return { ...vazio, motivo: 'nenhuma camada fora da base: o app nao pos camada no mapa' };
+    // Contiguidade: o bloco do app tem de ser um intervalo. Se a base atravessa
+    // o bloco, mover tudo para o fim do bloco arrastaria camada da base junto.
+    const contiguo = indices[indices.length - 1] - indices[0] + 1 === indices.length;
+    if (!contiguo) {
+        const noMeio = [];
+        for (let i = indices[0]; i <= indices[indices.length - 1]; i++) if (daBase.has(lista[i].id)) noMeio.push(lista[i].id);
+        return { ...vazio, motivo: `as camadas da base ${noMeio.slice(0, 3).join(', ')} estao DENTRO do bloco do app: agrupar arrastaria a base junto` };
+    }
+    const bloco = indices.map((i) => lista[i]);
+    const drapeaveis = bloco.filter((l) => TIPOS_DRAPEAVEIS.has(l.type));
+    const quebra = bloco.filter((l) => !TIPOS_DRAPEAVEIS.has(l.type));
+    const ordem = [...drapeaveis, ...quebra].map((l) => l.id);
+    const atual = bloco.map((l) => l.id);
+    const jaAgrupado = ordem.every((id, i) => id === atual[i]);
+    const depoisDoBloco = indices[indices.length - 1] + 1;
+    return {
+        ordem,
+        beforeId: depoisDoBloco < lista.length ? lista[depoisDoBloco].id : null,
+        drapeaveis: drapeaveis.length,
+        quebraPilha: quebra.length,
+        // Camada escondida nao entra em pilha de RTT: um bloco cujo unico
+        // quebra-pilha esta `none` reordena e nao funde nada.
+        quebraPilhaVisiveis: quebra.filter((l) => l.vis !== 'none').length,
+        jaAgrupado,
+        motivo: null,
+    };
+}
+
+/**
+ * O leitor de DEM esta CEGO?
+ *
+ * A regua responde por UMA pergunta: a bancada esta olhando a fonte de elevacao?
+ * Ela nao responde pela COBERTURA, e a separacao e deliberada. Sem fonte
+ * `raster-dem` no estilo, ou sem tile residente nenhum, a bancada nao esta
+ * lendo nada, e isso e defeito dela. Tile residente que veio com ERRO e outra
+ * coisa: o servidor respondeu, a leitura funcionou, e o que falta e dado, o que
+ * sai como AVISO em toda celula (`avisosDaVariante`) porque reprovar ali mediria
+ * a cobertura do servidor de DEM.
+ *
+ * O pior caso desta regua e o instrumento cego: alguem trocar `getTileByID` por
+ * um leitor que devolve lista vazia, e toda celula sair com o terreno "medido".
+ *
+ * @param {Object} prova - A prova do estado do mapa
+ * @returns {string[]} Motivos de reprova
+ */
+function validarLeituraDeDem(prova) {
+    if (!prova || !prova.terreno) return [];
+    const erros = [];
+    if (!prova.demFontes) erros.push('nenhuma fonte raster-dem no estilo com o terreno ligado: a bancada nao esta lendo a fonte de elevacao');
+    else if (!prova.demTiles) erros.push(`as ${prova.demFontes} fontes de DEM nao tem tile residente nenhum: a bancada nao esta lendo a fonte de elevacao`);
+    return erros;
 }
 
 /**
@@ -688,6 +874,13 @@ async function carregarModulosDoApp() {
     window.__fontesDoApp = Object.values(lc.FEATURE_SOURCES || {});
     const cfg = await import(urls.config);
     window.__config = cfg.default || cfg;
+    // O que o SERVIDOR declarou, lido na carga e guardado antes de qualquer
+    // remendo. `TerrainControl.hillshadeConfig` E o mesmo objeto que
+    // `config.map2d.hillshade`, entao a variante que liga a bandeira para
+    // instalar o hillshade tambem apaga o rastro de que ele vinha desligado. Sem
+    // esta copia, a celula sairia com cara de deploy que o tem por configuracao.
+    const h2d = window.__config && window.__config.map2d && window.__config.map2d.hillshade;
+    window.__hillshadeDeclarado = !!(h2d && h2d.enabled);
     return urls;
 }
 
@@ -893,6 +1086,10 @@ function lerProva() {
     // custa caro e a celula sairia comparavel com uma que o tem.
     const cfg = window.__config || {};
     const hillshadeConfigurado = !!(cfg.map2d && cfg.map2d.hillshade && cfg.map2d.hillshade.enabled);
+    // O valor da CARGA, guardado antes de qualquer remendo. O de cima e o valor
+    // VIVO, e a variante que instala o hillshade o vira para true, porque o
+    // objeto de configuracao do controle e o mesmo do config.
+    const hillshadeDeclarado = window.__hillshadeDeclarado === undefined ? hillshadeConfigurado : !!window.__hillshadeDeclarado;
     const rtt = map.painter.renderToTexture;
     const tm = map.style.tileManagers || map.style.sourceCaches || {};
     const tilesPorFonte = {};
@@ -913,17 +1110,50 @@ function lerProva() {
         const dados = src && typeof src.serialize === 'function' ? src.serialize().data : (src && src._data);
         if (dados && Array.isArray(dados.features)) feicoes += dados.features.length;
     }
+    // Tile de DEM, somado sobre TODAS as fontes `raster-dem`, em DUAS contagens.
+    //
+    // `demTiles` e o RESIDENTE, e e a medida da duplicacao que
+    // `terreno-dem-unico` ataca: o cache de HTTP do navegador nao a falseia,
+    // porque a contagem de PEDIDO cai sozinha na segunda carga e a de tile
+    // residente nao. `demCarregados` e o que chegou de fato (estado `loaded`), e
+    // ele existe porque tile ERRADO tambem e residente: um servidor de DEM que
+    // devolve 404 em toda a area deixa a contagem de residentes cheia, o
+    // `getTerrain()` nao nulo, o render-to-texture rodando, e o relevo PLANO. Ler
+    // so a de residentes aprovaria esse estado com o nome de terreno, e foi o
+    // estado medido nesta maquina em 2026-09-05.
+    const fontesDem = Object.keys(estiloAtual.sources).filter((id) => estiloAtual.sources[id].type === 'raster-dem');
+    let demTiles = 0;
+    let demCarregados = 0;
+    let demErro = 0;
+    for (const id of fontesDem) {
+        const cache = tm[id];
+        const chaves = cache && cache.getIds ? cache.getIds() : [];
+        for (const k of chaves) {
+            // `getIds()` devolve CHAVE, e quem aceita chave e `getTileByID`.
+            const t = cache.getTileByID ? cache.getTileByID(k) : (cache.getTile ? cache.getTile(k) : (cache._tiles && cache._tiles[k]));
+            const estado = t && t.state ? t.state : '?';
+            demTiles++;
+            if (estado === 'loaded') demCarregados++;
+            else if (estado === 'errored') demErro++;
+        }
+    }
     return {
         terreno: !!map.getTerrain(),
         estilo: estiloAtual.name || null,
         feicoes,
         camadasVisiveis,
+        demFontes: fontesDem.length,
+        demIds: fontesDem,
+        demTiles,
+        demCarregados,
+        demErro,
         pilhas: rtt && rtt._stacks ? rtt._stacks.length : null,
         tilesTerreno: rtt ? (rtt._renderableTiles ? rtt._renderableTiles.length : null) : null,
         fontes: Object.keys(map.getStyle().sources).length,
         camadas: map.getStyle().layers.length,
         hillshade: map.getLayer('hillshade') ? (map.getLayoutProperty('hillshade', 'visibility') || 'visible') : 'ausente',
         hillshadeConfigurado,
+        hillshadeDeclarado,
         projecao,
         pitch: +map.getPitch().toFixed(1),
         zoom: +map.getZoom().toFixed(2),
@@ -931,6 +1161,169 @@ function lerProva() {
         visibilidade: document.visibilityState,
         pool: rtt && rtt.pool ? { objetos: rtt.pool._objects ? rtt.pool._objects.length : null } : null,
         tilesPorFonte,
+    };
+}
+
+// --------------------------------------------------------------------------
+// Ordem de camadas e hillshade, do lado da pagina. Estas funcoes so LEEM e
+// MOVEM: quem decide para onde e o calculo puro do lado do Node, que e o que o
+// autoteste ve reprovar.
+// --------------------------------------------------------------------------
+
+// A ordem do estilo com o que as reguas precisam, mais os ids que o app declara
+// como sendo da BASE. Os ids saem de `BaseLayerControl._baseStyleIds`, que o
+// proprio controle monta de `initialBaseStyle()`: uma lista escrita aqui
+// envelheceria a cada base nova, e o modo de falha seria chamar de "camada do
+// app" o que e da base.
+function lerOrdemDeCamadas() {
+    const map = window.__mapa;
+    const camadas = map.getStyle().layers.map((l) => ({
+        id: l.id,
+        type: l.type,
+        source: l.source || null,
+        vis: (l.layout && l.layout.visibility) || 'visible',
+    }));
+    const ctl = window.__store && window.__store.getControl ? window.__store.getControl('BaseLayerControl') : null;
+    const ids = ctl && ctl._baseStyleIds && ctl._baseStyleIds.layers ? [...ctl._baseStyleIds.layers] : [];
+    return {
+        camadas,
+        idsDaBase: ids,
+        // Presentes de fato: o controle guarda os ids da base com que o mapa
+        // NASCEU, e uma troca de base deixaria ids que ja nao estao no mapa.
+        idsDaBasePresentes: ids.filter((id) => !!map.getLayer(id)),
+        indiceDoHillshade: camadas.findIndex((l) => l.id === 'hillshade'),
+    };
+}
+
+// Instala o hillshade pelo caminho do PROPRIO app. O `TerrainControl` sai de
+// `setHillshadeVisibility` na primeira linha quando o servidor declara
+// `config.map2d.hillshade.enabled` falso, e nesta arvore ele declara. Ligar a
+// bandeira no objeto de configuracao VIVO e o que faz o app instalar a camada e
+// a fonte que o servidor ja descreveu, na posicao que o app escolhe
+// (`_addHillshadeLayerInCorrectPosition`). A alternativa, montar a camada aqui,
+// repetiria a definicao do app e mediria a bancada.
+// `sobreFonteDoTerreno` e o que separa a linha de base da variante do item 4. A
+// adocao real nao remenda o mapa montado: ela muda a fonte que o config declara
+// para a camada, e o estilo ja NASCE com uma fonte de DEM so. Repontar a camada
+// depois de montada mediria outra coisa, porque a `hillshadeSource` ja teria
+// baixado os tiles que a mudanca existe para nao baixar.
+function instalarHillshadePagina({ sobreFonteDoTerreno } = {}) {
+    const map = window.__mapa;
+    const ctl = window.__store.getControl('TerrainControl');
+    if (!ctl) return { instalado: false, motivo: 'TerrainControl ausente no registro do app' };
+    if (!ctl.hillshadeConfig) return { instalado: false, motivo: 'o app nao tem config.map2d.hillshade: nao ha camada a instalar' };
+    if (!ctl.hillshadeConfig.layer) return { instalado: false, motivo: 'config.map2d.hillshade.layer ausente: o servidor nao descreve a camada' };
+    if (!ctl.hillshadeSourceConfig) return { instalado: false, motivo: 'config.map2d.hillshadeSource ausente: o servidor nao descreve a fonte de DEM do hillshade' };
+    const declaradoPeloServidor = !!ctl.hillshadeConfig.enabled;
+    const jaEstava = !!map.getLayer('hillshade');
+    // A tinta que o SERVIDOR declara, copiada antes de qualquer remendo: e contra
+    // ela que a camada instalada se confere, e nao contra ela mesma.
+    const tintaDeclarada = JSON.parse(JSON.stringify(ctl.hillshadeConfig.layer.paint || {}));
+    const fonteDeclarada = ctl.hillshadeConfig.layer.source;
+    let fonteAlvo = fonteDeclarada;
+    if (sobreFonteDoTerreno) {
+        const t = map.getTerrain();
+        if (!t || !t.source) return { instalado: false, motivo: 'getTerrain() nao devolve fonte: nao ha para onde apontar a camada' };
+        fonteAlvo = t.source;
+        // Copia, nunca escrita no objeto do config: o campo declarado tem de
+        // continuar legivel para a prova.
+        ctl.hillshadeConfig.layer = { ...ctl.hillshadeConfig.layer, source: fonteAlvo };
+    }
+    ctl.hillshadeConfig.enabled = true;
+    let erro = null;
+    try { ctl.setHillshadeVisibility(true); } catch (e) { erro = String(e && e.message ? e.message : e); }
+    const camadas = map.getStyle().layers;
+    const i = camadas.findIndex((l) => l.id === 'hillshade');
+    const spec = i >= 0 ? camadas[i] : null;
+    return {
+        instalado: i >= 0,
+        motivo: i >= 0 ? null : (erro || 'o app nao adicionou a camada hillshade'),
+        erro,
+        declaradoPeloServidor,
+        jaEstava,
+        sobreFonteDoTerreno: !!sobreFonteDoTerreno,
+        fonteDeclarada,
+        fonteAlvo,
+        indice: i,
+        total: camadas.length,
+        fonteDaCamada: spec ? spec.source : null,
+        temFonteDoHillshade: !!map.getSource(fonteDeclarada),
+        visibilidade: spec && spec.layout ? (spec.layout.visibility || 'visible') : 'visible',
+        // A tinta lida do MAPA contra a que o servidor declara: sao duas leituras
+        // independentes, e o remendo da fonte nao pode mexer numa delas.
+        tinta: spec ? JSON.parse(JSON.stringify(spec.paint || {})) : null,
+        tintaDeclarada,
+        // As vizinhas, lidas do mapa: e por elas que se sabe onde o app pos a
+        // camada, sem a bancada repetir o `beforeId` que o app usa.
+        abaixo: i > 0 ? camadas[i - 1].id : null,
+        acima: i >= 0 && i + 1 < camadas.length ? camadas[i + 1].id : null,
+    };
+}
+
+// Tira do estilo toda fonte `raster-dem` que nenhuma camada usa e que nao e a do
+// terreno. Depois da instalacao sobre a fonte do terreno, a `hillshadeSource`
+// fica declarada e ORFA: o MapLibre nao baixa tile de fonte sem camada, entao
+// ela ja nao custa rede, mas continua contando como fonte, e uma variante que se
+// diz "uma fonte de DEM so" com duas no estilo estaria mentindo pelo nome.
+//
+// O `setTerrain` roda de novo no fim de proposito. E o UNICO ponto em que o
+// MapLibre percorre as camadas procurando um `hillshade` sobre a fonte do
+// terreno para avisar contra a partilha. Sem esta chamada o aviso que o brief
+// manda registrar nunca sairia, e a ausencia dele seria lida como "nao avisou".
+function consolidarFonteDeDemPagina() {
+    const map = window.__mapa;
+    const terreno = map.getTerrain();
+    if (!terreno || !terreno.source) return { consolidado: false, motivo: 'getTerrain() nao devolve fonte' };
+    const estilo = map.getStyle();
+    const demAntes = Object.keys(estilo.sources).filter((id) => estilo.sources[id].type === 'raster-dem');
+    const removidas = [];
+    const emUso = [];
+    for (const id of demAntes) {
+        if (id === terreno.source) continue;
+        const usam = map.getStyle().layers.filter((l) => l.source === id).map((l) => l.id);
+        if (usam.length) { emUso.push({ id, camadas: usam }); continue; }
+        map.removeSource(id);
+        removidas.push(id);
+    }
+    let erroSetTerrain = null;
+    try { map.setTerrain(terreno); } catch (e) { erroSetTerrain = String(e && e.message ? e.message : e); }
+    const depois = map.getStyle();
+    const camadas = depois.layers;
+    const j = camadas.findIndex((l) => l.id === 'hillshade');
+    return {
+        consolidado: true,
+        fonteDoTerreno: terreno.source,
+        demAntes,
+        removidas,
+        // Fonte de DEM orfa que a variante NAO removeu por ainda ter camada: a
+        // consolidacao nao pode calar sobre o que deixou para tras.
+        emUso,
+        demDepois: Object.keys(depois.sources).filter((id) => depois.sources[id].type === 'raster-dem'),
+        indiceDoHillshade: j,
+        fonteDoHillshade: j >= 0 ? camadas[j].source : null,
+        tintaDepois: j >= 0 ? (camadas[j].paint || {}) : null,
+        erroSetTerrain,
+    };
+}
+
+// Aplica uma ordem calculada do lado do Node. Move cada camada, na ordem pedida,
+// para logo antes da ancora; sem ancora, para o topo.
+function reordenarCamadasPagina({ ordem, beforeId }) {
+    const map = window.__mapa;
+    const antes = map.getStyle().layers.map((l) => l.id);
+    let movidas = 0;
+    for (const id of ordem) {
+        if (!map.getLayer(id)) continue;
+        if (beforeId && map.getLayer(beforeId)) map.moveLayer(id, beforeId); else map.moveLayer(id);
+        movidas++;
+    }
+    const depois = map.getStyle().layers.map((l) => l.id);
+    return {
+        movidas,
+        // Quantas trocaram de POSICAO de fato: reordenar uma lista ja ordenada
+        // move todas e nao muda nada, e contar `movidas` aprovaria a variante inerte.
+        mudaramDePosicao: depois.filter((id, i) => antes[i] !== id).length,
+        ordemDepois: depois,
     };
 }
 
@@ -1501,6 +1894,146 @@ const VARIANTES = {
             return erros;
         },
     },
+    // A linha de base das duas variantes de hillshade. `terreno` sozinho nao
+    // serve de par para elas nesta arvore: o servidor declara o hillshade
+    // desligado, entao `terreno` mede um terreno SEM o passe de hillshade, e a
+    // diferenca contra `terreno-dem-unico` seria a existencia da camada, nao a
+    // fonte partilhada.
+    'terreno-hillshade-app': {
+        terreno: true,
+        aplicar: async (ctx) => {
+            const t = await ctx.ligarTerreno();
+            const h = await ctx.instalarHillshade();
+            return { ...t, hillshadeApp: h };
+        },
+        validar: (prova, detalhe) => {
+            const erros = [];
+            const h = detalhe.hillshadeApp || {};
+            if (!prova.terreno) erros.push('getTerrain() nulo');
+            if (!h.instalado) erros.push(`o hillshade nao entrou pelo caminho do app: ${h.motivo || 'sem motivo'}`);
+            if (prova.hillshade !== 'visible') erros.push(`hillshade ${prova.hillshade}, esperado visible depois de instalado`);
+            // A fonte esperada e a que o CONFIG declara para a camada, nunca um id
+            // escrito aqui: a linha de base e "como o servidor manda", e um
+            // `hillshadeSource` a mao reprovaria um servidor que renomeasse a fonte.
+            if (h.instalado && h.fonteDaCamada !== h.fonteDeclarada) {
+                erros.push(`a camada nasceu sobre "${h.fonteDaCamada}", e o servidor a declara sobre "${h.fonteDeclarada}"`);
+            }
+            if (h.sobreFonteDoTerreno) erros.push('a linha de base nao pode instalar a camada sobre a fonte do terreno: seria a outra variante');
+            if (h.instalado && JSON.stringify(h.tinta || {}) !== JSON.stringify(h.tintaDeclarada || {})) {
+                erros.push('a tinta da camada instalada nao e a que o servidor declara');
+            }
+            // Duas fontes de DEM E o que esta variante existe para representar.
+            if (prova.demFontes !== 2) erros.push(`${prova.demFontes} fonte(s) raster-dem no estilo, e a linha de base tem duas (terreno e hillshade)`);
+            erros.push(...validarLeituraDeDem(prova));
+            return erros;
+        },
+    },
+    'terreno-dem-unico': {
+        terreno: true,
+        aplicar: async (ctx) => {
+            const t = await ctx.ligarTerreno();
+            const h = await ctx.instalarHillshade({ sobreFonteDoTerreno: true });
+            const s = await ctx.consolidarFonteDeDem();
+            return { ...t, hillshadeApp: h, consolidacao: s };
+        },
+        validar: (prova, detalhe) => {
+            const erros = [];
+            const h = detalhe.hillshadeApp || {};
+            const s = detalhe.consolidacao || {};
+            if (!prova.terreno) erros.push('getTerrain() nulo');
+            if (!h.instalado) erros.push(`o hillshade nao entrou pelo caminho do app: ${h.motivo || 'sem motivo'}`);
+            if (!s.consolidado) erros.push(`a fonte de DEM nao se consolidou: ${s.motivo || 'sem motivo'}`);
+            // A prova de que a camada esta sobre a fonte do TERRENO se le do mapa
+            // (`fonteDoHillshade`), e nao do que a bancada pediu.
+            if (s.consolidado && s.fonteDoHillshade !== s.fonteDoTerreno) {
+                erros.push(`a camada esta sobre "${s.fonteDoHillshade}", e a fonte do terreno e "${s.fonteDoTerreno}": os tiles de DEM continuam sendo pedidos duas vezes`);
+            }
+            if (s.emUso && s.emUso.length) {
+                erros.push(`${s.emUso.length} fonte(s) raster-dem alheia(s) ao terreno continuam com camada viva: ${s.emUso.map((x) => x.id).join(', ')}`);
+            }
+            if (prova.demFontes !== 1) erros.push(`${prova.demFontes} fonte(s) raster-dem depois da consolidacao, esperado 1`);
+            if (prova.hillshade !== 'visible') erros.push(`hillshade ${prova.hillshade}: a camada nao ficou visivel sobre a fonte do terreno`);
+            // O remendo troca a FONTE da definicao, e mais nada. Tinta diferente
+            // da declarada mediria outra camada com o mesmo nome.
+            if (h.instalado && JSON.stringify(h.tinta || {}) !== JSON.stringify(h.tintaDeclarada || {})) {
+                erros.push('a tinta da camada instalada nao e a que o servidor declara: a celula compara duas camadas diferentes');
+            }
+            if (s.erroSetTerrain) erros.push(`setTerrain lancou depois da consolidacao: ${s.erroSetTerrain}`);
+            erros.push(...validarLeituraDeDem(prova));
+            return erros;
+        },
+    },
+    'terreno-hillshade-baixo': {
+        terreno: true,
+        aplicar: async (ctx) => {
+            const t = await ctx.ligarTerreno();
+            const h = await ctx.instalarHillshade();
+            const d = await ctx.descerHillshade();
+            return { ...t, hillshadeApp: h, descida: d };
+        },
+        validar: (prova, detalhe) => {
+            const erros = [];
+            const h = detalhe.hillshadeApp || {};
+            const d = detalhe.descida || {};
+            const alvo = d.alvo || {};
+            if (!prova.terreno) erros.push('getTerrain() nulo');
+            if (!h.instalado) erros.push(`o hillshade nao entrou pelo caminho do app: ${h.motivo || 'sem motivo'}`);
+            if (alvo.motivo) {
+                erros.push(`sem posicao alvo: ${alvo.motivo}`);
+            } else if (!d.movido) {
+                erros.push(`o app JA poe o hillshade no indice ${d.indiceAntes}, que e a posicao alvo (logo acima de "${alvo.ultimaCoberturaBase}"): `
+                    + 'esta variante nao contrasta mais com `terreno-hillshade-app`');
+            } else if (!d.noAlvo) {
+                erros.push(`o hillshade ficou no indice ${d.indiceDepois} e o alvo era ${alvo.alvo}`);
+            }
+            // A promessa da variante e ficar ABAIXO do primeiro rotulo. Prova pela
+            // ordem lida, e nao pelo movimento ter acontecido.
+            if (d.primeiroSymbolDepois >= 0 && d.indiceDepois >= 0 && d.indiceDepois > d.primeiroSymbolDepois) {
+                erros.push(`o hillshade (indice ${d.indiceDepois}) continua acima do primeiro symbol (indice ${d.primeiroSymbolDepois})`);
+            }
+            if (prova.hillshade !== 'visible') erros.push(`hillshade ${prova.hillshade}, esperado visible`);
+            erros.push(...validarLeituraDeDem(prova));
+            return erros;
+        },
+    },
+    'terreno-camadas-agrupadas': {
+        terreno: true,
+        aplicar: async (ctx) => {
+            const t = await ctx.ligarTerreno();
+            const g = await ctx.agruparCamadasDoApp();
+            return { ...t, agrupamento: g };
+        },
+        validar: (prova, detalhe) => {
+            const erros = [];
+            const g = detalhe.agrupamento || {};
+            const plano = g.plano || {};
+            if (!prova.terreno) erros.push('getTerrain() nulo');
+            if (plano.motivo) {
+                erros.push(`sem plano de agrupamento: ${plano.motivo}`);
+            } else if (!g.aplicado) {
+                erros.push('o agrupamento nao foi aplicado');
+            } else {
+                if (plano.jaAgrupado) {
+                    erros.push('o bloco do app JA estava agrupado (drapeaveis antes das quebra-pilha): '
+                        + 'esta variante nao contrasta mais com `terreno`');
+                }
+                if (!g.ordemBate) erros.push('a ordem LIDA do mapa depois do remendo nao e a do plano');
+                if (!g.mudaramDePosicao) erros.push('nenhuma camada trocou de posicao: reordenar uma lista ja ordenada move todas e nao muda nada');
+                // O pior caso desta variante: agrupar so camada ESCONDIDA. A camada
+                // com `visibility: none` nao entra em pilha de render-to-texture,
+                // entao o remendo reordena, nada funde, e a celula sairia igual a de
+                // `terreno` com outro nome.
+                if (!plano.quebraPilhaVisiveis) {
+                    erros.push(`nenhuma das ${plano.quebraPilha} camadas quebra-pilha do app estava VISIVEL antes do agrupamento: `
+                        + 'nao havia pilha a fundir, e esta variante nao contrasta mais com `terreno`');
+                }
+                if (g.pilhasAntes !== null && prova.pilhas !== null && prova.pilhas >= g.pilhasAntes) {
+                    erros.push(`pilhas ${prova.pilhas} nao caiu de ${g.pilhasAntes}: o agrupamento nao surtiu efeito`);
+                }
+            }
+            return erros;
+        },
+    },
     'terreno-quebra-pilha-topo': {
         terreno: true,
         aplicar: async (ctx) => {
@@ -1766,6 +2299,124 @@ class Bancada {
         return { ...r, pilhasAntes: antes.pilhas };
     }
 
+    // --- hillshade e ordem de camadas ---
+
+    async lerOrdem() {
+        return this.page.evaluate(lerOrdemDeCamadas);
+    }
+
+    async instalarHillshade(opcoes = {}) {
+        const r = await this.page.evaluate(instalarHillshadePagina, opcoes);
+        await this.assentar();
+        await this.esperarQuadros(3);
+        return r;
+    }
+
+    async consolidarFonteDeDem() {
+        const r = await this.page.evaluate(consolidarFonteDeDemPagina);
+        // `setTerrain` pode trocar o objeto de render-to-texture, e com ele o
+        // cronometro de `prepareForRender`. Re-armar aqui e o que impede a fase
+        // de sair zerada com cara de barata.
+        const armado = await this.page.evaluate(() => window.__armarTerreno());
+        await this.assentar();
+        await this.esperarQuadros(3);
+        return { ...r, rttRearmado: armado };
+    }
+
+    // Desce o hillshade para o alvo CALCULADO do lado do Node. O calculo nao
+    // desce para a pagina de proposito: e ele que o autoteste ve reprovando o
+    // estilo sem cobertura drapeavel.
+    async descerHillshade() {
+        const antes = await this.lerOrdem();
+        const alvo = posicaoAlvoDoHillshade(antes.camadas, antes.idsDaBasePresentes);
+        if (alvo.motivo) return { movido: false, alvo, indiceAntes: antes.indiceDoHillshade };
+        if (antes.indiceDoHillshade < 0) return { movido: false, alvo, indiceAntes: -1, motivo: 'nao ha camada hillshade a descer' };
+        await this.page.evaluate(({ beforeId }) => {
+            const map = window.__mapa;
+            if (beforeId && map.getLayer(beforeId)) map.moveLayer('hillshade', beforeId); else map.moveLayer('hillshade');
+        }, { beforeId: alvo.beforeId });
+        await this.assentar();
+        await this.esperarQuadros(3);
+        const depois = await this.lerOrdem();
+        return {
+            movido: depois.indiceDoHillshade !== antes.indiceDoHillshade,
+            alvo,
+            indiceAntes: antes.indiceDoHillshade,
+            indiceDepois: depois.indiceDoHillshade,
+            noAlvo: depois.indiceDoHillshade === alvo.alvo,
+            abaixo: depois.indiceDoHillshade > 0 ? depois.camadas[depois.indiceDoHillshade - 1].id : null,
+            acima: depois.indiceDoHillshade >= 0 && depois.indiceDoHillshade + 1 < depois.camadas.length
+                ? depois.camadas[depois.indiceDoHillshade + 1].id : null,
+            primeiroSymbolDepois: depois.camadas.findIndex((l) => l.type === 'symbol'),
+        };
+    }
+
+    async agruparCamadasDoApp() {
+        const antesProva = await this.page.evaluate(lerProva);
+        const antes = await this.lerOrdem();
+        const plano = planoDeAgrupamento(antes.camadas, antes.idsDaBasePresentes);
+        if (plano.motivo || !plano.ordem) return { aplicado: false, plano, pilhasAntes: antesProva.pilhas };
+        const r = await this.page.evaluate(reordenarCamadasPagina, { ordem: plano.ordem, beforeId: plano.beforeId });
+        await this.assentar();
+        await this.esperarQuadros(3);
+        const depois = await this.lerOrdem();
+        const daBase = new Set(antes.idsDaBasePresentes);
+        const blocoDepois = depois.camadas.filter((l) => !daBase.has(l.id)).map((l) => l.id);
+        return {
+            aplicado: true,
+            plano,
+            movidas: r.movidas,
+            mudaramDePosicao: r.mudaramDePosicao,
+            // A prova e a ordem LIDA do mapa, nunca o retorno de quem moveu.
+            ordemBate: blocoDepois.length === plano.ordem.length && blocoDepois.every((id, i) => id === plano.ordem[i]),
+            blocoDepois,
+            pilhasAntes: antesProva.pilhas,
+            quebraPilhaVisiveisAntes: plano.quebraPilhaVisiveis,
+        };
+    }
+
+    // --- rede: tiles de DEM ---
+
+    // Os prefixos das URLs de tile de DEM saem das fontes VIVAS (o template que a
+    // fonte resolveu do TileJSON) e, na falta dele, da URL que o config declara.
+    // Um prefixo escrito aqui erraria calado a cada troca de servidor de DEM, e o
+    // contador sairia zero com cara de "nao pediu".
+    async descobrirPrefixosDem() {
+        const fontes = await this.page.evaluate(() => {
+            const map = window.__mapa;
+            const estilo = map.getStyle();
+            const saida = [];
+            for (const id in estilo.sources) {
+                if (estilo.sources[id].type !== 'raster-dem') continue;
+                const src = map.getSource(id);
+                saida.push({ id, url: estilo.sources[id].url || null, tiles: (src && src.tiles) || estilo.sources[id].tiles || null });
+            }
+            return saida;
+        });
+        const prefixos = new Set();
+        for (const f of fontes) {
+            for (const t of f.tiles || []) {
+                const corte = String(t).indexOf('{');
+                if (corte > 0) prefixos.add(String(t).slice(0, corte));
+            }
+            if (f.url) {
+                const corte = String(f.url).lastIndexOf('/');
+                if (corte > 0) prefixos.add(String(f.url).slice(0, corte + 1));
+            }
+        }
+        this.prefixosDem = [...prefixos];
+        return { fontes, prefixos: this.prefixosDem };
+    }
+
+    // Pedidos de tile de DEM na janela [desde, agora). O TileJSON nao conta: ele e
+    // um pedido por fonte, e o que a variante ataca e o tile.
+    contarDem(desde) {
+        if (!this.pedidos || !this.prefixosDem || !this.prefixosDem.length) return null;
+        return this.pedidos.filter((p) => p.t >= desde
+            && this.prefixosDem.some((pref) => p.url.startsWith(pref))
+            && !/\.json(\?|$)/.test(p.url)).length;
+    }
+
     async esconderVazias() {
         const antes = await this.page.evaluate(lerProva);
         const r = await this.page.evaluate(() => {
@@ -1851,6 +2502,9 @@ class Bancada {
         // envolvida, e a escrita dela sairia contada como zero.
         const fontesNovas = await this.page.evaluate(() => (typeof window.__envolverFontes === 'function' ? window.__envolverFontes() : null));
         await this.page.evaluate(() => window.__zerar());
+        // A janela da rede abre DEPOIS de o mapa assentar: o que o gesto pedir
+        // e o que conta, e o que a montagem do caso pediu ja passou.
+        const relogioDaRede = Date.now();
         if (nome === 'parado') {
             await this.cenarioParado(2000);
         } else if (nome === 'rotacao') {
@@ -1882,7 +2536,8 @@ class Bancada {
             if (!st && !depois.pilhas) erros.push('terreno ligado mas sem stamps nem pilhas');
         }
         erros.push(...(assentou.erros || []));
-        return { cenario: nome, assentou, estatistica: est, selecao, provaFinal: depois, erros };
+        const demRede = this.contarDem(relogioDaRede);
+        return { cenario: nome, assentou, estatistica: est, selecao, provaFinal: depois, demRede, erros };
     }
 }
 
@@ -1910,6 +2565,17 @@ const METRICAS = [
     ['stamps/q', (c) => c.estatistica.gl_por_quadro && c.estatistica.gl_por_quadro.stamp],
     ['pilhas', (c) => c.provaFinal.pilhas],
     ['fontes', (c) => c.provaFinal.fontes],
+    // O DEM em duas leituras que falham por motivos diferentes. `dem tiles` e o
+    // tile residente somado sobre as fontes `raster-dem`, e nao se deixa
+    // falsear pelo cache do navegador; `dem rede` e o pedido de tile durante o
+    // CENARIO, e a partir da segunda carga ele cai porque o cache serve o mesmo
+    // tile sem pedir. Ler so um dos dois deixaria a duplicacao invisivel.
+    ['dem tiles', (c) => (c.provaFinal.demTiles === undefined ? null : c.provaFinal.demTiles)],
+    // Quantos daqueles tiles CHEGARAM. Zero aqui com `dem tiles` cheio e o
+    // servidor de DEM sem cobertura na area, e a coluna existe para essa
+    // diferenca nao ficar escondida atras de um numero grande.
+    ['dem ok', (c) => (c.provaFinal.demCarregados === undefined ? null : c.provaFinal.demCarregados)],
+    ['dem rede', (c) => (c.demRede === undefined ? null : c.demRede)],
     // O passe da caixa de selecao. `passadas` e o numero de vezes que o gerente
     // remontou as caixas no gesto, `js sel ms` e o tempo somado do handler mais a
     // passada (o handler com tempo PROPRIO, senao o zoomend contaria o passe
@@ -2210,6 +2876,7 @@ function escreverMarkdown(resultado, tabela, conferencia, decisao) {
         l.push(JSON.stringify({
             prova: v.prova, detalhe: v.detalhe, trocaBase: v.troca, provaTrocaBase: v.provaTrocaBase,
             gerenteDeSelecao: v.gerente, remendo: v.remendo, provaDaSelecao: v.provaSelecao,
+            dem: v.dem, fontesDem: v.fontesDem, avisosDoConsole: v.avisosDoConsole,
         }, null, 2));
         l.push('```');
         l.push('');
@@ -2264,8 +2931,21 @@ async function principal() {
     const erros = [];
     page.on('pageerror', (e) => erros.push(String(e).slice(0, 200)));
     page.on('console', (m) => { if (m.type() === 'error') erros.push(`console: ${m.text().slice(0, 200)}`); });
+    // O AVISO tem lar proprio, com relogio: o MapLibre avisa contra partilhar a
+    // fonte entre terreno e hillshade dentro do `setTerrain`, e ele e um
+    // `warnOnce` por carga de pagina. Juntar aviso com erro perderia justamente
+    // a linha que a variante `terreno-dem-unico` existe para provocar.
+    const avisos = [];
+    page.on('console', (m) => { if (m.type() === 'warning') avisos.push({ t: Date.now(), texto: m.text().slice(0, 300) }); });
+    // Toda URL pedida, com relogio: e daqui que sai a contagem de tile de DEM
+    // por janela (montagem do caso e cada cenario).
+    const pedidos = [];
+    page.on('request', (r) => pedidos.push({ t: Date.now(), url: r.url() }));
 
     const bancada = new Bancada(page, params);
+    bancada.pedidos = pedidos;
+    bancada.avisos = avisos;
+    bancada.prefixosDem = [];
     if (params.perfil || params.cpu > 1) bancada.cdp = await page.context().newCDPSession(page);
     if (params.perfil) {
         await bancada.cdp.send('Profiler.enable');
@@ -2333,6 +3013,7 @@ async function principal() {
             const def = VARIANTES[nome];
             const rv = { base, variante: nome, passe, selecionadas, valida: true, erros: [], cenarios: [] };
             console.log(`--- ${base} / ${nome} / ${passe} / ${selecionadas} sel`);
+            const relogioDaCarga = Date.now();
             try {
                 const carga = await bancada.carregar();
                 rv.carga = carga;
@@ -2429,6 +3110,19 @@ async function principal() {
 
                 const detalhe = await def.aplicar(bancada) || {};
                 await bancada.esperarQuadros(3);
+                // Os prefixos das URLs de DEM so existem depois de a variante
+                // montar as fontes, e a descoberta le a fonte VIVA. Sem ela o
+                // contador sairia zero e "nao pediu" seria indistinguivel de
+                // "nao sei olhar".
+                rv.fontesDem = await bancada.descobrirPrefixosDem();
+                rv.dem = {
+                    prefixos: rv.fontesDem.prefixos.length,
+                    // A janela da montagem: da carga da pagina ate a variante
+                    // aplicada. E aqui que a duplicacao de fonte aparece na rede,
+                    // porque a partir da segunda carga o cache serve o resto.
+                    naMontagem: bancada.contarDem(relogioDaCarga),
+                };
+                rv.avisosDoConsole = bancada.avisos.filter((a) => a.t >= relogioDaCarga).map((a) => a.texto);
                 const prova = await page.evaluate(lerProva);
                 rv.prova = prova;
                 rv.detalhe = detalhe;
@@ -2481,6 +3175,8 @@ async function principal() {
                     }
                 }
                 console.log(`  prova: estilo=${prova.estilo} feicoes=${prova.feicoes} terreno=${prova.terreno} pilhas=${prova.pilhas} tilesT=${prova.tilesTerreno} fontes=${prova.fontes} camadas=${prova.camadas} hillshade=${prova.hillshade} proj=${prova.projecao} pitch=${prova.pitch} zoom=${prova.zoom}${rv.valida ? '' : `  ** INVALIDA: ${rv.erros.join('; ')}`}`);
+                console.log(`  dem: ${prova.demFontes} fonte(s) [${(prova.demIds || []).join(', ')}], ${prova.demTiles} tile(s) residente(s), ${rv.dem.naMontagem ?? '?'} pedido(s) na montagem`);
+                if (rv.avisosDoConsole.length) console.log(`  avisos do console (${rv.avisosDoConsole.length}): ${[...new Set(rv.avisosDoConsole)].slice(0, 3).join(' | ')}`);
 
                 for (const cenario of ORDEM_CENARIOS) {
                     if (cenario === 'pitch' && !def.terreno) continue;
@@ -2534,6 +3230,28 @@ async function principal() {
     }
     resultado.ambiente.assinaturasBase = Object.fromEntries(assinaturas);
     resultado.ambiente.appMudou = assinaturas.size > 1;
+
+    // O leitor de DEM esta cego na bancada INTEIRA?
+    //
+    // Por carga isolada o zero e legitimo: da segunda em diante o cache do
+    // navegador serve o mesmo tile sem pedir. Na bancada inteira nao e: se
+    // nenhuma carga com terreno pediu um tile de DEM, ou o prefixo esta errado
+    // ou o host do DEM esta fora, e as colunas de rede sao decoracao. O escopo
+    // desta regua e a rodada inteira justamente porque o escopo menor daria
+    // falso alarme.
+    const comTerreno = resultado.rodadas.flatMap((r) => r.variantes).filter((v) => v.prova && v.prova.terreno);
+    if (comTerreno.length) {
+        const pedidosDem = comTerreno.reduce((s, v) => s + ((v.dem && v.dem.naMontagem) || 0), 0);
+        const semPrefixo = comTerreno.filter((v) => !v.dem || !v.dem.prefixos).length;
+        resultado.ambiente.dem = { casosComTerreno: comTerreno.length, pedidosNaMontagem: pedidosDem, casosSemPrefixo: semPrefixo };
+        if (!pedidosDem) {
+            resultado.ambiente.relogio = resultado.ambiente.relogio === 'valido'
+                ? 'INVALIDO (nenhum tile de DEM pedido em toda a bancada)' : resultado.ambiente.relogio;
+            console.log(`\n** NENHUM TILE DE DEM PEDIDO em ${comTerreno.length} cargas com terreno ligado.`);
+            console.log(`   ${semPrefixo} delas nem prefixo de URL de DEM produziram. As colunas de rede nao valem.`);
+        }
+    }
+
     if (resultado.ambiente.appMudou) {
         for (const rod of resultado.rodadas) {
             rod.valida = false;
@@ -2582,4 +3300,5 @@ export {
     validarBase, avaliarIdentidade, validarLeituraDeTiles, avaliarProntidao,
     avisosDaVariante, validarGerenteDeSelecao, validarRemendo, validarSelecao,
     validarPasseNoGesto, aplicarRegraDeDecisao,
+    posicaoAlvoDoHillshade, planoDeAgrupamento, validarLeituraDeDem, TIPOS_DRAPEAVEIS,
 };
