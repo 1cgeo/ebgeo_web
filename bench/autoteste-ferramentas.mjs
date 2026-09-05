@@ -14,7 +14,7 @@ import process from 'node:process';
 import {
     FERRAMENTAS, ORDEM_CENARIOS, CENARIOS, MODOS_DESENHO, SEMEADURAS,
     GESTOS_CONCLUSAO, normalizarFerramenta, lerArgumentos, baseDeModulos,
-    avaliarProntidao, avaliarObstrucao, FONTES_MINIMAS, estatistica,
+    avaliarProntidao, avaliarObstrucao, avaliarFeedback, instrumentar, FONTES_MINIMAS, estatistica,
     resumirSetData, avaliarCadencia, celula, chavesDaTabela, montarTabela,
     escreverMarkdown, percentil, mediana,
 } from './ferramentas.mjs';
@@ -702,6 +702,72 @@ function eixo12() {
         CENARIOS.desenho.validar(provaDesenhoBoa({ pontoDeCliqueLivre: null }), estFalsa(), {}).length === 0);
 }
 eixo12();
+
+function eixo13() {
+    console.log('\n== eixo 13: o criterio de `perdidos` e `lat` (o preview que o usuario nao viu)');
+
+    /** Uma escrita na fonte de feedback, no instante t. */
+    const escrita = (t) => ({ tipo: 'escrita', t });
+    /** Um quadro no instante t, com a fonte assentada ou nao. */
+    const quadro = (t, fonteCarregada = true) => ({ tipo: 'quadro', t, fonteCarregada });
+
+    // O PIOR CASO, e o que a coluna antiga errava: uma escrita por quadro, cada
+    // uma desenhada pelo seu quadro. Medido no circulo em 2026-09-05, depois do
+    // porte: 180 escritas em 180 quadros sairam como 179 "perdidas", e a leitura
+    // natural seria "o porte quebrou o preview". Nenhuma se perdeu: o que a
+    // coluna via era a fonte ainda nao assentada, e nao uma escrita substituida.
+    const umaPorQuadro = [];
+    for (let i = 0; i < 180; i++) {
+        umaPorQuadro.push(escrita(i * 16.7));
+        // A fonte NAO assenta dentro do quadro: e o caso real, com a escrita
+        // colada no render.
+        umaPorQuadro.push(quadro(i * 16.7 + 5, false));
+    }
+    const r1 = avaliarFeedback(umaPorQuadro);
+    checa('uma escrita por quadro nao perde nenhuma', r1.superadas === 0, `superadas ${r1.superadas} de 180 escritas`);
+
+    // Duas escritas ANTES do quadro: a primeira nunca foi desenhada.
+    const duasNoMesmoQuadro = [escrita(0), escrita(5), quadro(16.7)];
+    checa('duas escritas no mesmo quadro perdem uma', avaliarFeedback(duasNoMesmoQuadro).superadas === 1,
+        String(avaliarFeedback(duasNoMesmoQuadro).superadas));
+
+    const cincoNoMesmoQuadro = [escrita(0), escrita(1), escrita(2), escrita(3), escrita(4), quadro(16.7)];
+    checa('cinco escritas no mesmo quadro perdem quatro', avaliarFeedback(cincoNoMesmoQuadro).superadas === 4,
+        String(avaliarFeedback(cincoNoMesmoQuadro).superadas));
+
+    // Escrita que espera DOIS quadros para a fonte assentar: continua sendo a
+    // mesma escrita, desenhada com atraso, e nao uma escrita perdida.
+    const esperaDoisQuadros = [escrita(0), quadro(16.7, false), quadro(33.4, true)];
+    const r2 = avaliarFeedback(esperaDoisQuadros);
+    checa('escrita que demora dois quadros para assentar nao conta como perdida', r2.superadas === 0, String(r2.superadas));
+    checa('a latencia dessa escrita e ate o quadro em que assentou', r2.latencias[0] === 33.4, JSON.stringify(r2.latencias));
+
+    // A latencia sai da ULTIMA escrita do intervalo, nao da primeira: a anterior
+    // nunca chegou a tela, e cronometra-la empilharia o atraso das duas.
+    const duasEUmaLatencia = avaliarFeedback([escrita(0), escrita(5), quadro(20, true)]);
+    checa('a latencia sai da ultima escrita do intervalo', duasEUmaLatencia.latencias[0] === 15, JSON.stringify(duasEUmaLatencia.latencias));
+    checa('e a escrita que ela substituiu conta como perdida', duasEUmaLatencia.superadas === 1);
+
+    checa('sequencia sem escrita nenhuma sai zerada', avaliarFeedback([quadro(0), quadro(16.7)]).superadas === 0);
+    checa('sequencia vazia nao explode', avaliarFeedback([]).superadas === 0 && avaliarFeedback([]).latencias.length === 0);
+    checa('sequencia nula nao explode', avaliarFeedback(null).superadas === 0);
+    // Escrita depois do ultimo quadro fica sem latencia, e nao vira perdida.
+    const sobrando = avaliarFeedback([quadro(0), escrita(10)]);
+    checa('escrita sem quadro depois nao conta como perdida nem como latencia',
+        sobrando.superadas === 0 && sobrando.latencias.length === 0, JSON.stringify(sobrando));
+
+    // A instrumentacao da pagina tem de seguir as MESMAS tres linhas. Ela nao e
+    // chamavel daqui (roda dentro do navegador), entao a conferencia e no texto:
+    // se alguem mudar um lado sem o outro, a regua pura deixa de descrever o que
+    // a bancada mede, e a tabela mente sem ninguem ver.
+    const fonte = String(instrumentar);
+    checa('o quadro da pagina zera o marcador de supersessao', /B\.superavel = null;/.test(fonte), 'nao achei "B.superavel = null;" em instrumentar');
+    checa('a escrita da pagina conta perdida pelo marcador do quadro', /if \(B\.superavel !== null\) B\.superadas\+\+;/.test(fonte),
+        'nao achei a contagem por B.superavel em instrumentar');
+    checa('a latencia da pagina continua saindo da ultima escrita', /B\.pendente = performance\.now\(\);/.test(fonte));
+    checa('a pagina ainda exige a fonte assentada para cronometrar', /fonteCarregada\(cfg\.feedback\)/.test(fonte));
+}
+eixo13();
 
 console.log(`\n${total - falhas}/${total} passaram.`);
 if (falhas) { console.log(`${falhas} FALHA(S): a bancada nao esta reprovando o que promete pegar.`); process.exit(1); }

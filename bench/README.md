@@ -291,12 +291,28 @@ cobra que cada entrada diga controle, tipo, fonte, feedback, painel e como concl
 | `los` | `AddLOSControl` | `los` | `los-feedback` | o SEGUNDO clique (exige terreno) |
 | `visibility` | `AddVisibilityControl` | `visibility` | `visibility-feedback` | o SEGUNDO clique (exige terreno) |
 | `brush` | `AddBrushControl` | `brushes` | `brush-feedback` | o `pointerup` do arrasto |
+| `circle` | `AddCircleControl` | `circles` | `circle-feedback` | o SEGUNDO clique |
+| `ellipse` | `AddEllipseControl` | `ellipses` | `ellipse-feedback` | o SEGUNDO clique |
+| `rectangle` | `AddRectangleControl` | `rectangles` | `rectangle-feedback` | o SEGUNDO clique |
+| `sector` | `AddSectorControl` | `setores` | `sector-feedback` | o SEGUNDO clique |
 
 O controle vem do `CONTROL_REGISTRY` de `src/js/map_sig.js`, o tipo do `FEATURE_TYPE_MAPPINGS` de
 `src/js/store/store.constants.js` (o balde que `getCurrentMapFeatures` devolve) e a fonte do
 `FEATURE_SOURCES` de `src/js/layers/layer.constants.js`. A frente ocupada e de DOIS cliques: o
 segundo ja cria a feicao e nao ha botao direito, entao o cenario `conclusao` cronometra o clique
 final. O poligono cria por anel, porque menos de 3 pontos nao vira feicao.
+
+As QUATRO FORMAS tambem sao de dois cliques, conferido no `handleMapClick` de cada controle, que
+fecha em `drawPoints.length === 2`: o primeiro clique marca o centro (o canto, no retangulo) e o
+segundo cria a feicao. O setor nao pede um terceiro para a abertura, que sai do
+`DEFAULT_PROPERTIES`. Repare que o balde do setor no store e a fonte do mapa se chamam `setores`,
+em portugues, enquanto o prefixo das camadas e do feedback continua em ingles: escrever `sectors`
+daria zero feicao no cenario `zoom`, em silencio.
+
+O descritor tambem diz se a ferramenta SNAPA (`snapa`, padrao true). A seta e o pincel nao importam
+o servico de snap, e para elas zero chamada e a verdade; para as outras onze, zero chamada com
+`--snapping true` significa que o contador nao pegou o servico que a ferramenta usa, e o cenario sai
+INVALIDO dizendo isso.
 
 ### O que muda no gesto das tres ultimas
 
@@ -338,7 +354,8 @@ Nesta ordem, num contexto de navegador NOVO por rodada:
    `pointerdown` e `pointerup`, e a prova troca o ponto colocado pelos pontos acumulados, que tem
    de ser um por evento de movimento mais o do `pointerdown`. **Metricas**: quadros, render
    p50/p95, intervalo p95, quadros acima de 33 ms, `setData` por fonte, `queryRenderedFeatures`,
-   `map.project()`, a latencia do feedback e os pontos do gesto.
+   `map.project()`, `snapping.resolve` (total e por quadro), os `setTimeout` armados no gesto, a
+   latencia do feedback e os pontos do gesto.
 2. **`zoom`**: `--feicoes N` criadas pelo caminho do proprio controle (`createFeature()`, semeado
    pela propriedade que a ferramenta usa), depois `easeTo` de zoom +1 em 1,5 s e a volta em 1,5 s.
    **Prova**: o store tem o que ja tinha MAIS N, e a fonte do mapa mostra ao menos isso. (A soma
@@ -354,6 +371,53 @@ Nesta ordem, num contexto de navegador NOVO por rodada:
 
 O cronometro da conclusao parte do PROPRIO evento do usuario, na fase de captura dentro da pagina.
 Medi-lo do lado do Node somaria o tempo do canal do CDP a latencia da ferramenta.
+
+## As colunas que nao dependem do relogio
+
+O relogio da maquina e contaminado pela GPU, pela CPU e pelo que mais estiver aberto. Estas tres
+colunas contam CHAMADAS, e valem mesmo quando o renderer invalida os milissegundos. Foram elas que
+mediram o porte das quatro formas em 2026-09-05.
+
+| coluna | o que e | o que dizer dela |
+|---|---|---|
+| `resolve` | chamadas a `snapping.resolve` na janela medida | e a consulta de feicao renderizada que o snap faz |
+| `res/quadro` | `resolve` dividido por `quadros` | 1 ou menos: o snap corre dentro do quadro. Sobe com o `k`: corre no evento bruto |
+| `timers` | `setTimeout` armados durante o gesto | e onde mora o debounce que nao coalesce nada |
+
+O contador de `resolve` envolve o SINGLETON do servico de snap, alcancado pelo mesmo modulo que o
+app importou. O endereco do modulo nao e so o caminho: o servidor de desenvolvimento serve o mesmo
+arquivo com um carimbo de HMR (`?t=...`) depois da primeira invalidacao, e cada URL distinta e um
+exemplar distinto no registro do navegador, com `_instance` proprio. Por isso os candidatos saem do
+que a PAGINA carregou de fato (`performance.getEntriesByType('resource')`), com o caminho limpo como
+ultimo recurso.
+
+O contador de `timers` envolve o `window.setTimeout` da pagina e conta TODOS, separando os de menos
+de um quadro (`timersCurtos` no JSON), que sao a assinatura do debounce de 8 ms. Contar so os curtos
+esconderia um debounce reescrito para 20 ms, que continua nao coalescendo.
+
+Medido no circulo, cenario `desenho`, `--snapping true`, 8 `mousemove` por quadro: antes do porte
+1.448 `resolve` (13,28 por quadro) e 233 timers, dos quais 180 mais curtos que um quadro; depois,
+180 `resolve` (1,00 por quadro) e 55 timers, nenhum curto.
+
+### `perdidos` e `lat`, e por que o criterio mudou
+
+- **`perdidos`** conta a escrita na fonte de feedback que OUTRA substituiu dentro do MESMO intervalo
+  de quadro. E o preview que o usuario nunca viu.
+- **`lat`** e o atraso do traco atras do mouse: do `setData` ao primeiro quadro em que a fonte esta
+  assentada. `lat n` diz de quantas escritas a mediana saiu, e so a escrita mais recente do
+  intervalo conta, senao o atraso das substituidas empilharia no mesmo instante.
+
+Ate 2026-09-05 os dois papeis dividiam a mesma variavel: a escrita so deixava de ser "pendente"
+quando um quadro encontrava a fonte assentada, e a escrita seguinte contava a anterior como perdida
+mesmo tendo havido um quadro inteiro entre as duas. Com o preview escrevendo uma vez por quadro,
+colado no render, a fonte quase nunca esta assentada no instante em que a sonda olha: o circulo
+PORTADO saiu com 179 perdidos em 180 escritas, todas desenhadas, e a coluna dizia o contrario do que
+tinha acontecido. Agora sao dois marcadores, e o do quadro morre em todo render. O criterio esta em
+`avaliarFeedback()`, com o pior caso no autoteste (eixo 13), e o texto da instrumentacao da pagina e
+conferido no mesmo eixo para os dois lados nao se separarem.
+
+Uma ferramenta que escreve uma vez por quadro perde ZERO, por mais que a fonte demore a assentar.
+`perdidos` alto continua significando o que sempre significou: trabalho jogado fora dentro do quadro.
 
 ## Como rodar
 
@@ -385,6 +449,21 @@ node bench/autoteste-ferramentas.mjs
 | `--saida` | `bench/saida/<data-hora>/` | pasta dos artefatos |
 | `--largura` / `--altura` | 1600 / 900 | viewport |
 | `--headless` | false | ver a advertencia do relogio da bancada de terreno |
+| `--proxy` | true | passa ao navegador o proxy da chave `HTTPS_PROXY` (ou `HTTP_PROXY`) do ambiente |
+
+O `--url` manda tambem em de ONDE a bancada importa os modulos do app: a base sai do caminho da
+propria URL, entao o app servido em `/ebgeo/` e o servido na raiz por um `vite` cru funcionam os
+dois. Um prefixo fixo daria 404 no segundo caso, com o app carregado e a bancada culpando o
+aplicativo por um erro de endereco.
+
+**`--proxy`**: o estilo padrao do app e um raster da internet, e numa rede que so sai por proxy o
+pedido do tile fica PENDENTE em vez de falhar. `map.loaded()` nunca vira verdadeiro, a fase de
+inicializacao que cria as fontes das ferramentas nao roda, e a bancada morre em "o app nao ficou
+pronto" acusando o aplicativo de um defeito da rede. Medido em 2026-09-05: sem proxy o estilo fica
+em 1 camada e 1 fonte por 120 s; com proxy sobe a 246 camadas em 5 s. O VALOR (usuario, senha, host,
+porta) sai do ambiente e nunca entra no codigo nem no artefato: o `resultado.md` registra so
+`pela chave HTTPS_PROXY`. O `localhost` fica de fora do proxy, senao o proprio servidor de
+desenvolvimento sairia pela rede. `--proxy false` desliga.
 
 Artefatos: `resultado.json` (tudo, provas e vereditos inclusive), `resultado.md` (a tabela
 `ferramenta | cenario | k | metricas | veredito`) e uma captura por cenario. O `bench/.gitignore`
@@ -402,7 +481,13 @@ contexto, e a rodada 2 acharia as feicoes da rodada 1 e mediria 2N com o rotulo 
 3. **Cadencia ociosa do rAF.** 60 quadros sem pedir repaint, com o mapa assentado. p95 acima de
    25 ms invalida a rodada. Com `--cpu` acima de 1 vira AVISO, porque o ocioso lento E a condicao
    medida.
-4. **App inteiro.** So mede com 160 camadas ou mais E a dupla (camadas, fontes) parada por 3 s.
+4. **App inteiro.** So mede com `map.loaded()` verdadeiro, as fontes DA FERRAMENTA (a principal e a
+   de feedback) ja no estilo, 30 fontes ou mais no total, E a dupla (camadas, fontes) parada por
+   3 s. O corte era "160 camadas ou mais", e camada e um numero da BASE, nao do app: o estilo
+   vetorial interno traz umas 150 sozinho e o raster do OSM traz uma. Medido em 2026-09-05, o app
+   INTEIRO com a base do OSM tem 85 camadas e 69 fontes, e o corte antigo o reprovava por 120 s.
+   Em fontes a distancia e folgada: a base sozinha tem 1 (OSM) ou 9 (vetorial), o app montado tem
+   69 ou 99. O criterio esta em `avaliarProntidao()`, com o pior caso no autoteste (eixo 12).
 5. **A ferramenta existe no app.** Controle ausente do registro, fonte principal ausente ou fonte
    de feedback ausente derrubam a rodada com o nome do que faltou, antes de qualquer medida.
 6. **O descritor diz o que a bancada sabe medir.** `normalizarFerramenta()` roda na leitura da
@@ -424,8 +509,19 @@ contexto, e a rodada 2 acharia as feicoes da rodada 1 e mediria 2N com o rotulo 
 11. **Assinatura do app.** `camadas/fontes` antes de mexer no mapa. Duas assinaturas diferentes
     entre as cargas significam que a arvore mudou embaixo da medida, e toda rodada sai INVALIDA com
     `APP MUDOU ENTRE AS CARGAS`.
-12. **Autoteste.** `node bench/autoteste-ferramentas.mjs` monta o pior caso de cada eixo e confirma
-    que sai marcado, e depois confirma que o insumo bom passa. Sao 184 casos em 11 eixos.
+12. **O ponto de clique esta sobre o mapa.** Antes de medir, a bancada le
+    `document.elementFromPoint` no ponto onde vai clicar, manda um Escape se achar algo por cima, e
+    rele. Se ainda estiver coberto, os cenarios que clicam saem INVALIDOS nomeando o elemento.
+    Medido em 2026-09-05: o aviso de servidor secundario (`ui/secondary-server-notice.js`) cobre o
+    mapa inteiro, o clique morre no `DIV`, o mapa nao ve evento nenhum, e o cenario saia com "0 de 1
+    cliques viraram vertice" sem dizer por que.
+13. **O contador de `resolve` esta instalado, e no servico certo.** Cenario com o contador nao
+    instalado sai INVALIDO com o motivo: "resolve 0" nao prova coalescencia nenhuma, e zero e
+    exatamente o numero que um porte bem feito produz. E ferramenta que declara `snapa` com
+    `--snapping true` e ZERO chamadas contadas tambem sai INVALIDA: o contador instalou num segundo
+    exemplar do modulo e nunca ve a chamada que a ferramenta faz.
+14. **Autoteste.** `node bench/autoteste-ferramentas.mjs` monta o pior caso de cada eixo e confirma
+    que sai marcado, e depois confirma que o insumo bom passa. Sao 259 casos em 13 eixos.
 
 ## Valores medidos em 2026-09-04
 
@@ -433,6 +529,10 @@ Vista da Serra Gaucha (`-50.87, -29.37`, zoom 12,5), viewport 1600x900, Chromium
 visivel, GPU NVIDIA RTX A2000 12GB (ANGLE sobre Direct3D11), app em `vite dev` na 3007, uma rodada,
 sem snapping, CPU livre. Sem terreno, menos nas duas ferramentas de analise, que sem ele nem ativam.
 App com assinatura `246c/99f` em todas as cargas.
+
+Estas tabelas sao ANTERIORES as colunas `resolve`, `res/quadro` e `timers`, e a coluna `perdidos`
+delas usa o criterio antigo (ver a armadilha da fase, acima). Servem de ordem de grandeza para
+render, intervalo e `setData`, e nao de linha de base para o que o porte de 2026-09-05 mexeu.
 
 `node bench/ferramentas.mjs --ferramenta coordination_line --k 1,4 --feicoes 30 --rodadas 1`
 
@@ -512,16 +612,21 @@ as cargas deram a mesma assinatura, `246c/99f`. Nao edite os numeros para a medi
 ## Armadilhas conhecidas
 
 - **`setData` que ninguem viu.** A latencia do feedback so vale para o `setData` que chegou a
-  assentar. O anterior, que o seguinte substituiu antes disso, nunca chegou a tela; cronometra-lo
-  ate o proximo quadro bom empilharia o atraso de todos no mesmo instante, e uma fila de 160
-  pendentes drenada de uma vez sairia como 160 medidas iguais e falsas. Por isso so o `setData`
-  mais recente conta, e o resto vai para a coluna `perdidos`. **Leia `lat p50` sempre com `lat n` e
-  `perdidos` ao lado**: 19 medidas em 180 escritas descrevem os 19 quadros que assentaram, nao a
-  ferramenta.
+  assentar. O anterior, que o seguinte substituiu no MESMO intervalo de quadro, nunca chegou a tela;
+  cronometra-lo ate o proximo quadro bom empilharia o atraso de todos no mesmo instante, e uma fila
+  de 160 pendentes drenada de uma vez sairia como 160 medidas iguais e falsas. Por isso so o
+  `setData` mais recente conta, e o que ele substituiu vai para a coluna `perdidos`. **Leia
+  `lat p50` sempre com `lat n` e `perdidos` ao lado**: 19 medidas em 180 escritas descrevem os 19
+  quadros que assentaram, nao a ferramenta.
 - **A latencia depende da FASE entre o preview e o `_render`.** Ferramenta que escreve o preview
   dentro do rAF, logo antes do quadro, quase nunca e vista com a fonte carregada, e a mesma
   ferramenta com o preview num `setTimeout` seria. A diferenca entre `lat n` 19 e 177 nas duas
   tabelas acima e disso, e nao necessariamente do custo. Nao chame de regressao sem testar a causa.
+  **Isso vale para `lat`, e NAO para `perdidos`**: ate 2026-09-05 os dois papeis dividiam a mesma
+  variavel, e a ferramenta que escreve dentro do quadro saia com "179 perdidos em 180 escritas",
+  todas desenhadas. Hoje `perdidos` conta so a supersessao dentro do quadro, e as tabelas de
+  2026-09-04 abaixo foram medidas com o criterio ANTIGO: a coluna `perdidos` delas mistura as duas
+  coisas e nao se compara com medida nova.
 - **O clique nao vira vertice na hora.** A linha de coordenacao e a de limite retem o clique 250 ms.
   Ler `drawPoints` logo depois do clique acharia zero e reprovaria o app bom, entao a bancada
   espera o vertice entrar, com limite, e conta os cliques que pegaram.

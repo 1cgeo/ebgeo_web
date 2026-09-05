@@ -531,6 +531,52 @@ function resumirSetData(setData, alvo) {
     };
 }
 
+/**
+ * O criterio das colunas `perdidos` e `lat`, puro, para o autoteste atacar.
+ *
+ * DOIS marcadores, e nao um. Ate 2026-09-05 os dois papeis dividiam a mesma
+ * variavel: a escrita so deixava de ser "pendente" quando um quadro encontrava a
+ * fonte ASSENTADA, e a escrita seguinte contava a anterior como perdida mesmo
+ * tendo havido um quadro inteiro entre as duas. Com o preview escrevendo uma vez
+ * por quadro, colado no render, a fonte quase nunca esta assentada no instante
+ * em que a sonda olha, e o circulo portado saiu com 179 "perdidos" em 180
+ * escritas, todas desenhadas. A coluna dizia o contrario do que aconteceu.
+ *
+ * - `superadas` (a coluna `perdidos`): escrita que OUTRA substituiu dentro do
+ *   MESMO intervalo de quadro. O marcador morre em todo quadro, porque o quadro
+ *   desenhou o que estava la.
+ * - `latencias` (as colunas `lat`): do setData ate o primeiro quadro em que a
+ *   fonte esta assentada. So a escrita MAIS RECENTE conta, senao o atraso das
+ *   substituidas empilharia no mesmo instante.
+ *
+ * A instrumentacao dentro da pagina segue estas mesmas linhas, e o autoteste
+ * confere no texto dela que os dois lados nao se separaram.
+ *
+ * @param {Array<{tipo: string, t: number, fonteCarregada?: boolean}>} eventos -
+ *   A sequencia de `escrita` (setData na fonte de feedback) e `quadro` (render)
+ * @returns {{superadas: number, latencias: number[]}} O que a estatistica recebe
+ */
+function avaliarFeedback(eventos) {
+    let superavel = null;
+    let pendente = null;
+    let superadas = 0;
+    const latencias = [];
+    for (const evento of eventos || []) {
+        if (evento.tipo === 'escrita') {
+            if (superavel !== null) superadas++;
+            superavel = evento.t;
+            pendente = evento.t;
+        } else if (evento.tipo === 'quadro') {
+            superavel = null;
+            if (pendente !== null && evento.fonteCarregada) {
+                latencias.push(+(evento.t - pendente).toFixed(1));
+                pendente = null;
+            }
+        }
+    }
+    return { superadas, latencias };
+}
+
 // Veredito da cadencia ociosa do rAF. Com a CPU estrangulada de proposito o
 // ocioso lento E a condicao medida, e vira aviso em vez de derrubar a rodada.
 function avaliarCadencia(cadencia, cpu) {
@@ -756,7 +802,7 @@ function avaliarProntidao(s) {
 async function instrumentar({ cfg, base }) {
     const map = window.__mapa;
     const B = {
-        quadros: [], setData: {}, query: 0, proj: 0, latencias: [], pendente: null,
+        quadros: [], setData: {}, query: 0, proj: 0, latencias: [], pendente: null, superavel: null,
         superadas: 0, mousemove: 0, resolve: 0, timers: 0, timersCurtos: 0,
     };
     window.__B = B;
@@ -834,14 +880,20 @@ async function instrumentar({ cfg, base }) {
         const t = performance.now();
         const r = originalRender(...a);
         B.quadros.push({ t, dt: performance.now() - t });
+        // Este quadro DESENHOU o que estava escrito, entao a escrita deixa de
+        // poder ser superada. Nao zerar aqui era o defeito de `perdidos`: a
+        // escrita seguinte contava a anterior como perdida mesmo com um quadro
+        // inteiro entre as duas, e o preview que escreve uma vez por quadro saia
+        // com "179 perdidos em 180 escritas". O criterio, com o pior caso, esta
+        // em `avaliarFeedback`.
+        B.superavel = null;
         // Latencia do feedback: do setData ate o primeiro quadro em que a fonte
         // do feedback esta carregada. E o atraso do traco atras do mouse.
         //
         // So o setData MAIS RECENTE conta. O anterior que outro substituiu antes
         // de assentar nunca chegou a tela, e cronometra-lo ate o proximo quadro
         // bom empilharia o atraso de todos no mesmo instante: uma fila de 160
-        // pendentes drenada de uma vez sairia como 160 medidas iguais. Vai para
-        // `superadas`, que e o numero que diz quanto do trabalho o usuario nunca viu.
+        // pendentes drenada de uma vez sairia como 160 medidas iguais.
         if (B.pendente !== null && fonteCarregada(cfg.feedback)) {
             B.latencias.push(performance.now() - B.pendente);
             B.pendente = null;
@@ -865,7 +917,10 @@ async function instrumentar({ cfg, base }) {
                 B.setData[id].n++;
                 B.setData[id].feicoes += feicoes;
                 if (id === cfg.feedback) {
-                    if (B.pendente !== null) B.superadas++;
+                    // Perdida e a escrita que OUTRA substituiu dentro do mesmo
+                    // intervalo de quadro, medida pelo marcador que o render zera.
+                    if (B.superavel !== null) B.superadas++;
+                    B.superavel = performance.now();
                     B.pendente = performance.now();
                 }
                 return original(d);
@@ -895,7 +950,7 @@ async function instrumentar({ cfg, base }) {
 
     window.__zerar = () => {
         B.quadros = []; B.setData = {}; B.query = 0; B.proj = 0;
-        B.latencias = []; B.pendente = null; B.superadas = 0; B.mousemove = 0;
+        B.latencias = []; B.pendente = null; B.superavel = null; B.superadas = 0; B.mousemove = 0;
         B.resolve = 0; B.timers = 0; B.timersCurtos = 0;
     };
     return { envolvidas, renderer, fornecedor, snap: snapContado };
@@ -1542,8 +1597,8 @@ const METRICAS = [
     ['lat p50', (c) => c.estatistica.latencia_ms && c.estatistica.latencia_ms.p50],
     ['lat p95', (c) => c.estatistica.latencia_ms && c.estatistica.latencia_ms.p95],
     // Quantos setData de feedback assentaram (deram medida de latencia) e
-    // quantos o seguinte substituiu antes disso. Sem este par, "lat p50" de 19
-    // medidas em 180 escritas passaria por medida da ferramenta inteira.
+    // quantos OUTRO substituiu dentro do mesmo quadro. Sem este par, "lat p50"
+    // de 19 medidas em 180 escritas passaria por medida da ferramenta inteira.
     ['lat n', (c) => c.estatistica.latencia_ms && c.estatistica.latencia_ms.amostras],
     ['perdidos', (c) => c.estatistica.feedbackSuperados],
     ['store ms', (c) => c.prova.msStore],
@@ -1634,8 +1689,10 @@ function escreverMarkdown(resultado, tabela) {
     l.push('Celula com mais de uma rodada valida mostra `mediana (min..max)`. `setData alvo` e a fonte');
     l.push('que o cenario existe para exercitar: a de feedback no `desenho`, a principal no `zoom` e');
     l.push('na `conclusao`. `lat` e a latencia do feedback, do `setData` ao primeiro quadro com a fonte');
-    l.push('carregada; `lat n` diz quantas escritas assentaram e `perdidos` quantas o `setData`');
-    l.push('seguinte substituiu antes disso, ou seja, o preview que o usuario nunca viu.');
+    l.push('carregada, e `lat n` diz de quantas escritas ela saiu. `perdidos` conta a escrita que');
+    l.push('OUTRA substituiu dentro do MESMO intervalo de quadro, ou seja, o preview que o usuario');
+    l.push('nunca viu; uma ferramenta que escreve uma vez por quadro perde zero, por mais que a fonte');
+    l.push('demore a assentar.');
     l.push('');
     l.push('`resolve` e o numero de chamadas a `snapping.resolve` na janela medida e `res/quadro` a');
     l.push('divisao pelos quadros: uma ferramenta que resolve o snap dentro do quadro fica em 1 ou');
@@ -1893,7 +1950,7 @@ export {
     FERRAMENTAS, ORDEM_FERRAMENTAS, ORDEM_CENARIOS, CENARIOS, METRICAS, VISTA,
     MODOS_DESENHO, SEMEADURAS, GESTOS_CONCLUSAO, FORMAS_DE_PONTO, PONTOS_PADRAO,
     normalizarFerramenta, lerArgumentos, baseDeModulos, avaliarProntidao, avaliarObstrucao,
-    FONTES_MINIMAS, carregarPlaywright, percentil, mediana,
+    avaliarFeedback, instrumentar, FONTES_MINIMAS, carregarPlaywright, percentil, mediana,
     estatistica, resumirSetData, avaliarCadencia, celula, chavesDaTabela,
     montarTabela, escreverMarkdown,
 };
