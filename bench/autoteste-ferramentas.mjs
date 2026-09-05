@@ -13,7 +13,8 @@
 import process from 'node:process';
 import {
     FERRAMENTAS, ORDEM_CENARIOS, CENARIOS, MODOS_DESENHO, SEMEADURAS,
-    GESTOS_CONCLUSAO, normalizarFerramenta, lerArgumentos, estatistica,
+    GESTOS_CONCLUSAO, normalizarFerramenta, lerArgumentos, baseDeModulos,
+    avaliarProntidao, avaliarObstrucao, FONTES_MINIMAS, estatistica,
     resumirSetData, avaliarCadencia, celula, chavesDaTabela, montarTabela,
     escreverMarkdown, percentil, mediana,
 } from './ferramentas.mjs';
@@ -42,17 +43,26 @@ function loteDeQuadros(n, dt, passo = 16.7) {
     return q;
 }
 
-function estFalsa({ quadros = 180, dt = 2, passo = 16.7, query = 0, proj = 0, latencias = [], superadas = 0 } = {}) {
-    return estatistica({ quadros: loteDeQuadros(quadros, dt, passo), query, proj, latencias, superadas, mousemove: quadros });
+function estFalsa({
+    quadros = 180, dt = 2, passo = 16.7, query = 0, proj = 0,
+    latencias = [], superadas = 0, resolve = 180, timers = 0, timersCurtos = 0,
+} = {}) {
+    return estatistica({
+        quadros: loteDeQuadros(quadros, dt, passo), query, proj, latencias, superadas,
+        mousemove: quadros, resolve, timers, timersCurtos,
+    });
 }
 
-// Prova boa do desenho: a ferramenta ativa, um ponto colocado, feedback escrito.
+// Prova boa do desenho: a ferramenta ativa, um ponto colocado, feedback escrito,
+// e o contador de `snapping.resolve` no ar (sem ele "resolve 0" nao prova nada).
 const provaDesenhoBoa = (extra = {}) => ({
     setDataAlvo: 180, feicoesAlvo: 180, setDataOutras: 0, porFonte: {},
     fonteAlvo: 'coordination-line-feedback',
     ferramentaAtiva: true, pontosColocados: 1, visibilidade: 'visible',
     modoDesenho: 'clique', requerTerreno: false, terreno: false,
-    controlePresente: true, ...extra,
+    controlePresente: true,
+    snapa: true, snapping: true, contadorDeSnapInstalado: true, contadorDeSnapMotivo: null,
+    ...extra,
 });
 
 // Prova boa do desenho por ARRASTO: um traco de 181 pontos para 180 eventos de
@@ -133,6 +143,25 @@ function eixo1() {
     checa('intervalo de 16,7 ms nao conta como lento', estFalsa().lentos === 0);
     checa('percentil de lista vazia nao explode', percentil([], 0.5) === 0);
     checa('mediana de lista vazia devolve null', mediana([]) === null);
+
+    // As duas grandezas que o porte das formas existe para mover: chamadas a
+    // `snapping.resolve` por quadro e timers armados durante o gesto. Sem elas na
+    // estatistica a tabela nao mostra o que mudou, e a bancada mediria o porte
+    // pelo relogio, que e justamente o eixo que a GPU e a CPU contaminam.
+    const contadores = estatistica({
+        quadros: loteDeQuadros(180, 2), resolve: 720, timers: 540, timersCurtos: 538, latencias: [],
+    });
+    checa('a estatistica carrega as chamadas a snapping.resolve', contadores.resolve === 720, String(contadores.resolve));
+    checa('a estatistica carrega os timers armados', contadores.timers === 540, String(contadores.timers));
+    checa('a estatistica separa os timers de menos de um quadro', contadores.timersCurtos === 538, String(contadores.timersCurtos));
+    checa('resolve por quadro sai da divisao pelos quadros medidos',
+        contadores.resolvePorQuadro === 4, String(contadores.resolvePorQuadro));
+    checa('um resolve por quadro sai 1',
+        estatistica({ quadros: loteDeQuadros(180, 2), resolve: 180, latencias: [] }).resolvePorQuadro === 1);
+    checa('lote sem quadro nao inventa resolve por quadro',
+        estatistica({ quadros: [], resolve: 12 }).resolvePorQuadro === null);
+    checa('lote sem contador nenhum sai zerado, e nao undefined',
+        estatistica({ quadros: loteDeQuadros(10, 1) }).resolve === 0);
 }
 eixo1();
 
@@ -218,6 +247,30 @@ function eixo4() {
     checa('arrasto nao e cobrado pela regra do clique', d(provaArrastoBoa({ pontosColocados: 0 }), est, {}).length === 0);
     const arrastoSemFeedback = d(provaArrastoBoa({ setDataAlvo: 0 }), est, {});
     checa('arrasto sem setData do feedback reprova', /a ferramenta nao desenhou/.test(arrastoSemFeedback.join(' ')));
+
+    // O CONTADOR DE RESOLVE, contra si mesmo. Um contador que nao foi instalado
+    // le zero, e zero e exatamente o numero que o porte quer produzir: sem esta
+    // reprova a bancada carimbaria "coalesce perfeitamente" numa ferramenta que
+    // resolve o snap cinco vezes por quadro.
+    const semContador = d(provaDesenhoBoa({ contadorDeSnapInstalado: false, contadorDeSnapMotivo: 'getSnappingService() devolveu null' }), est, {});
+    checa('desenho com o contador de resolve nao instalado reprova', semContador.length > 0);
+    checa('a reprova diz que resolve 0 nao prova coalescencia', /nao prova/.test(semContador.join(' ')), semContador.join(' '));
+    checa('a reprova repete o motivo que veio da pagina', /devolveu null/.test(semContador.join(' ')), semContador.join(' '));
+
+    // O caso mais traicoeiro: o contador FOI instalado, mas num segundo exemplar
+    // do modulo, e por isso nunca ve a chamada que a ferramenta faz.
+    const contadorCego = d(provaDesenhoBoa(), estFalsa({ resolve: 0 }), {});
+    checa('ferramenta que snapa, snapping ligado e zero resolve contado reprova', contadorCego.length > 0);
+    checa('a reprova diz que o contador nao esta no servico que a ferramenta usa',
+        /nao esta no servico/.test(contadorCego.join(' ')), contadorCego.join(' '));
+    // ...e os tres casos em que zero e a verdade, e reprovar seria mentira.
+    checa('seta e pincel (snapa: false) nao sao cobrados por zero resolve',
+        d(provaDesenhoBoa({ snapa: false }), estFalsa({ resolve: 0 }), {}).length === 0);
+    checa('rodada sem --snapping nao e cobrada por zero resolve',
+        d(provaDesenhoBoa({ snapping: false }), estFalsa({ resolve: 0 }), {}).length === 0);
+    checa('cenario sem quadro nenhum nao vira reprova de contador cego',
+        d(provaDesenhoBoa(), estFalsa({ quadros: 0, resolve: 0 }), {}).filter((e) => /nao esta no servico/.test(e)).length === 0);
+    checa('resolve contado normalmente passa', d(provaDesenhoBoa(), estFalsa({ resolve: 180 }), {}).length === 0);
 }
 eixo4();
 
@@ -372,6 +425,18 @@ function eixo8() {
     checa('a tabela mostra quantas latencias assentaram', colunas['lat n'] === '2', JSON.stringify(colunas));
     checa('a tabela mostra o feedback perdido ao lado da latencia', colunas.perdidos === '178', JSON.stringify(colunas));
 
+    // As duas colunas do porte das formas. A dividida por quadro e a que compara
+    // rodadas de duracao diferente sem mentir.
+    const comContadores = resultadoFalso({ rodadas: [rodadaFalsa(1, { casos: [
+        casoFalso('desenho', { k: 8, est: estFalsa({ resolve: 720, timers: 540, timersCurtos: 540 }) }),
+    ] })] });
+    const tc = montarTabela(comContadores);
+    const colC = Object.fromEntries(tc.linhas[0].valores.map((v) => [v.nome, v.texto]));
+    checa('a tabela mostra as chamadas a snapping.resolve', colC.resolve === '720', JSON.stringify(colC));
+    checa('a tabela mostra resolve por quadro', colC['res/quadro'] === '4', JSON.stringify(colC));
+    checa('a tabela mostra os timers armados no gesto', colC.timers === '540', JSON.stringify(colC));
+    checa('as colunas novas aparecem no markdown', /res\/quadro/.test(escreverMarkdown(comContadores, tc)));
+
     const gpuFalsa = resultadoFalso({ renderer: 'Google SwiftShader', relogio: 'INVALIDO (GPU emulada)', rodadas: [rodadaFalsa(1)] });
     checa('renderer emulado marca o relogio na tabela', /INVALIDO \(GPU emulada\)/.test(montarTabela(gpuFalsa).linhas[0].veredito), montarTabela(gpuFalsa).linhas[0].veredito);
 
@@ -450,6 +515,18 @@ function eixo9() {
     try { lerArgumentos(['--ferramenta', 'x']); } catch (e) {
         checa('a reprova lista as ferramentas conhecidas', /coordination_line/.test(e.message) && /occupied_front/.test(e.message), e.message);
     }
+
+    // De onde os modulos do app sao importados. O prefixo fixo `/ebgeo/` que
+    // estava no codigo daria 404 num `vite` cru, que abre em `/`, e a bancada
+    // culparia o aplicativo por um erro de endereco.
+    checa('a base dos modulos sai da --url, com /ebgeo/', baseDeModulos('http://localhost:3007/ebgeo/') === '/ebgeo/');
+    checa('a base dos modulos sai da --url, na raiz', baseDeModulos('http://localhost:3200/') === '/', baseDeModulos('http://localhost:3200/'));
+    checa('url sem barra no fim ganha a barra', baseDeModulos('http://localhost:3200/ebgeo') === '/ebgeo/', baseDeModulos('http://localhost:3200/ebgeo'));
+    checa('url sem caminho nenhum vira /', baseDeModulos('http://localhost:3200') === '/', baseDeModulos('http://localhost:3200'));
+    checa('arquivo no fim da url nao vira diretorio', baseDeModulos('http://localhost:3200/ebgeo/index.html') === '/ebgeo/', baseDeModulos('http://localhost:3200/ebgeo/index.html'));
+    checa('a --url padrao e a leitura da linha de comando concordam', lerArgumentos([]).baseModulos === '/ebgeo/', lerArgumentos([]).baseModulos);
+    checa('--url na raiz muda a base lida', lerArgumentos(['--url', 'http://localhost:3200/']).baseModulos === '/');
+    lanca('--url invalida lanca', () => lerArgumentos(['--url', 'nao-e-url']));
 }
 eixo9();
 
@@ -460,6 +537,23 @@ function eixo10() {
         ['line', 'polygon', 'boundary', 'arrow', 'occupied_front', 'coordination_line', 'los', 'visibility', 'brush']
             .every((n) => nomes.includes(n)),
         nomes.join(','));
+    checa('as quatro formas entraram no mapa',
+        ['circle', 'ellipse', 'rectangle', 'sector'].every((n) => nomes.includes(n)), nomes.join(','));
+    checa('as quatro formas concluem no SEGUNDO clique, sem botao direito',
+        ['circle', 'ellipse', 'rectangle', 'sector'].every((n) => FERRAMENTAS[n].conclusao.gesto === 'clique-final'
+            && FERRAMENTAS[n].conclusao.cliquesAntes === 1 && FERRAMENTAS[n].conclusao.evento === 'click'));
+    checa('as quatro formas criam com dois pontos',
+        ['circle', 'ellipse', 'rectangle', 'sector'].every((n) => FERRAMENTAS[n].pontosParaCriar === 2));
+    // O setor e o unico cujo balde do store esta em portugues. Escrever
+    // `sectors` aqui daria zero feicao no cenario zoom, em silencio.
+    checa('o setor le o store e a fonte em `setores`',
+        FERRAMENTAS.sector.tipo === 'setores' && FERRAMENTAS.sector.fonte === 'setores',
+        `${FERRAMENTAS.sector.tipo}/${FERRAMENTAS.sector.fonte}`);
+    checa('o feedback das formas segue o prefixo em ingles do controle',
+        ['circle', 'ellipse', 'rectangle', 'sector'].every((n) => FERRAMENTAS[n].feedback === `${n}-feedback`));
+    checa('so a seta e o pincel declaram que nao snapam',
+        nomes.filter((n) => FERRAMENTAS[n].snapa === false).join(',') === 'arrow,brush',
+        nomes.filter((n) => FERRAMENTAS[n].snapa === false).join(','));
     for (const nome of nomes) {
         // O normalizador e quem cobra: descritor incompleto lanca aqui, e nao a
         // 90 segundos de carga com o app ja no ar.
@@ -512,6 +606,10 @@ function eixo11() {
         padrao.modoDesenho === 'clique' && padrao.semeadura === 'drawPoints'
         && padrao.pontos.propriedade === 'drawPoints' && padrao.requerTerreno === false,
         JSON.stringify(padrao));
+    // O padrao de `snapa` e TRUE: descritor novo que esquecesse o campo tem de
+    // cair na cobranca do contador, e nao escapar dela por omissao.
+    checa('descritor que cala sobre o snap e cobrado como se snapasse', padrao.snapa === true);
+    checa('snapa: false atravessa o normalizador', normalizarFerramenta('x', com({ snapa: false })).snapa === false);
     checa('o nome curto entra no descritor', padrao.nome === 'x');
 
     // O caso do pedido: descritor sem conclusao. A bancada nao teria gesto para
@@ -546,6 +644,64 @@ function eixo11() {
         Object.values(FERRAMENTAS).every((f) => GESTOS_CONCLUSAO.includes(f.conclusao.gesto)));
 }
 eixo11();
+
+function eixo12() {
+    console.log('\n== eixo 12: prontidao do app (o corte que nao depende da base)');
+    const montado = {
+        camadas: 85, fontes: 69, carregado: true, temFontePrincipal: true, temFonteFeedback: true,
+    };
+    checa('app montado com a base do OSM passa', avaliarProntidao(montado).pronto === true, JSON.stringify(avaliarProntidao(montado)));
+    checa('app montado com a base vetorial passa',
+        avaliarProntidao({ ...montado, camadas: 246, fontes: 99 }).pronto === true);
+
+    // O pior caso: a base sozinha. `map.loaded()` ja e verdadeiro, o estilo ja
+    // esta estavel, e nao ha uma unica fonte de ferramenta para medir.
+    const soBase = avaliarProntidao({ camadas: 1, fontes: 1, carregado: true, temFontePrincipal: false, temFonteFeedback: false });
+    checa('so a base do estilo reprova', soBase.pronto === false);
+    checa('a reprova diz que faltam as fontes da ferramenta', /fontes da ferramenta/.test(soBase.motivo), soBase.motivo);
+    const baseVetorial = avaliarProntidao({ camadas: 159, fontes: 9, carregado: true, temFontePrincipal: false, temFonteFeedback: false });
+    checa('a base vetorial sozinha, com 159 camadas, tambem reprova', baseVetorial.pronto === false, JSON.stringify(baseVetorial));
+
+    checa('mapa que ainda nao carregou reprova',
+        avaliarProntidao({ ...montado, carregado: false }).pronto === false);
+    checa('fonte de feedback ausente reprova (o preview nao teria onde ser escrito)',
+        avaliarProntidao({ ...montado, temFonteFeedback: false }).pronto === false);
+    checa('sonda vazia reprova', avaliarProntidao(null).pronto === false);
+    // O piso de fontes ainda vale: um estilo com as duas fontes da ferramenta e
+    // mais nada seria um app pela metade.
+    const poucasFontes = avaliarProntidao({ ...montado, fontes: 3 });
+    checa('estilo com pouquissimas fontes reprova mesmo com as da ferramenta', poucasFontes.pronto === false);
+    checa('a reprova diz quantas fontes viu e quantas espera',
+        /so 3 fontes/.test(poucasFontes.motivo) && poucasFontes.motivo.includes(String(FONTES_MINIMAS)), poucasFontes.motivo);
+    // ...e o piso nao pode ser tao alto que reprove o app medido de verdade.
+    checa('o piso de fontes fica abaixo do app montado mais magro', FONTES_MINIMAS < 69);
+
+    // O ponto de clique. O pior caso e o modal do servidor secundario por cima
+    // do mapa: o clique morre no DIV, o mapa nao ve evento nenhum, e sem esta
+    // reprova o cenario sairia acusando a FERRAMENTA de perder cliques.
+    const noCanvas = avaliarObstrucao({ descricao: 'CANVAS.maplibregl-canvas', ehCanvas: true });
+    checa('ponto de clique sobre o canvas passa', noCanvas.livre === true, JSON.stringify(noCanvas));
+    const coberto = avaliarObstrucao({ descricao: 'DIV.server-notice server-notice--visible', ehCanvas: false });
+    checa('ponto de clique coberto por um modal reprova', coberto.livre === false);
+    checa('a reprova nomeia o elemento que cobriu', /server-notice/.test(coberto.motivo), coberto.motivo);
+    checa('a reprova diz que o clique nao chega ao mapa', /nunca chega ao mapa/.test(coberto.motivo), coberto.motivo);
+    checa('leitura ausente reprova', avaliarObstrucao(null).livre === false);
+    checa('ponto sobre nada (fora da janela) reprova', avaliarObstrucao({ descricao: 'nada', ehCanvas: false }).livre === false);
+
+    // E a regra entra nos dois cenarios que clicam, com a causa junto.
+    const d = CENARIOS.desenho.validar(
+        provaDesenhoBoa({ pontoDeCliqueLivre: false, obstrucaoDoClique: 'o ponto de clique esta coberto por DIV.server-notice, e o clique nunca chega ao mapa' }),
+        estFalsa(), {},
+    );
+    checa('o cenario desenho reprova com o ponto coberto', /server-notice/.test(d.join(' ')), d.join(' '));
+    const c = CENARIOS.conclusao.validar(
+        provaConclusaoBoa({ pontoDeCliqueLivre: false, obstrucaoDoClique: 'coberto por DIV.server-notice' }), estFalsa({ quadros: 20 }), {},
+    );
+    checa('o cenario conclusao reprova com o ponto coberto', /server-notice/.test(c.join(' ')), c.join(' '));
+    checa('bancada que nao leu a obstrucao (null) nao inventa reprova',
+        CENARIOS.desenho.validar(provaDesenhoBoa({ pontoDeCliqueLivre: null }), estFalsa(), {}).length === 0);
+}
+eixo12();
 
 console.log(`\n${total - falhas}/${total} passaram.`);
 if (falhas) { console.log(`${falhas} FALHA(S): a bancada nao esta reprovando o que promete pegar.`); process.exit(1); }

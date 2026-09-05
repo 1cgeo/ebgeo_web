@@ -54,6 +54,11 @@ const RAIZ = path.resolve(AQUI, '..');
 //   visibilidade derivam dela o trecho visivel e o obstruido, que sao OUTRAS
 //   feicoes, em outra fonte. O cenario conclusao cronometra as duas coisas a
 //   parte, porque a feicao no store nao e o que o usuario ve na tela.
+// - `snapa`: a ferramenta chama `snapping.resolve` (padrao true). Existe para o
+//   contador de resolve poder DENUNCIAR a si mesmo: com `--snapping true` e uma
+//   ferramenta que snapa, zero chamadas contadas significa que o envolucro nao
+//   pegou o servico que a ferramenta usa, e nao que ela coalesce bem. A seta e o
+//   pincel nao importam o servico de snap, e para elas zero e a verdade.
 // --------------------------------------------------------------------------
 const FERRAMENTAS = {
     line: {
@@ -67,6 +72,37 @@ const FERRAMENTAS = {
         // O poligono fecha um anel: menos de 3 pontos nao vira feicao.
         pontosParaCriar: 6, anel: true, conclusao: { gesto: 'botao-direito', cliquesAntes: 3, evento: 'contextmenu' },
     },
+    // As quatro FORMAS. Todas de dois cliques: o primeiro marca o centro (o
+    // canto, no retangulo) e o SEGUNDO ja cria a feicao, sem botao direito e sem
+    // vertice intermediario. Conferido no `handleMapClick` de cada controle, que
+    // fecha em `drawPoints.length === 2` (circulo add_circle_control.js:256,
+    // elipse :321, retangulo :402, setor :300). O setor nao pede um terceiro
+    // clique para a abertura: ela sai do DEFAULT_PROPERTIES, e o segundo clique
+    // da raio e azimute de uma vez.
+    circle: {
+        controle: 'AddCircleControl', tipo: 'circles', fonte: 'circles',
+        feedback: 'circle-feedback', painel: '.circle-attributes-section',
+        pontosParaCriar: 2, conclusao: { gesto: 'clique-final', cliquesAntes: 1, evento: 'click' },
+    },
+    ellipse: {
+        controle: 'AddEllipseControl', tipo: 'ellipses', fonte: 'ellipses',
+        feedback: 'ellipse-feedback', painel: '.ellipse-attributes-section',
+        pontosParaCriar: 2, conclusao: { gesto: 'clique-final', cliquesAntes: 1, evento: 'click' },
+    },
+    rectangle: {
+        controle: 'AddRectangleControl', tipo: 'rectangles', fonte: 'rectangles',
+        feedback: 'rectangle-feedback', painel: '.rectangle-attributes-section',
+        pontosParaCriar: 2, conclusao: { gesto: 'clique-final', cliquesAntes: 1, evento: 'click' },
+    },
+    sector: {
+        // O balde do store e a fonte do mapa se chamam `setores`, em portugues,
+        // e nao `sectors`: FEATURE_TYPE_MAPPINGS e FEATURE_SOURCES concordam
+        // nisso, e o controle escreve `map.getSource('setores')`. O prefixo das
+        // camadas e do feedback continua em ingles.
+        controle: 'AddSectorControl', tipo: 'setores', fonte: 'setores',
+        feedback: 'sector-feedback', painel: '.sector-attributes-section',
+        pontosParaCriar: 2, conclusao: { gesto: 'clique-final', cliquesAntes: 1, evento: 'click' },
+    },
     boundary: {
         controle: 'AddBoundaryControl', tipo: 'boundarys', fonte: 'boundarys',
         feedback: 'boundary-feedback', painel: '.boundary-attributes-section',
@@ -75,7 +111,9 @@ const FERRAMENTAS = {
     arrow: {
         controle: 'AddArrowControl', tipo: 'arrows', fonte: 'arrows',
         feedback: 'arrow-feedback', painel: '.arrow-attributes-section',
-        pontosParaCriar: 4, conclusao: { gesto: 'botao-direito', cliquesAntes: 3, evento: 'contextmenu' },
+        // Nao importa o servico de snap: zero resolve e a verdade dela.
+        pontosParaCriar: 4, snapa: false,
+        conclusao: { gesto: 'botao-direito', cliquesAntes: 3, evento: 'contextmenu' },
     },
     occupied_front: {
         controle: 'AddOccupiedFrontControl', tipo: 'occupied_fronts', fonte: 'occupied_fronts',
@@ -121,7 +159,7 @@ const FERRAMENTAS = {
         // sequencia de posicoes), e so o desenho do feedback e coalescido.
         controle: 'AddBrushControl', tipo: 'brushes', fonte: 'brushes',
         feedback: 'brush-feedback', painel: '.brush-attributes-section',
-        pontosParaCriar: 8, modoDesenho: 'arrastar',
+        pontosParaCriar: 8, modoDesenho: 'arrastar', snapa: false,
         pontos: { propriedade: 'points', forma: 'lista' }, semeadura: 'points',
         conclusao: { gesto: 'pointerup', cliquesAntes: 0, evento: 'pointerup' },
     },
@@ -157,6 +195,9 @@ function normalizarFerramenta(nome, mapa = FERRAMENTAS) {
         pontos: f.pontos || PONTOS_PADRAO,
         semeadura: f.semeadura || 'drawPoints',
         requerTerreno: !!f.requerTerreno,
+        // Padrao true: quem NAO snapa e a excecao, e um descritor novo que
+        // esquecesse o campo seria cobrado pelo contador em vez de escapar dele.
+        snapa: f.snapa === undefined ? true : !!f.snapa,
     };
     for (const campo of ['controle', 'tipo', 'fonte', 'feedback', 'painel']) {
         if (!cfg[campo]) throw new Error(`a ferramenta ${nome} nao declara "${campo}"`);
@@ -191,8 +232,16 @@ const CLIQUES = [[500, 450], [800, 400], [1100, 520]];
 // Onde o botao direito cai, deslocado do ultimo clique para nao cair no vertice.
 const DESLOCAMENTO_CONCLUSAO = [40, 30];
 
-// Numero de camadas do estilo abaixo do qual o app ainda nao montou o catalogo.
-const CAMADAS_MINIMAS = 160;
+// Numero de FONTES do estilo abaixo do qual o app ainda nao montou o que tem
+// para montar. Fontes, e nao camadas, porque camada e um numero da BASE: o
+// estilo vetorial interno traz umas 150 sozinho e o raster do OSM traz uma. O
+// corte de 160 camadas que estava aqui foi calibrado com a base vetorial e
+// REPROVAVA o mesmo app inteiro com a base do OSM (medido em 2026-09-05: 85
+// camadas e 69 fontes, `map.loaded()` verdadeiro, as fontes das ferramentas
+// todas no lugar, e a bancada morrendo em "o app nao ficou pronto").
+// Em fontes a distancia e folgada: a base sozinha tem 1 (OSM) ou 9 (vetorial),
+// e o app montado tem 69 ou 99.
+const FONTES_MINIMAS = 30;
 
 // Duracao do laco de mouse sintetico, em ms.
 const MS_DESENHO = 3000;
@@ -214,6 +263,7 @@ function lerArgumentos(argv) {
         largura: 1600,
         altura: 900,
         headless: false,
+        proxy: true,
     };
     let informouFeicoes = false;
     for (let i = 0; i < argv.length; i++) {
@@ -250,6 +300,8 @@ function lerArgumentos(argv) {
             p.altura = Number(proximo());
         } else if (a === '--headless') {
             p.headless = booleana();
+        } else if (a === '--proxy') {
+            p.proxy = booleana();
         } else if (a === '--ajuda' || a === '-h' || a === '--help') {
             p.ajuda = true;
         } else {
@@ -276,7 +328,32 @@ function lerArgumentos(argv) {
         p.saida = path.join(AQUI, 'saida', carimbo);
     }
     p.saida = path.resolve(p.saida);
+    // De onde a bancada importa os modulos do app. Sai da PROPRIA --url, e nao
+    // de um prefixo fixo: o app abre em `/ebgeo/` no servidor de sempre e em `/`
+    // num `vite` cru, e um prefixo fixo daria 404 no segundo caso, com o app
+    // carregado e a bancada culpando o aplicativo.
+    p.baseModulos = baseDeModulos(p.url);
     return p;
+}
+
+/**
+ * Prefixo dos modulos do app, derivado da URL em que ele abre.
+ * Sempre com barra no fim, para concatenar com `src/js/...`.
+ *
+ * @param {string} url - A --url da bancada
+ * @returns {string} O caminho base, por exemplo "/" ou "/ebgeo/"
+ */
+function baseDeModulos(url) {
+    let caminho;
+    try {
+        caminho = new URL(url).pathname;
+    } catch (_e) {
+        throw new Error(`--url invalida: "${url}"`);
+    }
+    // Um arquivo no fim da URL (index.html) nao e o diretorio base.
+    if (/\.[a-zA-Z0-9]+$/.test(caminho)) caminho = caminho.replace(/[^/]+$/, '');
+    if (!caminho.startsWith('/')) caminho = `/${caminho}`;
+    return caminho.endsWith('/') ? caminho : `${caminho}/`;
 }
 
 const AJUDA = `
@@ -299,6 +376,10 @@ Bancada de desempenho das ferramentas de desenho do EBGeo Web.
   --largura <px>       padrao 1600
   --altura <px>        padrao 900
   --headless [bool]    padrao false (headless usa SwiftShader: o relogio nao vale)
+  --proxy [bool]       padrao true. Passa ao navegador o proxy da chave HTTPS_PROXY
+                       (ou HTTP_PROXY) do ambiente, com localhost de fora. Sem ele,
+                       numa rede que so sai por proxy, os tiles da base ficam
+                       pendentes e o app nunca fica pronto.
 
 Variavel de ambiente EBGEO_PLAYWRIGHT_DIR: diretorio que contem node_modules/playwright.
 `;
@@ -334,6 +415,43 @@ function lerVersaoPlaywright(pacote) {
     try { return JSON.parse(fs.readFileSync(pacote, 'utf8')).version; } catch { return '?'; }
 }
 
+/**
+ * Proxy do navegador, lido do AMBIENTE.
+ *
+ * A base do app vem da internet (os tiles do OSM, no estilo padrao), e numa rede
+ * que so sai por proxy o pedido fica PENDENTE em vez de falhar: `map.loaded()`
+ * nunca vira verdadeiro, a fase de inicializacao que cria as fontes das
+ * ferramentas nao roda, e a bancada morre em "o app nao ficou pronto" acusando o
+ * aplicativo de um defeito da rede. Medido em 2026-09-05: sem proxy o estilo
+ * fica em 1 camada e 1 fonte por 120 s; com proxy sobe a 246 camadas em 5 s.
+ *
+ * O VALOR (usuario, senha, host, porta) nunca entra no codigo nem no artefato:
+ * so a CHAVE do ambiente que o forneceu e registrada. `localhost` fica de fora do
+ * proxy, senao o proprio servidor de desenvolvimento sairia pela rede.
+ *
+ * @returns {{chave: string, proxy: Object}|null} O que passar ao Chromium, ou null
+ */
+function proxyDoAmbiente() {
+    const chave = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy'].find((k) => process.env[k]);
+    if (!chave) return null;
+    let u;
+    try {
+        u = new URL(process.env[chave]);
+    } catch (_e) {
+        console.log(`  aviso: ${chave} nao e uma URL valida; seguindo sem proxy`);
+        return null;
+    }
+    return {
+        chave,
+        proxy: {
+            server: `${u.protocol}//${u.host}`,
+            bypass: 'localhost, 127.0.0.1, ::1',
+            ...(u.username ? { username: decodeURIComponent(u.username) } : {}),
+            ...(u.password ? { password: decodeURIComponent(u.password) } : {}),
+        },
+    };
+}
+
 // --------------------------------------------------------------------------
 // Utilidades do lado do Node
 // --------------------------------------------------------------------------
@@ -366,6 +484,16 @@ function estatistica(B) {
         // assentar: preview que nunca chegou a tela. E o par obrigatorio da
         // latencia, senao a mediana descreve so os quadros que deram certo.
         feedbackSuperados: (B && B.superadas) || 0,
+        // Chamadas a `snapping.resolve` e timers armados durante o gesto. Sao as
+        // duas grandezas que separam a ferramenta que trabalha uma vez por quadro
+        // da que trabalha uma vez por evento de mouse, e nenhuma delas depende do
+        // relogio, que a GPU e a CPU da maquina contaminam.
+        resolve: (B && B.resolve) || 0,
+        timers: (B && B.timers) || 0,
+        timersCurtos: (B && B.timersCurtos) || 0,
+        // Sem quadro medido a divisao nao existe. Devolver 0 aqui leria como
+        // "coalesce perfeitamente" um cenario que nao mediu nada.
+        resolvePorQuadro: quadros.length ? arred(((B && B.resolve) || 0) / quadros.length, 2) : null,
     };
     if (!quadros.length) return { ...base, lentos: 0 };
     const dts = quadros.map((f) => f.dt).sort((a, b) => a - b);
@@ -427,11 +555,19 @@ function errosDeTerreno(prova) {
     return ['a ferramenta exige terreno e getTerrain() esta nulo: rode com --terreno (sem terreno ela nem ativa)'];
 }
 
+// O clique so vira vertice se chegar ao mapa. Com um modal por cima (o aviso do
+// servidor secundario, medido em 2026-09-05) o cenario sai vazio e a leitura
+// natural seria culpar a ferramenta. Vale para os cenarios que clicam.
+function errosDeObstrucao(prova) {
+    if (!prova || prova.pontoDeCliqueLivre !== false) return [];
+    return [prova.obstrucaoDoClique || 'o ponto de clique nao esta sobre o mapa'];
+}
+
 const CENARIOS = {
     desenho: {
         rotulo: 'ferramenta ativa com 1 ponto, mouse sintetico por 3 s',
         validar: (prova, est) => {
-            const erros = errosDeTerreno(prova);
+            const erros = [...errosDeTerreno(prova), ...errosDeObstrucao(prova)];
             if (!est || !est.quadros) erros.push('zero quadros medidos');
             if (!prova.setDataAlvo) {
                 erros.push(`nenhum setData da fonte de feedback "${prova.fonteAlvo}" durante o desenho: a ferramenta nao desenhou`);
@@ -457,6 +593,19 @@ const CENARIOS = {
                 erros.push(`pontos colocados ${prova.pontosColocados}, esperado 1 por clique real`);
             }
             if (!prova.ferramentaAtiva) erros.push('a ferramenta nao ficou ativa (isActive falso)');
+            // O contador de resolve, cobrado contra si mesmo. Contador ausente le
+            // ZERO, e zero e exatamente o numero que o porte quer produzir: sem
+            // esta linha a bancada carimbaria "coalesce perfeitamente" numa
+            // ferramenta que resolve o snap cinco vezes por quadro.
+            if (!prova.contadorDeSnapInstalado) {
+                erros.push(`o contador de snapping.resolve nao foi instalado (${prova.contadorDeSnapMotivo || 'sem motivo registrado'}):`
+                    + ' "resolve 0" nao prova coalescencia nenhuma');
+            } else if (prova.snapa && prova.snapping === true && est && est.quadros && !est.resolve) {
+                // Instalado e cego: o envolucro pegou um segundo exemplar do
+                // modulo, e nunca ve a chamada que a ferramenta faz.
+                erros.push('a ferramenta declara que snapa, --snapping estava ligado e o contador viu 0 chamadas:'
+                    + ' o contador nao esta no servico que a ferramenta usa');
+            }
             if (prova.visibilidade !== 'visible') erros.push(`visibilityState ${prova.visibilidade}`);
             return erros;
         },
@@ -489,7 +638,7 @@ const CENARIOS = {
     conclusao: {
         rotulo: 'concluir a feicao pelo caminho do usuario',
         validar: (prova) => {
-            const erros = errosDeTerreno(prova);
+            const erros = [...errosDeTerreno(prova), ...errosDeObstrucao(prova)];
             if (prova.gesto === 'pointerup' && !(prova.pontosDoTraco >= 2)) {
                 erros.push(`o traco tinha ${prova.pontosDoTraco} pontos antes do pointerup: menos de 2 nao vira feicao`);
             }
@@ -526,25 +675,155 @@ const CENARIOS = {
 // Codigo que roda dentro da pagina
 // --------------------------------------------------------------------------
 
-// Espera o app: modulo do store, mapa, catalogo montado. Devolve null enquanto
+// Espera o app: modulo do store, mapa, fontes montadas. Devolve null enquanto
 // nao esta pronto. O laco fica do lado do Node de proposito: page.waitForFunction
 // com predicado async resolve na hora, porque a Promise ja e um valor verdadeiro.
-function sondaProntidao() {
+function sondaProntidao(cfg) {
     const mm = window.__store && window.__store.getControl('MapManager');
     const map = mm && mm.map;
     if (!map || !map.getStyle) return null;
     const estilo = map.getStyle();
     window.__mapa = map;
-    return { camadas: estilo.layers.length, fontes: Object.keys(estilo.sources).length, carregado: !!map.loaded() };
+    return {
+        camadas: estilo.layers.length,
+        fontes: Object.keys(estilo.sources).length,
+        carregado: !!map.loaded(),
+        // As fontes DA FERRAMENTA que vai ser medida. E o corte que nao depende
+        // da base: elas nascem na inicializacao do app, e sem elas nao ha o que
+        // medir, seja qual for a contagem de camadas.
+        temFontePrincipal: !!estilo.sources[cfg.fonte],
+        temFonteFeedback: !!estilo.sources[cfg.feedback],
+    };
+}
+
+// O que esta EM CIMA do ponto de clique. O app abre um aviso modal quando nao
+// esta no servidor primario (ui/secondary-server-notice.js), e esse aviso cobre
+// o mapa inteiro: o clique da bancada morre no DIV, o mapa nao ve evento nenhum,
+// e o cenario sai com "0 de N cliques viraram vertice" sem dizer por que.
+function lerObstrucao(ponto) {
+    const el = document.elementFromPoint(ponto[0], ponto[1]);
+    if (!el) return { descricao: 'nada', ehCanvas: false };
+    const canvas = window.__mapa.getCanvas();
+    const descricao = `${el.tagName}${el.className ? `.${String(el.className).slice(0, 60)}` : ''}`;
+    return { descricao, ehCanvas: el === canvas || canvas.contains(el) || el.contains(canvas) };
+}
+
+/**
+ * O ponto de clique esta sobre o mapa?
+ *
+ * Pura, para o autoteste atacar com o pior caso: o aviso modal por cima de tudo.
+ *
+ * @param {Object} o - A leitura de `lerObstrucao`
+ * @returns {{livre: boolean, motivo: string|null}} O veredito
+ */
+function avaliarObstrucao(o) {
+    if (!o) return { livre: false, motivo: 'a bancada nao leu o que esta sobre o ponto de clique' };
+    if (!o.ehCanvas) return { livre: false, motivo: `o ponto de clique esta coberto por ${o.descricao}, e o clique nunca chega ao mapa` };
+    return { livre: true, motivo: null };
+}
+
+/**
+ * O app esta montado o bastante para ser medido?
+ *
+ * Pura, para o autoteste poder atacar com o pior caso: o estilo da base sozinho,
+ * que tem `map.loaded()` verdadeiro e nenhuma fonte de ferramenta.
+ *
+ * @param {Object} s - A leitura de `sondaProntidao`
+ * @returns {{pronto: boolean, motivo: string}} O veredito e o que falta
+ */
+function avaliarProntidao(s) {
+    if (!s) return { pronto: false, motivo: 'o MapManager ainda nao tem mapa' };
+    if (!s.carregado) return { pronto: false, motivo: 'map.loaded() falso' };
+    if (!s.temFontePrincipal || !s.temFonteFeedback) {
+        return { pronto: false, motivo: 'as fontes da ferramenta ainda nao existem no estilo' };
+    }
+    if (s.fontes < FONTES_MINIMAS) {
+        return { pronto: false, motivo: `so ${s.fontes} fontes no estilo, menos que as ${FONTES_MINIMAS} de um app montado` };
+    }
+    return { pronto: true, motivo: 'fontes da ferramenta no lugar e estilo montado' };
 }
 
 // Instala o registro por quadro, o contador de setData por fonte GeoJSON, os
-// contadores de queryRenderedFeatures e map.project, e a latencia do feedback.
-function instrumentar(cfg) {
+// contadores de queryRenderedFeatures e map.project, o contador de
+// `snapping.resolve`, o de timers armados, e a latencia do feedback.
+//
+// O contador de resolve envolve o SINGLETON do servico, alcancado pelo mesmo
+// modulo que o app importou: o `import()` dinamico devolve o exemplar ja no
+// registro do navegador quando a URL bate, e `_instance` mora no escopo do
+// modulo. URL diferente daria um segundo exemplar, com `_instance` nulo, e o
+// envolucro nao instalaria; e o descritor `snapa` existe para a rodada denunciar
+// o caso em que ele instala e mesmo assim nao ve chamada nenhuma.
+async function instrumentar({ cfg, base }) {
     const map = window.__mapa;
-    const B = { quadros: [], setData: {}, query: 0, proj: 0, latencias: [], pendente: null, superadas: 0, mousemove: 0 };
+    const B = {
+        quadros: [], setData: {}, query: 0, proj: 0, latencias: [], pendente: null,
+        superadas: 0, mousemove: 0, resolve: 0, timers: 0, timersCurtos: 0,
+    };
     window.__B = B;
     window.__cfg = cfg;
+
+    // Contador de `snapping.resolve`.
+    //
+    // O endereco do modulo NAO e so o caminho: o servidor de desenvolvimento
+    // serve o mesmo arquivo com um carimbo de HMR (`?t=...`) depois da primeira
+    // invalidacao, e cada URL distinta e um exemplar distinto no registro do
+    // navegador, com `_instance` proprio. Importar so o caminho limpo devolveria
+    // um segundo exemplar com o singleton nulo. Por isso os candidatos saem do
+    // que a PAGINA carregou de fato (`performance`), com o caminho limpo como
+    // ultimo recurso, e o primeiro que devolver o servico ganha.
+    let snapContado = { instalado: false, motivo: 'nao tentado' };
+    const candidatos = [
+        ...performance.getEntriesByType('resource')
+            .map((r) => r.name)
+            .filter((n) => /\/snapping\/snapping\.service\.js(\?|$)/.test(n)),
+        `${base}src/js/snapping/snapping.service.js`,
+    ];
+    const tentados = [];
+    for (const url of [...new Set(candidatos)]) {
+        try {
+            const mod = await import(url);
+            const svc = typeof mod.getSnappingService === 'function' ? mod.getSnappingService() : null;
+            if (!svc) { tentados.push(`${url.slice(-60)}: sem singleton`); continue; }
+            if (svc.resolve && svc.resolve.__contada) { snapContado = { instalado: true, motivo: 'ja estava envolvido' }; break; }
+            if (typeof svc.resolve !== 'function') { tentados.push(`${url.slice(-60)}: sem resolve()`); continue; }
+            const original = svc.resolve.bind(svc);
+            const envolvida = function (...a) { B.resolve++; return original(...a); };
+            envolvida.__contada = true;
+            // Propriedade PROPRIA da instancia: sombreia a do prototipo, que e
+            // por onde toda ferramenta chama.
+            svc.resolve = envolvida;
+            snapContado = svc.resolve.__contada === true
+                ? { instalado: true, motivo: null }
+                : { instalado: false, motivo: 'a atribuicao de resolve nao pegou' };
+            break;
+        } catch (e) {
+            tentados.push(`${url.slice(-60)}: ${String(e && e.message ? e.message : e).slice(0, 60)}`);
+        }
+    }
+    if (!snapContado.instalado && !snapContado.motivo?.startsWith('a atribuicao')) {
+        snapContado = {
+            instalado: false,
+            motivo: candidatos.length
+                ? `nenhum exemplar do modulo de snap tinha o singleton (${tentados.join('; ')})`
+                : 'a pagina nao carregou o modulo de snap',
+        };
+    }
+    window.__snapContado = snapContado;
+
+    // Timers armados. Conta TODO setTimeout da pagina durante a janela medida,
+    // e separa os de menos de um quadro, que sao a assinatura do debounce de 8
+    // ms que este porte tira do caminho do preview. Contar so os curtos
+    // esconderia um debounce reescrito para 20 ms, que continua nao coalescendo.
+    const timerOriginal = window.setTimeout;
+    if (!timerOriginal.__contada) {
+        const envolvido = function (fn, atraso, ...resto) {
+            B.timers++;
+            if (!(Number(atraso) > 16)) B.timersCurtos++;
+            return timerOriginal.call(window, fn, atraso, ...resto);
+        };
+        envolvido.__contada = true;
+        window.setTimeout = envolvido;
+    }
 
     const fonteCarregada = (id) => {
         try { return !!map.isSourceLoaded(id); } catch (_e) { return false; }
@@ -617,8 +896,9 @@ function instrumentar(cfg) {
     window.__zerar = () => {
         B.quadros = []; B.setData = {}; B.query = 0; B.proj = 0;
         B.latencias = []; B.pendente = null; B.superadas = 0; B.mousemove = 0;
+        B.resolve = 0; B.timers = 0; B.timersCurtos = 0;
     };
-    return { envolvidas, renderer, fornecedor };
+    return { envolvidas, renderer, fornecedor, snap: snapContado };
 }
 
 // Estado dos tiles de cada fonte, para decidir se o mapa assentou.
@@ -876,34 +1156,34 @@ class Bancada {
     async carregarUmaVez() {
         const t0 = Date.now();
         await this.page.goto(this.params.url, { waitUntil: 'load', timeout: 60000 });
-        await this.page.evaluate(async () => { window.__store = await import('/ebgeo/src/js/store/index.js'); });
-        // O catalogo do app entra DEPOIS do estilo base, e a base sozinha fica
-        // estavel por segundos. Por isso o corte e duplo: o numero de camadas
-        // TEM de passar da base e so entao a dupla (camadas, fontes) precisa
-        // parar de mudar por 3 s.
+        await this.page.evaluate(async (base) => { window.__store = await import(`${base}src/js/store/index.js`); }, this.params.baseModulos);
+        // O que o app monta entra DEPOIS do estilo base, e a base sozinha fica
+        // estavel por segundos. Por isso o corte e duplo: as fontes da
+        // ferramenta TEM de existir e so entao a dupla (camadas, fontes)
+        // precisa parar de mudar por 3 s.
         let pronto = null;
         let assinatura = '';
         let estavelDesde = Date.now();
-        let viuCatalogo = false;
+        let veredito = { pronto: false, motivo: 'nem sondou' };
         for (let i = 0; i < 240; i++) {
-            const s = await this.page.evaluate(sondaProntidao);
+            const s = await this.page.evaluate(sondaProntidao, this.cfg);
             if (s) {
                 const nova = `${s.camadas}/${s.fontes}`;
                 if (nova !== assinatura) { assinatura = nova; estavelDesde = Date.now(); }
-                if (s.camadas >= CAMADAS_MINIMAS) viuCatalogo = true;
-                if (s.carregado && viuCatalogo && Date.now() - estavelDesde > 3000) {
-                    pronto = { ...s, como: 'catalogo montado e estavel por 3 s' };
+                veredito = avaliarProntidao(s);
+                if (veredito.pronto && Date.now() - estavelDesde > 3000) {
+                    pronto = { ...s, como: `${veredito.motivo}, e estavel por 3 s` };
                     break;
                 }
             }
             await dorme(500);
         }
         if (!pronto) {
-            const s = await this.page.evaluate(sondaProntidao);
-            throw new Error(`o app nao ficou pronto em 120 s (ultimo estado: ${JSON.stringify(s)}). `
-                + `A bancada exige ${CAMADAS_MINIMAS} camadas ou mais: medir o app meio carregado da numero bonito e falso.`);
+            const s = await this.page.evaluate(sondaProntidao, this.cfg);
+            throw new Error(`o app nao ficou pronto em 120 s (ultimo estado: ${JSON.stringify(s)}, veredito: ${veredito.motivo}). `
+                + 'Medir o app meio carregado da numero bonito e falso.');
         }
-        const instr = await this.page.evaluate(instrumentar, this.cfg);
+        const instr = await this.page.evaluate(instrumentar, { cfg: this.cfg, base: this.params.baseModulos });
         return { ...pronto, ms: Date.now() - t0, instrumentacao: instr };
     }
 
@@ -929,6 +1209,24 @@ class Bancada {
         }));
         const ints = marcas.slice(1).map((t, i) => t - marcas[i]).sort((a, b) => a - b);
         return { p50: arred(percentil(ints, 0.5)), p95: arred(percentil(ints, 0.95)), max: arred(percentil(ints, 1)), amostras: ints.length };
+    }
+
+    // Tira do caminho o que estiver por cima do ponto de clique. O aviso do
+    // servidor secundario sai com Escape (o proprio componente escuta a tecla);
+    // o que nao sair vira reprova nomeando o elemento, e nao um cenario mudo.
+    async desobstruir() {
+        let leitura = await this.page.evaluate(lerObstrucao, CLIQUES[0]);
+        let veredito = avaliarObstrucao(leitura);
+        let tentouEscape = false;
+        if (!veredito.livre) {
+            await this.page.keyboard.press('Escape');
+            await dorme(400);
+            tentouEscape = true;
+            leitura = await this.page.evaluate(lerObstrucao, CLIQUES[0]);
+            veredito = avaliarObstrucao(leitura);
+        }
+        this.obstrucao = { ...veredito, elemento: leitura.descricao, tentouEscape };
+        return this.obstrucao;
     }
 
     async irParaVista() {
@@ -1094,11 +1392,17 @@ class Bancada {
             }
             const estado = await this.estado();
             const sd = resumirSetData(B.setData, this.cfg.feedback);
+            const contador = await this.page.evaluate(() => window.__snapContado || { instalado: false, motivo: 'a instrumentacao nao registrou o contador' });
             const prova = {
                 ...sd, ...estado,
                 fonteAlvo: this.cfg.feedback,
                 ativacao, cliqueMs: clique.ms, cliquePegou: clique.pegou,
                 pontosAcumulados, eventosDeMovimento: B.mousemove ?? null,
+                snapa: this.cfg.snapa,
+                contadorDeSnapInstalado: !!contador.instalado,
+                contadorDeSnapMotivo: contador.motivo,
+                pontoDeCliqueLivre: this.obstrucao ? this.obstrucao.livre : null,
+                obstrucaoDoClique: this.obstrucao ? this.obstrucao.motivo : null,
             };
             casos.push({
                 cenario: 'desenho', k, estatistica: est, prova,
@@ -1193,6 +1497,8 @@ class Bancada {
             gestoDisparou: tempos.disparou,
             cliquesPedidos: conc.cliquesAntes,
             cliquesQuePegaram: cliques.filter((c) => c.pegou).length,
+            pontoDeCliqueLivre: this.obstrucao ? this.obstrucao.livre : null,
+            obstrucaoDoClique: this.obstrucao ? this.obstrucao.motivo : null,
             msPorClique: cliques.map((c) => c.ms),
             pontosDoTraco,
         };
@@ -1228,6 +1534,11 @@ const METRICAS = [
     ['setData outras', (c) => c.prova.setDataOutras],
     ['queryRend', (c) => c.estatistica.query],
     ['project', (c) => c.estatistica.proj],
+    // As duas do porte: o snap resolvido uma vez por quadro em vez de uma vez
+    // por evento, e o timer de 8 ms que nao coalesce nada fora do caminho.
+    ['resolve', (c) => c.estatistica.resolve],
+    ['res/quadro', (c) => c.estatistica.resolvePorQuadro],
+    ['timers', (c) => c.estatistica.timers],
     ['lat p50', (c) => c.estatistica.latencia_ms && c.estatistica.latencia_ms.p50],
     ['lat p95', (c) => c.estatistica.latencia_ms && c.estatistica.latencia_ms.p95],
     // Quantos setData de feedback assentaram (deram medida de latencia) e
@@ -1308,6 +1619,7 @@ function escreverMarkdown(resultado, tabela) {
     l.push(`k (mousemove por quadro): ${p.k.join(', ')} | feicoes no zoom: ${p.feicoes} | terreno: ${p.terreno} | snapping: ${p.snapping} | CPU: ${p.cpu}x`);
     l.push(`Renderer: ${resultado.ambiente.renderer}`);
     l.push(`Relogio: ${resultado.ambiente.relogio}`);
+    l.push(`Proxy do navegador: ${resultado.ambiente.proxy}`);
     l.push(`Playwright ${resultado.ambiente.playwrightVersao}, carregado de ${resultado.ambiente.playwrightOrigem}`);
     l.push(`Rodadas: ${p.rodadas}. ${tabela.nota}`);
     const ass = resultado.ambiente.assinaturas || {};
@@ -1324,6 +1636,12 @@ function escreverMarkdown(resultado, tabela) {
     l.push('na `conclusao`. `lat` e a latencia do feedback, do `setData` ao primeiro quadro com a fonte');
     l.push('carregada; `lat n` diz quantas escritas assentaram e `perdidos` quantas o `setData`');
     l.push('seguinte substituiu antes disso, ou seja, o preview que o usuario nunca viu.');
+    l.push('');
+    l.push('`resolve` e o numero de chamadas a `snapping.resolve` na janela medida e `res/quadro` a');
+    l.push('divisao pelos quadros: uma ferramenta que resolve o snap dentro do quadro fica em 1 ou');
+    l.push('menos, e uma que resolve no evento bruto sobe com o `k`. `timers` conta os `setTimeout`');
+    l.push('armados no gesto, onde mora o debounce de 8 ms que nao coalesce nada. Nenhuma das duas');
+    l.push('depende do relogio, entao valem mesmo quando o renderer invalida os milissegundos.');
     l.push('');
     const cab = ['ferramenta', 'cenario', 'k', ...METRICAS.map(([n]) => n), 'veredito'];
     l.push(`| ${cab.join(' | ')} |`);
@@ -1379,8 +1697,11 @@ async function principal() {
     const pw = await carregarPlaywright();
     fs.mkdirSync(params.saida, { recursive: true });
 
+    const px = params.proxy ? proxyDoAmbiente() : null;
+    console.log(px ? `  proxy do navegador: pela chave ${px.chave} do ambiente` : '  proxy do navegador: nenhum');
     const navegador = await pw.chromium.launch({
         headless: params.headless,
+        ...(px ? { proxy: px.proxy } : {}),
         args: [
             // Aba oculta ou janela ocluida zera o rAF e a medida vira mentira.
             '--disable-backgrounding-occluded-windows',
@@ -1405,6 +1726,8 @@ async function principal() {
             fornecedor: null,
             relogio: 'valido',
             cpu: params.cpu,
+            // A CHAVE do ambiente, nunca o valor.
+            proxy: px ? `pela chave ${px.chave}` : 'nenhum',
         },
         rodadas: [],
         errosDaPagina,
@@ -1441,6 +1764,10 @@ async function principal() {
                 }
                 console.log(`  renderer: ${carga.instrumentacao.renderer}`);
             }
+            const snapInstr = carga.instrumentacao && carga.instrumentacao.snap;
+            if (snapInstr && !snapInstr.instalado) {
+                console.log(`  ** contador de snapping.resolve NAO instalado: ${snapInstr.motivo}`);
+            }
             // Impressao digital do app ANTES de mexer no mapa. Todas as cargas de
             // uma mesma bancada tem de dar a mesma: assinatura distinta significa
             // que a arvore mudou embaixo da medida.
@@ -1455,6 +1782,9 @@ async function principal() {
 
             await bancada.irParaVista();
             reg.assentou = await bancada.assentar();
+            reg.obstrucao = await bancada.desobstruir();
+            console.log(`  ponto de clique: ${reg.obstrucao.livre ? `livre (${reg.obstrucao.elemento})` : `** ${reg.obstrucao.motivo}`}`
+                + `${reg.obstrucao.tentouEscape ? ' [depois do Escape]' : ''}`);
             if (cfg.requerTerreno && !params.terreno) {
                 // Nao para a rodada: o cenario sai INVALIDO com a razao, e a
                 // tabela mostra o que a ferramenta parada faz. Parar aqui
@@ -1502,7 +1832,7 @@ async function principal() {
                     + ` | render p50 ${e.render_ms ? e.render_ms.p50 : '-'} p95 ${e.render_ms ? e.render_ms.p95 : '-'}`
                     + ` | interv p95 ${e.intervalo_ms ? e.intervalo_ms.p95 : '-'} >33ms ${e.lentos}`
                     + ` | setData ${c.prova.setDataAlvo} (${c.prova.fonteAlvo}) outras ${c.prova.setDataOutras}`
-                    + ` | query ${e.query} project ${e.proj}`
+                    + ` | query ${e.query} project ${e.proj} resolve ${e.resolve} (${e.resolvePorQuadro}/quadro) timers ${e.timers}`
                     + `${e.latencia_ms ? ` | lat p50 ${e.latencia_ms.p50} p95 ${e.latencia_ms.p95} (${e.latencia_ms.amostras} assentaram, ${e.feedbackSuperados} perdidos)` : (e.feedbackSuperados ? ` | lat sem medida (${e.feedbackSuperados} perdidos)` : '')}`
                     + `${c.prova.msStore !== undefined && c.prova.msStore !== null ? ` | store ${c.prova.msStore} ms painel ${c.prova.msPainel} ms` : ''}`
                     + `${c.prova.processadoDeclarado ? ` | processado ${c.prova.msProcessado} ms (${c.prova.naFonteProcessadaAntes} -> ${c.prova.naFonteProcessada} feicoes)` : ''}`
@@ -1562,7 +1892,8 @@ if (chamadoDireto) principal().catch((e) => { console.error(e); process.exit(1);
 export {
     FERRAMENTAS, ORDEM_FERRAMENTAS, ORDEM_CENARIOS, CENARIOS, METRICAS, VISTA,
     MODOS_DESENHO, SEMEADURAS, GESTOS_CONCLUSAO, FORMAS_DE_PONTO, PONTOS_PADRAO,
-    normalizarFerramenta, lerArgumentos, carregarPlaywright, percentil, mediana,
+    normalizarFerramenta, lerArgumentos, baseDeModulos, avaliarProntidao, avaliarObstrucao,
+    FONTES_MINIMAS, carregarPlaywright, percentil, mediana,
     estatistica, resumirSetData, avaliarCadencia, celula, chavesDaTabela,
     montarTabela, escreverMarkdown,
 };

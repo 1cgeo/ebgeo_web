@@ -8,6 +8,7 @@ import AddCircleGeometry from './add_circle_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
 import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged, LABEL_ZOOM_PROPERTIES, recalcLabelSize, createLabelZoomHandler, syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
+import { createPreviewScheduler } from '../../tool_manager/helpers/preview-scheduler.js';
 /**
  * Layers onHoverMove needs: 'circle-edit-handles' (hasHandleAtPoint) and 'circles'
  * (hasSelectedFeatureAtPoint, rendered by the fill, the hatch fill and the outline).
@@ -23,11 +24,26 @@ class AddCircleControl extends BaseControl {
         this.drawPoints = [];
         this.isDraggingHandle = false;
         this.geometry = new AddCircleGeometry();
-        this.previewRafId = null;
-        this.pendingPreviewUpdate = false;
+
+        // ONE rAF gate for the whole preview. The radius drawing and the handle
+        // drag are never live together (a drag needs a selected feature, a
+        // drawing does not have one) and already shared this state, so they
+        // share the gate: the raw event parks a pointer, the frame resolves the
+        // snap once and draws once.
+        this._previewScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this.performPreviewUpdate(pointer),
+        });
+        // The indicator BEFORE the first click gets its own gate: it is armed by
+        // `activate()` and swapped for the radius preview on that first click.
+        this._preClickScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this._updatePreClickSnap(pointer),
+        });
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
-        this.geometryDebounceTimer = null;
         this.hatchGenerator = new HatchPatternGenerator();
 
         // Pointer event state for edit handles
@@ -232,10 +248,30 @@ class AddCircleControl extends BaseControl {
         }
     }
     // ===== DRAWING SYSTEM =====
+
+    /**
+     * Snap indicator before the first click, when there is nothing to preview yet.
+     *
+     * The raw `mousemove` only PARKS the pointer: `snapping.resolve` is a
+     * rendered-feature query, and a mouse fires several moves inside one frame,
+     * so it runs once per frame from the gate's callback below. The indicator
+     * lands on the same pixel either way, since only the last position of the
+     * frame is ever drawn.
+     */
     _onPreClickMouseMove = (e) => {
+        this._preClickScheduler.request({ point: e.point, lngLat: e.lngLat });
+    }
+
+    /**
+     * @param {Object} pointer - The frame's last `{ point, lngLat }`
+     * @private
+     */
+    _updatePreClickSnap = (pointer) => {
+        if (!pointer || !this.map) return;
+
         const snapping = getSnappingService();
-        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
-        if (snap.snapped) {
+        const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat);
+        if (snap?.snapped) {
             snapping.showIndicator(this.map, snap, snap.snapType);
         } else {
             snapping?.hideIndicator(this.map);
@@ -259,13 +295,36 @@ class AddCircleControl extends BaseControl {
             this.toolManager.deactivateCurrentTool();
         }
     }
+    /**
+     * Park the pointer and ask for a frame. The snap is resolved inside the
+     * gate's callback, once per frame, for the reason on `_onPreClickMouseMove`.
+     */
     handlePreviewMouseMove = (e) => {
-        if (this.drawPoints.length === 1) {
-            this.lastPreviewCenter = this.drawPoints[0];
+        if (this.drawPoints.length !== 1) return;
 
+        this._previewScheduler.request({ point: e.point, lngLat: e.lngLat });
+    }
+
+    /**
+     * The frame callback: resolve the snap ONCE, move the indicator, then draw.
+     *
+     * The `setTimeout(..., 8)` that used to wrap the drawing is gone: 8 ms is
+     * under the 16.7 ms of a frame, so it coalesced nothing and only pushed the
+     * preview one timer late.
+     *
+     * @param {Object} [pointer] - The frame's last `{ point, lngLat }`, when a
+     *   pointer event parked one. Absent when something else asks for a redraw.
+     */
+    performPreviewUpdate = (pointer) => {
+        const selectedFeature = this.getSelectedFeature();
+        const draggingHandle = Boolean(this.isDraggingHandle && selectedFeature);
+
+        if (pointer) {
             const snapping = getSnappingService();
-            const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
-            this.lastPreviewPosition = [snap.lng, snap.lat];
+            // While dragging a handle the circle's own vertices would capture
+            // every move, so the feature excludes itself.
+            const excludeId = draggingHandle ? selectedFeature.properties?.id : null;
+            const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat, excludeId) ?? pointer.lngLat;
 
             if (snap.snapped) {
                 snapping.showIndicator(this.map, snap, snap.snapType);
@@ -273,32 +332,21 @@ class AddCircleControl extends BaseControl {
                 snapping?.hideIndicator(this.map);
             }
 
-            if (!this.pendingPreviewUpdate) {
-                this.pendingPreviewUpdate = true;
-                this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-            }
+            this.lastPreviewPosition = [snap.lng, snap.lat];
         }
-    }
-    performPreviewUpdate = () => {
-        if (!this.lastPreviewPosition) {
-            this.pendingPreviewUpdate = false;
-            return;
-        }
-        const selectedFeature = this.getSelectedFeature();
-        if (this.isDraggingHandle && selectedFeature) {
+
+        if (!this.lastPreviewPosition) return;
+
+        if (draggingHandle) {
             this.updateRadiusPreview(this.lastPreviewPosition);
-        } else if (this.drawPoints.length === 1 && this.lastPreviewCenter) {
+        } else if (this.drawPoints.length === 1) {
+            this.lastPreviewCenter = this.drawPoints[0];
             const center = this.lastPreviewCenter;
             const radius = this.geometry.calculateDistance(center, this.lastPreviewPosition);
             if (radius >= 10) {
-                clearTimeout(this.geometryDebounceTimer);
-                this.geometryDebounceTimer = setTimeout(() => {
-                    const previewGeometry = this.geometry.generate(center, radius);
-                    this.showPreview(previewGeometry);
-                }, 8);
+                this.showPreview(this.geometry.generate(center, radius));
             }
         }
-        this.pendingPreviewUpdate = false;
     }
     showPreview = (geometry) => {
         this.map.getSource('circle-feedback').setData({
@@ -460,6 +508,11 @@ class AddCircleControl extends BaseControl {
             e.preventDefault();
         }
     }
+    /**
+     * The handle drag rides the SAME gate as the drawing preview: the pointer is
+     * parked here and the snap is resolved once per frame in
+     * `performPreviewUpdate`, which excludes the dragged feature itself.
+     */
     _onEditPointerMove(e) {
         if (!e.isPrimary) return;
 
@@ -470,24 +523,16 @@ class AddCircleControl extends BaseControl {
         const point = getPointerPosition(e, canvas);
         const lngLat = this.map.unproject([point.x, point.y]);
 
-        const snapping = getSnappingService();
-        const excludeId = selectedFeature.properties?.id;
-        const snap = snapping?.resolve(this.map, point, lngLat, excludeId) ?? lngLat;
-
-        this.lastPreviewPosition = [snap.lng, snap.lat];
-
-        if (snap.snapped) {
-            snapping.showIndicator(this.map, snap, snap.snapType);
-        } else {
-            snapping?.hideIndicator(this.map);
-        }
-
-        if (!this.pendingPreviewUpdate) {
-            this.pendingPreviewUpdate = true;
-            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-        }
+        this._previewScheduler.request({ point, lngLat });
     }
     async _onEditPointerUp(_e) {
+        // A drag born and dead inside ONE frame (down, move, up) parks its
+        // position and never reaches the frame callback, so `lastPreviewPosition`
+        // below would still hold the position before the drag and the radius
+        // would not follow. Deliver the parked pointer now; `flush` cancels the
+        // frame it had asked for.
+        if (this._previewScheduler.pending) this._previewScheduler.flush();
+
         const canvas = this.map.getCanvasContainer();
 
         // Remove move/up listeners
@@ -538,29 +583,28 @@ class AddCircleControl extends BaseControl {
         if (!center) return;
         const preview = this.geometry.calculatePreview(center, newPosition);
         if (!preview) return;
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            this.map.getSource('circle-feedback').setData({
+        // Written straight into the sources: this already runs inside the gate's
+        // frame, and the `setTimeout(..., 8)` that stood here only delayed it.
+        this.map.getSource('circle-feedback').setData({
+            type: 'Feature',
+            geometry: preview.geometry,
+            properties: {
+                ...selectedFeature.properties,
+                isSelected: true
+            }
+        });
+        this.map.getSource('circle-edit-handles').setData({
+            type: 'FeatureCollection',
+            features: [{
                 type: 'Feature',
-                geometry: preview.geometry,
+                geometry: { type: 'Point', coordinates: preview.handlePosition },
                 properties: {
-                    ...selectedFeature.properties,
-                    isSelected: true
+                    role: 'handle',
+                    handleType: 'radius',
+                    user_isEditingHandle: true
                 }
-            });
-            this.map.getSource('circle-edit-handles').setData({
-                type: 'FeatureCollection',
-                features: [{
-                    type: 'Feature',
-                    geometry: { type: 'Point', coordinates: preview.handlePosition },
-                    properties: {
-                        role: 'handle',
-                        handleType: 'radius',
-                        user_isEditingHandle: true
-                    }
-                }]
-            });
-        }, 8);
+            }]
+        });
     }
     // ===== HOVER SYSTEM =====
     setupHoverListeners = () => {
@@ -793,17 +837,11 @@ class AddCircleControl extends BaseControl {
     }
     // ===== UTILITY METHODS =====
     cancelPendingUpdates = () => {
-        if (this.previewRafId) {
-            cancelAnimationFrame(this.previewRafId);
-            this.previewRafId = null;
-        }
-        this.pendingPreviewUpdate = false;
+        // Both gates: the drawing/drag preview and the pre-click indicator.
+        this._previewScheduler.cancel();
+        this._preClickScheduler.cancel();
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
-        if (this.geometryDebounceTimer) {
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = null;
-        }
     }
     /**
      * Write ONE feature's properties and geometry straight into the source.

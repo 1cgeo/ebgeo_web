@@ -262,6 +262,91 @@ describe('the polygon tool, drag inside one frame', () => {
 });
 
 /**
+ * The circle drags a RADIUS handle, not a vertex, and its end handler is a
+ * pointer event on the canvas container rather than a MapLibre `mouseup`. Until
+ * 2026-09-05 it wrote `lastPreviewPosition` on the raw `pointermove`, so this
+ * drag already moved the feature and a test here would have passed for the wrong
+ * reason; the gate moved that write into the frame, and the `flush()` at the top
+ * of `_onEditPointerUp` is what keeps it passing.
+ */
+describe('the circle tool, handle drag inside one frame', () => {
+    /** The radius handle, as `queryRenderedFeatures` returns it. */
+    const radiusHandle = { properties: { role: 'handle', handleType: 'radius', user_isEditingHandle: true } };
+
+    async function setup() {
+        const { default: AddCircleControl } = await import('../../src/js/draw_tools/circle_tool/add_circle_control.js');
+        const feature = {
+            type: 'Feature',
+            properties: { id: 'circle-1', source: 'circle', center: [0, 0], radius: 100 },
+            geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 1], [0, 0]]] },
+        };
+        const built = buildControl(
+            AddCircleControl,
+            {
+                normalizeCenter: (center) => center,
+                createHandles: () => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: {} }),
+                calculatePreview: () => ({ geometry: {}, handlePosition: [0, 0] }),
+                // The real one returns null below the 10 m floor, and there is no
+                // radius at all without a position: a drag that never moved must
+                // not write. The radius follows the dragged position so the
+                // source write can be checked against it.
+                updateFromHandle: (type, position) => (position
+                    ? { radius: position[0] * 100, geometry: { type: 'Polygon', coordinates: [[position, [1, 1], position]] } }
+                    : null),
+            },
+            { circles: { type: 'FeatureCollection', features: [structuredClone(feature)] } },
+        );
+        built.control.selectionManager.getSelectedFeaturesByType = () => [{ feature }];
+        built.map.queryRenderedFeatures = () => [radiusHandle];
+        return { ...built, feature };
+    }
+
+    it('resizes the circle when down, ONE move and up land before any frame runs', async () => {
+        const { control, written } = await setup();
+
+        control._onEditPointerDown({ isPrimary: true, pointerId: 1, clientX: 1, clientY: 1, preventDefault: () => {} });
+        control._onEditPointerMove({ isPrimary: true, pointerId: 1, clientX: 5, clientY: 5 });
+        await control._onEditPointerUp({ pointerId: 1 });
+
+        // The end handler had to deliver the parked pointer itself: the frame
+        // that would have delivered it never ran, and must not run later.
+        expect(snapping.resolveCalls).toHaveLength(1);
+        expect(snapping.resolveCalls[0].lngLat).toEqual({ lng: 5, lat: 5 });
+        expect(snapping.resolveCalls[0].excludeFeatureId).toBe('circle-1');
+        expect(clock.frame()).toBe(0);
+
+        const mainWrites = written.filter(write => write.name === 'circles');
+        expect(mainWrites).toHaveLength(1);
+        expect(mainWrites[0].data.features[0].properties.radius).toBe(500);
+        expect(mainWrites[0].data.features[0].geometry.coordinates[0][0]).toEqual([5, 5]);
+    });
+
+    it('still resizes when the frame DID run before the pointerup', async () => {
+        const { control, written } = await setup();
+
+        control._onEditPointerDown({ isPrimary: true, pointerId: 1, clientX: 1, clientY: 1, preventDefault: () => {} });
+        control._onEditPointerMove({ isPrimary: true, pointerId: 1, clientX: 7, clientY: 7 });
+        expect(clock.frame()).toBe(1);
+        await control._onEditPointerUp({ pointerId: 1 });
+
+        // The flush over an empty gate resolves no second snap and loses nothing.
+        expect(snapping.resolveCalls).toHaveLength(1);
+        const mainWrites = written.filter(write => write.name === 'circles');
+        expect(mainWrites).toHaveLength(1);
+        expect(mainWrites[0].data.features[0].properties.radius).toBe(700);
+    });
+
+    it('writes nothing when the drag never moved at all', async () => {
+        const { control, written } = await setup();
+
+        control._onEditPointerDown({ isPrimary: true, pointerId: 1, clientX: 1, clientY: 1, preventDefault: () => {} });
+        await control._onEditPointerUp({ pointerId: 1 });
+
+        expect(written.filter(write => write.name === 'circles')).toHaveLength(0);
+    });
+});
+
+/**
  * The brush needs NO flush, and this is the measure that says so instead of an
  * argument: its gate parks no pointer at all, because the stroke is accumulated
  * on the raw event and the frame only redraws `this.points`. A stroke that
