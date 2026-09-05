@@ -1302,6 +1302,14 @@ export class AccountControl {
             const mountedAtlasName = this._atlasCache?.id === mountedAtlasId
                 ? this._atlasCache?.name
                 : null;
+            // E SE O STORE ERA REMOTO, lido AQUI e não depois: entre este ponto e o wipe há
+            // vários `await`, e a origem pode ser marcada LOCAL no meio por outro caminho
+            // (o sweep de namespaces remotos, o resgate de trabalho não enviado). Medido em
+            // 2026-09-05 no spec `browser-logout-clears-map.repro`: numa de cada duas ou três
+            // saídas, `isRemoteStoreSync()` lido depois do teardown já dizia `false`, o
+            // `clearAllDataStore` era pulado, `ALL_DATA_CLEARED` não saía e a feição do
+            // SERVIDOR ficava desenhada na fonte viva com o store já vazio.
+            const eraRemoto = isRemoteStoreSync();
             await syncEngine.logoutAndDisconnect();
             // Drop the collaboration UI and return to a BLANK LOCAL atlas: clear the
             // online-users roster (remote cursors + the connection light already hide via
@@ -1415,7 +1423,6 @@ export class AccountControl {
                 // escopo que não vai ser usado. Os outros chamadores mantêm o padrão `true`: os
                 // três que montam atlas de servidor logo depois LEEM o repositório que este wipe
                 // deixa.
-                const eraRemoto = isRemoteStoreSync();
                 await announceRemoteNamespaceTeardown();
                 if (eraRemoto) {
                     await clearAllDataStore({ reinitialize: false });
