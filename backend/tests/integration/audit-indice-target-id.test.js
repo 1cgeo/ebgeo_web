@@ -131,9 +131,32 @@ describe('auditoria: o filtro por targetId sozinho tem índice próprio', () => 
     // 6,218 ms de um índice de `(target_id)` sozinho. Aqui a asserção que se sustenta é a
     // do CAMINHO: as linhas do alvo são achadas pelo índice novo, e não varrendo tabela
     // nem índice de tempo.
+    //
+    // E O QUE O POSTGRES 18 MUDOU, medido em 2026-09-05 (18.1, esta máquina, 30 mil linhas
+    // semeadas, 1 em 100 no alvo, ANALYZE feito): com OFFSET 100 o planejador escolhe
+    // `Index Scan using idx_audit_target` (o composto ANTIGO, `(target_type, target_id)`) com
+    // `Index Cond: (target_id = ...)` e `Index Searches: 2`, seguido de Sort, custo estimado
+    // 426 contra 522 do caminho pelo índice novo. É o SKIP SCAN da 18: com uma só coluna
+    // líder de cardinalidade 1, o composto responde a pergunta em duas buscas, e a premissa
+    // deste arquivo ("condição só na segunda coluna custa o índice inteiro") deixa de valer
+    // nessa versão. Medido em buffers, os dois caminhos empatam (306 pelo composto contra
+    // 304 pelo novo sozinho, com o composto derrubado numa transação): a diferença é do
+    // heap das 300 linhas e dos joins, não do índice. Então a asserção honesta aqui é a do
+    // CAMINHO, como o parágrafo acima já dizia: as linhas são achadas por um índice que tem
+    // `target_id` como condição de busca, e não varrendo a tabela nem descendo
+    // `idx_audit_created` linha a linha. Qual dos dois índices o planejador prefere na
+    // paginação depende da versão, e não é o que este caso prende; a página 1 (caso acima)
+    // continua exigindo o índice novo e o plano sem Sort, que é o ganho que ele existe para
+    // dar. Exigir o índice novo também aqui reprovava a 18 por escolha certa dela.
     const plano = await planoDaTela(alvoMedio, 100);
-    assert.ok(plano.includes(INDICE), `o plano deveria alcançar ${INDICE}.\n\n${plano}`);
-    assert.match(plano, /Index Cond: \(target_id = /, plano);
+    assert.match(plano, /Index Cond: \(target_id = /, `as linhas do alvo têm de chegar por índice com target_id na condição.\n\n${plano}`);
+    assert.match(
+      plano,
+      /Index Scan using (idx_audit_target_id|idx_audit_target)\b|Bitmap Index Scan on idx_audit_target_id/,
+      `o caminho até as linhas tem de ser um índice por target_id (o novo, ou o composto por skip scan na 18).\n\n${plano}`,
+    );
+    assert.equal(/idx_audit_created/.test(plano), false, `o plano voltou a descer o índice de tempo filtrando linha a linha:\n\n${plano}`);
+    assert.equal(/Seq Scan on audit_trail/.test(plano), false, `o plano voltou à varredura da tabela:\n\n${plano}`);
   });
 
   it('CONTROLE NEGATIVO: sem o índice o mesmo plano volta a percorrer outra coisa', async () => {
