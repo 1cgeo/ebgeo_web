@@ -36,6 +36,11 @@
  * sobreposição. E `zoomend` em vez de por quadro NÃO compensa: com CPU livre e com CPU
  * quatro vezes mais lenta as amplitudes de render p50 e de cadência p95 se sobrepõem;
  * o que ele economiza são 19 ms de JavaScript espalhados por cerca de 90 quadros.
+ * Ressalva medida no mesmo dia pelo lote seguinte da bancada: o DEM de demonstração
+ * configurado nesta máquina cobre um grau quadrado nos Alpes e responde 404 sobre a
+ * vista medida, então "terreno ligado" aqui é o pipeline de render-to-texture ativo
+ * (pilhas, draw calls, `_updateSources`) sobre relevo plano. Os números acima medem
+ * esse pipeline, que é o que a caixa exata dobra; o custo do relevo real não entrou.
  *
  * E A ESCRITA SAI DO QUADRO. É consequência da mesma quantização: entre duas faixas o
  * cache devolve o MESMO objeto de caixa, então a coleção montada é idêntica, feição a
