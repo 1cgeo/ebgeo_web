@@ -591,7 +591,7 @@ async function popularPagina(vista) {
         if (!ctrl || typeof ctrl.createFeature !== 'function') { ausentes.push(nome); continue; }
         porControle[nome] = 0;
         for (let i = 0; i < n; i++) {
-            try { await cria(ctrl); porControle[nome]++; total++; } catch (e) { /* conta so o que ficou */ }
+            try { await cria(ctrl); porControle[nome]++; total++; } catch (_e) { /* conta so o que ficou */ }
         }
     }
     // O que o STORE guardou e a verdade sobre o estado populado, nao o numero de
@@ -1044,29 +1044,31 @@ function montarTabela(resultado) {
         : 'NENHUMA rodada valida fora do aquecimento; a tabela usa TODAS as rodadas e o resultado nao vale';
     const linhas = [];
     const bases = resultado.parametros.bases || ['atual'];
-    for (const variante of resultado.parametros.variantes) for (const nomeBase of bases) {
-        for (const cenario of ORDEM_CENARIOS) {
-            const celulas = [];
-            const vereditos = new Set();
-            for (const rod of base) {
-                const v = rod.variantes.find((x) => x.variante === variante && (x.base || 'atual') === nomeBase);
-                if (!v) continue;
-                const c = v.cenarios.find((x) => x.cenario === cenario);
-                if (!c) continue;
-                celulas.push(c);
-                if (!v.valida) vereditos.add('VARIANTE INVALIDA');
-                if (c.erros.length) vereditos.add('CENARIO INVALIDO');
-                if (!rod.valida) vereditos.add('RODADA INVALIDA');
+    for (const variante of resultado.parametros.variantes) {
+        for (const nomeBase of bases) {
+            for (const cenario of ORDEM_CENARIOS) {
+                const celulas = [];
+                const vereditos = new Set();
+                for (const rod of base) {
+                    const v = rod.variantes.find((x) => x.variante === variante && (x.base || 'atual') === nomeBase);
+                    if (!v) continue;
+                    const c = v.cenarios.find((x) => x.cenario === cenario);
+                    if (!c) continue;
+                    celulas.push(c);
+                    if (!v.valida) vereditos.add('VARIANTE INVALIDA');
+                    if (c.erros.length) vereditos.add('CENARIO INVALIDO');
+                    if (!rod.valida) vereditos.add('RODADA INVALIDA');
+                }
+                if (!celulas.length) continue;
+                if (resultado.ambiente.relogio !== 'valido') vereditos.add(resultado.ambiente.relogio);
+                if (resultado.ambiente.appMudou) vereditos.add('APP MUDOU ENTRE AS CARGAS');
+                const veredito = vereditos.size ? [...vereditos].join('; ') : 'ok';
+                linhas.push({
+                    base: nomeBase, variante, cenario,
+                    valores: METRICAS.map(([nome, ler]) => ({ nome, texto: celula(celulas.map(ler)) })),
+                    veredito,
+                });
             }
-            if (!celulas.length) continue;
-            if (resultado.ambiente.relogio !== 'valido') vereditos.add(resultado.ambiente.relogio);
-            if (resultado.ambiente.appMudou) vereditos.add('APP MUDOU ENTRE AS CARGAS');
-            const veredito = vereditos.size ? [...vereditos].join('; ') : 'ok';
-            linhas.push({
-                base: nomeBase, variante, cenario,
-                valores: METRICAS.map(([nome, ler]) => ({ nome, texto: celula(celulas.map(ler)) })),
-                veredito,
-            });
         }
     }
     return { linhas, nota };
@@ -1266,122 +1268,124 @@ async function principal() {
         console.log(`\n===== rodada ${rodada}${reg.aquecimento ? ' (aquecimento)' : ''}`);
         // Base por dentro, variante por fora: os casos que se comparam ficam
         // vizinhos no tempo, e a rodada ja intercala o resto.
-        for (const nome of params.variantes) for (const base of params.bases) {
-            const def = VARIANTES[nome];
-            const rv = { base, variante: nome, valida: true, erros: [], cenarios: [] };
-            console.log(`--- ${base} / ${nome}`);
-            try {
-                const carga = await bancada.carregar();
-                rv.carga = carga;
-                if (resultado.ambiente.renderer === null) {
-                    resultado.ambiente.renderer = carga.instrumentacao.renderer;
-                    resultado.ambiente.fornecedor = carga.instrumentacao.fornecedor;
-                    if (/SwiftShader|llvmpipe/i.test(String(carga.instrumentacao.renderer))) {
-                        resultado.ambiente.relogio = 'INVALIDO (GPU emulada)';
-                        console.log(`ATENCAO: renderer ${carga.instrumentacao.renderer}. So as contagens valem.`);
+        for (const nome of params.variantes) {
+            for (const base of params.bases) {
+                const def = VARIANTES[nome];
+                const rv = { base, variante: nome, valida: true, erros: [], cenarios: [] };
+                console.log(`--- ${base} / ${nome}`);
+                try {
+                    const carga = await bancada.carregar();
+                    rv.carga = carga;
+                    if (resultado.ambiente.renderer === null) {
+                        resultado.ambiente.renderer = carga.instrumentacao.renderer;
+                        resultado.ambiente.fornecedor = carga.instrumentacao.fornecedor;
+                        if (/SwiftShader|llvmpipe/i.test(String(carga.instrumentacao.renderer))) {
+                            resultado.ambiente.relogio = 'INVALIDO (GPU emulada)';
+                            console.log(`ATENCAO: renderer ${carga.instrumentacao.renderer}. So as contagens valem.`);
+                        }
+                        console.log(`renderer: ${carga.instrumentacao.renderer}`);
                     }
-                    console.log(`renderer: ${carga.instrumentacao.renderer}`);
-                }
-                // Instala o levantamento de fontes vazias no escopo da pagina.
-                await page.evaluate(`window.__levantarVazias = ${levantarVazias.toString()}`);
+                    // Instala o levantamento de fontes vazias no escopo da pagina.
+                    await page.evaluate(`window.__levantarVazias = ${levantarVazias.toString()}`);
 
-                rv.cadenciaCarregando = await bancada.cadencia();
+                    rv.cadenciaCarregando = await bancada.cadencia();
 
-                // Impressao digital do app ANTES de trocar a base ou aplicar a
-                // variante. Todas as cargas de uma mesma bancada tem de dar a
-                // mesma. Em 2026-09-04 uma sessao paralela instalou
-                // empty-source-visibility.js no meio da rodada, e a variante
-                // `terreno` passou de 17 pilhas e 27 ms para 2 pilhas e 6,6 ms
-                // sem que nada na bancada mudasse. Sem esta impressao, a tabela
-                // compararia dois aplicativos diferentes.
-                const pb = await page.evaluate(lerProva);
-                rv.provaBase = pb;
-                rv.assinaturaBase = `${pb.camadas}c/${pb.fontes}f/${pb.camadasVisiveis}v`;
-                if (resultado.ambiente.baseInicial === null) resultado.ambiente.baseInicial = carga.baseAtual;
+                    // Impressao digital do app ANTES de trocar a base ou aplicar a
+                    // variante. Todas as cargas de uma mesma bancada tem de dar a
+                    // mesma. Em 2026-09-04 uma sessao paralela instalou
+                    // empty-source-visibility.js no meio da rodada, e a variante
+                    // `terreno` passou de 17 pilhas e 27 ms para 2 pilhas e 6,6 ms
+                    // sem que nada na bancada mudasse. Sem esta impressao, a tabela
+                    // compararia dois aplicativos diferentes.
+                    const pb = await page.evaluate(lerProva);
+                    rv.provaBase = pb;
+                    rv.assinaturaBase = `${pb.camadas}c/${pb.fontes}f/${pb.camadasVisiveis}v`;
+                    if (resultado.ambiente.baseInicial === null) resultado.ambiente.baseInicial = carga.baseAtual;
 
-                // Troca de base ANTES da vista, para os tiles da vista serem os da
-                // base pedida. A prova so se le com a vista assentada, abaixo.
-                let troca = null;
-                if (base !== 'atual') {
-                    troca = await bancada.trocarBase(base);
-                    rv.troca = troca;
-                }
-
-                await bancada.irParaVistaBase();
-                const assentouBase = await bancada.assentar();
-                rv.assentouBase = assentouBase;
-                rv.cadenciaAssentada = await bancada.cadencia();
-                if (rv.cadenciaAssentada.p95 > 25) {
-                    if (params.cpu > 1) {
-                        // Com a CPU estrangulada de proposito, o ocioso lento E a
-                        // condicao medida, nao defeito do instrumento: fica no registro
-                        // sem derrubar a rodada. Medido em 2026-09-04: 4x deixa a
-                        // Topografica populada em p95 33 ms ociosa e o raster da DSG em 17.
-                        rv.avisos = rv.avisos || [];
-                        rv.avisos.push(`cadencia ociosa do rAF p95 ${rv.cadenciaAssentada.p95} ms acima de 25 com CPU ${params.cpu}x`);
-                        console.log(`  aviso: ${rv.avisos[rv.avisos.length - 1]}`);
-                    } else {
-                        reg.valida = false;
-                        reg.erros.push(`${base}/${nome}: cadencia ociosa do rAF p95 ${rv.cadenciaAssentada.p95} ms acima de 25`);
+                    // Troca de base ANTES da vista, para os tiles da vista serem os da
+                    // base pedida. A prova so se le com a vista assentada, abaixo.
+                    let troca = null;
+                    if (base !== 'atual') {
+                        troca = await bancada.trocarBase(base);
+                        rv.troca = troca;
                     }
-                }
-                const vis = await page.evaluate(() => document.visibilityState);
-                rv.visibilidade = vis;
-                if (vis !== 'visible') { reg.valida = false; reg.erros.push(`${base}/${nome}: visibilityState ${vis}`); }
 
-                if (troca) {
-                    const provaTroca = troca.esperado.erro ? null : await bancada.provarBase(troca.esperado);
-                    rv.provaTrocaBase = provaTroca;
-                    const errosBase = validarBase(provaTroca || {}, troca.esperado);
-                    if (errosBase.length) { rv.valida = false; rv.erros.push(...errosBase.map((e) => `base: ${e}`)); }
-                    const esp = troca.esperado;
-                    console.log(`  base: ${base} -> estilo ${provaTroca ? provaTroca.estilo : '-'}, ${provaTroca ? provaTroca.camadasPresentes : '-'}/${esp.camadas ? esp.camadas.length : '-'} camadas da base, tiles carregados ${provaTroca ? JSON.stringify(provaTroca.carregadosPorFonte) : '-'}${errosBase.length ? `  ** BASE INVALIDA: ${errosBase.join('; ')}` : ''}`);
-                }
+                    await bancada.irParaVistaBase();
+                    const assentouBase = await bancada.assentar();
+                    rv.assentouBase = assentouBase;
+                    rv.cadenciaAssentada = await bancada.cadencia();
+                    if (rv.cadenciaAssentada.p95 > 25) {
+                        if (params.cpu > 1) {
+                            // Com a CPU estrangulada de proposito, o ocioso lento E a
+                            // condicao medida, nao defeito do instrumento: fica no registro
+                            // sem derrubar a rodada. Medido em 2026-09-04: 4x deixa a
+                            // Topografica populada em p95 33 ms ociosa e o raster da DSG em 17.
+                            rv.avisos = rv.avisos || [];
+                            rv.avisos.push(`cadencia ociosa do rAF p95 ${rv.cadenciaAssentada.p95} ms acima de 25 com CPU ${params.cpu}x`);
+                            console.log(`  aviso: ${rv.avisos[rv.avisos.length - 1]}`);
+                        } else {
+                            reg.valida = false;
+                            reg.erros.push(`${base}/${nome}: cadencia ociosa do rAF p95 ${rv.cadenciaAssentada.p95} ms acima de 25`);
+                        }
+                    }
+                    const vis = await page.evaluate(() => document.visibilityState);
+                    rv.visibilidade = vis;
+                    if (vis !== 'visible') { reg.valida = false; reg.erros.push(`${base}/${nome}: visibilityState ${vis}`); }
 
-                const detalhe = await def.aplicar(bancada) || {};
-                await bancada.esperarQuadros(3);
-                const prova = await page.evaluate(lerProva);
-                rv.prova = prova;
-                rv.detalhe = detalhe;
-                const errosProva = def.validar(prova, detalhe) || [];
-                if (errosProva.length) { rv.valida = false; rv.erros.push(...errosProva); }
-                // Estado populado: as feicoes criadas antes das rodadas tem de
-                // ter voltado nesta recarga, senao o caso mediu o app vazio.
-                if (params.populado) {
-                    const pop = resultado.ambiente.populacao;
-                    const criadas = pop && pop.persistidas ? pop.persistidas.total : 0;
-                    if (!criadas || prova.feicoes < criadas) {
-                        rv.valida = false;
-                        rv.erros.push(`estado populado nao voltou: ${prova.feicoes} feicoes nas fontes, persistidas no store ${criadas}`);
+                    if (troca) {
+                        const provaTroca = troca.esperado.erro ? null : await bancada.provarBase(troca.esperado);
+                        rv.provaTrocaBase = provaTroca;
+                        const errosBase = validarBase(provaTroca || {}, troca.esperado);
+                        if (errosBase.length) { rv.valida = false; rv.erros.push(...errosBase.map((e) => `base: ${e}`)); }
+                        const esp = troca.esperado;
+                        console.log(`  base: ${base} -> estilo ${provaTroca ? provaTroca.estilo : '-'}, ${provaTroca ? provaTroca.camadasPresentes : '-'}/${esp.camadas ? esp.camadas.length : '-'} camadas da base, tiles carregados ${provaTroca ? JSON.stringify(provaTroca.carregadosPorFonte) : '-'}${errosBase.length ? `  ** BASE INVALIDA: ${errosBase.join('; ')}` : ''}`);
                     }
-                }
-                console.log(`  prova: estilo=${prova.estilo} feicoes=${prova.feicoes} terreno=${prova.terreno} pilhas=${prova.pilhas} tilesT=${prova.tilesTerreno} fontes=${prova.fontes} camadas=${prova.camadas} hillshade=${prova.hillshade} proj=${prova.projecao} pitch=${prova.pitch} zoom=${prova.zoom}${rv.valida ? '' : `  ** INVALIDA: ${rv.erros.join('; ')}`}`);
 
-                for (const cenario of ORDEM_CENARIOS) {
-                    if (cenario === 'pitch' && !def.terreno) continue;
-                    if (params.perfil) await bancada.cdp.send('Profiler.start');
-                    const c = await bancada.rodarCenario(cenario, prova);
-                    if (params.perfil) {
-                        const { profile } = await bancada.cdp.send('Profiler.stop');
-                        const arq = path.join(params.saida, `perfil-r${rodada}-${nome}-${cenario}.cpuprofile`);
-                        fs.writeFileSync(arq, JSON.stringify(profile));
-                        c.perfil = { arquivo: path.basename(arq), ...agregarPerfil(profile) };
+                    const detalhe = await def.aplicar(bancada) || {};
+                    await bancada.esperarQuadros(3);
+                    const prova = await page.evaluate(lerProva);
+                    rv.prova = prova;
+                    rv.detalhe = detalhe;
+                    const errosProva = def.validar(prova, detalhe) || [];
+                    if (errosProva.length) { rv.valida = false; rv.erros.push(...errosProva); }
+                    // Estado populado: as feicoes criadas antes das rodadas tem de
+                    // ter voltado nesta recarga, senao o caso mediu o app vazio.
+                    if (params.populado) {
+                        const pop = resultado.ambiente.populacao;
+                        const criadas = pop && pop.persistidas ? pop.persistidas.total : 0;
+                        if (!criadas || prova.feicoes < criadas) {
+                            rv.valida = false;
+                            rv.erros.push(`estado populado nao voltou: ${prova.feicoes} feicoes nas fontes, persistidas no store ${criadas}`);
+                        }
                     }
-                    rv.cenarios.push(c);
-                    const e = c.estatistica;
-                    console.log(`  ${cenario.padEnd(8)} quadros ${String(e.quadros).padStart(4)} | render p50 ${e.render_ms ? e.render_ms.p50 : '-'} p95 ${e.render_ms ? e.render_ms.p95 : '-'} | interv p50 ${e.intervalo_ms ? e.intervalo_ms.p50 : '-'} p95 ${e.intervalo_ms ? e.intervalo_ms.p95 : '-'} | draw ${e.gl_por_quadro ? e.gl_por_quadro.draw : '-'} stamp ${e.gl_por_quadro ? e.gl_por_quadro.stamp : '-'}${c.erros.length ? `  ** ${c.erros.join('; ')}` : ''}`);
-                    if (cenario === 'parado') {
-                        await page.screenshot({ path: path.join(params.saida, `captura-${base}-${nome}.png`) });
+                    console.log(`  prova: estilo=${prova.estilo} feicoes=${prova.feicoes} terreno=${prova.terreno} pilhas=${prova.pilhas} tilesT=${prova.tilesTerreno} fontes=${prova.fontes} camadas=${prova.camadas} hillshade=${prova.hillshade} proj=${prova.projecao} pitch=${prova.pitch} zoom=${prova.zoom}${rv.valida ? '' : `  ** INVALIDA: ${rv.erros.join('; ')}`}`);
+
+                    for (const cenario of ORDEM_CENARIOS) {
+                        if (cenario === 'pitch' && !def.terreno) continue;
+                        if (params.perfil) await bancada.cdp.send('Profiler.start');
+                        const c = await bancada.rodarCenario(cenario, prova);
+                        if (params.perfil) {
+                            const { profile } = await bancada.cdp.send('Profiler.stop');
+                            const arq = path.join(params.saida, `perfil-r${rodada}-${nome}-${cenario}.cpuprofile`);
+                            fs.writeFileSync(arq, JSON.stringify(profile));
+                            c.perfil = { arquivo: path.basename(arq), ...agregarPerfil(profile) };
+                        }
+                        rv.cenarios.push(c);
+                        const e = c.estatistica;
+                        console.log(`  ${cenario.padEnd(8)} quadros ${String(e.quadros).padStart(4)} | render p50 ${e.render_ms ? e.render_ms.p50 : '-'} p95 ${e.render_ms ? e.render_ms.p95 : '-'} | interv p50 ${e.intervalo_ms ? e.intervalo_ms.p50 : '-'} p95 ${e.intervalo_ms ? e.intervalo_ms.p95 : '-'} | draw ${e.gl_por_quadro ? e.gl_por_quadro.draw : '-'} stamp ${e.gl_por_quadro ? e.gl_por_quadro.stamp : '-'}${c.erros.length ? `  ** ${c.erros.join('; ')}` : ''}`);
+                        if (cenario === 'parado') {
+                            await page.screenshot({ path: path.join(params.saida, `captura-${base}-${nome}.png`) });
+                        }
                     }
+                } catch (e) {
+                    rv.valida = false;
+                    rv.erros.push(`excecao: ${String(e && e.message ? e.message : e).slice(0, 300)}`);
+                    reg.valida = false;
+                    reg.erros.push(`${base}/${nome}: excecao`);
+                    console.log(`  ** excecao em ${base}/${nome}: ${e && e.message}`);
                 }
-            } catch (e) {
-                rv.valida = false;
-                rv.erros.push(`excecao: ${String(e && e.message ? e.message : e).slice(0, 300)}`);
-                reg.valida = false;
-                reg.erros.push(`${base}/${nome}: excecao`);
-                console.log(`  ** excecao em ${base}/${nome}: ${e && e.message}`);
+                reg.variantes.push(rv);
             }
-            reg.variantes.push(rv);
         }
         resultado.rodadas.push(reg);
     }
