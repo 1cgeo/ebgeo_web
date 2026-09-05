@@ -42,8 +42,14 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 
 maplibregl.setWorkerUrl(workerUrl);
 
-// Global de compatibilidade (ver nota 3 acima).
-window.maplibregl = maplibregl;
+// Global de compatibilidade (ver nota 3 acima), guardado por `typeof window`.
+// A suite roda em `environment: 'node'` (`vitest.config.js`), onde nao existe
+// `window`; desde 2026-09-05 `terrain/terrain-elevation.js` importa este arquivo
+// para pegar o `LngLat`, entao qualquer teste que o alcance carrega este corpo.
+// Sem a guarda o arquivo inteiro morre num `ReferenceError: window is not
+// defined` ANTES do primeiro caso (medido no lote M1), que e falha de ambiente
+// disfarcada de falha de codigo.
+if (typeof window !== 'undefined') window.maplibregl = maplibregl;
 
 export default maplibregl;
 export { maplibregl };

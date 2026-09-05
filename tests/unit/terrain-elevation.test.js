@@ -95,6 +95,54 @@ describe('createTerrainSampler', () => {
         expect(map.queryTerrainElevation).not.toHaveBeenCalled();
     });
 
+    it('hands the terrain an object with wrap(), which is what the first line of the read calls', () => {
+        // `getElevationForLngLatZoom` opens on `lnglat.wrap()`
+        // (`node_modules/maplibre-gl/src/render/terrain.ts:221`), so a bare array handed
+        // straight in would throw and a plain `{lng, lat}` would read 0 for every sample.
+        const map = makeMap({ dem: () => 70 });
+        expect(() => createTerrainSampler(map).elevation([10, 20])).not.toThrow();
+        const [lngLat] = map.terrain.getElevationForLngLatZoom.mock.calls[0];
+        expect(typeof lngLat.wrap).toBe('function');
+        expect([lngLat.lng, lngLat.lat]).toEqual([10, 20]);
+        // A real `LngLat.wrap()` returns a NEW object, never `this`, so assert the VALUE.
+        // Asserting `toBe(lngLat)` would measure the hand-built stand-in instead.
+        const wrapped = lngLat.wrap();
+        expect([wrapped.lng, wrapped.lat]).toEqual([10, 20]);
+    });
+
+    it('is a real LngLat, so an out-of-range longitude WRAPS instead of reading 0 in silence', () => {
+        // The measured gain of importing the single entry point instead of reading the
+        // global (which in `environment: 'node'` was never there, leaving production on one
+        // path and the test on another): the read opens with
+        // `if (!isInBoundsForZoomLngLat(zoom, lnglat.wrap())) return 0`
+        // (`node_modules/maplibre-gl/src/render/terrain.ts:221`). A `wrap()` returning
+        // `this` leaves -183 outside [0, 1) in Mercator, so the sample comes back as 0 m
+        // with no warning, instead of the elevation at 177.
+        const map = makeMap({ dem: () => 70 });
+        createTerrainSampler(map).elevation([-183, 40]);
+        const [lngLat] = map.terrain.getElevationForLngLatZoom.mock.calls[0];
+        expect(lngLat.lng).toBe(-183);
+        expect(lngLat.wrap().lng).toBeCloseTo(177, 9);
+    });
+
+    it('reads 0 for a coordinate LngLat refuses, instead of throwing out of the sample loop', () => {
+        // The worst case of using a real `LngLat`: its constructor THROWS on NaN and on a
+        // latitude past +-90, where the hand-built object used to sail through and read 0.
+        // A viewshed asks for ~10.000 samples in one loop and the import profile for 26
+        // inside a `try` that returns [] on any throw, so one bad coordinate must cost one
+        // sample, never the whole calculation.
+        const map = makeMap({ dem: () => 70 });
+        const sampler = createTerrainSampler(map);
+        expect(sampler.elevation([NaN, 40])).toBe(0);
+        expect(sampler.elevation([10, 95])).toBe(0);
+        expect(sampler.elevation([Infinity, 40])).toBe(0);
+        // And the bad sample does not reach the terrain at all.
+        expect(map.terrain.getElevationForLngLatZoom).not.toHaveBeenCalled();
+        // The next good one still reads.
+        expect(sampler.elevation([10, 40])).toBe(70);
+        expect(map.terrain.getElevationForLngLatZoom).toHaveBeenCalledTimes(1);
+    });
+
     it('matches getTerrainElevation value for value, so callers can switch without a visual change', () => {
         const map = makeMap({ dem: (c) => 50 + c[1] });
         const sampler = createTerrainSampler(map);

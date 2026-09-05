@@ -19,7 +19,15 @@
  * every terrain read in the application and is gone.
  *
  * Tile not loaded reads as 0, never null (`if(!dem)return 0` in the bundle).
+ *
+ * NOTE (2026-09-05): the package is 6.7.0 now, and `getElevationForLngLat` there
+ * samples a coverage index first and only falls back to the `coveringTiles`
+ * traversal when the DEM is not loaded
+ * (`node_modules/maplibre-gl/src/render/terrain.ts:234`). The paragraph above
+ * describes 5.18 and was not re-measured against 6.7.0 by this change.
  */
+
+import { maplibregl } from '@js/map/maplibre.js';
 
 const DEFAULT_MIN_ZOOM = 0;
 const DEFAULT_MAX_ZOOM = 24;
@@ -69,20 +77,41 @@ export function getTerrainElevation(map, coordinates) {
 }
 
 /**
- * Coordinate as MapLibre's `Terrain.getElevationForLngLatZoom` expects it: an
- * object with `lng`, `lat` and `wrap()`. `LngLat.convert` exists on the global
- * build; without it, an array is wrapped by hand.
+ * Coordinate as a REAL `LngLat`, which is what `Terrain.getElevationForLngLatZoom`
+ * expects: it opens on `lnglat.wrap()`
+ * (`node_modules/maplibre-gl/src/render/terrain.ts:221`), so a bare array throws
+ * there and a hand-built `{lng, lat}` reads 0 for every sample without a word.
+ *
+ * Until 2026-09-05 this read `globalThis.maplibregl?.LngLat` and, when it was not
+ * there, built `{lng, lat, wrap() { return this; }}` by hand. That `wrap()` did not
+ * normalize longitude: a coordinate past the antimeridian (lng -183) stayed out of
+ * `[0, 1)` in Mercator and the read came back as 0 m in silence, instead of the
+ * elevation at 177. Worse, the global was never set under `environment: 'node'`, so
+ * the suite exercised the hand-built path while production used the other one.
+ * `LngLat` now comes from the single entry point and there is ONE path.
+ *
+ * `null` for a coordinate `LngLat` refuses (NaN, or a latitude past +-90): the
+ * constructor throws for those, and this module's contract is to read 0 for a
+ * sample it cannot take, never to abort the loop that asked for 10.000 of them.
+ * The rejection is DERIVED from the library instead of restated here, so a change
+ * in its rules does not need an edit in this file.
+ *
+ * The finite check is the ONE case the constructor lets through: `isNaN(Infinity)`
+ * is false, so `convert([Infinity, 40])` builds a LngLat, and the throw only lands
+ * later, inside the `wrap()` that the terrain read calls on its first line
+ * (`wrap(Infinity, -180, 180)` is NaN, and `new LngLat(NaN, 40)` throws). Measured
+ * here on 2026-09-05, by the case in `tests/unit/terrain-elevation.test.js`.
+ *
  * @param {Array|Object} coordinates - [lng, lat] or {lng, lat}
- * @returns {Object} LngLat-like object
+ * @returns {Object|null} LngLat, or null when the coordinate is not a valid one
  */
 function toLngLat(coordinates) {
-    const LngLat = globalThis.maplibregl?.LngLat;
-    if (LngLat?.convert) return LngLat.convert(coordinates);
-    if (Array.isArray(coordinates)) {
-        const [lng, lat] = coordinates;
-        return { lng, lat, wrap() { return this; } };
+    try {
+        const lngLat = maplibregl.LngLat.convert(coordinates);
+        return Number.isFinite(lngLat.lng) && Number.isFinite(lngLat.lat) ? lngLat : null;
+    } catch {
+        return null;
     }
-    return coordinates;
 }
 
 /**
@@ -121,7 +150,11 @@ export function createTerrainSampler(map) {
     const zoom = resolveTerrainLookupZoom(map.getZoom(), engine.tileManager?.maxzoom, engine.tileManager?.minzoom);
 
     return {
-        elevation: (coordinates) => normalizeElevation(engine.getElevationForLngLatZoom(toLngLat(coordinates), zoom), exaggeration),
+        elevation: (coordinates) => {
+            const lngLat = toLngLat(coordinates);
+            if (!lngLat) return 0;
+            return normalizeElevation(engine.getElevationForLngLatZoom(lngLat, zoom), exaggeration);
+        },
         fast: true,
         zoom,
     };
