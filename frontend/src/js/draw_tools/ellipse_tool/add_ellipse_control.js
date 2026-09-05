@@ -8,6 +8,7 @@ import AddEllipseGeometry from './add_ellipse_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
 import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged, LABEL_ZOOM_PROPERTIES, recalcLabelSize, createLabelZoomHandler, syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
+import { createPreviewScheduler } from '@tools/helpers/preview-scheduler.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { queryHoverFeatures } from '@tools/helpers/hover-query.helpers.js';
 
@@ -61,11 +62,26 @@ class AddEllipseControl extends BaseControl {
         this.isDraggingHandle = false;
         this.activeHandleType = null;
         this.geometry = new AddEllipseGeometry();
-        this.previewRafId = null;
-        this.pendingPreviewUpdate = false;
+
+        // ONE rAF gate for the whole preview. The drawing preview and the handle
+        // drag are never live together (a drag needs a selected feature, a
+        // drawing does not have one) and already shared this state, so they
+        // share the gate: the raw event parks a pointer, the frame resolves the
+        // snap once and draws once.
+        this._previewScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this.performPreviewUpdate(pointer),
+        });
+        // The indicator BEFORE the first click gets its own gate: it is armed by
+        // `activate()` and swapped for the drawing preview on that first click.
+        this._preClickScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this._updatePreClickSnap(pointer),
+        });
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
-        this.geometryDebounceTimer = null;
         this.hatchGenerator = new HatchPatternGenerator();
 
         // Pointer event state for edit handles
@@ -338,10 +354,29 @@ class AddEllipseControl extends BaseControl {
 
     // ===== DRAWING SYSTEM =====
 
+    /**
+     * Snap indicator before the first click, when there is nothing to preview yet.
+     *
+     * The raw `mousemove` only PARKS the pointer: `snapping.resolve` is a
+     * rendered-feature query, and a mouse fires several moves inside one frame,
+     * so it runs once per frame from the gate's callback below. The indicator
+     * lands on the same pixel either way, since only the last position of the
+     * frame is ever drawn.
+     */
     _onPreClickMouseMove = (e) => {
+        this._preClickScheduler.request({ point: e.point, lngLat: e.lngLat });
+    }
+
+    /**
+     * @param {Object} pointer - The frame's last `{ point, lngLat }`
+     * @private
+     */
+    _updatePreClickSnap = (pointer) => {
+        if (!pointer || !this.map) return;
+
         const snapping = getSnappingService();
-        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
-        if (snap.snapped) {
+        const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat);
+        if (snap?.snapped) {
             snapping.showIndicator(this.map, snap, snap.snapType);
         } else {
             snapping?.hideIndicator(this.map);
@@ -370,13 +405,36 @@ class AddEllipseControl extends BaseControl {
         }
     }
 
+    /**
+     * Park the pointer and ask for a frame. The snap is resolved inside the
+     * gate's callback, once per frame, for the reason on `_onPreClickMouseMove`.
+     */
     handlePreviewMouseMove = (e) => {
-        if (this.drawPoints.length === 1) {
-            this.lastPreviewCenter = this.drawPoints[0];
+        if (this.drawPoints.length !== 1) return;
 
+        this._previewScheduler.request({ point: e.point, lngLat: e.lngLat });
+    }
+
+    /**
+     * The frame callback: resolve the snap ONCE, move the indicator, then draw.
+     *
+     * The `setTimeout(..., 8)` that used to wrap the drawing is gone: 8 ms is
+     * under the 16.7 ms of a frame, so it coalesced nothing and only pushed the
+     * preview one timer late.
+     *
+     * @param {Object} [pointer] - The frame's last `{ point, lngLat }`, when a
+     *   pointer event parked one. Absent when something else asks for a redraw.
+     */
+    performPreviewUpdate = (pointer) => {
+        const selectedFeature = this.getSelectedFeature();
+        const draggingHandle = Boolean(this.isDraggingHandle && selectedFeature);
+
+        if (pointer) {
             const snapping = getSnappingService();
-            const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
-            this.lastPreviewPosition = [snap.lng, snap.lat];
+            // While dragging a handle the ellipse's own vertices would capture
+            // every move, so the feature excludes itself.
+            const excludeId = draggingHandle ? selectedFeature.properties?.id : null;
+            const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat, excludeId) ?? pointer.lngLat;
 
             if (snap.snapped) {
                 snapping.showIndicator(this.map, snap, snap.snapType);
@@ -384,41 +442,32 @@ class AddEllipseControl extends BaseControl {
                 snapping?.hideIndicator(this.map);
             }
 
-            if (!this.pendingPreviewUpdate) {
-                this.pendingPreviewUpdate = true;
-                this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-            }
-        }
-    }
-
-    performPreviewUpdate = () => {
-        if (!this.lastPreviewPosition) {
-            this.pendingPreviewUpdate = false;
-            return;
+            this.lastPreviewPosition = [snap.lng, snap.lat];
         }
 
-        const selectedFeature = this.getSelectedFeature();
-        if (this.isDraggingHandle && selectedFeature) {
+        if (!this.lastPreviewPosition) return;
+
+        if (draggingHandle) {
             this.updateEllipsePreview(this.lastPreviewPosition);
-        } else if (this.drawPoints.length === 1 && this.lastPreviewCenter) {
+        } else if (this.drawPoints.length === 1) {
+            // Written HERE, and no longer on the raw event: the old guard read
+            // `lastPreviewCenter` and the raw event was what filled it, so
+            // parking the pointer without moving this line would leave the
+            // condition false forever and the preview would never draw.
+            this.lastPreviewCenter = this.drawPoints[0];
             const center = this.lastPreviewCenter;
             const { majorRadius, bearing } = this.geometry.calculateInitialDimensions(center, this.lastPreviewPosition);
 
             if (majorRadius >= 0.01) {
-                clearTimeout(this.geometryDebounceTimer);
-                this.geometryDebounceTimer = setTimeout(() => {
-                    const previewGeometry = this.geometry.generate(
-                        center,
-                        majorRadius,
-                        majorRadius * 0.6,
-                        bearing
-                    );
-                    this.showPreview(previewGeometry);
-                }, 8);
+                const previewGeometry = this.geometry.generate(
+                    center,
+                    majorRadius,
+                    majorRadius * 0.6,
+                    bearing
+                );
+                this.showPreview(previewGeometry);
             }
         }
-
-        this.pendingPreviewUpdate = false;
     }
 
     showPreview = (geometry) => {
@@ -633,6 +682,11 @@ class AddEllipseControl extends BaseControl {
         }
     }
 
+    /**
+     * The handle drag rides the SAME gate as the drawing preview: the pointer is
+     * parked here and the snap is resolved once per frame in
+     * `performPreviewUpdate`, which excludes the dragged feature itself.
+     */
     _onEditPointerMove(e) {
         if (!e.isPrimary) return;
 
@@ -643,25 +697,17 @@ class AddEllipseControl extends BaseControl {
         const point = getPointerPosition(e, canvas);
         const lngLat = this.map.unproject([point.x, point.y]);
 
-        const snapping = getSnappingService();
-        const excludeId = selectedFeature.properties?.id;
-        const snap = snapping?.resolve(this.map, point, lngLat, excludeId) ?? lngLat;
-
-        this.lastPreviewPosition = [snap.lng, snap.lat];
-
-        if (snap.snapped) {
-            snapping.showIndicator(this.map, snap, snap.snapType);
-        } else {
-            snapping?.hideIndicator(this.map);
-        }
-
-        if (!this.pendingPreviewUpdate) {
-            this.pendingPreviewUpdate = true;
-            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-        }
+        this._previewScheduler.request({ point, lngLat });
     }
 
     async _onEditPointerUp(_e) {
+        // A drag born and dead inside ONE frame (down, move, up) parks its
+        // position and never reaches the frame callback, so `lastPreviewPosition`
+        // below would still hold the position before the drag and the ellipse
+        // would not follow. Deliver the parked pointer now; `flush` cancels the
+        // frame it had asked for.
+        if (this._previewScheduler.pending) this._previewScheduler.flush();
+
         const canvas = this.map.getCanvasContainer();
 
         // Remove move/up listeners
@@ -714,58 +760,57 @@ class AddEllipseControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature || !this.activeHandleType) return;
 
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            const preview = this.geometry.calculatePreview(this.activeHandleType, newPosition, selectedFeature);
-            if (!preview) return;
+        const preview = this.geometry.calculatePreview(this.activeHandleType, newPosition, selectedFeature);
+        if (!preview) return;
 
-            this.map.getSource('ellipse-feedback').setData({
+        // Written straight into the sources: this already runs inside the gate's
+        // frame, and the `setTimeout(..., 8)` that stood here only delayed it.
+        this.map.getSource('ellipse-feedback').setData({
+            type: 'Feature',
+            geometry: preview.geometry,
+            properties: {
+                ...selectedFeature.properties,
+                isSelected: true
+            }
+        });
+
+        const handles = [
+            {
                 type: 'Feature',
-                geometry: preview.geometry,
+                geometry: { type: 'Point', coordinates: preview.handlePositions.horizontal },
                 properties: {
-                    ...selectedFeature.properties,
-                    isSelected: true
+                    role: 'handle',
+                    handleType: 'vertex',
+                    handleId: 'horizontal-resize',
+                    user_isEditingHandle: true
                 }
-            });
-
-            const handles = [
-                {
-                    type: 'Feature',
-                    geometry: { type: 'Point', coordinates: preview.handlePositions.horizontal },
-                    properties: {
-                        role: 'handle',
-                        handleType: 'vertex',
-                        handleId: 'horizontal-resize',
-                        user_isEditingHandle: true
-                    }
-                },
-                {
-                    type: 'Feature',
-                    geometry: { type: 'Point', coordinates: preview.handlePositions.vertical },
-                    properties: {
-                        role: 'handle',
-                        handleType: 'vertex',
-                        handleId: 'vertical-resize',
-                        user_isEditingHandle: true
-                    }
-                },
-                {
-                    type: 'Feature',
-                    geometry: { type: 'Point', coordinates: preview.handlePositions.rotation },
-                    properties: {
-                        role: 'handle',
-                        handleType: 'eccentricity',
-                        handleId: 'rotation',
-                        user_isEditingHandle: true
-                    }
+            },
+            {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: preview.handlePositions.vertical },
+                properties: {
+                    role: 'handle',
+                    handleType: 'vertex',
+                    handleId: 'vertical-resize',
+                    user_isEditingHandle: true
                 }
-            ];
+            },
+            {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: preview.handlePositions.rotation },
+                properties: {
+                    role: 'handle',
+                    handleType: 'eccentricity',
+                    handleId: 'rotation',
+                    user_isEditingHandle: true
+                }
+            }
+        ];
 
-            this.map.getSource('ellipse-edit-handles').setData({
-                type: 'FeatureCollection',
-                features: handles
-            });
-        }, 8);
+        this.map.getSource('ellipse-edit-handles').setData({
+            type: 'FeatureCollection',
+            features: handles
+        });
     }
 
     // ===== HOVER SYSTEM =====
@@ -1103,18 +1148,11 @@ class AddEllipseControl extends BaseControl {
     // ===== UTILITY METHODS =====
 
     cancelPendingUpdates = () => {
-        if (this.previewRafId) {
-            cancelAnimationFrame(this.previewRafId);
-            this.previewRafId = null;
-        }
-        this.pendingPreviewUpdate = false;
+        // Both gates: the drawing/drag preview and the pre-click indicator.
+        this._previewScheduler.cancel();
+        this._preClickScheduler.cancel();
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
-
-        if (this.geometryDebounceTimer) {
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = null;
-        }
     }
 
     /**

@@ -67,6 +67,11 @@ const RAIZ = path.resolve(PACOTE, '..');
 // - `requerTerreno`: a ferramenta nem ativa sem terreno.
 // - `feicoesPadrao`: o `--feicoes` que vale quando a linha de comando cala.
 // - `processado`: a ferramenta de analise nao para na feicao.
+// - `snapa`: a ferramenta chama `snapping.resolve` (padrao true). Existe para o
+//   contador de resolve poder DENUNCIAR a si mesmo: com `--snapping true` e uma
+//   ferramenta que snapa, zero chamadas contadas significa que o envolucro nao
+//   pegou o servico que a ferramenta usa, e nao que ela coalesce bem. A seta e o
+//   pincel nao importam o servico de snap, e para elas zero e a verdade.
 // --------------------------------------------------------------------------
 const FERRAMENTAS = {
     line: {
@@ -80,6 +85,39 @@ const FERRAMENTAS = {
         // O poligono fecha um anel: menos de 3 pontos nao vira feicao.
         pontosParaCriar: 6, anel: true, conclusao: { gesto: 'botao-direito', cliquesAntes: 3, evento: 'contextmenu' },
     },
+    // As quatro FORMAS. Todas de dois cliques: o primeiro marca o centro (o
+    // canto, no retangulo) e o SEGUNDO ja cria a feicao, sem botao direito e sem
+    // vertice intermediario. Conferido no `handleMapClick` de cada controle, que
+    // fecha no ramo `this.drawPoints.length === 2` (a linha nao entra aqui de
+    // proposito: o porte do quadro a mudou nas quatro, e numero de linha em
+    // comentario envelhece calado). O setor nao pede um terceiro clique para a
+    // abertura: ela sai do DEFAULT_PROPERTIES, e o segundo clique da raio e
+    // azimute de uma vez.
+    circle: {
+        controle: 'AddCircleControl', tipo: 'circles', fonte: 'circles',
+        feedback: 'circle-feedback', painel: '.circle-attributes-section',
+        pontosParaCriar: 2, conclusao: { gesto: 'clique-final', cliquesAntes: 1, evento: 'click' },
+    },
+    ellipse: {
+        controle: 'AddEllipseControl', tipo: 'ellipses', fonte: 'ellipses',
+        feedback: 'ellipse-feedback', painel: '.ellipse-attributes-section',
+        pontosParaCriar: 2, conclusao: { gesto: 'clique-final', cliquesAntes: 1, evento: 'click' },
+    },
+    rectangle: {
+        controle: 'AddRectangleControl', tipo: 'rectangles', fonte: 'rectangles',
+        feedback: 'rectangle-feedback', painel: '.rectangle-attributes-section',
+        pontosParaCriar: 2, conclusao: { gesto: 'clique-final', cliquesAntes: 1, evento: 'click' },
+    },
+    sector: {
+        // O balde do store e a fonte do mapa se chamam `setores`, em portugues,
+        // e nao `sectors`: o `feature-type.registry.js` declara o plural
+        // irregular e o `FEATURE_SOURCES` concorda. O prefixo das camadas e do
+        // feedback continua em ingles. Escrever `sectors` daria zero feicao no
+        // cenario zoom, em silencio.
+        controle: 'AddSectorControl', tipo: 'setores', fonte: 'setores',
+        feedback: 'sector-feedback', painel: '.sector-attributes-section',
+        pontosParaCriar: 2, conclusao: { gesto: 'clique-final', cliquesAntes: 1, evento: 'click' },
+    },
     boundary: {
         controle: 'AddBoundaryControl', tipo: 'boundarys', fonte: 'boundarys',
         feedback: 'boundary-feedback', painel: '.boundary-attributes-section',
@@ -88,7 +126,9 @@ const FERRAMENTAS = {
     arrow: {
         controle: 'AddArrowControl', tipo: 'arrows', fonte: 'arrows',
         feedback: 'arrow-feedback', painel: '.arrow-attributes-section',
-        pontosParaCriar: 4, conclusao: { gesto: 'botao-direito', cliquesAntes: 3, evento: 'contextmenu' },
+        // Nao importa o servico de snap: zero resolve e a verdade dela.
+        pontosParaCriar: 4, snapa: false,
+        conclusao: { gesto: 'botao-direito', cliquesAntes: 3, evento: 'contextmenu' },
     },
     occupied_front: {
         controle: 'AddOccupiedFrontControl', tipo: 'occupied_fronts', fonte: 'occupied_fronts',
@@ -133,7 +173,7 @@ const FERRAMENTAS = {
         // sequencia de posicoes), e so o desenho do feedback e coalescido.
         controle: 'AddBrushControl', tipo: 'brushes', fonte: 'brushes',
         feedback: 'brush-feedback', painel: '.brush-attributes-section',
-        pontosParaCriar: 8, modoDesenho: 'arrastar',
+        pontosParaCriar: 8, modoDesenho: 'arrastar', snapa: false,
         pontos: { propriedade: 'points', forma: 'lista' }, semeadura: 'points',
         conclusao: { gesto: 'pointerup', cliquesAntes: 0, evento: 'pointerup' },
     },
@@ -172,6 +212,9 @@ function normalizarFerramenta(nome, mapa = FERRAMENTAS) {
         pontos: f.pontos || PONTOS_PADRAO,
         semeadura: f.semeadura || 'drawPoints',
         requerTerreno: !!f.requerTerreno,
+        // Padrao true: quem NAO snapa e a excecao, e um descritor novo que
+        // esquecesse o campo seria cobrado pelo contador em vez de escapar dele.
+        snapa: f.snapa === undefined ? true : !!f.snapa,
     };
     for (const campo of ['controle', 'tipo', 'fonte', 'feedback', 'painel']) {
         if (!cfg[campo]) throw new Error(`a ferramenta ${nome} nao declara "${campo}"`);
@@ -382,6 +425,48 @@ function mediana(valores) {
 
 const arred = (v, casas = 1) => (v === null || v === undefined || Number.isNaN(v) ? null : +Number(v).toFixed(casas));
 
+/**
+ * O criterio de `perdidos` e de `lat`, PURO, para o autoteste atacar com o pior
+ * caso sem navegador.
+ *
+ * A supersessao e a latencia dividiam a MESMA variavel: a escrita so deixava de
+ * ser "pendente" quando um quadro achava a fonte assentada, e a escrita seguinte
+ * contava a anterior como perdida mesmo tendo havido um quadro inteiro entre as
+ * duas. Com o preview escrevendo uma vez por quadro, colado no render, a fonte
+ * quase nunca esta assentada no instante da sonda, e o circulo PORTADO saiu com
+ * 179 perdidos em 180 escritas, todas desenhadas: a coluna dizia o contrario do
+ * que tinha acontecido (medido na main em 2026-09-05).
+ *
+ * Agora sao dois marcadores. `superavel` morre em TODO quadro, porque o quadro
+ * desenhou o que estava la, e `perdidos` conta so a escrita que outra substituiu
+ * dentro do MESMO intervalo de quadro. A latencia nao mudou: continua do
+ * `setData` ao primeiro quadro com a fonte assentada, a partir da escrita mais
+ * recente do intervalo.
+ *
+ * @param {Array<Object>} eventos - `{ tipo: 'escrita'|'quadro', t, fonteCarregada? }`
+ * @returns {{superadas: number, latencias: number[]}}
+ */
+function avaliarFeedback(eventos) {
+    let superavel = null;
+    let pendente = null;
+    let superadas = 0;
+    const latencias = [];
+    for (const evento of eventos || []) {
+        if (evento.tipo === 'escrita') {
+            if (superavel !== null) superadas++;
+            superavel = evento.t;
+            pendente = evento.t;
+        } else if (evento.tipo === 'quadro') {
+            superavel = null;
+            if (pendente !== null && evento.fonteCarregada) {
+                latencias.push(+(evento.t - pendente).toFixed(1));
+                pendente = null;
+            }
+        }
+    }
+    return { superadas, latencias };
+}
+
 // Estatistica de um lote vindo da pagina: quadros, intervalos, latencia do
 // feedback, contadores de consulta e de projecao.
 function estatistica(B) {
@@ -391,10 +476,21 @@ function estatistica(B) {
         query: (B && B.query) || 0,
         proj: (B && B.proj) || 0,
         mousemove: (B && B.mousemove) || 0,
-        // Escrita de feedback que a seguinte substituiu antes de a fonte
-        // assentar: preview que nunca chegou a tela. E o par obrigatorio da
-        // latencia, senao a mediana descreve so os quadros que deram certo.
+        // Escrita de feedback que OUTRA substituiu dentro do mesmo intervalo de
+        // quadro: preview que nunca chegou a tela. E o par obrigatorio da
+        // latencia, senao a mediana descreve so os quadros que deram certo. O
+        // criterio, com o pior caso, esta em `avaliarFeedback`.
         feedbackSuperados: (B && B.superadas) || 0,
+        // Chamadas a `snapping.resolve` e timers armados durante o gesto. Sao as
+        // duas grandezas que separam a ferramenta que trabalha uma vez por quadro
+        // da que trabalha uma vez por evento de mouse, e nenhuma delas depende do
+        // relogio, que a GPU e a CPU da maquina contaminam.
+        resolve: (B && B.resolve) || 0,
+        timers: (B && B.timers) || 0,
+        timersCurtos: (B && B.timersCurtos) || 0,
+        // Sem quadro medido a divisao nao existe. Devolver 0 aqui leria como
+        // "coalesce perfeitamente" um cenario que nao mediu nada.
+        resolvePorQuadro: quadros.length ? arred(((B && B.resolve) || 0) / quadros.length, 2) : null,
     };
     if (!quadros.length) return { ...base, lentos: 0 };
     const dts = quadros.map((f) => f.dt).sort((a, b) => a - b);
@@ -586,6 +682,19 @@ const CENARIOS = {
                 erros.push(`pontos colocados ${prova.pontosColocados}, esperado 1 por clique real`);
             }
             if (!prova.ferramentaAtiva) erros.push('a ferramenta nao ficou ativa (isActive falso)');
+            // O contador de resolve, cobrado contra si mesmo. Contador ausente le
+            // ZERO, e zero e exatamente o numero que o porte quer produzir: sem
+            // esta linha a bancada carimbaria "coalesce perfeitamente" numa
+            // ferramenta que resolve o snap cinco vezes por quadro.
+            if (!prova.contadorDeSnapInstalado) {
+                erros.push(`o contador de snapping.resolve nao foi instalado (${prova.contadorDeSnapMotivo || 'sem motivo registrado'}):`
+                    + ' "resolve 0" nao prova coalescencia nenhuma');
+            } else if (prova.snapa && prova.snapping === true && est && est.quadros && !est.resolve) {
+                // Instalado e cego: o envolucro pegou um segundo exemplar do
+                // modulo, e nunca ve a chamada que a ferramenta faz.
+                erros.push('a ferramenta declara que snapa, --snapping estava ligado e o contador viu 0 chamadas:'
+                    + ' o contador nao esta no servico que a ferramenta usa');
+            }
             if (prova.visibilidade !== 'visible') erros.push(`visibilityState ${prova.visibilidade}`);
             return erros;
         },
@@ -688,6 +797,11 @@ async function carregarModulosDoApp() {
         store: achar('/src/js/store/index.js'),
         registro: achar('/src/js/tool_manager/tool-registry.js'),
         constantes: achar('/src/js/layers/layer.constants.js'),
+        // O servico de snap e um SINGLETON no escopo do modulo, e o contador de
+        // `resolve` precisa do exemplar que a ferramenta usa. Vale a mesma regra
+        // do resto: a URL sai do que a pagina carregou, com o carimbo de HMR
+        // junto; o caminho limpo daria um segundo exemplar, com `_instance` nulo.
+        snap: achar('/src/js/snapping/snapping.service.js'),
     };
     window.__urlsDoApp = urls;
     window.__store = await import(urls.store);
@@ -737,12 +851,80 @@ function sondaProntidao() {
 
 // Instala o registro por quadro, o contador de escritas por fonte GeoJSON
 // (setData E updateData), os contadores de queryRenderedFeatures e map.project,
-// e a latencia do feedback.
-function instrumentar(cfg) {
+// o contador de `snapping.resolve`, o de timers armados, e a latencia do feedback.
+//
+// O contador de resolve envolve o SINGLETON do servico, alcancado pela URL que a
+// PAGINA carregou (`window.__urlsDoApp.snap`): o `import()` devolve o exemplar ja
+// no registro do navegador quando a URL bate, e `_instance` mora no escopo do
+// modulo. URL diferente daria um segundo exemplar, com `_instance` nulo, e o
+// envolucro nao instalaria; o descritor `snapa` existe para a rodada denunciar o
+// caso em que ele instala e mesmo assim nao ve chamada nenhuma.
+async function instrumentar(cfg) {
     const map = window.__mapa;
-    const B = { quadros: [], escritas: {}, query: 0, proj: 0, latencias: [], pendente: null, superadas: 0, mousemove: 0 };
+    const B = {
+        quadros: [], escritas: {}, query: 0, proj: 0, latencias: [], pendente: null, superavel: null,
+        superadas: 0, mousemove: 0, resolve: 0, timers: 0, timersCurtos: 0,
+    };
     window.__B = B;
     window.__cfg = cfg;
+
+    // Contador de `snapping.resolve`. Os candidatos saem do que a pagina
+    // carregou de fato, com o caminho limpo como ultimo recurso, e o primeiro
+    // que devolver o servico ganha.
+    let snapContado = { instalado: false, motivo: 'nao tentado' };
+    const candidatos = [
+        (window.__urlsDoApp && window.__urlsDoApp.snap) || null,
+        ...performance.getEntriesByType('resource')
+            .map((r) => r.name)
+            .filter((n) => /\/snapping\/snapping\.service\.js(\?|$)/.test(n)),
+        '/src/js/snapping/snapping.service.js',
+    ].filter(Boolean);
+    const tentados = [];
+    for (const url of [...new Set(candidatos)]) {
+        try {
+            const mod = await import(/* @vite-ignore */ url);
+            const svc = typeof mod.getSnappingService === 'function' ? mod.getSnappingService() : null;
+            if (!svc) { tentados.push(`${url.slice(-60)}: sem singleton`); continue; }
+            if (svc.resolve && svc.resolve.__contada) { snapContado = { instalado: true, motivo: 'ja estava envolvido' }; break; }
+            if (typeof svc.resolve !== 'function') { tentados.push(`${url.slice(-60)}: sem resolve()`); continue; }
+            const original = svc.resolve.bind(svc);
+            const envolvida = function (...a) { B.resolve++; return original(...a); };
+            envolvida.__contada = true;
+            // Propriedade PROPRIA da instancia: sombreia a do prototipo, que e
+            // por onde toda ferramenta chama.
+            svc.resolve = envolvida;
+            snapContado = svc.resolve.__contada === true
+                ? { instalado: true, motivo: null }
+                : { instalado: false, motivo: 'a atribuicao de resolve nao pegou' };
+            break;
+        } catch (e) {
+            tentados.push(`${url.slice(-60)}: ${String(e && e.message ? e.message : e).slice(0, 60)}`);
+        }
+    }
+    if (!snapContado.instalado && !(snapContado.motivo || '').startsWith('a atribuicao')) {
+        snapContado = {
+            instalado: false,
+            motivo: candidatos.length
+                ? `nenhum exemplar do modulo de snap tinha o singleton (${tentados.join('; ')})`
+                : 'a pagina nao carregou o modulo de snap',
+        };
+    }
+    window.__snapContado = snapContado;
+
+    // Timers armados. Conta TODO setTimeout da pagina durante a janela medida,
+    // e separa os de menos de um quadro, que sao a assinatura do debounce de 8
+    // ms que este porte tira do caminho do preview. Contar so os curtos
+    // esconderia um debounce reescrito para 20 ms, que continua nao coalescendo.
+    const timerOriginal = window.setTimeout;
+    if (!timerOriginal.__contada) {
+        const envolvido = function (fn, atraso, ...resto) {
+            B.timers++;
+            if (!(Number(atraso) > 16)) B.timersCurtos++;
+            return timerOriginal.call(window, fn, atraso, ...resto);
+        };
+        envolvido.__contada = true;
+        window.setTimeout = envolvido;
+    }
 
     // `isSourceLoaded` de fonte inexistente DISPARA um evento de erro no mapa
     // (nao lanca), o que sujaria os erros da pagina. Pergunta-se antes.
@@ -755,6 +937,13 @@ function instrumentar(cfg) {
         const t = performance.now();
         const r = originalRender(...a);
         B.quadros.push({ t, dt: performance.now() - t });
+        // Este quadro DESENHOU o que estava escrito, entao a escrita deixa de
+        // poder ser superada. Nao zerar aqui era o defeito de `perdidos`: a
+        // escrita seguinte contava a anterior como perdida mesmo com um quadro
+        // inteiro entre as duas, e o preview que escreve uma vez por quadro saia
+        // com "179 perdidos em 180 escritas". O criterio, com o pior caso, esta
+        // em `avaliarFeedback`.
+        B.superavel = null;
         // Latencia do feedback: da escrita ate o primeiro quadro em que a fonte
         // do feedback esta carregada. E o atraso do traco atras do mouse.
         //
@@ -790,7 +979,11 @@ function instrumentar(cfg) {
                     B.escritas[id][metodo]++;
                     B.escritas[id].feicoes += contar(d);
                     if (id === cfg.feedback) {
-                        if (B.pendente !== null) B.superadas++;
+                        // Perdida e a escrita que OUTRA substituiu dentro do
+                        // mesmo intervalo de quadro, medida pelo marcador que o
+                        // render zera. Ver `avaliarFeedback`.
+                        if (B.superavel !== null) B.superadas++;
+                        B.superavel = performance.now();
                         B.pendente = performance.now();
                     }
                     return original(d);
@@ -825,9 +1018,10 @@ function instrumentar(cfg) {
 
     window.__zerar = () => {
         B.quadros = []; B.escritas = {}; B.query = 0; B.proj = 0;
-        B.latencias = []; B.pendente = null; B.superadas = 0; B.mousemove = 0;
+        B.latencias = []; B.pendente = null; B.superavel = null; B.superadas = 0; B.mousemove = 0;
+        B.resolve = 0; B.timers = 0; B.timersCurtos = 0;
     };
-    return { envolvidas, renderer, fornecedor };
+    return { envolvidas, renderer, fornecedor, snap: snapContado };
 }
 
 // Estado dos tiles de cada fonte, para decidir se o mapa assentou.
@@ -959,15 +1153,53 @@ async function lerEstado(cfg) {
     };
 }
 
+/**
+ * Os lotes de pontos com que o cenario zoom semeia as feicoes, PUROS.
+ *
+ * Saiu de dentro da pagina em 2026-09-05 para poder ser atacado pelo pior caso.
+ * O gerador antigo dava ao ponto seguinte o mesmo `cy` mais um ruido de 0,004
+ * grau, e so ao `cx` um passo fixo: para toda ferramenta de RAIO isso basta (a
+ * distancia e dominada pelo passo em longitude), mas o retangulo cobra o piso de
+ * 10 m em LARGURA E ALTURA por separado, e a altura saia so do ruido. Dois
+ * sorteios proximos davam um retangulo degenerado, `createFeature` avisava e
+ * voltava sem criar, e a bancada contava a chamada como criada: o cenario zoom do
+ * retangulo reprovava com "27 de 30 feicoes" em cerca de metade das rodadas,
+ * medido nesta arvore com o controle portado E com o anterior. Agora o passo fixo
+ * existe nos dois eixos e o ruido so o desloca.
+ *
+ * @param {Object} p - `{ n, pontos, anel, vista, aleatorio }`
+ * @returns {Array<Array<Array<number>>>} `n` lotes de `pontos` coordenadas
+ */
+function pontosDaSemeadura({ n, pontos, anel, vista, aleatorio = Math.random }) {
+    const rnd = (a) => (aleatorio() * 2 - 1) * a;
+    const lotes = [];
+    for (let i = 0; i < n; i++) {
+        const cx = vista.center[0] + rnd(0.03);
+        const cy = vista.center[1] + rnd(0.03);
+        const pts = [];
+        if (anel) {
+            for (let k = 0; k < pontos; k++) {
+                const a = (k / pontos) * 2 * Math.PI;
+                pts.push([cx + 0.004 * Math.cos(a), cy + 0.004 * Math.sin(a)]);
+            }
+        } else {
+            // Passo fixo nos DOIS eixos, com o ruido menor que metade do passo:
+            // e isso que garante separacao em latitude tambem.
+            for (let k = 0; k < pontos; k++) pts.push([cx + k * 0.006 + rnd(0.001), cy + k * 0.004 + rnd(0.001)]);
+        }
+        lotes.push(pts);
+    }
+    return lotes;
+}
+
 // Cria n feicoes pelo caminho do proprio controle (drawPoints + createFeature),
 // em volta da vista. Devolve quantas chamadas passaram; o que o STORE guardou e
 // a verdade, e sai da leitura de estado depois.
-async function criarFeicoesPagina({ cfg, n, vista, pontos, anel }) {
+async function criarFeicoesPagina({ cfg, lotes }) {
     const c = window.__store.getControl(cfg.controle);
     if (!c || c.ehStandInDeFerramenta || typeof c.createFeature !== 'function') {
         return { ok: 0, erro: `controle ${cfg.controle} ausente, ainda stand-in, ou sem createFeature` };
     }
-    const rnd = (a) => (Math.random() * 2 - 1) * a;
     // Nao ha assinatura unica de createFeature no app, e chamar a errada cria
     // zero feicao em silencio: a semeadura do descritor diz qual e a desta.
     const semear = async (pts) => {
@@ -980,30 +1212,36 @@ async function criarFeicoesPagina({ cfg, n, vista, pontos, anel }) {
         c[cfg.semeadura === 'points' ? 'points' : 'drawPoints'] = pts;
         return c.createFeature();
     };
+    // O que o store tinha ANTES. `createFeature` recusa em silencio (avisa na
+    // tela e volta) o insumo que nao passa no piso da ferramenta, e nesse caso a
+    // chamada nao lanca: contar chamada que voltou daria "30/30" com 27 feicoes
+    // no store, que foi o que esta bancada imprimiu antes de 2026-09-05.
+    const contarNoStore = async () => {
+        try {
+            const f = await window.__store.getCurrentMapFeatures();
+            return Array.isArray(f && f[cfg.tipo]) ? f[cfg.tipo].length : null;
+        } catch (_e) { return null; }
+    };
+    const noStoreAntes = await contarNoStore();
     const t0 = performance.now();
     const marcas = [];
-    let ok = 0;
+    let chamadas = 0;
     let ultimoErro = null;
-    for (let i = 0; i < n; i++) {
-        const cx = vista.center[0] + rnd(0.03);
-        const cy = vista.center[1] + rnd(0.03);
-        const pts = [];
-        if (anel) {
-            for (let k = 0; k < pontos; k++) {
-                const a = (k / pontos) * 2 * Math.PI;
-                pts.push([cx + 0.004 * Math.cos(a), cy + 0.004 * Math.sin(a)]);
-            }
-        } else {
-            for (let k = 0; k < pontos; k++) pts.push([cx + k * 0.006 + rnd(0.001), cy + rnd(0.004)]);
-        }
+    for (const pts of lotes) {
         const tf = performance.now();
-        try { await semear(pts); ok++; } catch (e) { ultimoErro = String(e && e.message ? e.message : e).slice(0, 120); }
+        try { await semear(pts); chamadas++; } catch (e) { ultimoErro = String(e && e.message ? e.message : e).slice(0, 120); }
         marcas.push(+(performance.now() - tf).toFixed(1));
     }
     await new Promise((r) => setTimeout(r, 1500));
     marcas.sort((a, b) => a - b);
+    const noStoreDepois = await contarNoStore();
     return {
-        ok, erro: ultimoErro,
+        // `ok` e a contagem HONESTA: o que o store ganhou. Sem leitura de store
+        // (o balde nao existe) ela cai para as chamadas, e `chamadas` fica ao
+        // lado para o operador ver a diferenca.
+        ok: (noStoreAntes === null || noStoreDepois === null) ? chamadas : noStoreDepois - noStoreAntes,
+        chamadas, noStoreAntes, noStoreDepois,
+        erro: ultimoErro,
         ms: +(performance.now() - t0).toFixed(0),
         // A mediana por feicao e o que diz se `--feicoes 30` cabe no dia: a
         // visibilidade varre o terreno raio a raio, e nao e um addFeature.
@@ -1305,8 +1543,13 @@ class Bancada {
 
     async criarFeicoes(n) {
         const r = await this.page.evaluate(criarFeicoesPagina, {
-            cfg: this.cfg, n, vista: VISTA,
-            pontos: this.cfg.pontosParaCriar, anel: !!this.cfg.anel,
+            cfg: this.cfg,
+            // Os pontos saem do Node, por uma funcao pura: dentro da pagina o
+            // gerador nao era atacavel pelo pior caso, e foi ele que degenerou o
+            // retangulo. Ver `pontosDaSemeadura`.
+            lotes: pontosDaSemeadura({
+                n, pontos: this.cfg.pontosParaCriar, anel: !!this.cfg.anel, vista: VISTA,
+            }),
         });
         await this.assentar();
         await this.esperarQuadros(2);
@@ -1363,11 +1606,16 @@ class Bancada {
             }
             const estado = await this.estado();
             const sd = resumirEscritas(B.escritas, this.cfg.feedback);
+            const contador = await this.page.evaluate(() => window.__snapContado
+                || { instalado: false, motivo: 'a instrumentacao nao registrou o contador' });
             const prova = {
                 ...sd, ...estado,
                 fonteAlvo: this.cfg.feedback,
                 ativacao, cliqueMs: clique.ms, cliquePegou: clique.pegou,
                 pontosAcumulados, eventosDeMovimento: B.mousemove ?? null,
+                snapa: this.cfg.snapa,
+                contadorDeSnapInstalado: !!contador.instalado,
+                contadorDeSnapMotivo: contador.motivo,
             };
             casos.push({
                 cenario: 'desenho', k, estatistica: est, prova,
@@ -1502,11 +1750,17 @@ const METRICAS = [
     ['escritas outras', (c) => c.prova.escritasOutras],
     ['queryRend', (c) => c.estatistica.query],
     ['project', (c) => c.estatistica.proj],
+    // As duas do porte do quadro: o snap resolvido uma vez por quadro em vez de
+    // uma vez por evento, e o timer de 8 ms que nao coalesce nada fora do
+    // caminho. Nenhuma das duas depende do relogio da maquina.
+    ['resolve', (c) => c.estatistica.resolve],
+    ['res/quadro', (c) => c.estatistica.resolvePorQuadro],
+    ['timers', (c) => c.estatistica.timers],
     ['lat p50', (c) => c.estatistica.latencia_ms && c.estatistica.latencia_ms.p50],
     ['lat p95', (c) => c.estatistica.latencia_ms && c.estatistica.latencia_ms.p95],
     // Quantas escritas de feedback assentaram (deram medida de latencia) e
-    // quantas a seguinte substituiu antes disso. Sem este par, "lat p50" de 19
-    // medidas em 180 escritas passaria por medida da ferramenta inteira.
+    // quantas OUTRA substituiu dentro do mesmo quadro. Sem este par, "lat p50"
+    // de 19 medidas em 180 escritas passaria por medida da ferramenta inteira.
     ['lat n', (c) => c.estatistica.latencia_ms && c.estatistica.latencia_ms.amostras],
     ['perdidos', (c) => c.estatistica.feedbackSuperados],
     ['store ms', (c) => c.prova.msStore],
@@ -1729,6 +1983,12 @@ async function principal() {
                 }
                 console.log(`  renderer: ${carga.instrumentacao.renderer}`);
             }
+            // O contador de resolve dito em voz alta na carga: se ele nao
+            // instalou, a coluna `resolve` sai ZERO e zero e o numero bonito.
+            // Quem reprova a rodada e o cenario desenho; aqui e para o operador
+            // ver antes dos tres minutos de medida.
+            const cs = carga.instrumentacao && carga.instrumentacao.snap;
+            console.log(`  contador de snapping.resolve: ${cs && cs.instalado ? 'instalado' : `NAO INSTALADO (${(cs && cs.motivo) || 'sem motivo'})`}`);
 
             // A carga tardia da ferramenta vem ANTES de qualquer leitura de
             // estado: sem ela o registro devolve o stand-in, que nao desenha.
@@ -1789,7 +2049,13 @@ async function principal() {
             console.log(`  criando ${params.feicoes} feicoes para o cenario zoom...`);
             casos.push(await bancada.cenarioZoom(params.feicoes));
             const cri = casos[casos.length - 1].prova.criacao || {};
-            console.log(`  criacao: ${cri.ok}/${params.feicoes} em ${cri.ms} ms (mediana ${cri.msPorFeicao} ms por feicao)${cri.erro ? `  ** ultimo erro: ${cri.erro}` : ''}`);
+            // `ok` e o que o STORE ganhou; `chamadas` e o que voltou sem lancar.
+            // Divergiram sempre que o insumo degenerou, e a diferenca calada era
+            // o defeito: o cenario zoom reprovava e a linha de cima dizia 30/30.
+            const recusadas = (cri.chamadas ?? cri.ok) - cri.ok;
+            console.log(`  criacao: ${cri.ok}/${params.feicoes} em ${cri.ms} ms (mediana ${cri.msPorFeicao} ms por feicao)`
+                + `${recusadas ? `  ** ${recusadas} chamada(s) voltaram sem criar (o controle recusou o insumo)` : ''}`
+                + `${cri.erro ? `  ** ultimo erro: ${cri.erro}` : ''}`);
             await page.screenshot({ path: path.join(params.saida, `captura-${params.ferramenta}-zoom.png`) });
             casos.push(await bancada.cenarioConclusao());
             await page.screenshot({ path: path.join(params.saida, `captura-${params.ferramenta}-conclusao.png`) });
@@ -1866,4 +2132,5 @@ export {
     estatistica, resumirEscritas, avaliarCadencia, celula, chavesDaTabela,
     montarTabela, escreverMarkdown, errosDeTerreno, errosDeControle,
     avaliarIdentidade, avaliarProntidao, validarLeituraDeTiles,
+    avaliarFeedback, instrumentar, pontosDaSemeadura, criarFeicoesPagina,
 };

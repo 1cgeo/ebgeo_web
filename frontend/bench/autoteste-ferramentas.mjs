@@ -5,9 +5,18 @@
 // constroi o pior caso de cada eixo que a bancada afirma medir (leitura da linha
 // de comando, estatistica, resumo das escritas, cadencia do rAF, prova do
 // desenho, prova do zoom, prova da conclusao, montagem da tabela, o mapa de
-// nomes, o normalizador do descritor, e as tres reguas do INSTRUMENTO) e
-// confirma que cada um sai marcado. Depois confirma que o insumo bom passa,
-// para a regua nao ser um carimbo de reprovacao.
+// nomes, o normalizador do descritor, as tres reguas do INSTRUMENTO, o criterio
+// de `perdidos` e a semeadura do cenario zoom) e confirma que cada um sai
+// marcado. Depois confirma que o insumo bom passa, para a regua nao ser um
+// carimbo de reprovacao.
+//
+// Tres eixos nasceram com o porte das quatro formas (2026-09-05): o contador de
+// `snapping.resolve` cobrado contra si mesmo (eixo 4), porque contador que nao
+// instalou le ZERO e zero e o numero bonito que o porte quer produzir; o
+// criterio de `perdidos` (eixo 13), que contava como perdida a escrita desenhada
+// pelo proprio quadro seguinte; e a semeadura do cenario zoom (eixo 14), que
+// degenerava o retangulo em cerca de metade das rodadas e contava como criada a
+// chamada que o controle recusou em silencio.
 //
 //   node frontend/bench/autoteste-ferramentas.mjs
 
@@ -18,6 +27,7 @@ import {
     estatistica, resumirEscritas, avaliarCadencia, celula, chavesDaTabela,
     montarTabela, escreverMarkdown, percentil, mediana, errosDeControle,
     avaliarIdentidade, avaliarProntidao, validarLeituraDeTiles,
+    avaliarFeedback, instrumentar, pontosDaSemeadura, criarFeicoesPagina, VISTA,
 } from './ferramentas.mjs';
 
 let falhas = 0;
@@ -44,19 +54,28 @@ function loteDeQuadros(n, dt, passo = 16.7) {
     return q;
 }
 
-function estFalsa({ quadros = 180, dt = 2, passo = 16.7, query = 0, proj = 0, latencias = [], superadas = 0 } = {}) {
-    return estatistica({ quadros: loteDeQuadros(quadros, dt, passo), query, proj, latencias, superadas, mousemove: quadros });
+function estFalsa({
+    quadros = 180, dt = 2, passo = 16.7, query = 0, proj = 0,
+    latencias = [], superadas = 0, resolve = 180, timers = 0, timersCurtos = 0,
+} = {}) {
+    return estatistica({
+        quadros: loteDeQuadros(quadros, dt, passo), query, proj, latencias, superadas,
+        mousemove: quadros, resolve, timers, timersCurtos,
+    });
 }
 
 // Prova boa do desenho: a ferramenta ativa (e nao um stand-in), um ponto
-// colocado, feedback escrito por `setData` cru (a fonte de apoio nao e migrada).
+// colocado, feedback escrito por `setData` cru (a fonte de apoio nao e migrada),
+// e o contador de `snapping.resolve` no ar (sem ele "resolve 0" nao prova nada).
 const provaDesenhoBoa = (extra = {}) => ({
     setDataAlvo: 180, updateDataAlvo: 0, escritasAlvo: 180, feicoesAlvo: 180,
     setDataOutras: 0, updateDataOutras: 0, escritasOutras: 0, porFonte: {},
     fonteAlvo: 'coordination-line-feedback',
     ferramentaAtiva: true, pontosColocados: 1, visibilidade: 'visible',
     modoDesenho: 'clique', requerTerreno: false, terreno: false,
-    controlePresente: true, ehStandIn: false, ...extra,
+    controlePresente: true, ehStandIn: false,
+    snapa: true, snapping: true, contadorDeSnapInstalado: true, contadorDeSnapMotivo: null,
+    ...extra,
 });
 
 // Prova boa do desenho por ARRASTO: um traco de 181 pontos para 180 eventos de
@@ -143,6 +162,25 @@ function eixo1() {
     checa('intervalo de 16,7 ms nao conta como lento', estFalsa().lentos === 0);
     checa('percentil de lista vazia nao explode', percentil([], 0.5) === 0);
     checa('mediana de lista vazia devolve null', mediana([]) === null);
+
+    // As duas grandezas que o porte das formas existe para mover: chamadas a
+    // `snapping.resolve` por quadro e timers armados durante o gesto. Sem elas na
+    // estatistica a tabela nao mostra o que mudou, e a bancada mediria o porte
+    // pelo relogio, que e justamente o eixo que a GPU e a CPU contaminam.
+    const contadores = estatistica({
+        quadros: loteDeQuadros(180, 2), resolve: 720, timers: 540, timersCurtos: 538, latencias: [],
+    });
+    checa('a estatistica carrega as chamadas a snapping.resolve', contadores.resolve === 720, String(contadores.resolve));
+    checa('a estatistica carrega os timers armados', contadores.timers === 540, String(contadores.timers));
+    checa('a estatistica separa os timers de menos de um quadro', contadores.timersCurtos === 538, String(contadores.timersCurtos));
+    checa('resolve por quadro sai da divisao pelos quadros medidos',
+        contadores.resolvePorQuadro === 4, String(contadores.resolvePorQuadro));
+    checa('um resolve por quadro sai 1',
+        estatistica({ quadros: loteDeQuadros(180, 2), resolve: 180, latencias: [] }).resolvePorQuadro === 1);
+    checa('lote sem quadro nao inventa resolve por quadro',
+        estatistica({ quadros: [], resolve: 12 }).resolvePorQuadro === null);
+    checa('lote sem contador nenhum sai zerado, e nao undefined',
+        estatistica({ quadros: loteDeQuadros(10, 1) }).resolve === 0);
 }
 eixo1();
 
@@ -266,6 +304,30 @@ function eixo4() {
     checa('modoDesenho desconhecido reprova', modoTorto.length > 0);
     checa('a reprova nomeia o modo que veio', /"girar"/.test(modoTorto.join(' ')), modoTorto.join(' '));
     checa('modoDesenho ausente vale como clique', d(provaDesenhoBoa({ modoDesenho: undefined }), est, {}).length === 0);
+
+    // O CONTADOR DE RESOLVE, contra si mesmo. Um contador que nao foi instalado
+    // le zero, e zero e exatamente o numero que o porte quer produzir: sem esta
+    // reprova a bancada carimbaria "coalesce perfeitamente" numa ferramenta que
+    // resolve o snap cinco vezes por quadro.
+    const semContador = d(provaDesenhoBoa({ contadorDeSnapInstalado: false, contadorDeSnapMotivo: 'getSnappingService() devolveu null' }), est, {});
+    checa('desenho com o contador de resolve nao instalado reprova', semContador.length > 0);
+    checa('a reprova diz que resolve 0 nao prova coalescencia', /nao prova/.test(semContador.join(' ')), semContador.join(' '));
+    checa('a reprova repete o motivo que veio da pagina', /devolveu null/.test(semContador.join(' ')), semContador.join(' '));
+
+    // O caso mais traicoeiro: o contador FOI instalado, mas num segundo exemplar
+    // do modulo, e por isso nunca ve a chamada que a ferramenta faz.
+    const contadorCego = d(provaDesenhoBoa(), estFalsa({ resolve: 0 }), {});
+    checa('ferramenta que snapa, snapping ligado e zero resolve contado reprova', contadorCego.length > 0);
+    checa('a reprova diz que o contador nao esta no servico que a ferramenta usa',
+        /nao esta no servico/.test(contadorCego.join(' ')), contadorCego.join(' '));
+    // ...e os tres casos em que zero e a verdade, e reprovar seria mentira.
+    checa('seta e pincel (snapa: false) nao sao cobrados por zero resolve',
+        d(provaDesenhoBoa({ snapa: false }), estFalsa({ resolve: 0 }), {}).length === 0);
+    checa('rodada sem --snapping nao e cobrada por zero resolve',
+        d(provaDesenhoBoa({ snapping: false }), estFalsa({ resolve: 0 }), {}).length === 0);
+    checa('cenario sem quadro nenhum nao vira reprova de contador cego',
+        d(provaDesenhoBoa(), estFalsa({ quadros: 0, resolve: 0 }), {}).filter((e) => /nao esta no servico/.test(e)).length === 0);
+    checa('resolve contado normalmente passa', d(provaDesenhoBoa(), estFalsa({ resolve: 180 }), {}).length === 0);
 }
 eixo4();
 
@@ -446,6 +508,18 @@ function eixo8() {
     checa('a tabela mostra quantas latencias assentaram', colunas['lat n'] === '2', JSON.stringify(colunas));
     checa('a tabela mostra o feedback perdido ao lado da latencia', colunas.perdidos === '178', JSON.stringify(colunas));
 
+    // As tres colunas do porte das formas. A dividida por quadro e a que compara
+    // rodadas de duracao diferente sem mentir.
+    const comContadores = resultadoFalso({ rodadas: [rodadaFalsa(1, { casos: [
+        casoFalso('desenho', { k: 8, est: estFalsa({ resolve: 720, timers: 540, timersCurtos: 540 }) }),
+    ] })] });
+    const tc = montarTabela(comContadores);
+    const colC = Object.fromEntries(tc.linhas[0].valores.map((v) => [v.nome, v.texto]));
+    checa('a tabela mostra as chamadas a snapping.resolve', colC.resolve === '720', JSON.stringify(colC));
+    checa('a tabela mostra resolve por quadro', colC['res/quadro'] === '4', JSON.stringify(colC));
+    checa('a tabela mostra os timers armados no gesto', colC.timers === '540', JSON.stringify(colC));
+    checa('as colunas novas aparecem no markdown', /res\/quadro/.test(escreverMarkdown(comContadores, tc)));
+
     const gpuFalsa = resultadoFalso({ renderer: 'Google SwiftShader', relogio: 'INVALIDO (GPU emulada)', rodadas: [rodadaFalsa(1)] });
     checa('renderer emulado marca o relogio na tabela', /INVALIDO \(GPU emulada\)/.test(montarTabela(gpuFalsa).linhas[0].veredito), montarTabela(gpuFalsa).linhas[0].veredito);
 
@@ -540,6 +614,25 @@ function eixo10() {
         ['line', 'polygon', 'boundary', 'arrow', 'occupied_front', 'coordination_line', 'los', 'visibility', 'brush']
             .every((n) => nomes.includes(n)),
         nomes.join(','));
+    checa('as quatro formas entraram no mapa',
+        ['circle', 'ellipse', 'rectangle', 'sector'].every((n) => nomes.includes(n)), nomes.join(','));
+    checa('as quatro formas concluem no SEGUNDO clique, sem botao direito',
+        ['circle', 'ellipse', 'rectangle', 'sector'].every((n) => FERRAMENTAS[n].conclusao.gesto === 'clique-final'
+            && FERRAMENTAS[n].conclusao.cliquesAntes === 1 && FERRAMENTAS[n].conclusao.evento === 'click'));
+    checa('as quatro formas criam com dois pontos',
+        ['circle', 'ellipse', 'rectangle', 'sector'].every((n) => FERRAMENTAS[n].pontosParaCriar === 2));
+    // O setor e o unico cujo balde do store esta em portugues. Escrever
+    // `sectors` aqui daria zero feicao no cenario zoom, em silencio.
+    checa('o setor le o store e a fonte em `setores`',
+        FERRAMENTAS.sector.tipo === 'setores' && FERRAMENTAS.sector.fonte === 'setores',
+        `${FERRAMENTAS.sector.tipo}/${FERRAMENTAS.sector.fonte}`);
+    checa('o feedback das formas segue o prefixo em ingles do controle',
+        ['circle', 'ellipse', 'rectangle', 'sector'].every((n) => FERRAMENTAS[n].feedback === `${n}-feedback`));
+    checa('so a seta e o pincel declaram que nao snapam',
+        nomes.filter((n) => FERRAMENTAS[n].snapa === false).join(',') === 'arrow,brush',
+        nomes.filter((n) => FERRAMENTAS[n].snapa === false).join(','));
+    checa('o padrao do normalizador e snapa true',
+        normalizarFerramenta('line').snapa === true && normalizarFerramenta('brush').snapa === false);
     for (const nome of nomes) {
         // O normalizador e quem cobra: descritor incompleto lanca aqui, e nao a
         // 90 segundos de carga com o app ja no ar.
@@ -684,6 +777,158 @@ function eixo12() {
     checa('mapa sem tile nenhum nao reprova', validarLeituraDeTiles({ tiles: 0, desconhecidos: 0 }).length === 0);
 }
 eixo12();
+
+function eixo13() {
+    console.log('\n== eixo 13: o criterio de `perdidos` e `lat` (o preview que o usuario nao viu)');
+
+    /** Uma escrita na fonte de feedback, no instante t. */
+    const escrita = (t) => ({ tipo: 'escrita', t });
+    /** Um quadro no instante t, com a fonte assentada ou nao. */
+    const quadro = (t, fonteCarregada = true) => ({ tipo: 'quadro', t, fonteCarregada });
+
+    // O PIOR CASO, e o que a coluna antiga errava: uma escrita por quadro, cada
+    // uma desenhada pelo seu quadro. Medido no circulo em 2026-09-05, depois do
+    // porte: 180 escritas em 180 quadros sairam como 179 "perdidas", e a leitura
+    // natural seria "o porte quebrou o preview". Nenhuma se perdeu: o que a
+    // coluna via era a fonte ainda nao assentada, e nao uma escrita substituida.
+    const umaPorQuadro = [];
+    for (let i = 0; i < 180; i++) {
+        umaPorQuadro.push(escrita(i * 16.7));
+        // A fonte NAO assenta dentro do quadro: e o caso real, com a escrita
+        // colada no render.
+        umaPorQuadro.push(quadro(i * 16.7 + 5, false));
+    }
+    const r1 = avaliarFeedback(umaPorQuadro);
+    checa('uma escrita por quadro nao perde nenhuma', r1.superadas === 0, `superadas ${r1.superadas} de 180 escritas`);
+
+    // Duas escritas ANTES do quadro: a primeira nunca foi desenhada.
+    const duasNoMesmoQuadro = [escrita(0), escrita(5), quadro(16.7)];
+    checa('duas escritas no mesmo quadro perdem uma', avaliarFeedback(duasNoMesmoQuadro).superadas === 1,
+        String(avaliarFeedback(duasNoMesmoQuadro).superadas));
+
+    const cincoNoMesmoQuadro = [escrita(0), escrita(1), escrita(2), escrita(3), escrita(4), quadro(16.7)];
+    checa('cinco escritas no mesmo quadro perdem quatro', avaliarFeedback(cincoNoMesmoQuadro).superadas === 4,
+        String(avaliarFeedback(cincoNoMesmoQuadro).superadas));
+
+    // Escrita que espera DOIS quadros para a fonte assentar: continua sendo a
+    // mesma escrita, desenhada com atraso, e nao uma escrita perdida.
+    const esperaDoisQuadros = [escrita(0), quadro(16.7, false), quadro(33.4, true)];
+    const r2 = avaliarFeedback(esperaDoisQuadros);
+    checa('escrita que demora dois quadros para assentar nao conta como perdida', r2.superadas === 0, String(r2.superadas));
+    checa('a latencia dessa escrita e ate o quadro em que assentou', r2.latencias[0] === 33.4, JSON.stringify(r2.latencias));
+
+    // A latencia sai da ULTIMA escrita do intervalo, nao da primeira: a anterior
+    // nunca chegou a tela, e cronometra-la empilharia o atraso das duas.
+    const duasEUmaLatencia = avaliarFeedback([escrita(0), escrita(5), quadro(20, true)]);
+    checa('a latencia sai da ultima escrita do intervalo', duasEUmaLatencia.latencias[0] === 15, JSON.stringify(duasEUmaLatencia.latencias));
+    checa('e a escrita que ela substituiu conta como perdida', duasEUmaLatencia.superadas === 1);
+
+    checa('sequencia sem escrita nenhuma sai zerada', avaliarFeedback([quadro(0), quadro(16.7)]).superadas === 0);
+    checa('sequencia vazia nao explode', avaliarFeedback([]).superadas === 0 && avaliarFeedback([]).latencias.length === 0);
+    checa('sequencia nula nao explode', avaliarFeedback(null).superadas === 0);
+    // Escrita depois do ultimo quadro fica sem latencia, e nao vira perdida.
+    const sobrando = avaliarFeedback([quadro(0), escrita(10)]);
+    checa('escrita sem quadro depois nao conta como perdida nem como latencia',
+        sobrando.superadas === 0 && sobrando.latencias.length === 0, JSON.stringify(sobrando));
+
+    // A instrumentacao da pagina tem de seguir as MESMAS tres linhas. Ela nao e
+    // chamavel daqui (roda dentro do navegador), entao a conferencia e no texto:
+    // se alguem mudar um lado sem o outro, a regua pura deixa de descrever o que
+    // a bancada mede, e a tabela mente sem ninguem ver.
+    const fonte = String(instrumentar);
+    // Ancorado no PUSH DO QUADRO, e nao no nome da variavel: `B.superavel = null`
+    // tambem aparece no `__zerar`, e a primeira versao desta linha passou verde
+    // com a zeragem do render apagada (medido aqui em 2026-09-05, no controle
+    // negativo). Verificacao que casa em outro sitio nao verifica este.
+    checa('o quadro da pagina zera o marcador de supersessao',
+        /B\.quadros\.push\([^;]*;[\s\S]{0,600}?B\.superavel = null;/.test(fonte),
+        'nao achei "B.superavel = null;" logo depois do push do quadro em instrumentar');
+    checa('a escrita da pagina conta perdida pelo marcador do quadro', /if \(B\.superavel !== null\) B\.superadas\+\+;/.test(fonte),
+        'nao achei a contagem por B.superavel em instrumentar');
+    checa('a latencia da pagina continua saindo da ultima escrita', /B\.pendente = performance\.now\(\);/.test(fonte));
+    checa('a pagina ainda exige a fonte assentada para cronometrar', /fonteCarregada\(cfg\.feedback\)/.test(fonte));
+}
+eixo13();
+
+function eixo14() {
+    console.log('\n== eixo 14: a semeadura do cenario zoom (o insumo que o controle recusa em silencio)');
+
+    // Um sorteio determinista, para o pior caso nao depender da sorte da rodada.
+    const semente = (s0) => { let s = s0; return () => { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; }; };
+
+    // Separacao minima entre pontos CONSECUTIVOS de um lote, em grau, nos dois
+    // eixos. E o que decide se o retangulo nasce: ele cobra o piso de 10 m em
+    // LARGURA E ALTURA por separado (`createFeature` em
+    // src/js/draw_tools/rectangle_tool/add_rectangle_control.js), e a altura sai
+    // so da latitude. Um grau de latitude vale cerca de 111 km, entao 10 m sao
+    // cerca de 0,00009 grau.
+    const separacoes = (lotes) => {
+        let dx = Infinity;
+        let dy = Infinity;
+        for (const pts of lotes) {
+            for (let k = 1; k < pts.length; k++) {
+                dx = Math.min(dx, Math.abs(pts[k][0] - pts[k - 1][0]));
+                dy = Math.min(dy, Math.abs(pts[k][1] - pts[k - 1][1]));
+            }
+        }
+        return { dx, dy };
+    };
+
+    // O GERADOR ANTIGO, o pior caso que esta regua existe para pegar: passo fixo
+    // so em longitude, latitude sorteada de novo a cada ponto.
+    const antigo = ({ n, pontos, vista, aleatorio }) => {
+        const rnd = (a) => (aleatorio() * 2 - 1) * a;
+        const lotes = [];
+        for (let i = 0; i < n; i++) {
+            const cx = vista.center[0] + rnd(0.03);
+            const cy = vista.center[1] + rnd(0.03);
+            const pts = [];
+            for (let k = 0; k < pontos; k++) pts.push([cx + k * 0.006 + rnd(0.001), cy + rnd(0.004)]);
+            lotes.push(pts);
+        }
+        return lotes;
+    };
+
+    const PISO_GRAU = 0.00009; // os 10 m que o retangulo cobra, em latitude
+    const velho = separacoes(antigo({ n: 2000, pontos: 2, vista: VISTA, aleatorio: semente(7) }));
+    checa('o gerador ANTIGO produz altura abaixo do piso de 10 m (o defeito medido)',
+        velho.dy < PISO_GRAU, `menor delta de latitude: ${velho.dy.toFixed(7)} grau`);
+    checa('e o gerador antigo nunca errava a LARGURA, que e por isso que so o retangulo caia',
+        velho.dx > PISO_GRAU, `menor delta de longitude: ${velho.dx.toFixed(7)} grau`);
+
+    const novo = separacoes(pontosDaSemeadura({ n: 2000, pontos: 2, anel: false, vista: VISTA, aleatorio: semente(7) }));
+    checa('o gerador NOVO garante altura muito acima do piso', novo.dy > 10 * PISO_GRAU, `${novo.dy.toFixed(7)} grau`);
+    checa('e continua garantindo a largura', novo.dx > 10 * PISO_GRAU, `${novo.dx.toFixed(7)} grau`);
+    // O ruido tem de ser menor que metade do passo, senao a garantia some.
+    checa('o ruido nao chega a metade do passo de latitude', novo.dy > 0.004 / 2, `${novo.dy.toFixed(7)} grau`);
+
+    // O anel (poligono) nao muda: ele ja nascia de um circulo de raio fixo. O
+    // ponto k=0 cai em (cx + 0,004, cy), entao o centro do lote se recupera dele.
+    const noRaio = (pts, raio) => {
+        const cx = pts[0][0] - raio;
+        const cy = pts[0][1];
+        return pts.every((p) => Math.abs(Math.hypot(p[0] - cx, p[1] - cy) - raio) < 1e-9);
+    };
+    const anel = pontosDaSemeadura({ n: 50, pontos: 6, anel: true, vista: VISTA, aleatorio: semente(3) });
+    checa('o anel continua fechando com o raio fixo', anel.length === 50 && anel[0].length === 6);
+    checa('os pontos do anel ficam a 0,004 grau do centro do lote', noRaio(anel[0], 0.004));
+    // ...e a conferencia acima nao e vacua: um anel de outro raio reprova nela.
+    checa('a conferencia do anel REPROVA um raio diferente', !noRaio(anel[0], 0.008));
+
+    checa('a semeadura devolve exatamente n lotes de `pontos` coordenadas',
+        pontosDaSemeadura({ n: 7, pontos: 4, anel: false, vista: VISTA, aleatorio: semente(1) })
+            .every((l) => l.length === 4), 'lote com comprimento errado');
+
+    // E a contagem de criadas passou a sair do STORE, e nao das chamadas que
+    // voltaram: `createFeature` recusa em silencio, sem lancar.
+    const fonte = String(criarFeicoesPagina);
+    checa('a criacao le o store antes e depois', /noStoreAntes/.test(fonte) && /noStoreDepois/.test(fonte));
+    checa('a criacao devolve `ok` como a diferenca no store, e nao as chamadas',
+        /ok: \(noStoreAntes === null \|\| noStoreDepois === null\) \? chamadas : noStoreDepois - noStoreAntes/.test(fonte),
+        'nao achei a diferenca de store em criarFeicoesPagina');
+    checa('a criacao ainda guarda as chamadas ao lado, para a diferenca aparecer', /chamadas, noStoreAntes, noStoreDepois/.test(fonte));
+}
+eixo14();
 
 console.log(`\n${total - falhas}/${total} passaram.`);
 if (falhas) { console.log(`${falhas} FALHA(S): a bancada nao esta reprovando o que promete pegar.`); process.exit(1); }
