@@ -288,3 +288,49 @@ describe('quem pode preservar o conteúdo, e quem não pode', () => {
         expect(chamadas.setupMapFeatures).toEqual([{ contentPreserved: false }, { contentPreserved: false }]);
     });
 });
+
+// ============================================================================
+// A lista que quem troca SOZINHO tem de consultar antes
+// ============================================================================
+
+describe('availableBasemaps: o que este controle consegue mesmo aplicar', () => {
+    // POR QUE ESTA LISTA EXISTE (2026-09-05). `applySharedBasemap` passa o id por
+    // `getValidBasemapFallback` ANTES de trocar, então um id que ninguém oferece não vira
+    // "não faz nada": vira uma troca para outra base, calada. Quem decide automaticamente
+    // (a base preferida do terreno) precisa perguntar antes, e perguntar por fora exigiria
+    // o `STYLE_MAP`, que é privado do módulo.
+    //
+    // A régua que faltava: a fiação do terreno é medida com um dublê que ENTREGA a lista,
+    // então ela passa inteira com este getter revertido. O controle negativo pegou.
+
+    it('lista as habilitadas que resolvem para estilo, e omite a que não resolve', () => {
+        // `acervo-x` está habilitada e não tem estilo embutido nem publicado: oferecida no
+        // seletor, mas inaplicável. É exatamente ela que não pode entrar na lista.
+        const c = controle(mapaFalso(comApp(cartaTopografica)));
+        expect(c.availableBasemaps).toEqual(['carta-topografica', 'osm', 'imagens']);
+    });
+
+    it('a base concedida ENTRA assim que o estilo publicado chega, sem reconstruir o controle', () => {
+        // O caso vivo: o pacote aditivo de concessão grava `config.basemapStyles` em tempo de
+        // execução. Uma tabela montada no construtor descreveria para sempre o boot anônimo.
+        const c = controle(mapaFalso(comApp(cartaTopografica)));
+        expect(c.availableBasemaps).not.toContain('acervo-x');
+
+        ESTILO_PUBLICADO['acervo-x'] = {
+            version: 8,
+            sources: { r: { type: 'raster', tiles: ['x'] } },
+            layers: [{ id: 'r', type: 'raster', source: 'r' }],
+        };
+        expect(c.availableBasemaps).toContain('acervo-x');
+
+        // E SAI de novo no logout, que é o outro lado da mesma propriedade.
+        delete ESTILO_PUBLICADO['acervo-x'];
+        expect(c.availableBasemaps).not.toContain('acervo-x');
+    });
+
+    it('estilo publicado MALFORMADO não entra na lista: ele deixaria o mapa em branco', () => {
+        const c = controle(mapaFalso(comApp(cartaTopografica)));
+        ESTILO_PUBLICADO['acervo-x'] = { version: 7, sources: {}, layers: [] };
+        expect(c.availableBasemaps).not.toContain('acervo-x');
+    });
+});

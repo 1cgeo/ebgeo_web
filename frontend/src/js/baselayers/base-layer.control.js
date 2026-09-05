@@ -109,6 +109,28 @@ class BaseLayerControl {
         return resolveBasemapStyle(id, STYLE_MAP, config.basemapStyles);
     }
 
+    /**
+     * Os ids que este controle consegue REALMENTE aplicar: habilitados no catálogo E
+     * resolvendo para algum estilo, na ordem de prioridade que o seletor mostra.
+     *
+     * RESOLVIDO NA HORA, pelo mesmo motivo de `_styleFor`: um mapa base privado só
+     * entra em `config` depois do login e sai de novo no logout, então uma tabela
+     * montada no construtor descreveria para sempre o boot anônimo.
+     *
+     * EXISTE PARA QUEM PRECISA PERGUNTAR ANTES DE TROCAR (2026-09-05, a base preferida
+     * do terreno). `applySharedBasemap` passa o id por `getValidBasemapFallback` antes
+     * de trocar, então um id que ninguém oferece não vira "não faz nada": vira uma
+     * troca para a PRIMEIRA base habilitada, calada. Quem decide automaticamente tem
+     * de checar a lista antes, e checar por fora exigiria o `STYLE_MAP`, que é privado
+     * deste módulo.
+     * @returns {string[]} Ids aplicáveis, em ordem de prioridade
+     */
+    get availableBasemaps() {
+        return config.getEnabledBasemaps()
+            .map(([id]) => id)
+            .filter((id) => !!this._styleFor(id));
+    }
+
     get currentLayer() {
         try {
             return getStateManager().get('baseLayer.activeLayer') || DEFAULT_LAYER;

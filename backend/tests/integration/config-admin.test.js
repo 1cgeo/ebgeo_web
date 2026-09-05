@@ -212,6 +212,54 @@ describe('Config — admin overrides (F4)', () => {
     assert.equal(cfg.body.data.map2d.sourceTileLodParams, null);
   });
 
+  // A BASE PREFERIDA COM O TERRENO LIGADO (2026-09-05). A forma está presa em
+  // `tests/unit/config-base-preferida-do-terreno.test.js`; o que se mede AQUI é o payload
+  // SERVIDO: que as duas chaves chegam ao cliente, que um recorte invertido morre em 422 sem
+  // ficar gravado, e que declarar as duas não apagou as vizinhas de `map2d` no caminho.
+  it('a base preferida do terreno é servida nula e chega ao cliente quando o admin a aponta', async () => {
+    let cfg = await supertest(app).get('/api/v1/config').expect(200);
+    assert.equal(cfg.body.data.map2d.terrainPreferredBasemap, null);
+    assert.equal(cfg.body.data.map2d.terrainPreferredBasemapBounds, null);
+
+    await supertest(app)
+      .put('/api/v1/config/admin')
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({
+        map2d: {
+          terrainPreferredBasemap: 'carta-ortoimagem',
+          terrainPreferredBasemapBounds: [-58.1, -33.4, -48.7, -27.1],
+        },
+      })
+      .expect(200);
+
+    cfg = await supertest(app).get('/api/v1/config').expect(200);
+    assert.equal(cfg.body.data.map2d.terrainPreferredBasemap, 'carta-ortoimagem');
+    assert.deepEqual(cfg.body.data.map2d.terrainPreferredBasemapBounds, [-58.1, -33.4, -48.7, -27.1]);
+    // AS VIZINHAS, no mesmo fôlego: o override é deep-merge sobre o documento montado, e uma
+    // seção que perdesse o `.unknown(true)` gravaria o objeto podado com 200.
+    assert.equal(cfg.body.data.map2d.minZoom, 2);
+    assert.equal(cfg.body.data.map2d.maxZoom, 21);
+    assert.equal(typeof cfg.body.data.map2d.hillshade, 'object');
+  });
+
+  it('o recorte invertido morre em 422 na rota, e o servido não muda', async () => {
+    // Oeste a leste do leste: a caixa que cruza o antimeridiano, que nenhuma das duas linhas
+    // trata. Gravá-la desligaria a troca em silêncio, com o painel exibindo o valor salvo.
+    const antes = await supertest(app).get('/api/v1/config').expect(200);
+    const resposta = await supertest(app)
+      .put('/api/v1/config/admin')
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ map2d: { terrainPreferredBasemapBounds: [170, -20, -170, 20] } })
+      .expect(422);
+    assert.match(JSON.stringify(resposta.body), /terrainPreferredBasemapBounds/);
+
+    const depois = await supertest(app).get('/api/v1/config').expect(200);
+    assert.deepEqual(
+      depois.body.data.map2d.terrainPreferredBasemapBounds,
+      antes.body.data.map2d.terrainPreferredBasemapBounds,
+    );
+  });
+
   // Item 16 (testes-backend.md) — the gate on the DESTRUCTIVE verb.
   //
   // The first test of this file checks 403 for GET and PUT and was treated as if it

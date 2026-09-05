@@ -84,6 +84,35 @@ export const configOverridesSchema = Joi.object({
     sourceTileLodParams: Joi.array()
       .ordered(Joi.number().min(2).required(), Joi.number().min(1).required())
       .allow(null),
+    // A BASE PREFERIDA COM O TERRENO LIGADO (2026-09-05), e o recorte que ela cobre. Declarar
+    // não cria a capacidade, dá BORDA a ela: `map2d` é `.unknown(true)`, então o editor
+    // "Avançado (JSON)" já gravava as duas chaves sem checagem nenhuma.
+    //
+    // O QUE O ID NÃO CHECA é se ele EXISTE no catálogo, e a omissão é a MESMA de
+    // `streetView360.miniMapBasemap`, por escrito ali: o catálogo muda por outra rota, então
+    // um mapa base apagado depois deixaria a configuração inválida sem que ninguém salvasse
+    // nada. Quem resolve é o cliente, que só troca para um id presente em
+    // `BaseLayerControl.availableBasemaps` e ignora os outros. O que se checa aqui é a FORMA:
+    // um id é um slug de catálogo (`VARCHAR(100)`), e `null` desliga.
+    terrainPreferredBasemap: Joi.string().trim().max(100).allow('', null),
+    // `.custom()` E NÃO SÓ QUATRO BORDAS SOLTAS, pela mesma razão de `catalog.schemas.js`: a
+    // inversão (`oeste > leste`, `sul > norte`) é a única falha que nenhuma das quatro posições
+    // vê sozinha, e é a que produz o pior estado. O cliente recusa a caixa invertida INTEIRA
+    // (`terrain-basemap.model.js`, que não trata antimeridiano porque nada no produto trata),
+    // então gravá-la desligaria a troca em silêncio, com o painel exibindo o valor salvo. Sem
+    // `.messages()`, como as vizinhas: a tradução é do edge.
+    terrainPreferredBasemapBounds: Joi.array()
+      .ordered(
+        Joi.number().min(-180).max(180).required(),
+        Joi.number().min(-90).max(90).required(),
+        Joi.number().min(-180).max(180).required(),
+        Joi.number().min(-90).max(90).required(),
+      )
+      .custom((valor, helpers) => {
+        const [oeste, sul, leste, norte] = valor;
+        return oeste > leste || sul > norte ? helpers.error('any.invalid') : valor;
+      }, 'oeste<=leste e sul<=norte')
+      .allow(null),
   }).unknown(true),
   map3d: Joi.object({
     viewer: Joi.object().pattern(Joi.string(), Joi.boolean()).unknown(true),

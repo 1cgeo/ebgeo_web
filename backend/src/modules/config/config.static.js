@@ -68,6 +68,35 @@ export const MAP2D_BASE = {
   // valida antes de aplicar e reaplica depois de cada troca de mapa base; um primeiro valor
   // abaixo de 2 é recusado lá com aviso, e aqui em 422, por `config.admin.schemas.js`.
   sourceTileLodParams: null,
+  // A BASE PREFERIDA ENQUANTO O TERRENO 3D ESTÁ LIGADO (2026-09-05). Recebe o id de uma
+  // entrada do catálogo de mapas base, e `null` DESLIGA o mecanismo: sem a chave, o terreno
+  // não toca na camada base, que é o que o produto faz desde sempre.
+  //
+  // POR QUE EXISTE. Medido em 2026-09-04 (`docs/wiki/desempenho-do-mapa-2d.md`, que aponta o
+  // relatório com o número de cada causa): com o terreno ligado, uma base RASTER custa de
+  // metade a um terço do quadro de uma VETORIAL (1 pilha de render-to-texture contra 2 ou 11)
+  // e segura 60 fps parado na CPU quatro vezes mais lenta (19 ms contra 34 ms).
+  //
+  // POR QUE O PADRÃO É NULO. A base raster que compensa não vive em nenhuma das duas linhas
+  // do produto: ela é gerada por implantação. Quem tem o mbtiles aponta a chave pelo painel
+  // de administração, que é onde dado de implantação mora; quem não tem não paga nada.
+  //
+  // O QUE ELA COBRA. A base raster traz os rótulos gravados na imagem e cobre só o recorte
+  // gerado; fora dele o mapa fica BRANCO, e é para isso que serve a chave de baixo.
+  //
+  // A troca NÃO é gravada como escolha do usuário nem enfileira op de sync (sai pelo mesmo
+  // caminho do link compartilhado), e cede a ele: quem trocar de base com o terreno ligado
+  // não tem a escolha desfeita ao desligar.
+  terrainPreferredBasemap: null,
+  // Cobertura da base acima, `[oeste, sul, leste, norte]` em graus. Com o centro da vista
+  // FORA dela a troca não acontece, e o mapa fica onde estava. `null` vale como cobertura
+  // global, que é o que todo mapa base deste catálogo tem hoje.
+  //
+  // Caixa que cruza o antimeridiano (oeste > leste) NÃO é tratada em lugar nenhum do produto,
+  // e por isso morre em 422 na borda (`config.admin.schemas.js`) em vez de ser gravada: o
+  // cliente a recusaria inteira e o mecanismo ficaria desligado em silêncio, com o painel
+  // mostrando o valor salvo.
+  terrainPreferredBasemapBounds: null,
   hillshade: {
     enabled: false,
     name: 'Sombreamento do Relevo',

@@ -1,11 +1,12 @@
 // Path: js/terrain/terrain.control.js
 
-import { getEventBus } from '../store';
+import { getEventBus, getControl } from '../store';
 import { EventTypes } from '../events/event_types.js';
 import { getCatalogLayers, toggleCatalogLayerVisibility } from '../store/catalog.operations.js';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
 import { DEFAULT_TERRAIN_EXAGGERATION } from '../store/atlas/atlas.entity.js';
 import { currentGlobeProjection } from '../store/atlas-appearance.service.js';
+import { TERRAIN_BASEMAP_ACTION, decideTerrainBasemap } from './terrain-basemap.model.js';
 
 // Elevation reads moved to a leaf module so the analysis geometry can be tested
 // against a fake map, and because they stopped querying twice per sample: the fixed
@@ -77,6 +78,28 @@ class TerrainControl {
         this._name = 'TerrainControl';
         this._terrainPitch = 60;
         this._unsubBaseLayerChanged = null;
+
+        // O OBJETO, e não os campos da base preferida: `GET /api/config` hidrata este
+        // mesmo `config.map2d` por deep-merge (`store/sync/runtime-config.js`), e o
+        // controle nasce em `map_sig.js` com a referência na mão. Um campo copiado
+        // aqui ficaria preso ao que existia no instante do boot, que é o defeito que
+        // `currentGlobeProjection()` já consertou logo abaixo.
+        this._map2dConfig = config;
+        // Só de memória, como o `_wasTerrainActive`: o terreno nasce desligado, então
+        // uma base lembrada nunca sobrevive à página.
+        this._rememberedBasemap = null;
+        this._userSwitchedBasemap = false;
+        this._switchingBasemap = false;
+    }
+
+    /** @returns {string|null} Id da base que o terreno prefere, ou null (mecanismo desligado) */
+    get _preferredBasemap() {
+        return this._map2dConfig?.terrainPreferredBasemap || null;
+    }
+
+    /** @returns {Array<number>|null} Cobertura da base preferida, [oeste, sul, leste, norte] */
+    get _preferredBasemapBounds() {
+        return this._map2dConfig?.terrainPreferredBasemapBounds || null;
     }
 
     /** @returns {{ source: string, exaggeration: number }} */
@@ -142,6 +165,9 @@ class TerrainControl {
             this._map.setTerrain(null);
             await this._restoreGlobeProjection();
             this._map.easeTo({ pitch: 0, duration: 500 });
+            // DEPOIS de `_wasTerrainActive` virar falso, para a troca de estilo que
+            // isto pode causar reaplicar a projeção do atlas em vez de pulá-la.
+            await this._syncBasemapWithTerrain(false);
         } else {
             // Globe + terrain is a known MapLibre bug (#4792, #4927). The projection
             // change is AWAITED so the terrain never meets the globe, and because the
@@ -151,6 +177,11 @@ class TerrainControl {
             this._map.setTerrain(this.terrainConfig);
             this._map.easeTo({ pitch: this._terrainPitch, duration: 500 });
             this._ensureHillshadeEnabled();
+            // POR ÚLTIMO, e com o terreno já aplicado: a troca de base passa por
+            // `setStyle`, que derruba todas as fontes, e quem repõe o terreno é o
+            // `_handleBaseLayerChanged`, que já escutava. É o mesmo caminho que uma
+            // troca manual de base percorre hoje.
+            await this._syncBasemapWithTerrain(true);
         }
     }
 
@@ -189,11 +220,87 @@ class TerrainControl {
 
     /** Restores terrain after a base layer change */
     async _handleBaseLayerChanged() {
+        // Toda troca de base que NÃO foi nossa é o usuário tendo opinião própria, e o
+        // desligar do terreno não pode desfazê-la. `_switchingBasemap` é o que separa
+        // as duas: `applySharedBasemap` anuncia a base aplicada ANTES de resolver,
+        // então o anúncio da nossa própria troca chega aqui com a bandeira levantada.
+        if (!this._switchingBasemap && this._preferredBasemap) {
+            this._userSwitchedBasemap = true;
+        }
+
         if (!this._wasTerrainActive) return;
 
         await this._disableGlobeForTerrain();
         await this._setupTerrainSources();
         this._map.setTerrain(this.terrainConfig);
+    }
+
+    /**
+     * Leva o mapa base para o que o terreno prefere, e o traz de volta.
+     *
+     * POR QUE É OPCIONAL E NASCE DESLIGADO. Medido em 2026-09-04
+     * (`docs/wiki/desempenho-do-mapa-2d.md`, que aponta o relatório com os números por
+     * causa): com o terreno ligado, uma base raster custa de metade a um terço do
+     * quadro de uma vetorial. A base raster que compensa NÃO está em nenhuma das duas
+     * linhas do produto: ela é gerada por implantação, e é por isso que a chave NOMEIA
+     * uma base em vez de fixar uma, e que a chave nula tem de deixar o app byte a byte
+     * como era.
+     *
+     * A TROCA NÃO PERSISTE. `applySharedBasemap` é o caminho do link compartilhado
+     * exatamente porque não grava a escolha no registro do mapa e não enfileira op de
+     * sync: o terreno é um modo de ver, não uma edição do mapa do usuário. Um
+     * `switchLayer` comum passaria por `setBaseLayer`, e um leitor visitando atlas
+     * alheio empurraria uma mutação que o servidor recusa, travando a fila de saída.
+     *
+     * @param {boolean} terrainOn - O estado para o qual o terreno está indo
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _syncBasemapWithTerrain(terrainOn) {
+        if (!this._preferredBasemap && !this._rememberedBasemap) return;
+
+        const baseLayerControl = getControl('BaseLayerControl');
+        if (!baseLayerControl?.applySharedBasemap) {
+            this._rememberedBasemap = null;
+            this._userSwitchedBasemap = false;
+            return;
+        }
+
+        const decision = decideTerrainBasemap({
+            terrainOn,
+            preferred: this._preferredBasemap,
+            current: baseLayerControl.currentLayer ?? null,
+            remembered: this._rememberedBasemap,
+            userSwitchedSince: this._userSwitchedBasemap,
+            bounds: this._preferredBasemapBounds,
+            center: this._map?.getCenter?.() ?? null,
+            // Habilitada no catálogo E resolvendo para algum estilo. Sem esta lista, um
+            // id que ninguém oferece NÃO seria ignorado lá embaixo: `applySharedBasemap`
+            // o passa por `getValidBasemapFallback`, que devolve a primeira base
+            // habilitada, e o mapa do usuário mudaria para algo que ninguém pediu.
+            available: baseLayerControl.availableBasemaps ?? [],
+        });
+
+        this._rememberedBasemap = decision.remember;
+        this._userSwitchedBasemap = false;
+
+        if (decision.action === TERRAIN_BASEMAP_ACTION.NONE) return;
+
+        this._switchingBasemap = true;
+        try {
+            const applied = await baseLayerControl.applySharedBasemap(decision.to);
+            // LÊ DE VOLTA, nunca ecoa o argumento: `switchLayer` tem um fallback
+            // próprio, e a base na tela é a única resposta honesta.
+            if (applied !== decision.to) {
+                console.warn(`[terrain] Base "${decision.to}" indisponivel; o mapa esta em "${applied}".`);
+            }
+        } catch (error) {
+            console.warn('Error switching base layer for terrain:', error);
+            // O mapa ficou onde estava, então não há para onde voltar.
+            this._rememberedBasemap = null;
+        } finally {
+            this._switchingBasemap = false;
+        }
     }
 
     /**
