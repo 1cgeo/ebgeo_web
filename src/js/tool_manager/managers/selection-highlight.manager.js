@@ -27,6 +27,17 @@
  * tirar a quantização multiplica por 23 as montagens de caixa e não move a
  * cadência (a diferença está dentro do ruído das duas medidas).
  *
+ * COM TERRENO LIGADO A CAIXA EXATA MOVE A CADÊNCIA, e é o segundo motivo, mais forte,
+ * para a quantização ficar. Medido em 2026-09-05 pela bancada de terreno da
+ * `integracao_backend` (`desempenho-terreno.mjs --selecionadas 0,50 --passes`, 50
+ * selecionadas, cenário de zoom, três rodadas com a primeira descartada): sem a
+ * quantização a guarda de identidade deixa de pegar, as escritas na fonte da caixa vão
+ * de 4 por gesto (uma por faixa de 0,5 nível) para 88,5, e as draw calls por quadro
+ * dobram (227 para 459), com p95 da cadência de 26,1..26,6 ms contra 25,2..25,6 sem
+ * sobreposição. E `zoomend` em vez de por quadro NÃO compensa: com CPU livre e com CPU
+ * quatro vezes mais lenta as amplitudes de render p50 e de cadência p95 se sobrepõem;
+ * o que ele economiza são 19 ms de JavaScript espalhados por cerca de 90 quadros.
+ *
  * E A ESCRITA SAI DO QUADRO. É consequência da mesma quantização: entre duas
  * faixas o cache devolve o MESMO objeto de caixa, então a coleção montada é
  * idêntica, feição a feição, à que já está na fonte. A guarda de identidade em
