@@ -24,6 +24,7 @@ import {
     createExportProgressModal,
     getCleanMapStyle,
 } from './export-utils.js';
+import { maplibregl } from '@js/map/maplibre.js';
 
 const MAX_TILES = 100;
 const TILE_SIZE = 1024;

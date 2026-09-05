@@ -32,6 +32,7 @@ import {
 } from './pdf-cartographic-elements.js';
 import { transferMapImages, correctZoomInvariantFeatures } from './export-utils.js';
 import { parseScaleDenom, MOSAIC_BORDER_MM, MOSAIC_OVERLAP_MM } from './pdf-export.constants.js';
+import { maplibregl } from '@js/map/maplibre.js';
 
 /** Page dimensions (mm) for each orientation. */
 function pageSizeMm(orientation) {

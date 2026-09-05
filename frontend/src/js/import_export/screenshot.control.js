@@ -6,6 +6,7 @@
  */
 
 import { showError } from '@utils/toast_service.js';
+import { maplibregl } from '@js/map/maplibre.js';
 
 class ScreenshotControl {
     /**

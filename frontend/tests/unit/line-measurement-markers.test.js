@@ -16,7 +16,12 @@ class MarkerDouble {
         return this;
     }
 }
-globalThis.maplibregl = { Marker: MarkerDouble };
+// O modulo alcanca o MapLibre pelo PONTO UNICO desde 2026-09-05, e nao mais pelo global,
+// entao a costura do duble e o `vi.mock` daquele modulo. Vale mais que o
+// `globalThis.maplibregl = ...` que estava aqui: aquele era estado do processo, e um
+// arquivo que esquecesse de desfaze-lo entregava o duble ao proximo arquivo do mesmo
+// worker; este morre com o arquivo.
+vi.mock('@js/map/maplibre.js', () => ({ maplibregl: { Marker: MarkerDouble } }));
 globalThis.document = { createElement: () => ({ className: '', innerText: '', dataset: {} }), querySelector: () => null };
 
 vi.mock('@js/measurement_tool/measurement-geometry.js', () => ({ calculateLineLength: () => 0 }));

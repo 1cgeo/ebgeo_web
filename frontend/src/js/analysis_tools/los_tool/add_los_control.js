@@ -8,6 +8,7 @@ import { BaseControl } from '@tools';
 import { createPreviewScheduler } from '@tools/helpers/preview-scheduler.js';
 import { getSnappingService } from '@js/snapping';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+import { maplibregl } from '@js/map/maplibre.js';
 
 /**
  * The two dispatchers that own the persistent LOS sources.

@@ -55,6 +55,7 @@ import { isCurrentMapLockedSync, isFeatureEffectivelyLocked } from '@store';
 import { checkPermission } from '@store/sync/permission-guard.js';
 import { denialNotice } from '@store/denial-phrases.js';
 import { canExtendFeature, resolveEndpoints, EXTENSION_ENDS } from './line-extension.model.js';
+import { maplibregl } from '@js/map/maplibre.js';
 
 /**
  * The `GuardAction` key that continuing a feature consumes.

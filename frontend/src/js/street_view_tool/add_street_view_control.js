@@ -23,6 +23,7 @@ import { rebuildScopedSource } from './tile-scope.js';
 import { STYLE_MINI_MAPA } from './street-view-mini-map-style.js';
 import { estiloDoMiniMapa, faixaDoMiniMapa } from './mini-mapa-base.js';
 import { photo360Failures } from './photo360-failure.js';
+import { maplibregl } from '@js/map/maplibre.js';
 
 // Property carrying the photo id on the 360 photo features.
 //

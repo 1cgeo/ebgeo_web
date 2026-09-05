@@ -17,10 +17,12 @@
  * mapa nem consome tile vetorial — ele desenha uma fonte geojson montada deste payload.
  *
  * MapLibre GL vem do npm desde 2026-09-04 (6.7.0), pelo ponto unico `src/js/map/maplibre.js`,
- * que o entry desta pagina importa primeiro e que publica `window.maplibregl`. Antes disso
- * era um `<script>` de `/vendors/maplibre-gl.js`, apagado com o fim do bundle UMD.
+ * que este arquivo IMPORTA. Antes disso era um `<script>` de `/vendors/maplibre-gl.js`,
+ * apagado com o fim do bundle UMD, e ate 2026-09-05 este arquivo dependia de o entry da
+ * pagina ter publicado `window.maplibregl` antes dele.
  */
 
+import { maplibregl } from '@js/map/maplibre.js';
 import config from '@js/config.js';
 import { fetchProjectMap, sv360Base } from './api.js';
 import { stampAtlasOnUrl } from '@js/street_view_tool/tile-scope.js';

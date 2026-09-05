@@ -28,6 +28,7 @@ export default [
             'ebgeo/no-json-clone': 'error',
             'ebgeo/no-inline-style-assignment': 'error',
             'ebgeo/no-unescaped-innerhtml': 'error',
+            'ebgeo/no-maplibre-global': 'error',
         },
     },
 

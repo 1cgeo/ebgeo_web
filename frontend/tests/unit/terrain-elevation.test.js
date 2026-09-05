@@ -167,8 +167,26 @@ describe('createTerrainSampler', () => {
         expect(() => createTerrainSampler(map).elevation([10, 20])).not.toThrow();
         const [lngLat] = map.terrain.getElevationForLngLatZoom.mock.calls[0];
         expect(typeof lngLat.wrap).toBe('function');
-        expect(lngLat.wrap()).toBe(lngLat);
         expect([lngLat.lng, lngLat.lat]).toEqual([10, 20]);
+        // O `wrap()` do LngLat DE VERDADE devolve outro objeto (`new LngLat(...)`), nunca
+        // `this`, que era o que o objeto montado a mao devolvia. Esta linha dizia
+        // `toBe(lngLat)` e media o objeto de mentira; o que o bundle exige e o VALOR.
+        const embrulhado = lngLat.wrap();
+        expect([embrulhado.lng, embrulhado.lat]).toEqual([10, 20]);
+    });
+
+    it('e por ser LngLat de verdade, longitude fora de faixa EMBRULHA em vez de zerar', () => {
+        // O ganho medido de o modulo importar o ponto unico em vez de ler o global (que em
+        // teste nunca estava la, deixando a producao num caminho e o teste noutro):
+        // `getElevationForLngLatZoom` abre com
+        // `if (!isInBoundsForZoomLngLat(zoom, lnglat.wrap())) return 0`
+        // (`node_modules/maplibre-gl/src/render/terrain.ts:221`), e um `wrap()` que devolvesse
+        // `this` deixaria -183 fora de [0,1) em Mercator: 0 m calado, em vez da cota de 177.
+        const map = makeMap({ dem: () => 70 });
+        createTerrainSampler(map).elevation([-183, 40]);
+        const [lngLat] = map.terrain.getElevationForLngLatZoom.mock.calls[0];
+        expect(lngLat.lng).toBe(-183);
+        expect(lngLat.wrap().lng).toBeCloseTo(177, 9);
     });
 
     it('bate com getTerrainElevation valor a valor, para trocar um pelo outro sem mover a cota', () => {

@@ -39,6 +39,7 @@ import { isTemporallyVisible } from '@js/temporal/temporal-model.js'
 // o caminho do GDAL (saida georreferenciada) e `mosaico` e o do jsPDF, que nao georreferencia.
 import { registrarUso } from '@js/session/uso-lote.js'
 import { EventoDeUso, PropDeUso } from '@js/session/eventos-de-uso.js'
+import { maplibregl } from '@js/map/maplibre.js'
 
 export default class PDFExportTab {
     constructor(map) {

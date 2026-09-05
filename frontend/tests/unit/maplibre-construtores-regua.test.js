@@ -17,8 +17,11 @@
  *         exporta 85 nomes e nenhum `default`;
  *       - sem `setWorkerUrl` com `?worker&url`, o Vite resolve o worker dentro de
  *         `node_modules/.vite/deps`, onde o arquivo não existe, e o mapa SOBE SEM TILE NENHUM;
- *       - sem `window.maplibregl`, os 26 arquivos de `src/js/` que leem o global param, e o
- *         primeiro sintoma é um `new maplibregl.Map` sobre `undefined`.
+ *       - sem `window.maplibregl`, param a bancada de `frontend/bench/` e os `page.evaluate`
+ *         dos specs de Playwright, que alcançam a biblioteca de FORA do bundle. A APLICAÇÃO
+ *         deixou de depender dele em 2026-09-05: os vinte arquivos de `src/js/` que liam o
+ *         global passaram a importar o ponto único, e quem voltar ao global é reprovado pela
+ *         regra `ebgeo/no-maplibre-global` (bloco (c) abaixo).
  *
  * (b) `zoomLevelsToOverscale: undefined` EM TODO CONSTRUTOR. A 6.x tirou a opção do estado
  *     experimental e passou a valer 4 por padrão, o que FATIA os tiles em vez de sobre-escalar
@@ -186,6 +189,54 @@ describe('(b) todo construtor de mapa declara `zoomLevelsToOverscale`', () => {
                 + 'fatia os tiles e muda `queryRenderedFeatures`'
             ).toMatch(/zoomLevelsToOverscale\s*:\s*undefined/);
         });
+    });
+});
+
+describe('(c) a régua que proíbe o global está LIGADA no lint', () => {
+    /**
+     * A regra `ebgeo/no-maplibre-global` tem controle negativo próprio (`eslint-rules/probe.js`,
+     * que roda antes do `eslint` em `npm run lint:js`): lá se prova que ela DISPARA e que a
+     * exceção do ponto único não é larga demais. O que aquele probe NÃO alcança é se ela está
+     * ligada para `src/**` neste repositório: uma linha apagada do `eslint.config.js` deixaria o
+     * probe verde, o lint mudo, e a proibição existiria só na prosa.
+     *
+     * A pergunta se faz ao PRÓPRIO ESLint (`calculateConfigForFile`), e não por regex no arquivo
+     * de configuração: é a configuração efetiva de um arquivo real de `src/js/`, com a cascata de
+     * blocos já resolvida, que é o caminho independente daquele que a produziu.
+     */
+    it('o ESLint aplica `ebgeo/no-maplibre-global` como erro num arquivo real de `src/js/`', async () => {
+        const { ESLint } = await import('eslint');
+        const eslint = new ESLint({ cwd: FRONT });
+        const config = await eslint.calculateConfigForFile(join(FRONT, 'src/js/map_sig.js'));
+
+        const severidade = config.rules['ebgeo/no-maplibre-global'];
+        expect(severidade, 'a regra não está ligada para `src/**` no eslint.config.js')
+            .toBeDefined();
+        // `calculateConfigForFile` devolve a severidade NORMALIZADA (2), nunca a string
+        // `'error'` que o arquivo de configuração escreve. Medido, não suposto: a primeira
+        // versão deste caso comparava com `'error'` e reprovou a configuração certa.
+        expect(Array.isArray(severidade) ? severidade[0] : severidade).toBe(2);
+
+        // Controle do instrumento: a mesma leitura devolve as outras regras da casa. Sem esta
+        // linha, um `calculateConfigForFile` que devolvesse configuração vazia por outro motivo
+        // (cwd errado, arquivo ignorado) deixaria o caso acima falhando pela razão errada, ou o
+        // próximo passando por acidente.
+        expect(Object.keys(config.rules)).toEqual(
+            expect.arrayContaining(['ebgeo/require-path-comment', 'ebgeo/no-json-clone'])
+        );
+    });
+
+    it('e o ponto único é o único arquivo de `src/js/` que pode nomear o global', async () => {
+        // O outro lado: a exceção existe, é por CAMINHO, e vale para este repositório e não só
+        // para a árvore de fixture. Sem ela o próprio arquivo que publica o global seria
+        // reprovado, e a saída seria desligar a regra.
+        const { ESLint } = await import('eslint');
+        const eslint = new ESLint({ cwd: FRONT });
+        const [res] = await eslint.lintFiles([join(FRONT, PONTO_UNICO)]);
+        const doGlobal = res.messages.filter((m) => m.ruleId === 'ebgeo/no-maplibre-global');
+        expect(doGlobal, `${PONTO_UNICO} foi reprovado pela própria regra`).toEqual([]);
+        // E ele NOMEIA o global, senão o verde acima seria sobre um arquivo que não o toca.
+        expect(readFileSync(join(FRONT, PONTO_UNICO), 'utf8')).toContain('window.maplibregl');
     });
 });
 

@@ -2,6 +2,7 @@
 
 import config from '../config.js';
 import { formatarDataCaptura } from '@utils/data-captura.js';
+import { maplibregl } from '@js/map/maplibre.js';
 
 // Flag to prevent click propagation to line layer when marker is clicked
 // Shared between streetview markers and 3D viewer markers via window object

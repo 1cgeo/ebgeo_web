@@ -375,11 +375,13 @@ describe('CONTROLE DE VÁCUO: o mesmo caminhador, apontado para a página do MAP
             const achou = [...grafoDoMapa.arquivos].some((f) => padrao.test(f));
             expect(achou, `o caminhador NÃO achou ${rotulo} na página do mapa`).toBe(true);
         }
-        // O MapLibre NÃO aparece aqui, e não é falha do instrumento: ele vem por `<script>` de
-        // vendor (`window.maplibregl`), então as únicas menções a `maplibre-gl` no código-fonte
-        // são tipos de JSDoc, que o limpador de comentários apaga. As pesadas que de fato viajam
-        // pelo grafo são estas.
-        for (const pacote of ['quill', 'jspdf', 'dompurify']) {
+        // O MapLibre APARECE aqui desde 2026-09-04, e a linha que dizia o contrário
+        // ("ele vem por `<script>` de vendor, então as únicas menções são tipos de JSDoc")
+        // envelheceu duas vezes: primeiro quando a biblioteca entrou pelo npm num ponto único,
+        // e de novo em 2026-09-05, quando os vinte arquivos que liam `window.maplibregl`
+        // passaram a IMPORTAR aquele ponto. Ele é a maior dependência desta página, então
+        // ausente daqui é instrumento quebrado, não página leve.
+        for (const pacote of ['quill', 'jspdf', 'dompurify', 'maplibre-gl']) {
             expect([...grafoDoMapa.externos], `faltou ${pacote}`).toContain(pacote);
         }
         expect(grafoDoMapa.arquivos.size).toBeGreaterThan(400);

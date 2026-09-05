@@ -13,6 +13,8 @@
  * No side-effects at module level — all initialization is explicit.
  */
 
+import { maplibregl } from '@js/map/maplibre.js';
+
 import { getEventBus, getStateManager, registerControl, initializeWithLastActiveMap } from './store';
 
 import { showConfirm } from './modals';

@@ -15,6 +15,7 @@ import { escapeHtml } from '@utils';
 import { wrapLongitude, clampLatitude } from '@utils/geometry-utils.js';
 import { gazetteerSearchUrl } from './gazetteer-url.js';
 import { getControl } from '@store';
+import { maplibregl } from '@js/map/maplibre.js';
 
 // Maximum number of 3D model results to display
 const MAX_3D_MODEL_RESULTS = 5;

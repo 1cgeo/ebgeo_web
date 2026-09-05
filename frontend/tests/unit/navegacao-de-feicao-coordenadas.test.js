@@ -32,6 +32,17 @@ vi.mock('@store', () => ({
     getSourceTypeFromStorage: (...a) => getSourceTypeFromStorage(...a),
 }));
 
+/**
+ * O duble do MapLibre, que desde 2026-09-05 entra pelo PONTO UNICO e nao mais por
+ * `globalThis.maplibregl`. O objeto e ESTAVEL de proposito: o modulo sob teste guarda a
+ * ligacao `maplibregl` no import, e cada `beforeEach` troca so a propriedade
+ * `LngLatBounds` dentro dele. Um objeto novo por caso nao alcancaria a ligacao ja
+ * resolvida, e a classe de baixo (`FakeBounds`) ainda esta em TDZ quando esta fabrica
+ * roda, o que e por que ela nao aparece aqui dentro.
+ */
+const dubleDoMapLibre = {};
+vi.mock('@js/map/maplibre.js', () => ({ maplibregl: dubleDoMapLibre }));
+
 const { zoomToFeature, zoomAndSelectFeature } =
     await import('../../src/js/utilities/feature_navigation_utils.js');
 
@@ -79,19 +90,17 @@ const featureWith = (geometry, properties = {}) => ({
 beforeEach(() => {
     vi.clearAllMocks();
     lastBounds = null;
-    globalThis.maplibregl = {
-        LngLatBounds: class extends FakeBounds {
-            constructor() {
-                super();
-                lastBounds = this;
-            }
-        },
+    dubleDoMapLibre.LngLatBounds = class extends FakeBounds {
+        constructor() {
+            super();
+            lastBounds = this;
+        }
     };
     vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
 afterEach(() => {
-    delete globalThis.maplibregl;
+    delete dubleDoMapLibre.LngLatBounds;
     vi.restoreAllMocks();
 });
 

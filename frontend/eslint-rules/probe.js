@@ -17,6 +17,12 @@
 // sits on disk, so it cannot be exercised from inside a shared fixture: a probe
 // that only read the two flat files would pass green while verifying nothing
 // about it. Hence the nested tree, whose paths are the fixture.
+//
+// `no-maplibre-global` needs a nested tree for the same reason and in the OTHER
+// direction: its exception (the single entry point may name the global) is by
+// path, so proving it means two real files under a real `src/js/`, one that must
+// stay silent and one, its neighbour, that must not. Checking only the silent
+// half would pass an exception that had grown to cover the whole tree.
 import { ESLint } from 'eslint';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -101,6 +107,32 @@ for (const arquivo of deveCalar) {
     }
 }
 
+// ---- nested fixture: the path EXCEPTION, proved in both directions ----
+// The entry point and its neighbour sit in the same `src/js/` tree on purpose.
+// If the exception ever widened (a folder match, a `src/js/` match), the
+// neighbour would fall silent, and only this half of the pair would notice.
+const arvoreMaplibre = join(fixtures, 'no-maplibre-global');
+const pontoUnico = join(arvoreMaplibre, 'src/js/map/maplibre.js');
+const vizinho = join(arvoreMaplibre, 'src/js/tool_manager/vizinho-do-ponto-unico.js');
+
+const [resPontoUnico] = await eslint.lintFiles([pontoUnico]);
+for (const m of resPontoUnico.messages) {
+    failures.push(`${m.ruleId}: FALSO POSITIVO em ${pontoUnico} linha ${m.line} — ${m.message}`);
+}
+
+const [resVizinho] = await eslint.lintFiles([vizinho]);
+const queridosVizinho = expectedFrom(vizinho).length;
+const achadosVizinho = resVizinho.messages
+    .filter((m) => m.ruleId === 'ebgeo/no-maplibre-global').length;
+if (queridosVizinho === 0) {
+    failures.push('no-maplibre-global: o vizinho do ponto unico perdeu os marcadores EXPECT');
+}
+if (achadosVizinho !== queridosVizinho) {
+    failures.push(
+        `no-maplibre-global: ${vizinho} declara ${queridosVizinho} caso(s) e a regra pegou ${achadosVizinho}`
+    );
+}
+
 // ---- a probe that verifies nothing must not pass ----
 // If the markers vanish (a fixture rewritten, a rule renamed), every loop above
 // iterates over an empty list and the probe reports success. This is the same
@@ -125,5 +157,6 @@ if (failures.length) {
 const nRegras = Object.keys(plugin.rules).length;
 console.log(
     `✅ Controle negativo ok: ${esperado.length} casos pegos em should-flag.js, `
-    + `2 na arvore de caminho, 0 falsos positivos, ${nRegras} regras provadas`
+    + `2 na arvore de caminho, ${achadosVizinho} na arvore do ponto unico `
+    + `(e o ponto unico calado), 0 falsos positivos, ${nRegras} regras provadas`
 );

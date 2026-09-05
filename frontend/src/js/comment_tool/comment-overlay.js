@@ -29,6 +29,7 @@ import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
 import { showWarning } from '@utils/toast_service.js';
 import { setupCleanup, subscribe, trackTimer, cleanup } from '@utils/event-cleanup.js';
+import { maplibregl } from '@js/map/maplibre.js';
 
 /** Static speech-bubble glyph for the pin reply-count badge (static SVG — XSS-safe). */
 const REPLY_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 6h-2v9H6v2c0 .55.45 1 1 1h11l4 4V7c0-.55-.45-1-1-1zm-4 6V3c0-.55-.45-1-1-1H3c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1z"/></svg>`;

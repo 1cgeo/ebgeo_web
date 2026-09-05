@@ -161,3 +161,34 @@ export function renderMapTitle(mapa) {
 // opens with a `/**` block, like the eleven `js/calibration/` files did) and
 // `wrong-header.js` (header present, pointing somewhere else). Both carry the
 // usual marker. To cover them, the probe must lint that subtree too.
+
+// ---------------------------------------------------------------------------
+// no-maplibre-global
+// ---------------------------------------------------------------------------
+//
+// The four spellings of the same read. The first is the one 28 files of
+// `src/js/` used while MapLibre was a `<script>` vendor; the other three are
+// the ones a rule based on `no-restricted-globals` would let through, and the
+// `globalThis` form with `?.` is the one that was actually living in the tree
+// (`terrain-elevation.js`), invisible to a grep for `maplibregl.`.
+
+export function abrirPopupPeloGlobal(mapa, texto) {
+    // EXPECT: no-maplibre-global
+    return new maplibregl.Popup({ closeButton: false }).setText(texto).addTo(mapa);
+}
+
+export function registrarProtocoloPeloGlobal(protocolo) {
+    // EXPECT: no-maplibre-global
+    maplibregl.addProtocol('pmtiles', protocolo.tile);
+}
+
+export function versaoPelaJanela() {
+    // EXPECT: no-maplibre-global
+    return window.maplibregl.getVersion();
+}
+
+export function lngLatPeloGlobalThis(coordenadas) {
+    // EXPECT: no-maplibre-global
+    const LngLat = globalThis.maplibregl?.LngLat;
+    return LngLat ? LngLat.convert(coordenadas) : coordenadas;
+}

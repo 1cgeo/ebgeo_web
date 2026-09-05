@@ -8,6 +8,7 @@
  */
 
 import { calculateLineLength } from '@js/measurement_tool/measurement-geometry.js';
+import { maplibregl } from '@js/map/maplibre.js';
 
 // Re-export for barrel consumers
 export { calculateLineLength };

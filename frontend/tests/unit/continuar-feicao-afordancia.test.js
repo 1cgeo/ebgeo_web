@@ -58,6 +58,14 @@ vi.mock('@store/sync/permission-guard.js', () => ({
     },
 }));
 
+/**
+ * O duble do MapLibre. Desde 2026-09-05 `line-extension.helpers.js` alcanca a biblioteca
+ * pelo PONTO UNICO e nao mais por `globalThis.maplibregl`: o objeto exportado e ESTAVEL e
+ * cada `beforeEach` troca a propriedade `Marker` dentro dele.
+ */
+const dubleDoMapLibre = {};
+vi.mock('@js/map/maplibre.js', () => ({ maplibregl: dubleDoMapLibre }));
+
 const {
     extensionDenialReason,
     hideExtensionHandles,
@@ -134,7 +142,6 @@ const makeMap = () => ({ id: Symbol('map') });
 let quadros = [];
 
 let originalDocument;
-let originalMaplibre;
 let originalRaf;
 
 beforeEach(() => {
@@ -146,30 +153,27 @@ beforeEach(() => {
     quadros = [];
 
     originalDocument = globalThis.document;
-    originalMaplibre = globalThis.maplibregl;
     originalRaf = globalThis.requestAnimationFrame;
 
     globalThis.document = { createElement: makeElement };
     globalThis.requestAnimationFrame = (cb) => { quadros.push(cb); return quadros.length; };
-    globalThis.maplibregl = {
-        Marker: class {
-            constructor(options) {
-                this.options = options;
-                this.lngLat = null;
-                this.mapa = null;
-                this.removido = false;
-                marcadores.push(this);
-            }
-            setLngLat(lngLat) { this.lngLat = lngLat; return this; }
-            addTo(map) { this.mapa = map; return this; }
-            remove() { this.removido = true; return this; }
-        },
+    dubleDoMapLibre.Marker = class {
+        constructor(options) {
+            this.options = options;
+            this.lngLat = null;
+            this.mapa = null;
+            this.removido = false;
+            marcadores.push(this);
+        }
+        setLngLat(lngLat) { this.lngLat = lngLat; return this; }
+        addTo(map) { this.mapa = map; return this; }
+        remove() { this.removido = true; return this; }
     };
 });
 
 afterEach(() => {
     globalThis.document = originalDocument;
-    globalThis.maplibregl = originalMaplibre;
+    delete dubleDoMapLibre.Marker;
     globalThis.requestAnimationFrame = originalRaf;
 });
 

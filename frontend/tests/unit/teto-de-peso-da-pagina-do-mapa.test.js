@@ -311,6 +311,19 @@ const EXTERNOS_ANSIOSOS = Object.freeze([
     'geomagnetism',
     'jszip',
     'localforage',
+    // OS TRÊS DO MAPLIBRE ENTRARAM EM 2026-09-05, e a entrada deles é o assunto do lote: a
+    // aplicação deixou de ler `window.maplibregl` e passou a IMPORTAR o ponto único
+    // (`src/js/map/maplibre.js`), então a aresta que o `<script>` de vendor escondia do
+    // bundler passou a existir no grafo. Não é peso novo: a biblioteca já era baixada por
+    // esta página desde 2026-09-04 (lote E), pelo entry `src/js/index.js`; o que mudou é
+    // que agora `map_sig.js` também a alcança, e o caminhador enxerga.
+    //
+    // São três especificadores porque são três coisas: o módulo, a folha de estilo do
+    // pacote e a URL do worker por `?worker&url`, sem a qual o Vite resolve o worker dentro
+    // de `node_modules/.vite/deps` e o mapa sobe SEM TILE NENHUM, calado.
+    'maplibre-gl',
+    'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url',
+    'maplibre-gl/dist/maplibre-gl.css',
     'mgrs',
     'proj4',
     'shpjs',

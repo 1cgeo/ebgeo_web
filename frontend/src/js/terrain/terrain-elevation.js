@@ -36,6 +36,8 @@
  * Tile not loaded reads as 0, never null (`if (!dem) return 0` in the bundle).
  */
 
+import { maplibregl } from '@js/map/maplibre.js';
+
 const DEFAULT_MIN_ZOOM = 0;
 const DEFAULT_MAX_ZOOM = 24;
 
@@ -105,14 +107,23 @@ export function getTerrainElevation(map, coordinates) {
  * object with `lng`, `lat` and `wrap()`. The method calls `wrap()` on its first
  * line (`if (!cE(i, e.wrap())) return 0`), so an array handed straight in would
  * throw, and a plain `{lng, lat}` would read 0 for every sample without a word.
- * `LngLat.convert` exists on the global build; without it, the object is built by
- * hand.
+ *
+ * `LngLat` now comes from the import, so the first branch is the normal one. The
+ * hand-built fallbacks stay for the module DOUBLE: a `vi.mock` of the single entry
+ * point stubs the handful of names the test under it needs, and this module is
+ * imported by `terrain.control.js` and `import.control.js`, whose tests have no
+ * reason to know about `LngLat`. The hand-built object has the same shape, so the
+ * two paths agree.
+ *
+ * Until 2026-09-05 this read `globalThis.maplibregl?.LngLat`, and that spelling is
+ * why the audit of the global missed this file: a `grep` for `maplibregl.` does not
+ * match `maplibregl?.`.
  *
  * @param {Array|Object} coordinates - [lng, lat] or {lng, lat}
  * @returns {Object} LngLat-like object
  */
 function toLngLat(coordinates) {
-    const LngLat = globalThis.maplibregl?.LngLat;
+    const LngLat = maplibregl?.LngLat;
     if (LngLat?.convert) return LngLat.convert(coordinates);
     if (Array.isArray(coordinates)) {
         const [lng, lat] = coordinates;

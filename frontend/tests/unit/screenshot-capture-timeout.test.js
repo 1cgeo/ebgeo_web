@@ -8,6 +8,17 @@
 // failsafe. Same for the unbounded `await map.once('idle')` in `captureMapAsDataUrl`.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+/**
+ * O duble do MapLibre. Desde 2026-09-05 o controle alcanca a biblioteca pelo PONTO UNICO
+ * (`@js/map/maplibre.js`) e nao mais por `globalThis.maplibregl`, entao a costura e o
+ * `vi.mock` daquele modulo. `vi.hoisted` porque a fabrica roda no import ESTATICO abaixo,
+ * quando a classe `FakeMap` deste arquivo ainda esta em TDZ: o objeto e estavel e cada
+ * `beforeEach` troca a propriedade `Map` dentro dele.
+ */
+const dubleDoMapLibre = vi.hoisted(() => ({}));
+vi.mock('@js/map/maplibre.js', () => ({ maplibregl: dubleDoMapLibre }));
+
 import ScreenshotControl from '../../src/js/import_export/screenshot.control.js';
 
 /** Long enough to pass the `length > 200` sanity check of the capture. */
@@ -90,16 +101,14 @@ class FakeMap {
 }
 
 let originalDocument;
-let originalMaplibre;
 let originalRaf;
 
 beforeEach(() => {
     FakeMap.instances = [];
     originalDocument = globalThis.document;
-    originalMaplibre = globalThis.maplibregl;
     originalRaf = globalThis.requestAnimationFrame;
     globalThis.document = makeDocumentStub();
-    globalThis.maplibregl = { Map: FakeMap };
+    dubleDoMapLibre.Map = FakeMap;
     globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
     vi.useFakeTimers();
 });
@@ -107,7 +116,7 @@ beforeEach(() => {
 afterEach(() => {
     vi.useRealTimers();
     globalThis.document = originalDocument;
-    globalThis.maplibregl = originalMaplibre;
+    delete dubleDoMapLibre.Map;
     globalThis.requestAnimationFrame = originalRaf;
     vi.restoreAllMocks();
 });

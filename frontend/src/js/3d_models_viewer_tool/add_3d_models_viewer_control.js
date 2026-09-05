@@ -17,6 +17,7 @@ import { model3dFailures } from './model3d-failure.js';
 // A leaf of the first-person tool: it imports the shared notice and the phrases, and NOT the
 // splatting engine, so this eager control does not grow by a lazy chunk. See its fileoverview.
 import { scene3dFailures } from '@js/first_person_3d_tool/scene3d-failure.js';
+import { maplibregl } from '@js/map/maplibre.js';
 
 // Global flag to prevent click propagation between overlapping marker layers
 // (3D models, street view, saved photos)

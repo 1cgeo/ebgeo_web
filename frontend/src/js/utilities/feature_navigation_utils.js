@@ -6,6 +6,7 @@
  * @module utilities/feature_navigation_utils
  */
 import { getSourceTypeFromStorage } from '@store';
+import { maplibregl } from '@js/map/maplibre.js';
 
 /** Feature types that use a selectionBox polygon for zoom bounds. */
 const SELECTION_BOX_TYPES = ['text', 'image', 'military_symbol', 'magnetic_declination'];

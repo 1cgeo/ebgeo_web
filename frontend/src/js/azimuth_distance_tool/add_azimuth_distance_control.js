@@ -17,6 +17,7 @@ import { IDUtils } from '@utils';
 import { showCoordinateEditModal } from '@modals/coordinate-edit.modal.js';
 import { showConfirm } from '@modals/confirm.modal.js';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+import { maplibregl } from '@js/map/maplibre.js';
 
 /**
  * Azimuth/distance features store their origin geometry kind in properties.source

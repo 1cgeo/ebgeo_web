@@ -5,7 +5,11 @@
  * Clicking a target on the minimap selects it for calibration.
  */
 
-// MapLibre GL is loaded via CDN <script> tag and available as window.maplibregl
+// MapLibre comes from npm through the single entry point. This line used to read
+// "MapLibre GL is loaded via CDN <script> tag and available as window.maplibregl",
+// which stopped being true on 2026-09-04: the 6.x line publishes no UMD bundle, so
+// `public/vendors/maplibre-gl.js` was deleted and the library entered the module graph.
+import { maplibregl } from '@js/map/maplibre.js';
 
 // ============================================================================
 // MODULE STATE

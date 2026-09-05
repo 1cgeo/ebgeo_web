@@ -22,6 +22,7 @@ import noEventStringLiteral from './no-event-string-literal.js';
 import noJsonClone from './no-json-clone.js';
 import noInlineStyleAssignment from './no-inline-style-assignment.js';
 import noUnescapedInnerhtml from './no-unescaped-innerhtml.js';
+import noMaplibreGlobal from './no-maplibre-global.js';
 
 export default {
     meta: { name: 'ebgeo', version: '1.0.0' },
@@ -31,5 +32,6 @@ export default {
         'no-json-clone': noJsonClone,
         'no-inline-style-assignment': noInlineStyleAssignment,
         'no-unescaped-innerhtml': noUnescapedInnerhtml,
+        'no-maplibre-global': noMaplibreGlobal,
     },
 };

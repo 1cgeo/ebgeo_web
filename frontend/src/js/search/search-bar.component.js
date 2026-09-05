@@ -34,6 +34,7 @@ import {
     createCoordinateResultContent,
     createApiResultContent
 } from './search-bar.sidepanel-content.js';
+import { maplibregl } from '@js/map/maplibre.js';
 
 /**
  * Redesigned search bar component.

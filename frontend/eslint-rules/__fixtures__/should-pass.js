@@ -241,3 +241,38 @@ export function montarCabecalho(caminhoRelativo) {
 export function pareceCabecalho(linha) {
     return linha.startsWith('// Path: ') && linha !== CABECALHO_ESPERADO;
 }
+
+// ---------------------------------------------------------------------------
+// no-maplibre-global
+// ---------------------------------------------------------------------------
+
+import { maplibregl } from '@js/map/maplibre.js';
+
+// The fix itself: the name is now a module binding, so the rule is silent by
+// construction and the call sites below did not have to change.
+export function abrirPopupPeloPontoUnico(mapa, texto) {
+    return new maplibregl.Popup({ closeButton: false }).setText(texto).addTo(mapa);
+}
+
+// A parameter of the same name (the shape a test double takes) shadows the
+// global, and so does any other local binding.
+export function comDubleInjetado(maplibregl, mapa) {
+    return new maplibregl.Marker().addTo(mapa);
+}
+
+// `window` itself shadowed: then `.maplibregl` is somebody else's property, not
+// the global spelled another way.
+export function lerDeUmaJanelaFalsa(window) {
+    return window.maplibregl;
+}
+
+// A property named `maplibregl` on an ordinary object is a key, not the global.
+export function empacotarDuble(duble) {
+    const ambiente = { maplibregl: duble };
+    return ambiente.maplibregl;
+}
+
+// The DOM class the library writes is a string, and shares only the prefix.
+export function selecionarCanvasDoMapa(pagina) {
+    return pagina.locator('#map-sig .maplibregl-canvas');
+}

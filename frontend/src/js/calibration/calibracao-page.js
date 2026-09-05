@@ -33,8 +33,9 @@
  * valendo que esta pagina nao alcanca um so modulo de ferramenta, de store ou de barril do mapa.
  */
 
-// PRIMEIRO import, de proposito: publica `window.maplibregl` e o CSS do MapLibre antes de
-// `minimap.js` e `project-map.js`, que chamam `new maplibregl.Map` pelo global. Ver
+// PRIMEIRO import, de proposito: carrega o CSS do MapLibre e publica `window.maplibregl`, que
+// desde 2026-09-05 serve so a bancada e os specs de navegador. `minimap.js` e `project-map.js`
+// importam o ponto unico eles mesmos, entao a pagina ja nao depende desta ordem. Ver
 // `map/maplibre.js`, que e o unico lugar do repositorio que importa a biblioteca.
 import '@js/map/maplibre.js';
 

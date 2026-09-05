@@ -36,11 +36,18 @@ function stubGlobais() {
         createElement: () => ({ style: {}, parentNode: null, appendChild() {} }),
         getElementById: () => null,
     };
-    // O construtor devolve um mapa de mentira: `onAdd` monta o minimapa de verdade, e o
-    // ultimo caso deste arquivo passa por ali sem ter um pronto.
-    globalThis.maplibregl = { addProtocol() {}, Map: function Map() { return mapaFalso([], {}); } };
 }
 stubGlobais();
+
+// O MapLibre entra pelo PONTO UNICO desde 2026-09-05, e nao mais pelo global, entao a
+// costura do duble e o `vi.mock` daquele modulo. O construtor devolve um mapa de mentira:
+// `onAdd` monta o minimapa de verdade, e o ultimo caso deste arquivo passa por ali sem ter
+// um pronto. Com o global, este duble deixou de interceptar assim que o controle passou a
+// importar: a biblioteca REAL era construida, e o `Container not found` saia como rejeicao
+// nao tratada, com o arquivo ainda verde.
+vi.mock('@js/map/maplibre.js', () => ({
+    maplibregl: { addProtocol() {}, Map: function Map() { return mapaFalso([], {}); } },
+}));
 
 vi.mock('../../src/js/config.js', () => ({
     default: {
