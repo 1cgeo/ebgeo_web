@@ -18,6 +18,27 @@
  * module is render-only: it subscribes to awareness events and rewrites the
  * `remote-selection-boxes` source — it never mutates presence or selection state.
  *
+ * O PASSE DE ZOOM RODA POR QUADRO E NÃO VOLTA À FONTE, e as duas metades são medidas.
+ *
+ * A primeira: até 2026-09-05 o `_scheduleRender` cancelava e reagendava o próprio
+ * quadro, e o cancelamento matava a callback antes de ela rodar. Medido em 1ae314a2,
+ * num gesto de `easeTo` de 1,5 nível em 1,5 s: 92 eventos `zoom`, UM `_render`, esse
+ * depois do gesto. A caixa do colega ficava congelada o gesto inteiro. A causa é a
+ * ordem dentro do quadro, e está escrita por extenso no `_handleZoomChange` de
+ * `tool_manager/managers/selection-highlight.manager.js`, que tinha o mesmo defeito.
+ *
+ * A segunda: resolver uma feição custa `getCompleteFeatureFromSource`, que na 6.7.0
+ * reconstrói a coleção INTEIRA da fonte (`GeoJSONSource.getData` monta um vetor novo
+ * a partir do `_data.updateable`) e faz um `find` nela. É O(feições na fonte) por
+ * feição selecionada. Rodando por quadro sem cache, um gesto com 50 seleções remotas
+ * num mapa de 350 feições fez 2.300 resoluções (46 renders x 50); com 5.000 feições
+ * no mapa a mesma conta cresce na mesma proporção. Por isso o quadro de zoom
+ * reaproveita `_resolvidas`, a lista já resolvida do último render completo, e só
+ * remonta a GEOMETRIA da caixa, que é a única coisa que o zoom muda. A lista se
+ * invalida nos três eventos que já existiam para isso (`PRESENCE_SELECTIONS_CHANGED`,
+ * `PRESENCE_CHANGED`, `LAYERS_CHANGED`), então uma feição arrastada por um colega
+ * continua sendo relida pelo evento, não pelo quadro.
+ *
  * @dependencies
  *   @js/presence/presence-store.js (presenceStore.getSelections)
  *   @store/sync/session-context.js (sessionContext.clientId/userId — self exclusion)
@@ -83,6 +104,22 @@ export class RemoteSelectionsLayer {
         /** @type {number|null} rAF id for the debounced zoom re-render. */
         this._rafId = null;
 
+        /**
+         * A lista já resolvida do último render completo, um item por caixa
+         * (`{ feature, control, color, featureId, clientId }`). `null` significa
+         * "preciso reler a fonte"; um vetor significa "o quadro de zoom pode remontar
+         * a geometria sem voltar lá". Ver o cabeçalho, segunda metade.
+         * @type {Array<Object>|null}
+         */
+        this._resolvidas = null;
+
+        /**
+         * A assinatura (JSON) do que foi escrito na fonte por último. `null` significa
+         * "não sei o que está lá", e a próxima escrita sai. Ver `_setData`.
+         * @type {string|null}
+         */
+        this._assinaturaEscrita = null;
+
         setupCleanup(this);
     }
 
@@ -129,6 +166,7 @@ export class RemoteSelectionsLayer {
             cancelAnimationFrame(this._rafId);
             this._rafId = null;
         }
+        this._resolvidas = null;
         if (this._map && typeof this._map.off === 'function') {
             this._map.off('zoom', this._onZoom);
         }
@@ -140,23 +178,61 @@ export class RemoteSelectionsLayer {
     /**
      * Debounced zoom handler: selection-box pixel sizes change with zoom, so the
      * geographic box geometry must be rebuilt (mirrors SelectionHighlightManager).
+     * Passa `false` porque o zoom não muda QUEM está selecionado nem a geometria da
+     * feição: só a caixa, que se remonta do que já foi resolvido.
      * @private
      */
-    _onZoom = () => this._scheduleRender();
+    _onZoom = () => this._scheduleRender(false);
 
     /**
      * Coalesce bursty re-render triggers (zoom, LAYERS_CHANGED during a peer drag) into a single
      * render on the next animation frame.
+     *
+     * AGENDA UMA VEZ, NUNCA CANCELA E REAGENDA. O cancelamento anterior matava a
+     * própria callback antes de ela rodar, porque o MapLibre pede o quadro seguinte
+     * antes de emitir o `zoom` daquele quadro e entra na frente na lista: um gesto de
+     * 92 quadros rendia UM render, no fim. O comentário longo está no
+     * `_handleZoomChange` de `tool_manager/managers/selection-highlight.manager.js`.
+     *
+     * @param {boolean} [reResolver=true] - `true` relê a fonte (a seleção ou a
+     *   geometria pode ter mudado); `false` é o caminho do zoom, que só remonta a
+     *   caixa a partir de `_resolvidas`.
      * @private
      */
-    _scheduleRender() {
-        if (this._rafId !== null) {
-            cancelAnimationFrame(this._rafId);
-        }
+    _scheduleRender(reResolver = true) {
+        if (reResolver) this._resolvidas = null;
+        if (this._rafId !== null) return;
         this._rafId = requestAnimationFrame(() => {
+            // Zerado ANTES da passada: um `zoom` emitido durante ela agenda o próximo
+            // quadro em vez de ser engolido.
             this._rafId = null;
-            this._render();
+            if (this._resolvidas === null) {
+                this._render();
+            } else {
+                this._renderDoZoom();
+            }
         });
+    }
+
+    /**
+     * O quadro de zoom: remonta a geometria de cada caixa a partir da lista já
+     * resolvida e escreve a fonte. Síncrono de propósito, e é isso que o torna barato
+     * o bastante para rodar por quadro. Sem lista resolvida (o primeiro quadro depois
+     * de uma invalidação), cai no render completo.
+     * @private
+     */
+    _renderDoZoom() {
+        if (!this._active || !this._map) return;
+        if (this._resolvidas === null) {
+            this._render();
+            return;
+        }
+        const boxes = [];
+        for (const alvo of this._resolvidas) {
+            const box = this._montarCaixa(alvo);
+            if (box) boxes.push(box);
+        }
+        this._setData(boxes);
     }
 
     /**
@@ -182,6 +258,7 @@ export class RemoteSelectionsLayer {
 
         const generation = ++this._generation;
         const boxes = [];
+        const resolvidas = [];
 
         for (const sel of selections) {
             const color = getPresenceColor(String(sel.userId || sel.clientId || ''));
@@ -191,33 +268,60 @@ export class RemoteSelectionsLayer {
                 : sel.featureIds.map((id) => ({ id, type: null }));
 
             for (const meta of metas) {
-                const box = await this._buildBox(meta.type, meta.id, color, sel.clientId);
+                const alvo = await this._resolverAlvo(meta.type, meta.id, color, sel.clientId);
                 // Bail out early if a newer render started or we were stopped.
                 if (generation !== this._generation || !this._active) return;
+                if (!alvo) continue;
+                resolvidas.push(alvo);
+                const box = this._montarCaixa(alvo);
                 if (box) boxes.push(box);
             }
         }
 
         if (generation !== this._generation || !this._active) return;
+        this._resolvidas = resolvidas;
         this._setData(boxes);
     }
 
     /**
-     * Resolve a single peer-selected feature to a colored selection-box feature, or
-     * null when it can't be built (unknown type, not on this map, no box strategy).
+     * Resolve a single peer-selected feature to everything the box needs: the live
+     * feature, the tool control that knows how to draw its box, and the peer's color.
+     * Null when it can't be resolved (unknown type, not on this map, no box strategy).
+     *
+     * A METADE CARA DO RENDER MORA AQUI, e é por isso que ela é um passo à parte:
+     * `getCompleteFeatureFromSource` reconstrói a coleção da fonte e varre o vetor,
+     * O(feições na fonte) por chamada. O quadro de zoom não passa por aqui.
+     *
      * @param {string|null} type - Tool type from featureMeta (may be null → probe).
      * @param {string} featureId
      * @param {string} color - Peer presence color.
      * @param {string} clientId
-     * @returns {Promise<Object|null>}
+     * @returns {Promise<{feature: Object, control: Object, color: string, featureId: string, clientId: string}|null>}
      * @private
      */
-    async _buildBox(type, featureId, color, clientId) {
+    async _resolverAlvo(type, featureId, color, clientId) {
         try {
             const resolved = await this._resolveFeatureAndControl(type, featureId);
             if (!resolved) return null;
             const { feature, control } = resolved;
             if (!control || typeof control.createSelectionBox !== 'function') return null;
+            return { feature, control, color, featureId: String(featureId), clientId: String(clientId) };
+        } catch {
+            // Feature not on this map yet, or tool can't build a box — skip silently.
+            return null;
+        }
+    }
+
+    /**
+     * Build the colored box feature for one resolved target. Synchronous: it is the
+     * half the zoom frame repeats, and the only half the zoom actually changes.
+     * @param {{feature: Object, control: Object, color: string, featureId: string, clientId: string}} alvo
+     * @returns {Object|null}
+     * @private
+     */
+    _montarCaixa(alvo) {
+        try {
+            const { feature, control, color, featureId, clientId } = alvo;
 
             // Recompute the box from the feature's CURRENT geometry — never reuse a stored, possibly
             // stale `properties.selectionBox`. A point keeps its home-position box until re-authored,
@@ -236,12 +340,12 @@ export class RemoteSelectionsLayer {
                 properties: {
                     type: 'remote-selection-box',
                     color,
-                    featureId: String(featureId),
-                    clientId: String(clientId),
+                    featureId,
+                    clientId,
                 },
             };
         } catch {
-            // Feature not on this map yet, or tool can't build a box — skip silently.
+            // Tool can't build a box for this geometry: skip silently.
             return null;
         }
     }
@@ -298,15 +402,31 @@ export class RemoteSelectionsLayer {
      */
     _setData(boxes) {
         const source = this._map.getSource(REMOTE_SELECTION_SOURCE);
-        if (source) {
-            source.setData({ type: 'FeatureCollection', features: boxes });
-        }
+        if (!source) return;
+
+        // A ESCRITA SAI DO QUADRO QUANDO O DESENHO NÃO MUDOU. Medido no Chromium, um
+        // gesto de 1,5 nível com 50 seleções remotas escreveu 46 vezes e carregou UMA
+        // geometria distinta: a caixa de uma feição com correção de zoom ligada é
+        // derivada do zoom de ANCORAGEM, não do zoom corrente, então o quadro remonta
+        // o mesmo desenho. E `setData` não é barato por ser assíncrono: ele clona a
+        // coleção para o worker e reladrilha a fonte.
+        //
+        // A comparação é de CONTEÚDO, não de referência como a da caixa local: aqui as
+        // caixas são objetos novos a cada remontagem, então uma comparação por
+        // referência reprovaria sempre e não guardaria nada. O custo é um
+        // `JSON.stringify` das caixas por quadro, que é menos do que o clone que ele
+        // evita.
+        const assinatura = JSON.stringify(boxes);
+        if (assinatura === this._assinaturaEscrita) return;
+        this._assinaturaEscrita = assinatura;
+        source.setData({ type: 'FeatureCollection', features: boxes });
     }
 
     /** @private */
     _clearSource() {
         const source = this._map?.getSource?.(REMOTE_SELECTION_SOURCE);
         if (source) {
+            this._assinaturaEscrita = null;
             source.setData(EMPTY_FC);
         }
     }

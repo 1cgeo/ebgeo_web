@@ -101,6 +101,16 @@ vi.mock('@store', () => ({ getCurrentMapNameSync: getCurrentMapNameSyncMock }));
 // Real EventBus, shared by the real presenceStore (emit) and the real layer (on).
 vi.mock('@store/services.js', () => ({ getEventBus: () => eventBusHolder.bus }));
 
+/**
+ * O duplo do MapLibre. Desde 2026-09-05 a camada faz
+ * `import { maplibregl } from '@js/map/maplibre.js'`, e nao le mais o global: escrever
+ * `globalThis.maplibregl` aqui montaria o `Marker` DE VERDADE, que num ambiente `node`
+ * morre sem DOM. O objeto e ESTAVEL de proposito, porque o modulo guarda a ligacao no
+ * import; cada `beforeEach` troca so a propriedade `Marker` dentro dele.
+ */
+const dubleDoMapLibre = vi.hoisted(() => ({}));
+vi.mock('@js/map/maplibre.js', () => ({ maplibregl: dubleDoMapLibre }));
+
 // Controllable local identity (avoids the real getClientId() dependency).
 vi.mock('@store/sync/session-context.js', () => ({ sessionContext: sessionContextMock }));
 
@@ -138,14 +148,12 @@ describe('presence/awareness render — no mock seam (real store + real layer)',
     /** @type {RemoteCursorsLayer} */
     let layer;
     let originalDocument;
-    let originalMaplibre;
     const fakeMap = { _id: 'maplibre-map' };
 
     beforeEach(() => {
         originalDocument = globalThis.document;
-        originalMaplibre = globalThis.maplibregl;
         globalThis.document = documentStub;
-        globalThis.maplibregl = { Marker: FakeMarker };
+        dubleDoMapLibre.Marker = FakeMarker;
         FakeMarker.instances = [];
 
         // Fresh REAL EventBus per test, shared by store and layer via the mocks.
@@ -171,7 +179,7 @@ describe('presence/awareness render — no mock seam (real store + real layer)',
         layer.stop();
         presenceStore.clear();
         globalThis.document = originalDocument;
-        globalThis.maplibregl = originalMaplibre;
+        delete dubleDoMapLibre.Marker;
     });
 
     it('renders a remote cursor fed by userId (no clientId) on the active map NAME (bug g)', () => {

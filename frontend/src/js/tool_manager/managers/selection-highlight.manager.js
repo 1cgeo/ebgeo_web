@@ -5,6 +5,43 @@
  * Renderiza selection boxes ao redor de features selecionadas.
  * Extraído de ui_manager.js para separação de responsabilidades.
  *
+ * O PASSE DE ZOOM RODA POR QUADRO, E ATÉ 2026-09-05 NÃO RODAVA. A caixa é
+ * geometria em PIXELS ao redor da feição, então as coordenadas geográficas dela
+ * mudam a cada passo de zoom; sem redesenhar, a caixa cresce ou encolhe na tela
+ * junto com o mapa. O `_handleZoomChange` cancelava e reagendava o próprio quadro,
+ * e o cancelamento matava a callback antes de ela rodar. O porquê está no comentário
+ * daquele método, com a medida.
+ *
+ * O que o passe por quadro custa, medido em 1ae314a2 sobre `npm run dev`, Chromium
+ * com ANGLE, num gesto de `easeTo` de 1,5 nível em 1,5 s (92 quadros), com 50
+ * feições selecionadas num mapa de 350:
+ *
+ *   | passe                        | passadas | caixas montadas | soma  | cadência p95 |
+ *   |------------------------------|---------:|----------------:|------:|-------------:|
+ *   | como estava (com a fome)     |        2 |              50 | 0,7 ms|      16,8 ms |
+ *   | por quadro, cache como está  |       47 |             100 |10,9 ms|      16,8 ms |
+ *   | por quadro, caixa exata      |       47 |            2300 |10,0 ms|      16,8 ms |
+ *
+ * A CHAVE DE CACHE QUANTIZADA EM 0,5 NÍVEL FICA, e a razão é a terceira linha: tirar
+ * a quantização multiplica por 23 as montagens de caixa e não move a cadência (a
+ * diferença está dentro do ruído das duas medidas).
+ *
+ * E A ESCRITA SAI DO QUADRO. É consequência da mesma quantização: entre duas faixas o
+ * cache devolve o MESMO objeto de caixa, então a coleção montada é idêntica, feição a
+ * feição, à que já está na fonte. A guarda de identidade em `updateSelectionHighlight`
+ * derruba as 47 escritas por gesto para uma por faixa cruzada, sem mudar um pixel.
+ *
+ * O QUE ESTE PASSE NÃO FAZ, e é bom saber antes de medir a caixa na tela: para as SEIS
+ * ferramentas de tamanho em pixels (ponto, texto, imagem, símbolo militar, medida de
+ * coordenação, declinação) o `createSelectionBox` do controle devolve a caixa GUARDADA
+ * em `properties.selectionBox`, e quem a reescreve é o passe do próprio controle (por
+ * quadro para a feição com correção de zoom desligada, em `zoomend` para as demais).
+ * Este passe é o CONSUMIDOR dessa reescrita, não o autor dela: com a fome, uma caixa
+ * recalculada pelo controle podia não chegar à fonte. Medido no Chromium, um ponto com
+ * correção de zoom LIGADA tem a caixa fixa em graus durante o gesto e ela cresce 2,83x
+ * na tela num zoom de 1,5 nível, antes e depois deste conserto, porque essa é a decisão
+ * do lote de zoom de 2026-09-03, não deste arquivo.
+ *
  * @module tool_manager/managers/selection-highlight.manager
  */
 
@@ -19,7 +56,7 @@ import { ensureTurf } from '@utils/turf-loader.js';
 
 export class SelectionHighlightManager {
     /**
-     * @param {maplibregl.Map} map - MapLibre map instance
+     * @param {import('maplibre-gl').Map} map - MapLibre map instance
      * @param {Object} selectionManager - Selection manager instance
      */
     constructor(map, selectionManager) {
@@ -37,6 +74,17 @@ export class SelectionHighlightManager {
 
         /** @type {number|null} RAF ID for debounced zoom handling */
         this.rafId = null;
+
+        /** @type {boolean} Há uma reentrada de `updateSelectionHighlight` esperando o Turf. */
+        this._reentradaDoTurfPendente = false;
+
+        /**
+         * A coleção que foi escrita na fonte por último, guardada por REFERÊNCIA para a
+         * comparação de identidade do passe por quadro. `null` significa "não sei o que
+         * está lá", e a próxima passada escreve. Ver `_mesmaColecao`.
+         * @type {Array<Object>|null}
+         */
+        this._ultimaColecaoEscrita = null;
 
         this._setupEventHandlers();
     }
@@ -56,18 +104,38 @@ export class SelectionHighlightManager {
     /**
      * Handle map zoom changes with debouncing.
      * Recalculates selection boxes on zoom since pixel sizes change.
+     *
+     * NAO CANCELE E REAGENDE AQUI, e a razao e uma medida. Ate 2026-09-05 este
+     * metodo abria com `cancelAnimationFrame(this.rafId)`, e o efeito era o oposto
+     * do pretendido: num gesto de `easeTo` de 1,5 nivel em 1,5 s, o mapa emitiu 92
+     * eventos `zoom`, este handler rodou 92 vezes e `updateSelectionHighlight` rodou
+     * DUAS, as duas depois do gesto.
+     *
+     * A causa e a ordem dentro do quadro. O MapLibre pede o quadro seguinte
+     * (`Map._requestRenderFrame`, que passa por `_update` -> `triggerRepaint`) ANTES
+     * de a callback de animacao aplicar o zoom e emitir o evento. Entao, na lista do
+     * quadro N, a entrada do MapLibre vem na frente da nossa: ele roda primeiro,
+     * emite `zoom`, e o nosso handler cancela a callback que ainda estava na fila do
+     * MESMO quadro. Repete-se a cada quadro, e a callback nunca chega a rodar. A
+     * caixa ficava congelada no gesto inteiro e so saltava no fim, o que num zoom de
+     * 1,5 nivel a deixa 2,83x fora de escala na tela.
+     *
+     * Agendar UMA vez e deixar rodar coalesce igual (k eventos dentro de um quadro
+     * dao uma passada) e nao pode passar fome. O custo do passe por quadro esta na
+     * tabela do cabecalho deste arquivo: a cadencia do quadro nao se move.
+     *
      * @private
      */
     _handleZoomChange = () => {
-        if (this.rafId) {
-            cancelAnimationFrame(this.rafId);
-        }
+        if (this.rafId) return;
 
         this.rafId = requestAnimationFrame(() => {
+            // Zerado ANTES da passada: um `zoom` emitido durante ela agenda o proximo
+            // quadro em vez de ser engolido.
+            this.rafId = null;
             if (this.selectionManager.hasSelectedFeatures()) {
                 this.updateSelectionHighlight();
             }
-            this.rafId = null;
         });
     }
 
@@ -176,10 +244,26 @@ export class SelectionHighlightManager {
         // nunca acontece — `selection_manager.js:getCompleteFeatureFromSource` ja garantiu o
         // Turf um gesto antes —, e a guarda existe para o caminho que NAO passa por la: o
         // `_handleZoomChange`, que redesenha as caixas a cada passo de zoom.
+        //
+        // UMA REENTRADA PENDENTE, NUNCA UMA POR CHAMADA. Desde 2026-09-05 o passe de
+        // zoom roda POR QUADRO, e sem esta guarda um gesto dado antes de o Turf chegar
+        // enfileiraria um `.then` por quadro: 47 reentradas num gesto de 1,5 s, todas
+        // disparando no mesmo lote de microtarefas, cada uma remontando as caixas e
+        // escrevendo a fonte inteira. A reentrada unica basta, porque ela reconstroi a
+        // partir do estado do momento em que roda, nao do estado que a agendou.
         if (typeof globalThis.turf === 'undefined') {
-            ensureTurf()
-                .then(() => this.updateSelectionHighlight())
-                .catch((erro) => console.warn('Turf nao carregou para a caixa de selecao:', erro));
+            if (!this._reentradaDoTurfPendente) {
+                this._reentradaDoTurfPendente = true;
+                ensureTurf()
+                    .then(() => {
+                        this._reentradaDoTurfPendente = false;
+                        this.updateSelectionHighlight();
+                    })
+                    .catch((erro) => {
+                        this._reentradaDoTurfPendente = false;
+                        console.warn('Turf nao carregou para a caixa de selecao:', erro);
+                    });
+            }
             return;
         }
 
@@ -198,10 +282,43 @@ export class SelectionHighlightManager {
         }
 
         this.selectionBoxes = allSelectionBoxes;
+
+        // A ESCRITA SAI DO QUADRO QUANDO NADA MUDOU, e a comparação é de IDENTIDADE, não
+        // de conteúdo. Dentro de uma faixa de 0,5 nível o cache devolve o MESMO objeto de
+        // caixa, então um quadro que só andou o zoom monta uma coleção com as mesmas
+        // referências, e reenviá-la custaria um `setData` (isto é, um clone estruturado da
+        // coleção e uma nova ladrilhagem no worker) para desenhar o pixel que já está lá.
+        // Medido com 50 feições selecionadas num gesto de 1,5 s: 47 escritas por gesto
+        // sem esta guarda, uma por faixa cruzada com ela.
+        //
+        // Ela é EXATA porque esta classe é a única que escreve `selection-boxes` (o
+        // arrasto passa por `shiftSelectionBoxes`, aqui embaixo, que atualiza o registro),
+        // e porque uma caixa recalculada é sempre um objeto NOVO: qualquer mudança real
+        // de geometria, de seleção ou de cache reprova a comparação e a escrita sai.
+        if (this._mesmaColecao(allSelectionBoxes)) return;
+
+        this._ultimaColecaoEscrita = allSelectionBoxes;
         selectionBoxesSource.setData({
             type: 'FeatureCollection',
             features: allSelectionBoxes
         });
+    }
+
+    /**
+     * Se a coleção a escrever é, feição a feição e na mesma ordem, a MESMA que já está na
+     * fonte. Comparação por referência de propósito: ver o comentário em
+     * `updateSelectionHighlight`.
+     * @private
+     * @param {Array<Object>} colecao
+     * @returns {boolean}
+     */
+    _mesmaColecao(colecao) {
+        const anterior = this._ultimaColecaoEscrita;
+        if (anterior === null || anterior.length !== colecao.length) return false;
+        for (let i = 0; i < colecao.length; i++) {
+            if (anterior[i] !== colecao[i]) return false;
+        }
+        return true;
     }
 
     /**
@@ -345,6 +462,10 @@ export class SelectionHighlightManager {
 
         const selectionBoxesSource = this.map.getSource('selection-boxes');
         if (selectionBoxesSource) {
+            // O registro acompanha a escrita: sem isto a guarda de identidade de
+            // `updateSelectionHighlight` compararia com uma coleção que não é a que está
+            // na fonte, e a caixa ficaria deslocada onde o arrasto a deixou.
+            this._ultimaColecaoEscrita = shiftedFeatures;
             selectionBoxesSource.setData({
                 type: 'FeatureCollection',
                 features: shiftedFeatures
@@ -527,6 +648,7 @@ export class SelectionHighlightManager {
         this.map.off('zoom', this._handleZoomChange);
         this.selectionBoxCache.clear();
         this.geometryHashes.clear();
+        this._ultimaColecaoEscrita = null;
     }
 }
 

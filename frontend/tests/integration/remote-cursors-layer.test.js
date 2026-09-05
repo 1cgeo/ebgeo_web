@@ -7,8 +7,14 @@
  * only cursors on the active map are rendered.
  *
  * The vitest env is `node`: a minimal `maplibregl.Marker` stub stands in for the
- * real marker (the layer reaches it via the `maplibregl` global), and the active
- * map is injected via the constructor's `mapIdProvider` option.
+ * real marker, and the active map is injected via the constructor's
+ * `mapIdProvider` option.
+ *
+ * DESDE 2026-09-05 A COSTURA DO MAPLIBRE É O PONTO ÚNICO, NÃO O GLOBAL. A camada
+ * passou a fazer `import { maplibregl } from '@js/map/maplibre.js'`, e um teste que
+ * continuasse escrevendo `globalThis.maplibregl` montaria o `Marker` de VERDADE, que
+ * num ambiente `node` morre em `new maplibregl.Marker` sem DOM. Ver a regra
+ * `ebgeo/no-maplibre-global` em `eslint-rules/`.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -81,6 +87,14 @@ const { presenceStoreMock, sessionContextMock, eventBusMock, busRegistry } = vi.
     };
 });
 
+/**
+ * O duplo do MapLibre. O objeto é ESTÁVEL de propósito: o módulo sob teste guarda a
+ * ligação `maplibregl` no import, então cada `beforeEach` troca só a propriedade
+ * `Marker` DENTRO dele. Um objeto novo por caso não alcançaria a ligação já resolvida.
+ */
+const dubleDoMapLibre = vi.hoisted(() => ({}));
+vi.mock('@js/map/maplibre.js', () => ({ maplibregl: dubleDoMapLibre }));
+
 vi.mock('@js/presence/presence-store.js', () => ({ presenceStore: presenceStoreMock }));
 vi.mock('@store/sync/session-context.js', () => ({ sessionContext: sessionContextMock }));
 vi.mock('@store/services.js', () => ({ getEventBus: () => eventBusMock }));
@@ -114,14 +128,12 @@ describe('RemoteCursorsLayer — marker reconciliation + active-map filtering', 
     let layer;
     let activeMap;
     let originalDocument;
-    let originalMaplibre;
     const fakeMap = { _id: 'maplibre-map' };
 
     beforeEach(() => {
         originalDocument = globalThis.document;
-        originalMaplibre = globalThis.maplibregl;
         globalThis.document = documentStub;
-        globalThis.maplibregl = { Marker: FakeMarker };
+        dubleDoMapLibre.Marker = FakeMarker;
         FakeMarker.instances = [];
         for (const k of Object.keys(busRegistry)) delete busRegistry[k];
         presenceStoreMock.getCursors.mockReset();
@@ -138,7 +150,6 @@ describe('RemoteCursorsLayer — marker reconciliation + active-map filtering', 
     afterEach(() => {
         layer.stop();
         globalThis.document = originalDocument;
-        globalThis.maplibregl = originalMaplibre;
     });
 
     it('creates one marker per remote cursor on the active map', () => {

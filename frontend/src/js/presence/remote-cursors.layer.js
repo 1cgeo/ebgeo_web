@@ -4,7 +4,7 @@
  * @fileoverview Live remote-cursor overlay (Slice 2 multiuser UX).
  *
  * Renders OTHER online users' cursors on the MapLibre map as lightweight DOM
- * markers (one maplibregl.Marker per remote clientId). Markers are upserted on
+ * markers (one MapLibre Marker per remote clientId). Markers are upserted on
  * cursor moves and removed when a user leaves the session or stops sharing a
  * cursor. Only cursors belonging to the currently active map are shown.
  *
@@ -13,6 +13,7 @@
  * reconciles markers — it never mutates presence state.
  *
  * @dependencies
+ *   @js/map/maplibre.js (maplibregl.Marker, pelo ponto único, nunca pelo global)
  *   @js/presence/presence-store.js (presenceStore.getCursors)
  *   @store/sync/session-context.js (sessionContext.clientId — self exclusion)
  *   @store (getCurrentMapNameSync — active-map key, matching the bridge's cursor frames)
@@ -21,6 +22,7 @@
  *   @utils/event-cleanup.js (subscribe/cleanup tracking)
  */
 
+import { maplibregl } from '@js/map/maplibre.js';
 import { presenceStore } from '@js/presence/presence-store.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { getCurrentMapNameSync } from '@store';
