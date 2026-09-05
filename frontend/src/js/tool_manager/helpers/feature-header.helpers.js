@@ -25,6 +25,7 @@
 import { getLayers, isCurrentMapLockedSync, isFeatureEffectivelyLocked, addFeature, removeFeature, removeImage, updateFeature, storeImage, getGroupManager, getControl, startBatchUndo, commitBatchUndo } from '../../store';
 import { IDUtils, showWarning } from '../../utilities';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+import { scrollKeepsFeatureDropdown } from './dropdown-scroll.model.js';
 import { checkPermission } from '@store/sync/permission-guard.js';
 import {
     LINEAR_CONVERSION_LABELS,
@@ -1439,7 +1440,19 @@ function initializeFeatureDropdownListeners() {
         }
     };
 
-    dropdownScrollHandler = () => {
+    // A rolagem do CONTÊINER que segura a engrenagem move o botão, não o gesto do usuário
+    // sobre o menu: o foco que o clique dá ao botão rola `.feature-panel-content` para
+    // trazê-lo à vista, 1 a 11 ms depois de o menu ser anexado (medido no navegador em
+    // 2026-09-05, em cerca de metade das aberturas). Fechar aí é fechar o menu no clique que
+    // o abriu. O menu acompanha o botão; qualquer outra rolagem continua fechando. A decisão
+    // é pura, em `dropdown-scroll.model.js`.
+    dropdownScrollHandler = (e) => {
+        const activeButton = document.querySelector('.feature-options-button.dropdown-active');
+        const dropdown = document.querySelector('.feature-dropdown-content');
+        if (activeButton && dropdown && scrollKeepsFeatureDropdown(e?.target, activeButton, document)) {
+            positionFeatureDropdown(dropdown, activeButton);
+            return;
+        }
         closeAllFeatureDropdowns(false);
     };
 
