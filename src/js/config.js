@@ -310,6 +310,34 @@ const config = {
     // Valores entre [7, 4] e o padrão dão mais detalhe no horizonte a custo de tiles.
     sourceTileLodParams: null,
 
+    // Base preferida enquanto o terreno 3D está ligado. Recebe o id de uma
+    // entrada de `basemaps` (acima), e `null` DESLIGA o mecanismo: sem chave, o
+    // terreno não toca na camada base, que é o padrão deste repositório.
+    //
+    // POR QUE EXISTE. Medido em 2026-09-04 (docs/desempenho-terreno-2026-09-04.md):
+    // com o terreno ligado, uma base RASTER custa de metade a um terço do quadro
+    // de uma base VETORIAL (1 pilha de RTT contra 2 ou 11) e segura 60 fps parado
+    // na CPU quatro vezes mais lenta (19 ms contra 34 ms).
+    //
+    // POR QUE O PADRÃO É NULO. A base raster que compensa não vive aqui: ela é
+    // gerada por implantação, e este repositório não tem nenhuma. Quem tem o
+    // mbtiles aponta a chave; quem não tem não paga nada por ela.
+    //
+    // O QUE ELA COBRA. A base raster traz os rótulos gravados na imagem e cobre
+    // só o recorte gerado; fora dele o mapa fica BRANCO, e é para isso que serve
+    // a chave de baixo.
+    //
+    // A troca NÃO é gravada como escolha do usuário (sai pelo mesmo caminho do
+    // link compartilhado), e cede a ele: quem trocar de base com o terreno ligado
+    // não tem a escolha desfeita ao desligar.
+    terrainPreferredBasemap: null,
+
+    // Cobertura da base acima, [oeste, sul, leste, norte] em graus. Com o centro
+    // da vista FORA dela a troca não acontece, e o mapa fica onde estava. `null`
+    // vale como cobertura global. Caixa que cruza o antimeridiano (oeste > leste)
+    // NÃO é tratada, e declará-la assim desliga a troca.
+    terrainPreferredBasemapBounds: null,
+
     // Limites geográficos opcionais (descomente para ativar)
     // maxBounds: [
     //   [-45.82515, -22.69950],  // [lng_min, lat_min] - sudoeste

@@ -1,10 +1,11 @@
 // Path: js/terrain/terrain.control.js
 
-import { getEventBus } from '../store';
+import { getEventBus, getControl } from '../store';
 import { EventTypes } from '../events/event_types.js';
 import { getCatalogLayers, toggleCatalogLayerVisibility } from '../store/catalog.operations.js';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
 import { DEFAULT_TERRAIN_EXAGGERATION } from '../store/atlas/atlas.entity.js';
+import { TERRAIN_BASEMAP_ACTION, decideTerrainBasemap } from './terrain-basemap.model.js';
 
 // Elevation reads live in a leaf module so the analysis geometry can be tested
 // against a fake map. Re-exported here to keep the historical import path.
@@ -74,6 +75,16 @@ class TerrainControl {
         this._name = 'TerrainControl';
         this._terrainPitch = 60;
         this._unsubBaseLayerChanged = null;
+
+        // Preferred base map while the terrain is on. Null (the default) keeps the
+        // app exactly as it was: nothing below ever looks the base control up.
+        this._preferredBasemap = config.terrainPreferredBasemap || null;
+        this._preferredBasemapBounds = config.terrainPreferredBasemapBounds || null;
+        // Memory only, like `_wasTerrainActive`: the terrain is born off, so a
+        // remembered base never outlives the page.
+        this._rememberedBasemap = null;
+        this._userSwitchedBasemap = false;
+        this._switchingBasemap = false;
     }
 
     /** @returns {{ source: string, exaggeration: number }} */
@@ -139,6 +150,9 @@ class TerrainControl {
             this._map.setTerrain(null);
             await this._restoreGlobeProjection();
             this._map.easeTo({ pitch: 0, duration: 500 });
+            // AFTER `_wasTerrainActive` is false, so the style swap this may cause
+            // restores the globe projection instead of skipping it.
+            await this._syncBasemapWithTerrain(false);
         } else {
             // Globe + terrain is a known MapLibre bug (#4792, #4927). The
             // projection change is awaited so the terrain never meets the globe.
@@ -147,6 +161,11 @@ class TerrainControl {
             this._map.setTerrain(this.terrainConfig);
             this._map.easeTo({ pitch: this._terrainPitch, duration: 500 });
             this._ensureHillshadeEnabled();
+            // LAST, and with the terrain already applied: the base swap goes
+            // through `setStyle`, which drops every source, and it is
+            // `_handleBaseLayerChanged` (already listening) that puts the terrain
+            // back. That is the same path a manual base change takes today.
+            await this._syncBasemapWithTerrain(true);
         }
     }
 
@@ -185,11 +204,84 @@ class TerrainControl {
 
     /** Restores terrain after a base layer change */
     async _handleBaseLayerChanged() {
+        // Any base change we did NOT cause is the user having their own opinion,
+        // and the toggle-off must not undo it. `_switchingBasemap` is what tells
+        // the two apart: `applySharedBasemap` announces the base it applied before
+        // it resolves, so our own switch arrives here with the flag still up.
+        if (!this._switchingBasemap && this._preferredBasemap) {
+            this._userSwitchedBasemap = true;
+        }
+
         if (!this._wasTerrainActive) return;
 
         await this._disableGlobeForTerrain();
         await this._setupTerrainSources();
         this._map.setTerrain(this.terrainConfig);
+    }
+
+    /**
+     * Moves the base map to the one the terrain prefers, and back.
+     *
+     * WHY IT IS OPT-IN AND OFF BY DEFAULT. Measured on 2026-09-04
+     * (docs/desempenho-terreno-2026-09-04.md): with terrain on, a raster base costs
+     * between half and a third of a vector base's frame. The raster base that pays
+     * off is NOT in this repository (zero occurrences of `topografica-raster` in
+     * `src/`): it lives in each deployment's configuration, which is why the key
+     * names a base instead of hard-coding one, and why a null key must leave the app
+     * byte for byte as it was.
+     *
+     * THE SWITCH DOES NOT PERSIST. `applySharedBasemap` is the path the shared link
+     * uses precisely because it does not write the choice into the map record: the
+     * terrain is a viewing mode, not an edit of the user's map.
+     *
+     * @param {boolean} terrainOn - The state the terrain is moving INTO
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _syncBasemapWithTerrain(terrainOn) {
+        if (!this._preferredBasemap && !this._rememberedBasemap) return;
+
+        const baseLayerControl = getControl('BaseLayerControl');
+        if (!baseLayerControl?.applySharedBasemap) {
+            this._rememberedBasemap = null;
+            this._userSwitchedBasemap = false;
+            return;
+        }
+
+        const decision = decideTerrainBasemap({
+            terrainOn,
+            preferred: this._preferredBasemap,
+            current: baseLayerControl.currentLayer ?? null,
+            remembered: this._rememberedBasemap,
+            userSwitchedSince: this._userSwitchedBasemap,
+            bounds: this._preferredBasemapBounds,
+            center: this._map?.getCenter?.() ?? null,
+            // Enabled in config AND holding a registered style: a base missing
+            // either one would land on `switchLayer`'s own fallback and put the map
+            // somewhere nobody asked for.
+            available: Object.keys(baseLayerControl.styleUrls ?? {}),
+        });
+
+        this._rememberedBasemap = decision.remember;
+        this._userSwitchedBasemap = false;
+
+        if (decision.action === TERRAIN_BASEMAP_ACTION.NONE) return;
+
+        this._switchingBasemap = true;
+        try {
+            const applied = await baseLayerControl.applySharedBasemap(decision.to);
+            // Read back, never echo the argument: `switchLayer` has a fallback of
+            // its own, and the base on screen is the only honest answer.
+            if (applied !== decision.to) {
+                console.warn(`[terrain] Base "${decision.to}" unavailable; map is on "${applied}".`);
+            }
+        } catch (error) {
+            console.warn('Error switching base layer for terrain:', error);
+            // The map stayed where it was, so there is nothing to come back to.
+            this._rememberedBasemap = null;
+        } finally {
+            this._switchingBasemap = false;
+        }
     }
 
     /**
