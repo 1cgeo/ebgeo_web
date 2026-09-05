@@ -33,6 +33,8 @@ Mais dois de custo menor com a mesma forma: `installEmptySourceVisibility` escon
 
 `frontend/bench/README.md`: `desempenho-terreno.mjs` (quadro, pilhas, draw calls, tiles, por variante e por mapa base) e `ferramentas.mjs` (escritas na fonte por gesto, latência do feedback, nove ferramentas). As duas provam a si mesmas antes de dar número, e os autotestes em node constroem o insumo degenerado de cada eixo. Uma rodada com o terreno de demonstração é fumaça, não referência.
 
+A comparação entre mapas base com terreno (Topográfica sobre o Overture, DSG vetorial e DSG raster) está no relatório da `main`, [desempenho-terreno-2026-09-04.md](https://github.com/1cgeo/ebgeo_web/blob/main/docs/desempenho-terreno-2026-09-04.md), seção "Mapa base vetorial contra raster": o raster custa metade a um terço do quadro da vetorial, abre uma pilha de render-to-texture contra 2 (Topográfica) ou 11 (DSG vetorial, que intercala rótulos), e segura 60 fps parado na CPU quatro vezes mais lenta (19 ms contra 34); cobra rótulos gravados na imagem e cobertura só do recorte sul. As bases raster e Overture vivem na configuração de implantação, não neste repositório.
+
 ## Histórico
 
 - **2026-09-04.** Porte por lotes (ferramentas, base, bancada, linha de coordenação, zoom na GPU, terreno) com um agente por lote sobre a mesma árvore e commit por lote depois de amostragem com controle negativo reproduzido. Números desta branch: linha de coordenação de 40 escritas por gesto de zoom para 1 (num gesto de 30 linhas); pincel de 90 para 1; limite de 91 para 1; `getData` por quadro de 15 controles para zero; terreno parado de 19,9 ms para 1,7 ms.
