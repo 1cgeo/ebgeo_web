@@ -68,6 +68,28 @@ function deadUiManagerReads(source) {
     return offenders;
 }
 
+/**
+ * The forced write of one control, from the head of `forceUpdateMainSource` (or of the
+ * unlocked body it delegates to) down to the line that opens the source. Everything a drag
+ * guard could occupy sits inside that window, and cutting it there keeps the rule off the
+ * zoom pass, which may legitimately read the drag flag DURING the drag.
+ *
+ * Added 2026-09-05: on the backend branch the same rule, as first written, only forbade the
+ * dead spelling `this.uiManager`, and two controls had replaced it with a LIVE guard under
+ * another name; the ruler passed by omission on code that dropped the user's write.
+ * @param {string} source - File text, comments already blanked
+ * @returns {string} The window, or the empty string when the method is not found
+ */
+function forcedWriteHead(source) {
+    const start = source.indexOf('forceUpdateMainSource = async (feature) =>');
+    if (start === -1) return '';
+    const unlocked = source.indexOf('_forceUpdateMainSourceUnlocked = async (feature) => {', start);
+    const rest = source.slice(start);
+    const bodyFrom = unlocked === -1 ? 0 : unlocked - start;
+    const stop = rest.slice(bodyFrom).search(/\n {8}const (data|source) = /);
+    return stop === -1 ? rest.slice(0, 800) : rest.slice(0, bodyFrom + stop);
+}
+
 describe('the ruler itself, against the worst case it exists to catch', () => {
     it('rejects the dead guard exactly as the tools carried it', () => {
         // The shape every one of the six main-source writers had at 2ffc92b9.
@@ -115,6 +137,28 @@ describe('the ruler itself, against the worst case it exists to catch', () => {
         expect(deadUiManagerReads('// The guard read `this.uiManager`, which nothing assigns.')).toHaveLength(0);
         expect(deadUiManagerReads('/**\n * No drag guard, `this.uiManager` was never assigned.\n */')).toHaveLength(0);
     });
+
+    it('the forced-write window catches a LIVE guard the dead-read rule lets through', () => {
+        const source = [
+            '    forceUpdateMainSource = async (feature) => {',
+            '        if (this.selectionManager?.uiManager?.isDragging) return;',
+            "        const data = await this.map.getSource('lines').getData();",
+            '    }',
+        ].join('\n');
+        expect(deadUiManagerReads(source)).toEqual([]);
+        expect(forcedWriteHead(stripComments(source))).toMatch(/isDragging/);
+    });
+
+    it('the window stops at the source line, and a file without the method yields the empty window', () => {
+        const source = [
+            '    forceUpdateMainSource = async (feature) => {',
+            "        const data = await this.map.getSource('lines').getData();",
+            '        if (this.selectionManager?.uiManager?.isDragging) return;',
+            '    }',
+        ].join('\n');
+        expect(forcedWriteHead(stripComments(source))).not.toMatch(/isDragging/);
+        expect(forcedWriteHead('performZoomUpdate = () => {}')).toBe('');
+    });
 });
 
 describe('the drawing controls', () => {
@@ -128,5 +172,22 @@ describe('the drawing controls', () => {
             + 'Use `this.selectionManager?.uiManager?.isDragging` instead:\n'
             + offenders.map(o => `  line ${o.line}: ${o.text}`).join('\n'),
         ).toEqual([]);
+    });
+
+    // The SECOND spelling: a guard on the forced write can only DROP a write nothing
+    // reapplies (measured in force-update-during-drag-draw.test.js), whatever flag it reads.
+    it.each(CONTROLS)('%s carries no drag guard in the forced write', (relative) => {
+        const source = readFileSync(resolve(drawTools, relative), 'utf8');
+        const head = forcedWriteHead(stripComments(source));
+        if (relative === 'brush_tool/add_brush_control.js') {
+            // The brush accumulates points in the event and has no forced write; the day it
+            // grows one, this branch stops matching and the rule below covers it.
+            expect(head, 'the brush grew a forceUpdateMainSource: cover it').toBe('');
+            return;
+        }
+        expect(head, `${relative}: forceUpdateMainSource was not found where the rule reads it`)
+            .not.toBe('');
+        expect(head, `${relative}: the forced write guards on a drag flag`)
+            .not.toMatch(/isDragging|_isDragging\(\)/);
     });
 });

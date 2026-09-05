@@ -60,6 +60,28 @@ function stripComments(source) {
 }
 
 /**
+ * The forced write of one control, from the head of `forceUpdateMainSource` (or of the
+ * unlocked body it delegates to) down to the line that opens the source. Everything a drag
+ * guard could occupy sits inside that window, and cutting it there keeps the rule off the
+ * zoom pass, which may legitimately read the drag flag DURING the drag.
+ *
+ * Added 2026-09-05: on the backend branch the same rule, as first written, only forbade the
+ * dead spelling `this.uiManager`, and two controls had replaced it with a LIVE guard under
+ * another name; the ruler passed by omission on code that dropped the user's write.
+ * @param {string} source - File text, comments already blanked
+ * @returns {string} The window, or the empty string when the method is not found
+ */
+function forcedWriteHead(source) {
+    const start = source.indexOf('forceUpdateMainSource = async (feature) =>');
+    if (start === -1) return '';
+    const unlocked = source.indexOf('_forceUpdateMainSourceUnlocked = async (feature) => {', start);
+    const rest = source.slice(start);
+    const bodyFrom = unlocked === -1 ? 0 : unlocked - start;
+    const stop = rest.slice(bodyFrom).search(/\n {8}const (data|source) = /);
+    return stop === -1 ? rest.slice(0, 800) : rest.slice(0, bodyFrom + stop);
+}
+
+/**
  * The lines of `source` that read `this.uiManager` outside a comment.
  * @param {string} source - File text
  * @returns {Array<string>} The offending lines, trimmed
@@ -82,6 +104,18 @@ describe('the dead uiManager guard', () => {
     it.each(CONTROLS)('%s never reads this.uiManager', (file) => {
         const source = fs.readFileSync(path.join(ROOT, file), 'utf8');
         expect(deadGuardLines(source)).toEqual([]);
+    });
+
+    // The SECOND spelling. A guard on the forced write can only DROP a write nothing
+    // reapplies (measured in force-update-during-drag-military.test.js), whatever flag it
+    // reads; so the window carries no drag guard at all. The zoom pass is not covered here.
+    it.each(CONTROLS)('%s carries no drag guard in the forced write', (file) => {
+        const source = fs.readFileSync(path.join(ROOT, file), 'utf8');
+        const head = forcedWriteHead(stripComments(source));
+        expect(head, `${file}: forceUpdateMainSource was not found where the rule reads it`)
+            .not.toBe('');
+        expect(head, `${file}: the forced write guards on a drag flag`)
+            .not.toMatch(/isDragging|_isDragging\(\)/);
     });
 
     // The rule proved against the worst case it exists to catch, BEFORE it is
@@ -127,6 +161,44 @@ describe('the dead uiManager guard', () => {
             expect(source).toContain('forceUpdateMainSource');
             expect(source).toContain('updateFeaturesProperty');
             expect(deadGuardLines(source)).toHaveLength(1);
+        });
+
+        it('the forced-write window catches a LIVE guard the dead-read rule lets through', () => {
+            const source = [
+                '    forceUpdateMainSource = async (feature) => {',
+                '        if (this.selectionManager?.uiManager?.isDragging) return;',
+                "        const data = await this.map.getSource('arrows').getData();",
+                '    }',
+            ].join('\n');
+            expect(deadGuardLines(source)).toEqual([]);
+            expect(forcedWriteHead(source)).toMatch(/isDragging/);
+        });
+
+        it('the window follows the unlocked body, and catches `_isDragging()` there', () => {
+            const source = [
+                '    forceUpdateMainSource = async (feature) =>',
+                '        this._sourceQueue(() => this._forceUpdateMainSourceUnlocked(feature))',
+                '',
+                '    _forceUpdateMainSourceUnlocked = async (feature) => {',
+                '        if (this._isDragging()) return;',
+                "        const source = this.map?.getSource('boundarys');",
+                '    }',
+            ].join('\n');
+            expect(forcedWriteHead(source)).toMatch(/_isDragging\(\)/);
+        });
+
+        it('the window stops at the source line, so a drag read in the zoom pass is left alone', () => {
+            const source = [
+                '    forceUpdateMainSource = async (feature) => {',
+                "        const data = await this.map.getSource('arrows').getData();",
+                '        if (this.selectionManager?.uiManager?.isDragging) return this.replayMissedZoomUpdate();',
+                '    }',
+            ].join('\n');
+            expect(forcedWriteHead(source)).not.toMatch(/isDragging/);
+        });
+
+        it('a file without the method yields the empty window, never a silent pass', () => {
+            expect(forcedWriteHead('updateFeaturesProperty = async () => {}')).toBe('');
         });
     });
 });

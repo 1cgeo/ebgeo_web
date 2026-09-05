@@ -229,6 +229,10 @@ function buildControl(Control, sourceId, storedCoordinates, isDragging) {
         on: () => {},
         off: () => {},
     });
+    // Every reader a drag guard could use is flagged the same way (see the military ruler):
+    // the live path above, the dead `this.uiManager`, and `_isDragging()` if it ever appears.
+    control.uiManager = { isDragging };
+    if (typeof control._isDragging === 'function') control._isDragging = () => isDragging;
     return { control, sources, writes };
 }
 

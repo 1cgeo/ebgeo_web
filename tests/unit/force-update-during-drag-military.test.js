@@ -224,9 +224,30 @@ function buildControlWithSource(Control, geometry, sourceName, storedFeature) {
         off: () => {},
     };
     control.onAdd(map);
-    // The real path, the one the dead guard could not see.
-    control.selectionManager.uiManager = { isDragging: true };
+    // Every reader a drag guard could use is flagged the same way, so a guard written
+    // against a spelling this file did not think of cannot pass by omission: the live
+    // path, the dead `this.uiManager`, and a `_isDragging()` helper if one ever appears.
+    flagDragOnEveryReader(control);
     return { control, read: () => store.get(sourceName).features[0] };
+}
+
+/**
+ * Flags the drag on EVERY reader a guard could use. As first written this file only set
+ * `selectionManager.uiManager.isDragging`, and on the backend branch (2026-09-04) it passed
+ * whole against two controls whose live guard read another spelling: a ruler that flags one
+ * reader approves the guard on the next by omission.
+ * @param {Object} control - The control under test, after `onAdd`
+ * @returns {string[]} The readers flagged
+ */
+function flagDragOnEveryReader(control) {
+    const readers = ['selectionManager.uiManager.isDragging', 'this.uiManager.isDragging'];
+    control.selectionManager.uiManager = { isDragging: true };
+    control.uiManager = { isDragging: true };
+    if (typeof control._isDragging === 'function') {
+        control._isDragging = () => true;
+        readers.push('_isDragging()');
+    }
+    return readers;
 }
 
 const TOOLS = [
