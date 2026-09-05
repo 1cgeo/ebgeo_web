@@ -9,6 +9,7 @@ import AddSectorGeometry from './add_sector_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
 import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged, LABEL_ZOOM_PROPERTIES, recalcLabelSize, createLabelZoomHandler, syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
+import { createPreviewScheduler } from '../../tool_manager/helpers/preview-scheduler.js';
 
 /**
  * Layers onHoverMove needs: 'sector-edit-handles' (hasHandleAtPoint) and 'setores'
@@ -31,11 +32,26 @@ class AddSectorControl extends BaseControl {
         this.isDraggingHandle = false;
         this.activeHandleId = null;
         this.geometry = new AddSectorGeometry();
-        this.previewRafId = null;
-        this.pendingPreviewUpdate = false;
+
+        // ONE rAF gate for the whole preview. The slice being drawn and the
+        // handle drag are never live together (a drag needs a selected feature,
+        // a drawing does not have one) and already shared this state, so they
+        // share the gate: the raw event parks a pointer, the frame resolves the
+        // snap once and draws once.
+        this._previewScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this.performPreviewUpdate(pointer),
+        });
+        // The indicator BEFORE the first click gets its own gate: it is armed by
+        // `activate()` and swapped for the slice preview on that first click.
+        this._preClickScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this._updatePreClickSnap(pointer),
+        });
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
-        this.geometryDebounceTimer = null;
         this.hatchGenerator = new HatchPatternGenerator();
 
         // Pointer event state for edit handles
@@ -307,24 +323,65 @@ class AddSectorControl extends BaseControl {
         }
     }
 
-    // Show snap indicator before the first click so the user knows snap is active
+    /**
+     * Snap indicator before the first click, when there is nothing to preview yet.
+     *
+     * The raw `mousemove` only PARKS the pointer: `snapping.resolve` is a
+     * rendered-feature query, and a mouse fires several moves inside one frame,
+     * so it runs once per frame from the gate's callback below. The indicator
+     * lands on the same pixel either way, since only the last position of the
+     * frame is ever drawn.
+     */
     _onPreClickMouseMove = (e) => {
+        this._preClickScheduler.request({ point: e.point, lngLat: e.lngLat });
+    }
+
+    /**
+     * @param {Object} pointer - The frame's last `{ point, lngLat }`
+     * @private
+     */
+    _updatePreClickSnap = (pointer) => {
+        if (!pointer || !this.map) return;
+
         const snapping = getSnappingService();
-        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
-        if (snap.snapped) {
+        const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat);
+        if (snap?.snapped) {
             snapping.showIndicator(this.map, snap, snap.snapType);
         } else {
             snapping?.hideIndicator(this.map);
         }
     }
 
+    /**
+     * Park the pointer and ask for a frame. The snap is resolved inside the
+     * gate's callback, once per frame, for the reason on `_onPreClickMouseMove`.
+     */
     handlePreviewMouseMove = (e) => {
-        if (this.drawPoints.length === 1) {
-            this.lastPreviewCenter = this.drawPoints[0];
+        if (this.drawPoints.length !== 1) return;
 
+        this._previewScheduler.request({ point: e.point, lngLat: e.lngLat });
+    }
+
+    /**
+     * The frame callback: resolve the snap ONCE, move the indicator, then draw.
+     *
+     * The `setTimeout(..., 8)` that used to wrap the drawing is gone: 8 ms is
+     * under the 16.7 ms of a frame, so it coalesced nothing and only pushed the
+     * preview one timer late.
+     *
+     * @param {Object} [pointer] - The frame's last `{ point, lngLat }`, when a
+     *   pointer event parked one. Absent when something else asks for a redraw.
+     */
+    performPreviewUpdate = (pointer) => {
+        const selectedFeature = this.getSelectedFeature();
+        const draggingHandle = Boolean(this.isDraggingHandle && selectedFeature);
+
+        if (pointer) {
             const snapping = getSnappingService();
-            const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
-            this.lastPreviewPosition = [snap.lng, snap.lat];
+            // While dragging a handle the sector's own vertices would capture
+            // every move, so the feature excludes itself.
+            const excludeId = draggingHandle ? selectedFeature.properties?.id : null;
+            const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat, excludeId) ?? pointer.lngLat;
 
             if (snap.snapped) {
                 snapping.showIndicator(this.map, snap, snap.snapType);
@@ -332,35 +389,27 @@ class AddSectorControl extends BaseControl {
                 snapping?.hideIndicator(this.map);
             }
 
-            if (!this.pendingPreviewUpdate) {
-                this.pendingPreviewUpdate = true;
-                this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-            }
+            this.lastPreviewPosition = [snap.lng, snap.lat];
         }
-    }
 
-    performPreviewUpdate = () => {
-        if (!this.lastPreviewPosition) {
-            this.pendingPreviewUpdate = false;
-            return;
-        }
-        const selectedFeature = this.getSelectedFeature();
-        if (this.isDraggingHandle && selectedFeature) {
+        if (!this.lastPreviewPosition) return;
+
+        if (draggingHandle) {
             this.updateHandlePreview(this.lastPreviewPosition);
-        } else if (this.drawPoints.length === 1 && this.lastPreviewCenter) {
+        } else if (this.drawPoints.length === 1) {
+            // Assigned HERE, not on the raw event: the old guard also tested
+            // `this.lastPreviewCenter`, which only the raw event ever wrote, so
+            // leaving the guard alone would make the preview stop drawing in
+            // silence.
+            this.lastPreviewCenter = this.drawPoints[0];
             const center = this.lastPreviewCenter;
             const radius = this.geometry.calculateDistance(center, this.lastPreviewPosition);
             if (radius >= 10) {
                 const bearing = this.geometry.calculateBearing(center, this.lastPreviewPosition);
                 const aperture = AddSectorControl.DEFAULT_PROPERTIES.aperture;
-                clearTimeout(this.geometryDebounceTimer);
-                this.geometryDebounceTimer = setTimeout(() => {
-                    const previewGeometry = this.geometry.generate(center, radius, bearing, aperture);
-                    this.showPreview(previewGeometry);
-                }, 8);
+                this.showPreview(this.geometry.generate(center, radius, bearing, aperture));
             }
         }
-        this.pendingPreviewUpdate = false;
     }
 
     showPreview = (geometry) => {
@@ -542,6 +591,11 @@ class AddSectorControl extends BaseControl {
         }
     }
 
+    /**
+     * The handle drag rides the SAME gate as the drawing preview: the pointer is
+     * parked here and the snap is resolved once per frame in
+     * `performPreviewUpdate`, which excludes the dragged feature itself.
+     */
     _onEditPointerMove(e) {
         if (!e.isPrimary) return;
 
@@ -552,25 +606,17 @@ class AddSectorControl extends BaseControl {
         const point = getPointerPosition(e, canvas);
         const lngLat = this.map.unproject([point.x, point.y]);
 
-        const snapping = getSnappingService();
-        const excludeId = selectedFeature.properties?.id;
-        const snap = snapping?.resolve(this.map, point, lngLat, excludeId) ?? lngLat;
-
-        this.lastPreviewPosition = [snap.lng, snap.lat];
-
-        if (snap.snapped) {
-            snapping.showIndicator(this.map, snap, snap.snapType);
-        } else {
-            snapping?.hideIndicator(this.map);
-        }
-
-        if (!this.pendingPreviewUpdate) {
-            this.pendingPreviewUpdate = true;
-            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-        }
+        this._previewScheduler.request({ point, lngLat });
     }
 
     async _onEditPointerUp(_e) {
+        // A drag born and dead inside ONE frame (down, move, up) parks its
+        // position and never reaches the frame callback, so `lastPreviewPosition`
+        // below would still hold the position before the drag and the slice
+        // would keep the old radius AND the old azimuth. Deliver the parked
+        // pointer now; `flush` cancels the frame it had asked for.
+        if (this._previewScheduler.pending) this._previewScheduler.flush();
+
         const canvas = this.map.getCanvasContainer();
 
         canvas.removeEventListener('pointermove', this._onEditPointerMove);
@@ -624,44 +670,43 @@ class AddSectorControl extends BaseControl {
         const preview = this.geometry.calculatePreview(this.activeHandleId, newPosition, selectedFeature);
         if (!preview) return;
 
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            this.map.getSource('sector-feedback').setData({
-                type: 'Feature',
-                geometry: preview.geometry,
-                properties: {
-                    ...selectedFeature.properties,
-                    isSelected: true
-                }
-            });
+        // Written straight into the sources: this already runs inside the gate's
+        // frame, and the `setTimeout(..., 8)` that stood here only delayed it.
+        this.map.getSource('sector-feedback').setData({
+            type: 'Feature',
+            geometry: preview.geometry,
+            properties: {
+                ...selectedFeature.properties,
+                isSelected: true
+            }
+        });
 
-            const [radiusPoint, aperturePoint] = preview.handles;
-            this.map.getSource('sector-edit-handles').setData({
-                type: 'FeatureCollection',
-                features: [
-                    {
-                        type: 'Feature',
-                        geometry: { type: 'Point', coordinates: radiusPoint },
-                        properties: {
-                            role: 'handle',
-                            handleType: 'vertex',
-                            handleId: 'radius',
-                            user_isEditingHandle: true
-                        }
-                    },
-                    {
-                        type: 'Feature',
-                        geometry: { type: 'Point', coordinates: aperturePoint },
-                        properties: {
-                            role: 'handle',
-                            handleType: 'eccentricity',
-                            handleId: 'aperture',
-                            user_isEditingHandle: true
-                        }
+        const [radiusPoint, aperturePoint] = preview.handles;
+        this.map.getSource('sector-edit-handles').setData({
+            type: 'FeatureCollection',
+            features: [
+                {
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: radiusPoint },
+                    properties: {
+                        role: 'handle',
+                        handleType: 'vertex',
+                        handleId: 'radius',
+                        user_isEditingHandle: true
                     }
-                ]
-            });
-        }, 8);
+                },
+                {
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: aperturePoint },
+                    properties: {
+                        role: 'handle',
+                        handleType: 'eccentricity',
+                        handleId: 'aperture',
+                        user_isEditingHandle: true
+                    }
+                }
+            ]
+        });
     }
 
     // ===== HOVER SYSTEM =====
@@ -907,17 +952,11 @@ class AddSectorControl extends BaseControl {
     // ===== UTILITY METHODS =====
 
     cancelPendingUpdates = () => {
-        if (this.previewRafId) {
-            cancelAnimationFrame(this.previewRafId);
-            this.previewRafId = null;
-        }
-        this.pendingPreviewUpdate = false;
+        // Both gates: the drawing/drag preview and the pre-click indicator.
+        this._previewScheduler.cancel();
+        this._preClickScheduler.cancel();
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
-        if (this.geometryDebounceTimer) {
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = null;
-        }
     }
 
     /**

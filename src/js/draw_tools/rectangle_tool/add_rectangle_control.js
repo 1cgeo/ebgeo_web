@@ -9,6 +9,7 @@ import AddRectangleGeometry from './add_rectangle_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
 import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged, LABEL_ZOOM_PROPERTIES, recalcLabelSize, createLabelZoomHandler, syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
+import { createPreviewScheduler } from '../../tool_manager/helpers/preview-scheduler.js';
 
 /**
  * Layers onHoverMove needs. hasHandleAtPoint matches the edit-handles LAYER id;
@@ -30,11 +31,25 @@ class AddRectangleControl extends BaseControl {
 
         this.geometry = new AddRectangleGeometry();
 
-        this.previewRafId = null;
-        this.pendingPreviewUpdate = false;
+        // ONE rAF gate for the whole preview. The corner-to-corner drawing and
+        // the handle drag are never live together (a drag needs a selected
+        // feature, a drawing does not have one) and already shared this state,
+        // so they share the gate: the raw event parks a pointer, the frame
+        // resolves the snap once and draws once.
+        this._previewScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this.performPreviewUpdate(pointer),
+        });
+        // The indicator BEFORE the first click gets its own gate: it is armed by
+        // `activate()` and swapped for the drawing preview on that first click.
+        this._preClickScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this._updatePreClickSnap(pointer),
+        });
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
-        this.geometryDebounceTimer = null;
 
         // Track current mouse position for accurate capture
         this.currentMousePosition = null;
@@ -377,10 +392,29 @@ class AddRectangleControl extends BaseControl {
 
     // ===== DRAWING SYSTEM =====
 
+    /**
+     * Snap indicator before the first click, when there is nothing to preview yet.
+     *
+     * The raw `mousemove` only PARKS the pointer: `snapping.resolve` is a
+     * rendered-feature query, and a mouse fires several moves inside one frame,
+     * so it runs once per frame from the gate's callback below. The indicator
+     * lands on the same pixel either way, since only the last position of the
+     * frame is ever drawn.
+     */
     _onPreClickMouseMove = (e) => {
+        this._preClickScheduler.request({ point: e.point, lngLat: e.lngLat });
+    }
+
+    /**
+     * @param {Object} pointer - The frame's last `{ point, lngLat }`
+     * @private
+     */
+    _updatePreClickSnap = (pointer) => {
+        if (!pointer || !this.map) return;
+
         const snapping = getSnappingService();
-        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
-        if (snap.snapped) {
+        const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat);
+        if (snap?.snapped) {
             snapping.showIndicator(this.map, snap, snap.snapType);
         } else {
             snapping?.hideIndicator(this.map);
@@ -409,13 +443,36 @@ class AddRectangleControl extends BaseControl {
         }
     }
 
+    /**
+     * Park the pointer and ask for a frame. The snap is resolved inside the
+     * gate's callback, once per frame, for the reason on `_onPreClickMouseMove`.
+     */
     handlePreviewMouseMove = (e) => {
-        if (this.drawPoints.length === 1) {
-            this.lastPreviewCenter = this.drawPoints[0];
+        if (this.drawPoints.length !== 1) return;
 
+        this._previewScheduler.request({ point: e.point, lngLat: e.lngLat });
+    }
+
+    /**
+     * The frame callback: resolve the snap ONCE, move the indicator, then draw.
+     *
+     * The `setTimeout(..., 8)` that used to wrap the drawing is gone: 8 ms is
+     * under the 16.7 ms of a frame, so it coalesced nothing and only pushed the
+     * preview one timer late.
+     *
+     * @param {Object} [pointer] - The frame's last `{ point, lngLat }`, when a
+     *   pointer event parked one. Absent when something else asks for a redraw.
+     */
+    performPreviewUpdate = (pointer) => {
+        const selectedFeature = this.getSelectedFeature();
+        const draggingHandle = Boolean(this.isDraggingHandle && selectedFeature);
+
+        if (pointer) {
             const snapping = getSnappingService();
-            const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
-            this.lastPreviewPosition = [snap.lng, snap.lat];
+            // While dragging a handle the rectangle's own vertices would capture
+            // every move, so the feature excludes itself.
+            const excludeId = draggingHandle ? selectedFeature.properties?.id : null;
+            const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat, excludeId) ?? pointer.lngLat;
 
             if (snap.snapped) {
                 snapping.showIndicator(this.map, snap, snap.snapType);
@@ -423,41 +480,36 @@ class AddRectangleControl extends BaseControl {
                 snapping?.hideIndicator(this.map);
             }
 
-            if (!this.pendingPreviewUpdate) {
-                this.pendingPreviewUpdate = true;
-                this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
+            this.lastPreviewPosition = [snap.lng, snap.lat];
+            // The position the END of the drag commits, which the raw
+            // `pointermove` used to write and now belongs to the frame.
+            if (draggingHandle) {
+                this.currentMousePosition = this.lastPreviewPosition;
             }
         }
-    }
 
-    performPreviewUpdate = () => {
-        if (!this.lastPreviewPosition) {
-            this.pendingPreviewUpdate = false;
-            return;
-        }
+        if (!this.lastPreviewPosition) return;
 
-        const selectedFeature = this.getSelectedFeature();
-        if (this.isDraggingHandle && selectedFeature) {
+        if (draggingHandle) {
             this.updateRectanglePreview(this.lastPreviewPosition);
-        } else if (this.drawPoints.length === 1 && this.lastPreviewCenter) {
+        } else if (this.drawPoints.length === 1) {
+            // Assigned HERE, and not on the raw event: the guard used to read a
+            // `lastPreviewCenter` that only the raw event wrote, so moving the
+            // write into the frame without moving the assignment would leave the
+            // preview silently undrawn.
+            this.lastPreviewCenter = this.drawPoints[0];
             const corner1 = this.lastPreviewCenter;
             const corner2 = this.lastPreviewPosition;
 
-            const { center: _center, width, height } = this.geometry.calculateDimensionsFromCorners(corner1, corner2);
+            const { width, height } = this.geometry.calculateDimensionsFromCorners(corner1, corner2);
 
             if (width >= 10 && height >= 10) {
-                clearTimeout(this.geometryDebounceTimer);
-                this.geometryDebounceTimer = setTimeout(() => {
-                    const borderRadius = selectedFeature ?
-                        (selectedFeature.properties.borderRadius || 0) :
-                        AddRectangleControl.DEFAULT_PROPERTIES.borderRadius;
-                    const previewGeometry = this.geometry.generate(corner1, corner2, borderRadius);
-                    this.showPreview(previewGeometry);
-                }, 8);
+                const borderRadius = selectedFeature ?
+                    (selectedFeature.properties.borderRadius || 0) :
+                    AddRectangleControl.DEFAULT_PROPERTIES.borderRadius;
+                this.showPreview(this.geometry.generate(corner1, corner2, borderRadius));
             }
         }
-
-        this.pendingPreviewUpdate = false;
     }
 
     showPreview = (geometry) => {
@@ -713,6 +765,11 @@ class AddRectangleControl extends BaseControl {
         }
     }
 
+    /**
+     * The handle drag rides the SAME gate as the drawing preview: the pointer is
+     * parked here and the snap is resolved once per frame in
+     * `performPreviewUpdate`, which excludes the dragged feature itself.
+     */
     _onEditPointerMove(e) {
         if (!e.isPrimary) return;
 
@@ -723,26 +780,19 @@ class AddRectangleControl extends BaseControl {
         const point = getPointerPosition(e, canvas);
         const lngLat = this.map.unproject([point.x, point.y]);
 
-        const snapping = getSnappingService();
-        const excludeId = selectedFeature.properties?.id;
-        const snap = snapping?.resolve(this.map, point, lngLat, excludeId) ?? lngLat;
-
-        this.currentMousePosition = [snap.lng, snap.lat];
-        this.lastPreviewPosition = this.currentMousePosition;
-
-        if (snap.snapped) {
-            snapping.showIndicator(this.map, snap, snap.snapType);
-        } else {
-            snapping?.hideIndicator(this.map);
-        }
-
-        if (!this.pendingPreviewUpdate) {
-            this.pendingPreviewUpdate = true;
-            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-        }
+        this._previewScheduler.request({ point, lngLat });
     }
 
     _onEditPointerUp = async (_e) => {
+        // A drag born and dead inside ONE frame (down, move, up) parks its
+        // position and never reaches the frame callback, so
+        // `currentMousePosition` below would still hold the position of the
+        // `pointerdown` and the commit would land on the handle where the user
+        // GRABBED it, not where the user let it go. Deliver the parked pointer
+        // now; `flush` cancels the frame it had asked for, which would otherwise
+        // redraw a preview over a drag that is already finished.
+        if (this._previewScheduler.pending) this._previewScheduler.flush();
+
         const canvas = this.map.getCanvasContainer();
 
         // Remove move/up listeners
@@ -807,89 +857,95 @@ class AddRectangleControl extends BaseControl {
         this.map.getCanvas().style.cursor = '';
     }
 
+    /**
+     * Redraw the dragged rectangle and its three handles.
+     *
+     * Written straight into the sources: this already runs inside the gate's
+     * frame, and the `setTimeout(..., 8)` that stood here only delayed it by one
+     * timer without coalescing anything.
+     *
+     * @param {Array} newPosition - The snapped position of the frame
+     */
     updateRectanglePreview = (newPosition) => {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature || !this.activeHandleType) return;
 
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            const preview = this.geometry.calculatePreview(
-                this.activeHandleType,
-                newPosition,
-                selectedFeature
-            );
+        const preview = this.geometry.calculatePreview(
+            this.activeHandleType,
+            newPosition,
+            selectedFeature
+        );
 
-            if (!preview) return;
+        if (!preview) return;
 
-            this.map.getSource('rectangle-feedback').setData({
+        this.map.getSource('rectangle-feedback').setData({
+            type: 'Feature',
+            geometry: preview.geometry,
+            properties: {
+                ...selectedFeature.properties,
+                isSelected: true
+            }
+        });
+
+        // Update handles using width, height and rotation
+        const handles = [
+            {
                 type: 'Feature',
-                geometry: preview.geometry,
+                id: `rectangle-handle-${selectedFeature.properties.id}-width`,
+                geometry: {
+                    type: 'Point',
+                    coordinates: preview.handlePositions.width
+                },
                 properties: {
-                    ...selectedFeature.properties,
-                    isSelected: true
+                    role: 'handle',
+                    handleType: 'vertex',
+                    handleId: 'width-resize',
+                    featureId: selectedFeature.properties.id,
+                    mode: 'rectangle_editing',
+                    meta: 'vertex',
+                    user_isEditingHandle: true
                 }
-            });
-
-            // Update handles using width, height and rotation
-            const handles = [
-                {
-                    type: 'Feature',
-                    id: `rectangle-handle-${selectedFeature.properties.id}-width`,
-                    geometry: {
-                        type: 'Point',
-                        coordinates: preview.handlePositions.width
-                    },
-                    properties: {
-                        role: 'handle',
-                        handleType: 'vertex',
-                        handleId: 'width-resize',
-                        featureId: selectedFeature.properties.id,
-                        mode: 'rectangle_editing',
-                        meta: 'vertex',
-                        user_isEditingHandle: true
-                    }
+            },
+            {
+                type: 'Feature',
+                id: `rectangle-handle-${selectedFeature.properties.id}-height`,
+                geometry: {
+                    type: 'Point',
+                    coordinates: preview.handlePositions.height
                 },
-                {
-                    type: 'Feature',
-                    id: `rectangle-handle-${selectedFeature.properties.id}-height`,
-                    geometry: {
-                        type: 'Point',
-                        coordinates: preview.handlePositions.height
-                    },
-                    properties: {
-                        role: 'handle',
-                        handleType: 'vertex',
-                        handleId: 'height-resize',
-                        featureId: selectedFeature.properties.id,
-                        mode: 'rectangle_editing',
-                        meta: 'vertex',
-                        user_isEditingHandle: true
-                    }
-                },
-                {
-                    type: 'Feature',
-                    id: `rectangle-handle-${selectedFeature.properties.id}-rotation`,
-                    geometry: {
-                        type: 'Point',
-                        coordinates: preview.handlePositions.rotation
-                    },
-                    properties: {
-                        role: 'handle',
-                        handleType: 'eccentricity',
-                        handleId: 'rotation',
-                        featureId: selectedFeature.properties.id,
-                        mode: 'rectangle_editing',
-                        meta: 'vertex',
-                        user_isEditingHandle: true
-                    }
+                properties: {
+                    role: 'handle',
+                    handleType: 'vertex',
+                    handleId: 'height-resize',
+                    featureId: selectedFeature.properties.id,
+                    mode: 'rectangle_editing',
+                    meta: 'vertex',
+                    user_isEditingHandle: true
                 }
-            ];
+            },
+            {
+                type: 'Feature',
+                id: `rectangle-handle-${selectedFeature.properties.id}-rotation`,
+                geometry: {
+                    type: 'Point',
+                    coordinates: preview.handlePositions.rotation
+                },
+                properties: {
+                    role: 'handle',
+                    handleType: 'eccentricity',
+                    handleId: 'rotation',
+                    featureId: selectedFeature.properties.id,
+                    mode: 'rectangle_editing',
+                    meta: 'vertex',
+                    user_isEditingHandle: true
+                }
+            }
+        ];
 
-            this.map.getSource('rectangle-edit-handles').setData({
-                type: 'FeatureCollection',
-                features: handles
-            });
-        }, 8);
+        this.map.getSource('rectangle-edit-handles').setData({
+            type: 'FeatureCollection',
+            features: handles
+        });
     }
 
     // ===== HOVER SYSTEM =====
@@ -1197,20 +1253,13 @@ class AddRectangleControl extends BaseControl {
     // ===== UTILITY METHODS =====
 
     cancelPendingUpdates = () => {
-        if (this.previewRafId) {
-            cancelAnimationFrame(this.previewRafId);
-            this.previewRafId = null;
-        }
-        this.pendingPreviewUpdate = false;
+        // Both gates: the drawing/drag preview and the pre-click indicator.
+        this._previewScheduler.cancel();
+        this._preClickScheduler.cancel();
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
         this.activeHandleType = null;
         this.currentMousePosition = null;
-
-        if (this.geometryDebounceTimer) {
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = null;
-        }
     }
 
     /**

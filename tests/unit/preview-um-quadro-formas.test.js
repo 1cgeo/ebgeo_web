@@ -165,6 +165,95 @@ function geometriaDeCentroERaio(lista) {
 }
 
 /**
+ * O gravador de geometria da ELIPSE.
+ *
+ * A elipse nao e uma forma de centro e raio: o preview do desenho sai de
+ * `calculateInitialDimensions`, e o do arrasto devolve TRES posicoes de alca
+ * (horizontal, vertical e rotacao), que o controle escreve na fonte de alcas.
+ *
+ * @param {Array} lista - Onde as chamadas de `generate` sao anotadas
+ * @returns {Object} O gravador
+ */
+function geometriaDeElipse(lista) {
+    return {
+        normalizeCenter: (center) => center,
+        calculateInitialDimensions: () => ({ majorRadius: 1000, minorRadius: 600, bearing: 45 }),
+        generate: (...args) => {
+            lista.push(args);
+            return { type: 'Polygon', coordinates: [[[0, 0], [1, 1], [0, 0]]] };
+        },
+        calculatePreview: (handleType, position) => ({
+            geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 1], [0, 0]]] },
+            handlePositions: { horizontal: position, vertical: position, rotation: position },
+        }),
+        createHandles: () => ([{ type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: {} }]),
+    };
+}
+
+/**
+ * O gravador de geometria do SETOR, que nao cabe no de centro e raio.
+ *
+ * A fatia pede quatro argumentos em `generate` (centro, raio, azimute e
+ * abertura), e o `calculatePreview` dela recebe o ID DA ALCA primeiro e devolve
+ * `handles` com os DOIS pontos (raio e abertura), e nao um `handlePosition`.
+ * Um gravador de centro e raio devolveria `undefined` ali e o preview do
+ * arrasto sairia calado, aprovado por omissao.
+ *
+ * @param {Array} lista - Onde as chamadas de `generate` sao anotadas
+ * @returns {Object} O gravador
+ */
+function geometriaDeSetor(lista) {
+    return {
+        calculateDistance: () => 1000,
+        calculateBearing: () => 45,
+        normalizeCenter: (center) => center,
+        generate: (...args) => {
+            lista.push(args);
+            return { type: 'Polygon', coordinates: [[[0, 0], [1, 1], [0, 0]]] };
+        },
+        calculatePreview: (handleId, position) => ({
+            geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 1], [0, 0]]] },
+            handles: [position, position],
+            radius: 1000,
+            bearing: 45,
+            aperture: 60,
+        }),
+        createHandles: () => [],
+    };
+}
+
+/**
+ * O gravador de geometria do RETANGULO.
+ *
+ * O desenho do retangulo nao tem centro nem raio: os dois cliques sao CANTOS
+ * opostos, e o piso de 10 m e cobrado sobre a largura e a altura que
+ * `calculateDimensionsFromCorners` devolve. O arrasto de alca devolve TRES
+ * posicoes (largura, altura e rotacao), que o controle escreve na fonte de
+ * alcas em uma escrita so.
+ *
+ * @param {Array} lista - Onde as chamadas de `generate` sao anotadas
+ * @returns {Object} O gravador
+ */
+function geometriaDeRetangulo(lista) {
+    return {
+        normalizeCenter: (center) => center,
+        normalizeCorner: (corner) => corner,
+        // Acima do piso de 10 m, senao o preview do desenho nao sai e o caso
+        // passaria por nao ter medido nada.
+        calculateDimensionsFromCorners: () => ({ center: [0, 0], width: 1000, height: 800 }),
+        generate: (...args) => {
+            lista.push(args);
+            return { type: 'Polygon', coordinates: [[[0, 0], [1, 1], [0, 0]]] };
+        },
+        calculatePreview: (handleType, position) => ({
+            geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 1], [0, 0]]] },
+            handlePositions: { width: position, height: position, rotation: position },
+        }),
+        createHandlesFromGeometry: () => ([{ type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: {} }]),
+    };
+}
+
+/**
  * As formas sob a regua. Cada lote acrescenta a sua, e nada mais.
  *
  * `preparar` recebe o controle e o poe no estado do caso; `feedback` e
@@ -189,6 +278,87 @@ const FORMAS = [
         moverDesenho: (control) => control.handlePreviewMouseMove,
         moverPreClique: (control) => control._onPreClickMouseMove,
         moverAlca: (control) => control._onEditPointerMove.bind(control),
+    },
+    {
+        nome: 'elipse',
+        importar: () => import('../../src/js/draw_tools/ellipse_tool/add_ellipse_control.js'),
+        feedback: 'ellipse-feedback',
+        alcas: 'ellipse-edit-handles',
+        geometria: geometriaDeElipse,
+        idDaFeicao: 'ellipse-1',
+        prepararDesenho: (control) => { control.drawPoints = [[0, 0]]; },
+        feicao: () => ({
+            type: 'Feature',
+            properties: { id: 'ellipse-1', source: 'ellipse', center: [0, 0], majorRadius: 500, minorRadius: 300, bearing: 0 },
+            geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 1], [0, 0]]] },
+        }),
+        moverDesenho: (control) => control.handlePreviewMouseMove,
+        moverPreClique: (control) => control._onPreClickMouseMove,
+        // A elipse tem TRES alcas, e o preview so sabe qual mover pelo
+        // `activeHandleType` que o `pointerdown` fixa. O caso dirige o
+        // `pointermove` direto, entao a alca do caso e escolhida aqui.
+        moverAlca: (control) => {
+            control.activeHandleType = 'horizontal-resize';
+            return control._onEditPointerMove.bind(control);
+        },
+    },
+    {
+        nome: 'setor',
+        importar: () => import('../../src/js/draw_tools/sector_tool/add_sector_control.js'),
+        // A fonte do mapa se chama `setores`, em portugues; o prefixo do
+        // feedback e o das alcas continua em ingles.
+        feedback: 'sector-feedback',
+        alcas: 'sector-edit-handles',
+        geometria: geometriaDeSetor,
+        idDaFeicao: 'sector-1',
+        // O centro ja clicado. O segundo clique da raio e azimute de uma vez, e
+        // a abertura sai do DEFAULT_PROPERTIES, entao o preview do setor vive
+        // com UM ponto guardado, como o do circulo.
+        prepararDesenho: (control) => { control.drawPoints = [[0, 0]]; },
+        feicao: () => ({
+            type: 'Feature',
+            properties: { id: 'sector-1', source: 'sector', center: [0, 0], radius: 500, bearing: 0, aperture: 60 },
+            geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 1], [0, 0]]] },
+        }),
+        moverDesenho: (control) => control.handlePreviewMouseMove,
+        moverPreClique: (control) => control._onPreClickMouseMove,
+        // O setor tem DUAS alcas (raio e abertura), e `updateHandlePreview` sai
+        // pela porta dos fundos sem o `activeHandleId` que o `pointerdown` fixa.
+        // Sem esta linha o caso do arrasto passaria com zero escritas.
+        moverAlca: (control) => {
+            control.activeHandleId = 'radius';
+            return control._onEditPointerMove.bind(control);
+        },
+    },
+    {
+        nome: 'retangulo',
+        importar: () => import('../../src/js/draw_tools/rectangle_tool/add_rectangle_control.js'),
+        feedback: 'rectangle-feedback',
+        alcas: 'rectangle-edit-handles',
+        geometria: geometriaDeRetangulo,
+        idDaFeicao: 'rectangle-1',
+        // O primeiro CANTO ja clicado: o preview do retangulo vive entre os dois
+        // cliques, como o das outras, so que o ponto guardado e um canto.
+        prepararDesenho: (control) => { control.drawPoints = [[0, 0]]; },
+        feicao: () => ({
+            type: 'Feature',
+            properties: {
+                id: 'rectangle-1', source: 'rectangle', center: [0, 0],
+                width: 500, height: 300, bearing: 0, borderRadius: 0,
+                corner1: [1, 1], corner2: [-1, -1],
+            },
+            geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 1], [0, 0]]] },
+        }),
+        moverDesenho: (control) => control.handlePreviewMouseMove,
+        moverPreClique: (control) => control._onPreClickMouseMove,
+        // O retangulo tem TRES alcas (largura, altura e rotacao), e
+        // `updateRectanglePreview` sai calado sem o `activeHandleType` que o
+        // `pointerdown` fixa. Sem esta linha o caso do arrasto passaria com zero
+        // escritas, aprovado por omissao.
+        moverAlca: (control) => {
+            control.activeHandleType = 'width-resize';
+            return control._onEditPointerMove.bind(control);
+        },
     },
 ];
 

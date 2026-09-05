@@ -347,6 +347,195 @@ describe('the circle tool, handle drag inside one frame', () => {
 });
 
 /**
+ * The ellipse drags one of THREE handles (horizontal, vertical, rotation), which
+ * the `pointerdown` fixes in `activeHandleType`, and its end handler is a pointer
+ * event on the canvas container. Until 2026-09-05 it wrote `lastPreviewPosition`
+ * on the raw `pointermove`, so this drag already moved the feature and a test
+ * here would have passed for the wrong reason; the gate moved that write into the
+ * frame, and the `flush()` at the top of `_onEditPointerUp` is what keeps it
+ * passing.
+ */
+describe('the ellipse tool, handle drag inside one frame', () => {
+    /** The horizontal-resize handle, as `queryRenderedFeatures` returns it. */
+    const resizeHandle = {
+        properties: { role: 'handle', handleType: 'vertex', handleId: 'horizontal-resize', user_isEditingHandle: true },
+    };
+
+    async function setup() {
+        const { default: AddEllipseControl } = await import('../../src/js/draw_tools/ellipse_tool/add_ellipse_control.js');
+        const feature = {
+            type: 'Feature',
+            properties: { id: 'ellipse-1', source: 'ellipse', center: [0, 0], majorRadius: 100, minorRadius: 60, bearing: 0 },
+            geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 1], [0, 0]]] },
+        };
+        const built = buildControl(
+            AddEllipseControl,
+            {
+                normalizeCenter: (center) => center,
+                createHandles: () => ([{ type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: {} }]),
+                calculatePreview: () => ({
+                    geometry: {},
+                    handlePositions: { horizontal: [0, 0], vertical: [0, 0], rotation: [0, 0] },
+                }),
+                // The real one needs a position to have any radius at all, and
+                // the control refuses a result under the 0.01 floor: a drag that
+                // never moved must not write. The radii follow the dragged
+                // position so the source write can be checked against it.
+                updateFromHandle: (type, position) => (position
+                    ? {
+                        majorRadius: position[0] * 100,
+                        minorRadius: position[0] * 60,
+                        bearing: 30,
+                        geometry: { type: 'Polygon', coordinates: [[position, [1, 1], position]] },
+                    }
+                    : null),
+            },
+            { ellipses: { type: 'FeatureCollection', features: [structuredClone(feature)] } },
+        );
+        built.control.selectionManager.getSelectedFeaturesByType = () => [{ feature }];
+        built.map.queryRenderedFeatures = () => [resizeHandle];
+        return { ...built, feature };
+    }
+
+    it('resizes the ellipse when down, ONE move and up land before any frame runs', async () => {
+        const { control, written } = await setup();
+
+        control._onEditPointerDown({ isPrimary: true, pointerId: 1, clientX: 1, clientY: 1, preventDefault: () => {} });
+        control._onEditPointerMove({ isPrimary: true, pointerId: 1, clientX: 5, clientY: 5 });
+        await control._onEditPointerUp({ pointerId: 1 });
+
+        // The end handler had to deliver the parked pointer itself: the frame
+        // that would have delivered it never ran, and must not run later.
+        expect(snapping.resolveCalls).toHaveLength(1);
+        expect(snapping.resolveCalls[0].lngLat).toEqual({ lng: 5, lat: 5 });
+        expect(snapping.resolveCalls[0].excludeFeatureId).toBe('ellipse-1');
+        expect(clock.frame()).toBe(0);
+
+        const mainWrites = written.filter(write => write.name === 'ellipses');
+        expect(mainWrites).toHaveLength(1);
+        expect(mainWrites[0].data.features[0].properties.majorRadius).toBe(500);
+        expect(mainWrites[0].data.features[0].geometry.coordinates[0][0]).toEqual([5, 5]);
+    });
+
+    it('still resizes when the frame DID run before the pointerup', async () => {
+        const { control, written } = await setup();
+
+        control._onEditPointerDown({ isPrimary: true, pointerId: 1, clientX: 1, clientY: 1, preventDefault: () => {} });
+        control._onEditPointerMove({ isPrimary: true, pointerId: 1, clientX: 7, clientY: 7 });
+        expect(clock.frame()).toBe(1);
+        await control._onEditPointerUp({ pointerId: 1 });
+
+        // The flush over an empty gate resolves no second snap and loses nothing.
+        expect(snapping.resolveCalls).toHaveLength(1);
+        const mainWrites = written.filter(write => write.name === 'ellipses');
+        expect(mainWrites).toHaveLength(1);
+        expect(mainWrites[0].data.features[0].properties.majorRadius).toBe(700);
+    });
+
+    it('writes nothing when the drag never moved at all', async () => {
+        const { control, written } = await setup();
+
+        control._onEditPointerDown({ isPrimary: true, pointerId: 1, clientX: 1, clientY: 1, preventDefault: () => {} });
+        await control._onEditPointerUp({ pointerId: 1 });
+
+        expect(written.filter(write => write.name === 'ellipses')).toHaveLength(0);
+    });
+});
+
+/**
+ * The sector drags one of TWO handles (radius and aperture), named by
+ * `activeHandleId` at `pointerdown`, and its end handler is a pointer event on
+ * the canvas container rather than a MapLibre `mouseup`. The radius handle also
+ * carries the BEARING: dragging it turns the slice as well as resizing it, so
+ * the write is checked on both numbers, and a drag that lost its position would
+ * keep the old azimuth on a sector the user already turned.
+ */
+describe('the sector tool, handle drag inside one frame', () => {
+    /** The radius handle, as `queryRenderedFeatures` returns it. */
+    const radiusHandle = {
+        properties: { role: 'handle', handleType: 'vertex', handleId: 'radius', user_isEditingHandle: true },
+    };
+
+    async function setup() {
+        const { default: AddSectorControl } = await import('../../src/js/draw_tools/sector_tool/add_sector_control.js');
+        const feature = {
+            type: 'Feature',
+            properties: { id: 'sector-1', source: 'sector', center: [0, 0], radius: 100, bearing: 0, aperture: 60 },
+            geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 1], [0, 0]]] },
+        };
+        const built = buildControl(
+            AddSectorControl,
+            {
+                normalizeCenter: (center) => center,
+                createHandles: () => [],
+                calculatePreview: () => ({ geometry: {}, handles: [[0, 0], [0, 0]] }),
+                // The real one returns null below the 10 m floor, and there is no
+                // radius at all without a position: a drag that never moved must
+                // not write. Radius and bearing follow the dragged position so
+                // the source write can be checked against it.
+                updateFromHandle: (handleId, position) => (position
+                    ? {
+                        radius: position[0] * 100,
+                        bearing: position[1] * 10,
+                        aperture: 60,
+                        geometry: { type: 'Polygon', coordinates: [[position, [1, 1], position]] },
+                    }
+                    : null),
+            },
+            { setores: { type: 'FeatureCollection', features: [structuredClone(feature)] } },
+        );
+        built.control.selectionManager.getSelectedFeaturesByType = () => [{ feature }];
+        built.map.queryRenderedFeatures = () => [radiusHandle];
+        return { ...built, feature };
+    }
+
+    it('resizes and turns the sector when down, ONE move and up land before any frame runs', async () => {
+        const { control, written } = await setup();
+
+        control._onEditPointerDown({ isPrimary: true, pointerId: 1, clientX: 1, clientY: 1, preventDefault: () => {} });
+        control._onEditPointerMove({ isPrimary: true, pointerId: 1, clientX: 5, clientY: 5 });
+        await control._onEditPointerUp({ pointerId: 1 });
+
+        // The end handler had to deliver the parked pointer itself: the frame
+        // that would have delivered it never ran, and must not run later.
+        expect(snapping.resolveCalls).toHaveLength(1);
+        expect(snapping.resolveCalls[0].lngLat).toEqual({ lng: 5, lat: 5 });
+        expect(snapping.resolveCalls[0].excludeFeatureId).toBe('sector-1');
+        expect(clock.frame()).toBe(0);
+
+        const mainWrites = written.filter(write => write.name === 'setores');
+        expect(mainWrites).toHaveLength(1);
+        expect(mainWrites[0].data.features[0].properties.radius).toBe(500);
+        expect(mainWrites[0].data.features[0].properties.bearing).toBe(50);
+        expect(mainWrites[0].data.features[0].geometry.coordinates[0][0]).toEqual([5, 5]);
+    });
+
+    it('still resizes when the frame DID run before the pointerup', async () => {
+        const { control, written } = await setup();
+
+        control._onEditPointerDown({ isPrimary: true, pointerId: 1, clientX: 1, clientY: 1, preventDefault: () => {} });
+        control._onEditPointerMove({ isPrimary: true, pointerId: 1, clientX: 7, clientY: 7 });
+        expect(clock.frame()).toBe(1);
+        await control._onEditPointerUp({ pointerId: 1 });
+
+        // The flush over an empty gate resolves no second snap and loses nothing.
+        expect(snapping.resolveCalls).toHaveLength(1);
+        const mainWrites = written.filter(write => write.name === 'setores');
+        expect(mainWrites).toHaveLength(1);
+        expect(mainWrites[0].data.features[0].properties.radius).toBe(700);
+    });
+
+    it('writes nothing when the drag never moved at all', async () => {
+        const { control, written } = await setup();
+
+        control._onEditPointerDown({ isPrimary: true, pointerId: 1, clientX: 1, clientY: 1, preventDefault: () => {} });
+        await control._onEditPointerUp({ pointerId: 1 });
+
+        expect(written.filter(write => write.name === 'setores')).toHaveLength(0);
+    });
+});
+
+/**
  * The brush needs NO flush, and this is the measure that says so instead of an
  * argument: its gate parks no pointer at all, because the stroke is accumulated
  * on the raw event and the frame only redraws `this.points`. A stroke that
@@ -368,5 +557,123 @@ describe('the brush tool, stroke inside one frame', () => {
         // The pending frame is dropped by `clearPreview`, not left to redraw a
         // stroke that is already finished.
         expect(clock.frame()).toBe(0);
+    });
+});
+
+/**
+ * The rectangle drags a WIDTH, HEIGHT or ROTATION handle, and the handle it is
+ * dragging is fixed by `activeHandleType` on the `pointerdown`. Its end handler
+ * is a pointer event on the canvas container, like the circle's.
+ *
+ * The position it commits is `currentMousePosition`, which the raw `pointermove`
+ * used to write and the gate now writes inside the frame. That is why the
+ * `flush()` at the top of `_onEditPointerUp` is what keeps a drag born and dead
+ * inside one frame landing on the position the user let go of: without it the
+ * commit falls back to the position of the `pointerdown`, which is a WRITE at
+ * the WRONG place and not a missing write.
+ */
+describe('the rectangle tool, handle drag inside one frame', () => {
+    /** The width handle, as `queryRenderedFeatures` returns it. */
+    const widthHandle = {
+        properties: { role: 'handle', handleType: 'vertex', handleId: 'width-resize', user_isEditingHandle: true },
+    };
+
+    async function setup() {
+        const { default: AddRectangleControl } = await import('../../src/js/draw_tools/rectangle_tool/add_rectangle_control.js');
+        const feature = {
+            type: 'Feature',
+            properties: {
+                id: 'rectangle-1', source: 'rectangle', center: [0, 0],
+                width: 500, height: 300, bearing: 0, borderRadius: 0,
+                corner1: [1, 1], corner2: [-1, -1],
+            },
+            geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 1], [0, 0]]] },
+        };
+        const built = buildControl(
+            AddRectangleControl,
+            {
+                normalizeCenter: (center) => center,
+                normalizeCorner: (corner) => corner,
+                createHandlesFromGeometry: () => ([
+                    { type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: {} },
+                ]),
+                calculatePreview: () => ({
+                    geometry: {},
+                    handlePositions: { width: [0, 0], height: [0, 0], rotation: [0, 0] },
+                }),
+                // The real one returns null without a position, and the control
+                // only writes above the 10 m floor. The width follows the
+                // dragged position so the source write can be checked against it.
+                updateFromHandle: (type, position) => (position
+                    ? {
+                        corner1: position,
+                        corner2: [-position[0], -position[1]],
+                        center: [0, 0],
+                        width: position[0] * 100,
+                        height: 300,
+                        bearing: 0,
+                        geometry: { type: 'Polygon', coordinates: [[position, [1, 1], position]] },
+                    }
+                    : null),
+            },
+            { rectangles: { type: 'FeatureCollection', features: [structuredClone(feature)] } },
+        );
+        built.control.selectionManager.getSelectedFeaturesByType = () => [{ feature }];
+        built.map.queryRenderedFeatures = () => [widthHandle];
+        return { ...built, feature };
+    }
+
+    it('resizes the rectangle when down, ONE move and up land before any frame runs', async () => {
+        const { control, written } = await setup();
+
+        control._onEditPointerDown({ isPrimary: true, pointerId: 1, clientX: 1, clientY: 1, preventDefault: () => {} });
+        control._onEditPointerMove({ isPrimary: true, pointerId: 1, clientX: 5, clientY: 5 });
+        await control._onEditPointerUp({ pointerId: 1 });
+
+        // The end handler had to deliver the parked pointer itself: the frame
+        // that would have delivered it never ran, and must not run later.
+        expect(snapping.resolveCalls).toHaveLength(1);
+        expect(snapping.resolveCalls[0].lngLat).toEqual({ lng: 5, lat: 5 });
+        expect(snapping.resolveCalls[0].excludeFeatureId).toBe('rectangle-1');
+        expect(clock.frame()).toBe(0);
+
+        const mainWrites = written.filter(write => write.name === 'rectangles');
+        expect(mainWrites).toHaveLength(1);
+        // 500 is the position of the MOVE. The position of the `pointerdown`
+        // would give 100, which is the failure this case exists to catch.
+        expect(mainWrites[0].data.features[0].properties.width).toBe(500);
+        expect(mainWrites[0].data.features[0].geometry.coordinates[0][0]).toEqual([5, 5]);
+    });
+
+    it('still resizes when the frame DID run before the pointerup', async () => {
+        const { control, written } = await setup();
+
+        control._onEditPointerDown({ isPrimary: true, pointerId: 1, clientX: 1, clientY: 1, preventDefault: () => {} });
+        control._onEditPointerMove({ isPrimary: true, pointerId: 1, clientX: 7, clientY: 7 });
+        expect(clock.frame()).toBe(1);
+        await control._onEditPointerUp({ pointerId: 1 });
+
+        // The flush over an empty gate resolves no second snap and loses nothing.
+        expect(snapping.resolveCalls).toHaveLength(1);
+        const mainWrites = written.filter(write => write.name === 'rectangles');
+        expect(mainWrites).toHaveLength(1);
+        expect(mainWrites[0].data.features[0].properties.width).toBe(700);
+    });
+
+    it('commits the position of the pointerdown when the drag never moved', async () => {
+        const { control, written } = await setup();
+
+        control._onEditPointerDown({ isPrimary: true, pointerId: 1, clientX: 1, clientY: 1, preventDefault: () => {} });
+        await control._onEditPointerUp({ pointerId: 1 });
+
+        // The rectangle differs from the circle here, and the difference is the
+        // `pointerdown` writing `currentMousePosition`: the circle reaches the
+        // end with no position and writes NOTHING, this one commits the handle
+        // where the user grabbed it. Kept as it was; the case is here so a port
+        // cannot change it in silence.
+        const mainWrites = written.filter(write => write.name === 'rectangles');
+        expect(mainWrites).toHaveLength(1);
+        expect(mainWrites[0].data.features[0].properties.width).toBe(100);
+        expect(snapping.resolveCalls).toHaveLength(0);
     });
 });

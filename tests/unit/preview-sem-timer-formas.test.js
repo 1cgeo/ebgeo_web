@@ -42,6 +42,12 @@ import { fileURLToPath } from 'node:url';
 const ANCORAS = {
     'src/js/draw_tools/circle_tool/add_circle_control.js':
         ['_onPreClickMouseMove', 'handlePreviewMouseMove', 'performPreviewUpdate', '_onEditPointerMove', 'updateRadiusPreview', 'cancelPendingUpdates'],
+    'src/js/draw_tools/ellipse_tool/add_ellipse_control.js':
+        ['_onPreClickMouseMove', 'handlePreviewMouseMove', 'performPreviewUpdate', '_onEditPointerMove', 'updateEllipsePreview', 'cancelPendingUpdates'],
+    'src/js/draw_tools/sector_tool/add_sector_control.js':
+        ['_onPreClickMouseMove', 'handlePreviewMouseMove', 'performPreviewUpdate', '_onEditPointerMove', 'updateHandlePreview', 'cancelPendingUpdates'],
+    'src/js/draw_tools/rectangle_tool/add_rectangle_control.js':
+        ['_onPreClickMouseMove', 'handlePreviewMouseMove', 'performPreviewUpdate', '_onEditPointerMove', 'updateRectanglePreview', 'cancelPendingUpdates'],
 };
 
 const CONTROLES = Object.keys(ANCORAS);
