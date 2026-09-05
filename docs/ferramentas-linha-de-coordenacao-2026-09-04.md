@@ -69,9 +69,27 @@ Suíte: 141 arquivos, 3.120 testes verdes.
 
 Depois, uma rodada, 10 feições, nesta GPU: limite desenho 2,8 ms por quadro, zoom 1 `setData`, conclusão 33 ms até o store; linha de coordenação 1,7 ms, 1 `setData`, 31 ms. Suíte: 149 arquivos, 3.197 testes verdes.
 
+
+## As quatro formas pagam a dívida (2026-09-05)
+
+Círculo, elipse, retângulo e setor passaram pelo `createPreviewScheduler`, no mesmo desenho das outras nove: o evento bruto só estaciona o ponteiro, e snap, indicador, geometria e `showPreview` correm uma vez por quadro; `flush()` no fim do arrasto de alça (provado por remoção em cada controle: sem ele o arrasto de um quadro não escreve); os dois `setTimeout` de 8 ms por controle saem. A bancada ganhou os quatro descritores e duas colunas que não dependem do relógio, `resolve` (chamadas a `snapping.resolve`) e `timers` (temporizadores armados no gesto), e a coluna `perdidos` foi reescrita, porque com a escrita colada ao quadro o critério antigo acusava 179 perdidas em 180 escritas desenhadas. As réguas das treze ferramentas vivem em `tests/unit/preview-timer-regua.test.js` (96 casos), vista reprovar dez casos quando qualquer uma das quatro volta ao estado anterior.
+
+Medido no cenário de desenho com 8 `mousemove` por quadro e snapping ligado, duas rodadas com a primeira descartada, RTX A2000 (`bench/ferramentas.mjs --ferramenta <nome> --snapping true`):
+
+| ferramenta | `resolve` por quadro | intervalo p95 (ms) | quadros acima de 33 ms | timers no gesto |
+|---|---|---|---|---|
+| círculo | 13,28 → 1,00 | 85,3 → 19,4 | 25 → 1 | 233 → 55 |
+| elipse | 12,93 → 1,00 | 85,6 → 18,6 | 22 → 1 | 231 → 57 |
+| retângulo | 11,14 → 1,03 | 53,7 → 18,8 | 20 → 2 | 230 → 55 |
+| setor | 10,57 → 1,00 | 52,1 → 18,4 | 22 → 1 | 233 → 56 |
+
+O que a medida diz: as quatro resolviam o snap 10 a 13 vezes por quadro desenhado (uma por `mousemove`, cada uma com o seu `queryRenderedFeatures`), e é isso, não a geometria, que segurava o quadro acima de 33 ms em um de cada cinco. Os timers que sobram são os do próprio MapLibre e do painel, não do preview. As linhas de base de elipse, retângulo e setor foram medidas com o círculo já portado na árvore; são controles separados, e a assinatura do app se manteve entre as cargas.
+
 ## O que fica
 
-- Círculo, elipse, retângulo e setor ainda resolvem snap no evento bruto e escrevem a posição fora do quadro: a mesma dívida que as outras nove pagaram, com o utilitário pronto.
+- ~~Círculo, elipse, retângulo e setor ainda resolvem snap no evento bruto~~ **Pago em 2026-09-05** (ver a seção abaixo).
+- A elipse guarda a geometria em quilômetros e o painel escreve metros (`feature-identification.js` contra `add_ellipse_geometry.js`), anterior ao porte; o conserto mexe em dado já gravado.
+- O retângulo não chama `updateSelectionHighlight()` em `updateUIAfterEdit`, e a caixa de seleção fica no tamanho velho depois do arrasto da alça; e recria as alças por um `setTimeout` de 10 ms no fim do arrasto, que não é preview e ficou.
 - A visibilidade calcula os 61 raios no fio principal (dois quadros acima de 33 ms por feição).
 - O ouvinte sem `removeEventListener` no descarregar, que a varredura dos controles registrados não alcançou.
 - `updateFeaturesProperty` e irmãos ainda leem a fonte por `getData()` a cada evento de slider do painel; no 6.7 o `getData` resolve sem round trip, então o custo é o `generate()` por feição selecionada por evento.
