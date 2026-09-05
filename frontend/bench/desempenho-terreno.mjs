@@ -53,6 +53,25 @@ const ORDEM_VARIANTES = [
 
 const ORDEM_CENARIOS = ['parado', 'rotacao', 'pan', 'zoom', 'pitch'];
 
+// Variantes do PASSE DA CAIXA DE SELECAO, produzidas por remendo em tempo de
+// execucao no gerente vivo (`tool_manager/managers/selection-highlight.manager.js`),
+// nunca por codigo no app. A ordem e canonica.
+//
+//   selecao-quadro   como esta na arvore: ouvinte de `zoom`, passe por quadro,
+//                    chave de cache quantizada.
+//   selecao-exata    o mesmo, com a quantizacao FORA da chave de cache.
+//   selecao-zoomend  o ouvinte de `zoom` desligado e um `zoomend` que chama a
+//                    passada uma vez por gesto.
+//
+// Em todas as tres o passe e o handler saem embrulhados por contadores: sem contar
+// chamada nao ha como provar que a funcao trocada e a que roda, e um remendo que
+// nao pegou mediria o app intacto com o nome da variante.
+const ORDEM_PASSES = ['selecao-quadro', 'selecao-exata', 'selecao-zoomend'];
+
+/** Quantos zooms o teste da chave de cache experimenta, e o passo entre eles. */
+const AMOSTRAS_DE_CHAVE = 10;
+const PASSO_DE_CHAVE = 0.01;
+
 /**
  * Quanto tempo a dupla (camadas, fontes) precisa ficar PARADA antes de a bancada
  * aceitar que o app terminou de montar.
@@ -96,6 +115,13 @@ function lerArgumentos(argv) {
         cpu: 1,
         // Cria feicoes pelas ferramentas do app, uma vez, antes das rodadas.
         populado: false,
+        // Quantas feicoes ficam SELECIONADAS durante a medida. Lista, porque a
+        // regra de decisao compara a celula de N com a AMPLITUDE da celula de
+        // zero na mesma variante: as duas tem de sair da mesma sessao, com as
+        // rodadas intercaladas, senao a comparacao troca de maquina no meio.
+        selecionadas: [0],
+        // Variantes do passe da caixa de selecao.
+        passes: ['selecao-quadro'],
     };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
@@ -133,6 +159,10 @@ function lerArgumentos(argv) {
             p.cpu = Number(proximo());
         } else if (a === '--populado') {
             p.populado = booleana();
+        } else if (a === '--selecionadas') {
+            p.selecionadas = proximo().split(',').map((s) => s.trim()).filter(Boolean).map(Number);
+        } else if (a === '--passes') {
+            p.passes = proximo().split(',').map((s) => s.trim()).filter(Boolean);
         } else if (a === '--ajuda' || a === '-h' || a === '--help') {
             p.ajuda = true;
         } else {
@@ -148,6 +178,20 @@ function lerArgumentos(argv) {
     if (!p.bases.length) throw new Error('--bases precisa de ao menos um id de mapa base (ou "atual")');
     if (new Set(p.bases).size !== p.bases.length) throw new Error(`--bases repete um id: ${p.bases.join(', ')}`);
     if (!Number.isFinite(p.cpu) || p.cpu < 1) throw new Error('--cpu tem de ser numero >= 1');
+    if (!p.selecionadas.length) throw new Error('--selecionadas precisa de ao menos um numero (0 mede sem selecao)');
+    for (const n of p.selecionadas) {
+        if (!Number.isInteger(n) || n < 0) throw new Error(`--selecionadas tem de ser inteiro >= 0: recebeu "${n}"`);
+    }
+    if (new Set(p.selecionadas).size !== p.selecionadas.length) throw new Error(`--selecionadas repete um valor: ${p.selecionadas.join(', ')}`);
+    // Ordem crescente, e nao a ordem digitada: a regra de decisao le a celula de
+    // ZERO como amplitude de referencia da celula de N, entao zero tem de vir
+    // antes na tabela para a linha se ler de cima para baixo.
+    p.selecionadas = p.selecionadas.slice().sort((a, b) => a - b);
+    if (!p.passes.length) throw new Error('--passes precisa de ao menos uma variante do passe');
+    const passesDesconhecidos = p.passes.filter((v) => !ORDEM_PASSES.includes(v));
+    if (passesDesconhecidos.length) throw new Error(`passe desconhecido: ${passesDesconhecidos.join(', ')}. Conhecidos: ${ORDEM_PASSES.join(', ')}`);
+    if (new Set(p.passes).size !== p.passes.length) throw new Error(`--passes repete um valor: ${p.passes.join(', ')}`);
+    p.passes = ORDEM_PASSES.filter((v) => p.passes.includes(v));
     if (!p.saida) {
         const carimbo = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         p.saida = path.join(AQUI, 'saida', carimbo);
@@ -181,6 +225,14 @@ Bancada de desempenho do EBGeo Web (terreno e render-to-texture).
   --cpu <fator>        padrao 1. Estrangula a CPU pelo CDP (4 = maquina quatro vezes mais lenta).
   --populado [bool]    padrao false. Cria feicoes de 10 tipos pelas ferramentas do app, uma vez,
                        antes das rodadas; elas voltam em toda recarga do mesmo contexto.
+  --selecionadas <lista>  padrao 0. Quantas feicoes ficam SELECIONADAS durante a medida, pelo
+                       caminho do app (selectionManager.toggleFeatureSelection). Lista separada
+                       por virgula: "0,50" mede as duas na mesma sessao, que e o que a regra de
+                       decisao exige (a celula de 50 se compara com a AMPLITUDE da de 0).
+                       Exige --populado para haver o que selecionar.
+  --passes <lista>     padrao selecao-quadro. Variantes do passe da caixa de selecao, por remendo
+                       em tempo de execucao no gerente vivo:
+                       ${ORDEM_PASSES.join(', ')}
 
 O Playwright vem do proprio pacote frontend/ (dependencia declarada). A variavel
 EBGEO_PLAYWRIGHT_DIR sobrepoe, apontando o diretorio que CONTEM node_modules/playwright.
@@ -426,6 +478,170 @@ function avaliarProntidao(s, estavelMs, minimoMs = MS_ESTAVEL) {
 }
 
 // --------------------------------------------------------------------------
+// Reguas do passe da caixa de selecao.
+//
+// Sao quatro perguntas distintas, e juntar duas delas numa so deixaria a outra
+// aprovada por omissao: (1) a bancada achou o gerente vivo, (2) o remendo pegou
+// na funcao que roda, (3) a selecao pedida esta de fato na fonte da caixa, e
+// (4) o gesto medido mostrou o COMPORTAMENTO que a variante promete. As tres
+// primeiras se provam antes de medir; a quarta so o gesto responde.
+// --------------------------------------------------------------------------
+
+/**
+ * A bancada achou o gerente de destaque de selecao, com os tres pontos que o
+ * remendo troca?
+ *
+ * Sem esta regua um caminho errado devolveria `undefined` e o remendo cairia em
+ * silencio: a rodada mediria o app intacto com o nome da variante.
+ *
+ * @param {Object} prova - Leitura de `acharGerenteDeSelecao`
+ * @returns {string[]} Motivos de reprova
+ */
+function validarGerenteDeSelecao(prova) {
+    if (!prova) return ['nao houve busca pelo gerente de destaque de selecao'];
+    if (!prova.achado) {
+        return [`gerente de destaque de selecao nao encontrado: ${prova.motivo || 'sem motivo'}`
+            + `${prova.tentativas && prova.tentativas.length ? ` (tentados: ${prova.tentativas.join('; ')})` : ''}`];
+    }
+    const erros = [];
+    if (!prova.temPasse) erros.push('o gerente achado nao expoe updateSelectionHighlight: nao e o gerente da caixa de selecao');
+    if (!prova.temHandler) erros.push('o gerente achado nao expoe _handleZoomChange: nao ha ouvinte de zoom a remendar');
+    if (!prova.temChave) erros.push('o gerente achado nao expoe getCacheKey: a variante da chave exata nao teria o que trocar');
+    if (!prova.temSelectionManager) erros.push('o gerente achado nao leva ao selectionManager: nao ha como selecionar pelo caminho do app');
+    return erros;
+}
+
+/**
+ * O remendo PEGOU? A funcao trocada e a que roda?
+ *
+ * O pior caso e o silencioso: `g.updateSelectionHighlight = novo` num objeto que
+ * nao e o que o app usa, ou um `map.off` que nao casou a referencia do ouvinte.
+ * Nada lanca, o contador fica em zero e a tabela sai com o nome da variante e o
+ * numero do app intacto. A prova e uma chamada DIRETA a cada ponto remendado,
+ * contada; e, para a chave de cache, dez zooms a 0,01 de distancia, contando
+ * quantas chaves DISTINTAS saem (a quantizada colapsa, a exata nao). Contar
+ * chave distinta em vez de repetir a constante de 0,5 e deliberado: a constante
+ * mora no app e uma copia aqui envelheceria sozinha.
+ *
+ * @param {string} passe - Nome da variante
+ * @param {Object} prova - Leitura de `remendarPassePagina`
+ * @returns {string[]} Motivos de reprova
+ */
+function validarRemendo(passe, prova) {
+    if (!prova) return [`nao houve remendo para o passe ${passe}`];
+    if (!prova.aplicado) return [`o remendo ${passe} nao foi aplicado: ${prova.motivo || 'sem motivo'}`];
+    const erros = [];
+    if (!(prova.passadasNaProva > 0)) erros.push(`a chamada direta ao passe nao contou: o embrulho de updateSelectionHighlight nao e a funcao que roda (${prova.passadasNaProva})`);
+    if (!(prova.handlerNaProva > 0)) erros.push(`a chamada direta ao handler nao contou: o embrulho de _handleZoomChange nao e a funcao que roda (${prova.handlerNaProva})`);
+    // A chave de cache: as duas direcoes de erro, porque as duas mentem.
+    const amostras = prova.chave ? prova.chave.amostras : 0;
+    const distintas = prova.chave ? prova.chave.distintas : 0;
+    if (!amostras) {
+        erros.push('a chave de cache nao foi experimentada: a variante exata nao teria como se provar');
+    } else if (passe === 'selecao-exata') {
+        if (distintas !== amostras) {
+            erros.push(`a chave de cache continua QUANTIZADA: ${distintas} chaves distintas em ${amostras} zooms, e a exata exige ${amostras}`);
+        }
+    } else if (distintas > 2) {
+        erros.push(`a chave de cache deixou de quantizar em ${passe}: ${distintas} chaves distintas em ${amostras} zooms (a quantizada colapsa em 1 ou 2)`);
+    }
+    // A fiacao do ouvinte, quando o navegador deixa ler a lista.
+    if (prova.ouvintes && prova.ouvintes.legivel) {
+        const esperaZoom = passe !== 'selecao-zoomend';
+        if (prova.ouvintes.emZoom !== esperaZoom) {
+            erros.push(`o ouvinte de "zoom" ${prova.ouvintes.emZoom ? 'continua ligado' : 'saiu'} e ${passe} esperava o contrario`);
+        }
+        if (prova.ouvintes.emZoomend !== !esperaZoom) {
+            erros.push(`o ouvinte de "zoomend" ${prova.ouvintes.emZoomend ? 'esta ligado' : 'nao esta ligado'} e ${passe} esperava o contrario`);
+        }
+    }
+    return erros;
+}
+
+/**
+ * A selecao pedida esta na FONTE DA CAIXA, e nao so no estado?
+ *
+ * Tres coisas diferentes podem estar erradas, e as tres se leem como "medi com N
+ * selecionadas": o app nao tem N feicoes, o gerente selecionou menos do que se
+ * pediu, ou selecionou tudo e a caixa nunca chegou a fonte. A ultima e a pior,
+ * porque o estado bate e a tela esta vazia.
+ *
+ * @param {number} pedidas - Quantas se pediu
+ * @param {Object} prova - Leitura de `selecionarNaPagina` e da fonte da caixa
+ * @returns {string[]} Motivos de reprova
+ */
+function validarSelecao(pedidas, prova) {
+    if (!prova) return [`nao houve prova da selecao de ${pedidas} feicoes`];
+    if (prova.erro) return [`selecao: ${prova.erro}`];
+    const erros = [];
+    if (!prova.fonteDaCaixa) {
+        erros.push('a bancada nao descobriu a fonte da caixa de selecao: nenhuma fonte recebeu escrita numa passada forcada do gerente');
+    }
+    if (prova.fontesQueEscreveram && prova.fontesQueEscreveram.length > 1) {
+        erros.push(`a passada forcada do gerente escreveu em ${prova.fontesQueEscreveram.length} fontes (${prova.fontesQueEscreveram.join(', ')}): a descoberta da fonte da caixa nao e univoca`);
+    }
+    if (pedidas > (prova.disponiveis || 0)) {
+        erros.push(`pediu ${pedidas} selecionadas e o app so tem ${prova.disponiveis || 0} feicoes selecionaveis`);
+    }
+    if (prova.selecionadas !== pedidas) {
+        erros.push(`${prova.selecionadas} feicoes selecionadas no estado, pedidas ${pedidas}`);
+    }
+    if (prova.caixas !== pedidas) {
+        erros.push(`${prova.caixas} caixas na fonte "${prova.fonteDaCaixa || '?'}", esperadas ${pedidas}`
+            + (pedidas && !prova.caixas ? ': o estado bate e a tela esta vazia' : ''));
+    }
+    return erros;
+}
+
+/**
+ * O GESTO medido mostrou o comportamento que a variante promete?
+ *
+ * Esta e a unica regua que so o gesto real responde, e ela existe porque as
+ * outras tres provam a fiacao, nao o efeito. Os dois piores casos, medidos como
+ * defeito de verdade nesta arvore: o passe por quadro que passa FOME (o
+ * `cancelAnimationFrame` matava a callback do mesmo quadro, e a caixa so saltava
+ * no fim do gesto: 92 eventos, DUAS passadas) e o `zoomend` que nao desligou o
+ * ouvinte de `zoom` (mede o passe por quadro com o nome do zoomend).
+ *
+ * O handler responde mesmo sem selecao nenhuma; a PASSADA so roda com feicao
+ * selecionada, entao com zero selecionadas so o handler se cobra.
+ *
+ * @param {string} passe - Nome da variante
+ * @param {number} selecionadas - Quantas feicoes estavam selecionadas
+ * @param {Object} c - Contadores do cenario `{ handler, passadas }`
+ * @param {number} quadros - Quantos quadros o cenario mediu
+ * @returns {string[]} Motivos de reprova
+ */
+function validarPasseNoGesto(passe, selecionadas, c, quadros) {
+    if (!c) return [`o cenario de zoom nao trouxe contador do passe ${passe}`];
+    // Sem quadro nenhum nao ha gesto a julgar; quem reprova isso e a prova do cenario.
+    if (!quadros) return [];
+    const erros = [];
+    const porQuadro = 4;
+    if (passe === 'selecao-zoomend') {
+        // Dois `easeTo` no cenario de zoom: dois `zoomend`, e uma folga para o
+        // evento que o assentamento dispare.
+        if (c.handler > porQuadro) {
+            erros.push(`${passe}: o handler rodou ${c.handler} vezes em ${quadros} quadros, e um zoomend por gesto daria no maximo ${porQuadro}: o ouvinte de "zoom" nao foi desligado`);
+        }
+        if (selecionadas > 0 && c.passadas > porQuadro) {
+            erros.push(`${passe}: ${c.passadas} passadas do gerente no gesto, e o zoomend prometia no maximo ${porQuadro}`);
+        }
+    } else {
+        if (!(c.handler > porQuadro)) {
+            erros.push(`${passe}: o handler rodou so ${c.handler} vezes em ${quadros} quadros: o ouvinte de "zoom" nao esta ligado, e esta variante nao e mais o passe por quadro`);
+        }
+        if (selecionadas > 0 && !(c.passadas > porQuadro)) {
+            erros.push(`${passe}: so ${c.passadas} passadas do gerente em ${quadros} quadros com ${selecionadas} selecionadas: o passe esta passando FOME (o agendamento cancela a callback do proprio quadro)`);
+        }
+    }
+    if (selecionadas === 0 && c.passadas > 0) {
+        erros.push(`${passe}: ${c.passadas} passadas do gerente com ZERO selecionadas: a linha de base nao esta medindo a ausencia do passe`);
+    }
+    return erros;
+}
+
+// --------------------------------------------------------------------------
 // Codigo que roda dentro da pagina.
 //
 // Toda funcao daqui vai para o navegador por `fn.toString()`, entao nenhuma
@@ -521,6 +737,11 @@ function instrumentar() {
         envolvidas: {},
         cnt: { draw: 0, fbo: 0, clear: 0, tex: 0, stamp: 0, renderLayer: 0 },
         quadros: [],
+        // Escritas por fonte GeoJSON, nos DOIS metodos. E por aqui que a bancada
+        // DESCOBRE a fonte da caixa de selecao (a que o gerente escreve numa
+        // passada forcada) em vez de repetir o id que mora no app, e e por aqui
+        // que ela conta quantas escritas o gesto de zoom manda para essa fonte.
+        escritas: {},
     };
     window.__bancada = B;
 
@@ -551,6 +772,41 @@ function instrumentar() {
     }
     const renderLayer = map.painter.renderLayer.bind(map.painter);
     map.painter.renderLayer = function (...a) { B.cnt.renderLayer++; return renderLayer(...a); };
+
+    // Escritas por fonte GeoJSON, nos DOIS metodos. `setData` troca a colecao
+    // inteira; `updateData` recebe o diff do despachante
+    // (`layers/geojson-dispatcher.js`). Contar so `setData` diria ZERO em toda
+    // fonte migrada. O envolvimento e por OBJETO de fonte, entao fonte que nasce
+    // depois (troca de estilo, terreno) precisa de nova volta: por isso
+    // `__envolverFontes` fica exposto e a bancada o chama antes de cada cenario.
+    const envolverFontes = () => {
+        const estilo = map.getStyle();
+        let novas = 0;
+        for (const id in estilo.sources) {
+            if (estilo.sources[id].type !== 'geojson') continue;
+            const src = map.getSource(id);
+            if (!src || src.__envolvidaPelaBancada) continue;
+            const marcar = (metodo, contar) => {
+                if (typeof src[metodo] !== 'function') return;
+                const original = src[metodo].bind(src);
+                src[metodo] = function (d) {
+                    if (!B.escritas[id]) B.escritas[id] = { setData: 0, updateData: 0, feicoes: 0 };
+                    B.escritas[id][metodo]++;
+                    B.escritas[id].feicoes += contar(d);
+                    return original(d);
+                };
+            };
+            marcar('setData', (d) => (d && Array.isArray(d.features) ? d.features.length : (d ? 1 : 0)));
+            marcar('updateData', (d) => (d
+                ? ((d.add ? d.add.length : 0) + (d.update ? d.update.length : 0) + (d.remove ? d.remove.length : 0))
+                : 0));
+            src.__envolvidaPelaBancada = true;
+            novas++;
+        }
+        return novas;
+    };
+    window.__envolverFontes = envolverFontes;
+    const fontesEnvolvidas = envolverFontes();
 
     // Renderer real. SwiftShader ou llvmpipe significa GPU emulada.
     try {
@@ -588,8 +844,15 @@ function instrumentar() {
         }
         return true;
     };
-    window.__zerar = () => { B.quadros = []; };
-    return { envolvidas: B.envolvidas, renderer: window.__renderer, fornecedor: window.__fornecedor };
+    window.__zerar = () => {
+        B.quadros = [];
+        B.escritas = {};
+        // O contador do passe da caixa so existe depois do remendo, que roda mais
+        // tarde no caso: zerar os dois juntos e o que mantem cada cenario medindo
+        // o proprio gesto.
+        if (typeof window.__zerarSelecao === 'function') window.__zerarSelecao();
+    };
+    return { envolvidas: B.envolvidas, fontesEnvolvidas, renderer: window.__renderer, fornecedor: window.__fornecedor };
 }
 
 // Estado dos tiles de cada fonte, para decidir se o mapa assentou.
@@ -693,6 +956,270 @@ function levantarVazias() {
     }
     const camadas = estilo.layers.filter((l) => vazias.includes(l.source)).map((l) => l.id);
     return { vazias, urlDesconhecida, camadas };
+}
+
+// --------------------------------------------------------------------------
+// A caixa de selecao: achar o gerente vivo, remendar o passe, selecionar pelo
+// caminho do app e provar a selecao na FONTE.
+//
+// Nada aqui repete uma constante do app. O caminho ate o gerente sai de um
+// controle ANSIOSO do registro (os tardios devolvem stand-in), o id da fonte da
+// caixa sai da fonte que o gerente ESCREVE numa passada forcada, e o passo de
+// quantizacao da chave de cache sai de quantas chaves distintas dez zooms
+// vizinhos produzem. Um id ou um 0,5 escrito aqui envelheceria sozinho, e o modo
+// de falha seria medir o app intacto com o nome da variante.
+// --------------------------------------------------------------------------
+
+// Acha o gerente de destaque de selecao a partir do registro de controles.
+// `map_sig.js` nao registra o UIManager nem o ToolManager por nome: o caminho
+// vivo e controle ansioso -> toolManager -> uiManager -> _selectionHighlight.
+function acharGerenteDeSelecao() {
+    const store = window.__store;
+    if (!store || typeof store.getControl !== 'function') {
+        return { achado: false, motivo: 'a bancada nao tem o store do app (getControl ausente)' };
+    }
+    const tentativas = [];
+    // So ferramentas ANSIOSAS: a tardia devolve stand-in, que nao tem toolManager.
+    const nomes = ['AddPointControl', 'AddLineControl', 'AddPolygonControl', 'AddTextControl', 'AddImageControl', 'AddBrushControl'];
+    for (const nome of nomes) {
+        const ctl = store.getControl(nome);
+        if (!ctl) { tentativas.push(`${nome}: ausente no registro`); continue; }
+        if (ctl.ehStandInDeFerramenta) { tentativas.push(`${nome}: ainda e stand-in`); continue; }
+        const tm = ctl.toolManager;
+        if (!tm) { tentativas.push(`${nome}: sem toolManager`); continue; }
+        const ui = tm.uiManager;
+        if (!ui) { tentativas.push(`${nome}: toolManager sem uiManager`); continue; }
+        const g = ui._selectionHighlight;
+        if (!g) { tentativas.push(`${nome}: uiManager sem _selectionHighlight`); continue; }
+        window.__gerenteSelecao = g;
+        window.__selecaoManager = tm.selectionManager || g.selectionManager || null;
+        return {
+            achado: true,
+            caminho: `getControl('${nome}').toolManager.uiManager._selectionHighlight`,
+            temPasse: typeof g.updateSelectionHighlight === 'function',
+            temHandler: typeof g._handleZoomChange === 'function',
+            temChave: typeof g.getCacheKey === 'function',
+            temSelectionManager: !!window.__selecaoManager,
+            tentativas,
+        };
+    }
+    return { achado: false, motivo: 'nenhum controle ansioso levou ao gerente de destaque de selecao', tentativas };
+}
+
+// Aplica a variante do passe NO GERENTE VIVO e devolve a prova de que pegou.
+function remendarPassePagina({ nome, amostras, passo }) {
+    const g = window.__gerenteSelecao;
+    if (!g) return { aplicado: false, motivo: 'gerente ausente' };
+    if (g.__remendadoPelaBancada) return { aplicado: false, motivo: `ja remendado nesta carga (${g.__remendadoPelaBancada})` };
+    const map = window.__mapa;
+
+    const C = { passadas: 0, handler: 0, msPasse: 0, msHandler: 0 };
+    window.__contadoresSelecao = C;
+    window.__zerarSelecao = () => { C.passadas = 0; C.handler = 0; C.msPasse = 0; C.msHandler = 0; };
+
+    const passeOriginal = g.updateSelectionHighlight;
+    const handlerOriginal = g._handleZoomChange;
+
+    // O passe, embrulhado em toda variante: sem contar chamada nao ha como provar
+    // que a funcao trocada e a que roda.
+    g.updateSelectionHighlight = function (...a) {
+        const t = performance.now();
+        const r = passeOriginal.apply(g, a);
+        C.msPasse += performance.now() - t;
+        C.passadas++;
+        return r;
+    };
+    // O handler, com tempo PROPRIO: o `zoomend` chama a passada por dentro, e
+    // somar os dois brutos contaria o passe duas vezes na coluna de JS.
+    const embrulharHandler = (fn) => function (...a) {
+        const passeAntes = C.msPasse;
+        const t = performance.now();
+        const r = fn.apply(g, a);
+        C.msHandler += (performance.now() - t) - (C.msPasse - passeAntes);
+        C.handler++;
+        return r;
+    };
+
+    // A referencia registrada em `_setupEventHandlers` e o proprio campo de
+    // instancia, entao o `off` casa antes de o campo ser trocado.
+    map.off('zoom', handlerOriginal);
+    if (nome === 'selecao-zoomend') {
+        const umaPassadaPorGesto = () => {
+            const sm = g.selectionManager;
+            if (sm && sm.hasSelectedFeatures && sm.hasSelectedFeatures()) g.updateSelectionHighlight();
+        };
+        g._handleZoomChange = embrulharHandler(umaPassadaPorGesto);
+        map.on('zoomend', g._handleZoomChange);
+    } else {
+        g._handleZoomChange = embrulharHandler(handlerOriginal);
+        map.on('zoom', g._handleZoomChange);
+    }
+    if (nome === 'selecao-exata') {
+        // O zoom INTEIRO na chave, sem a quantizacao de 0,5 nivel.
+        g.getCacheKey = function (featureId) { return `${featureId}-${map.getZoom()}`; };
+    }
+    g.__remendadoPelaBancada = nome;
+
+    // --- provas ---
+    // 1. chamada direta a cada ponto remendado: o contador tem de mexer.
+    C.passadas = 0; C.handler = 0;
+    g.updateSelectionHighlight();
+    const passadasNaProva = C.passadas;
+    g._handleZoomChange();
+    const handlerNaProva = C.handler;
+
+    // 2. a chave de cache, por COMPORTAMENTO: dez zooms a `passo` de distancia.
+    // A quantizada colapsa em uma ou duas chaves; a exata devolve dez. Contar
+    // chave distinta nao repete o 0,5 que mora no app.
+    const zoomOriginal = map.getZoom();
+    const vistas = new Set();
+    for (let i = 0; i < amostras; i++) {
+        map.setZoom(zoomOriginal + i * passo);
+        vistas.add(g.getCacheKey('sonda-da-bancada'));
+    }
+    map.setZoom(zoomOriginal);
+
+    // 3. a fiacao do ouvinte, quando a lista do Evented se deixa ler.
+    let ouvintes = { legivel: false };
+    try {
+        const L = map._listeners;
+        if (L && Array.isArray(L.zoom)) {
+            ouvintes = {
+                legivel: true,
+                emZoom: L.zoom.indexOf(g._handleZoomChange) >= 0,
+                emZoomend: Array.isArray(L.zoomend) && L.zoomend.indexOf(g._handleZoomChange) >= 0,
+                totalZoom: L.zoom.length,
+                totalZoomend: Array.isArray(L.zoomend) ? L.zoomend.length : 0,
+            };
+        }
+    } catch (_e) { ouvintes = { legivel: false }; }
+
+    window.__zerarSelecao();
+    return {
+        aplicado: true,
+        passe: nome,
+        passadasNaProva,
+        handlerNaProva,
+        chave: { amostras, passo, distintas: vistas.size },
+        ouvintes,
+    };
+}
+
+// O Turf tem de estar carregado ANTES de a bancada forcar uma passada: sem ele o
+// gerente sai na primeira linha, agenda uma reentrada e NAO escreve. A descoberta
+// da fonte da caixa leria zero escrita e culparia o gerente.
+async function garantirTurfNaPagina() {
+    const g = window.__gerenteSelecao;
+    if (typeof globalThis.turf !== 'undefined') return { turf: true, comoveio: 'ja estava carregado' };
+    // A propria passada pede o Turf e se refaz quando ele chega.
+    if (g) g.updateSelectionHighlight();
+    for (let i = 0; i < 40; i++) {
+        if (typeof globalThis.turf !== 'undefined') return { turf: true, comoveio: `carregou em ate ${(i + 1) * 250} ms` };
+        await new Promise((r) => setTimeout(r, 250));
+    }
+    return { turf: false, comoveio: 'nao carregou em 10 s' };
+}
+
+// Seleciona N feicoes pelo CAMINHO DO APP e devolve a prova.
+//
+// O caminho e o mesmo da selecao por caixa (`RectangleSelectionControl`):
+// `toggleFeatureSelection(tipo, id, feicao, false)` por feicao e um `updateUI()`
+// no fim. O tipo de cada feicao sai de `properties.source`, que E o tipo singular
+// do registro de tipos; nenhuma lista de tipos se repete aqui.
+async function selecionarNaPagina({ n }) {
+    const store = window.__store;
+    const sm = window.__selecaoManager;
+    const g = window.__gerenteSelecao;
+    const B = window.__bancada;
+    if (!sm) return { erro: 'selectionManager ausente' };
+    if (!g) return { erro: 'gerente de destaque de selecao ausente' };
+
+    let doStore = null;
+    try { doStore = await store.getCurrentMapFeatures(); } catch (e) { return { erro: `getCurrentMapFeatures: ${String(e && e.message ? e.message : e)}` }; }
+
+    const conhecido = (tipo) => (sm.controls && sm.controls.has(tipo)) || (sm.controlFactories && sm.controlFactories.has(tipo));
+    const candidatas = [];
+    const tiposIgnorados = {};
+    for (const bucket in doStore) {
+        const lista = doStore[bucket];
+        if (!Array.isArray(lista)) continue;
+        for (const f of lista) {
+            const tipo = f && f.properties && f.properties.source;
+            const id = f && f.properties && f.properties.id;
+            if (!tipo || !id) continue;
+            if (f.properties.bloqueado === true) { tiposIgnorados[`${tipo} (bloqueada)`] = (tiposIgnorados[`${tipo} (bloqueada)`] || 0) + 1; continue; }
+            if (!conhecido(tipo)) { tiposIgnorados[`${tipo} (sem controle de selecao)`] = (tiposIgnorados[`${tipo} (sem controle de selecao)`] || 0) + 1; continue; }
+            candidatas.push({ tipo, id, feicao: f });
+        }
+    }
+    // Ordem estavel entre as rodadas: o mesmo N escolhe as mesmas feicoes.
+    candidatas.sort((a, b) => (a.tipo === b.tipo ? String(a.id).localeCompare(String(b.id)) : a.tipo.localeCompare(b.tipo)));
+    const disponiveis = candidatas.length;
+    const alvos = candidatas.slice(0, n);
+
+    sm.deselectAllFeatures();
+    await new Promise((r) => setTimeout(r, 200));
+    for (const alvo of alvos) {
+        try { await sm.toggleFeatureSelection(alvo.tipo, alvo.id, alvo.feicao, false); } catch (_e) { /* conta so o que ficou */ }
+    }
+    if (typeof sm.updateUI === 'function') sm.updateUI();
+    await new Promise((r) => setTimeout(r, 600));
+
+    const selecionadas = typeof sm.getAllSelectedFeatures === 'function' ? sm.getAllSelectedFeatures().length : -1;
+
+    // A FONTE DA CAIXA se descobre pelo comportamento: numa passada forcada o
+    // gerente escreve em exatamente uma fonte, e e essa. O `_ultimaColecaoEscrita`
+    // vai a null porque a guarda de identidade pularia a escrita quando nada mudou.
+    if (typeof window.__envolverFontes === 'function') window.__envolverFontes();
+    const totalDe = (id) => (B.escritas[id] ? (B.escritas[id].setData || 0) + (B.escritas[id].updateData || 0) : 0);
+    const antes = {};
+    for (const id in B.escritas) antes[id] = totalDe(id);
+    g._ultimaColecaoEscrita = null;
+    g.updateSelectionHighlight();
+    const fontesQueEscreveram = [];
+    for (const id in B.escritas) if (totalDe(id) > (antes[id] || 0)) fontesQueEscreveram.push(id);
+    const fonteDaCaixa = fontesQueEscreveram.length === 1 ? fontesQueEscreveram[0] : null;
+
+    // Quantas caixas estao de fato na fonte. `serialize().data` e o unico caminho
+    // correto: o `_data` da fonte GeoJSON e um envelope.
+    let caixas = -1;
+    if (fonteDaCaixa) {
+        const src = window.__mapa.getSource(fonteDaCaixa);
+        const dados = src && typeof src.serialize === 'function' ? src.serialize().data : (src && src._data);
+        caixas = dados && Array.isArray(dados.features) ? dados.features.length : -1;
+    }
+    window.__fonteDaCaixa = fonteDaCaixa;
+    window.__zerarSelecao();
+    return {
+        pedidas: n,
+        disponiveis,
+        selecionadas,
+        caixas,
+        fonteDaCaixa,
+        fontesQueEscreveram,
+        tiposIgnorados,
+        porTipo: alvos.reduce((acc, a) => { acc[a.tipo] = (acc[a.tipo] || 0) + 1; return acc; }, {}),
+    };
+}
+
+// Contadores do passe e escritas da fonte da caixa, para o cenario que acabou.
+function lerContadoresSelecao() {
+    const C = window.__contadoresSelecao || null;
+    const B = window.__bancada;
+    const fonte = window.__fonteDaCaixa || null;
+    const e = fonte && B.escritas[fonte] ? B.escritas[fonte] : null;
+    return {
+        passadas: C ? C.passadas : null,
+        handler: C ? C.handler : null,
+        msPasse: C ? +C.msPasse.toFixed(2) : null,
+        msHandler: C ? +C.msHandler.toFixed(2) : null,
+        msJs: C ? +(C.msPasse + C.msHandler).toFixed(2) : null,
+        fonteDaCaixa: fonte,
+        setDataCaixa: e ? e.setData : null,
+        updateDataCaixa: e ? e.updateData : null,
+        escritasCaixa: e ? e.setData + e.updateData : (fonte ? 0 : null),
+        feicoesEscritasCaixa: e ? e.feicoes : null,
+    };
 }
 
 // --------------------------------------------------------------------------
@@ -1181,6 +1708,31 @@ class Bancada {
         return r;
     }
 
+    // --- caixa de selecao ---
+
+    async acharGerente() {
+        return this.page.evaluate(acharGerenteDeSelecao);
+    }
+
+    async remendarPasse(nome) {
+        const r = await this.page.evaluate(remendarPassePagina, { nome, amostras: AMOSTRAS_DE_CHAVE, passo: PASSO_DE_CHAVE });
+        // A prova da chave move o zoom dez vezes; o mapa volta ao lugar e assenta.
+        await this.assentar();
+        await this.esperarQuadros(3);
+        return r;
+    }
+
+    async garantirTurf() {
+        return this.page.evaluate(garantirTurfNaPagina);
+    }
+
+    async selecionar(n) {
+        const r = await this.page.evaluate(selecionarNaPagina, { n });
+        await this.assentar();
+        await this.esperarQuadros(3);
+        return r;
+    }
+
     // --- acoes das variantes ---
 
     async ligarTerreno() {
@@ -1295,6 +1847,9 @@ class Bancada {
 
     async rodarCenario(nome, prova) {
         const assentou = await this.assentar();
+        // Fonte que nasceu depois da carga (troca de estilo, terreno) nao esta
+        // envolvida, e a escrita dela sairia contada como zero.
+        const fontesNovas = await this.page.evaluate(() => (typeof window.__envolverFontes === 'function' ? window.__envolverFontes() : null));
         await this.page.evaluate(() => window.__zerar());
         if (nome === 'parado') {
             await this.cenarioParado(2000);
@@ -1311,6 +1866,8 @@ class Bancada {
         }
         const quadros = await this.page.evaluate(() => window.__bancada.quadros);
         const est = estatistica(quadros);
+        const selecao = await this.page.evaluate(lerContadoresSelecao);
+        selecao.fontesEnvolvidasAgora = fontesNovas;
         const depois = await this.page.evaluate(lerProva);
         // Prova de que o cenario trabalhou.
         const erros = [];
@@ -1325,7 +1882,7 @@ class Bancada {
             if (!st && !depois.pilhas) erros.push('terreno ligado mas sem stamps nem pilhas');
         }
         erros.push(...(assentou.erros || []));
-        return { cenario: nome, assentou, estatistica: est, provaFinal: depois, erros };
+        return { cenario: nome, assentou, estatistica: est, selecao, provaFinal: depois, erros };
     }
 }
 
@@ -1353,6 +1910,13 @@ const METRICAS = [
     ['stamps/q', (c) => c.estatistica.gl_por_quadro && c.estatistica.gl_por_quadro.stamp],
     ['pilhas', (c) => c.provaFinal.pilhas],
     ['fontes', (c) => c.provaFinal.fontes],
+    // O passe da caixa de selecao. `passadas` e o numero de vezes que o gerente
+    // remontou as caixas no gesto, `js sel ms` e o tempo somado do handler mais a
+    // passada (o handler com tempo PROPRIO, senao o zoomend contaria o passe
+    // duas vezes) e `escr caixa` e quantas escritas a fonte da caixa recebeu.
+    ['passadas', (c) => (c.selecao ? c.selecao.passadas : null)],
+    ['js sel ms', (c) => (c.selecao ? c.selecao.msJs : null)],
+    ['escr caixa', (c) => (c.selecao ? c.selecao.escritasCaixa : null)],
 ];
 
 // Nome das metricas para a conferencia contra a referencia.
@@ -1372,37 +1936,145 @@ function montarTabela(resultado) {
         : 'NENHUMA rodada valida fora do aquecimento; a tabela usa TODAS as rodadas e o resultado nao vale';
     const linhas = [];
     const bases = resultado.parametros.bases || ['atual'];
+    // Os dois eixos novos entram com padrao: um resultado gravado antes deles
+    // (ou o sintetico do autoteste) continua montando a sua tabela.
+    const passes = resultado.parametros.passes || ['selecao-quadro'];
+    const selecoes = resultado.parametros.selecionadas || [0];
     for (const variante of resultado.parametros.variantes) {
         for (const nomeBase of bases) {
-            for (const cenario of ORDEM_CENARIOS) {
-                const celulas = [];
-                const vereditos = new Set();
-                for (const rod of base) {
-                    const v = rod.variantes.find((x) => x.variante === variante && (x.base || 'atual') === nomeBase);
-                    if (!v) continue;
-                    const c = v.cenarios.find((x) => x.cenario === cenario);
-                    if (!c) continue;
-                    celulas.push(c);
-                    if (!v.valida) vereditos.add('VARIANTE INVALIDA');
-                    if (c.erros.length) vereditos.add('CENARIO INVALIDO');
-                    if (!rod.valida) vereditos.add('RODADA INVALIDA');
-                    // Aviso NAO invalida, mas tem de aparecer: uma celula sem
-                    // hillshade nao se compara com uma que o tem.
-                    for (const a of avisosDaVariante(v.prova)) vereditos.add(a.split(' (')[0]);
+            for (const passe of passes) {
+                for (const sel of selecoes) {
+                    for (const cenario of ORDEM_CENARIOS) {
+                        const celulas = [];
+                        const vereditos = new Set();
+                        for (const rod of base) {
+                            const v = rod.variantes.find((x) => x.variante === variante && (x.base || 'atual') === nomeBase
+                                && (x.passe || 'selecao-quadro') === passe && (x.selecionadas === undefined ? 0 : x.selecionadas) === sel);
+                            if (!v) continue;
+                            const c = v.cenarios.find((x) => x.cenario === cenario);
+                            if (!c) continue;
+                            celulas.push(c);
+                            if (!v.valida) vereditos.add('VARIANTE INVALIDA');
+                            if (c.erros.length) vereditos.add('CENARIO INVALIDO');
+                            if (!rod.valida) vereditos.add('RODADA INVALIDA');
+                            // Aviso NAO invalida, mas tem de aparecer: uma celula sem
+                            // hillshade nao se compara com uma que o tem.
+                            for (const a of avisosDaVariante(v.prova)) vereditos.add(a.split(' (')[0]);
+                        }
+                        if (!celulas.length) continue;
+                        if (resultado.ambiente.relogio !== 'valido') vereditos.add(resultado.ambiente.relogio);
+                        if (resultado.ambiente.appMudou) vereditos.add('APP MUDOU ENTRE AS CARGAS');
+                        const veredito = vereditos.size ? [...vereditos].join('; ') : 'ok';
+                        linhas.push({
+                            base: nomeBase, variante, passe, selecionadas: sel, cenario,
+                            valores: METRICAS.map(([nome, ler]) => ({ nome, texto: celula(celulas.map(ler)) })),
+                            amostras: celulas.length,
+                            veredito,
+                        });
+                    }
                 }
-                if (!celulas.length) continue;
-                if (resultado.ambiente.relogio !== 'valido') vereditos.add(resultado.ambiente.relogio);
-                if (resultado.ambiente.appMudou) vereditos.add('APP MUDOU ENTRE AS CARGAS');
-                const veredito = vereditos.size ? [...vereditos].join('; ') : 'ok';
-                linhas.push({
-                    base: nomeBase, variante, cenario,
-                    valores: METRICAS.map(([nome, ler]) => ({ nome, texto: celula(celulas.map(ler)) })),
-                    veredito,
-                });
             }
         }
     }
     return { linhas, nota };
+}
+
+/**
+ * A REGRA DE DECISAO do `zoomend`, escrita ANTES de rodar e aplicada linha a linha.
+ *
+ * "Se com N selecionadas o p95 da cadencia de rAF e o render p50 nao saem da
+ * amplitude medida com ZERO selecionadas na mesma variante, o `zoomend` fecha como
+ * nao compensa; se saem, o conserto e baratear o passe, e o `zoomend` e ultimo
+ * recurso."
+ *
+ * Os tres modos de mentir que esta funcao tem de recusar, e que a fazem devolver
+ * linha em vez de um veredito unico:
+ *
+ * 1. **Sem linha de base nao ha julgamento.** Faltando a celula de zero, responder
+ *    "dentro" seria aprovar por vacuidade: a linha sai SEM BASE.
+ * 2. **Amplitude de LARGURA ZERO nao e amplitude.** Com uma amostra ela e trivialmente
+ *    zero, mas a grade real de 2026-09-05 mostrou o caso que contar amostras NAO pega:
+ *    duas rodadas que concordam exatamente (`16,9` e `16,9`) tambem dao largura zero, e
+ *    ai um decimo de diferenca sai "fora" com cara de medida. O que marca a linha e a
+ *    LARGURA, nunca o numero de amostras.
+ * 3. **Celula invalida nao entra.** Comparar contra uma base que a bancada reprovou
+ *    e comparar com lixo, e o veredito herdaria a validade que nao existe.
+ *
+ * @param {Object} resultado - O resultado inteiro da bancada
+ * @param {string[]} [metricas] - Quais metricas decidem
+ * @returns {Array} Uma linha por (base, variante, passe, cenario, metrica, N)
+ */
+function aplicarRegraDeDecisao(resultado, metricas = ['interv p95', 'render p50']) {
+    const usadas = resultado.rodadas.filter((r) => !r.aquecimento && r.valida);
+    const base = usadas.length ? usadas : [];
+    const passes = resultado.parametros.passes || ['selecao-quadro'];
+    const selecoes = resultado.parametros.selecionadas || [0];
+    const bases = resultado.parametros.bases || ['atual'];
+    const linhas = [];
+    if (!base.length) {
+        return [{ item: 'regra de decisao', situacao: 'NAO APLICADA: nenhuma rodada valida fora do aquecimento' }];
+    }
+    const alvos = selecoes.filter((n) => n > 0);
+    if (!alvos.length || !selecoes.includes(0)) {
+        return [{ item: 'regra de decisao', situacao: `NAO APLICADA: a regra compara N contra ZERO na mesma variante, e esta rodada mediu --selecionadas ${selecoes.join(',')}` }];
+    }
+    const colher = (variante, nomeBase, passe, sel, cenario, metrica) => {
+        const ler = METRICAS.find(([n]) => n === metrica);
+        if (!ler) return [];
+        const vals = [];
+        for (const rod of base) {
+            const v = rod.variantes.find((x) => x.variante === variante && (x.base || 'atual') === nomeBase
+                && (x.passe || 'selecao-quadro') === passe && (x.selecionadas === undefined ? 0 : x.selecionadas) === sel);
+            if (!v || !v.valida) continue;
+            const c = v.cenarios.find((x) => x.cenario === cenario);
+            if (!c || c.erros.length) continue;
+            const x = ler[1](c);
+            if (x !== null && x !== undefined && !Number.isNaN(x)) vals.push(x);
+        }
+        return vals;
+    };
+    for (const variante of resultado.parametros.variantes) {
+        for (const nomeBase of bases) {
+            for (const passe of passes) {
+                for (const cenario of ORDEM_CENARIOS) {
+                    for (const metrica of metricas) {
+                        const zero = colher(variante, nomeBase, passe, 0, cenario, metrica);
+                        for (const sel of alvos) {
+                            const comN = colher(variante, nomeBase, passe, sel, cenario, metrica);
+                            if (!comN.length) continue;
+                            const medido = mediana(comN);
+                            if (!zero.length) {
+                                linhas.push({
+                                    item: `${nomeBase} / ${variante} / ${passe} / ${cenario} / ${metrica} / ${sel} selecionadas`,
+                                    base: '-', medido: arred(medido, 2), amostrasBase: 0, amostrasN: comN.length,
+                                    situacao: 'SEM BASE: a celula de zero selecionadas nao existe ou foi invalidada, e sem ela nao ha amplitude a comparar',
+                                });
+                                continue;
+                            }
+                            const min = Math.min(...zero);
+                            const max = Math.max(...zero);
+                            const dentro = medido >= min && medido <= max;
+                            const largura = max - min;
+                            const marca = largura === 0
+                                ? ` (AMPLITUDE DE LARGURA ZERO em ${zero.length} amostra${zero.length > 1 ? 's' : ''}: o veredito nao vale)`
+                                : '';
+                            linhas.push({
+                                item: `${nomeBase} / ${variante} / ${passe} / ${cenario} / ${metrica} / ${sel} selecionadas`,
+                                base: `${arred(min, 2)}..${arred(max, 2)}`,
+                                medido: arred(medido, 2),
+                                amostrasBase: zero.length,
+                                amostrasN: comN.length,
+                                situacao: (dentro ? 'dentro da amplitude de zero' : `SAI DA AMPLITUDE de zero (${medido > max ? 'acima' : 'abaixo'})`) + marca,
+                                largura: arred(largura, 2),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (!linhas.length) return [{ item: 'regra de decisao', situacao: 'NAO APLICADA: nenhum par (zero, N) valido saiu da bancada' }];
+    return linhas;
 }
 
 // A referencia foi medida na base com que o app abre. Caso de outra base fica
@@ -1464,7 +2136,7 @@ function conferirReferencia(resultado, referencia = REFERENCIA) {
     return saida;
 }
 
-function escreverMarkdown(resultado, tabela, conferencia) {
+function escreverMarkdown(resultado, tabela, conferencia, decisao) {
     const l = [];
     l.push('# Bancada de desempenho do EBGeo Web');
     l.push('');
@@ -1473,6 +2145,7 @@ function escreverMarkdown(resultado, tabela, conferencia) {
     l.push(`Renderer: ${resultado.ambiente.renderer}`);
     l.push(`Relogio: ${resultado.ambiente.relogio}`);
     l.push(`Bases: ${(resultado.parametros.bases || ['atual']).join(', ')} (base com que o app abre: ${resultado.ambiente.baseInicial || '?'}) | CPU: ${resultado.ambiente.cpu || 1}x | populado: ${resultado.parametros.populado ? `${resultado.ambiente.populacao ? resultado.ambiente.populacao.total : '?'} feicoes pelas ferramentas` : 'nao'}`);
+    l.push(`Passe da caixa de selecao: ${(resultado.parametros.passes || ['selecao-quadro']).join(', ')} | selecionadas: ${(resultado.parametros.selecionadas || [0]).join(', ')}`);
     l.push(`Playwright ${resultado.ambiente.playwrightVersao}, carregado de ${resultado.ambiente.playwrightOrigem}`);
     l.push(`Rodadas: ${resultado.parametros.rodadas}. ${tabela.nota}`);
     const ass = resultado.ambiente.assinaturasBase || {};
@@ -1486,13 +2159,28 @@ function escreverMarkdown(resultado, tabela, conferencia) {
     l.push('');
     l.push('Celula com mais de uma rodada valida mostra `mediana (min..max)`.');
     l.push('');
-    const cab = ['base', 'variante', 'cenario', ...METRICAS.map(([n]) => n), 'veredito'];
+    const cab = ['base', 'variante', 'passe', 'sel', 'cenario', ...METRICAS.map(([n]) => n), 'veredito'];
     l.push(`| ${cab.join(' | ')} |`);
     l.push(`|${cab.map(() => '---').join('|')}|`);
     for (const linha of tabela.linhas) {
-        l.push(`| ${linha.base || 'atual'} | ${linha.variante} | ${linha.cenario} | ${linha.valores.map((v) => v.texto).join(' | ')} | ${linha.veredito} |`);
+        l.push(`| ${linha.base || 'atual'} | ${linha.variante} | ${linha.passe || 'selecao-quadro'} | ${linha.selecionadas === undefined ? 0 : linha.selecionadas} | ${linha.cenario} | ${linha.valores.map((v) => v.texto).join(' | ')} | ${linha.veredito} |`);
     }
     l.push('');
+    if (decisao && decisao.length) {
+        l.push('## A regra de decisao do `zoomend`, aplicada linha a linha');
+        l.push('');
+        l.push('A regra foi escrita ANTES de rodar: se com N selecionadas o p95 da cadencia de rAF e o');
+        l.push('render p50 nao saem da amplitude medida com ZERO selecionadas na mesma variante, o');
+        l.push('`zoomend` fecha como "nao compensa"; se saem, o conserto e baratear o passe, e o');
+        l.push('`zoomend` e ultimo recurso.');
+        l.push('');
+        l.push('| item | amplitude com 0 | medido | amostras (0 / N) | situacao |');
+        l.push('|---|---|---|---|---|');
+        for (const d of decisao) {
+            l.push(`| ${d.item} | ${d.base ?? '-'} | ${d.medido ?? '-'} | ${d.amostrasBase ?? '-'} / ${d.amostrasN ?? '-'} | ${d.situacao} |`);
+        }
+        l.push('');
+    }
     l.push('## Conferencia contra a referencia');
     l.push('');
     l.push('| item | esperado | medido | fator | situacao |');
@@ -1507,7 +2195,8 @@ function escreverMarkdown(resultado, tabela, conferencia) {
         l.push(`- rodada ${rod.rodada}${rod.aquecimento ? ' (aquecimento)' : ''}: ${rod.valida ? 'valida' : `INVALIDA (${rod.erros.join('; ')})`}`);
         for (const v of rod.variantes) {
             const cad = v.cadenciaAssentada ? `cadencia p50 ${v.cadenciaAssentada.p50} p95 ${v.cadenciaAssentada.p95}` : 'cadencia ausente';
-            l.push(`  - ${v.base || 'atual'} / ${v.variante}: ${v.valida ? 'prova ok' : `PROVA INVALIDA (${v.erros.join('; ')})`}; ${cad}${v.avisos && v.avisos.length ? `; avisos: ${v.avisos.join('; ')}` : ''}`);
+            const rotulo = `${v.base || 'atual'} / ${v.variante} / ${v.passe || 'selecao-quadro'} / ${v.selecionadas === undefined ? 0 : v.selecionadas} sel`;
+            l.push(`  - ${rotulo}: ${v.valida ? 'prova ok' : `PROVA INVALIDA (${v.erros.join('; ')})`}; ${cad}${v.avisos && v.avisos.length ? `; avisos: ${v.avisos.join('; ')}` : ''}`);
         }
     }
     l.push('');
@@ -1515,10 +2204,13 @@ function escreverMarkdown(resultado, tabela, conferencia) {
     l.push('');
     const ultima = resultado.rodadas[resultado.rodadas.length - 1] || { variantes: [] };
     for (const v of ultima.variantes) {
-        l.push(`### ${v.base || 'atual'} / ${v.variante}`);
+        l.push(`### ${v.base || 'atual'} / ${v.variante} / ${v.passe || 'selecao-quadro'} / ${v.selecionadas === undefined ? 0 : v.selecionadas} selecionadas`);
         l.push('');
         l.push('```json');
-        l.push(JSON.stringify({ prova: v.prova, detalhe: v.detalhe, trocaBase: v.troca, provaTrocaBase: v.provaTrocaBase }, null, 2));
+        l.push(JSON.stringify({
+            prova: v.prova, detalhe: v.detalhe, trocaBase: v.troca, provaTrocaBase: v.provaTrocaBase,
+            gerenteDeSelecao: v.gerente, remendo: v.remendo, provaDaSelecao: v.provaSelecao,
+        }, null, 2));
         l.push('```');
         l.push('');
     }
@@ -1527,8 +2219,9 @@ function escreverMarkdown(resultado, tabela, conferencia) {
 
 function imprimirTabela(tabela) {
     if (!tabela.linhas.length) { console.log('nenhuma linha medida'); return; }
-    const cab = ['base', 'variante', 'cenario', ...METRICAS.map(([n]) => n), 'veredito'];
-    const linhas = [cab, ...tabela.linhas.map((li) => [li.base || 'atual', li.variante, li.cenario, ...li.valores.map((v) => v.texto), li.veredito])];
+    const cab = ['base', 'variante', 'passe', 'sel', 'cenario', ...METRICAS.map(([n]) => n), 'veredito'];
+    const linhas = [cab, ...tabela.linhas.map((li) => [li.base || 'atual', li.variante, li.passe || 'selecao-quadro',
+        li.selecionadas === undefined ? 0 : li.selecionadas, li.cenario, ...li.valores.map((v) => v.texto), li.veredito])];
     const larg = cab.map((_, i) => Math.max(...linhas.map((r) => String(r[i]).length)));
     const sep = larg.map((w) => '-'.repeat(w)).join('-+-');
     console.log(linhas[0].map((c, i) => String(c).padEnd(larg[i])).join(' | '));
@@ -1624,13 +2317,22 @@ async function principal() {
         const reg = { rodada, aquecimento: rodada === 1 && params.rodadas > 1, valida: true, erros: [], variantes: [] };
         console.log(`\n===== rodada ${rodada}${reg.aquecimento ? ' (aquecimento)' : ''}`);
         // Base por dentro, variante por fora: os casos que se comparam ficam
-        // vizinhos no tempo, e a rodada ja intercala o resto.
+        // vizinhos no tempo, e a rodada ja intercala o resto. O par (zero, N)
+        // selecionadas fica MAIS por dentro ainda, porque e ele que a regra de
+        // decisao compara: os dois lados da comparacao nascem a segundos um do
+        // outro, na mesma carga de maquina.
         const casos = [];
-        for (const nome of params.variantes) for (const base of params.bases) casos.push([nome, base]);
-        for (const [nome, base] of casos) {
+        for (const nome of params.variantes) {
+            for (const base of params.bases) {
+                for (const passe of params.passes) {
+                    for (const sel of params.selecionadas) casos.push([nome, base, passe, sel]);
+                }
+            }
+        }
+        for (const [nome, base, passe, selecionadas] of casos) {
             const def = VARIANTES[nome];
-            const rv = { base, variante: nome, valida: true, erros: [], cenarios: [] };
-            console.log(`--- ${base} / ${nome}`);
+            const rv = { base, variante: nome, passe, selecionadas, valida: true, erros: [], cenarios: [] };
+            console.log(`--- ${base} / ${nome} / ${passe} / ${selecionadas} sel`);
             try {
                 const carga = await bancada.carregar();
                 rv.carga = carga;
@@ -1699,6 +2401,32 @@ async function principal() {
                     console.log(`  base: ${base} -> estilo ${provaTroca ? provaTroca.estilo : '-'}, ${provaTroca ? provaTroca.camadasPresentes : '-'}/${esp.camadas ? esp.camadas.length : '-'} camadas da base, tiles carregados ${provaTroca ? JSON.stringify(provaTroca.carregadosPorFonte) : '-'}${errosBase.length ? `  ** BASE INVALIDA: ${errosBase.join('; ')}` : ''}`);
                 }
 
+                // ===== o passe da caixa de selecao =====
+                // Antes da variante, de proposito: o remendo tem de estar no lugar
+                // desde a primeira passada, e a variante (o terreno, sobretudo) tem
+                // de ver a selecao que o usuario teria.
+                const gerente = await bancada.acharGerente();
+                rv.gerente = gerente;
+                const errosGerente = validarGerenteDeSelecao(gerente);
+                if (errosGerente.length) { rv.valida = false; rv.erros.push(...errosGerente); }
+                if (!errosGerente.length) {
+                    const remendo = await bancada.remendarPasse(passe);
+                    rv.remendo = remendo;
+                    const errosRemendo = validarRemendo(passe, remendo);
+                    if (errosRemendo.length) { rv.valida = false; rv.erros.push(...errosRemendo.map((e) => `remendo: ${e}`)); }
+                    console.log(`  remendo ${passe}: ${remendo.aplicado ? `aplicado (${remendo.passadasNaProva} passada, ${remendo.handlerNaProva} handler, ${remendo.chave ? remendo.chave.distintas : '?'}/${remendo.chave ? remendo.chave.amostras : '?'} chaves distintas, ouvintes ${remendo.ouvintes && remendo.ouvintes.legivel ? `zoom=${remendo.ouvintes.emZoom} zoomend=${remendo.ouvintes.emZoomend}` : 'nao legiveis'})` : `NAO APLICADO: ${remendo.motivo}`}${errosRemendo.length ? `  ** ${errosRemendo.join('; ')}` : ''}`);
+
+                    const turf = await bancada.garantirTurf();
+                    rv.turf = turf;
+                    if (!turf.turf) { rv.valida = false; rv.erros.push('o Turf nao carregou: o gerente sai antes de escrever, e a fonte da caixa nunca receberia dado'); }
+
+                    const provaSelecao = await bancada.selecionar(selecionadas);
+                    rv.provaSelecao = provaSelecao;
+                    const errosSelecao = validarSelecao(selecionadas, provaSelecao);
+                    if (errosSelecao.length) { rv.valida = false; rv.erros.push(...errosSelecao); }
+                    console.log(`  selecao: ${provaSelecao.selecionadas}/${selecionadas} no estado, ${provaSelecao.caixas} caixas na fonte "${provaSelecao.fonteDaCaixa || '?'}" (${provaSelecao.disponiveis} selecionaveis no app)${errosSelecao.length ? `  ** SELECAO INVALIDA: ${errosSelecao.join('; ')}` : ''}`);
+                }
+
                 const detalhe = await def.aplicar(bancada) || {};
                 await bancada.esperarQuadros(3);
                 const prova = await page.evaluate(lerProva);
@@ -1721,6 +2449,37 @@ async function principal() {
                         rv.erros.push(`estado populado nao voltou: ${prova.feicoes} feicoes nas fontes, persistidas no store ${criadas}`);
                     }
                 }
+                // A caixa SOBREVIVEU a variante? As variantes `vazias-escondidas` e
+                // `vazias-removidas` mexem justamente em fonte GeoJSON sem feicao, e
+                // com zero selecionadas a fonte da caixa E uma delas. Ler a contagem
+                // de novo aqui e o que separa "medi com N caixas" de "medi o app que
+                // acabou de perder a camada da caixa".
+                if (rv.provaSelecao && rv.provaSelecao.fonteDaCaixa) {
+                    const depoisDaVariante = await page.evaluate((fonte) => {
+                        const map = window.__mapa;
+                        const src = map.getSource(fonte);
+                        if (!src) return { fonteViva: false, caixas: -1, camadas: 0, visiveis: 0 };
+                        const dados = typeof src.serialize === 'function' ? src.serialize().data : src._data;
+                        const camadas = map.getStyle().layers.filter((l) => l.source === fonte);
+                        return {
+                            fonteViva: true,
+                            caixas: dados && Array.isArray(dados.features) ? dados.features.length : -1,
+                            camadas: camadas.length,
+                            visiveis: camadas.filter((l) => !l.layout || l.layout.visibility !== 'none').length,
+                        };
+                    }, rv.provaSelecao.fonteDaCaixa);
+                    rv.caixaDepoisDaVariante = depoisDaVariante;
+                    if (!depoisDaVariante.fonteViva) {
+                        rv.valida = false;
+                        rv.erros.push(`a variante ${nome} removeu a fonte da caixa "${rv.provaSelecao.fonteDaCaixa}": o passe medido nao escreve em lugar nenhum`);
+                    } else if (depoisDaVariante.caixas !== selecionadas) {
+                        rv.valida = false;
+                        rv.erros.push(`depois da variante a fonte da caixa tem ${depoisDaVariante.caixas} caixas, e a selecao era de ${selecionadas}`);
+                    } else if (selecionadas > 0 && !depoisDaVariante.visiveis) {
+                        rv.valida = false;
+                        rv.erros.push(`a variante ${nome} escondeu as ${depoisDaVariante.camadas} camadas da caixa: a caixa nao esta na tela`);
+                    }
+                }
                 console.log(`  prova: estilo=${prova.estilo} feicoes=${prova.feicoes} terreno=${prova.terreno} pilhas=${prova.pilhas} tilesT=${prova.tilesTerreno} fontes=${prova.fontes} camadas=${prova.camadas} hillshade=${prova.hillshade} proj=${prova.projecao} pitch=${prova.pitch} zoom=${prova.zoom}${rv.valida ? '' : `  ** INVALIDA: ${rv.erros.join('; ')}`}`);
 
                 for (const cenario of ORDEM_CENARIOS) {
@@ -1733,11 +2492,21 @@ async function principal() {
                         fs.writeFileSync(arq, JSON.stringify(profile));
                         c.perfil = { arquivo: path.basename(arq), ...agregarPerfil(profile) };
                     }
+                    // O COMPORTAMENTO prometido pela variante do passe so o gesto de
+                    // zoom responde: a fiacao ja se provou, mas passe faminto e
+                    // ouvinte que nao saiu se parecem com fiacao boa.
+                    if (cenario === 'zoom' && rv.remendo && rv.remendo.aplicado) {
+                        const errosGesto = validarPasseNoGesto(passe, selecionadas, c.selecao, c.estatistica.quadros);
+                        if (errosGesto.length) { c.erros.push(...errosGesto); rv.valida = false; rv.erros.push(...errosGesto); }
+                    }
                     rv.cenarios.push(c);
                     const e = c.estatistica;
-                    console.log(`  ${cenario.padEnd(8)} quadros ${String(e.quadros).padStart(4)} | render p50 ${e.render_ms ? e.render_ms.p50 : '-'} p95 ${e.render_ms ? e.render_ms.p95 : '-'} | interv p50 ${e.intervalo_ms ? e.intervalo_ms.p50 : '-'} p95 ${e.intervalo_ms ? e.intervalo_ms.p95 : '-'} | draw ${e.gl_por_quadro ? e.gl_por_quadro.draw : '-'} stamp ${e.gl_por_quadro ? e.gl_por_quadro.stamp : '-'}${c.erros.length ? `  ** ${c.erros.join('; ')}` : ''}`);
+                    const s = c.selecao || {};
+                    console.log(`  ${cenario.padEnd(8)} quadros ${String(e.quadros).padStart(4)} | render p50 ${e.render_ms ? e.render_ms.p50 : '-'} p95 ${e.render_ms ? e.render_ms.p95 : '-'} | interv p50 ${e.intervalo_ms ? e.intervalo_ms.p50 : '-'} p95 ${e.intervalo_ms ? e.intervalo_ms.p95 : '-'} | draw ${e.gl_por_quadro ? e.gl_por_quadro.draw : '-'} stamp ${e.gl_por_quadro ? e.gl_por_quadro.stamp : '-'} | passe ${s.passadas ?? '-'}p/${s.handler ?? '-'}h ${s.msJs ?? '-'}ms escr ${s.escritasCaixa ?? '-'}${c.erros.length ? `  ** ${c.erros.join('; ')}` : ''}`);
                     if (cenario === 'parado') {
-                        await page.screenshot({ path: path.join(params.saida, `captura-${base}-${nome}.png`) });
+                        // O nome carrega os quatro eixos do caso: sem o passe e o N a
+                        // captura de um caso sobrescreveria a do vizinho.
+                        await page.screenshot({ path: path.join(params.saida, `captura-${base}-${nome}-${passe}-${selecionadas}sel.png`) });
                     }
                 }
             } catch (e) {
@@ -1777,10 +2546,12 @@ async function principal() {
 
     const tabela = montarTabela(resultado);
     const conferencia = conferirReferencia(resultado);
+    const decisao = aplicarRegraDeDecisao(resultado);
     resultado.tabela = tabela;
     resultado.conferencia = conferencia;
+    resultado.decisao = decisao;
     fs.writeFileSync(path.join(params.saida, 'resultado.json'), JSON.stringify(resultado, null, 2));
-    fs.writeFileSync(path.join(params.saida, 'resultado.md'), escreverMarkdown(resultado, tabela, conferencia));
+    fs.writeFileSync(path.join(params.saida, 'resultado.md'), escreverMarkdown(resultado, tabela, conferencia, decisao));
 
     console.log('');
     imprimirTabela(tabela);
@@ -1791,6 +2562,9 @@ async function principal() {
     console.log('');
     console.log('conferencia contra a referencia:');
     for (const c of conferencia) console.log(`  ${c.item}: esperado ${c.esperado ?? '-'}, medido ${c.medido ?? '-'} (fator ${c.fator ?? '-'}) -> ${c.situacao}`);
+    console.log('');
+    console.log('regra de decisao do zoomend (escrita antes de rodar), linha a linha:');
+    for (const d of decisao) console.log(`  ${d.item}: amplitude com 0 = ${d.base ?? '-'}, medido ${d.medido ?? '-'} (amostras ${d.amostrasBase ?? '-'}/${d.amostrasN ?? '-'}) -> ${d.situacao}`);
     if (erros.length) console.log(`\nerros da pagina (${erros.length}): ${[...new Set(erros)].slice(0, 5).join(' | ')}`);
     console.log(`\nsaida: ${params.saida}`);
 }
@@ -1801,10 +2575,11 @@ const chamadoDireto = process.argv[1] && path.resolve(process.argv[1]) === fileU
 if (chamadoDireto) principal().catch((e) => { console.error(e); process.exit(1); });
 
 export {
-    VISTAS, ORDEM_VARIANTES, ORDEM_CENARIOS, VARIANTES, REFERENCIA, METRICAS,
-    PLANO_POPULAR, MS_ESTAVEL,
+    VISTAS, ORDEM_VARIANTES, ORDEM_CENARIOS, ORDEM_PASSES, VARIANTES, REFERENCIA, METRICAS,
+    PLANO_POPULAR, MS_ESTAVEL, AMOSTRAS_DE_CHAVE, PASSO_DE_CHAVE,
     lerArgumentos, carregarPlaywright, percentil, mediana, estatistica,
     agregarPerfil, celula, montarTabela, conferirReferencia, escreverMarkdown,
     validarBase, avaliarIdentidade, validarLeituraDeTiles, avaliarProntidao,
-    avisosDaVariante,
+    avisosDaVariante, validarGerenteDeSelecao, validarRemendo, validarSelecao,
+    validarPasseNoGesto, aplicarRegraDeDecisao,
 };

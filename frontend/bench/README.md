@@ -6,7 +6,8 @@ como mediana com amplitude. Nenhum caminho de máquina no código, e nenhum cami
 em artefato.
 
 - `desempenho-terreno.mjs` mede o custo do QUADRO DO MAPA sob variantes de estado, com terreno e
-  sem. `autoteste.mjs` prova que ela reprova o insumo degenerado (135 casos, 11 eixos).
+  sem, e o custo do PASSE DA CAIXA DE SELEÇÃO sob variantes do próprio passe.
+  `autoteste.mjs` prova que ela reprova o insumo degenerado (236 casos, 17 eixos).
 - `ferramentas.mjs` mede o custo de USAR uma ferramenta de desenho: o feedback enquanto o mouse
   anda, o passe de zoom com N feições e a latência de concluir a feição.
   `autoteste-ferramentas.mjs` prova que ela reprova o insumo degenerado (232 casos, 12 eixos).
@@ -188,6 +189,8 @@ node frontend/bench/desempenho-terreno.mjs --variantes terreno --populado --cpu 
 | `--bases` | `atual` | ids de mapa base do app, separados por vírgula |
 | `--cpu` | 1 | estrangula a CPU pelo CDP (`4` = máquina quatro vezes mais lenta) |
 | `--populado` | false | cria feições de 10 tipos pelas ferramentas do app antes das rodadas |
+| `--selecionadas` | `0` | quantas feições ficam SELECIONADAS durante a medida, pelo caminho do app. Lista: `0,50` mede as duas na mesma sessão |
+| `--passes` | `selecao-quadro` | variantes do passe da caixa de seleção, por remendo em tempo de execução: `selecao-quadro`, `selecao-exata`, `selecao-zoomend` |
 
 Artefatos na pasta de saída: `resultado.json` (tudo, provas e vereditos inclusive), `resultado.md`
 (a tabela), `captura-<base>-<variante>.png` e, com `--perfil`, um `.cpuprofile` por cenário. O
@@ -211,6 +214,103 @@ Prova que não bate marca a variante INVÁLIDA na tabela, e a bancada segue medi
 Fonte GeoJSON vazia é a que tem coleção com zero feições. Fonte cujo dado é uma URL não dá para
 julgar do lado do cliente, então sai contada à parte em `fontesUrlDesconhecidas` e a bancada NÃO
 mexe nela: descarte silencioso costuma incluir justamente o que se procura.
+
+### O passe da caixa de seleção (`--selecionadas` e `--passes`)
+
+O eixo das variantes acima descreve o ESTADO DO MAPA. Este descreve o custo de manter a caixa de
+seleção na tela enquanto o usuário dá zoom, e ele é ortogonal ao primeiro: uma célula é
+`(base, variante de estado, variante do passe, quantas selecionadas, cenário)`.
+
+O sujeito é `frontend/src/js/tool_manager/managers/selection-highlight.manager.js`, que desde
+2026-09-05 refaz as caixas POR QUADRO de zoom. As três variantes nascem de um REMENDO EM TEMPO DE
+EXECUÇÃO no gerente vivo, nunca de código no app:
+
+| `--passes` | o que troca | como se prova |
+|---|---|---|
+| `selecao-quadro` | nada: o app como está, com o passe e o handler embrulhados por contadores | os contadores mexem na chamada direta, o ouvinte segue em `zoom`, e a chave de cache colapsa |
+| `selecao-exata` | `getCacheKey` sem a quantização (o zoom inteiro na chave) | dez zooms a 0,01 de distância dão DEZ chaves distintas, e não uma |
+| `selecao-zoomend` | o ouvinte de `zoom` desligado e um `zoomend` que chama a passada uma vez | o ouvinte saiu de `zoom` e entrou em `zoomend`, e o gesto medido mostra duas passadas, não noventa |
+
+Nada aqui repete uma constante do app, e isso é o que mantém a bancada honesta quando o app mudar:
+
+- **O caminho até o gerente** sai do registro de controles, por uma ferramenta ANSIOSA
+  (`getControl('AddPointControl').toolManager.uiManager._selectionHighlight`). `map_sig.js` não
+  registra o `UIManager` nem o `ToolManager` por nome, e a ferramenta tardia devolveria um
+  stand-in, que não tem `toolManager`.
+- **O id da fonte da caixa** sai da fonte que o gerente ESCREVE numa passada forçada, e não de uma
+  string escrita aqui. Duas fontes escritas na mesma passada reprovam, porque aí a descoberta não
+  é unívoca.
+- **O passo da quantização** sai de quantas chaves distintas dez zooms vizinhos produzem. Um
+  `0,5` copiado para cá envelheceria sozinho, e o modo de falha seria aprovar a variante exata que
+  não pegou.
+- **O tipo de cada feição** sai de `properties.source`, que É o tipo singular do registro de
+  tipos. Nenhuma lista de tipos vive na bancada.
+
+A seleção segue o caminho do usuário, o mesmo da seleção por caixa
+(`selection_tools/rectangle_selection_control.js`): `toggleFeatureSelection` por feição e um
+`updateUI()` no fim.
+
+**O tempo de JS do handler é o PRÓPRIO dele.** O `zoomend` chama a passada por dentro, e somar os
+dois brutos contaria o passe duas vezes na coluna. A coluna `js sel ms` é o handler exclusivo mais
+a passada.
+
+**A regra de decisão foi escrita ANTES de rodar**, e a bancada a aplica linha a linha no
+`resultado.md`: se com N selecionadas o p95 da cadência de rAF e o render p50 não saem da
+AMPLITUDE medida com zero selecionadas na mesma variante, o `zoomend` fecha como "não compensa";
+se saem, o conserto é baratear o passe, e o `zoomend` é último recurso. Ela recusa três formas de
+mentir: sem a célula de zero a linha sai `SEM BASE` (e não "dentro"), a amplitude de uma amostra
+só sai marcada como largura zero, e célula que a bancada invalidou não entra na base.
+
+Duas armadilhas que a grade mostrou:
+
+- **Com zero selecionadas a fonte da caixa É uma fonte GeoJSON vazia.** As variantes
+  `terreno-vazias-escondidas` e `terreno-vazias-removidas` mexem justamente nessas, então a
+  combinação delas com `--selecionadas 0` esconde ou remove a camada da própria caixa. A bancada
+  relê a fonte DEPOIS de aplicar a variante e reprova o caso; para medir o passe, use `terreno`.
+- **`--selecionadas` sem `--populado` não tem o que selecionar**, e a rodada sai inválida dizendo
+  quantas feições selecionáveis o app tinha.
+
+#### Números medidos em 2026-09-05 (grade completa, 3 rodadas, a primeira descartada)
+
+Vista `serra-gaucha`, viewport 1600x900, janela visível, GPU NVIDIA RTX A2000 12GB, `npm run dev`,
+app com assinatura `86c/70f/22v`, terreno e hillshade no demotiles do MapLibre, **hillshade
+DESLIGADO** na configuração do servidor. `--variantes terreno --populado` (56 feições persistidas
+de 59 criadas), cenário `zoom` (dois `easeTo` de um nível, 1,5 s cada).
+
+CPU livre (`--cpu 1`):
+
+| passe | sel | render p50 | interv p50 | interv p95 | draw/quadro | passadas | js sel ms | escr caixa |
+|---|---|---|---|---|---|---|---|---|
+| `selecao-quadro` | 0 | 5,2 | 16,7 | 18,25 | 60 | 0 | 0,25 | 0 |
+| `selecao-quadro` | 50 | 9,05 (9..9,1) | 16,7 | 25,4 (25,2..25,6) | 227 | 89,5 | 19,9 | **4** |
+| `selecao-exata` | 50 | 9,9 | 16,7 | 26,35 (26,1..26,6) | **459** | 88,5 | 26,25 | **88,5** |
+| `selecao-zoomend` | 50 | 9,0 | 16,7 | 24,95 (24,3..25,6) | 218 | 2 | 0,75 | 2 |
+
+Com a CPU estrangulada em 4x o desenho é o mesmo: `selecao-quadro` a 50 selecionadas dá render p50
+52,75 (52,5..53) e cadência p95 207,3 (203,8..210,8); `selecao-zoomend`, 50,75 (49,1..52,4) e
+197,4 (186,7..208,1). As duas amplitudes se sobrepõem nas duas métricas.
+
+**Três leituras, e a terceira é a que muda o que se faz:**
+
+1. **O `zoomend` não compensa.** Com 50 selecionadas, `selecao-quadro` e `selecao-zoomend` não se
+   separam em render p50 nem em cadência p95, nas duas cargas de CPU: as amplitudes se
+   sobrepõem. O que o `zoomend` de fato economiza são 19 ms de JavaScript espalhados por ~90
+   quadros de um gesto de 3 s, isto é 0,22 ms por quadro contra um orçamento de 16,7 ms.
+2. **A chave de cache QUANTIZADA fica, e agora por dois motivos.** Tirar a quantização faz cada
+   quadro montar caixas novas, e a guarda de identidade de `updateSelectionHighlight` deixa de
+   pegar: as escritas na fonte da caixa vão de **4 para 88,5 por gesto** e as draw calls por
+   quadro DOBRAM (227 para 459). O cabeçalho do gerente dizia que a caixa exata não move a
+   cadência; com terreno LIGADO ela move (p95 26,1..26,6 contra 25,2..25,6, sem sobreposição).
+3. **O que custa não é o passe, é a seleção existir.** Selecionar 50 feições leva o mapa de 22
+   para 39 camadas visíveis (as alças de edição e a própria caixa deixam de ser fonte vazia), o
+   render p50 do gesto de 5,2 para 9,05 ms e as draw calls de 60 para 227. A hipótese de que as
+   PILHAS do render-to-texture explicariam isso foi TESTADA com
+   `--variantes terreno,terreno-quebra-pilha-topo --selecionadas 50` e ela explica pouco: as
+   pilhas caem de 9 para 1 e as draw calls de 231 para 106, e o render p50 sai de 9,3 para 8,7
+   (15% da diferença). O que dobra junto com a diferença é a fase `_updateSources` (2,06 para
+   4,14 ms por quadro), que é a primeira metade do custo descrito no `fileoverview` de
+   `frontend/src/js/layers/empty-source-visibility.js`. Isto está MEDIDO, não testado: quem for
+   atrás precisa de uma variante que tire o `used` da fonte sem esvaziá-la.
 
 ### Cenários
 
@@ -242,7 +342,19 @@ quantos ficaram desconhecidos):
    significam que a árvore mudou embaixo da medida, e toda rodada sai INVÁLIDA com
    `APP MUDOU ENTRE AS CARGAS`.
 9. **Conferência contra a referência.** Ver abaixo.
-10. **Autoteste.** `node frontend/bench/autoteste.mjs`: 135 casos em 11 eixos.
+10. **O gerente da caixa de seleção existe.** Caminho que não chega ao gerente, ou objeto sem
+    `updateSelectionHighlight`, `_handleZoomChange`, `getCacheKey` ou `selectionManager`, derruba o
+    caso ANTES de medir.
+11. **O remendo pegou.** Chamada direta a cada ponto remendado tem de mexer o contador; a chave de
+    cache tem de mudar (ou não mudar) conforme a variante; o ouvinte tem de estar em `zoom` ou em
+    `zoomend`, e não nos dois.
+12. **A seleção está na FONTE.** N no estado E N caixas na fonte descoberta. Estado certo com a
+    fonte vazia é o pior caso, porque a tela está vazia e o número bate.
+13. **O gesto mostrou o comportamento prometido.** O passe por quadro que roda DUAS vezes em 92
+    quadros está passando fome (foi defeito real nesta árvore); o `zoomend` que roda 47 vezes não
+    desligou o ouvinte de `zoom`. E com zero selecionadas a passada não pode rodar, senão a linha
+    de base não é a ausência do passe.
+14. **Autoteste.** `node frontend/bench/autoteste.mjs`: 236 casos em 17 eixos.
 
 ### A tabela de referência está VAZIA, e isso é declarado
 

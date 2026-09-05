@@ -13,10 +13,11 @@
 
 import process from 'node:process';
 import {
-    VARIANTES, PLANO_POPULAR, REFERENCIA, lerArgumentos, estatistica, celula,
+    VARIANTES, PLANO_POPULAR, REFERENCIA, ORDEM_PASSES, lerArgumentos, estatistica, celula,
     montarTabela, conferirReferencia, percentil, mediana, escreverMarkdown,
     validarBase, avaliarIdentidade, validarLeituraDeTiles, avaliarProntidao,
-    avisosDaVariante,
+    avisosDaVariante, validarGerenteDeSelecao, validarRemendo, validarSelecao,
+    validarPasseNoGesto, aplicarRegraDeDecisao,
 } from './desempenho-terreno.mjs';
 import { lerProxyDoAmbiente, resolverProxyDoNavegador } from './proxy-do-navegador.mjs';
 
@@ -233,7 +234,13 @@ function eixo4() {
         && t2.linhas[1].base === 'carta-ortoimagem' && t2.linhas[1].valores[0].texto === '5',
         JSON.stringify(t2.linhas.map((l) => [l.base, l.valores[0].texto])));
     checa('resultado sem campo base cai em "atual"', montarTabela(bom).linhas[0].base === 'atual');
-    checa('a base aparece na linha do markdown', /\| carta-ortoimagem \| terreno \| parado \| 5 \|/.test(escreverMarkdown(duasBases, t2, [])));
+    // A linha do markdown carrega os QUATRO eixos do caso (base, variante, passe,
+    // selecionadas) antes do cenario. Este casamento mudou quando o passe e a
+    // selecao viraram dimensao: um resultado gravado sem elas cai no padrao
+    // `selecao-quadro` e `0`, que e o que esta linha confere.
+    checa('a base aparece na linha do markdown, com o passe e a selecao no padrao',
+        /\| carta-ortoimagem \| terreno \| selecao-quadro \| 0 \| parado \| 5 \|/.test(escreverMarkdown(duasBases, t2, [])),
+        escreverMarkdown(duasBases, t2, []).split('\n').filter((x) => /carta-ortoimagem/.test(x)).join(' // '));
 }
 eixo4();
 
@@ -316,6 +323,21 @@ function eixo6() {
     checa('padrao de --proxy e ambiente', p.proxy === 'ambiente');
     checa('--proxy sem-proxy e lido', lerArgumentos(['--proxy', 'sem-proxy']).proxy === 'sem-proxy');
     lanca('--proxy desconhecido lanca', () => lerArgumentos(['--proxy', 'tunel']));
+    // O passe da caixa de selecao e a selecao, os dois eixos novos.
+    checa('padrao mede sem selecao e so o passe como esta', p.selecionadas.join(',') === '0' && p.passes.join(',') === 'selecao-quadro');
+    const p4 = lerArgumentos(['--selecionadas', '50,0', '--passes', 'selecao-zoomend,selecao-quadro']);
+    checa('--selecionadas sai em ordem crescente (zero e a linha de base, e ela vem primeiro)', p4.selecionadas.join(',') === '0,50', p4.selecionadas.join(','));
+    checa('--passes volta na ordem canonica', p4.passes.join(',') === 'selecao-quadro,selecao-zoomend', p4.passes.join(','));
+    checa('--selecionadas 0 sozinha e valida (e a medida sem selecao)', lerArgumentos(['--selecionadas', '0']).selecionadas.join(',') === '0');
+    lanca('--selecionadas negativa lanca', () => lerArgumentos(['--selecionadas', '-1']));
+    lanca('--selecionadas fracionaria lanca', () => lerArgumentos(['--selecionadas', '2.5']));
+    lanca('--selecionadas nao numerica lanca', () => lerArgumentos(['--selecionadas', 'todas']));
+    lanca('--selecionadas repetida lanca', () => lerArgumentos(['--selecionadas', '50,50']));
+    lanca('--selecionadas vazia lanca', () => lerArgumentos(['--selecionadas', ' , ']));
+    lanca('passe desconhecido lanca', () => lerArgumentos(['--passes', 'selecao-quadro,selecao-magica']));
+    lanca('--passes repetida lanca', () => lerArgumentos(['--passes', 'selecao-exata,selecao-exata']));
+    lanca('--passes vazia lanca', () => lerArgumentos(['--passes', ' , ']));
+    checa('as tres variantes do passe sao as declaradas', ORDEM_PASSES.join(',') === 'selecao-quadro,selecao-exata,selecao-zoomend', ORDEM_PASSES.join(','));
 }
 eixo6();
 
@@ -468,6 +490,290 @@ function eixo12() {
         !JSON.stringify({ modo: r.modo, args: r.launch.args, descricao: r.descricao }).includes('s3nh'));
 }
 eixo12();
+
+function eixo13() {
+    console.log('\n== eixo 13: a bancada achou o GERENTE da caixa de selecao?');
+    const bom = { achado: true, caminho: 'x', temPasse: true, temHandler: true, temChave: true, temSelectionManager: true };
+    checa('gerente completo passa', validarGerenteDeSelecao(bom).length === 0, JSON.stringify(validarGerenteDeSelecao(bom)));
+    // O pior caso, e o motivo desta regua: o caminho errado devolve undefined, o
+    // remendo cai em silencio e a rodada mede o app intacto com o nome da variante.
+    const ausente = validarGerenteDeSelecao({ achado: false, motivo: 'nenhum controle ansioso levou ao gerente', tentativas: ['AddPointControl: ainda e stand-in'] });
+    checa('gerente ausente reprova', ausente.length > 0);
+    checa('a reprova traz o que foi tentado', /stand-in/.test(ausente.join(' ')), ausente.join(' '));
+    checa('busca nao feita reprova em vez de passar calada', validarGerenteDeSelecao(null).length > 0);
+    // Achar um objeto QUALQUER nao e achar o gerente: os tres pontos que o remendo
+    // troca tem de estar la, e cada um sozinho ja reprova.
+    checa('objeto sem updateSelectionHighlight reprova', validarGerenteDeSelecao({ ...bom, temPasse: false }).length > 0);
+    checa('objeto sem _handleZoomChange reprova', validarGerenteDeSelecao({ ...bom, temHandler: false }).length > 0);
+    checa('objeto sem getCacheKey reprova', validarGerenteDeSelecao({ ...bom, temChave: false }).length > 0);
+    checa('gerente que nao leva ao selectionManager reprova', validarGerenteDeSelecao({ ...bom, temSelectionManager: false }).length > 0);
+}
+eixo13();
+
+function eixo14() {
+    console.log('\n== eixo 14: o REMENDO pegou? (a funcao trocada e a que roda)');
+    const quantizada = { amostras: 10, passo: 0.01, distintas: 1 };
+    const exata = { amostras: 10, passo: 0.01, distintas: 10 };
+    const bomQuadro = {
+        aplicado: true, passadasNaProva: 1, handlerNaProva: 1, chave: quantizada,
+        ouvintes: { legivel: true, emZoom: true, emZoomend: false },
+    };
+    checa('remendo do passe por quadro passa', validarRemendo('selecao-quadro', bomQuadro).length === 0, validarRemendo('selecao-quadro', bomQuadro).join('; '));
+    checa('remendo nao aplicado reprova', validarRemendo('selecao-quadro', { aplicado: false, motivo: 'gerente ausente' }).length > 0);
+    checa('remendo ausente reprova', validarRemendo('selecao-quadro', null).length > 0);
+    // O pior caso do embrulho: a atribuicao caiu noutro objeto, nada lancou, e o
+    // contador ficou em zero. Sem isto a tabela sai com o nome da variante e o
+    // numero do app intacto.
+    const passeMudo = validarRemendo('selecao-quadro', { ...bomQuadro, passadasNaProva: 0 });
+    checa('passe que nao contou na chamada direta reprova', passeMudo.length > 0);
+    checa('a reprova diz que o embrulho nao e a funcao que roda', /nao e a funcao que roda/.test(passeMudo.join(' ')), passeMudo.join(' '));
+    checa('handler que nao contou na chamada direta reprova', validarRemendo('selecao-quadro', { ...bomQuadro, handlerNaProva: 0 }).length > 0);
+
+    // A chave de cache, nas DUAS direcoes. Aprovar so uma delas deixaria a outra
+    // passando por omissao, que e onde a proxima medida mente.
+    const bomExata = { ...bomQuadro, chave: exata };
+    checa('remendo da chave exata passa', validarRemendo('selecao-exata', bomExata).length === 0, validarRemendo('selecao-exata', bomExata).join('; '));
+    const exataQueNaoPegou = validarRemendo('selecao-exata', { ...bomQuadro, chave: quantizada });
+    checa('chave exata que continuou quantizada reprova', exataQueNaoPegou.length > 0);
+    checa('a reprova diz que a chave continua QUANTIZADA', /continua QUANTIZADA/.test(exataQueNaoPegou.join(' ')), exataQueNaoPegou.join(' '));
+    const quadroQueDesquantizou = validarRemendo('selecao-quadro', { ...bomQuadro, chave: exata });
+    checa('passe por quadro cuja chave deixou de quantizar reprova', quadroQueDesquantizou.length > 0);
+    checa('a chave de duas faixas ainda conta como quantizada (o zoom pode cruzar uma)',
+        validarRemendo('selecao-quadro', { ...bomQuadro, chave: { amostras: 10, passo: 0.01, distintas: 2 } }).length === 0);
+    // A vacuidade da propria prova: zero zooms experimentados aprovaria qualquer chave.
+    const semExperimento = validarRemendo('selecao-exata', { ...bomQuadro, chave: { amostras: 0, passo: 0.01, distintas: 0 } });
+    checa('chave nao experimentada reprova em vez de aprovar por vacuidade', semExperimento.length > 0);
+    checa('a reprova diz que a variante exata nao teria como se provar', /nao teria como se provar/.test(semExperimento.join(' ')), semExperimento.join(' '));
+
+    // A fiacao do ouvinte: o zoomend que nao desligou o `zoom` mede o passe por
+    // quadro com o nome do zoomend.
+    const bomZoomend = { aplicado: true, passadasNaProva: 1, handlerNaProva: 1, chave: quantizada, ouvintes: { legivel: true, emZoom: false, emZoomend: true } };
+    checa('remendo do zoomend passa', validarRemendo('selecao-zoomend', bomZoomend).length === 0, validarRemendo('selecao-zoomend', bomZoomend).join('; '));
+    const zoomendComZoomVivo = validarRemendo('selecao-zoomend', { ...bomZoomend, ouvintes: { legivel: true, emZoom: true, emZoomend: true } });
+    checa('zoomend com o ouvinte de zoom ainda ligado reprova', zoomendComZoomVivo.length > 0, zoomendComZoomVivo.join('; '));
+    checa('passe por quadro que perdeu o ouvinte de zoom reprova',
+        validarRemendo('selecao-quadro', { ...bomQuadro, ouvintes: { legivel: true, emZoom: false, emZoomend: false } }).length > 0);
+    // Lista de ouvintes ilegivel nao pode virar reprova: a versao do MapLibre pode
+    // nao expor `_listeners`, e ai quem responde e o gesto (eixo 16).
+    checa('ouvintes ilegiveis nao reprovam por si (quem responde e o gesto)',
+        validarRemendo('selecao-zoomend', { ...bomZoomend, ouvintes: { legivel: false } }).length === 0);
+}
+eixo14();
+
+function eixo15() {
+    console.log('\n== eixo 15: a SELECAO esta na fonte da caixa?');
+    const boa = { pedidas: 50, disponiveis: 56, selecionadas: 50, caixas: 50, fonteDaCaixa: 'selection-boxes', fontesQueEscreveram: ['selection-boxes'] };
+    checa('selecao boa passa', validarSelecao(50, boa).length === 0, validarSelecao(50, boa).join('; '));
+    checa('zero pedidas com zero caixas passa (e a linha de base)',
+        validarSelecao(0, { ...boa, pedidas: 0, selecionadas: 0, caixas: 0 }).length === 0);
+    checa('prova ausente reprova', validarSelecao(50, null).length > 0);
+    checa('erro na selecao reprova com o motivo', /getCurrentMapFeatures/.test(validarSelecao(50, { erro: 'getCurrentMapFeatures: store ausente' }).join(' ')));
+    // N maior que o que existe: o pior caso que o brief nomeia.
+    const demais = validarSelecao(100, { ...boa, pedidas: 100, selecionadas: 56, caixas: 56 });
+    checa('pedir mais feicoes do que o app tem reprova', demais.length > 0);
+    checa('a reprova diz quantas o app tem', /so tem 56/.test(demais.join(' ')), demais.join(' '));
+    checa('selecionar menos do que se pediu reprova', validarSelecao(50, { ...boa, selecionadas: 47 }).length > 0);
+    // O pior caso de todos: o estado bate e a tela esta vazia.
+    const telaVazia = validarSelecao(50, { ...boa, caixas: 0 });
+    checa('estado certo com a fonte da caixa vazia reprova', telaVazia.length > 0);
+    checa('a reprova nomeia a tela vazia', /a tela esta vazia/.test(telaVazia.join(' ')), telaVazia.join(' '));
+    // A descoberta da fonte: sem ela a bancada nao sabe o que contar.
+    const semFonte = validarSelecao(50, { ...boa, fonteDaCaixa: null, fontesQueEscreveram: [], caixas: -1 });
+    checa('fonte da caixa nao descoberta reprova', semFonte.length > 0);
+    checa('a reprova diz que nenhuma fonte recebeu escrita', /nenhuma fonte recebeu escrita/.test(semFonte.join(' ')), semFonte.join(' '));
+    const ambigua = validarSelecao(50, { ...boa, fonteDaCaixa: null, fontesQueEscreveram: ['selection-boxes', 'lines'] });
+    checa('duas fontes escritas na passada forcada reprovam (a descoberta nao e univoca)', ambigua.length > 0);
+    checa('a reprova diz que a descoberta nao e univoca', /nao e univoca/.test(ambigua.join(' ')), ambigua.join(' '));
+}
+eixo15();
+
+function eixo16() {
+    console.log('\n== eixo 16: o GESTO mostrou o comportamento que a variante promete?');
+    const quadroComSelecao = { handler: 92, passadas: 47 };
+    checa('passe por quadro com 50 selecionadas passa', validarPasseNoGesto('selecao-quadro', 50, quadroComSelecao, 92).length === 0,
+        validarPasseNoGesto('selecao-quadro', 50, quadroComSelecao, 92).join('; '));
+    checa('chave exata segue a mesma regra do passe por quadro', validarPasseNoGesto('selecao-exata', 50, quadroComSelecao, 92).length === 0);
+    checa('zoomend com dois gestos passa', validarPasseNoGesto('selecao-zoomend', 50, { handler: 2, passadas: 2 }, 92).length === 0,
+        validarPasseNoGesto('selecao-zoomend', 50, { handler: 2, passadas: 2 }, 92).join('; '));
+    checa('contador ausente reprova', validarPasseNoGesto('selecao-quadro', 50, null, 92).length > 0);
+    checa('sem quadro nenhum a regua se cala (quem reprova e a prova do cenario)',
+        validarPasseNoGesto('selecao-quadro', 50, { handler: 0, passadas: 0 }, 0).length === 0);
+
+    // O PIOR CASO MEDIDO NESTA ARVORE: 92 eventos de zoom e DUAS passadas, porque
+    // o `cancelAnimationFrame` matava a callback do proprio quadro. A caixa ficava
+    // congelada e so saltava no fim do gesto.
+    const fome = validarPasseNoGesto('selecao-quadro', 50, { handler: 92, passadas: 2 }, 92);
+    checa('passe faminto (92 eventos, 2 passadas) reprova', fome.length > 0);
+    checa('a reprova nomeia a FOME', /FOME/.test(fome.join(' ')), fome.join(' '));
+    // O outro pior caso: o zoomend que nao desligou o ouvinte de zoom.
+    const zoomendFalso = validarPasseNoGesto('selecao-zoomend', 50, { handler: 92, passadas: 47 }, 92);
+    checa('zoomend com o handler rodando por quadro reprova', zoomendFalso.length > 0);
+    checa('a reprova diz que o ouvinte de zoom nao foi desligado', /nao foi desligado/.test(zoomendFalso.join(' ')), zoomendFalso.join(' '));
+    checa('zoomend com 47 passadas reprova mesmo com o handler quieto',
+        validarPasseNoGesto('selecao-zoomend', 50, { handler: 2, passadas: 47 }, 92).length > 0);
+    // O remendo por quadro que nao pegou: o handler quieto num gesto de 92 quadros.
+    const handlerMudo = validarPasseNoGesto('selecao-quadro', 50, { handler: 1, passadas: 1 }, 92);
+    checa('passe por quadro com o handler quieto reprova', handlerMudo.length > 0);
+    checa('a reprova diz que o ouvinte de zoom nao esta ligado', /nao esta ligado/.test(handlerMudo.join(' ')), handlerMudo.join(' '));
+    // A LINHA DE BASE: com zero selecionadas o passe nao pode rodar, senao ela nao
+    // e a ausencia do passe e a comparacao da regra de decisao perde o sentido.
+    checa('zero selecionadas com zero passadas passa', validarPasseNoGesto('selecao-quadro', 0, { handler: 92, passadas: 0 }, 92).length === 0);
+    const baseSuja = validarPasseNoGesto('selecao-quadro', 0, { handler: 92, passadas: 30 }, 92);
+    checa('zero selecionadas com passadas do gerente reprova', baseSuja.length > 0);
+    checa('a reprova diz que a linha de base nao mede a ausencia do passe', /ausencia do passe/.test(baseSuja.join(' ')), baseSuja.join(' '));
+    checa('com zero selecionadas a passada nao e cobrada como presenca',
+        validarPasseNoGesto('selecao-zoomend', 0, { handler: 2, passadas: 0 }, 92).length === 0);
+}
+eixo16();
+
+function eixo17() {
+    console.log('\n== eixo 17: a REGRA DE DECISAO do zoomend, aplicada linha a linha');
+    const caso = (passe, sel, render) => ({
+        ...varFalsa('terreno', { cenarios: [cenarioFalso('zoom', { render_p50: render })] }),
+        base: 'atual', passe, selecionadas: sel,
+    });
+    // `cenarioFalso` fixa o intervalo p95 em 33; para mexer nele a celula se monta a mao.
+    const comP95 = (v, p95) => {
+        const c = v.cenarios[0];
+        c.estatistica.intervalo_ms = { p50: 16.7, p95, max: p95 * 2 };
+        return v;
+    };
+    const montar = (variantesPorRodada, selecoes = [0, 50], passes = ['selecao-quadro']) => {
+        const r = resultadoFalso({ rodadas: variantesPorRodada });
+        r.parametros.selecionadas = selecoes;
+        r.parametros.passes = passes;
+        r.parametros.bases = ['atual'];
+        r.ambiente.baseInicial = 'atual';
+        return r;
+    };
+    // Dentro da amplitude: o zoomend "nao compensa".
+    const dentro = montar([
+        { rodada: 1, aquecimento: false, valida: true, erros: [], variantes: [
+            comP95(caso('selecao-quadro', 0, 4), 16.8),
+            comP95(caso('selecao-quadro', 50, 4.2), 16.9),
+        ] },
+        { rodada: 2, aquecimento: false, valida: true, erros: [], variantes: [
+            comP95(caso('selecao-quadro', 0, 4.5), 17.2),
+            comP95(caso('selecao-quadro', 50, 4.3), 17.0),
+        ] },
+    ]);
+    const d1 = aplicarRegraDeDecisao(dentro);
+    checa('medida de 50 dentro da amplitude de zero sai "dentro"', d1.length === 2 && d1.every((x) => /^dentro da amplitude/.test(x.situacao)), JSON.stringify(d1));
+    checa('a linha diz de quantas amostras a amplitude saiu', d1.every((x) => x.amostrasBase === 2 && x.amostrasN === 2), JSON.stringify(d1.map((x) => [x.amostrasBase, x.amostrasN])));
+
+    // Fora da amplitude: o conserto e baratear o passe.
+    const fora = montar([
+        { rodada: 1, aquecimento: false, valida: true, erros: [], variantes: [
+            comP95(caso('selecao-quadro', 0, 4), 16.8),
+            comP95(caso('selecao-quadro', 50, 4.2), 33.0),
+        ] },
+        { rodada: 2, aquecimento: false, valida: true, erros: [], variantes: [
+            comP95(caso('selecao-quadro', 0, 4.5), 17.2),
+            comP95(caso('selecao-quadro', 50, 4.3), 34.0),
+        ] },
+    ]);
+    const d2 = aplicarRegraDeDecisao(fora).find((x) => /interv p95/.test(x.item));
+    checa('cadencia p95 fora da amplitude sai SAI DA AMPLITUDE', /^SAI DA AMPLITUDE/.test(d2.situacao), JSON.stringify(d2));
+    checa('a linha diz para que lado saiu', /acima/.test(d2.situacao), d2.situacao);
+
+    // O PIOR CASO DA PROPRIA REGUA: sem a celula de zero, responder "dentro"
+    // aprovaria por vacuidade.
+    const semBase = montar([
+        { rodada: 1, aquecimento: false, valida: true, erros: [], variantes: [comP95(caso('selecao-quadro', 50, 90), 60)] },
+    ]);
+    const d3 = aplicarRegraDeDecisao(semBase);
+    checa('sem a celula de zero a regra diz SEM BASE em vez de aprovar', d3.some((x) => /SEM BASE/.test(x.situacao)), JSON.stringify(d3));
+
+    // Celula de zero INVALIDA nao e linha de base: comparar com ela e comparar
+    // com lixo, e o veredito herdaria uma validade que nao existe.
+    const zeroInvalido = montar([
+        { rodada: 1, aquecimento: false, valida: true, erros: [], variantes: [
+            { ...comP95(caso('selecao-quadro', 0, 4), 16.8), valida: false, erros: ['getTerrain() nulo'] },
+            comP95(caso('selecao-quadro', 50, 4.2), 16.9),
+        ] },
+    ]);
+    checa('celula de zero invalida vira SEM BASE', aplicarRegraDeDecisao(zeroInvalido).some((x) => /SEM BASE/.test(x.situacao)));
+
+    // Uma rodada so: a amplitude tem largura zero e qualquer ruido sai "fora". A
+    // linha tem de DIZER isso, senao o veredito se le como medida.
+    const umaRodada = montar([
+        { rodada: 1, aquecimento: false, valida: true, erros: [], variantes: [
+            comP95(caso('selecao-quadro', 0, 4), 16.8),
+            comP95(caso('selecao-quadro', 50, 4), 16.8),
+        ] },
+    ]);
+    const d4 = aplicarRegraDeDecisao(umaRodada);
+    checa('amplitude de uma amostra so sai marcada', d4.every((x) => /LARGURA ZERO/.test(x.situacao)), JSON.stringify(d4.map((x) => x.situacao)));
+
+    // O CASO QUE A GRADE REAL MOSTROU, e que a primeira versao desta regua deixava
+    // passar: DUAS rodadas que concordam EXATAMENTE dao amplitude de largura zero
+    // igual, e ai 16,8 contra 16,9..16,9 sai "fora" por um decimo. Contar amostras
+    // nao pega isso; o que pega e a LARGURA.
+    const duasIguais = montar([
+        { rodada: 1, aquecimento: false, valida: true, erros: [], variantes: [
+            comP95(caso('selecao-quadro', 0, 4), 16.9),
+            comP95(caso('selecao-quadro', 50, 4), 16.8),
+        ] },
+        { rodada: 2, aquecimento: false, valida: true, erros: [], variantes: [
+            comP95(caso('selecao-quadro', 0, 4), 16.9),
+            comP95(caso('selecao-quadro', 50, 4), 16.8),
+        ] },
+    ]);
+    const d4b = aplicarRegraDeDecisao(duasIguais).find((x) => /interv p95/.test(x.item));
+    checa('duas rodadas que concordam exatamente dao largura zero, e a linha DIZ isso',
+        /LARGURA ZERO/.test(d4b.situacao), JSON.stringify(d4b));
+    checa('a linha de largura zero traz as duas amostras (nao e o caso de uma so)',
+        d4b.amostrasBase === 2, JSON.stringify(d4b));
+    // ...e uma amplitude de largura de verdade NAO ganha a marca.
+    const comLargura = montar([
+        { rodada: 1, aquecimento: false, valida: true, erros: [], variantes: [
+            comP95(caso('selecao-quadro', 0, 4), 16.5),
+            comP95(caso('selecao-quadro', 50, 4), 16.8),
+        ] },
+        { rodada: 2, aquecimento: false, valida: true, erros: [], variantes: [
+            comP95(caso('selecao-quadro', 0, 4), 17.5),
+            comP95(caso('selecao-quadro', 50, 4), 16.8),
+        ] },
+    ]);
+    checa('amplitude com largura de verdade nao ganha a marca',
+        !/LARGURA ZERO/.test(aplicarRegraDeDecisao(comLargura).find((x) => /interv p95/.test(x.item)).situacao));
+
+    // Sem rodada valida, e sem o par (zero, N), nao ha veredito nenhum.
+    const semRodada = montar([{ rodada: 1, aquecimento: false, valida: false, erros: ['cadencia'], variantes: [caso('selecao-quadro', 50, 4)] }]);
+    checa('sem rodada valida a regra nao se aplica', /NAO APLICADA/.test((aplicarRegraDeDecisao(semRodada)[0] || {}).situacao || ''), JSON.stringify(aplicarRegraDeDecisao(semRodada)));
+    const soZero = montar([
+        { rodada: 1, aquecimento: false, valida: true, erros: [], variantes: [comP95(caso('selecao-quadro', 0, 4), 16.8)] },
+    ], [0]);
+    checa('rodada que so mediu zero nao produz veredito', /NAO APLICADA/.test((aplicarRegraDeDecisao(soZero)[0] || {}).situacao || ''), JSON.stringify(aplicarRegraDeDecisao(soZero)));
+    const soCinquenta = montar([
+        { rodada: 1, aquecimento: false, valida: true, erros: [], variantes: [comP95(caso('selecao-quadro', 50, 4), 16.8)] },
+    ], [50]);
+    checa('rodada que so mediu 50 nao produz veredito', /NAO APLICADA/.test((aplicarRegraDeDecisao(soCinquenta)[0] || {}).situacao || ''));
+
+    // Cada variante do passe se julga contra a PROPRIA linha de base: cruzar as
+    // duas compararia zoomend com quadro e chamaria a diferenca de efeito da selecao.
+    const duasVariantes = montar([
+        { rodada: 1, aquecimento: false, valida: true, erros: [], variantes: [
+            // Uma rodada so: a amplitude tem largura zero, entao a celula de 50 so
+            // fica "dentro" quando bate EXATAMENTE com a de zero. E o que faz este
+            // caso isolar o unico eixo que sai: o render do zoomend.
+            comP95(caso('selecao-quadro', 0, 4), 16.8),
+            comP95(caso('selecao-quadro', 50, 4), 16.8),
+            comP95(caso('selecao-zoomend', 0, 4), 16.8),
+            comP95(caso('selecao-zoomend', 50, 40), 16.8),
+        ] },
+    ], [0, 50], ['selecao-quadro', 'selecao-zoomend']);
+    const d5 = aplicarRegraDeDecisao(duasVariantes);
+    checa('cada passe rende as suas duas linhas', d5.length === 4, JSON.stringify(d5.map((x) => x.item)));
+    checa('o render fora da amplitude sai marcado so na variante dele',
+        d5.filter((x) => /^SAI DA AMPLITUDE/.test(x.situacao)).every((x) => /selecao-zoomend \/ zoom \/ render p50/.test(x.item)),
+        JSON.stringify(d5.map((x) => [x.item, x.situacao])));
+    checa('a tabela do markdown traz a secao da regra de decisao',
+        /A regra de decisao do `zoomend`, aplicada linha a linha/.test(escreverMarkdown(dentro, montarTabela(dentro), [], d1)));
+    checa('sem decisao nenhuma o markdown nao inventa a secao',
+        !/A regra de decisao/.test(escreverMarkdown(dentro, montarTabela(dentro), [], [])));
+}
+eixo17();
 
 console.log(`\n${total - falhas}/${total} passaram.`);
 if (falhas) { console.log(`${falhas} FALHA(S): a bancada nao esta reprovando o que promete pegar.`); process.exit(1); }
