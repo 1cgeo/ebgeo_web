@@ -22,9 +22,18 @@
  *   | por quadro, cache como está  |       47 |             100 |10,9 ms|      16,8 ms |
  *   | por quadro, caixa exata      |       47 |            2300 |10,0 ms|      16,8 ms |
  *
- * A CHAVE DE CACHE QUANTIZADA EM 0,5 NÍVEL FICA, e a razão é a terceira linha: tirar
- * a quantização multiplica por 23 as montagens de caixa e não move a cadência (a
- * diferença está dentro do ruído das duas medidas).
+ * A CHAVE DE CACHE QUANTIZADA EM 0,5 NÍVEL FICA PARA AS DEMAIS FERRAMENTAS, e a razão é
+ * a terceira linha: tirar a quantização multiplica por 23 as montagens de caixa e não move
+ * a cadência (a diferença está dentro do ruído das duas medidas). Para as ferramentas cuja
+ * estratégia é `'viewport'` a chave é OUTRA, e tem de ser: a caixa dessas é o retângulo que
+ * o MapLibre desenhou, alinhado à TELA, então a chave carrega também a mira e a inclinação
+ * (em décimos de grau) e, quando a correção de zoom da feição está desligada, o zoom
+ * EXATO. O efeito aceito é que um gesto de giro ou de inclinação remonta a caixa dessas
+ * feições a cada quadro: ela tem de acompanhar a vista, e girar é raro, porque o
+ * `dragRotate` nativo nasce desligado em `map_sig.js` e a rotação só chega por gesto
+ * deliberado. O cache não cresce com isso: cada falha despeja as entradas anteriores
+ * daquela feição (ver `_createSelectionBoxesWithCache`), então sobra no máximo uma caixa
+ * por feição, nunca uma por quadro do gesto.
  *
  * COM TERRENO LIGADO A CAIXA EXATA MOVE A CADÊNCIA, e é o segundo motivo, mais forte,
  * para a quantização ficar. Medido em 2026-09-05 pela bancada de terreno da
@@ -47,12 +56,17 @@
  * feição, à que já está na fonte. A guarda de identidade em `updateSelectionHighlight`
  * derruba as 47 escritas por gesto para uma por faixa cruzada, sem mudar um pixel.
  *
- * O QUE ESTE PASSE NÃO FAZ, e é bom saber antes de medir a caixa na tela: para as SEIS
- * ferramentas de tamanho em pixels (ponto, texto, imagem, símbolo militar, medida de
- * coordenação, declinação) o `createSelectionBox` do controle devolve a caixa GUARDADA
- * em `properties.selectionBox`, e quem a reescreve é o passe do próprio controle (por
- * quadro para a feição com correção de zoom desligada, em `zoomend` para as demais).
- * Este passe é o CONSUMIDOR dessa reescrita, não o autor dela: com a fome, uma caixa
+ * O QUE ESTE PASSE NÃO FAZ, e é bom saber antes de medir a caixa na tela: a caixa não se
+ * calcula aqui. Quem responde é o `createSelectionBox` do controle, e desde 2026-09-06 as
+ * SEIS ferramentas de tamanho em pixels se dividem em duas metades. Ponto e texto devolvem
+ * a caixa GUARDADA em `properties.selectionBox`, e quem a reescreve é o passe do próprio
+ * controle (por quadro para a feição com correção de zoom desligada, em `zoomend` para as
+ * demais). Imagem, símbolo militar, medida de coordenação e declinação devolvem PRIMEIRO o
+ * retângulo RENDERIZADO (`createRenderedIconSelectionBox`), montado do que o MapLibre
+ * desenhou, com a rotação e o deslocamento do ícone dentro, e só caem na caixa guardada
+ * quando esse retângulo não se remonta (imagem ainda carregando, ou trocada pela de erro).
+ * É dessa metade que vem a estratégia `'viewport'` da chave de cache, logo acima. Este
+ * passe é o CONSUMIDOR das duas metades, não o autor de nenhuma: com a fome, uma caixa
  * recalculada pelo controle podia não chegar à fonte. Medido no Chromium, um ponto com
  * correção de zoom LIGADA tem a caixa fixa em graus durante o gesto e ela cresce 2,83x
  * na tela num zoom de 1,5 nível, antes e depois deste conserto, porque essa é a decisão
@@ -115,6 +129,11 @@ export class SelectionHighlightManager {
      */
     _setupEventHandlers() {
         this.map.on('zoom', this._handleZoomChange);
+        // The icon-backed tools draw a screen-aligned picture; their box is
+        // geometry in degrees built for one bearing and pitch, so a turn or a
+        // tilt has to rebuild it (the cache key carries both, see getCacheKey).
+        this.map.on('rotate', this._handleZoomChange);
+        this.map.on('pitch', this._handleZoomChange);
     }
 
     /**
@@ -160,15 +179,37 @@ export class SelectionHighlightManager {
     // ========================================================================
 
     /**
-     * Get cache key for feature at current zoom level.
-     * Zoom level is quantized to 0.5 increments for cache efficiency.
-     * @param {string} featureId
+     * Get cache key for a feature under the current view.
+     *
+     * Zoom is quantized to 0.5 increments for cache efficiency: a box in degrees
+     * scales with the map, so it stays right across a half level.
+     *
+     * A tool whose strategy is `'viewport'` draws a screen-aligned picture and
+     * builds its box from the drawn rectangle, so the key also carries the
+     * bearing and the pitch (a turn or a tilt moves the picture against the
+     * ground), and, when the feature's zoom correction is OFF (the picture keeps
+     * its screen size while the map scales), the exact zoom: such a box is only
+     * right at the zoom it was built for.
+     *
+     * @param {Object} feature - Selected feature
+     * @param {Object} [control] - The feature's tool control
      * @returns {string}
      */
-    getCacheKey(featureId) {
+    getCacheKey(feature, control) {
+        const featureId = feature.properties.id;
         const zoom = this.map.getZoom();
         const zoomLevel = Math.round(zoom * 2) / 2;
-        return `${featureId}-${zoomLevel}`;
+
+        if (control?.getSelectionBoxStrategy?.() !== 'viewport') {
+            return `${featureId}-${zoomLevel}`;
+        }
+
+        const zoomKey = feature.properties.zoomCorrectionEnabled === false
+            ? zoom.toFixed(2)
+            : zoomLevel;
+        const bearing = Number(this.map.getBearing?.()) || 0;
+        const pitch = Number(this.map.getPitch?.()) || 0;
+        return `${featureId}-${zoomKey}-b${bearing.toFixed(1)}-p${pitch.toFixed(1)}`;
     }
 
     /**
@@ -421,7 +462,7 @@ export class SelectionHighlightManager {
             try {
                 const featureId = feature.properties.id;
                 const currentHash = this.calculateGeometryHash(feature);
-                const cacheKey = this.getCacheKey(featureId);
+                const cacheKey = this.getCacheKey(feature, control);
                 const cached = this.selectionBoxCache.get(cacheKey);
 
                 let selectionBox;
@@ -429,6 +470,15 @@ export class SelectionHighlightManager {
                 if (cached && cached.geometryHash === currentHash) {
                     selectionBox = cached.selectionBox;
                 } else {
+                    // O CACHE GUARDA UMA CAIXA POR FEIÇÃO, e quem obriga é a chave de
+                    // `'viewport'`: ela carrega mira e inclinação em décimos de grau, então um
+                    // gesto de giro ou de inclinação cunha uma entrada por QUADRO, e um Map sem
+                    // despejo as guardaria pela sessão inteira. Na FALHA de cache as entradas
+                    // anteriores desta feição já não servem (mudou a vista, ou mudou a
+                    // geometria), então saem antes de a nova entrar. O despejo é por feição, e
+                    // não um `clear()`: a caixa das outras selecionadas continua valendo.
+                    this.invalidateCache(featureId);
+
                     const boxGeometry = control.createSelectionBox(feature);
 
                     if (boxGeometry) {
@@ -662,6 +712,8 @@ export class SelectionHighlightManager {
             cancelAnimationFrame(this.rafId);
         }
         this.map.off('zoom', this._handleZoomChange);
+        this.map.off('rotate', this._handleZoomChange);
+        this.map.off('pitch', this._handleZoomChange);
         this.selectionBoxCache.clear();
         this.geometryHashes.clear();
         this._ultimaColecaoEscrita = null;

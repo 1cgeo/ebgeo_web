@@ -88,6 +88,7 @@ function montarMapa() {
     return {
         zoom: 6,
         escritas,
+        ouvintes,
         on(tipo, cb) { if (!ouvintes.has(tipo)) ouvintes.set(tipo, []); ouvintes.get(tipo).push(cb); },
         off(tipo, cb) {
             const lista = ouvintes.get(tipo) || [];
@@ -306,6 +307,28 @@ describe('RemoteSelectionsLayer: o passe de zoom por quadro', () => {
         const ultima = JSON.stringify(mapa.escritas.at(-1).features[0].geometry);
         expect(ultima).not.toBe(primeira);
         camada.stop();
+    });
+
+    it('assina zoom, rotate e pitch, e larga os tres no stop', () => {
+        // A caixa de um par em volta de feicao com icone e o retangulo RENDERIZADO,
+        // alinhado a TELA: girar ou inclinar a move contra o terreno. Espelha o
+        // `SelectionHighlightManager`, cuja chave de cache carrega mira e inclinacao.
+        const mapa = montarMapa();
+        const { selectionManager } = montarSelectionManager(mapa, []);
+        presenceStoreMock.getSelections.mockReturnValue(selecaoDoColega([]));
+
+        const camada = new RemoteSelectionsLayer(mapa, selectionManager);
+        camada.start();
+
+        for (const tipo of ['zoom', 'rotate', 'pitch']) {
+            expect(mapa.ouvintes.get(tipo)).toEqual([camada._onZoom]);
+        }
+
+        camada.stop();
+
+        for (const tipo of ['zoom', 'rotate', 'pitch']) {
+            expect(mapa.ouvintes.get(tipo)).toEqual([]);
+        }
     });
 
     it('stop larga o quadro pendente, limpa a fonte e esquece a lista resolvida', async () => {

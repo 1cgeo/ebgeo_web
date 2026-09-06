@@ -38,6 +38,7 @@ import {
     setLayerVisibility,
 } from '@store';
 import { EventTypes } from '@events/event_types.js';
+import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { showToast, deepClone } from '@utils';
 import config from '@js/config.js';
@@ -1197,8 +1198,10 @@ export class PhoneLayout {
             // editor mid-move and strand the session.
             if (this._featureEditor?.isMoving()) return;
 
-            // Only deselect if no feature was clicked
-            const features = this._map.queryRenderedFeatures(e.point);
+            // Only deselect if no feature was tapped. Same hit-test as the
+            // selection manager (touch tolerance included), or a tap that
+            // selects a thin line here would collapse the sheet at once.
+            const features = queryFeaturesAtPoint(this._map, e.point);
             if (!features || features.length === 0) {
                 this._featureEditor.clear();
                 this._bottomSheet.clearFeatureContent();

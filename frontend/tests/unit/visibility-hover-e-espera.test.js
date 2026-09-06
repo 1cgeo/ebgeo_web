@@ -134,7 +134,15 @@ describe('onHoverMove nomeia as camadas em vez de varrer o estilo', () => {
     });
 
     it('CONTROLE: a alça e a feição continuam decidindo o cursor', () => {
-        const alca = { source: 'visibility-edit-handles', properties: { user_isEditingHandle: true, id: 'h' } };
+        // A alça precisa de `geometry`: desde o hit-test compartilhado, uma alça só
+        // conta quando a consulta EXATA no ponto a devolve também, e alça se casa por
+        // POSIÇÃO (o id dela nomeia a feição-mãe, não a alça). Feição renderizada do
+        // MapLibre sempre traz geometria; o duplo é que não trazia.
+        const alca = {
+            source: 'visibility-edit-handles',
+            properties: { user_isEditingHandle: true, id: 'h' },
+            geometry: { type: 'Point', coordinates: [0, 0] },
+        };
         const mapAlca = mapaDeHover(['visibility-edit-handles-layer'], [alca]);
         const canvasAlca = { style: {} };
         mapAlca.getCanvas = () => canvasAlca;

@@ -22,7 +22,7 @@ import {
     hideExtensionHandles,
     showExtensionHandles
 } from '@tools/helpers/line-extension.helpers.js';
-import { queryHoverFeatures } from '@tools/helpers/hover-query.helpers.js';
+import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
 
 /**
  * Layers onHoverMove needs: 'arrow-edit-handles' (hasHandleAtPoint) and both layers drawn from
@@ -1131,7 +1131,7 @@ class AddArrowControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
-        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
+        const features = queryFeaturesAtPoint(this.map, e.point, { layers: HOVER_LAYER_IDS });
         const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
 

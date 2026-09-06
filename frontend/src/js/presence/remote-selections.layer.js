@@ -146,6 +146,11 @@ export class RemoteSelectionsLayer {
 
         if (this._map && typeof this._map.on === 'function') {
             this._map.on('zoom', this._onZoom);
+            // A peer's box around an icon-backed feature is the RENDERED rectangle, which is
+            // screen-aligned: a turn or a tilt moves it against the ground (mirrors
+            // SelectionHighlightManager, whose cache key carries bearing and pitch).
+            this._map.on('rotate', this._onZoom);
+            this._map.on('pitch', this._onZoom);
         }
 
         this._render();
@@ -169,6 +174,8 @@ export class RemoteSelectionsLayer {
         this._resolvidas = null;
         if (this._map && typeof this._map.off === 'function') {
             this._map.off('zoom', this._onZoom);
+            this._map.off('rotate', this._onZoom);
+            this._map.off('pitch', this._onZoom);
         }
 
         cleanup(this);
@@ -176,8 +183,9 @@ export class RemoteSelectionsLayer {
     }
 
     /**
-     * Debounced zoom handler: selection-box pixel sizes change with zoom, so the
-     * geographic box geometry must be rebuilt (mirrors SelectionHighlightManager).
+     * Debounced view handler (`zoom`, `rotate`, `pitch`): selection-box pixel sizes change
+     * with zoom and the icon-backed box is screen-aligned, so the geographic box geometry
+     * must be rebuilt on any of the three (mirrors SelectionHighlightManager).
      * Passa `false` porque o zoom não muda QUEM está selecionado nem a geometria da
      * feição: só a caixa, que se remonta do que já foi resolvido.
      * @private

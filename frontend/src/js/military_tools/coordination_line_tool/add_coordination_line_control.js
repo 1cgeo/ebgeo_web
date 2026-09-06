@@ -14,7 +14,7 @@ import { BaseControl } from '@tools';
 import { createPreviewScheduler } from '@tools/helpers/preview-scheduler.js';
 import { DrawingFinishButton } from '@js/draw_tools/drawing-touch-helpers';
 import { getSnappingService } from '@js/snapping/snapping.service.js';
-import { queryHoverFeatures } from '@tools/helpers/hover-query.helpers.js';
+import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import {
     anchorFor,
@@ -1176,7 +1176,7 @@ class AddCoordinationLineControl extends BaseControl {
     onHoverMove = (e) => {
         if (!this.getSelectedFeature()) return;
 
-        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
+        const features = queryFeaturesAtPoint(this.map, e.point, { layers: HOVER_LAYER_IDS });
 
         if (this.hasHandleAtPoint(features)) {
             this.map.getCanvas().style.cursor = 'crosshair';

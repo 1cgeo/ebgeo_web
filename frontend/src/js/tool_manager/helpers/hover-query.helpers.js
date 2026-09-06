@@ -19,7 +19,8 @@
  * Ids absent from the current style are dropped before the query, so a style
  * that has not created a layer yet yields [] instead of an exception.
  * @param {Object} map - MapLibre map instance
- * @param {Object|Array<number>} point - Screen point, { x, y } or [x, y]
+ * @param {Object|Array<number>|Array<Array<number>>} point - Query geometry as
+ *   MapLibre takes it: a screen point ({ x, y } or [x, y]) or a box [[x1, y1], [x2, y2]]
  * @param {Array<string>} layerIds - Candidate MapLibre layer ids
  * @returns {Array<Object>} Rendered features, [] when no id is in the style
  */

@@ -17,7 +17,8 @@ import {
     calculateZoomCorrectedValue,
 } from '../../tool_manager/helpers/zoom-correction.helpers.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
-import { queryHoverFeatures } from '@tools/helpers/hover-query.helpers.js';
+import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
+import { createRenderedIconSelectionBox } from '@tools/helpers/icon-selection-box.helpers.js';
 import { readGeoJSONSourceData } from '@utils/geojson-source.js';
 
 /**
@@ -187,6 +188,12 @@ class AddImageControl extends BaseControl {
   }
 
   createSelectionBox(feature) {
+    // The box is the picture as drawn, plus the frame padding, rotation included.
+    const drawn = createRenderedIconSelectionBox(this.map, feature, "image-layer");
+    if (drawn) return { geometry: drawn };
+
+    // The image is not in the style yet (still loading, or replaced by the
+    // error image): fall back to the stored box until it is.
     if (feature.properties.selectionBox) {
       return { geometry: feature.properties.selectionBox };
     }
@@ -207,7 +214,7 @@ class AddImageControl extends BaseControl {
   }
 
   getSelectionBoxStrategy() {
-    return "preCalculated";
+    return "viewport";
   }
 
   getSelectionBoxPadding() {
@@ -215,7 +222,7 @@ class AddImageControl extends BaseControl {
   }
 
   getLayerIds() {
-    return ["images-layer"];
+    return ["image-layer"];
   }
 
   getSourceNames() {
@@ -719,7 +726,7 @@ class AddImageControl extends BaseControl {
     const selectedFeature = this.getSelectedFeature();
     if (!selectedFeature) return;
 
-    const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
+    const features = queryFeaturesAtPoint(this.map, e.point, { layers: HOVER_LAYER_IDS });
     const hasFeature = this.hasSelectedFeatureAtPoint(features);
 
     this.map.getCanvas().style.cursor = hasFeature ? "move" : "";

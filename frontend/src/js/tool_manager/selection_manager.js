@@ -23,6 +23,7 @@ import {
 import { createTwoFingerTapHandler } from '../utilities/pointer-utils';
 import { ensureTurf } from '../utilities/turf-loader.js';
 import { queryHoverFeatures } from './helpers/hover-query.helpers.js';
+import { queryFeaturesAtPoint, rankHitRows } from './helpers/feature-hit-test.helpers.js';
 
 class SelectionManager {
     /**
@@ -597,11 +598,21 @@ class SelectionManager {
 
     /**
      * Get all custom features at click point, filtered by visibility.
+     *
+     * The hit-test is the shared one: a pixel tolerance for thin features
+     * (lines, outlines, points), the exact rendered rectangle for image-backed
+     * features, and an exact point for areas (polygon, circle, ellipse,
+     * rectangle, sector, arrow, visibility), which are big enough not to need
+     * slack and must not steal a click that lands inside a neighbour.
+     *
+     * Ranking (point > line > area, decided by verified hits only) is applied
+     * AFTER the lock and visible-layer filtering, so a locked line can never
+     * shadow a polygon that is still selectable underneath it.
      * @param {Array<number>} point - [x, y] screen coordinates
      * @returns {Array<Object>} Clicked features with toolType added
      */
     getAllClickedCustomFeatures(point) {
-        const features = this.map.queryRenderedFeatures(point);
+        const features = queryFeaturesAtPoint(this.map, point);
         const clickedFeatures = [];
         const visibleLayerSet = new Set(getVisibleLayerIds());
 
@@ -634,7 +645,7 @@ class SelectionManager {
                 uniqueFeatures.push(feature);
             }
         });
-        return uniqueFeatures;
+        return rankHitRows(uniqueFeatures);
     }
 
     /**

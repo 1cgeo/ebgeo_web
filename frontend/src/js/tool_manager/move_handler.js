@@ -5,7 +5,8 @@
  * Implements tool-centric architecture for feature movement calculations.
  */
 
-import { getStateManager, isCurrentMapLockedSync } from '../store';
+import { getStateManager, isCurrentMapLockedSync, isFeatureEffectivelyLocked } from '../store';
+import { queryFeaturesAtPoint, rankHitRows } from './helpers/feature-hit-test.helpers.js';
 
 class MoveHandler {
     /**
@@ -382,18 +383,23 @@ class MoveHandler {
         const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
         if (allSelectedFeatures.length === 0) return;
 
-        // Performance: Query features once and reuse for both checks
-        const clickedFeatures = this.map.queryRenderedFeatures(e.point);
-
-        const validDragSources = this.getValidDragSources();
-        const filteredFeatures = clickedFeatures.filter(feature =>
-            validDragSources.includes(feature.source)
-        );
+        // Same hit-test as selection, so a feature that can be selected from a
+        // spot can also be dragged from it. Unfiltered on purpose: the
+        // edit-handle rows must still reach _isClickOnEditHandleCached.
+        const clickedFeatures = queryFeaturesAtPoint(this.map, e.point);
 
         // Performance: Check edit handle using already-queried features
-        if (filteredFeatures.length === 0 || this._isClickOnEditHandleCached(clickedFeatures)) {
-            return;
-        }
+        if (this._isClickOnEditHandleCached(clickedFeatures)) return;
+
+        // Filtered and ranked like selection (locked rows out first, then
+        // point > line > area): the press must land on the feature a click
+        // there would select, not on a bigger one below it.
+        const validDragSources = this.getValidDragSources();
+        const filteredFeatures = rankHitRows(clickedFeatures.filter(feature =>
+            validDragSources.includes(feature.source) && !isFeatureEffectivelyLocked(feature)
+        ));
+
+        if (filteredFeatures.length === 0) return;
 
         const isFeatureSelected = filteredFeatures.some(clickedFeature => {
             const clickedFeatureId = clickedFeature.properties.id;
