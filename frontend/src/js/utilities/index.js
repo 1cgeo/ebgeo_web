@@ -49,6 +49,9 @@ export {
     removeElement
 } from './event-cleanup.js';
 
+// Blob encoding utilities
+export { blobToDataUrl } from './blob-to-data-url.js';
+
 // Image processing utilities
 export {
     IMAGE_CONFIG,

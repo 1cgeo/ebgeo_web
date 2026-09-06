@@ -48,6 +48,11 @@ export function hasCurrentBitmap(properties) {
  * anchored by the centre of its bitmap has none, and the key stays ABSENT: writing
  * `[0, 0]` would change the stored shape of every old feature for nothing.
  *
+ * `imageUrl` is always REMOVED: a base64 copy of the bitmap must not live in the
+ * properties (nothing reads it, and it rode along inside every `.ebgeo`, every sync
+ * operation and every JSONB row). Features written before this lose the key at their
+ * next regeneration or edit.
+ *
  * @param {Object} properties - Feature properties (mutated)
  * @param {Object} result - Generator result { width, height, pixelRatio?, anchor?, iconOffset? }
  * @returns {Object} The same properties object
@@ -74,6 +79,8 @@ export function applyGeneratedBitmap(properties, result) {
         delete properties.iconOffset;
     }
 
+    delete properties.imageUrl;
+
     properties.bitmapVersion = SYMBOL_BITMAP_VERSION;
 
     return properties;
@@ -87,6 +94,10 @@ export function applyGeneratedBitmap(properties, result) {
  * to SET plus keys to UNSET. This is `applyGeneratedBitmap`'s decision (which keys a
  * generated bitmap owns, and the absent-not-zero rule for `iconOffset`) expressed in
  * that shape, so the source and the stored feature cannot drift apart.
+ *
+ * `imageUrl` is always unset, for the same reason `applyGeneratedBitmap` deletes it:
+ * the live source must lose the legacy base64 copy too, or the next feature read back
+ * out of it would carry the key straight into the store again.
  *
  * @param {Object} result - Generator result { width, height, pixelRatio?, anchor?, iconOffset? }
  * @returns {{setProps: Object, unsetProps: Array<string>}} Dispatcher patch
@@ -115,6 +126,8 @@ export function generatedBitmapPatch(result) {
     } else {
         unsetProps.push('iconOffset');
     }
+
+    unsetProps.push('imageUrl');
 
     setProps.bitmapVersion = SYMBOL_BITMAP_VERSION;
 

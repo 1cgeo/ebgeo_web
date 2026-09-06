@@ -42,11 +42,15 @@
  * DESIGN RULES ENCODED HERE
  *
  * - Tolerance is for THIN things. Lines, brushes, boundaries and point circles
- *   get the pixel slack; images get NONE (the rectangle is the whole truth,
- *   transparent pixels inside it included — a rectangle test, not an alpha
- *   test); AREAS get none either, because they are already big targets and a
- *   tolerant border would let a click well inside polygon A pick up polygon B
- *   sitting 5 px away (`resolveAreaHits`).
+ *   get the pixel slack, and so do POINT MARKERS: a 20 px icon standing in for
+ *   a point is a small target too, so its rebuilt rectangle is GROWN by the
+ *   tolerance (`tolerant: true` in `ICON_SIZE_RULES`, applied as `paddingPx`).
+ *   The pictures get NONE — images, military symbols, coordination measures
+ *   and declinations are drawn at whatever size the user asked for, and their
+ *   rectangle is the whole truth, transparent pixels inside it included (a
+ *   rectangle test, not an alpha test). AREAS get none either, because they are
+ *   already big targets and a tolerant border would let a click well inside
+ *   polygon A pick up polygon B sitting 5 px away (`resolveAreaHits`).
  * - When several classes survive, the SMALLEST wins: point > line > area
  *   (`pickPreferredHits`). Clicking 4 px off a line that crosses a polygon must
  *   select the line, not open a disambiguation menu. Same-class overlaps are
@@ -57,10 +61,10 @@
  *   move cursor would promise a grab that the mousedown never honours, and the
  *   drag gate would refuse a feature drag for nothing.
  * - Only a DECISIVE row may demote the other classes (`pickPreferredHits`). A
- *   row from a symbol layer that was NOT rebuilt here (`text-layer`,
- *   `point-marker-layer`, the `*-label-layer`s) still comes from the inflated
- *   collision box, so it is kept — the user can still pick it — but it never
- *   makes a polygon under it unreachable; those overlaps fall back to the menu.
+ *   row from a symbol layer that was NOT rebuilt here (`text-layer`, the
+ *   `*-label-layer`s) still comes from the inflated collision box, so it is
+ *   kept — the user can still pick it — but it never makes a polygon under it
+ *   unreachable; those overlaps fall back to the menu.
  * - Anything that is not ours (base map, viewer markers — no string
  *   `properties.source`) is classified `null` and passes through every filter
  *   untouched. This model never decides what a foreign row means.
@@ -93,14 +97,27 @@ export const EXACT_ICON_LAYER_IDS = Object.freeze([
     'military-symbols-layer',
     'coordination-measures-layer',
     'magnetic-declinations-layer',
+    'point-marker-layer',
 ]);
 
 /**
- * Per-layer `icon-size` rules, mirroring the `zoomScaledExpression` specs in
- * `layers/styles/content.layers.js` (IMAGE_SIZE) and `layers/styles/symbol.layers.js`
- * (SYMBOL_SIZE, DECLINATION_SIZE): base = `properties.size` or `baseDefault`,
- * anchor = `properties.createdAtZoom`, disabled when
- * `properties.zoomCorrectionEnabled === false`, result clamped at `maxValue`.
+ * Per-layer `icon-size` rules: one JavaScript description of the
+ * `zoomScaledExpression` spec each layer authors, so the rectangle can be
+ * rebuilt without reading the style back.
+ *
+ * The FIELDS name the expression's own parts (`layers/styles/zoom-expression.js`):
+ * base = `properties[sizeProp]` or `baseDefault` (the expression's
+ * `['coalesce', ['get', sizeProp], baseDefault]`), anchor =
+ * `properties[anchorProp]`, disabled when `properties[enabledProp] === false`,
+ * the scaled value clamped at `maxValue` and only THEN divided by `divideBy`
+ * (`1` when the layer authors none).
+ *
+ * `anchorDefault` is the expression's `anchorDefault`, and the two values mean
+ * two different expressions: `null` builds a bare `['get', anchorProp]` plus a
+ * `['!=', ['typeof', ...], 'number']` branch that returns the base — "no
+ * reference, no scaling" — while a NUMBER builds `['coalesce', ['get',
+ * anchorProp], anchorDefault]` with NO such branch, so a missing property
+ * anchors at that number instead of switching the scaling off.
  *
  * `rotates` says whether the layer reads `icon-rotate` from `properties.rotation`,
  * `anchored` whether it reads `icon-anchor` from `properties.anchor` and
@@ -109,17 +126,55 @@ export const EXACT_ICON_LAYER_IDS = Object.freeze([
  * measures only); a property the layer does not read must not shape the
  * rectangle either.
  *
- * `point-marker-layer` is image-backed too, but its spec differs in every field
- * (`sizeCreatedAtZoom` with a default of 0, `sizeZoomCorrectionEnabled`, a
- * `divideBy`), so it is deliberately NOT listed: a rule shaped like these would
- * compute a wrong rectangle for it. Its rows stay non-decisive instead.
- * @constant {Object<string, {baseDefault: number, maxValue: number, rotates: boolean, anchored: boolean, offset: boolean}>}
+ * `tolerant` says whether the click tolerance is added around the rebuilt
+ * rectangle. Only the point markers get it: they stand in for a POINT, a thin
+ * target the user aims at the way they aim at a line, while the four picture
+ * layers are drawn at the size the user chose and are hit exactly.
+ *
+ * Sources: `layers/styles/content.layers.js` (IMAGE_SIZE),
+ * `layers/styles/symbol.layers.js` (SYMBOL_SIZE, DECLINATION_SIZE) and
+ * `layers/styles/point.layers.js` (POINT_SIZE, divided by
+ * `POINT_IMAGE_HALF_SIZE` = 24 because the marker bitmaps are 96 px at
+ * `pixelRatio` 2, i.e. 48 CSS px, and `size` is a RADIUS in pixels).
+ *
+ * @constant {Object<string, {sizeProp: string, baseDefault: number, anchorProp: string, anchorDefault: number|null, enabledProp: string, maxValue: number, divideBy: number, rotates: boolean, anchored: boolean, offset: boolean, tolerant: boolean}>}
  */
 export const ICON_SIZE_RULES = Object.freeze({
-    'image-layer': Object.freeze({ baseDefault: 1, maxValue: 10, rotates: true, anchored: false, offset: false }),
-    'military-symbols-layer': Object.freeze({ baseDefault: 1, maxValue: 10, rotates: true, anchored: false, offset: false }),
-    'coordination-measures-layer': Object.freeze({ baseDefault: 1, maxValue: 10, rotates: true, anchored: true, offset: true }),
-    'magnetic-declinations-layer': Object.freeze({ baseDefault: 0.6, maxValue: 10, rotates: false, anchored: false, offset: false }),
+    'image-layer': Object.freeze({
+        sizeProp: 'size', baseDefault: 1,
+        anchorProp: 'createdAtZoom', anchorDefault: null,
+        enabledProp: 'zoomCorrectionEnabled',
+        maxValue: 10, divideBy: 1,
+        rotates: true, anchored: false, offset: false, tolerant: false,
+    }),
+    'military-symbols-layer': Object.freeze({
+        sizeProp: 'size', baseDefault: 1,
+        anchorProp: 'createdAtZoom', anchorDefault: null,
+        enabledProp: 'zoomCorrectionEnabled',
+        maxValue: 10, divideBy: 1,
+        rotates: true, anchored: false, offset: false, tolerant: false,
+    }),
+    'coordination-measures-layer': Object.freeze({
+        sizeProp: 'size', baseDefault: 1,
+        anchorProp: 'createdAtZoom', anchorDefault: null,
+        enabledProp: 'zoomCorrectionEnabled',
+        maxValue: 10, divideBy: 1,
+        rotates: true, anchored: true, offset: true, tolerant: false,
+    }),
+    'magnetic-declinations-layer': Object.freeze({
+        sizeProp: 'size', baseDefault: 0.6,
+        anchorProp: 'createdAtZoom', anchorDefault: null,
+        enabledProp: 'zoomCorrectionEnabled',
+        maxValue: 10, divideBy: 1,
+        rotates: false, anchored: false, offset: false, tolerant: false,
+    }),
+    'point-marker-layer': Object.freeze({
+        sizeProp: 'size', baseDefault: 10,
+        anchorProp: 'sizeCreatedAtZoom', anchorDefault: 0,
+        enabledProp: 'sizeZoomCorrectionEnabled',
+        maxValue: 500, divideBy: 24,
+        rotates: false, anchored: false, offset: false, tolerant: true,
+    }),
 });
 
 /** The three hit classes, ranked point > line > area. @constant {Object<string, string>} */
@@ -281,25 +336,52 @@ export function toleranceBox(point, tolerance) {
  * (`interpolate.ts:223-230`), which is why the two clamps below are exact and
  * not an approximation.
  *
+ * TWO SPEC FIELDS THE EXPRESSION READS IN A PARTICULAR ORDER.
+ *
+ * `anchorDefault` decides what a NON-NUMBER anchor property means. With
+ * `anchorDefault: null` the expression carries an explicit
+ * `['!=', ['typeof', ['get', anchor]], 'number'] → base` branch: no reference,
+ * no scaling. With a NUMBER it carries no such branch and reads
+ * `['coalesce', ['get', anchor], anchorDefault]` instead, so an absent property
+ * anchors at that number (the point markers anchor at 0) and the scaling still
+ * happens. Both are reproduced below.
+ *
+ * `divideBy` is applied by the expression to the WHOLE stop value, after the
+ * `min` clamp and after the `case` — `['/', value, divideBy]` in
+ * `zoomScaledExpression`, so the ceiling bites on the UNDIVIDED size and the
+ * disabled branch is `base / divideBy`, not `base`. Dividing each stop value
+ * and dividing the interpolated result give the same number (the blend
+ * `from + t * (to - from)` is linear in the stop values), so it is applied per
+ * stop here, which is also where the clamp already lives.
+ *
  * @param {Object} spec - Size rule
- * @param {number} spec.base - Base size (`properties.size`, already defaulted)
+ * @param {number} spec.base - Base size (`properties[sizeProp]`, already defaulted)
  * @param {number} spec.anchorZoom - Zoom the feature was anchored at
  * @param {boolean} [spec.enabled] - `false` disables the scaling, as the
- *   `zoomCorrectionEnabled` branch of the expression does
+ *   `enabledProp` branch of the expression does
  * @param {number} [spec.maxValue] - Upper clamp baked into every stop value
+ * @param {number|null} [spec.anchorDefault] - Anchor used when `anchorZoom` is
+ *   not a finite number; anything but a finite number means "no reference,
+ *   keep the base"
+ * @param {number} [spec.divideBy] - Divisor of the whole value; anything but a
+ *   finite positive number means no division
  * @param {number} zoom - Current map zoom
  * @returns {number} The evaluated size; `NaN` when `base` or `zoom` is not a
  *   finite number, so the caller can fall back instead of trusting a bad quad
  */
-export function evaluateZoomScaledSize({ base, anchorZoom, enabled, maxValue }, zoom) {
+export function evaluateZoomScaledSize({ base, anchorZoom, enabled, maxValue, anchorDefault, divideBy }, zoom) {
+    const divisor = Number.isFinite(divideBy) && divideBy > 0 ? divideBy : 1;
+
     if (!Number.isFinite(base)) return NaN;
-    if (enabled === false) return base;
-    if (!Number.isFinite(anchorZoom)) return base;
+    if (enabled === false) return base / divisor;
+
+    const anchor = Number.isFinite(anchorZoom) ? anchorZoom : anchorDefault;
+    if (!Number.isFinite(anchor)) return base / divisor;
     if (!Number.isFinite(zoom)) return NaN;
 
     const stopValue = (stop) => {
-        const scaled = base * Math.pow(2, stop - anchorZoom);
-        return Number.isFinite(maxValue) ? Math.min(maxValue, scaled) : scaled;
+        const scaled = base * Math.pow(2, stop - anchor);
+        return (Number.isFinite(maxValue) ? Math.min(maxValue, scaled) : scaled) / divisor;
     };
 
     if (zoom <= FIRST_STOP) return stopValue(FIRST_STOP);
@@ -313,11 +395,14 @@ export function evaluateZoomScaledSize({ base, anchorZoom, enabled, maxValue }, 
 }
 
 /**
- * Size of one rendered symbol row, using the rule of its layer.
+ * Size of one rendered symbol row, using the rule of its layer — including
+ * WHICH properties that layer reads: the four picture layers author
+ * `size` / `createdAtZoom` / `zoomCorrectionEnabled`, the point markers author
+ * `size` / `sizeCreatedAtZoom` / `sizeZoomCorrectionEnabled`.
  *
- * The base falls back to the layer default when `properties.size` is not a
+ * The base falls back to the layer default when the size property is not a
  * usable positive number. That is slightly stricter than the expression's
- * `['coalesce', ['get', 'size'], default]`, which would keep a literal `0`; a
+ * `['coalesce', ['get', sizeProp], default]`, which would keep a literal `0`; a
  * zero-size icon has no rectangle to hit-test anyway.
  *
  * @param {string} layerId - MapLibre layer id
@@ -329,14 +414,16 @@ export function iconSizeForFeature(layerId, properties, zoom) {
     const rule = ICON_SIZE_RULES[layerId];
     if (!rule) return null;
 
-    const size = finiteNumber(properties?.size);
+    const size = finiteNumber(properties?.[rule.sizeProp]);
     const base = size > 0 ? size : rule.baseDefault;
 
     return evaluateZoomScaledSize({
         base,
-        anchorZoom: finiteNumber(properties?.createdAtZoom),
-        enabled: properties?.zoomCorrectionEnabled,
+        anchorZoom: finiteNumber(properties?.[rule.anchorProp]),
+        enabled: properties?.[rule.enabledProp],
         maxValue: rule.maxValue,
+        anchorDefault: rule.anchorDefault,
+        divideBy: rule.divideBy,
     }, zoom);
 }
 

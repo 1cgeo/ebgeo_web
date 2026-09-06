@@ -26,7 +26,8 @@ import { showConfirm } from '@modals/confirm.modal.js';
 // o barrel de modais a arrasta de volta pelo caminho transitivo.
 import { showSuccess, showError } from '@utils/toast_service.js';
 import { validateMapLibreStyle } from '@utils/maplibre-style-validate.js';
-import { validateImageFile, readFileAsDataURL, compressImage } from '@utils/image_utils.js';
+import { validateImageFile, compressImage } from '@utils/image_utils.js';
+import { blobToDataUrl } from '@utils/blob-to-data-url.js';
 import { sectionHeader, card, emptyState, ICON_CATALOG, failureState } from './admin-dom.js';
 import { orgLabel, buildDomainOptions } from './org-options.js';
 import config from '@js/config.js';
@@ -664,7 +665,7 @@ class CatalogTab {
                 const v = validateImageFile(file);
                 if (!v.valid) { showFormError(error, v.reason); fileInput.value = ''; return; }
                 try {
-                    const raw = await readFileAsDataURL(file);
+                    const raw = await blobToDataUrl(file);
                     // WebP keeps transparency (JPEG would flatten it to black) and stays small.
                     const out = await compressImage(raw, { maxDimension: 420, quality: 0.82, mimeType: 'image/webp' });
                     if (out.length > MAX_THUMBNAIL_DATAURL) {
@@ -1465,7 +1466,7 @@ class CatalogTab {
             const v = validateImageFile(file);
             if (!v.valid) { showFormError(error, v.reason); fileInput.value = ''; return; }
             try {
-                const raw = await readFileAsDataURL(file);
+                const raw = await blobToDataUrl(file);
                 const webp = await compressImage(raw, { maxDimension: 640, quality: 0.82, mimeType: 'image/webp' });
                 preview.src = webp;
                 delete thumb.dataset.empty;

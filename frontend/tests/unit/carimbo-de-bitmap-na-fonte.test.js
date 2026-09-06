@@ -18,6 +18,10 @@
  *   2. O deslocamento AUSENTE viaja como `removeProperties`, não como `[0, 0]`. É o mesmo
  *      contrato de `applyGeneratedBitmap`, e é o que faz a op de um par v1 (que não traz
  *      `iconOffset`) desenhar exato em vez de herdar o deslocamento de outra feição.
+ *   3. O `imageUrl` legado é APAGADO da fonte, sempre. Ele era uma cópia em base64 do
+ *      próprio desenho, que ninguém lia e que viajava dentro de toda op de sync e de toda
+ *      linha JSONB. `applyGeneratedBitmap` o apaga da feição; se a FONTE o mantivesse, a
+ *      leitura seguinte dela devolveria a chave ao documento guardado.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -106,7 +110,8 @@ describe('stampRegeneratedBitmap', () => {
             iconOffset: [0, -12],
             bitmapVersion: SYMBOL_BITMAP_VERSION,
         });
-        expect(patch.removeProperties).toBeUndefined();
+        // Com deslocamento, a única remoção é a do `imageUrl` legado.
+        expect(patch.removeProperties).toEqual(['imageUrl']);
         // Nunca a coleção inteira: é o `setData` cru que perde o lote pendente.
         expect(map.colecoesInteiras).toBe(0);
     });
@@ -118,7 +123,7 @@ describe('stampRegeneratedBitmap', () => {
         await stampRegeneratedBitmap(despachanteDe(map), feicao(), { blob: {}, width: 42, height: 30 });
 
         const patch = patchUnico(map);
-        expect(patch.removeProperties).toEqual(['iconOffset']);
+        expect(patch.removeProperties).toEqual(['iconOffset', 'imageUrl']);
         expect(postas(patch)).not.toHaveProperty('iconOffset');
     });
 
@@ -130,7 +135,23 @@ describe('stampRegeneratedBitmap', () => {
             blob: {}, width: 42, height: 30, iconOffset: [0, 0],
         });
 
-        expect(patchUnico(map).removeProperties).toEqual(['iconOffset']);
+        expect(patchUnico(map).removeProperties).toEqual(['iconOffset', 'imageUrl']);
+    });
+
+    it('o `imageUrl` legado sai da FONTE, e não como chave zerada', async () => {
+        // A base64 do proprio desenho nunca foi lida, e ia dentro de toda op de sync e de
+        // toda linha JSONB. A fonte tem de perde-la junto com a feicao: mantida ali, a
+        // leitura seguinte da fonte a devolveria ao documento guardado.
+        const map = mapaFalso();
+        destroyGeoJsonDispatchers(map);
+
+        await stampRegeneratedBitmap(despachanteDe(map), feicao(), {
+            blob: {}, width: 42, height: 30, iconOffset: [0, -12],
+        });
+
+        const patch = patchUnico(map);
+        expect(patch.removeProperties).toContain('imageUrl');
+        expect(postas(patch)).not.toHaveProperty('imageUrl');
     });
 
     it('a feição EM MÃOS é carimbada, que é o que a montagem de camadas do boot escreve', async () => {

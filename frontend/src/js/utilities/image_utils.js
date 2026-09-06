@@ -4,6 +4,8 @@
  * Provides compression, thumbnail generation, and validation for images.
  */
 
+import { blobToDataUrl } from './blob-to-data-url.js';
+
 /**
  * Configuration for image handling.
  * @constant {Object}
@@ -127,20 +129,6 @@ export async function createThumbnail(base64Data, options = {}) {
 }
 
 /**
- * Reads a File as a data URL.
- * @param {File} file - File to read
- * @returns {Promise<string>} Base64 data URL
- */
-export function readFileAsDataURL(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve(e.target.result);
-        reader.onerror = () => reject(new Error('Failed to read file'));
-        reader.readAsDataURL(file);
-    });
-}
-
-/**
  * Processes an image file - compresses if needed and generates thumbnail.
  * @param {File} file - Image file
  * @param {Object} options - Processing options
@@ -150,7 +138,7 @@ export function readFileAsDataURL(file) {
 export async function processImageFile(file, options = {}) {
     const threshold = options.compressionThreshold ?? IMAGE_CONFIG.compressionThreshold;
 
-    let imageData = await readFileAsDataURL(file);
+    let imageData = await blobToDataUrl(file);
 
     if (file.size > threshold) {
         imageData = await compressImage(imageData);

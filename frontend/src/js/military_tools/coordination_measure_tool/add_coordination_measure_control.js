@@ -498,7 +498,6 @@ class AddCoordinationMeasureControl extends BaseControl {
         feature.properties
       );
 
-      feature.properties.imageUrl = result.dataUrl;
       applyGeneratedBitmap(feature.properties, result);
 
       feature.properties.selectionBox = this.geometry.calculateSelectionBoxGeometry(
@@ -637,7 +636,6 @@ class AddCoordinationMeasureControl extends BaseControl {
         properties
       );
 
-      feature.properties.imageUrl = result.dataUrl;
       applyGeneratedBitmap(feature.properties, result);
 
       // The read stays: the box is measured from the SOURCE geometry, which is the authority on
@@ -670,11 +668,11 @@ class AddCoordinationMeasureControl extends BaseControl {
         // medida: a caixa de selecao le o tamanho LOGICO, e quem traduz o bitmap de volta a
         // ele e este numero. Deixa-la de fora fazia a fonte guardar a medida nova com a razao
         // velha. O `unsetProps` apaga o `iconOffset` do simbolo que deixou de ter deslocamento,
-        // que e o que impede a fonte de manter um valor sem dono.
+        // que e o que impede a fonte de manter um valor sem dono, e apaga tambem o `imageUrl`
+        // legado, para a fonte viva nao devolver a base64 do desenho a feicao.
         const { setProps, unsetProps } = generatedBitmapPatch(result);
         dispatcher.patch(sourceFeature.properties.id, {
           setProps: {
-            imageUrl: result.dataUrl,
             ...setProps,
             selectionBox: newSelectionBox,
           },
@@ -733,7 +731,6 @@ class AddCoordinationMeasureControl extends BaseControl {
         properties
       );
 
-      feature.properties.imageUrl = result.dataUrl;
       applyGeneratedBitmap(feature.properties, result);
 
       // The read stays: the box is measured from the SOURCE geometry, which is the authority on
@@ -766,11 +763,11 @@ class AddCoordinationMeasureControl extends BaseControl {
         // medida: a caixa de selecao le o tamanho LOGICO, e quem traduz o bitmap de volta a
         // ele e este numero. Deixa-la de fora fazia a fonte guardar a medida nova com a razao
         // velha. O `unsetProps` apaga o `iconOffset` do simbolo que deixou de ter deslocamento,
-        // que e o que impede a fonte de manter um valor sem dono.
+        // que e o que impede a fonte de manter um valor sem dono, e apaga tambem o `imageUrl`
+        // legado, para a fonte viva nao devolver a base64 do desenho a feicao.
         const { setProps, unsetProps } = generatedBitmapPatch(result);
         dispatcher.patch(sourceFeature.properties.id, {
           setProps: {
-            imageUrl: result.dataUrl,
             ...setProps,
             selectionBox: newSelectionBox,
           },

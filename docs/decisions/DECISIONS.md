@@ -141,6 +141,8 @@ viram commit, teste e, se ensinaram algo, linha no [`docs/livro-razao.md`](../li
 | 2026-09-05 | a caixa de seleção acompanha o quadro de zoom de verdade, com cache; o `zoomend` fica para o chefe | [decisions-2026.md](decisions-2026.md) |
 | 2026-09-05 | o teste do índice de auditoria afirma o caminho por `target_id`, porque o Postgres 18 escolhe o composto por skip scan | [decisions-2026.md](decisions-2026.md) |
 | 2026-09-05 | o menu da engrenagem acompanha a rolagem do próprio painel em vez de fechar | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-06 | o bitmap vencido se regenera na CARGA, e o carimbo dele é escrita local sem op | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-06 | a medida de coordenação deixa de guardar o próprio PNG em base64, e o marcador de ponto entra no hit-test exato | [decisions-2026.md](decisions-2026.md) |
 
 As duas linhas de 2026-08-16 acima entraram em 2026-08-18: as entradas integrais existiam no arquivo
 do ano e ninguém acrescentara a linha aqui, que é a metade do procedimento que falha calada (o índice

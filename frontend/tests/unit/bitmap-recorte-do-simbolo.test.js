@@ -14,9 +14,17 @@
  * - `iconOffsetFor`, o deslocamento que poe o ponto de ancoragem do DESENHO sobre a
  *   coordenada quando o meio do bitmap nao serve;
  * - `applyGeneratedBitmap`, o unico escritor das chaves de bitmap na feicao.
+ *
+ * E prendem, por varredura da FONTE, que nenhum escritor volta a gravar `imageUrl` a mao:
+ * essa chave era uma copia em base64 do proprio desenho, sem leitor, e o escritor unico a
+ * apaga. A varredura existe porque os cinco sitios que a gravavam moravam num controle
+ * acoplado ao MapLibre, que nao carrega em `node`: sem ela, apagar a chave la nao teria
+ * guarda nenhuma, e a proxima ferramenta a copiar aquele bloco a traria de volta calada.
  */
 
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import fc from 'fast-check';
 import { fitDrawSize } from '@js/military_tools/svg-to-png.js';
 import { iconOffsetFor } from '@js/military_tools/coordination_measure_tool/coordination_measure_generator.js';
@@ -185,6 +193,17 @@ describe('applyGeneratedBitmap', () => {
         }
     });
 
+    it('APAGA um imageUrl velho, para a base64 do bitmap não morar na feição', () => {
+        // `imageUrl` era uma copia em base64 do PROPRIO desenho, que ninguem lia e que ia
+        // junto em todo `.ebgeo`, em toda op de sync e em toda linha JSONB. A feicao antiga
+        // perde a chave na proxima regeracao.
+        const properties = { imageUrl: 'data:image/png;base64,VELHO' };
+
+        applyGeneratedBitmap(properties, { blob: {}, width: 10, height: 10 });
+
+        expect('imageUrl' in properties).toBe(false);
+    });
+
     it('aguenta propriedades ou resultado ausentes', () => {
         expect(applyGeneratedBitmap(null, { width: 1, height: 1 })).toBe(null);
         expect(applyGeneratedBitmap(undefined, { width: 1, height: 1 })).toBe(undefined);
@@ -272,5 +291,45 @@ describe('sinal do deslocamento, do gerador ate a replica do clique', () => {
         // 3. Na horizontal o desenho e simetrico, entao nada se desloca.
         expect(iconOffset[0]).toBe(0);
         expect(Math.min(...quad.map(c => c.x))).toBeCloseTo(-caixa.width * escala / 2, 10);
+    });
+});
+
+describe('nenhum escritor grava a base64 do desenho na feição', () => {
+    const pacote = resolve(import.meta.dirname, '../..');
+    const ler = (rel) => readFileSync(resolve(pacote, rel), 'utf8');
+
+    // As tres arvores que DESENHAM simbolo: as ferramentas, os ajudantes de painel e a
+    // camada. A varredura para aqui de proposito, porque `imageUrl` e palavra viva fora
+    // delas (a rota de imagem do cliente de API, a miniatura do seletor de base).
+    const ARVORES = [
+        'src/js/military_tools/coordination_measure_tool/add_coordination_measure_control.js',
+        'src/js/military_tools/military_symbol_tool/add_military_symbol_control.js',
+        'src/js/tool_manager/helpers/feature-header.helpers.js',
+        'src/js/layers/bitmap-version.js',
+    ];
+
+    it.each(ARVORES)('%s não grava `imageUrl` em feição nem na fonte', (rel) => {
+        const fonte = ler(rel);
+
+        // Escrita na feicao (`feature.properties.imageUrl = ...`) e escrita na fonte pelo
+        // despachante (`imageUrl: ...` dentro de um `setProps`). O `delete` e o `unsetProps`
+        // do escritor unico sao o oposto disso, e continuam permitidos.
+        expect(fonte, `${rel} voltou a gravar imageUrl na feição`)
+            .not.toMatch(/\.properties\.imageUrl\s*=/);
+        expect(fonte, `${rel} voltou a pôr imageUrl num setProps`)
+            .not.toMatch(/^\s*imageUrl\s*:/m);
+    });
+
+    it('o escritor único apaga a chave e a fonte viva também a perde', async () => {
+        const { generatedBitmapPatch } = await import('@layers/bitmap-version.js');
+
+        expect(generatedBitmapPatch({ width: 1, height: 1 }).unsetProps).toContain('imageUrl');
+        expect(ler('src/js/layers/bitmap-version.js')).toMatch(/delete properties\.imageUrl/);
+    });
+
+    it('a chave continua na lista de chaves de SISTEMA, para não virar atributo do usuário', () => {
+        // A feicao antiga ainda pode carrega-la ate a proxima regeracao, e nesse meio-tempo o
+        // painel de atributos nao pode oferece-la como campo do usuario.
+        expect(ler('src/js/user_data/user_data_manager.js')).toContain("'imageUrl'");
     });
 });

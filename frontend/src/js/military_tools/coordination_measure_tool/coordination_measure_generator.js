@@ -167,32 +167,19 @@ export class CoordinationMeasureGenerator {
   }
 
   /**
-   * Generate symbol with data URL (legacy/convenience method)
-   * Returns dataUrl instead of blob for backward compatibility with existing code
+   * Generate symbol from a point code, without requiring it inside the properties.
+   *
+   * The result is the same shape `generateSymbolBlob` returns: no base64 copy of the
+   * bitmap. Whoever needs a data URL (only the preview modal does) encodes the blob
+   * itself with `blobToDataUrl`, instead of paying a FileReader on every regeneration.
+   *
    * @param {string} pointCode - Point code (ex: "130100")
    * @param {Object} properties - Point properties
    * @param {Object} [opcoes] - Opcoes de rasterizacao, repassadas ao generateSymbolBlob
-   * @returns {Promise<Object>} { dataUrl, blob, width, height, pixelRatio, anchor, iconOffset }
+   * @returns {Promise<Object>} { blob, width, height, pixelRatio, anchor, iconOffset }
    */
   async generate(pointCode, properties, opcoes) {
-    const propsWithCode = { ...properties, pointCode };
-    const result = await this.generateSymbolBlob(propsWithCode, opcoes);
-
-    const dataUrl = await new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.readAsDataURL(result.blob);
-    });
-
-    return {
-      dataUrl,
-      blob: result.blob,
-      width: result.width,
-      height: result.height,
-      pixelRatio: result.pixelRatio,
-      anchor: result.anchor,
-      iconOffset: result.iconOffset
-    };
+    return this.generateSymbolBlob({ ...properties, pointCode }, opcoes);
   }
 
   /**
