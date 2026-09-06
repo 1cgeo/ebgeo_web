@@ -1403,7 +1403,6 @@ async function convertPointToCoordinationMeasure(pointFeature, selectionManager,
         // Generate symbol image
         const result = await coordControl.symbolGenerator.generate(pointCode, feature.properties);
 
-        feature.properties.imageUrl = result.dataUrl;
         // Size, anchor, pixel ratio, icon offset and the bitmap version stamp all come from
         // the generator result: the ratio dropped here once, and the bitmap was registered
         // 1:1, drawing the converted symbol four times larger than the same code drawn by

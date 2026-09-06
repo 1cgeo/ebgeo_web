@@ -39,6 +39,10 @@ export function hasCurrentBitmap(properties) {
  * anchored by the centre of its bitmap has none, and the key stays ABSENT: writing
  * `[0, 0]` would change the stored shape of every old feature for nothing.
  *
+ * `imageUrl` is always REMOVED: a base64 copy of the bitmap must not live in the
+ * properties (nothing reads it, and it rode along inside every `.ebgeo`). Features
+ * written before this lose the key at their next regeneration or edit.
+ *
  * @param {Object} properties - Feature properties (mutated)
  * @param {Object} result - Generator result { width, height, pixelRatio?, anchor?, iconOffset? }
  * @returns {Object} The same properties object
@@ -64,6 +68,8 @@ export function applyGeneratedBitmap(properties, result) {
     } else {
         delete properties.iconOffset;
     }
+
+    delete properties.imageUrl;
 
     properties.bitmapVersion = SYMBOL_BITMAP_VERSION;
 

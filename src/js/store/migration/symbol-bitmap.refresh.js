@@ -118,11 +118,9 @@ export async function refreshStaleBitmaps(
             continue;
         }
 
+        // This also drops the `imageUrl` of a legacy feature: a base64 copy of the OLD
+        // bitmap must not survive the refresh inside the properties (and every `.ebgeo`).
         applyGeneratedBitmap(feature.properties, result);
-        // The generators used here return no data URL, and nothing reads the
-        // `imageUrl` the tools also keep; a base64 copy of the OLD bitmap must not
-        // survive the refresh inside the properties (and every `.ebgeo`).
-        delete feature.properties.imageUrl;
         blobs.set(id, result.blob);
         updated++;
     }

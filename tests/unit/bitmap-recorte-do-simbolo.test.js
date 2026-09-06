@@ -185,6 +185,16 @@ describe('applyGeneratedBitmap', () => {
         }
     });
 
+    it('APAGA um imageUrl velho, para a base64 do bitmap não morar na feição', () => {
+        // `imageUrl` era uma copia em base64 do PROPRIO desenho, que ninguem lia e que ia
+        // junto em todo `.ebgeo`. A feicao antiga perde a chave na proxima regeracao.
+        const properties = { imageUrl: 'data:image/png;base64,VELHO' };
+
+        applyGeneratedBitmap(properties, { blob: {}, width: 10, height: 10 });
+
+        expect('imageUrl' in properties).toBe(false);
+    });
+
     it('aguenta propriedades ou resultado ausentes', () => {
         expect(applyGeneratedBitmap(null, { width: 1, height: 1 })).toBe(null);
         expect(applyGeneratedBitmap(undefined, { width: 1, height: 1 })).toBe(undefined);

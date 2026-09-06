@@ -471,7 +471,6 @@ class AddCoordinationMeasureControl extends BaseControl {
         feature.properties
       );
 
-      feature.properties.imageUrl = result.dataUrl;
       applyGeneratedBitmap(feature.properties, result);
 
       feature.properties.selectionBox = this.geometry.calculateSelectionBoxGeometry(
@@ -557,7 +556,6 @@ class AddCoordinationMeasureControl extends BaseControl {
         properties
       );
 
-      feature.properties.imageUrl = result.dataUrl;
       applyGeneratedBitmap(feature.properties, result);
 
       const data = await this.map.getSource("coordination_measures").getData();
@@ -581,7 +579,6 @@ class AddCoordinationMeasureControl extends BaseControl {
 
         feature.properties.selectionBox = newSelectionBox;
 
-        sourceFeature.properties.imageUrl = result.dataUrl;
         applyGeneratedBitmap(sourceFeature.properties, result);
         sourceFeature.properties.selectionBox = newSelectionBox;
       }
@@ -637,7 +634,6 @@ class AddCoordinationMeasureControl extends BaseControl {
         properties
       );
 
-      feature.properties.imageUrl = result.dataUrl;
       applyGeneratedBitmap(feature.properties, result);
 
       const data = await this.map.getSource("coordination_measures").getData();
@@ -661,7 +657,6 @@ class AddCoordinationMeasureControl extends BaseControl {
 
         feature.properties.selectionBox = newSelectionBox;
 
-        sourceFeature.properties.imageUrl = result.dataUrl;
         applyGeneratedBitmap(sourceFeature.properties, result);
         sourceFeature.properties.selectionBox = newSelectionBox;
       }

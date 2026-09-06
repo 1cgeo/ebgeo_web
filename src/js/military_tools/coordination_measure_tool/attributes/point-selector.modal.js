@@ -7,6 +7,7 @@
 
 import { ModalBase } from '@modals';
 import { addDomListener } from '@utils/event-cleanup.js';
+import { blobToDataUrl } from '@utils/blob-to-data-url.js';
 
 import {
     createDigitalComboBoxWithThumbnails,
@@ -82,7 +83,9 @@ async function generatePointThumbnailForCombo(coordinationMeasureControl, pointC
             { nitidez: NITIDEZ_DE_TELA }
         );
 
-        const dataUrl = result?.dataUrl || null;
+        // O gerador devolve o blob: a base64 so existe porque a miniatura vai num
+        // `<img src>`, e por isso e feita aqui, e nao em toda regeracao do simbolo.
+        const dataUrl = result?.blob ? await blobToDataUrl(result.blob) : null;
         miniaturas.set(pointCode, dataUrl);
 
         return dataUrl;
@@ -478,12 +481,14 @@ export class PointSelectorModal extends ModalBase {
                 { fillColor: this._tempProperties.fillColor }
             );
 
+            const dataUrl = result?.blob ? await blobToDataUrl(result.blob) : null;
+
             if (token !== this._previewToken) {
                 return;
             }
 
-            if (result && result.dataUrl) {
-                this._previewImage.src = result.dataUrl;
+            if (dataUrl) {
+                this._previewImage.src = dataUrl;
                 this._previewImage.style.display = 'block';
             }
         } catch (error) {
@@ -531,12 +536,14 @@ export class PointSelectorModal extends ModalBase {
                 this._tempProperties
             );
 
+            const dataUrl = result?.blob ? await blobToDataUrl(result.blob) : null;
+
             if (token !== this._previewToken) {
                 return;
             }
 
-            if (result && result.dataUrl) {
-                this._previewImage.src = result.dataUrl;
+            if (dataUrl) {
+                this._previewImage.src = dataUrl;
                 this._previewImage.style.display = 'block';
             } else {
                 this._previewImage.style.display = 'none';

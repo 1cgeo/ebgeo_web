@@ -44,7 +44,10 @@ function blocoDaConversao() {
 
 describe('conversão Ponto -> Medida de Coordenação: a razão de pixels', () => {
     it('o gerador devolve pixelRatio (senão este guarda não prenderia nada)', () => {
-        expect(GERADOR).toMatch(/pixelRatio:\s*result\.pixelRatio/);
+        // `generate()` deixou de reempacotar o resultado (e de gastar um FileReader para
+        // devolver uma base64 que ninguem lia): quem carrega a razao e o `generateSymbolBlob`.
+        expect(GERADOR).toMatch(/pixelRatio:\s*nitidez/);
+        expect(GERADOR).not.toMatch(/readAsDataURL/);
     });
 
     it('a conversão escreve o resultado na feição pelo escritor único', () => {
@@ -52,6 +55,9 @@ describe('conversão Ponto -> Medida de Coordenação: a razão de pixels', () =
         expect(bloco).toContain('applyGeneratedBitmap(feature.properties, result);');
         // Copiar chave por chave e o que deixava uma delas para tras.
         expect(bloco).not.toMatch(/feature\.properties\.(width|height|pixelRatio|anchor)\s*=/);
+        // `imageUrl` era uma copia em base64 do proprio desenho: quem apaga a chave agora
+        // e o escritor unico, e nenhum escritor volta a gravar uma.
+        expect(bloco).not.toMatch(/imageUrl/);
     });
 
     it('o escritor único de fato carrega a razão, e não só o tamanho', async () => {
