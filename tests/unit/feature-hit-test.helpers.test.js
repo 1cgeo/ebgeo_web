@@ -441,6 +441,128 @@ describe('queryFeaturesAtPoint - exact icon rectangle', () => {
         expect(queryFeaturesAtPoint(map, { x: ANCHOR.x + 5000, y: ANCHOR.y })).toEqual([LINE_ROW]);
         expect(map.getImage).not.toHaveBeenCalled();
     });
+
+    // A PICTURE is drawn at the size the user chose and is hit exactly: the
+    // rectangle is the whole truth, with no border of slack around it.
+    it('gives an image row NO tolerance padding: 53 px from a 100 px-wide rectangle is a miss', () => {
+        const justOutside = makeMap({ results: [[imageRow()]], zoom: 10, image: IMAGE });
+        expect(queryFeaturesAtPoint(justOutside, { x: ANCHOR.x + 53, y: ANCHOR.y }, { tolerance: 6 }))
+            .toEqual([]);
+
+        const justInside = makeMap({ results: [[imageRow()]], zoom: 10, image: IMAGE });
+        expect(queryFeaturesAtPoint(justInside, { x: ANCHOR.x + 49, y: ANCHOR.y }, { tolerance: 6 }))
+            .toHaveLength(1);
+    });
+});
+
+describe('queryFeaturesAtPoint - the point marker rectangle and its tolerance', () => {
+    /**
+     * A 96x96 marker bitmap at pixelRatio 2, i.e. 48 CSS px — what
+     * `point-marker-symbols.js` and `point-custom-icons.js` both draw.
+     */
+    const MARKER_IMAGE = { data: { width: 96, height: 96 }, pixelRatio: 2 };
+
+    /**
+     * A marker row as the point layer renders it: `size` is a RADIUS in pixels
+     * and the layer divides by `POINT_IMAGE_HALF_SIZE` (24), so at zoom 10 with
+     * `sizeCreatedAtZoom` 10 the icon-size is 10/24 and the 48 px bitmap is
+     * drawn 20 px wide — the diameter of a 10 px-radius marker.
+     * @param {Object} [overrides] - Property overrides
+     * @returns {Object} The row
+     */
+    function markerRow(overrides = {}) {
+        return makeRow({
+            layerId: 'point-marker-layer',
+            layerType: 'symbol',
+            source: 'points',
+            properties: {
+                id: 'pt1',
+                source: 'point',
+                size: 10,
+                sizeCreatedAtZoom: 10,
+                sizeZoomCorrectionEnabled: true,
+                ...overrides,
+            },
+        });
+    }
+
+    /**
+     * @param {Object} point - Click point
+     * @param {Object} [options] - Query options
+     * @returns {number} How many rows survived
+     */
+    function hits(point, options) {
+        const map = makeMap({ results: [[markerRow()]], zoom: 10, image: MARKER_IMAGE });
+        return queryFeaturesAtPoint(map, point, options).length;
+    }
+
+    it('hits the 20 px drawn square when no tolerance is asked for', () => {
+        expect(hits({ x: ANCHOR.x + 9, y: ANCHOR.y }, { tolerance: 0 })).toBe(1);
+        expect(hits({ x: ANCHOR.x, y: ANCHOR.y + 9 }, { tolerance: 0 })).toBe(1);
+        expect(hits({ x: ANCHOR.x + 11, y: ANCHOR.y }, { tolerance: 0 })).toBe(0);
+        expect(hits({ x: ANCHOR.x, y: ANCHOR.y - 11 }, { tolerance: 0 })).toBe(0);
+    });
+
+    it('grows that square by the tolerance, because a marker is a THIN target', () => {
+        // Half-width 10 px of drawing + 6 px of slack = 16 px either way.
+        for (const point of [
+            { x: ANCHOR.x + 15, y: ANCHOR.y },
+            { x: ANCHOR.x - 15, y: ANCHOR.y },
+            { x: ANCHOR.x, y: ANCHOR.y + 15 },
+            { x: ANCHOR.x, y: ANCHOR.y - 15 },
+        ]) {
+            expect(hits(point, { tolerance: 6 })).toBe(1);
+        }
+
+        for (const point of [
+            { x: ANCHOR.x + 17, y: ANCHOR.y },
+            { x: ANCHOR.x - 17, y: ANCHOR.y },
+            { x: ANCHOR.x, y: ANCHOR.y + 17 },
+            { x: ANCHOR.x, y: ANCHOR.y - 17 },
+        ]) {
+            expect(hits(point, { tolerance: 6 })).toBe(0);
+        }
+    });
+
+    it('uses the default click tolerance when none is given', () => {
+        expect(CLICK_TOLERANCE_PX).toBe(6);
+        expect(hits({ x: ANCHOR.x + 10 + CLICK_TOLERANCE_PX - 1, y: ANCHOR.y })).toBe(1);
+        expect(hits({ x: ANCHOR.x + 10 + CLICK_TOLERANCE_PX + 1, y: ANCHOR.y })).toBe(0);
+    });
+
+    it('follows the drawn size: doubling the zoom doubles the square, slack included', () => {
+        const atEleven = makeMap({ results: [[markerRow()]], zoom: 11, image: MARKER_IMAGE });
+        // 40 px wide at zoom 11: half-width 20, plus 6 of slack.
+        expect(queryFeaturesAtPoint(atEleven, { x: ANCHOR.x + 25, y: ANCHOR.y }, { tolerance: 6 }))
+            .toHaveLength(1);
+
+        const far = makeMap({ results: [[markerRow()]], zoom: 11, image: MARKER_IMAGE });
+        expect(queryFeaturesAtPoint(far, { x: ANCHOR.x + 27, y: ANCHOR.y }, { tolerance: 6 }))
+            .toEqual([]);
+    });
+
+    it('keeps the row when the style has no bitmap for the marker', () => {
+        const map = makeMap({ results: [[markerRow()]], zoom: 10, image: undefined });
+        expect(queryFeaturesAtPoint(map, { x: ANCHOR.x + 500, y: ANCHOR.y })).toHaveLength(1);
+    });
+
+    it('is DECISIVE: a marker hit hides the polygon under it', () => {
+        const markerHit = makeRow({
+            layerId: 'point-marker-layer',
+            layerType: 'symbol',
+            source: 'points',
+            properties: { id: 'pt1', source: 'point' },
+        });
+        const fill = makeRow({
+            layerId: 'polygon-layer',
+            layerType: 'fill',
+            source: 'polygons',
+            properties: { id: 'p1', source: 'polygon' },
+        });
+
+        expect(rankHitRows([markerHit, fill])).toEqual([markerHit]);
+        expect(rankHitRows([fill, markerHit])).toEqual([markerHit]);
+    });
 });
 
 describe('renderedIconQuad', () => {
@@ -612,9 +734,10 @@ describe('renderedIconQuad', () => {
         expect(renderedIconQuad(null, ICON)).toBeNull();
         expect(renderedIconQuad(map, { ...ICON, properties: null })).toBeNull();
         expect(renderedIconQuad(map, { ...ICON, coordinates: undefined })).toBeNull();
-        // A layer with no size rule (`point-marker-layer` among them) is left
-        // to MapLibre: a rule shaped like these would compute a wrong rectangle.
-        expect(renderedIconQuad(map, { ...ICON, layerId: 'point-marker-layer' })).toBeNull();
+        // A layer with no size rule is left to MapLibre: there is no spec to
+        // replay, so any rectangle here would be a guess.
+        expect(renderedIconQuad(map, { ...ICON, layerId: 'text-layer' })).toBeNull();
+        expect(renderedIconQuad(map, { ...ICON, layerId: 'point-label-layer' })).toBeNull();
         expect(renderedIconQuad(map, { ...ICON, layerId: undefined })).toBeNull();
     });
 
@@ -716,6 +839,67 @@ describe('isPointInsideRenderedIcon', () => {
             expect(isPointInsideRenderedIcon(noRatio, row, { x: ANCHOR.x, y: ANCHOR.y + 31 })).toBe(false);
         }
     });
+
+    describe('the tolerancePx option', () => {
+        const markerMap = () => makeMap({
+            zoom: 10,
+            image: { data: { width: 96, height: 96 }, pixelRatio: 2 },
+        });
+
+        /** A marker drawn 20 px wide (48 CSS px of bitmap at icon-size 10/24). */
+        const MARKER_ROW = makeRow({
+            layerId: 'point-marker-layer',
+            layerType: 'symbol',
+            source: 'points',
+            properties: {
+                id: 'pt1',
+                source: 'point',
+                size: 10,
+                sizeCreatedAtZoom: 10,
+                sizeZoomCorrectionEnabled: true,
+            },
+        });
+
+        /** The same bitmap under the image layer, drawn 48 px wide at icon-size 1. */
+        const IMAGE_ROW = makeRow({
+            layerId: 'image-layer',
+            layerType: 'symbol',
+            source: 'images',
+            properties: {
+                id: 'img1',
+                source: 'image',
+                size: 1,
+                createdAtZoom: 10,
+                zoomCorrectionEnabled: true,
+            },
+        });
+
+        it('defaults to no padding at all', () => {
+            expect(isPointInsideRenderedIcon(markerMap(), MARKER_ROW, { x: ANCHOR.x + 9, y: ANCHOR.y }))
+                .toBe(true);
+            expect(isPointInsideRenderedIcon(markerMap(), MARKER_ROW, { x: ANCHOR.x + 11, y: ANCHOR.y }))
+                .toBe(false);
+        });
+
+        it('grows a TOLERANT layer rectangle by the tolerance it is given', () => {
+            expect(isPointInsideRenderedIcon(
+                markerMap(), MARKER_ROW, { x: ANCHOR.x + 15, y: ANCHOR.y }, { tolerancePx: 6 },
+            )).toBe(true);
+            expect(isPointInsideRenderedIcon(
+                markerMap(), MARKER_ROW, { x: ANCHOR.x + 17, y: ANCHOR.y }, { tolerancePx: 6 },
+            )).toBe(false);
+        });
+
+        it('leaves a picture layer exact, whatever tolerance is passed', () => {
+            // 48 CSS px wide at icon-size 1: half-width 24 and not one pixel more.
+            expect(isPointInsideRenderedIcon(
+                markerMap(), IMAGE_ROW, { x: ANCHOR.x + 23, y: ANCHOR.y }, { tolerancePx: 12 },
+            )).toBe(true);
+            expect(isPointInsideRenderedIcon(
+                markerMap(), IMAGE_ROW, { x: ANCHOR.x + 25, y: ANCHOR.y }, { tolerancePx: 12 },
+            )).toBe(false);
+        });
+    });
 });
 
 describe('isDecisiveHit', () => {
@@ -742,10 +926,14 @@ describe('isDecisiveHit', () => {
         }
     });
 
+    it('trusts the point marker, whose rectangle is rebuilt here too', () => {
+        expect(isDecisiveHit({ layer: { id: 'point-marker-layer', type: 'symbol' } })).toBe(true);
+    });
+
     it('does NOT trust a symbol layer still answering from its collision box', () => {
         expect(isDecisiveHit({ layer: { id: 'text-layer', type: 'symbol' } })).toBe(false);
-        expect(isDecisiveHit({ layer: { id: 'point-marker-layer', type: 'symbol' } })).toBe(false);
         expect(isDecisiveHit({ layer: { id: 'point-label-layer', type: 'symbol' } })).toBe(false);
+        expect(isDecisiveHit({ layer: { id: 'polygon-label-layer', type: 'symbol' } })).toBe(false);
     });
 });
 

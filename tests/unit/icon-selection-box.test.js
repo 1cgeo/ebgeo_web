@@ -186,9 +186,11 @@ describe('createRenderedIconSelectionBox', () => {
             montarMapa(), { geometry: { type: 'Point' }, properties: {} }, 'image-layer',
         )).toBeNull();
 
-        // A layer with no size rule cannot be rebuilt either.
+        // A layer with no size rule cannot be rebuilt either (`point-marker-layer`
+        // HAS one since the markers joined `EXACT_ICON_LAYER_IDS`; `text-layer`
+        // still answers from its collision box and has none).
         expect(createRenderedIconSelectionBox(
-            montarMapa(), montarFeicao(), 'point-marker-layer',
+            montarMapa(), montarFeicao(), 'text-layer',
         )).toBeNull();
     });
 

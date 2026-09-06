@@ -71,9 +71,10 @@ export function getClickTolerancePx() {
 /**
  * Whether a row's hit is trustworthy enough to decide the winning class.
  * MapLibre verifies geometry layers itself (a line within its width, a circle
- * within its radius, a fill by containment) and the icon layers are rebuilt
- * here; any OTHER symbol layer (`text-layer`, `point-marker-layer`, labels)
- * still answers from its inflated collision box and must not demote anything.
+ * within its radius, a fill by containment) and the icon layers of
+ * `EXACT_ICON_LAYER_IDS` are rebuilt here; any OTHER symbol layer
+ * (`text-layer`, the label layers) still answers from its inflated collision
+ * box and must not demote anything.
  * @param {Object} row - Rendered row
  * @returns {boolean} `true` for a verified hit
  */
@@ -212,23 +213,32 @@ export function renderedIconQuad(map, { layerId, coordinates, properties }, { pa
  * because that is the position MapLibre drew — including the per-frame
  * trajectory positions the temporal module writes into the source.
  *
+ * The tolerance only reaches the rectangle of a layer whose rule says
+ * `tolerant` (the point markers, which stand in for a point and are as thin a
+ * target as a line); the four picture layers are tested against the drawing
+ * itself, with no slack.
+ *
  * @param {Object} map - MapLibre map instance
  * @param {Object} row - Rendered feature
  * @param {Object|Array<number>} point - Click point in CSS pixels
+ * @param {Object} [options] - Test options
+ * @param {number} [options.tolerancePx=0] - Click slack the caller queried
+ *   with, added around the rectangle of a `tolerant` layer only
  * @returns {boolean} `true` when the click is inside the drawn rectangle, and
  *   also whenever the rectangle cannot be reconstructed (MapLibre's answer stands)
  */
-export function isPointInsideRenderedIcon(map, row, point) {
+export function isPointInsideRenderedIcon(map, row, point, { tolerancePx = 0 } = {}) {
     if (!map || !row) return true;
 
     const geometry = row.geometry;
     if (geometry?.type !== 'Point') return true;
 
+    const layerId = row.layer?.id;
     const quad = renderedIconQuad(map, {
-        layerId: row.layer?.id,
+        layerId,
         coordinates: geometry.coordinates,
         properties: row.properties,
-    });
+    }, { paddingPx: ICON_SIZE_RULES[layerId]?.tolerant ? tolerancePx : 0 });
     if (!quad) return true;
 
     return pointInConvexQuad(point, quad);
@@ -276,7 +286,8 @@ export function queryFeaturesAtPoint(map, point, options = {}) {
     if (tolerant.length === 0) return [];
 
     const survivors = tolerant.filter((row) => (
-        !EXACT_ICON_LAYER_IDS.includes(row?.layer?.id) || isPointInsideRenderedIcon(map, row, point)
+        !EXACT_ICON_LAYER_IDS.includes(row?.layer?.id)
+        || isPointInsideRenderedIcon(map, row, point, { tolerancePx: tolerance })
     ));
 
     const exactLayerIds = new Set();

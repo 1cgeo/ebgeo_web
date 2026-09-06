@@ -90,6 +90,25 @@ const DECLINATION_SPEC = {
 };
 
 /**
+ * The point marker's spec, copied field for field from `POINT_SIZE` in
+ * `layers/styles/point.layers.js` plus the `divideBy: POINT_IMAGE_HALF_SIZE`
+ * the marker layer adds (`icon-size` is a factor over the bitmap's own CSS
+ * size, and the bitmaps are 96 px at `pixelRatio` 2, i.e. 48 CSS px, while
+ * `size` is a radius in pixels — so 24).
+ *
+ * It differs from the pictures' spec in EVERY field, which is the whole reason
+ * `ICON_SIZE_RULES` names its properties instead of assuming them.
+ */
+const MARKER_SPEC = {
+    base: ['coalesce', ['get', 'size'], 10],
+    anchor: 'sizeCreatedAtZoom',
+    anchorDefault: 0,
+    disabledFlag: 'sizeZoomCorrectionEnabled',
+    maxValue: 500,
+    divideBy: 24,
+};
+
+/**
  * @param {number} got - Model value
  * @param {number} expected - Expression value
  * @returns {boolean} True when the two agree to the relative tolerance
@@ -113,6 +132,65 @@ describe('constants', () => {
         expect(ICON_SIZE_RULES['magnetic-declinations-layer'].baseDefault).toBe(0.6);
     });
 
+    // The point marker joined the four picture layers: its rectangle is rebuilt
+    // here too, which is what makes its rows DECISIVE in `isDecisiveHit`.
+    it('rebuilds the rectangle of the four pictures AND of the point marker', () => {
+        expect([...EXACT_ICON_LAYER_IDS]).toEqual([
+            'image-layer',
+            'military-symbols-layer',
+            'coordination-measures-layer',
+            'magnetic-declinations-layer',
+            'point-marker-layer',
+        ]);
+    });
+
+    // Every field of the marker spec differs from the pictures' — that is why
+    // the rule table names the properties instead of assuming them.
+    it('mirrors POINT_SIZE for the point marker, divisor included', () => {
+        expect(ICON_SIZE_RULES['point-marker-layer']).toEqual({
+            sizeProp: 'size',
+            baseDefault: 10,
+            anchorProp: 'sizeCreatedAtZoom',
+            anchorDefault: 0,
+            enabledProp: 'sizeZoomCorrectionEnabled',
+            maxValue: 500,
+            divideBy: 24,
+            rotates: false,
+            anchored: false,
+            offset: false,
+            tolerant: true,
+        });
+    });
+
+    it.each([
+        ['image-layer', 'size', 'createdAtZoom', 'zoomCorrectionEnabled'],
+        ['military-symbols-layer', 'size', 'createdAtZoom', 'zoomCorrectionEnabled'],
+        ['coordination-measures-layer', 'size', 'createdAtZoom', 'zoomCorrectionEnabled'],
+        ['magnetic-declinations-layer', 'size', 'createdAtZoom', 'zoomCorrectionEnabled'],
+    ])('%s reads %s / %s / %s, undivided and with no anchor reference', (layerId, sizeProp, anchorProp, enabledProp) => {
+        const rule = ICON_SIZE_RULES[layerId];
+        expect(rule.sizeProp).toBe(sizeProp);
+        expect(rule.anchorProp).toBe(anchorProp);
+        expect(rule.enabledProp).toBe(enabledProp);
+        // `null`, not 0: a non-numeric anchor keeps the base instead of
+        // anchoring the scaling at zoom 0.
+        expect(rule.anchorDefault).toBeNull();
+        expect(rule.divideBy).toBe(1);
+        expect(rule.maxValue).toBe(10);
+    });
+
+    // Slack is for THIN things. A marker stands in for a point; a picture is
+    // drawn at whatever size the user chose and is hit exactly.
+    it.each([
+        ['image-layer', false],
+        ['military-symbols-layer', false],
+        ['coordination-measures-layer', false],
+        ['magnetic-declinations-layer', false],
+        ['point-marker-layer', true],
+    ])('%s: tolerant=%s', (layerId, tolerant) => {
+        expect(ICON_SIZE_RULES[layerId].tolerant).toBe(tolerant);
+    });
+
     // A property the LAYER does not read must not shape the rectangle either:
     // the declination layer has no `icon-rotate`, so a `rotation` on the feature
     // is dead data, and only the coordination measures read `icon-anchor`.
@@ -121,6 +199,8 @@ describe('constants', () => {
         ['military-symbols-layer', true, false],
         ['coordination-measures-layer', true, true],
         ['magnetic-declinations-layer', false, false],
+        // `point-marker-layer` declares neither `icon-rotate` nor `icon-anchor`.
+        ['point-marker-layer', false, false],
     ])('%s: rotates=%s, anchored=%s', (layerId, rotates, anchored) => {
         expect(ICON_SIZE_RULES[layerId].rotates).toBe(rotates);
         expect(ICON_SIZE_RULES[layerId].anchored).toBe(anchored);
@@ -134,6 +214,7 @@ describe('constants', () => {
         ['military-symbols-layer', false],
         ['coordination-measures-layer', true],
         ['magnetic-declinations-layer', false],
+        ['point-marker-layer', false],
     ])('%s: offset=%s', (layerId, offset) => {
         expect(ICON_SIZE_RULES[layerId].offset).toBe(offset);
     });
@@ -266,6 +347,130 @@ describe('evaluateZoomScaledSize against the compiled icon-size expression', () 
     });
 });
 
+describe('evaluateZoomScaledSize against the compiled point-marker icon-size', () => {
+    const marker = compileIconSize(MARKER_SPEC);
+
+    /**
+     * The size the marker expression is asked for, straight from the model.
+     * @param {number} size - `properties.size` (a radius in pixels)
+     * @param {number} anchorZoom - `properties.sizeCreatedAtZoom`, `NaN` when absent
+     * @param {number} zoom - Map zoom
+     * @param {boolean} [enabled] - `properties.sizeZoomCorrectionEnabled`
+     * @returns {number} Model value
+     */
+    function markerSize(size, anchorZoom, zoom, enabled) {
+        return evaluateZoomScaledSize({
+            base: size,
+            anchorZoom,
+            enabled,
+            maxValue: MARKER_SPEC.maxValue,
+            anchorDefault: MARKER_SPEC.anchorDefault,
+            divideBy: MARKER_SPEC.divideBy,
+        }, zoom);
+    }
+
+    it('compiles as a composite (zoom AND feature) expression', () => {
+        expect(marker.kind).toBe('composite');
+    });
+
+    it('matches the expression for every size, anchor, zoom and flag (property test)', () => {
+        fc.assert(
+            fc.property(
+                fc.double({ min: 0, max: 24, noNaN: true }),
+                fc.double({ min: 0.5, max: 500, noNaN: true }),
+                // `undefined` is the feature that never carried the anchor
+                // property at all — the expression's `coalesce` then reads 0.
+                fc.option(fc.double({ min: 0, max: 24, noNaN: true }), { nil: undefined }),
+                fc.constantFrom(true, false, undefined),
+                (zoom, size, sizeCreatedAtZoom, enabled) => {
+                    const properties = { size };
+                    if (sizeCreatedAtZoom !== undefined) properties.sizeCreatedAtZoom = sizeCreatedAtZoom;
+                    if (enabled !== undefined) properties.sizeZoomCorrectionEnabled = enabled;
+
+                    const got = markerSize(
+                        size,
+                        sizeCreatedAtZoom === undefined ? NaN : sizeCreatedAtZoom,
+                        zoom,
+                        enabled,
+                    );
+
+                    return agrees(got, marker.evaluate(properties, zoom));
+                },
+            ),
+            { numRuns: 600 },
+        );
+    });
+
+    it('divides by 24: a 10 px radius anchored at the current zoom is icon-size 10/24', () => {
+        // 48 CSS px of bitmap * 10/24 = 20 px on screen, the diameter of a
+        // 10 px-radius marker.
+        const properties = { size: 10, sizeCreatedAtZoom: 10, sizeZoomCorrectionEnabled: true };
+        expect(markerSize(10, 10, 10, true)).toBeCloseTo(10 / 24, 12);
+        expect(agrees(markerSize(10, 10, 10, true), marker.evaluate(properties, 10))).toBe(true);
+    });
+
+    it('ANCHORS AT ZERO when the anchor property is absent, instead of keeping the base', () => {
+        // This is the `anchorDefault: 0` half of the spec: with no
+        // `['!=', ['typeof', ...], 'number']` branch, the coalesce hands the
+        // scaling a 0 anchor and a marker created at zoom 0 grows all the way.
+        for (const zoom of [0, 3, 7.5, 24]) {
+            const got = markerSize(10, NaN, zoom);
+            expect(agrees(got, marker.evaluate({ size: 10 }, zoom))).toBe(true);
+            expect(got).toBeCloseTo(Math.min(500, 10 * Math.pow(2, zoom)) / 24, 9);
+        }
+        // The four picture layers do the opposite with the same input.
+        expect(evaluateZoomScaledSize({ base: 10, anchorZoom: NaN, maxValue: 10 }, 7.5)).toBe(10);
+    });
+
+    it('clamps at 500 BEFORE dividing, so the ceiling is 500/24 and not 500', () => {
+        // base 10 anchored at 0 passes 500 at zoom 5.64...; stop 6 is already
+        // clamped, so the value there is exactly 500 / 24.
+        const properties = { size: 10, sizeCreatedAtZoom: 0 };
+        expect(markerSize(10, 0, 6, undefined)).toBeCloseTo(500 / 24, 12);
+        expect(agrees(markerSize(10, 0, 6, undefined), marker.evaluate(properties, 6))).toBe(true);
+        for (const zoom of [12, 20, 24]) {
+            expect(markerSize(10, 0, zoom, undefined)).toBeCloseTo(500 / 24, 12);
+            expect(agrees(markerSize(10, 0, zoom, undefined), marker.evaluate(properties, zoom))).toBe(true);
+        }
+    });
+
+    it('divides the DISABLED branch too: the base is still an icon-size', () => {
+        const properties = { size: 30, sizeCreatedAtZoom: 4, sizeZoomCorrectionEnabled: false };
+        for (const zoom of [0, 4, 13.7, 24]) {
+            const got = markerSize(30, 4, zoom, false);
+            expect(got).toBeCloseTo(30 / 24, 12);
+            expect(agrees(got, marker.evaluate(properties, zoom))).toBe(true);
+        }
+    });
+
+    it('keeps the two clamped ends of the stop range divided as well', () => {
+        const properties = { size: 10, sizeCreatedAtZoom: 12 };
+        for (const zoom of [-5, 0]) {
+            const got = markerSize(10, 12, zoom, undefined);
+            expect(got).toBeCloseTo(10 * Math.pow(2, -12) / 24, 12);
+            expect(agrees(got, marker.evaluate(properties, zoom))).toBe(true);
+        }
+        for (const zoom of [24, 30]) {
+            const got = markerSize(10, 12, zoom, undefined);
+            expect(got).toBeCloseTo(500 / 24, 12);
+            expect(agrees(got, marker.evaluate(properties, zoom))).toBe(true);
+        }
+    });
+
+    it('ignores a divisor that could not divide anything', () => {
+        for (const divideBy of [undefined, null, 0, -24, NaN, Infinity, '24']) {
+            expect(evaluateZoomScaledSize({ base: 10, anchorZoom: 10, divideBy }, 10)).toBe(10);
+        }
+    });
+
+    it('still returns NaN for an unusable base or zoom, divisor or not', () => {
+        expect(evaluateZoomScaledSize({ base: NaN, anchorZoom: 10, anchorDefault: 0, divideBy: 24 }, 10)).toBeNaN();
+        expect(evaluateZoomScaledSize({ base: 10, anchorZoom: 10, anchorDefault: 0, divideBy: 24 }, NaN)).toBeNaN();
+        // ... but a disabled correction answers before the zoom is ever needed.
+        expect(evaluateZoomScaledSize({ base: 10, enabled: false, divideBy: 24 }, NaN)).toBeCloseTo(10 / 24, 12);
+    });
+});
+
 describe('iconSizeForFeature', () => {
     const image = compileIconSize(IMAGE_SPEC);
     const declination = compileIconSize(DECLINATION_SPEC);
@@ -310,6 +515,48 @@ describe('iconSizeForFeature', () => {
     it('survives missing properties', () => {
         expect(iconSizeForFeature('image-layer', undefined, 10)).toBe(1);
         expect(iconSizeForFeature('image-layer', null, 10)).toBe(1);
+    });
+
+    describe('point-marker-layer, whose spec names other properties', () => {
+        const marker = compileIconSize(MARKER_SPEC);
+
+        it('reads size / sizeCreatedAtZoom / sizeZoomCorrectionEnabled', () => {
+            const properties = { size: 10, sizeCreatedAtZoom: 10, sizeZoomCorrectionEnabled: true };
+            for (const zoom of [0, 9, 10, 11.4, 24]) {
+                const got = iconSizeForFeature('point-marker-layer', properties, zoom);
+                expect(agrees(got, marker.evaluate(properties, zoom))).toBe(true);
+            }
+            expect(iconSizeForFeature('point-marker-layer', properties, 10)).toBeCloseTo(10 / 24, 12);
+        });
+
+        it('ignores the PICTURE properties, which the marker layer never reads', () => {
+            // `createdAtZoom` and `zoomCorrectionEnabled` are the four picture
+            // layers' names; a marker carrying them must still be sized by its
+            // own, i.e. anchored at 0 and scaling.
+            const strays = { size: 10, createdAtZoom: 10, zoomCorrectionEnabled: false };
+            expect(iconSizeForFeature('point-marker-layer', strays, 10))
+                .toBeCloseTo(iconSizeForFeature('point-marker-layer', { size: 10 }, 10), 12);
+            expect(agrees(
+                iconSizeForFeature('point-marker-layer', strays, 10),
+                marker.evaluate(strays, 10),
+            )).toBe(true);
+        });
+
+        it('uses the layer default of 10 when the size is absent', () => {
+            const properties = { sizeCreatedAtZoom: 10 };
+            for (const zoom of [0, 10, 12.5, 24]) {
+                const got = iconSizeForFeature('point-marker-layer', properties, zoom);
+                expect(agrees(got, marker.evaluate(properties, zoom))).toBe(true);
+            }
+            expect(iconSizeForFeature('point-marker-layer', properties, 10)).toBeCloseTo(10 / 24, 12);
+        });
+
+        it('honours the disabled flag under its own name only', () => {
+            const off = { size: 30, sizeCreatedAtZoom: 4, sizeZoomCorrectionEnabled: false };
+            expect(iconSizeForFeature('point-marker-layer', off, 20)).toBeCloseTo(30 / 24, 12);
+            expect(agrees(iconSizeForFeature('point-marker-layer', off, 20), marker.evaluate(off, 20)))
+                .toBe(true);
+        });
     });
 });
 
