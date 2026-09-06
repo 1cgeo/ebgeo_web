@@ -10,10 +10,16 @@
  * 1:1 e o símbolo convertido saía quatro vezes maior que o mesmo código desenhado pela
  * ferramenta. O mesmo buraco existe no `main` em bc812832.
  *
+ * Desde o recorte do bitmap (2026-09-06) quem grava essas chaves é `applyGeneratedBitmap`,
+ * o escritor único: ele copia `width`, `height`, `pixelRatio`, `anchor` e o deslocamento do
+ * ícone e carimba a versão do bitmap. A conversão passou a chamá-lo, em vez de copiar chave
+ * por chave, e é isso que este guarda prende agora — deixar de chamá-lo é o mesmo buraco de
+ * antes, com mais chaves dentro.
+ *
  * Este guarda lê a FONTE, porque o módulo é acoplado ao DOM e ao MapLibre e não carrega em
  * `node`. Ele prende três coisas: que o gerador de fato devolve `pixelRatio` (senão a fiação
- * seria vazia), que a conversão grava a razão na feição, e que a passa ao carregador de imagem.
- * Visto reprovando com as duas linhas da conversão revertidas.
+ * seria vazia), que a conversão escreve o resultado na feição pelo escritor único, e que
+ * passa a razão ao carregador de imagem.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -41,10 +47,20 @@ describe('conversão Ponto -> Medida de Coordenação: a razão de pixels', () =
         expect(GERADOR).toMatch(/pixelRatio:\s*result\.pixelRatio/);
     });
 
-    it('a conversão grava a razão na feição, ao lado de width, height e anchor', () => {
+    it('a conversão escreve o resultado na feição pelo escritor único', () => {
         const bloco = blocoDaConversao();
-        expect(bloco).toContain('feature.properties.anchor = result.anchor;');
-        expect(bloco).toContain('feature.properties.pixelRatio = result.pixelRatio || 1;');
+        expect(bloco).toContain('applyGeneratedBitmap(feature.properties, result);');
+        // Copiar chave por chave e o que deixava uma delas para tras.
+        expect(bloco).not.toMatch(/feature\.properties\.(width|height|pixelRatio|anchor)\s*=/);
+    });
+
+    it('o escritor único de fato carrega a razão, e não só o tamanho', async () => {
+        const { applyGeneratedBitmap } = await import('@layers/bitmap-version.js');
+        const properties = {};
+
+        applyGeneratedBitmap(properties, { width: 99, height: 54, pixelRatio: 4, anchor: 'center' });
+
+        expect(properties.pixelRatio).toBe(4);
     });
 
     it('a conversão passa a razão ao carregador de imagem, e não só o blob', () => {

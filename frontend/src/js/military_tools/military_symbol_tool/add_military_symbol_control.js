@@ -9,6 +9,8 @@ import {
   getActiveLayerIdSync
 } from '@store';
 import { MilitarySymbolGenerator } from './military_symbol_generator.js';
+import { applyGeneratedBitmap, generatedBitmapPatch } from '@layers/bitmap-version.js';
+import { stampRegeneratedBitmap } from '@js/military_tools/bitmap-stamp.js';
 import { IDUtils, showError, loadImageToMap } from '@utils';
 import { addMilitarySymbolAttributesToPanel } from './attributes/index.js';
 import AddMilitarySymbolGeometry from './add_military_symbol_geometry.js';
@@ -19,7 +21,8 @@ import {
 } from '@tools/helpers/zoom-correction.helpers.js';
 import { reanchorOnMove } from '@js/temporal/trajectory-anchor.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
-import { queryHoverFeatures } from '@tools/helpers/hover-query.helpers.js';
+import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
+import { createRenderedIconSelectionBox } from '@tools/helpers/icon-selection-box.helpers.js';
 import { readGeoJSONSourceData } from '@utils/geojson-source.js';
 
 /**
@@ -274,7 +277,12 @@ class AddMilitarySymbolControl extends BaseControl {
   }
 
   createSelectionBox(feature) {
-    // Military symbols use pre-calculated selection boxes stored as properties.
+    // The box is the symbol as drawn, plus the frame padding, rotation included,
+    // at the feature's live coordinates (a moving symbol is displaced from home).
+    const drawn = createRenderedIconSelectionBox(this.map, feature, "military-symbols-layer");
+    if (drawn) return { geometry: drawn };
+
+    // The symbol image is not in the style yet: fall back to the stored box.
     // A moving (trajectory) symbol is displaced from its authored position, so the
     // stored box (computed at home) no longer matches — recompute from live coords.
     const moving = Array.isArray(feature.properties.trajetoria) && feature.properties.trajetoria.length >= 2;
@@ -299,7 +307,7 @@ class AddMilitarySymbolControl extends BaseControl {
   }
 
   getSelectionBoxStrategy() {
-    return "preCalculated";
+    return "viewport";
   }
 
   getSelectionBoxPadding() {
@@ -307,7 +315,7 @@ class AddMilitarySymbolControl extends BaseControl {
   }
 
   getLayerIds() {
-    return ["military_symbols-layer"];
+    return ["military-symbols-layer"];
   }
 
   getSourceNames() {
@@ -572,8 +580,7 @@ class AddMilitarySymbolControl extends BaseControl {
         feature.properties
       );
 
-      feature.properties.width = result.width;
-      feature.properties.height = result.height;
+      applyGeneratedBitmap(feature.properties, result);
 
       feature.properties.selectionBox = this.geometry.calculateSelectionBoxGeometry(
         coordinates,
@@ -622,19 +629,40 @@ class AddMilitarySymbolControl extends BaseControl {
    * e uma closure não alcança um método privado.
    *
    * @param {Object} feature - Feição com as props sincronizadas (SIDC e afins)
-   * @returns {Promise<void>}
+   * @returns {Promise<Object|null>} Resultado do gerador, ou null se nada foi gerado
    */
   regenerateImageFromProps(feature) {
     return this._regenerateRemote(feature);
   }
 
+  /**
+   * Rebuilds the symbol PNG from the feature's own properties, installs it, and makes the
+   * live source and the stored feature describe the bitmap that was just baked.
+   *
+   * The three writes are NOT an edit: the blob is a per-client cache that never travels, and
+   * `width` / `height` / `iconOffset` / `bitmapVersion` only describe it. No operation is
+   * queued and no sync metadata moves, so this stays safe to run over a remote snapshot —
+   * which is exactly when it runs. See `military_tools/bitmap-stamp.js`.
+   *
+   * A v1 peer's op (no `iconOffset`) therefore renders exactly here, and a v2 peer's op
+   * lands as a patch that changes nothing.
+   *
+   * RETURNS the generator result (`{ blob, width, height }`), which is what the load path
+   * (`layers/layer_setup.js`) reads.
+   *
+   * @param {Object} feature - Feature with the synced properties
+   * @returns {Promise<Object|null>} Generator result, or null when nothing was generated
+   */
   async _regenerateRemote(feature) {
-    if (!this.map || !feature?.properties?.id) return;
+    if (!this.map || !feature?.properties?.id) return null;
     const result = await this.symbolGenerator.generateSymbolBlob(feature.properties);
     if (result?.blob) {
       await storeImage(feature.properties.id, result.blob);
       await this.loadSymbolToMap(feature.properties.id, result.blob);
+      await stampRegeneratedBitmap(militarySymbolsSource(this.map), feature, result);
+      return result;
     }
+    return null;
   }
 
   scheduleSymbolUpdate = (feature) => {
@@ -660,24 +688,26 @@ class AddMilitarySymbolControl extends BaseControl {
         feature.properties
       );
 
-      feature.properties.width = result.width;
-      feature.properties.height = result.height;
+      applyGeneratedBitmap(feature.properties, result);
 
       feature.properties.selectionBox = this.geometry.recalculateSelectionBox(
         feature,
         this.selectionManager.uiManager
       );
 
-      // Three properties on one feature. The `if (sourceFeature)` guard the read used to provide
-      // is what a patch of an absent key already does by itself (documented silent no-op), so the
-      // collection read buys nothing here.
+      // The bitmap keys come from `generatedBitmapPatch`, the same decision
+      // `applyGeneratedBitmap` wrote into the feature above, so the source and the stored
+      // feature carry the same shape. The `if (sourceFeature)` guard the read used to
+      // provide is what a patch of an absent key already does by itself (documented silent
+      // no-op), so the collection read buys nothing here.
+      const { setProps, unsetProps } = generatedBitmapPatch(result);
       const dispatcher = militarySymbolsSource(this.map);
       dispatcher.patch(symbolId, {
         setProps: {
-          width: result.width,
-          height: result.height,
+          ...setProps,
           selectionBox: feature.properties.selectionBox,
         },
+        unsetProps,
       });
       await dispatcher.flush();
 
@@ -709,24 +739,26 @@ class AddMilitarySymbolControl extends BaseControl {
         feature.properties
       );
 
-      feature.properties.width = result.width;
-      feature.properties.height = result.height;
+      applyGeneratedBitmap(feature.properties, result);
 
       feature.properties.selectionBox = this.geometry.recalculateSelectionBox(
         feature,
         this.selectionManager.uiManager
       );
 
-      // Three properties on one feature. The `if (sourceFeature)` guard the read used to provide
-      // is what a patch of an absent key already does by itself (documented silent no-op), so the
-      // collection read buys nothing here.
+      // The bitmap keys come from `generatedBitmapPatch`, the same decision
+      // `applyGeneratedBitmap` wrote into the feature above, so the source and the stored
+      // feature carry the same shape. The `if (sourceFeature)` guard the read used to
+      // provide is what a patch of an absent key already does by itself (documented silent
+      // no-op), so the collection read buys nothing here.
+      const { setProps, unsetProps } = generatedBitmapPatch(result);
       const dispatcher = militarySymbolsSource(this.map);
       dispatcher.patch(symbolId, {
         setProps: {
-          width: result.width,
-          height: result.height,
+          ...setProps,
           selectionBox: feature.properties.selectionBox,
         },
+        unsetProps,
       });
       await dispatcher.flush();
 
@@ -958,7 +990,7 @@ class AddMilitarySymbolControl extends BaseControl {
     const selectedFeature = this.getSelectedFeature();
     if (!selectedFeature) return;
 
-    const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
+    const features = queryFeaturesAtPoint(this.map, e.point, { layers: HOVER_LAYER_IDS });
     const hasFeature = this.hasSelectedFeatureAtPoint(features);
 
     this.map.getCanvas().style.cursor = hasFeature ? "move" : "";

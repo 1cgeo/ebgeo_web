@@ -24,6 +24,10 @@
 
 import { getLayers, isCurrentMapLockedSync, isFeatureEffectivelyLocked, addFeature, removeFeature, removeImage, updateFeature, storeImage, getGroupManager, getControl, startBatchUndo, commitBatchUndo } from '../../store';
 import { IDUtils, showWarning } from '../../utilities';
+// Zero-import leaf under layers/ (core), so this static import creates no cycle with the
+// military-tools chunk, which the merge and split helpers below dodge with dynamic imports,
+// and adds no eager module to military_tools/ (orçado em zero pelo teto de peso da página).
+import { applyGeneratedBitmap } from '@layers/bitmap-version.js';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { scrollKeepsFeatureDropdown } from './dropdown-scroll.model.js';
 import { checkPermission } from '@store/sync/permission-guard.js';
@@ -1216,8 +1220,7 @@ async function convertPointToMilitarySymbol(pointFeature, selectionManager, uiMa
         // Generate symbol image and capture real dimensions
         const result = await milSymControl.symbolGenerator.generateSymbolBlob(feature.properties);
 
-        feature.properties.width = result.width;
-        feature.properties.height = result.height;
+        applyGeneratedBitmap(feature.properties, result);
 
         // Recalculate selection box with real dimensions
         feature.properties.selectionBox = milSymControl.geometry.calculateSelectionBoxGeometry(
@@ -1348,13 +1351,11 @@ async function convertPointToCoordinationMeasure(pointFeature, selectionManager,
         const result = await coordControl.symbolGenerator.generate(pointCode, feature.properties);
 
         feature.properties.imageUrl = result.dataUrl;
-        feature.properties.width = result.width;
-        feature.properties.height = result.height;
-        feature.properties.anchor = result.anchor;
-        // The generator rasterises the Nucleo above its logical size and reports the ratio;
-        // dropping it here registered the bitmap 1:1 and drew the converted symbol four times
-        // larger than the same code drawn by the tool (see loadSymbolToMap below).
-        feature.properties.pixelRatio = result.pixelRatio || 1;
+        // Size, anchor, pixel ratio, icon offset and the bitmap version stamp all come from
+        // the generator result: the ratio dropped here once, and the bitmap was registered
+        // 1:1, drawing the converted symbol four times larger than the same code drawn by
+        // the tool (see loadSymbolToMap below).
+        applyGeneratedBitmap(feature.properties, result);
 
         // Recalculate selection box with real dimensions and anchor
         feature.properties.selectionBox = coordControl.geometry.calculateSelectionBoxGeometry(

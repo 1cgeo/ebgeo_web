@@ -18,6 +18,7 @@ import { runTransaction } from './store-transaction.js';
 import { withMapDocument } from './document-lock.js';
 import { deepClone, deepEqual } from '../utilities/deep-utils.js';
 import { EventTypes } from '../events';
+import { applyGeneratedBitmap } from '../layers/bitmap-version.js';
 import { formatDTG } from '../temporal/temporal.utils.js';
 
 // ===== TIMESTAMP AND VERSION HELPERS =====
@@ -594,6 +595,68 @@ export async function getFeatureById(featureType, featureId, mapName = null) {
     const targetMap = resolveMap(mapName);
     const currentMapData = await getMapDataCompat(targetMap);
     return currentMapData.features[featureType].find(f => f.properties.id === featureId);
+}
+
+/**
+ * Writes the DERIVED properties of a freshly generated bitmap into the STORED feature,
+ * without authoring anything.
+ *
+ * WHY THIS IS NOT `updateFeature`. The PNG of a military symbol or a coordination measure
+ * is a per-client cache by design: it is never uploaded, and every client rebuilds it from
+ * the synced properties (`layers/image-regen-registry.js`). `width`, `height`,
+ * `pixelRatio`, `anchor`, `iconOffset` and `bitmapVersion` only DESCRIBE that cache. When
+ * the load path rebuilds an old bitmap (`layers/layer_setup.js`), nobody edited the
+ * feature: no user gesture, nothing to send to a peer, nothing to undo. An `updateFeature`
+ * here would bump `version` and `updatedAt`, queue an outbound UPDATE op and, through LWW,
+ * hand every peer a write nobody made.
+ *
+ * SO IT IS THE SILENT PATH, the same shape `applyRemoteFeatureOpLocked`
+ * (`store/sync/remote-operation-handler.js`) uses to land a peer's op: the map document
+ * lock, a read through the repository, the mutation, a save through the repository. What it
+ * deliberately does NOT do, item by item, because each omission is the point:
+ * - no `logFeatureOperation`: no outbound operation, no sync metadata, no LWW;
+ * - no `touchUpdatedTimestamp`: `updatedAt` and `version` describe AUTHORSHIP;
+ * - no `runTransaction`: there is no side effect to order after persistence, and it would
+ *   mint a trace id, recording a user gesture in the ledger that never happened;
+ * - no event: `FEATURE_MODIFIED` is what the sync scheduler and the panels listen to;
+ * - no `guardWrite`: a Viewer, or a locked map, still gets its own local cache described.
+ *
+ * The rendered side is the caller's business (the tool control patches the live source
+ * through the diff dispatcher). This is only the stored copy.
+ *
+ * One thing it cannot avoid, and does not try to: the repository's `saveMap` touches the
+ * MAP document's own sync metadata on every save, the same as the remote path does. That
+ * marks the document, not the feature, and nothing reads that mark to enqueue an op.
+ *
+ * A feature that is not in the target map is a no-op, and that is the normal case for a
+ * peer operation applied to a map that is not the open one.
+ *
+ * @param {Object} feature - The feature whose bitmap was regenerated (needs `properties.id`
+ *   and `properties.source`)
+ * @param {Object} result - Generator result { width, height, pixelRatio?, anchor?, iconOffset? }
+ * @param {string} [mapName=null] - Target map name (defaults to the current map)
+ * @returns {Promise<boolean>} Whether the stored feature was found and stamped
+ */
+export async function stampGeneratedBitmap(feature, result, mapName = null) {
+    const featureId = feature?.properties?.id;
+    const source = feature?.properties?.source;
+    if (!featureId || !source || !result) return false;
+
+    const targetMap = resolveMap(mapName);
+    const storageType = getStorageTypeFromSource(source);
+
+    return withMapDocument(targetMap, 'stampGeneratedBitmap', async () => {
+        const currentMapData = await getMapDataCompat(targetMap);
+        const bucket = currentMapData?.features?.[storageType];
+        if (!Array.isArray(bucket)) return false;
+
+        const stored = bucket.find(f => f.properties?.id === featureId);
+        if (!stored) return false;
+
+        applyGeneratedBitmap(stored.properties, result);
+        await updateMapDataCompat(targetMap, currentMapData);
+        return true;
+    });
 }
 
 /**

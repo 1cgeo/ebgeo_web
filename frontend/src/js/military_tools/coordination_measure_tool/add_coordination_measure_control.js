@@ -8,6 +8,8 @@ import {
   getActiveLayerIdSync
 } from "../../store";
 import { CoordinationMeasureGenerator } from './coordination_measure_generator.js';
+import { applyGeneratedBitmap, generatedBitmapPatch } from '@layers/bitmap-version.js';
+import { stampRegeneratedBitmap } from '@js/military_tools/bitmap-stamp.js';
 import { IDUtils, showWarning as showWarningToast, loadImageToMap } from "../../utilities";
 import { addCoordinationMeasureAttributesToPanel } from "./attributes/index.js";
 import AddCoordinationMeasureGeometry from './add_coordination_measure_geometry.js';
@@ -18,7 +20,8 @@ import {
 } from '../../tool_manager/helpers/zoom-correction.helpers.js';
 import { reanchorOnMove } from '@js/temporal/trajectory-anchor.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
-import { queryHoverFeatures } from '@tools/helpers/hover-query.helpers.js';
+import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
+import { createRenderedIconSelectionBox } from '@tools/helpers/icon-selection-box.helpers.js';
 import { readGeoJSONSourceData } from '@utils/geojson-source.js';
 
 /**
@@ -180,6 +183,12 @@ class AddCoordinationMeasureControl extends BaseControl {
   }
 
   createSelectionBox(feature) {
+    // The box is the measure as drawn, plus the frame padding, rotation and
+    // icon-anchor included, at the feature's live coordinates.
+    const drawn = createRenderedIconSelectionBox(this.map, feature, "coordination-measures-layer");
+    if (drawn) return { geometry: drawn };
+
+    // The measure image is not in the style yet: fall back to the stored box.
     // A moving (trajectory) measure is displaced from its authored position, so the
     // stored box (computed at home) no longer matches — recompute from live coords.
     const moving = Array.isArray(feature.properties.trajetoria) && feature.properties.trajetoria.length >= 2;
@@ -204,7 +213,7 @@ class AddCoordinationMeasureControl extends BaseControl {
   }
 
   getSelectionBoxStrategy() {
-    return "preCalculated";
+    return "viewport";
   }
 
   getSelectionBoxPadding() {
@@ -490,10 +499,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       );
 
       feature.properties.imageUrl = result.dataUrl;
-      feature.properties.width = result.width;
-      feature.properties.height = result.height;
-      feature.properties.pixelRatio = result.pixelRatio || 1;
-      feature.properties.anchor = result.anchor;
+      applyGeneratedBitmap(feature.properties, result);
 
       feature.properties.selectionBox = this.geometry.calculateSelectionBoxGeometry(
         coordinates,
@@ -542,15 +548,32 @@ class AddCoordinationMeasureControl extends BaseControl {
    * closure não alcança um método privado. Ver o gêmeo em `add_military_symbol_control.js`.
    *
    * @param {Object} feature
-   * @returns {Promise<void>}
+   * @returns {Promise<Object|null>} Resultado do gerador, ou null se nada foi gerado
    */
   regenerateImageFromProps(feature) {
     return this._regenerateRemote(feature);
   }
 
-  /** Rebuilds and re-installs a coordination measure's image from its synced props (peer side). */
+  /**
+   * Rebuilds and re-installs a coordination measure's image from its synced props (peer side),
+   * and makes the live source and the stored feature describe the bitmap that was just baked.
+   *
+   * The three writes are NOT an edit: the blob is a per-client cache that never travels, and
+   * `width` / `height` / `iconOffset` / `bitmapVersion` only describe it. No operation is queued
+   * and no sync metadata moves, so this stays safe to run over a remote snapshot — which is
+   * exactly when it runs. See `military_tools/bitmap-stamp.js`.
+   *
+   * A v1 peer's op (no `iconOffset`) therefore renders exactly here, and a v2 peer's op lands as
+   * a patch that changes nothing.
+   *
+   * RETURNS the generator result (`{ blob, width, height, pixelRatio, anchor, iconOffset }`),
+   * which is what the load path (`layers/layer_setup.js`) reads.
+   *
+   * @param {Object} feature - Feature with the synced properties
+   * @returns {Promise<Object|null>} Generator result, or null when nothing was generated
+   */
   async _regenerateRemote(feature) {
-    if (!this.map || !feature?.properties?.id) return;
+    if (!this.map || !feature?.properties?.id) return null;
     let actualPointCode = feature.properties.pointCode;
     if (actualPointCode === 'ECHELON' || actualPointCode === 'ECHELON_FT') {
       actualPointCode = feature.properties.echelonCode ||
@@ -563,7 +586,10 @@ class AddCoordinationMeasureControl extends BaseControl {
       // o par, que nao tem o blob e acabou de assar o seu. Sem ela o simbolo do par saia
       // `pixelRatio` vezes maior que o do autor, sem erro em lugar nenhum.
       await this.loadSymbolToMap(feature.properties.id, result.blob, result.pixelRatio);
+      await stampRegeneratedBitmap(coordinationMeasuresSource(this.map), feature, result);
+      return result;
     }
+    return null;
   }
 
   scheduleSymbolUpdate = (feature) => {
@@ -612,10 +638,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       );
 
       feature.properties.imageUrl = result.dataUrl;
-      feature.properties.width = result.width;
-      feature.properties.height = result.height;
-      feature.properties.pixelRatio = result.pixelRatio || 1;
-      feature.properties.anchor = result.anchor;
+      applyGeneratedBitmap(feature.properties, result);
 
       // The read stays: the box is measured from the SOURCE geometry, which is the authority on
       // where the measure currently sits, and no diff hands that back. Only the write is a diff.
@@ -642,18 +665,20 @@ class AddCoordinationMeasureControl extends BaseControl {
 
         feature.properties.selectionBox = newSelectionBox;
 
+        // As chaves do bitmap saem de `generatedBitmapPatch`, a mesma decisao que
+        // `applyGeneratedBitmap` escreveu na feicao acima. A razao viaja no patch junto com a
+        // medida: a caixa de selecao le o tamanho LOGICO, e quem traduz o bitmap de volta a
+        // ele e este numero. Deixa-la de fora fazia a fonte guardar a medida nova com a razao
+        // velha. O `unsetProps` apaga o `iconOffset` do simbolo que deixou de ter deslocamento,
+        // que e o que impede a fonte de manter um valor sem dono.
+        const { setProps, unsetProps } = generatedBitmapPatch(result);
         dispatcher.patch(sourceFeature.properties.id, {
           setProps: {
             imageUrl: result.dataUrl,
-            width: result.width,
-            height: result.height,
-            // A razao viaja no patch junto com a medida: a caixa de selecao le o tamanho
-            // LOGICO, e quem traduz o bitmap de volta a ele e este numero. Deixa-lo de fora
-            // fazia a fonte guardar a medida nova com a razao velha.
-            pixelRatio: result.pixelRatio || 1,
-            anchor: result.anchor,
+            ...setProps,
             selectionBox: newSelectionBox,
           },
+          unsetProps,
         });
         await dispatcher.flush();
       }
@@ -709,10 +734,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       );
 
       feature.properties.imageUrl = result.dataUrl;
-      feature.properties.width = result.width;
-      feature.properties.height = result.height;
-      feature.properties.pixelRatio = result.pixelRatio || 1;
-      feature.properties.anchor = result.anchor;
+      applyGeneratedBitmap(feature.properties, result);
 
       // The read stays: the box is measured from the SOURCE geometry, which is the authority on
       // where the measure currently sits, and no diff hands that back. Only the write is a diff.
@@ -739,18 +761,20 @@ class AddCoordinationMeasureControl extends BaseControl {
 
         feature.properties.selectionBox = newSelectionBox;
 
+        // As chaves do bitmap saem de `generatedBitmapPatch`, a mesma decisao que
+        // `applyGeneratedBitmap` escreveu na feicao acima. A razao viaja no patch junto com a
+        // medida: a caixa de selecao le o tamanho LOGICO, e quem traduz o bitmap de volta a
+        // ele e este numero. Deixa-la de fora fazia a fonte guardar a medida nova com a razao
+        // velha. O `unsetProps` apaga o `iconOffset` do simbolo que deixou de ter deslocamento,
+        // que e o que impede a fonte de manter um valor sem dono.
+        const { setProps, unsetProps } = generatedBitmapPatch(result);
         dispatcher.patch(sourceFeature.properties.id, {
           setProps: {
             imageUrl: result.dataUrl,
-            width: result.width,
-            height: result.height,
-            // A razao viaja no patch junto com a medida: a caixa de selecao le o tamanho
-            // LOGICO, e quem traduz o bitmap de volta a ele e este numero. Deixa-lo de fora
-            // fazia a fonte guardar a medida nova com a razao velha.
-            pixelRatio: result.pixelRatio || 1,
-            anchor: result.anchor,
+            ...setProps,
             selectionBox: newSelectionBox,
           },
+          unsetProps,
         });
         await dispatcher.flush();
       }
@@ -993,7 +1017,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     const selectedFeature = this.getSelectedFeature();
     if (!selectedFeature) return;
 
-    const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
+    const features = queryFeaturesAtPoint(this.map, e.point, { layers: HOVER_LAYER_IDS });
     const hasFeature = this.hasSelectedFeatureAtPoint(features);
 
     this.map.getCanvas().style.cursor = hasFeature ? "move" : "";

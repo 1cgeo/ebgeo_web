@@ -722,6 +722,7 @@ export {
     getCurrentMapFeatures,
     getFeatureById,
     updateFeatureProperty,
+    stampGeneratedBitmap,
     shiftMapTemporalTimes,
     moveFeaturesToMap,
     batchUpdateLOSFeatures,

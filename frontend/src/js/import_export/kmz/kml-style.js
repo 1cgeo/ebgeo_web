@@ -221,6 +221,84 @@ export function iconScale(desiredPx, nativePx) {
     return Math.max(ICON_SCALE_MIN, Math.min(ICON_SCALE_MAX, ratio));
 }
 
+/** Hot spot of a bitmap anchored by its own centre, the KML default. */
+const CENTER_HOT_SPOT = Object.freeze({ x: 0.5, y: 0.5 });
+
+/**
+ * Clamps a fraction into the [0, 1] range KML accepts.
+ *
+ * Rounded to four decimals — a tenth of a pixel on a 1000 px icon — because the
+ * fraction is arithmetic on floats and goes straight into the XML: without it,
+ * `1 - (1 - 0.1)` would be written as "0.09999999999999998".
+ *
+ * @param {number} value - Candidate fraction
+ * @returns {number} Fraction inside [0, 1]
+ */
+function clampFraction(value) {
+    if (!Number.isFinite(value)) return 0.5;
+    const clamped = Math.min(1, Math.max(0, value));
+    // `+ 0` collapses -0, which would serialize as "-0".
+    return Math.round(clamped * 1e4) / 1e4 + 0;
+}
+
+/**
+ * Alignment factor of an `icon-anchor` along one axis, exactly as MapLibre's
+ * `getAnchorAlignment` computes it: 0 at the near edge, 1 at the far edge, 0.5
+ * for anything the anchor does not name.
+ *
+ * @param {string} anchor - MapLibre `icon-anchor` value
+ * @param {string} near - Keyword that pins the near edge ('left' / 'top')
+ * @param {string} far - Keyword that pins the far edge ('right' / 'bottom')
+ * @returns {number} 0, 0.5 or 1
+ */
+function anchorAlignment(anchor, near, far) {
+    if (typeof anchor !== 'string') return 0.5;
+    if (anchor.includes(far)) return 1;
+    if (anchor.includes(near)) return 0;
+    return 0.5;
+}
+
+/**
+ * Translates the way MapLibre anchors an icon into the KML `<hotSpot>` fractions.
+ *
+ * MapLibre places the feature's coordinate at `(width * hAlign - dx,
+ * height * vAlign - dy)` measured from the bitmap's TOP-LEFT, where the alignment
+ * comes from `icon-anchor` and `(dx, dy)` is `icon-offset`. KML measures its hot
+ * spot in fractions from the LEFT and from the BOTTOM, hence the flipped y.
+ *
+ * A bitmap whose logical size is unknown gets the centre: without a size the offset
+ * cannot be turned into a fraction, and the centre is what every icon used before
+ * anchors and offsets existed.
+ *
+ * @param {Object} [options] - Icon placement
+ * @param {string} [options.anchor] - MapLibre `icon-anchor`
+ * @param {Array<number>} [options.iconOffset] - `[dx, dy]` in the same logical px as width/height
+ * @param {number} [options.width] - Logical bitmap width
+ * @param {number} [options.height] - Logical bitmap height
+ * @returns {{x: number, y: number}} Hot spot fractions, both inside [0, 1]
+ */
+export function iconHotSpot({ anchor, iconOffset, width, height } = {}) {
+    const usableSize = Number.isFinite(width) && width > 0
+        && Number.isFinite(height) && height > 0;
+    if (!usableSize) return { ...CENTER_HOT_SPOT };
+
+    // A pair or nothing, exactly like `parseIconOffset` on the hit-test side: half
+    // an offset is corrupt data, and guessing the missing half would move the icon.
+    const pair = Array.isArray(iconOffset) && iconOffset.length === 2
+        && Number.isFinite(iconOffset[0]) && Number.isFinite(iconOffset[1])
+        ? iconOffset
+        : [0, 0];
+    const [dx, dy] = pair;
+
+    const hAlign = anchorAlignment(anchor, 'left', 'right');
+    const vAlign = anchorAlignment(anchor, 'top', 'bottom');
+
+    return {
+        x: clampFraction(hAlign - dx / width),
+        y: clampFraction(1 - (vAlign - dy / height)),
+    };
+}
+
 /**
  * Builds the KML `<IconStyle>` fragment for a point-like feature.
  *
@@ -230,15 +308,22 @@ export function iconScale(desiredPx, nativePx) {
  * @param {number} [options.heading=0] - Rotation in degrees, clockwise from north
  * @param {string} [options.color] - Tint color applied by Google Earth
  * @param {number} [options.opacity=1] - Icon opacity
+ * @param {{x: number, y: number}} [options.hotSpot] - Anchor fractions, defaults to the centre
  * @returns {string} KML fragment
  */
-export function buildIconStyle({ href, scale = 1, heading = 0, color, opacity = 1 } = {}) {
+export function buildIconStyle({
+    href, scale = 1, heading = 0, color, opacity = 1, hotSpot,
+} = {}) {
     const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
     const tint = color ? `<color>${toKmlColor(color, opacity)}</color>` : '';
     const icon = href ? `<Icon><href>${href}</href></Icon>` : '';
+    const spot = {
+        x: clampFraction(hotSpot?.x ?? CENTER_HOT_SPOT.x),
+        y: clampFraction(hotSpot?.y ?? CENTER_HOT_SPOT.y),
+    };
     return `<IconStyle>${tint}<scale>${safeScale}</scale>`
         + `<heading>${normalizeHeading(heading)}</heading>${icon}`
-        + `<hotSpot x="0.5" y="0.5" xunits="fraction" yunits="fraction"/></IconStyle>`;
+        + `<hotSpot x="${spot.x}" y="${spot.y}" xunits="fraction" yunits="fraction"/></IconStyle>`;
 }
 
 /**

@@ -301,6 +301,18 @@ export default defineConfig(({ mode: _mode }) => ({
 
           // ===== TOOL CHUNKS =====
 
+          // symbol-bitmap.regenerate.js lives under military_tools/ but imports only
+          // layers/bitmap-version statically (the generators AND the point catalog are
+          // lazy `import()`s). Its static importer is the KMZ mapper, which belongs to the
+          // import-export group, so putting it in core is what keeps a static
+          // import-export -> military-tools edge from existing. (What lives in layers/ is
+          // bitmap-version.js, the version stamp itself, so that the eager conversion path
+          // in tool_manager/helpers/feature-header does not put a military_tools module
+          // back into the boot graph; bitmap-stamp.js, the writer that stamps feature,
+          // source and store, stays in military_tools/ with the two controls that call it.)
+          if (id.includes('military_tools/symbol-bitmap.regenerate')) {
+            return 'core';
+          }
           // Military tools (large bundle)
           if (id.includes('military_tools')) {
             return 'military-tools';

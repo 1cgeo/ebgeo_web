@@ -7,6 +7,7 @@
 import { getControl } from '../../store';
 import { setOrCreateSource, ensureLayer, VISIBLE_FILTER } from './layer.helpers.js';
 import { zoomScaledExpression } from './zoom-expression.js';
+import { ICON_OFFSET_EXPRESSION } from './icon-offset.expression.js';
 
 // GPU-side zoom scaling (zoom-expression.js). Symbols and coordination measures
 // default to size 1, the declination diagram to 0.6; all clamp at 10.
@@ -74,6 +75,12 @@ export function setupCoordinationMeasureLayers(features, mapInstance) {
                 ['get', 'anchor'],
                 'center',
             ],
+            // The bitmap is cropped to the drawing, whose centre is NOT the
+            // point the measure anchors: the nucleus sits on its ELLIPSE
+            // centre, with the echelon glyph and the identification text below
+            // it. The generator writes that difference into `iconOffset`, in
+            // icon pixels (`icon-size` 1, positive right/down).
+            'icon-offset': ICON_OFFSET_EXPRESSION,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
         },

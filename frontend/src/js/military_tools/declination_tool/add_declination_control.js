@@ -20,6 +20,7 @@ import { addDeclinationAttributesToPanel } from './declination_attributes_panel.
 import AddDeclinationGeometry from './add_declination_geometry.js';
 import { generateDeclinationSvg } from './declination_svg_generator.js';
 import { BaseControl } from '@tools';
+import { createRenderedIconSelectionBox } from '@tools/helpers/icon-selection-box.helpers.js';
 import {
     applyZoomCorrections as applyZoomCorrectionsUtil,
     syncZoomCorrectedProperty,
@@ -209,7 +210,9 @@ class AddDeclinationControl extends BaseControl {
         const svgString = generateDeclinationSvg(declination, convergence);
         let blob;
         try {
-            blob = await convertSvgToPngBlob(svgString, ICON_WIDTH, ICON_HEIGHT);
+            // The diagram SVG is exactly ICON_WIDTH x ICON_HEIGHT, so the cropped
+            // canvas is the icon size and only the blob is of interest here.
+            ({ blob } = await convertSvgToPngBlob(svgString, ICON_WIDTH, ICON_HEIGHT));
         } catch (error) {
             console.error('Error converting declination SVG to PNG:', error);
             showError('Erro ao gerar diagrama de declinação');
@@ -310,7 +313,7 @@ class AddDeclinationControl extends BaseControl {
         );
 
         try {
-            const blob = await convertSvgToPngBlob(svgString, ICON_WIDTH, ICON_HEIGHT);
+            const { blob } = await convertSvgToPngBlob(svgString, ICON_WIDTH, ICON_HEIGHT);
             await storeImage(feature.properties.id, blob);
             await this.loadIconToMap(feature.properties.id, blob);
         } catch (error) {
@@ -864,10 +867,15 @@ class AddDeclinationControl extends BaseControl {
     }
 
     getSelectionBoxStrategy() {
-        return 'preCalculated';
+        return 'viewport';
     }
 
     createSelectionBox(feature) {
+        // The box is the diagram as drawn, plus the frame padding.
+        const drawn = createRenderedIconSelectionBox(this.map, feature, 'magnetic-declinations-layer');
+        if (drawn) return { geometry: drawn };
+
+        // The diagram image is not in the style yet: fall back to the stored box.
         if (feature.properties.selectionBox) {
             return { geometry: feature.properties.selectionBox };
         }

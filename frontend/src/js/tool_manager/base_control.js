@@ -223,8 +223,10 @@ class BaseControl {
     }
 
     /**
-     * Get selection box strategy for this feature type
-     * @returns {string} Strategy name ('bbox', 'preCalculated', 'custom')
+     * Get selection box strategy for this feature type.
+     * `'viewport'` marks a tool whose box is rebuilt from the rendered, screen-aligned
+     * rectangle: the highlight manager keys its cache on bearing and pitch for those.
+     * @returns {string} Strategy name ('bbox', 'preCalculated', 'custom', 'viewport')
      */
     getSelectionBoxStrategy() {
         return 'bbox';
@@ -462,7 +464,11 @@ class BaseControl {
             if (!this.map || !op || op.entityType !== 'feature') return;
             const feature = op.data;
             if (!feature || feature.properties?.source !== source) return;
-            regenFn(feature).catch((e) => console.warn(`Remote image regen failed for ${source}:`, e));
+            // A shallow copy: the regenerator stamps the bitmap keys onto the feature it is
+            // handed (`military_tools/bitmap-stamp.js`), and `op.data` is the envelope other
+            // listeners may still hold — it must keep describing what the peer actually sent.
+            const copy = { ...feature, properties: { ...feature.properties } };
+            regenFn(copy).catch((e) => console.warn(`Remote image regen failed for ${source}:`, e));
         });
     }
 

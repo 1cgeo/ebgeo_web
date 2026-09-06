@@ -182,10 +182,6 @@ const CENSO = [
         motivo: 'Names the two analysis inputs it skips and the two irregular buckets it has to spell out. The classification itself lives in kmz-feature-types.js, which is COMPLETA above.',
     },
     {
-        arquivo: 'import_export/kmz/kmz-feature-mapper.js',
-        motivo: 'Branches per KML shape (point, text, symbol, image), not per feature type. New types reach it through classifyFeatureType.',
-    },
-    {
         arquivo: 'import_export/import.control.js',
         motivo: 'Import maps GeoJSON geometry (Point/LineString/Polygon) onto the three buckets it can produce. It never produces the other seventeen.',
     },

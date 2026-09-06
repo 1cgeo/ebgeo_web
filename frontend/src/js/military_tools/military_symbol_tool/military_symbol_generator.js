@@ -191,7 +191,15 @@ export class MilitarySymbolGenerator {
 
     /**
      * Generate symbol with text scaling: renders with/without text modifiers
-     * to calculate exact growth factor and adjust PNG canvas size accordingly
+     * to calculate the exact growth factor and grow the target box accordingly.
+     *
+     * The growth factor is what keeps the SCALE: growing the box by the same factor
+     * the viewBox grew leaves the frame at the size it has without text, so adding a
+     * modifier writes text around the symbol instead of shrinking it.
+     *
+     * The returned width/height are the CROPPED canvas, not the target box: the
+     * bitmap is exactly the drawing, with no transparent bands.
+     *
      * @param {string} sidc30 - 30-digit SIDC
      * @param {Object} properties - Symbol properties (includes text modifiers)
      * @param {number} targetSize - Target size for base symbol (default: 100)
@@ -247,8 +255,8 @@ export class MilitarySymbolGenerator {
         const hasText = Object.keys(textModifiers).length > 0;
 
         let svgString;
-        let finalWidth = targetSize;
-        let finalHeight = targetSize;
+        let boxWidth = targetSize;
+        let boxHeight = targetSize;
 
         if (!hasText) {
             svgString = svgBase;
@@ -262,24 +270,20 @@ export class MilitarySymbolGenerator {
             const growthFactorY = viewBoxExpanded.height / viewBoxBase.height;
 
             if (growthFactorX > 1.01) {
-                finalWidth = Math.round(targetSize * growthFactorX);
+                boxWidth = Math.round(targetSize * growthFactorX);
             }
 
             if (growthFactorY > 1.01) {
-                finalHeight = Math.round(targetSize * growthFactorY);
+                boxHeight = Math.round(targetSize * growthFactorY);
             }
         }
 
         svgString = applyBrazilianModifications(svgString, sidc30, symbolSetCode, customColor);
 
         const svgDataURL = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
-        const blob = await this.convertToPngBlob(svgDataURL, finalWidth, finalHeight);
+        const { blob, width, height } = await this.convertToPngBlob(svgDataURL, boxWidth, boxHeight);
 
-        return {
-            blob,
-            width: finalWidth,
-            height: finalHeight
-        };
+        return { blob, width, height };
     }
 
     /**
@@ -333,9 +337,9 @@ export class MilitarySymbolGenerator {
      * Convert SVG data URL to PNG blob using canvas.
      * Delegates to shared svg-to-png utility.
      * @param {string} dataURL - SVG data URL
-     * @param {number} targetWidth - Target canvas width
-     * @param {number} targetHeight - Target canvas height (defaults to targetWidth for square)
-     * @returns {Promise<Blob>} PNG blob
+     * @param {number} targetWidth - Target box width (the drawing fits inside it)
+     * @param {number} targetHeight - Target box height (defaults to targetWidth for square)
+     * @returns {Promise<{blob: Blob, width: number, height: number}>} Blob and cropped canvas size
      */
     async convertToPngBlob(dataURL, targetWidth = DEFAULT_SIZE, targetHeight = null) {
         return convertImageToPngBlob(dataURL, targetWidth, targetHeight);

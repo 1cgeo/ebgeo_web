@@ -24,6 +24,7 @@ import {
     styleSignature,
     collectDegradedStyle,
     iconScale,
+    iconHotSpot,
 } from './kml-style.js';
 import { buildDescription, buildExtendedData } from './kml-balloon.js';
 import { buildPlacemark, buildGroundOverlay } from './kml-document.js';
@@ -34,6 +35,7 @@ import {
     POINT_ICON_NATIVE_PX,
 } from './kmz-assets.js';
 import { classifyFeatureType, FeatureCategory } from './kmz-feature-types.js';
+import { regenerateSymbolBitmap } from '@js/military_tools/symbol-bitmap.regenerate.js';
 
 /**
  * Zoom used to size dash patterns when a feature carries no creation zoom.
@@ -317,7 +319,7 @@ async function mapSymbolFeature({
 
     const asset = await resolveStoredImage(assets, properties.id, {
         keyPrefix: featureType,
-        regenerate: () => regenerateSymbol(featureType, properties),
+        regenerate: () => regenerateSymbolBitmap(featureType, properties),
     });
 
     // O `<scale>` do KML e sobre o tamanho NATIVO do arquivo, e o arquivo nem sempre tem o
@@ -333,15 +335,28 @@ async function mapSymbolFeature({
     const desired = larguraLogica
         * (Number.isFinite(properties.size) ? properties.size : 1);
 
+    // O KML ancora o icone pelo `hotSpot`, e o padrao de 0.5/0.5 so vale para um
+    // bitmap cujo CENTRO fica sobre a coordenada. A medida de coordenacao nao e
+    // assim: ela declara `anchor` (bottom, por exemplo) e o nucleo ainda carrega um
+    // `iconOffset`, porque o desenho recortado nao e simetrico em torno da elipse.
+    // Sem traduzir os dois, o simbolo saia deslocado no Google Earth.
+    const hotSpot = iconHotSpot({
+        anchor: properties.anchor,
+        iconOffset: properties.iconOffset,
+        width: properties.width,
+        height: properties.height,
+    });
+
     const body = buildIconStyle({
         href: asset?.href,
         scale: iconScale(desired, nativeWidth),
         heading: properties.rotation,
         opacity: Number.isFinite(properties.opacity) ? properties.opacity : 1,
+        hotSpot,
     }) + '<LabelStyle><scale>0</scale></LabelStyle>';
 
     const styleId = styles.register(
-        styleSignature(featureType, properties, asset?.href || 'none'),
+        styleSignature(featureType, properties, `${asset?.href || 'none'}|${hotSpot.x}|${hotSpot.y}`),
         body
     );
 
@@ -353,42 +368,6 @@ async function mapSymbolFeature({
         geometry,
         visible,
     });
-}
-
-/**
- * Regenerates a symbol PNG when none was persisted for the feature.
- * The generators are lazily imported so they stay out of the export chunk
- * unless a fallback is actually needed.
- *
- * @param {string} featureType - EBGeo storage type
- * @param {Object} properties - Feature properties
- * @returns {Promise<{blob: Blob, width: number, height: number}|null>} Generated image
- */
-async function regenerateSymbol(featureType, properties) {
-    try {
-        if (featureType === 'military_symbol') {
-            const { MilitarySymbolGenerator } = await import(
-                '@js/military_tools/military_symbol_tool/military_symbol_generator.js'
-            );
-            return await new MilitarySymbolGenerator().generateSymbolBlob(properties);
-        }
-
-        if (featureType === 'coordination_measure') {
-            const [{ CoordinationMeasureGenerator }, { resolveDrawablePointCode }] = await Promise.all([
-                import('@js/military_tools/coordination_measure_tool/coordination_measure_generator.js'),
-                import('@js/military_tools/coordination_measure_tool/coordination_points_catalog.js'),
-            ]);
-            // The Nucleo is stored under the SCREEN code (`pointCode: 'ECHELON'`), which the
-            // catalog does not know; the control resolves `echelonCode` before drawing, and so
-            // must this path, or the generator throws and the Placemark leaves without an icon.
-            const pointCode = resolveDrawablePointCode(properties);
-            return await new CoordinationMeasureGenerator().generateSymbolBlob({ ...properties, pointCode });
-        }
-    } catch (error) {
-        console.warn(`KMZ export: could not regenerate ${featureType} symbol`, error);
-    }
-
-    return null;
 }
 
 /**

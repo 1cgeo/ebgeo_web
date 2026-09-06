@@ -6,6 +6,7 @@
 
 import { getCurrentMapFeatures, getImage, hasImage, getCurrentMapNameSync, getGridStyle, getCatalogLayers, getControl } from '../store';
 import { getImageRegenerator } from './image-regen-registry.js';
+import { needsBitmapRebuild } from './bitmap-version.js';
 import { collectImageResourceFeatures, collectImageResourceRatios } from './feature-images.js';
 import { ensureTurf } from '../utilities/turf-loader.js';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
@@ -201,11 +202,23 @@ async function setImages(features, mapInstance) {
         // Military symbols / coordination measures / declinations render a client-generated
         // PNG that is NEVER uploaded (it's deterministically rebuildable from props). On a
         // remote snapshot / map switch the local blob is absent, and fetching it from the
-        // backend 404s → error icon. Rebuild from props instead when no local blob exists.
+        // backend 404s → error icon. Rebuild from props instead when no local blob exists, and
+        // also when the blob on disk is of an older bitmap layout (see below).
         const regenerate = getImageRegenerator(feature.properties.source);
         if (regenerate) {
+            // The SECOND reason to regenerate, and it holds with the blob right there on disk:
+            // the stored bitmap may be of an older LAYOUT. Version 1 was drawn centred in a
+            // square canvas, with transparent bands on either side of the drawing, and both the
+            // selection box and the click hit-test ARE the bitmap rectangle, so an old feature
+            // answers clicks over an area larger than what is visible. The question is asked of
+            // `needsBitmapRebuild` (`layers/bitmap-version.js`, a zero-import leaf: no
+            // `military_tools` module may enter the map's eager graph), and only the two STAMPED
+            // types answer yes, so the declination, whose generator stamps nothing, keeps
+            // regenerating only when the blob is missing.
+            const stale = needsBitmapRebuild(feature.properties.source, feature.properties);
             imagePromises.push((async () => {
-                if (await hasImage(imageId)) {
+                const stored = await hasImage(imageId);
+                if (!stale && stored) {
                     await loadSingleImage(imageId, mapInstance, razoes.get(imageId) || 1);
                     return;
                 }
@@ -213,6 +226,12 @@ async function setImages(features, mapInstance) {
                     await regenerate(feature); // rebuilds + stores + installs the image on the map
                 } catch (err) {
                     console.warn(`Falha ao regenerar imagem ${imageId} (${feature.properties.source}):`, err);
+                    // A stale bitmap that could not be rebuilt is still a bitmap of the
+                    // symbol: the old layout beats the error icon, and the next load tries again.
+                    if (stored) {
+                        await loadSingleImage(imageId, mapInstance, razoes.get(imageId) || 1);
+                        return;
+                    }
                     await addErrorImageIfNeeded(imageId, mapInstance);
                 }
             })());
