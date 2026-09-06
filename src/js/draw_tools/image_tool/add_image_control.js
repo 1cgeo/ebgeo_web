@@ -1,6 +1,7 @@
 // Path: js/draw_tools/image_tool/add_image_control.js
 
-import { queryHoverFeatures } from '../../tool_manager/helpers/hover-query.helpers.js';
+import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
+import { createRenderedIconSelectionBox } from '@tools/helpers/icon-selection-box.helpers.js';
 import {
   addFeature,
   updateFeature,
@@ -164,6 +165,12 @@ class AddImageControl extends BaseControl {
   }
 
   createSelectionBox(feature) {
+    // The box is the picture as drawn, plus the frame padding, rotation included.
+    const drawn = createRenderedIconSelectionBox(this.map, feature, "image-layer");
+    if (drawn) return { geometry: drawn };
+
+    // The image is not in the style yet (still loading, or replaced by the
+    // error image): fall back to the stored box until it is.
     if (feature.properties.selectionBox) {
       return { geometry: feature.properties.selectionBox };
     }
@@ -184,7 +191,7 @@ class AddImageControl extends BaseControl {
   }
 
   getSelectionBoxStrategy() {
-    return "preCalculated";
+    return "viewport";
   }
 
   getSelectionBoxPadding() {
@@ -192,7 +199,7 @@ class AddImageControl extends BaseControl {
   }
 
   getLayerIds() {
-    return ["images-layer"];
+    return ["image-layer"];
   }
 
   getSourceNames() {
@@ -684,7 +691,7 @@ class AddImageControl extends BaseControl {
     const selectedFeature = this.getSelectedFeature();
     if (!selectedFeature) return;
 
-    const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
+    const features = queryFeaturesAtPoint(this.map, e.point, { layers: HOVER_LAYER_IDS });
     const hasFeature = this.hasSelectedFeatureAtPoint(features);
 
     this.map.getCanvas().style.cursor = hasFeature ? "move" : "";

@@ -250,7 +250,16 @@ export function transferMapImages(sourceMap, targetMap) {
         if (targetMap.hasImage(id)) continue;
         const image = sourceMap.getImage(id);
         if (image) {
-            targetMap.addImage(id, image.data, { sdf: image.sdf });
+            // `pixelRatio` is part of the image's identity, not a detail: a
+            // coordination measure is rasterized at ratio 4 so it stays sharp when
+            // zoomed. Dropping it here made the hidden map treat those 4x pixels as
+            // logical ones and draw the symbol four times too large in the Garmin
+            // KMZ and in every page of the PDF mosaic.
+            const options = { sdf: image.sdf };
+            if (Number.isFinite(image.pixelRatio) && image.pixelRatio > 0) {
+                options.pixelRatio = image.pixelRatio;
+            }
+            targetMap.addImage(id, image.data, options);
         }
     }
 }

@@ -1,6 +1,6 @@
 // Path: js/draw_tools/sector_tool/add_sector_control.js
 
-import { queryHoverFeatures } from '../../tool_manager/helpers/hover-query.helpers.js';
+import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
 import { IDUtils, showWarning } from '../../utilities';
 import { getPointerPosition } from '../../utilities/pointer-utils';
@@ -722,7 +722,7 @@ class AddSectorControl extends BaseControl {
     onHoverMove = (e) => {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
-        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
+        const features = queryFeaturesAtPoint(this.map, e.point, { layers: HOVER_LAYER_IDS });
         const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
         if (hasHandle) {

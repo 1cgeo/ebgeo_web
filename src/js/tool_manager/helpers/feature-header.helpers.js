@@ -6,6 +6,10 @@
 
 import { getLayers, isFeatureEffectivelyLocked, isCurrentMapLockedSync, addFeature, removeFeature, removeImage, updateFeature, storeImage, getGroupManager, getControl, startBatchUndo, commitBatchUndo } from '../../store';
 import { IDUtils } from '../../utilities';
+// Zero-import leaf under military_tools/ (pinned to the core chunk in vite.config.js),
+// so this static import does not create the core <-> military-tools cycle the merge and
+// split helpers below dodge with dynamic imports.
+import { applyGeneratedBitmap } from '@js/military_tools/bitmap-version.js';
 import {
     LINEAR_SOURCES,
     LINEAR_CONVERSION_LABELS,
@@ -1270,8 +1274,7 @@ async function convertPointToMilitarySymbol(pointFeature, selectionManager, uiMa
         // Generate symbol image and capture real dimensions
         const result = await milSymControl.symbolGenerator.generateSymbolBlob(feature.properties);
 
-        feature.properties.width = result.width;
-        feature.properties.height = result.height;
+        applyGeneratedBitmap(feature.properties, result);
 
         // Recalculate selection box with real dimensions
         feature.properties.selectionBox = milSymControl.geometry.calculateSelectionBoxGeometry(
@@ -1401,13 +1404,11 @@ async function convertPointToCoordinationMeasure(pointFeature, selectionManager,
         const result = await coordControl.symbolGenerator.generate(pointCode, feature.properties);
 
         feature.properties.imageUrl = result.dataUrl;
-        feature.properties.width = result.width;
-        feature.properties.height = result.height;
-        feature.properties.anchor = result.anchor;
-        // The generator rasterises the Nucleo above its logical size and reports the ratio;
-        // dropping it here registered the bitmap 1:1 and drew the converted symbol four times
-        // larger than the same code drawn by the tool (see loadSymbolToMap below).
-        feature.properties.pixelRatio = result.pixelRatio || 1;
+        // Size, anchor, pixel ratio, icon offset and the bitmap version stamp all come from
+        // the generator result: the ratio dropped here once, and the bitmap was registered
+        // 1:1, drawing the converted symbol four times larger than the same code drawn by
+        // the tool (see loadSymbolToMap below).
+        applyGeneratedBitmap(feature.properties, result);
 
         // Recalculate selection box with real dimensions and anchor
         feature.properties.selectionBox = coordControl.geometry.calculateSelectionBoxGeometry(

@@ -13,6 +13,7 @@ import { migrateToV2 } from './v1-to-v2.migration.js';
 import { migrateToV2_1 } from './v2-to-v2.1.migration.js';
 import { migrateToV2_2 } from './v2.1-to-v2.2.migration.js';
 import { migrateToV2_3 } from './v2.2-to-v2.3.migration.js';
+import { migrateToV2_4 } from './v2.3-to-v2.4.migration.js';
 
 const appStore = localforage.createInstance({ name: 'ebgeo_app_settings' });
 const atlasStore = localforage.createInstance({ name: 'ebgeo_atlas' });
@@ -101,6 +102,9 @@ export async function safelyMigrate() {
         }
         if (compareVersions(currentVersion, '2.3') < 0) {
             await migrateToV2_3();
+        }
+        if (compareVersions(currentVersion, '2.4') < 0) {
+            await migrateToV2_4();
         }
         console.log('Migration completed successfully');
         return { success: true };

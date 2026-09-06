@@ -160,6 +160,22 @@ export default defineConfig(({ mode: _mode }) => ({
           if (id.includes('boundary_tool/boundary-split.model')) {
             return 'core';
           }
+          // bitmap-version.js is a zero-import leaf too (the symbol-bitmap layout
+          // stamp plus the writer that stamps it). It lives under military_tools/
+          // but everyone who regenerates a symbol bitmap writes through it —
+          // tool_manager/helpers/feature-header (core), the startup migration
+          // (core) and the .ebgeo import (import-export) — so it follows
+          // boundary-zoom.model into core to avoid the same cycle.
+          if (id.includes('military_tools/bitmap-version')) {
+            return 'core';
+          }
+          // symbol-bitmap.regenerate.js imports only bitmap-version statically
+          // (the generators are lazy `import()`s), and the startup migration
+          // (core) and the KMZ mapper import it statically, so it goes to core
+          // for the same reason: a military-tools <-> core cycle otherwise.
+          if (id.includes('military_tools/symbol-bitmap.regenerate')) {
+            return 'core';
+          }
           // Military tools (large bundle)
           if (id.includes('military_tools')) {
             return 'military-tools';

@@ -10,12 +10,15 @@
  *
  * - o contorno e um arco ABERTO na largura do escalao, e nao uma elipse fechada. A elipse
  *   que passa por tras do escalao e o erro que a figura do manual nao comete;
- * - o desenho e simetrico na vertical em torno do centro da elipse, porque a camada ancora
- *   o ICONE pelo meio (`icon-anchor: center`). Sem a simetria a elipse sobe, e o ponto
- *   clicado deixa de ser o centro do nucleo;
- * - o texto de identificacao cai na MESMA altura nos treze escaloes, e o viewBox ja nasce
- *   grande o bastante para ele: texto que empurra o viewBox para baixo move o desenho
- *   inteiro em relacao ao ponto clicado;
+ * - o quadro e JUSTO no desenho, e quem poe a elipse sobre o ponto clicado e o
+ *   `iconOffset`, que o gerador tira do `anchorSvg`. A versao anterior espelhava para
+ *   cima a faixa de baixo, o que ancorava certo a custa de um bitmap com o dobro da
+ *   altura util: a caixa de selecao e o clique, que sao o retangulo do bitmap, sobravam
+ *   metros acima da elipse;
+ * - a elipse sai do MESMO tamanho de tela de antes do quadro justo, porque a escala vai
+ *   declarada em `escalaLogica`;
+ * - o texto de identificacao cai na MESMA altura nos treze escaloes, e so estica o quadro
+ *   para BAIXO: a elipse fica onde estava em relacao ao ponto clicado;
  * - a situacao troca o tracado do CONTORNO e so dele. O simbolo de escalao tracejado seria
  *   outro simbolo;
  * - o escalao mais largo do catalogo (Teatro de Operacoes, 524 unidades) cabe na largura
@@ -28,7 +31,10 @@ import {
     COORDINATION_POINTS_CATALOG,
     getAvailableTextFields
 } from '@js/military_tools/coordination_measure_tool/coordination_points_catalog.js';
-import { CoordinationMeasureGenerator } from '@js/military_tools/coordination_measure_tool/coordination_measure_generator.js';
+import {
+    CoordinationMeasureGenerator,
+    iconOffsetFor
+} from '@js/military_tools/coordination_measure_tool/coordination_measure_generator.js';
 import {
     ECHELON_CODES,
     UI_DATA
@@ -113,13 +119,47 @@ describe('catálogo do Núcleo', () => {
         expect(abertura('ECHELON_FT_16')).toBeLessThan(abertura('ECHELON_FT_25'));
     });
 
-    it('é simétrico em torno do centro da elipse, para o ícone ancorar nela', () => {
+    it('tem quadro justo no desenho, e ancora a elipse pelo anchorSvg', () => {
+        // O topo do quadro e a borda de cima da elipse com margem, e nao o espelho da
+        // faixa de baixo: `-113.5` arredondado, com raio 100, traco 11 e margem 8.
+        const TOPO = -114;
+
         for (const code of todosOsNucleos) {
-            const caixa = lerViewBox(COORDINATION_POINTS_CATALOG[code].svg);
-            expect(caixa.minY, `${code} na vertical`).toBe(-caixa.maxY);
+            const ponto = COORDINATION_POINTS_CATALOG[code];
+            const caixa = lerViewBox(ponto.svg);
+
+            expect(caixa.minY, `${code} no topo`).toBe(TOPO);
+            // Justo: o que sobra embaixo e a margem, nao o dobro da altura util.
+            expect(caixa.maxY, `${code} embaixo`).toBeLessThan(-caixa.minY * 2);
             expect(caixa.minX, `${code} na horizontal`).toBe(-caixa.maxX);
-            expect(COORDINATION_POINTS_CATALOG[code].anchor).toBe('center');
+            expect(ponto.anchor).toBe('center');
+            // A elipse esta na origem do SVG, e e ela que fica sobre a coordenada.
+            expect(ponto.anchorSvg, code).toEqual({ x: 0, y: 0 });
         }
+    });
+
+    it('desenha a elipse do mesmo tamanho de tela do quadro simétrico', () => {
+        // A escala de antes saia do quadro SIMETRICO: o tamanho de tela dividido pela
+        // maior medida daquele quadro, que era a altura espelhada. O quadro justo e mais
+        // baixo, e sem a escala declarada a elipse cresceria junto.
+        for (const code of todosOsNucleos) {
+            const ponto = COORDINATION_POINTS_CATALOG[code];
+            const caixa = lerViewBox(ponto.svg);
+            const { y: textoY } = ponto.textFields.identificacao.position;
+            const corpo = ponto.textFields.identificacao.fontSize;
+
+            // A folga embaixo do texto reproduz a conta do `calculateDynamicViewBox`.
+            const folgaDoTexto = corpo * 0.3 + 7;
+            const alturaSimetrica = 2 * Math.ceil(textoY + folgaDoTexto);
+            const escalaAntiga = ponto.tamanhoBase / Math.max(caixa.width, alturaSimetrica);
+
+            expect(ponto.escalaLogica, code).toBeCloseTo(escalaAntiga, 12);
+        }
+
+        // E os numeros de fato, para a conta acima nao poder mudar calada: 440 unidades
+        // de elipse (2 x 220 de raio) na escala de cada familia.
+        expect(440 * COORDINATION_POINTS_CATALOG.ECHELON_16.escalaLogica).toBeCloseTo(93.28, 2);
+        expect(440 * COORDINATION_POINTS_CATALOG.ECHELON_FT_16.escalaLogica).toBeCloseTo(83.88, 2);
     });
 
     it('põe o texto na mesma altura nos treze escalões de cada família', () => {
@@ -192,20 +232,42 @@ describe('situação do Núcleo', () => {
 });
 
 describe('identificação do Núcleo', () => {
+    /**
+     * Onde o centro da elipse cai em relacao a coordenada da feicao, em pixels de tela.
+     * @param {Object} caixa - viewBox do desenho
+     * @param {number} escala - Pixels logicos por unidade do SVG
+     * @returns {number} Deslocamento vertical, positivo para baixo
+     */
+    function elipseNaTela(caixa, escala) {
+        const centroDoBitmap = caixa.minY + caixa.height / 2;
+        const [, deslocamento] = iconOffsetFor(caixa, { x: 0, y: 0 }, escala);
+
+        return (0 - centroDoBitmap) * escala + deslocamento;
+    }
+
     it.each([
         ['A'],
         ['FT 3 Inf Bld'],
         ['FORCA-TAREFA 3 BATALHAO DE INFANTARIA BLINDADO DO SUL']
-    ])('não empurra o desenho na vertical com o texto %s', (texto) => {
+    ])('estica o quadro só para baixo, e não move a elipse, com o texto %s', (texto) => {
         for (const familia of familias) {
             const ponto = COORDINATION_POINTS_CATALOG[`${familia}_16`];
             const antes = lerViewBox(ponto.svg);
             const depois = lerViewBox(gerador.addExternalTexts(ponto.svg, { identificacao: texto }, ponto));
 
+            // O texto vem ABAIXO do desenho: o topo do quadro nao se mexe.
             expect(depois.minY, familia).toBe(antes.minY);
-            expect(depois.maxY, familia).toBe(antes.maxY);
+            expect(depois.maxY, familia).toBeGreaterThan(antes.maxY);
             // O texto mais largo que a elipse alarga o desenho, mas para os dois lados.
             expect(depois.minX, familia).toBe(-depois.maxX);
+
+            // O quadro cresceu, o meio do bitmap desceu, e o `iconOffset` desce junto: a
+            // elipse fica sobre a coordenada nos dois casos. Sem o deslocamento ela
+            // subiria metade do que o texto esticou.
+            const escala = ponto.escalaLogica;
+            // A tolerancia e o arredondamento do proprio deslocamento, de 2 casas.
+            expect(elipseNaTela(antes, escala), familia).toBeCloseTo(0, 2);
+            expect(elipseNaTela(depois, escala), familia).toBeCloseTo(0, 2);
         }
     });
 });
@@ -253,9 +315,10 @@ describe('nitidez do bitmap', () => {
         // crescesse junto com o bitmap, o simbolo apareceria quatro vezes maior no mapa.
         const local = new CoordinationMeasureGenerator();
         let pedido = null;
+        // O rasterizador recorta o quadro no desenho e devolve a medida do bitmap.
         local.convertToPngBlob = async (svg, largura, altura) => {
             pedido = { largura, altura };
-            return { tamanho: 'blob de mentira' };
+            return { blob: { tamanho: 'blob de mentira' }, width: largura, height: altura };
         };
 
         const r = await local.generateSymbolBlob({ pointCode: 'ECHELON_16', ...props });
@@ -268,13 +331,33 @@ describe('nitidez do bitmap', () => {
 
     it('dá ao Núcleo um quadro maior que o do ponto', async () => {
         const local = new CoordinationMeasureGenerator();
-        local.convertToPngBlob = async () => ({});
+        local.convertToPngBlob = async (svg, largura, altura) => ({ blob: {}, width: largura, height: altura });
 
         const nucleo = await local.generateSymbolBlob({ pointCode: 'ECHELON_16' });
         const generico = await local.generateSymbolBlob({ pointCode: '130100' });
 
-        expect(generico.width).toBe(80);
+        // O bitmap e RECORTADO no desenho: o ponto generico e alto e estreito (88 por 168
+        // unidades), entao o quadro de 80 e a altura dele, e a largura sai proporcional.
+        expect(generico.height).toBe(80);
+        // 80 x 88 / 168 = 41,9, arredondado na grade do bitmap (168 px de canvas / 4).
+        expect(generico.width).toBe(42);
         expect(nucleo.width).toBeGreaterThan(generico.width);
+        expect(nucleo.height).toBeLessThan(nucleo.width);
+    });
+
+    it('põe o Núcleo sobre a elipse com o iconOffset, e não desloca os outros pontos', async () => {
+        const local = new CoordinationMeasureGenerator();
+        local.convertToPngBlob = async (svg, largura, altura) => ({ blob: {}, width: largura, height: altura });
+
+        const nucleo = await local.generateSymbolBlob({ pointCode: 'ECHELON_16' });
+        const generico = await local.generateSymbolBlob({ pointCode: '130100' });
+
+        // O desenho desce mais do que sobe, entao o meio do bitmap fica ABAIXO da elipse
+        // e o icone tem de descer para a elipse subir ate o ponto: deslocamento positivo.
+        expect(nucleo.iconOffset[0]).toBe(0);
+        expect(nucleo.iconOffset[1]).toBeGreaterThan(0);
+        // Ponto sem `anchorSvg` segue ancorado pelo meio do bitmap, como sempre foi.
+        expect(generico.iconOffset).toEqual([0, 0]);
     });
 
     it('deixa respiro entre as linhas do colchete de Força-Tarefa, e o traço ainda se vê', () => {
@@ -289,8 +372,7 @@ describe('nitidez do bitmap', () => {
         const RESPIRO_MINIMO = 0.5; // fracao do passo entre linhas que fica em branco
 
         const ponto = COORDINATION_POINTS_CATALOG.ECHELON_FT_17;
-        const caixa = lerViewBox(ponto.svg);
-        const escala = ponto.tamanhoBase / caixa.width;
+        const escala = ponto.escalaLogica;
         const traco = Number(ponto.svg.match(/stroke-width="([\d.]+)"/)[1]) * escala;
 
         // O colchete de FT nasce de um glifo de 224 unidades, reduzido pela escala do glifo.

@@ -124,6 +124,11 @@ export class SelectionHighlightManager {
      */
     _setupEventHandlers() {
         this.map.on('zoom', this._handleZoomChange);
+        // The icon-backed tools draw a screen-aligned picture; their box is
+        // geometry in degrees built for one bearing and pitch, so a turn or a
+        // tilt has to rebuild it (the cache key carries both, see getCacheKey).
+        this.map.on('rotate', this._handleZoomChange);
+        this.map.on('pitch', this._handleZoomChange);
     }
 
     /**
@@ -169,15 +174,37 @@ export class SelectionHighlightManager {
     // ========================================================================
 
     /**
-     * Get cache key for feature at current zoom level.
-     * Zoom level is quantized to 0.5 increments for cache efficiency.
-     * @param {string} featureId
+     * Get cache key for a feature under the current view.
+     *
+     * Zoom is quantized to 0.5 increments for cache efficiency: a box in degrees
+     * scales with the map, so it stays right across a half level.
+     *
+     * A tool whose strategy is `'viewport'` draws a screen-aligned picture and
+     * builds its box from the drawn rectangle, so the key also carries the
+     * bearing and the pitch (a turn or a tilt moves the picture against the
+     * ground), and, when the feature's zoom correction is OFF (the picture keeps
+     * its screen size while the map scales), the exact zoom: such a box is only
+     * right at the zoom it was built for.
+     *
+     * @param {Object} feature - Selected feature
+     * @param {Object} [control] - The feature's tool control
      * @returns {string}
      */
-    getCacheKey(featureId) {
+    getCacheKey(feature, control) {
+        const featureId = feature.properties.id;
         const zoom = this.map.getZoom();
         const zoomLevel = Math.round(zoom * 2) / 2;
-        return `${featureId}-${zoomLevel}`;
+
+        if (control?.getSelectionBoxStrategy?.() !== 'viewport') {
+            return `${featureId}-${zoomLevel}`;
+        }
+
+        const zoomKey = feature.properties.zoomCorrectionEnabled === false
+            ? zoom.toFixed(2)
+            : zoomLevel;
+        const bearing = Number(this.map.getBearing?.()) || 0;
+        const pitch = Number(this.map.getPitch?.()) || 0;
+        return `${featureId}-${zoomKey}-b${bearing.toFixed(1)}-p${pitch.toFixed(1)}`;
     }
 
     /**
@@ -413,7 +440,7 @@ export class SelectionHighlightManager {
             try {
                 const featureId = feature.properties.id;
                 const currentHash = this.calculateGeometryHash(feature);
-                const cacheKey = this.getCacheKey(featureId);
+                const cacheKey = this.getCacheKey(feature, control);
                 const cached = this.selectionBoxCache.get(cacheKey);
 
                 let selectionBox;
@@ -648,6 +675,8 @@ export class SelectionHighlightManager {
             cancelAnimationFrame(this.rafId);
         }
         this.map.off('zoom', this._handleZoomChange);
+        this.map.off('rotate', this._handleZoomChange);
+        this.map.off('pitch', this._handleZoomChange);
         this.selectionBoxCache.clear();
         this.geometryHashes.clear();
         this._ultimaColecaoEscrita = null;

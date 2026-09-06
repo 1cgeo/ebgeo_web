@@ -814,8 +814,10 @@ const NUCLEO_MARGEM = 8;
 // Teto do corte, para o escalao mais largo do catalogo nao abrir a elipse de lado a lado.
 const NUCLEO_CORTE_MAXIMO = 0.8;
 // A folga embaixo do texto reproduz a conta do `calculateDynamicViewBox` do gerador
-// (descida de 0.3 do corpo, mais a margem de 5 dele). O viewBox ja nasce grande o bastante
-// para caber o texto, e por isso o texto NAO empurra o desenho para fora do ponto clicado.
+// (descida de 0.3 do corpo, mais a margem de 5 dele). Com o quadro simetrico ela dizia a
+// altura do desenho; hoje o quadro e justo e o texto estica o viewBox para baixo, entao o
+// que ela ainda define e a ESCALA, que segue sendo a daquele quadro para a elipse nao
+// mudar de tamanho na tela.
 const NUCLEO_FOLGA_TEXTO = NUCLEO_FONTE * 0.3 + 7;
 
 /**
@@ -945,27 +947,41 @@ const NUCLEO_TEXTO_Y_FT = baseDaFamilia(true);
 /**
  * Monta o simbolo de Nucleo a partir do simbolo de escalao.
  *
- * O desenho e SIMETRICO na vertical em torno do centro da elipse. O `icon-anchor` da
- * camada e 'center', que ancora o meio do bitmap: sem a simetria, o ponto clicado cairia
- * no meio do conjunto elipse-mais-escalao-mais-texto, e a elipse subiria.
+ * O quadro e JUSTO no desenho: vai da borda de cima da elipse ate a base do que desce
+ * pelo corte, e nao ha faixa transparente nenhuma. Como o desenho nao e simetrico em
+ * torno do centro da elipse, o meio do bitmap NAO e o ponto da feicao: quem devolve a
+ * elipse ao ponto clicado e o `iconOffset`, que o gerador calcula do `anchorSvg` destes
+ * pontos (a origem do SVG, que e o centro da elipse).
+ *
+ * A versao anterior resolvia isso espelhando a faixa de baixo para cima do desenho, o
+ * que ancorava certo mas fazia um bitmap com o dobro da altura util: a caixa de selecao
+ * e o clique, que sao o retangulo do bitmap, sobravam metros acima da elipse.
  *
  * @param {string} glifoSvg - SVG do simbolo de escalao SIMPLES
  * @param {number} textoY - Altura da identificacao, comum a familia
  * @param {boolean} forcaTarefa - Se desenha o colchete de Forca-Tarefa em volta
- * @returns {Object} { svg, textoY }
+ * @returns {Object} { svg, textoY, escalaLogica }
  */
 function montarNucleo(glifoSvg, textoY, forcaTarefa) {
   const { caixa, escala, xCorte, yCorte, meiaColchete, topoDasMarcas, base } =
     medidasDoNucleo(glifoSvg, forcaTarefa);
 
-  const meiaAltura = Math.ceil(textoY + NUCLEO_FOLGA_TEXTO);
   const meiaLargura = Math.ceil(Math.max(
     NUCLEO_RX + NUCLEO_TRACO / 2 + NUCLEO_MARGEM,
     xCorte + NUCLEO_MARGEM
   ));
+  const topo = Math.ceil(NUCLEO_RY + NUCLEO_TRACO / 2 + NUCLEO_MARGEM);
+  const fundo = Math.ceil(base + NUCLEO_MARGEM);
 
   const largura = meiaLargura * 2;
-  const altura = meiaAltura * 2;
+  const altura = topo + fundo;
+
+  // A elipse tem de sair do MESMO tamanho de tela de sempre, e o quadro justo mudou o
+  // divisor: com o quadro simetrico a escala era o tamanho de tela dividido pela maior
+  // medida daquele quadro, que era a altura espelhada. Por isso a escala vai declarada,
+  // calculada aqui a partir da altura de antes, em vez de sair do quadro novo.
+  const alturaSimetrica = Math.ceil(textoY + NUCLEO_FOLGA_TEXTO) * 2;
+  const escalaLogica = NUCLEO_TAMANHO_BASE / Math.max(largura, alturaSimetrica);
 
   const deslocX = arredondar(-(caixa.minX + caixa.width / 2) * escala);
   const deslocY = arredondar(topoDasMarcas - caixa.minY * escala);
@@ -987,14 +1003,14 @@ function montarNucleo(glifoSvg, textoY, forcaTarefa) {
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny"`
     + ` width="${largura}" height="${altura}"`
-    + ` viewBox="${-meiaLargura} ${-meiaAltura} ${largura} ${altura}">`
+    + ` viewBox="${-meiaLargura} ${-topo} ${largura} ${altura}">`
     + `<path data-nucleo="contorno" d="${contorno}"`
     + ` stroke-width="${NUCLEO_TRACO}" stroke="black" fill="none"></path>`
     + colchete
     + `<g transform="translate(${deslocX},${deslocY}) scale(${escala})">${glifo}</g>`
     + `</svg>`;
 
-  return { svg, textoY };
+  return { svg, textoY, escalaLogica };
 }
 
 // ============================================================================
@@ -1030,7 +1046,11 @@ function generateEchelonPoints() {
       const pointCode = `${familia.prefixo}_${code}`;
       // As duas familias partem do MESMO simbolo de escalao: o que separa e o colchete,
       // que o `montarNucleo` desenha em volta.
-      const { svg, textoY } = montarNucleo(ECHELON_SYMBOLS[code], familia.base, familia.forcaTarefa);
+      const { svg, textoY, escalaLogica } = montarNucleo(
+        ECHELON_SYMBOLS[code],
+        familia.base,
+        familia.forcaTarefa
+      );
 
       echelonPoints[pointCode] = {
         code: pointCode,
@@ -1038,7 +1058,12 @@ function generateEchelonPoints() {
         category: familia.categoria,
         svg,
         anchor: "center",
+        // O ponto do DESENHO que fica sobre a coordenada e o centro da elipse, que e a
+        // origem do SVG montado. Sem isto o gerador ancora o meio do bitmap, e a elipse
+        // sobe a metade do que o escalao e o texto descem.
+        anchorSvg: { x: 0, y: 0 },
         tamanhoBase: NUCLEO_TAMANHO_BASE,
+        escalaLogica,
         isEchelon: true,
         isNucleo: true,
         isForcaTarefa: familia.forcaTarefa,

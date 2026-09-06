@@ -1,6 +1,7 @@
 // Path: js/military_tools/military_symbol_tool/add_military_symbol_control.js
 
-import { queryHoverFeatures } from '../../tool_manager/helpers/hover-query.helpers.js';
+import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
+import { createRenderedIconSelectionBox } from '@tools/helpers/icon-selection-box.helpers.js';
 import { normalizeSIDC } from './brazilian_sidc_extension.js';
 import {
   addFeature,
@@ -10,6 +11,7 @@ import {
   getActiveLayerIdSync
 } from '@store';
 import { MilitarySymbolGenerator } from './military_symbol_generator.js';
+import { applyGeneratedBitmap } from '../bitmap-version.js';
 import { IDUtils, showError, loadImageToMap } from '@utils';
 import { readGeoJSONSourceDataAsync } from '@utils/geojson-source.js';
 import { addMilitarySymbolAttributesToPanel } from './attributes/index.js';
@@ -150,7 +152,12 @@ class AddMilitarySymbolControl extends BaseControl {
   }
 
   createSelectionBox(feature) {
-    // Military symbols use pre-calculated selection boxes stored as properties.
+    // The box is the symbol as drawn, plus the frame padding, rotation included,
+    // at the feature's live coordinates (a moving symbol is displaced from home).
+    const drawn = createRenderedIconSelectionBox(this.map, feature, "military-symbols-layer");
+    if (drawn) return { geometry: drawn };
+
+    // The symbol image is not in the style yet: fall back to the stored box.
     // A moving (trajectory) symbol is displaced from its authored position, so the
     // stored box (computed at home) no longer matches — recompute from live coords.
     const moving = Array.isArray(feature.properties.trajetoria) && feature.properties.trajetoria.length >= 2;
@@ -175,7 +182,7 @@ class AddMilitarySymbolControl extends BaseControl {
   }
 
   getSelectionBoxStrategy() {
-    return "preCalculated";
+    return "viewport";
   }
 
   getSelectionBoxPadding() {
@@ -183,7 +190,7 @@ class AddMilitarySymbolControl extends BaseControl {
   }
 
   getLayerIds() {
-    return ["military_symbols-layer"];
+    return ["military-symbols-layer"];
   }
 
   getSourceNames() {
@@ -456,8 +463,7 @@ class AddMilitarySymbolControl extends BaseControl {
         feature.properties
       );
 
-      feature.properties.width = result.width;
-      feature.properties.height = result.height;
+      applyGeneratedBitmap(feature.properties, result);
 
       feature.properties.selectionBox = this.geometry.calculateSelectionBoxGeometry(
         coordinates,
@@ -517,8 +523,7 @@ class AddMilitarySymbolControl extends BaseControl {
         feature.properties
       );
 
-      feature.properties.width = result.width;
-      feature.properties.height = result.height;
+      applyGeneratedBitmap(feature.properties, result);
 
       feature.properties.selectionBox = this.geometry.recalculateSelectionBox(
         feature,
@@ -530,8 +535,7 @@ class AddMilitarySymbolControl extends BaseControl {
         f => f.properties.id === feature.properties.id
       );
       if (sourceFeature) {
-        sourceFeature.properties.width = result.width;
-        sourceFeature.properties.height = result.height;
+        applyGeneratedBitmap(sourceFeature.properties, result);
         sourceFeature.properties.selectionBox = feature.properties.selectionBox;
       }
       this.map.getSource("military_symbols").setData(data);
@@ -564,8 +568,7 @@ class AddMilitarySymbolControl extends BaseControl {
         feature.properties
       );
 
-      feature.properties.width = result.width;
-      feature.properties.height = result.height;
+      applyGeneratedBitmap(feature.properties, result);
 
       feature.properties.selectionBox = this.geometry.recalculateSelectionBox(
         feature,
@@ -577,8 +580,7 @@ class AddMilitarySymbolControl extends BaseControl {
         f => f.properties.id === feature.properties.id
       );
       if (sourceFeature) {
-        sourceFeature.properties.width = result.width;
-        sourceFeature.properties.height = result.height;
+        applyGeneratedBitmap(sourceFeature.properties, result);
         sourceFeature.properties.selectionBox = feature.properties.selectionBox;
       }
       this.map.getSource("military_symbols").setData(data);
@@ -798,7 +800,7 @@ class AddMilitarySymbolControl extends BaseControl {
     const selectedFeature = this.getSelectedFeature();
     if (!selectedFeature) return;
 
-    const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
+    const features = queryFeaturesAtPoint(this.map, e.point, { layers: HOVER_LAYER_IDS });
     const hasFeature = this.hasSelectedFeatureAtPoint(features);
 
     this.map.getCanvas().style.cursor = hasFeature ? "move" : "";

@@ -12,6 +12,7 @@ import {
     buildLabelStyle,
     normalizeHeading,
     iconScale,
+    iconHotSpot,
     styleSignature,
     collectDegradedStyle,
 } from '@js/import_export/kmz/kml-style.js';
@@ -251,5 +252,113 @@ describe('style fragment builders', () => {
 
     it('builds a label style with a positive scale', () => {
         expect(buildLabelStyle({ color: '#ffffff', scale: 0 })).toContain('<scale>1</scale>');
+    });
+});
+
+/**
+ * O `<hotSpot>` do KML e o unico lugar onde a ancora de um icone existe no arquivo
+ * exportado. Enquanto ele foi fixo em 0.5/0.5, toda medida de coordenacao com
+ * `anchor: 'bottom'` saia meio simbolo deslocada no Google Earth, e o nucleo passou
+ * a carregar tambem um `iconOffset` que ninguem traduzia. Nada reprova isso: o KML
+ * e valido, o icone so aparece no lugar errado.
+ *
+ * Convencao: o MapLibre mede do CANTO SUPERIOR ESQUERDO, o KML mede da esquerda e
+ * de BAIXO. O eixo y e invertido, e e nele que um erro de sinal se esconde.
+ */
+describe('iconHotSpot', () => {
+    it('um bitmap ancorado pelo centro fica no centro', () => {
+        expect(iconHotSpot({ width: 100, height: 100 })).toEqual({ x: 0.5, y: 0.5 });
+        expect(iconHotSpot({ anchor: 'center', width: 78, height: 53 }))
+            .toEqual({ x: 0.5, y: 0.5 });
+    });
+
+    it("anchor 'bottom' leva o ponto para a base do bitmap (y = 0 no KML)", () => {
+        expect(iconHotSpot({ anchor: 'bottom', width: 40, height: 100 }))
+            .toEqual({ x: 0.5, y: 0 });
+    });
+
+    it("anchor 'top' leva o ponto para o topo (y = 1 no KML)", () => {
+        expect(iconHotSpot({ anchor: 'top', width: 40, height: 100 }))
+            .toEqual({ x: 0.5, y: 1 });
+    });
+
+    it('as ancoras compostas valem nos dois eixos', () => {
+        expect(iconHotSpot({ anchor: 'bottom-left', width: 100, height: 100 }))
+            .toEqual({ x: 0, y: 0 });
+        expect(iconHotSpot({ anchor: 'top-right', width: 100, height: 100 }))
+            .toEqual({ x: 1, y: 1 });
+    });
+
+    it('o iconOffset do nucleo desce o ponto de ancoragem', () => {
+        // Nucleo: offset [0, 12] em 100 px logicos de altura, ancora no centro.
+        // y = 1 - (0.5 - 12/100) = 0.62
+        expect(iconHotSpot({ iconOffset: [0, 12], width: 100, height: 100 }))
+            .toEqual({ x: 0.5, y: 0.62 });
+    });
+
+    it('o deslocamento horizontal anda para a ESQUERDA quando dx e positivo', () => {
+        // dx positivo move o ICONE para a direita, logo o ponto fica mais a esquerda
+        // dentro do bitmap.
+        expect(iconHotSpot({ iconOffset: [25, 0], width: 100, height: 100 }))
+            .toEqual({ x: 0.25, y: 0.5 });
+    });
+
+    it('ancora e deslocamento se somam', () => {
+        // bottom + dy 10 em 100: y = 1 - (1 - 0.1) = 0.1
+        expect(iconHotSpot({ anchor: 'bottom', iconOffset: [0, 10], width: 100, height: 100 }))
+            .toEqual({ x: 0.5, y: 0.1 });
+    });
+
+    it('WORST CASE: sem tamanho utilizavel volta ao centro', () => {
+        const degenerados = [
+            {},
+            { width: 0, height: 100 },
+            { width: 100, height: 0 },
+            { width: NaN, height: 100 },
+            { width: Infinity, height: 100 },
+            { width: -10, height: 100 },
+            { width: '100', height: '100' },
+            { iconOffset: [0, 12] },
+        ];
+
+        for (const entrada of degenerados) {
+            expect(iconHotSpot(entrada), JSON.stringify(entrada))
+                .toEqual({ x: 0.5, y: 0.5 });
+        }
+        expect(iconHotSpot()).toEqual({ x: 0.5, y: 0.5 });
+    });
+
+    it('WORST CASE: um iconOffset corrompido vale zero, nao NaN', () => {
+        const lixos = [null, 'nao sou array', [1], [NaN, NaN], ['a', 'b'], [Infinity, 0]];
+
+        for (const iconOffset of lixos) {
+            expect(iconHotSpot({ iconOffset, width: 100, height: 100 }), String(iconOffset))
+                .toEqual({ x: 0.5, y: 0.5 });
+        }
+    });
+
+    it('um deslocamento absurdo e cortado em [0, 1], sem -0', () => {
+        const alto = iconHotSpot({ iconOffset: [500, -500], width: 100, height: 100 });
+        expect(alto).toEqual({ x: 0, y: 0 });
+        expect(Object.is(alto.x, -0)).toBe(false);
+        expect(iconHotSpot({ iconOffset: [-500, 500], width: 100, height: 100 }))
+            .toEqual({ x: 1, y: 1 });
+    });
+});
+
+describe('buildIconStyle e o hotSpot', () => {
+    it('sem hotSpot mantem o centro, como sempre foi', () => {
+        expect(buildIconStyle({ href: 'files/a.png' }))
+            .toContain('<hotSpot x="0.5" y="0.5" xunits="fraction" yunits="fraction"/>');
+    });
+
+    it('escreve o hotSpot recebido', () => {
+        expect(buildIconStyle({ hotSpot: { x: 0.5, y: 0.62 } }))
+            .toContain('<hotSpot x="0.5" y="0.62"');
+    });
+
+    it('WORST CASE: um hotSpot invalido nao vaza NaN para o XML', () => {
+        expect(buildIconStyle({ hotSpot: { x: NaN, y: 3 } }))
+            .toContain('<hotSpot x="0.5" y="1"');
     });
 });

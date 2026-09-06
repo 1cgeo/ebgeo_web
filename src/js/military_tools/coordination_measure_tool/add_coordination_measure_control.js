@@ -1,6 +1,7 @@
 // Path: js/military_tools/coordination_measure_tool/add_coordination_measure_control.js
 
-import { queryHoverFeatures } from '../../tool_manager/helpers/hover-query.helpers.js';
+import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
+import { createRenderedIconSelectionBox } from '@tools/helpers/icon-selection-box.helpers.js';
 import {
   addFeature,
   updateFeature,
@@ -9,6 +10,7 @@ import {
   getActiveLayerIdSync
 } from "../../store";
 import { CoordinationMeasureGenerator } from './coordination_measure_generator.js';
+import { applyGeneratedBitmap } from '../bitmap-version.js';
 import { IDUtils, showWarning as showWarningToast, loadImageToMap } from "../../utilities";
 import { readGeoJSONSourceDataAsync } from "../../utilities/geojson-source.js";
 import { addCoordinationMeasureAttributesToPanel } from "./attributes/index.js";
@@ -147,6 +149,12 @@ class AddCoordinationMeasureControl extends BaseControl {
   }
 
   createSelectionBox(feature) {
+    // The box is the measure as drawn, plus the frame padding, rotation and
+    // icon-anchor included, at the feature's live coordinates.
+    const drawn = createRenderedIconSelectionBox(this.map, feature, "coordination-measures-layer");
+    if (drawn) return { geometry: drawn };
+
+    // The measure image is not in the style yet: fall back to the stored box.
     // A moving (trajectory) measure is displaced from its authored position, so the
     // stored box (computed at home) no longer matches — recompute from live coords.
     const moving = Array.isArray(feature.properties.trajetoria) && feature.properties.trajetoria.length >= 2;
@@ -171,7 +179,7 @@ class AddCoordinationMeasureControl extends BaseControl {
   }
 
   getSelectionBoxStrategy() {
-    return "preCalculated";
+    return "viewport";
   }
 
   getSelectionBoxPadding() {
@@ -464,10 +472,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       );
 
       feature.properties.imageUrl = result.dataUrl;
-      feature.properties.width = result.width;
-      feature.properties.height = result.height;
-      feature.properties.pixelRatio = result.pixelRatio || 1;
-      feature.properties.anchor = result.anchor;
+      applyGeneratedBitmap(feature.properties, result);
 
       feature.properties.selectionBox = this.geometry.calculateSelectionBoxGeometry(
         coordinates,
@@ -553,10 +558,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       );
 
       feature.properties.imageUrl = result.dataUrl;
-      feature.properties.width = result.width;
-      feature.properties.height = result.height;
-      feature.properties.pixelRatio = result.pixelRatio || 1;
-      feature.properties.anchor = result.anchor;
+      applyGeneratedBitmap(feature.properties, result);
 
       const data = await this.map.getSource("coordination_measures").getData();
       const sourceFeature = data.features.find(
@@ -580,10 +582,7 @@ class AddCoordinationMeasureControl extends BaseControl {
         feature.properties.selectionBox = newSelectionBox;
 
         sourceFeature.properties.imageUrl = result.dataUrl;
-        sourceFeature.properties.width = result.width;
-        sourceFeature.properties.height = result.height;
-        sourceFeature.properties.pixelRatio = result.pixelRatio || 1;
-        sourceFeature.properties.anchor = result.anchor;
+        applyGeneratedBitmap(sourceFeature.properties, result);
         sourceFeature.properties.selectionBox = newSelectionBox;
       }
       this.map.getSource("coordination_measures").setData(data);
@@ -639,10 +638,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       );
 
       feature.properties.imageUrl = result.dataUrl;
-      feature.properties.width = result.width;
-      feature.properties.height = result.height;
-      feature.properties.pixelRatio = result.pixelRatio || 1;
-      feature.properties.anchor = result.anchor;
+      applyGeneratedBitmap(feature.properties, result);
 
       const data = await this.map.getSource("coordination_measures").getData();
       const sourceFeature = data.features.find(
@@ -666,10 +662,7 @@ class AddCoordinationMeasureControl extends BaseControl {
         feature.properties.selectionBox = newSelectionBox;
 
         sourceFeature.properties.imageUrl = result.dataUrl;
-        sourceFeature.properties.width = result.width;
-        sourceFeature.properties.height = result.height;
-        sourceFeature.properties.pixelRatio = result.pixelRatio || 1;
-        sourceFeature.properties.anchor = result.anchor;
+        applyGeneratedBitmap(sourceFeature.properties, result);
         sourceFeature.properties.selectionBox = newSelectionBox;
       }
       this.map.getSource("coordination_measures").setData(data);
@@ -900,7 +893,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     const selectedFeature = this.getSelectedFeature();
     if (!selectedFeature) return;
 
-    const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
+    const features = queryFeaturesAtPoint(this.map, e.point, { layers: HOVER_LAYER_IDS });
     const hasFeature = this.hasSelectedFeatureAtPoint(features);
 
     this.map.getCanvas().style.cursor = hasFeature ? "move" : "";

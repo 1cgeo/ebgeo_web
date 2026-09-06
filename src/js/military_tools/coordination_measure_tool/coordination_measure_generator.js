@@ -24,6 +24,68 @@ export const NITIDEZ_DE_TELA = 1;
 const NUCLEO_TRACEJADO = '58,22';
 
 /**
+ * Escala do desenho: pixels LOGICOS de tela por unidade do SVG.
+ *
+ * O normal e o quadro do ponto dividido pela maior medida do viewBox, que e o que o
+ * ajuste dentro do quadro sempre deu. O ponto que precisa de outra escala a declara em
+ * `escalaLogica`: e o caso do Nucleo, cujo quadro deixou de ser simetrico e encolheu, e
+ * que tem de continuar desenhando a elipse do tamanho de sempre.
+ *
+ * @param {Object} pointData - Catalog point data
+ * @param {Object} baseViewBox - viewBox do simbolo sem texto
+ * @returns {number} Logical pixels per SVG unit
+ */
+function escalaLogicaDe(pointData, baseViewBox) {
+  if (Number.isFinite(pointData.escalaLogica) && pointData.escalaLogica > 0) {
+    return pointData.escalaLogica;
+  }
+
+  const maiorMedida = Math.max(baseViewBox.width, baseViewBox.height);
+
+  if (!Number.isFinite(maiorMedida) || maiorMedida <= 0) {
+    throw new Error(`Point ${pointData.code} has an unusable viewBox`);
+  }
+
+  return (pointData.tamanhoBase || DEFAULT_SIZE) / maiorMedida;
+}
+
+/**
+ * Deslocamento do icone, em pixels logicos, para o ponto do DESENHO declarado em
+ * `anchorSvg` cair sobre a coordenada da feicao.
+ *
+ * A camada ancora o bitmap pelo meio, entao o deslocamento e a distancia do meio do
+ * viewBox ate o ponto de ancoragem. Positivo e para a direita e para BAIXO, como o
+ * `icon-offset` do MapLibre, que o multiplica pelo `icon-size`.
+ *
+ * Sem `anchorSvg` o resultado e `[0, 0]`: o meio do bitmap segue sobre a coordenada, que
+ * e o comportamento de todos os outros pontos do catalogo.
+ *
+ * @param {Object} viewBox - { minX, minY, width, height } final do desenho
+ * @param {Object} [anchorSvg] - { x, y } em unidades do SVG
+ * @param {number} escala - Pixels logicos por unidade do SVG
+ * @returns {Array<number>} [dx, dy] em pixels logicos
+ */
+export function iconOffsetFor(viewBox, anchorSvg, escala) {
+  if (!viewBox || !anchorSvg || !Number.isFinite(escala)) {
+    return [0, 0];
+  }
+
+  const centroX = viewBox.minX + viewBox.width / 2;
+  const centroY = viewBox.minY + viewBox.height / 2;
+  const valores = [centroX, centroY, anchorSvg.x, anchorSvg.y];
+
+  if (valores.some(valor => !Number.isFinite(valor))) {
+    return [0, 0];
+  }
+
+  // O `|| 0` desfaz o zero negativo, que passaria a gravar `-0` nas propriedades.
+  return [
+    (Math.round((centroX - anchorSvg.x) * escala * 100) / 100) || 0,
+    (Math.round((centroY - anchorSvg.y) * escala * 100) / 100) || 0
+  ];
+}
+
+/**
  * Coordination Measure Generator
  * Generates coordination measure symbols from SVG catalog
  *
@@ -47,7 +109,7 @@ export class CoordinationMeasureGenerator {
    * @param {Object} properties - Feature properties including pointCode
    * @param {Object} [opcoes] - Opcoes de rasterizacao
    * @param {number} [opcoes.nitidez] - Pixels de bitmap por pixel de tela
-   * @returns {Promise<Object>} { blob, width, height, pixelRatio, anchor }
+   * @returns {Promise<Object>} { blob, width, height, pixelRatio, anchor, iconOffset }
    */
   async generateSymbolBlob(properties, { nitidez = NITIDEZ } = {}) {
     const pointCode = properties.pointCode;
@@ -69,44 +131,35 @@ export class CoordinationMeasureGenerator {
       svg = this.aplicarSituacaoDoNucleo(svg, properties.status);
     }
 
-    const baseViewBox = this.extractDimensions(svg);
-    const hasText = this.hasExternalText(properties, pointData);
-
     // O quadro na tela e do PONTO, nao do catalogo inteiro: o nucleo desenha uma area e
     // pede mais espaco que um ponto, senao o traco e o texto dele saem finos e ilegiveis.
-    const tamanhoBase = pointData.tamanhoBase || DEFAULT_SIZE;
+    // A escala sai do simbolo SEM texto, e por isso escrever a identificacao alarga o
+    // desenho em vez de encolher o simbolo.
+    const escala = escalaLogicaDe(pointData, this.extractDimensions(svg));
 
-    let finalWidth = tamanhoBase;
-    let finalHeight = tamanhoBase;
-
-    if (hasText) {
-      const expandedViewBox = this.calculateDynamicViewBox(svg, properties, pointData);
-
-      const growthFactorX = expandedViewBox.width / baseViewBox.width;
-      const growthFactorY = expandedViewBox.height / baseViewBox.height;
-
-      if (growthFactorX > 1.01) {
-        finalWidth = Math.round(tamanhoBase * growthFactorX);
-      }
-
-      if (growthFactorY > 1.01) {
-        finalHeight = Math.round(tamanhoBase * growthFactorY);
-      }
-
+    if (this.hasExternalText(properties, pointData)) {
       svg = this.addExternalTexts(svg, properties, pointData);
     }
 
-    // O bitmap sai em `nitidez` vezes o tamanho logico. O `width` e o `height` devolvidos
-    // seguem sendo os LOGICOS, porque e deles que saem a caixa de selecao e o KMZ: quem
-    // traduz o bitmap grande de volta ao tamanho de tela e o `pixelRatio`.
-    const blob = await this.convertToPngBlob(svg, finalWidth * nitidez, finalHeight * nitidez);
+    const viewBox = this.extractDimensions(svg);
+
+    // O bitmap sai em `nitidez` vezes o tamanho logico, e e recortado no desenho: o que
+    // vai para a tela e exatamente o viewBox, sem faixa transparente. O `width` e o
+    // `height` devolvidos seguem sendo os LOGICOS, porque e deles que saem a caixa de
+    // selecao e o KMZ: quem traduz o bitmap grande de volta ao tamanho de tela e o
+    // `pixelRatio`.
+    const largura = Math.max(1, Math.round(viewBox.width * escala * nitidez));
+    const altura = Math.max(1, Math.round(viewBox.height * escala * nitidez));
+
+    const rasterizado = await this.convertToPngBlob(svg, largura, altura);
 
     return {
-      blob,
-      width: finalWidth,
-      height: finalHeight,
+      blob: rasterizado.blob,
+      width: rasterizado.width / nitidez,
+      height: rasterizado.height / nitidez,
       pixelRatio: nitidez,
-      anchor: pointData.anchor
+      anchor: pointData.anchor,
+      iconOffset: iconOffsetFor(viewBox, pointData.anchorSvg, escala)
     };
   }
 
@@ -116,7 +169,7 @@ export class CoordinationMeasureGenerator {
    * @param {string} pointCode - Point code (ex: "130100")
    * @param {Object} properties - Point properties
    * @param {Object} [opcoes] - Opcoes de rasterizacao, repassadas ao generateSymbolBlob
-   * @returns {Promise<Object>} { dataUrl, blob, width, height, pixelRatio, anchor }
+   * @returns {Promise<Object>} { dataUrl, blob, width, height, pixelRatio, anchor, iconOffset }
    */
   async generate(pointCode, properties, opcoes) {
     const propsWithCode = { ...properties, pointCode };
@@ -134,7 +187,8 @@ export class CoordinationMeasureGenerator {
       width: result.width,
       height: result.height,
       pixelRatio: result.pixelRatio,
-      anchor: result.anchor
+      anchor: result.anchor,
+      iconOffset: result.iconOffset
     };
   }
 
@@ -356,9 +410,9 @@ export class CoordinationMeasureGenerator {
    * Convert SVG string to PNG blob using canvas.
    * Delegates to shared svg-to-png utility.
    * @param {string} svgString - SVG string
-   * @param {number} targetWidth - Target canvas width (uses DEFAULT_SIZE if null)
-   * @param {number} targetHeight - Target canvas height (uses targetWidth if null)
-   * @returns {Promise<Blob>} PNG blob
+   * @param {number} targetWidth - Target box width (uses DEFAULT_SIZE if null)
+   * @param {number} targetHeight - Target box height (uses targetWidth if null)
+   * @returns {Promise<{blob: Blob, width: number, height: number}>} Blob and cropped canvas size
    */
   async convertToPngBlob(svgString, targetWidth = null, targetHeight = null) {
     return convertSvgToPngBlob(svgString, targetWidth || DEFAULT_SIZE, targetHeight);

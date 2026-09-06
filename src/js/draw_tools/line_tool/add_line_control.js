@@ -15,7 +15,7 @@ import { addLineAttributesToPanel } from './line_attributes_panel.js';
 import AddLineGeometry from './add_line_geometry.js';
 import { BaseControl } from '../../tool_manager';
 import { getSnappingService } from '../../snapping/snapping.service.js';
-import { queryHoverFeatures } from '../../tool_manager/helpers/hover-query.helpers.js';
+import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
 import { createPreviewScheduler } from '../../tool_manager/helpers/preview-scheduler.js';
 import {
     anchorFor,
@@ -1300,7 +1300,7 @@ class AddLineControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
-        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
+        const features = queryFeaturesAtPoint(this.map, e.point, { layers: HOVER_LAYER_IDS });
         const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
 

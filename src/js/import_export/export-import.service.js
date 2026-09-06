@@ -42,6 +42,7 @@ import { showToast, showSuccess, showError, showWarning } from '@utils/toast_ser
 import { createSyncMetadata } from '@store/sync/sync-metadata.js';
 import { ATLAS_SCHEMA_VERSION } from '@store/atlas/atlas.entity.js';
 import { ensureCoordinationLines } from '@store/migration/v2.2-to-v2.3.migration.js';
+import { refreshStaleBitmaps } from '@store/migration/symbol-bitmap.refresh.js';
 import { EventTypes } from '@events/event_types.js';
 import { showExportModal } from '@modals/export.modal.js';
 import JSZip from 'jszip';
@@ -610,6 +611,13 @@ export class ExportImportService {
                     const { unavailableCatalogLayersCount } = normalizeMapDataForCurrentVersion(newMapData);
                     totalUnavailableCatalogLayers += unavailableCatalogLayersCount;
 
+                    // Symbol bitmaps written before the crop are the wrong shape, and a
+                    // file of ANY version can carry them. Runs here because the feature
+                    // ids are already final: `regenerateMapIds` copied the archive's
+                    // (stale) blobs to the new ids above, so storing right away simply
+                    // overwrites them with the fresh ones.
+                    await this.refreshImportedBitmaps(newMapData, storeImage);
+
                     // Get original data from file to preserve colors and notes
                     const originalColorUsage = data.colorUsage?.[originalMapName] || null;
                     const originalNotes = data.mapNotes?.[originalMapName] || null;
@@ -642,10 +650,20 @@ export class ExportImportService {
                 await this._importBriefings(data.briefings, false);
 
             } else {
+                // Collected, not stored: `loadImagesFromZip` runs LAST in this branch,
+                // so a blob written here would be overwritten by the archive's stale
+                // one. The properties are stamped now (they go into `addMap`), the
+                // blobs are flushed after the archive, before the map is switched.
+                const pendingBitmapBlobs = new Map();
+
                 for (const [mapName, mapData] of Object.entries(data.maps)) {
                     // Normalizar estrutura para versão atual
                     const { unavailableCatalogLayersCount } = normalizeMapDataForCurrentVersion(mapData);
                     totalUnavailableCatalogLayers += unavailableCatalogLayersCount;
+
+                    for (const [imageId, blob] of await this.refreshImportedBitmaps(mapData)) {
+                        pendingBitmapBlobs.set(imageId, blob);
+                    }
 
                     const colorUsageData = data.colorUsage?.[mapName] || null;
                     const notesData = data.mapNotes?.[mapName] || null;
@@ -680,6 +698,13 @@ export class ExportImportService {
 
                 // Load images after processing maps (normal import)
                 await this.loadImagesFromZip(zip);
+
+                // Now that the archive can no longer overwrite them, the regenerated
+                // bitmaps go in — still before `switchMap()`, which is what registers
+                // the map images from the store.
+                for (const [imageId, blob] of pendingBitmapBlobs) {
+                    await storeImage(imageId, blob);
+                }
             }
 
             // Restore custom point-icon registry (blobs already restored above).
@@ -927,6 +952,41 @@ export class ExportImportService {
             }
         } catch (error) {
             console.error(`Error importing ${label}:`, error);
+        }
+    }
+
+    /**
+     * Regenerates the stale symbol bitmaps of one imported map.
+     *
+     * A `.ebgeo` carries the PNGs that were current when it was written, and the
+     * accepted version range reaches back to 1.3, so ANY file may bring bitmaps
+     * from before the crop — the file's own `version` says nothing about it. The
+     * feature properties are stamped in place here; the blobs are handed back
+     * because WHEN they may be stored differs between the two import branches.
+     *
+     * Never throws: a symbol that cannot be regenerated keeps its old bitmap, and
+     * the import carries on.
+     *
+     * @param {Object} mapData - Parsed map data (features are mutated in place)
+     * @param {Function} [onBlob] - `(id, blob) => Promise<void>` to persist each blob
+     *   as it is made (when the ids are already final); without it the blobs are
+     *   only returned, for a caller that must store them later
+     * @returns {Promise<Map<string, Blob>>} Fresh blobs, keyed by feature id
+     */
+    async refreshImportedBitmaps(mapData, onBlob) {
+        try {
+            const { updated, failed, blobs } = await refreshStaleBitmaps(mapData?.features, { onBlob });
+
+            if (updated > 0 || failed > 0) {
+                console.info(
+                    `.ebgeo import: ${updated} symbol bitmap(s) regenerated, ${failed} left stale`
+                );
+            }
+
+            return blobs;
+        } catch (error) {
+            console.warn('.ebgeo import: symbol bitmap refresh failed', error);
+            return new Map();
         }
     }
 

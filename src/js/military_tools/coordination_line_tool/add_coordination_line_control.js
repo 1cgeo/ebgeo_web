@@ -1,6 +1,6 @@
 // Path: js/military_tools/coordination_line_tool/add_coordination_line_control.js
 
-import { queryHoverFeatures } from '../../tool_manager/helpers/hover-query.helpers.js';
+import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '@store';
 import { IDUtils, deepClone, deepEqual, createSerialQueue, showToast, showWarning } from '@utils';
 import { getPointerPosition, isTouchDevice } from '@utils/pointer-utils';
@@ -1108,7 +1108,7 @@ class AddCoordinationLineControl extends BaseControl {
     onHoverMove = (e) => {
         if (!this.getSelectedFeature()) return;
 
-        const features = queryHoverFeatures(this.map, e.point, HOVER_LAYER_IDS);
+        const features = queryFeaturesAtPoint(this.map, e.point, { layers: HOVER_LAYER_IDS });
 
         if (this.hasHandleAtPoint(features)) {
             this.map.getCanvas().style.cursor = 'crosshair';
