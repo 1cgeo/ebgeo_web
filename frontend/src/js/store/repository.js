@@ -112,23 +112,88 @@ async function clearLegacyStores() {
 }
 
 /**
+ * How much the active scope holds, in the databases `clearLegacyStores` would empty.
+ *
+ * BY KEYS, and only of those four: the question is whether there is something to LOSE, not what
+ * it is. A read that throws answers "there is data", because "I could not tell" must never be
+ * the reason a repository is destroyed; in that case the count comes back null, so the caller
+ * says "unknown" out loud instead of printing a zero nobody measured.
+ *
+ * @returns {Promise<{temDado: boolean, chaves: number|null}>} `chaves` is the total number of
+ *   keys across maps, images, groups and layers, or null when the scope could not be measured.
+ */
+async function medirEscopo() {
+    try {
+        const contagens = await Promise.all([
+            mapStore().keys(),
+            imageStore().keys(),
+            groupStore().keys(),
+            layerStore().keys()
+        ]);
+        const chaves = contagens.reduce((total, lista) => total + lista.length, 0);
+        return { temDado: chaves > 0, chaves };
+    } catch (error) {
+        console.error('Boot do atlas: nao foi possivel medir o escopo; nada sera apagado', error);
+        return { temDado: true, chaves: null };
+    }
+}
+
+/**
  * Checks and cleans incompatible legacy data.
+ *
+ * A READ THAT FAILS IS NOT A VERDICT ABOUT THE DATA, and treating it as one is what this
+ * function used to do: the `catch` of `getItem('schemaVersion')` called `clearLegacyStores()`,
+ * so any transient IndexedDB error (an `InvalidStateError` after another tab's `versionchange`,
+ * an `UnknownError` from disk, a quota failure) emptied five databases and stamped the current
+ * version over the remains. Measured over a 14-map / 149-image workspace of the other product
+ * line: every map and every blob gone, no line on screen, and the atlas record left describing
+ * an acervo that no longer exists.
+ *
+ * AND ABSENCE OF THE MARKER IS NOT PROOF OF AGE EITHER. A missing `schemaVersion` means two
+ * indistinguishable things (an installation older than the marker, which is empty, and a scope
+ * whose marker was lost, which may be full), and the destructive reading was applied to both.
+ * The question that separates them is about CONTENT, and it is cheap: `medirEscopo`.
+ *
+ * WHAT HAPPENS TO A SCOPE TOO OLD TO MIGRATE THAT NEVERTHELESS HOLDS DATA (a stamp below
+ * `MIN_SCHEMA_VERSION`): it is PRESERVED, the boot reports the refusal naming the stamp and the
+ * number of keys it is refusing to destroy, the legacy chain does not run over it, and the boot
+ * goes on. Not destroying comes before migrating: that population is from before 2026 and is
+ * nearly nil, while the cost of being wrong is somebody's whole workspace. The user is left with
+ * an app that opens on data an old chain will not touch, which is recoverable; the previous
+ * behaviour was not.
+ *
+ * @returns {Promise<boolean>} Whether the marker read is TRUSTWORTHY, i.e. whether the caller
+ *   may reason with what it finds in `schemaVersion` afterwards. False means "I do not know",
+ *   and the legacy chain is skipped for this boot rather than run on a guess.
  */
 async function checkAndCleanLegacyData() {
+    let currentSchemaVersion = null;
     try {
-        const currentSchemaVersion = await appStore().getItem('schemaVersion');
-
-        if (!currentSchemaVersion || compareVersions(currentSchemaVersion, MIN_SCHEMA_VERSION) < 0) {
-            await clearLegacyStores();
-        }
+        currentSchemaVersion = await appStore().getItem('schemaVersion');
     } catch (error) {
-        console.warn('Error checking schema version:', error);
-        try {
-            await clearLegacyStores();
-        } catch (cleanupError) {
-            console.error('Critical error cleaning data:', cleanupError);
-        }
+        console.error(
+            'Boot do atlas: nao foi possivel ler o carimbo de esquema; nada sera apagado', error
+        );
+        return false;
     }
+
+    if (currentSchemaVersion && compareVersions(currentSchemaVersion, MIN_SCHEMA_VERSION) >= 0) {
+        return true;
+    }
+
+    const escopo = await medirEscopo();
+    if (escopo.temDado) {
+        console.error(
+            'Boot do atlas: ESCOPO PRESERVADO. Carimbo de esquema '
+            + `${currentSchemaVersion ?? 'ausente'} (minimo ${MIN_SCHEMA_VERSION}) sobre um escopo com `
+            + `${escopo.chaves ?? 'um numero desconhecido de'} chave(s) em mapas, imagens, grupos e `
+            + 'camadas: NADA foi apagado, a cadeia legada nao roda neste boot, e o boot segue'
+        );
+        return false;
+    }
+
+    await clearLegacyStores();
+    return true;
 }
 
 // ===== LEGACY MIGRATION FUNCTIONS =====
@@ -312,10 +377,18 @@ export async function seedBlankDefaultMap() {
  */
 export async function initializeRepository() {
     try {
-        await checkAndCleanLegacyData();
+        const carimboConfiavel = await checkAndCleanLegacyData();
 
-        const currentSchemaVersion = await appStore().getItem('schemaVersion');
-        await runLegacyMigrations(currentSchemaVersion);
+        // A CADEIA LEGADA SÓ RODA SOBRE UM CARIMBO EM QUE SE PODE CONFIAR. Com o carimbo ilegível
+        // ou ausente sobre um escopo com dado, `runLegacyMigrations(null)` gravaria
+        // `SCHEMA_VERSION`, que é o LEGADO '1.7' e não a versão corrente: é a mesma "entrada 1.7"
+        // que a decisão de 2026-09-07 nomeia como a mais cara da outra linha, escrita aqui pelo
+        // próprio boot. Quem decide a versão nesse estado é `detectMigrationNeeded`, que lê o
+        // registro de atlas (`effectiveVersion`).
+        if (carimboConfiavel) {
+            const currentSchemaVersion = await appStore().getItem('schemaVersion');
+            await runLegacyMigrations(currentSchemaVersion);
+        }
 
         // ===== TWO MIGRATION TARGETS, AND THEY ARE NOT INTERCHANGEABLE =====
         // First the INSTALLATION upgrade, on the pre-namespace databases: it is what
@@ -355,9 +428,37 @@ export async function initializeRepository() {
         return activeMap;
     } catch (error) {
         console.error('Error initializing repository:', error);
-        memoryStore.currentMap = DEFAULT_MAP_NAME;
-        return DEFAULT_MAP_NAME;
+        return await mapaDeEmergencia();
     }
+}
+
+/**
+ * Qual mapa o boot abre quando a inicialização falhou no meio.
+ *
+ * O `catch` devolvia `DEFAULT_MAP_NAME` SEMPRE, e num acervo vindo da outra linha nenhum dos 14
+ * mapas se chama assim: uma falha de cota no carimbo do degrau 3.0 deixava o usuário dentro de um
+ * mapa que o acervo dele não tem, com o acervo inteiro no disco e nada na tela. O erro é REAL e
+ * continua sendo relatado; o que muda é que a entrada passa a ser um mapa que EXISTE.
+ *
+ * Uma leitura que também falhe cai no mapa padrão, que é o único nome que o repositório sabe
+ * semear: aqui a ignorância é o estado, e não um palpite.
+ *
+ * @returns {Promise<string>} Chave de um mapa existente, ou o mapa padrão.
+ */
+async function mapaDeEmergencia() {
+    try {
+        const nomes = await mapStore().keys();
+        if (nomes.length > 0) {
+            const preferido = await appStore().getItem('lastActiveMap');
+            const escolhido = nomes.includes(preferido) ? preferido : nomes[0];
+            memoryStore.currentMap = escolhido;
+            return escolhido;
+        }
+    } catch (leitura) {
+        console.error('Boot do atlas: nao foi possivel escolher um mapa de entrada:', leitura);
+    }
+    memoryStore.currentMap = DEFAULT_MAP_NAME;
+    return DEFAULT_MAP_NAME;
 }
 
 // ===== BULK CLEAR (DERIVED FROM THE STORE LIST, NOT HAND-LISTED) =====

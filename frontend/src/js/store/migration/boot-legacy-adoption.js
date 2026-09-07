@@ -59,6 +59,7 @@ import {
     readLocalAtlasRegistry
 } from '../atlas-namespace.js';
 import { isLegacyScope, legacyScope } from './migration-scope.js';
+import { desfechoDaPersistencia } from '../storage-persistence.js';
 
 /**
  * Branch the 3.0 step took, as a value rather than a sentence, so the boot line and the tests
@@ -192,6 +193,13 @@ export async function reportBootAtlasScope() {
             partes.push(`${outcome.discardedOperations} operacao(oes) legada(s) descartada(s)`);
         }
         if (outcome.recoveredName) partes.push(`nome recuperado: "${outcome.recoveredName}"`);
+
+        // O DESFECHO DO PEDIDO DE PERSISTENCIA ENTRA AQUI, e nao numa linha propria, porque esta
+        // linha e a UNICA que o suporte tem para ler: saber que o esquema andou e nao saber se o
+        // navegador pode despejar o acervo amanha e meia resposta. Ausente quando esta pagina
+        // nunca pediu (`atlas.html`, um script, um teste), que e diferente de "recusado".
+        const persistente = desfechoDaPersistencia();
+        if (persistente) partes.push(`persistente: ${persistente}`);
 
         const linha = `Boot do atlas: ${partes.join('; ')}`;
         console.info(linha);

@@ -138,9 +138,18 @@ const SCHEMA_VERSION_KEY = 'schemaVersion';
  */
 async function discardRemoteResidue() {
     console.log('Migration 3.0: store holds a REMOTE atlas, discarding it before adoption');
-    for (const { store } of listAtlasStores(legacyScope())) {
-        await store.clear();
-    }
+
+    // `allSettled` E NÃO um laço com `await` dentro, pela mesma razão que `clearLegacyStores` e
+    // `clearAllAtlasStores` a dão: com o laço, a primeira rejeição interrompe a varredura e os
+    // bancos ainda não visitados ficam INTACTOS, ou seja, parte do atlas de servidor sobrevive a
+    // um descarte que existe para não deixar byte nenhum. Toda limpeza é aguardada, e só então a
+    // primeira falha é relançada, para que o chamador continue vendo como falha o que falhou.
+    const resultados = await Promise.allSettled(
+        listAtlasStores(legacyScope()).map(({ store }) => store.clear())
+    );
+    const falha = resultados.find(resultado => resultado.status === 'rejected');
+    if (falha) throw falha.reason;
+
     await markStoreLocal();
 }
 
@@ -299,7 +308,19 @@ export async function migrateToV3_0(scope = legacyScope()) {
     // ONLY THE BRANCH THAT COMES FROM THE OTHER LINE DISCARDS THE QUEUE. An installation of this
     // line may hold pending work that still has a server to reach; one arriving from a line with
     // no backend cannot.
-    const discardedOperations = legacyClaimed ? 0 : await discardLegacyOperationQueue();
+    //
+    // AND "CLAIMED" IS NOT THE SAME FACT AS "MIGRATED", which is what `legacyClaimed` alone was
+    // being read as. `atlas.html` calls `initLocalAtlases` and runs NO migration, by design (it
+    // boots without the store), so a user of the other line who opens "Seus atlas" before the map
+    // arrives here with the unsuffixed databases already claimed and the step never run: the
+    // branch answers "already adopted" and the 446 inert operations the other line left behind
+    // stay on disk. The bootstrap now records WHO claimed (`adoptedLegacy`), and a claim made by
+    // an adopting bootstrap over databases this step has not stamped yet still owes the discard.
+    const stampedAt = await getStoreFor(StoreName.SETTINGS, legacyScope()).getItem(SCHEMA_VERSION_KEY);
+    const claimedButNeverStepped = legacyEntry?.adoptedLegacy === true && stampedAt !== TARGET_VERSION;
+    const discardedOperations = (legacyClaimed && !claimedButNeverStepped)
+        ? 0
+        : await discardLegacyOperationQueue();
     const recoveredName = await recoverAtlasName(legacyEntry ?? current);
 
     // Only the scope this step actually worked on is stamped. Stamping the slot the pointer

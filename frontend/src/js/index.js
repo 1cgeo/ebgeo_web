@@ -23,6 +23,10 @@ import './map/maplibre.js';
 import { initializeAppConfig } from './config-loader.js';
 import { initConfigHelpers } from './config.helpers.js';
 import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-config.js';
+// Pelo ARQUIVO, de um módulo folha com zero imports: o pedido de armazenamento persistente corre
+// antes de o store existir, e passar pelo barril `./store` o amarraria à ordem de inicialização
+// dele. Ver o `fileoverview` de `storage-persistence.js`.
+import { pedirPersistencia } from '@store/storage-persistence.js';
 import { syncEngine } from '@store/sync/sync-engine.js';
 import { apiClient } from '@store/sync/api-client.js';
 import { cleanup3DFeatures } from './3d_models_viewer_tool/index.js';
@@ -190,6 +194,14 @@ async function initApp() {
     // configuração ficou pronta, e é dele que se mede o resto do boot. Ela não vira campo do lote
     // sozinha; quem a usa é o `performance` do navegador, ao lado de `mapa-pronto`.
     vitais.marcar(MARCA_CONFIG);
+
+    // O PEDIDO DE ARMAZENAMENTO PERSISTENTE, e o lugar dele é este: depois do `GET /api/config`,
+    // que é o primeiro instante em que se sabe que há aplicação para bootar, e ANTES de o store
+    // inicializar, porque o que ele protege é justamente o que a inicialização vai abrir. Sem
+    // ele o grupo de origem inteiro (todo o IndexedDB desta origem, não o banco menos usado) é
+    // despejável sob pressão de disco, sem gesto do usuário e sem uma linha. Nunca rejeita, e o
+    // desfecho ('sim', 'nao' ou 'indisponivel') sai na linha de boot do atlas, lá embaixo.
+    await pedirPersistencia();
 
     initializeAppConfig();
     initConfigHelpers();

@@ -83,6 +83,16 @@ export const LocalAtlasError = Object.freeze({
     LAST_ATLAS: 'local_atlas_last'
 });
 
+/**
+ * Why a deletion left the databases standing. A field of the RESULT and not an error: the slot
+ * was deleted as asked, and what changed is that nothing was dropped. Absent from an ordinary
+ * deletion, so a caller that does not know about it reads exactly what it read before.
+ */
+export const LocalAtlasKept = Object.freeze({
+    /** Another registry entry still names the same `dbSuffix`: the databases are shared. */
+    SHARED_DB_SUFFIX: 'db_suffix_compartilhado'
+});
+
 /** UI messages, pt-BR. Kept next to the codes so a new code cannot ship without one. */
 const ERROR_MESSAGES = Object.freeze({
     [LocalAtlasError.LIMIT_REACHED]:
@@ -147,14 +157,19 @@ function requireEntries() {
 /**
  * Persists the registry and the pointer together. They are written in one place so they
  * cannot drift apart.
+ *
+ * IT GOES THROUGH `persistRegistryEntry` AND NEVER WRITES A REGISTRY KEY ITSELF, so that the
+ * whole module has exactly TWO writers of the registry (this one's helper and
+ * `removeRegistryEntry`) and the `localStorage` mirror can be kept by those two alone. Before
+ * this there were five write sites, and a mirror hung on two of them would have been a mirror
+ * that silently missed three.
  * @returns {Promise<void>}
  */
 async function persistRegistry() {
-    const globalStore = getGlobalStore();
     for (const entry of _entries) {
-        await globalStore.setItem(localAtlasRegistryKey(entry.id), { version: REGISTRY_VERSION, ...entry });
+        await persistRegistryEntry(entry);
     }
-    await globalStore.setItem(GlobalKey.CURRENT_LOCAL_ATLAS, _currentId);
+    await getGlobalStore().setItem(GlobalKey.CURRENT_LOCAL_ATLAS, _currentId);
 }
 
 /**
@@ -167,6 +182,7 @@ async function persistRegistry() {
  */
 async function persistRegistryEntry(entry) {
     await getGlobalStore().setItem(localAtlasRegistryKey(entry.id), { version: REGISTRY_VERSION, ...entry });
+    espelharEntrada(entry);
 }
 
 /**
@@ -177,6 +193,139 @@ async function persistRegistryEntry(entry) {
  */
 async function removeRegistryEntry(id) {
     await getGlobalStore().removeItem(localAtlasRegistryKey(id));
+    apagarDoEspelho(id);
+}
+
+// ===== THE REGISTRY MIRROR, IN `localStorage` =====
+//
+// WHY A MIRROR, AND WHY OUTSIDE IndexedDB. `localStorage` and IndexedDB are SEPARATE stores of
+// the same origin: the global database can be lost, emptied or corrupted without taking the
+// mirror with it, and that is the measured case (2026-09-07): with two slots, losing ONLY
+// `ebgeo_global` re-adopted slot #1 under a new id and left 251 records of the second atlas on
+// disk, with one card on screen and zero lines in the console. The mirror does not reconstruct
+// anything by guesswork, which is the opposite class of defect: it carries the id, the name and
+// the suffix, which is exactly what the registry lost.
+//
+// WHAT IT DOES NOT COVER, said in full: "clear site data" wipes both at once, and anything that
+// writes into `ebgeo_global` from outside makes the two diverge. It covers the loss of the
+// global database, and that is why the restore below only runs on an EMPTY registry.
+//
+// EVERY ACCESS IS GUARDED. Reading `localStorage` THROWS (not returns null) when the browser is
+// set to block site data, and writing throws on quota. A mirror is a convenience: it may never
+// cost a boot.
+
+/** Key of the registry mirror. Prefixed, because `localStorage` is shared by the whole origin. */
+const REGISTRY_MIRROR_KEY = 'ebgeo_local_atlas_mirror';
+
+/**
+ * @returns {Storage|null} The origin's `localStorage`, or null when it is not reachable.
+ */
+function armazenamentoDoEspelho() {
+    try {
+        return globalThis.localStorage ?? null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * @returns {Array<{id: string, name: string, dbSuffix: string, createdAt: number, updatedAt: number}>}
+ *   The mirrored entries, or an empty list when there is no mirror or it cannot be parsed.
+ */
+function lerEspelho() {
+    try {
+        const cru = armazenamentoDoEspelho()?.getItem(REGISTRY_MIRROR_KEY);
+        const lista = cru ? JSON.parse(cru) : null;
+        if (!Array.isArray(lista)) return [];
+        return lista.filter(item => item && typeof item === 'object' && typeof item.id === 'string');
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * @param {Array<Object>} entradas - The whole mirror, replaced in one write.
+ * @returns {void}
+ */
+function gravarEspelho(entradas) {
+    try {
+        armazenamentoDoEspelho()?.setItem(REGISTRY_MIRROR_KEY, JSON.stringify(entradas));
+    } catch {
+        // Quota, a private window, site data blocked: the registry itself is already written.
+    }
+}
+
+/**
+ * Upserts one entry in the mirror, keeping only the five fields a restore needs.
+ * @param {LocalAtlasEntry} entry
+ * @returns {void}
+ */
+function espelharEntrada(entry) {
+    if (!entry || typeof entry.id !== 'string') return;
+    const espelhada = {
+        id: entry.id,
+        name: typeof entry.name === 'string' ? entry.name : DEFAULT_LOCAL_ATLAS_NAME,
+        dbSuffix: typeof entry.dbSuffix === 'string' ? entry.dbSuffix : entry.id,
+        createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : 0,
+        updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : 0
+    };
+    const outras = lerEspelho().filter(item => item.id !== entry.id);
+    gravarEspelho([...outras, espelhada]);
+}
+
+/**
+ * @param {string} id - Local atlas id that left the registry.
+ * @returns {void}
+ */
+function apagarDoEspelho(id) {
+    const restantes = lerEspelho().filter(item => item.id !== id);
+    gravarEspelho(restantes);
+}
+
+/**
+ * Writes back into the registry the mirrored slots whose databases nothing else can name.
+ *
+ * ONLY THE SUFFIXED ONES. A slot with `dbSuffix: ''` is the pre-namespace workspace, whose
+ * address every boot already knows how to claim and whose real name is on disk in the atlas
+ * record; restoring it from the mirror would only re-import an id, and could re-import a claim
+ * over databases a deletion already dropped. The suffixed slots are the opposite case: their
+ * `ebgeo_maps__<sufixo>` is knowable from the registry entry and from nothing else, so with the
+ * registry gone they are ten databases no purge reaches and no card shows.
+ *
+ * IT DOES NOT MERGE, IT ONLY FILLS AN EMPTY REGISTRY (the caller enforces that). A mirror
+ * reconciled against a live registry would be a second source of truth for a question the
+ * registry already answers, and the first stale entry would resurrect a deleted atlas.
+ *
+ * @returns {Promise<{restaurados: number, tinhaSlotSemSufixo: boolean}>} How many entries were
+ *   written back, and whether the mirror also described a slot on the unsuffixed databases.
+ */
+async function restaurarRegistroDoEspelho() {
+    const espelho = lerEspelho();
+    const tinhaSlotSemSufixo = espelho.some(item => item.dbSuffix === LEGACY_DB_SUFFIX);
+    const comSufixo = espelho.filter(
+        item => typeof item.dbSuffix === 'string' && item.dbSuffix.length > 0
+    );
+    if (comSufixo.length === 0) return { restaurados: 0, tinhaSlotSemSufixo };
+
+    for (const item of comSufixo) {
+        const entry = {
+            id: item.id,
+            name: typeof item.name === 'string' ? item.name : DEFAULT_LOCAL_ATLAS_NAME,
+            dbSuffix: item.dbSuffix,
+            createdAt: typeof item.createdAt === 'number' ? item.createdAt : 0,
+            updatedAt: typeof item.updatedAt === 'number' ? item.updatedAt : 0
+        };
+        await persistRegistryEntry(entry);
+        _entries.push(entry);
+    }
+    _entries.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+
+    const nomes = comSufixo.map(item => `"${item.name}"`).join(', ');
+    console.warn(
+        `local-atlas: registro global vazio e espelho com ${comSufixo.length} atlas local(is); `
+        + `restaurado(s) no registro antes do bootstrap: ${nomes}`
+    );
+    return { restaurados: comSufixo.length, tinhaSlotSemSufixo };
 }
 
 /**
@@ -206,9 +355,20 @@ async function loadRegistry() {
         const stored = await globalStore.getItem(key);
         const id = atlasIdFromLocalRegistryKey(key);
         // Identity comes from the KEY: a value that failed to parse still yields an
-        // enumerable slot instead of turning into unreachable disk.
-        if (!stored || typeof stored !== 'object') continue;
-        _entries.push({ ...stored, id });
+        // enumerable slot instead of turning into unreachable disk. The `continue` that used to
+        // sit here did the OPPOSITE of what this comment promises, and the two consequences are
+        // both silent: the slot's ten databases stop being reachable by any purge or by the UI,
+        // and a registry whose ONLY entry is unreadable reads as EMPTY, so `bootstrapEntry` runs
+        // and mints a SECOND key for the same databases.
+        const value = (stored && typeof stored === 'object') ? stored : {};
+        _entries.push({
+            ...value,
+            id,
+            name: typeof value.name === 'string' ? value.name : DEFAULT_LOCAL_ATLAS_NAME,
+            dbSuffix: typeof value.dbSuffix === 'string' ? value.dbSuffix : id,
+            createdAt: typeof value.createdAt === 'number' ? value.createdAt : 0,
+            updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : 0
+        });
     }
 
     await migrateLegacyRegistryArray(globalStore);
@@ -234,7 +394,7 @@ async function migrateLegacyRegistryArray(globalStore) {
     for (const entry of legacy.atlases) {
         if (!entry?.id || known.has(entry.id)) continue;
         _entries.push({ ...entry });
-        await globalStore.setItem(localAtlasRegistryKey(entry.id), { version: REGISTRY_VERSION, ...entry });
+        await persistRegistryEntry(entry);
     }
     // Only after every entry has its own key: a crash before this point re-runs the
     // migration harmlessly, while removing first could lose the whole registry.
@@ -292,12 +452,69 @@ async function bootstrapEntry(adoptLegacy, name = DEFAULT_LOCAL_ATLAS_NAME) {
         id,
         name,
         dbSuffix: adoptLegacy ? LEGACY_DB_SUFFIX : id,
+        // WHO CREATED THE CLAIM, recorded because the 3.0 step needs it: a slot that adopted the
+        // pre-namespace databases from a page that runs NO migration (`atlas.html`) is
+        // structurally adopted and still owes the queue discard.
+        adoptedLegacy: adoptLegacy === true,
         createdAt: now,
         updatedAt: now
     };
+
+    // DISK FIRST, MIRROR AFTER, which is the rule `persistRegistryEntry` states two functions up
+    // and which this one used to break: with `_entries.push` before the write, a refused write
+    // (quota) left this page announcing a slot the next boot would not honour.
+    await persistRegistryEntry(entry);
+
+    // AND THEN READ THE REGISTRY BACK, because "the registry is empty" was answered by a read
+    // that is now old. Nothing arbitrates this bootstrap: `index.html` (the map) and
+    // `atlas.html` ("Seus atlas") both reach it, and on the day an installation of the other
+    // product line is opened for the first time BOTH may find the registry empty and both claim
+    // the unsuffixed databases. Two entries on the same address is not cosmetic: `deleteLocalAtlas`
+    // only refuses the LAST slot, so the second card authorises `dropAtlasDatabases` over the
+    // acervo the first one is still showing.
+    //
+    // THE TIEBREAK IS DETERMINISTIC AND IT IS THE SMALLEST `id`, compared as a string. The first
+    // draft had each page STAND DOWN on sight of a rival, which is symmetric, and symmetry is the
+    // defect: two pages that read each other stand down together, and the installation ends with
+    // no owner for the databases it just claimed. With a total order over the ids, whichever page
+    // reads the disk arrives at the SAME winner, in any interleaving, without asking the other
+    // one anything. `navigator.locks` was considered and does not serve as the arbiter: over
+    // plain HTTP the API does not exist (`atlas-namespace.js`, Decision 5), which is exactly the
+    // deployment this transition has to survive.
+    //
+    // THE WINNER ALSO PRUNES, and that is not the same act as standing down. A page that reads
+    // the disk BEFORE its rival's write lands sees nothing to lose to, so a rule that only lets
+    // losers act converges only when both reads happen late. Pruning a duplicate entry destroys
+    // NOTHING: both keys name the same `dbSuffix`, so the same ten databases, and the surviving
+    // entry keeps its own name. Deleting a DATABASE is never derived from here.
+    const naDisputa = (await readLocalAtlasRegistry())
+        .filter(other => other.id !== id && other.dbSuffix === entry.dbSuffix);
+
+    if (naDisputa.length > 0) {
+        const vencedor = [entry, ...naDisputa].sort((a, b) => (a.id < b.id ? -1 : 1))[0];
+        console.warn(
+            `local-atlas: ${naDisputa.length + 1} paginas reivindicaram os bancos "${entry.dbSuffix}" `
+            + `no mesmo boot; vence o slot de menor id, "${vencedor.name ?? vencedor.id}" (${vencedor.id})`
+        );
+
+        if (vencedor.id !== id) {
+            // This page holds the bigger id: it stands down, drops its own key and adopts the
+            // winner's entry, which is the same slot and the same databases.
+            await removeRegistryEntry(id);
+            _entries.push({ ...vencedor });
+            _currentId = vencedor.id;
+            await getGlobalStore().setItem(GlobalKey.CURRENT_LOCAL_ATLAS, _currentId);
+            return _entries[_entries.length - 1];
+        }
+
+        for (const perdedor of naDisputa) {
+            await removeRegistryEntry(perdedor.id);
+        }
+    }
+
     _entries.push(entry);
     _currentId = id;
-    await persistRegistry();
+    await getGlobalStore().setItem(GlobalKey.CURRENT_LOCAL_ATLAS, _currentId);
 
     // Only a fresh slot gets a seeded record. Adopting the legacy databases must not
     // overwrite the atlas record already there, which carries the user's map order.
@@ -380,7 +597,23 @@ export async function initLocalAtlases(options = {}) {
     const adoptLegacy = options.adoptLegacyDatabases ?? !isRemoteOrigin;
 
     if (_entries.length === 0) {
-        await bootstrapEntry(adoptLegacy, options.bootstrapName ?? DEFAULT_LOCAL_ATLAS_NAME);
+        // THE MIRROR IS CONSULTED BEFORE ANY BOOTSTRAP, and only here, on an EMPTY registry.
+        // A slot with a suffix that no registry names is unreachable disk: no purge finds it, no
+        // card shows it, and the bootstrap below would not bring it back, because a bootstrap
+        // only ever claims ONE address. Restoring is not guessing: the mirror carries the id, the
+        // name and the suffix that were written next to the registry entry itself.
+        const { restaurados, tinhaSlotSemSufixo } = await restaurarRegistroDoEspelho();
+
+        // The empty-suffix slot follows the NORMAL bootstrap rule and is never restored from the
+        // mirror: its address may name databases that a deletion already dropped, and the boot
+        // knows the right name for it anyway (it reads the atlas record and hands it in as
+        // `bootstrapName`). So it is bootstrapped when nothing was restored, and also when the
+        // restore brought suffixed slots back while the mirror says this installation did have an
+        // unsuffixed one that is now unclaimed.
+        const semDonoDosBancosSemSufixo = !_entries.some(e => e.dbSuffix === LEGACY_DB_SUFFIX);
+        if (restaurados === 0 || (tinhaSlotSemSufixo && semDonoDosBancosSemSufixo)) {
+            await bootstrapEntry(adoptLegacy, options.bootstrapName ?? DEFAULT_LOCAL_ATLAS_NAME);
+        }
     }
 
     // WHICH SLOT THIS TAB REOPENS. `GlobalKey.CURRENT_LOCAL_ATLAS` answers for the installation,
@@ -604,7 +837,10 @@ export async function releaseAdoptedLocalAtlas(atlasId) {
     const entry = (await readLocalAtlasRegistry()).find(e => e?.dbSuffix === dbSuffix) ?? null;
     if (!entry) return { ok: true, atlas: null };
 
-    await globalStore.removeItem(localAtlasRegistryKey(entry.id));
+    // Through `removeRegistryEntry` and not by hand, so this path also drops the slot from the
+    // `localStorage` mirror: a released namespace that stayed mirrored would be offered back by
+    // the next boot's restore as a local slot the user had just given to the server.
+    await removeRegistryEntry(entry.id);
 
     // Mirror AFTER the disk (the rule `adoptRemoteAtlasAsLocal` writes out): a mirror that drops
     // the slot while the key survives would hide from this tab a claim the next boot honours.
@@ -839,10 +1075,13 @@ async function announceLocalAtlasTeardown(entry) {
  * a warning that arrives once there is nothing left to stop. See {@link announceLocalAtlasTeardown}.
  *
  * @param {string} id - Local atlas id.
- * @returns {Promise<LocalAtlasResult & { droppedDatabases?: string[], blockedDatabases?: string[] }>}
+ * @returns {Promise<LocalAtlasResult & { droppedDatabases?: string[], blockedDatabases?: string[],
+ *   keptDatabases?: string }>}
  *   `blockedDatabases` names the databases another tab was holding open: the slot is gone
  *   from the registry either way, and those files stay on disk as unreferenced garbage
- *   rather than the delete hanging (`atlas-namespace.js` Decision 4).
+ *   rather than the delete hanging (`atlas-namespace.js` Decision 4). `keptDatabases` is a
+ *   `LocalAtlasKept` code and appears only when nothing was dropped ON PURPOSE, because another
+ *   registry entry still names the same `dbSuffix`.
  */
 export async function deleteLocalAtlas(id) {
     const entries = requireEntries();
@@ -854,6 +1093,52 @@ export async function deleteLocalAtlas(id) {
         // The app always has a local workspace to fall back to (the logged out boot guard
         // needs one). Emptying an atlas is the existing "Limpar todos os dados" action.
         return refuse(LocalAtlasError.LAST_ATLAS, { atlasId: id });
+    }
+
+    // WHO ELSE NAMES THESE DATABASES, ASKED OF THE DISK AND JUST BEFORE THE DESTRUCTION.
+    // `dropAtlasDatabases` resolves the target by `dbSuffix`, and the registry is not
+    // guaranteed to have one entry per suffix: two pages bootstrapping in the same instant both
+    // claim the unsuffixed databases (`bootstrapEntry` above), and a registry written from
+    // outside can hold anything. In that state the delete used to be authorised by the count
+    // alone (only the LAST slot is refused), so the second card dropped the acervo the first one
+    // was still showing: measured, 14 maps gone and the surviving card left pointing at
+    // destroyed databases. When somebody else still names this address, the ENTRY goes and the
+    // DATABASES stay; the shared address converges to one owner on the next boot.
+    //
+    // FROM THE DISK, never from `entries`, for the reason the rescue readers give: the rival
+    // claim may have been written by another tab after this one loaded its registry.
+    //
+    // AND BEFORE THE TEARDOWN NOTICE, because that notice tells sibling tabs to stop writing to
+    // these databases: announcing it for databases that are going to survive would freeze a
+    // neighbour over an atlas nobody deleted.
+    const aindaReferenciam = (await readLocalAtlasRegistry())
+        .filter(outra => outra?.id !== id && outra?.dbSuffix === entries[index].dbSuffix);
+
+    if (aindaReferenciam.length > 0) {
+        const eraCorrente = _currentId === entries[index].id;
+        const [entrada] = entries.splice(index, 1);
+        if (eraCorrente) {
+            _currentId = [...entries].sort((a, b) => b.updatedAt - a.updatedAt)[0].id;
+        }
+        await removeRegistryEntry(entrada.id);
+        await persistRegistry();
+
+        console.warn(
+            `local-atlas: o atlas "${entrada.name}" saiu do registro, mas os bancos "${entrada.dbSuffix}" `
+            + `NAO foram derrubados: ${aindaReferenciam.length} outra(s) entrada(s) ainda os referencia(m)`
+        );
+
+        if (eraCorrente && getActiveScopeKind() !== StoreScopeKind.REMOTE) {
+            activateScope(scopeOfLocalAtlas(entries.find(e => e.id === _currentId)));
+        }
+
+        return {
+            ok: true,
+            atlas: { ...entrada },
+            droppedDatabases: [],
+            blockedDatabases: [],
+            keptDatabases: LocalAtlasKept.SHARED_DB_SUFFIX
+        };
     }
 
     await announceLocalAtlasTeardown(entries[index]);
