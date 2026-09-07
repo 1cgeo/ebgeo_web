@@ -29,9 +29,20 @@ const VALID_FEATURE_TYPES = new Set([
 ]);
 
 /**
- * Storage-bucket → source type, used only as a fallback when a feature lacks
- * `properties.source`. The `coordenadas` bucket (ephemeral azimuth/coordinate readouts)
- * has no server feature type and is intentionally absent → such features are dropped.
+ * Storage-bucket → server feature type, and the FIRST thing `buildFeatures` asks. The
+ * `coordenadas` bucket (ephemeral azimuth/coordinate readouts) has no server feature type and is
+ * intentionally absent → such features fall back to `properties.source`, which for them is not a
+ * server type either, so they are dropped.
+ *
+ * THE BUCKET DECIDES, and it used to be the other way round. `properties.source` is the tool that
+ * DREW the feature; the bucket is where the store keeps it, and `feature-type.registry.js` is
+ * explicit that the two analysis pairs are four distinct rows: the operator's input (`los`,
+ * `visibility`) and the algorithm's output (`processed_los`, `processed_visibility`). The output
+ * rows carry `source: 'los'`/`'visibility'`, so reading the source first turned a RESULT into a
+ * DEFINITION on the way up: measured 2026-09-07, an atlas with `3/6/3/6` landed on the server as
+ * `los: 9, visibility: 9` with both processed buckets empty, and came back down the same way.
+ * The server accepts all four (the `valid_feature_type` CHECK, the import Joi and the snapshot's
+ * `typeToCollection`), so nothing on that side had to change.
  */
 const BUCKET_TO_SOURCE = {
     points: 'point', lines: 'line', polygons: 'polygon', texts: 'text', images: 'image',
@@ -62,6 +73,36 @@ function makeIdMapper(seed) {
         map.set(localId, mapped);
         return mapped;
     };
+}
+
+/** Server column width for `slides.model_id` / `slides.photo_id` (`VARCHAR(100)`). */
+const SLIDE_TARGET_MAX_LENGTH = 100;
+
+/**
+ * The 3D/360 target of a briefing slide, as the server stores it.
+ *
+ * NOT A UUID, and that was the bug. These two columns hold a RESOURCE id, and the product does
+ * not name those with UUIDs: a tileset is a slug (`museu-1cgeo`) and a 360 project is a file name
+ * (`FOTO_0001.jpg`). Demanding a UUID here wrote NULL over every real target: measured
+ * 2026-09-07, an atlas with one `3d` slide and one `360` slide reached the server with both
+ * targets empty EVEN with the catalog registered, so the slide opened in its mode pointing at
+ * nothing. Every other layer of the server already treated them as strings (the `VARCHAR(100)`
+ * column, and `atlas-resource-prune.js`, which compares them to the catalog with `String(...)`);
+ * the import Joi was the single gate that refused, and it moved to `.max(100)` in the same
+ * change.
+ *
+ * The cap is the COLUMN's, not a guess: anything longer cannot name a resource that exists on
+ * this server, so it comes back as null rather than as a truncation that would point somewhere
+ * else. Passing a UUID still works untouched, since a UUID is a 36-character string.
+ *
+ * @param {*} value - `slide.modelId` / `slide.photoId` from the local export.
+ * @returns {string|null}
+ */
+function slideResourceRef(value) {
+    if (typeof value !== 'string') return null;
+    const ref = value.trim();
+    if (!ref || ref.length > SLIDE_TARGET_MAX_LENGTH) return null;
+    return ref;
 }
 
 /**
@@ -100,7 +141,7 @@ function buildFeatures(buckets, featureId, layerIdFor, imageIdMap, stats) {
         if (!Array.isArray(list)) continue;
         for (const feature of list) {
             const props = feature?.properties || {};
-            const featureType = props.source || BUCKET_TO_SOURCE[bucket];
+            const featureType = BUCKET_TO_SOURCE[bucket] || props.source;
             if (!VALID_FEATURE_TYPES.has(featureType) || !feature?.geometry) {
                 stats.droppedFeatures += 1;
                 continue;
@@ -351,8 +392,8 @@ export function buildServerImportPayload(exportData, meta = {}) {
             content: s.content || '',
             mode: s.mode === '3d' || s.mode === '360' ? s.mode : '2d',
             map_id: mapNameToId[s.mapId] || (isValidUUID(s.mapId) ? s.mapId : null),
-            model_id: isValidUUID(s.modelId) ? s.modelId : null,
-            photo_id: isValidUUID(s.photoId) ? s.photoId : null,
+            model_id: slideResourceRef(s.modelId),
+            photo_id: slideResourceRef(s.photoId),
             position: s.position || {},
             orientation: s.orientation || {},
         })),

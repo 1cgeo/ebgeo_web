@@ -89,6 +89,20 @@ function tiposDoCliente(fonte) {
     return bloco ? literais(bloco) : [];
 }
 
+/**
+ * Client bucket table: `const BUCKET_TO_SOURCE = { points: 'point', ... };`, INVERTED to
+ * `type -> bucket`. It is the table `buildFeatures` asks first since the B3-5 fix, so it is what
+ * the behavioural cases below have to place their features by.
+ * @param {string} fonte
+ * @returns {Object<string, string>}
+ */
+function baldesDoCliente(fonte) {
+    const bloco = fatia(fonte, 'const BUCKET_TO_SOURCE = {', '};');
+    if (!bloco) return {};
+    const pares = [...bloco.matchAll(/([a-z_]+)\s*:\s*'([a-z_]+)'/g)];
+    return Object.fromEntries(pares.map((m) => [m[2], m[1]]));
+}
+
 /** Joi allowlist: `const VALID_FEATURE_TYPES = [ ... ];` (backend, no `new Set`). */
 function tiposDoJoi(fonte) {
     const bloco = fatia(fonte, 'const VALID_FEATURE_TYPES = [', '];');
@@ -150,7 +164,9 @@ function divergencias(fontes) {
     return faltas.sort();
 }
 
-const cliente = tiposDoCliente(readFileSync(ARQ_CLIENTE, 'utf8'));
+const fonteCliente = readFileSync(ARQ_CLIENTE, 'utf8');
+const cliente = tiposDoCliente(fonteCliente);
+const baldePorTipo = baldesDoCliente(fonteCliente);
 const joi = tiposDoJoi(readFileSync(ARQ_JOI, 'utf8'));
 const check = tiposDoCheck(DIR_MIGRACOES);
 const sync = readFileSync(ARQ_SYNC, 'utf8');
@@ -222,30 +238,56 @@ describe('tipos de feicao: as quatro copias que cruzam os pacotes', () => {
 });
 
 describe('tipos de feicao: leitura COMPORTAMENTAL do cliente', () => {
-    /** Minimal accepted feature; `properties.source` is what the producer reads first. */
+    // REESCRITO em 2026-09-07 junto com o achado B3-5, e a razão é que estes dois casos fixavam
+    // a precedência ANTIGA. Eles empilhavam os vinte e um tipos dentro do balde `points` e
+    // esperavam que `properties.source` decidisse por todos, o que era verdade enquanto o
+    // produtor lia `props.source || BUCKET_TO_SOURCE[bucket]`. Essa precedência era o defeito:
+    // o resultado de análise mora no balde `processed_los`/`processed_visibility` carregando
+    // `source: 'los'`/`'visibility'`, então ler o source primeiro subia RESULTADO como
+    // DEFINIÇÃO (medido: 3/6/3/6 no arquivo viraram 9/9/0/0 no servidor). Com o balde decidindo,
+    // um insumo que põe tudo em `points` responde `point` vinte e uma vezes, e isso é o produtor
+    // CERTO respondendo a uma pergunta errada. O que os dois casos passam a medir é a mesma
+    // propriedade sobre o arranjo verdadeiro: cada tipo no balde onde ele mora de verdade.
+    //
+    // O ARRANJO NÃO SE ESCREVE À MÃO AQUI: ele sai do próprio `BUCKET_TO_SOURCE`, lido do texto
+    // do cliente como as outras quatro cópias. Isso o torna uma QUINTA cópia vigiada, e ela é a
+    // que decide desde o conserto: um tipo que entre em `VALID_FEATURE_TYPES` e falte no
+    // `BUCKET_TO_SOURCE` deixa de ter balde nenhum, e o teste abaixo diz o nome dele.
+
+    /** Minimal accepted feature. */
     const feicao = (source) => ({
         type: 'Feature',
         properties: { id: `id-${source}`, source },
         geometry: { type: 'Point', coordinates: [0, 0] },
     });
 
+    it('FLOOR: o BUCKET_TO_SOURCE do cliente foi extraido, e cobre a lista compartilhada', () => {
+        expect(Object.keys(baldePorTipo).length, 'BUCKET_TO_SOURCE not extracted').toBeGreaterThanOrEqual(20);
+        const semBalde = check.filter((tipo) => !baldePorTipo[tipo]);
+        expect(semBalde, 'types with no bucket in BUCKET_TO_SOURCE').toEqual([]);
+    });
+
     it('pass 1: every type of the shared list survives buildServerImportPayload', () => {
         // Stronger than reading the constant's text: this is the gate as it actually runs.
-        const { payload, stats } = buildServerImportPayload({
-            maps: { M: { features: { points: check.map(feicao) } } },
-        }, { name: 'A' });
+        const buckets = {};
+        for (const tipo of check) buckets[baldePorTipo[tipo]] = [feicao(tipo)];
+        const { payload, stats } = buildServerImportPayload({ maps: { M: { features: buckets } } }, { name: 'A' });
         expect(check.length).toBeGreaterThanOrEqual(20); // floor, again: an empty map drops nothing
         expect(stats.droppedFeatures, 'types the client silently refuses').toBe(0);
         expect(payload.maps[0].features.map((f) => f.feature_type).sort()).toEqual([...check].sort());
     });
 
-    it('pass 2: a type outside the list is dropped, silently, exactly as described', () => {
+    it('pass 2: a bucket outside the list is dropped, silently, exactly as described', () => {
         // Positive control for pass 1: without this, a producer that accepted EVERYTHING would
-        // also make pass 1 green, and the guard would be measuring nothing.
+        // also make pass 1 green, and the guard would be measuring nothing. O balde desconhecido
+        // é a única porta de descarte que sobrou depois do B3-5, e é a que o `coordenadas`
+        // (leitura efêmera de azimute) usa: balde que o produtor não conhece cai no `source`, e
+        // um `source` fora da lista é descartado ali.
         const { payload, stats } = buildServerImportPayload({
-            maps: { M: { features: { points: [feicao('point'), feicao('tipo_que_nao_existe')] } } },
+            maps: { M: { features: { points: [feicao('point')], coordenadas: [feicao('tipo_que_nao_existe')] } } },
         }, { name: 'A' });
         expect(payload.maps[0].features).toHaveLength(1);
+        expect(payload.maps[0].features[0].feature_type).toBe('point');
         expect(stats.droppedFeatures).toBe(1);
     });
 });
@@ -259,6 +301,10 @@ describe('tipos de feicao: controle positivo dos extratores (fixtures sinteticas
         const VALID_FEATURE_TYPES = new Set([
             'point', 'line', 'sector',
         ]);
+        const BUCKET_TO_SOURCE = {
+            points: 'point', lines: 'line',
+            setores: 'sector',
+        };
     `;
     const JOI_FALSO = `
         const VALID_FEATURE_TYPES = [
@@ -292,6 +338,15 @@ describe('tipos de feicao: controle positivo dos extratores (fixtures sinteticas
         expect(tiposDoMapaDeColecao(SYNC_FALSO)).toEqual(['point', 'line', 'sector']);
         expect(colecoesDoMapaDeColecao(SYNC_FALSO)).toEqual(['points', 'lines', 'setores']);
         expect(baldesDoEsqueleto(SYNC_FALSO)).toEqual(['points', 'lines', 'setores']);
+        expect(baldesDoCliente(CLIENTE_FALSO)).toEqual({ point: 'points', line: 'lines', sector: 'setores' });
+    });
+
+    it('um tipo SEM balde no BUCKET_TO_SOURCE e visto, e o nome dele sai na lista', () => {
+        // O controle positivo do caso FLOOR novo, que nasce verde sobre codigo certo. Sem ele,
+        // um `BUCKET_TO_SOURCE` que perdesse uma linha deixaria o tipo sem balde nenhum e o
+        // produtor o descartaria em silencio, com o guarda verde do lado.
+        const baldes = baldesDoCliente(CLIENTE_FALSO.replace("setores: 'sector',", ''));
+        expect(['point', 'line', 'sector'].filter((t) => !baldes[t])).toEqual(['sector']);
     });
 
     it('a type removed from ONE copy is seen, and the report names that copy', () => {
@@ -321,6 +376,7 @@ describe('tipos de feicao: controle positivo dos extratores (fixtures sinteticas
         expect(tiposDoJoi('const OUTRO_NOME = [\'point\'];')).toEqual([]);
         expect(tiposDoMapaDeColecao('const outroMapa = { point: \'points\' };')).toEqual([]);
         expect(baldesDoEsqueleto('function outra() { const result = { points: [] }; }')).toEqual([]);
+        expect(baldesDoCliente('const OUTRO_NOME = { points: \'point\' };')).toEqual({});
     });
 
     it('the CHECK reader lets the LAST declaration win over an earlier one', () => {

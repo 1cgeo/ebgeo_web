@@ -76,6 +76,22 @@ import { registrarUso } from '@js/session/uso-lote.js';
 import { EventoDeUso } from '@js/session/eventos-de-uso.js';
 
 /**
+ * Extensao do arquivo no zip -> MIME, a TABELA INVERSA de `getBlobExtension`.
+ *
+ * As duas metades do round-trip do `.ebgeo` andam juntas: `getBlobExtension` escolhe a extensao
+ * na exportacao, e esta tabela devolve o tipo na importacao. Mudar uma sem a outra e como o
+ * defeito de 2026-09-07 nasceu, com o JPEG voltando chamado `.png`.
+ * @constant {Object<string, string>}
+ */
+const MIME_BY_EXTENSION = Object.freeze({
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    svg: 'image/svg+xml',
+    webp: 'image/webp',
+});
+
+/**
  * Whether an import right now would be writing into a SERVER atlas's databases.
  *
  * BOTH HALVES ARE ASKED, and the scope is the one that answers the question the import actually
@@ -1066,6 +1082,21 @@ export class ExportImportService {
 
     /**
      * Loads images from ZIP file into IndexedDB
+     *
+     * O TIPO VEM DA EXTENSAO, e ele nao e cosmetico. `zip.file(nome).async('blob')` devolve um
+     * `Blob` com `type` VAZIO (medido em 2026-09-07: 130 de 131 blobs sem MIME no dump do slot
+     * recem-importado), e o vazio custava dado em dois pontos. Na subida ao servidor,
+     * `buildImageUploads` declarava `image/png` para bytes JPEG e o backend recusava com
+     * "Content does not match declared type": 4 de 4 JPEG do `03-completo-2.4.ebgeo` nunca
+     * chegaram, e o atlas de servidor desenhava X vermelho no lugar da foto. Na volta ao arquivo,
+     * `getBlobExtension` caia no `default` e a foto saia com nome `.png` e bytes JPEG, de modo que
+     * a informacao de tipo se perdia de vez a cada round-trip.
+     *
+     * Por isso o blob se monta a partir do `arraybuffer` com o tipo da EXTENSAO do nome no zip,
+     * que e a mesma extensao que `getBlobExtension` escreveu na exportacao. Os bytes nao mudam, e
+     * a extensao desconhecida (que o filtro acima ja nao deixa passar) fica com o tipo generico em
+     * vez de virar PNG por descuido.
+     *
      * @param {JSZip} zip - ZIP file object
      */
     async loadImagesFromZip(zip) {
@@ -1077,7 +1108,9 @@ export class ExportImportService {
         for (const fileName of imageFiles) {
             try {
                 const imageId = fileName.replace('images/', '').replace(/\.(png|jpe?g|svg|webp)$/i, '');
-                const blob = await zip.file(fileName).async('blob');
+                const extension = (fileName.match(/\.([^.]+)$/)?.[1] || '').toLowerCase();
+                const buffer = await zip.file(fileName).async('arraybuffer');
+                const blob = new Blob([buffer], { type: MIME_BY_EXTENSION[extension] || 'application/octet-stream' });
                 await storeImage(imageId, blob);
             } catch (imgError) {
                 console.warn('Error loading image:', fileName, imgError);

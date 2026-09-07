@@ -248,8 +248,18 @@ const slideSchema = Joi.object({
   content: Joi.string().allow(null, ''),
   mode: Joi.string().valid('2d', '3d', '360').default('2d'),
   map_id: Joi.string().uuid().allow(null),
-  model_id: Joi.string().uuid().allow(null),
-  photo_id: Joi.string().uuid().allow(null),
+  // ID DE RECURSO, NÃO UUID, e o `.uuid()` que estava aqui era o único portão do servidor que
+  // recusava a forma real. `slides.model_id` e `slides.photo_id` são `VARCHAR(100)` desde a
+  // criação da tabela (`003_atlas.sql`), e `atlas-resource-prune.js` sempre os conferiu contra o
+  // catálogo com `String(...)`: o tileset se identifica por slug (`museu-1cgeo`) e o projeto 360
+  // por nome de arquivo (`FOTO_0001.jpg`). Com a exigência de UUID o cliente mandava null, e o
+  // slide chegava no modo certo apontando para nada (medido em 2026-09-07, 1 slide `3d` e 1
+  // `360`, os dois com alvo nulo, com o catálogo cadastrado).
+  //
+  // O `.max(100)` é a LARGURA DA COLUNA, e ele é a metade que não pode faltar: sem ele um valor
+  // maior atravessaria o Joi e morreria no driver, com o import inteiro junto.
+  model_id: Joi.string().max(100).allow(null),
+  photo_id: Joi.string().max(100).allow(null),
   position: scalarObjectSchema.default({}),
   orientation: scalarObjectSchema.default({}),
 });
