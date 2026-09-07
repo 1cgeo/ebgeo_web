@@ -164,3 +164,4 @@ que envelheceu na decisão seguinte.)
 | 2026-09-07 | a frase do envio conta o atlas inteiro, e só o envio sem perda navega | [decisions-2026.md](decisions-2026.md) |
 | 2026-09-07 | a falha do envio nomeia a ETAPA, e o slot herdado se identifica no diálogo | [decisions-2026.md](decisions-2026.md) |
 | 2026-09-07 | o envio de um atlas local normaliza a coleção de feições na leitura | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-07 | o degrau 3.0 repara `data.name` a partir da chave nos mapas que vieram da outra linha | [decisions-2026.md](decisions-2026.md) |
