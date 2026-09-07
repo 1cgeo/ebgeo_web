@@ -86,6 +86,30 @@ describe('ATLAS_SCHEMA_VERSION', () => {
         const [lastMaj, lastMin] = segments(LAST_CHAINED_STEP);
         expect(maj > lastMaj || (maj === lastMaj && min > lastMin)).toBe(true);
     });
+
+    it('esta ADIANTE de todo numero que a OUTRA linha do produto ja carimbou em disco', () => {
+        // A INVARIANTE QUE CUSTOU A TRAVESSIA, e ela nao existia neste arquivo. As duas linhas
+        // do produto compartilhavam um espaco de numeracao e colidiram: 2.3 significava a
+        // criacao do balde `coordination_lines` la e o registro do primeiro atlas local nomeado
+        // aqui, e la a numeracao ja tinha seguido para 2.4. Como `detectMigrationNeeded` compara
+        // NUMERO, um repositorio vindo de la respondia "ja esta na versao corrente" e a cadeia
+        // inteira era pulada, sem erro e sem log, justamente para o usuario que precisava dela.
+        // O mesmo numero fechava o portao do `.ebgeo`: 805 feicoes recusadas por um teto.
+        //
+        // Escrito como ORDENACAO, e nao como igualdade com um literal: o que tem de valer e a
+        // distancia, nao o valor. Reprova tanto uma volta para 2.x quanto uma tentativa futura
+        // de reaproveitar um numero que a outra linha ja gastou.
+        const CARIMBOS_DA_OUTRA_LINHA = ['2.2', '2.3', '2.4'];
+        const [maj, min] = segments(ATLAS_SCHEMA_VERSION);
+
+        for (const carimbo of CARIMBOS_DA_OUTRA_LINHA) {
+            const [outroMaj, outroMin] = segments(carimbo);
+            expect(
+                maj > outroMaj || (maj === outroMaj && min > outroMin),
+                `a constante tem de estar adiante de ${carimbo}, que a outra linha ja gravou em disco`
+            ).toBe(true);
+        }
+    });
 });
 
 // ============================================================================

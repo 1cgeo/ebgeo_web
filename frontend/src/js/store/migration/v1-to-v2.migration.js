@@ -14,6 +14,7 @@
  */
 
 import { ATLAS_RECORD_KEY, StoreName, getStoreFor } from '../atlas-namespace.js';
+import { compareVersions } from '../repository.utils.js';
 import { legacyScope } from './migration-scope.js';
 import { generateUUID } from '../../utilities/uuid.js';
 import { createSyncMetadata } from '../sync/sync-metadata.js';
@@ -247,9 +248,28 @@ async function migrateMap(mapName, mappings, scope) {
  * Main migration function: v1.x to v2.0.
  * @param {{ kind: string, dbSuffix: string }} [scope] - Target scope. Defaults to the
  *   pre-namespace databases.
- * @returns {Promise<{success: boolean}>}
+ * @returns {Promise<{success: boolean, skipped?: boolean}>}
  */
 export async function migrateToV2(scope = legacyScope()) {
+    // THIS STEP REFUSES TO RUN OVER AN ATLAS RECORD THAT ALREADY DECLARES 2.x, and the refusal
+    // is not defensive programming. `migrateFeature` gives every feature a NEW uuid, and
+    // `ebgeo_images` is keyed by the OLD one with nothing here to rewrite it: run over 2.x data
+    // and every image, military symbol, measurement and declination becomes an orphan blob, with
+    // no undo. The input that reaches here is the "1.7 entry" described in
+    // `migration.service.js`: the other line's data-wipe stamps its legacy constant on the
+    // settings of a repository whose atlas record is at 2.4. `effectiveVersion` already keeps
+    // the chain away from this step for that pair; this guard is the same rule read from the
+    // other end, because a rule enforced in one place only is a rule the next caller walks
+    // around.
+    const existing = await atlasStore(scope).getItem(ATLAS_RECORD_KEY);
+    if (typeof existing?.schemaVersion === 'string'
+        && compareVersions(existing.schemaVersion, '2.0') >= 0) {
+        console.warn(
+            `Migration to v2.0 declined: the atlas record already declares ${existing.schemaVersion}`
+        );
+        return { success: true, skipped: true };
+    }
+
     console.log('Starting migration to v2.0...');
 
     const mappings = createIdMappings();

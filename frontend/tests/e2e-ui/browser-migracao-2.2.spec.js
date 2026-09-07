@@ -6,9 +6,11 @@
  * ---------------------------------------------------------------------------
  * POR QUE ESTE ARQUIVO PRECISA EXISTIR, SE A MIGRAÇÃO JÁ TEM 22 CASOS
  * ---------------------------------------------------------------------------
- * Produção hoje é o branch `main`: IndexedDB no schema 2.2, sem backend. A fase de namespace
- * por atlas leva esse usuário para 2.3, e `tests/integration/migracao-22-para-23-fixture-real.test.js`
- * cobre a transição com 22 casos dirigidos pelas MESMAS fixtures que este arquivo usa.
+ * Produção hoje é a outra linha do produto: IndexedDB no schema 2.2, sem backend. A fase de
+ * namespace por atlas leva esse usuário para 3.0 (o degrau se chamava 2.3 até 2026-09-07, e o
+ * número mudou porque a outra linha usava o mesmo para outra coisa e já estava em 2.4), e
+ * `tests/integration/migracao-22-para-23-fixture-real.test.js` cobre a transição com 22 casos
+ * dirigidos pelas MESMAS fixtures que este arquivo usa.
  *
  * Aqueles 22 casos rodam sobre `fake-indexeddb`, e existe uma classe inteira de comportamento
  * que um duplo em processo não tem: `Blob` de verdade (o duplo obriga a guardar bytes crus, e o
@@ -305,7 +307,11 @@ describeOrSkip('Migração 2.2 para 2.3 em Chromium, com a fixture de produção
 
             // 4. O CARIMBO SUBIU. Sem isto, "nada se perdeu" seria satisfeito por uma migração
             //    que nunca rodou.
-            expect(depois.schemaVersion, 'a instalação terminou o boot na versão corrente').toBe('2.3');
+            // O NÚMERO AQUI ERA '2.3' ATÉ 2026-09-07, e a troca não é manutenção: 2.3 era um
+            //    número que a outra linha do produto também usava, para outra coisa, enquanto já
+            //    estava em 2.4, de modo que o detector daqui lia um repositório dela como "já
+            //    corrente". Literal de propósito neste arquivo, como no par em `tests/integration`.
+            expect(depois.schemaVersion, 'a instalação terminou o boot na versão corrente').toBe('3.0');
 
             // 5. ZERO CÓPIA: o banco legado VIROU o slot #1, e nenhum banco sufixado nasceu
             //    para receber uma cópia dos dados. É a propriedade que torna a migração barata,
@@ -377,7 +383,7 @@ describeOrSkip('Migração 2.2 para 2.3 em Chromium, com a fixture de produção
             expect(depois.mapNames, 'a corrida não perdeu nem duplicou mapa')
                 .toEqual(declarado.mapNames.slice().sort());
             expect(depois.features, 'a corrida não perdeu nem duplicou feição').toBe(DECLARADO.features);
-            expect(depois.schemaVersion, 'a migração terminou, e não parou no meio').toBe('2.3');
+            expect(depois.schemaVersion, 'a migração terminou, e não parou no meio').toBe('3.0');
             expect(depois.dbs.filter(n => n.startsWith('ebgeo_maps__')),
                 'a segunda aba criou um namespace paralelo em vez de compartilhar o slot adotado')
                 .toEqual([]);

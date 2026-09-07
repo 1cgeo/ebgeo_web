@@ -69,7 +69,10 @@ function resolverDeTeste(grupo, id) {
 
 function documentoDourado() {
     return {
-        version: '2.3',
+        // Versao da OUTRA linha do produto, de proposito: a poda de referencia privada nao olha
+        // a versao do documento, e um literal que acompanhasse a constante corrente esconderia
+        // isso ao passar por qualquer valor.
+        version: '2.4',
         currentMap: CONTROLE.mapa,
         mapOrder: [CONTROLE.mapa, CONTROLE.mapaPublico],
         maps: {

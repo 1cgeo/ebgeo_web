@@ -50,10 +50,14 @@ const semCatalogo = () => vi.fn(() => ({ processed: [], unavailableCount: 0 }));
 
 describe('migrateImportDataToV2 — versao', () => {
     it('carimba SEMPRE a versao corrente, qualquer que seja a de entrada', () => {
-        for (const entrada of [{ version: '1.0' }, { version: '1.4' }, { version: '2.3' }, {}]) {
+        for (const entrada of [{ version: '1.0' }, { version: '1.4' }, { version: '2.4' }, {}]) {
             expect(migrateImportDataToV2(entrada).version).toBe(ATLAS_SCHEMA_VERSION);
         }
-        expect(ATLAS_SCHEMA_VERSION).toBe('2.3');
+        // O literal era '2.3' até 2026-09-07, e a troca não é manutenção: 2.3 é um número que a
+        // OUTRA linha do produto também gravava em disco, para outra coisa, e ela já estava em
+        // 2.4, de modo que o detector daqui lia um repositório dela como "já corrente". A entrada
+        // de exemplo acima passou a ser '2.4' pelo mesmo motivo: é a versão que chega de verdade.
+        expect(ATLAS_SCHEMA_VERSION).toBe('3.0');
     });
 
     it('documento minimo (sem maps/layers/groups) atravessa sem lancar e preserva as chaves alheias', () => {

@@ -282,7 +282,7 @@ describe('store-origin lives in the global database, never in a namespace', () =
         // Materialise the local slot's settings database, so the assertion below is about a
         // database that EXISTS and not about one the fake never created.
         namespace.activateScope(namespace.localScope('atlas-a', 'aaa'));
-        await namespace.getStore(namespace.StoreName.SETTINGS).setItem('schemaVersion', '2.3');
+        await namespace.getStore(namespace.StoreName.SETTINGS).setItem('schemaVersion', '3.0');
 
         mountRemote(namespace, 'server-1');
         await origin.markStoreRemote('server-1');

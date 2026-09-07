@@ -99,7 +99,11 @@ describe('quem pode MONTAR um escopo de atlas', () => {
         'store/local-atlas.api.js': 'dono do escopo LOCAL (registro, ponteiro, troca, exclusão)',
         'store/remote-atlas.api.js': 'dono do escopo REMOTO (registra ANTES de apontar)',
         'store/repositories/local.repository.js': 'a ponte: ativa o slot legado quando não há escopo',
-        'store/migration/v2.2-to-v2.3.migration.js': 'restaura o escopo anterior ao fim da migração'
+        // O arquivo mudou de NOME em 2026-09-07, quando o degrau passou de 2.3 para 3.0 (2.3 era
+        // um número que a outra linha do produto também gravava em disco, para outra coisa). A
+        // razão de a entrada existir não mudou: o degrau chama `initLocalAtlases`, que ativa um
+        // escopo como efeito colateral, e devolve o escopo anterior na saída.
+        'store/migration/v2.x-to-v3.0.migration.js': 'restaura o escopo anterior ao fim da migração'
     };
 
     it('a lista de chamadores de `activateScope` é EXATAMENTE a dos donos', () => {

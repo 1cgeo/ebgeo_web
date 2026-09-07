@@ -37,6 +37,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 // eslint reprova o identificador solto.
 import { Buffer } from 'node:buffer';
 import { resetIndexedDB } from '../helpers/idb-helpers.js';
+import { ATLAS_SCHEMA_VERSION } from '@store/atlas/atlas.entity.js';
 
 /**
  * `FileReader` mínimo, o suficiente para `readAsDataURL` de um `Blob` real.
@@ -110,7 +111,10 @@ const gravar = (banco, scope, key, value) =>
  */
 async function semearAtlas(scope) {
     await gravar('ATLAS', scope, 'current_atlas', {
-        id: 'atlas-alvo', name: 'Atlas do Slot', schemaVersion: '2.3',
+        // Carimbo DELIBERADAMENTE atrasado, e da OUTRA linha do produto: o exportador declara a
+        // versao corrente, nunca a do registro que leu, e e isso que o caso "a versao declarada"
+        // no fim deste arquivo prende. Semear a corrente aqui esconderia a diferenca.
+        id: 'atlas-alvo', name: 'Atlas do Slot', schemaVersion: '2.4',
         mapOrder: [UUID_ALFA], lastActiveMapId: UUID_ALFA,
     });
 
@@ -300,6 +304,23 @@ describe('buildLocalAtlasExportData :: endereço', () => {
     it('escopo ausente quebra alto, em vez de ler o namespace de quem passar por último', async () => {
         await expect(servico.buildLocalAtlasExportData(null)).rejects.toThrow(/scope is required/);
     });
+
+    it('a versão declarada é a do APP, nunca a do registro de atlas que ele leu', async () => {
+        // O slot semeado carrega '2.4', que é um carimbo da OUTRA linha do produto: é o estado
+        // real de quem atravessou para cá e ainda não bootou, ou de um slot que o degrau ainda
+        // não alcançou. O que sobe tem de declarar a versão DESTE app, porque é este app que
+        // decide o formato do payload; ecoar o carimbo do disco faria o servidor receber um
+        // documento anunciando um formato que ninguém produziu.
+        const scope = escopoAlvo();
+        await semearAtlas(scope);
+        const gravado = await ns.getStoreFor(ns.StoreName.ATLAS, scope).getItem('current_atlas');
+        expect(gravado.schemaVersion).toBe('2.4');
+
+        const data = await servico.buildLocalAtlasExportData(scope);
+
+        expect(data.version).toBe(ATLAS_SCHEMA_VERSION);
+        expect(data.version).not.toBe('2.4');
+    });
 });
 
 // ============================================================================
@@ -314,7 +335,7 @@ describe('buildLocalAtlasExportData :: a camada padrao', () => {
     /** Um atlas com feicao e SEM a chave `layers_`, que e o atlas local mais comum. */
     async function semearSemCamada(scope) {
         await gravar('ATLAS', scope, 'current_atlas', {
-            id: 'atlas-alvo', name: 'Sem Camada', schemaVersion: '2.3', mapOrder: [UUID_ALFA],
+            id: 'atlas-alvo', name: 'Sem Camada', schemaVersion: '2.4', mapOrder: [UUID_ALFA],
         });
         await gravar('MAPS', scope, UUID_ALFA, {
             id: UUID_ALFA, name: 'Mapa Alfa', baseLayer: 'osm',

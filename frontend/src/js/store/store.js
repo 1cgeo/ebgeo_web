@@ -53,6 +53,7 @@ import {
 } from './store-origin.js';
 import { purgeAllRemoteAtlases, purgeReachedAtlas, listRemoteAtlases } from './remote-atlas.api.js';
 import { activateCurrentLocalAtlasScope, initLocalAtlases } from './local-atlas.api.js';
+import { observeLegacyInstallation, reportBootAtlasScope } from './migration/boot-legacy-adoption.js';
 import { readLocalAtlasRegistry } from './atlas-namespace.js';
 // Imported DIRECT, never through the `@utils` barrel: the barrel drags the store back in through
 // `feature_navigation_utils`, and this module is the store.
@@ -382,13 +383,25 @@ async function enforceLocalStoreWhenLoggedOut() {
  * (`atlas-namespace.js`, Decision 6). The guard above deliberately keeps reading the global
  * marker: what it hunts is installation-wide residue that belongs to no tab.
  *
+ * AND IT READS THE PRE-NAMESPACE INSTALLATION BEFORE IT WRITES TO IT, which is the whole of
+ * `observeLegacyInstallation`. Two facts are only knowable at this instant and are lost one line
+ * later, because `initLocalAtlases` bootstraps slot #1 as a side effect: whether the global
+ * registry ALREADY claimed the unsuffixed databases (the discriminator the 3.0 step branches on,
+ * which would answer "yes, always" if asked afterwards) and what the atlas record on disk calls
+ * itself. The name is handed straight back in as `bootstrapName`, so the slot is BORN with the
+ * user's own name instead of being christened "Meu Atlas" and repaired afterwards; the claim is
+ * parked in `boot-legacy-adoption.js` for the step to read.
+ *
  * @returns {Promise<void>}
  */
 async function activateBootAtlasScope() {
+    const origem = resolveTabMountOrigin(getStoreOriginSync());
+    const observed = await observeLegacyInstallation(origem);
     await initLocalAtlases({
-        origin: resolveTabMountOrigin(getStoreOriginSync()),
+        origin: origem,
         isAuthenticated: sessionContext.isAuthenticated(),
-        preferTabMountPointer: true
+        preferTabMountPointer: true,
+        bootstrapName: observed.bootstrapName
     });
     await routePendingOperationsToTheirAtlas();
 }
@@ -436,6 +449,14 @@ export async function initializeWithLastActiveMap() {
     await enforceLocalStoreWhenLoggedOut();
     await activateBootAtlasScope();
     const chaveDeEntrada = await initializeRepository();
+
+    // A ÚNICA LINHA QUE O SUPORTE TEM PARA CONFIRMAR A TRANSIÇÃO. Medido em navegador real em
+    // 2026-09-07: um repositório vindo da outra linha do produto atravessava para cá produzindo
+    // DOZE linhas de console, todas de rede. Nenhuma dizia que os bancos tinham sido adotados,
+    // qual ramo do degrau correra, nem que o esquema se movera. Vem DEPOIS de
+    // `initializeRepository` porque é ele que roda o degrau: antes dele a linha só poderia
+    // anunciar o que estava para acontecer, que é a forma de log que engana.
+    await reportBootAtlasScope();
 
     // O RESOLVEDOR É REFEITO AQUI, e não só esperado, porque a montagem que `initServices()`
     // dispara acontece ANTES de `activateBootAtlasScope()` acima: ela lê o escopo que estava

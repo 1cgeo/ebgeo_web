@@ -8,8 +8,25 @@
 import { createSyncMetadata, isValidSyncMetadata } from '../sync/sync-metadata.js';
 import { generateUUID } from '../../utilities/uuid.js';
 
-/** Current Atlas schema version. Increment on breaking changes to Atlas structure. */
-export const ATLAS_SCHEMA_VERSION = '2.3';
+/**
+ * Current Atlas schema version. Increment on breaking changes to Atlas structure.
+ *
+ * WHY IT JUMPED FROM 2.3 TO 3.0 ON 2026-09-07, SKIPPING 2.4 AND 2.5. The number 2.3 meant TWO
+ * different things in the two product lines: on `main` it created the `coordination_lines`
+ * bucket (2026-09-03), here it registered the first NAMED local atlas (2026-08-14). `main` then
+ * moved to 2.4, a number this line never had. The detector compares NUMBERS
+ * (`detectMigrationNeeded`), so a repository stamped 2.3 or 2.4 by `main` answered "already
+ * current" here and the adoption chain was skipped in silence for every user crossing over.
+ * Choosing 2.5 would have kept the two lines sharing a numbering space that had already
+ * collided once; 3.0 puts this line ABOVE every number `main` can produce, which is what makes
+ * the crossing detectable, and it is also the version the product is called from here on
+ * (EBGeo 3.0). Owner's decision of 2026-09-07; the alternatives refused are recorded in
+ * `docs/decisions/decisions-2026.md`.
+ *
+ * The step that reaches it is `migration/v2.x-to-v3.0.migration.js`, and it branches on the
+ * GLOBAL REGISTRY, never on this number: the number cannot tell the two 2.3 apart.
+ */
+export const ATLAS_SCHEMA_VERSION = '3.0';
 
 /** @type {number} Default terrain exaggeration multiplier */
 export const DEFAULT_TERRAIN_EXAGGERATION = 1.5;

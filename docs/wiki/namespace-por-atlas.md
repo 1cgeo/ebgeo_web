@@ -87,6 +87,18 @@ O preço, e ele não se lê em lugar nenhum: o coletor de ops velhas (`purgeOldO
 
 `schemaVersion` é por atlas de propósito: ele descreve a FORMA do dado de um slot. Um marcador global deixaria um slot com dado antigo ser comparado contra uma versão já corrente e pular a migração em silêncio. Pela mesma razão a migração recebe o escopo como ARGUMENTO (`detectMigrationNeeded`, `frontend/src/js/store/migration/migration.service.js`): "atualizar a INSTALAÇÃO" (os bancos pré-namespace, `legacyScope`) e "atualizar um SLOT" são trabalhos diferentes, e inferir o alvo do escopo ativo confunde os dois.
 
+## A adoção decide pelo REGISTRO, e o número só carimba
+
+O degrau que faz a adoção é `migrateToV3_0` (`frontend/src/js/store/migration/v2.x-to-v3.0.migration.js`), e desde 2026-09-07 ele alcança 3.0 em vez de 2.3. A troca de número não é cosmética: 2.3 era um número que a OUTRA linha do produto também gravava em disco, significando outra coisa lá, e ela já tinha seguido para 2.4. Como o detector compara NÚMERO, um repositório vindo de lá respondia "já está na versão corrente" e esta adoção inteira era pulada, sem erro e sem log, exatamente para quem atravessava. 3.0 fica acima de todo número que a outra linha pode produzir. A decisão está em [`decisions-2026.md`](../decisions/decisions-2026.md).
+
+**O ramo do degrau é uma pergunta sobre FORMA, e uma só:** existe no banco global uma entrada de atlas local com `dbSuffix` vazio? Escopo com sufixo próprio já está registrado e já é dono dos bancos dele, então só recebe o carimbo (é o caminho de `migrateActiveSlot`). Escopo legado JÁ reivindicado é uma instalação desta linha, e também só recebe o carimbo. Escopo legado NÃO reivindicado veio da outra linha, em qualquer número, e é o único que recebe a adoção completa: descarte de resíduo REMOTE, registro do slot #1 sobre os bancos sem sufixo, esvaziamento da fila de operações que aquela linha encheu sem ter servidor de destino, e carimbo.
+
+Discriminar por CONTEÚDO foi considerado e recusado por medida, e a razão vale para qualquer marcador futuro: `coordination_lines` não separa 2.2 de 2.3 num atlas sem mapa nenhum, e `bitmapVersion` não separa 2.3 de 2.4 num atlas sem símbolo nem medida. Os dois respondem "antigo" para o atlas vazio, que é o que uma instalação nova produz.
+
+**A pergunta só tem resposta ANTES do bootstrap**, e essa é a parte que não se adivinha lendo o degrau: `activateBootAtlasScope` roda `initLocalAtlases` antes de `initializeRepository`, e o bootstrap dele escreve justamente a entrada de `dbSuffix` vazio que a pergunta procura. Perguntada de dentro do degrau, a resposta seria "sim, sempre". Por isso o boot pergunta primeiro e guarda a resposta em `frontend/src/js/store/migration/boot-legacy-adoption.js`, na mesma forma de `bootTabMountPointer`; quem chama o degrau sem boot algum (um script, um teste) lê o registro na hora, que é a resposta certa para ele.
+
+**O NOME do atlas tem duas casas, e a direção do alinhamento decide se ele sobrevive.** A tela lê o REGISTRO DE SLOTS (`getLocalAtlas`), e o nome que o usuário deu vive no registro de atlas dentro do slot. O carimbo alinhava o record ao registro, e como o registro tinha acabado de ser inventado pelo bootstrap como "Meu Atlas", o alinhamento apagava a única cópia do nome verdadeiro. A direção agora é a inversa (`renameLocalAtlas` a partir do record), e o boot passa `bootstrapName` para o slot já nascer com o nome certo. O reparo continua existindo para as instalações que atravessaram antes do conserto; a prevenção é o `bootstrapName`.
+
 ## O resgate falha ALTO, e é por isso que ele não marca sozinho
 
 Duas ordens carregam o resgate, e as duas foram, em algum momento, o inverso:

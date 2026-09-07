@@ -16,6 +16,10 @@ describe('temporal schema migration (v2.1 -> v2.2)', () => {
         // the head went from 2.2 to 2.3. DERIVED from `ATLAS_SCHEMA_VERSION` instead: the
         // temporal step's target has to sit at or behind the head, and that is the whole
         // claim this file is entitled to make about the head.
+        //
+        // THE HEAD MOVED AGAIN ON 2026-09-07, from 2.3 straight to 3.0, and this file needed no
+        // edit at all. That is worth writing down as EVIDENCE and not as intention: every other
+        // place that spelled the head out had to be revisited, one of them a filename.
         expect(compareVersions('2.2', ATLAS_SCHEMA_VERSION) <= 0).toBe(true);
     });
 

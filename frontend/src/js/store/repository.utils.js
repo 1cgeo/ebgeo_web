@@ -8,7 +8,16 @@
 /** Legacy schema version (pre-Atlas, v1.3-v1.7). */
 export const SCHEMA_VERSION = '1.7';
 
-/** Minimum supported legacy schema version. */
+/**
+ * Minimum supported legacy schema version.
+ *
+ * IT STAYS AT 1.3, and raising it is not a tidy-up: this is the floor under which
+ * `checkAndCleanLegacyData` calls `clearLegacyStores()` and DESTROYS the repository instead of
+ * migrating it. Real installations sit just above it, because the other product line's data
+ * wipe stamps `'1.7'` on a repository whose atlas record is still at 2.4. A floor at 2.0 would
+ * delete a full atlas on the first boot after the crossing. Pinned, with its twin
+ * `MIN_MIGRATABLE_VERSION`, by `tests/store/pisos-de-migracao.test.js`.
+ */
 export const MIN_SCHEMA_VERSION = '1.3';
 
 /** Maximum legacy schema version. */
@@ -144,12 +153,17 @@ const COORDINATION_LINE_BUCKET = 'coordination_lines';
  * goes through `getSource(...)?.setData`, whose optional chaining swallows the absence.
  * The tool then activates, accepts clicks and draws NOTHING, with no error and no log.
  *
- * The `main` line of the product paid a schema bump (v2.3) for exactly this. Here the
- * version stays at '2.3' by decision of 2026-09-03: this branch is in development with no
- * user data to preserve, its own v2.3 is an INSTALLATION-level migration ("Meu Atlas"),
- * and a shape a read can normalise on its own does not deserve a version. So this runs at
- * READ time, in the three paths a map can enter by (`.ebgeo` import, server snapshot,
- * IndexedDB read), all three calling THIS function so they cannot drift apart.
+ * The other product line paid a schema bump for exactly this, and its number for it was 2.3.
+ * This line did NOT follow, by the decision of 2026-09-03: a shape a read can normalise on its
+ * own does not deserve a version. So this runs at READ time, in the three paths a map can enter
+ * by (`.ebgeo` import, server snapshot, IndexedDB read), all three calling THIS function so
+ * they cannot drift apart.
+ *
+ * THE VERSION HERE IS NOW 3.0, AND THE PARAGRAPH ABOVE USED TO SAY "stays at 2.3", which is
+ * how the same number ended up meaning two different things in the two lines and how a
+ * repository from the other one was read as current here. The decision that did NOT change is
+ * this one: the bucket stays a read-time normalisation and the 3.0 step transforms no feature.
+ * See `migration/v2.x-to-v3.0.migration.js` and `docs/decisions/decisions-2026.md`.
  *
  * Returns null when there is nothing to do, which is what keeps a caller from rewriting
  * a document it only read. Idempotent, so a map that already carries the bucket (one

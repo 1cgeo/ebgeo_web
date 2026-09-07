@@ -1,12 +1,19 @@
-// Path: tests/store/store-schema-migration-v2.3.test.js
+// Path: tests/store/store-schema-migration-v3.0.test.js
 //
-// A migração 2.3 é o único passo irreversível da fase dos atlas locais nomeados: ela
-// promove o workspace único de hoje a um atlas chamado "Meu Atlas", registrado no banco
-// global e dono de um namespace. O desenho é ZERO-CÓPIA (o slot #1 tem sufixo vazio, então
-// os bancos de sempre JÁ SÃO os bancos dele), e é justamente por isso que o teste precisa
-// existir: uma migração que não copia nada passa verde por acidente se alguém trocar a
-// adoção por bancos novos, e o sintoma seria um usuário abrindo um atlas vazio com todo o
-// seu trabalho intacto num banco que ninguém mais abre.
+// O degrau 3.0 é o único passo irreversível da fase dos atlas locais nomeados: ele
+// promove o workspace único de hoje a um atlas NOMEADO, registrado no banco global e dono
+// de um namespace. O desenho é ZERO-CÓPIA (o slot #1 tem sufixo vazio, então os bancos de
+// sempre JÁ SÃO os bancos dele), e é justamente por isso que o teste precisa existir: uma
+// migração que não copia nada passa verde por acidente se alguém trocar a adoção por bancos
+// novos, e o sintoma seria um usuário abrindo um atlas vazio com todo o seu trabalho intacto
+// num banco que ninguém mais abre.
+//
+// ESTE ARQUIVO SE CHAMAVA `-v2.3` E O ALVO DELE ERA O LITERAL '2.3'. O número foi trocado em
+// 2026-09-07, e a razão não é cosmética: 2.3 é um número que a OUTRA linha do produto também
+// tem, significando outra coisa lá (o balde `coordination_lines`), e ela já tinha seguido para
+// 2.4. Um repositório vindo de lá satisfazia a comparação e a adoção nunca corria. Trocar o
+// literal aqui sem trocar o degrau, ou o contrário, é o desenho pela metade que a régua de
+// convergência de `tests/integration/degrau-3.0-entradas-da-transicao.test.js` reprova.
 //
 // O que este arquivo prende:
 //
@@ -19,11 +26,16 @@
 //      qualquer banco sufixado: comparar a lista com ela mesma passaria com lista vazia;
 //   3. o carimbo de versão fica onde `detectMigrationNeeded` lê (nome FIXO), senão a
 //      cadeia inteira, inclusive o v1→v2 que CRIA atlas, re-rodaria a cada boot;
-//   4. cadeia interrompida DEPOIS de v2→v2.1 para em 2.2, e não em 2.3 (é o defeito do
+//   4. cadeia interrompida DEPOIS de v2→v2.1 para em 2.2, e não em 3.0 (é o defeito do
 //      carimbo antecipado, que o bump da constante transformaria em regressão imediata);
 //   5. a invariante da fase: store de origem REMOTA é DESCARTADO antes de virar atlas
 //      local, nunca adotado;
 //   6. o teto de 10: a migração cria atlas só quando o registro está vazio.
+//
+// AS ENTRADAS VINDAS DA OUTRA LINHA (2.2, 2.3, 2.4 e o par "1.7 no settings com 2.4 no
+// registro") não estão aqui, e não por esquecimento: elas exigem a fixture real e a sequência
+// de boot inteira, e moram em `tests/integration/degrau-3.0-entradas-da-transicao.test.js`.
+// Este arquivo continua sendo o do MECANISMO, com localforage dobrado.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -290,7 +302,7 @@ beforeEach(() => {
 // Round-trip: dado real de cada side-store, lido pelo escopo do atlas registrado
 // ============================================================================
 
-describe('migração 2.3: round-trip de cada side-store', () => {
+describe('migração 3.0: round-trip de cada side-store', () => {
     /** @type {Awaited<ReturnType<typeof loadModules>>} */
     let mods;
     /** @type {{ entry: Object, repo: Object }} */
@@ -323,7 +335,7 @@ describe('migração 2.3: round-trip de cada side-store', () => {
         expect(atlas.lastActiveMapId).toBe(MAP_A);
         expect(atlas.settings).toEqual({ terrainExaggeration: 2.5 });
         expect(atlas.sync.version).toBe(3);
-        expect(atlas.schemaVersion).toBe('2.3');
+        expect(atlas.schemaVersion).toBe('3.0');
     });
 
     it('feições: os dois mapas e todas as feições, com propriedades intactas', async () => {
@@ -435,20 +447,20 @@ describe('migração 2.3: round-trip de cada side-store', () => {
 // Carimbo de versão e encadeamento
 // ============================================================================
 
-describe('migração 2.3: carimbo e encadeamento', () => {
-    it('carimba 2.3 onde detectMigrationNeeded lê (nome FIXO), fechando a detecção', async () => {
+describe('migração 3.0: carimbo e encadeamento', () => {
+    it('carimba 3.0 onde detectMigrationNeeded lê (nome FIXO), fechando a detecção', async () => {
         await seedLegacyRepository();
         const mods = await loadModules();
 
         await mods.service.safelyMigrate();
 
-        expect(await raw('ebgeo_app_settings').getItem('schemaVersion')).toBe('2.3');
-        expect((await raw('ebgeo_atlas').getItem('current_atlas')).schemaVersion).toBe('2.3');
-        expect(mods.entity.ATLAS_SCHEMA_VERSION).toBe('2.3');
+        expect(await raw('ebgeo_app_settings').getItem('schemaVersion')).toBe('3.0');
+        expect((await raw('ebgeo_atlas').getItem('current_atlas')).schemaVersion).toBe('3.0');
+        expect(mods.entity.ATLAS_SCHEMA_VERSION).toBe('3.0');
 
         const detected = await mods.service.detectMigrationNeeded();
         expect(detected.needed).toBe(false);
-        expect(detected.targetVersion).toBe('2.3');
+        expect(detected.targetVersion).toBe('3.0');
     });
 
     it('é idempotente: rodar de novo não cria um segundo atlas nem reescreve dado', async () => {
@@ -489,7 +501,7 @@ describe('migração 2.3: carimbo e encadeamento', () => {
         expect((await raw('ebgeo_atlas').getItem('current_atlas')).name).toBe('Exercício Guararapes');
     });
 
-    it('roda a cadeia inteira a partir de um repositório v1.x e termina com registro + 2.3', async () => {
+    it('roda a cadeia inteira a partir de um repositório v1.x e termina com registro + 3.0', async () => {
         await raw('ebgeo_maps').setItem('Cidade', {
             features: { points: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: { id: 'f1', layerId: 'default' } }] }
         });
@@ -501,14 +513,14 @@ describe('migração 2.3: carimbo e encadeamento', () => {
         const registry = await lerRegistroLocal();
         expect(registry.atlases).toHaveLength(1);
         expect(registry.atlases[0].name).toBe('Meu Atlas');
-        expect(await raw('ebgeo_app_settings').getItem('schemaVersion')).toBe('2.3');
+        expect(await raw('ebgeo_app_settings').getItem('schemaVersion')).toBe('3.0');
 
         // O backfill do degrau 2.1 continua acontecendo (a cadeia não foi curto-circuitada).
         const mapa = await raw('ebgeo_maps').getItem('Cidade');
         expect(mapa.features.points[0].properties.sizeCreatedAtZoom).toBe(10);
     });
 
-    it('cadeia interrompida DENTRO do degrau 2.2 para em 2.1, e não em 2.3', async () => {
+    it('cadeia interrompida DENTRO do degrau 2.2 para em 2.1, e não em 3.0', async () => {
         // Controle direto do carimbo do degrau v2→v2.1: se ele voltar a gravar
         // ATLAS_SCHEMA_VERSION, esta interrupção deixaria o marcador em 2.3 e a migração
         // de namespacing nunca mais rodaria.
@@ -534,11 +546,11 @@ describe('migração 2.3: carimbo e encadeamento', () => {
         app.setItem.mockImplementation(realSet);
         const mods2 = await loadModules();
         await mods2.service.safelyMigrate();
-        expect(await raw('ebgeo_app_settings').getItem('schemaVersion')).toBe('2.3');
+        expect(await raw('ebgeo_app_settings').getItem('schemaVersion')).toBe('3.0');
         expect((await lerRegistroLocal()).atlases).toHaveLength(1);
     });
 
-    it('cadeia interrompida DEPOIS de v2→v2.1 para em 2.2, e não em 2.3', async () => {
+    it('cadeia interrompida DEPOIS de v2→v2.1 para em 2.2, e não em 3.0', async () => {
         // Este é o defeito do carimbo antecipado: enquanto os degraus intermediários
         // gravavam ATLAS_SCHEMA_VERSION, o bump da constante para 2.3 fazia o degrau 2.1
         // declarar 2.3, e uma interrupção antes da 2.3 marcava o banco como migrado para
@@ -548,7 +560,7 @@ describe('migração 2.3: carimbo e encadeamento', () => {
         });
         await raw('ebgeo_app_settings').setItem('schemaVersion', '1.3');
 
-        // Quebra o degrau 2.3 na primeira escrita do banco global (persistRegistry).
+        // Quebra o degrau 3.0 na primeira escrita do banco global (persistRegistry).
         const globalStore = raw('ebgeo_global');
         const realSet = globalStore.setItem.getMockImplementation();
         globalStore.setItem.mockRejectedValueOnce(new Error('quota exceeded'));
@@ -566,7 +578,7 @@ describe('migração 2.3: carimbo e encadeamento', () => {
         expect((await mods2.service.detectMigrationNeeded()).needed).toBe(true);
         await mods2.service.safelyMigrate();
 
-        expect(await raw('ebgeo_app_settings').getItem('schemaVersion')).toBe('2.3');
+        expect(await raw('ebgeo_app_settings').getItem('schemaVersion')).toBe('3.0');
         expect((await lerRegistroLocal()).atlases).toHaveLength(1);
     });
 });
@@ -575,7 +587,7 @@ describe('migração 2.3: carimbo e encadeamento', () => {
 // A invariante da fase: dado remoto não vira atlas local
 // ============================================================================
 
-describe('migração 2.3: store de origem REMOTA', () => {
+describe('migração 3.0: store de origem REMOTA', () => {
     it('descarta o atlas de servidor em vez de adotá-lo, e volta a marcar o store LOCAL', async () => {
         await seedLegacyRepository();
         // Marcador no lugar pré-namespace, que é onde ele está para quem já usa o app.
@@ -617,16 +629,42 @@ describe('migração 2.3: store de origem REMOTA', () => {
         expect(registry.atlases[0].name).toBe('Meu Atlas');
     });
 
-    it('a fila de saída (global) NÃO é tocada pelo descarte', async () => {
+    it('a fila de saída NÃO está no alcance do descarte de resíduo REMOTO', async () => {
+        // ESTE CASO AFIRMAVA QUE A FILA SAÍA INTACTA DO DEGRAU, e a segunda metade dessa
+        // afirmação deixou de ser verdade em 2026-09-07 (ver o caso seguinte). O que continua
+        // valendo, e é o que ele sempre quis dizer, é o ALCANCE do `discardRemoteResidue`: ele
+        // varre `listAtlasStores`, e a fila é declarada `atlasData: false` justamente para ficar
+        // de fora. As duas coisas são independentes, e agora estão separadas em dois casos, de
+        // modo que um dia em que a fila voltar a ser poupada pelo degrau não faça este aqui
+        // passar por outro motivo.
+        const mods = await loadModules();
+        const alcance = mods.namespace.listAtlasStores(mods.namespace.localScope('x', '')).map(s => s.id);
+
+        expect(alcance.length).toBeGreaterThan(0);
+        expect(alcance).not.toContain(mods.namespace.StoreName.OPERATION_QUEUE);
+        expect(alcance).not.toContain(mods.namespace.StoreName.GLOBAL);
+        expect(alcance).toContain(mods.namespace.StoreName.MAPS);
+    });
+
+    it('a fila legada É descartada pelo degrau, e isso é DELIBERADO', async () => {
+        // A outra linha do produto enfileira uma operação por edição mesmo sem servidor para
+        // recebê-las, e essas entradas não carregam endereço de atlas. Medido numa sessão real
+        // de 805 feições: 446 entradas. Aqui uma entrada sem endereço vai para "o atlas montado
+        // na hora do upgrade", e para quem faz login e abre um atlas de SERVIDOR isso é o atlas
+        // do servidor: o histórico local inteiro de um usuário subiria para o projeto de outra
+        // gente. Descartar não perde nada, porque a fila descreve trabalho que já está no disco
+        // dos bancos sendo adotados e que nunca teve destino.
         await seedLegacyRepository();
-        await raw('ebgeo_app_settings').setItem('__store_origin__', { kind: 'remote', atlasId: 'atlas-do-servidor' });
         const queue = makeStore({ name: 'ebgeo', storeName: 'operation_queue' });
         await queue.setItem('op-1', { id: 'op-1', type: 'feature.create' });
+        await queue.setItem('op-2', { id: 'op-2', type: 'feature.update' });
 
         const mods = await loadModules();
         await mods.service.safelyMigrate();
 
-        expect(await queue.keys()).toEqual(['op-1']);
+        expect(await queue.keys()).toEqual([]);
+        // E o dado que a fila descrevia continua onde estava: o descarte é da FILA, não do mapa.
+        expect((await raw('ebgeo_maps').getItem(MAP_A)).features.points).toHaveLength(2);
     });
 });
 
@@ -634,7 +672,7 @@ describe('migração 2.3: store de origem REMOTA', () => {
 // O teto de 10
 // ============================================================================
 
-describe('migração 2.3: teto de atlas locais', () => {
+describe('migração 3.0: teto de atlas locais', () => {
     it('não cria atlas quando o registro já tem entradas, então nunca estoura o teto', async () => {
         await seedLegacyRepository();
 
@@ -652,7 +690,7 @@ describe('migração 2.3: teto de atlas locais', () => {
         const registry = await lerRegistroLocal();
         expect(registry.atlases).toHaveLength(10);
         // Carimbou onde a detecção lê, então não re-roda a cadeia inteira a cada boot.
-        expect(await raw('ebgeo_app_settings').getItem('schemaVersion')).toBe('2.3');
+        expect(await raw('ebgeo_app_settings').getItem('schemaVersion')).toBe('3.0');
         // E o dado pré-namespace continua intacto (a migração não o move nem o apaga).
         expect((await raw('ebgeo_maps').keys()).sort()).toEqual([MAP_A, MAP_B].sort());
     });
@@ -674,6 +712,6 @@ describe('migração 2.3: teto de atlas locais', () => {
 
         const slot = await openSlotFromRegistry(mods);
         expect((await slot.repo.getMap(MAP_A)).features.points).toHaveLength(2);
-        expect((await slot.repo.getAtlas()).schemaVersion).toBe('2.3');
+        expect((await slot.repo.getAtlas()).schemaVersion).toBe('3.0');
     });
 });

@@ -3,6 +3,14 @@
 /**
  * @fileoverview Does a PRODUCTION user survive the upgrade?
  *
+ * THE "23" IN THE FILE NAME IS A HISTORICAL LABEL, and it stayed on purpose rather than being
+ * corrected in place: this file's subject is a REAL 2.2 repository crossing into this line, and
+ * the step that receives it was renumbered from 2.3 to 3.0 on 2026-09-07 because 2.3 was a
+ * number the other product line also used, for something else, while already sitting at 2.4.
+ * The decision is in `docs/decisions/decisions-2026.md`; the entries that arrive stamped by
+ * that other line (2.2, 2.3, 2.4, and the settings-at-1.7 pair) are measured in
+ * `tests/integration/degrau-3.0-entradas-da-transicao.test.js`.
+ *
  * Every other test of this migration builds its own idea of what a 2.2 repository looks
  * like, which means it verifies the migration against the test author's model of the data.
  * This one seeds from `.ebgeo` archives the `main` app actually produced (11 maps, 262
@@ -332,8 +340,16 @@ describe('migração 2.2 → 2.3 com fixture real do main', () => {
     // IMPORTED constant everywhere else, so the two ways of being wrong are distinguishable:
     // bumping the constant without touching this file trips this line, while a new step that
     // forgets to bump it trips the "needed" assertion below.
-    it('o alvo da migração é a constante do código, e hoje ela vale 2.3', async () => {
-        expect(ATLAS_SCHEMA_VERSION).toBe('2.3');
+    it('o alvo da migração é a constante do código, e hoje ela vale 3.0', async () => {
+        // ESTA LINHA DIZIA '2.3', E O NÚMERO MUDOU EM 2026-09-07 POR UMA RAZÃO, não por
+        // manutenção: 2.3 é um número que a OUTRA linha do produto também carrega, significando
+        // lá a criação do balde `coordination_lines`, e ela já tinha seguido para 2.4. Como o
+        // detector compara NÚMERO, um repositório carimbado por ela respondia "já está na versão
+        // corrente" aqui e a adoção nunca corria. 3.0 põe esta linha acima de todo número que a
+        // outra pode produzir. Continua sendo um LITERAL de propósito: usado como constante
+        // importada em toda parte e escrito à mão aqui, os dois jeitos de errar ficam
+        // distinguíveis.
+        expect(ATLAS_SCHEMA_VERSION).toBe('3.0');
 
         const fixture = await loadEbgeoFixture('02-minimo.ebgeo');
         const ns0 = await import('@store/atlas-namespace.js');

@@ -34,4 +34,12 @@ export { migrateToV2_1 } from './v2-to-v2.1.migration.js';
 
 export { migrateToV2_2 } from './v2.1-to-v2.2.migration.js';
 
-export { migrateToV2_3 } from './v2.2-to-v2.3.migration.js';
+export { migrateToV3_0 } from './v2.x-to-v3.0.migration.js';
+
+// The boot's reading of the pre-namespace installation, and the one line it writes about it.
+export {
+    MigrationBranch,
+    observeLegacyInstallation,
+    reportBootAtlasScope,
+    resetBootLegacyAdoption
+} from './boot-legacy-adoption.js';
