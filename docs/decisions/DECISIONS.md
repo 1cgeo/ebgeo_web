@@ -156,3 +156,11 @@ eixo de OM na trilha) e as duas de 2026-08-22. O modo de falha se repete porque 
 o passo separado, e o trabalho termina no arquivo do ano. As duas contagens batem, e a propriedade é essa, não o número: conferi-las é
 `grep -c "^| 2026-"` contra `grep -c "^### 2026-"`. (Esta linha guardou um absoluto, "34 de cada lado",
 que envelheceu na decisão seguinte.)
+| 2026-09-07 | o tipo da imagem vem da EXTENSÃO no `.ebgeo`, e o alvo do slide 3D/360 é ID DE RECURSO, nunca UUID | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-07 | o BALDE decide o tipo da feição no envio, e um lote de imagens que cai não leva os seguintes | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-07 | o boot não apaga acervo sob erro, a adoção concorrente desempata pelo menor id, e o registro ganha espelho e persistência | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-07 | a Linha de Barreiras da 2.2 é ADOTADA pela Linha de Coordenação na leitura, e o balde velho é apagado | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-07 | o nome do mapa de um atlas local vem da CHAVE, e dois mapas no mesmo nome recusam o envio | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-07 | a frase do envio conta o atlas inteiro, e só o envio sem perda navega | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-07 | a falha do envio nomeia a ETAPA, e o slot herdado se identifica no diálogo | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-07 | o envio de um atlas local normaliza a coleção de feições na leitura | [decisions-2026.md](decisions-2026.md) |
