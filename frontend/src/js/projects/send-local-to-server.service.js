@@ -47,10 +47,13 @@ import {
 import { ATLAS_SCHEMA_VERSION } from '@store/atlas/atlas.entity.js';
 // DIRETO DO ARQUIVO, e nao pelo barril `@store`: o barril arrasta a store inteira, e este modulo
 // existe justamente por a pagina de escolha nao a ter. `repository.utils.js` nao importa nada.
-import { getDefaultLayer } from '@store/repository.utils.js';
+import { getDefaultLayer, ensureCoordinationLines } from '@store/repository.utils.js';
+// Quanto ha dentro de um escopo, por um leitor que NAO passa por este arquivo: e o denominador do
+// aviso, e ele so serve para isso se for independente do numerador. Do ARQUIVO, como os vizinhos.
+import { countAtlasContents } from '@store/atlas-contents.js';
 import { buildServerImportPayload } from '@js/import_export/local-atlas-to-server.js';
 import { buildImageUploads, uploadImagesInChunks } from '@js/import_export/atlas-image-upload.js';
-import { generateUUID } from '@utils/uuid.js';
+import { generateUUID, isValidId } from '@utils/uuid.js';
 
 /**
  * As chaves de disco que este leitor usa, num lugar só.
@@ -99,18 +102,93 @@ function porSecao(destino, chave, valor) {
 }
 
 /**
+ * O NOME DE UM MAPA DE ATLAS LOCAL, e a regra mudou em 2026-09-07 por uma perda medida.
+ *
+ * A CHAVE VENCE QUANDO ELA NÃO É UM IDENTIFICADOR. Num atlas local anônimo a chave de
+ * `ebgeo_maps` É o nome, escrita por `createMapCompat` (`store/repositories/index.js`), e ela é a
+ * fonte de verdade; a chave só deixa de sê-lo quando a criação rodou com a sincronização ligada e
+ * gravou o mapa sob o UUID dele. `isValidId` é o teste de "isto é um identificador gerado" desta
+ * casa, e cobre as duas formas que circulam (UUID v4 e o id legado `<epoch>-<aleatório>`).
+ *
+ * O PORQUÊ, MEDIDO. A linha anterior do produto grava TODO mapa novo com a chave certa e
+ * `data.name = 'Novo Mapa'`: a guarda dela (`if (!newMapData.name)`) nunca dispara, porque
+ * `getEmptyMapData()` já devolve esse nome. O campo era cosmético e inerte enquanto ninguém o
+ * lia, e este leitor foi o PRIMEIRO consumidor a preferi-lo à chave. Resultado no navegador, em
+ * 2026-09-07, sobre o acervo herdado de uma instalação real: treze dos catorze mapas colidiam
+ * numa entrada só de `data.maps`, vencia o último iterado, e o servidor recebia 2 mapas de 14 e
+ * 33 feições de 805 com aviso VERDE. Nenhuma migração repara o registro que já está no disco.
+ *
+ * A REGRA NÃO ACERTA TUDO SOZINHA, e é por isso que ela vem em par com {@link exigirNomesUnicos}:
+ * dois mapas UUID-keyed com o mesmo `data.name` continuam colidindo, e ali a resposta é RECUSAR.
+ *
+ * @param {string} mapKey - A chave do registro em `ebgeo_maps`.
+ * @param {Object} [mapData] - O documento do mapa.
+ * @returns {string}
+ */
+function nomeDoMapa(mapKey, mapData) {
+    if (!isValidId(mapKey)) return String(mapKey);
+    return String(mapData?.name || mapKey);
+}
+
+/**
+ * O nome do mapa é a CHAVE PRIMÁRIA do documento de exportação (`data.maps`, `data.layers`,
+ * `data.groups` e as outras sete seções são indexadas por ele), então dois registros no mesmo
+ * nome são um mapa perdido. Esta função é a recusa.
+ *
+ * RECUSAR EM VEZ DE DESAMBIGUAR, e a escolha é deliberada. Renomear "Alfa" para "Alfa (2)" no
+ * caminho do envio inventaria, dentro de um envio, um nome que não existe no acervo e que a
+ * pessoa não reconheceria de volta; sobrescrever é o defeito que se está fechando. Uma recusa
+ * nomeada, ANTES da rede, deixa o acervo intacto e diz o gesto que resolve.
+ *
+ * @param {Map<string, string>} nomePorChave - Chave do registro para o nome resolvido.
+ * @throws {Error} Com `code = 'NOME_DE_MAPA_REPETIDO'` e `stage = 'leitura'`.
+ */
+function exigirNomesUnicos(nomePorChave) {
+    /** @type {Map<string, string[]>} */
+    const chavesPorNome = new Map();
+    for (const [chave, nome] of nomePorChave) {
+        if (!chavesPorNome.has(nome)) chavesPorNome.set(nome, []);
+        chavesPorNome.get(nome).push(chave);
+    }
+
+    const repetidos = [...chavesPorNome.entries()].filter(([, chaves]) => chaves.length > 1);
+    if (repetidos.length === 0) return;
+
+    // TODAS AS CHAVES DE TODOS OS NOMES REPETIDOS, e não só o primeiro par: a pessoa vai ao mapa
+    // renomear, e uma lista truncada a faria voltar aqui uma vez por colisão.
+    const detalhe = repetidos
+        .map(([nome, chaves]) => `"${nome}" (${chaves.map((c) => `"${c}"`).join(', ')})`)
+        .join('; ');
+    const erro = new Error(
+        'Este atlas local tem mais de um mapa com o mesmo nome, e enviar assim faria um deles '
+        + `sobrescrever o outro no servidor: ${detalhe}. Abra o atlas, renomeie os mapas `
+        + 'repetidos e envie de novo. Nada foi enviado.'
+    );
+    erro.code = 'NOME_DE_MAPA_REPETIDO';
+    erro.stage = 'leitura';
+    throw erro;
+}
+
+/**
  * Monta, a partir de um namespace de atlas local, o MESMO objeto que o exportador `.ebgeo` produz
  * (`ExportImportService.buildExportDataObject`), que é a entrada de `buildServerImportPayload`.
  *
- * O NOME DO MAPA VEM DO VALOR, NUNCA DA CHAVE. A chave de `ebgeo_maps` é o UUID num atlas
- * sincronizado e o NOME num atlas local anônimo (`repositories/index.js` decide isso na criação),
- * então derivar o nome da chave acertaria só metade dos casos. `saveMap` garante `data.name` nos
- * dois (`local.repository.js`), e é dele que o nome sai.
+ * O NOME DO MAPA VEM DA CHAVE QUANDO ELA NÃO É UM IDENTIFICADOR, e do valor quando é. A chave de
+ * `ebgeo_maps` é o UUID num atlas sincronizado e o NOME num atlas local anônimo
+ * (`repositories/index.js` decide isso na criação), então nenhum dos dois campos responde sozinho.
+ * A regra inteira, com o defeito medido que a mudou em 2026-09-07, está em {@link nomeDoMapa}; a
+ * colisão que ela não alcança está em {@link exigirNomesUnicos}, e RECUSA o documento.
  *
  * O QUE ELE DELIBERADAMENTE NÃO FAZ: não passa por `optimizeMapData` nem pela poda de referência
  * privada de catálogo. A primeira só normaliza feição, e `buildFeatures` normaliza de novo do
  * outro lado; a segunda é refeita dentro de `buildServerImportPayload`
  * (`pruneCatalogLayerDefinitions`), que é o ponto por onde este payload passa obrigatoriamente.
+ *
+ * O QUE ELE PASSOU A FAZER EM 2026-09-07: `ensureCoordinationLines`, a normalização de LEITURA da
+ * coleção de feições. Ela não é da mesma natureza das duas acima, e é por isso que a exceção vale:
+ * as duas seriam refeitas adiante, e esta não é refeita por ninguém. Um balde que só a linha
+ * anterior do produto conhece chega ao mapeador do servidor sem nome que ele reconheça, e o que
+ * ele faz com o desconhecido é DESCARTAR. Ver a linha, que traz o número medido.
  *
  * @param {{kind: string, atlasId: string, dbSuffix: string}} scope - Escopo do slot, de
  *   `scopeOfLocalAtlas(entry)`.
@@ -138,14 +216,33 @@ export async function buildLocalAtlasExportData(scope) {
         briefings: [],
     };
 
-    const nomePorChave = new Map();
+    // O NOME SAI DA REGRA, e a unicidade É CONFERIDA ANTES DE ESCREVER a primeira seção: escrever
+    // e conferir depois deixaria `data.maps` com um mapa a menos no caminho de erro, e um caminho
+    // de erro que passa por um documento mutilado é o que se está fechando.
+    const nomePorChave = new Map(
+        mapEntries.map(([mapKey, mapData]) => [mapKey, nomeDoMapa(mapKey, mapData)])
+    );
+    exigirNomesUnicos(nomePorChave);
+
     for (const [mapKey, mapData] of mapEntries) {
-        const mapName = String(mapData?.name || mapKey);
-        nomePorChave.set(mapKey, mapName);
+        const mapName = nomePorChave.get(mapKey);
         data.maps[mapName] = {
             baseLayer: mapData?.baseLayer || 'carta-topografica',
             analysisLayers: mapData?.analysisLayers || {},
-            features: mapData?.features || {},
+            // A COLEÇÃO PASSA PELA NORMALIZAÇÃO DE LEITURA, e este leitor era o único dos quatro
+            // caminhos de entrada de um mapa que não passava.
+            //
+            // O QUE ELE PERDIA: a Linha de Barreiras é da 2.2, e a migração 2.2 para 2.3 da outra
+            // linha do produto acrescentou `coordination_lines` VAZIO sem mover nada, então as
+            // feições continuam em `barrier_lines` no disco de quem veio de lá. Aqui elas saíam
+            // CRUAS, e `buildFeatures` resolve o tipo por `BUCKET_TO_SOURCE[balde] || props.source`:
+            // `barrier_lines` não está na tabela e `'barrier_line'` não está entre os tipos que o
+            // servidor aceita, então cada uma delas caía em `stats.droppedFeatures`. No mapa elas
+            // apenas não desenhavam; no envio elas não CHEGAVAM.
+            //
+            // `ensureCoordinationLines` devolve `null` quando não há o que fazer, e é isso que
+            // mantém o custo em zero para todo mapa que já está na forma corrente.
+            features: ensureCoordinationLines(mapData?.features) ?? mapData?.features ?? {},
             catalogLayers: mapData?.catalogLayers,
             zoom: mapData?.zoom ?? null,
             center_lat: mapData?.center_lat ?? null,
@@ -223,19 +320,70 @@ export async function buildLocalAtlasExportData(scope) {
         ?? atlasRecord?.mapOrder
         ?? mapEntries.map(([k]) => k);
     const nomesConhecidos = new Set(Object.keys(data.maps));
-    data.mapOrder = (Array.isArray(ordemCrua) ? ordemCrua : [])
-        .map((k) => nomePorChave.get(k) ?? k)
-        .filter((n) => nomesConhecidos.has(n));
+    // SEM REPETIÇÃO, PRESERVANDO A ORDEM (B3-12, 2026-09-07). A lista traduzida subia com o mesmo
+    // nome treze vezes, o servidor a gravava verbatim e a aba Mapas do atlas novo desenhava
+    // catorze cartões para dois mapas: a tela mostrava o número CERTO de mapas e escondia a
+    // perda. A colisão de nome não é mais possível aqui (`exigirNomesUnicos` recusou antes), mas
+    // a repetição continua sendo: o setting é escrito por outro caminho e pode citar a mesma
+    // chave duas vezes, ou citar a chave E o nome do mesmo mapa.
+    const vistos = new Set();
+    data.mapOrder = [];
+    for (const bruta of (Array.isArray(ordemCrua) ? ordemCrua : [])) {
+        const nome = nomePorChave.get(bruta) ?? bruta;
+        if (!nomesConhecidos.has(nome) || vistos.has(nome)) continue;
+        vistos.add(nome);
+        data.mapOrder.push(nome);
+    }
     for (const nome of nomesConhecidos) {
-        if (!data.mapOrder.includes(nome)) data.mapOrder.push(nome);
+        if (!vistos.has(nome)) {
+            vistos.add(nome);
+            data.mapOrder.push(nome);
+        }
     }
 
+    // O MAPA CORRENTE PASSA PELA MESMA TABELA, e não por uma segunda regra: `lastActiveMap` guarda
+    // ora o nome, ora a CHAVE (as duas coisas coincidem num atlas anônimo e divergem num
+    // sincronizado), e traduzir num lugar e não no outro é como o mapa corrente virava um nome que
+    // o payload não tem.
     const atual = await ler(StoreName.SETTINGS, scope, KEY.currentMap);
     data.currentMap = nomesConhecidos.has(atual)
         ? atual
-        : (nomePorChave.get(atlasRecord?.lastActiveMapId) ?? data.mapOrder[0] ?? null);
+        : (nomePorChave.get(atual)
+            ?? nomePorChave.get(atlasRecord?.lastActiveMapId)
+            ?? data.mapOrder[0] ?? null);
 
     return data;
+}
+
+/**
+ * O QUE O PAYLOAD LEVA, seção a seção, contado no objeto que vai subir.
+ *
+ * CONTADO DO PAYLOAD, e não somado das seções do documento de exportação, porque é o payload que
+ * viaja: entre um e outro passam `buildFeatures` (que DESCARTA feição sem `source` válido) e o
+ * achatamento de 3D e 360, e um contador que lesse o documento anunciaria à pessoa números que
+ * ninguém enviou. `stats` continua vindo de `buildServerImportPayload` e não é substituído: ele
+ * carrega `droppedFeatures`, que este contador não tem como saber.
+ *
+ * @param {Object} payload - O `payload` de `buildServerImportPayload`.
+ * @param {number} imagens - Quantos blobs o payload CITA (`imageIds.length`).
+ * @returns {{maps: number, features: number, layers: number, groups: number, briefings: number,
+ *   slides: number, cesium3d: number, streetview360: number, images: number}}
+ */
+function contarPayload(payload, imagens) {
+    const mapas = payload?.maps ?? [];
+    const briefings = payload?.briefings ?? [];
+    const soma = (lista, f) => lista.reduce((total, item) => total + f(item), 0);
+    return {
+        maps: mapas.length,
+        features: soma(mapas, (m) => (m.features?.length ?? 0)),
+        layers: soma(mapas, (m) => (m.layers?.length ?? 0)),
+        groups: soma(mapas, (m) => (m.groups?.length ?? 0)),
+        briefings: briefings.length,
+        slides: soma(briefings, (b) => (b.slides?.length ?? 0)),
+        cesium3d: soma(mapas, (m) => (m.cesium3dData?.length ?? 0)),
+        streetview360: soma(mapas, (m) => (m.streetview360Data?.length ?? 0)),
+        images: imagens,
+    };
 }
 
 /**
@@ -251,6 +399,19 @@ export async function buildLocalAtlasExportData(scope) {
  * atlas existe no servidor de qualquer forma, e a frase que a tela diz muda com esse número
  * (`sendToServerNotice`).
  *
+ * O QUE O SERVIDOR RESPONDE VOLTA INTEIRO, desde 2026-09-07. `POST /atlas/import` devolve um
+ * `summary` com a contagem por seção, com `prunedResourceRefs` (o que ele DESCARTOU, por
+ * superfície, quando o tileset ou o projeto 360 não está no catálogo de quem recebeu) e com
+ * `remappedIds`. Guardar só `atlas.id` era jogar fora o único relato que existe daquela poda: com
+ * o catálogo do servidor vazio, 16 de 16 itens 3D e 360 do atlas medido evaporaram e a frase da
+ * tela saiu idêntica à do caso em que eles entraram.
+ *
+ * A ETAPA DA FALHA VIAJA COM O ERRO (`error.stage`), e é a metade que a tela precisa. As duas
+ * falhas têm consequências opostas: caindo no import, NADA foi criado no servidor (`importAtlas`
+ * roda inteiro dentro de uma transação); caindo na subida das imagens, o atlas JÁ EXISTE lá, sem
+ * parte das fotos, e a pessoa tem uma decisão a tomar. Sem essa distinção a tela mostrava o
+ * `error.message` cru do `fetch` ("Failed to fetch") nos dois casos.
+ *
  * @param {{id: string, name: string, dbSuffix: string}} entry - A entrada do registro local, de
  *   `listLocalAtlases()`. O `dbSuffix` é o que endereça os bancos, então uma entrada sem ele
  *   endereçaria os bancos legados de outro slot.
@@ -259,9 +420,11 @@ export async function buildLocalAtlasExportData(scope) {
  * @param {Function} deps.scopeOf - Constrói o escopo do slot (`scopeOfLocalAtlas`), injetado para
  *   que o teste possa endereçar um namespace sem carregar o registro inteiro.
  * @param {string} [deps.name] - Nome do atlas no servidor. Sem ele, o nome do slot.
- * @returns {Promise<{atlasId: string, name: string, stats: Object, imageStats: Object}>}
- * @throws {Error} Quando o slot não tem mapa nenhum, ou o servidor recusa a importação. Nos dois
- *   casos nada foi criado no servidor e nada foi tocado neste navegador.
+ * @returns {Promise<{atlasId: string, name: string, stats: Object, imageStats: Object,
+ *   sent: Object, local: Object, summary: Object|null}>}
+ * @throws {Error} Sempre com `stage`: `'leitura'` (nada saiu deste navegador), `'import'` (nada
+ *   foi criado no servidor) ou `'images'` (o atlas EXISTE no servidor, e o `atlasId` acompanha o
+ *   erro). O slot de origem está intacto nos três.
  */
 export async function sendLocalAtlasToServer(entry, { apiClient, scopeOf, name } = {}) {
     if (!entry?.id) throw new Error('sendLocalAtlasToServer: entry with an id is required');
@@ -272,7 +435,10 @@ export async function sendLocalAtlasToServer(entry, { apiClient, scopeOf, name }
     if (Object.keys(exportData.maps).length === 0) {
         // A RECUSA VEM ANTES DA REDE, e com a frase pronta: criar um atlas vazio no servidor para
         // depois explicá-lo é o defeito que esta linha evita.
-        throw new Error('Este atlas local não tem nenhum mapa para enviar ao servidor.');
+        throw comEtapa(
+            new Error('Este atlas local não tem nenhum mapa para enviar ao servidor.'),
+            'leitura'
+        );
     }
 
     // O BLOB GANHA ID NOVO A CADA ENVIO, pela mesma razao da porta irma
@@ -293,19 +459,38 @@ export async function sendLocalAtlasToServer(entry, { apiClient, scopeOf, name }
     const sondagem = buildServerImportPayload(exportData, { name: atlasName });
     const imageIdMap = Object.fromEntries(sondagem.imageIds.map((id) => [id, generateUUID()]));
     const built = buildServerImportPayload(exportData, { name: atlasName, imageIdMap });
-    const atlas = await apiClient.importAtlas(built.payload);
+
+    let atlas;
+    try {
+        atlas = await apiClient.importAtlas(built.payload);
+    } catch (error) {
+        // NADA FOI CRIADO NO SERVIDOR: `importAtlas` roda inteiro dentro de `tx(...)`, medido
+        // contra um 500 forjado. A etapa é o que autoriza a tela a dizer isso.
+        throw comEtapa(error, 'import');
+    }
 
     // O BLOB SE LE PELO ID LOCAL E SOBE PELO NOVO. `built.imageIds` continua sendo a lista de ids
     // LOCAIS que o atlas cita, e nao a recunhada: quem carrega a troca e o `imageIdMap`, que a
     // segunda passada ja aplicou as REFERENCIAS dentro do payload. Ler pelo id novo devolveria
     // vazio, e o envio subiria sem imagem nenhuma, calado.
-    const encontradas = [];
-    for (const id of built.imageIds) {
-        const blob = await ler(StoreName.IMAGES, scope, id);
-        if (blob) encontradas.push([imageIdMap[id] ?? id, blob]);
+    let uploads;
+    let skipped;
+    let failed;
+    try {
+        const encontradas = [];
+        for (const id of built.imageIds) {
+            const blob = await ler(StoreName.IMAGES, scope, id);
+            if (blob) encontradas.push([imageIdMap[id] ?? id, blob]);
+        }
+        ({ uploads, skipped } = await buildImageUploads(encontradas));
+        ({ failed } = await uploadImagesInChunks(apiClient, atlas.id, uploads));
+    } catch (error) {
+        // DAQUI PARA BAIXO O ATLAS JÁ EXISTE NO SERVIDOR, e o `atlasId` viaja com o erro para que
+        // a frase possa dizer ONDE ele está. Medido em 2026-09-07 cortando a rede no meio da
+        // subida: `POST /atlas/import` respondeu 201 com 14 mapas e 805 feições, o pedido das
+        // imagens caiu, e a tela mostrou o literal "Failed to fetch".
+        throw comEtapa(error, 'images', atlas?.id);
     }
-    const { uploads, skipped } = await buildImageUploads(encontradas);
-    const { failed } = await uploadImagesInChunks(apiClient, atlas.id, uploads);
 
     return {
         atlasId: atlas.id,
@@ -317,5 +502,42 @@ export async function sendLocalAtlasToServer(entry, { apiClient, scopeOf, name }
             skipped: skipped.length,
             failed: failed.length,
         },
+        // O QUE SUBIU, contra O QUE O SLOT TEM: os dois lados do aviso, e nenhum deles se deduz do
+        // outro.
+        sent: contarPayload(built.payload, built.imageIds.length),
+        // O DENOMINADOR VEM DE UM LEITOR INDEPENDENTE, e essa independência é a régua inteira.
+        //
+        // A primeira versão desta linha contava o próprio `exportData`, e o controle negativo de
+        // 2026-09-07 mostrou por que isso não vale nada: com o leitor de nomes quebrado, o
+        // documento tinha 2 mapas e 33 feições, então o numerador e o denominador saíam do MESMO
+        // defeito, concordavam, e o toast saía VERDE anunciando "2 mapas, 33 feições" sobre um
+        // acervo de 14 e 805. Uma comparação entre duas medidas que compartilham o erro não é
+        // comparação. `countAtlasContents` lê o disco por outro módulo e outro caminho de código
+        // (`iterate` cru sobre `ebgeo_maps`, sem resolver nome nenhum), e por isso pode discordar.
+        local: await countAtlasContents(scope),
+        // A RESPOSTA DO SERVIDOR, INTEIRA. `prunedResourceRefs` é o que ele descartou e
+        // `remappedIds` quantos ids do payload já estavam ocupados e foram recunhados (que não é
+        // perda: é o servidor fazendo o certo, e por isso não vira frase).
+        summary: atlas?.summary ?? null,
     };
+}
+
+/**
+ * Carimba a ETAPA num erro e o devolve para ser relançado.
+ *
+ * ANOTA O ERRO ORIGINAL EM VEZ DE EMBRULHÁ-LO, de propósito: a pilha e o `status` do `ApiError`
+ * são o que diz por que a rota falhou, e um `new Error(mensagem)` os perderia justamente no
+ * caminho em que alguém vai investigar. Um `stage` que já venha preenchido não é sobrescrito, para
+ * que a recusa de leitura atravesse os `catch` de fora com a etapa dela.
+ *
+ * @param {*} error
+ * @param {'leitura'|'import'|'images'} stage
+ * @param {string} [atlasId] - O atlas que JÁ existe no servidor, quando existe.
+ * @returns {*} O mesmo erro, carimbado.
+ */
+function comEtapa(error, stage, atlasId = null) {
+    const alvo = error instanceof Error ? error : new Error(String(error?.message ?? error));
+    if (!alvo.stage) alvo.stage = stage;
+    if (atlasId && !alvo.atlasId) alvo.atlasId = atlasId;
+    return alvo;
 }

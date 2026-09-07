@@ -24,6 +24,10 @@
  *      asserido nulo em toda linha: montar o slot seria tomar o lock de montagem dele.
  *   4. RECUSA ANTES DA REDE. Atlas sem mapa não vira atlas vazio no servidor para ser explicado
  *      depois: `importAtlas` não chega a ser chamado.
+ *   5. FORMA DO BALDE. As feições saem CRUAS do IndexedDB, então um balde que só a linha anterior
+ *      do produto conhece (`barrier_lines`, da 2.2) chega ao mapeador do servidor sem nome que ele
+ *      reconheça e é descartado em silêncio. A leitura passa por `ensureCoordinationLines`, que é
+ *      a mesma normalização que os outros três caminhos de entrada de um mapa aplicam.
  *
  * O QUE ESTE ARQUIVO NÃO ALCANÇA, dito para não ser lido como cobertura completa: `FileReader` não
  * existe em node, e `blobToBase64` depende dele. O dublê mínimo instalado aqui lê `Blob` de
@@ -560,5 +564,113 @@ describe('sendLocalAtlasToServer', () => {
     it('entrada sem id quebra alto, em vez de enviar o namespace errado', async () => {
         await expect(servico.sendLocalAtlasToServer({}, { apiClient: apiFalso(), scopeOf: () => escopoAlvo() }))
             .rejects.toThrow(/entry with an id/);
+    });
+});
+
+// ============================================================================
+// 5 — A FORMA DO BALDE: `barrier_lines` da 2.2 não pode evaporar no envio
+// ============================================================================
+
+describe('buildLocalAtlasExportData :: o balde da Linha de Barreiras', () => {
+    /**
+     * O ACHADO, herdado do lote que fechou a Linha de Barreiras. A Linha de Barreiras é da 2.2, e a
+     * migração 2.2 para 2.3 da outra linha do produto só ACRESCENTOU `coordination_lines` vazio,
+     * sem mover nada: as feições viajam da 2.2 até a 3.0 no disco e dentro de todo `.ebgeo`,
+     * enquanto `barrier_lines` não aparece no código de nenhuma das três versões seguintes.
+     *
+     * NO ENVIO A CONSEQUÊNCIA É PIOR DO QUE NÃO DESENHAR. Este leitor entrega as feições CRUAS, e
+     * `buildFeatures` resolve o tipo por `BUCKET_TO_SOURCE[bucket] || props.source`: `barrier_lines`
+     * não está na tabela e `'barrier_line'` não está entre os tipos que o servidor aceita, então as
+     * feições caem em `stats.droppedFeatures` e somem. Não é "não desenha": é não chega.
+     */
+    const LINHAS_DE_BARREIRA = 5;
+
+    /** Um mapa com `barrier_lines` e SEM `coordination_lines`, que é o disco de quem vem da 2.2. */
+    async function semearBaldeLegado(scope) {
+        await gravar('MAPS', scope, 'Mapa Barreira', {
+            id: 'Mapa Barreira', name: 'Mapa Barreira', baseLayer: 'carta-topografica',
+            features: {
+                barrier_lines: Array.from({ length: LINHAS_DE_BARREIRA }, (_, i) => ({
+                    type: 'Feature',
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: [[-43.2 + i * 0.01, -22.9], [-43.1 + i * 0.01, -22.8]],
+                    },
+                    properties: { id: `barreira-${i}`, source: 'barrier_line', layerId: 'default' },
+                })),
+            },
+        });
+    }
+
+    it('as cinco feições saem no balde SOBREVIVENTE, e o balde velho não sai', async () => {
+        const scope = escopoAlvo();
+        await semearBaldeLegado(scope);
+
+        const data = await servico.buildLocalAtlasExportData(scope);
+        const features = data.maps['Mapa Barreira'].features;
+
+        expect(features.coordination_lines).toHaveLength(LINHAS_DE_BARREIRA);
+        expect(features.barrier_lines).toBeUndefined();
+    });
+
+    it('cada feição adotada carrega `source`, o código do símbolo e as coordenadas de base', async () => {
+        const scope = escopoAlvo();
+        await semearBaldeLegado(scope);
+
+        const data = await servico.buildLocalAtlasExportData(scope);
+
+        for (const f of data.maps['Mapa Barreira'].features.coordination_lines) {
+            expect(f.properties.source).toBe('coordination_line');
+            expect(f.properties.symbol_code).toBe('290199');
+            expect(f.properties.baseCoordinates).toHaveLength(2);
+        }
+    });
+
+    it('A ASSERÇÃO QUE MEDE O ESTRAGO: as cinco chegam ao payload, e nenhuma é descartada', async () => {
+        // A régua não é a forma do documento intermediário, é o que o servidor recebe. Contra o
+        // leitor de antes, `stats.droppedFeatures` é 5 e o payload sai com zero feições.
+        const scope = escopoAlvo();
+        await semearBaldeLegado(scope);
+
+        const data = await servico.buildLocalAtlasExportData(scope);
+        const { payload, stats } = buildServerImportPayload(data, { name: 'Com Barreira' });
+        const mapa = payload.maps.find((m) => m.name === 'Mapa Barreira');
+
+        expect(stats.droppedFeatures).toBe(0);
+        expect(mapa.features).toHaveLength(LINHAS_DE_BARREIRA);
+        expect(mapa.features.every((f) => f.feature_type === 'coordination_line')).toBe(true);
+    });
+
+    it('CONTROLE: um mapa que JÁ tem o balde novo não é reescrito nem duplicado', async () => {
+        // Sem este controle, "adote o balde legado" passaria contra uma implementação que
+        // reprocessasse a coleção toda vez e empilhasse as mesmas feições duas vezes.
+        const scope = escopoAlvo();
+        await gravar('MAPS', scope, 'Mapa Novo', {
+            id: 'Mapa Novo', name: 'Mapa Novo',
+            features: {
+                coordination_lines: [{
+                    type: 'Feature',
+                    geometry: { type: 'LineString', coordinates: [[0, 0], [1, 1]] },
+                    properties: { id: 'cl-1', source: 'coordination_line', symbol_code: '999999' },
+                }],
+            },
+        });
+
+        const data = await servico.buildLocalAtlasExportData(scope);
+        const lista = data.maps['Mapa Novo'].features.coordination_lines;
+
+        expect(lista).toHaveLength(1);
+        expect(lista[0].properties.symbol_code).toBe('999999');
+    });
+
+    it('CONTROLE: mapa sem balde nenhum não ganha feição inventada', async () => {
+        const scope = escopoAlvo();
+        await gravar('MAPS', scope, 'Mapa Seco', { id: 'Mapa Seco', name: 'Mapa Seco', features: {} });
+
+        const data = await servico.buildLocalAtlasExportData(scope);
+
+        expect(data.maps['Mapa Seco'].features.coordination_lines ?? []).toHaveLength(0);
+        const { stats } = buildServerImportPayload(data, { name: 'Seco' });
+        expect(stats.features).toBe(0);
     });
 });

@@ -113,6 +113,7 @@ import {
     deleteNotice,
     refusalNotice,
     renameNotice,
+    sendFailureNotice,
     sendToServerNotice,
 } from './local-atlas-notices.js';
 // The name only, from a module with no imports: the server importer that lives next to it opens
@@ -461,7 +462,12 @@ async function sendLocalAtlasToServerFromPage(atlas) {
         // redesenhar do lado local, e o lado de servidor será relido no próximo boot.
     } catch (error) {
         console.error('[projects] local atlas send to server failed:', error);
-        showError(error?.message || 'Não foi possível enviar este atlas ao servidor.');
+        // A FRASE VEM DA ETAPA, e não do texto cru do erro. Medido em 2026-09-07: com a rede cortada
+        // na subida das imagens, esta linha mostrava o literal "Failed to fetch" do navegador no
+        // exato momento em que a pessoa mais precisava saber que o atlas JÁ ESTAVA no servidor e
+        // estava sem imagem. `sendFailureNotice` é pura, sabe distinguir as três etapas
+        // (`leitura`, `import`, `images`) e é onde essa distinção pode ser exercitada por teste.
+        tell(sendFailureNotice(error, { name }));
     }
 }
 
@@ -642,6 +648,10 @@ async function deleteLocalAtlasFromPage(atlas) {
             name: atlas?.name,
             signedIn: sessionContext.isAuthenticated(),
             contents,
+            // O SUFIXO VAZIO É O ENDEREÇO DO ACERVO HERDADO, e a comparação é ESTRITA: uma entrada
+            // sem o campo tem `dbSuffix === undefined`, e um `!atlas?.dbSuffix` poria a frase do
+            // acervo sobre um registro malformado de um atlas qualquer.
+            legacySlot: atlas?.dbSuffix === '',
         }),
         destructive: true,
         confirmText: 'Excluir',

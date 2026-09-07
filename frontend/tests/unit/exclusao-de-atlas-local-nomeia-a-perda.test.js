@@ -94,6 +94,103 @@ describe('o corpo do diálogo de exclusão: o atlas com conteúdo', () => {
     });
 });
 
+// ============================================================================
+// O SLOT HERDADO: o cartão que carrega o acervo da versão anterior
+// ============================================================================
+
+describe('o slot de sufixo VAZIO diz que é o acervo herdado', () => {
+    /**
+     * O ACHADO (B1-1), medido em 2026-09-07: excluir este cartão apagou 198 registros e os onze
+     * bancos SEM SUFIXO, que são 14 mapas, 807 feições e 149 imagens — o acervo inteiro de quem
+     * chegou da versão anterior do produto. O botão está certo, é isso que ele faz. O que faltava
+     * na frase é que aquele slot NÃO é um atlas qualquer: ele é o único que existia antes dos
+     * atlas múltiplos, o nome dele continua sendo "Meu Atlas" (que é também o nome de fábrica de
+     * um em branco), e a cópia dele chama-se "Meu Atlas (cópia)", de modo que a tela fica com dois
+     * cartões que começam pelas mesmas duas palavras.
+     */
+    const HERDADO = {
+        name: 'Meu Atlas',
+        legacySlot: true,
+        contents: { maps: 14, features: 807, images: 149 },
+    };
+
+    it('nomeia o slot como o acervo da versão anterior do EBGeo', () => {
+        const texto = deleteConfirmMessage(HERDADO);
+        expect(texto).toMatch(/vers[ãa]o anterior/i);
+        expect(texto).toMatch(/EBGeo/);
+    });
+
+    it('diz que ele era o ÚNICO que existia antes dos atlas múltiplos', () => {
+        // Sem esta metade, "veio da versão anterior" descreveria também um atlas importado de um
+        // arquivo antigo, que é descartável. O que separa este cartão dos outros é ser o acervo,
+        // não a idade dele.
+        expect(deleteConfirmMessage(HERDADO)).toMatch(/único|unico/i);
+    });
+
+    it('RECOMENDA EXPORTAR UM `.ebgeo` ANTES, que é o caminho de guardar o acervo', () => {
+        expect(deleteConfirmMessage(HERDADO)).toMatch(/\.ebgeo/);
+        expect(deleteConfirmMessage(HERDADO)).toMatch(/export/i);
+    });
+
+    it('e continua contando o que morre com ele', () => {
+        const texto = deleteConfirmMessage(HERDADO);
+        expect(texto).toContain('14 mapas');
+        expect(texto).toContain('807 feições');
+        expect(texto).toContain('149 imagens');
+        expect(texto).toMatch(/NÃO pode ser desfeito/);
+    });
+
+    it('o slot herdado VAZIO também é nomeado: a identidade não depende da contagem', () => {
+        // Um acervo herdado cuja contagem não pôde ser lida (ou que a pessoa esvaziou) continua
+        // sendo o endereço sem sufixo, e continua sendo o que a linha anterior do produto usa.
+        const texto = deleteConfirmMessage({ name: 'Meu Atlas', legacySlot: true, contents: null });
+        expect(texto).toMatch(/vers[ãa]o anterior/i);
+        expect(texto).toMatch(/\.ebgeo/);
+    });
+});
+
+describe('CONTROLE: um atlas comum NÃO recebe a frase do acervo herdado', () => {
+    // O CONTROLE QUE FAZ A RÉGUA VALER. Uma frase acrescentada a TODO diálogo passaria em todos os
+    // casos acima e diria a um atlas criado há um minuto que ele veio da versão anterior, que é
+    // uma tela mentindo de novo, só que na outra direção.
+    const COMUM = { name: 'Bravo', contents: { maps: 2, features: 9, images: 0 } };
+
+    it.each([
+        ['sem a bandeira', COMUM],
+        ['bandeira falsa', { ...COMUM, legacySlot: false }],
+        ['bandeira ausente por indefinição', { ...COMUM, legacySlot: undefined }],
+    ])('%s: nada sobre versão anterior nem sobre exportar', (_nome, options) => {
+        const texto = deleteConfirmMessage(options);
+        expect(texto).not.toMatch(/vers[ãa]o anterior/i);
+        expect(texto).not.toMatch(/\.ebgeo/);
+        // E a frase que ele já tinha continua inteira.
+        expect(texto).toContain('2 mapas');
+        expect(texto).toMatch(/outros atlas não são afetados/);
+    });
+
+    it('FALHA FECHADO: só o booleano verdadeiro liga a frase', () => {
+        // `dbSuffix === ''` é o teste do chamador, e ele é estrito de propósito: um `undefined`
+        // (registro malformado, entrada de outra versão) não pode ser lido como "sufixo vazio".
+        for (const bandeira of ['', 0, 'sim', {}, null]) {
+            expect(deleteConfirmMessage({ ...COMUM, legacySlot: bandeira }))
+                .not.toMatch(/vers[ãa]o anterior/i);
+        }
+    });
+});
+
+describe('a página reconhece o slot herdado pelo SUFIXO VAZIO', () => {
+    it('o diálogo recebe `legacySlot` a partir de `dbSuffix === \'\'`', () => {
+        const trecho = PAGE_SRC.slice(
+            PAGE_SRC.indexOf('async function deleteLocalAtlasFromPage'),
+            PAGE_SRC.indexOf('async function deleteLocalAtlasFromPage') + 1600
+        );
+        expect(trecho).toContain('legacySlot');
+        // ESTRITO, e não `!atlas?.dbSuffix`: uma entrada sem o campo tem `undefined`, e tratá-la
+        // como sufixo vazio poria a frase do acervo sobre um atlas qualquer.
+        expect(trecho).toMatch(/dbSuffix === ''/);
+    });
+});
+
 describe('CONTROLE: o atlas vazio continua com a frase curta', () => {
     /**
      * O contorno de "vazio" inclui UM mapa sem nada dentro, e não é detalhe: a inicialização do

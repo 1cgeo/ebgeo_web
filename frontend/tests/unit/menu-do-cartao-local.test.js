@@ -243,8 +243,13 @@ describe('3 — o desfecho do envio', () => {
         expect(notice.openAtlasId).toBe('srv-9');
         expect(notice.kind).toBe(NoticeKind.SUCCESS);
         expect(notice.message).toContain('Operação Alfa');
-        expect(notice.message).toContain('2 mapa');
-        expect(notice.message).toContain('7 feição');
+        expect(notice.message).toContain('2 mapas');
+        // A FORMA DO PLURAL MUDOU EM 2026-09-07, e a linha velha (`7 feição`) casava com
+        // `7 feição(ões)`, que era como a frase escrevia os dois números de uma vez. Contar
+        // sete seções em vez de três tornou aquela forma insustentável: `21 camada(s),
+        // 3 grupo(s), 2 briefing(s)` é uma frase que ninguém lê. O plural passou a ser
+        // resolvido, como já era em `atlasContentsLines`, e a asserção acompanhou.
+        expect(notice.message).toContain('7 feições');
     });
 
     it('diz o que NÃO subiu, quando algo não subiu', () => {
@@ -253,7 +258,7 @@ describe('3 — o desfecho do envio', () => {
             imageStats: { total: 3, uploaded: 1, skipped: 1, failed: 1 },
         });
         expect(notice.kind).toBe(NoticeKind.WARNING);
-        expect(notice.message).toContain('2 imagem');
+        expect(notice.message).toContain('2 imagens');
     });
 
     it('o AVISO fica na tela: quem tem algo a dizer não navega por cima da própria frase', () => {
