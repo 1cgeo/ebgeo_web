@@ -54,7 +54,11 @@ import {
 import { purgeAllRemoteAtlases, purgeReachedAtlas, listRemoteAtlases } from './remote-atlas.api.js';
 import { activateCurrentLocalAtlasScope, initLocalAtlases } from './local-atlas.api.js';
 import { observeLegacyInstallation, reportBootAtlasScope } from './migration/boot-legacy-adoption.js';
-import { readLocalAtlasRegistry, LEGACY_DB_SUFFIX } from './atlas-namespace.js';
+import { readLocalAtlasRegistry, getStoreFor, StoreName, LEGACY_DB_SUFFIX } from './atlas-namespace.js';
+// A MESMA PONTE que `clearAllAtlasStores` atravessa uma linha depois, e do ARQUIVO pelo motivo que
+// o próprio `ensureAtlasScope` documenta: a guarda deslogada roda ANTES de o boot ativar escopo, e
+// contar o que o expurgo vai apagar exige resolver os mesmos bancos que ele vai esvaziar.
+import { ensureAtlasScope } from './repositories/local.repository.js';
 // Imported DIRECT, never through the `@utils` barrel: the barrel drags the store back in through
 // `feature_navigation_utils`, and this module is the store.
 import { announceTabLockTeardown } from '@utils/tab-lock.js';
@@ -389,7 +393,10 @@ async function enforceLocalStoreWhenLoggedOut() {
         if (slot) {
             reportOrphanRemoteMarker(atlasId, slot);
         } else {
+            // CONTA ANTES DE ESVAZIAR, porque um instante depois não há mais o que contar.
+            const apagado = await countLegacyScopeKeys();
             await unmountCurrentAtlas();
+            reportLegacyPurge(atlasId, apagado);
         }
     }
     await markStoreLocal();
@@ -435,6 +442,63 @@ function reportOrphanRemoteMarker(atlasId, slot) {
     console.info(
         `Boot do atlas: marcador REMOTE orfao (${alvo}) ignorado; os bancos sem sufixo `
         + `pertencem ao slot local "${slot.name ?? slot.id}"`
+    );
+}
+
+/**
+ * Quantas chaves os bancos que o expurgo vai esvaziar carregam NESTE instante.
+ *
+ * POR CHAVES, e não por conteúdo: o número existe para dar tamanho ao rastro, e ler os documentos
+ * de mapa um a um (o que `store/atlas-contents.js` faz, porque um diálogo precisa das feições)
+ * custaria um passeio pelo acervo inteiro dentro do boot, para uma linha de console.
+ *
+ * `ensureAtlasScope()` PRIMEIRO, pela mesma razão que `clearAllAtlasStores` o chama: nesta altura
+ * do boot ninguém ativou escopo, e a ponte legada é justamente quem resolve os bancos sem sufixo
+ * que o expurgo vai atingir. Contar por outro escopo seria contar outro atlas.
+ *
+ * "NÃO SEI" É RESULTADO, e não zero. Um banco ilegível devolve `null`, e a linha diz que não sabe;
+ * anunciar "0 mapa(s)" sobre um acervo cheio seria a mentira que o rastro existe para evitar.
+ *
+ * @returns {Promise<{maps: number, images: number}|null>} As contagens, ou null quando não deu.
+ */
+async function countLegacyScopeKeys() {
+    try {
+        ensureAtlasScope();
+        const [mapas, imagens] = await Promise.all([
+            getStoreFor(StoreName.MAPS).keys(),
+            getStoreFor(StoreName.IMAGES).keys()
+        ]);
+        return { maps: mapas.length, images: imagens.length };
+    } catch (error) {
+        console.warn('Boot do atlas: nao foi possivel contar o que o expurgo vai apagar:', error);
+        return null;
+    }
+}
+
+/**
+ * Says out loud that the second wipe RAN, over which atlas, and how much it destroyed.
+ *
+ * O EXPURGO LEGÍTIMO CORRIA CALADO, que é o outro lado do que `reportOrphanRemoteMarker` conserta.
+ * Medido no navegador em 2026-09-07 (achado D9 da bancada escalada): o controle negativo apagou 191
+ * registros e a única linha do console foi a do diagnóstico do boot, que diz quantos mapas SOBRARAM
+ * (um, o mapa em branco que o repositório semeia) e nunca quantos foram embora. Quem atende o
+ * suporte lê "1 mapa(s)" e não tem como saber se a instalação sempre teve um.
+ *
+ * É `info` e não `warn` pelo mesmo motivo do irmão acima: esta é a destruição CORRETA, a que
+ * impede um atlas de servidor de continuar editável offline depois que a sessão morreu.
+ *
+ * @param {string|null} atlasId - Atlas que o marcador nomeava, se nomeava algum.
+ * @param {{maps: number, images: number}|null} apagado - As contagens de antes do expurgo.
+ * @returns {void}
+ */
+function reportLegacyPurge(atlasId, apagado) {
+    const alvo = atlasId ? `atlas ${atlasId}` : 'sem atlas nomeado';
+    const quanto = apagado
+        ? `${apagado.maps} mapa(s) e ${apagado.images} imagem(ns)`
+        : 'quantidade desconhecida (bancos ilegiveis antes do expurgo)';
+    console.info(
+        `Boot do atlas: residuo REMOTE (${alvo}) nos bancos sem sufixo, que slot local nenhum `
+        + `reivindica; expurgo apagou ${quanto}`
     );
 }
 

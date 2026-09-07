@@ -133,7 +133,7 @@ describe('arquivo RECUSADO: nenhum atlas local nasce', () => {
         {
             nome: 'arquivo CORROMPIDO (não é zip nenhum)',
             bytes: async () => new TextEncoder().encode('isto nao e um zip').buffer,
-            trecho: 'Erro ao carregar arquivo .ebgeo',
+            trecho: 'Erro ao carregar o arquivo',
         },
         {
             nome: 'zip SEM data.json',

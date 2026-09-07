@@ -46,6 +46,13 @@
  * AS CONTAGENS SAO CRUAS, por nome ABSOLUTO de banco (`tests/helpers/idb-helpers.js`), e o
  * insumo e a fixture de producao da outra linha (`03-completo-2.4.ebgeo`, 14 mapas, 805
  * feicoes, 149 PNG), nunca um mock do que um disco 2.4 pareceria.
+ *
+ * E O ARQUIVO PRENDE TAMBEM O RASTRO DO EXPURGO QUE RODA (achado D9, 2026-09-07). O controle (a)
+ * abaixo e o unico caso em que os bancos sem sufixo sao mesmo esvaziados, entao e nele que a
+ * linha de `console.info` do expurgo se mede: ela nomeia o atlas do marcador e diz quantas chaves
+ * de mapas e de imagens foram apagadas, contadas ANTES. Os numeros da assercao saem do "antes"
+ * medido no proprio caso, nunca de literais: uma linha de rastro que anuncia numero proprio nao e
+ * rastro, e sim uma segunda fonte para discordar da primeira.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -260,6 +267,17 @@ function linhasDoOrfao(linhas) {
     return linhas.filter(l => l.includes('marcador REMOTE orfao'));
 }
 
+/**
+ * As linhas do EXPURGO QUE RODOU, que sao a outra metade e nunca aparecem junto com as do orfao:
+ * ou um slot local reivindica os bancos sem sufixo (linha do orfao, expurgo pulado), ou nenhum
+ * reivindica (linha do expurgo, bancos esvaziados).
+ * @param {string[]} linhas
+ * @returns {string[]}
+ */
+function linhasDoExpurgo(linhas) {
+    return linhas.filter(l => l.includes('expurgo apagou'));
+}
+
 beforeEach(async () => {
     vi.resetModules();
     await resetIndexedDB();
@@ -344,6 +362,9 @@ describe('marcador REMOTE orfao sobre bancos sem sufixo REIVINDICADOS pelo regis
         expect(doOrfao).toHaveLength(1);
         expect(doOrfao[0]).toContain(ATLAS_ORFAO);
         expect(doOrfao[0]).toContain(NOME_DO_SLOT);
+        // e a linha do EXPURGO nao aparece aqui, senao ela deixa de dizer o que diz: aqui nada
+        // foi apagado.
+        expect(linhasDoExpurgo(linhas)).toEqual([]);
     });
 
     it('o slot reivindicado continua sendo o montado, com o nome do usuario', async () => {
@@ -403,6 +424,19 @@ describe('os controles: o que a guarda nova NAO pode ter afrouxado', () => {
         expect(antes.nomesDeMapa).toHaveLength(DECLARADO_2_4.maps);
         expect(depois.nomesDeMapa).toEqual(['Principal']);
         expect(linhasDoOrfao(linhas)).toEqual([]);
+
+        // E O EXPURGO DIZ QUANTO APAGOU (achado D9). Ate 2026-09-07 este ramo corria calado: a
+        // unica linha era a do diagnostico do boot, que conta os mapas que SOBRARAM (um, o mapa
+        // em branco que o repositorio semeia), e nunca os 14 que foram embora. Os numeros da
+        // linha sao os do "antes" medido acima, nunca literais: uma linha que anuncia numero
+        // proprio nao e rastro, e sim uma segunda fonte para discordar da primeira.
+        const doExpurgo = linhasDoExpurgo(linhas);
+        expect(doExpurgo).toHaveLength(1);
+        expect(doExpurgo[0]).toContain(ATLAS_ORFAO);
+        expect(doExpurgo[0]).toContain(`${antes.mapas} mapa(s)`);
+        expect(doExpurgo[0]).toContain(`${antes.imagens} imagem(ns)`);
+        // e o numero e o de ANTES, nao o de depois: sem isto, "1 mapa(s)" passaria.
+        expect(doExpurgo[0]).not.toContain(`${depois.mapas} mapa(s)`);
     });
 
     it('(b) marcador REMOTE cujo atlas AINDA esta registrado segue o caminho normal', async () => {
@@ -429,6 +463,7 @@ describe('os controles: o que a guarda nova NAO pode ter afrouxado', () => {
             mapas: antes.mapas, feicoes: antes.feicoes, imagens: antes.imagens
         });
         expect(linhasDoOrfao(linhas)).toEqual([]);
+        expect(linhasDoExpurgo(linhas)).toEqual([]);
     });
 
     it('(c) marcador LOCAL nao toca em nada, e a guarda nem chega a perguntar', async () => {
@@ -444,6 +479,7 @@ describe('os controles: o que a guarda nova NAO pode ter afrouxado', () => {
             imagens: antes.imagens
         });
         expect(linhasDoOrfao(linhas)).toEqual([]);
+        expect(linhasDoExpurgo(linhas)).toEqual([]);
     });
 
     it('(d) com SESSAO VIVA a guarda inteira nao roda, e o marcador REMOTE fica de pe', async () => {

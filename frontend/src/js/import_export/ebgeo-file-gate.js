@@ -58,11 +58,40 @@ export function xorMask(data, key = 0xAA) {
 }
 
 /**
+ * A sentença da casa para um arquivo que não abre como arquivo compactado.
+ *
+ * O NOME ENTRA QUANDO EXISTE, e só então: `readEbgeoArchive` aceita `File|Blob`, e um `Blob` não
+ * tem nome nenhum (é o que chega pelo `.ebgeo` guardado entre páginas). Escrever `"undefined"` no
+ * meio da frase seria pior que não nomear o arquivo.
+ *
+ * @param {File|Blob} file - O arquivo que não abriu.
+ * @returns {string} A frase, em português, sem uma palavra de dependência dentro.
+ */
+function corruptedArchiveMessage(file) {
+    const nome = typeof file?.name === 'string' ? file.name.trim() : '';
+    return nome
+        ? `O arquivo "${nome}" não é um .ebgeo válido, ou está corrompido`
+        : 'O arquivo não é um .ebgeo válido, ou está corrompido';
+}
+
+/**
  * Opens a `.ebgeo` and returns its archive and its parsed document.
  *
  * Throws on everything that is not a readable archive (not a zip, no `data.json`, invalid JSON),
  * with the message the importer already showed for each case. A caller that only needs the verdict
  * catches and reports; the importer keeps the `zip` because the image blobs are in it.
+ *
+ * A FALHA DE ABERTURA É TRADUZIDA, e é a única das três que era estrangeira. O `fileoverview` de
+ * `deep-link/pending-import.js` declara que a sentença de um arquivo quebrado é a do próprio
+ * importador, e até 2026-09-07 o importador não tinha sentença nenhuma para este caso: repassava a
+ * do JSZip, que o usuário lê como `Can't find end of central directory : is this a zip file ? If it
+ * is, see https://stuk.github.io/jszip/...` (achado D8 da bancada escalada, medido no navegador).
+ * Inglês, jargão de formato e um link para a documentação de uma biblioteca, num diálogo cuja
+ * pergunta é "e agora?". O erro original vai em `cause`, para o console e para quem depura.
+ *
+ * OS OUTROS DOIS CASOS FICAM COMO ESTÃO. `data.json` ausente já tem frase da casa, e o JSON inválido
+ * continua devolvendo o `SyntaxError` do runtime: ele nomeia a posição do caractere, que é o que se
+ * pede a um arquivo que ABRIU e cujo conteúdo é que está errado.
  *
  * @param {File|Blob} file - The archive, masked or plain.
  * @returns {Promise<{zip: import('jszip'), data: Object}>}
@@ -74,7 +103,12 @@ export async function readEbgeoArchive(file) {
         ? xorMask(fileArray.slice(MASK_HEADER.length))
         : fileArray;
 
-    const zip = await JSZip.loadAsync(zipData);
+    let zip;
+    try {
+        zip = await JSZip.loadAsync(zipData);
+    } catch (error) {
+        throw new Error(corruptedArchiveMessage(file), { cause: error });
+    }
 
     const dataFile = zip.file('data.json');
     if (!dataFile) {

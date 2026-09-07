@@ -531,13 +531,25 @@ export class AccountControl {
     /**
      * Resolve and show the current atlas name in the menu (from the project list,
      * cached by atlasId). Hidden when no atlas is open or the name is unknown.
+     *
+     * O ATLAS LOCAL TAMBÉM TEM NOME, e até 2026-09-07 esta era a única casa do produto que não o
+     * dizia. A ausência de `syncEngine.atlasId` era lida como "não há atlas", quando ela significa
+     * só "não há atlas DE SERVIDOR": medido no navegador (achado D6 da bancada escalada), um
+     * acervo renomeado pelo usuário aparecia com o nome novo em "Seus atlas" e com o selo VAZIO no
+     * mapa, que é a tela onde ele passa o dia. O nome do slot corrente vem do registro local, a
+     * mesma fonte que o cabeçalho do mapa já lê (`sidebar/tabs/maps.tab.js`).
+     *
+     * E SEM NÍVEL DE PERMISSÃO, de propósito: o eixo de permissão é do servidor, e um selo dizendo
+     * "Proprietário" sobre um atlas que só existe neste navegador afirmaria uma concessão que
+     * ninguém fez. `_applyAtlasName` sem o segundo argumento esconde o selo.
      * @private
      */
     async _renderAtlasName() {
         if (!this._atlasLabel || !this._atlasNameEl) return;
         const atlasId = syncEngine.atlasId;
         if (!atlasId) {
-            this._atlasLabel.hidden = true;
+            // Nome do slot local, ou `null`, que é o que continua escondendo o rótulo inteiro.
+            this._applyAtlasName(this._resolveLocalAtlasName());
             return;
         }
         if (this._atlasCache && this._atlasCache.id === atlasId) {
@@ -559,6 +571,25 @@ export class AccountControl {
             if (syncEngine.atlasId === atlasId) this._applyAtlasName(name, permission);
         } catch {
             this._atlasLabel.hidden = true;
+        }
+    }
+
+    /**
+     * O nome do atlas LOCAL montado, lido do registro de slots.
+     *
+     * O `try` é o mesmo que `maps.tab.js` usa, pela mesma razão: `getLocalAtlas` passa por
+     * `requireEntries()`, que LANÇA quando nenhum boot carregou o registro, e este menu abre em
+     * páginas que bootam sem ele. Selo sem nome é menos que um menu quebrado.
+     * @returns {string|null} Nome do slot corrente, ou null quando não há registro nem slot.
+     * @private
+     */
+    _resolveLocalAtlasName() {
+        const id = getCurrentLocalAtlasId();
+        if (!id) return null;
+        try {
+            return getLocalAtlas(id)?.name ?? null;
+        } catch (_error) {
+            return null;
         }
     }
 

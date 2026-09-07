@@ -752,7 +752,7 @@ export class ExportImportService {
 
         } catch (error) {
             console.error('Erro ao importar arquivo:', error);
-            showError('Erro ao carregar arquivo .ebgeo: ' + error.message);
+            showError('Erro ao carregar o arquivo: ' + error.message);
         }
 
         event.target.value = '';
