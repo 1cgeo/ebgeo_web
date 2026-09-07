@@ -327,6 +327,19 @@ const CENSO = [
             + 'estreitá-lo para evitar este falso positivo esconderia junto um consumidor de verdade.',
     },
     {
+        arquivo: 'src/js/projects/local-atlas-notices.js', gatilho: 'catalogo', n: 1,
+        classe: SEM_EIXO,
+        motivo: 'FALSO POSITIVO DECLARADO, e o padrão casou uma CHAVE DE TABELA DE RÓTULO: '
+            + '`settings.basemaps` é o id de uma superfície do relatório de poda do servidor, '
+            + 'escrito aqui como chave de `ROTULO_DE_PODA` para que a frase do envio diga '
+            + '"camadas de base do catálogo" em vez de imprimir o identificador cru. Entrou em '
+            + '2026-09-07, quando a frase passou a ler `summary.prunedResourceRefs`. O que o '
+            + 'módulo recebe do servidor é `{superfície: número}`, isto é, CONTAGEM e nunca id de '
+            + 'recurso, e o arquivo não importa o singleton `config` nem poderia: ele é folha de '
+            + '`atlas.html`, que boota sem a store e sem `initServices()`. É a discriminação deste '
+            + 'censo que mede isso.',
+    },
+    {
         arquivo: 'src/js/projects/send-local-to-server.service.js', gatilho: 'catalogo', n: 1,
         classe: SEM_EIXO,
         motivo: 'FALSO POSITIVO DECLARADO, e o irmão exato de `local-atlas-to-server.js`: a chave '
