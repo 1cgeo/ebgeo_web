@@ -9,6 +9,10 @@
  * descartado. A operação é escrita no destino e LIDA DE VOLTA antes de sair da origem, então
  * toda falha deixa o trabalho exatamente onde estava.
  *
+ * A exceção da regra da op sem carimbo (ela nunca vai para o namespace de um atlas de
+ * SERVIDOR) tem arquivo próprio, porque o pior caso dela é uma instalação inteira e não um
+ * envelope: `fila-legada-nunca-vai-para-atlas-de-servidor.test.js`.
+ *
  * O QUE ESTE VERDE PROVARIA SE O CÓDIGO ESTIVESSE ERRADO: cada caso conta as operações nos
  * DOIS bancos, por nome absoluto, antes e depois. Uma migração que apagasse a origem sem
  * escrever o destino, ou que escrevesse os dois, falha pela contagem; um caso que só olhasse
@@ -133,16 +137,37 @@ describe('roteamento das operações pendentes para a fila do seu atlas', () => 
         expect(idsEm(FILA_LEGADA)).toEqual([]);
     });
 
-    it('a op SEM carimbo vai para o atlas montado agora, que é a regra escrita', async () => {
+    // Este caso se chamava "a op SEM carimbo vai para o atlas montado agora, que é a regra
+    // escrita" e montava um atlas de SERVIDOR. A regra continua sendo essa; o que deixou de
+    // valer é justamente a metade que ele exercitava. Mediu-se em 2026-09-07 que a fila
+    // herdada da linha sem backend, que não carimba operação nenhuma, era movida INTEIRA para
+    // `ebgeo__remote-<id>` e ficava ao alcance do auto-flush. A regra ganhou a exceção do
+    // servidor, então o caso foi reescrito para o escopo em que ela sempre valeu (um slot
+    // LOCAL), e a exceção tem arquivo próprio, com o pior caso:
+    // `fila-legada-nunca-vai-para-atlas-de-servidor.test.js`.
+    it('a op SEM carimbo vai para o slot LOCAL montado agora, que é a regra escrita', async () => {
+        const { ns, migrar } = await carregar();
+        semearNoLegado('op-antiga', null);
+        ns.activateScope(ns.localScope('slot-2', 'slot2'));
+
+        const relatorio = await migrar();
+
+        expect(relatorio.moved).toBe(1);
+        expect(idsEm(filaDe('slot2'))).toEqual(['op-antiga']);
+        expect(idsEm(FILA_LEGADA)).toEqual([]);
+    });
+
+    it('a op SEM carimbo NÃO vai para o atlas de SERVIDOR montado agora', async () => {
         const { ns, migrar } = await carregar();
         semearNoLegado('op-antiga', null);
         ns.activateScope(ns.remoteScope(ATLAS_X));
 
         const relatorio = await migrar();
 
-        expect(relatorio.moved).toBe(1);
-        expect(idsEm(filaDe(`remote-${ATLAS_X}`))).toEqual(['op-antiga']);
-        expect(idsEm(FILA_LEGADA)).toEqual([]);
+        expect(relatorio).toEqual({ moved: 0, kept: 1, failed: 0 });
+        expect(idsEm(FILA_LEGADA)).toEqual(['op-antiga']);
+        // E o banco daquele atlas não chegou a ser materializado no caminho.
+        expect(databases.has(filaDe(`remote-${ATLAS_X}`))).toBe(false);
     });
 
     it('a op do PRÓPRIO slot legado fica onde está: nenhum byte se move na instalação comum', async () => {
