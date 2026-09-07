@@ -15,6 +15,7 @@ import {
     isInternalProperty,
     compareVersions
 } from './repository.utils.js';
+import { ATLAS_SCHEMA_VERSION } from './atlas/atlas.entity.js';
 import { resetMemoryStore, memoryStore } from './memory-store.js';
 import { setStoreErrorEventBus } from './store-errors.js';
 import { registerStoreErrorListeners } from './store-error-listener.js';
@@ -161,7 +162,12 @@ export async function clearAllDataStore() {
     clearCesium3dCache();
     clearStreetview360Cache();
 
-    await setAppSetting('schemaVersion', SCHEMA_VERSION);
+    // A freshly cleared repository is a NEW repository, and it is born at the CURRENT version.
+    // Stamping the legacy SCHEMA_VERSION ('1.7') here let the boot of the NEXT deployment run
+    // the v1 chain over 2.x data, renumbering every feature and orphaning every blob (measured
+    // on 2026-09-07: 0 of 805 ids survived, 146 reachable blobs became 0). The non-additive
+    // import already re-stamps this way (import_export/export-import.service.js).
+    await setAppSetting('schemaVersion', ATLAS_SCHEMA_VERSION);
 
     deps.eventBus.emit(EventTypes.ALL_DATA_CLEARED);
 
