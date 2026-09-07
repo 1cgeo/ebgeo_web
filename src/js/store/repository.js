@@ -17,10 +17,11 @@
 
 import localforage from 'localforage';
 import { detectMigrationNeeded, safelyMigrate } from './migration/migration.service.js';
-import { ATLAS_SCHEMA_VERSION } from './atlas/atlas.entity.js';
+import { ATLAS_SCHEMA_VERSION, createAtlas } from './atlas/atlas.entity.js';
 import config from '../config.js';
 import { createSyncMetadata } from './sync/sync-metadata.js';
 import { DEFAULT_MAP_NAME } from './store.constants.js';
+import { isValidId } from '../utilities/uuid.js';
 
 // Re-export from repository.utils.js for backward compatibility
 export {
@@ -63,39 +64,130 @@ const layerStore = localforage.createInstance({ name: 'ebgeo_layers' });
 const cesium3dStore = localforage.createInstance({ name: 'ebgeo_cesium3d' });
 const streetview360Store = localforage.createInstance({ name: 'ebgeo_streetview360' });
 const briefingStore = localforage.createInstance({ name: 'ebgeo_briefings' });
+const atlasStore = localforage.createInstance({ name: 'ebgeo_atlas' });
 
 // ===== HELPER FUNCTIONS FOR INITIALIZATION =====
 
 /**
+ * Creates the atlas record if the scope has none.
+ *
+ * Nothing else in the application creates it: `LocalRepository.ensureAtlas` has no production
+ * caller, and until this commit the ONLY path that seeded it on a fresh install was the side
+ * effect of stamping the legacy '1.7' below, which sent the boot through the whole v1 -> v2.4
+ * chain over an empty store just so `migrateToV2` would write the record on its way out.
+ * Removing the '1.7' stamp removes that round trip, so the record is seeded here directly.
+ *
+ * It never overwrites an existing record: the record holds the terrain exaggeration, and a
+ * scope that still has one is not a new repository.
+ *
+ * @returns {Promise<void>}
+ */
+async function ensureAtlasRecord() {
+    const existing = await atlasStore.getItem('current_atlas');
+    if (existing) return;
+    await atlasStore.setItem('current_atlas', createAtlas());
+}
+
+/**
  * Clears all legacy stores and resets schema version.
+ *
+ * IN PARALLEL, and with `allSettled` rather than `all`: these are five independent IndexedDB
+ * databases with no dependency between them, and the serial `await` queue paid five round trips
+ * for an order nobody asked for. `all` is worse than serial here, because its first rejection
+ * returns control while the other clears run unobserved, turning one error into unhandled
+ * rejections and a silent partial wipe. With `allSettled` every clear is awaited and only then
+ * is the first failure rethrown, so the caller still sees as a failure what failed.
+ *
+ * @returns {Promise<void>}
+ * @throws {Error} The first clear failure, after every store has been attempted.
  */
 async function clearLegacyStores() {
-    await mapStore.clear();
-    await imageStore.clear();
-    await appStore.clear();
-    await groupStore.clear();
-    await layerStore.clear();
-    await appStore.setItem('schemaVersion', SCHEMA_VERSION);
+    const results = await Promise.allSettled([
+        mapStore.clear(),
+        imageStore.clear(),
+        appStore.clear(),
+        groupStore.clear(),
+        layerStore.clear()
+    ]);
+    const failure = results.find((result) => result.status === 'rejected');
+    if (failure) throw failure.reason;
+
+    // A cleared store is a BRAND-NEW repository, and a new repository is born on the CURRENT
+    // version, not on the legacy '1.7'. It is the same rule commit 2bd89de2 applied to "Limpar
+    // Todos os Dados" (store.js), for the same reason: '1.7' in the settings makes the NEXT
+    // deployment read a pre-Atlas repository and run `migrateToV2` over v2.x data, renumbering
+    // every feature id and orphaning every blob keyed by the old ids.
+    await ensureAtlasRecord();
+    await appStore.setItem('schemaVersion', ATLAS_SCHEMA_VERSION);
+}
+
+/**
+ * Does the active scope hold anything a user would call theirs?
+ *
+ * BY KEYS, and only of the databases `clearLegacyStores` would empty: the question is whether
+ * there is something to lose, not what it is. A read that throws answers YES, because "I could
+ * not tell" must never be the reason a repository is destroyed.
+ *
+ * @returns {Promise<boolean>} True when any of the four data databases carries a key.
+ */
+async function scopeHoldsData() {
+    try {
+        const keySets = await Promise.all([
+            mapStore.keys(),
+            imageStore.keys(),
+            groupStore.keys(),
+            layerStore.keys()
+        ]);
+        return keySets.some((keys) => keys.length > 0);
+    } catch (error) {
+        console.error('Atlas boot: could not measure the scope; nothing will be erased', error);
+        return true;
+    }
 }
 
 /**
  * Checks and cleans incompatible legacy data.
+ *
+ * A READ THAT FAILS IS NOT A VERDICT ABOUT THE DATA, and treating it as one is what this
+ * function used to do: the `catch` of `getItem('schemaVersion')` called `clearLegacyStores()`,
+ * so any transient IndexedDB error (an `InvalidStateError` after another tab's `versionchange`,
+ * an `UnknownError` from disk, a quota failure) emptied five databases and stamped a version
+ * over the remains. Measured in vitest over a 14-map / 149-image production acervo: every map
+ * and every blob gone, no line on screen, and `ebgeo_atlas` left describing an acervo that no
+ * longer exists, which is what makes the NEXT boot look normal.
+ *
+ * AND ABSENCE OF THE MARKER IS NOT PROOF OF AGE EITHER. A missing `schemaVersion` means two
+ * indistinguishable things (an installation older than the marker, which is empty, and a scope
+ * whose marker was lost, which may be full), and the destructive reading was applied to both.
+ * The question that separates them is about CONTENT, and it is cheap: `scopeHoldsData`.
+ *
+ * @returns {Promise<boolean>} Whether the marker read is TRUSTWORTHY, i.e. whether the caller
+ *   may reason with what it finds in `schemaVersion` afterwards. False means "I do not know",
+ *   and the legacy chain is skipped for this boot rather than run on a guess.
  */
 async function checkAndCleanLegacyData() {
+    let currentSchemaVersion = null;
     try {
-        const currentSchemaVersion = await appStore.getItem('schemaVersion');
-
-        if (!currentSchemaVersion || compareVersions(currentSchemaVersion, MIN_SCHEMA_VERSION) < 0) {
-            await clearLegacyStores();
-        }
+        currentSchemaVersion = await appStore.getItem('schemaVersion');
     } catch (error) {
-        console.warn('Error checking schema version:', error);
-        try {
-            await clearLegacyStores();
-        } catch (cleanupError) {
-            console.error('Critical error cleaning data:', cleanupError);
-        }
+        console.error('Atlas boot: could not read the schema marker; nothing will be erased', error);
+        return false;
     }
+
+    if (currentSchemaVersion && compareVersions(currentSchemaVersion, MIN_SCHEMA_VERSION) >= 0) {
+        return true;
+    }
+
+    if (await scopeHoldsData()) {
+        console.error(
+            `Atlas boot: schema marker ${currentSchemaVersion ?? 'absent'} over a scope WITH `
+            + 'data; nothing will be erased and the legacy chain does not run on this boot'
+        );
+        return false;
+    }
+
+    await clearLegacyStores();
+    return true;
 }
 
 // ===== LEGACY MIGRATION FUNCTIONS =====
@@ -212,6 +304,14 @@ const LEGACY_MIGRATIONS = [
 
 /**
  * Runs all applicable legacy migrations from the given schema version.
+ *
+ * The null branch is NO LONGER REACHABLE FROM THE BOOT, and it must stay that way. It stamps
+ * `SCHEMA_VERSION`, which is the legacy '1.7' and not the current version: a partial clear used
+ * to leave the marker unwritten, the boot read null here, and this line wrote '1.7' over a v2.x
+ * repository, which is the very state commit 2bd89de2 removed from "Limpar Todos os Dados", fabricated
+ * by the boot itself. `initializeRepository` now calls this only with a marker it trusts, and a
+ * trusted marker is never null (a cleared scope leaves the current version behind).
+ *
  * @param {string|null} currentVersion - Current schema version
  */
 async function runLegacyMigrations(currentVersion) {
@@ -239,10 +339,16 @@ async function runLegacyMigrations(currentVersion) {
  */
 export async function initializeRepository() {
     try {
-        await checkAndCleanLegacyData();
+        const markerTrustworthy = await checkAndCleanLegacyData();
 
-        const currentSchemaVersion = await appStore.getItem('schemaVersion');
-        await runLegacyMigrations(currentSchemaVersion);
+        // THE LEGACY CHAIN ONLY RUNS OVER A MARKER THAT CAN BE TRUSTED. With the marker
+        // unreadable, or absent over a scope that holds data, `runLegacyMigrations(null)` would
+        // stamp the legacy '1.7' over a v2.x repository. What decides the version in that state
+        // is `detectMigrationNeeded`, which also reads the atlas record.
+        if (markerTrustworthy) {
+            const currentSchemaVersion = await appStore.getItem('schemaVersion');
+            await runLegacyMigrations(currentSchemaVersion);
+        }
 
         // Run v2.0 migration if needed (adds Atlas, sync metadata, etc.)
         const { needed } = await detectMigrationNeeded();
@@ -254,6 +360,10 @@ export async function initializeRepository() {
             } else {
                 console.error('v2.0 migration failed:', result.error);
             }
+        }
+
+        if (markerTrustworthy) {
+            await repairPlaceholderMapNames();
         }
 
         const allMapNames = await mapStore.keys();
@@ -287,8 +397,103 @@ export async function initializeRepository() {
         return activeMap;
     } catch (error) {
         console.error('Error initializing repository:', error);
-        memoryStore.currentMap = DEFAULT_MAP_NAME;
-        return DEFAULT_MAP_NAME;
+        return await emergencyEntryMap();
+    }
+}
+
+/**
+ * Which map the boot opens when initialization failed halfway.
+ *
+ * The `catch` returned `DEFAULT_MAP_NAME` ALWAYS, and in an acervo of 14 maps none of them is
+ * called 'Principal': a quota failure while stamping a migration rung dropped the user inside a
+ * map the acervo does not have, with the whole acervo on disk and nothing on screen. The error
+ * is REAL and is still reported; what changes is that the entry is a map that EXISTS.
+ *
+ * A read that also fails falls back to the default map, which is the only name the repository
+ * knows how to seed: there the ignorance is the state, not a guess.
+ *
+ * @returns {Promise<string>} Key of an existing map, or the default map.
+ */
+async function emergencyEntryMap() {
+    try {
+        const names = await mapStore.keys();
+        if (names.length > 0) {
+            const preferred = await appStore.getItem('lastActiveMap');
+            const chosen = names.includes(preferred) ? preferred : names[0];
+            memoryStore.currentMap = chosen;
+            return chosen;
+        }
+    } catch (readError) {
+        console.error('Atlas boot: could not choose an entry map:', readError);
+    }
+    memoryStore.currentMap = DEFAULT_MAP_NAME;
+    return DEFAULT_MAP_NAME;
+}
+
+// ===== ONE-SHOT REPAIR OF THE PLACEHOLDER MAP NAME =====
+
+/** Settings key that marks the placeholder-name repair as already done for this scope. */
+const PLACEHOLDER_NAME_REPAIR_KEY = 'placeholderMapNameRepairDone';
+
+/**
+ * The placeholder name a brand-new map record carries.
+ *
+ * It comes from `getEmptyMapData()` in repositories/local.repository.js, which is a DIFFERENT
+ * function from the same-named one this file imports out of repository.utils.js: that one has no
+ * `name` field at all. Written as a literal rather than imported, so the boot does not pull the
+ * repository layer into its module graph, and pinned by the test, which reads the real function.
+ */
+const PLACEHOLDER_MAP_NAME = 'Novo Mapa';
+
+/**
+ * Rewrites `data.name` from the storage key on maps left holding the placeholder.
+ *
+ * `createMapCompat` used to let `getEmptyMapData()`'s placeholder 'Novo Mapa' win over the name
+ * the user asked for, because its guard only fired on a MISSING name. Every map created that way
+ * carries the right KEY and the wrong FIELD. Inside this application that was cosmetic and inert
+ * (maps are keyed by name, the `.ebgeo` export is keyed by name and does not carry the field),
+ * which is why it survived; the field only bites where something PREFERS it to the key, and the
+ * first such reader measured 2 maps and 33 features reaching a server out of 14 and 805.
+ *
+ * The guards are what make this safe to run on the user's records:
+ * - only when the field IS the placeholder, so a name the user chose is never touched;
+ * - only when the key DIFFERS from it, so a map the user really called 'Novo Mapa' is left alone;
+ * - only when the key is not a generated id, because there the key is not a name;
+ * - written straight to the store rather than through `saveMap`, so sync metadata is not touched
+ *   and the repair does not enqueue 13 phantom operations;
+ * - once per scope, behind a settings flag, so the full read of every map is paid on one boot;
+ * - and inside its own try/catch, because a repair must never be the reason a boot fails.
+ *
+ * `MapResolver.initialize` is started by `initServices` and races with this, so on the repair boot
+ * itself the resolver may still cache the placeholder for several maps, exactly as it does today;
+ * from the next boot on it caches the real names. Nothing depends on the difference, because every
+ * map is stored under its name and the direct key lookup answers first.
+ *
+ * @returns {Promise<number>} How many map records were rewritten.
+ */
+async function repairPlaceholderMapNames() {
+    try {
+        if (await appStore.getItem(PLACEHOLDER_NAME_REPAIR_KEY)) return 0;
+
+        const keys = await mapStore.keys();
+        let repaired = 0;
+
+        for (const key of keys) {
+            if (key === PLACEHOLDER_MAP_NAME || isValidId(key)) continue;
+            const mapData = await mapStore.getItem(key);
+            if (!mapData || mapData.name !== PLACEHOLDER_MAP_NAME) continue;
+            await mapStore.setItem(key, { ...mapData, name: key });
+            repaired++;
+        }
+
+        await appStore.setItem(PLACEHOLDER_NAME_REPAIR_KEY, true);
+        if (repaired > 0) {
+            console.log(`Repaired the placeholder name on ${repaired} map(s)`);
+        }
+        return repaired;
+    } catch (error) {
+        console.error('Atlas boot: could not repair the placeholder map names', error);
+        return 0;
     }
 }
 

@@ -160,8 +160,12 @@ export async function getAllMapKeysCompat() {
 export async function createMapCompat(mapNameOrId, mapData = null) {
     const repo = getRepository();
     const newMapData = mapData || getEmptyMapData();
-    // Ensure name is set if not provided
-    if (!newMapData.name) {
+    // A fresh map (no caller-supplied data) must take the REQUESTED name: getEmptyMapData
+    // returns the placeholder 'Novo Mapa', so the old "name is missing" guard NEVER fired and
+    // every map created from the UI ended up with the right storage KEY and the field reading
+    // "Novo Mapa". Imported or duplicated data keeps its own name, which IDUtils.regenerateMapIds
+    // has already set to the new one.
+    if (!mapData || !newMapData.name) {
         newMapData.name = mapNameOrId;
     }
     await repo.saveMap(mapNameOrId, newMapData);
