@@ -45,8 +45,12 @@ describe('isSecondaryServerNoticeEnabled', () => {
         }
     });
 
-    it('o config do repositorio liga a tela (decisao do chefe, 2026-09-03); quem implanta no servidor principal poe false', () => {
-        expect(isSecondaryServerNoticeEnabled()).toBe(true);
+    it('o config do repositorio NAO liga a tela (decisao do dono, 2026-09-06); quem implanta no servidor secundario poe true', () => {
+        // Ligada por padrao desde 2026-09-03, a chave foi desligada em 2026-09-06 (commit
+        // 4cbe59d2): o alertdialog captura todo keydown, prende o foco e volta a cada carga,
+        // e a instancia local virou bancada de Playwright. O dado de implantacao mora no
+        // config de cada servidor, e o versionado fica no neutro.
+        expect(isSecondaryServerNoticeEnabled()).toBe(false);
     });
 });
 
