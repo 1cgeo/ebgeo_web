@@ -37,69 +37,6 @@
     opacity: 0.9;
 }
 
-/* ===== IMPORT MODE MODAL ===== */
-.import-mode-modal {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 10000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.import-mode-modal__dialog {
-    background: white;
-    border-radius: var(--radius-lg);
-    padding: var(--space-6);
-    box-shadow: var(--shadow-xl);
-    max-width: 400px;
-    width: 90%;
-}
-
-.import-mode-modal__title {
-    margin: 0 0 var(--space-4) 0;
-    color: var(--gray-800);
-    font-size: var(--font-size-lg);
-    font-weight: var(--font-weight-semibold);
-}
-
-.import-mode-modal__description {
-    margin: 0 0 var(--space-5) 0;
-    color: var(--gray-500);
-    line-height: 1.4;
-    font-size: var(--font-size-base);
-}
-
-.import-mode-modal__actions {
-    display: flex;
-    gap: var(--space-3);
-    justify-content: flex-end;
-}
-
-.import-mode-modal__btn {
-    padding: var(--space-2) var(--space-4);
-    border: var(--border-width) solid;
-    color: white;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
-}
-
-.import-mode-modal__btn--replace {
-    border-color: var(--color-error);
-    background: var(--color-error);
-}
-
-.import-mode-modal__btn--add {
-    border-color: var(--color-success);
-    background: var(--color-success);
-}
-
 /* ===== IMPORT PROGRESS INDICATOR ===== */
 .import-progress {
     position: fixed;
