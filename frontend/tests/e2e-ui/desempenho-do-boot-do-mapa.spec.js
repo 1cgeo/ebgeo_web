@@ -197,9 +197,16 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
                 + 'tela de "EBGeo indisponivel" passaria em qualquer teto sozinho.',
         });
         expectDeterministico(rodadas, 'requisicoesDeScript', {
-            piso: 481, teto: 531, medidoEm: '2026-09-02',
-            porque: 'REMEDIDO em 2026-09-02: 506 modulos servidos pelo Vite em 5 de 5 rodadas, faixa '
-                + 'de +-5%. Eram 476 em 2026-08-25 (faixa 452 a 500); o lote de 2026-09-02 acrescentou 7 '
+            piso: 509, teto: 562, medidoEm: '2026-09-07',
+            porque: 'REMEDIDO em 2026-09-07: 536 modulos servidos pelo Vite em 5 de 5 rodadas, duas '
+                + 'series (fatia da suite e isolada), faixa de +-5%. O HEAD anterior a onda da transicao '
+                + '(f73e48d3) ja media 533 em 5 de 5, dois acima do teto de 531, sem que nenhuma rodada '
+                + 'o tivesse acusado: e o porte de 2026-09-06. A onda da transicao (esquema 3.0) somou '
+                + 'tres modulos ansiosos com nome: migration/boot-legacy-adoption.js (o boot observa o '
+                + 'registro antes de adotar), import_export/ebgeo-file-gate.js (o portao do .ebgeo antes '
+                + 'de criar o atlas) e store/atlas-contents.js (a contagem que o dialogo de excluir '
+                + 'nomeia). Historico: REMEDIDO em 2026-09-02: 506 modulos servidos pelo Vite em 5 de 5 '
+                + 'rodadas, faixa de +-5%. Eram 476 em 2026-08-25 (faixa 452 a 500); o lote de 2026-09-02 acrescentou 7 '
                 + 'modulos ansiosos (o HEAD anterior estava em 499, um abaixo do teto) e o resto e deriva '
                 + 'acumulada desde a medicao anterior. '
                 + 'Eram 559 antes da carga sob demanda: 83 modulos a menos, 15%. '
@@ -382,10 +389,12 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
         // `peso-de-boot.js`). Entao a serie os REGISTRA no anexo e nao os assere: teto de byte
         // sobre cache quente e um numero que reprova por sorte.
         expectDeterministico(series[abrirRemoto], 'requisicoesDeScript', {
-            piso: 481, teto: 531, medidoEm: '2026-09-02',
-            porque: 'REMEDIDO em 2026-09-02: 506 em todas as janelas de transicao, o mesmo numero do '
+            piso: 509, teto: 562, medidoEm: '2026-09-07',
+            porque: 'REMEDIDO em 2026-09-07: 536 em todas as janelas de transicao, o mesmo numero do '
                 + 'boot frio (a pagina do mapa carrega o mesmo grafo de modulos por qualquer das quatro '
-                + 'portas), faixa de +-5%; a faixa anterior (452 a 500) era da bateria de 2026-08-25.',
+                + 'portas), faixa de +-5%; a razao dos 30 a mais esta na faixa do boot frio (o porte de '
+                + '2026-09-06 e os tres modulos da onda da transicao). Historico: REMEDIDO em 2026-09-02: '
+                + '506; a faixa anterior (452 a 500) era da bateria de 2026-08-25.',
         });
 
         await ctx.close();
