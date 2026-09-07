@@ -56,8 +56,32 @@ vi.mock('localforage', () => ({
 }));
 
 const GLOBAL_DISK = 'ebgeo_global::keyvaluepairs';
-const BYTES = new Uint8Array([1, 2, 3, 4]).buffer;
 const NOME = 'Operação Alfa';
+
+/**
+ * A ENTREGA PRECISA SER UM `.ebgeo` DE VERDADE desde 2026-09-07, e a razão é o conserto daquele
+ * dia: o consumidor passou a PARSEAR o arquivo e a passá-lo pelo portão de versão ANTES de criar o
+ * atlas, para que um arquivo recusado não gaste uma das dez vagas. Antes disso os bytes eram
+ * opacos para ele (quatro bytes quaisquer serviam), porque quem abria o arquivo era o importador,
+ * já dentro do slot novo.
+ *
+ * Este arquivo continua medindo a ORDEM e a CONTABILIDADE dos ramos; quem mede a recusa em si é
+ * `tests/unit/import-recusado-nao-gasta-vaga.test.js`, com o criador de atlas de verdade.
+ */
+async function ebgeoValido() {
+    const { default: JSZip } = await import('jszip');
+    const { ATLAS_SCHEMA_VERSION } = await import('@store/atlas/atlas.entity.js');
+    const zip = new JSZip();
+    zip.file('data.json', JSON.stringify({ version: ATLAS_SCHEMA_VERSION, maps: {} }));
+    const bytes = await zip.generateAsync({ type: 'uint8array' });
+    const cabecalho = new TextEncoder().encode('EBGXOR');
+    const saida = new Uint8Array(cabecalho.length + bytes.length);
+    saida.set(cabecalho, 0);
+    saida.set(bytes.map((b) => b ^ 0xAA), cabecalho.length);
+    return saida.buffer;
+}
+
+const BYTES = await ebgeoValido();
 
 /** A frase que a API do atlas local produz ao bater no teto de dez. */
 const RECUSA_DO_TETO = 'Limite de 10 atlas locais atingido. Exclua um atlas antes de criar outro.';
@@ -151,7 +175,9 @@ describe('o .ebgeo pendente: o caminho feliz', () => {
         const [arquivo, aditivo] = processFileDirectly.mock.calls[0];
         expect(arquivo).toBeInstanceOf(File);
         expect(arquivo.name).toBe('Operação Alfa.ebgeo');
-        expect(new Uint8Array(await arquivo.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]));
+        // OS BYTES CHEGAM INTEIROS ao importador, e é isso que a leitura do portão não pode ter
+        // custado: ele consome o arquivo para julgá-lo, e um `File` gasto chegaria vazio aqui.
+        expect(new Uint8Array(await arquivo.arrayBuffer())).toEqual(new Uint8Array(BYTES));
         // Não aditivo: o slot foi criado vazio para este arquivo, e é o modo que substitui.
         expect(aditivo).toBe(false);
         expect(avisos).toEqual([]);

@@ -90,6 +90,10 @@ import {
     getActiveScope,
     savePendingImport,
 } from '@store/atlas-namespace.js';
+// Quanto há dentro de um slot, lido pelo ESCOPO e sem montar nada. Do arquivo, como os vizinhos:
+// ele só alcança `atlas-namespace.js`, que esta página já carrega. É o que faz o diálogo de
+// exclusão dizer o que está sendo apagado em vez de dizer que algo será.
+import { countAtlasContents } from '@store/atlas-contents.js';
 import { loadStoreOrigin, markStoreLocal } from '@store/store-origin.js';
 import {
     AtlasDrive,
@@ -605,6 +609,16 @@ async function renameLocalAtlasFromPage(atlas) {
  * described a path they never had, and hinted that something in there had been going to the server,
  * against what the section right above promises. The wording is {@link deleteConfirmMessage}.
  *
+ * IT COUNTS BEFORE IT ASKS, since 2026-09-07, and that is the other half of the sentence. Dropping
+ * the slot whose `dbSuffix` is the EMPTY string drops the eleven databases with no suffix, which
+ * are the very addresses an installation carries over from the previous line of the product: an
+ * entire acquis, behind a card called "Meu Atlas", which is also the factory name of a blank one.
+ * The button's behaviour did not change; what the person reads before pressing it did.
+ *
+ * THE READ IS BY SCOPE AND COSTS NO MOUNT (`countAtlasContents`), which matters because the card
+ * being deleted is usually NOT the mounted slot, and this page has no store. A failed read returns
+ * `null` and the dialog degrades to the sentence with no numbers rather than claiming a zero.
+ *
  * THE "ONLY ATLAS" REFUSAL NEVER REACHES THIS FUNCTION any more: `LocalAtlasSection._attemptDelete`
  * says it on the click, before this dialog is staged. `deleteLocalAtlas` still re-checks.
  *
@@ -614,8 +628,21 @@ async function renameLocalAtlasFromPage(atlas) {
  * @param {{id: string, name: string}} atlas
  */
 async function deleteLocalAtlasFromPage(atlas) {
+    let contents = null;
+    try {
+        contents = await countAtlasContents(scopeOfLocalAtlas(atlas));
+    } catch (error) {
+        // CONTAR NÃO PODE CUSTAR O BOTÃO. `scopeOfLocalAtlas` estoura num registro malformado, e
+        // sem esta guarda a exclusão morreria antes do diálogo, com o clique virando nada. Sem a
+        // contagem o diálogo cai na frase curta, que continua verdadeira em qualquer atlas.
+        console.warn('[projects] could not count this atlas before deleting:', error);
+    }
     const ok = await showConfirm(`Excluir "${atlas?.name ?? ''}"?`, {
-        message: deleteConfirmMessage({ signedIn: sessionContext.isAuthenticated() }),
+        message: deleteConfirmMessage({
+            name: atlas?.name,
+            signedIn: sessionContext.isAuthenticated(),
+            contents,
+        }),
         destructive: true,
         confirmText: 'Excluir',
     });

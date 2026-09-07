@@ -3,7 +3,10 @@
 /**
  * @module projects/local-atlas-notices
  * @description Turns a `LocalAtlasResult` into the ONE sentence the user hears. Pure: no DOM, no
- * toast, no store — the page calls it and hands the result to the toast service.
+ * toast, no storage read or write — the page calls it and hands the result to the toast service.
+ * (The one import that reaches `@store` is `atlasContentsLines`, itself pure: it renders counts the
+ * caller already has. It is imported rather than copied because the drop-a-`.ebgeo` dialog on the
+ * map announces the SAME loss, and two renderings of one loss drift into two vocabularies.)
  *
  * WHY IT IS A MODULE AND NOT FOUR `if`s INSIDE THE HANDLERS. The refusals of the local-atlas API
  * (`store/local-atlas.api.js`) are its whole user-facing contract: hitting the ceiling of ten and
@@ -24,6 +27,10 @@
  * destructive dialog, not after it) and {@link deleteConfirmMessage} (the dialog itself, which used
  * to talk about the server to a visitor who has no account).
  */
+
+// Pelo ARQUIVO, como todo o resto desta pasta: `atlas-contents.js` só alcança `atlas-namespace.js`,
+// que `atlas.html` já carrega, e a função usada aqui é pura.
+import { atlasContentsLines } from '@store/atlas-contents.js';
 
 /** Severity of a notice, matching the three toast helpers of `@utils/toast_service.js`. */
 export const NoticeKind = Object.freeze({
@@ -192,24 +199,53 @@ export function deleteAttempt(count) {
 }
 
 /**
- * O CORPO DO DIÁLOGO DE EXCLUSÃO, que MUDA com a existência de conta.
+ * O CORPO DO DIÁLOGO DE EXCLUSÃO, que muda com a existência de conta E com o que o atlas contém.
  *
- * A frase única falava de "trabalho ainda não enviado ao servidor", que é um fato real e importante
- * para quem tem sessão (a fila de saída de um atlas morre junto com os bancos dele) e é a descrição
- * de um caminho que o visitante anônimo NUNCA teve. Para ele a menção não assusta à toa, faz pior:
- * insinua que alguma coisa dali já foi ou seria enviada, contra o que a própria seção promete logo
- * acima ("Nada aqui vai para o servidor").
+ * A CONTA. A frase única falava de "trabalho ainda não enviado ao servidor", que é um fato real e
+ * importante para quem tem sessão (a fila de saída de um atlas morre junto com os bancos dele) e é
+ * a descrição de um caminho que o visitante anônimo NUNCA teve. Para ele a menção não assusta à
+ * toa, faz pior: insinua que alguma coisa dali já foi ou seria enviada, contra o que a própria
+ * seção promete logo acima ("Nada aqui vai para o servidor").
  *
- * As duas frases dizem a MESMA perda; só a segunda acrescenta a fila.
+ * O CONTEÚDO, desde 2026-09-07, e é a metade que faltava. Excluir um slot derruba os bancos dele,
+ * e o slot de sufixo vazio é o que carrega o acervo de quem chegou de uma versão anterior do
+ * produto: onze bancos com nome sem sufixo, o mesmo endereço que a linha `main` usa. A frase antiga
+ * ("Os mapas, feições e imagens deste atlas serão apagados") era literalmente a MESMA para esse
+ * atlas e para um em branco criado há um minuto, e o slot adotado se chama "Meu Atlas", que é
+ * também o nome de fábrica. Nomear o atlas e contar o que ele tem é o que separa os dois cartões.
  *
- * @param {{signedIn?: boolean}} [options]
+ * O MODELO É "LIMPAR TUDO" da aba Mapas, que faz MENOS (esvazia sem derrubar banco) e já
+ * perguntava melhor: nomeia o atlas, diz que NÃO pode ser desfeito e marca a perda item a item.
+ *
+ * O ATLAS VAZIO CONTINUA COM A FRASE CURTA, e a contagem DESCONHECIDA (`null`, quando a leitura do
+ * escopo falhou) cai nela também. É a degradação certa: "não sei quanto tem" não autoriza afirmar
+ * quanto tem, e a frase curta continua verdadeira em qualquer atlas.
+ *
+ * @param {Object} [options]
+ * @param {string} [options.name] - Nome do atlas no registro. Ausente, a frase evita nomeá-lo em
+ *   vez de escrever "undefined".
+ * @param {boolean} [options.signedIn] - Se há sessão, para a cláusula da fila de saída.
+ * @param {{maps?: number, features?: number, images?: number}|null} [options.contents] - O que o
+ *   escopo do slot contém (`countAtlasContents`), ou `null` para desconhecido.
  * @returns {string} pt-BR, nunca vazia.
  */
-export function deleteConfirmMessage({ signedIn = false } = {}) {
-    const base = 'Os mapas, feições e imagens deste atlas serão apagados deste navegador';
-    return signedIn
-        ? `${base}, junto com qualquer trabalho ainda não enviado ao servidor. Não há como desfazer.`
-        : `${base}. Não há como desfazer.`;
+export function deleteConfirmMessage({ name = null, signedIn = false, contents = null } = {}) {
+    const linhas = atlasContentsLines(contents);
+
+    if (linhas.length === 0) {
+        const base = 'Os mapas, feições e imagens deste atlas serão apagados deste navegador';
+        return signedIn
+            ? `${base}, junto com qualquer trabalho ainda não enviado ao servidor. Não há como desfazer.`
+            : `${base}. Não há como desfazer.`;
+    }
+
+    const alvo = texto(name) ? `do atlas "${texto(name)}"` : 'deste atlas';
+    const fila = signedIn
+        ? ' Vai junto qualquer trabalho ainda não enviado ao servidor.'
+        : '';
+    return `Isso apaga TODO o conteúdo ${alvo} deste navegador e NÃO pode ser desfeito:\n`
+        + linhas.map((linha) => `- ${linha}`).join('\n')
+        + `\n\nOs seus outros atlas não são afetados.${fila}`;
 }
 
 /**

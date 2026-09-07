@@ -280,7 +280,13 @@ const ANCORAS = Object.freeze([
 const ORCAMENTO = Object.freeze({
     military_tools: 0,
     draw_tools: 23,
-    import_export: 14,
+    // 15 desde 2026-09-07: `ebgeo-file-gate.js`, o leitor do `.ebgeo` e o veredito de versão que
+    // saíram de dentro de `export-import.service.js` para que o BOOT possa recusar um arquivo ANTES
+    // de gastar um dos dez atlas locais com ele (`deep-link/pending-import.js` o carrega por
+    // `await import()`, e portanto não conta aqui). O módulo novo é o único peso: os três imports
+    // dele (JSZip, `atlas.entity.js` e `repository.utils.js`) já estavam no grafo ansioso desta
+    // página pelo próprio serviço, então subiram 5,7 kB de fonte e nenhum pacote externo novo.
+    import_export: 15,
     temporal: 12,
     azimuth_distance_tool: 0,
     processing: 10,

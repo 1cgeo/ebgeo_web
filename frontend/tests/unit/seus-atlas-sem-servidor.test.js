@@ -353,7 +353,16 @@ describe('B4 — o diálogo de exclusão só cita o servidor a quem tem conta', 
     it('a página usa a função e não guarda mais o texto', () => {
         // O CAMINHO, e não a construção: se alguém reescrever a frase inline no `showConfirm`,
         // a função pura continua certa e este bloco é o único que fica vermelho.
-        expect(PAGE_SRC).toContain('deleteConfirmMessage({ signedIn: sessionContext.isAuthenticated() })');
+        //
+        // A CHAMADA MUDOU DE FORMA EM 2026-09-07, e a asserção foi REESCRITA em vez de apagada. A
+        // linha única de antes era `deleteConfirmMessage({ signedIn: sessionContext.isAuthenticated() })`;
+        // hoje a frase também recebe o NOME do atlas e a CONTAGEM do que ele contém, então a
+        // chamada ocupa quatro linhas. O que este caso prende continua sendo o mesmo: a página
+        // CHAMA a função e não guarda uma segunda cópia do texto. Os dois argumentos novos são
+        // asseridos em `tests/unit/exclusao-de-atlas-local-nomeia-a-perda.test.js`, junto da
+        // contagem que os produz.
+        expect(PAGE_SRC).toContain('signedIn: sessionContext.isAuthenticated()');
+        expect(PAGE_SRC).toContain('deleteConfirmMessage({');
         expect(PAGE_SRC).not.toContain('ainda não enviado ao servidor. Não há como desfazer');
     });
 });

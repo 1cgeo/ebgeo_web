@@ -5,8 +5,6 @@ import {
     getCurrentMapFeatures,
     getCurrentBaseLayer,
     setBaseLayer,
-    MIN_SCHEMA_VERSION,
-    compareVersions,
     addMap,
     setCurrentMap,
     clearAllDataStore,
@@ -46,6 +44,10 @@ import { ATLAS_SCHEMA_VERSION } from '@store/atlas/atlas.entity.js';
 // Normalization/migration of imported data lives in its own module so it can be
 // tested in node (this file pulls in JSZip, the @store barrel and modal UI).
 import { migrateImportDataToV2, normalizeMapDataForCurrentVersion } from './import-normalize.js';
+// O PORTÃO, e o leitor do arquivo, do mesmo módulo folha e pela mesma razão que o de cima: o boot
+// do mapa precisa RECUSAR um `.ebgeo` antes de gastar um dos dez atlas locais com ele, e não pode
+// carregar este serviço para isso. O predicado é o mesmo de sempre; só mudou de endereço.
+import { readEbgeoArchive, isV1Format, importVersionRefusal, xorMask } from './ebgeo-file-gate.js';
 import { EventTypes } from '@events/event_types.js';
 import { showExportModal } from '@modals/export.modal.js';
 import { showConfirm } from '@modals/confirm.modal.js';
@@ -96,16 +98,6 @@ function writingIntoServerAtlas() {
     return getActiveScope()?.kind === StoreScopeKind.REMOTE || isRemoteStoreSync();
 }
 
-/**
- * Checks if import data is in v1.x format (pre-v2.0).
- * @param {Object} data - Import data
- * @returns {boolean} True if v1.x format
- */
-function isV1Format(data) {
-    if (data.atlas) return false;
-    if (data.schemaVersion && compareVersions(data.schemaVersion, '2.0') >= 0) return false;
-    return data.version && compareVersions(data.version, '2.0') < 0;
-}
 
 export class ExportImportService {
     constructor(baseLayerControl, toolManager, mapManager, eventBus = null) {
@@ -190,17 +182,18 @@ export class ExportImportService {
     }
 
     /**
-     * Simple XOR operation to mask data
+     * Simple XOR operation to mask data.
+     *
+     * DELEGATES to `xorMask`, which the file READER also uses: masking on the way out and
+     * unmasking on the way in are one operation, and two copies of it is how an export stops
+     * being importable.
+     *
      * @param {Uint8Array} data - Data to mask
      * @param {number} key - XOR key (default 0xAA)
      * @returns {Uint8Array} Masked data
      */
     xorData(data, key = 0xAA) {
-        const result = new Uint8Array(data.length);
-        for (let i = 0; i < data.length; i++) {
-            result[i] = data[i] ^ key;
-        }
-        return result;
+        return xorMask(data, key);
     }
 
     /**
@@ -542,45 +535,22 @@ export class ExportImportService {
         let newLocalAtlasName = null;
 
         try {
-            const fileBuffer = await file.arrayBuffer();
-            const fileArray = new Uint8Array(fileBuffer);
+            // O LEITOR E O PORTÃO SÃO OS MESMOS QUE O BOOT USA para recusar um arquivo ANTES de
+            // criar um atlas para ele (`deep-link/pending-import.js`). Uma segunda cópia deles
+            // aqui deixaria os dois caminhos discordarem sobre o que é importável.
+            const { zip, data: documento } = await readEbgeoArchive(file);
+            let data = documento;
 
-            let zipData;
-            const identifier = new TextDecoder().decode(fileArray.slice(0, 6));
-
-            if (identifier === 'EBGXOR') {
-                const maskedData = fileArray.slice(6);
-                zipData = this.xorData(maskedData);
-            } else {
-                zipData = fileArray;
+            const recusa = importVersionRefusal(data);
+            if (recusa) {
+                throw new Error(recusa);
             }
 
-            const zip = await JSZip.loadAsync(zipData);
-
-            const dataFile = zip.file('data.json');
-            if (!dataFile) {
-                throw new Error('Arquivo data.json não encontrado no .ebgeo');
-            }
-
-            const dataJson = await dataFile.async('string');
-            let data = JSON.parse(dataJson);
-
-            if (!data.version) {
-                throw new Error('Arquivo .ebgeo sem informação de versão. Use a versão mais recente da aplicação para gerar o arquivo.');
-            }
-
-            // Migrate v1.x data to v2.0 format if needed
+            // Migrate v1.x data to v2.0 format if needed. O portão já contou com esta migração:
+            // ele aceita o v1.x porque ela existe, e ela carimba a versão corrente no documento.
             if (isV1Format(data)) {
                 console.log(`Migrating import data from v${data.version} to v${ATLAS_SCHEMA_VERSION}`);
                 data = migrateImportDataToV2(data);
-            }
-
-            // Check version compatibility (after potential migration)
-            if (compareVersions(data.version, MIN_SCHEMA_VERSION) < 0) {
-                throw new Error(`Arquivo .ebgeo incompatível. Versão do arquivo: ${data.version}, versão mínima aceita: ${MIN_SCHEMA_VERSION}`);
-            }
-            if (compareVersions(data.version, ATLAS_SCHEMA_VERSION) > 0) {
-                throw new Error(`Arquivo .ebgeo incompatível - versão muito recente. Versão do arquivo: ${data.version}, versão máxima aceita: ${ATLAS_SCHEMA_VERSION}. Atualize a aplicação para usar este arquivo.`);
             }
 
             // Non-additive import replaces the whole project. Decided (and executed) ONLY after

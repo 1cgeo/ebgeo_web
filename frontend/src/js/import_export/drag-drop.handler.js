@@ -1,6 +1,12 @@
 // Path: js/import_export/drag-drop.handler.js
 import { showError, showWarning } from '@utils/toast_service.js';
 import { isCurrentMapLockedSync } from '@store';
+// O diálogo da CASA para uma pergunta de três respostas. Ver `askImportMode`: o modal artesanal que
+// vivia aqui não tinha "Cancelar", não marcava a ação destrutiva e não nomeava o que ela apaga.
+import { showChoice } from '@modals/confirm.modal.js';
+// Só o RENDERIZADOR das contagens é estático (função pura, sem IndexedDB). Quem LÊ o disco entra
+// por `import()` dentro de `describeTarget`, no instante em que alguém solta um `.ebgeo`.
+import { atlasContentsLines } from '@store/atlas-contents.js';
 
 /** @type {Record<string, string[]>} */
 const FILE_TYPES = {
@@ -41,6 +47,62 @@ const OVERLAY_THEME = {
     IMAGE:      { bg: 'rgba(255, 193, 7, 0.85)',   border: '#ffc107', icon: '', label: 'Adicionar Imagem' },
     INVALID:    { bg: 'rgba(220, 53, 69, 0.85)',   border: '#dc3545', icon: '', label: 'Arquivo não suportado' },
 };
+
+/**
+ * The words of the "how should this `.ebgeo` land?" question, and the three actions.
+ *
+ * PURE, and exported, because it is the whole finding: the sentence a person reads before wiping
+ * their atlas cannot live inside a class that only exists with a map, a DOM and a mounted store.
+ *
+ * TWO TEXTS, because the same button does two different things. On a LOCAL atlas "Substituir Atual"
+ * empties the mounted namespace in place, and the sentence names the atlas and counts what dies. On
+ * a SERVER atlas it does NOT: the import leaves the server project for a brand-new local slot
+ * (`_prepareNonAdditiveTarget`), the server data is untouched, and announcing destruction there
+ * would be a false alarm. Only the local branch marks the action destructive.
+ *
+ * "ADICIONAR AO ATUAL" IS UNCHANGED, in behaviour and in name: it adds the file's maps beside what
+ * is open, and it is the reversible answer.
+ *
+ * @param {{servidor?: boolean, name?: string|null, contents?: Object|null}|null} [target] - What
+ *   `describeTarget` read. Null (the read failed) is treated as a LOCAL atlas with unknown
+ *   contents, which is the safe side: it still warns that replacing wipes.
+ * @returns {{title: string, message: string, choices: Array<{id: string, label: string, variant: string}>}}
+ */
+export function importModeDialog(target) {
+    const servidor = target?.servidor === true;
+    const nome = typeof target?.name === 'string' && target.name.trim().length > 0
+        ? target.name.trim()
+        : null;
+
+    const acoes = (replaceVariant) => ([
+        { id: 'cancel', label: 'Cancelar', variant: 'ghost' },
+        { id: 'add', label: 'Adicionar ao Atual', variant: 'primary' },
+        { id: 'replace', label: 'Substituir Atual', variant: replaceVariant },
+    ]);
+
+    if (servidor) {
+        return {
+            title: 'Importar atlas deste arquivo',
+            message: '"Substituir Atual" abre o arquivo em um atlas local NOVO. O atlas do '
+                + 'servidor que está aberto continua intacto em "Seus atlas", e nada dele é '
+                + 'apagado.\n\n'
+                + '"Adicionar ao Atual" não vale para um atlas do servidor.',
+            choices: acoes('primary'),
+        };
+    }
+
+    const alvo = nome ? `do atlas "${nome}"` : 'do atlas aberto';
+    const linhas = atlasContentsLines(target?.contents);
+    const perda = linhas.length > 0 ? `:\n${linhas.map((l) => `- ${l}`).join('\n')}` : '.';
+
+    return {
+        title: 'Importar atlas deste arquivo',
+        message: `"Substituir Atual" apaga TODO o conteúdo ${alvo} deste navegador e NÃO pode ser `
+            + `desfeito${perda}\n\n`
+            + '"Adicionar ao Atual" mantém o que já está aberto e soma os mapas do arquivo.',
+        choices: acoes('danger'),
+    };
+}
 
 class DragDropHandler {
     constructor(mapElement, toolManager, importControl, exportImportService, imageControl) {
@@ -216,68 +278,86 @@ class DragDropHandler {
         });
     }
 
+    /**
+     * Asks how the dropped `.ebgeo` should land, and says what each answer costs.
+     *
+     * WHAT "SUBSTITUIR ATUAL" DOES, said out loud since 2026-09-07. The non-additive import calls
+     * `clearAllDataStore()` on the MOUNTED scope, i.e. it empties the ten data databases of the
+     * atlas the person has open. On an installation carried over from the previous line of the
+     * product that atlas is the whole acquis. The dialog used to be two sentences ("Importar Atlas"
+     * / "Como deseja importar este atlas?") and two buttons, with no Cancel (only clicking outside),
+     * no destructive styling and no mention of the atlas or of the wipe. "Limpar tudo" in the Maps
+     * tab does the SAME wipe and already asked properly; this is now the same shape of question.
+     *
+     * IT IS THE HOUSE DIALOG, not a modal of its own. `showChoice` already owns the destructive
+     * variant, the inert focus, the deliberately dead Enter in N-way mode, the dismissal that
+     * resolves `null`, and the per-choice `data-testid`. Keeping a second modal here meant keeping
+     * a second copy of every one of those decisions, and the copy was the one missing Cancel.
+     *
+     * @returns {Promise<{cancelled: boolean, additive?: boolean}>}
+     */
     async askImportMode() {
-        return new Promise((resolve) => {
-            const modal = this.createImportModeModal(resolve);
-            document.body.appendChild(modal);
-        });
-    }
-
-    createImportModeModal(resolve) {
-        const modal = document.createElement('div');
-        modal.className = 'import-mode-modal';
-
-        const dialog = document.createElement('div');
-        dialog.className = 'import-mode-modal__dialog';
-
-        const title = document.createElement('h3');
-        title.className = 'import-mode-modal__title';
-        title.textContent = 'Importar Atlas';
-
-        const description = document.createElement('p');
-        description.className = 'import-mode-modal__description';
-        description.textContent = 'Como deseja importar este atlas?';
-
-        const actions = document.createElement('div');
-        actions.className = 'import-mode-modal__actions';
-
-        const btnReplace = document.createElement('button');
-        btnReplace.className = 'import-mode-modal__btn import-mode-modal__btn--replace';
-        btnReplace.textContent = 'Substituir Atual';
-
-        const btnAdd = document.createElement('button');
-        btnAdd.className = 'import-mode-modal__btn import-mode-modal__btn--add';
-        btnAdd.textContent = 'Adicionar ao Atual';
-
-        actions.appendChild(btnReplace);
-        actions.appendChild(btnAdd);
-        dialog.appendChild(title);
-        dialog.appendChild(description);
-        dialog.appendChild(actions);
-        modal.appendChild(dialog);
-
-        function cleanup() {
-            modal.remove();
+        // A LEITURA VEM ANTES DA PERGUNTA, e falha para o lado seguro: sem o alvo, o diálogo ainda
+        // avisa que substituir apaga o atlas aberto, apenas sem números.
+        let target = null;
+        try {
+            target = await this.describeTarget();
+        } catch (error) {
+            console.warn('[drag-drop] could not describe the mounted atlas:', error);
         }
 
-        btnReplace.onclick = () => {
-            cleanup();
-            resolve({ cancelled: false, additive: false });
-        };
+        const { title, message, choices } = importModeDialog(target);
+        const choice = await showChoice(title, { message, choices });
 
-        btnAdd.onclick = () => {
-            cleanup();
-            resolve({ cancelled: false, additive: true });
-        };
+        if (choice === 'replace') return { cancelled: false, additive: false };
+        if (choice === 'add') return { cancelled: false, additive: true };
+        // Cancelar E dispensar (Esc, clique fora, que resolve `null`) caem aqui: dispensar nunca
+        // pode escolher por ninguém, e menos ainda a ação destrutiva.
+        return { cancelled: true };
+    }
 
-        modal.onclick = (e) => {
-            if (e.target === modal) {
-                cleanup();
-                resolve({ cancelled: true });
-            }
-        };
+    /**
+     * Who the mounted atlas is, and how much it holds.
+     *
+     * BY `import()`, NOT BY STATIC IMPORT, and the reason is the one this file already lives by: it
+     * is loaded with the map, and the three modules it needs here (the namespace, the local-atlas
+     * registry, the scope reader) are only needed the moment somebody drops a `.ebgeo` on the map.
+     *
+     * THE SERVER QUESTION IS ASKED WITH THE SAME TWO HALVES `writingIntoServerAtlas` asks in
+     * `export-import.service.js`, because it must produce the same answer: that function is the one
+     * that DECIDES (wipe in place, or open a brand-new local atlas), and this one only picks the
+     * words. A disagreement here would be a dialog describing an outcome the import will not
+     * produce, which is worse than no dialog.
+     *
+     * @returns {Promise<{servidor: boolean, name: string|null, contents: Object|null}>}
+     */
+    async describeTarget() {
+        const [{ getActiveScope, StoreScopeKind }, { isRemoteStoreSync }] = await Promise.all([
+            import('@store/atlas-namespace.js'),
+            import('@store/store-origin.js'),
+        ]);
 
-        return modal;
+        const scope = getActiveScope();
+        const servidor = scope?.kind === StoreScopeKind.REMOTE || isRemoteStoreSync();
+        // Num atlas de servidor nada do que está montado é apagado, então não há perda a contar, e
+        // o nome que importa é o do atlas aberto, que a barra do mapa já mostra.
+        if (servidor) return { servidor: true, name: null, contents: null };
+
+        const [{ getCurrentLocalAtlasId, getLocalAtlas }, { countAtlasContents }] = await Promise.all([
+            import('@store/local-atlas.api.js'),
+            import('@store/atlas-contents.js'),
+        ]);
+
+        let name = null;
+        try {
+            const id = getCurrentLocalAtlasId();
+            name = id ? (getLocalAtlas(id)?.name ?? null) : null;
+        } catch (_error) {
+            // Registro não carregado: diálogo sem nome, nunca diálogo quebrado.
+            name = null;
+        }
+
+        return { servidor: false, name, contents: await countAtlasContents(scope) };
     }
 
     // ===== VISUAL FEEDBACK =====
