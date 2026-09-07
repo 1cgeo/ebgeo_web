@@ -101,8 +101,9 @@ export function migrateImportDataToV2(data) {
 
 /**
  * Normalizes mapData structure to current version.
- * Ensures coordination_measures exists (added in v1.4) and that the
- * `coordination_lines` collection is present.
+ * Ensures coordination_measures exists (added in v1.4), that the
+ * `coordination_lines` collection is present, and that a v2.2 `barrier_lines`
+ * bucket is adopted into it.
  * Validates catalog layers availability.
  * @param {Object} mapData - Map data to normalize
  * @param {(layers: Array) => {processed: Array, unavailableCount: number}} processCatalogLayers -
@@ -127,6 +128,10 @@ export function normalizeMapDataForCurrentVersion(mapData, processCatalogLayers)
     // FUNCTION the IndexedDB read and the server snapshot call, so the three entry paths
     // cannot drift apart, and it is idempotent, so a file written by `main` at 2.3 (which
     // already carries the bucket) passes through untouched.
+    //
+    // This is also where a v2.2 file hands over its `barrier_lines`: the tool that wrote them
+    // became the Coordination Line, and this is the entry path a 2.2 `.ebgeo` uses. See
+    // `ensureCoordinationLines`.
     const shapedFeatures = ensureCoordinationLines(mapData.features);
     if (shapedFeatures) {
         mapData.features = shapedFeatures;
