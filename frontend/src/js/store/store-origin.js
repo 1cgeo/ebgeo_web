@@ -188,7 +188,7 @@ async function promoteLegacyOrigin(origin) {
  * tempting extra case is "namespaced installation, atlas in no registry" (the sweep that died
  * before flipping the marker), but "no entry" is also what a PRE-NAMESPACE install looks like,
  * where the server data sits in the unsuffixed databases and the marker is the only evidence of
- * it — and vetoing there hands a logged-out user a permanently editable copy of a server atlas.
+ * it, and vetoing there hands a logged-out user a permanently editable copy of a server atlas.
  * Trying to separate the two by "does a local registry exist yet" FAILED in the 2.2 fixture suite:
  * the boot bootstraps a local slot before the schema migration re-reads the origin, so the same
  * install answers differently at the two reads and the migration stopped discarding the server
@@ -196,8 +196,23 @@ async function promoteLegacyOrigin(origin) {
  * `tests/integration/migracao-22-para-23-fixture-real.test.js`). A rescued namespace, by contrast,
  * can only be produced by the rescue: nothing else ever gives a LOCAL slot a `remote-<id>` suffix.
  *
- * A REMOTE marker with NO atlas id is left exactly as it is: it names no namespace, so the
- * registries have nothing to say about it, and the boot guard's own handling of it is unchanged.
+ * THE CASE THIS RESTRAINT LEAVES OPEN IS CLOSED IN THE BOOT GUARD, and on 2026-09-07 it stopped
+ * being theoretical: an orphan REMOTE marker over the unsuffixed databases cost 639 of 647
+ * records in Chromium, with no console line and nothing on screen. What moved is not this
+ * restriction, which stands as written. The question is asked THERE
+ * (`store.js`, `enforceLocalStoreWhenLoggedOut`), ONCE, and about the DATABASES the wipe is
+ * aimed at rather than about the atlas the marker names, before `activateBootAtlasScope` writes
+ * the very registry entry it looks for. Asked here it would be asked twice on the fixture-2.2
+ * path, which is the failure described above; asked one line later there it would answer
+ * "claimed" for the pre-namespace install too, and the wipe that matters would never run again.
+ * Both halves are measured in
+ * `tests/integration/marcador-remote-orfao-no-boot-deslogado.test.js`, whose control (a) is
+ * exactly the second of them.
+ *
+ * A REMOTE marker with NO atlas id is left exactly as it is HERE: it names no namespace, so the
+ * registries have nothing to say about it. The boot guard treats it like any other orphan, for
+ * the reason above: what decides there is the claim on the databases, and a marker naming no
+ * namespace is weaker evidence still.
  *
  * @param {{ kind: string, atlasId: string|null }} origin - Marker as read from disk.
  * @returns {Promise<{ kind: string, atlasId: string|null }>} The origin the registries support.

@@ -145,6 +145,7 @@ viram commit, teste e, se ensinaram algo, linha no [`docs/livro-razao.md`](../li
 | 2026-09-06 | a medida de coordenação deixa de guardar o próprio PNG em base64, e o marcador de ponto entra no hit-test exato | [decisions-2026.md](decisions-2026.md) |
 | 2026-09-07 | os três diálogos de perda nomeiam o que apagam, e o import julga o arquivo antes de gastar uma vaga | [decisions-2026.md](decisions-2026.md) |
 | 2026-09-07 | o esquema desta linha vai para 3.0, e o degrau decide o ramo pelo REGISTRO GLOBAL, nunca pelo número | [decisions-2026.md](decisions-2026.md) |
+| 2026-09-07 | o marcador REMOTE órfão não expurga bancos sem sufixo que um slot local já reivindica | [decisions-2026.md](decisions-2026.md) |
 
 As duas linhas de 2026-08-16 acima entraram em 2026-08-18: as entradas integrais existiam no arquivo
 do ano e ninguém acrescentara a linha aqui, que é a metade do procedimento que falha calada (o índice

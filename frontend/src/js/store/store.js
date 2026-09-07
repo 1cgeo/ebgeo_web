@@ -54,7 +54,7 @@ import {
 import { purgeAllRemoteAtlases, purgeReachedAtlas, listRemoteAtlases } from './remote-atlas.api.js';
 import { activateCurrentLocalAtlasScope, initLocalAtlases } from './local-atlas.api.js';
 import { observeLegacyInstallation, reportBootAtlasScope } from './migration/boot-legacy-adoption.js';
-import { readLocalAtlasRegistry } from './atlas-namespace.js';
+import { readLocalAtlasRegistry, LEGACY_DB_SUFFIX } from './atlas-namespace.js';
 // Imported DIRECT, never through the `@utils` barrel: the barrel drags the store back in through
 // `feature_navigation_utils`, and this module is the store.
 import { announceTabLockTeardown } from '@utils/tab-lock.js';
@@ -345,6 +345,32 @@ export async function discardRemoteAtlasNamespaces() {
  * sweep above has already emptied it, and running this second wipe would destroy local work in
  * order to finish a job that is already done.
  *
+ * AND A CLAIMED LEGACY SUFFIX ALSO STOPS IT, which is the second half of the same question and
+ * cost a measured loss to learn. `purgeReachedAtlas` asks about the ATLAS the marker names; it
+ * answers false for a marker naming an atlas no registry knows any more, which is what a logout
+ * interrupted between the sweep and `markStoreLocal` (one line below) leaves behind, and what a
+ * marker written by mistake leaves behind. Measured in Chromium on 2026-09-07 over a real 2.4
+ * workspace: 639 of 647 records destroyed, 805 features down to 0, no console line and nothing
+ * on screen. So the guard now also asks about the DATABASES it is about to empty, and skips when
+ * a named LOCAL slot claims the unsuffixed ones.
+ *
+ * THAT PREDICATE IS SOUND BY CONSTRUCTION, not by hope: an entry with the empty `dbSuffix` is
+ * only ever written by `bootstrapEntry` (`local-atlas.api.js`), whose `adoptLegacy` is
+ * `!isRemoteOrigin`, or by the 3.0 step, which adopts only AFTER `discardRemoteResidue`.
+ * `createLocalAtlas` uses the slot id and `adoptRemoteAtlasAsLocal` the `remote-<id>` suffix, so
+ * neither can produce it, and `markStoreRemote` refuses to declare REMOTE unless this tab has
+ * the server namespace MOUNTED. There is therefore no path that leaves server data in the
+ * unsuffixed databases while a local slot claims them; server residue can only live in a
+ * suffixed namespace, which the sweep above already handled.
+ *
+ * WHY THE QUESTION IS ASKED HERE AND NOT WHEN THE MARKER IS READ. `store-origin.js`
+ * (`reconcileWithRegistry`) records the variant that FAILED: vetoing on "does a local registry
+ * exist" turned two fixture cases red, because the boot bootstraps a slot before the schema
+ * migration re-reads the origin and the same install then answered differently at the two reads.
+ * This guard runs ONCE, and before `activateBootAtlasScope` writes that very entry, so the
+ * pre-namespace install (no registry at all) still answers "unclaimed" and still gets the wipe
+ * it exists for. That is the control the test file leads with.
+ *
  * @returns {Promise<void>}
  */
 async function enforceLocalStoreWhenLoggedOut() {
@@ -357,10 +383,59 @@ async function enforceLocalStoreWhenLoggedOut() {
     if (!isRemoteStoreSync()) {
         return;
     }
-    if (!purgeReachedAtlas(report, getStoreOriginSync().atlasId)) {
-        await unmountCurrentAtlas();
+    const atlasId = getStoreOriginSync().atlasId;
+    if (!purgeReachedAtlas(report, atlasId)) {
+        const slot = await localSlotClaimingLegacyDatabases();
+        if (slot) {
+            reportOrphanRemoteMarker(atlasId, slot);
+        } else {
+            await unmountCurrentAtlas();
+        }
     }
     await markStoreLocal();
+}
+
+/**
+ * The named LOCAL slot that claims the unsuffixed databases, if there is one.
+ *
+ * READ FROM DISK, and at this instant only. `readLocalAtlasRegistry` goes to the global
+ * database rather than to a mirror, which matters here because no registry has been loaded yet
+ * this boot: the answer has to be the disk's, and one line later it would be the bootstrap's.
+ *
+ * A REGISTRY THAT CANNOT BE READ ANSWERS NOTHING, and the fallback is the wipe. Letting a read
+ * error spare the unsuffixed databases would make an unreadable global database the way server
+ * residue survives a logout, which is the invariant this whole guard carries.
+ *
+ * @returns {Promise<{id: string, name?: string, dbSuffix?: string}|null>} The claiming entry.
+ */
+async function localSlotClaimingLegacyDatabases() {
+    try {
+        return (await readLocalAtlasRegistry())
+            .find(entry => entry?.dbSuffix === LEGACY_DB_SUFFIX) ?? null;
+    } catch (error) {
+        console.warn('Boot do atlas: registro local ilegivel, o expurgo segue:', error);
+        return null;
+    }
+}
+
+/**
+ * Says out loud that a REMOTE marker was ignored, and why.
+ *
+ * The gesture this reports used to be entirely silent, which is what made it expensive: the
+ * boot destroyed the workspace and wrote nothing, so the user met an empty map and the console
+ * had no line to look for. It is `info` and not `warn` because nothing is wrong with the
+ * installation after this: the marker is normalised to LOCAL on the next line.
+ *
+ * @param {string|null} atlasId - Atlas the stale marker named, if it named one.
+ * @param {{id: string, name?: string}} slot - Registry entry that claims the databases.
+ * @returns {void}
+ */
+function reportOrphanRemoteMarker(atlasId, slot) {
+    const alvo = atlasId ? `atlas ${atlasId}` : 'sem atlas nomeado';
+    console.info(
+        `Boot do atlas: marcador REMOTE orfao (${alvo}) ignorado; os bancos sem sufixo `
+        + `pertencem ao slot local "${slot.name ?? slot.id}"`
+    );
 }
 
 /**

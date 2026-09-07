@@ -265,8 +265,29 @@ describe('P5: o marcador é um cache do registro, e o registro vence', () => {
         expect(read(GLOBAL_DB, ORIGIN_KEY)).toEqual({ kind: 'remote', atlasId: 'server-1' });
     });
 
+    // A DIVISÃO DE TRABALHO, ESCRITA COMO TESTE E NÃO SÓ COMO COMENTÁRIO (2026-09-07). O caso
+    // acima tem um slot de sufixo VAZIO no registro e mesmo assim o marcador atravessa, o que é
+    // deliberado: o marcador é lido DUAS vezes num boot de fixture 2.2 (aqui e dentro da
+    // migração), e um veto nesta leitura volta a derrubar aqueles 2 casos. O marcador órfão
+    // sobre os bancos sem sufixo se resolve no GUARDA DE BOOT, onde a pergunta é feita uma vez
+    // só e antes de `activateBootAtlasScope` criar a entrada; a medida está em
+    // `tests/integration/marcador-remote-orfao-no-boot-deslogado.test.js`. Este caso existe para
+    // que mover aquela decisão para cá fique VERMELHO aqui, em vez de parecer uma simplificação.
+    it('CONTROLE: o slot de sufixo VAZIO não derruba o marcador, porque essa decisão é do boot', async () => {
+        const { origin } = await loadFresh();
+        seed(GLOBAL_DB, ORIGIN_KEY, { kind: 'remote', atlasId: 'atlas-orfao' });
+        seedLocalSlot('slot-desta-linha', '');
+
+        const loaded = await origin.loadStoreOrigin();
+
+        expect(loaded).toEqual({ kind: 'remote', atlasId: 'atlas-orfao' });
+        expect(origin.isRemoteStoreSync()).toBe(true);
+        expect(read(GLOBAL_DB, ORIGIN_KEY)).toEqual({ kind: 'remote', atlasId: 'atlas-orfao' });
+    });
+
     // Um marcador REMOTE sem id não nomeia namespace nenhum, então o registro não tem o que
-    // dizer sobre ele e o tratamento do guarda de boot fica exatamente como estava.
+    // dizer sobre ele e esta leitura o entrega intacto. O guarda de boot, que decide pela
+    // reivindicação dos BANCOS e não pelo atlas, trata-o como qualquer outro órfão.
     it('um marcador REMOTE sem atlasId atravessa intacto', async () => {
         const { origin } = await loadFresh();
         seed(GLOBAL_DB, ORIGIN_KEY, { kind: 'remote', atlasId: null });
