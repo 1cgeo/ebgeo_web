@@ -87,13 +87,50 @@
  *
  * IDEMPOTENCE. `initLocalAtlases` bootstraps only on an empty registry, `stampVersion` writes a
  * fixed value, `discardRemoteResidue` runs only for a REMOTE origin, the rename is skipped when
- * the two names already agree, and the queue discard finds nothing the second time. Running the
- * step twice changes no byte beyond the stamp it already wrote.
+ * the two names already agree, the queue discard finds nothing the second time, and the name
+ * repair below finds no placeholder left. Running the step twice changes no byte beyond the
+ * stamp it already wrote.
  *
  * NO FEATURE IS TRANSFORMED, on purpose. The `coordination_lines` bucket is guaranteed at READ
  * time (`repository.utils.js`, `local.repository.js`) and a stale symbol bitmap regenerates on
  * load (`layers/bitmap-version.js`), so neither of `main`'s 2.3 and 2.4 transforms has to be
  * replayed here.
+ *
+ * ===========================================================================================
+ * THE ONE FIELD THIS STEP DOES REWRITE: THE PLACEHOLDER MAP NAME
+ * ===========================================================================================
+ * "This step moves nothing" stays true of every byte the user drew, and this is the single
+ * named exception to it, so it is declared here instead of being discovered in the diff.
+ *
+ * `createMapCompat` on `main` (`src/js/store/repositories/index.js`) filled a MISSING name with
+ * the name the user asked for, but `getEmptyMapData()` there already returns the placeholder
+ * 'Novo Mapa': the guard never fired, and every map created through that screen went to disk
+ * with the right KEY and the wrong FIELD. Measured on the real crossing archive on 2026-09-07:
+ * 13 of 14 `ebgeo_maps` records carrying `name: 'Novo Mapa'`, all 14 keys correct.
+ *
+ * `main` got the same repair in its own boot on 2026-09-07, and that does NOT reach the people
+ * this step exists for: whoever leaves a production `main` older than that commit arrives here
+ * with the field poisoned and never opens `main` again to have it fixed. Inside this line the
+ * field is inert for every reader we know of (a local atlas is keyed by name, and the send
+ * reader prefers the KEY), so this is not the repair of a live loss; it removes the input that
+ * produced one the moment something preferred the field, which is what the send to the server
+ * did until 2026-09-07: 2 maps and 33 features arriving out of 14 and 805.
+ *
+ * IT RUNS WHERE THE ADOPTION RUNS, and the guard is the branch itself rather than a settings
+ * flag: the crossing happens once per installation, and afterwards the scope is stamped 3.0 and
+ * this step no longer runs at all. The predicate is the SAME one that decides the legacy queue
+ * discard (`owesLegacyAdoption`), and for the same reason: `atlas.html` can claim the unsuffixed
+ * databases before the map ever boots, so a repair keyed on the branch NAME would skip the very
+ * population it was written for (measured in a real browser: 5 of 8 repetitions reached the
+ * `ja-adotado` branch over databases that had come from `main`).
+ *
+ * THE GUARDS ARE WHAT MAKE IT SAFE over the user's own records, and each one names a case: only
+ * when the field IS the placeholder, so a name the user chose is never touched; only when the
+ * key DIFFERS from it, so a map really called 'Novo Mapa' is left alone; only when the key is
+ * not a generated id, because there the key is not a name and rewriting would christen a map
+ * with a UUID; written straight to the store rather than through `saveMap`, so sync metadata is
+ * untouched and no phantom operation is enqueued; and inside its own try/catch, because a
+ * cosmetic repair must never be the reason a migration fails.
  *
  * THE CAP (10 local atlases) CANNOT BE HIT HERE: this step creates an atlas only when the
  * registry is EMPTY, so it can only ever take the count from 0 to 1. A repository that
@@ -112,6 +149,7 @@ import {
     listAtlasStores
 } from '../atlas-namespace.js';
 import { isLegacyScope, legacyScope } from './migration-scope.js';
+import { isValidId } from '../../utilities/uuid.js';
 import { initLocalAtlases, listLocalAtlases, renameLocalAtlas } from '../local-atlas.api.js';
 import { StoreOriginKind, loadStoreOrigin, markStoreLocal } from '../store-origin.js';
 import {
@@ -130,6 +168,15 @@ const TARGET_VERSION = '3.0';
 
 /** Key of the schema marker inside a scope's settings database. */
 const SCHEMA_VERSION_KEY = 'schemaVersion';
+
+/**
+ * The name a brand-new map record carries on `main`.
+ *
+ * It comes from `getEmptyMapData()` in `main`'s `repositories/local.repository.js`, which is not
+ * a function this line can import: the literal is the contract with the OTHER product, so it is
+ * written out and explained rather than derived from anything here.
+ */
+const PLACEHOLDER_MAP_NAME = 'Novo Mapa';
 
 /**
  * Empties the pre-namespace databases and marks the store LOCAL. Reached only when the
@@ -169,6 +216,52 @@ async function discardLegacyOperationQueue() {
     await queue.clear();
     console.log(`Migration 3.0: discarded ${keys.length} inert operation(s) left by the previous line`);
     return keys.length;
+}
+
+/**
+ * Rewrites `name` from the storage KEY on the map records that came from `main` holding the
+ * placeholder, and reports how many.
+ *
+ * The rationale, the population it serves and each guard are in the fileoverview, under "THE ONE
+ * FIELD THIS STEP DOES REWRITE". Two properties are worth reading off the code itself:
+ *
+ * - IDEMPOTENT BY CONSTRUCTION, with no flag to keep: after a record is repaired its field is
+ *   the key, so the second pass no longer matches the placeholder. Nothing has to remember that
+ *   this ran;
+ * - it writes through the scope's OWN store (`getStoreFor(StoreName.MAPS, scope)`) and never
+ *   through the repository, so it cannot touch `sync` and cannot enqueue an operation. Thirteen
+ *   phantom operations is the difference between a repair and thirteen edits.
+ *
+ * @param {{ kind: string, dbSuffix: string }} scope - Scope whose maps to repair.
+ * @returns {Promise<number>} How many records were rewritten.
+ */
+async function repairPlaceholderMapNames(scope) {
+    try {
+        const maps = getStoreFor(StoreName.MAPS, scope);
+        let repaired = 0;
+
+        for (const key of await maps.keys()) {
+            // The key is not a name here: a synchronised atlas keys its maps by generated id,
+            // and rewriting would christen the map with its own UUID.
+            if (key === PLACEHOLDER_MAP_NAME || isValidId(key)) continue;
+
+            const record = await maps.getItem(key);
+            if (!record || record.name !== PLACEHOLDER_MAP_NAME) continue;
+
+            await maps.setItem(key, { ...record, name: key });
+            repaired += 1;
+        }
+
+        if (repaired > 0) {
+            console.log(`Migration 3.0: repaired the placeholder map name on ${repaired} record(s)`);
+        }
+        return repaired;
+    } catch (error) {
+        // A repair is never worth a failed migration: the field it fixes is inert for every
+        // reader of this line, and the adoption around it is not.
+        console.warn('Migration 3.0: could not repair the placeholder map names:', error);
+        return 0;
+    }
 }
 
 /**
@@ -318,9 +411,18 @@ export async function migrateToV3_0(scope = legacyScope()) {
     // an adopting bootstrap over databases this step has not stamped yet still owes the discard.
     const stampedAt = await getStoreFor(StoreName.SETTINGS, legacyScope()).getItem(SCHEMA_VERSION_KEY);
     const claimedButNeverStepped = legacyEntry?.adoptedLegacy === true && stampedAt !== TARGET_VERSION;
-    const discardedOperations = (legacyClaimed && !claimedButNeverStepped)
-        ? 0
-        : await discardLegacyOperationQueue();
+
+    // "THESE DATABASES CAME FROM THE OTHER LINE AND THIS STEP STILL OWES THEM THE ADOPTION" is
+    // one fact with two consequences, so it is named once instead of being spelled twice: the
+    // queue discard and the placeholder-name repair both hang off it.
+    const owesLegacyAdoption = !legacyClaimed || claimedButNeverStepped;
+
+    const discardedOperations = owesLegacyAdoption ? await discardLegacyOperationQueue() : 0;
+
+    // BEFORE THE STAMP, and only over the scope this step adopted: the stamp is what closes the
+    // branch, so a repair placed after it would be paid on a boot that will never run again.
+    if (owesLegacyAdoption) await repairPlaceholderMapNames(legacyScope());
+
     const recoveredName = await recoverAtlasName(legacyEntry ?? current);
 
     // Only the scope this step actually worked on is stamped. Stamping the slot the pointer
