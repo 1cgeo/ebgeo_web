@@ -151,17 +151,33 @@ async function lerRegistroLocal() {
     return atlases.length > 0 ? { atlases } : null;
 }
 
-/** Carrega a cadeia num grafo de módulos NOVO (a fábrica e o registro têm estado de módulo). */
+/**
+ * Carrega a cadeia num grafo de módulos NOVO (a fábrica e o registro têm estado de módulo).
+ *
+ * AS IMPORTAÇÕES SÃO SEQUENCIAIS, E ISSO NÃO É ESTILO. Com `Promise.all` logo depois de
+ * `vi.resetModules()`, as seis resoluções corriam contra o re-registro do mock de
+ * `localforage` no grafo novo, e de vez em quando um módulo pegava o localforage REAL.
+ * Como o setup global instala `fake-indexeddb`, esse caminho não falha: ele funciona
+ * contra um banco de verdade que SOBREVIVE entre os testes deste arquivo, e a migração
+ * passava a ler a versão de um teste anterior.
+ *
+ * O sintoma era o `ebgeo_global` vazio e um `Migration needed: null -> 3.0`, com a leitura
+ * crua do armazenamento falso dizendo `2.2` no mesmo instante. Medido em 2026-09-11: a
+ * suíte inteira reprovava em 2 de 3 rodadas, e o arquivo isolado passava sempre, porque
+ * sozinho ele não tinha teste anterior de quem herdar o `3.0`.
+ *
+ * A prova de que a loja era a errada: o duplo carrega `__dbName` e `__backing`, e no
+ * instante da falha a loja que a migração usava não tinha nenhum dos dois.
+ * @returns {Promise<Object>} os seis módulos do grafo novo
+ */
 async function loadModules() {
     vi.resetModules();
-    const [service, namespace, api, local, entity, origin] = await Promise.all([
-        import('../../src/js/store/migration/migration.service.js'),
-        import('../../src/js/store/atlas-namespace.js'),
-        import('../../src/js/store/local-atlas.api.js'),
-        import('../../src/js/store/repositories/local.repository.js'),
-        import('../../src/js/store/atlas/atlas.entity.js'),
-        import('../../src/js/store/store-origin.js')
-    ]);
+    const service = await import('../../src/js/store/migration/migration.service.js');
+    const namespace = await import('../../src/js/store/atlas-namespace.js');
+    const api = await import('../../src/js/store/local-atlas.api.js');
+    const local = await import('../../src/js/store/repositories/local.repository.js');
+    const entity = await import('../../src/js/store/atlas/atlas.entity.js');
+    const origin = await import('../../src/js/store/store-origin.js');
     return { service, namespace, api, local, entity, origin };
 }
 
