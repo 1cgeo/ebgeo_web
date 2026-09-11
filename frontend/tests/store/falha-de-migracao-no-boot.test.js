@@ -117,12 +117,18 @@ async function semearInstalacaoDaOutraLinha() {
 /** @returns {Promise<Object>} Um grafo de módulos NOVO. */
 async function carregarPagina() {
     vi.resetModules();
-    const [localAtlas, adocao, repository, origin] = await Promise.all([
-        import('@store/local-atlas.api.js'),
-        import('@store/migration/boot-legacy-adoption.js'),
-        import('@store/repository.js'),
-        import('@store/store-origin.js')
-    ]);
+    // IMPORTAÇÕES SEQUENCIAIS, E ISSO NÃO É ESTILO. Com `Promise.all` logo depois de
+    // `vi.resetModules()`, as resoluções correm contra o re-registro do mock de
+    // `localforage` no grafo novo, e de vez em quando um módulo pega o localforage REAL.
+    // Como o setup global instala `fake-indexeddb`, esse caminho não falha: ele funciona
+    // contra um banco de verdade que SOBREVIVE entre os testes do arquivo, e o teste passa
+    // a medir o que um teste anterior deixou. Diagnosticado em 2026-09-11 no
+    // `store-schema-migration-v3.0.test.js`, que reprovava em 2 de 3 rodadas da suíte e
+    // passava sempre isolado; a prova foi a loja em uso não ter o `__backing` do duplo.
+    const localAtlas = await import('@store/local-atlas.api.js');
+    const adocao = await import('@store/migration/boot-legacy-adoption.js');
+    const repository = await import('@store/repository.js');
+    const origin = await import('@store/store-origin.js');
     return { localAtlas, adocao, repository, origin };
 }
 

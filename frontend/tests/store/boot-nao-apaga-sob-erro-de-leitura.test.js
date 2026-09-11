@@ -149,10 +149,16 @@ async function semearInstalacaoDaOutraLinha(carimbo = '2.4') {
 /** Carrega a cadeia num grafo de módulos NOVO (a fábrica tem estado de módulo). */
 async function loadModules() {
     vi.resetModules();
-    const [repository, namespace] = await Promise.all([
-        import('../../src/js/store/repository.js'),
-        import('../../src/js/store/atlas-namespace.js')
-    ]);
+    // IMPORTACOES SEQUENCIAIS, E ISSO NAO E ESTILO. Com `Promise.all` logo depois de
+    // `vi.resetModules()`, as resolucoes correm contra o re-registro do mock de
+    // `localforage` no grafo novo, e de vez em quando um modulo pega o localforage REAL.
+    // Como o setup global instala `fake-indexeddb`, esse caminho nao falha: ele funciona
+    // contra um banco de verdade que SOBREVIVE entre os testes do arquivo, e o teste passa
+    // a medir o que um teste anterior deixou. Diagnosticado em 2026-09-11 no
+    // `store-schema-migration-v3.0.test.js`, que reprovava em 2 de 3 rodadas da suite e
+    // passava sempre isolado; a prova foi a loja em uso nao ter o `__backing` do duplo.
+    const repository = await import('../../src/js/store/repository.js');
+    const namespace = await import('../../src/js/store/atlas-namespace.js');
     return { repository, namespace };
 }
 
