@@ -64,7 +64,7 @@ export function addVisibilityParametersToPanel(container, selectedFeatures, visi
     const observerSlider = createModernSlider({
         label: 'Altura do Observador',
         min: 0,
-        max: 50,
+        max: 200,
         step: 0.1,
         value: props.observerHeight ?? 2,
         unit: 'm',
@@ -80,7 +80,7 @@ export function addVisibilityParametersToPanel(container, selectedFeatures, visi
     const targetSlider = createModernSlider({
         label: 'Altura do Alvo',
         min: 0,
-        max: 50,
+        max: 200,
         step: 0.1,
         value: props.targetHeight ?? 0,
         unit: 'm',

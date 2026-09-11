@@ -1,12 +1,21 @@
 // Path: js/analysis_tools/los_tool/add_los_control.js
 
+import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
 import { addFeature, updateFeature, removeFeature, getCurrentMapFeatures, batchUpdateLOSFeatures, getActiveLayerIdSync } from '@store';
 import { IDUtils } from '@utils';
+import { getPointerPosition } from '@utils/pointer-utils';
 import { addLOSAttributesToPanel, createLOSInfoSection, addLOSParametersToPanel } from './los_attributes_panel.js';
 import AddLOSGeometry from './add_los_geometry.js';
 import { BaseControl } from '@tools';
 import { createPreviewScheduler } from '@tools/helpers/preview-scheduler.js';
 import { getSnappingService } from '@js/snapping';
+
+/**
+ * Layers onHoverMove needs: the handle layer plus the two layers that draw the
+ * LOS itself ('processed-los-layer' carries the green/red halves, 'los-layer' the
+ * invisible full line that keeps the feature pickable).
+ */
+const HOVER_LAYER_IDS = ['los-edit-handles-layer', 'los-layer', 'processed-los-layer'];
 
 class AddLOSControl extends BaseControl {
     featureType = 'los';
@@ -32,7 +41,23 @@ class AddLOSControl extends BaseControl {
         });
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
-        this.dragRecalculateTimeout = null;
+        // Edit handle state: dragging the observer or the target node.
+        this.isDraggingHandle = false;
+        this.activeHandleId = null;
+        this._activePointerId = null;
+
+        // Third gate, same pattern as the two above: the handle drag resolves
+        // the snap once per frame and redraws the preview once.
+        this._handleScheduler = createPreviewScheduler({
+            raf: (callback) => requestAnimationFrame(callback),
+            caf: (id) => cancelAnimationFrame(id),
+            onFrame: (pointer) => this.performHandlePreviewUpdate(pointer),
+        });
+
+        this._onEditPointerDown = this._onEditPointerDown.bind(this);
+        this._onEditPointerMove = this._onEditPointerMove.bind(this);
+        this._onEditPointerUp = this._onEditPointerUp.bind(this);
+
         this.toolManager.losControl = this;
         this._name = 'AddLOSControl';
     }
@@ -115,11 +140,11 @@ class AddLOSControl extends BaseControl {
     }
 
     getDragSources() {
-        return ['los'];
+        return [];
     }
 
     getEditHandleSources() {
-        return [];
+        return ['los-edit-handles'];
     }
 
     createSelectionBox(feature) {
@@ -154,7 +179,7 @@ class AddLOSControl extends BaseControl {
     }
 
     getEditHandleSource() {
-        return null;
+        return 'los-edit-handles';
     }
 
     canCopy(_feature) {
@@ -200,54 +225,15 @@ class AddLOSControl extends BaseControl {
         }
     }
 
-    calculateMoveOffset(feature, referencePoint) {
-        const coordinates = this.geometry.extractCoordinatesFromGeometry(feature.geometry);
-        if (!coordinates || coordinates.length === 0) {
-            return [0, 0];
-        }
-
-        const firstPoint = coordinates[0];
-        return [
-            firstPoint[0] - referencePoint.lng,
-            firstPoint[1] - referencePoint.lat
-        ];
-    }
-
-    updateFeatureForMove(feature, dx, dy, _newCoords) {
-        const oldCoords = this.geometry.extractCoordinatesFromGeometry(feature.geometry);
-        if (!oldCoords) return feature;
-
-        const newLOSCoords = oldCoords.map(coord => [
-            coord[0] + dx,
-            coord[1] + dy
-        ]);
-
-        return {
-            ...feature,
-            geometry: {
-                type: 'LineString',
-                coordinates: newLOSCoords
-            }
-        };
-    }
-
-    async recalculateLOSAfterMove(movedFeatures) {
-        for (const feature of movedFeatures) {
-            const coordinates = this.geometry.extractCoordinatesFromGeometry(feature.geometry);
-            const options = {
-                observerHeight: feature.properties.observerHeight ?? 1.5,
-                targetHeight: feature.properties.targetHeight ?? 0,
-                samplePoints: feature.properties.samplePoints ?? 100
-            };
-            const result = await this.geometry.recalculateFromCoordinates(coordinates, this.map, options);
-
-            this.updateMainSourceAfterRecalculation(feature, result);
-            this.updateProcessedSourcesAfterRecalculation(feature, result);
-        }
-    }
-
-    canMove(feature) {
-        return !feature.properties?.bloqueado && this.geometry.isTerrainAvailable(this.map);
+    /**
+     * A LOS is never dragged. Dragging translates the line without re-reading the
+     * terrain under it, so the green/red split and the profile stay from the old
+     * position until the drag ends. The observer and the target move by their own
+     * handles, which recalculate on release.
+     * @returns {boolean} Always false
+     */
+    canMove(_feature) {
+        return false;
     }
 
     activate = () => {
@@ -271,47 +257,274 @@ class AddLOSControl extends BaseControl {
         this.clearPreview();
     }
 
-    onFeatureSelected = (_feature) => {
+    onFeatureSelected = (feature) => {
+        this.selectFeature(feature);
     }
 
-    onFeatureDeselected = (_feature) => {
+    onFeatureDeselected = (feature) => {
+        const selectedFeature = this.getSelectedFeature();
+        if (selectedFeature && selectedFeature.properties.id === feature.properties.id) {
+            this.deselectFeature();
+        }
     }
 
     onGlobalDeselect = () => {
+        if (this.getSelectedFeature()) {
+            this.deselectFeature();
+        }
     }
 
     isEditingMode = () => {
         return false;
     }
 
-    hasEditHandle = (_featureId) => {
-        return false;
+    hasEditHandle = (featureId) => {
+        const selectedFeature = this.getSelectedFeature();
+        return Boolean(selectedFeature && selectedFeature.properties.id === featureId);
+    }
+
+    // =========================================================================
+    // EDIT HANDLES (observer / target)
+    // =========================================================================
+
+    selectFeature = (feature) => {
+        this.setupHoverListeners();
+
+        if (!this.geometry.isTerrainAvailable(this.map)) return;
+
+        this.createEditHandles(feature);
+        this.setupEditEventListeners();
+    }
+
+    deselectFeature = () => {
+        this.isDraggingHandle = false;
+        this.activeHandleId = null;
+        this.clearEditHandles();
+        this.removeEditEventListeners();
+        this.removeHoverListeners();
+        this.cancelPendingUpdates();
+        this.map.dragPan.enable();
+        this.map.getCanvas().style.cursor = '';
+    }
+
+    createEditHandles = (feature) => {
+        const handles = this.geometry.createHandles(feature);
+        if (!handles) return;
+
+        this.map.getSource('los-edit-handles').setData({
+            type: 'FeatureCollection',
+            features: handles
+        });
+    }
+
+    clearEditHandles = () => {
+        if (this.map.getSource('los-edit-handles')) {
+            this.map.getSource('los-edit-handles').setData({
+                type: 'FeatureCollection',
+                features: []
+            });
+        }
+        this.clearPreview();
+    }
+
+    setupEditEventListeners = () => {
+        this.map.getCanvasContainer().addEventListener('pointerdown', this._onEditPointerDown);
+    }
+
+    removeEditEventListeners = () => {
+        const canvas = this.map.getCanvasContainer();
+        canvas.removeEventListener('pointerdown', this._onEditPointerDown);
+        canvas.removeEventListener('pointermove', this._onEditPointerMove);
+        canvas.removeEventListener('pointerup', this._onEditPointerUp);
+        canvas.removeEventListener('pointercancel', this._onEditPointerUp);
+
+        if (this._activePointerId !== null) {
+            try {
+                canvas.releasePointerCapture(this._activePointerId);
+            } catch (_err) {
+                // Pointer may have already been released
+            }
+            this._activePointerId = null;
+        }
+    }
+
+    _onEditPointerDown(e) {
+        if (!e.isPrimary) return;
+        if (!this.geometry.isTerrainAvailable(this.map)) return;
+        if (!this.getSelectedFeature()) return;
+
+        const canvas = this.map.getCanvasContainer();
+        const point = getPointerPosition(e, canvas);
+
+        const handleFeatures = this.map.queryRenderedFeatures([point.x, point.y], {
+            layers: ['los-edit-handles-layer']
+        });
+        if (handleFeatures.length === 0) return;
+
+        this.isDraggingHandle = true;
+        this.activeHandleId = handleFeatures[0].properties.handleId;
+        this.lastPreviewPosition = null;
+        this.map.dragPan.disable();
+        this.map.getCanvas().style.cursor = 'grabbing';
+
+        this._activePointerId = e.pointerId;
+        canvas.setPointerCapture(e.pointerId);
+
+        canvas.addEventListener('pointermove', this._onEditPointerMove);
+        canvas.addEventListener('pointerup', this._onEditPointerUp);
+        canvas.addEventListener('pointercancel', this._onEditPointerUp);
+
+        e.preventDefault();
+    }
+
+    _onEditPointerMove(e) {
+        if (!e.isPrimary) return;
+
+        const selectedFeature = this.getSelectedFeature();
+        if (!this.isDraggingHandle || !selectedFeature) return;
+
+        const canvas = this.map.getCanvasContainer();
+        const point = getPointerPosition(e, canvas);
+        this._handleScheduler.request({ point, lngLat: this.map.unproject([point.x, point.y]) });
+    }
+
+    performHandlePreviewUpdate = (pointer) => {
+        const selectedFeature = this.getSelectedFeature();
+        if (!this.isDraggingHandle || !selectedFeature || !pointer) return;
+
+        // The snap is resolved ONCE per frame, here, and never on the raw motion
+        // event: a mousemove fires several times per frame and each resolve costs
+        // a feature query.
+        const snapping = getSnappingService();
+        const snap = snapping?.resolve(this.map, pointer.point, pointer.lngLat, selectedFeature.properties?.id) ?? pointer.lngLat;
+        if (snap.snapped) {
+            snapping.showIndicator(this.map, snap, snap.snapType);
+        } else {
+            snapping?.hideIndicator(this.map);
+        }
+        this.lastPreviewPosition = [snap.lng, snap.lat];
+
+        const result = this.geometry.updateFromHandle(this.activeHandleId, this.lastPreviewPosition, selectedFeature);
+        if (!result) return;
+
+        this.showPreview(this.geometry.generate(result.coordinates));
+        this.updateHandlePositions(result.coordinates);
     }
 
     /**
-     * Synchronize edit handles after drag operation
-     * Ensures profile panel is updated after complete recalculation
-     * @param {Array} movedFeatures - Array of moved features
+     * Redraw both handles at the given endpoints, keeping their roles.
+     * @param {Array} coordinates - [start, end]
      */
-    syncEditHandlesAfterDrag = async (movedFeatures) => {
-        const losFeatures = movedFeatures.filter(f => f.properties.source === 'los');
+    updateHandlePositions = (coordinates) => {
+        const source = this.map.getSource('los-edit-handles');
+        if (!source) return;
 
-        if (losFeatures.length === 0) return;
+        source.setData({
+            type: 'FeatureCollection',
+            features: [
+                {
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: coordinates[0] },
+                    properties: { role: 'handle', handleType: 'observer', handleId: 'start', user_isEditingHandle: true }
+                },
+                {
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: coordinates[1] },
+                    properties: { role: 'handle', handleType: 'target', handleId: 'end', user_isEditingHandle: true }
+                }
+            ]
+        });
+    }
 
-        clearTimeout(this.dragRecalculateTimeout);
-        this.dragRecalculateTimeout = setTimeout(async () => {
-            this.showRecalculatingState();
+    _onEditPointerUp(_e) {
+        // A drag whose down, move and up land in the SAME frame still has its
+        // pointer parked: without the flush the edit would be dropped.
+        this._handleScheduler.flush();
+        getSnappingService()?.hideIndicator(this.map);
 
+        const canvas = this.map.getCanvasContainer();
+        canvas.removeEventListener('pointermove', this._onEditPointerMove);
+        canvas.removeEventListener('pointerup', this._onEditPointerUp);
+        canvas.removeEventListener('pointercancel', this._onEditPointerUp);
+
+        if (this._activePointerId !== null) {
             try {
-                const updatedFeatures = await this.recalculateMovedLOSFeatures(losFeatures);
-                this.updateSelectionManagerFeatures(updatedFeatures);
-                this.selectionManager.updateUI();
-            } catch (error) {
-                console.error('Error recalculating LOS after drag:', error);
-            } finally {
-                this.hideRecalculatingState();
+                canvas.releasePointerCapture(this._activePointerId);
+            } catch (_err) {
+                // Pointer may have already been released
             }
-        }, 50);
+            this._activePointerId = null;
+        }
+
+        const selectedFeature = this.getSelectedFeature();
+        const wasDragging = this.isDraggingHandle;
+        const handleId = this.activeHandleId;
+        const position = this.lastPreviewPosition;
+
+        this.isDraggingHandle = false;
+        this.activeHandleId = null;
+        this.map.dragPan.enable();
+        this.map.getCanvas().style.cursor = '';
+
+        if (!wasDragging || !selectedFeature || !position) return;
+
+        const result = this.geometry.updateFromHandle(handleId, position, selectedFeature);
+        if (!result) {
+            this.clearPreview();
+            this.createEditHandles(selectedFeature);
+            return;
+        }
+
+        this.applyHandleEdit(selectedFeature, result.coordinates);
+    }
+
+    /**
+     * Re-run the full analysis on the endpoints the handle just dropped. Reuses
+     * the parameter-change path, which rebuilds the processed halves, writes both
+     * sources, persists, and refreshes the info section and the profile chart.
+     * The endpoints are PASSED, not read back from the source, so nothing depends
+     * on a setData landing before the next getData.
+     * @param {Object} feature - Selected LOS feature
+     * @param {Array} coordinates - [start, end]
+     */
+    applyHandleEdit = async (feature, coordinates) => {
+        try {
+            feature.geometry = this.geometry.generate(coordinates);
+
+            await this._performRecalculation([feature], coordinates);
+
+            this.clearPreview();
+
+            const refreshed = this.getSelectedFeature();
+            if (refreshed) {
+                this.createEditHandles(refreshed);
+            }
+
+            // The bbox moved with the endpoint; the highlight has to follow it.
+            this.selectionManager.uiManager?.updateSelectionHighlight?.();
+        } catch (error) {
+            console.error('Error applying LOS handle edit:', error);
+            this.clearPreview();
+        }
+    }
+
+    setupHoverListeners = () => {
+        this.map.on('mousemove', this.onHoverMove);
+    }
+
+    removeHoverListeners = () => {
+        this.map.off('mousemove', this.onHoverMove);
+    }
+
+    onHoverMove = (e) => {
+        if (this.isDraggingHandle) return;
+        if (!this.getSelectedFeature()) return;
+
+        const features = queryFeaturesAtPoint(this.map, e.point, { layers: HOVER_LAYER_IDS });
+        const hasHandle = features.some(f =>
+            f.source === 'los-edit-handles' && f.properties.user_isEditingHandle
+        );
+        this.map.getCanvas().style.cursor = hasHandle ? 'crosshair' : '';
     }
 
     /**
@@ -341,82 +554,6 @@ class AddLOSControl extends BaseControl {
         }
     }
 
-    /**
-     * Recalculate LOS features after movement
-     * @param {Array} movedFeatures - Array of moved LOS features
-     * @returns {Array} Array of updated features
-     */
-    async recalculateMovedLOSFeatures(movedFeatures) {
-        const updatedFeatures = [];
-
-        for (const movedFeature of movedFeatures) {
-            if (movedFeature.properties.source === 'los') {
-                try {
-                    const coordinates = this.geometry.extractCoordinatesFromGeometry(movedFeature.geometry);
-                    if (coordinates) {
-                        const options = {
-                            observerHeight: movedFeature.properties.observerHeight ?? 1.5,
-                            targetHeight: movedFeature.properties.targetHeight ?? 0,
-                            samplePoints: movedFeature.properties.samplePoints ?? 100
-                        };
-
-                        const result = await this.geometry.recalculateFromCoordinates(coordinates, this.map, options);
-
-                        movedFeature.geometry = result.geometry;
-                        movedFeature.properties.profileData = JSON.stringify(result.profileData);
-                        movedFeature.properties.visibleLength = result.visibleLength;
-                        movedFeature.properties.obstructedLength = result.obstructedLength;
-                        movedFeature.properties.totalLength = result.totalLength;
-
-                        await updateFeature('los', movedFeature);
-
-                        if (movedFeature.properties.measure) {
-                            this.updateFeatureMeasurement(movedFeature);
-                        }
-
-                        await this.updateProcessedFeaturesAfterMove(movedFeature);
-
-                        updatedFeatures.push(movedFeature);
-                    }
-                } catch (error) {
-                    console.error('Error recalculating LOS after movement:', error);
-                }
-            }
-        }
-
-        return updatedFeatures;
-    }
-
-    /**
-     * Update processed features after main feature movement
-     * @param {Object} mainFeature - Updated main LOS feature
-     */
-    async updateProcessedFeaturesAfterMove(mainFeature) {
-        const processedData = await this.map.getSource('processed-los').getData();
-
-        processedData.features = processedData.features.filter(f =>
-            f.properties.id !== mainFeature.properties.id + '-visible' &&
-            f.properties.id !== mainFeature.properties.id + '-obstructed'
-        );
-
-        const newProcessedFeatures = this.geometry.generateProcessedFeatures(mainFeature);
-        for (const processedFeature of newProcessedFeatures) {
-            await updateFeature('processed_los', processedFeature);
-            processedData.features.push(processedFeature);
-        }
-
-        this.map.getSource('processed-los').setData(processedData);
-    }
-
-    /**
-     * Snap indicator before the first click, when there is nothing to preview yet.
-     *
-     * The raw `mousemove` only PARKS the pointer: `snapping.resolve` is a
-     * rendered-feature query, and a mouse fires several moves inside one frame,
-     * so it runs once per frame from the gate's callback below. The indicator
-     * lands on the same pixel either way, since only the last position of the
-     * frame is ever drawn.
-     */
     _onPreClickMouseMove = (e) => {
         this._preClickScheduler.request({ point: e.point, lngLat: e.lngLat });
     }
@@ -635,7 +772,7 @@ class AddLOSControl extends BaseControl {
      * Perform the actual recalculation after debounce
      * @private
      */
-    _performRecalculation = async (features) => {
+    _performRecalculation = async (features, overrideCoordinates = null) => {
         this.showRecalculatingState();
 
         try {
@@ -649,7 +786,11 @@ class AddLOSControl extends BaseControl {
                     Object.assign(sourceFeature.properties, pendingChanges);
                     Object.assign(feature.properties, pendingChanges);
 
-                    const coordinates = this.geometry.extractCoordinatesFromGeometry(sourceFeature.geometry);
+                    // The handle path passes the endpoints it just dropped, instead
+                    // of trusting that this getData() already sees the setData() that
+                    // wrote them.
+                    const coordinates = overrideCoordinates
+                        || this.geometry.extractCoordinatesFromGeometry(sourceFeature.geometry);
                     if (coordinates) {
                         const options = {
                             observerHeight: sourceFeature.properties.observerHeight,
@@ -949,8 +1090,21 @@ class AddLOSControl extends BaseControl {
     }
 
     _onTerrainChange = () => {
-        if (this.isActive && !this.geometry.isTerrainAvailable(this.map)) {
+        const terrainAvailable = this.geometry.isTerrainAvailable(this.map);
+
+        if (this.isActive && !terrainAvailable) {
             this.toolManager.deactivateCurrentTool();
+        }
+
+        const selectedFeature = this.getSelectedFeature();
+        if (selectedFeature) {
+            if (terrainAvailable) {
+                this.createEditHandles(selectedFeature);
+                this.setupEditEventListeners();
+            } else {
+                this.clearEditHandles();
+                this.removeEditEventListeners();
+            }
         }
     }
 
@@ -973,10 +1127,7 @@ class AddLOSControl extends BaseControl {
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
 
-        if (this.dragRecalculateTimeout) {
-            clearTimeout(this.dragRecalculateTimeout);
-            this.dragRecalculateTimeout = null;
-        }
+        this._handleScheduler.cancel();
 
         if (this._recalculationDebounceTimer) {
             clearTimeout(this._recalculationDebounceTimer);
@@ -988,6 +1139,8 @@ class AddLOSControl extends BaseControl {
         this.map.off('mousemove', this._onPreClickMouseMove);
         this.map.off('mousemove', this.handleMouseMove);
         this.map.off('terrain', this._onTerrainChange);
+        this.removeEditEventListeners();
+        this.removeHoverListeners();
         this.cancelPendingUpdates();
     }
 }

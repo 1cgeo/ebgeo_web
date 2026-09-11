@@ -283,26 +283,32 @@ describe('the visibility handle drag', () => {
 
 describe('the LOS tool', () => {
     /**
-     * The LOS has NO handle drag: `getEditHandleSources()` is empty,
-     * `hasEditHandle()` is false, and the control has no `_onEditPointerDown` /
-     * `_onEditPointerUp` at all. Its `lastPreviewPosition` is read only inside
-     * the frame callback that writes it, so the one-frame gesture cannot lose an
-     * edit there. This is a tripwire, not a decoration: the day the LOS grows a
-     * handle drag, this test fails and the `flush()` above has to be repeated in
-     * its end-of-drag handler.
+     * O LOS GANHOU arrasto de no em 2026-09-11 (observador e alvo), e com ele a
+     * mesma armadilha que o viewshed: um gesto cujo down, move e up caem no MESMO
+     * quadro deixa o ponteiro estacionado no scheduler. O estilingue que este
+     * bloco guardava cobrava o `flush()` no fim do arrasto, e esta versao cobra
+     * que ele exista, em vez de cobrar que o arrasto nao exista.
      */
-    it('has no handle drag to lose, so there is nothing to flush', async () => {
+    it('has a handle drag, and flushes the parked pointer at the end of it', async () => {
         const { default: AddLOSControl } = await import('../../src/js/analysis_tools/los_tool/add_los_control.js');
         const { control } = buildControl(AddLOSControl, {
             generate: (coordinates) => ({ type: 'LineString', coordinates }),
             isTerrainAvailable: () => true,
+            createHandles: () => [],
         });
 
-        expect(control.getEditHandleSources()).toEqual([]);
-        expect(control.getEditHandleSource()).toBeNull();
-        expect(control.hasEditHandle('los-1')).toBe(false);
-        expect(control._onEditPointerDown).toBeUndefined();
-        expect(control._onEditPointerUp).toBeUndefined();
-        expect(control.isDraggingHandle).toBeUndefined();
+        // As duas pontas sao editaveis, e a fonte de alcas existe.
+        expect(control.getEditHandleSources()).toEqual(['los-edit-handles']);
+        expect(control.getEditHandleSource()).toBe('los-edit-handles');
+        expect(typeof control._onEditPointerDown).toBe('function');
+        expect(typeof control._onEditPointerUp).toBe('function');
+        expect(control.isDraggingHandle).toBe(false);
+
+        // E o fim do arrasto descarrega o ponteiro estacionado, senao a edicao de
+        // um gesto de um quadro se perde.
+        let descarregou = 0;
+        control._handleScheduler = { flush: () => { descarregou++; }, cancel: () => {}, request: () => {} };
+        control._onEditPointerUp({ pointerId: 1, isPrimary: true, clientX: 5, clientY: 5 });
+        expect(descarregou).toBe(1);
     });
 });

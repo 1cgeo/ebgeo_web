@@ -11,19 +11,18 @@ import { createPreviewScheduler } from '@tools/helpers/preview-scheduler.js';
 import { getSnappingService } from '@js/snapping';
 
 /**
- * Layers onHoverMove needs: 'visibility-edit-handles' for the handle test, plus
- * the two sources the feature test accepts, 'visibility' and 'processed-visibility'
- * (the latter drawn by the visible and the obstructed layers).
- * Ids confirmed in layers/styles/tactical.layers.js:320, :265, :275 and :286.
+ * Layers onHoverMove needs. Only the handle layer is tested now that the feature
+ * itself is not draggable, so there is no 'move' cursor to offer.
  */
-const HOVER_LAYER_IDS = ['visibility-edit-handles-layer', 'visibility-layer', 'visibility-visible-layer', 'visibility-obstructed-layer'];
+const HOVER_LAYER_IDS = ['visibility-edit-handles-layer'];
 
 /**
  * Visibility (Viewshed) analysis tool control.
  *
  * Sector-style construction: first click sets observer, second defines radius/bearing.
- * Edit handles: radius (red) + aperture (blue) like sector tool.
- * After handle edit, full viewshed recalculation runs with progress modal.
+ * Edit handles: radius (red), aperture (blue) and observer (green). Each one
+ * re-runs the full viewshed on release, with the progress modal.
+ * The feature is NOT draggable: see canMove.
  */
 class AddVisibilityControl extends BaseControl {
     featureType = 'visibility';
@@ -130,7 +129,7 @@ class AddVisibilityControl extends BaseControl {
     }
 
     getDragSources() {
-        return ['visibility'];
+        return [];
     }
 
     getEditHandleSources() {
@@ -199,30 +198,15 @@ class AddVisibilityControl extends BaseControl {
         }
     }
 
-    calculateMoveOffset(feature, referencePoint) {
-        const center = this.geometry.normalizeCenter(feature.properties.center);
-        if (!center) return [0, 0];
-        return [
-            center[0] - referencePoint.lng,
-            center[1] - referencePoint.lat
-        ];
-    }
-
-    updateFeatureForMove(feature, dx, dy, newCoords) {
-        const newCenter = [newCoords.lng, newCoords.lat];
-        const translatedGeometry = this.geometry.translateGeometry(feature.geometry, dx, dy);
-        return {
-            ...feature,
-            properties: {
-                ...feature.properties,
-                center: newCenter
-            },
-            geometry: translatedGeometry
-        };
-    }
-
-    canMove(feature) {
-        return !feature.properties?.bloqueado && this.geometry.isTerrainAvailable(this.map);
+    /**
+     * A viewshed is never dragged. Translating the cells carries the OLD terrain
+     * result to the new position, so what the user sees between the drop and the
+     * end of the recalculation is a lie. The observer moves by the green handle,
+     * which recalculates on release.
+     * @returns {boolean} Always false
+     */
+    canMove(_feature) {
+        return false;
     }
 
 
@@ -272,12 +256,6 @@ class AddVisibilityControl extends BaseControl {
     hasEditHandle = (featureId) => {
         const selectedFeature = this.getSelectedFeature();
         return selectedFeature && selectedFeature.properties.id === featureId;
-    }
-
-    syncEditHandlesAfterDrag = async (movedFeatures) => {
-        this.recalculateQueue = this.recalculateQueue.then(async () => {
-            await this.recalculateMovedVisibilityFeatures(movedFeatures);
-        });
     }
 
 
@@ -444,16 +422,20 @@ class AddVisibilityControl extends BaseControl {
 
             const result = this.geometry.updateFromHandle(this.activeHandleId, this.lastPreviewPosition, normalizedFeature);
             if (result) {
-                const center = this.geometry.normalizeCenter(selectedFeature.properties.center);
-
                 selectedFeature.properties.radius = result.radius;
                 selectedFeature.properties.bearing = result.bearing;
                 selectedFeature.properties.aperture = result.aperture;
+                // O centro so muda no handle do observador. Cair para o centro da
+                // FEICAO quando o resultado nao o traz evita que um resultado sem
+                // essa chave recalcule em undefined, calado.
+                const novoCentro = result.center ?? this.geometry.normalizeCenter(selectedFeature.properties.center);
+                selectedFeature.properties.center = novoCentro;
 
-                this.updateHandlePropertiesToSource(selectedFeature, result);
+                this.updateHandlePropertiesToSource(selectedFeature, { ...result, center: novoCentro });
 
                 this.recalculateQueue = this.recalculateQueue.then(async () => {
-                    await this.recalculateAfterParameterChange([selectedFeature], center);
+                    await this.recalculateAfterParameterChange([selectedFeature], novoCentro);
+                    this.selectionManager.uiManager?.updateSelectionHighlight?.();
                 });
             }
         }
@@ -533,24 +515,14 @@ class AddVisibilityControl extends BaseControl {
     }
 
     onHoverMove = (e) => {
-        const selectedFeature = this.getSelectedFeature();
-        if (!selectedFeature) return;
+        if (this.isDraggingHandle) return;
+        if (!this.getSelectedFeature()) return;
+
         const features = queryFeaturesAtPoint(this.map, e.point, { layers: HOVER_LAYER_IDS });
         const hasHandle = features.some(f =>
             f.source === 'visibility-edit-handles' && f.properties.user_isEditingHandle
         );
-        const hasFeature = features.some(f =>
-            (f.source === 'processed-visibility' || f.source === 'visibility') &&
-            (f.properties.id === selectedFeature.properties.id ||
-             f.properties.id?.startsWith(selectedFeature.properties.id + '-'))
-        );
-        if (hasHandle) {
-            this.map.getCanvas().style.cursor = 'crosshair';
-        } else if (hasFeature) {
-            this.map.getCanvas().style.cursor = 'move';
-        } else {
-            this.map.getCanvas().style.cursor = '';
-        }
+        this.map.getCanvas().style.cursor = hasHandle ? 'crosshair' : '';
     }
 
 
@@ -796,8 +768,9 @@ class AddVisibilityControl extends BaseControl {
     }
 
     /**
-     * Persist radius, bearing and aperture from a handle edit into the map source.
-     * Must be called synchronously after handle drag so recalculation reads fresh values.
+     * Persist radius, bearing, aperture and center from a handle edit into the map
+     * source. Must be called right after the handle drag so recalculation reads
+     * fresh values — the center matters because the observer handle moves it.
      */
     updateHandlePropertiesToSource = async (feature, result) => {
         const data = await this.map.getSource('visibility').getData();
@@ -806,6 +779,7 @@ class AddVisibilityControl extends BaseControl {
             sourceFeature.properties.radius = result.radius;
             sourceFeature.properties.bearing = result.bearing;
             sourceFeature.properties.aperture = result.aperture;
+            sourceFeature.properties.center = result.center;
         }
         this.map.getSource('visibility').setData(data);
         this.updateSelectionManagerFeature(feature);
@@ -930,79 +904,6 @@ class AddVisibilityControl extends BaseControl {
         }
     }
 
-    /**
-     * Recalculate visibility features after movement.
-     */
-    async recalculateMovedVisibilityFeatures(movedFeatures) {
-        for (const movedFeature of movedFeatures) {
-            if (movedFeature.properties.source === 'visibility') {
-                try {
-                    this.showProgressModal();
-                    this.updateProgress(5, 'Detectando nova posição...');
-                    await this.geometry.nextPaint();
-
-                    const newCenter = this.geometry.normalizeCenter(movedFeature.properties.center);
-                    if (!newCenter) continue;
-
-                    this.updateProgress(10, 'Preparando recálculo...');
-                    await this.geometry.nextPaint();
-
-                    const result = await this.geometry.recalculateFromCoordinates(
-                        newCenter,
-                        movedFeature,
-                        this.map,
-                        (progress, text) => this.updateProgress(progress, text)
-                    );
-
-                    this.updateProgress(85, 'Atualizando geometria...');
-                    await this.geometry.nextPaint();
-
-                    movedFeature.geometry = result.geometry;
-                    movedFeature.properties.center = result.center;
-                    movedFeature.properties.cellData = result.cellData;
-
-                    const newProcessedFeatures = this.geometry.generateProcessedFeatures(movedFeature);
-
-                    this.updateProgress(90, 'Salvando no banco de dados...');
-                    await this.geometry.nextPaint();
-
-                    await batchUpdateVisibilityFeatures(movedFeature, newProcessedFeatures);
-
-                    this.updateProgress(95, 'Atualizando fontes do mapa...');
-                    await this.geometry.nextPaint();
-
-                    await this.updateProcessedFeaturesAfterMove(movedFeature, newProcessedFeatures);
-
-                    const selectedFeature = this.getSelectedFeature();
-                    if (selectedFeature && selectedFeature.properties.id === movedFeature.properties.id) {
-                        this.createEditHandles(movedFeature);
-                    }
-
-                    this.updateProgress(100, 'Recálculo concluído!');
-                    await this.geometry.delay(150);
-
-                } catch (error) {
-                    console.error('Error during visibility recalculation:', error);
-                } finally {
-                    this.hideProgressModal();
-                }
-            }
-        }
-    }
-
-    async updateProcessedFeaturesAfterMove(mainFeature, newProcessedFeatures = null) {
-        const processedData = await this.map.getSource('processed-visibility').getData();
-
-        processedData.features = processedData.features.filter(f =>
-            !f.properties.id.startsWith(mainFeature.properties.id + '-')
-        );
-
-        const processedFeatures = newProcessedFeatures || this.geometry.generateProcessedFeatures(mainFeature);
-        processedFeatures.forEach(pf => processedData.features.push(pf));
-
-        this.map.getSource('processed-visibility').setData(processedData);
-    }
-
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('visibility').getData();
@@ -1027,7 +928,7 @@ class AddVisibilityControl extends BaseControl {
                         ...pf,
                         properties: {
                             ...pf.properties,
-                            ...selectedFeature.properties,
+                            ...AddVisibilityGeometry.withoutCellData(selectedFeature.properties),
                             id: pf.properties.id,
                             color: pf.properties.color
                         }
@@ -1114,10 +1015,11 @@ class AddVisibilityControl extends BaseControl {
                     const processedFeatures = processedData.features.filter(f =>
                         f.properties.id.startsWith(feature.properties.id + '-')
                     );
+                    const shared = AddVisibilityGeometry.withoutCellData(feature.properties);
                     processedFeatures.forEach(pf => {
-                        Object.keys(feature.properties).forEach(key => {
+                        Object.keys(shared).forEach(key => {
                             if (key !== 'color') {
-                                pf.properties[key] = feature.properties[key];
+                                pf.properties[key] = shared[key];
                             }
                         });
                     });

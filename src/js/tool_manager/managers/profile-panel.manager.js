@@ -43,6 +43,18 @@ Chart.register(
  */
 const SLOPE_THRESHOLD = 30;
 
+/**
+ * Export canvas geometry. The on-screen panel canvas is about 420 x 220 CSS px;
+ * these are the logical pixels of the file, multiplied by EXPORT_PIXEL_RATIO
+ * device pixels each, giving 2400 x 1350 in the PNG.
+ */
+const EXPORT_WIDTH = 1200;
+const EXPORT_HEIGHT = 675;
+const EXPORT_PIXEL_RATIO = 2;
+
+/** Font sizes are tuned for the narrow panel; the wide export needs them bigger. */
+const EXPORT_FONT_SCALE = 2;
+
 // ============================================================================
 // PROFILE PANEL MANAGER
 // ============================================================================
@@ -548,30 +560,94 @@ export class ProfilePanelManager {
 
     /**
      * Save chart as PNG image with white background.
+     *
+     * The on-screen canvas is the size of the panel (about 420 x 220 CSS px), so
+     * copying its pixels gave a file too coarse to drop into a report. This
+     * renders the SAME data and options again, off-screen, at EXPORT_WIDTH by
+     * EXPORT_HEIGHT logical pixels and EXPORT_PIXEL_RATIO device pixels each,
+     * which is where the resolution comes from. Upscaling the small canvas with
+     * drawImage would only interpolate: the text and the axes have to be drawn at
+     * the final size to come out sharp.
      * @private
      */
     _saveChartAsImage(isLOS) {
         if (!this.activeChart) return;
 
-        const canvas = this.activeChart.canvas;
+        const holder = document.createElement('div');
+        holder.className = 'profile-export-holder';
+        document.body.appendChild(holder);
 
-        // Create a new canvas with white background
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = canvas.width;
-        tempCanvas.height = canvas.height;
-        const tempCtx = tempCanvas.getContext('2d');
+        const canvas = document.createElement('canvas');
+        holder.appendChild(canvas);
 
-        // Fill with white background
-        tempCtx.fillStyle = '#ffffff';
-        tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+        let exportChart = null;
 
-        // Draw the chart on top
-        tempCtx.drawImage(canvas, 0, 0);
+        try {
+            const showSlope = this.activeChart.data.datasets.some(d => d.label === 'Inclinação (%)');
+            const options = this._exportChartOptions();
+            options.scales.y1.display = showSlope;
 
-        const link = document.createElement('a');
-        link.download = isLOS ? 'linha-de-visada.png' : 'perfil-terreno.png';
-        link.href = tempCanvas.toDataURL('image/png', 1);
-        link.click();
+            exportChart = new Chart(canvas, {
+                type: 'line',
+                data: {
+                    labels: [...this.activeChart.data.labels],
+                    datasets: this.activeChart.data.datasets.map(d => ({ ...d }))
+                },
+                options
+            });
+
+            // Explicit resize: it is what fixes the logical size and multiplies it
+            // by devicePixelRatio into the backing store, instead of inheriting
+            // whatever the holder measured.
+            exportChart.resize(EXPORT_WIDTH, EXPORT_HEIGHT);
+            exportChart.update('none');
+
+            const composed = document.createElement('canvas');
+            composed.width = canvas.width;
+            composed.height = canvas.height;
+            const ctx = composed.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, composed.width, composed.height);
+            ctx.drawImage(canvas, 0, 0);
+
+            const link = document.createElement('a');
+            link.download = isLOS ? 'linha-de-visada.png' : 'perfil-terreno.png';
+            link.href = composed.toDataURL('image/png');
+            link.click();
+        } catch (error) {
+            console.error('Error exporting profile chart:', error);
+        } finally {
+            if (exportChart) exportChart.destroy();
+            holder.remove();
+        }
+    }
+
+    /**
+     * Chart options for the export render: no animation, fixed size, high pixel
+     * ratio, and every font size raised, because they are tuned for a panel about
+     * a third as wide as the export canvas.
+     * @returns {Object} Chart.js options
+     * @private
+     */
+    _exportChartOptions() {
+        const options = this._getChartOptions();
+
+        const scaleFonts = (node) => {
+            if (!node || typeof node !== 'object') return;
+            if (node.font?.size) node.font = { ...node.font, size: node.font.size * EXPORT_FONT_SCALE };
+            Object.values(node).forEach(child => {
+                if (child && typeof child === 'object') scaleFonts(child);
+            });
+        };
+        scaleFonts(options.scales);
+        scaleFonts(options.plugins);
+
+        options.responsive = false;
+        options.maintainAspectRatio = false;
+        options.animation = false;
+        options.devicePixelRatio = EXPORT_PIXEL_RATIO;
+
+        return options;
     }
 
     /**

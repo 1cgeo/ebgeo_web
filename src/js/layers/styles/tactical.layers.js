@@ -214,6 +214,7 @@ export function setupLOSLayers(features, mapInstance) {
     setOrCreateSource(mapInstance, 'los', features.los);
     setOrCreateSource(mapInstance, 'processed-los', features.processed_los);
     ensureSource(mapInstance, 'los-feedback');
+    ensureSource(mapInstance, 'los-edit-handles');
 
     ensureLayer(mapInstance, {
         id: 'los-layer',
@@ -248,6 +249,24 @@ export function setupLOSLayers(features, mapInstance) {
             'line-dasharray': [2, 2],
             'line-opacity': 0.8,
         },
+    });
+
+    ensureLayer(mapInstance, {
+        id: 'los-edit-handles-layer',
+        type: 'circle',
+        source: 'los-edit-handles',
+        paint: {
+            'circle-radius': 8,
+            'circle-color': [
+                'case',
+                ['==', ['get', 'handleType'], 'observer'], '#00ff00',
+                ['==', ['get', 'handleType'], 'target'], '#ff0000',
+                '#ffffff',
+            ],
+            'circle-stroke-color': '#ffffff',
+            'circle-stroke-width': 2,
+        },
+        filter: POINT_TYPE_FILTER,
     });
 }
 
