@@ -143,6 +143,17 @@
     height: 100% !important;
 }
 
+/* Off-screen host for the high-resolution export render. Chart.js needs a laid
+   out box to size the chart, so the holder is positioned away, never hidden. */
+.profile-export-holder {
+    position: absolute;
+    top: 0;
+    left: -20000px;
+    width: 1200px;
+    height: 675px;
+    pointer-events: none;
+}
+
 .profile-empty-message {
     display: flex;
     flex-direction: column;

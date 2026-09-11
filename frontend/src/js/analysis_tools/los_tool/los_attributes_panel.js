@@ -220,7 +220,7 @@ export function addLOSParametersToPanel(container, selectedFeatures, losControl)
     const observerSlider = createModernSlider({
         label: 'Altura do Observador',
         min: 0,
-        max: 50,
+        max: 200,
         step: 0.1,
         value: feature.properties.observerHeight ?? 1.5,
         unit: 'm',
@@ -236,7 +236,7 @@ export function addLOSParametersToPanel(container, selectedFeatures, losControl)
     const targetSlider = createModernSlider({
         label: 'Altura do Alvo',
         min: 0,
-        max: 50,
+        max: 200,
         step: 0.1,
         value: feature.properties.targetHeight ?? 0,
         unit: 'm',

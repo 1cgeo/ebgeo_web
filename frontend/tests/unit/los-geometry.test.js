@@ -244,9 +244,11 @@ describe('AddLOSGeometry.extractCoordinatesFromGeometry', () => {
         expect(warnSpy).toHaveBeenCalled();
     });
 
-    it('getCoordinatesForMovement delega', () => {
-        const g = { type: 'LineString', coordinates: [[0, 0], [3, 3]] };
-        expect(geom.getCoordinatesForMovement(g)).toEqual([[0, 0], [3, 3]]);
+    it('getCoordinatesForMovement saiu com o arraste, e nao volta por engano', () => {
+        // A LOS deixou de ser arrastavel em 2026-09-11 (canMove falso), e este era o
+        // unico consumidor do metodo. O guarda cobra a AUSENCIA para que ele nao
+        // ressuscite sem que alguem decida religar o arraste.
+        expect(geom.getCoordinatesForMovement).toBeUndefined();
     });
 });
 
@@ -877,14 +879,39 @@ describe('AddLOSGeometry.recalculateFromCoordinates', () => {
     });
 });
 
-describe('AddLOSGeometry: LOS nao tem edicao por handle', () => {
-    it('createHandles devolve lista vazia', () => {
-        expect(geom.createHandles({ properties: {} })).toEqual([]);
+describe('AddLOSGeometry: as duas pontas sao editaveis por handle', () => {
+    // O bloco antigo cobrava a AUSENCIA de edicao por handle. Ela chegou em
+    // 2026-09-11: observador no inicio, alvo no fim, e cada solta refaz a analise.
+    it('createHandles devolve observador e alvo, ambos arrastaveis', () => {
+        const handles = geom.createHandles({
+            properties: { id: 'l1' },
+            geometry: { type: 'LineString', coordinates: [[0, 0], [3, 3]] },
+        });
+
+        expect(handles).toHaveLength(2);
+        expect(handles.map(h => h.properties.handleId)).toEqual(['start', 'end']);
+        expect(handles.map(h => h.properties.handleType)).toEqual(['observer', 'target']);
+        expect(handles.every(h => h.properties.user_isEditingHandle)).toBe(true);
+        expect(handles[0].geometry.coordinates).toEqual([0, 0]);
+        expect(handles[1].geometry.coordinates).toEqual([3, 3]);
     });
 
-    it('updateFromHandle devolve null e avisa', () => {
-        expect(geom.updateFromHandle('radius', [0, 0], {})).toBeNull();
-        expect(warnSpy).toHaveBeenCalled();
+    it('createHandles devolve null quando a geometria nao tem duas pontas', () => {
+        expect(geom.createHandles({ properties: { id: 'l1' }, geometry: { type: 'Point', coordinates: [0, 0] } })).toBeNull();
+    });
+
+    it('updateFromHandle move UMA ponta e ancora a outra', () => {
+        const feature = { properties: { id: 'l1' }, geometry: { type: 'LineString', coordinates: [[0, 0], [3, 3]] } };
+
+        expect(geom.updateFromHandle('start', [1, 1], feature).coordinates).toEqual([[1, 1], [3, 3]]);
+        expect(geom.updateFromHandle('end', [9, 9], feature).coordinates).toEqual([[0, 0], [9, 9]]);
+    });
+
+    it('updateFromHandle recusa o handle inexistente e a visada de comprimento zero', () => {
+        const feature = { properties: { id: 'l1' }, geometry: { type: 'LineString', coordinates: [[0, 0], [3, 3]] } };
+
+        expect(geom.updateFromHandle('radius', [1, 1], feature)).toBeNull();
+        expect(geom.updateFromHandle('end', [0, 0], feature)).toBeNull();
     });
 
     it('isTerrainAvailable compara com null estritamente', () => {

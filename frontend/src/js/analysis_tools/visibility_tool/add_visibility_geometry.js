@@ -15,11 +15,26 @@ import { createTerrainSampler } from '@js/terrain';
  * Angles follow geographic convention: 0 = North, clockwise.
  */
 class AddVisibilityGeometry extends BaseGeometry {
+    /**
+     * How long the sweep may hold the main thread before yielding a frame.
+     * One frame is 16,7 ms, so this parks the loop about once every four frames
+     * of work, which is enough for the progress modal to repaint.
+     */
+    static PAINT_BUDGET_MS = 60;
+
     constructor(properties = {}) {
         super(properties);
 
         this.VISIBLE_COLOR = '#00FF00';
         this.OBSTRUCTED_COLOR = '#FF0000';
+    }
+
+    /**
+     * Monotonic clock, falling back to Date.now outside a browser.
+     * @returns {number} Milliseconds
+     */
+    now() {
+        return typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
     }
 
 
@@ -183,7 +198,7 @@ class AddVisibilityGeometry extends BaseGeometry {
                 featureId,
                 mode: 'visibility_editing',
                 meta: 'vertex',
-                user_isEditingHandle: false
+                user_isEditingHandle: true
             }
         };
 
@@ -192,10 +207,11 @@ class AddVisibilityGeometry extends BaseGeometry {
 
     /**
      * Update sector geometry based on handle movement.
-     * @param {string} handleId - 'radius' or 'aperture'
+     * Every branch returns the center too, because the observer handle moves it.
+     * @param {string} handleId - 'radius', 'aperture' or 'center'
      * @param {Array} newPosition - New handle position [lng, lat]
      * @param {Object} feature - Visibility feature being edited
-     * @returns {Object|null} Updated { geometry, radius, bearing, aperture } or null
+     * @returns {Object|null} Updated { geometry, radius, bearing, aperture, center } or null
      */
     updateFromHandle(handleId, newPosition, feature) {
         const center = this.normalizeCenter(feature.properties.center);
@@ -208,7 +224,7 @@ class AddVisibilityGeometry extends BaseGeometry {
             if (newRadius < 10) return null;
             const newBearing = this.calculateBearing(center, newPosition);
             const geometry = this.generateSectorGeometry(center, newRadius, newBearing, aperture);
-            return { geometry, radius: newRadius, bearing: newBearing, aperture };
+            return { geometry, radius: newRadius, bearing: newBearing, aperture, center };
         }
 
         if (handleId === 'aperture') {
@@ -219,7 +235,14 @@ class AddVisibilityGeometry extends BaseGeometry {
             let newAperture = Math.round(angleDiff * 2);
             newAperture = Math.max(1, Math.min(359, newAperture));
             const geometry = this.generateSectorGeometry(center, radius, bearing, newAperture);
-            return { geometry, radius, bearing, aperture: newAperture };
+            return { geometry, radius, bearing, aperture: newAperture, center };
+        }
+
+        if (handleId === 'center') {
+            const newCenter = [newPosition[0], newPosition[1]];
+            if (!this.isValidCenter(newCenter)) return null;
+            const geometry = this.generateSectorGeometry(newCenter, radius, bearing, aperture);
+            return { geometry, radius, bearing, aperture, center: newCenter };
         }
 
         return null;
@@ -227,17 +250,16 @@ class AddVisibilityGeometry extends BaseGeometry {
 
     /**
      * Calculate preview geometry during handle dragging.
-     * @param {string} handleId - 'radius' or 'aperture'
+     * @param {string} handleId - 'radius', 'aperture' or 'center'
      * @param {Array} newPosition - Current mouse position [lng, lat]
      * @param {Object} feature - Visibility feature
-     * @returns {Object|null} Preview { geometry, handles, radius, bearing, aperture }
+     * @returns {Object|null} Preview { geometry, handles, radius, bearing, aperture, center }
      */
     calculatePreview(handleId, newPosition, feature) {
         const result = this.updateFromHandle(handleId, newPosition, feature);
         if (!result) return null;
 
-        const center = this.normalizeCenter(feature.properties.center);
-        const { radius, bearing, aperture } = result;
+        const { radius, bearing, aperture, center } = result;
 
         const radiusPoint = this.pointAtBearing(center, radius, bearing);
         const aperturePoint = this.pointAtBearing(center, radius, bearing + aperture / 2);
@@ -247,7 +269,8 @@ class AddVisibilityGeometry extends BaseGeometry {
             handles: [radiusPoint, aperturePoint, center],
             radius,
             bearing,
-            aperture
+            aperture,
+            center
         };
     }
 
@@ -323,6 +346,8 @@ class AddVisibilityGeometry extends BaseGeometry {
             await this.nextPaint();
         }
 
+        let lastPaint = this.now();
+
         for (let rayIdx = 0; rayIdx <= numRays; rayIdx++) {
             const angle = startAngle + rayIdx * ANGULAR_STEP;
 
@@ -358,15 +383,19 @@ class AddVisibilityGeometry extends BaseGeometry {
 
             resultGrid.push(rayResult);
 
-            // A cessão da thread é INCONDICIONAL: o caminho de colar chama esta varredura
-            // sem callback de progresso, e por isso corria os raios todos num bloco só,
-            // travando a página. Quem tem callback continua vendo o texto mudar.
-            if (rayIdx % 5 === 0) {
+            // A cessao da thread passa a ser por TEMPO decorrido, e nunca por contagem
+            // de raios. A varredura inteira da grade de 10.000 amostras custa 8 a 23 ms,
+            // enquanto um nextPaint custa um quadro: ceder a cada 5 raios gastava 957 ms
+            // de uma corrida de 979 (abertura 359, medido em 2026-09-11). Cedendo a cada
+            // PAINT_BUDGET_MS a barra de progresso segue viva por um custo que a medida
+            // enxerga, e o caminho de colar (sem callback) continua cedendo.
+            if (this.now() - lastPaint >= AddVisibilityGeometry.PAINT_BUDGET_MS) {
                 if (progressCallback) {
                     const pct = 10 + 60 * (rayIdx / numRays);
                     progressCallback(pct, `Processando raio ${rayIdx + 1}/${numRays + 1}...`);
                 }
                 await this.nextPaint();
+                lastPaint = this.now();
             }
         }
 
@@ -379,14 +408,7 @@ class AddVisibilityGeometry extends BaseGeometry {
             resultGrid, center, startAngle, ANGULAR_STEP, distanceStep, numPointsPerRay
         );
 
-        if (progressCallback) {
-            progressCallback(78, 'Otimizando geometrias...');
-            await this.nextPaint();
-        }
-
-        const optimizedCells = this.dissolveVisibilityCells(cells);
-
-        return optimizedCells;
+        return cells;
     }
 
     /**
@@ -420,16 +442,35 @@ class AddVisibilityGeometry extends BaseGeometry {
         for (let rayIdx = 0; rayIdx < resultGrid.length - 1; rayIdx++) {
             const angleStart = startAngle + rayIdx * angleDivisions;
             const angleEnd = startAngle + (rayIdx + 1) * angleDivisions;
+            const ray = resultGrid[rayIdx];
 
-            for (let ptIdx = 0; ptIdx < numPointsPerRay; ptIdx++) {
+            // FUSAO RADIAL. Celulas consecutivas do MESMO raio com a mesma
+            // visibilidade viram UMA cunha, do anel interno da primeira ao anel
+            // externo da ultima. E exata, e nao aproximada: o arco externo de uma
+            // celula e o arco interno da seguinte, com a mesma discretizacao
+            // angular, entao a uniao das duas E a cunha fundida.
+            //
+            // O que ela vale, medido em 2026-09-11 na bancada, com dado de
+            // producao: concluir um viewshed custava 368 ms de store e 582 ms de
+            // features processadas, derrubando 6 quadros, porque a grade sai com
+            // 10.020 poligonos e cerca de 70.000 vertices. O teto da fusao e o
+            // numero de TRANSICOES de visibilidade ao longo do raio, que no
+            // terreno real e o numero de cristas cruzadas.
+            let ptIdx = 0;
+            while (ptIdx < numPointsPerRay) {
+                const isVisible = ray[ptIdx].visible;
+
+                let fim = ptIdx;
+                while (fim + 1 < numPointsPerRay && ray[fim + 1].visible === isVisible) {
+                    fim++;
+                }
+
                 const innerDist = ptIdx * distanceDivisions;
-                const outerDist = (ptIdx + 1) * distanceDivisions;
-
+                const outerDist = (fim + 1) * distanceDivisions;
                 const coords = this.generateWedgePolygon(center, innerDist, outerDist, angleStart, angleEnd);
 
-                const isVisible = resultGrid[rayIdx][ptIdx].visible;
-
                 cells.push({ coordinates: coords, isVisible });
+                ptIdx = fim + 1;
             }
         }
 
@@ -470,17 +511,6 @@ class AddVisibilityGeometry extends BaseGeometry {
 
 
     /**
-     * Group cells by visibility. No dissolve — wedge cells from the polar grid
-     * are adjacent without overlap, so grouping into two MultiPolygons
-     * (one per color) is enough to prevent alpha-blending artifacts.
-     * @param {Array} cells - Array of { coordinates, isVisible }
-     * @returns {Array} Grouped cells array
-     */
-    dissolveVisibilityCells(cells) {
-        return cells;
-    }
-
-    /**
      * Generate processed features for visual display (green/red cells).
      *
      * Produces exactly two MultiPolygon features: one visible, one obstructed.
@@ -510,6 +540,7 @@ class AddVisibilityGeometry extends BaseGeometry {
             }
         });
 
+        const shared = AddVisibilityGeometry.withoutCellData(properties);
         const processedFeatures = [];
 
         if (visibleCoords.length > 0) {
@@ -517,7 +548,7 @@ class AddVisibilityGeometry extends BaseGeometry {
                 type: 'Feature',
                 id: `${properties.id}-visible`,
                 properties: {
-                    ...properties,
+                    ...shared,
                     id: `${properties.id}-visible`,
                     color: this.VISIBLE_COLOR
                 },
@@ -533,7 +564,7 @@ class AddVisibilityGeometry extends BaseGeometry {
                 type: 'Feature',
                 id: `${properties.id}-obstructed`,
                 properties: {
-                    ...properties,
+                    ...shared,
                     id: `${properties.id}-obstructed`,
                     color: this.OBSTRUCTED_COLOR
                 },
@@ -545,6 +576,19 @@ class AddVisibilityGeometry extends BaseGeometry {
         }
 
         return processedFeatures;
+    }
+
+    /**
+     * Properties without `cellData`, which indexes the MAIN feature's polygons and
+     * means nothing on a processed half. Copying it into both halves stored the
+     * same 196 KB three times, in the source and in IndexedDB (measured 2026-09-11
+     * on a 10.020-cell viewshed).
+     * @param {Object} properties - Source properties
+     * @returns {Object} Properties without cellData
+     */
+    static withoutCellData(properties) {
+        const { cellData: _cellData, ...rest } = properties;
+        return rest;
     }
 
 
@@ -698,80 +742,6 @@ class AddVisibilityGeometry extends BaseGeometry {
             typeof coordinates[1] === 'number' &&
             !isNaN(coordinates[0]) &&
             !isNaN(coordinates[1]);
-    }
-
-
-    /**
-     * Translate visibility geometry by offset for immediate drag preview.
-     * @param {Object} geometry - MultiPolygon geometry
-     * @param {number} dx - Longitude offset
-     * @param {number} dy - Latitude offset
-     * @returns {Object} Translated geometry
-     */
-    translateGeometry(geometry, dx, dy) {
-        try {
-            if (geometry.type === 'MultiPolygon') {
-                return {
-                    type: 'MultiPolygon',
-                    coordinates: geometry.coordinates.map(polygonCoords =>
-                        polygonCoords.map(ring =>
-                            ring.map(coord => [coord[0] + dx, coord[1] + dy])
-                        )
-                    )
-                };
-            } else if (geometry.type === 'Polygon') {
-                return {
-                    type: 'Polygon',
-                    coordinates: geometry.coordinates.map(ring =>
-                        ring.map(coord => [coord[0] + dx, coord[1] + dy])
-                    )
-                };
-            }
-            return geometry;
-        } catch (error) {
-            console.error('Error translating visibility geometry:', error);
-            return geometry;
-        }
-    }
-
-    /**
-     * Extract center from moved geometry (centroid of all coordinates).
-     * @param {Object} geometry - GeoJSON geometry
-     * @returns {Array|null} Center coordinates or null
-     */
-    extractCenterFromGeometry(geometry) {
-        try {
-            if (geometry.type === 'MultiPolygon') {
-                const allCoordinates = [];
-                geometry.coordinates.forEach(polygonCoords => {
-                    polygonCoords.forEach(ring => {
-                        ring.forEach(coord => {
-                            if (coord.length >= 2) allCoordinates.push(coord);
-                        });
-                    });
-                });
-                if (allCoordinates.length === 0) return null;
-                const sumLng = allCoordinates.reduce((sum, c) => sum + c[0], 0);
-                const sumLat = allCoordinates.reduce((sum, c) => sum + c[1], 0);
-                return [sumLng / allCoordinates.length, sumLat / allCoordinates.length];
-            } else if (geometry.type === 'Polygon') {
-                const centroid = turf.centroid(turf.polygon(geometry.coordinates));
-                return centroid.geometry.coordinates;
-            }
-            return null;
-        } catch (error) {
-            console.error('Error extracting center from moved geometry:', error);
-            return null;
-        }
-    }
-
-    /**
-     * Get coordinates from geometry for movement operations.
-     * @param {Object} geometry - GeoJSON geometry
-     * @returns {Array} Center coordinates
-     */
-    getCoordinatesForMovement(geometry) {
-        return this.extractCenterFromGeometry(geometry);
     }
 
     /**

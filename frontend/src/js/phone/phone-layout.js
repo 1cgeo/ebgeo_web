@@ -39,6 +39,7 @@ import {
 } from '@store';
 import { EventTypes } from '@events/event_types.js';
 import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
+import { controlKeyForFeatureType, ensureControl } from '@tools/tool-registry.js';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { showToast, deepClone } from '@utils';
 import config from '@js/config.js';
@@ -437,6 +438,46 @@ export class PhoneLayout {
     // ========================================================================
 
     /**
+     * Pergunta à FERRAMENTA se a feição se move, em vez de decidir aqui.
+     *
+     * Este caminho nascia sem a pergunta, e era o único que ainda movia uma Linha de
+     * Visada ou um viewshed: as duas passaram a recusar o arraste em 2026-09-11
+     * (`canMove` falso), porque transladar a geometria sem reler o terreno debaixo dela
+     * mostra o resultado antigo na posição nova. Com o desktop recusando e o telefone
+     * não, a mentira sobreviveria num dos dois, que é pior do que qualquer um dos dois
+     * estados inteiros.
+     *
+     * O controle sai do `tool-registry`, pelo `properties.source` da feição, que é o
+     * mesmo caminho que o `move_handler` do desktop usa. Ferramenta que não responde
+     * `canMove` segue movendo, que é o comportamento de antes.
+     * @param {Object} feature - Feição lida do store
+     * @returns {Promise<boolean>} true quando o movimento é permitido
+     * @private
+     */
+    async _podeMover(feature) {
+        const controlKey = controlKeyForFeatureType(feature?.properties?.source);
+        if (!controlKey) return true;
+
+        let control = null;
+        try {
+            control = await ensureControl(controlKey);
+        } catch (err) {
+            console.error('PhoneLayout: error resolving control to move:', err);
+            return true;
+        }
+
+        if (typeof control?.canMove !== 'function' || control.canMove(feature)) return true;
+
+        showToast(
+            feature?.properties?.bloqueado
+                ? 'Feição bloqueada'
+                : 'Esta feição não se move inteira: arraste os nós dela no mapa',
+            'warning',
+        );
+        return false;
+    }
+
+    /**
      * Enter move mode for a feature: remember the feature as it stands and the
      * map centre, then let the user pan the map under it. Nothing is written
      * while panning — the translation happens once, on confirm — so cancelling
@@ -466,6 +507,11 @@ export class PhoneLayout {
 
         if (!original || !firstPosition(original.geometry)) {
             showToast('Não foi possível mover esta feição', 'error');
+            this._featureEditor.exitMoveMode();
+            return;
+        }
+
+        if (!(await this._podeMover(original))) {
             this._featureEditor.exitMoveMode();
             return;
         }

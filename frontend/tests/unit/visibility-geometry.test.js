@@ -77,6 +77,21 @@ const geom = new AddVisibilityGeometry();
 /** Meters per degree of latitude, the constant baked into the module's flat model. */
 const M_PER_DEG = 111320;
 
+/**
+ * Extensao radial de uma celula, em PASSOS de `passo` metros a partir de [0, 0].
+ *
+ * Existe porque a fusao radial (2026-09-11) mudou a CONTAGEM de celulas de
+ * proposito, e um teste que so contasse aprovaria uma fusao que engole celula. O
+ * que ela tem de preservar e a EXTENSAO coberta, e e isso que esta regua le.
+ * @param {Object} celula - { coordinates }
+ * @param {number} [passo=30] - Metros por passo
+ * @returns {Array<number>} [primeiroPasso, ultimoPasso]
+ */
+function passos(celula, passo = 30) {
+    const dists = celula.coordinates.map(([x, y]) => Math.hypot(x * M_PER_DEG, y * M_PER_DEG));
+    return [Math.round(Math.min(...dists) / passo), Math.round(Math.max(...dists) / passo)];
+}
+
 /** Silences the console.error/warn the module writes on invalid input. */
 let errSpy;
 let warnSpy;
@@ -446,9 +461,11 @@ describe('AddVisibilityGeometry.createHandles', () => {
         expect(centro.geometry.coordinates).toEqual([0, 0]);
     });
 
-    it('so o handle de centro nasce com user_isEditingHandle false', () => {
+    it('os TRES handles nascem arrastaveis, o do observador inclusive', () => {
+        // O do centro nascia com `false` e era decoracao: `updateFromHandle` devolvia
+        // nulo para ele. Desde 2026-09-11 ele move o observador e refaz a varredura.
         const handles = geom.createHandles(feature);
-        expect(handles.map(h => h.properties.user_isEditingHandle)).toEqual([true, true, false]);
+        expect(handles.map(h => h.properties.user_isEditingHandle)).toEqual([true, true, true]);
     });
 
     it('centro invalido -> null', () => {
@@ -603,16 +620,27 @@ describe('AddVisibilityGeometry.generateWedgePolygon', () => {
 });
 
 describe('AddVisibilityGeometry.generateWedgeCells', () => {
-    it('produz (raios - 1) x pontos celulas, e a contagem e asserida em absoluto', () => {
+    it('funde as CORRIDAS de cada raio, e a fusao e exata', () => {
+        // Antes saia uma celula por ponto. Desde 2026-09-11 pontos consecutivos do
+        // mesmo raio com a mesma visibilidade viram UMA cunha, do anel interno da
+        // primeira ao externo da ultima, o que e exato porque o arco externo de uma
+        // e o arco interno da seguinte, com a mesma discretizacao angular.
         const grid = [
             [{ visible: true }, { visible: false }],
             [{ visible: true }, { visible: true }],
             [{ visible: false }, { visible: false }],
         ];
         const cells = geom.generateWedgeCells(grid, [0, 0], 0, 1, 30, 2);
-        expect(cells).toHaveLength(4);
-        expect(cells.map(c => c.isVisible)).toEqual([true, false, true, true]);
+
+        // Raio 0 alterna e nao funde (2 corridas); raio 1 e uniforme e vira 1 cunha.
+        expect(cells).toHaveLength(3);
+        expect(cells.map(c => c.isVisible)).toEqual([true, false, true]);
         cells.forEach(c => expect(Array.isArray(c.coordinates)).toBe(true));
+
+        // E o que importa: a EXTENSAO coberta segue a mesma, 0 a 60 m em cada raio.
+        expect(passos(cells[0])).toEqual([0, 1]);
+        expect(passos(cells[1])).toEqual([1, 2]);
+        expect(passos(cells[2])).toEqual([0, 2]);
     });
 
     it('a classificacao de CADA celula vem do raio de indice menor, nunca do maior', () => {
@@ -634,9 +662,10 @@ describe('AddVisibilityGeometry.generateWedgeCells', () => {
         expect(() => geom.generateWedgeCells(grid, [0, 0], 0, 1, 30, 2)).toThrow();
     });
 
-    it('dissolveVisibilityCells hoje e identidade (mesma referencia)', () => {
-        const cells = [{ coordinates: [], isVisible: true }];
-        expect(geom.dissolveVisibilityCells(cells)).toBe(cells);
+    it('dissolveVisibilityCells saiu: era um `return cells` com nome de dissolve', () => {
+        // A fusao de verdade passou a morar em `generateWedgeCells`. O metodo antigo
+        // nao dissolvia nada e so enganava quem lesse a pilha.
+        expect(geom.dissolveVisibilityCells).toBeUndefined();
     });
 });
 
@@ -797,89 +826,21 @@ describe('AddVisibilityGeometry.normalizeFeatureProperties', () => {
 // translateGeometry / extractCenterFromGeometry / getBoundingBox
 // ============================================================================
 
-describe('AddVisibilityGeometry.translateGeometry', () => {
-    it('desloca cada vertice de um MultiPolygon', () => {
-        const g = { type: 'MultiPolygon', coordinates: [[[[0, 0], [1, 1]]]] };
-        expect(geom.translateGeometry(g, 10, -5)).toEqual({
-            type: 'MultiPolygon',
-            coordinates: [[[[10, -5], [11, -4]]]],
-        });
-    });
-
-    it('desloca um Polygon', () => {
-        const g = { type: 'Polygon', coordinates: [[[0, 0], [2, 2]]] };
-        expect(geom.translateGeometry(g, 1, 1).coordinates).toEqual([[[1, 1], [3, 3]]]);
-    });
-
-    it('offset zero devolve os MESMOS valores em objetos NOVOS', () => {
-        const g = { type: 'Polygon', coordinates: [[[3, 4]]] };
-        const out = geom.translateGeometry(g, 0, 0);
-        expect(out).toEqual(g);
-        expect(out).not.toBe(g);
-        expect(out.coordinates[0][0]).not.toBe(g.coordinates[0][0]);
-    });
-
-    it('tipo desconhecido atravessa por REFERENCIA, sem copia', () => {
-        const g = { type: 'LineString', coordinates: [[0, 0]] };
-        expect(geom.translateGeometry(g, 5, 5)).toBe(g);
-    });
-
-    it('geometria null nao lanca, o catch devolve a entrada', () => {
-        expect(geom.translateGeometry(null, 1, 1)).toBeNull();
-        expect(errSpy).toHaveBeenCalled();
-    });
-
-    it('OBSERVADO: a terceira componente (z) e DESCARTADA na translacao', () => {
-        const g = { type: 'Polygon', coordinates: [[[0, 0, 900]]] };
-        expect(geom.translateGeometry(g, 1, 1).coordinates[0][0]).toEqual([1, 1]);
-    });
-
-    it('OBSERVADO: offset NaN contamina todo vertice, sem recusa', () => {
-        const g = { type: 'Polygon', coordinates: [[[0, 0]]] };
-        expect(geom.translateGeometry(g, NaN, 1).coordinates[0][0][0]).toBeNaN();
-    });
+describe('AddVisibilityGeometry: o maquinario de MOVIMENTO saiu com o arraste', () => {
+    // translateGeometry, extractCenterFromGeometry e getCoordinatesForMovement
+    // existiam so para o arraste da feicao, desligado em 2026-09-11 porque transladava
+    // a geometria sem reler o terreno debaixo dela. Os blocos que os cobriam sairam
+    // junto; fica o guarda de AUSENCIA, para que nao ressuscitem sem que alguem
+    // decida religar o arraste.
+    it.each(['translateGeometry', 'extractCenterFromGeometry', 'getCoordinatesForMovement'])(
+        '%s nao existe mais',
+        (metodo) => {
+            expect(geom[metodo]).toBeUndefined();
+        },
+    );
 });
 
-describe('AddVisibilityGeometry.extractCenterFromGeometry', () => {
-    it('MultiPolygon: media aritmetica de TODOS os vertices', () => {
-        const g = { type: 'MultiPolygon', coordinates: [[[[0, 0], [2, 0], [0, 2], [2, 2]]]] };
-        expect(geom.extractCenterFromGeometry(g)).toEqual([1, 1]);
-    });
-
-    it('MultiPolygon: o vertice de FECHAMENTO entra na media e enviesa o centro', () => {
-        // Closed square: the [0,0] corner is counted twice, so the mean leans toward it.
-        const g = {
-            type: 'MultiPolygon',
-            coordinates: [[[[0, 0], [2, 0], [2, 2], [0, 2], [0, 0]]]],
-        };
-        const c = geom.extractCenterFromGeometry(g);
-        expect(c[0]).toBeCloseTo(0.8, 12);
-        expect(c[1]).toBeCloseTo(0.8, 12);
-    });
-
-    it('MultiPolygon vazio -> null', () => {
-        expect(geom.extractCenterFromGeometry({ type: 'MultiPolygon', coordinates: [] })).toBeNull();
-    });
-
-    it('vertice de comprimento < 2 e ignorado', () => {
-        const g = { type: 'MultiPolygon', coordinates: [[[[0, 0], [4], [4, 4]]]] };
-        expect(geom.extractCenterFromGeometry(g)).toEqual([2, 2]);
-    });
-
-    it('tipo desconhecido -> null', () => {
-        expect(geom.extractCenterFromGeometry({ type: 'Point', coordinates: [0, 0] })).toBeNull();
-    });
-
-    it('null nao lanca', () => {
-        expect(geom.extractCenterFromGeometry(null)).toBeNull();
-    });
-
-    it('getCoordinatesForMovement delega', () => {
-        const g = { type: 'MultiPolygon', coordinates: [[[[0, 0], [2, 2]]]] };
-        expect(geom.getCoordinatesForMovement(g)).toEqual([1, 1]);
-    });
-});
-
+// ============================================================================
 describe('AddVisibilityGeometry.getBoundingBox / isTerrainAvailable', () => {
     afterEach(() => { delete globalThis.turf; });
 
@@ -961,22 +922,29 @@ describe('AddVisibilityGeometry.calculateViewshed', () => {
         });
     }
 
-    // radius 100 / aperture 2 -> step 30, 4 points per ray, 3 rays, 8 cells.
+    // radius 100 / aperture 2 -> step 30, 4 points per ray, 3 rays.
+    // Antes da fusao radial isso dava 8 celulas (2 raios uteis x 4 pontos). Desde
+    // 2026-09-11 cada CORRIDA de mesma visibilidade no raio vira uma cunha so, entao
+    // a contagem depende do relevo, e quem nao muda e a extensao coberta.
     const RAIO = 100;
     const ABERTURA = 2;
 
-    it('a grade tem o tamanho previsto: 2 x 4 = 8 celulas', async () => {
+    it('terreno uniforme funde cada raio numa cunha so, do centro a borda', async () => {
         terrenoRadial(() => 0);
         const cells = await geom.calculateViewshed([0, 0], RAIO, 0, ABERTURA, 2, 0, {});
-        expect(cells).toHaveLength(8);
+
+        // Dois raios uteis, uma corrida cada: 2 cunhas no lugar de 8 celulas.
+        expect(cells).toHaveLength(2);
+        // E cada uma cobre os QUATRO passos, que e o que a fusao tem de preservar.
+        cells.forEach(c => expect(passos(c)).toEqual([0, 4]));
         expect(geom.calculateDistanceStep(RAIO, ABERTURA)).toBe(30);
     });
 
-    it('terreno plano: TODAS as celulas visiveis (o observador olha para baixo)', async () => {
+    it('terreno plano: TUDO visivel (o observador olha para baixo)', async () => {
         terrenoRadial(() => 0);
         const cells = await geom.calculateViewshed([0, 0], RAIO, 0, ABERTURA, 2, 0, {});
-        expect(cells).toHaveLength(8);
         expect(cells.every(c => c.isVisible)).toBe(true);
+        expect(cells).toHaveLength(2);
     });
 
     it('crista a 60 m: o topo e visivel, tudo depois dele e obstruido', async () => {
@@ -987,9 +955,13 @@ describe('AddVisibilityGeometry.calculateViewshed', () => {
         // d=120: atan2(-2,120) = -0.0166 < 0.6747  -> obstruido
         terrenoRadial(d => (d > 45 && d < 75 ? 50 : 0));
         const cells = await geom.calculateViewshed([0, 0], RAIO, 0, ABERTURA, 2, 0, {});
-        expect(cells).toHaveLength(8);
-        expect(cells.map(c => c.isVisible))
-            .toEqual([true, true, false, false, true, true, false, false]);
+
+        // Duas corridas por raio: visivel ate a crista, obstruido depois dela.
+        expect(cells).toHaveLength(4);
+        expect(cells.map(c => c.isVisible)).toEqual([true, false, true, false]);
+        // A quebra cai no passo 2 (60 m), que e onde a crista esta.
+        expect(passos(cells[0])).toEqual([0, 2]);
+        expect(passos(cells[1])).toEqual([2, 4]);
     });
 
     it('targetHeight entra SO na avaliacao do ponto, NUNCA na barreira', async () => {
@@ -998,14 +970,21 @@ describe('AddVisibilityGeometry.calculateViewshed', () => {
         // be atan2(148,60) = 1.18 and d=90 (atan2(98,90) = 0.827) would stay obstructed.
         terrenoRadial(d => (d > 45 && d < 75 ? 50 : 0));
         const cells = await geom.calculateViewshed([0, 0], RAIO, 0, ABERTURA, 2, 100, {});
-        expect(cells).toHaveLength(8);
         expect(cells.every(c => c.isVisible)).toBe(true);
+        // Tudo visivel, entao uma cunha inteira por raio.
+        expect(cells).toHaveLength(2);
+        cells.forEach(c => expect(passos(c)).toEqual([0, 4]));
     });
 
     it('CONTROLE do caso acima: com targetHeight 0 a mesma crista obstrui', async () => {
         terrenoRadial(d => (d > 45 && d < 75 ? 50 : 0));
         const cells = await geom.calculateViewshed([0, 0], RAIO, 0, ABERTURA, 2, 0, {});
-        expect(cells.filter(c => !c.isVisible)).toHaveLength(4);
+
+        // Contar celulas deixou de medir area com a fusao: o que se cobra e a
+        // EXTENSAO obstruida, que segue sendo a metade de fora da crista, em cada raio.
+        const obstruidas = cells.filter(c => !c.isVisible);
+        expect(obstruidas).toHaveLength(2);
+        obstruidas.forEach(c => expect(passos(c)).toEqual([2, 4]));
     });
 
     it('o PRIMEIRO ponto do raio e sempre visivel, mesmo sendo um paredao', async () => {
@@ -1014,23 +993,29 @@ describe('AddVisibilityGeometry.calculateViewshed', () => {
         // everything behind the wall is then obstructed.
         terrenoRadial(d => (d < 45 ? 10000 : 0));
         const cells = await geom.calculateViewshed([0, 0], RAIO, 0, ABERTURA, 2, 0, {});
-        expect(cells).toHaveLength(8);
-        expect(cells.map(c => c.isVisible))
-            .toEqual([true, false, false, false, true, false, false, false]);
+
+        expect(cells).toHaveLength(4);
+        expect(cells.map(c => c.isVisible)).toEqual([true, false, true, false]);
+        // O visivel e SO o primeiro passo, o do proprio paredao.
+        expect(passos(cells[0])).toEqual([0, 1]);
+        expect(passos(cells[1])).toEqual([1, 4]);
     });
 
     it('observerHeight maior enxerga por cima da crista', async () => {
         terrenoRadial(d => (d > 45 && d < 75 ? 50 : 0));
         const baixo = await geom.calculateViewshed([0, 0], RAIO, 0, ABERTURA, 2, 0, {});
         const alto = await geom.calculateViewshed([0, 0], RAIO, 0, ABERTURA, 400, 0, {});
-        expect(baixo.filter(c => c.isVisible)).toHaveLength(4);
-        expect(alto.filter(c => c.isVisible)).toHaveLength(8);
+
+        // Baixo: enxerga ate a crista. Alto: enxerga o vao inteiro, numa cunha so.
+        baixo.filter(c => c.isVisible).forEach(c => expect(passos(c)).toEqual([0, 2]));
+        expect(alto.every(c => c.isVisible)).toBe(true);
+        alto.forEach(c => expect(passos(c)).toEqual([0, 4]));
     });
 
     it('cada celula sai com um anel fechado de coordenadas', async () => {
         terrenoRadial(() => 0);
         const cells = await geom.calculateViewshed([0, 0], RAIO, 0, ABERTURA, 2, 0, {});
-        expect(cells).toHaveLength(8);
+        expect(cells.length).toBeGreaterThan(0);
         cells.forEach((c) => {
             expect(c.coordinates.length).toBeGreaterThanOrEqual(5);
             expect(c.coordinates[c.coordinates.length - 1]).toBe(c.coordinates[0]);
@@ -1055,16 +1040,38 @@ describe('AddVisibilityGeometry.calculateViewshed', () => {
         expect(amostraElevacao.mock.calls.length).toBeGreaterThan(1);
     });
 
-    it('a thread e cedida a cada cinco raios TAMBEM sem callback de progresso', async () => {
-        // O caminho de COLAR chama esta varredura sem callback, e era ele que corria os
-        // raios todos num bloco so. A cessao passou a ser incondicional, e o callback
-        // decide so o TEXTO, nunca se a pagina respira.
+    it('a cessao da thread e por TEMPO, e uma varredura curta nao para nenhuma vez', async () => {
+        // Era a cada cinco raios. A varredura inteira de 10.000 amostras custa 8 a 23 ms,
+        // e um nextPaint custa um quadro: ceder por contagem gastava 957 ms de uma
+        // corrida de 979 (abertura 359, medido em 2026-09-11). Esta varredura de tres
+        // raios cabe folgada no orcamento, entao nao cede nenhuma vez.
         terrenoRadial(() => 0);
         const espia = vi.spyOn(geom, 'nextPaint');
         await geom.calculateViewshed([0, 0], RAIO, 0, ABERTURA, 2, 0, {});
-        // 3 raios: so o indice 0 cai no `% 5`, mais nenhuma cessao de progresso.
-        expect(espia).toHaveBeenCalledTimes(1);
+        expect(espia).toHaveBeenCalledTimes(0);
         espia.mockRestore();
+    });
+
+    it('mas CEDE quando o relogio passa do orcamento, e o caminho de colar tambem', async () => {
+        // CONTROLE do teste acima: sem isto, "nao cedeu" nao distingue "coube no
+        // orcamento" de "a cessao morreu". Relogio falso que anda meio orcamento por
+        // leitura, e SEM callback de progresso, que e o caminho de colar.
+        terrenoRadial(() => 0);
+        let relogio = 0;
+        const original = geom.now.bind(geom);
+        geom.now = () => relogio;
+        const leitura = vi.mocked(amostraElevacao).getMockImplementation();
+        vi.mocked(amostraElevacao).mockImplementation((coord) => {
+            relogio += AddVisibilityGeometry.PAINT_BUDGET_MS / 2;
+            return leitura(coord);
+        });
+
+        const espia = vi.spyOn(geom, 'nextPaint');
+        await geom.calculateViewshed([0, 0], RAIO, 0, ABERTURA, 2, 0, {});
+        expect(espia.mock.calls.length).toBeGreaterThan(0);
+
+        espia.mockRestore();
+        geom.now = original;
     });
 
     it('nenhuma espera de 50 ms sobrou na varredura: a pausa e de um quadro', async () => {
@@ -1079,15 +1086,21 @@ describe('AddVisibilityGeometry.calculateViewshed', () => {
         espiaDelay.mockRestore();
     });
 
-    it('o progressCallback e chamado em ordem crescente e termina em 78', async () => {
+    it('o progressCallback e chamado em ordem crescente e termina em 72', async () => {
         terrenoRadial(() => 0);
         const chamadas = [];
         await geom.calculateViewshed([0, 0], RAIO, 0, ABERTURA, 2, 0, {}, (pct, txt) => {
             chamadas.push([pct, txt]);
         });
-        expect(chamadas.length).toBeGreaterThanOrEqual(4);
+        // Eram pelo menos quatro porque um dos passos vinha do rendimento por contagem
+        // de raios. Com o rendimento por TEMPO, uma varredura curta nao cede e o
+        // progresso sai nos tres passos fixos: 5, 10 e 72.
+        expect(chamadas.length).toBeGreaterThanOrEqual(3);
         expect(chamadas[0][0]).toBe(5);
-        expect(chamadas[chamadas.length - 1][0]).toBe(78);
+        // Terminava em 78, no passo "Otimizando geometrias..." que anunciava o
+        // dissolveVisibilityCells. O metodo era um `return cells` e saiu; a fusao de
+        // verdade acontece dentro da geracao das celulas, sem passo proprio.
+        expect(chamadas[chamadas.length - 1][0]).toBe(72);
         const pcts = chamadas.map(c => c[0]);
         expect([...pcts].sort((a, b) => a - b)).toEqual(pcts);
         chamadas.forEach(c => expect(typeof c[1]).toBe('string'));
@@ -1155,7 +1168,9 @@ describe('AddVisibilityGeometry.recalculateFromCoordinates', () => {
         );
         expect(out.center).toEqual([1, 1]);
         expect(out.geometry.type).toBe('MultiPolygon');
+        // O ALINHAMENTO e o que importa: generateProcessedFeatures indexa o cellData
+        // pela posicao do poligono. A contagem em si caiu com a fusao radial.
         expect(out.cellData).toHaveLength(out.geometry.coordinates.length);
-        expect(out.cellData).toHaveLength(8);
+        expect(out.cellData.length).toBeGreaterThan(0);
     });
 });

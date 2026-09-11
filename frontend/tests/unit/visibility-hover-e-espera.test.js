@@ -88,7 +88,7 @@ function controle(map, selecionada) {
 const SELECIONADA = { type: 'Feature', properties: { id: 'vis-1' } };
 
 describe('onHoverMove nomeia as camadas em vez de varrer o estilo', () => {
-    it('a consulta leva `layers`, e só com as quatro camadas da ferramenta', () => {
+    it('a consulta leva `layers`, e só com a camada da alça', () => {
         const map = mapaDeHover([
             'visibility-edit-handles-layer',
             'visibility-layer',
@@ -101,20 +101,18 @@ describe('onHoverMove nomeia as camadas em vez de varrer o estilo', () => {
 
         expect(map.chamadas).toHaveLength(1);
         expect(map.chamadas[0].opcoes).toBeDefined();
-        expect(map.chamadas[0].opcoes.layers).toEqual([
-            'visibility-edit-handles-layer',
-            'visibility-layer',
-            'visibility-visible-layer',
-            'visibility-obstructed-layer',
-        ]);
+        // Desde 2026-09-11 a feição não é mais arrastável, então não há cursor de
+        // "move" a oferecer e só a alça precisa ser testada. A lista segue existindo
+        // pelo motivo de sempre: sem ela a consulta varre as 70 fontes do estilo.
+        expect(map.chamadas[0].opcoes.layers).toEqual(['visibility-edit-handles-layer']);
     });
 
     it('id que não está no estilo é descartado ANTES da consulta, que é o que impede o throw', () => {
         // O MapLibre lança quando um id de `layers` não existe no estilo, e o estilo do
         // app nasce sem as camadas da ferramenta até a primeira feição.
-        const map = mapaDeHover(['visibility-layer']);
+        const map = mapaDeHover(['visibility-edit-handles-layer', 'linhas-layer']);
         controle(map, SELECIONADA).onHoverMove({ point: { x: 1, y: 1 } });
-        expect(map.chamadas[0].opcoes.layers).toEqual(['visibility-layer']);
+        expect(map.chamadas[0].opcoes.layers).toEqual(['visibility-edit-handles-layer']);
     });
 
     it('estilo sem NENHUMA das quatro não consulta nada, e o cursor volta ao padrão', () => {
@@ -133,7 +131,7 @@ describe('onHoverMove nomeia as camadas em vez de varrer o estilo', () => {
         expect(map.chamadas).toHaveLength(0);
     });
 
-    it('CONTROLE: a alça e a feição continuam decidindo o cursor', () => {
+    it('CONTROLE: a alça decide o cursor, e a feição não decide mais', () => {
         // A alça precisa de `geometry`: desde o hit-test compartilhado, uma alça só
         // conta quando a consulta EXATA no ponto a devolve também, e alça se casa por
         // POSIÇÃO (o id dela nomeia a feição-mãe, não a alça). Feição renderizada do
@@ -149,12 +147,16 @@ describe('onHoverMove nomeia as camadas em vez de varrer o estilo', () => {
         controle(mapAlca, SELECIONADA).onHoverMove({ point: { x: 1, y: 1 } });
         expect(canvasAlca.style.cursor).toBe('crosshair');
 
+        // A metade da FEIÇÃO saiu: ela não é mais arrastável, e prometer "move" no
+        // cursor seria oferecer um gesto que não existe. A camada dela nem entra
+        // na consulta, então o cursor volta ao padrão.
         const parte = { source: 'processed-visibility', properties: { id: 'vis-1-visible' } };
         const mapParte = mapaDeHover(['visibility-visible-layer'], [parte]);
-        const canvasParte = { style: {} };
+        const canvasParte = { style: { cursor: 'move' } };
         mapParte.getCanvas = () => canvasParte;
         controle(mapParte, SELECIONADA).onHoverMove({ point: { x: 1, y: 1 } });
-        expect(canvasParte.style.cursor).toBe('move');
+        expect(mapParte.chamadas).toHaveLength(0);
+        expect(canvasParte.style.cursor).toBe('');
     });
 });
 
@@ -172,19 +174,23 @@ describe('as esperas do progresso são de QUADRO, não de relógio', () => {
         expect(fonte).not.toMatch(/delay\(50\)/);
     });
 
-    it('as esperas do fim são de 150 ms, e são exatamente três', () => {
+    it('as esperas do fim são de 150 ms, e são exatamente duas', () => {
         const trezentos = fonte.match(/delay\(300\)/g) || [];
         const cento = fonte.match(/delay\(150\)/g) || [];
         expect(trezentos).toHaveLength(0);
-        expect(cento).toHaveLength(3);
+        // Eram três; a terceira vivia no recálculo pós-arrasto, que saiu junto com o
+        // arraste em 2026-09-11.
+        expect(cento).toHaveLength(2);
     });
 
-    it('as pausas entre passos passaram a ser `nextPaint`, e são doze', () => {
+    it('as pausas entre passos passaram a ser `nextPaint`, e são sete', () => {
         const quadros = fonte.match(/await this\.geometry\.nextPaint\(\)/g) || [];
-        expect(quadros).toHaveLength(12);
+        // Eram doze. Cinco saíram com o recálculo pós-arrasto, que a ferramenta
+        // deixou de ter quando a feição parou de ser arrastável.
+        expect(quadros).toHaveLength(7);
     });
 
-    it('a geometria de fato OFERECE nextPaint, senão as doze acima seriam undefined', async () => {
+    it('a geometria de fato OFERECE nextPaint, senão as sete acima seriam undefined', async () => {
         const { default: Geometry } = await import(
             '@js/analysis_tools/visibility_tool/add_visibility_geometry.js'
         );

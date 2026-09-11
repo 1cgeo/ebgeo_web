@@ -369,24 +369,74 @@ class AddLOSGeometry extends BaseGeometry {
     }
 
     /**
-     * No edit handles for LOS
+     * Create the two edit handles of a LOS: observer (start) and target (end).
+     * Dragging either one re-runs the whole analysis, which is why the LOS is
+     * edited by handle and never by dragging the line itself.
      * @param {Object} feature - LOS feature
-     * @returns {Array} Empty array
+     * @returns {Array|null} [startHandle, endHandle] or null when the geometry is unreadable
      */
-    createHandles(_feature) {
-        return [];
+    createHandles(feature) {
+        const coordinates = this.extractCoordinatesFromGeometry(feature.geometry);
+        if (!coordinates || coordinates.length !== 2) return null;
+
+        const featureId = feature.properties.id;
+
+        return [
+            {
+                type: 'Feature',
+                id: `los-handle-${featureId}-start`,
+                geometry: { type: 'Point', coordinates: coordinates[0] },
+                properties: {
+                    role: 'handle',
+                    handleType: 'observer',
+                    handleId: 'start',
+                    featureId,
+                    mode: 'los_editing',
+                    meta: 'vertex',
+                    user_isEditingHandle: true
+                }
+            },
+            {
+                type: 'Feature',
+                id: `los-handle-${featureId}-end`,
+                geometry: { type: 'Point', coordinates: coordinates[1] },
+                properties: {
+                    role: 'handle',
+                    handleType: 'target',
+                    handleId: 'end',
+                    featureId,
+                    mode: 'los_editing',
+                    meta: 'vertex',
+                    user_isEditingHandle: true
+                }
+            }
+        ];
     }
 
     /**
-     * No handle updates for LOS
-     * @param {string} handleType - Handle type
-     * @param {Array} newPosition - New position
-     * @param {Object} feature - Feature
-     * @returns {null} Not applicable for LOS
+     * New endpoint pair after a handle moves. The opposite endpoint is kept.
+     * @param {string} handleId - 'start' or 'end'
+     * @param {Array} newPosition - New handle position [lng, lat]
+     * @param {Object} feature - LOS feature being edited
+     * @returns {Object|null} { coordinates: [start, end] } or null when invalid
      */
-    updateFromHandle(_handleType, _newPosition, _feature) {
-        console.warn('LOS features do not support handle-based editing');
-        return null;
+    updateFromHandle(handleId, newPosition, feature) {
+        const coordinates = this.extractCoordinatesFromGeometry(feature.geometry);
+        if (!coordinates || coordinates.length !== 2) return null;
+
+        const moved = [newPosition[0], newPosition[1]];
+        const newCoordinates = handleId === 'start'
+            ? [moved, coordinates[1]]
+            : handleId === 'end'
+                ? [coordinates[0], moved]
+                : null;
+
+        if (!newCoordinates || !this.validate(newCoordinates)) return null;
+
+        // A zero-length LOS has no profile and no bearing; refuse it.
+        if (this.calculateDistance(newCoordinates[0], newCoordinates[1]) < 1) return null;
+
+        return { coordinates: newCoordinates };
     }
 
     /**
@@ -468,15 +518,6 @@ class AddLOSGeometry extends BaseGeometry {
      */
     isTerrainAvailable(map) {
         return map.getTerrain() !== null;
-    }
-
-    /**
-     * Get coordinates from geometry for movement operations
-     * @param {Object} geometry - GeoJSON geometry
-     * @returns {Array} Coordinates array
-     */
-    getCoordinatesForMovement(geometry) {
-        return this.extractCoordinatesFromGeometry(geometry);
     }
 }
 
