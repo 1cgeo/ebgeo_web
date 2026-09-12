@@ -33,6 +33,8 @@
  * DIFFERENT operation (it creates a server atlas) and stays where it is.
  */
 
+import { confirmLogoutWithPendingWork } from '@js/session/confirm-logout.js';
+import { purgeAllRemoteAtlases } from '@store/remote-atlas.api.js';
 import config from '@js/config.js';
 import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-config.js';
 import { apiClient, configureApiClient } from '@store/sync/api-client.js';
@@ -40,6 +42,7 @@ import { sessionContext, sessionUserInfoFromMe } from '@store/sync/session-conte
 // Do ARQUIVO, folha e sem imports: a definição única das audiências de `admin.html`.
 import { adminAudience } from '@js/admin/admin-audience.js';
 import { showUnavailableScreen, BlockingCause } from '@ui/unavailable-screen.js';
+import { runLegacyUpgradeGate, watchLegacyChanges } from '@ui/migration-recovery.js';
 import { createAppBar } from '@ui/app-bar.js';
 import { startIdleWatch } from '../session/idle-watch.js';
 // Pelo ARQUIVO, como os vizinhos de `session/` (a pasta não tem barrel). Best-effort e sem rede na
@@ -779,11 +782,11 @@ async function importProjectFromFile(file) {
  * @returns {Promise<void>}
  */
 async function endSession(reason) {
-    // UM CAMINHO SÓ, e a razão é decisão do dono (2026-08-23): o sincronismo ocorre sempre,
-    // então a fila só tem conteúdo quando algo NÃO CONSEGUIU subir, nunca porque alguém
-    // escolheu não subir. Não há vontade a respeitar, e por isso o clique e o acidente recebem
-    // o mesmo tratamento: guardar e avisar. O parâmetro `voluntary` some junto com a pergunta.
-    const guarda = await preserveUnsyncedWorkOnLostSession();
+    const voluntary = !reason || reason === 'saida';
+    if (voluntary && !await confirmLogoutWithPendingWork()) return;
+    const guarda = voluntary
+        ? { outcome: ExitOutcome.NADA }
+        : await preserveUnsyncedWorkOnLostSession();
 
     try {
         await apiClient.logout();
@@ -791,6 +794,7 @@ async function endSession(reason) {
         // logout() already swallows network errors and clears locally.
     }
     sessionContext.clearSession();
+    if (voluntary) await purgeAllRemoteAtlases();
 
     const params = new URLSearchParams();
     if (reason) params.set('sessao', reason);
@@ -1026,7 +1030,9 @@ async function renderWithoutServer() {
  * @returns {Promise<void>}
  */
 async function initProjectsPage() {
-    // A TELEMETRIA DE ERRO PRIMEIRO, como nas outras três páginas: o erro de boot é o que menos se
+    if (!await runLegacyUpgradeGate()) return;
+    watchLegacyChanges();
+    // A TELEMETRIA DE ERRO após a proteção inicial dos dados: o erro de boot é o que menos se
     // consegue reproduzir depois. Síncrona, sem rede, e nada abaixo depende dela — esta página
     // sobe igual com a rota ausente, inclusive no ramo `renderWithoutServer`.
     instalarTelemetriaDeErro();

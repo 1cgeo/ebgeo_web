@@ -53,7 +53,7 @@ vi.mock('../../src/js/utilities/uuid.js', () => ({
         uuidCounter.value += 1;
         return `uuid-${uuidCounter.value}`;
     }),
-    isValidUUID: vi.fn(() => true),
+    isValidUUID: vi.fn(value => typeof value === 'string' && /^uuid-\d+$/.test(value)),
     isLegacyId: vi.fn(() => false),
     isValidId: vi.fn(() => true),
 }));
@@ -411,7 +411,7 @@ describe('safelyMigrate orchestration', () => {
         maps.keys.mockRejectedValueOnce(new Error('IndexedDB exploded'));
 
         await expect(safelyMigrate()).rejects.toThrow(
-            `Falha na migração para ${ATLAS_SCHEMA_VERSION}: IndexedDB exploded. Por favor, exporte seus dados e limpe o armazenamento local.`
+            `Falha na migração para ${ATLAS_SCHEMA_VERSION}: IndexedDB exploded. Seus dados foram preservados para recuperação.`
         );
     });
 });

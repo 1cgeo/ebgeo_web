@@ -10,15 +10,8 @@
  * own), so the namespace teardown took the pending operations with it. The mechanism to keep that
  * work already existed and was wired only to the involuntary path.
  *
- * THERE IS NO QUESTION, AND THAT IS A PRODUCT DECISION (2026-08-23). A first version of the fix
- * asked, with three outcomes; the owner refused the question with the argument that decides the
- * design: SYNC ALWAYS RUNS, so the queue only holds something when it FAILED to go up, never
- * because somebody chose not to send it. There is no intent to respect here, and offering the
- * choice would present as a decision a state nobody decided. Every exit now rescues silently and
- * INFORMS, which is what the involuntary path already did. The phrases that composed that dialog
- * (`EXIT_CHOICE`, `exitChoices`, `exitQuestionTitle`, `exitQuestionMessage`, `exitDiscardSummary`,
- * `shouldAskBeforeExit`) were removed with it: a phrase kept "just in case" outlives the decision
- * that justified it and reads, to the next session, as a feature that exists.
+ * Voluntary logout confirms pending-work loss (2026-09-12). Rescue notices below describe
+ * involuntary session endings; `confirm-logout.js` owns the explicit exit dialog.
  *
  * THE NUMBER IS THE POINT, not decoration. "Você tem trabalho não enviado" and "você tem 47
  * operações não enviadas" produce different readings from the same person. Every phrase below that
@@ -40,9 +33,7 @@
  * on a string literal typed twice. A renamed value then breaks loudly, instead of making the phrase
  * table quietly stop matching, which is the failure mode of a loose literal.
  *
- * THERE IS NO "DESCARTADO" HERE ANY MORE. It existed while the exit could ask, and the owner's
- * decision of 2026-08-23 removed the only path that produced it: nothing in `frontend/src/`
- * discards on purpose. Keeping the value would advertise an outcome the product cannot reach.
+ * Confirmed discard is handled before navigation and does not use this rescue URL channel.
  * @readonly
  * @enum {string}
  */

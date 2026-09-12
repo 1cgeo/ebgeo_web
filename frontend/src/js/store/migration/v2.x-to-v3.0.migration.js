@@ -235,7 +235,7 @@ async function discardLegacyOperationQueue() {
  * @param {{ kind: string, dbSuffix: string }} scope - Scope whose maps to repair.
  * @returns {Promise<number>} How many records were rewritten.
  */
-async function repairPlaceholderMapNames(scope) {
+export async function repairPlaceholderMapNames(scope) {
     try {
         const maps = getStoreFor(StoreName.MAPS, scope);
         let repaired = 0;

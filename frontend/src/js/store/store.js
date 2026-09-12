@@ -417,6 +417,9 @@ async function enforceLocalStoreWhenLoggedOut() {
  */
 async function localSlotClaimingLegacyDatabases() {
     try {
+        const { readLegacyTransition } = await import('./migration/transition-state.js');
+        const transition = await readLegacyTransition();
+        if (transition) return transition.entry;
         return (await readLocalAtlasRegistry())
             .find(entry => entry?.dbSuffix === LEGACY_DB_SUFFIX) ?? null;
     } catch (error) {

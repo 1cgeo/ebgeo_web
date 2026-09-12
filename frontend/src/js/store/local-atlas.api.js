@@ -60,6 +60,7 @@ import { activateRemoteAtlas } from './remote-atlas.api.js';
 // of this import: the barrel reaches `@store` transitively, and this module is loaded by
 // `atlas.html`, which exists in order not to load the store's map half.
 import { announceTabLockTeardown, TeardownReason } from '@utils/tab-lock.js';
+import { legacySourceIsProtected } from './migration/transition-state.js';
 
 /**
  * Ceiling of named local atlases. Owner decision, and deliberately low: every slot is 10
@@ -594,7 +595,7 @@ export async function initLocalAtlases(options = {}) {
 
     const origin = options.origin ?? await getGlobalStore().getItem(GlobalKey.STORE_ORIGIN);
     const isRemoteOrigin = origin?.kind === StoreScopeKind.REMOTE;
-    const adoptLegacy = options.adoptLegacyDatabases ?? !isRemoteOrigin;
+    const adoptLegacy = options.adoptLegacyDatabases ?? (!isRemoteOrigin && !await legacySourceIsProtected());
 
     if (_entries.length === 0) {
         // THE MIRROR IS CONSULTED BEFORE ANY BOOTSTRAP, and only here, on an EMPTY registry.

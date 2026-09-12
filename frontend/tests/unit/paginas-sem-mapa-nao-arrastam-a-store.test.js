@@ -233,7 +233,8 @@ const PAGINAS = Object.freeze([
             'src/js/store/sync/session-context.js',
             'src/js/utilities/tab-lock.js'
         ],
-        externos: ['localforage']
+        // Recovery is also reachable from the API-unavailable screen, through import().
+        externos: ['jszip', 'localforage']
     },
     {
         pagina: 'calibracao.html',
@@ -266,6 +267,7 @@ const PAGINAS = Object.freeze([
         // barril (`@store`, `@utils`, `@modals`) nem uma ferramenta do mapa. Biblioteca de
         // renderização não é a aplicação.
         externos: [
+            'jszip',
             'localforage',
             'maplibre-gl',
             'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url',

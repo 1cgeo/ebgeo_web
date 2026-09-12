@@ -92,6 +92,7 @@ import { initTabLock, isTabLockBlocked, acquireTabLock, remoteAtlasKey } from '@
 import { installWindowBridge, setTracing, resolveTraceFlag } from '@store/sync/diag/trace-core.js';
 import { showUnavailableScreen } from '@ui/unavailable-screen.js';
 import { initSecondaryServerNotice } from '@ui/secondary-server-notice.js';
+import { runLegacyUpgradeGate, watchLegacyChanges, showMigrationRecovery } from '@ui/migration-recovery.js';
 
 // ============================================================================
 // BOOTSTRAP
@@ -102,7 +103,9 @@ import { initSecondaryServerNotice } from '@ui/secondary-server-notice.js';
  * Runs phases sequentially — no side-effects at import time.
  */
 async function initApp() {
-    // Phase -2: TELEMETRIA DE ERRO, e ela é a primeira linha do boot de propósito: o erro que mais
+    if (!await runLegacyUpgradeGate()) return;
+    watchLegacyChanges();
+    // Phase -2: TELEMETRIA DE ERRO, após a proteção inicial dos dados: o erro que mais
     // custa a diagnosticar é justamente o de boot, e um capturador instalado depois das fases não
     // vê nenhum deles. Síncrona, sem rede e best-effort: ela não participa desta função em mais
     // nada, e o fail-fast do `GET /api/config` mais abaixo continua sendo o único portão do mapa.
@@ -864,6 +867,7 @@ async function openAtlasChooserOnBoot() {
 
 // Start initialization immediately (map container exists in static HTML)
 initApp().catch(error => {
+    if (error?.name === 'MigrationRecoveryError') showMigrationRecovery(error);
     // O `console.error` FICA, e o relato é acrescentado ao lado dele. Ele é o que a pessoa que
     // está com o console aberto lê agora; o relato é o que sobrevive ao fechamento da aba, que é
     // quando quase todo defeito de boot acontece.

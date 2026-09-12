@@ -26,6 +26,8 @@
  *   4. Mount — build the shell and wire the session lifecycle (auth lost + idle timeout).
  */
 
+import { confirmLogoutWithPendingWork } from '@js/session/confirm-logout.js';
+import { purgeAllRemoteAtlases } from '@store/remote-atlas.api.js';
 import config from '@js/config.js';
 import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-config.js';
 import { apiClient, configureApiClient } from '@store/sync/api-client.js';
@@ -128,17 +130,11 @@ function clearSplash() {
  * @param {string} [reason] - Carried to the map page as `?sessao=<reason>` so it can explain itself.
  */
 async function endSession(reason) {
-    // O TRABALHO NÃO ENVIADO É RESGATADO ANTES, e este era o buraco: até 2026-08-23 a função era
-    // logout mais navegação, e a destruição ficava para a varredura de deslogado do boot seguinte,
-    // que é exatamente quem apaga o namespace com a fila dentro. O JSDoc acima ainda diz que esta
-    // página "must NOT reach into the store", e essa linha vale para os DADOS do atlas; o resgate
-    // alcança o store por módulos FOLHA (`unsynced-work-exit.js` importa por arquivo, nunca por
-    // barrel), que é o que o mantém carregável numa página sem `initServices()`.
-    //
-    // UM CAMINHO SÓ: aqui não há gesto a distinguir. Esta página só encerra sessão por acidente
-    // (inatividade, token perdido) ou por clique na barra, e a decisão do dono é a mesma para os
-    // dois, porque o sincronismo ocorre sempre e a fila pendente nunca é uma escolha.
-    const guarda = await preserveUnsyncedWorkOnLostSession();
+    const voluntary = !reason || reason === 'saida';
+    if (voluntary && !await confirmLogoutWithPendingWork()) return;
+    const guarda = voluntary
+        ? { outcome: ExitOutcome.NADA }
+        : await preserveUnsyncedWorkOnLostSession();
 
     try {
         await apiClient.logout();
@@ -146,6 +142,7 @@ async function endSession(reason) {
         // logout() already swallows network errors and clears locally; nothing left to do.
     }
     sessionContext.clearSession();
+    if (voluntary) await purgeAllRemoteAtlases();
 
     // O CÓDIGO, E NÃO A FRASE. `window.location.replace` mata qualquer toast levantado logo antes,
     // então o desfecho viaja como valor na URL e o mapa remonta a sentença a partir do mesmo

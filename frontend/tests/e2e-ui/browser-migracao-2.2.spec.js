@@ -1,60 +1,41 @@
 // Path: e2e-ui/browser-migracao-2.2.spec.js
 
 /**
- * @fileoverview O usuário de PRODUÇÃO atualiza sem perder nada, medido em Chromium de verdade.
- *
- * ---------------------------------------------------------------------------
- * POR QUE ESTE ARQUIVO PRECISA EXISTIR, SE A MIGRAÇÃO JÁ TEM 22 CASOS
- * ---------------------------------------------------------------------------
- * Produção hoje é a outra linha do produto: IndexedDB no schema 2.2, sem backend. A fase de
- * namespace por atlas leva esse usuário para 3.0 (o degrau se chamava 2.3 até 2026-09-07, e o
- * número mudou porque a outra linha usava o mesmo para outra coisa e já estava em 2.4), e
- * `tests/integration/migracao-22-para-23-fixture-real.test.js` cobre a transição com 22 casos
- * dirigidos pelas MESMAS fixtures que este arquivo usa.
- *
- * Aqueles 22 casos rodam sobre `fake-indexeddb`, e existe uma classe inteira de comportamento
- * que um duplo em processo não tem: `Blob` de verdade (o duplo obriga a guardar bytes crus, e o
- * porquê está medido em `IMAGE_VALUE_FORM`) e duas ABAS disputando os mesmos bancos. Migração é
- * justamente o momento em que isso aparece, porque é quando bancos são abertos, adotados e
- * carimbados.
- *
- * Ou seja: os 22 casos respondem "a lógica da migração está certa"; este arquivo responde "o
- * usuário de produção atualiza sem perder nada". São perguntas diferentes, e a segunda não tinha
- * resposta nenhuma até aqui.
- *
- * ---------------------------------------------------------------------------
- * A SEMEADURA ACONTECE ANTES DO PRIMEIRO BOOT, E ISSO NÃO É DETALHE
- * ---------------------------------------------------------------------------
- * Semear é escrever nove bancos pré-namespace. Se o app bootar antes disso, ele já criou o
- * registro local, adotou o slot #1 e escreveu um mapa em branco, e a fixture cairia EM CIMA de
- * uma instalação 2.3 recém-nascida: o teste mediria uma fusão que nenhum usuário vive. Por isso
- * a semeadura roda numa página EM BRANCO da mesma origem (`page.route` cumpre um HTML mínimo), e
- * o `goto('/')` seguinte é o ATO sob medição, o primeiro boot que aquela instalação já viu.
- *
- * O layout de chaves NÃO é reescrito aqui. `buildLegacyEntries` (em `tests/helpers/ebgeo-fixture.js`)
- * é a fonte única, compartilhada com o harness de nó; os NOMES dos bancos vêm de `resolveDbName`
- * do próprio app, e a escrita passa por `getStoreFor`, que é a fábrica que o app usa. Nada aqui
- * concatena nome de banco nem inventa prefixo de chave: as duas coisas são cópias que derivam e
- * depois certificam a deriva.
- *
- * ---------------------------------------------------------------------------
- * O QUE UM VERDE AQUI NÃO DIZ
- * ---------------------------------------------------------------------------
- * O `.ebgeo` não é um dump de disco. `exportProject` RECONSTRÓI o payload de cada mapa e
- * hardcoda `hillshadeEnabled`/`analysisLayers`; a lista completa do que o exportador inventa,
- * omite ou muda de lugar está no `@fileoverview` de `tests/helpers/ebgeo-fixture.js`. O que se
- * prova é que a migração sobrevive a ESSA forma, com os volumes reais de um projeto de verdade.
+ * Browser migration and recovery tests using the 2.2 archive fixture and the exact
+ * tab-lock code from main commit 8b611113. The fixture is a reconstructed install,
+ * not a raw dump produced by every historical build. Both entry paths use real
+ * IndexedDB and Blobs; retries are disabled because concurrency is under test.
  */
 
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import { readState } from './state.js';
 import { buildLegacyEntries, countFixture, LEGACY_STORE_IDS, loadEbgeoFixture } from '../helpers/ebgeo-fixture.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
+test.describe.configure({ retries: 0 });
 
 /** Path served as an empty same-origin document, so seeding happens with the app NOT booted. */
 const BLANK_PATH = '/__seed-2.2__';
+
+async function startMainLock(page) {
+    const source = readFileSync(new URL('../fixtures/migration-review/tab-lock-main-8b611113.txt', import.meta.url), 'utf8');
+    await page.evaluate(async source => {
+        const url = URL.createObjectURL(new Blob([source + '\nwindow.__mainActive = () => isActive;'], { type: 'text/javascript' }));
+        const main = await import(/* @vite-ignore */ url);
+        main.initTabLock();
+        URL.revokeObjectURL(url);
+    }, source);
+}
+
+async function transitionDisk(page) {
+    return page.evaluate(async () => {
+        const ns = await import('/src/js/store/atlas-namespace.js');
+        const { readLegacyTransition } = await import('/src/js/store/migration/transition-state.js');
+        return { transition: await readLegacyTransition(), entries: await ns.readLocalAtlasRegistry() };
+    });
+}
 
 /**
  * Números que o README da fixture declara. Escritos por extenso, não derivados: uma fixture que
@@ -150,6 +131,11 @@ function readAfterBoot(page) {
         const ns = await import('/src/js/store/atlas-namespace.js');
 
         const mapNames = await store.getAllMapNamesStore();
+        const { inventoryScope } = await import('/src/js/store/migration/legacy-transition.js');
+        const { readLegacyTransition } = await import('/src/js/store/migration/transition-state.js');
+        const transition = await readLegacyTransition();
+        const originalUnchanged = JSON.stringify(transition.sourceInventory) === JSON.stringify(
+            await inventoryScope(ns.localScope('legacy-workspace', '')));
         let features = 0;
         const featuresByMap = {};
         for (const nome of mapNames) {
@@ -183,6 +169,7 @@ function readAfterBoot(page) {
         });
 
         return {
+            originalUnchanged,
             mapNames: mapNames.slice().sort(),
             features,
             featuresByMap,
@@ -242,6 +229,146 @@ async function prepareLegacyInstall(browser, fileName) {
 }
 
 describeOrSkip('Migração 2.2 para 2.3 em Chromium, com a fixture de produção', () => {
+    test('QuotaExceededError na cópia bloqueia o editor, permite exportar e retoma depois da falha', async ({ browser }) => {
+        const { ctx, page } = await prepareLegacyInstall(browser, '01-completo.ebgeo');
+        try {
+            const original = await page.evaluate(async () => {
+                const ns = await import('/src/js/store/atlas-namespace.js');
+                await ns.getGlobalStore().ready();
+                const { inventoryScope } = await import('/src/js/store/migration/legacy-transition.js');
+                return inventoryScope(ns.localScope('legacy', ''));
+            });
+            // Inject at the native IDB write boundary. CDP's quota override reports the limit
+            // here but does not reject these writes, so it cannot certify real disk pressure.
+            await page.addInitScript(() => {
+                const put = IDBObjectStore.prototype.put;
+                IDBObjectStore.prototype.put = function (...args) {
+                    if (this.transaction.db.name.includes('__upgrade-') && !sessionStorage.getItem('quota-test-disabled')) {
+                        throw new DOMException('Quota de teste excedida', 'QuotaExceededError');
+                    }
+                    return put.apply(this, args);
+                };
+            });
+            await page.goto('/');
+            await expect(page.getByTestId('migration-recovery')).toContainText('espaço');
+            expect((await transitionDisk(page)).entries).toHaveLength(0);
+            const downloadPromise = page.waitForEvent('download');
+            await page.getByRole('button', { name: 'Salvar cópia de recuperação' }).click();
+            expect(readFileSync(await (await downloadPromise).path()).length).toBeGreaterThan(1000);
+            await page.evaluate(() => sessionStorage.setItem('quota-test-disabled', 'yes'));
+            await page.getByRole('button', { name: 'Tentar novamente', exact: true }).click();
+            await waitForMap(page);
+            expect((await transitionDisk(page)).transition.sourceInventory).toEqual(original);
+            expect((await readAfterBoot(page)).originalUnchanged).toBe(true);
+        } finally { await ctx.close(); }
+    });
+
+    test('mede cópia e verificação de um acervo com 8 MiB de binário incompressível', async ({ browser }, testInfo) => {
+        test.setTimeout(120000);
+        const { ctx, page } = await prepareLegacyInstall(browser, '01-completo.ebgeo');
+        try {
+            const measured = await page.evaluate(async () => {
+                const ns = await import('/src/js/store/atlas-namespace.js');
+                const { inventoryScope, prepareLegacyTransition } = await import('/src/js/store/migration/legacy-transition.js');
+                const legacy = ns.localScope('legacy', '');
+                const bytes = new Uint8Array(8 * 1024 * 1024);
+                let random = 123456789;
+                for (let i = 0; i < bytes.length; i++) {
+                    random ^= random << 13; random ^= random >>> 17; random ^= random << 5;
+                    bytes[i] = random & 255;
+                }
+                await ns.getStoreFor(ns.StoreName.IMAGES, legacy).setItem('large-original', new Blob([bytes], { type: 'application/octet-stream' }));
+                const inventory = await inventoryScope(legacy);
+                const before = await navigator.storage.estimate();
+                const start = performance.now();
+                const { state } = await prepareLegacyTransition();
+                const elapsedMs = performance.now() - start;
+                const after = await navigator.storage.estimate();
+                const originalUnchanged = JSON.stringify(inventory) === JSON.stringify(await inventoryScope(legacy));
+                const copied = await ns.getStoreFor(ns.StoreName.IMAGES, ns.localScope(state.entry.id, state.destination)).getItem('large-original');
+                return { elapsedMs, beforeBytes: before.usage, afterBytes: after.usage, copiedBytes: copied.size,
+                    additionalBytes: after.usage - before.usage, binaryBytes: bytes.length,
+                    records: inventory.length, originalUnchanged, status: state.status };
+            });
+            await testInfo.attach('custo-da-copia.json', { body: JSON.stringify(measured, null, 2), contentType: 'application/json' });
+            console.info('Custo medido da atualização:', JSON.stringify(measured));
+            expect(measured.status).toBe('committed');
+            expect(measured.originalUnchanged).toBe(true);
+            // Storage estimates are browser accounting, not an exact sum of Blob sizes.
+            expect(measured.additionalBytes).toBeGreaterThan(0);
+            expect(measured.copiedBytes).toBe(8 * 1024 * 1024);
+        } finally { await ctx.close(); }
+    });
+
+    test('main aberta bloqueia a preparação; fechar a antiga permite atualizar', async ({ browser }) => {
+        const { ctx, page: old } = await prepareLegacyInstall(browser, '01-completo.ebgeo');
+        try {
+            await startMainLock(old);
+            await expect.poll(() => old.evaluate(() => window.__mainActive())).toBe(true);
+            const page = await ctx.newPage();
+            await page.goto('/');
+            await expect(page.getByTestId('migration-recovery')).toContainText('versão antiga');
+            expect((await transitionDisk(page)).transition).toBeNull();
+            await old.close();
+            await page.getByRole('button', { name: 'Tentar novamente', exact: true }).click();
+            await waitForMap(page);
+            expect((await readAfterBoot(page)).originalUnchanged).toBe(true);
+        } finally { await ctx.close(); }
+    });
+
+    test('main reaberta depois da atualização não alcança o destino; alterações tardias são recuperáveis', async ({ browser }) => {
+        const { ctx, page } = await prepareLegacyInstall(browser, '01-completo.ebgeo');
+        try {
+            await page.goto('/');
+            await waitForMap(page);
+            const before = await transitionDisk(page);
+            const old = await ctx.newPage();
+            await goToBlankSameOrigin(old);
+            await startMainLock(old);
+            await expect(old.locator('.tab-lock-overlay--visible')).toBeVisible();
+            expect(await old.evaluate(() => window.__mainActive())).toBe(false);
+            await old.getByRole('button', { name: 'Usar aqui' }).click();
+            await expect(page.locator('.tab-lock-overlay--visible')).toContainText('versão antiga');
+            await old.evaluate(async () => {
+                const ns = await import('/src/js/store/atlas-namespace.js');
+                await ns.getStoreFor(ns.StoreName.SETTINGS, ns.localScope('legacy', '')).setItem('late_note', 'Trabalho tardio');
+            });
+            await old.close();
+            await page.reload();
+            await expect(page.getByTestId('migration-recovery')).toContainText('gravou alterações');
+            await page.getByRole('button', { name: 'Recuperar alterações em outro atlas' }).click();
+            await expect(page.getByTestId('migration-recovery')).toContainText('foi recuperado');
+            const after = await transitionDisk(page);
+            expect(after.entries).toHaveLength(2);
+            expect(after.transition.destination).toBe(before.transition.destination);
+            expect(await page.evaluate(async destination => {
+                const ns = await import('/src/js/store/atlas-namespace.js');
+                const store = ns.getStoreFor(ns.StoreName.SETTINGS, ns.localScope('old-target', destination));
+                return store.getItem('late_note');
+            }, before.transition.destination)).toBeNull();
+            await page.getByRole('button', { name: 'Tentar novamente', exact: true }).click();
+            await waitForMap(page);
+        } finally { await ctx.close(); }
+    });
+
+    test('API indisponível oferece download e restauração da cópia bruta', async ({ browser }) => {
+        const { ctx, page } = await prepareLegacyInstall(browser, '01-completo.ebgeo');
+        try {
+            await page.route(/\/config(\?|$)/, route => route.abort('failed'));
+            await page.goto('/');
+            await page.getByRole('button', { name: 'Recuperar dados deste computador' }).click();
+            const downloadPromise = page.waitForEvent('download');
+            await page.getByRole('button', { name: 'Salvar cópia de recuperação' }).click();
+            const download = await downloadPromise;
+            const path = await download.path();
+            expect(readFileSync(path).length).toBeGreaterThan(1000);
+            await page.locator('input[type=file]').setInputFiles(path);
+            await page.getByRole('button', { name: 'Restaurar como outro atlas' }).click();
+            await expect(page.getByTestId('migration-recovery')).toContainText('foi restaurado');
+            expect((await transitionDisk(page)).entries).toHaveLength(2);
+        } finally { await ctx.close(); }
+    });
+
     test('o usuário de `main` atualiza e não perde mapa, feição, camada, briefing nem imagem', async ({ browser }, testInfo) => {
         test.setTimeout(180000);
 
@@ -313,14 +440,13 @@ describeOrSkip('Migração 2.2 para 2.3 em Chromium, com a fixture de produção
             //    corrente". Literal de propósito neste arquivo, como no par em `tests/integration`.
             expect(depois.schemaVersion, 'a instalação terminou o boot na versão corrente').toBe('3.0');
 
-            // 5. ZERO CÓPIA: o banco legado VIROU o slot #1, e nenhum banco sufixado nasceu
-            //    para receber uma cópia dos dados. É a propriedade que torna a migração barata,
-            //    e a única forma de vê-la é olhando os nomes no disco.
-            expect(depois.mapsDbName, 'o escopo ativo continua sendo o banco legado adotado')
-                .toBe('ebgeo_maps');
+            // The old build can still write its databases: isolate the new editor and retain
+            // an exact inventory of every original, including binary contents.
+            expect(depois.originalUnchanged).toBe(true);
+            expect(depois.mapsDbName).toMatch(/^ebgeo_maps__upgrade-/);
             expect(depois.dbs.filter(n => n.startsWith('ebgeo_maps__')),
-                'a migração copiou os dados para um namespace novo em vez de adotar o legado')
-                .toEqual([]);
+                'a atualização deve produzir um único destino isolado')
+                .toEqual([depois.mapsDbName]);
         } finally {
             await ctx.close();
         }
@@ -385,8 +511,9 @@ describeOrSkip('Migração 2.2 para 2.3 em Chromium, com a fixture de produção
             expect(depois.features, 'a corrida não perdeu nem duplicou feição').toBe(DECLARADO.features);
             expect(depois.schemaVersion, 'a migração terminou, e não parou no meio').toBe('3.0');
             expect(depois.dbs.filter(n => n.startsWith('ebgeo_maps__')),
-                'a segunda aba criou um namespace paralelo em vez de compartilhar o slot adotado')
-                .toEqual([]);
+                'as duas abas devem compartilhar o mesmo destino isolado')
+                .toEqual([depois.mapsDbName]);
+            expect(depois.originalUnchanged).toBe(true);
         } finally {
             await ctx.close();
         }

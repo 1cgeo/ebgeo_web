@@ -1068,3 +1068,49 @@ describe('remote-atlas.api :: forgetRemoteAtlas', () => {
         expect((await api.listRemoteAtlases()).map(e => e.atlasId)).toEqual([ATLAS_B]);
     });
 });
+
+describe('voluntary logout discard', () => {
+    it('discards both remote queues despite a rescue veto and keeps an ordinary local atlas', async () => {
+        await local.initLocalAtlases();
+        const localScope = ns.getActiveScope();
+        await ns.getStore(ns.StoreName.MAPS).setItem('local-proof', { name: 'Local original' });
+        for (const id of [ATLAS_A, ATLAS_B]) {
+            await api.activateRemoteAtlas(id);
+            await seedRemote(id);
+            await ns.getStore(ns.StoreName.OPERATION_QUEUE).setItem('op_pending', { id });
+            await api.retainRemoteAtlasForRescue(id);
+        }
+        await api.requestRemoteAtlasDiscard();
+        const report = await api.purgeAllRemoteAtlases();
+        expect(report.retained).toEqual([]);
+        for (const id of [ATLAS_A, ATLAS_B]) {
+            expect(stillHoldingSentinel(dbNamesOfRemote(id))).toEqual([]);
+            expect(await ns.getStoreFor(ns.StoreName.OPERATION_QUEUE, ns.remoteScope(id)).keys()).toEqual([]);
+        }
+        expect(await ns.getStoreFor(ns.StoreName.MAPS, localScope).getItem('local-proof'))
+            .toEqual({ name: 'Local original' });
+    });
+
+    it('an interrupted logout cannot replay the discarded queue on reopening', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        await ns.getStore(ns.StoreName.OPERATION_QUEUE).setItem('op_pending', { id: 'stale' });
+        await api.requestRemoteAtlasDiscard();
+        // Simulate reopening before the sweep ran: registration must clear BEFORE activation.
+        await api.activateRemoteAtlas(ATLAS_A);
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual([]);
+        expect(await ns.getStore(ns.StoreName.OPERATION_QUEUE).keys()).toEqual([]);
+        expect((await api.listRemoteAtlases())[0].discardRequested).toBeUndefined();
+    });
+
+    it('local adoption wins even when it happens after discard was requested', async () => {
+        await local.initLocalAtlases();
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        await api.requestRemoteAtlasDiscard();
+        await local.adoptRemoteAtlasAsLocal(ATLAS_A, 'Resgate local');
+        expect(await api.requestRemoteAtlasDiscard()).toEqual([]);
+        await api.purgeAllRemoteAtlases();
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual(dbNamesOfRemote(ATLAS_A));
+    });
+});

@@ -1,4 +1,5 @@
 // Path: js/account/account.control.js
+import { confirmLogoutWithPendingWork } from '@js/session/confirm-logout.js';
 import { showLoginModal } from '@modals/login.modal.js';
 import { showSignupModal } from '@modals/signup.modal.js';
 import config from '@js/config.js';
@@ -1242,61 +1243,21 @@ export class AccountControl {
             : './atlas.html');
     }
 
-    /**
-     * O CLIQUE EM "SAIR". Ele RESGATA e INFORMA, e não pergunta nada.
-     *
-     * O DEFEITO QUE ELE FECHA, medido: o clique chamava `_handleLogout()` sem argumento, a contagem
-     * da fila era literalmente `involuntary ? await countPendingOperations() : 0`, e o ramo do wipe
-     * levava junto o namespace do atlas com a fila de saída dentro. O trabalho que o servidor nunca
-     * recebeu ia embora em silêncio.
-     *
-     * A PRIMEIRA VERSÃO DESTA CORREÇÃO PERGUNTAVA, com três saídas, e o dono do produto recusou a
-     * pergunta com um argumento que decide o desenho: **o sincronismo ocorre sempre**. A fila só
-     * tem conteúdo quando algo NÃO CONSEGUIU subir, nunca porque a pessoa escolheu não subir. Logo
-     * não existe vontade a respeitar aqui, e a pergunta ofereceria como escolha um estado que
-     * ninguém escolheu. O que sobra é o que o caminho involuntário já fazia: guardar e avisar.
-     *
-     * O QUE ISSO CUSTA, e é o custo aceito: quem sai com fila pendente ganha um atlas local a mais,
-     * sem ter pedido. É recuperável (a pessoa apaga o slot), e a alternativa não é: trabalho
-     * destruído não volta.
-     *
-     * SEM ATLAS DE SERVIDOR MONTADO NÃO HÁ NADA A RESGATAR. Não existe namespace remoto para a
-     * saída destruir, e o atlas LOCAL não é tocado desde 2026-08-16.
-     * @private
-     */
-    /**
-     * A saída DELIBERADA, vista de fora deste controle.
-     *
-     * Existe para o aviso de inatividade: o botão "Sair agora" dele terminava em
-     * `handleSessionLost`, com a frase de EXPIRAÇÃO e o login reaberto em seguida. Nada tinha
-     * expirado, e a pessoa acabara de dizer que queria sair. O gesto é o mesmo do botão "Sair" do
-     * menu, então é o mesmo caminho, com o mesmo resgate e o mesmo aviso.
-     * @returns {Promise<void>}
-     */
+    /** Voluntary exit: confirm pending-work loss before ending the session (2026-09-12). */
     async leaveByUserGesture() {
         await this._handleLogoutGesture();
     }
 
     async _handleLogoutGesture() {
-        this._closeMenu();
-        const atlasId = mountedRemoteAtlasId();
-        if (!atlasId) {
+        if (this._logoutInProgress) return;
+        this._logoutInProgress = true;
+        try {
+            this._closeMenu();
+            if (!await confirmLogoutWithPendingWork()) return;
             await this._handleLogout();
-            return;
+        } finally {
+            this._logoutInProgress = false;
         }
-        const pendingOps = await countPendingOperations();
-        // `shouldPreserveLocalWork` decide com a MESMA regra dos dois caminhos, e a contagem que
-        // não se pôde medir preserva: destruir por causa de uma leitura que acabou de falhar é o
-        // avesso do que este método existe para impedir.
-        if (!shouldPreserveLocalWork({ involuntary: true, pendingOps })) {
-            await this._handleLogout();
-            return;
-        }
-        const atlasName = this._atlasCache?.id === atlasId ? this._atlasCache?.name : null;
-        const guardado = await preserveUnsyncedWorkAsLocal(atlasId, atlasName);
-        await this._handleLogout({ chosePreserve: guardado, pendingOps });
-        if (guardado) showWarning(exitPreservedSummary(rescuedAtlasName(atlasName)));
-        else showError(exitPreserveFailedNotice({ retained: rescueVetoRecorded(atlasId), graceMs: RESCUE_VETO_GRACE_MS }));
     }
 
     /**
@@ -1307,9 +1268,8 @@ export class AccountControl {
      * network failure upstream would delete work the server never received, and the next boot
      * guard would finish the job by discarding orphan remote data.
      *
-     * ON THE VOLUNTARY PATH IT EXECUTES A DECISION ALREADY TAKEN. `chosePreserve` comes from
-     * {@link _handleLogoutGesture}; called without it (the 401 handler, a test addressing the
-     * teardown directly) the behaviour is exactly what it always was.
+     * Voluntary logout has already confirmed discard in the gesture. It does not set
+     * `chosePreserve`; that override represents a rescue already chosen by a caller.
      * @param {Object} [options]
      * @param {boolean} [options.involuntary=false] - True when nobody clicked "Sair".
      * @param {boolean} [options.chosePreserve=false] - The user was asked and chose to keep the work.
@@ -1455,29 +1415,16 @@ export class AccountControl {
                 // três que montam atlas de servidor logo depois LEEM o repositório que este wipe
                 // deixa.
                 await announceRemoteNamespaceTeardown();
-                if (eraRemoto) {
-                    await clearAllDataStore({ reinitialize: false });
+                try {
+                    if (eraRemoto) {
+                        await clearAllDataStore({ reinitialize: false });
+                    }
+                } finally {
+                    // A failed blank-map/local-registry write must not leave a discarded queue
+                    // behind after logout. Purging only registered remote scopes stays isolated.
+                    await discardRemoteAtlasNamespaces();
                 }
-                await discardRemoteAtlasNamespaces();
-                // AQUI NÃO SE ANUNCIA PERDA, e a razão mudou junto com a decisão do dono sobre a
-                // saída voluntária. Enquanto o clique perguntava, este ramo era o "descartei N
-                // operações a seu pedido". Sem a pergunta, chegar aqui com fila significa que o
-                // RESGATE FALHOU, e quem sabe disso é `_handleLogoutGesture`, que já mostra o aviso
-                // de falha nomeando se o namespace ficou retido. Um segundo toast daqui diria a
-                // mesma coisa com outras palavras, e o pior par de avisos é o que se contradiz.
-                //
-                // O QUE SE ANUNCIA É O QUE ACABOU DE ACONTECER COM OS DADOS, e isso faltava: sair
-                // da conta APAGA deste computador o atlas de servidor que estava aberto, e o
-                // comentário deste bloco declarava, por extenso, que nada era dito. A pessoa via o
-                // mapa esvaziar sem explicação.
-                //
-                // A frase existe porque o silêncio é ambíguo, não porque haja perda: o dado
-                // continua no servidor e volta ao entrar de novo. É essa a informação, e é por
-                // isso que o tom é neutro e não há pergunta nenhuma, respeitando a decisão de
-                // 2026-08-23 de não perguntar na saída.
-                //
-                // Só quando havia atlas de SERVIDOR montado. Num atlas local nada foi apagado
-                // (o wipe não o alcança desde 2026-08-16), e dizer que algo saiu seria falso.
+                // Pending-work loss was confirmed by the voluntary gesture before teardown.
                 if (eraRemoto && !involuntary) {
                     showToast(
                         'Você saiu da conta. O atlas do servidor foi removido deste computador e '

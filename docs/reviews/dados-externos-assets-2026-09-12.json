@@ -1,0 +1,48 @@
+{
+  "folders": {
+    "_ebgeo_360": {
+      "bytes": 863180657,
+      "images_verified": 657,
+      "json_valid": 657
+    },
+    "_ebgeo_360_sqlite": {
+      "bytes": 1286783372,
+      "sqlite_verified": 2,
+      "images_verified": 1314
+    },
+    "_ebgeo_3d": {
+      "bytes": 146599903,
+      "glb_headers_valid": 1,
+      "json_valid": 5,
+      "tileset_references_found": 1671,
+      "b3dm_headers_valid": 1667,
+      "images_verified": 9
+    }
+  },
+  "errors": [],
+  "sqlite": [
+    {
+      "file": "_ebgeo_360_sqlite\\index.db",
+      "quick_check": [
+        "ok"
+      ],
+      "tables": [
+        "projects",
+        "photos",
+        "targets",
+        "project_floors",
+        "project_tracks",
+        "deleted_photos"
+      ]
+    },
+    {
+      "file": "_ebgeo_360_sqlite\\multicaptura.db",
+      "quick_check": [
+        "ok"
+      ],
+      "tables": [
+        "images"
+      ]
+    }
+  ]
+}

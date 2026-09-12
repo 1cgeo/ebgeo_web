@@ -19,13 +19,14 @@
  * ones in `repositories/local.repository.js` share one resolver on purpose.
  */
 
-import { StoreName, listAtlasStores } from './atlas-namespace.js';
+import { StoreName, listAtlasStores, getActiveScope } from './atlas-namespace.js';
 import { ensureAtlasScope, getScopedStore } from './repositories/local.repository.js';
 import {
     detectMigrationNeeded,
     migrateActiveSlot,
     safelyMigrate
 } from './migration/migration.service.js';
+import { runLegacyMigrations } from './migration/legacy-backfills.js';
 import { ATLAS_SCHEMA_VERSION } from './atlas/atlas.entity.js';
 import config from '../config.js';
 import { createSyncMetadata } from './sync/sync-metadata.js';
@@ -50,11 +51,9 @@ export { memoryStore, resetMemoryStore } from './memory-store.js';
 
 // Import for internal use
 import {
-    SCHEMA_VERSION,
     MIN_SCHEMA_VERSION,
     compareVersions,
-    getEmptyMapData,
-    getEmptyCesium3dData
+    getEmptyMapData
 } from './repository.utils.js';
 import { memoryStore } from './memory-store.js';
 
@@ -70,7 +69,6 @@ const imageStore = () => getScopedStore(StoreName.IMAGES);
 const appStore = () => getScopedStore(StoreName.SETTINGS);
 const groupStore = () => getScopedStore(StoreName.GROUPS);
 const layerStore = () => getScopedStore(StoreName.LAYERS);
-const cesium3dStore = () => getScopedStore(StoreName.CESIUM3D);
 
 // ===== HELPER FUNCTIONS FOR INITIALIZATION =====
 
@@ -196,139 +194,6 @@ async function checkAndCleanLegacyData() {
     return true;
 }
 
-// ===== LEGACY MIGRATION FUNCTIONS =====
-
-/**
- * Runs a per-map migration function on all maps and logs progress.
- * @param {Function} migrateFn - async (mapName, mapData?) => boolean
- * @param {string} label - Log label for the migration version
- * @param {boolean} [needsData=true] - Whether the migration needs map data loaded
- */
-async function runMigrationForAllMaps(migrateFn, label, needsData = true) {
-    const mapNames = await mapStore().keys();
-    let migratedCount = 0;
-
-    for (const mapName of mapNames) {
-        if (needsData) {
-            const mapData = await mapStore().getItem(mapName);
-            if (mapData) {
-                const wasMigrated = await migrateFn(mapName, mapData);
-                if (wasMigrated) migratedCount++;
-            }
-        } else {
-            const wasMigrated = await migrateFn(mapName);
-            if (wasMigrated) migratedCount++;
-        }
-    }
-
-    if (migratedCount > 0) {
-        console.log(`Migrated ${migratedCount} map(s) to ${label}`);
-    }
-}
-
-async function migrateMapTo14(mapName, mapData) {
-    if (!mapData.features.coordination_measures) {
-        mapData.features.coordination_measures = [];
-        await mapStore().setItem(mapName, mapData);
-        return true;
-    }
-    return false;
-}
-
-async function migrateMapTo15(mapName, mapData) {
-    let modified = false;
-
-    for (const featureType of Object.keys(mapData.features)) {
-        const features = mapData.features[featureType];
-        if (!Array.isArray(features)) continue;
-
-        for (const feature of features) {
-            if (feature.properties && !feature.properties.layerId) {
-                feature.properties.layerId = 'default';
-                modified = true;
-            }
-        }
-    }
-
-    if (modified) {
-        await mapStore().setItem(mapName, mapData);
-    }
-    return modified;
-}
-
-async function migrateMapTo16(mapName, mapData) {
-    if (!mapData?.features) {
-        return false;
-    }
-
-    let modified = false;
-
-    for (const featureType of Object.keys(mapData.features)) {
-        const features = mapData.features[featureType];
-        if (!Array.isArray(features)) continue;
-
-        for (const feature of features) {
-            if (feature.properties) {
-                if (feature.properties.attributes === undefined) {
-                    feature.properties.attributes = {};
-                    modified = true;
-                }
-                if (feature.properties.images === undefined) {
-                    feature.properties.images = [];
-                    modified = true;
-                }
-            }
-        }
-    }
-
-    if (modified) {
-        await mapStore().setItem(mapName, mapData);
-    }
-    return modified;
-}
-
-async function migrateMapTo17(mapName) {
-    const key = `cesium3d_${mapName}`;
-    const existingData = await cesium3dStore().getItem(key);
-    if (!existingData || existingData.cameraPositions === undefined || existingData.markers === undefined) {
-        await cesium3dStore().setItem(key, getEmptyCesium3dData());
-        return true;
-    }
-    return false;
-}
-
-/**
- * Ordered legacy migrations with their per-map functions and log labels.
- * Each entry: [migrateFn, label, needsData]
- */
-const LEGACY_MIGRATIONS = [
-    { version: '1.3', fn: migrateMapTo14, label: 'v1.4' },
-    { version: '1.4', fn: migrateMapTo15, label: 'v1.5 (added layerId to features)' },
-    { version: '1.5', fn: migrateMapTo16, label: 'v1.6 (added attributes and images to features)' },
-    { version: '1.6', fn: migrateMapTo17, label: 'v1.7 (initialized cesium3d data)', needsData: false }
-];
-
-/**
- * Runs all applicable legacy migrations from the given schema version.
- * @param {string|null} currentVersion - Current schema version
- */
-async function runLegacyMigrations(currentVersion) {
-    if (!currentVersion) {
-        await appStore().setItem('schemaVersion', SCHEMA_VERSION);
-        return;
-    }
-
-    const startIndex = LEGACY_MIGRATIONS.findIndex(m => m.version === currentVersion);
-    if (startIndex === -1) return;
-
-    for (let i = startIndex; i < LEGACY_MIGRATIONS.length; i++) {
-        const { fn, label, needsData } = LEGACY_MIGRATIONS[i];
-        await runMigrationForAllMaps(fn, label, needsData !== false);
-    }
-
-    await appStore().setItem('schemaVersion', SCHEMA_VERSION);
-}
-
 // ===== INITIALIZATION =====
 
 /**
@@ -375,7 +240,7 @@ export async function seedBlankDefaultMap() {
  * Initializes the repository, runs migrations, and returns the last active map.
  * @returns {Promise<string>} Last active map name
  */
-export async function initializeRepository() {
+export async function initializeRepository({ strict = false, installation = true } = {}) {
     try {
         const carimboConfiavel = await checkAndCleanLegacyData();
 
@@ -387,7 +252,8 @@ export async function initializeRepository() {
         // registro de atlas (`effectiveVersion`).
         if (carimboConfiavel) {
             const currentSchemaVersion = await appStore().getItem('schemaVersion');
-            await runLegacyMigrations(currentSchemaVersion);
+            ensureAtlasScope();
+            await runLegacyMigrations(currentSchemaVersion, getActiveScope());
         }
 
         // ===== TWO MIGRATION TARGETS, AND THEY ARE NOT INTERCHANGEABLE =====
@@ -396,7 +262,7 @@ export async function initializeRepository() {
         // data belongs to a server atlas. Aiming this pass at the mounted scope instead
         // would point it at an empty namespace on exactly the boot where the residue it
         // has to reach sits in the unsuffixed databases.
-        const { needed } = await detectMigrationNeeded();
+        const { needed } = installation ? await detectMigrationNeeded() : { needed: false };
         if (needed) {
             console.log('Running v2.0 migration...');
             const result = await safelyMigrate();
@@ -428,6 +294,7 @@ export async function initializeRepository() {
         return activeMap;
     } catch (error) {
         console.error('Error initializing repository:', error);
+        if (strict || error?.name === 'MigrationRecoveryError') throw error;
         return await mapaDeEmergencia();
     }
 }

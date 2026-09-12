@@ -20,19 +20,8 @@
  * and `@store/atlas-namespace.js` are leaves that `projects-page.js` already reaches. Importing
  * `@store/store.js` here would undo the whole point.
  *
- * NOBODY IS ASKED ANY MORE, AND THAT IS A PRODUCT DECISION (2026-08-23). This module used to carry
- * a second entry point, `guardUnsyncedWorkOnExit`, which counted the queue and opened a three-way
- * dialog for the VOLUNTARY exit. The owner refused the question with the argument that decides the
- * design: sync always runs, so the queue only holds something when it FAILED to go up, never
- * because somebody chose not to send it. There being no intent to respect, the voluntary exit now
- * does what the involuntary one always did (rescue in silence and inform), the guard and its dialog
- * were removed rather than left unreferenced, and with them went the import of
- * `@modals/confirm.modal.js` — which is a second, structural gain, since this module is reached
- * from two pages that boot no modal system at all.
- *
- * WHAT SURVIVES OF THE TEARDOWN SPLIT. `AccountControl._handleLogout` is still the primitive that
- * executes the teardown with the decision already made; what changed is that the decision no longer
- * comes from a human.
+ * Since 2026-09-12, voluntary logout is handled by `confirm-logout.js`: pending remote work is
+ * discarded only after confirmation. This module still rescues involuntary session loss.
  */
 
 import { markStoreLocal, loadStoreOrigin, StoreOriginKind } from '@store/store-origin.js';
@@ -82,14 +71,9 @@ export { RESCUE_VETO_GRACE_MS };
  * An UNKNOWN pending count (the queue read failed — NaN/undefined) preserves too: the whole point
  * is to not destroy on the strength of something that just went wrong.
  *
- * `chosePreserve` IS THE VOLUNTARY PATH, and it comes as its own field rather than as
- * `involuntary: true`. The two are different facts about the same teardown: one says nobody asked,
- * the other says the click path already decided to keep the work. Folding the second into the first
- * would have made the toast announce a session that "terminou" to a person who had just clicked
- * "Sair". (It no longer means "the user was asked": since 2026-08-23 nobody is asked, and the click
- * path sets it because it has ALREADY performed the rescue.)
+ * `chosePreserve` forces preservation when a caller already chose a rescue. The voluntary
+ * gesture no longer sets it: since 2026-09-12 it confirms and discards pending remote work.
  *
- * Pure — no I/O, no module state.
  * @param {Object} params
  * @param {boolean} [params.involuntary=false] - True when the session ended without a user gesture.
  * @param {number} [params.pendingOps=0] - Operations still queued for the server.
@@ -353,8 +337,8 @@ export async function countPendingOperationsFor(atlasId) {
  * finally failed.
  *
  * IT NEVER ASKS. The name still says `OnLostSession` because that was the only path that reached it
- * until 2026-08-23, when the owner's decision made the voluntary exit behave identically (see the
- * fileoverview). It applies `shouldPreserveLocalWork` with `involuntary: true` and rescues in
+ * until 2026-08-23, when voluntary exit also used it. Since 2026-09-12 only involuntary exits
+ * use this function. It applies `shouldPreserveLocalWork` with `involuntary: true` and rescues in
  * silence: an unknown count preserves, zero does not, and the caller gets back a sentence to
  * deliver plus a code it can put on a URL.
  *

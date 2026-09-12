@@ -71,6 +71,7 @@ import {
     StoreScopeKind,
     UNMOUNTED_QUEUE_SCOPE
 } from '@store/atlas-namespace.js';
+import { legacySourceIsProtected } from '../migration/transition-state.js';
 
 /** Key prefix of a queue entry, shared with `operation-queue.js`. */
 const KEY_PREFIX = 'op_';
@@ -137,6 +138,7 @@ export async function migratePendingOperationsToScopedQueues({ scope = null } = 
 
     const source = getStoreFor(StoreName.OPERATION_QUEUE, UNMOUNTED_QUEUE_SCOPE);
     const sourceName = resolveDbName(StoreName.OPERATION_QUEUE, UNMOUNTED_QUEUE_SCOPE);
+    const protectedSource = await legacySourceIsProtected();
 
     for (const key of await source.keys()) {
         if (typeof key !== 'string' || !key.startsWith(KEY_PREFIX)) continue;
@@ -152,6 +154,10 @@ export async function migratePendingOperationsToScopedQueues({ scope = null } = 
         if (!operation) continue;
 
         const stamped = typeof operation.scopeSuffix === 'string' ? operation.scopeSuffix : null;
+        if (protectedSource && (stamped === null || stamped === LEGACY_DB_SUFFIX)) {
+            report.kept++;
+            continue;
+        }
         const target = stamped ?? addressForUnstamped(mounted);
         if (target === LEGACY_DB_SUFFIX) {
             // Already home: the legacy address IS local slot #1's queue. Counted as `kept`

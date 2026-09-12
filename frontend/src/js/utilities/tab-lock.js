@@ -117,10 +117,9 @@
  *             `addresses` (a list of `dbSuffix`) plus a `reason`, never a key. See section 8.
  *   TEARDOWN_ACK  `target`ed ack: "I read it, and here is whether I stopped" (`frozen`).
  *
- * `v` (protocol version) makes tabs from two different deploys mutually INVISIBLE rather than
- * mutually confused: an old tab speaking the old `{type:'PING'}` dialect is ignored here, and
- * ignores this. That is the honest failure mode for a hot deploy, and it is bounded, because
- * a reload of either tab ends it.
+ * Different versioned protocols remain isolated. The unversioned main dialect is an explicit
+ * exception: a versioned PING probes it, and its unversioned PONG/TAKEOVER blocks this tab
+ * until reload. Namespace isolation protects the migrated data from suspended legacy writers.
  *
  * TEARDOWN DID BUMP IT (2 -> 3), and the reason is that invisibility is here the SAFE reading,
  * which is the opposite of the adoption case below. An old tab cannot understand the notice, so
@@ -1069,6 +1068,9 @@ class TabLock {
 
         /** @type {Map<string, TabLockClaim & {lastSeen: number}>} */
         this._peers = new Map();
+        // A main client cannot acknowledge a safe handoff. Reload after closing it;
+        // expiring this evidence by TTL would let a suspended old writer win again.
+        this._legacyPeer = false;
         this._blocked = false;
         this._blocker = null;
         this._listeners = new Set();
@@ -1146,12 +1148,15 @@ class TabLock {
         }
 
         this._post(Msg.HELLO);
+        this._transport.post({ type: 'PING', v: PROTOCOL_VERSION });
     }
 
     /** @returns {string} This tab's comparable id. */
     get tabId() {
         return this._tabId;
     }
+
+    get legacyPeerDetected() { return this._legacyPeer; }
 
     /** @returns {TabLockKey} The key this tab currently claims. */
     get key() {
@@ -1542,6 +1547,15 @@ class TabLock {
      */
     _onMessage(message) {
         if (this._destroyed) return;
+        if (message && message.v == null) {
+            if (message.type === 'PONG' || message.type === 'TAKEOVER') {
+                this._legacyPeer = true;
+                this._evaluate();
+            } else if (message.type === 'PING') {
+                this._transport.post({ type: 'PONG', v: PROTOCOL_VERSION });
+            }
+            return;
+        }
         if (!message || message.v !== PROTOCOL_VERSION) return;
         if (message.tabId === this._tabId) return;
 
@@ -1845,7 +1859,9 @@ class TabLock {
         }
 
         const self = { tabId: this._tabId, key: this._key, claimedAt: this._claimedAt };
-        const blocker = findBlockingPeer(self, peers);
+        const blocker = this._legacyPeer && this._key.kind !== TabLockKeyKind.NONE
+            ? { tabId: 'legacy-main', key: this._key, claimedAt: 0 }
+            : findBlockingPeer(self, peers);
 
         if (blocker && !this._blocked) {
             this._enterBlocked(blocker);
@@ -1970,6 +1986,11 @@ class TabLock {
             ? frozenText.message
             : (OVERLAY_TEXT[key?.kind] ?? OVERLAY_TEXT[TabLockKeyKind.REMOTE]);
         this._button.textContent = this._frozen ? frozenText.button : BLOCKED_OVERLAY.button;
+        if (this._legacyPeer && !this._frozen) {
+            this._title.textContent = 'Há uma janela da versão antiga';
+            this._message.textContent = 'Salve o trabalho e feche a janela antiga. Depois recarregue esta página para continuar.';
+            this._button.textContent = 'Recarregar';
+        }
         this._button.disabled = false;
         this._overlay.classList.add('tab-lock-overlay--visible');
     }
@@ -2077,7 +2098,7 @@ class TabLock {
         addDomListener(this, button, 'click', () => {
             // The handler branches instead of being replaced: the listener is registered once,
             // through the cleanup registry, and swapping it would leak the previous one.
-            if (this._frozen) {
+            if (this._frozen || this._legacyPeer) {
                 button.disabled = true;
                 globalThis.location?.reload?.();
                 return;

@@ -206,10 +206,8 @@ describe('B4-4: QuotaExceededError no carimbo do degrau 3.0', () => {
         estourarCotaNoCarimbo();
 
         const pagina = await carregarPagina();
-        const entrada = await bootarOMapa(pagina);
-
-        const mapasNoDisco = await raw('ebgeo_maps').keys();
-        expect(mapasNoDisco).toContain(entrada);
+        await expect(bootarOMapa(pagina)).rejects.toMatchObject({ name: 'MigrationRecoveryError' });
+        expect(await raw('ebgeo_maps').keys()).toHaveLength(MAPAS);
     });
 
     it('CONTROLE do tamanho do estrago: o disco converge no boot seguinte', async () => {
@@ -217,7 +215,7 @@ describe('B4-4: QuotaExceededError no carimbo do degrau 3.0', () => {
         // perda de dado, e não é: os 14 mapas ficam e o segundo boot carimba 3.0.
         await semearInstalacaoDaOutraLinha();
         estourarCotaNoCarimbo();
-        await bootarOMapa(await carregarPagina());
+        await expect(bootarOMapa(await carregarPagina())).rejects.toMatchObject({ name: 'MigrationRecoveryError' });
 
         raw('ebgeo_app_settings').setItem.mockImplementation(async (chave, valor) => {
             raw('ebgeo_app_settings').__backing.set(chave, valor);

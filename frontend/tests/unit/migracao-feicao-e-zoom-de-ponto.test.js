@@ -84,7 +84,7 @@ vi.mock('../../src/js/utilities/uuid.js', () => ({
         uuidCounter.value += 1;
         return `uuid-${uuidCounter.value}`;
     }),
-    isValidUUID: vi.fn(() => true),
+    isValidUUID: vi.fn(value => /^uuid-\d+$/.test(value)),
     isLegacyId: vi.fn(() => false),
     isValidId: vi.fn(() => true),
 }));

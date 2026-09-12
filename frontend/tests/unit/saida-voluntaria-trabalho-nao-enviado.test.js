@@ -1,37 +1,9 @@
 // Path: tests/unit/saida-voluntaria-trabalho-nao-enviado.test.js
 
 /**
- * @fileoverview A saída da conta com trabalho que o servidor nunca recebeu.
- *
- * O DEFEITO QUE ESTE ARQUIVO PRENDE, medido antes de existir: clicar "Sair" chamava
- * `_handleLogout()` sem argumento; lá dentro a contagem da fila era literalmente
- * `involuntary ? await countPendingOperations() : 0`, e `shouldPreserveLocalWork` devolvia falso
- * de saída para todo caminho voluntário. O ramo que rodava anunciava a desmontagem, esvaziava o
- * atlas montado e destruía os namespaces remotos, e a destruição de namespace alcança a fila de
- * saída por desenho. A fila ia embora em silêncio.
- *
- * A PERGUNTA SAIU, E ISSO É DECISÃO DO DONO (2026-08-23). A primeira correção abria um diálogo de
- * três saídas; o dono a recusou com o argumento que decide o desenho: o sincronismo ocorre sempre,
- * logo a fila só tem conteúdo quando algo NÃO CONSEGUIU subir, nunca porque alguém escolheu não
- * subir. Não há vontade a respeitar, e oferecer a escolha apresentaria como decisão um estado que
- * ninguém decidiu. Os casos que exercitavam o diálogo saíram junto com ele: teste que sobrevive ao
- * último consumidor de produção não é cobertura, é camuflagem, e é ele que mantém o detector de
- * código morto convencido de que o símbolo está vivo.
- *
- * O QUE ESTE VERDE PROVARIA SE O CÓDIGO ESTIVESSE ERRADO. Cada caso tem controle negativo no
- * mesmo bloco, porque as duas metades da regra falham para lados opostos e uma sozinha não
- * distingue nada:
- *
- *   - "fila vazia não resgata" fica verde num guarda que NUNCA resgata, então todo caso que exige
- *     silêncio anda ao lado de um que exige o resgate;
- *   - "o trabalho foi preservado" tem dois caminhos até o mesmo `preserved: false` (a fila vazia e
- *     o resgate que falhou), que são fatos opostos, então os casos exigem também o `outcome`, que
- *     é o que viaja na URL;
- *   - "o resgate falhou" fica verde num código que nunca marca LOCAL, então o caso da falha exige
- *     que `markStoreLocal` NÃO tenha sido chamado E que o mesmo cenário sem a quebra chame.
- *
- * O ambiente é node: os módulos sob teste são folha (as frases não têm import nenhum) ou têm
- * dependências de store dubladas aqui, arquivo a arquivo.
+ * Exit policy: the voluntary gesture confirms discard (2026-09-12), while involuntary session
+ * loss still rescues work. Behavioral confirmation tests live in confirm-logout.test.js;
+ * this file covers rescue outcomes, queue counting, notices and the account button wiring.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -420,24 +392,11 @@ describe('o clique em "Sair" passa pelo guarda', () => {
         expect(inicio).toBeGreaterThan(0);
         const corpo = fonte.slice(inicio, fonte.indexOf('\n    /**', inicio));
 
-        // O GESTO RESGATA E INFORMA, E NÃO PERGUNTA. A primeira versão desta correção abria um
-        // diálogo de três saídas, e o dono do produto a recusou com o argumento que decide o
-        // desenho: o sincronismo ocorre sempre, logo a fila só tem conteúdo quando algo NÃO
-        // CONSEGUIU subir, nunca porque alguém escolheu não subir. Não há vontade a respeitar, e
-        // oferecer a escolha apresentaria como decisão um estado que ninguém decidiu.
-        expect(corpo).toContain('countPendingOperations');
-        expect(corpo).toContain('shouldPreserveLocalWork');
-        expect(corpo).toContain('preserveUnsyncedWorkAsLocal');
+        // 2026-09-12: explicit exit discards only after confirmation; cancellation must return.
+        expect(corpo).toContain('if (!await confirmLogoutWithPendingWork()) return;');
+        expect(corpo.indexOf('confirmLogoutWithPendingWork')).toBeLessThan(corpo.indexOf('await this._handleLogout()'));
+        expect(corpo).not.toContain('preserveUnsyncedWorkAsLocal');
 
-        // CONTROLE NEGATIVO da decisão: o diálogo não pode voltar por descuido. Se ele voltar de
-        // propósito, esta linha é o lugar de registrar a inversão, e não de apagá-la em silêncio.
-        expect(corpo).not.toContain('askAboutUnsyncedWork');
-        expect(corpo).not.toContain('EXIT_CHOICE');
-
-        // E o resultado do resgate CHEGA ao usuário nos dois ramos, que é o que sobra da correção
-        // quando a pergunta sai: guardar calado seria a mesma perda de informação do defeito.
-        expect(corpo).toContain('exitPreservedSummary');
-        expect(corpo).toContain('exitPreserveFailedNotice');
     });
 
     // A PODA, ASSERIDA ESTRUTURALMENTE. O `npm run knip` NÃO acha símbolo morto cujo teste órfão

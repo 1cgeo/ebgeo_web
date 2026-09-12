@@ -316,7 +316,10 @@ describeOrSkip('Duas abas, um usuário: fila de saída e aviso de desmontagem', 
         await waitMapLoaded(tabA);
 
         const opIds = await enqueueOperations(tabA, 3);
-        const filaLocal = queueDbOf('');
+        // Migration may have isolated this local atlas in an upgrade namespace.
+        const localSuffix = await tabA.evaluate(async () =>
+            (await import('/src/js/store/atlas-namespace.js')).getActiveScope().dbSuffix);
+        const filaLocal = queueDbOf(localSuffix);
 
         // --- POSITIVE control, BEFORE anything is contested: the three operations really are on
         //     disk, in the queue database of the slot this tab has mounted. Asserting only

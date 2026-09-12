@@ -353,7 +353,8 @@ export async function listRemoteAtlases() {
             dbSuffix,
             createdAt: Number.isFinite(stored?.createdAt) ? stored.createdAt : 0,
             updatedAt: Number.isFinite(stored?.updatedAt) ? stored.updatedAt : 0,
-            sparedAt: Number.isFinite(stored?.sparedAt) ? stored.sparedAt : 0
+            sparedAt: Number.isFinite(stored?.sparedAt) ? stored.sparedAt : 0,
+            ...(stored?.discardRequested === true ? { discardRequested: true } : {})
         });
     }
 
@@ -378,6 +379,11 @@ export async function registerRemoteAtlas(atlasId) {
     const key = remoteAtlasRegistryKey(atlasId);
 
     const existing = await globalStore.getItem(key);
+    // A confirmed logout may have been interrupted before the purge finished. Never mount its
+    // abandoned queue again. A local atlas that adopted this suffix remains outside this policy.
+    if (existing?.discardRequested && !(await locallyClaimedSuffixes()).has(scope.dbSuffix)) {
+        await clearAtlasDatabases(scope);
+    }
     const now = Date.now();
     const entry = {
         atlasId,
@@ -425,6 +431,18 @@ export async function activateRemoteAtlas(atlasId) {
 async function locallyClaimedSuffixes() {
     const atlases = await readLocalAtlasRegistry();
     return new Set(atlases.map(entry => entry?.dbSuffix).filter(s => typeof s === 'string'));
+}
+
+/** Persist the user's explicit discard decision; ordinary and rescued local atlases are excluded. */
+export async function requestRemoteAtlasDiscard() {
+    const claimed = await locallyClaimedSuffixes();
+    const entries = (await listRemoteAtlases()).filter(entry => !claimed.has(entry.dbSuffix));
+    for (const entry of entries) {
+        const key = remoteAtlasRegistryKey(entry.atlasId);
+        const stored = await getGlobalStore().getItem(key);
+        await getGlobalStore().setItem(key, { ...stored, ...entry, discardRequested: true });
+    }
+    return entries;
 }
 
 /**
@@ -684,6 +702,18 @@ async function purgeOneRemoteAtlas(
         // is local by decision, so only the stale remote claim goes.
         await getGlobalStore().removeItem(remoteAtlasRegistryKey(entry.atlasId));
         report.adopted.push(entry.atlasId);
+        return;
+    }
+
+    if (entry.discardRequested) {
+        // The user accepted losing these queues. The logout announcement has frozen live peers;
+        // a leftover mount or an old rescue veto must not preserve work for a future replay.
+        releaseRemoteAtlasRescueVeto(entry.atlasId);
+        const result = await destroyRemoteAtlas(entry, dropTimeoutMs);
+        (result.hadData ? report.atlases : report.empty).push(entry.atlasId);
+        report.cleared.push(...result.cleared);
+        report.dropped.push(...result.dropped);
+        report.blocked.push(...result.blocked);
         return;
     }
 

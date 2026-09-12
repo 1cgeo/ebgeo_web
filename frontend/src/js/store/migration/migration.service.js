@@ -90,6 +90,7 @@ import { migrateToV2 } from './v1-to-v2.migration.js';
 import { migrateToV2_1 } from './v2-to-v2.1.migration.js';
 import { migrateToV2_2 } from './v2.1-to-v2.2.migration.js';
 import { migrateToV3_0 } from './v2.x-to-v3.0.migration.js';
+import { legacySourceIsProtected, MigrationRecoveryError } from './transition-state.js';
 
 /** Key of the schema marker inside a scope's settings database. */
 const SCHEMA_VERSION_KEY = 'schemaVersion';
@@ -169,6 +170,9 @@ function effectiveVersion(settingsVersion, atlas) {
  * @returns {Promise<{needed: boolean, currentVersion: string|null, targetVersion: string}>}
  */
 export async function detectMigrationNeeded(scope = legacyScope()) {
+    if (isLegacyScope(scope) && await legacySourceIsProtected()) {
+        return { needed: false, currentVersion: null, targetVersion: ATLAS_SCHEMA_VERSION };
+    }
     const settingsVersion = await getStoreFor(StoreName.SETTINGS, scope).getItem(SCHEMA_VERSION_KEY);
     const atlas = await getStoreFor(StoreName.ATLAS, scope).getItem(ATLAS_RECORD_KEY);
     const currentVersion = effectiveVersion(settingsVersion, atlas);
@@ -235,9 +239,8 @@ export async function safelyMigrate(scope = legacyScope()) {
         return { success: true };
     } catch (error) {
         console.error('Migration failed:', error);
-        throw new Error(
-            `Falha na migração para ${ATLAS_SCHEMA_VERSION}: ${error.message}. Por favor, exporte seus dados e limpe o armazenamento local.`
-        );
+        throw new MigrationRecoveryError('migration_failed',
+            `Falha na migração para ${ATLAS_SCHEMA_VERSION}: ${error.message}. Seus dados foram preservados para recuperação.`, { cause: error });
     }
 }
 

@@ -1,0 +1,80 @@
+{
+  "origin": "http://localhost:4361",
+  "mainRoot": "C:\\Users\\diniz\\OneDrive\\Desktop\\Desenvolvimento\\ebgeo_web\\.claude\\worktrees\\migration-main-8b611113",
+  "output": "C:\\Users\\diniz\\OneDrive\\Desktop\\Desenvolvimento\\ebgeo_web\\frontend\\test-results\\main-profile-1789210549548",
+  "stages": [
+    {
+      "serve": "C:\\Users\\diniz\\OneDrive\\Desktop\\Desenvolvimento\\ebgeo_web\\.claude\\worktrees\\migration-main-8b611113\\dist",
+      "at": "2026-09-12T10:55:51.380Z"
+    },
+    {
+      "mainImport": {
+        "maps": 14,
+        "features": 805,
+        "images": 149
+      }
+    },
+    {
+      "mainEdit": {
+        "maps": 14,
+        "features": 806,
+        "images": 149
+      }
+    },
+    {
+      "mainThreeSessions": {
+        "maps": 14,
+        "features": 806,
+        "images": 149
+      },
+      "queuedOperations": 32
+    },
+    {
+      "serve": "C:\\Users\\diniz\\OneDrive\\Desktop\\Desenvolvimento\\ebgeo_web\\frontend\\dist",
+      "at": "2026-09-12T10:56:34.121Z"
+    },
+    {
+      "integrationBoot": 1,
+      "maps": 14,
+      "features": 806,
+      "images": 149,
+      "sourceDifferences": 0,
+      "targetDifferences": 0
+    },
+    {
+      "integrationBoot": 2,
+      "maps": 14,
+      "features": 806,
+      "images": 149,
+      "sourceDifferences": 0,
+      "targetDifferences": 0
+    },
+    {
+      "integrationBoot": 3,
+      "maps": 14,
+      "features": 806,
+      "images": 149,
+      "sourceDifferences": 0,
+      "targetDifferences": 0
+    },
+    {
+      "integrationNewEditReopened": {
+        "maps": 14,
+        "features": 807,
+        "images": 149
+      },
+      "originalFeaturesAndImagesIntact": true
+    }
+  ],
+  "errors": [],
+  "commits": {
+    "main": "8b611113aa73c3faedc967ccf77132604255ea8d",
+    "integration": "d2f956e827f3728206ca871b66431e1e29249c2d",
+    "integrationIncludesLocalCorrections": true
+  },
+  "builds": {
+    "main": "602b3d0d8f18dc63e6f9a38467ffeac4d30f0806afa0adbbe7fa64f0002dc84d",
+    "integration": "ad352281b4dff26a6d85e3357e89f93e72a96e377c3b17efaeeb8086390f0eab"
+  },
+  "success": true
+}

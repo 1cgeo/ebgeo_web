@@ -67,7 +67,7 @@
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, isAbsolute } from 'node:path';
 import JSZip from 'jszip';
 import { seedDatabase } from './idb-helpers.js';
 
@@ -130,7 +130,7 @@ function asImageBlob(bytes) {
  *   `data.json` and every blob under `images/`, keyed by the image id (the file stem).
  */
 export async function loadEbgeoFixture(fileName) {
-    const raw = new Uint8Array(readFileSync(join(FIXTURE_DIR, fileName)));
+    const raw = new Uint8Array(readFileSync(isAbsolute(fileName) ? fileName : join(FIXTURE_DIR, fileName)));
 
     const header = new TextDecoder().decode(raw.slice(0, MASK_HEADER.length));
     const masked = header === MASK_HEADER ? raw.slice(MASK_HEADER.length) : raw;

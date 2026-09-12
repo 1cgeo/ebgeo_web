@@ -146,6 +146,16 @@ export function showUnavailableScreen(cause = BlockingCause.SERVER_UNREACHABLE) 
     btn.addEventListener('click', () => window.location.reload());
     card.appendChild(btn);
 
+    const recovery = document.createElement('button');
+    recovery.type = 'button';
+    recovery.className = 'ebgeo-unavailable__btn';
+    recovery.textContent = 'Recuperar dados deste computador';
+    recovery.addEventListener('click', async () => {
+        const { showMigrationRecovery } = await import('./migration-recovery.js');
+        showMigrationRecovery({ code: 'api_unavailable' });
+    });
+    card.appendChild(recovery);
+
     screen.appendChild(card);
     document.body.appendChild(screen);
 }

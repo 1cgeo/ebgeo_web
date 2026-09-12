@@ -38,6 +38,8 @@
 // importam o ponto unico eles mesmos, entao a pagina ja nao depende desta ordem. Ver
 // `map/maplibre.js`, que e o unico lugar do repositorio que importa a biblioteca.
 import '@js/map/maplibre.js';
+import { confirmLogoutWithPendingWork } from '@js/session/confirm-logout.js';
+import { purgeAllRemoteAtlases } from '@store/remote-atlas.api.js';
 
 import config from '@js/config.js';
 import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-config.js';
@@ -173,23 +175,13 @@ function clearSplash() {
  * @returns {Promise<void>}
  */
 async function endSession(reason, { voluntary = false } = {}) {
-    // A CALIBRACAO ABERTA E O PRIMEIRO A SER PERGUNTADO, antes do logout, porque depois do logout
-    // nao ha mais como gravar. `guardCalibrationExit` pergunta quando ha alguem no teclado
-    // ("Sair agora") e apenas RELATA quando nao ha (expiracao, sessao encerrada pelo servidor):
-    // o alinhamento vive so em `calibration/state.js`, entao nao e alcancado pelo resgate de fila
-    // abaixo, e o `beforeunload` nao intercepta `window.location.replace`.
     const calib = await guardCalibrationExit({ voluntary });
     if (!calib.proceed) return;
 
-    // A QUARTA PAGINA, e ela ficou para tras. As outras tres passaram a resgatar o trabalho nao
-    // enviado antes de encerrar a sessao em 2026-08-23; esta nao, porque e gateada por `isAdmin()`
-    // ou `isProducer()` e por isso ficou fora do relatorio do usuario comum. O buraco e o mesmo e
-    // nao depende do papel: sem o resgate, a fila pendente e destruida pela varredura de deslogado
-    // do boot seguinte, que apaga o namespace com ela dentro.
-    //
-    // O modulo ja era importavel daqui: `unsynced-work-exit.js` importa por ARQUIVO, nunca por
-    // barrel, que e o que o mantem carregavel numa pagina sem `initServices()`.
-    const guarda = await preserveUnsyncedWorkOnLostSession();
+    if (voluntary && !await confirmLogoutWithPendingWork()) return;
+    const guarda = voluntary
+        ? { outcome: ExitOutcome.NADA }
+        : await preserveUnsyncedWorkOnLostSession();
 
     try {
         await apiClient.logout();
@@ -197,6 +189,7 @@ async function endSession(reason, { voluntary = false } = {}) {
         // logout() ja engole erro de rede e limpa localmente; nao sobra o que fazer.
     }
     sessionContext.clearSession();
+    if (voluntary) await purgeAllRemoteAtlases();
 
     // O CODIGO, E NAO A FRASE, como nas outras duas: `replace` mata qualquer toast levantado logo
     // antes, entao o desfecho viaja como valor e o mapa remonta a sentenca.
