@@ -87,7 +87,7 @@ describe('WebSocket collab — Comentarista (comment tier) authorization', () =>
 
     client.send({
       type: 'operation',
-      op: {
+      op: { protocolVersion: 2,
         id: opId,
         type: 'create',
         target: 'feature',
@@ -132,7 +132,7 @@ describe('WebSocket collab — Comentarista (comment tier) authorization', () =>
     const opId = randomUUID();
     client.send({
       type: 'operation',
-      op: {
+      op: { protocolVersion: 2,
         id: opId,
         entityType: 'comment',
         operationType: 'create',

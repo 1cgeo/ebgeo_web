@@ -4,6 +4,7 @@
 import { broadcastToRoom, broadcastOperations, enfileirarCursor } from './collab.rooms.js';
 import * as syncService from '../sync/sync.service.js';
 import { pushSchema } from '../sync/sync.schemas.js';
+import { assertSyncProtocol } from '../sync/sync-protocol.js';
 import { VALIDATION_OPTIONS } from '../../middleware/validate.js';
 import { PERMISSION_LEVELS } from '../../middleware/permissions.js';
 import {
@@ -46,6 +47,13 @@ import { safeErrorMessage } from '../../utils/safe-error-message.js';
  * @returns {Array<Object>|null}
  */
 function validateOps(ws, ops) {
+  try {
+    assertSyncProtocol(ops);
+  } catch (error) {
+    ws.send(JSON.stringify({ type: 'error', code: error.code, message: error.message,
+      opIds: ops.map(op => op?.id).filter(Boolean), retryable: false }));
+    return null;
+  }
   const { error, value } = pushSchema.validate({ operations: ops }, VALIDATION_OPTIONS);
   if (error) {
     ws.send(JSON.stringify({

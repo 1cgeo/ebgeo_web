@@ -50,12 +50,12 @@ describe('3D/360 sync — write authorization (viewer & commenter blocked)', () 
     await teardownTestEnv(db);
   });
 
-  const cesium3dOp = (id) => ({
+  const cesium3dOp = (id) => ({ protocolVersion: 2,
     id: randomUUID(), type: 'create', target: 'cesium3d', targetId: id, mapId: map.id,
     data: { data_type: 'marker', tileset_id: 'PCL', data: { position: { longitude: -43.2, latitude: -22.9, height: 150 }, properties: { name: 'x' } } },
     timestamp: Date.now(), clientId: 'az-client',
   });
-  const streetview360Op = (id) => ({
+  const streetview360Op = (id) => ({ protocolVersion: 2,
     id: randomUUID(), type: 'create', target: 'streetview360', targetId: id, mapId: map.id,
     data: { data_type: 'orientation', photo_name: 'p.jpg', data: { heading: 45, pitch: 0, zoom: 1 } },
     timestamp: Date.now(), clientId: 'az-client',

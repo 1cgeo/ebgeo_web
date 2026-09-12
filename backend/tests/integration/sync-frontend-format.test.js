@@ -1,3 +1,4 @@
+import { featureMutation } from '../helpers/feature-operation.js';
 // Path: tests/integration/sync-frontend-format.test.js
 // Tests that all entity types work with the frontend format (entityType/operationType/entityId)
 // AND with frontend aliases (marker3d, measurement3d, orientation360, etc.)
@@ -75,7 +76,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
   describe('Feature CRUD with frontend format', () => {
     it('creates feature using entityType/operationType/entityId', async () => {
       const id = randomUUID();
-      const res = await pushSync([{
+      const res = await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'feature',
         operationType: 'create',
@@ -97,7 +98,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
 
     it('updates feature using frontend format', async () => {
       const id = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'feature',
         operationType: 'create',
@@ -108,7 +109,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
         clientId: 'frontend-client',
       }]).expect(200);
 
-      await pushSync([{
+      await pushSync([featureMutation((await db.query('SELECT * FROM features WHERE id=$1', [id])).rows[0], { protocolVersion: 2,
         id: randomUUID(),
         entityType: 'feature',
         operationType: 'update',
@@ -117,7 +118,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
         changes: { properties: { name: 'After' } },
         timestamp: Date.now() + 1,
         clientId: 'frontend-client',
-      }]).expect(200);
+      })]).expect(200);
 
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [id]);
       assert.equal(rows[0].properties.name, 'After');
@@ -125,7 +126,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
 
     it('deletes feature using frontend format', async () => {
       const id = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'feature',
         operationType: 'create',
@@ -136,7 +137,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
         clientId: 'frontend-client',
       }]).expect(200);
 
-      await pushSync([{
+      await pushSync([featureMutation((await db.query('SELECT * FROM features WHERE id=$1', [id])).rows[0], { protocolVersion: 2,
         id: randomUUID(),
         entityType: 'feature',
         operationType: 'delete',
@@ -144,7 +145,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
         mapId: map.id,
         timestamp: Date.now() + 1,
         clientId: 'frontend-client',
-      }]).expect(200);
+      })]).expect(200);
 
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [id]);
       assert.ok(rows[0].deleted_at);
@@ -154,7 +155,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
   describe('Map CRUD with frontend format', () => {
     it('creates map using frontend format', async () => {
       const id = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'map',
         operationType: 'create',
@@ -172,7 +173,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
   describe('Slide CRUD with frontend format', () => {
     it('creates slide using frontend format', async () => {
       const id = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'slide',
         operationType: 'create',
@@ -190,7 +191,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
   describe('3D Aliases — marker3d, measurement3d, viewshed3d, cameraPosition3d', () => {
     it('creates marker3d (mapped to cesium3d with data_type=marker)', async () => {
       const id = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'marker3d',
         operationType: 'create',
@@ -211,7 +212,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
 
     it('creates measurement3d (mapped to cesium3d with data_type=measurement)', async () => {
       const id = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'measurement3d',
         operationType: 'create',
@@ -231,7 +232,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
 
     it('creates viewshed3d (mapped to cesium3d with data_type=viewshed)', async () => {
       const id = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'viewshed3d',
         operationType: 'create',
@@ -251,7 +252,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
 
     it('creates cameraPosition3d (mapped to cesium3d with data_type=camera_position)', async () => {
       const id = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'cameraPosition3d',
         operationType: 'create',
@@ -271,7 +272,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
 
     it('updates marker3d using frontend alias', async () => {
       const id = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'marker3d',
         operationType: 'create',
@@ -282,7 +283,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
         clientId: 'frontend-client',
       }]).expect(200);
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'marker3d',
         operationType: 'update',
@@ -299,7 +300,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
 
     it('deletes viewshed3d using frontend alias', async () => {
       const id = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'viewshed3d',
         operationType: 'create',
@@ -310,7 +311,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
         clientId: 'frontend-client',
       }]).expect(200);
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'viewshed3d',
         operationType: 'delete',
@@ -328,7 +329,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
   describe('360 Aliases — orientation360, marker360', () => {
     it('creates orientation360 (mapped to streetview360 with data_type=orientation)', async () => {
       const id = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'orientation360',
         operationType: 'create',
@@ -349,7 +350,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
 
     it('creates marker360 (mapped to streetview360 with data_type=marker)', async () => {
       const id = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'marker360',
         operationType: 'create',
@@ -369,7 +370,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
 
     it('updates orientation360 using frontend alias', async () => {
       const id = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'orientation360',
         operationType: 'create',
@@ -380,7 +381,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
         clientId: 'frontend-client',
       }]).expect(200);
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'orientation360',
         operationType: 'update',
@@ -397,7 +398,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
 
     it('deletes marker360 using frontend alias', async () => {
       const id = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'marker360',
         operationType: 'create',
@@ -408,7 +409,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
         clientId: 'frontend-client',
       }]).expect(200);
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'marker360',
         operationType: 'delete',
@@ -425,7 +426,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
 
   describe('Map sub-entity aliases (mapPosition, baseLayer, mapNotes, gridStyle, catalogLayer)', () => {
     it('updates mapPosition via frontend alias', async () => {
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'mapPosition',
         operationType: 'update',
@@ -442,7 +443,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
     });
 
     it('updates baseLayer via frontend alias', async () => {
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'baseLayer',
         operationType: 'update',
@@ -458,7 +459,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
     });
 
     it('updates mapNotes via frontend alias', async () => {
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'mapNotes',
         operationType: 'update',
@@ -474,7 +475,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
     });
 
     it('updates gridStyle via frontend alias', async () => {
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'gridStyle',
         operationType: 'update',
@@ -491,7 +492,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
 
     it('updates catalogLayer via frontend alias', async () => {
       const catalogData = [{ id: 'wms-layer', url: 'http://geo.example.com/wms', visible: true }];
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'catalogLayer',
         operationType: 'update',
@@ -519,7 +520,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
       const now = Date.now();
 
       await pushSync([
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           entityType: 'group',
           operationType: 'create',
@@ -529,7 +530,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
           timestamp: now,
           clientId: 'frontend-client',
         },
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           entityType: 'feature',
           operationType: 'create',
@@ -539,7 +540,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
           timestamp: now + 1,
           clientId: 'frontend-client',
         },
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           entityType: 'group_feature',
           operationType: 'create',
@@ -564,7 +565,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
       const now = Date.now();
 
       await pushSync([
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           entityType: 'group',
           operationType: 'create',
@@ -574,7 +575,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
           timestamp: now,
           clientId: 'frontend-client',
         },
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           entityType: 'feature',
           operationType: 'create',
@@ -584,7 +585,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
           timestamp: now + 1,
           clientId: 'frontend-client',
         },
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           entityType: 'group_feature',
           operationType: 'create',
@@ -597,7 +598,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
       ]).expect(200);
 
       // Delete the association (hard delete for group_feature)
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'group_feature',
         operationType: 'delete',
@@ -620,7 +621,7 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
     it('pull returns operations with entityType/operationType/entityId fields', async () => {
       // Push an operation
       const featureId = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'feature',
         operationType: 'create',

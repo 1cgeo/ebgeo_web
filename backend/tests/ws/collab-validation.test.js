@@ -62,7 +62,7 @@ describe('WebSocket — operation validation', () => {
 
     client.send({
       type: 'operation',
-      op: {
+      op: { protocolVersion: 2,
         id: randomUUID(),
         type: 'create',
         target: 'feature',

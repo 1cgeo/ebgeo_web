@@ -72,7 +72,7 @@ describe('Push de feição com source fora do CHECK (batch de UMA op)', () => {
    * the `feature_type` column from it (`deriveFeatureColumns`, sync.service.js).
    * `properties` is spread last so a case can omit `source` entirely.
    */
-  const opFeicao = (entityId, properties) => ({
+  const opFeicao = (entityId, properties) => ({ protocolVersion: 2,
     id: randomUUID(),
     type: 'create',
     target: 'feature',

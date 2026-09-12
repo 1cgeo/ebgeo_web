@@ -66,7 +66,7 @@ describe('Sync Snapshot/Hybrid System', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -345,7 +345,7 @@ describe('Sync Snapshot/Hybrid System', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -408,7 +408,7 @@ describe('Sync Snapshot/Hybrid System', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',

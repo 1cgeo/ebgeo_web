@@ -79,7 +79,7 @@ describe('Snapshot keying for 3D camera positions / 360 orientations (no silent 
 
   it('a camera_position WITH a tileset_id is keyed by tilesetId (unchanged)', async () => {
     const id = randomUUID();
-    await push({
+    await push({ protocolVersion: 2,
       id: randomUUID(), type: 'create', target: 'cesium3d', targetId: id, mapId: map.id,
       data: { data_type: 'camera_position', tileset_id: 'PCL', data: { position: { longitude: -43.2, latitude: -22.9, height: 5000 }, orientation: { heading: 45, pitch: -30, roll: 0 } } },
       timestamp: Date.now(), clientId: 'repro-client',
@@ -92,7 +92,7 @@ describe('Snapshot keying for 3D camera positions / 360 orientations (no silent 
 
   it('a camera_position with NULL tileset_id still appears in the snapshot (keyed by id)', async () => {
     const id = randomUUID();
-    await push({
+    await push({ protocolVersion: 2,
       id: randomUUID(), type: 'create', target: 'cesium3d', targetId: id, mapId: map.id,
       data: { data_type: 'camera_position', tileset_id: null, data: { position: { longitude: -43.1, latitude: -22.8, height: 1000 }, orientation: { heading: 0, pitch: 0, roll: 0 } } },
       timestamp: Date.now(), clientId: 'repro-client',
@@ -109,7 +109,7 @@ describe('Snapshot keying for 3D camera positions / 360 orientations (no silent 
 
   it('an orientation with NULL photo_name is rejected at write — never materialized, never in the snapshot', async () => {
     const id = randomUUID();
-    await push({
+    await push({ protocolVersion: 2,
       id: randomUUID(), type: 'create', target: 'streetview360', targetId: id, mapId: map.id,
       data: { data_type: 'orientation', photo_name: null, data: { heading: 45, pitch: 0, zoom: 1 } },
       timestamp: Date.now(), clientId: 'repro-client',

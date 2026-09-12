@@ -89,7 +89,7 @@ describe('WS: a recusa por operação também é registrada, e nomeia a porta', 
 
   const featureOp = (mapId) => {
     const id = randomUUID();
-    return {
+    return { protocolVersion: 2,
       id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: id, mapId,
       data: {
         type: 'Feature', geometry: { type: 'Point', coordinates: [-47.9, -15.8] },

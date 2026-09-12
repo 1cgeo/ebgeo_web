@@ -30,7 +30,7 @@ import { generateUUID } from '../../src/js/utilities/uuid.js';
  * @returns {Object}
  */
 function groupFeatureOp(groupId, featureId) {
-    return {
+    return { protocolVersion: 2,
         id: generateUUID(),
         entityType: 'group_feature',
         operationType: 'create',

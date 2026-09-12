@@ -158,7 +158,7 @@ describe('WebSocket Collaboration — Advanced', () => {
       const targetId = randomUUID();
       client1.send({
         type: 'operation',
-        op: {
+        op: { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',
@@ -199,7 +199,7 @@ describe('WebSocket Collaboration — Advanced', () => {
 
       const ops = [];
       for (let i = 0; i < 4; i++) {
-        ops.push({
+        ops.push({ protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',
@@ -245,7 +245,7 @@ describe('WebSocket Collaboration — Advanced', () => {
       client2.clearMessages();
 
       const ops = [
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',
@@ -255,7 +255,7 @@ describe('WebSocket Collaboration — Advanced', () => {
           timestamp: Date.now(),
           clientId: 'batch-sender',
         },
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',
@@ -287,7 +287,7 @@ describe('WebSocket Collaboration — Advanced', () => {
 
       client.send({
         type: 'operation',
-        op: {
+        op: { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',
@@ -318,7 +318,7 @@ describe('WebSocket Collaboration — Advanced', () => {
 
       client.send({
         type: 'operations',
-        ops: [{
+        ops: [{ protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',
@@ -347,7 +347,7 @@ describe('WebSocket Collaboration — Advanced', () => {
       const featureId = randomUUID();
       ownerClient.send({
         type: 'operation',
-        op: {
+        op: { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',
@@ -398,7 +398,7 @@ describe('WebSocket Collaboration — Advanced', () => {
 
       client1.send({
         type: 'operation',
-        op: {
+        op: { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',
@@ -421,7 +421,7 @@ describe('WebSocket Collaboration — Advanced', () => {
       // Second writer sends an update to the same entity
       client2.send({
         type: 'operation',
-        op: {
+        op: { protocolVersion: 2,
           id: randomUUID(),
           type: 'update',
           target: 'feature',
@@ -430,6 +430,8 @@ describe('WebSocket Collaboration — Advanced', () => {
           changes: {
             properties: { name: 'Writer 2 version' },
           },
+          baseVersion: ack1.result.entityVersion,
+          patch: [{ op: 'set', path: ['properties', 'name'], value: 'Writer 2 version' }],
           timestamp: now + 1, // Later timestamp wins in LWW
           clientId: 'writer2',
         },
@@ -462,7 +464,7 @@ describe('WebSocket Collaboration — Advanced', () => {
       // Use frontend format: entityType, operationType, entityId
       client.send({
         type: 'operation',
-        op: {
+        op: { protocolVersion: 2,
           id: randomUUID(),
           entityType: 'feature',
           operationType: 'create',

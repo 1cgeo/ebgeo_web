@@ -82,7 +82,7 @@ describe('token de visitante — superfície de manage e atlas privado alheio', 
     const comentarioId = randomUUID();
     await comToken('post', `/api/v1/atlas/${publico.id}/sync`)
       .send({
-        operations: [{
+        operations: [{ protocolVersion: 2,
           id: randomUUID(), entityType: 'comment', operationType: 'create', entityId: comentarioId,
           mapId: publicoMap.id,
           data: { id: comentarioId, mapId: publicoMap.id, lng: -43.2, lat: -22.9, text: 'x', status: 'open' },

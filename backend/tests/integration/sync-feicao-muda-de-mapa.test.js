@@ -49,7 +49,7 @@ import { createUser, createAtlas, createMap, createLayer, loginUser } from '../h
  * @returns {Object} A sync operation envelope.
  */
 function featureCreateOp(featureId, mapId, layerId, coords, nome) {
-  return {
+  return { protocolVersion: 2,
     id: randomUUID(),
     type: 'create',
     target: 'feature',
@@ -72,7 +72,7 @@ function featureCreateOp(featureId, mapId, layerId, coords, nome) {
  * @returns {Object} A sync delete operation envelope.
  */
 function deleteOp(target, targetId, mapId) {
-  return {
+  return { protocolVersion: 2,
     id: randomUUID(),
     type: 'delete',
     target,
@@ -146,7 +146,7 @@ describe('Sync: create de feicao carimbado com outro mapa MOVE a linha', () => {
     assert.equal(antes.layer_id, camadaOrigem.id);
 
     const mudanca = await pushSync([
-      featureCreateOp(featureId, destino.id, camadaDestino.id, [-43.2, -22.9], 'Alvo A'),
+      { ...featureCreateOp(featureId, destino.id, camadaDestino.id, [-43.2, -22.9], 'Alvo A'), featureIntent: 'move', sourceMapId: origem.id, baseVersion: Number((await lerFeicao(featureId)).version) },
     ]).expect(200);
     assert.equal(mudanca.body.data.results[0].success, true);
 
@@ -201,8 +201,8 @@ describe('Sync: create de feicao carimbado com outro mapa MOVE a linha', () => {
 
     const tentativa = await pushSync([
       featureCreateOp(featureId, mapaVizinho.id, null, [-43.2, -22.9], 'Alvo C'),
-    ]).expect(200);
-    assert.equal(tentativa.body.data.results[0].success, false, 'destino de outro atlas e recusado');
+    ]).expect(403);
+    assert.equal(tentativa.body.error.code, 'FORBIDDEN');
 
     const depois = await lerFeicao(featureId);
     assert.equal(depois.map_id, origem.id, 'a feicao ficou onde estava');
@@ -225,7 +225,7 @@ describe('Sync: create de feicao carimbado com outro mapa MOVE a linha', () => {
 
     // O move: mesmo id, mapa de destino, camada nova.
     await pushSync([
-      featureCreateOp(movidaId, destino.id, camadaDestino.id, [-43.2, -22.9], 'Vai embora'),
+      { ...featureCreateOp(movidaId, destino.id, camadaDestino.id, [-43.2, -22.9], 'Vai embora'), featureIntent: 'move', sourceMapId: origem.id, baseVersion: Number((await lerFeicao(movidaId)).version) },
     ]).expect(200);
 
     // O passo 3 da transferencia: apagar a camada de ORIGEM. A cascata do servidor mira
@@ -253,18 +253,18 @@ describe('Sync: create de feicao carimbado com outro mapa MOVE a linha', () => {
       featureCreateOp(featureId, origem.id, camadaOrigem.id, [-43.2, -22.9], 'Alvo E'),
     ]).expect(200);
     await pushSync([
-      featureCreateOp(featureId, destino.id, camadaDestino.id, [-43.2, -22.9], 'Alvo E'),
+      { ...featureCreateOp(featureId, destino.id, camadaDestino.id, [-43.2, -22.9], 'Alvo E'), featureIntent: 'move', sourceMapId: origem.id, baseVersion: Number((await lerFeicao(featureId)).version) },
     ]).expect(200);
     const movida = await lerFeicao(featureId);
     assert.equal(movida.map_id, destino.id);
 
-    await pushSync([deleteOp('feature', featureId, origem.id)]).expect(200);
+    await pushSync([{ ...deleteOp('feature', featureId, origem.id), baseVersion: Number(movida.version) }]).expect(200);
     const depoisDoDeleteErrado = await lerFeicao(featureId);
     assert.equal(depoisDoDeleteErrado.deleted_at, null, 'o delete escopado a origem e no-op');
     assert.equal(depoisDoDeleteErrado.version, movida.version, 'e nem a version andou');
 
     // Controle POSITIVO: o mesmo delete, escopado ao mapa em que a linha realmente esta.
-    await pushSync([deleteOp('feature', featureId, destino.id)]).expect(200);
+    await pushSync([{ ...deleteOp('feature', featureId, destino.id), baseVersion: Number(movida.version) }]).expect(200);
     const depoisDoDeleteCerto = await lerFeicao(featureId);
     assert.notEqual(depoisDoDeleteCerto.deleted_at, null, 'e o delete no destino a apaga');
   });

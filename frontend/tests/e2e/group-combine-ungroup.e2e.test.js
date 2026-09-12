@@ -39,7 +39,7 @@ import { generateUUID } from '../../src/js/utilities/uuid.js';
  * @returns {Object} A push-ready operation envelope.
  */
 function groupFeatureOp(operationType, mapId, groupId, featureId) {
-    return {
+    return { protocolVersion: 2,
         id: generateUUID(),
         entityType: 'group_feature',
         operationType,

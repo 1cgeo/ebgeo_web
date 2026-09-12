@@ -55,7 +55,7 @@ describe('a locked map refuses the op without poisoning the batch (repro)', () =
       .set('Authorization', `Bearer ${editorToken}`)
       .send({ operations });
 
-  const featureOp = (id, mapId) => ({
+  const featureOp = (id, mapId) => ({ protocolVersion: 2,
     id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: id, mapId,
     data: {
       type: 'Feature',
@@ -116,7 +116,7 @@ describe('a locked map refuses the op without poisoning the batch (repro)', () =
     const feat = await createFeature(db, freeMap.id);
     await db.query('UPDATE features SET map_id = $1 WHERE id = $2', [lockedMap.id, feat.id]);
 
-    const res = await push([{
+    const res = await push([{ protocolVersion: 2,
       id: randomUUID(), entityType: 'feature', operationType: 'delete', entityId: feat.id,
       mapId: lockedMap.id, timestamp: Date.now(), clientId: 'c-lock-poison',
     }]).expect(200);

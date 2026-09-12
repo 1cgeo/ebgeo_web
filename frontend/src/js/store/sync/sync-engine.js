@@ -1,4 +1,5 @@
 // Path: js/store/sync/sync-engine.js
+import { reconcileLegacyQueue } from './legacy-queue.js';
 
 /**
  * @fileoverview High-level sync orchestrator for the EBGeo collaboration layer.
@@ -314,6 +315,9 @@ class SyncEngine {
         const session = this._beginSession(atlasId);
         this._wireOnce();
 
+        await this._ensureProtocol(session);
+        await this._prepareLegacyQueue(session);
+
         let snapshot = null;
         if (initialPull) {
             const result = await apiClient.pullSync(atlasId, 0, { signal: session.signal });
@@ -453,7 +457,30 @@ class SyncEngine {
         return session.flushPromise;
     }
 
+    async _ensureProtocol(session) {
+        if (session.scope?.kind !== 'remote' || session.protocolReady) return;
+        const protocol = await apiClient.getSyncProtocol(session.atlasId, { signal: session.signal });
+        session.assertActive();
+        if (!Array.isArray(protocol?.writeVersions) || !protocol.writeVersions.includes(2) || protocol.receiptLookup !== true) {
+            throw Object.assign(new Error('O cliente e o servidor do EBGeo precisam ser atualizados para versões compatíveis.'),
+                { status: 426, code: 'SYNC_PROTOCOL_INCOMPATIBLE' });
+        }
+        session.protocolReady = true;
+    }
+
+    async _prepareLegacyQueue(session) {
+        if (session.scope?.kind !== 'remote' || session.legacyReviewed) return;
+        const pending = await reconcileLegacyQueue(session.queue,
+            ops => apiClient.lookupOperationReceipts(session.atlasId, ops, { signal: session.signal }),
+            () => session.assertActive());
+        session.assertActive();
+        session.legacyReviewed = true;
+        if (pending) showWarning('Há alterações de uma versão antiga guardadas para revisão. Elas não serão reenviadas automaticamente.');
+    }
+
     async _flushSession(session) {
+        await this._ensureProtocol(session);
+        await this._prepareLegacyQueue(session);
         let pushed = 0;
         let needsRecovery = false;
         // MODO DE ISOLAMENTO: uma vez ligado, o lote vira de tamanho 1 e assim fica até

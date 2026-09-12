@@ -74,7 +74,7 @@ describe('carimbo de serverVersion / entityId na op DIFUNDIDA', () => {
     return { atlas, map, peer };
   }
 
-  const featureOp = (mapId, nome = 'p') => ({
+  const featureOp = (mapId, nome = 'p') => ({ protocolVersion: 2,
     id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: randomUUID(),
     mapId,
     data: { feature_type: 'point', geometry: { coordinates: [-43.2, -22.9] }, properties: { name: nome } },
@@ -146,7 +146,7 @@ describe('carimbo de serverVersion / entityId na op DIFUNDIDA', () => {
       const cursor = Number(antes.body.data.results[0].currentVersion);
       peer.clearMessages();
 
-      const settingOp = {
+      const settingOp = { protocolVersion: 2,
         id: randomUUID(), entityType: 'setting', operationType: 'update', entityId: 'atlas',
         mapId: null, changes: { terrainExaggeration: 2.5 },
         timestamp: Date.now(), clientId: 'stamp-client',
@@ -334,7 +334,7 @@ describe('carimbo de serverVersion / entityId na op DIFUNDIDA', () => {
 
       autor.send({
         type: 'operation',
-        op: {
+        op: { protocolVersion: 2,
           id: randomUUID(), entityType: 'setting', operationType: 'update', entityId: 'atlas',
           mapId: null, changes: { terrainExaggeration: 1.5 },
           timestamp: Date.now(), clientId: 'stamp-client',
@@ -361,7 +361,7 @@ describe('carimbo de serverVersion / entityId na op DIFUNDIDA', () => {
       observador.clearMessages();
 
       // Lock/unlock é owner-only: um 'write' é recusado por política (rejected).
-      const op = {
+      const op = { protocolVersion: 2,
         id: randomUUID(), entityType: 'map', operationType: 'update', entityId: map.id,
         mapId: map.id, changes: { locked: true },
         timestamp: Date.now(), clientId: 'stamp-writer',

@@ -63,7 +63,7 @@ describe('WebSocket collaboration — e2e (Fase 8)', () => {
     await client.waitForType('connected');
 
     const featureId = randomUUID();
-    const op = {
+    const op = { protocolVersion: 2,
       id: randomUUID(),
       entityType: 'feature',
       operationType: 'create',
@@ -89,7 +89,7 @@ describe('WebSocket collaboration — e2e (Fase 8)', () => {
     client.close();
   });
 
-  it('LWW-by-arrival: the last update applied wins and peers converge', async () => {
+  it('a stale edit conflicts and peers reconcile to the accepted update', async () => {
     const { atlasId, mapId } = await freshAtlas();
     const ownerClient = await createWsClient(server, atlasId, ownerTok);
     const writerClient = await createWsClient(server, atlasId, writerTok);
@@ -99,16 +99,18 @@ describe('WebSocket collaboration — e2e (Fase 8)', () => {
     const featureId = randomUUID();
     writerClient.send({
       type: 'operation',
-      op: {
+      op: { protocolVersion: 2,
         id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: featureId, mapId,
         data: { feature_type: 'point', geometry: { coordinates: [0, 0] }, properties: { name: 'orig' } },
         timestamp: Date.now(), clientId: 'e2e-w',
       },
     });
-    await writerClient.waitForType('ack');
+    const created = await writerClient.waitForType('ack');
 
-    const mkUpdate = (name, clientId) => ({
+    const mkUpdate = (name, clientId) => ({ protocolVersion: 2,
       id: randomUUID(), entityType: 'feature', operationType: 'update', entityId: featureId, mapId,
+      baseVersion: created.result.entityVersion,
+      patch: [{ op: 'set', path: ['properties', 'name'], value: name }],
       changes: { properties: { name } }, timestamp: Date.now(), clientId,
     });
 
@@ -121,7 +123,8 @@ describe('WebSocket collaboration — e2e (Fase 8)', () => {
     const lastAck = await writerClient.waitForType('ack');
 
     const { rows } = await db.query('SELECT properties FROM features WHERE id = $1', [featureId]);
-    assert.equal(rows[0].properties.name, 'B'); // last writer by arrival wins
+    assert.equal(rows[0].properties.name, 'A');
+    assert.equal(lastAck.result.status, 'conflict');
 
     // Both clients can reconcile to the same authoritative version.
     ownerClient.clearMessages();
@@ -143,7 +146,7 @@ describe('WebSocket collaboration — e2e (Fase 8)', () => {
     await client.waitForType('connected');
     client.send({
       type: 'operation',
-      op: {
+      op: { protocolVersion: 2,
         id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: randomUUID(), mapId: null,
         data: { feature_type: 'point', geometry: { coordinates: [0, 0] }, properties: {} },
         timestamp: Date.now(), clientId: 'e2e-pub',

@@ -8,12 +8,12 @@ describe('Pending issue dependencies', () => {
         const scope = remoteScope('33333333-3333-4333-8333-333333333333');
         await getStoreFor(StoreName.OPERATION_QUEUE, scope).clear();
         const queue = new OperationQueue(scope);
-        const parent = { id: 'parent', entityId: 'briefing', entityType: 'briefing' };
+        const parent = { protocolVersion: 2, id: 'parent', entityId: 'briefing', entityType: 'briefing' };
         await queue.enqueueAll([
             parent,
-            { id: 'slide', entityId: 'slide', entityType: 'slide', data: { briefingId: 'briefing' } },
-            { id: 'child', entityId: 'child', dependsOn: ['slide'] },
-            { id: 'independent', entityId: 'other' },
+            { protocolVersion: 2, id: 'slide', entityId: 'slide', entityType: 'slide', data: { briefingId: 'briefing' } },
+            { protocolVersion: 2, id: 'child', entityId: 'child', dependsOn: ['slide'] },
+            { protocolVersion: 2, id: 'independent', entityId: 'other' },
         ]);
         await queue.recordIssue(parent, { success: false, reason: 'Permissão revogada' });
         expect((await queue.peek()).map(op => op.id)).toEqual(['independent']);

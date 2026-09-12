@@ -1,3 +1,4 @@
+import { featureMutation } from '../helpers/feature-operation.js';
 // Path: tests/integration/sync-frontend-envelope.test.js
 // Regression for the envelope reconciliation with the REAL frontend store/sync
 // layer (ebgeo_web/src/js/store/*). The frontend's shared operation factory emits:
@@ -80,7 +81,7 @@ describe('Sync envelope reconciliation (real frontend store shapes)', () => {
   describe('3D/360 entities emitted FLAT (camelCase, fields at top level)', () => {
     it('cesium3d marker: tilesetId + flat fields land in tileset_id + data (not NULL/{})', async () => {
       const id = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'marker3d',
         operationType: 'create',
@@ -104,7 +105,7 @@ describe('Sync envelope reconciliation (real frontend store shapes)', () => {
 
     it('streetview360 orientation: photoName + flat fields land in photo_name + data', async () => {
       const id = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'orientation360',
         operationType: 'create',
@@ -125,12 +126,12 @@ describe('Sync envelope reconciliation (real frontend store shapes)', () => {
 
     it('3D marker UPDATE with payload in `data` (no changes) applies', async () => {
       const id = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(), entityType: 'marker3d', operationType: 'create', entityId: id, mapId: map.id,
         data: { id, tilesetId: 'aman', position: { x: 0 }, sync: {} }, timestamp: Date.now(), lamportTimestamp: 3, clientId: 'c',
       }]).expect(200);
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(), entityType: 'marker3d', operationType: 'update', entityId: id, mapId: map.id,
         data: { id, tilesetId: 'aman', position: { x: 99 }, sync: {} }, timestamp: Date.now() + 1, lamportTimestamp: 4, clientId: 'c',
       }]).expect(200);
@@ -144,7 +145,7 @@ describe('Sync envelope reconciliation (real frontend store shapes)', () => {
     it('create derives feature_type/layer_id from properties', async () => {
       const id = randomUUID();
       const layerId = (await createLayer(db, map.id)).id;
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'feature',
         operationType: 'create',
@@ -168,17 +169,17 @@ describe('Sync envelope reconciliation (real frontend store shapes)', () => {
 
     it('update with payload in `data` (no changes) applies (data→changes fallback)', async () => {
       const id = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: id, mapId: map.id,
         data: { type: 'Feature', geometry: {}, properties: { id, source: 'point', name: 'Before' } },
         timestamp: Date.now(), clientId: 'c',
       }]).expect(200);
 
-      await pushSync([{
+      await pushSync([featureMutation((await db.query('SELECT * FROM features WHERE id=$1', [id])).rows[0], { protocolVersion: 2,
         id: randomUUID(), entityType: 'feature', operationType: 'update', entityId: id, mapId: map.id,
         data: { type: 'Feature', geometry: { type: 'Point', coordinates: [1, 2] }, properties: { id, source: 'point', name: 'After' } },
         timestamp: Date.now() + 1, clientId: 'c',
-      }]).expect(200);
+      })]).expect(200);
 
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [id]);
       assert.equal(rows[0].properties.name, 'After', 'update via data must not be a silent no-op');
@@ -189,11 +190,11 @@ describe('Sync envelope reconciliation (real frontend store shapes)', () => {
   describe('lamportTimestamp round-trips on incremental pull', () => {
     it('echoes lamportTimestamp on the pulled op', async () => {
       // Two ops so currentVersion >= 2 and a pull from currentVersion-1 is incremental.
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: randomUUID(), mapId: map.id,
         data: { type: 'Feature', geometry: {}, properties: { source: 'point' } }, timestamp: Date.now(), lamportTimestamp: 40, clientId: 'c',
       }]).expect(200);
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: randomUUID(), mapId: map.id,
         data: { type: 'Feature', geometry: {}, properties: { source: 'point' } }, timestamp: Date.now() + 1, lamportTimestamp: 41, clientId: 'c',
       }]).expect(200);
@@ -215,7 +216,7 @@ describe('Sync envelope reconciliation (real frontend store shapes)', () => {
   describe('Slide temporal_cursor (v2.2) round-trips', () => {
     it('persists temporal_cursor on create and update, and surfaces temporalCursor in the snapshot', async () => {
       const id = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(), entityType: 'slide', operationType: 'create', entityId: id,
         data: { briefing_id: briefing.id, title: 'Temporal Slide', mode: '2d', temporal_cursor: 1718900000000 },
         timestamp: Date.now(), clientId: 'c',
@@ -224,7 +225,7 @@ describe('Sync envelope reconciliation (real frontend store shapes)', () => {
       let { rows } = await db.query('SELECT temporal_cursor FROM slides WHERE id = $1', [id]);
       assert.equal(rows[0].temporal_cursor, 1718900000000, 'temporal_cursor must persist on create');
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(), entityType: 'slide', operationType: 'update', entityId: id,
         changes: { temporal_cursor: 999 }, timestamp: Date.now() + 1, clientId: 'c',
       }]).expect(200);

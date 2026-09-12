@@ -103,7 +103,7 @@ describe('WebSocket multiuser session — e2e', () => {
     a.clearMessages();
     b.clearMessages();
     const featA = randomUUID();
-    const opA = {
+    const opA = { protocolVersion: 2,
       id: randomUUID(),
       entityType: 'feature',
       operationType: 'create',
@@ -130,7 +130,7 @@ describe('WebSocket multiuser session — e2e', () => {
     a.clearMessages();
     b.clearMessages();
     const featB = randomUUID();
-    const opB = {
+    const opB = { protocolVersion: 2,
       id: randomUUID(),
       entityType: 'feature',
       operationType: 'create',

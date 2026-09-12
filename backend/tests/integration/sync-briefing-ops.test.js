@@ -83,7 +83,7 @@ describe('Briefing Operations via Sync', () => {
     it('renames briefing via sync update', async () => {
       const briefing = await createBriefing(db, atlas.id, { name: 'Original Briefing' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'briefing',
@@ -102,7 +102,7 @@ describe('Briefing Operations via Sync', () => {
     it('updates briefing description via sync', async () => {
       const briefing = await createBriefing(db, atlas.id, { name: 'Desc Briefing' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'briefing',
@@ -121,7 +121,7 @@ describe('Briefing Operations via Sync', () => {
     it('updates briefing settings via sync', async () => {
       const briefing = await createBriefing(db, atlas.id, { name: 'Settings Briefing' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'briefing',
@@ -144,7 +144,7 @@ describe('Briefing Operations via Sync', () => {
       const slide3 = await createSlide(db, briefing.id, { title: 'Slide 3' });
 
       // Reorder: 3, 1, 2
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'briefing',
@@ -163,7 +163,7 @@ describe('Briefing Operations via Sync', () => {
     it('soft-deletes briefing via sync', async () => {
       const briefing = await createBriefing(db, atlas.id, { name: 'To Delete Briefing' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'delete',
         target: 'briefing',
@@ -180,7 +180,7 @@ describe('Briefing Operations via Sync', () => {
       const briefingId = randomUUID();
       const now = Date.now();
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'create',
         target: 'briefing',
@@ -190,7 +190,7 @@ describe('Briefing Operations via Sync', () => {
         clientId: 'test-client',
       }]).expect(200);
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'delete',
         target: 'briefing',
@@ -210,7 +210,7 @@ describe('Briefing Operations via Sync', () => {
       const briefing = await createBriefing(db, atlas.id, { name: 'Slide Map Briefing' });
       const slideId = randomUUID();
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'create',
         target: 'slide',
@@ -235,7 +235,7 @@ describe('Briefing Operations via Sync', () => {
       const briefing = await createBriefing(db, atlas.id, { name: 'Slide 3D Briefing' });
       const slideId = randomUUID();
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'create',
         target: 'slide',
@@ -262,7 +262,7 @@ describe('Briefing Operations via Sync', () => {
       const briefing = await createBriefing(db, atlas.id, { name: 'Slide 360 Briefing' });
       const slideId = randomUUID();
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'create',
         target: 'slide',
@@ -288,7 +288,7 @@ describe('Briefing Operations via Sync', () => {
       const briefing = await createBriefing(db, atlas.id, { name: 'Title Edit Briefing' });
       const slide = await createSlide(db, briefing.id, { title: 'Old Title' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'slide',
@@ -306,7 +306,7 @@ describe('Briefing Operations via Sync', () => {
       const briefing = await createBriefing(db, atlas.id, { name: 'Content Briefing' });
       const slide = await createSlide(db, briefing.id, { title: 'Content Slide' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'slide',
@@ -326,7 +326,7 @@ describe('Briefing Operations via Sync', () => {
 
       const newPosition = { center: [-47.8, -15.5], zoom: 14, bearing: 45, pitch: 30 };
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'slide',
@@ -346,7 +346,7 @@ describe('Briefing Operations via Sync', () => {
 
       const newOrientation = { longitude: -43.2, latitude: -22.9, fov: 60, heading: 180 };
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'slide',
@@ -364,7 +364,7 @@ describe('Briefing Operations via Sync', () => {
       const briefing = await createBriefing(db, atlas.id, { name: 'Broken Briefing' });
       const slide = await createSlide(db, briefing.id, { title: 'Broken Slide' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'slide',
@@ -390,7 +390,7 @@ describe('Briefing Operations via Sync', () => {
       });
 
       const duplicateId = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'create',
         target: 'slide',
@@ -416,7 +416,7 @@ describe('Briefing Operations via Sync', () => {
       const briefing = await createBriefing(db, atlas.id, { name: 'Delete Slide Briefing' });
       const slide = await createSlide(db, briefing.id, { title: 'To Delete Slide' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'delete',
         target: 'slide',
@@ -438,7 +438,7 @@ describe('Briefing Operations via Sync', () => {
       const now = Date.now();
 
       await pushSync([
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'briefing',
@@ -447,7 +447,7 @@ describe('Briefing Operations via Sync', () => {
           timestamp: now,
           clientId: 'test-client',
         },
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'slide',
@@ -456,7 +456,7 @@ describe('Briefing Operations via Sync', () => {
           timestamp: now + 1,
           clientId: 'test-client',
         },
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'slide',

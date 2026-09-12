@@ -33,7 +33,7 @@ describe('Sync — catalogLayer (per-layer)', () => {
       .send({ operations })
       .expect(200);
 
-  const op = (operationType, entityId, data) => ({
+  const op = (operationType, entityId, data) => ({ protocolVersion: 2,
     id: randomUUID(),
     entityType: 'catalogLayer',
     operationType,
@@ -122,7 +122,7 @@ describe('Sync — catalogLayer (per-layer)', () => {
 
     it('accepts every real catalog id shape and exposes them in the snapshot', async () => {
       const m = await createMap(db, atlas.id, { name: 'Real Catalog Ids' });
-      const realOp = (operationType, entityId, data) => ({
+      const realOp = (operationType, entityId, data) => ({ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'catalogLayer',
         operationType,
@@ -176,7 +176,7 @@ describe('Sync — catalogLayer (per-layer)', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(), entityType: 'catalogLayer', operationType: 'create',
             entityId: 'hillshade', mapId,
             data: { type: 'raster', name, visible: true },
@@ -211,13 +211,13 @@ describe('Sync — catalogLayer (per-layer)', () => {
         .set('Authorization', `Bearer ${token}`)
         .send({
           operations: [
-            {
+            { protocolVersion: 2,
               id: randomUUID(), entityType: 'catalogLayer', operationType: 'create',
               entityId: 'hillshade', mapId: m.id,
               data: { type: 'raster', name: 'Sombreamento do Relevo', visible: true },
               timestamp: Date.now(), clientId: 'c-mix',
             },
-            {
+            { protocolVersion: 2,
               id: randomUUID(), entityType: 'feature', operationType: 'create',
               entityId: featureId, mapId: m.id,
               data: {
@@ -271,7 +271,7 @@ describe('Sync — catalogLayer (per-layer)', () => {
       await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
-        .send({ operations: [{
+        .send({ operations: [{ protocolVersion: 2,
           id: randomUUID(), entityType: 'catalogLayer', operationType: 'create',
           entityId: layerId, mapId: m.id, data: guardado,
           timestamp: Date.now(), clientId: 'c-shape',
@@ -312,7 +312,7 @@ describe('Sync — catalogLayer (per-layer)', () => {
         await supertest(app)
           .post(`/api/v1/atlas/${atlas.id}/sync`)
           .set('Authorization', `Bearer ${token}`)
-          .send({ operations: [{
+          .send({ operations: [{ protocolVersion: 2,
             id: randomUUID(), entityType: 'catalogLayer', operationType: 'create',
             entityId: `analysis-${recurso}`, mapId: m.id, data: guardado,
             timestamp: Date.now(), clientId: 'c-shape',
@@ -362,7 +362,7 @@ describe('Sync — catalogLayer (per-layer)', () => {
       await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
-        .send({ operations: [{
+        .send({ operations: [{ protocolVersion: 2,
           id: randomUUID(), entityType: 'catalogLayer', operationType: 'update',
           entityId: m.id, mapId: m.id, data: { catalog_layers: arr },
           timestamp: Date.now(), clientId: 'c-shape',

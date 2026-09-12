@@ -83,7 +83,7 @@ describe('F11 — camada de catálogo no snapshot: referência, e a definição 
   };
 
   /** A op que o cliente REAL emite ao acrescentar uma camada de catálogo ao mapa. */
-  const opDeCamada = (idDeCamada, tipo, definicaoCopiada, operationType = 'create') => ({
+  const opDeCamada = (idDeCamada, tipo, definicaoCopiada, operationType = 'create') => ({ protocolVersion: 2,
     id: randomUUID(),
     entityType: 'catalogLayer',
     operationType,
@@ -402,7 +402,7 @@ describe('F11 — camada de catálogo no snapshot: referência, e a definição 
       [`analysis-${PRIVADA}`, mapaProprio.id, JSON.stringify({ type: 'analysis_layer', visible: true })],
     );
 
-    const data = await push(tokenMembro, [{
+    const data = await push(tokenMembro, [{ protocolVersion: 2,
       id: randomUUID(),
       entityType: 'catalogLayer',
       operationType: 'delete',
@@ -432,7 +432,7 @@ describe('F11 — camada de catálogo no snapshot: referência, e a definição 
     ]);
     assert.equal(doHillshade.acks[0].rejected, undefined, 'o hillshade não é recurso e não é gateado');
 
-    const doArray = await push(tokenMembro, [{
+    const doArray = await push(tokenMembro, [{ protocolVersion: 2,
       id: randomUUID(),
       entityType: 'catalogLayer',
       operationType: 'update',

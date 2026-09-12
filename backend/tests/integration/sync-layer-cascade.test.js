@@ -49,7 +49,7 @@ describe('Sync layer-delete cascade (§2.2)', () => {
     await supertest(app)
       .post(`/api/v1/atlas/${atlas.id}/sync`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ operations: [{
+      .send({ operations: [{ protocolVersion: 2,
         id: randomUUID(), entityType: 'layer', operationType: 'delete',
         entityId: layerA.id, mapId: map.id, timestamp: Date.now(), clientId: 'c',
       }] })

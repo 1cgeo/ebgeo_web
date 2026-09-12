@@ -196,7 +196,7 @@ describe('WebSocket Collaboration — gaps', () => {
   // ── ws-05 ────────────────────────────────────────────────────────────────
   describe('ws-05 >500-ops batch validation', () => {
     function makeOp(mapId, marker) {
-      return {
+      return { protocolVersion: 2,
         id: randomUUID(),
         type: 'create',
         target: 'feature',
@@ -263,7 +263,7 @@ describe('WebSocket Collaboration — gaps', () => {
 
       client.send({
         type: 'operation',
-        op: {
+        op: { protocolVersion: 2,
           id: randomUUID(),
           type: 'update',
           target: 'feature',

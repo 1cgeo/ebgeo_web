@@ -74,7 +74,7 @@ describe('Cesium3D Data via Sync API', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'cesium3d',
@@ -112,7 +112,7 @@ describe('Cesium3D Data via Sync API', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'cesium3d',
@@ -144,7 +144,7 @@ describe('Cesium3D Data via Sync API', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'cesium3d',
@@ -176,7 +176,7 @@ describe('Cesium3D Data via Sync API', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'cesium3d',
@@ -214,7 +214,7 @@ describe('Cesium3D Data via Sync API', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'update',
             target: 'cesium3d',
@@ -242,7 +242,7 @@ describe('Cesium3D Data via Sync API', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'update',
             target: 'cesium3d',
@@ -270,7 +270,7 @@ describe('Cesium3D Data via Sync API', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'delete',
             target: 'cesium3d',
@@ -300,9 +300,9 @@ describe('Cesium3D Data via Sync API', () => {
         .set('Authorization', `Bearer ${token}`)
         .send({
           operations: [
-            { id: randomUUID(), type: 'delete', target: 'cesium3d', targetId: marker.id, mapId: map.id, timestamp: now, clientId: 'test-client' },
-            { id: randomUUID(), type: 'delete', target: 'cesium3d', targetId: measurement.id, mapId: map.id, timestamp: now + 1, clientId: 'test-client' },
-            { id: randomUUID(), type: 'delete', target: 'cesium3d', targetId: viewshed.id, mapId: map.id, timestamp: now + 2, clientId: 'test-client' },
+            { protocolVersion: 2, id: randomUUID(), type: 'delete', target: 'cesium3d', targetId: marker.id, mapId: map.id, timestamp: now, clientId: 'test-client' },
+            { protocolVersion: 2, id: randomUUID(), type: 'delete', target: 'cesium3d', targetId: measurement.id, mapId: map.id, timestamp: now + 1, clientId: 'test-client' },
+            { protocolVersion: 2, id: randomUUID(), type: 'delete', target: 'cesium3d', targetId: viewshed.id, mapId: map.id, timestamp: now + 2, clientId: 'test-client' },
           ],
         })
         .expect(200);
@@ -408,7 +408,7 @@ describe('StreetView360 Data via Sync API', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'streetview360',
@@ -446,7 +446,7 @@ describe('StreetView360 Data via Sync API', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'streetview360',
@@ -486,7 +486,7 @@ describe('StreetView360 Data via Sync API', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'update',
             target: 'streetview360',
@@ -515,7 +515,7 @@ describe('StreetView360 Data via Sync API', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'update',
             target: 'streetview360',
@@ -543,7 +543,7 @@ describe('StreetView360 Data via Sync API', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'delete',
             target: 'streetview360',
@@ -573,9 +573,9 @@ describe('StreetView360 Data via Sync API', () => {
         .set('Authorization', `Bearer ${token}`)
         .send({
           operations: [
-            { id: randomUUID(), type: 'delete', target: 'streetview360', targetId: orientation.id, mapId: map.id, timestamp: now, clientId: 'test-client' },
-            { id: randomUUID(), type: 'delete', target: 'streetview360', targetId: marker1.id, mapId: map.id, timestamp: now + 1, clientId: 'test-client' },
-            { id: randomUUID(), type: 'delete', target: 'streetview360', targetId: marker2.id, mapId: map.id, timestamp: now + 2, clientId: 'test-client' },
+            { protocolVersion: 2, id: randomUUID(), type: 'delete', target: 'streetview360', targetId: orientation.id, mapId: map.id, timestamp: now, clientId: 'test-client' },
+            { protocolVersion: 2, id: randomUUID(), type: 'delete', target: 'streetview360', targetId: marker1.id, mapId: map.id, timestamp: now + 1, clientId: 'test-client' },
+            { protocolVersion: 2, id: randomUUID(), type: 'delete', target: 'streetview360', targetId: marker2.id, mapId: map.id, timestamp: now + 2, clientId: 'test-client' },
           ],
         })
         .expect(200);

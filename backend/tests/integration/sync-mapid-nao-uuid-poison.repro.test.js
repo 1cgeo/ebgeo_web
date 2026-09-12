@@ -64,7 +64,7 @@ describe('Push com mapId que não é UUID (repro do 400 em laço)', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ operations });
 
-  const criaFeicao = (featureId, mapId) => ({
+  const criaFeicao = (featureId, mapId) => ({ protocolVersion: 2,
     id: randomUUID(),
     type: 'create',
     target: 'feature',

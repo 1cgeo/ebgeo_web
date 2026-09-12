@@ -214,7 +214,7 @@ describe('3D/360 op: live broadcast and replay must deliver the SAME payload (re
   /** A throwaway op, only to move `currentVersion` past 0 so the next pull is INCREMENTAL. */
   const fillerOp = () => {
     const id = randomUUID();
-    return {
+    return { protocolVersion: 2,
       id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: id, mapId: map.id,
       data: {
         type: 'Feature', geometry: { type: 'Point', coordinates: [-43.2, -22.9] },
@@ -237,7 +237,7 @@ describe('3D/360 op: live broadcast and replay must deliver the SAME payload (re
 
       const entityId = randomUUID();
       const data = st.payload(entityId);
-      const op = {
+      const op = { protocolVersion: 2,
         id: randomUUID(), entityType: st.label, operationType: 'create', entityId, mapId: map.id,
         data, timestamp: Date.now(), lamportTimestamp: 7, clientId: 'a-parity',
       };
@@ -276,7 +276,7 @@ describe('3D/360 op: live broadcast and replay must deliver the SAME payload (re
     const b = await connect(peerToken, 'b-parity');
 
     const entityId = randomUUID();
-    await sendOp(a, {
+    await sendOp(a, { protocolVersion: 2,
       id: randomUUID(), entityType: 'marker3d', operationType: 'create', entityId, mapId: map.id,
       data: SUBTYPES[0].payload(entityId), timestamp: Date.now(), clientId: 'a-parity',
     });
@@ -285,7 +285,7 @@ describe('3D/360 op: live broadcast and replay must deliver the SAME payload (re
     const baseVersion = fillerAck.serverVersion;
 
     const moved = { ...SUBTYPES[0].payload(entityId), position: { longitude: -44, latitude: -23, height: 900 } };
-    await sendOp(a, {
+    await sendOp(a, { protocolVersion: 2,
       id: randomUUID(), entityType: 'marker3d', operationType: 'update', entityId, mapId: map.id,
       data: moved, timestamp: Date.now() + 1, clientId: 'a-parity',
     });
@@ -307,7 +307,7 @@ describe('3D/360 op: live broadcast and replay must deliver the SAME payload (re
     const b = await connect(peerToken, 'b-parity');
 
     const entityId = randomUUID();
-    await sendOp(a, {
+    await sendOp(a, { protocolVersion: 2,
       id: randomUUID(), entityType: 'orientation360', operationType: 'create', entityId, mapId: map.id,
       data: SUBTYPES[4].payload(entityId), timestamp: Date.now(), clientId: 'a-parity',
     });
@@ -315,7 +315,7 @@ describe('3D/360 op: live broadcast and replay must deliver the SAME payload (re
     const fillerAck = await sendOp(a, fillerOp());
     const baseVersion = fillerAck.serverVersion;
 
-    await sendOp(a, {
+    await sendOp(a, { protocolVersion: 2,
       id: randomUUID(), entityType: 'orientation360', operationType: 'delete', entityId, mapId: map.id,
       data: null, timestamp: Date.now() + 1, clientId: 'a-parity',
     });

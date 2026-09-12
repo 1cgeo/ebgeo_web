@@ -55,7 +55,7 @@ async function pullGroup(api, atlasId, mapId, groupId) {
  * @returns {Object}
  */
 function groupFeatureOp(opType, groupId, featureId, clientId) {
-    return {
+    return { protocolVersion: 2,
         id: generateUUID(),
         entityType: 'group_feature',
         operationType: opType,

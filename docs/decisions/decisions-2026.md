@@ -2390,3 +2390,11 @@ A correção dos contratos mantém o bloqueio à recriação antiga. Movimentar 
 ### 2026-09-12: a camada padrão remota nasce no servidor
 
 Criar o atlas grava o mapa inicial e sua camada; criar um mapa por sync ou excluir sua última camada grava a camada necessária na mesma transação e inclui o UUID confirmado no log, no ACK e no replay. O navegador sintetiza a camada default somente em atlas locais. Respostas atrasadas respeitam as versões e não regravam o documento inteiro do mapa. A regularização conserva feições e configurações existentes e exige snapshot dos clientes antigos. Uma edição que aponta explicitamente a uma camada excluída é recusada com motivo, sem transferência silenciosa. Detalhes e limites em [camadas remotas](../reviews/camadas-remotas.md).
+
+### 2026-09-12: protocolo obrigatório e conciliação de filas antigas por recibos
+
+O plano de fechamento autorizado exige protocolo v2 explícito em todas as operações incrementais. HTTP, WebSocket e serviço recusam envelopes incompatíveis antes de aplicar o lote. HTTP usa 426: os clientes anteriores tratam 400/422 como descarte permanente e não devem apagar trabalho por incompatibilidade de versão. A negociação inicial confirma capacidade de escrita e consulta de recibos.
+
+Fila remota antiga mantém envelope, ID e chave originais. A consulta de recibos é somente leitura, vinculada ao atlas, ao autor e ao hash exato; apenas uma confirmação inequívoca permite retirar a operação. Um leitor que perdeu escrita pode confirmar sua própria entrega anterior, respeitada a visibilidade de comentários. Ausência ou ambiguidade não significa que a operação nunca chegou ao servidor. O cliente bloqueia reenvio e projeção das intenções incompatíveis e seus dependentes, sem inventar uma base atual. Atlas locais não entram nessa quarentena. A política de descarte voluntário confirmado permanece vigente.
+
+Este bloqueio não conclui os conflitos das demais entidades, a interface persistente de resolução nem as quatro exceções estruturais REST. Execução e limites no [registro de fechamento](../reviews/execucao-fechamento-lancamento.md).

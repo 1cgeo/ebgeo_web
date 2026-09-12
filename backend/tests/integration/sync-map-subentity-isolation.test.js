@@ -41,7 +41,7 @@ describe('Sync map sub-entity isolation (no sibling-column smuggling)', () => {
 
   const mapRow = async () => (await db.query('SELECT * FROM maps WHERE id = $1', [map.id])).rows[0];
 
-  const subOp = (entityType, data) => ({
+  const subOp = (entityType, data) => ({ protocolVersion: 2,
     id: randomUUID(),
     entityType,
     operationType: 'update',
@@ -92,7 +92,7 @@ describe('Sync map sub-entity isolation (no sibling-column smuggling)', () => {
   });
 
   it('a PLAIN map update (no sub-type) CAN still change the name', async () => {
-    await push({
+    await push({ protocolVersion: 2,
       id: randomUUID(),
       entityType: 'map',
       operationType: 'update',

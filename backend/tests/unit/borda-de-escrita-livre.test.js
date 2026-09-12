@@ -254,7 +254,7 @@ describe('F14 — a borda por entidade: o que fecha, o que só se limpa, e o tet
 });
 
 describe('F14 — a borda DESCARTA, nunca rejeita, e as duas portas concordam', () => {
-  const op = (extra) => ({
+  const op = (extra) => ({ protocolVersion: 2,
     id: randomUUID(),
     entityType: 'catalogLayer',
     operationType: 'create',
@@ -303,7 +303,7 @@ describe('F14 — a borda DESCARTA, nunca rejeita, e as duas portas concordam', 
   it('o vocabulário LEGADO (`target`) escolhe a mesma regra que `entityType`', () => {
     // O envelope aceita os dois vocabulários, e uma regra que só olhasse `entityType` deixaria a
     // metade legada sem borda nenhuma.
-    const legada = {
+    const legada = { protocolVersion: 2,
       id: randomUUID(), target: 'catalogLayer', type: 'create', targetId: 'analysis-x',
       mapId: randomUUID(), timestamp: Date.now(), clientId: 'c-1',
       data: { type: 'analysis_layer', visible: true, styleOverrides: { s: { p: definicaoNua() } } },

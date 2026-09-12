@@ -47,7 +47,7 @@ describe('Sync — push validation & idempotency', () => {
   });
 
   it(`rejects more than ${MAX_OPS_PER_PUSH} operations (422)`, async () => {
-    const tooMany = Array.from({ length: MAX_OPS_PER_PUSH + 1 }, () => ({
+    const tooMany = Array.from({ length: MAX_OPS_PER_PUSH + 1 }, () => ({ protocolVersion: 2,
       id: randomUUID(),
       type: 'create',
       target: 'feature',
@@ -62,14 +62,14 @@ describe('Sync — push validation & idempotency', () => {
 
   it('rejects an operation missing its id (422)', async () => {
     await push([
-      { type: 'create', target: 'feature', targetId: randomUUID(), mapId: map.id, data: {}, clientId: 'c1', timestamp: Date.now() },
+      { protocolVersion: 2, type: 'create', target: 'feature', targetId: randomUUID(), mapId: map.id, data: {}, clientId: 'c1', timestamp: Date.now() },
     ]).expect(422);
   });
 
   it('accepts the legacy vocabulary (target/type/targetId) and preserves the payload', async () => {
     const featureId = randomUUID();
     await push([
-      {
+      { protocolVersion: 2,
         id: randomUUID(),
         type: 'create',
         target: 'feature',
@@ -89,7 +89,7 @@ describe('Sync — push validation & idempotency', () => {
   it('accepts the frontend vocabulary (entityType/operationType/entityId)', async () => {
     const featureId = randomUUID();
     await push([
-      {
+      { protocolVersion: 2,
         id: randomUUID(),
         operationType: 'create',
         entityType: 'feature',
@@ -109,7 +109,7 @@ describe('Sync — push validation & idempotency', () => {
   it('is idempotent: resending the same op_id does not duplicate or re-apply', async () => {
     const opId = randomUUID();
     const featureId = randomUUID();
-    const op = {
+    const op = { protocolVersion: 2,
       id: opId,
       type: 'create',
       target: 'feature',
@@ -157,7 +157,7 @@ describe('Sync — push validation & idempotency', () => {
   // clientId, então afrouxar qualquer um dos dois de volta para opcional não quebrava
   // nada e o sintoma voltava a ser 500.
   describe('envelope de operação: campos obrigatórios e o que segue opcional', () => {
-    const opBase = () => ({
+    const opBase = () => ({ protocolVersion: 2,
       id: randomUUID(),
       entityType: 'feature',
       operationType: 'create',

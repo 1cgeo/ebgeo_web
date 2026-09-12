@@ -31,6 +31,7 @@ const h = vi.hoisted(() => {
     return {
         queueState,
         apiClientMock: {
+            getSyncProtocol: vi.fn(async () => ({ writeVersions: [2], receiptLookup: true })),
             // O registro AINDA CARREGA `org_role` de propósito: o backend legado (e um
             // token legado) continua mandando o campo, e o contrato de hoje é que ele seja
             // IGNORADO. Um dublê que já viesse sem o campo mediria a ausência dele, não a
@@ -59,6 +60,7 @@ const h = vi.hoisted(() => {
             isConnected: vi.fn(() => false),
         },
         operationQueueMock: {
+            getIssues: vi.fn(async () => queueState.issues.slice()),
             peek: vi.fn(async (count) => queueState.ops.slice(0, count)),
             recordIssue: vi.fn(async (operation, result) => {
                 queueState.issues.push({ operation, result });
@@ -269,6 +271,36 @@ describe('configure', () => {
             baseUrl: 'http://h/api/v1',
             fetch: globalThis.fetch,
         });
+    });
+});
+
+describe('remote protocol before direct flush', () => {
+    const session = () => ({
+        atlasId: '11111111-1111-4111-8111-111111111111', scope: { kind: 'remote' },
+        queue: operationQueueMock, legacyReviewed: true, assertActive: vi.fn(), close: vi.fn(),
+    });
+
+    it.each([
+        { writeVersions: [1], receiptLookup: true },
+        { writeVersions: [2], receiptLookup: false },
+        { writeVersions: '2', receiptLookup: true },
+    ])('cannot send or remove work when negotiation is incompatible: %j', async protocol => {
+        syncEngine._session = session();
+        queueState.ops = [{ id: 'pending', protocolVersion: 2, entityType: 'map', operationType: 'create', entityId: 'map-1' }];
+        apiClientMock.getSyncProtocol.mockResolvedValueOnce(protocol);
+        await expect(syncEngine.flush()).rejects.toMatchObject({ status: 426, code: 'SYNC_PROTOCOL_INCOMPATIBLE' });
+        expect(apiClientMock.pushOperations).not.toHaveBeenCalled();
+        expect(operationQueueMock.peek).not.toHaveBeenCalled();
+        expect(queueState.ops.map(op => op.id)).toEqual(['pending']);
+        expect(queueState.dequeued).toEqual([]);
+    });
+
+    it('negotiates once per accepted session even when flush precedes connect', async () => {
+        syncEngine._session = session();
+        await syncEngine.flush();
+        await syncEngine.flush();
+        expect(apiClientMock.getSyncProtocol).toHaveBeenCalledOnce();
+        expect(operationQueueMock.peek).toHaveBeenCalled();
     });
 });
 

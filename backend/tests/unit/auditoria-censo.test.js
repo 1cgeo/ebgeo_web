@@ -90,6 +90,8 @@ const COSMETICO = 'Metadado de apresentação do atlas (nome, descrição, capa)
 
 /** @type {EntradaDoCenso[]} */
 const CENSO = [
+  { arquivo: 'src/modules/sync/sync.routes.js', rota: 'POST /receipts', classe: ISENTA,
+    motivo: 'Consulta somente leitura de recibos do próprio autor. Usa POST para o lote de envelopes; não executa operações nem grava dados.' },
   // ---------------- atlas: ciclo de vida auditado, conteúdo isento --------------
   { arquivo: 'src/modules/atlas/atlas.routes.js', rota: 'POST /', classe: AUDITADA, acao: 'ATLAS_CREATE', emissor: ATLAS_CTRL },
   { arquivo: 'src/modules/atlas/atlas.routes.js', rota: 'POST /import', classe: AUDITADA, acao: 'ATLAS_CREATE', emissor: ATLAS_CTRL },

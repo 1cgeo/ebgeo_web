@@ -26,7 +26,7 @@ async function pushFeature(app, token, atlasId, mapId, featureType, geometry, pr
     .post(`/api/v1/atlas/${atlasId}/sync`)
     .set('Authorization', `Bearer ${token}`)
     .send({
-      operations: [{
+      operations: [{ protocolVersion: 2,
         id: randomUUID(),
         type: 'create',
         target: 'feature',

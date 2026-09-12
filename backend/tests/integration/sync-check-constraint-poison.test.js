@@ -97,7 +97,7 @@ describe('Push com payload que viola CHECK do schema (item 23)', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ operations });
 
-  const criaFeicao = (id, featureType = 'point') => ({
+  const criaFeicao = (id, featureType = 'point') => ({ protocolVersion: 2,
     id: randomUUID(),
     type: 'create',
     target: 'feature',
@@ -161,7 +161,7 @@ describe('Push com payload que viola CHECK do schema (item 23)', () => {
 
   it('layers_opacity_range: changes {opacity: 1.5} é recusado por operação, sem derrubar o lote', async () => {
     const layer = await createLayer(db, map.id, { name: 'Camada CHK' });
-    await pushEnvenenado({
+    await pushEnvenenado({ protocolVersion: 2,
       id: randomUUID(),
       type: 'update',
       target: 'layer',
@@ -179,7 +179,7 @@ describe('Push com payload que viola CHECK do schema (item 23)', () => {
 
   it('valid_feature_type: create com feature_type fora da lista é recusado por operação', async () => {
     const id = randomUUID();
-    await pushEnvenenado({
+    await pushEnvenenado({ protocolVersion: 2,
       id: randomUUID(),
       type: 'create',
       target: 'feature',
@@ -200,7 +200,7 @@ describe('Push com payload que viola CHECK do schema (item 23)', () => {
 
   it('cesium3d_data.data_type inválido é recusado por operação', async () => {
     const id = randomUUID();
-    await pushEnvenenado({
+    await pushEnvenenado({ protocolVersion: 2,
       id: randomUUID(),
       type: 'create',
       target: 'cesium3d',
@@ -217,7 +217,7 @@ describe('Push com payload que viola CHECK do schema (item 23)', () => {
 
   it('streetview360_data.data_type inválido é recusado por operação', async () => {
     const id = randomUUID();
-    await pushEnvenenado({
+    await pushEnvenenado({ protocolVersion: 2,
       id: randomUUID(),
       type: 'create',
       target: 'streetview360',
@@ -236,7 +236,7 @@ describe('Push com payload que viola CHECK do schema (item 23)', () => {
     // O outro SQLSTATE citado no relatório: valor malformado no cast. Ops de atlas
     // (`setting`) usam a sentinela 'atlas' e são desviadas antes do cast; uma feição
     // com id lixo, não.
-    await pushEnvenenado({
+    await pushEnvenenado({ protocolVersion: 2,
       id: randomUUID(),
       type: 'update',
       target: 'feature',
@@ -258,7 +258,7 @@ describe('Push com payload que viola CHECK do schema (item 23)', () => {
 
     const res = await push([
       criaFeicao(idBom),
-      {
+      { protocolVersion: 2,
         id: randomUUID(), type: 'update', target: 'feature', targetId: randomUUID(),
         mapId: map.id, changes: { map_id: outroMapa.id },
         timestamp: Date.now() + 1, clientId: 'chk-client',
@@ -277,17 +277,17 @@ describe('Push com payload que viola CHECK do schema (item 23)', () => {
     const sv360Id = randomUUID();
 
     const res = await push([
-      {
+      { protocolVersion: 2,
         id: randomUUID(), type: 'update', target: 'layer', targetId: layer.id, mapId: map.id,
         changes: { opacity: 0.5 }, timestamp: Date.now(), clientId: 'chk-client',
       },
       criaFeicao(featId, 'point'),
-      {
+      { protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'cesium3d', targetId: c3dId, mapId: map.id,
         data: { data_type: 'marker', tileset_id: 'PCL', data: { properties: { name: 'ok' } } },
         timestamp: Date.now(), clientId: 'chk-client',
       },
-      {
+      { protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'streetview360', targetId: sv360Id, mapId: map.id,
         data: { data_type: 'marker', photo_name: 'p1', data: { heading: 0 } },
         timestamp: Date.now(), clientId: 'chk-client',
@@ -321,7 +321,7 @@ describe('Push com payload que viola CHECK do schema (item 23)', () => {
   it('layers_opacity_range: 0 e 1 passam; -0.0001 e 1.0001 são recusados (limites inclusivos)', async () => {
     const layer = await createLayer(db, map.id, { name: 'Camada limites' });
     const set = (opacity) =>
-      push([{
+      push([{ protocolVersion: 2,
         id: randomUUID(), type: 'update', target: 'layer', targetId: layer.id, mapId: map.id,
         changes: { opacity }, timestamp: Date.now(), clientId: 'chk-client',
       }]);
@@ -354,7 +354,7 @@ describe('Push com payload que viola CHECK do schema (item 23)', () => {
     // não há idempotência por op_id para invocar aqui — o que prende a resposta é o
     // CHECK, que não muda.)
     const layer = await createLayer(db, map.id, { name: 'Camada reenvio' });
-    const op = {
+    const op = { protocolVersion: 2,
       id: randomUUID(), type: 'update', target: 'layer', targetId: layer.id, mapId: map.id,
       changes: { opacity: 7 }, timestamp: Date.now(), clientId: 'chk-client',
     };

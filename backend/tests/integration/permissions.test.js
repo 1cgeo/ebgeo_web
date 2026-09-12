@@ -91,7 +91,7 @@ describe('Permission Matrix', () => {
       .post(`/api/v1/atlas/${privateAtlas.id}/sync`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({
-        operations: [{
+        operations: [{ protocolVersion: 2,
           id: randomUUID(),
           entityType: 'feature',
           operationType: 'create',
@@ -127,7 +127,7 @@ describe('Permission Matrix', () => {
       .post(`/api/v1/atlas/${privateAtlas.id}/sync`)
       .set('Authorization', `Bearer ${writerToken}`)
       .send({
-        operations: [{
+        operations: [{ protocolVersion: 2,
           id: randomUUID(),
           entityType: 'feature',
           operationType: 'create',
@@ -185,7 +185,7 @@ describe('Permission Matrix', () => {
       .post(`/api/v1/atlas/${privateAtlas.id}/sync`)
       .set('Authorization', `Bearer ${readerToken}`)
       .send({
-        operations: [{
+        operations: [{ protocolVersion: 2,
           id: randomUUID(),
           entityType: 'feature',
           operationType: 'create',
@@ -212,7 +212,7 @@ describe('Permission Matrix', () => {
   // The tier this project has silently dropped twice. The route itself is gated
   // at `comment` (sync.routes.js), so the real decision by level happens inside
   // the service — which is why the assertion below is a SELECT, not a status.
-  const featureOp = (entityId, clientId, coords) => ({
+  const featureOp = (entityId, clientId, coords) => ({ protocolVersion: 2,
     id: randomUUID(),
     entityType: 'feature',
     operationType: 'create',
@@ -266,7 +266,7 @@ describe('Permission Matrix', () => {
       .post(`/api/v1/atlas/${privateAtlas.id}/sync`)
       .set('Authorization', `Bearer ${commenterToken}`)
       .send({
-        operations: [{
+        operations: [{ protocolVersion: 2,
           id: randomUUID(),
           entityType: 'comment',
           operationType: 'create',

@@ -53,7 +53,7 @@ describe('Snapshot generation commit with native IndexedDB', () => {
 
     it('activates complete data and cursor together and recovers a prepared intention with its original ID', async () => {
         const previous = localRepository.forScope(scope);
-        const op = { id: 'prepared-survives', entityType: 'feature', operationType: 'create', entityId: featureId, mapId,
+        const op = { protocolVersion: 2, id: 'prepared-survives', entityType: 'feature', operationType: 'create', entityId: featureId, mapId,
             data: { type: 'Feature', geometry: { type: 'Point', coordinates: [1, 2] }, properties: { id: featureId, source: 'point' } } };
         await operationQueue.enqueueAll([op], { prepared: true });
         expect(await operationQueue.peek()).toEqual([]);

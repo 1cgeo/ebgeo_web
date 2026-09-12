@@ -105,7 +105,7 @@ describe('limite de frame do WebSocket (maxPayload 10 MB)', () => {
 
     // ~1 MB de payload legítimo: 8 ops com ~128 KB de propriedades cada.
     const encheu = 'a'.repeat(128 * 1024);
-    const ops = Array.from({ length: 8 }, (_, i) => ({
+    const ops = Array.from({ length: 8 }, (_, i) => ({ protocolVersion: 2,
       id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: randomUUID(),
       mapId: map.id,
       data: {

@@ -47,7 +47,7 @@ describe('Layer Operations via Sync', () => {
     it('renames layer via sync update', async () => {
       const layer = await createLayer(db, map.id, { name: 'Original Layer' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'layer',
@@ -67,7 +67,7 @@ describe('Layer Operations via Sync', () => {
     it('toggles layer visibility off via sync', async () => {
       const layer = await createLayer(db, map.id, { name: 'Visible Layer', visible: true });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'layer',
@@ -85,7 +85,7 @@ describe('Layer Operations via Sync', () => {
     it('toggles layer visibility on via sync', async () => {
       const layer = await createLayer(db, map.id, { name: 'Hidden Layer', visible: false });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'layer',
@@ -105,7 +105,7 @@ describe('Layer Operations via Sync', () => {
     it('locks layer via sync', async () => {
       const layer = await createLayer(db, map.id, { name: 'Unlocked Layer', locked: false });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'layer',
@@ -123,7 +123,7 @@ describe('Layer Operations via Sync', () => {
     it('unlocks layer via sync', async () => {
       const layer = await createLayer(db, map.id, { name: 'Locked Layer', locked: true });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'layer',
@@ -143,7 +143,7 @@ describe('Layer Operations via Sync', () => {
     it('updates layer sort_order via sync', async () => {
       const layer = await createLayer(db, map.id, { name: 'Layer Order', sort_order: 0 });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'layer',
@@ -161,7 +161,7 @@ describe('Layer Operations via Sync', () => {
     it('accepts frontend alias "order" for sort_order', async () => {
       const layer = await createLayer(db, map.id, { name: 'Layer Order Alias', sort_order: 0 });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'layer',
@@ -181,7 +181,7 @@ describe('Layer Operations via Sync', () => {
     it('updates layer opacity via sync', async () => {
       const layer = await createLayer(db, map.id, { name: 'Opacity Layer', opacity: 1 });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'layer',
@@ -201,7 +201,7 @@ describe('Layer Operations via Sync', () => {
     it('updates layer style via sync', async () => {
       const layer = await createLayer(db, map.id, { name: 'Style Layer' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'layer',
@@ -221,7 +221,7 @@ describe('Layer Operations via Sync', () => {
     it('soft-deletes layer via sync', async () => {
       const layer = await createLayer(db, map.id, { name: 'To Delete Layer' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'delete',
         target: 'layer',
@@ -237,7 +237,7 @@ describe('Layer Operations via Sync', () => {
 
     it('deleted layer is excluded from snapshot', async () => {
       const layerId = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'create',
         target: 'layer',
@@ -248,7 +248,7 @@ describe('Layer Operations via Sync', () => {
         clientId: 'test-client',
       }]).expect(200);
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'delete',
         target: 'layer',
@@ -271,7 +271,7 @@ describe('Layer Operations via Sync', () => {
       const now = Date.now();
 
       await pushSync([
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           type: 'update',
           target: 'layer',
@@ -281,7 +281,7 @@ describe('Layer Operations via Sync', () => {
           timestamp: now,
           clientId: 'test-client',
         },
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           type: 'update',
           target: 'layer',
@@ -303,7 +303,7 @@ describe('Layer Operations via Sync', () => {
   describe('Layer in snapshot', () => {
     it('snapshot includes layer with all fields including order alias', async () => {
       const layerId = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'create',
         target: 'layer',

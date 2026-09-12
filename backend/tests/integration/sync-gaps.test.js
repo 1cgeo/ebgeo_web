@@ -1,3 +1,4 @@
+import { featureMutation } from '../helpers/feature-operation.js';
 // Path: tests/integration/sync-gaps.test.js
 // Integration tests for CONFIRMED gaps in the Sync CRDT subsystem (core + entity-ops).
 // Each test asserts CURRENT behavior verified against src/modules/sync/*.
@@ -33,7 +34,7 @@ function pushOps(app, atlasId, token, operations) {
 
 // Helper: build a well-formed create-feature op.
 function createFeatureOp(mapId, targetId, props = {}, ts = Date.now()) {
-  return {
+  return { protocolVersion: 2,
     id: randomUUID(),
     type: 'create',
     target: 'feature',
@@ -147,7 +148,7 @@ describe('Sync CRDT — confirmed gaps', () => {
       // transação do lote (como a recusa de política fazia antes de virar ack), a feição
       // seguinte sumiria junto e o cliente reenviaria o lote envenenado para sempre.
       const res = await pushOps(app, atlas.id, token, [
-        {
+        { protocolVersion: 2,
           id: opId,
           type: 'create',
           target: 'bogus_type',
@@ -226,43 +227,43 @@ describe('Sync CRDT — confirmed gaps', () => {
   });
 
   // --- sync-07 / sync-06 (LWW by arrival order) ------------------------------
-  describe('LWW by arrival order (timestamp ignored)', () => {
-    it('within one batch, the LAST update wins even with an older timestamp', async () => {
+  describe('Version-based conflicts (timestamp ignored)', () => {
+    it('within one batch, a second edit against the old base does not overwrite the first', async () => {
       const atlas = await createAtlas(db, user.id);
       const map = await createMap(db, atlas.id);
       const f = await createFeature(db, map.id, { properties: { name: 'orig' } });
 
       await pushOps(app, atlas.id, token, [
-        {
+        featureMutation(f, { protocolVersion: 2,
           id: randomUUID(), type: 'update', target: 'feature', targetId: f.id, mapId: map.id,
           changes: { properties: { name: 'B' } }, timestamp: 2000, clientId: 'c',
-        },
-        {
+        }),
+        featureMutation(f, { protocolVersion: 2,
           id: randomUUID(), type: 'update', target: 'feature', targetId: f.id, mapId: map.id,
           changes: { properties: { name: 'A' } }, timestamp: 1000, clientId: 'c',
-        },
+        }),
       ]).expect(200);
 
       const { rows } = await db.query('SELECT properties FROM features WHERE id = $1', [f.id]);
-      assert.equal(rows[0].properties.name, 'A');
+      assert.equal(rows[0].properties.name, 'B');
     });
 
-    it('update arriving AFTER delete mutates the row but deleted_at stays set', async () => {
+    it('update arriving AFTER delete preserves the tombstone and original content', async () => {
       const atlas = await createAtlas(db, user.id);
       const map = await createMap(db, atlas.id);
       const f = await createFeature(db, map.id, { properties: { name: 'orig' } });
 
       await pushOps(app, atlas.id, token, [
-        { id: randomUUID(), type: 'delete', target: 'feature', targetId: f.id, mapId: map.id, timestamp: 1, clientId: 'c' },
-        {
+        featureMutation(f, { protocolVersion: 2, id: randomUUID(), type: 'delete', target: 'feature', targetId: f.id, mapId: map.id, timestamp: 1, clientId: 'c' }),
+        featureMutation(f, { protocolVersion: 2,
           id: randomUUID(), type: 'update', target: 'feature', targetId: f.id, mapId: map.id,
           changes: { properties: { x: 1 } }, timestamp: 2, clientId: 'c',
-        },
+        }),
       ]).expect(200);
 
       const { rows } = await db.query('SELECT deleted_at, properties FROM features WHERE id = $1', [f.id]);
       assert.ok(rows[0].deleted_at, 'still soft-deleted (delete wins by arrival)');
-      assert.equal(rows[0].properties.x, 1, 'update still mutated the row');
+      assert.equal(rows[0].properties.x, undefined, 'late update cannot mutate a tombstone');
     });
 
     it('create with ON CONFLICT (id) DO NOTHING does not overwrite existing data', async () => {
@@ -270,7 +271,7 @@ describe('Sync CRDT — confirmed gaps', () => {
       const map = await createMap(db, atlas.id);
       const f = await createFeature(db, map.id, { properties: { name: 'original' } });
 
-      await pushOps(app, atlas.id, token, [{
+      await pushOps(app, atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'feature', targetId: f.id, mapId: map.id,
         data: { feature_type: 'point', geometry: { coordinates: [9, 9] }, properties: { name: 'overwritten' } },
         timestamp: Date.now(), clientId: 'c',
@@ -303,7 +304,7 @@ describe('Sync CRDT — confirmed gaps', () => {
       const res = await pushOps(app, atlas.id, token, [
         { ...createFeatureOp(map.id, f1), id: op1Id },
         // op2: feature create with no feature_type -> NOT NULL violation on insert
-        {
+        { protocolVersion: 2,
           id: op2Id, type: 'create', target: 'feature', targetId: randomUUID(), mapId: map.id,
           data: { geometry: { coordinates: [0, 0] }, properties: {} },
           timestamp: Date.now(), clientId: 'c',
@@ -447,7 +448,7 @@ describe('Sync CRDT — confirmed gaps', () => {
       const atlas = await createAtlas(db, user.id);
       const slideId = randomUUID();
 
-      const res = await pushOps(app, atlas.id, token, [{
+      const res = await pushOps(app, atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'slide', targetId: slideId,
         data: { briefing_id: randomUUID(), title: 'Orphan' },
         timestamp: Date.now(), clientId: 'c',
@@ -484,41 +485,41 @@ describe('Sync CRDT — confirmed gaps', () => {
 
   // --- sync-16 (intra-batch delete-then-update / update-then-delete) ---------
   describe('intra-batch ordering: update after delete keeps row deleted; update before delete ends deleted', () => {
-    it('[delete F, update F] => deleted_at set AND update applied AND version bumped twice', async () => {
+    it('[delete F, update F] => only delete changes the row and its revision', async () => {
       const atlas = await createAtlas(db, user.id);
       const map = await createMap(db, atlas.id);
       const f = await createFeature(db, map.id, { properties: { name: 'before' } });
       const v0 = (await db.query('SELECT version FROM features WHERE id = $1', [f.id])).rows[0].version;
 
       await pushOps(app, atlas.id, token, [
-        { id: randomUUID(), type: 'delete', target: 'feature', targetId: f.id, mapId: map.id, timestamp: 1, clientId: 'c' },
-        {
+        featureMutation(f, { protocolVersion: 2, id: randomUUID(), type: 'delete', target: 'feature', targetId: f.id, mapId: map.id, timestamp: 1, clientId: 'c' }),
+        featureMutation(f, { protocolVersion: 2,
           id: randomUUID(), type: 'update', target: 'feature', targetId: f.id, mapId: map.id,
           changes: { properties: { name: 'after' } }, timestamp: 2, clientId: 'c',
-        },
+        }),
       ]).expect(200);
 
       const { rows } = await db.query('SELECT deleted_at, properties, version FROM features WHERE id = $1', [f.id]);
       assert.ok(rows[0].deleted_at, 'still deleted');
-      assert.equal(rows[0].properties.name, 'after', 'update still applied');
-      assert.equal(Number(rows[0].version), Number(v0) + 2, 'version bumped twice');
+      assert.equal(rows[0].properties.name, 'before', 'late update refused');
+      assert.equal(Number(rows[0].version), Number(v0) + 1, 'only delete advances version');
     });
 
-    it('[update G, delete G] => G ends soft-deleted', async () => {
+    it('[update G, stale delete G] => the accepted edit is preserved', async () => {
       const atlas = await createAtlas(db, user.id);
       const map = await createMap(db, atlas.id);
       const g = await createFeature(db, map.id, { properties: { name: 'g' } });
 
       await pushOps(app, atlas.id, token, [
-        {
+        featureMutation(g, { protocolVersion: 2,
           id: randomUUID(), type: 'update', target: 'feature', targetId: g.id, mapId: map.id,
           changes: { properties: { name: 'edited' } }, timestamp: 1, clientId: 'c',
-        },
-        { id: randomUUID(), type: 'delete', target: 'feature', targetId: g.id, mapId: map.id, timestamp: 2, clientId: 'c' },
+        }),
+        featureMutation(g, { protocolVersion: 2, id: randomUUID(), type: 'delete', target: 'feature', targetId: g.id, mapId: map.id, timestamp: 2, clientId: 'c' }),
       ]).expect(200);
 
       const { rows } = await db.query('SELECT deleted_at FROM features WHERE id = $1', [g.id]);
-      assert.ok(rows[0].deleted_at);
+      assert.equal(rows[0].deleted_at, null);
     });
   });
 
@@ -576,19 +577,19 @@ describe('Sync CRDT — confirmed gaps', () => {
       const layerId = randomUUID();
 
       // create
-      await pushOps(app, atlas.id, token, [{
+      await pushOps(app, atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'catalogLayer', targetId: layerId, mapId: map.id,
         data: { name: 'orig', visible: false }, timestamp: Date.now(), clientId: 'c',
       }]).expect(200);
 
       // delete
-      await pushOps(app, atlas.id, token, [{
+      await pushOps(app, atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'delete', target: 'catalogLayer', targetId: layerId, mapId: map.id,
         timestamp: Date.now(), clientId: 'c',
       }]).expect(200);
 
       // (a) update after delete -> no-op (guarded by deleted_at IS NULL)
-      await pushOps(app, atlas.id, token, [{
+      await pushOps(app, atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'update', target: 'catalogLayer', targetId: layerId, mapId: map.id,
         changes: { name: 'resurrected', visible: true }, timestamp: Date.now(), clientId: 'c',
       }]).expect(200);
@@ -599,7 +600,7 @@ describe('Sync CRDT — confirmed gaps', () => {
       assert.equal(rows[0].data.name, 'orig', 'data unchanged');
 
       // (b) create reusing the id -> revives the row and adopts the new payload
-      await pushOps(app, atlas.id, token, [{
+      await pushOps(app, atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'catalogLayer', targetId: layerId, mapId: map.id,
         data: { name: 'fresh', visible: true }, timestamp: Date.now(), clientId: 'c',
       }]).expect(200);
@@ -612,26 +613,26 @@ describe('Sync CRDT — confirmed gaps', () => {
   });
 
   // --- sync-18 (orphan write under a soft-deleted parent map) ----------------
-  describe('child write under a soft-deleted parent map still mutates the child', () => {
-    it('update of a feature whose map is soft-deleted writes the field; snapshot omits both', async () => {
+  describe('child write under a soft-deleted parent map preserves the child', () => {
+    it('update of a feature whose map is soft-deleted is refused; snapshot omits both', async () => {
       const atlas = await createAtlas(db, user.id);
       const map = await createMap(db, atlas.id);
       const f = await createFeature(db, map.id, { properties: { name: 'orig' } });
 
       // Soft-delete the map via sync.
-      await pushOps(app, atlas.id, token, [{
+      await pushOps(app, atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'delete', target: 'map', targetId: map.id, mapId: map.id,
         timestamp: Date.now(), clientId: 'c',
       }]).expect(200);
 
-      // Late update of a child of the now-dead map (current behavior: still applies).
-      await pushOps(app, atlas.id, token, [{
+      // Late update of a child of the now-dead map must not change its content.
+      await pushOps(app, atlas.id, token, [featureMutation(f, { protocolVersion: 2,
         id: randomUUID(), type: 'update', target: 'feature', targetId: f.id, mapId: map.id,
         changes: { properties: { x: 1 } }, timestamp: Date.now(), clientId: 'c',
-      }]).expect(200);
+      })]).expect(200);
 
       const { rows } = await db.query('SELECT properties FROM features WHERE id = $1', [f.id]);
-      assert.equal(rows[0].properties.x, 1, 'child row mutated even under dead parent');
+      assert.equal(rows[0].properties.x, undefined, 'child row preserved under dead parent');
 
       // Snapshot omits the deleted map (and therefore the feature).
       const res = await supertest(app)
@@ -654,7 +655,7 @@ describe('Sync CRDT — confirmed gaps', () => {
       const groupB = await createGroup(db, mapB.id);
 
       const groupId = randomUUID();
-      await pushOps(app, atlasA.id, token, [{
+      await pushOps(app, atlasA.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'group', targetId: groupId, mapId: mapA.id,
         data: { name: 'with-foreign-parent', parent_id: groupB.id },
         timestamp: Date.now(), clientId: 'c',
@@ -670,7 +671,7 @@ describe('Sync CRDT — confirmed gaps', () => {
       const map = await createMap(db, atlas.id);
       const g = await createGroup(db, map.id);
 
-      await pushOps(app, atlas.id, token, [{
+      await pushOps(app, atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'update', target: 'group', targetId: g.id, mapId: map.id,
         changes: { parent_id: g.id }, timestamp: Date.now(), clientId: 'c',
       }]).expect(200);
@@ -693,7 +694,7 @@ describe('Sync CRDT — confirmed gaps', () => {
       const mapB = await createMap(db, atlasB.id);
 
       const slideId = randomUUID();
-      await pushOps(app, atlasA.id, token, [{
+      await pushOps(app, atlasA.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'slide', targetId: slideId,
         data: { briefing_id: briefingA.id, title: 'cross', map_id: mapB.id },
         timestamp: Date.now(), clientId: 'c',

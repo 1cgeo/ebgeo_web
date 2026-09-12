@@ -27,7 +27,7 @@ const SYNC_PUSH_LOCK_NAMESPACE = 0x53594e43;
 
 function pointOp(mapId, opId) {
   const featureId = randomUUID();
-  return {
+  return { protocolVersion: 2,
     id: opId,
     entityType: 'feature',
     operationType: 'create',

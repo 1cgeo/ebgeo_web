@@ -341,6 +341,20 @@ describe('idempotency + stop', () => {
 // ============================================================================
 
 describe('atlas_gone para o laço', () => {
+    it('stops immediately for an incompatible protocol without draining pending work or retrying on edits', async () => {
+        goOnline();
+        queueState.pending = 3;
+        const outdated = engineQueFalha(426);
+        startAutoFlush(outdated, { intervalMs: 1000 });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(outdated.flush).toHaveBeenCalledTimes(1);
+        expect(isAutoFlushRunning()).toBe(false);
+        await vi.advanceTimersByTimeAsync(60000);
+        mockBus.emit(EventTypes.FEATURE_CREATED, {});
+        await vi.advanceTimersByTimeAsync(0);
+        expect(outdated.flush).toHaveBeenCalledTimes(1);
+        expect(queueState.pending).toBe(3);
+    });
     /**
      * @param {number} status - HTTP status a devolver.
      * @returns {Object} Engine cujo `flush` sempre rejeita com aquele status.

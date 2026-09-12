@@ -53,7 +53,7 @@ describe('lock_timeout do push → 503 retentável (repro)', () => {
     await teardownTestEnv(db);
   });
 
-  const featureOp = (mapId) => ({
+  const featureOp = (mapId) => ({ protocolVersion: 2,
     id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: randomUUID(),
     mapId,
     data: { type: 'Feature', geometry: { type: 'Point', coordinates: [-43, -22] }, properties: { source: 'point' } },

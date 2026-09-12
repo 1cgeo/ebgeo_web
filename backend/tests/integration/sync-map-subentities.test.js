@@ -75,7 +75,7 @@ describe('Sync Map Sub-entities', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${ownerToken}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             entityType: 'mapPosition',
             operationType: 'update',
@@ -113,7 +113,7 @@ describe('Sync Map Sub-entities', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${ownerToken}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             entityType: 'mapPosition',
             operationType: 'update',
@@ -142,7 +142,7 @@ describe('Sync Map Sub-entities', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${ownerToken}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             entityType: 'baseLayer',
             operationType: 'update',
@@ -172,7 +172,7 @@ describe('Sync Map Sub-entities', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${ownerToken}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             entityType: 'baseLayer',
             operationType: 'update',
@@ -198,7 +198,7 @@ describe('Sync Map Sub-entities', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${ownerToken}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             entityType: 'mapNotes',
             operationType: 'update',
@@ -227,7 +227,7 @@ describe('Sync Map Sub-entities', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${ownerToken}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             entityType: 'mapNotes',
             operationType: 'update',
@@ -261,7 +261,7 @@ describe('Sync Map Sub-entities', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${ownerToken}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             entityType: 'gridStyle',
             operationType: 'update',
@@ -297,7 +297,7 @@ describe('Sync Map Sub-entities', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${ownerToken}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             entityType: 'catalogLayer',
             operationType: 'update',
@@ -335,7 +335,7 @@ describe('Sync Map Sub-entities', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${readerToken}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             entityType: 'mapPosition',
             operationType: 'update',
@@ -360,7 +360,7 @@ describe('Sync Map Sub-entities', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${writerToken}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             entityType: 'mapPosition',
             operationType: 'update',
@@ -389,7 +389,7 @@ describe('Sync Map Sub-entities', () => {
         .set('Authorization', `Bearer ${ownerToken}`)
         .send({
           operations: [
-            {
+            { protocolVersion: 2,
               id: randomUUID(),
               entityType: 'mapPosition',
               operationType: 'update',
@@ -399,7 +399,7 @@ describe('Sync Map Sub-entities', () => {
               timestamp: now,
               clientId: 'batch-client',
             },
-            {
+            { protocolVersion: 2,
               id: randomUUID(),
               entityType: 'baseLayer',
               operationType: 'update',
@@ -409,7 +409,7 @@ describe('Sync Map Sub-entities', () => {
               timestamp: now + 1,
               clientId: 'batch-client',
             },
-            {
+            { protocolVersion: 2,
               id: randomUUID(),
               entityType: 'mapNotes',
               operationType: 'update',

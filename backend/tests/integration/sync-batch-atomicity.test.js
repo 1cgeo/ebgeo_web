@@ -41,14 +41,14 @@ describe('Sync push batch atomicity (one push = one transaction)', () => {
 
   it('a failing op mid-batch rolls back the whole push (nothing persists)', async () => {
     const goodId = randomUUID();
-    const goodCreate = {
+    const goodCreate = { protocolVersion: 2,
       id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: goodId, mapId: mapA.id,
       data: { type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: { id: goodId, source: 'point' } },
       timestamp: Date.now(), clientId: 'atomic-c',
     };
     // This op throws (cross-atlas map_id reference) AFTER the good op already applied
     // within the same transaction → the transaction must roll the good op back too.
-    const crossAtlas = {
+    const crossAtlas = { protocolVersion: 2,
       id: randomUUID(), entityType: 'feature', operationType: 'update', entityId: randomUUID(), mapId: mapA.id,
       changes: { map_id: mapB.id }, timestamp: Date.now() + 1, clientId: 'atomic-c',
     };
@@ -73,7 +73,7 @@ describe('Sync push batch atomicity (one push = one transaction)', () => {
 
   it('a fully-valid batch persists every op (atomic success)', async () => {
     const ids = [randomUUID(), randomUUID(), randomUUID()];
-    const ops = ids.map((id) => ({
+    const ops = ids.map((id) => ({ protocolVersion: 2,
       id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: id, mapId: mapA.id,
       data: { type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: { id, source: 'point' } },
       timestamp: Date.now(), clientId: 'atomic-c',

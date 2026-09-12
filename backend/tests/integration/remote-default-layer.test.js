@@ -16,7 +16,7 @@ describe('Server-owned default layers', () => {
       .send({ name: 'Camadas reais' }).expect(201)).body.data;
   });
   after(async () => teardownTestEnv(db));
-  const op = (entityType, operationType, entityId, mapId, data) => ({
+  const op = (entityType, operationType, entityId, mapId, data) => ({ protocolVersion: 2,
     id: randomUUID(), entityType, operationType, entityId, mapId, data,
     timestamp: Date.now(), clientId: 'default-layer-test',
   });
@@ -70,7 +70,7 @@ describe('Server-owned default layers', () => {
     assert.equal(saved.opacity, 0.4);
   });
 
-  it('resolving an implicit layer does not change the receipt identity of legacy create/update envelopes', async () => {
+  it('resolving an implicit layer does not change the receipt identity of flat v2 create/update envelopes', async () => {
     const { id } = await newMap();
     const featureId = randomUUID();
     const create = op('feature', 'create', featureId, id, { feature_type: 'point',
@@ -80,6 +80,9 @@ describe('Server-owned default layers', () => {
     assert.equal(replay.results[0].status, 'already_applied');
     assert.equal(replay.results[0].currentVersion, first.results[0].currentVersion);
     const update = { ...op('feature', 'update', featureId, id),
+      baseVersion: first.results[0].entityVersion,
+      patch: [{ op: 'set', path: ['properties', 'layerId'], value: null },
+        { op: 'set', path: ['properties', 'name'], value: 'Legado atualizado' }],
       changes: { layer_id: null, properties: { name: 'Legado atualizado' } } };
     const changed = await push(update);
     const repeated = await push(update);

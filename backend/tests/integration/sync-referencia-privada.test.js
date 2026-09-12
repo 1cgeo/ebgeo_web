@@ -98,7 +98,7 @@ describe('sync — referência a recurso privado: o gate de escrita nas quatro s
    * importam: a recusa da alvo e a SOBREVIVÊNCIA do lote.
    */
   const pushComIrma = async (token, op) => {
-    const irma = {
+    const irma = { protocolVersion: 2,
       id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: randomUUID(),
       mapId: mapa.id, timestamp: Date.now(), clientId: `srp-${SFX}`,
       data: {
@@ -114,7 +114,7 @@ describe('sync — referência a recurso privado: o gate de escrita nas quatro s
   };
 
   /** A op FLAT camelCase que o cliente real emite para uma entidade 3D. */
-  const op3d = (entityId, tilesetId, operationType = 'create') => ({
+  const op3d = (entityId, tilesetId, operationType = 'create') => ({ protocolVersion: 2,
     id: randomUUID(), entityType: 'marker3d', operationType, entityId, mapId: mapa.id,
     timestamp: Date.now(), clientId: `srp-${SFX}`,
     data: operationType === 'delete' ? null : {
@@ -125,7 +125,7 @@ describe('sync — referência a recurso privado: o gate de escrita nas quatro s
   });
 
   /** A op FLAT camelCase de um marcador 360. */
-  const op360 = (entityId, photoName, operationType = 'create') => ({
+  const op360 = (entityId, photoName, operationType = 'create') => ({ protocolVersion: 2,
     id: randomUUID(), entityType: 'marker360', operationType, entityId, mapId: mapa.id,
     timestamp: Date.now(), clientId: `srp-${SFX}`,
     data: operationType === 'delete' ? null : {
@@ -135,7 +135,7 @@ describe('sync — referência a recurso privado: o gate de escrita nas quatro s
   });
 
   /** A op de slide, camelCase, com o id do briefing no slot `mapId` — como o cliente real. */
-  const opSlide = (entityId, campos, operationType = 'create') => ({
+  const opSlide = (entityId, campos, operationType = 'create') => ({ protocolVersion: 2,
     id: randomUUID(), entityType: 'slide', operationType, entityId, mapId: briefing.id,
     timestamp: Date.now(), clientId: `srp-${SFX}`,
     data: operationType === 'delete' ? null : {
@@ -144,7 +144,7 @@ describe('sync — referência a recurso privado: o gate de escrita nas quatro s
   });
 
   /** A op de camada de base: sub-tipo `baseLayer`, payload `{ baseLayer }`. */
-  const opBaseLayer = (baseLayer) => ({
+  const opBaseLayer = (baseLayer) => ({ protocolVersion: 2,
     id: randomUUID(), entityType: 'baseLayer', operationType: 'update', entityId: mapa.id,
     mapId: mapa.id, timestamp: Date.now(), clientId: `srp-${SFX}`,
     data: { baseLayer },
@@ -467,7 +467,7 @@ describe('sync — referência a recurso privado: o gate de escrita nas quatro s
     const morto = await createMap(db, atlas.id, { name: `Mapa base morta ${SFX}` });
     await db.query('UPDATE maps SET base_layer = $2 WHERE id = $1', [morto.id, BM_PRIVADO]);
 
-    const { acks } = await push(tokenDono, [{
+    const { acks } = await push(tokenDono, [{ protocolVersion: 2,
       id: randomUUID(), entityType: 'map', operationType: 'delete', entityId: morto.id,
       timestamp: Date.now(), clientId: `srp-${SFX}`, data: null,
     }]);
@@ -488,7 +488,7 @@ describe('sync — referência a recurso privado: o gate de escrita nas quatro s
     // escrita. Gatear ali recusaria a op inteira por um campo que nunca chega a coluna nenhuma:
     // o gate espelha a escrita, não a intenção declarada.
     const antes = await baseLayerDoMapa();
-    const { acks } = await push(tokenMembro, [{
+    const { acks } = await push(tokenMembro, [{ protocolVersion: 2,
       id: randomUUID(), entityType: 'mapTemporal', operationType: 'update', entityId: mapa.id,
       mapId: mapa.id, timestamp: Date.now(), clientId: `srp-${SFX}`,
       data: { ativo: true, unidade: 'hora', base_layer: BM_PRIVADO },
@@ -504,7 +504,7 @@ describe('sync — referência a recurso privado: o gate de escrita nas quatro s
     // INTEIRO, `baseLayer` incluso, e `buildUpdateQuery` escreve a coluna a partir dele. Um gate
     // que só conhecesse o sub-tipo `baseLayer` deixaria esta porta aberta.
     const antes = await baseLayerDoMapa();
-    const { acks } = await push(tokenMembro, [{
+    const { acks } = await push(tokenMembro, [{ protocolVersion: 2,
       id: randomUUID(), entityType: 'map', operationType: 'update', entityId: mapa.id,
       timestamp: Date.now(), clientId: `srp-${SFX}`,
       data: { id: mapa.id, name: 'Mapa SRP', baseLayer: BM_PRIVADO },

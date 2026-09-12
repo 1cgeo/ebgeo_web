@@ -105,6 +105,8 @@ const NEGA_LEITOR = 'O leitor (`read`) é o único degrau que não escreve nada,
 
 /** @type {Entrada[]} */
 const CENSO = [
+  { arquivo: 'src/modules/sync/sync.service.js', trecho: "op.target === 'comment'", n: 1, classe: HOMONIMO,
+    motivo: 'Tipo da entidade na consulta de recibos. A visibilidade do comentário usa o piso hierárquico PERMISSION_LEVELS.comment; o literal aqui identifica conteúdo, não permissão.' },
   // ---------------- a lista fechada que sobrou de pé: NENHUMA ---------------
   //
   // Aqui morava a única entrada `LISTA_FECHADA_VIVA` do pacote, o gate de EMISSÃO de seleção

@@ -284,7 +284,7 @@ describe('35 — /debug/trace serves the atlas ring fed by a real sync push', ()
       .post(`/api/v1/atlas/${atlas.id}/sync`)
       .set('Authorization', `Bearer ${token}`)
       .send({
-        operations: [{
+        operations: [{ protocolVersion: 2,
           id: opId,
           entityType: 'map',
           operationType: 'create',

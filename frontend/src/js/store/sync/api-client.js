@@ -2614,6 +2614,16 @@ export class ApiClient {
         return this._request('POST', `/atlas/${atlasId}/sync`, { body: { operations }, timeoutMs: 30000, signal });
     }
 
+    /** Looks up delivery without submitting the old intentions for execution. */
+    async lookupOperationReceipts(atlasId, operations, { signal } = {}) {
+        return this._request('POST', `/atlas/${atlasId}/sync/receipts`, { body: { operations }, timeoutMs: 30000, signal });
+    }
+
+    /** Negotiates the write contract before remote editing is enabled. */
+    async getSyncProtocol(atlasId, { signal } = {}) {
+        return this._request('GET', `/atlas/${atlasId}/sync/protocol`, { signal });
+    }
+
     // ===== IMAGES (feature photos §17.14 / custom marker icons §17.19) =====
 
     /**

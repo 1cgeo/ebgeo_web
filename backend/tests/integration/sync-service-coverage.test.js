@@ -1,3 +1,4 @@
+import { featureMutation } from '../helpers/feature-operation.js';
 // Path: tests/integration/sync-service-coverage.test.js
 // Targeted coverage for src/modules/sync/sync.service.js behaviors that the existing
 // sync-*.test.js suite does NOT exercise (verified by reading every sync test):
@@ -105,7 +106,7 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
     it('pushing the SAME op_id twice creates the entity exactly once and acks idempotent', async () => {
       const opId = randomUUID();
       const featureId = randomUUID();
-      const opPayload = {
+      const opPayload = { protocolVersion: 2,
         id: opId, type: 'create', target: 'feature', targetId: featureId, mapId: map.id,
         data: { feature_type: 'point', geometry: { coordinates: [1, 2] }, properties: { name: 'idem' } },
         timestamp: Date.now(), clientId: 'idem-client',
@@ -140,33 +141,33 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
   // ---------------------------------------------------------------------------
   // 2. LWW by arrival order — across TWO pushes, and for a non-feature entity.
   // ---------------------------------------------------------------------------
-  describe('LWW by arrival order (timestamp ignored), across separate pushes', () => {
-    it('two updates in separate pushes: the later-ARRIVING value wins even with an older timestamp', async () => {
+  describe('feature conflicts and remaining layer LWW across separate pushes', () => {
+    it('two updates in separate pushes: stale base cannot overwrite the accepted edit', async () => {
       const f = await createFeatureRow(db, map.id, { name: 'start' });
 
       // First push: newer timestamp, value B.
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [featureMutation(f, { protocolVersion: 2,
         id: randomUUID(), type: 'update', target: 'feature', targetId: f.id, mapId: map.id,
         changes: { properties: { name: 'B' } }, timestamp: 5000, clientId: 'c',
-      }]);
+      })]);
       // Second push (arrives LATER): OLDER timestamp, value A. Arrival order must win.
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [featureMutation(f, { protocolVersion: 2,
         id: randomUUID(), type: 'update', target: 'feature', targetId: f.id, mapId: map.id,
         changes: { properties: { name: 'A' } }, timestamp: 1000, clientId: 'c',
-      }]);
+      })]);
 
       const { rows } = await db.query('SELECT properties FROM features WHERE id = $1', [f.id]);
-      assert.equal(rows[0].properties.name, 'A', 'last-arriving update wins, not the newest timestamp');
+      assert.equal(rows[0].properties.name, 'B', 'stale base cannot overwrite the accepted edit');
     });
 
     it('LWW also holds for a LAYER entity across two pushes', async () => {
       const layer = await createLayer(db, map.id, { name: 'L-start' });
 
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'update', target: 'layer', targetId: layer.id, mapId: map.id,
         changes: { name: 'L-second-newer-ts' }, timestamp: 9000, clientId: 'c',
       }]);
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'update', target: 'layer', targetId: layer.id, mapId: map.id,
         changes: { name: 'L-winner-older-ts' }, timestamp: 1, clientId: 'c',
       }]);
@@ -185,25 +186,27 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
   //    adopt the replayed payload, otherwise the user's Ctrl+Z is silently lost.
   // ---------------------------------------------------------------------------
   describe('soft-delete then re-create with same id resurrects (undo path)', () => {
-    it('feature delete then re-create same id revives the row, adopts the new payload and returns to the snapshot', async () => {
+    it('feature delete then explicit restore against the observed tombstone revives the same row', async () => {
       const fId = randomUUID();
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'feature', targetId: fId, mapId: map.id,
         data: geoFeature(fId, { name: 'v1' }), timestamp: Date.now(), clientId: 'c',
       }]);
       const { rows: afterCreate } = await db.query('SELECT version FROM features WHERE id = $1', [fId]);
       const versionAtCreate = afterCreate[0].version;
 
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'delete', target: 'feature', targetId: fId, mapId: map.id,
+        baseVersion: Number(versionAtCreate),
         timestamp: Date.now(), clientId: 'c',
       }]);
-      const { rows: afterDelete } = await db.query('SELECT deleted_at FROM features WHERE id = $1', [fId]);
+      const { rows: afterDelete } = await db.query('SELECT deleted_at, version FROM features WHERE id = $1', [fId]);
       assert.ok(afterDelete[0].deleted_at, 'precondition: the delete really tombstoned the row');
 
       // The undo: same id, replayed payload.
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'feature', targetId: fId, mapId: map.id,
+        featureIntent: 'restore', baseVersion: Number(afterDelete[0].version),
         data: geoFeature(fId, { name: 'RESURRECTED' }), timestamp: Date.now(), clientId: 'c',
       }]);
 
@@ -227,18 +230,18 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
 
     it('layer delete then re-create same id revives the row, adopts the new name and returns to the snapshot', async () => {
       const lId = randomUUID();
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'layer', targetId: lId, mapId: map.id,
         data: { name: 'orig-layer' }, timestamp: Date.now(), clientId: 'c',
       }]);
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'delete', target: 'layer', targetId: lId, mapId: map.id,
         timestamp: Date.now(), clientId: 'c',
       }]);
       const { rows: afterDelete } = await db.query('SELECT deleted_at FROM layers WHERE id = $1', [lId]);
       assert.ok(afterDelete[0].deleted_at, 'precondition: the delete really tombstoned the layer');
 
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'layer', targetId: lId, mapId: map.id,
         data: { name: 'reborn-layer' }, timestamp: Date.now(), clientId: 'c',
       }]);
@@ -258,18 +261,18 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
     // in the first place: same effect, different guard depending on the entity.
     it('group delete then re-create same id revives the row and adopts the new name', async () => {
       const gId = randomUUID();
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'group', targetId: gId, mapId: map.id,
         data: { name: 'orig-group' }, timestamp: Date.now(), clientId: 'c',
       }]);
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'delete', target: 'group', targetId: gId, mapId: map.id,
         timestamp: Date.now(), clientId: 'c',
       }]);
       const { rows: afterDelete } = await db.query('SELECT deleted_at FROM groups WHERE id = $1', [gId]);
       assert.ok(afterDelete[0].deleted_at, 'precondition: the delete really tombstoned the group');
 
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'group', targetId: gId, mapId: map.id,
         data: { name: 'reborn-group' }, timestamp: Date.now(), clientId: 'c',
       }]);
@@ -282,18 +285,18 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
 
     it('map delete then re-create same id revives the row and adopts the new name', async () => {
       const mId = randomUUID();
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'map', targetId: mId,
         data: { name: 'orig-map' }, timestamp: Date.now(), clientId: 'c',
       }]);
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'delete', target: 'map', targetId: mId,
         timestamp: Date.now(), clientId: 'c',
       }]);
       const { rows: afterDelete } = await db.query('SELECT deleted_at FROM maps WHERE id = $1', [mId]);
       assert.ok(afterDelete[0].deleted_at, 'precondition: the delete really tombstoned the map');
 
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'map', targetId: mId,
         data: { name: 'reborn-map' }, timestamp: Date.now(), clientId: 'c',
       }]);
@@ -306,18 +309,18 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
 
     it('briefing delete then re-create same id revives the row and adopts the new name', async () => {
       const bId = randomUUID();
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'briefing', targetId: bId,
         data: { name: 'orig-briefing' }, timestamp: Date.now(), clientId: 'c',
       }]);
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'delete', target: 'briefing', targetId: bId,
         timestamp: Date.now(), clientId: 'c',
       }]);
       const { rows: afterDelete } = await db.query('SELECT deleted_at FROM briefings WHERE id = $1', [bId]);
       assert.ok(afterDelete[0].deleted_at, 'precondition: the delete really tombstoned the briefing');
 
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'briefing', targetId: bId,
         data: { name: 'reborn-briefing' }, timestamp: Date.now(), clientId: 'c',
       }]);
@@ -330,26 +333,26 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
 
     it('slide delete then re-create same id revives the row and adopts the new title', async () => {
       const brId = randomUUID();
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'briefing', targetId: brId,
         data: { name: 'slide-host-briefing' }, timestamp: Date.now(), clientId: 'c',
       }]);
       const sId = randomUUID();
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'slide', targetId: sId,
         data: { briefing_id: brId, title: 'orig-slide' }, timestamp: Date.now(), clientId: 'c',
       }]);
       const { rows: created } = await db.query('SELECT id FROM slides WHERE id = $1', [sId]);
       assert.equal(created.length, 1, 'precondition: the slide was really created');
 
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'delete', target: 'slide', targetId: sId,
         timestamp: Date.now(), clientId: 'c',
       }]);
       const { rows: afterDelete } = await db.query('SELECT deleted_at FROM slides WHERE id = $1', [sId]);
       assert.ok(afterDelete[0].deleted_at, 'precondition: the delete really tombstoned the slide');
 
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'slide', targetId: sId,
         data: { briefing_id: brId, title: 'reborn-slide' }, timestamp: Date.now(), clientId: 'c',
       }]);
@@ -369,7 +372,7 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
   describe('map sub-type assembly writes the right column', () => {
     it('mapTemporal assembles temporal_config from loose keys (ativo/unidade/inicio/fim/modo/origem)', async () => {
       const m = await createMap(db, atlas.id, { name: 'Temporal Map' });
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), entityType: 'mapTemporal', operationType: 'update', entityId: m.id, mapId: m.id,
         data: { ativo: true, unidade: 'HORA', inicio: 100, fim: 200, modo: 'range', origem: 'feat' },
         timestamp: Date.now(), clientId: 'c',
@@ -383,7 +386,7 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
 
     it('gridStyle assembles grid_style from {format,visible}', async () => {
       const m = await createMap(db, atlas.id, { name: 'Grid Map' });
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), entityType: 'gridStyle', operationType: 'update', entityId: m.id, mapId: m.id,
         data: { format: 'mgrs', visible: true }, timestamp: Date.now(), clientId: 'c',
       }]);
@@ -407,7 +410,7 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
 
     it('cannot UPDATE a briefing of another atlas (pushed to atlas A)', async () => {
       const before = await db.query('SELECT name, version FROM briefings WHERE id = $1', [briefingB.id]);
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'update', target: 'briefing', targetId: briefingB.id,
         changes: { name: 'HACKED-BRIEFING' }, timestamp: Date.now(), clientId: 'attacker',
       }]);
@@ -418,7 +421,7 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
     });
 
     it('cannot soft-DELETE a briefing of another atlas (pushed to atlas A)', async () => {
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'delete', target: 'briefing', targetId: briefingB.id,
         timestamp: Date.now(), clientId: 'attacker',
       }]);
@@ -429,14 +432,14 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
 
     it('POSITIVE control: owner can update/delete a briefing in their OWN atlas', async () => {
       const own = await createBriefing(db, atlas.id, { name: 'Own Briefing' });
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'update', target: 'briefing', targetId: own.id,
         changes: { name: 'Own Briefing Renamed' }, timestamp: Date.now(), clientId: 'c',
       }]);
       let { rows } = await db.query('SELECT name FROM briefings WHERE id = $1', [own.id]);
       assert.equal(rows[0].name, 'Own Briefing Renamed', 'same-atlas briefing update works');
 
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'delete', target: 'briefing', targetId: own.id,
         timestamp: Date.now(), clientId: 'c',
       }]);
@@ -465,7 +468,7 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
 
     it('cannot CREATE a catalog_layer in another atlas map (pushed to atlas A with B mapId)', async () => {
       const id = randomUUID();
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), entityType: 'catalogLayer', operationType: 'create', entityId: id, mapId: mapB.id,
         data: { name: 'Injected Layer', visible: true }, timestamp: Date.now(), clientId: 'attacker',
       }]);
@@ -474,7 +477,7 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
     });
 
     it('cannot UPDATE a catalog_layer of another atlas map', async () => {
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), entityType: 'catalogLayer', operationType: 'update', entityId: victimLayerId, mapId: mapB.id,
         changes: { name: 'HACKED-CAT', visible: false }, timestamp: Date.now(), clientId: 'attacker',
       }]);
@@ -483,7 +486,7 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
     });
 
     it('cannot soft-DELETE a catalog_layer of another atlas map', async () => {
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), entityType: 'catalogLayer', operationType: 'delete', entityId: victimLayerId, mapId: mapB.id,
         timestamp: Date.now(), clientId: 'attacker',
       }]);
@@ -493,7 +496,7 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
 
     it('POSITIVE control: owner can create a catalog_layer in their OWN atlas map', async () => {
       const id = randomUUID();
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), entityType: 'catalogLayer', operationType: 'create', entityId: id, mapId: map.id,
         data: { name: 'Mine', visible: true }, timestamp: Date.now(), clientId: 'c',
       }]);
@@ -514,7 +517,7 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
       await createShare(db, atlas.id, reader.id, 'read', owner.id);
 
       const id = randomUUID();
-      await push(atlas.id, readerTok, [{
+      await push(atlas.id, readerTok, [{ protocolVersion: 2,
         id: randomUUID(), entityType: 'catalogLayer', operationType: 'create', entityId: id, mapId: map.id,
         data: { name: 'reader-attempt', visible: true }, timestamp: Date.now(), clientId: 'reader',
       }], 403);
@@ -534,7 +537,7 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
     it('a camera_position created via sync surfaces under cesium3d.cameraPositions[tileset_id]', async () => {
       const m = await createMap(db, atlas.id, { name: 'Cesium Map' });
       const id = randomUUID();
-      await push(atlas.id, token, [{
+      await push(atlas.id, token, [{ protocolVersion: 2,
         id: randomUUID(), type: 'create', target: 'cesium3d', targetId: id, mapId: m.id,
         data: { data_type: 'camera_position', tileset_id: 'AMAN', data: { position: { height: 5000 } } },
         timestamp: Date.now(), clientId: 'c',

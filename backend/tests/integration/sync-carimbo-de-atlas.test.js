@@ -49,7 +49,7 @@ describe('Carimbo de atlas de origem na operação (E2B)', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ operations });
 
-  const featureOp = (overrides = {}) => ({
+  const featureOp = (overrides = {}) => ({ protocolVersion: 2,
     id: randomUUID(),
     entityType: 'feature',
     operationType: 'create',

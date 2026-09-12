@@ -172,7 +172,7 @@ describe('F13 — a fronteira de `ws.send` cobre o relay que ninguém tinha cont
 
     a.send({
       type: 'operation',
-      op: {
+      op: { protocolVersion: 2,
         id: randomUUID(),
         entityType: 'map',
         operationType: 'update',
@@ -226,7 +226,7 @@ describe('F13 — a fronteira de `ws.send` cobre o relay que ninguém tinha cont
     a.send({
       type: 'operations',
       ops: [
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           entityType: 'map',
           operationType: 'update',
@@ -236,7 +236,7 @@ describe('F13 — a fronteira de `ws.send` cobre o relay que ninguém tinha cont
           timestamp: Date.now(),
           clientId: `a2-${sufixo}`,
         },
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           entityType: 'feature',
           operationType: 'create',

@@ -15,6 +15,7 @@ import {
 import { appendJournal } from './queue-journal.js';
 import { captureRemoteWriteFence } from '../remote-write-fence.js';
 import { fenceStore } from '../fenced-store.js';
+import { legacyQueueIssue } from './legacy-queue.js';
 
 function queueScope() {
     return getActiveScope() ?? UNMOUNTED_QUEUE_SCOPE;
@@ -64,7 +65,7 @@ class OperationQueue {
         const assertWritable = this._assertWritable ?? captureRemoteWriteFence(scope);
         const raw = getStoreFor(StoreName.OPERATION_QUEUE, scope);
         const store = scope.kind === 'remote' ? fenceStore(raw, assertWritable) : raw;
-        return { store, scopeSuffix: scope.dbSuffix, assertWritable };
+        return { store, scopeSuffix: scope.dbSuffix, remote: scope.kind === 'remote', assertWritable };
     }
 
     _buildKey(operation) {
@@ -118,8 +119,8 @@ class OperationQueue {
     }
 
     async getPendingProjection() {
-        const { store, scopeSuffix } = this._context();
-        return this._loadOperations(await this._getOrderedKeys(store), { store, scopeSuffix, projectionOnly: true });
+        const context = this._context();
+        return this._loadOperations(await this._getOrderedKeys(context.store), { ...context, projectionOnly: true });
     }
 
     async peek(count = 10) {
@@ -198,7 +199,7 @@ class OperationQueue {
             .sort();
     }
 
-    async _loadOperations(keys, { limit = Infinity, scopeSuffix = null, store = this._context().store, readyOnly = false, projectionOnly = false } = {}) {
+    async _loadOperations(keys, { limit = Infinity, scopeSuffix = null, store = this._context().store, remote = false, readyOnly = false, projectionOnly = false } = {}) {
         const operations = [];
         if (limit <= 0) return operations;
         const blockedEntities = new Set();
@@ -208,6 +209,12 @@ class OperationQueue {
             const op = await store.getItem(key);
             if (!op) continue;
             if (!operationBelongsToScope(op, scopeSuffix)) continue;
+            if (remote && (readyOnly || projectionOnly)) {
+                const issue = legacyQueueIssue(op);
+                if (issue && !await store.getItem('__journal_issue__' + op.id)) {
+                    await store.setItem('__journal_issue__' + op.id, { result: issue, recordedAt: Date.now() });
+                }
+            }
             if ((readyOnly || projectionOnly) && (await store.getItem('__journal_issue__' + op.id)
                 || blockedEntities.has(op.entityId) || blockedEntities.has(op.mapId)
                 || blockedEntities.has(op.data?.briefingId ?? op.data?.briefing_id)

@@ -363,6 +363,8 @@ const CENSO_ROTA = [
   json('src/modules/sync/sync.routes.js', 'GET /admin/stats'),
   json('src/modules/sync/sync.routes.js', 'POST /admin/cleanup'),
   json('src/modules/sync/sync.routes.js', 'POST /'),
+  json('src/modules/sync/sync.routes.js', 'POST /receipts'),
+  json('src/modules/sync/sync.routes.js', 'GET /protocol'),
   json('src/modules/sync/sync.routes.js', 'GET /:version'),
 
   json('src/modules/users/users.routes.js', 'GET /me'),
@@ -525,6 +527,8 @@ const SOCKET_DA_SALA = 'Socket de cliente de colaboração. Todo socket desta sa
  * não veio de `onConnection` seria o buraco, e ele reprova aqui até alguém dizer de onde veio.
  */
 const CENSO_ENVIO_WS = [
+  { arquivo: 'src/modules/collab/collab.handlers.js', texto: "ws.send(JSON.stringify({ type: 'error', code: error.code, message: error.message,", n: 1, classe: W_EMBRULHADO,
+    motivo: 'Recusa de protocolo enviada somente ao socket de origem já autenticado na sala; contém mensagem fixa e IDs recebidos do próprio cliente.' },
   { arquivo: 'src/modules/collab/collab.gateway.js', texto: 'ws.send(JSON.stringify({', n: 1, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
 
   { arquivo: 'src/modules/collab/collab.handlers.js', texto: 'ws.send(JSON.stringify({', n: 8, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },

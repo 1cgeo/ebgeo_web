@@ -90,7 +90,7 @@ describe('F11 — a cadeia do vazamento: do gesto de quem só tem `view` até o 
   };
 
   /** A op que o cliente PRÉ-F11 emitia: referência, estado por atlas e a cópia da linha. */
-  const opComCopia = (id, resourceId, mapId, operationType = 'create') => ({
+  const opComCopia = (id, resourceId, mapId, operationType = 'create') => ({ protocolVersion: 2,
     id: randomUUID(),
     entityType: 'catalogLayer',
     operationType,

@@ -63,7 +63,7 @@ describe('spatial comment authorship is server-assigned (repro)', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ operations });
 
-  const commentOp = (id, data) => ({
+  const commentOp = (id, data) => ({ protocolVersion: 2,
     id: randomUUID(),
     entityType: 'comment',
     operationType: 'create',
@@ -103,7 +103,7 @@ describe('spatial comment authorship is server-assigned (repro)', () => {
     const id = randomUUID();
     await pushAs(impostorTok, [commentOp(id, { authorId: victim.id })]).expect(200);
 
-    await pushAs(impostorTok, [{
+    await pushAs(impostorTok, [{ protocolVersion: 2,
       id: randomUUID(),
       entityType: 'comment',
       operationType: 'update',

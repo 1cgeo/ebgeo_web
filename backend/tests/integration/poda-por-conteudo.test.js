@@ -334,7 +334,7 @@ describe('F13 — a poda por conteúdo alcança o carimbo errado e a coluna irm�
     // versão pedida é 0, então medir o LOG a partir da versão zero mediria o snapshot outra vez e
     // o caso passaria verde sobre a superfície errada. A op abaixo levanta `current_version` para
     // que a versão capturada em seguida seja um ponto de partida legítimo do pull incremental.
-    await push(tokenDono, [{
+    await push(tokenDono, [{ protocolVersion: 2,
       id: randomUUID(),
       entityType: 'map',
       operationType: 'update',
@@ -354,7 +354,7 @@ describe('F13 — a poda por conteúdo alcança o carimbo errado e a coluna irm�
     // cargas de uma vez — `catalogLayers` (V2) e `analysis_layers` (V3, o saco JSONB livre que
     // nenhum schema validava por dentro).
     const opDoRename = randomUUID();
-    await push(tokenDono, [{
+    await push(tokenDono, [{ protocolVersion: 2,
       id: opDoRename,
       entityType: 'map',
       operationType: 'update',

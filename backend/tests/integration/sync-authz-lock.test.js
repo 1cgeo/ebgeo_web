@@ -41,7 +41,7 @@ describe('Sync authorization + map-lock enforcement', () => {
       .send({ operations: [op] })
       .expect(expectStatus);
 
-  const op = (entityType, operationType, entityId, extra = {}) => ({
+  const op = (entityType, operationType, entityId, extra = {}) => ({ protocolVersion: 2,
     id: randomUUID(), entityType, operationType, entityId,
     timestamp: Date.now(), clientId: 'authz-client', ...extra,
   });

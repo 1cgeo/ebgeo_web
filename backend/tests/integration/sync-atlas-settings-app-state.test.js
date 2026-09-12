@@ -42,7 +42,7 @@ describe('Sync atlas-level app-state settings (datamodel-13/14)', () => {
     supertest(app)
       .post(`/api/v1/atlas/${atlas.id}/sync`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ operations: [{
+      .send({ operations: [{ protocolVersion: 2,
         id: randomUUID(), entityType: 'setting', operationType: 'update',
         entityId: atlas.id, data, timestamp: Date.now(), clientId: 's-client',
       }] });

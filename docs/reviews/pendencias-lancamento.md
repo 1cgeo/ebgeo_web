@@ -2,6 +2,8 @@
 
 Avaliação de 12/09/2026, branch `integracao_backend`, após as correções de contratos, descarte remoto e camada padrão no servidor. Complementa o [plano aprovado](plano-correcao-atlas-remoto.md) e seu [registro de execução](execucao-correcao-atlas-remoto.md). **Ainda não liberar para todos os usuários.**
 
+Ordem de execução, dependências, segurança e critérios de aceite detalhados no [plano de fechamento para lançamento](plano-fechamento-lancamento.md).
+
 ## Correções restantes
 
 | Prioridade | Pendência e evidência atual | Critério de conclusão |

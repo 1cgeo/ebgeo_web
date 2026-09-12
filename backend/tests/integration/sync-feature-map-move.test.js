@@ -1,3 +1,4 @@
+import { featureMutation } from '../helpers/feature-operation.js';
 // Path: tests/integration/sync-feature-map-move.test.js
 // Integration tests for moving features between maps and duplicating maps
 
@@ -57,7 +58,7 @@ describe('Feature Map Move & Duplicate Map', () => {
         properties: { name: 'Movable Point' },
       });
 
-      await pushSync([{
+      await pushSync([featureMutation(feature, { protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'feature',
@@ -66,7 +67,7 @@ describe('Feature Map Move & Duplicate Map', () => {
         changes: { map_id: map2.id },
         timestamp: Date.now(),
         clientId: 'move-client',
-      }]).expect(200);
+      })]).expect(200);
 
       // Verify in DB that the feature's map_id is now map2.id
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [feature.id]);
@@ -80,7 +81,7 @@ describe('Feature Map Move & Duplicate Map', () => {
 
       // Create feature via sync in map1
       const featureId = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'create',
         target: 'feature',
@@ -96,7 +97,7 @@ describe('Feature Map Move & Duplicate Map', () => {
       }]).expect(200);
 
       // Move it to map2 via sync update
-      await pushSync([{
+      await pushSync([featureMutation((await db.query('SELECT * FROM features WHERE id=$1', [featureId])).rows[0], { protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'feature',
@@ -105,7 +106,7 @@ describe('Feature Map Move & Duplicate Map', () => {
         changes: { map_id: map2.id },
         timestamp: Date.now() + 1,
         clientId: 'move-client',
-      }]).expect(200);
+      })]).expect(200);
 
       // Get snapshot
       const snapshot = await getSnapshot();
@@ -143,7 +144,7 @@ describe('Feature Map Move & Duplicate Map', () => {
       await db.query('UPDATE features SET layer_id = $1 WHERE id = $2', [layer1.id, feature.id]);
 
       // Move to map2 AND change layer_id to layer2 in one operation
-      await pushSync([{
+      await pushSync([featureMutation(feature, { protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'feature',
@@ -155,7 +156,7 @@ describe('Feature Map Move & Duplicate Map', () => {
         },
         timestamp: Date.now(),
         clientId: 'move-client',
-      }]).expect(200);
+      })]).expect(200);
 
       // Verify both map_id and layer_id changed
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [feature.id]);

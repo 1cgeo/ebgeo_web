@@ -41,7 +41,7 @@ describe('atlas.current_version como cursor de sync (item 24)', () => {
 
   const opCreate = (mapId, clientId = 'cursor-c') => {
     const id = randomUUID();
-    return {
+    return { protocolVersion: 2,
       id: randomUUID(),
       type: 'create',
       target: 'feature',

@@ -179,7 +179,7 @@ describe('WebSocket collab — the frontend role that crosses the wire', () => {
     const targetId = randomUUID();
     client.send({
       type: 'operation',
-      op: {
+      op: { protocolVersion: 2,
         id: randomUUID(),
         type: 'create',
         target: 'feature',
@@ -215,7 +215,7 @@ describe('WebSocket collab — the frontend role that crosses the wire', () => {
     const targetId = randomUUID();
     client.send({
       type: 'operation',
-      op: {
+      op: { protocolVersion: 2,
         id: randomUUID(),
         type: 'create',
         target: 'feature',

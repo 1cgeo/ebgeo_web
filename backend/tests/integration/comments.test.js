@@ -49,7 +49,7 @@ describe('Spatial comments — sync + visibility', () => {
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
 
-  const commentOp = (id, authorId, extra = {}) => ({
+  const commentOp = (id, authorId, extra = {}) => ({ protocolVersion: 2,
     id: randomUUID(),
     entityType: 'comment',
     operationType: 'create',
@@ -60,7 +60,7 @@ describe('Spatial comments — sync + visibility', () => {
     data: { id, mapId: map.id, lng: -43.2, lat: -22.9, text: 'Olá', status: 'open', authorId, ...extra },
   });
 
-  const featureOp = (id) => ({
+  const featureOp = (id) => ({ protocolVersion: 2,
     id: randomUUID(),
     entityType: 'feature',
     operationType: 'create',
@@ -108,11 +108,11 @@ describe('Spatial comments — sync + visibility', () => {
 
   // ── Authorship gate + robustness (code-review fixes) ──
 
-  const updateOp = (id, data) => ({
+  const updateOp = (id, data) => ({ protocolVersion: 2,
     id: randomUUID(), entityType: 'comment', operationType: 'update', entityId: id, mapId: map.id,
     timestamp: Date.now(), clientId: 'cmt-client', data: { id, mapId: map.id, ...data },
   });
-  const deleteOp = (id) => ({
+  const deleteOp = (id) => ({ protocolVersion: 2,
     id: randomUUID(), entityType: 'comment', operationType: 'delete', entityId: id, mapId: map.id,
     timestamp: Date.now(), clientId: 'cmt-client',
   });

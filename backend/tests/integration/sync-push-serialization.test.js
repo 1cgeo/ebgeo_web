@@ -28,7 +28,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function pointOp(mapId, clientId, i) {
   const featureId = randomUUID();
-  return {
+  return { protocolVersion: 2,
     id: randomUUID(),
     entityType: 'feature',
     operationType: 'create',

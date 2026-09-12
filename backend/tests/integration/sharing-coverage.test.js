@@ -19,7 +19,7 @@ const uniq = () => `shc_${randomUUID().slice(0, 8)}`;
 // A minimal, valid sync-push envelope creating one feature on `mapId`.
 function pushBody(mapId) {
   return {
-    operations: [{
+    operations: [{ protocolVersion: 2,
       id: randomUUID(),
       entityType: 'feature',
       operationType: 'create',

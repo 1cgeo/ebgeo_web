@@ -1,3 +1,4 @@
+import { featureMutation } from '../helpers/feature-operation.js';
 // Path: tests/integration/features.test.js
 // Integration tests for Features via Sync API
 // All feature operations (create, update, delete) are managed via POST /atlas/:id/sync
@@ -35,7 +36,7 @@ describe('Features via Sync API', () => {
         .post(`/api/v1/atlas/${atlasId}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -75,7 +76,7 @@ describe('Features via Sync API', () => {
         .post(`/api/v1/atlas/${atlasId}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -107,7 +108,7 @@ describe('Features via Sync API', () => {
         .post(`/api/v1/atlas/${atlasId}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(), type: 'create', target: 'feature', targetId, mapId,
             data: { geometry: { coordinates: [-43, -22] }, properties: { id: targetId, source: 'point', layerId } },
             timestamp: Date.now(), clientId: 'test-client',
@@ -127,7 +128,7 @@ describe('Features via Sync API', () => {
         .post(`/api/v1/atlas/${atlasId}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -155,7 +156,7 @@ describe('Features via Sync API', () => {
         .post(`/api/v1/atlas/${atlasId}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -185,7 +186,7 @@ describe('Features via Sync API', () => {
         .post(`/api/v1/atlas/${atlasId}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -212,7 +213,7 @@ describe('Features via Sync API', () => {
         .post(`/api/v1/atlas/${atlasId}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -239,7 +240,7 @@ describe('Features via Sync API', () => {
         .post(`/api/v1/atlas/${atlasId}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -264,7 +265,7 @@ describe('Features via Sync API', () => {
     it('creates multiple features in batch', async () => {
       const ops = [];
       for (let i = 0; i < 3; i++) {
-        ops.push({
+        ops.push({ protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',
@@ -308,7 +309,7 @@ describe('Features via Sync API', () => {
         .post(`/api/v1/atlas/${atlasId}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [featureMutation((await db.query('SELECT * FROM features WHERE id=$1', [featureId])).rows[0], { protocolVersion: 2,
             id: randomUUID(),
             type: 'update',
             target: 'feature',
@@ -319,7 +320,7 @@ describe('Features via Sync API', () => {
             },
             timestamp: Date.now(),
             clientId: 'test-client',
-          }],
+          })],
         })
         .expect(200);
 
@@ -332,7 +333,7 @@ describe('Features via Sync API', () => {
         .post(`/api/v1/atlas/${atlasId}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [featureMutation((await db.query('SELECT * FROM features WHERE id=$1', [featureId])).rows[0], { protocolVersion: 2,
             id: randomUUID(),
             type: 'update',
             target: 'feature',
@@ -343,7 +344,7 @@ describe('Features via Sync API', () => {
             },
             timestamp: Date.now(),
             clientId: 'test-client',
-          }],
+          })],
         })
         .expect(200);
 
@@ -364,7 +365,7 @@ describe('Features via Sync API', () => {
         .post(`/api/v1/atlas/${atlasId}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [featureMutation((await db.query('SELECT * FROM features WHERE id=$1', [featureId])).rows[0], { protocolVersion: 2,
             id: randomUUID(),
             type: 'update',
             target: 'feature',
@@ -375,7 +376,7 @@ describe('Features via Sync API', () => {
             },
             timestamp: Date.now(),
             clientId: 'test-client',
-          }],
+          })],
         })
         .expect(200);
 
@@ -393,7 +394,7 @@ describe('Features via Sync API', () => {
         .post(`/api/v1/atlas/${atlasId}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [featureMutation(feature, { protocolVersion: 2,
             id: randomUUID(),
             type: 'delete',
             target: 'feature',
@@ -401,7 +402,7 @@ describe('Features via Sync API', () => {
             mapId: mapId,
             timestamp: Date.now(),
             clientId: 'test-client',
-          }],
+          })],
         })
         .expect(200);
 

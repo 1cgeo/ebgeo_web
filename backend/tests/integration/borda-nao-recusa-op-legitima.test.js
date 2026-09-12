@@ -1,3 +1,4 @@
+import { featureMutation } from '../helpers/feature-operation.js';
 // Path: tests/integration/borda-nao-recusa-op-legitima.test.js
 //
 // F14 — A METADE POSITIVA DA BORDA DE ESCRITA, que é a que se esquece.
@@ -91,7 +92,7 @@ describe('F14 — a borda aperta sem recusar op legítima, e o relevo continua c
 
   const camadasDeCatalogo = (snap) => snap.maps.find((m) => m.id === mapa.id).catalogLayers;
 
-  const op = (extra) => ({
+  const op = (extra) => ({ protocolVersion: 2,
     id: randomUUID(),
     timestamp: Date.now(),
     clientId: `c-legit-${sufixo}`,
@@ -389,10 +390,10 @@ describe('F14 — a borda aperta sem recusar op legítima, e o relevo continua c
   it('a fila continua drenando: o lote seguinte é aceito e a versão avança de novo', async () => {
     // O sintoma de uma recusa nova não é um erro, é uma fila que nunca esvazia. O que se pode
     // medir do lado do servidor é que o próximo lote do MESMO cliente passa e move a versão.
-    const dados = await push(tokenDono, [op({
+    const dados = await push(tokenDono, [op(featureMutation((await db.query('SELECT * FROM features WHERE id=$1', [idDaFeicao])).rows[0], {
       entityType: 'feature', operationType: 'update', entityId: idDaFeicao, mapId: mapa.id,
       changes: { properties: { nome: 'Ponto legítimo', descricao: 'editado' } },
-    })]);
+    }))]);
 
     assert.equal(dados.acks.length, 1);
     assert.equal(dados.acks[0].rejected, undefined, 'a op seguinte também não é recusada');

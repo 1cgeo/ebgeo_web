@@ -79,7 +79,7 @@ describe('WS relay: a refused operation never reaches the peers (repro)', () => 
     return client;
   }
 
-  const featureOp = (id, mapId) => ({
+  const featureOp = (id, mapId) => ({ protocolVersion: 2,
     id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: id, mapId,
     data: {
       type: 'Feature', geometry: { type: 'Point', coordinates: [-47.9, -15.8] },

@@ -68,14 +68,14 @@ describe('sync com share `manage` (co-Gestor)', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ operations: ops });
 
-  const featureOp = (mapId) => ({
+  const featureOp = (mapId) => ({ protocolVersion: 2,
     id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: randomUUID(),
     mapId,
     data: { type: 'Feature', geometry: { type: 'Point', coordinates: [-43, -22] }, properties: { source: 'point' } },
     timestamp: Date.now(), clientId: 'mgt-client',
   });
 
-  const commentOp = (mapId, id, texto) => ({
+  const commentOp = (mapId, id, texto) => ({ protocolVersion: 2,
     id: randomUUID(), entityType: 'comment', operationType: 'create', entityId: id, mapId,
     data: { id, mapId, lng: -43.2, lat: -22.9, text: texto, status: 'open' },
     timestamp: Date.now(), clientId: 'mgt-client',
@@ -101,7 +101,7 @@ describe('sync com share `manage` (co-Gestor)', () => {
   it('REFUTAÇÃO: manage PODE excluir mapa — o gate é por hierarquia, não owner-only', async () => {
     const { atlas, map } = await cenario();
 
-    const res = await push(atlas.id, gestorTok, [{
+    const res = await push(atlas.id, gestorTok, [{ protocolVersion: 2,
       id: randomUUID(), entityType: 'map', operationType: 'delete', entityId: map.id, mapId: map.id,
       timestamp: Date.now(), clientId: 'mgt-client',
     }]).expect(200);
@@ -114,7 +114,7 @@ describe('sync com share `manage` (co-Gestor)', () => {
   it('controle da hierarquia: um `write` NÃO exclui mapa, e é recusa POR OPERAÇÃO (não 403)', async () => {
     const { atlas, map } = await cenario();
 
-    const res = await push(atlas.id, escritorTok, [{
+    const res = await push(atlas.id, escritorTok, [{ protocolVersion: 2,
       id: randomUUID(), entityType: 'map', operationType: 'delete', entityId: map.id, mapId: map.id,
       timestamp: Date.now(), clientId: 'mgt-client',
     }]).expect(200);
@@ -131,7 +131,7 @@ describe('sync com share `manage` (co-Gestor)', () => {
   it('trancar mapa segue owner-only: manage é recusado por operação e maps.locked não muda', async () => {
     const { atlas, map } = await cenario();
 
-    const res = await push(atlas.id, gestorTok, [{
+    const res = await push(atlas.id, gestorTok, [{ protocolVersion: 2,
       id: randomUUID(), entityType: 'map', operationType: 'update', entityId: map.id, mapId: map.id,
       changes: { locked: true },
       timestamp: Date.now(), clientId: 'mgt-client',
@@ -155,7 +155,7 @@ describe('sync com share `manage` (co-Gestor)', () => {
     assert.equal(antes.text, 'original');
     assert.equal(antes.author_id, comentarista.id, 'a autoria é do comentarista');
 
-    await push(atlas.id, gestorTok, [{
+    await push(atlas.id, gestorTok, [{ protocolVersion: 2,
       id: randomUUID(), entityType: 'comment', operationType: 'update', entityId: comentarioId, mapId: map.id,
       data: { id: comentarioId, mapId: map.id, lng: -43.2, lat: -22.9, text: 'editado pelo gestor' },
       timestamp: Date.now(), clientId: 'mgt-client',
@@ -176,7 +176,7 @@ describe('sync com share `manage` (co-Gestor)', () => {
     await push(atlas.id, comentaristaTok, [commentOp(map.id, comentarioId, 'para apagar')]).expect(200);
     assert.equal((await rowDoComentario(comentarioId)).deleted_at, null);
 
-    await push(atlas.id, gestorTok, [{
+    await push(atlas.id, gestorTok, [{ protocolVersion: 2,
       id: randomUUID(), entityType: 'comment', operationType: 'delete', entityId: comentarioId, mapId: map.id,
       timestamp: Date.now(), clientId: 'mgt-client',
     }]).expect(200);
@@ -192,7 +192,7 @@ describe('sync com share `manage` (co-Gestor)', () => {
     await push(atlas.id, escritorTok, [commentOp(map.id, comentarioId, 'do escritor')]).expect(200);
     assert.equal((await rowDoComentario(comentarioId)).author_id, escritor.id);
 
-    const res = await push(atlas.id, comentaristaTok, [{
+    const res = await push(atlas.id, comentaristaTok, [{ protocolVersion: 2,
       id: randomUUID(), entityType: 'comment', operationType: 'update', entityId: comentarioId, mapId: map.id,
       data: { id: comentarioId, mapId: map.id, lng: -43.2, lat: -22.9, text: 'invasão' },
       timestamp: Date.now(), clientId: 'mgt-client',

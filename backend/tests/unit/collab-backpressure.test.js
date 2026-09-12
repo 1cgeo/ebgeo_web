@@ -46,7 +46,7 @@ function inRoom(clients, fn) {
   }
 }
 
-const featureOp = () => ({ id: randomUUID(), entityType: 'feature', operationType: 'create' });
+const featureOp = () => ({ protocolVersion: 2, id: randomUUID(), entityType: 'feature', operationType: 'create' });
 
 describe('collab backpressure — frame coalescável vs op durável', () => {
   it('cliente com 2 MiB entupidos NÃO recebe um `cursor` (drop coalescável) e não é morto', () => {

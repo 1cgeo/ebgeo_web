@@ -46,7 +46,7 @@ describe('Group Operations via Sync', () => {
     it('renames group via sync update', async () => {
       const group = await createGroup(db, map.id, { name: 'Original Group' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'group',
@@ -66,7 +66,7 @@ describe('Group Operations via Sync', () => {
     it('hides group via sync', async () => {
       const group = await createGroup(db, map.id, { name: 'Visible Group', visible: true });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'group',
@@ -84,7 +84,7 @@ describe('Group Operations via Sync', () => {
     it('shows group via sync', async () => {
       const group = await createGroup(db, map.id, { name: 'Hidden Group', visible: false });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'group',
@@ -104,7 +104,7 @@ describe('Group Operations via Sync', () => {
     it('locks group via sync', async () => {
       const group = await createGroup(db, map.id, { name: 'Unlocked Group', locked: false });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'group',
@@ -122,7 +122,7 @@ describe('Group Operations via Sync', () => {
     it('unlocks group via sync', async () => {
       const group = await createGroup(db, map.id, { name: 'Locked Group', locked: true });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'group',
@@ -142,7 +142,7 @@ describe('Group Operations via Sync', () => {
     it('updates group style via sync', async () => {
       const group = await createGroup(db, map.id, { name: 'Style Group' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'group',
@@ -163,7 +163,7 @@ describe('Group Operations via Sync', () => {
       const parent = await createGroup(db, map.id, { name: 'Parent Group' });
       const child = await createGroup(db, map.id, { name: 'Child Group' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'group',
@@ -184,7 +184,7 @@ describe('Group Operations via Sync', () => {
       const now = Date.now();
 
       await pushSync([
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'group',
@@ -194,7 +194,7 @@ describe('Group Operations via Sync', () => {
           timestamp: now,
           clientId: 'test-client',
         },
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'group',
@@ -214,7 +214,7 @@ describe('Group Operations via Sync', () => {
       const parent = await createGroup(db, map.id, { name: 'Parent For Ungroup' });
       const child = await createGroup(db, map.id, { name: 'Child For Ungroup', parent_id: parent.id });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'group',
@@ -234,7 +234,7 @@ describe('Group Operations via Sync', () => {
     it('soft-deletes group via sync', async () => {
       const group = await createGroup(db, map.id, { name: 'To Delete Group' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'delete',
         target: 'group',
@@ -252,7 +252,7 @@ describe('Group Operations via Sync', () => {
       const groupId = randomUUID();
       const now = Date.now();
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'create',
         target: 'group',
@@ -263,7 +263,7 @@ describe('Group Operations via Sync', () => {
         clientId: 'test-client',
       }]).expect(200);
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'delete',
         target: 'group',
@@ -288,7 +288,7 @@ describe('Group Operations via Sync', () => {
 
       // Create group, feature, and association
       await pushSync([
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'group',
@@ -298,7 +298,7 @@ describe('Group Operations via Sync', () => {
           timestamp: now,
           clientId: 'test-client',
         },
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',
@@ -308,7 +308,7 @@ describe('Group Operations via Sync', () => {
           timestamp: now + 1,
           clientId: 'test-client',
         },
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'group_feature',

@@ -5,6 +5,14 @@ import { marcarEscopoJson } from '../../utils/cache-scope.js';
 import * as syncService from './sync.service.js';
 import { broadcastOperations } from '../collab/collab.rooms.js';
 
+export const lookupOperationReceipts = asyncHandler(async (req, res) => {
+  const result = await syncService.lookupOperationReceipts(
+    req.atlasId, req.body.operations, req.user.id, req.atlasPermission,
+  );
+  res.set('Cache-Control', 'no-store');
+  res.json({ data: result });
+});
+
 export const pushOperations = asyncHandler(async (req, res) => {
   const result = await syncService.pushOperations(
     req.atlasId,

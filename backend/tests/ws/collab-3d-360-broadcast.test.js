@@ -105,7 +105,7 @@ describe('WebSocket collab — 3D/360 op broadcast to peers', () => {
       const targetId = randomUUID();
       a.send({
         type: 'operation',
-        op: {
+        op: { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: st.target,

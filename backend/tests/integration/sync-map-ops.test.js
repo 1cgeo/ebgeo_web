@@ -77,7 +77,7 @@ describe('Map Operations via Sync', () => {
     it('renames map via sync update', async () => {
       const map = await createMap(db, atlas.id, { name: 'Original Map Name' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'map',
@@ -96,7 +96,7 @@ describe('Map Operations via Sync', () => {
     it('locks map via sync', async () => {
       const map = await createMap(db, atlas.id, { name: 'Map To Lock' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'map',
@@ -113,7 +113,7 @@ describe('Map Operations via Sync', () => {
     it('unlocks map via sync', async () => {
       const map = await createMap(db, atlas.id, { name: 'Locked Map', locked: true });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'map',
@@ -130,7 +130,7 @@ describe('Map Operations via Sync', () => {
     it('locked map shows locked=true in snapshot', async () => {
       const map = await createMap(db, atlas.id, { name: 'Locked In Snapshot' });
       // Set locked via sync since createMap fixture doesn't include locked column
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'map',
@@ -151,7 +151,7 @@ describe('Map Operations via Sync', () => {
     it('soft-deletes map via sync', async () => {
       const map = await createMap(db, atlas.id, { name: 'Map To Delete' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'delete',
         target: 'map',
@@ -168,7 +168,7 @@ describe('Map Operations via Sync', () => {
       const mapId = randomUUID();
       const now = Date.now();
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'create',
         target: 'map',
@@ -178,7 +178,7 @@ describe('Map Operations via Sync', () => {
         clientId: 'test-client',
       }]).expect(200);
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'delete',
         target: 'map',
@@ -197,7 +197,7 @@ describe('Map Operations via Sync', () => {
     it('updates map center_lat and center_long', async () => {
       const map = await createMap(db, atlas.id, { name: 'Position Map' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'map',
@@ -216,7 +216,7 @@ describe('Map Operations via Sync', () => {
     it('updates map bearing and pitch', async () => {
       const map = await createMap(db, atlas.id, { name: 'Bearing Map' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'map',
@@ -234,7 +234,7 @@ describe('Map Operations via Sync', () => {
     it('updates map base_layer', async () => {
       const map = await createMap(db, atlas.id, { name: 'Base Layer Map' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'map',
@@ -251,7 +251,7 @@ describe('Map Operations via Sync', () => {
     it('updates map notes_title and notes_description', async () => {
       const map = await createMap(db, atlas.id, { name: 'Notes Map' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'map',
@@ -274,7 +274,7 @@ describe('Map Operations via Sync', () => {
     it('ignores `catalog_layers` on a map update: the column is gone', async () => {
       const map = await createMap(db, atlas.id, { name: 'Catalog Map' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'map',
@@ -303,7 +303,7 @@ describe('Map Operations via Sync', () => {
 
       const analysisLayers = { los_result_123: { visible: true, data: {} } };
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'map',
@@ -330,7 +330,7 @@ describe('Map Operations via Sync', () => {
       });
 
       // center_lat, center_long, zoom are nullable; bearing/pitch have NOT NULL DEFAULT 0
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'map',
@@ -357,7 +357,7 @@ describe('Map Operations via Sync', () => {
     it('removes a catalog layer with a per-layer delete op', async () => {
       const map = await createMap(db, atlas.id, { name: 'Catalog Remove Map' });
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'create',
         target: 'catalog_layer',
@@ -373,7 +373,7 @@ describe('Map Operations via Sync', () => {
       );
       assert.deepEqual(vivas.rows.map((r) => r.id), ['wms-1'], 'the layer was added');
 
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'delete',
         target: 'catalog_layer',
@@ -402,7 +402,7 @@ describe('Map Operations via Sync', () => {
         pitch: 20,
       });
       // Set locked via sync since createMap fixture doesn't include locked column
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'map',

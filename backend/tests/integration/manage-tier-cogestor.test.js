@@ -169,7 +169,7 @@ describe('manage tier (co-Gestor)', () => {
         .set('Authorization', `Bearer ${tok}`)
         .send({ operations });
 
-    const opEnvelope = (entityType, operationType, entityId, extra = {}) => ({
+    const opEnvelope = (entityType, operationType, entityId, extra = {}) => ({ protocolVersion: 2,
       id: randomUUID(), entityType, operationType, entityId,
       timestamp: Date.now(), clientId: 'cogestor-client', ...extra,
     });

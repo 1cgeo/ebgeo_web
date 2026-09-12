@@ -123,7 +123,7 @@ describe('slide sync accepts the payload the real client emits (repro)', () => {
    * mapId slot). Change either side and both files must move together — that pair IS
    * the contract, since no single suite spans the two packages.
    */
-  const clientSlideOp = (slideId, briefingId, overrides = {}) => ({
+  const clientSlideOp = (slideId, briefingId, overrides = {}) => ({ protocolVersion: 2,
     id: randomUUID(),
     entityType: 'slide',
     operationType: 'create',
@@ -287,7 +287,7 @@ describe('slide sync accepts the payload the real client emits (repro)', () => {
       // Exactly what the briefing editor emits: mapId is the map's NAME.
       clientSlideOp(slideId, briefing.id, { title: 'Slide com mapa', mapId: 'Mapa Principal' }),
       // A sibling in the same batch: if the slide poisons the tx, this dies too.
-      {
+      { protocolVersion: 2,
         id: randomUUID(), entityType: 'feature', operationType: 'create',
         entityId: siblingFeatureId, mapId: map.id,
         data: {
@@ -380,7 +380,7 @@ describe('slide sync accepts the payload the real client emits (repro)', () => {
     const slideId = randomUUID();
     await push([clientSlideOp(slideId, briefing.id, { title: 'Antes', mapId: map.id })]).expect(200);
 
-    const res = await push([{
+    const res = await push([{ protocolVersion: 2,
       id: randomUUID(),
       entityType: 'slide',
       operationType: 'update',
@@ -419,7 +419,7 @@ describe('slide sync accepts the payload the real client emits (repro)', () => {
     const second = randomUUID();
     const third = randomUUID();
 
-    await push([{
+    await push([{ protocolVersion: 2,
       id: randomUUID(),
       entityType: 'briefing',
       operationType: 'create',
@@ -479,7 +479,7 @@ describe('slide sync accepts the payload the real client emits (repro)', () => {
 
     // The client logs the whole briefing (updateBriefing → logBriefingOperation),
     // slides array included, with an `order` integer per slide and no slide_order.
-    await push([{
+    await push([{ protocolVersion: 2,
       id: randomUUID(),
       entityType: 'briefing',
       operationType: 'create',
@@ -526,7 +526,7 @@ describe('slide sync accepts the payload the real client emits (repro)', () => {
     const briefing = await createBriefing(db, atlas.id, { name: 'Briefing Dialeto Servidor' });
     const slideId = randomUUID();
 
-    await push([{
+    await push([{ protocolVersion: 2,
       id: randomUUID(),
       type: 'create',
       target: 'slide',

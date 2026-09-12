@@ -68,7 +68,7 @@ describe('serialização por socket — rajada sem esperar ack', () => {
 
     const enviadas = [];
     for (let seq = 0; seq < RAJADA; seq++) {
-      const op = {
+      const op = { protocolVersion: 2,
         id: randomUUID(),
         entityType: 'feature',
         operationType: 'create',
@@ -132,10 +132,11 @@ describe('serialização por socket — rajada sem esperar ack', () => {
     client.clearMessages();
 
     const featureId = randomUUID();
+    const createId = randomUUID();
     client.send({
       type: 'operation',
-      op: {
-        id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: featureId,
+      op: { protocolVersion: 2,
+        id: createId, entityType: 'feature', operationType: 'create', entityId: featureId,
         mapId: map.id,
         data: { feature_type: 'point', geometry: { coordinates: [0, 0] }, properties: { name: 'orig' } },
         timestamp: Date.now(), clientId: 'ser-co',
@@ -145,8 +146,10 @@ describe('serialização por socket — rajada sem esperar ack', () => {
     // linhas — sumindo em silêncio, com ack de sucesso.
     client.send({
       type: 'operation',
-      op: {
+      op: { protocolVersion: 2,
         id: randomUUID(), entityType: 'feature', operationType: 'update', entityId: featureId,
+        baseOperationId: createId,
+        patch: [{ op: 'set', path: ['properties', 'name'], value: 'depois' }],
         mapId: map.id,
         changes: { properties: { name: 'depois' } },
         timestamp: Date.now(), clientId: 'ser-co',

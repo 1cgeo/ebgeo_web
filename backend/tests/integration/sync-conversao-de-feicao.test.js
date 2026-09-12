@@ -10,7 +10,9 @@
 // cliente produz, e ela carrega duas propriedades que só se medem juntas:
 //
 //   1. UMA TRANSAÇÃO, DOIS ACKS, DUAS LINHAS NO LOG. O push é uma transação com advisory lock
-//      por atlas, então o par não pode ser aplicado pela metade por concorrência.
+//      por atlas, então outra transação não intercala as duas escritas. Isso NÃO prova
+//      atomicidade do comando diante de conflito/recusa por operação: os SAVEPOINTs
+//      permitem resultados parciais. Esse aceite continua na entrega de comandos compostos.
 //   2. O MAPA TRAVADO RECUSA AS DUAS. `lockedMapDenialReason` roda dentro do SAVEPOINT de cada
 //      operação e `feature` está entre os alvos filhos do cadeado, com o mesmo `mapId` nas
 //      duas metades. Se a recusa alcançasse só o DELETE, o mapa ficaria com AS DUAS feições,
@@ -66,7 +68,7 @@ describe('Sync — conversão de feição (CREATE de um id + DELETE de outro no 
       .expect(expectStatus);
 
   /** O envelope de um CREATE de feição carregando a forma real da ferramenta. */
-  const createOp = (entityId, mapId, feature) => ({
+  const createOp = (entityId, mapId, feature) => ({ protocolVersion: 2,
     id: randomUUID(),
     entityType: 'feature',
     operationType: 'create',
@@ -78,7 +80,8 @@ describe('Sync — conversão de feição (CREATE de um id + DELETE de outro no 
   });
 
   /** O envelope de um DELETE de feição: só o id viaja. */
-  const deleteOp = (entityId, mapId) => ({
+  const deleteOp = async (entityId, mapId) => ({ protocolVersion: 2,
+    baseVersion: Number((await db.query('SELECT version FROM features WHERE id=$1', [entityId])).rows[0].version),
     id: randomUUID(),
     entityType: 'feature',
     operationType: 'delete',
@@ -89,7 +92,7 @@ describe('Sync — conversão de feição (CREATE de um id + DELETE de outro no 
   });
 
   /** Liga/desliga a trava (owner-only). */
-  const setLock = (locked) => push(ownerTok, [{
+  const setLock = (locked) => push(ownerTok, [{ protocolVersion: 2,
     id: randomUUID(),
     entityType: 'map',
     operationType: 'update',
@@ -133,7 +136,7 @@ describe('Sync — conversão de feição (CREATE de um id + DELETE de outro no 
     // A CONVERSÃO.
     const res = await push(editorTok, [
       createOp(boundaryId, mapaAberto.id, realBoundaryFeature({ id: boundaryId })),
-      deleteOp(lineId, mapaAberto.id),
+      await deleteOp(lineId, mapaAberto.id),
     ]);
 
     const acks = res.body.data.results;
@@ -161,7 +164,7 @@ describe('Sync — conversão de feição (CREATE de um id + DELETE de outro no 
     await push(editorTok, [createOp(lineId, mapaAberto.id, realLineFeature({ id: lineId }))]);
     await push(editorTok, [
       createOp(boundaryId, mapaAberto.id, realBoundaryFeature({ id: boundaryId })),
-      deleteOp(lineId, mapaAberto.id),
+      await deleteOp(lineId, mapaAberto.id),
     ]);
 
     const mapa = await mapaDoSnapshot(editorTok, mapaAberto.id);
@@ -211,7 +214,7 @@ describe('Sync — conversão de feição (CREATE de um id + DELETE de outro no 
     await push(editorTok, [createOp(arrowId, mapaAberto.id, realArrowFeature({ id: arrowId }))]);
 
     const res = await push(editorTok, [
-      deleteOp(arrowId, mapaAberto.id),
+      await deleteOp(arrowId, mapaAberto.id),
       createOp(lineId, mapaAberto.id, realLineFeature({ id: lineId })),
     ]);
     assert.ok(res.body.data.results.every((a) => a.success === true), 'as duas passaram na ordem invertida');
@@ -230,7 +233,7 @@ describe('Sync — conversão de feição (CREATE de um id + DELETE de outro no 
     await push(editorTok, [createOp(lineId, mapaTravavel.id, realLineFeature({ id: lineId }))]);
     const res = await push(editorTok, [
       createOp(arrowId, mapaTravavel.id, realArrowFeature({ id: arrowId })),
-      deleteOp(lineId, mapaTravavel.id),
+      await deleteOp(lineId, mapaTravavel.id),
     ]);
     assert.ok(res.body.data.results.every((a) => a.success === true));
     assert.ok((await linhaDaFeicao(lineId)).deleted_at);
@@ -250,7 +253,7 @@ describe('Sync — conversão de feição (CREATE de um id + DELETE de outro no 
 
     const res = await push(editorTok, [
       createOp(boundaryId, mapaTravavel.id, realBoundaryFeature({ id: boundaryId })),
-      deleteOp(lineId, mapaTravavel.id),
+      await deleteOp(lineId, mapaTravavel.id),
       // A irmã, num mapa ABERTO do MESMO lote.
       createOp(irmaId, mapaAberto.id, realLineFeature({ id: irmaId })),
     ]);
@@ -283,7 +286,7 @@ describe('Sync — conversão de feição (CREATE de um id + DELETE de outro no 
 
     const res = await push(editorTok, [
       createOp(boundaryId, mapaTravavel.id, realBoundaryFeature({ id: boundaryId })),
-      deleteOp(lineId, mapaTravavel.id),
+      await deleteOp(lineId, mapaTravavel.id),
     ]);
     assert.ok(res.body.data.results.every((a) => a.success === true));
     assert.equal((await linhaDaFeicao(boundaryId)).deleted_at, null);
@@ -308,7 +311,7 @@ describe('Sync — conversão de feição (CREATE de um id + DELETE de outro no 
 
     await push(leitorTok, [
       createOp(boundaryId, mapaAberto.id, realBoundaryFeature({ id: boundaryId })),
-      deleteOp(lineId, mapaAberto.id),
+      await deleteOp(lineId, mapaAberto.id),
     ], 403);
 
     assert.equal(await linhaDaFeicao(boundaryId), undefined, 'o limite do Leitor não existe');

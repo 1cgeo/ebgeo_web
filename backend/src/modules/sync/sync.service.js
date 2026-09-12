@@ -1,6 +1,7 @@
 // Path: src/modules/sync/sync.service.js
 import { query, tx } from '../../database/index.js';
 import { findReceipt, saveReceipt, operationDigest } from './sync-receipts.js';
+import { assertSyncProtocol } from './sync-protocol.js';
 import { prepareFeatureMutation, finishFeatureMutation } from './feature-conflicts.js';
 import { ensureMapLayers, readMapLayers, resolveDefaultFeatureLayer } from '../maps/default-layer.js';
 import { ForbiddenError, ServiceUnavailableError } from '../../utils/errors.js';
@@ -1662,6 +1663,29 @@ export function logRefusedOps(params) {
   return payload;
 }
 
+/** Read delivery outcomes without replaying or exposing the stored payload. */
+export async function lookupOperationReceipts(atlasId, operations, userId, permission) {
+  return tx(async (t) => {
+    const results = [];
+    for (const rawOp of operations) {
+      const op = normalizeOperation(rawOp);
+      const canReadComments = PERMISSION_LEVELS[permission] >= PERMISSION_LEVELS.comment;
+      const denied = (!canReadComments && op.target === 'comment' ? 'Comentário não visível.' : null)
+        ?? foreignAtlasDenialReason(op, atlasId)
+        ?? unknownTargetDenialReason(op) ?? operationDenialReason(op, permission);
+      const receipt = denied ? null : await findReceipt(t, atlasId, rawOp.id);
+      const matches = receipt && String(receipt.user_id) === String(userId)
+        && receipt.payload_hash === operationDigest(rawOp);
+      // No entity content or another principal's delivery status is disclosed.
+      // Absence is ambiguous: historical receipts may never have existed.
+      const status = !matches ? 'unknown'
+        : receipt.result.status === 'applied' && !receipt.result.rejected ? 'confirmed' : 'review';
+      results.push({ opId: rawOp.id, status });
+    }
+    return { results };
+  });
+}
+
 /**
  * Pushes a batch of operations to the server.
  * Operations are applied and recorded in the operations log.
@@ -1676,6 +1700,8 @@ export function logRefusedOps(params) {
  *   congelou empurrava por HTTP ou pelo socket. O default cobre o chamador interno.
  */
 export async function pushOperations(atlasId, operations, userId, permission = 'owner', { via = 'rest' } = {}) {
+  for (const op of operations) assertOperationAllowed(normalizeOperation(op), permission);
+  assertSyncProtocol(operations);
   const acks = [];
   const events = [];
   // As recusas POR OPERACAO deste lote, acumuladas para UMA linha agregada depois do

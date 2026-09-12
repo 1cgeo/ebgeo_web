@@ -81,7 +81,7 @@ describe('E2E: sharing + sync authorization lifecycle', () => {
   }
 
   function featureCreateOp(targetId) {
-    return {
+    return { protocolVersion: 2,
       id: randomUUID(),
       type: 'create',
       target: 'feature',
@@ -138,7 +138,7 @@ describe('E2E: sharing + sync authorization lifecycle', () => {
 
     // Create the map via a sync map-create op (NOT a REST write — there is none).
     mapId = randomUUID();
-    const syncRes = await pushOp(owner, {
+    const syncRes = await pushOp(owner, { protocolVersion: 2,
       id: randomUUID(),
       type: 'create',
       target: 'map',

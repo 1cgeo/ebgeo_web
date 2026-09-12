@@ -77,7 +77,7 @@ describe('Group-Feature Association via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'group_feature',
@@ -115,7 +115,7 @@ describe('Group-Feature Association via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'group_feature',
@@ -150,7 +150,7 @@ describe('Group-Feature Association via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'delete',
             target: 'group_feature',
@@ -231,7 +231,7 @@ describe('Military Feature Types via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -267,7 +267,7 @@ describe('Military Feature Types via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -301,7 +301,7 @@ describe('Military Feature Types via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -334,7 +334,7 @@ describe('Military Feature Types via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -369,7 +369,7 @@ describe('Military Feature Types via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -402,7 +402,7 @@ describe('Military Feature Types via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -461,7 +461,7 @@ describe('Analysis Feature Types via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -496,7 +496,7 @@ describe('Analysis Feature Types via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -530,7 +530,7 @@ describe('Analysis Feature Types via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -566,7 +566,7 @@ describe('Analysis Feature Types via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -620,7 +620,7 @@ describe('Additional Feature Types via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -656,7 +656,7 @@ describe('Additional Feature Types via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -692,7 +692,7 @@ describe('Additional Feature Types via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'feature',
@@ -747,7 +747,7 @@ describe('Slide Operations via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'slide',
@@ -779,7 +779,7 @@ describe('Slide Operations via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'slide',
@@ -809,7 +809,7 @@ describe('Slide Operations via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'create',
             target: 'slide',
@@ -852,7 +852,7 @@ describe('Slide Operations via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'update',
             target: 'slide',
@@ -877,7 +877,7 @@ describe('Slide Operations via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'update',
             target: 'slide',
@@ -910,7 +910,7 @@ describe('Slide Operations via Sync', () => {
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({
-          operations: [{
+          operations: [{ protocolVersion: 2,
             id: randomUUID(),
             type: 'delete',
             target: 'slide',

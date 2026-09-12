@@ -54,11 +54,11 @@ describe('a policy-denied op does not poison the batch (repro)', () => {
     const featureId = randomUUID();
 
     const res = await push([
-      {
+      { protocolVersion: 2,
         id: randomUUID(), entityType: 'map', operationType: 'delete',
         entityId: map.id, mapId: map.id, timestamp: Date.now(), clientId: 'c-poison',
       },
-      {
+      { protocolVersion: 2,
         id: randomUUID(), entityType: 'feature', operationType: 'create',
         entityId: featureId, mapId: other.id,
         data: {
@@ -108,7 +108,7 @@ describe('a policy-denied op does not poison the batch (repro)', () => {
       .post(`/api/v1/atlas/${atlas.id}/sync`)
       .set('Authorization', `Bearer ${readerToken}`)
       .send({
-        operations: [{
+        operations: [{ protocolVersion: 2,
           id: randomUUID(), entityType: 'feature', operationType: 'create',
           entityId: fId, mapId: map.id,
           data: {

@@ -78,7 +78,7 @@ describe('GRANTABLE_PERMISSIONS — os níveis do meio são concedíveis pela ro
       .post(`/api/v1/atlas/${atlas.id}/sync`)
       .set('Authorization', `Bearer ${beneficiadoTok}`)
       .send({
-        operations: [{
+        operations: [{ protocolVersion: 2,
           id: randomUUID(), entityType: 'comment', operationType: 'create', entityId: comentarioId,
           mapId: map.id,
           data: { id: comentarioId, mapId: map.id, lng: -43.2, lat: -22.9, text: 'oi', status: 'open' },
@@ -100,7 +100,7 @@ describe('GRANTABLE_PERMISSIONS — os níveis do meio são concedíveis pela ro
       .post(`/api/v1/atlas/${atlas.id}/sync`)
       .set('Authorization', `Bearer ${beneficiadoTok}`)
       .send({
-        operations: [{
+        operations: [{ protocolVersion: 2,
           id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: featureId,
           mapId: map.id,
           data: { type: 'Feature', geometry: { type: 'Point', coordinates: [-43, -22] }, properties: { source: 'point' } },

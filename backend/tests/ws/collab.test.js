@@ -273,7 +273,7 @@ describe('WebSocket Collaboration', () => {
       const targetId = randomUUID();
       client.send({
         type: 'operation',
-        op: {
+        op: { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',
@@ -310,7 +310,7 @@ describe('WebSocket Collaboration', () => {
       const targetId = randomUUID();
       client.send({
         type: 'operation',
-        op: {
+        op: { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',
@@ -338,7 +338,7 @@ describe('WebSocket Collaboration', () => {
 
       client.send({
         type: 'operation',
-        op: {
+        op: { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',
@@ -379,7 +379,7 @@ describe('WebSocket Collaboration', () => {
       const targetId = randomUUID();
       client1.send({
         type: 'operation',
-        op: {
+        op: { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',
@@ -411,7 +411,7 @@ describe('WebSocket Collaboration', () => {
 
       const ops = [];
       for (let i = 0; i < 3; i++) {
-        ops.push({
+        ops.push({ protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',
@@ -504,7 +504,7 @@ describe('WebSocket Collaboration', () => {
       // Owner pushes an operation
       ownerClient.send({
         type: 'operation',
-        op: {
+        op: { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',
@@ -527,7 +527,7 @@ describe('WebSocket Collaboration', () => {
       // Public client tries to push (should fail/be ignored)
       publicClient.send({
         type: 'operation',
-        op: {
+        op: { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',

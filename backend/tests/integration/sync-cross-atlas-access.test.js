@@ -1,3 +1,4 @@
+import { featureMutation } from '../helpers/feature-operation.js';
 // Path: tests/integration/sync-cross-atlas-access.test.js
 // Negative access tests: a user with write permission on atlas A must NOT be able
 // to mutate slide / group_feature entities that belong to atlas B by pushing sync
@@ -59,7 +60,7 @@ describe('Sync cross-atlas access (negative)', () => {
   }
 
   it('cannot UPDATE a slide of another atlas', async () => {
-    await pushToAtlasA([{
+    await pushToAtlasA([{ protocolVersion: 2,
       id: randomUUID(), type: 'update', target: 'slide', targetId: slideB.id,
       changes: { title: 'HACKED' }, timestamp: Date.now(), clientId: 'attacker',
     }]).expect(200);
@@ -69,7 +70,7 @@ describe('Sync cross-atlas access (negative)', () => {
   });
 
   it('cannot soft-DELETE a slide of another atlas', async () => {
-    await pushToAtlasA([{
+    await pushToAtlasA([{ protocolVersion: 2,
       id: randomUUID(), type: 'delete', target: 'slide', targetId: slideB.id,
       timestamp: Date.now(), clientId: 'attacker',
     }]).expect(200);
@@ -80,7 +81,7 @@ describe('Sync cross-atlas access (negative)', () => {
 
   it('cannot CREATE a slide attached to another atlas briefing', async () => {
     const slideId = randomUUID();
-    await pushToAtlasA([{
+    await pushToAtlasA([{ protocolVersion: 2,
       id: randomUUID(), type: 'create', target: 'slide', targetId: slideId,
       data: { briefing_id: briefingB.id, title: 'Injected', mode: '2d' },
       timestamp: Date.now(), clientId: 'attacker',
@@ -91,7 +92,7 @@ describe('Sync cross-atlas access (negative)', () => {
   });
 
   it('cannot DELETE a group_feature link of another atlas', async () => {
-    await pushToAtlasA([{
+    await pushToAtlasA([{ protocolVersion: 2,
       id: randomUUID(), type: 'delete', target: 'group_feature', targetId: randomUUID(),
       mapId: mapB.id, data: { group_id: groupB.id, feature_id: featureB.id },
       timestamp: Date.now(), clientId: 'attacker',
@@ -108,7 +109,7 @@ describe('Sync cross-atlas access (negative)', () => {
     const group2 = await createGroup(db, mapB.id);
     const feature2 = await createFeature(db, mapB.id);
 
-    await pushToAtlasA([{
+    await pushToAtlasA([{ protocolVersion: 2,
       id: randomUUID(), type: 'create', target: 'group_feature', targetId: randomUUID(),
       mapId: mapB.id, data: { group_id: group2.id, feature_id: feature2.id },
       timestamp: Date.now(), clientId: 'attacker',
@@ -127,35 +128,35 @@ describe('Sync cross-atlas access (negative)', () => {
 
   it('cannot CREATE a feature in another atlas map', async () => {
     const id = randomUUID();
-    await pushToAtlasA([{
+    await pushToAtlasA([{ protocolVersion: 2,
       id: randomUUID(), type: 'create', target: 'feature', targetId: id, mapId: mapB.id,
       data: { feature_type: 'point', geometry: { coordinates: [0, 0] }, properties: {} },
       timestamp: Date.now(), clientId: 'attacker',
-    }]).expect(200);
+    }]).expect(403);
     const { rows } = await db.query('SELECT id FROM features WHERE id = $1', [id]);
     assert.equal(rows.length, 0, 'feature must not be created in atlas B');
   });
 
   it('cannot UPDATE a feature of another atlas map', async () => {
-    await pushToAtlasA([{
+    await pushToAtlasA([featureMutation(featureB, { protocolVersion: 2,
       id: randomUUID(), type: 'update', target: 'feature', targetId: featureB.id, mapId: mapB.id,
       changes: { properties: { name: 'HACKED' } }, timestamp: Date.now(), clientId: 'attacker',
-    }]).expect(200);
+    })]).expect(403);
     const { rows } = await db.query('SELECT properties FROM features WHERE id = $1', [featureB.id]);
     assert.equal(rows[0].properties.name, 'Victim Feature', 'feature of atlas B must be untouched');
   });
 
   it('cannot soft-DELETE a feature of another atlas map', async () => {
-    await pushToAtlasA([{
+    await pushToAtlasA([featureMutation(featureB, { protocolVersion: 2,
       id: randomUUID(), type: 'delete', target: 'feature', targetId: featureB.id, mapId: mapB.id,
       timestamp: Date.now(), clientId: 'attacker',
-    }]).expect(200);
+    })]).expect(403);
     const { rows } = await db.query('SELECT deleted_at FROM features WHERE id = $1', [featureB.id]);
     assert.equal(rows[0].deleted_at, null, 'feature of atlas B must not be deleted');
   });
 
   it('cannot UPDATE a layer of another atlas map', async () => {
-    await pushToAtlasA([{
+    await pushToAtlasA([{ protocolVersion: 2,
       id: randomUUID(), type: 'update', target: 'layer', targetId: layerB.id, mapId: mapB.id,
       changes: { name: 'HACKED' }, timestamp: Date.now(), clientId: 'attacker',
     }]).expect(200);
@@ -164,7 +165,7 @@ describe('Sync cross-atlas access (negative)', () => {
   });
 
   it('cannot soft-DELETE a group of another atlas map', async () => {
-    await pushToAtlasA([{
+    await pushToAtlasA([{ protocolVersion: 2,
       id: randomUUID(), type: 'delete', target: 'group', targetId: groupB.id, mapId: mapB.id,
       timestamp: Date.now(), clientId: 'attacker',
     }]).expect(200);
@@ -173,7 +174,7 @@ describe('Sync cross-atlas access (negative)', () => {
   });
 
   it('cannot UPDATE a cesium3d entity of another atlas map', async () => {
-    await pushToAtlasA([{
+    await pushToAtlasA([{ protocolVersion: 2,
       id: randomUUID(), type: 'update', target: 'cesium3d', targetId: cesiumB.id, mapId: mapB.id,
       changes: { tileset_id: 'HACKED' }, timestamp: Date.now(), clientId: 'attacker',
     }]).expect(200);
@@ -182,7 +183,7 @@ describe('Sync cross-atlas access (negative)', () => {
   });
 
   it('cannot soft-DELETE a streetview360 entity of another atlas map', async () => {
-    await pushToAtlasA([{
+    await pushToAtlasA([{ protocolVersion: 2,
       id: randomUUID(), type: 'delete', target: 'streetview360', targetId: sv360B.id, mapId: mapB.id,
       timestamp: Date.now(), clientId: 'attacker',
     }]).expect(200);
@@ -192,28 +193,28 @@ describe('Sync cross-atlas access (negative)', () => {
 
   it('cannot MOVE an own feature into another atlas map via changes.map_id (403)', async () => {
     const own = await createFeature(db, mapA.id, { properties: { name: 'Mine' } });
-    await pushToAtlasA([{
+    await pushToAtlasA([featureMutation(own, { protocolVersion: 2,
       id: randomUUID(), type: 'update', target: 'feature', targetId: own.id, mapId: mapA.id,
       changes: { map_id: mapB.id }, timestamp: Date.now(), clientId: 'attacker',
-    }]).expect(403);
+    })]).expect(403);
     const { rows } = await db.query('SELECT map_id FROM features WHERE id = $1', [own.id]);
     assert.equal(rows[0].map_id, mapA.id, 'feature must remain in its own atlas map');
   });
 
   it('POSITIVE control: owner can CREATE/UPDATE a feature in their OWN atlas map', async () => {
     const id = randomUUID();
-    await pushToAtlasA([{
+    await pushToAtlasA([{ protocolVersion: 2,
       id: randomUUID(), type: 'create', target: 'feature', targetId: id, mapId: mapA.id,
       data: { feature_type: 'point', geometry: { coordinates: [1, 1] }, properties: { name: 'ok' } },
       timestamp: Date.now(), clientId: 'owner',
     }]).expect(200);
-    let { rows } = await db.query('SELECT properties FROM features WHERE id = $1', [id]);
+    let { rows } = await db.query('SELECT * FROM features WHERE id = $1', [id]);
     assert.equal(rows.length, 1, 'own-atlas feature must be created');
 
-    await pushToAtlasA([{
+    await pushToAtlasA([featureMutation(rows[0], { protocolVersion: 2,
       id: randomUUID(), type: 'update', target: 'feature', targetId: id, mapId: mapA.id,
       changes: { properties: { name: 'renamed' } }, timestamp: Date.now(), clientId: 'owner',
-    }]).expect(200);
+    })]).expect(200);
     ({ rows } = await db.query('SELECT properties FROM features WHERE id = $1', [id]));
     assert.equal(rows[0].properties.name, 'renamed', 'own-atlas update must still work');
   });
@@ -222,7 +223,7 @@ describe('Sync cross-atlas access (negative)', () => {
     const briefingA = await createBriefing(db, atlasA.id, { name: 'Own Briefing' });
     const slideA = await createSlide(db, briefingA.id, { title: 'Own Slide' });
 
-    await pushToAtlasA([{
+    await pushToAtlasA([{ protocolVersion: 2,
       id: randomUUID(), type: 'update', target: 'slide', targetId: slideA.id,
       changes: { title: 'Own Slide Renamed' }, timestamp: Date.now(), clientId: 'owner',
     }]).expect(200);

@@ -1,3 +1,4 @@
+import { featureMutation } from '../helpers/feature-operation.js';
 // Path: tests/integration/sync-feature-moves.test.js
 // Tests for feature property updates via Sync API
 // Covers: §2 items 11-12 (feature visibility, feature lock)
@@ -57,7 +58,7 @@ describe('Feature Property Updates via Sync', () => {
         properties: { name: 'Movable Point' },
       });
 
-      await pushSync([{
+      await pushSync([featureMutation(feature, { protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'feature',
@@ -66,7 +67,7 @@ describe('Feature Property Updates via Sync', () => {
         changes: { layer_id: layer2.id },
         timestamp: Date.now(),
         clientId: 'test-client',
-      }]).expect(200);
+      })]).expect(200);
 
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [feature.id]);
       assert.equal(rows[0].layer_id, layer2.id);
@@ -79,7 +80,7 @@ describe('Feature Property Updates via Sync', () => {
         properties: { name: 'Unassign Point' },
       });
 
-      await pushSync([{
+      await pushSync([featureMutation(feature, { protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'feature',
@@ -88,7 +89,7 @@ describe('Feature Property Updates via Sync', () => {
         changes: { layer_id: null },
         timestamp: Date.now(),
         clientId: 'test-client',
-      }]).expect(200);
+      })]).expect(200);
 
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [feature.id]);
       assert.equal(rows[0].layer_id, layer1.id);
@@ -102,7 +103,7 @@ describe('Feature Property Updates via Sync', () => {
         properties: { name: 'Visible Point', visible: true },
       });
 
-      await pushSync([{
+      await pushSync([featureMutation(feature, { protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'feature',
@@ -111,7 +112,7 @@ describe('Feature Property Updates via Sync', () => {
         changes: { properties: { ...feature.properties, name: 'Visible Point', visible: false } },
         timestamp: Date.now(),
         clientId: 'test-client',
-      }]).expect(200);
+      })]).expect(200);
 
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [feature.id]);
       assert.equal(rows[0].properties.visible, false);
@@ -125,7 +126,7 @@ describe('Feature Property Updates via Sync', () => {
         properties: { name: 'Lockable Point', locked: false },
       });
 
-      await pushSync([{
+      await pushSync([featureMutation(feature, { protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'feature',
@@ -134,7 +135,7 @@ describe('Feature Property Updates via Sync', () => {
         changes: { properties: { ...feature.properties, name: 'Lockable Point', locked: true } },
         timestamp: Date.now(),
         clientId: 'test-client',
-      }]).expect(200);
+      })]).expect(200);
 
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [feature.id]);
       assert.equal(rows[0].properties.locked, true);
@@ -148,7 +149,7 @@ describe('Feature Property Updates via Sync', () => {
         properties: { name: 'Old Name' },
       });
 
-      await pushSync([{
+      await pushSync([featureMutation(feature, { protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'feature',
@@ -157,7 +158,7 @@ describe('Feature Property Updates via Sync', () => {
         changes: { properties: { name: 'New Name' } },
         timestamp: Date.now(),
         clientId: 'test-client',
-      }]).expect(200);
+      })]).expect(200);
 
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [feature.id]);
       assert.equal(rows[0].properties.name, 'New Name');
@@ -171,7 +172,7 @@ describe('Feature Property Updates via Sync', () => {
         properties: { name: 'Styled Polygon', fillColor: '#ff0000' },
       });
 
-      await pushSync([{
+      await pushSync([featureMutation(feature, { protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'feature',
@@ -180,7 +181,7 @@ describe('Feature Property Updates via Sync', () => {
         changes: { properties: { ...feature.properties, fillColor: '#00ff00' } },
         timestamp: Date.now(),
         clientId: 'test-client',
-      }]).expect(200);
+      })]).expect(200);
 
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [feature.id]);
       assert.equal(rows[0].properties.fillColor, '#00ff00');
@@ -192,7 +193,7 @@ describe('Feature Property Updates via Sync', () => {
         properties: { name: 'Styled Line', strokeColor: '#000', opacity: 1, lineWidth: 2 },
       });
 
-      await pushSync([{
+      await pushSync([featureMutation(feature, { protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'feature',
@@ -201,7 +202,7 @@ describe('Feature Property Updates via Sync', () => {
         changes: { properties: { name: 'Styled Line', strokeColor: '#0000ff', opacity: 0.5, lineWidth: 5 } },
         timestamp: Date.now(),
         clientId: 'test-client',
-      }]).expect(200);
+      })]).expect(200);
 
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [feature.id]);
       assert.equal(rows[0].properties.strokeColor, '#0000ff');
@@ -218,7 +219,7 @@ describe('Feature Property Updates via Sync', () => {
         properties: { name: 'Moving Point' },
       });
 
-      await pushSync([{
+      await pushSync([featureMutation(feature, { protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'feature',
@@ -227,7 +228,7 @@ describe('Feature Property Updates via Sync', () => {
         changes: { geometry: { type: 'Point', coordinates: [-43.3, -22.8] } },
         timestamp: Date.now(),
         clientId: 'test-client',
-      }]).expect(200);
+      })]).expect(200);
 
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [feature.id]);
       assert.deepEqual(rows[0].geometry.coordinates, [-43.3, -22.8]);
@@ -247,7 +248,7 @@ describe('Feature Property Updates via Sync', () => {
 
       const newCoords = [[[-43.4, -22.95], [-43.1, -22.95], [-43.1, -22.75], [-43.4, -22.75], [-43.4, -22.95]]];
 
-      await pushSync([{
+      await pushSync([featureMutation(feature, { protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'feature',
@@ -256,7 +257,7 @@ describe('Feature Property Updates via Sync', () => {
         changes: { geometry: { type: 'Polygon', coordinates: newCoords } },
         timestamp: Date.now(),
         clientId: 'test-client',
-      }]).expect(200);
+      })]).expect(200);
 
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [feature.id]);
       assert.deepEqual(rows[0].geometry.coordinates, newCoords);
@@ -270,7 +271,7 @@ describe('Feature Property Updates via Sync', () => {
         properties: { name: 'Attribute Point' },
       });
 
-      await pushSync([{
+      await pushSync([featureMutation(feature, { protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'feature',
@@ -279,7 +280,7 @@ describe('Feature Property Updates via Sync', () => {
         changes: { properties: { name: 'Attribute Point', customField: 'custom value', population: 15000 } },
         timestamp: Date.now(),
         clientId: 'test-client',
-      }]).expect(200);
+      })]).expect(200);
 
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [feature.id]);
       assert.equal(rows[0].properties.customField, 'custom value');
@@ -294,7 +295,7 @@ describe('Feature Property Updates via Sync', () => {
         properties: { name: 'Photo Point', photos: [] },
       });
 
-      await pushSync([{
+      await pushSync([featureMutation(feature, { protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'feature',
@@ -308,7 +309,7 @@ describe('Feature Property Updates via Sync', () => {
         },
         timestamp: Date.now(),
         clientId: 'test-client',
-      }]).expect(200);
+      })]).expect(200);
 
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [feature.id]);
       assert.equal(rows[0].properties.photos.length, 2);
@@ -323,7 +324,7 @@ describe('Feature Property Updates via Sync', () => {
         properties: { name: 'Type Change' },
       });
 
-      await pushSync([{
+      await pushSync([featureMutation(feature, { protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'feature',
@@ -332,7 +333,7 @@ describe('Feature Property Updates via Sync', () => {
         changes: { feature_type: 'military_symbol' },
         timestamp: Date.now(),
         clientId: 'test-client',
-      }]).expect(200);
+      })]).expect(200);
 
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [feature.id]);
       assert.equal(rows[0].feature_type, 'military_symbol');
@@ -349,7 +350,7 @@ describe('Feature Property Updates via Sync', () => {
       });
 
       const duplicateId = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'create',
         target: 'feature',
@@ -379,7 +380,7 @@ describe('Feature Property Updates via Sync', () => {
         properties: { name: 'To Delete Point' },
       });
 
-      await pushSync([{
+      await pushSync([featureMutation(feature, { protocolVersion: 2,
         id: randomUUID(),
         type: 'delete',
         target: 'feature',
@@ -387,7 +388,7 @@ describe('Feature Property Updates via Sync', () => {
         mapId: map.id,
         timestamp: Date.now(),
         clientId: 'test-client',
-      }]).expect(200);
+      })]).expect(200);
 
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [feature.id]);
       assert.ok(rows[0].deleted_at, 'feature should be soft-deleted');
@@ -402,9 +403,9 @@ describe('Feature Property Updates via Sync', () => {
       const now = Date.now();
 
       await pushSync([
-        { id: randomUUID(), type: 'delete', target: 'feature', targetId: f1.id, mapId: map.id, timestamp: now, clientId: 'test-client' },
-        { id: randomUUID(), type: 'delete', target: 'feature', targetId: f2.id, mapId: map.id, timestamp: now + 1, clientId: 'test-client' },
-        { id: randomUUID(), type: 'delete', target: 'feature', targetId: f3.id, mapId: map.id, timestamp: now + 2, clientId: 'test-client' },
+        featureMutation(f1, { protocolVersion: 2, id: randomUUID(), type: 'delete', target: 'feature', targetId: f1.id, mapId: map.id, timestamp: now, clientId: 'test-client' }),
+        featureMutation(f2, { protocolVersion: 2, id: randomUUID(), type: 'delete', target: 'feature', targetId: f2.id, mapId: map.id, timestamp: now + 1, clientId: 'test-client' }),
+        featureMutation(f3, { protocolVersion: 2, id: randomUUID(), type: 'delete', target: 'feature', targetId: f3.id, mapId: map.id, timestamp: now + 2, clientId: 'test-client' }),
       ]).expect(200);
 
       for (const f of [f1, f2, f3]) {
@@ -417,7 +418,7 @@ describe('Feature Property Updates via Sync', () => {
       const ids = [randomUUID(), randomUUID(), randomUUID()];
       const now = Date.now();
 
-      await pushSync(ids.map((id, i) => ({
+      await pushSync(ids.map((id, i) => ({ protocolVersion: 2,
         id: randomUUID(),
         type: 'create',
         target: 'feature',
@@ -446,7 +447,7 @@ describe('Feature Property Updates via Sync', () => {
         properties: { name: 'Labeled Point' },
       });
 
-      await pushSync([{
+      await pushSync([featureMutation(feature, { protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'feature',
@@ -466,7 +467,7 @@ describe('Feature Property Updates via Sync', () => {
         },
         timestamp: Date.now(),
         clientId: 'test-client',
-      }]).expect(200);
+      })]).expect(200);
 
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [feature.id]);
       assert.equal(rows[0].properties.labelShow, true);
@@ -482,7 +483,7 @@ describe('Feature Property Updates via Sync', () => {
         properties: { name: 'Described Point', description: '' },
       });
 
-      await pushSync([{
+      await pushSync([featureMutation(feature, { protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'feature',
@@ -491,7 +492,7 @@ describe('Feature Property Updates via Sync', () => {
         changes: { properties: { name: 'Described Point', description: '<p>Rich <strong>text</strong> description</p>' } },
         timestamp: Date.now(),
         clientId: 'test-client',
-      }]).expect(200);
+      })]).expect(200);
 
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [feature.id]);
       assert.ok(rows[0].properties.description.includes('<strong>text</strong>'));
@@ -506,7 +507,7 @@ describe('Feature Property Updates via Sync', () => {
         properties: { name: 'Coord Edit Point' },
       });
 
-      await pushSync([{
+      await pushSync([featureMutation(feature, { protocolVersion: 2,
         id: randomUUID(),
         type: 'update',
         target: 'feature',
@@ -515,7 +516,7 @@ describe('Feature Property Updates via Sync', () => {
         changes: { geometry: { type: 'Point', coordinates: [-47.8, -15.5] } },
         timestamp: Date.now(),
         clientId: 'test-client',
-      }]).expect(200);
+      })]).expect(200);
 
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [feature.id]);
       assert.deepEqual(rows[0].geometry.coordinates, [-47.8, -15.5]);
@@ -538,7 +539,7 @@ describe('Feature Property Updates via Sync', () => {
 
       // Atomic create+delete in a single batch
       await pushSync([
-        {
+        { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',
@@ -552,7 +553,7 @@ describe('Feature Property Updates via Sync', () => {
           timestamp: now,
           clientId: 'test-client',
         },
-        {
+        featureMutation(original, { protocolVersion: 2,
           id: randomUUID(),
           type: 'delete',
           target: 'feature',
@@ -560,7 +561,7 @@ describe('Feature Property Updates via Sync', () => {
           mapId: map.id,
           timestamp: now + 1,
           clientId: 'test-client',
-        },
+        }),
       ]).expect(200);
 
       // Original should be soft-deleted
@@ -583,9 +584,9 @@ describe('Feature Property Updates via Sync', () => {
       const now = Date.now();
 
       await pushSync([
-        { id: randomUUID(), type: 'update', target: 'feature', targetId: f1.id, mapId: map.id, changes: { properties: { name: 'Lock1', locked: true } }, timestamp: now, clientId: 'test-client' },
-        { id: randomUUID(), type: 'update', target: 'feature', targetId: f2.id, mapId: map.id, changes: { properties: { name: 'Lock2', locked: true } }, timestamp: now + 1, clientId: 'test-client' },
-        { id: randomUUID(), type: 'update', target: 'feature', targetId: f3.id, mapId: map.id, changes: { properties: { name: 'Lock3', locked: true } }, timestamp: now + 2, clientId: 'test-client' },
+        featureMutation(f1, { protocolVersion: 2, id: randomUUID(), type: 'update', target: 'feature', targetId: f1.id, mapId: map.id, changes: { properties: { name: 'Lock1', locked: true } }, timestamp: now, clientId: 'test-client' }),
+        featureMutation(f2, { protocolVersion: 2, id: randomUUID(), type: 'update', target: 'feature', targetId: f2.id, mapId: map.id, changes: { properties: { name: 'Lock2', locked: true } }, timestamp: now + 1, clientId: 'test-client' }),
+        featureMutation(f3, { protocolVersion: 2, id: randomUUID(), type: 'update', target: 'feature', targetId: f3.id, mapId: map.id, changes: { properties: { name: 'Lock3', locked: true } }, timestamp: now + 2, clientId: 'test-client' }),
       ]).expect(200);
 
       for (const f of [f1, f2, f3]) {
@@ -602,8 +603,8 @@ describe('Feature Property Updates via Sync', () => {
       const now = Date.now();
 
       await pushSync([
-        { id: randomUUID(), type: 'update', target: 'feature', targetId: f1.id, mapId: map.id, changes: { properties: { name: 'Vis1', visible: false } }, timestamp: now, clientId: 'test-client' },
-        { id: randomUUID(), type: 'update', target: 'feature', targetId: f2.id, mapId: map.id, changes: { properties: { name: 'Vis2', visible: false } }, timestamp: now + 1, clientId: 'test-client' },
+        featureMutation(f1, { protocolVersion: 2, id: randomUUID(), type: 'update', target: 'feature', targetId: f1.id, mapId: map.id, changes: { properties: { name: 'Vis1', visible: false } }, timestamp: now, clientId: 'test-client' }),
+        featureMutation(f2, { protocolVersion: 2, id: randomUUID(), type: 'update', target: 'feature', targetId: f2.id, mapId: map.id, changes: { properties: { name: 'Vis2', visible: false } }, timestamp: now + 1, clientId: 'test-client' }),
       ]).expect(200);
 
       for (const f of [f1, f2]) {
@@ -616,7 +617,7 @@ describe('Feature Property Updates via Sync', () => {
   describe('Feature in snapshot with all properties', () => {
     it('snapshot feature includes properties, geometry, layer_id, and sync metadata', async () => {
       const featureId = randomUUID();
-      await pushSync([{
+      await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         type: 'create',
         target: 'feature',

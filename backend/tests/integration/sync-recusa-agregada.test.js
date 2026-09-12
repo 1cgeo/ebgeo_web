@@ -70,7 +70,7 @@ describe('o servidor DIZ quando descarta trabalho do usuário', () => {
 
   const feicao = (mapId) => {
     const id = randomUUID();
-    return {
+    return { protocolVersion: 2,
       id: randomUUID(),
       entityType: 'feature',
       operationType: 'create',
@@ -124,7 +124,7 @@ describe('o servidor DIZ quando descarta trabalho do usuário', () => {
     await push([
       feicao(mapaTravado.id),
       feicao(mapaTravado.id),
-      {
+      { protocolVersion: 2,
         id: randomUUID(),
         entityType: 'tipoQueNaoExiste',
         operationType: 'create',

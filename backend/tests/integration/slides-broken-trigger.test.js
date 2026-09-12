@@ -44,7 +44,7 @@ describe('trg_mark_slides_broken (item 104)', () => {
       .post(`/api/v1/atlas/${atlas.id}/sync`)
       .set('Authorization', `Bearer ${token}`)
       .send({
-        operations: [{
+        operations: [{ protocolVersion: 2,
           id: randomUUID(),
           type: 'delete',
           target: 'map',
@@ -109,7 +109,7 @@ describe('trg_mark_slides_broken (item 104)', () => {
       .post(`/api/v1/atlas/${atlas.id}/sync`)
       .set('Authorization', `Bearer ${token}`)
       .send({
-        operations: [{
+        operations: [{ protocolVersion: 2,
           id: randomUUID(), type: 'update', target: 'map', targetId: mapa.id,
           changes: { name: `Renomeado ${randomUUID().slice(0, 6)}` },
           timestamp: Date.now(), clientId: 'brk-client',

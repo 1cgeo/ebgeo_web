@@ -87,3 +87,10 @@ export const cleanupSchema = Joi.object({
   keepFromVersion: Joi.number().integer().min(0),
   keepDays: Joi.number().integer().min(1).max(365).default(7),
 }).or('keepFromVersion', 'keepDays');
+
+// Read-only lookup accepts old envelopes without upgrading their identity.
+// Apply the same payload scrubbing as push before comparing the receipt hash.
+export const receiptLookupSchema = Joi.object({
+  operations: Joi.array().items(Joi.object({ id: Joi.string().required() })
+    .unknown(true).custom(scrubOperationPayloads)).min(1).max(100).required(),
+});

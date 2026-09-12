@@ -442,6 +442,7 @@ export function createOperation(entityType, operationType, entityId, mapId, data
 
     return {
         id: generateUUID(),
+        protocolVersion: 2,
         entityType,
         operationType,
         entityId,
@@ -479,6 +480,7 @@ export function createBatchOperations(operations) {
 
     return operations.map((op, index) => ({
         id: generateUUID(),
+        protocolVersion: 2,
         entityType: op.entityType,
         operationType: op.operationType,
         entityId: op.entityId,

@@ -237,7 +237,7 @@ describe('F14 — a forma que o escritor do cliente produz atravessa a borda int
     return res.body.data;
   };
 
-  const op = (extra) => ({
+  const op = (extra) => ({ protocolVersion: 2,
     id: randomUUID(),
     timestamp: Date.now(),
     clientId: `c-forma-${sufixo}`,

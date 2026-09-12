@@ -42,7 +42,7 @@ describe('Unicidade de op_id é POR ATLAS (item 105)', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ operations });
 
-  const opCom = (opId, mapId, featureId) => ({
+  const opCom = (opId, mapId, featureId) => ({ protocolVersion: 2,
     id: opId,
     type: 'create',
     target: 'feature',

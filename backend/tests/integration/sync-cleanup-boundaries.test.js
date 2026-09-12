@@ -44,7 +44,7 @@ describe('cleanup de operações — bordas de keepFromVersion e keepDays', () =
     await teardownTestEnv(db);
   });
 
-  const featureOp = (mapId, nome) => ({
+  const featureOp = (mapId, nome) => ({ protocolVersion: 2,
     id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: randomUUID(),
     mapId,
     data: { feature_type: 'point', geometry: { coordinates: [-43.2, -22.9] }, properties: { name: nome } },

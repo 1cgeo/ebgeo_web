@@ -6,6 +6,7 @@ import { requireAtlasPermission } from '../../middleware/permissions.js';
 import { requireAdmin } from '../../middleware/require-admin.js';
 import * as ctrl from './sync.controller.js';
 import * as schemas from './sync.schemas.js';
+import { requireSyncProtocol, syncProtocol } from './sync-protocol.js';
 
 const router = Router({ mergeParams: true });
 
@@ -16,7 +17,13 @@ router.post('/admin/cleanup', auth, requireAdmin, validate({ body: schemas.clean
 // Sync operations. The push gate is 'comment' (not 'write') so a Comentarista can reach the
 // route to push comment ops; assertOperationAllowed() then enforces per-op that a comment-tier
 // user may ONLY write spatial comments. read-tier is still blocked here (read < comment).
-router.post('/', auth, requireAtlasPermission('comment'), validate({ body: schemas.pushSchema }), ctrl.pushOperations);
+router.get('/protocol', auth, requireAtlasPermission('read'), (_req, res) => {
+  res.set('Cache-Control', 'no-store').json({ data: syncProtocol });
+});
+router.post('/', auth, requireAtlasPermission('comment'), requireSyncProtocol,
+  validate({ body: schemas.pushSchema }), ctrl.pushOperations);
+router.post('/receipts', auth, requireAtlasPermission('read'),
+  validate({ body: schemas.receiptLookupSchema }), ctrl.lookupOperationReceipts);
 router.get('/:version', auth, requireAtlasPermission('read'), ctrl.pullOperations);
 
 export { router as syncRoutes };

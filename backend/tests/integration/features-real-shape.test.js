@@ -104,7 +104,7 @@ describe('Features — real frontend shape via Sync API', () => {
       .post(`/api/v1/atlas/${atlasId}/sync`)
       .set('Authorization', `Bearer ${token}`)
       .send({
-        operations: [{
+        operations: [{ protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',

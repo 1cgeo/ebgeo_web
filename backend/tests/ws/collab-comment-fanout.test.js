@@ -65,14 +65,14 @@ describe('fan-out WS de comentário espacial — quem recebe e quem não pode de
     await teardownTestEnv(db);
   });
 
-  const commentOp = () => ({
+  const commentOp = () => ({ protocolVersion: 2,
     id: randomUUID(), entityType: 'comment', operationType: 'create', entityId: randomUUID(),
     mapId: map.id,
     data: { lng: -43.2, lat: -22.9, text: 'segredo', status: 'open' },
     timestamp: Date.now(), clientId: 'cfan-owner',
   });
 
-  const featureOp = () => ({
+  const featureOp = () => ({ protocolVersion: 2,
     id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: randomUUID(),
     mapId: map.id,
     data: { feature_type: 'point', geometry: { coordinates: [-43.2, -22.9] }, properties: { name: 'pub' } },

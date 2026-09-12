@@ -1,0 +1,840 @@
+{
+  "date": "2026-09-12",
+  "branch": "integracao_backend",
+  "base": "e70ccf3c245ba99ba8757ebcbf8eca072a9f6cd6",
+  "source": "npm audit --json against committed lockfiles before remediation",
+  "areas": {
+    "root": {
+      "counts": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0,
+        "total": 0
+      },
+      "packages": []
+    },
+    "front": {
+      "counts": {
+        "info": 0,
+        "low": 1,
+        "moderate": 7,
+        "high": 5,
+        "critical": 0,
+        "total": 13
+      },
+      "packages": [
+        {
+          "name": "@humanfs/node",
+          "severity": "moderate",
+          "isDirect": false,
+          "range": "<0.16.8",
+          "fixAvailable": true,
+          "advisories": [
+            {
+              "title": "humanfs: Recursive copy follows symlinked files and copies data from outside the source tree",
+              "url": "https://github.com/advisories/GHSA-p498-v437-472g",
+              "range": "<0.16.8"
+            }
+          ],
+          "nodes": [
+            "node_modules/@humanfs/node"
+          ]
+        },
+        {
+          "name": "@vitest/coverage-v8",
+          "severity": "moderate",
+          "isDirect": true,
+          "range": "2.1.0-beta.1 - 4.1.10",
+          "fixAvailable": true,
+          "advisories": [],
+          "nodes": [
+            "node_modules/@vitest/coverage-v8"
+          ]
+        },
+        {
+          "name": "@vitest/mocker",
+          "severity": "moderate",
+          "isDirect": false,
+          "range": "2.1.0 - 4.1.10",
+          "fixAvailable": true,
+          "advisories": [
+            {
+              "title": "Vitest: Path Traversal / Arbitrary File Read via @vitest/mocker Redirect Mock",
+              "url": "https://github.com/advisories/GHSA-82fw-gwwq-j7x9",
+              "range": ">=2.1.0 <4.1.11"
+            }
+          ],
+          "nodes": [
+            "node_modules/vitest/node_modules/@vitest/mocker"
+          ]
+        },
+        {
+          "name": "ajv",
+          "severity": "high",
+          "isDirect": false,
+          "range": "",
+          "fixAvailable": true,
+          "advisories": [],
+          "nodes": [
+            "node_modules/table/node_modules/ajv"
+          ]
+        },
+        {
+          "name": "baseline-browser-mapping",
+          "severity": "moderate",
+          "isDirect": false,
+          "range": ">=2.0.0 <2.11.0",
+          "fixAvailable": true,
+          "advisories": [
+            {
+              "title": "baseline-browser-mapping process termination on invalid input causes denial of service",
+              "url": "https://github.com/advisories/GHSA-w5vr-8v7q-w6rv",
+              "range": ">=2.0.0 <2.11.0"
+            }
+          ],
+          "nodes": [
+            "node_modules/baseline-browser-mapping"
+          ]
+        },
+        {
+          "name": "browserslist",
+          "severity": "high",
+          "isDirect": false,
+          "range": "<=4.28.6",
+          "fixAvailable": true,
+          "advisories": [
+            {
+              "title": "Browserslist: Unbounded memory growth (no cache eviction) via distinct query results, leading to eventual OOM",
+              "url": "https://github.com/advisories/GHSA-c83g-rgw3-j3cx",
+              "range": "<=4.28.6"
+            },
+            {
+              "title": "Browserslist: Uncaught crash / prototype write via untrusted browserslist-stats.json custom stats (normalizeStats)",
+              "url": "https://github.com/advisories/GHSA-73wf-gq98-2v4g",
+              "range": "<=4.28.6"
+            }
+          ],
+          "nodes": [
+            "node_modules/browserslist"
+          ]
+        },
+        {
+          "name": "colord",
+          "severity": "moderate",
+          "isDirect": false,
+          "range": "<2.9.4",
+          "fixAvailable": true,
+          "advisories": [
+            {
+              "title": "Colord: Slow rejection of oversized malformed color strings",
+              "url": "https://github.com/advisories/GHSA-2wm5-q62r-hmrv",
+              "range": "<2.9.4"
+            }
+          ],
+          "nodes": [
+            "node_modules/colord"
+          ]
+        },
+        {
+          "name": "fast-uri",
+          "severity": "high",
+          "isDirect": false,
+          "range": "3.0.0 - 3.1.5",
+          "fixAvailable": true,
+          "advisories": [
+            {
+              "title": "fast-uri vulnerable to host confusion via skipped IDN canonicalization on scheme-relative references",
+              "url": "https://github.com/advisories/GHSA-5jgf-p345-68v8",
+              "range": ">=3.1.3 <3.1.6"
+            },
+            {
+              "title": "fast-uri vulnerable to server-side request forgery via malformed IPv6 normalization",
+              "url": "https://github.com/advisories/GHSA-f65p-4m7j-42xc",
+              "range": ">=3.0.0 <3.1.6"
+            },
+            {
+              "title": "fast-uri vulnerable to server-side request forgery via repeated hostname percent-decoding",
+              "url": "https://github.com/advisories/GHSA-fph4-wmhf-6fwf",
+              "range": ">=3.1.2 <3.1.6"
+            },
+            {
+              "title": "fast-uri vulnerable to host confusion via percent-encoded scheme normalization",
+              "url": "https://github.com/advisories/GHSA-jqff-g426-hqxp",
+              "range": ">=3.0.0 <3.1.6"
+            }
+          ],
+          "nodes": [
+            "node_modules/fast-uri"
+          ]
+        },
+        {
+          "name": "fflate",
+          "severity": "moderate",
+          "isDirect": false,
+          "range": "0.8.0 - 0.8.2",
+          "fixAvailable": true,
+          "advisories": [
+            {
+              "title": "fflate unzipSync can enter an infinite loop when parsing malformed ZIP64 archives",
+              "url": "https://github.com/advisories/GHSA-px8p-9vwx-vf98",
+              "range": ">=0.8.0 <0.8.3"
+            }
+          ],
+          "nodes": [
+            "node_modules/fflate"
+          ]
+        },
+        {
+          "name": "js-yaml",
+          "severity": "high",
+          "isDirect": false,
+          "range": "4.0.0 - 4.3.1",
+          "fixAvailable": true,
+          "advisories": [
+            {
+              "title": "js-yaml: maxTotalMergeKeys does not limit CPU use for empty merge sources",
+              "url": "https://github.com/advisories/GHSA-2883-xcg3-v3hh",
+              "range": ">=4.0.0 <4.3.2"
+            }
+          ],
+          "nodes": [
+            "node_modules/js-yaml"
+          ]
+        },
+        {
+          "name": "postcss-selector-parser",
+          "severity": "low",
+          "isDirect": false,
+          "range": "7.1.0 - 7.1.2",
+          "fixAvailable": true,
+          "advisories": [
+            {
+              "title": "postcss-selector-parser allows denial of service through uncontrolled AST recursion",
+              "url": "https://github.com/advisories/GHSA-w9m9-85wc-3x92",
+              "range": ">=7.1.0 <7.1.3"
+            }
+          ],
+          "nodes": [
+            "node_modules/postcss-selector-parser"
+          ]
+        },
+        {
+          "name": "smol-toml",
+          "severity": "high",
+          "isDirect": false,
+          "range": "<=1.7.0",
+          "fixAvailable": true,
+          "advisories": [
+            {
+              "title": "smol-toml: Denial of Service via malformed TOML documents",
+              "url": "https://github.com/advisories/GHSA-7w5x-hrqm-74c2",
+              "range": "<=1.7.0"
+            }
+          ],
+          "nodes": [
+            "node_modules/smol-toml"
+          ]
+        },
+        {
+          "name": "vitest",
+          "severity": "moderate",
+          "isDirect": true,
+          "range": "2.1.0-beta.1 - 4.1.10",
+          "fixAvailable": true,
+          "advisories": [
+            {
+              "title": "Vitest: Path Traversal / Arbitrary File Read via @vitest/mocker Redirect Mock",
+              "url": "https://github.com/advisories/GHSA-82fw-gwwq-j7x9",
+              "range": ">=2.1.0 <4.1.11"
+            }
+          ],
+          "nodes": [
+            "node_modules/vitest"
+          ]
+        }
+      ]
+    },
+    "back": {
+      "counts": {
+        "info": 0,
+        "low": 1,
+        "moderate": 3,
+        "high": 2,
+        "critical": 0,
+        "total": 6
+      },
+      "packages": [
+        {
+          "name": "body-parser",
+          "severity": "moderate",
+          "isDirect": false,
+          "range": "1.20.5 - 1.20.6",
+          "fixAvailable": true,
+          "advisories": [],
+          "nodes": [
+            "node_modules/body-parser"
+          ]
+        },
+        {
+          "name": "express",
+          "severity": "moderate",
+          "isDirect": true,
+          "range": "4.22.2",
+          "fixAvailable": true,
+          "advisories": [],
+          "nodes": [
+            "node_modules/express"
+          ]
+        },
+        {
+          "name": "joi",
+          "severity": "low",
+          "isDirect": true,
+          "range": "17.1.1 - 17.13.5",
+          "fixAvailable": true,
+          "advisories": [
+            {
+              "title": "joi: Prototype pollution via a `__proto__` language key in custom messages",
+              "url": "https://github.com/advisories/GHSA-6w3j-5fw6-r9vr",
+              "range": ">=17.2.0 <17.13.6"
+            },
+            {
+              "title": "joi: object().rename() with a template target can set the validated object's prototype",
+              "url": "https://github.com/advisories/GHSA-gg4h-3hg2-grpc",
+              "range": ">=16.0.0 <17.13.5"
+            }
+          ],
+          "nodes": [
+            "node_modules/joi"
+          ]
+        },
+        {
+          "name": "nodemailer",
+          "severity": "high",
+          "isDirect": true,
+          "range": "<=9.1.0",
+          "fixAvailable": true,
+          "advisories": [
+            {
+              "title": "Nodemailer: resolveContent() on a MailMessage bypasses disableFileAccess/disableUrlAccess when called with the legacy signature",
+              "url": "https://github.com/advisories/GHSA-8m3c-c648-2xjj",
+              "range": "<=9.1.0"
+            },
+            {
+              "title": "Nodemailer: IDN/Punycode domain allow-list bypass leads to email delivery to an attacker-controlled domain",
+              "url": "https://github.com/advisories/GHSA-wmmp-3585-3rmp",
+              "range": "<9.1.0"
+            },
+            {
+              "title": "Nodemailer: Quadratic (O(n²)) time complexity in addressparser allows remote denial of service via a crafted address list",
+              "url": "https://github.com/advisories/GHSA-2x7j-588g-ccc2",
+              "range": "<9.1.0"
+            },
+            {
+              "title": "Nodemailer: Recipient-domain validation bypass via RFC 5322 comment mis-parsing leads to email delivery to an attacker-controlled domain",
+              "url": "https://github.com/advisories/GHSA-cc9r-2j5m-2m83",
+              "range": ">=6.9.16 <9.1.0"
+            }
+          ],
+          "nodes": [
+            "node_modules/nodemailer"
+          ]
+        },
+        {
+          "name": "qs",
+          "severity": "moderate",
+          "isDirect": false,
+          "range": "2.2.5 - 6.15.3",
+          "fixAvailable": true,
+          "advisories": [
+            {
+              "title": "qs array-limit bypass via bracket-key comma parsing",
+              "url": "https://github.com/advisories/GHSA-x5fp-wj9c-mxmx",
+              "range": ">=6.14.2 <=6.15.3"
+            },
+            {
+              "title": "qs: Denial of Service via Attacker Controlled isBuffer",
+              "url": "https://github.com/advisories/GHSA-4mjr-xmp4-gh2g",
+              "range": ">=2.2.5 <6.16.0"
+            }
+          ],
+          "nodes": [
+            "node_modules/qs"
+          ]
+        },
+        {
+          "name": "sharp",
+          "severity": "high",
+          "isDirect": true,
+          "range": "<0.35.4",
+          "fixAvailable": true,
+          "advisories": [
+            {
+              "title": "sharp: Vulnerabilities in libheif: GHSA-g89c-p67h-r497 and GHSA-2jg2-4ch7-h545",
+              "url": "https://github.com/advisories/GHSA-rgj7-g3m4-5g8c",
+              "range": "<0.35.4"
+            }
+          ],
+          "nodes": [
+            "node_modules/sharp"
+          ]
+        }
+      ]
+    }
+  },
+  "remediation": {
+    "front": {
+      "counts": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0,
+        "total": 0
+      },
+      "installation": "npm ci completed",
+      "changed": [
+        {
+          "path": "node_modules/@emnapi/runtime",
+          "from": null,
+          "to": "1.11.3",
+          "development": true
+        },
+        {
+          "path": "node_modules/@humanfs/core",
+          "from": "0.19.1",
+          "to": "0.19.2",
+          "development": true
+        },
+        {
+          "path": "node_modules/@humanfs/node",
+          "from": "0.16.7",
+          "to": "0.16.8",
+          "development": true
+        },
+        {
+          "path": "node_modules/@humanfs/types",
+          "from": null,
+          "to": "0.15.0",
+          "development": true
+        },
+        {
+          "path": "node_modules/@vitest/coverage-v8",
+          "from": "4.1.9",
+          "to": "4.1.11",
+          "development": true
+        },
+        {
+          "path": "node_modules/@vitest/expect",
+          "from": "4.1.9",
+          "to": "4.1.11",
+          "development": true
+        },
+        {
+          "path": "node_modules/@vitest/mocker",
+          "from": null,
+          "to": "4.1.11",
+          "development": true
+        },
+        {
+          "path": "node_modules/@vitest/pretty-format",
+          "from": "4.1.9",
+          "to": "4.1.11",
+          "development": true
+        },
+        {
+          "path": "node_modules/@vitest/runner",
+          "from": "4.1.9",
+          "to": "4.1.11",
+          "development": true
+        },
+        {
+          "path": "node_modules/@vitest/snapshot",
+          "from": "4.1.9",
+          "to": "4.1.11",
+          "development": true
+        },
+        {
+          "path": "node_modules/@vitest/spy",
+          "from": "4.1.9",
+          "to": "4.1.11",
+          "development": true
+        },
+        {
+          "path": "node_modules/@vitest/utils",
+          "from": "4.1.9",
+          "to": "4.1.11",
+          "development": true
+        },
+        {
+          "path": "node_modules/baseline-browser-mapping",
+          "from": "2.10.40",
+          "to": "2.11.23",
+          "development": true
+        },
+        {
+          "path": "node_modules/browserslist",
+          "from": "4.28.4",
+          "to": "4.28.9",
+          "development": true
+        },
+        {
+          "path": "node_modules/caniuse-lite",
+          "from": "1.0.30001800",
+          "to": "1.0.30001810",
+          "development": true
+        },
+        {
+          "path": "node_modules/colord",
+          "from": "2.9.3",
+          "to": "2.10.0",
+          "development": true
+        },
+        {
+          "path": "node_modules/electron-to-chromium",
+          "from": "1.5.383",
+          "to": "1.5.427",
+          "development": true
+        },
+        {
+          "path": "node_modules/es-module-lexer",
+          "from": "2.1.0",
+          "to": "2.3.2",
+          "development": true
+        },
+        {
+          "path": "node_modules/expect-type",
+          "from": "1.3.0",
+          "to": "1.4.0",
+          "development": true
+        },
+        {
+          "path": "node_modules/fast-uri",
+          "from": "3.1.5",
+          "to": "3.1.6",
+          "development": true
+        },
+        {
+          "path": "node_modules/fflate",
+          "from": "0.8.2",
+          "to": "0.8.3",
+          "development": false
+        },
+        {
+          "path": "node_modules/js-yaml",
+          "from": "4.3.1",
+          "to": "4.3.2",
+          "development": true
+        },
+        {
+          "path": "node_modules/node-releases",
+          "from": "2.0.50",
+          "to": "2.0.55",
+          "development": true
+        },
+        {
+          "path": "node_modules/obug",
+          "from": "2.1.1",
+          "to": "2.2.1",
+          "development": true
+        },
+        {
+          "path": "node_modules/postcss-selector-parser",
+          "from": "7.1.1",
+          "to": "7.1.6",
+          "development": true
+        },
+        {
+          "path": "node_modules/smol-toml",
+          "from": "1.7.0",
+          "to": "1.8.0",
+          "development": true
+        },
+        {
+          "path": "node_modules/std-env",
+          "from": "4.1.0",
+          "to": "4.2.0",
+          "development": true
+        },
+        {
+          "path": "node_modules/tinyexec",
+          "from": "1.0.2",
+          "to": "1.3.1",
+          "development": true
+        },
+        {
+          "path": "node_modules/tinyrainbow",
+          "from": "3.1.0",
+          "to": "3.1.1",
+          "development": true
+        },
+        {
+          "path": "node_modules/update-browserslist-db",
+          "from": "1.2.3",
+          "to": "1.3.3",
+          "development": true
+        },
+        {
+          "path": "node_modules/vitest",
+          "from": "4.1.9",
+          "to": "4.1.11",
+          "development": true
+        }
+      ]
+    },
+    "back": {
+      "counts": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0,
+        "total": 0
+      },
+      "installation": "npm ci completed",
+      "changed": [
+        {
+          "path": "node_modules/@img/sharp-darwin-arm64",
+          "from": "0.35.3",
+          "to": "0.35.4",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-darwin-x64",
+          "from": "0.35.3",
+          "to": "0.35.4",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-freebsd-wasm32",
+          "from": "0.35.3",
+          "to": "0.35.4",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-libvips-darwin-arm64",
+          "from": "1.3.2",
+          "to": "1.3.3",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-libvips-darwin-x64",
+          "from": "1.3.2",
+          "to": "1.3.3",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-libvips-linux-arm",
+          "from": "1.3.2",
+          "to": "1.3.3",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-libvips-linux-arm64",
+          "from": "1.3.2",
+          "to": "1.3.3",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-libvips-linux-ppc64",
+          "from": "1.3.2",
+          "to": "1.3.3",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-libvips-linux-riscv64",
+          "from": "1.3.2",
+          "to": "1.3.3",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-libvips-linux-s390x",
+          "from": "1.3.2",
+          "to": "1.3.3",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-libvips-linux-x64",
+          "from": "1.3.2",
+          "to": "1.3.3",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-libvips-linuxmusl-arm64",
+          "from": "1.3.2",
+          "to": "1.3.3",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-libvips-linuxmusl-x64",
+          "from": "1.3.2",
+          "to": "1.3.3",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-linux-arm",
+          "from": "0.35.3",
+          "to": "0.35.4",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-linux-arm64",
+          "from": "0.35.3",
+          "to": "0.35.4",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-linux-ppc64",
+          "from": "0.35.3",
+          "to": "0.35.4",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-linux-riscv64",
+          "from": "0.35.3",
+          "to": "0.35.4",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-linux-s390x",
+          "from": "0.35.3",
+          "to": "0.35.4",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-linux-x64",
+          "from": "0.35.3",
+          "to": "0.35.4",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-linuxmusl-arm64",
+          "from": "0.35.3",
+          "to": "0.35.4",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-linuxmusl-x64",
+          "from": "0.35.3",
+          "to": "0.35.4",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-wasm32",
+          "from": "0.35.3",
+          "to": "0.35.4",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-webcontainers-wasm32",
+          "from": "0.35.3",
+          "to": "0.35.4",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-win32-arm64",
+          "from": "0.35.3",
+          "to": "0.35.4",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-win32-ia32",
+          "from": "0.35.3",
+          "to": "0.35.4",
+          "development": false
+        },
+        {
+          "path": "node_modules/@img/sharp-win32-x64",
+          "from": "0.35.3",
+          "to": "0.35.4",
+          "development": false
+        },
+        {
+          "path": "node_modules/body-parser",
+          "from": "1.20.6",
+          "to": "1.20.8",
+          "development": false
+        },
+        {
+          "path": "node_modules/joi",
+          "from": "17.13.4",
+          "to": "17.13.8",
+          "development": false
+        },
+        {
+          "path": "node_modules/nodemailer",
+          "from": "9.0.3",
+          "to": "9.1.1",
+          "development": false
+        },
+        {
+          "path": "node_modules/qs",
+          "from": "6.15.3",
+          "to": "6.16.0",
+          "development": false
+        },
+        {
+          "path": "node_modules/sharp",
+          "from": "0.35.3",
+          "to": "0.35.4",
+          "development": false
+        }
+      ]
+    }
+  },
+  "vendorInventory": [
+    {
+      "path": "frontend/public/vendors/turf.min.js",
+      "observedVersion": null,
+      "sha256": "307bd213a3dc10767a8a4a58e355d35ffa51e90bfb0efb5b603e4bc33feb7f04",
+      "auditStatus": "not covered by npm audit; advisory and provenance review pending"
+    },
+    {
+      "path": "frontend/public/vendors/milsymbol.min.js",
+      "observedVersion": "banner npm 3.0.3; embedded version 3.0.2",
+      "sha256": "ef5fdffe93af2f82baf9307ddee2fd90390360642656c58b6031e7f1ea4640cd",
+      "auditStatus": "not covered by npm audit; advisory and provenance review pending"
+    },
+    {
+      "path": "frontend/public/vendors/docsify.min.js",
+      "observedVersion": "4.13.1",
+      "sha256": "1e05fd18b0f5322ae52953498d4e5a35bfe713090d727c2c90d1b0e0f21f2eb7",
+      "auditStatus": "not covered by npm audit; advisory and provenance review pending",
+      "reviewedAdvisories": [
+        {
+          "url": "https://github.com/advisories/GHSA-2mm9-c2fx-c7m4",
+          "affected": "<4.12.0",
+          "observed": "4.13.1",
+          "applicable": false
+        }
+      ]
+    },
+    {
+      "path": "frontend/public/vendors/cesium/Cesium.js",
+      "observedVersion": "1.138.0",
+      "sha256": "0e8b02a9e9731006337c29059c3bc02783b5e6c0b98fe1c1e649a6ecb1d72936",
+      "auditStatus": "not covered by npm audit; advisory and provenance review pending"
+    },
+    {
+      "path": "frontend/public/vendors/gdal/gdal3.js",
+      "observedVersion": null,
+      "sha256": "304c0c73e2400476d44c5d9b22d8190faf3367c3069390ccad53d6f44905b81f",
+      "auditStatus": "not covered by npm audit; advisory and provenance review pending"
+    },
+    {
+      "path": "frontend/public/vendors/gdal/gdal3WebAssembly.wasm",
+      "observedVersion": null,
+      "sha256": "350eec4ce9ae4bc10bcafd8621463e057abdbb8f8372f0d8e0af06e6b8561835",
+      "auditStatus": "not covered by npm audit; advisory and provenance review pending",
+      "embeddedReleaseString": "GDAL 3.8.4; runtime and transitive native versions still require confirmation"
+    }
+  ],
+  "runtimeInventory": {
+    "dockerBase": "node:22-bookworm-slim",
+    "pinnedDigest": false,
+    "deployedImage": "not accessible on internal network",
+    "auditStatus": "pending image build and OS/native dependency scan"
+  }
+}

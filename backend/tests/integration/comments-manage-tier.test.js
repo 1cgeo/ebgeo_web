@@ -80,7 +80,7 @@ describe('spatial comments — the manage tier is an editor on other people\'s c
       .send({ operations: [op] })
       .expect(expectStatus);
 
-  const op = (operationType, entityId, data = {}) => ({
+  const op = (operationType, entityId, data = {}) => ({ protocolVersion: 2,
     id: randomUUID(),
     entityType: 'comment',
     operationType,

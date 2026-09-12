@@ -1252,6 +1252,8 @@ const CENSO_ROTA = [
   { arquivo: 'src/modules/maps/maps.routes.js', rota: 'GET /', classe: R_OUTRA, gate: 'requireAtlasPermission', motivo: CONTEUDO_DE_ATLAS },
   { arquivo: 'src/modules/maps/maps.routes.js', rota: 'GET /:mapId', classe: R_OUTRA, gate: 'requireAtlasPermission', motivo: CONTEUDO_DE_ATLAS },
   { arquivo: 'src/modules/sharing/sharing.routes.js', rota: 'GET /', classe: R_OUTRA, gate: 'requireAtlasPermission', motivo: CONTEUDO_DE_ATLAS },
+  { arquivo: 'src/modules/sync/sync.routes.js', rota: 'GET /protocol', classe: R_OUTRA,
+    gate: 'requireAtlasPermission', motivo: 'Capacidades estáticas do protocolo; não serve conteúdo nem recurso do atlas.' },
   {
     arquivo: 'src/modules/sync/sync.routes.js', rota: 'GET /:version', classe: R_FILTRADA,
     gate: 'requireAtlasPermission',
@@ -1459,6 +1461,10 @@ const CENSO_ROTA = [
 
 /** @type {EntradaDeCache[]} */
 const CENSO_CACHE = [
+  { arquivo: 'src/modules/sync/sync.controller.js', trecho: "'Cache-Control', 'no-store'", n: 1, classe: C_SEM,
+    motivo: 'Consulta de recibos depende de conta, acesso e conteúdo enviado; a resposta não pode ser armazenada em cache.' },
+  { arquivo: 'src/modules/sync/sync.routes.js', trecho: "'Cache-Control', 'no-store'", n: 1, classe: C_SEM,
+    motivo: 'Negociação deve refletir o servidor atual após atualização, sem reutilizar capacidades de outro build.' },
   {
     arquivo: 'src/modules/streetview360/sv360.controller.js',
     trecho: "isPublic ? 'no-cache' : 'private, no-cache'", n: 1,

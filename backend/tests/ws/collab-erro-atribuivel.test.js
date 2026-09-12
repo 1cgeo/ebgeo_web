@@ -50,7 +50,7 @@ describe('frame de erro do socket: atribuivel e com sinal de re-tentativa', () =
   let mapa;
   let abertos;
 
-  const opDeFeicao = () => ({
+  const opDeFeicao = () => ({ protocolVersion: 2,
     id: randomUUID(),
     entityType: 'feature',
     operationType: 'create',

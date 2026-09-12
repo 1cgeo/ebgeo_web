@@ -97,7 +97,7 @@ function spyLogger() {
 
 /** Envelope mínimo aceito por pushSchema, com o mapId venenoso. */
 function opWithBadMap() {
-  return {
+  return { protocolVersion: 2,
     id: randomUUID(),
     entityType: 'feature',
     operationType: 'create',
@@ -250,7 +250,7 @@ describe('Collab WS — mensagem de erro sanitizada nos três catches (107)', ()
     client.clearMessages();
 
     // Sem `clientId`, que o pushSchema exige.
-    client.send({ type: 'operation', op: { id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: randomUUID(), timestamp: Date.now() } });
+    client.send({ type: 'operation', op: { protocolVersion: 2, id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: randomUUID(), timestamp: Date.now() } });
     const frame = await client.waitForType('error');
 
     assert.equal(frame.code, 'VALIDATION_ERROR');

@@ -112,6 +112,9 @@ const state = {
  */
 export function classifyFlushFailure(error) {
     const status = error?.status ?? error?.statusCode;
+    if (status === 426) {
+        return { kind: 'protocol', message: 'Atualize o EBGeo para continuar a sincronização. Suas pendências continuam guardadas neste computador para revisão.' };
+    }
     // O atlas sumiu do servidor (excluído, ou o compartilhamento que o tornava alcançável
     // foi revogado). Sem esta classe o caso caía em 'network' e a mensagem dizia ao usuário
     // que era a conexão e que as alterações seriam enviadas quando ela voltasse — as duas
@@ -208,14 +211,14 @@ async function flushOnce() {
         if (!current()) return;
         registrarUso(EventoDeUso.SYNC_RESULTADO, PropDeUso.SYNC_FALHA);
         console.warn('Auto-flush error:', error);
-        const next = nextFlushAlertState(state.alert, error);
+        const next = nextFlushAlertState(state.alert, error, error?.status === 426 ? 1 : FLUSH_ALERT_THRESHOLD);
         state.alert = { failures: next.failures, notifiedKind: next.notifiedKind };
         const delay = Math.min(60000, 1500 * 2 ** Math.min(next.failures - 1, 6));
         state.retryAt = Date.now() + Math.max(error?.retryAfterMs ?? 0, delay * (0.8 + Math.random() * 0.4));
         if (next.message) {
             try { showWarning(next.message, { duration: 8000 }); } catch { /* No DOM. */ }
         }
-        if (next.message && classifyFlushFailure(error).kind === 'gone') stopAutoFlush();
+        if (next.message && ['gone', 'protocol'].includes(classifyFlushFailure(error).kind)) stopAutoFlush();
     } finally {
         if (current()) state.inFlight = false;
         finish();

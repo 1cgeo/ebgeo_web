@@ -128,7 +128,7 @@ describe('WebSocket collab — connection-lifecycle coverage', () => {
 
       client.send({
         type: 'operation',
-        op: {
+        op: { protocolVersion: 2,
           id: opId,
           type: 'create',
           target: 'feature',
@@ -186,7 +186,7 @@ describe('WebSocket collab — connection-lifecycle coverage', () => {
       // Op #1 → bumps the atlas to version 1.
       c.send({
         type: 'operation',
-        op: {
+        op: { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',
@@ -207,7 +207,7 @@ describe('WebSocket collab — connection-lifecycle coverage', () => {
       const entity2 = randomUUID();
       c.send({
         type: 'operation',
-        op: {
+        op: { protocolVersion: 2,
           id: randomUUID(),
           type: 'create',
           target: 'feature',

@@ -127,7 +127,7 @@ describe('heartbeatSweep → reconcileAuthorization sobre socket REAL', () => {
     const writerClient = await createWsClient(server, atlas.id, peerToken);
     await writerClient.waitForType('connected');
 
-    const mkOp = () => ({
+    const mkOp = () => ({ protocolVersion: 2,
       id: randomUUID(),
       entityType: 'feature',
       operationType: 'create',

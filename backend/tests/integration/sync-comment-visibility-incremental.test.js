@@ -83,7 +83,7 @@ describe('visibilidade de comentário no pull INCREMENTAL', () => {
   });
 
   function featureOp(nome) {
-    return {
+    return { protocolVersion: 2,
       id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: randomUUID(),
       mapId: map.id,
       data: { type: 'Feature', geometry: { type: 'Point', coordinates: [-43, -22] }, properties: { source: 'point', name: nome } },
@@ -93,7 +93,7 @@ describe('visibilidade de comentário no pull INCREMENTAL', () => {
 
   function commentOp() {
     const id = randomUUID();
-    return {
+    return { protocolVersion: 2,
       id: randomUUID(), entityType: 'comment', operationType: 'create', entityId: id, mapId: map.id,
       data: { id, mapId: map.id, lng: -43.2, lat: -22.9, text: 'texto privado', status: 'open' },
       timestamp: Date.now(), clientId: 'cvi-client',

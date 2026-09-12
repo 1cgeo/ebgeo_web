@@ -95,7 +95,7 @@ describe('F14 — a definição de recurso não pode ser ARMAZENADA onde o servi
     return rows[0]?.data;
   };
 
-  const op = (extra) => ({
+  const op = (extra) => ({ protocolVersion: 2,
     id: randomUUID(),
     timestamp: Date.now(),
     clientId: `c-f14-${sufixo}`,

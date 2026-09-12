@@ -195,7 +195,7 @@ describe('WebSocket Broadcasts from REST', function () {
         .set('Authorization', `Bearer ${ownerToken}`)
         .send({
           operations: [
-            {
+            { protocolVersion: 2,
               id: randomUUID(),
               entityType: 'feature',
               operationType: 'create',

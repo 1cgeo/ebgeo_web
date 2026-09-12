@@ -52,16 +52,21 @@
     "express-rate-limit": "^8.5.2",
     "file-type": "^22.0.1",
     "helmet": "^8.0.0",
-    "joi": "^17.13.0",
+    "joi": "^17.13.8",
     "jsonwebtoken": "^9.0.2",
     "meshoptimizer": "^1.2.0",
     "multer": "^1.4.5-lts.1",
-    "nodemailer": "^9.0.3",
+    "nodemailer": "^9.1.1",
     "pg-promise": "^12.5.0",
     "pino": "^8.21.0",
     "pino-pretty": "^11.3.0",
-    "sharp": "^0.35.3",
+    "sharp": "^0.35.4",
     "ws": "^8.18.0"
+  },
+  "overrides": {
+    "express": {
+      "qs": "6.16.0"
+    }
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -122,7 +122,7 @@ describe('I10 — auth.logout does NOT tear down the collab socket (9)', () => {
       .post(`/api/v1/atlas/${atlas.id}/sync`)
       .set('Authorization', `Bearer ${peerTokens.accessToken}`)
       .send({
-        operations: [{
+        operations: [{ protocolVersion: 2,
           id: randomUUID(),
           entityType: 'feature',
           operationType: 'create',

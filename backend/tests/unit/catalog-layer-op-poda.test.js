@@ -37,7 +37,7 @@ const definicaoCopiada = (id = 'data-restrita') => ({
   config: { id: 'restrita', source: { type: 'vector', url: URL_PRIVADA } },
 });
 
-const op = (extra) => ({
+const op = (extra) => ({ protocolVersion: 2,
   id: randomUUID(),
   entityType: 'catalogLayer',
   operationType: 'create',
