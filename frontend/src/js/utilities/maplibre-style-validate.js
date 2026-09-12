@@ -23,8 +23,37 @@ export function validateMapLibreStyle(style) {
     if (style.sources === null || typeof style.sources !== 'object' || Array.isArray(style.sources)) {
         errors.push('O estilo deve ter "sources" como objeto.');
     }
+    const fontesOk = style.sources !== null && typeof style.sources === 'object' && !Array.isArray(style.sources);
     if (!Array.isArray(style.layers)) {
         errors.push('O estilo deve ter "layers" como um array.');
+    } else {
+        // O CONTRATO DA CAMADA, e ele nao e enfeite. Camada sem `type` o MapLibre nao
+        // desenha, e o estilo passa a mostrar menos do que declara; camada apontando
+        // fonte que o estilo nao tem e a mesma falha com causa mais barulhenta. As duas
+        // passavam aqui: medido em 2026-09-11 contra o estilo Overture real, onde
+        // `{ version: 8, sources: {}, layers: [{ id: 'x' }] }` era aceito.
+        const vistos = new Set();
+        style.layers.forEach((camada, i) => {
+            if (camada === null || typeof camada !== 'object' || Array.isArray(camada)) {
+                errors.push(`A camada no indice ${i} deve ser um objeto.`);
+                return;
+            }
+            const nome = typeof camada.id === 'string' && camada.id ? `"${camada.id}"` : `no indice ${i}`;
+            if (typeof camada.id !== 'string' || !camada.id) {
+                errors.push(`A camada no indice ${i} deve ter "id" como string nao vazia.`);
+            } else if (vistos.has(camada.id)) {
+                errors.push(`Id de camada repetido: "${camada.id}".`);
+            } else {
+                vistos.add(camada.id);
+            }
+            if (typeof camada.type !== 'string' || !camada.type) {
+                errors.push(`A camada ${nome} deve ter "type" como string nao vazia.`);
+            }
+            if (camada.source !== undefined && fontesOk
+                && !Object.prototype.hasOwnProperty.call(style.sources, camada.source)) {
+                errors.push(`A camada ${nome} aponta a fonte "${camada.source}", que o estilo nao declara.`);
+            }
+        });
     }
     return { ok: errors.length === 0, errors };
 }

@@ -18,7 +18,9 @@ const BUILTIN = {
     osm: { version: 8, sources: { b: { type: 'raster', tiles: ['y'] } }, layers: [{ id: 'b' }] },
 };
 
-const PUBLICADO_VALIDO = { version: 8, sources: { c: { type: 'raster', tiles: ['z'] } }, layers: [{ id: 'c' }] };
+// A camada carrega `type` e aponta a fonte que o estilo declara. Sem isso ela nao e um
+// estilo valido, so parecia: o validador nao cobrava o contrato da camada ate 2026-09-11.
+const PUBLICADO_VALIDO = { version: 8, sources: { c: { type: 'raster', tiles: ['z'] } }, layers: [{ id: 'c', type: 'raster', source: 'c' }] };
 
 describe('estilo de uma camada base', () => {
     it('o estilo EMBUTIDO ganha do publicado para os ids que o cliente já traz', () => {

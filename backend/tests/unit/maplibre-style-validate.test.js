@@ -45,6 +45,34 @@ const TABLE = [
   ['layers as an OBJECT', { version: 8, sources: {}, layers: {} }, false],
   ['layers absent', { version: 8, sources: {} }, false],
   ['layers null', { version: 8, sources: {}, layers: null }, false],
+  // O CONTRATO DA CAMADA (2026-09-11). O buraco apareceu medindo o estilo Overture
+  // real: `layers: [{ id: 'x' }]` era ACEITO, e uma camada sem `type` o MapLibre
+  // simplesmente nao desenha — o estilo mostra menos do que declara, sem erro nenhum.
+  ['layer without type', { version: 8, sources: {}, layers: [{ id: 'x' }] }, false],
+  ['layer with empty type', { version: 8, sources: {}, layers: [{ id: 'x', type: '' }] }, false],
+  ['layer without id', { version: 8, sources: {}, layers: [{ type: 'background' }] }, false],
+  ['layer that is not an object', { version: 8, sources: {}, layers: ['x'] }, false],
+  ['layer that is null', { version: 8, sources: {}, layers: [null] }, false],
+  [
+    'duplicate layer ids',
+    { version: 8, sources: {}, layers: [{ id: 'a', type: 'background' }, { id: 'a', type: 'background' }] },
+    false,
+  ],
+  [
+    'layer naming a source the style does not declare',
+    { version: 8, sources: { osm: { type: 'raster' } }, layers: [{ id: 'a', type: 'raster', source: 'nao-existe' }] },
+    false,
+  ],
+  [
+    'background layer with no source stays valid',
+    { version: 8, sources: {}, layers: [{ id: 'fundo', type: 'background' }] },
+    true,
+  ],
+  [
+    'layer pointing at a source that EXISTS stays valid',
+    { version: 8, sources: { osm: { type: 'raster' } }, layers: [{ id: 'a', type: 'raster', source: 'osm' }] },
+    true,
+  ],
   ['top-level null', null, false],
   ['top-level undefined', undefined, false],
   ['top-level array', [], false],
@@ -69,6 +97,35 @@ describe('validateMapLibreStyle — the guards the two integration points never 
     const r = validateMapLibreStyle({ version: 8, sources: [], layers: [] });
     assert.equal(r.ok, false);
     assert.match(r.errors.join(' '), /sources/);
+  });
+
+  it('rejects a layer without "type" — the case measured against the real Overture style', () => {
+    const r = validateMapLibreStyle({ version: 8, sources: {}, layers: [{ id: 'x' }] });
+    assert.equal(r.ok, false);
+    assert.match(r.errors.join(' '), /"x".+type/);
+  });
+
+  it('names the DANGLING source, because "the map draws nothing" has to say why', () => {
+    const r = validateMapLibreStyle({
+      version: 8,
+      sources: { osm: { type: 'raster' } },
+      layers: [{ id: 'a', type: 'raster', source: 'orfa' }],
+    });
+    assert.equal(r.ok, false);
+    assert.match(r.errors.join(' '), /orfa/);
+  });
+
+  it('accepts the 159-layer Overture style shape: background with no source plus sourced layers', () => {
+    const r = validateMapLibreStyle({
+      version: 8,
+      sources: { base: { type: 'vector' }, rotulos: { type: 'vector' } },
+      layers: [
+        { id: 'background', type: 'background' },
+        { id: 'agua', type: 'fill', source: 'base', 'source-layer': 'water' },
+        { id: 'nomes', type: 'symbol', source: 'rotulos', 'source-layer': 'labels' },
+      ],
+    });
+    assert.deepEqual(r, { ok: true, errors: [] });
   });
 
   it('rejects layers given as an object', () => {
@@ -96,7 +153,7 @@ describe('validateMapLibreStyle — the guards the two integration points never 
   });
 
   it('ok is exactly "no errors" for every entry of the shared table', () => {
-    assert.equal(TABLE.length, 17, 'the shared table must not be empty');
+    assert.equal(TABLE.length, 26, 'the shared table must not be empty');
     for (const [label, input, expectedOk] of TABLE) {
       const r = validateMapLibreStyle(input);
       assert.equal(r.ok, expectedOk, `${label}: expected ok=${expectedOk}, errors=${JSON.stringify(r.errors)}`);
@@ -107,7 +164,7 @@ describe('validateMapLibreStyle — the guards the two integration points never 
 
 describe('cross-package mirror — backend and frontend must reach the SAME verdict', () => {
   it('agrees with the frontend twin on every entry of the shared table', () => {
-    assert.equal(TABLE.length, 17, 'the shared table must not be empty');
+    assert.equal(TABLE.length, 26, 'the shared table must not be empty');
     for (const [label, input, expectedOk] of TABLE) {
       const be = validateMapLibreStyle(input);
       const fe = feValidate(input);

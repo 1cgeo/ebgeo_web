@@ -18,6 +18,40 @@ describe('validateMapLibreStyle', () => {
         expect(validateMapLibreStyle(style).ok).toBe(true);
     });
 
+    it('rejects a layer without "type" (o MapLibre nao desenha, e nao reclama)', () => {
+        const r = validateMapLibreStyle({ version: 8, sources: {}, layers: [{ id: 'x' }] });
+        expect(r.ok).toBe(false);
+        expect(r.errors.join(' ')).toMatch(/type/);
+    });
+
+    it('rejects a layer whose source the style does not declare, naming it', () => {
+        const r = validateMapLibreStyle({
+            version: 8,
+            sources: { osm: { type: 'raster' } },
+            layers: [{ id: 'a', type: 'raster', source: 'orfa' }],
+        });
+        expect(r.ok).toBe(false);
+        expect(r.errors.join(' ')).toMatch(/orfa/);
+    });
+
+    it('rejects repeated layer ids', () => {
+        const r = validateMapLibreStyle({
+            version: 8,
+            sources: {},
+            layers: [{ id: 'a', type: 'background' }, { id: 'a', type: 'background' }],
+        });
+        expect(r.ok).toBe(false);
+    });
+
+    it('CONTROLE: background sem source e camada com source existente seguem valendo', () => {
+        const r = validateMapLibreStyle({
+            version: 8,
+            sources: { osm: { type: 'raster' } },
+            layers: [{ id: 'fundo', type: 'background' }, { id: 'a', type: 'raster', source: 'osm' }],
+        });
+        expect(r).toEqual({ ok: true, errors: [] });
+    });
+
     it('rejects a wrong version', () => {
         const r = validateMapLibreStyle({ version: 7, sources: {}, layers: [] });
         expect(r.ok).toBe(false);

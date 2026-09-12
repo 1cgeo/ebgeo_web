@@ -17,7 +17,8 @@ import { idDoMiniMapa, estiloDoMiniMapa, faixaDoMiniMapa } from '../../src/js/st
  */
 
 const ESTILO_LOCAL = { version: 8, sources: {}, layers: [], _local: true };
-const ESTILO_PUBLICADO = { version: 8, sources: { a: { type: 'raster', tiles: ['x'] } }, layers: [{ id: 'a' }] };
+// Idem: camada com `type` e com a fonte declarada (contrato cobrado desde 2026-09-11).
+const ESTILO_PUBLICADO = { version: 8, sources: { a: { type: 'raster', tiles: ['x'] } }, layers: [{ id: 'a', type: 'raster', source: 'a' }] };
 
 const APLICACAO = { minZoom: 2, maxZoom: 21 };
 
