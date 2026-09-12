@@ -95,6 +95,27 @@ export const configOverridesSchema = Joi.object({
     // `BaseLayerControl.availableBasemaps` e ignora os outros. O que se checa aqui é a FORMA:
     // um id é um slug de catálogo (`VARCHAR(100)`), e `null` desliga.
     terrainPreferredBasemap: Joi.string().trim().max(100).allow('', null),
+    // O SOMBREAMENTO DO RELEVO, que e escolha do administrador (decisao do dono,
+    // 2026-09-12). O padrao de `config.static.js` e `false` e CONTINUA sendo: a casa nao
+    // decide por todo mundo, e quem liga e quem opera.
+    //
+    // AQUI A DECLARACAO CRIA A CAPACIDADE, ao contrario das vizinhas, e a diferenca e a data:
+    // o editor "Avancado (JSON)" saiu do painel em 2026-08-29 (decisao do dono), entao nao
+    // havia caminho NENHUM pela tela -- so quem chamasse `PUT /config/admin` a mao alcancava
+    // a chave, que a rota ja aceitava por `map2d` ser `.unknown(true)`. O campo na aba
+    // "Sistema" nasce com esta linha.
+    //
+    // A BORDA continua valendo pelo mesmo motivo das vizinhas: a rota aceita chave
+    // desconhecida, e o cliente le o valor por `=== true`, entao um `"sim"` chegado por
+    // qualquer caminho deixaria o sombreamento DESLIGADO em silencio, com o painel mostrando
+    // o valor salvo -- a falha que `avisoServidorSecundario` fechou em 2026-09-03.
+    //
+    // `.unknown(true)` no objeto porque o resto do bloco (nome, descricao, a camada e a
+    // tinta dela) vem do estatico e nao e campo de formulario: o override guarda so o que
+    // o administrador mexeu, e o `deepMerge` de `getAppConfig` devolve o bloco inteiro.
+    hillshade: Joi.object({
+      enabled: Joi.boolean(),
+    }).unknown(true),
     // `.custom()` E NÃO SÓ QUATRO BORDAS SOLTAS, pela mesma razão de `catalog.schemas.js`: a
     // inversão (`oeste > leste`, `sul > norte`) é a única falha que nenhuma das quatro posições
     // vê sozinha, e é a que produz o pior estado. O cliente recusa a caixa invertida INTEIRA

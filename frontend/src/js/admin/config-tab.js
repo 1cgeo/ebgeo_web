@@ -187,6 +187,17 @@ class ConfigTab {
         form.appendChild(zoomHint);
         const maxPitch = number(form, 'Inclinação máxima', 'admin-config-map2d-maxpitch', eff.map2d?.maxPitch);
         const globe = check(form, 'Projeção globo', 'admin-config-map2d-globe', !!eff.map2d?.globe_projection);
+        // O SOMBREAMENTO DO RELEVO é escolha do administrador, e o padrão do servidor é
+        // desligado. Sem este campo a única forma de ligá-lo era o editor "Avançado (JSON)",
+        // que não confere tipo nenhum e onde um `"sim"` deixava a camada desligada em
+        // silêncio.
+        const sombreamento = check(form, 'Sombreamento do relevo', 'admin-config-map2d-hillshade',
+            !!eff.map2d?.hillshade?.enabled);
+        const sombreamentoHint = document.createElement('p');
+        sombreamentoHint.className = 'admin-form__hint';
+        sombreamentoHint.textContent = 'Desenha o relevo sombreado sobre o modelo digital de elevação, '
+            + 'junto com o terreno. Aplica no próximo carregamento da página, como o resto desta aba.';
+        form.appendChild(sombreamentoHint);
 
         heading(form, 'Visualizador 360');
         // SÓ O MAPA BASE, e não uma faixa de zoom própria (decisão do dono, 2026-08-31): o
@@ -304,6 +315,13 @@ class ConfigTab {
             // o salvamento INTEIRO da aba, e não só a parte do zoom.
             diffNum(map2dDiff, 'maxPitch', maxPitch, eff.map2d?.maxPitch);
             diffBool(map2dDiff, 'globe_projection', globe.checked, !!eff.map2d?.globe_projection);
+            // ANINHADO, e por isso fora do `diffBool`: o override guarda só `enabled`, e o
+            // `deepMerge` do servidor devolve o resto do bloco (nome, camada, tinta) do
+            // estático. Mandar o bloco inteiro daqui congelaria a tinta na versão que a tela
+            // leu.
+            if (sombreamento.checked !== !!eff.map2d?.hillshade?.enabled) {
+                map2dDiff.hillshade = { enabled: sombreamento.checked };
+            }
             if (Object.keys(map2dDiff).length) payload.map2d = map2dDiff;
 
             if (miniMapa.value !== (eff.streetView360?.miniMapBasemap ?? '')) {
