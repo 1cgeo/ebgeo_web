@@ -1,3 +1,4 @@
+import { ForbiddenError } from '../../utils/errors.js';
 import { findReceipt } from './sync-receipts.js';
 import { scrubEntityPayload } from './free-field.schemas.js';
 
@@ -36,16 +37,26 @@ export async function prepareFeatureMutation(t, atlasId, op, rawOp, userId) {
     reason, fields, entityVersion: currentVersion, deleted: Boolean(current?.deleted_at),
     serverData: canonicalFeature(current),
   } });
-  const destination = await t.oneOrNone('SELECT id FROM maps WHERE id=$1 AND atlas_id=$2 AND deleted_at IS NULL', [op.mapId, atlasId]);
-  if (!destination) return conflict('O mapa de destino foi excluído ou não está disponível.');
-  if (op.type === 'create') {
+  // Validate every declared destination before interpreting the patch. A field omitted by
+  // v2 must never turn a cross-atlas write into an apparently successful no-op.
+  for (const mapId of new Set([op.mapId, rawOp.data?.map_id, rawOp.changes?.map_id].filter(Boolean))) {
+    const destination = await t.oneOrNone('SELECT atlas_id FROM maps WHERE id=$1 AND deleted_at IS NULL', [mapId]);
+    if (destination && String(destination.atlas_id) !== String(atlasId)) throw new ForbiddenError('Mapa de outro atlas.');
+    if (!destination) return conflict('O mapa de destino foi excluido ou nao esta disponivel.');
+  }
+  const intent = rawOp.featureIntent;
+  if (intent && !['move', 'restore'].includes(intent)) return conflict('Comando de feição inválido.');
+  if (intent && op.type !== 'create') return conflict('Este comando exige uma operacao de criacao.');
+  if (op.type === 'create' && !intent) {
     if (current) return conflict(current.deleted_at
-      ? 'O item foi excluído no servidor. A criação antiga não pode restaurá-lo.'
-      : 'Já existe um item com este identificador.');
+      ? 'O item foi excluido no servidor. A criacao antiga nao pode restaura-lo.'
+      : 'Ja existe um item com este identificador.');
     return { op, previous: null, fields: ['*'] };
   }
-  if (!current || current.deleted_at) return conflict('O item foi excluído no servidor.');
-  if (String(current.map_id) !== String(op.mapId)) return conflict('O item foi movido para outro mapa.');
+  if (!current || (current.deleted_at && intent !== 'restore')) return conflict('O item foi excluido no servidor.');
+  if (intent === 'restore' && !current.deleted_at) return conflict('O item ja foi restaurado ou alterado no servidor.');
+  if (intent === 'move' && String(current.map_id) !== String(rawOp.sourceMapId)) return conflict('O item foi movido para outro mapa.');
+  if (!intent && String(current.map_id) !== String(op.mapId)) return conflict('O item foi movido para outro mapa.');
 
   let base = rawOp.baseVersion;
   if (rawOp.baseOperationId) {
@@ -60,6 +71,10 @@ export async function prepareFeatureMutation(t, atlasId, op, rawOp, userId) {
   }
   if (!Number.isSafeInteger(base) || base < 1 || base > currentVersion) {
     return conflict('Esta edição não possui uma versão-base confirmada.');
+  }
+  if (intent) {
+    if (base !== currentVersion) return conflict('O item mudou desde a versao deste comando.', ['*']);
+    return { op, previous: current, fields: ['*'] };
   }
   const saved = await t.oneOrNone(`SELECT entity_version, field_versions FROM sync_entity_fields
     WHERE atlas_id=$1 AND entity_type='feature' AND entity_id=$2`, [atlasId, op.targetId]);
@@ -106,5 +121,9 @@ export async function finishFeatureMutation(t, atlasId, op, prepared) {
     ON CONFLICT (atlas_id, entity_type, entity_id) DO UPDATE
       SET entity_version=EXCLUDED.entity_version, field_versions=EXCLUDED.field_versions`,
   [atlasId, op.targetId, entityVersion, JSON.stringify(fieldVersions)]);
-  return { entityVersion, data: canonicalFeature(row) };
+  const data = canonicalFeature(row);
+  if (prepared.previous && String(prepared.previous.map_id) !== String(row.map_id)) {
+    data.previousMapId = prepared.previous.map_id;
+  }
+  return { entityVersion, data };
 }

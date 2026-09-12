@@ -1,40 +1,10 @@
 // Path: e2e-ui/browser-undo-redo.spec.js
 
 /**
- * @fileoverview Browser-level undo/redo round-trip for collaborative features.
- *
- * Drives the REAL frontend transport (api-client / operation-factory) imported live
- * from the Vite dev server INSIDE real Chromium, against the REAL backend sync API.
- * No app UI is clicked — every assertion is a REAL HTTP round-trip and reflects
- * observable backend state read back through `pullSync`'s snapshot.
- *
- * Proves the create <-> delete inverse pair the undo stack relies on:
- *   1. create feature             -> feature PRESENT in the snapshot     (do);
- *   2. push inverse delete        -> feature ABSENT (soft-deleted)       (undo);
- *   3. re-create under the SAME id -> feature PRESENT again              (redo);
- *   4. re-create under a FRESH id -> that one is present too, independently.
- *
- * STEP 3 REVERSED, AND THE OLD ASSERTIONS WERE TROCADAS, NEVER SOMADAS. Until 2026-08-16
- * this file asserted the opposite: that a re-create under a tombstoned id was a NO-OP, so
- * "redo must mint a fresh id, not reuse the old". That was true of the backend when it was
- * written and stopped being true on 2026-07-19, when RESURRECT-ON-CREATE was decided
- * (`backend/src/modules/sync/sync.service.js`, the `case 'create'` comment). The reason is
- * exactly this gesture: the client's undo of a delete replays the ORIGINAL entity WITH its
- * original id, so `DO NOTHING` acked a silent no-op — the feature stayed alive on the
- * client, dead on the server, and died locally at the next snapshot. Permanent data loss in
- * the most common gesture of the product.
- *
- * The guard that keeps resurrection honest is asserted here too: only TOMBSTONES revive. A
- * replayed create against a LIVE row must not clobber it, which is what the
- * `WHERE features.deleted_at IS NOT NULL` clause buys.
- *
- * Each test mints its own user + atlas + map for isolation. The backend stores a
- * feature as GeoJSON whose type lives in `properties.source`; delete carries `null`
- * data (the literal inverse of the create payload).
- *
- * A CONTA, porém, não nasce aqui dentro: ela vem pronta de `helpers/accounts.js`, no lado
- * Node, porque confirmar o e-mail exige ler `email_verification_tokens` no Postgres, que o
- * contexto do browser não alcança. O `page.evaluate` faz só o `login()`.
+ * Real Chromium transport contract: undo deletes a confirmed revision and redo
+ * explicitly restores that deletion by its durable receipt. Ordinary CREATE
+ * cannot overwrite a live feature. The actual keyboard gestures are covered by
+ * browser-p8-undo-local.spec.js with two clients and the complete sync chain.
  */
 
 import { test, expect } from '@playwright/test';
@@ -107,7 +77,10 @@ describeOrSkip('Undo/redo create<->delete round-trip (real Chromium + real backe
         //    disappear from the snapshot (soft-deleted rows are filtered out).
         await page.evaluate(async ({ atlasId, mapId, featureId }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-            const del = createOperation('feature', 'delete', featureId, mapId, null);
+            const snapshot = await window.__undo.api.pullSync(atlasId, 0);
+            const previous = snapshot.snapshot.maps.find(m => m.id === mapId).features.points.find(f => f.properties.id === featureId);
+            const del = createOperation('feature', 'delete', featureId, mapId, null, previous);
+            window.__undo.deleteOpId = del.id;
             // The inverse of a create is a delete that carries no data payload.
             if (del.data !== null) throw new Error('delete op must carry null data');
             await window.__undo.api.pushOperations(atlasId, [del]);
@@ -125,7 +98,8 @@ describeOrSkip('Undo/redo create<->delete round-trip (real Chromium + real backe
                 properties: { id: featureId, source: 'point', nome: 'Ressuscitado' },
             };
             await window.__undo.api.pushOperations(atlasId, [
-                createOperation('feature', 'create', featureId, mapId, feature),
+                createOperation('feature', 'create', featureId, mapId, feature, null,
+                    { featureIntent: 'restore', baseOperationId: window.__undo.deleteOpId }),
             ]);
         }, { atlasId: seed.atlasId, mapId: seed.mapId, featureId });
 
@@ -203,7 +177,9 @@ describeOrSkip('Undo/redo create<->delete round-trip (real Chromium + real backe
             await api.pushOperations(atlas.id, [createOperation('feature', 'create', featureId, mapId, feature)]);
 
             window.__undo = { api };
-            const deleteOp = createOperation('feature', 'delete', featureId, mapId, null);
+            const snapshot = await api.pullSync(atlas.id, 0);
+            const previous = snapshot.snapshot.maps.find(m => m.id === mapId).features.points.find(f => f.properties.id === featureId);
+            const deleteOp = createOperation('feature', 'delete', featureId, mapId, null, previous);
             return { atlasId: atlas.id, mapId, featureId, deleteOp };
         }, { baseUrl: state.baseUrl, u: user });
 

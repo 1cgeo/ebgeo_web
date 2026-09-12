@@ -2,6 +2,7 @@
 import { query, tx } from '../../database/index.js';
 import { findReceipt, saveReceipt, operationDigest } from './sync-receipts.js';
 import { prepareFeatureMutation, finishFeatureMutation } from './feature-conflicts.js';
+import { ensureMapLayers, readMapLayers, resolveDefaultFeatureLayer } from '../maps/default-layer.js';
 import { ForbiddenError, ServiceUnavailableError } from '../../utils/errors.js';
 import * as Q from './sync.queries.js';
 import { recordSpan, isTraceEnabled, TraceStage, TraceOutcome } from '../../utils/sync-trace.js';
@@ -380,8 +381,8 @@ function deriveFeatureColumns(rawData) {
   // features.layer_id is a UUID FK. The frontend's implicit "default" layer (and any
   // non-UUID sentinel) is not a real layer row, so a value like 'default' would fail
   // the UUID cast (22P02) and reject the whole push. Coerce a non-UUID layer id to
-  // null (= "no layer"); the original layerId stays verbatim inside the properties
-  // JSONB, so the round-trip back to the client is unchanged.
+  // null here. Inside the transaction resolveDefaultFeatureLayer binds it to the
+  // real default of this map, before materialization and canonical replay.
   const rawLayer = rawData.layer_id !== undefined ? rawData.layer_id : props.layerId;
   if (rawLayer !== undefined) {
     patch.layer_id = (typeof rawLayer === 'string' && FEATURE_UUID_RE.test(rawLayer)) ? rawLayer : null;
@@ -1831,10 +1832,17 @@ export async function pushOperations(atlasId, operations, userId, permission = '
           if (rawOp.protocolVersion === 2 && op.target === 'feature') {
             prepared = await prepareFeatureMutation(sp, atlasId, op, rawOp, userId);
             if (prepared.conflict) return prepared;
+            if (prepared.previous && String(prepared.previous.map_id) !== String(op.mapId)) {
+              const sourceDenial = await lockedMapDenialReason(sp, { ...op, mapId: prepared.previous.map_id });
+              if (sourceDenial) return { denied: sourceDenial };
+            }
             op = prepared.op;
             const deniedPatch = await unseenResourceDenialReason(sp, op, principalIdOrNull(userId), atlasId);
             if (deniedPatch) return { denied: deniedPatch };
           }
+
+          const layerDenial = await resolveDefaultFeatureLayer(sp, atlasId, op);
+          if (layerDenial) return { denied: layerDenial };
 
           // Insert operation into log (idempotent: ON CONFLICT (atlas_id, op_id) DO NOTHING).
           const inserted = await sp.oneOrNone(Q.INSERT_OPERATION, [
@@ -1897,9 +1905,31 @@ export async function pushOperations(atlasId, operations, userId, permission = '
             await sp.none('UPDATE operations SET data=$2::jsonb, changes=$3::jsonb WHERE id=$1',
               [inserted.id, JSON.stringify(inserted.data), JSON.stringify(inserted.changes)]);
           }
+          // The structural command owns its layer too. Persist its actual result in
+          // the same log/receipt, so retries, the author and peers learn the SAME UUID.
+          const structural = rowsAffected > 0 && ((op.target === 'map' && op.type === 'create')
+            || (op.target === 'layer' && op.type === 'delete'));
+          if (structural) {
+            const mapId = op.target === 'map' ? op.targetId : op.mapId;
+            const createdLayerIds = await ensureMapLayers(sp, atlasId, [mapId]);
+            const layers = await readMapLayers(sp, atlasId, mapId);
+            inserted.data = op.target === 'map' ? { ...inserted.data, layers }
+              : { replacementLayers: layers.filter((layer) => createdLayerIds.includes(layer.id)) };
+            await sp.none('UPDATE operations SET data=$2::jsonb WHERE id=$1',
+              [inserted.id, JSON.stringify(inserted.data)]);
+          }
+          const canonicalLayer = rowsAffected > 0 && op.target === 'layer' && op.type === 'update';
+          if (canonicalLayer) {
+            // A peer can edit the layer before its creator receives the map ACK.
+            // Send a complete row so that edit can materialize without the birth ACK.
+            inserted.data = (await readMapLayers(sp, atlasId, op.mapId)).find(layer => layer.id === op.targetId);
+            await sp.none('UPDATE operations SET data=$2::jsonb WHERE id=$1',
+              [inserted.id, JSON.stringify(inserted.data)]);
+          }
           const result = { opId: rawOp.id, serverVersion: inserted.server_version,
             entityId: inserted.entity_id, status: 'applied',
             ...(canonical ? { entityVersion: canonical.entityVersion, canonicalOperation: toFrontendOperation(inserted) } : {}),
+            ...(structural || canonicalLayer ? { canonicalOperation: toFrontendOperation(inserted) } : {}),
           };
           await saveReceipt(sp, atlasId, rawOp, userId, inserted, result);
           return { idempotent: false, inserted, rowsAffected, result };
@@ -2029,7 +2059,8 @@ export async function pushOperations(atlasId, operations, userId, permission = '
     currentVersion: a.serverVersion != null ? parseInt(a.serverVersion, 10) : null,
     ...(a.rejected === true ? { rejected: true, reason: a.reason } : {}),
     ...(a.conflict ? { conflict: a.conflict } : {}),
-    ...(a.entityVersion != null ? { entityVersion: a.entityVersion, canonicalOperation: a.canonicalOperation } : {}),
+    ...(a.entityVersion != null ? { entityVersion: a.entityVersion } : {}),
+    ...(a.canonicalOperation ? { canonicalOperation: a.canonicalOperation } : {}),
   }));
 
   return { results, acks, serverVersion, events };

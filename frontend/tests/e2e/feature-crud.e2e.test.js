@@ -1,4 +1,12 @@
 // Path: tests/e2e/feature-crud.e2e.test.js
+import {
+    editFeatureOperation,
+    E2E_SKIP,
+    makeApi,
+    registerAndLogin,
+    createAtlas,
+    createMap,
+} from './helpers/harness.js';
 
 /**
  * @fileoverview E2E feature CRUD against the live backend. Drives the server only
@@ -11,13 +19,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import {
-    E2E_SKIP,
-    makeApi,
-    registerAndLogin,
-    createAtlas,
-    createMap,
-} from './helpers/harness.js';
+
 import { createOperation } from '../../src/js/store/sync/operation-factory.js';
 import { generateUUID } from '../../src/js/utilities/uuid.js';
 
@@ -110,7 +112,7 @@ describe.skipIf(E2E_SKIP)('E2E feature-crud', () => {
 
     it('updates a feature: new geometry and properties are reflected', async () => {
         const newGeom = { type: 'Point', coordinates: [-43.5, -23.0] };
-        const updateOp = createOperation('feature', 'update', pointId, mapId, {
+        const updateOp = await editFeatureOperation(api, atlasId, mapId, pointId, {
             geometry: newGeom,
             properties: { source: 'point', nome: 'Ponto B', extra: 42 },
         });
@@ -146,7 +148,7 @@ describe.skipIf(E2E_SKIP)('E2E feature-crud', () => {
     });
 
     it('deletes a feature: it disappears from the snapshot', async () => {
-        const deleteOp = createOperation('feature', 'delete', lineId, mapId, null);
+        const deleteOp = await editFeatureOperation(api, atlasId, mapId, lineId, null);
         const res = await api.pushOperations(atlasId, [deleteOp]);
         expect(res.results[0].success).toBe(true);
 

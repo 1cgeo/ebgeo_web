@@ -1,16 +1,13 @@
 // Path: tests/e2e/setup-storage.js
+import 'fake-indexeddb/auto';
 
 /**
  * @fileoverview Per-worker setup for the E2E suite (runs inside the test fork,
  * before any test module is imported).
  *
- * `operation-queue.js` persists to IndexedDB via LocalForage, and `operation-
- * factory.js` reads `localStorage` for the client id. Node has neither, so we
- * install a minimal in-memory `localStorage` (and `sessionStorage`) on the global
- * BEFORE LocalForage is first imported. LocalForage evaluates its localStorage
- * driver's `_support` at import time via `typeof localStorage !== 'undefined'`, so
- * with the polyfill present its built-in localStorage driver becomes usable and the
- * queue works under Node — no production code change, no custom driver wiring.
+ * Install IndexedDB before LocalForage so the queue journal can exercise native
+ * multi-key transactions. The synchronous Web Storage shims below provide the
+ * client identity and active atlas namespace; they do not replace the journal.
  *
  * This file MUST run before any module that imports `localforage`; it is therefore
  * the FIRST entry in the e2e config's `setupFiles`.

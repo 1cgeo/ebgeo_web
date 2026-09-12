@@ -118,6 +118,8 @@ import {
     withExclusiveAtlasLock
 } from './atlas-namespace.js';
 
+import { discardRemoteWrites, reopenRemoteWrites, remoteWritesDiscarded } from './remote-write-fence.js';
+
 /**
  * How long a namespace may be spared because a live client has it mounted, before the sweep
  * destroys it anyway.
@@ -381,7 +383,7 @@ export async function registerRemoteAtlas(atlasId) {
     const existing = await globalStore.getItem(key);
     // A confirmed logout may have been interrupted before the purge finished. Never mount its
     // abandoned queue again. A local atlas that adopted this suffix remains outside this policy.
-    if (existing?.discardRequested && !(await locallyClaimedSuffixes()).has(scope.dbSuffix)) {
+    if ((existing?.discardRequested || remoteWritesDiscarded(scope)) && !(await locallyClaimedSuffixes()).has(scope.dbSuffix)) {
         await clearAtlasDatabases(scope);
     }
     const now = Date.now();
@@ -397,6 +399,7 @@ export async function registerRemoteAtlas(atlasId) {
     };
 
     await globalStore.setItem(key, entry);
+    reopenRemoteWrites(scope);
 
     // THE RESCUE VETO DIES HERE, and only here. Registering means a live session is mounting this
     // atlas again, so its unsynced work is no longer stranded and the reason to keep the namespace
@@ -440,6 +443,7 @@ export async function requestRemoteAtlasDiscard() {
     for (const entry of entries) {
         const key = remoteAtlasRegistryKey(entry.atlasId);
         const stored = await getGlobalStore().getItem(key);
+        discardRemoteWrites(remoteScope(entry.atlasId));
         await getGlobalStore().setItem(key, { ...stored, ...entry, discardRequested: true });
     }
     return entries;

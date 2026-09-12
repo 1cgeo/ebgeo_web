@@ -1,4 +1,12 @@
 // Path: tests/e2e/layer-transfer.e2e.test.js
+import {
+    confirmedFeature,
+    E2E_SKIP,
+    makeApi,
+    registerAndLogin,
+    createAtlas,
+    createMap,
+} from './helpers/harness.js';
 
 /**
  * @fileoverview CONTRATO DE SERVIDOR PARA "MOVER OU COPIAR UMA CAMADA INTEIRA".
@@ -36,13 +44,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import {
-    E2E_SKIP,
-    makeApi,
-    registerAndLogin,
-    createAtlas,
-    createMap,
-} from './helpers/harness.js';
+
 import { createOperation } from '../../src/js/store/sync/operation-factory.js';
 import { generateUUID } from '../../src/js/utilities/uuid.js';
 
@@ -162,8 +164,10 @@ describe.skipIf(E2E_SKIP)('e2e: layer transfer between maps', () => {
         // entao se o servidor tratasse este create como "outra feicao", a feicao ficaria nos
         // DOIS mapas e a origem so' pareceria vazia no cliente.
         const res = await api.pushOperations(atlasId, [
-            featureCreateOp(featureAId, targetMapId, targetLayerId, 'Alvo A'),
-            featureCreateOp(featureBId, targetMapId, targetLayerId, 'Alvo B'),
+            { ...featureCreateOp(featureAId, targetMapId, targetLayerId, 'Alvo A'),
+                featureIntent: 'move', sourceMapId, baseVersion: (await confirmedFeature(api, atlasId, sourceMapId, featureAId)).properties.confirmedVersion },
+            { ...featureCreateOp(featureBId, targetMapId, targetLayerId, 'Alvo B'),
+                featureIntent: 'move', sourceMapId, baseVersion: (await confirmedFeature(api, atlasId, sourceMapId, featureBId)).properties.confirmedVersion },
         ]);
         expect(res.results.every((r) => r.success)).toBe(true);
 

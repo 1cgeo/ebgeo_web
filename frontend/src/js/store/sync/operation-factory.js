@@ -417,10 +417,11 @@ function readScopeStamp() {
  * @param {string|null} mapId - Map context (null for atlas-level operations)
  * @param {Object|null} data - New/updated data
  * @param {Object|null} previousData - Previous data for undo support
+ * @param {Object} [options] - Explicit feature command and confirmed predecessor
  * @returns {Operation} Created operation
  * @throws {Error} If entity or operation type is invalid
  */
-export function createOperation(entityType, operationType, entityId, mapId, data = null, previousData = null) {
+export function createOperation(entityType, operationType, entityId, mapId, data = null, previousData = null, options = {}) {
     if (!isValidEntityType(entityType)) {
         throw new Error(`Invalid entity type: ${entityType}`);
     }
@@ -447,7 +448,12 @@ export function createOperation(entityType, operationType, entityId, mapId, data
         mapId: mapId || null,
         data,
         previousData,
-        ...(entityType === 'feature' ? featureMutationContract(operationType, data, previousData) : {}),
+        ...(entityType === 'feature' ? {
+            ...featureMutationContract(operationType, data, previousData),
+            ...(options.featureIntent ? { featureIntent: options.featureIntent } : {}),
+            ...(options.sourceMapId ? { sourceMapId: options.sourceMapId } : {}),
+            ...(options.baseOperationId ? { baseOperationId: options.baseOperationId } : {}),
+        } : {}),
         timestamp: agora,
         lamportTimestamp: ++lamportClock,
         clientId: getClientId(),
@@ -479,7 +485,9 @@ export function createBatchOperations(operations) {
         mapId: op.mapId || null,
         data: op.data || null,
         previousData: op.previousData || null,
-        ...(op.entityType === 'feature' ? featureMutationContract(op.operationType, op.data, op.previousData) : {}),
+        ...(op.entityType === 'feature' ? { ...featureMutationContract(op.operationType, op.data, op.previousData),
+            ...(op.featureIntent ? { featureIntent: op.featureIntent } : {}),
+            ...(op.sourceMapId ? { sourceMapId: op.sourceMapId } : {}) } : {}),
         timestamp,
         lamportTimestamp: ++lamportClock,
         clientId: client,

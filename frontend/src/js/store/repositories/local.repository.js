@@ -16,6 +16,8 @@ import { createAtlas, isValidAtlas } from '../atlas/atlas.entity.js';
 import { mapResolver } from '../services/map-resolver.service.js';
 import { isValidUUID } from '../../utilities/uuid.js';
 import { captureDataScope } from '../namespace-generation.js';
+import { captureRemoteWriteFence } from '../remote-write-fence.js';
+import { fenceStore } from '../fenced-store.js';
 import {
     getDefaultLayer,
     getEmptyCesium3dData,
@@ -28,7 +30,6 @@ import {
     StoreName,
     activateScope,
     getActiveScope,
-    getStore,
     getStoreFor,
     listAtlasStores,
     localScope
@@ -88,7 +89,9 @@ export function ensureAtlasScope() {
  */
 export function getScopedStore(storeId) {
     ensureAtlasScope();
-    return getStore(storeId);
+    const scope = getActiveScope();
+    const store = getStoreFor(storeId, scope);
+    return scope.kind === 'remote' ? fenceStore(store, captureRemoteWriteFence(scope)) : store;
 }
 
 // ===== HELPER FUNCTIONS =====
@@ -170,6 +173,8 @@ export class LocalRepository {
     constructor(scope = null) {
         this.scope = captureDataScope(scope);
         this.mountScope = scope;
+        this._assertWritable = captureRemoteWriteFence(scope);
+        this._stores = new Map();
         if (scope) return;
         // The public facade chooses a destination once per call. Nested reads and writes
         // then share that bound repository even if another atlas mounts during an await.
@@ -191,7 +196,13 @@ export class LocalRepository {
 
     forScope(scope) { return new LocalRepository(scope); }
 
-    _store(storeId) { return getStoreFor(storeId, this.scope); }
+    _store(storeId) {
+        if (!this._stores.has(storeId)) {
+            const raw = getStoreFor(storeId, this.scope);
+            this._stores.set(storeId, this.mountScope?.kind === 'remote' ? fenceStore(raw, this._assertWritable) : raw);
+        }
+        return this._stores.get(storeId);
+    }
 
     // ===== ATLAS OPERATIONS =====
 
@@ -618,7 +629,7 @@ export class LocalRepository {
         const layers = await this._getWithFallback(this._store(StoreName.LAYERS), resolvedKey, mapIdOrName, 'layers_');
 
         if (!layers || layers.length === 0) {
-            return [getDefaultLayer()];
+            return this.mountScope?.kind === 'remote' ? [] : [getDefaultLayer()];
         }
         return layers;
     }
@@ -666,10 +677,7 @@ export class LocalRepository {
         const activeId = await this._getWithFallback(this._store(StoreName.LAYERS), resolvedKey, mapIdOrName, 'activeLayer_');
         const layers = await this.getLayers(mapIdOrName);
         if (activeId && layers.some((l) => l?.id === activeId)) return activeId;
-        // `getLayers` nunca devolve lista vazia (ela sintetiza a padrao), mas o `?? 'default'`
-        // fica: quem ler esta linha nao deve precisar ir ate la para saber que ela nao devolve
-        // `undefined`, e uma implementacao futura que devolva vazio nao vira id indefinido.
-        return layers[0]?.id ?? 'default';
+        return layers[0]?.id ?? (this.mountScope?.kind === 'remote' ? null : 'default');
     }
 
     /**
@@ -946,8 +954,9 @@ export class LocalRepository {
      * @returns {Promise<void>}
      */
     async clearAll() {
+        this._assertWritable();
         ensureAtlasScope();
-        await Promise.all(listAtlasStores(this.scope).map(({ store }) => store.clear()));
+        await Promise.all(listAtlasStores(this.scope).map(({ id }) => this._store(id).clear()));
     }
 }
 

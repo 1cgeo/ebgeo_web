@@ -169,19 +169,11 @@ describe('computeShapeCentroid', () => {
         ));
     });
 
-    // O GERADOR EXCLUI SUBNORMAIS DE PROPOSITO, e a razao nao e "imprecisao de float": e um
-    // mecanismo especifico, medido em 2026-08-25 quando esta propriedade falhou depois de tres
-    // rodadas verdes (semente aleatoria, entao ela e medicao probabilistica, e um verde nao a
-    // prova). O contraexemplo tinha o ultimo vertice em `5e-324` e o deslocamento em `-8.9e-308`:
-    // a soma ARREDONDA para exatamente o deslocamento, o ultimo vertice fica identico ao primeiro,
-    // a deteccao de anel fechado passa a disparar, e `len` cai de 5 para 4. A media das latitudes
-    // muda de 2e-8 para 2.5e-8, e a diferenca da exatamente o limiar de `toBeCloseTo(..., 8)`.
-    //
-    // Ou seja: TRANSLADAR UM ANEL PODE MUDAR SE ELE SE LE COMO FECHADO. Isso e verdade do
-    // algoritmo, nao defeito, e e inalcancavel com coordenada de mapa. A propriedade passa a
-    // gerar magnitudes que existem no produto, e o mecanismo fica preso pelo caso deterministico
-    // abaixo, que e onde ele pertence.
-    it('propriedade: transladar o anel translada o centroide igual', () => {
+    // Translation preserves the mean only when the set of counted vertices stays
+    // fixed. Close the ring explicitly before both measurements: floating-point
+    // addition can otherwise merge almost-identical endpoints and change closure,
+    // even for ordinary coordinate magnitudes (not only subnormal numbers).
+    it('propriedade: transladar um anel explicitamente fechado translada o centroide igual', () => {
         const grau = () => fc.double({ min: -50, max: 50, noNaN: true, minExcluded: false })
             .filter((v) => v === 0 || Math.abs(v) > 1e-6);
         const vertex = () => fc.tuple(grau(), grau());
@@ -189,12 +181,19 @@ describe('computeShapeCentroid', () => {
             fc.array(vertex(), { minLength: 3, maxLength: 12 }),
             fc.double({ min: -10, max: 10, noNaN: true }).filter((v) => v === 0 || Math.abs(v) > 1e-6),
             (ring, shift) => {
-                const base = computeShapeCentroid([ring]);
-                const moved = computeShapeCentroid([ring.map(([x, y]) => [x + shift, y])]);
+                const closedRing = [...ring, ring[0]];
+                const base = computeShapeCentroid([closedRing]);
+                const moved = computeShapeCentroid([closedRing.map(([x, y]) => [x + shift, y])]);
                 expect(moved[0]).toBeCloseTo(base[0] + shift, 8);
                 expect(moved[1]).toBeCloseTo(base[1], 8);
             }
-        ), { numRuns: 500 });
+        ), {
+            numRuns: 500,
+            examples: [[
+                [[-49.999999999999886, -49.99999999999998], [0, 0], [0, 0], [-49.99999999999989, -49.99999999999998]],
+                -9.999999999991783,
+            ]],
+        });
     });
 
     it('OBSERVADO: transladar pode fazer um anel ABERTO se ler como FECHADO, e o centroide muda', () => {

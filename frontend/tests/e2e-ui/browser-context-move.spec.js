@@ -65,7 +65,8 @@ describeOrSkip('Feature context move (real Chromium + real backend, UI-first ges
         browser,
     }) => {
         const seed = await seedSharedAtlas(browser, state.baseUrl);
-        const page = await openClient(browser, state.baseUrl, seed.atlasId, seed.userA);
+        const page = await openClient(browser, state.baseUrl, seed.atlasId, seed.userA, { expectMapName: seed.mapName });
+        const peer = await openClient(browser, state.baseUrl, seed.atlasId, seed.userB, { expectMapName: seed.mapName });
 
         try {
             // Lands on the shared atlas map (the "source" map for the move flows).
@@ -82,6 +83,7 @@ describeOrSkip('Feature context move (real Chromium + real backend, UI-first ges
             const COORDS = [-43.2, -22.9];
             const featureId = await drawPointUI(page, COORDS);
             expect(featureId, 'the point tool created a feature').toBeTruthy();
+            await page.keyboard.press('Escape');
             // Move the just-drawn point onto Layer A so the layer-move below has somewhere to start.
             await applyStoreOp(page, 'moveFeaturesToLayer', [[{ type: 'point', id: featureId }], layerAId, seed.mapName]);
 
@@ -128,6 +130,8 @@ describeOrSkip('Feature context move (real Chromium + real backend, UI-first ges
             await expect
                 .poll(async () => (await readCurrentPoints(page)).some((p) => p.id === featureId), { timeout: 10000 })
                 .toBe(false);
+            await expect.poll(async () => (await readRepoMapPoints(page, SECOND_MAP))
+                .some(p => p.id === featureId), { timeout: 20000 }).toBe(true);
             const targetPoints = await readRepoMapPoints(page, SECOND_MAP);
             const targetFeat = targetPoints.find((p) => p.id === featureId);
             // "Intact" = the geometry on the target map matches exactly what was drawn on the
@@ -144,6 +148,21 @@ describeOrSkip('Feature context move (real Chromium + real backend, UI-first ges
                     targetFeat?.geometry?.coordinates?.[0] === sourceCoords?.[0] &&
                     targetFeat?.geometry?.coordinates?.[1] === sourceCoords?.[1],
             };
+
+            // Check the peer's durable projection, then undo and redo the real move.
+            const expectLocation = async (source, destination) => {
+                for (const client of [page, peer]) {
+                    await expect.poll(async () => (await readRepoMapPoints(client, destination))
+                        .some(p => p.id === featureId), { timeout: 20000 }).toBe(true);
+                    await expect.poll(async () => (await readRepoMapPoints(client, source))
+                        .some(p => p.id === featureId), { timeout: 20000 }).toBe(false);
+                }
+            };
+            await expectLocation(seed.mapName, SECOND_MAP);
+            await page.keyboard.press('Control+z');
+            await expectLocation(SECOND_MAP, seed.mapName);
+            await page.keyboard.press('Control+y');
+            await expectLocation(seed.mapName, SECOND_MAP);
 
             // =====================================================================
             // NEGATIVE/EDGE: cross-atlas move is gated.
@@ -173,9 +192,11 @@ describeOrSkip('Feature context move (real Chromium + real backend, UI-first ges
                 // A SECOND atlas owned by the same user, whose map is the forbidden destination.
                 const otherAtlas = await api.createAtlas({ name: 'Context Move Atlas (other)' });
                 const otherMapId = crypto.randomUUID();
-                await api.pushOperations(otherAtlas.id, [
-                    createOperation('map', 'create', otherMapId, null, { name: 'Other Map' }),
+                const otherCreated = await api.pushOperations(otherAtlas.id, [
+                    { ...createOperation('map', 'create', otherMapId, null, { name: 'Other Map' }),
+                        atlasId: otherAtlas.id, scopeSuffix: `remote-${otherAtlas.id}` },
                 ]);
+                if (!otherCreated.results[0].success) throw new Error('The foreign destination fixture was not created');
 
                 let crossThrew = false;
                 let crossStatus = null;
@@ -219,6 +240,7 @@ describeOrSkip('Feature context move (real Chromium + real backend, UI-first ges
             expect(edge.stillHome).toBe(true);
         } finally {
             await page.context().close();
+            await peer.context().close();
         }
     });
 });

@@ -46,8 +46,9 @@ export async function seedSharedAtlas(browser, baseUrl, { mapName = 'Mapa Tátic
         await apiA.login(a.username, a.password);
 
         const atlas = await apiA.createAtlas({ name: 'Atlas Colaborativo' });
-        const mapId = crypto.randomUUID();
-        await apiA.pushOperations(atlas.id, [createOperation('map', 'create', mapId, null, { name: mn })]);
+        const mapId = atlas.map_order[0];
+        if (!mapId) throw new Error('O servidor não criou o mapa inicial do atlas.');
+        await apiA.pushOperations(atlas.id, [createOperation('map', 'update', mapId, null, { name: mn })]);
         await fetch(`${base}/api/v1/atlas/${atlas.id}/sharing/users`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiA.getAccessToken()}` },

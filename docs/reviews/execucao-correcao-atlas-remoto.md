@@ -5,18 +5,18 @@ Autorização: “PODE EXECUTAR”. Referência: [plano aprovado](plano-correcao
 
 ## Estado intermediário: não liberado
 
-Checkpoint solicitado pelo usuario em 12/09/2026, para commit e push no branch de desenvolvimento. O plano permanece incompleto e este estado NAO esta liberado para producao. A verificacao completa da raiz terminou com codigo 1: frontend e backend passaram, mas ha 24 falhas na camada de contratos. Nenhuma implantacao foi realizada.
+O plano permanece incompleto e este estado não está liberado para produção. O checkpoint anterior tinha 24 falhas de contrato, resolvidas na continuação descrita abaixo. Após a correção das camadas remotas, a suíte completa da raiz passou: 12.219 testes de frontend, 5.039 de backend e os 201 contratos, sem falhas. Nenhuma implantação foi realizada. As pendências atuais estão na [avaliação para lançamento](pendencias-lancamento.md); os resultados intermediários abaixo são históricos.
 
 | Área | Implementação em andamento | Validação / trabalho restante |
 | --- | --- | --- |
-| Fila | Sem expiração ou compactação destrutiva; sequência IndexedDB atômica; envelopes imutáveis; handles vinculados ao escopo | Regressões novas passaram; adaptar os testes do contrato antigo; migração e deduplicação de filas antigas |
+| Fila | Sem expiração ou compactação destrutiva; sequência IndexedDB atômica; envelopes imutáveis; handles vinculados ao escopo | Regressões e contratos passaram; migração e deduplicação de filas antigas ainda pendentes |
 | Recibos | Tabela independente do histórico, principal e hash; resultados de sucesso, recusa e conflito persistidos | Quatro regressões de recibos passaram; bloqueio de clientes incompatíveis e revisão final da autorização |
 | Materialização | Intenção antes de feições/comentários; estágio preparado bloqueia envio até materialização | Quatro testes novos passaram; demais produtores, recovery completo e isolamento de geração |
 | Recepção | Cursor após aplicação; primeiro handshake pede replay; fechamento antigo não derruba socket novo; tombstone de feição | Correção do teste de cursor; coordenação completa e cursor durável |
 | Snapshot | Transação consistente no servidor; substituição de mapas/briefings; projeção de pendências; preparação em geração separada e ativação conjunta de ponteiro/cursor | Sete regressões nativas passaram; falta homologação com clientes reais, concorrência entre abas, limpeza de gerações antigas e cobertura dos demais produtores |
 | Recusas | Registro durável junto da operação original; excluído de envio automático | Painel de resolução, dependências e aplicação canônica |
 | Rede | Trava do auto-flush antes do primeiro await; backoff; limites de requisição incluindo corpo; cancelamento por sessão | Testes de rede degradada, progresso e saída |
-| Conflitos/anexos | Primeira implementação de patches e revisões por campo para feições | Cinco testes PostgreSQL passaram; demais tipos, UI, compatibilidade e uploads ainda pendentes |
+| Conflitos/anexos | Patches e revisões por campo para feições; comandos explícitos de movimento e restauração | Oito regressões PostgreSQL e contratos passaram; demais tipos, UI, compatibilidade e uploads ainda pendentes |
 
 ## Evidências intermediárias
 
@@ -56,3 +56,61 @@ Concluir todas as entregas do plano; resolver as falhas sem skips; executar lint
 - `npm run build` terminou com codigo zero. Os testes posteriores de tamanho da pagina e integridade documental passaram: 56 testes.
 - O lint completo passou (codigo zero) depois das adaptacoes dos testes WebSocket. A assercao de colecao nao vazia exigida pelo lint tambem foi verificada pela repeticao do teste de broadcast 3D/360, com codigo zero.
 - Proximo trabalho: resolver os contratos e completar comandos explicitos de conversao/movimentacao/restauracao; impedir gravacoes atrasadas de uma sessao remota descartada, inclusive apos novo login. Os prototipos de protecao de escrita ainda estao fora do codigo do produto neste checkpoint.
+
+
+## Continuacao apos o push f8e109ea
+
+O checkpoint `f8e109eacf8e276b66d72027d1359a295347ad33` foi enviado a `origin/integracao_backend` e conferido por `git ls-remote`. As mudancas desta secao sao posteriores a esse commit.
+
+- Descarte explicito persiste uma epoca por namespace remoto antes do registro assincrono. Montagens, repositorios, filas, transacoes de edicao e aplicacoes de sincronismo capturam essa epoca; uma nova entrada nao revalida callbacks antigos. Uma falha no registro assincrono pode ser recuperada pela marca persistida antes dele.
+- Escritas, exclusoes e limpezas dos handles protegidos conferem a epoca dentro do callback nativo do IndexedDB, antes da transacao. A limpeza administrativa dos namespaces continua usando os handles de descarte. Atlas locais, inclusive adotados com sufixo remoto, ficam fora da invalidacao.
+- O diario clona os envelopes antes de aguardar armazenamento. O retry do dispatcher conserva o mesmo ID, conteudo e escopo; nao recria uma operacao sob o atlas atualmente aberto. Preferencias remotas capturam o atlas antes de qualquer import assincrono.
+- A confirmacao de saida pausa novos escritores coordenados e novos auto-flushes desta aba. Aguarda os escritores/envios iniciados; apos tres segundos sem estabilizar, pede confirmacao com contagem desconhecida. Cancelar libera as pausas. O aviso explica que uma solicitacao ja recebida pelo servidor pode concluir depois da saida.
+- Testes nativos reproduzem callback atrasado removendo dados de uma nova sessao, diario atrasado, retry apos troca/descarte, falha parcial de registro e isolamento de atlas locais/remotos. Controle negativo retirando somente a checagem antes da transacao: a entidade da nova sessao virou `null` e o teste falhou; a protecao foi restaurada.
+- Playwright com app e backend reais: quatro testes aprovados, zero retries/skips, incluindo o guarda de backend, cancelamento/confirmacao com atlas local ou remoto montado e saida em outra aba. A imagem do aviso foi inspecionada. A execucao final depois das ultimas adaptacoes esta registrada abaixo.
+
+Limites desta etapa: a pausa anterior ao dialogo ainda nao constitui uma barreira transacional entre todas as abas; produtores legados e escritores que bypassam os handles protegidos precisam da cobertura restante do plano. As 24 falhas de contrato do checkpoint, comandos explicitos de restauracao/movimentacao/conversao, UI de conflitos, anexos e homologacao completa de migracao continuam pendentes. Esta secao nao libera producao.
+
+
+### Resultado da verificacao desta continuacao
+
+- Build final concluido com codigo zero; depois dele, suite completa do frontend: **639 arquivos, 12.212 testes aprovados, zero falhas**, codigo zero.
+- Playwright repetido apos a separacao do modulo de pausa: **4 aprovados, zero retries/skips**, codigo zero. Imagens dos avisos com atlas local/remoto aberto inspecionadas.
+- Duas rodadas intermediarias nao sao aprovacao: o import inicial da pausa trouxe o motor do mapa para paginas leves (corrigido e coberto pelo teste de grafo); executar build/testes/lint simultaneamente produziu leituras de arquivos temporariamente ausentes. A rodada valida do frontend foi executada somente depois de o build terminar; o lint foi repetido em separado.
+- Backend e contratos nao foram reexecutados nesta continuacao, que alterou apenas cliente e documentacao. O ultimo resultado da raiz continua sendo o checkpoint com **24 falhas de contrato**. Nenhum resultado acima as resolve nem substitui a homologacao completa pendente.
+- Estas alteracoes posteriores ao `f8e109ea` permanecem locais, para a proxima etapa do plano.
+
+## Correção das 24 falhas de contrato
+
+- Movimentação e restauração de feições agora declaram a intenção e comprovam a revisão corrente. Uma criação comum continua sem poder sobrescrever um item vivo ou ressuscitar uma exclusão. Movimentar também verifica o mapa de origem e sua trava; o retorno canônico informa a origem para removê-la dos clientes.
+- Desfazer/refazer conserva uma referência mínima à última operação da feição mesmo após o ACK remover a linha da fila. A restauração pode referenciar o recibo durável da exclusão; uma exclusão mais recente invalida esse comando antigo.
+- Os contratos de edição passaram a obter a base confirmada do servidor. O caso concorrente exige conflito para o mesmo campo e só aceita reaplicação deliberada contra a base atual. Os casos offline montam o namespace remoto antes de produzir a fila e usam IndexedDB transacional no ambiente de teste.
+- Contratos: **201 aprovados, zero falhas, 57 arquivos**, processo encerrado com código zero. A primeira rodada intermediária aprovou 199 e ainda falhou nos dois casos offline; não foi tratada como aprovação.
+- Regressões de backend: **8 aprovadas**, incluindo movimento obsoleto, origem travada e restauração após limpeza do histórico. A regressão do cliente também comprova que um replay de movimento antigo não recria a feição no mapa anterior.
+- Controle negativo: removida temporariamente somente a exigência de revisão exata dos comandos, os testes de movimento e restauração obsoletos falharam com resultado aplicado onde exigiam conflito. O arquivo original foi restaurado byte a byte; a execução final usa a proteção restaurada.
+
+Esta etapa não implementa atomicidade de grupos inteiros de conversão/transferência, nem conclui o painel de conflitos, os demais tipos colaborativos ou a compatibilidade de clientes legados. Essas entregas permanecem no plano aprovado.
+
+### Achado adicional no navegador: camada sintética
+
+O cenário de trava usava a camada sintética de identificador default. A consulta ao PostgreSQL descartável confirmou recibos recusados para esse identificador, com motivo de formato inválido. A trava podia aparecer brevemente no cliente e desaparecer na reconciliação. Naquela rodada, a conversão foi validada com uma camada real criada explicitamente. A correção posterior cria a camada no servidor junto com o mapa; o teste de trava voltou a usar a camada inicial. O comportamento e a regularização dos dados estão em [camadas remotas](camadas-remotas.md).
+
+### Verificação da correção de contratos
+
+- Movimentação entre mapas com desfazer/refazer e conversões entre tipos passaram em três execuções consecutivas. O teste de isolamento passou a confirmar a criação do mapa estrangeiro, carimbado com seu próprio atlas, e aguardar a projeção persistida antes de medi-la.
+- A rodada final de trava em camada remota válida e dois ciclos de desfazer/refazer aprovou **9 testes, zero falhas/retries/skips**, em três repetições. A captura do outro cliente após refazer foi inspecionada, com a feição visível e indicação de envio concluído.
+- As rodadas intermediárias de navegador não são aprovação integral: revelaram a camada sintética inválida, uma leitura sem aguardar a projeção e um getter inexistente na sonda. O teste da camada remota agora comprova a persistência da trava nos dois clientes; a limitação da camada sintética está preservada acima.
+- Build e lint completos passaram. A primeira execução final da raiz parou no frontend com **12.213 aprovados e uma falha** em uma propriedade aleatória de centroide. A premissa do teste foi corrigida para comparar anéis explicitamente fechados, com o contraexemplo guardado; o cálculo geográfico do produto permaneceu igual.
+- Repetição final de `npm test` na raiz: **código zero**, com **12.214 testes de frontend, 5.030 de backend e 201 contratos aprovados**. O backend encerrou sem falhas, cancelamentos ou skips. Os contratos encerraram com 57 arquivos aprovados e zero falhas, após as últimas mudanças de lógica.
+- As alterações daquela rodada ficaram locais, posteriores ao checkpoint enviado. A aprovação resolveu as 24 falhas de contrato; as demais entregas do plano continuaram pendentes. A camada sintética foi tratada na etapa abaixo.
+
+### Correção da camada padrão remota
+
+A camada passa a ser gravada no servidor junto com o mapa, incluindo o mapa inicial da criação de atlas e a substituição da última camada excluída. O ACK, o broadcast e o replay levam a mesma identidade. Importação e cópia completam mapas sem camada; a regularização dos dados antigos mantém configurações existentes e o conteúdo das feições. O navegador continua sintetizando default apenas para atlas locais. Detalhes em [camadas remotas](camadas-remotas.md).
+
+- Testes direcionados: **75 aprovados**, incluindo as oito novas regressões do backend, a movimentação que declara o destino no conteúdo da operação e o isolamento de referências na importação.
+- Controle negativo: retirar temporariamente a criação da camada no comando estrutural causou **cinco falhas** nas novas regressões. O arquivo foi restaurado byte a byte.
+- Navegador: **9 aprovados em três repetições**, zero falhas, retries ou skips. Dois clientes verificaram criação de mapa, UUID no PostgreSQL, edição offline de nome/opacidade, reconexão, exclusão da última camada e reentrada. A captura da nova feição na camada Padrão após reentrada foi inspecionada. A trava de conversão usa a camada inicial criada pelo servidor.
+- Rodadas intermediárias: seis falhas de backend motivaram a atualização de premissas e a correção da validação do mapa de destino. Nos contratos, seis cenários usavam UUIDs sem camadas existentes; passaram a obter a identidade real do servidor. O primeiro teste novo de navegador foi corrigido para chamar a fachada pública de exclusão.
+- A revisão dos recibos acrescentou a nona regressão do backend: resolver uma camada implícita trabalha sobre uma cópia, sem modificar o envelope recebido que identifica o reenvio. As nove regressões passaram; retirar a cópia causou exatamente uma falha, reproduzindo a recusa indevida do reenvio. O código foi restaurado e a suíte completa reiniciada após a última alteração de lógica.
+- Rodada completa final da raiz: **código zero**, com **12.219 testes de frontend, 5.039 de backend e 201 contratos aprovados**, sem falhas nem skips. Build e lint completos também passaram. Esta etapa não publica o backend nem conclui as outras entregas do plano de sincronização.

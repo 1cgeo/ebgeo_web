@@ -1,4 +1,12 @@
 // Path: tests/e2e/temporal-feature.e2e.test.js
+import {
+    editFeatureOperation,
+    E2E_SKIP,
+    makeApi,
+    registerAndLogin,
+    createAtlas,
+    createMap,
+} from './helpers/harness.js';
 
 /**
  * @fileoverview E2E for §29.13-17 temporal feature properties against the live
@@ -15,13 +23,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import {
-    E2E_SKIP,
-    makeApi,
-    registerAndLogin,
-    createAtlas,
-    createMap,
-} from './helpers/harness.js';
+
 import { createOperation } from '../../src/js/store/sync/operation-factory.js';
 import { generateUUID } from '../../src/js/utilities/uuid.js';
 
@@ -135,7 +137,7 @@ describe.skipIf(E2E_SKIP)('E2E temporal-feature', () => {
         ];
 
         // properties is a full JSONB replace, so carry the whole object (incl. source).
-        const updateOp = createOperation('feature', 'update', temporalId, mapId, {
+        const updateOp = await editFeatureOperation(api, atlasId, mapId, temporalId, {
             properties: {
                 source: 'point',
                 layerId: null,
@@ -163,7 +165,7 @@ describe.skipIf(E2E_SKIP)('E2E temporal-feature', () => {
     it('clearing temporal keys via update removes them from the snapshot', async () => {
         // Replace properties WITHOUT the temporal keys: a full JSONB replace must
         // drop them (negative/edge: not a deep merge that would retain stale data).
-        const clearOp = createOperation('feature', 'update', temporalId, mapId, {
+        const clearOp = await editFeatureOperation(api, atlasId, mapId, temporalId, {
             properties: { source: 'point', layerId: null, nome: 'Unidade Parada' },
         });
         const res = await api.pushOperations(atlasId, [clearOp]);

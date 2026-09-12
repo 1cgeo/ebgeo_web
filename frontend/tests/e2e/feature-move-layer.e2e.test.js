@@ -1,4 +1,12 @@
 // Path: tests/e2e/feature-move-layer.e2e.test.js
+import {
+    editFeatureOperation,
+    E2E_SKIP,
+    makeApi,
+    registerAndLogin,
+    createAtlas,
+    createMap,
+} from './helpers/harness.js';
 
 /**
  * @fileoverview E2E for moving a feature between layers (spec §14.6 / §2.31) against
@@ -16,13 +24,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import {
-    E2E_SKIP,
-    makeApi,
-    registerAndLogin,
-    createAtlas,
-    createMap,
-} from './helpers/harness.js';
+
 import { ApiError } from '../../src/js/store/sync/api-client.js';
 import { createOperation } from '../../src/js/store/sync/operation-factory.js';
 import { generateUUID } from '../../src/js/utilities/uuid.js';
@@ -112,7 +114,7 @@ describe.skipIf(E2E_SKIP)('E2E feature-move-layer', () => {
         // `data` into `changes` for updates and derives the `layer_id` column from
         // `properties.layerId`. Carry the full GeoJSON so the stored `properties`
         // JSONB (surfaced verbatim in the snapshot) also reflects the new ref.
-        const moveOp = createOperation('feature', 'update', featureId, mapId, {
+        const moveOp = await editFeatureOperation(api, atlasId, mapId, featureId, {
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [-43.2, -22.9] },
             properties: { source: 'point', layerId: layerBId, nome: 'Movable' },
@@ -134,7 +136,7 @@ describe.skipIf(E2E_SKIP)('E2E feature-move-layer', () => {
     it('rejects a cross-atlas map_id move with 403 and leaves the feature put', async () => {
         // A feature update whose map_id points to a map in ANOTHER atlas is a
         // cross-tenant move; the backend throws ForbiddenError -> 403.
-        const crossOp = createOperation('feature', 'update', featureId, mapId, {
+        const crossOp = await editFeatureOperation(api, atlasId, mapId, featureId, {
             map_id: otherMapId,
         });
 
@@ -144,7 +146,7 @@ describe.skipIf(E2E_SKIP)('E2E feature-move-layer', () => {
         // Be explicit it is the ApiError type, not some transport failure.
         await expect(
             api.pushOperations(atlasId, [
-                createOperation('feature', 'update', featureId, mapId, { map_id: otherMapId }),
+                await editFeatureOperation(api, atlasId, mapId, featureId, { map_id: otherMapId }),
             ]),
         ).rejects.toBeInstanceOf(ApiError);
 

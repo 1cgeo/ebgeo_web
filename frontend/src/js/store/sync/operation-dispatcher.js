@@ -8,6 +8,7 @@
 
 import { createOperation, createBatchOperations } from './operation-factory.js';
 import { operationQueue } from './operation-queue.js';
+import { getActiveScope } from '../atlas-namespace.js';
 import { EntityType, OperationType } from './operation-types.js';
 import { StoreErrorEvents, emitStoreError } from '../store-errors.js';
 import { generateUUID, isValidUUID } from '../../utilities/uuid.js';
@@ -35,8 +36,9 @@ export async function persistOperationIntents(descriptions, { scope, traceId } =
     const predecessors = new Map();
     for (const op of created) {
         if (op.entityType !== EntityType.FEATURE) continue;
-        const predecessor = predecessors.get(op.entityId) ?? await queue.getLatestPendingFeature(op.entityId);
-        if (predecessor && op.operationType !== OperationType.CREATE) {
+        const predecessor = predecessors.get(op.entityId) ?? await queue.getLatestPendingFeature(op.entityId)
+            ?? (op.featureIntent ? await queue.getLatestFeatureOperation(op.entityId) : null);
+        if (predecessor && (op.operationType !== OperationType.CREATE || op.featureIntent)) {
             op.baseOperationId = predecessor.id;
             op.dependsOn = [predecessor.id];
         }
@@ -108,7 +110,7 @@ function handleQueueFailure(label, entityId, error, retryFn) {
         consecutiveFailures
     });
 
-    if (consecutiveFailures <= MAX_CONSECUTIVE_FAILURES) {
+    if (retryFn && error.name !== 'AbortError' && consecutiveFailures <= MAX_CONSECUTIVE_FAILURES) {
         setTimeout(async () => {
             try {
                 await retryFn();
@@ -169,13 +171,17 @@ export async function logOperation(entityType, operationType, entityId, mapId, d
         return;
     }
 
+    const scope = getActiveScope();
+    let operation;
+    let queue;
     try {
-        const operation = createOperation(entityType, operationType, entityId, mapId, data, previousData);
-        await operationQueue.enqueue(operation);
+        queue = scope ? operationQueue.forScope(scope) : operationQueue;
+        operation = structuredClone(createOperation(entityType, operationType, entityId, mapId, data, previousData));
+        await queue.enqueue(operation);
         // Mark a local un-acked edit (feature/layer/group/3D/360) so a concurrent remote op for
         // the SAME entity is deferred until this op's ack reveals the server order (deterministic
         // LWW convergence).
-        if (CONVERGENCE_GUARDED.has(entityType)) markLocalEditPending(entityId);
+        if (getActiveScope() === scope && CONVERGENCE_GUARDED.has(entityType)) markLocalEditPending(entityId);
         // Author-side IndexedDB-write confirmation: the entity was persisted FIRST
         // (persistFn in runTransaction) before this logging runs in deferAsync, so by
         // now it is durable in IndexedDB. Records the op-keyed peer of the inbound
@@ -194,10 +200,7 @@ export async function logOperation(entityType, operationType, entityId, mapId, d
             `${operationType} ${entityType}`,
             entityId,
             error,
-            async () => {
-                const retryOp = createOperation(entityType, operationType, entityId, mapId, data, previousData);
-                await operationQueue.enqueue(retryOp);
-            }
+            operation && queue ? () => queue.enqueue(operation) : null
         );
     }
 }
@@ -235,9 +238,13 @@ export async function logBatchOperations(operations) {
     }
     if (safe.length === 0) return;
 
+    const scope = getActiveScope();
+    let created;
+    let queue;
     try {
-        const created = createBatchOperations(safe);
-        await operationQueue.enqueueAll(created);
+        queue = scope ? operationQueue.forScope(scope) : operationQueue;
+        created = structuredClone(createBatchOperations(safe));
+        await queue.enqueueAll(created);
         for (const op of created) {
             // Author-side IndexedDB-write confirmation (see logOperation) — per op in the batch.
             record(TraceStage.APPLY_PERSIST, {
@@ -255,10 +262,7 @@ export async function logBatchOperations(operations) {
             `batch (${safe.length} ops)`,
             null,
             error,
-            async () => {
-                const retryCreated = createBatchOperations(safe);
-                await operationQueue.enqueueAll(retryCreated);
-            }
+            created && queue ? () => queue.enqueueAll(created) : null
         );
     }
 }
@@ -406,7 +410,12 @@ export const logSettingOperation = createEntityLogger(EntityType.SETTING, true);
  */
 export async function logAtlasSetting(patch) {
     if (!enabled) return;
+    const scope = getActiveScope();
     try {
+        if (scope?.kind === 'remote') {
+            await logSettingOperation(OperationType.UPDATE, scope.atlasId, patch);
+            return;
+        }
         let atlasId = 'atlas';
         try {
             const { getRepository } = await import('../repositories/index.js');
@@ -417,6 +426,7 @@ export async function logAtlasSetting(patch) {
             // The backend `setting` handler scopes by the ROUTE atlas and ignores
             // entityId, so the sentinel still applies the patch correctly.
         }
+        if (getActiveScope() !== scope) throw new DOMException('O atlas desta preferência foi desmontado.', 'AbortError');
         await logSettingOperation(OperationType.UPDATE, atlasId, patch);
     } catch (error) {
         console.warn('Failed to log atlas setting op:', error);

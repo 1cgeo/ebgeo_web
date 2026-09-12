@@ -16,6 +16,7 @@ import { TraceStage } from './sync/diag/trace-stages.js';
 import { getActiveScope } from '@store/atlas-namespace.js';
 import { persistOperationIntents } from '@store/sync/operation-dispatcher.js';
 import { beginStoreWrite } from './write-coordinator.js';
+import { captureRemoteWriteFence } from './remote-write-fence.js';
 
 const TxState = Object.freeze({
     OPEN: 'open',
@@ -34,6 +35,7 @@ class StoreTransaction {
         this._asyncEffects = [];
         this._operations = [];
         this.scope = getActiveScope();
+        this.assertWritable = captureRemoteWriteFence(this.scope);
     }
 
     get state() { return this._state; }
@@ -57,12 +59,13 @@ class StoreTransaction {
     }
 
     /** Collect final edit descriptions before either journal or entity persistence. */
-    recordOperation(entityType, operationType, entityId, mapId, data = null, previousData = null) {
+    recordOperation(entityType, operationType, entityId, mapId, data = null, previousData = null, options = {}) {
         this._assertOpen();
-        this._operations.push({ entityType, operationType, entityId, mapId, data, previousData });
+        this._operations.push({ entityType, operationType, entityId, mapId, data, previousData, ...options });
     }
 
     async writeIntents(traceId) {
+        this.assertWritable();
         // The legacy local repository may initialize its bridge during the first read.
         // This is the initial local mount, not a transition between remote atlases.
         if (this.scope === null && getActiveScope()?.kind === 'local' && getActiveScope().dbSuffix === '') {
@@ -71,6 +74,7 @@ class StoreTransaction {
         if (getActiveScope() !== this.scope) throw new Error('O atlas mudou durante a edição.');
         const materialized = await persistOperationIntents(this._operations, { scope: this.scope, traceId });
         if (getActiveScope() !== this.scope) throw new Error('O atlas mudou durante a gravação.');
+        this.assertWritable();
         return materialized;
     }
 
@@ -80,6 +84,7 @@ class StoreTransaction {
      * Async effects fire-and-forget with error logging.
      */
     commit() {
+        this.assertWritable();
         if (this._state !== TxState.OPEN) {
             throw new Error(`Cannot commit ${this._state} transaction`);
         }
@@ -141,7 +146,9 @@ export async function runTransaction(workFn) {
     try {
         const persistFn = await workFn(tx);
         const materialized = await tx.writeIntents(traceId);
+        tx.assertWritable();
         await persistFn();
+        tx.assertWritable();
         if (getActiveScope() !== tx.scope) throw new Error('O atlas mudou antes da confirmação da edição.');
         await materialized?.();
         setActionTraceId(traceId);

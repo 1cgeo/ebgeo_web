@@ -1,4 +1,5 @@
 // Path: js/store/sync/remote-operation-handler.js
+import { captureRemoteWriteFence } from '../remote-write-fence.js';
 
 /**
  * @fileoverview Remote operation handler for sync system.
@@ -60,12 +61,14 @@ class MountMap {
 }
 
 function capturedApplyContext(options = {}) {
+    const assertWritable = captureRemoteWriteFence(options.scope ?? getActiveScope());
     const context = {
         scope: options.scope ?? getActiveScope(),
         signal: options.signal,
         repo: options.repository,
         localRepo: options.repository,
         assertActive() {
+            assertWritable();
             this.signal?.throwIfAborted();
             const active = getActiveScope();
             if (!this.scope && active?.kind === 'local' && active.dbSuffix === '') this.scope = active;
@@ -590,13 +593,13 @@ async function applyRemoteOperationInner(operation, guarded) {
             featureApplied = await applyRemoteFeatureOp(operationType, entityId, mapId, data, serverVersion, operation.id, operation.traceId);
             break;
         case EntityType.LAYER:
-            await applyRemoteLayerOp(operationType, entityId, mapId, data);
+            await applyRemoteLayerOp(operationType, entityId, mapId, data, serverVersion);
             break;
         case EntityType.MAP:
             // A map op is atlas-level: its identity is `entityId` (the map id), and
             // `mapId` (the op context) is null. Pass entityId so remote MAP_CREATED/
             // MODIFIED/DELETED carry the real id (§1.8/§1.9).
-            await applyRemoteMapOp(operationType, entityId, data);
+            await applyRemoteMapOp(operationType, entityId, data, serverVersion);
             break;
         case EntityType.GROUP:
             await applyRemoteGroupOp(operationType, entityId, mapId, data);
@@ -721,7 +724,26 @@ function findFeatureIndex(features, featureId) {
  *
  * @returns {Promise<boolean>} Whether the op was applied (false = buffered)
  */
-function applyRemoteFeatureOp(opType, featureId, mapId, data, serverVersion, opId, traceId) {
+async function applyRemoteFeatureOp(opType, featureId, mapId, data, serverVersion, opId, traceId) {
+    // A confirmed move also removes the old projection. This marker comes from the
+    // committed server row and is persisted in the replay, not inferred from a CREATE.
+    if (data?.previousMapId && data.previousMapId !== mapId) {
+        await withMapDocument(data.previousMapId, 'applyRemoteFeatureMove', async () => {
+            const repo = handlerRepository();
+            const previous = await repo.getMap(data.previousMapId);
+            if (!previous) return;
+            let removed = false;
+            for (const bucket of Object.values(previous.features ?? {})) {
+                if (!Array.isArray(bucket)) continue;
+                const index = findFeatureIndex(bucket, featureId);
+                if (index !== -1) { bucket.splice(index, 1); removed = true; }
+            }
+            if (removed) {
+                await repo.saveMap(data.previousMapId, previous);
+                emit(EventTypes.FEATURE_DELETED, { featureId, mapId: data.previousMapId, featureType: data.properties?.source });
+            }
+        });
+    }
     // Inbound writes race with the LOCAL ones (a peer's op lands while the user is drawing),
     // and both are read-modify-writes of the same map document. Same lock key as the local
     // side, resolved through the map id (document-lock.js).
@@ -840,8 +862,9 @@ async function applyRemoteFeatureOpLocked(opType, featureId, mapId, data, server
  * @param {Object} data - Layer data
  * @returns {Promise<void>} Resolves once persisted and announced
  */
-async function applyRemoteLayerOp(opType, layerId, mapId, data) {
+async function applyRemoteLayerOp(opType, layerId, mapId, data, serverVersion) {
     const repo = handlerRepository();
+    await flushLayerProjection(mapId);
     /** @type {Array<{featureId: string, featureType: string}>} */
     let cascaded = [];
     // Persist the layer to the local store like the map/feature handlers do. Emitting
@@ -856,8 +879,17 @@ async function applyRemoteLayerOp(opType, layerId, mapId, data) {
             : [...layers, data];
     } else if (opType === OperationType.UPDATE) {
         next = layers.map((l) => (l.id === layerId ? { ...l, ...data } : l));
+        if (!next.some((l) => l.id === layerId) && data?.id === layerId && data.version != null) next.push(data);
     } else if (opType === OperationType.DELETE) {
         next = layers.filter((l) => l.id !== layerId);
+        // Add only missing survivors/replacements; an ACK must not overwrite a
+        // newer local edit of an existing layer with the deletion's older snapshot.
+        for (const layer of data?.replacementLayers ?? []) {
+            if (shouldApplyVersion(layer.id, serverVersion) && !next.some((l) => l.id === layer.id)) {
+                next.push(layer);
+                markAppliedVersion(layer.id, serverVersion);
+            }
+        }
     }
     await repo.saveLayers?.(mapId, next);
     // The cascade runs AFTER the layer leaves the list, in the server's own order, and the
@@ -966,7 +998,7 @@ function findFeatureIndexById(arr, id) {
  * @param {string} mapId - Map UUID
  * @param {Object} data - Map data
  */
-async function applyRemoteMapOp(opType, mapId, data) {
+async function applyRemoteMapOp(opType, mapId, data, serverVersion) {
     const repo = handlerRepository();
     switch (opType) {
         case OperationType.CREATE: {
@@ -980,6 +1012,7 @@ async function applyRemoteMapOp(opType, mapId, data) {
             // has none) but so it cannot land INSIDE another writer's read-modify-write
             // window, which would revert the map to this snapshot.
             if (reshaped) await withMapDocument(mapId, 'applyRemoteMapOp:create', () => repo.saveMap?.(mapId, reshaped));
+            await applyConfirmedMapLayers(repo, mapId, data?.layers, serverVersion);
             if (reshaped?.name) present(() => mapResolver.registerMap(reshaped.name, mapId));
             // Replay any feature ops that arrived before this map existed (anti silent-drop).
             // OUTSIDE the lock above: each replayed op takes the same key itself, so draining
@@ -1006,6 +1039,47 @@ async function applyRemoteMapOp(opType, mapId, data) {
     // LAYERS_CHANGED (not on MAP_*), so a peer's map create/rename/delete must emit it too —
     // otherwise the badge/list never sync until a fresh snapshot (mirrors applyRemoteSnapshot).
     emit(EventTypes.LAYERS_CHANGED, { mapName: null });
+}
+
+async function applyConfirmedMapLayers(repo, mapId, layers, serverVersion) {
+    if (!Array.isArray(layers)) return;
+    await flushLayerProjection(mapId);
+    const current = (await repo.getLayers?.(mapId)) ?? [];
+    const next = current.filter((layer) => layer.id !== 'default');
+    for (const layer of layers) {
+        if (shouldApplyVersion(layer.id, serverVersion) && !next.some((existing) => existing.id === layer.id)) {
+            next.push(layer);
+            markAppliedVersion(layer.id, serverVersion);
+        }
+    }
+    await repo.saveLayers?.(mapId, next);
+    const mapName = mapResolver.resolveToName(mapId) || mapId;
+    if (memoryStore.currentMap === mapName) {
+        await present(async () => {
+            const { loadLayersToMemory } = await import('../layer.operations.js');
+            await loadLayersToMemory(mapName);
+        });
+    }
+    emit(EventTypes.LAYERS_CHANGED, { mapName });
+}
+
+async function flushLayerProjection(mapId) {
+    const mapName = mapResolver.resolveToName(mapId) || mapId;
+    if (memoryStore.currentMap === mapName) {
+        await present(async () => {
+            const { flushPendingLayerWrites } = await import('../layer.operations.js');
+            await flushPendingLayerWrites();
+        });
+    }
+}
+
+/** A map CREATE ACK adds server layers without rewriting newer features in the map. */
+export async function applyMapCreationAck(operation) {
+    const context = capturedApplyContext();
+    return serializeGuardedApply(() => withApplyContext(context, async () => {
+        if (!await handlerRepository().getMap?.(operation.entityId)) return;
+        await applyConfirmedMapLayers(handlerRepository(), operation.entityId, operation.data?.layers, operation.serverVersion);
+    }));
 }
 
 /**

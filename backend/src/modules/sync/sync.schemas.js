@@ -16,6 +16,8 @@ const operationSchema = Joi.object({
   protocolVersion: Joi.number().integer().valid(2),
   baseVersion: Joi.number().integer().min(0).allow(null),
   baseOperationId: Joi.string().allow(null),
+  featureIntent: Joi.string().valid('move', 'restore'),
+  sourceMapId: Joi.string().uuid(),
   patch: Joi.array().max(1000).items(Joi.object({
     op: Joi.string().valid('set', 'remove').required(),
     path: Joi.array().items(Joi.string()).min(1).max(8).required(),

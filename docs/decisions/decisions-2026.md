@@ -2377,3 +2377,16 @@ Contrato, limites e guardas: [implementação](../reviews/2026-09-12-implementac
 - **Recuperacao:** montar snapshots completos em uma geracao separada e ativar dados/cursor juntos. Broadcast isolado nao comprova uma fronteira completa de replay. Operacoes e respostas assincronas pertencem ao escopo em que nasceram.
 - **Schema:** novas tabelas pertencem a base logica de sync, pois o backend ainda nao foi implantado. Banco existente de desenvolvimento exige transicao explicita com backup; esta mudanca nao recria nem adapta automaticamente esse banco.
 - **Estado:** implementacao intermediaria, sem liberacao para producao. Restam produtores, demais conflitos, painel de resolucao, uploads, descarte com estabilizacao completa, compatibilidade e homologacao. Detalhes e evidencias no [registro de execucao](../reviews/execucao-correcao-atlas-remoto.md), conforme o [plano aprovado](../reviews/plano-correcao-atlas-remoto.md).
+
+
+### 2026-09-12: descarte invalida escritores da sessao remota
+
+O descarte voluntario autorizado pelo usuario ganha uma epoca persistida por namespace. Um callback de uma montagem antiga continua invalido apos uma nova entrada; a checagem ocorre tambem na fronteira da transacao IndexedDB, pois rejeitar somente depois do commit nao impede que uma exclusao antiga apague dados novos. Falha ao persistir o descarte nao e tratada como sucesso. Atlas locais e namespaces adotados como locais continuam excluidos. Antes do censo de pendencias, pausam-se escritores coordenados e envios automaticos desta aba; espera inconclusiva exige confirmacao de pendencias desconhecidas. A coordenacao anterior ao dialogo entre todas as abas permanece em obra, conforme [registro da execucao](../reviews/execucao-correcao-atlas-remoto.md).
+
+### 2026-09-12: movimentação e restauração são intenções explícitas
+
+A correção dos contratos mantém o bloqueio à recriação antiga. Movimentar e restaurar declaram a intenção e exigem a revisão corrente, comprovada pela base ou pelo recibo de uma operação anterior do mesmo autor. Reabrir um upsert irrestrito faria testes antigos passarem, mas permitiria sobrescrever trabalho mais recente. A fila conserva somente a referência necessária ao recibo após o ACK, para desfazer/refazer continuar funcionando sem conservar o conteúdo excluído na fila. A exclusão voluntária do namespace também remove essa referência. Cobertura e limites no [registro de execução](../reviews/execucao-correcao-atlas-remoto.md).
+
+### 2026-09-12: a camada padrão remota nasce no servidor
+
+Criar o atlas grava o mapa inicial e sua camada; criar um mapa por sync ou excluir sua última camada grava a camada necessária na mesma transação e inclui o UUID confirmado no log, no ACK e no replay. O navegador sintetiza a camada default somente em atlas locais. Respostas atrasadas respeitam as versões e não regravam o documento inteiro do mapa. A regularização conserva feições e configurações existentes e exige snapshot dos clientes antigos. Uma edição que aponta explicitamente a uma camada excluída é recusada com motivo, sem transferência silenciosa. Detalhes e limites em [camadas remotas](../reviews/camadas-remotas.md).

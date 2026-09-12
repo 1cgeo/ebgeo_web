@@ -15,6 +15,7 @@ import { DebouncedPersist } from '../utilities/debounced-persist.js';
 import { EventTypes } from '../events';
 import { logLayerOperation, OperationType } from '../store/sync/index.js';
 import { mapResolver } from '../store/services/map-resolver.service.js';
+import { getActiveScope } from '../store/atlas-namespace.js';
 
 /**
  * Create a DebouncedPersist with standard error handling.
@@ -98,7 +99,7 @@ class LayerManager {
         try { camadas = this.getLayers(mapName); } catch { camadas = []; }
         if (ativo && camadas.some((l) => l?.id === ativo)) return ativo;
         if (camadas.length > 0) return camadas[0].id;
-        return ativo || 'default';
+        return getActiveScope()?.kind === 'remote' ? null : (ativo || 'default');
     }
 
     /**
@@ -202,7 +203,7 @@ class LayerManager {
         const deletedLayer = layersMap.get(layerId);
         let createdDefaultLayer = null;
 
-        if (layersMap.size <= 1) {
+        if (layersMap.size <= 1 && getActiveScope()?.kind !== 'remote') {
             const defaultLayer = getDefaultLayer();
             if (layerId === 'default') {
                 defaultLayer.id = IDUtils.generateUniqueId('layer');
@@ -573,10 +574,10 @@ class LayerManager {
             this.memoryStore.layers = {};
         }
         if (!this.memoryStore.layers[mapName]) {
-            const defaultLayer = getDefaultLayer();
-            this.memoryStore.layers[mapName] = new Map([['default', defaultLayer]]);
+            this.memoryStore.layers[mapName] = getActiveScope()?.kind === 'remote'
+                ? new Map() : new Map([['default', getDefaultLayer()]]);
         }
-        if (!this.memoryStore.activeLayerId) {
+        if (!this.memoryStore.activeLayerId && getActiveScope()?.kind !== 'remote') {
             this.memoryStore.activeLayerId = 'default';
         }
     }

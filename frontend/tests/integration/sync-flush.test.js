@@ -48,7 +48,7 @@ vi.mock('../../src/js/store/sync/operation-queue.js', () => ({
 // Imports
 // ============================================================================
 
-import { startAutoFlush, stopAutoFlush, isAutoFlushRunning } from '../../src/js/store/sync/sync-flush.js';
+import { startAutoFlush, stopAutoFlush, isAutoFlushRunning, pauseAutoFlush } from '../../src/js/store/sync/sync-flush.js';
 import { connectionState, ConnectionStates } from '../../src/js/store/sync/connection-state.js';
 import { EventTypes } from '../../src/js/events/event_types.js';
 import { operationQueue } from '../../src/js/store/sync/operation-queue.js';
@@ -79,6 +79,46 @@ function goOnline() {
     connectionState.transition(ConnectionStates.CONNECTING);
     connectionState.transition(ConnectionStates.ONLINE);
 }
+
+it('a logout pause fences a queue read already in flight and cancellation resumes the same loop', async () => {
+    goOnline();
+    queueState.pending = 1;
+    let release;
+    operationQueue.count.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    startAutoFlush(engine, { intervalMs: 1000 });
+    const pause = pauseAutoFlush();
+    try {
+        release(1);
+        await pause.settled;
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(engine.flush).not.toHaveBeenCalled();
+        expect(isAutoFlushRunning()).toBe(true);
+        pause.resume();
+        pause.resume();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(engine.flush).toHaveBeenCalledOnce();
+        engine.settle();
+    } finally { pause.resume(); }
+});
+
+it('a logout pause reports an in-flight send as unsettled until its completion', async () => {
+    goOnline();
+    queueState.pending = 1;
+    startAutoFlush(engine, { intervalMs: 1000 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(engine.flush).toHaveBeenCalledOnce();
+    const pause = pauseAutoFlush();
+    let settled = false;
+    const waiting = pause.settled.then(() => { settled = true; });
+    try {
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(settled).toBe(false);
+        expect(engine.flush).toHaveBeenCalledOnce();
+        engine.settle();
+        await waiting;
+        expect(settled).toBe(true);
+    } finally { pause.resume(); }
+});
 
 // ============================================================================
 // Lifecycle

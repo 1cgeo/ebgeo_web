@@ -15,6 +15,7 @@ import {
     registerAndLogin,
     createAtlas,
     createMap,
+    confirmedDefaultLayerId,
     makeWs,
     newClientId,
     waitFor,
@@ -68,7 +69,7 @@ describe.skipIf(E2E_SKIP)('e2e: two-client-broadcast', () => {
 
     it('broadcasts an HTTP-pushed op to a WS peer', async () => {
         const featureId = generateUUID();
-        const layerId = generateUUID();
+        const layerId = await confirmedDefaultLayerId(api, atlas.id, mapId);
         // Raw-GeoJSON feature create. `createOperation` stamps op.clientId from the
         // shared session client id, which differs from client B's WS clientId, so B
         // will NOT filter it as its own echo.
@@ -98,7 +99,7 @@ describe.skipIf(E2E_SKIP)('e2e: two-client-broadcast', () => {
         expect(got.id).toBe(op.id);
     });
 
-    it('does not deliver a WS peer its own echoed op', async () => {
+    it('delivers the author its canonical confirmed operation', async () => {
         // Client B authors an op (clientId === clientIdB) and pushes it over HTTP.
         // The broadcast reaches B's own socket, but WsClient filters self-echoes,
         // so it must never reach the on('operation') handler.
@@ -107,7 +108,7 @@ describe.skipIf(E2E_SKIP)('e2e: two-client-broadcast', () => {
             ...createOperation('feature', 'create', selfFeatureId, mapId, {
                 type: 'Feature',
                 geometry: { type: 'Point', coordinates: [-43.2, -22.9] },
-                properties: { source: 'military_symbol', layerId: generateUUID() },
+                properties: { source: 'military_symbol', layerId: await confirmedDefaultLayerId(api, atlas.id, mapId) },
             }),
             clientId: clientIdB,
         };
@@ -122,7 +123,7 @@ describe.skipIf(E2E_SKIP)('e2e: two-client-broadcast', () => {
         const barrierOp = createOperation('feature', 'create', barrierId, mapId, {
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [-43.3, -22.8] },
-            properties: { source: 'military_symbol', layerId: generateUUID() },
+            properties: { source: 'military_symbol', layerId: await confirmedDefaultLayerId(api, atlas.id, mapId) },
         });
         expect(barrierOp.clientId).not.toBe(clientIdB);
         await api.pushOperations(atlas.id, [barrierOp]);
@@ -130,7 +131,7 @@ describe.skipIf(E2E_SKIP)('e2e: two-client-broadcast', () => {
         await waitFor(() => received.some((r) => r.entityId === barrierId), { timeout: 6000 });
 
         // The self-authored op was filtered; only foreign ops (incl. the barrier) landed.
-        expect(received.some((r) => r.entityId === selfFeatureId)).toBe(false);
+        expect(received.find((r) => r.entityId === selfFeatureId)?.data.properties.confirmedVersion).toBeGreaterThan(0);
         expect(received.length).toBeGreaterThan(beforeCount);
     });
 });

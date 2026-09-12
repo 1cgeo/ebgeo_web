@@ -70,13 +70,8 @@ describe.skipIf(E2E_SKIP)('cross-atlas-idor', () => {
         };
         const op = createOperation('feature', 'create', featureId, mapBId, feature);
 
-        // Pushed to atlas A's route — the server still acks the op (it is logged),
-        // but the INSERT...WHERE EXISTS(maps.atlas_id = A) matches zero rows because
-        // mapBId belongs to atlas B.
-        const res = await api.pushOperations(atlasA.id, [op]);
-        expect(res.results).toHaveLength(1);
-        expect(res.results[0].success).toBe(true);
-        expect(res.results[0].operationId).toBe(op.id);
+        // A cross-atlas command is refused; no successful receipt may claim a nonexistent write.
+        await expect(api.pushOperations(atlasA.id, [op])).rejects.toMatchObject({ status: 403 });
 
         // The feature must appear in NEITHER atlas snapshot.
         const snapA = (await api.pullSync(atlasA.id, 0)).snapshot;

@@ -21,10 +21,13 @@ function nextKey(sequence, id) {
 }
 
 /** Atomic sequence allocation and immutable envelope insertion in the queue's own database. */
-export async function appendJournal(store, operations, { prepared = false } = {}) {
+export async function appendJournal(store, operations, { prepared = false, assertWritable = () => {} } = {}) {
+    assertWritable();
+    operations = structuredClone(operations);
     // Repository test adapters expose only the asynchronous key/value contract.
     if (!store.config) {
         const task = (tails.get(store) ?? Promise.resolve()).catch(() => {}).then(async () => {
+            assertWritable();
             let sequence = await store.getItem(SEQUENCE_KEY) ?? 0;
             for (const operation of operations) {
                 const identityKey = ID_PREFIX + operation.id;
@@ -34,28 +37,39 @@ export async function appendJournal(store, operations, { prepared = false } = {}
                     if (previous && !sameEnvelope(previous, operation)) throw new Error('O conteúdo de uma operação já registrada não pode mudar.');
                     continue;
                 }
+                assertWritable();
                 const key = nextKey(++sequence, operation.id);
                 await store.setItem(key, operation);
                 await store.setItem(identityKey, key);
-                if (operation.entityType === 'feature') await store.setItem('__journal_feature_head__' + operation.entityId, key);
+                if (operation.entityType === 'feature') {
+                    await store.setItem('__journal_feature_head__' + operation.entityId, key);
+                    await store.setItem('__journal_feature_latest__' + operation.entityId, { id: operation.id, operationType: operation.operationType, mapId: operation.mapId });
+                }
                 if (prepared) await store.setItem('__journal_state__' + operation.id, 'prepared');
             }
+            assertWritable();
             await store.setItem(SEQUENCE_KEY, sequence);
         });
         tails.set(store, task);
         return task;
     }
     await store.ready();
+    assertWritable();
     if (!globalThis.indexedDB || store.driver() !== 'asyncStorage') {
         throw new Error('O atlas remoto precisa do IndexedDB para guardar alterações com segurança.');
     }
     // `ready()` alone may retain a connection closed by another tab's versionchange.
     // A driver read performs localforage's reconnection before we open the atomic transaction.
     await store.getItem(SEQUENCE_KEY);
+    assertWritable();
     const request = globalThis.indexedDB.open(store.config('name'));
     await new Promise((resolve, reject) => {
         let cancelled = false;
         request.onerror = () => reject(request.error);
+        request.onupgradeneeded = () => {
+            request.transaction.abort();
+            reject(new DOMException('O banco da fila foi desmontado.', 'AbortError'));
+        };
         request.onblocked = () => {
             cancelled = true;
             reject(new Error('Banco da fila ocupado por outra aba.'));
@@ -64,7 +78,9 @@ export async function appendJournal(store, operations, { prepared = false } = {}
             const db = request.result;
             if (cancelled) { db.close(); return; }
             let transaction;
+            let failure;
             try {
+                assertWritable();
                 transaction = db.transaction(store.config('storeName'), 'readwrite');
             } catch (error) {
                 db.close();
@@ -72,11 +88,17 @@ export async function appendJournal(store, operations, { prepared = false } = {}
                 return;
             }
             const rows = transaction.objectStore(store.config('storeName'));
-            transaction.oncomplete = () => { db.close(); resolve(); };
-            transaction.onabort = () => { db.close(); reject(transaction.error ?? new Error('Falha ao guardar a alteração.')); };
+            transaction.oncomplete = () => {
+                db.close();
+                try { assertWritable(); resolve(); } catch (error) { reject(error); }
+            };
+            transaction.onabort = () => { db.close(); reject(failure ?? transaction.error ?? new Error('Falha ao guardar a alteração.')); };
             transaction.onerror = () => {};
+            const guarded = fn => () => {
+                try { assertWritable(); fn(); } catch (error) { failure = error; transaction.abort(); }
+            };
             const sequenceRequest = rows.get(SEQUENCE_KEY);
-            sequenceRequest.onsuccess = () => {
+            sequenceRequest.onsuccess = guarded(() => {
                 let sequence = sequenceRequest.result ?? 0;
                 let index = 0;
                 const appendNext = () => {
@@ -87,16 +109,16 @@ export async function appendJournal(store, operations, { prepared = false } = {}
                     const operation = operations[index++];
                     const identityKey = ID_PREFIX + operation.id;
                     const previous = rows.get(identityKey);
-                    previous.onsuccess = () => {
+                    previous.onsuccess = guarded(() => {
                         if (previous.result) {
                             const envelope = rows.get(previous.result);
-                            envelope.onsuccess = () => {
+                            envelope.onsuccess = guarded(() => {
                                 if (envelope.result && !sameEnvelope(envelope.result, operation)) {
                                     transaction.abort();
                                     return;
                                 }
                                 appendNext();
-                            };
+                            });
                             return;
                         }
                         if (!previous.result) {
@@ -104,7 +126,10 @@ export async function appendJournal(store, operations, { prepared = false } = {}
                                 const key = nextKey(++sequence, operation.id);
                                 rows.put(operation, key);
                                 rows.put(key, identityKey);
-                                if (operation.entityType === 'feature') rows.put(key, '__journal_feature_head__' + operation.entityId);
+                                if (operation.entityType === 'feature') {
+                                    rows.put(key, '__journal_feature_head__' + operation.entityId);
+                                    rows.put({ id: operation.id, operationType: operation.operationType, mapId: operation.mapId }, '__journal_feature_latest__' + operation.entityId);
+                                }
                                 if (prepared) rows.put('prepared', '__journal_state__' + operation.id);
                             } catch {
                                 transaction.abort();
@@ -112,10 +137,10 @@ export async function appendJournal(store, operations, { prepared = false } = {}
                             }
                         }
                         appendNext();
-                    };
+                    });
                 };
                 appendNext();
-            };
+            });
         };
     });
 }

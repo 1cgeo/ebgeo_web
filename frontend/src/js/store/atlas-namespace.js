@@ -254,6 +254,7 @@
  */
 
 import localforage from 'localforage';
+import { captureRemoteWriteFence } from './remote-write-fence.js';
 import { dataGenerationFor, readGeneration } from './namespace-generation.js';
 
 /** Kinds of scope a store instance can be resolved for. */
@@ -1233,6 +1234,7 @@ export function activateScope(scope) {
     if (!scope || typeof scope.dbSuffix !== 'string' || !scope.kind) {
         throw new Error('activateScope: expected a scope built by localScope()/remoteScope()');
     }
+    captureRemoteWriteFence(scope);
     _activeScope = scope;
     // The per-tab pointer is written BY THE MOUNT (Decision 6), never by whoever remembered to
     // update it: a caller that mounts and forgets is the defect this removes, and it is the same

@@ -1,6 +1,7 @@
 // Path: js/store/sync/sync-session.js
 import { getActiveScope } from '@store/atlas-namespace.js';
 import { operationQueue } from '@store/sync/operation-queue.js';
+import { captureRemoteWriteFence } from '../remote-write-fence.js';
 
 /** Captured destination and cancellation boundary for one mounted collaboration session. */
 export class SyncSession {
@@ -8,6 +9,7 @@ export class SyncSession {
         this.atlasId = atlasId;
         this.principalId = principalId;
         this.scope = getActiveScope();
+        this.assertWritable = captureRemoteWriteFence(this.scope);
         this.queue = this.scope ? operationQueue.forScope(this.scope) : operationQueue;
         this.controller = new AbortController();
         this.flushPromise = null;
@@ -17,6 +19,7 @@ export class SyncSession {
     get signal() { return this.controller.signal; }
 
     assertActive() {
+        this.assertWritable();
         this.signal.throwIfAborted();
         if (getActiveScope() !== this.scope) {
             this.close();

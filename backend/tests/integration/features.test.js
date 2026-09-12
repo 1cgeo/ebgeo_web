@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'crypto';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
-import { createUser, createAtlas, createMap, createFeature, loginUser } from '../helpers/fixtures.js';
+import { createUser, createAtlas, createMap, createLayer, createFeature, loginUser } from '../helpers/fixtures.js';
 
 describe('Features via Sync API', () => {
   let app, db, user, token, atlasId, mapId;
@@ -102,7 +102,7 @@ describe('Features via Sync API', () => {
 
     it('keeps a real UUID layerId on the feature row', async () => {
       const targetId = randomUUID();
-      const layerId = randomUUID();
+      const layerId = (await createLayer(db, mapId)).id;
       await supertest(app)
         .post(`/api/v1/atlas/${atlasId}/sync`)
         .set('Authorization', `Bearer ${token}`)

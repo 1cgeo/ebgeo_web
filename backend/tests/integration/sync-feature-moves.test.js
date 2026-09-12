@@ -72,7 +72,7 @@ describe('Feature Property Updates via Sync', () => {
       assert.equal(rows[0].layer_id, layer2.id);
     });
 
-    it('moves feature to null layer (unassign)', async () => {
+    it('resolves a null layer to the first real layer of the map', async () => {
       const feature = await createFeature(db, map.id, {
         feature_type: 'polygon',
         layer_id: layer1.id,
@@ -91,7 +91,7 @@ describe('Feature Property Updates via Sync', () => {
       }]).expect(200);
 
       const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [feature.id]);
-      assert.equal(rows[0].layer_id, null);
+      assert.equal(rows[0].layer_id, layer1.id);
     });
   });
 

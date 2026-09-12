@@ -3,7 +3,9 @@ import { registrarUso, descarregarUso } from '@js/session/uso-lote.js';
 import { EventoDeUso, PropDeUso } from '@js/session/eventos-de-uso.js';
 /** Voluntary logout: confirm the loss across every remote namespace on this browser. */
 import { listRemoteAtlases, requestRemoteAtlasDiscard } from '@store/remote-atlas.api.js';
-import { readLocalAtlasRegistry } from '@store/atlas-namespace.js';
+import { readLocalAtlasRegistry, getActiveScope } from '@store/atlas-namespace.js';
+import { pauseStoreWrites } from '@store/write-coordinator.js';
+import { pauseAutoFlush } from '@store/sync/auto-flush-pause.js';
 import { announceTabLockTeardown } from '@utils/tab-lock.js';
 import { countPendingOperationsFor } from './unsynced-work-exit.js';
 import { pendingOpsLabel } from './unsynced-work-phrases.js';
@@ -27,23 +29,36 @@ async function pendingCount(entries) {
  * Records the accepted discard before teardown so a reload cannot replay an abandoned queue.
  */
 export async function confirmLogoutWithPendingWork() {
+    const scope = getActiveScope();
+    const writes = pauseStoreWrites(scope?.kind === 'remote' ? scope : null);
+    const sends = pauseAutoFlush();
     try {
-        return await confirmAndPrepareLogout();
+        return await confirmAndPrepareLogout(Promise.all([writes.settled, sends.settled]));
     } catch (error) {
         console.error('[logout] could not prepare remote discard:', error);
         const { showError } = await import('@utils/toast_service.js');
         showError('Não foi possível concluir a saída da conta. Tente sair novamente.');
         return false;
+    } finally {
+        writes.resume();
+        sends.resume();
     }
 }
 
-async function confirmAndPrepareLogout() {
+async function confirmAndPrepareLogout(settled) {
     let entries;
     let pendingOps = NaN;
     try {
         const claimed = new Set((await readLocalAtlasRegistry()).map(e => e.dbSuffix));
         entries = (await listRemoteAtlases()).filter(e => !claimed.has(e.dbSuffix));
-        pendingOps = await pendingCount(entries);
+        let timer;
+        try {
+            const idle = await Promise.race([
+                settled.then(() => true),
+                new Promise(resolve => { timer = setTimeout(() => resolve(false), 3000); }),
+            ]);
+            if (idle) pendingOps = await pendingCount(entries);
+        } finally { clearTimeout(timer); }
     } catch (error) {
         console.warn('[logout] could not count remote pending work:', error);
     }
@@ -55,7 +70,8 @@ async function confirmAndPrepareLogout() {
         const confirmed = await showConfirm('Sair com alterações pendentes?', {
             message: `${message} Ao sair, as alterações pendentes dos atlas do servidor neste navegador, `
                 + 'inclusive em outras abas, serão descartadas e não poderão ser recuperadas. '
-                + 'Seus atlas locais e os dados já enviados ao servidor serão mantidos.',
+                + 'Seus atlas locais e os dados já enviados ao servidor serão mantidos. '
+                + 'Uma solicitação já recebida pelo servidor pode concluir mesmo após a saída.',
             confirmText: 'Sair e descartar pendências',
             cancelText: 'Continuar no EBGeo',
             destructive: true,

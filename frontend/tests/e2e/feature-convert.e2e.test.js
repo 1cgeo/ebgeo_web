@@ -1,4 +1,12 @@
 // Path: tests/e2e/feature-convert.e2e.test.js
+import {
+    editFeatureOperation,
+    E2E_SKIP,
+    makeApi,
+    registerAndLogin,
+    createAtlas,
+    createMap,
+} from './helpers/harness.js';
 
 /**
  * @fileoverview E2E de CONTRATO: converter uma feição é um CREATE de um id NOVO mais um
@@ -26,13 +34,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import {
-    E2E_SKIP,
-    makeApi,
-    registerAndLogin,
-    createAtlas,
-    createMap,
-} from './helpers/harness.js';
+
 import { ApiError } from '../../src/js/store/sync/api-client.js';
 import { createOperation } from '../../src/js/store/sync/operation-factory.js';
 import { generateUUID } from '../../src/js/utilities/uuid.js';
@@ -44,8 +46,8 @@ function createOp(featureId, mapId, feature) {
 }
 
 /** O DELETE da feição de origem: só o id viaja. */
-function deleteOp(featureId, mapId) {
-    return createOperation('feature', 'delete', featureId, mapId, null);
+function deleteOp(api, atlasId, featureId, mapId) {
+    return editFeatureOperation(api, atlasId, mapId, featureId, null);
 }
 
 /** Liga/desliga a trava do mapa (só o dono consegue). */
@@ -91,7 +93,7 @@ describe.skipIf(E2E_SKIP)('e2e: conversão de feição (CREATE novo + DELETE ant
         // A CONVERSÃO: um push, duas ops, ids DIFERENTES.
         const res = await api.pushOperations(atlasId, [
             createOp(boundaryId, mapId, realBoundaryFeature({ id: boundaryId })),
-            deleteOp(lineId, mapId),
+            await deleteOp(api, atlasId, lineId, mapId),
         ]);
         expect(res.results).toHaveLength(2);
         expect(res.results.every((r) => r.success), 'as duas metades foram aceitas').toBe(true);
@@ -141,7 +143,7 @@ describe.skipIf(E2E_SKIP)('e2e: conversão de feição (CREATE novo + DELETE ant
         await api.pushOperations(atlasId, [createOp(arrowId, mapId, realArrowFeature({ id: arrowId }))]);
 
         const res = await api.pushOperations(atlasId, [
-            deleteOp(arrowId, mapId),
+            await deleteOp(api, atlasId, arrowId, mapId),
             createOp(lineId, mapId, realLineFeature({ id: lineId })),
         ]);
         expect(res.results).toHaveLength(2);
@@ -195,7 +197,7 @@ describe.skipIf(E2E_SKIP)('e2e: conversão num mapa TRAVADO recusa AS DUAS metad
         ]);
         const res = await writerApi.pushOperations(atlasId, [
             createOp(provaId, openMapId, realArrowFeature({ id: provaId })),
-            deleteOp(descartavelId, openMapId),
+            await deleteOp(ownerApi, atlasId, descartavelId, openMapId),
         ]);
         expect(res.results.every((r) => r.success)).toBe(true);
     });
@@ -210,7 +212,7 @@ describe.skipIf(E2E_SKIP)('e2e: conversão num mapa TRAVADO recusa AS DUAS metad
     it('as DUAS metades são recusadas por operação, e nada muda no mapa', async () => {
         const res = await writerApi.pushOperations(atlasId, [
             createOp(boundaryId, mapId, realBoundaryFeature({ id: boundaryId })),
-            deleteOp(lineId, mapId),
+            await deleteOp(ownerApi, atlasId, lineId, mapId),
             // A irmã, num mapa ABERTO do mesmo lote: a recusa é por operação, e um mapa
             // travado não pode envenenar o lote inteiro (era o 409 que congelava a fila).
             createOp(siblingId, openMapId, realLineFeature({ id: siblingId })),
@@ -244,7 +246,7 @@ describe.skipIf(E2E_SKIP)('e2e: conversão num mapa TRAVADO recusa AS DUAS metad
 
         const push = await writerApi.pushOperations(atlasId, [
             createOp(boundaryId, mapId, realBoundaryFeature({ id: boundaryId })),
-            deleteOp(lineId, mapId),
+            await deleteOp(ownerApi, atlasId, lineId, mapId),
         ]);
         expect(push.results.every((r) => r.success)).toBe(true);
 
@@ -289,7 +291,7 @@ describe.skipIf(E2E_SKIP)('e2e: um Leitor não converte (403 no LOTE, não por o
         try {
             await viewerApi.pushOperations(atlasId, [
                 createOp(boundaryId, mapId, realBoundaryFeature({ id: boundaryId })),
-                deleteOp(lineId, mapId),
+                await deleteOp(ownerApi, atlasId, lineId, mapId),
             ]);
         } catch (err) {
             thrown = err;
@@ -307,7 +309,7 @@ describe.skipIf(E2E_SKIP)('e2e: um Leitor não converte (403 no LOTE, não por o
         const boundaryId = generateUUID();
         const res = await ownerApi.pushOperations(atlasId, [
             createOp(boundaryId, mapId, realBoundaryFeature({ id: boundaryId })),
-            deleteOp(lineId, mapId),
+            await deleteOp(ownerApi, atlasId, lineId, mapId),
         ]);
         expect(res.results.every((r) => r.success)).toBe(true);
 

@@ -224,7 +224,8 @@ function preserveSyncMetadata(oldFeature, cleanedFeature) {
  * @param {string} [mapName=null] - Target map name
  * @returns {Promise<Object|undefined>} Cleaned feature or undefined if blocked
  */
-export async function addFeature(type, feature, mapName = null) {
+export async function addFeature(type, feature, mapName = null, options = {}) {
+    if (!options.featureIntent && (memoryStore.isUndoing || memoryStore.isRedoing)) options = { ...options, featureIntent: 'restore' };
     const targetMap = resolveMap(mapName);
     if (guardWrite(GuardAction.CREATE_FEATURE, 'addFeature', targetMap).blocked) return;
 
@@ -265,7 +266,8 @@ export async function addFeature(type, feature, mapName = null) {
 
             {
                 const mapId = mapManager.getMapId(targetMap);
-                tx.recordOperation('feature', OperationType.CREATE, cleanedFeature.properties.id, mapId, cleanedFeature);
+                tx.recordOperation('feature', OperationType.CREATE, cleanedFeature.properties.id, mapId, cleanedFeature,
+                    options.featureIntent ? cleanedFeature : null, options);
             }
 
             return () => updateMapDataCompat(targetMap, currentMapData);
@@ -407,8 +409,8 @@ export async function removeFeature(type, id, mapName = null) {
  * @param {string} mapName - Target map name
  * @returns {Promise<Object|undefined>} Cleaned feature or undefined
  */
-export async function addFeatureToMap(type, feature, mapName) {
-    return await addFeature(type, feature, mapName);
+export async function addFeatureToMap(type, feature, mapName, options = {}) {
+    return await addFeature(type, feature, mapName, options);
 }
 
 /**
@@ -418,7 +420,7 @@ export async function addFeatureToMap(type, feature, mapName) {
  * @param {string} mapName - Target map name
  * @returns {Promise<Object|null>} Removed feature data
  */
-export async function removeFeatureFromMap(type, id, mapName) {
+export async function removeFeatureFromMap(type, id, mapName, { logOperation = true } = {}) {
     // Leaf: it takes the lock, so its caller `moveFeaturesToMap` must NOT (it awaits this
     // one and `addFeatureToMap`, and a section awaiting a section on the same key hangs).
     return withMapDocument(mapName, 'removeFeatureFromMap', async () => {
@@ -454,10 +456,10 @@ export async function removeFeatureFromMap(type, id, mapName) {
                 deps.groupManager.removeFeatureFromAllGroups(mainFeature.properties.source, id, mapName);
             });
 
-            // Emit the DELETE op so the source-map removal SYNCS (this is the source half of
-            // moveFeaturesToMap). Without it, a moved feature stayed on the source map for
-            // every other client — it left but they never saw it leave.
-            {
+            // A real deletion syncs. The source cleanup of an explicit move does not:
+            // its canonical response removes the old projection without deleting the
+            // same entity after it has already reached its destination.
+            if (logOperation) {
                 const mapId = mapManager.getMapId(mapName);
                 tx.recordOperation('feature', OperationType.DELETE, id, mapId, null, mainFeature);
             }
@@ -512,7 +514,7 @@ export async function removeFeatureSilent(type, id, mapName = null) {
  * @param {Object<string, Array>} featuresMap - Map of type to features array
  * @param {string} [mapName=null] - Target map name
  */
-export async function addFeatures(featuresMap, mapName = null) {
+export async function addFeatures(featuresMap, mapName = null, options = {}) {
     const targetMap = resolveMap(mapName);
     if (guardWrite(GuardAction.CREATE_FEATURE, 'addFeatures', targetMap).blocked) return;
 
@@ -564,7 +566,7 @@ export async function addFeatures(featuresMap, mapName = null) {
                 const mapId = mapManager.getMapId(targetMap);
                 for (const type of Object.keys(action.features)) {
                     for (const feat of action.features[type]) {
-                        tx.recordOperation('feature', OperationType.CREATE, feat.properties.id, mapId, feat);
+                        tx.recordOperation('feature', OperationType.CREATE, feat.properties.id, mapId, feat, options.featureIntent ? feat : null, options);
                     }
                 }
             }
@@ -858,13 +860,13 @@ export async function moveFeaturesToMap(features, targetMapName) {
                 // cleanFeature rejects it), we leave the source untouched, so the
                 // feature is never lost — worst case is a recoverable duplicate.
                 updateLayerId(feature, layerIdMapping);
-                const addedFeature = await addFeatureToMap(type, feature, targetMapName);
+                const addedFeature = await addFeatureToMap(type, feature, targetMapName, { featureIntent: 'move', sourceMapId: mapManager.getMapId(sourceMapName) });
                 if (!addedFeature) continue;
 
                 // Only after the target add succeeded do we remove from the source.
                 // removeFeatureFromMap also strips and returns related processed
                 // (LOS/visibility) children so they can be moved too.
-                const removedData = await removeFeatureFromMap(type, feature.properties.id, sourceMapName);
+                const removedData = await removeFeatureFromMap(type, feature.properties.id, sourceMapName, { logOperation: false });
                 if (!removedData) continue;
 
                 typeOperations.mainFeatures.push({
@@ -880,7 +882,7 @@ export async function moveFeaturesToMap(features, targetMapName) {
                 if (removedData.processedFeatures) {
                     for (const pf of removedData.processedFeatures.features) {
                         updateLayerId(pf, layerIdMapping);
-                        await addFeatureToMap(removedData.processedFeatures.type, pf, targetMapName);
+                        await addFeatureToMap(removedData.processedFeatures.type, pf, targetMapName, { featureIntent: 'move', sourceMapId: mapManager.getMapId(sourceMapName) });
                     }
                 }
             }

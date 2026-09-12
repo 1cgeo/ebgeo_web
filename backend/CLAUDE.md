@@ -120,9 +120,12 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   `frontend/src/js/map/map.manager.js`, e sincroniza como ops) e
   **não** ganhou guard nenhum: `copyMap` depende de o servidor recusar as ops uma a uma. Quem for
   fechar essa ponta olhe o par inteiro, porque o assunto é o mesmo e só metade dele foi resolvida.
-- **Conflito = LWW por ordem de chegada** (NÃO por timestamp); idempotência por `op_id`
-  (`ON CONFLICT DO NOTHING`). O módulo `src/crdt` (LWW-por-timestamp) foi **removido**; não religar
-  sem requisito de produto.
+- **Feições no protocolo v2 usam patches e base confirmada**: campos independentes podem
+  conciliar; disputa do mesmo campo gera conflito. Movimentação/restauração explícitas exigem
+  a revisão corrente. Recibos duráveis vinculam ID, autor e conteúdo. Os caminhos legados e
+  demais entidades ainda seguem ordem de chegada, nunca timestamp; a expansão está em obra
+  conforme a [decisão de 12/09/2026](../docs/decisions/decisions-2026.md).
+  O módulo de CRDT por timestamp foi removido; não religar sem requisito de produto.
 - **O serviço 3D publica DUAS formas, e só uma é 3D Tiles.** O MODELO é `.3dtiles` por modelo,
   servido pelo prefixo reservado `m/` da rota `/api/v1/assets3d`; a CENA caminhável (Gaussian
   splatting) abre por outro visualizador, é lida em FAIXA e mora numa PASTA na mesma rota. As duas

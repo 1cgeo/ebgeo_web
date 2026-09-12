@@ -263,11 +263,21 @@ collabTest.describe('Conversão linear — ESTADO (camada travada)', () => {
         const A = collab.author;   // dono, e é ele quem trava
         const B = collab.peers[0]; // Editor: testemunha do que NÃO chegou
 
+        // Exercise the default layer born WITH the map on the server, without
+        // manually creating a layer to work around a synthetic browser-only id.
+        const initialLayers = await applyStoreOp(A, 'getLayersRepo', [collab.mapName]);
+        expect(initialLayers).toHaveLength(1);
+        const remoteLayer = initialLayers[0];
+        expect(remoteLayer.id).toMatch(/^[0-9a-f-]{36}$/);
+        await expect.poll(async () => (await applyStoreOp(B, 'getLayersRepo', [collab.mapName]))
+            .some(layer => layer.id === remoteLayer.id)).toBe(true);
+        await applyStoreOp(A, 'setActiveLayer', [remoteLayer.id]);
+
         const lineId = await drawLineUI(A, [[-43.2, -22.9], [-43.15, -22.85], [-43.1, -22.8]]);
         expect(lineId).toBeTruthy();
         await collab.expectFullSync({ entityId: lineId, type: 'lines', operationType: 'create' });
         const layerId = (await readFeatures(A, 'lines')).find((f) => f.id === lineId)?.props?.layerId;
-        expect(layerId, 'a linha tem camada').toBeTruthy();
+        expect(layerId, 'a linha está na camada remota persistida').toBe(remoteLayer.id);
 
         // CONTROLE POSITIVO, ANTES da trava: destravado, o comando está vivo. Sem este passo,
         // toda asserção de recusa abaixo passaria para um comando simplesmente quebrado.
@@ -282,11 +292,20 @@ collabTest.describe('Conversão linear — ESTADO (camada travada)', () => {
         // reversível que a regra manda desenhar e recusar.
         expect(await applyStoreOp(A, 'setLayerLocked', [layerId, true]), 'a camada travou').toBeTruthy();
 
+        for (const client of [A, B]) {
+            await expect.poll(async () => (await applyStoreOp(client, 'getLayersRepo', [collab.mapName]))
+                .find(layer => layer.id === layerId)?.locked, { timeout: 15000 }).toBe(true);
+        }
+
         const linhasAntes = (await readFeatures(A, 'lines')).length;
         const setasAntesIds = (await readFeatures(A, 'arrows')).map((f) => f.id);
         const setasNoPar = (await readFeatures(B, 'arrows')).length;
 
         const { row } = await openConversionRow(A, lineId, 'Converter para Seta');
+
+        expect((await readFeatures(A, 'lines')).find(f => f.id === lineId)?.props?.layerId).toBe(layerId);
+        expect((await applyStoreOp(A, 'getLayers', [collab.mapName]))
+            .find(layer => layer.id === layerId)?.locked).toBe(true);
 
         // O comando CONTINUA desenhado...
         await expect(row).toBeVisible();
@@ -308,6 +327,10 @@ collabTest.describe('Conversão linear — ESTADO (camada travada)', () => {
 
         // CONTROLE: destravada de novo, o MESMO comando converte, e a seta atravessa até o par.
         expect(await applyStoreOp(A, 'setLayerLocked', [layerId, false]), 'a camada destravou').toBeTruthy();
+        for (const client of [A, B]) {
+            await expect.poll(async () => (await applyStoreOp(client, 'getLayersRepo', [collab.mapName]))
+                .find(layer => layer.id === layerId)?.locked, { timeout: 15000 }).toBe(false);
+        }
 
         const final = await openConversionRow(A, lineId, 'Converter para Seta');
         await expect(final.row).not.toHaveAttribute('aria-disabled', 'true');

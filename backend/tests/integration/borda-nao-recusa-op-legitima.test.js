@@ -335,10 +335,11 @@ describe('F14 — a borda aperta sem recusar op legítima, e o relevo continua c
     assert.equal(mapas[0].base_layer, 'carta-topografica');
     assert.equal(Number(mapas[0].zoom), 14);
 
-    const { rows: feicoes } = await db.query('SELECT properties FROM features WHERE id = $1', [idDaFeicao]);
+    const { rows: feicoes } = await db.query('SELECT properties, layer_id FROM features WHERE id = $1', [idDaFeicao]);
     assert.equal(feicoes.length, 1, 'a feição foi criada');
     assert.deepEqual(feicoes[0].properties, {
       nome: 'Ponto legítimo', descricao: 'texto livre', visivel: true,
+      layerId: feicoes[0].layer_id,
     }, 'as propriedades do domínio chegam inteiras: `features.properties` é VARRIDA, não fechada');
 
     const { rows: briefings } = await db.query('SELECT settings FROM briefings WHERE id = $1', [briefing.id]);

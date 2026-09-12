@@ -158,7 +158,11 @@ describe('atlas import cannot reference another atlas entities (repro)', () => {
 
     const { rows } = await db.query('SELECT layer_id FROM features WHERE id = $1', [featureId]);
     assert.equal(rows.length, 1, 'the feature IS imported (the defense is on layer_id, not on dropping the row)');
-    assert.equal(rows[0].layer_id, null, 'a foreign layer reference is dropped, not stored');
+    assert.notEqual(rows[0].layer_id, victimLayerId, 'a foreign layer reference is dropped, not stored');
+    const binding = (await db.query(`SELECT f.map_id AS feature_map, l.map_id AS layer_map
+      FROM features f JOIN layers l ON l.id=f.layer_id WHERE f.id=$1`, [featureId])).rows[0];
+    assert.ok(binding, 'the imported feature has a real default layer');
+    assert.equal(binding.feature_map, binding.layer_map, 'the replacement layer belongs to the imported map');
   });
 
   it('still binds a feature to a layer declared WITHIN the same payload', async () => {

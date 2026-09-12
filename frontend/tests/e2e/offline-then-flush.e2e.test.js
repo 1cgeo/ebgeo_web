@@ -1,4 +1,5 @@
 // Path: tests/e2e/offline-then-flush.e2e.test.js
+import { activateRemoteAtlas } from '../../src/js/store/remote-atlas.api.js';
 
 /**
  * @fileoverview E2E: offline-then-flush against the live backend.
@@ -89,6 +90,7 @@ describe.skipIf(E2E_SKIP)('e2e offline-then-flush', () => {
         await apiClient.pushOperations(atlasId, [
             createOperation('map', 'create', mapId, null, { name: 'Mapa Offline' }),
         ]);
+        await activateRemoteAtlas(atlasId);
     });
 
     afterAll(async () => {

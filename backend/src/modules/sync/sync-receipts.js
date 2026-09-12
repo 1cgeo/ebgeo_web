@@ -22,6 +22,8 @@ export function operationDigest(op) {
     baseOperationId: op.baseOperationId ?? null,
     protocolVersion: op.protocolVersion ?? null,
     patch: op.patch ?? null,
+    ...(op.featureIntent ? { featureIntent: op.featureIntent } : {}),
+    ...(op.sourceMapId ? { sourceMapId: op.sourceMapId } : {}),
   }))).digest('hex');
 }
 

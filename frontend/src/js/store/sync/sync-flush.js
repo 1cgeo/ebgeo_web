@@ -37,6 +37,8 @@ import { hasPendingLocalEdits } from './remote-operation-handler.js';
 import { getEventBus } from '../services.js';
 import { EventTypes } from '../../events/event_types.js';
 import { showWarning } from '@utils/toast_service.js';
+import { canStartAutoFlush, trackAutoFlush } from './auto-flush-pause.js';
+export { pauseAutoFlush } from './auto-flush-pause.js';
 
 /**
  * Events that trigger an opportunistic flush, on top of the 1.5 s interval.
@@ -184,14 +186,15 @@ async function hasWorkToFlush() {
  * @returns {Promise<void>}
  */
 async function flushOnce() {
-    if (state.inFlight || !state.engine || Date.now() < (state.retryAt ?? 0)) return;
+    if (!canStartAutoFlush() || state.inFlight || !state.engine || Date.now() < (state.retryAt ?? 0)) return;
     const engine = state.engine;
     const token = {};
+    const finish = trackAutoFlush();
     state.inFlight = token;
     const current = () => state.inFlight === token && state.engine === engine;
     try {
         const hasWork = await hasWorkToFlush();
-        if (!current()) return;
+        if (!current() || !canStartAutoFlush()) return;
         if (!hasWork) {
             if (hasPendingLocalEdits()) await engine.reconcileConvergenceGuard();
             return;
@@ -215,6 +218,7 @@ async function flushOnce() {
         if (next.message && classifyFlushFailure(error).kind === 'gone') stopAutoFlush();
     } finally {
         if (current()) state.inFlight = false;
+        finish();
     }
 }
 

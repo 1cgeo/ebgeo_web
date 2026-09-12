@@ -15,6 +15,7 @@ import {
     registerAndLogin,
     createAtlas,
     createMap,
+    confirmedDefaultLayerId,
     makeWs,
     newClientId,
     waitFor,
@@ -64,7 +65,7 @@ describe.skipIf(E2E_SKIP)('e2e: SyncLedger trace (transport-level)', () => {
         const op = createOperation('feature', 'create', featureId, mapId, {
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [-43.18, -22.91] },
-            properties: { source: 'point', layerId: generateUUID(), name: 'Trace PC' },
+            properties: { source: 'point', layerId: await confirmedDefaultLayerId(api, atlas.id, mapId), name: 'Trace PC' },
         });
         expect(op.clientId).not.toBe(clientIdB);
 

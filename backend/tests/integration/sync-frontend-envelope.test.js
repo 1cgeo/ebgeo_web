@@ -15,7 +15,7 @@ import { randomUUID } from 'crypto';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import {
-  createUser, createAtlas, createMap, createBriefing, loginUser, seedCatalogRefs,
+  createUser, createAtlas, createMap, createLayer, createBriefing, loginUser, seedCatalogRefs,
   dropCatalogRefs, seedPublic360Photos, drop360Fixture,
 } from '../helpers/fixtures.js';
 
@@ -143,7 +143,7 @@ describe('Sync envelope reconciliation (real frontend store shapes)', () => {
   describe('Features as raw GeoJSON (type in properties.source, layer in properties.layerId)', () => {
     it('create derives feature_type/layer_id from properties', async () => {
       const id = randomUUID();
-      const layerId = randomUUID();
+      const layerId = (await createLayer(db, map.id)).id;
       await pushSync([{
         id: randomUUID(),
         entityType: 'feature',

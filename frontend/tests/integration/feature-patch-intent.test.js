@@ -10,6 +10,28 @@ const feature = (name, extra = {}) => ({ type: 'Feature', geometry: { type: 'Poi
     properties: { id: '55555555-5555-4555-8555-555555555555', source: 'point', name, ...extra } });
 
 describe('Feature intent contract', () => {
+    it('an explicit undo keeps the deletion reference after its queue row was acknowledged', async () => {
+        const scope = remoteScope('99999999-9999-4999-8999-999999999999');
+        activateScope(scope);
+        await getStoreFor(StoreName.OPERATION_QUEUE, scope).clear();
+        enableOperationLogging();
+        const queue = new OperationQueue(scope);
+        const deleted = feature('Restorable', { confirmedVersion: 3 });
+        const descriptor = { entityType: 'feature', entityId: deleted.properties.id,
+            mapId: '77777777-7777-4777-8777-777777777777' };
+        await (await persistOperationIntents([{ ...descriptor, operationType: 'delete', previousData: deleted }], { scope }))();
+        const [deletion] = await queue.peek();
+        expect(deletion.operationType).toBe('delete');
+        await queue.dequeue([deletion.id]);
+        expect(await queue.count()).toBe(0);
+        await (await persistOperationIntents([{ ...descriptor, operationType: 'create', data: deleted,
+            previousData: deleted, featureIntent: 'restore' }], { scope }))();
+        const [restore] = await new OperationQueue(scope).peek();
+        expect(restore.featureIntent).toBe('restore');
+        expect(restore.baseOperationId).toBe(deletion.id);
+        expect(restore.id).not.toBe(deletion.id);
+    });
+
     it('sends changed units and ignores local timestamp/version bookkeeping', () => {
         const before = feature('Original', { confirmedVersion: 7, version: 9, updatedAt: 10, color: 'blue' });
         const after = feature('Novo', { confirmedVersion: 7, version: 10, updatedAt: 20 });

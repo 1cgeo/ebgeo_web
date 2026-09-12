@@ -13,6 +13,8 @@ import {
     UNMOUNTED_QUEUE_SCOPE
 } from '@store/atlas-namespace.js';
 import { appendJournal } from './queue-journal.js';
+import { captureRemoteWriteFence } from '../remote-write-fence.js';
+import { fenceStore } from '../fenced-store.js';
 
 function queueScope() {
     return getActiveScope() ?? UNMOUNTED_QUEUE_SCOPE;
@@ -51,6 +53,7 @@ function operationIdFromKey(key) {
 class OperationQueue {
     constructor(scope = null) {
         this._scope = scope;
+        this._assertWritable = scope ? captureRemoteWriteFence(scope) : null;
         this._purgeInterval = null;
     }
 
@@ -58,7 +61,10 @@ class OperationQueue {
 
     _context() {
         const scope = this._scope ?? queueScope();
-        return { store: getStoreFor(StoreName.OPERATION_QUEUE, scope), scopeSuffix: scope.dbSuffix };
+        const assertWritable = this._assertWritable ?? captureRemoteWriteFence(scope);
+        const raw = getStoreFor(StoreName.OPERATION_QUEUE, scope);
+        const store = scope.kind === 'remote' ? fenceStore(raw, assertWritable) : raw;
+        return { store, scopeSuffix: scope.dbSuffix, assertWritable };
     }
 
     _buildKey(operation) {
@@ -70,13 +76,13 @@ class OperationQueue {
     }
 
     async enqueue(operation) {
-        const { store } = this._context();
-        await appendJournal(store, [operation]);
+        const { store, assertWritable } = this._context();
+        await appendJournal(store, [operation], { assertWritable });
     }
 
     async enqueueAll(operations, options) {
-        const { store } = this._context();
-        await appendJournal(store, operations, options);
+        const { store, assertWritable } = this._context();
+        await appendJournal(store, operations, { ...options, assertWritable });
     }
 
     async markMaterialized(operations) {
@@ -88,6 +94,11 @@ class OperationQueue {
         const { store } = this._context();
         const key = await store.getItem('__journal_feature_head__' + entityId);
         return key ? store.getItem(key) : null;
+    }
+
+    async getLatestFeatureOperation(entityId) {
+        const { store } = this._context();
+        return store.getItem('__journal_feature_latest__' + entityId);
     }
 
     async recordIssue(operation, result) {

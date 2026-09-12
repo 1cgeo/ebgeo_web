@@ -90,6 +90,14 @@ export async function createMap(api, atlasId, { name = 'Mapa 1' } = {}) {
     return mapId;
 }
 
+/** Obtain the actual server layer; a random UUID alone does not name a layer. */
+export async function confirmedDefaultLayerId(api, atlasId, mapId) {
+    const { snapshot } = await api.pullSync(atlasId, 0);
+    const id = snapshot.maps.find(map => map.id === mapId)?.layers[0]?.id;
+    if (!id) throw new Error('The server did not persist the default layer.');
+    return id;
+}
+
 /**
  * Generates a fresh stable client id (presence / op idempotency).
  * @returns {string}
@@ -172,4 +180,21 @@ export async function waitFor(predicate, { timeout = 4000, interval = 20 } = {})
         }
         await new Promise((r) => setTimeout(r, interval));
     }
+}
+
+
+/** The exact confirmed entity a user edits; no guessed revision or implicit v1 fallback. */
+export async function confirmedFeature(api, atlasId, mapId, featureId) {
+    const { snapshot } = await api.pullSync(atlasId, 0);
+    const map = snapshot.maps.find(m => m.id === mapId);
+    const feature = Object.values(map?.features ?? {}).flat().find(f => f?.properties?.id === featureId);
+    if (!Number.isSafeInteger(feature?.properties?.confirmedVersion)) throw new Error('Missing confirmed feature revision');
+    return feature;
+}
+
+
+export async function editFeatureOperation(api, atlasId, mapId, featureId, data) {
+    const previous = await confirmedFeature(api, atlasId, mapId, featureId);
+    return createOperation('feature', data === null ? 'delete' : 'update', featureId, mapId,
+        data === null ? null : { ...previous, ...data }, previous);
 }

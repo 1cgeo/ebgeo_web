@@ -149,14 +149,14 @@ describe.skipIf(E2E_SKIP)('e2e: snapshot-fidelity', () => {
     it('round-trips the atlas + map metadata', () => {
         expect(snapshot.atlas.id).toBe(atlasId);
         expect(snapshot.atlas.name).toBe('Snapshot Atlas');
-        expect(snapshot.maps).toHaveLength(1);
+        expect(snapshot.maps).toHaveLength(2); // initial map plus the explicitly created map
         expect(snapMap).toBeTruthy();
         expect(snapMap.name).toBe('Mapa Operacional');
         expect(snapshot.currentVersion).toBeGreaterThan(0);
     });
 
     it('round-trips both layers with order/opacity/visibility preserved', () => {
-        expect(snapMap.layers).toHaveLength(2);
+        expect(snapMap.layers).toHaveLength(3); // server default plus the two custom layers
         const a = snapMap.layers.find((l) => l.id === layerAId);
         const b = snapMap.layers.find((l) => l.id === layerBId);
         expect(a).toBeTruthy();
@@ -225,12 +225,16 @@ describe.skipIf(E2E_SKIP)('e2e: snapshot-fidelity', () => {
     });
 
     it('does not leak entities into a freshly created sibling atlas (isolation)', async () => {
-        // Edge/negative: a brand-new atlas owned by the same user must snapshot
-        // empty — none of the above entities bleed across atlas boundaries.
+        // A new atlas has its own initial map/layer, without any sibling content.
         const other = await createAtlas(api, { name: 'Empty Sibling' });
         const pull = await api.pullSync(other.id, 0);
         expect(pull.isSnapshot).toBe(true);
-        expect(pull.snapshot.maps).toHaveLength(0);
+        expect(pull.snapshot.maps).toHaveLength(1);
+        const initial = pull.snapshot.maps[0];
+        expect(initial.id).not.toBe(mapId);
+        expect(initial.layers).toHaveLength(1);
+        expect([layerAId, layerBId]).not.toContain(initial.layers[0].id);
+        expect(Object.values(initial.features).flat()).toHaveLength(0);
         expect(pull.snapshot.briefings).toHaveLength(0);
     }, 15000);
 });

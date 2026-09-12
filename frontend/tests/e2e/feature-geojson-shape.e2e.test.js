@@ -14,6 +14,7 @@ import {
     registerAndLogin,
     createAtlas,
     createMap,
+    confirmedDefaultLayerId,
     newClientId,
     E2E_SKIP,
 } from './helpers/harness.js';
@@ -39,7 +40,7 @@ describe.skipIf(E2E_SKIP)('e2e: feature-geojson-shape', () => {
 
     it('derives feature_type from properties.source for a raw GeoJSON feature', async () => {
         const featureId = generateUUID();
-        const layerId = generateUUID();
+        const layerId = await confirmedDefaultLayerId(api, atlasId, mapId);
 
         // Raw GeoJSON Feature: NO top-level feature_type / layer_id. The type and
         // layer live ONLY inside properties (source / layerId).
@@ -103,7 +104,7 @@ describe.skipIf(E2E_SKIP)('e2e: feature-geojson-shape', () => {
         // reports it. This case is what makes "the server does not touch them" a
         // measurement instead of a reading of the schema.
         const featureId = generateUUID();
-        const layerId = generateUUID();
+        const layerId = await confirmedDefaultLayerId(api, atlasId, mapId);
 
         const boundary = {
             type: 'Feature',
@@ -179,7 +180,7 @@ describe.skipIf(E2E_SKIP)('e2e: feature-geojson-shape', () => {
         // NEGATIVE: nothing was invented either. `properties` is a free field, so a
         // key the client never wrote must not appear (the five the snapshot
         // deliberately overwrites from columns are excluded by name).
-        const overwrittenByColumns = ['id', 'source', 'createdAt', 'updatedAt', 'version'];
+        const overwrittenByColumns = ['id', 'source', 'createdAt', 'updatedAt', 'version', 'confirmedVersion'];
         const unexpected = Object.keys(stored.properties)
             .filter((key) => !(key in boundary.properties))
             .filter((key) => !overwrittenByColumns.includes(key));

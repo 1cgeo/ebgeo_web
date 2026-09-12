@@ -13,6 +13,7 @@ import logger from '../../utils/logger.js';
 import { getRoomUsers } from '../collab/collab.rooms.js';
 import * as Q from './atlas.queries.js';
 import { MAP_COLUMNS } from '../maps/maps.queries.js';
+import { ensureMapLayers } from '../maps/default-layer.js';
 // A PODA DE COPIA (clone e import). O predicado NAO e reimplementado aqui: quem decide e
 // `classifyResourceRefs`, que chama `fn_can_see_resource` uma vez para o atlas inteiro.
 import { ResourcePruner, refsFromCollectedRows, refsFromImportPayload } from './atlas-resource-prune.js';
@@ -278,12 +279,13 @@ function withCopySuffix(name) {
  * Creates a new atlas owned by the specified user.
  */
 export async function createAtlas(userId, data) {
-  const { rows } = await query(Q.INSERT_ATLAS, [
-    data.name,
-    data.description || null,
-    userId,
-  ]);
-  return rows[0];
+  return tx(async (t) => {
+    const atlas = await t.one(Q.INSERT_ATLAS, [data.name, data.description || null, userId]);
+    const map = await t.one('INSERT INTO maps (atlas_id, name) VALUES ($1, $2) RETURNING id',
+      [atlas.id, 'Mapa 1']);
+    await ensureMapLayers(t, atlas.id, [map.id]);
+    return t.one('UPDATE atlas SET map_order=$2::uuid[] WHERE id=$1 RETURNING *', [atlas.id, [map.id]]);
+  });
 }
 
 /**
@@ -980,6 +982,7 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
     await insertMany(t, CS.maps,
       mapPairs.map((p) => mapRow(p.newId, newAtlasId, p.source.name, p.source, pruner)));
     await cloneMapSubEntities(t, mapPairs, imageIdMap, pruner);
+    await ensureMapLayers(t, newAtlasId);
 
     await t.none(
       `UPDATE atlas SET map_order = $2::uuid[] WHERE id = $1`,
@@ -1072,6 +1075,7 @@ export async function duplicateMap(atlasId, mapId) {
       [{ sourceId: mapId, newId: newMapId }],
       imageIdMap
     );
+    await ensureMapLayers(t, atlasId, [newMapId]);
 
     // Append to atlas map_order
     await t.none(
@@ -1595,6 +1599,8 @@ export async function importAtlas(userId, data) {
         (map.catalog_layers || []).filter((c) => pruner.manterCatalogLayer(c)), []
       ))
     );
+
+    await ensureMapLayers(t, atlasId, mapIds.map(novoMapa));
 
     // 3. Update map_order
     if (mapIds.length > 0) {

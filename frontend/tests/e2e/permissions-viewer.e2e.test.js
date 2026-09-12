@@ -1,4 +1,11 @@
 // Path: tests/e2e/permissions-viewer.e2e.test.js
+import {
+    createMap,
+    makeApi,
+    registerAndLogin,
+    createAtlas,
+    E2E_SKIP,
+} from './helpers/harness.js';
 
 /**
  * @fileoverview E2E: read-only (viewer) sharing enforcement.
@@ -14,12 +21,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import {
-    makeApi,
-    registerAndLogin,
-    createAtlas,
-    E2E_SKIP,
-} from './helpers/harness.js';
+
 import { ApiError } from '../../src/js/store/sync/api-client.js';
 import { createOperation } from '../../src/js/store/sync/operation-factory.js';
 import { generateUUID } from '../../src/js/utilities/uuid.js';
@@ -31,6 +33,7 @@ describe.skipIf(E2E_SKIP)('e2e: permissions — viewer (read-only) share', () =>
     let viewerApi;
     /** @type {Object} */
     let atlas;
+    let mapId;
     /** @type {Object} */
     let viewerUser;
 
@@ -43,6 +46,8 @@ describe.skipIf(E2E_SKIP)('e2e: permissions — viewer (read-only) share', () =>
         viewerUser = viewer.user;
 
         atlas = await createAtlas(ownerApi, { name: 'Viewer Perms Atlas' });
+
+        mapId = await createMap(ownerApi, atlas.id);
 
         // Owner grants the second user READ access.
         const share = await ownerApi._request(
@@ -64,7 +69,7 @@ describe.skipIf(E2E_SKIP)('e2e: permissions — viewer (read-only) share', () =>
     });
 
     it('rejects a viewer pushing an operation with 403 (ApiError)', async () => {
-        const op = createOperation('feature', 'create', generateUUID(), null, {
+        const op = createOperation('feature', 'create', generateUUID(), mapId, {
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [0, 0] },
             properties: { source: 'point', layerId: 'default' },
@@ -82,7 +87,7 @@ describe.skipIf(E2E_SKIP)('e2e: permissions — viewer (read-only) share', () =>
     });
 
     it('still lets the owner push the same operation (positive control)', async () => {
-        const op = createOperation('feature', 'create', generateUUID(), null, {
+        const op = createOperation('feature', 'create', generateUUID(), mapId, {
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [1, 1] },
             properties: { source: 'point', layerId: 'default' },

@@ -100,6 +100,7 @@ vi.mock('../../src/js/store/repositories/local.repository.js', () => ({
 import {
     applyRemoteOperation,
     applyRemoteSnapshot,
+    applyMapCreationAck,
     setRemoteHandlerEventBus,
     markLocalEditPending,
     resolveLocalEdit,
@@ -164,6 +165,61 @@ beforeEach(() => {
 
 
 describe('AUDIT snapshot and convergence', () => {
+ it('map creation ACK adds its server layer without overwriting features edited while waiting', async () => {
+  const map = createTestMapData();
+  map.features.points.push({ properties: { id: 'pending-point', source: 'point' } });
+  mapDataStore.set('birth-map', map);
+  const layer = { id: 'birth-layer', name: 'Padrão', version: 1 };
+  await applyMapCreationAck({ entityId: 'birth-map', data: { layers: [layer] }, serverVersion: 701 });
+  expect(layerStore.get('birth-map')).toEqual([layer]);
+  expect(mapDataStore.get('birth-map').features.points[0].properties.id).toBe('pending-point');
+ });
+ it('an earlier map ACK cannot resurrect its subsequently deleted layer', async () => {
+  mapDataStore.set('deleted-birth-map', createTestMapData());
+  await applyRemoteOperation({ entityType: EntityType.LAYER, operationType: OperationType.DELETE,
+   entityId: 'deleted-birth-layer', mapId: 'deleted-birth-map', serverVersion: 712 });
+  await applyMapCreationAck({ entityId: 'deleted-birth-map', serverVersion: 711,
+   data: { layers: [{ id: 'deleted-birth-layer', name: 'Padrão' }] } });
+  expect(layerStore.get('deleted-birth-map')).toEqual([]);
+ });
+ it('a full layer edit arriving before the birth ACK retains the newer configuration', async () => {
+  mapDataStore.set('edited-birth-map', createTestMapData());
+  const edited = { id: 'edited-birth-layer', name: 'Nome novo', locked: true, version: 2 };
+  await applyRemoteOperation({ entityType: EntityType.LAYER, operationType: OperationType.UPDATE,
+   entityId: edited.id, mapId: 'edited-birth-map', serverVersion: 722, data: edited });
+  await applyMapCreationAck({ entityId: 'edited-birth-map', serverVersion: 721,
+   data: { layers: [{ id: edited.id, name: 'Padrão', locked: false, version: 1 }] } });
+  expect(layerStore.get('edited-birth-map')).toEqual([edited]);
+ });
+ it('a delayed last-layer deletion does not resurrect its replacement after a later deletion', async () => {
+  mapDataStore.set('replacement-map', createTestMapData());
+  await applyRemoteOperation({ entityType: EntityType.LAYER, operationType: OperationType.DELETE,
+   entityId: 'replacement-gone', mapId: 'replacement-map', serverVersion: 732 });
+  await applyRemoteOperation({ entityType: EntityType.LAYER, operationType: OperationType.DELETE,
+   entityId: 'original-gone', mapId: 'replacement-map', serverVersion: 731,
+   data: { replacementLayers: [{ id: 'replacement-gone', name: 'Padrão' }] } });
+  expect(layerStore.get('replacement-map')).toEqual([]);
+ });
+ it('moves a canonical feature across maps and ignores an older move replay', async () => {
+  for (const id of ['origin', 'destination', 'third']) mapDataStore.set(id, { ...createTestMapData(), id });
+  const entityId = 'moved-feature';
+  const data = { type: 'Feature', geometry: { type: 'Point', coordinates: [1, 2] },
+   properties: { id: entityId, source: 'point' } };
+  const create = { id: 'move-create', entityType: EntityType.FEATURE, operationType: OperationType.CREATE,
+   entityId, mapId: 'origin', serverVersion: 401, data };
+  await applyRemoteOperation(create);
+  const move = { ...create, id: 'move-first', mapId: 'destination', serverVersion: 402,
+   data: { ...data, previousMapId: 'origin' } };
+  await applyRemoteOperation(move);
+  expect(mapDataStore.get('origin').features.points).toHaveLength(0);
+  expect(mapDataStore.get('destination').features.points).toHaveLength(1);
+  await applyRemoteOperation({ ...move, id: 'move-second', mapId: 'third', serverVersion: 403,
+   data: { ...data, previousMapId: 'destination' } });
+  await applyRemoteOperation(move);
+  expect(mapDataStore.get('origin').features.points).toHaveLength(0);
+  expect(mapDataStore.get('destination').features.points).toHaveLength(0);
+  expect(mapDataStore.get('third').features.points).toHaveLength(1);
+ });
  it('waits for a deferred remote edit to be applied without blocking its local ACK', async () => {
   mapDataStore.set('map-1', createTestMapData());
   const id = 'deferred-cursor';

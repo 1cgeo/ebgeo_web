@@ -1,4 +1,12 @@
 // Path: tests/e2e/attribute-custom.e2e.test.js
+import {
+    editFeatureOperation,
+    E2E_SKIP,
+    makeApi,
+    registerAndLogin,
+    createAtlas,
+    createMap,
+} from './helpers/harness.js';
 
 /**
  * @fileoverview Real-backend E2E for feature custom attributes (§17.11-13 / §18.4).
@@ -16,13 +24,7 @@
  */
 
 import { describe, it, beforeAll, expect } from 'vitest';
-import {
-    E2E_SKIP,
-    makeApi,
-    registerAndLogin,
-    createAtlas,
-    createMap,
-} from './helpers/harness.js';
+
 import { createOperation } from '../../src/js/store/sync/operation-factory.js';
 import { generateUUID } from '../../src/js/utilities/uuid.js';
 
@@ -110,7 +112,7 @@ describe.skipIf(E2E_SKIP)('feature custom attributes (LWW whole-properties)', ()
         // emits whole-properties on a feature edit). It changes `situacao`, adds
         // `prioridade`, and deliberately omits `legado` to prove the whole-object
         // replacement (LWW) rather than a deep merge.
-        const updateOp = createOperation('feature', 'update', featureId, mapId, {
+        const updateOp = await editFeatureOperation(api, atlasId, mapId, featureId, {
             properties: {
                 source: 'point',
                 layerId: null,

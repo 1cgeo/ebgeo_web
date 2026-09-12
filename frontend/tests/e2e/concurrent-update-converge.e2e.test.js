@@ -1,28 +1,26 @@
 // Path: tests/e2e/concurrent-update-converge.e2e.test.js
-
-/**
- * @fileoverview E2E repro + regression for the concurrent-edit DIVERGENCE bug the SyncLedger
- * surfaced. Two clients edit the SAME feature "at once"; the documented model is LWW by server
- * ARRIVAL ORDER (serverVersion). The root cause was that the WS broadcast op carried NO
- * serverVersion, so a peer could not order concurrent edits and the clients diverged.
- *
- * The decisive wire-contract assertion (fails before the fix, passes after): each broadcast
- * feature-update op carries a serverVersion, and the LATER-arriving op carries the LARGER one —
- * the ordering a peer's LWW guard needs to converge.
- */
-
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
+    confirmedFeature,
     makeApi,
     registerAndLogin,
     createAtlas,
     createMap,
+    confirmedDefaultLayerId,
     makeWs,
     newClientId,
     waitFor,
     getServerTrace,
     E2E_SKIP,
 } from './helpers/harness.js';
+
+/**
+ * Concurrent edits of the same field conflict. A deliberate reapplication uses
+ * a fresh operation id and the latest confirmed base. Only accepted edits are
+ * broadcast, with increasing serverVersion for ordered client projection.
+ */
+
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+
 import { createOperation } from '../../src/js/store/sync/operation-factory.js';
 import { generateUUID } from '../../src/js/utilities/uuid.js';
 
@@ -58,16 +56,16 @@ describe.skipIf(E2E_SKIP)('e2e: concurrent-update convergence (serverVersion on 
         }
     });
 
-    it('stamps a monotonic serverVersion on each broadcast op (the LWW ordering peers need)', async () => {
+    it('refuses the stale same-field edit and broadcasts the explicit reapplication in order', async () => {
         const fId = generateUUID();
-        const layerId = generateUUID();
+        const layerId = await confirmedDefaultLayerId(api, atlas.id, mapId);
         const point = (color) => ({
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [-43.18, -22.91] },
             properties: { id: fId, source: 'point', layerId, color },
         });
-        const updateOp = (color, clientId) => ({
-            ...createOperation('feature', 'update', fId, mapId, point(color)),
+        const updateOp = (color, clientId, previous) => ({
+            ...createOperation('feature', 'update', fId, mapId, point(color), previous),
             clientId,
         });
 
@@ -77,14 +75,24 @@ describe.skipIf(E2E_SKIP)('e2e: concurrent-update convergence (serverVersion on 
             clientId: clientIdA,
         }]);
 
-        // Two concurrent updates, pushed in a deterministic order (A then B → B wins by arrival).
-        const opA = updateOp('#ff0000', clientIdA);
-        const opB = updateOp('#0000ff', clientIdB);
-        await api.pushOperations(atlas.id, [opA]);
-        await api.pushOperations(atlas.id, [opB]);
+        const base = await confirmedFeature(api, atlas.id, mapId, fId);
+        const opA = updateOp('#ff0000', clientIdA, base);
+        const staleB = updateOp('#0000ff', clientIdB, base);
+        const accepted = await api.pushOperations(atlas.id, [opA]);
+        expect(accepted.results[0].success).toBe(true);
+        const refused = await api.pushOperations(atlas.id, [staleB]);
+        expect(refused.results[0].success).toBe(false);
+        expect(refused.results[0].conflict.fields).toContainEqual(['properties', 'color']);
+        expect((await confirmedFeature(api, atlas.id, mapId, fId)).properties.color).toBe('#ff0000');
+        // Deliberate re-application is a new intention against the current confirmed base.
+        const opB = updateOp('#0000ff', clientIdB, await confirmedFeature(api, atlas.id, mapId, fId));
+        expect(opB.id).not.toBe(staleB.id);
+        const reapplied = await api.pushOperations(atlas.id, [opB]);
+        expect(reapplied.results[0].success).toBe(true);
 
         // Observer C receives both broadcasts.
         await waitFor(() => received.some((r) => r.id === opB.id), { timeout: 6000 });
+        expect(received.some(r => r.id === staleB.id)).toBe(false);
         const gotA = received.find((r) => r.id === opA.id);
         const gotB = received.find((r) => r.id === opB.id);
         expect(gotA, 'A update broadcast reached the peer').toBeTruthy();

@@ -474,7 +474,8 @@ export async function transferLayerToMap(layerId, targetMapName, options = {}) {
 
     if (total > 0) {
         try {
-            await addFeatures(featuresByType, targetMapName);
+            await addFeatures(featuresByType, targetMapName, mode === TransferMode.MOVE
+                ? { featureIntent: 'move', sourceMapId: mapManager.getMapId(sourceMapName) } : {});
         } catch (error) {
             await rollbackTargetLayer(targetMapName, targetLayers, newLayer, duplicatedImageIds);
             throw error;

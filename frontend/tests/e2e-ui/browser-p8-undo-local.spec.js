@@ -29,7 +29,7 @@ const undoToastText = (page) =>
     page.locator('.toast .toast__content span').last().innerText();
 
 collabTest.describe('P8 undo is local per user (two clients, real Chromium)', () => {
-    collabTest("B's Ctrl+Z does not undo A's remote feature; A's Ctrl+Z undoes its own", async ({ collab }) => {
+    collabTest("B's Ctrl+Z is local; A can undo and redo its own feature after ACK", async ({ collab }, testInfo) => {
         const A = collab.author;
         const B = collab.peers[0];
 
@@ -61,5 +61,20 @@ collabTest.describe('P8 undo is local per user (two clients, real Chromium)', ()
         await expect.poll(() => undoToastText(A), { timeout: 5000 }).not.toBe('Nada para desfazer');
         await expect.poll(async () => hasFeature(A, featureId), { timeout: 10000 }).toBe(false);
         await collab.expectFullSyncDelete({ entityId: featureId, type: 'points', operationType: 'delete' });
+
+        // The deleted queue row has already been ACKed and removed. Redo must still
+        // reference its durable receipt, preserving the original feature id.
+        for (let cycle = 0; cycle < 2; cycle++) {
+            await collab.clearTraces();
+            await A.keyboard.press('Control+y');
+            await collab.expectFullSync({ entityId: featureId, type: 'points', operationType: 'create' });
+            if (cycle === 0) {
+                await collab.clearTraces();
+                await A.keyboard.press('Control+z');
+                await collab.expectFullSyncDelete({ entityId: featureId, type: 'points', operationType: 'delete' });
+            }
+        }
+        await B.evaluate(() => globalThis.__ebgeoMap.jumpTo({ center: [-43.2, -22.9], zoom: 14 }));
+        await B.screenshot({ path: testInfo.outputPath('peer-after-redo.png') });
     });
 });

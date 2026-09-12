@@ -1,10 +1,28 @@
 // Path: tests/integration/queue-journal-atomic.test.js
 import 'fake-indexeddb/auto';
 import localforage from 'localforage';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { appendJournal } from '../../src/js/store/sync/queue-journal.js';
 
 describe('Queue journal IndexedDB transaction', () => {
+    it('takes ownership of the envelope before awaiting storage readiness', async () => {
+        const store = localforage.createInstance({ name: 'journal-owned-envelope', driver: localforage.INDEXEDDB });
+        await store.clear();
+        let release;
+        const barrier = new Promise(resolve => { release = resolve; });
+        const ready = store.ready.bind(store);
+        const spy = vi.spyOn(store, 'ready').mockImplementationOnce(async () => { await barrier; return ready(); });
+        const operation = { id: 'owned', data: { value: 'before' } };
+        const pending = appendJournal(store, [operation]);
+        operation.data.value = 'after';
+        release();
+        try {
+            await pending;
+            const key = (await store.keys()).find(key => key.startsWith('op_'));
+            expect(await store.getItem(key)).toEqual({ id: 'owned', data: { value: 'before' } });
+        } finally { spy.mockRestore(); }
+    });
+
     it('allocates a stable sequence across handles and ignores wall-clock rollback', async () => {
         const store = localforage.createInstance({ name: 'journal-sequence', driver: localforage.INDEXEDDB });
         await store.clear();

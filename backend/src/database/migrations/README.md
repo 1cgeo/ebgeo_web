@@ -15,6 +15,7 @@ Consolidação autorizada em 12/09/2026, antes da primeira implantação deste b
 | [009_a3d.sql](009_a3d.sql) | Acervo 3D convertido e registro de importações. |
 | [010_observabilidade.sql](010_observabilidade.sql) | Defeitos, ciclo de vida e evidências individuais limitadas. |
 | [011_uso_e_presenca.sql](011_uso_e_presenca.sql) | Uso agregado, sessões, presença e deduplicação da coleta. |
+| [012_camadas_remotas.sql](012_camadas_remotas.sql) | Regularização de dados anteriores à camada padrão persistida: conserva feições e configurações e exige snapshot para cursores antigos. |
 
 Colunas, índices e CHECK nascem completos. Não há cadeia de criação seguida de renomeação, remoção de índice ou substituição de CHECK. O nome inicial de identidade foi alterado deliberadamente para distinguir esta base dos históricos anteriores, inclusive os que tinham aplicado apenas parte da sequência antiga.
 

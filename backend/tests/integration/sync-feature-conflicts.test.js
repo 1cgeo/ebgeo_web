@@ -85,4 +85,59 @@ describe('Feature field conflicts with durable server revisions', () => {
     await db.query('UPDATE features SET version=version+1 WHERE id=$1', [id]);
     assert.equal((await push(change(id, version, ['properties', 'color'], 'red'))).results[0].status, 'conflict');
   });
+
+  it('moves explicitly against an exact base and broadcasts the old projection to remove', async () => {
+    const { id, op, version } = await create();
+    const target = await createMap(db, atlas.id);
+    const move = { ...op, id: randomUUID(), mapId: target.id, featureIntent: 'move', sourceMapId: map.id, baseVersion: version };
+    const moved = await push(move);
+    assert.equal(moved.results[0].status, 'applied');
+    assert.equal((await row(id)).map_id, target.id);
+    assert.equal(moved.results[0].canonicalOperation.data.previousMapId, map.id);
+    assert.equal(moved.events[0].mapId, target.id);
+    const replay = await push(move);
+    assert.equal(replay.results[0].idempotent, true);
+    assert.equal(replay.events.length, 0);
+    // Removing the command flag under the same id cannot bypass receipt immutability.
+    const changed = { ...move };
+    delete changed.featureIntent;
+    assert.equal((await push(changed)).results[0].rejected, true);
+    assert.equal((await row(id)).map_id, target.id);
+  });
+
+  it('refuses a stale move and a move from a locked source without modifying either map', async () => {
+    const { id, op, version } = await create();
+    const target = await createMap(db, atlas.id);
+    const edited = await push(change(id, version, ['properties', 'name'], 'Newer work'));
+    const move = { ...op, id: randomUUID(), mapId: target.id, featureIntent: 'move', sourceMapId: map.id, baseVersion: version };
+    assert.equal((await push(move)).results[0].status, 'conflict');
+    assert.equal((await row(id)).properties.name, 'Newer work');
+    await db.query('UPDATE maps SET locked=true WHERE id=$1', [map.id]);
+    try {
+      const locked = await push({ ...move, id: randomUUID(), baseVersion: edited.results[0].entityVersion });
+      assert.equal(locked.results[0].rejected, true);
+      assert.equal((await row(id)).map_id, map.id);
+    } finally { await db.query('UPDATE maps SET locked=false WHERE id=$1', [map.id]); }
+  });
+
+  it('restores explicitly from a durable deletion receipt, but not from a stale tombstone', async () => {
+    const { id, op, version } = await create();
+    const deletion = operation(id, 'delete', { baseVersion: version });
+    const deleted = await push(deletion);
+    await cleanupOldOperations(atlas.id, { keepFromVersion: deleted.serverVersion + 1 });
+    const restore = { ...op, id: randomUUID(), featureIntent: 'restore', baseOperationId: deletion.id };
+    const restored = await push(restore);
+    assert.equal(restored.results[0].status, 'applied');
+    assert.equal((await row(id)).deleted_at, null);
+    const deletedAgain = await push(operation(id, 'delete', { baseVersion: restored.results[0].entityVersion }));
+    assert.equal(deletedAgain.results[0].status, 'applied');
+    const stale = await push({ ...restore, id: randomUUID() });
+    assert.equal(stale.results[0].status, 'conflict');
+    assert.ok((await row(id)).deleted_at);
+    // An acknowledged restore retried later does not resurrect a newer deletion either.
+    const retry = await push(restore);
+    assert.equal(retry.results[0].idempotent, true);
+    assert.equal(retry.events.length, 0);
+    assert.ok((await row(id)).deleted_at);
+  });
 });

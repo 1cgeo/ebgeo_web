@@ -47,6 +47,8 @@ Enviar os campos efetivamente alterados e a versão-base. O servidor acompanhar�
 
 Essa é uma mudança deliberada em relação à última chegada que vence hoje. Deve ser registrada na documentação de decisões e implementada nos dois lados do protocolo. Pendência sem versão-base confiável não recebe uma versão atual inventada: entra em conciliação explícita.
 
+Achado adicional em 12/09/2026: operações sobre a camada sintética de identificador default eram recusadas pelo servidor por formato inválido. A correção cria a camada no servidor junto com o mapa e substitui a última camada excluída na mesma transação. Importação e cópia garantem a existência de camada; a regularização dos mapas antigos conserva feições e configurações existentes. Os testes de trava voltam a usar a camada inicial, sem criar outra para contornar o defeito. A evidência está no [registro de execução](execucao-correcao-atlas-remoto.md).
+
 ## Entrega 1: conter descartes e transformar as reproduções em regressões
 
 Dependência: nenhuma. Achados: R1 e R2; preparação dos demais.

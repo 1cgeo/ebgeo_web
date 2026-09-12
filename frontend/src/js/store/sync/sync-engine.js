@@ -34,6 +34,7 @@ import { sessionContext, sessionUserInfoFromMe } from './session-context.js';
 import {
     applyRemoteOperation,
     applyRemoteSnapshot,
+    applyMapCreationAck,
     setRemoteHandlerEventBus,
     recordLocalAppliedVersion,
     reconcilePendingLocalEdits,
@@ -202,6 +203,10 @@ async function recordPushAcks(resp, ops) {
         // it must be able to put its value back, and only the op carries that value.
         if (r.rejected !== true && r.success !== false && sv != null && op.entityId && CONVERGENCE_GUARDED.has(op.entityType)) {
             await recordLocalAppliedVersion(op.entityId, sv, r.canonicalOperation ?? op);
+        }
+        if (r.rejected !== true && r.success !== false && op.entityType === 'map'
+            && op.operationType === 'create' && r.canonicalOperation) {
+            await applyMapCreationAck(r.canonicalOperation);
         }
     }
 
