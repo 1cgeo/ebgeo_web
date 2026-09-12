@@ -2975,7 +2975,21 @@ async function principal() {
         if (s < 400) return;
         let caminho = r.url();
         try { const u = new URL(caminho); caminho = u.pathname + (u.search || ''); } catch (_e) { /* URL exotica: fica como veio */ }
-        respostasFalhas.push({ status: s, metodo: r.request().method(), caminho: caminho.slice(0, 200) });
+        // QUEM respondeu. O 404 intermitente do TileJSON do Martin nao reproduz nem
+        // isolado (300 pedidos, 300 respostas 200) nem sob carga de modulos do Vite, e
+        // sem saber se ele veio do nginx do servidor ou do proxy local a investigacao
+        // recomeca do zero a cada vez. Tres cabecalhos bastam para separar: `server` diz
+        // quem respondeu, `x-cache-status` diz se o cache do nginx participou, e
+        // `content-type` denuncia o index.html servido por fallback com status 200.
+        const cab = r.headers();
+        respostasFalhas.push({
+            status: s,
+            metodo: r.request().method(),
+            caminho: caminho.slice(0, 200),
+            servidor: cab.server || null,
+            cache: cab['x-cache-status'] || null,
+            tipo: cab['content-type'] || null,
+        });
     });
     // O AVISO tem lar proprio, com relogio: o MapLibre avisa contra partilhar a
     // fonte entre terreno e hillshade dentro do `setTerrain`, e ele e um
