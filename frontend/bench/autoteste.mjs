@@ -511,6 +511,17 @@ function eixo13() {
     checa('objeto sem _handleZoomChange reprova', validarGerenteDeSelecao({ ...bom, temHandler: false }).length > 0);
     checa('objeto sem getCacheKey reprova', validarGerenteDeSelecao({ ...bom, temChave: false }).length > 0);
     checa('gerente que nao leva ao selectionManager reprova', validarGerenteDeSelecao({ ...bom, temSelectionManager: false }).length > 0);
+    // A CHAVE QUE EXISTE E NAO ATENDE. O caso real de 2026-09-11: o app passou a
+    // receber `getCacheKey(feature, control)` e a sonda daqui continuou mandando uma
+    // string, entao `feature.properties` era undefined e TODA variante morria de
+    // TypeError. A regua antiga passava, porque so perguntava se a funcao existia --
+    // eixo nao exercitado, aprovado por omissao.
+    const naoAtende = validarGerenteDeSelecao({ ...bom, chaveAceitaFeicao: false });
+    checa('getCacheKey que nao atende a feicao do app reprova', naoAtende.length > 0);
+    checa('a reprova nomeia a assinatura que a sonda espera', /properties/.test(naoAtende.join(' ')), naoAtende.join(' '));
+    checa('getCacheKey que atende passa', validarGerenteDeSelecao({ ...bom, chaveAceitaFeicao: true }).length === 0);
+    // Prova ANTIGA, sem o campo: nao se inventa reprova para quem nunca mediu o eixo.
+    checa('prova sem o campo novo nao inventa reprova', validarGerenteDeSelecao(bom).length === 0);
 }
 eixo13();
 
@@ -524,6 +535,14 @@ function eixo14() {
     };
     checa('remendo do passe por quadro passa', validarRemendo('selecao-quadro', bomQuadro).length === 0, validarRemendo('selecao-quadro', bomQuadro).join('; '));
     checa('remendo nao aplicado reprova', validarRemendo('selecao-quadro', { aplicado: false, motivo: 'gerente ausente' }).length > 0);
+    // A SONDA DA CHAVE QUE ESTOUROU: a bancada tem de DIZER, e o texto do erro do
+    // app tem de chegar inteiro ao veredito, senao a reprova nao ensina nada.
+    const sondaQuebrada = validarRemendo('selecao-quadro', {
+        ...bomQuadro,
+        chave: { amostras: 10, passo: 0.01, distintas: 0, erro: "Cannot read properties of undefined (reading 'id')" },
+    });
+    checa('sonda da chave que estourou reprova', sondaQuebrada.length > 0);
+    checa('a reprova carrega o erro do app', /reading 'id'/.test(sondaQuebrada.join(' ')), sondaQuebrada.join(' '));
     checa('remendo ausente reprova', validarRemendo('selecao-quadro', null).length > 0);
     // O pior caso do embrulho: a atribuicao caiu noutro objeto, nada lancou, e o
     // contador ficou em zero. Sem isto a tabela sai com o nome da variante e o

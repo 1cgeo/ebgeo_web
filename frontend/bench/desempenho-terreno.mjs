@@ -693,6 +693,7 @@ function validarGerenteDeSelecao(prova) {
     if (!prova.temPasse) erros.push('o gerente achado nao expoe updateSelectionHighlight: nao e o gerente da caixa de selecao');
     if (!prova.temHandler) erros.push('o gerente achado nao expoe _handleZoomChange: nao ha ouvinte de zoom a remendar');
     if (!prova.temChave) erros.push('o gerente achado nao expoe getCacheKey: a variante da chave exata nao teria o que trocar');
+    if (prova.temChave && prova.chaveAceitaFeicao === false) erros.push('getCacheKey existe mas nao atende a feicao do app (`{properties:{id}}`): a sonda da chave fala outra assinatura, e a variante exata trocaria a chave por uma que o app nao sabe chamar');
     if (!prova.temSelectionManager) erros.push('o gerente achado nao leva ao selectionManager: nao ha como selecionar pelo caminho do app');
     return erros;
 }
@@ -722,6 +723,9 @@ function validarRemendo(passe, prova) {
     // A chave de cache: as duas direcoes de erro, porque as duas mentem.
     const amostras = prova.chave ? prova.chave.amostras : 0;
     const distintas = prova.chave ? prova.chave.distintas : 0;
+    if (prova.chave && prova.chave.erro) {
+        erros.push(`a sonda da chave de cache nao casa com a assinatura do app: ${prova.chave.erro}`);
+    }
     if (!amostras) {
         erros.push('a chave de cache nao foi experimentada: a variante exata nao teria como se provar');
     } else if (passe === 'selecao-exata') {
@@ -1392,6 +1396,19 @@ function acharGerenteDeSelecao() {
             temPasse: typeof g.updateSelectionHighlight === 'function',
             temHandler: typeof g._handleZoomChange === 'function',
             temChave: typeof g.getCacheKey === 'function',
+            // A CHAVE ATENDE A FEICAO, e nao so existe. O app chama
+            // `getCacheKey(feature, control)` e le `feature.properties.id`; a sonda
+            // desta bancada chamava com uma string, da assinatura antiga, e a diferenca
+            // nao aparecia aqui porque este campo so perguntava se a funcao existia.
+            // O eixo nao exercitado saia aprovado por omissao, e o preco foi a bancada
+            // inteira morrer de TypeError em TODA variante (2026-09-11).
+            chaveAceitaFeicao: (() => {
+                if (typeof g.getCacheKey !== 'function') return false;
+                try {
+                    const k = g.getCacheKey({ properties: { id: 'sonda-da-bancada' } });
+                    return typeof k === 'string' && k.includes('sonda-da-bancada');
+                } catch (_e) { return false; }
+            })(),
             temSelectionManager: !!window.__selecaoManager,
             tentativas,
         };
@@ -1449,7 +1466,14 @@ function remendarPassePagina({ nome, amostras, passo }) {
     }
     if (nome === 'selecao-exata') {
         // O zoom INTEIRO na chave, sem a quantizacao de 0,5 nivel.
-        g.getCacheKey = function (featureId) { return `${featureId}-${map.getZoom()}`; };
+        // A ASSINATURA E A DO APP: `(feature, control)`, com o id dentro das
+        // propriedades. Escrever `(featureId)` aqui devolvia `[object Object]-<zoom>`
+        // para toda feicao, ou seja, UMA chave para todas -- o oposto exato do que a
+        // variante existe para medir.
+        g.getCacheKey = function (feature) {
+            const id = feature && feature.properties ? feature.properties.id : feature;
+            return `${id}-${map.getZoom()}`;
+        };
     }
     g.__remendadoPelaBancada = nome;
 
@@ -1466,9 +1490,20 @@ function remendarPassePagina({ nome, amostras, passo }) {
     // chave distinta nao repete o 0,5 que mora no app.
     const zoomOriginal = map.getZoom();
     const vistas = new Set();
+    // A FEICAO, e nao o id cru: e assim que o app chama, e uma sonda que fala outra
+    // assinatura estoura dentro da variante e leva a rodada inteira junto.
+    const feicaoSonda = { properties: { id: 'sonda-da-bancada' } };
+    let erroDaChave = null;
     for (let i = 0; i < amostras; i++) {
         map.setZoom(zoomOriginal + i * passo);
-        vistas.add(g.getCacheKey('sonda-da-bancada'));
+        try {
+            vistas.add(g.getCacheKey(feicaoSonda));
+        } catch (e) {
+            // Reprova, nunca excecao: assinatura que nao casa e um veredito sobre o
+            // instrumento, e a bancada existe para DIZER isso em vez de morrer.
+            erroDaChave = String((e && e.message) || e);
+            break;
+        }
     }
     map.setZoom(zoomOriginal);
 
@@ -1493,7 +1528,7 @@ function remendarPassePagina({ nome, amostras, passo }) {
         passe: nome,
         passadasNaProva,
         handlerNaProva,
-        chave: { amostras, passo, distintas: vistas.size },
+        chave: { amostras, passo, distintas: vistas.size, erro: erroDaChave },
         ouvintes,
     };
 }
@@ -2929,8 +2964,19 @@ async function principal() {
     // bancada importaria a copia errada de cada um.
     await page.addInitScript(() => { try { performance.setResourceTimingBufferSize(20000); } catch (_e) { /* navegador sem a API: a descoberta cai no caminho nu */ } });
     const erros = [];
+    const respostasFalhas = [];
     page.on('pageerror', (e) => erros.push(String(e).slice(0, 200)));
     page.on('console', (m) => { if (m.type() === 'error') erros.push(`console: ${m.text().slice(0, 200)}`); });
+    // A RESPOSTA HTTP FALHA, com o caminho. O `console: 404 (Not Found)` do Chromium NAO
+    // diz de que recurso, e quarenta linhas iguais nao apontam para lugar nenhum. Aqui o
+    // caminho e relativo a origem, para nao gravar endereco de maquina em artefato.
+    page.on('response', (r) => {
+        const s = r.status();
+        if (s < 400) return;
+        let caminho = r.url();
+        try { const u = new URL(caminho); caminho = u.pathname + (u.search || ''); } catch (_e) { /* URL exotica: fica como veio */ }
+        respostasFalhas.push({ status: s, metodo: r.request().method(), caminho: caminho.slice(0, 200) });
+    });
     // O AVISO tem lar proprio, com relogio: o MapLibre avisa contra partilhar a
     // fonte entre terreno e hillshade dentro do `setTerrain`, e ele e um
     // `warnOnce` por carga de pagina. Juntar aviso com erro perderia justamente
@@ -2977,6 +3023,7 @@ async function principal() {
         },
         rodadas: [],
         errosDaPagina: erros,
+        respostasFalhas,
     };
 
     if (params.populado) {
@@ -3284,6 +3331,19 @@ async function principal() {
     console.log('regra de decisao do zoomend (escrita antes de rodar), linha a linha:');
     for (const d of decisao) console.log(`  ${d.item}: amplitude com 0 = ${d.base ?? '-'}, medido ${d.medido ?? '-'} (amostras ${d.amostrasBase ?? '-'}/${d.amostrasN ?? '-'}) -> ${d.situacao}`);
     if (erros.length) console.log(`\nerros da pagina (${erros.length}): ${[...new Set(erros)].slice(0, 5).join(' | ')}`);
+    // AGRUPADO POR CAMINHO: a mesma URL falhando quarenta vezes e UM defeito, nao
+    // quarenta, e o que interessa e qual recurso e quantas vezes.
+    if (respostasFalhas.length) {
+        const porCaminho = new Map();
+        for (const f of respostasFalhas) {
+            const chave = `${f.status} ${f.caminho}`;
+            porCaminho.set(chave, (porCaminho.get(chave) || 0) + 1);
+        }
+        const linhas = [...porCaminho.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+        console.log(`\nrespostas HTTP falhas (${respostasFalhas.length} em ${porCaminho.size} caminho(s)):`);
+        for (const [chave, n] of linhas) console.log(`  ${String(n).padStart(4)}x  ${chave}`);
+        if (porCaminho.size > linhas.length) console.log(`  ... e mais ${porCaminho.size - linhas.length} caminho(s)`);
+    }
     console.log(`\nsaida: ${params.saida}`);
 }
 

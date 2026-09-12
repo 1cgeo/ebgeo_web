@@ -28,6 +28,7 @@ import {
     montarTabela, escreverMarkdown, percentil, mediana, errosDeControle,
     avaliarIdentidade, avaliarProntidao, validarLeituraDeTiles,
     avaliarFeedback, instrumentar, pontosDaSemeadura, criarFeicoesPagina, VISTA,
+    validarBaseDaFerramenta,
 } from './ferramentas.mjs';
 
 let falhas = 0;
@@ -929,6 +930,44 @@ function eixo14() {
     checa('a criacao ainda guarda as chamadas ao lado, para a diferenca aparecer', /chamadas, noStoreAntes, noStoreDepois/.test(fonte));
 }
 eixo14();
+
+function eixo15() {
+    console.log('\n== eixo 15: a TROCA DE MAPA BASE aconteceu? (--base)');
+    // A bancada mede a ferramenta SOBRE uma base. Quando se pede outra, os dois
+    // modos de mentir sao: a troca que nao aconteceu (tabela com o nome da base nova
+    // e o numero da velha) e a base que chegou sem um tile (estilo certo, mapa em
+    // branco: a ferramenta mede sobre nada e devolve numero bonito).
+    const troca = { aplicado: 'overture', anterior: 'carta-topografica', ms: 900,
+        esperado: { id: 'overture', estilo: 'osm_overture_v1.3', fontes: ['base', 'transportation'], camadas: 159 } };
+    const prova = { estilo: 'osm_overture_v1.3', atual: 'overture', fontesAusentes: [],
+        carregados: { base: 6, transportation: 6 }, tilesDaBase: 12 };
+
+    checa('troca boa passa', validarBaseDaFerramenta('overture', troca, prova).length === 0,
+        validarBaseDaFerramenta('overture', troca, prova).join('; '));
+    checa('sem --base a regua nao tem o que cobrar', validarBaseDaFerramenta('atual', null, null).length === 0);
+
+    // O PIOR CASO 1: estilo certo, mapa em branco.
+    const branco = validarBaseDaFerramenta('overture', troca, { ...prova, carregados: { base: 0, transportation: 0 }, tilesDaBase: 0 });
+    checa('base sem NENHUM tile reprova', branco.length > 0);
+    checa('a reprova diz que o mapa esta em branco', /em branco/.test(branco.join(' ')), branco.join(' '));
+
+    // O PIOR CASO 2: a troca que nao aconteceu, nas suas tres formas.
+    checa('estilo que continuou o da base anterior reprova',
+        validarBaseDaFerramenta('overture', troca, { ...prova, estilo: 'carta_topografica' }).length > 0);
+    checa('controle que ainda diz a base velha reprova',
+        validarBaseDaFerramenta('overture', troca, { ...prova, atual: 'carta-topografica' }).length > 0);
+    checa('troca que aplicou OUTRA base reprova',
+        validarBaseDaFerramenta('overture', { ...troca, aplicado: 'osm' }, prova).length > 0);
+    checa('fonte da base ausente reprova',
+        validarBaseDaFerramenta('overture', troca, { ...prova, fontesAusentes: ['transportation'] }).length > 0);
+
+    // O PIOR CASO 3: nao houve troca, e nao houve prova. Silencio nao e aprovacao.
+    checa('troca ausente reprova', validarBaseDaFerramenta('overture', null, prova).length > 0);
+    checa('prova ausente reprova', validarBaseDaFerramenta('overture', troca, null).length > 0);
+    const naoRegistrada = validarBaseDaFerramenta('overture', { erro: 'base "overture" nao esta registrada no app (registradas: osm, bdgex)' }, null);
+    checa('base nao registrada reprova nomeando as registradas', /registradas: osm, bdgex/.test(naoRegistrada.join(' ')), naoRegistrada.join(' '));
+}
+eixo15();
 
 console.log(`\n${total - falhas}/${total} passaram.`);
 if (falhas) { console.log(`${falhas} FALHA(S): a bancada nao esta reprovando o que promete pegar.`); process.exit(1); }

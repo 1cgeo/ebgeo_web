@@ -632,6 +632,7 @@ node frontend/bench/ferramentas.mjs --ferramenta boundary --feicoes 10 --rodadas
 node frontend/bench/ferramentas.mjs --ferramenta brush --rodadas 1
 node frontend/bench/ferramentas.mjs --ferramenta los --terreno --rodadas 1
 node frontend/bench/ferramentas.mjs --ferramenta visibility --terreno --rodadas 1
+node frontend/bench/ferramentas.mjs --ferramenta los --base overture --terreno --rodadas 1
 ```
 
 | opção | padrão | o que faz |
@@ -640,6 +641,7 @@ node frontend/bench/ferramentas.mjs --ferramenta visibility --terreno --rodadas 
 | `--ferramenta` | `coordination_line` | nome curto da tabela acima |
 | `--k` | `1,4,8` | `mousemove` por quadro no cenário `desenho`, um caso por valor |
 | `--feicoes` | 30 (los 15, visibility 8) | feições criadas antes do cenário `zoom` |
+| `--base` | `atual` | id de mapa base do app (ex.: `overture`); troca pelo caminho do app e PROVA que a base chegou, com tile carregado |
 | `--terreno` | false | liga o terreno pelo botão do app; OBRIGATÓRIO em `los` e `visibility` |
 | `--cpu` | 1 | estrangula a CPU pelo CDP |
 | `--snapping` | false | liga `ui.snapping.enabled` antes de medir |
@@ -706,6 +708,22 @@ vez por quadro de zoom **mesmo quando ela está VAZIA**, e o pincel é uma das s
 ansiosas, então isso roda para todo usuário que der um zoom, tenha ele desenhado um traço ou não.
 
 ## Armadilhas conhecidas
+
+- **A sonda da chave de cache fala a assinatura do APP, e ela já mudou uma vez.** O app passou
+  a receber `getCacheKey(feature, control)` e lê `feature.properties.id`; a sonda daqui mandava
+  uma string, da assinatura antiga, e o `TypeError` derrubava TODA variante da bancada de
+  terreno, inclusive a base `atual` (2026-09-11). A régua da descoberta passava, porque só
+  perguntava se a função existia: eixo não exercitado, aprovado por omissão. Hoje a descoberta
+  CHAMA a função com uma feição (`chaveAceitaFeicao`), a sonda erra para REPROVA em vez de
+  exceção, e o remendo de `selecao-exata` usa a assinatura do app. Escrever `(featureId)` ali
+  devolvia `[object Object]-<zoom>` para toda feição, ou seja, UMA chave para todas, que é o
+  oposto do que a variante existe para medir.
+- **Medir a ferramenta sobre o mapa base que o app abre não é medir sobre o mapa de produção.**
+  Nesta branch o app abre em `carta-topografica`, que aqui é um esboço de OSM em raster (18
+  linhas), não a carta vetorial. Sobre o `overture` real a assinatura vai de 71 para 79 fontes
+  e o `render p50` do desenho do LOS sobe de 2,7 para 4,4 ms: a mesma ferramenta, quase o
+  dobro do quadro. Use `--base` quando o número for comparar com a `main`, que abre na carta
+  cheia.
 
 - **Aba oculta ou janela ocluída zera o rAF.** O Chromium desacelera ou para o
   `requestAnimationFrame` de aba de fundo. As duas bancadas sobem o navegador com

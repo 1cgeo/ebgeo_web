@@ -268,6 +268,7 @@ function lerArgumentos(argv) {
         k: [1, 4, 8],
         feicoes: 30,
         terreno: false,
+        base: 'atual',
         cpu: 1,
         snapping: false,
         rodadas: 2,
@@ -296,6 +297,8 @@ function lerArgumentos(argv) {
         } else if (a === '--feicoes') {
             p.feicoes = Number(proximo());
             informouFeicoes = true;
+        } else if (a === '--base') {
+            p.base = proximo().trim();
         } else if (a === '--terreno') {
             p.terreno = booleana();
         } else if (a === '--cpu') {
@@ -356,6 +359,7 @@ Bancada de desempenho das ferramentas de desenho do EBGeo Web.
   --k <lista>          mousemove por quadro no cenario desenho (padrao 1,4,8)
   --feicoes <n>        feicoes criadas antes do cenario zoom (padrao 30; a
                        ferramenta pode pedir menos: los 15, visibility 8)
+  --base <id>          padrao "atual" (sem troca). Id de mapa base do app (ex.: overture).
   --terreno [bool]     padrao false. Liga o terreno pelo botao do app antes de medir.
                        OBRIGATORIO em los e visibility: sem terreno elas nem ativam.
   --cpu <fator>        padrao 1. Estrangula a CPU pelo CDP (4 = maquina quatro vezes mais lenta).
@@ -1343,6 +1347,93 @@ function armarConclusaoPagina({ cfg, evento, antes, antesProcessado, limite }) {
 }
 
 // --------------------------------------------------------------------------
+// Mapa base. A troca segue o caminho do app (`BaseLayerControl`), e a prova sai
+// do proprio app: estilo aplicado, fontes da base presentes e TILE CARREGADO.
+//
+// O tile e a metade que importa. Estilo certo com o mapa em branco mede a
+// ferramenta sobre nada e devolve numero bonito; a bancada de terreno ja tinha
+// esse veredito, e ele vale igual aqui.
+// --------------------------------------------------------------------------
+
+// Troca a base pelo caminho do app e devolve o que ele diz ter aplicado.
+async function trocarBasePagina(id) {
+    const ctl = window.__store.getControl('BaseLayerControl');
+    if (!ctl) return { erro: 'BaseLayerControl ausente no registro de controles' };
+    if (typeof ctl.applySharedBasemap !== 'function') {
+        return { erro: 'BaseLayerControl nao expoe applySharedBasemap(id): a bancada nao sabe trocar de base neste app' };
+    }
+    if (typeof ctl._styleFor !== 'function') {
+        return { erro: 'BaseLayerControl nao expoe _styleFor(id): a bancada nao sabe qual estilo a base tem' };
+    }
+    const estilo = ctl._styleFor(id);
+    if (!estilo) {
+        const cfg = window.__config || {};
+        const registradas = Object.keys(cfg.basemaps || {}).filter((k) => !!ctl._styleFor(k));
+        return { erro: `base "${id}" nao esta registrada no app (registradas: ${registradas.join(', ') || 'nenhuma'})` };
+    }
+    if (typeof estilo === 'string') return { erro: `base "${id}" resolve para uma URL de estilo, e a bancada so sabe provar estilo em objeto` };
+    const anterior = ctl.currentLayer;
+    const t0 = performance.now();
+    // Sem persistir: e visita, nao edicao do mapa salvo.
+    const aplicado = await ctl.applySharedBasemap(id);
+    return {
+        aplicado, anterior, ms: Math.round(performance.now() - t0),
+        esperado: { id, estilo: estilo.name || null, fontes: Object.keys(estilo.sources || {}), camadas: (estilo.layers || []).length },
+    };
+}
+
+// Le o mapa DEPOIS de assentar: e aqui que "estilo certo, mapa em branco" aparece.
+function lerProvaBasePagina(fontes) {
+    const map = window.__mapa;
+    const estilo = map.getStyle();
+    const tm = map.style.tileManagers || map.style.sourceCaches || {};
+    const carregados = {};
+    for (const f of fontes) {
+        const cache = tm[f];
+        if (!cache || !cache.getIds) { carregados[f] = null; continue; }
+        carregados[f] = cache.getIds().filter((k) => {
+            const t = cache.getTileByID ? cache.getTileByID(k) : (cache._tiles && cache._tiles[k]);
+            return t && t.state === 'loaded';
+        }).length;
+    }
+    const presentes = Object.keys(estilo.sources);
+    return {
+        estilo: estilo.name || null,
+        atual: window.__store.getControl('BaseLayerControl').currentLayer,
+        fontesAusentes: fontes.filter((f) => !presentes.includes(f)),
+        carregados,
+        tilesDaBase: Object.values(carregados).reduce((acc, n) => acc + (n || 0), 0),
+    };
+}
+
+/**
+ * Regua pura da troca de base. O pior caso que ela existe para pegar: a troca que
+ * NAO aconteceu (a tabela sairia com o nome da base nova e o numero da velha) e a
+ * base que chegou sem um tile (estilo certo, mapa em branco).
+ *
+ * @param {string} pedida - Id pedido na linha de comando
+ * @param {Object} troca - Retorno de trocarBasePagina
+ * @param {Object} prova - Retorno de lerProvaBasePagina, ja assentado
+ * @returns {string[]} Motivos de reprova
+ */
+export function validarBaseDaFerramenta(pedida, troca, prova) {
+    if (pedida === 'atual') return [];
+    if (!troca) return [`nao houve troca para a base "${pedida}"`];
+    if (troca.erro) return [troca.erro];
+    const erros = [];
+    if (troca.aplicado !== pedida) erros.push(`a troca aplicou "${troca.aplicado}" e a pedida era "${pedida}"`);
+    if (!prova) return [...erros, `nao houve prova da base "${pedida}" depois de assentar`];
+    if (prova.atual !== pedida) erros.push(`o controle diz base "${prova.atual}", pedida "${pedida}"`);
+    const esperado = troca.esperado || {};
+    if (esperado.estilo && prova.estilo !== esperado.estilo) {
+        erros.push(`estilo "${prova.estilo}", esperado "${esperado.estilo}": a troca nao aconteceu`);
+    }
+    if ((prova.fontesAusentes || []).length) erros.push(`fontes da base ausentes: ${prova.fontesAusentes.join(', ')}`);
+    if (!(prova.tilesDaBase > 0)) erros.push(`base "${pedida}" sem nenhum tile carregado: estilo certo com o mapa em branco`);
+    return erros;
+}
+
+// --------------------------------------------------------------------------
 // Motor
 // --------------------------------------------------------------------------
 class Bancada {
@@ -1455,6 +1546,15 @@ class Bancada {
             const f = () => { map.triggerRepaint(); if (++i < n) requestAnimationFrame(f); else requestAnimationFrame(() => r()); };
             requestAnimationFrame(f);
         }), n);
+    }
+
+    // Troca a base e prova DEPOIS de assentar, que e quando o tile chegou.
+    async trocarBase(id) {
+        const troca = await this.page.evaluate(trocarBasePagina, id);
+        if (troca.erro) return { troca, prova: null };
+        await this.assentar();
+        const prova = await this.page.evaluate(lerProvaBasePagina, (troca.esperado || {}).fontes || []);
+        return { troca, prova };
     }
 
     async ligarTerreno() {
@@ -1834,6 +1934,7 @@ function escreverMarkdown(resultado, tabela) {
     l.push(`Data: ${resultado.ambiente.quando}`);
     l.push(`URL: ${p.url} | ferramenta: ${p.ferramenta} | viewport: ${p.largura}x${p.altura} | headless: ${p.headless}`);
     l.push(`k (mousemove por quadro): ${p.k.join(', ')} | feicoes no zoom: ${p.feicoes} | terreno: ${p.terreno} | snapping: ${p.snapping} | CPU: ${p.cpu}x`);
+    l.push(`Mapa base: ${p.base === 'atual' ? 'o que o app abre (sem troca)' : p.base}`);
     l.push(`Renderer: ${resultado.ambiente.renderer}`);
     l.push(`Relogio: ${resultado.ambiente.relogio}`);
     l.push(`Playwright ${resultado.ambiente.playwrightVersao}, carregado de ${resultado.ambiente.playwrightOrigem}`);
@@ -1928,6 +2029,10 @@ async function principal() {
     });
 
     const errosDaPagina = [];
+    // A RESPOSTA HTTP FALHA, com o caminho. O `console: 404 (Not Found)` do Chromium NAO
+    // diz de que recurso, e quarenta linhas iguais nao apontam para lugar nenhum. O
+    // caminho fica relativo a origem, para nao gravar endereco de maquina em artefato.
+    const respostasFalhas = [];
     const resultado = {
         // O caminho absoluto da saida nao entra no JSON: o artefato fica dentro
         // do repositorio, e caminho de maquina nao se grava no repositorio.
@@ -1945,6 +2050,7 @@ async function principal() {
         },
         rodadas: [],
         errosDaPagina,
+        respostasFalhas,
     };
 
     for (let rodada = 1; rodada <= params.rodadas; rodada++) {
@@ -1965,6 +2071,13 @@ async function principal() {
         const page = await context.newPage();
         page.on('pageerror', (e) => errosDaPagina.push(String(e).slice(0, 200)));
         page.on('console', (m) => { if (m.type() === 'error') errosDaPagina.push(`console: ${m.text().slice(0, 200)}`); });
+        page.on('response', (r) => {
+            const s = r.status();
+            if (s < 400) return;
+            let caminho = r.url();
+            try { const u = new URL(caminho); caminho = u.pathname + (u.search || ''); } catch (_e) { /* URL exotica: fica como veio */ }
+            respostasFalhas.push({ status: s, metodo: r.request().method(), caminho: caminho.slice(0, 200) });
+        });
         const bancada = new Bancada(page, params, cfg);
         try {
             if (params.cpu > 1) {
@@ -1997,6 +2110,22 @@ async function principal() {
                 throw new Error(`a ferramenta ${params.ferramenta} nao ficou pronta: ${reg.ferramenta.erro || (reg.ferramenta.ehStandIn ? 'o registro devolveu o stand-in' : 'motivo desconhecido')}`);
             }
             console.log(`  ferramenta: ${cfg.controle} carregada pela chave "${reg.ferramenta.chave}" do tool-registry`);
+
+            // A BASE ANTES DA IMPRESSAO DIGITAL: a troca muda camadas e fontes, e uma
+            // assinatura colhida antes acusaria "a arvore mudou embaixo da medida" em
+            // toda rodada.
+            if (params.base !== 'atual') {
+                const r = await bancada.trocarBase(params.base);
+                reg.base = r;
+                const errosBase = validarBaseDaFerramenta(params.base, r.troca, r.prova);
+                if (errosBase.length) {
+                    reg.valida = false;
+                    reg.erros.push(...errosBase);
+                    console.log(`  ** BASE INVALIDA: ${errosBase.join('; ')}`);
+                } else {
+                    console.log(`  base: ${params.base} -> estilo ${r.prova.estilo}, ${r.troca.esperado.camadas} camadas da base, ${r.prova.tilesDaBase} tiles carregados em ${r.troca.ms} ms`);
+                }
+            }
 
             // Impressao digital do app ANTES de mexer no mapa. Todas as cargas de
             // uma mesma bancada tem de dar a mesma: assinatura distinta significa
@@ -2116,6 +2245,19 @@ async function principal() {
     console.log(`relogio: ${resultado.ambiente.relogio} | renderer: ${resultado.ambiente.renderer}`);
     console.log(`playwright ${pw.versao} de ${pw.origem} (${pw.caminho})`);
     if (errosDaPagina.length) console.log(`\nerros da pagina (${errosDaPagina.length}): ${[...new Set(errosDaPagina)].slice(0, 5).join(' | ')}`);
+    // AGRUPADO POR CAMINHO: a mesma URL falhando quarenta vezes e UM defeito, nao
+    // quarenta, e o que interessa e qual recurso e quantas vezes.
+    if (respostasFalhas.length) {
+        const porCaminho = new Map();
+        for (const f of respostasFalhas) {
+            const chave = `${f.status} ${f.caminho}`;
+            porCaminho.set(chave, (porCaminho.get(chave) || 0) + 1);
+        }
+        const linhas = [...porCaminho.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+        console.log(`\nrespostas HTTP falhas (${respostasFalhas.length} em ${porCaminho.size} caminho(s)):`);
+        for (const [chave, n] of linhas) console.log(`  ${String(n).padStart(4)}x  ${chave}`);
+        if (porCaminho.size > linhas.length) console.log(`  ... e mais ${porCaminho.size - linhas.length} caminho(s)`);
+    }
     console.log(`\nsaida: ${params.saida}`);
 }
 
