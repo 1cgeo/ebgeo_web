@@ -42,6 +42,15 @@ vi.mock('../../src/js/store/sync/index.js', () => ({
     OperationType: { CREATE: 'CREATE', UPDATE: 'UPDATE', DELETE: 'DELETE' }
 }));
 
+vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
+    persistOperationIntents: async descriptions => {
+        const { logFeatureOperation } = await import('../../src/js/store/sync/index.js');
+        for (const d of descriptions) {
+            await logFeatureOperation(d.operationType, d.entityId, d.mapId, d.data, d.previousData);
+        }
+    },
+}));
+
 vi.mock('../../src/js/store/sync/permission-guard.js', () => ({
     checkPermission: vi.fn(() => ({ allowed: true })),
     GuardAction: {

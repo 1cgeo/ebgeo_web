@@ -11,7 +11,7 @@ import { removeImage } from './settings.operations.js';
 import mapManager from './store-state-manager.js';
 import { memoryStore } from './memory-store.js';
 import { isCurrentMapLockedSync } from './map.operations.js';
-import { logFeatureOperation, OperationType } from './sync/index.js';
+import { OperationType } from './sync/index.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { runTransaction } from './store-transaction.js';
@@ -204,6 +204,9 @@ function preserveUserData(oldFeature, cleanedFeature) {
  * @param {Object} cleanedFeature - Incoming cleaned feature
  */
 function preserveSyncMetadata(oldFeature, cleanedFeature) {
+    if (oldFeature.properties.confirmedVersion !== undefined) {
+        cleanedFeature.properties.confirmedVersion = oldFeature.properties.confirmedVersion;
+    }
     if (oldFeature.properties.createdAt) {
         cleanedFeature.properties.createdAt = oldFeature.properties.createdAt;
     }
@@ -260,10 +263,10 @@ export async function addFeature(type, feature, mapName = null) {
                 });
             }
 
-            tx.deferAsync(() => {
+            {
                 const mapId = mapManager.getMapId(targetMap);
-                return logFeatureOperation(OperationType.CREATE, cleanedFeature.properties.id, mapId, cleanedFeature);
-            });
+                tx.recordOperation('feature', OperationType.CREATE, cleanedFeature.properties.id, mapId, cleanedFeature);
+            }
 
             return () => updateMapDataCompat(targetMap, currentMapData);
         });
@@ -326,10 +329,10 @@ export async function updateFeature(type, feature, mapName = null, { preserveUse
                 });
             }
 
-            tx.deferAsync(() => {
+            {
                 const mapId = mapManager.getMapId(targetMap);
-                return logFeatureOperation(OperationType.UPDATE, cleanedFeature.properties.id, mapId, cleanedFeature, oldFeature);
-            });
+                tx.recordOperation('feature', OperationType.UPDATE, cleanedFeature.properties.id, mapId, cleanedFeature, oldFeature);
+            }
 
             return () => updateMapDataCompat(targetMap, currentMapData);
         });
@@ -387,10 +390,10 @@ export async function removeFeature(type, id, mapName = null) {
                 });
             }
 
-            tx.deferAsync(() => {
+            {
                 const mapId = mapManager.getMapId(targetMap);
-                return logFeatureOperation(OperationType.DELETE, id, mapId, null, mainFeature);
-            });
+                tx.recordOperation('feature', OperationType.DELETE, id, mapId, null, mainFeature);
+            }
 
             return () => updateMapDataCompat(targetMap, currentMapData);
         });
@@ -454,10 +457,10 @@ export async function removeFeatureFromMap(type, id, mapName) {
             // Emit the DELETE op so the source-map removal SYNCS (this is the source half of
             // moveFeaturesToMap). Without it, a moved feature stayed on the source map for
             // every other client — it left but they never saw it leave.
-            tx.deferAsync(() => {
+            {
                 const mapId = mapManager.getMapId(mapName);
-                return logFeatureOperation(OperationType.DELETE, id, mapId, null, mainFeature);
-            });
+                tx.recordOperation('feature', OperationType.DELETE, id, mapId, null, mainFeature);
+            }
 
             return () => updateMapDataCompat(mapName, mapData);
         });
@@ -557,14 +560,14 @@ export async function addFeatures(featuresMap, mapName = null) {
             // Enqueue a sync op per created feature so a BATCH add (import, processing output, paste)
             // reaches collaborators — mirrors the singular addFeature(). Without this, batch-added
             // features persisted locally but never synced (P9 sync-coverage gap).
-            tx.deferAsync(async () => {
+            {
                 const mapId = mapManager.getMapId(targetMap);
                 for (const type of Object.keys(action.features)) {
                     for (const feat of action.features[type]) {
-                        await logFeatureOperation(OperationType.CREATE, feat.properties.id, mapId, feat);
+                        tx.recordOperation('feature', OperationType.CREATE, feat.properties.id, mapId, feat);
                     }
                 }
-            });
+            }
 
             return () => updateMapDataCompat(targetMap, currentMapData);
         });
@@ -698,10 +701,10 @@ export async function updateFeatureProperty(featureType, featureId, property, va
                 }
             }
 
-            tx.deferAsync(() => {
+            {
                 const mapId = mapManager.getMapId(targetMap);
-                return logFeatureOperation(OperationType.UPDATE, featureId, mapId, feature, oldFeature);
-            });
+                tx.recordOperation('feature', OperationType.UPDATE, featureId, mapId, feature, oldFeature);
+            }
 
             return () => updateMapDataCompat(targetMap, currentMapData);
         });
@@ -784,12 +787,12 @@ export async function shiftMapTemporalTimes(mapName, deltaMs) {
         if (shifted.length === 0) return 0;
 
         await runTransaction(async (tx) => {
-            tx.deferAsync(async () => {
+            {
                 const mapId = mapManager.getMapId(targetMap);
                 for (const { feature, oldFeature } of shifted) {
-                    await logFeatureOperation(OperationType.UPDATE, feature.properties.id, mapId, feature, oldFeature);
+                    tx.recordOperation('feature', OperationType.UPDATE, feature.properties.id, mapId, feature, oldFeature);
                 }
-            });
+            }
 
             return () => updateMapDataCompat(targetMap, currentMapData);
         });
@@ -1242,13 +1245,13 @@ export async function moveFeaturesToLayer(featureRefs, targetLayerId, mapName = 
         }
 
         if (modified) {
-            await updateMapDataCompat(targetMap, currentMapData);
-            // Sync the layerId change to peers — it was persisted locally but never logged, so a
-            // collaborator kept the feature in its old layer (with the wrong visibility/lock).
             const mapId = mapManager.getMapId(targetMap);
-            for (const { feature, oldFeature } of moved) {
-                await logFeatureOperation(OperationType.UPDATE, feature.properties.id, mapId, feature, oldFeature);
-            }
+            await runTransaction(async tx => {
+                for (const { feature, oldFeature } of moved) {
+                    tx.recordOperation('feature', OperationType.UPDATE, feature.properties.id, mapId, feature, oldFeature);
+                }
+                return () => updateMapDataCompat(targetMap, currentMapData);
+            });
         }
         return modified;
     });

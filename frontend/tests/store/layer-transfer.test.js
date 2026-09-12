@@ -111,6 +111,17 @@ vi.mock('../../src/js/store/sync/index.js', () => ({
     syncEngine: mockSyncEngine
 }));
 
+vi.mock('../../src/js/store/sync/operation-dispatcher.js', async () => {
+    const loggers = await import('../../src/js/store/sync/index.js');
+    return { persistOperationIntents: async descriptions => {
+        for (const op of descriptions) {
+            const logger = op.entityType === 'layer' ? loggers.logLayerOperation : loggers.logFeatureOperation;
+            await logger(op.operationType, op.entityId, op.mapId, op.data, op.previousData);
+        }
+        return async () => {};
+    } };
+});
+
 vi.mock('../../src/js/store/sync/permission-guard.js', () => ({
     checkPermission: vi.fn(() => ({ allowed: true })),
     GuardAction: {
@@ -610,7 +621,8 @@ describe('transferLayerToMap - mover', () => {
             'CREATE',
             result.targetLayerId,
             'MapB-uuid',
-            expect.objectContaining({ id: result.targetLayerId, name: 'Inimigo' })
+            expect.objectContaining({ id: result.targetLayerId, name: 'Inimigo' }),
+            null
         );
         const mapIds = logLayerOperation.mock.calls.map(call => call[2]);
         expect(mapIds).not.toContain('MapB');

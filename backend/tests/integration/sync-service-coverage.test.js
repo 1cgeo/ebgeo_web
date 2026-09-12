@@ -114,12 +114,14 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
       const first = await push(atlas.id, token, [opPayload]);
       assert.equal(first.body.data.results[0].idempotent, false, 'first push applies the op');
 
-      // Identical resend (same op_id). Different geometry to prove no re-apply/overwrite.
+      // Changed content under the same id is a protocol violation, not an identical resend.
       const second = await push(atlas.id, token, [{
         ...opPayload,
         data: { feature_type: 'point', geometry: { coordinates: [9, 9] }, properties: { name: 'SHOULD_NOT_APPLY' } },
       }]);
-      assert.equal(second.body.data.results[0].idempotent, true, 'resend acked idempotent');
+      assert.equal(second.body.data.results[0].rejected, true, 'changed envelope is rejected');
+      const identical = await push(atlas.id, token, [opPayload]);
+      assert.equal(identical.body.data.results[0].idempotent, true);
 
       // Exactly one operations log row for this (atlas_id, op_id).
       const ops = await db.query(

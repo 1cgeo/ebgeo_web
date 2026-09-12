@@ -72,9 +72,15 @@ const CENSO = {
   // ---- DERIVED -------------------------------------------------------------
   'operations.data': ['DERIVED', 'espelho da carga da op, que já passou por sync.schemas.js'],
   'operations.changes': ['DERIVED', 'idem operations.data'],
+  'sync_receipts.result': ['DERIVED',
+    'resultado construido por sync.service.js: recibo, recusa ou conflito; o evento canonico deriva '
+    + 'da operacao validada e o estado de conflito deriva da entidade persistida. Nao aceita resultado enviado pelo cliente.'],
 
   // ---- NOT_CLIENT ----------------------------------------------------------
   'audit_trail.details': ['NOT_CLIENT', 'escrito por createAudit, no servidor'],
+  'sync_entity_fields.field_versions': ['NOT_CLIENT',
+    'escrito por finishFeatureMutation: caminhos de campos validados associados a revisoes numericas '
+    + 'da entidade confirmada; nao armazena os valores do patch nem permite revisao declarada pelo cliente.'],
   'config_settings.value': ['NOT_CLIENT', 'escrito por administrador, pela rota de configuração'],
   'basemaps.config': ['NOT_CLIENT', 'catálogo: escrito por admin/produtor, e É a definição'],
   'data_layers.config': ['NOT_CLIENT', 'idem basemaps.config'],

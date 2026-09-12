@@ -44,6 +44,7 @@ vi.mock('../../src/js/store/sync/session-context.js', () => ({
 vi.mock('../../src/js/store/sync/index.js', () => ({
     logCommentOperation: (...a) => h.logCommentOperation(...a),
     OperationType: { CREATE: 'create', UPDATE: 'update', DELETE: 'delete' },
+    EntityType: { COMMENT: 'comment' },
 }));
 
 vi.mock('../../src/js/store/sync/permission-guard.js', () => ({
@@ -65,7 +66,7 @@ vi.mock('../../src/js/store/store-transaction.js', () => ({
     runTransaction: async (work) => {
         const sync = [];
         const async_ = [];
-        const tx = { deferSync: (fn) => sync.push(fn), deferAsync: (fn) => async_.push(fn) };
+        const tx = { recordOperation: (_entity, ...args) => h.logCommentOperation(...args), deferSync: (fn) => sync.push(fn), deferAsync: (fn) => async_.push(fn) };
         const persist = await work(tx);
         if (typeof persist === 'function') await persist();
         for (const fn of sync) fn();

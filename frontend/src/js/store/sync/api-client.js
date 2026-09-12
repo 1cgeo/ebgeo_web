@@ -86,11 +86,12 @@ export class ApiError extends Error {
      * @param {Array<{field: string, message: string}>} [opts.details] - Per-field detail of a
      *   422 `VALIDATION_ERROR` (the only envelope that carries it).
      */
-    constructor(message, { status, code, details } = {}) {
+    constructor(message, { status, code, details, retryAfterMs } = {}) {
         super(message);
         this.name = 'ApiError';
         this.status = status;
         this.code = code;
+        this.retryAfterMs = retryAfterMs;
         /** @type {Array<{field: string, message: string}>|null} */
         this.details = Array.isArray(details) ? details : null;
     }
@@ -712,11 +713,43 @@ export class ApiClient {
      * @returns {Promise<*>} The parsed response (envelope unwrapped).
      * @throws {ApiError}
      */
-    async _request(method, path, { body, auth = true, _retry = true, timeoutMs } = {}) {
+    async _request(method, path, options = {}) {
+        const { timeoutMs, signal: parentSignal } = options;
+        if (!timeoutMs && !parentSignal) return this._performRequest(method, path, options);
+        const controller = new AbortController();
+        let timer;
+        let onAbort;
+        const aborted = new Promise((_, reject) => {
+            onAbort = () => {
+                controller.abort(parentSignal?.reason);
+                reject(parentSignal?.reason ?? new DOMException('Request cancelled', 'AbortError'));
+            };
+            if (parentSignal?.aborted) onAbort();
+            else parentSignal?.addEventListener('abort', onAbort, { once: true });
+            if (timeoutMs) {
+                timer = setTimeout(() => {
+                const error = new ApiError('Tempo de espera esgotado. A tentativa pode ser repetida.', { code: 'REQUEST_TIMEOUT' });
+                controller.abort(error);
+                reject(error);
+                }, timeoutMs);
+            }
+        });
+        try {
+            return await Promise.race([
+                this._performRequest(method, path, { ...options, signal: controller.signal }), aborted,
+            ]);
+        } finally {
+            clearTimeout(timer);
+            parentSignal?.removeEventListener('abort', onAbort);
+        }
+    }
+
+    async _performRequest(method, path, { body, auth = true, _retry = true, signal } = {}) {
         // Renew BEFORE the header is built, or the request carries the stale token.
         // Guarded by `auth`, which is also what keeps this out of the recursion:
         // `refresh()` issues its own request with `auth: false`.
         if (auth) await this._ensureFreshAccessToken();
+        signal?.throwIfAborted();
 
         const headers = {};
         if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -743,26 +776,10 @@ export class ApiClient {
         const inicioDoPedido = Date.now();
         let res;
         try {
-            if (timeoutMs) {
-                const controller = new AbortController();
-                const timer = setTimeout(() => controller.abort(), timeoutMs);
-                try {
-                    res = await this._fetch(`${this.baseUrl}${path}`, {
-                        method,
-                        headers,
-                        body: body !== undefined ? JSON.stringify(body) : undefined,
-                        signal: controller.signal,
-                    });
-                } finally {
-                    clearTimeout(timer);
-                }
-            } else {
-                res = await this._fetch(`${this.baseUrl}${path}`, {
-                    method,
-                    headers,
-                    body: body !== undefined ? JSON.stringify(body) : undefined,
-                });
-            }
+            res = await this._fetch(`${this.baseUrl}${path}`, {
+                method, headers, body: body !== undefined ? JSON.stringify(body) : undefined,
+                ...(signal ? { signal } : {}),
+            });
         } catch (erroDeRede) {
             // O PEDIDO QUE NÃO TEVE RESPOSTA É O MAIS INFORMATIVO DA TRILHA (servidor fora, prazo
             // estourado, aba saindo), e é justamente o que um registro feito só no caminho feliz
@@ -776,12 +793,14 @@ export class ApiClient {
         if (res.status === 204) return null;
 
         const parsed = await this._parseBody(res);
+        signal?.throwIfAborted();
 
         if (!res.ok) {
             // Transparent refresh+retry on an expired access token.
             if (res.status === 401 && _retry && auth && this._refreshToken) {
                 await this.refresh();
-                return this._request(method, path, { body, auth, _retry: false, timeoutMs });
+                signal?.throwIfAborted();
+                return this._performRequest(method, path, { body, auth, _retry: false, signal });
             }
             // Two error envelopes reach this client. The atlas API sends
             // `{ error: { code, message } }`; sv360 sends a FLAT `{ error: '...' }`
@@ -794,10 +813,14 @@ export class ApiClient {
             // `details` (422) is kept on the error AND folded into the message: the top-level
             // message of a validation failure is the constant 'Falha na validacao', so the field
             // the server named lives nowhere else. See `buildApiErrorMessage`.
+            const retryAfter = res.headers?.get?.('Retry-After');
+            const retryAfterMs = retryAfter == null ? undefined
+                : (/^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : Math.max(0, Date.parse(retryAfter) - Date.now()));
             throw new ApiError(buildApiErrorMessage(err, res.status), {
                 status: res.status,
                 code: err?.code,
                 details: err?.details,
+                retryAfterMs: Number.isFinite(retryAfterMs) ? retryAfterMs : undefined,
             });
         }
 
@@ -919,6 +942,7 @@ export class ApiClient {
         try {
             const data = await this._request('POST', '/auth/refresh', {
                 body: { refreshToken: presented },
+                timeoutMs: 30000,
                 auth: false,
                 _retry: false,
             });
@@ -2576,8 +2600,8 @@ export class ApiClient {
      * @param {number} [sinceVersion=0] - 0 (or below min) returns a snapshot.
      * @returns {Promise<{ snapshot?: Object, operations?: Object[], currentVersion: number, isSnapshot: boolean }>}
      */
-    async pullSync(atlasId, sinceVersion = 0) {
-        return this._request('GET', `/atlas/${atlasId}/sync/${sinceVersion}`);
+    async pullSync(atlasId, sinceVersion = 0, { signal } = {}) {
+        return this._request('GET', `/atlas/${atlasId}/sync/${sinceVersion}`, { timeoutMs: 180000, signal });
     }
 
     /**
@@ -2586,8 +2610,8 @@ export class ApiClient {
      * @param {Object[]} operations - Operations from the operation factory.
      * @returns {Promise<{ results: Object[], acks: Object[], serverVersion: number }>}
      */
-    async pushOperations(atlasId, operations) {
-        return this._request('POST', `/atlas/${atlasId}/sync`, { body: { operations } });
+    async pushOperations(atlasId, operations, { signal } = {}) {
+        return this._request('POST', `/atlas/${atlasId}/sync`, { body: { operations }, timeoutMs: 30000, signal });
     }
 
     // ===== IMAGES (feature photos §17.14 / custom marker icons §17.19) =====

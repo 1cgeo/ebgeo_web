@@ -9,6 +9,7 @@ const { mockMaps, mockMapManager, mockLockedMaps, mockLayers } = vi.hoisted(() =
     return {
         mockMaps: { value: {} },
         mockMapManager: {
+            getMapId: vi.fn(name => name),
             getCurrentMapName: vi.fn(() => 'SourceMap'),
             getCurrentMapId: vi.fn(() => 'source-uuid'),
             getFeatureColor: vi.fn(() => null),

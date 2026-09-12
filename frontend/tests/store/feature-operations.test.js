@@ -245,7 +245,7 @@ describe('addFeature', () => {
             'CREATE',
             'f1',
             'map-uuid-123',
-            expect.objectContaining({ properties: expect.objectContaining({ id: 'f1' }) })
+            expect.objectContaining({ properties: expect.objectContaining({ id: 'f1' }) }), null
         );
     });
 
@@ -1013,7 +1013,7 @@ describe('shiftMapTemporalTimes', () => {
         expect(updateMapDataCompat).toHaveBeenCalledOnce();
     });
 
-    it('persistence failure prevents sync logging (offline-safe atomicity)', async () => {
+    it('persistence failure leaves an intention available for recovery', async () => {
         updateMapDataCompat.mockRejectedValueOnce(new Error('IndexedDB write failed'));
         mockMapData.value.features.military_symbols.push(
             makeFeature('s1', 'military_symbol', { temporalInicio: 1000 })
@@ -1021,7 +1021,7 @@ describe('shiftMapTemporalTimes', () => {
 
         await expect(shiftMapTemporalTimes('TestMap', 1000)).rejects.toThrow('IndexedDB write failed');
 
-        expect(logFeatureOperation).not.toHaveBeenCalled();
+        expect(logFeatureOperation).toHaveBeenCalledOnce();
     });
 });
 
@@ -1040,14 +1040,14 @@ describe('transaction guarantees', () => {
         expect(mockMapManager.recordAction).not.toHaveBeenCalled();
     });
 
-    it('persistence failure prevents sync logging', async () => {
+    it('persistence failure leaves an intention available for recovery', async () => {
         updateMapDataCompat.mockRejectedValueOnce(new Error('IndexedDB write failed'));
 
         const feature = makeFeature('f1');
 
         await expect(addFeature('points', feature)).rejects.toThrow();
 
-        expect(logFeatureOperation).not.toHaveBeenCalled();
+        expect(logFeatureOperation).toHaveBeenCalledOnce();
     });
 
     it('persistence failure prevents color tracking', async () => {
@@ -1073,7 +1073,7 @@ describe('transaction guarantees', () => {
         await addFeature('points', feature);
 
         // Sync effects (color, undo) run first, then async effects (sync)
-        expect(order).toEqual(['color', 'undo', 'sync']);
+        expect(order).toEqual(['sync', 'color', 'undo']);
     });
 });
 
@@ -1116,3 +1116,14 @@ describe('add → remove → read cycle', () => {
         expect(found).toBeUndefined();
     });
 });
+
+// Store transaction contract: capture intent before persistence. The payload assertions
+// below keep the same logger spy while write-ahead-intent.test covers the real journal.
+vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
+    persistOperationIntents: async operations => {
+        const { logFeatureOperation } = await import('../../src/js/store/sync/index.js');
+        for (const op of operations) {
+            await logFeatureOperation(op.operationType, op.entityId, op.mapId, op.data, op.previousData);
+        }
+    },
+}));

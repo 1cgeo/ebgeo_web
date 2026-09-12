@@ -1,5 +1,7 @@
 // Path: src/modules/sync/sync.service.js
-import { query, tx, task } from '../../database/index.js';
+import { query, tx } from '../../database/index.js';
+import { findReceipt, saveReceipt, operationDigest } from './sync-receipts.js';
+import { prepareFeatureMutation, finishFeatureMutation } from './feature-conflicts.js';
 import { ForbiddenError, ServiceUnavailableError } from '../../utils/errors.js';
 import * as Q from './sync.queries.js';
 import { recordSpan, isTraceEnabled, TraceStage, TraceOutcome } from '../../utils/sync-trace.js';
@@ -614,7 +616,7 @@ function normalizeOperation(op) {
  * Converts generic types (cesium3d, streetview360) back to specific frontend types.
  */
 function toFrontendOperation(op) {
-  let entityType = op.entity_type;
+  let entityType = op.client_entity_type ?? op.entity_type;
   let data = op.data;
   let changes = op.changes;
 
@@ -814,6 +816,7 @@ function transformFeaturesToFrontend(features) {
           createdAt: new Date(feature.created_at).getTime(),
           updatedAt: new Date(feature.updated_at).getTime(),
           version: feature.version,
+          confirmedVersion: Number(feature.version),
         },
       });
     }
@@ -962,7 +965,8 @@ function rehydrateCatalogLayer(entry, id, definitions) {
  * a caller that forgets to thread it gets LESS data, never a leak.
  */
 export async function getAtlasSnapshot(atlasId, permission = 'owner', userId = null) {
-  return task(async (t) => {
+  return tx(async (t) => {
+    await t.none('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY');
     // Get atlas metadata
     const atlasResult = await t.query(Q.GET_ATLAS_METADATA, [atlasId]);
     if (atlasResult.length === 0) {
@@ -1672,6 +1676,7 @@ export function logRefusedOps(params) {
  */
 export async function pushOperations(atlasId, operations, userId, permission = 'owner', { via = 'rest' } = {}) {
   const acks = [];
+  const events = [];
   // As recusas POR OPERACAO deste lote, acumuladas para UMA linha agregada depois do
   // commit (ver `refusedOpsLogPayload`). Depois do commit, e nao dentro do `tx`, porque um
   // lote que rola de volta nao descartou nada: quem lesse a linha contaria como perdido um
@@ -1719,7 +1724,7 @@ export async function pushOperations(atlasId, operations, userId, permission = '
 
     for (const rawOp of operations) {
       // Normalize operation to internal format (accepts both frontend and legacy names)
-      const op = normalizeOperation(rawOp);
+      let op = normalizeOperation(rawOp);
 
       // Tier authorization: a read-only / comment-tier principal pushing writes
       // invalidates the whole batch (403).
@@ -1729,7 +1734,7 @@ export async function pushOperations(atlasId, operations, userId, permission = '
       // consulta ao banco, violação de integridade). O que varia entre eles é o `outcome`
       // do ledger, e é por isso que ele é parâmetro: as três recusas precisam continuar
       // distinguíveis lá.
-      const recusarOperacao = (reason, outcome) => {
+      const recusarOperacao = async (reason, outcome, details = {}) => {
         // O FATO CRU DA RECUSA, sem uma linha de log aqui: e por operacao que ela
         // acontece e por LOTE que ela e registrada. Nada de payload entra: so o motivo
         // (texto do servidor, ou o tipo truncado no caso do alvo desconhecido) e os
@@ -1737,13 +1742,19 @@ export async function pushOperations(atlasId, operations, userId, permission = '
         recusas.push({
           reason, target: op.target, type: op.type, mapId: op.mapId, clientId: op.clientId,
         });
-        acks.push({
+        const result = {
           opId: rawOp.id,
           serverVersion: null,
           idempotent: false,
           rejected: true,
+          status: details.conflict ? 'conflict' : 'rejected',
           reason,
-        });
+          ...details,
+        };
+        await saveReceipt(t, atlasId, rawOp, userId, {
+          server_version: null, entity_id: String(op.targetId ?? atlasId),
+        }, result);
+        acks.push(result);
         if (isTraceEnabled()) {
           recordSpan(atlasId, TraceStage.SERVER_APPLIED, {
             opId: rawOp.id, traceId: rawOp.traceId, entityType: op.entityType, operationType: op.type,
@@ -1765,7 +1776,18 @@ export async function pushOperations(atlasId, operations, userId, permission = '
         ?? unknownTargetDenialReason(op)
         ?? operationDenialReason(op, permission);
       if (denialReason) {
-        recusarOperacao(denialReason, TraceOutcome.NO_EFFECT);
+        await recusarOperacao(denialReason, TraceOutcome.NO_EFFECT);
+        continue;
+      }
+
+      // Authorization above still runs for repeats. A receipt confirms delivery, never access.
+      const receipt = await findReceipt(t, atlasId, rawOp.id);
+      if (receipt) {
+        if (String(receipt.user_id) !== String(userId) || receipt.payload_hash !== operationDigest(rawOp)) {
+          await recusarOperacao('Identificador de operação reutilizado com outra autoria ou conteúdo.', TraceOutcome.NO_EFFECT);
+        } else {
+          acks.push({ ...receipt.result, idempotent: true });
+        }
         continue;
       }
 
@@ -1805,6 +1827,15 @@ export async function pushOperations(atlasId, operations, userId, permission = '
             ?? (await unseenResourceDenialReason(sp, op, principalIdOrNull(userId), atlasId));
           if (denialConsultado) return { denied: denialConsultado };
 
+          let prepared = null;
+          if (rawOp.protocolVersion === 2 && op.target === 'feature') {
+            prepared = await prepareFeatureMutation(sp, atlasId, op, rawOp, userId);
+            if (prepared.conflict) return prepared;
+            op = prepared.op;
+            const deniedPatch = await unseenResourceDenialReason(sp, op, principalIdOrNull(userId), atlasId);
+            if (deniedPatch) return { denied: deniedPatch };
+          }
+
           // Insert operation into log (idempotent: ON CONFLICT (atlas_id, op_id) DO NOTHING).
           const inserted = await sp.oneOrNone(Q.INSERT_OPERATION, [
             atlasId,
@@ -1827,16 +1858,51 @@ export async function pushOperations(atlasId, operations, userId, permission = '
             userId,
             rawOp.id ?? null,
             op.lamportTimestamp ?? null,
+            op._originalEntityType,
           ]);
 
           if (!inserted) {
             const prev = await sp.oneOrNone(Q.GET_OPERATION_BY_OP_ID, [atlasId, rawOp.id]);
+            // A legacy history row does not prove an arbitrary new envelope. Compare
+            // exactly what was normalized and committed before creating its receipt.
+            const persisted = prev && operationDigest({
+              type: prev.op_type, target: prev.entity_type, targetId: prev.entity_id,
+              mapId: prev.map_id, data: prev.data, changes: prev.changes,
+            });
+            const incoming = operationDigest({
+              type: op.type, target: op.target,
+              targetId: FEATURE_UUID_RE.test(op.targetId) ? op.targetId : atlasId,
+              mapId: op.mapId, data: op._logData ?? op.data, changes: op._logChanges ?? op.changes,
+              baseVersion: rawOp.baseVersion, patch: rawOp.patch,
+            });
+            if (!prev || String(prev.user_id) !== String(userId) || persisted !== incoming) {
+              return { denied: 'Não foi possível comprovar o conteúdo original desta operação antiga.' };
+            }
+            if (prev) await saveReceipt(sp, atlasId, rawOp, userId, prev);
             return { idempotent: true, prev };
           }
 
           // Apply operation to entity tables based on normalized op
           const rowsAffected = await applyOperation(sp, atlasId, op, userId, permission);
-          return { idempotent: false, inserted, rowsAffected };
+          if (rowsAffected === 0 && op.type === 'create') {
+            const error = new Error('A criação não encontrou um destino válido.');
+            error.code = '23503';
+            throw error;
+          }
+          let canonical = null;
+          if (prepared) {
+            canonical = await finishFeatureMutation(sp, atlasId, op, prepared);
+            inserted.data = op.type === 'delete' ? null : canonical.data;
+            inserted.changes = op.type === 'update' ? canonical.data : null;
+            await sp.none('UPDATE operations SET data=$2::jsonb, changes=$3::jsonb WHERE id=$1',
+              [inserted.id, JSON.stringify(inserted.data), JSON.stringify(inserted.changes)]);
+          }
+          const result = { opId: rawOp.id, serverVersion: inserted.server_version,
+            entityId: inserted.entity_id, status: 'applied',
+            ...(canonical ? { entityVersion: canonical.entityVersion, canonicalOperation: toFrontendOperation(inserted) } : {}),
+          };
+          await saveReceipt(sp, atlasId, rawOp, userId, inserted, result);
+          return { idempotent: false, inserted, rowsAffected, result };
         });
       } catch (err) {
         const reason = integrityRejectionReason(err);
@@ -1852,14 +1918,18 @@ export async function pushOperations(atlasId, operations, userId, permission = '
         );
         // FAILED (e não NO_EFFECT, o da recusa de política): no ledger as duas
         // recusas precisam ser distinguíveis.
-        recusarOperacao(reason, TraceOutcome.FAILED);
+        await recusarOperacao(reason, TraceOutcome.FAILED);
         continue;
       }
 
       // Recusa decidida DENTRO do savepoint (mapa bloqueado, recurso invisível): nada foi
       // escrito, e daqui em diante ela é indistinguível da recusa de política de cima.
+      if (applied.conflict) {
+        await recusarOperacao(applied.conflict.reason, TraceOutcome.NO_EFFECT, { conflict: applied.conflict });
+        continue;
+      }
       if (applied.denied) {
-        recusarOperacao(applied.denied, TraceOutcome.NO_EFFECT);
+        await recusarOperacao(applied.denied, TraceOutcome.NO_EFFECT);
         continue;
       }
 
@@ -1888,8 +1958,10 @@ export async function pushOperations(atlasId, operations, userId, permission = '
       }
 
       const { inserted, rowsAffected } = applied;
+      events.push(toFrontendOperation(inserted));
 
       acks.push({
+        ...applied.result,
         opId: rawOp.id,
         serverVersion: inserted.server_version,
         idempotent: false,
@@ -1951,13 +2023,16 @@ export async function pushOperations(atlasId, operations, userId, permission = '
     // sabe descartar `rejected` e mostrar `reason`. Tudo que chegou ao apply segue
     // reportado como sucesso.
     success: a.rejected !== true,
+    status: a.rejected ? (a.conflict ? 'conflict' : 'rejected') : (a.idempotent ? 'already_applied' : 'applied'),
     operationId: a.opId,
     idempotent: a.idempotent === true,
-    currentVersion: a.serverVersion != null ? parseInt(a.serverVersion, 10) : serverVersion,
+    currentVersion: a.serverVersion != null ? parseInt(a.serverVersion, 10) : null,
     ...(a.rejected === true ? { rejected: true, reason: a.reason } : {}),
+    ...(a.conflict ? { conflict: a.conflict } : {}),
+    ...(a.entityVersion != null ? { entityVersion: a.entityVersion, canonicalOperation: a.canonicalOperation } : {}),
   }));
 
-  return { results, acks, serverVersion };
+  return { results, acks, serverVersion, events };
 }
 
 /**
@@ -2726,7 +2801,7 @@ async function applyOperation(t, atlasId, op, userId, permission) {
         rowsAffected = r.rowCount;
       } else if (target === 'group' && op.data && op.mapId) {
         const data = op.data;
-        await t.none(`
+        rowsAffected = (await t.result(`
           INSERT INTO groups (id, map_id, name, visible, locked, style, parent_id)
           SELECT $1, $2, $3, $4, $5, $6::jsonb, $7
           WHERE EXISTS (SELECT 1 FROM maps WHERE id = $2 AND atlas_id = $8)
@@ -2749,10 +2824,10 @@ async function applyOperation(t, atlasId, op, userId, permission) {
           JSON.stringify(data.style || {}),
           data.parent_id || null,
           atlasId,
-        ]);
+        ])).rowCount;
       } else if (target === 'layer' && op.data && op.mapId) {
         const data = op.data;
-        await t.none(`
+        rowsAffected = (await t.result(`
           INSERT INTO layers (id, map_id, name, visible, locked, opacity, sort_order, style)
           SELECT $1, $2, $3, $4, $5, $6, $7, $8::jsonb
           WHERE EXISTS (SELECT 1 FROM maps WHERE id = $2 AND atlas_id = $9)
@@ -2777,21 +2852,21 @@ async function applyOperation(t, atlasId, op, userId, permission) {
           data.sort_order ?? data.order ?? 0, // Accept both 'order' (frontend) and 'sort_order' (backend)
           JSON.stringify(data.style || {}),
           atlasId,
-        ]);
+        ])).rowCount;
       } else if (target === 'group_feature' && op.data) {
         const data = op.data;
         // Both the group and the feature must live in a map of this atlas, else a
         // write to atlas A could link entities of atlas B. EXISTS gates the insert.
-        await t.none(`
+        rowsAffected = (await t.result(`
           INSERT INTO group_features (group_id, feature_id)
           SELECT $1, $2
           WHERE EXISTS (SELECT 1 FROM groups g JOIN maps m ON m.id = g.map_id WHERE g.id = $1 AND m.atlas_id = $3)
             AND EXISTS (SELECT 1 FROM features f JOIN maps m ON m.id = f.map_id WHERE f.id = $2 AND m.atlas_id = $3)
           ON CONFLICT DO NOTHING
-        `, [data.group_id, data.feature_id, atlasId]);
+        `, [data.group_id, data.feature_id, atlasId])).rowCount;
       } else if (target === 'map' && op.data) {
         const data = op.data;
-        await t.none(`
+        rowsAffected = (await t.result(`
           INSERT INTO maps (id, atlas_id, name, base_layer, center_lat, center_long, zoom, bearing, pitch, notes_title, notes_description, analysis_layers, grid_style, temporal_config, locked)
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14::jsonb, $15)
           ON CONFLICT (id) DO UPDATE
@@ -2828,10 +2903,10 @@ async function applyOperation(t, atlasId, op, userId, permission) {
           JSON.stringify(data.grid_style || {}),
           JSON.stringify(data.temporal_config || {}),
           data.locked === true,
-        ]);
+        ])).rowCount;
       } else if (target === 'briefing' && op.data) {
         const data = op.data;
-        await t.none(`
+        rowsAffected = (await t.result(`
           INSERT INTO briefings (id, atlas_id, name, description, settings, slide_order)
           VALUES ($1, $2, $3, $4, $5::jsonb, $6::uuid[])
           ON CONFLICT (id) DO UPDATE
@@ -2850,7 +2925,7 @@ async function applyOperation(t, atlasId, op, userId, permission) {
           data.description || null,
           JSON.stringify(data.settings || {}),
           data.slide_order || [],
-        ]);
+        ])).rowCount;
       } else if (target === 'slide' && op.data) {
         const data = op.data;
         // The client sends the map's NAME in `mapId`; the column is a UUID. Translate
@@ -2858,7 +2933,7 @@ async function applyOperation(t, atlasId, op, userId, permission) {
         data.map_id = await resolveSlideMapId(t, atlasId, data);
         // Guard the insert: only attach the slide when its briefing belongs to the
         // route's atlas. A cross-atlas briefing_id yields zero inserted rows.
-        await t.none(`
+        rowsAffected = (await t.result(`
           INSERT INTO slides (id, briefing_id, title, content, mode, map_id, model_id, photo_id, position, orientation, temporal_cursor)
           SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb
           WHERE EXISTS (SELECT 1 FROM briefings WHERE id = $2 AND atlas_id = $12)
@@ -2890,10 +2965,10 @@ async function applyOperation(t, atlasId, op, userId, permission) {
           JSON.stringify(data.orientation || {}),
           data.temporal_cursor != null ? JSON.stringify(data.temporal_cursor) : null,
           atlasId,
-        ]);
+        ])).rowCount;
       } else if (target === 'cesium3d' && op.data && op.mapId) {
         const data = op.data;
-        await t.none(`
+        rowsAffected = (await t.result(`
           INSERT INTO cesium3d_data (id, map_id, data_type, tileset_id, data)
           SELECT $1, $2, $3, $4, $5::jsonb
           WHERE EXISTS (SELECT 1 FROM maps WHERE id = $2 AND atlas_id = $6)
@@ -2905,10 +2980,10 @@ async function applyOperation(t, atlasId, op, userId, permission) {
           data.tileset_id || null,
           JSON.stringify(data.data || {}),
           atlasId,
-        ]);
+        ])).rowCount;
       } else if (target === 'streetview360' && op.data && op.mapId) {
         const data = op.data;
-        await t.none(`
+        rowsAffected = (await t.result(`
           INSERT INTO streetview360_data (id, map_id, data_type, photo_name, data)
           SELECT $1, $2, $3, $4, $5::jsonb
           WHERE EXISTS (SELECT 1 FROM maps WHERE id = $2 AND atlas_id = $6)
@@ -2920,7 +2995,7 @@ async function applyOperation(t, atlasId, op, userId, permission) {
           data.photo_name || null,
           JSON.stringify(data.data || {}),
           atlasId,
-        ]);
+        ])).rowCount;
       }
       break;
     }

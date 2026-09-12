@@ -13,6 +13,14 @@ export const MAX_OPS_PER_PUSH = 500;
 // (stripUnknown:true) does not wipe the operation payload.
 const operationSchema = Joi.object({
   id: Joi.string().required(),
+  protocolVersion: Joi.number().integer().valid(2),
+  baseVersion: Joi.number().integer().min(0).allow(null),
+  baseOperationId: Joi.string().allow(null),
+  patch: Joi.array().max(1000).items(Joi.object({
+    op: Joi.string().valid('set', 'remove').required(),
+    path: Joi.array().items(Joi.string()).min(1).max(8).required(),
+    value: Joi.any(),
+  })).allow(null),
   entityType: Joi.string(),
   target: Joi.string(),
   operationType: Joi.string().valid('create', 'update', 'delete'),

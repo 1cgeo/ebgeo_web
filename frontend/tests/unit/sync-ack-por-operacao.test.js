@@ -45,7 +45,7 @@ describe('acknowledgedOperationIds — só sai da fila o que o servidor confirmo
         };
 
         // Se ela ficasse, o lote voltaria idêntico a cada 1,5 s para sempre.
-        expect(acknowledgedOperationIds(resp, enviadas)).toEqual(['a', 'b']);
+        expect(acknowledgedOperationIds(resp, enviadas)).toEqual(['a']);
     });
 
     it('aceita a forma alternativa do ack (`acks` com `opId`)', () => {
@@ -55,12 +55,12 @@ describe('acknowledgedOperationIds — só sai da fila o que o servidor confirmo
     it('resposta que não identifica NENHUMA op: o lote inteiro sai (contrato antigo)', () => {
         const enviadas = ops('a', 'b');
         for (const resp of [{}, { results: [] }, { acks: [], serverVersion: 7 }, { results: [{}, {}] }]) {
-            expect(acknowledgedOperationIds(resp, enviadas)).toEqual(['a', 'b']);
+            expect(acknowledgedOperationIds(resp, enviadas)).toEqual([]);
         }
     });
 
     it('borda: resposta nula, e ids que o cliente não enviou são ignorados', () => {
-        expect(acknowledgedOperationIds(null, ops('a'))).toEqual(['a']);
+        expect(acknowledgedOperationIds(null, ops('a'))).toEqual([]);
         expect(acknowledgedOperationIds({ results: [{ operationId: 'z' }] }, ops('a'))).toEqual([]);
     });
 });

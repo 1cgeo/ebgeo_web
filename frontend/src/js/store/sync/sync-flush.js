@@ -184,57 +184,37 @@ async function hasWorkToFlush() {
  * @returns {Promise<void>}
  */
 async function flushOnce() {
-    if (state.inFlight || !state.engine) return;
-    if (!(await hasWorkToFlush())) {
-        // FILA VAZIA NAO E "NADA A FAZER". A auto-cura do freio de convergencia mora dentro de
-        // `engine.flush()`, e sair aqui a pulava justamente no estado em que ela e necessaria:
-        // um contador de edicao local preso (compactacao de fila, lote, ack sem versao, lote
-        // envenenado) deixa as ops remotas daquela entidade DEFERIDAS, e um cliente sem mais
-        // nada a enviar nunca reconciliava. Ele divergia em silencio ate um F5. O gate e o Map
-        // em memoria, entao o caminho comum (nada preso) nao paga ida nenhuma ao IndexedDB.
-        if (hasPendingLocalEdits()) {
-            try {
-                await state.engine.reconcileConvergenceGuard();
-            } catch (error) {
-                console.warn('Reconciliacao do freio de convergencia falhou:', error);
-            }
-        }
-        return;
-    }
-
-    state.inFlight = true;
+    if (state.inFlight || !state.engine || Date.now() < (state.retryAt ?? 0)) return;
+    const engine = state.engine;
+    const token = {};
+    state.inFlight = token;
+    const current = () => state.inFlight === token && state.engine === engine;
     try {
-        await state.engine.flush();
+        const hasWork = await hasWorkToFlush();
+        if (!current()) return;
+        if (!hasWork) {
+            if (hasPendingLocalEdits()) await engine.reconcileConvergenceGuard();
+            return;
+        }
+        await engine.flush();
+        if (!current()) return;
         registrarUso(EventoDeUso.SYNC_RESULTADO, PropDeUso.SYNC_SUCESSO);
-        // A successful drain re-arms the warning: the NEXT outage is news again.
         state.alert = { failures: 0, notifiedKind: null };
+        state.retryAt = 0;
     } catch (error) {
+        if (!current()) return;
         registrarUso(EventoDeUso.SYNC_RESULTADO, PropDeUso.SYNC_FALHA);
         console.warn('Auto-flush error:', error);
         const next = nextFlushAlertState(state.alert, error);
         state.alert = { failures: next.failures, notifiedKind: next.notifiedKind };
+        const delay = Math.min(60000, 1500 * 2 ** Math.min(next.failures - 1, 6));
+        state.retryAt = Date.now() + Math.max(error?.retryAfterMs ?? 0, delay * (0.8 + Math.random() * 0.4));
         if (next.message) {
-            try {
-                showWarning(next.message, { duration: 8000 });
-            } catch {
-                // Headless (tests, worker): no UI to tell. Never break the loop over a toast.
-            }
+            try { showWarning(next.message, { duration: 8000 }); } catch { /* No DOM. */ }
         }
-        // THE ATLAS IS GONE: STOP KNOCKING. The other failure kinds are worth retrying (a
-        // token refreshes, a permission comes back, a network returns), and this one cannot
-        // be: the address does not exist, so the loop was firing a request every 1.5 s
-        // forever, against a project that had been deleted, while telling the user once and
-        // then falling silent. Stopping AFTER the warning, and only at the threshold, is what
-        // keeps a single transient 404 from disarming a working session.
-        //
-        // The queue is untouched: the operations are the user's unsynced work, and it is the
-        // rescue path (`preserveUnsyncedWorkAsLocal`) that decides their fate. A later
-        // `startAutoFlush` (any successful connect) re-arms the loop from scratch.
-        if (next.message && classifyFlushFailure(error).kind === 'gone') {
-            stopAutoFlush();
-        }
+        if (next.message && classifyFlushFailure(error).kind === 'gone') stopAutoFlush();
     } finally {
-        state.inFlight = false;
+        if (current()) state.inFlight = false;
     }
 }
 
@@ -279,6 +259,8 @@ export function startAutoFlush(engine = syncEngine, { intervalMs = 1500 } = {}) 
     if (state.timer) return; // Already running — idempotent.
 
     state.engine = engine;
+    state.inFlight = false;
+    state.retryAt = 0;
     state.alert = { failures: 0, notifiedKind: null };
     state.timer = setInterval(() => { flushOnce(); }, intervalMs);
 
@@ -312,5 +294,7 @@ export function stopAutoFlush() {
     }
     unsubscribeFromChanges();
     state.engine = null;
+    state.inFlight = false;
+    state.retryAt = 0;
     state.alert = { failures: 0, notifiedKind: null };
 }

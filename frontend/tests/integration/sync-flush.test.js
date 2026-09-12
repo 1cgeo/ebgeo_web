@@ -51,6 +51,7 @@ vi.mock('../../src/js/store/sync/operation-queue.js', () => ({
 import { startAutoFlush, stopAutoFlush, isAutoFlushRunning } from '../../src/js/store/sync/sync-flush.js';
 import { connectionState, ConnectionStates } from '../../src/js/store/sync/connection-state.js';
 import { EventTypes } from '../../src/js/events/event_types.js';
+import { operationQueue } from '../../src/js/store/sync/operation-queue.js';
 
 // ============================================================================
 // Helpers
@@ -87,6 +88,7 @@ let engine;
 
 beforeEach(() => {
     vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
     connectionState._reset();
     queueState.pending = 0;
     for (const k of Object.keys(busListeners)) delete busListeners[k];
@@ -98,6 +100,7 @@ beforeEach(() => {
 afterEach(() => {
     stopAutoFlush();
     vi.useRealTimers();
+    vi.restoreAllMocks();
 });
 
 // ============================================================================
@@ -155,6 +158,52 @@ describe('immediate flush on start', () => {
 });
 
 describe('in-flight lock', () => {
+    it('takes the mutex before reading the queue, including change events during that read', async () => {
+        goOnline();
+        let release;
+        const barrier = new Promise(resolve => { release = resolve; });
+        operationQueue.count.mockImplementationOnce(() => barrier);
+        startAutoFlush(engine, { intervalMs: 1000 });
+        await vi.advanceTimersByTimeAsync(0);
+        mockBus.emit(EventTypes.FEATURE_CREATED, {});
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(engine.flush).not.toHaveBeenCalled();
+        release(2);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(engine.flush).toHaveBeenCalledTimes(1);
+        engine.settle();
+    });
+
+    it('a restarted loop is independent of an unresolved flush from the previous session', async () => {
+        goOnline();
+        queueState.pending = 2;
+        startAutoFlush(engine, { intervalMs: 1000 });
+        await vi.advanceTimersByTimeAsync(0);
+        stopAutoFlush();
+        const next = createFakeEngine();
+        startAutoFlush(next, { intervalMs: 1000 });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(next.flush).toHaveBeenCalledTimes(1);
+        engine.settle();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(next.flush).toHaveBeenCalledTimes(1);
+        next.settle();
+    });
+
+    it('respects Retry-After without an edit event bypassing the backoff', async () => {
+        goOnline();
+        queueState.pending = 2;
+        const limited = { flush: vi.fn().mockRejectedValue(Object.assign(new Error('retry later'), { retryAfterMs: 9000 })) };
+        startAutoFlush(limited, { intervalMs: 1000 });
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(8000);
+        mockBus.emit(EventTypes.FEATURE_CREATED, {});
+        await vi.advanceTimersByTimeAsync(0);
+        expect(limited.flush).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(limited.flush).toHaveBeenCalledTimes(2);
+    });
+
     it('does not overlap two flushes', async () => {
         goOnline();
         queueState.pending = 3;
@@ -273,9 +322,9 @@ describe('atlas_gone para o laço', () => {
         expect(isAutoFlushRunning()).toBe(true);
 
         // O limiar são três ciclos consecutivos, e é no terceiro que o usuário é avisado.
-        await vi.advanceTimersByTimeAsync(1000);
+        await vi.advanceTimersByTimeAsync(2000);
         expect(isAutoFlushRunning()).toBe(true);
-        await vi.advanceTimersByTimeAsync(1000);
+        await vi.advanceTimersByTimeAsync(3000);
 
         expect(isAutoFlushRunning()).toBe(false);
         const tentativas = morto.flush.mock.calls.length;
@@ -298,12 +347,12 @@ describe('atlas_gone para o laço', () => {
         startAutoFlush(instavel, { intervalMs: 1000 });
 
         await vi.advanceTimersByTimeAsync(0);
-        await vi.advanceTimersByTimeAsync(1000);
-        await vi.advanceTimersByTimeAsync(1000);
-        await vi.advanceTimersByTimeAsync(1000);
+        await vi.advanceTimersByTimeAsync(2000);
+        await vi.advanceTimersByTimeAsync(3000);
+        await vi.advanceTimersByTimeAsync(6000);
 
         expect(isAutoFlushRunning()).toBe(true);
-        expect(instavel.flush.mock.calls.length).toBeGreaterThanOrEqual(4);
+        expect(instavel.flush.mock.calls.length).toBe(4);
     });
 
     it('a fila NÃO é drenada: o trabalho não sincronizado continua lá', async () => {
@@ -313,8 +362,8 @@ describe('atlas_gone para o laço', () => {
         startAutoFlush(morto, { intervalMs: 1000 });
 
         await vi.advanceTimersByTimeAsync(0);
-        await vi.advanceTimersByTimeAsync(1000);
-        await vi.advanceTimersByTimeAsync(1000);
+        await vi.advanceTimersByTimeAsync(2000);
+        await vi.advanceTimersByTimeAsync(3000);
 
         expect(isAutoFlushRunning()).toBe(false);
         // O laço nunca desenfileira (quem faz isso é o `flush` do engine, que aqui nem

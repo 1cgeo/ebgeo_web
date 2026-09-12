@@ -42,7 +42,7 @@ class SyncGateway {
                 opId: operation?.id, traceId: operation?.traceId,
                 outcome: TraceOutcome.DROPPED, reason: DropReason.OFFLINE,
             });
-            return;
+            return false;
         }
 
         if (operation.lamportTimestamp) {
@@ -50,8 +50,9 @@ class SyncGateway {
         }
 
         if (this._remoteOperationHandler) {
-            await this._remoteOperationHandler(operation);
+            return this._remoteOperationHandler(operation);
         }
+        return false;
     }
 
     /**

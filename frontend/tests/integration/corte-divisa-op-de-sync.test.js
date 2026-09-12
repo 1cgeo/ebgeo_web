@@ -391,3 +391,14 @@ describe('o corte da linha de limite grava pelo caminho de sync', () => {
         isCurrentMapLockedSync.mockReturnValue(false);
     });
 });
+
+// Store transaction contract: capture intent before persistence. The payload assertions
+// below keep the same logger spy while write-ahead-intent.test covers the real journal.
+vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
+    persistOperationIntents: async operations => {
+        const { logFeatureOperation } = await import('../../src/js/store/sync/index.js');
+        for (const op of operations) {
+            await logFeatureOperation(op.operationType, op.entityId, op.mapId, op.data, op.previousData);
+        }
+    },
+}));

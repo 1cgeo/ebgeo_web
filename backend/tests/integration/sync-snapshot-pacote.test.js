@@ -157,32 +157,32 @@ describe('snapshot: as nove colecoes independentes viajam num pacote so', () => 
     await teardownTestEnv(cli);
   });
 
-  it('custa 4 idas ao banco para um dono, e 3 para um leitor', async () => {
+  it('custa 4 leituras para dono e 3 para leitor, mais a transacao consistente', async () => {
     const dono = await contarIdas(() => syncService.getAtlasSnapshot(atlas.id, 'owner'));
     assert.equal(
-      dono.n, 4,
-      `esperava 4 idas (metadata, maps, comments, pacote); deu ${dono.n}:\n  ${dono.stmts.join('\n  ')}`,
+      dono.n, 7,
+      `esperava 7 idas (4 leituras e 3 comandos da transacao); deu ${dono.n}:\n  ${dono.stmts.join('\n  ')}`,
     );
 
     // Sem comentarios: o leitor nao os recebe, entao aquela ida some.
     const leitor = await contarIdas(() => syncService.getAtlasSnapshot(atlas.id, 'read'));
     assert.equal(
-      leitor.n, 3,
-      `esperava 3 idas para 'read'; deu ${leitor.n}:\n  ${leitor.stmts.join('\n  ')}`,
+      leitor.n, 6,
+      `esperava 6 idas para 'read'; deu ${leitor.n}:\n  ${leitor.stmts.join('\n  ')}`,
     );
   });
 
-  it('a quinta ida so aparece quando ha referencia de catalogo para resolver', async () => {
+  it('a quinta leitura so aparece quando ha referencia de catalogo para resolver', async () => {
     const r = await contarIdas(() => syncService.getAtlasSnapshot(atlasComCatalogo.id, 'owner'));
     assert.equal(
-      r.n, 5,
-      `esperava 5 idas com referencia de catalogo; deu ${r.n}:\n  ${r.stmts.join('\n  ')}`,
+      r.n, 8,
+      `esperava 8 idas com referencia de catalogo; deu ${r.n}:\n  ${r.stmts.join('\n  ')}`,
     );
   });
 
-  it('uma ida so quando o atlas nao existe: o curto-circuito continua de pe', async () => {
+  it('uma leitura alem da transacao quando o atlas nao existe: o curto-circuito continua de pe', async () => {
     const r = await contarIdas(() => syncService.getAtlasSnapshot(randomUUID()));
-    assert.equal(r.n, 1, `atlas inexistente deveria custar 1 ida; deu ${r.n}`);
+    assert.equal(r.n, 4, `atlas inexistente deveria custar 4 idas; deu ${r.n}`);
   });
 
   it('cada conjunto de resultado cai na sua colecao: a ordem do pacote e contrato', async () => {

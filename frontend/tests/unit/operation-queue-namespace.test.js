@@ -63,6 +63,10 @@ const FILA_LEGADA = 'ebgeo::operation_queue';
  * @param {string} sufixo - Sufixo de banco de um escopo.
  * @returns {string} Chave do banco de fila daquele escopo no disco falso.
  */
+function queueEntries(store) {
+    return [...store.entries()].filter(([key]) => key.startsWith('op_')).map(([, value]) => value);
+}
+
 function filaDe(sufixo) {
     return sufixo === '' ? FILA_LEGADA : `ebgeo__${sufixo}::operation_queue`;
 }
@@ -114,9 +118,9 @@ describe('fila de operações sob o namespace por atlas', () => {
         expect([...dbs.keys()].sort()).toEqual([
             FILA_LEGADA, filaDe('aaa'), filaDe('remote-server1')
         ].sort());
-        expect(dbs.get(FILA_LEGADA).size).toBe(1);
-        expect(dbs.get(filaDe('aaa')).size).toBe(1);
-        expect(dbs.get(filaDe('remote-server1')).size).toBe(1);
+        expect(queueEntries(dbs.get(FILA_LEGADA)).length).toBe(1);
+        expect(queueEntries(dbs.get(filaDe('aaa'))).length).toBe(1);
+        expect(queueEntries(dbs.get(filaDe('remote-server1'))).length).toBe(1);
         // O object store é o mesmo em todos: só o NOME DO BANCO carrega o namespace.
         for (const criado of createdWith) {
             expect(criado.storeName).toBe('operation_queue');
@@ -139,8 +143,8 @@ describe('fila de operações sob o namespace por atlas', () => {
         expect(await queue.count()).toBe(0);
         // E o dado NÃO foi destruído, nem está no banco de B: está no de A. (O banco de B
         // EXISTE, porque ler as chaves abre o banco; o que ele não tem é conteúdo.)
-        expect(dbs.get(filaDe('aaa')).size).toBe(1);
-        expect(dbs.get(filaDe('bbb')).size).toBe(0);
+        expect(queueEntries(dbs.get(filaDe('aaa'))).length).toBe(1);
+        expect(queueEntries(dbs.get(filaDe('bbb'))).length).toBe(0);
 
         namespace.activateScope(namespace.localScope('atlas-a', 'aaa'));
         expect((await queue.peek(10)).map(o => o.entityId)).toEqual(['op-de-A']);
@@ -158,9 +162,9 @@ describe('fila de operações sob o namespace por atlas', () => {
         expect((await queue.peek(10)).map(o => o.entityId)).toEqual(['op-em-X']);
 
         // E o endereço, que é a propriedade nova: são dois bancos, não um com filtro.
-        expect([...dbs.get(filaDe('remote-atlasX')).values()].map(o => o.entityId))
+        expect(queueEntries(dbs.get(filaDe('remote-atlasX'))).map(o => o.entityId))
             .toEqual(['op-em-X']);
-        expect([...dbs.get(filaDe('remote-atlasY')).values()].map(o => o.entityId))
+        expect(queueEntries(dbs.get(filaDe('remote-atlasY'))).map(o => o.entityId))
             .toEqual(['op-em-Y']);
     });
 
@@ -177,16 +181,16 @@ describe('fila de operações sob o namespace por atlas', () => {
         await queue.clear();
 
         expect(await queue.count()).toBe(0);
-        expect(dbs.get(filaDe('bbb')).size).toBe(0);
+        expect(queueEntries(dbs.get(filaDe('bbb'))).length).toBe(0);
         namespace.activateScope(namespace.remoteScope('atlasX'));
         expect((await queue.peek(10)).map(o => o.entityId)).toEqual(['x1', 'x2']);
-        expect(dbs.get(filaDe('remote-atlasX')).size).toBe(2);
+        expect(queueEntries(dbs.get(filaDe('remote-atlasX'))).length).toBe(2);
 
         // E o clear do PRÓPRIO atlas continua esvaziando: sem esta metade, "não apagou a de
         // A" seria indistinguível de um clear que virou no-op.
         await queue.clear();
         expect(await queue.count()).toBe(0);
-        expect(dbs.get(filaDe('remote-atlasX')).size).toBe(0);
+        expect(queueEntries(dbs.get(filaDe('remote-atlasX'))).length).toBe(0);
     });
 
     it('op SEM carimbo (build anterior) é legível do escopo em cujo banco ela está', async () => {
@@ -199,7 +203,7 @@ describe('fila de operações sob o namespace por atlas', () => {
             timestamp: 1700000000000, lamportTimestamp: 1, clientId: 'c1'
         };
         await queue.enqueue(legada);
-        expect(dbs.get(FILA_LEGADA).size).toBe(1);
+        expect(queueEntries(dbs.get(FILA_LEGADA)).length).toBe(1);
 
         // O slot legado é quem tem aquele banco montado, e é quem a lê.
         namespace.activateScope(namespace.localScope('atlas-legado', ''));
@@ -208,7 +212,7 @@ describe('fila de operações sob o namespace por atlas', () => {
         // Um atlas com namespace próprio nem abre aquele banco: não é filtro, é outro endereço.
         namespace.activateScope(namespace.remoteScope('atlasX'));
         expect(await queue.peek(10)).toEqual([]);
-        expect(dbs.get(FILA_LEGADA).size).toBe(1);
+        expect(queueEntries(dbs.get(FILA_LEGADA)).length).toBe(1);
     });
 
     it('sem escopo ativo a fila cai no endereço legado, e não em lugar nenhum', async () => {
@@ -238,12 +242,12 @@ describe('fila de operações sob o namespace por atlas', () => {
             timestamp: 1, lamportTimestamp: 1, clientId: 'c1'
         };
         await queue.enqueue(antiga);
-        expect(dbs.get(FILA_LEGADA).size).toBe(1);
+        expect(queueEntries(dbs.get(FILA_LEGADA)).length).toBe(1);
 
         const expurgadas = await queue.purgeOldOperations(1000);
 
-        expect(expurgadas).toBe(1);
-        expect(dbs.get(FILA_LEGADA).size).toBe(0);
+        expect(expurgadas).toBe(0);
+        expect(queueEntries(dbs.get(FILA_LEGADA)).length).toBe(1);
     });
 
     it('dequeue resolve a chave do DISCO, não de um índice em memória', async () => {
@@ -264,7 +268,7 @@ describe('fila de operações sob o namespace por atlas', () => {
 
         const removidas = await aba1.dequeue(vistas.map(o => o.id));
         expect(removidas).toBe(2);
-        expect(dbs.get(filaDe('remote-atlasX')).size).toBe(0);
+        expect(queueEntries(dbs.get(filaDe('remote-atlasX'))).length).toBe(0);
         expect(await aba1.count()).toBe(0);
     });
 
@@ -297,12 +301,12 @@ describe('fila de operações sob o namespace por atlas', () => {
             timestamp: 1700000000000, lamportTimestamp: 1, clientId: 'c1',
             scopeSuffix: 'remote-atlasX'
         });
-        expect(dbs.get(filaDe('bbb')).size).toBe(1);
+        expect(queueEntries(dbs.get(filaDe('bbb'))).length).toBe(1);
 
         expect(await queue.peek(10)).toEqual([]);
         expect(await queue.count()).toBe(0);
 
         await queue.clear();
-        expect(dbs.get(filaDe('bbb')).size).toBe(1);
+        expect(queueEntries(dbs.get(filaDe('bbb'))).length).toBe(1);
     });
 });

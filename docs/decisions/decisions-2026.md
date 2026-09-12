@@ -2368,3 +2368,12 @@ Contrato, limites e guardas: [implementação](../reviews/2026-09-12-implementac
 - **Motivo:** a divisao por conjuntos de entradas do bundler fragmentou o codigo compartilhado das novas funcionalidades. O ajuste reconhece esse custo medido e nao autoriza aumento de peso acima do teto existente.
 - **Guarda:** `frontend/tests/unit/teto-de-peso-da-pagina-do-mapa.test.js` continua verificando quantidade e bytes do build real; nenhuma etapa foi pulada.
 - **Status:** aceita.
+
+### 2026-09-12: diario remoto, recibos duraveis e conflitos explicitos
+
+- **Autorizacao:** plano de correcao aprovado pelo dono, com execucao e registro intermediario em commit/push. A politica aceita conserva pendencias em falhas involuntarias; saida voluntaria confirmada continua descartando somente o trabalho remoto abrangido.
+- **Decisao:** operacoes nao confirmadas deixam de expirar e de ser compactadas; a intencao deve anteceder a entidade. Recibos duraveis, vinculados ao autor e ao conteudo, sobrevivem a limpeza do historico. Recusa ou conflito nao representam versao vencedora.
+- **Conflitos:** substituir a ultima chegada que vence por patches com base comprovada. Campos independentes podem conciliar; mesmo campo ou exclusao concorrente exigem decisao explicita. Geometria e uma unidade. O primeiro caminho implementado e o de feicoes; a expansao aos demais tipos e o bloqueio do protocolo antigo ainda estao pendentes.
+- **Recuperacao:** montar snapshots completos em uma geracao separada e ativar dados/cursor juntos. Broadcast isolado nao comprova uma fronteira completa de replay. Operacoes e respostas assincronas pertencem ao escopo em que nasceram.
+- **Schema:** novas tabelas pertencem a base logica de sync, pois o backend ainda nao foi implantado. Banco existente de desenvolvimento exige transicao explicita com backup; esta mudanca nao recria nem adapta automaticamente esse banco.
+- **Estado:** implementacao intermediaria, sem liberacao para producao. Restam produtores, demais conflitos, painel de resolucao, uploads, descarte com estabilizacao completa, compatibilidade e homologacao. Detalhes e evidencias no [registro de execucao](../reviews/execucao-correcao-atlas-remoto.md), conforme o [plano aprovado](../reviews/plano-correcao-atlas-remoto.md).

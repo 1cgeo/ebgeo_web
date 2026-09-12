@@ -6,15 +6,15 @@ import { catalogAuthorizationPredicate, resourceTypeLiteral } from '../catalog/c
 import { RESOLVE_SV360_REFS } from '../resource-access/resource-access.queries.js';
 
 export const INSERT_OPERATION = `
-  INSERT INTO operations (atlas_id, op_type, entity_type, entity_id, map_id, changes, data, client_timestamp, client_id, user_id, op_id, lamport_timestamp)
-  VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12)
+  INSERT INTO operations (atlas_id, op_type, entity_type, entity_id, map_id, changes, data, client_timestamp, client_id, user_id, op_id, lamport_timestamp, client_entity_type)
+  VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13)
   ON CONFLICT (atlas_id, op_id) DO NOTHING
   RETURNING *
 `;
 
 // Fetch an already-applied operation by its client op id (for idempotent acks).
 export const GET_OPERATION_BY_OP_ID = `
-  SELECT server_version, entity_id FROM operations WHERE atlas_id = $1 AND op_id = $2
+  SELECT * FROM operations WHERE atlas_id = $1 AND op_id = $2
 `;
 
 export const GET_OPERATIONS_SINCE_VERSION = `
@@ -24,9 +24,7 @@ export const GET_OPERATIONS_SINCE_VERSION = `
 `;
 
 export const GET_CURRENT_VERSION = `
-  SELECT COALESCE(MAX(server_version), 0) as current_version
-  FROM operations
-  WHERE atlas_id = $1
+  SELECT current_version FROM atlas WHERE id = $1
 `;
 
 // Hybrid sync queries

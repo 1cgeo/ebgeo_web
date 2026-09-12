@@ -55,6 +55,7 @@
  */
 
 import { mapResolver } from './services/map-resolver.service.js';
+import { getActiveScope } from './atlas-namespace.js';
 
 /** Milliseconds a waiter tolerates before reporting a suspected reentrant call. */
 const DEADLOCK_WARN_MS = 5000;
@@ -86,7 +87,8 @@ export function withDocumentLock(key, label, fn) {
         throw new Error('withDocumentLock requires a critical-section function');
     }
 
-    const lockKey = key || UNNAMED;
+    const scope = getActiveScope();
+    const lockKey = scope?.dbSuffix ? `${scope.dbSuffix}|${key || UNNAMED}` : (key || UNNAMED);
     let state = queues.get(lockKey);
     if (!state) {
         state = { tail: null, active: null, waiting: 0 };
@@ -136,6 +138,9 @@ export function withDocumentLock(key, label, fn) {
         }
         state.active = label;
         try {
+            if (scope !== getActiveScope()) {
+                throw new DOMException('O atlas mudou enquanto a edição aguardava.', 'AbortError');
+            }
             return await fn();
         } finally {
             state.active = null;

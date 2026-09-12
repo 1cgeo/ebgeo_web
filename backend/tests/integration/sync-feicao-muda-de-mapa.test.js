@@ -175,7 +175,7 @@ describe('Sync: create de feicao carimbado com outro mapa MOVE a linha', () => {
     const replay = await pushSync([
       featureCreateOp(featureId, mapa.id, camada.id, [-10.1, -10.1], 'Atrasado'),
     ]).expect(200);
-    assert.equal(replay.body.data.results[0].success, true, 'o replay volta acked, nao aplicado');
+    assert.equal(replay.body.data.results[0].success, false, 'create sem efeito e recusado explicitamente');
 
     const depois = await lerFeicao(featureId);
     assert.deepEqual(
@@ -202,7 +202,7 @@ describe('Sync: create de feicao carimbado com outro mapa MOVE a linha', () => {
     const tentativa = await pushSync([
       featureCreateOp(featureId, mapaVizinho.id, null, [-43.2, -22.9], 'Alvo C'),
     ]).expect(200);
-    assert.equal(tentativa.body.data.results[0].success, true, 'a op volta acked, e escreve zero linhas');
+    assert.equal(tentativa.body.data.results[0].success, false, 'destino de outro atlas e recusado');
 
     const depois = await lerFeicao(featureId);
     assert.equal(depois.map_id, origem.id, 'a feicao ficou onde estava');

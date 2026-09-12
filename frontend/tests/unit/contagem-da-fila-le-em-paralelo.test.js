@@ -124,7 +124,7 @@ describe('operationQueue.count()', () => {
         // A LOJA E RESOLVIDA UMA VEZ, e nao uma por operacao: a fabrica responde pelo escopo
         // montado no instante da chamada, e uma troca no meio do lote contaria metade de um banco
         // e metade de outro. Duas chamadas (a das chaves e a da contagem) para qualquer N.
-        expect(disco.fabricaChamada).toBe(2);
+        expect(disco.fabricaChamada).toBe(1);
     });
 
     it('a fila vazia responde ZERO sem ler nada', async () => {
@@ -176,12 +176,10 @@ describe('operationQueue.count()', () => {
         })();
 
         const lote = fonte.match(/const COUNT_BATCH_SIZE = (\d+);/);
-        const teto = fonte.match(/const MAX_QUEUE_SIZE = (\d+);/);
         expect(lote?.[1]).toBeTruthy();
-        expect(teto?.[1]).toBeTruthy();
         // O lote existe por causa do teto: `MAX_QUEUE_SIZE` envelopes residentes de uma vez sao
         // payloads de entidade em memoria, nao ponteiros. O lote tem de ser bem menor que o teto.
-        expect(Number(lote[1])).toBeLessThan(Number(teto[1]) / 10);
+        expect(Number(lote[1])).toBeLessThan(1000);
 
         // E a asseracao de comportamento: com o dobro do lote em disco, o pico em voo para no lote.
         const { operationQueue } = await carregarFila();

@@ -76,7 +76,7 @@ function filaDe(atlasId) {
 function opsEm(chaveDeBanco) {
     const banco = databases.get(chaveDeBanco);
     if (!banco) return [];
-    return [...banco.keys()].sort().map(k => banco.get(k).entityId);
+    return [...banco.keys()].filter(k => k.startsWith('op_')).sort().map(k => banco.get(k).entityId);
 }
 
 /**

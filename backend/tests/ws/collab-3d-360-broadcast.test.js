@@ -117,11 +117,16 @@ describe('WebSocket collab — 3D/360 op broadcast to peers', () => {
         },
       });
 
-      await a.waitForType('ack'); // A's op was accepted...
+      const ack = await a.waitForType('ack'); // A's op was accepted...
       const bcast = await b.waitForType('operation'); // ...and delivered to the peer.
-      assert.equal(bcast.op.targetId, targetId);
-      assert.equal(bcast.op.target, st.target);
-      assert.equal(bcast.op.data.data_type, st.data.data_type, 'the exact sub-type reaches the peer');
+      assert.equal(bcast.op.entityId, targetId);
+      assert.equal(bcast.op.entityType, st.label, 'the canonical subtype reaches the peer');
+      assert.equal(bcast.op.serverVersion, ack.result.currentVersion);
+      assert.equal(bcast.op.data.id, targetId);
+      assert.ok(Object.entries(st.data.data).length > 0);
+      for (const [key, value] of Object.entries(st.data.data)) {
+        assert.deepEqual(bcast.op.data[key], value, `canonical payload preserves ${key}`);
+      }
     });
   }
 });

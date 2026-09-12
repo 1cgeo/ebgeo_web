@@ -15,7 +15,7 @@
  */
 
 import { EventTypes } from '../../events/event_types.js';
-import { getRepository, setSettingCompat } from '../repositories/index.js';
+import { getRepository } from '../repositories/index.js';
 import { localRepository } from '../repositories/local.repository.js';
 import { getStorageTypeFromSource } from '../store.constants.js';
 import { ensureMapDataShape } from '../repository.utils.js';
@@ -28,6 +28,12 @@ import { EntityType, OperationType } from './operation-types.js';
 import { editedRecentlyLocally } from './overwrite-notice.js';
 import { record } from './diag/trace-core.js';
 import { TraceStage, TraceOutcome } from './diag/trace-stages.js';
+import { operationQueue } from './operation-queue.js';
+import { getActiveScope } from '@store/atlas-namespace.js';
+import { readGeneration, writeGeneration } from '../namespace-generation.js';
+import { pauseStoreWrites } from '../write-coordinator.js';
+import { createAtlas } from '../atlas/atlas.entity.js';
+import { generateUUID } from '../../utilities/uuid.js';
 
 // ============================================================================
 // MODULE STATE
@@ -36,6 +42,86 @@ import { TraceStage, TraceOutcome } from './diag/trace-stages.js';
 /** @type {import('../../events/event_bus.js').EventBus|null} */
 let _eventBus = null;
 
+let applyContext = null;
+
+/** Volatile ordering evidence belongs to one mount, never to a later atlas with equal IDs. */
+class MountMap {
+    constructor() { this.mounts = new WeakMap(); this.legacy = new Map(); }
+    forScope(scope = applyContext?.scope ?? getActiveScope()) {
+        if (!scope) return this.legacy;
+        if (!this.mounts.has(scope)) this.mounts.set(scope, new Map());
+        return this.mounts.get(scope);
+    }
+    get(key) { return this.forScope().get(key); }
+    set(key, value) { return this.forScope().set(key, value); }
+    delete(key) { return this.forScope().delete(key); }
+    keys() { return this.forScope().keys(); }
+    get size() { return this.forScope().size; }
+}
+
+function capturedApplyContext(options = {}) {
+    const context = {
+        scope: options.scope ?? getActiveScope(),
+        signal: options.signal,
+        repo: options.repository,
+        localRepo: options.repository,
+        assertActive() {
+            this.signal?.throwIfAborted();
+            const active = getActiveScope();
+            if (!this.scope && active?.kind === 'local' && active.dbSuffix === '') this.scope = active;
+            if (active !== this.scope) throw new DOMException('O atlas desta aplicação foi desmontado.', 'AbortError');
+        },
+    };
+    return context;
+}
+
+async function withApplyContext(context, work) {
+    context.assertActive();
+    applyContext = context;
+    try {
+        const result = await work();
+        context.assertActive();
+        return result;
+    } finally {
+        applyContext = null;
+    }
+}
+
+function handlerRepository() {
+    applyContext?.assertActive();
+    if (!applyContext) return getRepository();
+    const repo = getRepository();
+    applyContext.repo ??= (repo.forScope?.(applyContext.scope) ?? repo);
+    return applyContext.repo;
+}
+
+function handlerLocalRepository() {
+    applyContext?.assertActive();
+    if (!applyContext) return localRepository;
+    applyContext.localRepo ??= (localRepository.forScope?.(applyContext.scope) ?? localRepository);
+    return applyContext.localRepo;
+}
+
+function applyHandlerAppearance(data) {
+    const context = applyContext;
+    return applyRemoteAppearance(data, getControl('TerrainControl'), globalThis.__ebgeoMap, {
+        repository: handlerRepository(),
+        assertActive: () => context?.assertActive(),
+        present,
+    });
+}
+
+/** A staged generation must not change the visible map before its commit point. */
+function present(fn) {
+    const context = applyContext;
+    context?.assertActive();
+    if (context?.staging) {
+        context.presentation.push(fn);
+        return;
+    }
+    return fn();
+}
+
 /**
  * Feature ops whose map has not been applied locally yet, keyed by mapId. A feature/create
  * for a freshly-created map can arrive before that map's create op is persisted (A creates a
@@ -43,7 +129,7 @@ let _eventBus = null;
  * map lands prevents silent data loss on the peer.
  * @type {Map<string, Array<{opType: string, featureId: string, data: Object}>>}
  */
-const pendingFeatureOps = new Map();
+const pendingFeatureOps = new MountMap();
 
 /** Cap per map so a never-arriving map cannot grow the buffer unbounded. */
 const MAX_PENDING_PER_MAP = 1000;
@@ -55,7 +141,8 @@ function bufferPendingFeatureOp(mapId, op) {
         arr = [];
         pendingFeatureOps.set(mapId, arr);
     }
-    if (arr.length >= MAX_PENDING_PER_MAP) arr.shift();
+    if (arr.some(item => item.opId === op.opId)) return;
+    if (arr.length >= MAX_PENDING_PER_MAP) throw new Error('A recuperação precisa de um novo retrato do servidor.');
     arr.push(op);
 }
 
@@ -70,12 +157,14 @@ function bufferPendingFeatureOp(mapId, op) {
 async function drainPendingFeatureOps(mapId) {
     const arr = pendingFeatureOps.get(mapId);
     if (!arr || arr.length === 0) return;
-    pendingFeatureOps.delete(mapId);
-    for (const op of arr) {
+    for (const op of [...arr]) {
         // These ops bypass applyRemoteOperation, so apply the version guard here: skip one older
         // than what's already applied, and record the applied version on success so a later
         // concurrent op can't overwrite it (LWW by server arrival order).
-        if (!shouldApplyVersion(op.featureId, op.serverVersion)) continue;
+        if (!shouldApplyVersion(op.featureId, op.serverVersion)) {
+            arr.splice(arr.indexOf(op), 1);
+            continue;
+        }
         const applied = await applyRemoteFeatureOp(op.opType, op.featureId, mapId, op.data, op.serverVersion, op.opId, op.traceId);
         if (applied) {
             // Peer-side IndexedDB-write confirmation for a feature whose map arrived late
@@ -87,14 +176,16 @@ async function drainPendingFeatureOps(mapId) {
                 outcome: TraceOutcome.OK,
             });
             if (op.opType === OperationType.DELETE) {
-                lastAppliedVersion.delete(op.featureId);
+                markAppliedVersion(op.featureId, op.serverVersion);
                 lastRemoteAppliedVersion.delete(op.featureId);
             } else {
                 markAppliedVersion(op.featureId, op.serverVersion);
                 markRemoteApplied(op.featureId, op.serverVersion);
             }
+            arr.splice(arr.indexOf(op), 1);
         }
     }
+    if (!arr.length) pendingFeatureOps.delete(mapId);
 }
 
 /**
@@ -105,7 +196,7 @@ async function drainPendingFeatureOps(mapId) {
  * filters its own WS echo and would otherwise never learn its op's server order.
  * @type {Map<string, number>}
  */
-const lastAppliedVersion = new Map();
+const lastAppliedVersion = new MountMap();
 
 /**
  * Highest serverVersion of a REMOTE op actually applied to each entity, kept apart from
@@ -125,7 +216,7 @@ const lastAppliedVersion = new Map();
  * the server holds C's colour, C displays A's, forever.
  * @type {Map<string, number>}
  */
-const lastRemoteAppliedVersion = new Map();
+const lastRemoteAppliedVersion = new MountMap();
 
 /**
  * Serialization chain for the CONVERGENCE-GUARDED apply path.
@@ -206,10 +297,35 @@ function markRemoteApplied(entityKey, serverVersion) {
  * server order and replays the deferred ops through the version guard.
  * @type {Map<string, number>}
  */
-const pendingLocalEditCount = new Map();
+const pendingLocalEditCount = new MountMap();
 
 /** Remote ops deferred while the local user had an un-acked edit, keyed by entity id. */
-const deferredRemoteOps = new Map();
+const deferredRemoteOps = new MountMap();
+const deferredCompletions = new Map();
+
+function completionKey(scope, operation) {
+    return `${scope?.dbSuffix ?? ''}:${operation.id}`;
+}
+
+function waitForDeferredOperation(operation, context) {
+    const buffered = deferredRemoteOps.get(operation.entityId);
+    if (!buffered?.some(op => op.id === operation.id)) return false;
+    return new Promise((resolve, reject) => {
+        const key = completionKey(context.scope, operation);
+        if (!deferredCompletions.has(key)) deferredCompletions.set(key, new Set());
+        const waiters = deferredCompletions.get(key);
+        const finish = error => {
+            context.signal?.removeEventListener('abort', abort);
+            waiters.delete(finish);
+            if (!waiters.size) deferredCompletions.delete(key);
+            if (error) reject(error); else resolve(true);
+        };
+        const abort = () => finish(context.signal.reason);
+        waiters.add(finish);
+        context.signal?.addEventListener('abort', abort, { once: true });
+        if (context.signal?.aborted) abort();
+    });
+}
 
 /** Cap so a never-acked local edit can't grow the deferred buffer unbounded. */
 const MAX_DEFERRED_PER_ENTITY = 200;
@@ -264,7 +380,8 @@ function markAppliedVersion(entityKey, serverVersion) {
  */
 export function markLocalEditPending(featureId) {
     if (!featureId) return;
-    pendingLocalEditCount.set(featureId, (pendingLocalEditCount.get(featureId) || 0) + 1);
+    const counts = pendingLocalEditCount.forScope(getActiveScope());
+    counts.set(featureId, (counts.get(featureId) || 0) + 1);
 }
 
 /**
@@ -277,7 +394,7 @@ export function markLocalEditPending(featureId) {
  * @returns {boolean} True enquanto qualquer entidade estiver com o freio de convergencia posto.
  */
 export function hasPendingLocalEdits() {
-    return pendingLocalEditCount.size > 0;
+    return pendingLocalEditCount.forScope(getActiveScope()).size > 0;
 }
 
 /** Buffers a remote op while the local user has an un-acked edit on the same entity. */
@@ -287,7 +404,8 @@ function deferRemoteOp(entityId, operation) {
         arr = [];
         deferredRemoteOps.set(entityId, arr);
     }
-    if (arr.length >= MAX_DEFERRED_PER_ENTITY) arr.shift();
+    if (arr.some(op => op.id === operation.id)) return;
+    if (arr.length >= MAX_DEFERRED_PER_ENTITY) throw new Error('Há alterações aguardando recuperação. Reconectando para obter uma base completa.');
     arr.push(operation);
 }
 
@@ -324,42 +442,48 @@ function deferRemoteOp(entityId, operation) {
  * @returns {Promise<void>}
  */
 export async function resolveLocalEdit(entityId, serverVersion, localOp = null) {
-    markAppliedVersion(entityId, serverVersion);
     if (!entityId) return;
-    const remaining = (pendingLocalEditCount.get(entityId) || 0) - 1;
+    const context = capturedApplyContext();
+    const versions = lastAppliedVersion.forScope(context.scope);
+    const counts = pendingLocalEditCount.forScope(context.scope);
+    const remoteVersions = lastRemoteAppliedVersion.forScope(context.scope);
+    if (serverVersion != null) versions.set(entityId, Math.max(versions.get(entityId) ?? 0, serverVersion));
+    const remaining = (counts.get(entityId) || 0) - 1;
     if (remaining > 0) {
-        pendingLocalEditCount.set(entityId, remaining);
+        counts.set(entityId, remaining);
         return;
     }
-    pendingLocalEditCount.delete(entityId);
+    counts.delete(entityId);
 
-    const clobberedBy = lastRemoteAppliedVersion.get(entityId);
-    if (localOp && serverVersion != null && clobberedBy != null && clobberedBy < serverVersion) {
-        try {
-            // Straight back through the inbound path: same handlers, same locks, same lifecycle
-            // events, so the UI refreshes exactly as it does for a peer's op. The guard lets it
-            // through by construction — the pending count was just cleared and
-            // `shouldApplyVersion` compares `>=` against the version seeded three lines above.
-            // `localRepair` só é lido pelo tap do SyncLedger (`diag/bus-tap.js`), para que este
-            // reapply não seja contado como "um par aplicou a op": o detector de órfã do ledger
-            // não exclui o autor, e um span aqui a faria parecer aplicada em alguém.
-            await applyRemoteOperation({ ...localOp, serverVersion, localRepair: true });
-        } catch (err) {
-            console.warn('Local-winner repair failed:', err);
-        }
+    // A snapshot can replace the local projection without an individual remote-op mark.
+    if (localOp && serverVersion != null && versions.get(entityId) === serverVersion) {
+        // Straight back through the inbound path: same handlers, same locks, same lifecycle
+        // events, so the UI refreshes exactly as it does for a peer's op. The guard lets it
+        // through by construction — the pending count was just cleared and
+        // `shouldApplyVersion` compares `>=` against the version seeded three lines above.
+        // `localRepair` só é lido pelo tap do SyncLedger (`diag/bus-tap.js`), para que este
+        // reapply não seja contado como "um par aplicou a op": o detector de órfã do ledger
+        // não exclui o autor, e um span aqui a faria parecer aplicada em alguém.
+        await applyRemoteOperation({ ...localOp, serverVersion, localRepair: true }, context);
     }
-    lastRemoteAppliedVersion.delete(entityId);
+    context.assertActive();
+    remoteVersions.delete(entityId);
 
-    const deferred = deferredRemoteOps.get(entityId);
-    if (!deferred || deferred.length === 0) return;
-    deferredRemoteOps.delete(entityId);
-    for (const op of deferred) {
-        try {
-            await applyRemoteOperation(op);
-        } catch (err) {
-            console.warn('Deferred remote op replay failed:', err);
-        }
+    await replayDeferred(entityId, context);
+}
+
+async function replayDeferred(entityId, context) {
+    const buffers = deferredRemoteOps.forScope(context.scope);
+    const deferred = buffers.get(entityId);
+    if (!deferred?.length) return;
+    for (const op of [...deferred]) {
+        context.assertActive();
+        const applied = await applyRemoteOperation(op, context);
+        context.assertActive();
+        if (applied === false) break;
+        deferred.splice(deferred.indexOf(op), 1);
     }
+    if (!deferred.length) buffers.delete(entityId);
 }
 
 /**
@@ -372,22 +496,16 @@ export async function resolveLocalEdit(entityId, serverVersion, localOp = null) 
  * @returns {Promise<void>}
  */
 export async function reconcilePendingLocalEdits(remainingEntityIds) {
+    const context = capturedApplyContext();
+    const counts = pendingLocalEditCount.forScope(context.scope);
     const stale = [];
-    for (const entityId of pendingLocalEditCount.keys()) {
+    for (const entityId of counts.keys()) {
         if (!remainingEntityIds.has(entityId)) stale.push(entityId);
     }
     for (const entityId of stale) {
-        pendingLocalEditCount.delete(entityId);
-        const deferred = deferredRemoteOps.get(entityId);
-        if (!deferred || deferred.length === 0) continue;
-        deferredRemoteOps.delete(entityId);
-        for (const op of deferred) {
-            try {
-                await applyRemoteOperation(op);
-            } catch (err) {
-                console.warn('Deferred remote op replay failed:', err);
-            }
-        }
+        context.assertActive();
+        counts.delete(entityId);
+        await replayDeferred(entityId, context);
     }
 }
 
@@ -424,10 +542,15 @@ export function setRemoteHandlerEventBus(eventBus) {
  * @param {Object} [operation.data] - Entity data (for CREATE/UPDATE)
  * @returns {Promise<void>}
  */
-export async function applyRemoteOperation(operation) {
+export async function applyRemoteOperation(operation, options = {}) {
+    const context = capturedApplyContext(options);
     const guarded = CONVERGENCE_GUARDED.has(operation?.entityType) && !!operation?.entityId;
-    if (!guarded) return applyRemoteOperationInner(operation, false);
-    return serializeGuardedApply(() => applyRemoteOperationInner(operation, true));
+    const applied = await serializeGuardedApply(() => withApplyContext(context, () => applyRemoteOperationInner(operation, guarded)));
+    if (applied === false && options.waitForDeferred) return waitForDeferredOperation(operation, context);
+    if (applied !== false) {
+        for (const finish of deferredCompletions.get(completionKey(context.scope, operation)) ?? []) finish();
+    }
+    return applied;
 }
 
 /**
@@ -451,7 +574,7 @@ async function applyRemoteOperationInner(operation, guarded) {
     if (guarded) {
         if ((pendingLocalEditCount.get(entityId) || 0) > 0) {
             deferRemoteOp(entityId, operation);
-            return;
+            return false;
         }
         if (!shouldApplyVersion(entityId, serverVersion)) return;
     }
@@ -533,9 +656,10 @@ async function applyRemoteOperationInner(operation, guarded) {
 
     // Record this entity's applied server order (DELETE clears it so a re-create starts fresh).
     // Skip when a feature op was only buffered (featureApplied === false) — it isn't applied yet.
+    applyContext?.assertActive();
     if (guarded && featureApplied) {
         if (operationType === OperationType.DELETE) {
-            lastAppliedVersion.delete(entityId);
+            markAppliedVersion(entityId, serverVersion);
             lastRemoteAppliedVersion.delete(entityId);
         } else {
             markAppliedVersion(entityId, serverVersion);
@@ -543,7 +667,7 @@ async function applyRemoteOperationInner(operation, guarded) {
             // re-enters here and marks itself, which is why `resolveLocalEdit` clears the entry
             // right AFTER awaiting it.
             markRemoteApplied(entityId, serverVersion);
-            announceOverwrite(entityId, operation.authorUserId);
+            if (!operation.localRepair) announceOverwrite(entityId, operation.authorUserId);
         }
     }
 
@@ -560,6 +684,7 @@ async function applyRemoteOperationInner(operation, guarded) {
     }
 
     emit(EventTypes.REMOTE_OPERATION_APPLIED, { operation });
+    return featureApplied && (entityPersisted || entityType === EntityType.SLIDE);
 }
 
 // ============================================================================
@@ -617,7 +742,7 @@ function applyRemoteFeatureOp(opType, featureId, mapId, data, serverVersion, opI
  * @returns {Promise<boolean>} Whether the op was applied (false = buffered)
  */
 async function applyRemoteFeatureOpLocked(opType, featureId, mapId, data, serverVersion, opId, traceId) {
-    const repo = getRepository();
+    const repo = handlerRepository();
     const mapData = await repo.getMap(mapId);
     if (!mapData) {
         // The map hasn't been applied locally yet — a feature/create can arrive before its
@@ -716,43 +841,41 @@ async function applyRemoteFeatureOpLocked(opType, featureId, mapId, data, server
  * @returns {Promise<void>} Resolves once persisted and announced
  */
 async function applyRemoteLayerOp(opType, layerId, mapId, data) {
-    const repo = getRepository();
+    const repo = handlerRepository();
     /** @type {Array<{featureId: string, featureType: string}>} */
     let cascaded = [];
     // Persist the layer to the local store like the map/feature handlers do. Emitting
     // an event alone left the peer WITHOUT the layer — the desktop has no subscriber
     // that persists LAYER_* events — so a collaborator's new/edited/deleted layer never
     // reached the other client.
-    try {
-        const layers = (await repo.getLayers?.(mapId)) || [];
-        let next = layers;
-        if (opType === OperationType.CREATE) {
-            next = findFeatureIndexById(layers, layerId) !== -1
-                ? layers.map((l) => (l.id === layerId ? data : l)) // idempotent re-apply
-                : [...layers, data];
-        } else if (opType === OperationType.UPDATE) {
-            next = layers.map((l) => (l.id === layerId ? { ...l, ...data } : l));
-        } else if (opType === OperationType.DELETE) {
-            next = layers.filter((l) => l.id !== layerId);
-        }
-        await repo.saveLayers?.(mapId, next);
-        // The cascade runs AFTER the layer leaves the list, in the server's own order, and the
-        // harvest is emitted outside the `try` so that a persistence failure cannot announce a
-        // deletion that did not happen.
-        if (opType === OperationType.DELETE) {
-            cascaded = await cascadeRemoteLayerDelete(layerId, mapId);
-        }
-        // Refresh the in-memory layer cache so getVisibleLayerIds() and the features panel
-        // see the new/changed layer immediately. The visibility filter reads memoryStore
-        // (not the repo), so without this a peer's features on a brand-new layer are filtered
-        // OUT until a manual map switch (§item3a). Only the current map has a live cache.
-        const layerMapName = mapResolver.resolveToName(mapId) || mapId;
-        if (memoryStore.currentMap === layerMapName) {
+    const layers = (await repo.getLayers?.(mapId)) || [];
+    let next = layers;
+    if (opType === OperationType.CREATE) {
+        next = findFeatureIndexById(layers, layerId) !== -1
+            ? layers.map((l) => (l.id === layerId ? data : l)) // idempotent re-apply
+            : [...layers, data];
+    } else if (opType === OperationType.UPDATE) {
+        next = layers.map((l) => (l.id === layerId ? { ...l, ...data } : l));
+    } else if (opType === OperationType.DELETE) {
+        next = layers.filter((l) => l.id !== layerId);
+    }
+    await repo.saveLayers?.(mapId, next);
+    // The cascade runs AFTER the layer leaves the list, in the server's own order, and the
+    // harvest is emitted outside the `try` so that a persistence failure cannot announce a
+    // deletion that did not happen.
+    if (opType === OperationType.DELETE) {
+        cascaded = await cascadeRemoteLayerDelete(layerId, mapId);
+    }
+    // Refresh the in-memory layer cache so getVisibleLayerIds() and the features panel
+    // see the new/changed layer immediately. The visibility filter reads memoryStore
+    // (not the repo), so without this a peer's features on a brand-new layer are filtered
+    // OUT until a manual map switch (§item3a). Only the current map has a live cache.
+    const layerMapName = mapResolver.resolveToName(mapId) || mapId;
+    if (memoryStore.currentMap === layerMapName) {
+        await present(async () => {
             const { loadLayersToMemory } = await import('../layer.operations.js');
             await loadLayersToMemory(layerMapName);
-        }
-    } catch (err) {
-        console.warn('Remote layer op persist failed:', err);
+        });
     }
 
     switch (opType) {
@@ -809,7 +932,7 @@ function cascadeRemoteLayerDelete(layerId, mapId) {
     // Same lock key as `applyRemoteFeatureOp`: this is a read-modify-write of the SAME map
     // document, and it races the user's local drawing.
     return withMapDocument(mapId, 'applyRemoteLayerOp:cascade', async () => {
-        const repo = getRepository();
+        const repo = handlerRepository();
         const mapData = await repo.getMap(mapId);
         if (!mapData?.features) return [];
 
@@ -844,7 +967,7 @@ function findFeatureIndexById(arr, id) {
  * @param {Object} data - Map data
  */
 async function applyRemoteMapOp(opType, mapId, data) {
-    const repo = getRepository();
+    const repo = handlerRepository();
     switch (opType) {
         case OperationType.CREATE: {
             // Persist a map another user created so it appears locally (§1.8). Reshape the
@@ -857,7 +980,7 @@ async function applyRemoteMapOp(opType, mapId, data) {
             // has none) but so it cannot land INSIDE another writer's read-modify-write
             // window, which would revert the map to this snapshot.
             if (reshaped) await withMapDocument(mapId, 'applyRemoteMapOp:create', () => repo.saveMap?.(mapId, reshaped));
-            if (reshaped?.name) mapResolver.registerMap(reshaped.name, mapId);
+            if (reshaped?.name) present(() => mapResolver.registerMap(reshaped.name, mapId));
             // Replay any feature ops that arrived before this map existed (anti silent-drop).
             // OUTSIDE the lock above: each replayed op takes the same key itself, so draining
             // inside it makes the section wait for itself (measured: the guard test hangs).
@@ -894,28 +1017,22 @@ async function applyRemoteMapOp(opType, mapId, data) {
  * @param {Object} data - Group data
  */
 async function applyRemoteGroupOp(opType, groupId, mapId, data) {
-    const repo = getRepository();
+    const repo = handlerRepository();
     // Persist the group to BOTH the local group store (a separate store from map data,
     // keyed by map id) AND the in-memory cache (memoryStore.groups, keyed by map NAME —
     // what getMapGroups reads), mirroring how group_manager writes them. Emitting an event
     // alone left the peer WITHOUT the group: no subscriber persists GROUP_* events, and the
     // map-data save never touches the group store. The backend already stores groups and
     // returns them in the snapshot — this is the live-op half of that same contract.
-    try {
-        const mapName = mapResolver.resolveToName(mapId) || mapId;
-        const groups = (await repo.getGroups?.(mapId)) || {};
-        if (!memoryStore.groups[mapName]) memoryStore.groups[mapName] = {};
-        if (opType === OperationType.DELETE) {
-            delete groups[groupId];
-            delete memoryStore.groups[mapName][groupId];
-        } else if (data) {
-            groups[groupId] = data;
-            memoryStore.groups[mapName][groupId] = data;
-        }
-        await repo.saveGroups?.(mapId, groups);
-    } catch (err) {
-        console.warn('Remote group op persist failed:', err);
+    const mapName = mapResolver.resolveToName(mapId) || mapId;
+    const groups = (await repo.getGroups?.(mapId)) || {};
+    if (opType === OperationType.DELETE) {
+        delete groups[groupId];
+    } else if (data) {
+        groups[groupId] = data;
     }
+    await repo.saveGroups?.(mapId, groups);
+    present(() => { memoryStore.groups[mapName] = groups; });
 
     switch (opType) {
         case OperationType.CREATE:
@@ -954,46 +1071,40 @@ async function applyRemoteGroupFeatureOp(opType, mapId, data) {
     const featureId = data?.feature_id;
     if (!groupId || !featureId) return false;
 
-    const repo = getRepository();
-    try {
-        const mapName = mapResolver.resolveToName(mapId) || mapId;
-        const groups = (await repo.getGroups?.(mapId)) || {};
-        const group = groups[groupId];
-        // No group locally: nothing to attach the member to. The `group` op that creates it
-        // is logged BEFORE its membership ops, so in order this cannot be a race; an op for a
-        // group this peer never received is residue, and inventing a group from it would put
-        // a nameless entry in the tab.
-        if (!group || !Array.isArray(group.features)) return false;
+    const repo = handlerRepository();
+    const mapName = mapResolver.resolveToName(mapId) || mapId;
+    const groups = (await repo.getGroups?.(mapId)) || {};
+    const group = groups[groupId];
+    // No group locally: nothing to attach the member to. The `group` op that creates it
+    // is logged BEFORE its membership ops, so in order this cannot be a race; an op for a
+    // group this peer never received is residue, and inventing a group from it would put
+    // a nameless entry in the tab.
+    if (!group || !Array.isArray(group.features)) return false;
 
-        // ONE identity predicate for both branches. A member is the PAIR (type, id), which is
-        // what `GroupManager.getFeatureGroup` matches on locally; using it on the delete and
-        // the plain id on the create would let a create and the delete that undoes it disagree
-        // about what "the same member" is. A legacy op with no `feature_type` degrades to
-        // matching by id alone, on both sides.
-        const featureType = data.feature_type ?? null;
-        const sameMember = (f) => f.id === featureId
-            && (featureType === null || f.type === featureType);
+    // ONE identity predicate for both branches. A member is the PAIR (type, id), which is
+    // what `GroupManager.getFeatureGroup` matches on locally; using it on the delete and
+    // the plain id on the create would let a create and the delete that undoes it disagree
+    // about what "the same member" is. A legacy op with no `feature_type` degrades to
+    // matching by id alone, on both sides.
+    const featureType = data.feature_type ?? null;
+    const sameMember = (f) => f.id === featureId
+        && (featureType === null || f.type === featureType);
 
-        const before = group.features.length;
-        if (opType === OperationType.DELETE) {
-            group.features = group.features.filter((f) => !sameMember(f));
-        } else if (!group.features.some(sameMember)) {
-            group.features = [...group.features, { type: featureType, id: featureId }];
-        }
-        if (group.features.length === before) return false;
-
-        groups[groupId] = group;
-        if (!memoryStore.groups[mapName]) memoryStore.groups[mapName] = {};
-        memoryStore.groups[mapName][groupId] = group;
-        await repo.saveGroups?.(mapId, groups);
-
-        emit(EventTypes.GROUP_MODIFIED, { groupId, mapId, group });
-        emit(EventTypes.GROUPS_CHANGED, {});
-        return true;
-    } catch (err) {
-        console.warn('Remote group membership op persist failed:', err);
-        return false;
+    const before = group.features.length;
+    if (opType === OperationType.DELETE) {
+        group.features = group.features.filter((f) => !sameMember(f));
+    } else if (!group.features.some(sameMember)) {
+        group.features = [...group.features, { type: featureType, id: featureId }];
     }
+    if (group.features.length === before) return false;
+
+    groups[groupId] = group;
+    await repo.saveGroups?.(mapId, groups);
+    present(() => { memoryStore.groups[mapName] = groups; });
+
+    emit(EventTypes.GROUP_MODIFIED, { groupId, mapId, group });
+    emit(EventTypes.GROUPS_CHANGED, {});
+    return true;
 }
 
 /**
@@ -1008,7 +1119,7 @@ async function applyRemoteBriefingOp(opType, briefingId, data) {
         case OperationType.CREATE:
         case OperationType.UPDATE: {
             if (data) {
-                await localRepository.saveBriefing(briefingId, data);
+                await handlerLocalRepository().saveBriefing(briefingId, data);
             }
             const eventType = opType === OperationType.CREATE
                 ? EventTypes.BRIEFING_CREATED
@@ -1017,7 +1128,7 @@ async function applyRemoteBriefingOp(opType, briefingId, data) {
             break;
         }
         case OperationType.DELETE:
-            await localRepository.deleteBriefing(briefingId);
+            await handlerLocalRepository().deleteBriefing(briefingId);
             emit(EventTypes.BRIEFING_DELETED, { briefingId });
             break;
     }
@@ -1038,18 +1149,18 @@ async function applyRemoteCommentOp(opType, commentId, mapId, data) {
     // later save drops the earlier one. Same key as the local side (`comments:<mapId>`), or
     // the two would not exclude each other at all.
     return withSideDocument('comments', mapId, 'applyRemoteCommentOp', async () => {
-        const collection = await localRepository.getMapComments(mapId);
+        const collection = await handlerLocalRepository().getMapComments(mapId);
         switch (opType) {
             case OperationType.CREATE:
             case OperationType.UPDATE: {
                 if (data) collection[commentId] = data;
-                await localRepository.saveMapComments(mapId, collection);
+                await handlerLocalRepository().saveMapComments(mapId, collection);
                 emit(opType === OperationType.CREATE ? EventTypes.COMMENT_CREATED : EventTypes.COMMENT_UPDATED, { comment: data });
                 break;
             }
             case OperationType.DELETE:
                 delete collection[commentId];
-                await localRepository.saveMapComments(mapId, collection);
+                await handlerLocalRepository().saveMapComments(mapId, collection);
                 emit(EventTypes.COMMENT_DELETED, { commentId });
                 break;
         }
@@ -1095,23 +1206,19 @@ async function invalidateStreetview360Cache() {
  * @returns {Promise<void>}
  */
 async function applyRemoteCesium3dEntityOp(bucket, changeEvent, opType, entityId, mapId, data) {
-    const repo = getRepository();
+    const repo = handlerRepository();
     const mapName = mapResolver.resolveToName(mapId) || mapId;
-    try {
-        const c3d = await repo.getCesium3d?.(mapName);
-        if (c3d) {
-            if (!Array.isArray(c3d[bucket])) c3d[bucket] = [];
-            const idx = c3d[bucket].findIndex((e) => e && e.id === entityId);
-            if (opType === OperationType.DELETE) {
-                if (idx !== -1) c3d[bucket].splice(idx, 1);
-            } else if (data) {
-                if (idx !== -1) c3d[bucket][idx] = data; else c3d[bucket].push(data);
-            }
-            await repo.saveCesium3d?.(mapName, c3d);
-            await invalidateCesium3dCache();
+    const c3d = await repo.getCesium3d?.(mapName);
+    if (c3d) {
+        if (!Array.isArray(c3d[bucket])) c3d[bucket] = [];
+        const idx = c3d[bucket].findIndex((e) => e && e.id === entityId);
+        if (opType === OperationType.DELETE) {
+            if (idx !== -1) c3d[bucket].splice(idx, 1);
+        } else if (data) {
+            if (idx !== -1) c3d[bucket][idx] = data; else c3d[bucket].push(data);
         }
-    } catch (err) {
-        console.warn('Remote cesium3d op persist failed:', err);
+        await repo.saveCesium3d?.(mapName, c3d);
+        await present(invalidateCesium3dCache);
     }
     emit(changeEvent, { mapName: mapId });
 }
@@ -1128,23 +1235,19 @@ async function applyRemoteCesium3dEntityOp(bucket, changeEvent, opType, entityId
  * @returns {Promise<void>}
  */
 async function applyRemoteCameraOp(opType, entityId, mapId, data) {
-    const repo = getRepository();
+    const repo = handlerRepository();
     const mapName = mapResolver.resolveToName(mapId) || mapId;
-    try {
-        const c3d = await repo.getCesium3d?.(mapName);
-        if (c3d) {
-            if (!c3d.cameraPositions) c3d.cameraPositions = {};
-            if (opType === OperationType.DELETE) {
-                const key = Object.keys(c3d.cameraPositions).find((k) => c3d.cameraPositions[k]?.id === entityId);
-                if (key) delete c3d.cameraPositions[key];
-            } else if (data?.tilesetId) {
-                c3d.cameraPositions[data.tilesetId] = data;
-            }
-            await repo.saveCesium3d?.(mapName, c3d);
-            await invalidateCesium3dCache();
+    const c3d = await repo.getCesium3d?.(mapName);
+    if (c3d) {
+        if (!c3d.cameraPositions) c3d.cameraPositions = {};
+        if (opType === OperationType.DELETE) {
+            const key = Object.keys(c3d.cameraPositions).find((k) => c3d.cameraPositions[k]?.id === entityId);
+            if (key) delete c3d.cameraPositions[key];
+        } else if (data?.tilesetId) {
+            c3d.cameraPositions[data.tilesetId] = data;
         }
-    } catch (err) {
-        console.warn('Remote camera op persist failed:', err);
+        await repo.saveCesium3d?.(mapName, c3d);
+        await present(invalidateCesium3dCache);
     }
     if (opType !== OperationType.DELETE) {
         emit(EventTypes.CAMERA_3D_SAVED, { tilesetId: data?.tilesetId, mapName: mapId });
@@ -1163,23 +1266,19 @@ async function applyRemoteCameraOp(opType, entityId, mapId, data) {
  * @returns {Promise<void>}
  */
 async function applyRemoteOrientation360Op(opType, entityId, mapId, data) {
-    const repo = getRepository();
+    const repo = handlerRepository();
     const mapName = mapResolver.resolveToName(mapId) || mapId;
-    try {
-        const sv = await repo.getStreetview360?.(mapName);
-        if (sv) {
-            if (!sv.orientations) sv.orientations = {};
-            if (opType === OperationType.DELETE) {
-                const key = Object.keys(sv.orientations).find((k) => sv.orientations[k]?.id === entityId);
-                if (key) delete sv.orientations[key];
-            } else if (data?.photoName) {
-                sv.orientations[data.photoName] = data;
-            }
-            await repo.saveStreetview360?.(mapName, sv);
-            await invalidateStreetview360Cache();
+    const sv = await repo.getStreetview360?.(mapName);
+    if (sv) {
+        if (!sv.orientations) sv.orientations = {};
+        if (opType === OperationType.DELETE) {
+            const key = Object.keys(sv.orientations).find((k) => sv.orientations[k]?.id === entityId);
+            if (key) delete sv.orientations[key];
+        } else if (data?.photoName) {
+            sv.orientations[data.photoName] = data;
         }
-    } catch (err) {
-        console.warn('Remote orientation360 op persist failed:', err);
+        await repo.saveStreetview360?.(mapName, sv);
+        await present(invalidateStreetview360Cache);
     }
     const eventType = opType === OperationType.DELETE
         ? EventTypes.ORIENTATION_360_CLEARED
@@ -1197,23 +1296,19 @@ async function applyRemoteOrientation360Op(opType, entityId, mapId, data) {
  * @returns {Promise<void>}
  */
 async function applyRemoteMarker360Op(opType, entityId, mapId, data) {
-    const repo = getRepository();
+    const repo = handlerRepository();
     const mapName = mapResolver.resolveToName(mapId) || mapId;
-    try {
-        const sv = await repo.getStreetview360?.(mapName);
-        if (sv) {
-            if (!Array.isArray(sv.markers)) sv.markers = [];
-            const idx = sv.markers.findIndex((m) => m && m.id === entityId);
-            if (opType === OperationType.DELETE) {
-                if (idx !== -1) sv.markers.splice(idx, 1);
-            } else if (data) {
-                if (idx !== -1) sv.markers[idx] = data; else sv.markers.push(data);
-            }
-            await repo.saveStreetview360?.(mapName, sv);
-            await invalidateStreetview360Cache();
+    const sv = await repo.getStreetview360?.(mapName);
+    if (sv) {
+        if (!Array.isArray(sv.markers)) sv.markers = [];
+        const idx = sv.markers.findIndex((m) => m && m.id === entityId);
+        if (opType === OperationType.DELETE) {
+            if (idx !== -1) sv.markers.splice(idx, 1);
+        } else if (data) {
+            if (idx !== -1) sv.markers[idx] = data; else sv.markers.push(data);
         }
-    } catch (err) {
-        console.warn('Remote marker360 op persist failed:', err);
+        await repo.saveStreetview360?.(mapName, sv);
+        await present(invalidateStreetview360Cache);
     }
     emit(EventTypes.MARKERS_360_CHANGED, { mapName: mapId });
 }
@@ -1229,7 +1324,7 @@ async function applyRemoteMarker360Op(opType, entityId, mapId, data) {
  * @param {Object} [data] - Setting data
  */
 async function applyRemoteMapSettingOp(entityType, mapId, data) {
-    const repo = getRepository();
+    const repo = handlerRepository();
     switch (entityType) {
         case EntityType.BASE_LAYER: {
             // Persist the base layer onto the map record so a peer receiving a LIVE op
@@ -1298,8 +1393,8 @@ async function applyRemoteMapSettingOp(entityType, mapId, data) {
                 // patch sobre o estado anterior. Sem a exclusao, esta escrita inteira cai
                 // no meio daquele merge e sai sobrescrita pelo estado velho mais o patch.
                 await withSideDocument('temporal', mapName, 'applyRemoteMapSettingOp:temporal', async () => {
-                    await setSettingCompat(`temporal_${mapName}`, data);
-                    memoryStore.temporalConfigs.set(mapName, data);
+                    await repo.saveSetting(`temporal_${mapName}`, data);
+                    present(() => memoryStore.temporalConfigs.set(mapName, data));
                 });
                 emit(EventTypes.TEMPORAL_CONFIG_CHANGED, { mapName, config: data });
                 if (typeof data.ativo === 'boolean') {
@@ -1334,7 +1429,7 @@ async function applyRemoteMapSettingOp(entityType, mapId, data) {
  * @returns {Promise<void>}
  */
 async function applyRemoteCatalogLayerOp(opType, layerId, mapId, data) {
-    const repo = getRepository();
+    const repo = handlerRepository();
     await withMapDocument(mapId, 'applyRemoteCatalogLayerOp', async () => {
         const mapData = await repo.getMap?.(mapId);
         if (!mapData) return;
@@ -1378,7 +1473,7 @@ async function applyRemoteSettingOp(data) {
     // registro, e aí o valor do par sumia no F5), buscava o controle por `getControl('terrain')`
     // enquanto o registro usa `TerrainControl` (então o apply ao vivo NUNCA rodou), e não
     // conhecia `globeProjection`.
-    await applyRemoteAppearance(data, getControl('TerrainControl'), globalThis.__ebgeoMap);
+    await applyHandlerAppearance(data);
 
     await applyRemoteAppStateSettings(data);
 }
@@ -1392,27 +1487,19 @@ async function applyRemoteSettingOp(data) {
  * @returns {Promise<void>}
  */
 async function applyRemoteAppStateSettings(data) {
-    const repo = getRepository();
+    const repo = handlerRepository();
 
     if (data.mapBadgeColors && typeof data.mapBadgeColors === 'object') {
         // setSettingCompat('mapBadgeColors', obj) → repo.saveSetting('mapBadgeColors', obj).
         // Consumers (getMapBadgeColors) re-read this key fresh, so a persist is enough.
-        try {
-            await repo.saveSetting?.('mapBadgeColors', data.mapBadgeColors);
-        } catch {
-            // best-effort
-        }
+        await repo.saveSetting?.('mapBadgeColors', data.mapBadgeColors);
     }
 
     if (data.colorUsage && typeof data.colorUsage === 'object') {
         // Per-map nested object { [mapName]: counts }; write each under color_usage_<mapName>
         // (the setColorUsageCompat key) so getColorUsage(mapName) reads it back.
         for (const [mapName, counts] of Object.entries(data.colorUsage)) {
-            try {
-                await repo.saveSetting?.(`color_usage_${mapName}`, counts);
-            } catch {
-                // best-effort per map
-            }
+            await repo.saveSetting?.(`color_usage_${mapName}`, counts);
         }
     }
 
@@ -1422,24 +1509,18 @@ async function applyRemoteAppStateSettings(data) {
         // synced list (mirrors the ALL_DATA_CLEARED reset the registry already does).
         // Dynamic import keeps customIcons.operations (and its wide store graph) OUT of
         // the remote handler's static import graph — loaded only when an icons op arrives.
-        try {
-            await repo.saveSetting?.('custom_icons', data.customIcons);
+        await repo.saveSetting?.('custom_icons', data.customIcons);
+        await present(async () => {
             const { invalidateCustomIconsCache } = await import('../customIcons.operations.js');
             invalidateCustomIconsCache();
-        } catch {
-            // best-effort
-        }
+        });
     }
 
     if (Array.isArray(data.mapOrder)) {
         // setSettingCompat('mapOrder', list) — the key getMapOrder() reads. Emit LAYERS_CHANGED
         // so the maps tab re-renders in the new order (it reloads the list on that event).
-        try {
-            await repo.saveSetting?.('mapOrder', data.mapOrder);
-            emit(EventTypes.LAYERS_CHANGED, { mapName: null });
-        } catch {
-            // best-effort
-        }
+        await repo.saveSetting?.('mapOrder', data.mapOrder);
+        emit(EventTypes.LAYERS_CHANGED, { mapName: null });
     }
 }
 
@@ -1510,8 +1591,10 @@ async function reshapeSnapshotMap(repo, map) {
             // in sync and notify the UI, so a peer ALREADY viewing the map disables editing
             // immediately. Persisting only the setting made the lock take effect on that peer
             // only after switching maps and back.
-            if (locked) memoryStore.lockedMaps.add(mapName);
-            else memoryStore.lockedMaps.delete(mapName);
+            present(() => {
+                if (locked) memoryStore.lockedMaps.add(mapName);
+                else memoryStore.lockedMaps.delete(mapName);
+            });
             emit(EventTypes.MAP_LOCK_CHANGED, { mapName, locked: !!locked });
         }
     }
@@ -1543,12 +1626,84 @@ async function reshapeSnapshotMap(repo, map) {
  * @param {Object} [snapshot] - Snapshot payload ({ maps?, briefings? })
  * @returns {Promise<void>}
  */
-export async function applyRemoteSnapshot(snapshot) {
-    if (!snapshot || typeof snapshot !== 'object') {
-        return;
-    }
+export function applyRemoteSnapshot(snapshot, options = {}) {
+    const context = capturedApplyContext(options);
+    return serializeGuardedApply(() => withApplyContext(context, async () => {
+        if (context.scope?.kind !== 'remote') return applyRemoteSnapshotInner(snapshot);
+        validateSnapshot(snapshot, true);
+        const pause = pauseStoreWrites(context.scope);
+        try {
+            await pause.settled;
+            context.assertActive();
+            const record = readGeneration(context.scope);
+            if (snapshot.currentVersion < record.cursor) throw new Error('O retrato recebido é anterior à recuperação já confirmada.');
+            const generation = generateUUID();
+            // Register ownership before creating any database. Failed preparations are still
+            // included in scoped logout cleanup, without ever becoming the active atlas.
+            const prepared = { ...record, known: [...new Set([...record.known, record.active, generation])] };
+            writeGeneration(context.scope, prepared);
+            const stageScope = { ...context.scope, dataGeneration: generation };
+            context.repo = localRepository.forScope(stageScope);
+            context.localRepo = context.repo;
+            context.staging = true;
+            context.presentation = [];
+            const atlas = { ...createAtlas(snapshot.atlas.name), ...snapshot.atlas,
+                mapOrder: snapshot.maps.map(map => map.id), lastActiveMapId: null };
+            await context.repo.saveAtlas(atlas);
+            await applyRemoteSnapshotInner(snapshot);
+            context.assertActive();
+            // The pointer and cursor are a single durable commit; until this line every reader
+            // still resolves the previous complete generation, including after a browser crash.
+            const latest = readGeneration(context.scope);
+            if (latest.active !== record.active) throw new Error('Outra aba atualizou o atlas durante a recuperação. Tente novamente.');
+            writeGeneration(context.scope, { ...latest, active: generation, cursor: snapshot.currentVersion });
+            context.staging = false;
+            await context.markMaterialized?.();
+            const maps = await context.repo.getAllMaps();
+            context.assertActive();
+            mapResolver.clear();
+            memoryStore.groups = {};
+            memoryStore.lockedMaps.clear();
+            memoryStore.temporalConfigs.clear();
+            for (const [id, map] of maps) mapResolver.registerMap(map.name, id);
+            for (const effect of context.presentation) {
+                context.assertActive();
+                await effect();
+            }
+        } finally {
+            pause.resume();
+        }
+    }));
+}
 
-    const repo = getRepository();
+function validateSnapshot(snapshot, complete = false) {
+    if (!snapshot || typeof snapshot !== 'object') throw new Error('Snapshot inválido.');
+    if (complete && (!snapshot.atlas || snapshot.atlas.id !== applyContext.scope.atlasId
+        || !Array.isArray(snapshot.maps) || !Array.isArray(snapshot.briefings)
+        || !Number.isSafeInteger(snapshot.currentVersion) || snapshot.currentVersion < 0)) {
+        throw new Error('O retrato do servidor está incompleto. Nenhum dado foi substituído.');
+    }
+    // Validate the complete collection before the first write. A truncated or malformed
+    // response is not evidence that the user's existing maps were deleted remotely.
+    for (const collection of ['maps', 'briefings']) {
+        if (!(collection in snapshot)) continue;
+        const entries = snapshot[collection];
+        if (!Array.isArray(entries) || entries.some(entry => !entry || typeof entry.id !== 'string' || !entry.id)) {
+            throw new Error(`Snapshot inválido: coleção ${collection}. Nenhum dado foi substituído.`);
+        }
+        if (new Set(entries.map(entry => entry.id)).size !== entries.length) {
+            throw new Error(`Snapshot inválido: IDs duplicados em ${collection}.`);
+        }
+    }
+}
+
+async function applyRemoteSnapshotInner(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') return;
+    validateSnapshot(snapshot);
+
+    const repo = handlerRepository();
+    const queue = operationQueue.forScope?.(getActiveScope()) ?? operationQueue;
+    const pending = await (queue.getPendingProjection?.() ?? queue.getAll());
 
     // datamodel-13/14: distribute the synced app-state settings the backend keeps in
     // atlas.settings (mapBadgeColors, colorUsage, customIcons) into the SAME local
@@ -1563,12 +1718,14 @@ export async function applyRemoteSnapshot(snapshot) {
         // o valor que o snapshot traz logo depois não era aplicado por ninguém. O sintoma era
         // exatamente "mudo, salvo, dou F5 e perdi" — só no atlas remoto, porque no local nada
         // apaga o registro entre a escrita e a leitura.
-        await applyRemoteAppearance(
-            snapshot.atlas.settings, getControl('TerrainControl'), globalThis.__ebgeoMap,
-        );
+        await applyHandlerAppearance(snapshot.atlas.settings);
     }
 
     const maps = Array.isArray(snapshot.maps) ? snapshot.maps : [];
+    const keepMaps = new Set(maps.map(map => map.id));
+    for (const [id] of await repo.getAllMaps?.() ?? []) {
+        if ('maps' in snapshot && !keepMaps.has(id)) await repo.deleteMap(id);
+    }
     for (const map of maps) {
         if (map && map.id) {
             const reshaped = await reshapeSnapshotMap(repo, map);
@@ -1577,7 +1734,7 @@ export async function applyRemoteSnapshot(snapshot) {
             await withMapDocument(map.id, 'applyRemoteSnapshot', () => repo.saveMap(map.id, reshaped));
             // Replay any live feature ops that arrived (and buffered) before this map existed.
             // OUTSIDE the lock above: each replayed op takes the same key itself.
-            await drainPendingFeatureOps(map.id);
+            if (!applyContext?.staging) await drainPendingFeatureOps(map.id);
             // Groups live in a SEPARATE local store (not part of map data), so saveMap does
             // not carry them. Restore the snapshot's map.groups (array → object keyed by id)
             // into both the group store (by id) and the in-memory cache (by name) so a peer
@@ -1586,7 +1743,7 @@ export async function applyRemoteSnapshot(snapshot) {
                 const byId = {};
                 for (const g of map.groups) { if (g && g.id) byId[g.id] = g; }
                 await repo.saveGroups?.(map.id, byId);
-                if (map.name) memoryStore.groups[map.name] = byId;
+                if (map.name) present(() => { memoryStore.groups[map.name] = byId; });
             }
 
             // P11 round-trip fidelity: layers / cesium3d / streetview360 are carried INLINE in the
@@ -1598,8 +1755,10 @@ export async function applyRemoteSnapshot(snapshot) {
                 await repo.saveLayers?.(map.id, map.layers);
                 // Refresh the live layer cache if this is the active map (visibility filter reads it).
                 if (map.name && memoryStore.currentMap === map.name) {
-                    const { loadLayersToMemory } = await import('../layer.operations.js');
-                    await loadLayersToMemory(map.name);
+                    await present(async () => {
+                        const { loadLayersToMemory } = await import('../layer.operations.js');
+                        await loadLayersToMemory(map.name);
+                    });
                 }
             }
             if (map.cesium3d && typeof map.cesium3d === 'object') {
@@ -1622,13 +1781,25 @@ export async function applyRemoteSnapshot(snapshot) {
     }
 
     const briefings = Array.isArray(snapshot.briefings) ? snapshot.briefings : [];
+    const keepBriefings = new Set(briefings.map(briefing => briefing.id));
+    for (const briefing of await handlerLocalRepository().getAllBriefings?.() ?? []) {
+        if ('briefings' in snapshot && !keepBriefings.has(briefing.id)) await handlerLocalRepository().deleteBriefing(briefing.id);
+    }
     for (const briefing of briefings) {
         if (briefing && briefing.id) {
-            await localRepository.saveBriefing(briefing.id, briefing);
+            await handlerLocalRepository().saveBriefing(briefing.id, briefing);
             emit(EventTypes.BRIEFING_UPDATED, { briefingId: briefing.id, briefing });
         }
     }
 
+    // Pending intentions belong to this session, not to the server snapshot. Rebuild their
+    // projection without generating new operations or counting them as remotely applied.
+    const projected = [];
+    for (const op of pending) {
+        if (await applyRemoteOperationInner({ ...op, localRepair: true }, false)) projected.push(op);
+    }
+    if (applyContext?.staging) applyContext.markMaterialized = () => queue.markMaterialized?.(projected);
+    else await queue.markMaterialized?.(projected);
     emit(EventTypes.LAYERS_CHANGED, {});
     emit(EventTypes.GROUPS_CHANGED, {});
     // Signal the comment overlay to reload the active map's comments from the side-store.
@@ -1646,7 +1817,5 @@ export async function applyRemoteSnapshot(snapshot) {
  * @param {Object} payload
  */
 function emit(eventType, payload) {
-    if (_eventBus) {
-        _eventBus.emit(eventType, payload);
-    }
+    present(() => _eventBus?.emit(eventType, payload));
 }

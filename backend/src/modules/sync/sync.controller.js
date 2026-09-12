@@ -13,37 +13,9 @@ export const pushOperations = asyncHandler(async (req, res) => {
     req.atlasPermission
   );
 
-  // Stamp each broadcast op with its server-assigned arrival order (serverVersion) so peers can
-  // resolve concurrent edits by LWW-by-arrival in REAL TIME (convergence). The order lives in
-  // result.results[].currentVersion, keyed by operationId. Without it the broadcast op carried
-  // no order and concurrent same-feature edits diverged.
-  const versionByOp = new Map((result.results || []).map((r) => [r.operationId, r.currentVersion]));
-
-  // L3 — also stamp the entity id AS RECORDED. An atlas-level op arrives with the
-  // non-UUID sentinel 'atlas' but is logged against the atlas's own UUID, so
-  // broadcasting the raw op handed peers a different entityId than the one they
-  // would later read via incremental pull — the same operation with two identities
-  // depending on the arrival path. (The frontend routes settings ops by entityType
-  // and ignores entityId, so this only makes the two paths agree.)
-  const entityIdByOp = new Map((result.acks || []).map((a) => [a.opId, a.entityId]));
-
-  // Refused ops are dropped from the relay, mirroring the WS path
-  // (`collab.handlers.js`): a per-op refusal (locked map, map delete without the
-  // tier) changes NOTHING on the server, so a peer that applied it would diverge
-  // until its next full snapshot — an entity present on one client and absent on
-  // the server, with no event to reconcile it. This was inherited from the
-  // map-delete refusal and only became reachable for more targets when the
-  // locked-map denial moved from throwing inside the batch to a per-op ack.
-  const refused = new Set(
-    (result.results || []).filter((r) => r.success === false).map((r) => r.operationId)
-  );
-  const stamped = req.body.operations
-    .filter((op) => !refused.has(op.id))
-    .map((op) => ({
-      ...op,
-      serverVersion: versionByOp.get(op.id) ?? result.serverVersion,
-      ...(entityIdByOp.get(op.id) ? { entityId: entityIdByOp.get(op.id) } : {}),
-    }));
+  // The service emits only newly committed, canonical operations. A receipt retry
+  // acknowledges delivery but must never relay an old envelope as a new edit.
+  const stamped = result.events;
 
   // Broadcast the pushed operations to WS peers for real-time updates. Comment ops are kept
   // away from read-only viewers (visibility rule); a mixed batch still reaches them minus the

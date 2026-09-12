@@ -10,6 +10,7 @@ import { addDomListener, cleanup, setupCleanup, trackTimer } from '@utils/event-
 import { StoreScopeKind, getActiveScope, remoteAtlasIdFromDbSuffix } from '@store/atlas-namespace.js';
 import { isValidEntityType, isValidOperationType } from './operation-types.js';
 import { noteLocalEdit } from './overwrite-notice.js';
+import { featureMutationContract } from './feature-patch.js';
 
 // ===== CLIENT IDENTITY =====
 
@@ -446,6 +447,7 @@ export function createOperation(entityType, operationType, entityId, mapId, data
         mapId: mapId || null,
         data,
         previousData,
+        ...(entityType === 'feature' ? featureMutationContract(operationType, data, previousData) : {}),
         timestamp: agora,
         lamportTimestamp: ++lamportClock,
         clientId: getClientId(),
@@ -477,6 +479,7 @@ export function createBatchOperations(operations) {
         mapId: op.mapId || null,
         data: op.data || null,
         previousData: op.previousData || null,
+        ...(op.entityType === 'feature' ? featureMutationContract(op.operationType, op.data, op.previousData) : {}),
         timestamp,
         lamportTimestamp: ++lamportClock,
         clientId: client,

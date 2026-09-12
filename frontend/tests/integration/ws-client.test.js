@@ -131,7 +131,7 @@ describe('WsClient — inbound routing', () => {
         expect(onOp).toHaveBeenCalledWith(expect.objectContaining({ id: 'o1' }));
     });
 
-    it('skips this client\'s own echoed operations', async () => {
+    it('applies this client\'s canonical result as well as peer operations', async () => {
         const onOp = vi.fn();
         ctx.ws.on('operation', onOp);
         sock.emit({ type: 'operations', ops: [
@@ -139,14 +139,12 @@ describe('WsClient — inbound routing', () => {
             { id: 'theirs', clientId: 'other' },
         ] });
         await drain();
-        expect(onOp).toHaveBeenCalledTimes(1);
+        expect(onOp).toHaveBeenCalledTimes(2);
+        expect(onOp).toHaveBeenCalledWith(expect.objectContaining({ id: 'mine', localRepair: true }));
         expect(onOp).toHaveBeenCalledWith(expect.objectContaining({ id: 'theirs' }));
     });
 
-    // O id de cliente virou `<instalacao>_<aba>`, e o filtro de auto-eco passou a comparar a
-    // INSTALACAO. Sem isso, uma op enfileirada antes do F5 (carimbada com o sufixo da aba
-    // anterior) volta pelo broadcast e a aba reaplica o proprio trabalho como se fosse remoto.
-    it('descarta o eco proprio mesmo quando a op traz OUTRO sufixo de aba', async () => {
+    it('identifies canonical results from this installation across reloads', async () => {
         const ctxAba = setup({ clientId: 'inst-1_abadeagora' });
         const conectando = ctxAba.ws.connect('atlas-1');
         const sockAba = FakeSocket.instances[0];
@@ -163,7 +161,10 @@ describe('WsClient — inbound routing', () => {
         ] });
         await drain();
 
-        expect(onOp).toHaveBeenCalledTimes(1);
+        expect(onOp).toHaveBeenCalledTimes(4);
+        for (const id of ['desta-aba', 'da-aba-anterior', 'de-antes-do-sufixo']) {
+            expect(onOp).toHaveBeenCalledWith(expect.objectContaining({ id, localRepair: true }));
+        }
         expect(onOp).toHaveBeenCalledWith(expect.objectContaining({ id: 'de-outro-navegador' }));
     });
 
@@ -201,10 +202,11 @@ describe('WsClient — inbound routing', () => {
         expect(onAck).toHaveBeenNthCalledWith(2, expect.objectContaining({ opIds: ['o2', 'o3'], serverVersion: 7 }));
     });
 
-    it('tracks last version from sync_response', () => {
+    it('tracks last version after applying sync_response', async () => {
         const onSync = vi.fn();
         ctx.ws.on('syncResponse', onSync);
         sock.emit({ type: 'sync_response', isSnapshot: false, ops: [], currentVersion: 42 });
+        await ctx.ws._applyChain;
         expect(onSync).toHaveBeenCalledWith(expect.objectContaining({ currentVersion: 42 }));
         expect(ctx.ws._lastVersion).toBe(42);
     });
@@ -306,12 +308,14 @@ describe('WsClient — reconnect with replay', () => {
 
     it('reconnects after an unexpected close and requests a replay since lastVersion', async () => {
         const { ws, conn } = setup({ reconnectBaseMs: 50 });
+        ws.on('syncResponse', async () => {});
         const p = ws.connect('atlas-1');
         const sock1 = FakeSocket.instances[0];
         sock1.emit({ type: 'connected', permission: 'owner' });
         await p;
         // Apply some ops so we have a version to replay from.
         sock1.emit({ type: 'sync_response', ops: [], currentVersion: 10 });
+        await ws._applyChain;
         expect(ws._lastVersion).toBe(10);
 
         // Unexpected network drop (not intentional) → RECONNECTING + scheduled reconnect.
@@ -366,25 +370,27 @@ describe('WsClient — serverVersion cursor (global sequence: monotonic, NOT per
             await vi.advanceTimersByTimeAsync(700);
             expect(sock.sent.find((m) => m.type === 'sync_request')).toBeFalsy();
 
-            // The cursor still advances to the highest seen, so reconnect-replay asks from v12.
+            // Live delivery does not prove that all earlier commits were delivered.
             sock.sent.length = 0;
             ws.requestSync();
-            expect(sock.sent.find((m) => m.type === 'sync_request').lastVersion).toBe(12);
+            expect(sock.sent.find((m) => m.type === 'sync_request').lastVersion).toBe(10);
         } finally {
             vi.useRealTimers();
         }
     });
 
-    it('advances the cursor monotonically — an older inbound serverVersion never moves it backwards', async () => {
+    it('advances the cursor monotonically after complete replay responses', async () => {
         const { ws, sock } = await connectOnline(10);
-        sock.emit({ type: 'operations', ops: [{ id: 'o1', clientId: 'other', entityType: 'feature', serverVersion: 12 }] });
-        sock.emit({ type: 'operations', ops: [{ id: 'o2', clientId: 'other', entityType: 'feature', serverVersion: 11 }] });
+        ws.on('syncResponse', async () => true);
+        sock.emit({ type: 'sync_response', ops: [], currentVersion: 12 });
+        sock.emit({ type: 'sync_response', ops: [], currentVersion: 11 });
+        await ws._applyChain;
         sock.sent.length = 0;
         ws.requestSync();
         expect(sock.sent.find((m) => m.type === 'sync_request').lastVersion).toBe(12);
     });
 
-    it('does NOT request a replay for a contiguous op (advances lastVersion silently)', async () => {
+    it('does NOT request an extra replay for a contiguous live op', async () => {
         vi.useFakeTimers();
         try {
             const { sock } = await connectOnline(10);

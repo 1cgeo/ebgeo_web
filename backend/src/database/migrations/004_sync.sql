@@ -17,6 +17,7 @@ CREATE TABLE operations (
     -- Operation data
     op_type             VARCHAR(20) NOT NULL CHECK (op_type IN ('create', 'update', 'delete')),
     entity_type         VARCHAR(50) NOT NULL,
+    client_entity_type  VARCHAR(50),
     entity_id           UUID NOT NULL,
     map_id              UUID,
 
@@ -49,6 +50,30 @@ CREATE INDEX idx_operations_atlas_created ON operations(atlas_id, created_at);
 
 -- Uniqueness per atlas para idempotência do push.
 CREATE UNIQUE INDEX operations_atlas_op_id_uniq ON operations (atlas_id, op_id);
+
+-- Delivery receipts outlive replay history. History cleanup must never enable a second write.
+CREATE TABLE sync_receipts (
+    atlas_id UUID NOT NULL REFERENCES atlas(id) ON DELETE CASCADE,
+    op_id TEXT NOT NULL,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    payload_hash TEXT NOT NULL,
+    server_version BIGINT,
+    entity_id TEXT NOT NULL,
+    result JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (atlas_id, op_id)
+);
+
+-- Field revisions survive replay cleanup. A revision changed outside sync invalidates
+-- the saved field frontier conservatively; it never grants a stale client a new base.
+CREATE TABLE sync_entity_fields (
+    atlas_id UUID NOT NULL REFERENCES atlas(id) ON DELETE CASCADE,
+    entity_type TEXT NOT NULL,
+    entity_id UUID NOT NULL,
+    entity_version BIGINT NOT NULL,
+    field_versions JSONB NOT NULL,
+    PRIMARY KEY (atlas_id, entity_type, entity_id)
+);
 
 -- Trigger to update atlas.current_version when operations are inserted
 CREATE FUNCTION update_atlas_current_version()

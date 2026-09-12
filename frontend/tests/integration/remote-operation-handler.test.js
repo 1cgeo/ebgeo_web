@@ -1053,7 +1053,7 @@ describe('applyRemoteSnapshot', () => {
     it('is defensive about missing fields', async () => {
         await applyRemoteSnapshot(undefined);
         await applyRemoteSnapshot({});
-        await applyRemoteSnapshot({ maps: [null, { features: {} }], briefings: [null] });
+        await expect(applyRemoteSnapshot({ maps: [null, { features: {} }], briefings: [null] })).rejects.toThrow('Snapshot inválido');
 
         // No map without an id should have been stored.
         expect(mapDataStore.size).toBe(0);

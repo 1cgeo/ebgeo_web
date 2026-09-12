@@ -121,10 +121,11 @@ describe('sync-flush: falha de envio deixa de ser silenciosa', () => {
     });
 
     describe('no laço real (timers determinísticos)', () => {
-        beforeEach(() => { vi.useFakeTimers(); });
+        beforeEach(() => { vi.useFakeTimers(); vi.spyOn(Math, 'random').mockReturnValue(0.5); });
         afterEach(() => {
             stopAutoFlush();
             vi.useRealTimers();
+            vi.restoreAllMocks();
         });
 
         it('três ciclos consecutivos falhando avisam UMA vez, e o quarto não repete', async () => {
@@ -132,15 +133,15 @@ describe('sync-flush: falha de envio deixa de ser silenciosa', () => {
             startAutoFlush(engine, { intervalMs: 1000 });
 
             await vi.advanceTimersByTimeAsync(0);      // flush imediato do start
-            await vi.advanceTimersByTimeAsync(1000);   // ciclo 2
+            await vi.advanceTimersByTimeAsync(2000);   // retry de 1500 ms, próximo tick
             expect(showWarning).not.toHaveBeenCalled();
 
-            await vi.advanceTimersByTimeAsync(1000);   // ciclo 3 → cruza o limiar
+            await vi.advanceTimersByTimeAsync(3000);   // ciclo 3 → cruza o limiar
             expect(showWarning).toHaveBeenCalledTimes(1);
             expect(showWarning.mock.calls[0][0]).toContain('não estão sendo salvas');
 
-            await vi.advanceTimersByTimeAsync(3000);   // ciclos 4..6
-            expect(engine.flush.mock.calls.length).toBeGreaterThanOrEqual(6);
+            await vi.advanceTimersByTimeAsync(6000);   // ciclo 4, com espera exponencial
+            expect(engine.flush.mock.calls.length).toBe(4);
             expect(showWarning).toHaveBeenCalledTimes(1); // sem repetição a cada 1,5 s
         });
 
@@ -154,7 +155,8 @@ describe('sync-flush: falha de envio deixa de ser silenciosa', () => {
             };
             startAutoFlush(engine, { intervalMs: 1000 });
             await vi.advanceTimersByTimeAsync(0);
-            await vi.advanceTimersByTimeAsync(3000); // 2 falhas, 1 sucesso, 1 falha
+            await vi.advanceTimersByTimeAsync(6000); // 2 falhas, 1 sucesso, 1 falha
+            expect(engine.flush).toHaveBeenCalledTimes(4);
             expect(showWarning).not.toHaveBeenCalled();
         });
     });

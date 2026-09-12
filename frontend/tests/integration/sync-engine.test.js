@@ -27,7 +27,7 @@ Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock });
 // Shared mock state/handles. Created via vi.hoisted so they exist before the
 // hoisted vi.mock factories run.
 const h = vi.hoisted(() => {
-    const queueState = { ops: [], dequeued: [] };
+    const queueState = { ops: [], dequeued: [], issues: [] };
     return {
         queueState,
         apiClientMock: {
@@ -43,7 +43,7 @@ const h = vi.hoisted(() => {
             register: vi.fn(async () => ({ success: true })),
             logout: vi.fn(async () => {}),
             pullSync: vi.fn(async () => ({ currentVersion: 0, isSnapshot: false })),
-            pushOperations: vi.fn(async () => ({ results: [], acks: [], serverVersion: 1 })),
+            pushOperations: vi.fn(async (_atlasId, ops) => ({ results: ops.map(op => ({ operationId: op.id, success: true, currentVersion: 1 })), serverVersion: 1 })),
             createAtlas: vi.fn(async (p) => ({ id: 'atlas-1', ...p })),
             setTokens: vi.fn(),
             wsUrl: vi.fn(() => 'ws://test/collab'),
@@ -60,6 +60,10 @@ const h = vi.hoisted(() => {
         },
         operationQueueMock: {
             peek: vi.fn(async (count) => queueState.ops.slice(0, count)),
+            recordIssue: vi.fn(async (operation, result) => {
+                queueState.issues.push({ operation, result });
+                queueState.ops = queueState.ops.filter(op => op.id !== operation.id);
+            }),
             dequeue: vi.fn(async (ids) => {
                 queueState.dequeued.push(...ids);
                 queueState.ops = queueState.ops.filter(op => !ids.includes(op.id));
@@ -234,6 +238,9 @@ beforeEach(() => {
     vi.clearAllMocks();
     queueState.ops = [];
     queueState.dequeued = [];
+    queueState.issues = [];
+    syncEngine._session?.close();
+    syncEngine._session = null;
     wsClientMock._handlers = {};
     // Reset orchestrator internal state between tests.
     syncEngine._atlasId = null;
@@ -247,7 +254,7 @@ beforeEach(() => {
     // — passing, but proving something else. Restore the default explicitly.
     // (`mockResolvedValueOnce` in individual tests still takes precedence over this.)
     apiClientMock.pushOperations.mockImplementation(
-        async () => ({ results: [], acks: [], serverVersion: 1 })
+        async (_atlasId, ops) => ({ results: ops.map(op => ({ operationId: op.id, success: true, currentVersion: 1 })), serverVersion: 1 })
     );
 });
 
@@ -366,13 +373,18 @@ describe('connect', () => {
         const payload = await syncEngine.connect('atlas-1');
 
         // Initial pull from version 0 + snapshot applied.
-        expect(apiClientMock.pullSync).toHaveBeenCalledWith('atlas-1', 0);
-        expect(applyRemoteSnapshot).toHaveBeenCalledWith({ maps: {} });
+        expect(apiClientMock.pullSync).toHaveBeenCalledWith('atlas-1', 0, { signal: expect.any(AbortSignal) });
+        expect(applyRemoteSnapshot).toHaveBeenCalledWith({ maps: {} }, syncEngine._session);
         expect(syncEngine.lastVersion).toBe(7);
 
         // Handler wiring (idempotent).
         expect(setRemoteHandlerEventBus).toHaveBeenCalledWith(eventBusMock);
-        expect(syncGatewayMock.setRemoteOperationHandler).toHaveBeenCalledWith(applyRemoteOperation);
+        const inbound = syncGatewayMock.setRemoteOperationHandler.mock.calls[0][0];
+        const op = { id: 'captured-session' };
+        await inbound(op);
+        expect(applyRemoteOperation).toHaveBeenCalledWith(op, {
+            scope: syncEngine._session.scope, signal: syncEngine._session.signal, waitForDeferred: true,
+        });
         expect(enableOperationLogging).toHaveBeenCalledTimes(1);
         expect(wsClientMock.on).toHaveBeenCalledWith('operation', expect.any(Function));
         expect(wsClientMock.on).toHaveBeenCalledWith('syncResponse', expect.any(Function));
@@ -492,7 +504,7 @@ describe('connect', () => {
             snapshot: { maps: { a: 1 } },
             currentVersion: 12,
         });
-        expect(applyRemoteSnapshot).toHaveBeenCalledWith({ maps: { a: 1 } });
+        expect(applyRemoteSnapshot).toHaveBeenCalledWith({ maps: { a: 1 } }, syncEngine._session);
         expect(syncEngine.lastVersion).toBe(12);
         expect(wsClientMock.setLastVersion).toHaveBeenCalledWith(12);
     });
@@ -535,8 +547,8 @@ describe('connect', () => {
         });
 
         // Snapshot from version 0 — the marker cannot be applied entity by entity.
-        expect(apiClientMock.pullSync).toHaveBeenCalledWith('atlas-1', 0);
-        expect(applyRemoteSnapshot).toHaveBeenCalledWith({ maps: { merged: true } });
+        expect(apiClientMock.pullSync).toHaveBeenCalledWith('atlas-1', 0, { signal: expect.any(AbortSignal) });
+        expect(applyRemoteSnapshot).toHaveBeenCalledWith({ maps: { merged: true } }, syncEngine._session);
         expect(applyRemoteOperation).not.toHaveBeenCalled();
         // The version comes from the snapshot, not from the superseded tail.
         expect(syncEngine.lastVersion).toBe(42);
@@ -675,7 +687,8 @@ describe('rejected operations are surfaced to the user', () => {
             'Apenas o dono ou um co-Gestor do atlas pode excluir um mapa'
         );
         // Still dequeued: a policy denial must not be retried forever.
-        expect(queueState.dequeued).toContain('op-1');
+        expect(queueState.issues.map(issue => issue.operation.id)).toContain('op-1');
+        expect(queueState.dequeued).not.toContain('op-1');
     });
 
     it('does not warn when everything was accepted', async () => {
@@ -724,6 +737,7 @@ describe('flush', () => {
         expect(apiClientMock.pushOperations).toHaveBeenCalledWith(
             'atlas-1',
             [{ id: 'op-1' }, { id: 'op-2' }, { id: 'op-3' }],
+            { signal: expect.any(AbortSignal) },
         );
         expect(operationQueueMock.dequeue).toHaveBeenCalledWith(['op-1', 'op-2', 'op-3']);
         expect(queueState.ops).toHaveLength(0);
@@ -800,7 +814,7 @@ function httpError(status) {
 describe('lote envenenado: isolamento e descarte da op ofensora', () => {
     beforeEach(() => {
         // Sem `results`, `recordPushAcks` cai no fallback por índice e nada é recusado.
-        apiClientMock.pushOperations.mockResolvedValue({ results: [], serverVersion: 1 });
+        apiClientMock.pushOperations.mockImplementation(async (_atlasId, ops) => ({ results: ops.map(op => ({ operationId: op.id, success: true })), serverVersion: 1 }));
     });
 
     it('encolhe o lote, descarta SÓ a op recusada com 400 e drena o resto', async () => {
@@ -810,14 +824,15 @@ describe('lote envenenado: isolamento e descarte da op ofensora', () => {
         // O 400 acompanha a op ofensora, esteja ela em lote grande ou sozinha.
         apiClientMock.pushOperations.mockImplementation(async (_atlasId, ops) => {
             if (ops.some((o) => o.id === 'op-ruim')) throw httpError(400);
-            return { results: [], serverVersion: 1 };
+            return { results: ops.map(op => ({ operationId: op.id, success: true, currentVersion: 1 })), serverVersion: 1 };
         });
 
         const result = await syncEngine.flush();
 
         // As duas boas foram ACEITAS pelo servidor antes de sair da fila; a ruim saiu
         // por ter sido recusada sozinha.
-        expect(queueState.dequeued).toEqual(['op-boa-1', 'op-ruim', 'op-boa-2']);
+        expect(queueState.dequeued).toEqual(['op-boa-1', 'op-boa-2']);
+        expect(queueState.issues.map(issue => issue.operation.id)).toEqual(['op-ruim']);
         expect(queueState.ops).toHaveLength(0);
         expect(result).toEqual({ pushed: 2 });
 
@@ -880,7 +895,7 @@ describe('lote envenenado: isolamento e descarte da op ofensora', () => {
         // sobe — fila parada, que é recuperável, nunca um giro sem fim.
         await syncEngine.connect('atlas-1', { initialPull: false });
         queueState.ops = [{ id: 'op-unica' }];
-        apiClientMock.pushOperations.mockRejectedValue(httpError(400));
+        apiClientMock.pushOperations.mockImplementation(async (_atlasId, ops) => ({ results: ops.map(op => ({ operationId: op.id, success: true })), serverVersion: 1 }));
         operationQueueMock.dequeue.mockResolvedValueOnce(0);
 
         await expect(syncEngine.flush()).rejects.toThrow();
@@ -960,7 +975,7 @@ describe('post-flush convergence-guard reconciliation', () => {
         ];
         apiClientMock.pushOperations.mockImplementation(async (_atlasId, ops) => {
             if (ops.some((o) => o.id === 'op-ruim')) throw httpError(400);
-            return { results: [], serverVersion: 1 };
+            return { results: ops.map(op => ({ operationId: op.id, success: true, currentVersion: 1 })), serverVersion: 1 };
         });
 
         await syncEngine.flush();
@@ -975,7 +990,7 @@ describe('post-flush convergence-guard reconciliation', () => {
         // did manage to push earlier in the same flush.
         await syncEngine.connect('atlas-1', { initialPull: false });
         queueState.ops = [{ id: 'op-unica', entityType: 'feature', entityId: 'f9' }];
-        apiClientMock.pushOperations.mockRejectedValue(httpError(400));
+        apiClientMock.pushOperations.mockImplementation(async (_atlasId, ops) => ({ results: ops.map(op => ({ operationId: op.id, success: true })), serverVersion: 1 }));
         operationQueueMock.dequeue.mockResolvedValueOnce(0);
 
         await expect(syncEngine.flush()).rejects.toThrow();
@@ -996,7 +1011,7 @@ describe('post-flush convergence-guard reconciliation', () => {
             { id: 'op-4', entityType: 'feature' },                    // no entityId → nothing to key on
         ];
         queueState.ops = [...ops];
-        apiClientMock.pushOperations.mockResolvedValueOnce({ results: [], serverVersion: 11 });
+        apiClientMock.pushOperations.mockResolvedValueOnce({ results: ops.map(op => ({ operationId: op.id, success: true, currentVersion: 11 })), serverVersion: 11 });
 
         await syncEngine.flush();
 
@@ -1044,8 +1059,8 @@ describe('pull', () => {
 
         await syncEngine.pull();
 
-        expect(apiClientMock.pullSync).toHaveBeenCalledWith('atlas-1', 5);
-        expect(applyRemoteOperation).toHaveBeenCalledWith({ entityId: 'x' });
+        expect(apiClientMock.pullSync).toHaveBeenCalledWith('atlas-1', 5, { signal: syncEngine._session.signal });
+        expect(applyRemoteOperation).toHaveBeenCalledWith({ entityId: 'x' }, syncEngine._session);
         expect(syncEngine.lastVersion).toBe(9);
     });
 });

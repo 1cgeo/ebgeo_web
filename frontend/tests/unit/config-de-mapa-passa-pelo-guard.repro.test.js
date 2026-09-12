@@ -104,6 +104,10 @@ const fila = vi.hoisted(() => ({
 }));
 
 vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
+    persistOperationIntents: async descriptions => {
+        const handlers = { mapTemporal: fila.temporal, mapNotes: fila.notes, gridStyle: fila.grid };
+        for (const d of descriptions) await handlers[d.entityType](d.operationType, d.mapId, d.data, d.previousData);
+    },
     logMapTemporalOperation: (...args) => fila.temporal(...args),
     OperationType: { CREATE: 'create', UPDATE: 'update', DELETE: 'delete' }
 }));

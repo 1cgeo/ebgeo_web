@@ -21,7 +21,7 @@
 import { getRepository } from './repositories/index.js';
 import mapManager from './store-state-manager.js';
 import { sessionContext } from './sync/session-context.js';
-import { logCommentOperation, OperationType } from './sync/index.js';
+import { EntityType, OperationType } from './sync/index.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { runTransaction } from './store-transaction.js';
@@ -94,10 +94,10 @@ export async function addComment(input, mapName = null) {
         const collection = await getRepository().getMapComments(targetMap);
         collection[comment.id] = comment;
         tx.deferSync(() => emitComment(EventTypes.COMMENT_CREATED, { comment }));
-        tx.deferAsync(() => {
+        {
             const mapId = mapManager.getMapId(targetMap);
-            return logCommentOperation(OperationType.CREATE, comment.id, mapId, comment);
-        });
+            tx.recordOperation(EntityType.COMMENT, OperationType.CREATE, comment.id, mapId, comment);
+        }
         return () => getRepository().saveMapComments(targetMap, collection);
     }));
 
@@ -136,10 +136,10 @@ export async function addReply(parentId, input, mapName = null) {
         const collection = await getRepository().getMapComments(targetMap);
         collection[reply.id] = reply;
         tx.deferSync(() => emitComment(EventTypes.COMMENT_CREATED, { comment: reply }));
-        tx.deferAsync(() => {
+        {
             const mapId = mapManager.getMapId(targetMap);
-            return logCommentOperation(OperationType.CREATE, reply.id, mapId, reply);
-        });
+            tx.recordOperation(EntityType.COMMENT, OperationType.CREATE, reply.id, mapId, reply);
+        }
         return () => getRepository().saveMapComments(targetMap, collection);
     }));
 
@@ -164,10 +164,10 @@ export async function updateComment(comment, mapName = null) {
         const next = { ...previous, ...comment, updatedAt: Date.now() };
         collection[comment.id] = next;
         tx.deferSync(() => emitComment(EventTypes.COMMENT_UPDATED, { comment: next }));
-        tx.deferAsync(() => {
+        {
             const mapId = mapManager.getMapId(targetMap);
-            return logCommentOperation(OperationType.UPDATE, next.id, mapId, next, previous);
-        });
+            tx.recordOperation(EntityType.COMMENT, OperationType.UPDATE, next.id, mapId, next, previous);
+        }
         return () => getRepository().saveMapComments(targetMap, collection);
     }));
 }
@@ -209,12 +209,12 @@ export async function removeComment(commentId, mapName = null) {
         tx.deferSync(() => {
             for (const id of ids) emitComment(EventTypes.COMMENT_DELETED, { commentId: id });
         });
-        tx.deferAsync(async () => {
+        {
             const mapId = mapManager.getMapId(targetMap);
             for (const id of ids) {
-                await logCommentOperation(OperationType.DELETE, id, mapId, null, prevById[id]);
+                tx.recordOperation(EntityType.COMMENT, OperationType.DELETE, id, mapId, null, prevById[id]);
             }
-        });
+        }
         return () => getRepository().saveMapComments(targetMap, collection);
     }));
 }

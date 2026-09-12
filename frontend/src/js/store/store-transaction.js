@@ -13,6 +13,9 @@ import { generateUUID } from '../utilities/uuid.js';
 import { setActionTraceId } from './sync/operation-factory.js';
 import { record } from './sync/diag/trace-core.js';
 import { TraceStage } from './sync/diag/trace-stages.js';
+import { getActiveScope } from '@store/atlas-namespace.js';
+import { persistOperationIntents } from '@store/sync/operation-dispatcher.js';
+import { beginStoreWrite } from './write-coordinator.js';
 
 const TxState = Object.freeze({
     OPEN: 'open',
@@ -29,6 +32,8 @@ class StoreTransaction {
         this._state = TxState.OPEN;
         this._syncEffects = [];
         this._asyncEffects = [];
+        this._operations = [];
+        this.scope = getActiveScope();
     }
 
     get state() { return this._state; }
@@ -49,6 +54,24 @@ class StoreTransaction {
     deferAsync(fn) {
         this._assertOpen();
         this._asyncEffects.push(fn);
+    }
+
+    /** Collect final edit descriptions before either journal or entity persistence. */
+    recordOperation(entityType, operationType, entityId, mapId, data = null, previousData = null) {
+        this._assertOpen();
+        this._operations.push({ entityType, operationType, entityId, mapId, data, previousData });
+    }
+
+    async writeIntents(traceId) {
+        // The legacy local repository may initialize its bridge during the first read.
+        // This is the initial local mount, not a transition between remote atlases.
+        if (this.scope === null && getActiveScope()?.kind === 'local' && getActiveScope().dbSuffix === '') {
+            this.scope = getActiveScope();
+        }
+        if (getActiveScope() !== this.scope) throw new Error('O atlas mudou durante a edição.');
+        const materialized = await persistOperationIntents(this._operations, { scope: this.scope, traceId });
+        if (getActiveScope() !== this.scope) throw new Error('O atlas mudou durante a gravação.');
+        return materialized;
     }
 
     /**
@@ -108,6 +131,7 @@ class StoreTransaction {
  */
 export async function runTransaction(workFn) {
     const tx = new StoreTransaction();
+    const finishWrite = beginStoreWrite(tx.scope);
     // Mint one trace id per user gesture. It rides every op this transaction logs
     // (the ambient is read synchronously by createOperation during commit, so it is
     // safe even with concurrent transactions: there is no await between set and the
@@ -116,7 +140,10 @@ export async function runTransaction(workFn) {
     const traceId = generateUUID();
     try {
         const persistFn = await workFn(tx);
+        const materialized = await tx.writeIntents(traceId);
         await persistFn();
+        if (getActiveScope() !== tx.scope) throw new Error('O atlas mudou antes da confirmação da edição.');
+        await materialized?.();
         setActionTraceId(traceId);
         try {
             record(TraceStage.ACTION_ORIGIN, { traceId, outcome: 'ok' });
@@ -132,5 +159,7 @@ export async function runTransaction(workFn) {
             timestamp: Date.now()
         });
         throw error;
+    } finally {
+        finishWrite();
     }
 }

@@ -19,6 +19,7 @@ vi.mock('../../src/js/store/repositories/index.js', () => ({
         getMap: vi.fn(),
         saveMap: vi.fn(),
         getAtlas: async () => h.atlas,
+        ensureAtlas: async () => h.atlas,
         saveAtlas: async (a) => { h.atlas = a; },
         saveSetting: async (k, v) => { h.settings.set(k, v); },
         getSetting: async (k) => h.settings.get(k),

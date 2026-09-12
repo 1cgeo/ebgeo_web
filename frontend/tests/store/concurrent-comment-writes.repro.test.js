@@ -51,7 +51,12 @@ vi.mock('../../src/js/store/sync/session-context.js', () => ({
 
 vi.mock('../../src/js/store/sync/index.js', () => ({
     logCommentOperation: vi.fn().mockResolvedValue(undefined),
+    EntityType: { COMMENT: 'comment' },
     OperationType: { CREATE: 'CREATE', UPDATE: 'UPDATE', DELETE: 'DELETE' }
+}));
+
+vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
+    persistOperationIntents: vi.fn(async () => undefined),
 }));
 
 vi.mock('../../src/js/store/sync/permission-guard.js', () => ({

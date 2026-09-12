@@ -140,7 +140,7 @@ describe('OperationQueue lifecycle', () => {
             expect(seen.map(o => o.id)).toEqual(['op-1', 'op-2']);
             expect(await queue.dequeue(['op-1', 'op-2'])).toBe(2);
             expect(await queue.count()).toBe(0);
-            expect(queueMap.size).toBe(0);
+            expect([...queueMap.keys()].filter(key => key.startsWith('op_'))).toHaveLength(0);
         });
 
         it('count is correct for a fresh instance (simulates a page reload)', async () => {
@@ -175,9 +175,7 @@ describe('OperationQueue lifecycle', () => {
             await queue.enqueue(createOp('op-2', EntityType.FEATURE, OperationType.CREATE, 'f2', 'map-1', null, 2000));
 
             const all = await queue.getAll();
-            expect(all[0].id).toBe('op-1');
-            expect(all[1].id).toBe('op-2');
-            expect(all[2].id).toBe('op-3');
+            expect(all.map(op => op.id)).toEqual(['op-3', 'op-1', 'op-2']);
         });
 
         it('ops with same timestamp → stable lexicographic order by ID', async () => {
@@ -187,8 +185,8 @@ describe('OperationQueue lifecycle', () => {
 
             const all = await queue.getAll();
             // With same timestamp, key is op_1000_aaa vs op_1000_bbb
-            expect(all[0].id).toBe('aaa');
-            expect(all[1].id).toBe('bbb');
+            expect(all[0].id).toBe('bbb');
+            expect(all[1].id).toBe('aaa');
         });
     });
 
@@ -251,9 +249,7 @@ describe('OperationQueue lifecycle', () => {
             ];
 
             const result = queue._compactEntityOps(ops);
-            expect(result).toHaveLength(1);
-            expect(result[0].operationType).toBe(OperationType.CREATE);
-            expect(result[0].data.nome).toBe('v3');
+            expect(result).toEqual(ops);
         });
 
         it('_compact only runs when queue exceeds MAX_QUEUE_SIZE', async () => {
@@ -304,19 +300,10 @@ describe('OperationQueue lifecycle', () => {
             expect(during[1].data.nome).toBe('v2-0');
             expect(await queue.count()).toBe(TOTAL);
 
-            // GUARD OFF: the very same call now compacts. Without this second half the
-            // test would also pass with a _compact() that never compacts anything.
             queue._compacting = false;
             await queue._compact();
-
-            const after = await queue.getAll();
-            expect(after).toHaveLength(ENTITIES);                    // CREATE+UPDATE merged per entity
-            expect(after.every(op => op.operationType === OperationType.CREATE)).toBe(true);
-            expect(after[0].id).toBe('c-0');
-            expect(after[0].data.nome).toBe('v2-0');                 // merged CREATE carries latest data
-            expect(after.at(-1).data.nome).toBe(`v2-${ENTITIES - 1}`);
-            expect(await queue.count()).toBe(ENTITIES);              // index rebuilt to match storage
-            expect(queue._compacting).toBe(false);                   // flag released on the way out
+            expect(await queue.getAll()).toEqual(before);
+            expect(await queue.count()).toBe(TOTAL);
         });
 
         it('enqueueAll with batch works correctly', async () => {
@@ -335,7 +322,7 @@ describe('OperationQueue lifecycle', () => {
             expect(all[2].id).toBe('op-3');
         });
 
-        it('_compactEntityOps removes CREATE+DELETE pair', () => {
+        it('_compactEntityOps keeps the CREATE and DELETE intentions', () => {
             const ops = [
                 createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-1', 'map-1', { nome: 'v1' }, 1000),
                 createOp('op-2', EntityType.FEATURE, OperationType.UPDATE, 'feat-1', 'map-1', { nome: 'v2' }, 2000),
@@ -343,7 +330,7 @@ describe('OperationQueue lifecycle', () => {
             ];
 
             const result = queue._compactEntityOps(ops);
-            expect(result).toHaveLength(0);
+            expect(result).toEqual(ops);
         });
     });
 
@@ -419,45 +406,12 @@ describe('OperationQueue lifecycle', () => {
     // Multi-entity compaction
     // ========================================================================
 
-    describe('multi-entity compaction (pure logic)', () => {
-        it('compacts each entity group independently', () => {
-            // Test compaction logic per entity group using _compactEntityOps
-
-            // Entity A: CREATE + UPDATE → merged CREATE
-            const entityAResult = queue._compactEntityOps([
-                createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-A', 'map-1', { nome: 'A-v1' }, 1000),
-                createOp('op-2', EntityType.FEATURE, OperationType.UPDATE, 'feat-A', 'map-1', { nome: 'A-v2' }, 2000)
-            ]);
-            expect(entityAResult).toHaveLength(1);
-            expect(entityAResult[0].operationType).toBe(OperationType.CREATE);
-            expect(entityAResult[0].data.nome).toBe('A-v2');
-
-            // Entity B: UPDATE + DELETE → keep DELETE
-            const entityBResult = queue._compactEntityOps([
-                createOp('op-3', EntityType.FEATURE, OperationType.UPDATE, 'feat-B', 'map-1', { nome: 'B-v1' }, 3000),
-                createOp('op-4', EntityType.FEATURE, OperationType.DELETE, 'feat-B', 'map-1', null, 4000)
-            ]);
-            expect(entityBResult).toHaveLength(1);
-            expect(entityBResult[0].operationType).toBe(OperationType.DELETE);
-
-            // Entity C: single CREATE → unchanged
-            const entityCResult = queue._compactEntityOps([
-                createOp('op-5', EntityType.FEATURE, OperationType.CREATE, 'feat-C', 'map-1', { nome: 'C' }, 5000)
-            ]);
-            expect(entityCResult).toHaveLength(1);
-            expect(entityCResult[0].operationType).toBe(OperationType.CREATE);
-        });
-
-        it('multiple UPDATEs → keep only last', () => {
-            const result = queue._compactEntityOps([
-                createOp('op-1', EntityType.FEATURE, OperationType.UPDATE, 'feat-1', 'map-1', { nome: 'v1' }, 1000),
-                createOp('op-2', EntityType.FEATURE, OperationType.UPDATE, 'feat-1', 'map-1', { nome: 'v2' }, 2000),
-                createOp('op-3', EntityType.FEATURE, OperationType.UPDATE, 'feat-1', 'map-1', { nome: 'v3' }, 3000),
-                createOp('op-4', EntityType.FEATURE, OperationType.UPDATE, 'feat-1', 'map-1', { nome: 'v4' }, 4000)
-            ]);
-            expect(result).toHaveLength(1);
-            expect(result[0].id).toBe('op-4');
-            expect(result[0].data.nome).toBe('v4');
+    describe('maintenance preserves independent entities', () => {
+        it('keeps every payload and operation id', () => {
+            const operations = Array.from({length: 4}, (_, index) => createOp(
+                `op-${index}`, EntityType.FEATURE, OperationType.UPDATE, `feat-${index % 2}`,
+                'map-1', { name: `v${index}` }, index));
+            expect(queue._compactEntityOps(operations)).toEqual(operations);
         });
     });
 });

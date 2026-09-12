@@ -18,7 +18,7 @@
 // carregar a mesma versão e o fallback esconde o defeito. O caso de duas ops com
 // versões DISTINTAS e crescentes é o que mata esse fallback.
 
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { randomUUID } from 'crypto';
@@ -34,6 +34,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 describe('carimbo de serverVersion / entityId na op DIFUNDIDA', () => {
   let app, db, server;
   let owner, ownerToken, peerUser, peerToken;
+  const clients = [];
+
+  async function connectClient(...args) {
+    const client = await createWsClient(...args);
+    clients.push(client);
+    return client;
+  }
+
+  afterEach(() => { for (const client of clients.splice(0)) client.close(); });
 
   before(async () => {
     const env = await setupTestEnv();
@@ -59,7 +68,7 @@ describe('carimbo de serverVersion / entityId na op DIFUNDIDA', () => {
     const atlas = await createAtlas(db, owner.id, { name: `Atlas ${U()}` });
     const map = await createMap(db, atlas.id);
     await createShare(db, atlas.id, peerUser.id, 'write', owner.id);
-    const peer = await createWsClient(server, atlas.id, peerToken);
+    const peer = await connectClient(server, atlas.id, peerToken);
     await peer.waitForType('connected');
     peer.clearMessages();
     return { atlas, map, peer };
@@ -183,7 +192,7 @@ describe('carimbo de serverVersion / entityId na op DIFUNDIDA', () => {
       peer.close();
     });
 
-    it('reenvio idempotente difunde a versão ORIGINAL, não a corrente do atlas', async () => {
+    it('reenvio HTTP confirma a versão original sem difundir novamente a alteração', async () => {
       const { atlas, map, peer } = await cenario();
 
       const op = featureOp(map.id);
@@ -213,13 +222,17 @@ describe('carimbo de serverVersion / entityId na op DIFUNDIDA', () => {
         .send({ operations: [op] }); // MESMO op.id
       assert.equal(reenvio.status, 200);
       assert.equal(reenvio.body.data.results[0].idempotent, true);
+      assert.equal(reenvio.body.data.results[0].currentVersion, versaoOriginal);
 
+      // A later committed event is a transport barrier: any retry broadcast would precede it.
+      const barrier = featureOp(map.id, 'barreira');
+      const next = await supertest(app)
+        .post(`/api/v1/atlas/${atlas.id}/sync`)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send({ operations: [barrier] });
+      assert.equal(next.status, 200);
       const msg = await peer.waitForType('operations');
-      assert.equal(
-        msg.ops[0].serverVersion,
-        versaoOriginal,
-        'a op reenviada carrega a ordem de chegada GRAVADA, não a versão corrente'
-      );
+      assert.deepEqual(msg.ops.map(item => item.id), [barrier.id], 'retry cannot re-broadcast the old payload');
 
       peer.close();
     });
@@ -229,7 +242,7 @@ describe('carimbo de serverVersion / entityId na op DIFUNDIDA', () => {
   describe('item 99 — WS `operation`/`operations` difunde com carimbo', () => {
     it('op única: op.serverVersion do par === ack.result.currentVersion do remetente', async () => {
       const { atlas, map, peer } = await cenario();
-      const autor = await createWsClient(server, atlas.id, ownerToken);
+      const autor = await connectClient(server, atlas.id, ownerToken);
       await autor.waitForType('connected');
       peer.clearMessages();
 
@@ -250,7 +263,7 @@ describe('carimbo de serverVersion / entityId na op DIFUNDIDA', () => {
 
     it('lote de 2: versões DISTINTAS e crescentes, casadas com ack_batch por operationId', async () => {
       const { atlas, map, peer } = await cenario();
-      const autor = await createWsClient(server, atlas.id, ownerToken);
+      const autor = await connectClient(server, atlas.id, ownerToken);
       await autor.waitForType('connected');
       peer.clearMessages();
 
@@ -274,9 +287,9 @@ describe('carimbo de serverVersion / entityId na op DIFUNDIDA', () => {
       peer.close();
     });
 
-    it('reenvio idempotente por WS: ack idempotent e a op difundida traz a versão original', async () => {
+    it('reenvio WS confirma a versão original sem difundir novamente a alteração', async () => {
       const { atlas, map, peer } = await cenario();
-      const autor = await createWsClient(server, atlas.id, ownerToken);
+      const autor = await connectClient(server, atlas.id, ownerToken);
       await autor.waitForType('connected');
 
       const op = featureOp(map.id);
@@ -300,9 +313,14 @@ describe('carimbo de serverVersion / entityId na op DIFUNDIDA', () => {
       autor.send({ type: 'operation', op }); // MESMO op.id
       const ack3 = await autor.waitForType('ack');
       assert.equal(ack3.result.idempotent, true);
+      assert.equal(ack3.result.currentVersion, versaoOriginal);
 
+      autor.clearMessages();
+      const barrier = featureOp(map.id, 'barreira');
+      autor.send({ type: 'operation', op: barrier });
+      await autor.waitForType('ack');
       const msg = await peer.waitForType('operation');
-      assert.equal(msg.op.serverVersion, versaoOriginal, 'versão ORIGINAL, não uma nova');
+      assert.equal(msg.op.id, barrier.id, 'retry cannot re-broadcast the old payload');
 
       autor.close();
       peer.close();
@@ -310,7 +328,7 @@ describe('carimbo de serverVersion / entityId na op DIFUNDIDA', () => {
 
     it('op de atlas difundida por WS carrega serverVersion numérico', async () => {
       const { atlas, peer } = await cenario();
-      const autor = await createWsClient(server, atlas.id, ownerToken);
+      const autor = await connectClient(server, atlas.id, ownerToken);
       await autor.waitForType('connected');
       peer.clearMessages();
 

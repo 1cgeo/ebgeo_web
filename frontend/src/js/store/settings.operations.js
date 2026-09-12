@@ -20,7 +20,8 @@ import {
 } from './repositories/index.js';
 import { mapResolver } from './services/map-resolver.service.js';
 import mapManager from './store-state-manager.js';
-import { logGridStyleOperation, logMapNotesOperation, OperationType } from './sync/index.js';
+import { OperationType } from './sync/index.js';
+import { runTransaction } from './store-transaction.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { fetchImageBlob } from './sync/image-sync.js';
@@ -88,15 +89,13 @@ export async function setMapNotes(mapName, notes) {
     }
 
     const targetMap = resolveMapName(mapName);
-    const previousNotes = await getMapNotesRepo(targetMap);
-
-    await setMapNotesRepo(targetMap, notes);
-
-    const mapId = mapResolver.resolveToId(targetMap) || targetMap;
-    const opType = previousNotes?.title || previousNotes?.description
-        ? OperationType.UPDATE
-        : OperationType.CREATE;
-    logMapNotesOperation(opType, mapId, notes, previousNotes);
+    await runTransaction(async tx => {
+        const mapId = mapResolver.resolveToId(targetMap) || targetMap;
+        const previousNotes = await getMapNotesRepo(targetMap);
+        const opType = previousNotes?.title || previousNotes?.description ? OperationType.UPDATE : OperationType.CREATE;
+        tx.recordOperation('mapNotes', opType, mapId, mapId, notes, previousNotes);
+        return () => setMapNotesRepo(targetMap, notes);
+    });
 }
 
 /**
@@ -148,13 +147,13 @@ export async function setGridStyle(mapName, gridStyle) {
     }
 
     const targetMap = resolveMapName(mapName);
-    const previousGridStyle = await getGridStyleRepo(targetMap);
-
-    await setGridStyleRepo(targetMap, gridStyle);
-
-    const mapId = mapResolver.resolveToId(targetMap) || targetMap;
-    const opType = previousGridStyle ? OperationType.UPDATE : OperationType.CREATE;
-    logGridStyleOperation(opType, mapId, gridStyle, previousGridStyle);
+    await runTransaction(async tx => {
+        const mapId = mapResolver.resolveToId(targetMap) || targetMap;
+        const previousGridStyle = await getGridStyleRepo(targetMap);
+        const opType = previousGridStyle ? OperationType.UPDATE : OperationType.CREATE;
+        tx.recordOperation('gridStyle', opType, mapId, mapId, gridStyle, previousGridStyle);
+        return () => setGridStyleRepo(targetMap, gridStyle);
+    });
 }
 
 // ===== HILLSHADE =====

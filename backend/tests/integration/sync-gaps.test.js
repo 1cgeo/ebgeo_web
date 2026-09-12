@@ -199,10 +199,8 @@ describe('Sync CRDT — confirmed gaps', () => {
       const map = await createMap(db, atlas.id);
 
       const opId = randomUUID();
-      const first = await pushOps(app, atlas.id, token, [{
-        ...createFeatureOp(map.id, randomUUID()),
-        id: opId,
-      }]).expect(200);
+      const original = { ...createFeatureOp(map.id, randomUUID()), id: opId };
+      const first = await pushOps(app, atlas.id, token, [original]).expect(200);
 
       // acks[].serverVersion comes straight from the DB (may be a numeric string);
       // results[].currentVersion is the parsed int. Use the parsed value as truth.
@@ -216,10 +214,7 @@ describe('Sync CRDT — confirmed gaps', () => {
       }
 
       // Resend the original op.
-      const replay = await pushOps(app, atlas.id, token, [{
-        ...createFeatureOp(map.id, randomUUID()),
-        id: opId,
-      }]).expect(200);
+      const replay = await pushOps(app, atlas.id, token, [original]).expect(200);
 
       assert.equal(replay.body.data.acks[0].idempotent, true);
       assert.equal(Number(replay.body.data.acks[0].serverVersion), v1);
@@ -447,8 +442,8 @@ describe('Sync CRDT — confirmed gaps', () => {
   });
 
   // --- sync-10 (missing parent in same atlas: silent no-op, success ack) -----
-  describe('slide create with missing briefing in same atlas is silently dropped', () => {
-    it('acks success but inserts zero slide rows', async () => {
+  describe('slide create with missing briefing is explicitly refused', () => {
+    it('refuses the orphan without materializing a slide', async () => {
       const atlas = await createAtlas(db, user.id);
       const slideId = randomUUID();
 
@@ -458,9 +453,9 @@ describe('Sync CRDT — confirmed gaps', () => {
         timestamp: Date.now(), clientId: 'c',
       }]).expect(200);
 
-      assert.equal(res.body.data.results[0].success, true);
+      assert.equal(res.body.data.results[0].success, false);
       const { rows } = await db.query('SELECT id FROM slides WHERE id = $1', [slideId]);
-      assert.equal(rows.length, 0, 'slide silently dropped (briefing did not exist)');
+      assert.equal(rows.length, 0, 'no orphan slide is created');
     });
   });
 

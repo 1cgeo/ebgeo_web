@@ -254,6 +254,7 @@
  */
 
 import localforage from 'localforage';
+import { dataGenerationFor, readGeneration } from './namespace-generation.js';
 
 /** Kinds of scope a store instance can be resolved for. */
 export const StoreScopeKind = Object.freeze({
@@ -681,9 +682,11 @@ export function resolveDbName(storeId, scope = null) {
         return descriptor.dbName;
     }
     const effective = scope ?? requireActiveScope(storeId);
-    return effective.dbSuffix === LEGACY_DB_SUFFIX
+    const base = effective.dbSuffix === LEGACY_DB_SUFFIX
         ? descriptor.dbName
         : `${descriptor.dbName}${NAMESPACE_SEPARATOR}${effective.dbSuffix}`;
+    const generation = descriptor.atlasData && storeId !== StoreName.IMAGES ? dataGenerationFor(effective) : null;
+    return generation ? `${base}__generation-${generation}` : base;
 }
 
 /**
@@ -712,12 +715,13 @@ function requireActiveScope(storeId) {
 export function getStoreFor(storeId, scope = null) {
     const descriptor = descriptorOf(storeId);
     const effective = descriptor.perAtlas ? (scope ?? requireActiveScope(storeId)) : null;
-    const key = `${storeId}|${effective ? scopeKey(effective) : 'global'}`;
+    const name = resolveDbName(storeId, effective);
+    const key = `${name}|${effective ? scopeKey(effective) : 'global'}`;
 
     const cached = _instances.get(key);
     if (cached) return cached;
 
-    const options = { name: resolveDbName(storeId, effective) };
+    const options = { name };
     if (descriptor.storeName) options.storeName = descriptor.storeName;
 
     const instance = localforage.createInstance(options);
@@ -1491,15 +1495,29 @@ export const DROP_TIMEOUT_MS = 3000;
  *   that actually HELD DATA and was emptied, in that same order. An empty `cleared` means there
  *   was nothing there to destroy.
  */
+function allGenerationStores(scope) {
+    const metadata = readGeneration(scope);
+    const generations = new Set([null, metadata.active, ...metadata.known]);
+    const stores = new Map();
+    for (const generation of generations) {
+        const physical = { ...scope, dataGeneration: generation };
+        for (const descriptor of STORE_DESCRIPTORS.filter(item => item.perAtlas)) {
+            const name = resolveDbName(descriptor.id, physical);
+            if (!stores.has(name)) stores.set(name, { descriptor, scope: physical });
+        }
+    }
+    return stores;
+}
+
 export async function clearAtlasDatabases(scope) {
     if (!scope || typeof scope.dbSuffix !== 'string') {
         throw new Error('clearAtlasDatabases: expected a scope built by localScope()/remoteScope()');
     }
-    const descriptors = STORE_DESCRIPTORS.filter(descriptor => descriptor.perAtlas);
-    const names = descriptors.map(descriptor => resolveDbName(descriptor.id, scope));
+    const stores = allGenerationStores(scope);
+    const names = [...stores.keys()];
 
-    const emptied = await Promise.all(descriptors.map(async descriptor => {
-        const store = getStoreFor(descriptor.id, scope);
+    const emptied = await Promise.all([...stores.values()].map(async ({ descriptor, scope: physical }) => {
+        const store = getStoreFor(descriptor.id, physical);
         const keys = await store.keys();
         if (keys.length === 0) return false;
         await store.clear();
@@ -1557,9 +1575,7 @@ export async function dropAtlasDatabases(scope, { timeoutMs = DROP_TIMEOUT_MS } 
     if (!scope || typeof scope.dbSuffix !== 'string') {
         throw new Error('dropAtlasDatabases: expected a scope built by localScope()/remoteScope()');
     }
-    const names = STORE_DESCRIPTORS
-        .filter(d => d.perAtlas)
-        .map(d => resolveDbName(d.id, scope));
+    const names = [...allGenerationStores(scope).keys()];
 
     const confirmations = await Promise.all(names.map(name => dropOneDatabase(name, timeoutMs)));
 

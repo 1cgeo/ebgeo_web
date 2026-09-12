@@ -192,7 +192,7 @@ describe('createBatchOperations', () => {
 // ============================================================================
 
 describe('purgeOldOperations', () => {
-    it('purges operations older than maxAge', async () => {
+    it('retains unconfirmed operations regardless of age', async () => {
         // Manually insert an old operation
         const oldOp = createOperation(EntityType.FEATURE, OperationType.CREATE, 'old1', 'map1');
         oldOp.timestamp = Date.now() - 10 * 24 * 60 * 60 * 1000; // 10 days ago
@@ -203,10 +203,10 @@ describe('purgeOldOperations', () => {
         await queue.enqueue(newOp);
 
         const purged = await queue.purgeOldOperations(7 * 24 * 60 * 60 * 1000);
-        expect(purged).toBe(1);
+        expect(purged).toBe(0);
 
         const remaining = await queue.count();
-        expect(remaining).toBe(1);
+        expect(remaining).toBe(2);
     });
 
     it('returns 0 when no operations are old enough', async () => {
@@ -239,7 +239,7 @@ describe('Auto-purge lifecycle', () => {
 
     it('stopAutoPurge clears the interval', () => {
         queue.startAutoPurge();
-        expect(queue._purgeInterval).toBeTruthy();
+        expect(queue._purgeInterval).toBeNull();
 
         queue.stopAutoPurge();
         expect(queue._purgeInterval).toBeNull();

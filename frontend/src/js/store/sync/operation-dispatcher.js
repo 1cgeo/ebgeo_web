@@ -22,6 +22,37 @@ import { markLocalEditPending, CONVERGENCE_GUARDED } from './remote-operation-ha
  */
 let enabled = false;
 
+/** Write-ahead path used by store transactions. Failure prevents entity persistence. */
+export async function persistOperationIntents(descriptions, { scope, traceId } = {}) {
+    if (!enabled || descriptions.length === 0) return;
+    const safe = descriptions.filter(op =>
+        (op.mapId == null || isValidUUID(op.mapId))
+        && (op.entityType !== EntityType.SETTING || op.entityId === 'atlas' || isValidUUID(op.entityId))
+    );
+    if (safe.length === 0) return;
+    const created = createBatchOperations(safe).map(op => ({ ...op, traceId }));
+    const queue = scope ? operationQueue.forScope(scope) : operationQueue;
+    const predecessors = new Map();
+    for (const op of created) {
+        if (op.entityType !== EntityType.FEATURE) continue;
+        const predecessor = predecessors.get(op.entityId) ?? await queue.getLatestPendingFeature(op.entityId);
+        if (predecessor && op.operationType !== OperationType.CREATE) {
+            op.baseOperationId = predecessor.id;
+            op.dependsOn = [predecessor.id];
+        }
+        predecessors.set(op.entityId, op);
+    }
+    await queue.enqueueAll(created, { prepared: true });
+    for (const op of created) {
+        if (CONVERGENCE_GUARDED.has(op.entityType)) markLocalEditPending(op.entityId);
+        record(TraceStage.ENQUEUE, {
+            opId: op.id, traceId, entityType: op.entityType, entityId: op.entityId,
+            outcome: TraceOutcome.OK,
+        });
+    }
+    return () => queue.markMaterialized(created);
+}
+
 // ===== RETRY / CIRCUIT BREAKER STATE =====
 
 /** Consecutive sync failures (reset on success) */

@@ -336,6 +336,8 @@ const RE_SIMBOLO = /`([a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*|[A-Z][A-Z0-9]*(?:_[A-Z0
  * existir. Acrescentar uma entrada tem que ser uma decisão, não um reflexo.
  */
 const SIMBOLO_INEXISTENTE_DE_PROPOSITO = new Map([
+    ['extrairChavesDeSetting', 'Extrator da compactação removido em 12/09/2026; o livro-razão preserva o registro histórico.'],
+    ['COMPACTION_STEP', 'A compactação da fila foi desativada em 12/09/2026; as decisões anteriores são históricas.'],
     ['GET_PHOTO_SIZES', 'consulta removida no refactor tiles-only de 2026-08-29 (a rota de imagem inteira saiu); citada nas erratas F9 de decisions-2026 e na wiki como nome HISTORICO de uma das consultas de foto'],
     ['reconnectLastAtlas', 'nome que quatro fontes usavam para um boot que nunca existiu; ver sessao-boot-e-ciclo-de-vida'],
     ['needsMigration', 'nome errado da função real detectMigrationNeeded; a regra cita os dois para quem procurar pelo errado achar'],

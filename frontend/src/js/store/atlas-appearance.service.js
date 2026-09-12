@@ -127,36 +127,36 @@ export async function saveAtlasAppearance(patch) {
  * @param {{setProjection?: Function, setSky?: Function}} [map] - O mapa vivo, quando existe.
  * @returns {Promise<void>}
  */
-export async function applyRemoteAppearance(patch, terrainControl, map) {
+export async function applyRemoteAppearance(patch, terrainControl, map, { repository, assertActive = () => {}, present = fn => fn() } = {}) {
     const changes = {};
     for (const key of APPEARANCE_KEYS) {
         if (patch?.[key] !== undefined) changes[key] = patch[key];
     }
     if (Object.keys(changes).length === 0) return;
 
-    try {
-        const repo = getRepository();
-        const atlas = await repo.ensureAtlas();
-        if (!atlas.settings) atlas.settings = {};
-        Object.assign(atlas.settings, changes);
-        await repo.saveAtlas(atlas);
-    } catch (error) {
-        // Best-effort: o que o usuário VÊ é o apply abaixo, e ele não depende do disco.
-        console.warn('[atlas-appearance] remote persist failed:', error);
-    }
+    const repo = repository ?? getRepository();
+    assertActive();
+    const atlas = await repo.ensureAtlas();
+    assertActive();
+    if (!atlas.settings) atlas.settings = {};
+    Object.assign(atlas.settings, changes);
+    await repo.saveAtlas(atlas);
+    assertActive();
 
-    if (changes.terrainExaggeration !== undefined) {
-        terrainControl?.setExaggeration?.(changes.terrainExaggeration);
-    }
-    if (changes.globeProjection !== undefined) {
-        setGlobeChoice(changes.globeProjection);
-        // Terreno ligado manda na projeção (globo e relevo não convivem); o TerrainControl
-        // restaura a escolha ao desligar o relevo, já lendo o cache que acabou de mudar.
-        if (map?.setProjection && !terrainControl?._wasTerrainActive) {
-            map.setProjection({ type: currentGlobeProjection() ? 'globe' : 'mercator' });
-            map.setSky?.(undefined);
+    await present(() => {
+        assertActive();
+        if (changes.terrainExaggeration !== undefined) {
+            terrainControl?.setExaggeration?.(changes.terrainExaggeration);
         }
-    }
+        if (changes.globeProjection !== undefined) {
+            setGlobeChoice(changes.globeProjection);
+            // Terrain owns projection while active; its control restores the saved choice.
+            if (map?.setProjection && !terrainControl?._wasTerrainActive) {
+                map.setProjection({ type: currentGlobeProjection() ? 'globe' : 'mercator' });
+                map.setSky?.(undefined);
+            }
+        }
+    });
 }
 
 /**

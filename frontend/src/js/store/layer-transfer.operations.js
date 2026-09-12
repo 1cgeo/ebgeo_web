@@ -88,7 +88,7 @@ import mapManager from './store-state-manager.js';
 import { memoryStore } from './memory-store.js';
 import { mapResolver } from './services/map-resolver.service.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
-import { logLayerOperation, OperationType } from './sync/index.js';
+import { OperationType } from './sync/index.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { runTransaction } from './store-transaction.js';
 import {
@@ -434,12 +434,12 @@ export async function transferLayerToMap(layerId, targetMapName, options = {}) {
         // The op carries the destination map ID, not its NAME: `logLayerOperation` files
         // the op under whatever it is handed, and a name would be pushed as a map id the
         // server does not know, failing the whole flush batch.
-        tx.deferAsync(() => logLayerOperation(
+        tx.recordOperation('layer',
             OperationType.CREATE,
             newLayer.id,
             mapResolver.resolveToId(targetMapName),
             newLayer
-        ));
+        );
         return () => setLayersCompat(targetMapName, nextLayers);
     });
 

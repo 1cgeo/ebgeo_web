@@ -28,6 +28,7 @@
 import { apiClient, configureApiClient } from './api-client.js';
 import { wsClient } from './ws-client.js';
 import { operationQueue } from './operation-queue.js';
+import { SyncSession } from '@store/sync/sync-session.js';
 import { enableOperationLogging, disableOperationLogging } from './operation-dispatcher.js';
 import { sessionContext, sessionUserInfoFromMe } from './session-context.js';
 import {
@@ -128,9 +129,8 @@ export function acknowledgedOperationIds(resp, ops) {
     const named = new Set();
     for (const r of results) {
         const id = r?.operationId ?? r?.opId;
-        if (id) named.add(id);
+        if (id && r.rejected !== true && r.success !== false) named.add(id);
     }
-    if (named.size === 0) return ops.map(op => op.id);
     return ops.filter(op => named.has(op.id)).map(op => op.id);
 }
 
@@ -156,12 +156,13 @@ const STRUCTURAL_RESYNC_OPS = new Set(['map_merge']);
  * @param {Object} resp - The pushOperations response ({ results?, acks?, serverVersion? }).
  * @param {Object[]} ops - The ops that were pushed (in order).
  */
-function recordPushAcks(resp, ops) {
+async function recordPushAcks(resp, ops) {
     if (!resp) return;
     const results = resp.results || resp.acks || [];
     const rejections = [];
-    ops.forEach((op, i) => {
-        const r = results.find((x) => x && (x.operationId === op.id || x.opId === op.id)) || results[i] || {};
+    for (const op of ops) {
+        const r = results.find((x) => x && (x.operationId === op.id || x.opId === op.id));
+        if (!r) continue;
         const sv = r.currentVersion ?? r.serverVersion ?? resp.serverVersion;
 
         // A policy denial (map delete without the `manage` tier, lock/unlock without
@@ -199,10 +200,10 @@ function recordPushAcks(resp, ops) {
         // two windows it cannot close — see `lastRemoteAppliedVersion` in
         // remote-operation-handler.js). The ack is where the author learns it won, so it is where
         // it must be able to put its value back, and only the op carries that value.
-        if (sv != null && op.entityId && CONVERGENCE_GUARDED.has(op.entityType)) {
-            recordLocalAppliedVersion(op.entityId, sv, op);
+        if (r.rejected !== true && r.success !== false && sv != null && op.entityId && CONVERGENCE_GUARDED.has(op.entityType)) {
+            await recordLocalAppliedVersion(op.entityId, sv, r.canonicalOperation ?? op);
         }
-    });
+    }
 
     // One toast per distinct reason, not per operation: a batch can carry several
     // denials with the same cause and stacking N identical toasts is noise.
@@ -228,6 +229,7 @@ class SyncEngine {
         this._lastVersion = 0;
         /** Whether WS inbound handlers have been wired (wire-once guard). */
         this._handlersWired = false;
+        this._session = null;
     }
 
     /** @returns {string|null} The connected atlas id, or null. */
@@ -238,6 +240,12 @@ class SyncEngine {
     /** @returns {number} The highest server version applied locally. */
     get lastVersion() {
         return this._lastVersion;
+    }
+
+    _beginSession(atlasId) {
+        this._session?.close();
+        this._session = new SyncSession(atlasId, sessionContext.userId);
+        return this._session;
     }
 
     /**
@@ -298,14 +306,17 @@ class SyncEngine {
      * @returns {Promise<Object>} The WS `connected` payload.
      */
     async connect(atlasId, { initialPull = true } = {}) {
+        const session = this._beginSession(atlasId);
         this._wireOnce();
 
         let snapshot = null;
         if (initialPull) {
-            const result = await apiClient.pullSync(atlasId, 0);
+            const result = await apiClient.pullSync(atlasId, 0, { signal: session.signal });
+            session.assertActive();
             snapshot = result?.snapshot ?? null;
             if (snapshot) {
-                await applyRemoteSnapshot(snapshot);
+                await applyRemoteSnapshot(snapshot, session);
+                session.assertActive();
             }
             this._lastVersion = result?.currentVersion ?? 0;
         }
@@ -332,6 +343,7 @@ class SyncEngine {
         }
 
         const payload = await wsClient.connect(atlasId, { lastVersion: this._lastVersion });
+        session.assertActive();
 
         // Reflect the PER-ATLAS role from the connect payload (owner/editor/viewer). This is the
         // ONLY place the axis is resolved for a non-owner: hydration seeds it at VIEWER and the
@@ -360,12 +372,15 @@ class SyncEngine {
      * @returns {Promise<Object>} The WS `connected` payload.
      */
     async connectPublic(atlasId) {
+        const session = this._beginSession(atlasId);
         this._wireOnce();
 
-        const result = await apiClient.pullSync(atlasId, 0);
+        const result = await apiClient.pullSync(atlasId, 0, { signal: session.signal });
+        session.assertActive();
         const snapshot = result?.snapshot ?? null;
         if (snapshot) {
-            await applyRemoteSnapshot(snapshot);
+            await applyRemoteSnapshot(snapshot, session);
+            session.assertActive();
         }
         this._lastVersion = result?.currentVersion ?? 0;
 
@@ -375,6 +390,8 @@ class SyncEngine {
         // orphan the op queue for a later real login (which would then flush them to the wrong atlas).
         disableOperationLogging();
         const payload = await wsClient.connect(atlasId, { lastVersion: this._lastVersion });
+
+        session.assertActive();
 
         // Anonymous read-only visitor: the permission guard blocks editing the remote store, and
         // isAuthenticated() stays false (no account menu).
@@ -424,27 +441,39 @@ class SyncEngine {
      * @returns {Promise<{ pushed: number }>}
      */
     async flush() {
+        const session = this._session ?? this._beginSession(this._atlasId);
+        session.assertActive();
+        if (session.flushPromise) return session.flushPromise;
+        session.flushPromise = this._flushSession(session).finally(() => { session.flushPromise = null; });
+        return session.flushPromise;
+    }
+
+    async _flushSession(session) {
         let pushed = 0;
+        let needsRecovery = false;
         // MODO DE ISOLAMENTO: uma vez ligado, o lote vira de tamanho 1 e assim fica até
         // que a op ofensora seja encontrada e descartada. Voltar ao lote cheio no
         // primeiro push aceito faria o lote grande falhar de novo a cada op boa que
         // precede a ofensora (um round-trip perdido por op, em vez de um por op).
         let isolating = false;
-        let ops = await operationQueue.peek(FLUSH_BATCH_SIZE);
+        let ops = await session.queue.peek(FLUSH_BATCH_SIZE);
         while (ops && ops.length > 0) {
+            session.assertActive();
             const opIds = ops.map(op => op.id);
             record(TraceStage.FLUSH_PUSH, {
-                atlasId: this._atlasId, opIds, batchSize: ops.length, outcome: TraceOutcome.OK,
+                atlasId: session.atlasId, opIds, batchSize: ops.length, outcome: TraceOutcome.OK,
             });
             let resp;
             try {
-                resp = await apiClient.pushOperations(this._atlasId, ops);
+                resp = await apiClient.pushOperations(session.atlasId, ops, { signal: session.signal });
+                session.assertActive();
             } catch (error) {
+                session.assertActive();
                 // A rejected batch is NOT dequeued — the queue re-peeks the same ops next
                 // flush. Surface the poison batch (which op ids stalled) instead of the
                 // historic silent stall.
                 record(TraceStage.FLUSH_PUSH, {
-                    atlasId: this._atlasId, opIds, outcome: TraceOutcome.FAILED,
+                    atlasId: session.atlasId, opIds, outcome: TraceOutcome.FAILED,
                     error: error?.message || String(error),
                 });
 
@@ -453,7 +482,7 @@ class SyncEngine {
                 // endereço que não existe é um round-trip por op, para sempre).
                 if (ATLAS_GONE_STATUSES.has(error?.status)) {
                     record(TraceStage.FLUSH_PUSH, {
-                        atlasId: this._atlasId, opIds, outcome: TraceOutcome.FAILED,
+                        atlasId: session.atlasId, opIds, outcome: TraceOutcome.FAILED,
                         reason: 'atlas_gone', error: error?.message || String(error),
                     });
                     await this._reconcileConvergenceGuard();
@@ -475,11 +504,15 @@ class SyncEngine {
                 if (PERMANENT_PUSH_REJECTIONS.has(error?.status)) {
                     if (ops.length > 1) {
                         isolating = true;
-                        ops = await operationQueue.peek(1);
+                        ops = await session.queue.peek(1);
                         continue;
                     }
                     const poison = ops[0];
-                    const removed = await operationQueue.dequeue(opIds);
+                    await session.queue.recordIssue(ops[0], {
+                        rejected: true, reason: error.message, status: error.status,
+                    });
+                    needsRecovery = true;
+                    const removed = 1;
                     if (removed === 0) {
                         // A fila não avançou: repetir o mesmo peek é laço infinito. Deixa
                         // o erro subir, que é o comportamento antigo (fila parada), nunca
@@ -488,7 +521,7 @@ class SyncEngine {
                         throw error;
                     }
                     record(TraceStage.PREFLUSH_DROP, {
-                        atlasId: this._atlasId, opId: poison.id, traceId: poison.traceId,
+                        atlasId: session.atlasId, opId: poison.id, traceId: poison.traceId,
                         entityType: poison.entityType, entityId: poison.entityId,
                         outcome: TraceOutcome.DROPPED, reason: DropReason.SERVER_REJECTED,
                         error: error?.message || String(error),
@@ -498,28 +531,39 @@ class SyncEngine {
                     // do usuário sem explicação.
                     try {
                         showWarning(
-                            'Uma alteração não pôde ser sincronizada e foi descartada.'
+                            'Uma alteração foi recusada pelo servidor. Ela está guardada nas pendências para revisão.'
                         );
                     } catch {
                         // Headless (tests, worker): no UI to tell.
                     }
                     isolating = false;
-                    ops = await operationQueue.peek(FLUSH_BATCH_SIZE);
+                    ops = await session.queue.peek(FLUSH_BATCH_SIZE);
                     continue;
                 }
 
                 await this._reconcileConvergenceGuard();
                 throw error;
             }
-            recordPushAcks(resp, ops);
+            session.assertActive();
+            await recordPushAcks(resp, ops);
+            session.assertActive();
+            const refused = (resp?.results ?? resp?.acks ?? []).filter(r => r.rejected === true || r.success === false);
+            let issues = 0;
+            for (const result of refused) {
+                const operation = ops.find(op => op.id === (result.operationId ?? result.opId));
+                if (!operation) continue;
+                await session.queue.recordIssue(operation, result);
+                needsRecovery = true;
+                issues++;
+            }
             const ackedIds = acknowledgedOperationIds(resp, ops);
-            const removed = await operationQueue.dequeue(ackedIds);
-            if (removed === 0) {
+            const removed = await session.queue.dequeue(ackedIds);
+            if (removed === 0 && issues === 0) {
                 // Nada saiu da fila: o próximo peek devolve exatamente estas ops e o laço
                 // gira em vazio para sempre. Falhar alto é a saída que preserva o dado E
                 // avisa (o `sync-flush` conta a falha e fala com o usuário).
                 record(TraceStage.FLUSH_PUSH, {
-                    atlasId: this._atlasId, opIds, outcome: TraceOutcome.FAILED,
+                    atlasId: session.atlasId, opIds, outcome: TraceOutcome.FAILED,
                     reason: 'unacknowledged_batch',
                 });
                 await this._reconcileConvergenceGuard();
@@ -528,8 +572,11 @@ class SyncEngine {
                 );
             }
             pushed += removed;
-            ops = await operationQueue.peek(isolating ? 1 : FLUSH_BATCH_SIZE);
+            ops = await session.queue.peek(isolating ? 1 : FLUSH_BATCH_SIZE);
         }
+        session.assertActive();
+        if (needsRecovery) await this.resync();
+        session.assertActive();
         await this._reconcileConvergenceGuard();
         return { pushed };
     }
@@ -561,7 +608,7 @@ class SyncEngine {
      */
     async _reconcileConvergenceGuard() {
         try {
-            const remaining = await operationQueue.getAll();
+            const remaining = await (operationQueue.getPendingProjection?.() ?? operationQueue.getAll());
             const remainingIds = new Set(remaining.map((o) => o.entityId).filter(Boolean));
             await reconcilePendingLocalEdits(remainingIds);
         } catch (err) {
@@ -575,9 +622,11 @@ class SyncEngine {
      * @returns {Promise<void>}
      */
     async pull() {
-        const result = await apiClient.pullSync(this._atlasId, this._lastVersion);
+        const session = this._session ?? this._beginSession(this._atlasId);
+        const result = await apiClient.pullSync(session.atlasId, this._lastVersion, { signal: session.signal });
+        session.assertActive();
         if (result?.snapshot) {
-            await applyRemoteSnapshot(result.snapshot);
+            await applyRemoteSnapshot(result.snapshot, session);
         } else if (result?.operations) {
             // Same structural-marker guard as the syncResponse handler. Without it a
             // `map_merge` marker would fall through to applyRemoteOperation's
@@ -591,9 +640,10 @@ class SyncEngine {
                 return;
             }
             for (const op of result.operations) {
-                await applyRemoteOperation(op);
+                if (await applyRemoteOperation(op, session) === false) return false;
             }
         }
+        session.assertActive();
         this._lastVersion = result?.currentVersion ?? this._lastVersion;
     }
 
@@ -605,20 +655,22 @@ class SyncEngine {
      * @returns {Promise<void>}
      */
     async resync() {
-        if (this._resyncing || !this._atlasId) return;
-        this._resyncing = true;
-        try {
-            const result = await apiClient.pullSync(this._atlasId, 0);
+        if (!this._atlasId) return;
+        const session = this._session ?? this._beginSession(this._atlasId);
+        if (session.resyncPromise) return session.resyncPromise;
+        session.recovering = true;
+        session.resyncPromise = (async () => {
+            const result = await apiClient.pullSync(session.atlasId, 0, { signal: session.signal });
+            session.assertActive();
             if (result?.snapshot) {
-                await applyRemoteSnapshot(result.snapshot);
+                await applyRemoteSnapshot(result.snapshot, session);
+                session.assertActive();
                 this._lastVersion = result.currentVersion ?? this._lastVersion;
                 wsClient.setLastVersion(this._lastVersion);
             }
-        } catch (error) {
-            console.warn('[sync] resync failed:', error);
-        } finally {
-            this._resyncing = false;
-        }
+            session.recovering = false;
+        })().finally(() => { session.resyncPromise = null; });
+        return session.resyncPromise;
     }
 
     /**
@@ -649,6 +701,8 @@ class SyncEngine {
      * @returns {void}
      */
     disconnect({ resumeGranted = true, forgetAtlas = false } = {}) {
+        this._session?.close();
+        this._session = null;
         wsClient.disconnect();
         // O PAPEL E DO ATLAS, e sai com ele. Ficando, o `owner` do atlas A valeria durante a
         // janela de conexao do atlas B, que e conceder o que o servidor ainda nao respondeu.
@@ -733,7 +787,14 @@ class SyncEngine {
         } catch {
             // Services not initialized — proceed without UI event emission.
         }
-        syncGateway.setRemoteOperationHandler(applyRemoteOperation);
+        syncGateway.setRemoteOperationHandler(async (op) => {
+            const session = this._session;
+            if (!session) return false;
+            session.assertActive();
+            const applied = await applyRemoteOperation(op, { scope: session.scope, signal: session.signal, waitForDeferred: true });
+            session.assertActive();
+            return applied;
+        });
 
         // Return the promise so the ws-client can SERIALIZE applies (the handler does an
         // async read-modify-write of the map; a block body that didn't return the promise
@@ -745,9 +806,12 @@ class SyncEngine {
             // disconnect→clear window of a logout/atlas-switch) so it can't persist remote
             // data into a store being torn down (inv 2/3). The inbound op path is already
             // gated by syncGateway.isOnline(); the snapshot path was not.
-            if (!connectionState.isOnline()) return;
+            if (!connectionState.isOnline()) return false;
+            const session = this._session;
+            if (!session) return false;
+            session.assertActive();
             if (msg?.isSnapshot) {
-                await applyRemoteSnapshot(msg.snapshot);
+                await applyRemoteSnapshot(msg.snapshot, session);
             } else {
                 const ops = msg?.ops || [];
                 // A structural REST change (map merge) moves rows in bulk, so no
@@ -761,14 +825,16 @@ class SyncEngine {
                     return; // resync() re-reads the version from the snapshot
                 }
                 for (const op of ops) {
-                    await applyRemoteOperation(op);
+                    if (await applyRemoteOperation(op, { scope: session.scope, signal: session.signal, waitForDeferred: true }) === false) return false;
                 }
             }
+            session.assertActive();
             const version = msg?.currentVersion;
             if (Number.isFinite(version)) {
                 this._lastVersion = version;
                 wsClient.setLastVersion(version);
             }
+            session.recovering = false;
         });
 
         // The connected atlas was deleted server-side (`atlas_deleted` broadcast). Stop the

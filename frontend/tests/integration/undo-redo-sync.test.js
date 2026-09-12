@@ -204,7 +204,7 @@ describe('Undo/Redo sync consistency', () => {
 
             await addFeature('points', makeFeature('feat-1', 'point'));
 
-            expect(order).toEqual(['color', 'undo', 'sync']);
+            expect(order).toEqual(['sync', 'color', 'undo']);
         });
     });
 
@@ -232,3 +232,14 @@ describe('Undo/Redo sync consistency', () => {
         });
     });
 });
+
+// Store transaction contract: capture intent before persistence. The payload assertions
+// below keep the same logger spy while write-ahead-intent.test covers the real journal.
+vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
+    persistOperationIntents: async operations => {
+        const { logFeatureOperation } = await import('../../src/js/store/sync/index.js');
+        for (const op of operations) {
+            await logFeatureOperation(op.operationType, op.entityId, op.mapId, op.data, op.previousData);
+        }
+    },
+}));

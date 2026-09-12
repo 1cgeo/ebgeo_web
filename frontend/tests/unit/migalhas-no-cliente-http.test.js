@@ -128,7 +128,7 @@ describe('o pedido SEM resposta, que é o mais informativo da trilha', () => {
             });
         }));
         await expect(cliente._request('GET', '/config', { auth: false, timeoutMs: 5 }))
-            .rejects.toThrow(/aborted/);
+            .rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' });
         expect(trilhaDeApi()[0]).toMatch(/^GET \/config sem-resposta \d+ms$/);
     });
 });

@@ -276,11 +276,16 @@ export class WsClient {
             socket.onopen = () => {
                 // The handshake completes on the server's `connected` frame, not here.
             };
-            socket.onmessage = (event) => this._onMessage(event);
+            socket.onmessage = (event) => {
+                if (this._socket === socket) this._onMessage(event);
+            };
             socket.onerror = (event) => {
+                if (this._socket !== socket) return;
                 this._emit('error', { kind: 'socket', event });
             };
-            socket.onclose = (event) => this._onClose(event);
+            socket.onclose = (event) => {
+                if (this._socket === socket) this._onClose(event);
+            };
         });
     }
 
@@ -327,8 +332,12 @@ export class WsClient {
                 break;
             }
             case 'sync_response':
-                if (Number.isFinite(msg.currentVersion)) this.setLastVersion(msg.currentVersion);
-                this._emit('syncResponse', msg);
+                this._queueApply(async (isCurrent) => {
+                    if (!this._handlers.syncResponse) return false;
+                    const applied = await this._handlers.syncResponse(msg);
+                    if (applied === false) throw new Error('Snapshot não aplicado.');
+                    if (isCurrent()) this.setLastVersion(msg.currentVersion);
+                });
                 break;
             case 'pong':
                 this._pongPending = false;
@@ -421,49 +430,52 @@ export class WsClient {
             // (`broadcastOperations`), entao quem quiser saber quem escreveu precisa receber isso
             // aqui: sem esta linha o caminho de aplicacao tem a mudanca e nao tem o autor, que e a
             // metade que importa para avisar alguem de que foi atropelado.
-            const op = authorUserId ? { ...raw, authorUserId } : raw;
+            const op = { ...raw,
+                ...(authorUserId ? { authorUserId } : {}),
+                ...(this._isOwnClientId(raw.clientId) ? { localRepair: true } : {}),
+            };
             record(TraceStage.WS_INBOUND, {
                 opId: op.id, traceId: op.traceId, clientId: op.clientId,
                 entityType: op.entityType, operationType: op.operationType,
                 entityId: op.entityId, mapId: op.mapId, outcome: TraceOutcome.OK,
             });
 
-            // Advance the serverVersion cursor monotonically so the reconnect-replay
-            // `sync_request(lastVersion)` asks for the right tail. NOTE: server_version comes from a
-            // GLOBAL sequence shared across atlases, so it is monotonic but NOT contiguous per atlas
-            // — a "hole" is just another atlas's op, not a lost one. We therefore must NOT treat
-            // non-contiguity as a gap (that produced spurious sync_request storms); genuine op loss
-            // only happens across a disconnect and is recovered by the reconnect-time sync_request
-            // in _onConnected.
-            const sv = op.serverVersion;
-            if (Number.isFinite(sv) && sv > this._lastVersion) {
-                this._lastVersion = sv;
-            }
+            // A live event proves only this operation was delivered. Controllers can broadcast
+            // after another transaction's event, so its version is not a complete replay boundary.
+            // Only a fully applied sync_response advances that boundary; replay may safely repeat
+            // live events. Atlas versions use a global sequence and need not be contiguous.
 
-            // The HTTP-push broadcast can't exclude the sender; ignore our own echo. Matched on
-            // the INSTALLATION half of the client id (`isOwnClientId`), because an op queued
-            // before a reload carries the previous tab's suffix and is still ours.
-            if (op.clientId && this._clientId && this._isOwnClientId(op.clientId)) {
-                record(TraceStage.WS_SELF_ECHO, {
-                    opId: op.id, traceId: op.traceId, clientId: op.clientId,
-                    outcome: TraceOutcome.FILTERED, reason: DropReason.ECHO_SELF,
-                });
-                continue;
-            }
+            // The author's canonical result must be materialized too. Local optimism is
+            // not proof that the server accepted exactly those values.
             if (!handler) continue;
             // SERIALIZE: the handler does an async read-modify-write of the map's store
             // entry. Applying ops concurrently (a batch broadcast, or rapid ops) races —
             // concurrent IndexedDB writes to the same map key clobber each other, losing
             // all but one. Chain each apply after the previous one fully completes.
-            this._applyChain = (this._applyChain || Promise.resolve())
-                .then(() => handler(op))
-                .catch((err) => { console.warn('Remote op apply failed:', err); });
+            this._queueApply(async () => {
+                const applied = await handler(op);
+                if (applied === false) throw new Error('Alteração remota não aplicada.');
+            });
         }
+    }
+
+    /** Serialize all receive paths. A failed write closes the stream before its cursor can skip data. */
+    _queueApply(work) {
+        const socket = this._socket;
+        this._applyChain = (this._applyChain || Promise.resolve()).then(async () => {
+            if (this._socket !== socket) return;
+            try {
+                await work(() => this._socket === socket);
+            } catch (error) {
+                console.warn('Remote op apply failed:', error);
+                if (this._socket === socket) socket?.close(4000, 'local apply failed');
+            }
+        });
+        return this._applyChain;
     }
 
     /** @private Completes the handshake on the server `connected` frame. */
     _onConnected(msg) {
-        const wasReconnecting = this._conn.getState() === ConnectionStates.RECONNECTING;
         this.session = msg;
         this._reconnectAttempts = 0;
         this._safeTransition(ConnectionStates.ONLINE);
@@ -471,9 +483,7 @@ export class WsClient {
         this._emit('connected', msg);
 
         // On reconnect, ask the server to replay everything since our last version.
-        if (wasReconnecting) {
-            this.requestSync(this._lastVersion);
-        }
+        this.requestSync(this._lastVersion);
 
         if (this._connectResolve) {
             this._connectResolve(msg);
@@ -646,7 +656,8 @@ export class WsClient {
         const handler = this._handlers[event];
         if (handler) {
             try {
-                handler(payload);
+                const result = handler(payload);
+                result?.catch?.(err => console.warn(`WsClient handler "${event}" error:`, err));
             } catch (err) {
                 console.warn(`WsClient handler "${event}" error:`, err);
             }

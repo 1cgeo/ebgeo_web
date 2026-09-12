@@ -19,7 +19,8 @@ import { getEventBus } from './services.js';
 import { EventTypes } from '../events';
 import { withSideDocument } from './document-lock.js';
 import { DEFAULT_TEMPORAL_CONFIG } from '../temporal/temporal.constants.js';
-import { logMapTemporalOperation, OperationType } from './sync/operation-dispatcher.js';
+import { OperationType } from './sync/operation-dispatcher.js';
+import { runTransaction } from './store-transaction.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 
@@ -132,10 +133,15 @@ export async function setMapTemporalConfig(mapName, patch) {
     // pelo NOME, entao caem na mesma chave. Sem isso, a config do colega chegando no meio
     // do merge local seria sobrescrita pelo estado velho mais o patch.
     const next = await withSideDocument('temporal', target, 'setMapTemporalConfig', async () => {
-        const previous = withDefaults(await getSettingCompat(`${STORE_PREFIX}${target}`));
-        const merged = { ...previous, ...(patch || {}) };
-        await setSettingCompat(`${STORE_PREFIX}${target}`, merged);
-        memoryStore.temporalConfigs.set(target, merged);
+        let previous, merged;
+        await runTransaction(async tx => {
+            const mapId = mapManager.getMapId(target);
+            previous = withDefaults(await getSettingCompat(`${STORE_PREFIX}${target}`));
+            merged = { ...previous, ...(patch || {}) };
+            tx.recordOperation('mapTemporal', OperationType.UPDATE, mapId, mapId, merged, previous);
+            tx.deferSync(() => memoryStore.temporalConfigs.set(target, merged));
+            return () => setSettingCompat(`${STORE_PREFIX}${target}`, merged);
+        });
         return { merged, previous };
     });
     const { merged: config, previous } = next;
@@ -153,7 +159,6 @@ export async function setMapTemporalConfig(mapName, patch) {
     // 'mapTemporal' to maps.temporal_config; entityId === the map UUID. The op MUST
     // carry the UUID (not the name) — the dispatcher's isValidUUID guard drops non-UUID
     // map-setting ops, so logging the name silently dropped every temporal sync.
-    await logMapTemporalOperation(OperationType.UPDATE, mapManager.getMapId(target), config);
 
     return config;
 }

@@ -216,6 +216,7 @@ export async function mergeMaps(atlasId, destMapId, sourceMapIds, actingUserId =
       actingUserId ?? null,
       randomUUID(),
       null,
+      MAP_MERGE_ENTITY_TYPE,
     ]);
 
     return { destMapId, sourceMapIds: sources, moved, deduped };
