@@ -52,7 +52,15 @@ export async function persistOperationIntents(descriptions, { scope, traceId } =
             outcome: TraceOutcome.OK,
         });
     }
-    return () => queue.markMaterialized(created);
+    return async () => {
+        await queue.markMaterialized(created);
+        for (const op of created) {
+            record(TraceStage.APPLY_PERSIST, {
+                opId: op.id, traceId, entityType: op.entityType, operationType: op.operationType,
+                entityId: op.entityId, mapId: op.mapId, batchId: op.batchId, outcome: TraceOutcome.OK
+            });
+        }
+    };
 }
 
 // ===== RETRY / CIRCUIT BREAKER STATE =====

@@ -37,14 +37,24 @@ As fronteiras incrementais são o controlador HTTP de sync e os dois handlers de
 | Mapas e subtipos | `frontend/src/js/store/map.operations.js`, `frontend/src/js/locking/map-lock.controller.js`, `frontend/src/js/store/temporal.operations.js` | Intenção antes da persistência, hierarquia/ordem e conflitos de metadados |
 | Camadas | `frontend/src/js/layers/layer.manager.js` | Debounce e diário antes da gravação; conflitos além da identidade canônica |
 | Grupos e membros | `frontend/src/js/tool_manager/group_manager.js` | Intenções de membros separadas, diário e comandos de combinar/desagrupar |
-| Briefings e slides | `frontend/src/js/store/briefing.operations.js` | Diário, revisão por slide e ordem explícita |
+| Briefings e slides | `frontend/src/js/store/briefing.operations.js` | Diário implementado neste checkpoint; revisão por slide e conflito de ordem ainda pendentes |
 | Catálogo | `frontend/src/js/store/catalog.operations.js` | Diário, versão e referências autorizadas em todas as recepções |
 | 3D e 360 | `frontend/src/js/store/cesium3d.operations.js`, `frontend/src/js/store/streetview360.operations.js` | Diário, revisões, imagens associadas e callbacks com escopo capturado |
 | Preferências compartilhadas | `frontend/src/js/store/atlas-appearance.service.js`, `frontend/src/js/store/settings.operations.js`, `frontend/src/js/store/customIcons.operations.js` | Separar o que é local do que é compartilhado; diário e conflitos das chaves remotas |
 
 O enum de frontend também contém `atlas`, sem produtor de operação encontrado nesta varredura. O backend aceita `atlas_meta` e `map_meta` além dos tipos traduzidos; esses aliases devem entrar na cobertura de revisões. A fábrica e o dispatcher são fronteiras comuns, mas o logging posterior à persistência ainda existe em diversos produtores. Este inventário orienta a adaptação; não é prova de cobertura de toda escrita.
 
-## Evidências até este ponto
+## Diário de briefings e slides: segundo checkpoint validado
+
+Criação, atualização, exclusão e edição de slides preparam a intenção completa sob a mesma trava do briefing, antes de gravar a entidade. A comparação com o documento anterior produz também as operações individuais dos slides, cuja persistência no servidor é separada. Criar com slides iniciais e importar uma cópia agora registra todos eles; cópias recebem novas identidades de pai e filhos, sem modificar o objeto de entrada. Importação remota nova também recebe identidades novas, pois os IDs das tabelas do servidor não são privados de cada atlas.
+
+A publicação das operações materializadas remove as marcas de preparação numa única transação IndexedDB: uma interrupção não libera apenas o pai. Snapshot recupera intenções preparadas de slides com os mesmos IDs, inclusive o caso histórico em que o pai já recebeu ACK. Falha de quota conserva a intenção e rejeita a confirmação da edição. Mudança de atlas durante leitura interrompe a escrita. O rastro de persistência só é emitido depois da materialização confirmada.
+
+Controles negativos retirando a publicação atômica e substituindo o produtor pela versão anterior fizeram os respectivos testes falharem; fontes restauradas em `finally`. A suíte hermética passou com 12.240 testes/641 arquivos, incluindo nove cenários novos de diário, concorrência, recuperação, escopo e identidade. Os três casos de navegador (offline/F5, cópias com slides iniciais e falha de quota seguida de F5) passaram duas vezes cada, sem retries/skips. Os três casos existentes de briefing/slides/temporal entre dois clientes também passaram duas vezes cada. Uma execução adicional verificou a captura com o editor aberto, o nome e os dois slides recuperados. Build e lint aprovados. A verificação completa da raiz terminou com código 0: 12.240 testes do frontend, 5.050 do backend e 201 contratos, sem falhas ou skips. Os testes de integridade documental também passaram (16 casos).
+
+Isso não torna atômica uma importação inteira no servidor nem resolve concorrência entre usuários: conflitos por slide, ordens concorrentes, demais produtores e comandos compostos continuam pendentes. Na execução completa houve uma falha transitória do ensaio de BroadcastChannel main/nova; passou isoladamente e na execução completa seguinte, sem mudança de produto. A matriz de abas ainda exige tratamento na etapa 5.
+
+## Evidências do primeiro checkpoint (`b26f4e66`)
 
 - Frontend completo: 640 arquivos e 12.231 testes aprovados, incluindo o bloqueio de envio direto sem negociação compatível.
 - Bateria de recibos, protocolo, movimento entre mapas e isolamento: 31 testes aprovados. Inclui leitor que perdeu escrita, revogação total de acesso, conteúdo alterado sob o mesmo ID e ausência de efeito na consulta.

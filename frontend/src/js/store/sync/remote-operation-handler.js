@@ -24,7 +24,7 @@ import { applyRemoteAppearance } from '../atlas-appearance.service.js';
 import { getControl } from '../control.registry.js';
 import { mapResolver } from '../services/map-resolver.service.js';
 import { memoryStore } from '../memory-store.js';
-import { withMapDocument, withSideDocument } from '../document-lock.js';
+import { withMapDocument, withSideDocument, withDocumentLock } from '../document-lock.js';
 import { EntityType, OperationType } from './operation-types.js';
 import { editedRecentlyLocally } from './overwrite-notice.js';
 import { record } from './diag/trace-core.js';
@@ -464,9 +464,8 @@ export async function resolveLocalEdit(entityId, serverVersion, localOp = null) 
         // events, so the UI refreshes exactly as it does for a peer's op. The guard lets it
         // through by construction — the pending count was just cleared and
         // `shouldApplyVersion` compares `>=` against the version seeded three lines above.
-        // `localRepair` só é lido pelo tap do SyncLedger (`diag/bus-tap.js`), para que este
-        // reapply não seja contado como "um par aplicou a op": o detector de órfã do ledger
-        // não exclui o autor, e um span aqui a faria parecer aplicada em alguém.
+        // `localRepair` identifies a local projection recovery, including slide intents.
+        // The SyncLedger tap excludes it from peer delivery evidence.
         await applyRemoteOperation({ ...localOp, serverVersion, localRepair: true }, context);
     }
     context.assertActive();
@@ -647,10 +646,10 @@ async function applyRemoteOperationInner(operation, guarded) {
             await applyRemoteSettingOp(data);
             break;
         case EntityType.SLIDE:
-            // Slides converge via their parent BRIEFING op (updateBriefing logs the full slides
-            // array, applied by applyRemoteBriefingOp); the standalone slide op is redundant
-            // inbound. No-op here so it doesn't trip the "unknown entity type" warning.
-            entityPersisted = false;
+            // Live delivery carries the parent's full document. Recovery must also handle a
+            // prepared slide whose parent envelope was already acknowledged before the crash.
+            entityPersisted = operation.localRepair
+                ? await applyLocalSlideIntent(operationType, entityId, mapId, data) : false;
             break;
         default:
             entityPersisted = false;
@@ -1189,23 +1188,48 @@ async function applyRemoteGroupFeatureOp(opType, mapId, data) {
  * @param {Object} data - Briefing data
  */
 async function applyRemoteBriefingOp(opType, briefingId, data) {
-    switch (opType) {
-        case OperationType.CREATE:
-        case OperationType.UPDATE: {
-            if (data) {
-                await handlerLocalRepository().saveBriefing(briefingId, data);
+    return withDocumentLock(`briefing:${briefingId}`, 'applyRemoteBriefingOp', async () => {
+        switch (opType) {
+            case OperationType.CREATE:
+            case OperationType.UPDATE: {
+                if (data) {
+                    await handlerLocalRepository().saveBriefing(briefingId, data);
+                }
+                const eventType = opType === OperationType.CREATE
+                    ? EventTypes.BRIEFING_CREATED
+                    : EventTypes.BRIEFING_UPDATED;
+                emit(eventType, { briefingId, briefing: data });
+                break;
             }
-            const eventType = opType === OperationType.CREATE
-                ? EventTypes.BRIEFING_CREATED
-                : EventTypes.BRIEFING_UPDATED;
-            emit(eventType, { briefingId, briefing: data });
-            break;
+            case OperationType.DELETE:
+                await handlerLocalRepository().deleteBriefing(briefingId);
+                emit(EventTypes.BRIEFING_DELETED, { briefingId });
+                break;
         }
-        case OperationType.DELETE:
-            await handlerLocalRepository().deleteBriefing(briefingId);
-            emit(EventTypes.BRIEFING_DELETED, { briefingId });
-            break;
-    }
+    });
+}
+
+/** Materialize a pending local slide without generating another operation or undo entry. */
+async function applyLocalSlideIntent(opType, slideId, briefingId, data) {
+    if (!briefingId) return false;
+    return withDocumentLock(`briefing:${briefingId}`, 'recoverLocalSlide', async () => {
+        const repo = handlerLocalRepository();
+        const briefing = await repo.getBriefing(briefingId);
+        if (!briefing) return false;
+        const slides = [...(briefing.slides || [])];
+        const previousIndex = slides.findIndex(slide => slide.id === slideId);
+        if (opType !== OperationType.DELETE && (!data || typeof data !== 'object')) return false;
+        if (previousIndex !== -1) slides.splice(previousIndex, 1);
+        if (opType !== OperationType.DELETE) {
+            const position = Number.isInteger(data.order) ? Math.max(0, Math.min(data.order, slides.length))
+                : previousIndex === -1 ? slides.length : previousIndex;
+            slides.splice(position, 0, { ...data, id: slideId });
+        }
+        const updated = { ...briefing, slides };
+        await repo.saveBriefing(briefingId, updated);
+        emit(EventTypes.BRIEFING_UPDATED, { briefingId, briefing: updated });
+        return true;
+    });
 }
 
 /**

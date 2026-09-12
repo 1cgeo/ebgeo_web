@@ -30,6 +30,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fc from 'fast-check';
 
 const repo = {
+    forScope() { return this; },
     getAllBriefings: vi.fn(),
     getBriefing: vi.fn(),
     saveBriefing: vi.fn(),
@@ -51,6 +52,25 @@ vi.mock('../../src/js/store/sync/index.js', () => ({
     logOperation: (...args) => logOperation(...args),
     EntityType: { SLIDE: 'slide', BRIEFING: 'briefing' },
     OperationType: { CREATE: 'create', UPDATE: 'update', DELETE: 'delete' },
+}));
+
+// Existing shape assertions observe journal descriptions through their old tuple helpers.
+// The dedicated write-ahead integration suite uses the real dispatcher and IndexedDB.
+vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
+    persistOperationIntents: vi.fn(async descriptions => {
+        for (const op of descriptions) {
+            if (op.entityType === 'briefing') {
+                const args = [op.operationType, op.entityId, op.data];
+                if (op.previousData != null) args.push(op.previousData);
+                logBriefingOperation(...args);
+            } else {
+                const args = [op.entityType, op.operationType, op.entityId, op.mapId, op.data];
+                if (op.previousData != null) args.push(op.previousData);
+                logOperation(...args);
+            }
+        }
+        return async () => {};
+    })
 }));
 
 vi.mock('../../src/js/store/sync/permission-guard.js', () => ({

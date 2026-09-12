@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { withDocumentLock } from '../../src/js/store/document-lock.js';
 
 // ============================================================================
 // Hoisted shared state (available to vi.mock factories)
@@ -23,6 +24,7 @@ const h = vi.hoisted(() => {
 // localRepository is the briefing persistence layer (in-memory Map here).
 vi.mock('../../src/js/store/repositories/local.repository.js', () => ({
     localRepository: {
+        forScope() { return this; },
         getAllBriefings: vi.fn(async () => {
             const list = [...h.briefings.values()];
             list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -49,6 +51,26 @@ vi.mock('../../src/js/store/sync/index.js', () => ({
     logOperation: vi.fn(),
     OperationType: { CREATE: 'create', UPDATE: 'update', DELETE: 'delete' },
     EntityType: { BRIEFING: 'briefing', SLIDE: 'slide' }
+}));
+
+// Existing shape assertions observe journal descriptions through their old tuple helpers.
+// The dedicated write-ahead integration suite uses the real dispatcher and IndexedDB.
+vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
+    persistOperationIntents: vi.fn(async descriptions => {
+        const { logBriefingOperation, logOperation } = await import('../../src/js/store/sync/index.js');
+        for (const op of descriptions) {
+            if (op.entityType === 'briefing') {
+                const args = [op.operationType, op.entityId, op.data];
+                if (op.previousData != null) args.push(op.previousData);
+                logBriefingOperation(...args);
+            } else {
+                const args = [op.entityType, op.operationType, op.entityId, op.mapId, op.data];
+                if (op.previousData != null) args.push(op.previousData);
+                logOperation(...args);
+            }
+        }
+        return async () => {};
+    })
 }));
 
 // Permission guard: drive allow/deny from hoisted state.
@@ -93,7 +115,8 @@ vi.mock('../../src/js/store/sync/sync-metadata.js', () => ({
 
 // deepClone: keep it real (structuredClone-equivalent) so previousData is a
 // genuine snapshot decoupled from the live object.
-vi.mock('../../src/js/utilities/deep-utils.js', () => ({
+vi.mock('../../src/js/utilities/deep-utils.js', async importOriginal => ({
+    ...await importOriginal(),
     deepClone: vi.fn((obj) => JSON.parse(JSON.stringify(obj)))
 }));
 
@@ -268,7 +291,9 @@ describe('createBriefing', () => {
             settings: { panelWidth: 500 }
         });
 
-        expect(result.slides).toBe(slides);
+        expect(result.slides).toEqual(slides.map(slide => ({ ...slide, id: expect.any(String) })));
+        expect(result.slides[0].id).not.toBe(slides[0].id);
+        expect(result.slides).not.toBe(slides);
         expect(result.settings.panelWidth).toBe(500);
         // Untouched defaults survive the merge.
         expect(result.settings.panelPosition).toBe(DEFAULT_BRIEFING_SETTINGS.panelPosition);
@@ -453,10 +478,9 @@ describe('addSlide', () => {
 
         const slide = await addSlide('b1', { title: 'Intro' });
 
-        // New slide got a generated id and append order. Note: createEmptySlide()
-        // burns the first UUID for the spread base, so the slide's own id is the
-        // second generated value.
-        expect(slide.id).toBe('uuid-2');
+        // The journal also allocates an action trace id; identity must be stable, not ordinal.
+        expect(slide.id).toMatch(/^uuid-/);
+        expect(slide.id).not.toBe('s0');
         expect(slide.title).toBe('Intro');
         expect(slide.order).toBe(1);
         expect(slide.mode).toBe(SlideMode.MAP_2D);
@@ -465,7 +489,7 @@ describe('addSlide', () => {
         // Persisted through updateBriefing (briefing now has 2 slides).
         const stored = h.briefings.get('b1');
         expect(stored.slides).toHaveLength(2);
-        expect(stored.slides[1].id).toBe('uuid-2');
+        expect(stored.slides[1].id).toBe(slide.id);
 
         // Emits the slide-level CREATE op (entity, briefing context).
         expect(logOperation).toHaveBeenCalledWith('slide', 'create', slide.id, 'b1', slide);
@@ -752,43 +776,43 @@ describe('importBriefings', () => {
 });
 
 // ============================================================================
-// Atomicity: persistence failure must NOT fire sync logging
+// A failed entity write retains its prior journal description for recovery
 // ============================================================================
 
-describe('atomicity (persist rejects → no sync log)', () => {
-    it('createBriefing: save rejects, CREATE op never logged', async () => {
+describe('entity failure preserves the preceding intention', () => {
+    it('createBriefing: save rejects, CREATE intention preserved', async () => {
         localRepository.saveBriefing.mockRejectedValueOnce(new Error('IndexedDB write failed'));
 
         await expect(createBriefing({ name: 'X' })).rejects.toThrow('IndexedDB write failed');
 
-        expect(logBriefingOperation).not.toHaveBeenCalled();
+        expect(logBriefingOperation).toHaveBeenCalledOnce();
     });
 
-    it('updateBriefing: save rejects, UPDATE op never logged', async () => {
+    it('updateBriefing: save rejects, UPDATE intention preserved', async () => {
         seedBriefing({ id: 'b1' });
         localRepository.saveBriefing.mockRejectedValueOnce(new Error('IndexedDB write failed'));
 
         await expect(updateBriefing('b1', { name: 'X' })).rejects.toThrow('IndexedDB write failed');
 
-        expect(logBriefingOperation).not.toHaveBeenCalled();
+        expect(logBriefingOperation).toHaveBeenCalledOnce();
     });
 
-    it('deleteBriefing: delete rejects, DELETE op never logged', async () => {
+    it('deleteBriefing: delete rejects, DELETE intention preserved', async () => {
         seedBriefing({ id: 'b1' });
         localRepository.deleteBriefing.mockRejectedValueOnce(new Error('IndexedDB delete failed'));
 
         await expect(deleteBriefing('b1')).rejects.toThrow('IndexedDB delete failed');
 
-        expect(logBriefingOperation).not.toHaveBeenCalled();
+        expect(logBriefingOperation).toHaveBeenCalledOnce();
     });
 
-    it('addSlide: underlying save rejects, SLIDE CREATE op never logged', async () => {
+    it('addSlide: underlying save rejects, SLIDE CREATE intention preserved', async () => {
         seedBriefing({ id: 'b1' });
         localRepository.saveBriefing.mockRejectedValueOnce(new Error('IndexedDB write failed'));
 
         await expect(addSlide('b1', { title: 'x' })).rejects.toThrow('IndexedDB write failed');
 
-        expect(logOperation).not.toHaveBeenCalled();
+        expect(logOperation).toHaveBeenCalledOnce();
     });
 });
 
@@ -857,19 +881,19 @@ describe('slide ops when the briefing write is refused', () => {
         expect(localRepository.saveBriefing).not.toHaveBeenCalled();
     });
 
-    it('edge: a VANISHED briefing is refused the same way (updateBriefing → null)', async () => {
-        // Permission is fine, but the briefing is deleted between the read and the write.
+    it('a briefing deleted by the preceding writer cannot receive a queued slide', async () => {
         h.permissionAllowed = true;
-        h.briefings.delete('b1');
-        // getBriefingById must still resolve, so re-seed under a different id and
-        // delete only the one updateBriefing will look for.
-        h.briefings.set('b1', { id: 'b1', name: 'b', slides: [makeSlide('s1', 0)], settings: {}, sync: {} });
-        localRepository.getBriefing.mockImplementationOnce(async (id) => h.briefings.get(id) || null)
-            .mockImplementationOnce(async () => null); // the read INSIDE updateBriefing
-
-        const result = await addSlide('b1', { title: 'Novo slide' });
-
-        expect(result).toBeNull();
+        let release;
+        const barrier = new Promise(resolve => { release = resolve; });
+        const deleting = withDocumentLock('briefing:b1', 'preceding delete', async () => {
+            await barrier;
+            h.briefings.delete('b1');
+        });
+        const adding = addSlide('b1', { title: 'Novo slide' });
+        release();
+        await deleting;
+        expect(await adding).toBeNull();
         expect(logOperation).not.toHaveBeenCalled();
+        expect(localRepository.saveBriefing).not.toHaveBeenCalled();
     });
 });

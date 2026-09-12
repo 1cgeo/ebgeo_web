@@ -4,6 +4,70 @@ const SEQUENCE_KEY = '__journal_sequence__';
 const ID_PREFIX = '__journal_id__';
 const tails = new WeakMap();
 
+/** Publish an entire materialized edit together; a crash must not expose half its operations. */
+export async function materializeJournal(store, operations, assertWritable = () => {}) {
+    assertWritable();
+    if (!operations.length) return;
+    if (!store.config) {
+        // Lightweight repository adapters used by shape tests have no IDB transaction API.
+        for (const operation of operations) {
+            assertWritable();
+            await store.removeItem('__journal_state__' + operation.id);
+        }
+        return;
+    }
+    await store.ready();
+    if (!globalThis.indexedDB || store.driver() !== 'asyncStorage') {
+        throw new Error('O atlas remoto precisa do IndexedDB para confirmar a gravação.');
+    }
+    await store.getItem(SEQUENCE_KEY);
+    assertWritable();
+    await new Promise((resolve, reject) => {
+        const request = indexedDB.open(store.config('name'));
+        let cancelled = false;
+        request.onerror = () => reject(request.error);
+        request.onupgradeneeded = () => {
+            request.transaction.abort();
+            reject(new DOMException('O banco da fila foi desmontado.', 'AbortError'));
+        };
+        request.onblocked = () => {
+            cancelled = true;
+            reject(new Error('Banco da fila ocupado por outra aba.'));
+        };
+        request.onsuccess = () => {
+            const db = request.result;
+            if (cancelled) { db.close(); return; }
+            let transaction;
+            let failure;
+            try {
+                assertWritable();
+                transaction = db.transaction(store.config('storeName'), 'readwrite');
+                transaction.oncomplete = () => {
+                    db.close();
+                    try { assertWritable(); resolve(); } catch (error) { reject(error); }
+                };
+                transaction.onabort = () => {
+                    db.close();
+                    reject(failure ?? transaction.error ?? new Error('Falha ao confirmar a gravação.'));
+                };
+                transaction.onerror = () => {};
+                const rows = transaction.objectStore(store.config('storeName'));
+                for (const operation of operations) {
+                    assertWritable();
+                    rows.delete('__journal_state__' + operation.id).onsuccess = () => {
+                        try { assertWritable(); } catch (error) { failure = error; transaction.abort(); }
+                    };
+                }
+            } catch (error) {
+                failure = error;
+                if (transaction) {
+                    transaction.abort();
+                } else { db.close(); reject(error); }
+            }
+        };
+    });
+}
+
 function sameEnvelope(left, right) {
     const canonical = value => {
         if (Array.isArray(value)) return value.map(canonical);

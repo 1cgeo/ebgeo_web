@@ -10,10 +10,14 @@
  */
 
 import { localRepository } from './repositories/local.repository.js';
-import { generateUUID } from '../utilities/uuid.js';
-import { deepClone } from '../utilities/deep-utils.js';
+import { generateUUID, isValidUUID } from '../utilities/uuid.js';
+import { deepClone, deepEqual } from '../utilities/deep-utils.js';
 import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
-import { logBriefingOperation, logOperation, EntityType, OperationType } from './sync/index.js';
+import { EntityType, OperationType } from './sync/operation-types.js';
+import { runTransaction } from '@store/store-transaction.js';
+import { withDocumentLock } from '@store/document-lock.js';
+import { getActiveScope } from '@store/atlas-namespace.js';
+import { captureRemoteWriteFence } from '@store/remote-write-fence.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 
@@ -119,6 +123,63 @@ export function createEmptyBriefing(name, description = '') {
 // BRIEFING OPERATIONS
 // ============================================================================
 
+/** Prepare the entire briefing edit before its journal or entity is written. */
+async function writeBriefing(id, type, action, label, prepare, missing = null) {
+    const perm = checkPermission(action);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: label, reason: perm.reason, required: perm.required });
+        return missing;
+    }
+    let output = missing;
+    await withDocumentLock(`briefing:${id}`, label, () => runTransaction(async tx => {
+        const repo = localRepository.forScope(tx.scope);
+        const previous = await repo.getBriefing(id);
+        if (type !== OperationType.CREATE && !previous) return async () => {};
+        if (type === OperationType.CREATE && previous) throw new Error('Já existe um briefing com este identificador.');
+        const edit = prepare(previous ? deepClone(previous) : null);
+        if (!edit) return async () => {};
+        const next = type === OperationType.DELETE ? null : {
+            ...edit.value, id, slides: edit.value.slides ?? [],
+            ...(type === OperationType.UPDATE ? {
+                sync: touchSyncMetadata(previous.sync), createdAt: previous.createdAt, updatedAt: Date.now()
+            } : {})
+        };
+        if (next && !Array.isArray(next.slides)) throw new Error('O briefing possui uma lista de slides inválida.');
+        if (tx.scope?.kind === 'remote' && (!isValidUUID(id) || next?.slides.some(slide => !isValidUUID(slide.id)))) {
+            throw new Error('Os identificadores do briefing e dos slides precisam ser válidos para sincronizar.');
+        }
+        if (next && new Set(next.slides.map(slide => slide.id)).size !== next.slides.length) {
+            throw new Error('Dois slides não podem compartilhar o mesmo identificador.');
+        }
+        tx.recordOperation(EntityType.BRIEFING, type, id, null, next, previous);
+        // The briefing envelope carries order/presentation; the server stores each slide separately.
+        // Derive the complete set from the observed parent before either write occurs.
+        if (next) {
+            const before = new Map((previous?.slides || []).map(slide => [slide.id, slide]));
+            for (const slide of next.slides || []) {
+                const prior = before.get(slide.id);
+                if (!deepEqual(slide, prior)) {
+                    tx.recordOperation(EntityType.SLIDE, prior ? OperationType.UPDATE : OperationType.CREATE,
+                        slide.id, id, slide, prior ?? null);
+                }
+                before.delete(slide.id);
+            }
+            for (const slide of before.values()) {
+                tx.recordOperation(EntityType.SLIDE, OperationType.DELETE, slide.id, id, null, slide);
+            }
+        }
+        output = edit.result === undefined ? next : edit.result;
+        return () => type === OperationType.DELETE ? repo.deleteBriefing(id) : repo.saveBriefing(id, next);
+    }));
+    return output;
+}
+
+/** Each slide edit shares its parent read, journal and persistence boundary. */
+function editSlides(id, prepare) {
+    return writeBriefing(id, OperationType.UPDATE, GuardAction.UPDATE_BRIEFING, 'updateBriefing', prepare);
+}
+
+
 /**
  * Gets all briefings.
  *
@@ -149,27 +210,11 @@ export function getBriefingById(briefingId) {
  * @returns {Promise<Object>} Created briefing
  */
 export async function createBriefing(data) {
-    const perm = checkPermission(GuardAction.CREATE_BRIEFING);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'createBriefing', reason: perm.reason, required: perm.required });
-        return null;
-    }
-
     const briefing = createEmptyBriefing(data.name, data.description || '');
-
-    if (Array.isArray(data.slides)) {
-        briefing.slides = data.slides;
-    }
-
-    if (data.settings) {
-        briefing.settings = { ...DEFAULT_BRIEFING_SETTINGS, ...data.settings };
-    }
-
-    await localRepository.saveBriefing(briefing.id, briefing);
-
-    logBriefingOperation(OperationType.CREATE, briefing.id, briefing);
-
-    return briefing;
+    if (Array.isArray(data.slides)) briefing.slides = deepClone(data.slides).map(slide => ({ ...slide, id: generateUUID() }));
+    if (data.settings) briefing.settings = { ...DEFAULT_BRIEFING_SETTINGS, ...data.settings };
+    return writeBriefing(briefing.id, OperationType.CREATE, GuardAction.CREATE_BRIEFING,
+        'createBriefing', () => ({ value: briefing }));
 }
 
 /**
@@ -180,38 +225,11 @@ export async function createBriefing(data) {
  * @returns {Promise<Object|null>} Updated briefing or null if not found
  */
 export async function updateBriefing(briefingId, data) {
-    const perm = checkPermission(GuardAction.UPDATE_BRIEFING);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'updateBriefing', reason: perm.reason, required: perm.required });
-        return null;
-    }
-
-    const existing = await localRepository.getBriefing(briefingId);
-    if (!existing) {
-        return null;
-    }
-
-    const previousData = deepClone(existing);
-
-    const mergedSettings = data.settings
-        ? { ...existing.settings, ...data.settings }
-        : existing.settings;
-
-    const updated = {
-        ...existing,
-        ...data,
-        settings: mergedSettings,
-        id: briefingId,
-        sync: touchSyncMetadata(existing.sync),
-        createdAt: existing.createdAt,
-        updatedAt: Date.now()
-    };
-
-    await localRepository.saveBriefing(briefingId, updated);
-
-    logBriefingOperation(OperationType.UPDATE, briefingId, updated, previousData);
-
-    return updated;
+    return writeBriefing(briefingId, OperationType.UPDATE, GuardAction.UPDATE_BRIEFING,
+        'updateBriefing', existing => ({ value: {
+            ...existing, ...deepClone(data),
+            settings: data.settings ? { ...existing.settings, ...data.settings } : existing.settings
+        } }));
 }
 
 /**
@@ -221,22 +239,8 @@ export async function updateBriefing(briefingId, data) {
  * @returns {Promise<boolean>} True if deleted
  */
 export async function deleteBriefing(briefingId) {
-    const perm = checkPermission(GuardAction.DELETE_BRIEFING);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'deleteBriefing', reason: perm.reason, required: perm.required });
-        return false;
-    }
-
-    const existing = await localRepository.getBriefing(briefingId);
-    if (!existing) {
-        return false;
-    }
-
-    await localRepository.deleteBriefing(briefingId);
-
-    logBriefingOperation(OperationType.DELETE, briefingId, null, existing);
-
-    return true;
+    return writeBriefing(briefingId, OperationType.DELETE, GuardAction.DELETE_BRIEFING,
+        'deleteBriefing', () => ({ result: true }), false);
 }
 
 /**
@@ -277,35 +281,18 @@ export async function generateUniqueBriefingName(baseName = 'Novo Briefing') {
  * @returns {Promise<Object|null>} Created slide or null if briefing not found
  */
 export async function addSlide(briefingId, slideData = {}, position = null) {
-    const briefing = await getBriefingById(briefingId);
-    if (!briefing) {
-        return null;
-    }
-
-    const slide = {
-        ...createEmptySlide(0),
-        ...slideData,
-        id: slideData.id || generateUUID(),
-        sync: createSyncMetadata(null)
-    };
-
-    if (position !== null && position >= 0 && position < briefing.slides.length) {
-        briefing.slides.splice(position, 0, slide);
-        reindexSlides(briefing.slides, position);
-    } else {
-        slide.order = briefing.slides.length;
-        briefing.slides.push(slide);
-    }
-
-    // updateBriefing is the single write point AND the permission gate: when it denies
-    // (or the briefing vanished) nothing was persisted, so logging the slide op here
-    // would enqueue an op the server refuses — and a 403 freezes the whole push queue.
-    const saved = await updateBriefing(briefingId, { slides: briefing.slides });
-    if (!saved) return null;
-
-    logOperation(EntityType.SLIDE, OperationType.CREATE, slide.id, briefingId, slide);
-
-    return slide;
+    return editSlides(briefingId, briefing => {
+        const slide = { ...createEmptySlide(0), ...deepClone(slideData),
+            id: slideData.id || generateUUID(), sync: createSyncMetadata(null) };
+        if (position !== null && position >= 0 && position < briefing.slides.length) {
+            briefing.slides.splice(position, 0, slide);
+            reindexSlides(briefing.slides, position);
+        } else {
+            slide.order = briefing.slides.length;
+            briefing.slides.push(slide);
+        }
+        return { value: briefing, result: slide };
+    });
 }
 
 /**
@@ -317,31 +304,15 @@ export async function addSlide(briefingId, slideData = {}, position = null) {
  * @returns {Promise<Object|null>} Updated slide or null
  */
 export async function updateSlide(briefingId, slideId, slideData) {
-    const briefing = await getBriefingById(briefingId);
-    if (!briefing) {
-        return null;
-    }
-
-    const slideIndex = briefing.slides.findIndex(s => s.id === slideId);
-    if (slideIndex === -1) {
-        return null;
-    }
-
-    const previousSlide = { ...briefing.slides[slideIndex] };
-
-    briefing.slides[slideIndex] = {
-        ...briefing.slides[slideIndex],
-        ...slideData,
-        id: slideId,
-        sync: touchSyncMetadata(briefing.slides[slideIndex].sync || createSyncMetadata(null))
-    };
-
-    const saved = await updateBriefing(briefingId, { slides: briefing.slides });
-    if (!saved) return null;
-
-    logOperation(EntityType.SLIDE, OperationType.UPDATE, slideId, briefingId, briefing.slides[slideIndex], previousSlide);
-
-    return briefing.slides[slideIndex];
+    return editSlides(briefingId, briefing => {
+        const index = briefing.slides.findIndex(slide => slide.id === slideId);
+        if (index === -1) return null;
+        const previous = deepClone(briefing.slides[index]);
+        const slide = { ...previous, ...deepClone(slideData), id: slideId,
+            sync: touchSyncMetadata(previous.sync || createSyncMetadata(null)) };
+        briefing.slides[index] = slide;
+        return { value: briefing, result: slide };
+    });
 }
 
 /**
@@ -352,27 +323,14 @@ export async function updateSlide(briefingId, slideId, slideData) {
  * @returns {Promise<boolean>} True if removed
  */
 export async function removeSlide(briefingId, slideId) {
-    const briefing = await getBriefingById(briefingId);
-    if (!briefing) {
-        return false;
-    }
-
-    const slideIndex = briefing.slides.findIndex(s => s.id === slideId);
-    if (slideIndex === -1) {
-        return false;
-    }
-
-    const removedSlide = { ...briefing.slides[slideIndex] };
-
-    briefing.slides.splice(slideIndex, 1);
-    reindexSlides(briefing.slides);
-
-    const saved = await updateBriefing(briefingId, { slides: briefing.slides });
-    if (!saved) return false;
-
-    logOperation(EntityType.SLIDE, OperationType.DELETE, slideId, briefingId, null, removedSlide);
-
-    return true;
+    const result = await editSlides(briefingId, briefing => {
+        const index = briefing.slides.findIndex(slide => slide.id === slideId);
+        if (index === -1) return null;
+        briefing.slides.splice(index, 1);
+        reindexSlides(briefing.slides);
+        return { value: briefing, result: true };
+    });
+    return result === true;
 }
 
 /**
@@ -383,32 +341,23 @@ export async function removeSlide(briefingId, slideId) {
  * @returns {Promise<boolean>} True if reordered
  */
 export async function reorderSlides(briefingId, slideIds) {
-    const briefing = await getBriefingById(briefingId);
-    if (!briefing) {
-        return false;
-    }
-
-    const slideMap = new Map(briefing.slides.map(s => [s.id, s]));
-
-    const reorderedSlides = [];
-    for (const id of slideIds) {
-        const slide = slideMap.get(id);
-        if (slide) {
-            reorderedSlides.push(slide);
-            slideMap.delete(id);
+    const result = await editSlides(briefingId, briefing => {
+        const byId = new Map(briefing.slides.map(slide => [slide.id, slide]));
+        const reordered = [];
+        for (const id of slideIds) {
+            if (!byId.has(id)) continue;
+            reordered.push(byId.get(id));
+            byId.delete(id);
         }
-    }
-
-    if (slideMap.size > 0) {
-        console.warn(`reorderSlides: ${slideMap.size} slide(s) missing from slideIds array, appending at end`);
-        for (const slide of slideMap.values()) {
-            reorderedSlides.push(slide);
+        if (byId.size) {
+            console.warn(`reorderSlides: ${byId.size} slide(s) missing from slideIds array, appending at end`);
+            reordered.push(...byId.values());
         }
-    }
-
-    reindexSlides(reorderedSlides);
-    const saved = await updateBriefing(briefingId, { slides: reorderedSlides });
-    return Boolean(saved);
+        reindexSlides(reordered);
+        briefing.slides = reordered;
+        return { value: briefing, result: true };
+    });
+    return result === true;
 }
 
 // ============================================================================
@@ -434,31 +383,46 @@ export async function importBriefings(briefings, options = {}) {
     const { overwrite = false } = options;
     let imported = 0;
     let skipped = 0;
-
+    let scope = getActiveScope();
+    const assertWritable = captureRemoteWriteFence(scope);
+    let repo = localRepository.forScope(scope);
+    const assertOrigin = () => {
+        assertWritable();
+        // The initial local bridge may be activated by the first repository read.
+        if (scope === null && getActiveScope()?.kind === 'local' && getActiveScope().dbSuffix === '') {
+            scope = getActiveScope();
+            repo = localRepository.forScope(scope);
+        }
+        if (getActiveScope() !== scope) throw new DOMException('O atlas mudou durante a importação.', 'AbortError');
+    };
+    const names = new Set((await repo.getAllBriefings()).map(briefing => briefing.name));
+    assertOrigin();
     for (const briefing of briefings) {
         if (!briefing.id || !briefing.name) {
             skipped++;
             continue;
         }
-
-        const toSave = { ...briefing };
-
-        const existing = await getBriefingById(toSave.id);
-        if (existing && !overwrite) {
+        const toSave = deepClone(briefing);
+        const existing = await repo.getBriefing(toSave.id);
+        assertOrigin();
+        const updating = Boolean(existing && overwrite);
+        const copying = (scope?.kind === 'remote' && !updating) || (existing && !overwrite);
+        if (copying) {
             toSave.id = generateUUID();
-            toSave.name = await generateUniqueBriefingName(toSave.name);
+            if (Array.isArray(toSave.slides)) toSave.slides = toSave.slides.map(slide => ({ ...slide, id: generateUUID() }));
+            const baseName = toSave.name;
+            let number = 0;
+            while (names.has(toSave.name)) toSave.name = `${baseName} (${++number})`;
         }
-
-        if (!toSave.sync) {
-            toSave.sync = createSyncMetadata(null);
-        }
-
-        await localRepository.saveBriefing(toSave.id, {
-            ...toSave,
-            updatedAt: Date.now()
-        });
-        imported++;
+        if (!toSave.sync) toSave.sync = createSyncMetadata(null);
+        const result = await writeBriefing(toSave.id, updating ? OperationType.UPDATE : OperationType.CREATE,
+            updating ? GuardAction.UPDATE_BRIEFING : GuardAction.CREATE_BRIEFING, 'importBriefings',
+            () => ({ value: { ...toSave, updatedAt: Date.now() } }));
+        assertOrigin();
+        if (result) {
+            names.add(result.name);
+            imported++;
+        } else { skipped++; }
     }
-
     return { imported, skipped };
 }

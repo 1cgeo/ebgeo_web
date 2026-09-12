@@ -4,12 +4,14 @@ Avaliação de 12/09/2026, branch `integracao_backend`, após as correções de 
 
 Ordem de execução, dependências, segurança e critérios de aceite detalhados no [plano de fechamento para lançamento](plano-fechamento-lancamento.md).
 
+A execução começou e está registrada em [fechamento em andamento](execucao-fechamento-lancamento.md). O commit `b26f4e66` bloqueia o protocolo incremental antigo em HTTP/WS/serviço, negocia capacidades e preserva filas incompatíveis para conciliação por recibos. As dependências npm passaram por instalação limpa e auditoria sem alertas; vendors e runtime ainda exigem classificação. O diário de briefings/slides foi validado no segundo checkpoint; os demais produtores ainda estão pendentes.
+
 ## Correções restantes
 
 | Prioridade | Pendência e evidência atual | Critério de conclusão |
 | --- | --- | --- |
 | 1 | Completar registro durável da intenção antes de alterar todas as entidades. `map.operations.js` persiste alterações antes de chamar `logMapOperation`; produtores de camadas também precisam entrar no mesmo fluxo protegido. | Interrupção ou quota entre as etapas não deixa edição aparentemente salva sem operação recuperável; abranger todos os produtores. |
-| 1 | Fechar compatibilidade de clientes e filas antigos. `sync.schemas.js` aceita ausência de `protocolVersion`; a proteção por base de feição em `sync.service.js` só entra para v2. | Cliente incompatível não consegue sobrescrever silenciosamente; filas antigas têm transição explícita, preservando identidade dos reenvios e origem dos dados. |
+| 1 | Concluir interface de conciliação e compatibilidade das exceções estruturais. O bloqueio incremental e a consulta de recibos já foram implementados; casos antigos sem confirmação continuam bloqueados e preservados. | Revisão explícita das intenções incertas e cobertura das exceções REST, sem alterar identidade dos reenvios nem inventar base atual. |
 | 1 | Expandir conflitos além de feições e oferecer resolução persistente na interface. `prepareFeatureMutation` é aplicado apenas a feições v2; `operation-queue.getIssues()` ainda não tem consumidor na interface. | Camadas, mapas, grupos, slides e demais entidades têm proteção adequada; usuário vê item, motivo e alternativas, inclusive após F5. Reaplicar usa nova base e nova operação. |
 | 1 | Tornar comandos estruturais compostos recuperáveis ou atômicos. A aprovação dos contratos de conversão, movimento e desfazer/refazer cobre os fluxos exercitados, sem concluir a entrega de atomicidade do conjunto. | Falha no meio de conversão, transferência integral ou lote não deixa metade do comando aplicada nem duplica seu efeito na retomada. |
 | 1 | Concluir fila durável de imagens e confirmação de sincronização. `image-sync.js` ainda avisa que falha de upload deixa a imagem somente local e pede reinserção; não possui fila de retry de blobs. | Upload retoma após F5/resposta perdida, peers leem o recurso; indicador inclui uploads, recuperação e conflitos. Administração acompanha quantidade, idade e ausência de progresso sem conteúdo dos usuários. |
@@ -23,4 +25,4 @@ Ordem de execução, dependências, segurança e critérios de aceite detalhados
 
 ## Evidência disponível
 
-Após a última mudança de lógica: `npm test` da raiz aprovado (12.219 frontend, 5.039 backend, 201 contratos); lint e build aprovados. A rodada de navegador com backend real aprovou nove execuções em três repetições, sem retries/skips, cobrindo camadas remotas e trava de conversão, com captura inspecionada. Os detalhes e controles negativos estão no registro de execução. Esses resultados não substituem as correções e a homologação acima; o servidor interno não foi acessado nem atualizado nesta sessão.
+Na base anterior ao fechamento: `npm test` da raiz aprovado (12.219 frontend, 5.039 backend, 201 contratos); lint e build aprovados. A rodada de navegador com backend real aprovou nove execuções em três repetições, sem retries/skips, cobrindo camadas remotas e trava de conversão, com captura inspecionada. As evidências mais recentes, por checkpoint, estão no [registro de fechamento](execucao-fechamento-lancamento.md). Esses resultados não substituem as correções e a homologação acima; o servidor interno não foi acessado nem atualizado nesta sessão.

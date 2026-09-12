@@ -12,7 +12,7 @@ import {
     getActiveScope,
     UNMOUNTED_QUEUE_SCOPE
 } from '@store/atlas-namespace.js';
-import { appendJournal } from './queue-journal.js';
+import { appendJournal, materializeJournal } from './queue-journal.js';
 import { captureRemoteWriteFence } from '../remote-write-fence.js';
 import { fenceStore } from '../fenced-store.js';
 import { legacyQueueIssue } from './legacy-queue.js';
@@ -87,8 +87,8 @@ class OperationQueue {
     }
 
     async markMaterialized(operations) {
-        const { store } = this._context();
-        for (const operation of operations) await store.removeItem('__journal_state__' + operation.id);
+        const { store, assertWritable } = this._context();
+        await materializeJournal(store, operations, assertWritable);
     }
 
     async getLatestPendingFeature(entityId) {

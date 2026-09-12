@@ -2398,3 +2398,9 @@ O plano de fechamento autorizado exige protocolo v2 explícito em todas as opera
 Fila remota antiga mantém envelope, ID e chave originais. A consulta de recibos é somente leitura, vinculada ao atlas, ao autor e ao hash exato; apenas uma confirmação inequívoca permite retirar a operação. Um leitor que perdeu escrita pode confirmar sua própria entrega anterior, respeitada a visibilidade de comentários. Ausência ou ambiguidade não significa que a operação nunca chegou ao servidor. O cliente bloqueia reenvio e projeção das intenções incompatíveis e seus dependentes, sem inventar uma base atual. Atlas locais não entram nessa quarentena. A política de descarte voluntário confirmado permanece vigente.
 
 Este bloqueio não conclui os conflitos das demais entidades, a interface persistente de resolução nem as quatro exceções estruturais REST. Execução e limites no [registro de fechamento](../reviews/execucao-fechamento-lancamento.md).
+
+### 2026-09-12: intenção durável de briefing inclui os slides
+
+O documento do briefing e as linhas de slides no servidor têm persistências distintas. Toda alteração local passa a derivar e registrar o conjunto de intenções antes da entidade. As marcas que liberam o envio desse conjunto são removidas numa transação IndexedDB única; recuperação reaplica a projeção com os IDs originais. A presença de slides no documento do pai não substitui a criação individual de cada filho.
+
+Criar um briefing com slides, copiar e importar como novo no atlas remoto atribui novas identidades de pai/filhos; uma importação que sobrescreve o briefing existente conserva a identidade desse destino. Os objetos fornecidos pelo chamador não são alterados. Isso evita colisões entre cópias nas tabelas globais do servidor. Conflitos de conteúdo/ordem e atomicidade remota dos comandos compostos continuam sendo entregas próprias do [plano autorizado](../reviews/plano-fechamento-lancamento.md).
