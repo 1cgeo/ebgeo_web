@@ -183,6 +183,20 @@ const CONFIG_PUBLICO = 'Monta o `GET /api/config`, que é o documento de BOOT e 
 
 /** @type {EntradaDeConsulta[]} */
 const CENSO_CONSULTA = [
+  {
+    arquivo: 'src/modules/uso/uso.eventos.service.js', unidade: 'registrarLoteDeUso', n: 4,
+    classe: NAO_RECURSO,
+    motivo: 'Validação interna dos IDs de preferência antes de agregar telemetria. A resposta '
+      + 'é sempre 204 sem corpo, inclusive para IDs inexistentes; não entrega catálogo ao '
+      + 'chamador anônimo. RISCO: mudar a resposta revelaria existência de recursos privados.',
+  },
+  {
+    arquivo: 'src/modules/uso/uso.queries.js', unidade: 'EVENTOS_TOP', n: 3,
+    classe: NAO_RECURSO,
+    motivo: 'Relatório agregado de uso, com nomes de catálogo para interpretar preferências, '
+      + 'exclusivo de GET /uso/resumo com auth e requireAdmin. Não serve conteúdo do recurso. '
+      + 'RISCO: remover o gate administrativo exporia nomes de recursos privados no relatório.',
+  },
   // ================= catálogo: as quatro tabelas por uma fábrica só ==========
   {
     arquivo: 'src/modules/catalog/catalog.service.js', unidade: 'listCatalog', n: 2, classe: SQL,
@@ -1366,11 +1380,14 @@ const CENSO_ROTA = [
   },
   {
     arquivo: 'src/modules/uso/uso.routes.js', rota: 'GET /resumo', classe: R_OUTRA, gate: 'requireAdmin',
-    motivo: `${SO_ADMIN} O relatório de uso é CONSULTA sobre \`operations\`, \`audit_trail\`, `
-      + '`users` e `atlas`: nenhuma das seis consultas do módulo toca tabela de catálogo, `sv360` '
-      + 'ou `a3d`, e o que sai é contagem, nome de atlas e nome de dono. Não entra em CENSO_REGIME '
-      + 'porque a lista de regime é bicondicional com as rotas `recurso-com-filtro`, e classificar '
-      + 'esta como se servisse recurso trocaria uma ausência honesta por uma classificação falsa.',
+    motivo: `${SO_ADMIN} Relatório agregado de operações, usuários, atlas e eventos. Inclui `
+      + 'IDs e nomes do catálogo para interpretar preferências, mas não entrega conteúdo de '
+      + 'recursos. O gate administrativo autoriza a visão global e permanece obrigatório.',
+  },
+  {
+    arquivo: 'src/modules/uso/uso.routes.js', rota: 'GET /agora', classe: R_OUTRA, gate: 'requireAdmin',
+    motivo: `${SO_ADMIN} Contagens de presença recente e pendências de sincronização, sem `
+      + 'conteúdo de atlas ou catálogo. A coleta aceita anônimos; a leitura exige administrador.',
   },
   { arquivo: 'src/modules/sync/sync.routes.js', rota: 'GET /admin/stats', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
   { arquivo: 'src/modules/users/users.routes.js', rota: 'GET /', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },

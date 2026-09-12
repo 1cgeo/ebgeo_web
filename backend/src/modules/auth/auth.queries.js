@@ -208,7 +208,7 @@ export const INSERT_USER = `
 
 // `purpose` and `new_email` are named EXPLICITLY (they are not defaulted here) so
 // that every mint declares what the token may be redeemed for. The bicondicional
-// CHECK of 001_identidade.sql refuses the two impossible pairings.
+// CHECK of 001_identidade_e_credenciais.sql refuses the two impossible pairings.
 export const INSERT_VERIFICATION_TOKEN = `
   INSERT INTO email_verification_tokens (user_id, expires_at, purpose, new_email)
   VALUES ($1, $2, $3, $4)

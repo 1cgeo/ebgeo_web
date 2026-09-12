@@ -382,32 +382,22 @@ qual é com `ls src/database/migrations/`, nunca por esta linha: ela já afirmou
 das duas estava desatualizada, porque número fixo em prosa envelhece a cada migração.
 `gen_random_uuid()` para PKs (não `uuid_generate_v4`). Migração que mexe em PostGIS precisa de superusuário.
 
-**A base é um conjunto de BASELINES POR DOMÍNIO, escritas no ESTADO FINAL do schema.** Foram dois
-esmagamentos (2026-08-19, de 22 arquivos para 8) e uma dobra (2026-08-22, que trouxe as três
-migrações seguintes para dentro das baselines). Descubra a contagem com `ls`, nunca por esta linha.
-A ordem entre elas é a de dependência de FK, não cronologia, e a última é pura consumidora (nada
-depende dela). Consequências
-que mordem quem não sabe: um banco criado antes do esmagamento **não é alcançável por upgrade** e
-precisa ser recriado (`node scripts/dev-db.js recreate`; a guarda que detectava os nomes antigos em
-`_migrations` saiu em 2026-08-23, então o sintoma é o "relation already exists" do primeiro
-`CREATE TABLE`); e **nenhuma baseline pode
-conter um `ALTER` que desfaça o que ela mesma criou**: se o CHECK precisa ser mais largo, ele nasce
-largo.
+**A base anterior foi consolidada por pedido do dono em 12/09/2026, antes da primeira
+implantacao.** O mapa por dominio e as evidencias estao em
+[`src/database/migrations/README.md`](src/database/migrations/README.md). Cada baseline
+cria o estado final: colunas, indices e CHECK completos, sem ALTER para reparar o que
+acabou de criar. Depois da primeira aplicacao em producao, as baselines ficam imutaveis;
+novas alteracoes usam o proximo numero livre.
 
-**DDL destrutiva** (`DROP CONSTRAINT`, `DROP TABLE`, `ALTER COLUMN ... TYPE`) exige **uma linha por
-ocorrência** em `EXCECOES_DESTRUTIVAS` (`tests/unit/migrations-higiene.test.js`), **no mesmo
-commit**; esquecer deixa a suíte vermelha com uma mensagem que não parece ter relação com o assunto
-da migração. Alargar um CHECK é compatível para trás (todo valor aceito antes continua aceito), mas
-Postgres não tem `ALTER CONSTRAINT` para expressão, então o constraint cai e volta, e isso conta
-como destrutivo. A lista ficou VAZIA enquanto tudo eram baselines escritas no estado final, e
-deixou de estar na primeira forward-only que precisou alargar um CHECK já publicado. Não conte por
-esta frase antes de acrescentar a sua: a contagem é asserida EXATA, e ela já envelheceu três
-vezes; leia o arquivo.
-Ela só discrimina alguma coisa por causa do teste de controle negativo, que roda os mesmos padrões
-contra SQL que os contém. **Forward-only vale a partir do momento em que a migração sai daqui**:
-reescrever uma baseline só é honesto enquanto nenhum banco fora do branch a aplicou, o que hoje é o
-caso porque não há produção; no dia em que houver, alargar um CHECK volta a exigir arquivo novo e
-linha nesta lista.
+**Historico antigo de desenvolvimento nao e upgradeavel por essa consolidacao.** O runner
+recusa nomes de arquivos ausentes antes de aplicar qualquer migracao pendente. Preserve
+backup e use banco novo; nao apague nem remapeie `_migrations` para contornar a guarda.
+A consolidacao nao autoriza apagar bancos existentes nem altera atlas locais do navegador.
+
+**DDL destrutiva** (`DROP CONSTRAINT`, `DROP TABLE`, `ALTER COLUMN ... TYPE`) exige uma
+entrada por ocorrencia em `EXCECOES_DESTRUTIVAS` (`tests/unit/migrations-higiene.test.js`).
+A lista esta vazia nas baselines consolidadas. Seus controles negativos continuam ativos;
+alargar CHECK depois da publicacao exigira nova migracao e a excecao especifica.
 
 **Migração roda por `t.none()`, que LANÇA se o arquivo devolver qualquer linha.** Chamar função numa
 migração é `PERFORM` dentro de um bloco `DO`, nunca um `SELECT` solto: o `SELECT` aborta a transação

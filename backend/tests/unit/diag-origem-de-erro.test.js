@@ -2,8 +2,8 @@
 // O VOCABULÁRIO DE ORIGEM VIVE DUAS VEZES, e este arquivo é o que impede as duas de
 // divergirem: `ORIGENS_DE_ERRO` (`src/modules/diag/origens-de-erro.js`), de onde o Joi da
 // borda deriva a lista, e o CHECK `defeitos_origem_check`, alargado para onze valores em
-// `src/database/migrations/018_defeitos_e_ocorrencias.sql` (ele nasceu com dez em
-// `017_erro_cliente_identidade.sql`, sob o nome antigo da tabela).
+// `src/database/migrations/010_observabilidade.sql` (ele nasceu com dez em
+// `010_observabilidade.sql`, sob o nome antigo da tabela).
 //
 // POR QUE DUAS CÓPIAS, E POR QUE ELAS PRECISAM DE GUARDA. As duas recusam em momentos
 // diferentes e nenhuma cobre a outra: o Joi recusa na borda com 422 NOMEANDO o campo, e o
@@ -43,7 +43,7 @@ import {
 import { erroDeClienteSchema } from '../../src/modules/diag/diag.schemas.js';
 
 const RAIZ = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const MIGRACAO = path.join(RAIZ, 'src/database/migrations/018_defeitos_e_ocorrencias.sql');
+const MIGRACAO = path.join(RAIZ, 'src/database/migrations/010_observabilidade.sql');
 const MODULO = path.join(RAIZ, 'src/modules/diag/origens-de-erro.js');
 
 /**

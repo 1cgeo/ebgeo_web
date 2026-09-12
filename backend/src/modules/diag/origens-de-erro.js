@@ -4,7 +4,7 @@
  * no coletor do cliente.
  *
  * ESTE ARQUIVO É O ESPELHO DO CHECK, e o CHECK é o espelho dele. A lista vive duas vezes,
- * aqui e em `018_defeitos_e_ocorrencias.sql`, porque as duas pontas recusam em momentos
+ * aqui e em `010_observabilidade.sql`, porque as duas pontas recusam em momentos
  * diferentes e nenhuma substitui a outra: o Joi recusa na borda com 422 nomeando o campo, e
  * o CHECK recusa no banco com 23514 mesmo que alguém escreva por outro caminho (um roteiro,
  * um INSERT à mão, um controller futuro que esqueça o schema). Valor novo entra nos DOIS no

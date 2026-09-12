@@ -98,6 +98,7 @@ const MOTIVO = Object.freeze({
 
 /** @type {Entrada[]} */
 const CENSO = [
+    { arquivo: 'src/js/session/uso-do-barramento.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/catalog/private-reference-pruner.js', campo: 'tilesetId', n: 3, classe: PODA, superficies: ['cesium3d.cameraPositions', 'cesium3d.markers', 'cesium3d.measurements', 'cesium3d.viewsheds'] },
     { arquivo: 'src/js/catalog/private-reference-pruner.js', campo: 'photoName', n: 1, classe: PODA, superficies: ['sv360.orientations', 'sv360.markers'] },
     { arquivo: 'src/js/catalog/private-reference-pruner.js', campo: 'modelId', n: 4, classe: PODA, superficies: ['briefing.slide.modelId'] },

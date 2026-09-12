@@ -103,8 +103,6 @@ import { runLegacyUpgradeGate, watchLegacyChanges, showMigrationRecovery } from 
  * Runs phases sequentially — no side-effects at import time.
  */
 async function initApp() {
-    if (!await runLegacyUpgradeGate()) return;
-    watchLegacyChanges();
     // Phase -2: TELEMETRIA DE ERRO, após a proteção inicial dos dados: o erro que mais
     // custa a diagnosticar é justamente o de boot, e um capturador instalado depois das fases não
     // vê nenhum deles. Síncrona, sem rede e best-effort: ela não participa desta função em mais
@@ -115,6 +113,8 @@ async function initApp() {
     // `pagina.vista`, que é o denominador de todo o resto, e um boot que morra no fail-fast do
     // `GET /api/config` continua tendo sido uma carga de página. Também síncrona e best-effort.
     instalarUso();
+    if (!await runLegacyUpgradeGate()) return;
+    watchLegacyChanges();
 
     // Capture the URL deep-link params at the VERY TOP, before any async boot work. The store boot
     // (initializeWithLastActiveMap, kicked off inside initializeApp) and initAtlasUrlSync emit

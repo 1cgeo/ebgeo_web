@@ -1,58 +1,7 @@
 // Path: js/session/uso-lote.js
 
 /**
- * @fileoverview O ACUMULADOR DE USO: contagens em memória, um lote a cada trinta segundos, e um
- * `sendBeacon` na saída da página. É a metade de DECISÃO da telemetria de uso; a metade de FIAÇÃO
- * (quem é a sessão, qual é a base da API, qual é a release, quais são as vitais) mora em
- * `session/uso-telemetria.js`, do mesmo jeito que `erro-telemetria-assinatura.js` e
- * `erro-telemetria.js` se dividem.
- *
- * IMPORTA UM MÓDULO SÓ, o catálogo (`eventos-de-uso.js`), que é folha de zero imports. É isso que
- * o mantém dirigível em node puro: os gatilhos de descarga são `pagehide` e `visibilitychange`
- * num alvo INJETADO, o relógio é injetado, o transporte é injetado, e nada aqui toca `window` no
- * tempo de import.
- *
- * ── AS QUATRO PROPRIEDADES, e cada uma existe contra um desfecho concreto ────────────────────
- *
- *   1. **NUNCA LANÇA, EM NENHUMA PORTA.** `registrarUso` é chamado de dentro do `activate()` de
- *      uma ferramenta, do caminho de sucesso de uma exportação e do `map.on('load')`. Uma exceção
- *      aqui derrubaria o gesto que ela deveria apenas CONTAR, que é a pior troca possível: perder
- *      a funcionalidade para não perder a métrica.
- *   2. **UM EVENTO DESCONHECIDO É DESCARTADO, E CONTADO.** O lote é UM corpo com N contagens, e o
- *      Joi da rota recusa o corpo INTEIRO (422) a uma chave que ele não conhece. Mandar e torcer
- *      custaria a contagem de todos os outros eventos daquele intervalo por causa de um erro de
- *      digitação. `estadoDoUso().descartados` é o que impede que essa tolerância vire silêncio.
- *   3. **NÃO HÁ FILA ENTRE CARGAS DA PÁGINA, E ISSO É DECISÃO.** Nada é gravado em disco: um lote
- *      que não sai antes de a página morrer, morre com ela. Uso não é defeito, a métrica é
- *      agregada, e a fila que a telemetria de ERRO tem (`fila-de-relatos.js`) existe porque lá
- *      cada relato é uma evidência única. Guardar contagem de uso no `localStorage` compraria
- *      precisão marginal pagando com armazenamento, com uma porta a mais para dado sair da
- *      máquina de quem usa, e com risco de contagem DUPLA no reenvio.
- *
- *      **DENTRO DA MESMA PÁGINA, PORÉM, A RECUSA TEM DOIS DESFECHOS, e a primeira versão desta
- *      linha justificava os dois com um argumento que só vale para um.** O `sendBeacon` que
- *      devolve o literal `false` está dizendo, de forma SÍNCRONA e certa, que não enfileirou nada:
- *      repor as contagens ali não pode duplicar coisa nenhuma, e descartá-las perde uso que
- *      aconteceu. O que é INCERTO é a promessa: um `fetch` com `keepalive` pode ter chegado ao
- *      servidor e falhado só na leitura da resposta, e repor ali produz contagem DUPLA, que num
- *      relatório agregado é indistinguível de uso real. Então o certo repõe (`lotesRepostos`) e o
- *      incerto descarta (`lotesPerdidos`), que é a decisão de errar para menos onde não se sabe.
- *   4. **O CORPO TEM EXATAMENTE AS CHAVES DO CONTRATO.** O `.unknown(false)` do Joi vence o
- *      `stripUnknown` do `validate` (medido, e é a mesma regra do `contexto` do relato de erro):
- *      uma chave a mais dentro de `vitais` ou dentro de um item de `eventos` vira 422, não
- *      descarte silencioso. {@link montarCorpoDeUso} é a única coisa que monta o corpo, e ela é
- *      pura.
- *
- * ── O CASO `indisponivel.visto`, QUE É O ÚNICO QUE MENTE SE FOR LIDO INGENUAMENTE ────────────
- *
- * A tela "EBGeo indisponível" tem DUAS causas (`ui/blocking-screen-phrases.js`): o servidor não
- * respondeu, ou o nosso código quebrou com o servidor de pé. Este evento pede uma descarga
- * imediata, e a descarga vai para o SERVIDOR: na primeira causa ela falha por definição, e o lote
- * morre, porque não há fila. Ou seja, **este contador conta praticamente só as telas de
- * `APP_ERROR`**. A queda de servidor não se perde: ela é contada pelo caminho de DEFEITO (a tela
- * relata com origem `indisponivel` e `enfileirarSempre`, e aquele lado TEM fila). Quem ler a série
- * de "Indisponibilidade vista pelo cliente" como "quantas vezes o servidor caiu" lerá o número
- * errado, e é por isso que a frase da tela e esta linha existem.
+ * @fileoverview Usage counters and periodic session snapshots. Empty batches update duration, errors and vitals. Production installs an acknowledged, idempotent transport with a bounded offline queue; injected transports retain the lightweight accumulator contract.
  */
 
 import {
@@ -432,7 +381,7 @@ export function configurarUso({
          */
         const descarregar = ({ motivo } = {}) => {
             try {
-                if (contagens.size === 0) return false;
+                if (motivo === 'intervalo' && documento?.visibilityState === 'hidden') return false;
                 const linhas = [...contagens.values()];
                 contagens.clear();
 
@@ -451,7 +400,6 @@ export function configurarUso({
                     vitais: lerObjeto(vitais),
                 });
                 if (truncados > 0) _estado.truncados += truncados;
-                if (corpo.eventos.length === 0) return false;
 
                 /** Devolve ao acumulador o que o navegador garantiu NÃO ter transmitido. */
                 const repor = () => {

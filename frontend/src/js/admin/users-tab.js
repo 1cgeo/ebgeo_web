@@ -1,4 +1,5 @@
 // Path: js/admin/users-tab.js
+import { montarPresenca } from '@js/admin/presenca-panel.js';
 
 /**
  * @fileoverview "Usuários" tab of the admin panel. Lists users and drives the admin
@@ -111,7 +112,7 @@ class UsersTab {
         this._users = [];   // set before any search input can fire _applyFilter (avoids a load-window crash)
         this._filter = '';
         this._renderList();
-        return () => { this._alive = false; clearTimeout(this._searchTimer); };
+        return () => { this._alive = false; clearTimeout(this._searchTimer); this._pararPresenca?.(); };
     }
 
     // ----- list -----
@@ -119,6 +120,7 @@ class UsersTab {
     /** @private */
     async _renderList() {
         const c = this._container;
+        this._pararPresenca?.();
         c.replaceChildren();
 
         const newBtn = button('+ Novo usuário', 'admin-btn admin-btn--primary', 'admin-users-new',
@@ -128,6 +130,7 @@ class UsersTab {
             actions: [newBtn],
         }));
 
+        this._pararPresenca = montarPresenca(c);
         const toolbar = document.createElement('div');
         toolbar.className = 'admin-users__toolbar';
 
@@ -216,7 +219,7 @@ class UsersTab {
         // confundi-los é o defeito que esta fase fecha: a lotação é auto-declarada no
         // auto-cadastro e não autoriza mais nada; a OM produtora é concedida por um
         // administrador e É a autorização.
-        for (const h of ['Usuário', 'Papel', 'Lotação', 'OM produtora', 'Status', '']) {
+        for (const h of ['Usuário', 'Papel', 'Lotação', 'OM produtora', 'Último login', 'Atlas remotos', 'Status', '']) {
             const th = document.createElement('th');
             th.textContent = h;
             if (h === 'Lotação') th.title = 'Lotação declarada pelo usuário. Não dá acesso a nada.';
@@ -281,6 +284,10 @@ class UsersTab {
             // `/api/config`, que é a mesma lista que preenche o seletor do formulário.
             tr.appendChild(cell(u.producer_org_nome || orgLabel(u.producer_org_id)));
 
+            tr.appendChild(cell(u.last_login_at ? new Date(u.last_login_at).toLocaleString('pt-BR') : 'Nunca entrou'));
+            const atlasCell = cell(String(u.remote_atlas_count ?? 0));
+            atlasCell.title = `Atlas dos quais é dono. Na lixeira: ${u.trashed_atlas_count ?? 0}.`;
+            tr.appendChild(atlasCell);
             const statusCell = document.createElement('td');
             const badge = document.createElement('span');
             badge.className = `admin-users__badge admin-users__badge--${u.is_active ? 'active' : 'inactive'}`;
@@ -348,6 +355,7 @@ class UsersTab {
     _renderForm(user) {
         const isEdit = !!user;
         const c = this._container;
+        this._pararPresenca?.();
         c.replaceChildren();
 
         const form = document.createElement('form');
@@ -573,6 +581,7 @@ class UsersTab {
      */
     _renderPasswordForm(user) {
         const c = this._container;
+        this._pararPresenca?.();
         c.replaceChildren();
 
         const form = document.createElement('form');
@@ -726,6 +735,7 @@ class UsersTab {
      */
     _renderTransfer(user) {
         const c = this._container;
+        this._pararPresenca?.();
         c.replaceChildren();
 
         const wrap = document.createElement('div');

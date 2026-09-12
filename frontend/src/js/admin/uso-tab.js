@@ -1,4 +1,5 @@
 // Path: js/admin/uso-tab.js
+import { montarPresenca } from '@js/admin/presenca-panel.js';
 
 /**
  * @fileoverview Aba "Uso": quem usa o EBGeo, o que se produz nele e quanto, em seções sobre o
@@ -211,6 +212,7 @@ class UsoTab {
         this._render();
         return () => {
             this._alive = false;
+            this._pararPresenca?.();
             cleanup(this);
         };
     }
@@ -229,6 +231,8 @@ class UsoTab {
             actions: [this._seletorDeJanela()],
         }));
 
+        this._pararPresenca?.();
+        this._pararPresenca = montarPresenca(c);
         const dica = document.createElement('p');
         dica.className = 'admin-uso__hint';
         dica.dataset.testid = 'admin-uso-hint';
@@ -433,6 +437,7 @@ class UsoTab {
         // diferentes, e é por isso que elas entram com cabeçalho próprio dizendo isso.
         this._corpo.appendChild(this._cabecalhoDeUso(dados, janela));
         this._corpo.appendChild(this._secaoDeSessoes(dados?.sessoes, janela));
+        this._corpo.appendChild(this._secaoDeFerramentas(dados?.ferramentas, janela, true));
         this._corpo.appendChild(this._secaoDeFerramentas(dados?.ferramentas, janela));
         this._corpo.appendChild(this._secaoDeDesempenho(dados?.desempenho, janela));
         this._corpo.appendChild(this._secaoDeDisponibilidade(dados?.disponibilidade, janela));
@@ -785,12 +790,12 @@ class UsoTab {
      * @param {*} ferramentas @param {string} janela
      * @returns {HTMLElement}
      */
-    _secaoDeFerramentas(ferramentas, janela) {
+    _secaoDeFerramentas(ferramentas, janela, operacional = false) {
         const sec = document.createElement('section');
         sec.className = 'admin-uso__section';
-        sec.dataset.testid = 'admin-uso-ferramentas';
-        sec.appendChild(sectionHeader(ferramentasTitulo(), {
-            subtitle: ferramentasSubtitulo(janela),
+        sec.dataset.testid = operacional ? 'admin-uso-operacao' : 'admin-uso-ferramentas';
+        sec.appendChild(sectionHeader(operacional ? 'Preparação e sincronização' : ferramentasTitulo(), {
+            subtitle: operacional ? 'Resultados observados e saídas com descarte confirmado no período.' : ferramentasSubtitulo(janela),
         }));
 
         if (!Array.isArray(ferramentas)) {
@@ -802,7 +807,10 @@ class UsoTab {
             return sec;
         }
 
-        const linhas = linhasDeFerramentas(ferramentas);
+        const operacionais = new Set(['migracao.resultado', 'sync.resultado', 'logout.descarte']);
+        const selecionadas = ferramentas.filter(l => operacionais.has(l.evento) === operacional);
+        const categorias = [...new Set(selecionadas.map(l => l.evento))];
+        const linhas = categorias.flatMap(evento => linhasDeFerramentas(selecionadas.filter(l => l.evento === evento)));
         if (!linhas.length) {
             const vazio = card({ testid: 'admin-uso-ferramentas-card' });
             vazio.appendChild(emptyState(ferramentasVaziaNotice(janela)));
@@ -813,11 +821,11 @@ class UsoTab {
         const wrap = card({ testid: 'admin-uso-ferramentas-card', padded: false });
         const table = document.createElement('table');
         table.className = 'admin-users__table admin-uso__table';
-        table.dataset.testid = 'admin-uso-ferramentas-tabela';
+        table.dataset.testid = operacional ? 'admin-uso-operacao-tabela' : 'admin-uso-ferramentas-tabela';
 
         const thead = document.createElement('thead');
         const hrow = document.createElement('tr');
-        for (const h of ['Ação', 'Alvo', 'Vezes', 'Fatia']) {
+        for (const h of (operacional ? ['Etapa', 'Resultado', 'Ocorrências'] : ['Ação', 'Alvo', 'Vezes', 'Fatia'])) {
             const th = document.createElement('th');
             th.textContent = h;
             hrow.appendChild(th);
@@ -827,13 +835,17 @@ class UsoTab {
 
         const tbody = document.createElement('tbody');
         for (const linha of linhas) {
-            tbody.appendChild(linhaDeFerramenta(linha));
+            const tr = linhaDeFerramenta(linha);
+            if (operacional) tr.lastElementChild.remove();
+            tbody.appendChild(tr);
         }
         table.appendChild(tbody);
         wrap.appendChild(table);
         sec.appendChild(wrap);
 
-        sec.appendChild(notaDeSecao(ferramentasHint(), 'admin-uso-ferramentas-hint'));
+        sec.appendChild(notaDeSecao(operacional
+            ? 'A preparação é verificada a cada entrada. Inícios e resultados são contagens separadas. Uma sincronização pode conter várias operações; falhas podem incluir novas tentativas. Descartes indicam saídas confirmadas, não a quantidade de alterações descartadas.'
+            : ferramentasHint(), operacional ? 'admin-uso-operacao-hint' : 'admin-uso-ferramentas-hint'));
         return sec;
     }
 

@@ -6,7 +6,7 @@
  * O NOME DAS DUAS TABELAS É O MODELO. `defeitos` é o AGRUPAMENTO (uma linha por
  * assinatura, com contagem e ciclo de vida); `defeito_ocorrencias` são as evidências
  * individuais, com teto estrutural. A tabela se chamava `client_errors` até
- * `018_defeitos_e_ocorrencias.sql`, e o nome antigo deixou de descrever o conteúdo no dia
+ * `010_observabilidade.sql`, e o nome antigo deixou de descrever o conteúdo no dia
  * em que o 5xx do próprio servidor passou a entrar nela com `origem = 'servidor'`: uma
  * tabela chamada "erros do cliente" guardando erro de servidor é a prosa mentindo sobre o
  * schema, e prosa que mente é o que faz a próxima pessoa escrever o predicado ao contrário.
@@ -137,7 +137,7 @@ export const INSERT_OCORRENCIA = `
  * REPETIÇÃO, que não tem limite nenhum. Um laço de render em cinco navegadores gera
  * milhares de ocorrências por minuto da MESMA assinatura, e a milésima não diz nada que a
  * vigésima não tenha dito. Sem o teto, a mesa de diagnóstico vira o incidente, que é
- * literalmente o modo de falha que o cabeçalho de `014_observabilidade.sql` recusa.
+ * literalmente o modo de falha que o cabeçalho de `010_observabilidade.sql` recusa.
  *
  * POR QUE NA MESMA TRANSAÇÃO, e não num varredor periódico. Um sweeper é mais um
  * verificador que quebra calado (a casa já recusou um para expiração de concessão, pelo

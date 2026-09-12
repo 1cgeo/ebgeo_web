@@ -92,3 +92,6 @@ EXECUTE FUNCTION update_atlas_current_version();
 -- reaper e heartbeat no mesmo commit -- foi a ausência dos dois que matou a primeira
 -- tentativa. Que nenhum caminho de socket escreve no banco é asserido, sem depender de
 -- tabela nenhuma, por `tests/ws/collab-presenca-sem-banco.test.js`.
+
+-- Cross-atlas usage reports filter by time.
+CREATE INDEX idx_operations_created ON operations(created_at);

@@ -257,7 +257,7 @@ export const ocorrenciasParamsSchema = Joi.object({
  * trocar isso por um 422 daria ao cliente uma recusa sobre um campo que ele mandou por
  * excesso de zelo. O que a borda precisa garantir é o TETO, e esse ela garante.
  *
- * O TETO É 64 E ELE ESPELHA O CHECK DA COLUNA (`018_defeitos_e_ocorrencias.sql`), que é o
+ * O TETO É 64 E ELE ESPELHA O CHECK DA COLUNA (`010_observabilidade.sql`), que é o
  * comprimento de um SHA-256 em hexadecimal. Sem ele a recusa viria do banco como 23514, que
  * a borda traduz num erro sem relação aparente com o campo; com ele, o 422 nomeia `commit`.
  *
@@ -308,7 +308,7 @@ export const erroDeClienteSchema = Joi.object({
   // não ter id nenhum, e por isso o campo é opcional em vez de obrigatório.
   atlasId: Joi.string().uuid().allow(null),
 
-  // ── a identidade e o estado, de `017_erro_cliente_identidade.sql` ──
+  // ── a identidade e o estado, de `010_observabilidade.sql` ──
   //
   // OS QUATRO SÃO OPCIONAIS, e isso é o contrato da rota anônima: um cliente que não mande
   // nenhum deles continua sendo aceito com 204, exatamente como antes. A ausência de todos
@@ -368,7 +368,7 @@ export const erroDeClienteSchema = Joi.object({
     status: Joi.number().integer().min(100).max(599),
   }).unknown(false),
 
-  // ── as MIGALHAS, de `018_defeitos_e_ocorrencias.sql` ──
+  // ── as MIGALHAS, de `010_observabilidade.sql` ──
   //
   // O RASTRO DOS ÚLTIMOS PASSOS antes do erro, na ideia do breadcrumb do Sentry: a pergunta
   // que nem a mensagem nem a pilha respondem é "o que a pessoa estava fazendo". Elas só
@@ -380,7 +380,7 @@ export const erroDeClienteSchema = Joi.object({
   // pior caso é da ordem de 4 kB, a mesma grandeza do `stack`, e sem o teto de ITENS um
   // cliente com defeito mandaria a sessão inteira num JSONB por ocorrência, com vinte
   // ocorrências por defeito. Errar para cima aqui transformaria a telemetria no segundo
-  // incidente, que é o que o cabeçalho de `014_observabilidade.sql` recusa por extenso.
+  // incidente, que é o que o cabeçalho de `010_observabilidade.sql` recusa por extenso.
   //
   // `unknown(false)` NO ITEM, pelo mesmo argumento (e com o mesmo preço) do `contexto`
   // acima: chave desconhecida dentro de uma migalha RECUSA O RELATO INTEIRO com 422, em vez

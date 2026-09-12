@@ -334,7 +334,7 @@ describe('configurarUso — a porteira, a contagem e os gatilhos', () => {
         // `prop` fora da lista fechada do evento.
         expect(registrarUso(EventoDeUso.PDF_EXPORTADO, 'panfleto')).toBe(false);
         // `prop` num evento que não aceita nenhuma.
-        expect(registrarUso(EventoDeUso.MEDICAO_ABERTA, 'distancia')).toBe(false);
+        expect(registrarUso(EventoDeUso.MEDICAO_ABERTA, 'volume')).toBe(false);
         // `prop` livre fora da FORMA.
         expect(registrarUso(EventoDeUso.FERRAMENTA_ATIVADA, 'Ponto Novo')).toBe(false);
 
@@ -376,12 +376,14 @@ describe('configurarUso — a porteira, a contagem e os gatilhos', () => {
     it('o timer descarrega no intervalo, e NÃO gasta pedido com o acumulador vazio', () => {
         const corpos = instalar({ intervaloMs: INTERVALO_PADRAO_MS });
         alvo.tick();
-        expect(corpos, 'aba parada não pode mandar lote').toHaveLength(0);
+        expect(corpos).toHaveLength(1);
+        expect(corpos[0].corpo.eventos).toEqual([]);
         registrarUso(EventoDeUso.PAGINA_VISTA);
         alvo.tick();
-        expect(corpos).toHaveLength(1);
+        expect(corpos).toHaveLength(2);
         alvo.tick();
-        expect(corpos, 'o lote já drenado não pode sair de novo').toHaveLength(1);
+        expect(corpos).toHaveLength(3);
+        expect(corpos[2].corpo.eventos).toEqual([]);
     });
 
     it('o `false` SÍNCRONO REPÕE: o navegador garantiu que nada foi transmitido', () => {
@@ -450,8 +452,9 @@ describe('configurarUso — a porteira, a contagem e os gatilhos', () => {
         // passaria verde, que foi exatamente o que aconteceu na primeira versão deste caso.
         await Promise.resolve();
         await Promise.resolve();
-        expect(descarregarUso(), 'a promessa rejeitada não pode repor').toBe(false);
-        expect(tentativas).toHaveLength(1);
+        expect(descarregarUso()).toBe(true);
+        expect(tentativas.at(-1).eventos).toEqual([]);
+        expect(tentativas).toHaveLength(2);
     });
 
     it('uma promessa REJEITADA do transporte é engolida e contada', async () => {

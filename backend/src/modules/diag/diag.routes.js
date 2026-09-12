@@ -95,7 +95,7 @@ router.get(
  * topo), e é a única AUDITADA: o relato de erro é isento no censo porque é telemetria em
  * altíssima frequência, enquanto isto é um administrador afirmando um juízo que apaga um
  * alerta para todo mundo que olhar a tela depois. O argumento inteiro está no cabeçalho de
- * `019_defeito_estado_auditado.sql`.
+ * `002_auditoria.sql`.
  */
 router.get(
   '/defeitos',

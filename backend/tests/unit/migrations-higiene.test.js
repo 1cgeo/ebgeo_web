@@ -54,43 +54,8 @@ function todasAsLinhas(arquivos = FILES) {
   return arquivos.flatMap((f) => linhasDeCodigo(SRC.get(f) ?? '').map((l) => ({ arquivo: f, ...l })));
 }
 
-// DDL destrutiva DELIBERADA, com o arquivo onde mora. Acrescentar uma linha aqui é
-// o ato explícito que a convenção exige; esquecer de acrescentar reprova o teste.
-//
-// A ÚNICA DE HOJE é o alargamento de um CHECK, que é a forma destrutiva que não tem
-// alternativa aditiva: o Postgres não tem `ALTER CONSTRAINT` para expressão, então o
-// constraint cai e volta. Alargar é compatível para trás (todo valor aceito antes continua
-// aceito) e mesmo assim conta como destrutivo, porque entre o DROP e o ADD a tabela fica
-// sem a regra — e porque um DROP escrito por engano se parece exatamente com este.
-//
-// O `trecho` é o STATEMENT INTEIRO e não o prefixo comum, de propósito: dois
-// `ALTER TABLE x DROP CONSTRAINT ...` começam iguais, e um prefixo compartilhado faria os
-// dois casarem a MESMA entrada — a contagem acusaria "DDL a mais" e a lista deixaria de
-// discriminar qual foi autorizada.
-const EXCECOES_DESTRUTIVAS = [
-  {
-    arquivo: '018_defeitos_e_ocorrencias.sql',
-    trecho: 'ALTER TABLE defeitos DROP CONSTRAINT IF EXISTS defeitos_origem_check;',
-    // O vocabulário de `origem` passou de dez para onze valores (`'servidor'`, o 5xx do
-    // próprio backend virando defeito). O `IF EXISTS` é o que mantém a migração idempotente
-    // numa segunda aplicação, e a recriação vem logo abaixo dele, na mesma transação: não
-    // existe janela em que a tabela fique sem a regra fora dessa transação.
-  },
-  {
-    arquivo: '019_defeito_estado_auditado.sql',
-    trecho: 'ALTER TABLE audit_trail DROP CONSTRAINT IF EXISTS audit_trail_action_check;',
-    // O vocabulário de `audit_trail.action` ganhou `DEFEITO_ESTADO`, para o ato de
-    // administrador que resolve, ignora ou reabre um defeito (`PATCH /diag/defeitos/:id` e
-    // os três comandos do `npm run diag`). Este é o primeiro alargamento do CHECK de
-    // AÇÃO fora da baseline: até `018_defeitos_e_ocorrencias.sql` toda ação nova nascia
-    // larga em `002_auditoria.sql`,
-    // porque nenhuma baseline tinha sido aplicada fora deste branch. A leitura do censo
-    // (`tests/unit/auditoria-censo.test.js`) varre as migrações em ordem DECRESCENTE, então
-    // é este arquivo, e não a baseline, que passa a declarar o vocabulário vigente.
-    // Idempotente pelo `IF EXISTS`, e sem janela sem regra porque o `ADD` vem logo abaixo,
-    // na mesma transação do migrador.
-  },
-];
+// Final-state pre-release baselines need no destructive DDL exceptions.
+const EXCECOES_DESTRUTIVAS = [];
 const PADROES_DESTRUTIVOS = [
   /\bDROP\s+TABLE\b/i,
   /\bDROP\s+COLUMN\b/i,
@@ -123,6 +88,13 @@ const COM_SCHEMA_PROPRIO = { ...ESPACIAIS, '009_a3d.sql': 'a3d' };
 const NUCLEO = FILES.filter((f) => !(f in COM_SCHEMA_PROPRIO));
 
 describe('Higiene das migrações (item 103)', () => {
+  it('as baselines consolidadas criam o estado final, sem cadeia de reparos', () => {
+    const baselines = FILES.filter(f => Number(f.slice(0, 3)) <= 11);
+    assert.equal(baselines.length, 11);
+    const reparos = todasAsLinhas(baselines).filter(({ texto }) =>
+      /\b(?:ALTER\s+TABLE|ALTER\s+INDEX|DROP\s+INDEX|UPDATE\s+(?:users|defeitos))\b/i.test(texto));
+    assert.deepEqual(reparos, [], 'a baseline deve nascer com colunas, índices e CHECK finais');
+  });
   it('guarda: há migrações suficientes e nenhuma vazia', () => {
     assert.ok(FILES.length >= 5, `esperava >= 5 migrações, achei ${FILES.length}`);
     const vazias = FILES.filter((f) => (SRC.get(f) ?? '').trim() === '');

@@ -25,7 +25,7 @@
  * O QUE ESTE VOCABULÁRIO NÃO TEM, e a ausência é o desenho inteiro: identidade, geometria,
  * nome de atlas, nome de camada, texto digitado. Um evento é (que gesto, em que página, com
  * qual qualificador FECHADO), e o servidor só guarda CONTAGEM por dia. Não há linha por
- * pessoa e não há linha por gesto: ver o cabeçalho de `020_uso_de_produto.sql`.
+ * pessoa e não há linha por gesto: ver o cabeçalho de `011_uso_e_presenca.sql`.
  */
 
 /**
@@ -63,6 +63,8 @@ export const EVENTOS_DE_USO = Object.freeze([
   'ebgeo.exportado',
   'ebgeo.importado',
   'indisponivel.visto',
+  'migracao.resultado', 'sync.resultado', 'logout.descarte',
+  'preferencia.base', 'preferencia.camada', 'recurso.aberto',
 ]);
 
 /**
@@ -90,16 +92,23 @@ export const EVENTOS_DE_USO = Object.freeze([
  * (`new-tool`) e o inventário delas cresce com o produto; fechá-lo aqui obrigaria uma
  * migração a cada ferramenta nova, para um campo que não gateia nada e não autoriza nada. O
  * preço é a única dimensão de cardinalidade aberta da tabela de contagens, e ele está
- * medido, com o teto que o contém, no cabeçalho de `020_uso_de_produto.sql`.
+ * medido, com o teto que o contém, no cabeçalho de `011_uso_e_presenca.sql`.
  */
 export const PROPS_PERMITIDAS = Object.freeze({
+    'migracao.resultado': Object.freeze(['inicio', 'sucesso', 'falha', 'aba-antiga', 'storage-error']),
+    'sync.resultado': Object.freeze(['sucesso', 'falha']),
+    'logout.descarte': Object.freeze(['com-pendencias', 'desconhecido']),
+    'preferencia.base': null,
+    'preferencia.camada': null,
+    'recurso.aberto': null,
+
   'pagina.vista': Object.freeze([]),
   // A procedência do atlas: é o que separa "o produto é usado offline" de "o produto é usado
   // no servidor", que é a pergunta de produto mais cara de responder por qualquer outro meio.
   'atlas.aberto': Object.freeze(['local', 'servidor', 'publico']),
   // O id da ferramenta, livre por forma. Ver o parágrafo acima.
   'ferramenta.ativada': null,
-  'medicao.aberta': Object.freeze([]),
+  'medicao.aberta': Object.freeze(['distancia', 'area', 'angulo']),
   'visualizador3d.aberto': Object.freeze([]),
   'visualizador360.aberto': Object.freeze([]),
   'primeira-pessoa.aberto': Object.freeze([]),

@@ -1,9 +1,9 @@
 // Path: tests/integration/diag-erro-de-cliente-identidade.test.js
-// AS QUATRO COLUNAS DE `017_erro_cliente_identidade.sql` (`sessao_id`, `stack_bruta`,
+// AS QUATRO COLUNAS DE `010_observabilidade.sql` (`sessao_id`, `stack_bruta`,
 // `origem`, `contexto`), da borda até o banco e de volta na listagem.
 //
 // O QUE ELAS MUDAM NA PERGUNTA. `defeitos` (que se chamava `client_errors` até
-// `018_defeitos_e_ocorrencias.sql`) respondia "qual defeito e quantas vezes";
+// `010_observabilidade.sql`) respondia "qual defeito e quantas vezes";
 // com estas colunas ela responde também de qual ABA (a mesma sessão que o servidor carimba
 // nas linhas de log), com que pilha REAL, por qual porta o erro entrou e em que estado o
 // app estava. Sem elas, o erro do navegador e as linhas do servidor do mesmo instante
@@ -252,7 +252,7 @@ describe('Erro do navegador — identidade, pilha crua, origem e contexto', () =
       }
     );
 
-    // ONZE e não dez desde `018_defeitos_e_ocorrencias.sql`: o CHECK precisa aceitar
+    // ONZE e não dez desde `010_observabilidade.sql`: o CHECK precisa aceitar
     // `'servidor'` porque é a MESMA coluna que o agregador de 5xx escreve. A borda ANÔNIMA é
     // que recorta (`ORIGENS_DO_CLIENTE`, `tests/unit/diag-origem-de-erro.test.js`), e as duas
     // listas não podem ser confundidas: aqui vale a do banco.

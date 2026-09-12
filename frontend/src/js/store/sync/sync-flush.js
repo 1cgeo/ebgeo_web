@@ -1,4 +1,6 @@
 // Path: js/store/sync/sync-flush.js
+import { registrarUso } from '@js/session/uso-lote.js';
+import { EventoDeUso, PropDeUso } from '@js/session/eventos-de-uso.js';
 
 /**
  * @fileoverview Auto-flush driver for the sync engine.
@@ -203,9 +205,11 @@ async function flushOnce() {
     state.inFlight = true;
     try {
         await state.engine.flush();
+        registrarUso(EventoDeUso.SYNC_RESULTADO, PropDeUso.SYNC_SUCESSO);
         // A successful drain re-arms the warning: the NEXT outage is news again.
         state.alert = { failures: 0, notifiedKind: null };
     } catch (error) {
+        registrarUso(EventoDeUso.SYNC_RESULTADO, PropDeUso.SYNC_FALHA);
         console.warn('Auto-flush error:', error);
         const next = nextFlushAlertState(state.alert, error);
         state.alert = { failures: next.failures, notifiedKind: next.notifiedKind };

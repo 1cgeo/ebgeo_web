@@ -78,7 +78,7 @@ describe('_migrations × arquivos em disco (item 102)', () => {
   });
 
   it('re-executar runMigrations não duplica o dado semeado pelas migrações', async () => {
-    // `INSERT INTO ranks` (001_identidade.sql) NÃO tem ON CONFLICT e a tabela não tem
+    // `INSERT INTO ranks` (001_identidade_e_credenciais.sql) NÃO tem ON CONFLICT e a tabela não tem
     // UNIQUE em code/nome: se o tracking falhar, duplica em silêncio e o dropdown
     // de posto passa a mostrar 38 itens em vez de 19.
     const contar = async (tabela) => {
@@ -102,5 +102,23 @@ describe('_migrations × arquivos em disco (item 102)', () => {
     assert.equal(await contar('ranks'), ranksAntes, 'ranks duplicou: o tracking por nome falhou');
     assert.equal(await contar('basemaps'), basemapsAntes, 'basemaps duplicou');
     assert.deepEqual(await nomesNoBanco(), ARQUIVOS, 'e nenhuma linha nova em _migrations');
+  });
+
+  it('recusa histórico anterior à consolidação sem alterar tracking ou dados', async () => {
+    const original = ARQUIVOS[0];
+    const antigo = '001_' + 'identidade.sql';
+    const antes = (await db.query('SELECT id, code, nome FROM ranks ORDER BY id')).rows;
+    await db.query('UPDATE _migrations SET name = $1 WHERE name = $2', [antigo, original]);
+    try {
+      const historico = await nomesNoBanco();
+      await assert.rejects(runMigrations(process.env.DATABASE_URL), /Histórico de migrações incompatível/);
+      assert.deepEqual(await nomesNoBanco(), historico, 'não pode marcar a nova baseline como aplicada');
+      assert.deepEqual((await db.query('SELECT id, code, nome FROM ranks ORDER BY id')).rows, antes);
+    } finally {
+      await db.query('UPDATE _migrations SET name = $1 WHERE name = $2', [original, antigo]);
+    }
+    // Refusal must release the advisory lock so a corrected history can run again.
+    await runMigrations(process.env.DATABASE_URL);
+    assert.deepEqual(await nomesNoBanco(), ARQUIVOS);
   });
 });

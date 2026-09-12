@@ -23,7 +23,7 @@ import * as AQ from './sv360.admin.queries.js';
 import { ConflictError, ValidationError } from '../../utils/errors.js';
 import logger from '../../utils/logger.js';
 
-// Deterministic default org id, semeado em `001_identidade.sql` (INSERT INTO organizations
+// Deterministic default org id, semeado em `001_identidade_e_credenciais.sql` (INSERT INTO organizations
 // com o UUID fixo). Esta linha já apontou para uma migração que nunca existiu neste
 // repositório, resíduo de um esmagamento anterior que sobreviveu por meses sem nada ficar
 // vermelho; quem cobra hoje é `tests/unit/citacao-de-migracao.test.js`. Used by the ETL backfill

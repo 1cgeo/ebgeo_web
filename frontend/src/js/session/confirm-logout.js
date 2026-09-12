@@ -1,4 +1,6 @@
 // Path: js/session/confirm-logout.js
+import { registrarUso, descarregarUso } from '@js/session/uso-lote.js';
+import { EventoDeUso, PropDeUso } from '@js/session/eventos-de-uso.js';
 /** Voluntary logout: confirm the loss across every remote namespace on this browser. */
 import { listRemoteAtlases, requestRemoteAtlasDiscard } from '@store/remote-atlas.api.js';
 import { readLocalAtlasRegistry } from '@store/atlas-namespace.js';
@@ -64,5 +66,10 @@ async function confirmAndPrepareLogout() {
     // Local claims are checked again inside the mutation, including rescued local atlases.
     const discarded = await requestRemoteAtlasDiscard();
     await announceTabLockTeardown(discarded.map(e => e.dbSuffix));
+    if (!Number.isFinite(pendingOps) || pendingOps > 0) {
+        if (Number.isFinite(pendingOps)) registrarUso(EventoDeUso.LOGOUT_DESCARTE, PropDeUso.DESCARTE_PENDENCIAS);
+        else registrarUso(EventoDeUso.LOGOUT_DESCARTE, PropDeUso.DESCARTE_DESCONHECIDO);
+        descarregarUso();
+    }
     return true;
 }

@@ -64,6 +64,9 @@ export function propAceita(evento, prop) {
   // Vazio é sempre aceito, inclusive nos eventos de lista fechada: a linha sem qualificador
   // é o total daquele gesto, que continua sendo uma contagem verdadeira. Ver o espelho.
   if (valor === '') return { ok: true };
+  if (['preferencia.base', 'preferencia.camada', 'recurso.aberto'].includes(evento)) {
+    return typeof valor === 'string' && valor.length <= 100 ? { ok: true } : { ok: false, motivo: 'forma' };
+  }
 
   const permitidas = PROPS_PERMITIDAS[evento];
   if (permitidas === null) {

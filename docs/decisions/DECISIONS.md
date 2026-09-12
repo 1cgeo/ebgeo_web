@@ -165,3 +165,7 @@ que envelheceu na decisão seguinte.)
 | 2026-09-07 | a falha do envio nomeia a ETAPA, e o slot herdado se identifica no diálogo | [decisions-2026.md](decisions-2026.md) |
 | 2026-09-07 | o envio de um atlas local normaliza a coleção de feições na leitura | [decisions-2026.md](decisions-2026.md) |
 | 2026-09-07 | o degrau 3.0 repara `data.name` a partir da chave nos mapas que vieram da outra linha | [decisions-2026.md](decisions-2026.md) |
+
+- 2026-09-12: presença administrativa e correção da coleta de uso, [registro](decisions-2026.md).
+- 2026-09-12: consolidação das migrações antes da primeira implantação, com recusa de histórico incompatível, [registro](decisions-2026.md).
+- 2026-09-12: orcamento medido de arquivos com presenca e telemetria antecipada, [registro](decisions-2026.md).

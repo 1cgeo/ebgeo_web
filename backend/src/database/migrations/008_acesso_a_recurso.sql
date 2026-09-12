@@ -32,7 +32,7 @@
 -- ONDE MORA O GRUPO DE ACESSO
 -- ---------------------------------------------------------------------------
 --
--- `access_groups` e `access_group_members` nascem em `001_identidade.sql`, e nao aqui.
+-- `access_groups` e `access_group_members` nascem em `001_identidade_e_credenciais.sql`, e nao aqui.
 -- Duas razoes, e a segunda e a que obriga: grupo de acesso e uma colecao de USUARIOS, e
 -- desde que ganhou dono e entidade de usuario; e `atlas_shares` (003) o referencia, entao
 -- ele TEM de existir antes, porque a ordem entre as baselines e a de dependencia de FK.

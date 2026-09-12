@@ -40,12 +40,12 @@ const CENSO = {
   'comments.data': ['CLOSED', 'comment.operations.js escreve só escalares; `text` é texto livre (teto)'],
   // AS TRÊS JSONB QUE NÃO SÃO DO ATLAS E MESMO ASSIM VÊM DE UM CLIENTE: telemetria de erro do
   // navegador, escrita por rota REST própria e ANÔNIMA, não por op de sync. A tabela se chamava
-  // `client_errors` até `018_defeitos_e_ocorrencias.sql`.
+  // `client_errors` até `010_observabilidade.sql`.
   'defeitos.contexto': ['CLOSED',
     'forma fechada campo a campo no Joi de src/modules/diag/diag.schemas.js: cinco chaves '
     + 'ESCALARES (atlasKind, conexao, causa, camada, status), com unknown(false), que ali RECUSA '
     + 'a chave extra com 422 em vez de descartá-la. Escritor único: POST /diag/erro-cliente '
-    + '(017_erro_cliente_identidade.sql). NÃO passa por free-field.schemas.js, e não deve passar: '
+    + '(010_observabilidade.sql). NÃO passa por free-field.schemas.js, e não deve passar: '
     + 'aquele guarda carga de ATLAS que chega por op de sync, e esta coluna não é carga de atlas.'],
   'defeito_ocorrencias.contexto': ['CLOSED',
     'a MESMA coluna da linha acima, copiada para a ocorrência pelo mesmo escritor e validada '

@@ -32,7 +32,7 @@
 // `idx_audit_created` filtrando linha a linha, porque a essa altura ler o índice de tempo
 // e descartar 19 de cada 20 linhas sai mais barato que ordenar todas as do alvo. Isso é
 // escolha CERTA dele, não regressão, e está escrito no cabeçalho de
-// `src/database/migrations/016_indice_audit_target_id.sql`. O que este arquivo mede é a
+// `src/database/migrations/002_auditoria.sql`. O que este arquivo mede é a
 // faixa em que o índice decide, que é a da investigação real (um recurso específico, uma
 // fatia pequena da trilha inteira); quem aumentar `FATIA_DO_ALVO` vai ver estes casos
 // ficarem vermelhos sem que nada tenha quebrado.

@@ -43,7 +43,7 @@ describe('Identity: JWT org claims & API keys', () => {
   it('a coluna do eixo de papel dentro da OM não existe mais no schema', async () => {
     // A prova de que a remoção é de VERDADE, e não só do emissor: enquanto a coluna
     // existisse, uma consulta nova a selecionaria por analogia e o eixo voltaria pela
-    // porta de trás. Ela NÃO existe mais: `001_identidade.sql` diz, no lugar onde a coluna
+    // porta de trás. Ela NÃO existe mais: `001_identidade_e_credenciais.sql` diz, no lugar onde a coluna
     // morava, por que a ausência é decisão. Com entrada na
     // lista de DDL destrutiva deliberada.
     const { rows } = await db.query(

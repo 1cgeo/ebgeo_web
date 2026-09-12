@@ -1,4 +1,6 @@
 // Path: js/projects/import-ebgeo.service.js
+import { registrarUso } from '@js/session/uso-lote.js';
+import { EventoDeUso } from '@js/session/eventos-de-uso.js';
 
 /**
  * @fileoverview "Importar .ebgeo" on the chooser page: turns a `.ebgeo` file straight into a NEW
@@ -87,6 +89,7 @@ export async function importEbgeoAsAtlas(file, { apiClient, name } = {}) {
     const { uploads, skipped } = await buildImageUploads(found);
     const { failed } = await uploadImagesInChunks(apiClient, atlas.id, uploads);
 
+    registrarUso(EventoDeUso.EBGEO_IMPORTADO);
     return {
         atlasId: atlas.id,
         name: atlasName,

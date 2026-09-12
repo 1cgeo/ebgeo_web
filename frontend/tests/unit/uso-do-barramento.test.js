@@ -88,6 +88,8 @@ afterEach(() => {
 describe('instalarUsoDoBarramento — a allowlist', () => {
     it('a allowlist tem os cinco eventos, e a lista vem do módulo', () => {
         expect([...EVENTOS_DE_USO_OBSERVADOS]).toEqual([
+            EventTypes.BASE_LAYER_CHANGED,
+            EventTypes.CATALOG_ADD_LAYER,
             EventTypes.VIEWER_3D_OPENED,
             EventTypes.STREETVIEW_360_OPENED,
             EventTypes.FIRST_PERSON_OPENED,

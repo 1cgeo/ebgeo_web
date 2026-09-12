@@ -2,6 +2,15 @@
 import { asyncHandler } from '../../utils/async-handler.js';
 import * as usoService from './uso.service.js';
 import * as eventos from './uso.eventos.service.js';
+import { registrarPresenca, resumoPresenca } from './uso.presenca.js';
+
+export const presenca = asyncHandler(async (req, res) => {
+  await registrarPresenca(req.body, req.user?.id ?? null);
+  res.status(204).end();
+});
+export const agora = asyncHandler(async (req, res) => {
+  res.json({ data: await resumoPresenca() });
+});
 
 /**
  * `GET /uso/resumo`.
@@ -25,7 +34,7 @@ export const resumo = asyncHandler(async (req, res) => {
 /**
  * Recebe um lote de uso do navegador. 204: quem relata não tem o que fazer com um corpo.
  *
- * A IDENTIDADE SAI DE `req.user`, e o corpo não tem campo para ela (ver `uso.schemas.js`).
+ * Identity comes from req.user. The body carries only a consistency guard for queued batches.
  * `flexibleAuth` é global e não-bloqueante, então aqui `req.user` já está preenchido para
  * quem tem credencial e ausente para o anônimo, que PRECISA passar: o app roda deslogado, e
  * é justamente do visitante que não existe nenhuma outra medida.
@@ -42,6 +51,11 @@ export const resumo = asyncHandler(async (req, res) => {
  * nada. Ver o campo no schema.
  */
 export const registrarEventos = asyncHandler(async (req, res) => {
-  await eventos.registrarLoteDeUso(req.body, req.user?.id ?? null);
+  if (req.body.identidade != null && req.body.identidade !== (req.user?.id ?? null)) {
+    res.status(409).json({ error: { message: 'A identidade da sessão mudou.' } });
+    return;
+  }
+  const userId = Object.hasOwn(req.body, 'identidade') && req.body.identidade === null ? null : req.user?.id;
+  await eventos.registrarLoteDeUso(req.body, userId ?? null);
   res.status(204).end();
 });

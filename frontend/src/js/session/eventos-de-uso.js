@@ -60,6 +60,13 @@ export const EVENTOS_DE_USO = Object.freeze([
     'ebgeo.exportado',
     'ebgeo.importado',
     'indisponivel.visto',
+    'migracao.resultado',
+    'sync.resultado',
+    'logout.descarte',
+    'preferencia.base',
+    'preferencia.camada',
+    'recurso.aberto',
+
 ]);
 
 /**
@@ -98,6 +105,14 @@ export const EventoDeUso = Object.freeze({
     EBGEO_IMPORTADO: 'ebgeo.importado',
     /** A tela "EBGeo indisponível" foi ao ar. Ver o `fileoverview` de `session/uso-lote.js`. */
     INDISPONIVEL_VISTO: 'indisponivel.visto',
+    MIGRACAO_RESULTADO: 'migracao.resultado',
+    SYNC_RESULTADO: 'sync.resultado',
+    LOGOUT_DESCARTE: 'logout.descarte',
+    PREFERENCIA_BASE: 'preferencia.base',
+    PREFERENCIA_CAMADA: 'preferencia.camada',
+    RECURSO_ABERTO: 'recurso.aberto',
+
+
 });
 
 /**
@@ -122,6 +137,13 @@ export const RE_PROP_LIVRE = /^[a-z0-9_-]{1,40}$/;
  * @type {Readonly<Object<string, ReadonlyArray<string>|null>>}
  */
 export const PROPS_PERMITIDAS = Object.freeze({
+    'migracao.resultado': Object.freeze(['inicio', 'sucesso', 'falha', 'aba-antiga', 'storage-error']),
+    'sync.resultado': Object.freeze(['sucesso', 'falha']),
+    'logout.descarte': Object.freeze(['com-pendencias', 'desconhecido']),
+    'preferencia.base': null,
+    'preferencia.camada': null,
+    'recurso.aberto': null,
+
     'pagina.vista': Object.freeze([]),
     // As três naturezas de abertura, e elas não são o `kind` do `ATLAS_SWITCHED` do barramento
     // (que tem duas): a visita por link público é um terceiro caso, e é justamente o que se quer
@@ -129,7 +151,7 @@ export const PROPS_PERMITIDAS = Object.freeze({
     'atlas.aberto': Object.freeze(['local', 'servidor', 'publico']),
     // LIVRE: a lista de ferramentas cresce a cada `new-tool`. Ver {@link RE_PROP_LIVRE}.
     'ferramenta.ativada': null,
-    'medicao.aberta': Object.freeze([]),
+    'medicao.aberta': Object.freeze(['distancia', 'area', 'angulo']),
     'visualizador3d.aberto': Object.freeze([]),
     'visualizador360.aberto': Object.freeze([]),
     'primeira-pessoa.aberto': Object.freeze([]),
@@ -160,6 +182,19 @@ export const PROPS_PERMITIDAS = Object.freeze({
  * @type {Readonly<Object<string, string>>}
  */
 export const PropDeUso = Object.freeze({
+    MEDICAO_DISTANCIA: 'distancia',
+    MEDICAO_AREA: 'area',
+    MEDICAO_ANGULO: 'angulo',
+    MIGRACAO_INICIO: 'inicio',
+    MIGRACAO_SUCESSO: 'sucesso',
+    MIGRACAO_FALHA: 'falha',
+    MIGRACAO_ABA_ANTIGA: 'aba-antiga',
+    MIGRACAO_STORAGE_ERROR: 'storage-error',
+    SYNC_SUCESSO: 'sucesso',
+    SYNC_FALHA: 'falha',
+    DESCARTE_PENDENCIAS: 'com-pendencias',
+    DESCARTE_DESCONHECIDO: 'desconhecido',
+
     /** `atlas.aberto`: um slot local, deste navegador. */
     ATLAS_LOCAL: 'local',
     /** `atlas.aberto`: um atlas do servidor, com conta. */
@@ -219,6 +254,7 @@ export function propDeUsoValida(evento, prop) {
     if (!eventoDeUsoValido(evento)) return false;
     if (prop === undefined || prop === null || prop === '') return true;
     if (typeof prop !== 'string') return false;
+    if (['preferencia.base', 'preferencia.camada', 'recurso.aberto'].includes(evento)) return prop.length <= 100;
     const permitidas = Object.hasOwn(PROPS_PERMITIDAS, evento) ? PROPS_PERMITIDAS[evento] : [];
     if (permitidas === null) return RE_PROP_LIVRE.test(prop);
     return permitidas.includes(prop);

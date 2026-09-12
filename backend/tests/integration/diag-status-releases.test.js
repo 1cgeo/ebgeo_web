@@ -4,7 +4,7 @@
  * repositório a cruzar as DUAS metades da observabilidade.
  *
  * POR QUE ELA SÓ EXISTE AGORA. `defeitos` sempre soube em qual build um defeito nasceu
- * (`primeira_release`, desde `018_defeitos_e_ocorrencias.sql`), e o número sozinho não
+ * (`primeira_release`, desde `010_observabilidade.sql`), e o número sozinho não
  * respondia nada: uma build usada por dez pessoas tem menos defeitos que uma usada por mil, e
  * sem contagem de SESSÕES as duas são indistinguíveis. `uso_sessoes` é o denominador que
  * faltava.

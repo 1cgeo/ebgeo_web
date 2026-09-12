@@ -1,4 +1,4 @@
--- Path: src/database/migrations/001_identidade.sql
+-- Path: src/database/migrations/001_identidade_e_credenciais.sql
 -- IDENTIDADE: quem é o chamador. organizations, ranks, users (campos militares
 -- BR, OM, papéis globais, escopo de produção, api_key), refresh_tokens,
 -- email_verification_tokens, api_key_history.
@@ -142,6 +142,8 @@ CREATE TABLE users (
     -- closed, porque rejeição a mais é um 401 do qual o cliente se recupera e
     -- rejeição a menos é buraco silencioso.
     sessions_valid_from TIMESTAMPTZ,
+    api_key_expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '90 days'),
+    api_key_created_at TIMESTAMPTZ DEFAULT NOW(),
 
     -- O ESCOPO DE PRODUÇÃO. UMA OM SÓ, por decisão de produto: quem mantém o que
     -- várias OMs produzem é administrador. Uma tabela de junção caberia no schema e
@@ -210,11 +212,7 @@ CREATE INDEX idx_refresh_tokens_user ON refresh_tokens(user_id);
 -- microssegundos por linha, mais 19 MB de indice sobre 420.000 linhas. Um indice escrito em todo
 -- login e em toda rotacao, para nunca decidir um plano.
 --
--- A BASELINE E O ESTADO FINAL, e por isso a linha sai daqui em vez de ficar e ser derrubada
--- adiante: instalacao nova nunca chega a cria-lo. Mas banco que JA rodou esta baseline nao a
--- reexecuta (o `_migrations` a pula), entao a convergencia dele vem da migracao
--- `011_refresh_tokens_indice.sql`, que faz `DROP INDEX IF EXISTS` e e inocua onde ele ja nao
--- existe. As duas edicoes sao necessarias, e nenhuma sozinha resolve os dois casos.
+-- The unique token_hash constraint already supplies the lookup index.
 
 -- ============================================================================
 -- EMAIL VERIFICATION TOKENS
@@ -338,3 +336,42 @@ CREATE TABLE access_group_members (
 );
 -- O indice que a resolucao percorre: "de que grupos esta pessoa participa?".
 CREATE INDEX idx_access_group_members_user ON access_group_members (user_id);
+
+-- Named API credentials: expiry, scope and individual revocation.
+
+COMMENT ON COLUMN users.api_key_expires_at IS
+  'Prazo do slot LEGADO de chave de API (users.api_key). NULL lê-se como VENCIDA, '
+  'nunca como "sem prazo": o predicado falha fechado.';
+COMMENT ON COLUMN users.api_key_created_at IS
+  'Nascimento do slot LEGADO de chave de API, comparado com users.sessions_valid_from '
+  'para que a revogação em massa alcance a chave (ela não tem `iat` para comparar).';
+
+CREATE TABLE api_keys (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID NOT NULL REFERENCES users(id),
+
+    api_key     UUID NOT NULL UNIQUE,
+
+    label       VARCHAR(100) NOT NULL,
+
+    scope       VARCHAR(20) NOT NULL DEFAULT 'tiles'
+                  CHECK (scope IN ('tiles', 'full')),
+
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by  UUID REFERENCES users(id),
+
+    expires_at  TIMESTAMPTZ NOT NULL,
+
+    revoked_at  TIMESTAMPTZ,
+    revoked_by  UUID REFERENCES users(id),
+
+    CONSTRAINT api_keys_expires_at_check
+      CHECK (expires_at > created_at AND expires_at <= created_at + INTERVAL '1 year')
+);
+
+CREATE INDEX idx_api_keys_user ON api_keys(user_id);
+
+COMMENT ON TABLE api_keys IS
+  'Chaves de API NOMEADAS: uma linha por chave viva, com prazo (teto de um ano), '
+  'escopo e revogação individual. O slot legado users.api_key continua existindo e '
+  'é lido pelo mesmo predicado de autenticação.';

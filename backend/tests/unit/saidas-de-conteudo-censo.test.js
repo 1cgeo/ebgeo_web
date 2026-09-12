@@ -222,7 +222,7 @@ const CENSO_ROTA = [
   // atravessa, e o corpo sai por `res.json`, logo pela poda global.
   json('src/modules/diag/diag.routes.js', 'GET /resumo'),
   json('src/modules/diag/diag.routes.js', 'GET /erros-cliente'),
-  // As duas do DEFEITO (`018_defeitos_e_ocorrencias.sql`) são a MESMA família: agregação de
+  // As duas do DEFEITO (`010_observabilidade.sql`) são a MESMA família: agregação de
   // telemetria. A ocorrência carrega `migalhas` e `contexto`, que são JSONB de forma fechada
   // por Joi na borda (censados em `tests/integration/campos-livres-censo.test.js`) e não
   // guardam id de catálogo, 360 nem 3D: não há referência de recurso para a poda resolver.
@@ -240,11 +240,11 @@ const CENSO_ROTA = [
   // O ato de ciclo de vida devolve o item do defeito por `res.json`, como a listagem.
   json('src/modules/diag/diag.routes.js', 'PATCH /defeitos/:id'),
 
-  // Relatório de uso: CONTAGENS agregadas (pessoas, atlas, produção por entidade e por dia)
-  // mais nome de atlas e nome de dono. Nenhum id de catálogo, 360 ou 3D atravessa, e nenhuma
-  // consulta do módulo toca tabela de recurso — mas ela sai por `res.json`, e portanto pela
-  // poda global, como toda a família.
+  // Admin aggregates include catalog names and IDs for preference rankings.
+  // They use res.json and pass through the global response pruning middleware.
   json('src/modules/uso/uso.routes.js', 'GET /resumo'),
+  json('src/modules/uso/uso.routes.js', 'GET /agora'),
+  json('src/modules/uso/uso.routes.js', 'POST /presenca'),
   // A ESCRITA de telemetria de uso responde 204: sem corpo, sem poda. Ela é a irmã anônima de
   // `POST /diag/erro-cliente`, e o emissor está declarado abaixo, em `uso.controller.js`.
   json('src/modules/uso/uso.routes.js', 'POST /eventos'),
@@ -429,8 +429,8 @@ const CENSO_EMISSOR = [
       + 'relata não tem o que fazer com um corpo, e devolver a linha gravada daria a um chamador '
       + 'ANÔNIMO uma leitura do que já está na tabela.' },
 
-  { arquivo: 'src/modules/uso/uso.controller.js', texto: 'res.status(204).end();', n: 1,
-    classe: E_SEM_CORPO, motivo: `${SEM_CORPO} É o aceite do lote de telemetria de USO, e a `
+  { arquivo: 'src/modules/uso/uso.controller.js', texto: 'res.status(204).end();', n: 2,
+    classe: E_SEM_CORPO, motivo: `${SEM_CORPO} Aceite de lote de uso e de pulso de presença; a `
       + 'razão de não haver corpo é a MESMA da linha acima, com o mesmo peso: a rota é ANÔNIMA, '
       + 'e um corpo de resposta aqui transformaria a porta de escrita numa porta de leitura da '
       + 'telemetria agregada da instalação inteira. Quem lê é `GET /uso/resumo`, atrás de '

@@ -22,7 +22,7 @@ export const INSERT_AUDIT = `
 // mil linhas: 2466 contra 152 do índice dedicado, e num plano que não parece errado, o que
 // é pior que não ter índice nenhum, porque desliga a suspeita. O índice novo, a medição
 // dos dois lados e por que ele é composto estão em
-// `src/database/migrations/016_indice_audit_target_id.sql`.
+// `src/database/migrations/002_auditoria.sql`.
 //
 // O FILTRO POR OM ($5) É PARÂMETRO DA CONSULTA, NUNCA CONCATENAÇÃO, e quem o preenche
 // é o SERVIÇO a partir do escopo resolvido no banco — nunca a query string do

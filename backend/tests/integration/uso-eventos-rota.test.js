@@ -141,12 +141,12 @@ describe('Uso do produto — a borda de POST /uso/eventos', () => {
     const r = await supertest(app)
       .post('/api/v1/uso/eventos')
       .send(corpo(novaSessao(), {
-        eventos: [{ evento: 'medicao.aberta', prop: 'area', contagem: 1 }],
+        eventos: [{ evento: 'pagina.vista', prop: 'area', contagem: 1 }],
       }))
       .expect(422);
     // Nomear o evento não é enfeite: num lote de cinquenta entradas, "prop inválido" sem o
     // evento não diz qual delas consertar.
-    assert.match(JSON.stringify(r.body), /medicao\.aberta/);
+    assert.match(JSON.stringify(r.body), /pagina\.vista/);
   });
 
   it('qualificador FORA DA LISTA do evento é 422 e nomeia o evento', async () => {

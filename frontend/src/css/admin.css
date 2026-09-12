@@ -2931,3 +2931,10 @@
    Se um dia o painel precisar caber em tela pequena, o caminho não é acrescentar
    media query aqui: é decidir QUAIS colunas somem e dizer na tela que sumiram.
    ========================================================================== */
+.admin-presenca__numeros {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-6);
+    font-size: 1.4rem;
+    font-weight: 600;
+}

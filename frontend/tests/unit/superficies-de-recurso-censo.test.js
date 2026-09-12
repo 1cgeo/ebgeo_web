@@ -102,6 +102,7 @@ const MISS_BUSCA = 'Consome o cache de projetos 360, que é chaveado por escopo 
 
 /** @type {Entrada[]} */
 const CENSO = [
+    { arquivo: 'src/js/session/uso-do-barramento.js', gatilho: 'catalogo', n: 3, classe: BASELINE, motivo: 'Telemetry validates resource IDs against the current catalog; it keeps no catalog copy.' },
     // ================= o dono de cada fonte ==================================
     {
         arquivo: 'src/js/store/sync/atlas-settings.service.js', gatilho: 'catalogo', n: 53,

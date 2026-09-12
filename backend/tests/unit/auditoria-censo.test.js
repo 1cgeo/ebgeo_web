@@ -181,6 +181,12 @@ const CENSO = [
   },
 
   // ---------------- uso: telemetria de produto --------------------------------
+  {
+    arquivo: 'src/modules/uso/uso.routes.js', rota: 'POST /presenca', classe: ISENTA,
+    motivo: 'Heartbeat de presença, inclusive anônimo, sem alteração de atlas ou acesso. '
+      + 'Atualiza uma linha temporária por navegador; auditar cada pulso de 30 segundos '
+      + 'inundaria a trilha com atividade normal. A identidade vem da autenticação verificada.',
+  },
   // A IRMÃ DE `POST /erro-cliente`, e ela é isenta pelo MESMO argumento, com um agravante
   // próprio: aquela escreve uma linha por DEFEITO distinto (a dedupe por assinatura já
   // colapsa a repetição), e esta escreve uma linha de CONTAGEM por (dia, página, evento,

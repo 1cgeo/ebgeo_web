@@ -8,7 +8,7 @@
  * nenhum do pacote: nem rota, nem job, nem roteiro. A dedupe por assinatura só segura quando
  * a assinatura REPETE, e a assinatura é montada no cliente, então dentro do próprio limitador
  * de um endereço só cabiam dezenas de milhares de linhas novas por dia, permanentes. O
- * cabeçalho de `src/database/migrations/014_observabilidade.sql` diz que a tabela existe para
+ * cabeçalho de `src/database/migrations/010_observabilidade.sql` diz que a tabela existe para
  * evitar que a telemetria vire o segundo incidente; sem poda, ela virava.
  *
  * O DEFEITO E A OCORRÊNCIA SÃO ESCRITOS NA MESMA TRANSAÇÃO, e o teto de vinte é aplicado
@@ -287,7 +287,7 @@ function itemDeDefeito(l) {
     userId: l.user_id,
     username: l.username,
     atlasId: l.atlas_id,
-    // As quatro de `017_erro_cliente_identidade.sql`. Elas saem SEMPRE, com `null` quando
+    // As quatro de `010_observabilidade.sql`. Elas saem SEMPRE, com `null` quando
     // o relato não as trouxe, ao contrário do que a metade A faz com `enderecos`: ali a
     // chave ausente distingue "servidor antigo" de "zero endereços", e aqui não há esse
     // segundo estado — a coluna existe para toda linha, e `null` significa exatamente uma
@@ -468,7 +468,7 @@ export async function listarOcorrencias(defeitoId) {
  * responde é "tudo que já foi feito com este defeito", e três ações partiriam a história de
  * um mesmo defeito em três listas que não se cruzam. O que distingue os atos é o `de`/`para`
  * dos detalhes, que é onde a informação de fato está. O argumento por extenso está no
- * cabeçalho de `019_defeito_estado_auditado.sql`.
+ * cabeçalho de `002_auditoria.sql`.
  */
 export const ACAO_DE_ESTADO = 'DEFEITO_ESTADO';
 
@@ -487,7 +487,7 @@ export const TETO_DO_ALVO_NA_TRILHA = 200;
 /**
  * O TETO DO `commit`, e ele mora AQUI porque as bordas são DUAS.
  *
- * O CHECK da coluna (`018_defeitos_e_ocorrencias.sql`) recusa acima de 64, que é o
+ * O CHECK da coluna (`010_observabilidade.sql`) recusa acima de 64, que é o
  * comprimento de um SHA-256 em hexadecimal. A rota já tinha o teto no Joi e respondia 422
  * nomeando o campo; o COMANDO não tinha nada, e um `--commit` de 65 caracteres descia até o
  * banco e voltava como 23514 com pilha crua no terminal, ou seja, a mesma classe de erro

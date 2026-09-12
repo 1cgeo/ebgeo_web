@@ -219,11 +219,25 @@ export async function registrarLoteDeUso(lote, userId, opcoesDeManutencao) {
   // podadas, então um `ultimoSinal` datado de 1970 escreveria linhas permanentes nas duas. Ver
   // `instantesDoLote`.
   const { inicio, ultimoSinal } = instantesDoLote(lote, agoraMs, config.log.retencaoDias);
-  const eventos = lote.eventos ?? [];
+  let eventos = lote.eventos ?? [];
   const vitais = lote.vitais ?? {};
 
   try {
     await tx(async (t) => {
+      if (lote.loteId) {
+        const novo = await t.oneOrNone('INSERT INTO uso_lotes (id) VALUES ($1) ON CONFLICT DO NOTHING RETURNING id', [lote.loteId]);
+        if (!novo) return;
+        await t.none(`DELETE FROM uso_lotes WHERE id IN
+          (SELECT id FROM uso_lotes WHERE recebido_em < NOW() - INTERVAL '30 days' LIMIT 500)`);
+      }
+      const recursos = eventos.filter(e => ['preferencia.base', 'preferencia.camada', 'recurso.aberto'].includes(e.evento));
+      if (recursos.length) {
+        const conhecidos = await t.any(`SELECT 'preferencia.base' AS evento, id FROM basemaps WHERE id = ANY($1::text[])
+          UNION SELECT 'preferencia.camada', id FROM data_layers WHERE id = ANY($1::text[])
+          UNION SELECT 'preferencia.camada', id FROM analysis_layers WHERE id = ANY($1::text[])
+          UNION SELECT 'recurso.aberto', id FROM tilesets WHERE id = ANY($1::text[])`, [recursos.map(e => e.prop ?? '')]);
+        eventos = eventos.filter(e => !recursos.includes(e) || conhecidos.some(c => c.evento === e.evento && c.id === e.prop));
+      }
       if (eventos.length > 0) {
         await t.none(UPSERT_EVENTOS_DIA, [
           ultimoSinal,

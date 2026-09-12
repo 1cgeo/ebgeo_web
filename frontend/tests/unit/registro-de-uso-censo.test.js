@@ -209,7 +209,7 @@ describe('censo dos sítios que contam uso: os DOIS argumentos', () => {
             if (permitidas === null) continue;
             for (const v of permitidas) fechadas.add(v);
         }
-        expect([...Object.values(PropDeUso)].sort()).toEqual([...fechadas].sort());
+        expect([...new Set(Object.values(PropDeUso))].sort()).toEqual([...fechadas].sort());
         expect(Object.isFrozen(PropDeUso)).toBe(true);
         for (const chave of Object.keys(PropDeUso)) {
             expect(chave, `${chave} não é UPPER_SNAKE`).toMatch(/^[A-Z][A-Z0-9_]*$/);

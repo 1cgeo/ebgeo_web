@@ -8,7 +8,7 @@
  * mora: o corpo chega de um navegador qualquer, sem credencial, e vira linha em três tabelas.
  * As duas convivem no mesmo arquivo porque são o mesmo módulo, mas a régua é outra, e o que
  * vale para a segunda está dito no cabeçalho de `eventosDeUsoSchema` e no de
- * `020_uso_de_produto.sql`.
+ * `011_uso_e_presenca.sql`.
  *
  * A GRAMÁTICA DA JANELA É IMPORTADA, NUNCA REESCRITA: `parseJanela`
  * (`src/utils/diag-consulta.js`) é a mesma que o comando `npm run diag` e as quatro rotas
@@ -71,7 +71,7 @@ export const MAX_EVENTOS_POR_LOTE = 50;
 /**
  * O TETO DE UMA CONTAGEM. Cem mil por lote e por chave.
  *
- * Ele não protege a coluna (o UPSERT satura em `INT_MAX`, ver `020_uso_de_produto.sql`): ele
+ * Ele não protege a coluna (o UPSERT satura em `INT_MAX`, ver `011_uso_e_presenca.sql`): ele
  * protege o SENTIDO. Uma contagem de cem mil ativações da mesma ferramenta numa descarga é
  * um cliente em laço, não uma pessoa, e aceitar um número maior seria deixar um chamador
  * anônimo escolher sozinho a escala do gráfico de todo mundo.
@@ -103,7 +103,7 @@ export const MAX_CONTAGEM = 100_000;
  */
 const itemDeEvento = Joi.object({
   evento: Joi.string().valid(...EVENTOS_DE_USO).required(),
-  prop: Joi.string().max(40).allow(''),
+  prop: Joi.string().max(100).allow(''),
   contagem: Joi.number().integer().min(1).max(MAX_CONTAGEM).required(),
 })
   .unknown(false)
@@ -151,6 +151,8 @@ const itemDeEvento = Joi.object({
  * acima disso é um número inventado, e sem o teto ele entraria no percentil do dia.
  */
 export const eventosDeUsoSchema = Joi.object({
+  loteId: Joi.string().guid(),
+  identidade: Joi.string().guid().allow(null),
   sessaoId: Joi.string().guid().required(),
   pagina: Joi.string().valid(...PAGINAS).required(),
   release: Joi.string().max(100).allow('', null),
@@ -173,3 +175,10 @@ export const eventosDeUsoSchema = Joi.object({
     tempoAteMapaMs: Joi.number().min(0),
   }).unknown(false),
 });
+
+export const presencaSchema = Joi.object({
+  navegadorId: Joi.string().guid().required(),
+  pendentes: Joi.number().integer().min(0).max(10000000).allow(null),
+  idadePendenteMs: Joi.number().integer().min(0).max(31536000000).allow(null),
+  falhasColeta: Joi.number().integer().min(0).max(10000000),
+}).unknown(false);

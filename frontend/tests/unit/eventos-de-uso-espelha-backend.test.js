@@ -53,6 +53,7 @@ const ESPERADOS = [
     'ebgeo.exportado',
     'ebgeo.importado',
     'indisponivel.visto',
+    'migracao.resultado', 'sync.resultado', 'logout.descarte', 'preferencia.base', 'preferencia.camada', 'recurso.aberto',
 ];
 
 const PAGINAS_ESPERADAS = ['mapa', 'atlas', 'admin', 'calibracao'];

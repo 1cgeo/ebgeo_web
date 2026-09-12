@@ -655,7 +655,11 @@ const PAGINAS_DIST = Object.freeze([
     // do mesmo balcão: 4055 kB EXCLUÍA os 998 kB do MapLibre, e o equivalente de hoje seria
     // 5053 kB. Contra o teto novo, aquela regressão continua reprovando com folga de 900 kB.
     // A banda é de ~7% acima e ~7% abaixo da medida (3889), como o ORÇAMENTO por pasta.
-    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 80, minKb: 3600, maxKb: 4150 },
+    // Presence and pre-migration telemetry: fresh production build on 2026-09-12,
+    // 81 files / 3955 kB. Removing the pending-monitor dynamic entry reduced 82 to 81
+    // files. Allow one file of headroom for this entry-set split; the byte ceiling
+    // stays unchanged, so additional page weight still fails at 4150 kB.
+    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 82, minKb: 3600, maxKb: 4150 },
     { html: 'atlas.html', entrada: 'atlas', minArq: 18, maxArq: 40, minKb: 320, maxKb: 700 },
     // admin.html: 800 -> 950 -> 720 em 2026-09-02, com a medida na mao: 670 kB em 24 arquivos, build
     // fresco. As abas Diagnostico e Uso (com os folhas de frase) tinham levado a pagina a 882 kB

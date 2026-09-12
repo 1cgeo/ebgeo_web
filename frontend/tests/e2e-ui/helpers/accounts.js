@@ -48,7 +48,7 @@
  * imposto ANTES de a linha ser escrita.
  *
  * O BICONDICIONAL É DO BANCO, e o helper não oferece o estado que ele recusa.
- * `users_producer_scope_check` (`backend/src/database/migrations/001_identidade.sql`) diz
+ * `users_producer_scope_check` (`backend/src/database/migrations/001_identidade_e_credenciais.sql`) diz
  * `(role = 'producer') = (producer_org_id IS NOT NULL)`: crachá sem escopo e escopo sem
  * crachá são os DOIS estados impossíveis. Então `role: 'producer'` sem OM resolve a OM
  * semeada, e OM com qualquer outro papel é erro de chamador, levantado aqui. Se o helper

@@ -8,7 +8,7 @@
 // peças que um duplo de teste esconderia — o CASE de `UPDATE_ESTADO_DE_DEFEITO` (que decide
 // o que cada verbo faz com quatro colunas), a linha de trilha dentro da MESMA transação (que
 // morreria com 23514 se a ação não estivesse no CHECK, ou seja, se
-// `019_defeito_estado_auditado.sql` não tivesse sido aplicada), e a resolução do `--como`
+// `002_auditoria.sql` não tivesse sido aplicada), e a resolução do `--como`
 // contra `users`.
 //
 // O CASO QUE MAIS IMPORTA É O DO ATOR. `audit_trail.actor_id` é NOT NULL e o terminal não tem

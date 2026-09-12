@@ -1,4 +1,9 @@
 // Path: js/ui/migration-recovery.js
+import { registrarUso, descarregarUso } from '@js/session/uso-lote.js';
+import { EventoDeUso, PropDeUso } from '@js/session/eventos-de-uso.js';
+import { relatarErro } from '@js/session/erro-telemetria.js';
+import { OrigemDeErro } from '@js/session/origens-de-erro.js';
+import { instalarMonitoramentoDePendencias } from '@js/session/pendencias-monitoramento.js';
 import { createTabLock, noneKey } from '../utilities/tab-lock.js';
 import { prepareLegacyTransition, legacyHasChanged, restartLegacyCopy } from '../store/migration/legacy-transition.js';
 import { MigrationRecoveryError } from '../store/migration/transition-state.js';
@@ -114,6 +119,8 @@ export function showMigrationRecovery(error = {}) {
 }
 
 export async function runLegacyUpgradeGate() {
+    registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_INICIO);
+    descarregarUso();
     const progress = makeScreen('Preparando seus dados', 'Verificando a atualização dos dados locais…');
     const probe = createTabLock({ key: noneKey(), overlayHost: null, autoPulse: false });
     try {
@@ -123,9 +130,17 @@ export async function runLegacyUpgradeGate() {
             progress.text.textContent = `Copiando e verificando seus dados: ${copied} de ${total} registros. Aguarde a conclusão.`;
         } });
         closeScreen();
+        registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_SUCESSO);
+        descarregarUso();
+        instalarMonitoramentoDePendencias();
         return true;
     } catch (error) {
-        console.error('Atualização local interrompida:', error.name, error.code || 'storage_error');
+        if (error.code === 'legacy_tab') registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_ABA_ANTIGA);
+        else if (error instanceof MigrationRecoveryError) registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_FALHA);
+        else registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_STORAGE_ERROR);
+        descarregarUso();
+        relatarErro(new Error(error.code === 'legacy_tab' ? 'Atualização local: versão antiga aberta' : 'Atualização local interrompida'), { origem: OrigemDeErro.BOOT });
+        console.warn('Atualização local interrompida:', error.name, error.code || 'storage_error');
         showMigrationRecovery(error);
         return false;
     } finally { probe.destroy(); }

@@ -1,14 +1,14 @@
 // Path: tests/integration/diag-poda-de-erros-de-cliente.test.js
 //
 // A PODA OPORTUNISTA DE `defeitos` (a tabela se chamava `client_errors` até
-// `018_defeitos_e_ocorrencias.sql`), e o total de antes do corte na listagem.
+// `010_observabilidade.sql`), e o total de antes do corte na listagem.
 //
 // O QUE ISTO FECHA. Até 2026-09-01 a tabela não tinha um DELETE em lugar nenhum do
 // pacote: nem rota, nem job, nem roteiro. A dedupe por assinatura só segura quando a
 // assinatura REPETE, e a assinatura é montada no CLIENTE, então dentro do próprio
 // limitador de um único endereço cabiam dezenas de milhares de linhas novas por dia,
 // permanentes. Era o modo de falha que o cabeçalho de
-// `src/database/migrations/014_observabilidade.sql` diz estar evitando.
+// `src/database/migrations/010_observabilidade.sql` diz estar evitando.
 //
 // CONTROLE NEGATIVO (o que fica vermelho ao reverter cada peça, com a mensagem observada
 // anotada no fim de cada caso):
@@ -361,7 +361,7 @@ describe('defeitos: poda oportunista por idade e total antes do corte', () => {
     // pode ter vazado para dentro do item.
     const item = res.body.data.itens[0];
     assert.ok(item, 'a janela precisa ter ao menos um item, senão o caso não mede nada');
-    // As quatro últimas nasceram em `017_erro_cliente_identidade.sql` (2026-09-01) e são
+    // As quatro últimas nasceram em `010_observabilidade.sql` (2026-09-01) e são
     // ADITIVAS: nenhum nome anterior mudou, e é isso que esta lista continua cobrando.
     assert.deepEqual(
       Object.keys(item).sort(),

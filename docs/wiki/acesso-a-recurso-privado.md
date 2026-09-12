@@ -14,7 +14,7 @@ Toda afirmação de wiki no formato "o `org_role` decide X" ou "mover de OM dá 
 
 ## Os quatro papéis globais NÃO são uma escada
 
-`user`, `producer`, `credenciado` e `admin` (`CHECK` de `users.role`, `backend/src/database/migrations/001_identidade.sql`) não se contêm: nenhum é "o de cima" de outro. **Ler todo privado** e **manter um acervo** são capacidades independentes, resolvidas por duas funções SQL distintas (`fn_has_global_data_access` e `fn_can_produce_resource`), nunca por comparação de ordem. O eixo POR ATLAS (`read < comment < write < manage < owner`) é escada, é gateado por hierarquia, e não compartilha uma palavra com este.
+`user`, `producer`, `credenciado` e `admin` (`CHECK` de `users.role`, `backend/src/database/migrations/001_identidade_e_credenciais.sql`) não se contêm: nenhum é "o de cima" de outro. **Ler todo privado** e **manter um acervo** são capacidades independentes, resolvidas por duas funções SQL distintas (`fn_has_global_data_access` e `fn_can_produce_resource`), nunca por comparação de ordem. O eixo POR ATLAS (`read < comment < write < manage < owner`) é escada, é gateado por hierarquia, e não compartilha uma palavra com este.
 
 **A armadilha aqui é o INVERSO da que a constituição descreve.** Lá o perigo é a lista fechada que exclui o nível de cima (`perm === 'write' || 'owner'`); aqui é `if (role !== 'user')` num gate de PODER, que promove credenciado e produtor em silêncio. `backend/tests/unit/papel-global-censo.test.js` classifica cada sítio de papel global e reprova o não classificado.
 

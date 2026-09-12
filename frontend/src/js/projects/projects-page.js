@@ -1030,8 +1030,6 @@ async function renderWithoutServer() {
  * @returns {Promise<void>}
  */
 async function initProjectsPage() {
-    if (!await runLegacyUpgradeGate()) return;
-    watchLegacyChanges();
     // A TELEMETRIA DE ERRO após a proteção inicial dos dados: o erro de boot é o que menos se
     // consegue reproduzir depois. Síncrona, sem rede, e nada abaixo depende dela — esta página
     // sobe igual com a rota ausente, inclusive no ramo `renderWithoutServer`.
@@ -1039,6 +1037,8 @@ async function initProjectsPage() {
     // Logo depois da de erro, e pela mesma razao de ordem: `pagina.vista` e o denominador de todo
     // o resto, e uma pagina que morra antes de desenhar continua tendo sido uma carga de pagina.
     instalarUso();
+    if (!await runLegacyUpgradeGate()) return;
+    watchLegacyChanges();
 
     configureApiClient({ baseUrl: resolveBackendBaseUrl() });
 

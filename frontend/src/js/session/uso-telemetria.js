@@ -1,19 +1,7 @@
 // Path: js/session/uso-telemetria.js
 
 /**
- * @fileoverview A FIAÇÃO da telemetria de uso: quem é a aba, qual é a página, qual é a base da
- * API, qual é a release, qual é a família do navegador e onde estão as vitais. A DECISÃO (o que
- * pode ser contado, como o lote é montado, quando ele sai) mora em `session/uso-lote.js`, que
- * importa um módulo só e é dirigível em node puro.
- *
- * É A MESMA DIVISÃO DE `erro-telemetria.js` / `erro-telemetria-assinatura.js`, e pelo mesmo
- * motivo: tudo que precisa de `window`, de rede ou do grafo do produto fica de um lado só, e o
- * lado testável não paga por isso.
- *
- * ELA NÃO PARTICIPA DO BOOT. {@link instalarUso} é síncrona, não faz requisição nenhuma e devolve
- * na hora; ela é chamada logo depois de `instalarTelemetriaDeErro()` nas quatro páginas. Se
- * falhar inteira, o app sobe igual: o fail-fast do mapa continua sendo o `GET /api/config`, e
- * nada aqui participa daquela decisão.
+ * @fileoverview Installs usage and presence before local preparation. Usage segments end on document load and account identity changes; error correlation remains per document. Counters are best effort and never block application startup.
  */
 
 // Por ARQUIVO, e a peça que JÁ EXISTE: a base da API tem override de bancada
@@ -24,13 +12,17 @@ import { resolveBackendBaseUrl } from '@store/sync/runtime-config.js';
 // coleta de vitais. `paginaDaUrl` é REUSADA em vez de reescrita porque uma segunda tabela de
 // páginas faria o mesmo `admin.html` virar dois eixos de corte diferentes no mesmo servidor.
 import { sessaoId as sessaoIdPadrao } from './sessao-id.js';
+import { generateUUID } from '@utils/uuid.js';
+import { sessionContext } from '@store/sync/session-context.js';
+import { criarTransporteDeUso } from '@js/session/uso-transporte.js';
+import { instalarPresenca } from '@js/session/presenca.js';
 import { paginaDaUrl } from './erro-telemetria-assinatura.js';
 import { vitais as vitaisPadrao } from './vitais.js';
 // A release e o contador de erros vêm da telemetria de ERRO, que já os tem: `versaoDoBuild` é a
 // soma dos dois carimbos do build, e `capturados` é quantos erros esta sessão viu. Recalcular
 // qualquer um dos dois aqui produziria dois números com o mesmo nome.
 import { versaoDoBuild, estadoDaTelemetria } from './erro-telemetria.js';
-import { configurarUso, familiaDoNavegador, registrarUso } from './uso-lote.js';
+import { configurarUso, familiaDoNavegador, registrarUso, descarregarUso } from './uso-lote.js';
 import { EventoDeUso } from './eventos-de-uso.js';
 
 /**
@@ -55,7 +47,10 @@ import { EventoDeUso } from './eventos-de-uso.js';
  * @param {number} [opcoes.intervaloMs]
  * @returns {{instalada: boolean, desinstalar: () => void}}
  */
+let instalado = null;
+
 export function instalarUso({ alvo = globalThis, documento, enviar, intervaloMs } = {}) {
+    if (instalado) return { instalada: false, desinstalar: instalado };
     try {
         // AS VITAIS PRIMEIRO, e antes de qualquer coisa que possa falhar: os observadores usam
         // `buffered: true` e alcançam o que já aconteceu, mas um LCP tardio só é visto por quem
@@ -71,22 +66,42 @@ export function instalarUso({ alvo = globalThis, documento, enviar, intervaloMs 
             // Navegador sem `PerformanceObserver`: o lote sai sem o bloco de vitais.
         }
 
-        const resultado = configurarUso({
+        let identidade = sessionContext.userId;
+        let errosNoInicio = 0;
+        const transporte = criarTransporteDeUso({ alvo, identidade: () => identidade });
+        const configurar = (id) => configurarUso({
             pagina: paginaDaUrl(alvo?.location?.pathname ?? ''),
-            sessaoId: sessaoIdSeguro(),
+            sessaoId: id,
             release: versaoDoBuild(),
             navegador: familiaDoNavegador(alvo?.navigator?.userAgent ?? ''),
             resolverBase: resolveBackendBaseUrl,
-            erros: () => estadoDaTelemetria().capturados,
+            erros: () => Math.max(0, estadoDaTelemetria().capturados - errosNoInicio),
             vitais: () => vitaisPadrao.ler(),
             alvo,
             documento: documento ?? alvo?.document,
-            ...(enviar ? { enviar } : {}),
+            enviar: enviar ?? transporte.enviar,
             ...(Number.isFinite(intervaloMs) ? { intervaloMs } : {}),
         });
 
-        if (resultado.instalada) registrarUso(EventoDeUso.PAGINA_VISTA);
-        return resultado;
+        let resultado = configurar(sessaoIdSeguro());
+        if (!resultado.instalada) return resultado;
+        registrarUso(EventoDeUso.PAGINA_VISTA);
+        const presenca = instalarPresenca({ alvo, falhas: transporte.falhas });
+        const retomar = alvo.setInterval?.(transporte.retomar, 30000);
+        const remover = sessionContext.onSessionChanged(snapshot => {
+            if (snapshot.userId === identidade) return;
+            descarregarUso();
+            resultado.desinstalar();
+            identidade = snapshot.userId;
+            errosNoInicio = estadoDaTelemetria().capturados;
+            resultado = configurar(generateUUID());
+            presenca.pulsar();
+        });
+        instalado = () => {
+            remover(); resultado.desinstalar(); presenca.desinstalar();
+            alvo.clearInterval?.(retomar); instalado = null;
+        };
+        return { instalada: true, desinstalar: instalado };
     } catch {
         return { instalada: false, desinstalar: () => {} };
     }

@@ -1968,6 +1968,12 @@ export function tituloDeBarraDeSessao(dia, total) {
  * @type {Readonly<Object<string, string>>}
  */
 export const EVENTO_DE_USO_LABEL = Object.freeze({
+    'migracao.resultado': 'Preparação dos dados locais',
+    'sync.resultado': 'Sincronização',
+    'logout.descarte': 'Saída com descarte confirmado',
+    'preferencia.base': 'Base de mapa utilizada',
+    'preferencia.camada': 'Camada do catálogo acionada',
+    'recurso.aberto': 'Recurso 3D aberto',
     'pagina.vista': 'Página aberta',
     'atlas.aberto': 'Atlas aberto',
     'ferramenta.ativada': 'Ferramenta',
@@ -2047,6 +2053,10 @@ export function eventoDeUsoLabel(evento) {
  * @type {Readonly<Object<string, Readonly<Object<string, string>>>>}
  */
 export const PROP_LABEL_POR_EVENTO = Object.freeze({
+    'medicao.aberta': Object.freeze({ distancia: 'Distância', area: 'Área', angulo: 'Ângulo' }),
+    'migracao.resultado': Object.freeze({ inicio: 'Iniciada', sucesso: 'Concluída', falha: 'Interrompida', 'aba-antiga': 'Versão antiga aberta', 'storage-error': 'Falha no armazenamento' }),
+    'sync.resultado': Object.freeze({ sucesso: 'Concluída', falha: 'Falhou' }),
+    'logout.descarte': Object.freeze({ 'com-pendencias': 'Pendências confirmadas', desconhecido: 'Quantidade desconhecida' }),
     'ferramenta.ativada': FERRAMENTA_LABEL,
     // A procedência do atlas, que é a pergunta de produto mais cara de responder por outro meio:
     // quanto do uso é offline, quanto é de servidor, e quanto é visita sem conta nenhuma.
@@ -2116,11 +2126,12 @@ export function linhasDeFerramentas(ferramentas, limite = LIMITE_DE_FERRAMENTAS)
                 evento,
                 prop,
                 rotulo: eventoDeUsoLabel(evento),
-                alvo: propDeUsoLabel(evento, prop),
+                alvo: typeof l.alvoNome === 'string' ? l.alvoNome : propDeUsoLabel(evento, prop),
                 // O ID CRU VAI PARA O `title`, e não some da tela: é ele que se procura no código
                 // quando alguém quiser saber de onde a contagem veio.
                 bruto: prop ? `${evento} ${prop}` : evento,
                 contagem: numeroOuZero(l.contagem),
+                totalCategoria: numeroOuZero(l.totalCategoria),
             };
         });
     const soma = linhas.reduce((acc, l) => acc + l.contagem, 0);
@@ -2129,7 +2140,7 @@ export function linhasDeFerramentas(ferramentas, limite = LIMITE_DE_FERRAMENTAS)
             || a.rotulo.localeCompare(b.rotulo, 'pt-BR')
             || a.alvo.localeCompare(b.alvo, 'pt-BR'))
         .slice(0, teto)
-        .map((l) => ({ ...l, fatia: percentualLabel(l.contagem, soma) }));
+        .map((l) => ({ ...l, fatia: percentualLabel(l.contagem, l.totalCategoria || soma) }));
 }
 
 /** @returns {string} */
@@ -2149,8 +2160,10 @@ export function ferramentasVaziaNotice(janela) {
 
 /** @returns {string} */
 export function ferramentasHint() {
-    return 'A contagem é de ACIONAMENTOS, e não de tempo de uso: abrir a mesma ferramenta dez '
-        + 'vezes conta dez. Reativar a que já está ativa não conta, porque desligar não é ligar.';
+    return 'Contagens por categoria; até 20 alvos em cada uma. A fatia usa o total da categoria, '
+        + 'incluindo alvos fora da lista. Acionamentos não medem pessoas, preferência declarada ou tempo: '
+        + 'abrir dez vezes conta dez. Bases incluem carregamentos do mapa. Sem qualificador indica cliente antigo. '
+        + 'A coleta pode perder lotes por expiração, mudança de conta ou armazenamento indisponível.';
 }
 
 /** @returns {string} */
@@ -2422,7 +2435,8 @@ export function desempenhoVaziaNotice(janela) {
 export function desempenhoVaziaHint() {
     return 'As três métricas padronizadas (LCP, INP e CLS) dependem de o navegador saber medi-las: '
         + 'o INP, por exemplo, não existe no Safari. Uma tabela vazia pode ser ausência de uso ou '
-        + 'ausência de suporte.';
+        + 'ausência de suporte. Sem contador nativo de interações, o INP usa uma estimativa das interações observadas. '
+        + 'Os valores de versões anteriores à correção da coleta não foram recalculados.';
 }
 
 /** @returns {string} */

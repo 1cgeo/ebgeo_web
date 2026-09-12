@@ -2,7 +2,7 @@
 // O CICLO DE VIDA DO DEFEITO VIVE DUAS VEZES, e este arquivo é o que impede as duas de
 // divergirem: `ESTADOS_DE_DEFEITO` (`src/modules/diag/estados-de-defeito.js`), de onde o Joi
 // da borda deriva o filtro, e o CHECK `defeitos_estado_check`, escrito em
-// `src/database/migrations/018_defeitos_e_ocorrencias.sql`.
+// `src/database/migrations/010_observabilidade.sql`.
 //
 // É o gêmeo de `diag-origem-de-erro.test.js`, e existe pelo mesmo argumento: as duas cópias
 // recusam em momentos diferentes e nenhuma cobre a outra. O Joi recusa `?estado=zumbi` na
@@ -33,7 +33,7 @@ import { ESTADOS_DE_DEFEITO, ESTADOS_MANUAIS, EstadoDeDefeito } from '../../src/
 import { defeitosQuerySchema, estadoDeDefeitoSchema } from '../../src/modules/diag/diag.schemas.js';
 
 const RAIZ = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const MIGRACAO = path.join(RAIZ, 'src/database/migrations/018_defeitos_e_ocorrencias.sql');
+const MIGRACAO = path.join(RAIZ, 'src/database/migrations/010_observabilidade.sql');
 const MODULO = path.join(RAIZ, 'src/modules/diag/estados-de-defeito.js');
 
 /**
@@ -44,7 +44,7 @@ const MODULO = path.join(RAIZ, 'src/modules/diag/estados-de-defeito.js');
  */
 function valoresDoCheck() {
   const sql = fs.readFileSync(MIGRACAO, 'utf8');
-  const bloco = sql.match(/defeitos_estado_check\s+CHECK\s*\(([\s\S]*?)\n\s*\);/);
+  const bloco = sql.match(/defeitos_estado_check\s+CHECK\s*\(([\s\S]*?)\n\s*\)[,;]/);
   assert.ok(bloco, 'o CHECK nomeado precisa existir no arquivo da migração');
   const literais = bloco[1].match(/'[^']+'/g);
   assert.ok(literais, 'o CHECK precisa enumerar valores; sem isto a comparação seria vazia');
@@ -91,7 +91,7 @@ describe('Estado do defeito — o JS e o CHECK dizem a MESMA coisa', () => {
     // Sem o DEFAULT, `estado` seria NOT NULL sobre uma tabela com linhas (o que nem aplicaria)
     // ou NULL-ável (o que deixaria toda linha anterior fora do CHECK e invisível ao filtro).
     const sql = fs.readFileSync(MIGRACAO, 'utf8');
-    assert.match(sql, /ADD COLUMN IF NOT EXISTS estado\s+TEXT NOT NULL DEFAULT 'aberto'/);
+    assert.match(sql, /estado\s+TEXT NOT NULL DEFAULT 'aberto'/);
     assert.equal(EstadoDeDefeito.ABERTO, 'aberto');
   });
 });
@@ -170,7 +170,7 @@ describe('ESTADOS_MANUAIS: o que a MÃO pode escrever, e o que só a máquina es
     assert.ok(estadoDeDefeitoSchema.validate({}).error, 'sem estado não há ato');
     assert.ok(estadoDeDefeitoSchema.validate({ estado: 'aberto', commit: 'x'.repeat(65) }).error);
     // 64 é o comprimento de um SHA-256 em hexadecimal, e o teto ESPELHA o CHECK da coluna
-    // (`018_defeitos_e_ocorrencias.sql`): sem ele a recusa viria do banco como 23514, que a
+    // (`010_observabilidade.sql`): sem ele a recusa viria do banco como 23514, que a
     // borda traduz num erro sem relação aparente com o campo.
     assert.equal(estadoDeDefeitoSchema.validate({ estado: 'aberto', commit: 'x'.repeat(64) }).error, undefined);
     // Vazio e nulo são aceitos: "resolvi e não sei o commit" é o caso comum, e um campo

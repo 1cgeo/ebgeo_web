@@ -250,7 +250,7 @@ export const PRODUCAO_POR_DIA = `
  * conta nascida na janela e vem depois dela, logo já é `>= $1`; a cláusula não muda uma linha
  * do resultado. O que ela muda é o PLANO: `operations` não tem índice em `user_id`
  * (conferido em `004_sync.sql`), então sem uma constante de faixa o planejador varre a tabela
- * inteira, e com ela usa o índice de `015_uso_indice_operations.sql` para se restringir à
+ * inteira, e com ela usa o índice de `004_sync.sql` para se restringir à
  * janela, que é a mesma leitura que as outras consultas deste módulo já fazem.
  *
  * MEDIDO em 2026-09-02 com `EXPLAIN (ANALYZE, BUFFERS)` sobre 100.000 operações, 2.000 contas
@@ -260,7 +260,7 @@ export const PRODUCAO_POR_DIA = `
  * É por isso que esta fase NÃO acrescenta migração nenhuma: o índice que resolve já existe, e
  * o que faltava era dar ao planejador a constante com que usá-lo. Um índice em
  * `operations(user_id)` também fecharia o caso, e seria pagar um `CREATE INDEX` com lock de
- * escrita na maior tabela do sistema (ver o cabeçalho de `015_uso_indice_operations.sql`)
+ * escrita na maior tabela do sistema (ver o cabeçalho de `004_sync.sql`)
  * para comprar o que uma linha de SQL já compra.
  *
  * `percentile_cont` SOBRE CONJUNTO VAZIO DEVOLVE NULL, e o `null` precisa sobreviver até o
@@ -417,7 +417,7 @@ export const COORTE_DE_RETENCAO = `
  * O USO DE PRODUTO, desde 2026-09-02: a metade que NÃO é derivada de outra coisa.
  *
  * Tudo acima desta linha é consulta sobre tabelas que já existiam por outros motivos. O que
- * segue lê e escreve as três tabelas de `020_uso_de_produto.sql`, que são instrumentação
+ * segue lê e escreve as três tabelas de `011_uso_e_presenca.sql`, que são instrumentação
  * NOVA, e por isso a régua muda: aqui há UPSERT vindo de rota anônima, e há uma passada de
  * manutenção que APAGA linha. As decisões de forma (contador em vez de evento, dia do
  * servidor, saturação em vez de estouro) estão no cabeçalho daquela migração, que é a fonte;
@@ -512,10 +512,10 @@ export const UPSERT_SESSAO = `
     user_id           = COALESCE(EXCLUDED.user_id, uso_sessoes.user_id),
     release           = COALESCE(uso_sessoes.release, EXCLUDED.release),
     navegador         = COALESCE(uso_sessoes.navegador, EXCLUDED.navegador),
-    lcp_ms            = COALESCE(uso_sessoes.lcp_ms, EXCLUDED.lcp_ms),
+    lcp_ms            = CASE WHEN EXCLUDED.ultimo_sinal >= uso_sessoes.ultimo_sinal THEN COALESCE(EXCLUDED.lcp_ms, uso_sessoes.lcp_ms) ELSE uso_sessoes.lcp_ms END,
     tempo_ate_mapa_ms = COALESCE(uso_sessoes.tempo_ate_mapa_ms, EXCLUDED.tempo_ate_mapa_ms),
-    inp_ms            = COALESCE(EXCLUDED.inp_ms, uso_sessoes.inp_ms),
-    cls               = COALESCE(EXCLUDED.cls, uso_sessoes.cls)
+    inp_ms            = CASE WHEN EXCLUDED.ultimo_sinal >= uso_sessoes.ultimo_sinal THEN COALESCE(EXCLUDED.inp_ms, uso_sessoes.inp_ms) ELSE uso_sessoes.inp_ms END,
+    cls               = CASE WHEN EXCLUDED.ultimo_sinal >= uso_sessoes.ultimo_sinal THEN COALESCE(EXCLUDED.cls, uso_sessoes.cls) ELSE uso_sessoes.cls END
 `;
 
 /**
@@ -738,13 +738,23 @@ export const USO_NA_JANELA = `
  * que nada tenha mudado.
  */
 export const EVENTOS_TOP = `
-  SELECT evento, prop, SUM(contagem)::bigint AS contagem
+  WITH totais AS (SELECT evento, prop, SUM(contagem)::bigint AS contagem
     FROM uso_eventos_dia
    WHERE dia >= ($1::timestamptz)::date
      AND dia <= ($2::timestamptz)::date
    GROUP BY evento, prop
-   ORDER BY SUM(contagem) DESC, evento ASC, prop ASC
-   LIMIT $3
+  ), classificados AS (
+    SELECT *, SUM(contagem) OVER (PARTITION BY evento)::bigint AS total_categoria,
+      ROW_NUMBER() OVER (PARTITION BY evento ORDER BY contagem DESC, prop) AS posicao
+    FROM totais
+  ) SELECT evento, prop, contagem, total_categoria,
+      CASE evento
+        WHEN 'preferencia.base' THEN (SELECT name FROM basemaps WHERE id = prop)
+        WHEN 'preferencia.camada' THEN COALESCE((SELECT name FROM data_layers WHERE id = prop), (SELECT name FROM analysis_layers WHERE id = prop))
+        WHEN 'recurso.aberto' THEN (SELECT name FROM tilesets WHERE id = prop)
+      END AS alvo_nome
+    FROM classificados
+    WHERE posicao <= $3 ORDER BY contagem DESC, evento, prop
 `;
 
 /**

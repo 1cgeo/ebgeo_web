@@ -2,10 +2,10 @@
 //
 // A PROVA DOS DOIS DEFEITOS de `refresh_tokens`, nos DOIS sentidos.
 //
-// 1. O INDICE. `001_identidade.sql` declara `token_hash ... UNIQUE`, e o UNIQUE cria
+// 1. O INDICE. `001_identidade_e_credenciais.sql` declara `token_hash ... UNIQUE`, e o UNIQUE cria
 //    um btree sobre TODAS as linhas (`refresh_tokens_token_hash_key`). Duas linhas
 //    abaixo ela criava `idx_refresh_tokens_hash`, um btree PARCIAL sobre a mesma
-//    coluna. A `011_refresh_tokens_indice.sql` derruba o parcial. O caso abaixo le
+//    coluna. A `001_identidade_e_credenciais.sql` derruba o parcial. O caso abaixo le
 //    `pg_indexes` e cobra os dois lados: o unico continua, o parcial sumiu. Sem o
 //    segundo lado o teste passaria verde com a migracao inteira ausente.
 //
@@ -114,7 +114,7 @@ describe('refresh_tokens: indice redundante e purga', () => {
   // nada sobre indice: ele diz que a tabela cabe numa varredura. Por isso este caso
   // semeia ate o planejador virar, roda o EXPLAIN, e leva as sementes embora. O numero
   // grande da bancada (300.000 linhas, EXPLAIN ANALYZE das quatro consultas antes e
-  // depois) esta no cabecalho de `011_refresh_tokens_indice.sql`.
+  // depois) esta no cabecalho de `001_identidade_e_credenciais.sql`.
   it('o planejador continua usando indice para a busca por token_hash', async () => {
     const { rows: donos } = await db.query(
       `INSERT INTO users (username, password_hash, nome, role)

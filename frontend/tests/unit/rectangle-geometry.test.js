@@ -399,12 +399,13 @@ describe('AddRectangleGeometry.generateRectangleGeometry', () => {
             (a, b, c, d) => {
                 const ring = geom.generateRectangleGeometry([a, b], [c, d], 0).coordinates[0];
                 const box = ringBbox(ring);
-                expect(box.minLng).toBe(Math.min(a, c));
-                expect(box.maxLng).toBe(Math.max(a, c));
-                expect(box.minLat).toBe(Math.min(b, d));
-                expect(box.maxLat).toBe(Math.max(b, d));
+                // Geographic zero has no signed distinction; preserve exact equality otherwise.
+                expect(box.minLng + 0).toBe(Math.min(a, c) + 0);
+                expect(box.maxLng + 0).toBe(Math.max(a, c) + 0);
+                expect(box.minLat + 0).toBe(Math.min(b, d) + 0);
+                expect(box.maxLat + 0).toBe(Math.max(b, d) + 0);
             }
-        ));
+        ), { examples: [[0, -0, 0, 0]] });
     });
 });
 

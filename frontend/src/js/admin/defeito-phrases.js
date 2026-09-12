@@ -64,7 +64,7 @@
  * Os quatro estados de `defeitos.estado`.
  *
  * ELES SÃO O ESPELHO DE `backend/src/modules/diag/estados-de-defeito.js`, que por sua vez espelha
- * o CHECK da migração `018_defeitos_e_ocorrencias.sql`. A cópia está declarada aqui em voz alta
+ * o CHECK da migração `010_observabilidade.sql`. A cópia está declarada aqui em voz alta
  * porque não há import possível entre os dois pacotes; o dia em que um valor novo nascer, ele
  * entra nos três, e o sintoma de esquecer este é o mais suave dos três (o chip cai em
  * `desconhecido` e a linha continua legível), o que é deliberado: falhar aberto numa tela de

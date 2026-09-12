@@ -393,7 +393,7 @@ export async function resumo({ desde, agora = new Date() }) {
     // ─── O USO DE PRODUTO, desde 2026-09-02 ───
     //
     // Daqui para baixo nada é derivado de `operations` nem da trilha: tudo sai das três
-    // tabelas de `020_uso_de_produto.sql`, alimentadas por `POST /uso/eventos`. É a metade
+    // tabelas de `011_uso_e_presenca.sql`, alimentadas por `POST /uso/eventos`. É a metade
     // que responde o que a pessoa FAZ, e não quanto ela produziu.
 
     // SESSÕES: a série é somável e vem da costura entre dia fechado e dia aberto
@@ -460,6 +460,8 @@ export async function resumo({ desde, agora = new Date() }) {
       evento: l.evento,
       prop: l.prop,
       contagem: inteiro(l.contagem),
+      totalCategoria: inteiro(l.total_categoria),
+      alvoNome: l.alvo_nome ?? null,
     })),
 
     // DESEMPENHO: uma linha por página, com a FONTE declarada em `origem`. Ver

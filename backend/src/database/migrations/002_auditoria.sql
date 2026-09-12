@@ -65,7 +65,8 @@ CREATE TABLE audit_trail (
                   'ACCESS_GROUP_MEMBER_ADD','ACCESS_GROUP_MEMBER_REMOVE',
                   'PERMISSION_REPARENT',
                   'RANK_CREATE','RANK_UPDATE','RANK_DELETE',
-                  'API_KEY_CREATE','API_KEY_REVOKE'
+                  'API_KEY_CREATE','API_KEY_REVOKE',
+      'DEFEITO_ESTADO'
                 )),
 
     -- Sem FK, e é deliberado: o log precisa sobreviver ao delete do usuário que
@@ -132,3 +133,9 @@ CREATE INDEX idx_audit_target_org
 COMMENT ON COLUMN audit_trail.target_org_id IS
   'OM dona do RECURSO ALVO na epoca do ato (nao a OM do ator, nao a lotacao). '
   'Gravada pelo emissor; NULL para alvo sem OM dona e para acervo institucional.';
+
+CREATE INDEX idx_audit_target_id ON audit_trail(target_id, created_at DESC);
+
+COMMENT ON INDEX idx_audit_target_id IS
+  'Serve o filtro por target_id SOZINHO (a tela de auditoria), que idx_audit_target nao cobre '
+  'por ter target_type como coluna lider. A segunda coluna tira o Sort da paginacao.';

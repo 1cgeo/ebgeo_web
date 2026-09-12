@@ -3,40 +3,21 @@ import { Router } from 'express';
 import { auth } from '../../middleware/auth.js';
 import { requireAdmin } from '../../middleware/require-admin.js';
 import { validate } from '../../middleware/validate.js';
-import { usoEventosLimiter } from './uso.rate-limit.js';
+import { usoEventosLimiter, usoPresencaLimiter } from './uso.rate-limit.js';
 import * as ctrl from './uso.controller.js';
 import * as schemas from './uso.schemas.js';
 
 const router = Router();
+router.post('/presenca', usoPresencaLimiter, validate({ body: schemas.presencaSchema }), ctrl.presenca);
+router.get('/agora', auth, requireAdmin, ctrl.agora);
 
 /**
- * A ROTA ANÔNIMA VEM PRIMEIRO no arquivo porque ela é a exceção, e escrevê-la depois da de
- * administrador é como alguém a lê como uma delas. Ela é o único ponto deste módulo sem
- * `auth`, e é o SEGUNDO endpoint anônimo deste servidor que escreve no banco (o primeiro é
- * `POST /diag/erro-cliente`). O motivo é o mesmo: o app roda deslogado, e a pergunta que
- * motivou a fase inteira ("quantas pessoas bateram na tela de indisponibilidade") é sobre
- * gente que, por definição, não conseguiu entrar.
- *
- * A IDENTIDADE SAI DE `req.user`, preenchido pelo `flexibleAuth` GLOBAL (`src/app.js`), que
- * é não-bloqueante: quem tem cookie ou Bearer chega identificado, quem não tem chega anônimo
- * e passa. O corpo NÃO tem campo de identidade, e `stripUnknown` descarta um `userId` que
- * venha; ver `eventosDeUsoSchema`.
- *
- * O COOKIE DECIDE A IDENTIDADE AQUI, e isso é CSRF possível, aceito, pelo mesmo argumento da
- * rota irmã (`POST /diag/erro-cliente`). Desde 2026-08-29 o login emite o cookie `token`, e o
- * `flexibleAuth` o resolve com precedência sobre o Bearer; a amarra que recusa principal vindo
- * de cookie nos métodos que escrevem mora no `auth` ESTRITO, que esta rota não monta e não
- * pode montar (ela existe para o anônimo). O que um terceiro consegue forjando uma requisição
- * é atribuir uma CONTAGEM à sessão de outra pessoa numa tabela de telemetria que não autoriza
- * nada, não é lida por gate nenhum e não volta em resposta alguma. O preço de fechar isso
- * (token de CSRF, ou recusar o cookie e perder a identidade de quem está logado) é maior que
- * o dano, e a decisão fica escrita para não ser redescoberta como se fosse esquecimento.
- *
- * A ORDEM `limiter -> validate` é a de `POST /diag/erro-cliente` e a de `POST /auth/register`:
- * o teto por endereço precisa ser cobrado ANTES do trabalho de validar, senão o corpo grande
- * já custou o parse. O teto de TAMANHO do corpo é o parser global de 10mb (`src/app.js`), que
- * é o cinto de fora; o que de fato limita este corpo são os tetos do Joi, que são de outra
- * ordem de grandeza (cinquenta eventos de campos curtos).
+ * Anonymous telemetry writes use flexibleAuth's verified identity when available.
+ * The optional batch identity is a consistency guard, never an authentication source.
+ * Presence and events have independent IP limits before validation. Neither writes
+ * atlas data or access rules; frequent telemetry is deliberately outside audit_trail.
+ * Both write endpoints return 204 without exposing stored data. Administrative reads
+ * require strict auth and requireAdmin, including when the write was anonymous.
  */
 router.post(
   '/eventos',

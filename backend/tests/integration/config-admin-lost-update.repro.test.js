@@ -28,7 +28,7 @@
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
-import { raceOnConnections, repeatRace } from '../helpers/concurrency.js';
+import { createBarrier, raceOnConnections, repeatRace } from '../helpers/concurrency.js';
 import { updateConfigOverrides, getConfigOverrides } from '../../src/modules/config/config.service.js';
 import * as Q from '../../src/modules/config/config.queries.js';
 
@@ -87,13 +87,18 @@ describe('PUT /config/admin: save parcial concorrente não perde seção (item 7
   });
 
   it('SQL (contraprova do mecanismo): o mesmo par SEM o lock perde uma seção', async () => {
+    const leituras = createBarrier(2);
     // Este caso não testa o produto — testa que a corrida montada acima é REAL. Se
     // `SELECT` puro passasse, o caso verde acima não estaria provando o lock, e sim a
     // ausência de concorrência (o falso-verde que este arquivo existe para evitar).
     const resultados = await raceOnConnections({
       participants: 2,
       async work(client, i) {
-        const { rows } = await client.query('SELECT value FROM config_settings WHERE key = $1', [CHAVE]);
+        const { rows } = await client.query('SELECT value FROM config_settings WHERE key = $1', [CHAVE])
+          .catch(err => { leituras.abort(err); throw err; });
+        // Both readers must observe the same base before either writer can commit.
+        // Starting transactions together alone does not guarantee this ordering.
+        await leituras.arrive();
         const atual = rows[0]?.value ?? {};
         const merged = { ...atual, [`secao${i}`]: { v: i } };
         await client.query(Q.UPSERT_CONFIG_OVERRIDES, [CHAVE, JSON.stringify(merged), null]);

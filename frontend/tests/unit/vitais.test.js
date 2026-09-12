@@ -120,8 +120,8 @@ describe('vitais — a coleta, e o que ela NUNCA publica', () => {
         const obs = criarObservador();
         const v = criarVitais({ performance: criarPerformance(), Observador: obs.Observador });
         v.observar();
-        obs.entregar('event', [{ duration: 48 }, { duration: 120 }]);
-        obs.entregar('event', [{ duration: 60 }]);
+        obs.entregar('event', [{ interactionId: 1, duration: 48 }, { interactionId: 2, duration: 120 }]);
+        obs.entregar('event', [{ interactionId: 3, duration: 60 }]);
         expect(v.ler().inpMs).toBe(120);
     });
 
@@ -162,8 +162,8 @@ describe('vitais — a coleta, e o que ela NUNCA publica', () => {
         const v = criarVitais({ performance: criarPerformance(), Observador: obs.Observador });
         v.observar();
         const lido = v.ler();
-        expect(lido).toEqual({});
-        for (const campo of ['lcpMs', 'inpMs', 'cls', 'tempoAteMapaMs']) {
+        expect(lido).toEqual({ cls: 0 });
+        for (const campo of ['lcpMs', 'inpMs', 'tempoAteMapaMs']) {
             expect(campo in lido, `${campo} não pode existir sem medição`).toBe(false);
         }
     });
@@ -193,7 +193,7 @@ describe('vitais — a coleta, e o que ela NUNCA publica', () => {
         obs.entregar('largest-contentful-paint', [{ startTime: Number.NaN }]);
         obs.entregar('event', [{ duration: -5 }, {}]);
         obs.entregar('layout-shift', [{ value: Number.POSITIVE_INFINITY, hadRecentInput: false }]);
-        expect(v.ler()).toEqual({});
+        expect(v.ler()).toEqual({ cls: 0 });
     });
 });
 

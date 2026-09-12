@@ -2,7 +2,7 @@
 
 A OM é um tenant de alcance estreito: particiona usuários e projetos 360, nunca atlas. Desativá-la não esconde, expulsa: derruba login, refresh e sockets abertos dos membros em segundos.
 
-CRUD em `backend/src/modules/organizations/`, DDL em `backend/src/database/migrations/001_identidade.sql`. Envelope de erro padrão de [[erros-api]] / [[sintese-contrato-erros-http]].
+CRUD em `backend/src/modules/organizations/`, DDL em `backend/src/database/migrations/001_identidade_e_credenciais.sql`. Envelope de erro padrão de [[erros-api]] / [[sintese-contrato-erros-http]].
 
 ## O que a org NÃO escopa (a expectativa errada)
 
@@ -16,7 +16,7 @@ A org de fato particiona dados em `sv360.projects.organization_id`, com `UNIQUE 
 
 `users.organization_id` é **lotação e exibição, sem poder nenhum**. `users.producer_org_id` é o escopo de PRODUÇÃO, escrito só por administrador, e é ele que autoriza manter o catálogo e o acervo 360 daquela OM. **Não existe um terceiro campo:** `org_role` (papel dentro da OM) foi removido do código inteiro em 2026-08-20, coluna incluída.
 
-Isso é uma inversão recente, e conhecê-la evita diagnóstico errado: até 2026-08-17 a lotação era auto-declarada no cadastro anônimo e **autorizava** a leitura dos projetos 360 ocultos e privados da OM escolhida, com o então-existente `org_role` autorizando a escrita. Era escalação de privilégio por formulário, e o `CHECK` bicondicional `users_producer_scope_check` (`backend/src/database/migrations/001_identidade.sql`), que amarra `role = 'producer'` a `producer_org_id IS NOT NULL` nos dois sentidos, existe para que crachá sem escopo e escopo sem crachá sejam estados impossíveis. Ver [[acesso-a-recurso-privado]], [[streetview-360]] e [[ingestao-projetos-360]].
+Isso é uma inversão recente, e conhecê-la evita diagnóstico errado: até 2026-08-17 a lotação era auto-declarada no cadastro anônimo e **autorizava** a leitura dos projetos 360 ocultos e privados da OM escolhida, com o então-existente `org_role` autorizando a escrita. Era escalação de privilégio por formulário, e o `CHECK` bicondicional `users_producer_scope_check` (`backend/src/database/migrations/001_identidade_e_credenciais.sql`), que amarra `role = 'producer'` a `producer_org_id IS NOT NULL` nos dois sentidos, existe para que crachá sem escopo e escopo sem crachá sejam estados impossíveis. Ver [[acesso-a-recurso-privado]], [[streetview-360]] e [[ingestao-projetos-360]].
 
 **Consequência prática, e ela mudou em 2026-08-20:** no frontend, o papel de sessão nascia do `org_role` no login e no restore de boot, e só era corrigido quando o payload do WS chegava. Ou seja, quem tinha o crachá de administrador da OM era desenhado como Administrador de ATLAS na janela entre o boot e o `connect`, com botões que o servidor recusava. Hoje a hidratação começa em Leitor e quem abre o eixo é o servidor (`frontend/src/js/store/sync/sync-engine.js`). Ver [[sessao-boot-e-ciclo-de-vida]] e [[sintese-eixos-de-permissao]].
 
@@ -49,7 +49,7 @@ O `4003` **não** tem uma lista fixa de três gatilhos, e enumerá-lo como lista
 
 ## Contratos congelados
 
-- **O UUID da org default `00000000-0000-0000-0000-000000000001`** está escrito literalmente em três lugares independentes: o seed (`backend/src/database/migrations/001_identidade.sql`), o `COALESCE` do autocadastro (`backend/src/modules/auth/auth.queries.js`) e o `DEFAULT_ORG_ID` do ETL 360 (`backend/src/modules/streetview360/sv360.merge.js`). Só o terceiro é uma constante nomeada; os outros dois são literais soltos, e mudar o id quebra os três em silêncio. Ver [[sintese-contratos-congelados]].
+- **O UUID da org default `00000000-0000-0000-0000-000000000001`** está escrito literalmente em três lugares independentes: o seed (`backend/src/database/migrations/001_identidade_e_credenciais.sql`), o `COALESCE` do autocadastro (`backend/src/modules/auth/auth.queries.js`) e o `DEFAULT_ORG_ID` do ETL 360 (`backend/src/modules/streetview360/sv360.merge.js`). Só o terceiro é uma constante nomeada; os outros dois são literais soltos, e mudar o id quebra os três em silêncio. Ver [[sintese-contratos-congelados]].
 - **Trocar de OM é ação de admin, nunca self-service**, e o mesmo vale com muito mais força para `producer_org_id`: `updateProfileSchema` omite os dois (`backend/src/modules/users/users.schemas.js`). A justificativa mudou de peso, o que importa para quem for mexer no schema: a lotação é recusada porque alimenta o gate de liveness e é identidade institucional, não porque compre acesso (não compra mais); o escopo de produção é recusado porque **é** autorização, e aceitá-lo ali seria auto-cadastro de crachá. Ver [[gestao-usuarios]].
 - **Aliases `org` e `login`** no access token são consumidos as-is pelo módulo 360 (`issueAccessToken`, `backend/src/modules/auth/auth.service.js`). Ver [[jwt-emissor-unico]], [[autenticacao-jwt]] e [[api-keys]].
 - `organization_id` é **nullable** e o fallback de token legado é `?? null` (`verifyAndMapUser`, `backend/src/middleware/auth.js`). Só o autocadastro garante org; contas por outros caminhos podem ficar sem OM. Não presuma a default.

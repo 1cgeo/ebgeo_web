@@ -37,6 +37,9 @@ CREATE SCHEMA IF NOT EXISTS sv360;
 -- é público, visível para a OM dona MAIS quem tem concessão". `enabled` +
 -- `private` é o caso que a combinação torna possível.
 CREATE TABLE sv360.projects (
+    description TEXT,
+    keywords TEXT[],
+    location TEXT,
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES public.organizations(id),
     slug            TEXT NOT NULL,
@@ -306,3 +309,13 @@ COMMENT ON COLUMN sv360.photo_pyramids.razao IS
     'Razao entre niveis da escada. Contrato: a grade sai de (width, height, tile_size, razao), e reconstruir com outra razao produz tile faltando sem erro.';
 COMMENT ON COLUMN sv360.photo_pyramids.max_level IS
     'Nivel mais fino GRAVADO. Leia daqui; recalcular pela regra de hoje sobre banco escrito ontem ja errou 98.854 de 99.035 fotos na origem.';
+
+
+COMMENT ON COLUMN sv360.projects.description IS
+  'Descrição livre do projeto 360, editável no painel (paralelo do 3D). NULL = sem descrição.';
+
+
+COMMENT ON COLUMN sv360.projects.keywords IS
+  'Palavras-chave do projeto 360, para a busca do catálogo. Paralelo do keywords do 3D. NULL = nenhuma.';
+COMMENT ON COLUMN sv360.projects.location IS
+  'Local do projeto 360 (cidade, estado), exibido no cartão do catálogo. NULL = sem local.';

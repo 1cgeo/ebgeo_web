@@ -1,49 +1,11 @@
 // Path: js/session/uso-do-barramento.js
 
 /**
- * @fileoverview O ALIMENTADOR DE USO QUE OUVE O BARRAMENTO: UMA assinatura `onAny`, com allowlist,
- * que transforma cinco eventos de ciclo de vida em contagens.
- *
- * A FORMA É A DE `migalhas-do-barramento.js`, e a razão é a mesma: uma assinatura observa o
- * barramento inteiro, e o custo por emissão é uma consulta de tabela. Os eventos quentes (o cursor
- * temporal a cada rAF, o cursor de presença) CHEGAM aqui e saem numa falta de chave.
- *
- * ── POR QUE ESTES CINCO CHEGAM PELO BARRAMENTO E OS OUTROS NÃO ──────────────────────────────
- *
- * Os cinco já são anunciados: os três visualizadores pesados emitem ao abrir, o briefing emite ao
- * começar a apresentar, e a linha do tempo emite ao ligar. Pendurar uma chamada de `registrarUso`
- * dentro de cada um desses arquivos seria escrever cinco vezes o que uma tabela diz uma vez, e
- * três deles são módulos que só chegam por `import()` — a chamada viveria dentro do chunk pesado
- * em vez de no entry. Os eventos que NÃO têm anúncio no barramento (a ferramenta ativada, a
- * medição, as três saídas de arquivo, o atlas aberto) recebem a chamada no sítio, porque ali não
- * há evento para ouvir.
- *
- * ── A ÚNICA REGRA QUE NÃO É "TRADUZA O NOME" ────────────────────────────────────────────────
- *
- * `MAP_TEMPORAL_CHANGED` é emitido nos DOIS sentidos do interruptor, e o payload diz qual
- * (`enabled`). Contar os dois faria "temporal ativado" valer o dobro para quem liga e desliga, e o
- * ato de DESLIGAR entraria numa métrica que se chama "ativado". O filtro é uma função por entrada
- * (`quando`), e não um caso especial escrito no manipulador, porque o dia em que o segundo evento
- * precisar de filtro é o dia em que um `if` solto vira dois `if` soltos.
- *
- * REPARE QUE O CAMPO É `enabled` E NÃO `ativo`: a configuração temporal guarda `ativo` no store,
- * e o evento anuncia `enabled`. Os dois emissores (`store/temporal.operations.js` e
- * `store/sync/remote-operation-handler.js`) mandam `enabled`, e escrever `ativo` aqui produziria
- * um filtro que nunca casa, ou seja uma métrica sempre zerada, sem erro em lugar nenhum.
- *
- * E O FILTRO TEM UM SEGUNDO TERMO, QUE É O QUE SEPARA GESTO DE ECO. O segundo emissor é o
- * manipulador de op REMOTA, e ele emite a cada op de entrada que carregue a configuração
- * temporal, SEM detecção de mudança: um colega que liga a linha do tempo UMA vez produz uma
- * emissão em CADA aba do atlas. Contá-las faria a métrica medir o tamanho da equipe em vez do
- * gesto, e o número cresceria com a colaboração sem ninguém ter ligado nada a mais. Daí o
- * `remoto` carimbado lá (a telemetria de uso é o único assinante que o lê) e o `!payload?.remoto`
- * aqui. A AUSÊNCIA do campo é o estado normal, do emissor LOCAL, que é o que se quer contar.
- *
- * SÓ O MAPA INSTALA ISTO, como as migalhas: as outras três páginas bootam sem `initServices()` e
- * portanto sem barramento.
+ * @fileoverview Allowlisted product events. Catalog preferences send only IDs found in the current catalog, never geometry, text, URLs or arbitrary event payloads. Remote temporal changes are excluded. Base counts include initial map loads.
  */
 
 import { EventTypes } from '@events/event_types.js';
+import config from '@js/config.js';
 import { EventoDeUso } from './eventos-de-uso.js';
 import { registrarUso } from './uso-lote.js';
 
@@ -59,6 +21,18 @@ import { registrarUso } from './uso-lote.js';
  * ficam de fora, e sem eles não há nada aqui que identifique conteúdo nem pessoa.
  */
 const REGRAS = new Map([
+    [EventTypes.BASE_LAYER_CHANGED, {
+        uso: EventoDeUso.PREFERENCIA_BASE,
+        prop: payload => typeof payload?.layer === 'string' && Object.hasOwn(config.basemaps, payload.layer) ? payload.layer : null,
+    }],
+    [EventTypes.CATALOG_ADD_LAYER, {
+        uso: EventoDeUso.PREFERENCIA_CAMADA,
+        prop: payload => {
+            const id = payload?.item?.id;
+            const catalogo = [...(config.dataLayers?.layers ?? []), ...(config.analysisLayers?.layers ?? [])];
+            return catalogo.some(item => item.id === id) ? id : null;
+        },
+    }],
     [EventTypes.VIEWER_3D_OPENED, { uso: EventoDeUso.VISUALIZADOR3D_ABERTO }],
     [EventTypes.STREETVIEW_360_OPENED, { uso: EventoDeUso.VISUALIZADOR360_ABERTO }],
     [EventTypes.FIRST_PERSON_OPENED, { uso: EventoDeUso.PRIMEIRA_PESSOA_ABERTO }],
@@ -87,7 +61,16 @@ function aoEvento(evento, payload) {
         const regra = REGRAS.get(evento);
         if (!regra) return;
         if (typeof regra.quando === 'function' && !regra.quando(payload)) return;
-        registrarUso(regra.uso);
+        if (regra.prop) {
+            const prop = regra.prop(payload);
+            if (prop) registrarUso(regra.uso, prop);
+        } else {
+            registrarUso(regra.uso);
+        }
+        if (evento === EventTypes.VIEWER_3D_OPENED) {
+            const id = payload?.tilesetId;
+            if ((config.tilesets ?? []).some(item => item.id === id)) registrarUso(EventoDeUso.RECURSO_ABERTO, id);
+        }
     } catch {
         // A escuta NUNCA pode quebrar a entrega de evento: ela observa, não participa.
     }

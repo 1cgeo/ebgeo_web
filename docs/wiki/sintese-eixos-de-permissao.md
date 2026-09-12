@@ -30,7 +30,7 @@ O eixo de OM é um só: `users.producer_org_id`. Quem o tem mantém o catálogo 
 
 > **Nota histórica.** O guia *12-multiorg-identidade-auditoria* (absorvido) descrevia `org_role` como "capacidade de escrita dentro da OM", sugerindo um gate geral. Ele nunca teve um gate geral, e hoje não tem nem coluna.
 
-**Armadilha crítica: a OM não isola atlas.** A tabela `atlas` **não tem coluna `organization_id`**; ele só existe em `users` (`backend/src/database/migrations/001_identidade.sql`) e em `sv360.projects` (`backend/src/database/migrations/007_sv360.sql`). Logo, nenhuma listagem de atlas filtra por org, e um usuário de outra OM que receba um share tem acesso pleno ao nível compartilhado. Não desenhe telas, relatórios ou políticas assumindo tenancy de atlas por OM: não existe, e adicioná-la depois é migração de dados, não flag.
+**Armadilha crítica: a OM não isola atlas.** A tabela `atlas` **não tem coluna `organization_id`**; ele só existe em `users` (`backend/src/database/migrations/001_identidade_e_credenciais.sql`) e em `sv360.projects` (`backend/src/database/migrations/007_sv360.sql`). Logo, nenhuma listagem de atlas filtra por org, e um usuário de outra OM que receba um share tem acesso pleno ao nível compartilhado. Não desenhe telas, relatórios ou políticas assumindo tenancy de atlas por OM: não existe, e adicioná-la depois é migração de dados, não flag.
 
 ## O que atravessa arquivos e não aparece em nenhum
 

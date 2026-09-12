@@ -1,34 +1,7 @@
 // Path: js/session/sessao-id.js
 
 /**
- * @fileoverview O IDENTIFICADOR DESTA ABA, e só desta aba. Um UUID por carga de página, guardado
- * no `sessionStorage`.
- *
- * PARA QUE ELE EXISTE: sem ele, dois erros do servidor são dois erros; com ele, são a MESMA
- * pessoa batendo duas vezes, ou duas pessoas batendo uma vez cada, e as duas leituras pedem
- * respostas opostas. Ele também é o que costura o relato do navegador com a linha do log do
- * servidor, porque o mesmo valor viaja no cabeçalho `X-EBGeo-Sessao` de todo pedido REST.
- *
- * NÃO É IDENTIDADE. Ele não diz quem é a pessoa (isso é assunto do cookie ou do token), não
- * sobrevive ao fechamento da aba e não é compartilhado entre abas: `sessionStorage`, e não
- * `localStorage`, é a escolha inteira. Duas abas do mesmo usuário são dois valores, que é
- * justamente o que se quer quando o defeito é "só numa aba".
- *
- * POR QUE ELE CUNHA O PRÓPRIO UUID em vez de usar o `generateUUID()` da casa, e a razão NÃO é o
- * barril: `utilities/uuid.js` é folha e se importa por arquivo sem arrastar coisa nenhuma. A razão
- * é que `generateUUID()` chama `crypto.getRandomValues` SEM GUARDA, e `crypto` não existe em
- * contexto não seguro (uma origem `http:` que não seja `localhost`) nem em navegador antigo: a
- * chamada LANÇA. Isso é inaceitável aqui, porque este valor é lido na primeira linha do boot das
- * quatro páginas e dentro do capturador de erro, que são os dois piores lugares do produto para
- * uma exceção. {@link sortearUuid} faz a mesma coisa com `try` em volta e com um caminho de
- * reserva, e é só por isso que ele existe. O arquivo é FOLHA, com ZERO IMPORTS, como os outros
- * módulos de decisão da telemetria, mas essa é uma propriedade dele, não o motivo da duplicação.
- *
- * TODO ACESSO AO ARMAZENAMENTO ESTÁ DENTRO DE `try`. Em modo privado, com cookies de terceiros
- * bloqueados ou com o armazenamento do site desabilitado, ler `sessionStorage` não devolve `null`:
- * ele LANÇA, e um `throw` daqui derrubaria a primeira linha do boot das quatro páginas por causa
- * do campo mais dispensável do relato. O desfecho de uma falha é um id só de memória, vivo
- * enquanto a página estiver, que é exatamente o que se precisa para agrupar o que acontecer nela.
+ * @fileoverview Error/request correlation ID for one document load. The factory optionally accepts storage for callers needing persistence; the production singleton deliberately uses memory so reloads and releases cannot share the historical usage row.
  */
 
 /** Onde o id mora. Prefixado, porque o `sessionStorage` é compartilhado com tudo da origem. */
@@ -139,17 +112,4 @@ export function criarSessaoId({ storage, uuid = uuidPadrao, chave = CHAVE_DA_SES
 }
 
 /** O `sessionStorage` da página, ou `null` quando lê-lo lança. */
-let _armazenamento = null;
-try {
-    _armazenamento = globalThis.sessionStorage ?? null;
-} catch {
-    // Só acessar a propriedade já lança com o armazenamento bloqueado; daí o `try` em volta de
-    // uma linha que parece não precisar de um.
-    _armazenamento = null;
-}
-
-/**
- * O id desta aba. Mesmo valor em toda chamada, em toda a vida da página.
- * @returns {string}
- */
-export const sessaoId = criarSessaoId({ storage: _armazenamento });
+export const sessaoId = criarSessaoId();

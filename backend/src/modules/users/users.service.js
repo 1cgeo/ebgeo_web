@@ -155,7 +155,7 @@ function resolveProducerScope(data, existing) {
  * Normaliza um endereco de e-mail para comparacao e armazenamento.
  *
  * Guarda o que a pessoa escreveu, so sem espaco em volta: o indice unico e sobre `LOWER(email)`
- * (`001_identidade.sql`), entao a unicidade nao depende de o valor ser gravado em minusculas, e
+ * (`001_identidade_e_credenciais.sql`), entao a unicidade nao depende de o valor ser gravado em minusculas, e
  * gravar minusculado descaracterizaria enderecos cujo provedor distingue caixa na parte local.
  * @param {*} valor
  * @returns {string|null}

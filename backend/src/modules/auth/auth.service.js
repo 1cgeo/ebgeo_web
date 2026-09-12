@@ -462,7 +462,7 @@ export async function register(data, origin = '', req = null) {
 /**
  * The three things a token of `email_verification_tokens` may be redeemed for.
  *
- * MIRRORS THE CHECK of that table in `src/database/migrations/001_identidade.sql`, and it is a
+ * MIRRORS THE CHECK of that table in `src/database/migrations/001_identidade_e_credenciais.sql`, and it is a
  * mirror on purpose: the database is the authority (a value it refuses never reaches a row), and
  * this object exists so no call site spells a purpose as a bare string. Adding a fourth means
  * editing both, in the same commit.

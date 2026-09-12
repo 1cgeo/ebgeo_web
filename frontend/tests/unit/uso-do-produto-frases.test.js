@@ -246,7 +246,7 @@ describe('linhasDeFerramentas — o que foi mais acionado', () => {
         expect(propDeUsoLabel('ferramenta.ativada', 'folha')).toBe('folha');
         expect(propDeUsoLabel('atlas.aberto', 'point')).toBe('point');
         expect(Object.keys(PROP_LABEL_POR_EVENTO).sort())
-            .toEqual(['atlas.aberto', 'ferramenta.ativada', 'pdf.exportado']);
+            .toEqual(['atlas.aberto', 'ferramenta.ativada', 'logout.descarte', 'medicao.aberta', 'migracao.resultado', 'pdf.exportado', 'sync.resultado']);
     });
 
     it('TODA lista fechada do catálogo está traduzida (nenhum valor sobra cru)', () => {
@@ -273,7 +273,7 @@ describe('linhasDeFerramentas — o que foi mais acionado', () => {
     });
 
     it('a nota diz que a contagem é de ACIONAMENTO, e não de tempo', () => {
-        expect(ferramentasHint()).toContain('ACIONAMENTOS');
+        expect(ferramentasHint()).toContain('Acionamentos');
         expect(eventoDeUsoLabel('pdf.exportado')).toBe('PDF exportado');
         expect(eventoDeUsoLabel(null)).toBe('Sem evento');
     });

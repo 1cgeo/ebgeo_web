@@ -1400,7 +1400,7 @@ Cem perdia nos DOIS eixos, o que torna a decisão fácil: a mudança melhora vaz
 2. **O projeto 360 ganhou os campos de cartão do catálogo, paralelos do 3D:** palavra-chave, local, data de captura, longitude e latitude (o centro do marcador). O achado que motivou: o cartão do catálogo do cliente (`_getPanoramic360`) JÁ LIA `keywords`, `location`, `captureDate` e `center` de um projeto 360, mas o backend só tinha `capture_date`, `center_lat` e `center_long`, e as consultas públicas nem selecionavam os campos de texto. Faltavam duas colunas e o resto era leitura morta.
 
 **O que entrou no backend:**
-- Colunas `keywords` (TEXT[]) e `location` (TEXT) em `sv360.projects` (`013_sv360_keywords_local.sql`, aditiva). `keywords` é array porque o cartão itera sobre ela, o mesmo formato do 3D.
+- Colunas `keywords` (TEXT[]) e `location` (TEXT) em `sv360.projects` (`007_sv360.sql`, aditiva). `keywords` é array porque o cartão itera sobre ela, o mesmo formato do 3D.
 - `publicProjectView` passou a emitir `keywords`; `description`/`location`/`captureDate`/`center` já eram chaves da forma congelada (emitidas null), e agora carregam valor. As consultas públicas (`LIST_PROJECTS`, `GET_PROJECT_BY_SLUG`) e as de admin passaram a selecionar `description`, `location`, `keywords`, `capture_date`.
 - A rota de metadado (`PATCH /admin/projects/:slug`) aceita `keywords`, `location`, `captureDate`, `centerLat`, `centerLong`, com atualização parcial por campo (cada coluna só muda com o campo fornecido).
 - O formulário Editar do 360 ganhou os cinco campos.
@@ -2339,4 +2339,32 @@ está no mapa do `errorHandler`, então o desfecho real era 500, enquanto o come
 - **Isolamento:** registros locais, inclusive resgates já adotados como locais, ficam fora da contagem e do descarte. A saída não exclui conteúdo do servidor. A decisão aceita é gravada no registro remoto antes da desmontagem: uma abertura após limpeza interrompida esvazia o namespace antes de conectar, impedindo reenvio da fila descartada.
 - **Implementação:** `frontend/src/js/session/confirm-logout.js`, entradas de mapa, atlas, administração e calibração, e `frontend/src/js/store/remote-atlas.api.js`.
 - **Verificação:** testes de cancelamento, confirmação, contagem desconhecida, múltiplos atlas, proteção local, veto antigo e abertura após descarte interrompido. Navegador real com envio bloqueado e servidor de teste.
+- **Status:** aceita.
+
+
+### 2026-09-12: presença administrativa e correção da coleta de uso
+
+O dono pediu implementar a revisão de observabilidade, mostrar logados/deslogados agora e incluir último login e atlas remotos por conta. Presença usa janela de 90 segundos, separada das sessões históricas; o anônimo é navegador, com deduplicação entre abas, e não pessoa identificada. A propriedade remota exclui a lixeira do número principal.
+
+A coleta começa antes da preparação local e envia atualizações sem gestos. A alternativa de repetir contagens sem confirmação foi substituída por IDs de lote e deduplicação transacional; lotes não migram para outra conta. Preparar, sincronizar e confirmar descarte são resultados operacionais separados das ferramentas. Preferências permanecem agregadas, sem perfil individual ou replay. Sonda externa foi implementada como comando independente, com instalação interna ainda necessária; digest por e-mail continua fora do escopo.
+
+Contrato, limites e guardas: [implementação](../reviews/2026-09-12-implementacao-monitoramento.md).
+
+
+### 2026-09-12: bases por dominio antes da primeira implantacao do backend
+
+- **Pedido do dono:** consolidar todas as migracoes porque o backend ainda nao entrou em producao. Esta decisao supera a necessidade de manter os ajustes incrementais anteriores a essa primeira publicacao.
+- **Decisao:** 21 arquivos viram 11 bases no estado final. Credenciais ficam com identidade; indices ficam com suas tabelas; metadados 360 nascem no projeto; defeitos nascem com nome e CHECK finais; uso, presenca e deduplicacao formam um dominio. O mapa esta em [bases do banco](../../backend/src/database/migrations/README.md).
+- **Compatibilidade:** a primeira base recebe nome novo. O migrador recusa historico com nomes ausentes antes de aplicar arquivos pendentes; nao apaga nem remapeia tracking, nao recria bancos existentes e nao altera dados locais do navegador. Bancos de desenvolvimento anteriores exigem backup e banco novo, com transferencia explicita dos dados que precisem ser conservados.
+- **Evidencia:** dois bancos descartaveis, criados pela sequencia anterior e pela consolidada, tiveram schema e seeds equivalentes. A repeticao do migrador preservou o estado. As guardas de tracking e higiene exercitam a recusa e a ausencia de reparos internos. Referencias a arquivos aposentados foram atualizadas para seus donos atuais.
+- **Depois da publicacao:** bases imutaveis; evolucao apenas por novos arquivos incrementais.
+- **Status:** aceita, autorizada pelo dono.
+
+
+### 2026-09-12: orcamento de arquivos com presenca e telemetria antecipada
+
+- **Medida:** build de producao apos as novas funcionalidades, 82 arquivos iniciais no mapa. Retirar o ponto de carga dinamica do monitor de pendencias reduziu para 81 arquivos e 3955 kB. A ativacao do leitor continua depois da preparacao local.
+- **Decisao:** o teto de arquivos passa de 80 para 82, com uma unidade de folga sobre a medida. O teto de bytes permanece em 4150 kB. Os orcamentos de atlas, administracao e calibracao permanecem iguais e foram medidos em 578, 695 e 1840 kB, respectivamente.
+- **Motivo:** a divisao por conjuntos de entradas do bundler fragmentou o codigo compartilhado das novas funcionalidades. O ajuste reconhece esse custo medido e nao autoriza aumento de peso acima do teto existente.
+- **Guarda:** `frontend/tests/unit/teto-de-peso-da-pagina-do-mapa.test.js` continua verificando quantidade e bytes do build real; nenhuma etapa foi pulada.
 - **Status:** aceita.

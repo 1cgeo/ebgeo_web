@@ -1,40 +1,11 @@
 // Path: js/session/vitais.js
 
 /**
- * @fileoverview AS WEB VITALS DESTA CARGA DE PÁGINA, medidas pelo próprio navegador. Três métricas
- * padronizadas (LCP, INP, CLS) mais uma nossa (tempo até o mapa estar pronto), lidas pelo
- * acumulador de uso a cada descarga.
- *
- * ZERO IMPORTS, como os outros módulos de decisão de `session/`: ele é carregado pelas QUATRO
- * páginas, três delas bootam sem a store.
- *
- * ── POR QUE MEDIR À MÃO EM VEZ DE USAR `web-vitals` ─────────────────────────────────────────
- *
- * A biblioteca do Google faz muito mais que isto (atribuição por elemento, `bfcache`, relatório
- * por interação) e traz o peso disso para o bundle das quatro páginas. O que a tela de
- * administração precisa é o p75 por página, que sai de três `PerformanceObserver` e de uma soma.
- * Esta é a mesma decisão do gráfico da aba Uso, que é desenhado à mão em vez de trazer uma
- * biblioteca por um gráfico só.
- *
- * ── AS TRÊS PROPRIEDADES ────────────────────────────────────────────────────────────────────
- *
- *   1. **AUSÊNCIA NUNCA VIRA ZERO.** É a regra que atravessa o arquivo inteiro. Um navegador sem
- *      `PerformanceObserver`, um tipo de entrada que ele não conhece (`event` não existe no
- *      Safari até hoje), uma página que saiu antes do primeiro LCP: em todos esses casos o campo
- *      simplesmente NÃO EXISTE em {@link Vitais#ler}. Um zero ali seria a melhor nota possível
- *      atribuída a uma medição que não houve, e ela entraria no p75 do servidor puxando-o para
- *      baixo — ou seja, o instrumento desligado se leria como desempenho excelente.
- *   2. **NADA AQUI LANÇA.** `observe()` com um `type` desconhecido lança `TypeError` em alguns
- *      navegadores e é ignorado em outros; `performance.measure` lança quando a marca de início
- *      não existe. Os dois casos degradam para "sem campo".
- *   3. **CLS É SOMA, LCP É O ÚLTIMO, INP É O MÁXIMO**, e as três agregações são diferentes de
- *      propósito, porque as três métricas são diferentes: o deslocamento de layout ACUMULA ao
- *      longo da vida da página (daí o nome), o "maior conteúdo pintado" é revisado a cada entrada
- *      nova e só a última vale, e a interação que interessa é a PIOR, não a média.
+ * @fileoverview Browser performance collector: CLS uses maximum session windows; INP groups interaction IDs and excludes one extreme per fifty interactions. Native interactionCount includes fast interactions; older browsers use observed IDs as an estimate. LCP accepts new candidates until the first interaction or hidden state.
  */
 
 /** O limiar de duração das entradas de interação, em ms. */
-const LIMIAR_DE_INTERACAO_MS = 40;
+const LIMIAR_DE_INTERACAO_MS = 16;
 
 /** A marca do instante em que o `GET /api/config` respondeu. */
 export const MARCA_CONFIG = 'config-carregada';
@@ -61,13 +32,20 @@ export const MEDIDA_ATE_MAPA = 'tempo-ate-mapa';
  * @returns {{observar: () => boolean, marcar: (nome: string) => boolean,
  *   marcarMapaPronto: () => boolean, ler: () => Object, desinstalar: () => void}}
  */
-export function criarVitais({ performance, Observador } = {}) {
+export function criarVitais({ performance, Observador, documento = globalThis.document } = {}) {
     /** O maior conteúdo pintado, em ms desde o começo da navegação. */
     let lcpMs = null;
     /** A pior interação vista, em ms. */
     let inpMs = null;
     /** A soma dos deslocamentos de layout sem interação recente. */
     let cls = null;
+    const interacoes = new Map();
+    const ids = new Set();
+    let janelaInicio = 0;
+    let ultimoDeslocamento = -Infinity;
+    let janelaCls = 0;
+    let lcpFechado = documento?.visibilityState === 'hidden';
+    let fecharLcp = () => {};
     /** Os observadores vivos, para poder desligá-los. */
     const observadores = [];
     /**
@@ -125,6 +103,14 @@ export function criarVitais({ performance, Observador } = {}) {
             });
             obs.observe(opcoes);
             observadores.push(obs);
+            if (opcoes.type === 'largest-contentful-paint') {
+                fecharLcp = () => {
+                    if (lcpFechado) return;
+                    try { aoReceber(obs.takeRecords?.() ?? []); } catch { /* optional API */ }
+                    lcpFechado = true;
+                    obs.disconnect?.();
+                };
+            }
             return true;
         } catch {
             // `type` desconhecido, `buffered` não suportado, observador já desconectado.
@@ -149,6 +135,7 @@ export function criarVitais({ performance, Observador } = {}) {
             // ANTES de qualquer JavaScript nosso rodar, e sem o buffer a assinatura só veria as
             // que vierem depois — ou seja, nenhuma, na página que carrega rápido.
             const a = assinar({ type: 'largest-contentful-paint', buffered: true }, (entradas) => {
+                if (lcpFechado) return;
                 // A ÚLTIMA VENCE: o LCP é revisado para cima enquanto a página pinta, e o valor
                 // final é o da última entrada, nunca o máximo nem o primeiro.
                 const ultima = entradas[entradas.length - 1];
@@ -157,14 +144,15 @@ export function criarVitais({ performance, Observador } = {}) {
             const b = assinar(
                 { type: 'event', buffered: true, durationThreshold: LIMIAR_DE_INTERACAO_MS },
                 (entradas) => {
-                    // A PIOR interação. O INP verdadeiro é um percentil alto das interações, e o
-                    // máximo é a aproximação de uma linha que erra para o lado PESSIMISTA — que é
-                    // o lado certo para errar num indicador de lentidão.
                     for (const e of entradas) {
-                        if (finito(e?.duration) && (inpMs === null || e.duration > inpMs)) {
-                            inpMs = e.duration;
-                        }
+                        if (!e?.interactionId || !finito(e.duration)) continue;
+                        if (ids.size < 10000) ids.add(e.interactionId);
+                        interacoes.set(e.interactionId, Math.max(interacoes.get(e.interactionId) ?? 0, e.duration));
                     }
+                    const maiores = [...interacoes.entries()].sort((x, y) => y[1] - x[1]);
+                    for (const [id] of maiores.slice(10)) interacoes.delete(id);
+                    const total = perf()?.interactionCount ?? ids.size;
+                    if (maiores.length) inpMs = maiores[Math.min(Math.floor(total / 50), 9, maiores.length - 1)][1];
                 },
             );
             const c = assinar({ type: 'layout-shift', buffered: true }, (entradas) => {
@@ -174,9 +162,20 @@ export function criarVitais({ performance, Observador } = {}) {
                     // acordeão), e contá-lo transformaria toda interface interativa em CLS ruim.
                     if (e?.hadRecentInput) continue;
                     if (!finito(e?.value)) continue;
-                    cls = (cls ?? 0) + e.value;
+                    const instante = e.startTime ?? 0;
+                    if (instante - ultimoDeslocamento >= 1000 || instante - janelaInicio >= 5000) {
+                        janelaInicio = instante;
+                        janelaCls = 0;
+                    }
+                    ultimoDeslocamento = instante;
+                    janelaCls += e.value;
+                    cls = Math.max(cls ?? 0, janelaCls);
                 }
             });
+            if (c && cls === null) cls = 0;
+            documento?.addEventListener?.('visibilitychange', aoOcultar);
+            documento?.addEventListener?.('pointerdown', aoInteragir, { once: true, capture: true });
+            documento?.addEventListener?.('keydown', aoInteragir, { once: true, capture: true });
             return a || b || c;
         },
 
@@ -233,10 +232,15 @@ export function criarVitais({ performance, Observador } = {}) {
         ler() {
             const saida = {};
             try {
+                const p = perf();
+                const maiores = [...interacoes.values()].sort((a, b) => b - a);
+                if (maiores.length) {
+                    const total = p?.interactionCount ?? ids.size;
+                    inpMs = maiores[Math.min(Math.floor(total / 50), 9, maiores.length - 1)];
+                }
                 if (finito(lcpMs)) saida.lcpMs = lcpMs;
                 if (finito(inpMs)) saida.inpMs = inpMs;
                 if (finito(cls)) saida.cls = cls;
-                const p = perf();
                 if (typeof p?.getEntriesByName === 'function') {
                     const medida = p.getEntriesByName(MEDIDA_ATE_MAPA)[0];
                     if (finito(medida?.duration)) {
@@ -255,6 +259,9 @@ export function criarVitais({ performance, Observador } = {}) {
         /** Solta os observadores. Existe para o teste e para o HMR. */
         desinstalar() {
             observando = false;
+            documento?.removeEventListener?.('visibilitychange', aoOcultar);
+            documento?.removeEventListener?.('pointerdown', aoInteragir, true);
+            documento?.removeEventListener?.('keydown', aoInteragir, true);
             for (const obs of observadores.splice(0)) {
                 try {
                     obs.disconnect?.();
@@ -264,6 +271,9 @@ export function criarVitais({ performance, Observador } = {}) {
             }
         },
     };
+
+    function aoInteragir() { fecharLcp(); }
+    function aoOcultar() { if (documento?.visibilityState === 'hidden') fecharLcp(); }
 }
 
 /**

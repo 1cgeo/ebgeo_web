@@ -61,6 +61,15 @@ async function runMigrations(connectionString) {
       .filter(f => f.endsWith('.sql'))
       .sort();
 
+    // A pre-release baseline replaces the old history; silently skipping rewritten
+    // files would leave a partially upgraded database. Never erase or relabel it.
+    const desconhecidas = [...appliedNames].filter(name => !sqlFiles.includes(name));
+    if (desconhecidas.length) {
+      throw new Error('Histórico de migrações incompatível com esta versão: '
+        + desconhecidas.join(', ') + '. Preserve um backup e use um banco novo para a baseline consolidada; '
+        + 'nenhuma migração pendente foi aplicada.');
+    }
+
     console.log(`Found ${sqlFiles.length} migration files`);
 
     for (const file of sqlFiles) {

@@ -37,7 +37,7 @@ const RAIZ = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 /** A migração que declara os CHECK. O espelho do banco é ela, e não outra cópia aqui. */
 const MIGRACAO = fs.readFileSync(
-  path.join(RAIZ, 'src/database/migrations/020_uso_de_produto.sql'), 'utf8'
+  path.join(RAIZ, 'src/database/migrations/011_uso_e_presenca.sql'), 'utf8'
 );
 
 describe('O vocabulário de uso: espelho, forma e ordem', () => {
@@ -56,10 +56,11 @@ describe('O vocabulário de uso: espelho, forma e ordem', () => {
       'ebgeo.exportado',
       'ebgeo.importado',
       'indisponivel.visto',
+    'migracao.resultado', 'sync.resultado', 'logout.descarte', 'preferencia.base', 'preferencia.camada', 'recurso.aberto',
     ]);
-    assert.equal(EVENTOS_DE_USO.length, 13);
+    assert.equal(EVENTOS_DE_USO.length, 19);
     assert.ok(Object.isFrozen(EVENTOS_DE_USO), 'a lista precisa ser congelada');
-    assert.equal(new Set(EVENTOS_DE_USO).size, 13, 'evento duplicado');
+    assert.equal(new Set(EVENTOS_DE_USO).size, 19, 'evento duplicado');
   });
 
   it('as quatro páginas são as quatro entradas HTML do produto, congeladas', () => {
@@ -84,8 +85,8 @@ describe('O vocabulário de uso: espelho, forma e ordem', () => {
     // E TODOS os demais são a lista vazia. Um `undefined` aqui seria indistinguível de `[]`
     // num teste de veracidade, e é por isso que a asserção é sobre o valor exato.
     const semQualificador = EVENTOS_DE_USO
-      .filter((e) => !['atlas.aberto', 'pdf.exportado', 'ferramenta.ativada'].includes(e));
-    assert.equal(semQualificador.length, 10);
+      .filter((e) => !['atlas.aberto', 'pdf.exportado', 'ferramenta.ativada', 'medicao.aberta', 'migracao.resultado', 'sync.resultado', 'logout.descarte', 'preferencia.base', 'preferencia.camada', 'recurso.aberto'].includes(e));
+    assert.equal(semQualificador.length, 9);
     for (const e of semQualificador) {
       assert.deepEqual(PROPS_PERMITIDAS[e], [], `${e} deveria não aceitar qualificador`);
     }
@@ -96,7 +97,7 @@ describe('O vocabulário de uso: espelho, forma e ordem', () => {
     // recusam em momentos diferentes: o Joi com 422 nomeando o campo, o CHECK com 23514 mesmo
     // que alguém escreva por outro caminho. Sem este caso, valor novo entraria no JS e a
     // escrita morreria no banco, com uma mensagem sem relação aparente com o assunto.
-    assert.equal(EVENTOS_DE_USO.length, 13, 'laço sobre lista vazia seria zero asserções');
+    assert.equal(EVENTOS_DE_USO.length, 19, 'laço sobre lista vazia seria zero asserções');
     for (const evento of EVENTOS_DE_USO) {
       assert.ok(
         MIGRACAO.includes(`'${evento}'`),
@@ -112,7 +113,7 @@ describe('O vocabulário de uso: espelho, forma e ordem', () => {
 
     assert.equal(PAGINAS.length, 4, 'laço sobre lista vazia seria zero asserções');
     for (const pagina of PAGINAS) {
-      assert.ok(MIGRACAO.includes(`'${pagina}'`), `o CHECK de página não declara '${pagina}'`);
+      assert.ok(fs.readFileSync(path.join(RAIZ, 'src/database/migrations/011_uso_e_presenca.sql'), 'utf8').includes(`'${pagina}'`), `o CHECK de página não declara '${pagina}'`);
     }
   });
 });
@@ -122,7 +123,7 @@ describe('propAceita: os três estados do qualificador', () => {
     // A decisão está no espelho: a linha sem qualificador é o TOTAL daquele gesto, que
     // continua sendo uma contagem verdadeira. Recusá-la faria um cliente que não soube
     // qualificar perder o lote inteiro.
-    assert.equal(EVENTOS_DE_USO.length, 13, 'laço sobre lista vazia seria zero asserções');
+    assert.equal(EVENTOS_DE_USO.length, 19, 'laço sobre lista vazia seria zero asserções');
     for (const evento of EVENTOS_DE_USO) {
       assert.deepEqual(propAceita(evento, ''), { ok: true }, `${evento} com prop vazia`);
       assert.deepEqual(propAceita(evento, undefined), { ok: true }, `${evento} sem prop`);
@@ -143,13 +144,13 @@ describe('propAceita: os três estados do qualificador', () => {
   });
 
   it('lista VAZIA recusa qualquer qualificador, com motivo próprio', () => {
-    assert.deepEqual(propAceita('medicao.aberta', 'x'), { ok: false, motivo: 'proibida' });
+    assert.deepEqual(propAceita('pagina.vista', 'x'), { ok: false, motivo: 'proibida' });
     assert.deepEqual(propAceita('indisponivel.visto', 'boot'), { ok: false, motivo: 'proibida' });
     // O motivo é DIFERENTE do de lista fechada, e essa distinção é o que faz a mensagem de
     // 422 dizer coisas diferentes: "não aceita qualificador" e "fora da lista" mandam a
     // pessoa consertar coisas diferentes.
     assert.notEqual(
-      propAceita('medicao.aberta', 'x').motivo,
+      propAceita('pagina.vista', 'x').motivo,
       propAceita('atlas.aberto', 'x').motivo
     );
   });

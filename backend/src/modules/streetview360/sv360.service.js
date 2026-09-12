@@ -338,7 +338,7 @@ function previewThumbnailUrl(project) {
  * frozen shape has always promised, so no consumer sees a missing key.
  *
  * `description`, `location` e `keywords` SÃO colunas de `sv360.projects` agora (adicionadas por
- * `013_sv360_keywords_local.sql` e sua irmã de `description`), para o projeto 360 ser paralelo do
+ * `007_sv360.sql` e sua irmã de `description`), para o projeto 360 ser paralelo do
  * 3D no catálogo (decisão do dono, 2026-08-29). Cada uma chega a esta forma só quando a consulta a
  * SELECIONA, e é lida pelo nome real, nunca sintetizada; uma consulta que a omita devolve
  * undefined, que `?? null` normaliza para o mesmo null da forma congelada, então nenhum consumidor

@@ -168,7 +168,7 @@ describe('Uso do produto — as regras de conflito da segunda descarga', () => {
     await enviar(corpo(id, { vitais: { lcpMs: 9999, tempoAteMapaMs: 9999, inpMs: 210, cls: 0.31 } }));
 
     const linha = await sessaoDe(id);
-    assert.equal(linha.lcp_ms, 1200, 'LCP acontece uma vez: vale o primeiro');
+    assert.equal(linha.lcp_ms, 9999, 'LCP accepts the latest candidate');
     assert.equal(linha.tempo_ate_mapa_ms, 3000, 'tempo até o mapa acontece uma vez: vale o primeiro');
     assert.equal(linha.inp_ms, 210, 'INP é o pior até agora: vale o último');
     assert.equal(Number(linha.cls), 0.31, 'CLS é acumulado: vale o último');

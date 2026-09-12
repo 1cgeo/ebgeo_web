@@ -125,7 +125,9 @@ export const LIST_ALL_USERS = `
          u.organization_id, o.nome AS organizacao_militar, u.role,
          u.producer_org_id, u.is_active,
          u.email, u.email_verified, u.created_at, u.last_login_at,
-         COALESCE(lg.n, 0) AS live_grant_count
+         COALESCE(lg.n, 0) AS live_grant_count,
+         (SELECT COUNT(*)::int FROM atlas a WHERE a.owner_id = u.id AND a.deleted_at IS NULL) AS remote_atlas_count,
+         (SELECT COUNT(*)::int FROM atlas a WHERE a.owner_id = u.id AND a.deleted_at IS NOT NULL) AS trashed_atlas_count
   FROM users u
   LEFT JOIN ranks r ON r.id = u.rank_id
   LEFT JOIN organizations o ON o.id = u.organization_id
@@ -138,7 +140,9 @@ export const LIST_ACTIVE_USERS = `
          u.organization_id, o.nome AS organizacao_militar, u.role,
          u.producer_org_id, u.is_active,
          u.email, u.email_verified, u.created_at, u.last_login_at,
-         COALESCE(lg.n, 0) AS live_grant_count
+         COALESCE(lg.n, 0) AS live_grant_count,
+         (SELECT COUNT(*)::int FROM atlas a WHERE a.owner_id = u.id AND a.deleted_at IS NULL) AS remote_atlas_count,
+         (SELECT COUNT(*)::int FROM atlas a WHERE a.owner_id = u.id AND a.deleted_at IS NOT NULL) AS trashed_atlas_count
   FROM users u
   LEFT JOIN ranks r ON r.id = u.rank_id
   LEFT JOIN organizations o ON o.id = u.organization_id
