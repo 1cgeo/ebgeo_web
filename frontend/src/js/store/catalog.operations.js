@@ -17,7 +17,7 @@
  * definition in the server's operation log. Both prune now; the sentence above is the contract.
  */
 
-import { generateUUID } from '../utilities/uuid.js';
+import { generateUUID, isValidUUID } from '../utilities/uuid.js';
 import {
     CATALOG_LAYER_DEFINITION_KEYS,
     pruneCatalogLayerDefinition,
@@ -25,7 +25,9 @@ import {
 } from '../catalog/catalog-layer.ref.js';
 import { getMapDataCompat, updateMapDataCompat } from './repositories/index.js';
 import mapManager from './store-state-manager.js';
-import { logCatalogLayerOperation, OperationType } from './sync/index.js';
+import { EntityType, OperationType } from './sync/operation-types.js';
+import { runTransaction } from './store-transaction.js';
+import { deepClone } from '../utilities/deep-utils.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
@@ -96,6 +98,24 @@ function guardCatalogWrite(operation, action) {
     return true;
 }
 
+/** Journal the reference edit before the containing map is written. */
+async function editCatalogLayers(targetMap, label, prepare) {
+    return withMapDocument(targetMap, label, () => runTransaction(async tx => {
+        const mapData = await getMapDataCompat(targetMap);
+        const layers = deepClone(mapData.catalogLayers || []);
+        const edit = prepare(layers);
+        if (!edit) return async () => {};
+        const mapId = mapData.id || mapManager.getMapId(targetMap);
+        if (tx.scope?.kind === 'remote' && !isValidUUID(mapData.id)) {
+            throw new Error('O mapa da camada de catálogo não possui identidade remota válida.');
+        }
+        tx.recordOperation(EntityType.CATALOG_LAYER, edit.type, edit.id, mapId,
+            edit.next ? pruneCatalogLayerDefinition(edit.next) : null,
+            edit.previous ? pruneCatalogLayerDefinition(edit.previous) : null);
+        return () => updateMapDataCompat(targetMap, { ...mapData, catalogLayers: layers });
+    }));
+}
+
 // ===== CATALOG LAYERS =====
 
 /**
@@ -118,33 +138,12 @@ export async function getCatalogLayers(mapName = null) {
  */
 export async function addCatalogLayer(layer, mapName = null) {
     if (!guardCatalogWrite('addCatalogLayer', GuardAction.CREATE_LAYER)) return;
-
-    const targetMap = resolveMapName(mapName);
-    // Catalog layers live INSIDE the map document, so this read-modify-write competes with
-    // every feature write on the same map. Same lock key (see document-lock.js).
-    return withMapDocument(targetMap, 'addCatalogLayer', async () => {
-        const mapData = await getMapDataCompat(targetMap);
-
-        if (!mapData.catalogLayers) {
-            mapData.catalogLayers = [];
-        }
-
-        const exists = mapData.catalogLayers.some(l => l.id === layer.id);
-        if (exists) return;
-
-        // The DEFINITION is dropped here, at the only door into the document: whatever the caller
-        // assembled, what is persisted (and what the op carries) is reference + per-atlas state.
-        const layerWithMetadata = pruneCatalogLayerDefinition({
-            ...layer,
-            id: layer.id || generateUUID(),
-            sync: createSyncMetadata(null)
-        });
-
-        mapData.catalogLayers.push(layerWithMetadata);
-        await updateMapDataCompat(targetMap, mapData);
-
-        const mapId = mapManager.getCurrentMapId();
-        logCatalogLayerOperation(OperationType.CREATE, layerWithMetadata.id, mapId, layerWithMetadata);
+    return editCatalogLayers(resolveMapName(mapName), 'addCatalogLayer', layers => {
+        if (layers.some(item => item.id === layer.id)) return null;
+        const next = pruneCatalogLayerDefinition({ ...deepClone(layer),
+            id: layer.id || generateUUID(), sync: createSyncMetadata(null) });
+        layers.push(next);
+        return { type: OperationType.CREATE, id: next.id, next };
     });
 }
 
@@ -157,26 +156,11 @@ export async function addCatalogLayer(layer, mapName = null) {
  */
 export async function removeCatalogLayer(layerId, mapName = null) {
     if (!guardCatalogWrite('removeCatalogLayer', GuardAction.DELETE_LAYER)) return;
-
-    const targetMap = resolveMapName(mapName);
-    return withMapDocument(targetMap, 'removeCatalogLayer', async () => {
-        const mapData = await getMapDataCompat(targetMap);
-
-        if (!mapData.catalogLayers) return;
-
-        const removedLayer = mapData.catalogLayers.find(l => l.id === layerId);
-        mapData.catalogLayers = mapData.catalogLayers.filter(l => l.id !== layerId);
-        await updateMapDataCompat(targetMap, mapData);
-
-        if (removedLayer) {
-            const mapId = mapManager.getCurrentMapId();
-            // `previousData` also leaves the document, so it is pruned too: a legacy entry must
-            // not re-publish the definition on its way out.
-            logCatalogLayerOperation(
-                OperationType.DELETE, layerId, mapId, null,
-                pruneCatalogLayerDefinition(removedLayer)
-            );
-        }
+    return editCatalogLayers(resolveMapName(mapName), 'removeCatalogLayer', layers => {
+        const index = layers.findIndex(layer => layer.id === layerId);
+        if (index === -1) return null;
+        const [previous] = layers.splice(index, 1);
+        return { type: OperationType.DELETE, id: layerId, previous };
     });
 }
 
@@ -190,33 +174,14 @@ export async function removeCatalogLayer(layerId, mapName = null) {
  */
 export async function updateCatalogLayer(layerId, updates, mapName = null) {
     if (!guardCatalogWrite('updateCatalogLayer', GuardAction.UPDATE_LAYER)) return;
-
-    const targetMap = resolveMapName(mapName);
-    // Locked leaf: `toggleCatalogLayerVisibility` and `updateCatalogLayerStatus` await this
-    // one, so neither of them may take the lock (document-lock.js has no reentrancy).
-    return withMapDocument(targetMap, 'updateCatalogLayer', async () => {
-        const mapData = await getMapDataCompat(targetMap);
-
-        if (!mapData.catalogLayers) return;
-
-        const index = mapData.catalogLayers.findIndex(l => l.id === layerId);
-        if (index === -1) return;
-
-        const oldLayer = pruneCatalogLayerDefinition({ ...mapData.catalogLayers[index] });
-        // Rewrite rather than mutate in place: the entry is REPLACED by its pruned form, which is
-        // what makes a legacy entry converge on the new shape the first time it is touched,
-        // without a sweep over documents nobody is reading.
-        const updated = pruneCatalogLayerDefinition({ ...mapData.catalogLayers[index], ...updates });
-
-        if (updated.sync) {
-            updated.sync = touchSyncMetadata(updated.sync);
-        }
-
-        mapData.catalogLayers[index] = updated;
-        await updateMapDataCompat(targetMap, mapData);
-
-        const mapId = mapManager.getCurrentMapId();
-        logCatalogLayerOperation(OperationType.UPDATE, layerId, mapId, updated, oldLayer);
+    return editCatalogLayers(resolveMapName(mapName), 'updateCatalogLayer', layers => {
+        const index = layers.findIndex(layer => layer.id === layerId);
+        if (index === -1) return null;
+        const previous = deepClone(layers[index]);
+        const next = pruneCatalogLayerDefinition({ ...previous, ...deepClone(updates), id: layerId });
+        if (next.sync) next.sync = touchSyncMetadata(next.sync);
+        layers[index] = next;
+        return { type: OperationType.UPDATE, id: layerId, previous, next };
     });
 }
 

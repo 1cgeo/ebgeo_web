@@ -6,8 +6,8 @@ import { catalogAuthorizationPredicate, resourceTypeLiteral } from '../catalog/c
 import { RESOLVE_SV360_REFS } from '../resource-access/resource-access.queries.js';
 
 export const INSERT_OPERATION = `
-  INSERT INTO operations (atlas_id, op_type, entity_type, entity_id, map_id, changes, data, client_timestamp, client_id, user_id, op_id, lamport_timestamp, client_entity_type)
-  VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13)
+  INSERT INTO operations (atlas_id, op_type, entity_type, entity_id, map_id, changes, data, client_timestamp, client_id, user_id, op_id, lamport_timestamp, client_entity_type, client_entity_id)
+  VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13, $14)
   ON CONFLICT (atlas_id, op_id) DO NOTHING
   RETURNING *
 `;

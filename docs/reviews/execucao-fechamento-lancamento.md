@@ -38,7 +38,7 @@ As fronteiras incrementais são o controlador HTTP de sync e os dois handlers de
 | Camadas | `frontend/src/js/layers/layer.manager.js` | Debounce e diário antes da gravação; conflitos além da identidade canônica |
 | Grupos e membros | `frontend/src/js/tool_manager/group_manager.js` | Intenções de membros separadas, diário e comandos de combinar/desagrupar |
 | Briefings e slides | `frontend/src/js/store/briefing.operations.js` | Diário implementado neste checkpoint; revisão por slide e conflito de ordem ainda pendentes |
-| Catálogo | `frontend/src/js/store/catalog.operations.js` | Diário, versão e referências autorizadas em todas as recepções |
+| Catálogo | `frontend/src/js/store/catalog.operations.js` | Diário e identidade de replay implementados no terceiro checkpoint; conflitos por revisão ainda pendentes |
 | 3D e 360 | `frontend/src/js/store/cesium3d.operations.js`, `frontend/src/js/store/streetview360.operations.js` | Diário, revisões, imagens associadas e callbacks com escopo capturado |
 | Preferências compartilhadas | `frontend/src/js/store/atlas-appearance.service.js`, `frontend/src/js/store/settings.operations.js`, `frontend/src/js/store/customIcons.operations.js` | Separar o que é local do que é compartilhado; diário e conflitos das chaves remotas |
 
@@ -53,6 +53,26 @@ A publicação das operações materializadas remove as marcas de preparação n
 Controles negativos retirando a publicação atômica e substituindo o produtor pela versão anterior fizeram os respectivos testes falharem; fontes restauradas em `finally`. A suíte hermética passou com 12.240 testes/641 arquivos, incluindo nove cenários novos de diário, concorrência, recuperação, escopo e identidade. Os três casos de navegador (offline/F5, cópias com slides iniciais e falha de quota seguida de F5) passaram duas vezes cada, sem retries/skips. Os três casos existentes de briefing/slides/temporal entre dois clientes também passaram duas vezes cada. Uma execução adicional verificou a captura com o editor aberto, o nome e os dois slides recuperados. Build e lint aprovados. A verificação completa da raiz terminou com código 0: 12.240 testes do frontend, 5.050 do backend e 201 contratos, sem falhas ou skips. Os testes de integridade documental também passaram (16 casos).
 
 Isso não torna atômica uma importação inteira no servidor nem resolve concorrência entre usuários: conflitos por slide, ordens concorrentes, demais produtores e comandos compostos continuam pendentes. Na execução completa houve uma falha transitória do ensaio de BroadcastChannel main/nova; passou isoladamente e na execução completa seguinte, sem mudança de produto. A matriz de abas ainda exige tratamento na etapa 5.
+
+## Diário do catálogo e identidade do replay: terceiro checkpoint validado
+
+Criar, editar e remover uma referência de catálogo registra a intenção antes do mapa. O ID do mapa vem do destino realmente lido, não do mapa ativo. Falha de quota conserva a intenção; snapshot recupera a projeção com o mesmo ID. Destino remoto inexistente é recusado, sem sintetizar um mapa pelo fallback de compatibilidade. As três mutações compartilham a mesma trava e fronteira de gravação; a revalidação local de disponibilidade continua fora do envio remoto.
+
+O ensaio de dois navegadores encontrou uma falha anterior adicional: o log substituía IDs textuais, como `hillshade`, pelo UUID do atlas, e o replay produzia referências duplicadas. `operations.client_entity_id` preserva a identidade original para a conversão de operações de catálogo, inclusive exclusões sem payload. Registros antigos que já perderam essa identidade obrigam snapshot autorizado; não se tenta adivinhar o alvo. O cliente recebe a identidade do envelope como autoridade para a referência.
+
+A coluna pertence à base lógica de sync, sem criar nova migração numerada. Instalação nova recebe a coluna na criação. Um banco de desenvolvimento já existente precisa da transição aditiva abaixo antes de executar este backend, após backup; não há reset automático nem reescrita do histórico:
+
+```sql
+BEGIN;
+ALTER TABLE operations ADD COLUMN IF NOT EXISTS client_entity_id TEXT;
+COMMIT;
+```
+
+O recibo ausente só é reconstruído como aplicado quando o histórico comprova também a identidade do alvo. Uma exclusão textual antiga sem essa prova é recusada, em vez de confirmar outra exclusão de payload vazio. O caso positivo com identidade preservada continua confirmado.
+
+Os controles negativos retiraram a persistência antecipada, a recuperação da identidade e a conferência do alvo no recibo: os testes falharam por ausência de intenção antes da gravação, ID incorreto no replay e confirmação indevida, respectivamente. As fontes foram restauradas em todos os casos. Os sete novos testes herméticos cobrem diário, destino, concorrência, quota, recuperação e mudança de escopo; os quatro novos testes de backend cobrem replay e recibos.
+
+Build e lint da raiz aprovados. A suíte completa da raiz terminou com código 0: 12.247 testes do frontend, 5.054 do backend e 201 contratos, sem falhas ou skips. O ensaio de catálogo em dois navegadores passou duas vezes, sem retries/skips, após as mudanças finais do cliente; a captura foi inspecionada com o mapa de destino selecionado. Banco e repositórios dos dois clientes confirmaram a mesma referência e opacidade, sem alterar o mapa ativo de origem. Uma rodada anterior foi invalidada porque o build concorrente removeu temporariamente o dist durante o teste de peso; a rodada aceita acima executou depois do build concluído. Este checkpoint não representa liberação do plano inteiro.
 
 ## Evidências do primeiro checkpoint (`b26f4e66`)
 

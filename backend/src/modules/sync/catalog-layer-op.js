@@ -33,13 +33,10 @@
 // here keeps the definition out of the objects the rest of the pull path handles, and it is
 // free — the walk returns its argument by identity when there is nothing to take.
 //
-// WHY THE LAYER ID IS NOT `entityId`. `operations.entity_id` is UUID NOT NULL and a catalog-layer
-// id is not a UUID ('data-<slug>', 'hillshade'), so the insert substitutes the ATLAS id
-// (`sync.service.js`, FEATURE_UUID_RE). A pruner keyed on `entityId` therefore matches nothing on
-// a stored row and is cover that covers nothing — green while verifying nothing. The content walk
-// never asks the envelope anything: it reads the id from the payload, and when the payload has
-// none it rescues the reference into `originalId` (`pruneCatalogLayerDefinition`), so the stripped
-// entry keeps the only address it had.
+// Historical rows replaced textual catalog identities with the atlas UUID. New rows preserve
+// `client_entity_id`, and replay falls back to an authorized snapshot if an old row lost its
+// target. Pruning still inspects content independently of the envelope: references can also
+// travel inside a map document, and legacy payloads may need `originalId` to retain their address.
 
 import { pruneResourcePayload } from '../catalog/resource-payload.prune.js';
 

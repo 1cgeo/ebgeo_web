@@ -656,7 +656,7 @@ function toFrontendOperation(op) {
     id: op.op_id ?? op.id,
     entityType,
     operationType: op.op_type,
-    entityId: op.entity_id,
+    entityId: op.entity_type === 'catalog_layer' ? (op.client_entity_id ?? op.entity_id) : op.entity_id,
     mapId: op.map_id,
     data,
     changes,
@@ -1893,6 +1893,7 @@ export async function pushOperations(atlasId, operations, userId, permission = '
             rawOp.id ?? null,
             op.lamportTimestamp ?? null,
             op._originalEntityType,
+            String(op.targetId ?? atlasId),
           ]);
 
           if (!inserted) {
@@ -1909,7 +1910,10 @@ export async function pushOperations(atlasId, operations, userId, permission = '
               mapId: op.mapId, data: op._logData ?? op.data, changes: op._logChanges ?? op.changes,
               baseVersion: rawOp.baseVersion, patch: rawOp.patch,
             });
-            if (!prev || String(prev.user_id) !== String(userId) || persisted !== incoming) {
+            const recordedTarget = prev?.client_entity_id
+              ?? (prev?.entity_id !== atlasId ? prev?.entity_id : null);
+            const targetProven = op.target !== 'catalog_layer' || recordedTarget === op.targetId;
+            if (!prev || !targetProven || String(prev.user_id) !== String(userId) || persisted !== incoming) {
               return { denied: 'Não foi possível comprovar o conteúdo original desta operação antiga.' };
             }
             if (prev) await saveReceipt(sp, atlasId, rawOp, userId, prev);
@@ -2133,6 +2137,14 @@ export async function pullOperations(atlasId, sinceVersion, permission = 'owner'
   // Otherwise return incremental operations (converted to frontend format). Read-only viewers
   // never receive comment ops (visibility rule).
   const opsResult = await query(Q.GET_OPERATIONS_SINCE_VERSION, [atlasId, sinceVersion]);
+  // Older logs replaced textual catalog identities with the atlas UUID, including deletes
+  // whose payload is empty. A snapshot is the only authoritative recovery for those rows.
+  if (opsResult.rows.some(op => op.entity_type === 'catalog_layer'
+      && op.client_entity_id == null && op.entity_id === op.atlas_id)) {
+    const snapshot = await getAtlasSnapshot(atlasId, permission, userId);
+    return snapshot ? { snapshot, currentVersion: snapshot.currentVersion, isSnapshot: true }
+      : { operations: [], currentVersion: 0, isSnapshot: false };
+  }
   let operations = opsResult.rows.map(toFrontendOperation);
   if (permission === 'read') {
     operations = operations.filter((o) => o.entityType !== 'comment');

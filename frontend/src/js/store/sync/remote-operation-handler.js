@@ -1536,8 +1536,9 @@ async function applyRemoteCatalogLayerOp(opType, layerId, mapId, data) {
         if (opType === OperationType.DELETE) {
             if (idx !== -1) mapData.catalogLayers.splice(idx, 1);
         } else if (data) {
-            if (idx !== -1) mapData.catalogLayers[idx] = data;
-            else mapData.catalogLayers.push(data);
+            const canonical = { ...data, id: layerId };
+            if (idx !== -1) mapData.catalogLayers[idx] = canonical;
+            else mapData.catalogLayers.push(canonical);
         }
         await repo.saveMap?.(mapId, mapData);
     });

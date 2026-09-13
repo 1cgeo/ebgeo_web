@@ -10,7 +10,8 @@ const h = vi.hoisted(() => {
         mockMapData: { value: null },
         mockMapManager: {
             getCurrentMapName: vi.fn(() => 'TestMap'),
-            getCurrentMapId: vi.fn(() => 'map-uuid-123')
+            getCurrentMapId: vi.fn(() => 'map-uuid-123'),
+            getMapId: vi.fn(() => 'map-uuid-123')
         },
         // config object the source reads for validateCatalogLayerAvailability
         config: {
@@ -56,6 +57,19 @@ vi.mock('../../src/js/store/store-state-manager.js', () => ({
 vi.mock('../../src/js/store/sync/index.js', () => ({
     logCatalogLayerOperation: vi.fn(),
     OperationType: { CREATE: 'create', UPDATE: 'update', DELETE: 'delete' }
+}));
+
+// Shape assertions observe durable intentions; integration tests exercise real IndexedDB.
+vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
+    persistOperationIntents: vi.fn(async descriptions => {
+        const { logCatalogLayerOperation } = await import('../../src/js/store/sync/index.js');
+        for (const op of descriptions) {
+            const args = [op.operationType, op.entityId, op.mapId, op.data];
+            if (op.previousData != null) args.push(op.previousData);
+            logCatalogLayerOperation(...args);
+        }
+        return async () => {};
+    })
 }));
 
 vi.mock('../../src/js/store/sync/sync-metadata.js', () => ({
@@ -217,10 +231,10 @@ describe('addCatalogLayer', () => {
         await addCatalogLayer(layer);
 
         const stored = updateMapDataCompat.mock.calls[0][1].catalogLayers[0];
-        expect(stored.id).toBe('generated-uuid-1');
+        expect(stored.id).toMatch(/^generated-uuid-/);
         expect(logCatalogLayerOperation).toHaveBeenCalledWith(
             OperationType.CREATE,
-            'generated-uuid-1',
+            stored.id,
             'map-uuid-123',
             expect.any(Object)
         );
@@ -280,16 +294,14 @@ describe('removeCatalogLayer', () => {
         expect(logCatalogLayerOperation).not.toHaveBeenCalled();
     });
 
-    it('persists but emits no op when the id is not present (nothing removed)', async () => {
+    it('does not write or journal when the id is not present (nothing removed)', async () => {
         h.mockMapData.value = emptyMapData([makeLayer('cl-1')]);
 
         await removeCatalogLayer('does-not-exist');
 
-        // The filter still runs and persists the (unchanged) array...
-        expect(updateMapDataCompat).toHaveBeenCalledOnce();
-        const savedData = updateMapDataCompat.mock.calls[0][1];
-        expect(savedData.catalogLayers).toHaveLength(1);
-        // ...but no DELETE op is emitted because no layer matched.
+        expect(updateMapDataCompat).not.toHaveBeenCalled();
+        expect(h.mockMapData.value.catalogLayers).toHaveLength(1);
+        // No deletion was requested for an existing reference.
         expect(logCatalogLayerOperation).not.toHaveBeenCalled();
     });
 });

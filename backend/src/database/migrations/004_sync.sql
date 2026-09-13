@@ -18,6 +18,7 @@ CREATE TABLE operations (
     op_type             VARCHAR(20) NOT NULL CHECK (op_type IN ('create', 'update', 'delete')),
     entity_type         VARCHAR(50) NOT NULL,
     client_entity_type  VARCHAR(50),
+    client_entity_id    TEXT,
     entity_id           UUID NOT NULL,
     map_id              UUID,
 
