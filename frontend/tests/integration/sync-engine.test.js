@@ -1,4 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+// O ARMAZENAMENTO REAL ENTRA SÓ POR CAUSA DO CURSOR DURÁVEL: o `connect` decide entre cauda e
+// retrato completo perguntando se a geração ativa AINDA GUARDA aquele atlas, e essa pergunta é
+// uma leitura de IndexedDB. Dublar a leitura mediria o dublê.
+import 'fake-indexeddb/auto';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 
 /**
  * Sync Engine Tests (hermetic unit).
@@ -77,6 +81,10 @@ const h = vi.hoisted(() => {
             // SUT swallows it in a `catch`. The suite stayed green over a branch that never
             // executed. It returns a COPY: the SUT must not be able to mutate the fixture.
             getAll: vi.fn(async () => queueState.ops.slice()),
+            // A fila é POR ATLAS: `SyncSession` pede o recorte do escopo assim que existe um
+            // escopo montado. Sem isto o construtor da sessão morre num TypeError, e só nos casos
+            // que montam um escopo remoto de verdade (os do cursor durável abaixo).
+            forScope: vi.fn(),
         },
         enableOperationLogging: vi.fn(),
         disableOperationLogging: vi.fn(),
@@ -228,6 +236,12 @@ vi.mock('../../src/js/utilities/toast_service.js', () => ({
 
 import { syncEngine } from '../../src/js/store/sync/sync-engine.js';
 import { setTracing, clearTrace, getTrace } from '../../src/js/store/sync/diag/trace-core.js';
+// O namespace e o ponteiro de geração vêm dos módulos REAIS: o que se mede é a decisão do
+// `connect` a partir do que existe em disco, e um dublê de ponteiro mediria o dublê.
+import {
+    activateScope, ATLAS_RECORD_KEY, clearActiveScope, getStoreFor, remoteScope, StoreName,
+} from '../../src/js/store/atlas-namespace.js';
+import { writeGeneration } from '../../src/js/store/namespace-generation.js';
 // O barramento é dublê, mas os NOMES dos eventos vêm do módulo real: uma cópia literal
 // aqui deixaria de acompanhar a de produção sem ficar vermelha.
 import { EventTypes } from '../../src/js/events/event_types.js';
@@ -258,6 +272,7 @@ beforeEach(() => {
     apiClientMock.pushOperations.mockImplementation(
         async (_atlasId, ops) => ({ results: ops.map(op => ({ operationId: op.id, success: true, currentVersion: 1 })), serverVersion: 1 })
     );
+    operationQueueMock.forScope.mockImplementation(() => operationQueueMock);
 });
 
 // ============================================================================
@@ -650,6 +665,104 @@ describe('connect', () => {
         expect(syncEngine.lastVersion).toBe(7);
     });
 });
+
+// ============================================================================
+// O CURSOR DURÁVEL NO BOOT (F11)
+// ============================================================================
+// Toda conexão pedia `pullSync(atlasId, 0)`, o servidor respondia RETRATO COMPLETO e a
+// aplicação dele cunhava uma geração nova de nove bancos. O cursor que a recuperação grava era
+// escrito por todo mundo e lido por quase ninguém. Aqui o escopo remoto é REAL (o ponteiro e o
+// namespace vêm dos módulos de produção), porque o que se mede é a decisão tomada a partir do
+// que está em disco.
+describe('connect: o cursor durável decide entre cauda e retrato', () => {
+    const cursorAtlas = 'cursor-atlas';
+    const generation = 'g-um';
+    let scope;
+
+    const generationKey = () => `ebgeo_atlas_generation:${scope.dbSuffix}`;
+    const atlasStore = () => getStoreFor(StoreName.ATLAS, { ...scope, dataGeneration: generation });
+
+    beforeEach(async () => {
+        scope = remoteScope(cursorAtlas);
+        activateScope(scope);
+        // Uma geração COMPLETA em disco: o ponteiro com cursor, e o acervo daquele atlas dentro
+        // dela. As duas metades são necessárias, e é justamente essa a armadilha que o código
+        // fecha: ponteiro sem dado é o namespace que um logout esvaziou.
+        writeGeneration(scope, { active: generation, known: [generation], cursor: 12 });
+        await atlasStore().setItem(ATLAS_RECORD_KEY, { id: cursorAtlas, name: 'Remoto' });
+    });
+
+    afterEach(() => {
+        globalThis.localStorage.removeItem(generationKey());
+        clearActiveScope();
+    });
+
+    it('a segunda conexão pede a partir do cursor e não recria a geração', async () => {
+        apiClientMock.pullSync.mockResolvedValueOnce({
+            operations: [{ entityType: 'feature', entityId: 'f1' }], currentVersion: 15, isSnapshot: false,
+        });
+
+        await syncEngine.connect(cursorAtlas);
+
+        expect(apiClientMock.pullSync).toHaveBeenCalledWith(cursorAtlas, 12, { signal: expect.any(AbortSignal) });
+        expect(applyRemoteSnapshot).not.toHaveBeenCalled();
+        expect(applyRemoteOperation).toHaveBeenCalledWith(
+            { entityType: 'feature', entityId: 'f1' },
+            { scope: syncEngine._session.scope, signal: syncEngine._session.signal, waitForDeferred: true },
+        );
+        expect(syncEngine.lastVersion).toBe(15);
+        expect(wsClientMock.connect).toHaveBeenCalledWith(cursorAtlas, { lastVersion: 15 });
+        // O ponteiro continua o mesmo: nenhuma geração nova nasceu deste boot.
+        expect(JSON.parse(globalThis.localStorage.getItem(generationKey())).active).toBe(generation);
+    });
+
+    it('o retrato completo só quando o SERVIDOR responde com um', async () => {
+        apiClientMock.pullSync.mockResolvedValueOnce({
+            snapshot: { atlas: { id: cursorAtlas } }, currentVersion: 30, isSnapshot: true,
+        });
+
+        await syncEngine.connect(cursorAtlas);
+
+        expect(apiClientMock.pullSync).toHaveBeenCalledWith(cursorAtlas, 12, { signal: expect.any(AbortSignal) });
+        expect(applyRemoteSnapshot).toHaveBeenCalledWith({ atlas: { id: cursorAtlas } }, syncEngine._session);
+        expect(syncEngine.lastVersion).toBe(30);
+    });
+
+    it('um marcador estrutural na cauda troca o pedido por um retrato do zero', async () => {
+        apiClientMock.pullSync
+            .mockResolvedValueOnce({ operations: [{ entityType: 'map_merge' }], currentVersion: 16, isSnapshot: false })
+            .mockResolvedValueOnce({ snapshot: { atlas: { id: cursorAtlas } }, currentVersion: 17, isSnapshot: true });
+
+        await syncEngine.connect(cursorAtlas);
+
+        expect(apiClientMock.pullSync).toHaveBeenNthCalledWith(1, cursorAtlas, 12, { signal: expect.any(AbortSignal) });
+        expect(apiClientMock.pullSync).toHaveBeenNthCalledWith(2, cursorAtlas, 0, { signal: expect.any(AbortSignal) });
+        expect(applyRemoteSnapshot).toHaveBeenCalledWith({ atlas: { id: cursorAtlas } }, syncEngine._session);
+        // O marcador NÃO é aplicado como op: o retrato o supera.
+        expect(applyRemoteOperation).not.toHaveBeenCalled();
+        expect(syncEngine.lastVersion).toBe(17);
+    });
+
+    it('cursor corrompido pede tudo, em vez de pedir uma cauda a partir de lixo', async () => {
+        globalThis.localStorage.setItem(generationKey(), '{"active":"g-um","known":[],"cursor":"doze"}');
+
+        await syncEngine.connect(cursorAtlas);
+
+        expect(apiClientMock.pullSync).toHaveBeenCalledWith(cursorAtlas, 0, { signal: expect.any(AbortSignal) });
+    });
+
+    it('geração ativa SEM o acervo daquele atlas pede tudo', async () => {
+        // O namespace que um logout esvaziou: o ponteiro sobrevive em localStorage e os bancos
+        // não têm mais nada. Pedir cauda aqui produziria um atlas sem tudo o que veio antes do
+        // cursor, sem um erro em lugar nenhum.
+        await atlasStore().clear();
+
+        await syncEngine.connect(cursorAtlas);
+
+        expect(apiClientMock.pullSync).toHaveBeenCalledWith(cursorAtlas, 0, { signal: expect.any(AbortSignal) });
+    });
+});
+
 
 // ============================================================================
 // atlas_owner_changed: o papel E a soma dos recursos privados

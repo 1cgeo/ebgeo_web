@@ -30,6 +30,8 @@ import { apiClient, configureApiClient } from './api-client.js';
 import { wsClient } from './ws-client.js';
 import { operationQueue } from './operation-queue.js';
 import { SyncSession } from '@store/sync/sync-session.js';
+import { ATLAS_RECORD_KEY, getStoreFor, StoreName } from '@store/atlas-namespace.js';
+import { readGeneration } from '@store/namespace-generation.js';
 import { enableOperationLogging, disableOperationLogging } from './operation-dispatcher.js';
 import { sessionContext, sessionUserInfoFromMe } from './session-context.js';
 import {
@@ -320,17 +322,7 @@ class SyncEngine {
         await this._ensureProtocol(session);
         await this._prepareLegacyQueue(session);
 
-        let snapshot = null;
-        if (initialPull) {
-            const result = await apiClient.pullSync(atlasId, 0, { signal: session.signal });
-            session.assertActive();
-            snapshot = result?.snapshot ?? null;
-            if (snapshot) {
-                await applyRemoteSnapshot(snapshot, session);
-                session.assertActive();
-            }
-            this._lastVersion = result?.currentVersion ?? 0;
-        }
+        const snapshot = initialPull ? await this._pullInitialState(session) : null;
 
         this._atlasId = atlasId;
         setImageSyncAtlas(atlasId);
@@ -372,6 +364,94 @@ class SyncEngine {
         // Apply the per-atlas config overlay from the snapshot's settings (no extra round-trip).
         await this._applyAtlasSettingsOverlay(atlasId, snapshot?.atlas?.settings);
         return payload;
+    }
+
+    /**
+     * @private The initial pull of a connect: ASKS FOR WHAT IS MISSING, not for everything.
+     *
+     * Every connect used to pull from version 0, which the server answers with a full snapshot,
+     * which `applyRemoteSnapshot` stages into a BRAND NEW generation of nine databases. So the
+     * durable cursor was written by every recovery and read by almost nobody, and reconnecting to
+     * an atlas whose data was already complete on disk re-downloaded and re-wrote all of it. The
+     * cursor is now the question: with a complete generation on disk, the connect asks for the tail
+     * since that cursor and the local databases stay where they are.
+     *
+     * THE FULL SNAPSHOT STILL HAPPENS, and the three reasons are not interchangeable: there is no
+     * complete generation on disk (first open, after a logout wipe, corrupt record); the server
+     * ANSWERS with one (`isSnapshot`, which it decides by `min_version` and by a catalog identity
+     * that only a snapshot can repair, as `012_camadas_remotas.sql` did); or the tail carries a
+     * structural marker, whose effect no per-entity op describes.
+     *
+     * THE MARKER PATH PULLS FROM ZERO ITSELF instead of delegating to `resync()`, and that is not
+     * duplication for its own sake: `resync()` early-returns on a null `this._atlasId`, which is
+     * exactly the state of a connect that has not finished, so delegating would silently apply
+     * nothing at all.
+     *
+     * @param {import('./sync-session.js').SyncSession} session - The session being connected.
+     * @returns {Promise<Object|null>} The applied snapshot, or null when the pull was a tail (the
+     *   caller reads `atlas.sync.ownerId` and `atlas.settings` from it, and falls back to REST).
+     */
+    async _pullInitialState(session) {
+        const since = await this._durablePullCursor(session);
+        const result = await apiClient.pullSync(session.atlasId, since, { signal: session.signal });
+        session.assertActive();
+
+        if (result?.snapshot) {
+            await applyRemoteSnapshot(result.snapshot, session);
+            session.assertActive();
+            this._lastVersion = result.currentVersion ?? 0;
+            return result.snapshot;
+        }
+
+        const operations = Array.isArray(result?.operations) ? result.operations : [];
+        if (operations.some(op => STRUCTURAL_RESYNC_OPS.has(op?.entityType))) {
+            const fresh = await apiClient.pullSync(session.atlasId, 0, { signal: session.signal });
+            session.assertActive();
+            if (fresh?.snapshot) {
+                await applyRemoteSnapshot(fresh.snapshot, session);
+                session.assertActive();
+            }
+            this._lastVersion = fresh?.currentVersion ?? 0;
+            return fresh?.snapshot ?? null;
+        }
+
+        for (const op of operations) {
+            await applyRemoteOperation(op, { scope: session.scope, signal: session.signal, waitForDeferred: true });
+            session.assertActive();
+        }
+        this._lastVersion = result?.currentVersion ?? 0;
+        return null;
+    }
+
+    /**
+     * @private From which server version this connect may ask for a tail. Zero means "send me
+     * everything", and it is the answer whenever the local side cannot be shown to be complete.
+     *
+     * THE POINTER ALONE IS NOT EVIDENCE, and this is the trap the check exists for: the durable
+     * record lives in `localStorage` while the data lives in IndexedDB, so a namespace emptied by
+     * a logout wipe, or by the browser reclaiming storage, leaves a cursor naming a generation
+     * whose databases are empty. Pulling a tail into that would produce an atlas missing
+     * everything written before the cursor, with no error anywhere. So the generation is asked
+     * whether it still holds THIS atlas; only then is its cursor trusted.
+     *
+     * @param {import('./sync-session.js').SyncSession} session - The session being connected.
+     * @returns {Promise<number>} The cursor, or 0.
+     */
+    async _durablePullCursor(session) {
+        if (session.scope?.kind !== 'remote') return 0;
+        let record;
+        try {
+            record = readGeneration(session.scope);
+        } catch {
+            // A corrupt record resolves no database at all: the snapshot is the repair.
+            return 0;
+        }
+        if (!record.active || !Number.isSafeInteger(record.cursor) || record.cursor <= 0) return 0;
+
+        const atlas = await getStoreFor(StoreName.ATLAS, { ...session.scope, dataGeneration: record.active })
+            .getItem(ATLAS_RECORD_KEY);
+        session.assertActive();
+        return atlas?.id === session.atlasId ? record.cursor : 0;
     }
 
     /**
