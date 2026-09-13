@@ -12,7 +12,7 @@ import {
     getActiveScope,
     UNMOUNTED_QUEUE_SCOPE
 } from '@store/atlas-namespace.js';
-import { appendJournal, materializeJournal } from './queue-journal.js';
+import { appendJournal, materializeJournal, purgeJournalEntries, JournalKey } from './queue-journal.js';
 import { captureRemoteWriteFence } from '../remote-write-fence.js';
 import { fenceStore } from '../fenced-store.js';
 import { legacyQueueIssue } from './legacy-queue.js';
@@ -28,12 +28,6 @@ const SEQ_WIDTH = 12;
 const SEQ_PATTERN = /^[0-9]+$/;
 
 const COUNT_BATCH_SIZE = 200;
-
-/** Key prefix of a terminal issue recorded against one operation. */
-const ISSUE_PREFIX = '__journal_issue__';
-
-/** Key prefix of the mark a prepared intention carries until its projection is materialized. */
-const STATE_PREFIX = '__journal_state__';
 
 /**
  * The dependency blockade of the outbound queue, in ONE place because TWO readers apply it.
@@ -135,18 +129,18 @@ class OperationQueue {
 
     async getLatestPendingFeature(entityId) {
         const { store } = this._context();
-        const key = await store.getItem('__journal_feature_head__' + entityId);
+        const key = await store.getItem(JournalKey.FEATURE_HEAD + entityId);
         return key ? store.getItem(key) : null;
     }
 
     async getLatestFeatureOperation(entityId) {
         const { store } = this._context();
-        return store.getItem('__journal_feature_latest__' + entityId);
+        return store.getItem(JournalKey.FEATURE_LATEST + entityId);
     }
 
     async recordIssue(operation, result) {
         const { store } = this._context();
-        await store.setItem(ISSUE_PREFIX + operation.id, { result, recordedAt: Date.now() });
+        await store.setItem(JournalKey.ISSUE + operation.id, { result, recordedAt: Date.now() });
     }
 
     async getIssues() {
@@ -154,7 +148,7 @@ class OperationQueue {
         const operations = await this._loadOperations(await this._getOrderedKeys(store), { store, scopeSuffix });
         const issues = [];
         for (const operation of operations) {
-            const issue = await store.getItem(ISSUE_PREFIX + operation.id);
+            const issue = await store.getItem(JournalKey.ISSUE + operation.id);
             if (issue) issues.push({ operation, ...issue });
         }
         return issues;
@@ -171,19 +165,30 @@ class OperationQueue {
         return this._loadOperations(keys, { ...context, limit: count, readyOnly: true });
     }
 
+    /**
+     * Removes confirmed operations AND the journal metadata that named them.
+     *
+     * Until 2026-09-13 it removed the `op_` key alone, so every confirmed operation left its
+     * identity, its prepared mark and its issue record on disk for the life of the atlas:
+     * metadata no wipe collected and that `appendJournal` still consulted. The metadata of an
+     * envelope now leaves with it, in one transaction, which is `purgeJournalEntries`.
+     * @param {string[]} operationIds - Ids to remove.
+     * @returns {Promise<number>} How many envelopes were removed.
+     */
     async dequeue(operationIds) {
         if (!Array.isArray(operationIds) || operationIds.length === 0) return 0;
         const wanted = new Set(operationIds);
 
-        const { store } = this._context();
-        let removed = 0;
+        const { store, assertWritable } = this._context();
+        const removals = [];
         for (const key of await store.keys()) {
             const opId = operationIdFromKey(key);
             if (opId === null || !wanted.has(opId)) continue;
-            await store.removeItem(key);
-            removed++;
+            const operation = await store.getItem(key);
+            removals.push({ key, id: opId, entityId: operation?.entityId });
         }
-        return removed;
+        await purgeJournalEntries(store, removals, assertWritable);
+        return removals.length;
     }
 
     /**
@@ -230,8 +235,8 @@ class OperationQueue {
         const issued = new Set();
         const prepared = new Set();
         for (const key of keys) {
-            if (key.startsWith(ISSUE_PREFIX)) issued.add(key.slice(ISSUE_PREFIX.length));
-            else if (key.startsWith(STATE_PREFIX)) prepared.add(key.slice(STATE_PREFIX.length));
+            if (key.startsWith(JournalKey.ISSUE)) issued.add(key.slice(JournalKey.ISSUE.length));
+            else if (key.startsWith(JournalKey.STATE)) prepared.add(key.slice(JournalKey.STATE.length));
         }
 
         const blockade = new PendingBlockade();
@@ -276,14 +281,25 @@ class OperationQueue {
         return this.count();
     }
 
+    /**
+     * Empties the queue of the ACTIVE scope, metadata included, by the same rule as
+     * {@link dequeue}: an envelope of another address is left where it is.
+     * @returns {Promise<void>}
+     */
     async clear() {
-        const { store, scopeSuffix } = this._context();
+        const { store, scopeSuffix, assertWritable } = this._context();
 
+        const removals = [];
         for (const key of await this._getOrderedKeys(store)) {
             const operation = await store.getItem(key);
             if (operation && !operationBelongsToScope(operation, scopeSuffix)) continue;
-            await store.removeItem(key);
+            removals.push({
+                key,
+                id: operation?.id ?? operationIdFromKey(key),
+                entityId: operation?.entityId
+            });
         }
+        await purgeJournalEntries(store, removals, assertWritable);
     }
 
     async getAll() {
@@ -320,16 +336,16 @@ class OperationQueue {
             if (!operationBelongsToScope(op, scopeSuffix)) continue;
             if (remote && (readyOnly || projectionOnly)) {
                 const issue = legacyQueueIssue(op);
-                if (issue && !await store.getItem(ISSUE_PREFIX + op.id)) {
-                    await store.setItem(ISSUE_PREFIX + op.id, { result: issue, recordedAt: Date.now() });
+                if (issue && !await store.getItem(JournalKey.ISSUE + op.id)) {
+                    await store.setItem(JournalKey.ISSUE + op.id, { result: issue, recordedAt: Date.now() });
                 }
             }
             if ((readyOnly || projectionOnly)
-                && (await store.getItem(ISSUE_PREFIX + op.id) || blockade.blocks(op))) {
+                && (await store.getItem(JournalKey.ISSUE + op.id) || blockade.blocks(op))) {
                 blockade.add(op);
                 continue;
             }
-            if (readyOnly && await store.getItem(STATE_PREFIX + op.id) === 'prepared') break;
+            if (readyOnly && await store.getItem(JournalKey.STATE + op.id) === 'prepared') break;
             operations.push(op);
             if (operations.length >= limit) break;
         }
