@@ -136,6 +136,12 @@ function uploadSingleImage(req, res, next) {
 }
 
 router.get('/', auth, requireAtlasPermission('read'), ctrl.listImages);
+// A ORDEM `requireAtlasPermission` → `uploadSingleImage` É CONTRATO, e o que ela vale se mede
+// em DISCO: o multer escreve o arquivo antes de qualquer coisa a jusante rodar, então um gate
+// depois dele deixa um blob órfão por tentativa recusada, escrito por quem não tem acesso ao
+// atlas e limpo por ninguém (o controller nunca chega a rodar). É a mesma lição que o seletor
+// do parser de corpo do `/bulk` já pagou em `app.js`, com memória no lugar de disco. Presa
+// por `tests/integration/upload-recusado-nao-grava-blob.test.js`.
 router.post('/', auth, requireAtlasPermission('write'), readAttemptKey, uploadSingleImage, ctrl.uploadImage);
 router.post('/bulk', auth, requireAtlasPermission('write'), validate({ body: schemas.bulkUploadSchema }), ctrl.bulkUploadImages);
 router.get('/:imageId', auth, requireAtlasPermission('read'), ctrl.getImage);
