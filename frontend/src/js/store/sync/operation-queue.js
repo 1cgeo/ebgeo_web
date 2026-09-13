@@ -17,6 +17,7 @@ import { captureRemoteWriteFence } from '../remote-write-fence.js';
 import { fenceStore } from '../fenced-store.js';
 import { legacyQueueIssue } from './legacy-queue.js';
 import { IssueClass, classifyIssue } from './issue-classes.js';
+import { openGestureBatchId } from './gesture-batch.js';
 
 function queueScope() {
     return getActiveScope() ?? UNMOUNTED_QUEUE_SCOPE;
@@ -358,7 +359,9 @@ class OperationQueue {
                 if (run.length > 0 && (batch === null || batch !== runBatch)) closeRun();
                 runBatch = batch;
                 run.push(op);
-                if (prepared.has(op.id)) runHeld = true;
+                // A mesma regra do carregador: gesto ABERTO ainda não é enviável, e o censo não
+                // pode prometer trabalho que o flush se recusa a entregar.
+                if (prepared.has(op.id) || (batch !== null && batch === openGestureBatchId())) runHeld = true;
                 if (batch === null) closeRun();
             }
         }
@@ -501,7 +504,12 @@ class OperationQueue {
                 }
                 continue;
             }
-            if (readyOnly && await store.getItem(JournalKey.STATE + op.id) === 'prepared') {
+            // A GESTURE STILL OPEN IS NOT A BATCH YET. Its later transactions have not run, so
+            // sending what is already on disk would hand the server a complete-looking gesture
+            // that is in fact its first half. The 1,5 s flush tick landing between two
+            // transactions of a conversion or of a layer transfer is exactly that window.
+            const gestureOpen = readyOnly && batch !== null && batch === openGestureBatchId();
+            if (gestureOpen || (readyOnly && await store.getItem(JournalKey.STATE + op.id) === 'prepared')) {
                 // A MEMBER STILL PREPARED HOLDS ITS WHOLE BATCH, not only itself. One member of a
                 // gesture can stay prepared while its siblings are materialized (an image feature
                 // waiting for its blob), and the siblings must wait with it.

@@ -5,9 +5,11 @@ import { getEmptyMapData } from '../../src/js/store/repository.utils.js';
 // Hoisted shared state (available to vi.mock factories)
 // ============================================================================
 
-const { mockMapData, mockMapManager, mockLockedMaps } = vi.hoisted(() => {
+const { mockMapData, mockMapManager, mockLockedMaps, transacoesDeIntencao } = vi.hoisted(() => {
     return {
         mockMapData: { value: null },
+        /** Uma entrada por chamada de `persistOperationIntents`, ou seja, um lote logico. */
+        transacoesDeIntencao: { value: [] },
         mockMapManager: {
             getCurrentMapName: vi.fn(() => 'TestMap'),
             getCurrentMapId: vi.fn(() => 'map-uuid-123'),
@@ -135,6 +137,7 @@ beforeEach(() => {
     mockMapManager.getFeatureColors.mockReturnValue([]);
     isCurrentMapLockedSync.mockReturnValue(false);
     mockLockedMaps.value = new Set();
+    transacoesDeIntencao.value = [];
 
     setFeatureDependencies({
         groupManager: {
@@ -621,6 +624,19 @@ describe('addFeatures', () => {
         await addFeatures({ points: [makeFeature('p1')] });
 
         expect(updateMapDataCompat).not.toHaveBeenCalled();
+    });
+
+    // COLAR, DUPLICAR E IMPORTAR JA ERAM UM LOTE LOGICO, e este caso e' o que impede que
+    // deixem de ser. `addFeatures` grava as N feicoes numa transacao so, e `createBatchOperations`
+    // cunha um `batchId` por transacao: quebrar isso em N transacoes (uma por feicao) faria o
+    // servidor aceitar meia colagem e recusar a outra metade, cada feicao no seu savepoint.
+    it('registra as N feicoes numa TRANSACAO so: colar e duplicar sao um lote logico', async () => {
+        await addFeatures({
+            points: [makeFeature('p1'), makeFeature('p2')],
+            lines: [makeFeature('l1', 'line')]
+        });
+
+        expect(transacoesDeIntencao.value).toEqual([['p1', 'p2', 'l1']]);
     });
 
     it('adds timestamps to all features in batch', async () => {
@@ -1121,6 +1137,10 @@ describe('add → remove → read cycle', () => {
 // below keep the same logger spy while write-ahead-intent.test covers the real journal.
 vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
     persistOperationIntents: async operations => {
+        // UMA CHAMADA É UM LOTE LÓGICO: `createBatchOperations` cunha um `batchId` por chamada,
+        // então contar as chamadas e o tamanho de cada uma é o que distingue "um gesto" de "N
+        // gestos" neste seam. Ver `tests/integration/gesto-composto-um-lote.test.js`.
+        transacoesDeIntencao.value.push(operations.map(op => op.entityId));
         const { logFeatureOperation } = await import('../../src/js/store/sync/index.js');
         for (const op of operations) {
             await logFeatureOperation(op.operationType, op.entityId, op.mapId, op.data, op.previousData);

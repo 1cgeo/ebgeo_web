@@ -31,6 +31,8 @@ import { applyGeneratedBitmap } from '@layers/bitmap-version.js';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { scrollKeepsFeatureDropdown } from './dropdown-scroll.model.js';
 import { checkPermission } from '@store/sync/permission-guard.js';
+// Leaf module (only the uuid helper): importing it by file keeps the sync barrel out of the graph.
+import { withGestureBatch } from '@store/sync/gesture-batch.js';
 import {
     LINEAR_CONVERSION_LABELS,
     isMergedArrow,
@@ -1244,26 +1246,30 @@ async function convertPointToMilitarySymbol(pointFeature, selectionManager, uiMa
         const milSymbols = getGeoJsonDispatcher(map, 'military_symbols');
         const points = getGeoJsonDispatcher(map, 'points');
 
-        // Batch add+remove so a single Ctrl+Z undoes the whole conversion.
-        startBatchUndo();
-        try {
-            // Add the military symbol FIRST so a persist failure cannot lose the point.
-            await addFeature('military_symbols', feature);
-            symbolAdded = true;
-            milSymbols.add(feature);
+        // Batch add+remove so a single Ctrl+Z undoes the whole conversion, and so the SERVER
+        // applies or refuses both together: the two writes are two transactions, and only the
+        // shared gesture identity makes them one logical batch (`store/sync/gesture-batch.js`).
+        await withGestureBatch(async () => {
+            startBatchUndo();
+            try {
+                // Add the military symbol FIRST so a persist failure cannot lose the point.
+                await addFeature('military_symbols', feature);
+                symbolAdded = true;
+                milSymbols.add(feature);
 
-            // The queued add only leaves at flush time, so the symbol image is now guaranteed to
-            // be registered BEFORE the feature reaches the source, instead of racing it.
-            await milSymControl.loadSymbolToMap(featureId, result.blob);
+                // The queued add only leaves at flush time, so the symbol image is now guaranteed
+                // to be registered BEFORE the feature reaches the source, instead of racing it.
+                await milSymControl.loadSymbolToMap(featureId, result.blob);
 
-            // Only after the add succeeded do we remove the source point.
-            await removeFeature('points', pointId);
-            points.remove(pointId);
+                // Only after the add succeeded do we remove the source point.
+                await removeFeature('points', pointId);
+                points.remove(pointId);
 
-            await Promise.all([milSymbols.flush(), points.flush()]);
-        } finally {
-            commitBatchUndo();
-        }
+                await Promise.all([milSymbols.flush(), points.flush()]);
+            } finally {
+                commitBatchUndo();
+            }
+        });
 
         // Select the new feature
         await selectionManager.toggleFeatureSelection('military_symbol', featureId, feature);
@@ -1379,26 +1385,29 @@ async function convertPointToCoordinationMeasure(pointFeature, selectionManager,
         const measures = getGeoJsonDispatcher(map, 'coordination_measures');
         const points = getGeoJsonDispatcher(map, 'points');
 
-        // Batch add+remove so a single Ctrl+Z undoes the whole conversion.
-        startBatchUndo();
-        try {
-            // Add the coordination measure FIRST so a persist failure cannot lose the point.
-            await addFeature('coordination_measures', feature);
-            symbolAdded = true;
-            measures.add(feature);
+        // Batch add+remove so a single Ctrl+Z undoes the whole conversion, and so the SERVER
+        // applies or refuses both together (same reason as the military symbol above).
+        await withGestureBatch(async () => {
+            startBatchUndo();
+            try {
+                // Add the coordination measure FIRST so a persist failure cannot lose the point.
+                await addFeature('coordination_measures', feature);
+                symbolAdded = true;
+                measures.add(feature);
 
-            // Same ordering guarantee as the military symbol above: the image is registered
-            // before the queued add reaches the source.
-            await coordControl.loadSymbolToMap(featureId, result.blob, result.pixelRatio);
+                // Same ordering guarantee as the military symbol above: the image is registered
+                // before the queued add reaches the source.
+                await coordControl.loadSymbolToMap(featureId, result.blob, result.pixelRatio);
 
-            // Only after the add succeeded do we remove the source point.
-            await removeFeature('points', pointId);
-            points.remove(pointId);
+                // Only after the add succeeded do we remove the source point.
+                await removeFeature('points', pointId);
+                points.remove(pointId);
 
-            await Promise.all([measures.flush(), points.flush()]);
-        } finally {
-            commitBatchUndo();
-        }
+                await Promise.all([measures.flush(), points.flush()]);
+            } finally {
+                commitBatchUndo();
+            }
+        });
 
         // Select the new feature
         await selectionManager.toggleFeatureSelection('coordination_measure', featureId, feature);

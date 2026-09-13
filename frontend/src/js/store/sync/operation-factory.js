@@ -11,6 +11,7 @@ import { StoreScopeKind, getActiveScope, remoteAtlasIdFromDbSuffix } from '@stor
 import { isValidEntityType, isValidOperationType } from './operation-types.js';
 import { noteLocalEdit } from './overwrite-notice.js';
 import { mutationContract } from './mutation-contract.js';
+import { reserveGestureBatchSlots } from './gesture-batch.js';
 
 // ===== CLIENT IDENTITY =====
 
@@ -471,11 +472,20 @@ export function createOperation(entityType, operationType, entityId, mapId, data
 /**
  * Creates a batch of operations sharing the same batchId and wall-clock timestamp.
  *
+ * ONE TRANSACTION IS ONE BATCH, UNLESS A GESTURE IS OPEN. A composite gesture cannot fit in one
+ * transaction (the map document lock is FIFO with no reentrancy, see `gesture-batch.js`), so
+ * `withGestureBatch` lends its identity to every transaction that completes inside it, and the
+ * `batchIndex` continues from where the previous transaction of the same gesture stopped: the
+ * server reads parent before child by that index, so restarting it at zero would put two members
+ * in the same position and leave the order to chance.
+ *
  * @param {Array<{entityType: string, operationType: string, entityId: string, mapId?: string, data?: Object, previousData?: Object}>} operations - Operations to create
  * @returns {Operation[]} Array of created operations
  */
 export function createBatchOperations(operations) {
-    const batchId = generateUUID();
+    const gesture = reserveGestureBatchSlots(operations.length);
+    const batchId = gesture ? gesture.id : generateUUID();
+    const firstIndex = gesture ? gesture.startIndex : 0;
     const timestamp = Date.now();
     const client = getClientId();
     // Read ONCE for the batch: every op of one gesture is born in the same scope, and a
@@ -502,6 +512,6 @@ export function createBatchOperations(operations) {
         scopeSuffix,
         atlasId,
         batchId,
-        batchIndex: index
+        batchIndex: firstIndex + index
     }));
 }

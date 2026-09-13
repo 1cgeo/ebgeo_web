@@ -51,6 +51,8 @@ import {
     getEventBus,
 } from '@store';
 import { checkPermission } from '@store/sync/permission-guard.js';
+// Leaf module (only the uuid helper): importing it by file keeps the sync barrel out of the graph.
+import { withGestureBatch } from '@store/sync/gesture-batch.js';
 import { denialNotice } from '@store/denial-phrases.js';
 import { IDUtils, showSuccess, showWarning } from '@utils';
 import { EventTypes } from '@events';
@@ -311,39 +313,48 @@ export async function convertLinearFeature(feature, target, selectionManager, ui
     const targetDispatcher = getGeoJsonDispatcher(map, targetStorage);
 
     let ok = false;
-    startBatchUndo();
-    try {
-        const created = await addFeature(targetStorage, converted);
-        // A ÚNICA LEITURA QUE IMPORTA: `undefined` significa recusado, e a store já mostrou
-        // (ou vai mostrar) a frase. Seguir daqui é escrever nas fontes um trabalho que a
-        // persistência não aceitou.
-        if (!created) return false;
+    // UM LOTE LÓGICO SÓ, e ele envolve o MESMO trecho que o lote de desfazer. Criar a nova e
+    // remover a de origem são duas transações (as folhas tomam a trava do documento cada uma na
+    // sua chave, e a fila dela é FIFO sem reentrância), então o que as une é a identidade de
+    // gesto: o servidor aplica ou recusa as duas juntas, e nunca sobra uma feição convertida com
+    // a original ainda no mapa. Ver `store/sync/gesture-batch.js`.
+    const concluida = await withGestureBatch(async () => {
+        startBatchUndo();
+        try {
+            const created = await addFeature(targetStorage, converted);
+            // A ÚNICA LEITURA QUE IMPORTA: `undefined` significa recusado, e a store já mostrou
+            // (ou vai mostrar) a frase. Seguir daqui é escrever nas fontes um trabalho que a
+            // persistência não aceitou.
+            if (!created) return false;
 
-        targetDispatcher.add(converted);
+            targetDispatcher.add(converted);
 
-        if (target === 'boundary' && typeof targetControl.updateDependentFeatures === 'function') {
-            // Os círculos e os rótulos são derivados e vivem em fontes próprias. A falha aqui
-            // não pode desfazer a conversão: ela custa a decoração, não a feição.
-            try {
-                await targetControl.updateDependentFeatures(converted);
-            } catch (error) {
-                console.error('Failed to build the dependent features of the new boundary:', error);
+            if (target === 'boundary' && typeof targetControl.updateDependentFeatures === 'function') {
+                // Os círculos e os rótulos são derivados e vivem em fontes próprias. A falha aqui
+                // não pode desfazer a conversão: ela custa a decoração, não a feição.
+                try {
+                    await targetControl.updateDependentFeatures(converted);
+                } catch (error) {
+                    console.error('Failed to build the dependent features of the new boundary:', error);
+                }
             }
-        }
 
-        await removeSourceFeature({ control: sourceControl, source, feature, map });
-        await targetDispatcher.flush();
-        ok = true;
-    } catch (error) {
-        console.error(`Error converting '${source}' to '${target}':`, error);
-        showWarning(CONVERSION_FAILED_NOTICE);
-        return false;
-    } finally {
-        // Duas saídas, e não um `commit` incondicional: um lote parcial gravado como passo de
-        // desfazer ressuscita a metade errada no primeiro Ctrl+Z.
-        if (ok) commitBatchUndo();
-        else discardBatchUndo();
-    }
+            await removeSourceFeature({ control: sourceControl, source, feature, map });
+            await targetDispatcher.flush();
+            ok = true;
+            return true;
+        } catch (error) {
+            console.error(`Error converting '${source}' to '${target}':`, error);
+            showWarning(CONVERSION_FAILED_NOTICE);
+            return false;
+        } finally {
+            // Duas saídas, e não um `commit` incondicional: um lote parcial gravado como passo de
+            // desfazer ressuscita a metade errada no primeiro Ctrl+Z.
+            if (ok) commitBatchUndo();
+            else discardBatchUndo();
+        }
+    });
+    if (!concluida) return false;
 
     await selectionManager.toggleFeatureSelection(target, featureId, converted);
     uiManager?.updateSelectionHighlight?.();

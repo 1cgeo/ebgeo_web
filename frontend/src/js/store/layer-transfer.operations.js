@@ -91,6 +91,7 @@ import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { OperationType } from './sync/index.js';
 // Leaf module (zero imports): keeps the vocabulary out of the sync barrel's graph.
 import { EntityType } from './sync/operation-types.js';
+import { withGestureBatch } from './sync/gesture-batch.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { runTransaction } from './store-transaction.js';
 import {
@@ -431,6 +432,34 @@ export async function transferLayerToMap(layerId, targetMapName, options = {}) {
     });
     const nextLayers = [...targetLayers, newLayer];
 
+    // UM LOTE LÓGICO SÓ, DE PONTA A PONTA. As escritas abaixo são de duas a quatro transações
+    // (o registro da camada, as feições no destino, a remoção na origem), e elas NÃO podem ser
+    // uma: cada folha toma `withMapDocument` na sua chave e a fila de `store/document-lock.js` é
+    // FIFO sem reentrância, que é o motivo de esta operação estar declarada como composta no
+    // cabeçalho deste arquivo. O que as une é a identidade de gesto: o servidor aplica ou recusa
+    // as três juntas, e o par nunca fica com a camada criada no destino e as feições ainda na
+    // origem. Ver `store/sync/gesture-batch.js`.
+    return withGestureBatch(() => transferirDentroDoLote({
+        mode, layerId, sourceMapName, targetMapName, targetLayers, newLayer, nextLayers,
+        transferable, skippedCount, now,
+    }));
+}
+
+/**
+ * O corpo de escrita de {@link transferLayerToMap}, já dentro do lote lógico do gesto.
+ *
+ * SEPARADO SÓ PARA CABER NO LOTE, e não por decomposição: todas as recusas e leituras que
+ * decidem SE a transferência acontece ficaram na função pública, porque nenhuma delas escreve e
+ * abrir um gesto para descobrir que ele não vai acontecer seguraria o envio por nada.
+ *
+ * @param {Object} contexto - Tudo o que a fase de escrita precisa, já resolvido.
+ * @returns {Promise<Object>} O mesmo desfecho que a função pública devolve.
+ * @private
+ */
+async function transferirDentroDoLote({
+    mode, layerId, sourceMapName, targetMapName, targetLayers, newLayer, nextLayers,
+    transferable, skippedCount, now,
+}) {
     await runTransaction(async (tx) => {
         tx.deferSync(() => mirrorLayerIntoHydratedMemory(targetMapName, newLayer));
         // The op carries the destination map ID, not its NAME: `logLayerOperation` files

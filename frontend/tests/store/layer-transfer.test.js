@@ -45,7 +45,8 @@ const {
     mockRemote,
     mockApiClient,
     mockSyncEngine,
-    mockUploads
+    mockUploads,
+    mockGestos
 } = vi.hoisted(() => ({
     mockMaps: { value: {} },
     mockLayers: { value: {} },
@@ -68,7 +69,9 @@ const {
     mockRemote: { value: false },
     mockApiClient: { bulkUploadImages: vi.fn(async () => ({ mapping: {}, failed: [] })) },
     mockSyncEngine: { atlasId: null },
-    mockUploads: { calls: [] }
+    mockUploads: { calls: [] },
+    /** Qual gesto estava ABERTO em cada transação da transferência. */
+    mockGestos: { calls: [] }
 }));
 
 // ============================================================================
@@ -113,7 +116,16 @@ vi.mock('../../src/js/store/sync/index.js', () => ({
 
 vi.mock('../../src/js/store/sync/operation-dispatcher.js', async () => {
     const loggers = await import('../../src/js/store/sync/index.js');
+    const { openGestureBatchId } = await import('../../src/js/store/sync/gesture-batch.js');
     return { persistOperationIntents: async descriptions => {
+        // O QUE A PRODUÇÃO FARIA COM ESTE VALOR: `createBatchOperations` lê o gesto ABERTO e
+        // carimba o `batchId` dele em todas as intenções da transação. Aqui o dublê só ANOTA
+        // qual gesto estava aberto em cada transação, que é a única coisa que este arquivo
+        // pode medir sem a fila real, e é o que separa "um lote lógico" de "dois".
+        mockGestos.calls.push({
+            gesture: openGestureBatchId(),
+            entityTypes: descriptions.map(op => op.entityType),
+        });
         for (const op of descriptions) {
             const logger = op.entityType === 'layer' ? loggers.logLayerOperation : loggers.logFeatureOperation;
             await logger(op.operationType, op.entityId, op.mapId, op.data, op.previousData);
@@ -373,6 +385,7 @@ beforeEach(() => {
     mockRemote.value = false;
     mockSyncEngine.atlasId = null;
     mockUploads.calls = [];
+    mockGestos.calls = [];
 
     isCurrentMapLockedSync.mockReturnValue(false);
     isMapLocked.mockImplementation(async (mapName) => mockDiskLocks.value.has(mapName));
@@ -629,6 +642,28 @@ describe('transferLayerToMap - mover', () => {
         const mapIds = logLayerOperation.mock.calls.map(call => call[2]);
         expect(mapIds).not.toContain('MapB');
         expect(mapIds).not.toContain('MapA-uuid');
+    });
+
+    // A transferência é COMPOSTA e fica FORA de `withMapDocument` (ponto 4 do cabeçalho deste
+    // arquivo de produção): as folhas tomam a trava do documento cada uma na sua chave, e a fila
+    // é FIFO sem reentrância, então uma transação só travaria a interface para sempre. O que une
+    // as transações é a identidade de gesto, e é isso que faz o servidor aplicar ou recusar as
+    // três juntas em vez de deixar a camada criada no destino com as feições ainda na origem.
+    it('as transações da transferência correm todas no MESMO gesto', async () => {
+        await transferLayerToMap('l1', 'MapB', { mode: TransferMode.MOVE });
+
+        // Duas transações escrevem intenção: o registro da camada no destino e as feições no
+        // destino. A remoção das FEIÇÕES da origem não loga nada, por desenho (o par espelha a
+        // cascata do DELETE de camada), e a remoção do REGISTRO passa pelo dublê de
+        // `layerManager`, então aqui ela chega sem descrição nenhuma.
+        expect(mockGestos.calls.map(c => c.entityTypes)).toEqual([
+            ['layer'], ['feature', 'feature', 'feature'], [],
+        ]);
+        const gestos = new Set(mockGestos.calls.map(c => c.gesture));
+        expect(gestos.size).toBe(1);
+        // CONTROLE NEGATIVO EMBUTIDO: `null` é o que se lê fora de um gesto, e um conjunto de
+        // um elemento contendo `null` passaria a asserção acima sem provar nada.
+        expect([...gestos][0]).toEqual(expect.any(String));
     });
 
     it('mantém os ids das feições: mover é o mesmo objeto numa casa nova', async () => {
