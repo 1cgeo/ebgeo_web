@@ -422,11 +422,22 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // 10605 kB SEM o lote, isto é, o teto já estava vencido por deriva antes dele. O grafo
         // ansioso ficou em 6467 kB, dentro da banda dele. Piso e teto sobem juntos (~8% em torno da
         // medida), então o caminhador quebrado continua acusando.
+        //
+        // O TETO SUBIU DE 11600 PARA 11700 EM 2026-09-13, e de propósito NÃO foi recentrado. O lote
+        // é o painel de pendências (B5 item 5, cinco arquivos sob `account/pendencias/`, 74 kB de
+        // fonte nova, alcançados por `import()` no clique do crachá de sync). Medido nesta árvore,
+        // trocando o `import()` do painel por um vizinho já no grafo: 11535 kB SEM o lote e 11609
+        // kB COM ele, ou seja, a deriva desde 2026-09-03 já tinha comido 795 dos 860 kB de folga e
+        // o teto velho estava a 65 kB de vencer por conta própria. Recentrar em ±8% sobre 11609
+        // daria teto perto de 12500 e compraria 900 kB de deriva futura silenciosa, que é o oposto
+        // do que este número serve para fazer; 11700 deixa 91 kB, o que obriga o próximo lote a
+        // olhar para cá. O PISO fica onde está: ele guarda o caminhador quebrado, e 9880 continua
+        // acusando um grafo que desabou.
         expect(completo.arquivos.size).toBeGreaterThanOrEqual(580);
         expect(completo.arquivos.size).toBeLessThanOrEqual(700);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
-        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11600);
+        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11700);
     });
 
     it('seguir `import()` de fato acrescenta grafo, e é isso que prova a regex dinâmica', () => {

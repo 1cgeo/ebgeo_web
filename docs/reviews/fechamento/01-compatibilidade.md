@@ -23,6 +23,12 @@ Pontos de entrada: `backend/src/modules/sync/sync-protocol.js`, `backend/src/mod
 3. Completar a matriz build/protocolo/schema local/schema do servidor e o aviso de incompatibilidade. Manter HTTP 426 para incompatibilidade incremental: clientes anteriores podem descartar operações ao receber 400/422.
 4. Conferir retomada da migração de filas, marca de progresso e verificação do destino antes de limpar a origem. Concluir a revisão explícita com o [painel de conflitos](03-conflitos.md).
 
+   A METADE DA REVISÃO EXPLÍCITA QUE ERA TELA FECHOU em 2026-09-13, no painel de pendências (`frontend/src/js/account/pendencias/pendencias-panel.js`, passo 5 do bloco B5). A intenção retida por protocolo incompatível deixou de ser um número na luz de sync: ela aparece como linha própria, com a classe "Quarentena de protocolo" (a classe `revisao` de `frontend/src/js/store/sync/issue-classes.js`, escrita por `legacyQueueIssue`), com o motivo, a data e o item, e com as duas únicas saídas que ela admite, exportar e descartar. Não há "reenviar": a op de um protocolo anterior não é reenviada nem reescrita para passar num schema novo, e o painel não oferece o botão em vez de oferecê-lo e recusar, porque isso é forma e não estado.
+
+   Fica valendo, e o painel não muda: ausência de recibo continua não provando ausência de aplicação, e nenhuma base é atualizada automaticamente. O que a pessoa pode fazer é DECIDIR, e as duas decisões são explícitas e nomeiam o que somem.
+
+   O que continua faltando do item 4 é a metade de MIGRAÇÃO (retomada, marca de progresso e verificação do destino antes de limpar a origem), que não é assunto de tela.
+
 ## Aceite e testes
 
 Cobrir cliente antigo aberto durante atualização, backend sem capacidade, versão futura, F5 em cada etapa da migração, retry com mesmo ID, alteração de conteúdo sob o mesmo ID, leitor que perdeu escrita e revogação total de acesso. Cada exceção precisa de teste HTTP e de serviço. Ausência de recibo nunca prova ausência de aplicação. Fila incerta permanece recuperável; nenhuma base é atualizada automaticamente. Encerrar somente com a matriz completa, sem bloquear atlas locais e sem bypass conhecido.

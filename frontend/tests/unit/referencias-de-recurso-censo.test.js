@@ -165,6 +165,11 @@ const CENSO = [
     // `photoId` daqui não chega a documento de atlas nenhum.
     { arquivo: 'src/js/calibration/viewer.js', campo: 'photoId', classe: OUTRO_DOCUMENTO },
     { arquivo: 'src/js/catalog/catalog.modal.js', campo: 'photoId', classe: RUNTIME },
+    // Homônimo de VOCABULÁRIO, e não uma referência: `baseLayer` aqui é uma CHAVE da tabela que
+    // traduz `EntityType` para o nome que o painel de pendências mostra ("Mapa base"), como o
+    // `baseLayer` de `events/event_types.js` logo abaixo é o nome de um evento. O arquivo é folha
+    // de zero imports e não toca documento nenhum, então não cria superfície de persistência.
+    { arquivo: 'src/js/account/pendencias/pendencias-phrases.js', campo: 'baseLayer', classe: RUNTIME },
     { arquivo: 'src/js/comment_tool/comments-panel.js', campo: 'baseLayer', classe: RUNTIME },
     { arquivo: 'src/js/deep-link/deep-link.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/deep-link/deep-link.js', campo: 'photoName', classe: RUNTIME },
