@@ -54,6 +54,10 @@ const cenario = {
     aberturas: 0,
     /** As frases que o controle mandou para a tela. */
     avisos: [],
+    /** Se a soma de recursos privados falhou: é o que faz nascer o aviso do acervo. */
+    degradado: false,
+    /** Quantas vezes o reparo do acervo privado foi pedido. */
+    reparos: 0,
 };
 
 vi.mock('@store/services.js', () => ({
@@ -121,9 +125,12 @@ vi.mock('@store/atlas-namespace.js', () => ({
 }));
 
 vi.mock('@store/sync/resource-access.service.js', () => ({
-    isResourceAccessDegraded: () => false,
+    isResourceAccessDegraded: () => cenario.degradado,
     onResourceAccessHealthChanged: () => () => {},
-    retryVisibleResources: async () => true,
+    retryVisibleResources: async () => {
+        cenario.reparos += 1;
+        return true;
+    },
 }));
 
 // O PAINEL É DUBLADO PARA A SUÍTE INTEIRA, e este duplo é MUDO de propósito: os casos que pintam
@@ -142,11 +149,17 @@ vi.mock('@utils/toast_service.js', () => ({
     showInChannel: (m) => cenario.avisos.push(m),
 }));
 
-// O laço de limpeza não é o assunto aqui, e o real precisa de um barramento de verdade.
+// O laço de limpeza não é o assunto aqui, e o real precisa de um barramento de verdade. O que o
+// duplo NÃO pode jogar fora é o ouvinte de DOM: os dois alvos de clique do crachá (o comando, que
+// abre o painel, e o aviso do acervo, que repara) são justamente o assunto do último bloco, e um
+// `addDomListener` vazio mediria um crachá sem gesto nenhum.
 vi.mock('@utils/event-cleanup.js', () => ({
     setupCleanup() {},
     subscribe() {},
-    addDomListener() {},
+    addDomListener(_dono, el, tipo, fn) {
+        el.__ouvintes ??= [];
+        el.__ouvintes.push({ tipo, fn });
+    },
     trackTimer() {},
     cleanup() {},
     removeElement() {},
@@ -184,6 +197,35 @@ afterAll(() => {
     else globalThis.document = documentoOriginal;
 });
 
+/**
+ * Acha um descendente por `data-testid`, em profundidade.
+ *
+ * A BUSCA É RECURSIVA DESDE 2026-09-13, e não é conveniência: o crachá deixou de ser um elemento
+ * só. O comando (ponto + rótulo) e o aviso do acervo privado são IRMÃOS dentro do container, e uma
+ * busca de um nível só voltaria a achar o rótulo hoje e nada amanhã.
+ * @param {Object} raiz
+ * @param {string} testid
+ * @returns {Object|undefined}
+ */
+function acharPorTestid(raiz, testid) {
+    if (!raiz) return undefined;
+    if (raiz.getAttribute?.('data-testid') === testid) return raiz;
+    for (const filho of raiz.children ?? []) {
+        const achado = acharPorTestid(filho, testid);
+        if (achado) return achado;
+    }
+    return undefined;
+}
+
+/** O elemento que carrega o estado pintado e o clique que abre o painel. */
+const comandoDe = (container) => acharPorTestid(container, 'sync-status-badge');
+
+/** Dispara os ouvintes de um tipo registrados naquele elemento pelo duplo de `addDomListener`. */
+function disparar(el, tipo, evento = {}) {
+    const alvo = { stopPropagation() {}, preventDefault() {}, ...evento };
+    for (const { tipo: t, fn } of el.__ouvintes ?? []) if (t === tipo) fn(alvo);
+}
+
 const { SyncStatusControl } = await import('../../src/js/account/sync-status.control.js');
 
 /**
@@ -194,12 +236,12 @@ async function pintar() {
     const control = new SyncStatusControl();
     const container = control.onAdd({});
     await control._readQueue();
+    const comando = comandoDe(container);
     return {
-        work: container.getAttribute('data-work'),
-        tone: container.getAttribute('data-tone'),
-        label: container.children
-            .find((c) => c.getAttribute('data-testid') === 'sync-status-label')?.textContent,
-        title: container.getAttribute('title'),
+        work: comando.getAttribute('data-work'),
+        tone: comando.getAttribute('data-tone'),
+        label: acharPorTestid(container, 'sync-status-label')?.textContent,
+        title: comando.getAttribute('title'),
     };
 }
 
@@ -219,6 +261,8 @@ beforeEach(() => {
         painelFalha: false,
         aberturas: 0,
         avisos: [],
+        degradado: false,
+        reparos: 0,
     });
 });
 
@@ -305,7 +349,7 @@ describe('a coleta falha FECHADA', () => {
     it('antes da primeira leitura o crachá diz que está verificando', async () => {
         const control = new SyncStatusControl();
         const container = control.onAdd({});
-        expect(container.getAttribute('data-work')).toBe('verificando');
+        expect(comandoDe(container).getAttribute('data-work')).toBe('verificando');
     });
 });
 
@@ -335,6 +379,41 @@ describe('atlas local e visitante', () => {
 });
 
 /**
+ * A classe recarregada, com o painel dublado DE NOVO.
+ *
+ * `doMock` E NÃO `vi.mock`: a fábrica hasteada é avaliada uma vez e o resultado dela fica no
+ * registro de duplos, que `resetModules` não limpa, então um caso que carregasse o painel com
+ * sucesso deixaria todos os seguintes incapazes de encenar a falha. Registrar de novo a cada
+ * caso é o que torna a carga contável e a falha encenável.
+ * @returns {Promise<Function>}
+ */
+async function classeNova() {
+    vi.resetModules();
+    vi.doMock('../../src/js/account/pendencias/pendencias-panel.js', () => {
+        cenario.cargasDoPainel += 1;
+        if (cenario.painelFalha) {
+            throw new Error('Failed to fetch dynamically imported module: pendencias-panel.js');
+        }
+        return { abrirPainelDePendencias: () => { cenario.aberturas += 1; } };
+    });
+    const modulo = await import('../../src/js/account/sync-status.control.js');
+    return modulo.SyncStatusControl;
+}
+
+/** Deixa a carga do painel, que é assíncrona por natureza, chegar ao fim. */
+const assentar = () => new Promise((resolve) => { setTimeout(resolve, 0); });
+
+/** Monta, faz uma leitura e devolve o controle já pintado (o container é `control._container`). */
+async function montado() {
+    const Classe = await classeNova();
+    const control = new Classe();
+    control.onAdd({});
+    await control._readQueue();
+    await assentar();
+    return control;
+}
+
+/**
  * O PAINEL VIAJA PELA REDE, e o clique acontece justamente quando ela caiu.
  *
  * A captura de B5d mediu isto: sem rede o `import()` do clique não traz o módulo, e o `catch` só
@@ -349,41 +428,6 @@ describe('atlas local e visitante', () => {
  * carga e aviso (o de vácuo, que exige ZERO carga no verde, continua verde, que é o papel dele).
  */
 describe('o painel é buscado antes do clique, e a falha do clique fala', () => {
-    /**
-     * A classe recarregada, com o painel dublado DE NOVO.
-     *
-     * `doMock` E NÃO `vi.mock`: a fábrica hasteada é avaliada uma vez e o resultado dela fica no
-     * registro de duplos, que `resetModules` não limpa, então um caso que carregasse o painel com
-     * sucesso deixaria todos os seguintes incapazes de encenar a falha. Registrar de novo a cada
-     * caso é o que torna a carga contável e a falha encenável.
-     * @returns {Promise<Function>}
-     */
-    async function classeNova() {
-        vi.resetModules();
-        vi.doMock('../../src/js/account/pendencias/pendencias-panel.js', () => {
-            cenario.cargasDoPainel += 1;
-            if (cenario.painelFalha) {
-                throw new Error('Failed to fetch dynamically imported module: pendencias-panel.js');
-            }
-            return { abrirPainelDePendencias: () => { cenario.aberturas += 1; } };
-        });
-        const modulo = await import('../../src/js/account/sync-status.control.js');
-        return modulo.SyncStatusControl;
-    }
-
-    /** Deixa a carga do painel, que é assíncrona por natureza, chegar ao fim. */
-    const assentar = () => new Promise((resolve) => { setTimeout(resolve, 0); });
-
-    /** Monta, faz uma leitura e devolve o controle já pintado. */
-    async function montado() {
-        const Classe = await classeNova();
-        const control = new Classe();
-        control.onAdd({});
-        await control._readQueue();
-        await assentar();
-        return control;
-    }
-
     it('CONTROLE DE VÁCUO: com tudo enviado o módulo NÃO é baixado', async () => {
         // Sem este caso, um pré-carregamento incondicional passaria em todos os outros e o peso do
         // boot cresceria para quem nunca vai abrir o painel.
@@ -445,5 +489,98 @@ describe('o painel é buscado antes do clique, e a falha do clique fala', () => 
         await control._readQueue();
         await assentar();
         expect(cenario.cargasDoPainel).toBe(depoisDaPrimeira + 1);
+    });
+});
+
+/**
+ * O CRACHÁ TEM DOIS ALVOS, e o de dentro engolia o clique do de fora (achado de P6).
+ *
+ * O QUE SE MEDIU, na captura de P4 sem rede: com a rede desligada a soma de recursos privados
+ * falha, o aviso "Acervo privado indisponível" nasce, e o clique dirigido ao crachá deixa de abrir
+ * o painel de pendências. A causa não é o carregamento do módulo (isso foi A1, e está preso no
+ * bloco acima): é ALVO. O aviso era FILHO da área clicável e é o átomo mais largo da tira, então o
+ * centro geométrico do crachá cai dentro dele, e quem clica ali aciona o reparo do acervo.
+ * `stopPropagation` no filho não conserta isso, porque nada estava borbulhando errado.
+ *
+ * A ASSERÇÃO ESTRUTURAL É A QUE VALE, e ela é o que node consegue medir: o elemento que carrega
+ * `data-abre-pendencias` não contém o botão do aviso. Geometria não se mede aqui; a contenção, sim,
+ * e é ela que torna a geometria impossível. A foto sem rede é o outro lado, e mora em
+ * `_captura-p8-offline.spec.js` (apagado no commit, como manda o contrato de captura).
+ *
+ * CONTROLE NEGATIVO, conferido em 2026-09-13 devolvendo o aviso para dentro do comando
+ * (`this._command.appendChild(this._notice)`): reprova UM caso, o da contenção, com "expected
+ * { tagName: 'button' } to be undefined". Os três casos de clique continuam VERDES com o defeito
+ * de pé, e dizer isso em voz alta é o ponto: aqui o clique é entregue ao elemento por nome, e o
+ * defeito é de GEOMETRIA (o ponteiro cai no filho mais largo). Quem contar com eles para pegar a
+ * regressão vai ler um verde vazio; quem pega é a contenção, e a foto sem rede.
+ */
+describe('o aviso do acervo tem caixa PRÓPRIA, e o crachá continua abrindo o painel', () => {
+    /** Monta com a soma de recursos privados falhada e sem rede, que é o estado do achado. */
+    async function comAvisoESemRede() {
+        cenario.degradado = true;
+        cenario.conexao = 'offline';
+        cenario.censo = { pendentes: 1, preparadas: 0, problemas: 0 };
+        const control = await montado();
+        return { control, container: control._container };
+    }
+
+    it('o comando que abre as pendências NÃO contém o botão do aviso', async () => {
+        const { container } = await comAvisoESemRede();
+        const comando = comandoDe(container);
+        const aviso = acharPorTestid(container, 'resource-access-notice');
+
+        // Sem estas duas, a contenção poderia passar por ausência: um aviso que não existisse
+        // também não estaria dentro de coisa nenhuma.
+        expect(comando.getAttribute('data-abre-pendencias')).toBe('true');
+        expect(aviso).toBeDefined();
+        expect(aviso.hidden).toBe(false);
+
+        expect(acharPorTestid(comando, 'resource-access-notice')).toBeUndefined();
+        // E os dois são irmãos do mesmo container, e não duas superfícies soltas na barra.
+        expect(container.children).toContain(comando);
+        expect(container.children).toContain(aviso);
+    });
+
+    it('com o aviso de pé, o clique no crachá abre o painel', async () => {
+        const { container } = await comAvisoESemRede();
+        disparar(comandoDe(container), 'click');
+        await assentar();
+
+        expect(cenario.aberturas).toBe(1);
+        // E não dispara o reparo de passagem: os dois assuntos continuam separados.
+        expect(cenario.reparos).toBe(0);
+    });
+
+    it('o clique no aviso repara o acervo e NÃO abre o painel', async () => {
+        const { container } = await comAvisoESemRede();
+        disparar(acharPorTestid(container, 'resource-access-notice'), 'click');
+        await assentar();
+
+        expect(cenario.reparos).toBe(1);
+        expect(cenario.aberturas).toBe(0);
+    });
+
+    it('o teclado alcança o mesmo comando, e só nas duas teclas de ativação', async () => {
+        const { container } = await comAvisoESemRede();
+        const comando = comandoDe(container);
+        expect(comando.getAttribute('role')).toBe('button');
+        expect(comando.getAttribute('tabindex')).toBe('0');
+
+        disparar(comando, 'keydown', { key: 'Tab' });
+        await assentar();
+        expect(cenario.aberturas).toBe(0);
+
+        disparar(comando, 'keydown', { key: 'Enter' });
+        await assentar();
+        expect(cenario.aberturas).toBe(1);
+    });
+
+    it('sem o aviso, o crachá segue com um alvo só', async () => {
+        // CONTROLE DE VÁCUO da separação: a caixa nova não pode aparecer quando não há o que
+        // avisar, senão ela é um alvo morto ocupando a barra.
+        cenario.censo = { pendentes: 1, preparadas: 0, problemas: 0 };
+        const control = await montado();
+        const aviso = acharPorTestid(control._container, 'resource-access-notice');
+        expect(aviso.hidden).toBe(true);
     });
 });

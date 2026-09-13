@@ -264,13 +264,15 @@
     cursor: not-allowed;
 }
 
-/* ---- O crachá de sync como comando ---- */
+/* ---- O crachá de sync como comando ----
+   O comando é o ponto mais o rótulo, e NÃO a tira inteira: o aviso do acervo
+   privado é irmão dele e tem ação própria. Ver `account.css`. */
 
-.sync-status-badge[data-abre-pendencias='true'] {
+.sync-status-badge__command[data-abre-pendencias='true'] {
     cursor: pointer;
 }
 
-.sync-status-badge[data-abre-pendencias='true']:focus-visible {
+.sync-status-badge__command[data-abre-pendencias='true']:focus-visible {
     outline: 2px solid var(--color-info);
     outline-offset: 2px;
 }

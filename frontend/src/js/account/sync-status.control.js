@@ -155,6 +155,12 @@ export class SyncStatusControl {
         this._map = null;
         /** @type {HTMLDivElement|null} */
         this._container = null;
+        /**
+         * The clickable half of the badge: dot plus label, and the element that carries every
+         * painted attribute. It is NOT the container; {@link onAdd} says why.
+         * @type {HTMLDivElement|null}
+         */
+        this._command = null;
         /** @type {HTMLSpanElement|null} The colored dot itself. */
         this._dot = null;
         /** @type {HTMLSpanElement|null} The visible short label. */
@@ -222,20 +228,34 @@ export class SyncStatusControl {
 
         this._container = document.createElement('div');
         this._container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group sync-status-badge';
-        this._container.setAttribute('data-testid', 'sync-status-badge');
+        this._container.setAttribute('data-testid', 'sync-status-cluster');
 
         // O CRACHÁ É O CAMINHO ATÉ AS PENDÊNCIAS, e ele é o único: a luz já nomeia o que ficou
         // para trás ("Revisão: 3", "Recusa: 1") e apontava para uma tela que não existia. Ele vira
         // comando com `role="button"` mais teclado, e não um `<button>` de verdade, porque o
-        // elemento é o container do IControl do MapLibre e já carrega o aviso do acervo privado,
-        // que É um botão: botão dentro de botão não é HTML válido e o clique do de dentro
-        // borbulharia para o de fora, abrindo o painel a cada tentativa de reparo.
-        this._container.setAttribute('role', 'button');
-        this._container.setAttribute('tabindex', '0');
-        this._container.setAttribute('aria-haspopup', 'dialog');
-        this._container.setAttribute('data-abre-pendencias', 'true');
-        addDomListener(this, this._container, 'click', () => this._abrirPendencias());
-        addDomListener(this, this._container, 'keydown', (event) => {
+        // aviso do acervo privado, ao lado dele, É um botão, e botão dentro de botão não é HTML
+        // válido.
+        //
+        // O COMANDO É UM ELEMENTO PRÓPRIO, E NÃO O CONTAINER, e essa é a correção de P6: enquanto
+        // o container inteiro foi o comando, o aviso do acervo privado era FILHO da área clicável,
+        // e ele nasce justamente sem rede, que é quando a soma de recursos privados falha. O aviso
+        // é o átomo mais largo da tira (200 px de frase contra um rótulo de duas palavras), então
+        // o CENTRO geométrico do crachá cai dentro dele: o clique dirigido ao crachá acionava o
+        // reparo e o painel não abria. `stopPropagation` no filho não resolve isso, porque o
+        // problema não é borbulhamento, é ALVO. Agora são dois irmãos com caixas próprias, e o
+        // container só os alinha. O `data-testid` do crachá acompanha o comando, porque é ele que
+        // se clica e é nele que as ~20 esperas por `data-state="online"` da camada de Playwright
+        // precisam continuar caindo.
+        this._command = document.createElement('div');
+        this._command.className = 'sync-status-badge__command';
+        this._command.setAttribute('data-testid', 'sync-status-badge');
+        this._command.setAttribute('role', 'button');
+        this._command.setAttribute('tabindex', '0');
+        this._command.setAttribute('aria-haspopup', 'dialog');
+        this._command.setAttribute('data-abre-pendencias', 'true');
+        this._container.appendChild(this._command);
+        addDomListener(this, this._command, 'click', () => this._abrirPendencias());
+        addDomListener(this, this._command, 'keydown', (event) => {
             if (event.key !== 'Enter' && event.key !== ' ') return;
             event.preventDefault();
             this._abrirPendencias();
@@ -244,18 +264,19 @@ export class SyncStatusControl {
         this._dot = document.createElement('span');
         this._dot.className = 'sync-status-badge__dot';
         this._dot.setAttribute('aria-hidden', 'true');
-        this._container.appendChild(this._dot);
+        this._command.appendChild(this._dot);
 
         this._label = document.createElement('span');
         this._label.className = 'sync-status-badge__label';
         this._label.setAttribute('data-testid', 'sync-status-label');
-        this._container.appendChild(this._label);
+        this._command.appendChild(this._label);
 
         // O AVISO DO ACERVO PRIVADO MORA AQUI, e não numa superfície própria, porque este é
         // o eixo em que a pessoa já procura estado de sessão, e porque este controle já se
         // esconde inteiro para o visitante anônimo, que é exatamente quem não pode ver o
         // aviso (ele não perdeu nada). É um BOTÃO e não um átomo passivo: o gesto de reparo
-        // é a metade que faltava, e um aviso sem saída ensina a ignorar avisos.
+        // é a metade que faltava, e um aviso sem saída ensina a ignorar avisos. Ele é IRMÃO do
+        // comando, nunca filho: ver o comentário do comando, acima.
         this._notice = document.createElement('button');
         this._notice.type = 'button';
         this._notice.className = 'resource-access-notice';
@@ -263,7 +284,8 @@ export class SyncStatusControl {
         this._notice.hidden = true;
         this._container.appendChild(this._notice);
         addDomListener(this, this._notice, 'click', (event) => {
-            // O container inteiro abre o painel de pendências; este botão é outro assunto.
+            // Irmãos não borbulham um para o outro, mas o container é ancestral dos dois e pode
+            // ganhar um ouvinte amanhã; parar aqui mantém o reparo como assunto só dele.
             event.stopPropagation();
             this._repairResourceAccess();
         });
@@ -501,12 +523,12 @@ export class SyncStatusControl {
      * @private
      */
     _render() {
-        if (!this._container) return;
+        if (!this._container || !this._command) return;
 
         this._container.hidden = !sessionContext.isAuthenticated();
 
         const connection = connectionState.getState();
-        this._container.setAttribute('data-state', describeState(connection).dataState);
+        this._command.setAttribute('data-state', describeState(connection).dataState);
 
         const work = describeSyncWork({
             remote: isRemoteStoreSync(),
@@ -523,11 +545,11 @@ export class SyncStatusControl {
             // used, which is why it comes from `getActiveScope()`.
             recuperando: storeWritesPaused(getActiveScope()),
         });
-        this._container.setAttribute('data-work', work.state);
-        this._container.setAttribute('data-tone', work.tone);
+        this._command.setAttribute('data-work', work.state);
+        this._command.setAttribute('data-tone', work.tone);
         this._precarregarPainel(work.tone);
-        this._container.setAttribute('title', work.detail);
-        this._container.setAttribute('aria-label', work.detail);
+        this._command.setAttribute('title', work.detail);
+        this._command.setAttribute('aria-label', work.detail);
         if (this._label) this._label.textContent = work.label;
 
         this._renderResourceNotice();
@@ -575,6 +597,7 @@ export class SyncStatusControl {
         removeElement(this._container);
         this._painelModulo = null;
         this._container = null;
+        this._command = null;
         this._dot = null;
         this._label = null;
         this._notice = null;

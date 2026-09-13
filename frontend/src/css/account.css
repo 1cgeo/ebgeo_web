@@ -585,11 +585,23 @@
     display: none;
 }
 
+/* O crachá é uma TIRA DE DOIS IRMÃOS desde 2026-09-13: o comando (ponto +
+   rótulo, que abre as pendências) e o aviso do acervo privado, que é outro
+   assunto e tem caixa própria. Enquanto o aviso era filho da área clicável,
+   o centro geométrico do crachá caía dentro dele e o clique dirigido ao
+   crachá acionava o reparo em vez de abrir o painel. Este bloco só alinha os
+   dois; quem pinta estado é `.sync-status-badge__command`. */
 .sync-status-badge {
+    display: inline-flex;
+    align-items: center;
+}
+
+.sync-status-badge__command {
     display: inline-flex;
 
     /* A barra é uma tira estreita: o rótulo tem teto e corta com reticências
-       em vez de empurrar o avatar e o crachá de atlas para fora. */
+       em vez de empurrar o avatar e o crachá de atlas para fora. O teto vale
+       para o comando, não para a tira: o aviso irmão tem o dele. */
     max-width: 168px;
     align-items: center;
     padding: 0 var(--space-1);
@@ -614,30 +626,30 @@
     white-space: nowrap;
 }
 
-.sync-status-badge[data-tone="ok"] .sync-status-badge__dot {
+.sync-status-badge__command[data-tone="ok"] .sync-status-badge__dot {
     background: var(--color-success);
 }
 
 /* Trabalho em movimento pulsa por `transform` (nunca por `left`/`width`, que
    fariam layout a cada quadro numa barra que divide linha com outros
    controles). */
-.sync-status-badge[data-tone="busy"] .sync-status-badge__dot {
+.sync-status-badge__command[data-tone="busy"] .sync-status-badge__dot {
     background: var(--color-warning);
     animation: sync-status-pulse 1.4s ease-in-out infinite;
 }
 
-.sync-status-badge[data-tone="warn"] .sync-status-badge__dot {
+.sync-status-badge__command[data-tone="warn"] .sync-status-badge__dot {
     background: var(--color-error);
 }
 
-.sync-status-badge[data-tone="idle"] .sync-status-badge__dot,
-.sync-status-badge[data-tone="unknown"] .sync-status-badge__dot {
+.sync-status-badge__command[data-tone="idle"] .sync-status-badge__dot,
+.sync-status-badge__command[data-tone="unknown"] .sync-status-badge__dot {
     background: var(--gray-400);
 }
 
 /* Trabalho parado sem conexão é o único estado que pede o olho: o rótulo
    acompanha o ponto em vez de deixar a gravidade só na cor. */
-.sync-status-badge[data-tone="warn"] .sync-status-badge__label {
+.sync-status-badge__command[data-tone="warn"] .sync-status-badge__label {
     color: var(--color-error);
 }
 
@@ -648,17 +660,19 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .sync-status-badge[data-tone="busy"] .sync-status-badge__dot {
+    .sync-status-badge__command[data-tone="busy"] .sync-status-badge__dot {
         animation: none;
     }
 }
 
 /* =========================================================================
-   RESOURCE ACCESS NOTICE (dentro da pílula da luz de sync)
+   RESOURCE ACCESS NOTICE (ao LADO do comando, na mesma tira da luz de sync)
    O acervo PRIVADO desta conta não carregou. Não é modal e não bloqueia
    nada: é um átomo a mais na mesma tira, clicável, que some sozinho quando
    o reparo dá certo. Nunca aparece para o visitante anônimo, porque o
    controle inteiro já se esconde para ele.
+   CAIXA PRÓPRIA, IRMÃ DO COMANDO: ver o bloco do crachá acima. Dentro da
+   área clicável ele roubava o clique dirigido ao crachá.
    ========================================================================= */
 
 .resource-access-notice[hidden] {
@@ -697,9 +711,6 @@
     cursor: progress;
 }
 
-/* O teto de largura da pílula existe para o RÓTULO da luz, que é curto por
-   contrato. Com o aviso aberto ele cortaria a frase que a pessoa precisa
-   ler, então o teto sai enquanto o aviso estiver de pé. */
-.sync-status-badge:has(.resource-access-notice:not([hidden])) {
-    max-width: none;
-}
+/* O teto de largura vale para o COMANDO, cujo rótulo é curto por contrato, e
+   a regra que o suspendia com o aviso aberto saiu com a separação das duas
+   caixas: o aviso deixou de estar dentro do teto, então nada mais o corta. */
