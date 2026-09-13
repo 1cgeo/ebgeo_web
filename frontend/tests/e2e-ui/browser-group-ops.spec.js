@@ -201,8 +201,12 @@ describeOrSkip('Group ops + group_feature membership (real Chromium + real backe
             const ackLink = await api.pushOperations(atlas.id, [linkOp('create', featureId)]);
             const afterLink = await readState();
 
-            // 2. NEGATIVE/EDGE: link a feature that does NOT exist in the atlas. The
-            //    backend EXISTS guard drops it silently (ack, no membership ref added).
+            // 2. NEGATIVE/EDGE: link a feature that does NOT exist in the atlas. The backend
+            //    EXISTS guard writes ZERO rows, e desde `f8e109ea` (2026-09-12) zero linha num
+            //    CREATE deixou de ser silencio: `aplicarNoSavepoint` lanca um erro carimbado
+            //    `code: '23503'`, que `integrityRejectionReason` traduz na recusa POR OPERACAO
+            //    "Alteracao descartada: referencia um item que nao existe mais.". O push inteiro
+            //    continua 200, e nada e' persistido.
             const ghostFeatureId = crypto.randomUUID();
             const ackGhost = await api.pushOperations(atlas.id, [linkOp('create', ghostFeatureId)]);
             const afterGhost = await readState();
@@ -227,10 +231,17 @@ describeOrSkip('Group ops + group_feature membership (real Chromium + real backe
             };
         }, { baseUrl: state.baseUrl, u: user });
 
-        // Os três envelopes montados à mão foram ACEITOS por operação. É esta linha que separa
-        // "a membresia não apareceu" de "o push inteiro voltou 426 por falta de
-        // `protocolVersion`", que é o vermelho que este caso deu na primeira rodada completa.
-        expect(result.acks.map((a) => a.success), JSON.stringify(result.acks)).toEqual([true, true, true]);
+        // OS TRÊS ENVELOPES MONTADOS À MÃO FORAM ACEITOS PELO PROTOCOLO, e o desfecho POR OPERAÇÃO
+        // é [aplicada, RECUSADA, aplicada]. Esta linha separa três coisas que o vermelho anterior
+        // confundia: o push inteiro voltando 426 por falta de `protocolVersion` (todos `null`), a
+        // membresia que não apareceu, e a recusa POR OPERAÇÃO do link fantasma, que é o contrato
+        // desde `f8e109ea` e não um defeito. A `reason` entra na asserção porque só ela distingue
+        // a recusa do fantasma de qualquer outra recusa por operação.
+        expect(result.acks, JSON.stringify(result.acks)).toEqual([
+            { success: true, reason: null },
+            { success: false, reason: 'Alteração descartada: referencia um item que não existe mais.' },
+            { success: true, reason: null },
+        ]);
 
         // LINK: the group's features[] gains exactly the linked feature, with a resolved type.
         expect(result.linkRefIds).toContain(result.featureId);

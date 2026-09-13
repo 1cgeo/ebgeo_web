@@ -142,8 +142,18 @@ describeOrSkip('Group lifecycle (real Chromium + real backend, UI-first gestures
                     }),
                     createOperation('group', 'create', probeGroupId, mapId, { name: 'Probe', visible: true }),
                 ]);
+                // `protocolVersion: 2` NAO E DECORACAO, e a falta dele derrubava este caso INTEIRO
+                // (medido em 2026-09-13: `ApiError: Atualize o EBGeo para enviar alteracoes`, que e o
+                // 426). Desde `b26f4e66` (2026-09-12) `assertSyncProtocol`
+                // (`backend/src/modules/sync/sync-protocol.js`) roda ANTES da validacao e responde 426 a
+                // qualquer envelope identificavel que nao o declare, para preservar a fila de um cliente
+                // velho em vez de descarta-la. `createOperation` carimba o campo; este objeto literal nao
+                // herda isso de ninguem. O irmao `browser-group-ops.spec.js` recebeu a mesma correcao em
+                // `36c29d4d` e este arquivo ficou para tras. `group_feature` continua sem declarar base
+                // nem patch, e isso e desenho: a juncao tem create e delete idempotentes.
                 const linkOp = (fid) => ({
                     id: crypto.randomUUID(),
+                    protocolVersion: 2,
                     entityType: 'group_feature',
                     operationType: 'create',
                     entityId: crypto.randomUUID(),
