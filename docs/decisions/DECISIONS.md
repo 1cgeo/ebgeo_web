@@ -169,5 +169,18 @@ que envelheceu na decisão seguinte.)
 - 2026-09-12: presença administrativa e correção da coleta de uso, [registro](decisions-2026.md).
 - 2026-09-12: consolidação das migrações antes da primeira implantação, com recusa de histórico incompatível, [registro](decisions-2026.md).
 - 2026-09-12: orcamento medido de arquivos com presenca e telemetria antecipada, [registro](decisions-2026.md).
+- 2026-09-12: saída voluntária confirma e descarta pendências remotas, [registro](decisions-2026.md).
+- 2026-09-12: diário remoto, recibos duráveis e conflitos explícitos, [registro](decisions-2026.md).
+- 2026-09-12: descarte invalida escritores da sessão remota, [registro](decisions-2026.md).
+- 2026-09-12: movimentação e restauração são intenções explícitas, [registro](decisions-2026.md).
+- 2026-09-12: a camada padrão remota nasce no servidor, [registro](decisions-2026.md).
+- 2026-09-12: protocolo obrigatório e conciliação de filas antigas por recibos, [registro](decisions-2026.md).
+- 2026-09-12: intenção durável de briefing inclui os slides, [registro](decisions-2026.md).
+- 2026-09-12: catálogo preserva mapa de destino e identidade textual no replay, [registro](decisions-2026.md).
 - 2026-09-13: a baseline consolidada é editável até a implantação e congelada depois, [registro](decisions-2026.md).
 - 2026-09-13: as quatro decisões de condução do lançamento (D2 a D5) e a pendente do reuso de imagem por conteúdo (D7), [registro](decisions-2026.md).
+- 2026-09-13: create sobre túmulo continua ressuscitando, e a recusa de create é só de 3D e 360, [registro](decisions-2026.md).
+- 2026-09-13: catálogo, 3D e 360 disputam o documento inteiro, e entidade de uma unidade não guarda fronteira, [registro](decisions-2026.md).
+- 2026-09-13: o servidor publica os quatro marcadores estruturais como um só, até o cliente novo estar em campo, [registro](decisions-2026.md).
+- 2026-09-13: sem Web Locks a barreira de logout degrada para o regime por aba, [registro](decisions-2026.md).
+- 2026-09-13: a poda de gerações usa trava própria, e a lista de conhecidas é reescrita depois dela, [registro](decisions-2026.md).

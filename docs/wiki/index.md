@@ -17,7 +17,11 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[modelo-conflito-lww]] - o vencedor de edições concorrentes é a maior serverVersion, nunca o relógio de parede.
 - [[idempotencia-e-convergence-guard]] - reenvio seguro por op_id e adiamento de ops remotas sobre edição local pendente.
 - [[snapshot-e-pull-incremental]] - quando o servidor devolve snapshot completo e quando devolve operações incrementais.
-- [[fila-operacoes-outbound]] - da mutação local ao push HTTP (transação, fila IndexedDB, compaction e flush) e o destino do que se acumulou offline na reconexão.
+- [[fila-operacoes-outbound]] - da mutação local ao push HTTP (transação, diário append-only em IndexedDB e flush) e o destino do que se acumulou offline na reconexão.
+- [[diario-write-ahead]] - a intenção é gravada antes da entidade, e a ordem inteira da transação do store mudou por causa disso.
+- [[lote-logico-de-gesto]] - o gesto como unidade de aplicação do servidor, com o teto medido e a identidade ambiente que junta várias transações.
+- [[camada-padrao-remota]] - por que a primeira camada de um atlas de servidor nasce no servidor, e o que a regularização de dados não recupera.
+- [[pendencias-de-sincronizacao]] - a luz de sync com sete sinais e o painel de três fontes, com o que "reaplicar" deliberadamente não faz.
 - [[aplicacao-operacoes-remotas]] - o caminho inbound até persistir no store e redesenhar o mapa.
 - [[ack-idempotencia]] - o ack por operação e por que idempotent:true conta como sucesso.
 - [[tabela-operations]] - o log append-only no PostgreSQL e a sequência global que define a ordem.
@@ -56,6 +60,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[hardening-borda-api]] - rate limiting, login timing-safe, cabeçalhos, readiness e boot fail-fast.
 - [[upload-imagens-seguranca]] - validação dupla de tipo, limites de tamanho e entrega sempre como anexo.
 - [[erros-api]] - o envelope de erro visto do lado do cliente: o que ele descarta e o que já resolveu antes do seu catch.
+- [[inventario-de-vendors]] - o que se sabe e o que não se sabe de cada cópia de terceiro, e por que zero alerta de audit é zero num recorte.
 
 ## Administração, usuários e catálogo
 
@@ -94,6 +99,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[deploy-backend]] - um processo Node atrás de NGINX, três schemas e stores binários fora do banco.
 - [[deploy-web]] - publicação do bundle por troca de symlink, e por que ele precisa ser relativo.
 - [[observabilidade]] - como se olha para o EBGeo rodando: o log que sobrevive à sessão, o defeito com estado e ocorrências, o uso de produto contado sem rastro individual, o comando que consulta as duas fontes e as duas abas que mostram.
+- [[presenca-administrativa]] - quem está com o produto aberto agora: os três períodos, e por que o número conta navegadores e não pessoas.
 - [[peso-do-pacote-web]] - o que prende uma biblioteca no payload inicial do mapa, com o ganho já medido de tirá-la.
 - [[desempenho-do-mapa-2d]] - onde o mapa 2D gastava o quadro (zoom pelo worker, elevação em dobro, troca de base que remontava tudo, camada vazia com terreno) e os quatro mecanismos que ficam, com a régua de cada um.
 
