@@ -6,7 +6,11 @@ import { OrigemDeErro } from '@js/session/origens-de-erro.js';
 import { instalarMonitoramentoDePendencias } from '@js/session/pendencias-monitoramento.js';
 import { createTabLock, noneKey } from '../utilities/tab-lock.js';
 import { prepareLegacyTransition, legacyHasChanged, restartLegacyCopy } from '../store/migration/legacy-transition.js';
-import { pruneAbandonedCopies } from '../store/migration/legacy-cleanup.js';
+import { describeLegacySource, dropLegacySource, pruneAbandonedCopies } from '../store/migration/legacy-cleanup.js';
+import {
+    DROP_SOURCE_CANCEL_LABEL, DROP_SOURCE_CONFIRM_LABEL, DROP_SOURCE_LABEL, DROP_SOURCE_RUNNING,
+    dropSourceConfirmation, dropSourceDenial, dropSourceDone
+} from './migration-recovery-phrases.js';
 import { MigrationRecoveryError } from '../store/migration/transition-state.js';
 
 let screen = null;
@@ -58,6 +62,94 @@ function button(card, label, action, text) {
     return element;
 }
 
+/**
+ * Draws the one destructive command of this screen: deleting the copy the previous version left.
+ *
+ * THE COMMAND IS ALWAYS DRAWN AND THE CLICK IS WHAT REFUSES, which is the house rule for a block
+ * by STATE (`.claude/rules/architecture.md`, §UI Architecture): every reason it can refuse is
+ * reversible, and the person reading the refusal is usually the one who reverses it. So it
+ * carries `aria-disabled` and NEVER the `disabled` property, because a disabled button fires no
+ * click and the click is how the reason reaches the person.
+ *
+ * IT ASKS TWICE, and the second question names the SIZE. The count comes from the inventory read
+ * at that instant, not from the journal, so the number on the screen is the number on the disk.
+ *
+ * @param {HTMLElement} card - Card of the recovery screen.
+ * @param {HTMLElement} text - Paragraph the screen speaks through.
+ * @returns {HTMLButtonElement} The command, for a caller that wants to observe it.
+ */
+function dropSourceCommand(card, text) {
+    const element = document.createElement('button');
+    element.type = 'button';
+    element.className = 'ebgeo-unavailable__btn';
+    element.dataset.testid = 'drop-legacy-source';
+    element.textContent = DROP_SOURCE_LABEL;
+    element.setAttribute('aria-disabled', 'true');
+    let asking = null;
+
+    const refresh = async () => {
+        const { reason } = await describeLegacySource();
+        element.setAttribute('aria-disabled', reason === 'ok' ? 'false' : 'true');
+        return reason;
+    };
+
+    element.addEventListener('click', async () => {
+        if (asking) return;
+        try {
+            // ASKED AGAIN AT THE MOMENT OF THE ACT: a legacy window can write between the read
+            // that decided how this button looks and the click that acts on it.
+            const reason = await refresh();
+            if (reason !== 'ok') {
+                text.textContent = dropSourceDenial(reason) ?? DROP_SOURCE_LABEL;
+                return;
+            }
+            asking = await askToDropSource(card, text, element, () => { asking = null; });
+        } catch (failure) {
+            text.textContent = dropSourceDenial(failure.code) ?? failure.message;
+        }
+    });
+
+    card.append(element);
+    refresh().catch(() => element.setAttribute('aria-disabled', 'true'));
+    return element;
+}
+
+/**
+ * The second step: the size, the warning, and the two ways out.
+ *
+ * @param {HTMLElement} card - Card of the recovery screen.
+ * @param {HTMLElement} text - Paragraph the screen speaks through.
+ * @param {HTMLButtonElement} command - The command that opened this step.
+ * @param {() => void} done - Called when the step closes, either way.
+ * @returns {Promise<HTMLElement>} The row holding the two buttons.
+ */
+async function askToDropSource(card, text, command, done) {
+    const { records } = await describeLegacySource();
+    const previous = text.textContent;
+    text.textContent = dropSourceConfirmation(records);
+    const row = document.createElement('div');
+    row.dataset.testid = 'drop-legacy-source-confirm';
+    card.append(row);
+    const close = () => { row.remove(); done(); };
+
+    button(row, DROP_SOURCE_CONFIRM_LABEL, async () => {
+        text.textContent = DROP_SOURCE_RUNNING;
+        try {
+            const result = await dropLegacySource();
+            text.textContent = dropSourceDone(result.records);
+            command.setAttribute('aria-disabled', 'true');
+        } catch (failure) {
+            text.textContent = dropSourceDenial(failure.code) ?? failure.message;
+        }
+        close();
+    }, text);
+    button(row, DROP_SOURCE_CANCEL_LABEL, () => {
+        text.textContent = previous;
+        close();
+    }, text);
+    return row;
+}
+
 export function showMigrationRecovery(error = {}) {
     const code = error.code;
     const message = code === 'legacy_tab'
@@ -98,6 +190,9 @@ export function showMigrationRecovery(error = {}) {
     file.type = 'file'; file.accept = '.zip'; file.hidden = true;
     card.append(file);
     button(card, 'Abrir cópia de recuperação', () => file.click(), text);
+    // LAST, AND DELIBERATELY: it is the only command here that destroys anything, so every way
+    // of saving the data comes before it on the screen.
+    dropSourceCommand(card, text);
     file.addEventListener('change', async () => {
         if (!file.files?.[0]) return;
         try {

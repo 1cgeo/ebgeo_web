@@ -8,7 +8,10 @@ import { legacyScope } from './migration-scope.js';
 import { generateUUID } from '../../utilities/uuid.js';
 import { prepareIsolatedScope } from './prepare-scope.js';
 import { fingerprint, sameStorageValue } from './storage-value.js';
-import { LEGACY_TRANSITION_KEY, TRANSITION_LOCK, MigrationRecoveryError, readLegacyTransition } from './transition-state.js';
+import {
+    LEGACY_TRANSITION_KEY, TRANSITION_LOCK, MigrationRecoveryError,
+    TransitionStatus, readLegacyTransition, transitionIsSettled
+} from './transition-state.js';
 
 const SOURCE = legacyScope();
 const save = state => getGlobalStore().setItem(LEGACY_TRANSITION_KEY, state);
@@ -30,6 +33,13 @@ function equalInventory(left, right) {
 export async function legacyHasChanged(state = null) {
     state ??= await readLegacyTransition();
     if (!state?.sourceInventory) return false;
+    // A DELETION IN FLIGHT IS NOT A CHANGE TO RECOVER. While the drop runs, the journal still
+    // carries the inventory of an acervo that is being emptied on purpose, and comparing it
+    // would put the "recover the old changes" screen in front of the user who asked for the
+    // opposite. Once the drop COMMITS, the comparison comes back and is worth having: the
+    // journal's inventory is emptied with the databases, so a legacy tab that writes again
+    // shows up here as a real change, which is exactly what it is.
+    if (state.status === TransitionStatus.DROPPING_SOURCE) return false;
     return !equalInventory(state.acknowledgedInventory || state.sourceInventory, await inventoryScope(SOURCE));
 }
 
@@ -88,7 +98,7 @@ async function copyAndCheck(state, onProgress) {
         throw new MigrationRecoveryError('copy_failed', 'O inventário da cópia diverge dos dados originais.');
     }
     if (await legacyHasChanged(state)) throw new MigrationRecoveryError('source_changed', 'Os dados antigos foram alterados.');
-    state.status = 'migrating';
+    state.status = TransitionStatus.MIGRATING;
     await save(state);
 }
 
@@ -104,7 +114,7 @@ async function migrateDestination(state) {
             throw new MigrationRecoveryError('copy_failed', 'Um registro original não foi preservado na cópia atualizada.');
         }
     }
-    state.status = 'ready';
+    state.status = TransitionStatus.READY;
     await save(state);
 }
 
@@ -125,7 +135,7 @@ async function commitDestination(state) {
     if (!await global.getItem(GlobalKey.STORE_ORIGIN)) {
         await global.setItem(GlobalKey.STORE_ORIGIN, { kind: StoreScopeKind.LOCAL, atlasId: null });
     }
-    state.status = 'committed';
+    state.status = TransitionStatus.COMMITTED;
     await save(state);
     console.info('Atualização local concluída: cópia verificada; origem preservada.');
 }
@@ -143,22 +153,22 @@ export async function prepareLegacyTransition({ onProgress } = {}) {
             const source = await classifySource();
             if (source.kind !== 'local') return source;
             state = {
-                version: 1, status: 'copying', entry: source.entry,
+                version: 1, status: TransitionStatus.COPYING, entry: source.entry,
                 destination: `upgrade-${generateUUID()}`, sourceInventory: source.inventory,
                 copied: 0, history: []
             };
             await save(state);
         }
-        if (state.status === 'committed') {
+        if (transitionIsSettled(state)) {
             if (await legacyHasChanged(state)) {
                 throw new MigrationRecoveryError('legacy_changes', 'Uma janela antiga gravou alterações. Salve uma cópia de recuperação antes de continuar.');
             }
             return { kind: 'ready', state };
         }
-        if (state.status === 'copying') await copyAndCheck(state, onProgress);
-        if (state.status === 'migrating') await migrateDestination(state);
-        if (state.status === 'ready') await commitDestination(state);
-        if (state.status !== 'committed') throw new MigrationRecoveryError('unreadable', 'A etapa da atualização não foi reconhecida.');
+        if (state.status === TransitionStatus.COPYING) await copyAndCheck(state, onProgress);
+        if (state.status === TransitionStatus.MIGRATING) await migrateDestination(state);
+        if (state.status === TransitionStatus.READY) await commitDestination(state);
+        if (!transitionIsSettled(state)) throw new MigrationRecoveryError('unreadable', 'A etapa da atualização não foi reconhecida.');
         return { kind: 'ready', state };
     });
 }
@@ -167,13 +177,13 @@ export async function restartLegacyCopy() {
     if (!navigator.locks?.request) throw new MigrationRecoveryError('lock_unavailable', 'Coordenação entre janelas indisponível.');
     await navigator.locks.request(TRANSITION_LOCK, async () => {
         const state = await readLegacyTransition();
-        if (!state || state.status === 'committed') return;
+        if (!state || transitionIsSettled(state)) return;
         // Keep interrupted destinations accessible to the recovery exporter.
         state.history.push(state.destination);
         state.destination = `upgrade-${generateUUID()}`;
         state.sourceInventory = await inventoryScope(SOURCE);
         state.copied = 0;
-        state.status = 'copying';
+        state.status = TransitionStatus.COPYING;
         delete state.resultInventory;
         await save(state);
     });

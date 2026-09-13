@@ -14,7 +14,7 @@
  */
 
 import { beforeEach, afterEach, it, expect, vi } from 'vitest';
-import { seedDatabase, databaseState, resetIndexedDB } from '../helpers/idb-helpers.js';
+import { seedDatabase, databaseState, readKey, resetIndexedDB } from '../helpers/idb-helpers.js';
 
 beforeEach(async () => { vi.resetModules(); await resetIndexedDB(); });
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); await resetIndexedDB(); });
@@ -35,6 +35,7 @@ async function modules() {
         ns: await import('@store/atlas-namespace.js'),
         transition: await import('@store/migration/legacy-transition.js'),
         cleanup: await import('@store/migration/legacy-cleanup.js'),
+        service: await import('@store/migration/migration.service.js'),
         state: await import('@store/migration/transition-state.js')
     };
 }
@@ -106,7 +107,7 @@ it('a poda é idempotente: a segunda varredura não acha nada e não reescreve o
 
     const report = await cleanup.pruneAbandonedCopies();
 
-    expect(report).toEqual({ copies: [], recoveries: [], kept: [], blocked: [] });
+    expect(report).toEqual({ copies: [], recoveries: [], kept: [], blocked: [], source: null });
     expect(await ns.getGlobalStore().getItem(journal.LEGACY_TRANSITION_KEY)).toEqual(depoisDaPrimeira);
 });
 
@@ -226,7 +227,152 @@ it('a poda não alcança a origem nem o destino ativo quando NÃO há nada aband
 
     const report = await cleanup.pruneAbandonedCopies();
 
-    expect(report).toEqual({ copies: [], recoveries: [], kept: [], blocked: [] });
+    expect(report).toEqual({ copies: [], recoveries: [], kept: [], blocked: [], source: null });
     expect(await transition.inventoryScope(origem)).toEqual(antesDaOrigem);
     expect(await transition.inventoryScope(ns.localScope(state.entry.id, state.destination))).toEqual(antesDoDestino);
+});
+
+/**
+ * Leva a instalação ao estado em que o botão de apagar a origem é legítimo: transição commitada,
+ * origem intacta.
+ * @returns {Promise<Object>} Os módulos já importados, para o caso seguir usando os mesmos.
+ */
+async function comTransicaoCommitada() {
+    const m = await modules();
+    await m.transition.prepareLegacyTransition();
+    return m;
+}
+
+it('o veredito do botão nomeia o estado: sem transição, no meio da cópia, e com alteração antiga', async () => {
+    await seed();
+    const { ns, transition, cleanup, state: journal } = await modules();
+    expect(await cleanup.describeLegacySource()).toEqual({ reason: 'no_transition', records: 0 });
+
+    await transition.prepareLegacyTransition();
+    const global = ns.getGlobalStore();
+    const commitada = await global.getItem(journal.LEGACY_TRANSITION_KEY);
+
+    await global.setItem(journal.LEGACY_TRANSITION_KEY, { ...commitada, status: 'copying' });
+    expect(await cleanup.describeLegacySource()).toEqual({ reason: 'not_committed', records: 0 });
+
+    await global.setItem(journal.LEGACY_TRANSITION_KEY, commitada);
+    await seedDatabase('ebgeo_maps', { Depois: { features: { points: [] } } });
+    expect(await cleanup.describeLegacySource()).toEqual({ reason: 'legacy_changes', records: 0 });
+});
+
+it('com a origem intacta o veredito é ok e conta os registros do inventário', async () => {
+    await seed();
+    const { ns, transition, cleanup } = await modules();
+    await transition.prepareLegacyTransition();
+    const inventario = await transition.inventoryScope(ns.localScope('origem', ''));
+
+    const veredito = await cleanup.describeLegacySource();
+
+    expect(veredito.reason).toBe('ok');
+    expect(veredito.records).toBe(inventario.length);
+    expect(veredito.records).toBeGreaterThan(4);
+});
+
+it('um atlas que ainda reivindica os bancos sem sufixo não é cópia antiga', async () => {
+    await seed();
+    const { ns, cleanup } = await comTransicaoCommitada();
+    await ns.getGlobalStore().setItem(ns.localAtlasRegistryKey('reivindica'), {
+        id: 'reivindica', dbSuffix: '', name: 'Meu Atlas', version: 1, createdAt: 1, updatedAt: 1
+    });
+
+    expect(await cleanup.describeLegacySource()).toEqual({ reason: 'claimed', records: 0 });
+    await expect(cleanup.dropLegacySource()).rejects.toMatchObject({ code: 'claimed' });
+    expect(await readKey('ebgeo_maps', 'Antigo')).toBeTruthy();
+});
+
+it('apagar a origem tira os bancos de DADO, poupa a fila do endereço legado e não toca no destino', async () => {
+    await seed();
+    const { ns, transition, cleanup, state: journal } = await modules();
+    const { state } = await transition.prepareLegacyTransition();
+    const destino = ns.localScope(state.entry.id, state.destination);
+    const antesDoDestino = await transition.inventoryScope(destino);
+    // A fila do endereço legado é TAMBÉM a fila desta sessão enquanto nada está montado.
+    await ns.getStoreFor(ns.StoreName.OPERATION_QUEUE, ns.UNMOUNTED_QUEUE_SCOPE)
+        .setItem('op_desta_sessao', { id: 'desta-sessao' });
+
+    const resultado = await cleanup.dropLegacySource();
+
+    expect(resultado.records).toBeGreaterThan(4);
+    expect(await databaseState('ebgeo_maps')).toBe('absent');
+    expect(await databaseState('ebgeo_images')).toBe('absent');
+    expect(await databaseState('ebgeo_app_settings')).toBe('absent');
+    expect(await readKey('ebgeo', 'op_desta_sessao', { storeName: 'operation_queue' })).toBeTruthy();
+    expect(await transition.inventoryScope(destino)).toEqual(antesDoDestino);
+    expect((await ns.getGlobalStore().getItem(journal.LEGACY_TRANSITION_KEY)).status).toBe('source_dropped');
+    expect(await ns.readLocalAtlasRegistry()).toHaveLength(1);
+});
+
+it('apagada a origem, o boot segue pronto, não acusa alteração e o detector NÃO refaz a migração', async () => {
+    await seed();
+    const { ns, transition, cleanup, state: journal, service } = await comTransicaoCommitada();
+    await cleanup.dropLegacySource();
+
+    expect(await journal.legacySourceIsProtected()).toBe(false);
+    expect(await journal.legacyTransitionExists()).toBe(true);
+    expect(await transition.legacyHasChanged()).toBe(false);
+    expect(await transition.prepareLegacyTransition()).toHaveProperty('kind', 'ready');
+    // O detector precisa continuar respondendo "nao ha o que migrar" sobre o endereco esvaziado:
+    // um `needed` aqui manda a cadeia CRIAR um registro de atlas e registrar um slot fantasma.
+    expect(await service.detectMigrationNeeded()).toHaveProperty('needed', false);
+    await service.safelyMigrate();
+    expect(await readKey('ebgeo_atlas', 'current_atlas')).toBeNull();
+    expect(await readKey('ebgeo_app_settings', 'schemaVersion')).toBeNull();
+    expect(await ns.readLocalAtlasRegistry()).toHaveLength(1);
+});
+
+it('uma janela antiga que grava DEPOIS do apagamento volta a ser alteração recuperável', async () => {
+    await seed();
+    const { transition, cleanup } = await comTransicaoCommitada();
+    await cleanup.dropLegacySource();
+
+    await seedDatabase('ebgeo_maps', { Depois: { features: { points: [] } } });
+
+    expect(await transition.legacyHasChanged()).toBe(true);
+    await expect(transition.prepareLegacyTransition()).rejects.toMatchObject({ code: 'legacy_changes' });
+    expect(await cleanup.describeLegacySource()).toEqual({ reason: 'legacy_changes', records: 0 });
+});
+
+it('a segunda vez o veredito é "já apagada" e nada mais acontece', async () => {
+    await seed();
+    const { cleanup } = await comTransicaoCommitada();
+    await cleanup.dropLegacySource();
+
+    expect(await cleanup.describeLegacySource()).toEqual({ reason: 'already_dropped', records: 0 });
+    await expect(cleanup.dropLegacySource()).rejects.toMatchObject({ code: 'already_dropped' });
+});
+
+it('a INTENÇÃO é gravada antes do primeiro delete, e a varredura conclui a exclusão interrompida', async () => {
+    await seed();
+    const { ns, cleanup, state: journal } = await comTransicaoCommitada();
+    const global = ns.getGlobalStore();
+    await global.ready();
+    const write = global.setItem.bind(global);
+    let origemNaIntencao = null;
+    vi.spyOn(global, 'setItem').mockImplementation(async (key, value) => {
+        if (key === journal.LEGACY_TRANSITION_KEY && value.status === 'dropping_source') {
+            origemNaIntencao = await readKey('ebgeo_maps', 'Antigo');
+            await write(key, value);
+            // A queda acontece DEPOIS da intenção e ANTES de o status final ser gravado.
+            throw new Error('interruption');
+        }
+        return write(key, value);
+    });
+
+    await expect(cleanup.dropLegacySource()).rejects.toThrow('interruption');
+    expect(origemNaIntencao).toBeTruthy();
+    expect((await global.getItem(journal.LEGACY_TRANSITION_KEY)).status).toBe('dropping_source');
+    vi.restoreAllMocks(); vi.resetModules();
+
+    const fresh = await modules();
+    const report = await fresh.cleanup.pruneAbandonedCopies();
+
+    expect(report.source).toBe('dropped');
+    expect(await databaseState('ebgeo_maps')).toBe('absent');
+    expect(await fresh.transition.legacyHasChanged()).toBe(false);
+    expect(await fresh.state.legacySourceIsProtected()).toBe(false);
 });

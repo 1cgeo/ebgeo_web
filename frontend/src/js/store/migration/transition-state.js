@@ -52,6 +52,71 @@ export async function readLegacyTransition() {
     return state;
 }
 
+/**
+ * The statuses of the transition journal, in the order they happen.
+ *
+ * THE LAST TWO ARE NOT THE COPY'S, THEY ARE THE ORIGIN'S (decision D8 of 2026-09-13). The copy
+ * ends at `COMMITTED` and never moves again; what comes after describes the pre-namespace
+ * databases the copy was made FROM, which the user may order deleted from the recovery screen.
+ * `DROPPING_SOURCE` is the intent written before the first delete, so a crash in the middle is
+ * resumable instead of leaving a half-emptied acervo that the journal still claims is whole.
+ */
+export const TransitionStatus = Object.freeze({
+    COPYING: 'copying',
+    MIGRATING: 'migrating',
+    READY: 'ready',
+    COMMITTED: 'committed',
+    DROPPING_SOURCE: 'dropping_source',
+    SOURCE_DROPPED: 'source_dropped'
+});
+
+/**
+ * @param {{ status?: string }|null} state - Journal record.
+ * @returns {boolean} True once the copy is ACTIVE and nothing about it is pending. Every caller
+ *   that used to compare with `'committed'` asks this instead, because the two origin statuses
+ *   are also states in which the copy is done: reading them as "not committed" would restart a
+ *   transition over an atlas the user is already working in.
+ */
+export function transitionIsSettled(state) {
+    return state?.status === TransitionStatus.COMMITTED || legacySourceIsGone(state);
+}
+
+/**
+ * @param {{ status?: string }|null} state - Journal record.
+ * @returns {boolean} True once the deletion of the pre-namespace databases has been ORDERED.
+ *   In flight counts: from that instant the origin is no longer a copy anybody may rely on.
+ */
+export function legacySourceIsGone(state) {
+    return state?.status === TransitionStatus.DROPPING_SOURCE
+        || state?.status === TransitionStatus.SOURCE_DROPPED;
+}
+
+/**
+ * Do the unsuffixed databases hold an acervo this build must leave alone?
+ *
+ * TRUE FOR THE WHOLE LIFE OF THE COPY, and false again once the origin is dropped: the three
+ * consumers that read this (`initLocalAtlases`, the outbound queue migration, and the schema
+ * detector through `legacyTransitionExists`) are all asking "is somebody else's acervo sitting
+ * at the legacy address", and after an explicit deletion nobody's is.
+ *
+ * @returns {Promise<boolean>}
+ */
 export async function legacySourceIsProtected() {
+    const state = await readLegacyTransition();
+    return Boolean(state) && !legacySourceIsGone(state);
+}
+
+/**
+ * Has this installation ALREADY been through the transition?
+ *
+ * IT IS NOT THE SAME QUESTION AS `legacySourceIsProtected`, and the schema detector needs this
+ * one. The installation upgrade runs ONCE; after it, the unsuffixed databases are a copy that
+ * was left behind, and dropping them does not make them a fresh install. Asking about
+ * protection there would let `detectMigrationNeeded` answer "needed" over the emptied legacy
+ * address, and the chain would write an atlas record into it and register a phantom slot #1.
+ *
+ * @returns {Promise<boolean>}
+ */
+export async function legacyTransitionExists() {
     return Boolean(await readLegacyTransition());
 }

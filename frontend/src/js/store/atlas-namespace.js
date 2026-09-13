@@ -1950,17 +1950,29 @@ async function dropOneDatabase(name, timeoutMs) {
  * `clearAtlasDatabases`. Deleting the ten data databases and leaving `ebgeo__<suffix>` standing
  * would leave the entity payloads of that atlas on disk under a name nothing else ever opens.
  *
+ * `atlasDataOnly` SPARES THE OUTBOUND QUEUE, and it exists for exactly one caller: the explicit
+ * deletion of the pre-namespace origin (decision D8 of 2026-09-13). At the legacy suffix the
+ * queue database is `ebgeo`, which is ALSO `UNMOUNTED_QUEUE_SCOPE`, the address this build parks
+ * operations at while no atlas is mounted. Deleting it as part of "delete the old copy" would
+ * destroy work the CURRENT session wrote minutes ago, in the one gesture whose whole promise is
+ * that only the old copy goes. A partial drop therefore also leaves the pointers alone: they
+ * describe a namespace that still has a database standing.
+ *
  * @param {{ kind: string, dbSuffix: string }} scope - Scope to destroy.
  * @param {Object} [options]
  * @param {number} [options.timeoutMs=DROP_TIMEOUT_MS] - Bound on each delete.
+ * @param {boolean} [options.atlasDataOnly=false] - Delete only the databases that hold the
+ *   atlas's DATA (`atlasData: true`), leaving the outbound queue of the scope standing.
  * @returns {Promise<{ dropped: string[], blocked: string[] }>} Names confirmed deleted, and
  *   names still on disk, both in descriptor order.
  */
-export async function dropAtlasDatabases(scope, { timeoutMs = DROP_TIMEOUT_MS } = {}) {
+export async function dropAtlasDatabases(scope, { timeoutMs = DROP_TIMEOUT_MS, atlasDataOnly = false } = {}) {
     if (!scope || typeof scope.dbSuffix !== 'string') {
         throw new Error('dropAtlasDatabases: expected a scope built by localScope()/remoteScope()');
     }
-    const names = [...allGenerationStores(scope).keys()];
+    const names = [...allGenerationStores(scope).entries()]
+        .filter(([, { descriptor }]) => !atlasDataOnly || descriptor.atlasData)
+        .map(([name]) => name);
 
     const confirmations = await Promise.all(names.map(name => dropOneDatabase(name, timeoutMs)));
 
@@ -1978,7 +1990,7 @@ export async function dropAtlasDatabases(scope, { timeoutMs = DROP_TIMEOUT_MS } 
     // disk, and `purgeAllRemoteAtlases` keeps the registry entry so the next boot retries; that
     // retry derives the list of databases FROM the generation pointer (`allGenerationStores`), so
     // forgetting it here would leave server data no sweep can name.
-    if (blocked.length === 0) {
+    if (blocked.length === 0 && !atlasDataOnly) {
         forgetGeneration(scope);
         forgetRemoteWriteFence(scope);
     }

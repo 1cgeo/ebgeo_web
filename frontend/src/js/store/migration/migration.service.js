@@ -90,7 +90,7 @@ import { migrateToV2 } from './v1-to-v2.migration.js';
 import { migrateToV2_1 } from './v2-to-v2.1.migration.js';
 import { migrateToV2_2 } from './v2.1-to-v2.2.migration.js';
 import { migrateToV3_0 } from './v2.x-to-v3.0.migration.js';
-import { legacySourceIsProtected, MigrationRecoveryError } from './transition-state.js';
+import { legacyTransitionExists, MigrationRecoveryError } from './transition-state.js';
 
 /** Key of the schema marker inside a scope's settings database. */
 const SCHEMA_VERSION_KEY = 'schemaVersion';
@@ -170,7 +170,13 @@ function effectiveVersion(settingsVersion, atlas) {
  * @returns {Promise<{needed: boolean, currentVersion: string|null, targetVersion: string}>}
  */
 export async function detectMigrationNeeded(scope = legacyScope()) {
-    if (isLegacyScope(scope) && await legacySourceIsProtected()) {
+    // A PERGUNTA AQUI É "A ATUALIZAÇÃO DA INSTALAÇÃO JÁ ACONTECEU", e não "a origem está
+    // protegida" (decisão D8 de 2026-09-13). Com uma transição registrada, os bancos sem sufixo
+    // são a cópia que ficou para trás, e apagá-los não os devolve à condição de instalação
+    // pré-namespace: um detector que respondesse `needed` sobre o endereço esvaziado mandaria a
+    // cadeia para `migrateToV2`, que CRIA um registro de atlas, e `migrateToV3_0` registraria em
+    // seguida um slot #1 fantasma apontando para ele.
+    if (isLegacyScope(scope) && await legacyTransitionExists()) {
         return { needed: false, currentVersion: null, targetVersion: ATLAS_SCHEMA_VERSION };
     }
     const settingsVersion = await getStoreFor(StoreName.SETTINGS, scope).getItem(SCHEMA_VERSION_KEY);

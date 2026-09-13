@@ -29,20 +29,28 @@
  * disk that no list names) is worse, since nothing can ever find it again.
  *
  * ===========================================================================================
- * THE ORIGIN IS NOT SWEPT, AND THAT IS THE HALF THIS FILE DOES NOT DECIDE
+ * THE ORIGIN IS NOT SWEPT: IT IS ORDERED, AND THE SWEEP ONLY RESUMES THE ORDER
  * ===========================================================================================
  * The unsuffixed databases (the acervo the previous product line still knows) are the user's
- * other copy, and nothing here touches them: the sweep is automatic, and automatic deletion of
- * the only pre-update copy is not a decision code may take. `dropLegacySource` is the separate,
- * explicit gesture, and the button that calls it is on the recovery screen.
+ * other copy, and no automatic path deletes them: deleting the only pre-update copy is not a
+ * decision code may take. `dropLegacySource` is the separate, explicit gesture, reached from the
+ * button on the recovery screen; the sweep's ONLY business with the origin is finishing a drop
+ * that was already ordered and died halfway (`TransitionStatus.DROPPING_SOURCE`), which is
+ * carrying out an order, not taking one.
+ *
+ * AND IT IS ALSO WHY THIS IS A SEPARATE FILE. `legacy-transition.js` declares in its first line
+ * that the procedure never writes the originals; the deletion has to live somewhere a reader
+ * cannot mistake for the migration.
  */
 
 import {
-    getGlobalStore, dropAtlasDatabases, localScope, readLocalAtlasRegistry
+    LEGACY_DB_SUFFIX, getGlobalStore, dropAtlasDatabases, localScope, readLocalAtlasRegistry
 } from '../atlas-namespace.js';
+import { legacyScope } from './migration-scope.js';
+import { inventoryScope, legacyHasChanged } from './legacy-transition.js';
 import {
-    LEGACY_TRANSITION_KEY, RECOVERY_PENDING_PREFIX, TRANSITION_LOCK,
-    readLegacyTransition, recoveryDbSuffix
+    LEGACY_TRANSITION_KEY, RECOVERY_PENDING_PREFIX, TRANSITION_LOCK, MigrationRecoveryError,
+    TransitionStatus, readLegacyTransition, recoveryDbSuffix, transitionIsSettled
 } from './transition-state.js';
 
 /**
@@ -86,6 +94,8 @@ function withTransitionLock(task) {
  * @property {string[]} kept - Restorations left alone because they are still inside the window.
  * @property {string[]} blocked - Suffixes whose delete did not confirm. They keep their entry,
  *   so the next boot retries; this is disk cost, never data loss.
+ * @property {string|null} source - `'dropped'` when an ORDERED deletion of the origin was
+ *   finished here, `'blocked'` when it could not be, null when there was none to finish.
  */
 
 /**
@@ -107,7 +117,8 @@ export async function pruneAbandonedCopies({
     timeoutMs
 } = {}) {
     return withTransitionLock(async () => {
-        const report = { copies: [], recoveries: [], kept: [], blocked: [] };
+        const report = { copies: [], recoveries: [], kept: [], blocked: [], source: null };
+        await finishOrderedSourceDrop(report, timeoutMs);
         await pruneTransitionHistory(report, timeoutMs);
         await pruneStaleRestorations(report, now, maxAgeMs, timeoutMs);
         return report;
@@ -211,6 +222,138 @@ async function pruneStaleRestorations(report, now, maxAgeMs, timeoutMs) {
         await global.removeItem(key);
         report.recoveries.push({ id, outcome: 'abandoned' });
     }
+}
+
+/**
+ * Finishes a deletion of the origin that was ordered and interrupted.
+ *
+ * @param {CleanupReport} report - Mutated with what happened.
+ * @param {number|undefined} timeoutMs - Per-database bound.
+ * @returns {Promise<void>}
+ */
+async function finishOrderedSourceDrop(report, timeoutMs) {
+    let state = null;
+    try {
+        state = await readLegacyTransition();
+    } catch {
+        return;
+    }
+    if (state?.status !== TransitionStatus.DROPPING_SOURCE) return;
+    report.source = (await eraseLegacySource(state, timeoutMs)).settled ? 'dropped' : 'blocked';
+}
+
+/**
+ * Deletes the data databases of the pre-namespace origin and settles the journal.
+ *
+ * THE INTENT IS ALREADY ON DISK when this runs (`DROPPING_SOURCE`), which is what makes it safe
+ * to call twice: `dropInstance` on a name that is not there answers success, so a resumed drop
+ * is the same work, and the journal only reaches `SOURCE_DROPPED` after every delete confirmed.
+ *
+ * THE JOURNAL'S INVENTORIES ARE EMPTIED WITH THE DATABASES, and that is not bookkeeping. They
+ * are what `legacyHasChanged` compares against, so leaving the old lists in place would make
+ * every later boot announce "the previous version wrote changes" about an acervo the user just
+ * deleted; emptying them also keeps the comparison ALIVE for the one case that still matters,
+ * a legacy tab that writes to the address again after the deletion.
+ *
+ * @param {Object} state - Journal record, already at `DROPPING_SOURCE`.
+ * @param {number|undefined} timeoutMs - Per-database bound.
+ * @returns {Promise<{ settled: boolean, dropped: string[] }>} Whether every delete confirmed and
+ *   the journal reached `SOURCE_DROPPED`, and which database names went.
+ */
+async function eraseLegacySource(state, timeoutMs) {
+    const { dropped, blocked } = await dropAtlasDatabases(legacyScope(), {
+        atlasDataOnly: true, ...options(timeoutMs)
+    });
+    if (blocked.length > 0) return { settled: false, dropped };
+    await getGlobalStore().setItem(LEGACY_TRANSITION_KEY, {
+        ...state,
+        status: TransitionStatus.SOURCE_DROPPED,
+        sourceInventory: [],
+        acknowledgedInventory: []
+    });
+    return { settled: true, dropped };
+}
+
+/**
+ * @typedef {Object} LegacySourceVerdict
+ * @property {string} reason - `'ok'` when the origin may be deleted right now, otherwise WHY not:
+ *   `no_transition`, `not_committed`, `legacy_changes`, `claimed`, `already_dropped`,
+ *   `unreadable`. The recovery screen turns each into a sentence.
+ * @property {number} records - How many records the origin still holds, for the confirmation to
+ *   name. Zero whenever the reason is not `'ok'`, because a number nobody may act on is noise.
+ */
+
+/**
+ * Reads the state of the pre-namespace origin: may it be deleted, and how big is it?
+ *
+ * IT IS READ TWICE BY THE SCREEN ON PURPOSE, once to decide whether the command is drawn as
+ * available and once inside the click. The state is reversible from the other side (a legacy tab
+ * can write between the two), so the answer has to be taken again at the moment of the act; the
+ * first read only decides how the command LOOKS.
+ *
+ * @returns {Promise<LegacySourceVerdict>}
+ */
+export async function describeLegacySource() {
+    let state = null;
+    try {
+        state = await readLegacyTransition();
+    } catch {
+        return { reason: 'unreadable', records: 0 };
+    }
+    if (!state) return { reason: 'no_transition', records: 0 };
+    // An order already given is resumable, and the screen may offer to finish it.
+    if (state.status === TransitionStatus.DROPPING_SOURCE) {
+        return { reason: 'ok', records: (await inventoryScope(legacyScope())).length };
+    }
+    if (!transitionIsSettled(state)) return { reason: 'not_committed', records: 0 };
+    if (await legacyHasChanged(state)) return { reason: 'legacy_changes', records: 0 };
+    // A NAMED SLOT THAT CLAIMS THE UNSUFFIXED DATABASES IS AN ATLAS, NOT A LEFTOVER: the card is
+    // in the user's list and deleting it here would be deleting an atlas from a screen that
+    // promises to delete a copy. It cannot happen after a commit (the registry entry is rewritten
+    // to the destination suffix), which is exactly why it is worth refusing out loud.
+    if ((await readLocalAtlasRegistry()).some(entry => entry?.dbSuffix === LEGACY_DB_SUFFIX)) {
+        return { reason: 'claimed', records: 0 };
+    }
+    const records = (await inventoryScope(legacyScope())).length;
+    if (state.status === TransitionStatus.SOURCE_DROPPED && records === 0) {
+        return { reason: 'already_dropped', records: 0 };
+    }
+    return { reason: 'ok', records };
+}
+
+/**
+ * Deletes the pre-namespace origin. THE ONLY CALLER IS THE BUTTON ON THE RECOVERY SCREEN.
+ *
+ * @param {Object} [options_]
+ * @param {number} [options_.timeoutMs] - Per-database bound, for a test that does not want to
+ *   wait out a held connection.
+ * @returns {Promise<{ records: number, dropped: string[] }>} What was deleted, so the screen can
+ *   name the same number the confirmation named.
+ * @throws {MigrationRecoveryError} With the verdict's reason as code when the origin may not be
+ *   deleted, and `drop_blocked` when another window is holding a database open.
+ */
+export async function dropLegacySource({ timeoutMs } = {}) {
+    return withTransitionLock(async () => {
+        const verdict = await describeLegacySource();
+        if (verdict.reason !== 'ok') {
+            throw new MigrationRecoveryError(verdict.reason,
+                'A cópia antiga não pode ser apagada neste estado.');
+        }
+        const state = await readLegacyTransition();
+        // THE INTENT GOES FIRST, then the deletes. A crash between them leaves a journal that
+        // says the deletion was ordered, and the next boot finishes it; the reverse order leaves
+        // an emptied acervo that the journal still describes as whole, and the screen would offer
+        // to "recover" the changes of a deletion the user asked for.
+        await getGlobalStore().setItem(LEGACY_TRANSITION_KEY,
+            { ...state, status: TransitionStatus.DROPPING_SOURCE });
+        const { settled, dropped } = await eraseLegacySource(state, timeoutMs);
+        if (!settled) {
+            throw new MigrationRecoveryError('drop_blocked',
+                'Outra janela ainda mantém os dados antigos abertos.');
+        }
+        console.info(`Cópia antiga apagada: ${verdict.records} registros da versão anterior.`);
+        return { records: verdict.records, dropped };
+    });
 }
 
 /**
