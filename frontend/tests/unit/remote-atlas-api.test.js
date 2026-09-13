@@ -1192,4 +1192,161 @@ describe('voluntary logout discard', () => {
         await api.purgeAllRemoteAtlases();
         expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual(dbNamesOfRemote(ATLAS_A));
     });
+
+    /**
+     * O DESCARTE CONFIRMADO VOLTOU A RESPEITAR A POUPANÇA (item 2 do bloco B7, achado F5).
+     *
+     * Até 2026-09-13 este ramo chamava `destroyRemoteAtlas` DIRETO, pulando o lock de montagem: a
+     * irmã que não ouviu o aviso (protocolo antigo, aba estrangulada, aba que montou depois do
+     * anúncio, transporte nenhum) tinha os bancos apagados debaixo dela, sem erro dos dois lados.
+     * O consentimento do diálogo é sobre PERDER TRABALHO PENDENTE, não sobre isso.
+     *
+     * A irmã congelada CONSERVA a montagem de propósito (`tab-lock-sync-brake.js`), então o lock
+     * sozinho não distingue "parou" de "nunca ouviu": é o RELATÓRIO do aviso que distingue, e é
+     * por isso que ele viaja até aqui.
+     */
+    describe('descarte confirmado sob uma aba viva', () => {
+        /** Relatório de aviso em que toda aba viva respondeu. */
+        const TODAS_PARARAM = { peers: 1, acked: 1, frozen: 1, timedOut: false, degraded: false };
+        /** Relatório de aviso em que a irmã não respondeu dentro do prazo. */
+        const IRMA_CALADA = { peers: 1, acked: 0, frozen: 0, timedOut: true, degraded: false };
+
+        it('irmã sem resposta POUPA o namespace e mantém a marca de descarte', async () => {
+            await api.activateRemoteAtlas(ATLAS_A);
+            await seedRemote(ATLAS_A);
+            await api.requestRemoteAtlasDiscard();
+            const soltar = await outraAbaMonta(ATLAS_A);
+
+            const relatorio = await api.purgeAllRemoteAtlases({ teardown: IRMA_CALADA });
+            await soltar();
+
+            expect(relatorio.spared).toEqual([ATLAS_A]);
+            expect(relatorio.atlases).toEqual([]);
+            // O DADO FICA, e a marca com ele: é ela que faz a próxima varredura terminar o serviço
+            // sem ninguém ter de lembrar de nada.
+            expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual(dbNamesOfRemote(ATLAS_A));
+            const entrada = (await api.listRemoteAtlases())[0];
+            expect(entrada.discardRequested).toBe(true);
+            expect(entrada.sparedAt).toBeGreaterThan(0);
+        });
+
+        it('com todas as abas congeladas, destrói mesmo com a montagem viva', async () => {
+            // CONTROLE POSITIVO do caso acima: mesma montagem viva, mesmo descarte, e o que muda é
+            // só a evidência. Sem este par, "poupar" poderia ser o único comportamento possível.
+            await api.activateRemoteAtlas(ATLAS_A);
+            await seedRemote(ATLAS_A);
+            await api.requestRemoteAtlasDiscard();
+            const soltar = await outraAbaMonta(ATLAS_A);
+
+            const relatorio = await api.purgeAllRemoteAtlases({ teardown: TODAS_PARARAM });
+            await soltar();
+
+            expect(relatorio.forced).toEqual([ATLAS_A]);
+            expect(stillHoldingSentinel(allDbNamesOfRemote(ATLAS_A))).toEqual([]);
+            expect(remotosNoDisco()).toEqual([]);
+        });
+
+        it('o prazo de poupança vencido destrói mesmo sem evidência nenhuma', async () => {
+            // O resíduo continua limitado: a poupança adia, nunca eterniza, senão o único coletor
+            // de dado remoto (que só roda deslogado) deixaria de coletar para sempre.
+            await api.activateRemoteAtlas(ATLAS_A);
+            await seedRemote(ATLAS_A);
+            await api.requestRemoteAtlasDiscard();
+            await carimbarPoupadoEm(ATLAS_A, Date.now() - (25 * 60 * 60 * 1000));
+            const soltar = await outraAbaMonta(ATLAS_A);
+
+            const relatorio = await api.purgeAllRemoteAtlases({ teardown: IRMA_CALADA });
+            await soltar();
+
+            expect(relatorio.forced).toEqual([ATLAS_A]);
+            expect(stillHoldingSentinel(allDbNamesOfRemote(ATLAS_A))).toEqual([]);
+        });
+
+        it('sem ninguém montado, a ausência de evidência não impede nada', async () => {
+            // A poupança é sobre CLIENTE VIVO, não sobre o aviso: o caminho comum (uma aba só)
+            // destrói com relatório vazio, senão um logout sozinho nunca terminaria.
+            await api.activateRemoteAtlas(ATLAS_A);
+            await seedRemote(ATLAS_A);
+            await api.requestRemoteAtlasDiscard();
+
+            const relatorio = await api.purgeAllRemoteAtlases({ teardown: null });
+
+            expect(relatorio.spared).toEqual([]);
+            expect(stillHoldingSentinel(allDbNamesOfRemote(ATLAS_A))).toEqual([]);
+        });
+    });
+
+    /**
+     * O AVISO É DA VARREDURA, e não do chamador (achado F17): as três páginas sem mapa chamavam
+     * `purgeAllRemoteAtlases` cru, então destruíam namespace montado por uma irmã sem avisar
+     * ninguém. A lista é derivada lá dentro, das mesmas entradas e das mesmas reivindicações locais
+     * que a varredura vai usar, para não haver segunda cópia da derivação.
+     */
+    describe('a varredura avisa por conta própria', () => {
+        /** @type {Array<{destroy: () => void}>} */
+        let abas = [];
+        afterEach(() => {
+            for (const aba of abas) aba.destroy();
+            abas = [];
+        });
+
+        /**
+         * Uma OUTRA ABA de verdade no canal real, que responde ao aviso como a aba do mapa
+         * responde.
+         * @returns {Promise<{avisos: string[][], comDadoNoAviso: number[]}>}
+         */
+        async function abaVizinhaEscutando() {
+            const { createTabLock, noneKey } = await import('@utils/tab-lock.js');
+            const recebido = { avisos: [], comDadoNoAviso: [] };
+            abas.push(createTabLock({
+                key: noneKey(),
+                overlayHost: null,
+                onTeardown: (addresses) => {
+                    recebido.avisos.push(addresses);
+                    // A ORDEM medida em vez de suposta: avisar depois de esvaziar é não avisar.
+                    recebido.comDadoNoAviso.push(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A)).length);
+                    return true;
+                }
+            }));
+            return recebido;
+        }
+
+        it('quem chama sem relatório faz a varredura anunciar, ANTES de esvaziar', async () => {
+            await api.activateRemoteAtlas(ATLAS_A);
+            await seedRemote(ATLAS_A);
+            const recebido = await abaVizinhaEscutando();
+
+            await api.purgeAllRemoteAtlases();
+
+            expect(recebido.avisos).toEqual([[`remote-${ATLAS_A}`]]);
+            expect(recebido.comDadoNoAviso).toEqual([10]);
+        });
+
+        it('quem chama COM relatório não anuncia de novo', async () => {
+            // Os dois anúncios do caminho do mapa existem por bons motivos (o do logout vem antes
+            // do wipe do atlas montado); o que não se paga duas vezes é a espera pelos acks.
+            await api.activateRemoteAtlas(ATLAS_A);
+            await seedRemote(ATLAS_A);
+            const recebido = await abaVizinhaEscutando();
+
+            await api.purgeAllRemoteAtlases({ teardown: null });
+
+            expect(recebido.avisos).toEqual([]);
+        });
+
+        it('o que um atlas LOCAL reivindica não é anunciado', async () => {
+            // O slot resgatado conserva o sufixo `remote-<id>` e a varredura o pula, então avisar
+            // condenaria um endereço que ninguém vai tocar e congelaria a aba que o segura à toa.
+            await local.initLocalAtlases();
+            await api.activateRemoteAtlas(ATLAS_A);
+            await seedRemote(ATLAS_A);
+            await local.adoptRemoteAtlasAsLocal(ATLAS_A, 'Resgate local');
+            const recebido = await abaVizinhaEscutando();
+
+            await api.purgeAllRemoteAtlases();
+
+            expect(recebido.avisos).toEqual([]);
+            expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual(dbNamesOfRemote(ATLAS_A));
+        });
+    });
 });

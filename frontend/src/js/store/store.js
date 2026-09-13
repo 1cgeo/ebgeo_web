@@ -307,8 +307,12 @@ export async function announceRemoteNamespaceTeardown() {
  * @returns {Promise<import('./remote-atlas.api.js').RemotePurgeReport>}
  */
 export async function discardRemoteAtlasNamespaces() {
-    await announceRemoteNamespaceTeardown();
-    const report = await purgeAllRemoteAtlases();
+    // O RELATÓRIO VIAJA, e não é conveniência: ele é a única evidência que autoriza destruir um
+    // namespace que um cliente vivo ainda tem montado (`teardownStoppedEveryPeer`, em
+    // `remote-atlas.api.js`). Passá-lo também diz ao expurgo "já avisei", de modo que este caminho
+    // continua pagando UMA rodada de acks e não duas.
+    const teardown = await announceRemoteNamespaceTeardown();
+    const report = await purgeAllRemoteAtlases({ teardown });
     if (report.deactivated) {
         // The purge left no active scope on purpose (a destroyed scope must not be written
         // to again). A false here is not a failure: the repository bridge then activates the

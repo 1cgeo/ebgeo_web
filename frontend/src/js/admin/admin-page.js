@@ -28,6 +28,14 @@
 
 import { confirmLogoutWithPendingWork } from '@js/session/confirm-logout.js';
 import { purgeAllRemoteAtlases } from '@store/remote-atlas.api.js';
+// Pelo ARQUIVO, como todo acesso à store nesta página. Ela entra por UM motivo, escrito em
+// `endSession`: a varredura pode deixar a aba sem escopo ativo, e escopo ausente manda a próxima
+// escrita para os bancos LEGADOS, isto é, para o slot local do usuário.
+import { activateCurrentLocalAtlasScope } from '@store/local-atlas.api.js';
+// O PORTÃO DE MIGRAÇÃO, o mesmo do mapa e do seletor de atlas (achado F17): esta página lê e
+// escreve o mesmo acervo local, então subir sem ele é operar sobre bancos que a atualização ainda
+// não copiou.
+import { runLegacyUpgradeGate, watchLegacyChanges } from '@ui/migration-recovery.js';
 import config from '@js/config.js';
 import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-config.js';
 import { apiClient, configureApiClient } from '@store/sync/api-client.js';
@@ -142,7 +150,15 @@ async function endSession(reason) {
         // logout() already swallows network errors and clears locally; nothing left to do.
     }
     sessionContext.clearSession();
-    if (voluntary) await purgeAllRemoteAtlases();
+    // O MESMO CAMINHO DE `discardRemoteAtlasNamespaces`, e não mais a varredura crua (achado F17).
+    // Duas coisas mudaram, e nenhuma delas é estilo: a varredura AVISA as abas irmãs antes de
+    // destruir (o aviso vive dentro dela, derivado da mesma lista), e o escopo que ela desativa é
+    // reapontado para um slot local aqui. Sem o segundo, uma escrita que escape antes da navegação
+    // cai em `ebgeo_maps`, que é o slot local do próprio usuário.
+    if (voluntary) {
+        const report = await purgeAllRemoteAtlases();
+        if (report.deactivated) activateCurrentLocalAtlasScope();
+    }
 
     // O CÓDIGO, E NÃO A FRASE. `window.location.replace` mata qualquer toast levantado logo antes,
     // então o desfecho viaja como valor na URL e o mapa remonta a sentença a partir do mesmo
@@ -169,6 +185,12 @@ async function initAdminPage() {
     // Logo depois da de erro, e pela mesma razao de ordem: `pagina.vista` e o denominador de todo
     // o resto, e uma pagina que morra antes de desenhar continua tendo sido uma carga de pagina.
     instalarUso();
+    // O PORTÃO DE MIGRAÇÃO, na mesma posição que em `index.js` e `projects-page.js`: antes de
+    // qualquer coisa que toque o acervo local, e com o MESMO desfecho no `false`, que é a tela de
+    // recuperação já desenhada por ele e uma página que NÃO monta. Rodava só no mapa e no seletor
+    // de atlas, e esta página escreve no mesmo disco.
+    if (!await runLegacyUpgradeGate()) return;
+    watchLegacyChanges();
 
     configureApiClient({ baseUrl: resolveBackendBaseUrl() });
 

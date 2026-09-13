@@ -4,9 +4,13 @@ const fake = vi.hoisted(() => ({
     list: vi.fn(), locals: vi.fn(), count: vi.fn(), confirm: vi.fn(), discard: vi.fn(),
     announce: vi.fn(), error: vi.fn(), quarantine: vi.fn(),
     pauseWrites: vi.fn(), pauseSends: vi.fn(), resumeWrites: vi.fn(), resumeSends: vi.fn(),
-    holdBarrier: vi.fn(), releaseBarrier: vi.fn(),
+    holdBarrier: vi.fn(), releaseBarrier: vi.fn(), note: vi.fn(),
 }));
-vi.mock('@store/remote-atlas.api.js', () => ({ listRemoteAtlases: fake.list, requestRemoteAtlasDiscard: fake.discard }));
+vi.mock('@store/remote-atlas.api.js', () => ({
+    listRemoteAtlases: fake.list,
+    requestRemoteAtlasDiscard: fake.discard,
+    noteRemoteNamespaceTeardown: fake.note,
+}));
 vi.mock('@store/atlas-namespace.js', () => ({ readLocalAtlasRegistry: fake.locals, getActiveScope: () => ({ kind: 'remote' }) }));
 vi.mock('@store/write-coordinator.js', () => ({
     pauseStoreWrites: fake.pauseWrites,
@@ -75,9 +79,17 @@ describe('confirmed voluntary logout', () => {
     it('acceptance records discard before notifying other tabs', async () => {
         fake.count.mockResolvedValue(1);
         fake.confirm.mockResolvedValue(true);
+        fake.announce.mockResolvedValue({ peers: 1, acked: 1, frozen: 1, timedOut: false, degraded: false });
         expect(await confirmLogoutWithPendingWork()).toBe(true);
         expect(fake.discard).toHaveBeenCalledOnce();
         expect(fake.announce).toHaveBeenCalledWith(['remote-A', 'remote-B']);
+        // O RELATÓRIO FICA REGISTRADO: é ele que autoriza a destruição de um namespace que outra
+        // aba ainda tem montado, e quem destrói roda depois (a varredura desta página, ou o
+        // próximo boot deslogado). Descartá-lo fazia o descarte destruir às cegas.
+        expect(fake.note).toHaveBeenCalledWith(
+            ['remote-A', 'remote-B'],
+            { peers: 1, acked: 1, frozen: 1, timedOut: false, degraded: false }
+        );
         expect(fake.confirm.mock.invocationCallOrder[0]).toBeLessThan(fake.discard.mock.invocationCallOrder[0]);
         expect(fake.discard.mock.invocationCallOrder[0]).toBeLessThan(fake.announce.mock.invocationCallOrder[0]);
     });

@@ -2,7 +2,11 @@
 import { registrarUso, descarregarUso } from '@js/session/uso-lote.js';
 import { EventoDeUso, PropDeUso } from '@js/session/eventos-de-uso.js';
 /** Voluntary logout: confirm the loss across every remote namespace on this browser. */
-import { listRemoteAtlases, requestRemoteAtlasDiscard } from '@store/remote-atlas.api.js';
+import {
+    listRemoteAtlases,
+    requestRemoteAtlasDiscard,
+    noteRemoteNamespaceTeardown
+} from '@store/remote-atlas.api.js';
 import { readLocalAtlasRegistry, getActiveScope } from '@store/atlas-namespace.js';
 import { pauseStoreWrites, holdLogoutBarrier } from '@store/write-coordinator.js';
 import { pauseAutoFlush } from '@store/sync/auto-flush-pause.js';
@@ -137,7 +141,13 @@ async function confirmAndPrepareLogout(settled, drained = true) {
     // Read the registry again: another tab may have mounted an atlas while the dialog was open.
     // Local claims are checked again inside the mutation, including rescued local atlases.
     const discarded = await requestRemoteAtlasDiscard();
-    await announceTabLockTeardown(discarded.map(e => e.dbSuffix));
+    const addresses = discarded.map(e => e.dbSuffix);
+    // THE REPORT IS LEFT BEHIND, not thrown away, and it is the evidence the destruction needs: the
+    // sweep that actually deletes these databases runs later (this page's `purgeAllRemoteAtlases`,
+    // or the next logged-out boot), and only "every live peer answered" licenses it to take a
+    // namespace a sibling still has mounted. Without the note it would either destroy blind or pay
+    // a second round of acks.
+    noteRemoteNamespaceTeardown(addresses, await announceTabLockTeardown(addresses));
     if (!Number.isFinite(pendingOps) || pendingOps > 0) {
         if (Number.isFinite(pendingOps)) registrarUso(EventoDeUso.LOGOUT_DESCARTE, PropDeUso.DESCARTE_PENDENCIAS);
         else registrarUso(EventoDeUso.LOGOUT_DESCARTE, PropDeUso.DESCARTE_DESCONHECIDO);

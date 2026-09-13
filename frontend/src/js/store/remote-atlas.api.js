@@ -120,6 +120,7 @@ import {
 
 import { discardRemoteWrites, reopenRemoteWrites, remoteWritesDiscarded } from './remote-write-fence.js';
 import { preserveQuarantine } from './sync/quarantine-registry.js';
+import { announceTabLockTeardown } from '@utils/tab-lock.js';
 
 /**
  * How long a namespace may be spared because a live client has it mounted, before the sweep
@@ -154,6 +155,79 @@ export const RESCUE_VETO_GRACE_MS = 24 * 60 * 60 * 1000;
 
 /** Prefix of the `localStorage` key holding one atlas's rescue veto. */
 const RESCUE_VETO_KEY_PREFIX = 'ebgeo_rescue_veto:';
+
+/**
+ * How long a teardown announcement still counts as EVIDENCE that the siblings stopped.
+ *
+ * The same 5000 ms `store.js` uses to memoise its own announcement, and one number for the same
+ * reason: it covers a GESTURE (mark, revoke the token, destroy), not a session. Past it, a peer
+ * that mounted meanwhile has never heard anything, so the evidence is refused and the sweep falls
+ * back to asking the mount lock, which is the answer that does not expire.
+ */
+const TEARDOWN_EVIDENCE_TTL_MS = 5000;
+
+/** @type {{key: string, at: number, report: Object|null}|null} */
+let lastTeardown = null;
+
+/**
+ * @param {string[]} addresses - `dbSuffix` values the notice was about.
+ * @returns {string} Order-independent identity of that address set.
+ */
+function teardownKey(addresses) {
+    return [...addresses].sort().join('|');
+}
+
+/**
+ * RECORDS a teardown announcement somebody else made, so the sweep does not announce the same
+ * addresses twice and can read what the first announcement PROVED.
+ *
+ * The caller is `confirm-logout.js`, which announces right after marking the discard and long
+ * before the page gets to the sweep. Without this the sweep would either pay a second round of
+ * acks (two seconds of a logout that is doing nothing) or, worse, destroy with no evidence at all.
+ *
+ * @param {string[]} addresses - Exactly the addresses that were announced.
+ * @param {Object|null} report - What `announceTabLockTeardown` returned.
+ * @returns {void}
+ */
+export function noteRemoteNamespaceTeardown(addresses, report) {
+    const list = (Array.isArray(addresses) ? addresses : []).filter(a => typeof a === 'string');
+    if (list.length === 0) return;
+    lastTeardown = { key: teardownKey(list), at: Date.now(), report: report ?? null };
+}
+
+/**
+ * @param {string[]} addresses - Addresses the sweep is about to destroy.
+ * @returns {{report: Object|null}|null} The remembered announcement when it was about THIS set and
+ *   is still fresh, or null when the sweep has to announce for itself.
+ */
+function rememberedTeardown(addresses) {
+    if (!lastTeardown) return null;
+    if (lastTeardown.key !== teardownKey(addresses)) return null;
+    if ((Date.now() - lastTeardown.at) >= TEARDOWN_EVIDENCE_TTL_MS) return null;
+    return { report: lastTeardown.report };
+}
+
+/**
+ * Does the announcement PROVE that every live peer stopped writing?
+ *
+ * IT IS THE ONLY THING THAT LICENSES A DIRECT DESTRUCTION of a namespace a live client still has
+ * mounted, and it is why the discard path stopped calling `destroyRemoteAtlas` unconditionally.
+ * The consent the dialog collects covers losing pending WORK, in other tabs included; it does not
+ * cover pulling the databases out from under a tab that never heard the notice (an older protocol,
+ * a throttled tab, a tab that mounted after the announcement, no transport at all). Those keep
+ * their mount lock and get spared, with the discard mark left on the entry for the next sweep.
+ *
+ * A peer that DID answer and froze keeps its mount lock on purpose (`tab-lock-sync-brake.js`), so
+ * the lock alone can never tell the two apart. That is exactly the question this answers.
+ *
+ * @param {Object|null|undefined} report - A teardown report.
+ * @returns {boolean} False whenever there is no proof, which is the direction that spares.
+ */
+function teardownStoppedEveryPeer(report) {
+    if (!report || report.degraded || report.timedOut) return false;
+    if (!Number.isFinite(report.peers) || !Number.isFinite(report.acked)) return false;
+    return report.acked >= report.peers;
+}
 
 /**
  * @typedef {Object} RemoteAtlasEntry
@@ -589,19 +663,31 @@ function emptyPurgeOutcome() {
  * namespace that survives the logout. Releasing is also what makes the sweep survive a module
  * reload: the lock belongs to the client, not to the instance that took it.
  *
+ * AND IT WARNS THE OTHER TABS ITSELF when nobody warned for it. The notice used to be bound to the
+ * two callers that go through `store.js`, which left the three pages without a map calling this
+ * raw: they destroyed namespaces a sibling had mounted with no notice at all (F17). The address
+ * list is DERIVED HERE, from the same entries and the same local claims this function is about to
+ * act on, so there is no second copy of the derivation to drift. A caller that already announced
+ * passes what it got (`teardown`), and `confirm-logout.js` leaves its report behind
+ * (`noteRemoteNamespaceTeardown`), so no path pays two rounds of acks.
+ *
  * @param {Object} [options]
  * @param {number} [options.dropTimeoutMs] - Bound on each database delete.
  * @param {number} [options.spareGraceMs=SPARE_GRACE_MS] - How long a mounted namespace may be
  *   spared before it is destroyed anyway.
  * @param {number} [options.rescueGraceMs=RESCUE_VETO_GRACE_MS] - How long a namespace whose rescue
  *   failed is retained before it is destroyed anyway.
+ * @param {Object|null} [options.teardown] - The report of an announcement the CALLER already made
+ *   about exactly these addresses. Passing it (even as null) means "do not announce again"; leaving
+ *   it out means "announce for me".
  * @returns {Promise<RemotePurgeReport>}
  */
-export async function purgeAllRemoteAtlases({
-    dropTimeoutMs,
-    spareGraceMs = SPARE_GRACE_MS,
-    rescueGraceMs = RESCUE_VETO_GRACE_MS
-} = {}) {
+export async function purgeAllRemoteAtlases(options = {}) {
+    const {
+        dropTimeoutMs,
+        spareGraceMs = SPARE_GRACE_MS,
+        rescueGraceMs = RESCUE_VETO_GRACE_MS
+    } = options;
     const entries = await listRemoteAtlases();
     const report = {
         // EVERY ATLAS THE REGISTRY KNEW, captured BEFORE anything is destroyed. This is the
@@ -626,13 +712,19 @@ export async function purgeAllRemoteAtlases({
     };
     if (entries.length === 0) return report;
 
-    // ONCE, BEFORE THE SWEEP, and none of the three may move inside the fan-out below. Releasing
-    // the mount is the sweep's first act (see above), the claim set is one read of the local
-    // registry, and `now` read once is what makes every entry judged against a SINGLE instant:
-    // one clock per entry would let two atlases with the same deadline land on opposite sides
-    // of it.
-    await releaseRemoteMountLock();
+    // ONCE, BEFORE THE SWEEP, and none of the four may move inside the fan-out below. The claim set
+    // is one read of the local registry, releasing the mount is the sweep's first destructive act
+    // (see above), and `now` read once is what makes every entry judged against a SINGLE instant:
+    // one clock per entry would let two atlases with the same deadline land on opposite sides of it.
+    //
+    // THE CLAIMS ARE READ BEFORE THE NOTICE because the notice is addressed by the sweep's OWN list,
+    // exclusions included: a rescued slot keeps its `remote-<id>` suffix and is skipped below, so
+    // announcing it would freeze the tab holding it for nothing.
     const claimed = await locallyClaimedSuffixes();
+    const teardown = 'teardown' in options
+        ? (options.teardown ?? null)
+        : await announceSweep(entries, claimed);
+    await releaseRemoteMountLock();
     const now = Date.now();
 
     // ONE OUTCOME SET PER ENTRY, merged into the report BY INDEX after everything settles. The
@@ -644,7 +736,8 @@ export async function purgeAllRemoteAtlases({
     const purgeEntry = async (entry, index) => {
         try {
             await purgeOneRemoteAtlas(entry, {
-                report: outcomes[index], claimed, now, dropTimeoutMs, spareGraceMs, rescueGraceMs
+                report: outcomes[index], claimed, now, dropTimeoutMs, spareGraceMs, rescueGraceMs,
+                teardown
             });
         } catch (error) {
             // ONE ATLAS FAILING MUST NOT ABORT THE SWEEP. Without this, an entry that throws
@@ -695,6 +788,39 @@ export async function purgeAllRemoteAtlases({
 }
 
 /**
+ * WARNS EVERY LIVE TAB about the addresses this sweep is about to destroy, and answers with what
+ * the warning proved.
+ *
+ * It never throws: a failure to warn must not abort a logout or a boot, and the silent case
+ * degrades to the behaviour of the deploy that had no notice, which is that a sibling keeps its
+ * mount lock and its namespace is spared.
+ *
+ * @param {RemoteAtlasEntry[]} entries - Registry entries the sweep will visit.
+ * @param {Set<string>} claimed - Suffixes a LOCAL atlas claims, and which the sweep skips.
+ * @returns {Promise<Object|null>} The lock's report, or null when there was nothing to announce.
+ */
+async function announceSweep(entries, claimed) {
+    try {
+        const addresses = entries
+            .map(entry => entry?.dbSuffix)
+            .filter(dbSuffix => typeof dbSuffix === 'string'
+                && dbSuffix.length > 0
+                && !claimed.has(dbSuffix));
+        if (addresses.length === 0) return null;
+
+        const remembered = rememberedTeardown(addresses);
+        if (remembered) return remembered.report;
+
+        const report = await announceTabLockTeardown(addresses);
+        noteRemoteNamespaceTeardown(addresses, report);
+        return report;
+    } catch (error) {
+        console.warn('[remote-atlas] announcing the namespace teardown failed:', error);
+        return null;
+    }
+}
+
+/**
  * Destroys the namespace of ONE registry entry, writing the outcome into the shared report.
  *
  * Extracted from the loop so a failure can be caught PER ENTRY: the sweep carries the invariant
@@ -709,11 +835,13 @@ export async function purgeAllRemoteAtlases({
  * @param {number} [ctx.dropTimeoutMs] - Bound on each database delete.
  * @param {number} ctx.spareGraceMs - How long a mounted namespace may be spared.
  * @param {number} ctx.rescueGraceMs - How long a failed rescue's veto holds.
+ * @param {Object|null} [ctx.teardown] - Report of the unmount notice, the only evidence that
+ *   licenses destroying a namespace a live client still has mounted.
  * @returns {Promise<void>}
  */
 async function purgeOneRemoteAtlas(
     entry,
-    { report, claimed, now, dropTimeoutMs, spareGraceMs, rescueGraceMs }
+    { report, claimed, now, dropTimeoutMs, spareGraceMs, rescueGraceMs, teardown = null }
 ) {
     if (claimed.has(entry.dbSuffix)) {
         // A local atlas owns these databases now (the unsynced-work rescue). The data
@@ -724,10 +852,33 @@ async function purgeOneRemoteAtlas(
     }
 
     if (entry.discardRequested) {
-        // The user accepted losing these queues. The logout announcement has frozen live peers;
-        // a leftover mount or an old rescue veto must not preserve work for a future replay.
+        // THE USER ACCEPTED LOSING THESE QUEUES, in other tabs included, and an old rescue veto
+        // must not preserve work for a replay nobody asked for.
+        //
+        // BUT CONSENT IS ABOUT WORK, NEVER ABOUT A LIVE TAB'S DATABASES. Until 2026-09-13 this
+        // branch called `destroyRemoteAtlas` DIRECTLY, skipping the mount-lock sparing, so a
+        // sibling that never heard the notice (an older protocol, a throttled tab, a tab that
+        // mounted after the announcement, no transport at all) had its namespace deleted from under
+        // it mid-write, with no error on either side. It now asks the lock like every other branch,
+        // and only the EVIDENCE of the notice (`teardownStoppedEveryPeer`) or the expiry of the
+        // spare deadline licenses taking a live mount. A spared entry keeps its `discardRequested`
+        // mark, which is what makes the next logged-out sweep finish the job without remembering
+        // anything.
         releaseRemoteAtlasRescueVeto(entry.atlasId);
-        const result = await destroyRemoteAtlas(entry, dropTimeoutMs);
+        let result = await destroyRemoteAtlasIfUnmounted(entry, dropTimeoutMs);
+        if (result.spared) {
+            const overdue = entry.sparedAt > 0 && (now - entry.sparedAt) >= spareGraceMs;
+            if (!teardownStoppedEveryPeer(teardown) && !overdue) {
+                await stampSparedAt(entry);
+                report.spared.push(entry.atlasId);
+                return;
+            }
+            // A peer that answered the notice KEEPS its mount on purpose (the sync brake), so the
+            // lock cannot tell "froze and stopped" from "never heard". Here it is the first case,
+            // or a reprieve that ran out.
+            report.forced.push(entry.atlasId);
+            result = { spared: false, ...await destroyRemoteAtlas(entry, dropTimeoutMs) };
+        }
         (result.hadData ? report.atlases : report.empty).push(entry.atlasId);
         report.cleared.push(...result.cleared);
         report.dropped.push(...result.dropped);

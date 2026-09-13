@@ -86,6 +86,7 @@ import {
     duplicateLocalAtlas,
     scopeOfLocalAtlas,
     setCurrentLocalAtlas,
+    activateCurrentLocalAtlasScope,
     MAX_LOCAL_ATLASES,
 } from '@store/local-atlas.api.js';
 import {
@@ -794,7 +795,15 @@ async function endSession(reason) {
         // logout() already swallows network errors and clears locally.
     }
     sessionContext.clearSession();
-    if (voluntary) await purgeAllRemoteAtlases();
+    // O MESMO CAMINHO DE `discardRemoteAtlasNamespaces`, e não mais a varredura crua (achado F17):
+    // ela AVISA as abas irmãs antes de destruir (o aviso vive dentro dela, derivado da mesma
+    // lista), e o escopo que ela desativa é reapontado para um slot local aqui. Sem o segundo, uma
+    // escrita que escape antes da navegação cai em `ebgeo_maps`, o slot local do próprio usuário,
+    // e esta página continua viva depois do logout (a grade local é o produto de quem não entrou).
+    if (voluntary) {
+        const report = await purgeAllRemoteAtlases();
+        if (report.deactivated) activateCurrentLocalAtlasScope();
+    }
 
     const params = new URLSearchParams();
     if (reason) params.set('sessao', reason);
