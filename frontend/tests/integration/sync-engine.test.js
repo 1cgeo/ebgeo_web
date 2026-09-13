@@ -1351,6 +1351,238 @@ describe('pull', () => {
     });
 });
 
+// ============================================================================
+// Lote lógico: o envio leva o gesto inteiro, e a recusa alcança todos os membros
+// ============================================================================
+// O contrato do servidor (bloco B6a, `docs/reviews/fechamento/04-comandos-compostos.md`): as
+// operações que compartilham um `batchId` e chegam no MESMO push são aplicadas ou recusadas
+// inteiras, num savepoint só, e todas voltam com o mesmo `status`, o mesmo `batchId` e o
+// `batchFailedOperationId` da culpada. Acima de `LOTE_MAX_OPS` (200) o lote é recusado inteiro.
+//
+// O EMPACOTAMENTO EM SI é da fila e está preso, contra a implementação REAL, em
+// `tests/integration/fila-recorte-por-lote.test.js`. Aqui a fila é dublê, então o dublê passa a
+// empacotar como ela: o que estes casos medem é o que o MOTOR faz com um lote.
+
+/**
+ * O recorte por lote, resumido: lotes inteiros até o orçamento, e o primeiro inteiro sempre.
+ * Espelha `OperationQueue.peek`, cujo comportamento real é asserido no arquivo citado acima.
+ * @param {Object[]} ops - A fila, em ordem.
+ * @param {number} count - O orçamento.
+ * @returns {Object[]} Lotes inteiros.
+ */
+function recortePorLote(ops, count) {
+    const saida = [];
+    let i = 0;
+    while (i < ops.length) {
+        const batch = ops[i].batchId ?? null;
+        let fim = i + 1;
+        if (batch !== null) {
+            while (fim < ops.length && ops[fim].batchId === batch) fim++;
+        }
+        const corrida = ops.slice(i, fim);
+        if (saida.length > 0 && saida.length + corrida.length > count) break;
+        saida.push(...corrida);
+        i = fim;
+        if (saida.length >= count) break;
+    }
+    return saida;
+}
+
+/**
+ * N membros de um lote lógico.
+ * @param {string} batchId - Identidade do gesto.
+ * @param {number} total - Quantos membros.
+ * @returns {Object[]} Os envelopes.
+ */
+function loteDe(batchId, total) {
+    return Array.from({ length: total }, (_, index) => ({
+        id: `${batchId}-${index}`, entityId: `e-${batchId}-${index}`,
+        entityType: 'feature', operationType: 'create', batchId, batchIndex: index,
+    }));
+}
+
+describe('lote lógico no envio', () => {
+    beforeEach(async () => {
+        operationQueueMock.peek.mockImplementation(async (count) => recortePorLote(queueState.ops, count));
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        apiClientMock.pushOperations.mockClear();
+    });
+
+    // `vi.clearAllMocks()` limpa CHAMADAS, não implementações: sem esta linha o recorte por
+    // lote vazaria para todo caso posterior do arquivo, e seria um dublê medindo outro dublê.
+    afterEach(() => {
+        operationQueueMock.peek.mockImplementation(async (count) => queueState.ops.slice(0, count));
+    });
+
+    it('um gesto de 30 viaja num push só, e dois gestos de 20 viajam em dois', async () => {
+        queueState.ops = loteDe('gesto-a', 30);
+        await syncEngine.flush();
+        expect(apiClientMock.pushOperations.mock.calls.map(([, ops]) => ops.length)).toEqual([30]);
+
+        // CONTROLE NEGATIVO: com o recorte cego (a fatia por contagem que o dublê fazia até
+        // aqui), o mesmo gesto sai em 25 + 5, e cada metade é um lote lógico próprio para o
+        // servidor, aplicável sem a outra.
+        apiClientMock.pushOperations.mockClear();
+        operationQueueMock.peek.mockImplementation(async (count) => queueState.ops.slice(0, count));
+        queueState.ops = loteDe('gesto-b', 30);
+        await syncEngine.flush();
+        expect(apiClientMock.pushOperations.mock.calls.map(([, ops]) => ops.length)).toEqual([25, 5]);
+
+        // E de volta ao recorte por lote: dois gestos de 20 não se misturam num push de 25.
+        apiClientMock.pushOperations.mockClear();
+        operationQueueMock.peek.mockImplementation(async (count) => recortePorLote(queueState.ops, count));
+        queueState.ops = [...loteDe('gesto-c', 20), ...loteDe('gesto-d', 20)];
+        await syncEngine.flush();
+        const enviados = apiClientMock.pushOperations.mock.calls.map(([, ops]) => ops.map(o => o.batchId));
+        expect(enviados).toEqual([
+            Array(20).fill('gesto-c'),
+            Array(20).fill('gesto-d'),
+        ]);
+    });
+
+    it('acima do teto do servidor a recusa é LOCAL: nenhuma viagem, e problema em todas', async () => {
+        queueState.ops = loteDe('gesto-grande', 201);
+
+        const result = await syncEngine.flush();
+
+        expect(apiClientMock.pushOperations).not.toHaveBeenCalled();
+        expect(result).toEqual({ pushed: 0 });
+        expect(queueState.issues).toHaveLength(201);
+        expect(queueState.issues.every(i => i.result.reason.includes('mais de 200 alterações'))).toBe(true);
+        expect(queueState.issues.every(i => i.result.batchId === 'gesto-grande')).toBe(true);
+
+        // CONTROLE POSITIVO no mesmo caso: 200 é aceito, então o teto é o teto e não um
+        // "lote grande demais" que reprovaria qualquer gesto composto.
+        queueState.ops = loteDe('gesto-no-teto', 200);
+        await syncEngine.flush();
+        expect(apiClientMock.pushOperations.mock.calls.map(([, ops]) => ops.length)).toEqual([200]);
+    });
+
+    it('lote recusado vira problema durável nas N ops, com a culpada nomeada', async () => {
+        queueState.ops = loteDe('gesto-a', 3);
+        apiClientMock.pushOperations.mockResolvedValueOnce({
+            results: loteDe('gesto-a', 3).map(op => ({
+                operationId: op.id, rejected: true, status: 'conflict',
+                reason: 'A camada de destino foi excluída.',
+                batchId: 'gesto-a', batchFailedOperationId: 'gesto-a-1',
+                ...(op.id === 'gesto-a-1' ? { conflict: { fields: ['layerId'] } } : {}),
+            })),
+            serverVersion: 9,
+        });
+
+        await syncEngine.flush();
+
+        expect(queueState.issues.map(i => i.operation.id))
+            .toEqual(['gesto-a-0', 'gesto-a-1', 'gesto-a-2']);
+        expect(queueState.issues.every(i => i.result.batchId === 'gesto-a')).toBe(true);
+        expect(queueState.issues.every(i => i.result.batchFailedOperationId === 'gesto-a-1')).toBe(true);
+        // A CLASSE é a mesma para os três: a disputa é do gesto, não de um membro.
+        expect(queueState.issues.map(i => classifyIssue(i.result)))
+            .toEqual([IssueClass.CONFLITO, IssueClass.CONFLITO, IssueClass.CONFLITO]);
+        // NADA saiu da fila: o servidor rolou o gesto inteiro para trás.
+        expect(queueState.dequeued).toEqual([]);
+    });
+
+    it('membro recusado NÃO leva a irmã acked embora, mesmo que o servidor se contradiga', async () => {
+        queueState.ops = loteDe('gesto-a', 3);
+        // Um servidor fora do contrato: recusa a do meio e diz que as outras duas passaram. O
+        // savepoint do servidor real torna isso impossível; se acontecer, o desfecho seguro é
+        // guardar o gesto inteiro, nunca deixá-lo meio confirmado na fila.
+        apiClientMock.pushOperations.mockResolvedValueOnce({
+            results: [
+                { operationId: 'gesto-a-0', success: true, currentVersion: 9 },
+                { operationId: 'gesto-a-1', rejected: true, reason: 'Mapa bloqueado.', batchId: 'gesto-a' },
+                { operationId: 'gesto-a-2', success: true, currentVersion: 9 },
+            ],
+            serverVersion: 9,
+        });
+
+        await syncEngine.flush();
+
+        expect(queueState.dequeued).toEqual([]);
+        // A REDE DE SEGURANÇA: as duas irmãs ganham o problema do lote, com o motivo da culpada.
+        expect(queueState.issues.map(i => i.operation.id).sort())
+            .toEqual(['gesto-a-0', 'gesto-a-1', 'gesto-a-2']);
+        expect(queueState.issues.every(i => i.result.reason === 'Mapa bloqueado.')).toBe(true);
+        expect(queueState.issues.filter(i => i.operation.id !== 'gesto-a-1')
+            .every(i => i.result.batchFailedOperationId === 'gesto-a-1')).toBe(true);
+    });
+
+    it('o reenvio do lote reusa os MESMOS envelopes, ids inclusive', async () => {
+        const envelopes = loteDe('gesto-a', 3);
+        queueState.ops = envelopes.map(op => ({ ...op }));
+        apiClientMock.pushOperations.mockRejectedValueOnce(httpError(503));
+
+        await expect(syncEngine.flush()).rejects.toThrow();
+        expect(queueState.issues).toEqual([]);
+        expect(queueState.ops).toEqual(envelopes);
+
+        await syncEngine.flush();
+        // Um push só, o gesto inteiro, e byte a byte o que estava na fila: é o `op.id` que
+        // torna o reenvio idempotente do outro lado, e cunhar id novo pediria dupla aplicação.
+        expect(apiClientMock.pushOperations.mock.calls).toHaveLength(2);
+        expect(apiClientMock.pushOperations.mock.calls[1][1]).toEqual(envelopes);
+        expect(queueState.dequeued).toEqual(['gesto-a-0', 'gesto-a-1', 'gesto-a-2']);
+    });
+
+    it('o modo de isolamento TERMINA quando o pedaço indivisível é um lote', async () => {
+        queueState.ops = [...loteDe('gesto-ruim', 3), { id: 'solta', entityId: 'solta' }];
+        apiClientMock.pushOperations.mockImplementation(async (_atlasId, ops) => {
+            if (ops.some(o => o.batchId === 'gesto-ruim')) throw httpError(400);
+            return { results: ops.map(op => ({ operationId: op.id, success: true })), serverVersion: 1 };
+        });
+
+        // CONTROLE NEGATIVO: sem a guarda `!isolating`, `peek(1)` devolve o lote de 3 outra vez,
+        // `ops.length > 1` continua verdadeiro e o laço nunca sai daqui.
+        const result = await syncEngine.flush();
+
+        expect(result).toEqual({ pushed: 1 });
+        expect(queueState.issues.map(i => i.operation.id))
+            .toEqual(['gesto-ruim-0', 'gesto-ruim-1', 'gesto-ruim-2']);
+        expect(queueState.issues.every(i => i.result.batchFailedOperationId === 'gesto-ruim-0')).toBe(true);
+        expect(queueState.dequeued).toEqual(['solta']);
+    });
+});
+
+describe('marcadores estruturais das quatro exceções REST', () => {
+    it.each(['map_merge', 'map_duplicate', 'atlas_clone', 'atlas_import'])(
+        'o marcador %s no replay dispara resync, não aplicação op a op', async (entityType) => {
+            await syncEngine.connect('atlas-1', { initialPull: false });
+            apiClientMock.pullSync.mockClear();
+            applyRemoteOperation.mockClear();
+            apiClientMock.pullSync.mockResolvedValueOnce({
+                snapshot: { maps: {} }, currentVersion: 42,
+            });
+
+            await wsClientMock._handlers.syncResponse({
+                isSnapshot: false,
+                ops: [{ entityType: 'feature', entityId: 'f1' }, { entityType, entityId: 'x' }],
+                currentVersion: 9,
+            });
+
+            expect(apiClientMock.pullSync).toHaveBeenCalledWith('atlas-1', 0, { signal: expect.any(AbortSignal) });
+            expect(applyRemoteOperation).not.toHaveBeenCalled();
+            expect(syncEngine.lastVersion).toBe(42);
+        });
+
+    // CONTROLE NEGATIVO: um tipo que NÃO é marcador continua sendo aplicado op a op. Sem esta
+    // metade, um conjunto que casasse com tudo passaria verde nos quatro casos acima.
+    it('um tipo qualquer não dispara resync', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        apiClientMock.pullSync.mockClear();
+        applyRemoteOperation.mockClear();
+
+        await wsClientMock._handlers.syncResponse({
+            isSnapshot: false,
+            ops: [{ entityType: 'map_rename', entityId: 'x' }],
+            currentVersion: 9,
+        });
+
+        expect(apiClientMock.pullSync).not.toHaveBeenCalled();
+        expect(applyRemoteOperation).toHaveBeenCalledTimes(1);
+    });
+});
+
 describe('disconnect', () => {
     it('closes the WebSocket', () => {
         syncEngine.disconnect();

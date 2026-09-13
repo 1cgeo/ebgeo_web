@@ -210,6 +210,26 @@ class OperationQueue {
         return this._loadOperations(await this._getOrderedKeys(context.store), { ...context, projectionOnly: true });
     }
 
+    /**
+     * The next operations the flush may send, cut at a LOGICAL BATCH boundary and never inside
+     * one.
+     *
+     * `count` IS A BUDGET OF WHOLE BATCHES, NOT A SLICE, and that is the contract this signature
+     * changed for. The server defines a logical batch as the operations sharing one `batchId`
+     * THAT ARRIVE IN THE SAME PUSH (`docs/reviews/fechamento/04-comandos-compostos.md`): it
+     * carries no total, so it cannot know a member is missing. A blind FIFO slice therefore
+     * turned one gesture into two logical batches, each atomic in itself, and the gesture could
+     * still be applied by halves, which is the very outcome the savepoint was bought to prevent.
+     *
+     * The packing is greedy over consecutive runs of the same `batchId` (an operation with no
+     * `batchId` is a run of one): a run is taken whole while it fits in the budget, and the first
+     * run is taken whole EVEN IF IT ALONE EXCEEDS the budget, because a gesture larger than the
+     * budget must travel in a push of its own rather than be split. The server's own ceiling
+     * (`LOTE_MAX_OPS`) is enforced by the caller, which is the side that knows the protocol.
+     *
+     * @param {number} [count=10] - How many operations the caller would like, at least.
+     * @returns {Promise<Object[]>} Whole batches, in queue order.
+     */
     async peek(count = 10) {
         const context = this._context();
         const keys = await this._getOrderedKeys(context.store);
@@ -291,23 +311,58 @@ class OperationQueue {
         }
 
         const blockade = new PendingBlockade();
+        /** @type {Set<string>} Batches with an unsendable member, as in `_loadOperations`. */
+        const poisonedBatches = new Set();
         let held = false;
+        // THE RUN IS COUNTED TOGETHER, for the same reason the loader packs it together: a
+        // gesture whose last member is still prepared is not partly sendable, so its earlier
+        // members are `preparadas` too. Counting them as `pendentes` would make the census
+        // promise work the flush refuses to send, which is the disagreement this class of
+        // defect always takes.
+        let runBatch = null;
+        let run = [];
+        let runHeld = false;
+        const closeRun = () => {
+            if (run.length === 0) return;
+            if (held || runHeld) census.preparadas += run.length;
+            else census.pendentes += run.length;
+            if (runHeld) held = true;
+            runBatch = null;
+            run = [];
+            runHeld = false;
+        };
+
         for (let i = 0; i < operationKeys.length; i += COUNT_BATCH_SIZE) {
             const lote = operationKeys.slice(i, i + COUNT_BATCH_SIZE);
             const envelopes = await Promise.all(lote.map(key => store.getItem(key)));
             for (const op of envelopes) {
                 if (!op) continue;
                 if (!operationBelongsToScope(op, scopeSuffix)) continue;
-                if (issued.has(op.id) || blockade.blocks(op)) {
+                const batch = op.batchId ?? null;
+                if (issued.has(op.id) || blockade.blocks(op)
+                    || (batch !== null && poisonedBatches.has(batch))) {
                     blockade.add(op);
                     census.problemas += 1;
+                    if (batch !== null) {
+                        poisonedBatches.add(batch);
+                        if (batch === runBatch) {
+                            for (const irma of run) blockade.add(irma);
+                            census.problemas += run.length;
+                            run = [];
+                            runBatch = null;
+                            runHeld = false;
+                        }
+                    }
                     continue;
                 }
-                if (prepared.has(op.id)) held = true;
-                if (held) census.preparadas += 1;
-                else census.pendentes += 1;
+                if (run.length > 0 && (batch === null || batch !== runBatch)) closeRun();
+                runBatch = batch;
+                run.push(op);
+                if (prepared.has(op.id)) runHeld = true;
+                if (batch === null) closeRun();
             }
         }
+        closeRun();
         return census;
     }
 
@@ -376,10 +431,50 @@ class OperationQueue {
             .sort();
     }
 
+    /**
+     * @private Walks the ordered keys applying the blockade, the prepared mark and, when the
+     * caller set a finite `limit`, the WHOLE-BATCH packing described in {@link peek}.
+     *
+     * The run buffer is what makes the packing possible at all: whether a batch fits can only be
+     * decided once its last member is known, so members are held aside and moved into the result
+     * together. With no finite limit (the projection, `getAll`) the buffer is transparent, since
+     * every run fits.
+     */
     async _loadOperations(keys, { limit = Infinity, scopeSuffix = null, store = this._context().store, remote = false, readyOnly = false, projectionOnly = false } = {}) {
         const operations = [];
         if (limit <= 0) return operations;
         const blockade = new PendingBlockade();
+        const bounded = Number.isFinite(limit);
+        /** @type {Set<string>} Batches with an unsendable member: the whole gesture waits. */
+        const poisonedBatches = new Set();
+
+        /** @type {Object[]} Members of the batch under consideration, not yet accepted. */
+        let run = [];
+        /** @type {string|null} The `batchId` those members share. */
+        let runBatch = null;
+
+        /**
+         * Moves the buffered run into the result when it fits the budget.
+         * @returns {boolean} False when it does not fit, so the caller must stop.
+         */
+        const flushRun = () => {
+            if (run.length === 0) return true;
+            if (bounded && operations.length > 0 && operations.length + run.length > limit) return false;
+            operations.push(...run);
+            run = [];
+            runBatch = null;
+            return true;
+        };
+
+        /**
+         * Withdraws the buffered run: its gesture cannot be sent, so no member of it may be.
+         * @returns {void}
+         */
+        const poisonRun = () => {
+            for (const held of run) blockade.add(held);
+            run = [];
+            runBatch = null;
+        };
 
         for (const key of keys) {
             const op = await store.getItem(key);
@@ -391,15 +486,40 @@ class OperationQueue {
                     await store.setItem(JournalKey.ISSUE + op.id, { result: issue, recordedAt: Date.now() });
                 }
             }
+            const batch = op.batchId ?? null;
             if ((readyOnly || projectionOnly)
-                && (await store.getItem(JournalKey.ISSUE + op.id) || blockade.blocks(op))) {
+                && (await store.getItem(JournalKey.ISSUE + op.id)
+                    || blockade.blocks(op)
+                    || (batch !== null && poisonedBatches.has(batch)))) {
                 blockade.add(op);
+                // ONE UNSENDABLE MEMBER TAKES ITS WHOLE GESTURE WITH IT, siblings already buffered
+                // included. Sending what is left of a batch is the half-gesture the boundary
+                // exists to prevent, and it is the shape nothing downstream can repair.
+                if (batch !== null) {
+                    poisonedBatches.add(batch);
+                    if (batch === runBatch) poisonRun();
+                }
                 continue;
             }
-            if (readyOnly && await store.getItem(JournalKey.STATE + op.id) === 'prepared') break;
-            operations.push(op);
-            if (operations.length >= limit) break;
+            if (readyOnly && await store.getItem(JournalKey.STATE + op.id) === 'prepared') {
+                // A MEMBER STILL PREPARED HOLDS ITS WHOLE BATCH, not only itself. One member of a
+                // gesture can stay prepared while its siblings are materialized (an image feature
+                // waiting for its blob), and the siblings must wait with it.
+                if (batch !== null && batch === runBatch) run = [];
+                flushRun();
+                break;
+            }
+            if (run.length > 0 && (batch === null || batch !== runBatch)) {
+                if (!flushRun()) return operations;
+            }
+            run.push(op);
+            runBatch = batch;
+            if (batch === null) {
+                flushRun();
+                if (bounded && operations.length >= limit) return operations;
+            }
         }
+        flushRun();
         return operations;
     }
 

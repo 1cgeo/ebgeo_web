@@ -85,6 +85,31 @@ import { showWarning } from '../../utilities/toast_service.js';
 const FLUSH_BATCH_SIZE = 25;
 
 /**
+ * The server's ceiling for ONE logical batch, mirrored here so the client never spends a round
+ * trip discovering it.
+ *
+ * `LOTE_MAX_OPS` is 200 in `backend/src/modules/sync/sync.service.js`, and a batch above it is
+ * refused whole, with a reason, before the server writes anything. The number is not a cost
+ * ceiling (the measurement in `docs/reviews/fechamento/04-comandos-compostos.md` shows the cost
+ * per operation is flat, and one savepoint beats N): it bounds how long a push may hold the
+ * atlas write lock, whose own timeout is 5 s.
+ *
+ * WHY THE CLIENT REFUSES IT LOCALLY INSTEAD OF LETTING THE SERVER SPEAK. A batch cannot be split
+ * to fit, since splitting is what the batch exists to prevent, so the answer would be identical
+ * on the next flush and on every flush after it. Recording the durable issue here turns an
+ * endless 1,5 s knock into one problem the queue census names and the person can act on.
+ * @type {number}
+ */
+const LOTE_MAX_OPS = 200;
+
+/**
+ * The pt-BR reason stored on every operation of a batch too large to be sent.
+ * @type {string}
+ */
+const LOTE_GRANDE_DEMAIS = `Esta ação gerou mais de ${LOTE_MAX_OPS} alterações e o servidor `
+    + 'não aceita enviá-las juntas. Ela está guardada nas pendências para revisão.';
+
+/**
  * HTTP statuses that mean "these exact bytes will be refused forever".
  *
  * 400 (violação de dado/formato) e 422 (envelope inválido) são função determinística
@@ -135,11 +160,42 @@ const ATLAS_GONE_STATUSES = new Set([404, 410]);
 export function acknowledgedOperationIds(resp, ops) {
     const results = resp?.results || resp?.acks || [];
     const named = new Set();
+    const refusedBatches = refusedBatchIds(resp, ops);
     for (const r of results) {
         const id = r?.operationId ?? r?.opId;
         if (id && r.rejected !== true && r.success !== false) named.add(id);
     }
-    return ops.filter(op => named.has(op.id)).map(op => op.id);
+    // A MEMBER OF A REFUSED BATCH NEVER LEAVES THE QUEUE, EVEN ACKED AS APPLIED. The server
+    // rolls the whole gesture back in one savepoint and answers every member with the same
+    // status, so this can only fire against a server that broke that contract; letting the
+    // sibling go on the strength of its own ack would leave the gesture half-queued, which is
+    // exactly the shape nothing downstream can repair.
+    return ops
+        .filter(op => named.has(op.id) && !refusedBatches.has(op.batchId ?? null))
+        .map(op => op.id);
+}
+
+/**
+ * The `batchId`s the server refused in this response.
+ *
+ * Pure. The id is read from the receipt when the server echoed it and from the pushed envelope
+ * otherwise, because the operation is the side that always knows which gesture it belongs to.
+ *
+ * @param {Object} resp - The pushOperations response.
+ * @param {Object[]} ops - The operations that were pushed, in order.
+ * @returns {Set<string>} Refused batch ids (never contains null).
+ */
+export function refusedBatchIds(resp, ops) {
+    const results = resp?.results || resp?.acks || [];
+    const byId = new Map(ops.map(op => [op.id, op]));
+    const refused = new Set();
+    for (const r of results) {
+        if (r?.rejected !== true && r?.success !== false) continue;
+        const id = r.operationId ?? r.opId;
+        const batchId = r.batchId ?? byId.get(id)?.batchId ?? null;
+        if (batchId !== null && batchId !== undefined) refused.add(batchId);
+    }
+    return refused;
 }
 
 /**
@@ -153,9 +209,17 @@ export function acknowledgedOperationIds(resp, ops) {
  * the incremental pull answered "nothing new". It kept showing features under the
  * old map until a manual reload.
  *
+ * FOUR NAMES SINCE 2026-09-13, AND THE SERVER STILL PUBLISHES ONLY ONE OF THEM. There are four
+ * REST exceptions (merge, map duplication, atlas clone, atlas import) and each now writes its own
+ * marker (`recordStructuralMarker`, `backend/src/modules/sync/structural-marker.js`), but the type
+ * published on the wire is `map_merge` for all four, precisely because this set had a single
+ * element and a client of an older build would ignore anything else. Learning the three honest
+ * names here is what lets the server start publishing them, in a later commit of both packages;
+ * until then the three extra entries are inert by construction and cost nothing.
+ *
  * Shared contract with the backend (MAP_MERGE_ENTITY_TYPE in maps.service.js).
  */
-const STRUCTURAL_RESYNC_OPS = new Set(['map_merge']);
+const STRUCTURAL_RESYNC_OPS = new Set(['map_merge', 'map_duplicate', 'atlas_clone', 'atlas_import']);
 
 /**
  * Records a `push.ack` span per op from the server's push response — binding each
@@ -191,6 +255,11 @@ async function recordPushAcks(resp, ops) {
             traceId: op.traceId,
             serverVersion: sv,
             outcome: r.idempotent ? TraceOutcome.IDEMPOTENT : (r.success === false ? TraceOutcome.FAILED : TraceOutcome.OK),
+            // The gesture, on the span: a refusal that belongs to a batch is not one operation
+            // going wrong, it is N operations going back, and a ledger that shows only the
+            // culprit reads as an isolated failure.
+            ...(op.batchId ? { batchId: op.batchId } : {}),
+            ...(r.batchFailedOperationId ? { batchFailedOperationId: r.batchFailedOperationId } : {}),
             // The server's own words for WHY, on the span and not only in the toast. A denial is
             // invisible to a headless spec (no UI to show the toast), so the spec fails later and
             // elsewhere — on a poll that times out waiting for an entity the server refused. That
@@ -596,6 +665,33 @@ class SyncEngine {
         while (ops && ops.length > 0) {
             session.assertActive();
             const opIds = ops.map(op => op.id);
+
+            // ACIMA DO TETO DO SERVIDOR, A RECUSA É LOCAL E NÃO CUSTA VIAGEM. `peek` entrega um
+            // lote lógico inteiro mesmo quando ele passa do recorte, porque partir o gesto é o
+            // que o lote existe para impedir; quando o gesto passa do teto do servidor, ele não
+            // pode ser enviado de jeito nenhum, e todas as ops dele viram problema durável.
+            if (ops.length > LOTE_MAX_OPS) {
+                for (const operation of ops) {
+                    await session.queue.recordIssue(operation, {
+                        rejected: true, reason: LOTE_GRANDE_DEMAIS,
+                        batchId: operation.batchId ?? null, batchTooLarge: true,
+                    });
+                }
+                needsRecovery = true;
+                record(TraceStage.PREFLUSH_DROP, {
+                    atlasId: session.atlasId, opIds, batchId: ops[0].batchId ?? null,
+                    batchSize: ops.length, outcome: TraceOutcome.DROPPED,
+                    reason: DropReason.SERVER_REJECTED, error: LOTE_GRANDE_DEMAIS,
+                });
+                try {
+                    showWarning(LOTE_GRANDE_DEMAIS);
+                } catch {
+                    // Headless (tests, worker): no UI to tell.
+                }
+                isolating = false;
+                ops = await session.queue.peek(FLUSH_BATCH_SIZE);
+                continue;
+            }
             record(TraceStage.FLUSH_PUSH, {
                 atlasId: session.atlasId, opIds, batchSize: ops.length, outcome: TraceOutcome.OK,
             });
@@ -638,15 +734,27 @@ class SyncEngine {
                 // nenhuma op irmã pode ter sido descartada por engano, porque irmã só
                 // sai da fila quando o servidor a aceita.
                 if (PERMANENT_PUSH_REJECTIONS.has(error?.status)) {
-                    if (ops.length > 1) {
+                    // `!isolating` E NÃO SÓ O TAMANHO, desde que o recorte respeita o lote. Um
+                    // `peek(1)` devolve o menor pedaço INDIVISÍVEL, que é um lote inteiro quando a
+                    // primeira op pertence a um: sem esta condição, um lote de N envenenado
+                    // reduziria para N a cada volta e o laço giraria para sempre.
+                    if (!isolating && ops.length > 1) {
                         isolating = true;
                         ops = await session.queue.peek(1);
                         continue;
                     }
                     const poison = ops[0];
-                    await session.queue.recordIssue(ops[0], {
-                        rejected: true, reason: error.message, status: error.status,
-                    });
+                    // TODAS AS OPS DO PEDAÇO, e não só a primeira: o servidor aplica ou recusa o
+                    // lote inteiro, então guardar o problema em uma só deixaria as irmãs
+                    // enviáveis e o gesto seria reenviado pela metade na volta seguinte.
+                    for (const operation of ops) {
+                        await session.queue.recordIssue(operation, {
+                            rejected: true, reason: error.message, status: error.status,
+                            ...(operation.batchId ? {
+                                batchId: operation.batchId, batchFailedOperationId: poison.id,
+                            } : {}),
+                        });
+                    }
                     needsRecovery = true;
                     // The queue always advances here: `recordIssue` writes a durable issue and
                     // `_loadOperations` skips an operation that carries one, so the next `peek`
@@ -688,12 +796,45 @@ class SyncEngine {
             // dependentes dela, que é o que a feição já fazia e agora vale para toda entidade.
             const refused = (resp?.results ?? resp?.acks ?? []).filter(r => r.rejected === true || r.success === false);
             let issues = 0;
+            const recorded = new Set();
             for (const result of refused) {
                 const operation = ops.find(op => op.id === (result.operationId ?? result.opId));
                 if (!operation) continue;
                 await session.queue.recordIssue(operation, result);
+                recorded.add(operation.id);
                 needsRecovery = true;
                 issues++;
+            }
+            // E O LOTE INTEIRO VIRA PROBLEMA, MEMBRO A MEMBRO. O servidor devolve as N ops de um
+            // lote recusado com o mesmo `status`, o mesmo `batchId` e o `batchFailedOperationId`
+            // da culpada, então este laço normalmente não acrescenta nada; ele existe porque a
+            // alternativa a um recibo faltante é a pior de todas as duas: uma irmã sem problema
+            // guardado volta enviável e o gesto sai pela metade na próxima rodada. O motivo
+            // guardado é o da CULPADA, que é a única frase que explica a recusa.
+            const refusedBatches = refusedBatchIds(resp, ops);
+            if (refusedBatches.size > 0) {
+                const culprit = new Map();
+                for (const result of refused) {
+                    const id = result.operationId ?? result.opId;
+                    const batchId = result.batchId ?? ops.find(op => op.id === id)?.batchId ?? null;
+                    if (batchId !== null && !culprit.has(batchId)) {
+                        culprit.set(batchId, { id: result.batchFailedOperationId ?? id, result });
+                    }
+                }
+                for (const operation of ops) {
+                    const batchId = operation.batchId ?? null;
+                    if (batchId === null || recorded.has(operation.id) || !refusedBatches.has(batchId)) continue;
+                    const falha = culprit.get(batchId);
+                    await session.queue.recordIssue(operation, {
+                        ...falha.result,
+                        operationId: operation.id,
+                        batchId,
+                        batchFailedOperationId: falha.id,
+                    });
+                    recorded.add(operation.id);
+                    needsRecovery = true;
+                    issues++;
+                }
             }
             const ackedIds = acknowledgedOperationIds(resp, ops);
             const removed = await session.queue.dequeue(ackedIds);
