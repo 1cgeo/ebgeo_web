@@ -58,6 +58,7 @@
  */
 
 import { findReceipt } from './sync-receipts.js';
+import { canonicalEntityData } from './entity-canonical.js';
 
 /**
  * THE THREE PHRASES FOR "YOUR WRITE LOST TO THE ROW THE SERVER ALREADY HOLDS". They live here,
@@ -439,11 +440,15 @@ export async function prepareEntityMutation(t, atlasId, op, rawOp, userId, decla
   const current = await readEntityRow(t, atlasId, op);
   if (current === undefined) return null;
   const currentVersion = Number(current?.version ?? 0);
-  const conflict = (reason, fields = []) => ({ conflict: {
+  // ASYNC BECAUSE THE SERVER'S HALF OF THE PAIR IS A READ. `serverData` is the live row as the
+  // server holds it (`canonicalEntityData`), never the sender's document echoed back with the
+  // server's endorsement on it: the panel draws the two side by side, and a pair whose halves came
+  // from the same place would agree by construction and prove nothing. It costs one query, and
+  // only on the refusal path. `null` stays a legitimate answer (a target with no serializer, an
+  // id shape this lookup cannot ask about), and the client already handles it.
+  const conflict = async (reason, fields = []) => ({ conflict: {
     reason, fields, entityVersion: currentVersion, deleted: Boolean(current?.deleted_at),
-    // Null until every entity has a canonical serializer (step 3 of B5). The version is what a
-    // retry actually needs, and it is the one thing a purged log cannot take away.
-    serverData: null,
+    serverData: await canonicalEntityData(t, atlasId, op),
   } });
 
   // An absent row keeps being acked as applied: see the fileoverview.

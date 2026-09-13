@@ -8,6 +8,7 @@ import {
   hasDeclaredBase, isRevisionTarget, UUID_RE,
   RAZAO_EXCLUIDO_NO_SERVIDOR, RAZAO_CRIACAO_NAO_RESTAURA, RAZAO_IDENTIFICADOR_EM_USO,
 } from './entity-conflicts.js';
+import { canonicalEntityData, buildSyncMetadata } from './entity-canonical.js';
 import { ensureMapLayers, readMapLayers, resolveDefaultFeatureLayer } from '../maps/default-layer.js';
 import { ForbiddenError, ServiceUnavailableError } from '../../utils/errors.js';
 import * as Q from './sync.queries.js';
@@ -183,20 +184,11 @@ const REVERSE_ENTITY_TYPE_MAP = {
   },
 };
 
-/**
- * Builds a sync metadata object from a database row.
- * Centralizes the repeated pattern of creating sync objects for snapshot responses.
- */
-function buildSyncMetadata(row, ownerId = null) {
-  return {
-    createdAt: new Date(row.created_at).getTime(),
-    updatedAt: new Date(row.updated_at).getTime(),
-    version: row.version,
-    ownerId,
-    dirty: false,
-    deleted: false,
-  };
-}
+// `buildSyncMetadata` MOVED to `entity-canonical.js` on 2026-09-13 and is imported at the top.
+// The snapshot and the canonical serializer of a refusal emit the same block for the same row, and
+// two copies of it would have drifted on the first field either side gained. Its `deleted` now
+// reads `row.deleted_at` when the caller selected it; the snapshot's queries never do (they filter
+// tombstones in SQL), so it keeps answering false here.
 
 /**
  * Builds a dynamic UPDATE query from a field specification and changes object.
@@ -1603,15 +1595,18 @@ async function tombstoneConflict(t, atlasId, op) {
   const reason = isCreate
     ? (deleted ? RAZAO_CRIACAO_NAO_RESTAURA : RAZAO_IDENTIFICADOR_EM_USO)
     : RAZAO_EXCLUIDO_NO_SERVIDOR;
-  // Same key set the feature conflict carries, so the client sees ONE shape. `serverData` is
-  // null because these three have no canonical serializer yet (B5 step 3); the version is what
-  // a retry needs, and it is the one thing a purged log cannot take away.
+  // Same key set the feature conflict carries, so the client sees ONE shape, `serverData`
+  // included since 2026-09-13: the seven guarded targets all have a canonical serializer now, so
+  // the refusal can show what the server holds instead of only how far past the caller it is.
+  // A tombstone still serializes, and that is the point of not filtering `deleted_at` in
+  // `entity-canonical.js`: "the item was deleted on the server" is exactly the refusal whose
+  // other half the panel most needs to draw.
   return {
     reason,
     fields: ['*'],
     entityVersion: Number(row.version ?? 0),
     deleted,
-    serverData: null,
+    serverData: await canonicalEntityData(t, atlasId, op),
   };
 }
 

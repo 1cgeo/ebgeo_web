@@ -38,8 +38,9 @@ A quarentena de protocolo tem só exportar e descartar. **Não existe "reenviar"
 
 ## O que ainda não chega ao painel
 
-- **A comparação visual de geometria.** A linha de conflito de feição nomeia a unidade em disputa e mostra o motivo; quem quiser ver a diferença entre a geometria local e a do servidor não tem onde. Ela depende do item seguinte.
-- **O conteúdo canônico do recibo.** O conflito de entidade que não é feição devolve `serverData` nulo e o ack traz a revisão sem `canonicalOperation`, porque publicar um canônico sem serializador seria devolver o documento do remetente com aparência de aval do servidor. É esse serializador que daria ao painel o "estado atual permitido".
+- **A comparação visual de geometria.** A linha de conflito de feição nomeia a unidade em disputa e mostra o motivo; quem quiser ver a diferença entre a geometria local e a do servidor não tem onde.
+
+**O conteúdo canônico do recibo CHEGOU em 2026-09-13**, e com ele o "estado atual permitido" que o painel não podia inventar: toda recusa por conflito de entidade carrega `serverData`, lido da linha VIVA por `backend/src/modules/sync/entity-canonical.js`, um serializador por entidade na mesma forma que o snapshot já entrega. A propriedade que importa não é o campo existir, é de ONDE ele vem: um canônico montado a partir do payload do remetente seria o documento dele com o aval do servidor colado em cima, e o par que o painel desenha concordaria por construção, provando nada. `null` continua sendo resposta legítima (alvo sem serializador, id numa forma que a consulta não sabe endereçar) e o painel degrada para o que já mostrava.
 
 ## Ver também
 
