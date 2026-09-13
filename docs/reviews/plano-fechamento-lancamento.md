@@ -1,6 +1,6 @@
 # Plano de fechamento para lançamento
 
-Data: 12/09/2026. Base: `e70ccf3c245ba99ba8757ebcbf8eca072a9f6cd6`, branch `integracao_backend`. Status: execução autorizada e em andamento, com evidências no [registro de execução](execucao-fechamento-lancamento.md).
+Data: 12/09/2026. Base: `e70ccf3c245ba99ba8757ebcbf8eca072a9f6cd6`, branch `integracao_backend`. Status: implementação interrompida a pedido do responsável após três checkpoints, para conservar limite. Evidências no [registro de execução](execucao-fechamento-lancamento.md); trabalho restante separado em [dez documentos de retomada](fechamento/README.md).
 
 Este documento organiza as [pendências para lançamento](pendencias-lancamento.md), incluindo a triagem de dependências. Complementa o [plano de sincronismo](plano-correcao-atlas-remoto.md), sem substituir suas garantias, e reaproveita as correções e evidências do [registro de execução](execucao-correcao-atlas-remoto.md). A migração parte também do [plano main → integração](plano-correcao-migracao-main-integracao-backend.md). Não repetir como trabalho pendente as 24 falhas de contrato resolvidas nem a criação da camada padrão, agora feita pelo servidor.
 

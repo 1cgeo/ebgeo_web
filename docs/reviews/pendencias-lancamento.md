@@ -4,7 +4,7 @@ Avaliação de 12/09/2026, branch `integracao_backend`, após as correções de 
 
 Ordem de execução, dependências, segurança e critérios de aceite detalhados no [plano de fechamento para lançamento](plano-fechamento-lancamento.md).
 
-A execução começou e está registrada em [fechamento em andamento](execucao-fechamento-lancamento.md). O commit `b26f4e66` bloqueia o protocolo incremental antigo em HTTP/WS/serviço, negocia capacidades e preserva filas incompatíveis para conciliação por recibos. As dependências npm passaram por instalação limpa e auditoria sem alertas; vendors e runtime ainda exigem classificação. O diário de briefings/slides foi validado no segundo checkpoint; os demais produtores ainda estão pendentes.
+A execução está registrada em [fechamento](execucao-fechamento-lancamento.md). O commit `b26f4e66` bloqueia o protocolo incremental antigo em HTTP/WS/serviço, negocia capacidades e preserva filas incompatíveis para conciliação por recibos. As dependências npm passaram por instalação limpa e auditoria sem alertas; vendors e runtime ainda exigem classificação. Briefings/slides foram validados em `d2f6c51`, catálogo e identidade de replay em `d0c99dea`. As novas implementações foram interrompidas a pedido do responsável; cada frente restante possui [documento próprio de retomada](fechamento/README.md).
 
 ## Correções restantes
 

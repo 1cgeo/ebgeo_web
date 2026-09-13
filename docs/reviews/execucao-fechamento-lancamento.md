@@ -4,6 +4,8 @@ Início: 12/09/2026. Base enviada: `e70ccf3c245ba99ba8757ebcbf8eca072a9f6cd6`. A
 
 **Estado intermediário, não liberado para produção.** O trabalho de compatibilidade abaixo não conclui as demais garantias de persistência, conflito, upload e homologação.
 
+Ao final desta rodada, o responsável pediu para interromper novas implementações por limite disponível e documentar as pendências, com commit e push. O [índice de retomada](fechamento/README.md) organiza dez documentos com escopo, evidência atual, correção e aceite. Checkpoints implementados: `b26f4e66`, `d2f6c51` e `d0c99dea`. A preparação seguinte de posição/mapa-base não foi aplicada ao código e continua pendente.
+
 ## Compatibilidade e filas antigas
 
 - Todas as novas operações da fábrica, individuais e em lote, recebem protocolo 2. Isso inclui os tipos que antes saíam sem versão; não significa que todos já tenham conflitos por campo implementados.
