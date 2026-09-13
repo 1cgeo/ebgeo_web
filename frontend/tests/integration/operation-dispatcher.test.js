@@ -280,8 +280,12 @@ describe('F7 — filtro de identidade no caminho write-ahead', () => {
             entityId: 'f1', mapId: 'Principal',
             outcome: TraceOutcome.DROPPED, reason: DropReason.NON_UUID_MAPID
         });
-        // A descricao sadia sobreviveu: o filtro descarta uma, nao o gesto inteiro.
-        expect(await operationQueue.forScope(scope).count()).toBe(1);
+        // A descricao sadia sobreviveu: o filtro descarta uma, nao o gesto inteiro. Ela entra
+        // PREPARADA (o diario antecede a entidade), e `count()` responde so o enviavel, entao
+        // a prova e a contagem por estado, nao a contagem de envio.
+        const estados = await operationQueue.forScope(scope).countByState();
+        expect(estados.preparadas).toBe(1);
+        expect(estados.pendentes + estados.preparadas + estados.problemas).toBe(1);
     });
 
     it('registra NON_UUID_SETTING_ID para uma chave local de setting', async () => {
