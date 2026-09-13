@@ -120,13 +120,53 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   `frontend/src/js/map/map.manager.js`, e sincroniza como ops) e
   **não** ganhou guard nenhum: `copyMap` depende de o servidor recusar as ops uma a uma. Quem for
   fechar essa ponta olhe o par inteiro, porque o assunto é o mesmo e só metade dele foi resolvida.
-- **Feições no protocolo v2 usam patches e base confirmada**: campos independentes podem
-  conciliar; disputa do mesmo campo gera conflito. Movimentação/restauração explícitas exigem
-  a revisão corrente. Recibos duráveis vinculam ID, autor e conteúdo. Envelopes incompatíveis
-  são bloqueados antes da escrita; filas antigas têm consulta de recibos somente leitura.
-  Demais entidades ainda seguem ordem de chegada, nunca timestamp; a expansão está em obra
-  conforme a [decisão de 12/09/2026](../docs/decisions/decisions-2026.md).
-  O módulo de CRDT por timestamp foi removido; não religar sem requisito de produto.
+- **Conflito tem DOIS regimes, e quem escolhe entre eles é a OP, não o alvo** (desde 2026-09-13;
+  antes a verificação valia só para feição, por gate literal `op.target === 'feature'`). Op que
+  DECLARA uma base observada (`baseVersion`, ou o recibo de `baseOperationId`) é verificada por
+  UNIDADE DE DISPUTA; op que não declara segue em LWW por ordem de CHEGADA, nunca por timestamp.
+  Hoje o cliente só declara base para feição (`featureMutationContract`, em
+  `frontend/src/js/store/sync/feature-patch.js`), então o segundo regime é o que roda para todo o
+  resto; quando o cliente passar a declarar, a verificação liga sozinha, sem dia-D entre os dois
+  pacotes. A moldura é `src/modules/sync/entity-conflicts.js` (ler a linha, resolver a base, ler a
+  fronteira por unidade em `sync_entity_fields` com o `entity_type` real, recusar NOMEANDO as
+  unidades, gravar a fronteira nova); `src/modules/sync/feature-conflicts.js` é a instância de
+  feição, com patch por caminho, mais fina que qualquer unidade abaixo.
+
+  As unidades por entidade, declaradas em `DISPUTE_UNITS`: **mapa** nome, posição (as cinco colunas
+  como UMA unidade, porque uma panorâmica é um gesto), mapa-base, notas, grade, temporal, travado;
+  **camada** nome, visível, travado, opacidade, ordem, estilo; **grupo** nome, visível, travado,
+  estilo, pai; **briefing** nome, descrição, settings, ordem dos slides; **slide** título,
+  conteúdo, alvo, câmera, defeito; **comentário** texto, resolvido; **camada de catálogo**, **3D**
+  e **360** com o documento inteiro como unidade única. Três coisas que não se adivinham: ordem de
+  SLIDE não é unidade de slide, é `briefings.slide_order`; entidade de uma unidade só não guarda
+  linha de fronteira (com uma unidade, a comparação é idêntica a comparar `version`, e a linha
+  seria uma segunda cópia dele, além de impossível para `catalog_layer`, cujo id é TEXT enquanto
+  `sync_entity_fields.entity_id` é UUID); e `group_feature` não tem unidade nenhuma, por ser junção
+  com create e delete idempotentes. Coluna escrevível fora da tabela faz `unitsForColumns`
+  responder `'*'`, isto é, disputar tudo: a falha é FECHADA, e quem a acusa é
+  `tests/integration/revisao-por-entidade.repro.test.js`.
+
+  **Com base declarada, a escrita é ESTREITADA às unidades que a op declara** (`_unitScope`), e
+  isso não é refinamento: sem ele a tabela seria mentira em dois pontos, porque o update de
+  `comment` grava `data` inteiro e o de `slide` atribui `map_id` sempre, via `resolveSlideMapId`.
+  Fora do regime as duas escrevem como sempre escreveram.
+
+  **Túmulo recusa update nos SETE alvos de `TOMBSTONE_GUARDED_TARGETS`** (mapa, 3D, 360, grupo,
+  camada, briefing, slide), com ou sem base, por `tombstoneConflict`; o `deleted_at IS NULL` dos
+  statements é cinto e suspensório e não a guarda, porque zero linhas num update é ack de SUCESSO.
+  O CREATE sobre túmulo continua RESSUSCITANDO em mapa, camada, grupo, briefing e slide, porque é o
+  caminho do desfazer; só 3D e 360 o recusam. E linha que NÃO EXISTE continua sendo acked como
+  aplicada: o log é expurgável, então ausência não prova exclusão.
+
+  Movimentação e restauração explícitas de feição exigem a revisão corrente. Recibos duráveis
+  vinculam ID, autor e conteúdo, e devolvem `entityVersion` para toda entidade verificada;
+  `canonicalOperation` continua só onde existe serializador canônico. Envelopes incompatíveis são
+  bloqueados antes da escrita; filas antigas têm consulta de recibos somente leitura. O módulo de
+  CRDT por timestamp foi removido; não religar sem requisito de produto. O que ainda falta (cliente
+  declarando base para as demais entidades, recibo com operação canônica por entidade, painel de
+  resolução) está em
+  [`../docs/reviews/fechamento/03-conflitos.md`](../docs/reviews/fechamento/03-conflitos.md), e a
+  decisão que abriu a expansão é a [de 12/09/2026](../docs/decisions/decisions-2026.md).
 - **O serviço 3D publica DUAS formas, e só uma é 3D Tiles.** O MODELO é `.3dtiles` por modelo,
   servido pelo prefixo reservado `m/` da rota `/api/v1/assets3d`; a CENA caminhável (Gaussian
   splatting) abre por outro visualizador, é lida em FAIXA e mora numa PASTA na mesma rota. As duas
