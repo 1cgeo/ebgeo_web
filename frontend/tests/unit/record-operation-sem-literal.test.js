@@ -7,7 +7,8 @@
 // `'mapNotes'` e `'gridStyle'` em `settings.operations.js`, `'mapTemporal'` em
 // `temporal.operations.js`, `'layer'` em `layer-transfer.operations.js` e
 // `logMapOperation('update', ...)` em `locking/map-lock.controller.js`. Nenhuma regra de
-// lint os pegava, e nada os distinguia de um erro de digitação.
+// lint os pegava, e nada os distinguia de um erro de digitação. (Aquele último sítio não existe
+// mais: a op da trava nasce na store, dentro da transação, desde o fecho do bloco B4.)
 //
 // ================= POR QUE ISSO É UM DEFEITO, E NÃO ESTILO ====================
 //
@@ -104,9 +105,12 @@ const PISO_RECORD = 18;
 // arquivo.
 // Baixado de 11 para 9 na mesma onda: `addMap` e `removeMap` (`src/js/store/map.operations.js`)
 // viraram write-ahead e deixaram de chamar `logMapOperation`, que era a unica familia de log
-// importada por aquele arquivo; o import saiu junto. Quem loga mapa agora e' so'
-// `locking/map-lock.controller.js`, e e' a proxima (e ultima) unidade desta onda.
-const PISO_LOG = 9;
+// importada por aquele arquivo; o import saiu junto.
+// Baixado de 9 para 8 no fecho da onda: `locking/map-lock.controller.js` deixou de logar por fora
+// (a op da trava nasce na store, dentro da transacao), e era a ULTIMA chamada de log fora dos
+// produtores de op. O sitio que este censo cita naquele arquivo virou, de proposito, a asserção de
+// que ele ESTA' no inventario, nao a de que ele loga.
+const PISO_LOG = 8;
 
 /**
  * Comentário fora, preservando a contagem de linhas para que a mensagem de erro aponte a

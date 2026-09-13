@@ -6,20 +6,20 @@
  * Owns the lock *state + actions* surface the UI binds to. The backend is the
  * real guarantee: a map update `{ locked }` requires OWNER (403 for write
  * users), and a locked map rejects child mutations (409). This controller is
- * the best-effort frontend layer — a toggle, a permission gate, local
- * persistence, sync logging, and reacting to remote lock changes.
+ * the best-effort frontend layer — a toggle, a permission gate, and reacting to
+ * remote lock changes. Local persistence AND the outbound op belong to the store
+ * op it calls.
  *
  * Reuse over duplication: lock state lives on the map record in the store
  * (`memoryStore.lockedMaps`, persisted under `mapLocked_<map>`); the store's
- * `toggleMapLock`/`isCurrentMapLockedSync` own that. This controller wraps them
- * with the role gate and the sync op, then mirrors remote lock changes
- * (delivered as MAP_MODIFIED) back onto MAP_LOCK_CHANGED so the existing UI —
- * which already listens on MAP_LOCK_CHANGED — re-reads.
+ * `toggleMapLock`/`isCurrentMapLockedSync` own that, AND SINCE 2026-09-13 the store op also owns
+ * the outbound `map` update `{ locked }`, journaled before its own write. This controller wraps it
+ * with the role gate, then mirrors remote lock changes (delivered as MAP_MODIFIED) back onto
+ * MAP_LOCK_CHANGED so the existing UI — which already listens on MAP_LOCK_CHANGED — re-reads.
  *
  * @dependencies @store (toggleMapLock / isCurrentMapLockedSync / getCurrentMapIdSync),
  *   @store/services (getEventBus), @store/sync/session-context (role/offline),
- *   @store/sync/operation-dispatcher (logMapOperation), @utils (showError),
- *   @events/event_types, @utils/event-cleanup
+ *   @utils (showError), @events/event_types, @utils/event-cleanup
  */
 
 import {
@@ -34,9 +34,6 @@ import { sessionContext } from '@store/sync/session-context.js';
 // comparável à escada de cinco valores do servidor sem a tradução que estes dois fazem.
 import { atlasRoleHasAtLeast, serverTreatsAsAtlasOwner } from '@js/projects/permission-levels.js';
 import { isRemoteStoreSync } from '@store/store-origin.js';
-import { logMapOperation } from '@store/sync/operation-dispatcher.js';
-// Leaf module (zero imports): keeps the vocabulary out of the dispatcher's graph.
-import { OperationType } from '@store/sync/operation-types.js';
 import { showError } from '@utils/index.js';
 import { EventTypes } from '@events/event_types.js';
 import { setupCleanup, subscribe, cleanup } from '@utils/event-cleanup.js';
@@ -118,14 +115,17 @@ export class MapLockController {
     /**
      * Toggles the lock on the ACTIVE map.
      * Gated by {@link canToggleLock}: a blocked user gets an error toast and the
-     * current state is returned unchanged. On success the new state is persisted
-     * locally (store op), logged for sync (`map` update `{ locked }`), and a
-     * MAP_MODIFIED signal is emitted so the local UI re-reads.
+     * current state is returned unchanged. On success the store op persists the new
+     * state, journals the `map` update `{ locked }` and emits MAP_LOCK_CHANGED; this
+     * method adds the MAP_MODIFIED signal so the local UI re-reads.
      *
-     * The sync id comes from `getCurrentMapIdSync()`, which resolves through the
-     * map resolver: the op must carry the map UUID. A map NAME here reaches the
-     * backend as an entity id it cannot match, and the lock never lands on the
-     * server nor on the peers.
+     * IT NO LONGER LOGS THE OP ITSELF, since 2026-09-13. It used to call
+     * `logMapOperation` right after the store op, which made the op be born OUTSIDE
+     * any transaction and AFTER the local write, and left the store op itself
+     * unsynced for every other caller (a test that toggled the raw op locked only
+     * its own client, which is why two specs of this repository failed forever). The
+     * intention now belongs to the store op, before its own write, and this method
+     * only calls it.
      * @returns {Promise<boolean>} The resulting lock state.
      */
     async toggleMapLock() {
@@ -136,20 +136,15 @@ export class MapLockController {
             return current;
         }
 
-        const targetId = getCurrentMapIdSync();
         const next = !current;
 
-        // Persist + flip the in-memory lock set via the store op (it also emits
-        // MAP_LOCK_CHANGED). Falls back to the computed value if the store op
+        // Journal + persist + flip the in-memory lock set via the store op (it also
+        // emits MAP_LOCK_CHANGED). Falls back to the computed value if the store op
         // returns null (e.g. its own permission guard short-circuits).
         const result = await storeToggleMapLock();
         const resolved = typeof result === 'boolean' ? result : next;
 
-        // Log the lock change for sync so it travels to the backend as a `map`
-        // update; the auto-flush wired in Slice 1 sends it while connected.
-        logMapOperation(OperationType.UPDATE, targetId, { locked: resolved });
-
-        getEventBus().emit(EventTypes.MAP_MODIFIED, { mapId: targetId });
+        getEventBus().emit(EventTypes.MAP_MODIFIED, { mapId: getCurrentMapIdSync() });
 
         return resolved;
     }

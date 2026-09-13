@@ -252,7 +252,10 @@ const CENSO = [
     { arquivo: 'src/js/store/sync/operation-types.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/store/sync/remote-operation-handler.js', campo: 'tilesetId', n: 3, classe: PERSISTE },
     { arquivo: 'src/js/store/sync/remote-operation-handler.js', campo: 'photoName', n: 3, classe: PERSISTE },
-    { arquivo: 'src/js/store/sync/remote-operation-handler.js', campo: 'baseLayer', n: 6, classe: PERSISTE },
+    // 6 -> 7 em 2026-09-13: o ramo de `map` update passou a MESCLAR so' os campos presentes no
+    // payload (`mergeRemoteMapUpdate`), e ele nomeia `baseLayer` para traduzir o `base_layer`
+    // snake_case que chega do servidor. Sitio de referencia, nao de leitura nova.
+    { arquivo: 'src/js/store/sync/remote-operation-handler.js', campo: 'baseLayer', n: 7, classe: PERSISTE },
     { arquivo: 'src/js/store/sync/remote-operation-handler.js', campo: 'catalogLayers', n: 5, classe: PERSISTE },
     { arquivo: 'src/js/store/sync/ws-client.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/store/sync/ws-client.js', campo: 'photoName', classe: RUNTIME },

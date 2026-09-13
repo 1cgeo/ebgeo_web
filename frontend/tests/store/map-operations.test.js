@@ -803,6 +803,50 @@ describe('toggleMapLock', () => {
 
         expect(result).toBeNull();
         expect(emitStoreError).toHaveBeenCalled();
+        expect(intents).toEqual([]);
+        expect(setSettingCompat).not.toHaveBeenCalled();
+    });
+
+    it('registra o `map` UPDATE com `{locked}` e o estado anterior, e a op vive AQUI', async () => {
+        // A UNIFICACAO DOS DOIS PONTOS DE ENTRADA, de 2026-09-13. Esta op gravava o app setting,
+        // mexia na memoria e emitia o evento SEM logar nada: quem a chamasse direto (um teste, ou
+        // qualquer outro chamador) travava so' o proprio cliente, e a op que viajava nascia em
+        // `locking/map-lock.controller.js`, fora de transacao e DEPOIS da escrita local.
+        const newState = await toggleMapLock();
+
+        expect(newState).toBe(true);
+        expect(intents).toEqual([{
+            entityType: 'map',
+            operationType: 'update',
+            entityId: 'uuid-TestMap',
+            // Nivel ATLAS: `mapId` de contexto nulo, como toda op de mapa.
+            mapId: null,
+            data: { locked: true },
+            previousData: { locked: false }
+        }]);
+    });
+
+    it('a intencao antecede a gravacao do app setting, e a memoria so muda depois', async () => {
+        const { persistOperationIntents } = await import('../../src/js/store/sync/operation-dispatcher.js');
+
+        await toggleMapLock();
+
+        expect(persistOperationIntents.mock.invocationCallOrder[0])
+            .toBeLessThan(setSettingCompat.mock.invocationCallOrder[0]);
+        expect(setSettingCompat).toHaveBeenCalledWith('mapLocked_TestMap', true);
+        // O efeito de memoria e o evento vivem em `tx.deferSync`, logo depois da gravacao.
+        expect(mockLockedMaps.value.has('TestMap')).toBe(true);
+    });
+
+    it('destravar carrega a inversao no payload e no estado anterior', async () => {
+        mockSettings.value['mapLocked_TestMap'] = true;
+        mockLockedMaps.value = new Set(['TestMap']);
+
+        expect(await toggleMapLock()).toBe(false);
+
+        expect(intents).toHaveLength(1);
+        expect(intents[0].data).toEqual({ locked: false });
+        expect(intents[0].previousData).toEqual({ locked: true });
     });
 });
 

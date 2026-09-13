@@ -12,6 +12,16 @@
  *     and its features still traverse the WHOLE chain back to the owner (expectFullSyncFrom);
  *   - unlocking restores the owner's writes, which traverse the chain to the editor.
  *
+ * O SEGUNDO CASO TRAVA PELO CONTROLADOR, e a diferenca importa. O primeiro dirige a op de store
+ * CRUA, e ate' 2026-09-13 era esse o unico caminho exercitado aqui: a op de store gravava o app
+ * setting sem logar nada, entao travar por ela travava so' aquele cliente e o par continuava
+ * editando (dois specs deste repositorio nasceram travando assim e esperando a trava no Editor, e
+ * falharam sempre). A op da trava passou a NASCER na store, dentro da transacao, e
+ * `mapLockController.toggleMapLock` deixou de logar por fora; do outro lado, o ramo de `map` update
+ * do par passou a MESCLAR so' os campos presentes, em vez de substituir o registro pelo payload
+ * parcial (era isso que apagava as feicoes do Editor e engolia a propria trava, porque o app
+ * setting e' chaveado pelo NOME e o payload parcial nao tem nome).
+ *
  * Run headed:  npx playwright test browser-collab-lock --headed
  */
 
@@ -23,6 +33,38 @@ function applyStoreOp(page, opName, args) {
         const store = await import('/src/js/store/index.js');
         return store[name](...a);
     }, { name: opName, a: args });
+}
+
+/**
+ * Trava/destrava pelo CONTROLADOR, que e' o caminho da interface (o cadeado da aba "Mapas" chama
+ * `mapLockController.toggleMapLock`). Ele gateia por posto, chama a op de store e emite
+ * MAP_MODIFIED; a op de sync nasce dentro da transacao da op de store.
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<boolean>} O estado resultante da trava.
+ */
+function toggleLockViaController(page) {
+    return page.evaluate(async () => {
+        const { mapLockController } = await import('/src/js/locking/map-lock.controller.js');
+        return mapLockController.toggleMapLock();
+    });
+}
+
+/**
+ * Como o PAR le' a trava: o conjunto em memoria, que e' o gate real de edicao
+ * (`isCurrentMapLockedSync`), mais a contagem de feicoes do mapa, porque o defeito media as duas
+ * coisas ao mesmo tempo (a trava nao chegava E a contagem caia a zero).
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<{travado: boolean, linhas: number}>}
+ */
+function lockStateOf(page) {
+    return page.evaluate(async () => {
+        const store = await import('/src/js/store/index.js');
+        const feicoes = await store.getCurrentMapFeatures();
+        return {
+            travado: store.isCurrentMapLockedSync(),
+            linhas: (feicoes?.lines ?? []).length,
+        };
+    });
 }
 
 const lineCoords = () => [[-43.2, -22.9], [-43.15, -22.85], [-43.1, -22.8]];
@@ -67,5 +109,47 @@ collabTest.describe('Map lock — owner-only, local read-only enforcement, colla
         expect(unlocked, 'second toggle unlocks').toBe(false);
         const afterUnlock = await drawLineUI(A, lineCoords());
         await collab.expectFullSync({ entityId: afterUnlock, type: 'lines', operationType: 'create' });
+    });
+
+    // O CASO QUE FALTAVA, e o que ele mede nao e' medido por nenhum outro: a trava pelo CAMINHO DA
+    // INTERFACE chegando ao PAR. Escrito em 2026-09-13 junto com as duas correcoes que o tornam
+    // possivel (a op nascendo na store, e a mescla parcial na aplicacao remota). NAO EXECUTADO
+    // pelo agente que o escreveu (o Playwright esta' fora do laco dele): fica para o coordenador
+    // rodar, e se ele falhar, o que ele acusa e' uma das duas metades, nao o desenho do caso.
+    collabTest('travar PELO CONTROLADOR chega ao Editor, e nao apaga as feicoes dele', async ({ collab }) => {
+        const A = collab.author; // owner
+        const B = collab.peers[0]; // editor
+
+        // Duas linhas do Editor, ja' convergidas: e' a contagem que o defeito zerava no par.
+        const um = await drawLineUI(B, lineCoords());
+        await collab.expectFullSyncFrom(B, { entityId: um, type: 'lines', operationType: 'create' });
+        const dois = await drawLineUI(B, lineCoords());
+        await collab.expectFullSyncFrom(B, { entityId: dois, type: 'lines', operationType: 'create' });
+
+        const antes = await lockStateOf(B);
+        expect(antes.travado, 'premissa: o Editor comeca com o mapa destravado').toBe(false);
+        expect(antes.linhas, 'premissa: o Editor ve as duas linhas').toBeGreaterThanOrEqual(2);
+
+        // O dono trava PELO CONTROLADOR, que e' o caminho do cadeado da aba "Mapas".
+        expect(await toggleLockViaController(A), 'o dono travou').toBe(true);
+
+        // O par passa a LER o mapa como travado, e a leitura e' a do gate de edicao.
+        await expect
+            .poll(async () => (await lockStateOf(B)).travado, { timeout: 20000, intervals: [500] })
+            .toBe(true);
+
+        // E as feicoes dele continuam la'. Esta era a metade medida como DEFEITO: em tres rodadas
+        // de tres, a contagem do Editor caia de 2 para 0, porque a aplicacao do `map` update
+        // substituia o registro do mapa pelo payload parcial `{ locked: true }`.
+        const depois = await lockStateOf(B);
+        expect(depois.linhas, 'as feicoes do Editor sobreviveram ao travamento pelo dono')
+            .toBe(antes.linhas);
+
+        // Destravar volta pelo mesmo caminho, e o par tambem le'.
+        expect(await toggleLockViaController(A), 'o dono destravou').toBe(false);
+        await expect
+            .poll(async () => (await lockStateOf(B)).travado, { timeout: 20000, intervals: [500] })
+            .toBe(false);
+        expect((await lockStateOf(B)).linhas).toBe(antes.linhas);
     });
 });

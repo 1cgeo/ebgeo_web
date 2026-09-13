@@ -1265,8 +1265,22 @@ export function isCurrentMapLockedSync() {
  * Toggles lock state for a map.
  * Persists to IndexedDB, updates memory cache, emits MAP_LOCK_CHANGED.
  *
+ * THERE USED TO BE TWO ENTRY POINTS AND ONLY ONE OF THEM SYNCED, and unifying them is the whole
+ * change of 2026-09-13. This op wrote the app setting, updated the memory set and emitted the
+ * event WITHOUT logging anything, so called on its own it was the local state of whoever called it;
+ * what made the lock travel was `mapLockController.toggleMapLock`
+ * (`locking/map-lock.controller.js`), which called this and then logged a `map` update by hand.
+ * Two consequences, both real: a test (or any other caller) that used the raw op locked only its
+ * own client, and the op that DID travel was born outside any transaction, after the local write.
+ * Now the intention is journaled here, before the app setting is written, and the controller only
+ * calls this.
+ *
+ * THE OP IS A `map` UPDATE CARRYING ONLY `{ locked }`, which is what the server's dynamic update
+ * expects, and the peer now MERGES it into its record instead of replacing the record with it
+ * (see `mergeRemoteMapUpdate`, `sync/remote-operation-handler.js`).
+ *
  * @param {string} [mapName=null] - Map name (null = current)
- * @returns {Promise<boolean>} New lock state
+ * @returns {Promise<boolean|null>} New lock state, or null when the guard refused
  */
 export async function toggleMapLock(mapName = null) {
     const perm = checkPermission(GuardAction.LOCK_MAP);
@@ -1278,12 +1292,25 @@ export async function toggleMapLock(mapName = null) {
     const target = mapName || mapManager.getCurrentMapName();
     const current = await isMapLocked(target);
     const newState = !current;
-    await setAppSetting(`mapLocked_${target}`, newState);
-    if (newState) {
-        memoryStore.lockedMaps.add(target);
-    } else {
-        memoryStore.lockedMaps.delete(target);
-    }
-    deps.eventBus.emit(EventTypes.MAP_LOCK_CHANGED, { mapName: target, locked: newState });
+    // The map UUID, never the name: a non-UUID entity id never matches a row on the backend, and
+    // the lock would land on neither the server nor the peers.
+    const mapId = mapResolver.resolveToId(target) || target;
+
+    await withMapDocument(target, 'toggleMapLock', () => runTransaction(async (tx) => {
+        tx.recordOperation(EntityType.MAP, OperationType.UPDATE, mapId, null,
+            { locked: newState }, { locked: current });
+
+        tx.deferSync(() => {
+            if (newState) {
+                memoryStore.lockedMaps.add(target);
+            } else {
+                memoryStore.lockedMaps.delete(target);
+            }
+            deps.eventBus.emit(EventTypes.MAP_LOCK_CHANGED, { mapName: target, locked: newState });
+        });
+
+        return () => setAppSetting(`mapLocked_${target}`, newState);
+    }));
+
     return newState;
 }

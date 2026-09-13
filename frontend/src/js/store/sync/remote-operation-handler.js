@@ -1050,6 +1050,57 @@ function findFeatureIndexById(arr, id) {
 }
 
 /**
+ * Applies a LIVE `map` UPDATE by MERGING the fields the payload carries into the stored record.
+ *
+ * IT USED TO BE A BLIND WHOLE-DOCUMENT WRITE, AND THAT WAS THE DEFECT REGISTERED IN
+ * `.claude/rules/architecture.md` §Lock. A live `map` update carries only what CHANGED (the
+ * server applies `MAP_UPDATE_FIELDS` dynamically and the broadcast echoes the client's payload),
+ * so a lock toggle arrives as `{ locked: true }` and nothing else. Writing that verbatim replaced
+ * the peer's whole map record: the measured symptom was the Editor's feature count falling from 2
+ * to 0 and the map losing its name, in three runs of three. Diagnosed and fixed in 2026-09-13.
+ *
+ * THE SECOND HALF OF THE SAME DEFECT WAS THAT THE LOCK ITSELF WAS DROPPED, and it is the one that
+ * is easy to miss: `reshapeSnapshotMap` keys the lock side-store by the map NAME
+ * (`mapLocked_<name>`, which is what `setCurrentMap` reads) and a partial payload has no name, so
+ * the only field the op carried went nowhere and the peer never read the map as locked. The name is
+ * therefore resolved from the STORED record, or from the resolver, before the reshape runs.
+ *
+ * ONLY THE CARRIED KEYS ARE MERGED, never the reshaped object wholesale: `ensureMapDataShape`
+ * inside the reshape can fabricate an empty feature collection, and `{ ...existing, ...reshaped }`
+ * would hand the peer a map with no features, which is the very bug this replaces.
+ *
+ * @param {Object} repo - Active repository
+ * @param {string} mapId - Map UUID
+ * @param {Object} data - The partial map payload of the live op
+ * @returns {Promise<Object>} The merged record that was written
+ */
+function mergeRemoteMapUpdate(repo, mapId, data) {
+    // The same lock key as every other writer of this document: this is a read-modify-write and it
+    // races the local user drawing on the same map.
+    return withMapDocument(mapId, 'applyRemoteMapOp:update', async () => {
+        const existing = await repo.getMap?.(mapId);
+        const payload = { ...data };
+        if (payload.name == null) {
+            const known = existing?.name ?? mapResolver.resolveToName?.(mapId);
+            // Only to key the name-addressed side stores (lock, temporal). It is the name the
+            // record already has, so merging it back changes nothing.
+            if (known) payload.name = known;
+        }
+        const reshaped = await reshapeSnapshotMap(repo, payload);
+        const carried = new Set(Object.keys(payload));
+        // `base_layer` arrives snake_case and lands as `baseLayer`.
+        if (carried.has('base_layer')) carried.add('baseLayer');
+
+        const merged = { ...(existing ?? {}) };
+        for (const [key, value] of Object.entries(reshaped)) {
+            if (carried.has(key)) merged[key] = value;
+        }
+        await repo.saveMap?.(mapId, merged);
+        return merged;
+    });
+}
+
+/**
  * Applies a remote map operation.
  *
  * @param {string} opType - Operation type
@@ -1080,9 +1131,8 @@ async function applyRemoteMapOp(opType, mapId, data, serverVersion) {
             break;
         }
         case OperationType.UPDATE: {
-            const reshaped = data ? await reshapeSnapshotMap(repo, data) : data;
-            if (reshaped) await withMapDocument(mapId, 'applyRemoteMapOp:update', () => repo.saveMap?.(mapId, reshaped));
-            emit(EventTypes.MAP_MODIFIED, { mapId, map: reshaped });
+            const merged = data ? await mergeRemoteMapUpdate(repo, mapId, data) : data;
+            emit(EventTypes.MAP_MODIFIED, { mapId, map: merged });
             break;
         }
         case OperationType.DELETE:

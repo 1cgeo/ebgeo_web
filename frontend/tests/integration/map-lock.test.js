@@ -74,6 +74,9 @@ vi.mock('@store/sync/session-context.js', () => ({
     sessionContext: sessionMock,
     UserRole: UserRoleMock,
 }));
+// O DUPLO FICA, e o que ele mede inverteu de sinal: nenhum caso deste arquivo espera uma chamada,
+// e tres deles exigem a AUSENCIA dela. A op da trava nasce na store desde 2026-09-13; se alguem
+// voltar a logar por aqui, a op viaja duas vezes e este arquivo acusa.
 vi.mock('@store/sync/operation-dispatcher.js', () => ({ logMapOperation: logMapOperationMock }));
 vi.mock('@store/store-origin.js', () => ({ isRemoteStoreSync: storeOriginMock.isRemoteStoreSync }));
 vi.mock('@utils/index.js', () => ({ showError: showErrorMock }));
@@ -223,7 +226,7 @@ describe('map-lock.controller', () => {
     });
 
     describe('toggleMapLock', () => {
-        it('flips the lock via the store op and logs the sync update when allowed', async () => {
+        it('flips the lock via the store op, e NAO loga op nenhuma por fora dela', async () => {
             sessionMock._offline = true;
             storeMock.isCurrentMapLockedSync.mockReturnValue(false);
             storeMock.toggleMapLock.mockResolvedValue(true);
@@ -232,29 +235,36 @@ describe('map-lock.controller', () => {
 
             expect(next).toBe(true);
             expect(storeMock.toggleMapLock).toHaveBeenCalledTimes(1);
-            expect(logMapOperationMock).toHaveBeenCalledWith('update', 'map-1', { locked: true });
+            // A OP MUDOU DE DONO em 2026-09-13: ela nasce DENTRO da transacao da op de store
+            // (`toggleMapLock`, `store/map.operations.js`), registrada antes da gravacao do app
+            // setting. Logar aqui a punha fora de transacao nenhuma e DEPOIS da escrita local, e
+            // deixava a op de store sem sincronia para todo outro chamador. Este `not` e' a
+            // metade que impede a volta do caminho duplo.
+            expect(logMapOperationMock).not.toHaveBeenCalled();
             expect(eventBusMock.emit).toHaveBeenCalledWith('map:modified', { mapId: 'map-1' });
             expect(showErrorMock).not.toHaveBeenCalled();
         });
 
         // This case used to assert the OPPOSITE — that an explicit argument won —
         // which froze the defect as contract: the only production caller
-        // (maps.tab.js) passes a map NAME, and that name travelled into
-        // logMapOperation as the entity id, so the lock never reached the server
-        // nor the peers. The sync id is now always the ACTIVE map UUID.
-        it('logs the ACTIVE map UUID, never a caller-supplied map name', async () => {
+        // (maps.tab.js) passes a map NAME, and that name travelled into the op as the
+        // entity id, so the lock never reached the server nor the peers. O id de sync
+        // e' sempre o UUID do mapa ATIVO, e desde 2026-09-13 quem o resolve e' a op de
+        // store; o que sobra aqui para medir e' o SINAL, que continua carregando o UUID
+        // e nunca o nome que o chamador passou.
+        it('sinaliza com o UUID do mapa ATIVO, nunca com o nome que o chamador passou', async () => {
             setOnline(UserRoleMock.OWNER);
             storeMock.getCurrentMapIdSync.mockReturnValue(ACTIVE_MAP_UUID);
             storeMock.isCurrentMapLockedSync.mockReturnValue(true);
             storeMock.toggleMapLock.mockResolvedValue(false);
 
-            // A stale caller still passing a name must not poison the op.
+            // A stale caller still passing a name must not poison the signal.
             const next = await controller.toggleMapLock('Operação Alfa');
 
             expect(next).toBe(false);
-            expect(logMapOperationMock).toHaveBeenCalledWith('update', ACTIVE_MAP_UUID, { locked: false });
-            expect(UUID_RE.test(logMapOperationMock.mock.calls[0][1])).toBe(true);
+            expect(logMapOperationMock).not.toHaveBeenCalled();
             expect(eventBusMock.emit).toHaveBeenCalledWith('map:modified', { mapId: ACTIVE_MAP_UUID });
+            expect(UUID_RE.test(eventBusMock.emit.mock.calls[0][1].mapId)).toBe(true);
         });
 
         it('calls the store toggle without arguments (it owns the active map)', async () => {
@@ -274,7 +284,8 @@ describe('map-lock.controller', () => {
             const next = await controller.toggleMapLock();
 
             expect(next).toBe(true);
-            expect(logMapOperationMock).toHaveBeenCalledWith('update', 'map-1', { locked: true });
+            expect(logMapOperationMock).not.toHaveBeenCalled();
+            expect(eventBusMock.emit).toHaveBeenCalledWith('map:modified', { mapId: 'map-1' });
         });
 
         // The block is scoped to a connected REMOTE atlas. These two used to set

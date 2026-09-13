@@ -948,6 +948,105 @@ describe('Remote atlas-setting operations — mapOrder (maps-list ordering)', ()
 
 // P9: a LIVE map-setting/catalog op must PERSIST inbound (not just emit), so two clients
 // editing live converge — matching the snapshot path. Regression for GAP-1/2/3/4/5.
+// ============================================================================
+// REPRO: o `map` UPDATE ao vivo carrega SO' o que mudou
+// ============================================================================
+
+describe('Remote map UPDATE: o payload PARCIAL nao pode substituir o registro', () => {
+    // O DEFEITO, medido em 2026-09-02 e registrado em `.claude/rules/architecture.md` §Lock:
+    // depois de o dono travar o mapa, o Editor nao passava a ler o mapa como travado E a contagem
+    // de feicoes dele caia de 2 para 0, em tres rodadas de tres. A causa, diagnosticada em
+    // 2026-09-13: o ramo de UPDATE fazia uma gravacao CEGA do documento inteiro com o payload
+    // parcial. Uma troca de trava viaja como `{ locked: true }` e nada mais (o servidor aplica
+    // `MAP_UPDATE_FIELDS` dinamicamente e o broadcast ecoa o payload do cliente), entao gravar
+    // aquilo verbatim apagava feicoes, nome e tudo o mais.
+    //
+    // A SEGUNDA METADE DO MESMO DEFEITO e' a que quase passa batida: `reshapeSnapshotMap` chaveia
+    // a trava pelo NOME do mapa (`mapLocked_<name>`), e um payload parcial nao tem nome, entao o
+    // UNICO campo que a op carregava nao ia para lugar nenhum.
+    beforeEach(() => {
+        const mapa = createTestMapData();
+        mapa.name = 'Mapa do Chefe';
+        mapa.baseLayer = 'carta-topografica';
+        mapa.features.points.push(
+            { type: 'Feature', properties: { id: 'p1', source: 'point' }, geometry: { type: 'Point', coordinates: [0, 0] } },
+            { type: 'Feature', properties: { id: 'p2', source: 'point' }, geometry: { type: 'Point', coordinates: [1, 1] } }
+        );
+        mapDataStore.set('map-1', mapa);
+        memoryStore.lockedMaps.clear();
+    });
+
+    it('um UPDATE de `{locked}` PRESERVA feicoes, nome e mapa-base', async () => {
+        await applyRemoteOperation({
+            entityType: EntityType.MAP, operationType: OperationType.UPDATE,
+            entityId: 'map-1', mapId: null, data: { locked: true },
+        });
+
+        const depois = mapDataStore.get('map-1');
+        expect(depois.features.points.map((f) => f.properties.id)).toEqual(['p1', 'p2']);
+        expect(depois.name).toBe('Mapa do Chefe');
+        expect(depois.baseLayer).toBe('carta-topografica');
+        expect(depois.id).toBe('map-1');
+    });
+
+    it('e o campo que ele carrega CHEGA: app setting, conjunto em memoria e evento', async () => {
+        await applyRemoteOperation({
+            entityType: EntityType.MAP, operationType: OperationType.UPDATE,
+            entityId: 'map-1', mapId: null, data: { locked: true },
+        });
+
+        // A chave e' derivada do NOME, e o nome vem do registro guardado, porque o payload nao o
+        // traz. Era exatamente aqui que a trava se perdia.
+        expect(settingStore.get('mapLocked_Mapa do Chefe')).toBe(true);
+        // `isCurrentMapLockedSync` le' este conjunto, e e' ele o gate real de edicao.
+        expect(memoryStore.lockedMaps.has('Mapa do Chefe')).toBe(true);
+        expect(eventBus.emit).toHaveBeenCalledWith(
+            EventTypes.MAP_LOCK_CHANGED, { mapName: 'Mapa do Chefe', locked: true }
+        );
+    });
+
+    it('destravar percorre o mesmo caminho, e o conjunto perde o mapa', async () => {
+        memoryStore.lockedMaps.add('Mapa do Chefe');
+        settingStore.set('mapLocked_Mapa do Chefe', true);
+
+        await applyRemoteOperation({
+            entityType: EntityType.MAP, operationType: OperationType.UPDATE,
+            entityId: 'map-1', mapId: null, data: { locked: false },
+        });
+
+        expect(settingStore.get('mapLocked_Mapa do Chefe')).toBe(false);
+        expect(memoryStore.lockedMaps.has('Mapa do Chefe')).toBe(false);
+        expect(mapDataStore.get('map-1').features.points).toHaveLength(2);
+    });
+
+    it('um UPDATE de NOME troca o nome e nao mexe em mais nada', async () => {
+        // O controle do caso de cima: a mescla nao pode ser "so' a trava passa". Um campo
+        // presente SUBSTITUI, um campo ausente PERMANECE.
+        await applyRemoteOperation({
+            entityType: EntityType.MAP, operationType: OperationType.UPDATE,
+            entityId: 'map-1', mapId: null, data: { name: 'Renomeado pelo par' },
+        });
+
+        const depois = mapDataStore.get('map-1');
+        expect(depois.name).toBe('Renomeado pelo par');
+        expect(depois.baseLayer).toBe('carta-topografica');
+        expect(depois.features.points).toHaveLength(2);
+    });
+
+    it('`base_layer` snake_case do servidor vira `baseLayer` e nao arrasta o resto', async () => {
+        await applyRemoteOperation({
+            entityType: EntityType.MAP, operationType: OperationType.UPDATE,
+            entityId: 'map-1', mapId: null, data: { base_layer: 'osm' },
+        });
+
+        const depois = mapDataStore.get('map-1');
+        expect(depois.baseLayer).toBe('osm');
+        expect(depois.base_layer).toBeUndefined();
+        expect(depois.features.points).toHaveLength(2);
+        expect(depois.name).toBe('Mapa do Chefe');
+    });
+});
+
 describe('Remote map-setting operations — persistence (P9)', () => {
     beforeEach(() => {
         mapDataStore.set('map-1', createTestMapData());
