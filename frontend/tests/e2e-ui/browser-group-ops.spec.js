@@ -155,8 +155,19 @@ describeOrSkip('Group ops + group_feature membership (real Chromium + real backe
             // Hand-built because this case also pushes a PHANTOM feature id, which no client
             // path can produce. The backend reads data.group_id / data.feature_id; entityId is
             // a filler the apply path ignores for this target.
+            //
+            // `protocolVersion: 2` NÃO É DECORAÇÃO, e a falta dele derrubava o push INTEIRO
+            // desde `b26f4e66` (2026-09-12): `assertSyncProtocol`
+            // (`backend/src/modules/sync/sync-protocol.js`) roda ANTES da validação e responde
+            // 426 a qualquer envelope identificável que não o declare, para preservar a fila de
+            // um cliente velho em vez de descartá-la. Um envelope montado à mão herda o campo
+            // de ninguém: `createOperation` o carimba, este objeto não. `group_feature` não
+            // declara base nem patch, e isso é por desenho — a junção tem create e delete
+            // idempotentes, então não há unidade que dois autores possam disputar
+            // (`mutationContract` deixa o alvo passar sem declaração).
             const linkOp = (opType, fid) => ({
                 id: crypto.randomUUID(),
+                protocolVersion: 2,
                 entityType: 'group_feature',
                 operationType: opType,
                 // The operations log stores entity_id as a UUID; the real association
@@ -185,20 +196,24 @@ describeOrSkip('Group ops + group_feature membership (real Chromium + real backe
             };
 
             // 1. LINK.
-            await api.pushOperations(atlas.id, [linkOp('create', featureId)]);
+            const ackLink = await api.pushOperations(atlas.id, [linkOp('create', featureId)]);
             const afterLink = await readState();
 
             // 2. NEGATIVE/EDGE: link a feature that does NOT exist in the atlas. The
             //    backend EXISTS guard drops it silently (ack, no membership ref added).
             const ghostFeatureId = crypto.randomUUID();
-            await api.pushOperations(atlas.id, [linkOp('create', ghostFeatureId)]);
+            const ackGhost = await api.pushOperations(atlas.id, [linkOp('create', ghostFeatureId)]);
             const afterGhost = await readState();
 
             // 3. UNLINK the real feature.
-            await api.pushOperations(atlas.id, [linkOp('delete', featureId)]);
+            const ackUnlink = await api.pushOperations(atlas.id, [linkOp('delete', featureId)]);
             const afterUnlink = await readState();
 
             return {
+                acks: [ackLink, ackGhost, ackUnlink].map((a) => ({
+                    success: a.results?.[0]?.success ?? null,
+                    reason: a.results?.[0]?.reason ?? null,
+                })),
                 linkRefIds: afterLink.refs.map((r) => r.id),
                 linkRefHasType: afterLink.refs.every((r) => r.type !== null && r.type !== undefined),
                 ghostRefIds: afterGhost.refs.map((r) => r.id),
@@ -209,6 +224,11 @@ describeOrSkip('Group ops + group_feature membership (real Chromium + real backe
                 featureId,
             };
         }, { baseUrl: state.baseUrl, u: user });
+
+        // Os três envelopes montados à mão foram ACEITOS por operação. É esta linha que separa
+        // "a membresia não apareceu" de "o push inteiro voltou 426 por falta de
+        // `protocolVersion`", que é o vermelho que este caso deu na primeira rodada completa.
+        expect(result.acks.map((a) => a.success), JSON.stringify(result.acks)).toEqual([true, true, true]);
 
         // LINK: the group's features[] gains exactly the linked feature, with a resolved type.
         expect(result.linkRefIds).toContain(result.featureId);
