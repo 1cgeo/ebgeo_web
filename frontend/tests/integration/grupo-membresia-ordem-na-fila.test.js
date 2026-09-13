@@ -74,8 +74,11 @@ vi.mock('../../src/js/store/index.js', () => ({
 }));
 
 const MAP_UUID = '4a22f7df-df6d-47df-80bb-f26df86d31ec';
+// `getIdForName` e' o que `sideDocumentKey` chama para montar a chave da trava do documento
+// lateral de grupos, que `createGroup` passou a tomar ao virar write-ahead. Um duplo sem ela
+// estoura em TypeError dentro da trava, longe da causa.
 vi.mock('../../src/js/store/services/map-resolver.service.js', () => ({
-    mapResolver: { resolveToId: vi.fn(() => MAP_UUID) },
+    mapResolver: { resolveToId: vi.fn(() => MAP_UUID), getIdForName: vi.fn(() => MAP_UUID) },
 }));
 
 import { createGroupManager } from '../../src/js/tool_manager/group_manager.js';
@@ -89,7 +92,10 @@ const pt = (id) => ({ properties: { id, source: 'point' } });
 
 /**
  * Waits until the queue holds `n` operations and returns them in QUEUE order.
- * The loggers are fire-and-forget, so the enqueues land a microtask later.
+ *
+ * A espera continua existindo depois de `createGroup` virar write-ahead, e por DOIS motivos: o
+ * caminho antigo (`combineGroups`) segue com loggers fire-and-forget, e `peek` so' entrega a op
+ * MATERIALIZADA, marca que cai no fim da transacao. Esperar por contagem cobre os dois regimes.
  * @param {number} n
  * @returns {Promise<Array<Object>>}
  */
@@ -127,7 +133,7 @@ describe('ordem de SAIDA da fila: o grupo antes da membresia dele', () => {
     it('CONTROLE: o adversario esta mesmo montado (UUID decrescente, relogio fixo)', async () => {
         // O teste do teste, e ele roda PRIMEIRO. Se o duble de UUID voltar a ser crescente,
         // os casos abaixo passam por acidente e param de medir o desempate.
-        gm.createGroup([pt('x'), pt('y')], 'Mapa Fila');
+        await gm.createGroup([pt('x'), pt('y')], 'Mapa Fila');
         const fila = await esperarFila(3);
 
         const grupo = fila.find((op) => op.entityType === EntityType.GROUP);
@@ -144,7 +150,7 @@ describe('ordem de SAIDA da fila: o grupo antes da membresia dele', () => {
     });
 
     it('createGroup com 3 feicoes: a op do grupo sai antes das tres de membresia', async () => {
-        gm.createGroup([pt('f1'), pt('f2'), pt('f3')], 'Mapa Fila');
+        await gm.createGroup([pt('f1'), pt('f2'), pt('f3')], 'Mapa Fila');
 
         const fila = await esperarFila(4);
         expect(fila).toHaveLength(4);
@@ -173,8 +179,8 @@ describe('ordem de SAIDA da fila: o grupo antes da membresia dele', () => {
     });
 
     it('combineGroups: a op do grupo NOVO sai antes da membresia dele', async () => {
-        const g1 = gm.createGroup([pt('a'), pt('b')], 'Mapa Fila');
-        const g2 = gm.createGroup([pt('c'), pt('d')], 'Mapa Fila');
+        const g1 = await gm.createGroup([pt('a'), pt('b')], 'Mapa Fila');
+        const g2 = await gm.createGroup([pt('c'), pt('d')], 'Mapa Fila');
         await esperarFila(6);
         mockStore.clear();
 

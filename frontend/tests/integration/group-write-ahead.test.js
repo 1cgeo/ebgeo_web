@@ -68,7 +68,82 @@ beforeEach(async () => {
     gm = createGroupManager({ emit: vi.fn() });
 });
 
+/** @param {string} id @returns {Object} A minimal point feature, as the selection hands it over. */
+const pt = (id) => ({ properties: { id, source: 'point' } });
+
 describe('Group write-ahead persistence', () => {
+    it('criar registra o GRUPO e um membro por feição, nessa ordem, antes de gravar', async () => {
+        memoryStore.groups[mapB.name] = {};
+        const original = LocalRepository.prototype.saveGroups;
+        let filaNaGravacao = null;
+        vi.spyOn(LocalRepository.prototype, 'saveGroups').mockImplementation(async function (key, value) {
+            filaNaGravacao = await operationQueue.getAll();
+            // Nenhuma das quatro é enviável ainda: a marca de materialização só cai depois desta
+            // gravação, e é ela que `peek` respeita.
+            expect(await operationQueue.peek()).toEqual([]);
+            expect(memoryStore.groups[mapB.name]).toEqual({});
+            return original.call(this, key, value);
+        });
+
+        const grupo = await gm.createGroup([pt('f1'), pt('f2'), pt('f3')], mapB.name);
+
+        // 1 grupo + 3 membresias, e a do grupo é a PRIMEIRA. A ordem é contrato: o INSERT da
+        // tabela de junção é gateado por EXISTS sobre a linha do grupo, então a membresia que
+        // chega antes escreve ZERO linhas e volta acked como sucesso.
+        expect(filaNaGravacao).toHaveLength(4);
+        expect(filaNaGravacao.map(op => op.entityType))
+            .toEqual(['group', 'group_feature', 'group_feature', 'group_feature']);
+        expect(filaNaGravacao.every(op => op.operationType === 'create')).toBe(true);
+        expect(filaNaGravacao.every(op => op.mapId === mapB.id)).toBe(true);
+        expect(filaNaGravacao[0].entityId).toBe(grupo.id);
+        expect(filaNaGravacao[0].data.features.map(m => m.id)).toEqual(['f1', 'f2', 'f3']);
+
+        // O id de cada membresia é DESCARTÁVEL e único: `operations.entity_id` é coluna UUID
+        // (chave composta está fora) e a compactação agrupa por entidade mantendo UMA op, então
+        // reusar o id do GRUPO colapsaria as três numa só.
+        const membros = filaNaGravacao.slice(1);
+        expect(new Set(membros.map(op => op.entityId)).size).toBe(3);
+        expect(membros.some(op => op.entityId === grupo.id)).toBe(false);
+        expect(membros.map(op => op.data)).toEqual([
+            { group_id: grupo.id, feature_id: 'f1', feature_type: 'point' },
+            { group_id: grupo.id, feature_id: 'f2', feature_type: 'point' },
+            { group_id: grupo.id, feature_id: 'f3', feature_type: 'point' }
+        ]);
+
+        expect((await localRepository.getGroups(mapB.id))[grupo.id].name).toBe('Grupo 1');
+        expect(gm.getGroupById(grupo.id, mapB.name).features).toHaveLength(3);
+        expect(await operationQueue.peek(10)).toHaveLength(4);
+    });
+
+    it('criar com gravação recusada preserva as QUATRO intenções e não cria o grupo', async () => {
+        memoryStore.groups[mapB.name] = {};
+        vi.spyOn(LocalRepository.prototype, 'saveGroups')
+            .mockRejectedValueOnce(new DOMException('quota', 'QuotaExceededError'));
+
+        await expect(gm.createGroup([pt('f1'), pt('f2'), pt('f3')], mapB.name)).rejects.toThrow('quota');
+
+        // A criação é recuperável INTEIRA: grupo e membresia, ou nada. Metade dela seria um
+        // grupo sem membro no servidor, que é o desfecho que a ordem acima existe para evitar.
+        expect(await operationQueue.getAll()).toHaveLength(4);
+        expect(await operationQueue.peek()).toEqual([]);
+        expect(await localRepository.getGroups(mapB.id)).toEqual({});
+        expect(memoryStore.groups[mapB.name]).toEqual({});
+    });
+
+    it('criar recusa por regra sem registrar intenção nem gravar', async () => {
+        seedGroup();
+        const persist = vi.spyOn(LocalRepository.prototype, 'saveGroups');
+
+        // A ORDEM das duas recusas é a do código: a de feição já agrupada vem ANTES da contagem,
+        // então o caso de "menos de duas" precisa de uma feição solta para chegar até ela.
+        await expect(gm.createGroup([pt('solta')], mapB.name)).rejects.toThrow('pelo menos 2');
+        // `f1` está no grupo semeado, e é essa a outra recusa.
+        await expect(gm.createGroup([pt('f1'), pt('nova')], mapB.name)).rejects.toThrow('já estão agrupadas');
+
+        expect(persist).not.toHaveBeenCalled();
+        expect(await operationQueue.getAll()).toEqual([]);
+    });
+
     it('a propriedade registra a intenção no mapa ALVO antes do documento de grupos', async () => {
         seedGroup();
         const original = LocalRepository.prototype.saveGroups;

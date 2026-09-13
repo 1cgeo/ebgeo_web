@@ -44,19 +44,32 @@ vi.mock('../../src/js/store/sync/index.js', () => ({
 vi.mock('../../src/js/store/services/map-resolver.service.js', () => ({
     mapResolver: { resolveToId: h.resolveToId, getIdForName: h.resolveToId },
 }));
-// As duas entradas migradas em 2026-09-13 (bloco B4) declaram a intenção por
+// As TRÊS entradas migradas em 2026-09-13 (bloco B4) declaram a intenção por
 // `tx.recordOperation` DENTRO de `runTransaction`, e o diário vai ao disco ANTES do documento
 // de grupos. Este espelho traduz a descrição durável de volta para a chamada de logger que as
-// asserções deste arquivo já cobriam. As entradas ainda no caminho antigo (`createGroup`,
-// `combineGroups`, `removeFeatureFromAllGroups`) continuam chamando o logger direto, então as
-// duas metades convivem aqui de propósito.
+// asserções deste arquivo já cobriam, nos DOIS alvos: `group` e `group_feature`, este último com
+// a assinatura de `logGroupFeatureOperation` (o id da op é descartável e não entra nela, porque o
+// que ela nomeia é o par grupo/feição). Um alvo que não seja nenhum dos dois ESTOURA de
+// propósito: espelho calado é o que transforma um alvo novo em cobertura vazia. As entradas
+// ainda no caminho antigo (`combineGroups`, `removeFeatureFromAllGroups`) continuam chamando o
+// logger direto, então as duas metades convivem aqui.
 vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
     persistOperationIntents: vi.fn(async (descriptions) => {
         for (const op of descriptions) {
-            if (op.entityType !== 'group') throw new Error(`Alvo nao classificado: ${op.entityType}`);
-            const args = [op.operationType, op.entityId, op.mapId, op.data];
-            if (op.previousData != null) args.push(op.previousData);
-            h.logGroupOperation(...args);
+            if (op.entityType === 'group') {
+                const args = [op.operationType, op.entityId, op.mapId, op.data];
+                if (op.previousData != null) args.push(op.previousData);
+                h.logGroupOperation(...args);
+                continue;
+            }
+            if (op.entityType === 'group_feature') {
+                h.logGroupFeatureOperation(
+                    op.operationType, op.data.group_id, op.data.feature_id,
+                    op.data.feature_type, op.mapId,
+                );
+                continue;
+            }
+            throw new Error(`Alvo nao classificado: ${op.entityType}`);
         }
         return async () => {};
     })
@@ -77,8 +90,8 @@ beforeEach(() => {
 });
 
 describe('group_manager — sync ops carry the map UUID (flush-poison guard)', () => {
-    it('createGroup logs the op with the map UUID as mapId, not the name', () => {
-        const group = gm.createGroup([pt('f1'), pt('f2')], MAP_NAME);
+    it('createGroup logs the op with the map UUID as mapId, not the name', async () => {
+        const group = await gm.createGroup([pt('f1'), pt('f2')], MAP_NAME);
 
         expect(h.logGroupOperation).toHaveBeenCalledTimes(1);
         const [opType, groupId, mapId, data] = h.logGroupOperation.mock.calls[0];
@@ -88,16 +101,26 @@ describe('group_manager — sync ops carry the map UUID (flush-poison guard)', (
         expect(mapId).toBe(MAP_UUID);
         expect(mapId).not.toBe(MAP_NAME);
         expect(data.features).toHaveLength(2);
+
+        // A MEMBRESIA carrega o MESMO UUID de mapa, e é ela que o servidor usa para remontar
+        // `group.features`: o `group` update nunca toca a tabela de junção, então uma membresia
+        // carimbada com o NOME seria descartada antes do envio e o grupo chegaria vazio ao par.
+        expect(h.logGroupFeatureOperation).toHaveBeenCalledTimes(2);
+        for (const [opType, groupId2, , , mapId2] of h.logGroupFeatureOperation.mock.calls) {
+            expect(opType).toBe('create');
+            expect(groupId2).toBe(group.id);
+            expect(mapId2).toBe(MAP_UUID);
+        }
     });
 
-    it('createGroup with mapName=null resolves the CURRENT map name to a UUID', () => {
-        gm.createGroup([pt('a'), pt('b')]); // null → current map (MAP_NAME)
+    it('createGroup with mapName=null resolves the CURRENT map name to a UUID', async () => {
+        await gm.createGroup([pt('a'), pt('b')]); // null → current map (MAP_NAME)
         const [, , mapId] = h.logGroupOperation.mock.calls[0];
         expect(mapId).toBe(MAP_UUID);
     });
 
     it('updateGroupProperty logs the UPDATE op with the map UUID', async () => {
-        const group = gm.createGroup([pt('f1'), pt('f2')], MAP_NAME);
+        const group = await gm.createGroup([pt('f1'), pt('f2')], MAP_NAME);
         h.logGroupOperation.mockClear();
 
         // Aguardado porque a entrada virou write-ahead: sem o await a asserção corre antes do
@@ -111,7 +134,7 @@ describe('group_manager — sync ops carry the map UUID (flush-poison guard)', (
     });
 
     it('ungroupFeatures logs the DELETE op with the map UUID', async () => {
-        const group = gm.createGroup([pt('f1'), pt('f2')], MAP_NAME);
+        const group = await gm.createGroup([pt('f1'), pt('f2')], MAP_NAME);
         h.logGroupOperation.mockClear();
 
         await gm.ungroupFeatures(group.id, MAP_NAME);

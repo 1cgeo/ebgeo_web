@@ -118,24 +118,28 @@ const MUTATIONS = [
     }
 ];
 
+// `await m.run()` em todos os casos, e ele vale para as quatro: `createGroup`,
+// `updateGroupProperty` e `ungroupFeatures` viraram ASSINCRONAS (write-ahead, bloco B4) e
+// `combineGroups` continua sincrona, e `await` sobre valor que nao e promessa devolve o valor.
+// Sem ele o `result` de uma fachada assincrona e a PROMESSA, e a comparacao mede o invólucro.
 describe.each(MUTATIONS)('$name (guarded mutation)', (m) => {
-    it('happy path: delegates with exact args and returns the manager value', () => {
-        const result = m.run();
+    it('happy path: delegates with exact args and returns the manager value', async () => {
+        const result = await m.run();
 
         expect(groupManager[m.managerFn]).toHaveBeenCalledOnce();
         expect(groupManager[m.managerFn]).toHaveBeenCalledWith(...m.expectArgs);
         expect(result).toEqual(m.managerReturn);
     });
 
-    it('checks the correct permission action', () => {
-        m.run();
+    it('checks the correct permission action', async () => {
+        await m.run();
         expect(checkPermission).toHaveBeenCalledWith(GuardAction[m.guardAction]);
     });
 
-    it('blocked by permission: returns blocked sentinel, emits STORE_OPERATION_BLOCKED, no manager call', () => {
+    it('blocked by permission: returns blocked sentinel, emits STORE_OPERATION_BLOCKED, no manager call', async () => {
         checkPermission.mockReturnValue({ allowed: false, reason: 'no perms' });
 
-        const result = m.run();
+        const result = await m.run();
 
         expect(result).toBe(m.blockedReturn);
         expect(emitStoreError).toHaveBeenCalledWith(
@@ -147,10 +151,10 @@ describe.each(MUTATIONS)('$name (guarded mutation)', (m) => {
         expect(isCurrentMapLockedSync).not.toHaveBeenCalled();
     });
 
-    it('blocked by locked map: returns blocked sentinel, no manager call, no block-error event', () => {
+    it('blocked by locked map: returns blocked sentinel, no manager call, no block-error event', async () => {
         isCurrentMapLockedSync.mockReturnValue(true);
 
-        const result = m.run();
+        const result = await m.run();
 
         expect(result).toBe(m.blockedReturn);
         expect(groupManager[m.managerFn]).not.toHaveBeenCalled();
@@ -164,8 +168,8 @@ describe.each(MUTATIONS)('$name (guarded mutation)', (m) => {
 // ============================================================================
 
 describe('createGroup defaults', () => {
-    it('forwards a null mapName when omitted', () => {
-        createGroup([{ id: 'f1' }]);
+    it('forwards a null mapName when omitted', async () => {
+        await createGroup([{ id: 'f1' }]);
         expect(groupManager.createGroup).toHaveBeenCalledWith([{ id: 'f1' }], null);
     });
 });

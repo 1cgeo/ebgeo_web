@@ -818,12 +818,17 @@ class ContextMenuControl {
         return features.every(f => (f.properties?.layerId || 'default') === firstLayerId);
     }
 
-    _handleCreateGroup(features) {
+    async _handleCreateGroup(features) {
         if (features.length < 2) {
             throw new Error('É necessário pelo menos 2 feições para criar um grupo.');
         }
 
-        const newGroup = createGroup(features);
+        // ASYNC since the group creation became write-ahead: the selection may only point at the
+        // new group after the store confirms it, and awaiting here (inside the menu item's own
+        // try) is what keeps a refused write reportable instead of an uncaught rejection. The
+        // guard is the refusal by permission or locked map, which answers `null`.
+        const newGroup = await createGroup(features);
+        if (!newGroup) return;
 
         if (this._selectionManager) {
             this._selectionManager.deselectAllFeatures();

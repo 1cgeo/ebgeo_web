@@ -56,66 +56,95 @@ class GroupManager {
     // ===== MAIN OPERATIONS =====
 
     /**
-     * Create a new group with specified features
+     * Create a new group with specified features.
+     *
+     * ASYNC since 2026-09-13 (write-ahead, bloco B4). It declares 1 + N intentions in ONE
+     * transaction: the `group` CREATE and one `group_feature` CREATE per member, in that ORDER.
+     * The order is not cosmetic and is not luck either. The server gates the membership insert on
+     * an EXISTS over the groups table, so a `group_feature` that arrives ahead of its group writes
+     * ZERO rows and comes back acked as a success; and the queue key carries the Lamport sequence
+     * (`op_{timestamp}_{sequencia}_{id}`), which is minted in `recordOperation` order, so the
+     * insertion order here IS the order the server applies.
+     *
+     * THE MEMBERSHIP OP CARRIES A THROWAWAY UUID as its entity id, and both halves of that matter
+     * (see `logGroupFeatureOperation` in `store/sync/operation-dispatcher.js`, which this
+     * reproduces inline because the write-ahead path builds its own descriptions):
+     * `operations.entity_id` is a UUID column, so a composite `<group>:<feature>` key is out; and
+     * queue compaction groups by `scopeSuffix:entityType:entityId` keeping ONE op per group, so
+     * reusing the GROUP id would collapse several membership changes into one and drop the rest.
+     * The payload is `{group_id, feature_id, feature_type}`, the same shape the peer reads.
+     *
+     * The members list is NOT part of the `group` row: `UPDATE_FIELDS.group` (backend
+     * `sync.service.js`) is name/visible/locked/style/parent_id, and `data.features` is dropped by
+     * the insert, so membership has no channel other than its own ops.
+     *
      * @param {Array} features - Array of features to be grouped
-     * @param {string} mapName - Map name (null = current map)
-     * @returns {Object} Created group
+     * @param {string} [mapName=null] - Map name (null = current map)
+     * @returns {Promise<Object>} Created group
      */
-    createGroup(features, mapName = null) {
-        const targetMap = mapName || this.memoryStore.currentMap;
+    async createGroup(features, mapName = null) {
+        return this._writeGroups(targetMapOf(this, mapName), 'createGroup', () => {
+            const targetMap = targetMapOf(this, mapName);
+            // The two refusals run INSIDE the critical section, so they read the membership the
+            // writer ahead in the queue left behind instead of a pre-lock snapshot.
+            const groupedFeatures = features.filter(feature =>
+                this.isFeatureGrouped(feature.properties.source, feature.properties.id, targetMap)
+            );
 
-        const groupedFeatures = features.filter(feature =>
-            this.isFeatureGrouped(feature.properties.source, feature.properties.id, targetMap)
-        );
+            if (groupedFeatures.length > 0) {
+                throw new Error('Algumas features já estão agrupadas. Use "combinar grupos" em vez disso.');
+            }
 
-        if (groupedFeatures.length > 0) {
-            throw new Error('Algumas features já estão agrupadas. Use "combinar grupos" em vez disso.');
-        }
+            if (features.length < 2) {
+                throw new Error('É necessário pelo menos 2 features para criar um grupo.');
+            }
 
-        if (features.length < 2) {
-            throw new Error('É necessário pelo menos 2 features para criar um grupo.');
-        }
+            const groupId = generateUUID();
+            const newGroup = {
+                id: groupId,
+                name: this.generateGroupName(targetMap),
+                features: features.map(feature => ({
+                    type: feature.properties.source,
+                    id: feature.properties.id
+                })),
+                visible: true,
+                locked: false,
+                sync: createSyncMetadata(null)
+            };
 
-        const groupId = generateUUID();
-        const groupName = this.generateGroupName(targetMap);
+            const operations = [{
+                entityType: EntityType.GROUP,
+                type: OperationType.CREATE,
+                id: groupId,
+                data: newGroup
+            }];
+            for (const member of newGroup.features) {
+                operations.push({
+                    entityType: EntityType.GROUP_FEATURE,
+                    type: OperationType.CREATE,
+                    id: generateUUID(),
+                    data: { group_id: groupId, feature_id: member.id, feature_type: member.type }
+                });
+            }
 
-        const newGroup = {
-            id: groupId,
-            name: groupName,
-            features: features.map(feature => ({
-                type: feature.properties.source,
-                id: feature.properties.id
-            })),
-            visible: true,
-            locked: false,
-            sync: createSyncMetadata(null)
-        };
-
-        this._ensureMapGroupsExist(targetMap);
-        this.memoryStore.groups[targetMap][groupId] = newGroup;
-
-        this._saveGroupsToDBAsync(targetMap);
-
-        this._notifyGroupsChanged();
-
-        // Log operation for sync
-        // Tag the sync op with the map's UUID (not its name) — a non-UUID map id would be
-        // rejected by the backend and POISON A's whole flush batch (every op queued after
-        // it would never reach peers), the same flush-poison class as feature/layer/temporal.
-        const mapId = mapResolver.resolveToId(targetMap);
-        logGroupOperation(OperationType.CREATE, groupId, mapId, newGroup);
-        // The members list is NOT part of the `group` row: `data.features` is dropped by the
-        // server's group insert, so membership has to travel as its own ops, AFTER the group
-        // exists (the join insert is gated on the group row being there).
-        for (const member of newGroup.features) {
-            logGroupFeatureOperation(OperationType.CREATE, groupId, member.id, member.type, mapId);
-        }
-
-        return newGroup;
+            return {
+                groups: { [groupId]: newGroup },
+                operations,
+                result: newGroup,
+                effect: () => this._notifyGroupsChanged()
+            };
+        });
     }
 
     /**
-     * Combine existing groups and/or loose features into a new group
+     * Combine existing groups and/or loose features into a new group.
+     *
+     * STILL ON THE OLD PATH (memory first, `setTimeout(0)` write, logs without waiting), and it is
+     * the wave after this one. Migrating it is NOT a copy of {@link createGroup}: it dissolves N
+     * groups and creates one, so the transaction has to carry the N `group` DELETEs plus the
+     * create plus one `group_feature` per member of the result, and a partial failure must leave
+     * the old groups intact rather than dissolved into nothing.
+     *
      * @param {Array} groupIds - IDs of groups to combine
      * @param {Array} selectedFeatures - Additional features to include
      * @param {string} mapName - Map name
@@ -636,11 +665,12 @@ class GroupManager {
      * so a write that fails leaves the cache agreeing with disk instead of showing an edit
      * that nothing persisted.
      *
-     * This REPLACES `_saveGroupsToDBAsync` for the two migrated entries: a `setTimeout(0)`
+     * This REPLACES `_saveGroupsToDBAsync` for the three migrated entries: a `setTimeout(0)`
      * whose `catch` only logged meant the edit was already on screen and in memory when the
-     * write failed, with nobody told. The entries still on the old path are `createGroup`,
-     * `combineGroups`, `importMapGroups` and `removeFeatureFromAllGroups` (the last one runs
-     * inside its parent's transaction and has to receive it instead of opening its own).
+     * write failed, with nobody told. The entries still on the old path are `combineGroups`,
+     * `importMapGroups` and `removeFeatureFromAllGroups` (the last one runs inside its parent's
+     * transaction and has to receive it instead of opening its own, which is why it is a wave of
+     * its own and not a line of this one).
      *
      * The edited group is REPLACED, not mutated in place, which is what keeps the failed
      * write invisible. Read it back through `getMapGroups`/`getGroupById`, never through a

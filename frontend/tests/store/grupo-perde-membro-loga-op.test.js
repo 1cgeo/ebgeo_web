@@ -52,19 +52,32 @@ vi.mock('../../src/js/store/sync/index.js', () => ({
 vi.mock('../../src/js/store/services/map-resolver.service.js', () => ({
     mapResolver: { resolveToId: h.resolveToId, getIdForName: h.resolveToId },
 }));
-// As duas entradas migradas em 2026-09-13 (bloco B4) declaram a intenção por
+// As TRÊS entradas migradas em 2026-09-13 (bloco B4) declaram a intenção por
 // `tx.recordOperation` DENTRO de `runTransaction`, e o diário vai ao disco ANTES do documento
 // de grupos. Este espelho traduz a descrição durável de volta para a chamada de logger que as
-// asserções deste arquivo já cobriam. As entradas ainda no caminho antigo (`createGroup`,
-// `combineGroups`, `removeFeatureFromAllGroups`) continuam chamando o logger direto, então as
-// duas metades convivem aqui de propósito.
+// asserções deste arquivo já cobriam, nos DOIS alvos: `group` e `group_feature`, este último com
+// a assinatura de `logGroupFeatureOperation` (o id da op é descartável e não entra nela, porque o
+// que ela nomeia é o par grupo/feição). Um alvo que não seja nenhum dos dois ESTOURA de
+// propósito: espelho calado é o que transforma um alvo novo em cobertura vazia. As entradas ainda
+// no caminho antigo (`combineGroups`, `removeFeatureFromAllGroups`) continuam chamando o logger
+// direto, então as duas metades convivem aqui.
 vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
     persistOperationIntents: vi.fn(async (descriptions) => {
         for (const op of descriptions) {
-            if (op.entityType !== 'group') throw new Error(`Alvo nao classificado: ${op.entityType}`);
-            const args = [op.operationType, op.entityId, op.mapId, op.data];
-            if (op.previousData != null) args.push(op.previousData);
-            h.logGroupOperation(...args);
+            if (op.entityType === 'group') {
+                const args = [op.operationType, op.entityId, op.mapId, op.data];
+                if (op.previousData != null) args.push(op.previousData);
+                h.logGroupOperation(...args);
+                continue;
+            }
+            if (op.entityType === 'group_feature') {
+                h.logGroupFeatureOperation(
+                    op.operationType, op.data.group_id, op.data.feature_id,
+                    op.data.feature_type, op.mapId,
+                );
+                continue;
+            }
+            throw new Error(`Alvo nao classificado: ${op.entityType}`);
         }
         return async () => {};
     })
@@ -92,8 +105,8 @@ beforeEach(() => {
 });
 
 describe('removeFeatureFromAllGroups: a saída de um membro vira operação', () => {
-    it('grupo de 3 perde 1: UMA op group_feature delete, e NENHUM delete de grupo', () => {
-        const group = gm.createGroup([pt('f1'), pt('f2'), pt('f3')], MAP_NAME);
+    it('grupo de 3 perde 1: UMA op group_feature delete, e NENHUM delete de grupo', async () => {
+        const group = await gm.createGroup([pt('f1'), pt('f2'), pt('f3')], MAP_NAME);
         vi.clearAllMocks();
 
         gm.removeFeatureFromAllGroups('point', 'f2', MAP_NAME);
@@ -115,8 +128,8 @@ describe('removeFeatureFromAllGroups: a saída de um membro vira operação', ()
         expect(gm.getGroupById(group.id, MAP_NAME)).toBeTruthy();
     });
 
-    it('grupo de 2 perde 1: a op de membresia MAIS o delete do grupo que se dissolveu', () => {
-        const group = gm.createGroup([pt('a'), pt('b')], MAP_NAME);
+    it('grupo de 2 perde 1: a op de membresia MAIS o delete do grupo que se dissolveu', async () => {
+        const group = await gm.createGroup([pt('a'), pt('b')], MAP_NAME);
         vi.clearAllMocks();
 
         gm.removeFeatureFromAllGroups('point', 'a', MAP_NAME);
@@ -136,8 +149,8 @@ describe('removeFeatureFromAllGroups: a saída de um membro vira operação', ()
         expect(gm.getGroupById(group.id, MAP_NAME), 'grupo dissolvido localmente').toBeNull();
     });
 
-    it('feição fora de todo grupo: ZERO ops (idempotência)', () => {
-        gm.createGroup([pt('f1'), pt('f2'), pt('f3')], MAP_NAME);
+    it('feição fora de todo grupo: ZERO ops (idempotência)', async () => {
+        await gm.createGroup([pt('f1'), pt('f2'), pt('f3')], MAP_NAME);
         vi.clearAllMocks();
 
         gm.removeFeatureFromAllGroups('point', 'forasteira', MAP_NAME);
@@ -146,8 +159,8 @@ describe('removeFeatureFromAllGroups: a saída de um membro vira operação', ()
         expect(groupCalls()).toHaveLength(0);
     });
 
-    it('chamar duas vezes a mesma remoção loga só na primeira', () => {
-        gm.createGroup([pt('f1'), pt('f2'), pt('f3')], MAP_NAME);
+    it('chamar duas vezes a mesma remoção loga só na primeira', async () => {
+        await gm.createGroup([pt('f1'), pt('f2'), pt('f3')], MAP_NAME);
         vi.clearAllMocks();
 
         gm.removeFeatureFromAllGroups('point', 'f3', MAP_NAME);
@@ -158,10 +171,10 @@ describe('removeFeatureFromAllGroups: a saída de um membro vira operação', ()
         expect(membershipCalls()).toHaveLength(1);
     });
 
-    it('o TIPO faz parte da identidade do membro: mesmo id, outro tipo, não sai', () => {
+    it('o TIPO faz parte da identidade do membro: mesmo id, outro tipo, não sai', async () => {
         // `group.features` guarda `{type, id}`, e o filtro casa os dois. Um teste que só
         // olhasse o id passaria com um filtro pela metade.
-        gm.createGroup([pt('f1'), pt('f2'), pt('f3')], MAP_NAME);
+        await gm.createGroup([pt('f1'), pt('f2'), pt('f3')], MAP_NAME);
         vi.clearAllMocks();
 
         gm.removeFeatureFromAllGroups('polygon', 'f2', MAP_NAME);
@@ -195,7 +208,7 @@ describe('removeFeatureFromAllGroups: a saída de um membro vira operação', ()
     });
 
     it('grupo já soft-deletado não loga nada', async () => {
-        const group = gm.createGroup([pt('f1'), pt('f2'), pt('f3')], MAP_NAME);
+        const group = await gm.createGroup([pt('f1'), pt('f2'), pt('f3')], MAP_NAME);
         // Aguardado porque `ungroupFeatures` virou write-ahead: sem o await o grupo ainda está
         // ativo quando a remoção de membro roda, e o caso mediria o contrário do que diz.
         await gm.ungroupFeatures(group.id, MAP_NAME);
@@ -231,8 +244,8 @@ describe('removeFeatureFromAllGroups: a saída de um membro vira operação', ()
         expect(gm.getGroupById('solitario', MAP_NAME), 'grupo alheio intacto').toBeTruthy();
     });
 
-    it('mapName null resolve o mapa CORRENTE para UUID', () => {
-        gm.createGroup([pt('f1'), pt('f2'), pt('f3')]);
+    it('mapName null resolve o mapa CORRENTE para UUID', async () => {
+        await gm.createGroup([pt('f1'), pt('f2'), pt('f3')]);
         vi.clearAllMocks();
 
         gm.removeFeatureFromAllGroups('point', 'f1');
@@ -246,8 +259,8 @@ describe('a membresia também NASCE como operação', () => {
     // Sem isto a correção acima seria inerte no caso dominante: o servidor não guarda membro
     // nenhum de grupo criado ao vivo (o INSERT de `groups` ignora `data.features`), então um
     // delete de junção não teria linha para apagar. As duas metades vão juntas.
-    it('createGroup loga o grupo e DEPOIS uma op de membresia por feição', () => {
-        const group = gm.createGroup([pt('f1'), pt('f2'), pt('f3')], MAP_NAME);
+    it('createGroup loga o grupo e DEPOIS uma op de membresia por feição', async () => {
+        const group = await gm.createGroup([pt('f1'), pt('f2'), pt('f3')], MAP_NAME);
 
         expect(groupCalls()).toHaveLength(1);
         expect(groupCalls()[0][0]).toBe('create');
@@ -280,9 +293,9 @@ describe('a membresia também NASCE como operação', () => {
             .toBeLessThan(h.logGroupFeatureOperation.mock.invocationCallOrder[0]);
     });
 
-    it('combineGroups loga a membresia do grupo NOVO, e só dele', () => {
-        const g1 = gm.createGroup([pt('a'), pt('b')], MAP_NAME);
-        const g2 = gm.createGroup([pt('c'), pt('d')], MAP_NAME);
+    it('combineGroups loga a membresia do grupo NOVO, e só dele', async () => {
+        const g1 = await gm.createGroup([pt('a'), pt('b')], MAP_NAME);
+        const g2 = await gm.createGroup([pt('c'), pt('d')], MAP_NAME);
         vi.clearAllMocks();
 
         const combinado = gm.combineGroups([g1.id, g2.id], [], MAP_NAME);

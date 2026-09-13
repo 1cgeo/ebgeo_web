@@ -88,7 +88,11 @@ const PISO_RECORD = 18;
 // `src/js/layers/layer.manager.js` que viraram write-ahead (criar, atualizar propriedade e
 // reordenar) deixaram de chamar `logLayerOperation`. `deleteLayer` continua chamando, e é essa a
 // unidade que sobra ali.
-const PISO_LOG = 20;
+// Baixado de 20 para 18 na mesma onda: `createGroup` (`src/js/tool_manager/group_manager.js`)
+// virou write-ahead e deixou de chamar `logGroupOperation` mais `logGroupFeatureOperation`, que
+// eram duas chamadas ali. `combineGroups` e `removeFeatureFromAllGroups` continuam no caminho
+// antigo e são o que resta daquele arquivo.
+const PISO_LOG = 18;
 
 /**
  * Comentário fora, preservando a contagem de linhas para que a mensagem de erro aponte a

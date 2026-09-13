@@ -56,11 +56,14 @@ function guardMutation(action, operation) {
 /**
  * Creates a group from features.
  *
+ * ASYNC since 2026-09-13 (write-ahead, bloco B4): the manager journals the `group` create plus one
+ * `group_feature` per member, in that order, before it writes.
+ *
  * @param {Array} features - Features to group
  * @param {string} [mapName=null] - Map name
- * @returns {import('./store.types.js').Group|null} Created group
+ * @returns {Promise<import('./store.types.js').Group|null>} Created group
  */
-export function createGroup(features, mapName = null) {
+export async function createGroup(features, mapName = null) {
     if (guardMutation(GuardAction.CREATE_GROUP, 'createGroup').blocked) return null;
     return deps.groupManager.createGroup(features, mapName);
 }
