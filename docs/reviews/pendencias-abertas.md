@@ -86,12 +86,11 @@ Aceite do bloco: nenhuma vulnerabilidade crítica ou alta aplicável e exploráv
 ### O que rodar antes da matriz
 
 1. **Scripts npm para os dois cenários que só rodam por config dedicada**, `frontend/playwright.migration-data.config.js` e `frontend/playwright.atlas-safety.config.js`, com a variável de diretório de dados apontando para CÓPIA. Ler `test:e2e:ui` verde como cobertura da migração é leitura errada: esses dois não rodam ali.
-2. **As capturas e specs escritos em 13/09 e ainda não executados**, rodando de dentro de `frontend/`:
-   - `frontend/tests/e2e-ui/_captura-b9-indicadores.spec.js` (a luz de sync com os estados novos);
-   - `frontend/tests/e2e-ui/_captura-b5d-pendencias.spec.js` (o painel de pendências);
-   - o caso novo de `frontend/tests/e2e-ui/browser-collab-lock.spec.js`, que trava PELO CONTROLADOR e espera o Editor ler o mapa travado (os specs anteriores travavam pela op crua e por isso travavam só o próprio cliente);
-   - `frontend/tests/e2e-ui/browser-collab-colar-imagem.spec.js`.
-   As duas capturas são temporárias e se apagam depois de a imagem ser LIDA. Ler a contagem de `flaky` ANTES de declarar verde: com `retries: 1`, um caso que flakeia é um caso não verificado.
+2. **As capturas e specs escritos em 13/09**, rodando de dentro de `frontend/`:
+   - as DUAS capturas temporárias (a luz de sync com os estados novos, e o painel de pendências) foram executadas em 13/09, as sete imagens foram LIDAS e os dois specs foram apagados no mesmo commit, que é o contrato deles. O que a leitura mostrou está no corpo daquele commit, e o que ela achou de aberto está adiante nesta seção;
+   - o caso novo de `frontend/tests/e2e-ui/browser-collab-lock.spec.js`, que trava PELO CONTROLADOR e espera o Editor ler o mapa travado (os specs anteriores travavam pela op crua e por isso travavam só o próprio cliente): EXECUTADO em 13/09, verde em 4 de 4 rodadas em série;
+   - `frontend/tests/e2e-ui/browser-collab-colar-imagem.spec.js`, ainda não executado.
+   Ler a contagem de `flaky` ANTES de declarar verde: com `retries: 1`, um caso que flakeia é um caso não verificado.
 3. **Lembrar que `browser-collab-mega.spec.js` não roda na rodada normal** (tem script próprio), então "`test:e2e:ui` verde" não é "a pasta inteira passou".
 
 ### A matriz (documento 09, íntegra)
