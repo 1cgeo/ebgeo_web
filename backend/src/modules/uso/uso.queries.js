@@ -485,12 +485,16 @@ export const UPSERT_EVENTOS_DIA = `
  *  - `release` e `navegador` são `COALESCE(atual, EXCLUDED)`, o PRIMEIRO não nulo: eles
  *    identificam a build e o navegador em que a sessão COMEÇOU, e é essa a pergunta da saúde
  *    de release;
- *  - os quatro VITAIS se dividem em dois pares, e a divisão é a natureza da métrica. `lcp_ms`
- *    e `tempo_ate_mapa_ms` são números de CARGA: acontecem uma vez, e o valor certo é o
- *    primeiro que chegou (`COALESCE(atual, EXCLUDED)`). `inp_ms` e `cls` CRESCEM ao longo da
- *    sessão (o pior atraso de interação até agora, o deslocamento acumulado até agora), e o
- *    valor certo é o mais recente (`COALESCE(EXCLUDED, atual)`). Trocar os pares faz o
- *    percentil de dois deles congelar no instante da carga.
+ *  - os quatro VITAIS se dividem em dois regimes, e a divisão é a natureza da métrica.
+ *    `tempo_ate_mapa_ms` é número de CARGA: acontece uma vez, e o valor certo é o primeiro
+ *    que chegou (`COALESCE(atual, EXCLUDED)`). `lcp_ms`, `inp_ms` e `cls` são REVISADOS pelo
+ *    cliente ao longo da sessão (o LCP fecha na primeira interação, o INP é o percentil das
+ *    interações até agora, o CLS é a maior janela até agora), e o valor certo é o do lote
+ *    MAIS RECENTE: o `CASE` compara `ultimo_sinal` e só deixa `EXCLUDED` vencer quando o lote
+ *    que chega não é mais velho que o já gravado, porque a fila de lotes reenvia em ordem
+ *    arbitrária depois de uma falha (desde 2026-09-12). Um `COALESCE` cego pelo mais recente
+ *    deixaria um lote atrasado sobrescrever um vital mais novo; o primeiro-vence congelaria
+ *    os três no instante da carga.
  *
  * `dia` E `pagina_inicial` NÃO SÃO ATUALIZADOS, e é por isso que a segunda se chama assim: a
  * sessão pertence ao dia e à página em que o servidor ouviu falar dela pela primeira vez.
