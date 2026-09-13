@@ -54,7 +54,11 @@ import {
 import { purgeAllRemoteAtlases, purgeReachedAtlas, listRemoteAtlases } from './remote-atlas.api.js';
 import { activateCurrentLocalAtlasScope, initLocalAtlases } from './local-atlas.api.js';
 import { observeLegacyInstallation, reportBootAtlasScope } from './migration/boot-legacy-adoption.js';
-import { readLocalAtlasRegistry, getStoreFor, StoreName, LEGACY_DB_SUFFIX } from './atlas-namespace.js';
+import { readLocalAtlasRegistry, getStoreFor, StoreName, LEGACY_DB_SUFFIX, getActiveScope } from './atlas-namespace.js';
+// Folha de zero imports, por ARQUIVO: o wipe precisa saber se o namespace que ele esvazia ja foi
+// CONDENADO, porque num namespace condenado toda escrita e recusada e reconstruir e trabalho que
+// morre na linha seguinte (ver `clearAllDataStore`).
+import { remoteWritesDiscarded } from './remote-write-fence.js';
 // A MESMA PONTE que `clearAllAtlasStores` atravessa uma linha depois, e do ARQUIVO pelo motivo que
 // o próprio `ensureAtlasScope` documenta: a guarda deslogada roda ANTES de o boot ativar escopo, e
 // contar o que o expurgo vai apagar exige resolver os mesmos bancos que ele vai esvaziar.
@@ -707,7 +711,28 @@ export async function initializeWithLastActiveMap() {
 // linhas fecha com `\n} = {}) {` e o recorte morre na própria assinatura, deixando o caso
 // vermelho por uma quebra de linha.
 export async function clearAllDataStore({ markLocal = true, clearQueue = markLocal, reinitialize = true } = {}) {
-    await unmountCurrentAtlas({ clearQueue });
+    // UM NAMESPACE CONDENADO NAO SE RECONSTROI, E RECUSAR A RECONSTRUCAO NAO E FALHA.
+    //
+    // MEDIDO EM 2026-09-13, e o sintoma aparecia longe da causa: depois de "Sair", as feicoes do
+    // atlas de servidor continuavam DESENHADAS na tela, para sempre. O gesto de sair confirma
+    // primeiro, e a confirmacao chama `requestRemoteAtlasDiscard`, que fecha a cerca de escrita de
+    // todo namespace remoto nao reivindicado — o que esta aba tem MONTADO inclusive. A partir dali
+    // toda escrita no escopo ativo lanca `AbortError` (`remote-write-fence.js`, via `fenceStore`),
+    // e a primeira delas era `operationQueue.clear()` dentro do `unmountCurrentAtlas` logo abaixo.
+    // A excecao subia por `clearAllDataStore` inteira e matava a ULTIMA linha dela, que e o
+    // `emit(ALL_DATA_CLEARED)` — o unico sinal que faz o `BaseLayerControl` chamar
+    // `clearFeatureSources`. O disco ja tinha sido esvaziado por `clearAllAtlasStores`, que usa os
+    // handles CRUS e nao passa pela cerca, entao a metade de STORE ficava certa e so a metade de
+    // TELA ficava errada, que e a combinacao mais dificil de acreditar.
+    //
+    // O QUE ELE PULA E SO A RECONSTRUCAO, nunca o esvaziamento nem o anuncio: o carimbo de schema,
+    // o mapa em branco e a fila daquele namespace. Todos os tres sao trabalho para um repositorio
+    // que `discardRemoteAtlasNamespaces` destroi na linha seguinte do logout, e e a mesma razao
+    // pela qual aquele caminho ja passa `reinitialize: false`. Repro e controle negativo em
+    // `tests/integration/logout-com-cerca-fechada.repro.test.js`.
+    const condenado = remoteWritesDiscarded(getActiveScope());
+
+    await unmountCurrentAtlas({ clearQueue: clearQueue && !condenado });
 
     await mapManager.clearAllColorCaches();
 
@@ -725,7 +750,12 @@ export async function clearAllDataStore({ markLocal = true, clearQueue = markLoc
     // pré-namespace. Este carimbo NÃO desliga aquele detector, e o comentário que dizia isso
     // estava errado. Quem evita a cadeia inteira no caminho em que ela é desperdício é
     // `reinitialize: false`, logo abaixo.
-    await setAppSetting('schemaVersion', ATLAS_SCHEMA_VERSION);
+    if (!condenado) {
+        await setAppSetting('schemaVersion', ATLAS_SCHEMA_VERSION);
+    }
+    // O MARCADOR DE ORIGEM NAO E DO ATLAS, e por isso ele fica FORA da guarda: ele mora em
+    // `ebgeo_global`, que nenhuma cerca alcanca, e deixar de escreve-lo faria a instalacao
+    // continuar se declarando remota depois de a conta ter saido.
     if (markLocal) {
         await markStoreLocal();
     }
@@ -733,11 +763,13 @@ export async function clearAllDataStore({ markLocal = true, clearQueue = markLoc
     // `seedBlankDefaultMap` GRAVA o mapa antes de devolver o nome, que é o que as duas linhas
     // seguintes e os ouvintes de `ALL_DATA_CLEARED` leem. Ele é o mesmo bloco que
     // `initializeRepository` usa quando o escopo não tem mapa, extraído para lá.
-    const defaultMap = reinitialize
-        ? await initializeRepository()
-        : await seedBlankDefaultMap();
-    await mapManager.setCurrentMap(defaultMap);
-    await loadMapDataToMemory(defaultMap);
+    if (!condenado) {
+        const defaultMap = reinitialize
+            ? await initializeRepository()
+            : await seedBlankDefaultMap();
+        await mapManager.setCurrentMap(defaultMap);
+        await loadMapDataToMemory(defaultMap);
+    }
 
     // Emit AFTER the blank default map is current + loaded, so ALL_DATA_CLEARED listeners (notably the
     // base-layer control) repopulate the live map sources from the now EMPTY map — clearing every
@@ -748,7 +780,10 @@ export async function clearAllDataStore({ markLocal = true, clearQueue = markLoc
     // dizem "o escopo que este wipe deixa vai ser LIDO". Quando não vai (a saída da conta destrói
     // o namespace em seguida), remontar as camadas inteiras pinta um mapa que morre duas linhas
     // depois. O ouvinte então só ESVAZIA as sources vivas, que é a metade que o usuário vê.
-    deps.eventBus.emit(EventTypes.ALL_DATA_CLEARED, { rebuild: reinitialize });
+    // `rebuild` E UMA AFIRMACAO SOBRE O QUE FOI RECONSTRUIDO, entao o namespace condenado o zera:
+    // nao ha mapa em branco de onde repintar, e mandar remontar camadas pintaria um mapa que nao
+    // existe no disco.
+    deps.eventBus.emit(EventTypes.ALL_DATA_CLEARED, { rebuild: reinitialize && !condenado });
 
     deps.eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
 }
