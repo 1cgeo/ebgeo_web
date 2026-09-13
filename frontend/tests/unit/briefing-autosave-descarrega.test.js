@@ -66,6 +66,17 @@ beforeEach(() => {
         }
     };
     vi.stubGlobal('window', janela);
+    // Um `window` presente diz ao fence de época que isto é um DOCUMENTO, e documento sem
+    // `localStorage` fecha o fence por desenho (F12, 2026-09-13): sem este duplo, `activateScope`
+    // de um escopo remoto lança AbortError antes de o sujeito do teste existir.
+    const memoria = new Map();
+    vi.stubGlobal('localStorage', {
+        getItem: (k) => (memoria.has(k) ? memoria.get(k) : null),
+        setItem: (k, v) => { memoria.set(k, String(v)); },
+        removeItem: (k) => { memoria.delete(k); },
+        key: (i) => [...memoria.keys()][i] ?? null,
+        get length() { return memoria.size; }
+    });
     barramento = new Map();
 
     activateScope(remoteScope('11111111-1111-4111-8111-111111111111'));
