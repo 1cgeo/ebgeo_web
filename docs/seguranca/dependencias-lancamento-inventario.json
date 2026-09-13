@@ -1190,7 +1190,22 @@
             "libtiff 4.5.1",
             "GEOS 3.8"
           ],
-          "ressalva": "As versoes das demais bibliotecas nativas embarcadas (PROJ, SQLite, libgeotiff, expat, zlib e o resto da cadeia) NAO foram determinadas: nenhuma string de versao delas aparece no binario de forma inequivoca, e nenhum aviso de seguranca foi avaliado contra elas. Um WASM nao e coberto por npm audit."
+          "ressalva": "As versoes das demais bibliotecas nativas embarcadas (PROJ, SQLite, libgeotiff, expat, zlib e o resto da cadeia) NAO foram determinadas: nenhuma string de versao delas aparece no binario de forma inequivoca, e nenhum aviso de seguranca foi avaliado contra elas. Um WASM nao e coberto por npm audit.",
+          "correcao2026_09_13": {
+            "oQueEstavaErrado": "AS DUAS entradas de bibliotecasNativasLidasDoBinario sao strings-armadilha, do tipo que esta MESMA entrada avisa para nao ler. O registro documentou a armadilha para o GDAL, por extenso, e caiu nela para as outras duas bibliotecas, no mesmo arquivo. O aviso escrito nao protege quem o escreveu.",
+            "libtiff": "A versao real e 4.6.0, no banner proprio da biblioteca: \"LIBTIFF, Version 4.6.0\" em 0x1812851, seguido dos dois avisos de copyright de Sam Leffler e da Silicon Graphics. O 4.5.1 registrado acima vem de \"H(ost) mode is deprecated. Since libtiff 4.5.1, it is an alias of 'B' / FILLORDER_MSB2LSB\" em 0x1815bb8, que e mencao historica.",
+            "geos": "A versao real e 3.12.1, com C API 1.18.1: \"GEOS_VERSION=3.12.1-CAPI-1.18.1\" em 0x18da910, dentro do bloco de BUILD_INFO. O 3.8 registrado acima vem de \"-makevalid only supported for builds against GEOS 3.8 or later\" em 0x15dc4b2, que e piso minimo de funcionalidade.",
+            "oQueARessalvaDavaPorIndeterminavelEnaoE": {
+              "PROJ": "9.3.1, por TRES caminhos independentes: \"PROJ_BUILD_VERSION=9.3.1\" em 0x18da931, a string propria do PROJ \"Rel. 9.3.1, December 1st, 2023\" em 0x1a03a26, e a chave PROJ.VERSION na tabela metadata do proj.db empacotado dentro do .data. A mensagem \"only supported since PROJ 9.4\" em 0x17b4c6c e requisito e nao versao: este build esta ABAIXO dela, entao aquele caminho de codigo esta desligado.",
+              "SQLite": "3.45.1, por dois caminhos: a constante de versao em 0x19c4386, terminada em NUL, e o sourceid do FTS5 \"2024-01-30 16:01:20 e876e51a...\" em 0x166f8a7, que e o do release 3.45.1.",
+              "SpatiaLite": "5.1.0, em 0x1a58f85, imediatamente antes de \"wasm32-unknown-emscripten\": sao a versao e a CPU alvo, lado a lado.",
+              "zlibElibpng": "zlib 1.3.1 e libpng 1.6.37, por inferencia ESTRUTURAL e nao por leitura direta: as macros de inicializacao das duas passam a constante de versao em todo sitio de chamada, entao ela existe por construcao, e cada um dos dois literais e a unica ocorrencia daquele formato no binario. Evidencia mais fraca que as de cima, e declarada como tal.",
+              "dadosDoPROJ": "O proj.db empacotado no .data (8712192 bytes) publica em texto PROJ_DATA.VERSION 1.16, EPSG.VERSION v10.098, ESRI.VERSION ArcGIS Pro 3.2 e IGNF.VERSION 3.1.0."
+            },
+            "oQueSegueSemVersaoDeterminavel": "expat, json-c, libwebp, libjpeg (nem a versao nem o sabor IJG contra turbo), libgeotiff, FreeXL e qhull: as sete estao LINKADAS, com mensagens internas proprias no binario, e nenhuma delas exporta string de versao. Fora do binario por AUSENCIA, e nao por indeterminacao: openjpeg, curl, netcdf, hdf5 e xerces, que nao foram compiladas neste build. Fechar as sete exigiria o receituario de build do gdal3.js, que a arvore /home/bugra/Documents/MiniProject/gdal3.js/build/native/src/ denuncia e nao embarca.",
+            "compilador": "COMPILER=clang-18.0.0, em 0x17f0174.",
+            "comoConferir": "Toda string citada aqui foi lida de novo por caminho independente do que a produziu, sobre este mesmo arquivo. Todas estao na secao data do modulo; o .wasm nao tem secao custom name nem producers, entao nao ha metadado de build a consultar."
+          }
         },
         {
           "path": "frontend/public/vendors/gdal/gdal3WebAssembly.data",
