@@ -1,5 +1,52 @@
 // Path: js/store/write-coordinator.js
 
+/**
+ * @fileoverview MAY THIS TAB WRITE TO THE ATLAS RIGHT NOW, asked in two ranges.
+ *
+ * THE PER-TAB HALF (`beginStoreWrite` / `pauseStoreWrites`) is a module `WeakMap` keyed by scope
+ * OBJECT, so it only ever knows about writers of THIS document. It is what a local recovery
+ * (`applyRemoteSnapshot`) leans on to wait for the journal state of writes it can see.
+ *
+ * THE CROSS-TAB HALF (everything below `pauseStoreWrites`) is a Web Lock per remote scope, and it
+ * exists because the per-tab half answered the WRONG QUESTION at logout. The logout dialog counts
+ * pending work for every server namespace ON THIS BROWSER and then destroys them, siblings
+ * included; a count taken while a sibling tab is still writing is optimistic by construction, and
+ * no message can prove a sibling stopped (a frozen or throttled tab answers nothing and keeps
+ * writing when it wakes). A lock is a FACT of the user agent instead of a claim on a channel.
+ *
+ * HOW THE TWO MODES MEET, and it is the whole design (each step measured in node 24, which has
+ * `navigator.locks`, and the numbers are in `tests/integration/barreira-de-logout-entre-abas.test.js`):
+ *
+ *   - a WRITER takes the barrier in `shared` mode with `ifAvailable: true`. Shared is compatible
+ *     with shared, so concurrent writers in any number of tabs never wait for each other;
+ *   - the LOGOUT DIALOG takes the same name in `exclusive` mode and WAITS. Because the queue is
+ *     FIFO per name, being merely PENDING already refuses every later `shared ifAvailable`
+ *     (measured), so new writes stop the instant the dialog asks, in every tab, without a message;
+ *   - the grant of the exclusive is therefore evidence that every in-flight write finished. That
+ *     is the drain the dialog needs before it counts;
+ *   - a writer refused does NOT WAIT. It fails with `STORE_OPERATION_BLOCKED` and
+ *     {@link LOGOUT_BARRIER_NOTICE}, because a write parked behind a dialog somebody may leave open
+ *     is a frozen interface, and the interface is not what the barrier is protecting.
+ *
+ * WHY THE CROSS-TAB CHECK IS NOT INSIDE `beginStoreWrite`: that function is synchronous and every
+ * caller of `runTransaction` depends on it being so, while a lock request is not. Caching the
+ * answer would reintroduce exactly the thing this replaces, a belief about another tab instead of a
+ * fact, so the async half lives at the async entry (`runTransaction`, `beginStoreWrite`'s only
+ * production caller) and at the auto-flush loop.
+ *
+ * WHAT IT DOES NOT COVER, declared because an absence reads as an oversight. The barrier is held
+ * for the body of the transaction, and the outbound op is enqueued by a `deferAsync` effect that
+ * `runTransaction` starts but does not await, so an enqueue can outlive the release by a microtask.
+ * What bars that one after the discard is the write epoch fence
+ * (`store/remote-write-fence.js`), which is a different guard with a different clock.
+ *
+ * WITHOUT `navigator.locks` (plain HTTP, a hardened embedder) every function here degrades to the
+ * per-tab behaviour this module had before: no barrier is taken, no write is refused, and the
+ * dialog's census is as optimistic as it used to be. Decision 5 of `atlas-namespace.js` is the same
+ * trade in the same runtime, and it is stated rather than hidden: the product is served over HTTPS
+ * (D1 of the release plan), so the degraded regime is the exception, not the deployment.
+ */
+
 const mounts = new WeakMap();
 
 function stateFor(scope) {
@@ -30,6 +77,223 @@ export function pauseStoreWrites(scope) {
         resume() {
             if (!resumed) state.paused -= 1;
             resumed = true;
+        },
+    };
+}
+
+// ===========================================================================================
+// THE CROSS-TAB BARRIER
+// ===========================================================================================
+
+/**
+ * What the user is told when a write is refused because a sibling tab is leaving the account.
+ *
+ * It names the STATE and not the role, like every other reversible refusal in the product: the
+ * person can be the one who reverts it (finish or cancel the logout in the other window).
+ */
+export const LOGOUT_BARRIER_NOTICE = 'Outra janela está saindo da conta. '
+    + 'Aguarde a saída terminar para editar este atlas.';
+
+/**
+ * Prefix of the barrier's lock name. `#` separates the suffix and cannot appear in a `dbSuffix`
+ * (`VALID_SUFFIX` in `atlas-namespace.js`), so the mapping suffix -> name is injective, exactly as
+ * it is for `atlasMountLockName` and `atlasGenerationLockName`.
+ *
+ * IT IS A THIRD NAME, not a reuse of the mount lock, and the reason is the same one written into
+ * the generation lock: the mount lock is held SHARED by every tab that has the atlas open, so an
+ * exclusive request on it would be refused by the asker itself and the barrier would never close.
+ */
+const BARRIER_LOCK_PREFIX = 'ebgeo-atlas-logout:';
+
+/**
+ * @param {string} dbSuffix - Database suffix of a remote scope.
+ * @returns {string} Name of the Web Lock that means "a logout dialog owns this namespace".
+ */
+export function logoutBarrierLockName(dbSuffix) {
+    return `${BARRIER_LOCK_PREFIX}#${dbSuffix}`;
+}
+
+/**
+ * @returns {LockManager|null} The lock manager, or null where it does not exist. Null is a
+ *   supported answer: see the fileoverview's degraded regime.
+ */
+function lockManager() {
+    return typeof navigator !== 'undefined' && navigator.locks ? navigator.locks : null;
+}
+
+/** @returns {boolean} Whether this runtime can arbitrate the barrier at all. */
+export function hasLogoutBarrierSupport() {
+    return lockManager() !== null;
+}
+
+/**
+ * The barrier only ever covers a REMOTE scope: a local atlas is not destroyed by a logout, and
+ * making its writers ask would add a lock request to every local edit for nothing.
+ * @param {{kind?: string, dbSuffix?: string}|null|undefined} scope
+ * @returns {string|null} The lock name, or null when there is nothing to arbitrate.
+ */
+function barrierNameFor(scope) {
+    if (!scope || scope.kind !== 'remote' || typeof scope.dbSuffix !== 'string') return null;
+    if (scope.dbSuffix.length === 0) return null;
+    return logoutBarrierLockName(scope.dbSuffix);
+}
+
+/**
+ * Takes the barrier as a WRITER: shared, and refused instead of queued.
+ *
+ * @param {{kind?: string, dbSuffix?: string}|null} scope - Scope about to be written.
+ * @returns {Promise<{blocked: boolean, release: () => void}>} `blocked:true` means a logout dialog
+ *   holds the barrier or is waiting for it, and NOTHING was taken. `release` is idempotent and
+ *   safe to call in a `finally` in either case.
+ */
+export async function enterCoordinatedWrite(scope) {
+    const manager = lockManager();
+    const name = barrierNameFor(scope);
+    if (!manager || !name) return { blocked: false, release() {} };
+
+    let release = () => {};
+    let resolveEntered;
+    const entered = new Promise(resolve => { resolveEntered = resolve; });
+    try {
+        const settled = manager.request(name, { mode: 'shared', ifAvailable: true }, lock => {
+            if (lock === null) {
+                resolveEntered(false);
+                return undefined;
+            }
+            const untilDone = new Promise(resolve => { release = resolve; });
+            resolveEntered(true);
+            return untilDone;
+        });
+        settled.catch(() => resolveEntered(false));
+        const granted = await entered;
+        if (!granted) return { blocked: true, release() {} };
+        let released = false;
+        return {
+            blocked: false,
+            release() {
+                if (released) return;
+                released = true;
+                release();
+            },
+        };
+    } catch {
+        // A runtime that refuses the request must not refuse the edit: the barrier is an
+        // arbitration, and a broken arbitration falls back to the per-tab regime.
+        return { blocked: false, release() {} };
+    }
+}
+
+/**
+ * ASKS whether the barrier is taken, without taking or waiting for anything.
+ *
+ * For a writer that has nothing to hold across an await (the auto-flush loop, which pushes what is
+ * already on disk). An `exclusive ifAvailable` probe answers "is anybody here", and here the asker
+ * is never one of the holders: a writer's own share is released before the loop gets to ask, and
+ * the tab whose dialog is open SHOULD read its own barrier as taken.
+ *
+ * @param {{kind?: string, dbSuffix?: string}|null} scope - Scope about to be written.
+ * @returns {Promise<boolean>} True when a logout dialog owns it. False whenever there is no fact
+ *   to read, which is the same direction the mount lock degrades in.
+ */
+export async function logoutBarrierBlocks(scope) {
+    const manager = lockManager();
+    const name = barrierNameFor(scope);
+    if (!manager || !name) return false;
+    try {
+        return await manager.request(
+            name,
+            { mode: 'exclusive', ifAvailable: true },
+            lock => lock === null
+        );
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * How long the dialog waits for the writers of every tab to drain before it gives up and reports
+ * an unknown amount of pending work.
+ *
+ * The same 3 s the per-tab settle already used, and one number rather than two because both bound
+ * the same thing: how long a person stares at a logout that is measuring. Longer buys a rarer
+ * "unknown" at the cost of a logout that looks stuck; shorter reports unknown for an ordinary
+ * write of a big feature.
+ */
+export const BARRIER_DRAIN_TIMEOUT_MS = 3000;
+
+/**
+ * TAKES THE BARRIER FOR THE LOGOUT DIALOG: exclusive, and it waits for the writers.
+ *
+ * The request is NOT `ifAvailable`, and that is the point: pending is what refuses the siblings,
+ * and the grant is what proves they finished. It is raced against a deadline and ABORTED on
+ * timeout, because a request left pending would be granted later and then held forever, which
+ * would wedge every writer in every tab (measured: after `abort()` the callback never runs and the
+ * name is free again).
+ *
+ * @param {{kind?: string, dbSuffix?: string}|null} scope - Remote scope being left.
+ * @param {{timeoutMs?: number}} [options]
+ * @returns {Promise<{held: boolean, drained: boolean, supported: boolean,
+ *   release: () => Promise<void>}>} `drained` is the only field a census may believe: true means
+ *   every tab's writers finished (or that there is nothing to arbitrate, i.e. a local scope or a
+ *   runtime without locks, where the answer is the per-tab one this module always gave). `held`
+ *   says whether new writes are being refused right now.
+ */
+export async function holdLogoutBarrier(scope, { timeoutMs = BARRIER_DRAIN_TIMEOUT_MS } = {}) {
+    const manager = lockManager();
+    const name = barrierNameFor(scope);
+    const idle = { held: false, drained: true, supported: false, async release() {} };
+    if (!manager || !name) return idle;
+
+    const controller = new AbortController();
+    let release = () => {};
+    let resolveHeld;
+    let abandoned = false;
+    const held = new Promise(resolve => { resolveHeld = resolve; });
+    let settled;
+    try {
+        settled = manager.request(
+            name,
+            { mode: 'exclusive', signal: controller.signal },
+            () => {
+                // THE GRANT CAN RACE THE ABORT, and holding it then would wedge every writer in
+                // every tab forever. A grant that arrives after the deadline is dropped on the
+                // spot: returning nothing releases the lock immediately.
+                if (abandoned) return undefined;
+                const untilReleased = new Promise(resolve => { release = resolve; });
+                resolveHeld(true);
+                return untilReleased;
+            }
+        );
+        settled.catch(() => resolveHeld(false));
+    } catch {
+        return { ...idle, supported: true };
+    }
+
+    let timer;
+    const drained = await Promise.race([
+        held,
+        new Promise(resolve => { timer = setTimeout(() => resolve(false), timeoutMs); }),
+    ]);
+    clearTimeout(timer);
+
+    if (!drained) {
+        abandoned = true;
+        controller.abort();
+        release();
+        await settled.catch(() => undefined);
+        return { held: false, drained: false, supported: true, async release() {} };
+    }
+
+    let released = false;
+    return {
+        held: true,
+        drained: true,
+        supported: true,
+        async release() {
+            if (released) return;
+            released = true;
+            release();
+            await settled.catch(() => undefined);
         },
     };
 }

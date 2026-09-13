@@ -4,7 +4,7 @@ import { EventoDeUso, PropDeUso } from '@js/session/eventos-de-uso.js';
 /** Voluntary logout: confirm the loss across every remote namespace on this browser. */
 import { listRemoteAtlases, requestRemoteAtlasDiscard } from '@store/remote-atlas.api.js';
 import { readLocalAtlasRegistry, getActiveScope } from '@store/atlas-namespace.js';
-import { pauseStoreWrites } from '@store/write-coordinator.js';
+import { pauseStoreWrites, holdLogoutBarrier } from '@store/write-coordinator.js';
 import { pauseAutoFlush } from '@store/sync/auto-flush-pause.js';
 import { announceTabLockTeardown } from '@utils/tab-lock.js';
 import { countPendingOperationsFor } from './unsynced-work-exit.js';
@@ -62,10 +62,20 @@ async function quarantineCount(entries) {
  */
 export async function confirmLogoutWithPendingWork() {
     const scope = getActiveScope();
-    const writes = pauseStoreWrites(scope?.kind === 'remote' ? scope : null);
+    const remote = scope?.kind === 'remote' ? scope : null;
+    // THE ORDER IS THE POINT. The per-tab pause is synchronous, so it stops this document's writers
+    // before anything else runs; the barrier is a Web Lock, so merely ASKING for it exclusively
+    // already refuses every sibling tab's next write, and being GRANTED it is the evidence that
+    // their in-flight writes finished. Taking it after the local pause means no write can slip in
+    // between the two.
+    const writes = pauseStoreWrites(remote);
     const sends = pauseAutoFlush();
+    const barrier = await holdLogoutBarrier(remote);
     try {
-        return await confirmAndPrepareLogout(Promise.all([writes.settled, sends.settled]));
+        return await confirmAndPrepareLogout(
+            Promise.all([writes.settled, sends.settled]),
+            barrier.drained
+        );
     } catch (error) {
         console.error('[logout] could not prepare remote discard:', error);
         const { showError } = await import('@utils/toast_service.js');
@@ -74,10 +84,23 @@ export async function confirmLogoutWithPendingWork() {
     } finally {
         writes.resume();
         sends.resume();
+        // CANCELLING RELEASES IT, and so does confirming: the barrier's job ends when the namespaces
+        // are marked and the peers are frozen, and from there the write epoch fence is what refuses
+        // a late write. A barrier left held would refuse every edit in every tab until this document
+        // died.
+        await barrier.release();
     }
 }
 
-async function confirmAndPrepareLogout(settled) {
+/**
+ * @param {Promise<*>} settled - Completion of the writers and sends this DOCUMENT had in flight.
+ * @param {boolean} drained - Whether the cross-tab barrier proved every OTHER tab's writers
+ *   finished. False means the deadline expired with a sibling still writing, and the census that
+ *   follows cannot be believed: the count stays unknown, which is the sentence the dialog already
+ *   had for an unreadable queue.
+ * @returns {Promise<boolean>}
+ */
+async function confirmAndPrepareLogout(settled, drained = true) {
     let entries;
     let pendingOps = NaN;
     let quarantined = NaN;
@@ -90,7 +113,7 @@ async function confirmAndPrepareLogout(settled) {
                 settled.then(() => true),
                 new Promise(resolve => { timer = setTimeout(() => resolve(false), 3000); }),
             ]);
-            if (idle) pendingOps = await pendingCount(entries);
+            if (idle && drained) pendingOps = await pendingCount(entries);
         } finally { clearTimeout(timer); }
         if (!Number.isFinite(pendingOps) || pendingOps > 0) quarantined = await quarantineCount(entries);
     } catch (error) {

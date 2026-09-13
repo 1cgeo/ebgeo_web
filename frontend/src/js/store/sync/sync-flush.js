@@ -37,7 +37,7 @@ import { hasPendingLocalEdits } from './remote-operation-handler.js';
 import { getEventBus } from '../services.js';
 import { EventTypes } from '../../events/event_types.js';
 import { showWarning } from '@utils/toast_service.js';
-import { canStartAutoFlush, trackAutoFlush } from './auto-flush-pause.js';
+import { canStartAutoFlush, trackAutoFlush, autoFlushBarredByLogout } from './auto-flush-pause.js';
 export { pauseAutoFlush } from './auto-flush-pause.js';
 
 /**
@@ -205,7 +205,11 @@ async function flushOnce() {
     const current = () => state.inFlight === token && state.engine === engine;
     try {
         const hasWork = await hasWorkToFlush();
-        if (!current() || !canStartAutoFlush()) return;
+        // The third question is the CROSS-TAB one, and it is asked here rather than at the top of
+        // this function because it is async: a sibling tab's logout dialog holds the write barrier
+        // of this namespace while it counts and destroys, and a send that lands in that window
+        // reaches the server after the person agreed to lose it.
+        if (!current() || !canStartAutoFlush() || await autoFlushBarredByLogout()) return;
         if (!hasWork) {
             if (hasPendingLocalEdits()) await engine.reconcileConvergenceGuard();
             return;

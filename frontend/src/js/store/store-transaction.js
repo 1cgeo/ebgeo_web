@@ -15,7 +15,7 @@ import { record } from './sync/diag/trace-core.js';
 import { TraceStage } from './sync/diag/trace-stages.js';
 import { getActiveScope } from '@store/atlas-namespace.js';
 import { persistOperationIntents } from '@store/sync/operation-dispatcher.js';
-import { beginStoreWrite } from './write-coordinator.js';
+import { beginStoreWrite, enterCoordinatedWrite, LOGOUT_BARRIER_NOTICE } from './write-coordinator.js';
 import { captureRemoteWriteFence } from './remote-write-fence.js';
 
 const TxState = Object.freeze({
@@ -136,7 +136,31 @@ class StoreTransaction {
  */
 export async function runTransaction(workFn) {
     const tx = new StoreTransaction();
-    const finishWrite = beginStoreWrite(tx.scope);
+
+    // THE CROSS-TAB BARRIER, asked before anything is prepared and NEVER waited on. A sibling
+    // tab's logout dialog owns the barrier of this namespace while it counts and destroys, so a
+    // write that starts here would be counted after the census or lost in the destruction. The
+    // refusal is emitted OUTSIDE the try below on purpose: this is an expected refusal
+    // (STORE_OPERATION_BLOCKED), not a persistence failure, and the catch would relabel it.
+    const barrier = await enterCoordinatedWrite(tx.scope);
+    if (barrier.blocked) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation: 'transaction',
+            reason: LOGOUT_BARRIER_NOTICE,
+            timestamp: Date.now()
+        });
+        throw new Error(LOGOUT_BARRIER_NOTICE);
+    }
+
+    let finishWrite;
+    try {
+        // The per-tab pause can refuse too (a local recovery is running), and its refusal must not
+        // leave the barrier's share held: nothing would ever release it.
+        finishWrite = beginStoreWrite(tx.scope);
+    } catch (error) {
+        barrier.release();
+        throw error;
+    }
     // Mint one trace id per user gesture. It rides every op this transaction logs
     // (the ambient is read synchronously by createOperation during commit, so it is
     // safe even with concurrent transactions: there is no await between set and the
@@ -168,5 +192,6 @@ export async function runTransaction(workFn) {
         throw error;
     } finally {
         finishWrite();
+        barrier.release();
     }
 }

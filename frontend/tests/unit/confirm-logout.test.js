@@ -4,10 +4,14 @@ const fake = vi.hoisted(() => ({
     list: vi.fn(), locals: vi.fn(), count: vi.fn(), confirm: vi.fn(), discard: vi.fn(),
     announce: vi.fn(), error: vi.fn(), quarantine: vi.fn(),
     pauseWrites: vi.fn(), pauseSends: vi.fn(), resumeWrites: vi.fn(), resumeSends: vi.fn(),
+    holdBarrier: vi.fn(), releaseBarrier: vi.fn(),
 }));
 vi.mock('@store/remote-atlas.api.js', () => ({ listRemoteAtlases: fake.list, requestRemoteAtlasDiscard: fake.discard }));
 vi.mock('@store/atlas-namespace.js', () => ({ readLocalAtlasRegistry: fake.locals, getActiveScope: () => ({ kind: 'remote' }) }));
-vi.mock('@store/write-coordinator.js', () => ({ pauseStoreWrites: fake.pauseWrites }));
+vi.mock('@store/write-coordinator.js', () => ({
+    pauseStoreWrites: fake.pauseWrites,
+    holdLogoutBarrier: fake.holdBarrier,
+}));
 vi.mock('@store/sync/auto-flush-pause.js', () => ({ pauseAutoFlush: fake.pauseSends }));
 vi.mock('@utils/tab-lock.js', () => ({ announceTabLockTeardown: fake.announce }));
 vi.mock('@js/session/unsynced-work-exit.js', () => ({ countPendingOperationsFor: fake.count }));
@@ -28,6 +32,9 @@ beforeEach(() => {
     fake.discard.mockResolvedValue([A, B]);
     fake.pauseWrites.mockReturnValue({ settled: Promise.resolve(), resume: fake.resumeWrites });
     fake.pauseSends.mockReturnValue({ settled: Promise.resolve(), resume: fake.resumeSends });
+    fake.holdBarrier.mockResolvedValue({
+        held: true, drained: true, supported: true, release: fake.releaseBarrier,
+    });
 });
 afterEach(() => vi.useRealTimers());
 
@@ -128,6 +135,55 @@ describe('confirmed voluntary logout', () => {
         // A leitura extra é paga só quando há diálogo: fila vazia sai sem perguntar.
         expect(await confirmLogoutWithPendingWork()).toBe(true);
         expect(fake.quarantine).not.toHaveBeenCalled();
+    });
+    it('a barreira entre abas é tomada ANTES de qualquer contagem', async () => {
+        // A ordem é o conteúdo desta guarda: contar com a irmã ainda escrevendo é a contagem
+        // otimista do achado F5. A barreira é pedida sobre o escopo REMOTO montado, e o pedido
+        // exclusivo é o que já recusa a próxima escrita da irmã.
+        fake.count.mockResolvedValue(1);
+        await confirmLogoutWithPendingWork();
+        expect(fake.holdBarrier).toHaveBeenCalledOnce();
+        expect(fake.holdBarrier.mock.calls[0][0]).toEqual({ kind: 'remote' });
+        expect(fake.holdBarrier.mock.invocationCallOrder[0])
+            .toBeLessThan(fake.count.mock.invocationCallOrder[0]);
+        // CONTROLE NEGATIVO do próprio caso: a pausa por aba continua vindo antes da barreira,
+        // senão haveria uma janela entre as duas em que esta aba ainda aceitaria escrita.
+        expect(fake.pauseWrites.mock.invocationCallOrder[0])
+            .toBeLessThan(fake.holdBarrier.mock.invocationCallOrder[0]);
+    });
+    it('cancelar solta a barreira, e confirmar também', async () => {
+        fake.count.mockResolvedValue(1);
+        expect(await confirmLogoutWithPendingWork()).toBe(false);
+        expect(fake.releaseBarrier).toHaveBeenCalledOnce();
+
+        fake.releaseBarrier.mockClear();
+        fake.confirm.mockResolvedValue(true);
+        expect(await confirmLogoutWithPendingWork()).toBe(true);
+        expect(fake.releaseBarrier).toHaveBeenCalledOnce();
+        // Soltar DEPOIS de marcar e avisar: a barreira cobre a janela inteira, e do anúncio em
+        // diante quem recusa escrita tardia é o fence de época.
+        expect(fake.announce.mock.invocationCallOrder[0])
+            .toBeLessThan(fake.releaseBarrier.mock.invocationCallOrder[0]);
+    });
+    it('barreira que não drenou no prazo mantém a quantidade DESCONHECIDA', async () => {
+        // A fila é legível e diz zero, e mesmo assim o diálogo aparece: o que não se sabe é se a
+        // irmã parou de escrever, então o zero é sobre um instante que já passou.
+        fake.count.mockResolvedValue(0);
+        fake.holdBarrier.mockResolvedValue({
+            held: false, drained: false, supported: true, release: fake.releaseBarrier,
+        });
+        expect(await confirmLogoutWithPendingWork()).toBe(false);
+        expect(fake.count).not.toHaveBeenCalled();
+        expect(fake.confirm.mock.calls[0][1].message).toContain('Não foi possível verificar');
+        expect(fake.releaseBarrier).toHaveBeenCalledOnce();
+
+        // CONTROLE NEGATIVO: com a MESMA fila vazia e a barreira drenada, não há diálogo nenhum.
+        fake.confirm.mockClear();
+        fake.holdBarrier.mockResolvedValue({
+            held: true, drained: true, supported: true, release: fake.releaseBarrier,
+        });
+        expect(await confirmLogoutWithPendingWork()).toBe(true);
+        expect(fake.confirm).not.toHaveBeenCalled();
     });
     it('failed registry reads require confirmation and failed writes cannot report success', async () => {
         fake.list.mockRejectedValue(new Error('disk unavailable'));
