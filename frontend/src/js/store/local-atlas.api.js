@@ -52,6 +52,7 @@ import {
     localScope,
     bootTabMountPointer,
     readLocalAtlasRegistry,
+    reconcileDurablePointers,
     remoteAtlasRegistryKey,
     remoteScope
 } from './atlas-namespace.js';
@@ -439,6 +440,36 @@ export function scopeOfLocalAtlas(entry) {
 }
 
 /**
+ * Mounts a slot, rebuilding its synchronous pointers from the durable mirrors FIRST (B7.3).
+ *
+ * EVERY MOUNT OF A LOCAL SLOT GOES THROUGH HERE, and that is the point. `reconcileDurablePointers`
+ * used to have a single entry point, the remote `connect`, and a RESCUED slot never connects: it
+ * adopts a `remote-<id>` namespace with the generations that namespace already had
+ * (`adoptRemoteAtlasAsLocal`), so a browser that dropped `localStorage` while keeping IndexedDB
+ * left nine full databases addressed by a pointer nothing rebuilt. Every read then resolved to the
+ * generation-less names and the acervo read as EMPTY, which is worse than the deletion this file
+ * bounds, because nothing says anything.
+ *
+ * IT MUST COME BEFORE `activateScope`, never after: the pointer is read inside `resolveDbName`, so
+ * the first `getStore()` of the new scope already has to see the rebuilt value.
+ *
+ * THE COST ON A SLOT WITH NO GENERATION IS ONE `getItem` on the global database, measured rather
+ * than assumed (`frontend/tests/integration/reconciliacao-no-boot-do-slot.test.js`). The cheaper
+ * design would gate the read on some property that "looks like" a rescued slot, and that is the
+ * closed list this repository keeps paying for: a slot that started carrying a generation for a
+ * new reason would fall outside it in silence.
+ *
+ * @param {LocalAtlasEntry} entry - Registry entry to mount.
+ * @returns {Promise<{ kind: string, atlasId: string, dbSuffix: string }>} The activated scope.
+ */
+async function mountSlotScope(entry) {
+    const scope = scopeOfLocalAtlas(entry);
+    await reconcileDurablePointers(scope);
+    activateScope(scope);
+    return scope;
+}
+
+/**
  * Creates the registry entry an installation with no registry needs, and seeds its atlas
  * record. `adoptLegacy` is what decides whether this slot INHERITS the pre-namespace
  * databases (zero-copy migration) or starts on fresh ones.
@@ -654,8 +685,7 @@ export async function initLocalAtlases(options = {}) {
 
     // A REMOTE marker with no atlas id names no namespace, so there is nothing to activate
     // and nothing to repair: fall back to the local slot instead of inventing a scope.
-    const scope = scopeOfLocalAtlas(current);
-    activateScope(scope);
+    const scope = await mountSlotScope(current);
     return { scope, current, atlases: listLocalAtlases() };
 }
 
@@ -1021,7 +1051,7 @@ async function pointAtLocalAtlas(id, mount) {
     await persistRegistry();
 
     if (mount) {
-        activateScope(scopeOfLocalAtlas(entry));
+        await mountSlotScope(entry);
     }
 
     return { ok: true, atlas: { ...entry } };
@@ -1130,7 +1160,7 @@ export async function deleteLocalAtlas(id) {
         );
 
         if (eraCorrente && getActiveScopeKind() !== StoreScopeKind.REMOTE) {
-            activateScope(scopeOfLocalAtlas(entries.find(e => e.id === _currentId)));
+            await mountSlotScope(entries.find(e => e.id === _currentId));
         }
 
         return {
@@ -1160,7 +1190,7 @@ export async function deleteLocalAtlas(id) {
     const { dropped, blocked } = await dropAtlasDatabases(scopeOfLocalAtlas(entry));
 
     if (wasCurrent && getActiveScopeKind() !== StoreScopeKind.REMOTE) {
-        activateScope(scopeOfLocalAtlas(entries.find(e => e.id === _currentId)));
+        await mountSlotScope(entries.find(e => e.id === _currentId));
     }
 
     return {

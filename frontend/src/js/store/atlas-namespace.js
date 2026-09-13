@@ -453,13 +453,20 @@ setEpochMirror({
  * Rebuilds the two synchronous pointers of a namespace from their durable mirrors, BEFORE anything
  * resolves a database name through them.
  *
- * THE CALLER IS THE REMOTE CONNECT (`sync-engine.js`), and that is the only reconciliation point
- * today, deliberately narrow: it is the one place that is already asynchronous, already knows which
- * namespace it is about to read, and already decides between a tail and a full snapshot from the
- * cursor this restores. What it does NOT cover is declared instead of implied: a LOCAL slot that
- * carries a generation (the rescue adopts a `remote-<id>` namespace with its generations) is never
- * connected, so nothing reconciles it; doing that needs an await in the boot of the store, which is
- * not this module's call site.
+ * THERE ARE TWO CALLERS, AND THE SECOND CLOSES WHAT THIS LINE USED TO DECLARE AS A GAP (B7.3). The
+ * remote `connect` (`sync-engine.js`) is the one that also decides between a tail and a full
+ * snapshot from the cursor this restores. The other is the MOUNT OF A LOCAL SLOT
+ * (`local-atlas.api.js`, boot and slot switch): a rescued slot adopts a `remote-<id>` namespace
+ * WITH its generations and never connects, so while `connect` was the only entry point, losing
+ * `localStorage` left that acervo addressed by a pointer nothing rebuilt, i.e. nine full databases
+ * that every read resolved past.
+ *
+ * THE EPOCH HALF IS ONLY READ FOR A REMOTE SCOPE, and that is a measurement, not tidiness:
+ * `adoptMirroredDiscardState` answers `absent` for every other kind, so on a local mount that
+ * second `getItem` was a read whose result was thrown away. What a slot WITHOUT a generation pays
+ * for this call is therefore exactly one `getItem` on `ebgeo_global` (plus the already-settled
+ * mirror chain), and that is the price of not having a second, narrower rule about which slots
+ * "look like" they might carry one.
  *
  * @param {{ kind: string, dbSuffix: string }} scope - Namespace about to be used.
  * @returns {Promise<{ generation: string, epoch: string }>} What each half decided, for a caller
@@ -472,9 +479,10 @@ export async function reconcileDurablePointers(scope) {
         // against a value we ourselves are about to replace.
         await durableMirrorSettled();
         const globalStore = getGlobalStore();
+        const fenced = scope.kind === StoreScopeKind.REMOTE;
         const [generation, epoch] = await Promise.all([
             globalStore.getItem(generationMirrorKey(scope.dbSuffix)),
-            globalStore.getItem(writeEpochMirrorKey(scope.dbSuffix))
+            fenced ? globalStore.getItem(writeEpochMirrorKey(scope.dbSuffix)) : null
         ]);
         return {
             generation: adoptMirroredGeneration(scope, generation),
