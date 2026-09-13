@@ -128,7 +128,8 @@ export async function uploadImage(atlasId, file, userId, attemptKey = null) {
 
   // THE BYTES ARE ALREADY ON DISK when this runs (multer wrote them), so every early return
   // below has to take that file with it. The hash is read from the same file, never from the
-  // client's declared size: it is the only thing that can recognise a retry that lost its answer.
+  // client's declared size. It is STORED and never queried on this route (see below): what reads
+  // it back is the /bulk route, comparing the content held under an id the client chose.
   let contentHash;
   try {
     contentHash = hashImageContent(await readFile(file.path));
@@ -137,27 +138,23 @@ export async function uploadImage(atlasId, file, userId, attemptKey = null) {
     throw err;
   }
 
-  // 1) THE ATTEMPT KEY, when the client sent one. It is the only deduplication that is exact:
-  // the client minted it before the first byte left, so the same key means the same attempt, no
-  // matter what the bytes look like.
+  // THE ATTEMPT KEY IS THE ONLY DEDUPLICATION OF THIS ROUTE, and the narrowing is a decision of
+  // the owner (D7, 2026-09-13). The client mints the key before the first byte leaves, so the same
+  // key means the same attempt no matter what the bytes look like; that is an identity of the
+  // INTENTION, and it is the only one this route can act on.
+  //
+  // CONTENT IS NOT AN IDENTITY HERE, and this route used to treat it as one: without a key it gave
+  // back the existing row of equal hash in the atlas. Two things follow from that which the owner
+  // refused. Identical bytes sent under a NEW name came back carrying the OLD name, so the route
+  // answered a question the caller did not ask; and two features ended up sharing one row, which
+  // this module's PHYSICAL delete (DELETE_IMAGE) would turn into loss for whichever feature did
+  // not ask for it. The price accepted instead is a duplicate: a keyless re-send of the same bytes
+  // writes a second row and a second blob, which costs disk and nothing else.
   if (attemptKey) {
     const { rows: byKey } = await query(Q.FIND_IMAGE_BY_ATTEMPT_KEY, [atlasId, attemptKey]);
     if (byKey.length > 0) {
       await unlink(file.path).catch(() => {});
       return { image: toPublicImage(byKey[0]), reused: true };
-    }
-  }
-
-  // 2) THE CONTENT, for a client that sent no key. Weaker than the key and deliberately so: it
-  // cannot tell a retry from two features that legitimately hold identical bytes, and the answer
-  // it gives (one row, one id, shared) is the right one for THIS route, which mints the id it
-  // returns. The /bulk route must NOT do this: there the client chooses the id, and pasting a
-  // picture mints a NEW id for the SAME bytes on purpose.
-  if (!attemptKey) {
-    const { rows: byHash } = await query(Q.FIND_IMAGE_BY_CONTENT_HASH, [atlasId, contentHash]);
-    if (byHash.length > 0) {
-      await unlink(file.path).catch(() => {});
-      return { image: toPublicImage(byHash[0]), reused: true };
     }
   }
 

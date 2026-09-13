@@ -11,10 +11,17 @@
 //     estava la, ou reescrever uma referencia valida.
 //
 // O que este arquivo prende e a DISCRIMINACAO, nao o verde: cada mecanismo tem um caso que o
-// exercita e um controle que mostra que sem ele o desfecho e outro. Os dois eixos sao
-// independentes de proposito: a chave de tentativa e exata (mesma chave = mesma tentativa, nao
-// importa o conteudo) e o hash de conteudo e aproximado (nao distingue retentativa de duas
-// figuras iguais), e cada um cobre o que o outro nao alcanca.
+// exercita e um controle que mostra que sem ele o desfecho e outro.
+//
+// OS DOIS EIXOS NAO SAO SIMETRICOS, e a assimetria e a decisao D7 do dono (2026-09-13). A chave de
+// tentativa e exata (mesma chave = mesma tentativa, nao importa o conteudo) e e a UNICA
+// deduplicacao da rota unica. O hash de conteudo e aproximado, porque nao distingue retentativa de
+// duas figuras legitimamente iguais, e por isso ele NAO deduplica nada sozinho: ele so responde
+// atraves de um ID, que e o que a bulk pergunta. B8 (commit `c0ce39f3`) tinha feito a rota unica
+// reusar por conteudo na falta de chave, e o preco era visivel na resposta: os mesmos bytes sob um
+// nome NOVO voltavam com o nome ANTIGO, e duas feicoes passavam a compartilhar uma linha que o
+// DELETE fisico deste modulo transformaria em perda para uma delas. O preco aceito no lugar e uma
+// linha e um arquivo a mais em disco.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -136,17 +143,34 @@ describe('Imagens idempotentes (F6)', () => {
     assert.equal(await contarLinhas(), linhasAntes + 2, 'duas linhas: o retry sem chave duplica');
   });
 
-  it('sem chave, o MESMO conteudo reusa a linha existente (200) e nao grava blob novo', async () => {
+  it('sem chave, o MESMO conteudo cria linha NOVA (201) e responde com o nome NOVO', async () => {
+    // D7: o conteudo nao identifica a tentativa, entao sem chave nao ha reuso nenhum. Este caso
+    // mede o desfecho pelo lado que o reuso por conteudo estragava: o NOME. Com ele, o segundo
+    // envio voltava 200 carregando `primeira.png`, ou seja, a rota respondia sobre um recurso que
+    // o chamador nao nomeou, e as duas feicoes ficavam penduradas na mesma linha.
     const bytes = pngComEnchimento(41);
-    const primeiro = await enviar(bytes).expect(201);
+    const primeiro = await enviar(bytes, { nome: 'primeira.png' }).expect(201);
 
     const linhasAntes = await contarLinhas();
     const arquivosAntes = contarBlobs(atlasDir);
-    const segundo = await enviar(bytes).expect(200);
+    const segundo = await enviar(bytes, { nome: 'segunda.png' }).expect(201);
 
-    assert.equal(segundo.body.data.id, primeiro.body.data.id);
-    assert.equal(await contarLinhas(), linhasAntes, 'nenhuma linha nova');
-    assert.equal(contarBlobs(atlasDir), arquivosAntes, 'nenhum arquivo novo');
+    assert.notEqual(segundo.body.data.id, primeiro.body.data.id,
+      'bytes iguais sem chave sao um recurso novo, e nao a linha que ja estava la');
+    assert.equal(segundo.body.data.filename, 'segunda.png',
+      'o nome da resposta e o que FOI enviado; o reuso por conteudo devolvia o nome antigo');
+    assert.equal(await contarLinhas(), linhasAntes + 1, 'uma linha nova');
+    assert.equal(contarBlobs(atlasDir), arquivosAntes + 1,
+      'e um arquivo novo: o custo aceito em troca de nao compartilhar a linha');
+
+    // O hash continua GRAVADO nas duas linhas, e e o que a bulk le atraves de um id.
+    const { rows } = await db.query(
+      'SELECT content_hash FROM images WHERE id = ANY($1::uuid[]) ORDER BY created_at ASC',
+      [[primeiro.body.data.id, segundo.body.data.id]]
+    );
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0].content_hash, rows[1].content_hash,
+      'duas linhas com o mesmo hash convivem: o indice de conteudo nao e unico de proposito');
   });
 
   it('chave malformada e recusada ANTES de o blob ser gravado', async () => {

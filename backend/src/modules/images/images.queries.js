@@ -37,14 +37,15 @@ export const FIND_IMAGE_BY_ATTEMPT_KEY = `
   SELECT * FROM images WHERE atlas_id = $1 AND attempt_key = $2
 `;
 
-// Oldest first: with two rows of identical content the stable answer is the one that has been
-// referenced longest, so a retry never migrates a reference from under an existing feature.
-export const FIND_IMAGE_BY_CONTENT_HASH = `
-  SELECT * FROM images
-  WHERE atlas_id = $1 AND content_hash = $2
-  ORDER BY created_at ASC, id ASC
-  LIMIT 1
-`;
+// THERE IS NO LOOKUP BY CONTENT HASH, and the absence is the decision D7 of 2026-09-13, not an
+// omission. The column is written on every row and read back only THROUGH AN ID: the bulk route
+// asks what the row holding a client-chosen id contains. Asking the reverse question ("which row
+// in this atlas has these bytes") is what made the single route hand back an existing row for a
+// keyless upload, and identical bytes are not the same intention.
+//
+// The non-unique partial index `idx_images_atlas_content_hash` survives on purpose: pasting a
+// picture mints a NEW id for the SAME bytes, so a unique index there would refuse the paste, and
+// what the index buys is a cheap answer to "who else holds these bytes" for a future diagnostic.
 
 // Adopts a hash for a row written before 013_imagens_idempotentes.sql (or by the atlas clone,
 // which copies bytes and not the hash). Only ever fills a NULL: overwriting a stored hash would

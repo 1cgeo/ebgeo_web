@@ -18,15 +18,15 @@ Base: `3492c3dd`, branch `plano/bd`. Posição de 13/09/2026.
 | B5 | conflitos por entidade e painel de resolução | fundido; resta o conteúdo do recibo e a comparação de geometria |
 | B6 | comandos compostos e as quatro exceções REST | fundido; resta o conjunto grande e a prova de fronteira |
 | B7 | abas, logout, gerações e migração da main | fundido |
-| B8 | uploads duráveis | fundido; resta D7 e a prova em duas browsers |
+| B8 | uploads duráveis | fundido; D7 respondida e implementada, resta a prova em duas browsers |
 | B9 | indicadores e administração | fundido; resta a validação com telemetria real |
 | B10 | segurança e dependências | inventário fundido; **fecho aberto**, só sobre o SHA candidato |
 | B11 | homologação final e migração da main | **aberto** |
 | B12 | liberação interna e retorno | **aberto**, depende de B11 e de responsável na rede interna |
 
-## Decisão pendente do dono
+## Decisão do dono, respondida
 
-**D7. Reuso de imagem por conteúdo, sem chave de tentativa.** A rota única de imagem reusa, na falta de chave de idempotência, a linha de mesmo hash de conteúdo no mesmo atlas. Reenviar os mesmos bytes com outro nome devolve a linha antiga, com o nome antigo, e duas feições passam a compartilhar uma linha de imagem. Nenhum caminho do cliente chama a exclusão de imagem no servidor hoje, então não há perda alcançável pelo produto, e é por isso que isto é pendência e não defeito. A alternativa é estreitar o reuso, casando só por chave de tentativa e aceitando que um reenvio sem chave grave uma segunda linha e um segundo arquivo em disco para os mesmos bytes. Registro em [decisões de 2026](../decisions/decisions-2026.md); efeito nomeado em [[imagens-atlas]].
+**D7. Reuso de imagem por conteúdo, sem chave de tentativa: ESTREITAR.** Respondida em 13/09/2026 e já implementada, então esta seção deixou de ser pendência e fica como registro de onde a regra mora. A rota única de imagem reusa linha existente **apenas** sob chave de tentativa; sem chave, bytes iguais criam linha nova e arquivo novo. A rota de lote não mudou: mantém o reuso quando o id local coincide e o conteúdo é o mesmo, e recusa id local igual com conteúdo diferente. O que a escolha comprou foi a resposta honesta (os mesmos bytes sob nome novo voltavam com o nome antigo) e o fim da linha compartilhada por duas feições, que a exclusão física do módulo tornaria perda; o que ela custa é uma linha e um arquivo a mais por reenvio sem chave. Registro em [decisões de 2026](../decisions/decisions-2026.md); regra em [[imagens-atlas]].
 
 ## Pendências por bloco
 

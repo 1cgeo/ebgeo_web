@@ -98,8 +98,9 @@ const upload = multer({
  * readable after the body has been consumed.
  *
  * The Joi error is forwarded untouched, so it lands as the 422 VALIDATION_ERROR envelope the rest
- * of the module already answers with. An absent header is an ordinary request: the server then
- * falls back to deduplicating by content hash.
+ * of the module already answers with. An absent header is an ordinary request AND THERE IS NO
+ * FALLBACK: since D7 (2026-09-13) a keyless upload always creates a row, even for bytes the atlas
+ * already holds. Falling back to the content would answer with a row the caller never named.
  *
  * @param {import('express').Request} req - The request.
  * @param {import('express').Response} res - Unused; present for the middleware signature.

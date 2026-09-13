@@ -25,8 +25,10 @@ export const uploadFileSchema = Joi.object({
 // costs nothing: after it the blob is already on disk and a refusal has to clean up after itself.
 //
 // OPTIONAL, because the key is what an updated client sends and the route has to keep answering the
-// one that does not. Without it the server still deduplicates, by content hash, which is weaker (it
-// cannot tell a retry from two identical pictures) and is the reason the key exists at all.
+// one that does not. WITHOUT IT THERE IS NO DEDUPLICATION AT ALL on this route, by decision D7 of
+// 2026-09-13: identical bytes with no key write a second row and a second blob. Content cannot tell
+// a retry from two features legitimately holding the same picture, and guessing wrong there hands
+// back a row the caller never named, under a name it did not send.
 export const attemptKeySchema = Joi.object({
   attemptKey: Joi.string().uuid().optional(),
 });
