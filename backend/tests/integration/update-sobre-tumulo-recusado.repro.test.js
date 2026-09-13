@@ -31,9 +31,13 @@
 // não prova nada, e recusar por ausência hoje transformaria todo par create/update fora de
 // ordem numa recusa permanente.
 //
-// CONTROLE NEGATIVO, por entidade: tirar `map` (ou `cesium3d`, ou `streetview360`) de
-// `TOMBSTONE_GUARDED_TARGETS` deixa vermelho o caso daquela entidade e SÓ dele (medido: 2, 3 e 2
-// casos vermelhos, com os das outras duas verdes). Revertendo a guarda E o filtro: 7 de 10.
+// CONTROLE NEGATIVO, por entidade: tirar um alvo de `TOMBSTONE_GUARDED_TARGETS` deixa vermelho o
+// caso daquela entidade e SÓ dele. Medido em 2026-09-13 para os sete: `map` 2 vermelhos,
+// `cesium3d` 3, `streetview360` 2, e `group`, `layer`, `briefing` e `slide` 1 cada (15 de 16
+// verdes em cada uma das quatro rodadas). Removendo SÓ as cláusulas `deleted_at IS NULL` dos
+// quatro statements novos: 16 verdes, que é a prova de que elas são cinto e suspensório e não a
+// guarda. Pondo `layer` em `CREATE_OVER_EXISTING_REFUSED`: vermelho aqui no caso dos quatro
+// desfazeres E em `sync-service-coverage` ("soft-delete then re-create with same id resurrects").
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -328,6 +332,148 @@ describe('F8 — mapa, 3D e 360 recusam escrita sobre linha excluída, com motiv
     assert.equal(depois.version, antes.version + 1, 'a versão andou uma vez');
     const { rows } = await db.query('SELECT data FROM streetview360_data WHERE id = $1', [id]);
     assert.equal(rows[0].data.heading, 90, 'e o dado novo entrou');
+  });
+
+  // ==========================================================================
+  // OS QUATRO QUE FALTAVAM: grupo, camada, briefing e slide (2026-09-13)
+  //
+  // Eram os últimos alvos cujo UPDATE caía DENTRO do túmulo. MEDIDO revertendo a entrada deles em
+  // `TOMBSTONE_GUARDED_TARGETS` e relendo as linhas: uma camada excluída e depois renomeada por op
+  // antiga voltava com o nome novo, `version` 2 para 3 e `deleted_at` ainda posto, com ack
+  // `status: 'applied'` — uma edição feita DEPOIS da exclusão, esperando dentro do túmulo por quem
+  // restaurasse a linha. O mesmo para grupo, briefing e slide.
+  //
+  // O CREATE DELES CONTINUA RESSUSCITANDO, e é o que o último caso desta seção prende: é o caminho
+  // do desfazer, o mesmo contrato de `map`. Pôr qualquer um dos quatro em
+  // `CREATE_OVER_EXISTING_REFUSED` deixa `sync-service-coverage.test.js` vermelho no caso de
+  // revival daquela entidade.
+  // ==========================================================================
+
+  /** O arranjo é o mesmo nos quatro: criar pelo sync, excluir pelo sync, tentar o update antigo. */
+  const tumuloRecusaUpdate = async ({ tabela, criar, excluir, atualizar, leitura, esperado }) => {
+    const id = randomUUID();
+    await criar(id);
+    await excluir(id);
+    const apagado = await linhaDe(tabela, id);
+    assert.ok(apagado.deleted_at, `pré-condição: a linha de ${tabela} está excluída`);
+
+    const res = await push([envelope(atualizar(id))]);
+    recusa(res.body.data.acks[0], EXCLUIDO);
+
+    const depois = await linhaDe(tabela, id);
+    assert.equal(depois.version, apagado.version, 'a versão do túmulo não andou');
+    assert.equal(depois.deleted_at.getTime(), apagado.deleted_at.getTime(), 'e é a MESMA exclusão');
+    assert.equal(await leitura(id), esperado, 'o valor velho do túmulo ficou como estava');
+  };
+
+  it('GRUPO: o update antigo sobre grupo excluído é recusado, e não reescreve o túmulo', async () => {
+    const map = await createMap(db, atlas.id, { name: 'Mapa do grupo tumulo' });
+    await tumuloRecusaUpdate({
+      tabela: 'groups',
+      criar: (id) => push([envelope({
+        type: 'create', target: 'group', targetId: id, mapId: map.id, data: { name: 'Grupo vivo' },
+      })]),
+      excluir: (id) => push([envelope({ type: 'delete', target: 'group', targetId: id, mapId: map.id })]),
+      atualizar: (id) => ({
+        type: 'update', target: 'group', targetId: id, mapId: map.id,
+        changes: { name: 'Renomeado tarde' },
+      }),
+      leitura: async (id) => (await db.query('SELECT name FROM groups WHERE id = $1', [id])).rows[0].name,
+      esperado: 'Grupo vivo',
+    });
+  });
+
+  it('CAMADA: o update antigo sobre camada excluída é recusado, e não reescreve o túmulo', async () => {
+    const map = await createMap(db, atlas.id, { name: 'Mapa da camada tumulo' });
+    await tumuloRecusaUpdate({
+      tabela: 'layers',
+      criar: (id) => push([envelope({
+        type: 'create', target: 'layer', targetId: id, mapId: map.id, data: { name: 'Camada viva' },
+      })]),
+      excluir: (id) => push([envelope({ type: 'delete', target: 'layer', targetId: id, mapId: map.id })]),
+      atualizar: (id) => ({
+        type: 'update', target: 'layer', targetId: id, mapId: map.id,
+        changes: { name: 'Renomeada tarde' },
+      }),
+      leitura: async (id) => (await db.query('SELECT name FROM layers WHERE id = $1', [id])).rows[0].name,
+      esperado: 'Camada viva',
+    });
+  });
+
+  it('BRIEFING: o update antigo sobre briefing excluído é recusado, e não reescreve o túmulo', async () => {
+    await tumuloRecusaUpdate({
+      tabela: 'briefings',
+      criar: (id) => push([envelope({
+        type: 'create', target: 'briefing', targetId: id, data: { name: 'Briefing vivo' },
+      })]),
+      excluir: (id) => push([envelope({ type: 'delete', target: 'briefing', targetId: id })]),
+      atualizar: (id) => ({
+        type: 'update', target: 'briefing', targetId: id, changes: { name: 'Renomeado tarde' },
+      }),
+      leitura: async (id) => (await db.query('SELECT name FROM briefings WHERE id = $1', [id])).rows[0].name,
+      esperado: 'Briefing vivo',
+    });
+  });
+
+  it('SLIDE: o update antigo sobre slide excluído é recusado, e não reescreve o túmulo', async () => {
+    // O slide endereça o briefing pelo `mapId` do envelope, e é pelo briefing pai que a leitura da
+    // linha alcança o atlas (slides não têm `atlas_id`).
+    const briefingId = randomUUID();
+    await push([envelope({
+      type: 'create', target: 'briefing', targetId: briefingId, data: { name: 'Briefing dos slides' },
+    })]);
+    await tumuloRecusaUpdate({
+      tabela: 'slides',
+      criar: (id) => push([envelope({
+        type: 'create', target: 'slide', targetId: id, mapId: briefingId,
+        data: { briefing_id: briefingId, title: 'Slide vivo' },
+      })]),
+      excluir: (id) => push([envelope({ type: 'delete', target: 'slide', targetId: id, mapId: briefingId })]),
+      atualizar: (id) => ({
+        type: 'update', target: 'slide', targetId: id, mapId: briefingId,
+        changes: { title: 'Retitulado tarde' },
+      }),
+      leitura: async (id) => (await db.query('SELECT title FROM slides WHERE id = $1', [id])).rows[0].title,
+      esperado: 'Slide vivo',
+    });
+  });
+
+  it('OS QUATRO: o create sobre túmulo continua RESSUSCITANDO, porque ele é o desfazer', async () => {
+    // A guarda contra "completar" a guarda pondo qualquer um dos quatro em
+    // `CREATE_OVER_EXISTING_REFUSED`. O Ctrl+Z de uma exclusão reenvia um create com o MESMO id.
+    const map = await createMap(db, atlas.id, { name: 'Mapa dos desfazeres' });
+    const briefingId = randomUUID();
+    await push([envelope({
+      type: 'create', target: 'briefing', targetId: briefingId, data: { name: 'Briefing do desfazer' },
+    })]);
+
+    const casos = [
+      { tabela: 'groups', target: 'group', mapId: map.id, campo: 'name', dado: { name: 'Grupo renascido' } },
+      { tabela: 'layers', target: 'layer', mapId: map.id, campo: 'name', dado: { name: 'Camada renascida' } },
+      { tabela: 'briefings', target: 'briefing', mapId: undefined, campo: 'name',
+        dado: { name: 'Briefing renascido' } },
+      { tabela: 'slides', target: 'slide', mapId: briefingId, campo: 'title',
+        dado: { briefing_id: briefingId, title: 'Slide renascido' } },
+    ];
+    assert.equal(casos.length, 4, 'os quatro alvos novos da guarda (senão o laço abaixo é vácuo)');
+
+    for (const caso of casos) {
+      const id = randomUUID();
+      const criar = () => push([envelope({
+        type: 'create', target: caso.target, targetId: id, mapId: caso.mapId, data: caso.dado,
+      })]);
+      await criar();
+      await push([envelope({ type: 'delete', target: caso.target, targetId: id, mapId: caso.mapId })]);
+      assert.ok((await linhaDe(caso.tabela, id)).deleted_at, `${caso.target}: pré-condição excluído`);
+
+      const res = await criar();
+      assert.equal(res.body.data.acks[0].rejected, undefined, `${caso.target}: o desfazer não é recusado`);
+      const { rows } = await db.query(
+        `SELECT deleted_at, ${caso.campo} AS valor FROM ${caso.tabela} WHERE id = $1`, [id],
+      );
+      assert.equal(rows[0].deleted_at, null, `${caso.target}: a linha voltou viva`);
+      assert.equal(rows[0].valor, caso.dado[caso.campo], `${caso.target}: e adotou a carga reenviada`);
+    }
   });
 
   // ==========================================================================

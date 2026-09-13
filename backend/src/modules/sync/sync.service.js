@@ -1435,21 +1435,40 @@ async function lockedMapDenialReason(t, op) {
 }
 
 /**
- * The three targets whose row state is read before the write. `feature` is absent because
- * `prepareFeatureMutation` already does this, and much more; the targets still missing are the
- * declared gap of B5 step 2 (see `buildUpdateQuery`).
+ * The targets whose row state is read before the write. `feature` is absent because
+ * `prepareFeatureMutation` already does this, and much more.
  *
- * IT HOLDS TARGETS, NEVER TABLE NAMES: the table comes from `TARGET_TABLE_MAP`, its single home.
- * The first draft of this constant was a second `{ map: 'maps', cesium3d: 'cesium3d_data', ... }`
- * and the duplication was caught only because a negative-control script asked for a unique
- * match. A second copy is one rename away from guarding nothing at all, because a missing lookup
- * returns undefined and reads exactly like "no such row".
+ * IT GREW FROM THREE TO SEVEN ON 2026-09-13, and the four that joined (`group`, `layer`,
+ * `briefing`, `slide`) were the last entities whose UPDATE landed inside a tombstone. What that
+ * cost, measured by reverting this line and reading the rows back: a layer deleted and then
+ * renamed by an old op came back with the new name, `version` bumped and `deleted_at` still set,
+ * with the ack reading `applied` — an edit made AFTER the deletion, waiting inside the grave for
+ * whoever restores the row, and nobody told. Their statements gained `deleted_at IS NULL` in the
+ * same commit, but that clause alone is NOT the fix: an update touching zero rows is acked as
+ * success (only `rowsAffected === 0 && create` throws), so the write would stop landing and the
+ * silence would stay.
+ *
+ * THE SET IS NOT THE SAME AS "HAS A REVISION" (`DISPUTE_UNITS`, `entity-conflicts.js`), and the
+ * difference is the regime: the revision check answers only for an op that DECLARES a base, which
+ * no current client does outside features, while this guard answers for every op of these targets.
+ * `comment` and the per-layer `catalog_layer` are absent because their own statements already
+ * carry `deleted_at IS NULL` AND are not silent about it in a way that matters here: a comment
+ * update over a tombstone writes nothing and there is no version to poison.
+ *
+ * IT HOLDS TARGETS, NEVER TABLE NAMES: the table comes from `TARGET_TABLE_MAP`, its single home,
+ * through `readEntityRow`. The first draft of this constant was a second
+ * `{ map: 'maps', cesium3d: 'cesium3d_data', ... }` and the duplication was caught only because a
+ * negative-control script asked for a unique match. A second copy is one rename away from guarding
+ * nothing at all, because a missing lookup returns undefined and reads exactly like "no such row".
  */
-const TOMBSTONE_GUARDED_TARGETS = new Set(['map', 'cesium3d', 'streetview360']);
+const TOMBSTONE_GUARDED_TARGETS = new Set([
+  'map', 'cesium3d', 'streetview360', 'group', 'layer', 'briefing', 'slide',
+]);
 
 /**
- * Of those, the two whose CREATE over an EXISTING row is refused as well. `map` is deliberately
- * out, and finding out why cost a red suite: a plain create over a tombstone IS the undo path.
+ * Of those, the two whose CREATE over an EXISTING row is refused as well. The other FIVE are
+ * deliberately out, and finding out why cost a red suite: a plain create over a tombstone IS the
+ * undo path.
  * The client's Ctrl+Z of a delete replays the original object, id included, so the server sees a
  * create whose targetId is a tombstone and MUST revive it — the contract `layer`, `group`, `map`,
  * `briefing` and `slide` share, each asserted in `sync-service-coverage.test.js`, and carried by
@@ -1491,11 +1510,11 @@ async function guardedEntityRow(t, atlasId, op) {
 }
 
 /**
- * Per-operation refusal for `map`, `cesium3d` and `streetview360` when the row the operation
- * names is NOT the row it assumes. An UPDATE over a soft-deleted row is refused for all three;
- * a CREATE over an existing row (tombstone or live) only for the two of
- * `CREATE_OVER_EXISTING_REFUSED`, because a map create over a tombstone is the undo path and the
- * reason is written there.
+ * Per-operation refusal for every target of `TOMBSTONE_GUARDED_TARGETS` when the row the
+ * operation names is NOT the row it assumes. An UPDATE over a soft-deleted row is refused for all
+ * seven; a CREATE over an existing row (tombstone or live) only for the two of
+ * `CREATE_OVER_EXISTING_REFUSED`, because a create over a tombstone is the undo path for the other
+ * five and the reason is written there.
  *
  * WHAT WAS HAPPENING, AND WHY IT WAS INVISIBLE. Only `feature` had base and revision, by a
  * literal gate (`rawOp.protocolVersion === 2 && op.target === 'feature'`), so these three went
@@ -2082,12 +2101,14 @@ export async function pushOperations(atlasId, operations, userId, permission = '
             }
           }
 
-          // THE TOMBSTONE GUARD OF THE THREE TARGETS THAT HAD NONE (`map`, `cesium3d`,
-          // `streetview360`). It sits here for the same reason the two consulted refusals above
-          // do: it reads the row under the atlas write lock, BEFORE the log insert, so a refused
-          // op leaves nothing behind, and it returns through the SAME `conflict` channel the
-          // feature command layer uses. `feature` never reaches it — `prepareFeatureMutation`
-          // has already answered, above, with more than this can ask.
+          // THE TOMBSTONE GUARD OF THE SEVEN TARGETS THAT HAD NONE (`map`, `cesium3d`,
+          // `streetview360`, and since 2026-09-13 `group`, `layer`, `briefing`, `slide`). It sits
+          // here for the same reason the two consulted refusals above do: it reads the row under
+          // the atlas write lock, BEFORE the log insert, so a refused op leaves nothing behind,
+          // and it returns through the SAME `conflict` channel the feature command layer uses.
+          // `feature` never reaches it — `prepareFeatureMutation` has already answered, above,
+          // with more than this can ask; and an op with a declared base was answered by
+          // `prepareEntityMutation`, which reaches the same verdict with the same words.
           const tombstone = await tombstoneConflict(sp, atlasId, op);
           if (tombstone) return { conflict: tombstone };
 
@@ -2684,19 +2705,19 @@ function presentColumns(changes, fields) {
  * Builds the UPDATE query for a given target and operation.
  * Returns null if no changes apply.
  *
- * `deleted_at IS NULL` ON `map`, `cesium3d` AND `streetview360` IS DEFENCE IN DEPTH, NOT THE
- * GUARD. `tombstoneConflict` already refuses those three per operation, with a named reason,
- * before the log insert; the clause exists because the refusal reads the row and the statement
- * writes it, and a guard that lives only in the reader is one refactor away from being skipped.
- * It changes nothing the guard already caught: the update simply has no row to touch.
+ * `deleted_at IS NULL` IS DEFENCE IN DEPTH, NOT THE GUARD. `tombstoneConflict` already refuses
+ * every target of `TOMBSTONE_GUARDED_TARGETS` per operation, with a named reason, before the log
+ * insert; the clause exists because the refusal reads the row and the statement writes it, and a
+ * guard that lives only in the reader is one refactor away from being skipped. And it is not
+ * sufficient on its own, which is exactly why it is not the guard: zero rows on an update is ACKED
+ * AS SUCCESS (only `rowsAffected === 0 && create` throws, since f8e109ea), so the clause alone
+ * would stop the write and keep the silence.
  *
- * THE OTHER TARGETS DO NOT HAVE IT YET, and the gap is declared, not forgotten:
- * `group`, `layer`, `briefing` and `slide` still update a soft-deleted row into a version bump
- * nobody can see WHEN THE OPERATION DECLARES NO BASE. An op that declares one is already refused
- * one layer up, by `prepareEntityMutation` (`entity-conflicts.js`), with the same words the
- * feature path uses; closing the other half is the remaining work. `feature` needs no clause:
- * every feature write passes `prepareFeatureMutation` first. `comment` and the per-layer
- * `catalog_layer` already carry their own.
+ * SEVEN OF THE NINE TARGETS HERE CARRY IT (`map`, `group`, `layer`, `briefing`, `slide`,
+ * `cesium3d`, `streetview360`), and the two that do not, do not need it: `feature` passes
+ * `prepareFeatureMutation` first, which refuses a write over a tombstone before this function is
+ * ever reached, and `comment` and the per-layer `catalog_layer` never come through here at all —
+ * they have hand-written statements that already carry the same clause.
  */
 function buildUpdateQuery(target, op, atlasId) {
   // Map-scoped entities are also pinned to the ROUTE atlas: the EXISTS clause
@@ -2714,7 +2735,8 @@ function buildUpdateQuery(target, op, atlasId) {
   if (target === 'group' && op.changes && op.mapId) {
     return buildDynamicUpdate(
       'groups', op.changes, UPDATE_FIELDS.group,
-      [op.targetId, op.mapId, atlasId], `id = $1 AND map_id = $2 AND ${inAtlas}`,
+      [op.targetId, op.mapId, atlasId],
+      `id = $1 AND map_id = $2 AND deleted_at IS NULL AND ${inAtlas}`,
     );
   }
 
@@ -2722,7 +2744,8 @@ function buildUpdateQuery(target, op, atlasId) {
     const changes = normalizeLayerChanges(op.changes);
     return buildDynamicUpdate(
       'layers', changes, UPDATE_FIELDS.layer,
-      [op.targetId, op.mapId, atlasId], `id = $1 AND map_id = $2 AND ${inAtlas}`,
+      [op.targetId, op.mapId, atlasId],
+      `id = $1 AND map_id = $2 AND deleted_at IS NULL AND ${inAtlas}`,
     );
   }
 
@@ -2747,7 +2770,7 @@ function buildUpdateQuery(target, op, atlasId) {
   if (target === 'briefing' && op.changes) {
     return buildDynamicUpdate(
       'briefings', op.changes, UPDATE_FIELDS.briefing,
-      [op.targetId, atlasId], 'id = $1 AND atlas_id = $2',
+      [op.targetId, atlasId], 'id = $1 AND atlas_id = $2 AND deleted_at IS NULL',
     );
   }
 
@@ -2758,7 +2781,7 @@ function buildUpdateQuery(target, op, atlasId) {
     return buildDynamicUpdate(
       'slides', op.changes, UPDATE_FIELDS.slide,
       [op.targetId, atlasId],
-      'id = $1 AND briefing_id IN (SELECT id FROM briefings WHERE atlas_id = $2)',
+      'id = $1 AND deleted_at IS NULL AND briefing_id IN (SELECT id FROM briefings WHERE atlas_id = $2)',
     );
   }
 
