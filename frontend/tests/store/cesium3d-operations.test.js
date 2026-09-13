@@ -1118,6 +1118,75 @@ describe('bulk removal sync ops', () => {
 });
 
 // ============================================================================
+// F15 — TODA op carimba o mapa ALVO, nunca o corrente.
+//
+// Treze sítios deste arquivo liam e escreviam os DADOS do mapa resolvido por
+// `getTargetMapName(mapName)` e depois carimbavam a op com
+// `mapManager.getCurrentMapId()`. Chamado com nome de mapa explícito que não é o
+// ativo, o lado local mudava o mapa certo e a op viajava para o errado: o par
+// ganhava marcador, medição ou viewshed num mapa que ninguém tocou, enquanto o
+// mapa de fato alterado nunca convergia. Nenhum dos dois lados dá erro.
+//
+// A varredura é sobre TODAS as entradas de escrita, e não sobre um sítio: é assim
+// que uma entrada nova nasce coberta.
+// ============================================================================
+
+describe('F15 — o mapId da op é o do mapa ALVO', () => {
+    const OUTRO = 'OtherMap';
+
+    /** Seeds the NON-current map with one of each entity. */
+    function seedOutro() {
+        h.store.set(OUTRO, {
+            cameraPositions: { tsA: { id: 'c1', tilesetId: 'tsA', sync: { version: 1, deleted: false } } },
+            markers: [{ id: 'm1', tilesetId: 'tsA', images: [{ id: 'img-1' }], sync: { version: 1, deleted: false } }],
+            measurements: [{ id: 'me1', tilesetId: 'tsA', images: [], sync: { version: 1, deleted: false } }],
+            viewsheds: [{ id: 'v1', tilesetId: 'tsA', images: [], sync: { version: 1, deleted: false } }]
+        });
+    }
+
+    it('as escritas com nome de mapa explícito carimbam o alvo em TODA op logada', async () => {
+        seedOutro();
+
+        await saveCameraPosition('tsA', { longitude: 1 }, { heading: 0 }, OUTRO);
+        await clearCameraPosition('tsA', OUTRO);
+        await addMarker('tsA', { position: {} }, OUTRO);
+        await updateMarker('m1', { properties: { nome: 'x' } }, OUTRO);
+        await addMarkerImage('m1', fakeImageFile(), OUTRO);
+        await removeMarkerImage('m1', 'img-1', OUTRO);
+        await removeMarker('m1', OUTRO);
+        await addMeasurement('tsA', {}, OUTRO);
+        await updateMeasurement('me1', { properties: {} }, OUTRO);
+        await removeMeasurement('me1', OUTRO);
+        await addViewshed('tsA', {}, OUTRO);
+        await updateViewshed('v1', { observerHeight: 2 }, OUTRO);
+        await removeViewshed('v1', OUTRO);
+
+        const logs = [
+            logCameraPosition3dOperation, logMarker3dOperation,
+            logMeasurement3dOperation, logViewshed3dOperation
+        ];
+        const carimbos = logs.flatMap(log => log.mock.calls.map(call => call[2]));
+
+        // O piso é obrigatório: uma varredura que não dispara op nenhuma passaria verde
+        // em qualquer asserção sobre "todos os carimbos".
+        expect(carimbos.length).toBeGreaterThanOrEqual(13);
+        expect(carimbos.every(id => id === OUTRO)).toBe(true);
+        // Controle negativo do conserto: era este o valor que os treze carimbavam.
+        expect(carimbos).not.toContain('map-uuid-123');
+    });
+
+    it('no mapa CORRENTE o carimbo continua sendo o UUID dele', async () => {
+        seed({
+            markers: [{ id: 'm1', tilesetId: 'tsA', images: [], sync: { version: 1, deleted: false } }]
+        });
+
+        await updateMarker('m1', { properties: { nome: 'x' } });
+
+        expect(logMarker3dOperation.mock.calls[0][2]).toBe('map-uuid-123');
+    });
+});
+
+// ============================================================================
 // PERMISSION GATE — a denied write must NEVER reach persistence or the op queue
 // ============================================================================
 

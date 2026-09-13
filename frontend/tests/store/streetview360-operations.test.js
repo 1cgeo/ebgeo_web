@@ -962,14 +962,35 @@ describe('sync mapId contract', () => {
         seedMarker(mapName);
         expect(await removeMarkers360ByPhoto('photo-1.jpg', mapName)).toBe(1);
 
+        // O CREATE entrou na varredura em 2026-09-13 (achado F15): ele carimbava o mapa
+        // CORRENTE enquanto lia e escrevia o mapa resolvido, então com nome explícito a
+        // anotação nascia num mapa e viajava para outro, sem erro dos dois lados.
+        expect(await addMarker360('photo-1.jpg', makeMarkerData(), mapName)).not.toBeNull();
+
         return logMarker360Operation.mock.calls.map(call => call[2]);
     }
 
-    it('tags update/remove/image ops with the map UUID, never the map name', async () => {
+    /**
+     * O mesmo, para as duas entradas de ORIENTAÇÃO, que são o outro alvo de op deste arquivo.
+     * @param {string} mapName - Target map name
+     * @returns {Promise<string[]>} The mapId argument of each logged orientation op
+     */
+    async function collectOrientationOpMapIds(mapName) {
+        seedMap(mapName, { orientations: {}, markers: [] });
+        logOrientation360Operation.mockClear();
+
+        await saveOrientation('photo-1.jpg', makeOrientation(), mapName);          // CREATE
+        await saveOrientation('photo-1.jpg', makeOrientation({ fov: 60 }), mapName); // UPDATE
+        expect(await clearOrientation('photo-1.jpg', mapName)).toBe(true);          // DELETE
+
+        return logOrientation360Operation.mock.calls.map(call => call[2]);
+    }
+
+    it('tags update/remove/image/create ops with the map UUID, never the map name', async () => {
         const mapIds = await collectMarkerOpMapIds('TestMap');
 
-        // update + image detach + remove + bulk DELETE
-        expect(mapIds).toHaveLength(4);
+        // update + image detach + remove + bulk DELETE + create
+        expect(mapIds).toHaveLength(5);
         expect(mapIds.every(id => id === 'map-uuid-123')).toBe(true);
         expect(mapIds).not.toContain('TestMap');
     });
@@ -977,7 +998,7 @@ describe('sync mapId contract', () => {
     it('resolves the EXPLICIT target map, not the current one (cross-map edge case)', async () => {
         const mapIds = await collectMarkerOpMapIds('OtherMap');
 
-        expect(mapIds).toHaveLength(4);
+        expect(mapIds).toHaveLength(5);
         // getCurrentMapId() would have produced 'map-uuid-123'; the raw name, 'OtherMap'.
         expect(mapIds.every(id => id === 'map-uuid-999')).toBe(true);
     });
@@ -985,8 +1006,21 @@ describe('sync mapId contract', () => {
     it('falls back to the raw key for an unresolved map name (no silent undefined)', async () => {
         const mapIds = await collectMarkerOpMapIds('UnknownMap');
 
-        expect(mapIds).toHaveLength(4);
+        expect(mapIds).toHaveLength(5);
         expect(mapIds.every(id => id === 'UnknownMap')).toBe(true);
+    });
+
+    it('as ops de ORIENTAÇÃO também carimbam o mapa ALVO, não o corrente', async () => {
+        const naCorrente = await collectOrientationOpMapIds('TestMap');
+        expect(naCorrente).toHaveLength(3);
+        expect(naCorrente.every(id => id === 'map-uuid-123')).toBe(true);
+
+        // Controle negativo do conserto: com `getCurrentMapId()` os três voltavam
+        // 'map-uuid-123' também aqui, que é o mapa ERRADO.
+        const noAlvo = await collectOrientationOpMapIds('OtherMap');
+        expect(noAlvo).toHaveLength(3);
+        expect(noAlvo.every(id => id === 'map-uuid-999')).toBe(true);
+        expect(noAlvo).not.toContain('map-uuid-123');
     });
 });
 

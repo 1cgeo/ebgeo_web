@@ -48,6 +48,14 @@ export function setStreetview360Dependencies({ eventBus }) {
 
 /**
  * Gets current map name, using provided or falling back to current.
+ *
+ * WHOEVER RESOLVES A MAP HERE ALSO STAMPS THE OP WITH `mapManager.getMapId(targetMap)`, never
+ * with `getCurrentMapId()`. Three writers in this file read and wrote the DATA of the resolved
+ * map and then tagged the op with the CURRENT map's id (achado F15): called with an explicit
+ * map name that is not the active one, the local side changed the right map and the op
+ * travelled to the wrong one, so the peer grew an orientation or a marker in a map nobody
+ * touched while the map that actually changed never converged. Neither side errors.
+ *
  * @param {string|null} mapName - Map name or null for current
  * @returns {string}
  */
@@ -181,7 +189,7 @@ export async function saveOrientation(photoName, orientation, mapName = null) {
 
         deps.eventBus?.emit(EventTypes.ORIENTATION_360_SAVED, { photoName, mapName: targetMap });
 
-        const mapId = mapManager.getCurrentMapId();
+        const mapId = mapManager.getMapId(targetMap);
         const saved = data.orientations[photoName];
         if (isUpdate) {
             logOrientation360Operation(OperationType.UPDATE, saved.id, mapId, saved, oldOrientation);
@@ -250,7 +258,7 @@ export async function clearOrientation(photoName, mapName = null) {
 
         deps.eventBus?.emit(EventTypes.ORIENTATION_360_CLEARED, { photoName, mapName: targetMap });
 
-        const mapId = mapManager.getCurrentMapId();
+        const mapId = mapManager.getMapId(targetMap);
         logOrientation360Operation(OperationType.DELETE, orientation.id, mapId, null, oldOrientation);
 
         return true;
@@ -329,7 +337,7 @@ export async function addMarker360(photoName, markerData, mapName = null) {
 
         deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
 
-        const mapId = mapManager.getCurrentMapId();
+        const mapId = mapManager.getMapId(targetMap);
         logMarker360Operation(OperationType.CREATE, marker.id, mapId, marker);
 
         return marker;

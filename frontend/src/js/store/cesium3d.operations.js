@@ -39,6 +39,16 @@ export function setCesium3dDependencies(dependencies) {
 
 /**
  * Resolves map name, falling back to current map.
+ *
+ * WHOEVER RESOLVES A MAP HERE ALSO STAMPS THE OP WITH `mapManager.getMapId(targetMap)`, never
+ * with `getCurrentMapId()`. Thirteen writers in this file read and wrote the DATA of the
+ * resolved map and then tagged the op with the CURRENT map's id (achado F15): called with an
+ * explicit map name that is not the active one, the local side changed the right map and the
+ * op travelled to the wrong one, so the peer grew a marker, a measurement or a viewshed in a
+ * map nobody touched while the map that actually changed never converged. Neither side errors.
+ * The two functions that already did it right (`removeEntitiesByTileset`, the bulk tileset
+ * wipe) carry the same note inline.
+ *
  * @param {string|null} mapName
  * @returns {string}
  */
@@ -215,7 +225,7 @@ async function addEntityImage(entityId, file, collectionKey, changeEvent, mapNam
 
         // Persistence-first: only log the UPDATE op after the save succeeds.
         if (logUpdate) {
-            logUpdate(OperationType.UPDATE, entityId, mapManager.getCurrentMapId(), entity, previousEntity);
+            logUpdate(OperationType.UPDATE, entityId, mapManager.getMapId(targetMap), entity, previousEntity);
         }
 
         return imageData;
@@ -274,7 +284,7 @@ async function removeEntityImage(entityId, imageId, collectionKey, changeEvent, 
         await saveCesium3dData(targetMap, data);
         emit(changeEvent, { mapName: targetMap });
         if (logUpdate) {
-            logUpdate(OperationType.UPDATE, entityId, mapManager.getCurrentMapId(), entity, previousEntity);
+            logUpdate(OperationType.UPDATE, entityId, mapManager.getMapId(targetMap), entity, previousEntity);
         }
         return true;
     }
@@ -357,7 +367,7 @@ export async function saveCameraPosition(tilesetId, position, orientation, mapNa
         await saveCesium3dData(targetMap, data);
         emit(EventTypes.CAMERA_3D_SAVED, { tilesetId, mapName: targetMap });
 
-        const mapId = mapManager.getCurrentMapId();
+        const mapId = mapManager.getMapId(targetMap);
         const newPosition = data.cameraPositions[tilesetId];
         if (isUpdate) {
             logCameraPosition3dOperation(OperationType.UPDATE, newPosition.id, mapId, newPosition, previousData);
@@ -416,7 +426,7 @@ export async function clearCameraPosition(tilesetId, mapName = null) {
         delete data.cameraPositions[tilesetId];
         await saveCesium3dData(targetMap, data);
 
-        const mapId = mapManager.getCurrentMapId();
+        const mapId = mapManager.getMapId(targetMap);
         logCameraPosition3dOperation(OperationType.DELETE, positionId, mapId, null, previousData);
 
         return true;
@@ -496,7 +506,7 @@ export async function addMarker(tilesetId, markerData, mapName = null) {
         await saveCesium3dData(targetMap, data);
         emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
 
-        const mapId = mapManager.getCurrentMapId();
+        const mapId = mapManager.getMapId(targetMap);
         logMarker3dOperation(OperationType.CREATE, marker.id, mapId, marker);
 
         return marker;
@@ -582,7 +592,7 @@ export async function updateMarker(markerId, updates, mapName = null) {
         await saveCesium3dData(targetMap, data);
         emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
 
-        const mapId = mapManager.getCurrentMapId();
+        const mapId = mapManager.getMapId(targetMap);
         logMarker3dOperation(OperationType.UPDATE, markerId, mapId, marker, oldMarker);
 
         return marker;
@@ -611,7 +621,7 @@ export async function removeMarker(markerId, mapName = null) {
         await saveCesium3dData(targetMap, data);
         emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
 
-        const mapId = mapManager.getCurrentMapId();
+        const mapId = mapManager.getMapId(targetMap);
         logMarker3dOperation(OperationType.DELETE, markerId, mapId, null, deletedMarker);
 
         return true;
@@ -813,7 +823,7 @@ export async function addMeasurement(tilesetId, measurementData, mapName = null)
         await saveCesium3dData(targetMap, data);
         emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
 
-        const mapId = mapManager.getCurrentMapId();
+        const mapId = mapManager.getMapId(targetMap);
         logMeasurement3dOperation(OperationType.CREATE, measurement.id, mapId, measurement);
 
         return measurement;
@@ -894,7 +904,7 @@ export async function updateMeasurement(measurementId, updates, mapName = null) 
         await saveCesium3dData(targetMap, data);
         emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
 
-        const mapId = mapManager.getCurrentMapId();
+        const mapId = mapManager.getMapId(targetMap);
         logMeasurement3dOperation(OperationType.UPDATE, measurementId, mapId, measurement, oldMeasurement);
 
         return measurement;
@@ -925,7 +935,7 @@ export async function removeMeasurement(measurementId, mapName = null) {
         await saveCesium3dData(targetMap, data);
         emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
 
-        const mapId = mapManager.getCurrentMapId();
+        const mapId = mapManager.getMapId(targetMap);
         logMeasurement3dOperation(OperationType.DELETE, measurementId, mapId, null, deletedMeasurement);
 
         return true;
@@ -1011,7 +1021,7 @@ export async function addViewshed(tilesetId, viewshedData, mapName = null) {
         await saveCesium3dData(targetMap, data);
         emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
 
-        const mapId = mapManager.getCurrentMapId();
+        const mapId = mapManager.getMapId(targetMap);
         logViewshed3dOperation(OperationType.CREATE, viewshed.id, mapId, viewshed);
 
         return viewshed;
@@ -1092,7 +1102,7 @@ export async function updateViewshed(viewshedId, updates, mapName = null) {
         await saveCesium3dData(targetMap, data);
         emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
 
-        const mapId = mapManager.getCurrentMapId();
+        const mapId = mapManager.getMapId(targetMap);
         logViewshed3dOperation(OperationType.UPDATE, viewshedId, mapId, viewshed, oldViewshed);
 
         return viewshed;
@@ -1123,7 +1133,7 @@ export async function removeViewshed(viewshedId, mapName = null) {
         await saveCesium3dData(targetMap, data);
         emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
 
-        const mapId = mapManager.getCurrentMapId();
+        const mapId = mapManager.getMapId(targetMap);
         logViewshed3dOperation(OperationType.DELETE, viewshedId, mapId, null, deletedViewshed);
 
         return true;
