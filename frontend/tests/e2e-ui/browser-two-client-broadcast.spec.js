@@ -11,9 +11,21 @@
  *     clientId;
  *   - client B's WsClient `operation` handler receives that broadcast over the
  *     collab WS (poll, since it is async), with the GeoJSON payload intact;
- *   - NEGATIVE: client A's own WsClient does NOT see its self-echo, because the
- *     WsClient filters frames whose `op.clientId` equals its own `clientId`
- *     (ws-client.js: `if (op.clientId && this._clientId && op.clientId === this._clientId) continue;`).
+ *   - the AUTHOR receives its own echo too, MARKED, because that echo is the server's
+ *     canonical answer and not a duplicate to be thrown away.
+ *
+ * O ECO DO PROPRIO AUTOR DEIXOU DE SER DESCARTADO EM `f8e109ea`, e ate 2026-09-13 este arquivo
+ * media o contrato anterior: exigia que A NAO visse a propria feicao, citando uma linha de
+ * `ws-client.js` que nao existe mais. Hoje `_applyInboundOps` ENTREGA o quadro proprio e o
+ * carimba com `localRepair`, porque otimismo local nao e prova de que o servidor aceitou aqueles
+ * valores: quem escreveu materializa o resultado canonico como qualquer par. A assercao foi
+ * INVERTIDA, nunca afrouxada (o eco tem de chegar, vir marcado e trazer a mesma geometria):
+ * trocar uma assercao de ausencia por nada seria a cobertura vazia que ela media.
+ *
+ * O QUE ESTE ARQUIVO NAO ALCANCA, dito para que a marca nao seja lida como mais do que e: ele
+ * monta um `WsClient` cru, sem store, entao o efeito de `localRepair` rio abaixo (a supressao do
+ * aviso de atropelo, `store/sync/overwrite-notice.js`) e medido por outra camada. Aqui a
+ * afirmacao e a do transporte: o quadro chega, e chega marcado.
  *
  * Seeds ONE shared OWNER user + atlas + map via the backend API (like lock/presence),
  * then both pages connect a WsClient to the same atlas with the real owner token.
@@ -68,7 +80,7 @@ function connectClient(page, cfg) {
 }
 
 describeOrSkip('HTTP-push broadcast fan-out (two real browser clients + real backend)', () => {
-    test('A pushes a feature over HTTP; B receives the broadcast and A filters its own self-echo', async ({
+    test('A pushes a feature over HTTP; B receives the broadcast and A receives its own echo, marked', async ({
         browser,
     }) => {
         // 1. Seed ONE shared OWNER user + atlas + map via the backend API.
@@ -120,8 +132,8 @@ describeOrSkip('HTTP-push broadcast fan-out (two real browser clients + real bac
         await connectClient(pageB, { ...cfg, clientId: clientIdB, globalKey: '__bcastB' });
 
         // 4. A pushes a GeoJSON feature `create` op over HTTP. The op carries A's
-        //    clientId, so the WS broadcast is delivered to B and the self-echo is
-        //    filtered out on A.
+        //    clientId, so the WS broadcast reaches B as a peer op and reaches A as its
+        //    own echo, marked `localRepair`.
         const featureId = crypto.randomUUID();
         const pushed = await pageA.evaluate(
             async ({ atlasId, mapId, featureId: fid, clientId }) => {
@@ -164,6 +176,7 @@ describeOrSkip('HTTP-push broadcast fan-out (two real browser clients + real bac
                     total: window.__bcastB.operations.length,
                     coordinates: hit && hit.data ? hit.data.geometry.coordinates : null,
                     senderClientId: hit ? hit.clientId : null,
+                    localRepair: hit ? hit.localRepair ?? false : null,
                 };
             },
             { mapId: seed.mapId, featureId },
@@ -173,23 +186,36 @@ describeOrSkip('HTTP-push broadcast fan-out (two real browser clients + real bac
         // The broadcast frame still carries A's clientId — that is exactly why B keeps it.
         expect(featureOnB.senderClientId).toBe(clientIdA);
 
-        // 6. NEGATIVE/EDGE: A pushed the op, so its own WsClient must FILTER the
-        //    self-echo (op.clientId === A's clientId). Give the broadcast ample time
-        //    to (not) arrive, then assert A never recorded this feature.
+        // 6. O ECO DO AUTOR: A empurrou a op, entao o proprio WsClient de A recebe o quadro de
+        //    volta e o carimba `localRepair`, que e como quem escreveu materializa o resultado
+        //    CANONICO em vez de confiar no otimismo local. A espera e a mesma janela generosa de
+        //    antes, so que agora ela espera o eco CHEGAR.
         const selfEchoOnA = await pageA.evaluate(
             async (fid) => {
-                const deadline = Date.now() + 1500;
-                while (Date.now() < deadline) {
+                const deadline = Date.now() + 5000;
+                const match = () => window.__bcastA.operations.find((op) => op.entityId === fid);
+                while (Date.now() < deadline && !match()) {
                     await new Promise((r) => setTimeout(r, 50));
                 }
+                const hit = match();
                 return {
-                    sawOwnFeature: window.__bcastA.operations.some((op) => op.entityId === fid),
+                    sawOwnFeature: Boolean(hit),
+                    localRepair: hit ? hit.localRepair : null,
+                    senderClientId: hit ? hit.clientId : null,
+                    coordinates: hit && hit.data ? hit.data.geometry.coordinates : null,
                     total: window.__bcastA.operations.length,
                 };
             },
             featureId,
         );
-        expect(selfEchoOnA.sawOwnFeature).toBe(false);
+        expect(selfEchoOnA.sawOwnFeature).toBe(true);
+        // A MARCA E A METADE QUE IMPORTA. Sem ela o eco seria indistinguivel de uma op de outro
+        // par, e e ela que faz o caminho de aplicacao pular o aviso de atropelo do proprio autor.
+        expect(selfEchoOnA.localRepair).toBe(true);
+        expect(selfEchoOnA.senderClientId).toBe(clientIdA);
+        expect(selfEchoOnA.coordinates).toEqual([-43.2, -22.9]);
+        // E o par NAO recebe a marca: ela e sobre a identidade de quem recebe, nunca sobre a op.
+        expect(featureOnB.localRepair ?? false).toBe(false);
 
         // 7. The persisted snapshot must contain the feature B observed (backend state).
         const persisted = await pageB.evaluate(

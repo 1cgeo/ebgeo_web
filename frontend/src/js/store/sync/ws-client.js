@@ -696,8 +696,12 @@ export class WsClient {
 
 /** Shared singleton WS client. */
 // The singleton MUST carry the stable clientId (the same id the ops are stamped with): the WS
-// handshake needs it for presence, and inbound de-dup (`_applyInboundOps`) drops our own echoed
-// ops by `op.clientId === this._clientId`. Without it `_clientId` stayed null → de-dup was off →
-// the author re-applied every one of their own HTTP-flushed ops. (Test instances still pass their
-// own clientId, so this only wires the real app.)
+// handshake needs it for presence, and `_applyInboundOps` uses it to RECONHECER o proprio eco e
+// carimba-lo com `localRepair`. Sem ele `_clientId` fica nulo, nenhum quadro e reconhecido como
+// proprio e o autor reaplica as proprias ops como se fossem de outra pessoa, com aviso de
+// atropelo e tudo. (Test instances still pass their own clientId, so this only wires the real app.)
+//
+// O ECO DEIXOU DE SER DESCARTADO em `f8e109ea`, e este comentario dizia "drops our own echoed ops"
+// ate 2026-09-13: a marca substituiu o descarte porque o resultado que o servidor aceitou e o
+// CANONICO, e otimismo local nao prova que ele foi aceito daquele jeito.
 export const wsClient = new WsClient({ clientId: getClientId() });
