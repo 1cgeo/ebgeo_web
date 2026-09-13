@@ -81,6 +81,35 @@ export function pauseStoreWrites(scope) {
     };
 }
 
+/**
+ * Whether SOMEBODY is holding this scope's writes paused RIGHT NOW.
+ *
+ * WHY A READER EXISTS AT ALL. The sync light has to answer "is my work saved?", and while the atlas
+ * is being rebuilt from a snapshot or a replay there is no answer: nothing is being sent, the queue
+ * is being rewritten under it, and an empty queue at that instant means "not read yet", not "the
+ * server has everything". Until this function existed the light had no way to know, so it painted
+ * green over a recovery in progress, which is the worst moment to promise anything.
+ *
+ * IT READS AND REGISTERS NOTHING: `mounts.get`, never `stateFor`. A question that created an entry
+ * would grow the `WeakMap` on every repaint, and the light repaints every three seconds.
+ *
+ * THE TWO PAUSERS ARE NOT THE SAME EVENT, and naming is the caller's job: `applyRemoteSnapshot`
+ * pauses while it rebuilds the atlas, and the exit dialog pauses while it counts pending work. The
+ * light reads this as "recovering", which is exact for the first and unreadable for the second
+ * (that one happens behind a modal dialog nobody reads the bar through). Carrying a reason would
+ * mean a parameter on every call site, and the call sites are two.
+ *
+ * THE SCOPE MUST BE THE SAME OBJECT the pauser used, because the map is keyed by identity. That
+ * object is what `getActiveScope()` returns, and it is the same identity `assertActive` compares
+ * against for the same reason.
+ * @param {{kind: string, dbSuffix: string}|null|undefined} scope - Scope object, usually the active one.
+ * @returns {boolean} False for a scope nobody ever paused, which is the honest answer and not a guess.
+ */
+export function storeWritesPaused(scope) {
+    if (!scope) return false;
+    return (mounts.get(scope)?.paused ?? 0) > 0;
+}
+
 // ===========================================================================================
 // THE CROSS-TAB BARRIER
 // ===========================================================================================

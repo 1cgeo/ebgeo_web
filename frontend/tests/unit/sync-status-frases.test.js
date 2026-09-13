@@ -292,6 +292,12 @@ describe('invariantes sobre a grade inteira', () => {
             describeSyncWork({ remote: true, connection: SYNC_CONNECTION.OFFLINE, pending: 0 }).state,
             describeSyncWork({ remote: true, connection: SYNC_CONNECTION.ONLINE }).state,
             describeSyncWork({ remote: true, connection: SYNC_CONNECTION.ONLINE, pending: null }).state,
+            // Os quatro de 2026-09-13 (F14). Cada um é alcançado com a fila em ZERO, que é
+            // exatamente a entrada com que a decisão antiga dizia "Tudo enviado".
+            describeSyncWork({ remote: true, connection: SYNC_CONNECTION.ONLINE, pending: 0, recuperando: true }).state,
+            describeSyncWork({ remote: true, connection: SYNC_CONNECTION.ONLINE, pending: 0, quarentena: 1 }).state,
+            describeSyncWork({ remote: true, connection: SYNC_CONNECTION.ONLINE, pending: 0, problemas: 1 }).state,
+            describeSyncWork({ remote: true, connection: SYNC_CONNECTION.ONLINE, pending: 0, uploads: 1 }).state,
         ]);
         expect([...alcancados].sort()).toEqual([...Object.values(SYNC_WORK_STATE)].sort());
     });

@@ -4,6 +4,10 @@ import { EventTypes } from '@events/event_types.js';
 import { connectionState, ConnectionStates } from '@store/sync/connection-state.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { operationQueue } from '@store/sync/operation-queue.js';
+import { listQuarantinedOperations } from '@store/sync/quarantine-registry.js';
+import { listarPendenciasDeBlob, BlobUploadState } from '@store/sync/blob-upload-queue.js';
+import { storeWritesPaused } from '@store/write-coordinator.js';
+import { getActiveScope } from '@store/atlas-namespace.js';
 import { isRemoteStoreSync } from '@store/store-origin.js';
 import {
     isResourceAccessDegraded,
@@ -89,8 +93,13 @@ const HEARTBEAT_MS = 3000;
  * A luz de sync da barra do mapa, que responde "o meu trabalho está salvo?" e não "o socket
  * está de pé?".
  *
- * ELA MEDE TRÊS COISAS, não uma: a origem do store (`isRemoteStoreSync`), o estado da
- * conexão e a FILA DE SAÍDA (`operationQueue.count`). As duas primeiras sozinhas mentem nos
+ * ELA MEDE SETE SINAIS, não um: a origem do store (`isRemoteStoreSync`), o estado da conexão,
+ * os TRÊS números do censo da fila (`operationQueue.countByState`), o registro global de
+ * quarentena, as pendências de upload de figura e a recuperação em curso
+ * (`storeWritesPaused`). Os quatro últimos entraram em 2026-09-13 (achado F14): a fila vazia
+ * com conexão de pé produzia verde incondicional, e cada um deles é um jeito de isso ser
+ * falso. A regra de quem decide o que mostrar continua em `sync-phrases.js`, e o que este
+ * arquivo faz é COLETAR: as duas primeiras sozinhas mentem nos
  * dois sentidos, e as duas mentiras já estavam no produto: verde com fila cheia dizia
  * "salvo" antes de o logout descartar o trabalho, e vermelho permanente em atlas local
  * (onde não há socket a conectar, nem nunca haverá) dizia "avaria" no caminho normal do
@@ -145,6 +154,20 @@ export class SyncStatusControl {
          * @type {number|null|undefined}
          */
         this._pending = undefined;
+
+        /**
+         * The pendencies that are NOT a number of envelopes waiting their turn, and each one is a
+         * way "queue empty and connected" used to be a lie (F14). `null` is a failed read and never
+         * zero, by the same rule as {@link _pending}.
+         * @type {number|null}
+         */
+        this._problemas = 0;
+        /** @type {number|null} Operations in the global quarantine, awaiting an explicit decision. */
+        this._quarentena = 0;
+        /** @type {number|null} Open image-upload pendencies, pending and definitively refused. */
+        this._uploads = 0;
+        /** @type {number|null} How many of those the server refused for good. Subset of the above. */
+        this._uploadsRecusados = 0;
 
         /** @type {ReturnType<typeof setTimeout>|null} Coalescing timer. */
         this._coalesceTimer = null;
@@ -304,16 +327,38 @@ export class SyncStatusControl {
 
         this._reading = true;
         try {
-            // THE TOTAL, NOT THE SENDABLE COUNT. This light answers "is my work saved?", and an
-            // operation the server refused, one blocked behind it, and one still waiting for its
-            // projection are all work the server does not have. `count()` alone would paint green
-            // over a queue that is stuck, which is the older of the two lies this control exists
-            // to remove. The three numbers separately are what the work states of B9 will read.
-            const census = await operationQueue.countByState();
-            this._pending = census.pendentes + census.preparadas + census.problemas;
+            // THE QUEUE IS NOT THE WHOLE ANSWER, and the three reads happen together because they
+            // answer ONE question. `pending` is the work waiting its turn (sendable plus held
+            // behind a prepared intention); `problemas` is what the server refused and what is
+            // stopped behind it; the quarantine is what a previous session set aside for a
+            // decision; the blob pendencies are the bytes of a picture that never arrived. Each
+            // one of the last three used to be invisible with the queue at zero, and the light
+            // painted green over all four states: see `sync-phrases.js`.
+            const [census, quarentena, blobs] = await Promise.all([
+                operationQueue.countByState(),
+                listQuarantinedOperations(),
+                listarPendenciasDeBlob(),
+            ]);
+            this._pending = census.pendentes + census.preparadas;
+            this._problemas = census.problemas;
+            this._quarentena = quarentena.length;
+            const abertas = blobs.filter(registro =>
+                registro?.estado === BlobUploadState.PENDENTE
+                || registro?.estado === BlobUploadState.RECUSADO);
+            this._uploads = abertas.length;
+            this._uploadsRecusados = abertas
+                .filter(registro => registro.estado === BlobUploadState.RECUSADO).length;
         } catch (error) {
-            console.warn('Sync status: could not read the outbound queue:', error);
+            // ALL OF THEM GO UNKNOWN TOGETHER, not just the one that threw: the reads are one
+            // `Promise.all`, so a failure leaves the others unassigned, and a stale number next to
+            // an unknown one would be a census nobody measured. `null` is what keeps the light off
+            // the green branch.
+            console.warn('Sync status: could not read the outbound pendencies:', error);
             this._pending = null;
+            this._problemas = null;
+            this._quarentena = null;
+            this._uploads = null;
+            this._uploadsRecusados = null;
         } finally {
             this._reading = false;
         }
@@ -345,6 +390,16 @@ export class SyncStatusControl {
             remote: isRemoteStoreSync(),
             connection,
             pending: this._pending,
+            problemas: this._problemas,
+            quarentena: this._quarentena,
+            uploads: this._uploads,
+            uploadsRecusados: this._uploadsRecusados,
+            // READ AT PAINT TIME, NOT CACHED BY THE QUEUE READ, because it is synchronous and
+            // because it is the one signal that MUST be current: a recovery starts and ends between
+            // two heartbeats, and a stale `false` here is the green light over a rebuild in
+            // progress, which is the exact defect. The scope has to be the same OBJECT the pauser
+            // used, which is why it comes from `getActiveScope()`.
+            recuperando: storeWritesPaused(getActiveScope()),
         });
         this._container.setAttribute('data-work', work.state);
         this._container.setAttribute('data-tone', work.tone);

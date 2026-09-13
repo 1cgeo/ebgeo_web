@@ -34,6 +34,40 @@
  * propriedade que o teste `sync-status-frases.test.js` cobra como invariante sobre a grade
  * inteira, e não caso a caso, porque um ramo novo escrito por descuido passaria numa lista
  * de exemplos e reprova numa invariante.
+ *
+ * ─── AS TRÊS ENTRADAS VIRARAM SETE, E O VERDE PASSOU A EXIGIR AS SETE (F14) ───
+ *
+ * Enquanto a decisão lia só origem, conexão e UM número, "fila vazia e conectado" produzia
+ * "Tudo enviado" incondicionalmente, e havia quatro maneiras de isso ser falso ao mesmo
+ * tempo em que era literalmente verdade:
+ *
+ *   1. RECUPERAÇÃO EM CURSO. Um retrato ou um replay sendo aplicado reescreve os bancos por
+ *      baixo da tela, e a fila lida naquele instante não é a fila: é o meio de uma
+ *      reconstrução. Zero ali significa "ainda não li", nunca "o servidor tem tudo";
+ *   2. QUARENTENA. Trabalho posto de lado à espera de uma decisão da pessoa não está na
+ *      contagem de enviáveis (a fila o SALTA de propósito, senão ela trava atrás dele) e não
+ *      sai sozinho. Ele sobrevive até ao fim da sessão, e é para isso que sobrevive;
+ *   3. RECUSA. Operação que o servidor rejeitou, mais tudo que a fila bloqueia por causa
+ *      dela, é `problemas` no censo: não é enviável, e reconectar não conserta;
+ *   4. UPLOAD DE IMAGEM PENDENTE. O blob viaja por porta própria, sem operação incremental,
+ *      então a fila pode estar vazia enquanto os bytes de uma figura nunca chegaram. Do lado
+ *      do par isso é um buraco na tela, e do lado de cá era verde.
+ *
+ * QUARENTENA E RECUSA SÃO ESTADOS SEPARADOS, e a separação é pelo LUGAR, não pelo motivo:
+ * `conflito` é o registro global preservado (trabalho que já atravessou o fim de uma sessão
+ * esperando decisão) e `recusa` é o problema vivo na fila do atlas montado. A distinção FINA
+ * entre conflito de conteúdo e recusa de permissão, dentro do motivo de cada item, é do
+ * bloco de conflitos e não deste módulo: aqui os dois só não podem ser verde.
+ *
+ * A ORDEM ENTRE ELES É CONTRATO, e ela põe o que NÃO se resolve sozinho na frente do que se
+ * resolve: recuperação (que explica todo o resto), depois quarentena e recusa (que esperam
+ * uma pessoa), depois upload (que espera a rede), e só então o cruzamento antigo entre
+ * conexão e contagem. Um estado que espera a rede anunciado na frente de um que espera a
+ * pessoa ensinaria a esperar.
+ *
+ * E OS QUATRO NÚMEROS NOVOS TÊM A MESMA TERCEIRA AUSÊNCIA que a contagem da fila: `null`
+ * neles é leitura que falhou, e cai em DESCONHECIDO junto com as outras. Não há ramo de
+ * ausência que chegue ao verde.
  */
 
 /**
@@ -56,9 +90,11 @@ export const SYNC_CONNECTION = Object.freeze({
 /**
  * O QUE A PESSOA PRECISA DISTINGUIR, que é mais do que "conectado ou não".
  *
- * Os nove valores saem de duas perguntas cruzadas (há para onde enviar? há o que enviar?)
- * mais os dois ramos de ausência. Nenhum deles é decorativo: cada um manda a pessoa fazer
- * uma coisa diferente antes de fechar o navegador.
+ * Os valores saem de duas perguntas cruzadas (há para onde enviar? há o que enviar?), mais os
+ * dois ramos de ausência, mais os quatro estados de trabalho que existem FORA do cruzamento
+ * (ver o `fileoverview`). Nenhum deles é decorativo: cada um manda a pessoa fazer uma coisa
+ * diferente antes de fechar o navegador, e é por isso que a contagem deles não fica escrita
+ * nesta frase, que já envelheceu uma vez dizendo nove.
  * @enum {string}
  */
 export const SYNC_WORK_STATE = Object.freeze({
@@ -80,6 +116,14 @@ export const SYNC_WORK_STATE = Object.freeze({
     CHECKING: 'verificando',
     /** A fila não pôde ser lida, ou a conexão está num estado não reconhecido. */
     UNKNOWN: 'desconhecido',
+    /** Um retrato ou um replay está sendo aplicado: a fila lida agora não é a fila. */
+    RECOVERING: 'recuperando',
+    /** Há trabalho guardado à espera de uma decisão da pessoa, e ele não sai sozinho. */
+    CONFLICT: 'conflito',
+    /** O servidor rejeitou alterações, e há trabalho parado atrás delas. */
+    REFUSED: 'recusa',
+    /** Os bytes de uma ou mais figuras não chegaram ao servidor. */
+    BLOB_PENDING: 'upload-pendente',
 });
 
 /**
@@ -153,20 +197,49 @@ export function pendingShortLabel(value) {
  *      para ela;
  *   2. conexão não reconhecida vem antes da fila, porque sem saber se há caminho até o
  *      servidor a contagem não decide nada;
- *   3. fila não medida e fila ilegível vêm antes do cruzamento, e caem em estados
+ *   3. RECUPERAÇÃO vem antes da fila, e não depois, porque é ela que explica por que a fila
+ *      não pode ser lida como resposta agora: os bancos estão sendo reescritos. Posta depois,
+ *      ela só apareceria quando a leitura já tivesse dado um número, e o número seria o do
+ *      meio da reconstrução;
+ *   4. fila não medida e fila ilegível vêm antes do cruzamento, e caem em estados
  *      diferentes (ver o `fileoverview`);
- *   4. só então o cruzamento entre "há conexão" e "há trabalho".
+ *   5. quarentena, recusa e upload pendente vêm antes do cruzamento porque nenhum dos três é
+ *      consertado por conexão: dizer "pendente, sem conexão" sobre uma recusa mandaria a
+ *      pessoa esperar a rede por uma coisa que a rede não resolve. O tom deles é de alarme,
+ *      então a gravidade do caso sem conexão não se perde, e a frase cita a contagem da fila
+ *      quando há trabalho comum esperando junto;
+ *   6. só então o cruzamento entre "há conexão" e "há trabalho".
  *
  * @param {Object} entrada
  * @param {boolean} [entrada.remote] - `isRemoteStoreSync()`. Qualquer coisa que não seja
  *   `true` conta como atlas local: a pergunta é "existe servidor de destino", e a resposta
  *   incerta é NÃO, senão a tela prometeria envio para lugar nenhum.
  * @param {string} [entrada.connection] - um valor de {@link SYNC_CONNECTION}.
- * @param {number|null} [entrada.pending] - a contagem da fila de saída; `undefined` quando
- *   ainda não foi lida, `null` quando a leitura falhou.
+ * @param {number|null} [entrada.pending] - a soma de `pendentes` e `preparadas` do censo da
+ *   fila, isto é, o trabalho comum que ainda não chegou; `undefined` quando ainda não foi
+ *   lida, `null` quando a leitura falhou.
+ * @param {number|null} [entrada.problemas] - `problemas` do censo: o que o servidor recusou
+ *   mais o que está bloqueado atrás disso.
+ * @param {number|null} [entrada.quarentena] - operações no registro global de quarentena, à
+ *   espera de decisão explícita.
+ * @param {number|null} [entrada.uploads] - pendências de upload de figura ABERTAS, pendentes
+ *   e recusadas somadas.
+ * @param {number|null} [entrada.uploadsRecusados] - quantas dessas o servidor recusou em
+ *   definitivo. Está CONTIDO em `uploads`, e só decide o tom: recusa não se resolve
+ *   esperando a rede.
+ * @param {boolean} [entrada.recuperando] - um retrato ou replay sendo aplicado agora.
  * @returns {{ state: string, tone: string, label: string, detail: string, pending: number|null }}
  */
-export function describeSyncWork({ remote, connection, pending } = {}) {
+export function describeSyncWork({
+    remote,
+    connection,
+    pending,
+    problemas = 0,
+    quarentena = 0,
+    uploads = 0,
+    uploadsRecusados = 0,
+    recuperando = false,
+} = {}) {
     if (remote !== true) {
         return {
             state: SYNC_WORK_STATE.LOCAL,
@@ -192,6 +265,18 @@ export function describeSyncWork({ remote, connection, pending } = {}) {
         };
     }
 
+    if (recuperando === true) {
+        return {
+            state: SYNC_WORK_STATE.RECOVERING,
+            tone: SYNC_TONE.BUSY,
+            label: 'Recuperando…',
+            detail: 'O EBGeo está aplicando as alterações que vieram do servidor e reescrevendo '
+                + 'este atlas neste computador. Nada é enviado enquanto isso termina, e a '
+                + 'contagem de pendências só volta a valer depois. Não feche a aba agora.',
+            pending: toPendingCount(pending),
+        };
+    }
+
     if (pending === undefined) {
         return {
             state: SYNC_WORK_STATE.CHECKING,
@@ -213,6 +298,73 @@ export function describeSyncWork({ remote, connection, pending } = {}) {
                 + 'sabe se há trabalho esperando. Não a tome como prova de que tudo foi '
                 + 'salvo no servidor.',
             pending: null,
+        };
+    }
+
+    // OS TRÊS NÚMEROS NOVOS, COM A MESMA REGRA DE AUSÊNCIA DA FILA. `null` em qualquer um é
+    // leitura que falhou, e o desfecho é DESCONHECIDO e não zero: o verde é a única frase
+    // desta tela sobre a qual alguém decide fechar o navegador, então ele não se dá por falta
+    // de medição. `uploadsRecusados` fica de fora desta guarda porque é um RECORTE de
+    // `uploads` e só decide tom: sem ele, a única coisa que se perde é a cor.
+    const emRevisao = toPendingCount(quarentena);
+    const recusadas = toPendingCount(problemas);
+    const figuras = toPendingCount(uploads);
+    if (emRevisao === null || recusadas === null || figuras === null) {
+        return {
+            state: SYNC_WORK_STATE.UNKNOWN,
+            tone: SYNC_TONE.UNKNOWN,
+            label: 'Sem confirmação',
+            detail: 'Não foi possível ler todas as pendências deste atlas (alterações em revisão, '
+                + 'recusas do servidor ou figuras à espera de envio), então esta tela não afirma '
+                + 'que o seu trabalho chegou ao servidor.',
+            pending: n,
+        };
+    }
+
+    const restante = n > 0
+        ? ` Além disso, ${pendingLabel(n)} continuam à espera de envio.`
+        : '';
+
+    if (emRevisao > 0) {
+        return {
+            state: SYNC_WORK_STATE.CONFLICT,
+            tone: SYNC_TONE.WARN,
+            label: `Revisão: ${emRevisao}`,
+            detail: `${pendingLabel(emRevisao)} foram guardadas à espera de uma decisão sua: o `
+                + 'servidor não as aceitou como estão e elas não saem daqui sozinhas. Elas '
+                + 'sobrevivem a sair da conta e a fechar o navegador, então nada está perdido, '
+                + `mas o servidor também não as tem.${restante}`,
+            pending: n,
+        };
+    }
+
+    if (recusadas > 0) {
+        return {
+            state: SYNC_WORK_STATE.REFUSED,
+            tone: SYNC_TONE.WARN,
+            label: `Recusas: ${recusadas}`,
+            detail: `O servidor recusou ${pendingLabel(recusadas)} deste atlas, ou elas estão `
+                + 'paradas atrás de uma recusa. Reconectar não resolve: o trabalho continua '
+                + 'guardado neste computador e precisa de uma decisão. Fale com quem administra '
+                + `o atlas se a recusa não fizer sentido.${restante}`,
+            pending: n,
+        };
+    }
+
+    if (figuras > 0) {
+        const definitivas = toPendingCount(uploadsRecusados) ?? 0;
+        const cauda = definitivas > 0
+            ? ` O servidor recusou ${pendingLabel(definitivas)} em definitivo, e essas não são `
+                + 'tentadas de novo: refaça a inserção da figura.'
+            : ' A tentativa é retomada sozinha quando a conexão permitir.';
+        return {
+            state: SYNC_WORK_STATE.BLOB_PENDING,
+            tone: definitivas > 0 ? SYNC_TONE.WARN : SYNC_TONE.BUSY,
+            label: `Imagens: ${figuras}`,
+            detail: `Os bytes de ${figuras === 1 ? 'uma figura' : `${figuras} figuras`} ainda não `
+                + 'chegaram ao servidor. Quem abrir este atlas em outro computador vê um buraco '
+                + `no lugar dela até os bytes subirem.${cauda}${restante}`,
+            pending: n,
         };
     }
 
