@@ -152,9 +152,14 @@ async function seedUserWithAtlases(browser, baseUrl, atlasNames) {
         const atlases = [];
         for (const name of names) {
             const atlas = await api.createAtlas({ name });
-            const mapId = crypto.randomUUID();
+            // ADOTA o mapa que o servidor semeia ao criar o atlas, como `seedSharedAtlas` já faz.
+            // `POST /atlas` deixou de devolver atlas vazio em 2026-09-12 (`e70ccf3c`); criar um
+            // SEGUNDO ao lado dele deixa `waitAtlasTabReady` esperando por um mapa que a abertura
+            // não escolhe, porque sem `&map=` ela aterrissa no PRIMEIRO mapa do atlas.
+            const mapId = atlas.map_order?.[0];
+            if (!mapId) throw new Error('O servidor não criou o mapa inicial do atlas.');
             const mapName = `Mapa ${name}`;
-            await api.pushOperations(atlas.id, [createOperation('map', 'create', mapId, null, { name: mapName })]);
+            await api.pushOperations(atlas.id, [createOperation('map', 'update', mapId, null, { name: mapName })]);
             atlases.push({ id: atlas.id, name, mapId, mapName });
         }
         return { username, password, atlases };
@@ -175,8 +180,10 @@ async function seedPublicAtlas(browser, baseUrl) {
         const api = new ApiClient({ baseUrl: apiBase });
         await api.login(u.username, u.password);
         const atlas = await api.createAtlas({ name: 'Atlas Público' });
-        const mapId = crypto.randomUUID();
-        await api.pushOperations(atlas.id, [createOperation('map', 'create', mapId, null, { name: 'Mapa Público' })]);
+        // Mesma adoção do mapa semeado pelo servidor que `seedUserWithAtlases` acima faz.
+        const mapId = atlas.map_order?.[0];
+        if (!mapId) throw new Error('O servidor não criou o mapa inicial do atlas.');
+        await api.pushOperations(atlas.id, [createOperation('map', 'update', mapId, null, { name: 'Mapa Público' })]);
         const featureId = crypto.randomUUID();
         await api.pushOperations(atlas.id, [
             createOperation('feature', 'create', featureId, mapId, {

@@ -21,7 +21,18 @@ const currentMapName = (page) =>
 
 /**
  * Seeds a VERIFIED user (Node side — o token de confirmação só existe como linha no Postgres)
- * + an atlas with the given named maps (UUID-keyed). Returns ids keyed by name.
+ * + an atlas with EXACTLY the given named maps (UUID-keyed). Returns ids keyed by name.
+ *
+ * O "EXATAMENTE" É A PARTE QUE PRECISOU DE CONSERTO, em 2026-09-13. Desde `e70ccf3c`
+ * ("Protege dados remotos e corrige contratos e camadas padrão", 2026-09-12) `POST /atlas`
+ * SEMEIA um mapa padrão ("Mapa 1", com as camadas padrão): o atlas não nasce mais vazio. Este
+ * ajudante continuava criando os mapas pedidos POR CIMA daquele, então quem pedisse um mapa
+ * recebia um atlas com DOIS, e o caso do link profundo sem `&map=` passou a medir qual dos dois
+ * a abertura escolhe — uma pergunta que ele não faz e cuja resposta ele não conhece.
+ *
+ * A CORREÇÃO É ADOTAR O MAPA PADRÃO como o PRIMEIRO nome pedido (uma op de renomeação), em vez
+ * de deixá-lo ao lado. O atlas volta a ter exatamente os mapas que esta função nomeia, e a
+ * ordem do atlas (`map_order`, que o servidor preenche na criação) começa por ele.
  */
 async function seedUserAtlas(page, baseUrl, maps) {
     const user = await createVerifiedUser({ prefix: 'url', nome: 'URL Tester' });
@@ -31,13 +42,16 @@ async function seedUserAtlas(page, baseUrl, maps) {
         const api = new ApiClient({ baseUrl: `${base}/api/v1` });
         await api.login(u.username, u.password);
         const atlas = await api.createAtlas({ name: 'URL Atlas' });
+        // O mapa que o servidor semeou, pelo `map_order` que ele devolve na criação.
+        const [defaultMapId] = Array.isArray(atlas?.map_order) ? atlas.map_order : [];
         const ops = [];
         const mapIds = {};
-        for (const name of mapNames) {
-            const id = crypto.randomUUID();
+        mapNames.forEach((name, index) => {
+            const adota = index === 0 && Boolean(defaultMapId);
+            const id = adota ? defaultMapId : crypto.randomUUID();
             mapIds[name] = id;
-            ops.push(createOperation('map', 'create', id, null, { name }));
-        }
+            ops.push(createOperation('map', adota ? 'update' : 'create', id, null, { name }));
+        });
         await api.pushOperations(atlas.id, ops);
         return { username: u.username, password: u.password, atlasId: atlas.id, mapIds };
     }, { base: baseUrl, mapNames: maps, u: user });

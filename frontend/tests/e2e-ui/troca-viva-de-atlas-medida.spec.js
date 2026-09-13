@@ -117,9 +117,14 @@ describeOrSkip('a troca de atlas ao vivo contra a troca por recarga', () => {
                 ['b', 'Atlas B da medida', 'MAPA-B'],
             ]) {
                 const atlas = await api.createAtlas({ name: nomeAtlas });
-                const mapId = crypto.randomUUID();
+                // ADOTA o mapa que o servidor semeia ao criar o atlas, como `seedSharedAtlas` já
+                // faz. `POST /atlas` deixou de devolver atlas vazio em 2026-09-12 (`e70ccf3c`), e
+                // um segundo mapa ao lado deixa `esperarAtlasPronto` esperando por um `map=` que
+                // a abertura pode não escolher.
+                const mapId = atlas.map_order?.[0];
+                if (!mapId) throw new Error('O servidor não criou o mapa inicial do atlas.');
                 await api.pushOperations(atlas.id, [
-                    createOperation('map', 'create', mapId, null, { name: nomeMapa })
+                    createOperation('map', 'update', mapId, null, { name: nomeMapa })
                 ]);
                 feito[rotulo] = { atlasId: atlas.id, mapId, mapa: nomeMapa };
             }

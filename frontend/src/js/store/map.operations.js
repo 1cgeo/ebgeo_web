@@ -646,14 +646,53 @@ export async function discardMapsForReplacingImport() {
 }
 
 /**
+ * The atlas's OWN order for the maps on disk, as a rank by map id.
+ *
+ * WHAT IT REPLACES, and why the replacement is the whole point: `repo.getAllMaps()` answers in
+ * INDEXEDDB KEY ORDER, and the keys are map UUIDs, so "the first map" read off that list is the
+ * map whose random UUID happens to sort lowest. `atlas.mapOrder` is the order the atlas itself
+ * declares — the snapshot fills it with the server's maps by creation time, and it is the order
+ * the maps tab shows — so it is the same answer in every tab, in every client, and between two
+ * boots of the same atlas.
+ *
+ * A MISSING OR UNREADABLE RECORD IS NOT A REASON TO REFUSE THE BOOT: an empty ranking leaves
+ * every candidate tied, and a stable sort then hands back exactly the repository order this
+ * function used before, which is the honest degradation.
+ *
+ * @param {Object} repo - The active repository.
+ * @returns {Promise<Map<string, number>>} Map id to its position in the atlas's order.
+ * @private
+ */
+async function atlasMapRanking(repo) {
+    let atlas = null;
+    try {
+        atlas = await repo.getAtlas?.();
+    } catch {
+        // Unreadable atlas record: fall through to the empty ranking.
+    }
+    const order = Array.isArray(atlas?.mapOrder) ? atlas.mapOrder : [];
+    return new Map(order.map((id, index) => [id, index]));
+}
+
+/**
  * Activates the atlas's map after connecting to a server atlas. Opening an atlas
  * pulls its maps into the store but leaves the app on the LOCAL default map
  * ("Principal"), so the user would not see (or sync onto) the shared content. Atlas
  * maps carry a real UUID `id` (the local default does not), so we switch to the
  * first UUID-keyed map. No-op when there is none (e.g. a brand-new empty atlas).
  *
+ * "FIRST" IS THE ATLAS'S ORDER, NEVER THE REPOSITORY'S, and until 2026-09-13 it was the
+ * repository's. Measured that day in a real browser, six serial runs of the deep-link resume:
+ * the landing map was a COIN FLIP, four runs on one map and two on the other, always the one
+ * with the lower UUID, because `getAllMaps()` answers in IndexedDB key order. Two collaborators
+ * opening the same atlas landed on different maps, and one tab changed its answer between two
+ * boots. It only became visible when a server atlas stopped being born empty (`e70ccf3c`,
+ * 2026-09-12, seeds a default "Mapa 1" inside `createAtlas`): before that the last step had a
+ * single candidate and had nothing to draw lots between.
+ *
  * @param {string|null} [preferredMapId] - A specific map UUID to activate (e.g. from a `?map=<uuid>`
- *   deep link). Falls back to the last-active map, then the first named atlas map, when absent or unmatched.
+ *   deep link). Falls back to the last-active map, then the atlas's first named map, when absent
+ *   or unmatched.
  * @returns {Promise<string|null>} The activated map name, or null when none exists.
  */
 export async function activateAtlasInitialMap(preferredMapId = null) {
@@ -675,6 +714,12 @@ export async function activateAtlasInitialMap(preferredMapId = null) {
             await repo.deleteMap?.(key);
         }
     }
+
+    // THE ATLAS'S OWN ORDER DECIDES THE LAST STEP. The sort is stable, so a map the atlas does
+    // not list keeps its relative repository position and lands after the listed ones.
+    const ranking = await atlasMapRanking(repo);
+    const rank = (map) => (ranking.has(map?.id) ? ranking.get(map.id) : Number.MAX_SAFE_INTEGER);
+    uuidMaps.sort((a, b) => rank(a) - rank(b));
 
     // Resolution order: an explicitly requested map (e.g. a `?map=<uuid>` deep link) wins; else the
     // map the user was last on (so an F5 reconnect returns there); else the first named atlas map.

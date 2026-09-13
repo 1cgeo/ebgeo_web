@@ -37,8 +37,13 @@ describeOrSkip('F5 on a connected atlas keeps the map active BY NAME (not a UUID
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
             await api.login(u.username, u.password);
             const atlas = await api.createAtlas({ name: 'F5 Atlas' });
-            const mapId = crypto.randomUUID();
-            await api.pushOperations(atlas.id, [createOperation('map', 'create', mapId, null, { name: mapName })]);
+            // ADOTA o mapa que o servidor semeia ao criar o atlas, como `seedSharedAtlas` já faz,
+            // em vez de criar um SEGUNDO ao lado dele. `POST /atlas` deixou de devolver atlas
+            // vazio em 2026-09-12 (`e70ccf3c`), e um atlas com dois mapas faz este caso medir
+            // outra coisa: qual dos dois a abertura escolhe quando a URL não nomeia um.
+            const mapId = atlas.map_order?.[0];
+            if (!mapId) throw new Error('O servidor não criou o mapa inicial do atlas.');
+            await api.pushOperations(atlas.id, [createOperation('map', 'update', mapId, null, { name: mapName })]);
             return { username: u.username, password: u.password, atlasId: atlas.id };
         }, { baseUrl: state.baseUrl, mapName: MAP_NAME, u: user });
 
