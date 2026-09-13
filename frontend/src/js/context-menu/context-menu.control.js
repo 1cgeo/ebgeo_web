@@ -837,12 +837,16 @@ class ContextMenuControl {
         }
     }
 
-    _handleCombineGroups(groupIds, ungroupedFeatures) {
+    async _handleCombineGroups(groupIds, ungroupedFeatures) {
         if (groupIds.length === 0 && ungroupedFeatures.length < 2) {
             throw new Error('É necessário pelo menos 2 feições ou 1 grupo para combinar.');
         }
 
-        const combinedGroup = combineGroups(groupIds, ungroupedFeatures);
+        // ASYNC since the combine became write-ahead: the selection may only point at the new
+        // group after the store confirms it, and the `null` is the refusal by permission or
+        // locked map, exactly as in `_handleCreateGroup`.
+        const combinedGroup = await combineGroups(groupIds, ungroupedFeatures);
+        if (!combinedGroup) return;
 
         if (this._selectionManager) {
             this._selectionManager.deselectAllFeatures();

@@ -660,7 +660,9 @@ describe('transferLayerToMap - mover', () => {
     it('desliga as feições movidas dos grupos pelo tipo SINGULAR', async () => {
         await transferLayerToMap('l1', 'MapB', { mode: TransferMode.MOVE });
 
-        const types = groupManager.removeFeatureFromAllGroups.mock.calls.map(call => call[0]);
+        // `call[1]`: a transacao do pai e' o primeiro argumento desde que a limpeza de grupo
+        // virou write-ahead (bloco B4), entao o tipo e' o segundo.
+        const types = groupManager.removeFeatureFromAllGroups.mock.calls.map(call => call[1]);
         expect(types).toContain('point');
         expect(types).toContain('line');
         // O plural é o defeito: `removeFeatureFromAllGroups` indexa pelo singular, e o

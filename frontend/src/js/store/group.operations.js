@@ -71,10 +71,15 @@ export async function createGroup(features, mapName = null) {
 /**
  * Combines multiple groups into one.
  *
+ * ASYNC since 2026-09-13 (write-ahead, bloco B4): the manager journals one `group` DELETE per
+ * dissolved group, then the `group` CREATE of the result, then one `group_feature` per member,
+ * before it writes.
+ *
  * @param {string[]} groupIds - Group IDs to combine
  * @param {Array} [selectedFeatures=[]] - Additional selected features
  * @param {string} [mapName=null] - Map name
- * @returns {import('./store.types.js').Group|null} Combined group
+ * @returns {Promise<import('./store.types.js').Group>|null} Combined group, or null when the
+ *   guard blocked it
  */
 export function combineGroups(groupIds, selectedFeatures = [], mapName = null) {
     if (guardMutation(GuardAction.UPDATE_GROUP, 'combineGroups').blocked) return null;
@@ -174,13 +179,20 @@ export function ungroupFeatures(groupId, mapName = null) {
 }
 
 /**
- * Removes a feature from all groups.
+ * Removes a feature from all groups, inside the CALLER'S transaction.
  *
+ * The transaction is the first argument since 2026-09-13 (write-ahead, bloco B4), and it cannot be
+ * otherwise: every caller already holds one, and a nested transaction commits before its parent
+ * records anything. The returned closure is the groups-document write, for the caller to chain
+ * onto its own persistence function.
+ *
+ * @param {import('./store-transaction.js').StoreTransaction} tx - Caller's open transaction
  * @param {string} type - Feature type
  * @param {string} featureId - Feature ID
  * @param {string} [mapName=null] - Map name
- * @returns {boolean} Whether removal was successful
+ * @returns {(function(): Promise<void>)|null} The pending groups write, or null when no group
+ *   held the feature
  */
-export function removeFeatureFromAllGroups(type, featureId, mapName = null) {
-    return deps.groupManager.removeFeatureFromAllGroups(type, featureId, mapName);
+export function removeFeatureFromAllGroups(tx, type, featureId, mapName = null) {
+    return deps.groupManager.removeFeatureFromAllGroups(tx, type, featureId, mapName);
 }

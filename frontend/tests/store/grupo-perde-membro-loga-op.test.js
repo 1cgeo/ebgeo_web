@@ -58,9 +58,10 @@ vi.mock('../../src/js/store/services/map-resolver.service.js', () => ({
 // asserções deste arquivo já cobriam, nos DOIS alvos: `group` e `group_feature`, este último com
 // a assinatura de `logGroupFeatureOperation` (o id da op é descartável e não entra nela, porque o
 // que ela nomeia é o par grupo/feição). Um alvo que não seja nenhum dos dois ESTOURA de
-// propósito: espelho calado é o que transforma um alvo novo em cobertura vazia. As entradas ainda
-// no caminho antigo (`combineGroups`, `removeFeatureFromAllGroups`) continuam chamando o logger
-// direto, então as duas metades convivem aqui.
+// propósito: espelho calado é o que transforma um alvo novo em cobertura vazia. Desde a última
+// onda de B4 TODAS as entradas deste arquivo passam por aqui, `combineGroups` e
+// `removeFeatureFromAllGroups` inclusive: os loggers de entidade não são mais chamados por
+// nenhuma delas, e é o espelho que traduz a intenção durável para as asserções abaixo.
 vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
     persistOperationIntents: vi.fn(async (descriptions) => {
         for (const op of descriptions) {
@@ -85,9 +86,33 @@ vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
 
 
 import { createGroupManager } from '../../src/js/tool_manager/group_manager.js';
+import { runTransaction } from '../../src/js/store/store-transaction.js';
 
 /** @param {string} id @returns {Object} A minimal point feature. */
 const pt = (id) => ({ properties: { id, source: 'point' } });
+
+/**
+ * Drives one removal exactly as its four callers do since it became write-ahead: the
+ * intentions are recorded during the PREPARE phase of the caller's transaction, and the
+ * groups-document write it returns is chained onto the caller's persistence function.
+ *
+ * Este ajudante É a mudança de contrato deste lote. Antes o caso chamava a função solta e o
+ * logger rodava fora de transação nenhuma; agora uma chamada sem `tx` nem começa, e é isso que
+ * impede que alguém a chame de dentro de um `deferSync` outra vez.
+ *
+ * @param {string} type - Feature source type
+ * @param {string} featureId - Feature id
+ * @param {string} [mapName] - Map name (undefined exercises the current-map default)
+ * @returns {Promise<void>}
+ */
+async function removerEmTransacao(type, featureId, mapName) {
+    await runTransaction(async (tx) => {
+        const persistGroups = mapName === undefined
+            ? gm.removeFeatureFromAllGroups(tx, type, featureId)
+            : gm.removeFeatureFromAllGroups(tx, type, featureId, mapName);
+        return async () => { await persistGroups?.(); };
+    });
+}
 
 /** @returns {Array<Array>} The arguments of every membership op logged so far. */
 const membershipCalls = () => h.logGroupFeatureOperation.mock.calls;
@@ -109,7 +134,7 @@ describe('removeFeatureFromAllGroups: a saída de um membro vira operação', ()
         const group = await gm.createGroup([pt('f1'), pt('f2'), pt('f3')], MAP_NAME);
         vi.clearAllMocks();
 
-        gm.removeFeatureFromAllGroups('point', 'f2', MAP_NAME);
+        await removerEmTransacao('point', 'f2', MAP_NAME);
 
         // A op de membresia, com o par que o servidor consome.
         expect(membershipCalls()).toHaveLength(1);
@@ -124,15 +149,18 @@ describe('removeFeatureFromAllGroups: a saída de um membro vira operação', ()
 
         // O grupo continua vivo com dois membros: nada de delete de grupo.
         expect(groupCalls()).toHaveLength(0);
-        expect(group.features.map((f) => f.id)).toEqual(['f1', 'f3']);
-        expect(gm.getGroupById(group.id, MAP_NAME)).toBeTruthy();
+        // Lido pelo gerente, e NUNCA pela referência devolvida por `createGroup`: o documento
+        // do grupo é SUBSTITUÍDO no cache, não mutado no lugar, que é o que mantém invisível
+        // uma gravação que falhe. Uma asserção sobre a referência antiga mediria o contrário.
+        expect(gm.getGroupById(group.id, MAP_NAME).features.map((f) => f.id)).toEqual(['f1', 'f3']);
+        expect(group.features.map((f) => f.id), 'a cópia anterior não é mutada').toEqual(['f1', 'f2', 'f3']);
     });
 
     it('grupo de 2 perde 1: a op de membresia MAIS o delete do grupo que se dissolveu', async () => {
         const group = await gm.createGroup([pt('a'), pt('b')], MAP_NAME);
         vi.clearAllMocks();
 
-        gm.removeFeatureFromAllGroups('point', 'a', MAP_NAME);
+        await removerEmTransacao('point', 'a', MAP_NAME);
 
         expect(membershipCalls()).toHaveLength(1);
         expect(membershipCalls()[0].slice(0, 3)).toEqual(['delete', group.id, 'a']);
@@ -153,7 +181,7 @@ describe('removeFeatureFromAllGroups: a saída de um membro vira operação', ()
         await gm.createGroup([pt('f1'), pt('f2'), pt('f3')], MAP_NAME);
         vi.clearAllMocks();
 
-        gm.removeFeatureFromAllGroups('point', 'forasteira', MAP_NAME);
+        await removerEmTransacao('point', 'forasteira', MAP_NAME);
 
         expect(membershipCalls()).toHaveLength(0);
         expect(groupCalls()).toHaveLength(0);
@@ -163,9 +191,9 @@ describe('removeFeatureFromAllGroups: a saída de um membro vira operação', ()
         await gm.createGroup([pt('f1'), pt('f2'), pt('f3')], MAP_NAME);
         vi.clearAllMocks();
 
-        gm.removeFeatureFromAllGroups('point', 'f3', MAP_NAME);
+        await removerEmTransacao('point', 'f3', MAP_NAME);
         const depoisDaPrimeira = membershipCalls().length;
-        gm.removeFeatureFromAllGroups('point', 'f3', MAP_NAME);
+        await removerEmTransacao('point', 'f3', MAP_NAME);
 
         expect(depoisDaPrimeira).toBe(1);
         expect(membershipCalls()).toHaveLength(1);
@@ -177,13 +205,13 @@ describe('removeFeatureFromAllGroups: a saída de um membro vira operação', ()
         await gm.createGroup([pt('f1'), pt('f2'), pt('f3')], MAP_NAME);
         vi.clearAllMocks();
 
-        gm.removeFeatureFromAllGroups('polygon', 'f2', MAP_NAME);
+        await removerEmTransacao('polygon', 'f2', MAP_NAME);
 
         expect(membershipCalls()).toHaveLength(0);
         expect(groupCalls()).toHaveLength(0);
     });
 
-    it('dois grupos afetados: uma op de membresia POR GRUPO, com o id de cada um', () => {
+    it('dois grupos afetados: uma op de membresia POR GRUPO, com o id de cada um', async () => {
         // A feição não pode estar em dois grupos por `createGroup` (ele recusa), então os dois
         // grupos são montados direto no cache, que é a forma como um snapshot os entrega.
         const cache = {};
@@ -199,7 +227,7 @@ describe('removeFeatureFromAllGroups: a saída de um membro vira operação', ()
         }
         h.memoryStore.groups[MAP_NAME] = cache;
 
-        gm.removeFeatureFromAllGroups('point', 'x', MAP_NAME);
+        await removerEmTransacao('point', 'x', MAP_NAME);
 
         expect(membershipCalls()).toHaveLength(2);
         expect(membershipCalls().map((c) => c[1]).sort()).toEqual(['g1', 'g2']);
@@ -214,13 +242,13 @@ describe('removeFeatureFromAllGroups: a saída de um membro vira operação', ()
         await gm.ungroupFeatures(group.id, MAP_NAME);
         vi.clearAllMocks();
 
-        gm.removeFeatureFromAllGroups('point', 'f1', MAP_NAME);
+        await removerEmTransacao('point', 'f1', MAP_NAME);
 
         expect(membershipCalls()).toHaveLength(0);
         expect(groupCalls()).toHaveLength(0);
     });
 
-    it('grupo degenerado ALHEIO não é dissolvido de carona', () => {
+    it('grupo degenerado ALHEIO não é dissolvido de carona', async () => {
         // O código anterior soft-deletava TODO grupo ativo com um membro ou menos a cada
         // chamada, relacionada ou não. Inerte enquanto nada era logado; assim que o
         // soft-delete virou op, isso passaria a dissolver no PAR um grupo que este gesto não
@@ -237,7 +265,7 @@ describe('removeFeatureFromAllGroups: a saída de um membro vira operação', ()
             },
         };
 
-        gm.removeFeatureFromAllGroups('point', 'outra-coisa', MAP_NAME);
+        await removerEmTransacao('point', 'outra-coisa', MAP_NAME);
 
         expect(groupCalls()).toHaveLength(0);
         expect(membershipCalls()).toHaveLength(0);
@@ -248,7 +276,7 @@ describe('removeFeatureFromAllGroups: a saída de um membro vira operação', ()
         await gm.createGroup([pt('f1'), pt('f2'), pt('f3')]);
         vi.clearAllMocks();
 
-        gm.removeFeatureFromAllGroups('point', 'f1');
+        await removerEmTransacao('point', 'f1');
 
         expect(membershipCalls()).toHaveLength(1);
         expect(membershipCalls()[0][4]).toBe(MAP_UUID);
@@ -298,7 +326,7 @@ describe('a membresia também NASCE como operação', () => {
         const g2 = await gm.createGroup([pt('c'), pt('d')], MAP_NAME);
         vi.clearAllMocks();
 
-        const combinado = gm.combineGroups([g1.id, g2.id], [], MAP_NAME);
+        const combinado = await gm.combineGroups([g1.id, g2.id], [], MAP_NAME);
 
         expect(membershipCalls()).toHaveLength(4);
         expect(membershipCalls().every((c) => c[0] === 'create' && c[1] === combinado.id)).toBe(true);

@@ -4,13 +4,26 @@ import { memoryStore, setMapGroups, getMapGroupsFromDB } from '../store';
 import { generateUUID } from '../utilities/uuid.js';
 import { EventTypes } from '../events';
 import { createSyncMetadata, touchSyncMetadata, markDeleted, isActive } from '../store/sync/sync-metadata.js';
-import { logGroupOperation, logGroupFeatureOperation } from '../store/sync/index.js';
 // The leaf module, never the `sync/index.js` barrel: five store suites mock that barrel
 // without `EntityType`, so reaching for it there breaks them at load time.
 import { EntityType, OperationType } from '../store/sync/operation-types.js';
 import { runTransaction } from '../store/store-transaction.js';
 import { withSideDocument } from '../store/document-lock.js';
 import { mapResolver } from '../store/services/map-resolver.service.js';
+
+/**
+ * Group edits already recorded in ONE transaction but not yet on disk, per map.
+ *
+ * It exists for a single caller shape: {@link GroupManager#removeFeatureFromAllGroups} may be
+ * called MANY times inside the same transaction (deleting a whole layer runs it once per feature),
+ * and the memory cache is only updated after persistence, so every call would otherwise read the
+ * same pre-edit document and the last one would write a document missing the other removals. With
+ * the overlay each call reads what the previous ones decided, and every returned persistence
+ * closure writes the SAME accumulated object, so a caller that keeps only the last one still
+ * persists all of them. Keyed by the transaction, so it disappears with it.
+ * @type {WeakMap<Object, Map<string, Object>>}
+ */
+const pendingGroupEdits = new WeakMap();
 
 /**
  * Resolves the target map, defaulting to the current one.
@@ -139,93 +152,112 @@ class GroupManager {
     /**
      * Combine existing groups and/or loose features into a new group.
      *
-     * STILL ON THE OLD PATH (memory first, `setTimeout(0)` write, logs without waiting), and it is
-     * the wave after this one. Migrating it is NOT a copy of {@link createGroup}: it dissolves N
-     * groups and creates one, so the transaction has to carry the N `group` DELETEs plus the
-     * create plus one `group_feature` per member of the result, and a partial failure must leave
-     * the old groups intact rather than dissolved into nothing.
+     * ASYNC since 2026-09-13 (write-ahead, bloco B4). It is NOT a copy of {@link createGroup}: it
+     * dissolves M groups and creates one, so ONE transaction carries M + 1 + N intentions, in this
+     * order: one `group` DELETE per dissolved group, the `group` CREATE of the result, and one
+     * `group_feature` CREATE per member of the result. The membership has to come last for the
+     * same reason as in {@link createGroup} (the join insert is gated on an EXISTS over the group
+     * row), and the deletes come first so that the server never holds the same feature in two
+     * live groups at once.
+     *
+     * THE OLD SHAPE DISSOLVED THE GROUPS IN MEMORY BEFORE ANYTHING WAS DURABLE: it mutated
+     * `sync` on each old group in place, appended the new one to the cache, fired the write from a
+     * `setTimeout(0)` whose `catch` only logged, and logged the ops afterwards without waiting. A
+     * failed write left the person looking at one combined group while the disk still held the M
+     * originals, with nobody told. Now the cache is only touched in `tx.deferSync`, and the M old
+     * documents are REPLACED rather than mutated, so a refused write leaves them intact.
+     *
+     * The old groups' membership rows are NOT deleted one by one: the `group` DELETE soft-deletes
+     * each row and the server rebuilds membership from LIVE groups only, which is the same reason
+     * {@link ungroupFeatures} emits no membership op.
      *
      * @param {Array} groupIds - IDs of groups to combine
      * @param {Array} selectedFeatures - Additional features to include
      * @param {string} mapName - Map name
-     * @returns {Object} Combined group
+     * @returns {Promise<Object>} Combined group
      */
-    combineGroups(groupIds, selectedFeatures = [], mapName = null) {
-        const targetMap = mapName || this.memoryStore.currentMap;
-        this._ensureMapGroupsExist(targetMap);
+    async combineGroups(groupIds, selectedFeatures = [], mapName = null) {
+        const targetMap = targetMapOf(this, mapName);
+        return this._writeGroups(targetMap, 'combineGroups', (groupsCache) => {
+            const allFeatures = [];
+            const dissolved = [];
+            let combinedGroupName = '';
 
-        const groupsCache = this.memoryStore.groups[targetMap];
-
-        const allFeatures = [];
-        let combinedGroupName = '';
-
-        groupIds.forEach((groupId, index) => {
-            const group = groupsCache[groupId];
-            if (group && isActive(group.sync)) {
-                allFeatures.push(...group.features);
-                if (index === 0) {
-                    combinedGroupName = group.name;
+            groupIds.forEach((groupId, index) => {
+                const group = groupsCache[groupId];
+                if (group && isActive(group.sync)) {
+                    allFeatures.push(...group.features);
+                    if (index === 0) {
+                        combinedGroupName = group.name;
+                    }
+                    dissolved.push(group);
                 }
+            });
+
+            selectedFeatures.forEach(feature => {
+                const isGrouped = this.isFeatureGrouped(
+                    feature.properties.source,
+                    feature.properties.id,
+                    targetMap
+                );
+
+                if (!isGrouped) {
+                    allFeatures.push({
+                        type: feature.properties.source,
+                        id: feature.properties.id
+                    });
+                }
+            });
+
+            if (allFeatures.length < 2) {
+                throw new Error('É necessário pelo menos 2 features para formar um grupo.');
             }
-        });
 
-        selectedFeatures.forEach(feature => {
-            const isGrouped = this.isFeatureGrouped(
-                feature.properties.source,
-                feature.properties.id,
-                targetMap
-            );
+            const newGroupId = generateUUID();
+            const combinedGroup = {
+                id: newGroupId,
+                name: combinedGroupName || this.generateGroupName(targetMap),
+                features: allFeatures,
+                visible: true,
+                locked: false,
+                sync: createSyncMetadata(null)
+            };
 
-            if (!isGrouped) {
-                allFeatures.push({
-                    type: feature.properties.source,
-                    id: feature.properties.id
+            const groups = {};
+            const operations = [];
+            for (const group of dissolved) {
+                groups[group.id] = { ...group, sync: markDeleted(group.sync) };
+                operations.push({
+                    entityType: EntityType.GROUP,
+                    type: OperationType.DELETE,
+                    id: group.id,
+                    data: null,
+                    previous: { ...group }
                 });
             }
-        });
-
-        if (allFeatures.length < 2) {
-            throw new Error('É necessário pelo menos 2 features para formar um grupo.');
-        }
-
-        const newGroupId = generateUUID();
-        const finalGroupName = combinedGroupName || this.generateGroupName(targetMap);
-
-        const combinedGroup = {
-            id: newGroupId,
-            name: finalGroupName,
-            features: allFeatures,
-            visible: true,
-            locked: false,
-            sync: createSyncMetadata(null)
-        };
-
-        // Soft delete old groups and log deletions
-        groupIds.forEach(groupId => {
-            if (groupsCache[groupId]) {
-                const oldGroup = { ...groupsCache[groupId] };
-                groupsCache[groupId].sync = markDeleted(groupsCache[groupId].sync);
-                // Log delete operation for old group
-                logGroupOperation(OperationType.DELETE, groupId, mapResolver.resolveToId(targetMap), null, oldGroup);
+            groups[newGroupId] = combinedGroup;
+            operations.push({
+                entityType: EntityType.GROUP,
+                type: OperationType.CREATE,
+                id: newGroupId,
+                data: combinedGroup
+            });
+            for (const member of combinedGroup.features) {
+                operations.push({
+                    entityType: EntityType.GROUP_FEATURE,
+                    type: OperationType.CREATE,
+                    id: generateUUID(),
+                    data: { group_id: newGroupId, feature_id: member.id, feature_type: member.type }
+                });
             }
+
+            return {
+                groups,
+                operations,
+                result: combinedGroup,
+                effect: () => this._notifyGroupsChanged()
+            };
         });
-
-        groupsCache[newGroupId] = combinedGroup;
-
-        this._saveGroupsToDBAsync(targetMap);
-
-        this._notifyGroupsChanged();
-
-        // Log create operation for the combined group
-        const combinedMapId = mapResolver.resolveToId(targetMap);
-        logGroupOperation(OperationType.CREATE, newGroupId, combinedMapId, combinedGroup);
-        // Membership of the NEW group (see createGroup). The old groups' rows are left alone:
-        // they are soft-deleted above, so they no longer surface in any snapshot.
-        for (const member of combinedGroup.features) {
-            logGroupFeatureOperation(OperationType.CREATE, newGroupId, member.id, member.type, combinedMapId);
-        }
-
-        return combinedGroup;
     }
 
     /**
@@ -563,37 +595,61 @@ class GroupManager {
     }
 
     /**
-     * Remove a feature from every group of a map, and SYNC that removal.
+     * Remove a feature from every group of a map, and SYNC that removal, INSIDE THE CALLER'S
+     * TRANSACTION.
      *
-     * Called from the delete/move paths (feature delete, move to another map, layer
-     * transfer), all of which run it inside a `tx.deferSync`. The op loggers are
-     * fire-and-forget there, exactly as in {@link updateGroupProperty}: `logOperation`
-     * swallows and reports its own failures, so nothing rejects into the transaction.
+     * IT RECEIVES THE PARENT'S TRANSACTION AND MUST NEVER OPEN ONE, and that is the whole shape
+     * of this entry. Its four callers (feature delete, delete from a named map, whole-layer
+     * delete, and the store facade) run inside a `runTransaction` of their own; a transaction
+     * nested in another one's `workFn` COMMITS FIRST, so it would journal and write the groups
+     * document before the parent had recorded a single intention, and a feature deletion that then
+     * failed would leave the groups already naming a feature the map still holds.
+     *
+     * WRITE-AHEAD since 2026-09-13 (bloco B4), which moved it out of `tx.deferSync`: the
+     * intentions are recorded during PREPARE (the loggers used to be fire-and-forget AFTER
+     * persistence) and the groups document is written by the closure this function RETURNS, which
+     * the caller chains onto its own persistence function. Chaining it there instead of using
+     * `tx.deferAsync` is deliberate: a deferred write fails with a `console.warn` and nothing
+     * else, which is exactly the silence `_saveGroupsToDBAsync` had, whereas a rejection inside
+     * the parent's persistence refuses the whole deletion.
+     *
+     * NOTHING IS MUTATED IN PLACE. The affected groups are REPLACED in an overlay
+     * ({@link pendingGroupEdits}), the memory cache is only touched in `tx.deferSync`, and the
+     * write merges the overlay over the live cache, so a refused write leaves memory agreeing
+     * with disk.
      *
      * TWO ops per affected group, because they say different things to the server:
      *  - `group_feature` DELETE removes the join row, which is the ONLY place the server
-     *    keeps membership (a `group` update never touches it, see
-     *    {@link logGroupFeatureOperation});
+     *    keeps membership (a `group` update never touches it, see `logGroupFeatureOperation`
+     *    in `store/sync/operation-dispatcher.js`). Its entity id is a FRESH UUID, because
+     *    `operations.entity_id` is a UUID column and queue compaction keeps one op per
+     *    entity id, so reusing the group id would collapse several removals into one;
      *  - `group` DELETE, when the group drops to one member or none, mirrors the
      *    soft-delete this function already did locally. Without it the peer and the server
      *    kept a group this client had already dissolved.
      *
      * Idempotent by construction: a group that did not hold the feature is skipped whole,
-     * so it logs nothing. That skip also FIXED a live hazard rather than just adding one:
+     * so it records nothing. That skip also FIXED a live hazard rather than just adding one:
      * the previous code soft-deleted every active group with one member or none on ANY
      * call, related or not, and once that soft-delete became a synced op it would have
      * dissolved a peer's unrelated group as a side effect of deleting some other feature.
      *
+     * @param {import('../store/store-transaction.js').StoreTransaction} tx - The caller's open
+     *   transaction, during its preparation phase
      * @param {string} type - Feature source type
      * @param {string} featureId - Feature ID
      * @param {string} [mapName=null] - Map name (null = current map)
+     * @returns {(function(): Promise<void>)|null} The groups-document write, for the caller to
+     *   chain onto its own persistence function, or null when no group held the feature
      */
-    removeFeatureFromAllGroups(type, featureId, mapName = null) {
-        const targetMap = mapName || this.memoryStore.currentMap;
+    removeFeatureFromAllGroups(tx, type, featureId, mapName = null) {
+        const targetMap = targetMapOf(this, mapName);
         this._ensureMapGroupsExist(targetMap);
 
-        const groupsCache = this.memoryStore.groups[targetMap];
-        // Resolved once: same NAME->UUID rule as every other op logged here (a raw map name
+        const overlay = this._overlayFor(tx, targetMap);
+        // What the previous calls of THIS transaction decided, over what is on disk.
+        const groupsCache = { ...this.memoryStore.groups[targetMap], ...overlay };
+        // Resolved once: same NAME->UUID rule as every other op recorded here (a raw map name
         // would be dropped pre-flush, or poison the batch if it reached the server).
         const mapId = mapResolver.resolveToId(targetMap);
         let modified = false;
@@ -603,35 +659,49 @@ class GroupManager {
             if (!isActive(group.sync)) continue;
 
             // Held BEFORE the filter, because `filter` returns a NEW array and the previous
-            // one is what `previousData` has to carry: a shallow copy taken after the
-            // reassignment would ship the already-reduced list as the "previous" state, i.e.
+            // one is what `previousData` has to carry: a list taken after the replacement
+            // would ship the already-reduced membership as the "previous" state, i.e.
             // an undo payload missing the very member that was removed.
             const previousFeatures = group.features;
             const remaining = previousFeatures.filter(f =>
                 !(f.type === type && f.id === featureId)
             );
-            // This group did not hold the feature: nothing changed, nothing to log.
+            // This group did not hold the feature: nothing changed, nothing to record.
             if (remaining.length === previousFeatures.length) continue;
-            group.features = remaining;
 
-            logGroupFeatureOperation(OperationType.DELETE, group.id, featureId, type, mapId);
+            tx.recordOperation(
+                EntityType.GROUP_FEATURE, OperationType.DELETE, generateUUID(), mapId,
+                { group_id: group.id, feature_id: featureId, feature_type: type }, null
+            );
 
+            const next = { ...group, features: remaining };
             if (remaining.length <= 1) {
-                // Soft delete the group if only 0-1 features left. `group.sync` is still the
-                // pre-delete metadata at this point, so the copy is the whole prior document.
-                const oldGroup = { ...group, features: previousFeatures };
-                group.sync = markDeleted(group.sync);
-                logGroupOperation(OperationType.DELETE, group.id, mapId, null, oldGroup);
+                // Soft delete the group if only 0-1 features left. `group` is still the
+                // pre-delete document, so the copy is the whole prior state.
+                next.sync = markDeleted(group.sync);
+                tx.recordOperation(
+                    EntityType.GROUP, OperationType.DELETE, group.id, mapId, null, { ...group }
+                );
             } else {
                 // Update sync metadata if features were removed
-                group.sync = touchSyncMetadata(group.sync);
+                next.sync = touchSyncMetadata(group.sync);
             }
+            overlay[group.id] = next;
             modified = true;
         }
 
-        if (modified) {
-            this._saveGroupsToDBAsync(targetMap);
-        }
+        if (!modified) return null;
+
+        tx.deferSync(() => {
+            Object.assign(this.memoryStore.groups[targetMap], overlay);
+        });
+
+        // The side-document key, taken only for the write: the caller holds `map:<id>`, which is
+        // a different document, so there is no reentrancy here. Merging over the LIVE cache (not
+        // over the snapshot read above) is what keeps a concurrent group edit that landed in the
+        // meantime, exactly as `_writeGroups` does.
+        return () => withSideDocument('groups', targetMap, 'removeFeatureFromAllGroups',
+            () => setMapGroups(targetMap, { ...this.memoryStore.groups[targetMap], ...overlay }));
     }
 
     // ===== PRIVATE METHODS =====
@@ -644,6 +714,32 @@ class GroupManager {
         this._eventBus.emit(EventTypes.GROUPS_CHANGED, {
             mapName: this.memoryStore.currentMap
         });
+    }
+
+    /**
+     * The overlay of group documents this TRANSACTION has already decided for one map.
+     *
+     * See {@link pendingGroupEdits} for why it exists: several removals inside one transaction
+     * have to compose, and the memory cache cannot carry them because it is only updated after
+     * persistence.
+     *
+     * @private
+     * @param {Object} tx - The caller's open transaction
+     * @param {string} targetMap - Resolved map name
+     * @returns {Object} Mutable overlay, keyed by group id
+     */
+    _overlayFor(tx, targetMap) {
+        let byMap = pendingGroupEdits.get(tx);
+        if (!byMap) {
+            byMap = new Map();
+            pendingGroupEdits.set(tx, byMap);
+        }
+        let overlay = byMap.get(targetMap);
+        if (!overlay) {
+            overlay = {};
+            byMap.set(targetMap, overlay);
+        }
+        return overlay;
     }
 
     /**
@@ -665,12 +761,13 @@ class GroupManager {
      * so a write that fails leaves the cache agreeing with disk instead of showing an edit
      * that nothing persisted.
      *
-     * This REPLACES `_saveGroupsToDBAsync` for the three migrated entries: a `setTimeout(0)`
+     * This REPLACES `_saveGroupsToDBAsync` for every migrated entry: a `setTimeout(0)`
      * whose `catch` only logged meant the edit was already on screen and in memory when the
-     * write failed, with nobody told. The entries still on the old path are `combineGroups`,
-     * `importMapGroups` and `removeFeatureFromAllGroups` (the last one runs inside its parent's
-     * transaction and has to receive it instead of opening its own, which is why it is a wave of
-     * its own and not a line of this one).
+     * write failed, with nobody told. The ONLY entry still on the old path is `importMapGroups`,
+     * which replaces the whole document from a file and logs nothing.
+     * {@link GroupManager#removeFeatureFromAllGroups} does not come through here at all, and could
+     * not: it runs inside its PARENT's transaction and returns the write for the parent to chain,
+     * because a transaction nested in another one's `workFn` commits first.
      *
      * The edited group is REPLACED, not mutated in place, which is what keeps the failed
      * write invisible. Read it back through `getMapGroups`/`getGroupById`, never through a

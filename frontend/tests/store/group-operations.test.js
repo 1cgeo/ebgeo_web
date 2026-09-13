@@ -118,10 +118,9 @@ const MUTATIONS = [
     }
 ];
 
-// `await m.run()` em todos os casos, e ele vale para as quatro: `createGroup`,
-// `updateGroupProperty` e `ungroupFeatures` viraram ASSINCRONAS (write-ahead, bloco B4) e
-// `combineGroups` continua sincrona, e `await` sobre valor que nao e promessa devolve o valor.
-// Sem ele o `result` de uma fachada assincrona e a PROMESSA, e a comparacao mede o invólucro.
+// `await m.run()` em todos os casos, e desde a ultima onda de B4 as QUATRO sao assincronas
+// (`combineGroups` foi a ultima a virar write-ahead). Sem o await o `result` de uma fachada
+// assincrona e a PROMESSA, e a comparacao mede o invólucro em vez do valor.
 describe.each(MUTATIONS)('$name (guarded mutation)', (m) => {
     it('happy path: delegates with exact args and returns the manager value', async () => {
         const result = await m.run();
@@ -175,8 +174,8 @@ describe('createGroup defaults', () => {
 });
 
 describe('combineGroups defaults', () => {
-    it('defaults selectedFeatures to [] and mapName to null', () => {
-        combineGroups(['g1']);
+    it('defaults selectedFeatures to [] and mapName to null', async () => {
+        await combineGroups(['g1']);
         expect(groupManager.combineGroups).toHaveBeenCalledWith(['g1'], [], null);
     });
 });
@@ -225,22 +224,28 @@ describe('read operations (no guard)', () => {
 // ============================================================================
 
 describe('removeFeatureFromAllGroups (unguarded delete)', () => {
-    it('delegates with exact args and returns the manager value', () => {
-        const result = removeFeatureFromAllGroups('points', 'f1', 'TestMap');
+    // A TRANSACAO DO PAI e o primeiro argumento desde 2026-09-13 (write-ahead, bloco B4), e a
+    // fachada so' a repassa. Um duplo basta aqui: o que este arquivo mede e' o repasse exato e a
+    // ausencia de guarda, nao o que o gerente faz com ele (isso e'
+    // `tests/store/grupo-perde-membro-loga-op.test.js`, com transacao real).
+    const tx = { recordOperation: vi.fn(), deferSync: vi.fn() };
 
-        expect(groupManager.removeFeatureFromAllGroups).toHaveBeenCalledWith('points', 'f1', 'TestMap');
+    it('delegates with exact args and returns the manager value', () => {
+        const result = removeFeatureFromAllGroups(tx, 'points', 'f1', 'TestMap');
+
+        expect(groupManager.removeFeatureFromAllGroups).toHaveBeenCalledWith(tx, 'points', 'f1', 'TestMap');
         expect(result).toBe(true);
     });
 
     it('forwards a null mapName when omitted', () => {
-        removeFeatureFromAllGroups('points', 'f1');
-        expect(groupManager.removeFeatureFromAllGroups).toHaveBeenCalledWith('points', 'f1', null);
+        removeFeatureFromAllGroups(tx, 'points', 'f1');
+        expect(groupManager.removeFeatureFromAllGroups).toHaveBeenCalledWith(tx, 'points', 'f1', null);
     });
 
     it('still delegates on a locked map (no guard)', () => {
         isCurrentMapLockedSync.mockReturnValue(true);
 
-        const result = removeFeatureFromAllGroups('points', 'f1', 'TestMap');
+        const result = removeFeatureFromAllGroups(tx, 'points', 'f1', 'TestMap');
 
         expect(groupManager.removeFeatureFromAllGroups).toHaveBeenCalledOnce();
         expect(result).toBe(true);
@@ -250,7 +255,7 @@ describe('removeFeatureFromAllGroups (unguarded delete)', () => {
     it('still delegates when permission would be denied (no guard)', () => {
         checkPermission.mockReturnValue({ allowed: false, reason: 'denied' });
 
-        const result = removeFeatureFromAllGroups('points', 'f1', 'TestMap');
+        const result = removeFeatureFromAllGroups(tx, 'points', 'f1', 'TestMap');
 
         expect(groupManager.removeFeatureFromAllGroups).toHaveBeenCalledOnce();
         expect(result).toBe(true);

@@ -376,9 +376,15 @@ export async function removeFeature(type, id, mapName = null) {
                 });
             }
 
-            tx.deferSync(() => {
-                deps.groupManager.removeFeatureFromAllGroups(mainFeature.properties.source, id, targetMap);
-            });
+            // PREPARE, and no longer `tx.deferSync`, since the group side became write-ahead
+            // (bloco B4). It records the `group_feature` DELETE of every group that held the
+            // feature (plus the `group` DELETE of one that drops to a single member) in THIS
+            // transaction, and hands back the groups-document write, chained onto the persistence
+            // below. It must not open a transaction of its own: a nested one commits FIRST, so the
+            // groups would be durable before this deletion had recorded anything.
+            const persistGroups = deps.groupManager.removeFeatureFromAllGroups(
+                tx, mainFeature.properties.source, id, targetMap
+            );
 
             if (shouldRecordUndo(mapName)) {
                 tx.deferSync(() => {
@@ -399,7 +405,10 @@ export async function removeFeature(type, id, mapName = null) {
                 tx.recordOperation(EntityType.FEATURE, OperationType.DELETE, id, mapId, null, mainFeature);
             }
 
-            return () => updateMapDataCompat(targetMap, currentMapData);
+            return async () => {
+                await updateMapDataCompat(targetMap, currentMapData);
+                await persistGroups?.();
+            };
         });
     });
 }
@@ -454,9 +463,13 @@ export async function removeFeatureFromMap(type, id, mapName, { logOperation = t
                 });
             }
 
-            tx.deferSync(() => {
-                deps.groupManager.removeFeatureFromAllGroups(mainFeature.properties.source, id, mapName);
-            });
+            // PREPARE, and no longer `tx.deferSync`: see the same call in `removeFeature`. The
+            // membership ops travel even when `logOperation` is false, and that asymmetry is
+            // right: a MOVE keeps the feature alive in another map, so it must not emit a feature
+            // DELETE, but it does leave the groups of THIS map.
+            const persistGroups = deps.groupManager.removeFeatureFromAllGroups(
+                tx, mainFeature.properties.source, id, mapName
+            );
 
             // A real deletion syncs. The source cleanup of an explicit move does not:
             // its canonical response removes the old projection without deleting the
@@ -466,7 +479,10 @@ export async function removeFeatureFromMap(type, id, mapName, { logOperation = t
                 tx.recordOperation(EntityType.FEATURE, OperationType.DELETE, id, mapId, null, mainFeature);
             }
 
-            return () => updateMapDataCompat(mapName, mapData);
+            return async () => {
+                await updateMapDataCompat(mapName, mapData);
+                await persistGroups?.();
+            };
         });
 
         return result;
@@ -1135,12 +1151,15 @@ export async function deleteLayerFeatures(layerId, mapName = null, { releaseImag
 
         if (modified) {
             await runTransaction(async (tx) => {
-                if (groupCleanups.length > 0) {
-                    tx.deferSync(() => {
-                        for (const { sourceType, featureId } of groupCleanups) {
-                            deps.groupManager.removeFeatureFromAllGroups(sourceType, featureId, targetMap);
-                        }
-                    });
+                // N removals, ONE groups document. Every call composes with the previous ones
+                // through the transaction's overlay (see `pendingGroupEdits` in
+                // `tool_manager/group_manager.js`) and every closure it returns writes that same
+                // accumulated object, so keeping the last non-null one persists all of them.
+                let persistGroups = null;
+                for (const { sourceType, featureId } of groupCleanups) {
+                    persistGroups = deps.groupManager.removeFeatureFromAllGroups(
+                        tx, sourceType, featureId, targetMap
+                    ) ?? persistGroups;
                 }
 
                 if (imageCleanups.length > 0) {
@@ -1151,7 +1170,10 @@ export async function deleteLayerFeatures(layerId, mapName = null, { releaseImag
                     });
                 }
 
-                return () => updateMapDataCompat(targetMap, currentMapData);
+                return async () => {
+                    await updateMapDataCompat(targetMap, currentMapData);
+                    await persistGroups?.();
+                };
             });
         }
         return modified;

@@ -94,7 +94,12 @@ const PISO_RECORD = 18;
 // antigo e são o que resta daquele arquivo.
 // Baixado de 18 para 17 na mesma onda: `renameMap` (`src/js/store/map.operations.js`) virou
 // write-ahead e deixou de chamar `logMapOperation`. `addMap` e `removeMap` continuam chamando.
-const PISO_LOG = 17;
+// Baixado de 17 para 12 na ULTIMA onda de B4 (2026-09-13): `combineGroups` (tres chamadas:
+// `logGroupOperation` no delete de cada grupo antigo, no create do novo, e
+// `logGroupFeatureOperation` na membresia) e `removeFeatureFromAllGroups` (duas) viraram
+// write-ahead, e com isso `src/js/tool_manager/group_manager.js` deixou de importar a familia de
+// log inteira: nao ha mais UMA chamada dela naquele arquivo.
+const PISO_LOG = 12;
 
 /**
  * Comentário fora, preservando a contagem de linhas para que a mensagem de erro aponte a

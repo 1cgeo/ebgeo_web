@@ -159,8 +159,15 @@ beforeEach(() => {
     });
 });
 
+// A TRANSACAO DO PAI e' o primeiro argumento desde 2026-09-13 (write-ahead, bloco B4), por isso
+// os indices deste arquivo andaram um: tipo, id e mapa sao 1, 2 e 3. A propriedade que este
+// arquivo mede continua sendo a mesma (o tipo SINGULAR), e o argumento novo e' asserido a parte,
+// porque uma limpeza sem transacao voltaria a logar fora dela.
 /** Os tipos que a limpeza de grupo recebeu, na ordem. @returns {string[]} */
-const tiposPassados = () => groupManager.removeFeatureFromAllGroups.mock.calls.map((c) => c[0]);
+const tiposPassados = () => groupManager.removeFeatureFromAllGroups.mock.calls.map((c) => c[1]);
+
+/** As transacoes recebidas pela limpeza. @returns {Array<Object>} */
+const transacoesPassadas = () => groupManager.removeFeatureFromAllGroups.mock.calls.map((c) => c[0]);
 
 // ============================================================================
 // TESTES
@@ -177,6 +184,10 @@ describe('deleteLayerFeatures limpa os grupos pelo tipo SINGULAR', () => {
 
         expect(mudou).toBe(true);
         expect(tiposPassados().sort()).toEqual(['line', 'point', 'polygon']);
+        // UMA transacao para as tres limpezas, e nao uma por feicao: e' o que permite que as
+        // remocoes se componham num documento de grupos so'.
+        expect(new Set(transacoesPassadas()).size).toBe(1);
+        expect(transacoesPassadas()[0].recordOperation).toBeTypeOf('function');
         // CONTROLE NEGATIVO: o plural e' o defeito, e ele nao pode ter ido junto.
         for (const plural of ['points', 'lines', 'polygons']) {
             expect(tiposPassados()).not.toContain(plural);
@@ -191,9 +202,9 @@ describe('deleteLayerFeatures limpa os grupos pelo tipo SINGULAR', () => {
 
         const chamadas = groupManager.removeFeatureFromAllGroups.mock.calls;
         expect(chamadas).toHaveLength(2);
-        expect(chamadas.map((c) => c[1]).sort()).toEqual(['p1', 'p2']);
+        expect(chamadas.map((c) => c[2]).sort()).toEqual(['p1', 'p2']);
         // O mapa alvo tambem viaja, senao a limpeza acerta o mapa errado.
-        expect(chamadas.every((c) => c[2] === 'Mapa')).toBe(true);
+        expect(chamadas.every((c) => c[3] === 'Mapa')).toBe(true);
     });
 
     it('feicao SEM `source` cai no singular derivado do balde, nao no plural', async () => {
@@ -216,7 +227,7 @@ describe('deleteLayerFeatures limpa os grupos pelo tipo SINGULAR', () => {
         await deleteLayerFeatures('alvo', 'Mapa');
 
         expect(groupManager.removeFeatureFromAllGroups).toHaveBeenCalledTimes(1);
-        expect(groupManager.removeFeatureFromAllGroups.mock.calls[0][1]).toBe('p1');
+        expect(groupManager.removeFeatureFromAllGroups.mock.calls[0][2]).toBe('p1');
         expect(mockMaps.value.Mapa.features.points.map((f) => f.properties.id)).toEqual(['x1']);
     });
 });

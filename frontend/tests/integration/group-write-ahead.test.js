@@ -1,10 +1,11 @@
 // Path: tests/integration/group-write-ahead.test.js
 //
-// O diário das duas entradas de grupo migradas no bloco B4 (`updateGroupProperty` e
-// `ungroupFeatures`), contra o despachante REAL e o IndexedDB REAL. Molde:
+// O diário de TODAS as entradas de grupo migradas no bloco B4 (`createGroup`,
+// `updateGroupProperty`, `ungroupFeatures`, `combineGroups` e `removeFeatureFromAllGroups`),
+// contra o despachante REAL e o IndexedDB REAL. Molde:
 // tests/integration/catalog-write-ahead.test.js.
 //
-// DUAS PROPRIEDADES SÃO PRÓPRIAS DESTE ARQUIVO, e nenhuma delas existia antes:
+// QUATRO PROPRIEDADES SÃO PRÓPRIAS DESTE ARQUIVO, e nenhuma delas existia antes:
 //
 //  1. A escrita saiu do `setTimeout(0)`. `_saveGroupsToDBAsync` agendava a gravação para um
 //     tick futuro com um `catch` que só logava, então a edição já estava na tela e na memória
@@ -13,6 +14,14 @@
 //  2. `ungroupFeatures` registra o `group` DELETE e NADA de membresia. O servidor soft-deleta
 //     a linha e remonta membro só de grupo vivo, então uma op `group_feature` por membro seria
 //     trabalho sem efeito dos dois lados.
+//  3. `combineGroups` declara M + 1 + N intenções numa transação só, NESSA ordem (os deletes dos
+//     dissolvidos, o create do resultado, a membresia dele), e uma gravação recusada deixa os M
+//     antigos VIVOS. O caminho antigo mutava o metadado deles em memória antes de qualquer coisa
+//     ser durável, então a pessoa via um grupo combinado enquanto o disco guardava dois.
+//  4. `removeFeatureFromAllGroups` NÃO abre transação: ela recebe a do pai, registra a intenção
+//     durante o PREPARO e devolve a gravação do documento para o pai encadear. Duas chamadas na
+//     MESMA transação compõem, pela sobreposição por transação, que é a forma que a exclusão de
+//     uma camada inteira produz (uma chamada por feição).
 
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -25,6 +34,7 @@ import { memoryStore } from '../../src/js/store/memory-store.js';
 import { mapResolver } from '../../src/js/store/services/map-resolver.service.js';
 import { createGroupManager } from '../../src/js/tool_manager/group_manager.js';
 import { createSyncMetadata } from '../../src/js/store/sync/sync-metadata.js';
+import { runTransaction } from '../../src/js/store/store-transaction.js';
 
 let mapB;
 let gm;
@@ -70,6 +80,24 @@ beforeEach(async () => {
 
 /** @param {string} id @returns {Object} A minimal point feature, as the selection hands it over. */
 const pt = (id) => ({ properties: { id, source: 'point' } });
+
+/**
+ * Drives one or more removals inside ONE transaction, exactly as the feature-delete callers do:
+ * the intentions are recorded during PREPARE and the groups write is chained onto the parent's
+ * persistence function.
+ *
+ * @param {Array<[string, string]>} pares - `[sourceType, featureId]` pairs, in call order
+ * @returns {Promise<void>}
+ */
+async function removerNaTransacaoDoPai(pares) {
+    await runTransaction(async (tx) => {
+        let persistGroups = null;
+        for (const [type, featureId] of pares) {
+            persistGroups = gm.removeFeatureFromAllGroups(tx, type, featureId, mapB.name) ?? persistGroups;
+        }
+        return async () => { await persistGroups?.(); };
+    });
+}
 
 describe('Group write-ahead persistence', () => {
     it('criar registra o GRUPO e um membro por feição, nessa ordem, antes de gravar', async () => {
@@ -250,6 +278,130 @@ describe('Group write-ahead persistence', () => {
         expect(Object.values(stored).map(g => g.name).sort())
             .toEqual(Array.from({ length: 6 }, (_, i) => `Renomeado ${i}`));
         expect((await operationQueue.getAll()).map(op => op.mapId)).toEqual(Array.from({ length: 6 }, () => mapB.id));
+    });
+
+    it('combinar registra os DELETES, o create e a membresia, nessa ordem, antes de gravar', async () => {
+        memoryStore.groups[mapB.name] = {};
+        const g1 = await gm.createGroup([pt('a'), pt('b')], mapB.name);
+        const g2 = await gm.createGroup([pt('c'), pt('d')], mapB.name);
+        await operationQueue.clear();
+
+        const original = LocalRepository.prototype.saveGroups;
+        let filaNaGravacao = null;
+        vi.spyOn(LocalRepository.prototype, 'saveGroups').mockImplementation(async function (key, value) {
+            filaNaGravacao = await operationQueue.getAll();
+            // Os dois antigos ainda estão VIVOS na memória enquanto a gravação não confirma.
+            expect(memoryStore.groups[mapB.name][g1.id].sync.deleted).toBe(false);
+            expect(memoryStore.groups[mapB.name][g2.id].sync.deleted).toBe(false);
+            return original.call(this, key, value);
+        });
+
+        const combinado = await gm.combineGroups([g1.id, g2.id], [], mapB.name);
+
+        // 2 deletes + 1 create + 4 membresias, NESSA ordem. A membresia depois do create porque o
+        // INSERT da junção é gateado por EXISTS sobre a linha do grupo; os deletes antes para que
+        // o servidor nunca guarde a mesma feição em dois grupos vivos.
+        expect(filaNaGravacao.map(op => `${op.entityType}:${op.operationType}`)).toEqual([
+            'group:delete', 'group:delete', 'group:create',
+            'group_feature:create', 'group_feature:create',
+            'group_feature:create', 'group_feature:create'
+        ]);
+        expect(filaNaGravacao.slice(0, 2).map(op => op.entityId).sort()).toEqual([g1.id, g2.id].sort());
+        expect(filaNaGravacao[2].entityId).toBe(combinado.id);
+        expect(filaNaGravacao.slice(3).map(op => op.data.feature_id).sort()).toEqual(['a', 'b', 'c', 'd']);
+        expect(filaNaGravacao.slice(3).every(op => op.data.group_id === combinado.id)).toBe(true);
+        // O id de cada membresia é descartável e único, pela mesma razão de `createGroup`.
+        expect(new Set(filaNaGravacao.slice(3).map(op => op.entityId)).size).toBe(4);
+        expect(filaNaGravacao.every(op => op.mapId === mapB.id)).toBe(true);
+
+        const gravados = await localRepository.getGroups(mapB.id);
+        expect(gravados[g1.id].sync.deleted).toBe(true);
+        expect(gravados[g2.id].sync.deleted).toBe(true);
+        expect(gravados[combinado.id].features.map(m => m.id)).toEqual(['a', 'b', 'c', 'd']);
+        expect(gm.getGroupById(combinado.id, mapB.name)).toBeTruthy();
+    });
+
+    it('combinar com gravação recusada NÃO dissolve os grupos antigos e preserva as intenções', async () => {
+        memoryStore.groups[mapB.name] = {};
+        const g1 = await gm.createGroup([pt('a'), pt('b')], mapB.name);
+        const g2 = await gm.createGroup([pt('c'), pt('d')], mapB.name);
+        await operationQueue.clear();
+        vi.spyOn(LocalRepository.prototype, 'saveGroups')
+            .mockRejectedValueOnce(new DOMException('quota', 'QuotaExceededError'));
+
+        await expect(gm.combineGroups([g1.id, g2.id], [], mapB.name)).rejects.toThrow('quota');
+
+        expect(await operationQueue.getAll()).toHaveLength(7);
+        expect(await operationQueue.peek()).toEqual([]);
+        // O CONTRÁRIO do caminho antigo, que mutava `sync` dos antigos em memória antes de
+        // qualquer coisa ser durável: a pessoa via um grupo combinado e o disco guardava dois.
+        expect(memoryStore.groups[mapB.name][g1.id].sync.deleted).toBe(false);
+        expect(memoryStore.groups[mapB.name][g2.id].sync.deleted).toBe(false);
+        expect(Object.keys(memoryStore.groups[mapB.name]).sort()).toEqual([g1.id, g2.id].sort());
+    });
+
+    it('a saída de um membro viaja na transação do PAI, antes de o documento ser gravado', async () => {
+        const group = seedGroup();
+        const original = LocalRepository.prototype.saveGroups;
+        let filaNaGravacao = null;
+        vi.spyOn(LocalRepository.prototype, 'saveGroups').mockImplementation(async function (key, value) {
+            filaNaGravacao = await operationQueue.getAll();
+            // A memória ainda tem os três: ela é espelho do disco, não da intenção.
+            expect(memoryStore.groups[mapB.name].g1.features).toHaveLength(3);
+            return original.call(this, key, value);
+        });
+
+        await removerNaTransacaoDoPai([['point', 'f2']]);
+
+        expect(filaNaGravacao).toHaveLength(1);
+        expect(filaNaGravacao[0].entityType).toBe('group_feature');
+        expect(filaNaGravacao[0].operationType).toBe('delete');
+        expect(filaNaGravacao[0].mapId).toBe(mapB.id);
+        expect(filaNaGravacao[0].data)
+            .toEqual({ group_id: 'g1', feature_id: 'f2', feature_type: 'point' });
+        // O id da op é descartável: nunca o do grupo, senão a compactação colapsaria remoções.
+        expect(filaNaGravacao[0].entityId).not.toBe('g1');
+
+        expect((await localRepository.getGroups(mapB.id)).g1.features.map(m => m.id))
+            .toEqual(['f1', 'f3']);
+        expect(gm.getGroupById('g1', mapB.name).features.map(m => m.id)).toEqual(['f1', 'f3']);
+        expect(group.features, 'o documento anterior não é mutado no lugar').toHaveLength(3);
+    });
+
+    it('DUAS saídas na MESMA transação compõem: o segundo dissolve o grupo e o documento tem as duas', async () => {
+        // O caso que a sobreposição por transação existe para prender. A memória só muda depois da
+        // gravação, então sem ela a segunda chamada leria o documento de três membros outra vez e
+        // gravaria um grupo que perdeu SÓ a segunda feição, em silêncio. É a forma que a exclusão
+        // de uma camada inteira produz: uma chamada por feição, uma transação só.
+        seedGroup();
+
+        await removerNaTransacaoDoPai([['point', 'f1'], ['point', 'f2']]);
+
+        const fila = await operationQueue.getAll();
+        expect(fila.map(op => `${op.entityType}:${op.operationType}`))
+            .toEqual(['group_feature:delete', 'group_feature:delete', 'group:delete']);
+        expect(fila.slice(0, 2).map(op => op.data.feature_id)).toEqual(['f1', 'f2']);
+        // O `group` DELETE nasce da SEGUNDA remoção, quando o grupo cai a um membro.
+        expect(fila[2].entityId).toBe('g1');
+        expect(fila[2].previousData.features.map(m => m.id)).toEqual(['f2', 'f3']);
+
+        const gravado = (await localRepository.getGroups(mapB.id)).g1;
+        expect(gravado.features.map(m => m.id)).toEqual(['f3']);
+        expect(gravado.sync.deleted).toBe(true);
+        expect(gm.getGroupById('g1', mapB.name)).toBeNull();
+    });
+
+    it('saída de membro com gravação recusada preserva a intenção e não mexe na memória', async () => {
+        seedGroup();
+        vi.spyOn(LocalRepository.prototype, 'saveGroups')
+            .mockRejectedValueOnce(new DOMException('quota', 'QuotaExceededError'));
+
+        await expect(removerNaTransacaoDoPai([['point', 'f2']])).rejects.toThrow('quota');
+
+        expect(await operationQueue.getAll()).toHaveLength(1);
+        expect(await operationQueue.peek()).toEqual([]);
+        expect(await localRepository.getGroups(mapB.id)).toEqual({});
+        expect(memoryStore.groups[mapB.name].g1.features).toHaveLength(3);
     });
 
     it('troca de escopo durante a transação não escreve em nenhum dos dois atlas', async () => {

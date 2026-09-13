@@ -93,9 +93,9 @@ const pt = (id) => ({ properties: { id, source: 'point' } });
 /**
  * Waits until the queue holds `n` operations and returns them in QUEUE order.
  *
- * A espera continua existindo depois de `createGroup` virar write-ahead, e por DOIS motivos: o
- * caminho antigo (`combineGroups`) segue com loggers fire-and-forget, e `peek` so' entrega a op
- * MATERIALIZADA, marca que cai no fim da transacao. Esperar por contagem cobre os dois regimes.
+ * A espera continua existindo depois de as DUAS entradas virarem write-ahead: `peek` so' entrega
+ * a op MATERIALIZADA, e essa marca cai no fim da transacao, depois da gravacao do documento.
+ * Esperar por contagem tambem mantem o caso honesto se alguem voltar a logar sem esperar.
  * @param {number} n
  * @returns {Promise<Array<Object>>}
  */
@@ -184,7 +184,7 @@ describe('ordem de SAIDA da fila: o grupo antes da membresia dele', () => {
         await esperarFila(6);
         mockStore.clear();
 
-        const combinado = gm.combineGroups([g1.id, g2.id], [], 'Mapa Fila');
+        const combinado = await gm.combineGroups([g1.id, g2.id], [], 'Mapa Fila');
 
         // 2 deletes dos grupos antigos + 1 create do novo + 4 membresias.
         const fila = await esperarFila(7);

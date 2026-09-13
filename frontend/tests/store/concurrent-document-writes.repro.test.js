@@ -165,6 +165,15 @@ beforeEach(() => {
     h.writeHops = 2;
     resetDocumentLocks();
     seedEmptyMap();
+    // O gerente de grupos passou a ser REQUISITO de `removeFeature` em 2026-09-13: a limpeza de
+    // grupo saiu de `tx.deferSync` (onde uma dependência ausente era engolida pelo `try` do
+    // commit) para o PREPARO da transação, que é o que permite a ela registrar a intenção. Sem o
+    // duplo, o caso de remoção deste arquivo falharia por dependência, não por corrida.
+    setFeatureDependencies({
+        eventBus: null,
+        layerManager: null,
+        groupManager: { removeFeatureFromAllGroups: () => null }
+    });
 });
 
 afterEach(() => {
