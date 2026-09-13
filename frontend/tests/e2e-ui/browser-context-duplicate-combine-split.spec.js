@@ -19,12 +19,24 @@
  *
  * The atlas/map/share SETUP is API-only (sharing has no UI); for §14.9 login + open +
  * the draw/duplicate gestures are real UI.
+ *
+ * O UPDATE E O DELETE DAS DUAS SONDAS DECLARAM A BASE OBSERVADA desde `5f91f2e9` (2026-09-13):
+ * a op leva `baseVersion` (a `properties.confirmedVersion` da linha do snapshot) e o patch das
+ * unidades que mudou, e uma op sem base é recusada por `RAZAO_SEM_BASE` sem escrever nada. No
+ * delete a exigência é mais dura que no update: a base tem de ser a versão CORRENTE, senão a
+ * recusa é `RAZAO_ALTERADO_ANTES_DA_EXCLUSAO`. Isso é o que um combine/split real também tem de
+ * fazer, então a sonda ficou mais parecida com o gesto, não menos: quem sobrevive é lido antes
+ * de ser reescrito, e quem morre é lido antes de ser apagado. A leitura vem de
+ * `helpers/base-confirmada.js`, e é UMA por push, porque as ops de um mesmo push miram
+ * entidades distintas. O fan-out medido (um sobrevivente modificado, os demais apagados; e o
+ * inverso no split) não mudou.
  */
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { seedSharedAtlas, openClient, drawLineUI } from './helpers/collab-helpers.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { instalarBaseConfirmada } from './helpers/base-confirmada.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -111,6 +123,7 @@ describeOrSkip('Selection context actions: duplicate / combine / split / cut (re
         // alcance do `page.evaluate`); o browser recebe credenciais prontas e só faz o login.
         const user = await createVerifiedUser({ prefix: 'cmb', nome: 'Combine User' });
         await page.goto('/');
+        await instalarBaseConfirmada(page);
 
         const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
@@ -161,16 +174,20 @@ describeOrSkip('Selection context actions: duplicate / combine / split / cut (re
                     [[-43.0, -22.9], [-42.9, -22.9]],
                 ],
             };
-            await api.pushOperations(atlas.id, [
-                createOperation('feature', 'update', a1, mapId, arrow(a1, compositeGeom.coordinates, { nome: 'Composite', composite: true })),
-                createOperation('feature', 'delete', a2, mapId, null),
-                createOperation('feature', 'delete', a3, mapId, null),
-            ]);
+            // UMA leitura para as três bases (o sobrevivente e os dois que morrem miram
+            // entidades distintas, então nenhuma move a base da outra).
+            const ackCombine = await api.pushOperations(atlas.id,
+                await window.__ebgeoBase.opsDeEdicao(api, atlas.id, mapId, [
+                    { id: a1, data: arrow(a1, compositeGeom.coordinates, { nome: 'Composite', composite: true }) },
+                    { id: a2, data: null },
+                    { id: a3, data: null },
+                ]));
 
             // NOTE: arrow geometry persisted as JSONB; rewrite a1 with the real
-            // MultiLineString geometry so the snapshot reflects the merged legs.
-            await api.pushOperations(atlas.id, [
-                createOperation('feature', 'update', a1, mapId, {
+            // MultiLineString geometry so the snapshot reflects the merged legs. Base RELIDA:
+            // a escrita acima moveu a revisão de a1.
+            const ackRewrite = await api.pushOperations(atlas.id, [
+                await window.__ebgeoBase.opDeEdicao(api, atlas.id, mapId, a1, {
                     type: 'Feature',
                     geometry: compositeGeom,
                     properties: { id: a1, source: 'arrow', nome: 'Composite', composite: true },
@@ -181,6 +198,8 @@ describeOrSkip('Selection context actions: duplicate / combine / split / cut (re
             const composite = combinedMap.get(a1);
 
             const combined = {
+                acks: [...ackCombine.results, ...ackRewrite.results]
+                    .map((r) => ({ success: r.success, reason: r.reason ?? null })),
                 survivorPresent: combinedMap.has(a1),
                 a2Gone: !combinedMap.has(a2),
                 a3Gone: !combinedMap.has(a3),
@@ -194,15 +213,18 @@ describeOrSkip('Selection context actions: duplicate / combine / split / cut (re
             const s1 = crypto.randomUUID();
             const s2 = crypto.randomUUID();
             const s3 = crypto.randomUUID();
-            await api.pushOperations(atlas.id, [
+            const ackSplit = await api.pushOperations(atlas.id, [
                 createOperation('feature', 'create', s1, mapId, arrow(s1, [[-43.2, -22.9], [-43.1, -22.9]], { nome: 'S1' })),
                 createOperation('feature', 'create', s2, mapId, arrow(s2, [[-43.1, -22.9], [-43.0, -22.9]], { nome: 'S2' })),
                 createOperation('feature', 'create', s3, mapId, arrow(s3, [[-43.0, -22.9], [-42.9, -22.9]], { nome: 'S3' })),
-                createOperation('feature', 'delete', a1, mapId, null),
+                // O delete do composto declara a base CORRENTE dele: apagar contra base velha
+                // é `RAZAO_ALTERADO_ANTES_DA_EXCLUSAO`, e o composto acabou de ser reescrito.
+                await window.__ebgeoBase.opDeEdicao(api, atlas.id, mapId, a1, null),
             ]);
 
             const splitMap = arrowsById(await pullMap());
             const split = {
+                acks: ackSplit.results.map((r) => ({ success: r.success, reason: r.reason ?? null })),
                 compositeGone: !splitMap.has(a1),
                 s1Present: splitMap.has(s1),
                 s2Present: splitMap.has(s2),
@@ -219,7 +241,12 @@ describeOrSkip('Selection context actions: duplicate / combine / split / cut (re
         // seed sanity
         expect(result.seededCount).toBe(3);
 
-        // §14.10 combine assertions
+        // §14.10 combine assertions. Os quatro acks (três do fan-out + a reescrita) vêm antes
+        // do conteúdo: uma recusa por base deixaria os três arrows originais de pé, e o
+        // vermelho seria "ainda há três arrows", que acusa a persistência e não a declaração.
+        expect(result.combined.acks.length).toBe(4);
+        expect(result.combined.acks.filter((a) => a.success === true).length,
+            JSON.stringify(result.combined.acks)).toBe(4);
         expect(result.combined.survivorPresent).toBe(true);
         expect(result.combined.a2Gone).toBe(true);
         expect(result.combined.a3Gone).toBe(true);
@@ -229,6 +256,9 @@ describeOrSkip('Selection context actions: duplicate / combine / split / cut (re
         expect(result.combined.legCount).toBe(3);
 
         // §14.11 split assertions
+        expect(result.split.acks.length).toBe(4);
+        expect(result.split.acks.filter((a) => a.success === true).length,
+            JSON.stringify(result.split.acks)).toBe(4);
         expect(result.split.compositeGone).toBe(true);
         expect(result.split.s1Present).toBe(true);
         expect(result.split.s2Present).toBe(true);
@@ -248,6 +278,7 @@ describeOrSkip('Selection context actions: duplicate / combine / split / cut (re
         // Conta pronta vinda do Node, como no teste acima.
         const user = await createVerifiedUser({ prefix: 'cut', nome: 'Cut User' });
         await page.goto('/');
+        await instalarBaseConfirmada(page);
 
         const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
@@ -289,15 +320,17 @@ describeOrSkip('Selection context actions: duplicate / combine / split / cut (re
             // DELETE the original. Result: exactly the two halves, no original.
             const halfA = crypto.randomUUID();
             const halfB = crypto.randomUUID();
-            await api.pushOperations(atlas.id, [
+            const ackCut = await api.pushOperations(atlas.id, [
                 createOperation('feature', 'create', halfA, mapId, line(halfA, [[-43.2, -22.9], [-43.1, -22.9]], { nome: 'Half A' })),
                 createOperation('feature', 'create', halfB, mapId, line(halfB, [[-43.1, -22.9], [-43.0, -22.9]], { nome: 'Half B' })),
-                createOperation('feature', 'delete', original, mapId, null),
+                // O delete declara a base corrente da linha original (ver o cabeçalho).
+                await window.__ebgeoBase.opDeEdicao(api, atlas.id, mapId, original, null),
             ]);
 
             const after = await pullMap();
             const ids = lineIds(after);
             const cut = {
+                acks: ackCut.results.map((r) => ({ success: r.success, reason: r.reason ?? null })),
                 originalGone: !ids.includes(original),
                 halfAPresent: ids.includes(halfA),
                 halfBPresent: ids.includes(halfB),
@@ -332,6 +365,9 @@ describeOrSkip('Selection context actions: duplicate / combine / split / cut (re
         }, { baseUrl: state.baseUrl, u: user });
 
         // §14.12 cut assertions
+        expect(result.cut.acks.length).toBe(3);
+        expect(result.cut.acks.filter((a) => a.success === true).length,
+            JSON.stringify(result.cut.acks)).toBe(3);
         expect(result.cut.originalGone).toBe(true);
         expect(result.cut.halfAPresent).toBe(true);
         expect(result.cut.halfBPresent).toBe(true);

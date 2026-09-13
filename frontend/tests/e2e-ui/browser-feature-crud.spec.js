@@ -12,6 +12,15 @@
  * `map.features.{points,lines,polygons}`. Writes are CRDT operations pushed via
  * `api.pushOperations` (there are NO REST write routes for features).
  *
+ * O UPDATE E O DELETE DECLARAM A BASE OBSERVADA desde `5f91f2e9` (2026-09-13). Antes, este
+ * spec montava as duas com `createOperation('feature', 'update'|'delete', ...)` sem o sexto
+ * argumento, e o servidor as aplicava por ordem de chegada; hoje uma op que não declara base
+ * é recusada por `RAZAO_SEM_BASE` antes de escrever qualquer coisa. A base é a revisão que o
+ * snapshot confirma (`properties.confirmedVersion`), lida por `helpers/base-confirmada.js` —
+ * o equivalente, num spec de transporte, ao documento que a operação de store lê do IndexedDB
+ * antes de escrever por cima. O que o caso mede é o mesmo: o update muda o polígono no lugar
+ * e o delete tira a linha sem levar as irmãs.
+ *
  * Coverage:
  *   - create one point + one line + one polygon, assert each lands in its OWN bucket;
  *   - update the polygon (move a vertex + rename), assert the snapshot reflects it;
@@ -26,6 +35,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { instalarBaseConfirmada } from './helpers/base-confirmada.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -35,6 +45,7 @@ describeOrSkip('Feature CRUD (real Chromium + real backend, transport via page.e
         page,
     }) => {
         await page.goto('/');
+        await instalarBaseConfirmada(page);
 
         const user = await createVerifiedUser({ prefix: 'crud', nome: 'CRUD User' });
 
@@ -114,26 +125,32 @@ describeOrSkip('Feature CRUD (real Chromium + real backend, transport via page.e
             };
 
             // ---- UPDATE the polygon (move a vertex + rename) --------------
-            const updatedPolygon = makeFeature(polygonId, 'polygon', {
-                type: 'Polygon',
-                coordinates: [
-                    [
-                        [-43.25, -22.95],
-                        [-43.05, -22.95],
-                        [-43.05, -22.75],
-                        [-43.25, -22.95],
+            // Declarando a base observada: a op leva `previousData` (a linha do snapshot com
+            // `confirmedVersion`), e é dela que saem `baseVersion` e o patch de duas unidades
+            // (a geometria e o `nome`). Sem isso o servidor recusa por `RAZAO_SEM_BASE`.
+            const updateOp = await window.__ebgeoBase.opDeEdicao(api, atlas.id, mapId, polygonId, {
+                geometry: {
+                    type: 'Polygon',
+                    coordinates: [
+                        [
+                            [-43.25, -22.95],
+                            [-43.05, -22.95],
+                            [-43.05, -22.75],
+                            [-43.25, -22.95],
+                        ],
                     ],
-                ],
-            }, { nome: 'Poligono Editado' });
-            await api.pushOperations(atlas.id, [
-                createOperation('feature', 'update', polygonId, mapId, updatedPolygon),
-            ]);
+                },
+                properties: { id: polygonId, source: 'polygon', nome: 'Poligono Editado' },
+            });
+            const updateAck = await api.pushOperations(atlas.id, [updateOp]);
 
             const afterUpdate = await pullMap();
             const updatedFeature = (afterUpdate?.features?.polygons || []).find(
                 (f) => f.properties.id === polygonId,
             );
             const updated = {
+                acked: updateAck.results?.[0]?.success ?? null,
+                reason: updateAck.results?.[0]?.reason ?? null,
                 stillInPolygons: bucketIds(afterUpdate, 'polygons').includes(polygonId),
                 renamed: updatedFeature?.properties.nome === 'Poligono Editado',
                 vertexMoved:
@@ -145,12 +162,17 @@ describeOrSkip('Feature CRUD (real Chromium + real backend, transport via page.e
             };
 
             // ---- DELETE the line ------------------------------------------
-            await api.pushOperations(atlas.id, [
-                createOperation('feature', 'delete', lineId, mapId, null),
-            ]);
+            // O delete também declara base, e a exigência dele é mais dura que a do update: o
+            // servidor só apaga quando a base observada É a versão corrente
+            // (`RAZAO_ALTERADO_ANTES_DA_EXCLUSAO` no caso contrário), então a leitura tem de ser
+            // a de agora, não a do começo do teste.
+            const deleteOp = await window.__ebgeoBase.opDeEdicao(api, atlas.id, mapId, lineId, null);
+            const deleteAck = await api.pushOperations(atlas.id, [deleteOp]);
 
             const afterDelete = await pullMap();
             const deleted = {
+                acked: deleteAck.results?.[0]?.success ?? null,
+                reason: deleteAck.results?.[0]?.reason ?? null,
                 lineGone: !bucketIds(afterDelete, 'lines').includes(lineId),
                 pointSurvives: bucketIds(afterDelete, 'points').includes(pointId),
                 polygonSurvives: bucketIds(afterDelete, 'polygons').includes(polygonId),
@@ -196,12 +218,17 @@ describeOrSkip('Feature CRUD (real Chromium + real backend, transport via page.e
         expect(result.created.polygonSource).toBe('polygon');
 
         // ---- UPDATE assertions: in place, single instance, content changed ----
+        // O ack vem ANTES do conteúdo de propósito: uma recusa por base deixa o polígono
+        // ANTIGO na tela, e sem esta linha o vermelho seria "renamed: false", que acusa a
+        // persistência quando o problema é a declaração.
+        expect(result.updated.acked, `update recusado: ${result.updated.reason}`).toBe(true);
         expect(result.updated.stillInPolygons).toBe(true);
         expect(result.updated.renamed).toBe(true);
         expect(result.updated.vertexMoved).toBe(true);
         expect(result.updated.polygonCount).toBe(1);
 
         // ---- DELETE assertions: line gone, siblings survive ----
+        expect(result.deleted.acked, `delete recusado: ${result.deleted.reason}`).toBe(true);
         expect(result.deleted.lineGone).toBe(true);
         expect(result.deleted.pointSurvives).toBe(true);
         expect(result.deleted.polygonSurvives).toBe(true);

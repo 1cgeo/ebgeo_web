@@ -7,18 +7,25 @@
  * grounded in observable backend state read back through `api.pullSync` — no mocks.
  *
  * A feature is a GeoJSON Feature; its custom attributes live as loose keys on
- * `properties`. The backend persists a feature `update` op by REPLACING the whole
- * `properties` JSONB (whole-feature last-write-wins — see UPDATE_FIELDS.feature +
- * the "updates feature properties" twin in the backend `features.test.js`). So every
- * attribute mutation is an `update` op carrying the FULL feature with the desired
- * final `properties` object:
+ * `properties`. Every attribute mutation is an `update` op carrying the FULL feature with the
+ * desired final `properties` object:
  *   - ADD a custom attribute   → update with `properties.<key>` present;
  *   - EDIT its value           → update with `properties.<key>` = new value;
  *   - DELETE the attribute     → update with `properties.<key>` ABSENT.
  *
+ * O QUE MUDOU EM `5f91f2e9` (2026-09-13), E O QUE NÃO MUDOU. Não é mais o `properties` inteiro
+ * que viaja como substituição cega: a op declara a base observada (`baseVersion`, tirada de
+ * `properties.confirmedVersion` da linha do snapshot) e um PATCH por unidade, e o servidor
+ * aplica o patch sobre a linha corrente. Uma op sem base é recusada por `RAZAO_SEM_BASE` antes
+ * de escrever. A propriedade que este spec mede sobrevive intacta, porque é o patch que a
+ * produz: uma chave AUSENTE do payload vira um `remove` explícito, então "apagar o atributo
+ * omitindo a chave" continua sendo o gesto, e continua apagando. A base é lida por
+ * `helpers/base-confirmada.js`, e ela é relida entre edições porque cada escrita aceita move a
+ * revisão da feição.
+ *
  * Coverage (§17.11–13 + §18.4–6 of docs/acoes-interface-multiusuario.md):
  *   - §17.11 add a custom attribute to one feature (single feature update);
- *   - §17.12 edit that attribute's value (last-write-wins by key);
+ *   - §17.12 edit that attribute's value (a edição seguinte, contra a base atual, vence);
  *   - §17.13 delete that attribute (key vanishes from the snapshot properties);
  *   - §18.5 batch "add column": update N features adding the SAME key to all;
  *   - §18.6 batch "delete column": update N features removing the key from all;
@@ -33,6 +40,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { instalarBaseConfirmada } from './helpers/base-confirmada.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -45,6 +53,7 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
         // alcance do `page.evaluate`); o browser recebe credenciais prontas e só faz o login.
         const user = await createVerifiedUser({ prefix: 'attr', nome: 'Attr User' });
         await page.goto('/');
+        await instalarBaseConfirmada(page);
 
         const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
@@ -78,26 +87,32 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
                 return f?.properties || null;
             };
 
+            // Cada edição declara a base que acabou de ler: a escrita anterior já moveu a
+            // revisão da feição, e reusar a base da leitura anterior seria a disputa que o
+            // servidor recusa (é o que o caso de base velha mede, em browser-idempotency-lww).
+            const editar = (props) => window.__ebgeoBase
+                .opDeEdicao(api, atlas.id, mapId, featureId, makeFeature(props));
+
             // ---- §17.11 ADD: introduce a brand-new custom attribute ----------
-            await api.pushOperations(atlas.id, [
-                createOperation('feature', 'update', featureId, mapId, makeFeature({ unidade: '1º BIS' })),
-            ]);
+            const ackAdd = await api.pushOperations(atlas.id, [await editar({ unidade: '1º BIS' })]);
             const afterAdd = await readProps();
 
-            // ---- §17.12 EDIT: change the attribute's value (LWW by key) ------
-            await api.pushOperations(atlas.id, [
-                createOperation('feature', 'update', featureId, mapId, makeFeature({ unidade: '2º BIS' })),
-            ]);
+            // ---- §17.12 EDIT: change the attribute's value (a nova edição vence) ------
+            const ackEdit = await api.pushOperations(atlas.id, [await editar({ unidade: '2º BIS' })]);
             const afterEdit = await readProps();
 
             // ---- §17.13 DELETE: drop the attribute (key absent in the update) -
-            await api.pushOperations(atlas.id, [
-                createOperation('feature', 'update', featureId, mapId, makeFeature({})),
-            ]);
+            // A ausência da chave vira um `remove` no patch, então o apagamento continua
+            // sendo o gesto de omitir.
+            const ackDelete = await api.pushOperations(atlas.id, [await editar({})]);
             const afterDelete = await readProps();
 
             return {
                 hasToken: Boolean(api.getAccessToken()),
+                acks: [ackAdd, ackEdit, ackDelete].map((a) => ({
+                    success: a.results?.[0]?.success ?? null,
+                    reason: a.results?.[0]?.reason ?? null,
+                })),
                 addValue: afterAdd?.unidade ?? null,
                 addKept: afterAdd?.nome ?? null,
                 editValue: afterEdit?.unidade ?? null,
@@ -107,6 +122,9 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
         }, { baseUrl: state.baseUrl, u: user });
 
         expect(result.hasToken).toBe(true);
+        // As TRÊS edições foram aceitas. Sem esta linha, uma recusa por base apareceria como
+        // "o atributo não mudou", que acusa a persistência no lugar da declaração.
+        expect(result.acks.map((a) => a.success), JSON.stringify(result.acks)).toEqual([true, true, true]);
         // ADD: the new key is present with its value, and prior props survive.
         expect(result.addValue).toBe('1º BIS');
         expect(result.addKept).toBe('Ponto');
@@ -123,6 +141,7 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
         // Conta pronta vinda do Node, como no teste acima.
         const user = await createVerifiedUser({ prefix: 'col', nome: 'Column User' });
         await page.goto('/');
+        await instalarBaseConfirmada(page);
 
         const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
@@ -160,22 +179,26 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
                 points.find((p) => p.properties.id === id)?.properties || null;
 
             // ---- §18.5 ADD COLUMN: same key added to ALL features (batch) ----
-            await api.pushOperations(
+            // UMA leitura de snapshot para as N bases: as N ops miram N entidades distintas,
+            // então nenhuma delas move a base da outra e a mesma leitura serve ao lote inteiro.
+            const ackAdd = await api.pushOperations(
                 atlas.id,
-                ids.map((id, i) =>
-                    createOperation('feature', 'update', id, mapId, makeFeature(id, { prioridade: i + 1 })),
-                ),
+                await window.__ebgeoBase.opsDeEdicao(api, atlas.id, mapId,
+                    ids.map((id, i) => ({ id, data: makeFeature(id, { prioridade: i + 1 }) }))),
             );
             const afterAddColumn = await readPoints();
 
             // ---- §18.6 DELETE COLUMN: same key removed from ALL features ------
-            await api.pushOperations(
+            const ackDelete = await api.pushOperations(
                 atlas.id,
-                ids.map((id) => createOperation('feature', 'update', id, mapId, makeFeature(id, {}))),
+                await window.__ebgeoBase.opsDeEdicao(api, atlas.id, mapId,
+                    ids.map((id) => ({ id, data: makeFeature(id, {}) }))),
             );
             const afterDeleteColumn = await readPoints();
 
             return {
+                acks: [...ackAdd.results, ...ackDelete.results]
+                    .map((r) => ({ success: r.success, reason: r.reason ?? null })),
                 count: afterAddColumn.length,
                 everyHasColumn: ids.every((id) => {
                     const p = propsOf(afterAddColumn, id);
@@ -193,6 +216,10 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
             };
         }, { baseUrl: state.baseUrl, u: user });
 
+        // Os DOIS lotes inteiros foram aceitos, op por op: oito acks, nenhum recusado. A
+        // contagem exata é o que separa "o lote passou" de "passou a maior parte dele".
+        expect(result.acks.length).toBe(8);
+        expect(result.acks.filter((a) => a.success === true).length, JSON.stringify(result.acks)).toBe(8);
         // ADD COLUMN: every feature gained the key, with its own per-feature value.
         expect(result.count).toBe(4);
         expect(result.everyHasColumn).toBe(true);

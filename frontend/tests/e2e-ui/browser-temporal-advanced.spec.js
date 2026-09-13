@@ -10,22 +10,34 @@
  * The atlas feature model is GeoJSON: a feature carries its type in
  * `properties.source` and ALL temporal authoring data rides verbatim inside the
  * opaque JSONB `properties`. The backend never interprets these keys — it persists
- * `properties` as a whole and `pullSync` echoes it back into the snapshot bucket for
- * the feature type. A feature `update` is a FULL JSONB replace of `properties` (not
- * a deep merge), so a key omitted on update disappears. (The `mapTemporal` map-config
- * action itself is covered by browser-temporal — NOT duplicated here.)
+ * them and `pullSync` echoes them back into the snapshot bucket for the feature type.
+ * (The `mapTemporal` map-config action itself is covered by browser-temporal — NOT
+ * duplicated here.)
+ *
+ * A CHAVE OMITIDA CONTINUA SUMINDO, MAS POR OUTRO MECANISMO, e é o contrato de `5f91f2e9`
+ * (2026-09-13). Este spec dizia que o update era "a FULL JSONB replace of `properties`" e
+ * empurrava ops cruas; hoje a op declara a base observada (`baseVersion`, a
+ * `properties.confirmedVersion` da linha do snapshot) mais um PATCH das unidades que mudou, e
+ * uma op sem base é recusada por `RAZAO_SEM_BASE` antes de escrever. A propriedade que os casos
+ * daqui medem é a mesma, porque é o patch que a produz: uma chave AUSENTE do payload vira um
+ * `remove` explícito, então "apagar a janela temporal deixando os campos em branco" e "limpar a
+ * trajetória" continuam sendo o gesto de omitir, e continuam apagando. A base sai de
+ * `helpers/base-confirmada.js` e é RELIDA a cada edição, porque cada escrita aceita move a
+ * revisão da feição.
  *
  * Coverage (per-action of docs/acoes-interface-multiusuario.md §29):
  *   - §29.13 edit feature temporal validity: set then shift `temporalInicio`/
- *     `temporalFim`; in-blank-clears-to-permanent (full-replace drops the window);
+ *     `temporalFim`; in-blank-clears-to-permanent (a omissão das chaves derruba a janela);
  *   - §29.13+20 `autoDtg` flag persists AND its client-derived `dateTimeGroup`
  *     (military_symbol) rides along verbatim;
- *   - §29.15 trajectory edit: move/insert/remove keypoints — whole-array LWW replace;
- *   - §29.17 clear trajectory: full-replace drops `trajetoria` from the snapshot;
+ *   - §29.15 trajectory edit: move/insert/remove keypoints — o array é uma unidade só e
+ *     viaja inteiro;
+ *   - §29.17 clear trajectory: a omissão de `trajetoria` a derruba do snapshot;
  *   - §29.18/19 `autoDirection`/`autoSpeed` flags persist on a military_symbol;
  *   - §29.20 coordination_measure `autoDtg` derives `gdhIni`/`gdhFim` that round-trip;
  *   - NEGATIVE/edge: a sibling feature with NO temporal data never acquires any of
- *     these keys (cross-feature isolation), and a same-id LWW update wins last.
+ *     these keys (cross-feature isolation), e a edição seguinte da mesma feição, contra a
+ *     base atual, vence.
  *
  * Each test self-provisions its own user + atlas + map for full isolation. No UI
  * clicks — the transport is driven entirely through `page.evaluate`.
@@ -34,6 +46,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { instalarBaseConfirmada } from './helpers/base-confirmada.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -53,6 +66,9 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
  */
 async function seed(page, baseUrl, prefix) {
     const user = await createVerifiedUser({ prefix, nome: 'Temporal E2E' });
+    // `window.__ebgeoBase`: as edições daqui declaram a base observada, e ela é lida do
+    // snapshot dentro da própria página (ver o cabeçalho).
+    await instalarBaseConfirmada(page);
     return page.evaluate(
         async ({ baseUrl: url, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
@@ -89,17 +105,21 @@ describeOrSkip('Temporal feature transport (real Chromium + real backend)', () =
                 const movingId = crypto.randomUUID();
                 const plainId = crypto.randomUUID();
 
-                const featureOp = (id, type, props, coords = [-43.2, -22.9]) =>
-                    createOperation('feature', type, id, mid, {
-                        type: 'Feature',
-                        geometry: { type: 'Point', coordinates: coords },
-                        properties: { source: 'point', layerId: null, ...props },
-                    });
+                const corpo = (props, coords = [-43.2, -22.9]) => ({
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: coords },
+                    properties: { source: 'point', layerId: null, ...props },
+                });
+                const criar = (id, props, coords) =>
+                    createOperation('feature', 'create', id, mid, corpo(props, coords));
+                /** Edição declarando a base que o snapshot confirma AGORA. */
+                const editar = (id, props, coords) =>
+                    window.__ebgeoBase.opDeEdicao(api, aid, mid, id, corpo(props, coords));
 
                 // Create a temporal point + a plain sibling (no temporal data).
                 await api.pushOperations(aid, [
-                    featureOp(movingId, 'create', { nome: 'Unidade Movel', temporalInicio: inicio, temporalFim: fim }),
-                    featureOp(plainId, 'create', { nome: 'Marco Fixo' }, [-44.0, -23.5]),
+                    criar(movingId, { nome: 'Unidade Movel', temporalInicio: inicio, temporalFim: fim }),
+                    criar(plainId, { nome: 'Marco Fixo' }, [-44.0, -23.5]),
                 ]);
 
                 const pull = async () => {
@@ -112,12 +132,13 @@ describeOrSkip('Temporal feature transport (real Chromium + real backend)', () =
                 const created = find(movingId);
                 const plainCreated = find(plainId);
 
-                // §29.13: shift the window +1h (datetime edit, LWW). properties is a
-                // FULL replace, so carry the whole object including source.
+                // §29.13: shift the window +1h (datetime edit). O payload continua carregando
+                // o objeto inteiro, `source` incluso; o que o servidor aplica é o patch das
+                // duas unidades que mudaram.
                 const newInicio = inicio + 3_600_000;
                 const newFim = fim + 3_600_000;
-                await api.pushOperations(aid, [
-                    featureOp(movingId, 'update', {
+                const ackShift = await api.pushOperations(aid, [
+                    await editar(movingId, {
                         nome: 'Unidade Movel',
                         temporalInicio: newInicio,
                         temporalFim: newFim,
@@ -126,16 +147,20 @@ describeOrSkip('Temporal feature transport (real Chromium + real backend)', () =
                 find = await pull();
                 const shifted = find(movingId);
 
-                // §29.13: blank = permanent. A full-replace update WITHOUT the temporal
-                // keys must DROP them (not a deep merge that retains stale window data).
-                await api.pushOperations(aid, [
-                    featureOp(movingId, 'update', { nome: 'Unidade Parada' }),
+                // §29.13: blank = permanent. Um update SEM as chaves temporais tem de
+                // DERRUBÁ-LAS: elas viram dois `remove` no patch, e não sobra janela velha.
+                const ackClear = await api.pushOperations(aid, [
+                    await editar(movingId, { nome: 'Unidade Parada' }),
                 ]);
                 find = await pull();
                 const cleared = find(movingId);
                 const plainAfter = find(plainId);
 
                 return {
+                    acks: [ackShift, ackClear].map((a) => ({
+                        success: a.results?.[0]?.success ?? null,
+                        reason: a.results?.[0]?.reason ?? null,
+                    })),
                     created: {
                         present: Boolean(created),
                         inicio: created?.properties.temporalInicio,
@@ -167,6 +192,10 @@ describeOrSkip('Temporal feature transport (real Chromium + real backend)', () =
             { atlasId, mapId },
         );
 
+        // As duas edições foram aceitas: base recusada deixaria a janela antiga na linha, e o
+        // vermelho seria "a janela não mudou", que aponta para o lugar errado.
+        expect(result.acks.map((a) => a.success), JSON.stringify(result.acks)).toEqual([true, true]);
+
         // Create: window persisted as exact epoch-ms numbers (no string drift).
         expect(result.created.present).toBe(true);
         expect(result.created.inicio).toBe(result.expected.inicio);
@@ -181,7 +210,7 @@ describeOrSkip('Temporal feature transport (real Chromium + real backend)', () =
         expect(result.shifted.fim).toBe(result.expected.newFim);
         expect(result.shifted.version).toBeGreaterThan(1);
 
-        // Blank-clears: full-replace dropped the window (negative — not a deep merge).
+        // Blank-clears: a omissão das chaves derrubou a janela (negativo — não é fusão rasa).
         expect(result.cleared.present).toBe(true);
         expect(result.cleared.nome).toBe('Unidade Parada');
         expect(result.cleared.hasInicio).toBe(false);
@@ -192,7 +221,7 @@ describeOrSkip('Temporal feature transport (real Chromium + real backend)', () =
         expect(result.plainAfter.hasInicio).toBe(false);
     });
 
-    test('§29.15/17 trajectory edit → move/insert/remove keypoints (LWW) → clear drops it', async ({
+    test('§29.15/17 trajectory edit → move/insert/remove keypoints (o array inteiro é uma unidade) → clear drops it', async ({
         page,
     }) => {
         await page.goto('/');
@@ -212,15 +241,17 @@ describeOrSkip('Temporal feature transport (real Chromium + real backend)', () =
                     { t: fim, lng: -43.1, lat: -22.8 },
                 ];
 
-                const featureOp = (type, props) =>
-                    createOperation('feature', type, featureId, mid, {
-                        type: 'Feature',
-                        geometry: { type: 'Point', coordinates: [-43.2, -22.9] },
-                        properties: { source: 'point', layerId: null, ...props },
-                    });
+                const corpo = (props) => ({
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: [-43.2, -22.9] },
+                    properties: { source: 'point', layerId: null, ...props },
+                });
+                /** Edição declarando a base que o snapshot confirma AGORA. */
+                const editar = (props) => window.__ebgeoBase.opDeEdicao(api, aid, mid, featureId, corpo(props));
 
                 await api.pushOperations(aid, [
-                    featureOp('create', { nome: 'Movel', temporalInicio: inicio, temporalFim: fim, trajetoria: traj0 }),
+                    createOperation('feature', 'create', featureId, mid,
+                        corpo({ nome: 'Movel', temporalInicio: inicio, temporalFim: fim, trajetoria: traj0 })),
                 ]);
 
                 const pull = async () => {
@@ -232,26 +263,31 @@ describeOrSkip('Temporal feature transport (real Chromium + real backend)', () =
                 const created = await pull();
 
                 // §29.15/16: edit the whole trajectory (move first kp, insert a 4th kp,
-                // remove the last) — the entire array is replaced LWW.
+                // remove the last) — o array inteiro é UMA unidade, então ele viaja inteiro
+                // no patch e substitui o anterior.
                 const traj1 = [
                     { t: inicio, lng: -43.05, lat: -22.75 }, // moved
                     { t: inicio + 900_000, lng: -43.0, lat: -22.7 }, // inserted
                     { t: inicio + 1_800_000, lng: -43.15, lat: -22.85 },
                     // last keypoint of traj0 removed
                 ];
-                await api.pushOperations(aid, [
-                    featureOp('update', { nome: 'Movel', temporalInicio: inicio, temporalFim: fim, trajetoria: traj1 }),
+                const ackEdit = await api.pushOperations(aid, [
+                    await editar({ nome: 'Movel', temporalInicio: inicio, temporalFim: fim, trajetoria: traj1 }),
                 ]);
                 const edited = await pull();
 
-                // §29.17: clear trajectory — full-replace WITHOUT trajetoria drops it,
-                // while the temporal window survives (only the path was cleared).
-                await api.pushOperations(aid, [
-                    featureOp('update', { nome: 'Movel', temporalInicio: inicio, temporalFim: fim }),
+                // §29.17: clear trajectory — um update SEM `trajetoria` a derruba (um `remove`
+                // no patch), enquanto a janela temporal sobrevive (só o caminho foi limpo).
+                const ackClear = await api.pushOperations(aid, [
+                    await editar({ nome: 'Movel', temporalInicio: inicio, temporalFim: fim }),
                 ]);
                 const trajCleared = await pull();
 
                 return {
+                    acks: [ackEdit, ackClear].map((a) => ({
+                        success: a.results?.[0]?.success ?? null,
+                        reason: a.results?.[0]?.reason ?? null,
+                    })),
                     created: {
                         traj: created?.properties.trajetoria,
                         len: created?.properties.trajetoria?.length,
@@ -273,11 +309,13 @@ describeOrSkip('Temporal feature transport (real Chromium + real backend)', () =
             { atlasId, mapId },
         );
 
+        expect(result.acks.map((a) => a.success), JSON.stringify(result.acks)).toEqual([true, true]);
+
         // Create: the full keypoint array round-trips structurally identical.
         expect(result.created.traj).toEqual(result.expected.traj0);
         expect(result.created.len).toBe(3);
 
-        // Edit: whole-array LWW replace — new length, moved first kp, inserted kp.
+        // Edit: o array inteiro foi substituído — novo comprimento, 1º kp movido, kp inserido.
         expect(result.edited.traj).toEqual(result.expected.traj1);
         expect(result.edited.len).toBe(3);
         expect(result.edited.firstMoved).toEqual({ t: result.expected.inicio, lng: -43.05, lat: -22.75 });
@@ -353,9 +391,10 @@ describeOrSkip('Temporal feature transport (real Chromium + real backend)', () =
 
                 const created = await pull();
 
-                // §29.18/19: toggling autoDirection OFF must persist (LWW full replace).
-                await api.pushOperations(aid, [
-                    createOperation('feature', 'update', symbolId, mid, {
+                // §29.18/19: toggling autoDirection OFF must persist. A edição declara a base
+                // observada, e o patch dela tem uma unidade só (`properties.autoDirection`).
+                const ackToggle = await api.pushOperations(aid, [
+                    await window.__ebgeoBase.opDeEdicao(api, aid, mid, symbolId, {
                         type: 'Feature',
                         geometry: { type: 'Point', coordinates: [-43.2, -22.9] },
                         properties: {
@@ -374,6 +413,10 @@ describeOrSkip('Temporal feature transport (real Chromium + real backend)', () =
                 const toggled = await pull();
 
                 return {
+                    ackToggle: {
+                        success: ackToggle.results?.[0]?.success ?? null,
+                        reason: ackToggle.results?.[0]?.reason ?? null,
+                    },
                     symbol: {
                         present: Boolean(created.symbol),
                         bucket: 'military_symbols',
@@ -415,6 +458,7 @@ describeOrSkip('Temporal feature transport (real Chromium + real backend)', () =
         expect(result.measure.gdhFim).toBe('011330ZJAN24');
 
         // §29.18/19: the flag toggle persisted (autoDirection now false, autoSpeed kept).
+        expect(result.ackToggle.success, `toggle recusado: ${result.ackToggle.reason}`).toBe(true);
         expect(result.toggled.autoDirection).toBe(false);
         expect(result.toggled.autoSpeed).toBe(true);
     });
