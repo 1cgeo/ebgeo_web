@@ -21,7 +21,26 @@ import {
     cleanup,
     removeElement
 } from '@utils/event-cleanup.js';
-import { describeSyncWork } from './sync-phrases.js';
+// Direct file, never the `@utils` barrel: the barrel drags the whole store back in through
+// `feature_navigation_utils`, and this control is mounted inside the map bar.
+import { showError } from '@utils/toast_service.js';
+import { describeSyncWork, SYNC_TONE } from './sync-phrases.js';
+
+/**
+ * O que a pessoa lê quando o clique em "Pendências" não consegue trazer o painel.
+ *
+ * SÃO DUAS FRASES E NÃO UMA porque o desfecho é outro em cada caso: sem rede o módulo chega
+ * sozinho quando ela voltar, e a pessoa não precisa fazer nada; com rede de pé o que falhou foi a
+ * carga em si, e aí a providência é tentar de novo. Uma frase só teria de mentir num dos dois.
+ * Elas moram aqui, e não no módulo de frases do painel, porque o painel é justamente o que não
+ * carregou.
+ */
+const PAINEL_SEM_REDE = 'Sem conexão para carregar o painel de pendências. Ele será carregado '
+    + 'sozinho quando a rede voltar, e o seu trabalho continua guardado neste computador.';
+
+/** O outro desfecho: a rede está de pé e mesmo assim a carga falhou. */
+const PAINEL_NAO_CARREGOU = 'Não foi possível carregar o painel de pendências agora. '
+    + 'Tente de novo.';
 
 /**
  * O atributo de TRANSPORTE, que continua sendo o vocabulário de conexão.
@@ -169,6 +188,20 @@ export class SyncStatusControl {
         /** @type {number|null} How many of those the server refused for good. Subset of the above. */
         this._uploadsRecusados = 0;
 
+        /**
+         * The panel module, once it started loading. The promise is the cache: a second reason to
+         * preload while the first is still in flight must not start a second download.
+         * @type {Promise<{abrirPainelDePendencias: function(): void}>|null}
+         */
+        this._painelModulo = null;
+        /**
+         * Whether the last automatic preload failed. It stops the 3 s heartbeat from retrying a
+         * download that cannot succeed (the light is amber BECAUSE the network is gone), and it is
+         * cleared when the connection comes back, which is the only news that changes the answer.
+         * @type {boolean}
+         */
+        this._painelIndisponivel = false;
+
         /** @type {ReturnType<typeof setTimeout>|null} Coalescing timer. */
         this._coalesceTimer = null;
         /** @type {boolean} Whether a queue read is in flight. */
@@ -302,26 +335,76 @@ export class SyncStatusControl {
     }
 
     /**
+     * Loads the panel module, or hands back the load already in flight.
+     *
+     * A FAILED LOAD IS FORGOTTEN, not cached: the cached promise would answer "no" forever to a
+     * person who came back online and clicked again, which is the exact case this whole preload
+     * exists for.
+     * @returns {Promise<{abrirPainelDePendencias: function(): void}>}
+     * @private
+     */
+    _carregarPainel() {
+        if (!this._painelModulo) {
+            this._painelModulo = import('./pendencias/pendencias-panel.js').catch((error) => {
+                this._painelModulo = null;
+                throw error;
+            });
+        }
+        return this._painelModulo;
+    }
+
+    /**
+     * Fetches the panel module BEFORE the click, as soon as the light stops saying "all sent".
+     *
+     * THE CLICK IS TOO LATE, and that is the whole finding: the module travels over the network,
+     * and the moment the person wants the panel is exactly the moment the network is likeliest to
+     * be gone. So the light itself is the trigger: work waiting or trouble recorded means there is
+     * now something to show, and at that point the connection is usually still up.
+     *
+     * IT IS NOT DONE AT BOOT, and the reason is measured: the five files of `account/pendencias/`
+     * are 76 kB of source, and the map page is the one whose weight is under active reduction. The
+     * all-clear light is the state in which that download would never be read.
+     * @param {string} tone - The tone `describeSyncWork` just produced.
+     * @private
+     */
+    _precarregarPainel(tone) {
+        if (tone !== SYNC_TONE.WARN && tone !== SYNC_TONE.BUSY) return;
+        if (this._painelModulo || this._painelIndisponivel) return;
+        this._carregarPainel().catch((error) => {
+            // Not a failure of anything the person asked for: the click still tries again, and
+            // says so out loud if it also fails.
+            this._painelIndisponivel = true;
+            console.warn('Sync status: the pendency panel could not be preloaded yet:', error);
+        });
+    }
+
+    /**
      * Opens the pendency panel, which is where this light points.
      *
      * The badge is hidden for an anonymous visitor, so this cannot be reached without a session;
      * the guard is here anyway because a keyboard handler on a hidden element is still reachable
      * in some browsers, and opening a panel that reads a queue nobody owns would only confuse.
      *
-     * THE PANEL IS LOADED ON THE CLICK, not imported at the top, and the reason is module graph
+     * THE PANEL IS LOADED BY `import()`, not imported at the top, and the reason is module graph
      * rather than payload: the panel reaches the permission guard, the confirm modal and the
      * toast service, and a static import would drag all three into every module that merely
-     * mounts this light (which is what turned an unrelated unit test of this control red). It
-     * also happens to be the right shape: nobody who never clicks pays for the panel.
+     * mounts this light (which is what turned an unrelated unit test of this control red).
+     *
+     * A FAILED LOAD NOW SPEAKS. It used to write to the console and nothing else, so the click
+     * that most needed an answer (offline, with work waiting) produced a badge that did nothing at
+     * all. {@link _precarregarPainel} makes that rare; this makes it legible when it happens.
      * @private
      */
     async _abrirPendencias() {
         if (!sessionContext.isAuthenticated()) return;
         try {
-            const { abrirPainelDePendencias } = await import('./pendencias/pendencias-panel.js');
+            const { abrirPainelDePendencias } = await this._carregarPainel();
             abrirPainelDePendencias();
         } catch (error) {
             console.warn('Sync status: could not open the pendency panel:', error);
+            const semRede = connectionState.getState() !== ConnectionStates.ONLINE;
+            this._painelIndisponivel = semRede;
+            showError(semRede ? PAINEL_SEM_REDE : PAINEL_NAO_CARREGOU);
         }
     }
 
@@ -331,6 +414,9 @@ export class SyncStatusControl {
      * @private
      */
     _onSignal() {
+        // A CONEXÃO DE VOLTA É A ÚNICA NOTÍCIA que muda a resposta de um pré-carregamento que
+        // falhou; sem esta linha o painel ficaria irrecuperável até um F5 para quem clicou offline.
+        if (connectionState.getState() === ConnectionStates.ONLINE) this._painelIndisponivel = false;
         this._render();
         this._scheduleQueueRead();
     }
@@ -439,6 +525,7 @@ export class SyncStatusControl {
         });
         this._container.setAttribute('data-work', work.state);
         this._container.setAttribute('data-tone', work.tone);
+        this._precarregarPainel(work.tone);
         this._container.setAttribute('title', work.detail);
         this._container.setAttribute('aria-label', work.detail);
         if (this._label) this._label.textContent = work.label;
@@ -486,6 +573,7 @@ export class SyncStatusControl {
         // Removes EventBus subscriptions, DOM listeners and the heartbeat interval.
         cleanup(this);
         removeElement(this._container);
+        this._painelModulo = null;
         this._container = null;
         this._dot = null;
         this._label = null;

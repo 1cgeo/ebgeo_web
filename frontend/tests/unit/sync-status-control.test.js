@@ -46,6 +46,14 @@ const cenario = {
     pausado: false,
     /** Os escopos que o controle passou a `storeWritesPaused`, para conferir a IDENTIDADE. */
     escoposConsultados: [],
+    /** Quantas vezes o MÓDULO do painel foi avaliado: é assim que o pré-carregamento se mede. */
+    cargasDoPainel: 0,
+    /** Quando verdadeiro, a carga do módulo do painel falha, como sem rede. */
+    painelFalha: false,
+    /** Quantas vezes o painel chegou a ser aberto. */
+    aberturas: 0,
+    /** As frases que o controle mandou para a tela. */
+    avisos: [],
 };
 
 vi.mock('@store/services.js', () => ({
@@ -116,6 +124,22 @@ vi.mock('@store/sync/resource-access.service.js', () => ({
     isResourceAccessDegraded: () => false,
     onResourceAccessHealthChanged: () => () => {},
     retryVisibleResources: async () => true,
+}));
+
+// O PAINEL É DUBLADO PARA A SUÍTE INTEIRA, e este duplo é MUDO de propósito: os casos que pintam
+// âmbar disparam o pré-carregamento, e sem ele cada um deles puxaria o painel de verdade (com a
+// store atrás) só para nunca abri-lo. O duplo que CONTA as cargas é registrado caso a caso, mais
+// abaixo, porque a fábrica hasteada é avaliada uma vez só.
+vi.mock('../../src/js/account/pendencias/pendencias-panel.js', () => ({
+    abrirPainelDePendencias: () => {},
+}));
+
+vi.mock('@utils/toast_service.js', () => ({
+    showToast: (m) => cenario.avisos.push(m),
+    showSuccess: (m) => cenario.avisos.push(m),
+    showError: (m) => cenario.avisos.push(m),
+    showWarning: (m) => cenario.avisos.push(m),
+    showInChannel: (m) => cenario.avisos.push(m),
 }));
 
 // O laço de limpeza não é o assunto aqui, e o real precisa de um barramento de verdade.
@@ -191,6 +215,10 @@ beforeEach(() => {
         blobsErro: null,
         pausado: false,
         escoposConsultados: [],
+        cargasDoPainel: 0,
+        painelFalha: false,
+        aberturas: 0,
+        avisos: [],
     });
 });
 
@@ -303,5 +331,119 @@ describe('atlas local e visitante', () => {
         const control = new SyncStatusControl();
         const container = control.onAdd({});
         expect(container.hidden).toBe(true);
+    });
+});
+
+/**
+ * O PAINEL VIAJA PELA REDE, e o clique acontece justamente quando ela caiu.
+ *
+ * A captura de B5d mediu isto: sem rede o `import()` do clique não traz o módulo, e o `catch` só
+ * escrevia no console, então o crachá que diz "Recusas: 1" abria NADA. As duas metades do conserto
+ * são medidas aqui, e a segunda é a que sobra quando a primeira não deu tempo.
+ *
+ * A CARGA É CONTADA PELA FÁBRICA DO DUPLO, e cada caso reinicia o registro de módulos: sem isso o
+ * módulo carregado por um caso ficaria em cache e o caso seguinte mediria uma carga que não houve.
+ *
+ * CONTROLE NEGATIVO, conferido em 2026-09-13 removendo a chamada a `_precarregarPainel` de
+ * `_render` e devolvendo o `catch` mudo a `_abrirPendencias`: reprovam os três casos que afirmam
+ * carga e aviso (o de vácuo, que exige ZERO carga no verde, continua verde, que é o papel dele).
+ */
+describe('o painel é buscado antes do clique, e a falha do clique fala', () => {
+    /**
+     * A classe recarregada, com o painel dublado DE NOVO.
+     *
+     * `doMock` E NÃO `vi.mock`: a fábrica hasteada é avaliada uma vez e o resultado dela fica no
+     * registro de duplos, que `resetModules` não limpa, então um caso que carregasse o painel com
+     * sucesso deixaria todos os seguintes incapazes de encenar a falha. Registrar de novo a cada
+     * caso é o que torna a carga contável e a falha encenável.
+     * @returns {Promise<Function>}
+     */
+    async function classeNova() {
+        vi.resetModules();
+        vi.doMock('../../src/js/account/pendencias/pendencias-panel.js', () => {
+            cenario.cargasDoPainel += 1;
+            if (cenario.painelFalha) {
+                throw new Error('Failed to fetch dynamically imported module: pendencias-panel.js');
+            }
+            return { abrirPainelDePendencias: () => { cenario.aberturas += 1; } };
+        });
+        const modulo = await import('../../src/js/account/sync-status.control.js');
+        return modulo.SyncStatusControl;
+    }
+
+    /** Deixa a carga do painel, que é assíncrona por natureza, chegar ao fim. */
+    const assentar = () => new Promise((resolve) => { setTimeout(resolve, 0); });
+
+    /** Monta, faz uma leitura e devolve o controle já pintado. */
+    async function montado() {
+        const Classe = await classeNova();
+        const control = new Classe();
+        control.onAdd({});
+        await control._readQueue();
+        await assentar();
+        return control;
+    }
+
+    it('CONTROLE DE VÁCUO: com tudo enviado o módulo NÃO é baixado', async () => {
+        // Sem este caso, um pré-carregamento incondicional passaria em todos os outros e o peso do
+        // boot cresceria para quem nunca vai abrir o painel.
+        await montado();
+        expect(cenario.cargasDoPainel).toBe(0);
+    });
+
+    it('assim que a luz sai do verde, o módulo é baixado sem clique nenhum', async () => {
+        cenario.censo = { pendentes: 0, preparadas: 0, problemas: 1 };
+        const control = await montado();
+        expect(cenario.cargasDoPainel).toBe(1);
+
+        // E o clique não baixa de novo: a promessa é o cache.
+        await control._abrirPendencias();
+        expect(cenario.cargasDoPainel).toBe(1);
+        expect(cenario.aberturas).toBe(1);
+    });
+
+    it('sem rede, o clique AVISA em vez de não fazer nada', async () => {
+        cenario.painelFalha = true;
+        cenario.conexao = 'offline';
+        cenario.censo = { pendentes: 1, preparadas: 0, problemas: 0 };
+        const control = await montado();
+
+        await control._abrirPendencias();
+        expect(cenario.aberturas).toBe(0);
+        expect(cenario.avisos).toHaveLength(1);
+        expect(cenario.avisos[0]).toMatch(/Sem conexão/);
+        // A FRASE NOMEIA O ESTADO e o desfecho, senão ela é só um erro genérico.
+        expect(cenario.avisos[0]).toMatch(/quando a rede voltar/i);
+    });
+
+    it('com rede de pé, a mesma falha diz outra coisa, porque o desfecho é outro', async () => {
+        cenario.painelFalha = true;
+        cenario.censo = { pendentes: 1, preparadas: 0, problemas: 0 };
+        const control = await montado();
+
+        await control._abrirPendencias();
+        expect(cenario.avisos[0]).toMatch(/Tente de novo/);
+        expect(cenario.avisos[0]).not.toMatch(/Sem conexão/);
+    });
+
+    it('a falha offline não se cristaliza: voltar a ONLINE reabre a tentativa', async () => {
+        cenario.painelFalha = true;
+        cenario.conexao = 'offline';
+        cenario.censo = { pendentes: 1, preparadas: 0, problemas: 0 };
+        const control = await montado();
+        const depoisDaPrimeira = cenario.cargasDoPainel;
+
+        // A batida periódica não insiste enquanto está offline: seria um download por 3 s que não
+        // pode dar certo.
+        await control._readQueue();
+        await assentar();
+        expect(cenario.cargasDoPainel).toBe(depoisDaPrimeira);
+
+        cenario.painelFalha = false;
+        cenario.conexao = 'online';
+        control._onSignal();
+        await control._readQueue();
+        await assentar();
+        expect(cenario.cargasDoPainel).toBe(depoisDaPrimeira + 1);
     });
 });
