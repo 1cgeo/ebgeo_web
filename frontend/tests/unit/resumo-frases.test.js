@@ -153,6 +153,29 @@ describe('o desfecho de um bloco', () => {
         expect(semFonteNotice({ disponivel: false })).toMatch(/não respondeu/i);
         expect(semFonteNotice({ disponivel: false, motivo: '   ' })).toMatch(/não respondeu/i);
     });
+
+    it('o motivo do servidor é TERMINADO antes da ressalva, e não emendado nela', () => {
+        // O ACHADO A4, na captura do Resumo: os motivos que o servidor manda são orações soltas,
+        // sem ponto, e um deles termina em aspas. Emendados direto, os quatro cartões cegos liam
+        // `..."nada aconteceu" Nenhum número é desenhado aqui de propósito.`, uma frase só e capenga.
+        const comoOServidorManda = 'o diretório de log não existe: o instrumento está CEGO, '
+            + 'e isto não é "nada aconteceu"';
+        const frase = semFonteNotice({ motivo: comoOServidorManda });
+        expect(frase).toContain('"nada aconteceu". Nenhum número');
+        // A frase do servidor continua inteira: o conserto é pontuação, não recorte.
+        expect(frase).toContain(comoOServidorManda);
+    });
+
+    it('motivo que JÁ vem pontuado não ganha um segundo ponto', () => {
+        // Os quatro motivos vivos do servidor não têm ponto, mas o quinto que alguém escrever pode
+        // ter, e `... não do log.. Nenhum número` seria o mesmo defeito virado do avesso.
+        for (const fim of ['.', '!', '?', '…', ':', ';']) {
+            const frase = semFonteNotice({ motivo: `o banco não respondeu${fim}` });
+            expect(frase, fim).toContain(`o banco não respondeu${fim} Nenhum número`);
+        }
+        // E o padrão, que já nasce pontuado aqui dentro, também não ganha outro.
+        expect(semFonteNotice({})).toContain('não respondeu. Nenhum número');
+    });
 });
 
 describe('a premissa de um bloco disponível', () => {

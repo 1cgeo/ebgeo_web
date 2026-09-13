@@ -198,6 +198,22 @@ export function blocoAusenteNotice() {
 }
 
 /**
+ * Termina uma frase que veio de fora, para poder emendar outra depois dela.
+ *
+ * QUEM ESCREVE A METADE DE FORA NÃO SABE QUE HÁ UMA SEGUNDA. Os motivos que o servidor manda
+ * (`diag-consulta.js`) são orações soltas, sem ponto: um deles termina em aspas
+ * (`...e isto não é "nada aconteceu"`), e emendar direto produzia `..."nada aconteceu" Nenhum
+ * número é desenhado aqui de propósito.`, que se lê como uma frase só e capenga. Pôr o ponto do
+ * lado do servidor não resolveria: a mesma string também é lida sozinha pelo CLI, e ali a emenda
+ * não existe.
+ * @param {string} texto - Uma oração, já aparada.
+ * @returns {string} A mesma oração, terminada.
+ */
+function terminada(texto) {
+    return /[.!?…:;]$/.test(texto) ? texto : `${texto}.`;
+}
+
+/**
  * A fonte do bloco não respondeu, com o motivo que o servidor deu.
  *
  * O MOTIVO VEM DO SERVIDOR E A RESSALVA É DAQUI, e a segunda metade é a que não pode faltar: sem
@@ -208,7 +224,7 @@ export function blocoAusenteNotice() {
 export function semFonteNotice(bloco) {
     const motivo = typeof bloco?.motivo === 'string' ? bloco.motivo.trim() : '';
     const base = motivo || 'a fonte deste bloco não respondeu.';
-    return `Sem fonte: ${base} Nenhum número é desenhado aqui de propósito.`;
+    return `Sem fonte: ${terminada(base)} Nenhum número é desenhado aqui de propósito.`;
 }
 
 /**
