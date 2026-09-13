@@ -35,6 +35,8 @@ import { sessionContext } from '@store/sync/session-context.js';
 import { atlasRoleHasAtLeast, serverTreatsAsAtlasOwner } from '@js/projects/permission-levels.js';
 import { isRemoteStoreSync } from '@store/store-origin.js';
 import { logMapOperation } from '@store/sync/operation-dispatcher.js';
+// Leaf module (zero imports): keeps the vocabulary out of the dispatcher's graph.
+import { OperationType } from '@store/sync/operation-types.js';
 import { showError } from '@utils/index.js';
 import { EventTypes } from '@events/event_types.js';
 import { setupCleanup, subscribe, cleanup } from '@utils/event-cleanup.js';
@@ -145,7 +147,7 @@ export class MapLockController {
 
         // Log the lock change for sync so it travels to the backend as a `map`
         // update; the auto-flush wired in Slice 1 sends it while connected.
-        logMapOperation('update', targetId, { locked: resolved });
+        logMapOperation(OperationType.UPDATE, targetId, { locked: resolved });
 
         getEventBus().emit(EventTypes.MAP_MODIFIED, { mapId: targetId });
 

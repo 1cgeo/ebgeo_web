@@ -89,6 +89,8 @@ import { memoryStore } from './memory-store.js';
 import { mapResolver } from './services/map-resolver.service.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { OperationType } from './sync/index.js';
+// Leaf module (zero imports): keeps the vocabulary out of the sync barrel's graph.
+import { EntityType } from './sync/operation-types.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { runTransaction } from './store-transaction.js';
 import {
@@ -434,7 +436,7 @@ export async function transferLayerToMap(layerId, targetMapName, options = {}) {
         // The op carries the destination map ID, not its NAME: `logLayerOperation` files
         // the op under whatever it is handed, and a name would be pushed as a map id the
         // server does not know, failing the whole flush batch.
-        tx.recordOperation('layer',
+        tx.recordOperation(EntityType.LAYER,
             OperationType.CREATE,
             newLayer.id,
             mapResolver.resolveToId(targetMapName),

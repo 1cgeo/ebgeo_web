@@ -21,6 +21,8 @@ import {
 import { mapResolver } from './services/map-resolver.service.js';
 import mapManager from './store-state-manager.js';
 import { OperationType } from './sync/index.js';
+// Leaf module (zero imports): keeps the vocabulary out of the sync barrel's graph.
+import { EntityType } from './sync/operation-types.js';
 import { runTransaction } from './store-transaction.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
@@ -93,7 +95,7 @@ export async function setMapNotes(mapName, notes) {
         const mapId = mapResolver.resolveToId(targetMap) || targetMap;
         const previousNotes = await getMapNotesRepo(targetMap);
         const opType = previousNotes?.title || previousNotes?.description ? OperationType.UPDATE : OperationType.CREATE;
-        tx.recordOperation('mapNotes', opType, mapId, mapId, notes, previousNotes);
+        tx.recordOperation(EntityType.MAP_NOTES, opType, mapId, mapId, notes, previousNotes);
         return () => setMapNotesRepo(targetMap, notes);
     });
 }
@@ -151,7 +153,7 @@ export async function setGridStyle(mapName, gridStyle) {
         const mapId = mapResolver.resolveToId(targetMap) || targetMap;
         const previousGridStyle = await getGridStyleRepo(targetMap);
         const opType = previousGridStyle ? OperationType.UPDATE : OperationType.CREATE;
-        tx.recordOperation('gridStyle', opType, mapId, mapId, gridStyle, previousGridStyle);
+        tx.recordOperation(EntityType.GRID_STYLE, opType, mapId, mapId, gridStyle, previousGridStyle);
         return () => setGridStyleRepo(targetMap, gridStyle);
     });
 }

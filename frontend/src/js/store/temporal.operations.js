@@ -20,6 +20,8 @@ import { EventTypes } from '../events';
 import { withSideDocument } from './document-lock.js';
 import { DEFAULT_TEMPORAL_CONFIG } from '../temporal/temporal.constants.js';
 import { OperationType } from './sync/operation-dispatcher.js';
+// Leaf module (zero imports): keeps the vocabulary out of the dispatcher's graph.
+import { EntityType } from './sync/operation-types.js';
 import { runTransaction } from './store-transaction.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
@@ -138,7 +140,7 @@ export async function setMapTemporalConfig(mapName, patch) {
             const mapId = mapManager.getMapId(target);
             previous = withDefaults(await getSettingCompat(`${STORE_PREFIX}${target}`));
             merged = { ...previous, ...(patch || {}) };
-            tx.recordOperation('mapTemporal', OperationType.UPDATE, mapId, mapId, merged, previous);
+            tx.recordOperation(EntityType.MAP_TEMPORAL, OperationType.UPDATE, mapId, mapId, merged, previous);
             tx.deferSync(() => memoryStore.temporalConfigs.set(target, merged));
             return () => setSettingCompat(`${STORE_PREFIX}${target}`, merged);
         });
