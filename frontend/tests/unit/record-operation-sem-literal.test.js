@@ -80,7 +80,11 @@ const PISO_RECORD = 18;
 // `logXxxOperation`, trocando cada família por um `recordOperation` de moldura. Este piso CAI
 // a cada produtor migrado, de propósito, e por isso se baixa com a razão ao lado em vez de
 // virar folga: são os dois pisos juntos que provam que a varredura continua casando.
-const PISO_LOG = 27;
+// Baixado de 27 para 23 na fusão das duas ondas paralelas de B4 (2026-09-13): a onda de mapa
+// e chaves de atlas migrou `setBaseLayer`, `updateMapPosition`, `clearMapPosition`, `setMapOrder`,
+// `setMapBadgeColors`, `saveAtlasAppearance` e `addCustomIcon`, e cada onda recalibrou o piso
+// sem ver a outra; o número fundido é o que a varredura mede sobre a árvore combinada.
+const PISO_LOG = 23;
 
 /**
  * Comentário fora, preservando a contagem de linhas para que a mensagem de erro aponte a
