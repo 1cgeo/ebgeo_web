@@ -13,7 +13,11 @@ import logger from '../../utils/logger.js';
 import { getRoomUsers } from '../collab/collab.rooms.js';
 import * as Q from './atlas.queries.js';
 import { MAP_COLUMNS } from '../maps/maps.queries.js';
-import { ensureMapLayers } from '../maps/default-layer.js';
+import { ensureMapLayers, readMapLayers } from '../maps/default-layer.js';
+// O MARCADOR das escritas estruturais que nao passam pelo log de sync. Ver
+// `sync/structural-marker.js`: sem ele o par offline reconecta, o pull incremental responde
+// vazio e ele conclui que esta em dia.
+import { STRUCTURAL_MARKER, recordStructuralMarker } from '../sync/structural-marker.js';
 // A PODA DE COPIA (clone e import). O predicado NAO e reimplementado aqui: quem decide e
 // `classifyResourceRefs`, que chama `fn_can_see_resource` uma vez para o atlas inteiro.
 import { ResourcePruner, refsFromCollectedRows, refsFromImportPayload } from './atlas-resource-prune.js';
@@ -1026,6 +1030,21 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
       slide_order: slideRows.filter((s) => s.sourceBriefingId === briefing.id).map((s) => s.id),
     })));
     await insertMany(t, CS.slides, slideRows);
+
+    // O MARCADOR do clone. Aqui ele nao existe para avisar par nenhum (o atlas acabou de
+    // nascer e ninguem esta nele): ele existe para que o atlas NASCA com `current_version`
+    // coerente com o conteudo que ja tem. Sem uma linha em `operations` o gatilho
+    // `trg_update_atlas_version` nunca dispara, o clone fica na versao zero com centenas de
+    // entidades dentro, e a primeira op que alguem empurrar la vai parecer a primeira coisa que
+    // aconteceu naquele atlas. CONTAGENS, nunca ids nem nomes, pela mesma razao do
+    // `pruneReport`: esta linha e legivel por diagnostico.
+    await recordStructuralMarker(t, {
+      atlasId: newAtlasId,
+      kind: STRUCTURAL_MARKER.ATLAS_CLONE,
+      entityId: newAtlasId,
+      userId: newOwnerId,
+      data: { sourceAtlasId: atlasId, maps: mapPairs.length, briefings: briefings.length },
+    });
   });
 
   await runImageCopyJobs(copyJobs);
@@ -1040,7 +1059,7 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
  * Clones all sub-entities (layers, groups, features, group_features, cesium3d, streetview360,
  * catalog layers) and the blobs of its image features.
  */
-export async function duplicateMap(atlasId, mapId) {
+export async function duplicateMap(atlasId, mapId, actingUserId = null) {
   let newMapResult;
   const copyJobs = [];
 
@@ -1082,6 +1101,29 @@ export async function duplicateMap(atlasId, mapId) {
       `UPDATE atlas SET map_order = array_append(map_order, $1::uuid) WHERE id = $2`,
       [newMapId, atlasId]
     );
+
+    // O MARCADOR, na mesma transacao. Sem ele o par que estava offline reconectava com
+    // `lastVersion` igual a `atlas.current_version` (nenhuma op tinha sido escrita, entao o
+    // gatilho nao tinha avancado nada), o pull incremental respondia vazio e o mapa duplicado
+    // so aparecia depois de um F5. O par CONECTADO ja aprendia pelo broadcast `map_duplicated`
+    // da rota, e continua aprendendo: sao as duas metades do mesmo aviso.
+    //
+    // AS CAMADAS VIAJAM NO PAYLOAD porque `ensureMapLayers` as cria FORA do log: nenhuma op de
+    // camada descreve o nascimento delas, e sem isto o unico registro de que existem esta na
+    // tabela. E a mesma forma que a op estrutural de criacao de mapa ja usa no push, onde
+    // `inserted.data.layers` carrega a lista canonica.
+    await recordStructuralMarker(t, {
+      atlasId,
+      kind: STRUCTURAL_MARKER.MAP_DUPLICATE,
+      entityId: newMapId,
+      mapId: newMapId,
+      userId: actingUserId,
+      data: {
+        mapId: newMapId,
+        sourceMapId: mapId,
+        layers: await readMapLayers(t, atlasId, newMapId),
+      },
+    });
 
     // Explicit column list: this row IS the response body of
     // `POST /atlas/:atlasId/maps/:mapId/duplicate`, gated at `write`. Same reason as the two
@@ -1651,6 +1693,18 @@ export async function importAtlas(userId, data) {
     // de pares de id nao e registro, e ruido.
     const idsRecunhados = Object.values(remap).reduce((total, m) => total + m.size, 0);
     if (idsRecunhados > 0) summary.remappedIds = idsRecunhados;
+
+    // 4.1 O MARCADOR da importacao, pela mesma razao do clone: sem uma linha em `operations` o
+    // gatilho `trg_update_atlas_version` nunca dispara e o atlas nasce na versao zero com todo o
+    // arquivo dentro. Ele fica ANTES da leitura de volta, de proposito, senao o
+    // `current_version` que a rota devolve seria o de antes do proprio marcador.
+    await recordStructuralMarker(t, {
+      atlasId,
+      kind: STRUCTURAL_MARKER.ATLAS_IMPORT,
+      entityId: atlasId,
+      userId,
+      data: { maps: summary.mapsImported, features: summary.featuresImported, layers: summary.layersImported },
+    });
 
     // 5. Return created atlas with summary
     const result = await t.one(
