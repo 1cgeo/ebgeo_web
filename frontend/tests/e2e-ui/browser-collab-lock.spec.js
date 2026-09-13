@@ -1,16 +1,25 @@
 // Path: e2e-ui/browser-collab-lock.spec.js
 
 /**
- * MAP LOCK — TWO real browsers + real backend, on the full-chain harness. A map lock makes
- * a map read-only LOCALLY (owner/admin-only, not broadcast). This pins toggleMapLock's
+ * MAP LOCK — TWO real browsers + real backend, on the full-chain harness. A map lock makes a map
+ * read-only for EVERYONE on it (toggling it is owner/admin-only). This pins toggleMapLock's
  * observable contract, with the cross-client propagation parts verified end-to-end:
  *
  *   - an editor cannot lock (permission-denied → null);
- *   - the owner can; while the owner holds the lock its OWN authoring is blocked (toolbar
+ *   - the owner can; while the lock is on, the owner's OWN authoring is blocked (toolbar
  *     hidden, real canvas gesture lands nothing);
- *   - the lock does NOT corrupt collaboration: the editor (independent view) keeps editing
- *     and its features still traverse the WHOLE chain back to the owner (expectFullSyncFrom);
- *   - unlocking restores the owner's writes, which traverse the chain to the editor.
+ *   - the lock REACHES the editor: its edit gate flips, its draw toolbar disappears, and the
+ *     command the menu still draws refuses the click naming the STATE (`aria-disabled`, never
+ *     the `disabled` property);
+ *   - the lock does NOT corrupt collaboration: the editor's features survive the arrival of a
+ *     partial `{locked}` payload;
+ *   - unlocking restores BOTH sides, and edits traverse the whole chain again in both
+ *     directions.
+ *
+ * ESTA LISTA DIZIA "not broadcast" E "the editor keeps editing", e as duas frases descreviam o
+ * produto de ANTES de `957a9567`. Enquanto a op de trava nao era logada, travar era estado local
+ * de quem travou; hoje ela nasce na transacao da op de store e viaja. A frase velha custou tres
+ * rodadas vermelhas por um `drawLineUI(B)` esperando um botao que a casa esconde de proposito.
  *
  * O SEGUNDO CASO TRAVA PELO CONTROLADOR, e a diferenca importa. O primeiro dirige a op de store
  * CRUA, e ate' 2026-09-13 era esse o unico caminho exercitado aqui: a op de store gravava o app
@@ -69,17 +78,40 @@ function lockStateOf(page) {
 
 const lineCoords = () => [[-43.2, -22.9], [-43.15, -22.85], [-43.1, -22.8]];
 
-collabTest.describe('Map lock — owner-only, local read-only enforcement, collaboration stays consistent', () => {
-    collabTest('an editor cannot lock; the owner can; owner-lock blocks the owner, editor keeps editing', async ({ collab }) => {
+collabTest.describe('Map lock — owner-only toggle, read-only on BOTH sides, collaboration stays consistent', () => {
+    // ESTE CASO PEDIA "editor keeps editing" ENQUANTO O DONO SEGURAVA A TRAVA, e desde
+    // `957a9567` isso deixou de ser o produto. A op de trava passou a NASCER dentro da transacao
+    // da op de store, entao travar pela op crua tambem VIAJA: o Editor le' o mapa travado, a barra
+    // de desenho dele some, e `drawLineUI(B)` estourava esperando para sempre por um botao que a
+    // casa esconde de proposito (medido: `locator.click` em `.toolbar-group[data-group-id="draw"]`
+    // com "element is not visible", 3 de 3 rodadas, `playwright-p3.log` e `playwright-base.log`).
+    //
+    // ELE NAO FOI FUNDIDO COM O CASO DE BAIXO, e a razao e' que os dois medem coisas disjuntas.
+    // Este mede o POSTO (um Editor nao trava), a imposicao LOCAL no dono, o alcance da trava pela
+    // op CRUA e o "ESTADO recusa o clique" no Editor; o de baixo mede a trava pelo CONTROLADOR (o
+    // caminho do cadeado) e a sobrevivencia das feicoes do par. O que a reescrita fez foi mover a
+    // afirmacao "o Editor continua editando" para DEPOIS do destravamento, que e' onde ela passou
+    // a ser verdadeira, em vez de apaga-la.
+    //
+    // NAO EXECUTADO por quem o reescreveu (o Playwright esta' fora do laco dele, porta 3912 em uso
+    // por outro agente): fica para o coordenador rodar.
+    collabTest('an editor cannot lock; the owner can; the lock blocks the owner AND reaches the editor', async ({ collab }) => {
+        collabTest.setTimeout(120000);
         const A = collab.author; // owner
         const B = collab.peers[0]; // editor
         const mapName = collab.mapName;
 
-        // Baseline: B (editor) draws a line; it reaches the owner A through the whole chain.
+        // Baseline BEFORE any lock: B (editor) draws a line; it reaches the owner A through the
+        // whole chain. This is also the count the peer must not lose when the lock arrives.
         const warm = await drawLineUI(B, lineCoords());
         await collab.expectFullSyncFrom(B, { entityId: warm, type: 'lines', operationType: 'create' });
+        const antes = await lockStateOf(B);
+        expect(antes.travado, 'premissa: o Editor comeca com o mapa destravado').toBe(false);
+        expect(antes.linhas, 'premissa: o Editor ve a linha que acabou de desenhar')
+            .toBeGreaterThanOrEqual(1);
 
-        // The editor B is NOT allowed to lock (canLockMaps is owner/admin-only).
+        // The editor B is NOT allowed to lock (canLockMaps is owner/admin-only). O POSTO, e ele
+        // continua sendo a metade que nenhum outro caso deste arquivo mede.
         const editorTry = await applyStoreOp(B, 'toggleMapLock', [mapName]);
         expect(editorTry, 'editor cannot lock (permission denied → null)').toBeNull();
 
@@ -99,16 +131,75 @@ collabTest.describe('Map lock — owner-only, local read-only enforcement, colla
         const newOnA = (await readFeatures(A, 'lines')).filter((x) => !beforeA.has(x.id));
         expect(newOnA, 'owner write blocked while it holds the lock (no new line)').toHaveLength(0);
 
-        // The editor B (independent view, not locked) keeps drawing → it still traverses the
-        // WHOLE chain to A (lock blocks local authoring, not inbound sync).
-        const fromB = await drawLineUI(B, lineCoords());
-        await collab.expectFullSyncFrom(B, { entityId: fromB, type: 'lines', operationType: 'create' });
+        // ── A TRAVA ALCANCA O EDITOR, e e' aqui que este caso passou a medir outra coisa ──────
+        //
+        // The editor's own read of the edit gate (`isCurrentMapLockedSync`) flips, and its
+        // features survive: the payload of a lock toggle is `{locked: true}` and nothing else, so
+        // the peer that REPLACED its map document with it used to lose the whole feature
+        // collection.
+        await expect
+            .poll(async () => (await lockStateOf(B)).travado, { timeout: 30000, intervals: [500] })
+            .toBe(true);
+        expect((await lockStateOf(B)).linhas, 'as feicoes do Editor sobreviveram a trava do dono')
+            .toBe(antes.linhas);
 
-        // Owner unlocks → its writes work again and traverse the chain to B.
+        // O POSTO SOME: a barra de desenho do Editor desaparece, exatamente como a do dono. Nao e'
+        // um bloqueio de papel, e' o mesmo estado, lido do outro lado.
+        await expect(B.locator('.toolbar-group[data-group-id="draw"]')).toBeHidden({ timeout: 15000 });
+
+        // O ESTADO RECUSA O CLIQUE, NOMEANDO O ESTADO. O menu por mapa e' a superficie onde a
+        // regra da casa se le' inteira (`map-menu-actions.js`): "Renomear" exige `UPDATE_MAP`, que
+        // um Editor tem, entao o comando NAO some por posto; ele e' desenhado, marcado com
+        // `aria-disabled` e o clique explica. Modelo: `browser-layer-transfer-permissions.spec.js`.
+        await B.locator('.sidebar-nav-btn[data-tab="mapas"]').click();
+        const linhaDoMapa = B.locator(`.maps-tab .map-list-item[data-map-name="${mapName}"]`);
+        await expect(linhaDoMapa).toBeVisible({ timeout: 15000 });
+        // O cadeado na linha do mapa e' a trava DITA na interface, e nao so' lida da memoria.
+        await expect(linhaDoMapa.locator('.map-lock-indicator')).toBeVisible({ timeout: 15000 });
+
+        await linhaDoMapa.locator('.map-list-action-btn.menu-btn').click();
+        const menu = B.locator('.map-context-menu');
+        await expect(menu).toBeVisible({ timeout: 5000 });
+        const renomear = menu.locator('.map-context-menu-item').filter({ hasText: 'Renomear' });
+        await expect(renomear, 'o comando bloqueado por ESTADO continua desenhado')
+            .toBeVisible({ timeout: 5000 });
+        await expect(renomear).toHaveAttribute('aria-disabled', 'true');
+        // NUNCA a propriedade `disabled` (o clique e' como o motivo chega). Nao use
+        // `toBeEnabled()`: o Playwright le' `aria-disabled="true"` como desabilitado e a asserção
+        // mediria o CONTRARIO do que a regra da casa pede.
+        expect(
+            await renomear.evaluate((el) => el.disabled === true),
+            'o comando bloqueado por estado nao leva a propriedade `disabled`',
+        ).toBe(false);
+
+        // `dispatchEvent`, e nao `click()`, pela mesma razao: o Playwright espera o alvo ficar
+        // "enabled" e esperaria para sempre.
+        await renomear.dispatchEvent('click');
+        const aviso = B.locator('.toast--warning');
+        await expect(aviso).toBeVisible({ timeout: 5000 });
+        // A frase NOMEIA o estado (a trava) e a saida (destravar), nunca o papel de quem clicou.
+        await expect(aviso).toContainText('bloqueado');
+        // E NADA ACONTECEU: o prompt de renomear (`showPrompt`, `modals/prompt.modal.js`) nao
+        // abriu. O seletor e' o do modal REAL, e nao um palpite: um seletor que nao casa com nada
+        // deixaria este `toHaveCount(0)` verde para sempre, que e' a cobertura vazia da casa.
+        await expect(B.locator('.prompt-modal-container')).toHaveCount(0);
+
+        // ── DESTRAVAR DEVOLVE OS DOIS LADOS ──────────────────────────────────────────────────
         const unlocked = await applyStoreOp(A, 'toggleMapLock', [mapName]);
         expect(unlocked, 'second toggle unlocks').toBe(false);
+        await expect
+            .poll(async () => (await lockStateOf(B)).travado, { timeout: 30000, intervals: [500] })
+            .toBe(false);
+        await expect(B.locator('.toolbar-group[data-group-id="draw"]')).toBeVisible({ timeout: 15000 });
+
+        // Owner writes work again and traverse the chain to B...
         const afterUnlock = await drawLineUI(A, lineCoords());
         await collab.expectFullSync({ entityId: afterUnlock, type: 'lines', operationType: 'create' });
+        // ...e o Editor volta a editar, com a edicao dele atravessando a cadeia INTEIRA de volta.
+        // Esta era a afirmacao original do caso; ela nao foi apagada, foi movida para depois do
+        // destravamento, que e' onde ela deixou de ser falsa.
+        const fromB = await drawLineUI(B, lineCoords());
+        await collab.expectFullSyncFrom(B, { entityId: fromB, type: 'lines', operationType: 'create' });
     });
 
     // O CASO QUE FALTAVA, e o que ele mede nao e' medido por nenhum outro: a trava pelo CAMINHO DA

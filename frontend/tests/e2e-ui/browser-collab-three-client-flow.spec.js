@@ -7,9 +7,13 @@
  *
  *   1. all three create a feature        → each traverses the chain to the other two.
  *   2. C edits A's feature               → the edit traverses the chain to A and B.
- *   3. three-way conflict on ONE feature → each edit is acked by the server, and all three
+ *   3. three-way conflict on ONE feature → ONE edit applies and the other two come back as
+ *                                          `conflict` naming the disputed unit, and all three
  *                                          converge to the value POSTGRES holds (not merely
- *                                          to each other).
+ *                                          to each other). Until 2026-09-13 all three applied
+ *                                          and the last arrival overwrote the rest; see the
+ *                                          inverted assertion inline and the header of
+ *                                          `browser-collab-crdt-conflict.spec.js`.
  *   4. a late joiner (C reconnects)      → A's offline-window write reaches B (full chain),
  *                                          and C catches up via snapshot (convergence check).
  *   5. C deletes a feature               → the delete traverses the chain to A and B.
@@ -224,25 +228,73 @@ collabTest.describe('Three-client flow — multi-phase session with three collab
         // fase que as tres updates concorrentes chegam durante o gesto dos vizinhos, entao e
         // aqui que a pergunta "harness ou produto" tem mais chance de ser respondida. Sem ele,
         // o veredito sai INDISPONIVEL e a falha volta a nao dizer de quem e o defeito.
-        await Promise.all([
-            recolorViaPanelUI(A, '#ff0000', { featureId: fb }),
-            recolorViaPanelUI(B, '#0000ff', { featureId: fb }),
-            recolorViaPanelUI(C, '#00ff00', { featureId: fb }),
-        ]);
-        for (const [page, quem] of [[A, 'A'], [B, 'B'], [C, 'C']]) {
-            await expectReachedServer(page, quem, fb, 'update');
+        //
+        // RESSALVA MEDIDA POR LEITURA, 2026-09-13: o `recolorViaPanelUI` que roda aqui e' o
+        // driver LOCAL deste arquivo (endurecido para o cliente que reentra), que SOMBREIA o de
+        // `helpers/collab-helpers.js` e ignora o terceiro argumento. Quem registra o alvo para
+        // `vereditoDoCommitDeCor` e' o driver compartilhado, entao hoje o veredito daqui sai
+        // INDISPONIVEL e a propria frase dele diz isso. Fica escrito em vez de silenciosamente
+        // corrigido porque unificar os dois drivers e' mudanca de harness, nao de contrato, e
+        // este commit so' realinha asseroes ao contrato.
+        const disputa = [
+            { page: A, quem: 'A', cor: '#ff0000' },
+            { page: B, quem: 'B', cor: '#0000ff' },
+            { page: C, quem: 'C', cor: '#00ff00' },
+        ];
+        await Promise.all(disputa.map(({ page, cor }) => recolorViaPanelUI(page, cor, { featureId: fb })));
+        const enviadas = [];
+        for (const { page, quem, cor } of disputa) {
+            const enq = await expectReachedServer(page, quem, fb, 'update');
+            enviadas.push({ opId: enq.opId, quem, cor });
         }
         const winner = await convergedColor(collab.db, [A, B, C], fb);
         expect(winner, 'o servidor gravou uma das três cores em disputa').toMatch(/^#(ff0000|0000ff|00ff00)$/);
 
-        // As TRÊS chegaram ao log append-only (nenhuma foi silenciosamente descartada a
-        // caminho). A coluna é `op_type` (`backend/src/database/migrations/003_sync.sql:19`),
-        // não `operation_type`.
+        // UMA APLICA, DUAS VOLTAM COMO CONFLITO — a mesma leitura, e o mesmo porquê, de
+        // `browser-collab-crdt-conflict.spec.js`, onde a inversão desta asserção está escrita por
+        // extenso. Em resumo: até 2026-09-13 esta linha pedia `>= 3` porque as três updates eram
+        // todas aplicadas e a última sobrescrevia as duas anteriores em silêncio; desde `0fa61c5f`
+        // (servidor, `entity-conflicts.js`) e `5f91f2e9` (cliente, `mutation-contract.js`) uma
+        // update DECLARA a base observada e a unidade que muda, então três edições de UMA base são
+        // uma escrita e duas recusas, e op recusada não escreve linha em `operations`. Medido na
+        // rodada que virou este caso vermelho: uma update no log, quatro conflitos no SyncLedger.
+        // A coluna é `op_type` (`backend/src/database/migrations/003_sync.sql:19`), não
+        // `operation_type`.
         const opsFb = await collab.db.queryOperationsByEntity(fb);
-        expect(
-            opsFb.filter((o) => o.op_type === 'update').length,
-            'as três atualizações concorrentes chegaram ao log do servidor',
-        ).toBeGreaterThanOrEqual(3);
+        const updatesFb = opsFb.filter((o) => o.op_type === 'update');
+        expect(updatesFb.length, 'UMA das três atualizações concorrentes foi aplicada, e só uma')
+            .toBe(1);
+
+        // O DESFECHO DE CADA UMA VEM DO RECIBO, e não da ausência no log: "não está em
+        // `operations`" lê igual para uma recusa e para uma edição perdida a caminho, e esses dois
+        // desfechos são opostos. É a distinção que esta fase existe para medir.
+        const desfechos = [];
+        for (const { opId, quem, cor } of enviadas) {
+            const recibo = await collab.db.queryReceipt(opId);
+            expect(recibo, `o servidor guardou o recibo da edição de ${quem}`).toBeTruthy();
+            desfechos.push({ opId, quem, cor, result: recibo.result });
+        }
+        const aplicadas = desfechos.filter((d) => d.result.status === 'applied');
+        const conflitos = desfechos.filter((d) => d.result.status === 'conflict');
+        expect(aplicadas.map((d) => d.quem), 'exatamente um dos três teve a edição aplicada')
+            .toHaveLength(1);
+        expect(conflitos.map((d) => d.quem), 'os outros dois foram recusados, não sobrescritos')
+            .toHaveLength(2);
+        expect(aplicadas[0].opId, 'a op aplicada é a mesma que o log guardou').toBe(updatesFb[0].op_id);
+        expect(winner, 'a cor convergida é a de quem teve a edição aplicada').toBe(aplicadas[0].cor);
+
+        // E CADA RECUSA NOMEIA A UNIDADE EM DISPUTA, senão ela seria indistinguível de uma recusa
+        // por política, e as duas pedem coisas diferentes de quem as recebe. A frase e a unidade
+        // são escritas por extenso de propósito: derivar o valor esperado do código sob teste não
+        // prova nada.
+        for (const { quem, result } of conflitos) {
+            expect(result.reason, `a recusa de ${quem} diz que os mesmos campos mudaram no servidor`)
+                .toBe('Os mesmos campos foram alterados no servidor.');
+            expect(
+                (result.conflict?.fields ?? []).map((f) => JSON.stringify(f)),
+                `a recusa de ${quem} nomeia a unidade em disputa`,
+            ).toContain('["properties","lineColor"]');
+        }
 
         // 4. LATE JOIN — C disconnects (full session close). A's offline-window write reaches B
         //    through the whole chain; C reconnects (fresh session) and catches up via snapshot.

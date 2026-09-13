@@ -13,6 +13,14 @@
  * número). O 360 e a primeira pessoa, medidos com a mesma bancada, não acumulam nada: trinta e
  * cinco panorâmicas de 5120x2560 navegadas em sequência deixam a memória plana.
  *
+ * O MODELO NÃO ESTÁ NO GIT, e essa frase faltava aqui. `backend/.gitignore` exclui
+ * `data/models3d/`, então um checkout limpo e qualquer worktree ficam sem
+ * `serra_dourada.3dtiles` e a rota responde 404. §30.2 pergunta isso DIRETAMENTE, uma vez, antes
+ * dos ciclos, e pula nomeando o arquivo e a saída (`MODELS_3D_DIR`): o viewer do Cesium sobe com
+ * o tileset em 404 e a cena fica vazia, então deduzir a presença do asset a partir de "o ciclo
+ * abriu" dá respostas diferentes em rodadas iguais, que foi o que a homologação de 2026-09-13
+ * mediu (uma rodada pulou, a seguinte reprovou, mesmo ambiente e mesmo 404).
+ *
  * A ORDEM DOS DOIS TESTES NÃO É ARBITRÁRIA. §30.1 exercita o PIOR CASO num vazador deliberado e
  * exige que a régua o reprove; só então §30.2 deixa a régua julgar o app. Régua vista só passar
  * em código bom não foi vista funcionar, e uma sonda que conte errado devolve verde silencioso,
@@ -41,6 +49,50 @@ const TILESET_ID = 'serra_dourada';
  * e volta para o 2D sem erro nenhum, e o ciclo passaria a medir o nada com cara de medir o 3D.
  */
 const TILESET_URL = '/api/v1/assets3d/m/serra_dourada/tileset.json';
+
+/**
+ * O tileset está sendo servido AGORA? Perguntado uma vez antes dos ciclos e de novo sempre que um
+ * ciclo falha em abrir.
+ *
+ * POR QUE UMA SONDA E NÃO A INFERÊNCIA A PARTIR DO CICLO. `cicloAbreFecha` decide `abriu` pela
+ * existência do container e do viewer do Cesium, e os dois nascem mesmo quando o tileset responde
+ * 404: a cena fica vazia e nada reclama. Então "o ciclo abriu" não responde "o modelo existe", e
+ * foi essa lacuna que deixou a segunda passada de homologação PULAR numa rodada (aquecimento não
+ * abriu) e REPROVAR na outra (o quarto ciclo medido não abriu), no MESMO ambiente e com o MESMO
+ * 404. Uma pré-condição perguntada diretamente responde igual nas duas.
+ *
+ * O `fetch` sai da própria página, então atravessa o mesmo proxy do Vite e a mesma sessão
+ * (anônima) que o visualizador usa: é o mesmo pedido, por um caminho independente do Cesium.
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<{status: number, corpo: string}>} `status: 0` quando não houve resposta.
+ */
+function sondarTileset(page) {
+    return page.evaluate(async (url) => {
+        try {
+            const res = await fetch(url, { cache: 'no-store' });
+            return { status: res.status, corpo: (await res.text()).slice(0, 160) };
+        } catch (e) {
+            return { status: 0, corpo: String(e && e.message ? e.message : e) };
+        }
+    }, TILESET_URL);
+}
+
+/**
+ * A frase do pulo quando o asset não está lá. Ela NOMEIA o arquivo, quem o esconde e como
+ * reativar a medição, porque um pulo é cobertura vazia e o mínimo que ele deve entregar é o
+ * caminho de volta.
+ * @param {{status: number, corpo: string}} sonda - Resposta da sonda.
+ * @returns {string}
+ */
+const assetAusente = (sonda) => 'o modelo 3D nao esta sendo servido neste ambiente: GET '
+    + `${TILESET_URL} respondeu ${sonda.status} ${sonda.corpo}. O arquivo e `
+    + '`backend/data/models3d/serra_dourada.3dtiles`, e `backend/.gitignore` exclui '
+    + '`data/models3d/`, entao um checkout limpo e QUALQUER worktree do git ficam sem ele (foi '
+    + 'assim na homologacao de 2026-09-13). Para medir de verdade, aponte `MODELS_3D_DIR` para um '
+    + 'diretorio que contenha o arquivo antes de rodar o Playwright: `tests/e2e-ui/backend.js` '
+    + 'espalha o ambiente do processo no `spawn` do backend e nao sobrescreve essa variavel. '
+    + 'Enfraquecer a assercao de vazamento para caber num ambiente sem o modelo seria inventar '
+    + 'verde.';
 
 /** Ciclos de aquecimento (primeira importação de módulo, primeiro shader) e ciclos medidos. */
 const AQUECIMENTO = 2;
@@ -240,16 +292,32 @@ describeOrSkip('§30 vazamento de recurso ao abrir e fechar visualizador', () =>
         await registrarTileset(page);
         await bootar(page);
 
+        // A PRÉ-CONDIÇÃO É PERGUNTADA UMA VEZ, ANTES DE QUALQUER CICLO, e é isso que torna o
+        // desfecho deste caso determinístico no mesmo ambiente. Até 2026-09-13 o único pulo
+        // estava pendurado no AQUECIMENTO, e o aquecimento não é um bom detector: o viewer do
+        // Cesium sobe com o tileset em 404, então se ele abre a cena vazia o caso segue para os
+        // ciclos medidos e falha lá, e se ele não abre o caso pula. Mesma máquina, mesmo 404,
+        // dois veredictos. Medido nas duas passadas de homologação: `playwright-p3.log`
+        // (reprovou no quarto ciclo medido) e a repetição na mesma rodada (pulou).
+        const sondaInicial = await sondarTileset(page);
+        test.skip(sondaInicial.status !== 200, assetAusente(sondaInicial));
+
         for (let i = 0; i < AQUECIMENTO; i++) {
             const { abriu } = await cicloAbreFecha(page, falhasDeRede);
             if (!abriu) {
                 // O motivo do `skip` não aparece no relator de linha, e um pulo sem motivo
-                // visível é o mesmo que um verde sem verificação.
+                // visível é o mesmo que um verde sem verificação. Com o asset já conferido
+                // acima, o que sobra aqui é o ambiente sem WebGL.
                 console.log(`[§30.2] aquecimento ${i + 1} nao abriu. Rede: ${falhasDeRede.join(' | ') || '(nada)'}`);
+                const sonda = await sondarTileset(page);
                 test.skip(
                     true,
-                    'o visualizador Cesium nao subiu neste ambiente (sem WebGL, ou o asset 3D nao e servido); '
-                    + `a asserção de vazamento nao pode ser lida, e enfraquecê-la seria inventar verde. `
+                    'o visualizador Cesium nao subiu neste ambiente; a asserção de vazamento nao '
+                    + 'pode ser lida, e enfraquecê-la seria inventar verde. '
+                    + (sonda.status === 200
+                        ? 'O tileset RESPONDE 200, entao a causa nao e o asset (tipicamente WebGL '
+                          + 'indisponivel ou maquina carregada demais para os 60 s do ciclo). '
+                        : `${assetAusente(sonda)} `)
                     + `Respostas de erro no ciclo: ${falhasDeRede.slice(0, 5).join(' | ') || '(nenhuma)'}`,
                 );
                 return;
@@ -259,9 +327,24 @@ describeOrSkip('§30 vazamento de recurso ao abrir e fechar visualizador', () =>
         const antes = await contarRecursos(page);
         for (let i = 0; i < MEDIDOS; i++) {
             const { abriu, botoesDeFerramenta } = await cicloAbreFecha(page, falhasDeRede);
+            if (!abriu) {
+                // O DIAGNÓSTICO CHEGOU AOS CICLOS MEDIDOS, e antes ele parava no aquecimento. O
+                // asset pode sumir NO MEIO da rodada: o índice de modelos é memoizado com TTL de
+                // 60 s (`models3d.index.js`) e uma reconstrução que não ache a linha volta a
+                // responder 404 depois de vários ciclos verdes, que é exatamente o formato do
+                // vermelho medido ("o ciclo medido 4 falhou em abrir"). Se a sonda acusa o asset,
+                // o pulo é o mesmo do topo, com a mesma frase; se ela responde 200, o ciclo
+                // falhou por outra coisa e o caso REPROVA, com a rede na mensagem.
+                console.log(`[§30.2] ciclo medido ${i + 1} nao abriu. Rede: ${falhasDeRede.join(' | ') || '(nada)'}`);
+                const sonda = await sondarTileset(page);
+                test.skip(sonda.status !== 200, `${assetAusente(sonda)} Detectado no ciclo medido `
+                    + `${i + 1}, depois de ${i} ciclo(s) que abriram: o indice de modelos e `
+                    + 'memoizado por 60 s, entao o asset pode sair de cena no meio da rodada.');
+            }
             expect(
                 abriu,
-                `o ciclo medido ${i + 1} falhou em abrir o visualizador. Respostas de erro: `
+                `o ciclo medido ${i + 1} falhou em abrir o visualizador, e o tileset responde 200: `
+                + 'a causa nao e o asset ausente. Respostas de erro: '
                 + `${falhasDeRede.slice(0, 5).join(' | ') || '(nenhuma)'}`,
             ).toBe(true);
             // Sem barra de ferramentas 3D no documento, `registerToolEventListeners` retorna

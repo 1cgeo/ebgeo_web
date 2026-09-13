@@ -14,6 +14,17 @@
  *   (c) the ledger's own conflict view, whose winnerServerVersion = the MAX server arrival
  *       order in the `operations` table.
  *
+ * WHAT 2026-09-13 CHANGED, AND WHY "LWW" IS NOW ONLY HALF THE STORY. A feature update DECLARES
+ * the revision it observed and the unit it changed (`5f91f2e9`, `store/sync/mutation-contract.js`),
+ * and the server judges it against a per-unit frontier (`0fa61c5f`,
+ * `backend/src/modules/sync/entity-conflicts.js`). Among edits that declare the SAME base and
+ * touch the SAME unit, the FIRST to arrive applies and every later one is REFUSED with
+ * `status: 'conflict'` naming the disputed unit; the refused ops never reach `operations`. So the
+ * value the server ends up holding is the first arrival, not the last, and the losers converge
+ * because the winner's broadcast corrects them — not because their own write landed on top.
+ * Convergence, which is what most of this file measures, is unchanged; the COUNT of applied
+ * writes is not, and the three-client case at the bottom is where that shows.
+ *
  * UI-first: the line is drawn with the real line tool, the concurrent recolors / delete are
  * driven through the real attribute panel + Delete key. The concurrent GEOMETRY move stays
  * programmatic (no single-gesture UI sets a line to EXACT coordinates — flagged inline).
@@ -446,10 +457,16 @@ collabTest.describe('CRDT conflict — tres clientes', () => {
             'lines',
             { type: 'Feature', properties: { ...props[i], lineColor: cores[i] }, geometry: { type: 'LineString', coordinates: LINE_COORDS } },
         ])));
+        // The op ids are kept in the SAME order as `cores`, because the outcome assertion below
+        // pairs the applied operation with the colour its author asked for. Without the pairing,
+        // "one applied" and "the three converged" would be two true statements about possibly
+        // different things.
+        const opIds = [];
         for (const page of [A, B, C]) {
             const enq = await waitForEntitySpan(page, { entityId: id, operationType: 'update', stage: 'enqueue' }, 25000);
             expect(enq, 'o recolor virou operação na fila').toBeTruthy();
             await waitForAcked(page, enq.opId, 25000);
+            opIds.push(enq.opId);
         }
 
         // 60s AQUI, contra os 25s do padrão, e o número é do CASO, não do helper: este é o único
@@ -465,15 +482,65 @@ collabTest.describe('CRDT conflict — tres clientes', () => {
         const winner = await convergedValue(collab.db, [A, B, C], id, (p) => lineProp(p, id, 'lineColor').then((v) => String(v).toLowerCase()), 60000);
         expect(winner, 'o servidor gravou uma das três cores em disputa').toMatch(/^#(ff0000|0000ff|00ff00)$/);
 
-        // As TRÊS chegaram ao log append-only. A coluna é `op_type`
-        // (`backend/src/database/migrations/003_sync.sql:19`), não `operation_type`; e o
-        // corpo de um update vai em `changes`, não em `data`, que é só de create.
-        // Nenhuma afirmação aqui sobre o formato interno de `changes`: quem prova
-        // "vencedor = maior server_version" é o cross-check do ledger no teste de dois
-        // clientes, e duplicar isso com um palpite de shape só criaria falha frágil.
+        // ── UMA APLICA, DUAS VOLTAM COMO CONFLITO ────────────────────────────────────────────
+        //
+        // THIS ASSERTION USED TO READ `updates >= 3`, AND IT NOW ASKS FOR THE OPPOSITE, which is
+        // an inversion and not a relaxation. Until 2026-09-13 the three concurrent recolors were
+        // all APPLIED and the last arrival silently overwrote the two before it, so three rows in
+        // the log were the honest count. Since `0fa61c5f` (server, `entity-conflicts.js`) and
+        // `5f91f2e9` (client, `mutation-contract.js`) an update DECLARES the base it observed and
+        // the unit it changed: three edits from ONE base are one write and two refusals — the
+        // first to arrive applies, the other two come back `conflict`, and a refused operation
+        // writes NO row in `operations`. Measured on the run that turned this red: `updates.length`
+        // = 1, with the SyncLedger of this spec reporting 3 conflicts and of the three-client spec
+        // 4. Asking for `>= 3` today is asking for the silent overwrite the contract exists to
+        // stop.
+        //
+        // A coluna é `op_type` (`backend/src/database/migrations/003_sync.sql:19`), não
+        // `operation_type`; e o corpo de um update vai em `changes`, não em `data`, que é só de
+        // create. Nenhuma afirmação aqui sobre o formato interno de `changes`: quem prova
+        // "vencedor = maior server_version" é o cross-check do ledger no teste de dois clientes,
+        // e duplicar isso com um palpite de shape só criaria falha frágil.
         const ops = await collab.db.queryOperationsByEntity(id);
         const updates = ops.filter((o) => o.op_type === 'update');
-        expect(updates.length, 'as três atualizações chegaram ao log').toBeGreaterThanOrEqual(3);
+        expect(updates.length, 'UMA das três atualizações foi aplicada, e só uma').toBe(1);
+        expect(opIds, 'a op que o log guardou é uma das três em disputa').toContain(updates[0].op_id);
 
+        // O DESFECHO POR OPERAÇÃO VEM DO RECIBO, e não da ausência no log. "Não está em
+        // `operations`" é a mesma leitura para uma recusa e para uma edição perdida a caminho, e
+        // esses dois desfechos são opostos: um é o contrato funcionando, o outro é trabalho
+        // sumindo sem aviso. O recibo é o único lugar onde a diferença está escrita.
+        const desfechos = [];
+        for (const opId of opIds) {
+            const recibo = await collab.db.queryReceipt(opId);
+            expect(recibo, `o servidor guardou o recibo da op ${opId}`).toBeTruthy();
+            desfechos.push({ opId, result: recibo.result });
+        }
+        const aplicadas = desfechos.filter((d) => d.result.status === 'applied');
+        const conflitos = desfechos.filter((d) => d.result.status === 'conflict');
+        expect(aplicadas, 'exatamente uma op voltou aplicada').toHaveLength(1);
+        expect(conflitos, 'as outras duas voltaram como conflito, não como sucesso').toHaveLength(2);
+        expect(aplicadas[0].opId, 'a op aplicada é a mesma que o log guardou').toBe(updates[0].op_id);
+
+        // E A RECUSA NOMEIA A UNIDADE EM DISPUTA. Sem isso, um `conflict` seria indistinguível de
+        // uma recusa por política, e as duas pedem coisas diferentes de quem as recebe. A frase e
+        // a unidade são escritas aqui por extenso, e não importadas do backend: uma asserção que
+        // deriva o valor esperado do código sob teste não prova nada. Para uma feição a unidade é
+        // o caminho da propriedade no patch (`featureMutationContract`, `feature-patch.js`), e o
+        // servidor a devolve parseada em `conflict.fields`.
+        for (const { opId, result } of conflitos) {
+            expect(result.reason, `a recusa de ${opId} diz que os mesmos campos mudaram no servidor`)
+                .toBe('Os mesmos campos foram alterados no servidor.');
+            const unidades = (result.conflict?.fields ?? []).map((f) => JSON.stringify(f));
+            expect(unidades, `a recusa de ${opId} nomeia a unidade em disputa`)
+                .toContain('["properties","lineColor"]');
+        }
+
+        // O LAÇO SE FECHA NA TELA: a cor sobre a qual os três convergiram é a do cliente cuja op
+        // foi a aplicada. É esta linha que impede o caso de passar com um vencedor que ninguém
+        // pediu, ou com uma convergência para o valor anterior à disputa.
+        const vencedor = opIds.indexOf(aplicadas[0].opId);
+        expect(winner, 'a cor convergida é a do cliente cuja op o servidor aplicou')
+            .toBe(cores[vencedor]);
     });
 });

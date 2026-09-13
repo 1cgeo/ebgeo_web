@@ -55,6 +55,25 @@ export function createDb(dbName) {
         queryOperationsByEntity: (entityId) =>
             conn.any('SELECT * FROM operations WHERE entity_id = $1 ORDER BY server_version ASC', [entityId]),
 
+        /**
+         * The delivery receipt the backend stored for one operation — the ack VERBATIM
+         * (`sync_receipts`, `004_sync.sql`): `status`, and on a refusal the `conflict` object
+         * carrying the disputed units.
+         *
+         * WHY THE RECEIPT AND NOT THE OP LOG. Since 2026-09-13 a refused operation writes NO
+         * row in `operations` (`entity-conflicts.js`), so the log alone can only say "it is not
+         * here" — which reads identically for a refusal and for work lost in transit. Those are
+         * opposite outcomes: one is the contract working, the other is an edit disappearing.
+         * The receipt is the only place the difference is written down.
+         *
+         * `op_id` alone is key enough here, although the table is keyed (atlas_id, op_id):
+         * operation ids are UUIDs minted by the client.
+         * @param {string} opId - Operation id.
+         * @returns {Promise<{result: Object}|null>} The stored ack, or null if none exists.
+         */
+        queryReceipt: (opId) =>
+            conn.oneOrNone('SELECT result FROM sync_receipts WHERE op_id = $1', [opId]),
+
         /** The feature row (includes `deleted_at` — soft-delete tombstone, NOT row removal). */
         queryFeatureRow: (entityId) =>
             conn.oneOrNone('SELECT * FROM features WHERE id = $1', [entityId]),

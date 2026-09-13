@@ -328,6 +328,46 @@ export const mapsDbOf = (dbSuffix) => atlasDbNames(dbSuffix)[1];
 export const remoteSuffix = (atlasId) => `remote-${atlasId}`;
 
 /**
+ * Prefix of the `localStorage` record that selects a namespace's ACTIVE data generation.
+ *
+ * Written out here instead of imported from `store/namespace-generation.js`, for the reason
+ * `atlasDbNames` gives above: an expectation derived from the code under test proves nothing.
+ * The record is `{ active, known, cursor }`, and `active` is the generation id.
+ */
+export const GENERATION_KEY_PREFIX = 'ebgeo_atlas_generation:';
+
+/**
+ * The `ebgeo_maps` database that this tab's readers ACTUALLY resolve to for a scope, right now.
+ *
+ * WHY THE BASE NAME IS NOT ENOUGH ANY MORE. Since 2026-09-13 a snapshot lands in a fresh
+ * GENERATION of the nine data databases (`ebgeo_maps__<suffix>__generation-<uuid>`) and the
+ * pointer is flipped only at the end, so a spec that reads `mapsDbOf(remoteSuffix(id))` after a
+ * connect is reading the generation-less name, which holds nothing. The failure mode is the
+ * nastiest kind: an ABSENCE assertion against that name passes for free, and only the positive
+ * control notices. That is exactly how it was caught (`browser-save-local-to-server.spec.js`).
+ *
+ * A scope with no pointer (a local slot, a namespace that never pulled) resolves to the base
+ * name, which is also what `resolveDbName` does.
+ * @param {import('@playwright/test').Page} page
+ * @param {string} dbSuffix - '' for the legacy/local slot, `remote-<atlasId>` for a server atlas.
+ * @returns {Promise<string>} Database name a reader of that scope resolves to.
+ */
+export async function activeMapsDbOf(page, dbSuffix) {
+    const active = await evaluateStable(page, (key) => {
+        try {
+            const raw = localStorage.getItem(key);
+            if (!raw) return null;
+            const value = JSON.parse(raw);
+            return typeof value?.active === 'string' ? value.active : null;
+        } catch {
+            return null;
+        }
+    }, `${GENERATION_KEY_PREFIX}${dbSuffix}`);
+    const base = mapsDbOf(dbSuffix);
+    return active ? `${base}__generation-${active}` : base;
+}
+
+/**
  * Raw read of one localforage database, WITHOUT creating it.
  * @param {import('@playwright/test').Page} page
  * @param {string} dbName

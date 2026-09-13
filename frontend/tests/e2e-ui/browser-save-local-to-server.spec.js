@@ -15,17 +15,19 @@
  * the atlas it just created. The second test drives the same flow and asserts facts of INDEXEDDB.
  * Splitting keeps the green guard green instead of demoting it to an expected failure.
  *
- * O SEGUNDO CASO FECHOU EM E3 e o `test.fail` dele saiu. Ele carregava o marcador desde o commit
- * que ENTREGOU a correção: o texto do caso descrevia o código de antes e ninguém apagou o
- * marcador junto. Ao promover, a asserção nomeada teve de mudar de feição também — a antiga
- * respondia igual antes e depois da correção. O porquê está escrito no caso.
+ * O SEGUNDO CASO DEIXOU DE SER FALHA ESPERADA EM 2026-09-13, e a razão é que o portão dele havia
+ * parado de medir o defeito: ele caía no CONTROLE POSITIVO da leitura, porque o snapshot passou a
+ * viver numa GERAÇÃO de bancos (`__generation-<uuid>`) e o nome sem geração já não guarda nada. O
+ * caso lê a geração ativa e AFIRMA o comportamento; o porquê inteiro está escrito nele.
  */
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { loginUI, goToLocalMapUI, drawPointUI } from './helpers/collab-helpers.js';
 import { createVerifiedUser } from './helpers/accounts.js';
-import { idbDatabaseNames, readIdbFeatureIds, mapsDbOf, remoteSuffix, pendingGate } from './helpers/two-tabs.js';
+import {
+    idbDatabaseNames, readIdbFeatureIds, mapsDbOf, activeMapsDbOf, remoteSuffix,
+} from './helpers/two-tabs.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -144,13 +146,13 @@ describeOrSkip('Salvar atlas local no servidor (UI, item 2)', () => {
         await ctx.close();
     });
 
-    // O CASO DE E3 FICA NUMA DESCRIBE PRÓPRIA, com `retries: 0`, e a razão não é estética.
-    // Medido: um `test.fail()` que passa DETERMINISTICAMENTE já sai `unexpected` mesmo com
-    // `retries: 1` (duas tentativas passed,passed, exit 1). O que `retries: 1` esconde é o
-    // caso em que a correção de E3 for parcial ou tiver corrida: a dupla passed,failed é
-    // classificada `flaky` e a rodada sai com exit 0, isto é, verde. O guarda VERDE acima
-    // fica de fora deste opt-out de propósito: ele é um teste de servidor comum e a
-    // confiabilidade de rede da suíte vale para ele.
+    // O CASO DO NAMESPACE FICA NUMA DESCRIBE PRÓPRIA, com `retries: 0`, e a razão não é
+    // estética: o que ele mede é EM QUAL banco uma escrita caiu, que é pergunta de corrida. Com
+    // `retries: 1`, uma reprodução do vazamento sairia da rodada classificada `flaky` e o
+    // processo terminaria com exit 0, isto é, verde sobre um defeito observado. Precedente do
+    // mesmo opt-out: `browser-multi-tab-namespace.spec.js`. O guarda VERDE acima fica de fora
+    // dele de propósito: é um teste de servidor comum, e a tolerância de rede da suíte vale
+    // para ele.
     test.describe('namespace do atlas salvo (portão de E3)', () => {
         test.describe.configure({ retries: 0 });
 
@@ -163,19 +165,13 @@ describeOrSkip('Salvar atlas local no servidor (UI, item 2)', () => {
             // pôs a ativação ENTRE a reivindicação e o wipe (a ordem está presa em
             // `tests/unit/portao-de-montagem.test.js`, "saveLocalToServer: idem").
             //
-            // A MARCA MUDOU DE FEIÇÃO JUNTO COM A CORREÇÃO, e essa troca é a metade do conserto
-            // que faltava. A asserção original perguntava pela feição do atlas LOCAL, e essa
-            // pergunta deixou de distinguir as duas metades: E3 também parou de esvaziar o slot
-            // local, e o upload PRESERVA os ids (o guarda verde acima acha `featureId` no
-            // servidor por esse mesmo id), então a feição original continua legível no slot local
-            // depois da correção — pelo motivo certo. Antes de E3 ela também estava lá, pelo
-            // motivo errado (o wipe apagava o slot local e o pull do servidor reescrevia tudo
-            // dentro dele). Uma marca que responde igual nos dois estados não reprova nada.
-            //
-            // A feição medida agora é a que só pode existir DEPOIS da troca: um ponto desenhado
-            // com a aba já viva no atlas de servidor. Antes de E3 ele caía em `ebgeo_maps` (o
-            // escopo montado continuava sendo o local); depois de E3 ele cai em
-            // `ebgeo_maps__remote-<atlasId>`, e nada dele pode aparecer num banco local.
+            // A feição medida é a que só pode existir DEPOIS da troca: um ponto desenhado com a
+            // aba já viva no atlas de servidor. Antes de E3 ele caía num banco do slot local (o
+            // escopo montado continuava sendo o local); depois de E3 ele cai no namespace do
+            // atlas, e nada dele pode aparecer num banco local. A feição ORIGINAL não serve de
+            // marca: o upload PRESERVA os ids e E3 parou de esvaziar o slot local, então ela é
+            // legível nos dois lados depois da correção, e uma marca que responde igual nos dois
+            // estados não reprova nada.
             //
             // Why this needs its own test instead of a few more lines in the one above: that test
             // is a GREEN guard of server-side facts and must stay green. It was green throughout
@@ -183,100 +179,76 @@ describeOrSkip('Salvar atlas local no servidor (UI, item 2)', () => {
             // where the client wrote. The read below is `indexedDB.databases()`, a fact of the
             // browser profile.
             //
-            // It runs through `pendingGate` for the reason written at that helper: without it, a
-            // broken setup and the defect are both reported as "expected failure".
+            // ================= POR QUE O `test.fail()` SAIU, EM 2026-09-13 =====================
+            //
+            // Ele estava aqui desde 2026-08-21, quando o vazamento foi MEDIDO no navegador. Na
+            // segunda passada de homologação o caso saiu "Expected to fail, but passed" nas DUAS
+            // bases (candidata e `8309b289`), e o anexo do portão disse por quê: ele não caiu na
+            // marca do vazamento, caiu no CONTROLE POSITIVO da leitura ("a edição ao vivo está no
+            // namespace do atlas de servidor"). Ou seja, a asserção de vazamento passou e a que
+            // prova que o leitor enxerga alguma coisa falhou. Um portão que cai pelo controle
+            // positivo não está medindo o defeito: está medindo o instrumento.
+            //
+            // O INSTRUMENTO É QUE ESTAVA DESATUALIZADO, e o responsável é `bc797944`: desde
+            // 2026-09-13 o snapshot prepara os nove bancos de DADO sob um sufixo
+            // `__generation-<uuid>` e só então vira o ponteiro. `mapsDbOf(remoteSuffix(atlasId))`
+            // devolve o nome SEM geração, que depois do `connect` não guarda nada, e daí o
+            // controle positivo vermelho. O modo de falha é o pior possível para este caso: a
+            // asserção de AUSÊNCIA contra um nome que ninguém escreve passa de graça, então sem o
+            // controle positivo este teste teria ficado verde para sempre sobre um leitor cego.
+            //
+            // A leitura passou a resolver a geração ATIVA (`activeMapsDbOf`, `helpers/two-tabs.js`,
+            // que lê o ponteiro do `localStorage` e escreve o formato por extenso em vez de
+            // importar `resolveDbName`). Com o instrumento consertado sobra o que as duas rodadas
+            // mediram: a edição ao vivo NÃO aparece em banco local nenhum. Por isso a marca de
+            // falha esperada saiu e o caso passou a AFIRMAR o comportamento em vez de esperar o
+            // defeito. Ele NÃO foi executado por quem o reescreveu (Playwright fora do laço
+            // dele): fica para o coordenador, e um vermelho aqui é a corrida de 2026-08-21 de
+            // volta, agora com o instrumento capaz de vê-la.
             test.setTimeout(120000);
 
-            // AINDA PENDENTE, e a marca voltou depois de MEDIDA no navegador (2026-08-21).
-            //
-            // O cabeçalho acima estava certo sobre a marca velha ser insatisfazível, e certo
-            // sobre a metade de E3 que ENTROU: os bancos `ebgeo_*__remote-<atlasId>` existem
-            // depois do "Enviar ao servidor", e a edição ao vivo aparece dentro deles (o
-            // controle positivo do gate passa). Estava errado ao concluir que o defeito tinha
-            // fechado, porque essa conclusão saiu de leitura de código e de teste unitário,
-            // nunca do navegador.
-            //
-            // MEDIDO: com backend, banco e portas isolados, o vazamento reproduz. A edição
-            // feita com a aba JÁ VIVA no atlas de servidor aparece TAMBÉM em `ebgeo_maps`
-            // local. Duas execuções de duas em que o gate chegou a avaliar. A única execução
-            // verde foi a que rodou com o servidor de aplicação caindo (o caso irmão morreu
-            // com ERR_CONNECTION_REFUSED na mesma rodada), e por isso não conta.
-            //
-            // O QUE ISSO ESTREITA: a ativação de namespace acontece, então o furo não é a
-            // ordem de `account.control.js` (claim → activate → wipe), que o guarda unitário
-            // `portao-de-montagem.test.js` já prende. O que sobra é a escrita ao vivo
-            // alcançando o escopo LOCAL depois da ativação. Pista não confirmada, e o próximo
-            // a pegar isto deve começar por ela: `activateRemoteAtlas`
-            // (`store/remote-atlas.api.js:414`) é assíncrona, e um repositório que tenha
-            // resolvido o nome do banco (ou aberto a conexão) ANTES dela continuaria
-            // escrevendo no endereço velho, com o registro já dizendo remoto. Confira se a
-            // resolução do nome é por chamada ou memoizada.
-            //
-            // NÃO foi consertado de propósito: é o caminho de ativação de escopo, a causa
-            // registrada já se mostrou errada duas vezes nesta fase, e conserto apressado aqui
-            // arrisca mais que o defeito conhecido.
-            test.fail();
+            const { ctx, page, featureId, atlasId } = await driveSaveLocalToServer(browser, state.baseUrl);
+            try {
+                // A EDIÇÃO AO VIVO, e ela é o instrumento: só existe depois de a aba estar no
+                // atlas de servidor, então o banco em que ela cai NOMEIA o escopo montado.
+                const liveId = await drawPointUI(page, [-43.31, -23.01]);
+                expect(liveId, 'a aba desenhou já viva no atlas de servidor').toBeTruthy();
+                await page.keyboard.press('Escape');
 
-            await pendingGate(testInfo, {
-                marca: '(local) não recebeu a edição feita no atlas de servidor',
+                const names = await idbDatabaseNames(page);
+                await testInfo.attach('indexedDB.databases() depois do "Enviar ao servidor"', {
+                    body: names.join('\n'),
+                    contentType: 'text/plain',
+                });
 
-                // O DEFEITO É CORRIDA, ENTÃO UMA MEDIÇÃO NÃO DECIDE NADA. Medido em 2026-08-21,
-                // em cinco suítes cheias seguidas: o vazamento reproduziu em QUATRO, e na quinta
-                // o portão saiu vermelho com "Expected to fail, but passed", anunciando um
-                // conserto que ninguém tinha feito (o commit anterior desta linha ja tinha pago
-                // esse mesmo pedágio ao contrário, tirando a marca e tendo de repô-la). Com três
-                // tentativas, uma reprodução basta para o caso voltar a ser a falha esperada, e
-                // "fechou" passa a exigir três limpas em sequência.
-                //
-                // O contexto de cada tentativa descartada é fechado aqui: sem isso, três jornadas
-                // completas deixariam três contextos de navegador abertos até o fim do caso.
-                tentativas: 3,
-                encerrar: async ({ ctx }) => { await ctx.close(); },
+                // O CONTROLE POSITIVO VEM PRIMEIRO, e a ordem é a lição do portão anterior:
+                // enquanto ele vinha por último, a asserção de ausência (que passa de graça
+                // contra um banco vazio) era lida antes de qualquer prova de que o leitor
+                // enxerga alguma coisa. Agora o caso só chega à ausência depois da presença.
+                const remoteDb = await activeMapsDbOf(page, remoteSuffix(atlasId));
+                expect(names, 'o atlas salvo tem namespace próprio')
+                    .toContain(mapsDbOf(remoteSuffix(atlasId)));
+                const remote = await readIdbFeatureIds(page, remoteDb);
+                expect(remote.featureIds, `a edição ao vivo está em ${remoteDb}`).toContain(liveId);
+                expect(remote.featureIds, `a feição salva está em ${remoteDb}`).toContain(featureId);
 
-                setup: async () => {
-                    const driven = await driveSaveLocalToServer(browser, state.baseUrl);
-                    // A EDIÇÃO AO VIVO, e ela é o instrumento: só existe depois de a aba estar
-                    // no atlas de servidor, então o banco em que ela cai NOMEIA o escopo montado.
-                    const liveId = await drawPointUI(driven.page, [-43.31, -23.01]);
-                    expect(liveId, 'a aba desenhou já viva no atlas de servidor').toBeTruthy();
-                    await driven.page.keyboard.press('Escape');
-                    const names = await idbDatabaseNames(driven.page);
-                    await testInfo.attach('indexedDB.databases() depois do "Enviar ao servidor"', {
-                        body: names.join('\n'),
-                        contentType: 'text/plain',
-                    });
-                    return { ...driven, liveId, names };
-                },
-
-                gate: async ({ page, names, featureId, liveId, atlasId }) => {
-                    // THE LEAK ASSERTION COMES FIRST, and the order is chosen for the evidence it
-                    // prints: this one names the database the server atlas actually fell into and
-                    // the feature id sitting in it, which is the fact E3 had to move.
-                    const localDbs = names.filter(
-                        (n) => n === 'ebgeo_maps'
-                            || (n.startsWith('ebgeo_maps__') && !n.startsWith('ebgeo_maps__remote-')),
-                    );
-                    expect(localDbs.length, 'existe ao menos um banco local para conferir')
-                        .toBeGreaterThan(0);
-                    for (const db of localDbs) {
-                        const local = await readIdbFeatureIds(page, db);
-                        expect(local.featureIds, `${db} (local) não recebeu a edição feita no atlas de servidor`)
-                            .not.toContain(liveId);
-                    }
-
-                    // ... and the atlas the user is now live on owns its own ten databases, where
-                    // the logged-out purge can find it.
-                    const remoteDb = mapsDbOf(remoteSuffix(atlasId));
-                    expect(names, 'o atlas salvo tem namespace próprio').toContain(remoteDb);
-                    const remote = await readIdbFeatureIds(page, remoteDb);
-                    // CONTROLE POSITIVO DA LEITURA: sem ele, "o banco local não tem a edição"
-                    // seria a mesma resposta de um leitor que devolve vazio para tudo.
-                    expect(remote.featureIds, 'a edição ao vivo está no namespace do atlas de servidor')
-                        .toContain(liveId);
-                    expect(remote.featureIds, 'a feição salva está no namespace do atlas de servidor')
-                        .toContain(featureId);
-                },
-            });
+                // ...E NENHUM BANCO LOCAL RECEBEU A EDIÇÃO AO VIVO. O filtro pega o slot legado
+                // (`ebgeo_maps`) e qualquer slot local nomeado, com ou sem geração, e deixa de
+                // fora só o que começa por `ebgeo_maps__remote-`.
+                const localDbs = names.filter(
+                    (n) => n === 'ebgeo_maps'
+                        || (n.startsWith('ebgeo_maps__') && !n.startsWith('ebgeo_maps__remote-')),
+                );
+                expect(localDbs.length, 'existe ao menos um banco local para conferir')
+                    .toBeGreaterThan(0);
+                for (const db of localDbs) {
+                    const local = await readIdbFeatureIds(page, db);
+                    expect(local.featureIds, `${db} (local) não recebeu a edição feita no atlas de servidor`)
+                        .not.toContain(liveId);
+                }
+            } finally {
+                await ctx.close();
+            }
         });
     });
 });
