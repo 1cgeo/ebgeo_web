@@ -7,7 +7,7 @@
  *
  * POR QUE NÃO PELO `PATCH /atlas/:id/settings`, que é onde moram as outras configurações de
  * projeto: aquela rota é REST, gate `manage`, e um atlas LOCAL não tem rota nenhuma. Estas duas
- * viajam como OPERAÇÃO DE SYNC (`logSettingOperation`), que é o caminho que já existia para o
+ * viajam como OPERAÇÃO DE SYNC (`EntityType.SETTING`), que é o caminho que já existia para o
  * exagero e que funciona igual nos dois casos — offline vira no-op, e o backend mescla a chave
  * pela mesma whitelist (`sync.service.js`). É também o gate certo: quem pode desenhar pode
  * escolher o exagero, e escolher o exagero não é redistribuir recurso.
@@ -20,9 +20,13 @@
  */
 
 import { getRepository } from '@store/repositories/index.js';
-import { logSettingOperation, OperationType } from '@store/sync/operation-dispatcher.js';
+import { OperationType } from '@store/sync/operation-dispatcher.js';
+// Módulo folha (zero imports): o vocabulário, não o barril.
+import { EntityType } from '@store/sync/operation-types.js';
 import { checkPermission, GuardAction } from '@store/sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from '@store/store-errors.js';
+import { runTransaction } from '@store/store-transaction.js';
+import { resolveAtlasSettingId } from '@store/atlas-setting-target.js';
 import { DEFAULT_TERRAIN_EXAGGERATION } from '@store/atlas/atlas.entity.js';
 
 /** Limites do exagero, iguais aos do controle que o desenha. */
@@ -65,20 +69,32 @@ export async function readAtlasAppearance() {
 /**
  * Grava um patch parcial, no disco e na fila de saída.
  *
- * A ORDEM É A DA CASA: persistência primeiro, efeito depois. A op de sync só é registrada
- * depois de o IndexedDB confirmar, senão uma falha de disco deixaria o servidor com um valor
- * que esta máquina não tem.
+ * A ORDEM MUDOU EM 2026-09-13, E A ANTIGA ERA O DEFEITO. Ela era "persistência primeiro, op
+ * depois", com o argumento de que uma falha de disco não deveria deixar o servidor com um valor
+ * que esta máquina não tem. O custo era o inverso e maior: gravado o disco, uma falha ao
+ * registrar a op (ou o fechamento da aba um instante depois) perdia a intenção sem rastro
+ * nenhum, e a pessoa via a própria escolha valer nesta máquina e em nenhuma outra, para sempre.
+ * Agora a intenção é registrada ANTES, dentro de `runTransaction`, e o diário é que segura a
+ * outra ponta: op preparada cuja projeção local não foi materializada não é enviável
+ * (`operation-queue.js`), então o servidor não recebe valor que o disco não tem.
+ *
+ * O `TRY/CATCH` QUE ENGOLIA TUDO SAIU, e essa é a outra metade. Ele devolvia `false` para
+ * qualquer falha, então quota de IndexedDB e escrita cancelada por descarte de sessão eram
+ * relatadas ao chamador como "não gravei" e ao usuário como nada: `_handleSave`
+ * (`modals/atlas-settings.modal.js`) nem lê o retorno, mostra "Configurações salvas." e fecha o
+ * modal. Falha de persistência agora PROPAGA, com `STORE_PERSIST_ERROR` emitido por
+ * `runTransaction`, e o `false` ficou com o único sentido que tem dono: não havia o que gravar
+ * (patch vazio) ou a permissão recusou.
  *
  * @param {{terrainExaggeration?: number, globeProjection?: boolean|null}} patch - Só as chaves
  *   presentes são tocadas; `globeProjection: null` é uma escrita legítima ("volte a herdar").
- * @returns {Promise<boolean>} True quando gravou. False só num patch vazio ou numa falha de
- *   disco, e a falha de disco é ruidosa no console — nunca por "não havia atlas", que é um
- *   estado normal e agora é resolvido criando o registro.
+ * @returns {Promise<boolean>} True quando gravou; false num patch vazio ou sem permissão.
+ * @throws {Error} Quando a persistência falha (quota, escopo trocado, sessão descartada).
  */
 export async function saveAtlasAppearance(patch) {
-    // The tail of this function enqueues a `setting` op, which the server refuses from a
-    // reader, and a refused op stalls the whole outbound queue. Permissive offline and on a
-    // local store, so the anonymous user keeps full control of their own workspace.
+    // This function journals a `setting` op, which the server refuses from a reader, and a
+    // refused op stalls the whole outbound queue. Permissive offline and on a local store, so
+    // the anonymous user keeps full control of their own workspace.
     const perm = checkPermission(GuardAction.UPDATE_ATLAS_SETTINGS);
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
@@ -95,7 +111,7 @@ export async function saveAtlasAppearance(patch) {
     }
     if (Object.keys(changes).length === 0) return false;
 
-    try {
+    await runTransaction(async tx => {
         const repo = getRepository();
         // `ensureAtlas`, NUNCA `getAtlas`. Um atlas sem registro é o caso comum, não a exceção: o
         // slot local nasce com mapas e sem linha de Atlas, e `getAtlas()` devolve null ali. O modal
@@ -103,15 +119,17 @@ export async function saveAtlasAppearance(patch) {
         // o que o usuário relatou — escolher, ver o mapa mudar, dar F5 e encontrar tudo como antes.
         // O exagero vertical sofria do mesmo mal desde sempre, pelo mesmo `if`.
         const atlas = await repo.ensureAtlas();
+        const previous = {};
+        for (const key of APPEARANCE_KEYS) {
+            if (changes[key] !== undefined) previous[key] = atlas.settings?.[key] ?? null;
+        }
         if (!atlas.settings) atlas.settings = {};
         Object.assign(atlas.settings, changes);
-        await repo.saveAtlas(atlas);
-        await logSettingOperation(OperationType.UPDATE, atlas.id ?? 'atlas', changes);
-        return true;
-    } catch (error) {
-        console.warn('[atlas-appearance] save failed:', error);
-        return false;
-    }
+        tx.recordOperation(EntityType.SETTING, OperationType.UPDATE,
+            await resolveAtlasSettingId(tx.scope, atlas), null, changes, previous);
+        return () => repo.saveAtlas(atlas);
+    });
+    return true;
 }
 
 /**

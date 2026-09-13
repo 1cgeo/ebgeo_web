@@ -152,6 +152,7 @@ import {
     logSettingOperation,
     logAtlasSetting,
     logMapNotesOperation,
+    persistOperationIntents,
     EntityType,
     OperationType,
 } from '../../src/js/store/sync/operation-dispatcher.js';
@@ -243,6 +244,61 @@ describe('SETTING-op local-vs-synced invariant (bug d²)', () => {
     it('is offline-safe: nothing is queued for a synced setting while logging is disabled', async () => {
         disableOperationLogging();
         await logAtlasSetting({ mapBadgeColors: { X: '#000000' } });
+        expect(emit.queued).toHaveLength(0);
+    });
+});
+
+// ===========================================================================
+// PART C — a MESMA invariante na porta WRITE-AHEAD (`persistOperationIntents`)
+//
+// Desde 2026-09-13 as chaves de atlas (ordem de mapas, cores de crachá, aparência, registro de
+// ícones) e as configurações de mapa (mapa-base, posição) não passam mais por `logAtlasSetting`
+// nem por `createMapSettingLogger`: elas registram a intenção dentro da transação, e quem a
+// escreve é `persistOperationIntents`. Se o recorte do id vivesse só no caminho antigo, a porta
+// nova enfileiraria exatamente a op que envenena o lote (22P02), e o teste acima continuaria
+// verde medindo uma porta que ninguém usa mais.
+// ===========================================================================
+
+describe('a porta write-ahead aplica o mesmo recorte de id (bug d²)', () => {
+    beforeEach(() => {
+        emit.queued = [];
+        localStorageMock.clear();
+        enableOperationLogging();
+    });
+
+    const intent = (over) => ({
+        entityType: EntityType.SETTING, operationType: OperationType.UPDATE,
+        entityId: ATLAS_UUID, mapId: null, data: { mapOrder: ['Alfa'] }, previousData: null, ...over,
+    });
+
+    it('chave local como entityId de `setting` NÃO é enfileirada', async () => {
+        await persistOperationIntents([intent({ entityId: 'mapOrder' })], {});
+        expect(emit.queued).toHaveLength(0);
+    });
+
+    it('o UUID do atlas e a sentinela `atlas` passam', async () => {
+        await persistOperationIntents([intent(), intent({ entityId: 'atlas' })], {});
+        expect(emit.queued.map((op) => op.entityId)).toEqual([ATLAS_UUID, 'atlas']);
+        expect(emit.queued.every((op) => op.entityType === 'setting' && op.mapId === null)).toBe(true);
+    });
+
+    it('configuração de mapa com mapId NÃO-UUID é descartada, e a de mapa sincronizado passa', async () => {
+        const MAP_UUID = '3f1a6d88-1f4e-4a2f-9b55-2e0f4a7c1234';
+        await persistOperationIntents([
+            // O "Principal" local, cuja chave é o nome: o servidor recusaria o id e a op
+            // reprovaria o lote inteiro.
+            { entityType: EntityType.BASE_LAYER, operationType: OperationType.UPDATE,
+                entityId: 'Principal', mapId: 'Principal', data: { baseLayer: 'osm' }, previousData: null },
+            { entityType: EntityType.MAP_POSITION, operationType: OperationType.UPDATE,
+                entityId: MAP_UUID, mapId: MAP_UUID, data: { zoom: null }, previousData: null },
+        ], {});
+        expect(emit.queued.map((op) => op.entityType)).toEqual(['mapPosition']);
+        expect(emit.queued[0].mapId).toBe(MAP_UUID);
+    });
+
+    it('é offline-safe: nada é enfileirado enquanto o log está desligado', async () => {
+        disableOperationLogging();
+        await persistOperationIntents([intent()], {});
         expect(emit.queued).toHaveLength(0);
     });
 });

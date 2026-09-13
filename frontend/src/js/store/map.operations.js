@@ -28,7 +28,7 @@ import { MAP_BADGE_COLORS, mapBadgeColorForName } from './map-badge-colors.js';
 import { mapResolver } from './services/map-resolver.service.js';
 import config from '../config.js';
 import { EventTypes } from '../events';
-import { logMapOperation, logAtlasSetting, OperationType, isOperationLoggingEnabled } from './sync/index.js';
+import { logMapOperation, OperationType, isOperationLoggingEnabled } from './sync/index.js';
 // Leaf module (zero imports): keeps the vocabulary out of the sync barrel's graph, and the
 // barrel is what several store suites replace with a partial double that has no `EntityType`.
 import { EntityType } from './sync/operation-types.js';
@@ -37,6 +37,7 @@ import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { generateUUID, isValidUUID } from '../utilities/uuid.js';
 import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
 import { runTransaction } from './store-transaction.js';
+import { resolveAtlasSettingId } from './atlas-setting-target.js';
 import { withMapDocument } from './document-lock.js';
 import { POSITION_FIELDS, clearedPositionPayload } from './map-position-clear.js';
 
@@ -161,16 +162,46 @@ export async function getMapOrder() {
 }
 
 /**
+ * Records the durable intention of an ATLAS KEY inside an open transaction.
+ *
+ * THE PERMISSION QUESTION IS ASKED HERE AND ONLY GATES THE OP, never the local write, and that
+ * asymmetry is the point. These keys are BOTH a synced project setting and a local view
+ * preference: a Visualizador must keep his own map order and badge colours, and refusing the
+ * local write would also cost a toast on a path as passive as drawing a map badge
+ * (`getMapBadgeColor` assigns and saves a colour on first render). What must NOT happen is
+ * enqueueing an op the server answers with 403, because a refused op stalls the whole outbound
+ * queue, and that is exactly what these two writers did before.
+ *
+ * @param {import('./store-transaction.js').StoreTransaction} tx - The open transaction
+ * @param {Object} patch - The whitelisted atlas-key patch (e.g. `{ mapOrder }`)
+ * @param {Object|null} [previousPatch=null] - The same shape, as it was before
+ * @returns {Promise<void>}
+ * @private
+ */
+async function recordAtlasSetting(tx, patch, previousPatch = null) {
+    if (!checkPermission(GuardAction.UPDATE_ATLAS_SETTINGS).allowed) return;
+    const entityId = await resolveAtlasSettingId(tx.scope);
+    tx.recordOperation(EntityType.SETTING, OperationType.UPDATE, entityId, null, patch, previousPatch);
+}
+
+/**
  * Sets the map order.
+ *
+ * The order converges across peers as the atlas-level app setting `atlas.settings.mapOrder`, and
+ * since 2026-09-13 that intention is journaled BEFORE the local setting is written: the whole
+ * point of an ordering nobody can see is that losing it silently is indistinguishable from
+ * never having reordered.
  *
  * @param {string[]} orderArray - New map order
  * @returns {Promise<void>}
  */
 export async function setMapOrder(orderArray) {
-    await setMapOrderRepo(orderArray);
-    // Sync the maps-list ordering as an atlas-level app setting (atlas.settings.mapOrder) so the
-    // order converges across peers. Offline-safe: a no-op when not connected.
-    await logAtlasSetting({ mapOrder: orderArray });
+    return runTransaction(async tx => {
+        const previous = await getMapOrderRepo();
+        await recordAtlasSetting(tx, { mapOrder: orderArray },
+            previous?.length ? { mapOrder: previous } : null);
+        return () => setMapOrderRepo(orderArray);
+    });
 }
 
 /**
@@ -971,16 +1002,32 @@ export async function getMapBadgeColors() {
 /**
  * Sets map badge colors to storage.
  *
+ * datamodel-13: the full map-name→color object travels to the atlas as one `setting` op (the
+ * backend deep-merges `mapBadgeColors` into `atlas.settings`), and since 2026-09-13 that
+ * intention is journaled BEFORE the local setting is written. Single chokepoint: add, remove and
+ * rename all funnel through here.
+ *
+ * IT OPENS ITS OWN TRANSACTION, AND THAT IS SAFE ONLY BECAUSE OF WHERE IT IS CALLED FROM. The
+ * five callers are all in this file (`removeMap`, `renameMap`, `getMapBadgeColor`,
+ * `removeMapBadgeColor`, `getAllMapBadgeColors`) and NONE of them holds a document lock or an
+ * open transaction at the call point: `renameMap` calls it after its `withMapDocument` section
+ * has returned, `removeMap` after `deleteMapData`. The queue in `document-lock.js` is FIFO with
+ * no reentrancy, so a caller that awaited this from INSIDE its own section would wait for
+ * itself, forever. If either of them is ever migrated to write-ahead, the colour intention has
+ * to move into the parent's `tx` instead of nesting a second transaction here. Pinned by the
+ * rename/remove cases of `tests/integration/atlas-keys-write-ahead.test.js`, which would hang
+ * (not merely fail) if that ever stopped being true.
+ *
  * @param {Object} colors - Map of mapName -> color
  * @returns {Promise<void>}
  */
 export async function setMapBadgeColors(colors) {
-    await setAppSetting('mapBadgeColors', colors);
-    // datamodel-13: sync the full map-name→color object to the atlas. No-op offline
-    // (operation logging disabled until connected); the backend deep-merges the
-    // mapBadgeColors object into atlas.settings. Single chokepoint — add/remove/rename
-    // all funnel through here.
-    await logAtlasSetting({ mapBadgeColors: colors });
+    return runTransaction(async tx => {
+        const previous = await getAppSetting('mapBadgeColors');
+        await recordAtlasSetting(tx, { mapBadgeColors: colors },
+            previous ? { mapBadgeColors: previous } : null);
+        return () => setAppSetting('mapBadgeColors', colors);
+    });
 }
 
 /**

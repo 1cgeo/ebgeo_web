@@ -208,7 +208,7 @@ import {
 
 import { checkPermission } from '../../src/js/store/sync/permission-guard.js';
 import { emitStoreError } from '../../src/js/store/store-errors.js';
-import { logMapOperation, logAtlasSetting } from '../../src/js/store/sync/index.js';
+import { logMapOperation } from '../../src/js/store/sync/index.js';
 import { setSettingCompat, renameMapCompat } from '../../src/js/store/repositories/index.js';
 import { withMapDocument, getDocumentLockStats } from '../../src/js/store/document-lock.js';
 
@@ -1182,12 +1182,70 @@ describe('getMapOrder / setMapOrder', () => {
         expect(setSettingCompat).toHaveBeenCalledWith('mapOrder', ['MapB', 'MapA']);
     });
 
-    it('logs the order as an atlas-level setting op so it syncs across peers', async () => {
-        // The maps-list ordering must travel to collaborators: setMapOrder mirrors the local
-        // persist with a `setting` op carrying { mapOrder } (offline-safe no-op when not connected).
-        // This is the outbound leg the inbound apply (remote-operation-handler › mapOrder) and the
-        // 2-peer e2e (browser-collab-map-order) complete.
+    it('registra a ordem como intenção de chave de atlas, para ela viajar entre pares', async () => {
+        // A ordem da lista de mapas tem de chegar aos colaboradores: `setMapOrder` registra um
+        // `setting` UPDATE carregando { mapOrder }, que é a perna de saída completada pela
+        // aplicação de entrada (remote-operation-handler › mapOrder) e pelo e2e de duas browsers
+        // (browser-collab-map-order). Sem atlas registrado, o id é a sentinela 'atlas', que o
+        // servidor aceita porque ele escopa a chave pelo atlas da ROTA.
+        mockSettings.value.mapOrder = ['MapA', 'MapB'];
+
         await setMapOrder(['MapB', 'MapA']);
-        expect(logAtlasSetting).toHaveBeenCalledWith({ mapOrder: ['MapB', 'MapA'] });
+
+        expect(intents).toEqual([{
+            entityType: 'setting',
+            operationType: 'update',
+            entityId: 'atlas',
+            mapId: null,
+            data: { mapOrder: ['MapB', 'MapA'] },
+            previousData: { mapOrder: ['MapA', 'MapB'] }
+        }]);
+    });
+
+    it('a ordem é gravada ANTES de qualquer efeito e a intenção vem antes dela', async () => {
+        // A ordem entre diário e disco é medida com disco de verdade em
+        // tests/integration/atlas-keys-write-ahead.test.js; aqui fica a fiação: a gravação local
+        // acontece e a intenção existe, com a chave certa.
+        await setMapOrder(['MapB', 'MapA']);
+        expect(setSettingCompat).toHaveBeenCalledWith('mapOrder', ['MapB', 'MapA']);
+        expect(intents.map((op) => op.entityType)).toEqual(['setting']);
+    });
+});
+
+describe('setMapBadgeColors (chave de atlas, chamada de dentro de renameMap e removeMap)', () => {
+    it('renomear o mapa não trava, e a cor viaja como intenção de chave de atlas', async () => {
+        // O PONTO DESTE CASO É O DEADLOCK QUE NÃO ACONTECE. `setMapBadgeColors` abre a própria
+        // transação, e `renameMap` a chama DEPOIS de a seção de `withMapDocument` ter voltado. Se
+        // alguém a chamar de dentro da seção, a fila FIFO de `document-lock.js` (sem reentrância)
+        // esperaria por si mesma e este caso ficaria PENDURADO, não vermelho.
+        mockSettings.value.mapBadgeColors = { TestMap: '#3b82f6' };
+
+        const renamed = await renameMap('TestMap', 'RenamedMap');
+
+        expect(renamed).toBe(true);
+        expect(setSettingCompat).toHaveBeenCalledWith('mapBadgeColors', { RenamedMap: '#3b82f6' });
+        const colorIntents = intents.filter((op) => op.data?.mapBadgeColors);
+        expect(colorIntents).toHaveLength(1);
+        expect(colorIntents[0].entityType).toBe('setting');
+        expect(colorIntents[0].mapId).toBeNull();
+        // O valor ANTERIOR não se afirma aqui, e a razão é o duplo: este mock devolve a MESMA
+        // referência do objeto guardado, que `renameMap` já mutou em memória, enquanto o
+        // IndexedDB de verdade entrega um clone estruturado a cada leitura. Quem mede o anterior
+        // é tests/integration/atlas-keys-write-ahead.test.js, com disco de verdade.
+        expect(colorIntents[0].previousData).toHaveProperty('mapBadgeColors');
+    });
+
+    it('excluir o mapa também não trava, e a cor sai da chave', async () => {
+        mockMaps.value = {
+            'TestMap': { ...getEmptyMapData(), id: 'uuid-TestMap' },
+            'OtherMap': { ...getEmptyMapData(), id: 'uuid-OtherMap' }
+        };
+        mockSettings.value.mapBadgeColors = { TestMap: '#3b82f6', OtherMap: '#f59e0b' };
+
+        const result = await removeMap('OtherMap');
+
+        expect(result.success).toBe(true);
+        expect(setSettingCompat).toHaveBeenCalledWith('mapBadgeColors', { TestMap: '#3b82f6' });
+        expect(intents.filter((op) => op.data?.mapBadgeColors)).toHaveLength(1);
     });
 });
