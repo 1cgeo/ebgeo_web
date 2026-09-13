@@ -2796,44 +2796,42 @@ async function applyOperation(t, atlasId, op, userId, permission) {
 
   switch (type) {
     case 'create': {
-      // RESURRECT-ON-CREATE (decided 2026-07-19, reverses the earlier tombstone-is-final
-      // behavior). The client's undo of a delete replays the ORIGINAL entity, keeping its
-      // original id (store-state-manager.js:616, `case 'remove': addFeature(action.feature)`),
-      // so a Ctrl+Z after a delete arrives here as a create whose targetId is a tombstone.
-      // With the previous `ON CONFLICT (id) DO NOTHING` that was a silent no-op still acked
-      // as success, so the entity stayed alive on the client, dead on the server, and was
-      // killed locally by the next snapshot: permanent data loss in the most common gesture
-      // of the product.
+      // THE `WHERE` ON THE DO UPDATE IS NOT A CONFLICT POLICY OF ITS OWN, AND READING IT AS ONE
+      // IS THE MISTAKE THIS BLOCK EXISTS TO PREVENT. Since the write path became command-based
+      // (protocol v2 only, enforced by `assertSyncProtocol`), every feature operation is gated by
+      // `prepareFeatureMutation` (`feature-conflicts.js`) BEFORE it reaches this statement, and a
+      // bare create whose targetId already exists never gets here: it comes back as a conflict,
+      // whether the existing row is alive ("Ja existe um item com este identificador.") or a
+      // tombstone ("O item foi excluido no servidor."). Nothing is resurrected and nothing is
+      // moved by arrival order.
       //
-      // The `WHERE` on the DO UPDATE decides which conflicting creates may write, and it is
-      // load-bearing. For every target BUT `feature` it is unchanged: `deleted_at IS NOT NULL`,
-      // i.e. the old DO NOTHING semantics for rows that are still ALIVE, so a replayed or stale
-      // create can never clobber newer data on a live row. Only tombstones are revived.
+      // So the two disjuncts below are only REACHABLE with an explicit intent on the envelope:
+      //   `deleted_at IS NOT NULL`               <- `featureIntent: 'restore'`, refused unless the
+      //                                             row really is a tombstone;
+      //   `map_id IS DISTINCT FROM EXCLUDED...`  <- `featureIntent: 'move'`, refused unless the
+      //                                             row's current map equals `sourceMapId`, i.e.
+      //                                             the mover names the exact base it saw.
+      // A late duplicate of either command therefore does NOT drag the feature back: the base no
+      // longer matches, and the operation is refused with the server's row for the client to
+      // reconcile. This is the opposite of the LWW-by-arrival wording this comment carried until
+      // 2026-09-13, and the outbound queue does not compact anything either (it is an append-only
+      // journal since `f8e109ea`), so there is no merge window to reason about.
       //
-      // MOVE-ON-CREATE (2026-09-02), and it is a rule about FEATURES ONLY. A create that lands
-      // on a LIVE feature naming a DIFFERENT map of the SAME atlas is a MOVE, and the last one
-      // to arrive wins, like every other conflict in this server-arrival LWW model. It is how
-      // "move a whole layer to another map" reaches the server: the client mints a NEW layer in
-      // the destination, replays each feature create there with the SAME entity id, and deletes
-      // the SOURCE layer. It deliberately emits no feature delete, because a delete of the id it
-      // just moved would kill the row it had moved (decision of 2026-09-02). Without the second
-      // disjunct below the destination came back empty and the features stayed in the source
-      // map, which is what `frontend/tests/e2e/layer-transfer.e2e.test.js` measured.
+      // For every target BUT `feature`, the clause is still plain `deleted_at IS NOT NULL`: those
+      // have no command layer, so a replayed or stale create can never clobber a live row and only
+      // a tombstone is revived.
       //
-      // Groups, layers, cesium3d and streetview360 also carry a `map_id` and are NOT part of
-      // this rule: today only a feature moves between maps, and a layer transfer mints a new
-      // layer id on purpose (layer ids are not unique across maps).
+      // A move is how "move a whole layer to another map" reaches the server: the client mints a
+      // NEW layer in the destination and replays each feature there with the SAME entity id under
+      // the move intent, then deletes the SOURCE layer. It deliberately emits no feature delete,
+      // because a delete of the id it just moved would kill the row it had moved. Groups, layers,
+      // cesium3d and streetview360 also carry a `map_id` and are NOT part of this: only a feature
+      // moves between maps, and a layer transfer mints a new layer id on purpose (layer ids are
+      // not unique across maps). Measured by `frontend/tests/e2e/layer-transfer.e2e.test.js`.
       //
-      // What stays protected: a replay of the create in the SAME map is still inert, because the
-      // row is alive AND `map_id` is not distinct from the proposed one. The cross-atlas guard is
-      // untouched, and it is NOT this clause that carries it: the INSERT ... SELECT ... WHERE
+      // The cross-atlas guard is NOT carried by this clause: the INSERT ... SELECT ... WHERE
       // EXISTS materialises no row for a mapId of a foreign atlas, so there is no conflict to
       // resolve and nothing moves.
-      //
-      // The cost, accepted with eyes open: a LATE create from a client that still had the feature
-      // in the OLD map drags it back there. That is LWW by arrival, the same trade the whole
-      // model makes, and the outbound queue compacts CREATE+UPDATE of the same entity into one
-      // op, so the window is a client reconnecting without ever having seen the move.
       //
       // Two consequences downstream of a move, both desired. The §2.2 layer-delete cascade below
       // is scoped `WHERE layer_id = $1 AND map_id = $2`, and a moved row changed BOTH, so

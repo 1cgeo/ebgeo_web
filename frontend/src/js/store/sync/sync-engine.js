@@ -119,8 +119,10 @@ const ATLAS_GONE_STATUSES = new Set([404, 410]);
  * feature disappears from one machine and never appears on any other. It stays queued, and
  * `op_id` idempotency makes the retry free.
  *
- * A response that identifies NO operation at all is the legacy shape (a bare 2xx for the
- * batch). There the batch as a whole is the acknowledgement, so all of it leaves.
+ * A response that identifies NO operation at all acknowledges NOTHING, and that is the
+ * contract, not an edge case: the return is empty and the whole batch stays queued. The
+ * batch-as-acknowledgement reading (a bare 2xx meaning "all of it left") was the legacy
+ * shape and is gone, because only the server naming an operation proves it arrived.
  *
  * @param {Object} resp - The pushOperations response.
  * @param {Object[]} ops - The operations that were pushed, in order.
@@ -544,14 +546,11 @@ class SyncEngine {
                         rejected: true, reason: error.message, status: error.status,
                     });
                     needsRecovery = true;
-                    const removed = 1;
-                    if (removed === 0) {
-                        // A fila não avançou: repetir o mesmo peek é laço infinito. Deixa
-                        // o erro subir, que é o comportamento antigo (fila parada), nunca
-                        // um giro em vazio.
-                        await this._reconcileConvergenceGuard();
-                        throw error;
-                    }
+                    // The queue always advances here: `recordIssue` writes a durable issue and
+                    // `_loadOperations` skips an operation that carries one, so the next `peek`
+                    // cannot return this envelope again. Nothing is removed from disk, which is
+                    // the point of the durable issue; there is no "queue did not move" branch to
+                    // guard against, and the one that used to sit here was unreachable.
                     record(TraceStage.PREFLUSH_DROP, {
                         atlasId: session.atlasId, opId: poison.id, traceId: poison.traceId,
                         entityType: poison.entityType, entityId: poison.entityId,

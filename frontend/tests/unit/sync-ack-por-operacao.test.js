@@ -52,7 +52,7 @@ describe('acknowledgedOperationIds — só sai da fila o que o servidor confirmo
         expect(acknowledgedOperationIds({ acks: [{ opId: 'b' }] }, ops('a', 'b'))).toEqual(['b']);
     });
 
-    it('resposta que não identifica NENHUMA op: o lote inteiro sai (contrato antigo)', () => {
+    it('resposta que não identifica NENHUMA op: nada sai, o lote inteiro fica na fila', () => {
         const enviadas = ops('a', 'b');
         for (const resp of [{}, { results: [] }, { acks: [], serverVersion: 7 }, { results: [{}, {}] }]) {
             expect(acknowledgedOperationIds(resp, enviadas)).toEqual([]);
