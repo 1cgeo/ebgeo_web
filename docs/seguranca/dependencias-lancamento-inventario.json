@@ -981,7 +981,8 @@
       "resumo": {
         "arquivos": 408,
         "bytes": 68750929,
-        "comCrlfNaArvore": 332
+        "comCrlfNaArvore": 332,
+        "ressalvaComCrlfNaArvore": "Este 332 esta errado, e fica aqui como a medicao que foi feita, rotulada. Ele conta todo arquivo em que o par de bytes 0D 0A aparece, e 166 dos 408 artefatos sao PNG, JPG, WASM ou o pacote de dados do GDAL que carregam esse par por coincidencia dentro de conteudo comprimido. A arvore se divide assim: 166 arquivos de TEXTO em CRLF, 33 de texto em LF e 209 binarios, para os quais fim de linha nao quer dizer nada. Conferido em 2026-09-13 por scripts/inventario-de-vendors.mjs, que classifica texto por UTF-8 valido sem byte NUL."
       },
       "artefatos": [
         {
@@ -1311,7 +1312,8 @@
           "sha256",
           "sha256Lf (null quando o arquivo nao tem CRLF na arvore)"
         ],
-        "comoRefazer": "git ls-files frontend/public/vendors frontend/src/vendor, e para cada caminho o sha256 do conteudo e o sha256 do conteudo com CRLF trocado por LF.",
+        "comoRefazer": "node scripts/inventario-de-vendors.mjs --check, desde 2026-09-13. Antes disto o procedimento era esta frase: git ls-files das duas pastas, e para cada caminho o sha256 do conteudo e o sha256 do conteudo com CRLF trocado por LF. Procedimento em prosa nao e reprodutivel, e a ressalva abaixo e o preco que foi pago por isso.",
+        "ressalvaDoCampoSha256Lf": "O sha256Lf dos 166 arquivos BINARIOS deste manifesto e artefato do instrumento, nao do conteudo: ignore-o. Ele foi produzido por um ida e volta por string utf8 (Buffer.from(buf.toString('utf8').replace(/\\r\\n/g,'\\n'),'utf8')), que devolve U+FFFD para todo byte invalido e portanto nem sequer preserva o tamanho do arquivo. A reproducao de 2026-09-13 confirmou a hipotese nos 166 casos, um a um. O que este manifesto PROVA continua inteiro e foi reconferido neste HEAD: os 408 caminhos, os 408 tamanhos e os 408 sha256 CRUS batem, arquivo por arquivo. O eixo de identidade e, para arquivo de texto, sha256Lf, e para arquivo binario, sha256; quem impoe isso e frontend/tests/unit/inventario-de-vendors.test.js. Os valores errados ficam no lugar, rotulados, porque este arquivo e evidencia datada: reescreve-los apagaria a unica prova de que a medicao anterior tinha esse defeito.",
         "arquivos": [
           [
             "frontend/public/vendors/cesium/Assets/IAU2006_XYS/IAU2006_XYS_0.json",
