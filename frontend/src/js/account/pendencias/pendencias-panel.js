@@ -87,9 +87,17 @@ const SINAIS = [
  * fotografou. Como TODO aviso deste painel fala sobre a lista que está na tela, cobri-la é o pior
  * lugar possível, e o rodapé é o único que nunca disputa com ela.
  *
- * ISSO NÃO ALCANÇA O AVISO DE OUTRO MÓDULO: a recusa que o laço de envio anuncia
- * (`sync-flush.js`, 8 s) continua nascendo no topo, e é dela que vinham os dois balões laranja da
- * imagem. Mover aquela faixa é decisão de quem manda no serviço de aviso, não deste painel.
+ * O AVISO DE OUTRO MÓDULO PASSOU A DESCER TAMBÉM, e não foi este arquivo que o fez. Os dois balões
+ * laranja daquela imagem vinham do laço de envio (`sync-flush.js`, 8 s), que não sabe que existe
+ * painel nenhum: enquanto a decisão morasse aqui, ela consertava as nove chamadas DESTE painel e
+ * nenhuma das que de fato o cobriam. Desde 2026-09-13 quem decide é o serviço de aviso
+ * (`resolveToastPosition`, `toast_service.js`), que nasce no rodapé enquanto houver modal aberto,
+ * lendo o overlay do próprio modal.
+ *
+ * ESTA CONSTANTE SOBREVIVE A ISSO, e é redundante de propósito. O painel é um modal, então o
+ * serviço já o levaria ao rodapé; o que o pedido explícito acrescenta é que a escolha não depende
+ * de o painel continuar sendo montado sobre `.modal-overlay`, e um teste estrutural
+ * (`frontend/tests/unit/pendencias-linhas.test.js`) cobra que toda chamada daqui o carregue.
  */
 const AVISO_DO_PAINEL = Object.freeze({ position: 'bottom-center' });
 

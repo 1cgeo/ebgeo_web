@@ -3,6 +3,22 @@
 /**
  * @fileoverview Toast notification service.
  * Styles defined in src/css/toast.css using BEM classes and design tokens.
+ *
+ * A TOAST IS BORN AT THE BOTTOM WHILE A MODAL IS OPEN, and that is the one rule here that is not
+ * plain configuration. The house default is `top-center` at 80 px with 60 px per stacked toast,
+ * and `--z-toast` (220) is above `--z-modal` (60), so a toast always draws ON TOP of an open
+ * modal: two of them cover the header and the first row of whatever the modal is showing. The
+ * pendency panel measured this in a capture (B5d) and worked around it by passing an explicit
+ * position on all nine of its own calls, which fixed that panel and nothing else: the warnings
+ * that actually covered it come from `sync-flush.js`, a module that knows nothing about panels.
+ * Deciding here, from the state of the DOM, is what covers every caller including future ones.
+ *
+ * THE SIGNAL IS THE OVERLAY, NOT A REGISTRY. Every modal in this app renders `.modal-overlay` and
+ * flips `dataset.visible` to open and close it (`modal.base.js` plus the four subclasses that
+ * build their own overlay: confirm, prompt, preview-video and temporal-settings), and the CSS
+ * keys visibility off that same attribute. So one `querySelector` answers the question for all of
+ * them, with no bookkeeping to keep in sync and nothing to leak when a modal is destroyed rather
+ * than hidden. An explicit `options.position` still wins: the decision only fills in the default.
  */
 
 /** @type {number} */
@@ -10,6 +26,12 @@ const DEFAULT_DURATION = 3000;
 
 /** @type {string} */
 const DEFAULT_POSITION = 'top-center';
+
+/** @type {string} Where a toast is born while a modal is open. */
+const MODAL_OPEN_POSITION = 'bottom-center';
+
+/** @type {string} An open modal of any kind: the shared overlay class plus its visibility flag. */
+const OPEN_MODAL_SELECTOR = '.modal-overlay[data-visible="true"]';
 
 /** @type {number} Spacing between stacked toasts in pixels */
 const TOAST_STACK_GAP = 60;
@@ -28,6 +50,36 @@ const activeToasts = new Set();
 
 /** @type {Map<string, HTMLElement>} */
 const channelToasts = new Map();
+
+/**
+ * Whether a modal is on screen right now.
+ *
+ * Guarded because this module is imported by seams that also run headless (tests, a worker): a
+ * missing or minimal `document` must degrade to the default position, never throw over a message
+ * the caller wanted shown.
+ * @returns {boolean}
+ */
+function isModalOpen() {
+    try {
+        return document.querySelector(OPEN_MODAL_SELECTOR) !== null;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Where a toast is born. Pure, so the rule is testable without a DOM.
+ *
+ * An explicit request always wins, including an explicit `top-center`: a caller that named a place
+ * has a reason, and overriding it would make this function the second author of every position.
+ * @param {string|undefined} requested - `options.position`, when the caller gave one.
+ * @param {boolean} modalOpen - Whether a modal is currently on screen.
+ * @returns {string} The position identifier to use.
+ */
+export function resolveToastPosition(requested, modalOpen) {
+    if (requested) return requested;
+    return modalOpen ? MODAL_OPEN_POSITION : DEFAULT_POSITION;
+}
 
 /**
  * Applies vertical position to a toast element based on its stack index.
@@ -139,14 +191,15 @@ function hideToast(toast) {
  * @param {string} [type='info'] - Toast type (success, error, info, warning)
  * @param {Object} [options] - Additional options
  * @param {number} [options.duration] - Duration in ms (0 = infinite)
- * @param {string} [options.position] - Toast position
+ * @param {string} [options.position] - Toast position. Omitted, it is `top-center`, or
+ *   `bottom-center` while a modal is open (see {@link resolveToastPosition}).
  * @param {boolean} [options.closable] - Whether manually closable
  * @returns {HTMLElement} Toast element
  */
 function showToast(message, type = 'info', options = {}) {
     const config = {
         duration: options.duration ?? DEFAULT_DURATION,
-        position: options.position ?? DEFAULT_POSITION,
+        position: resolveToastPosition(options.position, isModalOpen()),
         closable: options.closable ?? false,
     };
 
