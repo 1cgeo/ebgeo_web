@@ -178,16 +178,23 @@ describe('CONTROLE: um atlas comum NÃO recebe a frase do acervo herdado', () =>
     });
 });
 
-describe('a página reconhece o slot herdado pelo SUFIXO VAZIO', () => {
-    it('o diálogo recebe `legacySlot` a partir de `dbSuffix === \'\'`', () => {
-        const trecho = PAGE_SRC.slice(
-            PAGE_SRC.indexOf('async function deleteLocalAtlasFromPage'),
-            PAGE_SRC.indexOf('async function deleteLocalAtlasFromPage') + 1600
-        );
-        expect(trecho).toContain('legacySlot');
-        // ESTRITO, e não `!atlas?.dbSuffix`: uma entrada sem o campo tem `undefined`, e tratá-la
-        // como sufixo vazio poria a frase do acervo sobre um atlas qualquer.
-        expect(trecho).toMatch(/dbSuffix === ''/);
+describe('a página reconhece o slot herdado pelos DOIS endereços dele', () => {
+    // O RECORTE CRESCEU JUNTO COM A FUNÇÃO. Ele era de 1600 caracteres fixos, e a própria
+    // explicação do predicado empurrou `legacySlot` para fora da janela: o caso reprovava por uma
+    // razão que não é a dele. Ancorar no FIM da função não envelhece com o comentário.
+    const inicio = PAGE_SRC.indexOf('async function deleteLocalAtlasFromPage');
+    const TRECHO = PAGE_SRC.slice(inicio, PAGE_SRC.indexOf('\n}', inicio));
+
+    it('o diálogo recebe `legacySlot` do carimbo da travessia E do sufixo vazio', () => {
+        expect(TRECHO).toContain('legacySlot');
+        // ESTRITO nos dois, e não `!atlas?.dbSuffix`: uma entrada sem o campo tem `undefined`, e
+        // tratá-la como sufixo vazio poria a frase do acervo sobre um atlas qualquer.
+        expect(TRECHO).toMatch(/dbSuffix === ''/);
+        // O SEGUNDO ENDEREÇO, e sem ele o acervo deixa de ser nomeado JUSTAMENTE depois da
+        // travessia: o commit dela reescreve a entrada com um `dbSuffix` `upgrade-<uuid>` e
+        // carimba `adoptedLegacy`, então o slot deixa de ter sufixo vazio sem deixar de ser o
+        // acervo.
+        expect(TRECHO).toMatch(/adoptedLegacy === true/);
     });
 });
 

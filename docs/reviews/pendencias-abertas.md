@@ -142,6 +142,60 @@ Vermelhos nas duas bases. Nenhum deles é desta fase, e nenhum foi tocado por es
 
 **E CINCO casos que a base reprovava passaram no candidato**, o que só se vê comparando: os três primeiros de `frontend/tests/e2e-ui/browser-collab-crdt-conflict.spec.js` (recolor concorrente, sobrevivência ao F5 e move concorrente), `frontend/tests/e2e-ui/browser-f5-reconnect-map.repro.spec.js` e dois casos de `frontend/tests/e2e-ui/browser-multi-tab-namespace.spec.js` (A0c e A1). Ler a contagem de falhas sem comparar contra a base conta o candidato como pior do que ele é.
 
+#### O ataque à classe b (13/09, quarta frente): o que fechou e o que sobrou
+
+Toda linha desta subseção foi medida NESTA worktree, com `--retries=0`, contra o HEAD do dia (que já
+carrega P6, P9 e P10). A primeira coisa que a remedição mostrou vale mais que a tabela: **metade dos
+vermelhos da classe b já não existia**, porque as correções do próprio dia moveram os casos para
+mais adiante, e o que restou ali era outro defeito. Reproduzir na base antes de atribuir causa, que
+era a instrução, era mesmo a instrução certa.
+
+**Duas famílias inteiras eram INSTRUMENTO, não produto**, e as duas eram cobertura vazia na direção
+perigosa:
+
+| caso | causa MEDIDA | classe | prova |
+|---|---|---|---|
+| `browser-multi-tab-namespace.spec.js`, A0b, A1, A2 e A3b | o arquivo lia o banco pelo nome SEM geração (`mapsDbOf`), e o retrato escreve em `ebgeo_maps__<sufixo>__generation-<uuid>`. As quatro leituras positivas reprovavam com lista vazia; as de AUSÊNCIA passavam de graça contra um banco que ninguém escreve | c | os NOVE casos do arquivo verdes |
+| `browser-multi-tab-teardown-queue.spec.js`, B1, B2 e B3 | a semeadura empurrava um `map create` ao lado do mapa que `createAtlas` semeia, e a abertura aterrissa no primeiro da ordem do ATLAS. Sintoma: `Received: "Mapa 1"`, o nome que o SERVIDOR dá | c | B1 e B2 verdes; B3 passou a morrer bem adiante (ver abaixo) |
+| `troca-viva-de-atlas-tela.spec.js` e `painel-de-feicao-na-troca-viva.spec.js` | a mesma semeadura, e por isso a espera por `?map=` estourava em 60 s | c | os dois verdes |
+| `browser-two-client-broadcast.spec.js` | media o contrato anterior a `f8e109ea` (o autor NÃO vê o próprio eco). Hoje o eco chega marcado com `localRepair`, e a asserção foi INVERTIDA, com o par exigido SEM a marca | c | verde |
+
+**Três eram produto, e os três tinham repro de integração com controle negativo:**
+
+| caso | causa MEDIDA | conserto | prova |
+|---|---|---|---|
+| `browser-collab-grupo-perde-membro.spec.js`, os dois casos | `applyRemoteGroupFeatureOp` devolvia `false` para a membresia JÁ convergida, e `_queueApply` lê `false` como escrita local quebrada e fecha o socket com 4000. Como `createGroup` publica o documento com os membros dentro E uma op `group_feature` por membro, agrupar derrubava o par na hora, sempre. O vermelho aparecia no DELETE, que é a op seguinte, a que nunca chegava | o alvo de membresia deixou de reportar falha ao transporte, na mesma forma do tipo de entidade desconhecido | repro com 6 casos (3 de 6 reprovam sem a linha); os dois casos de navegador verdes |
+| `browser-logout-clears-map.repro.spec.js` | a confirmação de saída fecha a cerca de escrita do namespace MONTADO, e o `clearAllDataStore` seguinte morria de `AbortError` no `operationQueue.clear()`, antes da última linha dele, que é o `emit(ALL_DATA_CLEARED)`, único sinal que esvazia as sources vivas. O disco já tinha sido limpo pelos handles crus, então a metade de store ficava certa e só a de tela errada | um namespace condenado não se reconstrói: as três escritas de reconstrução são puladas e o anúncio acontece | repro com 3 casos (2 de 3 reprovam sem o conserto, com a pilha exata); os dois casos de navegador verdes |
+| `envio-do-acervo-herdado.spec.js`, o caso do diálogo | `legacySlot` perguntava só por `dbSuffix === ''`, e depois da travessia o acervo mora num slot `upgrade-<uuid>` carimbado `adoptedLegacy`. O diálogo de exclusão voltava à frase curta, e o cartão do acervo ficava indistinguível de um "Meu Atlas" em branco | a pergunta passou a ser o carimbo, com o sufixo vazio como o regime de ANTES da travessia | ver a linha do acervo abaixo |
+
+**E a fixture do acervo herdado estava medindo outro cenário.** Ela semeava os bancos legados DEPOIS
+do primeiro boot, e o portão de migração respondia com a tela "Recuperar seus dados", corretamente,
+porque escrever no disco legado depois da travessia é a versão antiga tendo gravado alterações. Quem
+chega da versão anterior tem o disco herdado ANTES do primeiro boot, e é assim que ela semeia agora,
+numa página estática da mesma origem. Dois dos três casos passaram na primeira remedição.
+
+**O que SOBROU aberto, e os dois são achados novos que base nenhuma alcançava:**
+
+1. **`browser-multi-tab-teardown-queue.spec.js`, B3.** Com a semeadura corrigida ele chega ao ato e
+   falha adiante: o controle positivo encontra o ponto no namespace de X, a aba vizinha congela com o
+   texto de desmontagem, e então a amostragem vê o namespace POUPADO **vazio em 46 de 46 leituras**
+   (`ausente=0 vazio=46 comChaves=0`). Ou seja, a aba que segura a montagem teve o dado esvaziado. Isso
+   nunca foi medido antes porque todas as bases morriam no `waitAtlasTabReady`. Falta decidir se o
+   furo é do arbítrio (`destroyRemoteAtlasIfUnmounted`) ou do instrumento.
+2. **`browser-default-layer.spec.js`.** A opacidade não converge no par (`Expected: 0.55 / Received: 1`),
+   enquanto o nome, escrito na op ANTERIOR, converge. O relatório do SyncLedger da rodada traz
+   `acked-but-no-effect: 1`, que no vocabulário daquele arquivo é um `server.applied` com
+   `rowsAffected` zero: uma das duas atualizações de camada não escreveu linha nenhuma no servidor, e
+   por isso nunca foi difundida. A remedição isolada não pôde ser concluída (o backend do arnês morreu
+   no meio, por colisão de porta com outra sessão, e a própria saída do arnês acusa isso), então a
+   causa fica NOMEADA e não fechada.
+
+Também ficam pendentes de remedição, por não terem entrado nesta frente:
+`aparencia-atravessa-trocas-de-atlas.spec.js`, `troca-viva-de-atlas-medida.spec.js` (cuja semeadura já
+adota o mapa do servidor, então ele pode já estar verde) e `browser-collab-three-client-flow.spec.js`,
+que morre no ajudante de desenho por interface (`drawViaToolUI`, com `isActive:false`,
+`drawPoints:0`) antes de qualquer asserção de colaboração.
+
 #### Classe c: os desatualizados por contrato, reescritos em 13/09
 
 Os quatro foram reescritos nesta worktree, com asserção INVERTIDA e nunca afrouxada, e **NENHUM DELES FOI EXECUTADO**: o Playwright estava fora do laço da sessão que os escreveu (porta 3912 ocupada por outro agente). A execução é do coordenador.
