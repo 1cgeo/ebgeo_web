@@ -55,11 +55,38 @@ function stateFor(scope) {
     return mounts.get(scope);
 }
 
+/**
+ * What the user is told when a write is refused because the atlas is being rebuilt.
+ *
+ * It names the STATE and not the role, like {@link LOGOUT_BARRIER_NOTICE} and every other
+ * reversible refusal in the product: the recovery ends on its own, and the same gesture works a
+ * moment later.
+ */
+export const STORE_RECOVERY_NOTICE = 'O atlas está recuperando alterações. Aguarde antes de editar.';
+
+/**
+ * Whether an error is the recovery refusal raised by {@link beginStoreWrite}.
+ *
+ * THE FLAG EXISTS SO THAT NOBODY MATCHES THE SENTENCE. A caller for which this is an EXPECTED
+ * failure (return plus `STORE_OPERATION_BLOCKED`) rather than a broken write has to recognise it,
+ * and recognising it by message text would break the day the sentence is reworded, silently and in
+ * the direction that hurts: an expected refusal would go back to reading as a thrown failure.
+ * @param {*} error - Anything caught.
+ * @returns {boolean} True only for the refusal this module raises.
+ */
+export function isStoreRecoveryRefusal(error) {
+    return error?.storeRecoveryRefusal === true;
+}
+
 /** Register before preparing an edit, so recovery can wait for its final journal state. */
 export function beginStoreWrite(scope) {
     const state = stateFor(scope);
     if (!state) return () => {};
-    if (state.paused) throw new Error('O atlas está recuperando alterações. Aguarde antes de editar.');
+    if (state.paused) {
+        const refusal = new Error(STORE_RECOVERY_NOTICE);
+        refusal.storeRecoveryRefusal = true;
+        throw refusal;
+    }
     let finish;
     const pending = new Promise(resolve => { finish = resolve; });
     state.writers.add(pending);

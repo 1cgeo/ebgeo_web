@@ -37,6 +37,7 @@ import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { generateUUID, isValidUUID } from '../utilities/uuid.js';
 import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
 import { runTransaction } from './store-transaction.js';
+import { isStoreRecoveryRefusal, STORE_RECOVERY_NOTICE } from './write-coordinator.js';
 import { resolveAtlasSettingId } from './atlas-setting-target.js';
 import { withMapDocument } from './document-lock.js';
 import { POSITION_FIELDS, clearedPositionPayload } from './map-position-clear.js';
@@ -832,6 +833,55 @@ function assertRemoteMapIdentity(tx, mapData, targetMap) {
 }
 
 /**
+ * Runs a write-ahead map-setting transaction, turning "the atlas is being rebuilt" into an
+ * EXPECTED refusal instead of a thrown failure.
+ *
+ * THE MEASURED DEFECT, 2026-09-13. Opening a server atlas ends in `switchMap`, which persists the
+ * sanitised base layer through `setBaseLayer`. Since the three settings became write-ahead
+ * (`runTransaction` inside `withMapDocument`) that write asks `beginStoreWrite`, and the WS
+ * handshake of the very same open answers with a SECOND snapshot whose `applyRemoteSnapshot`
+ * holds `pauseStoreWrites` for this scope. The refusal was a thrown `Error` nobody on that path
+ * catches, so it escaped `switchMap`, escaped `openRemoteAtlas` (the paint is outside its
+ * try/catch), and `openAtlasFromUrl` read the whole open as failed: the boot fell through to
+ * `openAtlasChooserOnBoot`, which NAVIGATES to `atlas.html`. An atlas that was already connected
+ * and mounted bounced the user back to the chooser, and the map page went away with it.
+ *
+ * THE THREE-CASE RULE DECIDES THE SHAPE. A recovery in progress is a reversible STATE, not a bad
+ * argument and not a risk of losing data, so the answer is `return` plus
+ * `STORE_OPERATION_BLOCKED` — the same shape the permission gate and the map-lock gate already
+ * use in these three functions. Only the PERSISTENCE of the setting is refused; the drawing that
+ * the caller does next is untouched, which is what those functions already promise in prose.
+ *
+ * IT IS A CATCH AND NOT A PRE-FLIGHT QUESTION. `storeWritesPaused()` would answer the same thing
+ * one await earlier, and the pause can start in between: asking first would leave exactly the
+ * interleaving that produced the defect. Every other error still propagates.
+ *
+ * IT DOES NOT CHANGE WHAT THE CALLER IS TOLD, and that is deliberate: the two gates above it in
+ * each of these three functions (posto and map lock) already `return` without a value, so
+ * `mapManager.saveMapPosition` already answers "Posição salva" for a refused write and lets the
+ * blocked-event listener carry the real sentence. Making the recovery refusal behave like its two
+ * siblings adds no new claim; teaching those wrappers to read a refusal is a separate change with
+ * three cases, not one.
+ *
+ * @param {string} operation - Operation name for the blocked event, as the other gates report it.
+ * @param {() => Promise<*>} run - The `withMapDocument`/`runTransaction` body.
+ * @returns {Promise<void>} Resolves either way; the refusal is announced, never thrown.
+ * @private
+ */
+async function refusingDuringRecovery(operation, run) {
+    try {
+        await run();
+    } catch (error) {
+        if (!isStoreRecoveryRefusal(error)) throw error;
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation,
+            reason: STORE_RECOVERY_NOTICE,
+            timestamp: Date.now()
+        });
+    }
+}
+
+/**
  * Gets the current base layer for a map.
  *
  * @param {string} [mapName=null] - Map name
@@ -880,7 +930,7 @@ export async function setBaseLayer(layer, mapName = null) {
     // WRITE-AHEAD: the intention is journaled INSIDE the transaction and the document write is
     // the returned persistence function, so a journal failure leaves the document untouched and
     // a document failure leaves a recoverable intention behind (see `store-transaction.js`).
-    return withMapDocument(targetMap, 'setBaseLayer', () => runTransaction(async tx => {
+    return refusingDuringRecovery('setBaseLayer', () => withMapDocument(targetMap, 'setBaseLayer', () => runTransaction(async tx => {
         const currentMapData = await getMapData(targetMap);
         assertRemoteMapIdentity(tx, currentMapData, targetMap);
         const previousBaseLayer = currentMapData.baseLayer;
@@ -891,7 +941,7 @@ export async function setBaseLayer(layer, mapName = null) {
         tx.recordOperation(EntityType.BASE_LAYER, OperationType.UPDATE, mapId, mapId,
             { baseLayer: layer }, { baseLayer: previousBaseLayer });
         return () => updateMapData(targetMap, currentMapData);
-    }));
+    })));
 }
 
 /**
@@ -924,7 +974,7 @@ export async function updateMapPosition(center_lat, center_long, zoom, bearing, 
 
     // WRITE-AHEAD, same shape as `setBaseLayer`: the position op is recorded before the document
     // is written, and the document write is the returned persistence function.
-    return withMapDocument(targetMap, 'updateMapPosition', () => runTransaction(async tx => {
+    return refusingDuringRecovery('updateMapPosition', () => withMapDocument(targetMap, 'updateMapPosition', () => runTransaction(async tx => {
         const currentMapData = await getMapData(targetMap);
         assertRemoteMapIdentity(tx, currentMapData, targetMap);
 
@@ -959,7 +1009,7 @@ export async function updateMapPosition(center_lat, center_long, zoom, bearing, 
         tx.recordOperation(EntityType.MAP_POSITION, operationType, mapId, mapId,
             currentMapData.savedPosition, previousData);
         return () => updateMapData(targetMap, currentMapData);
-    }));
+    })));
 }
 
 /**
@@ -1013,7 +1063,7 @@ export async function clearMapPosition(mapName = null) {
     }
 
     // WRITE-AHEAD, same shape as the two siblings above.
-    return withMapDocument(targetMapName, 'clearMapPosition', () => runTransaction(async tx => {
+    return refusingDuringRecovery('clearMapPosition', () => withMapDocument(targetMapName, 'clearMapPosition', () => runTransaction(async tx => {
         const currentMapData = await getMapData(targetMapName);
         assertRemoteMapIdentity(tx, currentMapData, targetMapName);
 
@@ -1043,7 +1093,7 @@ export async function clearMapPosition(mapName = null) {
         tx.recordOperation(EntityType.MAP_POSITION, OperationType.UPDATE, mapId, mapId,
             clearedPositionPayload(), previousData);
         return () => updateMapData(targetMapName, currentMapData);
-    }));
+    })));
 }
 
 // ===== UNDO/REDO =====
