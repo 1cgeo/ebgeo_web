@@ -38,6 +38,16 @@ class ViewModeController {
         const bus = getEventBus();
         bus.on(EventTypes.SESSION_CHANGED, () => this._sync());
         bus.on(EventTypes.CONNECTION_STATE_CHANGED, () => this._sync());
+        // THE STORE ORIGIN FLIPS WITHOUT A SESSION OR CONNECTION EVENT, and the live switch from a
+        // server atlas to a local slot is the path that showed it (measured 2026-09-13 in
+        // `tests/e2e-ui/atlas-data-safety.scenario.js`): `switchAtlas` disconnects FIRST, which
+        // makes `forgetAtlasRole` seed a closed VIEWER while the store is still REMOTE, so the
+        // sync above locks the safe view; then `markStoreLocal` runs and notifies nobody, and the
+        // toolbars stayed hidden on a workspace that is always editable. Both events below fire
+        // AFTER the origin marker is written: `ATLAS_SWITCHED` closes every `switchAtlas`, and
+        // `ALL_DATA_CLEARED` closes the wipe that re-marks the store local in place.
+        bus.on(EventTypes.ATLAS_SWITCHED, () => this._sync());
+        bus.on(EventTypes.ALL_DATA_CLEARED, () => this._sync());
         this._sync();
     }
 
