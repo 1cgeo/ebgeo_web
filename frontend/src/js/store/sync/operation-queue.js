@@ -217,7 +217,7 @@ class OperationQueue {
      *
      * `count` IS A BUDGET OF WHOLE BATCHES, NOT A SLICE, and that is the contract this signature
      * changed for. The server defines a logical batch as the operations sharing one `batchId`
-     * THAT ARRIVE IN THE SAME PUSH (`docs/reviews/fechamento/04-comandos-compostos.md`): it
+     * THAT ARRIVE IN THE SAME PUSH (`docs/wiki/lote-logico-de-gesto.md`): it
      * carries no total, so it cannot know a member is missing. A blind FIFO slice therefore
      * turned one gesture into two logical batches, each atomic in itself, and the gesture could
      * still be applied by halves, which is the very outcome the savepoint was bought to prevent.

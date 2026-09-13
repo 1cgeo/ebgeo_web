@@ -90,7 +90,7 @@ const FLUSH_BATCH_SIZE = 25;
  *
  * `LOTE_MAX_OPS` is 200 in `backend/src/modules/sync/sync.service.js`, and a batch above it is
  * refused whole, with a reason, before the server writes anything. The number is not a cost
- * ceiling (the measurement in `docs/reviews/fechamento/04-comandos-compostos.md` shows the cost
+ * ceiling (the measurement in `docs/wiki/lote-logico-de-gesto.md` shows the cost
  * per operation is flat, and one savepoint beats N): it bounds how long a push may hold the
  * atlas write lock, whose own timeout is 5 s.
  *

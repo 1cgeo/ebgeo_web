@@ -4,7 +4,7 @@
  * @fileoverview UM GESTO COMPOSTO EMITE UM LOTE LÓGICO SÓ, atravessando transações.
  *
  * O DEFEITO QUE ESTE ARQUIVO PRENDE (item 2 de "O que segue aberto" em
- * `docs/reviews/fechamento/04-comandos-compostos.md`). Uma transação já era um lote, porque
+ * `docs/wiki/lote-logico-de-gesto.md`). Uma transação já era um lote, porque
  * `persistOperationIntents` cria as intenções dela por `createBatchOperations`. Três gestos não
  * cabem em uma transação, e não por descuido: converter uma feição, transferir uma camada e
  * desfazer awaitam folhas que tomam `withMapDocument` cada uma na sua chave, e a fila de

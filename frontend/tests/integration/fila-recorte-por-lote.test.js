@@ -4,7 +4,7 @@
  * @fileoverview O RECORTE DO ENVIO RESPEITA A FRONTEIRA DO LOTE LÓGICO.
  *
  * O DEFEITO QUE ESTE ARQUIVO PRENDE (item 1 de "O que segue aberto" em
- * `docs/reviews/fechamento/04-comandos-compostos.md`). Desde 2026-09-13 o servidor aplica ou
+ * `docs/wiki/lote-logico-de-gesto.md`). Desde 2026-09-13 o servidor aplica ou
  * recusa INTEIRO o conjunto de operações que compartilham um `batchId` e chegam no MESMO push,
  * num savepoint só. Ele não recebe um total, então não tem como saber que faltou membro: um
  * recorte de FIFO cego (`peek(25)` fatiando por contagem) partia um gesto de 30 operações em 25

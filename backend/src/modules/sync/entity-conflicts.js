@@ -52,7 +52,7 @@
  * unit at all: it is a junction whose create and delete are idempotent, so there is nothing for
  * two writers to disagree about. `setting` is out because atlas settings are merged per key, not
  * replaced, and a merge has no loser. And an ABSENT row is still acked as applied, unchanged from
- * the decision recorded in `docs/reviews/fechamento/03-conflitos.md`: the operations log is
+ * the decision recorded in `docs/wiki/modelo-conflito-lww.md`: the operations log is
  * purgeable, so absence does not prove a deletion, and refusing on it would make every
  * out-of-order create/update pair a permanent rejection.
  */

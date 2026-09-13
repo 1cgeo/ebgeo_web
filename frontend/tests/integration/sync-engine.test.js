@@ -1354,7 +1354,7 @@ describe('pull', () => {
 // ============================================================================
 // Lote lógico: o envio leva o gesto inteiro, e a recusa alcança todos os membros
 // ============================================================================
-// O contrato do servidor (bloco B6a, `docs/reviews/fechamento/04-comandos-compostos.md`): as
+// O contrato do servidor (bloco B6a, `docs/wiki/lote-logico-de-gesto.md`): as
 // operações que compartilham um `batchId` e chegam no MESMO push são aplicadas ou recusadas
 // inteiras, num savepoint só, e todas voltam com o mesmo `status`, o mesmo `batchId` e o
 // `batchFailedOperationId` da culpada. Acima de `LOTE_MAX_OPS` (200) o lote é recusado inteiro.

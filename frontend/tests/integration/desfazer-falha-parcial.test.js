@@ -4,7 +4,7 @@
  * @fileoverview DESFAZER É UM COMANDO NOVO, E ELE FALHA INTEIRO OU NÃO FALHA.
  *
  * AS PROVAS QUE O ACEITE PEDE (item 4 de "O que segue aberto" em
- * `docs/reviews/fechamento/04-comandos-compostos.md`). Os fluxos normais de desfazer e refazer já
+ * `docs/wiki/lote-logico-de-gesto.md`). Os fluxos normais de desfazer e refazer já
  * estavam aprovados; o que faltava era o que acontece quando o servidor recusa NO MEIO de um
  * conjunto. Um desfazer de colagem inverte N feições, cada inversão é uma transação (as folhas
  * tomam a trava do documento na sua chave, e aquela fila é FIFO sem reentrância), e antes do lote

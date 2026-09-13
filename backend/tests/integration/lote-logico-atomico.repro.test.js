@@ -31,7 +31,7 @@
 // fábrica do cliente carimba `batchId` e `batchIndex` e NÃO carimba um total. Enquanto o cliente
 // recortar o envio por FIFO cego a cada 25 ops, um gesto de 30 chega como dois lotes lógicos,
 // cada um atômico em si. Fechar isso é trabalho do cliente (respeitar a fronteira do lote no
-// recorte), e está registrado em `docs/reviews/fechamento/04-comandos-compostos.md`.
+// recorte), e foi feito no mesmo dia: ver `docs/wiki/lote-logico-de-gesto.md`.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';

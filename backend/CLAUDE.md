@@ -205,10 +205,11 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   vinculam ID, autor e conteúdo, e devolvem `entityVersion` para toda entidade verificada;
   `canonicalOperation` continua só onde existe serializador canônico. Envelopes incompatíveis são
   bloqueados antes da escrita; filas antigas têm consulta de recibos somente leitura. O módulo de
-  CRDT por timestamp foi removido; não religar sem requisito de produto. O que ainda falta (cliente
-  declarando base para as demais entidades, recibo com operação canônica por entidade, painel de
-  resolução) está em
-  [`../docs/reviews/fechamento/03-conflitos.md`](../docs/reviews/fechamento/03-conflitos.md), e a
+  CRDT por timestamp foi removido; não religar sem requisito de produto. O painel de resolução
+  existe desde 2026-09-13; o que ainda falta (o alvo `map` e seus subtipos declarando base, e o
+  recibo com operação canônica por entidade, de que depende a comparação visual de geometria) está
+  em [`../docs/reviews/pendencias-abertas.md`](../docs/reviews/pendencias-abertas.md), e o modelo
+  inteiro em [`../docs/wiki/modelo-conflito-lww.md`](../docs/wiki/modelo-conflito-lww.md). A
   decisão que abriu a expansão é a [de 12/09/2026](../docs/decisions/decisions-2026.md).
 - **O serviço 3D publica DUAS formas, e só uma é 3D Tiles.** O MODELO é `.3dtiles` por modelo,
   servido pelo prefixo reservado `m/` da rota `/api/v1/assets3d`; a CENA caminhável (Gaussian

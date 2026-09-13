@@ -40,7 +40,8 @@
  * and that document carries every feature of the map: a full read on a gesture that today reads
  * nothing. The cheap fix is the other direction, and it belongs with the canonical serializer
  * work: a map receipt that returns the row would let the write site carry the number it already
- * learned. Registered in `docs/reviews/fechamento/03-conflitos.md`.
+ * learned. Registered in `docs/wiki/modelo-conflito-lww.md`, and listed as open in
+ * `docs/reviews/pendencias-abertas.md`.
  */
 
 import { deepEqual } from '../../utilities/deep-utils.js';
