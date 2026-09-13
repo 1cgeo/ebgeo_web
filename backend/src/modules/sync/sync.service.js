@@ -1287,6 +1287,51 @@ function operationDenialReason(op, permission) {
 }
 
 /**
+ * Human names for the map sub-types, for the refusal sentence below. Keys match the
+ * `subType` values of ENTITY_TYPE_MAP, which is the only producer of `_subType`.
+ */
+const MAP_SUBTYPE_NAMES = {
+  position: 'posição salva',
+  baseLayer: 'mapa-base',
+  notes: 'anotações',
+  grid: 'grade',
+  temporal: 'configuração temporal',
+};
+
+/**
+ * Refusal for a DELETE whose target is a map SUB-TYPE (mapPosition, baseLayer, mapNotes,
+ * gridStyle, mapTemporal), measured in 2026-09-13 as the most destructive gesture reachable
+ * from the interface.
+ *
+ * WHAT HAPPENED WITHOUT IT. `_subType` is read on the UPDATE path only (`buildUpdateQuery`
+ * narrows the column whitelist by it). The `delete` case never looked at it, so an op stamped
+ * `mapPosition` fell through to `buildSoftDeleteQuery` for the target `map`, whose whole body
+ * is `UPDATE maps SET deleted_at = NOW() WHERE id = $1 AND atlas_id = $2` — and `entityId` of
+ * a map-setting op IS the map id (frontend `createMapSettingLogger`). Clearing a saved position
+ * therefore soft-deleted the MAP, answered `applied`, and the next snapshot came back without
+ * it. For an editor the same op met `operationDenialReason` first and came back with "Apenas o
+ * dono ou um co-Gestor do atlas pode excluir um mapa", a sentence about an act nobody asked
+ * for, which is why this refusal is chained BEFORE that one: the reason a client stores and
+ * shows must name what it actually sent.
+ *
+ * CLEARING A SUB-TYPE IS AN UPDATE WITH EMPTY COLUMNS, never a delete: none of the five owns a
+ * row of its own, they are columns of `maps`. There is no correct delete to route this to, so
+ * the refusal is total and does not depend on permission.
+ *
+ * Refused PER OPERATION (200 + `rejected`), like the other four refusals in this file, never a
+ * 403/400 for the batch: a non-2xx is not dequeued by the client and replays every 1.5 s.
+ *
+ * @param {Object} op - Normalized operation (target/type/_subType).
+ * @returns {string|null} Refusal reason, or null when this is not a sub-typed map delete.
+ */
+function mapSubtypeDeleteDenialReason(op) {
+  if (op.target !== 'map' || op.type !== 'delete' || !op._subType) return null;
+  const nome = MAP_SUBTYPE_NAMES[op._subType] ?? op._subType;
+  return `A limpeza de ${nome} de um mapa é uma atualização, não uma exclusão: `
+    + 'envie uma atualização com os campos vazios.';
+}
+
+/**
  * Refusal for an operation that DECLARES it belongs to another atlas.
  *
  * Cinto e suspensório do isolamento por namespace: desde que cada atlas tem seus próprios
@@ -1672,7 +1717,8 @@ export async function lookupOperationReceipts(atlasId, operations, userId, permi
       const canReadComments = PERMISSION_LEVELS[permission] >= PERMISSION_LEVELS.comment;
       const denied = (!canReadComments && op.target === 'comment' ? 'Comentário não visível.' : null)
         ?? foreignAtlasDenialReason(op, atlasId)
-        ?? unknownTargetDenialReason(op) ?? operationDenialReason(op, permission);
+        ?? unknownTargetDenialReason(op) ?? mapSubtypeDeleteDenialReason(op)
+        ?? operationDenialReason(op, permission);
       const receipt = denied ? null : await findReceipt(t, atlasId, rawOp.id);
       const matches = receipt && String(receipt.user_id) === String(userId)
         && receipt.payload_hash === operationDigest(rawOp);
@@ -1799,8 +1845,12 @@ export async function pushOperations(atlasId, operations, userId, permission = '
       // AQUI FICAM SÓ AS TRÊS PURAS, e a ordem entre elas continua sendo por custo: nenhuma
       // toca o banco. As duas que CONSULTAM desceram para DENTRO do savepoint por operação,
       // logo abaixo, e o motivo está escrito lá.
+      // `mapSubtypeDeleteDenialReason` vem ANTES da recusa por política de propósito: a op que
+      // ela pega é um DELETE de alvo `map`, e a de política casaria primeiro, devolvendo ao
+      // Editor uma frase sobre excluir mapa que não descreve o gesto que ele fez.
       const denialReason = foreignAtlasDenialReason(op, atlasId)
         ?? unknownTargetDenialReason(op)
+        ?? mapSubtypeDeleteDenialReason(op)
         ?? operationDenialReason(op, permission);
       if (denialReason) {
         await recusarOperacao(denialReason, TraceOutcome.NO_EFFECT);
@@ -2359,6 +2409,20 @@ function normalizeMapChanges(changes, subType = null) {
   if (subType === 'grid' && normalized.grid_style === undefined &&
       (changes.format !== undefined || changes.visible !== undefined)) {
     normalized.grid_style = { format: changes.format, visible: changes.visible };
+  }
+
+  // POSITION CLEAR. Clearing a saved position writes the five position columns empty, and two
+  // of them are `NOT NULL DEFAULT 0` in the schema (`003_atlas.sql`: bearing, pitch): a null
+  // there raises 23502 and the whole op comes back refused by integrity, leaving the server on
+  // a position the client has already erased. The CLEARED state of those two IS zero — the same
+  // neutral value the column default gives a brand-new map — while the other three accept null,
+  // which is how "no saved position" reads (`hasMapSavedPosition`, frontend `map.operations.js`,
+  // requires all five to be non-null). Only an explicit null is translated; a real value passes
+  // through untouched.
+  if (subType === 'position') {
+    for (const k of ['bearing', 'pitch']) {
+      if (normalized[k] === null) normalized[k] = 0;
+    }
   }
 
   // mapTemporal: assemble temporal_config from the known keys present.
