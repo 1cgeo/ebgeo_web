@@ -681,6 +681,11 @@ function toFrontendOperation(op) {
     lamportTimestamp: op.lamport_timestamp != null ? parseInt(op.lamport_timestamp, 10) : undefined,
     clientId: op.client_id,
     serverVersion: parseInt(op.server_version, 10),
+    // O LOTE LÓGICO de onde a op veio, ecoado para que o replay e o broadcast carreguem o
+    // gesto. Omitido (undefined) para op individual e para op anterior à coluna, que é a
+    // esmagadora maioria: uma chave sempre presente com valor nulo mudaria o envelope de toda
+    // op deste servidor por causa de uma minoria.
+    ...(op.batch_id ? { batchId: op.batch_id } : {}),
   });
 }
 
@@ -1891,10 +1896,146 @@ export async function lookupOperationReceipts(atlasId, operations, userId, permi
 }
 
 /**
+ * O TETO DE UM LOTE LÓGICO, em operações, e ele é do LOTE, não do push
+ * (`MAX_OPS_PER_PUSH`, em `sync.schemas.js`, continua limitando o push por cima).
+ *
+ * POR QUE EXISTE UM TETO. O lote roda num savepoint só, então tudo o que ele escreveu fica
+ * pendurado até o fim: um lote grande segura o lock de push do atlas (`pg_advisory_xact_lock`)
+ * por todo o tempo que levar, e nesse intervalo NENHUM outro cliente daquele atlas empurra
+ * nada. Sem teto, uma importação de milhares de feições enfileirada como um gesto só pararia o
+ * atlas inteiro, e o `lock_timeout` de 5 s converteria a espera dos outros num 503 em série.
+ *
+ * O NÚMERO É MEDIDO, não escolhido, e a medição diz onde ele NÃO morde. Nesta máquina, contra
+ * PostgreSQL local, pelo próprio caminho HTTP de `pushOperations`, com N `feature create`
+ * distintos de geometria mínima (mediana de três rodadas, 2026-09-13):
+ *
+ *   lote (um savepoint):        25 ops  68 ms (2,74 ms/op) | 100 ops 230 ms (2,30) | 200 ops 446 ms (2,23)
+ *   individual (N savepoints):  25 ops  56 ms (2,26 ms/op) | 100 ops 263 ms (2,63) | 200 ops 497 ms (2,49)
+ *
+ * Duas coisas que a medição fecha e a intuição erra. O custo por op é PLANO até 200 (não há
+ * joelho de curva contra o qual proteger), e o savepoint ÚNICO do lote não é mais caro que os N
+ * savepoints do regime individual: nas duas maiores medidas ele saiu mais BARATO, porque troca N
+ * pares de SAVEPOINT/RELEASE por um. Ou seja, o teto não existe por custo de CPU nem por custo
+ * de rollback; ele existe para limitar o TEMPO DE POSSE DO LOCK, e 200 ops (cerca de 0,45 s
+ * aqui) deixa uma ordem de grandeza de folga dentro do `lock_timeout` de 5 s para uma máquina
+ * mais lenta ou uma feição com geometria grande, que custa mais que a deste teste.
+ *
+ * O QUE ELE NÃO É: um limite de tamanho de gesto no cliente. Um gesto maior que isto precisa da
+ * preparação durável com ativação no fim (importação grande), que fica fora do lançamento por
+ * decisão registrada (D4).
+ */
+export const LOTE_MAX_OPS = 200;
+
+/** Motivo, em pt-BR, do lote recusado por tamanho. Exportado porque o teste asserta sobre ele. */
+export const MSG_LOTE_ACIMA_DO_TETO = 'Comando composto descartado: ele traz mais alterações do '
+  + `que o servidor aplica de uma vez (máximo de ${LOTE_MAX_OPS}).`;
+
+/** Recusa por `op_id` reaproveitado, usada nos dois regimes (individual e lote). */
+const MSG_ID_REUSADO = 'Identificador de operação reutilizado com outra autoria ou conteúdo.';
+
+/** Reserva para o lote reenviado cujo recibo de recusa não guardou o motivo (recibo antigo). */
+const MSG_LOTE_JA_RECUSADO = 'Comando composto já recusado por este servidor.';
+
+/**
+ * O `batchId` de uma op, ou null quando ela é individual.
+ *
+ * String vazia conta como AUSENTE: o schema a aceita (`.allow(null, '')`) e um cliente que
+ * carimbasse `''` em todas as ops de um push faria delas um lote único acidental.
+ * @param {Object} rawOp
+ * @returns {string|null}
+ */
+function loteDaOp(rawOp) {
+  const bruto = rawOp?.batchId;
+  return typeof bruto === 'string' && bruto.length > 0 ? bruto : null;
+}
+
+/** O recibo é DESTA autoria e DESTES bytes. @returns {boolean} */
+function reciboCasa(receipt, rawOp, userId) {
+  return String(receipt.user_id) === String(userId)
+    && receipt.payload_hash === operationDigest(rawOp);
+}
+
+/**
+ * Erro INTERNO que rola o savepoint de um lote inteiro para trás. Nunca sai desta função: ele é
+ * capturado logo fora do savepoint e vira a recusa de todas as ops do grupo.
+ *
+ * Por que um throw e não um retorno: a recusa de uma op do meio precisa DESFAZER o que as
+ * anteriores já escreveram, e a única forma de rolar um savepoint de pg-promise para trás é
+ * deixar um erro escapar do callback dele.
+ */
+class LoteRecusado extends Error {
+  constructor(reason, opId, details = {}) {
+    super(reason);
+    this.name = 'LoteRecusado';
+    this.reason = reason;
+    this.opId = opId;
+    this.details = details;
+  }
+}
+
+/**
+ * Agrupa as ops de UM push nas UNIDADES DE APLICAÇÃO, preservando a ordem de chegada.
+ *
+ * Op sem `batchId` vira um grupo de uma, que é o regime individual de sempre. Ops com o mesmo
+ * `batchId` viram UM grupo, na posição da primeira delas.
+ *
+ * O LOTE É O QUE CHEGOU NESTE PUSH, e essa definição é uma consequência do que o cliente
+ * carimba, não uma escolha: `createBatchOperations` (frontend `operation-factory.js`) põe
+ * `batchId` e `batchIndex` e NÃO põe um total, então não há como o servidor saber se faltou
+ * membro. Enquanto o cliente cortar a fila por FIFO cego a cada 25 ops (`FLUSH_BATCH_SIZE`), um
+ * gesto de 30 chega como DOIS lotes lógicos, cada um atômico em si, e o gesto continua podendo
+ * ser aplicado pela metade. Fechar isso é trabalho do cliente (respeitar a fronteira do
+ * `batchId` no recorte do envio); o servidor não tem informação para fazê-lo sozinho, e inventar
+ * um "aguarde o resto" seria segurar trabalho confirmado esperando um membro que talvez nunca
+ * exista.
+ *
+ * A ORDEM DENTRO DO GRUPO é a de `batchIndex` quando TODAS o declaram, e a de chegada nos demais
+ * casos. Não é cosmético: o servidor exige pai antes de filho (um `group_feature` cujo `group`
+ * ainda não existe casa o EXISTS com zero linhas), e o `sort` é estável, então empate mantém a
+ * ordem de chegada.
+ *
+ * @param {Object[]} operations - As ops cruas do push, na ordem em que chegaram.
+ * @returns {Array<{batchId: string|null, ops: Object[]}>}
+ */
+export function agruparPorLote(operations) {
+  const grupos = [];
+  const porLote = new Map();
+  for (const rawOp of Array.isArray(operations) ? operations : []) {
+    const batchId = loteDaOp(rawOp);
+    if (batchId === null) {
+      grupos.push({ batchId: null, ops: [rawOp] });
+      continue;
+    }
+    let grupo = porLote.get(batchId);
+    if (!grupo) {
+      grupo = { batchId, ops: [] };
+      porLote.set(batchId, grupo);
+      grupos.push(grupo);
+    }
+    grupo.ops.push(rawOp);
+  }
+  for (const grupo of grupos) {
+    if (grupo.batchId === null || grupo.ops.length < 2) continue;
+    if (!grupo.ops.every((op) => Number.isInteger(op?.batchIndex))) continue;
+    grupo.ops.sort((a, b) => a.batchIndex - b.batchIndex);
+  }
+  return grupos;
+}
+
+/**
  * Pushes a batch of operations to the server.
  * Operations are applied and recorded in the operations log.
  * Accepts both frontend format (entityType, operationType, entityId) and
  * legacy format (target, type, targetId).
+ *
+ * DUAS UNIDADES DE APLICAÇÃO, DESDE 2026-09-13 (D4). Uma op sem `batchId` corre num savepoint
+ * próprio e é recusada sozinha, como sempre. As ops que compartilham um `batchId` são UM LOTE
+ * LÓGICO (o gesto do usuário: criar grupo com N membros, combinar grupos, transferir camada,
+ * colar) e correm num savepoint SÓ: qualquer recusa, conflito ou violação de integridade de uma
+ * delas rola o grupo inteiro para trás e devolve TODAS recusadas, com o mesmo motivo, o mesmo
+ * `batchId` e o `batchFailedOperationId` da culpada. Antes disso, um membro recusado deixava o
+ * resto do gesto aplicado e a resposta era 200: aplicação parcial de comando composto era o
+ * desfecho normal. Ver `agruparPorLote` (o que conta como lote) e `LOTE_MAX_OPS` (o teto).
  * @param {'owner'|'manage'|'write'|'comment'|'read'} [permission='owner'] - Resolved atlas
  *   permission (passed by the HTTP route / WS handler; defaults to owner for trusted internal calls).
  * @param {Object} [opcoes]
@@ -1953,95 +2094,84 @@ export async function pushOperations(atlasId, operations, userId, permission = '
       throw err;
     }
 
-    for (const rawOp of operations) {
-      // Normalize operation to internal format (accepts both frontend and legacy names)
-      let op = normalizeOperation(rawOp);
-
-      // Tier authorization: a read-only / comment-tier principal pushing writes
-      // invalidates the whole batch (403).
-      assertOperationAllowed(op, permission);
-
-      // A recusa POR OPERAÇÃO tem uma forma só, e ela é usada em TRÊS sítios (política,
-      // consulta ao banco, violação de integridade). O que varia entre eles é o `outcome`
-      // do ledger, e é por isso que ele é parâmetro: as três recusas precisam continuar
-      // distinguíveis lá.
-      const recusarOperacao = async (reason, outcome, details = {}) => {
-        // O FATO CRU DA RECUSA, sem uma linha de log aqui: e por operacao que ela
-        // acontece e por LOTE que ela e registrada. Nada de payload entra: so o motivo
-        // (texto do servidor, ou o tipo truncado no caso do alvo desconhecido) e os
-        // identificadores que nomeiam onde a perda caiu.
-        recusas.push({
-          reason, target: op.target, type: op.type, mapId: op.mapId, clientId: op.clientId,
-        });
-        const result = {
-          opId: rawOp.id,
-          serverVersion: null,
-          idempotent: false,
-          rejected: true,
-          status: details.conflict ? 'conflict' : 'rejected',
-          reason,
-          ...details,
-        };
-        await saveReceipt(t, atlasId, rawOp, userId, {
-          server_version: null, entity_id: String(op.targetId ?? atlasId),
-        }, result);
-        acks.push(result);
-        if (isTraceEnabled()) {
-          recordSpan(atlasId, TraceStage.SERVER_APPLIED, {
-            opId: rawOp.id, traceId: rawOp.traceId, entityType: op.entityType, operationType: op.type,
-            entityId: op.entityId, mapId: op.mapId, rowsAffected: 0,
-            outcome, reason,
-          });
-        }
+    // A recusa POR OPERAÇÃO tem uma forma só, e ela é usada em QUATRO sítios (política,
+    // consulta ao banco, violação de integridade, e o lote inteiro recusado por causa de
+    // uma delas). O que varia entre eles é o `outcome` do ledger, e é por isso que ele é
+    // parâmetro: as recusas precisam continuar distinguíveis lá.
+    //
+    // ELA ESCREVE O RECIBO NA TRANSAÇÃO DE FORA (`t`), NUNCA NUM SAVEPOINT, e isso é
+    // contrato depois do lote lógico: a recusa de um lote acontece DEPOIS de o savepoint
+    // dele ter rolado para trás, então um recibo gravado lá dentro voltaria atrás junto e o
+    // reenvio do mesmo lote não teria como saber que ele já foi recusado.
+    const recusarOperacao = async (rawOp, op, reason, outcome, details = {}) => {
+      // O FATO CRU DA RECUSA, sem uma linha de log aqui: e por operacao que ela
+      // acontece e por LOTE que ela e registrada. Nada de payload entra: so o motivo
+      // (texto do servidor, ou o tipo truncado no caso do alvo desconhecido) e os
+      // identificadores que nomeiam onde a perda caiu.
+      recusas.push({
+        reason, target: op.target, type: op.type, mapId: op.mapId, clientId: op.clientId,
+      });
+      const result = {
+        opId: rawOp.id,
+        serverVersion: null,
+        idempotent: false,
+        rejected: true,
+        status: details.conflict ? 'conflict' : 'rejected',
+        reason,
+        // O LOTE VIAJA NO ACK, e é a única forma de o cliente saber que perdeu o GESTO e não
+        // aquela op: as irmãs voltam com o mesmo motivo, que sozinho não diz de quem é.
+        ...(loteDaOp(rawOp) ? { batchId: loteDaOp(rawOp) } : {}),
+        ...details,
       };
-
-      // Per-op refusal (unknown entity type, map delete, map lock/unlock, write into a
-      // locked map, any op that REFERS to a resource the actor cannot see): refuse THIS
-      // operation without aborting the transaction, so one denied op cannot freeze the
-      // client's queue.
-      //
-      // AQUI FICAM SÓ AS TRÊS PURAS, e a ordem entre elas continua sendo por custo: nenhuma
-      // toca o banco. As duas que CONSULTAM desceram para DENTRO do savepoint por operação,
-      // logo abaixo, e o motivo está escrito lá.
-      // `mapSubtypeDeleteDenialReason` vem ANTES da recusa por política de propósito: a op que
-      // ela pega é um DELETE de alvo `map`, e a de política casaria primeiro, devolvendo ao
-      // Editor uma frase sobre excluir mapa que não descreve o gesto que ele fez.
-      const denialReason = foreignAtlasDenialReason(op, atlasId)
-        ?? unknownTargetDenialReason(op)
-        ?? mapSubtypeDeleteDenialReason(op)
-        ?? operationDenialReason(op, permission);
-      if (denialReason) {
-        await recusarOperacao(denialReason, TraceOutcome.NO_EFFECT);
-        continue;
+      await saveReceipt(t, atlasId, rawOp, userId, {
+        server_version: null, entity_id: String(op.targetId ?? atlasId),
+      }, result);
+      acks.push(result);
+      if (isTraceEnabled()) {
+        recordSpan(atlasId, TraceStage.SERVER_APPLIED, {
+          opId: rawOp.id, traceId: rawOp.traceId, entityType: op.entityType, operationType: op.type,
+          entityId: op.entityId, mapId: op.mapId, rowsAffected: 0,
+          outcome, reason,
+        });
       }
+    };
 
-      // Authorization above still runs for repeats. A receipt confirms delivery, never access.
-      const receipt = await findReceipt(t, atlasId, rawOp.id);
-      if (receipt) {
-        if (String(receipt.user_id) !== String(userId) || receipt.payload_hash !== operationDigest(rawOp)) {
-          await recusarOperacao('Identificador de operação reutilizado com outra autoria ou conteúdo.', TraceOutcome.NO_EFFECT);
-        } else {
-          acks.push({ ...receipt.result, idempotent: true });
-        }
-        continue;
-      }
+    // Per-op refusal (unknown entity type, map delete, map lock/unlock, write into a
+    // locked map, any op that REFERS to a resource the actor cannot see): refuse THIS
+    // operation without aborting the transaction, so one denied op cannot freeze the
+    // client's queue.
+    //
+    // AQUI FICAM SÓ AS TRÊS PURAS, e a ordem entre elas continua sendo por custo: nenhuma
+    // toca o banco. As duas que CONSULTAM descem para DENTRO do savepoint,
+    // logo abaixo, e o motivo está escrito lá.
+    // `mapSubtypeDeleteDenialReason` vem ANTES da recusa por política de propósito: a op que
+    // ela pega é um DELETE de alvo `map`, e a de política casaria primeiro, devolvendo ao
+    // Editor uma frase sobre excluir mapa que não descreve o gesto que ele fez.
+    const recusaPura = (op) => foreignAtlasDenialReason(op, atlasId)
+      ?? unknownTargetDenialReason(op)
+      ?? mapSubtypeDeleteDenialReason(op)
+      ?? operationDenialReason(op, permission);
 
-      // ── SAVEPOINT por operação ────────────────────────────────────────────────
-      // O log e o efeito desta op correm num sub-escopo próprio (pg-promise: tx
-      // aninhada = SAVEPOINT). Uma violação de integridade (CHECK, FK, 22P02) abortava
-      // o `tx()` do lote INTEIRO e devolvia um 400 genérico; como o cliente não faz
-      // dequeue de não-2xx e a resposta não dizia QUAL op ofendeu, ele reenviava o mesmo
-      // lote a cada 1,5 s para sempre — o sync daquele usuário parava, em silêncio.
-      // Com o savepoint, o rollback alcança só a op ofensora (log e efeito juntos, sem
-      // op logada sem efeito), e ela é acusada por operação exatamente como a recusa de
-      // política, que o cliente já sabe descartar.
-      //
-      // Custo: dois comandos extras (SAVEPOINT/RELEASE) por op. No regime normal o lote
-      // tem poucas ops a cada flush de 1,5 s; no lote cheio (100) é ~10-20% de comandos
-      // a mais. Vivacidade da fila vale mais que isso.
-      let applied;
-      try {
-        applied = await t.tx(async (sp) => {
+    // ── SAVEPOINT: POR OPERAÇÃO quando ela é individual, POR LOTE quando ela tem `batchId` ──
+    // O log e o efeito correm num sub-escopo próprio (pg-promise: tx
+    // aninhada = SAVEPOINT). Uma violação de integridade (CHECK, FK, 22P02) abortava
+    // o `tx()` do lote INTEIRO e devolvia um 400 genérico; como o cliente não faz
+    // dequeue de não-2xx e a resposta não dizia QUAL op ofendeu, ele reenviava o mesmo
+    // lote a cada 1,5 s para sempre — o sync daquele usuário parava, em silêncio.
+    // Com o savepoint, o rollback alcança só a op ofensora (log e efeito juntos, sem
+    // op logada sem efeito), e ela é acusada por operação exatamente como a recusa de
+    // política, que o cliente já sabe descartar.
+    //
+    // Custo: dois comandos extras (SAVEPOINT/RELEASE) por unidade de aplicação. No regime
+    // normal o push tem poucas ops a cada flush de 1,5 s; num lote lógico o custo é de dois
+    // comandos para o GESTO inteiro, e não por op.
+    //
+    // `saida` é o canal de volta do `op` NORMALIZADO E REESCRITO aqui dentro (o caminho de
+    // patch de feição e o de revisão por entidade o substituem): quem recusa, loga e mede
+    // depois do savepoint precisa do op final, e as sete saídas desta função não têm como
+    // carregá-lo cada uma.
+    const aplicarNoSavepoint = async (sp, rawOp, opInicial, saida) => {
+          let op = opInicial;
           // AS DUAS RECUSAS QUE CONSULTAM O BANCO CORREM AQUI DENTRO, e não antes do
           // savepoint, e isto é o conserto de um buraco na guarda acima. As duas consultam
           // PARAMETRIZADAS PELO PAYLOAD do cliente: `lockedMapDenialReason` compara
@@ -2071,6 +2201,7 @@ export async function pushOperations(atlasId, operations, userId, permission = '
               if (sourceDenial) return { denied: sourceDenial };
             }
             op = prepared.op;
+            saida.op = op;
             const deniedPatch = await unseenResourceDenialReason(sp, op, principalIdOrNull(userId), atlasId);
             if (deniedPatch) return { denied: deniedPatch };
           }
@@ -2097,6 +2228,7 @@ export async function pushOperations(atlasId, operations, userId, permission = '
             if (preparedEntity?.conflict) return preparedEntity;
             if (preparedEntity) {
               op = preparedEntity.op;
+              saida.op = op;
               entityRevision = preparedEntity;
             }
           }
@@ -2139,6 +2271,11 @@ export async function pushOperations(atlasId, operations, userId, permission = '
             op.lamportTimestamp ?? null,
             op._originalEntityType,
             String(op.targetId ?? atlasId),
+            // O LOTE LÓGICO a que esta op pertenceu, para que o replay incremental e o recibo
+            // carreguem o gesto. `asUuidOrNull` porque a coluna é UUID e o carimbo vem do
+            // cliente: um `batchId` malformado continua AGRUPANDO a aplicação (decisão em
+            // memória) e apenas não é gravado, em vez de derrubar o lote inteiro com 22P02.
+            asUuidOrNull(loteDaOp(rawOp)),
           ]);
 
           if (!inserted) {
@@ -2219,60 +2356,34 @@ export async function pushOperations(atlasId, operations, userId, permission = '
           };
           await saveReceipt(sp, atlasId, rawOp, userId, inserted, result);
           return { idempotent: false, inserted, rowsAffected, result };
+    };
+
+    /** O ack de uma op que já constava do log com o mesmo `op_id`, sem reaplicar efeito. */
+    const registrarIdempotente = (rawOp, op, prev) => {
+      // Operation already applied (same op_id). Ack with the recorded version
+      // and skip re-applying the effect — this is the idempotency guarantee.
+      acks.push({
+        opId: rawOp.id,
+        serverVersion: prev ? prev.server_version : null,
+        idempotent: true,
+        entityId: prev ? prev.entity_id : null,
+        ...(loteDaOp(rawOp) ? { batchId: loteDaOp(rawOp) } : {}),
+      });
+      // SyncLedger: an idempotent re-arrival — the LWW arrival-order truth already
+      // exists; record it so a peer's echo/replay is distinguishable from a fresh op.
+      // Guarded so the hot path allocates/calls nothing when tracing is off.
+      if (isTraceEnabled()) {
+        recordSpan(atlasId, TraceStage.SERVER_INSERTED, {
+          opId: rawOp.id, traceId: rawOp.traceId, entityType: op.entityType, operationType: op.type,
+          entityId: op.entityId, mapId: op.mapId, clientId: op.clientId,
+          serverVersion: prev ? parseInt(prev.server_version, 10) : null,
+          idempotent: true, outcome: TraceOutcome.IDEMPOTENT,
         });
-      } catch (err) {
-        const reason = integrityRejectionReason(err);
-        // Não classificado como violação de dado → segue envenenando o lote (ver
-        // integrityRejectionReason): pode dar certo na retentativa, e descartar uma op
-        // boa é irreversível.
-        if (!reason) throw err;
-        // O erro CRU fica no log do servidor — é o único lugar onde o nome da
-        // constraint pode aparecer.
-        logger.warn(
-          { err, atlasId, opId: rawOp.id, entityType: op.entityType, operationType: op.type },
-          'sync: operação recusada por violação de integridade'
-        );
-        // FAILED (e não NO_EFFECT, o da recusa de política): no ledger as duas
-        // recusas precisam ser distinguíveis.
-        await recusarOperacao(reason, TraceOutcome.FAILED);
-        continue;
       }
+    };
 
-      // Recusa decidida DENTRO do savepoint (mapa bloqueado, recurso invisível): nada foi
-      // escrito, e daqui em diante ela é indistinguível da recusa de política de cima.
-      if (applied.conflict) {
-        await recusarOperacao(applied.conflict.reason, TraceOutcome.NO_EFFECT, { conflict: applied.conflict });
-        continue;
-      }
-      if (applied.denied) {
-        await recusarOperacao(applied.denied, TraceOutcome.NO_EFFECT);
-        continue;
-      }
-
-      if (applied.idempotent) {
-        // Operation already applied (same op_id). Ack with the recorded version
-        // and skip re-applying the effect — this is the idempotency guarantee.
-        const prev = applied.prev;
-        acks.push({
-          opId: rawOp.id,
-          serverVersion: prev ? prev.server_version : null,
-          idempotent: true,
-          entityId: prev ? prev.entity_id : null,
-        });
-        // SyncLedger: an idempotent re-arrival — the LWW arrival-order truth already
-        // exists; record it so a peer's echo/replay is distinguishable from a fresh op.
-        // Guarded so the hot path allocates/calls nothing when tracing is off.
-        if (isTraceEnabled()) {
-          recordSpan(atlasId, TraceStage.SERVER_INSERTED, {
-            opId: rawOp.id, traceId: rawOp.traceId, entityType: op.entityType, operationType: op.type,
-            entityId: op.entityId, mapId: op.mapId, clientId: op.clientId,
-            serverVersion: prev ? parseInt(prev.server_version, 10) : null,
-            idempotent: true, outcome: TraceOutcome.IDEMPOTENT,
-          });
-        }
-        continue;
-      }
-
+    /** O ack, o evento de broadcast e os dois spans de uma op que ESCREVEU. */
+    const registrarAplicada = (rawOp, op, applied) => {
       const { inserted, rowsAffected } = applied;
       events.push(toFrontendOperation(inserted));
 
@@ -2288,6 +2399,7 @@ export async function pushOperations(atlasId, operations, userId, permission = '
         // live or via incremental pull. The controller stamps this back so both
         // paths agree.
         entityId: inserted.entity_id,
+        ...(loteDaOp(rawOp) ? { batchId: loteDaOp(rawOp) } : {}),
       });
 
       // SyncLedger: the op.id ↔ server_version binding (LWW arrival-order truth).
@@ -2312,6 +2424,212 @@ export async function pushOperations(atlasId, operations, userId, permission = '
           outcome: rowsAffected === 0 ? TraceOutcome.NO_EFFECT : TraceOutcome.OK,
         });
       }
+    };
+
+    /**
+     * UMA op SEM lote: savepoint próprio, recusa própria. É o regime que este servidor sempre
+     * teve, e ele continua sendo o da esmagadora maioria das ops (toda edição avulsa).
+     */
+    const processarIndividual = async (rawOp) => {
+      // Normalize operation to internal format (accepts both frontend and legacy names)
+      let op = normalizeOperation(rawOp);
+
+      // Tier authorization: a read-only / comment-tier principal pushing writes
+      // invalidates the whole batch (403).
+      assertOperationAllowed(op, permission);
+
+      const denialReason = recusaPura(op);
+      if (denialReason) {
+        await recusarOperacao(rawOp, op, denialReason, TraceOutcome.NO_EFFECT);
+        return;
+      }
+
+      // Authorization above still runs for repeats. A receipt confirms delivery, never access.
+      const receipt = await findReceipt(t, atlasId, rawOp.id);
+      if (receipt) {
+        if (!reciboCasa(receipt, rawOp, userId)) {
+          await recusarOperacao(rawOp, op, MSG_ID_REUSADO, TraceOutcome.NO_EFFECT);
+        } else {
+          acks.push({ ...receipt.result, idempotent: true });
+        }
+        return;
+      }
+
+      const saida = { op };
+      let applied;
+      try {
+        applied = await t.tx(async (sp) => aplicarNoSavepoint(sp, rawOp, op, saida));
+      } catch (err) {
+        op = saida.op;
+        const reason = integrityRejectionReason(err);
+        // Não classificado como violação de dado → segue envenenando o lote (ver
+        // integrityRejectionReason): pode dar certo na retentativa, e descartar uma op
+        // boa é irreversível.
+        if (!reason) throw err;
+        // O erro CRU fica no log do servidor — é o único lugar onde o nome da
+        // constraint pode aparecer.
+        logger.warn(
+          { err, atlasId, opId: rawOp.id, entityType: op.entityType, operationType: op.type },
+          'sync: operação recusada por violação de integridade'
+        );
+        // FAILED (e não NO_EFFECT, o da recusa de política): no ledger as duas
+        // recusas precisam ser distinguíveis.
+        await recusarOperacao(rawOp, op, reason, TraceOutcome.FAILED);
+        return;
+      }
+      op = saida.op;
+
+      // Recusa decidida DENTRO do savepoint (mapa bloqueado, recurso invisível): nada foi
+      // escrito, e daqui em diante ela é indistinguível da recusa de política de cima.
+      if (applied.conflict) {
+        await recusarOperacao(rawOp, op, applied.conflict.reason, TraceOutcome.NO_EFFECT, { conflict: applied.conflict });
+        return;
+      }
+      if (applied.denied) {
+        await recusarOperacao(rawOp, op, applied.denied, TraceOutcome.NO_EFFECT);
+        return;
+      }
+      if (applied.idempotent) {
+        registrarIdempotente(rawOp, op, applied.prev);
+        return;
+      }
+      registrarAplicada(rawOp, op, applied);
+    };
+
+    /**
+     * UM LOTE LÓGICO: UM savepoint para o gesto inteiro, que aplica ou recusa tudo (D4).
+     *
+     * A DIFERENÇA QUE IMPORTA em relação ao regime individual é o alcance do rollback, não o
+     * caminho: cada op passa exatamente pela mesma `aplicarNoSavepoint`. O que muda é que uma
+     * recusa, um conflito ou uma violação de integridade de QUALQUER uma delas rola o
+     * savepoint do grupo inteiro para trás e devolve todas com o mesmo motivo.
+     *
+     * O STATUS É O MESMO PARA TODAS, MAS O ENVELOPE DE CONFLITO NÃO. `conflict` descreve UMA
+     * entidade (a revisão que o autor não viu), e carimbá-lo nas irmãs mandaria o cliente
+     * resolver o conflito da entidade errada; por isso ele fica só na op que o produziu, e as
+     * demais voltam com `rejected` e o mesmo `reason`. Quem nomeia a culpada para todas é
+     * `batchFailedOperationId`.
+     */
+    const processarLote = async (grupo) => {
+      const { batchId } = grupo;
+      const normalizadas = grupo.ops.map((rawOp) => {
+        const op = normalizeOperation(rawOp);
+        // Tier authorization: a read-only / comment-tier principal pushing writes
+        // invalidates the whole push (403), lote ou não.
+        assertOperationAllowed(op, permission);
+        return { rawOp, op, saida: { op } };
+      });
+
+      /**
+       * Recusa TODAS as ops do grupo com o mesmo motivo. `culpada` é o `op.id` da que falhou:
+       * ela leva o `outcome` real do ledger e o envelope de conflito, as irmãs levam
+       * `NO_EFFECT`, porque de fato nada foi escrito por elas.
+       */
+      const recusarLoteInteiro = async (reason, outcome, culpada = null, details = {}) => {
+        for (const item of normalizadas) {
+          const propria = culpada !== null && item.rawOp.id === culpada;
+          await recusarOperacao(item.rawOp, item.saida.op, reason,
+            propria ? outcome : TraceOutcome.NO_EFFECT, {
+              ...(propria ? details : {}),
+              ...(culpada !== null ? { batchFailedOperationId: culpada } : {}),
+              // O recibo desta op já existia: o ack precisa continuar dizendo que a entrega
+              // é repetida, senão o cliente lê a mesma recusa como se fosse nova.
+              ...(item.recibo ? { idempotent: true } : {}),
+            });
+        }
+      };
+
+      // O TETO, e ele é do LOTE e não do push (`MAX_OPS_PER_PUSH` continua valendo por cima).
+      // Medição e racional em `LOTE_MAX_OPS`.
+      if (normalizadas.length > LOTE_MAX_OPS) {
+        await recusarLoteInteiro(MSG_LOTE_ACIMA_DO_TETO, TraceOutcome.NO_EFFECT);
+        return;
+      }
+
+      // A recusa PURA de uma op condena o gesto: aplicar as irmãs de uma op que a política
+      // recusa é exatamente a aplicação parcial que o lote lógico existe para impedir.
+      for (const { rawOp, op } of normalizadas) {
+        const denialReason = recusaPura(op);
+        if (denialReason) {
+          await recusarLoteInteiro(denialReason, TraceOutcome.NO_EFFECT, rawOp.id);
+          return;
+        }
+      }
+
+      // OS RECIBOS DE TODO O GRUPO, antes de abrir o savepoint, porque a decisão é do GRUPO.
+      for (const item of normalizadas) {
+        item.recibo = await findReceipt(t, atlasId, item.rawOp.id);
+      }
+      const reusado = normalizadas.find((i) => i.recibo && !reciboCasa(i.recibo, i.rawOp, userId));
+      if (reusado) {
+        await recusarLoteInteiro(MSG_ID_REUSADO, TraceOutcome.NO_EFFECT, reusado.rawOp.id);
+        return;
+      }
+      // O REENVIO DE UM LOTE JÁ RECUSADO É RECUSADO DE NOVO, e essa é a metade da idempotência
+      // que o regime individual não precisava ter: a recusa é determinística, então aplicar as
+      // irmãs desta vez produziria, no reenvio, a aplicação parcial que a primeira tentativa
+      // evitou.
+      const recusadoAntes = normalizadas.find((i) => i.recibo?.result?.rejected === true);
+      if (recusadoAntes) {
+        await recusarLoteInteiro(recusadoAntes.recibo.result.reason ?? MSG_LOTE_JA_RECUSADO,
+          TraceOutcome.NO_EFFECT, recusadoAntes.rawOp.id);
+        return;
+      }
+
+      // O REENVIO DE UM LOTE JÁ APLICADO devolve os recibos e não toca no banco.
+      const pendentes = normalizadas.filter((i) => !i.recibo);
+      if (pendentes.length === 0) {
+        for (const item of normalizadas) acks.push({ ...item.recibo.result, idempotent: true });
+        return;
+      }
+
+      // O CASO MISTO (parte com recibo, parte sem) só existe como HERANÇA: um lote que este
+      // servidor aplicou pela metade antes de 2026-09-13, ou um cliente que remontou o gesto
+      // com ops novas. Aplicar o que falta é o único desfecho que converge, e ele é declarado
+      // aqui para não passar por atomicidade que não é.
+      let opEmCurso = null;
+      try {
+        await t.tx(async (sp) => {
+          for (const item of pendentes) {
+            opEmCurso = item.rawOp.id;
+            const applied = await aplicarNoSavepoint(sp, item.rawOp, item.op, item.saida);
+            if (applied.conflict) {
+              throw new LoteRecusado(applied.conflict.reason, item.rawOp.id, { conflict: applied.conflict });
+            }
+            if (applied.denied) throw new LoteRecusado(applied.denied, item.rawOp.id);
+            item.applied = applied;
+          }
+        });
+      } catch (err) {
+        if (err instanceof LoteRecusado) {
+          await recusarLoteInteiro(err.reason, TraceOutcome.NO_EFFECT, err.opId, err.details);
+          return;
+        }
+        const reason = integrityRejectionReason(err);
+        // Mesma assimetria do caminho individual: o que não é violação de dado pode dar certo
+        // na retentativa, então envenena o push inteiro em vez de descartar trabalho bom.
+        if (!reason) throw err;
+        logger.warn(
+          { err, atlasId, batchId, opId: opEmCurso },
+          'sync: lote lógico recusado por violação de integridade'
+        );
+        await recusarLoteInteiro(reason, TraceOutcome.FAILED, opEmCurso);
+        return;
+      }
+
+      for (const item of normalizadas) {
+        if (item.recibo) {
+          acks.push({ ...item.recibo.result, idempotent: true });
+          continue;
+        }
+        if (item.applied.idempotent) registrarIdempotente(item.rawOp, item.saida.op, item.applied.prev);
+        else registrarAplicada(item.rawOp, item.saida.op, item.applied);
+      }
+    };
+
+    for (const grupo of agruparPorLote(operations)) {
+      if (grupo.batchId === null) await processarIndividual(grupo.ops[0]);
+      else await processarLote(grupo);
     }
   });
 
@@ -2344,6 +2662,11 @@ export async function pushOperations(atlasId, operations, userId, permission = '
     idempotent: a.idempotent === true,
     currentVersion: a.serverVersion != null ? parseInt(a.serverVersion, 10) : null,
     ...(a.rejected === true ? { rejected: true, reason: a.reason } : {}),
+    // O LOTE LÓGICO, quando a op veio num. `batchFailedOperationId` só aparece na recusa, e é o
+    // que separa "a minha op foi recusada" de "o gesto inteiro caiu por causa daquela ali":
+    // sem ele, N ops voltariam com o mesmo motivo e nada diria de quem era o motivo.
+    ...(a.batchId ? { batchId: a.batchId } : {}),
+    ...(a.batchFailedOperationId ? { batchFailedOperationId: a.batchFailedOperationId } : {}),
     ...(a.conflict ? { conflict: a.conflict } : {}),
     ...(a.entityVersion != null ? { entityVersion: a.entityVersion } : {}),
     ...(a.canonicalOperation ? { canonicalOperation: a.canonicalOperation } : {}),

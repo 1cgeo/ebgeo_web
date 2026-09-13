@@ -12,6 +12,16 @@
 // Tudo o mais — o 403 de política deste arquivo, 40001, 55P03, queda de conexão, bug de
 // JS — continua abortando o push inteiro, porque pode dar certo na retentativa e
 // descartar op boa é perda de dado irreversível.
+//
+// E UM SEGUNDO RECORTE, DESDE 2026-09-13 (decisão D4 do plano de lançamento): o savepoint é por
+// LOTE LÓGICO quando as ops declaram um `batchId` comum, e só na ausência dele é por operação.
+// Este arquivo mede o regime do PUSH (a transação que envolve tudo) com ops SEM `batchId`; o do
+// GESTO, em que a violação de dado de um membro derruba os irmãos em vez de ser recortada, é
+// `lote-logico-atomico.repro.test.js`. A distinção é o contrato: "um push = uma transação"
+// continua verdadeiro, e "um savepoint por op" deixou de ser universal, porque o comando
+// composto pediu uma unidade de aplicação maior que a op e menor que o push. O terceiro caso
+// deste arquivo é quem prende esta fronteira, e ele existe porque a frase acima, sozinha,
+// mandaria a próxima leitura concluir que o recorte por op vale sempre.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -87,5 +97,38 @@ describe('Sync push batch atomicity (one push = one transaction)', () => {
 
     const { rows } = await db.query('SELECT id FROM features WHERE id = ANY($1::uuid[])', [ids]);
     assert.equal(rows.length, 3, 'all ops in a valid batch persist');
+  });
+
+  it('sem `batchId`, a violação de dado de uma op NÃO alcança as irmãs do mesmo push', async () => {
+    // A fronteira entre os dois regimes, medida no push: as três ops chegam juntas, a do meio é
+    // permanentemente venenosa (feature de outro atlas no `map_id`), e as outras duas precisam
+    // sobreviver — que é o recorte de 2026-07-25. Com `batchId` nas três, este mesmo desenho
+    // recusa as três, e é isso que `lote-logico-atomico.repro.test.js` afirma. Sem um caso aqui,
+    // o lote lógico poderia ser estendido a todo push por engano e nada ficaria vermelho.
+    const antes = randomUUID();
+    const depois = randomUUID();
+    const criar = (id, ts) => ({ protocolVersion: 2,
+      id: randomUUID(), entityType: 'feature', operationType: 'create', entityId: id, mapId: mapA.id,
+      data: { type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: { id, source: 'point' } },
+      timestamp: ts, clientId: 'atomic-c',
+    });
+    // Violação de INTEGRIDADE (classe 23): o grupo não existe, então o EXISTS do vínculo casa
+    // zero linhas e a criação é recusada por operação.
+    const venenosa = { protocolVersion: 2,
+      id: randomUUID(), entityType: 'group_feature', operationType: 'create', entityId: randomUUID(),
+      mapId: mapA.id, data: { group_id: randomUUID(), feature_id: randomUUID() },
+      timestamp: Date.now() + 1, clientId: 'atomic-c',
+    };
+
+    const res = await supertest(app)
+      .post(`/api/v1/atlas/${atlasA.id}/sync`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ operations: [criar(antes, Date.now()), venenosa, criar(depois, Date.now() + 2)] })
+      .expect(200);
+
+    assert.deepEqual(res.body.data.results.map((r) => r.success), [true, false, true],
+      'op sem lote declarado é recusada sozinha, antes e depois dela seguem aplicadas');
+    const { rows } = await db.query('SELECT id FROM features WHERE id = ANY($1::uuid[])', [[antes, depois]]);
+    assert.equal(rows.length, 2, 'as duas boas persistem');
   });
 });

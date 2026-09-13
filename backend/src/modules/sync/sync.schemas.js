@@ -65,6 +65,24 @@ const operationSchema = Joi.object({
   // op que declara pertencer a OUTRO atlas (`foreignAtlasDenialReason`).
   atlasId: Joi.string().allow(null),
   scopeSuffix: Joi.string().allow(null, ''),
+  // ── LOTE LÓGICO: a identidade do GESTO (`createBatchOperations`, no cliente) ──────────
+  // Declarados aqui, e não deixados ao `.unknown(true)`, pela mesma razão do `traceId` e do par
+  // acima: o servidor LÊ os dois para decidir a UNIDADE DE APLICAÇÃO (um savepoint por lote em
+  // vez de por op, `agruparPorLote` em `sync.service.js`), e campo lido do outro lado não viaja
+  // de carona.
+  //
+  // `batchId` é STRING e não `.uuid()` de propósito: um carimbo malformado precisa continuar
+  // AGRUPANDO, porque a atomicidade é decisão em memória e tratar o gesto como um lote é sempre
+  // mais seguro que espalhá-lo em ops independentes; a PERSISTÊNCIA é que o filtra por formato
+  // (`asUuidOrNull`, na coluna `batch_id` de `014_lote_logico.sql`). Recusar aqui seria um 422
+  // que congela a fila de saída do cliente, que é o desfecho que este arquivo evita em toda
+  // regra.
+  //
+  // `batchIndex` é a ORDEM DENTRO do gesto. O servidor exige pai antes de filho (um
+  // `group_feature` que chegue antes do seu `group` escreve zero linhas), então ele ORDENA o
+  // lote por este campo em vez de confiar na ordem em que o array chegou.
+  batchId: Joi.string().max(64).allow(null, ''),
+  batchIndex: Joi.number().integer().min(0),
 })
   .or('entityType', 'target')
   .or('operationType', 'type')

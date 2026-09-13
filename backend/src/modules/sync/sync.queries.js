@@ -5,9 +5,12 @@ import { catalogAuthorizationPredicate, resourceTypeLiteral } from '../catalog/c
 // Ver `CAN_SEE_SV360_REF`.
 import { RESOLVE_SV360_REFS } from '../resource-access/resource-access.queries.js';
 
+// `batch_id` ($15) is the LOGICAL BATCH: the gesture a composite command was born from
+// (`014_lote_logico.sql`). Nullable, and null is the common case: an individual op has no batch,
+// and the REST-exception markers are minted by the server with no client gesture behind them.
 export const INSERT_OPERATION = `
-  INSERT INTO operations (atlas_id, op_type, entity_type, entity_id, map_id, changes, data, client_timestamp, client_id, user_id, op_id, lamport_timestamp, client_entity_type, client_entity_id)
-  VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13, $14)
+  INSERT INTO operations (atlas_id, op_type, entity_type, entity_id, map_id, changes, data, client_timestamp, client_id, user_id, op_id, lamport_timestamp, client_entity_type, client_entity_id, batch_id)
+  VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15)
   ON CONFLICT (atlas_id, op_id) DO NOTHING
   RETURNING *
 `;

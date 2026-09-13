@@ -218,6 +218,9 @@ export async function mergeMaps(atlasId, destMapId, sourceMapIds, actingUserId =
       null,
       MAP_MERGE_ENTITY_TYPE,
       destMapId,
+      // `batch_id` is null: this marker is minted by the server, with no client gesture behind
+      // it, and its atomicity is this function's own transaction.
+      null,
     ]);
 
     return { destMapId, sourceMapIds: sources, moved, deduped };
