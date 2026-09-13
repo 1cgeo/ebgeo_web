@@ -99,3 +99,64 @@ it('AUDIT initial handshake must replay changes after the HTTP snapshot',async()
  ws.disconnect();
  expect(sock.sent.some(x=>x.type==='sync_request'&&x.lastVersion===10)).toBe(true);
 });
+
+// F13. O `default` de `applyRemoteOperationInner` devolvia `false` para `entityType`
+// desconhecido, e `_queueApply` le `false` como falha de escrita local e fecha o socket com
+// 4000. A reconexao repete a mesma op, que falha de novo: um servidor um deploy a frente deste
+// cliente o punha em laco fechar-e-reconectar e parava TODO o sync, para todo tipo de entidade.
+// Agora o tipo desconhecido volta como um valor distinto de falha, e o socket fica aberto.
+describe('F13 — tipo de entidade desconhecido no fio', () => {
+    it('nao fecha o socket, e a op seguinte continua sendo aplicada', async () => {
+        const { ws } = setup();
+        const connecting = ws.connect('atlas-1', { lastVersion: 10 });
+        const socket = FakeSocket.instances[0];
+        socket.emit({ type: 'connected' });
+        await connecting;
+
+        const applied = [];
+        // O duble faz o que o handler real faz agora: ignora o tipo que nao conhece e devolve um
+        // valor distinto de falha.
+        ws.on('operation', async (op) => {
+            if (op.entityType !== 'feature') return true;
+            applied.push(op.id);
+            return true;
+        });
+
+        socket.emit({ type: 'operation', op: { id: 'meta-op', entityType: 'map_meta', clientId: 'peer', serverVersion: 11 } });
+        await ws._applyChain;
+        expect(socket.readyState).toBe(1); // ainda ABERTO
+        expect(applied).toEqual([]);
+
+        socket.emit({ type: 'operation', op: { id: 'next-op', entityType: 'feature', clientId: 'peer', serverVersion: 12 } });
+        await ws._applyChain;
+        expect(applied).toEqual(['next-op']);
+        expect(socket.readyState).toBe(1);
+        ws.disconnect();
+    });
+
+    // A METADE QUE PROVA QUE O CONTRARIO E' RUIM, e ela e' o controle negativo preso em teste:
+    // a mesma op devolvendo `false` fecha o socket e engole a op seguinte. Trocar um pelo outro
+    // no handler nunca passa calado enquanto os dois casos estiverem aqui.
+    it('um `false` do handler AINDA fecha o socket, e essa e a diferenca', async () => {
+        const { ws } = setup();
+        const connecting = ws.connect('atlas-1', { lastVersion: 10 });
+        const socket = FakeSocket.instances[0];
+        socket.emit({ type: 'connected' });
+        await connecting;
+
+        const applied = [];
+        ws.on('operation', async (op) => {
+            if (op.entityType === 'map_meta') return false;
+            applied.push(op.id);
+            return true;
+        });
+
+        socket.emit({ type: 'operation', op: { id: 'meta-op', entityType: 'map_meta', clientId: 'peer', serverVersion: 11 } });
+        await ws._applyChain;
+        expect(socket.readyState).toBe(3); // FECHADO
+        socket.emit({ type: 'operation', op: { id: 'next-op', entityType: 'feature', clientId: 'peer', serverVersion: 12 } });
+        await ws._applyChain;
+        expect(applied).toEqual([]);
+        ws.disconnect();
+    });
+});

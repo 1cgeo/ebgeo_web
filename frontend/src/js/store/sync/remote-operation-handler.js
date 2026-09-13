@@ -28,7 +28,7 @@ import { withMapDocument, withSideDocument, withDocumentLock } from '../document
 import { EntityType, OperationType } from './operation-types.js';
 import { editedRecentlyLocally } from './overwrite-notice.js';
 import { record } from './diag/trace-core.js';
-import { TraceStage, TraceOutcome } from './diag/trace-stages.js';
+import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
 import { operationQueue } from './operation-queue.js';
 import { getActiveScope } from '@store/atlas-namespace.js';
 import { readGeneration, writeGeneration } from '../namespace-generation.js';
@@ -362,6 +362,12 @@ export const CONVERGENCE_GUARDED = new Set([
     EntityType.BRIEFING,
 ]);
 
+/**
+ * Entity types already warned about, so deploy skew does not flood the console.
+ * @type {Set<string>}
+ */
+const warnedUnknownEntityTypes = new Set();
+
 /** @returns {boolean} Whether an inbound op of `serverVersion` should apply to `entityKey`. */
 function shouldApplyVersion(entityKey, serverVersion) {
     if (serverVersion == null) return true; // un-stamped (legacy / no backend) → no ordering guard
@@ -586,6 +592,9 @@ async function applyRemoteOperationInner(operation, guarded) {
     // Whether the entity handler actually wrote to IndexedDB (false for the redundant SLIDE
     // inbound no-op and unknown entity types) — gates the peer-side apply.persist span below.
     let entityPersisted = true;
+    // A THIRD outcome, next to applied and failed: an op this BUILD cannot represent. See the
+    // `default` branch below for why it is not a failure.
+    let unknownType = false;
     switch (entityType) {
         case EntityType.FEATURE:
             // false = the op was BUFFERED (map not present yet), not applied — don't record its
@@ -653,8 +662,29 @@ async function applyRemoteOperationInner(operation, guarded) {
                 ? await applyLocalSlideIntent(operationType, entityId, mapId, data) : false;
             break;
         default:
+            // AN ENTITY TYPE THIS BUILD DOES NOT KNOW IS IGNORED, NOT FAILED, and F13 is what the
+            // old `false` cost. `_queueApply` (`ws-client.js`) reads `false` as a local write
+            // failure and closes the socket with 4000; the reconnect replays the same op, which
+            // fails again, so a server one deploy ahead of this client put it in a close/reconnect
+            // loop and stopped ALL sync, for every entity type. `map_meta` and `atlas_meta` were
+            // exactly that shape: targets the server accepted and rebroadcast with
+            // `client_entity_type` preserved, with no branch here.
+            //
+            // AND THE CURSOR ADVANCES PAST IT, deliberately. The rule elsewhere is that the replay
+            // boundary only moves when a `sync_response` was applied WHOLE, because a failed write
+            // must stay eligible for replay. That rule assumes replay can succeed. Here it cannot:
+            // no amount of replaying teaches this build a type it does not ship, so holding the
+            // cursor would freeze the tail forever and cost every LATER op of every KNOWN type —
+            // strictly worse than losing the one op this client cannot represent. The server stays
+            // the durable copy, and the next snapshot re-derives whatever state the type carries.
             entityPersisted = false;
-            console.warn(`Remote operation handler: unknown entity type "${entityType}"`);
+            unknownType = true;
+            warnUnknownEntityTypeOnce(entityType);
+            record(TraceStage.REMOTE_APPLIED, {
+                opId: operation.id, traceId: operation.traceId,
+                entityType, operationType, entityId, mapId, serverVersion,
+                outcome: TraceOutcome.DROPPED, reason: DropReason.UNKNOWN_TYPE,
+            });
     }
 
     // Record this entity's applied server order (DELETE clears it so a re-create starts fresh).
@@ -687,7 +717,30 @@ async function applyRemoteOperationInner(operation, guarded) {
     }
 
     emit(EventTypes.REMOTE_OPERATION_APPLIED, { operation });
+    // `true` for the ignored unknown type: every consumer of this return compares against `false`
+    // and only `false` means "this receive path failed, close the stream" (`_queueApply` in
+    // `ws-client.js`, and the `=== false` bail in the engine's `syncResponse` loop). The trace span
+    // above is what distinguishes ignored from applied for anyone diagnosing; the transport must
+    // not be able to tell them apart, because one of them is not a failure.
+    if (unknownType) return true;
     return featureApplied && (entityPersisted || entityType === EntityType.SLIDE);
+}
+
+/**
+ * Warns once per unknown entity type, for the life of the page.
+ *
+ * Once per TYPE and not once per op: deploy skew means a server one release ahead sends the same
+ * unknown type on every broadcast and on every replay, so a per-op warning would bury the console
+ * (which is where the diagnosis happens) under thousands of identical lines and hide whatever came
+ * next. The trace span keeps the per-op record.
+ * @param {string} entityType - The type this build does not know.
+ * @returns {void}
+ */
+function warnUnknownEntityTypeOnce(entityType) {
+    const key = String(entityType);
+    if (warnedUnknownEntityTypes.has(key)) return;
+    warnedUnknownEntityTypes.add(key);
+    console.warn(`Remote operation handler: unknown entity type "${key}" — op ignored, not applied.`);
 }
 
 // ============================================================================

@@ -49,8 +49,11 @@ function resourceRef(resourceType, value) {
  *     whitelisted app-preference keys, and `applyOperation` already rejects the
  *     resource-availability keys by omission. There is no sync surface to gate.
  *   - `mapa.analysisLayers`: declared NAO_REFERENCIA in the registry — grid state, not ids.
- *   - `map_meta`/`atlas_meta`: appliable targets with no entity write at all (they reach the
- *     operations log and nothing else), so no reference can land in a column through them.
+ *   - `map_meta`/`atlas_meta`: NOT appliable targets since 2026-09-13. They used to be appliable
+ *     with no entity write at all (they reached the operations log and nothing else, acked as
+ *     success), which is the failure `unknownTargetDenialReason` exists to prevent, so they are
+ *     now refused per op before the log insert. Either way no reference can land in a column
+ *     through them.
  *
  * @type {Readonly<Object<string, function(Object, Object): Array<{resourceType: string, resourceId: string}>>>}
  */

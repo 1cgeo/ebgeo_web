@@ -123,14 +123,24 @@ const ENTITY_TYPE_MAP = {
  * Normalized target → entity table. Lives at module scope (it used to be rebuilt inside
  * applyOperation on every op) because it is now ALSO the authority for what this server
  * is able to apply at all — see APPLIABLE_TARGETS. One table, one truth.
+ *
+ * `map_meta` AND `atlas_meta` WERE HERE UNTIL 2026-09-13, AND THAT IS WHAT MADE THEM DANGEROUS.
+ * Naming a table made them APPLIABLE, but neither had a branch anywhere: `buildUpdateQuery` and
+ * `buildSoftDeleteQuery` have no case for them, and no create path builds their columns. So an op
+ * aimed at either one consumed a `server_version`, landed in the append-only log, was acked
+ * `success: true` (the client dequeued it, confident it had landed) and was rebroadcast to peers
+ * with `client_entity_type` preserved — where no client has a branch either, so the peer read an
+ * unknown type and, until the same date, CLOSED ITS SOCKET over it (F13). Nothing was ever written.
+ * That is exactly the "acked, logged, wrote nothing" failure `unknownTargetDenialReason` exists to
+ * prevent, and removing the two keys is what routes them through it: refused per op, with a reason,
+ * BEFORE the log insert, so the batch survives and no version is burned. No producer was ever
+ * found for either (grep across both packages, 2026-09-13), so nothing loses a path it used.
  */
 const TARGET_TABLE_MAP = {
   feature: 'features',
   group: 'groups',
   layer: 'layers',
   map: 'maps',
-  map_meta: 'maps',
-  atlas_meta: 'atlas',
   briefing: 'briefings',
   slide: 'slides',
   cesium3d: 'cesium3d_data',

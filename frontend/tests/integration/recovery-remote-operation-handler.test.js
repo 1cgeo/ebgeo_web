@@ -264,3 +264,38 @@ describe('AUDIT snapshot and convergence', () => {
   expect(mapDataStore.get('map-1').features.points).toHaveLength(0);
  });
 });
+
+// F13. `map_meta` e `atlas_meta` estavam em `TARGET_TABLE_MAP`/`APPLIABLE_TARGETS` do servidor
+// sem ramo de aplicacao em lado nenhum, e eram rebroadcastados com o `client_entity_type`
+// preservado. Aqui o `default` devolvia `false`, que `_queueApply` (`ws-client.js`) trata como
+// falha de escrita local e paga com o socket: fechar com 4000, reconectar, receber a mesma op,
+// fechar de novo. Um tipo que este BUILD nao conhece nao e falha, porque replay nenhum vai
+// ensinar o tipo ao cliente: registra e segue.
+// CONTROLE NEGATIVO: devolvendo `false` no `default`, o primeiro caso cai.
+describe('F13 — tipo de entidade desconhecido', () => {
+    it('um tipo que este build nao conhece e IGNORADO, nao reprovado', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const applied = await applyRemoteOperation({
+            id: 'meta-op', entityType: 'map_meta', operationType: OperationType.UPDATE,
+            entityId: 'map-1', mapId: 'map-1', data: { name: 'qualquer' }, serverVersion: 900,
+        });
+        // Distinto de `false`, que e o unico valor que fecha o fio.
+        expect(applied).not.toBe(false);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('unknown entity type'));
+        warn.mockRestore();
+    });
+
+    it('avisa UMA vez por tipo, por mais ops daquele tipo que cheguem', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const op = { entityType: 'atlas_meta', operationType: OperationType.UPDATE, entityId: 'a1', data: {} };
+        await applyRemoteOperation({ ...op, id: 'meta-1', serverVersion: 901 });
+        await applyRemoteOperation({ ...op, id: 'meta-2', serverVersion: 902 });
+        await applyRemoteOperation({ ...op, id: 'meta-3', serverVersion: 903 });
+        // Um servidor um deploy a frente manda o mesmo tipo em toda transmissao e em todo
+        // replay; um aviso por op soterra o console, que e justamente onde o diagnostico
+        // acontece.
+        const daqui = warn.mock.calls.filter(([m]) => String(m).includes('atlas_meta'));
+        expect(daqui).toHaveLength(1);
+        warn.mockRestore();
+    });
+});

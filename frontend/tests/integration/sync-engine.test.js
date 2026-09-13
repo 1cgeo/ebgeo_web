@@ -549,6 +549,52 @@ describe('connect', () => {
         expect(syncEngine.lastVersion).toBe(3);
     });
 
+    // F13, A METADE DO CURSOR, e a decisão está aqui de propósito, porque ela é uma EXCEÇÃO à
+    // regra do arquivo. A regra é que o limite de replay só anda quando o `sync_response` foi
+    // aplicado INTEIRO, para que uma escrita que falhou continue elegível a replay. Essa regra
+    // pressupõe que o replay possa dar certo. Para um `entityType` que este BUILD não conhece
+    // não pode: replay nenhum ensina o tipo ao cliente. Segurar o cursor congelaria a cauda
+    // para sempre e custaria toda op POSTERIOR de todo tipo CONHECIDO, o que é estritamente
+    // pior que perder a única op que este cliente não sabe representar (e o servidor continua
+    // sendo a cópia durável: o próximo snapshot re-deriva o que aquele tipo carrega). O
+    // `applyRemoteOperationInner` devolve, portanto, um valor distinto de `false`, e a cadeia
+    // aqui segue e avança.
+    it('uma op de tipo desconhecido na cauda NÃO segura o cursor', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        applyRemoteOperation.mockClear();
+        // O que o handler real faz hoje com `map_meta`: ignora e devolve algo que não é `false`.
+        // `Once`, nunca a implementação persistente: ela sobrevive ao `clearAllMocks` do
+        // `beforeEach` (que limpa chamadas, não implementação) e contamina os casos seguintes.
+        applyRemoteOperation.mockResolvedValueOnce(true).mockResolvedValueOnce(true);
+
+        await wsClientMock._handlers.syncResponse({
+            isSnapshot: false,
+            ops: [{ entityType: 'map_meta', entityId: 'm' }, { entityType: 'feature', entityId: 'a' }],
+            currentVersion: 11,
+        });
+
+        expect(applyRemoteOperation).toHaveBeenCalledTimes(2); // a seguinte também roda
+        expect(syncEngine.lastVersion).toBe(11);
+    });
+
+    // E O CONTRASTE, que é o que impede o caso acima de virar "o cursor sempre anda": uma
+    // falha DE VERDADE (`false`) continua segurando o limite, porque ali o replay é a correção.
+    it('mas um `false` de verdade continua segurando o cursor', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        applyRemoteOperation.mockClear();
+        applyRemoteOperation.mockResolvedValueOnce(false);
+
+        const versaoAntes = syncEngine.lastVersion;
+        await wsClientMock._handlers.syncResponse({
+            isSnapshot: false,
+            ops: [{ entityType: 'feature', entityId: 'a' }, { entityType: 'feature', entityId: 'b' }],
+            currentVersion: 12,
+        });
+
+        expect(applyRemoteOperation).toHaveBeenCalledTimes(1); // para na primeira
+        expect(syncEngine.lastVersion).toBe(versaoAntes);
+    });
+
     // ========================================================================
     // Structural marker ops (backend maps.service.js MAP_MERGE_ENTITY_TYPE)
     // ========================================================================
