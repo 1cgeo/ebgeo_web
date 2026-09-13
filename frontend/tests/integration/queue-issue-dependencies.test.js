@@ -18,7 +18,11 @@ describe('Pending issue dependencies', () => {
         await queue.recordIssue(parent, { success: false, reason: 'Permissão revogada' });
         expect((await queue.peek()).map(op => op.id)).toEqual(['independent']);
         expect((await queue.getPendingProjection()).map(op => op.id)).toEqual(['independent']);
-        expect(await queue.count()).toBe(4);
+        // O ENVIAVEL E' UM, e o total continua quatro, agora dito pelos tres estados. Enquanto
+        // `count()` respondia quatro, o laco de flush acordava a cada 1,5 s por causa das tres
+        // operacoes que ele proprio se recusa a enviar.
+        expect(await queue.count()).toBe(1);
+        expect(await queue.countByState()).toEqual({ pendentes: 1, preparadas: 0, problemas: 3 });
         expect(await queue.getIssues()).toHaveLength(1);
     });
 

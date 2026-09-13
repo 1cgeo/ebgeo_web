@@ -224,11 +224,17 @@ export function rescueVetoRecorded(atlasId) {
 /**
  * Reads the pending-operation count of the ACTIVE scope without ever throwing. NaN means
  * "unknown", which {@link shouldPreserveLocalWork} treats as a reason to act as if there were work.
+ *
+ * IT SUMS THE THREE STATES, and must: what decides a rescue is everything the teardown would
+ * destroy, not what the flush could still send. A refused operation, the work blocked behind it
+ * and an intention whose projection is not materialized are all work the server never received,
+ * and `count()` answers only the sendable share of that.
  * @returns {Promise<number>}
  */
 export async function countPendingOperations() {
     try {
-        const count = await operationQueue.count();
+        const census = await operationQueue.countByState();
+        const count = census.pendentes + census.preparadas + census.problemas;
         return Number.isFinite(count) ? count : NaN;
     } catch (error) {
         console.warn('[unsynced-work] pending operation count failed:', error);

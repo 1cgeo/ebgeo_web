@@ -173,14 +173,22 @@ export function nextFlushAlertState(prev, error, threshold = FLUSH_ALERT_THRESHO
 }
 
 /**
- * Whether there is anything worth flushing right now: an active connection
- * that is ONLINE and a non-empty local operation queue.
+ * Whether there is anything worth flushing right now: an ONLINE connection and at least one
+ * SENDABLE operation.
+ *
+ * SENDABLE, NOT "THE QUEUE IS NOT EMPTY", and the distinction is why `operationQueue.count()`
+ * changed meaning. A queue holding only refused operations, work blocked behind them, or an
+ * intention still waiting for its projection has nothing this loop can push: read as non-empty,
+ * it made `flushOnce` call `engine.flush()` every 1.5 s, push zero operations and register a
+ * SYNC_SUCESSO for each empty round trip, which is a success telemetry for a queue that is
+ * stuck. The total is still available from `countByState()`, for whoever must warn the user
+ * about work at risk.
  * @returns {Promise<boolean>}
  */
 async function hasWorkToFlush() {
     if (!connectionState.isOnline()) return false;
-    const pending = await operationQueue.count();
-    return pending > 0;
+    const sendable = await operationQueue.count();
+    return sendable > 0;
 }
 
 /**

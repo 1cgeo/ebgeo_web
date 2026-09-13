@@ -29,6 +29,48 @@ const SEQ_PATTERN = /^[0-9]+$/;
 
 const COUNT_BATCH_SIZE = 200;
 
+/** Key prefix of a terminal issue recorded against one operation. */
+const ISSUE_PREFIX = '__journal_issue__';
+
+/** Key prefix of the mark a prepared intention carries until its projection is materialized. */
+const STATE_PREFIX = '__journal_state__';
+
+/**
+ * The dependency blockade of the outbound queue, in ONE place because TWO readers apply it.
+ *
+ * `_loadOperations` applies it to decide what the flush may send; `countByState` applies it to
+ * decide what the census calls a problem. A second copy of the rule would drift, and the drift is
+ * invisible from either side: the census would call sendable an operation the loader refuses, and
+ * the flush loop would wake every 1.5 s to push nothing and report success.
+ */
+class PendingBlockade {
+    constructor() {
+        this._entities = new Set();
+        this._operations = new Set();
+    }
+
+    /**
+     * @param {Object} operation - Envelope being classified.
+     * @returns {boolean} Whether something this operation needs is already blocked.
+     */
+    blocks(operation) {
+        return this._entities.has(operation.entityId)
+            || this._entities.has(operation.mapId)
+            || this._entities.has(operation.data?.briefingId ?? operation.data?.briefing_id)
+            || (operation.dependsOn ?? []).some(id => this._operations.has(id));
+    }
+
+    /**
+     * Records an operation that will not be sent, so its descendants are blocked too.
+     * @param {Object} operation - Envelope that stays on disk.
+     * @returns {void}
+     */
+    add(operation) {
+        this._entities.add(operation.entityId);
+        this._operations.add(operation.id);
+    }
+}
+
 export function operationBelongsToScope(operation, scopeSuffix) {
     if (scopeSuffix === null) return true;
     const born = operation?.scopeSuffix;
@@ -104,7 +146,7 @@ class OperationQueue {
 
     async recordIssue(operation, result) {
         const { store } = this._context();
-        await store.setItem('__journal_issue__' + operation.id, { result, recordedAt: Date.now() });
+        await store.setItem(ISSUE_PREFIX + operation.id, { result, recordedAt: Date.now() });
     }
 
     async getIssues() {
@@ -112,7 +154,7 @@ class OperationQueue {
         const operations = await this._loadOperations(await this._getOrderedKeys(store), { store, scopeSuffix });
         const issues = [];
         for (const operation of operations) {
-            const issue = await store.getItem('__journal_issue__' + operation.id);
+            const issue = await store.getItem(ISSUE_PREFIX + operation.id);
             if (issue) issues.push({ operation, ...issue });
         }
         return issues;
@@ -144,24 +186,92 @@ class OperationQueue {
         return removed;
     }
 
-    async count() {
+    /**
+     * The whole queue census in ONE sweep: what the flush can send now, what waits behind a
+     * prepared intention, and what is stopped by a problem.
+     *
+     * WHY THREE NUMBERS AND NOT ONE. `count()` used to answer "every envelope on disk", and the
+     * flush loop read that as "there is something to send": one refused operation with nothing
+     * else in the queue woke the loop every 1.5 s to push nothing and register a SUCCESS. The
+     * three buckets are disjoint and add up to that old total, so a caller that needs the total
+     * (the exit warning, the pending census) sums the three, and a caller that needs sendable
+     * work reads `pendentes`.
+     *
+     * `problemas` is BOTH the operation with a recorded issue and everything the queue refuses to
+     * send because of it (same entity, same map, same briefing, or a declared dependency): the
+     * rule is {@link PendingBlockade}, the same object `_loadOperations` walks with.
+     *
+     * `preparadas` is the first intention still marked prepared AND everything queued after it.
+     * The loader STOPS at that mark (a projection that is not materialized cannot be sent, and
+     * the order is the contract), so those operations are pending and not sendable, which is
+     * exactly what this bucket says. It is not "how many carry the mark".
+     *
+     * IT READS THE ISSUE RECORD, IT NEVER DERIVES ONE. The legacy-protocol quarantine is derived
+     * and WRITTEN by `_loadOperations`, which is the one writer of that fact; deriving it a
+     * second time here would make the census disagree with the loader on the cycle before the
+     * record is written, and disagree in the dangerous direction on any future rule the loader
+     * gains and this method does not.
+     *
+     * The metadata comes from the KEY LIST, not from a read per operation: an issue key and a
+     * prepared-state key exist only while they are true (`materializeJournal` deletes the state
+     * key), so presence IS the fact, and it costs nothing on top of the listing the count
+     * already pays for. Envelopes are still read in parallel batches, because the count decides
+     * a rescue and sits on the critical path of the click on "Sair".
+     * @returns {Promise<{pendentes: number, preparadas: number, problemas: number}>}
+     */
+    async countByState() {
         const { store, scopeSuffix } = this._context();
-        const keys = await this._getOrderedKeys(store);
-        if (keys.length === 0) return 0;
+        const census = { pendentes: 0, preparadas: 0, problemas: 0 };
 
-        let total = 0;
-        for (let i = 0; i < keys.length; i += COUNT_BATCH_SIZE) {
-            const lote = keys.slice(i, i + COUNT_BATCH_SIZE);
+        const keys = await store.keys();
+        const operationKeys = keys.filter(key => key.startsWith(KEY_PREFIX)).sort();
+        if (operationKeys.length === 0) return census;
+
+        const issued = new Set();
+        const prepared = new Set();
+        for (const key of keys) {
+            if (key.startsWith(ISSUE_PREFIX)) issued.add(key.slice(ISSUE_PREFIX.length));
+            else if (key.startsWith(STATE_PREFIX)) prepared.add(key.slice(STATE_PREFIX.length));
+        }
+
+        const blockade = new PendingBlockade();
+        let held = false;
+        for (let i = 0; i < operationKeys.length; i += COUNT_BATCH_SIZE) {
+            const lote = operationKeys.slice(i, i + COUNT_BATCH_SIZE);
             const envelopes = await Promise.all(lote.map(key => store.getItem(key)));
             for (const op of envelopes) {
                 if (!op) continue;
                 if (!operationBelongsToScope(op, scopeSuffix)) continue;
-                total += 1;
+                if (issued.has(op.id) || blockade.blocks(op)) {
+                    blockade.add(op);
+                    census.problemas += 1;
+                    continue;
+                }
+                if (prepared.has(op.id)) held = true;
+                if (held) census.preparadas += 1;
+                else census.pendentes += 1;
             }
         }
-        return total;
+        return census;
     }
 
+    /**
+     * How many operations the flush can send RIGHT NOW: pending, with no issue of their own, no
+     * blocked dependency, and ahead of any prepared intention.
+     *
+     * IT IS NOT THE SIZE OF THE QUEUE, and reading it as one is the defect this signature exists
+     * to prevent. For everything the user would lose (the exit warning, the pending census, the
+     * sync light) sum the three numbers of {@link countByState}.
+     * @returns {Promise<number>}
+     */
+    async count() {
+        return (await this.countByState()).pendentes;
+    }
+
+    /**
+     * Alias kept for call-site stability. It answers the SENDABLE count, like {@link count}.
+     * @returns {Promise<number>}
+     */
     async size() {
         return this.count();
     }
@@ -202,8 +312,7 @@ class OperationQueue {
     async _loadOperations(keys, { limit = Infinity, scopeSuffix = null, store = this._context().store, remote = false, readyOnly = false, projectionOnly = false } = {}) {
         const operations = [];
         if (limit <= 0) return operations;
-        const blockedEntities = new Set();
-        const blockedOperations = new Set();
+        const blockade = new PendingBlockade();
 
         for (const key of keys) {
             const op = await store.getItem(key);
@@ -211,19 +320,16 @@ class OperationQueue {
             if (!operationBelongsToScope(op, scopeSuffix)) continue;
             if (remote && (readyOnly || projectionOnly)) {
                 const issue = legacyQueueIssue(op);
-                if (issue && !await store.getItem('__journal_issue__' + op.id)) {
-                    await store.setItem('__journal_issue__' + op.id, { result: issue, recordedAt: Date.now() });
+                if (issue && !await store.getItem(ISSUE_PREFIX + op.id)) {
+                    await store.setItem(ISSUE_PREFIX + op.id, { result: issue, recordedAt: Date.now() });
                 }
             }
-            if ((readyOnly || projectionOnly) && (await store.getItem('__journal_issue__' + op.id)
-                || blockedEntities.has(op.entityId) || blockedEntities.has(op.mapId)
-                || blockedEntities.has(op.data?.briefingId ?? op.data?.briefing_id)
-                || (op.dependsOn ?? []).some(id => blockedOperations.has(id)))) {
-                blockedEntities.add(op.entityId);
-                blockedOperations.add(op.id);
+            if ((readyOnly || projectionOnly)
+                && (await store.getItem(ISSUE_PREFIX + op.id) || blockade.blocks(op))) {
+                blockade.add(op);
                 continue;
             }
-            if (readyOnly && await store.getItem('__journal_state__' + op.id) === 'prepared') break;
+            if (readyOnly && await store.getItem(STATE_PREFIX + op.id) === 'prepared') break;
             operations.push(op);
             if (operations.length >= limit) break;
         }

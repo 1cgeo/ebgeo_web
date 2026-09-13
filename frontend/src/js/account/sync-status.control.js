@@ -304,7 +304,13 @@ export class SyncStatusControl {
 
         this._reading = true;
         try {
-            this._pending = await operationQueue.count();
+            // THE TOTAL, NOT THE SENDABLE COUNT. This light answers "is my work saved?", and an
+            // operation the server refused, one blocked behind it, and one still waiting for its
+            // projection are all work the server does not have. `count()` alone would paint green
+            // over a queue that is stuck, which is the older of the two lies this control exists
+            // to remove. The three numbers separately are what the work states of B9 will read.
+            const census = await operationQueue.countByState();
+            this._pending = census.pendentes + census.preparadas + census.problemas;
         } catch (error) {
             console.warn('Sync status: could not read the outbound queue:', error);
             this._pending = null;

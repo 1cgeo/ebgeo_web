@@ -30,11 +30,17 @@ describe('Write-ahead edit intention', () => {
         await runTransaction(async tx => {
             tx.recordOperation('feature', 'create', entityId, mapId, { properties: { id: entityId } });
             return async () => {
-                expect(await operationQueue.count()).toBe(1);
+                // DURAVEL E NAO ENVIAVEL, e desde a contagem por estado os dois numeros dizem
+                // isso separadamente: um envelope no disco, zero que o flush possa mandar.
+                expect(await operationQueue.countByState())
+                    .toEqual({ pendentes: 0, preparadas: 1, problemas: 0 });
+                expect(await operationQueue.count()).toBe(0);
+                expect(await operationQueue.getAll()).toHaveLength(1);
                 expect(await operationQueue.peek()).toEqual([]);
             };
         });
         expect(await operationQueue.peek()).toHaveLength(1);
+        expect(await operationQueue.count()).toBe(1);
     });
 
     it('a failed entity write preserves the intention for idempotent recovery', async () => {
