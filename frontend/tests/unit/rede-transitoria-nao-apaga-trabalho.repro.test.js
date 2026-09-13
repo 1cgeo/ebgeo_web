@@ -23,11 +23,36 @@ vi.mock('@utils/toast_service.js', () => ({
 
 // O laço de flush só roda quando ONLINE e com fila não vazia — as duas condições são fixadas
 // aqui para que o teste meça o tratamento do ERRO, não o portão de entrada.
+// `onStateChanged` e `ConnectionStates` entraram no dublê quando `image-sync.js` passou a instalar
+// nesse singleton o gatilho de retomada da fila de blobs: um dublê que omite o que o sujeito chama
+// reprova por TypeError, e o vermelho aponta para o dublê em vez do código.
 vi.mock('../../src/js/store/sync/connection-state.js', () => ({
-    connectionState: { isOnline: () => true },
+    connectionState: { isOnline: () => true, onStateChanged: vi.fn(() => () => {}) },
+    ConnectionStates: Object.freeze({
+        OFFLINE: 'offline', CONNECTING: 'connecting', ONLINE: 'online', RECONNECTING: 'reconnecting',
+    }),
 }));
 vi.mock('../../src/js/store/sync/operation-queue.js', () => ({
     operationQueue: { count: vi.fn(async () => 3) },
+}));
+
+// A FILA DURÁVEL DE BLOBS É DUBLADA AQUI, e o recorte é deliberado: este arquivo mede o que
+// `image-sync.js` DIZ ao usuário em cada desfecho, não o transporte. O mecanismo da fila (registro
+// antes do envio, retomada com a mesma identidade, recusa definitiva) é medido contra IndexedDB de
+// verdade em `tests/integration/blob-upload-queue.test.js`.
+const filaDeBlobs = {
+    enfileirarBlob: vi.fn(),
+    retomarBlobsPendentes: vi.fn(async () => ({ tentadas: 0, confirmadas: 0, pendentes: 0, recusadas: 0 })),
+    esquecerPendenciasEmMemoria: vi.fn(),
+};
+vi.mock('../../src/js/store/sync/blob-upload-queue.js', () => ({
+    enfileirarBlob: (...args) => filaDeBlobs.enfileirarBlob(...args),
+    retomarBlobsPendentes: (...args) => filaDeBlobs.retomarBlobsPendentes(...args),
+    esquecerPendenciasEmMemoria: (...args) => filaDeBlobs.esquecerPendenciasEmMemoria(...args),
+    blobUploadPending: () => false,
+    BlobUploadState: Object.freeze({
+        PENDENTE: 'pendente', CONFIRMADO: 'confirmado', RECUSADO: 'recusado',
+    }),
 }));
 
 import { showWarning } from '@utils/toast_service.js';
@@ -45,7 +70,6 @@ import {
     setImageSyncAtlas,
     imageUploadFailureNotice,
 } from '../../src/js/store/sync/image-sync.js';
-import { apiClient } from '../../src/js/store/sync/api-client.js';
 
 /** @returns {Error} An ApiError-shaped error (the client stamps `status`). */
 function apiError(status, message = 'boom') {
@@ -193,27 +217,60 @@ describe('image-sync: offline é silêncio, upload falhado com atlas conectado a
         vi.restoreAllMocks();
     });
 
-    it('sem atlas conectado devolve null e NÃO avisa (o id local é a resposta certa)', async () => {
+    it('sem atlas conectado não enfileira e NÃO avisa (o atlas local não sobe nada)', async () => {
         setImageSyncAtlas(null);
-        const spy = vi.spyOn(apiClient, 'uploadImage');
-        expect(await uploadImageBlob(new Blob(['x']), 'a.png')).toBeNull();
-        expect(spy).not.toHaveBeenCalled();
+        const r = await uploadImageBlob(new Blob(['x']), 'img-a');
+        expect(r).toEqual({ confirmado: false, registrado: false, estado: null });
+        expect(filaDeBlobs.enfileirarBlob).not.toHaveBeenCalled();
         expect(showWarning).not.toHaveBeenCalled();
     });
 
-    it('com atlas conectado e upload falhando devolve null E avisa uma vez', async () => {
+    it('com atlas conectado e envio pendente avisa uma vez, e a frase promete a retomada', async () => {
         setImageSyncAtlas('atlas-1');
-        vi.spyOn(apiClient, 'uploadImage').mockRejectedValue(apiError(500));
-        expect(await uploadImageBlob(new Blob(['x']), 'a.png')).toBeNull();
+        filaDeBlobs.enfileirarBlob.mockResolvedValue({
+            registrado: true, confirmado: false, estado: 'pendente', motivo: 'rede caiu',
+        });
+        const r = await uploadImageBlob(new Blob(['x']), 'img-a');
+        expect(r).toEqual({ confirmado: false, registrado: true, estado: 'pendente' });
+        // O ID VIAJA PARA A FILA, e é o do chamador: é isso que faz a retentativa cair sob a mesma
+        // referência em vez de cunhar um terceiro id.
+        expect(filaDeBlobs.enfileirarBlob).toHaveBeenCalledWith(
+            expect.objectContaining({ imageId: 'img-a', atlasId: 'atlas-1' })
+        );
         expect(showWarning).toHaveBeenCalledTimes(1);
         expect(showWarning.mock.calls[0][0]).toContain('apenas para você');
+        expect(showWarning.mock.calls[0][0]).toContain('retomado');
     });
 
-    it('upload bem-sucedido não avisa nada', async () => {
+    it('recusa definitiva avisa com OUTRA frase: ela não promete retomada nenhuma', async () => {
         setImageSyncAtlas('atlas-1');
-        vi.spyOn(apiClient, 'uploadImage').mockResolvedValue({ id: 'img-1' });
-        expect(await uploadImageBlob(new Blob(['x']), 'a.png')).toEqual({ id: 'img-1' });
+        filaDeBlobs.enfileirarBlob.mockResolvedValue({
+            registrado: true, confirmado: false, estado: 'recusado', motivo: 'formato',
+        });
+        await uploadImageBlob(new Blob(['x']), 'img-a');
+        expect(showWarning).toHaveBeenCalledTimes(1);
+        expect(showWarning.mock.calls[0][0]).toContain('recusou');
+        expect(showWarning.mock.calls[0][0]).not.toContain('retomado');
+    });
+
+    it('envio confirmado não avisa nada', async () => {
+        setImageSyncAtlas('atlas-1');
+        filaDeBlobs.enfileirarBlob.mockResolvedValue({
+            registrado: true, confirmado: true, estado: 'confirmado', motivo: '',
+        });
+        const r = await uploadImageBlob(new Blob(['x']), 'img-a');
+        expect(r).toEqual({ confirmado: true, registrado: true, estado: 'confirmado' });
         expect(showWarning).not.toHaveBeenCalled();
+    });
+
+    it('conectar e desconectar são os dois gatilhos de retomada, e só o primeiro tenta enviar', async () => {
+        setImageSyncAtlas('atlas-1');
+        expect(filaDeBlobs.retomarBlobsPendentes).toHaveBeenCalledWith('atlas-1');
+        setImageSyncAtlas(null);
+        // Desmontado o escopo, o espelho em memória tem de cair: um id retido sem pendência legível
+        // travaria a fila de saída sem nada capaz de liberá-la.
+        expect(filaDeBlobs.esquecerPendenciasEmMemoria).toHaveBeenCalled();
+        expect(filaDeBlobs.retomarBlobsPendentes).toHaveBeenCalledTimes(1);
     });
 
     it('a mensagem distingue permissão (403) e tamanho (413) do caso geral', () => {

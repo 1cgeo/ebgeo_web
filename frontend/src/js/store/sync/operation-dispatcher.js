@@ -15,6 +15,7 @@ import { generateUUID, isValidUUID } from '../../utilities/uuid.js';
 import { record } from './diag/trace-core.js';
 import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
 import { markLocalEditPending, CONVERGENCE_GUARDED } from './remote-operation-handler.js';
+import { blobUploadPending } from './blob-upload-queue.js';
 
 /**
  * Whether operation logging is enabled.
@@ -148,7 +149,19 @@ export async function persistOperationIntents(descriptions, { scope, traceId } =
         });
     }
     return async () => {
-        await queue.markMaterialized(created);
+        // AN OPERATION WHOSE BLOB IS NOT ON THE SERVER STAYS PREPARED, and this is the only place
+        // that can decide it: the mark is written by `enqueueAll` and would be cleared right here.
+        //
+        // An image feature carries the id of its own blob as its `entityId`, and there is no
+        // incremental operation for bytes, so an operation that leaves ahead of its blob renders as
+        // a hole on the peer (the flush leaves every 1.5 s). Keeping the prepared mark is the
+        // queue's existing way of saying "this intention is not complete yet": it is durable, the
+        // census counts it, and `blob-upload-queue.js` clears it when the server confirms the
+        // bytes, or converts it into a durable issue when the server refuses them for good.
+        const prontas = created.filter(op => !(
+            op.entityType === EntityType.FEATURE && blobUploadPending(op.entityId)
+        ));
+        await queue.markMaterialized(prontas);
         for (const op of created) {
             record(TraceStage.APPLY_PERSIST, {
                 opId: op.id, traceId, entityType: op.entityType, operationType: op.operationType,

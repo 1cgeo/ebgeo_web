@@ -31,6 +31,7 @@
  */
 
 import { StoreName, getStoreFor } from './atlas-namespace.js';
+import { BLOB_UPLOAD_KEY_PREFIX } from './sync/blob-upload-keys.js';
 
 /**
  * @typedef {Object} AtlasContents
@@ -78,7 +79,13 @@ export async function countAtlasContents(scope) {
     let images = 0;
     try {
         const keys = await getStoreFor(StoreName.IMAGES, scope).keys();
-        images = Array.isArray(keys) ? keys.length : 0;
+        // NEM TODA CHAVE DESSE BANCO É UMA IMAGEM: a fila durável de blobs guarda as pendências de
+        // upload nele, sob um prefixo próprio, porque uma pendência só tem sentido enquanto os
+        // bytes que ela nomeia estão ali. Contá-las inflaria a frase de perda que este módulo
+        // escreve, e o número dito ao usuário tem de ser o número de figuras.
+        images = Array.isArray(keys)
+            ? keys.filter(k => !String(k).startsWith(BLOB_UPLOAD_KEY_PREFIX)).length
+            : 0;
     } catch (error) {
         console.warn('[atlas-contents] could not read the images of this atlas:', error);
         images = 0;

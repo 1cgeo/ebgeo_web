@@ -391,11 +391,19 @@ class AddImageControl extends BaseControl {
       try {
         const response = await fetch(resizedImageBase64);
         const blob = await response.blob();
-        // §17.14: when online, upload so collaborators can fetch the photo; the
-        // backend image id becomes the feature's imageId. Offline → a local id.
-        const uploaded = await uploadImageBlob(blob, 'photo.png');
-        const imageId = uploaded?.id || IDUtils.generateUniqueId();
+        // §17.14: the id is MINTED HERE and never depends on the upload landing.
+        //
+        // It used to be the id the server minted, with a local id as the fallback when the
+        // upload failed — and that fallback was the defect: nothing retried it, so the feature
+        // pointed forever at bytes only this machine had, and a retry would have produced a
+        // THIRD id. The blob now travels through the durable queue, which registers the
+        // pendency before the first byte leaves and sends by the bulk route (the only one that
+        // keeps the id), so the same id is valid whether the transfer lands now, after a
+        // reconnection, or never. The blob goes to the LOCAL store first: it is what the
+        // resumption reads back, and what draws the picture in the meantime.
+        const imageId = IDUtils.generateUniqueId();
         await storeImage(imageId, blob);
+        await uploadImageBlob(blob, imageId, { origem: 'feicao-de-imagem' });
 
         const feature = this.createImageFeature(lngLat, imageId, width, height);
 

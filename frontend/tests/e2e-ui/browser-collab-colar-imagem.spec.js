@@ -50,10 +50,11 @@ const PNG_1X1_BASE64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 /**
- * Cria uma feição de imagem do jeito que a ferramenta cria: sobe o blob (o servidor cunha o
- * id), guarda-o localmente sob esse id e grava a feição.
+ * Cria uma feição de imagem do jeito que a ferramenta cria: CUNHA o id localmente, guarda o blob
+ * sob ele e só então manda o blob para a fila durável, que o envia pela rota bulk (a única que
+ * preserva o id). O id deixou de vir do servidor com a fila de blobs de B8.
  * @param {import('@playwright/test').Page} page
- * @param {Object} feature - Envelope da feição, sem o id (ele vem do servidor)
+ * @param {Object} feature - Envelope da feição, sem o id (ele é cunhado aqui)
  * @returns {Promise<{ id: string|null, tamanho: number }>}
  */
 async function criarImagem(page, feature) {
@@ -64,18 +65,20 @@ async function criarImagem(page, feature) {
         const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
         const blob = new Blob([bytes], { type: 'image/png' });
 
-        // O id da feição de imagem É o id do registro no servidor (o mesmo contrato de
-        // `draw_tools/image_tool/add_image_control.js`).
-        const registro = await uploadImageBlob(blob, 'colar.png');
-        if (!registro?.id) return { id: null, tamanho: blob.size };
+        // O id da feição de imagem é CUNHADO AQUI e o blob viaja sob ele (o mesmo contrato de
+        // `draw_tools/image_tool/add_image_control.js`: local primeiro, fila depois).
+        const { generateUUID } = await import('/src/js/utilities/uuid.js');
+        const imageId = generateUUID();
+        await store.storeImage(imageId, blob);
+        const envio = await uploadImageBlob(blob, imageId, { origem: 'feicao-de-imagem' });
+        if (!envio?.confirmado) return { id: null, tamanho: blob.size };
 
-        await store.storeImage(registro.id, blob);
         const feicao = {
             ...molde,
-            properties: { ...molde.properties, id: registro.id, nome: 'Imagem colável' },
+            properties: { ...molde.properties, id: imageId, nome: 'Imagem colável' },
         };
         await store.addFeature('images', feicao);
-        return { id: registro.id, tamanho: blob.size };
+        return { id: imageId, tamanho: blob.size };
     }, { base64: PNG_1X1_BASE64, molde: feature });
 }
 

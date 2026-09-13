@@ -4,12 +4,40 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const h = vi.hoisted(() => ({ uploadImage: vi.fn(), fetchImageBlob: vi.fn() }));
+const h = vi.hoisted(() => ({
+    fetchImageBlob: vi.fn(),
+    enfileirarBlob: vi.fn(),
+    retomarBlobsPendentes: vi.fn(async () => ({ tentadas: 0, confirmadas: 0, pendentes: 0, recusadas: 0 })),
+    esquecerPendenciasEmMemoria: vi.fn(),
+}));
 vi.mock('../../src/js/store/sync/api-client.js', () => ({
     apiClient: {
-        uploadImage: (...a) => h.uploadImage(...a),
         fetchImageBlob: (...a) => h.fetchImageBlob(...a),
     },
+}));
+
+// O ENVIO NÃO PASSA MAIS PELO CLIENTE HTTP DAQUI, e o dublê diz isso: ele vai para a fila durável
+// de blobs, que é quem escolhe a rota (a bulk, a única que preserva o id) e quem guarda a pendência
+// antes do primeiro byte sair. O mecanismo dela é medido contra IndexedDB de verdade em
+// tests/integration/blob-upload-queue.test.js; aqui se mede o SEAM.
+vi.mock('../../src/js/store/sync/blob-upload-queue.js', () => ({
+    enfileirarBlob: (...a) => h.enfileirarBlob(...a),
+    retomarBlobsPendentes: (...a) => h.retomarBlobsPendentes(...a),
+    esquecerPendenciasEmMemoria: (...a) => h.esquecerPendenciasEmMemoria(...a),
+    blobUploadPending: () => false,
+    BlobUploadState: Object.freeze({
+        PENDENTE: 'pendente', CONFIRMADO: 'confirmado', RECUSADO: 'recusado',
+    }),
+}));
+vi.mock('../../src/js/store/sync/connection-state.js', () => ({
+    connectionState: { isOnline: () => true, onStateChanged: vi.fn(() => () => {}) },
+    ConnectionStates: Object.freeze({
+        OFFLINE: 'offline', CONNECTING: 'connecting', ONLINE: 'online', RECONNECTING: 'reconnecting',
+    }),
+}));
+vi.mock('@utils/toast_service.js', () => ({
+    showToast: vi.fn(), showSuccess: vi.fn(), showError: vi.fn(), showWarning: vi.fn(),
+    showInChannel: vi.fn(),
 }));
 
 import {
@@ -20,8 +48,10 @@ import {
 } from '../../src/js/store/sync/image-sync.js';
 
 beforeEach(() => {
-    h.uploadImage.mockReset();
     h.fetchImageBlob.mockReset();
+    h.enfileirarBlob.mockReset();
+    h.retomarBlobsPendentes.mockClear();
+    h.esquecerPendenciasEmMemoria.mockClear();
     setImageSyncAtlas(null);
 });
 
@@ -34,25 +64,34 @@ describe('image-sync gateway (§17.14/§17.19)', () => {
         expect(isImageSyncOnline()).toBe(false);
     });
 
-    it('uploadImageBlob is a no-op (null) when offline', async () => {
+    it('uploadImageBlob não enfileira nada quando não há atlas conectado', async () => {
         const blob = new Blob([new Uint8Array([1])], { type: 'image/png' });
-        expect(await uploadImageBlob(blob)).toBeNull();
-        expect(h.uploadImage).not.toHaveBeenCalled();
+        expect(await uploadImageBlob(blob, 'img-9'))
+            .toEqual({ confirmado: false, registrado: false, estado: null });
+        expect(h.enfileirarBlob).not.toHaveBeenCalled();
     });
 
-    it('uploadImageBlob delegates to apiClient when online', async () => {
+    it('uploadImageBlob entrega blob, id e atlas à fila durável', async () => {
         setImageSyncAtlas('atlas-1');
-        h.uploadImage.mockResolvedValue({ id: 'img-9' });
+        h.enfileirarBlob.mockResolvedValue({
+            registrado: true, confirmado: true, estado: 'confirmado', motivo: '',
+        });
         const blob = new Blob([new Uint8Array([1])], { type: 'image/png' });
-        expect(await uploadImageBlob(blob, 'icon.png')).toEqual({ id: 'img-9' });
-        expect(h.uploadImage).toHaveBeenCalledWith('atlas-1', blob, 'icon.png');
+        expect(await uploadImageBlob(blob, 'img-9', { origem: 'icone-personalizado' }))
+            .toEqual({ confirmado: true, registrado: true, estado: 'confirmado' });
+        expect(h.enfileirarBlob).toHaveBeenCalledWith({
+            imageId: 'img-9', blob, atlasId: 'atlas-1', origem: 'icone-personalizado',
+        });
     });
 
-    it('uploadImageBlob swallows errors (returns null)', async () => {
+    it('uploadImageBlob não lança quando a fila devolve pendência', async () => {
         setImageSyncAtlas('atlas-1');
-        h.uploadImage.mockRejectedValue(new Error('network'));
+        h.enfileirarBlob.mockResolvedValue({
+            registrado: true, confirmado: false, estado: 'pendente', motivo: 'rede',
+        });
         const blob = new Blob([new Uint8Array([1])], { type: 'image/png' });
-        expect(await uploadImageBlob(blob)).toBeNull();
+        expect(await uploadImageBlob(blob, 'img-9'))
+            .toEqual({ confirmado: false, registrado: true, estado: 'pendente' });
     });
 
     it('fetchImageBlob is null offline, delegates online', async () => {

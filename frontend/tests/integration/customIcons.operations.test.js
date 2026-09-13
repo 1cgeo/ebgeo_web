@@ -77,21 +77,27 @@ beforeEach(() => {
 const blob = () => new Blob([new Uint8Array([1, 2])], { type: 'image/png' });
 
 describe('customIcons multiuser (§17.19)', () => {
-    it('addCustomIcon uploads to the backend and uses the backend id when online', async () => {
-        h.uploadImageBlob.mockResolvedValue({ id: 'backend-img' });
+    // O ID DEIXOU DE SER O DO SERVIDOR, e é isso que estes dois casos passaram a medir. Antes o
+    // upload escolhia o id e a falha caía para um UUID local que nada retentava: o ícone desenhava
+    // para o autor e um colaborador pedindo aquele id recebia 404 para sempre. Agora o id é local
+    // sempre, e o blob viaja pela fila durável sob esse mesmo id (rota bulk), então o desfecho do
+    // envio não pode mais mudar a referência que a feição carrega.
+    it('addCustomIcon usa o id LOCAL e manda o blob para a fila sob ele', async () => {
+        h.uploadImageBlob.mockResolvedValue({ confirmado: true, registrado: true, estado: 'confirmado' });
         const b = blob();
         const entry = await addCustomIcon({ name: 'Tank', blob: b, thumbnail: 'data:img' });
-        expect(h.uploadImageBlob).toHaveBeenCalledWith(b, 'Tank.png');
-        expect(entry.id).toBe('backend-img');         // feature.markerSymbol references this id
-        expect(h.images.get('backend-img')).toBe(b);  // cached locally under the same id
-        expect(h.settings.get('custom_icons').some((e) => e.id === 'backend-img')).toBe(true);
+        expect(entry.id).toBe('local-uuid');          // feature.markerSymbol references this id
+        expect(h.uploadImageBlob).toHaveBeenCalledWith(b, 'local-uuid', { origem: 'icone-personalizado' });
+        expect(h.images.get('local-uuid')).toBe(b);   // cached locally under the same id
+        expect(h.settings.get('custom_icons').some((e) => e.id === 'local-uuid')).toBe(true);
     });
 
-    it('addCustomIcon falls back to a local UUID when offline (upload returns null)', async () => {
-        h.uploadImageBlob.mockResolvedValue(null);
+    it('o id NÃO muda quando o envio não confirma: é o mesmo em pendência e em sucesso', async () => {
+        h.uploadImageBlob.mockResolvedValue({ confirmado: false, registrado: true, estado: 'pendente' });
         const entry = await addCustomIcon({ name: 'X', blob: blob(), thumbnail: 't' });
         expect(entry.id).toBe('local-uuid');
         expect(h.images.has('local-uuid')).toBe(true);
+        expect(h.settings.get('custom_icons').some((e) => e.id === 'local-uuid')).toBe(true);
     });
 
     it('getCustomIconBlob returns the local blob when present (no backend call)', async () => {
@@ -118,7 +124,7 @@ describe('customIcons multiuser (§17.19)', () => {
 
 describe('customIcons write-ahead', () => {
     it('a intenção da lista é registrada antes de a chave ir ao disco', async () => {
-        h.uploadImageBlob.mockResolvedValue({ id: 'backend-img' });
+        h.uploadImageBlob.mockResolvedValue({ confirmado: true, registrado: true, estado: 'confirmado' });
         const scope = getActiveScope();
         h.setSetting.mockImplementation(async (k, v) => {
             const journal = await operationQueue.getAll();
@@ -126,7 +132,7 @@ describe('customIcons write-ahead', () => {
             expect(journal[0].entityType).toBe('setting');
             expect(journal[0].entityId).toBe(scope.atlasId);
             expect(journal[0].mapId).toBeNull();
-            expect(journal[0].data.customIcons.map((e) => e.id)).toEqual(['backend-img']);
+            expect(journal[0].data.customIcons.map((e) => e.id)).toEqual(['local-uuid']);
             expect(journal[0].previousData).toEqual({ customIcons: [] });
             // Preparada: a projeção local é esta gravação, que só agora acontece.
             expect(await operationQueue.peek()).toEqual([]);
@@ -143,19 +149,21 @@ describe('customIcons write-ahead', () => {
     it('falha do diário não grava a chave, não move o cache e desfaz o blob', async () => {
         // A miniatura não é serializável, e é o diário que tenta cloná-la: a recusa acontece
         // antes de a chave ser gravada.
-        h.uploadImageBlob.mockResolvedValue({ id: 'backend-img' });
+        h.uploadImageBlob.mockResolvedValue({ confirmado: true, registrado: true, estado: 'confirmado' });
         await expect(addCustomIcon({ name: 'X', blob: blob(), thumbnail: () => 'nao-clonavel' }))
             .rejects.toThrow();
 
         expect(h.setSetting).not.toHaveBeenCalled();
         expect(await operationQueue.count()).toBe(0);
         expect(await getCustomIcons()).toEqual([]);
-        // O blob já estava no disco quando o diário recusou: a compensação manual o tira.
-        expect(h.images.has('backend-img')).toBe(false);
+        // O blob já estava no disco quando o diário recusou: a compensação manual o tira. O id é o
+        // LOCAL, porque é ele que o ícone carrega desde que a fila durável de blobs existe: afirmar
+        // sobre um id do servidor aqui seria assertiva vazia, verdadeira por nunca ter sido usada.
+        expect(h.images.has('local-uuid')).toBe(false);
     });
 
     it('falha na gravação da chave desfaz o blob e deixa a intenção recuperável', async () => {
-        h.uploadImageBlob.mockResolvedValue({ id: 'backend-img' });
+        h.uploadImageBlob.mockResolvedValue({ confirmado: true, registrado: true, estado: 'confirmado' });
         h.setSetting.mockRejectedValueOnce(new DOMException('quota', 'QuotaExceededError'));
 
         await expect(addCustomIcon({ name: 'X', blob: blob(), thumbnail: 't' }))
@@ -164,11 +172,12 @@ describe('customIcons write-ahead', () => {
         // O cache de módulo NÃO andou (ele é efeito diferido, e efeito diferido só roda depois
         // da persistência): a paleta não oferece um ícone que o disco não tem.
         expect(await getCustomIcons()).toEqual([]);
-        expect(h.images.has('backend-img')).toBe(false);
+        expect(h.images.has('local-uuid')).toBe(false);
         // A intenção fica no diário, preparada e por isso NÃO enviável. Ela descreve a lista, e a
-        // lista aponta para um blob que o rollback tirou desta máquina: o blob subiu ao servidor,
-        // então quem a reprojeta o busca de lá. Quando o upload falha e o id é local, esse par
-        // fica quebrado, e é a fila durável de blobs (bloco B8 do plano) que fecha o caso.
+        // lista aponta para um blob que o rollback tirou desta máquina: o blob já está no servidor
+        // sob o MESMO id local (a fila durável o enviou pela rota bulk, que preserva o id), então
+        // quem reprojeta a intenção o busca de lá. Era esse par que ficava quebrado quando o id
+        // vinha do servidor e a falha caía para um id local.
         expect((await operationQueue.countByState()).preparadas).toBe(1);
         expect(await operationQueue.peek()).toEqual([]);
     });

@@ -132,19 +132,25 @@ export async function addCustomIcon({ name, blob, thumbnail, type = 'image/png' 
     }
 
     await ensureLoaded();
-    // §17.19: when online, upload the blob so collaborators can fetch it; the backend
-    // image id becomes the icon id (referenced on the feature's markerSymbol). Offline
-    // (or on failure) fall back to a local UUID.
+    // §17.19: the icon id is MINTED HERE and no longer depends on the upload landing.
     //
-    // A BLOB THAT FAILED TO UPLOAD STAYS LOCAL, AND NOTHING RETRIES IT. This used to say it
-    // "can be reconciled on a later sync", and no such reconciliation exists anywhere: the icon
-    // draws for its author and a collaborator asking the server for that id gets a 404 forever.
-    // The durable blob queue that would fix it is block B8 of
-    // `docs/reviews/plano-correcao-total-lancamento-2026-09-13.md`; until it lands, the honest
-    // description of this line is "best effort, and the failure is permanent".
-    const uploaded = await uploadImageBlob(blob, `${name || 'icon'}.png`);
-    const id = uploaded?.id || generateUUID();
+    // It used to be the id the server minted, with a local UUID as the fallback on failure, and
+    // the comment here promised a reconciliation "on a later sync" that existed nowhere: the icon
+    // drew for its author and a collaborator asking the server for that id got a 404 forever. The
+    // blob now travels through the durable queue (`sync/blob-upload-queue.js`), which registers
+    // the pendency before the first byte leaves and sends by the bulk route, the only one that
+    // keeps the id — so the same id is valid whether the transfer lands now or after a
+    // reconnection.
+    //
+    // THE REGISTRY OP IS NOT HELD BY THE BLOB, and the asymmetry with the image FEATURE is
+    // deliberate. The feature's operation carries the id of its own blob, so holding it holds
+    // exactly what is incomplete; the icon travels as one `atlas.settings.customIcons` operation
+    // that carries the WHOLE list, and holding it would stall the outbound queue of the atlas for
+    // every other icon and setting too. An icon whose bytes are still pending draws for its
+    // author and falls back to the placeholder on the peer, which is degraded and not corrupting.
+    const id = generateUUID();
     await saveImageCompat(id, blob);
+    await uploadImageBlob(blob, id, { origem: 'icone-personalizado' });
 
     const entry = { id, name: name || 'Ícone', thumbnail, type, createdAt: Date.now() };
     const previous = [...registry];
