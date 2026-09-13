@@ -93,6 +93,81 @@ Aceite do bloco: nenhuma vulnerabilidade crítica ou alta aplicável e exploráv
    Ler a contagem de `flaky` ANTES de declarar verde: com `retries: 1`, um caso que flakeia é um caso não verificado.
 3. **Lembrar que `browser-collab-mega.spec.js` não roda na rodada normal** (tem script próprio), então "`test:e2e:ui` verde" não é "a pasta inteira passou".
 
+### A segunda passada (13/09): a classificação caso a caso
+
+O que esta subseção acrescenta, e que a lista de vermelhos sozinha não dá: **de quem é cada vermelho**. Uma rodada de Playwright com 25 falhas parece um produto quebrado; classificada contra a base, ela vira quatro coisas diferentes, e só uma delas é trabalho de produto. A comparação foi feita entre o candidato da fase (worktree `plano/p3`) e a base `8309b289`, o HEAD do handoff da véspera, nas duas com `--retries=0` onde a série exigia.
+
+**Os logs íntegros ficam FORA do repositório**, no scratchpad desta sessão (playwright-p3.log para o candidato e playwright-base.log para a base, mais bisect-atlas-url.log, bisect-desempenho.log e run6-correcoes.log), sob `C:\Users\diniz\AppData\Local\Temp\claude\C--Users-diniz-OneDrive-Desktop-Desenvolvimento-ebgeo-web\4e3dcad5-ce1e-4f23-8f1d-31b26fe68867\scratchpad`. Eles somem com a sessão: o que sobrevive é esta tabela, e é por isso que cada linha carrega a evidência em vez de apontar para o log.
+
+**As quatro classes**, porque a mesma cor de vermelho pede quatro trabalhos diferentes:
+
+- **a, defeito de produto do candidato.** Vermelho no candidato, verde na base, com o commit culpado achado por bissecção. É o único que impede liberar.
+- **b, pré-existente.** Vermelho nas DUAS bases. Não é regressão desta fase, e é exatamente o que a homologação B11 ainda precisa fechar antes da matriz.
+- **c, desatualizado por contrato.** O spec mede o produto de ANTES de uma mudança deliberada desta fase. O conserto é no spec, e afrouxar a asserção seria trocar a verificação pelo verde.
+- **d, ambiente ou instrumento.** O vermelho é do aparelho de medir (asset que o git não versiona, recurso compartilhado, corrida do harness), não do produto nem do contrato.
+
+#### Classe a: os dois defeitos de produto de hoje
+
+Os dois estão **em conserto por outro agente**; nenhum dos dois foi consertado nesta linha.
+
+| caso | candidato | base `8309b289` | evidência |
+|---|---|---|---|
+| `frontend/tests/e2e-ui/desempenho-do-boot-do-mapa.spec.js`, "transicoes" | vermelho 3 de 3 | verde 3 de 3 | `[local-para-remoto-1] o mapa do atlas nao ficou ativo (mapa local e chaveado pelo nome, mapa de atlas por UUID)`, em `frontend/tests/e2e-ui/helpers/peso-de-boot.js`. Bissecção: `9ebc3352` verde 3 de 3, `15527549` vermelho 3 de 3, logo o primeiro ruim é **`15527549`** (mapa-base e posição registrando a intenção antes de gravar). |
+| `frontend/tests/e2e-ui/browser-atlas-url.spec.js`, "logged out: prompts login, then resumes straight to the atlas" | vermelho 3 de 3 | vermelho 1 de 3, MESMO sintoma | `Expected: "Mapa Único" / Received: "Mapa 1"`: depois do login o mapa do atlas do deep link não vira o ativo. Bissecção por TAXA: `490345de` 0 de 3, **`bc797944`** 2 de 3, `b502dc98` 2 de 3. |
+
+**A segunda linha não é regressão limpa, e a ressalva é a metade que importa.** A base já falhava 1 em 3 com o mesmo sintoma, então `bc797944` (época e geração espelhadas no IndexedDB global) **agravou** uma corrida que já existia, em vez de criá-la. Tratá-la como regressão nova manda o conserto para o lugar errado; tratá-la como pré-existente deixa passar uma piora medida. Quem for fechá-la precisa de série, nunca de rodada única: uma medição de algo probabilístico não é medição.
+
+#### Classe b: os pré-existentes, que são o que B11 ainda tem de fechar
+
+Vermelhos nas duas bases. Nenhum deles é desta fase, e nenhum foi tocado por esta linha.
+
+| caso | sintoma (candidato) | sintoma (base) |
+|---|---|---|
+| `frontend/tests/e2e-ui/browser-multi-tab-namespace.spec.js`, A0b | `a aba ativou o mapa do atlas` (a segunda aba não ativa o mapa do atlas dela) | idem |
+| `frontend/tests/e2e-ui/browser-multi-tab-namespace.spec.js`, A2 | `o ponto está no namespace de X` (o controle negativo do bloqueio não fecha) | idem |
+| `frontend/tests/e2e-ui/browser-multi-tab-namespace.spec.js`, A3b | `a aba ativou o mapa do atlas` | `antes do logout, o ponto está no namespace do atlas` (cai uma etapa antes) |
+| `frontend/tests/e2e-ui/browser-multi-tab-teardown-queue.spec.js`, B1 e B2 | `a aba ativou o mapa do atlas` | idem |
+| `frontend/tests/e2e-ui/browser-multi-tab-teardown-queue.spec.js`, B3 | `a aba ativou o mapa do atlas` | `antes do logout, o ponto está no namespace de X` |
+| `frontend/tests/e2e-ui/browser-collab-grupo-perde-membro.spec.js`, grupo de TRÊS | o par ainda enxerga a feição apagada depois de 10 s | idem |
+| `frontend/tests/e2e-ui/browser-collab-grupo-perde-membro.spec.js`, grupo de DUAS | `expect(received).toBeNull()` (o grupo não se dissolve no par) | idem |
+| `frontend/tests/e2e-ui/browser-two-client-broadcast.spec.js` | A vê o próprio eco (`sawOwnFeature` verdadeiro) | idem |
+| `frontend/tests/e2e-ui/envio-do-acervo-herdado.spec.js`, os TRÊS casos | `expect(locator).toBeVisible() failed` | idem |
+| `frontend/tests/e2e-ui/troca-viva-de-atlas-medida.spec.js` | `page.waitForFunction` estoura em 60 s | idem |
+| `frontend/tests/e2e-ui/aparencia-atravessa-trocas-de-atlas.spec.js` | igualdade de aparência falha na volta | `page.waitForFunction` estoura em 30 s (cai antes) |
+| `frontend/tests/e2e-ui/browser-logout-clears-map.repro.spec.js` | `nenhum traço da feição do servidor nas sources vivas após o logout` | `AbortError: As pendências desta sessão foram descartadas` (cai antes) |
+
+**Quatro linhas caem em pontos DIFERENTES nas duas bases**, e isso não é detalhe de relatório: quando o candidato falha mais tarde que a base, parte do caminho foi consertada e o vermelho que sobra é outro defeito. Quem for fechá-las tem de reproduzir na base antes de atribuir a causa ao código de hoje.
+
+**Dois casos de grupo desta classe JÁ FECHARAM**, e ficam registrados porque o padrão é o que vale: `frontend/tests/e2e-ui/browser-group-lifecycle.spec.js` e `frontend/tests/e2e-ui/browser-group-ops.spec.js` estavam vermelhos nas duas bases (o 426 de `assertSyncProtocol` por envelope cru sem `protocolVersion`, e o link fantasma que deixou de ser engolido em silêncio), foram corrigidos em `13025f4a` e a re-execução deu verde 3 de 3 (run6-correcoes.log).
+
+**E CINCO casos que a base reprovava passaram no candidato**, o que só se vê comparando: os três primeiros de `frontend/tests/e2e-ui/browser-collab-crdt-conflict.spec.js` (recolor concorrente, sobrevivência ao F5 e move concorrente), `frontend/tests/e2e-ui/browser-f5-reconnect-map.repro.spec.js` e dois casos de `frontend/tests/e2e-ui/browser-multi-tab-namespace.spec.js` (A0c e A1). Ler a contagem de falhas sem comparar contra a base conta o candidato como pior do que ele é.
+
+#### Classe c: os desatualizados por contrato, reescritos em 13/09
+
+Os quatro foram reescritos nesta worktree, com asserção INVERTIDA e nunca afrouxada, e **NENHUM DELES FOI EXECUTADO**: o Playwright estava fora do laço da sessão que os escreveu (porta 3912 ocupada por outro agente). A execução é do coordenador.
+
+| caso | candidato | base `8309b289` | o que passou a medir |
+|---|---|---|---|
+| `frontend/tests/e2e-ui/browser-collab-crdt-conflict.spec.js`, três clientes | `as três atualizações chegaram ao log` com `updates.length` igual a 1 | vermelho ANTES da asserção, em `o recolor virou operação na fila` | exatamente UMA aplicada, DUAS de volta como `conflict` nomeando a unidade em disputa, e a cor convergida é a de quem teve a op aplicada. Contrato de `0fa61c5f` (servidor) e `5f91f2e9` (cliente). |
+| `frontend/tests/e2e-ui/browser-collab-three-client-flow.spec.js`, fase 3 | `as três atualizações concorrentes chegaram ao log do servidor` | vermelho ANTES, em `a edição de A virou operação na fila` | o mesmo, por recibo (`sync_receipts`) e por autor. |
+| `frontend/tests/e2e-ui/browser-collab-lock.spec.js`, primeiro caso | `Test timeout of 60000ms exceeded` 4 de 4, em `drawLineUI(B)` esperando um botão invisível | VERDE 4 de 4 | a trava alcança o Editor, o posto de desenho some dos DOIS lados, e o comando que o menu ainda desenha recusa o clique com `aria-disabled` nomeando o estado. Contrato de `957a9567`. |
+| `frontend/tests/e2e-ui/browser-save-local-to-server.spec.js`, portão de namespace | `Expected to fail, but passed`, com o portão caindo no CONTROLE POSITIVO | idem, mesma frase | a leitura resolve a GERAÇÃO ativa (`activeMapsDbOf`), o controle positivo vem primeiro, e o `test.fail` saiu porque o que sobra é o comportamento correto. Instrumento envelhecido por `bc797944`. |
+
+**A terceira linha é a única em que a base é verde**, e é o formato mais fácil de ler errado da tabela inteira: verde na base mais vermelho no candidato é a assinatura da classe a, e aqui não é, porque a mudança de comportamento é DELIBERADA e está registrada. A distinção não sai do log, sai de ler o commit; foi por isso que a classificação exigiu bissecção nos dois casos da classe a e leitura de contrato nestes quatro.
+
+**A quarta é meio c e meio d**, e vale dizê-lo em voz alta: o produto está certo, o SPEC estava certo, e o que envelheceu foi o endereço que ele lia. Um instrumento defasado que erra para o lado do verde (a asserção de ausência contra um banco que ninguém escreve passa de graça) é a cobertura vazia da constituição, com a agravante de vir embrulhada numa falha esperada.
+
+#### Classe d: ambiente e instrumento
+
+| caso | candidato | base `8309b289` | evidência |
+|---|---|---|---|
+| `frontend/tests/e2e-ui/vazamento-viewers.spec.js`, §30.2 | REPROVOU numa rodada (`o ciclo medido 4 falhou em abrir o visualizador`, com 404 em `/api/v1/assets3d/m/serra_dourada/tileset.json`) e PULOU em duas | PULOU | o modelo é `backend/data/models3d/serra_dourada.3dtiles`, que `backend/.gitignore` exclui (`data/models3d/`), então nenhuma worktree o tem. |
+
+**Mesmo ambiente, mesmo 404, dois veredictos**, e a causa é do spec: o pulo estava pendurado no aquecimento, e o viewer do Cesium SOBE com o tileset em 404 (a cena fica vazia e nada reclama), então "o ciclo abriu" nunca respondeu "o modelo existe". A reescrita de 13/09 pergunta a pré-condição diretamente, uma vez, antes dos ciclos, e estende o diagnóstico e o pulo aos ciclos medidos.
+
+**O asset NÃO foi semeado, e a decisão está registrada aqui porque pulo é cobertura vazia.** Não há fixture: o `.3dtiles` é um artefato binário de 8,4 MB produzido pela ingestão, e um substituto sintético devolveria a cena vazia que o próprio spec avisa não medir nada. O caminho de volta é barato e a frase do pulo o nomeia: apontar `MODELS_3D_DIR` para um diretório que contenha o arquivo antes de rodar o Playwright, porque `frontend/tests/e2e-ui/backend.js` espalha o ambiente do processo no `spawn` do backend e não sobrescreve essa variável. **Enquanto o coordenador não fizer isso, §30.2 é cobertura ZERO sobre o vazamento de listener do visualizador 3D, e a matriz B11 não pode contá-la como célula aprovada.**
+
+
 ### A matriz (documento 09, íntegra)
 
 1. Criar cópias verificadas dos dados de teste. Usar bancos e perfis descartáveis. Não alterar os originais nem misturar o banco de testes com desenvolvimento ou produção.
