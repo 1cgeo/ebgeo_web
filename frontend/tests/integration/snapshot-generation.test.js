@@ -1,7 +1,12 @@
 // Path: tests/integration/snapshot-generation.test.js
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { activateScope, atlasGenerationLockName, getActiveScope, remoteScope, resolveDbName, StoreName, getStoreFor, clearAtlasDatabases } from '../../src/js/store/atlas-namespace.js';
+import {
+    activateScope, atlasGenerationLockName, clearAtlasDatabases, dropAtlasDatabases,
+    durableMirrorSettled, generationMirrorKey, getActiveScope, getGlobalStore, getStoreFor,
+    reconcileDurablePointers, remoteScope, resolveDbName, StoreName, writeEpochMirrorKey,
+} from '../../src/js/store/atlas-namespace.js';
+import { discardRemoteWrites } from '../../src/js/store/remote-write-fence.js';
 import { localRepository, LocalRepository, getEmptyMapData } from '../../src/js/store/repositories/local.repository.js';
 import { readGeneration } from '../../src/js/store/namespace-generation.js';
 import { createAtlas } from '../../src/js/store/atlas/atlas.entity.js';
@@ -221,6 +226,43 @@ describe('Snapshot generation commit with native IndexedDB', () => {
         } finally {
             release();
         }
+    });
+
+    // ========================================================================================
+    // O ESPELHO DURÁVEL (F12): o ponteiro mora em localStorage e o dado em IndexedDB.
+    // ========================================================================================
+    it('perda do ponteiro com o espelho íntegro: a reconciliação reconstrói e o acervo volta', async () => {
+        const isolated = await mountIsolated('espelho');
+        await applyRemoteSnapshot(snapshotFor('espelho', 51));
+        const active = readGeneration(isolated).active;
+        await durableMirrorSettled();
+
+        // A perda: some a chave autoritativa, ficam os nove bancos cheios.
+        storage.delete(`ebgeo_atlas_generation:${isolated.dbSuffix}`);
+        expect(readGeneration(isolated).active).toBeNull();
+        expect(await new LocalRepository(isolated).getMap(mapId)).toBeNull();
+
+        expect(await reconcileDurablePointers(isolated)).toMatchObject({ generation: 'restored' });
+        expect(readGeneration(isolated)).toEqual({ active, known: [active], cursor: 51 });
+        expect((await new LocalRepository(isolated).getMap(mapId)).name).toBe('Servidor');
+    });
+
+    it('destruir o namespace apaga o ponteiro e a época, nas DUAS cópias', async () => {
+        const isolated = await mountIsolated('destroi');
+        await applyRemoteSnapshot(snapshotFor('destroi', 61));
+        discardRemoteWrites(isolated);
+        await durableMirrorSettled();
+        expect(await getGlobalStore().getItem(generationMirrorKey(isolated.dbSuffix))).toBeTruthy();
+        expect(await getGlobalStore().getItem(writeEpochMirrorKey(isolated.dbSuffix))).toBeTruthy();
+
+        const { blocked } = await dropAtlasDatabases(isolated);
+        await durableMirrorSettled();
+
+        expect(blocked).toEqual([]);
+        expect(storage.get(`ebgeo_atlas_generation:${isolated.dbSuffix}`)).toBeUndefined();
+        expect(storage.get(`ebgeo_remote_write_epoch:${isolated.dbSuffix}`)).toBeUndefined();
+        expect(await getGlobalStore().getItem(generationMirrorKey(isolated.dbSuffix))).toBeNull();
+        expect(await getGlobalStore().getItem(writeEpochMirrorKey(isolated.dbSuffix))).toBeNull();
     });
 
     it('waits for an existing writer and rejects new edits without holding document locks', async () => {

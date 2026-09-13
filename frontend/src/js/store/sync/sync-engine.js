@@ -30,7 +30,7 @@ import { apiClient, configureApiClient } from './api-client.js';
 import { wsClient } from './ws-client.js';
 import { operationQueue } from './operation-queue.js';
 import { SyncSession } from '@store/sync/sync-session.js';
-import { ATLAS_RECORD_KEY, getStoreFor, StoreName } from '@store/atlas-namespace.js';
+import { ATLAS_RECORD_KEY, getStoreFor, reconcileDurablePointers, StoreName } from '@store/atlas-namespace.js';
 import { readGeneration } from '@store/namespace-generation.js';
 import { enableOperationLogging, disableOperationLogging } from './operation-dispatcher.js';
 import { sessionContext, sessionUserInfoFromMe } from './session-context.js';
@@ -439,6 +439,12 @@ class SyncEngine {
      */
     async _durablePullCursor(session) {
         if (session.scope?.kind !== 'remote') return 0;
+        // A `localStorage` that was cleared while IndexedDB survived leaves the pointer gone and the
+        // acervo intact; the mirror in the global database is what rebuilds it, and it has to happen
+        // BEFORE the record is read here, or the connect would answer "nothing on disk" and pull a
+        // full snapshot over data that was already complete.
+        await reconcileDurablePointers(session.scope);
+        session.assertActive();
         let record;
         try {
             record = readGeneration(session.scope);

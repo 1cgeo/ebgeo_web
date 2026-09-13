@@ -254,8 +254,12 @@
  */
 
 import localforage from 'localforage';
-import { captureRemoteWriteFence } from './remote-write-fence.js';
-import { dataGenerationFor, readGeneration } from './namespace-generation.js';
+import {
+    adoptMirroredDiscardState, captureRemoteWriteFence, forgetRemoteWriteFence, setEpochMirror,
+} from './remote-write-fence.js';
+import {
+    adoptMirroredGeneration, dataGenerationFor, forgetGeneration, readGeneration, setGenerationMirror,
+} from './namespace-generation.js';
 
 /** Kinds of scope a store instance can be resolved for. */
 export const StoreScopeKind = Object.freeze({
@@ -367,8 +371,119 @@ export const GlobalKey = Object.freeze({
      * Like the hand-over slot, NO wipe collects it: it is emptied by the explicit decision the
      * pending-work screen offers (export, or discard), never as a side effect of a teardown.
      */
-    QUARANTINE_PREFIX: 'quarantine:'
+    QUARANTINE_PREFIX: 'quarantine:',
+    /**
+     * PREFIX of the MIRROR of the generation pointer (`generation:<dbSuffix>`), one key per
+     * namespace.
+     *
+     * THE AUTHORITATIVE COPY IS STILL `localStorage`, and it has to be: the pointer is read inside
+     * `resolveDbName`, which every synchronous `getStore()` goes through. What this closes is the
+     * asymmetry (F12): the pointer lived in `localStorage` while the data it addresses lives in
+     * IndexedDB, so clearing only the first turned nine full databases into an acervo nothing
+     * resolves to. Here the pointer travels WITH the data, and `reconcileDurablePointers` rebuilds
+     * the authoritative copy from it.
+     *
+     * `perAtlas:false` on the global database is what keeps it out of `clearAtlasDatabases` and
+     * `dropAtlasDatabases`; the pointer of a namespace is removed EXPLICITLY when that namespace is
+     * destroyed, by `forgetGeneration`, which is also why it is a key per suffix and not one array.
+     */
+    GENERATION_PREFIX: 'generation:',
+    /**
+     * PREFIX of the MIRROR of the discard epoch (`write_epoch:<dbSuffix>`), one key per namespace,
+     * for exactly the reasons above. The fence itself keeps reading `localStorage`, because
+     * `assertWritable` runs inside native IndexedDB callbacks and cannot await.
+     */
+    WRITE_EPOCH_PREFIX: 'write_epoch:'
 });
+
+/**
+ * @param {string} dbSuffix - Database suffix of a namespace.
+ * @returns {string} Global-database key mirroring that namespace's generation pointer.
+ */
+export function generationMirrorKey(dbSuffix) {
+    return `${GlobalKey.GENERATION_PREFIX}${dbSuffix}`;
+}
+
+/**
+ * @param {string} dbSuffix - Database suffix of a namespace.
+ * @returns {string} Global-database key mirroring that namespace's discard epoch.
+ */
+export function writeEpochMirrorKey(dbSuffix) {
+    return `${GlobalKey.WRITE_EPOCH_PREFIX}${dbSuffix}`;
+}
+
+/**
+ * The mirror writes are SERIALIZED IN ONE CHAIN, and never awaited by their callers.
+ *
+ * Serialized because two writes of the same key from the same client must not interleave inside
+ * localforage; not awaited because the callers (`writeGeneration`, the fence's `write`) are
+ * synchronous by contract. `durableMirrorSettled()` is how the reconciliation, and a test, wait for
+ * the tail of the chain instead of guessing a delay.
+ * @type {Promise<*>}
+ */
+let _mirrorChain = Promise.resolve();
+
+/**
+ * @param {() => Promise<*>} task - One mirror write.
+ * @returns {Promise<*>} The chain, already guarded against rejection.
+ */
+function queueMirrorWrite(task) {
+    _mirrorChain = _mirrorChain.then(task).catch(() => undefined);
+    return _mirrorChain;
+}
+
+/**
+ * @returns {Promise<*>} Settles when every mirror write queued so far has landed (or failed).
+ */
+export function durableMirrorSettled() {
+    return _mirrorChain;
+}
+
+setGenerationMirror({
+    save: (dbSuffix, value) => queueMirrorWrite(() => getGlobalStore().setItem(generationMirrorKey(dbSuffix), value)),
+    remove: dbSuffix => queueMirrorWrite(() => getGlobalStore().removeItem(generationMirrorKey(dbSuffix)))
+});
+
+setEpochMirror({
+    save: (dbSuffix, value) => queueMirrorWrite(() => getGlobalStore().setItem(writeEpochMirrorKey(dbSuffix), value)),
+    remove: dbSuffix => queueMirrorWrite(() => getGlobalStore().removeItem(writeEpochMirrorKey(dbSuffix)))
+});
+
+/**
+ * Rebuilds the two synchronous pointers of a namespace from their durable mirrors, BEFORE anything
+ * resolves a database name through them.
+ *
+ * THE CALLER IS THE REMOTE CONNECT (`sync-engine.js`), and that is the only reconciliation point
+ * today, deliberately narrow: it is the one place that is already asynchronous, already knows which
+ * namespace it is about to read, and already decides between a tail and a full snapshot from the
+ * cursor this restores. What it does NOT cover is declared instead of implied: a LOCAL slot that
+ * carries a generation (the rescue adopts a `remote-<id>` namespace with its generations) is never
+ * connected, so nothing reconciles it; doing that needs an await in the boot of the store, which is
+ * not this module's call site.
+ *
+ * @param {{ kind: string, dbSuffix: string }} scope - Namespace about to be used.
+ * @returns {Promise<{ generation: string, epoch: string }>} What each half decided, for a caller
+ *   that wants to log it. Never throws: a mirror that cannot be read leaves both copies as they are.
+ */
+export async function reconcileDurablePointers(scope) {
+    if (!scope || typeof scope.dbSuffix !== 'string') return { generation: 'absent', epoch: 'absent' };
+    try {
+        // The tail of the mirror chain first: reading before a queued write landed would compare
+        // against a value we ourselves are about to replace.
+        await durableMirrorSettled();
+        const globalStore = getGlobalStore();
+        const [generation, epoch] = await Promise.all([
+            globalStore.getItem(generationMirrorKey(scope.dbSuffix)),
+            globalStore.getItem(writeEpochMirrorKey(scope.dbSuffix))
+        ]);
+        return {
+            generation: adoptMirroredGeneration(scope, generation),
+            epoch: adoptMirroredDiscardState(scope, epoch)
+        };
+    } catch {
+        return { generation: 'absent', epoch: 'absent' };
+    }
+}
 
 /**
  * THE NAME CARRIES `Registry` BECAUSE THERE IS A HOMONYM, and importing the wrong one is a
@@ -1849,6 +1964,20 @@ export async function dropAtlasDatabases(scope, { timeoutMs = DROP_TIMEOUT_MS } 
     const blocked = names.filter((_, i) => !confirmations[i]);
 
     clearStoreCache(scope);
+    // THE POINTERS GO WITH THE DATABASES, and this is the single point where that happens: both
+    // destructive callers reach it (`destroyRemoteAtlas` in `remote-atlas.api.js` and the deletion
+    // of a named local slot in `local-atlas.api.js`). A generation pointer left behind addresses
+    // names that no longer exist, and a discard epoch left behind accumulates one key per atlas the
+    // user ever opened (F12: they were never removed).
+    //
+    // ONLY WHEN NOTHING WAS BLOCKED, though. A delete that did not confirm keeps its database on
+    // disk, and `purgeAllRemoteAtlases` keeps the registry entry so the next boot retries; that
+    // retry derives the list of databases FROM the generation pointer (`allGenerationStores`), so
+    // forgetting it here would leave server data no sweep can name.
+    if (blocked.length === 0) {
+        forgetGeneration(scope);
+        forgetRemoteWriteFence(scope);
+    }
     return { dropped, blocked };
 }
 

@@ -239,7 +239,8 @@ import { setTracing, clearTrace, getTrace } from '../../src/js/store/sync/diag/t
 // O namespace e o ponteiro de geração vêm dos módulos REAIS: o que se mede é a decisão do
 // `connect` a partir do que existe em disco, e um dublê de ponteiro mediria o dublê.
 import {
-    activateScope, ATLAS_RECORD_KEY, clearActiveScope, getStoreFor, remoteScope, StoreName,
+    activateScope, ATLAS_RECORD_KEY, clearActiveScope, durableMirrorSettled, generationMirrorKey,
+    getGlobalStore, getStoreFor, remoteScope, StoreName,
 } from '../../src/js/store/atlas-namespace.js';
 import { writeGeneration } from '../../src/js/store/namespace-generation.js';
 // O barramento é dublê, mas os NOMES dos eventos vêm do módulo real: uma cópia literal
@@ -743,12 +744,28 @@ describe('connect: o cursor durável decide entre cauda e retrato', () => {
         expect(syncEngine.lastVersion).toBe(17);
     });
 
-    it('cursor corrompido pede tudo, em vez de pedir uma cauda a partir de lixo', async () => {
+    it('cursor corrompido, e sem espelho para reconstruí-lo, pede tudo', async () => {
         globalThis.localStorage.setItem(generationKey(), '{"active":"g-um","known":[],"cursor":"doze"}');
+        await durableMirrorSettled();
+        await getGlobalStore().removeItem(generationMirrorKey(scope.dbSuffix));
 
         await syncEngine.connect(cursorAtlas);
 
         expect(apiClientMock.pullSync).toHaveBeenCalledWith(cursorAtlas, 0, { signal: expect.any(AbortSignal) });
+    });
+
+    it('ponteiro perdido com o espelho íntegro é reconstruído, e a cauda continua valendo', async () => {
+        // A perda do `localStorage` com o IndexedDB de pé: sem o espelho este boot pediria tudo e
+        // cunharia uma geração nova sobre nove bancos que já estavam completos.
+        await durableMirrorSettled();
+        globalThis.localStorage.removeItem(generationKey());
+
+        await syncEngine.connect(cursorAtlas);
+
+        expect(apiClientMock.pullSync).toHaveBeenCalledWith(cursorAtlas, 12, { signal: expect.any(AbortSignal) });
+        expect(JSON.parse(globalThis.localStorage.getItem(generationKey()))).toEqual({
+            active: generation, known: [generation], cursor: 12,
+        });
     });
 
     it('geração ativa SEM o acervo daquele atlas pede tudo', async () => {
