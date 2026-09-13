@@ -231,7 +231,10 @@ const CENSO = [
     // desenhadas dentro, so para chegar a duas ou tres camadas de catalogo.
     // CRUD now shares one map writer and journal preparation boundary.
     { arquivo: 'src/js/store/catalog.operations.js', campo: 'catalogLayers', n: 7, classe: PERSISTE },
-    { arquivo: 'src/js/store/cesium3d.operations.js', campo: 'tilesetId', n: 37, classe: PERSISTE },
+    // 37 -> 36 em 2026-09-13: o write-ahead de `saveCameraPosition` (bloco B4) devolve a
+    // entidade que já tinha em mão em vez de reler `data.cameraPositions[tilesetId]`. Um
+    // sítio de leitura a menos, nenhum sítio de referência a menos.
+    { arquivo: 'src/js/store/cesium3d.operations.js', campo: 'tilesetId', n: 36, classe: PERSISTE },
     { arquivo: 'src/js/store/map.operations.js', campo: 'baseLayer', n: 4, classe: PERSISTE },
     { arquivo: 'src/js/store/repositories/local.repository.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/store/repository.js', campo: 'catalogLayers', n: 1, classe: PERSISTE },

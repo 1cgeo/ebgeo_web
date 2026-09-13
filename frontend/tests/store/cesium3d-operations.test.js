@@ -96,12 +96,40 @@ vi.mock('../../src/js/utilities/image_utils.js', () => ({
     processImageFile: vi.fn(async () => ({ data: 'data:image/png;base64,AAAA', thumbnail: 'data:image/png;base64,TTTT' }))
 }));
 
+// Os valores são os REAIS de `sync/operation-types.js`, minúsculos: desde o write-ahead de
+// 2026-09-13 a fonte importa o módulo folha e é ele que viaja no envelope. Este mock ficou
+// existindo só pelos espiões de logger, que o espelho abaixo alimenta.
 vi.mock('../../src/js/store/sync/index.js', () => ({
     logMarker3dOperation: vi.fn().mockResolvedValue(undefined),
     logMeasurement3dOperation: vi.fn().mockResolvedValue(undefined),
     logViewshed3dOperation: vi.fn().mockResolvedValue(undefined),
     logCameraPosition3dOperation: vi.fn().mockResolvedValue(undefined),
-    OperationType: { CREATE: 'CREATE', UPDATE: 'UPDATE', DELETE: 'DELETE' }
+    OperationType: { CREATE: 'create', UPDATE: 'update', DELETE: 'delete' }
+}));
+
+// As entradas de escrita deste arquivo passaram a ser write-ahead em 2026-09-13: elas declaram
+// a intenção por `tx.recordOperation` DENTRO da transação, e o diário vai ao disco ANTES do
+// documento cesium3d. Este espelho traduz a descrição durável de volta para a chamada de logger
+// que as asserções de FORMA deste arquivo já cobriam, e é só isso que ele faz: quem exercita o
+// despachante e o IndexedDB reais é frontend/tests/integration/cesium3d-write-ahead.test.js.
+vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
+    persistOperationIntents: vi.fn(async (descriptions) => {
+        const sync = await import('../../src/js/store/sync/index.js');
+        const porAlvo = {
+            marker3d: sync.logMarker3dOperation,
+            measurement3d: sync.logMeasurement3dOperation,
+            viewshed3d: sync.logViewshed3dOperation,
+            cameraPosition3d: sync.logCameraPosition3dOperation
+        };
+        for (const op of descriptions) {
+            const log = porAlvo[op.entityType];
+            if (!log) throw new Error(`Alvo de op 3D nao classificado: ${op.entityType}`);
+            const args = [op.operationType, op.entityId, op.mapId, op.data];
+            if (op.previousData != null) args.push(op.previousData);
+            log(...args);
+        }
+        return async () => {};
+    })
 }));
 
 // ============================================================================
@@ -243,7 +271,7 @@ describe('camera positions', () => {
 
         expect(logCameraPosition3dOperation).toHaveBeenCalledTimes(1);
         const [op, id, mapId, newData] = logCameraPosition3dOperation.mock.calls[0];
-        expect(op).toBe('CREATE');
+        expect(op).toBe('create');
         expect(id).toBe(saved.id);
         expect(mapId).toBe('map-uuid-123');
         expect(newData).toEqual(saved);
@@ -266,7 +294,7 @@ describe('camera positions', () => {
         expect(saved.sync.version).toBe(2); // touchSyncMetadata bumped
 
         const [op, id, mapId, newData, prevData] = logCameraPosition3dOperation.mock.calls[0];
-        expect(op).toBe('UPDATE');
+        expect(op).toBe('update');
         expect(id).toBe(firstId);
         expect(mapId).toBe('map-uuid-123');
         expect(newData.position).toEqual(POS2);
@@ -302,7 +330,7 @@ describe('camera positions', () => {
         expect(persisted().cameraPositions.tsA).toBeUndefined();
 
         const [op, id, mapId, newData, prevData] = logCameraPosition3dOperation.mock.calls[0];
-        expect(op).toBe('DELETE');
+        expect(op).toBe('delete');
         expect(id).toBe(snapshot.id);
         expect(mapId).toBe('map-uuid-123');
         expect(newData).toBeNull();
@@ -342,7 +370,7 @@ describe('markers', () => {
         // op envelope: CREATE, id, mapId, full entity (no old)
         expect(logMarker3dOperation).toHaveBeenCalledTimes(1);
         const [op, id, mapId, newData] = logMarker3dOperation.mock.calls[0];
-        expect(op).toBe('CREATE');
+        expect(op).toBe('create');
         expect(id).toBe(marker.id);
         expect(mapId).toBe('map-uuid-123');
         expect(newData).toEqual(marker);
@@ -413,7 +441,7 @@ describe('markers', () => {
         expect(updated.sync.version).toBe(2);
 
         const [op, id, mapId, newData, oldData] = logMarker3dOperation.mock.calls[0];
-        expect(op).toBe('UPDATE');
+        expect(op).toBe('update');
         expect(id).toBe(marker.id);
         expect(mapId).toBe('map-uuid-123');
         expect(newData.properties.nome).toBe('Renamed');
@@ -439,7 +467,7 @@ describe('markers', () => {
         expect(persisted().markers).toHaveLength(0);
 
         const [op, id, mapId, newData, oldData] = logMarker3dOperation.mock.calls[0];
-        expect(op).toBe('DELETE');
+        expect(op).toBe('delete');
         expect(id).toBe(marker.id);
         expect(mapId).toBe('map-uuid-123');
         expect(newData).toBeNull();
@@ -504,7 +532,7 @@ describe('marker images', () => {
         expect(eventBus.emit).toHaveBeenCalledWith('markers3d:changed', { mapName: MAP });
         expect(logMarker3dOperation).toHaveBeenCalledTimes(1);
         const [op, id, mapId, newData] = logMarker3dOperation.mock.calls[0];
-        expect(op).toBe('UPDATE');
+        expect(op).toBe('update');
         expect(id).toBe(marker.id);
         expect(mapId).toBe('map-uuid-123');
         expect(newData.images.some(i => i.id === img.id)).toBe(true);
@@ -544,7 +572,7 @@ describe('marker images', () => {
         expect(persisted().markers.find(m => m.id === marker.id).images).toHaveLength(0);
         // a successful removal is a marker UPDATE that must sync to peers
         expect(logMarker3dOperation).toHaveBeenCalledTimes(1);
-        expect(logMarker3dOperation.mock.calls[0][0]).toBe('UPDATE');
+        expect(logMarker3dOperation.mock.calls[0][0]).toBe('update');
 
         expect(await removeMarkerImage('ghost', img.id)).toBe(false);
     });
@@ -564,7 +592,7 @@ describe('measurement & viewshed images sync', () => {
         expect(img).not.toBeNull();
         expect(logMeasurement3dOperation).toHaveBeenCalledTimes(1);
         const [op, id, , newData] = logMeasurement3dOperation.mock.calls[0];
-        expect(op).toBe('UPDATE');
+        expect(op).toBe('update');
         expect(id).toBe(m.id);
         expect(newData.images.some(i => i.id === img.id)).toBe(true);
     });
@@ -578,7 +606,7 @@ describe('measurement & viewshed images sync', () => {
         expect(img).not.toBeNull();
         expect(logViewshed3dOperation).toHaveBeenCalledTimes(1);
         const [op, id] = logViewshed3dOperation.mock.calls[0];
-        expect(op).toBe('UPDATE');
+        expect(op).toBe('update');
         expect(id).toBe(v.id);
     });
 });
@@ -608,7 +636,7 @@ describe('measurements', () => {
         expect(persisted().measurements).toHaveLength(1);
 
         const [op, id, mapId, newData] = logMeasurement3dOperation.mock.calls[0];
-        expect(op).toBe('CREATE');
+        expect(op).toBe('create');
         expect(id).toBe(measurement.id);
         expect(mapId).toBe('map-uuid-123');
         expect(newData).toEqual(measurement);
@@ -648,7 +676,7 @@ describe('measurements', () => {
         expect(updated.sync.version).toBe(2);
 
         const [op, id, , newData, oldData] = logMeasurement3dOperation.mock.calls[0];
-        expect(op).toBe('UPDATE');
+        expect(op).toBe('update');
         expect(id).toBe(measurement.id);
         expect(newData.properties.nome).toBe('M2');
         expect(oldData.sync.version).toBe(1);
@@ -669,7 +697,7 @@ describe('measurements', () => {
         expect(persisted().measurements).toHaveLength(0);
 
         const [op, id, , newData, oldData] = logMeasurement3dOperation.mock.calls[0];
-        expect(op).toBe('DELETE');
+        expect(op).toBe('delete');
         expect(id).toBe(measurement.id);
         expect(newData).toBeNull();
         expect(oldData).toEqual(snapshot);
@@ -730,7 +758,7 @@ describe('viewsheds', () => {
         expect(persisted().viewsheds).toHaveLength(1);
 
         const [op, id, mapId, newData] = logViewshed3dOperation.mock.calls[0];
-        expect(op).toBe('CREATE');
+        expect(op).toBe('create');
         expect(id).toBe(viewshed.id);
         expect(mapId).toBe('map-uuid-123');
         expect(newData).toEqual(viewshed);
@@ -766,7 +794,7 @@ describe('viewsheds', () => {
         expect(updated.sync.version).toBe(2);
 
         const [op, id, , newData, oldData] = logViewshed3dOperation.mock.calls[0];
-        expect(op).toBe('UPDATE');
+        expect(op).toBe('update');
         expect(id).toBe(viewshed.id);
         expect(newData.observerHeight).toBe(3.3);
         expect(oldData.observerHeight).toBe(1.5);
@@ -794,7 +822,7 @@ describe('viewsheds', () => {
         expect(persisted().viewsheds).toHaveLength(0);
 
         const [op, id, , newData, oldData] = logViewshed3dOperation.mock.calls[0];
-        expect(op).toBe('DELETE');
+        expect(op).toBe('delete');
         expect(id).toBe(viewshed.id);
         expect(newData).toBeNull();
         expect(oldData).toEqual(snapshot);
@@ -969,29 +997,40 @@ describe('memory cache and import/export', () => {
 });
 
 // ============================================================================
-// ATOMICITY: rejected persist must prevent the sync log
+// WRITE-AHEAD: a gravacao recusada PRESERVA a intencao e nao deixa metade visivel
+//
+// Invertido de proposito em 2026-09-13 (bloco B4). Antes destas quatro asserirem que a
+// falha impedia o log, porque o log vinha DEPOIS; agora o diario antecede a entidade, logo
+// a intencao tem de sobreviver e o que nao pode sobreviver e o efeito visivel: documento em
+// disco, espelho em memoria e evento.
 // ============================================================================
 
-describe('atomicity (persist-first, then log)', () => {
-    it('addMarker: rejected persist prevents the CREATE sync log', async () => {
+describe('write-ahead (diario antes da entidade)', () => {
+    it('addMarker: gravacao recusada preserva a intencao de CREATE', async () => {
         setCesium3dCompat.mockRejectedValueOnce(new Error('IndexedDB write failed'));
 
         await expect(addMarker('tsA', { position: {} })).rejects.toThrow('IndexedDB write failed');
 
-        expect(logMarker3dOperation).not.toHaveBeenCalled();
+        expect(logMarker3dOperation).toHaveBeenCalledTimes(1);
+        expect(persisted()).toBeUndefined();
+        expect(h.memory.cesium3d).toBeNull();
+        expect(eventBus.emit).not.toHaveBeenCalled();
     });
 
-    it('saveCameraPosition: rejected persist prevents the CREATE sync log', async () => {
+    it('saveCameraPosition: gravacao recusada preserva a intencao de CREATE', async () => {
         setCesium3dCompat.mockRejectedValueOnce(new Error('write fail'));
 
         await expect(
             saveCameraPosition('tsA', { longitude: 0, latitude: 0, height: 0 }, { heading: 0, pitch: 0, roll: 0 })
         ).rejects.toThrow('write fail');
 
-        expect(logCameraPosition3dOperation).not.toHaveBeenCalled();
+        expect(logCameraPosition3dOperation).toHaveBeenCalledTimes(1);
+        expect(persisted()).toBeUndefined();
+        expect(h.memory.cesium3d).toBeNull();
+        expect(eventBus.emit).not.toHaveBeenCalled();
     });
 
-    it('removeMeasurement: rejected persist prevents the DELETE sync log', async () => {
+    it('removeMeasurement: gravacao recusada preserva a intencao de DELETE e o dado em disco', async () => {
         await addMeasurement('tsA', {});
         const id = persisted().measurements[0].id;
         logMeasurement3dOperation.mockClear();
@@ -999,18 +1038,22 @@ describe('atomicity (persist-first, then log)', () => {
 
         await expect(removeMeasurement(id)).rejects.toThrow('write fail');
 
-        expect(logMeasurement3dOperation).not.toHaveBeenCalled();
+        expect(logMeasurement3dOperation).toHaveBeenCalledTimes(1);
+        // A medicao continua no disco: a intencao de excluir e recuperavel, a exclusao nao
+        // aconteceu, e as duas coisas sao verdade ao mesmo tempo de proposito.
+        expect(persisted().measurements.map(m => m.id)).toEqual([id]);
     });
 
-    it('updateViewshed: rejected persist prevents the UPDATE sync log', async () => {
-        await addViewshed('tsA', {});
+    it('updateViewshed: gravacao recusada preserva a intencao de UPDATE e o valor antigo', async () => {
+        await addViewshed('tsA', { observerHeight: 1.5 });
         const id = persisted().viewsheds[0].id;
         logViewshed3dOperation.mockClear();
         setCesium3dCompat.mockRejectedValueOnce(new Error('write fail'));
 
         await expect(updateViewshed(id, { observerHeight: 5 })).rejects.toThrow('write fail');
 
-        expect(logViewshed3dOperation).not.toHaveBeenCalled();
+        expect(logViewshed3dOperation).toHaveBeenCalledTimes(1);
+        expect(persisted().viewsheds[0].observerHeight).toBe(1.5);
     });
 });
 
@@ -1045,7 +1088,7 @@ describe('bulk removal sync ops', () => {
             ...logViewshed3dOperation.mock.calls
         ];
         // Every op is a DELETE tagged with the resolved map UUID, new=null, old=entity.
-        expect(allCalls.every(c => c[0] === 'DELETE')).toBe(true);
+        expect(allCalls.every(c => c[0] === 'delete')).toBe(true);
         expect(allCalls.every(c => c[2] === 'map-uuid-123')).toBe(true);
         expect(allCalls.every(c => c[3] === null)).toBe(true);
         expect(allCalls.every(c => c[4] && c[4].id === c[1])).toBe(true);
@@ -1081,7 +1124,7 @@ describe('bulk removal sync ops', () => {
         expect(calls.map(c => c[1]).sort()).toEqual([a.id, b.id].sort());
         expect(calls.map(c => c[1])).not.toContain(keep.id);
         const aCall = calls.find(c => c[1] === a.id);
-        expect(aCall[0]).toBe('DELETE');
+        expect(aCall[0]).toBe('delete');
         expect(aCall[2]).toBe('map-uuid-123');
         expect(aCall[4].properties.nome).toBe('A');
     });

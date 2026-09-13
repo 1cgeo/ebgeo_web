@@ -16,13 +16,10 @@ import { deepClone } from '../utilities/deep-utils.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { withSideDocument } from './document-lock.js';
-import {
-    logMarker3dOperation,
-    logMeasurement3dOperation,
-    logViewshed3dOperation,
-    logCameraPosition3dOperation,
-    OperationType
-} from './sync/index.js';
+import { runTransaction } from './store-transaction.js';
+// The leaf module, never the `sync/index.js` barrel: five store suites mock that barrel
+// without `EntityType`, so reaching for it there breaks them at load time.
+import { EntityType, OperationType } from './sync/operation-types.js';
 
 /** @type {{ eventBus: import('../events/event_bus.js').EventBus | null }} */
 const deps = { eventBus: null };
@@ -100,26 +97,88 @@ async function getCesium3dDataWithCache(mapName) {
 }
 
 /**
- * Saves cesium3d data to memory cache and DB.
- * @param {string} mapName
- * @param {Object} data
+ * Writes the cesium3d document to IndexedDB. The ONLY writer.
+ *
+ * It no longer touches the memory cache and no longer emits STORE_PERSIST_ERROR of its own:
+ * both belong to `runTransaction`, which defers the cache mirror until the write is confirmed
+ * and reports the failure once. Two emitters for one failure was noise, not defence.
+ *
+ * @param {string} mapName - Map the document belongs to
+ * @param {Object} data - Document to persist
+ * @returns {Promise<void>}
  */
-async function saveCesium3dData(mapName, data) {
+async function persistCesium3dData(mapName, data) {
     const dataToSave = { ...data };
     delete dataToSave._mapName;
-    try {
-        // Persistence-first: write to IndexedDB BEFORE updating the in-memory
-        // cache, so a failed write cannot leave the cache diverged from disk.
-        await setCesium3dCompat(mapName, dataToSave);
-    } catch (error) {
-        emitStoreError(StoreErrorEvents.STORE_PERSIST_ERROR, {
-            operation: 'saveCesium3dData',
-            error: error.message || String(error),
-            timestamp: Date.now()
-        });
-        throw error;
-    }
+    await setCesium3dCompat(mapName, dataToSave);
+}
+
+/**
+ * Mirrors the just-persisted document into the memory cache.
+ * @param {string} mapName - Map the document belongs to
+ * @param {Object} data - Document already written to disk
+ * @returns {void}
+ */
+function mirrorCesium3dInMemory(mapName, data) {
     memoryStore.cesium3d = { ...data, _mapName: mapName };
+}
+
+/**
+ * @typedef {Object} Cesium3dIntent
+ * @property {string} entityType - EntityType constant of the 3D family
+ * @property {string} type - OperationType constant
+ * @property {string} id - Entity id the op addresses
+ * @property {Object|null} [data] - Post-edit entity, null for a deletion
+ * @property {Object|null} [previous] - Pre-edit snapshot, null for a creation
+ */
+
+/**
+ * @typedef {Object} Cesium3dEdit
+ * @property {Cesium3dIntent[]} operations - Every intent this edit produces
+ * @property {*} [result] - Value the exported operation returns on success
+ * @property {function(): void} [effect] - Events to emit, run only after the write
+ */
+
+/**
+ * Journals a 3D edit before the cesium3d document is written.
+ *
+ * The contract is the one `editCatalogLayers` established: the side-document lock serializes
+ * writers, `prepare` reads and builds the WHOLE edit (it may await, because an image has to be
+ * decoded before its entity is known), `recordOperation` states the intention while the copy on
+ * disk is still the old one, and the returned closure is the ONLY writer. The memory mirror and
+ * the events are deferred, so a write that fails leaves neither behind and the intention stays
+ * in the journal for recovery.
+ *
+ * `prepare` returning null means "nothing to do": no op, no write, and `missing` comes back.
+ *
+ * @param {string} targetMap - Resolved map name or id
+ * @param {string} label - Operation label, for the deadlock report
+ * @param {function(Object): (Promise<Cesium3dEdit|null>|Cesium3dEdit|null)} prepare - Receives
+ *   the cesium3d document to mutate in place
+ * @param {*} [missing] - Value returned when `prepare` declines the edit
+ * @returns {Promise<*>} `edit.result`, or `missing`
+ */
+async function editCesium3d(targetMap, label, prepare, missing = undefined) {
+    let output = missing;
+    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
+    await withSideDocument('cesium3d', targetMap, label, () => runTransaction(async tx => {
+        const data = await getCesium3dDataWithCache(targetMap);
+        const edit = await prepare(data);
+        if (!edit) return async () => {};
+        // getMapId(targetMap), NOT getCurrentMapId(): these entries accept an explicit map
+        // name and may edit a map that is not the active one (achado F15).
+        const mapId = mapManager.getMapId(targetMap);
+        for (const op of edit.operations) {
+            tx.recordOperation(op.entityType, op.type, op.id, mapId, op.data ?? null, op.previous ?? null);
+        }
+        tx.deferSync(() => {
+            mirrorCesium3dInMemory(targetMap, data);
+            edit.effect?.();
+        });
+        output = edit.result;
+        return () => persistCesium3dData(targetMap, data);
+    }));
+    return output;
 }
 
 /**
@@ -175,12 +234,12 @@ function getUserDefaultStyle(storageKey) {
  * @param {string} collectionKey - Key in cesium3d data ('markers', 'measurements', 'viewsheds')
  * @param {string} changeEvent - Event type to emit
  * @param {string|null} mapName
- * @param {Function} [logUpdate] - The entity's UPDATE sync logger (e.g. logMarker3dOperation). The
- *   image lives INLINE in the entity's `images[]`, so attaching it is an entity UPDATE that must
+ * @param {string} entityType - The entity's EntityType (e.g. EntityType.MARKER_3D). The image
+ *   lives INLINE in the entity's `images[]`, so attaching it is an entity UPDATE that must
  *   propagate to peers (the `data` carries the new `images[]`); without this it stayed local.
  * @returns {Promise<Object|null>}
  */
-async function addEntityImage(entityId, file, collectionKey, changeEvent, mapName, logUpdate) {
+async function addEntityImage(entityId, file, collectionKey, changeEvent, mapName, entityType) {
     if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, `addImage:${collectionKey}`)) return null;
 
     const validation = validateImageFile(file);
@@ -189,10 +248,11 @@ async function addEntityImage(entityId, file, collectionKey, changeEvent, mapNam
         return null;
     }
 
-    try {
-        const targetMap = getTargetMapName(mapName);
-        const data = await getCesium3dDataWithCache(targetMap);
-
+    const targetMap = getTargetMapName(mapName);
+    // The `catch` that used to wrap this whole body turned a quota failure into a silent null.
+    // With the journal ahead of the entity the failure has to reach the caller, or an intention
+    // already on disk would be reported to the user as "nothing happened".
+    return editCesium3d(targetMap, `addImage:${collectionKey}`, async data => {
         if (!data[collectionKey]) return null;
 
         const entityIndex = data[collectionKey].findIndex(e => e.id === entityId);
@@ -220,19 +280,15 @@ async function addEntityImage(entityId, file, collectionKey, changeEvent, mapNam
         entity.updatedAt = Date.now();
         entity.sync = touchSyncMetadata(entity.sync);
 
-        await saveCesium3dData(targetMap, data);
-        emit(changeEvent, { mapName: targetMap });
-
-        // Persistence-first: only log the UPDATE op after the save succeeds.
-        if (logUpdate) {
-            logUpdate(OperationType.UPDATE, entityId, mapManager.getMapId(targetMap), entity, previousEntity);
-        }
-
-        return imageData;
-    } catch (error) {
-        console.error(`Error adding image to ${collectionKey}:`, error);
-        return null;
-    }
+        return {
+            operations: [{
+                entityType, type: OperationType.UPDATE, id: entityId,
+                data: entity, previous: previousEntity
+            }],
+            result: imageData,
+            effect: () => emit(changeEvent, { mapName: targetMap })
+        };
+    }, null);
 }
 
 /**
@@ -256,39 +312,40 @@ async function getEntityImages(entityId, collectionKey, mapName) {
  * @param {string} collectionKey
  * @param {string} changeEvent
  * @param {string|null} mapName
- * @param {Function} [logUpdate] - The entity's UPDATE sync logger (removing an inline image is an
- *   entity UPDATE that must propagate to peers).
+ * @param {string} entityType - The entity's EntityType (removing an inline image is an entity
+ *   UPDATE that must propagate to peers).
  * @returns {Promise<boolean>}
  */
-async function removeEntityImage(entityId, imageId, collectionKey, changeEvent, mapName, logUpdate) {
+async function removeEntityImage(entityId, imageId, collectionKey, changeEvent, mapName, entityType) {
     if (!guardCesium3dWrite(GuardAction.DELETE_MARKER_3D, `removeImage:${collectionKey}`)) return false;
 
     const targetMap = getTargetMapName(mapName);
-    const data = await getCesium3dDataWithCache(targetMap);
+    return editCesium3d(targetMap, `removeImage:${collectionKey}`, data => {
+        if (!data[collectionKey]) return null;
 
-    if (!data[collectionKey]) return false;
+        const entityIndex = data[collectionKey].findIndex(e => e.id === entityId);
+        if (entityIndex === -1) return null;
 
-    const entityIndex = data[collectionKey].findIndex(e => e.id === entityId);
-    if (entityIndex === -1) return false;
+        const entity = data[collectionKey][entityIndex];
+        if (!entity.images) return null;
 
-    const entity = data[collectionKey][entityIndex];
-    if (!entity.images) return false;
+        const initialLength = entity.images.length;
+        const previousEntity = { ...entity, images: [...entity.images] };
+        entity.images = entity.images.filter(img => img.id !== imageId);
+        if (entity.images.length === initialLength) return null;
 
-    const initialLength = entity.images.length;
-    const previousEntity = { ...entity, images: [...entity.images] };
-    entity.images = entity.images.filter(img => img.id !== imageId);
-
-    if (entity.images.length < initialLength) {
         entity.updatedAt = Date.now();
         entity.sync = touchSyncMetadata(entity.sync);
-        await saveCesium3dData(targetMap, data);
-        emit(changeEvent, { mapName: targetMap });
-        if (logUpdate) {
-            logUpdate(OperationType.UPDATE, entityId, mapManager.getMapId(targetMap), entity, previousEntity);
-        }
-        return true;
-    }
-    return false;
+
+        return {
+            operations: [{
+                entityType, type: OperationType.UPDATE, id: entityId,
+                data: entity, previous: previousEntity
+            }],
+            result: true,
+            effect: () => emit(changeEvent, { mapName: targetMap })
+        };
+    }, false);
 }
 
 /**
@@ -297,35 +354,33 @@ async function removeEntityImage(entityId, imageId, collectionKey, changeEvent, 
  * @param {string} collectionKey
  * @param {string} changeEvent
  * @param {string|null} mapName
- * @param {Function} [logDelete] - The entity family's DELETE sync logger (e.g.
- *   logMarker3dOperation). A bulk removal is still a removal per entity: without one
- *   DELETE op each, wiping a tileset's entities stayed local and peers kept showing them.
+ * @param {string} entityType - The entity family's EntityType. A bulk removal is still a
+ *   removal per entity: without one DELETE op each, wiping a tileset's entities stayed local
+ *   and peers kept showing them. The N intents share ONE journal write, so either every
+ *   deletion is recoverable or none of them happened.
  * @returns {Promise<number>}
  */
-async function removeByTileset(tilesetId, collectionKey, changeEvent, mapName, logDelete) {
+async function removeByTileset(tilesetId, collectionKey, changeEvent, mapName, entityType) {
     if (!guardCesium3dWrite(GuardAction.DELETE_MARKER_3D, `removeByTileset:${collectionKey}`)) return 0;
 
     const targetMap = getTargetMapName(mapName);
-    const data = await getCesium3dDataWithCache(targetMap);
+    return editCesium3d(targetMap, `removeByTileset:${collectionKey}`, data => {
+        if (!data[collectionKey]) return null;
 
-    if (!data[collectionKey]) return 0;
+        // Snapshot the entities being dropped so each one can carry its own oldData.
+        const removed = data[collectionKey].filter(item => item.tilesetId === tilesetId);
+        if (removed.length === 0) return null;
+        data[collectionKey] = data[collectionKey].filter(item => item.tilesetId !== tilesetId);
 
-    // Snapshot the entities being dropped so each one can carry its own oldData.
-    const removed = data[collectionKey].filter(item => item.tilesetId === tilesetId);
-    data[collectionKey] = data[collectionKey].filter(item => item.tilesetId !== tilesetId);
-
-    if (removed.length > 0) {
-        await saveCesium3dData(targetMap, data);
-        emit(changeEvent, { mapName: targetMap });
-
-        // getMapId(targetMap), NOT getCurrentMapId(): this function accepts an explicit
-        // mapName and may operate on a map that is not the active one.
-        const mapId = mapManager.getMapId(targetMap);
-        for (const entity of removed) {
-            logDelete?.(OperationType.DELETE, entity.id, mapId, null, entity);
-        }
-    }
-    return removed.length;
+        return {
+            operations: removed.map(entity => ({
+                entityType, type: OperationType.DELETE, id: entity.id,
+                data: null, previous: entity
+            })),
+            result: removed.length,
+            effect: () => emit(changeEvent, { mapName: targetMap })
+        };
+    }, 0);
 }
 
 // ===== CAMERA POSITION OPERATIONS =====
@@ -343,10 +398,7 @@ export async function saveCameraPosition(tilesetId, position, orientation, mapNa
     if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'saveCameraPosition')) return;
 
     const targetMap = getTargetMapName(mapName);
-    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
-    return withSideDocument('cesium3d', targetMap, 'saveCameraPosition', async () => {
-        const data = await getCesium3dDataWithCache(targetMap);
-
+    return editCesium3d(targetMap, 'saveCameraPosition', data => {
         const existing = data.cameraPositions[tilesetId];
         const isUpdate = !!existing;
         const previousData = existing ? { ...existing } : null;
@@ -355,7 +407,7 @@ export async function saveCameraPosition(tilesetId, position, orientation, mapNa
             ? touchSyncMetadata(existing.sync)
             : createSyncMetadata(null);
 
-        data.cameraPositions[tilesetId] = {
+        const newPosition = {
             id: existing?.id || generateUUID(),
             tilesetId,
             position,
@@ -363,17 +415,18 @@ export async function saveCameraPosition(tilesetId, position, orientation, mapNa
             savedAt: Date.now(),
             sync
         };
+        data.cameraPositions[tilesetId] = newPosition;
 
-        await saveCesium3dData(targetMap, data);
-        emit(EventTypes.CAMERA_3D_SAVED, { tilesetId, mapName: targetMap });
-
-        const mapId = mapManager.getMapId(targetMap);
-        const newPosition = data.cameraPositions[tilesetId];
-        if (isUpdate) {
-            logCameraPosition3dOperation(OperationType.UPDATE, newPosition.id, mapId, newPosition, previousData);
-        } else {
-            logCameraPosition3dOperation(OperationType.CREATE, newPosition.id, mapId, newPosition);
-        }
+        return {
+            operations: [{
+                entityType: EntityType.CAMERA_POSITION_3D,
+                type: isUpdate ? OperationType.UPDATE : OperationType.CREATE,
+                id: newPosition.id,
+                data: newPosition,
+                previous: isUpdate ? previousData : null
+            }],
+            effect: () => emit(EventTypes.CAMERA_3D_SAVED, { tilesetId, mapName: targetMap })
+        };
     });
 }
 
@@ -413,24 +466,25 @@ export async function clearCameraPosition(tilesetId, mapName = null) {
     if (!guardCesium3dWrite(GuardAction.DELETE_MARKER_3D, 'clearCameraPosition')) return false;
 
     const targetMap = getTargetMapName(mapName);
-    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
-    return withSideDocument('cesium3d', targetMap, 'clearCameraPosition', async () => {
-        const data = await getCesium3dDataWithCache(targetMap);
-
+    return editCesium3d(targetMap, 'clearCameraPosition', data => {
         const existing = data.cameraPositions[tilesetId];
-        if (!existing) return false;
+        if (!existing) return null;
 
         const previousData = { ...existing };
         const positionId = existing.id || tilesetId;
-
         delete data.cameraPositions[tilesetId];
-        await saveCesium3dData(targetMap, data);
 
-        const mapId = mapManager.getMapId(targetMap);
-        logCameraPosition3dOperation(OperationType.DELETE, positionId, mapId, null, previousData);
-
-        return true;
-    });
+        return {
+            operations: [{
+                entityType: EntityType.CAMERA_POSITION_3D,
+                type: OperationType.DELETE,
+                id: positionId,
+                data: null,
+                previous: previousData
+            }],
+            result: true
+        };
+    }, false);
 }
 
 /**
@@ -477,10 +531,7 @@ export async function addMarker(tilesetId, markerData, mapName = null) {
     if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'addMarker')) return null;
 
     const targetMap = getTargetMapName(mapName);
-    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
-    return withSideDocument('cesium3d', targetMap, 'addMarker', async () => {
-        const data = await getCesium3dDataWithCache(targetMap);
-
+    return editCesium3d(targetMap, 'addMarker', data => {
         const nextNumber = getNextAutoNumber(data.markers, /^Ponto #(\d+)$/);
         const defaultName = `Ponto #${nextNumber}`;
         const userDefaultStyle = getUserDefaultStyle('marker3d_default_style');
@@ -503,14 +554,16 @@ export async function addMarker(tilesetId, markerData, mapName = null) {
         };
 
         data.markers.push(marker);
-        await saveCesium3dData(targetMap, data);
-        emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
 
-        const mapId = mapManager.getMapId(targetMap);
-        logMarker3dOperation(OperationType.CREATE, marker.id, mapId, marker);
-
-        return marker;
-    });
+        return {
+            operations: [{
+                entityType: EntityType.MARKER_3D, type: OperationType.CREATE,
+                id: marker.id, data: marker, previous: null
+            }],
+            result: marker,
+            effect: () => emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap })
+        };
+    }, null);
 }
 
 /**
@@ -567,10 +620,7 @@ export async function updateMarker(markerId, updates, mapName = null) {
     if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'updateMarker')) return null;
 
     const targetMap = getTargetMapName(mapName);
-    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
-    return withSideDocument('cesium3d', targetMap, 'updateMarker', async () => {
-        const data = await getCesium3dDataWithCache(targetMap);
-
+    return editCesium3d(targetMap, 'updateMarker', data => {
         const markerIndex = data.markers.findIndex(m => m.id === markerId);
         if (markerIndex === -1) return null;
 
@@ -589,14 +639,16 @@ export async function updateMarker(markerId, updates, mapName = null) {
         marker.sync = touchSyncMetadata(marker.sync);
 
         data.markers[markerIndex] = marker;
-        await saveCesium3dData(targetMap, data);
-        emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
 
-        const mapId = mapManager.getMapId(targetMap);
-        logMarker3dOperation(OperationType.UPDATE, markerId, mapId, marker, oldMarker);
-
-        return marker;
-    });
+        return {
+            operations: [{
+                entityType: EntityType.MARKER_3D, type: OperationType.UPDATE,
+                id: markerId, data: marker, previous: oldMarker
+            }],
+            result: marker,
+            effect: () => emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap })
+        };
+    }, null);
 }
 
 /**
@@ -610,22 +662,21 @@ export async function removeMarker(markerId, mapName = null) {
     if (!guardCesium3dWrite(GuardAction.DELETE_MARKER_3D, 'removeMarker')) return false;
 
     const targetMap = getTargetMapName(mapName);
-    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
-    return withSideDocument('cesium3d', targetMap, 'removeMarker', async () => {
-        const data = await getCesium3dDataWithCache(targetMap);
-
+    return editCesium3d(targetMap, 'removeMarker', data => {
         const deletedMarker = data.markers.find(m => m.id === markerId);
-        if (!deletedMarker) return false;
+        if (!deletedMarker) return null;
 
         data.markers = data.markers.filter(m => m.id !== markerId);
-        await saveCesium3dData(targetMap, data);
-        emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
 
-        const mapId = mapManager.getMapId(targetMap);
-        logMarker3dOperation(OperationType.DELETE, markerId, mapId, null, deletedMarker);
-
-        return true;
-    });
+        return {
+            operations: [{
+                entityType: EntityType.MARKER_3D, type: OperationType.DELETE,
+                id: markerId, data: null, previous: deletedMarker
+            }],
+            result: true,
+            effect: () => emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap })
+        };
+    }, false);
 }
 
 /**
@@ -636,7 +687,7 @@ export async function removeMarker(markerId, mapName = null) {
  * @returns {Promise<number>} Number of markers removed
  */
 export async function removeMarkersByTileset(tilesetId, mapName = null) {
-    return removeByTileset(tilesetId, 'markers', EventTypes.MARKERS_3D_CHANGED, mapName, logMarker3dOperation);
+    return removeByTileset(tilesetId, 'markers', EventTypes.MARKERS_3D_CHANGED, mapName, EntityType.MARKER_3D);
 }
 
 // ===== MEMORY OPERATIONS =====
@@ -727,7 +778,7 @@ export async function getCesium3dDataForExport(mapName) {
  * @returns {Promise<Object|null>}
  */
 export async function addMarkerImage(markerId, file, mapName = null) {
-    return addEntityImage(markerId, file, 'markers', EventTypes.MARKERS_3D_CHANGED, mapName, logMarker3dOperation);
+    return addEntityImage(markerId, file, 'markers', EventTypes.MARKERS_3D_CHANGED, mapName, EntityType.MARKER_3D);
 }
 
 /**
@@ -750,7 +801,7 @@ export async function getMarkerImages(markerId, mapName = null) {
  * @returns {Promise<boolean>}
  */
 export async function removeMarkerImage(markerId, imageId, mapName = null) {
-    return removeEntityImage(markerId, imageId, 'markers', EventTypes.MARKERS_3D_CHANGED, mapName, logMarker3dOperation);
+    return removeEntityImage(markerId, imageId, 'markers', EventTypes.MARKERS_3D_CHANGED, mapName, EntityType.MARKER_3D);
 }
 
 // ===== MEASUREMENT OPERATIONS =====
@@ -784,10 +835,7 @@ export async function addMeasurement(tilesetId, measurementData, mapName = null)
     if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'addMeasurement')) return null;
 
     const targetMap = getTargetMapName(mapName);
-    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
-    return withSideDocument('cesium3d', targetMap, 'addMeasurement', async () => {
-        const data = await getCesium3dDataWithCache(targetMap);
-
+    return editCesium3d(targetMap, 'addMeasurement', data => {
         if (!data.measurements) data.measurements = [];
 
         const type = measurementData.type || 'distance';
@@ -820,14 +868,16 @@ export async function addMeasurement(tilesetId, measurementData, mapName = null)
         };
 
         data.measurements.push(measurement);
-        await saveCesium3dData(targetMap, data);
-        emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
 
-        const mapId = mapManager.getMapId(targetMap);
-        logMeasurement3dOperation(OperationType.CREATE, measurement.id, mapId, measurement);
-
-        return measurement;
-    });
+        return {
+            operations: [{
+                entityType: EntityType.MEASUREMENT_3D, type: OperationType.CREATE,
+                id: measurement.id, data: measurement, previous: null
+            }],
+            result: measurement,
+            effect: () => emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap })
+        };
+    }, null);
 }
 
 /**
@@ -880,10 +930,7 @@ export async function updateMeasurement(measurementId, updates, mapName = null) 
     if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'updateMeasurement')) return null;
 
     const targetMap = getTargetMapName(mapName);
-    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
-    return withSideDocument('cesium3d', targetMap, 'updateMeasurement', async () => {
-        const data = await getCesium3dDataWithCache(targetMap);
-
+    return editCesium3d(targetMap, 'updateMeasurement', data => {
         if (!data.measurements) return null;
 
         const measurementIndex = data.measurements.findIndex(m => m.id === measurementId);
@@ -901,14 +948,16 @@ export async function updateMeasurement(measurementId, updates, mapName = null) 
         measurement.sync = touchSyncMetadata(measurement.sync);
 
         data.measurements[measurementIndex] = measurement;
-        await saveCesium3dData(targetMap, data);
-        emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
 
-        const mapId = mapManager.getMapId(targetMap);
-        logMeasurement3dOperation(OperationType.UPDATE, measurementId, mapId, measurement, oldMeasurement);
-
-        return measurement;
-    });
+        return {
+            operations: [{
+                entityType: EntityType.MEASUREMENT_3D, type: OperationType.UPDATE,
+                id: measurementId, data: measurement, previous: oldMeasurement
+            }],
+            result: measurement,
+            effect: () => emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap })
+        };
+    }, null);
 }
 
 /**
@@ -922,24 +971,23 @@ export async function removeMeasurement(measurementId, mapName = null) {
     if (!guardCesium3dWrite(GuardAction.DELETE_MARKER_3D, 'removeMeasurement')) return false;
 
     const targetMap = getTargetMapName(mapName);
-    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
-    return withSideDocument('cesium3d', targetMap, 'removeMeasurement', async () => {
-        const data = await getCesium3dDataWithCache(targetMap);
-
-        if (!data.measurements) return false;
+    return editCesium3d(targetMap, 'removeMeasurement', data => {
+        if (!data.measurements) return null;
 
         const deletedMeasurement = data.measurements.find(m => m.id === measurementId);
-        if (!deletedMeasurement) return false;
+        if (!deletedMeasurement) return null;
 
         data.measurements = data.measurements.filter(m => m.id !== measurementId);
-        await saveCesium3dData(targetMap, data);
-        emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
 
-        const mapId = mapManager.getMapId(targetMap);
-        logMeasurement3dOperation(OperationType.DELETE, measurementId, mapId, null, deletedMeasurement);
-
-        return true;
-    });
+        return {
+            operations: [{
+                entityType: EntityType.MEASUREMENT_3D, type: OperationType.DELETE,
+                id: measurementId, data: null, previous: deletedMeasurement
+            }],
+            result: true,
+            effect: () => emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap })
+        };
+    }, false);
 }
 
 /**
@@ -951,7 +999,7 @@ export async function removeMeasurement(measurementId, mapName = null) {
  * @returns {Promise<Object|null>}
  */
 export async function addMeasurementImage(measurementId, file, mapName = null) {
-    return addEntityImage(measurementId, file, 'measurements', EventTypes.MEASUREMENTS_3D_CHANGED, mapName, logMeasurement3dOperation);
+    return addEntityImage(measurementId, file, 'measurements', EventTypes.MEASUREMENTS_3D_CHANGED, mapName, EntityType.MEASUREMENT_3D);
 }
 
 /**
@@ -974,7 +1022,7 @@ export async function getMeasurementImages(measurementId, mapName = null) {
  * @returns {Promise<boolean>}
  */
 export async function removeMeasurementImage(measurementId, imageId, mapName = null) {
-    return removeEntityImage(measurementId, imageId, 'measurements', EventTypes.MEASUREMENTS_3D_CHANGED, mapName, logMeasurement3dOperation);
+    return removeEntityImage(measurementId, imageId, 'measurements', EventTypes.MEASUREMENTS_3D_CHANGED, mapName, EntityType.MEASUREMENT_3D);
 }
 
 // ===== VIEWSHED OPERATIONS =====
@@ -991,10 +1039,7 @@ export async function addViewshed(tilesetId, viewshedData, mapName = null) {
     if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'addViewshed')) return null;
 
     const targetMap = getTargetMapName(mapName);
-    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
-    return withSideDocument('cesium3d', targetMap, 'addViewshed', async () => {
-        const data = await getCesium3dDataWithCache(targetMap);
-
+    return editCesium3d(targetMap, 'addViewshed', data => {
         if (!data.viewsheds) data.viewsheds = [];
 
         const nextNumber = getNextAutoNumber(data.viewsheds, /^Visibilidade #(\d+)$/);
@@ -1018,14 +1063,16 @@ export async function addViewshed(tilesetId, viewshedData, mapName = null) {
         };
 
         data.viewsheds.push(viewshed);
-        await saveCesium3dData(targetMap, data);
-        emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
 
-        const mapId = mapManager.getMapId(targetMap);
-        logViewshed3dOperation(OperationType.CREATE, viewshed.id, mapId, viewshed);
-
-        return viewshed;
-    });
+        return {
+            operations: [{
+                entityType: EntityType.VIEWSHED_3D, type: OperationType.CREATE,
+                id: viewshed.id, data: viewshed, previous: null
+            }],
+            result: viewshed,
+            effect: () => emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap })
+        };
+    }, null);
 }
 
 /**
@@ -1078,10 +1125,7 @@ export async function updateViewshed(viewshedId, updates, mapName = null) {
     if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'updateViewshed')) return null;
 
     const targetMap = getTargetMapName(mapName);
-    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
-    return withSideDocument('cesium3d', targetMap, 'updateViewshed', async () => {
-        const data = await getCesium3dDataWithCache(targetMap);
-
+    return editCesium3d(targetMap, 'updateViewshed', data => {
         if (!data.viewsheds) return null;
 
         const viewshedIndex = data.viewsheds.findIndex(v => v.id === viewshedId);
@@ -1099,14 +1143,16 @@ export async function updateViewshed(viewshedId, updates, mapName = null) {
         viewshed.sync = touchSyncMetadata(viewshed.sync);
 
         data.viewsheds[viewshedIndex] = viewshed;
-        await saveCesium3dData(targetMap, data);
-        emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
 
-        const mapId = mapManager.getMapId(targetMap);
-        logViewshed3dOperation(OperationType.UPDATE, viewshedId, mapId, viewshed, oldViewshed);
-
-        return viewshed;
-    });
+        return {
+            operations: [{
+                entityType: EntityType.VIEWSHED_3D, type: OperationType.UPDATE,
+                id: viewshedId, data: viewshed, previous: oldViewshed
+            }],
+            result: viewshed,
+            effect: () => emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap })
+        };
+    }, null);
 }
 
 /**
@@ -1120,24 +1166,23 @@ export async function removeViewshed(viewshedId, mapName = null) {
     if (!guardCesium3dWrite(GuardAction.DELETE_MARKER_3D, 'removeViewshed')) return false;
 
     const targetMap = getTargetMapName(mapName);
-    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
-    return withSideDocument('cesium3d', targetMap, 'removeViewshed', async () => {
-        const data = await getCesium3dDataWithCache(targetMap);
-
-        if (!data.viewsheds) return false;
+    return editCesium3d(targetMap, 'removeViewshed', data => {
+        if (!data.viewsheds) return null;
 
         const deletedViewshed = data.viewsheds.find(v => v.id === viewshedId);
-        if (!deletedViewshed) return false;
+        if (!deletedViewshed) return null;
 
         data.viewsheds = data.viewsheds.filter(v => v.id !== viewshedId);
-        await saveCesium3dData(targetMap, data);
-        emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
 
-        const mapId = mapManager.getMapId(targetMap);
-        logViewshed3dOperation(OperationType.DELETE, viewshedId, mapId, null, deletedViewshed);
-
-        return true;
-    });
+        return {
+            operations: [{
+                entityType: EntityType.VIEWSHED_3D, type: OperationType.DELETE,
+                id: viewshedId, data: null, previous: deletedViewshed
+            }],
+            result: true,
+            effect: () => emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap })
+        };
+    }, false);
 }
 
 /**
@@ -1149,7 +1194,7 @@ export async function removeViewshed(viewshedId, mapName = null) {
  * @returns {Promise<Object|null>}
  */
 export async function addViewshedImage(viewshedId, file, mapName = null) {
-    return addEntityImage(viewshedId, file, 'viewsheds', EventTypes.VIEWSHEDS_3D_CHANGED, mapName, logViewshed3dOperation);
+    return addEntityImage(viewshedId, file, 'viewsheds', EventTypes.VIEWSHEDS_3D_CHANGED, mapName, EntityType.VIEWSHED_3D);
 }
 
 /**
@@ -1172,7 +1217,7 @@ export async function getViewshedImages(viewshedId, mapName = null) {
  * @returns {Promise<boolean>}
  */
 export async function removeViewshedImage(viewshedId, imageId, mapName = null) {
-    return removeEntityImage(viewshedId, imageId, 'viewsheds', EventTypes.VIEWSHEDS_3D_CHANGED, mapName, logViewshed3dOperation);
+    return removeEntityImage(viewshedId, imageId, 'viewsheds', EventTypes.VIEWSHEDS_3D_CHANGED, mapName, EntityType.VIEWSHED_3D);
 }
 
 // ===== BULK REMOVAL OPERATIONS =====
@@ -1185,7 +1230,7 @@ export async function removeViewshedImage(viewshedId, imageId, mapName = null) {
  * @returns {Promise<number>}
  */
 export async function removeMeasurementsByTileset(tilesetId, mapName = null) {
-    return removeByTileset(tilesetId, 'measurements', EventTypes.MEASUREMENTS_3D_CHANGED, mapName, logMeasurement3dOperation);
+    return removeByTileset(tilesetId, 'measurements', EventTypes.MEASUREMENTS_3D_CHANGED, mapName, EntityType.MEASUREMENT_3D);
 }
 
 /**
@@ -1196,7 +1241,7 @@ export async function removeMeasurementsByTileset(tilesetId, mapName = null) {
  * @returns {Promise<number>}
  */
 export async function removeViewshedsByTileset(tilesetId, mapName = null) {
-    return removeByTileset(tilesetId, 'viewsheds', EventTypes.VIEWSHEDS_3D_CHANGED, mapName, logViewshed3dOperation);
+    return removeByTileset(tilesetId, 'viewsheds', EventTypes.VIEWSHEDS_3D_CHANGED, mapName, EntityType.VIEWSHED_3D);
 }
 
 /**
@@ -1212,55 +1257,59 @@ export async function removeAllFeaturesByTileset(tilesetId, mapName = null) {
     }
 
     const targetMap = getTargetMapName(mapName);
-    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
-    return withSideDocument('cesium3d', targetMap, 'removeAllFeaturesByTileset', async () => {
-        const data = await getCesium3dDataWithCache(targetMap);
-
+    let counts = { markers: 0, measurements: 0, viewsheds: 0, total: 0 };
+    await editCesium3d(targetMap, 'removeAllFeaturesByTileset', data => {
         const belongs = (item) => item.tilesetId === tilesetId;
 
         // Snapshot each family's dropped entities so every one can carry its own oldData.
         const removedMarkers = data.markers.filter(belongs);
-        data.markers = data.markers.filter(m => !belongs(m));
-
         const removedMeasurements = (data.measurements || []).filter(belongs);
-        if (data.measurements) {
-            data.measurements = data.measurements.filter(m => !belongs(m));
-        }
-
         const removedViewsheds = (data.viewsheds || []).filter(belongs);
-        if (data.viewsheds) {
-            data.viewsheds = data.viewsheds.filter(v => !belongs(v));
-        }
 
         const totalRemoved = removedMarkers.length + removedMeasurements.length + removedViewsheds.length;
-
-        if (totalRemoved > 0) {
-            await saveCesium3dData(targetMap, data);
-
-            if (removedMarkers.length > 0) emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
-            if (removedMeasurements.length > 0) emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
-            if (removedViewsheds.length > 0) emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
-
-            // Persistence → emit → log, as in removeMarker. Without a DELETE op per entity
-            // the bulk wipe stayed local and peers kept rendering the removed features.
-            const mapId = mapManager.getMapId(targetMap);
-            const families = [
-                [removedMarkers, logMarker3dOperation],
-                [removedMeasurements, logMeasurement3dOperation],
-                [removedViewsheds, logViewshed3dOperation]
-            ];
-            for (const [entities, logDelete] of families) {
-                for (const entity of entities) {
-                    logDelete(OperationType.DELETE, entity.id, mapId, null, entity);
-                }
-            }
-        }
-
-        return {
+        counts = {
             markers: removedMarkers.length,
             measurements: removedMeasurements.length,
             viewsheds: removedViewsheds.length,
             total: totalRemoved
         };
+        // Nothing matched: no op, no write, and the counts are already all zero.
+        if (totalRemoved === 0) return null;
+
+        data.markers = data.markers.filter(m => !belongs(m));
+        if (data.measurements) {
+            data.measurements = data.measurements.filter(m => !belongs(m));
+        }
+        if (data.viewsheds) {
+            data.viewsheds = data.viewsheds.filter(v => !belongs(v));
+        }
+
+        // Without a DELETE op per entity the bulk wipe stayed local and peers kept rendering
+        // the removed features. The three families share ONE journal write, so either the
+        // whole wipe is recoverable or none of it happened.
+        const families = [
+            [removedMarkers, EntityType.MARKER_3D],
+            [removedMeasurements, EntityType.MEASUREMENT_3D],
+            [removedViewsheds, EntityType.VIEWSHED_3D]
+        ];
+        const operations = [];
+        for (const [entities, entityType] of families) {
+            for (const entity of entities) {
+                operations.push({
+                    entityType, type: OperationType.DELETE, id: entity.id,
+                    data: null, previous: entity
+                });
+            }
+        }
+
+        return {
+            operations,
+            effect: () => {
+                if (removedMarkers.length > 0) emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
+                if (removedMeasurements.length > 0) emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
+                if (removedViewsheds.length > 0) emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
+            }
+        };
     });
+    return counts;
 }
