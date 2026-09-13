@@ -28,11 +28,15 @@ import { MAP_BADGE_COLORS, mapBadgeColorForName } from './map-badge-colors.js';
 import { mapResolver } from './services/map-resolver.service.js';
 import config from '../config.js';
 import { EventTypes } from '../events';
-import { logMapOperation, logMapPositionOperation, logBaseLayerOperation, logAtlasSetting, OperationType, isOperationLoggingEnabled } from './sync/index.js';
+import { logMapOperation, logAtlasSetting, OperationType, isOperationLoggingEnabled } from './sync/index.js';
+// Leaf module (zero imports): keeps the vocabulary out of the sync barrel's graph, and the
+// barrel is what several store suites replace with a partial double that has no `EntityType`.
+import { EntityType } from './sync/operation-types.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { generateUUID, isValidUUID } from '../utilities/uuid.js';
 import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
+import { runTransaction } from './store-transaction.js';
 import { withMapDocument } from './document-lock.js';
 import { POSITION_FIELDS, clearedPositionPayload } from './map-position-clear.js';
 
@@ -672,6 +676,26 @@ async function isTargetMapLocked(targetMap) {
 }
 
 /**
+ * Refuses a map-setting write whose document has no remote identity.
+ *
+ * `getMapDataCompat` answers a MISSING map with `getEmptyMapData()`, a full-shaped document with
+ * no `id`. Writing it back CREATES that map, so a stale name (a peer's deletion that arrived
+ * after this gesture started) would resurrect it as a local phantom whose op then carries a map
+ * id the server never issued. The same guard, and the same reason, as `editCatalogLayers`
+ * (`catalog.operations.js`). A LOCAL atlas is untouched: its maps are name-keyed by design.
+ *
+ * @param {import('./store-transaction.js').StoreTransaction} tx - The open transaction
+ * @param {Object} mapData - The document just read
+ * @param {string} targetMap - Map name, for the message
+ * @private
+ */
+function assertRemoteMapIdentity(tx, mapData, targetMap) {
+    if (tx.scope?.kind === 'remote' && !isValidUUID(mapData?.id)) {
+        throw new Error(`O mapa "${targetMap}" não possui identidade remota válida.`);
+    }
+}
+
+/**
  * Gets the current base layer for a map.
  *
  * @param {string} [mapName=null] - Map name
@@ -691,9 +715,9 @@ export async function getCurrentBaseLayer(mapName = null) {
  * @returns {Promise<void>}
  */
 export async function setBaseLayer(layer, mapName = null) {
-    // Same gate and same reason as the map settings in `settings.operations.js`: the tail of
-    // this function enqueues a `baseLayer` op, which the server refuses for a reader, and a
-    // refused op stalls the whole outbound queue. Permissive offline and on a local store, so
+    // Same gate and same reason as the map settings in `settings.operations.js`: this function
+    // journals a `baseLayer` op, which the server refuses for a reader, and a refused op stalls
+    // the whole outbound queue. Permissive offline and on a local store, so
     // the anonymous user and the `.ebgeo` import path are untouched. The boot-time sanitising
     // call in `base-layer.control.js` keeps rendering the fallback either way: only the
     // PERSISTENCE of someone else's map preference is refused, never the drawing.
@@ -717,16 +741,21 @@ export async function setBaseLayer(layer, mapName = null) {
 
     // The base layer lives on the map document, so this read-modify-write competes with the
     // feature writes: without the lock, a feature added meanwhile is silently reverted here.
-    return withMapDocument(targetMap, 'setBaseLayer', async () => {
+    // WRITE-AHEAD: the intention is journaled INSIDE the transaction and the document write is
+    // the returned persistence function, so a journal failure leaves the document untouched and
+    // a document failure leaves a recoverable intention behind (see `store-transaction.js`).
+    return withMapDocument(targetMap, 'setBaseLayer', () => runTransaction(async tx => {
         const currentMapData = await getMapData(targetMap);
+        assertRemoteMapIdentity(tx, currentMapData, targetMap);
         const previousBaseLayer = currentMapData.baseLayer;
 
         currentMapData.baseLayer = layer;
-        await updateMapData(targetMap, currentMapData);
 
         const mapId = mapResolver.resolveToId(targetMap) || targetMap;
-        logBaseLayerOperation(OperationType.UPDATE, mapId, { baseLayer: layer }, { baseLayer: previousBaseLayer });
-    });
+        tx.recordOperation(EntityType.BASE_LAYER, OperationType.UPDATE, mapId, mapId,
+            { baseLayer: layer }, { baseLayer: previousBaseLayer });
+        return () => updateMapData(targetMap, currentMapData);
+    }));
 }
 
 /**
@@ -741,7 +770,7 @@ export async function setBaseLayer(layer, mapName = null) {
  * @returns {Promise<void>}
  */
 export async function updateMapPosition(center_lat, center_long, zoom, bearing, pitch, mapName = null) {
-    // Same gate as `setBaseLayer` above: the tail enqueues a `mapPosition` op the server
+    // Same gate as `setBaseLayer` above: this function journals a `mapPosition` op the server
     // refuses for a reader. This one is only reached through the explicit "salvar posição"
     // gesture (`map.manager.saveMapPosition`), never on pan or zoom, so the gate costs one
     // refusal per click and not one per frame.
@@ -757,8 +786,11 @@ export async function updateMapPosition(center_lat, center_long, zoom, bearing, 
         return;
     }
 
-    return withMapDocument(targetMap, 'updateMapPosition', async () => {
+    // WRITE-AHEAD, same shape as `setBaseLayer`: the position op is recorded before the document
+    // is written, and the document write is the returned persistence function.
+    return withMapDocument(targetMap, 'updateMapPosition', () => runTransaction(async tx => {
         const currentMapData = await getMapData(targetMap);
+        assertRemoteMapIdentity(tx, currentMapData, targetMap);
 
         const existingPosition = currentMapData.savedPosition;
         const isUpdate = !!existingPosition?.id;
@@ -786,12 +818,12 @@ export async function updateMapPosition(center_lat, center_long, zoom, bearing, 
         currentMapData.bearing = bearing;
         currentMapData.pitch = pitch;
 
-        await updateMapData(targetMap, currentMapData);
-
         const mapId = mapResolver.resolveToId(targetMap) || targetMap;
         const operationType = isUpdate ? OperationType.UPDATE : OperationType.CREATE;
-        logMapPositionOperation(operationType, mapId, currentMapData.savedPosition, previousData);
-    });
+        tx.recordOperation(EntityType.MAP_POSITION, operationType, mapId, mapId,
+            currentMapData.savedPosition, previousData);
+        return () => updateMapData(targetMap, currentMapData);
+    }));
 }
 
 /**
@@ -829,7 +861,7 @@ export async function hasMapSavedPosition(mapName = null) {
  * @returns {Promise<void>}
  */
 export async function clearMapPosition(mapName = null) {
-    // Same gate and same reason as the two siblings above: the tail enqueues a `mapPosition`
+    // Same gate and same reason as the two siblings above: this function journals a `mapPosition`
     // op the server refuses for a reader, and a refused op stalls the whole outbound queue.
     // This one was the only one of the three without it.
     const perm = checkPermission(GuardAction.UPDATE_MAP);
@@ -844,8 +876,10 @@ export async function clearMapPosition(mapName = null) {
         return;
     }
 
-    return withMapDocument(targetMapName, 'clearMapPosition', async () => {
+    // WRITE-AHEAD, same shape as the two siblings above.
+    return withMapDocument(targetMapName, 'clearMapPosition', () => runTransaction(async tx => {
         const currentMapData = await getMapData(targetMapName);
+        assertRemoteMapIdentity(tx, currentMapData, targetMapName);
 
         const existingPosition = currentMapData.savedPosition;
         const previousData = existingPosition ? { ...existingPosition } : null;
@@ -855,8 +889,6 @@ export async function clearMapPosition(mapName = null) {
         for (const field of POSITION_FIELDS) {
             currentMapData[field] = null;
         }
-
-        await updateMapData(targetMapName, currentMapData);
 
         // AN UPDATE WITH EMPTY COLUMNS, NEVER A DELETE. This used to log a DELETE, and on the
         // server that is an act on the MAP: a map-setting op carries the MAP's id as its
@@ -872,8 +904,10 @@ export async function clearMapPosition(mapName = null) {
         // id: the local document cleared and the peer kept the old position forever, with
         // nothing on screen and nothing in the queue.
         const mapId = mapResolver.resolveToId(targetMapName) || targetMapName;
-        logMapPositionOperation(OperationType.UPDATE, mapId, clearedPositionPayload(), previousData);
-    });
+        tx.recordOperation(EntityType.MAP_POSITION, OperationType.UPDATE, mapId, mapId,
+            clearedPositionPayload(), previousData);
+        return () => updateMapData(targetMapName, currentMapData);
+    }));
 }
 
 // ===== UNDO/REDO =====

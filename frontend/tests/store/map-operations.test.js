@@ -6,8 +6,10 @@ import { mapBadgeColorForName } from '../../src/js/store/map-badge-colors.js';
 // Hoisted shared state
 // ============================================================================
 
-const { mockMapManager, mockLockedMaps, mockMemoryStore, mockSettings, mockMaps, mockRepoMaps } = vi.hoisted(() => {
+const { mockMapManager, mockLockedMaps, mockMemoryStore, mockSettings, mockMaps, mockRepoMaps, intents } = vi.hoisted(() => {
     return {
+        /** As intenções duráveis registradas na transação, na ordem. */
+        intents: [],
         mockMapManager: {
             getCurrentMapName: vi.fn(() => 'TestMap'),
             getCurrentMapId: vi.fn(() => 'map-uuid-123'),
@@ -57,14 +59,27 @@ vi.mock('../../src/js/store/store-errors.js', () => ({
     emitStoreError: vi.fn()
 }));
 
-vi.mock('../../src/js/store/sync/index.js', () => ({
+vi.mock('../../src/js/store/sync/index.js', async () => ({
     logMapOperation: vi.fn(),
-    logMapPositionOperation: vi.fn(),
-    logBaseLayerOperation: vi.fn(),
     logAtlasSetting: vi.fn(),
     // Sync OFF in unit tests → addMap keeps the name-keyed storage these tests assert.
     isOperationLoggingEnabled: vi.fn(() => false),
-    OperationType: { CREATE: 'CREATE', UPDATE: 'UPDATE', DELETE: 'DELETE' }
+    // O vocabulário REAL, e não um duplo com valores inventados: o barril reexporta o módulo
+    // folha, então uppercase aqui faria a asserção medir a fantasia do mock em vez do contrato.
+    OperationType: (await import('../../src/js/store/sync/operation-types.js')).OperationType
+}));
+
+// A PORTA DO DIÁRIO, que é por onde as configurações de mapa passam desde que viraram
+// write-ahead: `runTransaction` (real, não mockado) chama `persistOperationIntents` ANTES da
+// função de persistência. Capturar as descrições aqui é o que substitui os antigos duplos de
+// `logBaseLayerOperation`/`logMapPositionOperation`, que diziam "fui chamado" e não diziam
+// QUANDO. A ordem em si é medida com disco de verdade em
+// `tests/integration/map-settings-write-ahead.test.js`.
+vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
+    persistOperationIntents: vi.fn(async (descriptions) => {
+        intents.push(...descriptions.map((op) => ({ ...op })));
+        return async () => {};
+    })
 }));
 
 vi.mock('../../src/js/store/sync/permission-guard.js', () => ({
@@ -218,6 +233,7 @@ const mockLayerManager = {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    intents.length = 0;
     mockLockedMaps.value = new Set();
     mockMemoryStore.currentMap = 'TestMap';
     mockSettings.value = {};
@@ -362,7 +378,7 @@ describe('addMap', () => {
         await addMap('NewMap');
 
         expect(logMapOperation).toHaveBeenCalledWith(
-            'CREATE',
+            'create',
             'uuid-NewMap',
             expect.objectContaining({ id: 'uuid-NewMap' })
         );
@@ -824,6 +840,22 @@ describe('setBaseLayer', () => {
         await setBaseLayer('osm', 'OutroMapa');
 
         expect(updateMapDataCompat).not.toHaveBeenCalled();
+        expect(intents).toEqual([]);
+    });
+
+    it('registra a intenção durável do mapa-base, com o valor anterior', async () => {
+        mockMaps.value.TestMap.baseLayer = 'carta-topografica';
+
+        await setBaseLayer('osm');
+
+        expect(intents).toEqual([{
+            entityType: 'baseLayer',
+            operationType: 'update',
+            entityId: 'uuid-TestMap',
+            mapId: 'uuid-TestMap',
+            data: { baseLayer: 'osm' },
+            previousData: { baseLayer: 'carta-topografica' }
+        }]);
     });
 });
 
@@ -872,6 +904,23 @@ describe('updateMapPosition', () => {
         await updateMapPosition(-22.9, -43.17, 12, 0, 0, 'OutroMapa');
 
         expect(updateMapDataCompat).not.toHaveBeenCalled();
+        expect(intents).toEqual([]);
+    });
+
+    it('registra CREATE na primeira posição e UPDATE quando já existe uma', async () => {
+        // O que separa os dois é o `id` da posição guardada, não a existência dos campos planos:
+        // um mapa LEGADO tem os cinco campos e nenhuma posição com id, e nasce como CREATE.
+        await updateMapPosition(-22.9, -43.17, 12, 0, 0);
+        expect(intents).toHaveLength(1);
+        expect(intents[0].entityType).toBe('mapPosition');
+        expect(intents[0].operationType).toBe('create');
+        expect(intents[0].previousData).toBeNull();
+
+        await updateMapPosition(-23, -43, 14, 0, 0);
+        expect(intents).toHaveLength(2);
+        expect(intents[1].operationType).toBe('update');
+        expect(intents[1].data).toMatchObject({ zoom: 14 });
+        expect(intents[1].previousData).toMatchObject({ zoom: 12 });
     });
 });
 
@@ -946,18 +995,19 @@ describe('clearMapPosition', () => {
     // normaliza para o alvo `map` e o caminho de exclusão não lia o subtipo,
     // então limpar a posição gravava `deleted_at` no mapa inteiro.
     // ========================================================================
-    it('emite UPDATE com os cinco campos nulos, nunca DELETE', async () => {
+    it('registra UPDATE com os cinco campos nulos, nunca DELETE', async () => {
         mockMaps.value.TestMap.savedPosition = { id: 'pos-1', center_lat: -22.9 };
-        const { logMapPositionOperation } = await import('../../src/js/store/sync/index.js');
 
         await clearMapPosition('TestMap');
 
-        expect(logMapPositionOperation).toHaveBeenCalledWith(
-            'UPDATE',
-            'uuid-TestMap',
-            { center_lat: null, center_long: null, zoom: null, bearing: null, pitch: null },
-            expect.objectContaining({ id: 'pos-1' })
-        );
+        expect(intents).toEqual([{
+            entityType: 'mapPosition',
+            operationType: 'update',
+            entityId: 'uuid-TestMap',
+            mapId: 'uuid-TestMap',
+            data: { center_lat: null, center_long: null, zoom: null, bearing: null, pitch: null },
+            previousData: expect.objectContaining({ id: 'pos-1' })
+        }]);
     });
 
     it('o caso LEGADO (posição sem id, só campos planos) também emite a op', async () => {
@@ -967,27 +1017,27 @@ describe('clearMapPosition', () => {
         mockMaps.value.TestMap.center_long = -43.17;
         mockMaps.value.TestMap.zoom = 12;
         delete mockMaps.value.TestMap.savedPosition;
-        const { logMapPositionOperation } = await import('../../src/js/store/sync/index.js');
 
         await clearMapPosition('TestMap');
 
-        expect(logMapPositionOperation).toHaveBeenCalledWith(
-            'UPDATE',
-            'uuid-TestMap',
-            { center_lat: null, center_long: null, zoom: null, bearing: null, pitch: null },
-            null
-        );
+        expect(intents).toEqual([{
+            entityType: 'mapPosition',
+            operationType: 'update',
+            entityId: 'uuid-TestMap',
+            mapId: 'uuid-TestMap',
+            data: { center_lat: null, center_long: null, zoom: null, bearing: null, pitch: null },
+            previousData: null
+        }]);
     });
 
-    it('sem permissão de edição não grava nem emite op', async () => {
+    it('sem permissão de edição não grava nem registra intenção', async () => {
         checkPermission.mockReturnValue({ allowed: false, reason: 'read_only', required: 'EDIT' });
         const { updateMapDataCompat } = await import('../../src/js/store/repositories/index.js');
-        const { logMapPositionOperation } = await import('../../src/js/store/sync/index.js');
 
         await clearMapPosition('TestMap');
 
         expect(updateMapDataCompat).not.toHaveBeenCalled();
-        expect(logMapPositionOperation).not.toHaveBeenCalled();
+        expect(intents).toEqual([]);
         expect(emitStoreError).toHaveBeenCalledWith(
             'store:operationBlocked',
             expect.objectContaining({ operation: 'clearMapPosition', required: 'EDIT' })
@@ -1008,12 +1058,11 @@ describe('clearMapPosition', () => {
         mockSettings.value['mapLocked_OutroMapa'] = true;
         mockMaps.value.OutroMapa = { ...getEmptyMapData(), id: 'uuid-OutroMapa' };
         const { updateMapDataCompat } = await import('../../src/js/store/repositories/index.js');
-        const { logMapPositionOperation } = await import('../../src/js/store/sync/index.js');
 
         await clearMapPosition('OutroMapa');
 
         expect(updateMapDataCompat).not.toHaveBeenCalled();
-        expect(logMapPositionOperation).not.toHaveBeenCalled();
+        expect(intents).toEqual([]);
     });
 });
 
