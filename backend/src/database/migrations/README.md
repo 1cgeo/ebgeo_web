@@ -29,8 +29,16 @@ Esta mudança organiza apenas o banco do backend. A migração dos atlas locais 
 
 Depois que estas bases forem aplicadas em produção, ficam imutáveis. Alterações posteriores usam o próximo número livre, com migrações incrementais e testes de compatibilidade.
 
+## Até quando estas bases são editáveis (decisão de 2026-09-13)
+
+Esta linha do backend nunca foi implantada, então a baseline consolidada continua editável até a primeira implantação, e a primeira implantação é uma instalação nova a partir destas doze bases. Não há script de transição porque não há banco a transitar: banco de desenvolvimento aplicado antes de uma edição de baseline se recria.
+
+O migrador registra o checksum do conteúdo de cada arquivo aplicado desde 2026-09-13 e recusa, nomeando arquivo e hash, um arquivo já aplicado cujo conteúdo tenha mudado. Em desenvolvimento essa recusa se resolve recriando o banco a partir das bases atuais. A partir do SHA implantado a mesma recusa é o congelamento: toda mudança de schema passa a entrar por um arquivo numerado novo, e nenhuma destas doze volta a ser tocada.
+
 ## Verificação da consolidação
 
-Dois bancos descartáveis foram criados: um pela sequência anterior de 21 arquivos e outro por estas 11 bases. A comparação de catálogos do PostgreSQL confirmou equivalência de 531 colunas, 186 constraints, 169 índices, 19 funções próprias, quatro triggers e duas sequências, excluindo o tracking do migrador. A comparação ignora a ordem física das colunas e comentários, preservando tipos, defaults, nulabilidade e definições SQL. Os dados iniciais de organizações, postos e catálogo também coincidiram, desconsiderando IDs gerados e timestamps de criação.
+Dois bancos descartáveis foram criados: um pela sequência anterior de 21 arquivos e outro pelas onze primeiras bases desta tabela. A comparação de catálogos do PostgreSQL confirmou equivalência de 531 colunas, 186 constraints, 169 índices, 19 funções próprias, quatro triggers e duas sequências, excluindo o tracking do migrador. A comparação ignora a ordem física das colunas e comentários, preservando tipos, defaults, nulabilidade e definições SQL. Os dados iniciais de organizações, postos e catálogo também coincidiram, desconsiderando IDs gerados e timestamps de criação.
 
-Os testes de higiene proíbem reparos dentro destas bases. Os testes de tracking verificam reaplicação sem duplicação e recusa do histórico antigo sem alterar dados, incluindo liberação do lock após a recusa.
+A décima segunda base, 012_camadas_remotas.sql, ficou fora dessa equivalência porque é posterior a ela e porque não traz DDL nenhum: é só regularização de dados anteriores à camada padrão persistida. Numa instalação nova ela não tem linha para regularizar, e a ausência de comparação de catálogos não deixa buraco algum.
+
+Os testes de higiene proíbem reparos dentro destas bases. Os testes de tracking verificam reaplicação sem duplicação, recusa do histórico antigo sem alterar dados (incluindo liberação do lock após a recusa), recusa de arquivo aplicado cujo conteúdo mudou e adoção do checksum em linha rastreada antes desta coluna existir.
