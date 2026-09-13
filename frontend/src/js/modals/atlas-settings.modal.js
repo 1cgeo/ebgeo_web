@@ -966,10 +966,21 @@ export class AtlasSettingsModal extends ModalBase {
 
             // A aparência é de todo atlas, e vai primeiro: num atlas local ela é a única coisa a
             // salvar, e num remoto ela não depende do 403 que a outra chamada pode levar.
-            await saveAtlasAppearance({
-                terrainExaggeration: this._appearance.terrainExaggeration,
-                globeProjection: this._appearance.globeProjection,
-            });
+            try {
+                await saveAtlasAppearance({
+                    terrainExaggeration: this._appearance.terrainExaggeration,
+                    globeProjection: this._appearance.globeProjection,
+                });
+            } catch {
+                // Persistence failure PROPAGATES from the service (which emits
+                // STORE_PERSIST_ERROR instead of swallowing it into `false`). With no local
+                // catch the rejection escaped the click handler: the modal stayed open and the
+                // success line never appeared, but nothing on screen said why. Keep the modal
+                // open, since the form still holds what was chosen, and never announce success.
+                // The `false` return (empty patch, or permission refused) stays ignored.
+                showError('Não foi possível salvar as configurações do atlas.');
+                return;
+            }
 
             if (!this._canRestrict) {
                 showSuccess('Configurações salvas.');
