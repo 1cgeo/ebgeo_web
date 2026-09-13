@@ -9,12 +9,13 @@ import * as SQ from '../sync/sync.queries.js';
 import { STRUCTURAL_MARKER } from '../sync/structural-marker.js';
 
 // Entity type of the marker operation written when a merge re-parents rows in bulk.
-// Shared contract with the frontend (STRUCTURAL_RESYNC_OPS in sync-engine.js): a peer
-// receiving it takes a snapshot rather than trying to apply a per-entity change.
+// Shared contract with the frontend (STRUCTURAL_RESYNC_OPS in `store/sync/structural-markers.js`):
+// a peer receiving it takes a snapshot rather than trying to apply a per-entity change.
 //
-// The word itself is declared ONCE, in `sync/structural-marker.js`, next to the other three
-// REST exceptions that now write a marker of their own: it is the only one the client's resync
-// set knows, so it is also the `client_entity_type` of all four.
+// The word itself is declared ONCE, in `sync/structural-marker.js`, next to the other three REST
+// exceptions that write a marker of their own. It used to be the `client_entity_type` of all four,
+// because it was the only word an older client recognised; since decision D6 each act is published
+// under its own name, and here the two columns agree because this IS the merge's name.
 export const MAP_MERGE_ENTITY_TYPE = STRUCTURAL_MARKER.MAP_MERGE;
 
 // `client_id` is NOT NULL and identifies the origin of an op. The merge has no client

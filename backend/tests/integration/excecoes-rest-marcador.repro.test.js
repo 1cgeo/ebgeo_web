@@ -24,12 +24,15 @@
 // importação, cujo marcador não foi tocado) segue verde, que é a discriminação que se quer.
 // Fonte restaurada depois, e os quatro voltaram verdes.
 //
-// O QUE ELE NÃO PROVA. O cliente de hoje conhece UMA palavra de marcador
-// (`STRUCTURAL_RESYNC_OPS`, em `frontend/src/js/store/sync/sync-engine.js`), e é por isso que o
-// `client_entity_type` dos quatro é `map_merge`: é o que faz o par tomar o snapshot ao receber
-// qualquer um deles. Este arquivo afirma o que o SERVIDOR entrega (o tipo publicado, o payload e
-// a versão); que o cliente resincroniza ao vê-lo é contrato do outro pacote, e a troca do tipo
-// publicado pelo nome honesto é um commit dos dois lados.
+// O TIPO PUBLICADO É O NOME DO ATO DESDE A DECISÃO D6 (2026-09-13). Até aquela data o
+// `client_entity_type` dos quatro era `map_merge`, a única palavra que a versão anterior do
+// cliente reconhecia; como a linha nunca foi implantada e a primeira implantação é instalação
+// nova, não existe cliente anterior em campo, e cada marcador passou a viajar pelo nome dele.
+//
+// O QUE ELE NÃO PROVA. Que o CLIENTE resincroniza ao ver um dos quatro nomes é contrato do outro
+// pacote (`frontend/tests/integration/sync-engine.test.js`), e que os dois vocabulários não
+// derivam é `frontend/tests/unit/marcador-estrutural-espelha-backend.test.js`. Aqui fica o que o
+// SERVIDOR entrega: o tipo publicado, o payload e a versão.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -37,7 +40,7 @@ import { randomUUID } from 'crypto';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAtlas, createMap, loginUser } from '../helpers/fixtures.js';
-import { STRUCTURAL_MARKER, MARCADOR_DE_RESYNC_DO_CLIENTE } from '../../src/modules/sync/structural-marker.js';
+import { STRUCTURAL_MARKER, MARCADORES_PUBLICADOS } from '../../src/modules/sync/structural-marker.js';
 
 describe('Exceções REST: marcador no log e versão que anda', () => {
   let app, db, user, token, atlas, mapa;
@@ -89,8 +92,10 @@ describe('Exceções REST: marcador no log e versão que anda', () => {
     assert.equal(ops.length, 1, `o replay incremental traz o marcador, veio ${JSON.stringify(ops)}`);
 
     const marcador = ops[0];
-    assert.equal(marcador.entityType, MARCADOR_DE_RESYNC_DO_CLIENTE,
-      'o tipo publicado é a palavra que o cliente reconhece como "tire um snapshot"');
+    assert.equal(marcador.entityType, STRUCTURAL_MARKER.MAP_DUPLICATE,
+      'o tipo publicado é o NOME DO ATO, e o cliente reconhece os quatro como "tire um snapshot"');
+    assert.ok(MARCADORES_PUBLICADOS.includes(marcador.entityType),
+      'e ele pertence ao vocabulário que o cliente espelha');
     assert.equal(marcador.data.kind, STRUCTURAL_MARKER.MAP_DUPLICATE, 'e o payload diz qual ato foi');
     assert.equal(marcador.data.mapId, novoMapa);
     assert.equal(marcador.data.sourceMapId, mapa.id);
@@ -100,7 +105,7 @@ describe('Exceções REST: marcador no log e versão que anda', () => {
     assert.ok(await versaoAtual(atlas.id) > versaoDoPar, 'e a versão do atlas andou');
   });
 
-  it('duplicar: o log guarda o nome HONESTO do ato, com autoria e sentinela de servidor', async () => {
+  it('duplicar: as DUAS colunas guardam o nome do ato, com autoria e sentinela de servidor', async () => {
     await comHistorico();
     await auth(supertest(app)
       .post(`/api/v1/atlas/${atlas.id}/maps/${mapa.id}/duplicate`)).expect(201);
@@ -111,8 +116,8 @@ describe('Exceções REST: marcador no log e versão que anda', () => {
       [atlas.id, STRUCTURAL_MARKER.MAP_DUPLICATE]
     );
     assert.equal(rows.length, 1, 'uma linha por duplicação');
-    assert.equal(rows[0].client_entity_type, MARCADOR_DE_RESYNC_DO_CLIENTE,
-      'as duas colunas divergem de propósito: a de dentro é honesta, a de fora é a que o cliente entende');
+    assert.equal(rows[0].client_entity_type, STRUCTURAL_MARKER.MAP_DUPLICATE,
+      'o que o fio publica é o nome do ato (D6); até 2026-09-13 esta coluna dizia map_merge');
     assert.equal(rows[0].client_id, `server-${STRUCTURAL_MARKER.MAP_DUPLICATE}`);
     assert.equal(String(rows[0].user_id), String(user.id), 'a autoria do ato chega ao log');
     assert.equal(rows[0].batch_id, null, 'marcador de servidor não pertence a gesto nenhum');
@@ -125,9 +130,11 @@ describe('Exceções REST: marcador no log e versão que anda', () => {
     const clone = res.body.data.id;
 
     const { rows } = await db.query(
-      `SELECT entity_type, data FROM operations WHERE atlas_id = $1`, [clone]);
+      `SELECT entity_type, client_entity_type, data FROM operations WHERE atlas_id = $1`, [clone]);
     assert.equal(rows.length, 1);
     assert.equal(rows[0].entity_type, STRUCTURAL_MARKER.ATLAS_CLONE);
+    assert.equal(rows[0].client_entity_type, STRUCTURAL_MARKER.ATLAS_CLONE,
+      'e o fio publica o mesmo nome, não mais o do merge');
     assert.equal(rows[0].data.sourceAtlasId, atlas.id);
     assert.equal(rows[0].data.maps, 1, 'a contagem do que foi copiado, nunca ids nem nomes');
     assert.ok(await versaoAtual(clone) > 0,
@@ -143,9 +150,11 @@ describe('Exceções REST: marcador no log e versão que anda', () => {
     const novo = res.body.data.id;
 
     const { rows } = await db.query(
-      `SELECT entity_type, data FROM operations WHERE atlas_id = $1`, [novo]);
+      `SELECT entity_type, client_entity_type, data FROM operations WHERE atlas_id = $1`, [novo]);
     assert.equal(rows.length, 1);
     assert.equal(rows[0].entity_type, STRUCTURAL_MARKER.ATLAS_IMPORT);
+    assert.equal(rows[0].client_entity_type, STRUCTURAL_MARKER.ATLAS_IMPORT,
+      'e o fio publica o mesmo nome, não mais o do merge');
     assert.equal(rows[0].data.maps, 1);
     const versao = await versaoAtual(novo);
     assert.ok(versao > 0);

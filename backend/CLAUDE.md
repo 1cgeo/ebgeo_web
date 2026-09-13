@@ -113,15 +113,21 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   incremental responde vazio e ele conclui que está em dia. **Desde 2026-09-13 as QUATRO gravam um
   MARCADOR na mesma transação**, e não só o merge: `recordStructuralMarker`
   (`src/modules/sync/structural-marker.js`) é a fonte, e o marcador da duplicação carrega no payload
-  as camadas que `ensureMapLayers` criou fora do log. Duas coisas que se leem ao contrário. O
-  `entity_type` é o nome honesto do ato (`STRUCTURAL_MARKER`) e o `client_entity_type` é
-  `MARCADOR_DE_RESYNC_DO_CLIENTE`, que é o que sai publicado: o cliente reconhece UMA palavra como
-  "mudança estrutural por REST, tire um snapshot" (`STRUCTURAL_RESYNC_OPS`, em
-  `frontend/src/js/store/sync/sync-engine.js`), e o marcador que chegasse com nome novo seria
-  descartado como tipo desconhecido, deixando a versão andar sem convergência nenhuma. E nenhum dos
+  as camadas que `ensureMapLayers` criou fora do log. Três coisas que se leem ao contrário. As DUAS
+  colunas de tipo continuam separadas (`entity_type`, o que o LOG guarda, e `client_entity_type`, o
+  que o FIO publica), e desde a decisão D6 elas dizem o mesmo nome: cada ato viaja pelo dele
+  (`STRUCTURAL_MARKER`), e não mais os quatro como o do merge. O que permitiu a troca não foi
+  código, foi não haver cliente anterior em campo; o cliente espelha o vocabulário em
+  `STRUCTURAL_RESYNC_OPS` (`frontend/src/js/store/sync/structural-markers.js`, folha de zero
+  imports, para que o espelho seja verificável num processo só), e tipo que ele não conheça é
+  ignorado em SILÊNCIO, deixando a versão andar sem convergência nenhuma. Nenhum dos
   quatro nomes está em `APPLIABLE_TARGETS`, então um cliente que EMPURRE um deles é recusado por
-  operação antes do log, como qualquer tipo desconhecido. Guarda:
-  `tests/integration/excecoes-rest-marcador.repro.test.js`.
+  operação antes do log, como qualquer tipo desconhecido. E o marcador do MERGE é o único que não
+  passa por `recordStructuralMarker`: ele faz o próprio INSERT em `src/modules/maps/maps.service.js`,
+  com sentinela `server-merge` e sem o `kind` que os outros três põem no payload. Guardas:
+  `tests/integration/excecoes-rest-marcador.repro.test.js`,
+  `frontend/tests/unit/marcador-estrutural-espelha-backend.test.js` e
+  `frontend/tests/e2e/marcador-estrutural.e2e.test.js`.
 
   A segunda são as DUAS rotas que **este** cliente não chama, e elas não correm o mesmo risco. O
   `merge` é gateado em `manage` aqui, mas o cliente combina localmente e sincroniza como ops comuns,

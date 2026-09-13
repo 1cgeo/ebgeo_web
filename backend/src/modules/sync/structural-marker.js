@@ -16,16 +16,25 @@
 // consertava. O merge fechou isso em 2026-07; a duplicação, o clone e a importação ficaram
 // abertos até 2026-09-13.
 //
-// DUAS COLUNAS, DUAS AUDIÊNCIAS, E A INVERSÃO É DELIBERADA. `entity_type` guarda o nome HONESTO
-// do ato (`map_duplicate`, `atlas_clone`, `atlas_import`), que é o que uma consulta de
-// diagnóstico e a leitura do log precisam ver. `client_entity_type` guarda
-// `MARCADOR_DE_RESYNC_DO_CLIENTE`, e é ele que `toFrontendOperation` publica como `entityType`,
-// porque o cliente reconhece UMA palavra como "mudança estrutural por REST, tire um snapshot"
-// (`STRUCTURAL_RESYNC_OPS`, em `frontend/src/js/store/sync/sync-engine.js`, hoje um conjunto de
-// um elemento). Sem essa ponte o marcador chegaria ao cliente atual como tipo desconhecido, que
-// ele apenas avisa uma vez e descarta: a versão avançaria e a convergência não aconteceria, que
-// é metade do defeito de novo. Quando o cliente aprender os três nomes (metade dele do bloco
-// B6), esta linha vira o nome honesto nos dois lados, num commit dos dois pacotes.
+// AS DUAS COLUNAS DIZEM O MESMO NOME DESDE 2026-09-13, E ELAS JÁ DIVERGIRAM DE PROPÓSITO.
+// `entity_type` sempre guardou o nome HONESTO do ato (`map_duplicate`, `atlas_clone`,
+// `atlas_import`), que é o que uma consulta de diagnóstico e a leitura do log precisam ver;
+// `client_entity_type`, que é o que `toFrontendOperation` publica como `entityType`, guardava
+// `map_merge` para os quatro, porque aquela era a única palavra que a versão anterior do cliente
+// reconhecia como "mudança estrutural por REST, tire um snapshot". A ponte existia para que o
+// marcador não chegasse como tipo desconhecido, que o cliente avisa uma vez e descarta: a versão
+// avançaria e a convergência não aconteceria, que é metade do defeito de novo.
+//
+// A PONTE CAIU PELA DECISÃO D6 (2026-09-13, `docs/decisions/decisions-2026.md`): a linha
+// `integracao_backend` nunca foi implantada e a primeira implantação é instalação nova, então não
+// existe cliente anterior em campo para proteger. O cliente desta árvore conhece os quatro nomes
+// (`STRUCTURAL_RESYNC_OPS`, em `frontend/src/js/store/sync/structural-markers.js`), e publicar o
+// nome honesto é o que permite ao par distinguir os quatro atos sem abrir o payload.
+//
+// O QUE A SIMETRIA NÃO AUTORIZA: apagar a distinção entre as duas colunas. Elas continuam
+// separadas porque o que o LOG guarda e o que o FIO publica são decisões diferentes (o 3D/360
+// usa a mesma separação para traduzir tipo genérico em específico), e um marcador novo que
+// precise de tradução volta a divergir sem mudar nada aqui.
 //
 // O QUE O MARCADOR NÃO É: uma op aplicável. Nenhum dos quatro nomes está em `APPLIABLE_TARGETS`,
 // então um cliente que EMPURRE um deles é recusado por operação antes do log, como qualquer tipo
@@ -34,8 +43,8 @@ import { randomUUID } from 'crypto';
 import { INSERT_OPERATION } from './sync.queries.js';
 
 /**
- * Os quatro atos estruturais que escrevem fora do log. Contrato compartilhado com o frontend
- * pela palavra abaixo, não por estes nomes.
+ * Os quatro atos estruturais que escrevem fora do log. Desde a decisão D6 estes nomes SÃO o
+ * contrato de fio: cada marcador é publicado pelo seu.
  */
 export const STRUCTURAL_MARKER = Object.freeze({
   MAP_MERGE: 'map_merge',
@@ -45,10 +54,12 @@ export const STRUCTURAL_MARKER = Object.freeze({
 });
 
 /**
- * A palavra que o CLIENTE entende como "tire um snapshot". Ela é o `client_entity_type` dos
- * quatro marcadores, e é a única coisa deste arquivo que é contrato de fio.
+ * Os nomes que o fio publica, e é por eles que o cliente decide tirar um snapshot. Espelho do
+ * `STRUCTURAL_RESYNC_OPS` do frontend (`frontend/src/js/store/sync/structural-markers.js`),
+ * preso por `frontend/tests/unit/marcador-estrutural-espelha-backend.test.js`: nome novo entra
+ * nos dois pacotes no mesmo commit, senão o par recebe um tipo que ignora em silêncio.
  */
-export const MARCADOR_DE_RESYNC_DO_CLIENTE = STRUCTURAL_MARKER.MAP_MERGE;
+export const MARCADORES_PUBLICADOS = Object.freeze(Object.values(STRUCTURAL_MARKER));
 
 /**
  * Grava o marcador na MESMA transação do ato que ele descreve.
@@ -99,7 +110,9 @@ export async function recordStructuralMarker(t, {
     userId,
     randomUUID(),
     null,
-    MARCADOR_DE_RESYNC_DO_CLIENTE,
+    // `client_entity_type`: o NOME DO ATO, desde a decisão D6. Até 2026-09-13 era `map_merge`
+    // para os quatro, para não entregar tipo desconhecido a um cliente anterior.
+    kind,
     entityId,
     // `batch_id`: nulo. O marcador nasce no servidor, sem gesto de cliente por trás, e a
     // atomicidade dele é a da transação do ato que ele descreve.

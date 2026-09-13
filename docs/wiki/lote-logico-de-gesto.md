@@ -38,11 +38,19 @@ Uma transação já era um lote, porque `createBatchOperations` cunha um `batchI
 
 Duas propriedades que só se leem no cabeçalho daquele módulo. Enquanto o gesto está **ABERTO a fila não entrega nenhum membro dele**, senão o disparo de 1,5 s caindo entre duas transações mandaria a primeira metade sozinha. E **uma transação de outra origem que se complete na mesma janela ENTRA no lote**: é o preço da forma ambiente, aceito porque o lote é atômico e um passageiro a mais é aplicado ou recusado junto, nunca perdido.
 
-## As quatro exceções REST deixam marcador, e o tipo publicado ainda mente
+## As quatro exceções REST deixam marcador, e cada uma viaja pelo nome dela
 
 Merge, duplicação de mapa, clone e import de atlas não passam pelo protocolo incremental (ver [[sintese-rest-vs-sync]]). Só o merge deixava rastro no log; agora as quatro gravam o seu por `recordStructuralMarker` (`backend/src/modules/sync/structural-marker.js`), na mesma transação do ato, e o marcador da duplicação nomeia no payload as camadas que `ensureMapLayers` cria fora do log. Sem isso o par que estava offline recebia um replay VAZIO e concluía que estava em dia.
 
-**O servidor publica os quatro como `map_merge`, de propósito.** O cliente já reconhece os quatro nomes (`map_merge`, `map_duplicate`, `atlas_clone`, `atlas_import`), e as três entradas novas ficam inertes até o servidor passar a publicar o nome honesto: é um commit dos dois pacotes, e ele não pode ser feito antes de o cliente atualizado estar em campo, senão o cliente antigo recebe um tipo que não conhece. Decisão registrada em [`decisions-2026.md`](../decisions/decisions-2026.md).
+**O tipo publicado é o nome do ato desde 2026-09-13.** As quatro viajavam como `map_merge`, porque o cliente conhecia uma palavra só e tipo desconhecido é IGNORADO em silêncio pelo roteador de entrada (avisa uma vez, avança o cursor e segue), o que traria metade do defeito de volta. A restrição era "não publique antes de o cliente atualizado estar em campo", e ela caiu pela decisão D6: a linha `integracao_backend` nunca foi implantada e a primeira implantação é instalação nova, então não existe cliente anterior a proteger. Decisão registrada em [`decisions-2026.md`](../decisions/decisions-2026.md).
+
+O vocabulário virou contrato de fio, com espelho dos dois lados: `STRUCTURAL_MARKER` no backend e `STRUCTURAL_RESYNC_OPS` num módulo FOLHA do cliente (`frontend/src/js/store/sync/structural-markers.js`). A lista saiu de dentro do `sync-engine.js` por uma razão só, e ela é a mesma do `sync-trace`: o espelho só se verifica se os dois lados carregarem no MESMO processo, e o `sync-engine.js` arrasta a store inteira. Quem cobra é `frontend/tests/unit/marcador-estrutural-espelha-backend.test.js`, e a ponta a ponta é `frontend/tests/e2e/marcador-estrutural.e2e.test.js`.
+
+Três armadilhas medidas ao fechar isto:
+
+- **As DUAS colunas continuam separadas, e a simetria de hoje não as funde.** `entity_type` é o que o log guarda e `client_entity_type` é o que o fio publica; elas coincidem agora porque o nome honesto é publicável, não porque sejam a mesma decisão (o 3D/360 usa a mesma separação para traduzir tipo genérico em específico).
+- **O marcador do MERGE não passa por `recordStructuralMarker`**: ele ainda faz o próprio INSERT em `maps.service.js`, com a sentinela `server-merge` (os outros três levam `server-<ato>`) e SEM o campo `kind` no payload que os outros três carregam. Um teste que assuma `data.kind` nos quatro falha só no merge.
+- **Clone e import não se leem pela porta HTTP.** O marcador deles é a PRIMEIRA linha do log do atlas novo, e um pull HTTP a partir da versão 0 significa "não tenho nada, mande o snapshot". A leitura que alcança essa linha é o `sync_request` do socket com `haveSnapshot: true`, que é o outro sentido do zero (ver `pullOperations`). Quem medir por HTTP mede o snapshot e chama de replay.
 
 ## Ver também
 

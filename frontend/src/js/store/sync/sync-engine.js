@@ -29,6 +29,7 @@ import { reconcileLegacyQueue } from './legacy-queue.js';
 import { apiClient, configureApiClient } from './api-client.js';
 import { wsClient } from './ws-client.js';
 import { operationQueue } from './operation-queue.js';
+import { STRUCTURAL_RESYNC_OPS } from './structural-markers.js';
 import { SyncSession } from '@store/sync/sync-session.js';
 import { ATLAS_RECORD_KEY, getStoreFor, reconcileDurablePointers, StoreName } from '@store/atlas-namespace.js';
 import { readGeneration } from '@store/namespace-generation.js';
@@ -209,17 +210,14 @@ export function refusedBatchIds(resp, ops) {
  * the incremental pull answered "nothing new". It kept showing features under the
  * old map until a manual reload.
  *
- * FOUR NAMES SINCE 2026-09-13, AND THE SERVER STILL PUBLISHES ONLY ONE OF THEM. There are four
- * REST exceptions (merge, map duplication, atlas clone, atlas import) and each now writes its own
- * marker (`recordStructuralMarker`, `backend/src/modules/sync/structural-marker.js`), but the type
- * published on the wire is `map_merge` for all four, precisely because this set had a single
- * element and a client of an older build would ignore anything else. Learning the three honest
- * names here is what lets the server start publishing them, in a later commit of both packages;
- * until then the three extra entries are inert by construction and cost nothing.
- *
- * Shared contract with the backend (MAP_MERGE_ENTITY_TYPE in maps.service.js).
+ * THE LIST MOVED OUT OF THIS FILE ON 2026-09-13, and the move is what makes the mirror
+ * checkable: it is half of a wire contract whose other half is `STRUCTURAL_MARKER`
+ * (`backend/src/modules/sync/structural-marker.js`), and this module cannot be imported next to
+ * the backend's in a node test. See `store/sync/structural-markers.js`, a leaf with zero imports,
+ * and the mirror test that imports both packages at once. Since decision D6 the server publishes
+ * each of the four acts under its OWN name (it used to publish `map_merge` for all four, to stay
+ * legible to a client of an older build).
  */
-const STRUCTURAL_RESYNC_OPS = new Set(['map_merge', 'map_duplicate', 'atlas_clone', 'atlas_import']);
 
 /**
  * Records a `push.ack` span per op from the server's push response — binding each
