@@ -65,18 +65,26 @@ vi.mock('@store/sync/session-context.js', () => ({
 
 vi.mock('@store/store-origin.js', () => ({ isRemoteStoreSync: () => cenario.remoto }));
 
+// OS DUPLOS SÃO AS FOLHAS, e não o leitor: `lerPendenciasDoEscopoAtivo` roda de verdade aqui,
+// porque a composição das três fontes numa contagem só é justamente o que este lote moveu para
+// dentro dele. Dublar o leitor mediria o controle chamando uma função que não existe mais assim.
 vi.mock('@store/sync/operation-queue.js', () => ({
-    operationQueue: {
+    operationBelongsToScope: () => true,
+    OperationQueue: class {
         async countByState() {
             if (cenario.censoErro) throw cenario.censoErro;
             return cenario.censo;
-        },
+        }
     },
 }));
 
 vi.mock('@store/sync/quarantine-registry.js', () => ({
     listQuarantinedOperations: async () => cenario.quarentena,
 }));
+
+vi.mock('@store/remote-atlas.api.js', () => ({ listRemoteAtlases: async () => [] }));
+
+vi.mock('@js/session/presenca.js', () => ({ configurarPendenciasDePresenca() {} }));
 
 vi.mock('@store/sync/blob-upload-queue.js', () => ({
     BlobUploadState: Object.freeze({
@@ -95,7 +103,14 @@ vi.mock('@store/write-coordinator.js', () => ({
     },
 }));
 
-vi.mock('@store/atlas-namespace.js', () => ({ getActiveScope: () => ESCOPO_ATIVO }));
+vi.mock('@store/atlas-namespace.js', () => ({
+    getActiveScope: () => ESCOPO_ATIVO,
+    getStoreFor: () => ({ keys: async () => [], getItem: async () => null }),
+    readLocalAtlasRegistry: async () => [],
+    remoteScope: (atlasId) => ({ kind: 'remote', atlasId, dbSuffix: `remote__${atlasId}` }),
+    StoreName: Object.freeze({ OPERATION_QUEUE: 'operation_queue' }),
+    StoreScopeKind: Object.freeze({ LOCAL: 'local', REMOTE: 'remote' }),
+}));
 
 vi.mock('@store/sync/resource-access.service.js', () => ({
     isResourceAccessDegraded: () => false,

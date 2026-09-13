@@ -3,9 +3,7 @@ import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
 import { connectionState, ConnectionStates } from '@store/sync/connection-state.js';
 import { sessionContext } from '@store/sync/session-context.js';
-import { operationQueue } from '@store/sync/operation-queue.js';
-import { listQuarantinedOperations } from '@store/sync/quarantine-registry.js';
-import { listarPendenciasDeBlob, BlobUploadState } from '@store/sync/blob-upload-queue.js';
+import { lerPendenciasDoEscopoAtivo } from '@js/session/pendencias-monitoramento.js';
 import { storeWritesPaused } from '@store/write-coordinator.js';
 import { getActiveScope } from '@store/atlas-namespace.js';
 import { isRemoteStoreSync } from '@store/store-origin.js';
@@ -94,12 +92,14 @@ const HEARTBEAT_MS = 3000;
  * está de pé?".
  *
  * ELA MEDE SETE SINAIS, não um: a origem do store (`isRemoteStoreSync`), o estado da conexão,
- * os TRÊS números do censo da fila (`operationQueue.countByState`), o registro global de
- * quarentena, as pendências de upload de figura e a recuperação em curso
- * (`storeWritesPaused`). Os quatro últimos entraram em 2026-09-13 (achado F14): a fila vazia
- * com conexão de pé produzia verde incondicional, e cada um deles é um jeito de isso ser
- * falso. A regra de quem decide o que mostrar continua em `sync-phrases.js`, e o que este
- * arquivo faz é COLETAR: as duas primeiras sozinhas mentem nos
+ * os TRÊS números do censo da fila, o registro global de quarentena, as pendências de upload
+ * de figura e a recuperação em curso (`storeWritesPaused`). Os quatro últimos entraram em
+ * 2026-09-13 (achado F14): a fila vazia com conexão de pé produzia verde incondicional, e cada
+ * um deles é um jeito de isso ser falso. A regra de quem decide o que mostrar continua em
+ * `sync-phrases.js`, e as CINCO contagens vêm de `lerPendenciasDoEscopoAtivo`
+ * (`@js/session/pendencias-monitoramento.js`), o mesmo leitor que alimenta o pulso de presença
+ * do painel do administrador: duas contas para o mesmo trabalho é como o número do
+ * administrador e o do usuário divergem sem que nada acuse. As duas primeiras sozinhas mentem nos
  * dois sentidos, e as duas mentiras já estavam no produto: verde com fila cheia dizia
  * "salvo" antes de o logout descartar o trabalho, e vermelho permanente em atlas local
  * (onde não há socket a conectar, nem nunca haverá) dizia "avaria" no caminho normal do
@@ -327,31 +327,22 @@ export class SyncStatusControl {
 
         this._reading = true;
         try {
-            // THE QUEUE IS NOT THE WHOLE ANSWER, and the three reads happen together because they
-            // answer ONE question. `pending` is the work waiting its turn (sendable plus held
-            // behind a prepared intention); `problemas` is what the server refused and what is
-            // stopped behind it; the quarantine is what a previous session set aside for a
-            // decision; the blob pendencies are the bytes of a picture that never arrived. Each
-            // one of the last three used to be invisible with the queue at zero, and the light
-            // painted green over all four states: see `sync-phrases.js`.
-            const [census, quarentena, blobs] = await Promise.all([
-                operationQueue.countByState(),
-                listQuarantinedOperations(),
-                listarPendenciasDeBlob(),
-            ]);
-            this._pending = census.pendentes + census.preparadas;
-            this._problemas = census.problemas;
-            this._quarentena = quarentena.length;
-            const abertas = blobs.filter(registro =>
-                registro?.estado === BlobUploadState.PENDENTE
-                || registro?.estado === BlobUploadState.RECUSADO);
-            this._uploads = abertas.length;
-            this._uploadsRecusados = abertas
-                .filter(registro => registro.estado === BlobUploadState.RECUSADO).length;
+            // THE READER IS SHARED WITH THE PRESENCE PULSE, on purpose (F23). The census of the
+            // queue, the global quarantine and the image-upload pendencies are ONE question, and
+            // this control used to answer it with its own arithmetic while the pulse that feeds
+            // the administrator's panel answered it with another. Two counts of the same work,
+            // each right by its own rule, is a disagreement nobody can see.
+            const medido = await lerPendenciasDoEscopoAtivo();
+            if (medido === null) return;
+            this._pending = medido.pendentes + medido.preparadas;
+            this._problemas = medido.problemas;
+            this._quarentena = medido.quarentena;
+            this._uploads = medido.uploads;
+            this._uploadsRecusados = medido.uploadsRecusados;
         } catch (error) {
-            // ALL OF THEM GO UNKNOWN TOGETHER, not just the one that threw: the reads are one
-            // `Promise.all`, so a failure leaves the others unassigned, and a stale number next to
-            // an unknown one would be a census nobody measured. `null` is what keeps the light off
+            // ALL OF THEM GO UNKNOWN TOGETHER, not just the one that threw: the reader gathers in
+            // one `Promise.all`, so a failure leaves the others unmeasured, and a stale number next
+            // to an unknown one would be a census nobody took. `null` is what keeps the light off
             // the green branch.
             console.warn('Sync status: could not read the outbound pendencies:', error);
             this._pending = null;
