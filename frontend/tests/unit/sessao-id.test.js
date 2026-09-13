@@ -1,6 +1,6 @@
 // Path: tests/unit/sessao-id.test.js
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { criarSessaoId, sessaoId, CHAVE_DA_SESSAO } from '@js/session/sessao-id.js';
 
 // O ID DESTA ABA, e as três propriedades que ele tem de ter.
@@ -20,6 +20,10 @@ import { criarSessaoId, sessaoId, CHAVE_DA_SESSAO } from '@js/session/sessao-id.
 //     na primeira linha do boot das quatro páginas.
 //   - tire a validação de forma e "id guardado com forma errada" reprova: o valor iria ao servidor
 //     e o 422 derrubaria o relato INTEIRO por causa do campo mais dispensável dele.
+//   - tire o `sessionStorage` do SINGLETON e "o singleton do produto" reprova nos dois casos
+//     novos: a sessão passaria a ser a CARGA da página e não a ABA, e o id se partiria a cada F5,
+//     que é o gesto mais comum de quem está com um defeito na tela. Foi o que aconteceu em
+//     `fa0f0218` e o que a decisão D5 de 2026-09-13 reverteu.
 
 const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -131,8 +135,61 @@ describe('sessaoId: degrada, e nunca lança', () => {
 });
 
 describe('o singleton do produto', () => {
-    it('existe, é UUID e é estável (em node não há `sessionStorage`: é o caso degradado)', () => {
+    afterEach(() => {
+        delete globalThis.sessionStorage;
+        vi.resetModules();
+    });
+
+    it('existe, é UUID e é estável (sem `sessionStorage` no processo: é o caso degradado)', () => {
         expect(sessaoId()).toMatch(RE_UUID);
         expect(sessaoId()).toBe(sessaoId());
+    });
+
+    it('LIGA-SE ao `sessionStorage` da página, e não à memória', async () => {
+        // O PONTO DESTE CASO é a fiação do singleton, que os casos da fábrica não alcançam:
+        // eles injetam o armazenamento, então passariam verdes com o singleton só de memória,
+        // que foi exatamente o estado que embarcou em `fa0f0218`.
+        const armazenamento = criarArmazenamento();
+        globalThis.sessionStorage = armazenamento;
+        vi.resetModules();
+
+        const modulo = await import('@js/session/sessao-id.js');
+        const id = modulo.sessaoId();
+
+        expect(id).toMatch(RE_UUID);
+        expect(armazenamento.dados.get(CHAVE_DA_SESSAO)).toBe(id);
+        expect(armazenamento.chamadas.set).toBe(1);
+    });
+
+    it('SOBREVIVE AO F5: o mesmo armazenamento devolve o mesmo id a uma carga nova', async () => {
+        // Uma recarga é um módulo novo sobre o MESMO `sessionStorage`, que é o que
+        // `vi.resetModules()` reproduz. Com o singleton só de memória, o id mudaria aqui e a
+        // correlação de erro se partiria justamente no gesto de quem está com defeito na tela.
+        const armazenamento = criarArmazenamento();
+        globalThis.sessionStorage = armazenamento;
+
+        vi.resetModules();
+        const primeiraCarga = (await import('@js/session/sessao-id.js')).sessaoId();
+
+        vi.resetModules();
+        const segundaCarga = (await import('@js/session/sessao-id.js')).sessaoId();
+
+        expect(segundaCarga).toBe(primeiraCarga);
+        // E a segunda carga NÃO cunhou nada: só a primeira gravou.
+        expect(armazenamento.chamadas.set).toBe(1);
+    });
+
+    it('`sessionStorage` que EXPLODE ao ser lido não derruba o import do módulo', async () => {
+        // O acesso à PROPRIEDADE é o que lança com o armazenamento bloqueado, e ele acontece no
+        // corpo do módulo, ou seja, na primeira linha do boot das quatro páginas.
+        Object.defineProperty(globalThis, 'sessionStorage', {
+            configurable: true,
+            get() { throw new Error('SecurityError'); },
+        });
+        vi.resetModules();
+
+        const modulo = await import('@js/session/sessao-id.js');
+        expect(modulo.sessaoId()).toMatch(RE_UUID);
+        expect(modulo.sessaoId()).toBe(modulo.sessaoId());
     });
 });

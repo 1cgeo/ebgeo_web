@@ -1,7 +1,38 @@
 // Path: js/session/sessao-id.js
 
 /**
- * @fileoverview Error/request correlation ID for one document load. The factory optionally accepts storage for callers needing persistence; the production singleton deliberately uses memory so reloads and releases cannot share the historical usage row.
+ * @fileoverview THE ID OF THIS TAB, AND THE SESSION IS THE TAB: it survives F5.
+ *
+ * It lives in `sessionStorage`, so one UUID spans every load of the same tab until the tab is
+ * closed, and a reload does NOT mint a new one. That is the whole point, and it was decided
+ * again on 2026-09-13 (D5) after a release had moved the singleton to memory-only: correlating
+ * errors by session is the diagnostic instrument, and a reload is the single most common thing a
+ * person does when something breaks, so an id that resets on F5 splits exactly the trail someone
+ * is trying to follow. The same value rides the `X-EBGeo-Sessao` header of every REST request,
+ * which is what stitches a browser report to the server line written in the same instant.
+ *
+ * IT IS NOT AN IDENTITY. It does not say who the person is (that is the cookie's or the token's
+ * job), it does not outlive the tab, and it is not shared between tabs: `sessionStorage` rather
+ * than `localStorage` is the entire choice. Two tabs of the same user are two values, which is
+ * precisely what is wanted when the defect is "only in one tab". Usage telemetry mints a fresh id
+ * of its own when the logged-in user CHANGES (`uso-telemetria.js`), so that one person's rows are
+ * never attributed to the next; only boot reads this storage.
+ *
+ * WHY IT MINTS ITS OWN UUID instead of using the house `generateUUID()`, and the reason is NOT the
+ * barrel: `utilities/uuid.js` is a leaf and imports nothing. The reason is that `generateUUID()`
+ * calls `crypto.getRandomValues` with NO guard, and `crypto` exists in neither an insecure context
+ * (an `http:` origin that is not localhost) nor an old browser: the call THROWS. That is
+ * unacceptable here, because this value is read on the first line of all four pages' boot and
+ * inside the error capturer, the two worst places in the product for an exception.
+ * {@link sortearUuid} does the same thing wrapped in `try` with a fallback path, and that is the
+ * only reason it exists. The file is a LEAF, with ZERO IMPORTS, like the other telemetry decision
+ * modules, but that is a property of it, not the reason for the duplication.
+ *
+ * EVERY STORAGE ACCESS SITS INSIDE A `try`. In private mode, with third-party cookies blocked or
+ * with site storage disabled, reading `sessionStorage` does not return `null`: it THROWS, and a
+ * throw from here would take down the first line of all four pages' boot for the most dispensable
+ * field of a report. The outcome of a failure is a memory-only id, alive as long as the page is,
+ * which is exactly what is needed to group whatever happens in it.
  */
 
 /** Onde o id mora. Prefixado, porque o `sessionStorage` é compartilhado com tudo da origem. */
@@ -112,4 +143,17 @@ export function criarSessaoId({ storage, uuid = uuidPadrao, chave = CHAVE_DA_SES
 }
 
 /** O `sessionStorage` da página, ou `null` quando lê-lo lança. */
-export const sessaoId = criarSessaoId();
+let _armazenamento = null;
+try {
+    _armazenamento = globalThis.sessionStorage ?? null;
+} catch {
+    // Só acessar a propriedade já lança com o armazenamento bloqueado; daí o `try` em volta de
+    // uma linha que parece não precisar de um.
+    _armazenamento = null;
+}
+
+/**
+ * O id desta aba. Mesmo valor em toda chamada, em toda a vida da ABA, F5 incluído.
+ * @returns {string}
+ */
+export const sessaoId = criarSessaoId({ storage: _armazenamento });
