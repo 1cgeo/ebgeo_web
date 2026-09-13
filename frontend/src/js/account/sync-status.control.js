@@ -191,6 +191,23 @@ export class SyncStatusControl {
         this._container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group sync-status-badge';
         this._container.setAttribute('data-testid', 'sync-status-badge');
 
+        // O CRACHÁ É O CAMINHO ATÉ AS PENDÊNCIAS, e ele é o único: a luz já nomeia o que ficou
+        // para trás ("Revisão: 3", "Recusa: 1") e apontava para uma tela que não existia. Ele vira
+        // comando com `role="button"` mais teclado, e não um `<button>` de verdade, porque o
+        // elemento é o container do IControl do MapLibre e já carrega o aviso do acervo privado,
+        // que É um botão: botão dentro de botão não é HTML válido e o clique do de dentro
+        // borbulharia para o de fora, abrindo o painel a cada tentativa de reparo.
+        this._container.setAttribute('role', 'button');
+        this._container.setAttribute('tabindex', '0');
+        this._container.setAttribute('aria-haspopup', 'dialog');
+        this._container.setAttribute('data-abre-pendencias', 'true');
+        addDomListener(this, this._container, 'click', () => this._abrirPendencias());
+        addDomListener(this, this._container, 'keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            this._abrirPendencias();
+        });
+
         this._dot = document.createElement('span');
         this._dot.className = 'sync-status-badge__dot';
         this._dot.setAttribute('aria-hidden', 'true');
@@ -212,7 +229,11 @@ export class SyncStatusControl {
         this._notice.setAttribute('data-testid', 'resource-access-notice');
         this._notice.hidden = true;
         this._container.appendChild(this._notice);
-        addDomListener(this, this._notice, 'click', () => this._repairResourceAccess());
+        addDomListener(this, this._notice, 'click', (event) => {
+            // O container inteiro abre o painel de pendências; este botão é outro assunto.
+            event.stopPropagation();
+            this._repairResourceAccess();
+        });
 
         // Seed from what is known synchronously, so the light is never blank.
         this._render();
@@ -277,6 +298,30 @@ export class SyncStatusControl {
             // Success flips the health signal and repaints through the subscription; this
             // repaint is what clears the "Recuperando…" state when it did NOT succeed.
             if (this._container) this._render();
+        }
+    }
+
+    /**
+     * Opens the pendency panel, which is where this light points.
+     *
+     * The badge is hidden for an anonymous visitor, so this cannot be reached without a session;
+     * the guard is here anyway because a keyboard handler on a hidden element is still reachable
+     * in some browsers, and opening a panel that reads a queue nobody owns would only confuse.
+     *
+     * THE PANEL IS LOADED ON THE CLICK, not imported at the top, and the reason is module graph
+     * rather than payload: the panel reaches the permission guard, the confirm modal and the
+     * toast service, and a static import would drag all three into every module that merely
+     * mounts this light (which is what turned an unrelated unit test of this control red). It
+     * also happens to be the right shape: nobody who never clicks pays for the panel.
+     * @private
+     */
+    async _abrirPendencias() {
+        if (!sessionContext.isAuthenticated()) return;
+        try {
+            const { abrirPainelDePendencias } = await import('./pendencias/pendencias-panel.js');
+            abrirPainelDePendencias();
+        } catch (error) {
+            console.warn('Sync status: could not open the pendency panel:', error);
         }
     }
 

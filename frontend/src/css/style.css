@@ -30,6 +30,7 @@
 @import url('./unavailable.css');
 @import url('./modals-redesign.css');
 @import url('./account.css');
+@import url('./pendencias.css');
 
 /* account-settings.css is NOT imported here: "Minha conta" deixou de ser modal em 2026-08-25 e
    virou aba de admin.html. O menu do avatar NAVEGA para lá; esta página não desenha a tela. */

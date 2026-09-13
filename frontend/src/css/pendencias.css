@@ -1,0 +1,259 @@
+/* =========================================================================
+   PAINEL DE PENDÊNCIAS
+   A lista do que a fila de saída, a quarentena preservada e a fila de bytes
+   de figura guardam à espera de uma decisão. Aberto pelo crachá de sync.
+
+   O painel usa a moldura de modal da casa (modals-redesign.css), então aqui
+   só entra o miolo. A largura é maior que a do modal padrão de propósito: a
+   linha carrega classe, item, mapa, motivo e unidades em disputa, e quebrar
+   isso em duas colunas estreitas custa a leitura de varredura, que é como
+   uma lista de pendências se lê.
+   ========================================================================= */
+
+#pendencias-panel {
+    max-width: 760px;
+}
+
+.pendencias {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+/* ---- Contadores do topo ---- */
+
+.pendencias__resumo {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.pendencias__contador {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-3);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-full);
+    font-size: var(--font-size-xs);
+    color: var(--gray-700);
+}
+
+.pendencias__contador-valor {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-bold);
+}
+
+.pendencias__contador[data-classe='conflito'] {
+    border-color: var(--color-warning);
+    color: var(--color-warning-strong);
+}
+
+.pendencias__contador[data-classe='recusa'],
+.pendencias__contador[data-classe='upload-recusado'] {
+    border-color: var(--color-error);
+    color: var(--color-error-strong);
+}
+
+/* ---- Lista ---- */
+
+.pendencias__lista {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.pendencias__linha {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    border: var(--border-width) solid var(--border-color);
+    border-left: 3px solid var(--gray-400);
+    border-radius: var(--radius-md);
+    background: var(--gray-50);
+}
+
+.pendencias__linha[data-classe='conflito'] {
+    border-left-color: var(--color-warning);
+}
+
+.pendencias__linha[data-classe='recusa'],
+.pendencias__linha[data-classe='upload-recusado'] {
+    border-left-color: var(--color-error);
+}
+
+.pendencias__linha[data-classe='dependencia'] {
+    border-left-color: var(--color-info);
+}
+
+.pendencias__linha-cabecalho {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.pendencias__classe {
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-sm);
+    background: var(--gray-200);
+    color: var(--gray-800);
+    font-size: var(--font-size-2xs);
+    font-weight: var(--font-weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.pendencias__classe[data-classe='conflito'] {
+    background: var(--color-warning);
+    color: white;
+}
+
+.pendencias__classe[data-classe='recusa'],
+.pendencias__classe[data-classe='upload-recusado'] {
+    background: var(--color-error);
+    color: white;
+}
+
+.pendencias__origem,
+.pendencias__data {
+    font-size: var(--font-size-2xs);
+    color: var(--gray-500);
+}
+
+.pendencias__data {
+    margin-left: auto;
+}
+
+.pendencias__titulo {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-900);
+}
+
+.pendencias__motivo {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+}
+
+.pendencias__campos {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0;
+}
+
+.pendencias__campos-rotulo {
+    font-size: var(--font-size-2xs);
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.pendencias__campo {
+    padding: 0 var(--space-2);
+    border: var(--border-width) solid var(--color-warning);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-xs);
+    color: var(--color-warning-strong);
+}
+
+.pendencias__bloqueio,
+.pendencias__explicacao {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+}
+
+/* ---- Avisos: carregando, vazio e falha de leitura ---- */
+
+.pendencias__aviso {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    align-items: flex-start;
+    padding: var(--space-5);
+    border: var(--border-width) dashed var(--border-color-dark);
+    border-radius: var(--radius-md);
+    text-align: left;
+}
+
+.pendencias__aviso-titulo {
+    margin: 0;
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-800);
+}
+
+.pendencias__aviso-detalhe {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--gray-600);
+}
+
+.pendencias__falha {
+    border-color: var(--color-error);
+    border-style: solid;
+    background: rgb(var(--error-rgb) / 6%);
+}
+
+/* ---- Ações ---- */
+
+.pendencias__acoes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-top: var(--space-1);
+}
+
+.pendencias__acao {
+    padding: var(--space-1) var(--space-3);
+    border: var(--border-width) solid var(--border-color-dark);
+    border-radius: var(--radius-sm);
+    background: white;
+    color: var(--gray-800);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.pendencias__acao:hover {
+    background: var(--gray-100);
+    border-color: var(--gray-500);
+}
+
+.pendencias__acao[data-acao='aceitar'],
+.pendencias__acao[data-acao='descartar'] {
+    border-color: var(--color-error);
+    color: var(--color-error-strong);
+}
+
+/*
+   O COMANDO BLOQUEADO POR ESTADO É DESENHADO E RECUSA O CLIQUE, então ele
+   NUNCA leva a propriedade `disabled`: botão desabilitado não dispara clique,
+   e o clique é como o motivo chega à pessoa. O que muda é a aparência e o
+   cursor, e o `aria-disabled` conta a mesma coisa ao leitor de tela.
+   Ver .claude/rules/architecture.md, secao UI Architecture.
+*/
+.pendencias__acao[aria-disabled='true'] {
+    border-color: var(--border-color);
+    background: var(--gray-100);
+    color: var(--gray-500);
+    cursor: not-allowed;
+}
+
+/* ---- O crachá de sync como comando ---- */
+
+.sync-status-badge[data-abre-pendencias='true'] {
+    cursor: pointer;
+}
+
+.sync-status-badge[data-abre-pendencias='true']:focus-visible {
+    outline: 2px solid var(--color-info);
+    outline-offset: 2px;
+}
