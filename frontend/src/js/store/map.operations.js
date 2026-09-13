@@ -34,6 +34,7 @@ import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { generateUUID, isValidUUID } from '../utilities/uuid.js';
 import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
 import { withMapDocument } from './document-lock.js';
+import { POSITION_FIELDS, clearedPositionPayload } from './map-position-clear.js';
 
 // Repository aliases
 const getMapData = getMapDataCompat;
@@ -645,6 +646,32 @@ export async function hasAnyMapFeatures() {
 // ===== MAP CONFIGURATION =====
 
 /**
+ * Lock question for a map that may NOT be the current one.
+ *
+ * The three functions below all accept an explicit `mapName` and all used to ask
+ * `isCurrentMapLockedSync()`, which reads `memoryStore.lockedMaps` — a set that is COMPLETE
+ * only in a SERVER atlas, and in a LOCAL atlas holds the current map alone, because only
+ * `toggleMapLock` writes it. Asking that set about ANOTHER map answers "unlocked" for a locked
+ * map, silently, in the half of the product where nobody looks for lock defects (see
+ * `.claude/rules/architecture.md`, "A TRAVA DE OUTRO MAPA"). `isMapLocked` reads the app
+ * setting from disk, which every writer keeps current: `toggleMapLock` persists BEFORE
+ * touching memory, and the remote snapshot writes `mapLocked_<name>` alongside the set — so
+ * the current map keeps behaving exactly as it did.
+ *
+ * The briefing override is re-asked here because it lives in memory ONLY, by design: it makes
+ * every map read-only during briefing edit/present without persisting a lock, so disk cannot
+ * know about it. Reading disk alone would have re-opened writing during a briefing.
+ *
+ * @param {string} targetMap - Map name (already resolved, never null)
+ * @returns {Promise<boolean>} True when that map must refuse writes
+ * @private
+ */
+async function isTargetMapLocked(targetMap) {
+    if (briefingLockOverride) return true;
+    return isMapLocked(targetMap);
+}
+
+/**
  * Gets the current base layer for a map.
  *
  * @param {string} [mapName=null] - Map name
@@ -676,11 +703,6 @@ export async function setBaseLayer(layer, mapName = null) {
         return;
     }
 
-    if (isCurrentMapLockedSync()) {
-        console.warn('Map is locked. Cannot change base layer.');
-        return;
-    }
-
     if (!config.basemaps[layer]?.enabled) {
         const fallback = config.getValidBasemapFallback();
         console.warn(`Base layer "${layer}" not enabled. Using "${fallback}".`);
@@ -688,6 +710,11 @@ export async function setBaseLayer(layer, mapName = null) {
     }
 
     const targetMap = mapName || mapManager.getCurrentMapName();
+    if (await isTargetMapLocked(targetMap)) {
+        console.warn('Map is locked. Cannot change base layer.');
+        return;
+    }
+
     // The base layer lives on the map document, so this read-modify-write competes with the
     // feature writes: without the lock, a feature added meanwhile is silently reverted here.
     return withMapDocument(targetMap, 'setBaseLayer', async () => {
@@ -724,12 +751,12 @@ export async function updateMapPosition(center_lat, center_long, zoom, bearing, 
         return;
     }
 
-    if (isCurrentMapLockedSync()) {
+    const targetMap = mapName || mapManager.getCurrentMapName();
+    if (await isTargetMapLocked(targetMap)) {
         console.warn('Map is locked. Cannot update position.');
         return;
     }
 
-    const targetMap = mapName || mapManager.getCurrentMapName();
     return withMapDocument(targetMap, 'updateMapPosition', async () => {
         const currentMapData = await getMapData(targetMap);
 
@@ -784,8 +811,6 @@ export async function getMapPosition(mapName) {
     };
 }
 
-const POSITION_FIELDS = ['center_lat', 'center_long', 'zoom', 'bearing', 'pitch'];
-
 /**
  * Checks if a map has a saved position.
  *
@@ -804,18 +829,26 @@ export async function hasMapSavedPosition(mapName = null) {
  * @returns {Promise<void>}
  */
 export async function clearMapPosition(mapName = null) {
-    if (isCurrentMapLockedSync()) {
-        console.warn('Map is locked. Cannot clear position.');
+    // Same gate and same reason as the two siblings above: the tail enqueues a `mapPosition`
+    // op the server refuses for a reader, and a refused op stalls the whole outbound queue.
+    // This one was the only one of the three without it.
+    const perm = checkPermission(GuardAction.UPDATE_MAP);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'clearMapPosition', reason: perm.reason, required: perm.required });
         return;
     }
 
     const targetMapName = mapName || mapManager.getCurrentMapName();
+    if (await isTargetMapLocked(targetMapName)) {
+        console.warn('Map is locked. Cannot clear position.');
+        return;
+    }
+
     return withMapDocument(targetMapName, 'clearMapPosition', async () => {
         const currentMapData = await getMapData(targetMapName);
 
         const existingPosition = currentMapData.savedPosition;
         const previousData = existingPosition ? { ...existingPosition } : null;
-        const positionId = existingPosition?.id;
 
         delete currentMapData.savedPosition;
 
@@ -825,10 +858,21 @@ export async function clearMapPosition(mapName = null) {
 
         await updateMapData(targetMapName, currentMapData);
 
-        if (positionId) {
-            const mapId = mapResolver.resolveToId(targetMapName) || targetMapName;
-            logMapPositionOperation(OperationType.DELETE, mapId, null, previousData);
-        }
+        // AN UPDATE WITH EMPTY COLUMNS, NEVER A DELETE. This used to log a DELETE, and on the
+        // server that is an act on the MAP: a map-setting op carries the MAP's id as its
+        // `entityId` (`createMapSettingLogger`), the `mapPosition` type normalises to the
+        // target `map`, and the delete path never read the sub-type, so clearing a position
+        // soft-deleted the whole map (achado F1, measured 2026-09-13; the server now refuses
+        // that envelope by name, and this is the envelope it tells the client to send). The
+        // five keys ARE `MAP_SUBTYPE_FIELDS.position`, the only columns a position update may
+        // touch, and the server turns the two NOT NULL ones (bearing/pitch) into zero.
+        //
+        // Logged UNCONDITIONALLY. The old `if (positionId)` skipped the op for a LEGACY map,
+        // whose position lives in the flat fields with no `savedPosition` object to carry an
+        // id: the local document cleared and the peer kept the old position forever, with
+        // nothing on screen and nothing in the queue.
+        const mapId = mapResolver.resolveToId(targetMapName) || targetMapName;
+        logMapPositionOperation(OperationType.UPDATE, mapId, clearedPositionPayload(), previousData);
     });
 }
 

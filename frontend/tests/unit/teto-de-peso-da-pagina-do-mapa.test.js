@@ -391,11 +391,20 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // RECENTRAR NÃO É AFROUXAR: o piso sobe junto, então um caminhador quebrado continua
         // acusando, e a próxima pasta inteira que voltar continua estourando o teto. Remeça e
         // reescreva os quatro números, com a data, sempre que a medida sair da banda.
-        expect(ansioso.arquivos.size).toBeGreaterThanOrEqual(430);
-        expect(ansioso.arquivos.size).toBeLessThanOrEqual(505);
+        //
+        // RECENTRADA DE NOVO EM 2026-09-13, e a leitura honesta da medida é a parte útil desta
+        // anotação: 506 módulos e 6850 kB. O arquivo que estourou o teto foi UM só, o folha
+        // `store/map-position-clear.js` (2 kB, achado F1), mas ele foi apenas o 506º: entre
+        // 2026-09-02 e hoje o grafo saiu de 467 para 505 módulos e de 6369 para 6848 kB, isto
+        // é, a folga inteira já tinha sido gasta por deriva que ninguém remediu, e o teto de
+        // kB continuou cabendo por trinta kB. É exatamente o estado que o parágrafo acima
+        // descreve, pela segunda vez seguida: a banda estava reprovando o PRÓXIMO arquivo,
+        // qualquer que fosse ele, em vez de reprovar uma pasta voltando.
+        expect(ansioso.arquivos.size).toBeGreaterThanOrEqual(466);
+        expect(ansioso.arquivos.size).toBeLessThanOrEqual(546);
         const kb = kbDe(ansioso.arquivos);
-        expect(kb, `fonte ansiosa em ${kb} kB`).toBeGreaterThanOrEqual(5860);
-        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(6880);
+        expect(kb, `fonte ansiosa em ${kb} kB`).toBeGreaterThanOrEqual(6300);
+        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(7400);
     });
 
     it('o grafo COMPLETO (seguindo `import()`) cabe entre o piso e o teto medidos', () => {

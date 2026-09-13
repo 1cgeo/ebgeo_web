@@ -798,11 +798,30 @@ describe('setBaseLayer', () => {
         );
     });
 
+    // A TRAVA PASSOU A SER LIDA DO DISCO (`isMapLocked`) e não mais do conjunto em memória,
+    // porque as três funções desta seção aceitam nome de mapa e o conjunto só é completo em
+    // atlas de SERVIDOR. Para o mapa CORRENTE o comportamento é o mesmo, e é o que este caso
+    // mede: quem escreve a trava (`toggleMapLock`, snapshot remoto) grava o app setting antes
+    // de tocar a memória.
     it('blocks on locked map', async () => {
-        mockLockedMaps.value = new Set(['TestMap']);
+        mockSettings.value['mapLocked_TestMap'] = true;
         const { updateMapDataCompat } = await import('../../src/js/store/repositories/index.js');
 
         await setBaseLayer('osm');
+
+        expect(updateMapDataCompat).not.toHaveBeenCalled();
+    });
+
+    it('recusa quando o mapa ALVO está travado e o corrente não está', async () => {
+        // O conjunto em memória fica VAZIO de propósito: num atlas local ele é isso mesmo para
+        // todo mapa que não é o corrente, então a recusa tem de vir do disco. Molde:
+        // tests/store/layer-transfer.test.js, caso de destino travado.
+        mockLockedMaps.value = new Set();
+        mockSettings.value['mapLocked_OutroMapa'] = true;
+        mockMaps.value.OutroMapa = { ...getEmptyMapData(), id: 'uuid-OutroMapa' };
+        const { updateMapDataCompat } = await import('../../src/js/store/repositories/index.js');
+
+        await setBaseLayer('osm', 'OutroMapa');
 
         expect(updateMapDataCompat).not.toHaveBeenCalled();
     });
@@ -836,10 +855,21 @@ describe('updateMapPosition', () => {
     });
 
     it('blocks on locked map', async () => {
-        mockLockedMaps.value = new Set(['TestMap']);
+        mockSettings.value['mapLocked_TestMap'] = true;
         const { updateMapDataCompat } = await import('../../src/js/store/repositories/index.js');
 
         await updateMapPosition(-22.9, -43.17, 12, 0, 0);
+
+        expect(updateMapDataCompat).not.toHaveBeenCalled();
+    });
+
+    it('recusa quando o mapa ALVO está travado e o corrente não está', async () => {
+        mockLockedMaps.value = new Set();
+        mockSettings.value['mapLocked_OutroMapa'] = true;
+        mockMaps.value.OutroMapa = { ...getEmptyMapData(), id: 'uuid-OutroMapa' };
+        const { updateMapDataCompat } = await import('../../src/js/store/repositories/index.js');
+
+        await updateMapPosition(-22.9, -43.17, 12, 0, 0, 'OutroMapa');
 
         expect(updateMapDataCompat).not.toHaveBeenCalled();
     });
@@ -908,13 +938,82 @@ describe('clearMapPosition', () => {
         );
     });
 
+    // ========================================================================
+    // F1 — a op de limpeza é UPDATE com os cinco campos nulos, nunca DELETE.
+    //
+    // O DELETE que ela emitia era, no servidor, um ato sobre o MAPA: a op de
+    // configuração de mapa carimba o id do MAPA como `entityId`, o tipo
+    // normaliza para o alvo `map` e o caminho de exclusão não lia o subtipo,
+    // então limpar a posição gravava `deleted_at` no mapa inteiro.
+    // ========================================================================
+    it('emite UPDATE com os cinco campos nulos, nunca DELETE', async () => {
+        mockMaps.value.TestMap.savedPosition = { id: 'pos-1', center_lat: -22.9 };
+        const { logMapPositionOperation } = await import('../../src/js/store/sync/index.js');
+
+        await clearMapPosition('TestMap');
+
+        expect(logMapPositionOperation).toHaveBeenCalledWith(
+            'UPDATE',
+            'uuid-TestMap',
+            { center_lat: null, center_long: null, zoom: null, bearing: null, pitch: null },
+            expect.objectContaining({ id: 'pos-1' })
+        );
+    });
+
+    it('o caso LEGADO (posição sem id, só campos planos) também emite a op', async () => {
+        // A condição `if (positionId)` deixava este mapa sem op nenhuma: o documento local
+        // limpava e o par ficava com a posição velha para sempre, sem erro em lugar nenhum.
+        mockMaps.value.TestMap.center_lat = -22.9;
+        mockMaps.value.TestMap.center_long = -43.17;
+        mockMaps.value.TestMap.zoom = 12;
+        delete mockMaps.value.TestMap.savedPosition;
+        const { logMapPositionOperation } = await import('../../src/js/store/sync/index.js');
+
+        await clearMapPosition('TestMap');
+
+        expect(logMapPositionOperation).toHaveBeenCalledWith(
+            'UPDATE',
+            'uuid-TestMap',
+            { center_lat: null, center_long: null, zoom: null, bearing: null, pitch: null },
+            null
+        );
+    });
+
+    it('sem permissão de edição não grava nem emite op', async () => {
+        checkPermission.mockReturnValue({ allowed: false, reason: 'read_only', required: 'EDIT' });
+        const { updateMapDataCompat } = await import('../../src/js/store/repositories/index.js');
+        const { logMapPositionOperation } = await import('../../src/js/store/sync/index.js');
+
+        await clearMapPosition('TestMap');
+
+        expect(updateMapDataCompat).not.toHaveBeenCalled();
+        expect(logMapPositionOperation).not.toHaveBeenCalled();
+        expect(emitStoreError).toHaveBeenCalledWith(
+            'store:operationBlocked',
+            expect.objectContaining({ operation: 'clearMapPosition', required: 'EDIT' })
+        );
+    });
+
     it('blocks on locked map', async () => {
-        mockLockedMaps.value = new Set(['TestMap']);
+        mockSettings.value['mapLocked_TestMap'] = true;
         const { updateMapDataCompat } = await import('../../src/js/store/repositories/index.js');
 
         await clearMapPosition();
 
         expect(updateMapDataCompat).not.toHaveBeenCalled();
+    });
+
+    it('recusa quando o mapa ALVO está travado e o corrente não está', async () => {
+        mockLockedMaps.value = new Set();
+        mockSettings.value['mapLocked_OutroMapa'] = true;
+        mockMaps.value.OutroMapa = { ...getEmptyMapData(), id: 'uuid-OutroMapa' };
+        const { updateMapDataCompat } = await import('../../src/js/store/repositories/index.js');
+        const { logMapPositionOperation } = await import('../../src/js/store/sync/index.js');
+
+        await clearMapPosition('OutroMapa');
+
+        expect(updateMapDataCompat).not.toHaveBeenCalled();
+        expect(logMapPositionOperation).not.toHaveBeenCalled();
     });
 });
 

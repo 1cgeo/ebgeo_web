@@ -989,6 +989,39 @@ describe('Remote map-setting operations — persistence (P9)', () => {
         expect(saved.zoom).toBe(10);
     });
 
+    // F1 — a limpeza de posição viaja como UPDATE com os cinco campos nulos, porque o DELETE
+    // que ela emitia era, no servidor, uma exclusão do MAPA. Sem este ramo o par guardaria um
+    // objeto de cinco nulos COMO posição salva: os campos planos leriam limpo enquanto
+    // `savedPosition` afirmaria que existe uma.
+    it('trata um UPDATE com os cinco campos nulos como limpeza de posição', async () => {
+        const m = mapDataStore.get('map-1');
+        m.savedPosition = { id: 'pos-1', center_lat: -22.9, zoom: 10 };
+        m.center_lat = -22.9;
+        m.zoom = 10;
+        await applyRemoteOperation({
+            entityType: EntityType.MAP_POSITION, operationType: OperationType.UPDATE,
+            entityId: 'map-1', mapId: 'map-1',
+            data: { center_lat: null, center_long: null, zoom: null, bearing: null, pitch: null },
+        });
+        const saved = mapDataStore.get('map-1');
+        expect(saved.savedPosition).toBeUndefined();
+        expect(saved.center_lat).toBeNull();
+        expect(saved.zoom).toBeNull();
+    });
+
+    it('um UPDATE com números continua sendo posição, não limpeza', async () => {
+        // Controle: a guarda de "tudo nulo" não pode engolir uma posição real com zeros, que
+        // é justamente o valor neutro de bearing e pitch.
+        const pos = { id: 'pos-2', center_lat: -15.8, center_long: -47.9, zoom: 0, bearing: 0, pitch: 0 };
+        await applyRemoteOperation({
+            entityType: EntityType.MAP_POSITION, operationType: OperationType.UPDATE,
+            entityId: 'map-1', mapId: 'map-1', data: pos,
+        });
+        const saved = mapDataStore.get('map-1');
+        expect(saved.savedPosition).toEqual(pos);
+        expect(saved.zoom).toBe(0);
+    });
+
     it('clears saved position on a DELETE (null data)', async () => {
         const m = mapDataStore.get('map-1');
         m.savedPosition = { id: 'pos-1', center_lat: -22.9 };

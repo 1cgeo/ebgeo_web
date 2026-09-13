@@ -35,6 +35,7 @@ import { readGeneration, writeGeneration } from '../namespace-generation.js';
 import { pauseStoreWrites } from '../write-coordinator.js';
 import { createAtlas } from '../atlas/atlas.entity.js';
 import { generateUUID } from '../../utilities/uuid.js';
+import { isClearedPositionPayload } from '../map-position-clear.js';
 
 // ============================================================================
 // MODULE STATE
@@ -1455,25 +1456,32 @@ async function applyRemoteMapSettingOp(entityType, mapId, data) {
             break;
         case EntityType.MAP_POSITION: {
             // Persist the saved position onto the map record (savedPosition + legacy flat
-            // fields) so the peer keeps the new center/zoom (P9). data = savedPosition, or
-            // null on a clear (DELETE).
+            // fields) so the peer keeps the new center/zoom (P9).
+            //
+            // A CLEAR NOW ARRIVES AS AN UPDATE WHOSE FIVE FIELDS ARE NULL, not as a DELETE:
+            // `clearMapPosition` stopped emitting the delete envelope, which on the server was
+            // an act on the MAP and soft-deleted it (achado F1). Both shapes are accepted here
+            // — the null payload is still what an older peer sends — and `isClearedPositionPayload`
+            // is the single place that knows the difference, shared with the producer. Without
+            // this branch the update would store an object of five nulls AS the saved position:
+            // the flat fields would read cleared while `savedPosition` claimed one existed.
             await withMapDocument(mapId, 'applyRemoteMapSettingOp:position', async () => {
                 const mapData = await repo.getMap?.(mapId);
                 if (!mapData) return;
-                if (data) {
-                    mapData.savedPosition = data;
-                    mapData.center_lat = data.center_lat ?? null;
-                    mapData.center_long = data.center_long ?? null;
-                    mapData.zoom = data.zoom ?? null;
-                    mapData.bearing = data.bearing ?? null;
-                    mapData.pitch = data.pitch ?? null;
-                } else {
+                if (isClearedPositionPayload(data)) {
                     delete mapData.savedPosition;
                     mapData.center_lat = null;
                     mapData.center_long = null;
                     mapData.zoom = null;
                     mapData.bearing = null;
                     mapData.pitch = null;
+                } else {
+                    mapData.savedPosition = data;
+                    mapData.center_lat = data.center_lat ?? null;
+                    mapData.center_long = data.center_long ?? null;
+                    mapData.zoom = data.zoom ?? null;
+                    mapData.bearing = data.bearing ?? null;
+                    mapData.pitch = data.pitch ?? null;
                 }
                 await repo.saveMap?.(mapId, mapData);
             });
