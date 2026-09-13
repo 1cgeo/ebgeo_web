@@ -199,10 +199,15 @@ describeOrSkip('o painel de feicao aberto numa troca viva de atlas', () => {
             await api.login(u.username, u.password);
             const a = await api.createAtlas({ name: 'Atlas A da gaveta' });
             const b = await api.createAtlas({ name: 'Atlas B da gaveta' });
-            const mapA = crypto.randomUUID();
-            const mapB = crypto.randomUUID();
-            await api.pushOperations(a.id, [createOperation('map', 'create', mapA, null, { name: 'MAPA-A' })]);
-            await api.pushOperations(b.id, [createOperation('map', 'create', mapB, null, { name: 'MAPA-B' })]);
+            // ADOTA O MAPA QUE O SERVIDOR SEMEIA em cada atlas. `createAtlas` cria um "Mapa 1"
+            // dentro do proprio POST desde `e70ccf3c`, e desde `e8496110` a abertura sem `&map=`
+            // aterrissa no PRIMEIRO da ordem do ATLAS, que e justamente ele. Um `map create` ao
+            // lado entrava no FIM da ordem, e a espera por `?map=<mapA>` estourava.
+            const mapA = a.map_order?.[0];
+            const mapB = b.map_order?.[0];
+            if (!mapA || !mapB) throw new Error('O servidor não criou o mapa inicial do atlas.');
+            await api.pushOperations(a.id, [createOperation('map', 'update', mapA, null, { name: 'MAPA-A' })]);
+            await api.pushOperations(b.id, [createOperation('map', 'update', mapB, null, { name: 'MAPA-B' })]);
             return { atlasA: a.id, mapA, atlasB: b.id, mapB };
         }, { base: state.baseUrl, u: dono });
 

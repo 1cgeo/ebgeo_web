@@ -99,9 +99,16 @@ describeOrSkip('o que fica velho na tela depois da troca ao vivo', () => {
             const api = new ApiClient({ baseUrl: `${base}/api/v1` });
             await api.login(u.username, u.password);
             const atlas = await api.createAtlas({ name: 'Atlas A da tela' });
-            const mapId = crypto.randomUUID();
+            // ADOTA O MAPA QUE O SERVIDOR SEMEIA. `createAtlas` cria um "Mapa 1" dentro do proprio
+            // POST desde `e70ccf3c`, e desde `e8496110` a abertura sem `&map=` aterrissa no
+            // PRIMEIRO da ordem do ATLAS, que e justamente ele. Um `map create` ao lado entrava no
+            // FIM da ordem, e `esperarAtlasPronto` gastava os 60 s esperando um `?map=` que a
+            // abertura nunca escreve. Antes de `e8496110` isso passava por sorteio, porque o mapa
+            // inicial saia da ordem de chave do IndexedDB.
+            const mapId = atlas.map_order?.[0];
+            if (!mapId) throw new Error('O servidor não criou o mapa inicial do atlas.');
             await api.pushOperations(atlas.id, [
-                createOperation('map', 'create', mapId, null, { name: 'MAPA-A' }),
+                createOperation('map', 'update', mapId, null, { name: 'MAPA-A' }),
                 // A CAMADA NASCE NO SERVIDOR, entao chega ao cliente pelo snapshot da abertura,
                 // como a de qualquer projeto de verdade.
                 createOperation('layer', 'create', crypto.randomUUID(), mapId, {
