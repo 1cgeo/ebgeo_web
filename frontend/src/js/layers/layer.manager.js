@@ -13,7 +13,6 @@ import {
 import { IDUtils } from '../utilities';
 import { DebouncedPersist } from '../utilities/debounced-persist.js';
 import { EventTypes } from '../events';
-import { logLayerOperation } from '../store/sync/index.js';
 // The leaf module, never the `sync/index.js` barrel: several store suites replace that barrel
 // with a partial double that has no `EntityType`, so reaching for it there breaks them at load.
 import { EntityType, OperationType } from '../store/sync/operation-types.js';
@@ -44,20 +43,23 @@ function createPersist(label) {
  * In-memory cache (Map) for synchronous O(1) queries,
  * asynchronous persistence to IndexedDB, events to notify changes.
  *
- * TWO WRITE PATHS LIVE HERE SINCE 2026-09-13, and knowing which is which is the whole story.
- * Create, property update (rename/visibility/lock/opacity) and reorder are WRITE-AHEAD: they go
- * through {@link LayerManager#_writeLayers}, which journals the intention and writes the document
- * itself. `deleteLayer` and `setActiveLayer` are still on the old path (memory first, write
- * deferred by {@link DebouncedPersist}); the first is the next wave, the second is per-client view
- * state with no op at all. The two paths write the SAME document, which is why the migrated one
- * drains the debounce before reading.
+ * THE LAYERS DOCUMENT HAS EXACTLY ONE WRITER SINCE 2026-09-13, and that is the whole story here.
+ * Create, property update (rename/visibility/lock/opacity), reorder and DELETE are WRITE-AHEAD:
+ * they all go through {@link LayerManager#_writeLayers}, which journals the intention and then
+ * writes the document itself, inside the transaction. `deleteLayer` was the last scheduler of the
+ * layers {@link DebouncedPersist}, so that debounce is GONE: with a single writer there is no
+ * pending snapshot that could land after a direct write and silently undo it, and therefore
+ * nothing left to drain.
+ *
+ * `setActiveLayer` stays SYNCHRONOUS and debounced, and it is not an exception: the active layer is
+ * per-client VIEW state, it has no op, and it writes a DIFFERENT key (`activeLayer_<map>`), so it
+ * cannot clobber the document above.
  */
 class LayerManager {
     /** @param {import('../events/event_bus.js').EventBus} eventBus */
     constructor(eventBus) {
         this.memoryStore = memoryStore;
         this._eventBus = eventBus;
-        this._layersPersist = createPersist('layers');
         this._activeLayerPersist = createPersist('active layer');
     }
 
@@ -206,50 +208,101 @@ class LayerManager {
     }
 
     /**
-     * Delete a layer in cascade.
+     * Delete a layer.
      * If deleting the last layer, creates a new default layer automatically.
      *
-     * STILL ON THE OLD PATH (memory first, debounce, log without waiting), and deliberately so:
-     * it is the wave after this one. It writes the same document the migrated entries write, so
-     * {@link _writeLayers} DRAINS the debounce inside the lock before reading — without that, a
-     * delete's pending write would land after a create's direct write and take the new layer
-     * with it.
+     * ASYNC and WRITE-AHEAD since 2026-09-13 (bloco B4). The `layer` DELETE is journaled before
+     * the layers document is written, the document is written by the transaction itself (no
+     * debounce), and the active-layer switch happens in `tx.deferSync`, so a refused write leaves
+     * the person pointing at the layer that still exists.
+     *
+     * THE FEATURES OF THE LAYER CARRY NO OP OF THEIR OWN, and that is contract, not an omission:
+     * the server cascades them inside the same transaction as the layer row
+     * (`UPDATE features SET deleted_at ... WHERE layer_id AND map_id`) and the peer mirrors that
+     * cascade in `cascadeRemoteLayerDelete` (`store/sync/remote-operation-handler.js`). Emitting a
+     * feature DELETE here would be the obvious fix and the wrong one, because
+     * `transferLayerToMap` relocates a feature by a `feature create` with the SAME id in the
+     * destination map, and under LWW by arrival order the delete would erase what had just moved.
+     *
+     * WHY THE LOCAL REMOVAL OF THOSE FEATURES IS NOT IN THIS TRANSACTION. It lives in
+     * `deleteLayerFeatures`, which is a read-modify-write of the MAP document, and the composite
+     * `deleteLayer` (`store/store.js`) runs it FIRST, in a section of its own. Folding it in here
+     * would mean taking `map:<id>` while holding `layers:<id>`, and the reverse order already
+     * exists: two callers reach layer creation from inside a `withMapDocument` section of the same
+     * map (the move composite and the import path). Two lock orders is a cycle, i.e. a deadlock,
+     * so the two documents stay in two sections and the composite keeps the order that cannot
+     * cycle (map first, layers second). The cost is bounded and visible: a failure between them
+     * leaves an EMPTY layer, never an orphan feature.
+     *
+     * THE REPLACEMENT DEFAULT LAYER IS A LOCAL-ONLY AFFAIR. In a server atlas it is not created at
+     * all (`getActiveScope().kind === 'remote'`): the server creates the substitute and the ack
+     * brings it back in `data.replacementLayers`, which `applyConfirmedMapLayers` adopts. Locally
+     * it is a `layer` CREATE intention of its own, journaled in the same transaction, so the two
+     * halves of "the last layer went away and this one took its place" are recoverable together.
      *
      * @param {string} layerId
      * @param {string} mapName
-     * @returns {Object} Information about the deletion
+     * @returns {Promise<Object>} Information about the deletion
      */
-    deleteLayer(layerId, mapName = null) {
+    async deleteLayer(layerId, mapName = null) {
         const targetMap = this._resolveMap(mapName);
-        const layersMap = this.memoryStore.layers[targetMap];
-
-        if (!layersMap.has(layerId)) {
-            throw new Error(`Layer ${layerId} not found.`);
-        }
-
-        const deletedLayer = layersMap.get(layerId);
-        let createdDefaultLayer = null;
-
-        if (layersMap.size <= 1 && getActiveScope()?.kind !== 'remote') {
-            const defaultLayer = getDefaultLayer();
-            if (layerId === 'default') {
-                defaultLayer.id = IDUtils.generateUniqueId('layer');
+        return this._writeLayers(targetMap, 'deleteLayer', (layersMap) => {
+            // Read INSIDE the critical section: a layer read before the lock may already have been
+            // deleted by the writer ahead in the queue.
+            const deletedLayer = layersMap.get(layerId);
+            if (!deletedLayer) {
+                throw new Error(`Layer ${layerId} not found.`);
             }
-            layersMap.set(defaultLayer.id, defaultLayer);
-            this.memoryStore.activeLayerId = defaultLayer.id;
-            createdDefaultLayer = defaultLayer;
-        } else if (this.memoryStore.activeLayerId === layerId) {
-            this._switchActiveLayerOnDelete(layersMap, layerId);
-        }
 
-        layersMap.delete(layerId);
-        this._persistLayersAsync(targetMap);
-        this._persistActiveLayerAsync(targetMap);
-        this._notifyLayersChanged();
+            const operations = [{
+                type: OperationType.DELETE, id: layerId, data: null, previous: { ...deletedLayer }
+            }];
+            const layers = {};
+            let createdDefaultLayer = null;
+            let nextActiveId = null;
 
-        logLayerOperation(OperationType.DELETE, layerId, mapResolver.resolveToId(targetMap), null, deletedLayer);
+            if (layersMap.size <= 1 && getActiveScope()?.kind !== 'remote') {
+                const defaultLayer = getDefaultLayer();
+                if (layerId === 'default') {
+                    defaultLayer.id = IDUtils.generateUniqueId('layer');
+                }
+                layers[defaultLayer.id] = defaultLayer;
+                operations.push({ type: OperationType.CREATE, id: defaultLayer.id, data: defaultLayer });
+                createdDefaultLayer = defaultLayer;
+                nextActiveId = defaultLayer.id;
+            } else if (this.memoryStore.activeLayerId === layerId) {
+                const replacement = this._pickActiveLayerOnDelete(layersMap, layerId);
+                nextActiveId = replacement?.layer.id ?? null;
+                // Every other layer was LOCKED, so the fallback unlocks the one it activates. That
+                // unlock reached disk before this migration and never reached a peer, because no op
+                // described it; now it travels, as the property edit it has always been.
+                if (replacement?.unlock) {
+                    const unlocked = {
+                        ...replacement.layer, locked: false,
+                        updatedAt: Date.now(), version: (replacement.layer.version || 0) + 1
+                    };
+                    layers[unlocked.id] = unlocked;
+                    operations.push({
+                        type: OperationType.UPDATE, id: unlocked.id, data: unlocked,
+                        previous: { ...replacement.layer }
+                    });
+                }
+            }
 
-        return { success: true, deletedLayerId: layerId, createdDefaultLayer };
+            return {
+                layers,
+                removals: [layerId],
+                operations,
+                result: { success: true, deletedLayerId: layerId, createdDefaultLayer },
+                effect: () => {
+                    if (nextActiveId !== null) {
+                        this.memoryStore.activeLayerId = nextActiveId;
+                        this._persistActiveLayerAsync(targetMap);
+                    }
+                    this._notifyLayersChanged();
+                }
+            };
+        });
     }
 
     /**
@@ -379,22 +432,24 @@ class LayerManager {
     // ===== LIFECYCLE / PERSISTENCE =====
 
     /**
-     * Descarrega TODA escrita de camada ainda represada pelo debounce.
+     * Descarrega toda escrita de camada ainda represada pelo debounce.
      *
-     * POR QUE ELA EXISTE, e por que e publica. A escrita de camada e adiada em 300 ms
-     * (`_persistLayersAsync` -> `DebouncedPersist.schedule`), entao quem le do REPOSITORIO logo
-     * depois de uma edicao le o estado ANTERIOR. O exportador passou a ler do repositorio (era
-     * memoria, e memoria so existe para o mapa corrente, o que apagava em silencio as camadas de
-     * todo mapa nao visitado na sessao); sem este descarregamento a troca compraria a perda
-     * grande pagando com uma pequena, a de renomear uma camada e exportar em seguida.
+     * POR QUE ELA EXISTE, e por que e publica. A escrita do DOCUMENTO de camadas era adiada em
+     * 300 ms, entao quem lia do REPOSITORIO logo depois de uma edicao lia o estado ANTERIOR. O
+     * exportador passou a ler do repositorio (era memoria, e memoria so existe para o mapa
+     * corrente, o que apagava em silencio as camadas de todo mapa nao visitado na sessao); sem
+     * este descarregamento a troca compraria a perda grande pagando com uma pequena, a de
+     * renomear uma camada e exportar em seguida.
      *
-     * O PRECEDENTE E INTERNO: `loadLayersToMemory` ja faz `flush` antes de ler, pelo mesmo
-     * motivo. Isto so promove aquele gesto a `flushAll`, para alcancar TODO mapa com escrita
-     * pendente e nao apenas um.
+     * DESDE 2026-09-13 O DOCUMENTO DE CAMADAS NAO E MAIS REPRESADO: `deleteLayer` foi o ultimo a
+     * agendar por `DebouncedPersist`, e com ele migrado a gravacao acontece sempre dentro da
+     * transacao. O que sobra represado e a CAMADA ATIVA, que e estado de visao por cliente. A
+     * funcao continua publica e continua sendo chamada antes de ler do repositorio, pelos
+     * chamadores de fora (`flushPendingLayerWrites`), porque o contrato deles nao muda e porque a
+     * chave da ativa ainda pode estar em voo.
      * @returns {Promise<void>}
      */
     async flushPendingWrites() {
-        await this._layersPersist.flushAll();
         await this._activeLayerPersist.flushAll();
     }
 
@@ -404,7 +459,6 @@ class LayerManager {
      */
     async loadLayersToMemory(mapName) {
         try {
-            await this._layersPersist.flush(mapName);
             await this._activeLayerPersist.flush(mapName);
 
             const layersArray = await getLayersRepo(mapName);
@@ -476,7 +530,6 @@ class LayerManager {
      * @param {string} mapName
      */
     async clearMapLayers(mapName) {
-        this._layersPersist.cancel(mapName);
         this._activeLayerPersist.cancel(mapName);
 
         try {
@@ -493,7 +546,6 @@ class LayerManager {
      * Clear the in-memory cache for layers.
      */
     clearLayersCache() {
-        this._layersPersist.cancelAll();
         this._activeLayerPersist.cancelAll();
         this.memoryStore.layers = {};
         this.memoryStore.activeLayerId = 'default';
@@ -530,11 +582,12 @@ class LayerManager {
      * `store/document-lock.js` is FIFO with no reentrancy, so sharing `map:<id>` would wait for
      * the caller itself, forever.
      *
-     * IT DRAINS THE DEBOUNCE FIRST, inside the lock. `deleteLayer` and `setActiveLayer` still
-     * schedule their writes through `DebouncedPersist`, and a pending one carries a SNAPSHOT of
-     * memory taken before this edit: firing after the direct write it would silently undo it.
-     * Draining converts that race into an ordinary ordering. The drain is outside the transaction
-     * on purpose: it persists somebody else's already-decided edit, not ours.
+     * THERE IS NO DEBOUNCE LEFT TO DRAIN, since 2026-09-13. It used to flush `DebouncedPersist`
+     * inside the lock because `deleteLayer` still scheduled a write carrying a pre-edit snapshot of
+     * memory, which firing after the direct write would silently undo. `deleteLayer` came through
+     * here in the same wave, so the document has exactly one writer and the race no longer has two
+     * sides. Do not reintroduce a scheduled write for this document: it would need the drain back,
+     * and a drain is only correct while somebody remembers it exists.
      *
      * The edited layer is REPLACED, not mutated in place, which is what keeps the failed write
      * invisible. Read it back through `getLayerById`, never through a reference held across the
@@ -544,38 +597,39 @@ class LayerManager {
      * @param {string} targetMap - Resolved map name
      * @param {string} label - Operation label, for the deadlock report
      * @param {function(Map): (Object|null)} prepare - Receives the map's layers cache; returns
-     *   `{ layers, operations, result, effect }` or null to abort with no write
+     *   `{ layers, removals, operations, result, effect }` or null to abort with no write
      * @returns {Promise<*>} `edit.result`
      */
     async _writeLayers(targetMap, label, prepare) {
         let output;
         // Leaf read-modify-write of the per-map layers document; see store/document-lock.js.
-        await withSideDocument('layers', targetMap, label, async () => {
-            await this._layersPersist.flush(targetMap);
-            return runTransaction(async (tx) => {
-                this._ensureMapLayersExist(targetMap);
-                const layersMap = this.memoryStore.layers[targetMap];
-                const edit = prepare(layersMap);
-                if (!edit) return async () => {};
-                // Tag the op with the map's UUID (not its name) so it reaches the right map on the
-                // backend/peers — a non-UUID map id is rejected and poisons the whole flush batch.
-                const mapId = mapResolver.resolveToId(targetMap);
-                for (const op of edit.operations) {
-                    tx.recordOperation(EntityType.LAYER, op.type, op.id, mapId, op.data ?? null, op.previous ?? null);
-                }
-                const document = Array.from(layersMap.values()).map((layer) => edit.layers[layer.id] ?? layer);
-                for (const [id, layer] of Object.entries(edit.layers)) {
-                    if (!layersMap.has(id)) document.push(layer);
-                }
-                tx.deferSync(() => {
-                    const live = this.memoryStore.layers[targetMap];
-                    for (const [id, layer] of Object.entries(edit.layers)) live.set(id, layer);
-                    edit.effect?.();
-                });
-                output = edit.result;
-                return () => setLayersRepo(targetMap, document);
+        await withSideDocument('layers', targetMap, label, async () => runTransaction(async (tx) => {
+            this._ensureMapLayersExist(targetMap);
+            const layersMap = this.memoryStore.layers[targetMap];
+            const edit = prepare(layersMap);
+            if (!edit) return async () => {};
+            // Tag the op with the map's UUID (not its name) so it reaches the right map on the
+            // backend/peers — a non-UUID map id is rejected and poisons the whole flush batch.
+            const mapId = mapResolver.resolveToId(targetMap);
+            for (const op of edit.operations) {
+                tx.recordOperation(EntityType.LAYER, op.type, op.id, mapId, op.data ?? null, op.previous ?? null);
+            }
+            const removed = new Set(edit.removals ?? []);
+            const document = Array.from(layersMap.values())
+                .filter((layer) => !removed.has(layer.id))
+                .map((layer) => edit.layers[layer.id] ?? layer);
+            for (const [id, layer] of Object.entries(edit.layers)) {
+                if (!layersMap.has(id)) document.push(layer);
+            }
+            tx.deferSync(() => {
+                const live = this.memoryStore.layers[targetMap];
+                for (const id of removed) live.delete(id);
+                for (const [id, layer] of Object.entries(edit.layers)) live.set(id, layer);
+                edit.effect?.();
             });
-        });
+            output = edit.result;
+            return () => setLayersRepo(targetMap, document);
+        }));
         return output;
     }
 
@@ -653,26 +707,31 @@ class LayerManager {
     }
 
     /**
-     * When deleting the active layer, switch to the best alternative.
+     * Which layer takes over when the ACTIVE one is deleted, and whether it has to be unlocked.
+     *
+     * PURE since 2026-09-13: it DECIDES and returns, where the previous version wrote
+     * `memoryStore.activeLayerId` and mutated `locked` on the chosen layer in place. Both effects
+     * now belong to the caller's transaction (the unlock to the edit, the activation to
+     * `tx.deferSync`), because a decision taken before persistence must not be visible if the write
+     * is refused.
+     *
      * @param {Map} layersMap
      * @param {string} deletedId
+     * @returns {{layer: Object, unlock: boolean}|null} The layer to activate, or null when the map
+     *   has none left
      * @private
      */
-    _switchActiveLayerOnDelete(layersMap, deletedId) {
+    _pickActiveLayerOnDelete(layersMap, deletedId) {
         const remaining = Array.from(layersMap.values())
             .filter(l => l.id !== deletedId && !l.locked);
 
         if (remaining.length > 0) {
-            this.memoryStore.activeLayerId = remaining[0].id;
-            return;
+            return { layer: remaining[0], unlock: false };
         }
 
         const anyOther = Array.from(layersMap.values())
             .find(l => l.id !== deletedId);
-        if (anyOther) {
-            anyOther.locked = false;
-            this.memoryStore.activeLayerId = anyOther.id;
-        }
+        return anyOther ? { layer: anyOther, unlock: true } : null;
     }
 
     /** @private */
@@ -700,15 +759,6 @@ class LayerManager {
     _getNextLayerOrder(mapName) {
         const values = Array.from(this.memoryStore.layers[mapName].values());
         return values.length === 0 ? 0 : Math.max(...values.map(l => l.order || 0)) + 1;
-    }
-
-    /** @private */
-    _persistLayersAsync(mapName) {
-        this._layersPersist.schedule(mapName, async () => {
-            const layersMap = this.memoryStore.layers[mapName];
-            if (!layersMap) return;
-            await setLayersRepo(mapName, Array.from(layersMap.values()));
-        });
     }
 
     /** @private */

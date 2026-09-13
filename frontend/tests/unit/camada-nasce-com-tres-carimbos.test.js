@@ -25,9 +25,10 @@
  *
  * O QUE ELA NAO ALCANCA, declarado:
  *
- *  - A PERSISTENCIA. `_persistLayersAsync` passa por `DebouncedPersist` (300 ms) e por
- *    `setLayersRepo`, que e IndexedDB namespaceado por atlas. Nada aqui espera pelo disco; o que
- *    se afirma e o estado do `memoryStore` e as ops registradas.
+ *  - A PERSISTENCIA. A gravacao vai por `setLayersRepo`, que e IndexedDB namespaceado por atlas e
+ *    aqui esta dublado. O que se afirma e o estado do `memoryStore` e as ops registradas. (O
+ *    debounce do documento de camadas deixou de existir quando `deleteLayer` virou write-ahead:
+ *    com um escritor so' nao ha instantaneo represado que possa desfazer a gravacao direta.)
  *  - `loadLayersToMemory` / `duplicateMapLayers` alem do carimbo: os dois leem repositorio real.
  *    Um deles e exercitado com o repositorio dublado so para observar o carimbo da copia.
  *  - `layers.locked` NAO tem imposicao no servidor (so `maps.locked` tem). Esta suite mede o que
@@ -37,10 +38,11 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// AS OPS CHEGAM POR DUAS PORTAS, e as duas caem na mesma lista de proposito. `deleteLayer`
-// continua chamando `logLayerOperation` (caminho antigo); criar, atualizar e reordenar viraram
-// WRITE-AHEAD em 2026-09-13 e declaram a intencao por `tx.recordOperation`, que o despachante
-// recebe em `persistOperationIntents`. Normalizar as duas para a MESMA tupla
+// TODA OP DE CAMADA CHEGA POR UMA PORTA SO' desde 2026-09-13: criar, atualizar, reordenar e
+// APAGAR sao WRITE-AHEAD e declaram a intencao por `tx.recordOperation`, que o despachante recebe
+// em `persistOperationIntents`. O duplo de `logLayerOperation` fica de pe porque o barril de sync
+// e' substituido inteiro aqui, e um logger ausente estouraria no import; se ele voltar a receber
+// chamada, a lista abaixo acusa a op duas vezes. Normalizar para a tupla
 // `[tipo, id, mapId, data, anterior]` e o que mantem as assercoes desta suite falando de
 // OPERACAO em vez de mecanismo.
 const loggedOps = [];
@@ -439,9 +441,9 @@ describe('5. opacidade: clamp, nao-finito e a assimetria de null contra undefine
 });
 
 describe('6. apagar camada: a ultima renasce, e a ativa troca pela ordem de INSERCAO', () => {
-    it('apagar a unica camada cria uma padrao nova e a ativa', () => {
+    it('apagar a unica camada cria uma padrao nova e a ativa', async () => {
         lm.getLayers(MAP); // ensures the default layer exists
-        const out = lm.deleteLayer('default', MAP);
+        const out = await lm.deleteLayer('default', MAP);
         expect(out.success).toBe(true);
         expect(out.createdDefaultLayer).not.toBeNull();
         // A nova recebe id proprio, senao ela seria apagada pela linha seguinte do proprio metodo.
@@ -454,7 +456,7 @@ describe('6. apagar camada: a ultima renasce, e a ativa troca pela ordem de INSE
         const a = await lm.createLayer('A', MAP);
         lm.setActiveLayer(a.id, MAP);
         const b = await lm.createLayer('B', MAP);
-        const out = lm.deleteLayer(b.id, MAP);
+        const out = await lm.deleteLayer(b.id, MAP);
         expect(out.createdDefaultLayer).toBeNull();
         expect(lm.memoryStore.activeLayerId).toBe(a.id);
     });
@@ -468,7 +470,7 @@ describe('6. apagar camada: a ultima renasce, e a ativa troca pela ordem de INSE
         lm.getLayerById(baixa.id, MAP).order = 100;
         lm.memoryStore.layers[MAP].get('default').order = 500;
         lm.setActiveLayer(alta.id, MAP);
-        lm.deleteLayer(alta.id, MAP);
+        await lm.deleteLayer(alta.id, MAP);
         expect(lm.memoryStore.activeLayerId).toBe('default');
         // Controle: se a escolha fosse por `order`, a herdeira seria `baixa` (100 < 500).
         expect(lm.memoryStore.activeLayerId).not.toBe(baixa.id);
@@ -478,21 +480,30 @@ describe('6. apagar camada: a ultima renasce, e a ativa troca pela ordem de INSE
         const outra = await lm.createLayer('Outra', MAP);
         lm.memoryStore.layers[MAP].get('default').locked = true;
         lm.setActiveLayer(outra.id, MAP);
-        lm.deleteLayer(outra.id, MAP);
+        loggedOps.length = 0;
+        await lm.deleteLayer(outra.id, MAP);
         expect(lm.memoryStore.activeLayerId).toBe('default');
         expect(lm.memoryStore.layers[MAP].get('default').locked).toBe(false);
+        // O DESBLOQUEIO VIAJA desde 2026-09-13. Ele chegava ao disco e a nenhum par, porque
+        // nenhuma op o descrevia; agora a transacao do delete carrega tambem o update da camada
+        // que assume, com o estado anterior travado.
+        expect(loggedOps.map((op) => op[0])).toEqual(['delete', 'update']);
+        expect(loggedOps[1][1]).toBe('default');
+        expect(loggedOps[1][3].locked).toBe(false);
+        expect(loggedOps[1][4].locked).toBe(true);
     });
 
-    it('apagar camada inexistente lanca e nao registra op', () => {
+    it('apagar camada inexistente lanca e nao registra op', async () => {
         loggedOps.length = 0;
-        expect(() => lm.deleteLayer('fantasma', MAP)).toThrow(/not found/);
+        // REJEITA, e nao mais lanca de forma sincrona: a recusa acontece no preparo da transacao.
+        await expect(lm.deleteLayer('fantasma', MAP)).rejects.toThrow(/not found/);
         expect(loggedOps).toHaveLength(0);
     });
 
     it('a op de delete leva a camada APAGADA como estado anterior', async () => {
         const a = await lm.createLayer('A', MAP);
         loggedOps.length = 0;
-        lm.deleteLayer(a.id, MAP);
+        await lm.deleteLayer(a.id, MAP);
         expect(loggedOps).toHaveLength(1);
         const [tipo, layerId, mapId, payload, anterior] = loggedOps[0];
         expect(tipo).toBe('delete');

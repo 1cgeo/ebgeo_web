@@ -758,6 +758,19 @@ export async function clearAllDataStore({ markLocal = true, clearQueue = markLoc
 /**
  * Deletes a layer and all its features.
  *
+ * TWO SECTIONS, IN THIS ORDER, AND THEY CANNOT BE ONE. The features live in the MAP document and
+ * the layer record in the per-map LAYERS document, each with its own lock. Folding them into one
+ * transaction would mean holding `layers:<id>` while taking `map:<id>`, and the reverse order
+ * already exists in the product: two callers reach layer creation from inside a `withMapDocument`
+ * section of the same map (the move composite and the import path). Two lock orders is a cycle,
+ * and `store/document-lock.js` is FIFO with no reentrancy, so the cycle is a permanent freeze.
+ * Keeping the order that cannot cycle (map first, layers second) bounds the failure instead: a
+ * failure between the two leaves an EMPTY layer behind, never an orphan feature, and the layer
+ * DELETE is journaled before its own write since 2026-09-13.
+ *
+ * The features carry no op of their own by design: the server cascades them with the layer row and
+ * the peer mirrors that in `cascadeRemoteLayerDelete`. See `layers/layer.manager.js#deleteLayer`.
+ *
  * @param {string} layerId - Layer ID to delete
  * @param {string} [mapName=null] - Map name
  * @returns {Promise<Object>} Deletion result
@@ -768,7 +781,7 @@ export async function deleteLayer(layerId, mapName = null) {
         return { success: false, reason: 'MAP_LOCKED' };
     }
     await deleteLayerFeatures(layerId, mapName);
-    return deleteLayerOnly(layerId, mapName);
+    return await deleteLayerOnly(layerId, mapName);
 }
 
 // ===== UNDO/REDO SYSTEM =====

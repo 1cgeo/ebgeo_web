@@ -1,29 +1,33 @@
 // Path: tests/integration/layer-write-ahead.test.js
 //
-// O diário das três entradas de camada migradas no bloco B4 (`_createLayerInternal`,
-// `_updateLayerProperty` e `reorderLayers`), contra o despachante REAL e o IndexedDB REAL.
-// Molde: tests/integration/group-write-ahead.test.js.
+// O diário de TODAS as entradas de camada migradas no bloco B4 (`_createLayerInternal`,
+// `_updateLayerProperty`, `reorderLayers` e `deleteLayer`), contra o despachante REAL e o
+// IndexedDB REAL. Molde: tests/integration/group-write-ahead.test.js.
 //
-// TRÊS PROPRIEDADES SÃO PRÓPRIAS DESTE ARQUIVO, e nenhuma existia antes:
+// QUATRO PROPRIEDADES SÃO PRÓPRIAS DESTE ARQUIVO, e nenhuma existia antes:
 //
-//  1. A ESCRITA SAIU DO DEBOUNCE. `_persistLayersAsync` adiava a gravação em 300 ms por
-//     `DebouncedPersist`, então a camada já estava na memória e na tela quando o disco falhava,
-//     e o `onError` do debounce só chegava depois de três tentativas. Agora a gravação está
-//     DENTRO da transação e a memória só muda depois que ela confirma.
-//  2. O DEBOUNCE AINDA EXISTE, e é por isso que ele é DRENADO. `deleteLayer` e `setActiveLayer`
-//     continuam no caminho antigo e escrevem o MESMO documento; uma escrita pendente carrega um
-//     instantâneo da memória anterior a esta edição, e se ela disparasse depois da gravação
-//     direta desfaria a edição em silêncio. O caso "o debounce pendente não desfaz" é o único
-//     que mediria a diferença entre drenar e não drenar.
+//  1. A ESCRITA SAIU DO DEBOUNCE. A gravação era adiada em 300 ms por `DebouncedPersist`, então a
+//     camada já estava na memória e na tela quando o disco falhava, e o `onError` do debounce só
+//     chegava depois de três tentativas. Agora a gravação está DENTRO da transação e a memória só
+//     muda depois que ela confirma.
+//  2. O DEBOUNCE DO DOCUMENTO DE CAMADAS DEIXOU DE EXISTIR, e com ele o dreno. Ele existia porque
+//     `deleteLayer` ainda agendava uma escrita carregando um instantâneo anterior da memória, que
+//     disparando depois da gravação direta desfaria a edição em silêncio. Com a exclusão migrada há
+//     UM escritor, e o caso que media o dreno virou o caso que afirma a ausência do agendador.
 //  3. A TRAVA É A CHAVE LATERAL 'layers', nunca `map:<id>`. Dois chamadores criam camada de
 //     DENTRO de uma seção de `withMapDocument` do mesmo mapa (o composto de mover feições e a
 //     importação), e a fila de `document-lock.js` é FIFO e sem reentrância: compartilhar a chave
 //     do mapa travaria a interface para sempre. O caso da seção aninhada prova isso por
-//     CONCLUSÃO, e não por leitura de código.
+//     CONCLUSÃO, e não por leitura de código. É a MESMA razão pela qual a exclusão das feições da
+//     camada continua numa seção separada, antes desta: a ordem inversa (segurar 'layers' e pedir
+//     'map') fecharia o ciclo.
+//  4. A SUBSTITUTA DA ÚLTIMA CAMADA É ASSUNTO LOCAL. Em atlas de servidor ela não é criada aqui: o
+//     servidor a cria e o ack a devolve em `replacementLayers`. Em atlas local ela é intenção
+//     própria, na mesma transação do DELETE.
 
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { activateScope, getActiveScope, remoteScope } from '../../src/js/store/atlas-namespace.js';
+import { activateScope, getActiveScope, localScope, remoteScope } from '../../src/js/store/atlas-namespace.js';
 import { LocalRepository, localRepository } from '../../src/js/store/repositories/local.repository.js';
 import { setRepository } from '../../src/js/store/repositories/index.js';
 import { operationQueue } from '../../src/js/store/sync/operation-queue.js';
@@ -200,40 +204,144 @@ describe('Layer write-ahead persistence', () => {
         expect(await operationQueue.getAll()).toEqual([]);
     });
 
-    it('O DEBOUNCE PENDENTE NÃO DESFAZ a gravação direta, porque ele é DRENADO na trava', async () => {
-        // `deleteLayer` continua no caminho antigo: ele muda a memória e AGENDA a escrita.
+    it('O DOCUMENTO DE CAMADAS TEM UM ÚNICO ESCRITOR: não há mais escrita represada para drenar', async () => {
+        // Este caso SUBSTITUI o do dreno do debounce, e a substituição é a mudança de desenho.
+        // `deleteLayer` era o último a agendar por `DebouncedPersist`, então existia um instante
+        // perdedor (a escrita represada disparando depois da gravação direta, carregando um
+        // instantâneo anterior da memória) que o dreno convertia em ordenação comum. Com a exclusão
+        // migrada, a represa deixou de existir: quem afirma isso é a ausência do agendador, e
+        // reintroduzi-lo sem o dreno traria o defeito de volta em silêncio.
         semear(camada('l1', 0), camada('l2', 1));
         await localRepository.saveLayers(mapa.id, [camada('l1', 0), camada('l2', 1)]);
-        lm.deleteLayer('l2', mapa.name);
 
-        const original = LocalRepository.prototype.saveLayers;
-        let forcou = false;
-        vi.spyOn(LocalRepository.prototype, 'saveLayers').mockImplementation(async function (key, value) {
-            const escrito = await original.call(this, key, value);
-            // SÓ depois da gravação da CRIAÇÃO, reconhecida pelo conteúdo. A gravação do próprio
-            // dreno não serve de gatilho, e não por elegância: `DebouncedPersist.flush` devolve a
-            // promessa em voo quando já há uma, então disparar a represa de dentro dela seria
-            // esperar por si mesma (a primeira versão deste caso travou por 5 s exatamente aí).
-            if (forcou || !value.some((l) => l.name === 'Alfa')) return escrito;
-            // O INSTANTE PERDEDOR, FORÇADO em vez de esperado. A escrita represada só desfaz a
-            // criação se disparar DEPOIS da gravação direta e ANTES de `deferSync` pôr a camada
-            // nova na memória, porque é dessa memória que ela tira o documento. Esperar pelos
-            // 300 ms do temporizador mediria estatística de agendador; disparar a represa aqui
-            // torna a interleaving determinística. COM o dreno não há nada represado e esta
-            // linha é um no-op; SEM ele, ela apaga a camada recém-criada, e é essa a diferença
-            // que este caso existe para medir.
-            forcou = true;
-            await lm._layersPersist.flush(mapa.name);
-            return escrito;
-        });
+        expect(lm._persistLayersAsync, 'o agendador do documento de camadas não existe mais')
+            .toBeUndefined();
+        expect(lm._layersPersist, 'nem a represa dele').toBeUndefined();
 
+        // As duas escritas em sequência, sem dreno nenhum no meio, e o disco tem as duas metades.
+        const excluida = await lm.deleteLayer('l2', mapa.name);
         const nova = await lm.createLayer('Alfa', mapa.name);
 
-        expect(forcou, 'a represa foi exercitada no instante perdedor').toBe(true);
+        expect(excluida.success).toBe(true);
         const disco = await localRepository.getLayers(mapa.id);
         expect(disco.map(l => l.id)).toEqual(['l1', nova.id]);
-        // As duas metades estão no disco: a exclusão (que o dreno persistiu) e a criação.
         expect(disco.some(l => l.id === 'l2')).toBe(false);
+    });
+
+    it('excluir registra o `layer` DELETE antes de gravar, e a memória só perde a camada depois', async () => {
+        semear(camada('l1', 0), camada('l2', 1));
+        await localRepository.saveLayers(mapa.id, [camada('l1', 0), camada('l2', 1)]);
+        memoryStore.activeLayerId = 'l1';
+
+        const original = LocalRepository.prototype.saveLayers;
+        let filaNaGravacao = null;
+        vi.spyOn(LocalRepository.prototype, 'saveLayers').mockImplementation(async function (key, value) {
+            filaNaGravacao = await operationQueue.getAll();
+            // Enfileirada e NÃO enviável: a marca de materialização cai depois desta gravação.
+            expect(await operationQueue.peek()).toEqual([]);
+            // A memória ainda tem as duas: ela é espelho do disco, não da intenção.
+            expect(memoryStore.layers[mapa.name].has('l2')).toBe(true);
+            return original.call(this, key, value);
+        });
+
+        const resultado = await lm.deleteLayer('l2', mapa.name);
+
+        expect(resultado).toEqual({ success: true, deletedLayerId: 'l2', createdDefaultLayer: null });
+        expect(filaNaGravacao).toHaveLength(1);
+        expect(filaNaGravacao[0].entityType).toBe('layer');
+        expect(filaNaGravacao[0].operationType).toBe('delete');
+        expect(filaNaGravacao[0].entityId).toBe('l2');
+        expect(filaNaGravacao[0].mapId).toBe(mapa.id);
+        expect(filaNaGravacao[0].data).toBeNull();
+        // O estado anterior viaja para o undo.
+        expect(filaNaGravacao[0].previousData.name).toBe('Camada l2');
+        // NENHUMA op de feição: o servidor cascateia as feições da camada na mesma transação e o
+        // par espelha isso em `cascadeRemoteLayerDelete`. Uma op de feição aqui apagaria, por LWW
+        // de chegada, a feição que `transferLayerToMap` acabou de mudar de mapa com o mesmo id.
+        expect(filaNaGravacao.some(op => op.entityType === 'feature')).toBe(false);
+
+        expect((await localRepository.getLayers(mapa.id)).map(l => l.id)).toEqual(['l1']);
+        expect(memoryStore.layers[mapa.name].has('l2')).toBe(false);
+        expect(await operationQueue.peek(10)).toHaveLength(1);
+    });
+
+    it('excluir a ÚLTIMA camada em atlas de SERVIDOR não cria substituta nenhuma', async () => {
+        // O servidor cria a substituta e o ack a devolve em `data.replacementLayers`, então
+        // registrar uma criação local aqui produziria DUAS camadas padrão.
+        semear(camada('so-esta', 0));
+        await localRepository.saveLayers(mapa.id, [camada('so-esta', 0)]);
+
+        const resultado = await lm.deleteLayer('so-esta', mapa.name);
+
+        expect(resultado.createdDefaultLayer).toBeNull();
+        const fila = await operationQueue.getAll();
+        expect(fila).toHaveLength(1);
+        expect(fila[0].operationType).toBe('delete');
+        expect(await localRepository.getLayers(mapa.id)).toEqual([]);
+        expect(memoryStore.layers[mapa.name].size).toBe(0);
+    });
+
+    it('excluir a ÚLTIMA camada em atlas LOCAL registra o DELETE e o CREATE da substituta', async () => {
+        activateScope(localScope(crypto.randomUUID(), 'b4d'));
+        setRepository(new LocalRepository(getActiveScope()));
+        const repo = localRepository.forScope(getActiveScope());
+        // O documento do mapa TAMBÉM precisa existir neste escopo: `_resolveMapKey` resolve o nome
+        // pelo registro de mapas do escopo ativo, e sem ele as camadas cairiam sob a chave NOME.
+        await repo.saveMap(mapa.id, mapa);
+        mapResolver.registerMap(mapa.name, mapa.id);
+        semear(camada('default', 0, { id: 'default' }));
+        await repo.saveLayers(mapa.id, [camada('default', 0)]);
+
+        const resultado = await lm.deleteLayer('default', mapa.name);
+
+        // A substituta nasce com id NOVO quando a excluída era a `default`, senão o documento
+        // teria a mesma chave excluída e recriada.
+        expect(resultado.createdDefaultLayer.id).not.toBe('default');
+        expect(resultado.createdDefaultLayer.name).toBe('Padrão');
+        const fila = await operationQueue.forScope(getActiveScope()).getAll();
+        expect(fila.map(op => `${op.entityType}:${op.operationType}`)).toEqual(['layer:delete', 'layer:create']);
+        expect(fila[1].entityId).toBe(resultado.createdDefaultLayer.id);
+        // As duas metades de "a última camada saiu e esta tomou o lugar" são recuperáveis juntas.
+        expect((await repo.getLayers(mapa.id)).map(l => l.id)).toEqual([resultado.createdDefaultLayer.id]);
+        expect(memoryStore.activeLayerId).toBe(resultado.createdDefaultLayer.id);
+    });
+
+    it('excluir a ATIVA quando TODAS as outras estão travadas desbloqueia a que assume, com op', async () => {
+        // Caminho raro e real: `_pickActiveLayerOnDelete` só desbloqueia quando não sobra nenhuma
+        // destravada. O desbloqueio chegava ao disco e NUNCA a um par, porque nenhuma op o
+        // descrevia; agora ele viaja como a edição de propriedade que sempre foi.
+        semear(camada('ativa', 0), camada('travada', 1, { locked: true }));
+        await localRepository.saveLayers(mapa.id, [camada('ativa', 0), camada('travada', 1, { locked: true })]);
+        memoryStore.activeLayerId = 'ativa';
+
+        await lm.deleteLayer('ativa', mapa.name);
+
+        const fila = await operationQueue.getAll();
+        expect(fila.map(op => `${op.entityType}:${op.operationType}`)).toEqual(['layer:delete', 'layer:update']);
+        expect(fila[1].entityId).toBe('travada');
+        expect(fila[1].data.locked).toBe(false);
+        expect(fila[1].previousData.locked).toBe(true);
+        expect((await localRepository.getLayers(mapa.id))[0].locked).toBe(false);
+        expect(memoryStore.activeLayerId).toBe('travada');
+    });
+
+    it('excluir com gravação recusada PRESERVA a intenção e não perde a camada', async () => {
+        semear(camada('l1', 0), camada('l2', 1));
+        await localRepository.saveLayers(mapa.id, [camada('l1', 0), camada('l2', 1)]);
+        memoryStore.activeLayerId = 'l2';
+        vi.spyOn(LocalRepository.prototype, 'saveLayers')
+            .mockRejectedValueOnce(new DOMException('quota', 'QuotaExceededError'));
+
+        await expect(lm.deleteLayer('l2', mapa.name)).rejects.toThrow('quota');
+
+        const pendentes = await operationQueue.getAll();
+        expect(pendentes).toHaveLength(1);
+        expect(pendentes[0].operationType).toBe('delete');
+        expect(await operationQueue.peek()).toEqual([]);
+        expect((await localRepository.getLayers(mapa.id)).map(l => l.id)).toEqual(['l1', 'l2']);
+        expect(memoryStore.layers[mapa.name].has('l2')).toBe(true);
+        // A camada ativa não migrou: a troca vive em `tx.deferSync`.
+        expect(memoryStore.activeLayerId).toBe('l2');
     });
 
     it('a trava é a chave LATERAL, então criar camada de dentro de uma seção do mapa não trava', async () => {

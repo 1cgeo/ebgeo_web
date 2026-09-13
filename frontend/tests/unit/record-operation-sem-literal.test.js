@@ -99,7 +99,10 @@ const PISO_RECORD = 18;
 // `logGroupFeatureOperation` na membresia) e `removeFeatureFromAllGroups` (duas) viraram
 // write-ahead, e com isso `src/js/tool_manager/group_manager.js` deixou de importar a familia de
 // log inteira: nao ha mais UMA chamada dela naquele arquivo.
-const PISO_LOG = 12;
+// Baixado de 12 para 11 na mesma onda: `deleteLayer` (`src/js/layers/layer.manager.js`) virou
+// write-ahead e deixou de chamar `logLayerOperation`, que era a ULTIMA chamada de log daquele
+// arquivo.
+const PISO_LOG = 11;
 
 /**
  * Comentário fora, preservando a contagem de linhas para que a mensagem de erro aponte a

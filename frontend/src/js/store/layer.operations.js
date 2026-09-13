@@ -215,9 +215,15 @@ export async function reorderLayers(orderedLayerIds, mapName = null) {
  * Deletes a layer (without its features).
  * Feature deletion should be handled separately.
  *
+ * ASYNC since 2026-09-13 (write-ahead, bloco B4): the manager journals the `layer` DELETE, plus the
+ * CREATE of the replacement default layer in a LOCAL atlas, before it writes the document. The two
+ * refusals below stay SYNCHRONOUS values, and a caller that reads `deletion.success` has to await
+ * first: an unawaited promise is truthy and `.success` on it is `undefined`, which reads as neither
+ * refusal nor success.
+ *
  * @param {string} layerId - Layer ID to delete
  * @param {string} [mapName=null] - Map name
- * @returns {Object} Deletion result
+ * @returns {Promise<Object>|Object} Deletion result
  */
 export function deleteLayerOnly(layerId, mapName = null) {
     const perm = checkPermission(GuardAction.DELETE_LAYER);

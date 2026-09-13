@@ -521,9 +521,14 @@ export async function transferLayerToMap(layerId, targetMapName, options = {}) {
         // deselect, the MapLibre source sync and the reload, so the map keeps drawing
         // features the store no longer has. A refused deletion and a failed one leave the
         // same thing behind (an empty layer), so they get the same answer.
+        //
+        // AWAITED since the deletion became write-ahead (bloco B4). Without the await the
+        // rejection would escape this `try` entirely (a synchronous catch does not see a rejected
+        // promise) and `deletion.success` would read `undefined` on the promise object, which is
+        // neither `false` nor a success: the refusal would be reported as a removal that happened.
         let deletion = null;
         try {
-            deletion = deleteLayerOnly(layerId, sourceMapName);
+            deletion = await deleteLayerOnly(layerId, sourceMapName);
         } catch (error) {
             deletion = { success: false, reason: error?.message || 'threw' };
         }
