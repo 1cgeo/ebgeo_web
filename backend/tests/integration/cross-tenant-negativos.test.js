@@ -53,6 +53,22 @@ const PNG_B64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
 const PNG_BUFFER = Buffer.from(PNG_B64, 'base64');
 
+/**
+ * PNG valido com BYTES DISTINTOS a cada chamada.
+ *
+ * OBRIGATORIO DESDE 013_imagens_idempotentes.sql, e aqui o motivo e mais grave que um status
+ * trocado: sem chave de tentativa a rota UNICA deduplica por HASH DE CONTEUDO dentro do atlas,
+ * entao dois envios do mesmo fixture no mesmo atlas devolvem 200 com a MESMA linha. `imgA1` e
+ * `imgA2` virariam um id so, e o caso do "roubo do id A2" passaria a atacar a vitima do caso
+ * anterior, ou seja a premissa do arquivo cairia junto com o `.expect(201)`.
+ *
+ * O enchimento vai DEPOIS do IEND, entao os magic bytes seguem intactos e a dupla validacao de tipo
+ * do servidor continua reconhecendo image/png. A rota BULK nao deduplica por conteudo (o id e do
+ * cliente), entao o `data: PNG_B64` dos casos de lote segue valendo como esta.
+ */
+let enchimento = 0;
+const pngProprio = () => Buffer.concat([PNG_BUFFER, Buffer.alloc(++enchimento, 0x00)]);
+
 describe('cross-tenant / cross-actor negatives', () => {
   let app, db;
   const sfx = randomUUID().slice(0, 8);
@@ -70,14 +86,30 @@ describe('cross-tenant / cross-actor negatives', () => {
 
   let pngPath;
 
-  /** Uploads a PNG through the multipart route and returns the created row id. */
+  /**
+   * Os bytes que cada id recebeu, para que uma assercao de CONTEUDO compare com o que foi enviado
+   * em vez de com o fixture compartilhado.
+   * @type {Map<string, Buffer>}
+   */
+  const bytesDe = new Map();
+
+  /**
+   * Uploads a PNG through the multipart route and returns the created row id.
+   *
+   * BYTES PROPRIOS A CADA CHAMADA (ver `pngProprio`): todo caso deste arquivo que sobe espera uma
+   * LINHA NOVA, e com a deduplicacao por conteudo o fixture compartilhado devolveria a linha do
+   * envio anterior com 200.
+   */
   async function uploadPng(atlasId, token, expected = 201) {
+    const bytes = pngProprio();
     const res = await supertest(app)
       .post(`/api/v1/atlas/${atlasId}/images`)
       .set('Authorization', `Bearer ${token}`)
-      .attach('image', pngPath)
+      .attach('image', bytes, { filename: 'xt.png', contentType: 'image/png' })
       .expect(expected);
-    return res.body.data?.id;
+    const id = res.body.data?.id;
+    if (id) bytesDe.set(id, bytes);
+    return id;
   }
 
   /** Row count of the images table for one atlas. */
@@ -194,7 +226,13 @@ describe('cross-tenant / cross-actor negatives', () => {
       // colliding item is REFUSED; the refusal reason is now the same fixed text the
       // errorHandler gives for 23505 over REST, with the raw driver message going to
       // the log instead (pinned in tests/integration/images-bulk-error-leak.repro.test.js).
-      assert.equal(failed[0].error, 'Já existe um registro com esses dados. Altere e tente de novo.');
+      // A FRASE MUDOU EM 013_imagens_idempotentes.sql, e ela ficou MAIS especifica: a recusa passou
+      // a ser decidida antes do INSERT, perguntando de quem e o id que colidiu, entao ela nomeia o
+      // caso cross-tenant em vez de repetir o texto genérico de chave duplicada. A propriedade que
+      // este caso mede continua a mesma (o item colidente e RECUSADO, e o texto do driver nao
+      // atravessa a fronteira); o que se ganhou foi a recusa nao depender mais de o Postgres
+      // levantar unique_violation, que era o unico obstaculo a um `ON CONFLICT DO UPDATE`.
+      assert.equal(failed[0].error, 'Este id de imagem já pertence a outro atlas.');
       assert.doesNotMatch(
         failed[0].error,
         /pkey|constraint|violates/i,
@@ -231,6 +269,8 @@ describe('cross-tenant / cross-actor negatives', () => {
     it('re-importing the SAME atlas keeps the original image downloadable with its old content', async () => {
       const before = await imageRow(imgA1);
 
+      // OUTROS bytes sob o id existente: e a metade que continua sendo recusa, e desde
+      // 013_imagens_idempotentes.sql ela e decidida por COMPARACAO DE CONTEUDO, nao pela PK.
       const res = await as(tokA)
         .post(`/api/v1/atlas/${atlasA.id}/images/bulk`)
         .send({
@@ -240,13 +280,48 @@ describe('cross-tenant / cross-actor negatives', () => {
 
       assert.equal(res.body.data.uploaded.length, 0);
       assert.equal(res.body.data.failed.length, 1);
+      assert.equal(res.body.data.failed[0].error, 'Este id de imagem já existe com outro conteúdo.');
 
       const after = await imageRow(imgA1);
       assert.deepEqual(after, before, 're-import must not rewrite the existing row');
 
       const dl = await as(tokA).get(`/api/v1/atlas/${atlasA.id}/images/${imgA1}`).expect(200);
       assert.ok(Buffer.isBuffer(dl.body), 'download returns bytes');
-      assert.deepEqual(dl.body, PNG_BUFFER, 'the original blob is still served');
+      assert.deepEqual(dl.body, bytesDe.get(imgA1), 'the original blob is still served');
+    });
+
+    it('re-importing os MESMOS bytes sob o MESMO id e aceito como retentativa, sem reescrever a linha', async () => {
+      // A OUTRA METADE, e ela e nova: um re-import de verdade reenvia o blob que ja esta la, e
+      // devolver `failed` para ele fazia o cliente desistir de uma figura que o servidor tinha (ou
+      // reescrever uma referencia valida). Aqui o que importa e que aceitar NAO e reescrever: a
+      // linha da vitima potencial continua byte a byte igual, e o download segue servindo o
+      // conteudo antigo. O mecanismo em si esta em imagens-idempotentes.repro.test.js.
+      const before = await imageRow(imgA1);
+      const mesmos = bytesDe.get(imgA1);
+      assert.ok(Buffer.isBuffer(mesmos), 'guarda: o fixture tem de ter registrado os bytes de imgA1');
+
+      const res = await as(tokA)
+        .post(`/api/v1/atlas/${atlasA.id}/images/bulk`)
+        .send({
+          images: [{
+            localId: imgA1,
+            filename: 'reimport-identico.png',
+            mimeType: 'image/png',
+            data: mesmos.toString('base64'),
+          }],
+        })
+        .expect(201);
+
+      assert.deepEqual(res.body.data.failed, []);
+      assert.equal(res.body.data.uploaded.length, 1);
+      assert.equal(res.body.data.uploaded[0].reused, true, 'ela se declara reuso, nao criacao');
+      assert.equal(res.body.data.mapping[imgA1], imgA1, 'e o mapeamento devolve o MESMO id');
+
+      const after = await imageRow(imgA1);
+      assert.deepEqual(after, before, 'aceitar a retentativa nao pode reescrever coluna nenhuma');
+
+      const dl = await as(tokA).get(`/api/v1/atlas/${atlasA.id}/images/${imgA1}`).expect(200);
+      assert.deepEqual(dl.body, mesmos, 'e os bytes servidos continuam os originais');
     });
 
     it('a well-formed bulk item still uploads (control: the failures above come from the collision)', async () => {

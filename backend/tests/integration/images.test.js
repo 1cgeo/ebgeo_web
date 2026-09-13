@@ -18,6 +18,21 @@ describe('Images API', () => {
   let atlas;
   let testImagePath;
 
+  /**
+   * PNG valido com BYTES DISTINTOS a cada chamada.
+   *
+   * OBRIGATORIO DESDE 013_imagens_idempotentes.sql: sem chave de tentativa a rota unica deduplica
+   * por HASH DE CONTEUDO dentro do atlas, entao reenviar o fixture devolvia 200 com a linha de OUTRO
+   * caso deste arquivo. O efeito que isso produzia era pior que um status trocado: os casos de
+   * exclusao passavam a apagar a linha criada por um caso anterior, com outro remetente, e o caso
+   * de IDOR entre atlas passava a afirmar a sobrevivencia de uma linha compartilhada, de modo que a
+   * ordem de declaracao decidia se o arquivo media algo. O enchimento vai depois do IEND, entao os
+   * magic bytes seguem intactos para a dupla validacao de tipo do servidor.
+   * @returns {Buffer}
+   */
+  let enchimento = 0;
+  const pngProprio = () => Buffer.concat([readFileSync(testImagePath), Buffer.alloc(++enchimento, 0x00)]);
+
   before(async () => {
     const env = await setupTestEnv();
     app = env.app;
@@ -81,7 +96,7 @@ describe('Images API', () => {
       const res = await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/images`)
         .set('Authorization', `Bearer ${ownerToken}`)
-        .attach('image', testImagePath)
+        .attach('image', pngProprio(), { filename: 'img.png', contentType: 'image/png' })
         .expect(201);
 
       assert.ok(res.body.data.id);
@@ -119,8 +134,7 @@ describe('Images API', () => {
       const res = await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/images`)
         .set('Authorization', `Bearer ${writerToken}`)
-        .attach('image', Buffer.concat([readFileSync(testImagePath), Buffer.alloc(7, 0x00)]),
-          { filename: 'writer.png', contentType: 'image/png' })
+        .attach('image', pngProprio(), { filename: 'writer.png', contentType: 'image/png' })
         .expect(201);
 
       assert.ok(res.body.data.id);
@@ -130,7 +144,7 @@ describe('Images API', () => {
       await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/images`)
         .set('Authorization', `Bearer ${readerToken}`)
-        .attach('image', testImagePath)
+        .attach('image', pngProprio(), { filename: 'img.png', contentType: 'image/png' })
         .expect(403);
     });
 
@@ -142,7 +156,7 @@ describe('Images API', () => {
       await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/images`)
         .set('Authorization', `Bearer ${strangerToken}`)
-        .attach('image', testImagePath)
+        .attach('image', pngProprio(), { filename: 'img.png', contentType: 'image/png' })
         .expect(404);
     });
 
@@ -160,7 +174,7 @@ describe('Images API', () => {
       await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/images`)
         .set('Authorization', `Bearer ${ownerToken}`)
-        .attach('image', testImagePath);
+        .attach('image', pngProprio(), { filename: 'img.png', contentType: 'image/png' });
     });
 
     it('owner can list images', async () => {
@@ -204,7 +218,7 @@ describe('Images API', () => {
       const res = await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/images`)
         .set('Authorization', `Bearer ${ownerToken}`)
-        .attach('image', testImagePath);
+        .attach('image', pngProprio(), { filename: 'img.png', contentType: 'image/png' });
       uploadedImageId = res.body.data.id;
     });
 
@@ -271,7 +285,7 @@ describe('Images API', () => {
       const uploadRes = await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/images`)
         .set('Authorization', `Bearer ${ownerToken}`)
-        .attach('image', testImagePath);
+        .attach('image', pngProprio(), { filename: 'img.png', contentType: 'image/png' });
       const imageId = uploadRes.body.data.id;
 
       await supertest(app)
@@ -297,7 +311,7 @@ describe('Images API', () => {
       const uploadRes = await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/images`)
         .set('Authorization', `Bearer ${writerToken}`)
-        .attach('image', testImagePath);
+        .attach('image', pngProprio(), { filename: 'img.png', contentType: 'image/png' });
       const imageId = uploadRes.body.data.id;
 
       await supertest(app)
@@ -311,7 +325,7 @@ describe('Images API', () => {
       const uploadRes = await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/images`)
         .set('Authorization', `Bearer ${ownerToken}`)
-        .attach('image', testImagePath);
+        .attach('image', pngProprio(), { filename: 'img.png', contentType: 'image/png' });
       const imageId = uploadRes.body.data.id;
 
       await supertest(app)
@@ -350,7 +364,7 @@ describe('Images API', () => {
       const uploadRes = await supertest(app)
         .post(`/api/v1/atlas/${publicAtlas.id}/images`)
         .set('Authorization', `Bearer ${ownerToken}`)
-        .attach('image', testImagePath);
+        .attach('image', pngProprio(), { filename: 'img.png', contentType: 'image/png' });
       publicImageId = uploadRes.body.data.id;
     });
 
@@ -376,7 +390,7 @@ describe('Images API', () => {
       await supertest(app)
         .post(`/api/v1/atlas/${publicAtlas.id}/images`)
         .set('Authorization', `Bearer ${publicToken}`)
-        .attach('image', testImagePath)
+        .attach('image', pngProprio(), { filename: 'img.png', contentType: 'image/png' })
         .expect(403);
     });
 
