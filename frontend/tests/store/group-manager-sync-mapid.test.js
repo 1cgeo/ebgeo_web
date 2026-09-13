@@ -39,9 +39,29 @@ vi.mock('../../src/js/store/sync/index.js', () => ({
 }));
 
 // The resolver under test: a real atlas map NAME → its UUID; anything else passes through.
+// `getIdForName` entrou junto com a trava de documento: `sideDocumentKey` a usa para dobrar
+// nome e UUID na MESMA chave, e um duplo sem ela quebra com TypeError na primeira escrita.
 vi.mock('../../src/js/store/services/map-resolver.service.js', () => ({
-    mapResolver: { resolveToId: h.resolveToId },
+    mapResolver: { resolveToId: h.resolveToId, getIdForName: h.resolveToId },
 }));
+// As duas entradas migradas em 2026-09-13 (bloco B4) declaram a intenção por
+// `tx.recordOperation` DENTRO de `runTransaction`, e o diário vai ao disco ANTES do documento
+// de grupos. Este espelho traduz a descrição durável de volta para a chamada de logger que as
+// asserções deste arquivo já cobriam. As entradas ainda no caminho antigo (`createGroup`,
+// `combineGroups`, `removeFeatureFromAllGroups`) continuam chamando o logger direto, então as
+// duas metades convivem aqui de propósito.
+vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
+    persistOperationIntents: vi.fn(async (descriptions) => {
+        for (const op of descriptions) {
+            if (op.entityType !== 'group') throw new Error(`Alvo nao classificado: ${op.entityType}`);
+            const args = [op.operationType, op.entityId, op.mapId, op.data];
+            if (op.previousData != null) args.push(op.previousData);
+            h.logGroupOperation(...args);
+        }
+        return async () => {};
+    })
+}));
+
 
 import { createGroupManager } from '../../src/js/tool_manager/group_manager.js';
 
@@ -76,11 +96,13 @@ describe('group_manager — sync ops carry the map UUID (flush-poison guard)', (
         expect(mapId).toBe(MAP_UUID);
     });
 
-    it('updateGroupProperty logs the UPDATE op with the map UUID', () => {
+    it('updateGroupProperty logs the UPDATE op with the map UUID', async () => {
         const group = gm.createGroup([pt('f1'), pt('f2')], MAP_NAME);
         h.logGroupOperation.mockClear();
 
-        gm.updateGroupProperty(group.id, 'visible', false, MAP_NAME);
+        // Aguardado porque a entrada virou write-ahead: sem o await a asserção corre antes do
+        // diário, e o caso passaria a medir o nada.
+        await gm.updateGroupProperty(group.id, 'visible', false, MAP_NAME);
 
         expect(h.logGroupOperation).toHaveBeenCalledTimes(1);
         const [opType, , mapId] = h.logGroupOperation.mock.calls[0];
@@ -88,11 +110,11 @@ describe('group_manager — sync ops carry the map UUID (flush-poison guard)', (
         expect(mapId).toBe(MAP_UUID);
     });
 
-    it('ungroupFeatures logs the DELETE op with the map UUID', () => {
+    it('ungroupFeatures logs the DELETE op with the map UUID', async () => {
         const group = gm.createGroup([pt('f1'), pt('f2')], MAP_NAME);
         h.logGroupOperation.mockClear();
 
-        gm.ungroupFeatures(group.id, MAP_NAME);
+        await gm.ungroupFeatures(group.id, MAP_NAME);
 
         const deleteCall = h.logGroupOperation.mock.calls.find((c) => c[0] === 'delete');
         expect(deleteCall, 'a DELETE group op was logged').toBeTruthy();

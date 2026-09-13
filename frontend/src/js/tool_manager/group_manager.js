@@ -4,8 +4,41 @@ import { memoryStore, setMapGroups, getMapGroupsFromDB } from '../store';
 import { generateUUID } from '../utilities/uuid.js';
 import { EventTypes } from '../events';
 import { createSyncMetadata, touchSyncMetadata, markDeleted, isActive } from '../store/sync/sync-metadata.js';
-import { logGroupOperation, logGroupFeatureOperation, OperationType } from '../store/sync/index.js';
+import { logGroupOperation, logGroupFeatureOperation } from '../store/sync/index.js';
+// The leaf module, never the `sync/index.js` barrel: five store suites mock that barrel
+// without `EntityType`, so reaching for it there breaks them at load time.
+import { EntityType, OperationType } from '../store/sync/operation-types.js';
+import { runTransaction } from '../store/store-transaction.js';
+import { withSideDocument } from '../store/document-lock.js';
 import { mapResolver } from '../store/services/map-resolver.service.js';
+
+/**
+ * Resolves the target map, defaulting to the current one.
+ * @param {GroupManager} manager - The manager whose memory store holds the current map
+ * @param {string|null} mapName - Explicit map name or null for current
+ * @returns {string} Resolved map name
+ */
+function targetMapOf(manager, mapName) {
+    return mapName || manager.memoryStore.currentMap;
+}
+
+/**
+ * Returns the live, non-deleted group, or throws.
+ *
+ * It runs INSIDE the critical section on purpose: a group read before the lock may have been
+ * dissolved by the writer ahead in the queue, and editing it would resurrect it.
+ *
+ * @param {Object} groupsCache - The map's groups cache
+ * @param {string} groupId - Group ID
+ * @returns {Object} The group
+ */
+function requireActiveGroup(groupsCache, groupId) {
+    const group = groupsCache[groupId];
+    if (!group || !isActive(group.sync)) {
+        throw new Error(`Grupo ${groupId} não encontrado.`);
+    }
+    return group;
+}
 
 /**
  * Central manager for feature groups
@@ -167,66 +200,63 @@ class GroupManager {
     }
 
     /**
-     * Ungroup features, leaving them loose
+     * Ungroup features, leaving them loose.
+     *
+     * ASYNC since 2026-09-13 (write-ahead, bloco B4). Only the `group` DELETE travels: the
+     * server soft-deletes the row and rebuilds membership from LIVE groups only, so one
+     * `group_feature` delete per member would be work with no effect on either side.
+     *
      * @param {string} groupId - ID of group to ungroup
-     * @param {string} mapName - Map name
-     * @returns {Array} Features that were in the group
+     * @param {string} [mapName=null] - Map name (null = current map)
+     * @returns {Promise<Array>} Features that were in the group
      */
-    ungroupFeatures(groupId, mapName = null) {
-        const targetMap = mapName || this.memoryStore.currentMap;
-        this._ensureMapGroupsExist(targetMap);
-
-        const groupsCache = this.memoryStore.groups[targetMap];
-        const group = groupsCache[groupId];
-
-        if (!group || !isActive(group.sync)) {
-            throw new Error(`Grupo ${groupId} não encontrado.`);
-        }
-
-        const features = [...group.features];
-
-        // Capture old state for logging
-        const oldGroup = { ...group };
-
-        // Soft delete the group
-        group.sync = markDeleted(group.sync);
-
-        this._saveGroupsToDBAsync(targetMap);
-
-        this._notifyGroupsChanged();
-
-        // Log operation for sync
-        logGroupOperation(OperationType.DELETE, groupId, mapResolver.resolveToId(targetMap), null, oldGroup);
-
-        return features;
+    async ungroupFeatures(groupId, mapName = null) {
+        return this._writeGroups(targetMapOf(this, mapName), 'ungroupFeatures', (groupsCache) => {
+            const group = requireActiveGroup(groupsCache, groupId);
+            const next = { ...group, sync: markDeleted(group.sync) };
+            return {
+                groups: { [groupId]: next },
+                operations: [{
+                    entityType: EntityType.GROUP,
+                    type: OperationType.DELETE,
+                    id: groupId,
+                    data: null,
+                    previous: { ...group }
+                }],
+                result: [...group.features],
+                effect: () => this._notifyGroupsChanged()
+            };
+        });
     }
 
     /**
-     * Update group property (visibility, lock, etc.)
+     * Update group property (visibility, lock, etc.).
+     *
+     * ASYNC since 2026-09-13 (write-ahead, bloco B4). It does NOT emit GROUPS_CHANGED, as
+     * before: the caller owns the visual state of the row it just toggled.
+     *
+     * @param {string} groupId - Group ID
+     * @param {string} property - Property name
+     * @param {*} value - New value
+     * @param {string} [mapName=null] - Map name (null = current map)
+     * @returns {Promise<Object>} The updated group
      */
-    updateGroupProperty(groupId, property, value, mapName = null) {
-        const targetMap = mapName || this.memoryStore.currentMap;
-        this._ensureMapGroupsExist(targetMap);
-
-        const groupsCache = this.memoryStore.groups[targetMap];
-        const group = groupsCache[groupId];
-
-        if (!group || !isActive(group.sync)) {
-            throw new Error(`Grupo ${groupId} não encontrado.`);
-        }
-
-        // Capture old state for logging
-        const oldGroup = { ...group };
-
-        group[property] = value;
-        group.sync = touchSyncMetadata(group.sync);
-
-        this._saveGroupsToDBAsync(targetMap);
-
-        // Log operation for sync
-        logGroupOperation(OperationType.UPDATE, groupId, mapResolver.resolveToId(targetMap), group, oldGroup);
-
-        return group;
+    async updateGroupProperty(groupId, property, value, mapName = null) {
+        return this._writeGroups(targetMapOf(this, mapName), 'updateGroupProperty', (groupsCache) => {
+            const group = requireActiveGroup(groupsCache, groupId);
+            const next = { ...group, [property]: value, sync: touchSyncMetadata(group.sync) };
+            return {
+                groups: { [groupId]: next },
+                operations: [{
+                    entityType: EntityType.GROUP,
+                    type: OperationType.UPDATE,
+                    id: groupId,
+                    data: next,
+                    previous: { ...group }
+                }],
+                result: next
+            };
+        });
     }
 
     // ===== SYNCHRONOUS QUERIES =====
@@ -594,6 +624,58 @@ class GroupManager {
         if (!this.memoryStore.groups[mapName]) {
             this.memoryStore.groups[mapName] = {};
         }
+    }
+
+    /**
+     * Journals a group edit before the per-map groups document is written.
+     *
+     * The contract is the one `editCatalogLayers` established: the side-document lock
+     * serializes writers, `prepare` reads the cache and builds the WHOLE edit,
+     * `recordOperation` states the intention while the copy on disk is still the old one, and
+     * the returned closure is the ONLY writer. The memory cache is updated in `tx.deferSync`,
+     * so a write that fails leaves the cache agreeing with disk instead of showing an edit
+     * that nothing persisted.
+     *
+     * This REPLACES `_saveGroupsToDBAsync` for the two migrated entries: a `setTimeout(0)`
+     * whose `catch` only logged meant the edit was already on screen and in memory when the
+     * write failed, with nobody told. The entries still on the old path are `createGroup`,
+     * `combineGroups`, `importMapGroups` and `removeFeatureFromAllGroups` (the last one runs
+     * inside its parent's transaction and has to receive it instead of opening its own).
+     *
+     * The edited group is REPLACED, not mutated in place, which is what keeps the failed
+     * write invisible. Read it back through `getMapGroups`/`getGroupById`, never through a
+     * reference held across the await.
+     *
+     * @private
+     * @param {string} targetMap - Resolved map name
+     * @param {string} label - Operation label, for the deadlock report
+     * @param {function(Object): (Object|null)} prepare - Receives the groups cache; returns
+     *   `{ groups, operations, result, effect }` or null to abort with no write
+     * @returns {Promise<*>} `edit.result`
+     */
+    async _writeGroups(targetMap, label, prepare) {
+        let output;
+        // Leaf read-modify-write of the per-map groups document; see store/document-lock.js.
+        await withSideDocument('groups', targetMap, label, () => runTransaction(async (tx) => {
+            this._ensureMapGroupsExist(targetMap);
+            const groupsCache = this.memoryStore.groups[targetMap];
+            const edit = prepare(groupsCache);
+            if (!edit) return async () => {};
+            // The map UUID, never the name: a non-UUID map id is rejected by the backend and
+            // poisons the whole flush batch.
+            const mapId = mapResolver.resolveToId(targetMap);
+            for (const op of edit.operations) {
+                tx.recordOperation(op.entityType, op.type, op.id, mapId, op.data ?? null, op.previous ?? null);
+            }
+            const document = { ...groupsCache, ...edit.groups };
+            tx.deferSync(() => {
+                Object.assign(this.memoryStore.groups[targetMap], edit.groups);
+                edit.effect?.();
+            });
+            output = edit.result;
+            return () => setMapGroups(targetMap, document);
+        }));
+        return output;
     }
 
     /**

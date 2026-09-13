@@ -148,7 +148,7 @@ export function isFeatureGrouped(type, featureId, mapName = null) {
  * @param {string} property - Property name
  * @param {*} value - New value
  * @param {string} [mapName=null] - Map name
- * @returns {boolean} Whether update was successful
+ * @returns {Promise<Object>|false} The updated group, or false when the guard blocked it
  */
 export function updateGroupProperty(groupId, property, value, mapName = null) {
     if (guardMutation(GuardAction.UPDATE_GROUP, 'updateGroupProperty').blocked) return false;
@@ -162,7 +162,8 @@ export function updateGroupProperty(groupId, property, value, mapName = null) {
  *
  * @param {string} groupId - Group ID
  * @param {string} [mapName=null] - Map name
- * @returns {boolean} Whether ungroup was successful
+ * @returns {Promise<Array>|false} The features that were in the group, or false when the
+ *   guard blocked it
  */
 export function ungroupFeatures(groupId, mapName = null) {
     if (guardMutation(GuardAction.DELETE_GROUP, 'ungroupFeatures').blocked) return false;

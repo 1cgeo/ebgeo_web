@@ -47,9 +47,29 @@ vi.mock('../../src/js/store/sync/index.js', () => ({
     OperationType: { CREATE: 'create', UPDATE: 'update', DELETE: 'delete' },
 }));
 
+// `getIdForName` entrou junto com a trava de documento: `sideDocumentKey` a usa para dobrar
+// nome e UUID na MESMA chave, e um duplo sem ela quebra com TypeError na primeira escrita.
 vi.mock('../../src/js/store/services/map-resolver.service.js', () => ({
-    mapResolver: { resolveToId: h.resolveToId },
+    mapResolver: { resolveToId: h.resolveToId, getIdForName: h.resolveToId },
 }));
+// As duas entradas migradas em 2026-09-13 (bloco B4) declaram a intenção por
+// `tx.recordOperation` DENTRO de `runTransaction`, e o diário vai ao disco ANTES do documento
+// de grupos. Este espelho traduz a descrição durável de volta para a chamada de logger que as
+// asserções deste arquivo já cobriam. As entradas ainda no caminho antigo (`createGroup`,
+// `combineGroups`, `removeFeatureFromAllGroups`) continuam chamando o logger direto, então as
+// duas metades convivem aqui de propósito.
+vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
+    persistOperationIntents: vi.fn(async (descriptions) => {
+        for (const op of descriptions) {
+            if (op.entityType !== 'group') throw new Error(`Alvo nao classificado: ${op.entityType}`);
+            const args = [op.operationType, op.entityId, op.mapId, op.data];
+            if (op.previousData != null) args.push(op.previousData);
+            h.logGroupOperation(...args);
+        }
+        return async () => {};
+    })
+}));
+
 
 import { createGroupManager } from '../../src/js/tool_manager/group_manager.js';
 
@@ -174,9 +194,11 @@ describe('removeFeatureFromAllGroups: a saída de um membro vira operação', ()
         expect(groupCalls(), 'os dois continuam com dois membros').toHaveLength(0);
     });
 
-    it('grupo já soft-deletado não loga nada', () => {
+    it('grupo já soft-deletado não loga nada', async () => {
         const group = gm.createGroup([pt('f1'), pt('f2'), pt('f3')], MAP_NAME);
-        gm.ungroupFeatures(group.id, MAP_NAME);
+        // Aguardado porque `ungroupFeatures` virou write-ahead: sem o await o grupo ainda está
+        // ativo quando a remoção de membro roda, e o caso mediria o contrário do que diz.
+        await gm.ungroupFeatures(group.id, MAP_NAME);
         vi.clearAllMocks();
 
         gm.removeFeatureFromAllGroups('point', 'f1', MAP_NAME);

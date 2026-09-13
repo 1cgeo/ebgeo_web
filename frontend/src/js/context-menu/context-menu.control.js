@@ -686,11 +686,17 @@ class ContextMenuControl {
         item.className = 'context-menu-item';
         item.textContent = text;
 
-        item.addEventListener('click', (e) => {
+        item.addEventListener('click', async (e) => {
             e.stopPropagation();
             try {
-                clickHandler();
+                // A handler may be ASYNC since 2026-09-13 (`_handleUngroup` journals the
+                // intention before it writes). Awaiting it INSIDE the try is what keeps its
+                // failure reportable: a rejected promise escapes a synchronous catch, and the
+                // person would get no message at all. The menu still hides immediately, so a
+                // sync throw leaves it open exactly as before.
+                const outcome = clickHandler();
                 this._hideMenu();
+                await outcome;
             } catch (error) {
                 console.error('Error in menu operation:', error);
                 showError('Erro: ' + error.message);
@@ -840,8 +846,10 @@ class ContextMenuControl {
         }
     }
 
-    _handleUngroup(groupId) {
-        const _features = ungroupFeatures(groupId);
+    async _handleUngroup(groupId) {
+        // ASYNC since the ungroup became write-ahead: the selection has to be refreshed after
+        // the store confirms, not while the write is still in flight.
+        await ungroupFeatures(groupId);
 
         if (this._selectionManager) {
             this._selectionManager.updateUI();

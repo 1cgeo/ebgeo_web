@@ -73,13 +73,14 @@ const FIXTURE = 'tests/fixtures/censo-record-operation/literais-de-operacao.js';
 /** Pisos MEDIDOS em 2026-09-13, para que uma varredura muda não passe verde. */
 const PISO_ARQUIVOS = 300;
 const PISO_RECORD = 18;
-// Baixado de 45 para 29 em 2026-09-13, em dois passos do bloco B4: as oito entradas de
-// `src/js/store/streetview360.operations.js` (45 -> 41) e as dezesseis de
-// `src/js/store/cesium3d.operations.js` (41 -> 29) viraram write-ahead e deixaram de chamar
+// Baixado de 45 para 27 em 2026-09-13, em três passos do bloco B4: as oito entradas de
+// `src/js/store/streetview360.operations.js` (45 -> 41), as dezesseis de
+// `src/js/store/cesium3d.operations.js` (41 -> 29) e as duas de
+// `src/js/tool_manager/group_manager.js` (29 -> 27) viraram write-ahead e deixaram de chamar
 // `logXxxOperation`, trocando cada família por um `recordOperation` de moldura. Este piso CAI
 // a cada produtor migrado, de propósito, e por isso se baixa com a razão ao lado em vez de
 // virar folga: são os dois pisos juntos que provam que a varredura continua casando.
-const PISO_LOG = 29;
+const PISO_LOG = 27;
 
 /**
  * Comentário fora, preservando a contagem de linhas para que a mensagem de erro aponte a

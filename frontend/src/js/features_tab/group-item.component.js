@@ -307,7 +307,7 @@ export async function toggleGroupVisibility(
     try {
         const newVisibility = !currentVisibility;
 
-        updateGroupProperty(groupId, 'visible', newVisibility);
+        await updateGroupProperty(groupId, 'visible', newVisibility);
 
         const currentMapName = getCurrentMapNameSync();
         const groups = getMapGroups(currentMapName);
@@ -348,7 +348,7 @@ export async function toggleGroupLock(
     try {
         const newLockState = !currentLockState;
 
-        updateGroupProperty(groupId, 'locked', newLockState);
+        await updateGroupProperty(groupId, 'locked', newLockState);
 
         const currentMapName = getCurrentMapNameSync();
         const groups = getMapGroups(currentMapName);
