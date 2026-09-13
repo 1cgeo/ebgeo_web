@@ -2587,7 +2587,7 @@ function buildSoftDeleteQuery(table, target, op, atlasId) {
  *    table keyed by the layer id (op.targetId), scoped to the map.
  *
  * THE ARRAY BRANCH USED TO WRITE `maps.catalog_layers`, a legacy column that no longer exists.
- * Two properties of the replacement are deliberate:
+ * Three properties of the replacement are deliberate:
  *   - it UPSERTS and never removes. The column write was a whole-array REPLACE, which was
  *     harmless while nothing read the column; against the canonical table the same semantics
  *     would turn an op carrying `catalog_layers: []` into a wipe of every catalog layer of that
@@ -2595,6 +2595,24 @@ function buildSoftDeleteQuery(table, target, op, atlasId) {
  *     the compatibility shim buys nothing worth a destructive capability.
  *   - the array item has no `type`, so it refers to no catalog resource and neither the write
  *     gate nor the rehydration touches it. That is unchanged by the move.
+ *   - IT NEVER CROSSES A TOMBSTONE, and until 2026-09-13 it did. The conflict branch carried
+ *     `deleted_at = NULL` with NO `WHERE`, so a single array op resurrected EVERY removed
+ *     catalog layer whose id it happened to name, with the stale definition the sender still
+ *     held. That is the opposite of what the per-layer form does: its `update` requires
+ *     `deleted_at IS NULL`, and its `create` only ever revives a row that really IS a tombstone,
+ *     as the deliberate re-add gesture. The array form is neither gesture: it is an
+ *     update-shaped bulk materialisation with no per-item intent (every emitter of it, past and
+ *     present, stamps `operationType: 'update'`), so the conflict branch takes the per-layer
+ *     UPDATE policy — write the live row, leave the tombstone untouched — while the non-conflict
+ *     branch keeps the insert the shim needs. A confirmed deletion therefore wins over an old
+ *     array, which is the invariant F8 names.
+ *
+ *     WHAT THIS DOES NOT BUY, so nobody reads more into it than is there: the live row IS still
+ *     written with what the array carries, because that is the shim's declared semantics (an
+ *     array naming one layer edits it, and `sync-catalog-layer.test.js` holds that). The table
+ *     has no base version and no revision row, so "this array is older than what the server
+ *     holds" is not a question this statement can ask. A literal replay is stopped one layer up,
+ *     by the receipt; the out-of-order case needs the per-entity base/revision still pending.
  *
  * @param {Object} t - Transaction context
  */
@@ -2614,9 +2632,9 @@ async function applyCatalogLayerOp(t, atlasId, op, type) {
          WHERE EXISTS (SELECT 1 FROM maps WHERE id = $2 AND atlas_id = $4)
          ON CONFLICT (map_id, id) DO UPDATE
            SET data       = EXCLUDED.data,
-               deleted_at = NULL,
                updated_at = NOW(),
-               version    = catalog_layers.version + 1`,
+               version    = catalog_layers.version + 1
+           WHERE catalog_layers.deleted_at IS NULL`,
         [String(item.id), op.mapId, JSON.stringify(item), atlasId]
       );
     }
