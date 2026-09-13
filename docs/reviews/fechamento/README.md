@@ -4,6 +4,8 @@ Posição de 12/09/2026, branch `integracao_backend`, após `d0c99dea`. A pedido
 
 Este índice desdobra o [plano autorizado](../plano-fechamento-lancamento.md). O [registro de execução](../execucao-fechamento-lancamento.md) contém resultados, falhas intermediárias e limites dos três checkpoints implementados. Não refazer como pendentes os contratos já corrigidos, a camada padrão criada pelo servidor, o diário de briefings/slides ou o diário e a identidade de catálogo.
 
+As correções de todo o dia, incluindo os commits anteriores a esses três checkpoints, estão na [retrospectiva conferida pelo Git](../correcoes-2026-09-12/README.md).
+
 ## Ordem de retomada
 
 | Documento | Prioridade | Dependência para encerrar |

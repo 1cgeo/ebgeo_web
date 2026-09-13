@@ -1,6 +1,6 @@
 # Saída voluntária com pendências
 
-Implementado no branch `integracao_backend`, sem commit ou publicação, conforme a decisão do usuário de confirmar o descarte em vez de criar um atlas de recuperação na saída voluntária.
+Implementado no branch `integracao_backend` no commit `8a561bef`, conforme a decisão do usuário de confirmar o descarte em vez de criar um atlas de recuperação na saída voluntária. A proteção contra escritores atrasados foi ampliada em `e70ccf3c`; veja a [retrospectiva dessa continuação](correcoes-2026-09-12/05-contratos-descarte-e-camada.md). Não houve implantação no servidor interno.
 
 O aviso cobre as filas dos atlas remotos registrados neste navegador, inclusive atlas fechados e abertos em outras abas. Cancelar mantém a sessão e os dados. Confirmar registra a intenção de descarte, anuncia a desmontagem às outras abas e limpa os namespaces remotos. Atlas locais, inclusive recuperações anteriormente adotadas como locais, são excluídos dessa operação. O servidor recebe logout, sem exclusão de atlas ou de conteúdo sincronizado.
 
