@@ -237,7 +237,10 @@ const CENSO = [
     { arquivo: 'src/js/store/repository.js', campo: 'catalogLayers', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/store/repository.utils.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/store/settings.operations.js', campo: 'catalogLayers', n: 2, classe: PERSISTE },
-    { arquivo: 'src/js/store/streetview360.operations.js', campo: 'photoName', n: 25, classe: PERSISTE },
+    // 25 -> 24 em 2026-09-13: o write-ahead de `saveOrientation` (bloco B4) espelha em memória
+    // a entidade que já tinha em mão (`saved`) em vez de reler `data.orientations[photoName]`.
+    // Um sítio de leitura a menos, nenhum sítio de referência a menos.
+    { arquivo: 'src/js/store/streetview360.operations.js', campo: 'photoName', n: 24, classe: PERSISTE },
     { arquivo: 'src/js/store/sync/api-client.js', campo: 'photoId', classe: RUNTIME },
     { arquivo: 'src/js/store/sync/atlas-settings.service.js', campo: 'available_data_layers', classe: RUNTIME },
     { arquivo: 'src/js/store/sync/atlas-settings.service.js', campo: 'available_analysis_layers', classe: RUNTIME },

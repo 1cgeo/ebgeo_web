@@ -125,6 +125,30 @@ vi.mock('../../src/js/store/sync/index.js', () => ({
     OperationType: { CREATE: 'create', UPDATE: 'update', DELETE: 'delete' }
 }));
 
+// As entradas de escrita deste arquivo passaram a ser write-ahead em 2026-09-13: elas
+// declaram a intenção por `tx.recordOperation` DENTRO da transação, e o diário vai ao disco
+// ANTES do documento sv360. Este espelho traduz a descrição durável de volta para a chamada
+// de logger que as asserções de FORMA deste arquivo já cobriam, e é só isso que ele faz:
+// quem exercita o despachante e o IndexedDB reais é
+// frontend/tests/integration/streetview360-write-ahead.test.js.
+vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
+    persistOperationIntents: vi.fn(async (descriptions) => {
+        const sync = await import('../../src/js/store/sync/index.js');
+        const porAlvo = {
+            orientation360: sync.logOrientation360Operation,
+            marker360: sync.logMarker360Operation
+        };
+        for (const op of descriptions) {
+            const log = porAlvo[op.entityType];
+            if (!log) throw new Error(`Alvo de op 360 nao classificado: ${op.entityType}`);
+            const args = [op.operationType, op.entityId, op.mapId, op.data];
+            if (op.previousData != null) args.push(op.previousData);
+            log(...args);
+        }
+        return async () => {};
+    })
+}));
+
 // ============================================================================
 // Imports (after mocks)
 // ============================================================================
@@ -213,8 +237,12 @@ describe('saveOrientation', () => {
 
         const data = h.store.get('TestMap');
         const saved = data.orientations['photo-1.jpg'];
+        // O id e um UUID cunhado aqui, e NAO uma posicao fixa na sequencia do mock: desde o
+        // write-ahead de 2026-09-13 a propria transacao cunha um traceId, entao numero de
+        // ordem literal media a moldura, nao a operacao. Quem prende id e a identidade
+        // atravessa op e update logo abaixo.
+        expect(saved.id).toMatch(/^uuid-\d+$/);
         expect(saved).toMatchObject({
-            id: 'uuid-1',
             photoName: 'photo-1.jpg',
             lon: 12.5,
             lat: -3.25,
@@ -231,13 +259,14 @@ describe('saveOrientation', () => {
     it('emits logOrientation360Operation CREATE with the saved entity (no oldOrientation)', async () => {
         await saveOrientation('photo-1.jpg', makeOrientation({ lon: 5, lat: 6, fov: 70 }));
 
+        const savedId = h.store.get('TestMap').orientations['photo-1.jpg'].id;
         expect(logOrientation360Operation).toHaveBeenCalledTimes(1);
         expect(logOrientation360Operation).toHaveBeenCalledWith(
             OperationType.CREATE,
-            'uuid-1',
+            savedId,
             'map-uuid-123',
             expect.objectContaining({
-                id: 'uuid-1',
+                id: savedId,
                 photoName: 'photo-1.jpg',
                 lon: 5,
                 lat: 6,
@@ -250,20 +279,21 @@ describe('saveOrientation', () => {
 
     it('UPDATEs in place when one already exists (same id, emits UPDATE with saved + old)', async () => {
         await saveOrientation('photo-1.jpg', makeOrientation({ lon: 1, lat: 2, fov: 60 }));
+        const createdId = h.store.get('TestMap').orientations['photo-1.jpg'].id;
         logOrientation360Operation.mockClear();
 
         await saveOrientation('photo-1.jpg', makeOrientation({ lon: 9, lat: 8, fov: 110 }));
 
         const saved = h.store.get('TestMap').orientations['photo-1.jpg'];
         // id is preserved across update (keyed by photoName).
-        expect(saved.id).toBe('uuid-1');
+        expect(saved.id).toBe(createdId);
         expect(saved.lon).toBe(9);
         expect(saved.fov).toBe(110);
 
         expect(logOrientation360Operation).toHaveBeenCalledTimes(1);
         const [op, id, mapId, newOrient, oldOrient] = logOrientation360Operation.mock.calls[0];
         expect(op).toBe(OperationType.UPDATE);
-        expect(id).toBe('uuid-1');
+        expect(id).toBe(createdId);
         expect(mapId).toBe('map-uuid-123');
         expect(newOrient.lon).toBe(9);
         expect(oldOrient.lon).toBe(1); // previous state captured before mutation
@@ -298,12 +328,19 @@ describe('saveOrientation', () => {
         );
     });
 
-    it('persistence failure prevents sync logging (atomicity)', async () => {
+    it('falha de gravacao PRESERVA a intencao e nao toca o documento nem a memoria', async () => {
+        // Write-ahead invertido de proposito em 2026-09-13: o diario antecede a entidade, logo
+        // uma gravacao que falha deixa a intencao recuperavel. O que NAO pode acontecer e a
+        // metade visivel (documento no disco, espelho em memoria, evento) sobreviver a falha.
+        memoryStore.streetview360 = { orientations: {}, markers: [], _mapName: 'TestMap' };
         setStreetview360Compat.mockRejectedValueOnce(new Error('IDB write failed'));
 
         await expect(saveOrientation('photo-1.jpg', makeOrientation())).rejects.toThrow('IDB write failed');
 
-        expect(logOrientation360Operation).not.toHaveBeenCalled();
+        expect(logOrientation360Operation).toHaveBeenCalledTimes(1);
+        expect(h.store.get('TestMap')).toBeUndefined();
+        expect(memoryStore.streetview360.orientations['photo-1.jpg']).toBeUndefined();
+        expect(eventBus.emit).not.toHaveBeenCalled();
     });
 
     it('re-CREATEs (not UPDATE) when prior orientation has no sync metadata', async () => {
@@ -367,6 +404,7 @@ describe('clearOrientation', () => {
         await saveOrientation('photo-1.jpg', makeOrientation({ lon: 4 }));
         logOrientation360Operation.mockClear();
 
+        const createdId = h.store.get('TestMap').orientations['photo-1.jpg'].id;
         const result = await clearOrientation('photo-1.jpg');
         expect(result).toBe(true);
 
@@ -376,7 +414,7 @@ describe('clearOrientation', () => {
         expect(logOrientation360Operation).toHaveBeenCalledTimes(1);
         const [op, id, mapId, newArg, oldArg] = logOrientation360Operation.mock.calls[0];
         expect(op).toBe(OperationType.DELETE);
-        expect(id).toBe('uuid-1');
+        expect(id).toBe(createdId);
         expect(mapId).toBe('map-uuid-123');
         expect(newArg).toBeNull();
         expect(oldArg.lon).toBe(4);
@@ -444,8 +482,8 @@ describe('addMarker360', () => {
     it('appends a marker with the frozen marker shape and assigned id', async () => {
         const marker = await addMarker360('photo-1.jpg', makeMarkerData());
 
+        expect(marker.id).toMatch(/^uuid-\d+$/);
         expect(marker).toMatchObject({
-            id: 'uuid-1',
             photoName: 'photo-1.jpg',
             position: { heading: 45, pitch: -10, distance: 7 },
             properties: { nome: 'Ponto A', descricao: 'desc' },
@@ -459,7 +497,7 @@ describe('addMarker360', () => {
         // Persisted into the map's markers array.
         const stored = h.store.get('TestMap').markers;
         expect(stored).toHaveLength(1);
-        expect(stored[0].id).toBe('uuid-1');
+        expect(stored[0].id).toBe(marker.id);
     });
 
     it('defaults distance to 5 and auto-numbers the name when missing', async () => {
@@ -508,7 +546,7 @@ describe('addMarker360', () => {
         expect(logMarker360Operation).toHaveBeenCalledTimes(1);
         expect(logMarker360Operation).toHaveBeenCalledWith(
             OperationType.CREATE,
-            'uuid-1',
+            marker.id,
             'map-uuid-123',
             marker
         );
@@ -519,10 +557,14 @@ describe('addMarker360', () => {
         expect(eventBus.emit).toHaveBeenCalledWith('markers360:changed', { mapName: 'TestMap' });
     });
 
-    it('persistence failure prevents sync logging (atomicity)', async () => {
+    it('falha de gravacao PRESERVA a intencao e nao toca o documento nem a memoria', async () => {
+        memoryStore.streetview360 = { orientations: {}, markers: [], _mapName: 'TestMap' };
         setStreetview360Compat.mockRejectedValueOnce(new Error('IDB write failed'));
         await expect(addMarker360('photo-1.jpg', makeMarkerData())).rejects.toThrow('IDB write failed');
-        expect(logMarker360Operation).not.toHaveBeenCalled();
+        expect(logMarker360Operation).toHaveBeenCalledTimes(1);
+        expect(h.store.get('TestMap')).toBeUndefined();
+        expect(memoryStore.streetview360.markers).toHaveLength(0);
+        expect(eventBus.emit).not.toHaveBeenCalled();
     });
 });
 
@@ -732,8 +774,9 @@ describe('marker image operations', () => {
 
         const image = await addMarker360Image(marker.id, fakeFile());
 
+        expect(image.id).toMatch(/^uuid-\d+$/);
+        expect(image.id).not.toBe(marker.id);
         expect(image).toMatchObject({
-            id: 'uuid-2', // uuid-1 was the marker
             name: 'shot.png',
             type: 'image/png',
             size: 1234,
@@ -744,7 +787,7 @@ describe('marker image operations', () => {
 
         const stored = h.store.get('TestMap').markers[0];
         expect(stored.images).toHaveLength(1);
-        expect(stored.images[0].id).toBe('uuid-2');
+        expect(stored.images[0].id).toBe(image.id);
         expect(stored.sync.version).toBe(2);
 
         // The image is inline in the marker's data → attaching it is a marker UPDATE that must sync
