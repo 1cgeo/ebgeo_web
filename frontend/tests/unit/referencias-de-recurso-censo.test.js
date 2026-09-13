@@ -250,13 +250,24 @@ const CENSO = [
     { arquivo: 'src/js/store/sync/atlas-settings.service.js', campo: 'available_3d_models', classe: RUNTIME },
     { arquivo: 'src/js/store/sync/atlas-settings.service.js', campo: 'available_360_views', classe: RUNTIME },
     { arquivo: 'src/js/store/sync/operation-types.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
+    // A tabela de UNIDADES DE DISPUTA (espelho do `DISPUTE_UNITS` do servidor) nomeia os campos
+    // do payload de envio, agrupados por unidade. Ela nao le nem escreve documento nenhum, mas e'
+    // onde esta escrito que `baseLayer` e a unidade `mapaBase` do mapa e que `modelId`/`photoId`
+    // sao a unidade `alvo` do slide: se uma superficie de referencia nascer sem entrada aqui, ela
+    // viaja sem unidade e o servidor disputa a entidade inteira.
+    { arquivo: 'src/js/store/sync/dispute-units.js', campo: 'baseLayer', n: 3, classe: PERSISTE },
+    { arquivo: 'src/js/store/sync/dispute-units.js', campo: 'modelId', n: 1, classe: PERSISTE },
+    { arquivo: 'src/js/store/sync/dispute-units.js', campo: 'photoId', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/store/sync/remote-operation-handler.js', campo: 'tilesetId', n: 3, classe: PERSISTE },
     { arquivo: 'src/js/store/sync/remote-operation-handler.js', campo: 'photoName', n: 3, classe: PERSISTE },
     // 6 -> 7 em 2026-09-13: o ramo de `map` update passou a MESCLAR so' os campos presentes no
     // payload (`mergeRemoteMapUpdate`), e ele nomeia `baseLayer` para traduzir o `base_layer`
     // snake_case que chega do servidor. Sitio de referencia, nao de leitura nova.
     { arquivo: 'src/js/store/sync/remote-operation-handler.js', campo: 'baseLayer', n: 7, classe: PERSISTE },
-    { arquivo: 'src/js/store/sync/remote-operation-handler.js', campo: 'catalogLayers', n: 5, classe: PERSISTE },
+    // 5 -> 7 em 2026-09-13: o snapshot passou a carimbar a revisao confirmada de cada camada de
+    // catalogo (`reshapeSnapshotMap`) e o recibo a escreve pelo `entityVersion`
+    // (`confirmEntityVersion`). Duas linhas novas de referencia, nenhuma leitura nova.
+    { arquivo: 'src/js/store/sync/remote-operation-handler.js', campo: 'catalogLayers', n: 7, classe: PERSISTE },
     { arquivo: 'src/js/store/sync/ws-client.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/store/sync/ws-client.js', campo: 'photoName', classe: RUNTIME },
     { arquivo: 'src/js/street_view_tool/components/marker-panel-360.js', campo: 'photoName', classe: RUNTIME },

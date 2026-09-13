@@ -10,7 +10,7 @@ import { addDomListener, cleanup, setupCleanup, trackTimer } from '@utils/event-
 import { StoreScopeKind, getActiveScope, remoteAtlasIdFromDbSuffix } from '@store/atlas-namespace.js';
 import { isValidEntityType, isValidOperationType } from './operation-types.js';
 import { noteLocalEdit } from './overwrite-notice.js';
-import { featureMutationContract } from './feature-patch.js';
+import { mutationContract } from './mutation-contract.js';
 
 // ===== CLIENT IDENTITY =====
 
@@ -449,8 +449,12 @@ export function createOperation(entityType, operationType, entityId, mapId, data
         mapId: mapId || null,
         data,
         previousData,
+        // THE DECLARATION, for every collaborative entity and no longer only for the feature.
+        // It is what turns the server's per-entity base check on for this operation, and it is
+        // empty (so nothing changes) for an entity with no unit of dispute and for a document
+        // whose confirmed revision this client cannot prove. See `mutation-contract.js`.
+        ...mutationContract(entityType, operationType, data, previousData),
         ...(entityType === 'feature' ? {
-            ...featureMutationContract(operationType, data, previousData),
             ...(options.featureIntent ? { featureIntent: options.featureIntent } : {}),
             ...(options.sourceMapId ? { sourceMapId: options.sourceMapId } : {}),
             ...(options.baseOperationId ? { baseOperationId: options.baseOperationId } : {}),
@@ -487,7 +491,8 @@ export function createBatchOperations(operations) {
         mapId: op.mapId || null,
         data: op.data || null,
         previousData: op.previousData || null,
-        ...(op.entityType === 'feature' ? { ...featureMutationContract(op.operationType, op.data, op.previousData),
+        ...mutationContract(op.entityType, op.operationType, op.data, op.previousData),
+        ...(op.entityType === 'feature' ? {
             ...(op.featureIntent ? { featureIntent: op.featureIntent } : {}),
             ...(op.sourceMapId ? { sourceMapId: op.sourceMapId } : {}) } : {}),
         timestamp,

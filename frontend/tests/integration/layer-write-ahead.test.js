@@ -172,6 +172,26 @@ describe('Layer write-ahead persistence', () => {
         const fila = await operationQueue.getAll();
         expect(fila.map(op => op.previousData.confirmedVersion)).toEqual([5, 5]);
         expect(fila.map(op => op.data.confirmedVersion)).toEqual([5, 5]);
+        // E as DUAS declaram a base: é isso que liga a verificação por entidade no servidor.
+        expect(fila.map(op => op.baseVersion)).toEqual([5, 5]);
+        expect(fila.map(op => op.patch)).toEqual([
+            [{ op: 'set', path: ['name'], value: 'Primeira' }],
+            [{ op: 'set', path: ['name'], value: 'Segunda' }],
+        ]);
+    });
+
+    // O CONTRÁRIO, e ele é a degradação declarada: camada que nunca voltou do servidor não tem
+    // revisão confirmada, a op sai SEM base e o servidor volta a aplicar por ordem de chegada.
+    // Sem este caso, "declara a base" passaria verde sobre um envelope que a declara sempre, que
+    // é o defeito oposto e o mais caro: base inventada é recusa de escrita que ninguém pediu.
+    it('camada sem revisão confirmada sai SEM base e SEM patch', async () => {
+        semear(camada('l1', 0));
+
+        await lm.renameLayer('l1', 'Bravo', mapa.name);
+
+        const [envelope] = await operationQueue.getAll();
+        expect(envelope.baseVersion).toBeNull();
+        expect(envelope.patch).toBeNull();
     });
 
     it('reordenar para a MESMA ordem não registra intenção nem grava', async () => {

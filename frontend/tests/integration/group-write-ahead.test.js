@@ -200,6 +200,33 @@ describe('Group write-ahead persistence', () => {
         expect(await operationQueue.peek(10)).toHaveLength(1);
     });
 
+    // A DECLARAÇÃO DE BASE DO GRUPO. O documento vem do snapshot com a revisão confirmada da
+    // linha, e a edição local a preserva, então a intenção declara `baseVersion` e o patch nomeia
+    // a unidade que mudou. Sem a revisão (grupo que nunca voltou do servidor) ela sai sem base, e
+    // as duas metades estão aqui porque só o par prova que a declaração é CONDICIONAL: um
+    // envelope que declarasse base sempre inventaria recusa, que é o defeito oposto e o pior.
+    it('a propriedade declara a base observada e a unidade mudada', async () => {
+        const grupo = seedGroup();
+        grupo.confirmedVersion = 12;
+
+        await gm.updateGroupProperty('g1', 'visible', false, mapB.name);
+
+        const [envelope] = await operationQueue.getAll();
+        expect(envelope.baseVersion).toBe(12);
+        expect(envelope.patch).toEqual([{ op: 'set', path: ['visible'], value: false }]);
+        expect((await localRepository.getGroups(mapB.id)).g1.confirmedVersion).toBe(12);
+    });
+
+    it('grupo sem revisão confirmada sai SEM base e SEM patch', async () => {
+        seedGroup();
+
+        await gm.updateGroupProperty('g1', 'visible', false, mapB.name);
+
+        const [envelope] = await operationQueue.getAll();
+        expect(envelope.baseVersion).toBeNull();
+        expect(envelope.patch).toBeNull();
+    });
+
     it('desagrupar registra o `group` DELETE e NENHUMA op de membresia', async () => {
         const group = seedGroup();
         const features = await gm.ungroupFeatures('g1', mapB.name);

@@ -373,6 +373,14 @@ const CENSO = [
             + 'Homônimo do degrau mais baixo da escada, e sem parentesco: ele descreve a tela, não '
             + 'quem a abriu.',
     },
+    {
+        arquivo: 'src/js/store/sync/dispute-units.js', trecho: "target: 'comment'", n: 1,
+        classe: HOMONIMO,
+        motivo: 'O ALVO de sync do comentário espacial, na tabela de unidades de disputa que '
+            + 'espelha `DISPUTE_UNITS` do servidor. É o mesmo homônimo já censado em '
+            + '`operation-types.js`, agora do lado da tabela que diz quais campos do comentário '
+            + 'brigam entre si: `texto` e `resolvido`. Nenhum posto é lido aqui.',
+    },
 ];
 
 /** O único arquivo que pode escrever uma lista fechada, porque é ele que define a escada. */

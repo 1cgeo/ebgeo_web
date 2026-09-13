@@ -232,8 +232,15 @@ describe('o núcleo do modal de compartilhamento cabe em `atlas.html`', () => {
         // Piso e teto MEDIDOS (16 módulos em 2026-08-23, contra os 188 de antes). O teto é o que
         // transforma "ficou leve" em propriedade: sem ele, o grafo pode dobrar sem nada acusar,
         // desde que os sete proibidos fiquem de fora.
+        //
+        // 25 -> 28 em 2026-09-13, e é decisão, não efeito colateral. A fábrica de operações passou
+        // a declarar a base observada e as unidades mudadas de TODA entidade colaborativa, e isso
+        // acrescentou três folhas ao grafo: `store/sync/dispute-units.js` e
+        // `store/sync/confirmed-version.js` (zero imports as duas) e `store/sync/mutation-contract.js`
+        // (importa as duas mais o contrato de feição). Nenhuma alcança a store, que é o que os
+        // proibidos abaixo medem, e é por isso que o teto sobe em vez de a mudança ser desfeita.
         expect(grafo.arquivos.size).toBeGreaterThanOrEqual(12);
-        expect(grafo.arquivos.size).toBeLessThanOrEqual(25);
+        expect(grafo.arquivos.size).toBeLessThanOrEqual(28);
     });
 
     for (const [rotulo, padrao] of Object.entries(PROIBIDOS)) {
