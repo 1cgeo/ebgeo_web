@@ -484,7 +484,12 @@ class SyncEngine {
         if (result?.snapshot) {
             await applyRemoteSnapshot(result.snapshot, session);
             session.assertActive();
-            this._lastVersion = result.currentVersion ?? 0;
+            // THE SOCKET DEPARTS FROM THE CURSOR THE SNAPSHOT JUST WROTE, so the handshake's
+            // `sync_request` asks for the tail after exactly what is on disk. The durable cursor
+            // is written from `snapshot.currentVersion` (`applyRemoteSnapshot`), so that is the
+            // number this has to carry; the envelope's own `currentVersion` is the fallback for
+            // a response that omits it inside the snapshot.
+            this._lastVersion = result.snapshot.currentVersion ?? result.currentVersion ?? 0;
             return result.snapshot;
         }
 

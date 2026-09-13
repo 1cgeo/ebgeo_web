@@ -1885,6 +1885,22 @@ export function applyRemoteSnapshot(snapshot, options = {}) {
     return serializeGuardedApply(() => withApplyContext(context, async () => {
         if (context.scope?.kind !== 'remote') return applyRemoteSnapshotInner(snapshot);
         validateSnapshot(snapshot, true);
+        // THE SAME SNAPSHOT TWICE IS STAGED ONCE. Opening a remote atlas answers two full
+        // snapshots whenever the atlas has never had an operation written: the HTTP pull asks
+        // from the durable cursor (zero, with no active generation), and the socket handshake
+        // then asks again from the cursor that snapshot just wrote, also zero, which the
+        // protocol cannot tell apart from "I hold nothing". The check is BEFORE
+        // `pauseStoreWrites` on purpose: the cost being avoided is not only nine databases and
+        // a prune, it is the write pause itself, which is what a concurrent atlas-opening paint
+        // collides with.
+        //
+        // WHY EQUAL CURSORS MEAN NOTHING TO DO: the cursor is only written by a snapshot that
+        // finished, so an active generation at exactly this server version already holds this
+        // content. Re-staging would additionally DESTROY local edits that were journalled but
+        // not yet pushed (they do not move the server version, so they cannot raise it either).
+        // The catalog repair the server answers with a snapshot for cannot land here: it only
+        // triggers on rows newer than the asked cursor, which puts `currentVersion` above it.
+        if (activeGenerationHolds(context.scope, snapshot.currentVersion)) return;
         const pause = pauseStoreWrites(context.scope);
         // Which side of the durable commit a failure lands on: before it, the preparation is disk
         // to be deleted; after it, the same databases are the atlas the user is looking at. Both
@@ -1948,6 +1964,26 @@ export function applyRemoteSnapshot(snapshot, options = {}) {
             pause.resume();
         }
     }));
+}
+
+/**
+ * Whether a COMPLETE generation on disk already stands at exactly this server version.
+ *
+ * A CORRUPT RECORD ANSWERS NO, and that is not a swallowed error: the apply below reads the same
+ * record inside its own try and throws there, so the corrupt case keeps the behaviour it had
+ * before this shortcut existed instead of gaining a second, earlier failure point.
+ *
+ * @param {{ kind: string, dbSuffix: string }} scope - Scope the snapshot would be applied to.
+ * @param {number} currentVersion - The snapshot's server version.
+ * @returns {boolean}
+ */
+function activeGenerationHolds(scope, currentVersion) {
+    try {
+        const record = readGeneration(scope);
+        return Boolean(record.active) && record.cursor === currentVersion;
+    } catch {
+        return false;
+    }
 }
 
 /**

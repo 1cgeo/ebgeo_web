@@ -21,7 +21,13 @@ let scope;
 let bus;
 const storage = new Map();
 const map = name => ({ ...getEmptyMapData(), id: mapId, name });
-const snapshot = () => ({ atlas: { ...createAtlas('Remoto'), id: atlasId }, maps: [map('Servidor')], briefings: [], currentVersion: 19 });
+// A VERSÃO É PARÂMETRO, e não uma constante, porque `applyRemoteSnapshot` recusa encenar um
+// retrato cujo `currentVersion` já É o cursor da geração ATIVA (é a segunda resposta de toda
+// abertura, e encená-la de novo custava uma geração inteira). O `storage` deste arquivo é
+// compartilhado por todos os casos, então quem roda depois de uma ativação NESTE escopo tem de
+// pedir uma versão que o disco ainda não tem, senão mede o atalho de idempotência em vez do
+// caminho que quer medir.
+const snapshot = (currentVersion = 19) => ({ atlas: { ...createAtlas('Remoto'), id: atlasId }, maps: [map('Servidor')], briefings: [], currentVersion });
 
 beforeEach(async () => {
     vi.restoreAllMocks();
@@ -81,7 +87,7 @@ describe('Snapshot generation commit with native IndexedDB', () => {
             await save.apply(this, args);
             if (this.scope.dataGeneration !== previous.active) activateScope(remoteScope('another-atlas'));
         });
-        await expect(applyRemoteSnapshot(snapshot())).rejects.toMatchObject({ name: 'AbortError' });
+        await expect(applyRemoteSnapshot(snapshot(20))).rejects.toMatchObject({ name: 'AbortError' });
         expect(readGeneration(scope).active).toBe(previous.active);
         expect(await getStoreFor(StoreName.MAPS, getActiveScope()).keys()).toEqual([]);
         expect(bus.emit).not.toHaveBeenCalled();
@@ -103,7 +109,7 @@ describe('Snapshot generation commit with native IndexedDB', () => {
             }
             return set(key, value);
         });
-        await expect(applyRemoteSnapshot(snapshot())).rejects.toThrow('quota at activation');
+        await expect(applyRemoteSnapshot(snapshot(21))).rejects.toThrow('quota at activation');
         expect(readGeneration(scope).active).toBe(previous.active);
         expect((await localRepository.getMap(mapId)).name).toBe('Anterior');
         expect(bus.emit).not.toHaveBeenCalled();
@@ -269,7 +275,7 @@ describe('Snapshot generation commit with native IndexedDB', () => {
         const finish = beginStoreWrite(scope);
         const original = readGeneration(scope);
         let finished = false;
-        const applying = applyRemoteSnapshot(snapshot()).then(() => { finished = true; });
+        const applying = applyRemoteSnapshot(snapshot(22)).then(() => { finished = true; });
         // Snapshot registration is synchronous inside the serialized apply microtask.
         await Promise.resolve();
         await Promise.resolve();

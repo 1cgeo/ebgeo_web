@@ -25,9 +25,16 @@
 // Atlas com qualquer operação escrita (`current_version > 0`) já recebia cauda vazia no passo 4,
 // e o segundo caso deste arquivo é o controle que prova isso.
 //
-// ESTE ARQUIVO AFIRMA O ESTADO DE HOJE, com o número medido: duas encenações e duas gerações
-// para um atlas em `current_version = 0`, uma só para qualquer outro. O caso do zero vira "um
-// retrato, uma geração" no commit do conserto.
+// O CONSERTO É IDEMPOTÊNCIA NO CLIENTE, não no fio: um retrato completo cujo `currentVersion` é
+// exatamente o cursor da geração JÁ ativa não descreve nada que o disco não tenha, então ele não
+// é encenado. A comparação vem ANTES de `pauseStoreWrites`, que é o que faz a segunda resposta
+// custar zero pausa, zero geração e zero poda.
+//
+// O QUE FICA COM O SERVIDOR: ele CONTINUA mandando o segundo retrato, e este arquivo afirma isso
+// em voz alta (`retratosServidos` segue em 2). `handleSyncRequest` lê `data.lastVersion || 0` e
+// `pullOperations` trata o zero como "manda tudo", de modo que um cliente em dia com um atlas de
+// versão zero não tem como dizer isso no protocolo de hoje. O desperdício que sobra é de banda,
+// não de disco.
 
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -233,21 +240,44 @@ afterEach(() => {
 });
 
 describe('abertura de atlas remoto: quantos retratos completos ela encena', () => {
-    it('atlas ainda sem operação: DOIS retratos completos, duas gerações (medido em 2026-09-13)', async () => {
+    it('atlas ainda sem operação: o servidor manda dois retratos e o cliente encena UM', async () => {
         await syncEngine.connect(atlasId);
         await assentar();
 
-        // O SERVIDOR MANDA DOIS: o `lastVersion: 0` do handshake é indistinguível, no protocolo,
-        // de "não tenho nada".
+        // O SERVIDOR MANDA DOIS, e continua mandando: o `lastVersion: 0` do handshake é
+        // indistinguível, no protocolo, de "não tenho nada". Fica afirmado aqui de propósito,
+        // porque é a metade que o cliente não pode consertar sozinho.
         expect(h.pedidosHttp).toEqual([0]);
         expect(h.pedidosWs).toEqual([0]);
         expect(h.servidor.retratosServidos).toBe(2);
 
-        // E O CLIENTE ENCENA OS DOIS: duas gerações de nove bancos, duas pausas de escrita,
-        // duas podas, para um conteúdo que não mudou entre uma e outra.
+        // O CLIENTE ENCENA UM SÓ. Até o conserto eram dois, com duas gerações e duas podas.
+        expect(ativacoes).toHaveLength(1);
+        expect(geracoesCunhadas.size).toBe(1);
+        expect(readGeneration(escopo)).toEqual({
+            active: ativacoes[0], known: [ativacoes[0]], cursor: 0,
+        });
+    });
+
+    it('o retrato que NÃO é repetição continua sendo encenado', async () => {
+        // O CONTROLE do caso acima: se a idempotência olhasse só o `active` e não o cursor, ou
+        // se comparasse com o cursor errado, este caso passaria a recusar um retrato legítimo e
+        // o atlas ficaria parado na versão antiga, calado.
+        h.servidor.versao = 7;
+        await syncEngine.connect(atlasId);
+        await assentar();
+        expect(readGeneration(escopo).cursor).toBe(7);
+
+        // A troca de versão no servidor: o próximo `sync_request` recebe um retrato NOVO, porque
+        // o cursor local ficou para trás de `min_version`.
+        h.servidor.versao = 40;
+        h.servidor.versaoMinima = 30;
+        h.ws.requestSync(7);
+        await assentar();
+
+        expect(h.servidor.retratosServidos).toBe(2);
         expect(ativacoes).toHaveLength(2);
-        expect(geracoesCunhadas.size).toBe(2);
-        expect(readGeneration(escopo).cursor).toBe(0);
+        expect(readGeneration(escopo).cursor).toBe(40);
     });
 
     it('o handshake parte do cursor que o retrato acabou de gravar', async () => {
