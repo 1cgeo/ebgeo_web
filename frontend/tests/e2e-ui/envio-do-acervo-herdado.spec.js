@@ -83,11 +83,20 @@ async function espelharToasts(page) {
     }, ESPELHO);
 }
 
-/** O que o espelho colheu, do mais recente para o mais antigo. */
+/**
+ * O que o espelho colheu, do mais recente para o mais antigo.
+ *
+ * A LEITURA ACONTECE ENQUANTO A PAGINA NAVEGA, e por isso ela tolera o contexto morrendo. O ramo de
+ * sucesso do envio NAVEGA (e e justamente por isso que este arquivo espelha o toast em
+ * `localStorage`): uma amostra do `poll` que caia no meio da navegacao morre com "Execution context
+ * was destroyed" e, sem este `catch`, derruba o caso inteiro em vez de simplesmente valer zero e
+ * ser reamostrada. Devolver lista vazia nao afrouxa nada: a assercao e sobre o que o espelho TEM,
+ * e uma amostra vazia so adia a resposta.
+ */
 function lerToasts(page) {
     return page.evaluate((chave) => {
         try { return JSON.parse(localStorage.getItem(chave) || '[]'); } catch { return []; }
-    }, ESPELHO);
+    }, ESPELHO).catch(() => []);
 }
 
 /**
@@ -196,12 +205,29 @@ function lerDisco(page) {
     });
 }
 
-/** O nome do slot de sufixo VAZIO, lido do registro: é ele que o cartão desenha. */
-function nomeDoSlotHerdado(page) {
+/**
+ * O slot que carrega o acervo herdado, lido do registro: é ele que o cartão desenha.
+ *
+ * O ENDERECO DELE NAO E MAIS SO A STRING VAZIA, e esta funcao procurava exatamente isso ate
+ * 2026-09-13. O portao de migracao ADOTA a instalacao pre-namespace num slot de sufixo
+ * `upgrade-<uuid>` (e o `ebgeo__upgrade-...` aparece no disco de toda rodada que atravessa a
+ * travessia), entao perguntar so por `dbSuffix === ''` devolvia `null` e o caso morria antes de
+ * chegar ao envio. Aceitar as DUAS formas e o que mantem o instrumento valendo nos dois regimes.
+ *
+ * A LISTA INTEIRA VOLTA JUNTO de proposito: quando nenhum slot casa, a mensagem da assercao
+ * precisa dizer QUAIS existem, senao o proximo leitor repete esta mesma investigacao.
+ * @returns {Promise<{herdado: {name: string, dbSuffix: string}|null, todos: Array<object>}>}
+ */
+function slotHerdado(page) {
     return page.evaluate(async () => {
         const ns = await import('/src/js/store/atlas-namespace.js');
         const slots = await ns.readLocalAtlasRegistry();
-        return slots.find((slot) => slot.dbSuffix === '')?.name ?? null;
+        const resumo = slots.map((s) => ({
+            name: s.name, dbSuffix: s.dbSuffix, adoptedLegacy: s.adoptedLegacy === true,
+        }));
+        // O CARIMBO VEM PRIMEIRO, e o sufixo vazio e o regime de ANTES da travessia.
+        const herdado = resumo.find((s) => s.adoptedLegacy || s.dbSuffix === '');
+        return { herdado: herdado ?? null, todos: resumo };
     });
 }
 
@@ -247,16 +273,35 @@ async function prepararAcervo(browser, prefixo) {
     await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${state.baseUrl}/api/v1`);
     await espelharToasts(page);
 
-    // PRIMEIRO BOOT, com o disco vazio: `atlas.html` boota sem a store, então nada escreve nos
-    // bancos de conteúdo, e a semeadura cai num disco limpo.
+    // A SEMEADURA ACONTECE ANTES DE O APP BOOTAR UMA UNICA VEZ, e o jeito de conseguir isso e
+    // ABORTAR O ENTRY na primeira visita: `atlas.html` carrega um unico modulo
+    // (`src/js/projects/projects-page.js`), entao sem ele a casca HTML sobe, o IndexedDB da
+    // ORIGEM esta acessivel e nenhuma linha do produto roda.
+    //
+    // A PRIMEIRA TENTATIVA FOI SEMEAR NUMA PAGINA ESTATICA (`public/docs/doc.html`) e ela
+    // falhou de um jeito que vale registrar: aquela pagina carrega o docsify, que reescreve a
+    // URL assim que sobe, e o `page.evaluate` da semeadura morria com "Execution context was
+    // destroyed". Pagina sem script NENHUM e a propria casca, com o entry barrado.
+    //
+    // POR QUE NAO SEMEAR DEPOIS DO PRIMEIRO BOOT, que e o que este arquivo fazia ate 2026-09-13:
+    // o portao de migracao (`runLegacyUpgradeGate`) roda nas QUATRO paginas desde 2026-09-13, e o
+    // primeiro boot com o disco legado VAZIO registra a travessia sobre um disco vazio. Escrever
+    // os catorze mapas depois disso e, para o produto, a versao ANTIGA tendo gravado alteracoes
+    // apos a travessia — e a resposta certa dele e a tela "Recuperar seus dados", que tomava
+    // `atlas.html` e fazia `[data-testid="local-atlas-item"]` nunca aparecer. O produto estava
+    // certo e a FIXTURE e que representava outro cenario: quem chega da versao anterior tem o
+    // disco herdado ANTES do primeiro boot, nunca depois dele.
+    const ENTRY = '**/projects-page.js';
+    await page.route(ENTRY, (route) => route.abort());
     await page.goto('/atlas.html');
-    await expect(page.locator('[data-testid="local-atlas-section"]')).toBeVisible({ timeout: 30000 });
-
     const semeados = await semearAcervoHerdado(page, ACERVO);
     expect(semeados, 'a semeadura escreveu os catorze registros').toBe(14);
+    await page.unroute(ENTRY);
 
-    // SEGUNDO BOOT: o registro adota os bancos sem sufixo e o cartão do acervo aparece.
-    await page.reload();
+    // PRIMEIRO E UNICO BOOT DO APP: o registro adota os bancos sem sufixo e o cartão do acervo
+    // aparece, que e exatamente o que a pessoa ve ao abrir a versao nova pela primeira vez.
+    await page.goto('/atlas.html');
+    await expect(page.locator('[data-testid="local-atlas-section"]')).toBeVisible({ timeout: 30000 });
     await expect(page.locator('[data-testid="local-atlas-item"]').first())
         .toBeVisible({ timeout: 30000 });
 
@@ -264,8 +309,12 @@ async function prepararAcervo(browser, prefixo) {
     // verdade contra uma semeadura que não escreveu nada e um app que inventou os mapas.
     expect(await lerDisco(page)).toEqual({ maps: 14, features: TOTAL_DE_FEICOES });
 
-    const nomeDoCartao = await nomeDoSlotHerdado(page);
-    expect(nomeDoCartao, 'o registro tem um slot de sufixo vazio').toBeTruthy();
+    const { herdado, todos } = await slotHerdado(page);
+    expect(
+        herdado,
+        `o registro tem o slot do acervo herdado (sufixo vazio ou upgrade-*); ele tem ${JSON.stringify(todos)}`,
+    ).toBeTruthy();
+    const nomeDoCartao = herdado.name;
 
     const creds = await createVerifiedUser({ prefix: prefixo, nome: 'Onda 4 H1' });
     await entrarPelaTela(page, creds);

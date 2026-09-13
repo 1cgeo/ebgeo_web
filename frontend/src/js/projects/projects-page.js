@@ -652,10 +652,19 @@ async function deleteLocalAtlasFromPage(atlas) {
             name: atlas?.name,
             signedIn: sessionContext.isAuthenticated(),
             contents,
-            // O SUFIXO VAZIO É O ENDEREÇO DO ACERVO HERDADO, e a comparação é ESTRITA: uma entrada
-            // sem o campo tem `dbSuffix === undefined`, e um `!atlas?.dbSuffix` poria a frase do
-            // acervo sobre um registro malformado de um atlas qualquer.
-            legacySlot: atlas?.dbSuffix === '',
+            // O ACERVO HERDADO TEM DOIS ENDEREÇOS, e perguntar só pelo primeiro deixava de nomeá-lo
+            // justamente DEPOIS da travessia. Antes do portão de migração ele mora nos bancos SEM
+            // SUFIXO; depois dele, o commit da travessia (`store/migration/legacy-transition.js`)
+            // reescreve a entrada do registro com um `dbSuffix` `upgrade-<uuid>` e carimba
+            // `adoptedLegacy: true`. Medido em 2026-09-13: com a travessia feita, o diálogo de
+            // exclusão voltava à frase curta e o cartão do acervo ficava indistinguível de um "Meu
+            // Atlas" em branco, que é exatamente o que essa frase existe para impedir.
+            //
+            // AS DUAS COMPARAÇÕES SÃO ESTRITAS pela razão que já valia: uma entrada malformada tem
+            // `dbSuffix === undefined`, e um `!atlas?.dbSuffix` poria a frase do acervo sobre um
+            // atlas qualquer. `adoptedLegacy` é o carimbo que a própria travessia escreve, então é
+            // a pergunta mais direta das duas.
+            legacySlot: atlas?.adoptedLegacy === true || atlas?.dbSuffix === '',
         }),
         destructive: true,
         confirmText: 'Excluir',
