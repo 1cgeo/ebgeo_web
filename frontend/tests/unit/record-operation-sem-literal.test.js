@@ -102,7 +102,11 @@ const PISO_RECORD = 18;
 // Baixado de 12 para 11 na mesma onda: `deleteLayer` (`src/js/layers/layer.manager.js`) virou
 // write-ahead e deixou de chamar `logLayerOperation`, que era a ULTIMA chamada de log daquele
 // arquivo.
-const PISO_LOG = 11;
+// Baixado de 11 para 9 na mesma onda: `addMap` e `removeMap` (`src/js/store/map.operations.js`)
+// viraram write-ahead e deixaram de chamar `logMapOperation`, que era a unica familia de log
+// importada por aquele arquivo; o import saiu junto. Quem loga mapa agora e' so'
+// `locking/map-lock.controller.js`, e e' a proxima (e ultima) unidade desta onda.
+const PISO_LOG = 9;
 
 /**
  * Comentário fora, preservando a contagem de linhas para que a mensagem de erro aponte a

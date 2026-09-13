@@ -60,6 +60,9 @@ vi.mock('../../src/js/store/store-errors.js', () => ({
 }));
 
 vi.mock('../../src/js/store/sync/index.js', async () => ({
+    // O duplo fica de pe' porque o barril e' substituido inteiro; NENHUMA entrada deste arquivo o
+    // chama mais desde que `addMap` e `removeMap` viraram write-ahead (bloco B4). Se alguem voltar
+    // a logar por fora da transacao, o `intents` para de contar a op e os casos de ordem acusam.
     logMapOperation: vi.fn(),
     logAtlasSetting: vi.fn(),
     // Sync OFF in unit tests → addMap keeps the name-keyed storage these tests assert.
@@ -104,14 +107,17 @@ vi.mock('../../src/js/store/repositories/index.js', () => ({
     updateMapDataCompat: vi.fn(async (mapName, data) => {
         mockMaps.value[mapName] = data;
     }),
-    createMapCompat: vi.fn(async (mapName, data) => {
+    // A cunhagem e' PURA desde 2026-09-13, e e' por isso que o duplo nao escreve nada: `addMap`
+    // virou write-ahead, e quem grava e' a funcao de persistencia da transacao
+    // (`updateMapDataCompat`). Um duplo que ainda escrevesse aqui esconderia justamente a
+    // inversao que a migracao fechou, porque o mapa estaria em disco antes da intencao.
+    mintMapDocument: vi.fn((mapName, data) => {
         const mapData = data || getEmptyMapData();
-        // Mirror the real createMapCompat: a fresh map (no caller data) takes the
+        // Mirror the real mintMapDocument: a fresh map (no caller data) takes the
         // requested name, not the getEmptyMapData() placeholder.
         if (!data || !mapData.name) mapData.name = mapName;
         mapData.id = `uuid-${mapName}`;
-        mockMaps.value[mapName] = mapData;
-        return mapData;
+        return { document: mapData, storageKey: mapName };
     }),
     deleteMapCompat: vi.fn(async (mapName) => {
         delete mockMaps.value[mapName];
@@ -208,7 +214,6 @@ import {
 
 import { checkPermission } from '../../src/js/store/sync/permission-guard.js';
 import { emitStoreError } from '../../src/js/store/store-errors.js';
-import { logMapOperation } from '../../src/js/store/sync/index.js';
 import { setSettingCompat, renameMapCompat } from '../../src/js/store/repositories/index.js';
 import { withMapDocument, getDocumentLockStats } from '../../src/js/store/document-lock.js';
 
@@ -374,14 +379,42 @@ describe('addMap', () => {
         expect(mockMapManager.addMapToMemory).toHaveBeenCalledWith('NewMap');
     });
 
-    it('logs CREATE operation with map ID and data', async () => {
+    it('registra a intenção do `map` CREATE, de nível ATLAS, antes de gravar o documento', async () => {
+        const { updateMapDataCompat } = await import('../../src/js/store/repositories/index.js');
+        const { persistOperationIntents } = await import('../../src/js/store/sync/operation-dispatcher.js');
+
         await addMap('NewMap');
 
-        expect(logMapOperation).toHaveBeenCalledWith(
-            'create',
-            'uuid-NewMap',
-            expect.objectContaining({ id: 'uuid-NewMap' })
-        );
+        expect(intents).toHaveLength(1);
+        expect(intents[0].entityType).toBe('map');
+        expect(intents[0].operationType).toBe('create');
+        expect(intents[0].entityId).toBe('uuid-NewMap');
+        // Nível ATLAS: o `mapId` de contexto é nulo, como em toda op de mapa.
+        expect(intents[0].mapId).toBeNull();
+        expect(intents[0].data).toMatchObject({ id: 'uuid-NewMap', name: 'NewMap' });
+        // A ORDEM, que é a migração inteira: o diário ANTES da gravação. Antes disto a cunhagem
+        // acontecia dentro da gravação (`createMapCompat` gravava ao atribuir o id), então não
+        // havia como a intenção anteceder a entidade.
+        expect(persistOperationIntents.mock.invocationCallOrder[0])
+            .toBeLessThan(updateMapDataCompat.mock.invocationCallOrder[0]);
+    });
+
+    it('as NOTAS são uma SEGUNDA intenção na mesma transação, e não um campo do mapa', async () => {
+        const { setMapNotesCompat } = await import('../../src/js/store/repositories/index.js');
+        const { persistOperationIntents } = await import('../../src/js/store/sync/operation-dispatcher.js');
+
+        await addMap('NewMap', null, null, { title: 'Ordem', description: 'Corpo' });
+
+        expect(intents.map((op) => op.entityType)).toEqual(['map', 'mapNotes']);
+        // Mesma forma de `setMapNotes`: o UUID do mapa é o id da entidade E o contexto.
+        expect(intents[1].entityId).toBe('uuid-NewMap');
+        expect(intents[1].mapId).toBe('uuid-NewMap');
+        expect(intents[1].data).toEqual({ title: 'Ordem', description: 'Corpo' });
+        expect(intents[1].previousData).toBeNull();
+        // As DUAS intenções antes da gravação das notas, que é a metade que o caminho antigo
+        // invertia: ele gravava o documento de notas e logava a op do mapa depois.
+        expect(persistOperationIntents.mock.invocationCallOrder[0])
+            .toBeLessThan(setMapNotesCompat.mock.invocationCallOrder[0]);
     });
 
     it('blocks when permission denied - no map created', async () => {
@@ -1247,5 +1280,47 @@ describe('setMapBadgeColors (chave de atlas, chamada de dentro de renameMap e re
         expect(result.success).toBe(true);
         expect(setSettingCompat).toHaveBeenCalledWith('mapBadgeColors', { TestMap: '#3b82f6' });
         expect(intents.filter((op) => op.data?.mapBadgeColors)).toHaveLength(1);
+    });
+
+    it('a intenção da cor viaja no `tx` da EXCLUSÃO, e não numa transação aninhada', async () => {
+        // `setMapBadgeColors` abre a própria transação, e uma transação aninhada no `workFn` da
+        // outra COMMITA PRIMEIRO: a cor seria registrada e gravada antes de a exclusão registrar
+        // qualquer coisa. Por isso `removeMap` passou a registrar a cor no PRÓPRIO `tx` e a gravar
+        // a chave na própria função de persistência. As duas intenções são de UMA transação, que é
+        // o que este caso mede: elas chegam juntas na mesma chamada do despachante.
+        mockMaps.value = {
+            'TestMap': { ...getEmptyMapData(), id: 'uuid-TestMap' },
+            'OtherMap': { ...getEmptyMapData(), id: 'uuid-OtherMap' }
+        };
+        mockSettings.value.mapBadgeColors = { TestMap: '#3b82f6', OtherMap: '#f59e0b' };
+        const { persistOperationIntents } = await import('../../src/js/store/sync/operation-dispatcher.js');
+
+        await removeMap('OtherMap');
+
+        expect(persistOperationIntents).toHaveBeenCalledOnce();
+        expect(persistOperationIntents.mock.calls[0][0].map((op) => op.entityType))
+            .toEqual(['map', 'setting']);
+        expect(intents[0].operationType).toBe('delete');
+        expect(intents[0].entityId).toBe('uuid-OtherMap');
+        expect(intents[0].mapId).toBeNull();
+        expect(intents[0].previousData).toMatchObject({ id: 'uuid-OtherMap' });
+    });
+
+    it('a intenção da exclusão vem ANTES de o documento do mapa ser apagado', async () => {
+        mockMaps.value = {
+            'TestMap': { ...getEmptyMapData(), id: 'uuid-TestMap' },
+            'OtherMap': { ...getEmptyMapData(), id: 'uuid-OtherMap' }
+        };
+        const { deleteMapCompat } = await import('../../src/js/store/repositories/index.js');
+        const { persistOperationIntents } = await import('../../src/js/store/sync/operation-dispatcher.js');
+
+        await removeMap('OtherMap');
+
+        // A inversão que a migração fechou: o caminho antigo apagava o documento primeiro e logava
+        // a op por último, com quatro escritas auxiliares no meio, de modo que uma falha ali
+        // deixava o mapa sumido localmente e vivo no servidor, sem nada para reenviar.
+        expect(persistOperationIntents.mock.invocationCallOrder[0])
+            .toBeLessThan(deleteMapCompat.mock.invocationCallOrder[0]);
+        expect(mockMaps.value.OtherMap).toBeUndefined();
     });
 });

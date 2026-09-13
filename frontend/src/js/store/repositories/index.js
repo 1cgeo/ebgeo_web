@@ -161,7 +161,28 @@ export async function getAllMapKeysCompat() {
  * @returns {Promise<Object>} Created map data
  */
 export async function createMapCompat(mapNameOrId, mapData = null, { uuidKeyed = false } = {}) {
-    const repo = getRepository();
+    const { document, storageKey } = mintMapDocument(mapNameOrId, mapData, { uuidKeyed });
+    await getRepository().saveMap(storageKey, document);
+    return document;
+}
+
+/**
+ * Mints the document and the storage key of a NEW map, WITHOUT writing anything.
+ *
+ * It exists because `addMap` (`store/map.operations.js`) became write-ahead in 2026-09-13: the
+ * intention has to name the final document and the final id BEFORE the entity is persisted, and
+ * `createMapCompat` minted and wrote in the same breath, so the only way to learn the id was to
+ * have already created the map. Pure, so it can run in the preparation phase of a transaction;
+ * `createMapCompat` is now exactly this plus the write, which is what keeps the two from drifting.
+ *
+ * @param {string} mapNameOrId - Map name or ID
+ * @param {Object} [mapData=null] - Initial map data
+ * @param {Object} [opts]
+ * @param {boolean} [opts.uuidKeyed=false] - Store the map under its UUID key (sync active)
+ *   instead of its name. See addMap for why.
+ * @returns {{document: Object, storageKey: string}} The document and the key it belongs under
+ */
+export function mintMapDocument(mapNameOrId, mapData = null, { uuidKeyed = false } = {}) {
     const newMapData = mapData || getEmptyMapData();
     // A fresh map (no caller-supplied data) must take the REQUESTED name — getEmptyMapData
     // returns the placeholder 'Novo Mapa', which silently overrode the name the UI asked for
@@ -179,9 +200,7 @@ export async function createMapCompat(mapNameOrId, mapData = null, { uuidKeyed =
     // later snapshot re-apply (reconnect/resync) updates the SAME entry instead of creating a
     // DUPLICATE under the UUID key while a name-keyed copy lingers. Local/anonymous maps stay
     // name-keyed (sync off; the id is inert), preserving the additive contract.
-    const storageKey = uuidKeyed ? newMapData.id : mapNameOrId;
-    await repo.saveMap(storageKey, newMapData);
-    return newMapData;
+    return { document: newMapData, storageKey: uuidKeyed ? newMapData.id : mapNameOrId };
 }
 
 /**

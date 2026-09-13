@@ -7,7 +7,7 @@
 import {
     getMapDataCompat,
     updateMapDataCompat,
-    createMapCompat,
+    mintMapDocument,
     deleteMapCompat,
     renameMapCompat,
     getAllMapKeysCompat,
@@ -28,7 +28,7 @@ import { MAP_BADGE_COLORS, mapBadgeColorForName } from './map-badge-colors.js';
 import { mapResolver } from './services/map-resolver.service.js';
 import config from '../config.js';
 import { EventTypes } from '../events';
-import { logMapOperation, OperationType, isOperationLoggingEnabled } from './sync/index.js';
+import { OperationType, isOperationLoggingEnabled } from './sync/index.js';
 // Leaf module (zero imports): keeps the vocabulary out of the sync barrel's graph, and the
 // barrel is what several store suites replace with a partial double that has no `EntityType`.
 import { EntityType } from './sync/operation-types.js';
@@ -44,7 +44,6 @@ import { POSITION_FIELDS, clearedPositionPayload } from './map-position-clear.js
 // Repository aliases
 const getMapData = getMapDataCompat;
 const updateMapData = updateMapDataCompat;
-const createMapData = createMapCompat;
 const deleteMapData = deleteMapCompat;
 const renameMapData = renameMapCompat;
 const getAllMapNames = getAllMapKeysCompat;
@@ -207,6 +206,27 @@ export async function setMapOrder(orderArray) {
 /**
  * Adds a new map.
  *
+ * WRITE-AHEAD since 2026-09-13 (bloco B4), and the migration had to split a function that minted
+ * and wrote in the same breath. `createMapCompat` assigned the id INSIDE the save, so the only way
+ * to learn the id was to have already created the map, which is the opposite of write-ahead.
+ * `mintMapDocument` (`store/repositories/index.js`) is the pure half, and the intention now names
+ * the final document and the final id while the disk still holds nothing.
+ *
+ * THE NOTES ARE A SECOND ENTITY, NOT A FIELD, so they get their own intention
+ * (`EntityType.MAP_NOTES`) in the same transaction, in the shape `setMapNotes` already records. The
+ * old order wrote the notes document BEFORE the map op was logged, so an import interrupted in
+ * between left notes belonging to a map no peer had ever heard of.
+ *
+ * `MAP_CREATED` IS EMITTED FROM `tx.deferSync`, WHICH RUNS AFTER MATERIALIZATION, and that ordering
+ * is the point: the event is a flush trigger (`sync/sync-flush.js`), so emitting it before the
+ * marks were released would ask the queue to send an operation still stamped as prepared.
+ *
+ * THE COLOUR CACHE STAYS AWAITED AFTER THE TRANSACTION. It is derived data with no op and no
+ * intention (`processMapColors` recounts the colours of the map and writes `colorUsage`), and the
+ * callers that hand over `colorUsageData` are the importers, which read the cache right after, so
+ * deferring it would answer before it existed. Awaited and post-persistence keeps the contract of
+ * the function: when it resolves, everything it promises is there.
+ *
  * @param {string} mapName - Map name
  * @param {Object} [mapData=null] - Initial map data
  * @param {Object} [colorUsageData=null] - Color usage data
@@ -225,51 +245,78 @@ export async function addMap(mapName, mapData = null, colorUsageData = null, not
     // resync / a peer's import-merge-rename) updates the SAME entry instead of duplicating it
     // (a name-keyed local copy + a UUID-keyed snapshot copy of the same logical map).
     const syncActive = isOperationLoggingEnabled();
-    const newMapData = await createMapData(mapName, mapData, { uuidKeyed: syncActive });
+    const { document: newMapData, storageKey } =
+        mintMapDocument(mapName, mapData, { uuidKeyed: syncActive });
 
     const mapId = newMapData.id || mapName;
-    // Register the name -> id mapping ONLY when the map is actually UUID-keyed.
-    // `createMapData` always mints a UUID (the map needs one to travel as a CRDT
-    // op), but with sync OFF that id is inert and the storage key is the NAME.
-    // Registering it anyway pointed the resolver at a key that holds nothing:
-    // later writes resolved through the resolver and landed under the UUID, while
-    // `getMap(name)` kept reading the stale name-keyed entry. Features drawn on a
-    // freshly created local map were written to one key and read back from
-    // another — they simply vanished.
-    // Pinned by tests/integration/import-phantom-map.repro.test.js, which now
-    // exercises the real addMap instead of a copy of it.
-    //
-    // Worth knowing before touching this again: with sync ON the mapping is ALSO
-    // registered by LocalRepository.saveMap (local.repository.js:270), so this
-    // line is redundant on the happy path. It is kept for the callers that reach
-    // the resolver before the save completes; measured by mutation, removing it
-    // does not turn any test red today.
-    if (syncActive && mapId !== mapName) {
-        mapResolver.registerMap(mapName, mapId);
-    }
+    const notes = notesData && (notesData.title || notesData.description) ? notesData : null;
 
-    mapManager.addMapToMemory(mapName);
+    await withMapDocument(storageKey, 'addMap', () => runTransaction(async (tx) => {
+        tx.recordOperation(EntityType.MAP, OperationType.CREATE, mapId, null, newMapData, null);
+        if (notes) {
+            // Same shape as `setMapNotes`: the map UUID is BOTH the entity id and the map context.
+            tx.recordOperation(EntityType.MAP_NOTES, OperationType.CREATE, mapId, mapId, notes, null);
+        }
+
+        tx.deferSync(() => {
+            // Register the name -> id mapping ONLY when the map is actually UUID-keyed.
+            // `mintMapDocument` always mints a UUID (the map needs one to travel as a CRDT
+            // op), but with sync OFF that id is inert and the storage key is the NAME.
+            // Registering it anyway pointed the resolver at a key that holds nothing:
+            // later writes resolved through the resolver and landed under the UUID, while
+            // `getMap(name)` kept reading the stale name-keyed entry. Features drawn on a
+            // freshly created local map were written to one key and read back from
+            // another — they simply vanished.
+            // Pinned by tests/integration/import-phantom-map.repro.test.js, which now
+            // exercises the real addMap instead of a copy of it.
+            //
+            // Worth knowing before touching this again: with sync ON the mapping is ALSO
+            // registered by LocalRepository.saveMap, so this line is redundant on the happy
+            // path. It is kept for the callers that reach the resolver before the save
+            // completes; measured by mutation, removing it does not turn any test red today.
+            if (syncActive && mapId !== mapName) {
+                mapResolver.registerMap(mapName, mapId);
+            }
+            mapManager.addMapToMemory(mapName);
+
+            // Announce the new map locally so listeners (maps list, locked banner) refresh and
+            // the sync auto-flush trigger fires promptly instead of waiting a full interval
+            // (§item2). The remote handler emits the same event when a peer's map arrives; the
+            // creator only emits here, so there is no double-handling.
+            deps.eventBus?.emit(EventTypes.MAP_CREATED, { mapName, mapId });
+        });
+
+        return async () => {
+            await updateMapData(storageKey, newMapData);
+            if (notes) await setMapNotesRepo(mapName, notes);
+        };
+    }));
+
     await mapManager.processMapColors(mapName, newMapData, colorUsageData);
-
-    if (notesData && (notesData.title || notesData.description)) {
-        await setMapNotesRepo(mapName, notesData);
-    }
-
-    logMapOperation(OperationType.CREATE, mapId, newMapData);
-
-    // Announce the new map locally so listeners (maps list, locked banner) refresh and the
-    // sync auto-flush trigger fires promptly instead of waiting a full interval (§item2).
-    // The remote handler emits the same event when a peer's map arrives; the creator only
-    // emits here, so there is no double-handling.
-    if (deps.eventBus) {
-        deps.eventBus.emit(EventTypes.MAP_CREATED, { mapName, mapId });
-    }
 
     return newMapData;
 }
 
 /**
  * Removes a map.
+ *
+ * WRITE-AHEAD since 2026-09-13 (bloco B4). The old order was the worst one available: it deleted
+ * the map document FIRST and logged the `map` DELETE last, with four auxiliary writes in between
+ * (memory, groups, badge colour, current map). A failure anywhere in that stretch left the map gone
+ * locally and alive on the server, with nothing to replay, and the next snapshot brought it back.
+ *
+ * THE COLOUR INTENTION TRAVELS IN THIS TRANSACTION, and it no longer goes through
+ * `setMapBadgeColors`. That function opens its OWN transaction, and a transaction nested inside
+ * another one's `workFn` COMMITS FIRST: the colour would be journaled and written before this
+ * deletion had recorded anything, and a deletion that then failed would leave the colour missing
+ * for a map that still exists. This is the move the JSDoc of `setMapBadgeColors` prescribed for
+ * whoever migrated its last caller.
+ *
+ * THE THREE LOCAL EFFECTS STAY AWAITED AFTER THE TRANSACTION instead of going to `tx.deferAsync`,
+ * and the reason is the CONTRACT of the returned object: it names `newCurrentMap`, so the switch
+ * has to have happened by the time the caller reads it. A deferred effect is started and not
+ * awaited, so the UI would refresh pointing at a map that was not current yet. They are local,
+ * idempotent and carry their own error handling, and none of them owes the server an operation.
  *
  * @param {string} mapName - Map name to remove
  * @returns {Promise<import('./store.types.js').RemoveResult>} Removal result
@@ -308,26 +355,40 @@ export async function removeMap(mapName) {
     const isCurrentMap = mapName === currentMapName;
     const remainingMaps = allMaps.filter(name => name !== mapName);
 
-    await deleteMapData(mapName);
-
-    if (isValidUUID(mapId)) {
-        mapResolver.unregisterMapById(mapId);
+    // Read BEFORE the transaction opens, so the intention and the write describe the same starting
+    // state. A COPY, never the object read above: mutating it in place would ship the already
+    // reduced map as the "previous" payload.
+    const colors = await getAppSetting('mapBadgeColors');
+    let nextColors = null;
+    if (colors?.[mapName]) {
+        nextColors = { ...colors };
+        delete nextColors[mapName];
     }
+
+    await withMapDocument(mapName, 'removeMap', () => runTransaction(async (tx) => {
+        tx.recordOperation(EntityType.MAP, OperationType.DELETE, mapId, null, null, mapData);
+        if (nextColors) {
+            await recordAtlasSetting(tx, { mapBadgeColors: nextColors }, { mapBadgeColors: colors });
+        }
+
+        tx.deferSync(() => {
+            if (isValidUUID(mapId)) {
+                mapResolver.unregisterMapById(mapId);
+            }
+        });
+
+        return async () => {
+            await deleteMapData(mapName);
+            if (nextColors) await setAppSetting('mapBadgeColors', nextColors);
+        };
+    }));
 
     await mapManager.removeMapFromMemory(mapName);
     await deps.groupManager.clearMapGroups(mapName);
 
-    const colors = await getAppSetting('mapBadgeColors');
-    if (colors?.[mapName]) {
-        delete colors[mapName];
-        await setMapBadgeColors(colors);
-    }
-
     if (isCurrentMap) {
         await setCurrentMap(remainingMaps[0]);
     }
-
-    logMapOperation(OperationType.DELETE, mapId, null, mapData);
 
     return {
         success: true,
@@ -1052,21 +1113,22 @@ export async function getMapBadgeColors() {
  * rename all funnel through here.
  *
  * IT OPENS ITS OWN TRANSACTION, AND THAT IS SAFE ONLY BECAUSE OF WHERE IT IS CALLED FROM. The
- * four remaining callers are all in this file (`removeMap`, `getMapBadgeColor`,
- * `removeMapBadgeColor`, `getAllMapBadgeColors`) and NONE of them has an open transaction at the
- * call point: `removeMap` calls it after `deleteMapData`. A transaction nested inside another
- * one's `workFn` COMMITS FIRST, so the colour would be journaled and written before the parent had
- * recorded anything, and a parent that then failed would leave the colour naming a map that does
- * not exist.
+ * three remaining callers are all in this file (`getMapBadgeColor`, `removeMapBadgeColor`,
+ * `getAllMapBadgeColors`) and NONE of them has an open transaction at the call point. A transaction
+ * nested inside another one's `workFn` COMMITS FIRST, so the colour would be journaled and written
+ * before the parent had recorded anything, and a parent that then failed would leave the colour
+ * naming a map that does not exist.
  *
- * `renameMap` WAS the fifth caller and stopped being one in 2026-09-13, when it became
- * write-ahead: it records the colour intention in its OWN `tx` and writes the key directly, which
- * is the move the previous version of this paragraph prescribed for whoever migrated it (that
- * version predicted a HUNG interface as the symptom of nesting, by the reentrancy rule of
- * `document-lock.js`; checked on the same date, this path takes no document lock, so the symptom
- * is the silent inversion above, which is worse because it stays green). `removeMap` still calls
- * in and is the wave after. Pinned by the rename/remove cases of
- * `tests/integration/atlas-keys-write-ahead.test.js` and by the rename cases of
+ * `renameMap` AND `removeMap` WERE two of the callers and stopped being so in 2026-09-13, when
+ * they became write-ahead: each records the colour intention in its OWN `tx` and writes the key
+ * directly, which is the move the previous version of this paragraph prescribed for whoever
+ * migrated them (that version predicted a HUNG interface as the symptom of nesting, by the
+ * reentrancy rule of `document-lock.js`; checked on the same date, this path takes no document
+ * lock, so the symptom is the silent inversion above, which is worse because it stays green). The
+ * three callers left are the READ paths of this file, which assign a colour as a side effect
+ * (`getMapBadgeColor`, `removeMapBadgeColor`, `getAllMapBadgeColors`), and none of them has an open
+ * transaction at the call point. Pinned by the rename/remove cases of
+ * `tests/integration/atlas-keys-write-ahead.test.js` and by the rename and remove cases of
  * `tests/integration/map-settings-write-ahead.test.js`.
  *
  * @param {Object} colors - Map of mapName -> color

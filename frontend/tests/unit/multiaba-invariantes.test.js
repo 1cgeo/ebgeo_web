@@ -104,9 +104,32 @@ vi.mock('@utils/toast_service.js', () => ({
 
 /** Stand-in for the sync engine: the socket is not what these invariants are about. */
 const engine = vi.hoisted(() => ({ atlasId: null }));
-engine.logoutAndDisconnect = vi.fn(async () => { engine.atlasId = null; });
-engine.disconnect = vi.fn(() => { engine.atlasId = null; });
-engine.connect = vi.fn(async (atlasId) => { engine.atlasId = atlasId; });
+engine.logoutAndDisconnect = vi.fn(async () => { engine.atlasId = null; await alternarDiario(false); });
+engine.disconnect = vi.fn(async () => { engine.atlasId = null; await alternarDiario(false); });
+// LIGAR O DIARIO NAO E' DETALHE DO DUPLO. O `connect` de verdade chama `enableOperationLogging`
+// (`sync-engine.js`), e sem ela toda escrita write-ahead num escopo REMOTO e' RECUSADA de
+// proposito (`OperationIntentRefusedError`, achado F7): a entidade nao pode ser gravada sem op.
+// Sem esta linha, `activateAtlasInitialMap` -> `addMap` reprovava o fluxo inteiro de "Enviar ao
+// servidor" a partir de 2026-09-13, quando `addMap` virou write-ahead.
+engine.connect = vi.fn(async (atlasId) => { engine.atlasId = atlasId; await alternarDiario(true); });
+
+/**
+ * Liga ou desliga o diario NA INSTANCIA QUE O STORE USA, que e' a do BARRIL.
+ *
+ * ARMADILHA MEDIDA EM 2026-09-13, e ela devolve verde-como-vermelho: importar
+ * `@store/sync/operation-dispatcher.js` DIRETO neste arquivo entrega OUTRA instancia do modulo, e
+ * `enableOperationLogging` chamada nela nao muda o `enabled` que `persistOperationIntents` le
+ * dentro do grafo do store. O duplo parecia ligado e a escrita continuava recusada, com a
+ * mensagem de "conexao ainda nao esta pronta" apontando para o produto em vez de para o aparelho.
+ * O barril (`@store/sync/index.js`) e' o caminho que o store percorre, e e' por ele que se liga.
+ * @param {boolean} ligado
+ * @returns {Promise<void>}
+ */
+async function alternarDiario(ligado) {
+    const sync = await import('@store/sync/index.js');
+    if (ligado) sync.enableOperationLogging();
+    else sync.disableOperationLogging();
+}
 vi.mock('@store/sync/sync-engine.js', () => ({ syncEngine: engine }));
 vi.mock('@store/sync/sync-flush.js', () => ({ startAutoFlush: vi.fn(), stopAutoFlush: vi.fn() }));
 

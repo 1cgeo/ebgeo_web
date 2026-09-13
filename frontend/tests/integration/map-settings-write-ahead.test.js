@@ -1,7 +1,8 @@
 // Path: tests/integration/map-settings-write-ahead.test.js
 //
-// O DIÁRIO ANTES DO DOCUMENTO, para as três configurações de mapa que moram no documento do
-// mapa: mapa-base, salvar posição e limpar posição. Molde: `catalog-write-ahead.test.js`.
+// O DIÁRIO ANTES DO DOCUMENTO, para o que mora no documento do mapa: as três configurações
+// (mapa-base, salvar posição e limpar posição), renomear, CRIAR e REMOVER o mapa. Molde:
+// `catalog-write-ahead.test.js`.
 //
 // O QUE ESTE ARQUIVO MEDE, e por que não serve mock de logging: o sujeito é a ORDEM entre duas
 // gravações reais (a fila durável em IndexedDB e o documento do mapa), então o diário aqui é o
@@ -30,6 +31,8 @@ import {
     updateMapPosition,
     clearMapPosition,
     renameMap,
+    addMap,
+    removeMap,
     setMapDependencies
 } from '../../src/js/store/map.operations.js';
 import { applyRemoteSnapshot, setRemoteHandlerEventBus } from '../../src/js/store/sync/remote-operation-handler.js';
@@ -367,5 +370,138 @@ describe('Rename write-ahead persistence', () => {
         const chave = `${getActiveScope().dbSuffix}|map:${mapB.id}:renameMap`;
         expect(ocupado).toEqual([chave, chave]);
         expect(getDocumentLockStats().busy).toEqual([]);
+    });
+});
+
+describe('Create and remove write-ahead persistence', () => {
+    it('criar registra o `map` CREATE antes de gravar o documento, e as notas como SEGUNDA intencao', async () => {
+        const originalSave = LocalRepository.prototype.saveMap;
+        const originalNotes = LocalRepository.prototype.saveMapNotes;
+        const diarioNaPrimeiraGravacao = [];
+        let gravacoes = 0;
+        const observar = async () => {
+            gravacoes += 1;
+            if (gravacoes === 1) {
+                diarioNaPrimeiraGravacao.push(...(await operationQueue.getAll()));
+                expect(await operationQueue.peek()).toEqual([]);
+            }
+        };
+        vi.spyOn(LocalRepository.prototype, 'saveMap').mockImplementation(async function (...args) {
+            await observar();
+            return originalSave.apply(this, args);
+        });
+        vi.spyOn(LocalRepository.prototype, 'saveMapNotes').mockImplementation(async function (...args) {
+            await observar();
+            return originalNotes.apply(this, args);
+        });
+
+        const criado = await addMap('Novo', null, null, { title: 'Ordem', description: 'Corpo' });
+
+        // Duas gravacoes (documento e notas) e as DUAS intencoes ja' no diario na primeira delas.
+        expect(gravacoes).toBe(2);
+        expect(diarioNaPrimeiraGravacao.map(op => op.entityType)).toEqual(['map', 'mapNotes']);
+        expect(diarioNaPrimeiraGravacao[0].operationType).toBe('create');
+        expect(diarioNaPrimeiraGravacao[0].entityId).toBe(criado.id);
+        expect(diarioNaPrimeiraGravacao[0].mapId).toBeNull();
+        expect(diarioNaPrimeiraGravacao[1].entityId).toBe(criado.id);
+        expect(diarioNaPrimeiraGravacao[1].mapId).toBe(criado.id);
+        expect(diarioNaPrimeiraGravacao[1].data).toEqual({ title: 'Ordem', description: 'Corpo' });
+
+        // Com o diario ligado o mapa nasce sob a chave UUID, que e' o contrato de `mintMapDocument`.
+        expect((await reread(criado.id))?.name).toBe('Novo');
+        expect(await localRepository.getMapNotes(criado.id)).toEqual({ title: 'Ordem', description: 'Corpo' });
+        // As duas viraram enviaveis. A TERCEIRA op da fila e' a contagem de cores
+        // (`setColorUsageCompat` -> `logAtlasSetting`), que roda DEPOIS da transacao, continua no
+        // caminho antigo e nao e' parte desta edicao: nomea-la aqui e' o que impede que ela seja
+        // lida como intencao do mapa.
+        const enviaveis = (await operationQueue.peek(10)).map(op => op.entityType);
+        expect(enviaveis.slice(0, 2)).toEqual(['map', 'mapNotes']);
+        expect(enviaveis).toEqual(['map', 'mapNotes', 'setting']);
+    });
+
+    it('criar com gravacao recusada PRESERVA as intencoes e nao deixa mapa nenhum no disco', async () => {
+        vi.spyOn(LocalRepository.prototype, 'saveMap')
+            .mockRejectedValueOnce(new DOMException('quota', 'QuotaExceededError'));
+
+        await expect(addMap('Novo', null, null, { title: 'Ordem' })).rejects.toThrow('quota');
+
+        const pendentes = await operationQueue.getAll();
+        expect(pendentes.map(op => op.entityType)).toEqual(['map', 'mapNotes']);
+        expect(await operationQueue.peek()).toEqual([]);
+        // O mapa nao existe: a cunhagem e' PURA, entao nada foi gravado antes da transacao. Era o
+        // contrario ate' 2026-09-13, quando o id era atribuido DENTRO da gravacao.
+        const chaves = await localRepository.getAllMapIds();
+        expect(chaves.sort()).toEqual([mapA.id, mapB.id].sort());
+    });
+
+    it('excluir registra o `map` DELETE antes de apagar o documento, com o estado anterior', async () => {
+        const originalDelete = LocalRepository.prototype.deleteMap;
+        let diarioNaExclusao = null;
+        vi.spyOn(LocalRepository.prototype, 'deleteMap').mockImplementation(async function (...args) {
+            diarioNaExclusao = await operationQueue.getAll();
+            expect(await operationQueue.peek()).toEqual([]);
+            // O documento ainda esta' la' quando a intencao ja' existe.
+            expect(await reread(mapB.id)).toBeTruthy();
+            return originalDelete.apply(this, args);
+        });
+
+        const resultado = await removeMap(mapB.name);
+
+        expect(resultado.success).toBe(true);
+        expect(diarioNaExclusao).toHaveLength(1);
+        expect(diarioNaExclusao[0].entityType).toBe('map');
+        expect(diarioNaExclusao[0].operationType).toBe('delete');
+        expect(diarioNaExclusao[0].entityId).toBe(mapB.id);
+        expect(diarioNaExclusao[0].mapId).toBeNull();
+        expect(diarioNaExclusao[0].data).toBeNull();
+        // O documento inteiro viaja como estado anterior, que e' o que o undo consome.
+        expect(diarioNaExclusao[0].previousData.name).toBe('Destino');
+        expect(await reread(mapB.id)).toBeFalsy();
+    });
+
+    it('excluir com gravacao recusada PRESERVA a intencao e o mapa continua no disco', async () => {
+        vi.spyOn(LocalRepository.prototype, 'deleteMap')
+            .mockRejectedValueOnce(new DOMException('quota', 'QuotaExceededError'));
+
+        await expect(removeMap(mapB.name)).rejects.toThrow('quota');
+
+        expect((await operationQueue.getAll()).map(op => op.entityType)).toEqual(['map']);
+        expect(await operationQueue.peek()).toEqual([]);
+        expect((await reread(mapB.id))?.name).toBe('Destino');
+    });
+
+    it('excluir carrega a intencao da COR na MESMA transacao, e a chave e gravada depois do mapa', async () => {
+        await localRepository.saveSetting('mapBadgeColors', { Ativo: '#abcdef', Destino: '#123456' });
+        const ordemDeGravacao = [];
+        const originalDelete = LocalRepository.prototype.deleteMap;
+        const originalSetting = LocalRepository.prototype.saveSetting;
+        vi.spyOn(LocalRepository.prototype, 'deleteMap').mockImplementation(async function (...args) {
+            ordemDeGravacao.push('mapa');
+            return originalDelete.apply(this, args);
+        });
+        vi.spyOn(LocalRepository.prototype, 'saveSetting').mockImplementation(async function (...args) {
+            ordemDeGravacao.push('cor');
+            return originalSetting.apply(this, args);
+        });
+
+        await removeMap(mapB.name);
+
+        // UMA transacao com DUAS intencoes: a cor deixou de passar por `setMapBadgeColors`, que
+        // abriria uma transacao aninhada e COMMITARIA PRIMEIRO, gravando a cor antes de a exclusao
+        // ter registrado nada.
+        expect((await operationQueue.getAll()).map(op => op.entityType)).toEqual(['map', 'setting']);
+        expect(ordemDeGravacao).toEqual(['mapa', 'cor']);
+        expect(await localRepository.getSetting('mapBadgeColors')).toEqual({ Ativo: '#abcdef' });
+    });
+
+    it('a recusa do ULTIMO mapa nao registra intencao nem grava', async () => {
+        await localRepository.deleteMap(mapB.id);
+        const apagar = vi.spyOn(LocalRepository.prototype, 'deleteMap');
+
+        const resultado = await removeMap(mapA.name);
+
+        expect(resultado).toEqual({ success: false, reason: 'LAST_MAP' });
+        expect(apagar).not.toHaveBeenCalled();
+        expect(await operationQueue.getAll()).toEqual([]);
     });
 });
