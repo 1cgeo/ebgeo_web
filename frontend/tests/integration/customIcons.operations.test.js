@@ -169,7 +169,7 @@ describe('customIcons write-ahead', () => {
         // lista aponta para um blob que o rollback tirou desta máquina: o blob subiu ao servidor,
         // então quem a reprojeta o busca de lá. Quando o upload falha e o id é local, esse par
         // fica quebrado, e é a fila durável de blobs (bloco B8 do plano) que fecha o caso.
-        expect(await operationQueue.count()).toBe(1);
+        expect((await operationQueue.countByState()).preparadas).toBe(1);
         expect(await operationQueue.peek()).toEqual([]);
     });
 

@@ -167,7 +167,7 @@ describe('Atlas-key write-ahead persistence', () => {
             .mockRejectedValueOnce(new DOMException('quota', 'QuotaExceededError'));
         await expect(saveAtlasAppearance({ terrainExaggeration: 3 })).rejects.toThrow('quota');
         // A intenção sobreviveu, preparada e não enviável, e o disco não mudou.
-        expect(await operationQueue.count()).toBe(1);
+        expect((await operationQueue.countByState()).preparadas).toBe(1);
         expect(await operationQueue.peek()).toEqual([]);
         expect((await readAtlasAppearance()).terrainExaggeration).toBe(1.5);
     });
