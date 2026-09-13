@@ -64,13 +64,7 @@ Criar, editar e remover uma referência de catálogo registra a intenção antes
 
 O ensaio de dois navegadores encontrou uma falha anterior adicional: o log substituía IDs textuais, como `hillshade`, pelo UUID do atlas, e o replay produzia referências duplicadas. `operations.client_entity_id` preserva a identidade original para a conversão de operações de catálogo, inclusive exclusões sem payload. Registros antigos que já perderam essa identidade obrigam snapshot autorizado; não se tenta adivinhar o alvo. O cliente recebe a identidade do envelope como autoridade para a referência.
 
-A coluna pertence à base lógica de sync, sem criar nova migração numerada. Instalação nova recebe a coluna na criação. Um banco de desenvolvimento já existente precisa da transição aditiva abaixo antes de executar este backend, após backup; não há reset automático nem reescrita do histórico:
-
-```sql
-BEGIN;
-ALTER TABLE operations ADD COLUMN IF NOT EXISTS client_entity_id TEXT;
-COMMIT;
-```
+A coluna pertence à base lógica de sync, sem criar nova migração numerada. Instalação nova recebe a coluna na criação, e é esse o único caso que existe: a linha de integração nunca foi implantada, então não há banco de servidor a transitar. Por decisão de 2026-09-13 (D6 do [plano de correção total](plano-correcao-total-lancamento-2026-09-13.md), bloco B2) a baseline consolidada permanece editável até o SHA candidato, a primeira implantação do backend é instalação nova a partir das doze baselines, e banco de DESENVOLVIMENTO aplicado antes de uma edição de baseline se recria. Não há script de transição. A instrução aditiva que esta seção publicava foi retirada em 2026-09-13 porque descrevia um procedimento que ninguém tinha como executar e dava a entender existir um banco implantado.
 
 O recibo ausente só é reconstruído como aplicado quando o histórico comprova também a identidade do alvo. Uma exclusão textual antiga sem essa prova é recusada, em vez de confirmar outra exclusão de payload vazio. O caso positivo com identidade preservada continua confirmado.
 

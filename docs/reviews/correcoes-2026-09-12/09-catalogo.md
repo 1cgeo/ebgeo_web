@@ -18,4 +18,4 @@ Sete testes de diário e quatro de replay/recibos foram acrescentados. Três con
 
 Raiz aprovada: 12.247 testes frontend, 5.054 backend e 201 contratos, sem falhas/skips; lint/build aprovados. Uma rodada concorrente com build foi invalidada e repetida depois da compilação.
 
-A coluna entra na base lógica de sync. Banco existente precisa da transição aditiva, após backup, descrita no [registro de fechamento](../execucao-fechamento-lancamento.md); isso não foi aplicado no servidor interno. Conflitos por revisão do catálogo continuam [pendentes](../fechamento/03-conflitos.md).
+A coluna entra na base lógica de sync. Não há transição a aplicar: por D6 de 2026-09-13 ([plano de correção total](../plano-correcao-total-lancamento-2026-09-13.md), bloco B2), a linha de integração nunca foi implantada, a primeira implantação do backend é instalação nova a partir das doze baselines, e banco de desenvolvimento anterior a uma edição de baseline se recria, sem script de transição. Conflitos por revisão do catálogo continuam [pendentes](../fechamento/03-conflitos.md).

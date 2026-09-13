@@ -29,11 +29,13 @@ Use a skill `new-tool`. Esta seção já teve uma cópia resumida do procediment
 ## Adding a Schema Migration
 
 1. Criar `store/migration/v<from>-to-v<to>.migration.js`. Repare no nome real da
-   função exportada: `migrateToV2_1`, `migrateToV2_2`, com **underscore**, não
-   `migrateToV21`. Migrações existentes: `v1-to-v2`, `v2-to-v2.1`, `v2.1-to-v2.2`,
-   `v2.2-to-v2.3` (esta última é a que criou o registro de atlas locais e adotou os
-   bancos sem sufixo como slot #1; ver §Atlas, namespace e tab-lock em
-   [`architecture.md`](architecture.md)).
+   função exportada: `migrateToV2_1`, `migrateToV2_2`, `migrateToV3_0`, com
+   **underscore**, não `migrateToV21`. São QUATRO degraus: `v1-to-v2`, `v2-to-v2.1`,
+   `v2.1-to-v2.2` e
+   [`frontend/src/js/store/migration/v2.x-to-v3.0.migration.js`](../../frontend/src/js/store/migration/v2.x-to-v3.0.migration.js),
+   este último com nome de origem CURINGA porque ele aceita qualquer repositório abaixo
+   de 3.0. É ele que cria o registro de atlas locais e adota os bancos sem sufixo como
+   slot #1; ver §Atlas, namespace e tab-lock em [`architecture.md`](architecture.md).
 2. Em `migration.service.js`, importar e adicionar a chamada condicional dentro de
    `safelyMigrate()`. O encadeamento é por número de versão, não por registry.
 3. **A migração recebe o ESCOPO como argumento**, e ignorar isso re-ancora o degrau
@@ -50,7 +52,7 @@ Use a skill `new-tool`. Esta seção já teve uma cópia resumida do procediment
    estas quatro migrações saiu quando elas passaram a receber o escopo, e a varredura cobre
    `src/js` inteiro, não só o store. Exceção nova se escreve lá, com o motivo, na hora.
 4. **Subir `ATLAS_SCHEMA_VERSION` (`frontend/src/js/store/atlas/atlas.entity.js`)**, hoje
-   `'2.3'`. Este é o passo que falta com mais facilidade e falha em silêncio:
+   `'3.0'`. Este é o passo que falta com mais facilidade e falha em silêncio:
    `detectMigrationNeeded()` compara a versão do repositório com essa constante e devolve
    `needed: false` se ela não subiu, então `safelyMigrate()` nunca é chamado. A
    migração nova simplesmente não roda, sem erro. (Esta linha chamou a função de

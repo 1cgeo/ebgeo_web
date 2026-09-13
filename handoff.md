@@ -64,7 +64,7 @@ O próximo trabalho de código estava na persistência das configurações de ma
 
 As migrações foram consolidadas antes da primeira implantação do backend. Um banco antigo de desenvolvimento não pode ser tratado como instalação nova nem ter seu histórico reescrito automaticamente. Consultar a [organização das migrações](backend/src/database/migrations/README.md).
 
-O catálogo acrescentou a coluna textual de identidade ao histórico de operações. Bancos existentes precisam da transição aditiva documentada no [registro de fechamento](docs/reviews/execucao-fechamento-lancamento.md), após backup, antes de rodar o backend correspondente. Essa transição não foi executada no servidor interno.
+O catálogo acrescentou a coluna textual de identidade ao histórico de operações, dentro da baseline consolidada de sync. Por decisão de 2026-09-13 (D6 do [plano de correção total](docs/reviews/plano-correcao-total-lancamento-2026-09-13.md), bloco B2), não há transição a aplicar: a linha de integração nunca foi implantada, a primeira implantação do backend é instalação nova a partir das doze baselines, e banco de desenvolvimento anterior a uma edição de baseline se recria. Não existe script de transição, e a instrução aditiva que este parágrafo carregava foi retirada por descrever um banco implantado que não existe.
 
 Os dados fornecidos ficam em C:\Users\diniz\OneDrive\Desktop\Desenvolvimento\_ebgeo_dados_teste. Usar somente cópias nos ensaios. Conservar protocolo, domínio e porta no ensaio de atualização para reproduzir a mesma origem. A disponibilidade de Web Locks precisa ser validada na origem interna efetiva; mudar HTTP para HTTPS não transfere o IndexedDB anterior.
 
