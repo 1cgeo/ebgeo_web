@@ -215,23 +215,30 @@ Executa [liberação interna](fechamento/10-liberacao-interna.md). Depende de B1
 3. Backup e restauração ensaiados em ambiente separado, incluindo imagens e recursos 3D e 360.
 4. Retorno definido antes de abrir escrita; piloto com amostra dimensionada pela matriz; interrupção por perda, duplicação, divergência ou acesso indevido.
 
+### Ondas paralelas: o que a fusão ensinou
+
+Os blocos foram executados em ondas paralelas, e a fusão cobrou dois preços que não estavam no plano. Ficam registrados aqui porque a próxima onda paga os mesmos.
+
+1. **Piso e banda calibrados por medição precisam ser recalibrados NA FUSÃO, e não na onda.** Duas ondas do bloco B4 migraram produtores ao mesmo tempo, e cada uma baixou o piso do censo de literais (`frontend/tests/unit/record-operation-sem-literal.test.js`) medindo a própria árvore, sem ver a outra: sobre a árvore combinada a varredura casa 23 chamadas contra o piso 27 da segunda onda, e o vermelho aparece só depois do merge. A banda de peso da página do mapa (`frontend/tests/unit/teto-de-peso-da-pagina-do-mapa.test.js`) tem a mesma forma e já foi recentrada por essa razão. O número de um teste desses é uma medição da árvore em que ele rodou, então ele não se funde como código: ou a onda o deixa para a fusão, ou a fusão o remede.
+2. **Mudar a semântica de uma contagem quebra quem contava outra coisa com ela, e a correção é medir por estado.** O item 1 de B3 fez `count()` responder só o enviável, que exclui a intenção preparada. Três asserções escritas pela onda vizinha, que usavam a mesma contagem para provar que a intenção tinha sido preparada, passaram a ler zero: em `frontend/tests/integration/atlas-keys-write-ahead.test.js`, `frontend/tests/integration/customIcons.operations.test.js` e `frontend/tests/integration/operation-dispatcher.test.js`. A correção certa foi trocar as três por `countByState`, e não reverter a semântica: elas nunca quiseram saber quanto sai no próximo envio, quiseram saber quanto foi preparado, e o total agregado era só o único número que existia quando foram escritas.
+
 ## 4. Ordem, dependências e tamanho
 
-| bloco | fecha | executa | depende de | estimativa (dias) |
-| --- | --- | --- | --- | --- |
-| B0 | F19, F20, F24, F25, F21 (doc) | higiene | nada | 1 |
-| B1 | F1, F15 | 02 (metade destrutiva) | B0 | 1 a 2 |
-| B2 | F2, F20 (banco) | 10 item 2 | nada | 1 |
-| B3 | F3, F4, F7, F13, F16 | 01 itens 2 e 4; 03 item 5 | B0 | 3 a 4 |
-| B4 | F18 | 02 inteiro | B1, B3 | 6 a 9 |
-| B5 | F8 | 03 | B3, B4 | 6 a 9 |
-| B6 | F9, F10 | 04; 01 item 1 | B4, B5, D4 | 5 a 7 |
-| B7 | F5, F11, F12, F17 | 05 | B3, D3 | 4 a 6 |
-| B8 | F6 | 06 | B3, B7 | 3 a 5 |
-| B9 | F14, F23 | 07 | B3, B7, B8 | 2 a 3 |
-| B10 | F22 | 08 | inventário já; fecho após B9 | 2 a 3 |
-| B11 | F26, F21 (evidência) | 09 | B1 a B10 | 4 a 6 |
-| B12 | | 10 | B11 e rede interna | fora do alcance local |
+| bloco | fecha | executa | depende de | estimativa (dias) | estado em 2026-09-13 |
+| --- | --- | --- | --- | --- | --- |
+| B0 | F19, F20, F24, F25, F21 (doc) | higiene | nada | 1 | fundido |
+| B1 | F1, F15 | 02 (metade destrutiva) | B0 | 1 a 2 | fundido |
+| B2 | F2, F20 (banco) | 10 item 2 | nada | 1 | fundido |
+| B3 | F3, F4, F7, F13, F16 | 01 itens 2 e 4; 03 item 5 | B0 | 3 a 4 | fundido |
+| B4 | F18 | 02 inteiro | B1, B3 | 6 a 9 | fundido (três ondas; a quarta em execução) |
+| B5 | F8 | 03 | B3, B4 | 6 a 9 | fundido no servidor; cliente pendente |
+| B6 | F9, F10 | 04; 01 item 1 | B4, B5, D4 | 5 a 7 | em execução (servidor); cliente pendente |
+| B7 | F5, F11, F12, F17 | 05 | B3, D3 | 4 a 6 | fundido |
+| B8 | F6 | 06 | B3, B7 | 3 a 5 | fundido |
+| B9 | F14, F23 | 07 | B3, B7, B8 | 2 a 3 | em execução |
+| B10 | F22 | 08 | inventário já; fecho após B9 | 2 a 3 | fundido (inventário) |
+| B11 | F26, F21 (evidência) | 09 | B1 a B10 | 4 a 6 | em execução (primeira rodada Playwright) |
+| B12 | | 10 | B11 e rede interna | fora do alcance local | pendente |
 
 Soma das estimativas: 38 a 56 dias de uma pessoa, sem contar B12. B0, B1 e B2 são independentes entre si e cabem na primeira semana; B10 pode correr em paralelo desde o início até a parte de inventário.
 
@@ -243,7 +250,7 @@ Soma das estimativas: 38 a 56 dias de uma pessoa, sem contar B12. B0, B1 e B2 s�
 - **D4. Modelo de atomicidade de comando composto. DECIDIDA em 2026-09-13: lote lógico por `batchId`.** O servidor aplica ou recusa o lote inteiro num único savepoint; o envio nunca corta dentro de um lote; lote acima de um limite medido (começar em 25 operações) é recusado com motivo. Preparação durável com ativação no fim fica para importação grande, fora do lançamento.
 - **D5. Identidade de sessão após F5. DECIDIDA em 2026-09-13: reverter para `sessionStorage`**, com o comportamento declarado no cabeçalho de `frontend/src/js/session/sessao-id.js`, porque a correlação de erro por sessão é o instrumento de diagnóstico e quebrava a cada recarga.
 - **D6. Baseline congelada. DECIDIDA em 2026-09-13, com ressalva do dono:** a linha de integração nunca foi implantada, então a baseline consolidada fica editável até o SHA candidato e a primeira implantação é instalação nova. O checksum entra já (recusa em desenvolvimento se resolve recriando o banco) e o congelamento passa a valer no SHA implantado; daí em diante, só migração numerada nova.
-- **D7. Reuso de imagem por conteúdo, sem chave de tentativa. PENDENTE.** O bloco B8 (commit c0ce39f3) fez a rota única de imagem reusar, na falta de chave de idempotência, a linha de mesmo hash de conteúdo no mesmo atlas: reenviar os mesmos bytes com outro nome devolve a linha antiga, com o nome antigo, e duas feições passam a compartilhar uma linha de imagem. Nenhum caminho do cliente chama a exclusão de imagem no servidor hoje, então não há perda alcançável pelo produto, e é por isso que isto é pendência e não defeito. A alternativa é estreitar o reuso: casar só por chave de tentativa, aceitando que um reenvio sem chave grave uma segunda linha e um segundo arquivo em disco para os mesmos bytes. Registro em [decisões de 2026](../decisions/decisions-2026.md); efeito nomeado em [uploads](fechamento/06-uploads.md).
+- **D7. Reuso de imagem por conteúdo, sem chave de tentativa. PENDENTE.** O bloco B8 (commit `c0ce39f3`) fez a rota única de imagem reusar, na falta de chave de idempotência, a linha de mesmo hash de conteúdo no mesmo atlas: reenviar os mesmos bytes com outro nome devolve a linha antiga, com o nome antigo, e duas feições passam a compartilhar uma linha de imagem. Nenhum caminho do cliente chama a exclusão de imagem no servidor hoje, então não há perda alcançável pelo produto, e é por isso que isto é pendência e não defeito. A alternativa é estreitar o reuso: casar só por chave de tentativa, aceitando que um reenvio sem chave grave uma segunda linha e um segundo arquivo em disco para os mesmos bytes. Registro em [decisões de 2026](../decisions/decisions-2026.md); efeito nomeado em [uploads](fechamento/06-uploads.md).
 
 ## 6. Regras de verificação por bloco
 

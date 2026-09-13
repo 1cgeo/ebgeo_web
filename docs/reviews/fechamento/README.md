@@ -23,6 +23,8 @@ As correções de todo o dia, incluindo os commits anteriores a esses três chec
 
 ## Base e regras de continuidade
 
+- **A retomada agora é pelo [plano de correção total de 2026-09-13](../plano-correcao-total-lancamento-2026-09-13.md)**, que reorganiza estes dez documentos em blocos B0 a B12, carrega as decisões do dono (D1 a D7) e traz a tabela de andamento por bloco. A ordem de retomada abaixo continua válida como índice do que cada documento cobre, não como fila de trabalho.
+- Base desta linha de execução: `12718bab`, na branch de trabalho `plano/bh`, sobre `338b5f23`. A posição de 12/09/2026 registrada no topo deste arquivo (`d0c99dea`) é anterior aos blocos já fundidos.
 - Main e origin/main conferidos nesta execução: `8b611113aa73c3faedc967ccf77132604255ea8d`. O usuário informou que a produção corresponde à main; confirmar novamente antes do ensaio final.
 - Checkpoints: `b26f4e66` (protocolo, filas antigas e dependências npm), `d2f6c51` (briefings/slides), `d0c99dea` (catálogo). Não houve publicação no servidor interno.
 - Última validação completa: 12.247 testes frontend, 5.054 backend e 201 contratos; lint e build aprovados. O catálogo passou duas vezes no navegador com backend real. Isso valida o checkpoint, não os itens restantes.
