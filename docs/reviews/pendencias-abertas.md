@@ -89,7 +89,7 @@ Aceite do bloco: nenhuma vulnerabilidade crítica ou alta aplicável e exploráv
 2. **As capturas e specs escritos em 13/09**, rodando de dentro de `frontend/`:
    - as DUAS capturas temporárias (a luz de sync com os estados novos, e o painel de pendências) foram executadas em 13/09, as sete imagens foram LIDAS e os dois specs foram apagados no mesmo commit, que é o contrato deles. O que a leitura mostrou está no corpo daquele commit, e o que ela achou de aberto está adiante nesta seção;
    - o caso novo de `frontend/tests/e2e-ui/browser-collab-lock.spec.js`, que trava PELO CONTROLADOR e espera o Editor ler o mapa travado (os specs anteriores travavam pela op crua e por isso travavam só o próprio cliente): EXECUTADO em 13/09, verde em 4 de 4 rodadas em série;
-   - `frontend/tests/e2e-ui/browser-collab-colar-imagem.spec.js`, ainda não executado.
+   - `frontend/tests/e2e-ui/browser-collab-colar-imagem.spec.js`: EXECUTADO na terceira passada, verde em 13,3 s.
    Ler a contagem de `flaky` ANTES de declarar verde: com `retries: 1`, um caso que flakeia é um caso não verificado.
 3. **Lembrar que `browser-collab-mega.spec.js` não roda na rodada normal** (tem script próprio), então "`test:e2e:ui` verde" não é "a pasta inteira passou".
 
@@ -167,6 +167,59 @@ Os quatro foram reescritos nesta worktree, com asserção INVERTIDA e nunca afro
 
 **O asset NÃO foi semeado, e a decisão está registrada aqui porque pulo é cobertura vazia.** Não há fixture: o `.3dtiles` é um artefato binário de 8,4 MB produzido pela ingestão, e um substituto sintético devolveria a cena vazia que o próprio spec avisa não medir nada. O caminho de volta é barato e a frase do pulo o nomeia: apontar `MODELS_3D_DIR` para um diretório que contenha o arquivo antes de rodar o Playwright, porque `frontend/tests/e2e-ui/backend.js` espalha o ambiente do processo no `spawn` do backend e não sobrescreve essa variável. **Enquanto o coordenador não fizer isso, §30.2 é cobertura ZERO sobre o vazamento de listener do visualizador 3D, e a matriz B11 não pode contá-la como célula aprovada.**
 
+### A terceira passada (13/09): a rodada inteira, e o que ela desfaz da segunda
+
+`npm run test:e2e:ui` de dentro de `frontend/`, sobre `40c8f2cb`: **código de saída 1, 19 reprovados, 2 flaky, 1 pulado, 345 aprovados, 1,0 h**, 367 casos em 156 arquivos (a mega continua fora, por script próprio). O log íntegro fica no scratchpad da sessão (playwright-p8.log), que some com ela: o que sobrevive é esta seção.
+
+**O achado que mais muda a leitura da segunda passada: NENHUM dos quatro vermelhos novos é regressão de P4 a P7.** Os quatro foram remedidos em série, isolados e com `--retries=0`, no candidato de hoje e no candidato da segunda passada (`13025f4a`), e os quatro já reprovavam lá. Três deles reprovavam por SORTEIO, e é isso que os fez passar por verdes: um caso que ganha 1 em 3 dá verde numa rodada única, e a segunda passada tinha uma rodada por caso.
+
+| caso | hoje (`40c8f2cb`) | segunda passada (`13025f4a`) | classe |
+|---|---|---|---|
+| `frontend/tests/e2e-ui/browser-default-layer.spec.js` | vermelho 3 de 3 | vermelho 3 de 3, MESMA mensagem | b, pré-existente |
+| `frontend/tests/e2e-ui/browser-multi-tab-namespace.spec.js`, A1 | vermelho 3 de 3 | vermelho 2 de 3 | b, pré-existente, hoje determinístico |
+| `frontend/tests/e2e-ui/troca-viva-de-atlas-tela.spec.js` | vermelho 3 de 3 | vermelho 2 de 3 | c, instrumento |
+| `frontend/tests/e2e-ui/painel-de-feicao-na-troca-viva.spec.js` | vermelho 3 de 3 | vermelho 1 de 3 | c, instrumento |
+
+**As duas últimas são a QUINTA e a SEXTA da família que `fe8a6039` consertou, e o suspeito sai da leitura, não de bissecção.** Aquele commit descobriu que o mapa em que a aba aterrissava ao abrir um atlas era sorteado, consertou o produto (a ordem passou a ser a do atlas) e corrigiu QUATRO specs que semeavam o atlas supondo que ele nasce vazio, empurrando um `map create` por cima do mapa que o servidor semeia. Estas duas fazem exatamente isso (`api.createAtlas` seguido de um envelope `map create` com UUID novo) e depois esperam o endereço trazer aquele mapa, cada uma com a sua cópia privada de `esperarAtlasPronto`. Enquanto o mapa era sorteado elas ganhavam às vezes; com o sorteio removido, o mapa é sempre o primeiro do atlas e elas perdem sempre. O conserto é no spec, e é o mesmo que `fe8a6039` fez nos outros quatro: adotar o mapa semeado por uma renomeação. Não afrouxar a espera.
+
+**A1 aponta para o instrumento, e para o mesmo instrumento que P7 já consertou uma vez.** Ela lê a feição desenhada em `mapsDbOf(remoteSuffix(X.id))`, que é o nome de banco SEM geração, e desde 13/09 o retrato pousa numa geração (`ebgeo_maps__<sufixo>__generation-<uuid>`) com o ponteiro virado só no fim. Foi essa mesma defasagem que fez o portão de `frontend/tests/e2e-ui/browser-save-local-to-server.spec.js` cair no controle positivo, e a saída já existe, escrita naquele lote: `activeMapsDbOf` (`frontend/tests/e2e-ui/helpers/two-tabs.js`), que resolve a geração ativa da aba. A hipótese vale para a família inteira de `browser-multi-tab-namespace.spec.js` e de `browser-multi-tab-teardown-queue.spec.js`, e precisa ser conferida caso a caso antes de virar conserto: só a linha de A1 foi lida.
+
+**`browser-default-layer.spec.js` é o único dos quatro que é vermelho determinístico nas duas bases**, e ele escapou do inventário da segunda passada. O sintoma: A fica offline, renomeia a camada E muda a opacidade dela, volta a ficar online; em B o nome chega ("Configuração preservada") e a opacidade não (esperado 0,55, recebido 1). O relatório do SyncLedger anexo traz `conflicts: 2` e `acked-but-no-effect: 1`. A coluna existe do lado do servidor (`opacity` está em `UPDATE_FIELDS` de `backend/src/modules/sync/sync.service.js`) e o cliente registra a operação (`setLayerOpacity` cai em `_updateLayerProperty`, que empilha um UPDATE com o documento), então a leitura que sobra é a da base declarada: as duas edições offline da MESMA camada declaram a mesma base observada, a primeira aplica e a segunda volta recusada. Isso é hipótese de leitura, não medição, e quem for fechá-la começa pelo recibo da segunda operação.
+
+#### O que a terceira passada aprovou
+
+- **Os DOIS casos da classe a estão verdes**, e é a primeira vez que se medem depois do conserto: `frontend/tests/e2e-ui/desempenho-do-boot-do-mapa.spec.js`, "transicoes" (2,3 min), e `frontend/tests/e2e-ui/browser-atlas-url.spec.js`, "logged out" (4,2 s).
+- **Os specs que P7 reescreveu rodaram pela primeira vez, e três dos quatro passaram**: `frontend/tests/e2e-ui/browser-collab-crdt-conflict.spec.js` (cinco casos verdes, o de TRÊS clientes inclusive), `frontend/tests/e2e-ui/browser-collab-lock.spec.js` (os dois casos) e `frontend/tests/e2e-ui/browser-save-local-to-server.spec.js` (os dois, com o portão de namespace agora medindo a geração ativa).
+- **UM caso da classe b fechou de passagem**: `frontend/tests/e2e-ui/troca-viva-de-atlas-medida.spec.js`, verde em 18,8 s. Ele era um dos quatro specs que `fe8a6039` adotou ao mapa semeado, ou seja, fechou pelo mesmo commit que abriu os dois irmãos da tabela acima.
+- `frontend/tests/e2e-ui/vazamento-viewers.spec.js`: §30.1 verde e §30.2 PULADO, que é o desenho novo funcionando e continua sendo cobertura ZERO sobre o vazamento do visualizador 3D.
+
+#### O que B11 ainda tem de fechar: os pré-existentes que continuam vermelhos
+
+Catorze casos, todos vermelhos também em `13025f4a`. Os sintomas são os de hoje, medidos na rodada inteira.
+
+| caso | sintoma hoje |
+|---|---|
+| `frontend/tests/e2e-ui/browser-multi-tab-namespace.spec.js`, A0b, A1, A2, A3b | a feição não aparece no banco do atlas lido (`Received array: []`); ver a suspeita de geração acima |
+| `frontend/tests/e2e-ui/browser-multi-tab-teardown-queue.spec.js`, B1, B2, B3 | `a aba ativou o mapa do atlas` |
+| `frontend/tests/e2e-ui/browser-collab-grupo-perde-membro.spec.js`, os DOIS casos | o par não converge reduzido: a feição apagada sobrevive no par, e o grupo de duas não se dissolve |
+| `frontend/tests/e2e-ui/browser-two-client-broadcast.spec.js` | A vê o próprio eco |
+| `frontend/tests/e2e-ui/envio-do-acervo-herdado.spec.js`, os TRÊS casos | `expect(locator).toBeVisible() failed` |
+| `frontend/tests/e2e-ui/aparencia-atravessa-trocas-de-atlas.spec.js` | o mapa não fica vivo em 30 s no passo de SAIR da conta a partir de `atlas.html` |
+| `frontend/tests/e2e-ui/browser-logout-clears-map.repro.spec.js`, primeiro caso | `nenhum traço da feição do servidor nas sources vivas após o logout` |
+| `frontend/tests/e2e-ui/browser-default-layer.spec.js` | a opacidade não chega ao par (ver acima) |
+
+**Um vermelho da classe c continua de pé e NÃO é sobre o que ele reescreveu:** `frontend/tests/e2e-ui/browser-collab-three-client-flow.spec.js` reprova nas duas tentativas ANTES da asserção reescrita, em `drawViaToolUI`, com `a ferramenta "line" nao criou feicao em "lines" depois dos cliques` e o diagnóstico do tool em `isActive:false, toolAtivo:null`. É a mesma assinatura do flaky de `browser-collab-ledger.spec.js`, isto é, a janela em que a ferramenta cai junto com a troca de mapa, já descrita em `frontend/tests/e2e-ui/helpers/collab-helpers.js`. A fase 3 daquele spec segue SEM medição.
+
+#### Os dois flaky, com taxa
+
+`retries: 1` fecha a rodada em verde para eles, e por isso a contagem se lê antes do veredicto. Os dois foram remedidos isolados, em série, com `--retries=0`:
+
+| caso | na rodada inteira | isolado |
+|---|---|---|
+| `frontend/tests/e2e-ui/browser-collab-ledger.spec.js` | reprovou na 1ª tentativa, passou na retry | verde 3 de 3 |
+| `frontend/tests/e2e-ui/mobile-layout.spec.js`, §28.8/§28.11 | reprovou na 1ª tentativa, passou na retry | verde 3 de 3 |
+
+O do ledger reprova pela assinatura de `drawViaToolUI` acima, ou seja, ele e o `three-client-flow` são o MESMO defeito de instrumento visto em dois pontos da distribuição: um perde sempre sob carga, o outro perde uma vez em três. Fechar aquela janela fecha os dois, e é o candidato de maior rendimento da lista.
 
 ### A matriz (documento 09, íntegra)
 
