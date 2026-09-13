@@ -81,6 +81,7 @@ import {
     classifyKeySamples,
     idbDatabaseNames,
     mapsDbOf,
+    activeMapsDbOf,
     queueDbOf,
     remoteSuffix,
     logoutUI,
@@ -130,9 +131,17 @@ async function seedUserWithAtlases(browser, baseUrl, atlasNames) {
         const atlases = [];
         for (const name of names) {
             const atlas = await api.createAtlas({ name });
-            const mapId = crypto.randomUUID();
+            // ADOTA O MAPA QUE O SERVIDOR SEMEIA, como o arquivo irmao ja faz. `POST /atlas`
+            // deixou de devolver atlas vazio em 2026-09-12 (`e70ccf3c`), e desde `e8496110` o
+            // mapa em que a abertura aterrissa e o PRIMEIRO da ordem do ATLAS, nao o de chave mais
+            // baixa no IndexedDB. Criar um SEGUNDO mapa ao lado do semeado deixava
+            // `waitAtlasTabReady` esperando por um mapa que a abertura nunca escolhe: medido em
+            // 2026-09-13, os tres casos deste arquivo reprovavam com `Received: "Mapa 1"`, que e o
+            // nome do mapa que o SERVIDOR cria dentro de `createAtlas`.
+            const mapId = atlas.map_order?.[0];
+            if (!mapId) throw new Error('O servidor não criou o mapa inicial do atlas.');
             const mapName = `Mapa ${name}`;
-            await api.pushOperations(atlas.id, [createOperation('map', 'create', mapId, null, { name: mapName })]);
+            await api.pushOperations(atlas.id, [createOperation('map', 'update', mapId, null, { name: mapName })]);
             atlases.push({ id: atlas.id, name, mapId, mapName });
         }
         return { username, password, atlases };
@@ -470,7 +479,13 @@ describeOrSkip('Duas abas, um usuário: fila de saída e aviso de desmontagem', 
         // --- POSITIVE control BEFORE the destructive act: o namespace de X existe e tem dentro
         //     dele o que a aba B desenhou. Sem isso, "os bancos não voltaram" é indistinguível de
         //     "os bancos nunca tiveram nada". ---
-        const dbX = mapsDbOf(remoteSuffix(X.id));
+        // O ENDERECO RESOLVE A GERACAO ATIVA, e o nome sem geracao deixou de servir: desde que o
+        // retrato escreve em `ebgeo_maps__<sufixo>__generation-<uuid>`
+        // (`store/namespace-generation.js`), `mapsDbOf` aponta para um banco que EXISTE e nao
+        // guarda nada. Medido em 2026-09-13: o controle positivo logo abaixo reprovava com lista
+        // vazia, e a amostragem de sobrevivencia que vem depois dele passaria a medir a ausencia
+        // de um banco que ninguem escreve, que e verde sem verificacao.
+        const dbX = await activeMapsDbOf(tabB, remoteSuffix(X.id));
         const point = await drawPointUI(tabB, [-43.25, -22.95]);
         expect(point, 'a aba B desenhou antes do logout da aba A').toBeTruthy();
         await tabB.keyboard.press('Escape');
@@ -545,11 +560,15 @@ describeOrSkip('Duas abas, um usuário: fila de saída e aviso de desmontagem', 
             await testInfo.attach('B3 bancos no disco no fim', {
                 body: nomes.join('\n'), contentType: 'text/plain',
             });
+            // A COMPARACAO E POR PREFIXO. Z nunca foi montado, entao nao tem ponteiro de geracao e
+            // o nome base e o unico endereco dele hoje; uma geracao sobrevivente, porem, se
+            // chamaria `<base>__generation-<uuid>` e passaria inteira por baixo de um `toContain`
+            // exato, deixando o controle de vacuo verde com o expurgo quebrado.
             expect(
-                nomes,
+                nomes.filter((n) => n.startsWith(dbZ)),
                 `o expurgo alcançou o atlas que ninguém montava (${dbZ}); se ele sobreviveu junto `
                 + 'com o de X, a varredura não rodou e o "poupou" acima não prova nada',
-            ).not.toContain(dbZ);
+            ).toEqual([]);
         }
 
         // --- E a aba B continua VIVA: se ela tivesse morrido, "não recriou" seria só "não existe

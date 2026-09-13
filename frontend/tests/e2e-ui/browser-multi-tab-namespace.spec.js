@@ -102,7 +102,7 @@ import {
     readIdbFeatureIds,
     idbDatabaseNames,
     atlasDbNames,
-    mapsDbOf,
+    activeMapsDbOf,
     remoteSuffix,
     logoutUI,
     attachNamespaces,
@@ -231,7 +231,18 @@ function waitMapLoaded(page) {
     );
 }
 
-/** Polls the RAW IndexedDB of `dbName` until it holds `featureId` (or times out). */
+/**
+ * Polls the RAW IndexedDB of `dbName` until it holds `featureId` (or times out).
+ *
+ * O ENDERECO TEM DE VIR DE `activeMapsDbOf`, NUNCA DE `mapsDbOf`, e este arquivo inteiro lia o
+ * nome errado ate 2026-09-13. Desde que o retrato passa a escrever numa GERACAO
+ * (`ebgeo_maps__<sufixo>__generation-<uuid>`, `store/namespace-generation.js`), o nome sem
+ * geracao existe e nao guarda nada: as quatro leituras positivas deste arquivo (A0b, A1, A2 e
+ * A3b) reprovavam com `Received array: []` nas DUAS bases da homologacao, e o anexo de
+ * `indexedDB.databases()` da rodada mostrava o banco com sufixo de geracao ao lado do nome que a
+ * assercao pedia. As leituras de AUSENCIA sao piores: contra um banco que ninguem escreve elas
+ * passam de graca, que e a cobertura vazia da constituicao, entao elas mudaram junto.
+ */
 async function expectFeatureInDb(page, dbName, featureId, message) {
     await expect
         .poll(async () => (await readIdbFeatureIds(page, dbName)).featureIds, { timeout: 15000, message })
@@ -391,7 +402,7 @@ describeOrSkip('Duas abas, um usuário: namespace por atlas (E0)', () => {
         expect(pointB, 'a aba B (segunda aba) desenhou').toBeTruthy();
         await tabB.keyboard.press('Escape');
 
-        const remoteDb = mapsDbOf(remoteSuffix(X.id));
+        const remoteDb = await activeMapsDbOf(tabB, remoteSuffix(X.id));
         await expectFeatureInDb(tabB, remoteDb, pointB, 'o ponto da segunda aba está no namespace dela');
 
         // ...and NOT in any local database, which is the leak direction the disk can see.
@@ -514,11 +525,15 @@ describeOrSkip('Duas abas, um usuário: namespace por atlas (E0)', () => {
         expect(pointX, 'a aba A desenhou').toBeTruthy();
         expect(pointY, 'a aba B desenhou').toBeTruthy();
 
-        await expectFeatureInDb(tabA, mapsDbOf(remoteSuffix(X.id)), pointX, 'o ponto de X está em X');
-        await expectFeatureInDb(tabB, mapsDbOf(remoteSuffix(Y.id)), pointY, 'o ponto de Y está em Y');
+        const dbDeX = await activeMapsDbOf(tabA, remoteSuffix(X.id));
+        const dbDeY = await activeMapsDbOf(tabB, remoteSuffix(Y.id));
+        await expectFeatureInDb(tabA, dbDeX, pointX, 'o ponto de X está em X');
+        await expectFeatureInDb(tabB, dbDeY, pointY, 'o ponto de Y está em Y');
 
-        const inX = await readIdbFeatureIds(tabA, mapsDbOf(remoteSuffix(X.id)));
-        const inY = await readIdbFeatureIds(tabA, mapsDbOf(remoteSuffix(Y.id)));
+        // A LEITURA CRUZADA E DA ABA A, e por isso ela resolve a geracao ATIVA DE A para os
+        // dois enderecos: e a aba A que nao pode estar lendo o atlas Y.
+        const inX = await readIdbFeatureIds(tabA, dbDeX);
+        const inY = await readIdbFeatureIds(tabA, await activeMapsDbOf(tabA, remoteSuffix(Y.id)));
         expect(inX.featureIds, 'o ponto de Y NÃO está nos bancos de X').not.toContain(pointY);
         expect(inY.featureIds, 'o ponto de X NÃO está nos bancos de Y').not.toContain(pointX);
 
@@ -559,11 +574,13 @@ describeOrSkip('Duas abas, um usuário: namespace por atlas (E0)', () => {
         const pointA = await drawPointUI(tabA, [-43.2, -22.9]);
         expect(pointA, 'a aba A desenhou o ponto de controle').toBeTruthy();
         await tabA.keyboard.press('Escape');
-        await expectFeatureInDb(tabA, mapsDbOf(remoteSuffix(X.id)), pointA, 'o ponto está no namespace de X');
+        await expectFeatureInDb(tabA, await activeMapsDbOf(tabA, remoteSuffix(X.id)), pointA,
+            'o ponto está no namespace de X');
 
         // --- NEGATIVE control of the same reader: a namespace nobody opened must read as absent.
         //     A reader that answered "exists" for every name would pass every leak assertion. ---
-        const ghost = await readIdbFeatureIds(tabA, mapsDbOf(remoteSuffix(crypto.randomUUID())));
+        const ghost = await readIdbFeatureIds(tabA,
+            await activeMapsDbOf(tabA, remoteSuffix(crypto.randomUUID())));
         expect(ghost.exists, 'um namespace inexistente lê como ausente (e não é criado pela leitura)').toBe(false);
 
         const namesBefore = await attachNamespaces(testInfo, tabA, 'A2 com só a aba A');
@@ -702,7 +719,7 @@ describeOrSkip('Duas abas, um usuário: namespace por atlas (E0)', () => {
         const point = await drawPointUI(tab, [-43.25, -22.95]);
         expect(point, 'a aba desenhou antes do próprio logout').toBeTruthy();
         await tab.keyboard.press('Escape');
-        const dbX = mapsDbOf(remoteSuffix(X.id));
+        const dbX = await activeMapsDbOf(tab, remoteSuffix(X.id));
         await expectFeatureInDb(tab, dbX, point, 'antes do logout, o ponto está no namespace do atlas');
 
         // O PONTO TEM DE SER DADO DE SERVIDOR ANTES DE A SAÍDA SER MEDIDA, e sem esta espera o
@@ -844,7 +861,7 @@ describeOrSkip('Duas abas, um usuário: namespace por atlas (E0)', () => {
                     expect(local.featureIds, `${db} (local) não recebeu a feição pública`)
                         .not.toContain(seed.featureId);
                 }
-                const remoteDb = mapsDbOf(remoteSuffix(seed.atlasId));
+                const remoteDb = await activeMapsDbOf(tab, remoteSuffix(seed.atlasId));
                 expect(names, 'o namespace do atlas público existe').toContain(remoteDb);
                 const remote = await readIdbFeatureIds(tab, remoteDb);
                 expect(remote.featureIds, 'a feição pública está no namespace do atlas público')
