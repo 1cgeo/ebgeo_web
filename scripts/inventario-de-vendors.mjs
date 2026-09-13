@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * Regenera o manifesto de vendors e o confere contra o arquivo versionado.
  *
