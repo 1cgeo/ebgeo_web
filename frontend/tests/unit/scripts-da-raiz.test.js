@@ -47,6 +47,10 @@ const SO_UM_PACOTE_DE_PROPOSITO = new Map([
     // Estes dois SÃO Playwright (browser), caros demais para o loop; ficam manuais.
     ['test:e2e:ui', 'Playwright com browser, caro demais para o encadeamento do DoD'],
     ['test:e2e:mega', 'idem, e roda headed'],
+    // Os dois cenários de config DEDICADA (B11, 2026-09-13): só rodam por estes scripts,
+    // porque o `playwright.config.js` normal não os casa. "test:e2e:ui verde" não os cobre.
+    ['test:e2e:atlas', 'Playwright com config própria (playwright.atlas-safety.config.js)'],
+    ['test:e2e:migracao', 'Playwright com config própria e EBGEO_MIGRATION_DATA_DIR apontando para CÓPIA dos dados'],
     ['knip', 'dead-code do frontend; o backend não tem configuração de knip'],
     // `diag` lê o log em arquivo, e quem escreve esse log é o SERVIDOR (`pino`, um arquivo
     // por dia em `LOG_DIR`). O frontend não tem log em disco para consultar: o erro de
