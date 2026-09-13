@@ -6,7 +6,7 @@ Status: pendente. Prioridade: bloqueia lançamento. O inventário está feito; a
 
 ### Checkpoint de 2026-09-13 (inventário)
 
-O [inventário datado](../dependencias-lancamento-inventario.json) ganhou uma seção 2026-09-13 ao lado da de 2026-09-12, que ficou intacta. O que ele passou a cobrir, medido sobre o commit 841e1539:
+O [inventário datado](../../seguranca/dependencias-lancamento-inventario.json) ganhou uma seção 2026-09-13 ao lado da de 2026-09-12, que ficou intacta. O que ele passou a cobrir, medido sobre o commit 841e1539:
 
 1. **Os 408 arquivos versionados de vendor, e não seis.** Cada um com caminho, bytes e sha256. Antes havia seis entradas escritas à mão; agora há um manifesto completo de `frontend/public/vendors/` e `frontend/src/vendor/`, mais dezenove fichas por artefato, com a versão declarada no próprio arquivo e como ela foi determinada.
 2. **Dois hashes por arquivo de texto, e a razão é uma armadilha de medição.** A árvore de trabalho está em CRLF (332 dos 408 arquivos), efeito do checkout no Windows, então o sha256 bruto não casa com nenhuma cópia publicada. O manifesto guarda também o hash do mesmo conteúdo normalizado para LF, e é esse que se compara com o upstream. Sem separar os dois a conferência dá o veredito errado: um dos wrappers do GDAL pareceu vir de outra versão só por causa disso.

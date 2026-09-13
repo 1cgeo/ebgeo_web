@@ -55,6 +55,30 @@ Uma assimetria sobra, e é do desenho: a aba que não responde, por deploy antig
 
 **O guarda de boot depende deste relatório, e o predicado é mais largo do que parece.** `purgeReachedAtlas` conta como alcançado o namespace POUPADO e também o registrado-e-vazio, não só o que tinha dado. As duas inclusões custaram perda de dado quando faltaram: um namespace que não aparece em nenhuma lista faz o guarda responder "não alcancei" e mandar o segundo wipe sobre a ponte legada, que é o slot local #1 do usuário, no boot e sem erro. A pergunta que aquele guarda realmente faz é **"este atlas possuía namespace"**, e quem responde é o registro, não a quantidade de bytes encontrada.
 
+## O retrato entra numa GERAÇÃO, e o ponteiro dela tem duas cópias
+
+Cada snapshot prepara os nove bancos de DADO sob um sufixo de geração próprio (imagens e fila de saída ficam de fora, compartilhadas por todas as gerações) e só ao fim grava o par ativo mais cursor. Até aquela linha, todo leitor resolve a geração completa ANTERIOR: é o que torna a troca atômica do ponto de vista de quem lê.
+
+O ponteiro mora em `localStorage` porque `resolveDbName` é síncrono, e desde 2026-09-13 tem **espelho** no `ebgeo_global` (`GlobalKey.GENERATION_PREFIX`, mais `GlobalKey.WRITE_EPOCH_PREFIX` para a época de descarte), reconciliado por `reconcileDurablePointers` antes de o `connect` ler o cursor. Perder só o `localStorage`, com o IndexedDB de pé, deixava nove bancos cheios que nada resolvia, e isso é o oposto do invariante desta página, porque o dado fica inalcançável em vez de apagado. As duas chaves saem do disco com o namespace, no ponto único `dropAtlasDatabases`, e **só quando nenhum delete ficou `blocked`**, porque a varredura seguinte deriva a lista de bancos do próprio ponteiro.
+
+**A ativação PODA, e a poda usa trava PRÓPRIA.** Sobrevivem a geração ativa e UMA anterior (decisão D3, em [`decisions-2026.md`](../decisions/decisions-2026.md)); a poda é idempotente e roda na ativação da nova; preparação que falhou entre entrar na lista de conhecidas e gravar o ponteiro é apagada na hora (`discardPreparedGeneration`). A trava não pode ser a de MONTAGEM, porque a aba que poda é a que está montada e seria recusada por si mesma: entrou `atlasGenerationLockName`, tomada na ativação de escopo e trocada na adoção do retrato, com o release aguardado. Geração que outra aba ainda lê é poupada e **permanece na lista de conhecidas**; `pruneSupersededGenerations` reescreve essa lista DEPOIS da poda, de modo que ela nunca nomeia banco que saiu do disco.
+
+Três limites declarados, porque ausência se confunde com esquecimento:
+
+- **A reconciliação tem UM ponto de entrada, o `connect` remoto.** Um slot LOCAL que carregue geração (o resgate adota um namespace remoto com as gerações dele) nunca conecta, então nada reconcilia o ponteiro dele.
+- **A poda é best-effort e roda DEPOIS do commit do ponteiro**, então falha nela custa disco e nunca a recuperação; a próxima ativação poda de novo. Delete que não confirma MANTÉM a geração na lista, senão sobra dado de servidor que nenhum expurgo acha.
+- **A remoção da chave de época não fecha TODO escritor.** Ela fecha quem capturou um registro existente, porque toda época escrita é no mínimo 1 e a ausência lê 0; quem nasceu antes de qualquer registro lê 0 nos dois estados, e o que o impede de recriar os bancos é o freio de desmontagem. Duas tentativas de fechar isso dentro do fence foram revertidas, e uma delas fazia o controle negativo DO FREIO parar de reproduzir.
+
+**Sem `localStorage`, e dentro de um documento de navegador, o fence passou a responder FECHADO.** Fora de um documento (node) ele continua aberto, porque ali não há aba nem consentimento, e é isso que mantém a suíte medindo o produto em vez de medir a guarda.
+
+## O REGISTRO DE QUARENTENA é o que o expurgo não alcança
+
+A fila é por atlas, então a op RECUSADA pelo servidor, ou escrita por um protocolo que este build não reenvia, morava no banco que o logout confirmado destrói. E ela **não é pendência**: ela não está esperando envio, está esperando DECISÃO. O usuário concordava em perder pendências e perdia, calado, também o que já tinha sido posto de lado.
+
+Desde 2026-09-13 (decisão D2) `requestRemoteAtlasDiscard` copia a quarentena para o `ebgeo_global` (uma chave por atlas, `GlobalKey.QUARANTINE_PREFIX`, escrita por `preserveQuarantine`) **ANTES de marcar qualquer atlas**, confere a cópia por releitura e **recusa o descarte inteiro** se não conseguir confirmá-la. O aviso de saída conta e NOMEIA as duas metades (`pendingWorkSummary` e `quarantineKeptNotice`).
+
+Como nenhum wipe alcança o registro global, ela sai do disco só por decisão explícita, linha a linha, no painel de [[pendencias-de-sincronizacao]]. **O limite declarado:** a cópia roda no descarte CONFIRMADO, e a varredura de boot deslogado (`purgeAllRemoteAtlases`) também destrói namespace, de modo que uma fila órfã destruída por ela ainda não é copiada por ninguém.
+
 ## A adoção existe porque o logout preserva trabalho
 
 `AccountControl._handleLogout` preserva o trabalho não sincronizado quando o encerramento foi involuntário (ver `shouldPreserveLocalWork`). Enquanto local e remoto dividiam bancos, preservar era só virar o marcador de origem. Com namespace por atlas, o trabalho preservado fica num namespace que a própria varredura do próximo boot apaga, com o aviso ao usuário ainda prometendo que ficou guardado.

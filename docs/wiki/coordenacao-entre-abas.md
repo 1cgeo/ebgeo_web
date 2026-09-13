@@ -62,6 +62,27 @@ Três propriedades do desenho que custam dado se forem invertidas: o ack é post
 
 **O aviso é informação, nunca entrega da montagem, e confundir os dois custou dado.** A primeira versão do freio soltava o lock de montagem ao congelar, com o argumento de que uma aba parada mas ainda montada só empurraria a destruição para o prazo de 24 h. O lock não é contabilidade sobre QUANDO: é a arbitragem, a única coisa entre os bancos da irmã (fila de saída não enviada inclusa, porque a fila é por atlas) e o expurgo. Medido: com a montagem viva o relatório diz `spared` e o dado e a fila sobrevivem; sem ela, `atlases`, dado nulo e banco de fila ausente. Ou seja, obedecer ao aviso era o que destruía a aba que o aviso existe para proteger, e essa aba não tem resgate nenhum (o resgate só roda em quem desloga). Hoje o receptor **para de escrever e mantém o lock**; o emissor encontra o namespace montado e o poupa, como pouparia sem aviso. O preço escolhido está dito no arquivo do freio: dado de servidor sobrevive ao logout enquanto aquela aba ficar aberta, limitado pelo prazo. Perder trabalho não enviado não é limitado por nada.
 
+## A barreira de logout é um TERCEIRO Web Lock, e os dois modos fazem trabalhos diferentes
+
+O diálogo de saída conta pendências e depois destrói namespace. Até 2026-09-13 a pausa que antecedia essa contagem era um `WeakMap` de módulo em `frontend/src/js/store/write-coordinator.js` mais um contador de módulo em `frontend/src/js/store/sync/auto-flush-pause.js`, isto é, **por ABA**: a contagem saía otimista por construção, porque a irmã seguia escrevendo enquanto esta contava.
+
+Entrou um Web Lock por escopo remoto (`logoutBarrierLockName`, o terceiro nome ao lado de `atlasMountLockName` e `atlasGenerationLockName`), e o desenho só funciona porque os dois modos são assimétricos:
+
+- **o ESCRITOR toma `shared` com `ifAvailable`** (`enterCoordinatedWrite`, consultado por `runTransaction`), então escritores concorrentes de qualquer número de abas nunca esperam uns pelos outros, e o recusado **não espera**: emite `STORE_OPERATION_BLOCKED` e devolve;
+- **o DIÁLOGO toma `exclusive` e espera** (`holdLogoutBarrier`), e como a fila do Web Lock é FIFO por nome, estar apenas PENDENTE já recusa todo `shared ifAvailable` posterior. Duas propriedades caem daí: a escrita da irmã para no instante em que o diálogo pergunta, sem mensagem nenhuma, e a CONCESSÃO do exclusivo é a evidência de que as escritas em voo terminaram.
+
+**O prazo é de 3 s, e o estouro ABORTA o pedido**, porque um pedido herdado depois seguraria o exclusivo para sempre; estourado, a contagem continua sendo "quantidade desconhecida", que é o mesmo veredito honesto de sempre. O envio também consulta a barreira (`autoFlushBarredByLogout`), mas por SONDAGEM e não por aquisição, porque o que o flush empurra já está em disco.
+
+Cancelar solta. Confirmar solta depois de marcar e avisar, e de lá em diante quem recusa escrita tardia é o fence de época (`frontend/src/js/store/remote-write-fence.js`), que é outra guarda com outro relógio.
+
+Três limites declarados:
+
+- **A barreira não cobre a op enfileirada DEPOIS do commit da transação.** O enqueue de saída é um `deferAsync` que `runTransaction` não aguarda, então ele pode passar um microtask além da soltura. Quem o barra é o fence.
+- **Sem `navigator.locks` tudo degrada para o regime por aba anterior**, e isso está escrito no cabeçalho de `write-coordinator.js`. A decisão de manter HTTPS torna o degradado exceção e não implantação, mas a medição de `isSecureContext` na origem interna real continua sendo tarefa de homologação: certificado interno aceito à força pode negar o contexto seguro em algum navegador.
+- **Nenhuma corrida de DUAS BROWSERS reais foi medida.** A irmã, nos testes, é sempre um lock de verdade tomado fora do módulo sob teste, no mesmo processo, e a fiação do envio no laço de flush é asserida por leitura de fonte. O aceite de duas abas editando durante o diálogo é do Playwright.
+
+**E o descarte confirmado passou a exigir EVIDÊNCIA antes de destruir.** O ramo de descarte chamava `destroyRemoteAtlas` direto, pulando a poupança por lock de montagem: a irmã que não ouviu o aviso tinha os bancos apagados debaixo dela. Hoje ele passa por `destroyRemoteAtlasIfUnmounted` e só destrói uma montagem viva com o relatório do aviso (`teardownStoppedEveryPeer`: não degradado, sem timeout, acks suficientes) ou com o prazo de poupança vencido. O relatório é necessário porque **a irmã congelada conserva a montagem de propósito**, então o lock sozinho não distingue "parou" de "nunca ouviu".
+
 ## A regra uniforme foi a ÚLTIMA coisa a entrar, e a ordem era de segurança
 
 A regra uniforme ("mesmo endereço, e nada mais") nem sempre foi verdadeira, e a ordem em que ela se tornou verdadeira é propriedade de segurança, não preferência. Enquanto `openRemoteAtlas` não ativava namespace, dois atlas de servidor eram o MESMO conjunto de dez bancos, e `keysCollide` devolvia `true` para qualquer par deles: não era a regra do dono, era a leitura segura daquele período. A ordem em que a fiação entrou vale registrar porque não se lê no resultado:
@@ -92,7 +113,7 @@ Some-se a isso o que é aberto por fora do lock. **`degraded`**: sem `BroadcastC
 - Ele é premissa de uma outra decisão: o filtro de auto-eco compara a metade de INSTALAÇÃO do `clientId`, e isso só é são porque um navegador nunca tem duas abas no MESMO atlas. Ver [[client-id-estavel]].
 - O que o lock arbitra são endereços de banco, e quem define esses endereços é [[namespace-por-atlas]].
 
-Ver também [[dominio-local-vs-remoto]] e [[sessao-boot-e-ciclo-de-vida]].
+Ver também [[dominio-local-vs-remoto]], [[sessao-boot-e-ciclo-de-vida]] e [[diario-write-ahead]], que é quem consulta a barreira antes de preparar qualquer coisa.
 
 ## Histórico
 

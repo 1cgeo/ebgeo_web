@@ -1,6 +1,8 @@
 # Resolução de Conflitos: LWW por Ordem de Chegada
 
-O servidor ordena por `serverVersion` (ordem de chegada ao Postgres), nunca por timestamp de parede nem pelo relógio Lamport, com granularidade de feição inteira e idempotência por `op_id`.
+O servidor ordena por `serverVersion` (ordem de chegada ao Postgres), nunca por timestamp de parede nem pelo relógio Lamport, com idempotência por `op_id`; desde 2026-09-13, **uma op que DECLARA a base observada deixa de ser LWW cega** e é verificada por unidade de disputa, e sete alvos recusam update sobre linha excluída.
+
+> A regra de chegada continua sendo o default e o caminho de toda op que não declara base. O que existe hoje são dois regimes no mesmo servidor, e o discriminador é a op, não o alvo: leia a seção "A base observada" antes de concluir qualquer coisa sobre quem vence.
 
 ## Os três campos-isca
 
@@ -15,12 +17,15 @@ Não há merge comutativo descentralizado: o servidor central define ordem total
 O racional que o código apaga por construção, e a razão de a decisão não se reabrir de graça:
 
 - **Já existe um servidor obrigatório** (auth, atlas, permissões, imagens). Havendo ponto central de qualquer forma, o CRDT cobraria a complexidade de convergir sem coordenação, propriedade que o produto não usa.
-- **Offline-first é resolvido por fila, não por merge.** A [[fila-operacoes-outbound]] com compactação e flush gateado por conexão cobre o caso real (desconectar e voltar) sem estrutura de dados especial. Ver [[dominio-local-vs-remoto]].
-- **O custo foi aceito de olhos abertos:** conflito na mesma feição **perde trabalho**, o perdedor some e a intenção não é reconstruível. Não é bug. Ver [[sintese-decisoes-arquiteturais]].
+- **Offline-first é resolvido por fila, não por merge.** A [[fila-operacoes-outbound]], hoje um diário append-only com flush gateado por conexão, cobre o caso real (desconectar e voltar) sem estrutura de dados especial. Ver [[dominio-local-vs-remoto]].
+- **O custo foi aceito de olhos abertos**, e é a metade dele que mudou: conflito na mesma unidade continua não se conciliando sozinho, mas o perdedor **não some mais**. A tentativa fica no disco como problema durável, com o conteúdo dela, e quem editou decide (ver [[pendencias-de-sincronizacao]]). A frase anterior desta linha dizia que "a intenção não é reconstruível"; ela era verdadeira enquanto a recusa desenfileirava a op. Ver [[sintese-decisoes-arquiteturais]].
 
 **A palavra "CRDT" sobrevive no repositório e engana.** Ela está em nome de rota, em título de migração e em comentário de código (`frontend/src/js/store/sync/sync-engine.js`, `frontend/src/js/store/sync/ws-client.js`, `frontend/src/js/store/sync/sync-metadata.js`, `frontend/src/js/store/map.operations.js`) como nome informal do log de ops. É resíduo, não descrição, e o barrel `frontend/src/js/store/sync/index.js` diz isso explicitamente. Do mesmo lote é `setServerTimeOffset`, que compensaria clock skew para decidir conflito: como o vencedor é por ordem de chegada, não há o que compensar, e nenhum caminho de produção a chama.
 
-## Granularidade: feição inteira, por decisão
+## Granularidade: feição inteira quando não há base declarada
+
+*(A seção abaixo descreve o regime SEM base declarada, que é o default e continua sendo o de `map` e dos cinco subtipos dele. Onde a op declara base, a granularidade é a unidade de disputa, e a seção "A base observada" manda.)*
+
 
 O LWW é por **entidade**, não por propriedade. Se A muda a cor e B move a geometria da mesma feição, o perdedor perde a mudança **inteira**, não só o campo em conflito. É aceitável porque feições são pequenas e a edição concorrente na mesma feição é rara, mas é decisão explícita, não acidente.
 
@@ -36,9 +41,41 @@ Por isso `server_version` é simultaneamente o cursor do pull incremental ([[sna
 
 A consequência que só esta página pode dar: **esse 503 é o único erro TRANSITÓRIO do push que vale reoferecer eternamente.** O cliente concorda: `PERMANENT_PUSH_REJECTIONS` no `sync-engine.js` contém só `400` e `422`, e 503 fica deliberadamente de fora, junto de 401, 403 e 429. Não trate recusa permanente e transitória pelo mesmo ramo, e não "resolva" a contenção aumentando o `lock_timeout`: 5 s já é maior que qualquer push saudável.
 
-## Delete vence update (por ausência de filtro)
+## Delete vence update, e desde 2026-09-13 ele o RECUSA em voz alta
 
-`buildUpdateQuery` (`backend/src/modules/sync/sync.service.js`) **não** filtra `deleted_at IS NULL` nos ramos de feature/layer/group, mas também não limpa `deleted_at`. Um UPDATE que chega depois de um DELETE altera colunas de uma linha já morta e **não a ressuscita**; o snapshot segue não a devolvendo. O comportamento correto emerge da ausência de uma cláusula: quem "consertar" acrescentando o filtro não muda nada visível, quem acrescentar `deleted_at = NULL` quebra o modelo.
+A forma antiga dizia: `buildUpdateQuery` não filtra `deleted_at IS NULL`, mas também não limpa `deleted_at`, então o UPDATE altera colunas de uma linha morta, não a ressuscita, e o comportamento certo emerge da ausência de uma cláusula. **Isso era verdade para a linha e falso para a pessoa**: a escrita CAÍA e o ack voltava `applied`, então quem editou nunca soube que o trabalho tinha ido para uma linha que ninguém mais lê.
+
+Hoje o update sobre túmulo é recusado com motivo, pelo canal de conflito, para os alvos de `TOMBSTONE_GUARDED_TARGETS` (sete: feição, mapa, camada, grupo, briefing, slide, mais 3D e 360 como documento). Quem recusa é `tombstoneConflict` (`backend/src/modules/sync/entity-conflicts.js`), que lê a linha sob a trava de escrita do atlas ANTES do insert no log, e `buildUpdateQuery` ganhou `deleted_at IS NULL`. Medido revertendo a guarda: um mapa excluído e renomeado por op antiga voltava com o nome novo e `version` de 2 para 3, com o túmulo intacto e ack `applied`.
+
+**O create sobre túmulo continua RESSUSCITANDO, de propósito**, e é por isso que a recusa acima é só de update: o Ctrl+Z de uma exclusão reenvia um create com o mesmo id, e `layer`, `group`, `map`, `briefing` e `slide` compartilham esse contrato. Só 3D e 360 recusam create sobre linha existente, porque eles nunca o tiveram (o create deles era `ON CONFLICT (id) DO NOTHING`), então nomear a recusa ali não tira capacidade nenhuma.
+
+**Linha que NÃO EXISTE continua sendo acked como aplicada** num update, e isso é limite do desenho, não pendência esquecida: o log de operações é expurgável, então ausência não prova exclusão, e recusar por ausência transformaria todo par create/update fora de ordem numa recusa permanente. O comportamento está medido no último caso de `backend/tests/integration/sync-service-coverage.test.js`, para que uma mudança futura apareça.
+
+## A base observada: o segundo regime, e o gate é a OP
+
+O tratamento de base e revisão nasceu só para feição, atrás de um gate literal (`op.target === 'feature'`). Hoje a moldura é genérica por entidade (`backend/src/modules/sync/entity-conflicts.js`) e o gate é **"a op declara base"**, para qualquer alvo da tabela de unidades, mais "feição sempre". A diferença importa mais do que parece:
+
+- **Recusar toda op sem base seria recusar o cliente inteiro.** O cliente de hoje declara base para quase tudo menos mapa, então nada muda para ele nos alvos que ainda não declaram, e o dia em que declarar a verificação liga sozinha, sem mudança de servidor. Há dois casos de contraste no repro (mapa e comentário) justamente para que a conclusão oposta fique vermelha antes de chegar à produção.
+- O ciclo é: ler a linha corrente sob a trava de escrita do atlas, resolver a base (`baseVersion`, ou o recibo de `baseOperationId`), ler a fronteira por unidade em `backend/src/database/migrations/004_sync.sql` com o `entity_type` REAL, recusar NOMEANDO as unidades disputadas, gravar a fronteira nova.
+
+**A unidade de disputa por entidade** está em `DISPUTE_UNITS`, com espelho no cliente (`frontend/src/js/store/sync/dispute-units.js`), e os dois são comparados no mesmo processo por `frontend/tests/unit/unidades-de-disputa-espelham-backend.test.js`. Quatro escolhas que não se adivinham:
+
+- **A posição do mapa é UMA unidade de cinco colunas**, não cinco unidades. Metade de um enquadramento é um enquadramento que ninguém pediu.
+- **Camada de catálogo, 3D e 360 têm o documento inteiro como unidade única.** Entidade de uma unidade só **não guarda linha de fronteira**, porque "alguma unidade passou da sua base" é aritmeticamente igual a "a versão da linha passou da sua base", e a linha seria uma segunda cópia de `version`. Isso também resolve a camada de catálogo, cujo id é TEXT enquanto a coluna de id da tabela de fronteiras é UUID.
+- **Membresia de grupo não tem unidade**: é junção com create e delete idempotentes. Ver [[tipos-entidade-sync]].
+- **Ordem de SLIDE não é unidade de slide**: ela é a coluna de ordem do BRIEFING, então duas reordenações disputam sob a unidade do briefing. O esboço do plano pedia "conteúdo, ordem" para slide; a coluna não existe ali.
+
+**Com base declarada, a escrita é ESTREITADA às unidades que a op declara** (`op._unitScope`). Sem isso a tabela de unidades seria mentira em dois pontos: o update de comentário grava `data` inteiro, então um payload que jura só resolver apagaria o texto; e o de slide atribui o mapa sempre, via `resolveSlideMapId`.
+
+**O que o cliente declara e o que o servidor LÊ são coisas diferentes, e a diferença é declarada.** O servidor deriva as unidades das COLUNAS que o payload declara (`declaredUpdateColumns`), não do `patch`, que só é aplicado no caminho de feição. Payload de documento inteiro (uma camada, um grupo) reivindica todas as unidades que carrega, e esse é o veredito honesto, porque uma escrita larga a partir de base velha realmente sobrescreveria todas; onde o cliente já manda payload estreito (renomear mapa, travar, os cinco subtipos) a precisão é a da tabela.
+
+**Do lado do cliente, a revisão confirmada tem UM nome para todas as entidades** (`confirmedVersion`, em `frontend/src/js/store/sync/confirmed-version.js`, folha de zero imports), e três finuras decidem se ela vale:
+
+- o servidor carimba esse campo **apenas na feição**; para as outras ele manda a coluna `version` em cada linha do snapshot e o `entityVersion` em cada recibo, e é o cliente que os grava;
+- os dois ramos de aplicação que MESCLAM payload parcial (`mergeRemoteMapUpdate` e o update de camada) passaram a **ESQUECER** a revisão, porque base velha perde para uma mudança que aquele par acabou de aplicar, e **base ausente é o estado seguro**;
+- o recibo tem escritor próprio (`confirmEntityVersion`, `frontend/src/js/store/sync/remote-operation-handler.js`), que escreve um campo no documento endereçado: sem ele a SEGUNDA edição seguida da mesma entidade declararia a revisão lida do snapshot e perderia uma disputa contra o próprio autor.
+
+**O buraco que sobra é `map` e os cinco subtipos dele, que não declaram base.** A declaração é lida de `previousData`, e os sítios de escrita do mapa registram o campo mudado, nunca o documento; ler o documento ali custaria a leitura do mapa inteiro, feições incluídas, numa operação que hoje não lê nada. A saída barata é o recibo canônico de mapa, que também é o que falta para a comparação visual de geometria do painel ([[pendencias-de-sincronizacao]]).
 
 ## Create sobre linha viva: inerte no mesmo mapa, MOVER noutro
 
@@ -53,7 +90,7 @@ Quatro consequências que a cláusula não entrega sozinha:
 - **É regra de FEIÇÃO só.** Grupo, camada, 3D e 360 também carregam `map_id` e não mudam de mapa hoje, e a transferência de camada cunha id novo de propósito, porque id de camada não é único entre mapas.
 - **A cascata de exclusão de camada não alcança a linha movida**, porque ela mira `layer_id` E `map_id` e o move trocou os dois; pelo mesmo motivo o soft-delete de feição (`buildSoftDeleteQuery`), escopado por `map_id`, vira no-op quando mira a origem. As duas propriedades são o que torna o passo final da transferência seguro.
 
-O custo é o desta página inteira: um create ATRASADO de um cliente que ainda tinha a feição no mapa antigo a traz de volta. A janela é estreitada pela compactação de CREATE+UPDATE da [[fila-operacoes-outbound]], nunca fechada por garantia. Guardas: `backend/tests/integration/sync-feicao-muda-de-mapa.test.js` e `frontend/tests/e2e/layer-transfer.e2e.test.js`.
+O custo é o desta página inteira: um create ATRASADO de um cliente que ainda tinha a feição no mapa antigo a traz de volta. A janela nunca foi fechada por garantia, e desde 2026-09-12 ela deixou de ser estreitada pela compactação de CREATE+UPDATE, que saiu da fila junto com a purga por idade ([[fila-operacoes-outbound]]); quem a estreita agora é a revisão declarada, no caminho da feição. Guardas: `backend/tests/integration/sync-feicao-muda-de-mapa.test.js` e `frontend/tests/e2e/layer-transfer.e2e.test.js`.
 
 ## Armadilhas
 
@@ -64,7 +101,7 @@ O custo é o desta página inteira: um create ATRASADO de um cliente que ainda t
 - **O ack é a única fonte da ordem-servidor para o autor.** O autor filtra o próprio eco no WS, logo só aprende sua `serverVersion` pela resposta do push. Descartar essa resposta (como já se fez historicamente) quebra a convergência silenciosamente e só aparece em teste de dois usuários. Comportamento que atravessa `ws-client.js`, `sync-engine.js` e `remote-operation-handler.js`, e não é visível em nenhum deles isoladamente.
 - **E o ack precisa carregar a OP, não só o número, porque o adiamento tem DUAS janelas que ele não fecha** (medido em 2026-08-23, decisão registrada). A marca de edição local (`markLocalEditPending`) é posta em `logOperation`, que roda de `tx.deferAsync`, e `StoreTransaction.commit()` dispara esses efeitos sem `await`, depois de uma escrita de IndexedDB: entre a persistência do valor local e a marca há janela, fora do lock do documento. Adiantar a marca não resolve, porque `applyRemoteOperation` lê o contador ANTES de `applyRemoteFeatureOp` tomar aquele lock, então a op do par passa pelo guarda, espera o lock que a edição local segura, e escreve depois dela. Em qualquer das duas, o autor fica exibindo o valor de um par que PERDEU, para sempre, porque o eco dele nunca volta. Por isso `resolveLocalEdit` recebe a op acked e a REAPLICA quando uma op remota de versão estritamente menor foi aplicada àquela entidade (evidência em `lastRemoteAppliedVersion`, mapa separado de `lastAppliedVersion` justamente porque este último também é semeado pelos acks do próprio autor). Repro determinístico: `frontend/tests/integration/convergencia-autor-vencedor.repro.test.js`.
 - **E o guarda só decide alguma coisa se checar, escrever e registrar forem UM passo.** `applyRemoteOperation` lê `shouldApplyVersion` e só depois chama um handler que espera o lock do documento, então duas aplicações passam pela checagem e aterrissam na ordem do LOCK, que é a ordem inversa. Para a op que chega pelo socket isso ficava escondido pelo encadeamento de `ws-client.js`, e TRÊS chamadores o contornam: o replay das adiadas, o reparo acima e o replay pós-flush de `reconcilePendingLocalEdits`. `serializeGuardedApply` (`frontend/src/js/store/sync/remote-operation-handler.js`) é a cadeia do caminho guardado que fecha isso. Ela NÃO substitui o lock do documento (aquele ordena o documento, e é por mapa) e não alcança `drainPendingFeatureOps`, que aplica direto e carrega a própria checagem.
-- **A compactação da fila quebra a simetria 1-para-1 entre op enfileirada e ack**, e é exatamente por isso que existe `reconcilePendingLocalEdits`. Sem ela, um contador de edição pendente vazado **deferiria para sempre** as ops remotas daquela entidade.
+- **`reconcilePendingLocalEdits` continua necessário depois de a compactação sair.** O argumento antigo era a simetria quebrada entre op enfileirada e ack, que a compactação produzia; hoje quem a quebra é a op que fica na fila com problema durável e a que nasce preparada. Sem a reconciliação, um contador de edição pendente vazado **deferiria para sempre** as ops remotas daquela entidade.
 - **Op inválida não derruba mais o lote, e some por dois caminhos independentes.** No servidor, `mapId` ou `entityId` não-UUID gera `22P02`; cada op corre num SAVEPOINT e a violação volta recusada por operação, então o lote sobrevive e é o op ruim que se perde ([[tabela-operations]]). No cliente, um 400/422 do lote inteiro dispara o modo de isolamento que identifica e descarta a ofensora ([[fila-operacoes-outbound]]). Os descartes pré-flush em `frontend/src/js/store/sync/operation-dispatcher.js` continuam necessários pelo motivo mais forte de todos: o mapa local `Principal` é chaveado por nome, e ops nele nunca podem vazar para o servidor. Ver [[dominio-local-vs-remoto]].
 - **`atlas_version_seq` é global**, compartilhada por todos os atlas (`backend/src/database/migrations/004_sync.sql`). `server_version` é monotônico dentro de um atlas mas **não contíguo**. Use para ordenar, nunca para contar nem para calcular "quantas ops perdi".
 - **Feição antes do mapa:** um `feature/create` pode chegar antes do `map/create` que o contém. O handler bufferiza por `mapId` e reaplica; ops bufferizadas **não** registram a versão, senão uma op legítima posterior seria descartada pelo guard. Descartar em vez de bufferizar seria perda de dado silenciosa no par.
@@ -82,10 +119,11 @@ Idempotência por `UNIQUE (atlas_id, op_id)` + `ON CONFLICT DO NOTHING`: reenvia
 
 ## Histórico
 
+- 2026-09-13: o título desta página passou a valer só para metade do servidor. Entraram a seção "A base observada" (o segundo regime, gateado pela OP e não pelo alvo) e a recusa de update sobre túmulo em sete alvos; a seção de delete-vence-update afirmava que o comportamento certo emergia da AUSÊNCIA de uma cláusula, e isso era verdade para a linha e falso para a pessoa, porque o ack voltava `applied`. Saíram as três menções à compactação da fila, que deixou de existir em 2026-09-12.
 - 2026-09-02: acrescentada a seção "Create sobre linha viva", que descreve o upsert de create pelo lado do servidor. A página descrevia o LWW por chegada e a regra de delete-vence-update, e não dizia nada sobre o que um create faz quando o id já existe; enquanto isso, "o upsert por entityId move a linha" era premissa de quem escrevia cliente, e o e2e de contrato da transferência de camada a refutou.
 - 2026-07-25: absorvida a página que existia só para dizer o que a seção "Por que não é CRDT" já dizia. Eram três páginas para um conceito (esta, aquela e [[idempotencia-e-convergence-guard]]) repetindo os mesmos quatro fatos, e foi por esse caminho que a formulação ampla demais de "escrita só via sync" se propagou. `sintese-` é para conhecimento que **cruza** páginas; o porquê de uma decisão pertence à página da decisão.
 - 2026-07-25: removido um `[!CONTRADICAO]` que negava a existência do `lock_timeout` de 5 s ("`grep` no backend não retorna nada") e mandava tratar o esgotamento de pool como dívida aberta. **O marcador nunca foi verdadeiro:** a mitigação entrou antes de o marcador ser escrito, no mesmo dia. Enquanto durou, [[sintese-limites-collab]] descrevia a mitigação corretamente e esta página a negava, com a página errada sendo a que carregava o marcador que acorda o gate. Lição: um `grep` que volta vazio prova que a busca falhou, não que o código não existe.
 
 ## Relacionados
 
-[[idempotencia-e-convergence-guard]], [[envelope-operacao]], [[fila-operacoes-outbound]], [[aplicacao-operacoes-remotas]], [[snapshot-e-pull-incremental]], [[canal-collab-websocket]], [[presenca-colaborativa]], [[syncledger]], [[tipos-entidade-sync]], [[modos-operacao]], [[atlas-modelo-de-dados]], [[sintese-limites-collab]], [[sintese-decisoes-arquiteturais]], [[sintese-contratos-congelados]].
+[[idempotencia-e-convergence-guard]], [[envelope-operacao]], [[fila-operacoes-outbound]], [[diario-write-ahead]], [[lote-logico-de-gesto]], [[pendencias-de-sincronizacao]], [[camada-padrao-remota]], [[aplicacao-operacoes-remotas]], [[snapshot-e-pull-incremental]], [[canal-collab-websocket]], [[presenca-colaborativa]], [[syncledger]], [[tipos-entidade-sync]], [[modos-operacao]], [[atlas-modelo-de-dados]], [[sintese-limites-collab]], [[sintese-decisoes-arquiteturais]], [[sintese-contratos-congelados]].

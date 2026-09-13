@@ -1,6 +1,6 @@
 # Correções de dependências npm
 
-Commit conferido: `b26f4e66`. Os resultados abaixo são datados de 12/09/2026, conforme o [inventário versionado](../dependencias-lancamento-inventario.json); não são uma nova consulta de alertas feita nesta retrospectiva.
+Commit conferido: `b26f4e66`. Os resultados abaixo são datados de 12/09/2026, conforme o [inventário versionado](../../seguranca/dependencias-lancamento-inventario.json); não são uma nova consulta de alertas feita nesta retrospectiva.
 
 ## Problema e correção
 

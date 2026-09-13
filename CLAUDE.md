@@ -111,17 +111,17 @@ Arquivos `.js`/`.css` editados passam por lint automático (hook PostToolUse), e
 
 **Ferramenta de desenho = 3 arquivos:** `add_*_control.js` (IControl do MapLibre) + `add_*_geometry.js` (geometria pura, testável em node) + `*_attributes_panel.js`. Use a skill `new-tool`.
 
-**Transação do store é persistence-first**: efeito colateral só roda depois que o IndexedDB confirma. Se a persistência lança, nada mais acontece:
+**Transação do store é WRITE-AHEAD desde 2026-09-12, e não mais só persistence-first.** A intenção de sincronizar é declarada por `tx.recordOperation` DENTRO do `workFn` e gravada ANTES da entidade; o efeito colateral continua rodando só depois que o IndexedDB confirma. Logar por `tx.deferAsync` é o padrão ANTIGO, e ele produz hoje uma edição que existe só neste computador, porque o processo pode morrer entre a entidade e o efeito:
 
 ```javascript
 await runTransaction(async (tx) => {
-    tx.deferSync(() => updateColorTracking(feature));   // UI
-    tx.deferAsync(() => logFeatureOperation(...));       // log / fila de sync
-    return async () => { await repo.set(key, data); };   // persistência: roda PRIMEIRO
+    tx.recordOperation(EntityType.X, OperationType.UPDATE, id, mapId, data, previousData);
+    tx.deferSync(() => updateColorTracking(feature));    // UI e memória
+    return async () => { await repo.set(key, data); };    // persistência da ENTIDADE
 });
 ```
 
-Ordem: persistência → deferSync → deferAsync. Detalhe na skill `store-op`.
+Ordem: barreira entre abas → diário (intenção) → persistência → marca de materialização → deferSync → deferAsync. A função de persistência é **devolvida e não chamada**, e é isso que abre espaço para o diário no meio: quem gravar dentro do `workFn` desfaz o mecanismo sem nada ficar vermelho. Transação aninhada no `workFn` de outra **commita primeiro**, então o composto recebe o `tx` do pai em vez de abrir o seu. Detalhe, travas e o que fica de fora na skill `store-op` e em [`docs/wiki/diario-write-ahead.md`](docs/wiki/diario-write-ahead.md).
 
 **Erro de store, três casos:** argumento inválido (bug do chamador) → `throw new Error`; falha esperada (mapa bloqueado) → `return` + emitir `STORE_OPERATION_BLOCKED`; risco de perda de dado (IndexedDB) → `throw` + emitir `STORE_PERSIST_ERROR`.
 

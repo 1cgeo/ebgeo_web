@@ -17,6 +17,9 @@ Consolidação autorizada em 12/09/2026, antes da primeira implantação deste b
 | [011_uso_e_presenca.sql](011_uso_e_presenca.sql) | Uso agregado, sessões, presença e deduplicação da coleta. |
 | [012_camadas_remotas.sql](012_camadas_remotas.sql) | Regularização de dados anteriores à camada padrão persistida: conserva feições e configurações e exige snapshot para cursores antigos. |
 | [013_imagens_idempotentes.sql](013_imagens_idempotentes.sql) | Identidade de tentativa e de conteúdo em `images`, para que a retentativa de um upload cuja resposta se perdeu não crie segunda linha nem seja recusada como colisão. |
+| [014_lote_logico.sql](014_lote_logico.sql) | A identidade do gesto que produziu várias operações, para que o servidor aplique ou recuse o lote inteiro e o recibo diga a que gesto cada operação pertenceu. |
+
+**A contagem não se escreve em prosa aqui, e a tabela acima é a lista.** Esta seção disse "onze bases" e depois "doze", e as duas envelheceram no arquivo seguinte que nasceu, sem nada ficar vermelho: `frontend/tests/unit/docs-integridade.test.js` valida caminho, link e símbolo, nunca aritmética. Quem precisar do número conta a tabela ou roda `ls`.
 
 Colunas, índices e CHECK nascem completos. Não há cadeia de criação seguida de renomeação, remoção de índice ou substituição de CHECK. O nome inicial de identidade foi alterado deliberadamente para distinguir esta base dos históricos anteriores, inclusive os que tinham aplicado apenas parte da sequência antiga.
 
@@ -32,9 +35,9 @@ Depois que estas bases forem aplicadas em produção, ficam imutáveis. Alteraç
 
 ## Até quando estas bases são editáveis (decisão de 2026-09-13)
 
-Esta linha do backend nunca foi implantada, então a baseline consolidada continua editável até a primeira implantação, e a primeira implantação é uma instalação nova a partir destas doze bases. Não há script de transição porque não há banco a transitar: banco de desenvolvimento aplicado antes de uma edição de baseline se recria.
+Esta linha do backend nunca foi implantada, então a baseline consolidada continua editável até a primeira implantação, e a primeira implantação é uma instalação nova a partir das bases da tabela acima. Não há script de transição porque não há banco a transitar: banco de desenvolvimento aplicado antes de uma edição de baseline se recria.
 
-O migrador registra o checksum do conteúdo de cada arquivo aplicado desde 2026-09-13 e recusa, nomeando arquivo e hash, um arquivo já aplicado cujo conteúdo tenha mudado. Em desenvolvimento essa recusa se resolve recriando o banco a partir das bases atuais. A partir do SHA implantado a mesma recusa é o congelamento: toda mudança de schema passa a entrar por um arquivo numerado novo, e nenhuma destas doze volta a ser tocada.
+O migrador registra o checksum do conteúdo de cada arquivo aplicado desde 2026-09-13 e recusa, nomeando arquivo e hash, um arquivo já aplicado cujo conteúdo tenha mudado. Em desenvolvimento essa recusa se resolve recriando o banco a partir das bases atuais. A partir do SHA implantado a mesma recusa é o congelamento: toda mudança de schema passa a entrar por um arquivo numerado novo, e nenhuma das bases volta a ser tocada.
 
 ## Verificação da consolidação
 

@@ -1,11 +1,12 @@
 ---
 name: store-op
-description: Use when adding a new store operation, ensuring the persistence-first transaction pattern, error conventions, and proper facade/barrel exports
+description: Use when adding a new store operation, ensuring the write-ahead transaction pattern (intention journaled before the entity), error conventions, and proper facade/barrel exports
 ---
 
 # New Store Operation
 
-Creates store operations following persistence-first transaction pattern.
+Creates store operations following the write-ahead transaction pattern: the sync intention is
+journaled BEFORE the entity, and side effects still run only after persistence succeeds.
 
 ## Architecture
 
@@ -70,31 +71,37 @@ Pick the `GuardAction` key by what the operation IS to the server, not by the en
 map settings (notes, timeline config, base layer) go through `UPDATE_MAP`, because the
 server gates them at the same level as a rename.
 
-## Transaction Pattern
+## Transaction Pattern (WRITE-AHEAD since 2026-09-12)
 
-All mutating operations MUST use `runTransaction`. Side effects only run after IndexedDB succeeds:
+All mutating operations MUST use `runTransaction`. **The sync intention is declared with
+`tx.recordOperation` INSIDE the work function and written to disk BEFORE the entity.** Logging
+from `tx.deferAsync` is the OLD pattern: it leaves an edit that exists only on this machine when
+the process dies between the entity write and the deferred effect, with nothing to carry it to
+the server. Copy `store/briefing.operations.js` or `store/catalog.operations.js`, which are the
+reference implementations.
 
 ```javascript
 import { runTransaction } from './store-transaction.js';
 import { getEventBus } from './services.js';
 import { EventTypes } from '@events/event_types.js';
+import { EntityType, OperationType } from './sync/operation-types.js';
 
-export async function createWidget(data, layerId) {
-    // 1. Validate arguments (throw on bugs)
+export async function createWidget(data, mapId) {
+    // 1. Validate arguments (throw on bugs), gate permission, then read and prepare
+    //    EVERYTHING under the right document lock, before touching anything.
     if (!data) throw new Error('createWidget: data is required');
 
     await runTransaction(async (tx) => {
-        // 2. Defer sync side effects (UI, color tracking)
+        // 2. Declare the intention. Never a string literal in either argument:
+        //    frontend/tests/unit/record-operation-sem-literal.test.js fails on one.
+        tx.recordOperation(EntityType.WIDGET, OperationType.CREATE, id, mapId, data);
+
+        // 3. Defer in-memory mirror and events
         tx.deferSync(() => {
             getEventBus().emit(EventTypes.FEATURE_CREATED, { feature });
         });
 
-        // 3. Defer async side effects (logging, sync queue)
-        tx.deferAsync(() => {
-            logOperation('CREATE', feature);
-        });
-
-        // 4. Return persistence function (runs FIRST)
+        // 4. RETURN the entity persistence — never call it here
         return async () => {
             await repo.set(key, data);
         };
@@ -102,7 +109,20 @@ export async function createWidget(data, layerId) {
 }
 ```
 
-**Execution order:** Persistence → deferSync → deferAsync. If persistence fails, no side effects run.
+**Execution order:** cross-tab barrier → journal (intention) → entity persistence →
+materialization mark → deferSync → deferAsync. If any step fails, no side effect runs, and the
+intention stays recoverable instead of vanishing.
+
+Three rules that a careless rewrite loses:
+
+- **A nested transaction inside another's work function COMMITS FIRST.** The document-lock queue
+  is FIFO with no reentrancy, so a composite operation RECEIVES the parent `tx` and returns its
+  persistence for the parent to chain (model: `removeFeatureFromAllGroups`).
+- **Do not swallow.** A `catch` that only logs is the silence this whole pattern exists to close;
+  let `runTransaction` be the one that reports, via `STORE_PERSIST_ERROR`.
+- **Not everything gets a journal.** View-only state (the active layer), whole-document imports
+  and non-reversible side effects (a blob upload) stay outside, deliberately. See
+  `docs/wiki/diario-write-ahead.md`.
 
 ## Error Conventions
 

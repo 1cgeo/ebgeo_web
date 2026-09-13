@@ -2432,3 +2432,48 @@ O [plano de correção total](../reviews/plano-correcao-total-lancamento-2026-09
 **D5. O id de sessão volta para o `sessionStorage`.** A alternativa recusada é o estado anterior a esta decisão: uma release havia movido o singleton para memória, e ali cada recarga cunha um id novo. A correlação de erro por sessão é o instrumento de diagnóstico, e recarregar é a primeira coisa que uma pessoa faz quando algo quebra, de modo que um id que reinicia no F5 parte em dois exatamente o rastro que alguém está seguindo. O comportamento está declarado no cabeçalho de `frontend/src/js/session/sessao-id.js`, que é onde ele tem de ser lido antes de a próxima release mover o valor de novo.
 
 **D7, PENDENTE: o reuso de imagem por conteúdo, sem chave de tentativa.** O bloco B8 (commit `c0ce39f3`) fez a rota única de imagem reusar, na falta de chave de idempotência, a linha de mesmo hash de conteúdo no mesmo atlas. O efeito de superfície é que reenviar os mesmos bytes com outro nome devolve a linha antiga, com o nome antigo, e duas feições passam a compartilhar uma linha de imagem. Nenhum caminho do cliente chama a exclusão de imagem no servidor hoje, então não existe perda alcançável pelo produto, e é por isso que isto é pendência e não defeito. A alternativa é estreitar o reuso: casar só por chave de tentativa, aceitando que um reenvio sem chave grave uma segunda linha e um segundo arquivo em disco para os mesmos bytes. Fica para o dono decidir; o efeito está nomeado em [uploads](../reviews/fechamento/06-uploads.md).
+
+### 2026-09-13: create sobre túmulo continua ressuscitando, e a recusa de create é só de 3D e 360
+
+- **Decisão:** ao fechar os quatro buracos de túmulo do servidor (bloco B5), o UPDATE sobre linha excluída passou a ser recusado com motivo em sete alvos, e o CREATE sobre linha excluída continua RESSUSCITANDO em feição, mapa, camada, grupo, briefing e slide. Só `cesium3d` e `streetview360` recusam create.
+- **Por quê:** create sobre túmulo É o desfazer. O Ctrl+Z de uma exclusão reenvia um create com o mesmo id, e os seis alvos acima compartilham esse contrato, cada um asserido em `backend/tests/integration/sync-service-coverage.test.js`. Recusar ali tiraria a capacidade de desfazer uma exclusão sincronizada, que é a operação que mais se desfaz.
+- **Por que 3D e 360 são exceção:** eles nunca tiveram esse contrato. O create deles era inerte sobre linha existente por `ON CONFLICT DO NOTHING`, então nomear a recusa não tira capacidade nenhuma e troca um silêncio por um motivo.
+- **Alternativa recusada:** uniformizar, recusando create sobre túmulo em todos. Ela é mais simples de descrever e custa o desfazer; a assimetria é feia e é o contrato que o produto já tinha.
+- **O que continua aberto, declarado:** update sobre linha que NUNCA EXISTIU segue sendo acked como aplicado. O log de operações é expurgável, então ausência não prova exclusão, e recusar por ausência transformaria todo par create/update fora de ordem numa recusa permanente. O comportamento está medido no último caso daquele arquivo, para que uma mudança futura apareça.
+- **Status:** aceita.
+
+### 2026-09-13: catálogo, 3D e 360 disputam o documento inteiro, e entidade de uma unidade não guarda fronteira
+
+- **Decisão:** a unidade de disputa das camadas de catálogo, do 3D e do 360 é o DOCUMENTO INTEIRO, unidade única, enquanto mapa, camada, grupo, briefing, slide e comentário têm unidades por campo (`DISPUTE_UNITS`, `backend/src/modules/sync/entity-conflicts.js`, espelhado em `frontend/src/js/store/sync/dispute-units.js`). Entidade de uma unidade só **não grava linha de fronteira** por unidade.
+- **Por quê:** com uma unidade, "alguma unidade passou da sua base" é aritmeticamente igual a "a versão da linha passou da sua base", então a linha de fronteira seria uma segunda cópia de `version`, com um segundo lugar para divergir. O cliente dessas três famílias envia o documento inteiro, então declarar unidades por campo prometeria uma precisão que o payload não tem.
+- **Consequência que resolve um problema de tipo:** a camada de catálogo tem id textual, enquanto a coluna de id da tabela de fronteiras é UUID (`backend/src/database/migrations/004_sync.sql`). Como ela não grava fronteira, nenhuma migração foi necessária: o que faltava era usar a coluna de tipo de entidade em vez de um literal.
+- **Membresia de grupo não tem unidade nenhuma**, por ser junção com create e delete idempotentes.
+- **Ordem de slide não é unidade de slide:** ela mora na coluna de ordem do briefing, então duas reordenações disputam sob a unidade do briefing. O esboço do plano pedia "conteúdo, ordem" para slide, e aquela coluna não existe.
+- **Alternativa recusada:** estreitar o payload no cliente para que essas três famílias mandassem só o campo mudado. Ela só é segura depois que cada entidade tiver operação canônica, senão o par que recebe a transmissão perde os campos ausentes na substituição em bloco.
+- **Status:** aceita; detalhe e armadilhas em [modelo de conflito](../wiki/modelo-conflito-lww.md).
+
+### 2026-09-13: o servidor publica os quatro marcadores estruturais como um só, até o cliente novo estar em campo
+
+- **Decisão:** as quatro exceções REST (merge de mapas, duplicação de mapa, clone de atlas, import de atlas) passaram a gravar marcador no log de operações, e o servidor publica os QUATRO sob o tipo do merge. O cliente já reconhece os quatro nomes; as três entradas novas ficam inertes.
+- **Por quê:** o cliente antigo que receber um tipo que não conhece é o cliente que este mesmo lote ensinou a não derrubar o socket, mas a propriedade só vale para o build novo. Publicar o nome honesto antes de o cliente atualizado estar em campo entrega, ao build que está rodando hoje, um marcador que ele ignora, e o efeito é o mesmo replay vazio que o marcador existe para evitar.
+- **O que destrava:** trocar o tipo é um commit dos DOIS pacotes, e ele é barato; o que ele exige é a certeza de que o cliente em campo é o novo, que é informação de implantação e não de código.
+- **Alternativa recusada:** publicar o nome honesto já e aceitar que o cliente antigo ignore. Ela troca um defeito conhecido (o par offline conclui que está em dia) por outro do mesmo tamanho durante a janela de implantação, e a janela não tem prazo conhecido.
+- **Status:** aceita, com a troca pendente de implantação; registrada em [lote lógico de gesto](../wiki/lote-logico-de-gesto.md).
+
+### 2026-09-13: sem Web Locks a barreira de logout degrada para o regime por aba
+
+- **Decisão:** a pausa que antecede a contagem de pendências do logout passou a ser um Web Lock por escopo remoto (`logoutBarrierLockName`), com o escritor em modo compartilhado e o diálogo em exclusivo com espera; **onde `navigator.locks` não existe, tudo degrada para o regime por aba anterior**, e o degradado não é bloqueio.
+- **Por quê:** a decisão D1 do mesmo dia manteve a produção em HTTPS, então contexto seguro é o caso normal e o degradado é exceção. Recusar o logout inteiro na ausência da API prenderia a pessoa na conta por falta de um instrumento, o que é pior que contar de menos; e implementar um substituto por mensagens repetiria o erro que o Web Lock veio consertar, porque canal é relógio e mente por silêncio.
+- **Preço declarado:** no regime degradado a contagem do diálogo volta a ser otimista, como era antes desta mudança. Ele está escrito no cabeçalho de `frontend/src/js/store/write-coordinator.js`.
+- **O que isso transforma em medição:** `isSecureContext` e a presença de `navigator.locks` na origem interna REAL, porque certificado interno aceito à força pode negar o contexto seguro em algum navegador. Sem essa medição a barreira é uma afirmação sobre a bancada.
+- **Alternativa recusada:** exigir contexto seguro para permitir o logout. Ela protege o dado e tranca a saída.
+- **Status:** aceita; detalhe em [coordenação entre abas](../wiki/coordenacao-entre-abas.md).
+
+### 2026-09-13: a poda de gerações usa trava PRÓPRIA, e a lista de conhecidas é reescrita depois dela
+
+- **Decisão de mecanismo, complementando D3** (que fixou a política: sobrevivem a geração ativa e uma anterior): a poda toma uma trava por GERAÇÃO (`atlasGenerationLockName`), nunca a de montagem, e `pruneSupersededGenerations` reescreve a lista de gerações conhecidas DEPOIS da poda.
+- **Por que não a trava de montagem:** a aba que poda é a que está montada, então ela seria recusada por si mesma. Uma trava por geração responde à pergunta certa, que é "outra aba ainda LÊ esta geração", e não "alguém tem este atlas montado".
+- **Por que a lista é reescrita depois:** reescrevê-la antes deixaria a lista nomeando banco que saiu do disco, e a varredura seguinte deriva a lista de bancos do próprio ponteiro. Pela mesma razão, um delete que não confirma MANTÉM a geração na lista: sobrar dado de servidor que nenhum expurgo acha é pior que sobrar uma casca vazia.
+- **A poda é best-effort e roda DEPOIS do commit do ponteiro**, então falha nela custa disco e nunca a recuperação; a próxima ativação poda de novo.
+- **Alternativa recusada:** podar antes de ativar, para nunca guardar duas gerações. Ela deixa o usuário sem nada para onde voltar exatamente quando a geração nova nasce quebrada, que é o caso que a política de D3 existe para cobrir.
+- **Status:** aceita; detalhe e limites em [namespace por atlas](../wiki/namespace-por-atlas.md).

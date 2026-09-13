@@ -38,6 +38,8 @@ Runner `node src/database/migrate.js` (`npm run db:migrate`), forward-only, trac
 
 `node:22-bookworm-slim` (debian, não alpine) de propósito (`backend/Dockerfile`): `bcrypt` e `better-sqlite3` publicam prebuilds **glibc/x64** e o Dockerfile não instala toolchain. Em ARM, air-gapped ou sem prebuild, o `npm ci` tenta compilar e falha por falta de gcc/python/make; nesse caso adicione `build-essential` + `python3` ao estágio `deps`.
 
+**As duas ocorrências da base estão SEM digest**, e a proposta de fixação está em [[inventario-de-vendors]]: fixa-se o digest do ÍNDICE e não o de uma plataforma, senão a imagem fica amarrada a amd64 e a construção quebra em qualquer outra. O Dockerfile não foi alterado, porque ele é caminho de implantação e a troca exige confirmação do dono mais uma construção de prova.
+
 Runtime roda como uid/gid **1001** (`backend/Dockerfile`) e o `chown` do build cobre `/app/data` (`backend/Dockerfile`), mas um volume montado ali chega com a dono do host e **sobrescreve** esse chown. Só `/app/data/images` é pré-criado; os diretórios de assets 3D e 360 nascem em runtime pelo app. Volume não gravável por 1001 dá `EACCES` na primeira escrita, não no boot.
 
 O `HEALTHCHECK` (`backend/Dockerfile`) bate em `/api/v1/health`, que executa `SELECT 1` e responde 503 (`backend/src/app.js`). É **readiness real**, não liveness: se o Postgres cai o container fica unhealthy com o processo vivo. Não martele com intervalo curto, cada probe toca o pool.

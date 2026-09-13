@@ -25,10 +25,10 @@ A convergência visual não vem da operação, vem de um fallback local-primeiro
 
 O gateway `frontend/src/js/store/sync/image-sync.js` é um seam fino sobre o `apiClient` que **não importa o grafo do store** (evita ciclo de import) e recebe o atlas conectado por injeção do sync-engine. Duas propriedades intencionais:
 
-- **Best-effort**: upload e fetch engolem erro e retornam `null`. Rede caída degrada para "sem imagem", nunca lança.
-- **Offline vira id local**: sem atlas conectado, o upload retorna `null` e o chamador gera um UUID local. A feição funciona, o blob existe só naquele navegador. Ver [[dominio-local-vs-remoto]] e [[modos-operacao]].
+- **Best-effort na LEITURA**: o fetch engole erro e retorna `null`. Rede caída degrada para "sem imagem", nunca lança.
+- **O ID É SEMPRE LOCAL desde 2026-09-13**, e isso é mudança de contrato: antes, um upload bem-sucedido podia trocar a referência que a feição carregava, e falhando ela caía para um UUID local que nada retentava. Hoje todo transporte é a rota BULK, a única que preserva o id, então o desfecho do envio não muda mais a referência. Ver [[dominio-local-vs-remoto]] e [[modos-operacao]].
 
-**Armadilha.** Feição de imagem criada offline e sincronizada depois carrega um id que não existe no servidor: o peer chama `fetchImageBlob`, toma 404 e não mostra nada. Só o caminho de salvar o atlas local no servidor reconcilia isso.
+**Armadilha que ficou menor, e não desapareceu.** Feição de imagem criada offline e sincronizada depois carrega um id que o servidor ainda não tem: o par chama `fetchImageBlob`, toma 404 e não mostra nada. O que mudou é que a subida agora é retomável (seção da fila durável, adiante), então a janela é até a retomada e não até alguém salvar o atlas local no servidor.
 
 **Armadilha oposta, e mais sutil.** Símbolo militar, medida de coordenação e declinação também são renderizados como imagem, mas com PNG gerado no cliente que **nunca é enviado**. Buscar esses ids no backend 404a e vira ícone de erro. Por isso `frontend/src/js/layers/layer_setup.js` consulta `getImageRegenerator(feature.properties.source)` e **reconstrói a partir das props** em vez de buscar. Se você criar um novo tipo de feição com imagem derivada de props, registre o regenerador em `frontend/src/js/layers/image-regen-registry.js`, senão o peer vê erro no lugar do símbolo.
 
@@ -44,9 +44,34 @@ A ordem (montar `.ebgeo` em memória, ver [[formato-ebgeo-roundtrip]] → payloa
 
 Armadilhas desse caminho:
 
-- **PK global escolhida pelo cliente, e o que isso custa.** `images` tem PK global, não composta por atlas, e o lote deixa o **cliente** escolher a PK, que é justamente o que dispensa o rewrite. O `INSERT` **não** tem `ON CONFLICT`: uma colisão levanta `unique_violation`, tratada como falha daquele item, e o blob só é escrito depois do INSERT, então nem arquivo órfão sobra. O efeito cross-atlas existe e é de **negação, não de vazamento**: um id que colida com o de outro atlas faz o item falhar, e o dono do outro atlas não perde nada. Quem importa fica sem aquela imagem. Não confunda com sobrescrita: trocar este `INSERT` por um upsert transformaria a negação em reescrita da linha alheia mantendo o `atlas_id` original, que é pior que vazamento simples, porque a vítima serviria bytes de terceiro como se fossem dela. Provado por mutação em `backend/tests/integration/cross-tenant-negativos.test.js`.
+- **PK global escolhida pelo cliente, e o que isso custa.** `images` tem PK global, não composta por atlas, e o lote deixa o **cliente** escolher a PK, que é justamente o que dispensa o rewrite. O `INSERT` **continua sem `ON CONFLICT`**, e a colisão continua sendo um `unique_violation`; o que mudou em 2026-09-13 é o que o serviço FAZ com ela: ele pergunta pelo CONTEÚDO antes de decidir. Mesmo id com os MESMOS bytes é aceito como reuso (é a retentativa cuja resposta se perdeu); mesmo id com outros bytes continua recusado nomeando o motivo; id pertencente a outro atlas recusa com motivo próprio. O blob só é escrito depois do INSERT, então nem arquivo órfão sobra. O efeito cross-atlas segue sendo de **negação, não de vazamento**: o dono do outro atlas não perde nada, e quem importa fica sem aquela imagem. Não confunda com sobrescrita: trocar isto por um upsert cego transformaria a negação em reescrita da linha alheia mantendo o `atlas_id` original, que é pior que vazamento simples, porque a vítima serviria bytes de terceiro como se fossem dela. Provado por mutação em `backend/tests/integration/cross-tenant-negativos.test.js`.
 - **SVG local some silenciosamente.** O coletor filtra pela allowlist do servidor (`ALLOWED_IMAGE_MIME`, `frontend/src/js/import_export/atlas-image-upload.js`) e reporta como `skipped`. O ícone SVG continua funcionando para quem salvou e desaparece para os colaboradores, sem erro visível.
 - **201 no lote não é sucesso.** O loop é por item; ler só o status esconde `failed[]`. Detalhe do shape em [[upload-imagens-seguranca]] e [[erros-api]].
+
+## A retentativa: duas identidades, e nenhuma delas é a PK
+
+Uma resposta perdida DEPOIS da gravação não deixava rastro no cliente, então a retentativa era indistinguível de um envio novo, e as duas rotas respondiam mal a ela de formas OPOSTAS: a rota única criava uma segunda linha e um segundo arquivo em disco; a bulk colidia na PK e devolvia falha para um blob que o servidor já tinha. `backend/src/database/migrations/013_imagens_idempotentes.sql` fecha as duas com duas colunas, e a diferença entre os índices delas é o contrato:
+
+- **a chave de TENTATIVA** é cunhada pelo cliente antes do primeiro byte sair, e tem índice único PARCIAL por atlas, para que a bulk e o clone sigam gravando nulo sem colidir (vários nulos não colidem num índice parcial). Ela é lida do cabeçalho de idempotência **ANTES do multer**, que é o único momento em que recusar não deixa blob para limpar;
+- **o hash de CONTEÚDO** (sha256 hex, com CHECK de formato) tem índice **NÃO único**, e isso é desenho, não esquecimento: colar uma figura cunha id novo para os mesmos bytes de propósito, e um unique ali recusaria a colagem. Ele serve a duas leituras, reusar a linha existente na rota única quando não houve chave de tentativa, e decidir, na colisão de PK da bulk, se o id guarda o mesmo conteúdo.
+
+Linha SEM hash (clone de atlas, linha anterior à migração) **adota o hash lido do disco** em vez de virar recusa, senão a migração transformaria todo acervo anterior em erro.
+
+**O reuso por CONTEÚDO sem chave tem um efeito de superfície, e ele é decisão pendente do dono** (D7, em [`decisions-2026.md`](../decisions/decisions-2026.md)): reenviar os mesmos bytes com outro nome devolve a linha antiga, com o nome antigo, e duas feições passam a compartilhar uma linha de imagem. Nenhum caminho do cliente chama a exclusão de imagem no servidor hoje, então não há perda alcançável pelo produto, e é por isso que é pendência e não defeito. **A chave de tentativa da rota única ainda não tem chamador no cliente**, porque este cliente usa a bulk, cuja identidade de tentativa é o próprio id local.
+
+## A fila durável de blobs, e a op que espera por ela
+
+`frontend/src/js/store/sync/blob-upload-queue.js` grava a tentativa ANTES de o primeiro byte sair, **no banco de IMAGENS do escopo** e sob prefixo próprio. Os dois detalhes de endereço são o ponto: a pendência só tem sentido enquanto os bytes que ela nomeia estão ali, e compartilhar o banco faz o logout confirmado descartá-la junto com o namespace sem uma linha de limpeza em lugar nenhum. A retomada roda no `connect` (que cobre o F5) e na transição para online, em série e com recuo progressivo, distinguindo erro transitório de recusa definitiva.
+
+**A op de FEIÇÃO espera o recurso.** Enquanto o blob está pendente, `frontend/src/js/store/sync/operation-dispatcher.js` mantém a op preparada, então ela não sai no `peek`; a fila limpa a marca ao confirmar e grava problema durável quando a recusa é definitiva. A retenção é head-of-line por construção (a leitura da fila para na primeira op preparada) e o problema durável, ao contrário, é PULADO, de modo que uma recusa converte a parada geral em parada de uma entidade só.
+
+Três assimetrias declaradas:
+
+- **A op de ÍCONE não é retida**, e é deliberado: ela é um `setting` que carrega a lista inteira, então retê-la travaria a fila de saída do atlas por causa de um ícone. Um ícone cujos bytes estão pendentes desenha para o autor e cai no marcador de erro no par, o que é degradado e não corrompe.
+- **Recusa definitiva na PRIMEIRA tentativa não marca a op**, porque ela acontece antes de a op existir: o chamador envia e só então grava a feição. A recusa que a op ouve é a que chega numa retomada.
+- **A cópia reusa a mesma fila** (`frontend/src/js/store/upload-copied-blobs.js`) e deixou de engolir a falha num aviso de console, mas **continua não lançando**: a colagem não pode falhar por rede.
+
+E do lado do par, `map.hasImage(id)` responde verdadeiro nos DOIS desfechos, porque o 404 instala o placeholder de erro sob o mesmo id: o sinal que distingue conserto de defeito é o BLOB, nunca a imagem no mapa.
 
 ## Referências penduradas são estado esperado
 

@@ -85,7 +85,7 @@ Build e lint da raiz aprovados. A suíte completa da raiz terminou com código 0
 
 ## Dependências
 
-O [inventário datado](dependencias-lancamento-inventario.json) conserva os resultados anteriores (raiz sem alertas, frontend com 13 e backend com seis), a lista de versões corrigidas e a auditoria posterior. Frontend e backend agora apresentam zero alertas npm e tiveram instalação limpa por `npm ci`. Isso difere do aviso da branch padrão, pois o escopo é outro.
+O [inventário datado](../seguranca/dependencias-lancamento-inventario.json) conserva os resultados anteriores (raiz sem alertas, frontend com 13 e backend com seis), a lista de versões corrigidas e a auditoria posterior. Frontend e backend agora apresentam zero alertas npm e tiveram instalação limpa por `npm ci`. Isso difere do aviso da branch padrão, pois o escopo é outro.
 
 Foram corrigidas as versões fixadas de fast-uri e js-yaml, Vitest e suas transitivas afetadas, Joi, Nodemailer, sharp/libvips, body-parser e qs. O Express 4 fixa uma faixa anterior de qs; um override restrito a essa dependência instala 6.16.0, mantendo a versão principal do Express. Não foi aplicado `audit fix --force`. A instalação limpa exigiu instalar também o Chromium correspondente ao Playwright do lockfile; a primeira tentativa de UI sem esse binário falhou antes de abrir o navegador. As verificações concluídas estão registradas acima.
 

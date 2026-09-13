@@ -77,6 +77,6 @@ Os registros detalhados preservam também falhas intermediárias, controles nega
 - [Execução da migração](docs/reviews/execucao-correcao-migracao-2026-09-12.md), [dados externos](docs/reviews/teste-dados-externos-2026-09-12.md) e [perfil real da main](docs/reviews/perfil-real-main-integracao-2026-09-12.md).
 - [Implementação do monitoramento](docs/reviews/2026-09-12-implementacao-monitoramento.md).
 - [Execução do sincronismo remoto](docs/reviews/execucao-correcao-atlas-remoto.md).
-- [Execução do fechamento](docs/reviews/execucao-fechamento-lancamento.md) e [inventário de dependências](docs/reviews/dependencias-lancamento-inventario.json).
+- [Execução do fechamento](docs/reviews/execucao-fechamento-lancamento.md) e [inventário de dependências](docs/seguranca/dependencias-lancamento-inventario.json).
 
 Após mudar lógica, executar lint e teste completos da raiz em comandos separados, além dos ensaios pertinentes. Não executar build junto de testes que inspecionam dist. Suítes que usam banco devem rodar em sequência. UI exige Playwright com backend real e inspeção da captura. Verificar código de saída; não tomar o anúncio de início de uma etapa como conclusão. Controles negativos devem restaurar as fontes. Registrar commit, resultado e pendências reais em cada entrega.
