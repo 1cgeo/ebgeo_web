@@ -92,19 +92,28 @@ vi.mock('@store/store-origin.js', () => ({
     isRemoteStoreSync: () => atlasRemoto,
 }));
 
-/** O ÚNICO dublê do transporte: `buildImageUploads` e `uploadImagesInChunks` são os reais. */
+/**
+ * O ÚNICO dublê do transporte: `buildImageUploads`, `uploadImagesInChunks` e a FILA DURÁVEL de
+ * blobs são os reais.
+ *
+ * O ESPIÃO MUDOU DE MÓDULO em B8, e o motivo é a fiação nova: `upload-copied-blobs.js` já não fala
+ * com o cliente HTTP, ele registra a tentativa em `sync/blob-upload-queue.js`, e é a fila que
+ * importa `api-client.js` DIRETO. Espionar `@store/sync/index.js` continuaria compilando e mediria
+ * zero chamada, o que se lê como "a colagem parou de subir".
+ */
 const bulkUploadImages = vi.fn(async () => ({ mapping: {}, failed: [] }));
 const syncEngine = { atlasId: 'atlas-uuid' };
 
-vi.mock('@store/sync/index.js', () => ({
+vi.mock('@store/sync/api-client.js', () => ({
     apiClient: {
         bulkUploadImages: (...args) => {
             ordem.push('upload');
             return bulkUploadImages(...args);
         },
     },
-    syncEngine,
 }));
+
+vi.mock('@store/sync/index.js', () => ({ syncEngine }));
 
 vi.mock('@store/sync/permission-guard.js', () => ({
     checkPermission: () => ({ allowed: true }),
@@ -164,6 +173,8 @@ if (typeof globalThis.FileReader === 'undefined') {
 
 const ClipboardManager = (await import('../../src/js/tool_manager/clipboard_manager.js')).default;
 const { registerImageRegenerator } = await import('@layers/image-regen-registry.js');
+const { activateScope, remoteScope } = await import('@store/atlas-namespace.js');
+const { esquecerPendenciasEmMemoria } = await import('@store/sync/blob-upload-queue.js');
 
 // ---------------------------------------------------------------------------
 // O SUJEITO
@@ -237,6 +248,12 @@ beforeEach(() => {
     proximoId = 0;
     atlasRemoto = true;
     syncEngine.atlasId = 'atlas-uuid';
+    // A FILA DURÁVEL GRAVA A PENDÊNCIA NO BANCO DE IMAGENS DO ESCOPO ATIVO, e só em atlas de
+    // SERVIDOR: sem escopo remoto montado ela devolve "nada registrado" e nenhum byte sai, o que
+    // aqui se leria como colagem que não sobe. O espelho em memória de ids retidos cai junto,
+    // senão um caso deixa o id do anterior retido.
+    activateScope(remoteScope(crypto.randomUUID()));
+    esquecerPendenciasEmMemoria();
     addFeatures.mockClear();
     bulkUploadImages.mockClear();
     bulkUploadImages.mockResolvedValue({ mapping: {}, failed: [] });

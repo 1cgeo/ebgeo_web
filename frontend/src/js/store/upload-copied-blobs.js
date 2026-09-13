@@ -31,27 +31,40 @@
  * is their normal path, look like a defect. The caller decides which ids are regenerable; a
  * closed list of types written here would be the fourth copy of a list that already drifted.
  *
- * BEST-EFFORT, AND THE ASYMMETRY IS DELIBERATE: a failed upload costs a picture, while
- * aborting would cost the whole gesture. Nothing here throws.
+ * IT NO LONGER SWALLOWS THE FAILURE, and that is the change of B8. The gesture still cannot be
+ * aborted by a network error (a failed upload costs a picture, aborting would cost the whole
+ * paste), so nothing here throws; what changed is that the attempt is now REGISTERED in the
+ * durable blob queue (`sync/blob-upload-queue.js`) before the first byte leaves. A chunk that does
+ * not land stays a pendency instead of a `console.warn` nobody reads, and the same resumption that
+ * serves the drawing tool retries it on the next reconnection, under the SAME id.
  *
- * `import_export/atlas-image-upload.js` is reached by a DYNAMIC import so the store's static
- * graph does not grow an edge into the lazy import/export chunk group.
+ * The transport moved with it: the queue is what talks to `import_export/atlas-image-upload.js`
+ * now, by a DYNAMIC import, for the reason this module used to state here — the store's static
+ * graph must not grow an edge into the lazy import/export chunk group.
  */
 
 import { getImage } from './settings.operations.js';
 import { isRemoteStoreSync } from './store-origin.js';
-import { apiClient, syncEngine } from './sync/index.js';
+import { syncEngine } from './sync/index.js';
+import { enfileirarBlobs } from './sync/blob-upload-queue.js';
 
 /**
  * @typedef {Object} CopiedBlobUploadResult
  * @property {string[]} uploaded - Ids the server accepted
- * @property {Array<Object>} failed - Per-id refusals reported by the server (`{localId, error}`)
- * @property {string[]} skipped - Ids left out BEFORE the request, for either of two reasons:
- *   no blob was found under the id (the duplication that should have written it failed, or
- *   something released it in between), or the mime type is outside the server allowlist, such
- *   as an SVG custom icon. Both are reported rather than dropped: an id that silently vanishes
- *   here is a feature that will render as a hole on the peer, which is the exact defect this
- *   module exists to close
+ * @property {Array<Object>} failed - Per-id DEFINITIVE refusals (`{localId, error}`), in the shape
+ *   the server produces. A refusal here is one no retry repairs: format outside the allowlist,
+ *   size, an id already taken by other bytes
+ * @property {string[]} pending - Ids whose transfer did not land for a TRANSIENT reason and are now
+ *   a durable pendency: the queue retries them on the next reconnection, under the same id. They
+ *   used to be indistinguishable from `failed`, which is why a network hiccup during a paste read
+ *   as a permanent refusal and nothing ever tried again
+ * @property {string[]} skipped - Ids left out BEFORE anything was registered, because no blob was
+ *   found under the id (the duplication that should have written it failed, or something released
+ *   it in between). Reported rather than dropped: an id that silently vanishes here is a feature
+ *   that will render as a hole on the peer, which is the exact defect this module exists to close.
+ *   It is the one outcome that cannot become a pendency, because there are no bytes to retry. A
+ *   mime type outside the server allowlist is NOT here any more: it is a definitive refusal, and
+ *   the queue records it as one
  */
 
 /**
@@ -59,7 +72,7 @@ import { apiClient, syncEngine } from './sync/index.js';
  *   caller that mutates what it got cannot poison the next call).
  */
 function nothingUploaded() {
-    return { uploaded: [], failed: [], skipped: [] };
+    return { uploaded: [], failed: [], pending: [], skipped: [] };
 }
 
 /**
@@ -86,33 +99,36 @@ export async function uploadCopiedBlobsIfRemote(newIds, { context = 'uploadCopie
     if (!atlasId) return nothingUploaded();
 
     try {
-        const { buildImageUploads, uploadImagesInChunks } =
-            await import('@js/import_export/atlas-image-upload.js');
-
         // An id with no blob under it is REPORTED, never dropped: it means the local
         // duplication did not land, and the feature it belongs to will render as a hole on the
         // peer. Dropping it here would hide exactly the failure this module exists to close.
-        const blobs = [];
+        const pares = [];
         const semBlob = [];
         for (const id of ids) {
             const blob = await getImage(id);
-            if (blob) blobs.push([id, blob]);
+            if (blob) pares.push([id, blob]);
             else semBlob.push(id);
         }
-        if (blobs.length === 0) return { uploaded: [], failed: [], skipped: semBlob };
-
-        const { uploads, skipped } = await buildImageUploads(blobs);
-        const deixadosDeFora = [...semBlob, ...skipped];
-        if (uploads.length === 0) return { uploaded: [], failed: [], skipped: deixadosDeFora };
-
-        const { failed } = await uploadImagesInChunks(apiClient, atlasId, uploads);
-        const refused = new Set(failed.map(item => item?.localId));
-        const uploaded = uploads.map(item => item.localId).filter(id => !refused.has(id));
-
-        if (failed.length > 0) {
-            console.warn(`${context}: ${failed.length} image blob(s) refused by the server`);
+        if (pares.length === 0) {
+            return { uploaded: [], failed: [], pending: [], skipped: semBlob };
         }
-        return { uploaded, failed, skipped: deixadosDeFora };
+
+        const resultado = await enfileirarBlobs(pares, { atlasId, origem: context });
+
+        if (resultado.recusados.length > 0) {
+            console.warn(`${context}: ${resultado.recusados.length} image blob(s) refused by the server`);
+        }
+        if (resultado.pendentes.length > 0) {
+            // NOT a warning shaped like a refusal, because this one is queued. Saying which it is
+            // keeps the next reader from treating a reconnection away from repair as a lost picture.
+            console.info(`${context}: ${resultado.pendentes.length} image blob(s) queued for retry`);
+        }
+        return {
+            uploaded: resultado.confirmados,
+            failed: resultado.recusados.map(item => ({ localId: item.imageId, error: item.motivo })),
+            pending: resultado.pendentes,
+            skipped: semBlob
+        };
     } catch (error) {
         console.warn(`${context}: image blobs could not be uploaded:`, error);
         return nothingUploaded();

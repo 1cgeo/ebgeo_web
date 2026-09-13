@@ -250,65 +250,67 @@ function classificarErro(error) {
 }
 
 /**
- * Sends ONE blob through the bulk route, which is the only one that keeps the id.
+ * Sends a whole batch of blobs through the bulk route, which is the only one that keeps the ids.
+ *
+ * ONE REQUEST PER CHUNK OF 50, not one per blob, because the copy gestures hand over dozens at a
+ * time ("Duplicar Seleção", a layer copied to another map): a request per picture would turn one
+ * paste into a burst a just-restored connection cannot afford. `uploadImagesInChunks` already
+ * merges the per-chunk results and counts the chunks that got no answer at all.
+ *
  * @param {string} atlasId
- * @param {string} imageId
- * @param {Blob} blob
- * @returns {Promise<{confirmado: boolean, definitiva: boolean, status: number|null, motivo: string}>}
+ * @param {Array<[string, Blob]>} pares - Id and bytes of each blob.
+ * @returns {Promise<Map<string, {confirmado: boolean, definitiva: boolean, status: number|null, motivo: string}>>}
+ *   One verdict per id: an id the answer did not mention gets a verdict too, never silence.
  */
-async function transferir(atlasId, imageId, blob) {
+async function transferirLote(atlasId, pares) {
     // Dynamic, as in `upload-copied-blobs.js`: the store's static graph must not grow an edge into
     // the lazy import/export chunk group.
     const { buildImageUploads, uploadImagesInChunks } =
         await import('@js/import_export/atlas-image-upload.js');
 
-    const { uploads, skipped } = await buildImageUploads([[imageId, blob]]);
-    if (uploads.length === 0) {
-        return {
-            confirmado: false,
-            definitiva: true,
-            status: null,
-            motivo: skipped.length > 0
-                ? 'O servidor não aceita este formato de imagem.'
-                : 'A imagem não pôde ser preparada para envio.'
-        };
+    const veredictos = new Map();
+    const { uploads, skipped } = await buildImageUploads(pares);
+    for (const id of skipped) {
+        veredictos.set(id, {
+            confirmado: false, definitiva: true, status: null,
+            motivo: 'O servidor não aceita este formato de imagem.'
+        });
     }
+    if (uploads.length === 0) return veredictos;
 
     const { mapping, failed, transportErrors } = await uploadImagesInChunks(apiClient, atlasId, uploads);
-    if (mapping[imageId]) {
-        return { confirmado: true, definitiva: false, status: null, motivo: '' };
+    const motivoPorId = new Map((failed ?? []).map(item => [item?.localId, item?.error]));
+    for (const { localId } of uploads) {
+        if (mapping[localId]) {
+            veredictos.set(localId, { confirmado: true, definitiva: false, status: null, motivo: '' });
+            continue;
+        }
+        // `uploadImagesInChunks` folds a transport failure into `failed` too, so the count of chunks
+        // that never got an answer is the ONLY thing separating "the server refused" from "the
+        // network dropped". Without it every outage would read as a definitive refusal and the retry
+        // this module exists for would never happen. The count is per REQUEST, not per item, so a
+        // batch that lost one chunk treats its unanswered items as transient, which is the safe side.
+        veredictos.set(localId, transportErrors > 0
+            ? {
+                confirmado: false, definitiva: false, status: null,
+                motivo: motivoPorId.get(localId) || 'A imagem não chegou ao servidor.'
+            }
+            : {
+                confirmado: false, definitiva: true, status: null,
+                motivo: motivoPorId.get(localId) || 'O servidor recusou a imagem.'
+            });
     }
-    // `uploadImagesInChunks` folds a transport failure into `failed` too, so the count of chunks
-    // that never got an answer is the ONLY thing that separates "the server refused" from "the
-    // network dropped". Without it every outage would be read as a definitive refusal and the
-    // retry this module exists for would never happen.
-    if (transportErrors > 0) {
-        return {
-            confirmado: false, definitiva: false, status: null,
-            motivo: failed[0]?.error || 'A imagem não chegou ao servidor.'
-        };
-    }
-    return {
-        confirmado: false, definitiva: true, status: null,
-        motivo: failed[0]?.error || 'O servidor recusou a imagem.'
-    };
+    return veredictos;
 }
 
 /**
- * One attempt over an already registered record. Updates the record and the held set.
+ * Writes one verdict onto its record, and does to the waiting operations what the verdict implies.
  * @param {object} scope - The remote scope.
- * @param {Object} registro - The record, as stored.
- * @param {Blob} blob - The bytes.
+ * @param {Object} registro - The record as stored.
+ * @param {{confirmado: boolean, definitiva: boolean, status: number|null, motivo: string}} desfecho
  * @returns {Promise<Object>} The record as it now stands on disk.
  */
-async function tentar(scope, registro, blob) {
-    let desfecho;
-    try {
-        desfecho = await transferir(registro.atlasId, registro.imageId, blob);
-    } catch (error) {
-        desfecho = { confirmado: false, ...classificarErro(error) };
-    }
-
+async function assentar(scope, registro, desfecho) {
     const atualizado = {
         ...registro,
         tentativas: (registro.tentativas ?? 0) + 1,
@@ -337,6 +339,117 @@ async function tentar(scope, registro, blob) {
     return atualizado;
 }
 
+/** A verdict for an id the answer did not mention. Transient, because silence is not a refusal. */
+const semVeredicto = () => ({
+    confirmado: false, definitiva: false, status: null,
+    motivo: 'O servidor não respondeu sobre esta imagem.'
+});
+
+/**
+ * One attempt over an already registered record. Updates the record and the held set.
+ * @param {object} scope - The remote scope.
+ * @param {Object} registro - The record, as stored.
+ * @param {Blob} blob - The bytes.
+ * @returns {Promise<Object>} The record as it now stands on disk.
+ */
+async function tentar(scope, registro, blob) {
+    let desfecho;
+    try {
+        const veredictos = await transferirLote(registro.atlasId, [[registro.imageId, blob]]);
+        desfecho = veredictos.get(registro.imageId) ?? semVeredicto();
+    } catch (error) {
+        desfecho = { confirmado: false, ...classificarErro(error) };
+    }
+    return assentar(scope, registro, desfecho);
+}
+
+/**
+ * Builds one pendency record. It is written to disk by the caller, BEFORE any byte leaves.
+ * @param {string} imageId
+ * @param {string} atlasId
+ * @param {string} origem
+ * @param {Blob} blob
+ * @returns {Object}
+ */
+function novoRegistro(imageId, atlasId, origem, blob) {
+    return {
+        tentativaId: generateUUID(),
+        imageId,
+        atlasId,
+        origem,
+        mime: blob.type || null,
+        tamanho: blob.size ?? null,
+        estado: BlobUploadState.PENDENTE,
+        tentativas: 0,
+        ultimoErro: null,
+        criadoEm: Date.now(),
+        atualizadoEm: Date.now()
+    };
+}
+
+/**
+ * Registers a BATCH of blobs and attempts to send them, in that order.
+ *
+ * IT IS THE PRIMITIVE OF THE MODULE and {@link enfileirarBlob} is the one-item case. The copy
+ * gestures (paste, "Colar Aqui", "Duplicar Seleção", a layer copied to another map) mint new ids
+ * for bytes that already exist and hand them over together, and they used to upload OUTSIDE any
+ * queue: a failed chunk cost a picture with nothing recorded anywhere and nothing to retry it.
+ *
+ * @param {Iterable<[string, Blob]>} pares - Id and bytes of each blob.
+ * @param {Object} params
+ * @param {string} params.atlasId - The connected atlas.
+ * @param {string} [params.origem] - Label for the records, so a pendency names the gesture.
+ * @returns {Promise<{registrados: string[], confirmados: string[], pendentes: string[], recusados: Array<{imageId: string, motivo: string}>}>}
+ */
+export async function enfileirarBlobs(pares, { atlasId, origem = 'copia' }) {
+    const lista = [...pares].filter(par => par && par[0] && par[1]);
+    const vazio = { registrados: [], confirmados: [], pendentes: [], recusados: [] };
+    const scope = escopoRemoto();
+    if (!scope || !atlasId || lista.length === 0) return vazio;
+
+    const bytesPorId = new Map(lista);
+    const registros = [];
+    for (const [imageId, blob] of lista) {
+        const registro = novoRegistro(imageId, atlasId, origem, blob);
+        try {
+            await gravar(scope, registro);
+        } catch (error) {
+            // WITHOUT A RECORD THERE IS NO RETRY, so there must be no hold either.
+            console.warn('[blob-upload-queue] could not register an upload attempt:', error);
+            continue;
+        }
+        espelhar(registro);
+        registros.push(registro);
+    }
+    if (registros.length === 0) return vazio;
+
+    let veredictos;
+    try {
+        veredictos = await transferirLote(
+            atlasId, registros.map(r => [r.imageId, bytesPorId.get(r.imageId)])
+        );
+    } catch (error) {
+        const desfecho = { confirmado: false, ...classificarErro(error) };
+        veredictos = new Map(registros.map(r => [r.imageId, desfecho]));
+    }
+
+    const resultado = {
+        registrados: registros.map(r => r.imageId),
+        confirmados: [], pendentes: [], recusados: []
+    };
+    for (const registro of registros) {
+        const final = await assentar(scope, registro, veredictos.get(registro.imageId) ?? semVeredicto());
+        if (final.estado === BlobUploadState.CONFIRMADO) {
+            resultado.confirmados.push(final.imageId);
+        } else if (final.estado === BlobUploadState.RECUSADO) {
+            resultado.recusados.push({ imageId: final.imageId, motivo: final.ultimoErro });
+        } else {
+            resultado.pendentes.push(final.imageId);
+        }
+    }
+    return resultado;
+}
+
 /**
  * Registers a blob and attempts to send it, in that order.
  *
@@ -354,19 +467,7 @@ export async function enfileirarBlob({ imageId, blob, atlasId, origem = 'imagem'
         return { registrado: false, confirmado: false, estado: null, motivo: '' };
     }
 
-    const registro = {
-        tentativaId: generateUUID(),
-        imageId,
-        atlasId,
-        origem,
-        mime: blob.type || null,
-        tamanho: blob.size ?? null,
-        estado: BlobUploadState.PENDENTE,
-        tentativas: 0,
-        ultimoErro: null,
-        criadoEm: Date.now(),
-        atualizadoEm: Date.now()
-    };
+    const registro = novoRegistro(imageId, atlasId, origem, blob);
 
     try {
         await gravar(scope, registro);

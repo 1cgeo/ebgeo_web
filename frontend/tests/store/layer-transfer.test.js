@@ -202,6 +202,8 @@ import { logLayerOperation } from '../../src/js/store/sync/index.js';
 import { getImage, storeImage, removeImage } from '../../src/js/store/settings.operations.js';
 import { setLayersCompat } from '../../src/js/store/repositories/index.js';
 import { uploadImagesInChunks } from '@js/import_export/atlas-image-upload.js';
+import { activateScope, remoteScope } from '../../src/js/store/atlas-namespace.js';
+import { esquecerPendenciasEmMemoria } from '../../src/js/store/sync/blob-upload-queue.js';
 
 // ============================================================================
 // Helpers
@@ -818,6 +820,11 @@ describe('transferLayerToMap - blob copiado num atlas de servidor', () => {
         hydrate('MapB');
         mockImages.value.set('img1', 'blob-original');
         addFeatureTo('MapA', makeFeature('img1', 'image'));
+        // A FILA DURÁVEL DE BLOBS GRAVA A PENDÊNCIA NO BANCO DE IMAGENS DO ESCOPO ATIVO, e só em
+        // atlas de SERVIDOR: sem escopo remoto montado ela devolve "nada registrado" e o
+        // transporte não é chamado, o que aqui se leria como cópia que parou de subir.
+        activateScope(remoteScope(crypto.randomUUID()));
+        esquecerPendenciasEmMemoria();
     });
 
     it('sobe o blob novo ANTES de gravar as feições, e sob o id novo', async () => {
