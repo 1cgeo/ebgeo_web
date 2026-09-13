@@ -197,16 +197,6 @@ const CENSO_CONSULTA = [
       + 'exclusivo de GET /uso/resumo com auth e requireAdmin. Não serve conteúdo do recurso. '
       + 'RISCO: remover o gate administrativo exporia nomes de recursos privados no relatório.',
   },
-  {
-    arquivo: 'src/modules/sync/sync.service.js', unidade: 'guardedEntityRow', n: 1,
-    classe: NAO_RECURSO,
-    motivo: 'Leitura de `version` e `deleted_at` de UMA linha de mapa, 3D ou 360 do atlas '
-      + '(nome de tabela interpolado de TARGET_TABLE_MAP, nunca do cliente, e JOIN por '
-      + 'atlas_id), dentro do push já gateado por requireAtlasPermission, para recusar escrita '
-      + 'sobre túmulo. Não devolve conteúdo de recurso nem chega ao chamador: só decide a '
-      + 'recusa por operação. RISCO: ampliar o SELECT para colunas de conteúdo exigiria '
-      + 'reclassificar, porque o resultado passaria a alimentar o ack.',
-  },
   // ================= catálogo: as quatro tabelas por uma fábrica só ==========
   {
     arquivo: 'src/modules/catalog/catalog.service.js', unidade: 'listCatalog', n: 2, classe: SQL,
