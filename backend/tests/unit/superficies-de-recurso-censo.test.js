@@ -975,6 +975,17 @@ const CENSO_CONSULTA = [
       + 'recunhá-los. Nada dela sai no corpo: o que volta ao cliente é a CONTAGEM `remappedIds` no '
       + 'summary. Não há superfície de conteúdo a recortar.',
   },
+  {
+    arquivo: 'src/modules/sync/entity-conflicts.js', unidade: 'entityRowQuery', n: 1,
+    classe: NAO_RECURSO,
+    motivo: 'FALSO POSITIVO DECLARADO, terceiro irmão de `mergeMaps` e `cunharIdsOcupados`. A '
+      + 'interpolação percorre `MAP_SCOPED_TABLES`, uma constante do módulo com QUATRO tabelas de '
+      + 'entidade de mapa (groups, layers, cesium3d_data, streetview360_data), nenhuma de catálogo, '
+      + 'de projeto 360 ou de modelo 3D. A consulta lê SÓ `version` e `deleted_at`, para o guarda de '
+      + 'túmulo e a revisão por entidade decidirem se a escrita que chega é mais velha que a linha; '
+      + 'nada dela sai no corpo da resposta, e o alcance é o do atlas (o `JOIN maps` pina o '
+      + 'atlas da rota), decidido por `requireAtlasPermission`.',
+  },
 ];
 
 /**

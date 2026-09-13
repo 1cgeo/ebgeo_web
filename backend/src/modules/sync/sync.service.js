@@ -2,10 +2,12 @@
 import { query, tx } from '../../database/index.js';
 import { findReceipt, saveReceipt, operationDigest } from './sync-receipts.js';
 import { assertSyncProtocol } from './sync-protocol.js';
+import { prepareFeatureMutation, finishFeatureMutation } from './feature-conflicts.js';
 import {
-  prepareFeatureMutation, finishFeatureMutation,
+  prepareEntityMutation, finishEntityMutation, readEntityRow,
+  hasDeclaredBase, isRevisionTarget, UUID_RE,
   RAZAO_EXCLUIDO_NO_SERVIDOR, RAZAO_CRIACAO_NAO_RESTAURA, RAZAO_IDENTIFICADOR_EM_USO,
-} from './feature-conflicts.js';
+} from './entity-conflicts.js';
 import { ensureMapLayers, readMapLayers, resolveDefaultFeatureLayer } from '../maps/default-layer.js';
 import { ForbiddenError, ServiceUnavailableError } from '../../utils/errors.js';
 import * as Q from './sync.queries.js';
@@ -139,7 +141,7 @@ const ENTITY_TYPE_MAP = {
  * BEFORE the log insert, so the batch survives and no version is burned. No producer was ever
  * found for either (grep across both packages, 2026-09-13), so nothing loses a path it used.
  */
-const TARGET_TABLE_MAP = {
+export const TARGET_TABLE_MAP = {
   feature: 'features',
   group: 'groups',
   layer: 'layers',
@@ -1466,12 +1468,18 @@ const CREATE_OVER_EXISTING_REFUSED = new Set(['cesium3d', 'streetview360']);
  * Reads `version`/`deleted_at` of the row a guarded op names, or null when there is no such row
  * (and null, too, when the op does not name one in a shape this lookup can ask about).
  *
- * THE UUID TEST IS NOT COSMETIC. Every id column here is UUID, while the push schema accepts
- * `mapId`/`entityId` as any string: the local default map is name-keyed ("Principal"), so a
- * non-UUID reaches this function in normal operation. Casting it raises 22P02, which inside the
+ * IT DELEGATES TO `readEntityRow` (`entity-conflicts.js`) SINCE 2026-09-13, and the delegation is
+ * the point: the per-entity revision frame needs the very same reading, so keeping two would mean
+ * a guard and a revision check that can disagree about which row an operation names. The frame's
+ * reader answers `undefined` for "this op addresses no row I can ask about" and `null` for "no
+ * such row"; this guard treats both as "nothing to refuse", which is what it did before.
+ *
+ * THE UUID TEST INSIDE IT IS NOT COSMETIC. Every id column here is UUID, while the push schema
+ * accepts `mapId`/`entityId` as any string: the local default map is name-keyed ("Principal"), so
+ * a non-UUID reaches this path in normal operation. Casting it raises 22P02, which inside the
  * per-op savepoint becomes a NAMED integrity refusal of an operation that would otherwise have
  * been applied or dropped exactly as before. A guard that invents refusals is worse than the hole
- * it closes, so an id this lookup cannot ask about skips the guard and behaves as it did.
+ * it closes, so an id the lookup cannot ask about skips the guard and behaves as it did.
  *
  * @param {Object} t - Transaction context.
  * @param {string} atlasId
@@ -1479,26 +1487,7 @@ const CREATE_OVER_EXISTING_REFUSED = new Set(['cesium3d', 'streetview360']);
  * @returns {Promise<{version: number, deleted_at: Date|null}|null>}
  */
 async function guardedEntityRow(t, atlasId, op) {
-  if (op.target === 'map') {
-    // A sub-typed map op (position/baseLayer/notes/grid/temporal) addresses the map through
-    // `mapId`; a plain one through `targetId`. Same split as `buildUpdateQuery`.
-    const mapId = op._subType ? op.mapId : op.targetId;
-    if (!FEATURE_UUID_RE.test(mapId)) return null;
-    return t.oneOrNone(
-      'SELECT version, deleted_at FROM maps WHERE id = $1 AND atlas_id = $2',
-      [mapId, atlasId],
-    );
-  }
-  // Safe to interpolate: the value is a literal of `TARGET_TABLE_MAP`, never client input, and
-  // the caller has already gated the target through `TOMBSTONE_GUARDED_TARGETS`.
-  const table = TARGET_TABLE_MAP[op.target];
-  if (!table) return null;
-  if (!FEATURE_UUID_RE.test(op.targetId) || !FEATURE_UUID_RE.test(op.mapId)) return null;
-  return t.oneOrNone(
-    `SELECT e.version, e.deleted_at FROM ${table} e JOIN maps m ON m.id = e.map_id
-     WHERE e.id = $1 AND e.map_id = $2 AND m.atlas_id = $3`,
-    [op.targetId, op.mapId, atlasId],
-  );
+  return (await readEntityRow(t, atlasId, op)) ?? null;
 }
 
 /**
@@ -2067,6 +2056,32 @@ export async function pushOperations(atlasId, operations, userId, permission = '
             if (deniedPatch) return { denied: deniedPatch };
           }
 
+          // THE SECOND REGIME: BASE AND REVISION FOR EVERY OTHER ENTITY, gated on the op having
+          // DECLARED a base rather than on its target. The literal `op.target === 'feature'`
+          // above was the whole reason `map`, `layer`, `group`, `comment`, `briefing`, `slide`,
+          // `catalog_layer`, `cesium3d` and `streetview360` had no way to notice that the row
+          // they were writing had moved on: arrival order won, and the ack said `applied`.
+          //
+          // WHY THE GATE IS "HAS A BASE" AND NOT "IS ONE OF THESE TARGETS". The client stamps a
+          // base only on feature ops today (`featureMutationContract`, frontend
+          // `store/sync/feature-patch.js`), so every other entity keeps the behaviour it has and
+          // nothing breaks on this deploy; the day the client starts declaring one for a map or a
+          // layer, the check turns itself on for that entity with no server change and no version
+          // negotiation. A flag day across the two packages is what a frozen wire contract cannot
+          // afford, and the alternative (refusing every op that arrives without a base) would
+          // reject the entire live client.
+          let entityRevision = null;
+          if (rawOp.protocolVersion === 2 && hasDeclaredBase(rawOp) && isRevisionTarget(op.target)) {
+            const preparedEntity = await prepareEntityMutation(
+              sp, atlasId, op, rawOp, userId, declaredUpdateColumns,
+            );
+            if (preparedEntity?.conflict) return preparedEntity;
+            if (preparedEntity) {
+              op = preparedEntity.op;
+              entityRevision = preparedEntity;
+            }
+          }
+
           // THE TOMBSTONE GUARD OF THE THREE TARGETS THAT HAD NONE (`map`, `cesium3d`,
           // `streetview360`). It sits here for the same reason the two consulted refusals above
           // do: it reads the row under the atlas write lock, BEFORE the log insert, so a refused
@@ -2144,6 +2159,16 @@ export async function pushOperations(atlasId, operations, userId, permission = '
             await sp.none('UPDATE operations SET data=$2::jsonb, changes=$3::jsonb WHERE id=$1',
               [inserted.id, JSON.stringify(inserted.data), JSON.stringify(inserted.changes)]);
           }
+          // The other entities record their revision and report the version they committed, which
+          // is the base the author's next edit declares. They do NOT rewrite the logged payload
+          // the way the feature path does: that needs a canonical serializer per entity, which is
+          // step 3 of B5, and publishing a `canonicalOperation` the client would apply as-is
+          // before that serializer exists would broadcast the sender's document back as if the
+          // server had endorsed it.
+          let entityCommitted = null;
+          if (entityRevision) {
+            entityCommitted = await finishEntityMutation(sp, atlasId, op, entityRevision);
+          }
           // The structural command owns its layer too. Persist its actual result in
           // the same log/receipt, so retries, the author and peers learn the SAME UUID.
           const structural = rowsAffected > 0 && ((op.target === 'map' && op.type === 'create')
@@ -2168,6 +2193,7 @@ export async function pushOperations(atlasId, operations, userId, permission = '
           const result = { opId: rawOp.id, serverVersion: inserted.server_version,
             entityId: inserted.entity_id, status: 'applied',
             ...(canonical ? { entityVersion: canonical.entityVersion, canonicalOperation: toFrontendOperation(inserted) } : {}),
+            ...(entityCommitted?.entityVersion != null ? { entityVersion: entityCommitted.entityVersion } : {}),
             ...(structural || canonicalLayer ? { canonicalOperation: toFrontendOperation(inserted) } : {}),
           };
           await saveReceipt(sp, atlasId, rawOp, userId, inserted, result);
@@ -2443,7 +2469,7 @@ export async function getCleanupStats(atlasId) {
  * Field specs for each updatable entity type.
  * Each entry defines: { column, source? (defaults to column), jsonb? }
  */
-const UPDATE_FIELDS = {
+export const UPDATE_FIELDS = {
   feature: [
     { column: 'geometry', jsonb: true },
     { column: 'properties', jsonb: true },
@@ -2501,7 +2527,7 @@ const UPDATE_FIELDS = {
  * Map update fields are special: they accept both frontend and backend field names,
  * and handle sub-entity updates (mapPosition, baseLayer, mapNotes, etc.).
  */
-const MAP_UPDATE_FIELDS = [
+export const MAP_UPDATE_FIELDS = [
   { column: 'name' },
   { column: 'base_layer' },
   { column: 'center_lat' },
@@ -2524,7 +2550,7 @@ const MAP_UPDATE_FIELDS = [
  * temporal_config) from overwriting unrelated map state. Keys match ENTITY_TYPE_MAP
  * subType values.
  */
-const MAP_SUBTYPE_FIELDS = {
+export const MAP_SUBTYPE_FIELDS = {
   position: [
     { column: 'center_lat' },
     { column: 'center_long' },
@@ -2608,6 +2634,53 @@ function normalizeLayerChanges(changes) {
 }
 
 /**
+ * The BACKEND COLUMNS an update operation declares, which is how the per-entity revision frame
+ * learns which units of dispute the operation claims (`prepareEntityMutation`,
+ * `entity-conflicts.js`).
+ *
+ * IT HAS TO ANSWER WHAT THE STATEMENT WILL ACTUALLY WRITE, so it resolves the client's aliases
+ * with the SAME normalizers and reads the SAME field tables `buildUpdateQuery` does, and it lives
+ * next to it for that reason. Answering from the raw payload instead would let a `baseLayer` alias
+ * be compared as nothing and then written as `base_layer`, which is the silent overwrite the
+ * frame exists to stop. `comment` and `catalog_layer` do not pass through `buildUpdateQuery` at
+ * all (they have hand-written statements), so their columns are named here directly.
+ *
+ * @param {Object} op - Normalized operation.
+ * @returns {string[]} Backend column names, possibly empty.
+ */
+function declaredUpdateColumns(op) {
+  const target = op.target;
+  if (target === 'map') {
+    const merged = { ...op.changes, ...op.data };
+    const changes = normalizeMapChanges(merged, op._subType);
+    const fields = op._subType ? (MAP_SUBTYPE_FIELDS[op._subType] || []) : MAP_UPDATE_FIELDS;
+    return presentColumns(changes, fields);
+  }
+  if (target === 'layer') {
+    return presentColumns(normalizeLayerChanges(op.changes ?? {}), UPDATE_FIELDS.layer);
+  }
+  if (target === 'comment') {
+    // The comment statement writes `data` wholesale and `status` only when the payload carries a
+    // valid one. A payload whose ONLY key is `status` is a pure resolve and claims no text: see
+    // `_unitScope` in `applyCommentOp`, which is what makes that claim true of the write too.
+    const data = op.changes ?? op.data ?? {};
+    const columns = [];
+    if (Object.keys(data).some((key) => key !== 'status')) columns.push('data');
+    if (data.status === 'resolved' || data.status === 'open') columns.push('status');
+    return columns;
+  }
+  const fields = UPDATE_FIELDS[target];
+  return fields ? presentColumns(op.changes ?? {}, fields) : [];
+}
+
+/** The subset of a field spec the payload actually addresses, by the same rule as `buildDynamicUpdate`. */
+function presentColumns(changes, fields) {
+  return fields
+    .filter((field) => changes[field.source ?? field.column] !== undefined)
+    .map((field) => field.column);
+}
+
+/**
  * Builds the UPDATE query for a given target and operation.
  * Returns null if no changes apply.
  *
@@ -2619,10 +2692,11 @@ function normalizeLayerChanges(changes) {
  *
  * THE OTHER TARGETS DO NOT HAVE IT YET, and the gap is declared, not forgotten:
  * `group`, `layer`, `briefing` and `slide` still update a soft-deleted row into a version bump
- * nobody can see. They are step 2 of B5 (base and revision per entity), where the read of the
- * current row stops being a per-target special case. `feature` needs no clause: every feature
- * write passes `prepareFeatureMutation` first. `comment` and the per-layer `catalog_layer`
- * already carry their own.
+ * nobody can see WHEN THE OPERATION DECLARES NO BASE. An op that declares one is already refused
+ * one layer up, by `prepareEntityMutation` (`entity-conflicts.js`), with the same words the
+ * feature path uses; closing the other half is the remaining work. `feature` needs no clause:
+ * every feature write passes `prepareFeatureMutation` first. `comment` and the per-layer
+ * `catalog_layer` already carry their own.
  */
 function buildUpdateQuery(target, op, atlasId) {
   // Map-scoped entities are also pinned to the ROUTE atlas: the EXISTS clause
@@ -2846,11 +2920,9 @@ async function applyCatalogLayerOp(t, atlasId, op, type) {
  * IDOR-safe: a create is pinned to a map of THIS atlas; update/delete are scoped by atlas_id.
  * @param {Object} t - Transaction context from pg-promise
  */
-const COMMENT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /** @param {*} v @returns {string|null} v if it's a UUID string, else null. */
 function asUuidOrNull(v) {
-  return typeof v === 'string' && COMMENT_UUID_RE.test(v) ? v : null;
+  return typeof v === 'string' && UUID_RE.test(v) ? v : null;
 }
 
 async function applyCommentOp(t, atlasId, op, type, userId, permission) {
@@ -2911,8 +2983,16 @@ async function applyCommentOp(t, atlasId, op, type, userId, permission) {
     // Keep the existing status when the payload doesn't carry a valid one (a text-only edit must
     // not silently reopen a resolved comment). Author gate: own comment, or editor+.
     const status = data.status === 'resolved' || data.status === 'open' ? data.status : null;
+    // THE `data` WRITE IS WHOLESALE, and under the base-checked regime that would make the two
+    // units of a comment (`texto` and `resolvido`) a lie: a bare `{ status: 'resolved' }` would
+    // claim to touch only the status and would in fact replace the whole body with `{"status":
+    // "resolved"}`, erasing a concurrent reply it had just been told it did not conflict with.
+    // `_unitScope` is stamped only by `prepareEntityMutation`, so an op with no declared base
+    // writes `data` exactly as it always did.
+    const claimsText = !op._unitScope || op._unitScope.includes('texto');
     await t.none(`
-      UPDATE comments SET data = $1::jsonb, status = COALESCE($2, status), updated_at = NOW(), version = version + 1
+      UPDATE comments SET data = CASE WHEN $7 THEN $1::jsonb ELSE data END,
+        status = COALESCE($2, status), updated_at = NOW(), version = version + 1
       WHERE id = $3 AND atlas_id = $4 AND deleted_at IS NULL AND ($5 OR author_id = $6)
     `, [
       JSON.stringify(data),
@@ -2921,6 +3001,7 @@ async function applyCommentOp(t, atlasId, op, type, userId, permission) {
       atlasId,
       isEditor,
       userId,
+      claimsText,
     ]);
   } else if (type === 'delete') {
     // Soft-delete the target AND, for a root, its replies (cascade), authorized by the TARGET's
@@ -3326,7 +3407,17 @@ async function applyOperation(t, atlasId, op, userId, permission) {
       // map's display name, and buildUpdateQuery is synchronous, so the lookup has to
       // happen here while the transaction is in scope. Done BEFORE the cross-atlas
       // check below, so the resolved id is what gets validated.
-      if (target === 'slide' && op.changes) {
+      //
+      // THE ASSIGNMENT IS UNCONDITIONAL, so a slide update that says nothing about its map still
+      // writes `map_id` (null, when there is nothing to resolve). That is left exactly as it was
+      // for an op without a declared base, because changing it would change what every current
+      // client's slide edit does. Under the base-checked regime it is narrowed to the `alvo` unit
+      // the operation actually claimed (`_unitScope`, stamped only by `prepareEntityMutation`),
+      // because otherwise the unit model would promise an independence the statement breaks: a
+      // title edit would silently clear the slide's map reference and, worse, would have to be
+      // declared as disputing `alvo` — making every pair of slide edits a conflict.
+      const slideClaimsTarget = !op._unitScope || op._unitScope.includes('alvo');
+      if (target === 'slide' && op.changes && slideClaimsTarget) {
         op.changes.map_id = await resolveSlideMapId(t, atlasId, op.changes);
       }
 
