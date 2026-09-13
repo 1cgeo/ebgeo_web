@@ -25,9 +25,13 @@ import {
 import { getEventBus } from './services.js';
 import { EventTypes } from '../events/event_types.js';
 import { uploadImageBlob, fetchImageBlob } from './sync/image-sync.js';
-import { logAtlasSetting } from './sync/operation-dispatcher.js';
+import { OperationType } from './sync/operation-dispatcher.js';
+// Leaf module (zero imports): the vocabulary, not the barrel.
+import { EntityType } from './sync/operation-types.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
+import { runTransaction } from './store-transaction.js';
+import { resolveAtlasSettingId } from './atlas-setting-target.js';
 
 const SETTING_KEY = 'custom_icons';
 
@@ -99,6 +103,12 @@ export function invalidateCustomIconsCache() {
 
 /**
  * Add a custom icon: store its blob and register its metadata.
+ *
+ * ONLY THE REGISTRY WRITE IS INSIDE THE TRANSACTION, and the split is the whole design. The
+ * upload and the local blob are NOT reversible by the journal: an op describes the registry
+ * list, never the bytes, so there is nothing for a replay to redo and nothing for a rollback to
+ * undo. They run before, in the open, and the only recovery they get is the manual one below.
+ *
  * @param {Object} params
  * @param {string} params.name - Display name
  * @param {Blob} params.blob - Normalized PNG blob
@@ -124,27 +134,44 @@ export async function addCustomIcon({ name, blob, thumbnail, type = 'image/png' 
     await ensureLoaded();
     // §17.19: when online, upload the blob so collaborators can fetch it; the backend
     // image id becomes the icon id (referenced on the feature's markerSymbol). Offline
-    // (or on failure) fall back to a local UUID — the icon still works locally and can
-    // be reconciled on a later sync.
+    // (or on failure) fall back to a local UUID.
+    //
+    // A BLOB THAT FAILED TO UPLOAD STAYS LOCAL, AND NOTHING RETRIES IT. This used to say it
+    // "can be reconciled on a later sync", and no such reconciliation exists anywhere: the icon
+    // draws for its author and a collaborator asking the server for that id gets a 404 forever.
+    // The durable blob queue that would fix it is block B8 of
+    // `docs/reviews/plano-correcao-total-lancamento-2026-09-13.md`; until it lands, the honest
+    // description of this line is "best effort, and the failure is permanent".
     const uploaded = await uploadImageBlob(blob, `${name || 'icon'}.png`);
     const id = uploaded?.id || generateUUID();
     await saveImageCompat(id, blob);
 
     const entry = { id, name: name || 'Ícone', thumbnail, type, createdAt: Date.now() };
+    const previous = [...registry];
     const next = [...registry, entry];
     try {
-        await setSettingCompat(SETTING_KEY, next);
+        await runTransaction(async (tx) => {
+            // datamodel-14: the icon REGISTRY (the metadata list) travels to the atlas as one
+            // `setting` op, journaled BEFORE the local key is written; the blobs travel apart,
+            // through the images endpoint. The backend replaces atlas.settings.customIcons
+            // wholesale with this full list.
+            tx.recordOperation(EntityType.SETTING, OperationType.UPDATE,
+                await resolveAtlasSettingId(tx.scope), null,
+                { customIcons: next }, { customIcons: previous });
+            // The module cache only moves after the key is on disk: a registry in memory that
+            // the disk does not have makes the picker offer an icon that dies at the next F5.
+            tx.deferSync(() => { registry = next; });
+            return () => setSettingCompat(SETTING_KEY, next);
+        });
     } catch (error) {
-        // Roll back the orphaned blob so storage and the in-memory registry
-        // stay consistent if the registry commit fails.
+        // Roll back the orphaned blob so storage and the in-memory registry stay consistent when
+        // the registry write (or its journal) fails. It runs HERE, outside the transaction, and
+        // not in a deferred effect: `runTransaction` only defers what happens AFTER a successful
+        // persistence, so a failure has no hook of its own, and this is the compensation for the
+        // two steps that ran before the transaction began.
         await deleteImageCompat(id).catch(() => {});
         throw error;
     }
-    registry = next;
-    // datamodel-14: sync the icon REGISTRY (metadata list) to the atlas. Blobs sync
-    // separately via the images endpoint. No-op offline; the backend replaces
-    // atlas.settings.customIcons wholesale with this full list.
-    await logAtlasSetting({ customIcons: next });
     return entry;
 }
 
