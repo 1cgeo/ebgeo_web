@@ -158,6 +158,38 @@ describe('o diálogo de logout contra a escrita de outra aba', () => {
     });
 });
 
+describe('o ENVIO também consulta a barreira', () => {
+    it('a sondagem do auto-flush responde sim enquanto o diálogo está aberto', async () => {
+        const { autoFlushBarredByLogout } = await import('../../src/js/store/sync/auto-flush-pause.js');
+        expect(await autoFlushBarredByLogout()).toBe(false);
+
+        const barreira = await holdLogoutBarrier(remoteScope(ATLAS));
+        // Empurrar durante o diálogo faria o servidor receber trabalho que a pessoa acabou de
+        // concordar em perder, e depois do censo que o contou.
+        expect(await autoFlushBarredByLogout()).toBe(true);
+        await barreira.release();
+        expect(await autoFlushBarredByLogout()).toBe(false);
+    });
+
+    it('e o laço de envio de fato pergunta, antes de chamar o engine', async () => {
+        // ESTRUTURAL, e a limitação é declarada: `flushOnce` é privada e o laço real precisa de
+        // engine, barramento e fila, então o que se mede aqui é o SÍTIO e a ORDEM da pergunta. O
+        // comportamento da barreira está medido nos casos acima com o lock de verdade.
+        const { readFileSync } = await import('node:fs');
+        const fonte = readFileSync(new URL('../../src/js/store/sync/sync-flush.js', import.meta.url), 'utf8')
+            .replace(/\/\*[\s\S]*?\*\//g, '')
+            .replace(/^\s*\/\/.*$/gm, '');
+        const inicio = fonte.indexOf('async function flushOnce(');
+        expect(inicio).toBeGreaterThan(-1);
+        const corpo = fonte.slice(inicio, fonte.indexOf('\n}', inicio));
+        const pergunta = corpo.indexOf('await autoFlushBarredByLogout()');
+        const envia = corpo.indexOf('await engine.flush()');
+        expect(pergunta).toBeGreaterThan(-1);
+        expect(envia).toBeGreaterThan(-1);
+        expect(pergunta).toBeLessThan(envia);
+    });
+});
+
 describe('o que a barreira NÃO alcança, por desenho', () => {
     it('atlas local não paga barreira, nem é recusado pela barreira de um remoto', async () => {
         const barreira = await holdLogoutBarrier(remoteScope(ATLAS));

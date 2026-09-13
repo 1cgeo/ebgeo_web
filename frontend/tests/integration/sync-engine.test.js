@@ -985,6 +985,37 @@ describe('flush', () => {
         expect(queueState.ops.map((o) => o.id)).toEqual(['op-2']);
     });
 
+    /**
+     * RESPOSTA PERDIDA NÃO É ROLLBACK REMOTO (item 5 do bloco B7).
+     *
+     * Prazo estourado e requisição abortada dizem a MESMA coisa: não se sabe o que o servidor fez.
+     * O envelope tem de continuar na fila, com o MESMO `op.id`, porque é esse id que torna o
+     * reenvio idempotente do outro lado; tratá-lo como recusa inventaria um rollback que ninguém
+     * prometeu, e cunhar um id novo seria pedir ao servidor para aplicar duas vezes.
+     */
+    it.each([
+        ['prazo estourado', Object.assign(new Error('Tempo de espera esgotado.'), { code: 'REQUEST_TIMEOUT' })],
+        ['requisição abortada', Object.assign(new Error('Request cancelled'), { name: 'AbortError' })],
+    ])('%s deixa a op na fila, e o reenvio usa o MESMO envelope', async (_rotulo, erro) => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        const envelope = { id: 'op-1', entityId: 'feicao-1', lamportTimestamp: 7 };
+        queueState.ops = [envelope];
+        apiClientMock.pushOperations.mockRejectedValueOnce(erro);
+
+        await expect(syncEngine.flush()).rejects.toBe(erro);
+
+        // NADA saiu da fila, e nenhum problema foi registrado: não houve recusa, houve silêncio.
+        expect(queueState.dequeued).toEqual([]);
+        expect(queueState.issues).toEqual([]);
+        expect(queueState.ops).toEqual([envelope]);
+
+        // O REENVIO É O MESMO ENVELOPE, id inclusive (o dublê volta ao ack padrão na segunda vez).
+        await syncEngine.flush();
+        expect(apiClientMock.pushOperations.mock.calls[1][1]).toEqual([envelope]);
+        expect(apiClientMock.pushOperations.mock.calls[1][1][0].id).toBe('op-1');
+        expect(queueState.dequeued).toEqual(['op-1']);
+    });
+
     it('falha ALTO quando o servidor não confirma nenhuma op (em vez de girar em vazio)', async () => {
         await syncEngine.connect('atlas-1', { initialPull: false });
         queueState.ops = [{ id: 'op-1' }, { id: 'op-2' }];

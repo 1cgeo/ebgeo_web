@@ -244,6 +244,30 @@ describe('in-flight lock', () => {
         expect(limited.flush).toHaveBeenCalledTimes(2);
     });
 
+    /**
+     * O `Retry-After` É PISO, NUNCA TETO (item 5 do bloco B7). O caso acima mede a metade que se
+     * espera: um prazo longo vence o backoff curto. Esta é a outra metade, e é a que protege o
+     * servidor: um `Retry-After` de 10 ms, que um proxy ou um servidor sob carga pode mandar, não
+     * pode apagar o backoff exponencial e devolver o laço de 1,5 s contra quem acabou de recusar.
+     *
+     * Os números são determinísticos apesar do jitter: o backoff da primeira falha é 1500 ms com
+     * fator de 0,8 a 1,2, ou seja, de 1200 a 1800 ms. Em 1000 ms nenhuma janela permite reenvio; em
+     * 2000 ms todas permitem.
+     */
+    it('um Retry-After curto NÃO encurta o backoff', async () => {
+        goOnline();
+        queueState.pending = 2;
+        const curto = { flush: vi.fn().mockRejectedValue(Object.assign(new Error('já pode'), { retryAfterMs: 10 })) };
+        startAutoFlush(curto, { intervalMs: 1000 });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(curto.flush).toHaveBeenCalledTimes(1);
+        // O intervalo bate em 1000 ms e o laço NÃO reenvia: o backoff ainda não venceu.
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(curto.flush).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(curto.flush).toHaveBeenCalledTimes(2);
+    });
+
     it('does not overlap two flushes', async () => {
         goOnline();
         queueState.pending = 3;
