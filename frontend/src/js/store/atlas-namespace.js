@@ -1364,7 +1364,11 @@ export function activateScope(scope) {
     if (!scope || typeof scope.dbSuffix !== 'string' || !scope.kind) {
         throw new Error('activateScope: expected a scope built by localScope()/remoteScope()');
     }
-    captureRemoteWriteFence(scope);
+    // INVOKED, not merely captured: mounting a namespace whose pendências were discarded is
+    // refused right here, and since 2026-09-13 the capture itself no longer asserts, because it
+    // must not bar READS (see `remote-write-fence.js`). This is the one site that wants the
+    // refusal up front, and it now says so instead of leaning on a side effect of capturing.
+    captureRemoteWriteFence(scope)();
     _activeScope = scope;
     // The per-tab pointer is written BY THE MOUNT (Decision 6), never by whoever remembered to
     // update it: a caller that mounts and forgets is the defect this removes, and it is the same

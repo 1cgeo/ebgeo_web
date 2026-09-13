@@ -118,6 +118,33 @@ it('recovers a persisted discard even if writing the asynchronous registry faile
     expect(captureRemoteWriteFence(fresh.scope)).not.toThrow();
 });
 
+// O FENCE BARRA GRAVAÇÃO E NUNCA LEITURA, contra o repositório REAL, que é onde o defeito
+// aparecia: `getScopedStore` e o construtor de `LocalRepository` capturam o fence ao RESOLVER um
+// store, então enquanto a captura assertava, ler o mapa depois de um descarte estourava
+// `AbortError` na tela ("As pendências desta sessão foram descartadas"). Medido em 2026-09-13:
+// `getAllMapNamesStore` e `getCurrentMapFeatures` morriam logo após o logout.
+it('lets a discarded namespace still be READ, while every write stays barred', async () => {
+    const scope = remoteScope('dddd4444-4444-4444-8444-444444444444');
+    activateScope(scope);
+    const repo = new LocalRepository(scope);
+    await repo.saveSetting('antes', 'gravado');
+    expect(await repo.getSetting('antes')).toBe('gravado');
+
+    discardRemoteWrites(scope);
+
+    // LEITURA: resolver o store, construir um repositório novo e ler continuam funcionando, e o
+    // dado ainda lá é o que a tela desenha até a limpeza chegar.
+    expect(() => getScopedStore(StoreName.SETTINGS)).not.toThrow();
+    const depois = new LocalRepository(scope);
+    expect(await depois.getSetting('antes')).toBe('gravado');
+    expect(await getScopedStore(StoreName.SETTINGS).getItem('antes')).toBe('gravado');
+
+    // ESCRITA: barrada nos dois caminhos, e o conteúdo antigo sobrevive intacto.
+    await expect(depois.saveSetting('antes', 'depois')).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(getScopedStore(StoreName.SETTINGS).setItem('novo', 1)).rejects.toMatchObject({ name: 'AbortError' });
+    expect(await repo.getSetting('antes')).toBe('gravado');
+});
+
 it('keeps ordinary local, adopted local and other remote repositories writable', async () => {
     const adopted = new LocalRepository(localScope('adopted', 'remote-' + atlasId));
     const ordinary = new LocalRepository(localScope('ordinary', 'ordinary-fence'));

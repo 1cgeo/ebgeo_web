@@ -108,19 +108,40 @@ function write(scope, discarded) {
     _mirror?.save(scope.dbSuffix, next);
 }
 
-/** Capture at mount/birth, before an asynchronous operation can outlive its session. */
+/**
+ * Capture at mount/birth, before an asynchronous operation can outlive its session.
+ *
+ * THE CAPTURE DOES NOT ASSERT, and that is the contract of the whole file: the fence bars
+ * WRITES, never reads. It used to assert here, and the cost was measured on 2026-09-13: the
+ * repository captures the fence while RESOLVING a store (`getScopedStore`, and the constructor
+ * of `LocalRepository`), so after a discard even `getAllMapNamesStore` and
+ * `getCurrentMapFeatures` threw `AbortError` at the person, on a screen that was only reading.
+ * Nothing is lost by reading a discarded namespace: the data is either already emptied or about
+ * to be, and refusing the read replaces "the map is empty" with an error dialog.
+ *
+ * Every writer calls the returned function at its own mutation boundary (`fenced-store.js` at the
+ * IndexedDB call, `store-transaction.js` at each intention and around persistence, the queue's
+ * journal, the inbound handler), so the guard is unchanged where it matters. The one caller that
+ * wants a refusal AT CAPTURE is `activateScope` (`atlas-namespace.js`), and it now says so by
+ * invoking the returned function.
+ *
+ * Reading the record can still throw when the record itself is CORRUPT, which is not a discard
+ * and not a read/write question: an unreadable fact must not be answered with the permissive
+ * value in either direction.
+ *
+ * @param {{ kind: string, dbSuffix: string }} scope - Scope the writer was born in.
+ * @returns {function(): void} Throws `AbortError` once this mount's writes are fenced.
+ */
 export function captureRemoteWriteFence(scope) {
     if (scope?.kind !== 'remote') return () => {};
     if (!mounts.has(scope)) mounts.set(scope, read(scope).epoch);
     const epoch = mounts.get(scope);
-    const assertWritable = () => {
+    return () => {
         const state = read(scope);
         if (state.discarded || state.epoch !== epoch) {
             throw new DOMException('As pendências desta sessão foram descartadas. Esta gravação foi cancelada.', 'AbortError');
         }
     };
-    assertWritable();
-    return assertWritable;
 }
 
 /** Only call after explicit discard consent and exclusion of locally adopted namespaces. */

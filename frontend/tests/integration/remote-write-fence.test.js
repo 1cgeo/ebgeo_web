@@ -25,12 +25,27 @@ test('a confirmed discard invalidates an existing writer even after a fresh logi
     oldWriter();
     discardRemoteWrites(scope('A'));
     assert.throws(oldWriter, { name: 'AbortError' });
-    assert.throws(() => captureRemoteWriteFence(scope('A')), { name: 'AbortError' });
+    // A CAPTURA NÃO ASSERE, a ESCRITA assere. Desde 2026-09-13 o fence barra gravação e nunca
+    // leitura: o repositório captura ao RESOLVER um store, então asserir na captura fazia
+    // `getAllMapNamesStore` estourar `AbortError` numa tela que só lia.
+    assert.throws(captureRemoteWriteFence(scope('A')), { name: 'AbortError' });
     const fresh = scope('A');
     reopenRemoteWrites(fresh);
     captureRemoteWriteFence(fresh)();
     assert.throws(oldWriter, { name: 'AbortError' });
-    assert.throws(() => captureRemoteWriteFence(oldMount), { name: 'AbortError' });
+    assert.throws(captureRemoteWriteFence(oldMount), { name: 'AbortError' });
+});
+
+// A CAPTURA NÃO ASSERE, e este é o caso que o diz por extenso. O fence é sobre GRAVAÇÃO: quem
+// captura pode estar só resolvendo um store para LER (`getScopedStore`, o construtor de
+// `LocalRepository`), e asserir ali transformava toda leitura posterior a um descarte em
+// `AbortError` na cara do usuário. Medido em 2026-09-13 no `browser-logout-clears-map.repro`.
+test('capturar um namespace descartado não estoura; a função devolvida é que barra a gravação', () => {
+    discardRemoteWrites(scope('A'));
+    let capturado;
+    assert.doesNotThrow(() => { capturado = captureRemoteWriteFence(scope('A')); });
+    assert.equal(typeof capturado, 'function');
+    assert.throws(capturado, { name: 'AbortError' });
 });
 
 test('ordinary local atlases, adopted local atlases and other remote atlases are isolated', () => {
@@ -58,7 +73,7 @@ test('corrupt metadata stops new writers instead of treating an unknown epoch as
 test('dentro de um documento, sem localStorage o fence FECHA', () => {
     vi.stubGlobal('window', {});
     vi.stubGlobal('localStorage', undefined);
-    assert.throws(() => captureRemoteWriteFence(scope('A')), { name: 'AbortError' });
+    assert.throws(captureRemoteWriteFence(scope('A')), { name: 'AbortError' });
     assert.equal(remoteWritesDiscarded(scope('A')), true);
     assert.throws(() => discardRemoteWrites(scope('A')), /Não foi possível/);
 });
@@ -107,7 +122,7 @@ test('LIMITE: um escritor nascido antes de qualquer registro não é fechado pel
 // O ESPELHO NO INDEXEDDB: a reconciliação decide sem adivinhar, e o empate fica com o descarte.
 test('o espelho reconstrói o registro perdido, e a maior época vence', () => {
     assert.equal(adoptMirroredDiscardState(scope('A'), { epoch: 3, discarded: true }), 'restored');
-    assert.throws(() => captureRemoteWriteFence(scope('A')), { name: 'AbortError' });
+    assert.throws(captureRemoteWriteFence(scope('A')), { name: 'AbortError' });
 
     localStorage.setItem('ebgeo_remote_write_epoch:remote-B', JSON.stringify({ epoch: 5, discarded: false }));
     assert.equal(adoptMirroredDiscardState(scope('B'), { epoch: 4, discarded: true }), 'kept');
