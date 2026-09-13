@@ -322,6 +322,13 @@ class SyncEngine {
         this._atlasId = null;
         /** @type {number} Highest server version applied locally. */
         this._lastVersion = 0;
+        /**
+         * @type {boolean} Whether the local state is COMPLETE at {@link _lastVersion} (a snapshot
+         * was applied, or a tail landed on a complete generation). It is what the WS handshake
+         * needs to say "up to date" about an atlas still at version zero, where `lastVersion: 0`
+         * on its own reads as "I hold nothing".
+         */
+        this._haveSnapshot = false;
         /** Whether WS inbound handlers have been wired (wire-once guard). */
         this._handlersWired = false;
         this._session = null;
@@ -407,6 +414,11 @@ class SyncEngine {
         await this._ensureProtocol(session);
         await this._prepareLegacyQueue(session);
 
+        // EVERY CONNECT STARTS WITHOUT A CLAIM. Only the initial pull can grant completeness, and
+        // it is a claim about the disk of THIS atlas: a connect that skips the pull must not
+        // inherit the one earned by the atlas before it (`_lastVersion` has the same hazard, which
+        // is what `forgetAtlas` exists for on the way out).
+        this._haveSnapshot = false;
         const snapshot = initialPull ? await this._pullInitialState(session) : null;
 
         this._atlasId = atlasId;
@@ -430,7 +442,10 @@ class SyncEngine {
             });
         }
 
-        const payload = await wsClient.connect(atlasId, { lastVersion: this._lastVersion });
+        const payload = await wsClient.connect(atlasId, {
+            lastVersion: this._lastVersion,
+            haveSnapshot: this._haveSnapshot,
+        });
         session.assertActive();
 
         // Reflect the PER-ATLAS role from the connect payload (owner/editor/viewer). This is the
@@ -481,9 +496,16 @@ class SyncEngine {
         const result = await apiClient.pullSync(session.atlasId, since, { signal: session.signal });
         session.assertActive();
 
+        // COMPLETENESS IS DECIDED PER BRANCH, and it starts false so a branch that adds one later
+        // has to say so. It is not the same question as `_lastVersion`: the version says how far
+        // the disk got, and this says whether everything up to there is actually there. The WS
+        // handshake needs both, because "version 0" alone cannot mean "up to date".
+        this._haveSnapshot = false;
+
         if (result?.snapshot) {
             await applyRemoteSnapshot(result.snapshot, session);
             session.assertActive();
+            this._haveSnapshot = true;
             // THE SOCKET DEPARTS FROM THE CURSOR THE SNAPSHOT JUST WROTE, so the handshake's
             // `sync_request` asks for the tail after exactly what is on disk. The durable cursor
             // is written from `snapshot.currentVersion` (`applyRemoteSnapshot`), so that is the
@@ -500,6 +522,7 @@ class SyncEngine {
             if (fresh?.snapshot) {
                 await applyRemoteSnapshot(fresh.snapshot, session);
                 session.assertActive();
+                this._haveSnapshot = true;
             }
             this._lastVersion = fresh?.currentVersion ?? 0;
             return fresh?.snapshot ?? null;
@@ -510,6 +533,11 @@ class SyncEngine {
             session.assertActive();
         }
         this._lastVersion = result?.currentVersion ?? 0;
+        // A TAIL IS ONLY COMPLETE ON TOP OF SOMETHING COMPLETE, and `since` is that proof: it is
+        // non-zero only when `_durablePullCursor` found an active generation still holding THIS
+        // atlas. Asked from zero and answered with a tail, the disk holds whatever the ops carried
+        // and nothing else, which is not a state worth vouching for.
+        this._haveSnapshot = since > 0;
         return null;
     }
 
@@ -570,13 +598,17 @@ class SyncEngine {
             session.assertActive();
         }
         this._lastVersion = result?.currentVersion ?? 0;
+        this._haveSnapshot = Boolean(snapshot);
 
         this._atlasId = atlasId;
         setImageSyncAtlas(atlasId);
         // Anonymous read-only visitor: NEVER log ops — there is no token to push them and they would
         // orphan the op queue for a later real login (which would then flush them to the wrong atlas).
         disableOperationLogging();
-        const payload = await wsClient.connect(atlasId, { lastVersion: this._lastVersion });
+        const payload = await wsClient.connect(atlasId, {
+            lastVersion: this._lastVersion,
+            haveSnapshot: this._haveSnapshot,
+        });
 
         session.assertActive();
 
@@ -912,6 +944,7 @@ class SyncEngine {
         session.assertActive();
         if (result?.snapshot) {
             await applyRemoteSnapshot(result.snapshot, session);
+            this._haveSnapshot = true;
         } else if (result?.operations) {
             // Same structural-marker guard as the syncResponse handler. Without it a
             // `map_merge` marker would fall through to applyRemoteOperation's
@@ -952,6 +985,8 @@ class SyncEngine {
                 session.assertActive();
                 this._lastVersion = result.currentVersion ?? this._lastVersion;
                 wsClient.setLastVersion(this._lastVersion);
+                this._haveSnapshot = true;
+                wsClient.setHaveSnapshot(true);
             }
             session.recovering = false;
         })().finally(() => { session.resyncPromise = null; });
@@ -1034,6 +1069,7 @@ class SyncEngine {
             // inicial, e deixaria a sincronizacao de imagens escrevendo no atlas abandonado.
             this._atlasId = null;
             this._lastVersion = 0;
+            this._haveSnapshot = false;
             setImageSyncAtlas(null);
         }
     }
@@ -1064,6 +1100,7 @@ class SyncEngine {
         // a server atlas is still open.
         this._atlasId = null;
         this._lastVersion = 0;
+        this._haveSnapshot = false;
     }
 
     /**
@@ -1109,6 +1146,11 @@ class SyncEngine {
             session.assertActive();
             if (msg?.isSnapshot) {
                 await applyRemoteSnapshot(msg.snapshot, session);
+                // A snapshot that lands (or that is refused because the disk already holds it)
+                // leaves the local state COMPLETE, so a later reconnect may ask for a tail. This
+                // is the only path that learns it for a connect that skipped the initial pull.
+                this._haveSnapshot = true;
+                wsClient.setHaveSnapshot(true);
             } else {
                 const ops = msg?.ops || [];
                 // A structural REST change (map merge) moves rows in bulk, so no

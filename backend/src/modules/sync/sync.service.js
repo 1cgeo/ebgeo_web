@@ -2678,8 +2678,23 @@ export async function pushOperations(atlasId, operations, userId, permission = '
 /**
  * Pulls operations since a given version.
  * Uses hybrid approach:
- * - If sinceVersion == 0 or sinceVersion < min_version → returns full snapshot
+ * - If sinceVersion < min_version → returns full snapshot (the log no longer reaches that far)
+ * - If sinceVersion == 0 and the caller cannot vouch for a complete local state → full snapshot
  * - Otherwise → returns incremental operations
+ *
+ * THE ZERO SAID TWO THINGS AT ONCE, and `haveSnapshot` is what tells them apart. "I hold nothing"
+ * and "I am up to date with an atlas that never had an operation written" were the same wire
+ * value, and an atlas sits at `current_version = 0` until its first op, so every WS handshake of
+ * every fresh atlas was answered with a full snapshot the client already had on disk. The caller
+ * asserts a COMPLETE local state at `sinceVersion` by passing the flag; from there 0 is an
+ * ordinary version and the `min_version` rule below is the only boundary left. Absent flag keeps
+ * the old reading, which is what an older client sends and what a caller that cannot prove
+ * completeness must send.
+ *
+ * THIS IS SAFE ONLY BECAUSE EVERY WRITE ADVANCES THE VERSION. The four bulk REST writes (merge,
+ * map duplication, atlas clone, atlas import) do not express themselves as ops, but each records
+ * a structural marker row in the SAME transaction (`structural-marker.js`), so nothing changes
+ * the atlas without leaving a row for the incremental branch to hand back.
  *
  * `userId` is threaded down to the snapshot, where it filters the catalog definitions embedded
  * in `map.catalogLayers` (F11). It is the RAW principal id: the normalisation to a bare uuid
@@ -2689,8 +2704,12 @@ export async function pushOperations(atlasId, operations, userId, permission = '
  * @param {number} sinceVersion
  * @param {string} [permission]
  * @param {string|null} [userId]
+ * @param {Object} [options]
+ * @param {boolean} [options.haveSnapshot=false] - The caller states it already holds a complete
+ *   local state AT `sinceVersion`, so version 0 means "up to date", not "send me everything".
  */
-export async function pullOperations(atlasId, sinceVersion, permission = 'owner', userId = null) {
+export async function pullOperations(atlasId, sinceVersion, permission = 'owner', userId = null,
+  { haveSnapshot = false } = {}) {
   // Get sync info to check min_version
   const syncInfo = await getAtlasSyncInfo(atlasId);
   if (!syncInfo) {
@@ -2700,8 +2719,11 @@ export async function pullOperations(atlasId, sinceVersion, permission = 'owner'
   const minVersion = parseInt(syncInfo.min_version, 10);
   const currentVersion = parseInt(syncInfo.current_version, 10);
 
+  // Strict `true`: a truthy string off the wire is not an assertion of completeness.
+  const claimsCompleteState = haveSnapshot === true;
+
   // If client is too far behind or starting fresh, return snapshot (comments filtered by tier).
-  if (sinceVersion === 0 || sinceVersion < minVersion) {
+  if ((sinceVersion === 0 && !claimsCompleteState) || sinceVersion < minVersion) {
     const snapshot = await getAtlasSnapshot(atlasId, permission, userId);
     if (!snapshot) {
       return { operations: [], currentVersion: 0, isSnapshot: false };

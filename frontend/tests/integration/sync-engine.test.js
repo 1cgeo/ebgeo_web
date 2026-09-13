@@ -61,6 +61,7 @@ const h = vi.hoisted(() => {
             connect: vi.fn(async () => ({ sessionId: 's1', userId: 'user-1', permission: 'editor', role: 'editor' })),
             disconnect: vi.fn(),
             setLastVersion: vi.fn(),
+            setHaveSnapshot: vi.fn(),
             isConnected: vi.fn(() => false),
         },
         operationQueueMock: {
@@ -438,8 +439,9 @@ describe('connect', () => {
         expect(wsClientMock.on).toHaveBeenCalledWith('operation', expect.any(Function));
         expect(wsClientMock.on).toHaveBeenCalledWith('syncResponse', expect.any(Function));
 
-        // WS opened with the pulled version.
-        expect(wsClientMock.connect).toHaveBeenCalledWith('atlas-1', { lastVersion: 7 });
+        // WS opened with the pulled version, and DECLARING that the disk is complete at it: the
+        // snapshot just landed, so the handshake may ask for a tail instead of another snapshot.
+        expect(wsClientMock.connect).toHaveBeenCalledWith('atlas-1', { lastVersion: 7, haveSnapshot: true });
         expect(syncEngine.atlasId).toBe('atlas-1');
         expect(payload).toMatchObject({ sessionId: 's1' });
     });
@@ -447,7 +449,20 @@ describe('connect', () => {
     it('skips the initial pull when initialPull is false', async () => {
         await syncEngine.connect('atlas-2', { initialPull: false });
         expect(apiClientMock.pullSync).not.toHaveBeenCalled();
-        expect(wsClientMock.connect).toHaveBeenCalledWith('atlas-2', { lastVersion: 0 });
+        // SEM PULL NÃO HÁ PROVA, e sem prova o handshake não afirma completude: o servidor tem
+        // de continuar lendo o zero como "manda tudo". É o controle do caso acima.
+        expect(wsClientMock.connect).toHaveBeenCalledWith('atlas-2', { lastVersion: 0, haveSnapshot: false });
+    });
+
+    it('uma cauda pedida DO ZERO não afirma completude', async () => {
+        // O outro lado da mesma regra: sem cursor durável, o pedido parte de zero, e uma resposta
+        // de cauda deixa no disco só o que as ops trouxeram. Afirmar completude aqui faria o
+        // próximo handshake pedir cauda sobre um acervo que nunca chegou.
+        apiClientMock.pullSync.mockResolvedValueOnce({ operations: [], currentVersion: 0, isSnapshot: false });
+
+        await syncEngine.connect('atlas-3');
+
+        expect(wsClientMock.connect).toHaveBeenCalledWith('atlas-3', { lastVersion: 0, haveSnapshot: false });
     });
 
     // Regression — bug C: the connect payload carries the PER-ATLAS role
@@ -713,7 +728,9 @@ describe('connect: o cursor durável decide entre cauda e retrato', () => {
             { scope: syncEngine._session.scope, signal: syncEngine._session.signal, waitForDeferred: true },
         );
         expect(syncEngine.lastVersion).toBe(15);
-        expect(wsClientMock.connect).toHaveBeenCalledWith(cursorAtlas, { lastVersion: 15 });
+        // A cauda caiu sobre uma geração COMPLETA (o cursor 12 é a prova), então o handshake pode
+        // afirmar completude e pedir cauda de novo.
+        expect(wsClientMock.connect).toHaveBeenCalledWith(cursorAtlas, { lastVersion: 15, haveSnapshot: true });
         // O ponteiro continua o mesmo: nenhuma geração nova nasceu deste boot.
         expect(JSON.parse(globalThis.localStorage.getItem(generationKey())).active).toBe(generation);
     });

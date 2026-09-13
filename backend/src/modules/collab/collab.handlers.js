@@ -444,8 +444,18 @@ export async function handleSyncRequest(ws, data) {
     // WS `sync_request` returns the very same snapshot. Omitting it here would have made the two
     // transports disagree about a permission — with the socket being the LESS restrictive of the
     // two, since a snapshot without a principal is public-only.
+    //
+    // `haveSnapshot` IS THE HANDSHAKE SAYING WHICH ZERO IT MEANS. `lastVersion: 0` alone cannot
+    // separate "I hold nothing" from "I am up to date with an atlas that never had an operation
+    // written", and the second is every atlas until its first op, so the handshake of every first
+    // open was answered with a full snapshot the client had just applied over HTTP. It is read as
+    // a STRICT boolean and never coerced: an absent field is what an older client sends, and it
+    // has to keep meaning "send me everything". `lastVersion` is deliberately NOT validated here
+    // (a non-numeric one still reaches the query and comes back as a generic SYNC_FAILED, pinned
+    // by `tests/ws/collab-error-leak.repro.test.js`).
     const result = await syncService.pullOperations(
       ws.atlasId, data.lastVersion || 0, ws.permission, ws.userId ?? null,
+      { haveSnapshot: data.haveSnapshot === true },
     );
 
     // THE OBJECT, NOT THE STRING, and this is the one place in the module where the difference is

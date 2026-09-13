@@ -302,6 +302,59 @@ describe('WsClient — presence/awareness inbound routing (cases E/D)', () => {
     });
 });
 
+// ============================================================================
+// `haveSnapshot`: o campo que diz QUAL zero é o do handshake
+// ============================================================================
+// `lastVersion: 0` significava as duas coisas ao mesmo tempo ("não tenho nada" e "estou em dia
+// com um atlas que nunca teve op"), e todo atlas está em versão zero até a primeira escrita. O
+// servidor lia o zero como "manda tudo", então a abertura de todo atlas novo custava um retrato
+// completo a mais, servido e descartado. Aqui prende-se só o FIO; a decisão do outro lado é de
+// `backend/tests/ws/sync-request-cliente-em-dia.test.js`.
+describe('WsClient — a afirmação de estado completo no `sync_request`', () => {
+    /** Abre a conexão e devolve o socket já handshakeado. */
+    async function handshake(opts) {
+        const { ws } = setup();
+        const p = ws.connect('atlas-1', opts);
+        const sock = FakeSocket.instances[0];
+        sock.emit({ type: 'connected', permission: 'owner' });
+        await p;
+        return { ws, sock };
+    }
+
+    it('afirmada na conexão, ela viaja no frame do handshake', async () => {
+        const { ws, sock } = await handshake({ lastVersion: 7, haveSnapshot: true });
+        expect(sock.sent).toContainEqual({ type: 'sync_request', lastVersion: 7, haveSnapshot: true });
+        ws.disconnect();
+    });
+
+    it('sem afirmação, a CHAVE NEM APARECE, que é o que um cliente antigo manda', async () => {
+        // A igualdade é exata de propósito: um `haveSnapshot: false` explícito diria a mesma
+        // coisa de um segundo jeito, e o servidor teria duas formas para manter de acordo.
+        const { ws, sock } = await handshake({ lastVersion: 7 });
+        expect(sock.sent).toContainEqual({ type: 'sync_request', lastVersion: 7 });
+        ws.disconnect();
+    });
+
+    it('`setHaveSnapshot` alcança a RECONEXÃO, que é onde o retrato voltaria a ser pedido', async () => {
+        // Um retrato aplicado no meio da sessão (resposta de `sync_request`, resync) deixa o
+        // disco completo, e a reconexão seguinte não deveria pedir outro.
+        const { ws, sock } = await handshake({ lastVersion: 7 });
+        ws.setHaveSnapshot(true);
+        sock.sent.length = 0;
+
+        ws.requestSync();
+
+        expect(sock.sent).toEqual([{ type: 'sync_request', lastVersion: 7, haveSnapshot: true }]);
+        ws.disconnect();
+    });
+
+    it('só o booleano `true` afirma: um valor truthy qualquer não vira afirmação', async () => {
+        const { ws, sock } = await handshake({ lastVersion: 7, haveSnapshot: 'sim' });
+        expect(sock.sent).toContainEqual({ type: 'sync_request', lastVersion: 7 });
+        ws.disconnect();
+    });
+});
+
 describe('WsClient — reconnect with replay', () => {
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());

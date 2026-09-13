@@ -14,7 +14,9 @@
  *              briefing_edit_start | briefing_edit_end | sync_request | leave
  *
  * Features: heartbeat ping, exponential-backoff reconnect, and on (re)connect a
- * `sync_request` with the last applied version so the server replays missed ops.
+ * `sync_request` with the last applied version so the server replays missed ops. That frame also
+ * carries `haveSnapshot: true` when the local state is COMPLETE at that version, which is the
+ * only way to say "up to date" about an atlas still at version zero (see {@link requestSync}).
  *
  * The socket constructor is injectable (`socketFactory`) so tests can drive a fake
  * socket; in the browser / Node ≥21 it defaults to the global `WebSocket`.
@@ -81,6 +83,8 @@ export class WsClient {
         this._wantConnected = false;
         /** Last server version applied locally (drives replay on reconnect). */
         this._lastVersion = 0;
+        /** Whether the local state is COMPLETE at `_lastVersion` (travels in `sync_request`). */
+        this._haveSnapshot = false;
         this._reconnectAttempts = 0;
         this._heartbeatTimer = null;
         this._reconnectTimer = null;
@@ -127,11 +131,16 @@ export class WsClient {
      * @param {string} atlasId
      * @param {Object} [opts]
      * @param {number} [opts.lastVersion=0] - Version already applied locally.
+     * @param {boolean} [opts.haveSnapshot=false] - The local state is COMPLETE at `lastVersion`
+     *   (the caller applied a snapshot, or a tail over a complete generation). Without it the
+     *   handshake cannot tell a version-zero client that is up to date from one that holds
+     *   nothing, and the server answers both with a full snapshot.
      * @returns {Promise<Object>} The `connected` payload (sessionId, permission, role, ...).
      */
-    connect(atlasId, { lastVersion = 0 } = {}) {
+    connect(atlasId, { lastVersion = 0, haveSnapshot = false } = {}) {
         this._atlasId = atlasId;
         this._lastVersion = lastVersion;
+        this._haveSnapshot = haveSnapshot === true;
         this._wantConnected = true;
         this._reconnectAttempts = 0;
         return this._open();
@@ -244,12 +253,30 @@ export class WsClient {
     }
 
     /**
+     * Records whether this client holds a COMPLETE local state at {@link _lastVersion}, which is
+     * what lets `sync_request` ask for a tail instead of a snapshot at version zero.
+     * @param {boolean} value
+     */
+    setHaveSnapshot(value) {
+        this._haveSnapshot = value === true;
+    }
+
+    /**
      * Requests replay of operations since a version (server returns ops or a snapshot).
      * @param {number} [lastVersion] - Defaults to the tracked last version.
+     * @param {Object} [opts]
+     * @param {boolean} [opts.haveSnapshot] - Defaults to the tracked completeness flag.
      * @returns {boolean}
      */
-    requestSync(lastVersion = this._lastVersion) {
-        return this._sendRaw({ type: 'sync_request', lastVersion });
+    requestSync(lastVersion = this._lastVersion, { haveSnapshot = this._haveSnapshot } = {}) {
+        // THE FIELD IS SENT ONLY WHEN TRUE, and that asymmetry is the compatibility rule. The
+        // server reads an absent field as "send me everything", which is exactly what an older
+        // client means and exactly what a client that cannot prove completeness means: the two
+        // are indistinguishable on the wire on purpose. Sending `false` explicitly would say the
+        // same thing in a second way, and a second way is a second thing to keep in agreement.
+        return haveSnapshot === true
+            ? this._sendRaw({ type: 'sync_request', lastVersion, haveSnapshot: true })
+            : this._sendRaw({ type: 'sync_request', lastVersion });
     }
 
     // ===== INTERNAL: CONNECTION LIFECYCLE =====
@@ -482,7 +509,9 @@ export class WsClient {
         this._startHeartbeat();
         this._emit('connected', msg);
 
-        // On reconnect, ask the server to replay everything since our last version.
+        // On reconnect, ask the server to replay everything since our last version. The
+        // completeness flag rides along, so a client already in step with a version-zero atlas
+        // gets an empty tail instead of a full snapshot it would refuse to re-enact anyway.
         this.requestSync(this._lastVersion);
 
         if (this._connectResolve) {

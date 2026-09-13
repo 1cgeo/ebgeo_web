@@ -11,10 +11,10 @@
 //   3. o socket abre e `_onConnected` manda SEMPRE um `sync_request` a partir de `_lastVersion`
 //      (o `if (wasReconnecting)` saiu em f8e109ea, e sair foi certo: uma op escrita na janela
 //      entre o pull e o socket não chega por mais nenhum caminho).
-//   4. o servidor decide retrato ou cauda pela MESMA regra do pull HTTP (`pullOperations`):
-//      `sinceVersion === 0 || sinceVersion < min_version` é retrato. Um atlas que ainda não
-//      escreveu operação nenhuma está em `current_version = 0`, então o cursor que o passo 2
-//      acabou de gravar É zero, e o passo 4 responde OUTRO retrato completo.
+//   4. o servidor decidia retrato ou cauda pela MESMA regra do pull HTTP (`pullOperations`), e
+//      a regra de então era "zero, ou abaixo de `min_version`, é retrato". Um atlas que ainda
+//      não escreveu operação nenhuma está em `current_version = 0`, então o cursor que o passo 2
+//      acabou de gravar É zero, e o passo 4 respondia OUTRO retrato completo.
 //   5. `applyRemoteSnapshot` roda de novo: segunda geração, segundo `pauseStoreWrites`, segunda
 //      poda. E é essa segunda pausa que abre a corrida que P6 fechou em `5704671a` (a pintura do
 //      mapa-base da abertura batendo na barreira de recuperação).
@@ -25,16 +25,17 @@
 // Atlas com qualquer operação escrita (`current_version > 0`) já recebia cauda vazia no passo 4,
 // e o segundo caso deste arquivo é o controle que prova isso.
 //
-// O CONSERTO É IDEMPOTÊNCIA NO CLIENTE, não no fio: um retrato completo cujo `currentVersion` é
-// exatamente o cursor da geração JÁ ativa não descreve nada que o disco não tenha, então ele não
-// é encenado. A comparação vem ANTES de `pauseStoreWrites`, que é o que faz a segunda resposta
-// custar zero pausa, zero geração e zero poda.
+// O CONSERTO TEM DUAS METADES, e a primeira era IDEMPOTÊNCIA NO CLIENTE: um retrato completo
+// cujo `currentVersion` é exatamente o cursor da geração JÁ ativa não descreve nada que o disco
+// não tenha, então ele não é encenado. A comparação vem ANTES de `pauseStoreWrites`, que é o que
+// faz a segunda resposta custar zero pausa, zero geração e zero poda.
 //
-// O QUE FICA COM O SERVIDOR: ele CONTINUA mandando o segundo retrato, e este arquivo afirma isso
-// em voz alta (`retratosServidos` segue em 2). `handleSyncRequest` lê `data.lastVersion || 0` e
-// `pullOperations` trata o zero como "manda tudo", de modo que um cliente em dia com um atlas de
-// versão zero não tem como dizer isso no protocolo de hoje. O desperdício que sobra é de banda,
-// não de disco.
+// A SEGUNDA METADE É DO PROTOCOLO, e fechou o que sobrava, que era BANDA: o `sync_request` do
+// handshake passou a carregar `haveSnapshot: true` quando o estado local está COMPLETO na versão
+// pedida, e com o campo presente o servidor lê o zero como uma versão qualquer, respondendo cauda
+// vazia. O campo só viaja quando é verdadeiro, então ausência continua significando "manda tudo",
+// que é o que um cliente antigo diz. Por isso `retratosServidos` é UM aqui: sobra o retrato do
+// pull HTTP, que é o que de fato povoa o disco na primeira abertura.
 
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -45,10 +46,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const h = vi.hoisted(() => {
     /**
-     * O servidor de teste, com a MESMA decisão de `pullOperations`
-     * (`backend/src/modules/sync/sync.service.js`): retrato quando o pedido é zero ou está
-     * abaixo de `min_version`, cauda no resto. Um dublê que respondesse retrato sempre mediria
-     * o dublê; um que respondesse cauda sempre esconderia o defeito.
+     * O servidor de teste, ESPELHO da decisão de `pullOperations`
+     * (`backend/src/modules/sync/sync.service.js`): retrato quando o pedido está abaixo de
+     * `min_version`, ou quando é zero e o pedinte NÃO afirmou ter retrato completo; cauda no
+     * resto. Um dublê que respondesse retrato sempre mediria o dublê; um que respondesse cauda
+     * sempre esconderia o defeito. Espelho é dívida declarada: mudada a regra lá, esta muda no
+     * mesmo commit, e quem cobra a regra de verdade é `backend/tests/ws/`.
      */
     const servidor = {
         versao: 0,
@@ -57,8 +60,8 @@ const h = vi.hoisted(() => {
         caudasServidas: 0,
         /** @type {() => Object} Posto pelo `beforeEach`, que é quem conhece o escopo montado. */
         montarRetrato: () => ({}),
-        responder(desde) {
-            if (desde === 0 || desde < this.versaoMinima) {
+        responder(desde, temRetrato = false) {
+            if ((desde === 0 && temRetrato !== true) || desde < this.versaoMinima) {
                 this.retratosServidos += 1;
                 return { isSnapshot: true, snapshot: this.montarRetrato(), currentVersion: this.versao };
             }
@@ -87,8 +90,10 @@ const h = vi.hoisted(() => {
             const msg = JSON.parse(texto);
             this.sent.push(msg);
             if (msg.type !== 'sync_request') return;
-            pedidosWs.push(msg.lastVersion);
-            const resposta = servidor.responder(msg.lastVersion);
+            // O PAR INTEIRO, e não só a versão: é a presença do campo que decide a resposta, e
+            // registrá-lo é o que faz o teste falar sobre o fio em vez de sobre a versão.
+            pedidosWs.push({ desde: msg.lastVersion, temRetrato: msg.haveSnapshot ?? null });
+            const resposta = servidor.responder(msg.lastVersion, msg.haveSnapshot);
             queueMicrotask(() => this.entregar({
                 type: 'sync_response',
                 isSnapshot: resposta.isSnapshot,
@@ -230,6 +235,7 @@ beforeEach(async () => {
     syncEngine._session = null;
     syncEngine._atlasId = null;
     syncEngine._lastVersion = 0;
+    syncEngine._haveSnapshot = false;
     syncEngine._handlersWired = false;
 });
 
@@ -240,18 +246,22 @@ afterEach(() => {
 });
 
 describe('abertura de atlas remoto: quantos retratos completos ela encena', () => {
-    it('atlas ainda sem operação: o servidor manda dois retratos e o cliente encena UM', async () => {
+    it('atlas ainda sem operação: UM retrato servido, UM encenado', async () => {
         await syncEngine.connect(atlasId);
         await assentar();
 
-        // O SERVIDOR MANDA DOIS, e continua mandando: o `lastVersion: 0` do handshake é
-        // indistinguível, no protocolo, de "não tenho nada". Fica afirmado aqui de propósito,
-        // porque é a metade que o cliente não pode consertar sozinho.
+        // O HANDSHAKE DIZ QUAL ZERO É O DELE. Com `haveSnapshot: true` no `sync_request`, o
+        // servidor responde cauda vazia: o retrato que sobra é o do pull HTTP, que é o que de
+        // fato povoa o disco. Antes eram dois retratos completos, o segundo idêntico ao
+        // primeiro, e o cliente sozinho só conseguia recusar ENCENAR o segundo.
         expect(h.pedidosHttp).toEqual([0]);
-        expect(h.pedidosWs).toEqual([0]);
-        expect(h.servidor.retratosServidos).toBe(2);
+        expect(h.pedidosWs).toEqual([{ desde: 0, temRetrato: true }]);
+        expect(h.servidor.retratosServidos).toBe(1);
+        expect(h.servidor.caudasServidas).toBe(1);
 
-        // O CLIENTE ENCENA UM SÓ. Até o conserto eram dois, com duas gerações e duas podas.
+        // O CLIENTE ENCENA UM SÓ. Até o conserto eram dois, com duas gerações e duas podas, e a
+        // idempotência do cliente continua sendo a rede que segura o retrato que o servidor
+        // decida mandar por qualquer outra razão.
         expect(ativacoes).toHaveLength(1);
         expect(geracoesCunhadas.size).toBe(1);
         expect(readGeneration(escopo)).toEqual({
@@ -289,7 +299,7 @@ describe('abertura de atlas remoto: quantos retratos completos ela encena', () =
         await assentar();
 
         expect(h.pedidosHttp).toEqual([0]);
-        expect(h.pedidosWs).toEqual([7]);
+        expect(h.pedidosWs).toEqual([{ desde: 7, temRetrato: true }]);
         expect(h.servidor.retratosServidos).toBe(1);
         expect(h.servidor.caudasServidas).toBe(1);
         expect(ativacoes).toHaveLength(1);
@@ -316,9 +326,24 @@ describe('abertura de atlas remoto: quantos retratos completos ela encena', () =
         await assentar();
 
         expect(h.pedidosHttp).toEqual([7]);
-        expect(h.pedidosWs).toEqual([7]);
+        expect(h.pedidosWs).toEqual([{ desde: 7, temRetrato: true }]);
         expect(h.servidor.retratosServidos).toBe(0);
         expect(readGeneration(escopo).active).toBe(primeira);
+        expect(ativacoes).toHaveLength(1);
+    });
+
+    it('sem pull inicial o handshake NÃO afirma nada, e recebe o retrato', async () => {
+        // O CONTROLE DA AFIRMAÇÃO. O campo é uma alegação sobre o DISCO, e o cliente só pode
+        // fazê-la depois de ter encenado um retrato ou aplicado cauda sobre uma geração completa.
+        // Um `connect` que pula o pull inicial não tem essa prova, então o campo não sai, e a
+        // resposta é o retrato de sempre. Se o campo fosse posto incondicionalmente, este caso
+        // receberia cauda vazia sobre um disco vazio: um atlas sem nada, calado.
+        await syncEngine.connect(atlasId, { initialPull: false });
+        await assentar();
+
+        expect(h.pedidosHttp).toEqual([]);
+        expect(h.pedidosWs).toEqual([{ desde: 0, temRetrato: null }]);
+        expect(h.servidor.retratosServidos).toBe(1);
         expect(ativacoes).toHaveLength(1);
     });
 });
