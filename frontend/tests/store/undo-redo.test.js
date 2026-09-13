@@ -32,6 +32,8 @@ vi.mock('../../src/js/store/sync/index.js', () => ({
 // Import after mocks
 const { default: mapManager } = await import('../../src/js/store/store-state-manager.js');
 const { sessionContext } = await import('../../src/js/store/sync/index.js');
+// O modulo folha do lote logico, REAL: ele so importa o gerador de id.
+const { openGestureBatchId } = await import('../../src/js/store/sync/gesture-batch.js');
 
 // Helper to get the undo/redo stacks for the test user
 const TEST_USER = 'test-user-id';
@@ -665,6 +667,68 @@ describe('addMultiple undo/redo', () => {
         expect(executeFn.removeFeature).toHaveBeenCalledWith('points', 'p1');
         expect(executeFn.removeFeature).toHaveBeenCalledWith('points', 'p2');
         expect(executeFn.removeFeature).toHaveBeenCalledWith('lines', 'l1');
+    });
+
+    // UM LOTE LOGICO SO. Cada inversao e uma transacao (as folhas tomam a trava do documento na
+    // sua chave, e aquela fila e FIFO sem reentrancia), entao sem uma identidade de gesto o
+    // servidor veria tres comandos independentes e poderia aplicar dois e recusar um: meia
+    // colagem desfeita, sem que nenhum dos dois lados pudesse nomear o estado. O que o gesto faz
+    // com esse id esta preso em `tests/integration/gesto-composto-um-lote.test.js`; o que se mede
+    // aqui e que o desfazer o ABRE, e que ele e o MESMO nas tres inversoes.
+    it('undo of addMultiple corre num gesto SO, e o mesmo nas tres inversoes', async () => {
+        const gestos = [];
+        const executeFn = createMockExecuteFn();
+        executeFn.removeFeature.mockImplementation(async () => { gestos.push(openGestureBatchId()); });
+        mapManager.recordAction({
+            type: 'addMultiple',
+            features: {
+                points: [mockFeature('p1'), mockFeature('p2')],
+                lines: [mockFeature('l1')]
+            }
+        });
+
+        await mapManager.undoLastAction(executeFn);
+
+        expect(gestos).toHaveLength(3);
+        expect(new Set(gestos).size).toBe(1);
+        // CONTROLE NEGATIVO EMBUTIDO: `null` e o que se le fora de um gesto, e um conjunto de um
+        // elemento contendo `null` passaria a assercao acima sem provar nada.
+        expect(gestos[0]).toEqual(expect.any(String));
+        // E o gesto FECHA: um gesto que ficasse aberto seguraria o envio pelo resto da sessao.
+        expect(openGestureBatchId()).toBeNull();
+    });
+
+    it('redo of addMultiple corre num gesto SO, e ele fecha no fim', async () => {
+        const gestos = [];
+        const executeFn = createMockExecuteFn();
+        executeFn.addFeature.mockImplementation(async () => { gestos.push(openGestureBatchId()); });
+        mapManager.recordAction({
+            type: 'addMultiple',
+            features: { points: [mockFeature('p1'), mockFeature('p2')] }
+        });
+        await mapManager.undoLastAction(createMockExecuteFn());
+        sessionContext.getUserId.mockReturnValue(TEST_USER);
+
+        await mapManager.redoLastAction(executeFn);
+
+        expect(gestos).toHaveLength(2);
+        expect(new Set(gestos).size).toBe(1);
+        expect(gestos[0]).toEqual(expect.any(String));
+        expect(openGestureBatchId()).toBeNull();
+    });
+
+    // O gesto e fechado no `finally`: uma inversao que LANCA no meio nao pode deixar a
+    // identidade aberta, porque a fila se recusa a enviar qualquer membro de um gesto aberto e
+    // ninguem a fecharia depois.
+    it('uma inversao que LANCA ainda fecha o gesto', async () => {
+        const executeFn = createMockExecuteFn();
+        executeFn.removeFeature.mockRejectedValue(new Error('IndexedDB recusou'));
+        mapManager.recordAction({
+            type: 'addMultiple', features: { points: [mockFeature('p1')] }
+        });
+
+        await expect(mapManager.undoLastAction(executeFn)).rejects.toThrow('IndexedDB recusou');
+        expect(openGestureBatchId()).toBeNull();
     });
 
     it('redo of addMultiple re-adds all features', async () => {

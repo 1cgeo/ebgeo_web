@@ -1,6 +1,6 @@
 # Comandos compostos e desfazer/refazer
 
-Status: a metade do SERVIDOR fechou em 2026-09-13 (bloco B6, decisão D4); a do cliente e as provas de falha parcial de desfazer/refazer seguem pendentes. Prioridade: bloqueia lançamento. Depende de [persistência](02-persistencia.md) e [conflitos](03-conflitos.md).
+Status: as duas metades fecharam em 2026-09-13 (bloco B6, decisão D4), o servidor primeiro e o cliente em seguida, com as provas de falha parcial de desfazer e refazer. Segue aberto, por decisão registrada, só o conjunto GRANDE (preparação durável com ativação no fim). Prioridade: bloqueia lançamento. Depende de [persistência](02-persistencia.md) e [conflitos](03-conflitos.md).
 
 ## Problema e alcance
 
@@ -52,28 +52,83 @@ Provas, com contagem: `backend/tests/integration/lote-logico-atomico.repro.test.
 sem `batchId`, a recusa continua alcançando só a op ofensora). Os dois arquivos novos declaram no
 cabeçalho o controle negativo executado e o vermelho que ele produziu.
 
+## O que fechou no cliente, em 2026-09-13
+
+**O recorte do envio passou a respeitar a fronteira do lote** (commit "envio: o recorte do push
+respeita a fronteira do lote, e lote recusado vira problema em todas as ops"). O argumento de
+`peek` deixou de ser uma fatia e virou um ORÇAMENTO de lotes inteiros: corridas consecutivas de
+mesmo `batchId` são tomadas inteiras enquanto couberem, e o PRIMEIRO lote é tomado inteiro mesmo
+quando sozinho passa do orçamento, porque um gesto maior que o recorte viaja num push próprio em
+vez de ser partido. Duas regras de fechamento andam junto, e as duas impedem meio gesto no fio: um
+membro ainda preparado segura o lote inteiro (a feição de imagem que espera o blob dela enquanto
+as irmãs já estão materializadas), e um membro com problema guardado leva o lote inteiro para os
+problemas, irmãs já em buffer inclusive. O censo (`countByState`) ganhou as mesmas duas regras,
+porque censo que discorda do carregador promete trabalho que o flush se recusa a enviar.
+
+**Acima de `LOTE_MAX_OPS` a recusa é local**, sem viagem, com problema durável em todas as ops e
+frase em pt-BR: o lote não pode ser partido para caber, então a resposta do servidor seria a mesma
+em toda rodada seguinte, para sempre. **A recusa de um lote grava problema em TODOS os membros**,
+com `batchId` e `batchFailedOperationId`, inclusive nos que o recibo deixou de nomear, e
+`acknowledgedOperationIds` nunca desenfileira membro de lote recusado, mesmo acked como aplicado.
+O modo de isolamento passou a exigir que ainda não esteja isolando para encolher, porque `peek(1)`
+agora devolve o menor pedaço INDIVISÍVEL, que dentro de um gesto é o gesto: sem a guarda, o laço
+girava para sempre (medido, o worker do vitest morre por tempo). Nada é removido do disco em
+nenhum desses caminhos, então o reenvio reusa os mesmos envelopes e segue idempotente pelo
+`op_id`.
+
+**Os três gestos compostos passaram a emitir um lote lógico só** (commit "gestos compostos:
+conversão, transferência e colagem emitem um lote lógico só"), por um módulo folha novo,
+`frontend/src/js/store/sync/gesture-batch.js`. Eles não cabem em uma transação, e não por
+descuido: as folhas tomam a trava do documento cada uma na sua chave e aquela fila é FIFO sem
+reentrância, então uma transação só travaria a interface para sempre. `withGestureBatch` abre uma
+identidade de gesto e toda transação que se complete dentro dela carimba aquele `batchId`, com o
+`batchIndex` continuando de onde a anterior parou. A forma é a do `startBatchUndo`, que já agrupa
+exatamente estes gestos para o Ctrl+Z e já atravessa await do mesmo jeito, e o custo dela (uma
+transação de outra origem completando na mesma janela entra no lote) está escrito no cabeçalho do
+módulo. A segunda metade é o que torna a promessa verdadeira em vez de provável: enquanto o gesto
+está ABERTO a fila não entrega nenhum membro dele, porque o disparo de 1,5 s caindo entre duas
+transações mandaria a primeira metade sozinha e ela chegaria ao servidor com cara de gesto
+inteiro. Colar e duplicar já eram um lote (`addFeatures` grava as N feições num `runTransaction`
+só); isso agora está preso em vez de suposto.
+
+**Desfazer e refazer são um comando novo contra o estado confirmado, e agora um lote só** (commit
+"desfazer e refazer: novo comando contra o estado confirmado, com prova de falha parcial"), com as
+provas de falha parcial que o aceite pede: recusa no primeiro, no intermediário e no último
+elemento tem o mesmo desfecho (nada desenfileirado, N problemas duráveis, a culpada nomeada);
+resposta perdida depois do commit não é recusa (os envelopes ficam com os mesmos ids e o reenvio é
+idempotente); e o F5 no meio do caminho não perde nem duplica (as intenções são duráveis e uma
+sessão nova lê os mesmos ids e o mesmo `batchId`, e a intenção não materializada continua não
+sendo enviável). O contrato de sempre não mudou: refazer uma exclusão continua carregando
+`featureIntent`, que é o que a liga à exclusão confirmada em vez de correr contra ela.
+
+**O cliente aprendeu os quatro marcadores** (`map_merge`, `map_duplicate`, `atlas_clone`,
+`atlas_import`). O servidor continua publicando os quatro como `map_merge`, de propósito; as três
+entradas novas ficam inertes até ele passar a publicar o nome honesto, num commit dos dois
+pacotes.
+
+Provas, com contagem: `frontend/tests/integration/fila-recorte-por-lote.test.js` (7 casos),
+`frontend/tests/integration/gesto-composto-um-lote.test.js` (9),
+`frontend/tests/integration/desfazer-falha-parcial.test.js` (9),
+`frontend/tests/unit/gestos-compostos-fiacao.test.js` (6), mais 9 casos novos em
+`frontend/tests/integration/sync-engine.test.js`, 5 em `frontend/tests/store/undo-redo.test.js`, 1
+em `frontend/tests/store/layer-transfer.test.js` e 1 em
+`frontend/tests/store/feature-operations.test.js`. Cada commit declara na mensagem os controles
+negativos executados e o vermelho que cada um produziu.
+
 ## O que segue aberto
 
-1. **O envio ainda corta dentro do lote.** O servidor define o lote como as ops daquele `batchId`
-   que chegaram no MESMO push, porque a fábrica do cliente carimba `batchId` e `batchIndex` e não um
-   total, de modo que ele não tem como saber se faltou membro. Enquanto o recorte do envio for por
-   FIFO cego, um gesto maior que o recorte chega como dois lotes lógicos, cada um atômico em si, e o
-   gesto continua podendo ser aplicado pela metade. O recorte precisa respeitar a fronteira do lote,
-   ou o lote viaja num push próprio.
-2. **Nem todo gesto do cliente é um lote.** Conversão de feição, transferência de camada e agrupar
-   precisam emitir um único lote com o mesmo `batchId`, na ordem que o servidor exige (pai antes de
-   filho, que ele lê por `batchIndex`).
-3. **O cliente reconhece UMA palavra de marcador.** O conjunto que dispara o resync tem um elemento,
-   e é por isso que os quatro marcadores são publicados com aquela palavra, embora o log guarde o
-   nome honesto de cada ato. Quando o cliente aprender os três nomes novos, o tipo publicado vira o
-   nome honesto, num commit dos dois pacotes.
-4. **Desfazer e refazer continuam sem as provas de falha parcial**, que são as do aceite abaixo:
-   falhar no primeiro, no intermediário e no último elemento; falhar depois do commit e antes do
-   ACK; repetir o comando depois de um F5; mapa e camada bloqueados, destino excluído, permissão
-   alterada e edição concorrente antes do desfazer.
-5. **Conjunto grande continua fora.** Preparação durável com ativação no fim é para importação
+1. **Conjunto grande continua fora.** Preparação durável com ativação no fim é para importação
    grande e ficou fora do lançamento por decisão registrada; o que existe hoje é a recusa com motivo
-   acima do teto.
+   acima do teto, agora dos dois lados (o cliente nem viaja).
+2. **O tipo publicado dos três marcadores novos.** O cliente já os reconhece, então o servidor pode
+   trocar `map_merge` pelo nome honesto de cada ato; é um commit dos dois pacotes, e ele não pode
+   ser feito antes de o cliente atualizado estar em campo.
+3. **Os contratos de ponta a ponta** (`frontend/tests/e2e/`) e o Playwright ficaram para o
+   coordenador: o lote lógico atravessa os dois pacotes, e a prova dessa fronteira é a camada que
+   sobe o backend real.
+4. **Os cenários de aceite que dependem de estado do servidor** (mapa e camada bloqueados, destino
+   excluído, permissão alterada e edição concorrente antes do desfazer) continuam sem prova do lado
+   do cliente, porque o que decide os quatro é o gate do servidor e o cliente só observa o recibo.
 
 ## Aceite
 

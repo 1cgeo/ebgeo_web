@@ -16,6 +16,8 @@ import {
 import { getGroupManager } from './services.js';
 import { mapResolver } from './services/map-resolver.service.js';
 import { sessionContext } from './sync/index.js';
+// Leaf module (only the uuid helper), imported by FILE and not by the sync barrel.
+import { withGestureBatch } from './sync/gesture-batch.js';
 import { LRUCache } from '../utilities/lru-cache.js';
 import { IMAGE_RESOURCE_FEATURE_TYPES } from './store.constants.js';
 
@@ -596,6 +598,26 @@ class MapManager {
         this.memoryStore.batchCollector = null;
     }
 
+    /**
+     * Undoes the last action of this user, as a NEW command against the confirmed state.
+     *
+     * IT IS ONE LOGICAL BATCH, AND THAT IS THE WHOLE POINT OF THE WRAPPER. A single undo entry
+     * can invert N features (`addMultiple` from a paste, `batch` from a conversion,
+     * `moveBetweenMaps`), and each inversion is its own transaction, because the leaves take the
+     * map document lock on their own key and that queue is FIFO with no reentrancy. Without a
+     * shared gesture identity the server would see N independent commands and could apply some
+     * and refuse others: half a paste un-pasted, with no way for either side to name what
+     * happened. With it, the whole undo is applied or refused together and every operation of it
+     * comes back with the same status. See `store/sync/gesture-batch.js`.
+     *
+     * WHAT THE WRAPPER DOES NOT CHANGE: undo remains a NEW command, never a restoration of an old
+     * document over other people's work. Re-adding a deleted feature carries
+     * `featureIntent: 'restore'` (`feature.operations.js`), which is what links it to the
+     * confirmed deletion instead of racing it.
+     *
+     * @param {Object} executeFunction - The store operations the inversion calls.
+     * @returns {Promise<Object|false>} The undone action, or false when there was none.
+     */
     async undoLastAction(executeFunction) {
         const undoStack = this._getUndoStack();
         const lastAction = undoStack.pop();
@@ -603,7 +625,7 @@ class MapManager {
 
         this.memoryStore.isUndoing = true;
         try {
-            await this._executeUndoAction(lastAction, executeFunction);
+            await withGestureBatch(() => this._executeUndoAction(lastAction, executeFunction));
             this._getRedoStack().push(lastAction);
         } catch (error) {
             undoStack.push(lastAction);
@@ -622,7 +644,9 @@ class MapManager {
 
         this.memoryStore.isRedoing = true;
         try {
-            await this._executeRedoAction(lastUndoneAction, executeFunction);
+            // Um lote lógico só, pela mesma razão do desfazer: refazer uma colagem de N feições
+            // são N transações, e meia colagem é o desfecho que o lote existe para impedir.
+            await withGestureBatch(() => this._executeRedoAction(lastUndoneAction, executeFunction));
             this._getUndoStack().push(lastUndoneAction);
         } catch (error) {
             redoStack.push(lastUndoneAction);
