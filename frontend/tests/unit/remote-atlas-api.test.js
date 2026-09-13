@@ -1350,3 +1350,132 @@ describe('voluntary logout discard', () => {
         });
     });
 });
+
+/**
+ * A QUARENTENA NA VARREDURA DE BOOT DESLOGADO (B7.1, decisão D2 de 2026-09-13 estendida).
+ *
+ * A cópia existia só no descarte CONFIRMADO, onde alguém clicou. A varredura de boot destrói o
+ * namespace de uma sessão que apenas ACABOU (queda, token vencido, aba fechada sobre sessão
+ * morta), e a op que o servidor RECUSOU morria ali sem ninguém ter concordado com nada: ela não é
+ * pendência, é decisão pendente.
+ *
+ * O QUE ESTE VERDE PROVARIA SE O CÓDIGO ESTIVESSE ERRADO: sem a passada nova, o primeiro caso
+ * encontra o registro global vazio depois do expurgo (medido revertendo). O controle negativo do
+ * lado oposto é o segundo caso, que exige que nada seja escrito quando não há quarentena, senão
+ * o primeiro ficaria verde contra uma cópia que copia qualquer coisa.
+ */
+describe('remote-atlas.api :: a varredura de boot deslogado preserva a quarentena', () => {
+    /**
+     * Semeia uma op com problema registrado na fila de um atlas remoto, SEM passar por
+     * `requestRemoteAtlasDiscard`: é a fila órfã, a que ninguém decidiu descartar.
+     * @param {string} atlasId - Atlas de servidor.
+     * @param {string} opId - Id da operação.
+     * @returns {Promise<Object>} O envelope semeado.
+     */
+    async function semearOrfa(atlasId, opId) {
+        const { JournalKey } = await import('@store/sync/queue-journal.js');
+        const fila = ns.getStoreFor(ns.StoreName.OPERATION_QUEUE, ns.remoteScope(atlasId));
+        const envelope = {
+            protocolVersion: 2, id: opId, entityId: 'feicao-1',
+            entityType: 'feature', operationType: 'update', timestamp: 7
+        };
+        await fila.setItem(`op_z00000000000000000001_${opId}`, envelope);
+        await fila.setItem(JournalKey.ISSUE + opId, {
+            result: { rejected: true, reason: 'Permissão revogada' }, recordedAt: 123
+        });
+        return envelope;
+    }
+
+    it('uma op em quarentena de namespace ÓRFÃO continua legível depois do boot deslogado', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        const envelope = await semearOrfa(ATLAS_A, 'recusada-orfa');
+
+        // Nenhum descarte confirmado: é exatamente o boot que encontra resíduo de uma sessão morta.
+        const report = await api.purgeAllRemoteAtlases();
+
+        // O namespace foi destruído (o invariante do logout continua de pé)...
+        expect(report.atlases).toEqual([ATLAS_A]);
+        expect(stillHoldingSentinel(allDbNamesOfRemote(ATLAS_A))).toEqual([]);
+
+        // ...e a decisão pendente sobreviveu a ele, no único banco que wipe de atlas não alcança.
+        const quarantine = await import('@store/sync/quarantine-registry.js');
+        const lista = await quarantine.listQuarantinedOperations();
+        expect(lista).toHaveLength(1);
+        expect(lista[0].atlasId).toBe(ATLAS_A);
+        expect(lista[0].operation).toEqual(envelope);
+        expect(lista[0].issue.reason).toBe('Permissão revogada');
+    });
+
+    it('sem quarentena nenhuma, a varredura não escreve registro global', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        await ns.getStore(ns.StoreName.OPERATION_QUEUE)
+            .setItem('op_z00000000000000000001_a', { id: 'a' });
+
+        await api.purgeAllRemoteAtlases();
+
+        expect(globalDisk().has(`${ns.GlobalKey.QUARANTINE_PREFIX}${ATLAS_A}`)).toBe(false);
+    });
+
+    it('cópia que não se confirma na releitura IMPEDE a destruição daquele namespace', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        await semearOrfa(ATLAS_A, 'recusada-orfa');
+        const globalStore = ns.getGlobalStore();
+        const original = globalStore.setItem;
+        // A escrita ACEITA que não guarda nada: quota, banco sendo derrubado. Não lança sozinha,
+        // e é o modo de falha que a releitura de `preserveQuarantine` existe para pegar.
+        globalStore.setItem = vi.fn(async (key, value) =>
+            (key.startsWith(ns.GlobalKey.QUARANTINE_PREFIX) ? value : original(key, value)));
+        const erro = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        const report = await api.purgeAllRemoteAtlases();
+
+        globalStore.setItem = original;
+        erro.mockRestore();
+        expect(report.failed).toEqual([ATLAS_A]);
+        expect(report.atlases).toEqual([]);
+        // O dado continua no disco E a entrada continua no registro, que é o que faz o próximo
+        // boot deslogado tentar de novo em vez de precisar lembrar.
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual(dbNamesOfRemote(ATLAS_A));
+        expect((await api.listRemoteAtlases()).map(e => e.atlasId)).toEqual([ATLAS_A]);
+    });
+
+    it('a recusa é POR ENTRADA: o outro atlas da mesma varredura vai embora', async () => {
+        // O invariante que a passada nova não pode quebrar: um atlas falhando não aborta o wipe
+        // dos outros. Sem esta linha, o caso acima ficaria verde com uma varredura que desiste.
+        for (const id of [ATLAS_A, ATLAS_B]) {
+            await api.activateRemoteAtlas(id);
+            await seedRemote(id);
+        }
+        await semearOrfa(ATLAS_A, 'recusada-orfa');
+        const globalStore = ns.getGlobalStore();
+        const original = globalStore.setItem;
+        globalStore.setItem = vi.fn(async (key, value) =>
+            (key.startsWith(ns.GlobalKey.QUARANTINE_PREFIX) ? value : original(key, value)));
+        const erro = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        const report = await api.purgeAllRemoteAtlases();
+
+        globalStore.setItem = original;
+        erro.mockRestore();
+        expect(report.failed).toEqual([ATLAS_A]);
+        expect(report.atlases).toEqual([ATLAS_B]);
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual(dbNamesOfRemote(ATLAS_A));
+        expect(stillHoldingSentinel(allDbNamesOfRemote(ATLAS_B))).toEqual([]);
+    });
+
+    it('namespace que um atlas LOCAL reivindica não é lido nem copiado', async () => {
+        // O resgate não destrói nada, então não há o que carregar para fora: ler a fila dele aqui
+        // duplicaria a quarentena num registro global que nenhum wipe recolhe.
+        await local.initLocalAtlases();
+        await api.activateRemoteAtlas(ATLAS_A);
+        await semearOrfa(ATLAS_A, 'recusada-orfa');
+        await local.adoptRemoteAtlasAsLocal(ATLAS_A, 'Resgate local');
+
+        await api.purgeAllRemoteAtlases();
+
+        expect(globalDisk().has(`${ns.GlobalKey.QUARANTINE_PREFIX}${ATLAS_A}`)).toBe(false);
+    });
+});

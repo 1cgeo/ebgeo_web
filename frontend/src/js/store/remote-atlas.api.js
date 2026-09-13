@@ -515,11 +515,16 @@ async function locallyClaimedSuffixes() {
  * Persist the user's explicit discard decision; ordinary and rescued local atlases are excluded.
  *
  * THE QUARANTINE IS COPIED OUT FIRST, and in a pass of its own (decision D2 of 2026-09-13:
- * preserve). Two reasons for the separate pass, and neither is style: the fence closed below makes
- * the queue of that atlas unreadable, so the copy cannot happen after it; and a failure while
- * copying the third atlas must not leave the first two already marked for destruction, which is
- * what an interleaved loop would do. `preserveQuarantine` throws when it cannot confirm the copy
- * by reading it back, so nothing here is marked and the caller reports the failure.
+ * preserve). The reason is the MARKING, not readability: a failure while copying the third atlas
+ * must not leave the first two already marked for destruction, which is what an interleaved loop
+ * would do. `preserveQuarantine` throws when it cannot confirm the copy by reading it back, so
+ * nothing here is marked and the caller reports the failure. (Copying after `discardRemoteWrites`
+ * would in fact still read: the fence bars writes only. What it would break is the all-or-nothing
+ * shape of the marking pass.)
+ *
+ * IT IS ALSO WHAT LICENSES THE SWEEP TO SKIP A MARKED ENTRY: once `discardRequested` is on the
+ * record its quarantine is already out and its writes are fenced, so `preserveSweepQuarantine`
+ * has nothing left to carry.
  * @returns {Promise<Array<Object>>} The entries whose discard is now on record.
  */
 export async function requestRemoteAtlasDiscard() {
@@ -535,6 +540,57 @@ export async function requestRemoteAtlasDiscard() {
         await getGlobalStore().setItem(key, { ...stored, ...entry, discardRequested: true });
     }
     return entries;
+}
+
+/**
+ * Copies the quarantine of every namespace the SWEEP may destroy, before it destroys anything.
+ *
+ * IT IS DECISION D2 OF 2026-09-13 APPLIED TO THE EXIT NOBODY CLICKED (B7.1). The confirmed
+ * discard above copies on the path where a person decided; this runs on the logged-out boot,
+ * where the session merely ended (a crash, an expired token, a tab closed on a dead session) and
+ * the queue of an unclaimed namespace is deleted a few lines below. An operation the SERVER
+ * REFUSED is not pending work, it is a decision nobody has made yet, and here it was dying with
+ * nobody agreeing to anything.
+ *
+ * TWO KINDS OF ENTRY ARE SKIPPED, for two different reasons. A namespace a LOCAL atlas claims is
+ * not destroyed at all (the rescue), so there is nothing to carry out of it. An entry already
+ * marked `discardRequested` had its quarantine copied by `requestRemoteAtlasDiscard` BEFORE that
+ * mark was written, and its write fence is closed, so no issue can have been recorded since:
+ * copying it again would buy nothing and a failure would refuse a destruction the user clicked.
+ *
+ * A FAILURE VETOES ONLY ITS OWN ENTRY, and the veto has NO DEADLINE, unlike `sparedAt` and the
+ * rescue veto. Both of those bound a hold on data that is INTACT; this one means the copy could
+ * not be confirmed, so destroying would delete the only copy of work whose fate nobody decided.
+ * The entry stays in the registry, which is what makes the retry derived rather than remembered:
+ * every logged-out boot tries again, and a copy that keeps failing is a database this sweep could
+ * not have emptied either.
+ *
+ * THE WINDOW IT DOES NOT CLOSE, declared because it is real: the copy runs BEFORE the unmount
+ * notice, so a sibling tab can record an issue between the two. Announcing first would address
+ * the notice at namespaces this pass may then refuse to destroy, freezing a tab over data that
+ * survives, which is the worse of the two.
+ *
+ * @param {RemoteAtlasEntry[]} entries - Registry entries the sweep is about to visit.
+ * @param {Set<string>} claimed - Suffixes a LOCAL atlas claims.
+ * @returns {Promise<Set<string>>} Atlas ids whose copy could not be confirmed, and which
+ *   therefore must not be destroyed on this pass.
+ */
+async function preserveSweepQuarantine(entries, claimed) {
+    const failed = new Set();
+    for (const entry of entries) {
+        if (claimed.has(entry.dbSuffix) || entry.discardRequested) continue;
+        try {
+            await preserveQuarantine(entry.atlasId);
+        } catch (error) {
+            console.error(
+                `[remote-atlas] the quarantine of atlas ${entry.atlasId} could not be preserved; `
+                + 'its namespace is NOT destroyed on this pass:',
+                error
+            );
+            failed.add(entry.atlasId);
+        }
+    }
+    return failed;
 }
 
 /**
@@ -721,9 +777,16 @@ export async function purgeAllRemoteAtlases(options = {}) {
     // exclusions included: a rescued slot keeps its `remote-<id>` suffix and is skipped below, so
     // announcing it would freeze the tab holding it for nothing.
     const claimed = await locallyClaimedSuffixes();
+
+    // THE QUARANTINE LEAVES BEFORE ANYTHING IS DESTROYED (B7.1, and see the function), and its
+    // failures narrow the notice too: a namespace this pass refuses to destroy must not be
+    // announced, or a sibling freezes over data that survives.
+    const quarantineFailed = await preserveSweepQuarantine(entries, claimed);
+    const visitable = entries.filter(entry => !quarantineFailed.has(entry.atlasId));
+
     const teardown = 'teardown' in options
         ? (options.teardown ?? null)
-        : await announceSweep(entries, claimed);
+        : await announceSweep(visitable, claimed);
     await releaseRemoteMountLock();
     const now = Date.now();
 
@@ -734,6 +797,13 @@ export async function purgeAllRemoteAtlases(options = {}) {
     const outcomes = entries.map(() => emptyPurgeOutcome());
 
     const purgeEntry = async (entry, index) => {
+        if (quarantineFailed.has(entry.atlasId)) {
+            // Reported like any other entry the sweep could not finish: the registry keeps it, so
+            // the next logged-out boot comes back for it, and `registered` above still answers the
+            // boot guard's question ("did this atlas own a namespace") for it.
+            outcomes[index].failed.push(entry.atlasId);
+            return;
+        }
         try {
             await purgeOneRemoteAtlas(entry, {
                 report: outcomes[index], claimed, now, dropTimeoutMs, spareGraceMs, rescueGraceMs,

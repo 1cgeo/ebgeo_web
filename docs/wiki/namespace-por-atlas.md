@@ -77,7 +77,14 @@ A fila é por atlas, então a op RECUSADA pelo servidor, ou escrita por um proto
 
 Desde 2026-09-13 (decisão D2) `requestRemoteAtlasDiscard` copia a quarentena para o `ebgeo_global` (uma chave por atlas, `GlobalKey.QUARANTINE_PREFIX`, escrita por `preserveQuarantine`) **ANTES de marcar qualquer atlas**, confere a cópia por releitura e **recusa o descarte inteiro** se não conseguir confirmá-la. O aviso de saída conta e NOMEIA as duas metades (`pendingWorkSummary` e `quarantineKeptNotice`).
 
-Como nenhum wipe alcança o registro global, ela sai do disco só por decisão explícita, linha a linha, no painel de [[pendencias-de-sincronizacao]]. **O limite declarado:** a cópia roda no descarte CONFIRMADO, e a varredura de boot deslogado (`purgeAllRemoteAtlases`) também destrói namespace, de modo que uma fila órfã destruída por ela ainda não é copiada por ninguém.
+Como nenhum wipe alcança o registro global, ela sai do disco só por decisão explícita, linha a linha, no painel de [[pendencias-de-sincronizacao]].
+
+**A varredura de boot deslogado copia também, e ela é o caminho em que NINGUÉM clicou.** `preserveSweepQuarantine` (`frontend/src/js/store/remote-atlas.api.js`) roda a mesma cópia conferida por releitura para toda entrada que a varredura pode destruir, antes de qualquer destruição. Enquanto só o descarte confirmado copiava, o namespace órfão de uma sessão que apenas acabou (queda, token vencido) levava a quarentena junto, sem gesto nenhum ter acontecido. Quatro coisas que não se adivinham pondo as duas funções lado a lado:
+
+- **Ela pula a entrada já marcada `discardRequested`**, porque a quarentena dela saiu ANTES da marca e o fence dali já está fechado. Insistir não traria nada, e uma falha recusaria uma destruição que o usuário clicou.
+- **A recusa é POR ENTRADA, não pela varredura inteira**, ao contrário do descarte confirmado, que aborta tudo. O invariante desta página é que um atlas com problema não pode salvar os outros do wipe.
+- **A entrada recusada sai da lista de exclusão do AVISO**, e é por isso que a cópia vem antes do anúncio: anunciar um namespace que esta passada decidiu não destruir congelaria a aba irmã sobre dado que sobrevive. A janela que sobra está declarada, e é a inversa: entre a cópia e o aviso, uma irmã ainda pode registrar problema novo.
+- **Este veto NÃO tem prazo**, e é o único assim (`sparedAt` e o veto de resgate têm). Os dois seguram dado ÍNTEGRO; este significa que a cópia não se confirmou. O retry é derivado do registro, que a entrada recusada conserva: todo boot deslogado tenta de novo.
 
 ## A adoção existe porque o logout preserva trabalho
 

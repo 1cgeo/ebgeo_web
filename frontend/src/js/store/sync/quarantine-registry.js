@@ -14,10 +14,13 @@
  * global database is the only one no atlas wipe reaches, and a new object store inside an existing
  * database is an IndexedDB version upgrade, which blocks while any tab holds a connection.
  *
- * WHAT THIS MODULE DOES NOT DO, declared because the absence is indistinguishable from an
- * oversight: it is called from the CONFIRMED discard (`requestRemoteAtlasDiscard`), the path where
- * a person decided. The logged-out boot sweep (`purgeAllRemoteAtlases`) also destroys namespaces,
- * and an orphan queue destroyed there is not copied by anything yet; that sweep is B7's subject.
+ * IT HAS TWO CALLERS, AND THE SECOND IS THE EXIT NOBODY CLICKED (B7.1).
+ * `requestRemoteAtlasDiscard` is the confirmed discard, where a person decided;
+ * `preserveSweepQuarantine` (`remote-atlas.api.js`) is the logged-out boot sweep, which destroys
+ * the namespaces of a session that merely ended. While only the first existed, an orphan namespace
+ * took its quarantine with it and no gesture had happened at all. Both refuse to destroy when the
+ * copy cannot be confirmed; the sweep refuses PER ENTRY, because one atlas must never abort the
+ * wipe of the others.
  */
 
 import {
@@ -54,8 +57,12 @@ export function quarantineRegistryKey(atlasId) {
  * envelope, and only then does the full walk happen. Logout pays the listing always and the walk
  * only when there is something to copy.
  *
- * IT MUST RUN BEFORE `discardRemoteWrites`, because the queue captures the discard fence when it
- * is constructed and refuses to serve a scope already marked for destruction.
+ * IT READS A DISCARDED SCOPE FINE, and this line used to say the opposite ("the queue captures the
+ * discard fence when it is constructed and refuses to serve a scope already marked for
+ * destruction"). That stopped being true when the fence stopped asserting at CAPTURE: `fenceStore`
+ * wraps only `setItem`, `removeItem` and `clear`, and `getIssues` reads. The ordering rule that
+ * survives is the one `requestRemoteAtlasDiscard` states for itself, and it is about marking, not
+ * about readability.
  * @param {string} atlasId - Server atlas id.
  * @returns {Promise<Array<{operation: Object, result: Object, recordedAt: number}>>}
  */
