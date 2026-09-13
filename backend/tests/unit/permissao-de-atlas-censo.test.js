@@ -217,10 +217,18 @@ const CENSO = [
     motivo: 'O mesmo `entityType`, filtrando o replay do leitor. Homônimo.',
   },
   {
-    arquivo: 'src/modules/sync/sync.service.js', trecho: "if (target === 'comment')", n: 1,
+    arquivo: 'src/modules/sync/sync.service.js', trecho: "if (target === 'comment')", n: 2,
     classe: HOMONIMO,
-    motivo: 'O mesmo `entityType`, agora roteando a aplicação da op para `applyCommentOp`, que tem '
-      + 'gate de AUTORIA próprio. Homônimo.',
+    motivo: 'O mesmo `entityType`, em dois sítios: o roteamento da aplicação da op para '
+      + '`applyCommentOp`, que tem gate de AUTORIA próprio, e (desde B5b, 2026-09-13) o recorte '
+      + 'das unidades escrevíveis do comentário em `declaredUpdateColumns`. Homônimo nos dois.',
+  },
+  {
+    arquivo: 'src/modules/sync/entity-conflicts.js', trecho: "if (target === 'comment')", n: 1,
+    classe: HOMONIMO,
+    motivo: 'O mesmo `entityType` escolhendo a consulta de leitura da linha do comentário para a '
+      + 'verificação de base e túmulo (B5b, 2026-09-13). Não decide posto: quem autoriza a op '
+      + 'já rodou antes, em `pushOperations`. Homônimo.',
   },
 ];
 
