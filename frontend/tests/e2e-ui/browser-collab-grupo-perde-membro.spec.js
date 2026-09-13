@@ -125,7 +125,8 @@ function createGroupOfPoints(page, ids) {
         if (feats.length !== wanted.length) {
             throw new Error(`esperava ${wanted.length} pontos no mapa, achei ${feats.length}`);
         }
-        return store.createGroup(feats).id;
+        // AWAIT: `createGroup` became async on 2026-09-13 (write-ahead, bloco B4).
+        return (await store.createGroup(feats)).id;
     }, ids);
 }
 

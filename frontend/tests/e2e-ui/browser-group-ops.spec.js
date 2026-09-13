@@ -73,7 +73,9 @@ describeOrSkip('Group ops + group_feature membership (real Chromium + real backe
                 const f = await store.getCurrentMapFeatures();
                 const pt = (f.points || []).find((x) => x.properties?.id === pid);
                 const ln = (f.lines || []).find((x) => x.properties?.id === lid);
-                const g = store.createGroup([pt, ln]);
+                // AWAIT: `createGroup` became async on 2026-09-13 (write-ahead, bloco B4). Read
+                // synchronously it hands back a Promise, whose `.id` is undefined.
+                const g = await store.createGroup([pt, ln]);
                 return g ? { id: g.id } : null;
             }, { pid: pointId, lid: lineId });
             expect(created?.id).toBeTruthy();

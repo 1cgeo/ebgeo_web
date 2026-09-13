@@ -115,6 +115,15 @@ describe('Group write-ahead persistence', () => {
 
         const grupo = await gm.createGroup([pt('f1'), pt('f2'), pt('f3')], mapB.name);
 
+        // O RETORNO É O GRUPO, e ele ATRAVESSA a transação: `_writeGroups` guarda `edit.result`
+        // durante o preparo e o devolve depois que a gravação confirma. Sem esta asserção o
+        // arquivo seguiria verde se o ajudante deixasse de devolvê-lo, porque as linhas abaixo só
+        // leem `grupo.id` e `undefined.id` estoura numa mensagem que não nomeia a causa. Quem
+        // consome o retorno é "Criar Grupo" (`context-menu/context-menu.control.js`).
+        expect(grupo).toMatchObject({ name: 'Grupo 1', visible: true, locked: false });
+        expect(grupo.id).toEqual(expect.any(String));
+        expect(grupo.features.map(m => m.id)).toEqual(['f1', 'f2', 'f3']);
+
         // 1 grupo + 3 membresias, e a do grupo é a PRIMEIRA. A ordem é contrato: o INSERT da
         // tabela de junção é gateado por EXISTS sobre a linha do grupo, então a membresia que
         // chega antes escreve ZERO linhas e volta acked como sucesso.

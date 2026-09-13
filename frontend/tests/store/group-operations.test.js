@@ -173,6 +173,29 @@ describe('createGroup defaults', () => {
     });
 });
 
+// ============================================================================
+// createGroup — o contrato ASSÍNCRONO, que é o que quebrou três specs
+// ============================================================================
+
+// `createGroup` era SÍNCRONA e devolvia o grupo; em 2026-09-13 (write-ahead, bloco B4) ela
+// passou a devolver a PROMESSA do grupo. Quem lia `createGroup(...).id` sem aguardar passou a
+// ler `undefined`, sem erro nenhum: o grupo era criado e o chamador media o invólucro. Três
+// specs de Playwright caíram assim. O caso abaixo prende as DUAS metades do contrato, porque
+// prender só a resolvida deixaria passar verde uma fachada que engolisse o retorno.
+describe('createGroup é assíncrona e resolve no grupo', () => {
+    it('devolve uma promessa cujo valor é o grupo do gerente, não o grupo direto', async () => {
+        const grupo = { id: 'grp-async', name: 'Grupo 1' };
+        groupManager.createGroup = vi.fn(async () => grupo);
+
+        const devolvido = createGroup([{ id: 'f1' }, { id: 'f2' }], 'TestMap');
+
+        expect(typeof devolvido.then, 'a fachada devolve um thenable: o chamador PRECISA aguardar')
+            .toBe('function');
+        expect(devolvido.id, 'ler .id sem aguardar é o defeito, e ele é silencioso').toBeUndefined();
+        await expect(devolvido).resolves.toBe(grupo);
+    });
+});
+
 describe('combineGroups defaults', () => {
     it('defaults selectedFeatures to [] and mapName to null', async () => {
         await combineGroups(['g1']);
