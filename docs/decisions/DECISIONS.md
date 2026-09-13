@@ -169,3 +169,5 @@ que envelheceu na decisão seguinte.)
 - 2026-09-12: presença administrativa e correção da coleta de uso, [registro](decisions-2026.md).
 - 2026-09-12: consolidação das migrações antes da primeira implantação, com recusa de histórico incompatível, [registro](decisions-2026.md).
 - 2026-09-12: orcamento medido de arquivos com presenca e telemetria antecipada, [registro](decisions-2026.md).
+- 2026-09-13: a baseline consolidada é editável até a implantação e congelada depois, [registro](decisions-2026.md).
+- 2026-09-13: as quatro decisões de condução do lançamento (D2 a D5) e a pendente do reuso de imagem por conteúdo (D7), [registro](decisions-2026.md).
