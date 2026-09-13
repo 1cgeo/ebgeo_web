@@ -237,6 +237,8 @@ import {
     estimativaFragilNotice,
     indisponivelNotice,
     indisponivelRessalva,
+    sondaNotice,
+    sondaRessalva,
     janelaAnteriorNotice,
     maiorBuracoNotice,
     maisChamadasNotice,
@@ -2409,7 +2411,12 @@ function corpoDeSaude(bloco) {
 }
 
 /**
- * Cartão 4: a queda vista pelo NAVEGADOR.
+ * Cartão 4: a queda, por DUAS fontes independentes.
+ *
+ * A primeira é a vista pelo NAVEGADOR, que chega enfileirada e por isso nunca cobre a queda em
+ * curso nem a de madrugada. A segunda é a SONDA externa, que bate no `health` de fora num relógio
+ * próprio. As duas frases da sonda saem por `sondaNotice`/`sondaRessalva`, e a primeira delas sai
+ * TAMBÉM quando não há sonda, porque "sem sonda" não é zero queda.
  * @param {Object} bloco
  * @returns {HTMLElement}
  */
@@ -2417,6 +2424,9 @@ function corpoDeIndisponivel(bloco) {
     return corpoDeResumo('admin-diag-resumo-corpo-indisponivel', [
         linhaDeResumo(indisponivelNotice(bloco)),
         ressalvaDeResumo(indisponivelRessalva()),
+        notaDeResumo(sondaNotice(bloco?.sonda), 'admin-diag__resumo-linha',
+            'admin-diag-resumo-sonda'),
+        ressalvaDeResumo(sondaRessalva(bloco?.sonda)),
     ]);
 }
 

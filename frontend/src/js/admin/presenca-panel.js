@@ -33,16 +33,24 @@ export function montarPresenca(container) {
         if (!vivo || emVoo) return;
         emVoo = true;
         try {
-            const r = await apiClient._request('GET', '/uso/agora');
+            // MÉTODO PÚBLICO, e não `_request`: o envelope da API (o desembrulho do `{data}`, o
+            // cabeçalho de autenticação, o tempo limite e a repetição depois do 401) é contrato do
+            // cliente, e uma tela que o alcança por dentro carrega uma cópia dele que nada mantém
+            // em dia. O `d = r?.data ?? r` que morava aqui era o sintoma: a tela não sabia se o
+            // desembrulho já tinha acontecido.
+            const d = await apiClient.getPresencaAgora();
             if (!vivo) return;
-            const d = r?.data ?? r;
             logged.textContent = `${d.logados} ${d.logados === 1 ? 'usuário logado' : 'usuários logados'}`;
             anon.textContent = `${d.deslogados} ${d.deslogados === 1 ? 'navegador deslogado' : 'navegadores deslogados'}`;
-            situacao.textContent = `Atualizado às ${new Date(d.atualizado_em).toLocaleTimeString('pt-BR')}.`;
-            const idade = d.maior_idade_pendente_ms == null ? 'não informada' : `${Math.ceil(Number(d.maior_idade_pendente_ms) / 60000)} min`;
-            sync.textContent = `${d.navegadores_com_pendencias} navegadores com ${d.pendentes} operações pendentes. `
-                + `Maior idade: ${idade}. Verificação indisponível em ${d.pendencias_desconhecidas} navegadores. `
-                + `Falhas de coleta observadas nas páginas ativas: ${d.falhas_coleta}.`;
+            situacao.textContent = `Atualizado às ${new Date(d.atualizadoEm).toLocaleTimeString('pt-BR')}.`;
+            // `== null` E NÃO FALSY: zero é uma idade legítima (todo mundo acabou de sincronizar) e
+            // "não informada" é o estado em que ninguém da janela conseguiu medir a própria fila.
+            const idade = d.maiorIdadePendenteMs == null
+                ? 'não informada'
+                : `${Math.ceil(d.maiorIdadePendenteMs / 60000)} min`;
+            sync.textContent = `${d.navegadoresComPendencias} navegadores com ${d.pendentes} operações pendentes. `
+                + `Maior idade: ${idade}. Verificação indisponível em ${d.pendenciasDesconhecidas} navegadores. `
+                + `Falhas de coleta observadas nas páginas ativas: ${d.falhasColeta}.`;
         } catch {
             if (vivo) {
                 logged.textContent = 'Logados: indisponível';

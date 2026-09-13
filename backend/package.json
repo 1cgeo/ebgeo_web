@@ -12,6 +12,7 @@
     "db:migrate": "node --env-file-if-exists=.env src/database/migrate.js",
     "db:seed": "node --env-file-if-exists=.env src/database/seed.js",
     "diag": "node scripts/diag.js",
+    "diag:sonda": "node scripts/sonda-disponibilidade.js",
     "sv360:import": "node --env-file-if-exists=.env scripts/sv360-import.js",
     "sv360:captured-at": "node --env-file-if-exists=.env scripts/sv360-import-captured-at.js",
     "sv360:derive-runs": "node --env-file-if-exists=.env scripts/sv360-derive-runs.js",

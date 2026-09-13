@@ -159,6 +159,31 @@ No restore, na ordem: habilitar PostGIS **antes** de aplicar `ng`; garantir que 
 
 Um restore que leve o Postgres e esqueça `MODELS_3D_DIR` não falha: o catálogo lista o modelo, a rota responde 404 por tile, e o sintoma chega na tela como cena que não carrega. Ver [[acervo-3d-convertido]].
 
+## A sonda de disponibilidade
+
+`backend/scripts/sonda-disponibilidade.js`, com script npm `diag:sonda`. Ela bate em `GET /api/v1/health` a cada trinta segundos e grava uma linha JSON por batida, num arquivo por dia, podando o que passar de trinta dias. Ela **não precisa de credencial nenhuma** e não abre banco.
+
+Ela existe por uma razão só, e é a razão de a instalação valer o passo: a indisponibilidade que o resumo já contava é a **vista pelo navegador**, e o relato dela é enfileirado no cliente, porque enquanto o servidor está fora o navegador não consegue relatar. Uma queda em curso não aparece, e uma queda de madrugada, sem ninguém com o produto aberto, não aparece nunca. A sonda tem relógio próprio e olha de fora.
+
+**Onde ela roda é a premissa dela, e a premissa vai para a tela.** Numa máquina separada dentro da rede, ela testemunha a queda com uma linha `disponivel: false`. No mesmo host do servidor, ela cai junto e a queda vira **ausência** de linhas, o que ainda é evidência mas se lê de outro jeito: por isso o bloco publica o número de medições ao lado do de indisponíveis, para que se possa comparar quantas batidas o período faria esperar com quantas apareceram. Se rodar em host separado, exponha o diretório de saída para o backend (volume compartilhado ou rsync) e aponte `SONDA_DIR` para ele.
+
+Agendar, com systemd (o `--url` é obrigatório e o `--arquivo` decide o prefixo do nome diário):
+
+```ini
+[Unit]
+Description=EBGeo: sonda de disponibilidade
+[Service]
+WorkingDirectory=/opt/ebgeo/backend
+ExecStart=/usr/bin/npm run diag:sonda -- --url https://ebgeo.interno --arquivo /srv/ebgeo/sonda/sonda.jsonl
+Restart=always
+[Install]
+WantedBy=multi-user.target
+```
+
+`--once` faz uma batida só e sai com código 2 quando o servidor não respondeu, que é a forma de usá-la dentro de um agendador que já existe (cron, monitor de terceiro) em vez do laço próprio.
+
+Do lado do backend, `SONDA_DIR` (default `./data/sonda`) é onde `GET /api/v1/diag/resumo` e `npm run diag -- resumo` procuram esses arquivos. **Diretório ausente é estado normal**, e os dois dizem "sem sonda" em vez de zero queda: ausência de instrumento não é boa notícia, e essa distinção é a única coisa que o bloco precisa acertar. Ver [[observabilidade]].
+
 ## Carga de dados
 
 Ambos os importadores são invocação direta de `node`, sem npm script (`backend/scripts/`).

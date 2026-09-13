@@ -96,6 +96,7 @@ import { MARCADOR_AMOSTRA } from '../src/utils/amostra-de-saude.js';
 // acumulador; ele continua sendo símbolo do escritor (`utils/query-lenta.js`, folha de zero
 // imports) e nunca uma string digitada duas vezes.
 import { criarColetaDoResumo, DEFEITOS_DO_RESUMO } from '../src/modules/diag/resumo.service.js';
+import { lerSonda } from '../src/modules/diag/sonda.service.js';
 // Os DOIS vocabulários entram por import e nunca como literal: são os mesmos que o Joi da
 // rota valida e que o CHECK do banco impõe, e os dois arquivos têm zero imports por
 // contrato, então trazê-los aqui não arrasta `config.js` nem o pool para dentro dos cinco
@@ -1260,6 +1261,24 @@ async function resolverDiretorioDeLog(op) {
 }
 
 /**
+ * Onde a sonda de disponibilidade grava, para o bloco 4 do `resumo`.
+ *
+ * NÃO HÁ BANDEIRA PRÓPRIA, e a razão é que ela seria uma segunda porta para o mesmo engano: o
+ * `--dir` do log já muda a fonte dos três blocos de arquivo, e um `--sonda` faria o relatório
+ * poder misturar log de um lugar com sonda de outro sem que a saída dissesse. O diretório sai da
+ * configuração, como na rota, e a premissa do bloco publica qual foi.
+ * @returns {Promise<string|null>} `null` quando o config não pôde ser lido, que é o caminho de
+ *   quem está diagnosticando um servidor sem `DATABASE_URL`: ali o bloco diz "sem sonda".
+ */
+async function resolverDiretorioDaSonda() {
+  try {
+    return (await import('../src/config.js')).default.sondaDir;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * `resumo`: UMA tela com os cinco blocos, e o único comando HÍBRIDO.
  *
  * ELE TOLERA A AUSÊNCIA DE CADA FONTE, uma de cada vez, e é isso que o separa dos outros
@@ -1342,9 +1361,20 @@ async function comandoResumo(op, janela) {
     await fecharBanco();
   }
 
+  // A SONDA E' FONTE OPCIONAL E TOLERA AUSENCIA, como as outras duas: `null` vira a frase "sem
+  // sonda" dentro do bloco 4, que e' o oposto de zero queda.
+  let sonda = null;
+  const dirDaSonda = await resolverDiretorioDaSonda();
+  if (dirDaSonda) {
+    try {
+      sonda = await lerSonda({ diretorio: dirDaSonda, inicio, fim: agora.getTime() });
+    } catch { sonda = null; }
+  }
+
   const relatorio = montarResumo({
     periodo: { desde: op.desde, desdeMs: janela, inicio, fim: agora.getTime() },
     leitura,
+    sonda,
     defeitos,
     defeitosErro,
     latencia,
@@ -1384,6 +1414,38 @@ async function comandoResumo(op, janela) {
  *
  * @returns {boolean} se o bloco tem o que imprimir
  */
+/**
+ * A SEGUNDA FONTE DO BLOCO 4: a sonda externa de disponibilidade.
+ *
+ * ELA IMPRIME NOS DOIS DESFECHOS, e o desfecho "sem sonda" é o que importa acertar: ele NÃO é
+ * zero queda, é ausência de instrumento, e uma linha calada ali deixaria quem lê concluindo que
+ * a disponibilidade foi perfeita a partir de medição nenhuma. É a mesma regra de
+ * `cabecalhoDeBloco`, aplicada a uma fonte que vive dentro de um bloco em vez de ser um.
+ *
+ * A PREMISSA DELA É ONDE ELA RODA, e isso não se lê no arquivo: uma sonda na MESMA máquina do
+ * servidor cai junto com ele, e nesse regime a evidência da queda é a ausência de batidas, não
+ * uma batida com `disponivel: false`. Por isso o número de MEDIÇÕES sai ao lado do de
+ * indisponíveis: só o par permite comparar o que se esperava com o que apareceu.
+ *
+ * @param {Object|undefined} sonda - O sub-bloco `indisponivel.sonda` de `montarResumo`.
+ * @returns {void}
+ */
+function imprimirSonda(sonda) {
+  if (!sonda) return;
+  if (!sonda.disponivel) {
+    process.stdout.write(`   SONDA EXTERNA: ${sonda.motivo}\n`);
+    return;
+  }
+  const p = sonda.premissa;
+  const sequencia = sonda.maiorSequencia > 0
+    ? `, maior sequência ${sonda.maiorSequencia} seguida(s)`
+    : '';
+  process.stdout.write(`   SONDA EXTERNA: ${sonda.medicoes} medição(ões), ${sonda.indisponiveis} indisponível(is)${sequencia}\n`);
+  process.stdout.write(`   última batida há ${duracao(Date.now() - sonda.ultimaEm)}: ${sonda.ultimaDisponivel ? 'disponível' : 'INDISPONÍVEL'}\n`);
+  process.stdout.write(`   premissa: ${p.arquivos} arquivo(s) em ${p.diretorio}; ela mede do ponto em que roda, e uma\n`);
+  process.stdout.write('   sonda no MESMO host cai junto com o servidor (ali a queda é a AUSÊNCIA de batidas).\n');
+}
+
 function cabecalhoDeBloco(titulo, bloco) {
   process.stdout.write(`\n── ${titulo} ${'─'.repeat(Math.max(0, 66 - titulo.length))}\n`);
   if (!bloco.disponivel) {
@@ -1475,6 +1537,9 @@ function imprimirResumo(r) {
     }
   }
 
+  // AS DUAS FONTES DESTE BLOCO SAO INDEPENDENTES, e por isso a da sonda e' impressa FORA do
+  // `if`: com o Postgres fora, o cabecalho declara o bloco cego e a sonda continua tendo o que
+  // dizer. Deixa-la dentro faria a queda de uma fonte apagar a outra, que e' o oposto do desenho.
   if (cabecalhoDeBloco('INDISPONIBILIDADE VISTA PELO CLIENTE', r.indisponivel)) {
     const i = r.indisponivel;
     process.stdout.write(`   ${i.defeitos} assinatura(s) de origem "indisponivel", ${i.ocorrencias} ocorrência(s)\n`);
@@ -1487,6 +1552,8 @@ function imprimirResumo(r) {
     process.stdout.write('   Lido ao lado da SAÚDE acima, ele desambigua o buraco na série: buraco COM relato é\n');
     process.stdout.write('   queda; buraco SEM relato é, mais provavelmente, o log em arquivo tendo se desligado.\n');
   }
+
+  imprimirSonda(r.indisponivel?.sonda);
 
   if (cabecalhoDeBloco('STATUS', r.status)) {
     const s = r.status;

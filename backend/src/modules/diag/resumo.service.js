@@ -53,6 +53,7 @@ import {
 import { MARCADOR_AMOSTRA } from '../../utils/amostra-de-saude.js';
 import { MARCADOR_QUERY_LENTA } from '../../utils/query-lenta.js';
 import { lerJanela } from './diag.service.js';
+import { lerSonda } from './sonda.service.js';
 
 /**
  * Quantos defeitos a consulta traz por padrão, nas DUAS portas.
@@ -187,6 +188,9 @@ const SEM_ARQUIVO = Object.freeze({
  * @param {number} [p.limite] - quantos defeitos a consulta traz
  * @param {Function} [p.ler] - o leitor de disco; default é o anel de `diag.service.js`
  * @param {Function} [p.lerDefeitos] - o leitor de banco; default é o import tardio
+ * @param {string|null} [p.diretorioDaSonda] - onde a sonda de disponibilidade grava; ausente, o
+ *   bloco diz "sem sonda", que é o estado normal de quem não a agendou
+ * @param {Function} [p.lerSondaDoDisco] - injetável para teste, como `ler` e `lerDefeitos`
  * @returns {Promise<Object>}
  */
 export async function montarResumoCompleto({
@@ -197,6 +201,8 @@ export async function montarResumoCompleto({
   limite = DEFEITOS_DO_RESUMO,
   ler = lerJanela,
   lerDefeitos = null,
+  diretorioDaSonda = null,
+  lerSondaDoDisco = lerSonda,
 }) {
   const desdeMs = parseJanela(desde);
   const fim = agora.getTime();
@@ -236,8 +242,20 @@ export async function montarResumoCompleto({
     defeitosErro = `o banco não respondeu (${String(err?.message ?? err).slice(0, MAX_MOTIVO)})`;
   }
 
+  // A TERCEIRA FONTE, E ELA TOLERA AUSÊNCIA COMO AS OUTRAS DUAS. Um `catch` largo aqui, e não um
+  // ramo por modo de falha: a sonda é fonte OPCIONAL, e qualquer coisa que impeça de lê-la (não
+  // agendada, diretório sem permissão, disco fora) chega ao leitor como a mesma pergunta sem
+  // resposta. `null` vira a frase "sem sonda", que é o oposto de zero queda.
+  let sonda = null;
+  if (diretorioDaSonda) {
+    try {
+      sonda = await lerSondaDoDisco({ diretorio: diretorioDaSonda, inicio, fim });
+    } catch { sonda = null; }
+  }
+
   const resumo = montarResumo({
     periodo: { desde, desdeMs, inicio, fim },
+    sonda,
     leitura: {
       diretorio: j.diretorio,
       ausente: j.diretorioAusente,

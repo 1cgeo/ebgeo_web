@@ -1290,6 +1290,23 @@ export class ApiClient {
         return this._request('GET', `/${this._catalogEndpoint(category)}/${encodeURIComponent(id)}/references`);
     }
 
+    /**
+     * `GET /uso/agora`: who is on the product right now, for the administration panel.
+     *
+     * IT EXISTS SO THE PANEL STOPS CALLING `_request` DIRECTLY. A screen reaching into the private
+     * method carries the whole envelope contract with it (the `{data}` unwrapping, the auth header,
+     * the timeout, the refresh-on-401 retry), and it carries it as a copy nothing keeps in step:
+     * the day the envelope changes, every private caller is a separate repair nobody enumerated.
+     * Every other administrative read on this client is a named method, and this one was the
+     * exception.
+     * @returns {Promise<{logados: number, deslogados: number, navegadoresComPendencias: number,
+     *   pendenciasDesconhecidas: number, pendentes: number, maiorIdadePendenteMs: number|null,
+     *   falhasColeta: number, atualizadoEm: string, janelaSegundos: number}>}
+     */
+    async getPresencaAgora() {
+        return this._request('GET', '/uso/agora');
+    }
+
     // ===== PERSONNEL DOMAINS — ranks (postos) + organizations (OMs) =====
     // Controlled lists consumed by the signup/account forms (FK ids). Admin-managed.
 

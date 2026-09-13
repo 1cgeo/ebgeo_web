@@ -1091,6 +1091,7 @@ export function montarResumo({
   queriesLentas = null,
   amostras = null,
   status = null,
+  sonda = null,
 }) {
   // A INDISPONIBILIDADE DO ARQUIVO É UM ESTADO SÓ para os três blocos que o leem, e é
   // decidida UMA vez: diretório ausente e leitura nem tentada dizem a mesma coisa para quem
@@ -1244,11 +1245,45 @@ export function montarResumo({
       discoNaUltima: amostras.discoNaUltima,
     };
 
+  // A SEGUNDA FONTE DO MESMO BLOCO, e ela é INDEPENDENTE da primeira. O que o banco guarda é a
+  // queda vista pelo CLIENTE, que chega enfileirada e por isso nunca cobre a queda em curso nem a
+  // de madrugada; o que a sonda guarda é a batida de fora, num relógio próprio. Ela viaja DENTRO
+  // do bloco de disponibilidade porque responde à mesma pergunta, e viaja com `disponivel`
+  // próprio porque as duas fontes caem por motivos que não têm relação: com o Postgres fora, o
+  // bloco inteiro se declara cego e a sonda continua tendo o que dizer.
+  const blocoDeSonda = sonda === null
+    ? {
+      disponivel: false,
+      // SEM CRASE NA FRASE, e não é estilo: ela chega à aba de Diagnóstico por `textContent`, onde
+      // a crase de markdown vira um caractere solto em volta do que ela deveria destacar. O teste
+      // `resumo-frases.test.js` cobra isso da metade do cliente, e esta é a metade do servidor.
+      motivo: 'sem sonda: nenhuma medição externa de disponibilidade foi encontrada na janela. '
+        + 'Isto NÃO é zero queda, é ausência de instrumento: ver docs/wiki/deploy-backend.md',
+      premissa: null,
+    }
+    : {
+      disponivel: true,
+      premissa: {
+        fonte: 'sonda',
+        diretorio: sonda.diretorio ?? null,
+        arquivos: sonda.arquivos ?? 0,
+        medicoes: sonda.medicoes,
+      },
+      medicoes: sonda.medicoes,
+      indisponiveis: sonda.indisponiveis,
+      // BATIDAS SEGUIDAS, e não duração: o intervalo entre batidas é decisão de quem agendou a
+      // sonda, e este módulo não o conhece. Ver `modules/diag/sonda.service.js`.
+      maiorSequencia: sonda.maiorSequencia,
+      ultimaEm: sonda.ultimaEm,
+      ultimaDisponivel: sonda.ultimaDisponivel,
+    };
+
   const blocoIndisponivel = bancoCego
-    ? { disponivel: false, motivo: motivoDeBanco, premissa: null }
+    ? { disponivel: false, motivo: motivoDeBanco, premissa: null, sonda: blocoDeSonda }
     : {
       disponivel: true,
       premissa: premissaDeBanco,
+      sonda: blocoDeSonda,
       // A QUEDA VISTA PELO CLIENTE. `indisponivel` é escrita pela tela "EBGeo indisponível"
       // uma vez por vida da página, e o relato ENFILEIRA sem tentar quando a causa é o
       // servidor inalcançável, ou seja, ele chega DEPOIS, na próxima carga bem-sucedida.

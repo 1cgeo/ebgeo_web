@@ -180,6 +180,22 @@ const config = Object.freeze({
   }),
 
   /**
+   * ONDE A SONDA DE DISPONIBILIDADE ESCREVE (`scripts/sonda-disponibilidade.js`).
+   *
+   * ELA NÃO É ESCRITA POR ESTE PROCESSO, e é isso que a torna útil: ela bate em
+   * `GET /api/v1/health` de fora e grava um `.jsonl` por dia, de modo que a ausência de linha é
+   * o único registro possível de uma queda que o próprio servidor, estando fora, não teria como
+   * registrar. O que este processo faz com o diretório é LER, no bloco de disponibilidade do
+   * resumo.
+   *
+   * DEFAULT SEM EXIGÊNCIA. Diretório ausente é o estado NORMAL de uma instalação que ainda não
+   * agendou a sonda, e o resumo diz "sem sonda" nesse caso, nunca zero queda. Apontá-lo para o
+   * volume que o host da sonda escreve é decisão do roteiro de instalação
+   * (`docs/wiki/deploy-backend.md`), não desta linha.
+   */
+  sondaDir: optional('SONDA_DIR', './data/sonda'),
+
+  /**
    * ONDE MORAM OS `.map` DAS BUILDS PUBLICADAS (`EBGEO_MAPAS_DIR`), ou `undefined`.
    *
    * É o diretório de RELEASES que o deploy escreve: uma pasta por build, cada uma com o seu

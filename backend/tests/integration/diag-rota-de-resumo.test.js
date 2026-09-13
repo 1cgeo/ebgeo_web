@@ -47,6 +47,11 @@ import { randomUUID } from 'crypto';
 
 const DIR_DE_LOG = fs.mkdtempSync(path.join(os.tmpdir(), 'ebgeo-diag-resumo-'));
 process.env.LOG_DIR = DIR_DE_LOG;
+// A SONDA E' A TERCEIRA FONTE, e ela precisa de diretorio proprio pela MESMA razao do log: o
+// config e' congelado na avaliacao do modulo, entao a variavel tem de estar no ambiente antes de
+// `src/app.js` ser puxado. Sem isto a rota leria o `./data/sonda` da maquina.
+const DIR_DA_SONDA = fs.mkdtempSync(path.join(os.tmpdir(), 'ebgeo-diag-sonda-'));
+process.env.SONDA_DIR = DIR_DA_SONDA;
 
 const { setupTestEnv, teardownTestEnv } = await import('../helpers/setup.js');
 const { createUser, createAdminUser, loginUser } = await import('../helpers/fixtures.js');
@@ -193,6 +198,41 @@ describe('GET /diag/resumo, o relatório de uma tela, das duas fontes', () => {
       }
       assert.equal(d.latencia.premissa.fonte, 'arquivo');
       assert.equal(d.defeitos.premissa.fonte, 'banco');
+    });
+
+    it('a SONDA chega pela rota, com as contagens e a premissa, do diretório configurado', async () => {
+      // O que este caso cobre e nenhum outro alcanca: a FIACAO do controller ate `config.sondaDir`.
+      // A composicao esta em `diag-sonda.test.js`, com leitor injetado.
+      const dia = new Date().toISOString().slice(0, 10);
+      const agora = Date.now();
+      fs.writeFileSync(path.join(DIR_DA_SONDA, `sonda-${dia}.jsonl`), [
+        JSON.stringify({ time: agora - 3000, disponivel: true, status: 200 }),
+        JSON.stringify({ time: agora - 2000, disponivel: false, status: null }),
+        JSON.stringify({ time: agora - 1000, disponivel: true, status: 200 }),
+      ].map((linha) => `${linha}\n`).join(''), 'utf8');
+
+      const { body } = await pedir('?desde=2h').expect(200);
+      const sonda = body.data.indisponivel.sonda;
+      assert.equal(sonda.disponivel, true);
+      assert.equal(sonda.medicoes, 3);
+      assert.equal(sonda.indisponiveis, 1);
+      assert.equal(sonda.maiorSequencia, 1);
+      assert.equal(sonda.ultimaDisponivel, true);
+      assert.equal(sonda.premissa.fonte, 'sonda');
+      assert.equal(sonda.premissa.diretorio, path.resolve(DIR_DA_SONDA));
+      // E a fonte de banco do mesmo bloco continua inteira ao lado dela.
+      assert.equal(body.data.indisponivel.disponivel, true);
+
+      fs.rmSync(path.join(DIR_DA_SONDA, `sonda-${dia}.jsonl`));
+    });
+
+    it('SEM arquivo de sonda a rota diz "sem sonda", e nunca zero queda', async () => {
+      // O desfecho que importa acertar: ausencia de instrumento nao pode virar boa noticia.
+      const { body } = await pedir('?desde=2h').expect(200);
+      const sonda = body.data.indisponivel.sonda;
+      assert.equal(sonda.disponivel, false);
+      assert.match(sonda.motivo, /sem sonda/);
+      assert.equal(sonda.indisponiveis, undefined, 'nenhuma contagem ao lado de `disponivel: false`');
     });
 
     it('a procedência da leitura viaja, e ela aponta para o diretório configurado', async () => {

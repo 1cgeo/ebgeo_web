@@ -616,6 +616,57 @@ export function indisponivelRessalva() {
         + 'arquivo tendo se desligado.';
 }
 
+/**
+ * A SEGUNDA FONTE DO MESMO CARTÃO: a sonda externa de disponibilidade.
+ *
+ * ELA FALA NOS DOIS DESFECHOS, e o que precisa ser dito é o desfecho SEM sonda: ele não é zero
+ * queda, é ausência de instrumento. Calar ali deixaria o cartão parecendo afirmar "nenhuma
+ * indisponibilidade" a partir de medição que ninguém fez, que é exatamente o engano que a
+ * ressalva vizinha desfaz sobre a outra fonte.
+ *
+ * O NÚMERO DE MEDIÇÕES SAI JUNTO com o de indisponíveis, e não a taxa sozinha, porque a premissa
+ * da sonda é ONDE ela roda: no mesmo host do servidor ela cai junto com ele, e ali a evidência da
+ * queda é a AUSÊNCIA de batidas, não uma batida negativa. Só o par permite comparar o que se
+ * esperava com o que apareceu.
+ * @param {*} bloco - O sub-bloco `indisponivel.sonda`.
+ * @returns {string|null} `null` quando o servidor não mandou o sub-bloco (versão anterior a este
+ *   lote), porque inventar uma frase sobre ele seria afirmar sobre um campo que não veio.
+ */
+export function sondaNotice(bloco) {
+    if (!bloco) return null;
+    if (bloco.disponivel !== true) {
+        return typeof bloco.motivo === 'string' && bloco.motivo.trim()
+            ? `Sonda externa: ${bloco.motivo}`
+            : 'Sonda externa: o servidor não informou se há sonda.';
+    }
+    const medicoes = numeroOuNulo(bloco.medicoes);
+    const fora = numeroOuNulo(bloco.indisponiveis);
+    if (medicoes === null || fora === null) {
+        return 'Sonda externa: o servidor não informou as contagens da sonda.';
+    }
+    const sequencia = numeroOuNulo(bloco.maiorSequencia);
+    const cauda = sequencia !== null && sequencia > 0
+        ? ` Maior sequência: ${plural(sequencia, 'batida seguida', 'batidas seguidas')}.`
+        : '';
+    const ultima = bloco.ultimaDisponivel === true ? 'disponível' : 'INDISPONÍVEL';
+    return `Sonda externa: ${plural(medicoes, 'medição', 'medições')}, `
+        + `${plural(fora, 'indisponível', 'indisponíveis')}.${cauda} Última batida: ${ultima}.`;
+}
+
+/**
+ * A ressalva da sonda, que É a premissa dela, e sai só quando há sonda a ressalvar.
+ * @param {*} bloco - O sub-bloco `indisponivel.sonda`.
+ * @returns {string|null}
+ */
+export function sondaRessalva(bloco) {
+    if (!bloco || bloco.disponivel !== true) return null;
+    const arquivos = numeroOuNulo(bloco.premissa?.arquivos);
+    const onde = arquivos === null ? '' : `${plural(arquivos, 'arquivo', 'arquivos')} de sonda. `;
+    return `${onde}A sonda mede do ponto em que roda: uma no MESMO host cai junto com o servidor, `
+        + 'e nesse regime a queda aparece como AUSÊNCIA de batidas, não como batida negativa. '
+        + 'Compare o número de medições com o que o período dela faria esperar.';
+}
+
 // ===== bloco 5: pulso resumido =====
 
 /** @returns {string} */

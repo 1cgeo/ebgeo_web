@@ -53,6 +53,8 @@ import {
     estimativaFragilNotice,
     indisponivelNotice,
     indisponivelRessalva,
+    sondaNotice,
+    sondaRessalva,
     intervaloEmPalavras,
     janelaAnteriorNotice,
     maiorBuracoNotice,
@@ -396,6 +398,53 @@ describe('os cartões de indisponibilidade, pulso e queries lentas', () => {
         expect(ressalva).toMatch(/Saúde/);
     });
 
+    it('SEM SONDA a frase sai mesmo assim, e ela diz que isso NÃO é zero queda', () => {
+        // O desfecho que importa acertar: ausência de instrumento não pode passar por boa notícia.
+        // Calar aqui deixaria o cartão inteiro parecendo dizer "nenhuma indisponibilidade".
+        const frase = sondaNotice({ disponivel: false, motivo: 'sem sonda: nada encontrado' });
+        expect(frase).toMatch(/Sonda externa/);
+        expect(frase).toMatch(/sem sonda/);
+        // E a ressalva NÃO sai: ela é a premissa de uma sonda que existe.
+        expect(sondaRessalva({ disponivel: false, motivo: 'x' })).toBeNull();
+    });
+
+    it('COM SONDA a frase traz medições, indisponíveis e a maior sequência, com concordância', () => {
+        const frase = sondaNotice({
+            disponivel: true, medicoes: 1, indisponiveis: 1, maiorSequencia: 1,
+            ultimaDisponivel: false, premissa: { arquivos: 1 },
+        });
+        expect(frase).toContain('1 medição');
+        expect(frase).toContain('1 indisponível');
+        expect(frase).toContain('1 batida seguida');
+        expect(frase).toContain('INDISPONÍVEL');
+        // A MEDIÇÃO SAI JUNTO com o número de falhas, e nunca a taxa sozinha: a premissa da sonda
+        // é onde ela roda, e no mesmo host a queda aparece como AUSÊNCIA de batidas.
+        const ressalva = sondaRessalva({ disponivel: true, premissa: { arquivos: 2 } });
+        expect(ressalva).toContain('2 arquivos');
+        expect(ressalva).toMatch(/MESMO host/);
+        expect(ressalva).toMatch(/AUSÊNCIA de batidas/);
+    });
+
+    it('sem sequência nenhuma a frase não inventa "maior sequência: 0"', () => {
+        const frase = sondaNotice({
+            disponivel: true, medicoes: 120, indisponiveis: 0, maiorSequencia: 0,
+            ultimaDisponivel: true, premissa: { arquivos: 1 },
+        });
+        expect(frase).toContain('120 medições');
+        expect(frase).not.toMatch(/sequência/);
+        expect(frase).toContain('disponível');
+    });
+
+    it('servidor sem o sub-bloco devolve null: não se inventa frase sobre campo que não veio', () => {
+        // Um servidor anterior a este lote não manda `sonda`, e uma frase montada sobre
+        // `undefined` afirmaria alguma coisa sobre uma fonte que ninguém consultou.
+        expect(sondaNotice(undefined)).toBeNull();
+        expect(sondaNotice(null)).toBeNull();
+        expect(sondaRessalva(undefined)).toBeNull();
+        // Já um sub-bloco presente e ilegível fala, em vez de sumir.
+        expect(sondaNotice({ disponivel: true })).toMatch(/não informou as contagens/);
+    });
+
     it('a contagem de query lenta compara com a janela anterior e diz de onde vem', () => {
         expect(queriesLentasNotice({ janela: 12, anterior: 5 }))
             .toBe('12 queries lentas na janela, 5 na anterior.');
@@ -463,6 +512,10 @@ describe('a moldura da seção', () => {
             resumoDesconhecidoNotice(), blocoAusenteNotice(), semFonteNotice({ motivo: 'x' }),
             defeitosVazioNotice(), topoTitulo(), maisChamadasNotice(), rotasVaziasNotice(),
             queriesLentasHint(), queriesLentasFonteNotice(), indisponivelRessalva(),
+            sondaNotice({ disponivel: false, motivo: 'sem sonda: nada' }),
+            sondaNotice({ disponivel: true, medicoes: 2, indisponiveis: 1, maiorSequencia: 1,
+                ultimaDisponivel: true, premissa: { arquivos: 1 } }),
+            sondaRessalva({ disponivel: true, premissa: { arquivos: 1 } }),
             statusVazioNotice(), statusDetalheNotice(), deltaTruncadoNotice(),
             totalTruncadoNotice(), estimativaFragilNotice({ estimativaFragil: true }),
             compostoEmNotice({ gerado_em: 1 }, () => 'agora'),

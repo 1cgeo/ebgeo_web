@@ -164,7 +164,15 @@ export const status = asyncHandler(async (req, res) => {
  */
 export const resumo = asyncHandler(async (req, res) => {
   const { desde, limite, intervalo } = req.query;
-  res.json({ data: await montarResumoCompleto({ diretorio: diretorio(), desde, limite, intervalo }) });
+  // O DIRETÓRIO DA SONDA SAI DA CONFIGURAÇÃO PELA MESMA RAZÃO do de log, e não há `?sonda=`:
+  // seria um segundo leitor de arquivo arbitrário do host atrás do mesmo gate.
+  res.json({ data: await montarResumoCompleto({
+    diretorio: diretorio(),
+    diretorioDaSonda: config.sondaDir,
+    desde,
+    limite,
+    intervalo,
+  }) });
 });
 
 /**

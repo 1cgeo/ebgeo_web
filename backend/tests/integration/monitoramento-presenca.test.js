@@ -33,8 +33,43 @@ describe('Presença, identidade e inventário administrativo', () => {
     const { body } = await agora();
     assert.equal(body.data.logados, 1);
     assert.equal(body.data.deslogados, 1);
-    assert.equal(Number(body.data.pendentes), 3);
-    assert.equal(body.data.navegadores_com_pendencias, 1);
+    assert.equal(body.data.pendentes, 3);
+    assert.equal(body.data.navegadoresComPendencias, 1);
+  });
+
+  it('o payload e camelCase INTEIRO, e os desconhecidos nao viram zero', async () => {
+    // O documento saia com as colunas cruas do Postgres em snake_case ao lado de um
+    // `janelaSegundos` em camelCase, no MESMO objeto: a tela tinha de saber de cor de onde cada
+    // campo vinha, e as somas `::bigint` chegavam como STRING, de modo que "3" e 3 conviviam.
+    await db.query('DELETE FROM uso_presenca');
+    // Um navegador que NAO conseguiu medir a propria fila: e a contagem que impede o painel de
+    // anunciar uma frota em dia quando parte dela nao sabe se esta.
+    await pulso(randomUUID()).expect(204);
+    await pulso(randomUUID(), userToken, { pendentes: 2, idadePendenteMs: 60000 }).expect(204);
+    const { body } = await agora();
+    const d = body.data;
+    assert.deepEqual(Object.keys(d).sort(), [
+      'atualizadoEm', 'deslogados', 'falhasColeta', 'janelaSegundos', 'logados',
+      'maiorIdadePendenteMs', 'navegadoresComPendencias', 'pendenciasDesconhecidas', 'pendentes',
+    ].sort());
+    // Nao-vacuidade da forma: nenhuma chave em snake_case sobreviveu.
+    assert.equal(Object.keys(d).some(k => k.includes('_')), false, JSON.stringify(Object.keys(d)));
+    assert.equal(typeof d.pendentes, 'number', 'a soma bigint sai como NUMERO, nao string');
+    assert.equal(typeof d.falhasColeta, 'number');
+    assert.equal(d.pendentes, 2);
+    assert.equal(d.pendenciasDesconhecidas, 1, 'o navegador que nao mediu conta como desconhecido');
+    assert.equal(d.maiorIdadePendenteMs, 60000);
+    assert.equal(d.janelaSegundos, 90);
+  });
+
+  it('sem ninguem informando idade, `maiorIdadePendenteMs` e null e NAO zero', async () => {
+    // `Number(null)` seria 0, e 0 ali afirmaria que a frota inteira acabou de sincronizar sobre
+    // uma janela em que ninguem conseguiu medir nada.
+    await db.query('DELETE FROM uso_presenca');
+    await pulso(randomUUID()).expect(204);
+    const { body } = await agora();
+    assert.equal(body.data.maiorIdadePendenteMs, null);
+    assert.equal(body.data.pendentes, 0);
   });
   it('logout substitui identidade, expiração remove presença e não há userId forjado no corpo', async () => {
     await db.query('DELETE FROM uso_presenca');
