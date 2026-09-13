@@ -143,9 +143,16 @@ export async function persistOperationIntents(descriptions, { scope, traceId } =
     await queue.enqueueAll(created, { prepared: true });
     for (const op of created) {
         if (CONVERGENCE_GUARDED.has(op.entityType)) markLocalEditPending(op.entityId);
+        // THE SPAN CARRIES THE SAME FIELDS AS THE TWO LEGACY EMITTERS BELOW, and that is a
+        // contract with the readers, not tidiness: every consumer of an `enqueue` span narrows by
+        // `operationType` (`waitForEntitySpan` in `tests/e2e-ui/helpers/trace-helpers.js`, the
+        // ledger merger), so a span without it simply never matches and the wait times out on an
+        // op that WAS enqueued. It cost 5 collab cases; a span missing a field is worse than no
+        // span, because the reader reports "never reached this stage".
         record(TraceStage.ENQUEUE, {
-            opId: op.id, traceId, entityType: op.entityType, entityId: op.entityId,
-            outcome: TraceOutcome.OK,
+            opId: op.id, traceId, entityType: op.entityType, operationType: op.operationType,
+            entityId: op.entityId, mapId: op.mapId, batchId: op.batchId,
+            lamportTimestamp: op.lamportTimestamp, outcome: TraceOutcome.OK,
         });
     }
     return async () => {
