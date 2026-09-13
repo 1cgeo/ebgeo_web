@@ -2,7 +2,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
 const fake = vi.hoisted(() => ({
     list: vi.fn(), locals: vi.fn(), count: vi.fn(), confirm: vi.fn(), discard: vi.fn(),
-    announce: vi.fn(), error: vi.fn(),
+    announce: vi.fn(), error: vi.fn(), quarantine: vi.fn(),
     pauseWrites: vi.fn(), pauseSends: vi.fn(), resumeWrites: vi.fn(), resumeSends: vi.fn(),
 }));
 vi.mock('@store/remote-atlas.api.js', () => ({ listRemoteAtlases: fake.list, requestRemoteAtlasDiscard: fake.discard }));
@@ -11,6 +11,7 @@ vi.mock('@store/write-coordinator.js', () => ({ pauseStoreWrites: fake.pauseWrit
 vi.mock('@store/sync/auto-flush-pause.js', () => ({ pauseAutoFlush: fake.pauseSends }));
 vi.mock('@utils/tab-lock.js', () => ({ announceTabLockTeardown: fake.announce }));
 vi.mock('@js/session/unsynced-work-exit.js', () => ({ countPendingOperationsFor: fake.count }));
+vi.mock('@store/sync/quarantine-registry.js', () => ({ countQuarantine: fake.quarantine }));
 vi.mock('@modals/confirm.modal.js', () => ({ showConfirm: fake.confirm }));
 vi.mock('@utils/toast_service.js', () => ({ showError: fake.error }));
 import { confirmLogoutWithPendingWork } from '@js/session/confirm-logout.js';
@@ -22,6 +23,7 @@ beforeEach(() => {
     fake.list.mockResolvedValue([A, B]);
     fake.locals.mockResolvedValue([]);
     fake.count.mockResolvedValue(0);
+    fake.quarantine.mockResolvedValue(0);
     fake.confirm.mockResolvedValue(false);
     fake.discard.mockResolvedValue([A, B]);
     fake.pauseWrites.mockReturnValue({ settled: Promise.resolve(), resume: fake.resumeWrites });
@@ -95,6 +97,37 @@ describe('confirmed voluntary logout', () => {
         await vi.advanceTimersByTimeAsync(3001);
         expect(await result).toBe(false);
         expect(fake.confirm).toHaveBeenCalledOnce();
+    });
+    it('nomeia a quarentena separada do que aguarda envio', async () => {
+        // 5 pendentes por atlas, 2 em quarentena: a frase diz 3 aguardando envio e 2 guardadas,
+        // porque as 2 SOBREVIVEM ao descarte (D2) e o resto não. Dois atlas, então 10 e 4.
+        fake.count.mockResolvedValue(5);
+        fake.quarantine.mockResolvedValue(2);
+        expect(await confirmLogoutWithPendingWork()).toBe(false);
+        const message = fake.confirm.mock.calls[0][1].message;
+        expect(message).toContain('6 alterações aguardando envio ao servidor e 4 guardadas para revisão');
+        expect(message).toContain('continuam neste navegador');
+
+        // CONTROLE NEGATIVO: sem quarentena, a frase é a de antes e nada promete sobrevivência.
+        fake.confirm.mockClear();
+        fake.quarantine.mockResolvedValue(0);
+        await confirmLogoutWithPendingWork();
+        const semQuarentena = fake.confirm.mock.calls[0][1].message;
+        expect(semQuarentena).toContain('10 operações com envio pendente');
+        expect(semQuarentena).not.toContain('revisão');
+    });
+    it('quarentena ilegível continua avisando, com a frase de um número só', async () => {
+        fake.count.mockResolvedValue(4);
+        fake.quarantine.mockRejectedValue(new Error('disco indisponível'));
+        expect(await confirmLogoutWithPendingWork()).toBe(false);
+        const message = fake.confirm.mock.calls[0][1].message;
+        expect(message).toContain('8 operações com envio pendente');
+        expect(message).not.toContain('guardada');
+    });
+    it('não pergunta nada à quarentena quando o censo é vazio', async () => {
+        // A leitura extra é paga só quando há diálogo: fila vazia sai sem perguntar.
+        expect(await confirmLogoutWithPendingWork()).toBe(true);
+        expect(fake.quarantine).not.toHaveBeenCalled();
     });
     it('failed registry reads require confirmation and failed writes cannot report success', async () => {
         fake.list.mockRejectedValue(new Error('disk unavailable'));

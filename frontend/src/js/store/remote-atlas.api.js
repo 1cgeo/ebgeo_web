@@ -119,6 +119,7 @@ import {
 } from './atlas-namespace.js';
 
 import { discardRemoteWrites, reopenRemoteWrites, remoteWritesDiscarded } from './remote-write-fence.js';
+import { preserveQuarantine } from './sync/quarantine-registry.js';
 
 /**
  * How long a namespace may be spared because a live client has it mounted, before the sweep
@@ -436,10 +437,23 @@ async function locallyClaimedSuffixes() {
     return new Set(atlases.map(entry => entry?.dbSuffix).filter(s => typeof s === 'string'));
 }
 
-/** Persist the user's explicit discard decision; ordinary and rescued local atlases are excluded. */
+/**
+ * Persist the user's explicit discard decision; ordinary and rescued local atlases are excluded.
+ *
+ * THE QUARANTINE IS COPIED OUT FIRST, and in a pass of its own (decision D2 of 2026-09-13:
+ * preserve). Two reasons for the separate pass, and neither is style: the fence closed below makes
+ * the queue of that atlas unreadable, so the copy cannot happen after it; and a failure while
+ * copying the third atlas must not leave the first two already marked for destruction, which is
+ * what an interleaved loop would do. `preserveQuarantine` throws when it cannot confirm the copy
+ * by reading it back, so nothing here is marked and the caller reports the failure.
+ * @returns {Promise<Array<Object>>} The entries whose discard is now on record.
+ */
 export async function requestRemoteAtlasDiscard() {
     const claimed = await locallyClaimedSuffixes();
     const entries = (await listRemoteAtlases()).filter(entry => !claimed.has(entry.dbSuffix));
+    for (const entry of entries) {
+        await preserveQuarantine(entry.atlasId);
+    }
     for (const entry of entries) {
         const key = remoteAtlasRegistryKey(entry.atlasId);
         const stored = await getGlobalStore().getItem(key);

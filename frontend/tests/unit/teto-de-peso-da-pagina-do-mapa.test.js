@@ -393,18 +393,21 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // reescreva os quatro números, com a data, sempre que a medida sair da banda.
         //
         // RECENTRADA DE NOVO EM 2026-09-13, e a leitura honesta da medida é a parte útil desta
-        // anotação: 506 módulos e 6850 kB. O arquivo que estourou o teto foi UM só, o folha
-        // `store/map-position-clear.js` (2 kB, achado F1), mas ele foi apenas o 506º: entre
-        // 2026-09-02 e hoje o grafo saiu de 467 para 505 módulos e de 6369 para 6848 kB, isto
-        // é, a folga inteira já tinha sido gasta por deriva que ninguém remediu, e o teto de
-        // kB continuou cabendo por trinta kB. É exatamente o estado que o parágrafo acima
-        // descreve, pela segunda vez seguida: a banda estava reprovando o PRÓXIMO arquivo,
-        // qualquer que fosse ele, em vez de reprovar uma pasta voltando.
+        // anotação: 507 módulos e 6880 kB, SOMADOS das duas medições dos blocos do plano de
+        // lançamento que nasceram em paralelo (505 e 6864 kB antes deles) e recentraram a banda
+        // cada um por si; a próxima rodada com `dist/` é quem mede o valor fundido. Os arquivos
+        // que estouraram o teto foram DOIS folhas novos (`store/map-position-clear.js`, 2 kB,
+        // achado F1; e `store/sync/quarantine-registry.js`, 14 kB, alcançado pelo caminho do
+        // logout), mas eles foram apenas o 506º e o 507º: entre 2026-09-02 e hoje o grafo saiu
+        // de 467 para 505 módulos e de 6369 para 6864 kB, isto é, a folga inteira já tinha sido
+        // gasta por deriva que ninguém remediu, e a banda estava reprovando o PRÓXIMO arquivo,
+        // qualquer que fosse ele, pela terceira vez seguida. Se a próxima recentragem vier outra
+        // vez de deriva não atribuída, o conserto não é o número: é medir a deriva.
         expect(ansioso.arquivos.size).toBeGreaterThanOrEqual(466);
         expect(ansioso.arquivos.size).toBeLessThanOrEqual(546);
         const kb = kbDe(ansioso.arquivos);
-        expect(kb, `fonte ansiosa em ${kb} kB`).toBeGreaterThanOrEqual(6300);
-        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(7400);
+        expect(kb, `fonte ansiosa em ${kb} kB`).toBeGreaterThanOrEqual(6330);
+        expect(kb, `fonte ansiosa em ${kb} kB`).toBeLessThanOrEqual(7430);
     });
 
     it('o grafo COMPLETO (seguindo `import()`) cabe entre o piso e o teto medidos', () => {

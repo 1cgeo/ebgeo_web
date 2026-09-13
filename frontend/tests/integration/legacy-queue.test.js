@@ -5,6 +5,12 @@ import { OperationQueue } from '../../src/js/store/sync/operation-queue.js';
 import { reconcileLegacyQueue, LEGACY_QUEUE_CODE } from '../../src/js/store/sync/legacy-queue.js';
 import { createOperation, createBatchOperations } from '../../src/js/store/sync/operation-factory.js';
 import { EntityType } from '../../src/js/store/sync/operation-types.js';
+import {
+    collectQuarantine,
+    countQuarantine,
+    listQuarantinedOperations,
+    preserveQuarantine
+} from '../../src/js/store/sync/quarantine-registry.js';
 
 const operation = (extra = {}) => ({ id: crypto.randomUUID(), entityId: crypto.randomUUID(),
     entityType: 'map', operationType: 'create', timestamp: 1, data: { name: 'Antigo' }, ...extra });
@@ -78,6 +84,29 @@ describe('Legacy queue reconciliation without replay', () => {
         const lookup = async () => { active = false; return { results: [{ opId: old.id, status: 'confirmed' }] }; };
         await expect(reconcileLegacyQueue(q, lookup, () => { if (!active) throw new Error('stale'); })).rejects.toThrow('stale');
         expect(await q.getAll()).toEqual([old]);
+    });
+
+    it('a quarentena de protocolo antigo é o que o logout preserva', async () => {
+        // O ELO ENTRE AS DUAS METADES DE B3: quem decide que uma op velha não será enviada é este
+        // módulo, e o que o descarte confirmado copia para fora do namespace é exatamente o
+        // registro que ele escreve. Sem a cópia, ela morreria no banco que o logout apaga.
+        const atlasId = crypto.randomUUID();
+        const q = new OperationQueue(remoteScope(atlasId));
+        const old = operation();
+        await q.enqueue(old);
+
+        // ORDEM ASSERIDA: nada é preservado antes de alguém REGISTRAR o problema, e quem o deriva
+        // é a projeção (ou o peek). A preservação LÊ o registro, ela não repete a regra.
+        expect(await collectQuarantine(atlasId)).toEqual([]);
+        await q.peek();
+        expect(await countQuarantine(atlasId)).toBe(1);
+
+        expect(await preserveQuarantine(atlasId)).toBe(1);
+        const preservadas = await listQuarantinedOperations(atlasId);
+        expect(preservadas).toHaveLength(1);
+        expect(preservadas[0].operation).toEqual(old);
+        expect(preservadas[0].issue.code).toBe(LEGACY_QUEUE_CODE);
+        expect(preservadas[0].atlasId).toBe(atlasId);
     });
 
     it('retains original legacy storage keys and future versions instead of inventing compatibility', async () => {

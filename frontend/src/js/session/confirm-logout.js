@@ -8,7 +8,8 @@ import { pauseStoreWrites } from '@store/write-coordinator.js';
 import { pauseAutoFlush } from '@store/sync/auto-flush-pause.js';
 import { announceTabLockTeardown } from '@utils/tab-lock.js';
 import { countPendingOperationsFor } from './unsynced-work-exit.js';
-import { pendingOpsLabel } from './unsynced-work-phrases.js';
+import { countQuarantine } from '@store/sync/quarantine-registry.js';
+import { pendingWorkSummary, quarantineKeptNotice } from './unsynced-work-phrases.js';
 
 /** A failed or stalled census must ask, never silently treat an unreadable queue as empty. */
 async function pendingCount(entries) {
@@ -19,6 +20,37 @@ async function pendingCount(entries) {
                 .then(counts => counts.reduce((sum, n) => sum + n, 0)),
             new Promise(resolve => { timer = setTimeout(() => resolve(NaN), 3000); }),
         ]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+/**
+ * How much of that work is QUARANTINE: refused by the server, or written by a protocol this build
+ * will not replay.
+ *
+ * IT IS A DIFFERENT QUESTION FROM THE CENSUS ABOVE, not a second reading of the same number. The
+ * quarantine is what `requestRemoteAtlasDiscard` copies out of the namespace before it is
+ * destroyed, so it is the part the dialog can promise will still be there afterwards, and the
+ * dialog said the opposite of that until 2026-09-13.
+ *
+ * A FAILURE HERE COSTS THE SECOND HALF OF THE SENTENCE, NEVER THE WARNING. It answers NaN, the
+ * phrase falls back to the pending total alone, and the confirmation still happens: the decision
+ * being taken is about destruction, and an unreadable quarantine must not make it look smaller.
+ * @param {Array<{atlasId: string}>} entries - Server atlases about to be discarded.
+ * @returns {Promise<number>} The count, or NaN when it could not be measured.
+ */
+async function quarantineCount(entries) {
+    let timer;
+    try {
+        return await Promise.race([
+            Promise.all(entries.map(e => countQuarantine(e.atlasId)))
+                .then(counts => counts.reduce((sum, n) => sum + n, 0)),
+            new Promise(resolve => { timer = setTimeout(() => resolve(NaN), 3000); }),
+        ]);
+    } catch (error) {
+        console.warn('[logout] could not count quarantined work:', error);
+        return NaN;
     } finally {
         clearTimeout(timer);
     }
@@ -48,6 +80,7 @@ export async function confirmLogoutWithPendingWork() {
 async function confirmAndPrepareLogout(settled) {
     let entries;
     let pendingOps = NaN;
+    let quarantined = NaN;
     try {
         const claimed = new Set((await readLocalAtlasRegistry()).map(e => e.dbSuffix));
         entries = (await listRemoteAtlases()).filter(e => !claimed.has(e.dbSuffix));
@@ -59,17 +92,17 @@ async function confirmAndPrepareLogout(settled) {
             ]);
             if (idle) pendingOps = await pendingCount(entries);
         } finally { clearTimeout(timer); }
+        if (!Number.isFinite(pendingOps) || pendingOps > 0) quarantined = await quarantineCount(entries);
     } catch (error) {
         console.warn('[logout] could not count remote pending work:', error);
     }
     if (!Number.isFinite(pendingOps) || pendingOps > 0) {
         const { showConfirm } = await import('@modals/confirm.modal.js');
-        const message = Number.isFinite(pendingOps)
-            ? `Há ${pendingOpsLabel(pendingOps)} com envio pendente ao servidor.`
-            : 'Não foi possível verificar se existem alterações ainda não enviadas ao servidor.';
         const confirmed = await showConfirm('Sair com alterações pendentes?', {
-            message: `${message} Ao sair, as alterações pendentes dos atlas do servidor neste navegador, `
-                + 'inclusive em outras abas, serão descartadas e não poderão ser recuperadas. '
+            message: `${pendingWorkSummary(pendingOps, quarantined)} Ao sair, as alterações `
+                + 'pendentes dos atlas do servidor neste navegador, inclusive em outras abas, '
+                + 'serão descartadas e não poderão ser recuperadas. '
+                + quarantineKeptNotice(quarantined)
                 + 'Seus atlas locais e os dados já enviados ao servidor serão mantidos. '
                 + 'Uma solicitação já recebida pelo servidor pode concluir mesmo após a saída.',
             confirmText: 'Sair e descartar pendências',

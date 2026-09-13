@@ -352,7 +352,22 @@ export const GlobalKey = Object.freeze({
      * {@link takePendingImport}, which removes an unreadable or expired record on sight, and
      * leaves standing ONLY a record still inside its 24 h window and addressed to another tab.
      */
-    PENDING_IMPORT: 'pending_import'
+    PENDING_IMPORT: 'pending_import',
+    /**
+     * PREFIX of the QUARANTINE that outlives a session (`quarantine:<atlasId>`), one key per
+     * atlas, for the same reason the two registries above are one key per atlas.
+     *
+     * IT IS GLOBAL BECAUSE THE ATLAS IS THE THING BEING DESTROYED. Everything else about a server
+     * atlas lives inside its own namespace and dies with it, and that is exactly what made the
+     * quarantine vanish at logout: the refused operations sat in the queue of the namespace the
+     * discard destroys. Here `perAtlas:false` keeps the copy out of `clearAtlasDatabases` and
+     * `dropAtlasDatabases`, so it outlives the databases it was copied from (decision D2 of
+     * 2026-09-13: preserve).
+     *
+     * Like the hand-over slot, NO wipe collects it: it is emptied by the explicit decision the
+     * pending-work screen offers (export, or discard), never as a side effect of a teardown.
+     */
+    QUARANTINE_PREFIX: 'quarantine:'
 });
 
 /**

@@ -83,6 +83,77 @@ export function pendingOpsLabel(value) {
 }
 
 /**
+ * "1 alteração" / "12 alterações", the word the exit DIALOG uses, next to {@link pendingOpsLabel},
+ * which counts OPERATIONS.
+ *
+ * The two are not interchangeable and the split is deliberate: "operação" is the unit the queue
+ * and the diagnostics speak in, and it is right where the number is about the queue; "alteração"
+ * is what the person made, and it is right in the sentence that asks them to give something up.
+ * @param {number} n - A non-negative integer.
+ * @returns {string}
+ */
+function alteracoes(n) {
+    return `${n} ${n === 1 ? 'alteração' : 'alterações'}`;
+}
+
+/**
+ * THE FIRST SENTENCE OF THE EXIT DIALOG, which now names the QUARANTINE separately.
+ *
+ * WHY TWO NUMBERS. The total includes work the server REFUSED, or that this build will not replay,
+ * and the confirmed discard PRESERVES that part instead of destroying it (decision D2 of
+ * 2026-09-13). Saying only "há 12 operações com envio pendente" and then announcing that
+ * everything pending would be lost was wrong in both halves for those operations: they were not
+ * going to be sent, and they are not going to be lost.
+ *
+ * THE SUBTRACTION IS THE POINT: the quarantine is PART of the total, because both come from the
+ * same queue, so the sentence says how much is waiting to be SENT (the total minus the quarantine)
+ * and names the quarantine on its own. A negative difference should be impossible and is clamped
+ * anyway: an issue record left behind by an atlas written before the journal poda could make the
+ * second number larger than the first, and "há -2 alterações" would discredit the whole dialog.
+ *
+ * UNKNOWN DEGRADES IN TWO STEPS. An unknown TOTAL keeps the sentence that says so, because that
+ * count is what decides whether anything is at stake at all. An unknown QUARANTINE falls back to
+ * the single-number sentence: better to say less than to promise that something survives when
+ * nobody could measure it.
+ * @param {*} total - Pending-operation count, or a non-finite value for "unknown".
+ * @param {*} [quarantined] - How many of those are in quarantine; non-finite for "unknown".
+ * @returns {string}
+ */
+export function pendingWorkSummary(total, quarantined) {
+    const t = toPendingCount(total);
+    if (Number.isNaN(t)) {
+        return 'Não foi possível verificar se existem alterações ainda não enviadas ao servidor.';
+    }
+    const q = toPendingCount(quarantined);
+    if (Number.isNaN(q) || q === 0) return `Há ${pendingOpsLabel(t)} com envio pendente ao servidor.`;
+    const aguardando = Math.max(0, t - q);
+    if (aguardando === 0) {
+        return `Há ${alteracoes(q)} guardadas para revisão e nada aguardando envio ao servidor.`;
+    }
+    return `Há ${alteracoes(aguardando)} aguardando envio ao servidor e `
+        + `${q} ${q === 1 ? 'guardada' : 'guardadas'} para revisão.`;
+}
+
+/**
+ * The half-sentence saying the quarantine SURVIVES the discard, or nothing at all.
+ *
+ * It is its own function because the dialog body is a paragraph about destruction and this is the
+ * one clause in it that promises the opposite. It ends with a space so the caller concatenates
+ * without deciding anything, and it is EMPTY for zero and for unknown: a promise that something
+ * was kept has to rest on a number somebody measured.
+ * @param {*} quarantined - Quarantine count, or non-finite for "unknown".
+ * @returns {string}
+ */
+export function quarantineKeptNotice(quarantined) {
+    const q = toPendingCount(quarantined);
+    if (Number.isNaN(q) || q === 0) return '';
+    return q === 1
+        ? 'A alteração guardada para revisão continua neste navegador e pode ser consultada depois. '
+        : 'As alterações guardadas para revisão continuam neste navegador e podem ser consultadas '
+            + 'depois. ';
+}
+
+/**
  * The toast after a rescue that WORKED. It names the local atlas, because that name is the only
  * handle the person has to find the work again.
  * @param {string|null|undefined} atlasName - The name the local slot took.

@@ -1103,6 +1103,85 @@ describe('voluntary logout discard', () => {
         expect((await api.listRemoteAtlases())[0].discardRequested).toBeUndefined();
     });
 
+    /**
+     * A QUARENTENA SOBREVIVE AO DESCARTE (decisão D2 de 2026-09-13: preservar).
+     *
+     * A fila é por atlas, então a op recusada morava no banco que o descarte apaga: o usuário
+     * concordava em perder "as pendências" e perdia também, calado, o que já tinha sido posto de
+     * lado para decisão. A cópia vai para o `ebgeo_global`, o único banco que nenhum wipe de atlas
+     * alcança, e é CONFERIDA POR RELEITURA antes de o descarte prosseguir.
+     */
+    describe('a quarentena preservada', () => {
+        /**
+         * Semeia uma op com problema registrado na fila de um atlas remoto.
+         * @param {string} atlasId - Atlas de servidor.
+         * @param {string} opId - Id da operação.
+         * @returns {Promise<object>} O envelope semeado.
+         */
+        async function semearQuarentena(atlasId, opId) {
+            const { JournalKey } = await import('@store/sync/queue-journal.js');
+            const fila = ns.getStoreFor(ns.StoreName.OPERATION_QUEUE, ns.remoteScope(atlasId));
+            const envelope = { protocolVersion: 2, id: opId, entityId: 'feicao-1',
+                entityType: 'feature', operationType: 'update', timestamp: 7 };
+            await fila.setItem(`op_z00000000000000000001_${opId}`, envelope);
+            await fila.setItem(JournalKey.ISSUE + opId, {
+                result: { rejected: true, reason: 'Permissão revogada' }, recordedAt: 123
+            });
+            return envelope;
+        }
+
+        it('vai para o registro global antes de o namespace ser destruído', async () => {
+            await api.activateRemoteAtlas(ATLAS_A);
+            await seedRemote(ATLAS_A);
+            const envelope = await semearQuarentena(ATLAS_A, 'recusada-1');
+
+            await api.requestRemoteAtlasDiscard();
+
+            const registro = globalDisk().get(`${ns.GlobalKey.QUARANTINE_PREFIX}${ATLAS_A}`);
+            expect(registro.operations).toHaveLength(1);
+            expect(registro.operations[0].operation).toEqual(envelope);
+            expect(registro.operations[0].issue.reason).toBe('Permissão revogada');
+
+            // E A DESTRUIÇÃO VEM DEPOIS: o namespace vai embora, a cópia fica.
+            await api.purgeAllRemoteAtlases();
+            expect(stillHoldingSentinel(allDbNamesOfRemote(ATLAS_A))).toEqual([]);
+            const quarantine = await import('@store/sync/quarantine-registry.js');
+            const lista = await quarantine.listQuarantinedOperations();
+            expect(lista.map(e => [e.atlasId, e.operation.id])).toEqual([[ATLAS_A, 'recusada-1']]);
+        });
+
+        it('sem quarentena nenhuma, nada é escrito no registro global', async () => {
+            // CONTROLE NEGATIVO do caso acima: sem chave de problema a preservação não inventa
+            // registro, senão o caso de cima ficaria verde contra uma cópia que copia tudo.
+            await api.activateRemoteAtlas(ATLAS_A);
+            await ns.getStore(ns.StoreName.OPERATION_QUEUE)
+                .setItem('op_z00000000000000000001_a', { id: 'a' });
+
+            await api.requestRemoteAtlasDiscard();
+
+            expect(globalDisk().has(`${ns.GlobalKey.QUARANTINE_PREFIX}${ATLAS_A}`)).toBe(false);
+        });
+
+        it('cópia que não se confirma na releitura IMPEDE o descarte', async () => {
+            await api.activateRemoteAtlas(ATLAS_A);
+            await semearQuarentena(ATLAS_A, 'recusada-1');
+            const globalStore = ns.getGlobalStore();
+            const original = globalStore.setItem;
+            // A escrita ACEITA que não guarda nada: é o modo de falha que a releitura existe para
+            // pegar (quota, banco sendo derrubado), e ele não lança por conta própria.
+            globalStore.setItem = vi.fn(async (key, value) =>
+                (key.startsWith(ns.GlobalKey.QUARANTINE_PREFIX) ? value : original(key, value)));
+
+            await expect(api.requestRemoteAtlasDiscard()).rejects.toThrow(/em revisão/);
+
+            // NADA foi marcado: a fila continua legível e o expurgo não recebeu licença.
+            globalStore.setItem = original;
+            expect((await api.listRemoteAtlases())[0].discardRequested).toBeUndefined();
+            const fila = ns.getStoreFor(ns.StoreName.OPERATION_QUEUE, ns.remoteScope(ATLAS_A));
+            expect((await fila.keys()).filter(k => k.startsWith('op_'))).toHaveLength(1);
+        });
+    });
+
     it('local adoption wins even when it happens after discard was requested', async () => {
         await local.initLocalAtlases();
         await api.activateRemoteAtlas(ATLAS_A);
