@@ -17,6 +17,20 @@ export const uploadFileSchema = Joi.object({
   originalname: Joi.string().trim().min(1).max(255).required(),
 }).unknown(true);
 
+// The ATTEMPT KEY of the single upload route, read from the `X-Idempotency-Key` header.
+//
+// A UUID and nothing else: it is stored in `images.attempt_key` (a UUID column added by
+// 013_imagens_idempotentes.sql), so anything else would reach the database as a type error, which
+// is a 500 over a client mistake. Validated BEFORE multer runs, the only moment at which refusing
+// costs nothing: after it the blob is already on disk and a refusal has to clean up after itself.
+//
+// OPTIONAL, because the key is what an updated client sends and the route has to keep answering the
+// one that does not. Without it the server still deduplicates, by content hash, which is weaker (it
+// cannot tell a retry from two identical pictures) and is the reason the key exists at all.
+export const attemptKeySchema = Joi.object({
+  attemptKey: Joi.string().uuid().optional(),
+});
+
 // Schema for bulk image upload (base64 encoded images)
 //
 // `filename` forbids the two path separators and NUL. Defense in depth only — the

@@ -58,9 +58,9 @@ const MAX_BYTES = config.images.maxSizeMb * 1024 * 1024;
  * magic bytes continuam intactos e `fileTypeFromFile` ainda detecta image/png.
  * @param {number} total
  */
-function pngComTamanho(total) {
+function pngComTamanho(total, enchimento = 0x00) {
   assert.ok(total >= PNG_1x1.length, 'o PNG minimo ja e maior que o alvo');
-  return Buffer.concat([PNG_1x1, Buffer.alloc(total - PNG_1x1.length, 0x00)]);
+  return Buffer.concat([PNG_1x1, Buffer.alloc(total - PNG_1x1.length, enchimento)]);
 }
 
 describe('Images — fronteira exata de MAX_IMAGE_SIZE_MB (item 166)', () => {
@@ -131,9 +131,15 @@ describe('Images — fronteira exata de MAX_IMAGE_SIZE_MB (item 166)', () => {
   });
 
   it('UM byte separa os dois resultados: a fronteira e maxBytes, nao "por volta de"', async () => {
-    // Duas requisicoes que diferem em exatamente 1 byte e em nada mais.
+    // Duas requisicoes que diferem em exatamente 1 byte de TAMANHO e em nada mais.
+    //
+    // O enchimento 0x01 muda o CONTEUDO sem mudar o tamanho, e e obrigatorio desde
+    // 013_imagens_idempotentes.sql: sem chave de tentativa a rota unica deduplica por hash, e o
+    // primeiro caso deste arquivo ja enviou `pngComTamanho(MAX_BYTES)` com enchimento zero neste
+    // mesmo atlas, entao repetir aqueles bytes voltaria 200 com a linha dele em vez de medir a
+    // fronteira. O que este caso mede continua sendo o tamanho, um byte de cada lado dela.
     const ok = await post()
-      .attach('image', pngComTamanho(MAX_BYTES), { filename: 'no-limite.png', contentType: 'image/png' })
+      .attach('image', pngComTamanho(MAX_BYTES, 0x01), { filename: 'no-limite.png', contentType: 'image/png' })
       .expect(201);
     const nok = await post()
       .attach('image', pngComTamanho(MAX_BYTES + 1), { filename: 'passou.png', contentType: 'image/png' })
@@ -194,7 +200,12 @@ describe('Images — fronteira exata de MAX_IMAGE_SIZE_MB (item 166)', () => {
       // O arquivo em disco e o PNG 1x1; so o campo `size` esta no limite. Se o
       // guarda fosse `>=`, isto lancaria "File too large" e nunca chegaria a
       // gravar. Chegando ao INSERT, o size no banco e o declarado.
-      const img = await imagesService.uploadImage(atlas.id, fakeFile(MAX_BYTES), owner.id);
+      // O service devolve { image, reused } desde 013_imagens_idempotentes.sql: sem essa
+      // distincao o controlador nao teria como responder 200 na retentativa e 201 na criacao.
+      const { image: img, reused } = await imagesService.uploadImage(
+        atlas.id, fakeFile(MAX_BYTES), owner.id
+      );
+      assert.equal(reused, false, 'primeiro envio destes bytes neste atlas: linha nova');
       assert.equal(Number(img.size_bytes), MAX_BYTES, 'passou do guarda e persistiu');
 
       // Limpeza: este caminho aponta para o fixture compartilhado, entao a linha

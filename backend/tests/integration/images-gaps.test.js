@@ -88,11 +88,21 @@ describe('Images + Resources — gap coverage', () => {
   });
 
   // Helper: upload a PNG via the single-upload route, return image id.
+  //
+  // OS BYTES SAO DISTINTOS A CADA CHAMADA, e isso deixou de ser detalhe com
+  // 013_imagens_idempotentes.sql: sem chave de tentativa a rota unica deduplica por HASH DE
+  // CONTEUDO, entao reenviar o MESMO arquivo devolve 200 com a linha anterior, e cinco casos deste
+  // arquivo passaram a receber um recurso que acreditavam ter acabado de criar (um deles ja
+  // apagado, o que virava 404 no passo seguinte). O enchimento vai DEPOIS do IEND, entao segue
+  // sendo o mesmo PNG valido para a dupla validacao de tipo do servidor: o que muda e so a
+  // identidade de conteudo, que e justamente o que cada caso aqui precisa que seja unica.
+  let bytesUnicos = 0;
   async function uploadPng(token = ownerToken) {
+    const conteudo = Buffer.concat([PNG_BUFFER, Buffer.alloc(++bytesUnicos, 0x00)]);
     const res = await supertest(app)
       .post(`/api/v1/atlas/${atlas.id}/images`)
       .set('Authorization', `Bearer ${token}`)
-      .attach('image', pngPath)
+      .attach('image', conteudo, { filename: 'gap.png', contentType: 'image/png' })
       .expect(201);
     return res.body.data.id;
   }

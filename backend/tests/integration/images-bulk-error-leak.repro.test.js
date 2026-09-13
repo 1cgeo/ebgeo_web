@@ -135,26 +135,41 @@ describe('POST /images/bulk — erro sanitizado e sem linha órfã (108 + 80)', 
     return meus[0].obj.err.message;
   }
 
-  it('colisão na PK global devolve texto fixo, sem `images_pkey`, e loga o erro cru', async () => {
-    // Primeiro upload legítimo: fixa o localId como PK global.
+  it('mesmo id com OUTRO conteúdo é recusado com texto fixo, e sem chegar a ser exceção', async () => {
+    // ESTE CASO MUDOU DE MECANISMO EM 013_imagens_idempotentes.sql, e a mudança é o assunto.
+    //
+    // Antes, QUALQUER reenvio do mesmo `localId` batia na PK e virava `failed` pelo catch, então
+    // uma retentativa cujo primeiro 201 se perdeu recebia "falhou" sobre um blob que o servidor já
+    // tinha. Agora a pergunta é o CONTEÚDO: mesmo id com os mesmos bytes é a mesma intenção
+    // chegando duas vezes, e é aceita (medido em imagens-idempotentes.repro.test.js); só mesmo id
+    // com OUTROS bytes continua recusado, porque aceitar substituiria em silêncio o blob que uma
+    // feição já referencia.
+    //
+    // Duas consequências para este arquivo. A recusa passou a ser decidida ANTES do INSERT, por
+    // comparação de hash, então não há exceção do driver para vazar nem para logar: o que se cobra
+    // aqui é o texto fixo E o silêncio do catch. O caminho de exceção continua vivo e continua
+    // cobrado pelo caso seguinte, que faz o `writeFile` falhar.
     const localId = randomUUID();
     const ok = await bulk([{ localId, filename: 'a.png', mimeType: 'image/png', data: PNG_B64 }]).expect(201);
     assert.equal(ok.body.data.uploaded.length, 1, 'o primeiro envio tem de entrar (não-vacuidade)');
     spy.records.length = 0;
 
-    // Reenvio do MESMO localId: unique_violation na PK.
-    const res = await bulk([{ localId, filename: 'b.png', mimeType: 'image/png', data: PNG_B64 }]).expect(201);
+    // Outros bytes sob o mesmo id: o enchimento vai depois do IEND, então o PNG segue válido.
+    const outros = Buffer.concat([Buffer.from(PNG_B64, 'base64'), Buffer.alloc(9, 0x00)]).toString('base64');
+    const res = await bulk([{ localId, filename: 'b.png', mimeType: 'image/png', data: outros }]).expect(201);
 
-    // (a) o cliente recebe texto fixo, idêntico ao que o errorHandler daria no REST.
     assert.equal(res.body.data.uploaded.length, 0);
     assert.equal(res.body.data.failed.length, 1);
     assert.equal(res.body.data.failed[0].localId, localId);
-    assert.equal(res.body.data.failed[0].error, 'Já existe um registro com esses dados. Altere e tente de novo.');
+    assert.equal(res.body.data.failed[0].error, 'Este id de imagem já existe com outro conteúdo.');
+    assert.equal(res.body.data.mapping[localId], undefined, 'e não mapeia id nenhum');
     const corpo = JSON.stringify(res.body);
     assert.doesNotMatch(corpo, DRIVER_TEXT, `texto de driver no corpo: ${corpo}`);
 
-    // (b) e o erro cru, com o nome da constraint, ficou no log do servidor.
-    assert.match(logsComErro(), /images_pkey/, 'o nome da constraint tem de sobreviver NO LOG');
+    // O SILÊNCIO É ASSERÇÃO, não ausência dela: uma recusa ordenada que passasse pelo catch
+    // significaria que a comparação de hash não aconteceu e a PK voltou a decidir.
+    const doCatch = spy.records.filter((r) => r.msg === 'Bulk image item failed');
+    assert.deepEqual(doCatch, [], 'a recusa é decidida antes do INSERT: nada de exceção no lote');
   });
 
   it('falha de escrita não deixa linha órfã, não vaza o caminho do disco, e devolve a PK', async () => {

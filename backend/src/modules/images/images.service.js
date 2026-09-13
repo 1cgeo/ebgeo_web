@@ -1,5 +1,5 @@
 // Path: src/modules/images/images.service.js
-import { mkdir, unlink, writeFile, stat } from 'fs/promises';
+import { mkdir, unlink, writeFile, stat, readFile } from 'fs/promises';
 import { join, resolve } from 'path';
 import crypto from 'crypto';
 import { fileTypeFromFile, fileTypeFromBuffer } from 'file-type';
@@ -47,7 +47,64 @@ function toPublicImage(row) {
   return pub;
 }
 
-export async function uploadImage(atlasId, file, userId) {
+/**
+ * The content identity of an image: lowercase sha256 hex of its exact bytes.
+ *
+ * ONE function for the two doors, because the two doors must agree: the single route hashes a file
+ * multer already wrote, the bulk route hashes the buffer it decoded from base64, and a retry that
+ * arrives through the other door has to produce the SAME string or the dedupe silently stops
+ * deduping. The CHECK in 013_imagens_idempotentes.sql pins the shape (64 lowercase hex chars).
+ * @param {Buffer} buffer - The exact bytes that will be (or already were) stored.
+ * @returns {string} 64 lowercase hex characters.
+ */
+export function hashImageContent(buffer) {
+  return crypto.createHash('sha256').update(buffer).digest('hex');
+}
+
+/**
+ * The stored hash of a row, ADOPTING one from disk when the column is still NULL.
+ *
+ * A NULL hash is not a defect and not a legacy leftover only: the atlas clone copies the bytes and
+ * mints new rows without a hash, so the state is reachable on a fresh install. Refusing a retry
+ * over a NULL would turn "I cannot tell" into "different content", which is the wrong answer on a
+ * row whose file is right there to read.
+ *
+ * It returns null, never throws, when the file is unreadable: at that point the row points at
+ * nothing and the caller must fall back to refusing, which is what it already did.
+ * @param {Object} row - An `images` row (needs `id`, `atlas_id`, `content_hash`, `storage_path`).
+ * @returns {Promise<string|null>} The hash, or null when it cannot be established.
+ */
+async function resolveContentHash(row) {
+  if (typeof row?.content_hash === 'string' && row.content_hash.length === 64) {
+    return row.content_hash;
+  }
+  if (!row?.storage_path) return null;
+  let hash;
+  try {
+    hash = hashImageContent(await readFile(resolve(row.storage_path)));
+  } catch (err) {
+    logger.warn({ imageId: row.id, error: err.message }, 'Could not hash a stored image to adopt its content identity');
+    return null;
+  }
+  try {
+    await query(Q.ADOPT_CONTENT_HASH, [row.id, row.atlas_id, hash]);
+  } catch (err) {
+    // The adoption is a cache, not the answer: losing it costs one re-read on the next retry.
+    logger.warn({ imageId: row.id, error: err.message }, 'Could not persist an adopted image content hash');
+  }
+  return hash;
+}
+
+/**
+ * True when a pg error is the unique violation of an index we deliberately lean on.
+ * @param {*} err
+ * @returns {boolean}
+ */
+function isUniqueViolation(err) {
+  return err?.code === '23505';
+}
+
+export async function uploadImage(atlasId, file, userId, attemptKey = null) {
   if (!file) {
     throw new BadRequestError('No file uploaded');
   }
@@ -69,6 +126,41 @@ export async function uploadImage(atlasId, file, userId) {
     throw new BadRequestError('File content does not match declared type');
   }
 
+  // THE BYTES ARE ALREADY ON DISK when this runs (multer wrote them), so every early return
+  // below has to take that file with it. The hash is read from the same file, never from the
+  // client's declared size: it is the only thing that can recognise a retry that lost its answer.
+  let contentHash;
+  try {
+    contentHash = hashImageContent(await readFile(file.path));
+  } catch (err) {
+    await unlink(file.path).catch(() => {});
+    throw err;
+  }
+
+  // 1) THE ATTEMPT KEY, when the client sent one. It is the only deduplication that is exact:
+  // the client minted it before the first byte left, so the same key means the same attempt, no
+  // matter what the bytes look like.
+  if (attemptKey) {
+    const { rows: byKey } = await query(Q.FIND_IMAGE_BY_ATTEMPT_KEY, [atlasId, attemptKey]);
+    if (byKey.length > 0) {
+      await unlink(file.path).catch(() => {});
+      return { image: toPublicImage(byKey[0]), reused: true };
+    }
+  }
+
+  // 2) THE CONTENT, for a client that sent no key. Weaker than the key and deliberately so: it
+  // cannot tell a retry from two features that legitimately hold identical bytes, and the answer
+  // it gives (one row, one id, shared) is the right one for THIS route, which mints the id it
+  // returns. The /bulk route must NOT do this: there the client chooses the id, and pasting a
+  // picture mints a NEW id for the SAME bytes on purpose.
+  if (!attemptKey) {
+    const { rows: byHash } = await query(Q.FIND_IMAGE_BY_CONTENT_HASH, [atlasId, contentHash]);
+    if (byHash.length > 0) {
+      await unlink(file.path).catch(() => {});
+      return { image: toPublicImage(byHash[0]), reused: true };
+    }
+  }
+
   // multer already wrote the file to `file.path`; persist exactly that path.
   // Any failure from here on must take the blob with it: the file exists BEFORE
   // this handler runs, so an INSERT that throws (a constraint, a dead pool) would
@@ -83,13 +175,22 @@ export async function uploadImage(atlasId, file, userId) {
       file.size,
       file.path,
       userId,
+      contentHash,
+      attemptKey,
     ]));
   } catch (err) {
     await unlink(file.path).catch(() => {});
+    // TWO REQUESTS WITH THE SAME KEY CAN RACE, and the SELECT above cannot see a row that has not
+    // committed yet. The partial unique index decides the race, and the loser reads the winner's
+    // row instead of reporting an error for an upload that DID land.
+    if (attemptKey && isUniqueViolation(err)) {
+      const { rows: byKey } = await query(Q.FIND_IMAGE_BY_ATTEMPT_KEY, [atlasId, attemptKey]);
+      if (byKey.length > 0) return { image: toPublicImage(byKey[0]), reused: true };
+    }
     throw err;
   }
 
-  return toPublicImage(rows[0]);
+  return { image: toPublicImage(rows[0]), reused: false };
 }
 
 export async function getImageById(atlasId, imageId) {
@@ -169,9 +270,11 @@ export async function bulkUploadImages(atlasId, images, userId) {
   const seenLocalIds = new Set();
 
   for (const image of images) {
-    // Declared OUTSIDE the try so the catch can undo a committed INSERT (see below).
+    // Declared OUTSIDE the try so the catch can undo a committed INSERT (see below) and, for
+    // `hashOfItem`, so the catch can ask whether a PK violation is this very item arriving twice.
     let insertedId = null;
     let claimedLocalId = false;
+    let hashOfItem = null;
 
     try {
       if (!ALLOWED_MIME_TYPES.includes(image.mimeType)) {
@@ -218,6 +321,49 @@ export async function bulkUploadImages(atlasId, images, userId) {
       const ext = EXT_BY_MIME[image.mimeType];
       const uniqueId = crypto.randomUUID();
       const storagePath = join(atlasDir, `${uniqueId}.${ext}`);
+      hashOfItem = hashImageContent(buffer);
+
+      // A RETRY OF THIS EXACT ITEM IS NOT A FAILURE, and calling it one was the defect. The bulk
+      // route preserves `localId` as the primary key, so a retry whose first answer was lost hits
+      // the PK and used to come back as `failed` for a blob the server already holds — the client
+      // then either gave up on a picture that was there or rewrote a reference that was valid.
+      //
+      // The question that separates the two cases is the CONTENT, never the id: the same id with
+      // the same bytes is the same upload arriving twice, while the same id with other bytes is a
+      // collision that must stay refused, because accepting it would silently replace the blob a
+      // feature elsewhere already points at.
+      const existingUnderId = seenLocalIds.has(image.localId)
+        ? null
+        : (await query(Q.FIND_IMAGE_ANY_ATLAS, [image.localId])).rows[0] ?? null;
+      if (existingUnderId) {
+        if (existingUnderId.atlas_id !== atlasId) {
+          results.failed.push({
+            localId: image.localId,
+            error: 'Este id de imagem já pertence a outro atlas.',
+          });
+          continue;
+        }
+        const storedHash = await resolveContentHash(existingUnderId);
+        if (storedHash === hashOfItem) {
+          seenLocalIds.add(image.localId);
+          results.uploaded.push({
+            localId: image.localId,
+            serverId: existingUnderId.id,
+            filename: existingUnderId.filename,
+            size: existingUnderId.size_bytes,
+            reused: true,
+          });
+          results.mapping[image.localId] = existingUnderId.id;
+          continue;
+        }
+        results.failed.push({
+          localId: image.localId,
+          error: storedHash === null
+            ? 'Este id de imagem já existe e o conteúdo dele não pôde ser conferido.'
+            : 'Este id de imagem já existe com outro conteúdo.',
+        });
+        continue;
+      }
 
       // First occurrence of this localId preserves it as the server id (so an image-feature's blob
       // ref — which equals its feature id — stays valid with no post-import rewrite). A duplicate
@@ -231,6 +377,8 @@ export async function bulkUploadImages(atlasId, images, userId) {
           buffer.length,
           storagePath,
           userId,
+          hashOfItem,
+          null,
         ]);
         serverImage = rows[0];
       } else {
@@ -242,6 +390,7 @@ export async function bulkUploadImages(atlasId, images, userId) {
           buffer.length,
           storagePath,
           userId,
+          hashOfItem,
         ]);
         serverImage = rows[0];
         seenLocalIds.add(image.localId);
@@ -300,6 +449,28 @@ export async function bulkUploadImages(atlasId, images, userId) {
             { err: cleanupErr, atlasId, imageId: insertedId },
             'Failed to remove orphan image row after blob write failure'
           );
+        }
+      }
+
+      // THE SAME RETRY, ARRIVING AS A RACE instead of as a second request: the SELECT before the
+      // INSERT cannot see a row that has not committed yet, so two concurrent batches carrying the
+      // same item leave one of them here with the PK violation. It asks the same question that
+      // branch asks — same id, same bytes? — so the loser of the race reports what the winner
+      // wrote instead of calling a stored blob `failed`.
+      if (!insertedId && isUniqueViolation(err)) {
+        const { rows: colidida } = await query(Q.FIND_IMAGE_ANY_ATLAS, [image.localId]);
+        const row = colidida[0];
+        if (row && row.atlas_id === atlasId && await resolveContentHash(row) === hashOfItem) {
+          seenLocalIds.add(image.localId);
+          results.uploaded.push({
+            localId: image.localId,
+            serverId: row.id,
+            filename: row.filename,
+            size: row.size_bytes,
+            reused: true,
+          });
+          results.mapping[image.localId] = row.id;
+          continue;
         }
       }
 

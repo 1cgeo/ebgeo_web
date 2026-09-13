@@ -162,6 +162,14 @@ describe('Images — filename hardening (findings 43, 69)', () => {
   // ───────────────────────────────────────────────────────────────────────────
   // Finding 69 — POST /atlas/:id/images validates the uploaded file's name
   // ───────────────────────────────────────────────────────────────────────────
+  // BYTES DISTINTOS A CADA ENVIO, e isso deixou de ser detalhe com 013_imagens_idempotentes.sql:
+  // sem chave de tentativa a rota unica deduplica por HASH DE CONTEUDO, entao reenviar o mesmo
+  // fixture devolve 200 com a linha ANTERIOR, e tres casos deste bloco passariam a ler o
+  // `filename` gravado pelo envio de outro caso. O que eles medem e o NOME, nunca os bytes, e o
+  // enchimento vai depois do IEND, entao o PNG segue valido para a dupla validacao de tipo.
+  let bytesUnicos = 0;
+  const pngProprio = () => Buffer.concat([PNG_BUFFER, Buffer.alloc(++bytesUnicos, 0x00)]);
+
   describe('69: single upload rejects an unbounded originalname without leaking a file', () => {
     it('answers 4xx and leaves the atlas directory untouched (was 500 + orphan blob)', async () => {
       const before = countFiles(atlasDir);
@@ -194,7 +202,7 @@ describe('Images — filename hardening (findings 43, 69)', () => {
       const res = await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/images`)
         .set('Authorization', `Bearer ${token}`)
-        .attach('image', pngPath, 'coordenação da operação.png')
+        .attach('image', pngProprio(), { filename: 'coordenação da operação.png', contentType: 'image/png' })
         .expect(201);
 
       assert.ok(res.body.data.id, 'upload succeeds');
@@ -212,7 +220,7 @@ describe('Images — filename hardening (findings 43, 69)', () => {
       const res = await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/images`)
         .set('Authorization', `Bearer ${token}`)
-        .attach('image', pngPath, name)
+        .attach('image', pngProprio(), { filename: name, contentType: 'image/png' })
         .expect(201);
 
       assert.equal(res.body.data.filename, name);
@@ -222,7 +230,7 @@ describe('Images — filename hardening (findings 43, 69)', () => {
       const res = await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/images`)
         .set('Authorization', `Bearer ${token}`)
-        .attach('image', pngPath, 'planta-sem-extensao')
+        .attach('image', pngProprio(), { filename: 'planta-sem-extensao', contentType: 'image/png' })
         .expect(201);
 
       const { rows } = await db.query('SELECT storage_path FROM images WHERE id = $1', [res.body.data.id]);

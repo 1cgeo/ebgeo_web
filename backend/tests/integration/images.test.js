@@ -5,7 +5,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { mkdirSync, writeFileSync, existsSync, rmSync } from 'fs';
+import { mkdirSync, writeFileSync, existsSync, rmSync, readFileSync } from 'fs';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAtlas, loginUser } from '../helpers/fixtures.js';
@@ -111,10 +111,16 @@ describe('Images API', () => {
       );
       const writerToken = await loginUser(app, writer.username, writer.password);
 
+      // BYTES PROPRIOS, e nao o fixture compartilhado: sem chave de tentativa a rota unica
+      // deduplica por hash de conteudo (013_imagens_idempotentes.sql), e o caso do dono acima ja
+      // enviou esse arquivo neste atlas, entao o fixture voltaria 200 com a linha dele. O que este
+      // caso mede e o PAPEL do remetente, nao o conteudo, e o enchimento depois do IEND mantem o
+      // PNG valido para a dupla validacao de tipo.
       const res = await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/images`)
         .set('Authorization', `Bearer ${writerToken}`)
-        .attach('image', testImagePath)
+        .attach('image', Buffer.concat([readFileSync(testImagePath), Buffer.alloc(7, 0x00)]),
+          { filename: 'writer.png', contentType: 'image/png' })
         .expect(201);
 
       assert.ok(res.body.data.id);

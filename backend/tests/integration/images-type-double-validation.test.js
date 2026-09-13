@@ -229,7 +229,12 @@ describe('images — double type validation (magic bytes vs declared) and disk c
       // Sem isto, "a contagem não mudou" passaria com o diretório inexistente ou com
       // um caminho de storage que o teste nem está olhando.
       const before = filesOnDisk().length;
-      await upload(PNG, 'counted.png', 'image/png').expect(201);
+      // BYTES PRÓPRIOS: sem chave de tentativa a rota única deduplica por hash de conteúdo
+      // (013_imagens_idempotentes.sql), e o `PNG` cru já subiu neste atlas num controle acima, então
+      // repeti-lo devolveria 200 reusando aquela linha — sem gravar arquivo, o que derrubaria as
+      // DUAS metades deste caso. O enchimento vai depois do IEND, então segue sendo PNG válido.
+      const proprio = Buffer.concat([PNG, Buffer.alloc(5, 0x00)]);
+      await upload(proprio, 'counted.png', 'image/png').expect(201);
       assert.equal(filesOnDisk().length, before + 1, 'o instrumento enxerga o diretório real');
     });
 

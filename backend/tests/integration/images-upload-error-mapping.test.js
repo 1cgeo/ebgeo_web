@@ -92,6 +92,19 @@ describe('Images — mapeamento de erro do upload single (item 165)', () => {
     return rows[0].n;
   }
 
+  /**
+   * PNG valido com BYTES DISTINTOS a cada chamada.
+   *
+   * Passou a ser necessario com 013_imagens_idempotentes.sql: sem chave de tentativa a rota unica
+   * deduplica por HASH DE CONTEUDO, entao o segundo envio dos MESMOS bytes neste atlas volta 200
+   * com a linha anterior, e quatro casos deste arquivo (que medem o NOME, nunca os bytes)
+   * passariam a ler o `storage_path` gravado por outro caso. O enchimento vai depois do IEND,
+   * entao o PNG segue valido para a dupla validacao de tipo do servidor.
+   * @returns {Buffer}
+   */
+  let bytesUnicos = 0;
+  const pngProprio = () => Buffer.concat([PNG_1x1, Buffer.alloc(++bytesUnicos, 0x00)]);
+
   const post = () => supertest(app)
     .post(`/api/v1/atlas/${atlas.id}/images`)
     .set('Authorization', `Bearer ${token}`);
@@ -133,7 +146,7 @@ describe('Images — mapeamento de erro do upload single (item 165)', () => {
     const linhasAntes = await countRows();
 
     const res = await post()
-      .attach('file', PNG_1x1, { filename: 'campo-errado.png', contentType: 'image/png' })
+      .attach('file', pngProprio(), { filename: 'campo-errado.png', contentType: 'image/png' })
       .expect(400);
 
     // O ramo generico e o unico que produz esta mensagem. Sem ele, o MulterError
@@ -151,8 +164,8 @@ describe('Images — mapeamento de erro do upload single (item 165)', () => {
     const linhasAntes = await countRows();
 
     const res = await post()
-      .attach('image', PNG_1x1, { filename: 'a.png', contentType: 'image/png' })
-      .attach('image', PNG_1x1, { filename: 'b.png', contentType: 'image/png' })
+      .attach('image', pngProprio(), { filename: 'a.png', contentType: 'image/png' })
+      .attach('image', pngProprio(), { filename: 'b.png', contentType: 'image/png' })
       .expect(400);
 
     assert.equal(res.body.error.code, 'BAD_REQUEST');
@@ -209,7 +222,7 @@ describe('Images — mapeamento de erro do upload single (item 165)', () => {
     const linhasAntes = await countRows();
 
     const res = await post()
-      .attach('image', PNG_1x1, { filename: `${'a'.repeat(252)}.png`, contentType: 'image/png' })
+      .attach('image', pngProprio(), { filename: `${'a'.repeat(252)}.png`, contentType: 'image/png' })
       .expect(422);
 
     // 422, e nao 400: prova que o wrapper REPASSOU o erro em vez de reembrulhar.
@@ -236,7 +249,7 @@ describe('Images — mapeamento de erro do upload single (item 165)', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   it('REFUTADO: separador no segmento de extensao ("foto.pn/g") nao vira 500 — safeExtension o neutraliza', async () => {
-    const res = await postRaw('foto.pn/g', PNG_1x1).expect(201);
+    const res = await postRaw('foto.pn/g', pngProprio()).expect(201);
 
     const { rows } = await db.query('SELECT storage_path, filename FROM images WHERE id = $1', [res.body.data.id]);
     const stored = rows[0].storage_path.split(/[\\/]/).pop();
@@ -255,7 +268,7 @@ describe('Images — mapeamento de erro do upload single (item 165)', () => {
   });
 
   it('REFUTADO: barra invertida no nome tambem nao alcanca o filesystem', async () => {
-    const res = await postRaw('foto.pn\\\\g', PNG_1x1).expect(201);
+    const res = await postRaw('foto.pn\\\\g', pngProprio()).expect(201);
 
     const { rows } = await db.query('SELECT storage_path FROM images WHERE id = $1', [res.body.data.id]);
     const stored = rows[0].storage_path.split(/[\\/]/).pop();
@@ -266,7 +279,7 @@ describe('Images — mapeamento de erro do upload single (item 165)', () => {
   it('REFUTADO: nome sem ponto nenhum nao produz componente de caminho gigante', async () => {
     // Este era o gatilho literal do ENAMETOOLONG do relatorio: sem ponto,
     // `originalname.split('.').pop()` devolvia a string INTEIRA como extensao.
-    const res = await postRaw('a'.repeat(250), PNG_1x1).expect(201);
+    const res = await postRaw('a'.repeat(250), pngProprio()).expect(201);
 
     const { rows } = await db.query('SELECT storage_path FROM images WHERE id = $1', [res.body.data.id]);
     const stored = rows[0].storage_path.split(/[\\/]/).pop();
@@ -275,7 +288,7 @@ describe('Images — mapeamento de erro do upload single (item 165)', () => {
 
   it('REFUTADO: extensao de ~240 chars nao vira ENAMETOOLONG — e truncada para um token curto', async () => {
     const res = await post()
-      .attach('image', PNG_1x1, { filename: `a.${'b'.repeat(240)}`, contentType: 'image/png' })
+      .attach('image', pngProprio(), { filename: `a.${'b'.repeat(240)}`, contentType: 'image/png' })
       .expect(201);
 
     const { rows } = await db.query('SELECT storage_path FROM images WHERE id = $1', [res.body.data.id]);
@@ -286,7 +299,7 @@ describe('Images — mapeamento de erro do upload single (item 165)', () => {
 
   it('caminho feliz continua 201 (as guardas nao sao amplas demais)', async () => {
     const res = await post()
-      .attach('image', PNG_1x1, { filename: 'normal.png', contentType: 'image/png' })
+      .attach('image', pngProprio(), { filename: 'normal.png', contentType: 'image/png' })
       .expect(201);
     assert.equal(res.body.data.filename, 'normal.png');
   });

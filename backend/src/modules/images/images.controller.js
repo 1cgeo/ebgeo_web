@@ -2,9 +2,22 @@
 import { asyncHandler } from '../../utils/async-handler.js';
 import * as imagesService from './images.service.js';
 
+/**
+ * 201 CREATED a row; 200 gave back one that already existed.
+ *
+ * The status is the only place a caller can read WHICH happened, and it has to be readable: a
+ * retry whose first answer was lost must not look like a second upload, or the client would go on
+ * believing every attempt minted a resource. `reused` is the service's word, never inferred from
+ * the row (a freshly created row and a reused one are the same shape).
+ */
 export const uploadImage = asyncHandler(async (req, res) => {
-  const image = await imagesService.uploadImage(req.atlasId, req.file, req.user.id);
-  res.status(201).json({ data: image });
+  const { image, reused } = await imagesService.uploadImage(
+    req.atlasId,
+    req.file,
+    req.user.id,
+    req.attemptKey ?? null
+  );
+  res.status(reused ? 200 : 201).json({ data: image });
 });
 
 export const getImage = asyncHandler(async (req, res, next) => {

@@ -89,6 +89,35 @@ const upload = multer({
   },
 });
 
+/**
+ * Reads the attempt key out of `X-Idempotency-Key` and parks it on the request.
+ *
+ * IT RUNS BEFORE MULTER, and that ordering is the point: a malformed key refused here costs
+ * nothing, while the same refusal one middleware later would have to delete a blob multer had
+ * already written. A header and not a form field, for the same reason: a multipart field is only
+ * readable after the body has been consumed.
+ *
+ * The Joi error is forwarded untouched, so it lands as the 422 VALIDATION_ERROR envelope the rest
+ * of the module already answers with. An absent header is an ordinary request: the server then
+ * falls back to deduplicating by content hash.
+ *
+ * @param {import('express').Request} req - The request.
+ * @param {import('express').Response} res - Unused; present for the middleware signature.
+ * @param {Function} next - Continuation.
+ * @returns {void}
+ */
+function readAttemptKey(req, res, next) {
+  const header = req.get('X-Idempotency-Key');
+  if (header === undefined || header === '') {
+    req.attemptKey = null;
+    return next();
+  }
+  const { error, value } = schemas.attemptKeySchema.validate({ attemptKey: header });
+  if (error) return next(error);
+  req.attemptKey = value.attemptKey;
+  next();
+}
+
 // Wrap multer so a MulterError (e.g. LIMIT_FILE_SIZE) maps to a 400 instead of
 // falling through to the generic 500 (MulterError has no statusCode). The
 // fileFilter's BadRequestError is already an AppError and passes through.
@@ -106,7 +135,7 @@ function uploadSingleImage(req, res, next) {
 }
 
 router.get('/', auth, requireAtlasPermission('read'), ctrl.listImages);
-router.post('/', auth, requireAtlasPermission('write'), uploadSingleImage, ctrl.uploadImage);
+router.post('/', auth, requireAtlasPermission('write'), readAttemptKey, uploadSingleImage, ctrl.uploadImage);
 router.post('/bulk', auth, requireAtlasPermission('write'), validate({ body: schemas.bulkUploadSchema }), ctrl.bulkUploadImages);
 router.get('/:imageId', auth, requireAtlasPermission('read'), ctrl.getImage);
 router.delete('/:imageId', auth, requireAtlasPermission('write'), ctrl.deleteImage);
