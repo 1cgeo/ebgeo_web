@@ -113,10 +113,10 @@ const OCIOSIDADE_MS = 6000;
 
 const PROJETOS = '/atlas.html';
 
-// Duas faixas (bytesDeScript e requisicoesDeScript) carregam a PROPRIA data (2026-09-04 e
-// 2026-09-02), porque foram remedidas sozinhas quando a deriva acumulada as estourou; as demais
-// continuam da bateria de MEDIDO_EM. A data por faixa e a excecao declarada ao paragrafo abaixo,
-// nao uma segunda bateria.
+// Duas faixas (bytesDeScript e requisicoesDeScript) carregam a PROPRIA data (2026-09-13 nas duas,
+// e nos dois casos), porque foram remedidas sozinhas quando a deriva acumulada as estourou; as
+// demais continuam da bateria de MEDIDO_EM. A data por faixa e a excecao declarada ao paragrafo
+// abaixo, nao uma segunda bateria.
 
 /**
  * A data em que TODOS os tetos deste arquivo foram medidos, nesta maquina, nesta camada.
@@ -169,8 +169,20 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
 
         // 1 e 2. DETERMINISTICOS: teto justo (~5% de folga) e piso que reprova "o app nao subiu".
         expectDeterministico(rodadas, 'bytesDeScript', {
-            piso: 47_280_000, teto: 52_260_000, medidoEm: '2026-09-04',
-            porque: 'REMEDIDO em 2026-09-04: 49 770 282 bytes em 4 de 5 rodadas e 49 766 269 na quinta, '
+            piso: 50_450_000, teto: 55_770_000, medidoEm: '2026-09-13',
+            porque: 'REMEDIDO em 2026-09-13: 53 113 913 bytes em 4 de 5 rodadas e 53 109 900 na '
+                + 'primeira, faixa de +-5%. A subida de 3,34 MB (6,7%) sobre a faixa de 2026-09-04 e '
+                + 'a deriva ACUMULADA da onda do lote logico e das pendencias, e a hipotese que valia '
+                + 'descartar foi descartada por leitura: o PAINEL de pendencias nao entrou no boot, '
+                + 'porque `sync-status.control.js` o alcanca so por `import()` dentro do manipulador '
+                + 'de clique, e os cinco arquivos de `account/pendencias/` nao tem um so importador '
+                + 'estatico. Dos 15 modulos que nasceram em `src/js` neste ramo em 2026-09-13, esses '
+                + 'cinco sao os unicos sob demanda; os outros dez sao de `store/` e `store/sync/` '
+                + '(lote de gesto, contrato de mutacao, versao confirmada, unidades de disputa, '
+                + 'classes de problema, quarentena, fila de blob), todos com importador ESTATICO, '
+                + 'que e onde eles pertencem. Os demais modulos da conta vem da deriva entre a '
+                + 'medicao anterior e esta. '
+                + 'Historico: REMEDIDO em 2026-09-04: 49 770 282 bytes em 4 de 5 rodadas e 49 766 269 na quinta, '
                 + 'faixa de +-5%. A subida de 8,4 MB sobre a faixa anterior tem causa medida com sonda '
                 + 'de respostas: o MapLibre 6.7.0 deixou de ser um vendor de 1 022 148 bytes por <script> '
                 + 'e passou a entrar pelo grafo do Vite, que em DEV o serve sem minificar em 8 respostas '
@@ -197,8 +209,18 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
                 + 'tela de "EBGeo indisponivel" passaria em qualquer teto sozinho.',
         });
         expectDeterministico(rodadas, 'requisicoesDeScript', {
-            piso: 509, teto: 562, medidoEm: '2026-09-07',
-            porque: 'REMEDIDO em 2026-09-07: 536 modulos servidos pelo Vite em 5 de 5 rodadas, duas '
+            piso: 537, teto: 594, medidoEm: '2026-09-13',
+            porque: 'REMEDIDO em 2026-09-13: 566 modulos servidos pelo Vite em 5 de 5 rodadas, faixa '
+                + 'de +-5%. Os 30 a mais sobre 2026-09-07 sao a onda do lote logico e das pendencias: '
+                + 'dez deles tem nome e nasceram neste ramo em 2026-09-13, todos de `store/` ou '
+                + '`store/sync/` e todos de import ESTATICO por pertencerem ao nucleo '
+                + '(`sync/gesture-batch.js`, `sync/mutation-contract.js`, `sync/confirmed-version.js`, '
+                + '`sync/dispute-units.js`, `sync/issue-classes.js`, `sync/quarantine-registry.js`, '
+                + '`sync/blob-upload-queue.js`, `sync/blob-upload-keys.js`, `store/atlas-setting-target.js`, '
+                + '`store/map-position-clear.js`); o resto e deriva entre as duas medicoes. O painel de '
+                + 'pendencias NAO esta entre eles, e isso foi conferido e nao suposto: os cinco arquivos '
+                + 'de `account/pendencias/` so sao alcancados por `import()` no clique. '
+                + 'Historico: REMEDIDO em 2026-09-07: 536 modulos servidos pelo Vite em 5 de 5 rodadas, duas '
                 + 'series (fatia da suite e isolada), faixa de +-5%. O HEAD anterior a onda da transicao '
                 + '(f73e48d3) ja media 533 em 5 de 5, dois acima do teto de 531, sem que nenhuma rodada '
                 + 'o tivesse acusado: e o porte de 2026-09-06. A onda da transicao (esquema 3.0) somou '
@@ -389,8 +411,11 @@ describeOrSkip('o boot do mapa: quanto pesa e quanto demora', () => {
         // `peso-de-boot.js`). Entao a serie os REGISTRA no anexo e nao os assere: teto de byte
         // sobre cache quente e um numero que reprova por sorte.
         expectDeterministico(series[abrirRemoto], 'requisicoesDeScript', {
-            piso: 509, teto: 562, medidoEm: '2026-09-07',
-            porque: 'REMEDIDO em 2026-09-07: 536 em todas as janelas de transicao, o mesmo numero do '
+            piso: 537, teto: 594, medidoEm: '2026-09-13',
+            porque: 'REMEDIDO em 2026-09-13: 566 em 5 de 5 janelas de transicao, o mesmo numero do boot '
+                + 'frio (a pagina do mapa carrega o mesmo grafo por qualquer das quatro portas), faixa '
+                + 'de +-5%; a razao dos 30 a mais esta na faixa do boot frio. '
+                + 'Historico: REMEDIDO em 2026-09-07: 536 em todas as janelas de transicao, o mesmo numero do '
                 + 'boot frio (a pagina do mapa carrega o mesmo grafo de modulos por qualquer das quatro '
                 + 'portas), faixa de +-5%; a razao dos 30 a mais esta na faixa do boot frio (o porte de '
                 + '2026-09-06 e os tres modulos da onda da transicao). Historico: REMEDIDO em 2026-09-02: '
