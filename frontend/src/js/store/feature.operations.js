@@ -961,7 +961,11 @@ export async function buildLayerMappingForMove(features, sourceMapName, targetMa
             if (existingTargetLayerId) {
                 layerIdMapping.set(sourceLayerId, existingTargetLayerId);
             } else {
-                const newLayer = deps.layerManager.createLayerForImport(sourceLayer.name, targetMapName);
+                // `createLayerForImport` e ASSINCRONA desde 2026-09-13 (write-ahead). O `await`
+                // e seguro aqui porque `moveFeaturesToMap` e um COMPOSTO que nao toma trava
+                // nenhuma (ver o cabecalho de `store/document-lock.js`), e a criacao de camada
+                // toma a chave lateral 'layers', nunca `map:<id>`.
+                const newLayer = await deps.layerManager.createLayerForImport(sourceLayer.name, targetMapName);
                 layerIdMapping.set(sourceLayerId, newLayer.id);
                 targetLayersByName.set(newLayer.name, newLayer.id);
                 createdNewLayers = true;

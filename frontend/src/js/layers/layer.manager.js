@@ -13,7 +13,12 @@ import {
 import { IDUtils } from '../utilities';
 import { DebouncedPersist } from '../utilities/debounced-persist.js';
 import { EventTypes } from '../events';
-import { logLayerOperation, OperationType } from '../store/sync/index.js';
+import { logLayerOperation } from '../store/sync/index.js';
+// The leaf module, never the `sync/index.js` barrel: several store suites replace that barrel
+// with a partial double that has no `EntityType`, so reaching for it there breaks them at load.
+import { EntityType, OperationType } from '../store/sync/operation-types.js';
+import { runTransaction } from '../store/store-transaction.js';
+import { withSideDocument } from '../store/document-lock.js';
 import { mapResolver } from '../store/services/map-resolver.service.js';
 import { getActiveScope } from '../store/atlas-namespace.js';
 
@@ -38,6 +43,14 @@ function createPersist(label) {
  * Central layer manager.
  * In-memory cache (Map) for synchronous O(1) queries,
  * asynchronous persistence to IndexedDB, events to notify changes.
+ *
+ * TWO WRITE PATHS LIVE HERE SINCE 2026-09-13, and knowing which is which is the whole story.
+ * Create, property update (rename/visibility/lock/opacity) and reorder are WRITE-AHEAD: they go
+ * through {@link LayerManager#_writeLayers}, which journals the intention and writes the document
+ * itself. `deleteLayer` and `setActiveLayer` are still on the old path (memory first, write
+ * deferred by {@link DebouncedPersist}); the first is the next wave, the second is per-client view
+ * state with no op at all. The two paths write the SAME document, which is why the migrated one
+ * drains the debounce before reading.
  */
 class LayerManager {
     /** @param {import('../events/event_bus.js').EventBus} eventBus */
@@ -167,27 +180,41 @@ class LayerManager {
 
     /**
      * Create a new layer.
+     *
+     * ASYNC since 2026-09-13 (write-ahead, bloco B4): the intention is journaled before the
+     * layers document is written, and the write no longer goes through the debounce.
+     *
      * @param {string} name - Layer name (if not provided, generates unique default name)
      * @param {string} mapName
-     * @returns {Object} Created layer
+     * @returns {Promise<Object>} Created layer
      */
-    createLayer(name, mapName = null) {
+    async createLayer(name, mapName = null) {
         return this._createLayerInternal(name, 'Nova Camada', mapName, true);
     }
 
     /**
      * Create a new layer for import (no event emission, no active layer change).
+     *
+     * ASYNC since 2026-09-13, same reason as {@link createLayer}.
+     *
      * @param {string} name
      * @param {string} mapName
-     * @returns {Object} Created layer
+     * @returns {Promise<Object>} Created layer
      */
-    createLayerForImport(name, mapName = null) {
+    async createLayerForImport(name, mapName = null) {
         return this._createLayerInternal(name, 'Importação', mapName, false);
     }
 
     /**
      * Delete a layer in cascade.
      * If deleting the last layer, creates a new default layer automatically.
+     *
+     * STILL ON THE OLD PATH (memory first, debounce, log without waiting), and deliberately so:
+     * it is the wave after this one. It writes the same document the migrated entries write, so
+     * {@link _writeLayers} DRAINS the debounce inside the lock before reading — without that, a
+     * delete's pending write would land after a create's direct write and take the new layer
+     * with it.
+     *
      * @param {string} layerId
      * @param {string} mapName
      * @returns {Object} Information about the deletion
@@ -230,9 +257,9 @@ class LayerManager {
      * @param {string} layerId
      * @param {string} newName
      * @param {string} mapName
-     * @returns {Object} Renamed layer
+     * @returns {Promise<Object>} Renamed layer
      */
-    renameLayer(layerId, newName, mapName = null) {
+    async renameLayer(layerId, newName, mapName = null) {
         return this._updateLayerProperty(layerId, mapName, { name: newName });
     }
 
@@ -240,6 +267,12 @@ class LayerManager {
 
     /**
      * Set the active layer.
+     *
+     * NO OP IS LOGGED HERE, and it stays SYNCHRONOUS on purpose: the active layer is per-client
+     * VIEW state (it has no `layer` op and never travels), so its write may keep riding the
+     * debounce. It also writes a different key (`activeLayer_<map>`) from the layers document,
+     * so it cannot clobber a migrated write.
+     *
      * @param {string} layerId
      * @param {string} mapName
      * @returns {Object} Activated layer
@@ -266,9 +299,9 @@ class LayerManager {
      * @param {string} layerId
      * @param {boolean} visible
      * @param {string} mapName
-     * @returns {Object} Updated layer
+     * @returns {Promise<Object>} Updated layer
      */
-    setLayerVisibility(layerId, visible, mapName = null) {
+    async setLayerVisibility(layerId, visible, mapName = null) {
         return this._updateLayerProperty(layerId, mapName, { visible });
     }
 
@@ -277,9 +310,9 @@ class LayerManager {
      * @param {string} layerId
      * @param {boolean} locked
      * @param {string} mapName
-     * @returns {Object} Updated layer
+     * @returns {Promise<Object>} Updated layer
      */
-    setLayerLocked(layerId, locked, mapName = null) {
+    async setLayerLocked(layerId, locked, mapName = null) {
         return this._updateLayerProperty(layerId, mapName, { locked });
     }
 
@@ -288,9 +321,9 @@ class LayerManager {
      * @param {string} layerId
      * @param {number} opacity
      * @param {string} mapName
-     * @returns {Object} Updated layer
+     * @returns {Promise<Object>} Updated layer
      */
-    setLayerOpacity(layerId, opacity, mapName = null) {
+    async setLayerOpacity(layerId, opacity, mapName = null) {
         // `Number(null)` is 0 and `Number('')` is 0, both of which survive
         // `Number.isFinite` and clamp to a FULLY TRANSPARENT layer, while
         // `Number(undefined)` is NaN and falls on the default 1. Three spellings
@@ -305,34 +338,42 @@ class LayerManager {
 
     /**
      * Reorder layers based on array of IDs.
+     *
+     * ASYNC since 2026-09-13 (write-ahead, bloco B4): N intentions and ONE write, in one
+     * transaction, so the new stacking either is recoverable whole or never happened. Reordering
+     * is the entry where the old shape hurt most, because the order is invisible: a lost write
+     * is indistinguishable from never having dragged anything.
+     *
      * @param {string[]} orderedLayerIds
      * @param {string} mapName
+     * @returns {Promise<void>}
      */
-    reorderLayers(orderedLayerIds, mapName = null) {
+    async reorderLayers(orderedLayerIds, mapName = null) {
         const targetMap = this._resolveMap(mapName);
-        const layersMap = this.memoryStore.layers[targetMap];
-        const mapId = mapResolver.resolveToId(targetMap);
-
-        // The index must count the layers that EXIST, not the positions of the
-        // received array: a stale id left in the UI list used to consume index 0
-        // and push the whole stack down by one, with no error anywhere.
-        let index = 0;
-        orderedLayerIds.forEach((layerId) => {
-            const layer = layersMap.get(layerId);
-            if (!layer) return;
-            const position = index++;
-            if (layer.order !== position) {
-                const oldLayer = { ...layer };
-                layer.order = position;
-                layer.updatedAt = Date.now();
-                layer.version = (oldLayer.version || 0) + 1;
+        return this._writeLayers(targetMap, 'reorderLayers', (layersMap) => {
+            const layers = {};
+            const operations = [];
+            const now = Date.now();
+            // The index must count the layers that EXIST, not the positions of the
+            // received array: a stale id left in the UI list used to consume index 0
+            // and push the whole stack down by one, with no error anywhere.
+            let index = 0;
+            for (const layerId of orderedLayerIds) {
+                const layer = layersMap.get(layerId);
+                if (!layer) continue;
+                const position = index++;
+                if (layer.order === position) continue;
+                const next = { ...layer, order: position, updatedAt: now, version: (layer.version || 0) + 1 };
+                layers[layerId] = next;
                 // Sync the new render order to peers — it was persisted locally but never logged,
                 // so collaborators kept the old layer order.
-                logLayerOperation(OperationType.UPDATE, layerId, mapId, layer, oldLayer);
+                operations.push({ type: OperationType.UPDATE, id: layerId, data: next, previous: { ...layer } });
             }
+            // Nothing moved: no intention, and no write either. The old shape still wrote the
+            // whole document back for a no-op drag.
+            if (operations.length === 0) return null;
+            return { layers, operations };
         });
-
-        this._persistLayersAsync(targetMap);
     }
 
     // ===== LIFECYCLE / PERSISTENCE =====
@@ -473,69 +514,142 @@ class LayerManager {
     }
 
     /**
+     * Journals a layer edit before the per-map layers document is written.
+     *
+     * The contract is the one `editCatalogLayers` established and `_writeGroups`
+     * (`tool_manager/group_manager.js`) copies: the side-document lock serializes writers,
+     * `prepare` reads the cache and builds the WHOLE edit, `recordOperation` states the intention
+     * while the copy on disk is still the old one, and the returned closure is the ONLY writer.
+     * The memory cache is updated in `tx.deferSync`, so a write that fails leaves the cache
+     * agreeing with disk instead of showing an edit that nothing persisted.
+     *
+     * THE LOCK IS THE 'layers' SIDE KEY, NOT THE MAP DOCUMENT, and that is load-bearing. The
+     * layers of a map live in their own store, and two callers reach layer creation from INSIDE a
+     * `withMapDocument` section of the same map (`buildLayerMappingForMove` runs under the move
+     * composite, and the import path writes features right after); the queue in
+     * `store/document-lock.js` is FIFO with no reentrancy, so sharing `map:<id>` would wait for
+     * the caller itself, forever.
+     *
+     * IT DRAINS THE DEBOUNCE FIRST, inside the lock. `deleteLayer` and `setActiveLayer` still
+     * schedule their writes through `DebouncedPersist`, and a pending one carries a SNAPSHOT of
+     * memory taken before this edit: firing after the direct write it would silently undo it.
+     * Draining converts that race into an ordinary ordering. The drain is outside the transaction
+     * on purpose: it persists somebody else's already-decided edit, not ours.
+     *
+     * The edited layer is REPLACED, not mutated in place, which is what keeps the failed write
+     * invisible. Read it back through `getLayerById`, never through a reference held across the
+     * await.
+     *
+     * @private
+     * @param {string} targetMap - Resolved map name
+     * @param {string} label - Operation label, for the deadlock report
+     * @param {function(Map): (Object|null)} prepare - Receives the map's layers cache; returns
+     *   `{ layers, operations, result, effect }` or null to abort with no write
+     * @returns {Promise<*>} `edit.result`
+     */
+    async _writeLayers(targetMap, label, prepare) {
+        let output;
+        // Leaf read-modify-write of the per-map layers document; see store/document-lock.js.
+        await withSideDocument('layers', targetMap, label, async () => {
+            await this._layersPersist.flush(targetMap);
+            return runTransaction(async (tx) => {
+                this._ensureMapLayersExist(targetMap);
+                const layersMap = this.memoryStore.layers[targetMap];
+                const edit = prepare(layersMap);
+                if (!edit) return async () => {};
+                // Tag the op with the map's UUID (not its name) so it reaches the right map on the
+                // backend/peers — a non-UUID map id is rejected and poisons the whole flush batch.
+                const mapId = mapResolver.resolveToId(targetMap);
+                for (const op of edit.operations) {
+                    tx.recordOperation(EntityType.LAYER, op.type, op.id, mapId, op.data ?? null, op.previous ?? null);
+                }
+                const document = Array.from(layersMap.values()).map((layer) => edit.layers[layer.id] ?? layer);
+                for (const [id, layer] of Object.entries(edit.layers)) {
+                    if (!layersMap.has(id)) document.push(layer);
+                }
+                tx.deferSync(() => {
+                    const live = this.memoryStore.layers[targetMap];
+                    for (const [id, layer] of Object.entries(edit.layers)) live.set(id, layer);
+                    edit.effect?.();
+                });
+                output = edit.result;
+                return () => setLayersRepo(targetMap, document);
+            });
+        });
+        return output;
+    }
+
+    /**
      * Shared layer creation logic.
      * @param {string} name - Explicit name (may be falsy)
      * @param {string} defaultPrefix - Prefix for auto-generated name
      * @param {string} mapName
      * @param {boolean} notify - Whether to emit LAYERS_CHANGED
-     * @returns {Object} Created layer
+     * @returns {Promise<Object>} Created layer
      * @private
      */
-    _createLayerInternal(name, defaultPrefix, mapName, notify) {
+    async _createLayerInternal(name, defaultPrefix, mapName, notify) {
         const targetMap = this._resolveMap(mapName);
-        const layersMap = this.memoryStore.layers[targetMap];
+        return this._writeLayers(targetMap, 'createLayer', (layersMap) => {
+            const layerName = name || IDUtils.generateUniqueLayerName(
+                Array.from(layersMap.values()), defaultPrefix
+            );
 
-        const layerName = name || IDUtils.generateUniqueLayerName(
-            Array.from(layersMap.values()), defaultPrefix
-        );
+            const now = Date.now();
+            const newLayer = {
+                id: IDUtils.generateUniqueId('layer'),
+                name: layerName,
+                visible: true,
+                locked: false,
+                opacity: 1,
+                order: this._getNextLayerOrder(targetMap),
+                createdAt: now,
+                updatedAt: now,
+                version: 1
+            };
 
-        const now = Date.now();
-        const newLayer = {
-            id: IDUtils.generateUniqueId('layer'),
-            name: layerName,
-            visible: true,
-            locked: false,
-            opacity: 1,
-            order: this._getNextLayerOrder(targetMap),
-            createdAt: now,
-            updatedAt: now,
-            version: 1
-        };
-
-        layersMap.set(newLayer.id, newLayer);
-        this._persistLayersAsync(targetMap);
-        if (notify) this._notifyLayersChanged();
-
-        // Tag the op with the map's UUID (not its name) so it reaches the right map on the
-        // backend/peers — same fix class as feature ops.
-        logLayerOperation(OperationType.CREATE, newLayer.id, mapResolver.resolveToId(targetMap), newLayer);
-        return newLayer;
+            return {
+                layers: { [newLayer.id]: newLayer },
+                operations: [{ type: OperationType.CREATE, id: newLayer.id, data: newLayer }],
+                result: newLayer,
+                effect: notify ? () => this._notifyLayersChanged() : undefined
+            };
+        });
     }
 
     /**
      * Update one or more properties on a layer, with versioning and sync logging.
+     *
+     * Serves rename, visibility, lock and opacity. ASYNC and write-ahead since 2026-09-13.
+     *
      * @param {string} layerId
      * @param {string} mapName
      * @param {Object} changes - Key/value pairs to apply
-     * @returns {Object} Updated layer
+     * @returns {Promise<Object>} Updated layer
      * @private
      */
-    _updateLayerProperty(layerId, mapName, changes) {
+    async _updateLayerProperty(layerId, mapName, changes) {
         const targetMap = this._resolveMap(mapName);
-        const layer = this.getLayerById(layerId, targetMap);
+        return this._writeLayers(targetMap, 'updateLayer', (layersMap) => {
+            // Read INSIDE the critical section: a layer read before the lock may have been
+            // deleted by the writer ahead in the queue, and editing it would resurrect it.
+            const layer = layersMap.get(layerId);
+            if (!layer) throw new Error(`Layer ${layerId} not found.`);
 
-        if (!layer) throw new Error(`Layer ${layerId} not found.`);
+            const next = {
+                ...layer,
+                ...changes,
+                updatedAt: Date.now(),
+                version: (layer.version || 0) + 1
+            };
 
-        const oldLayer = { ...layer };
-        Object.assign(layer, changes);
-        layer.updatedAt = Date.now();
-        layer.version = (oldLayer.version || 0) + 1;
-
-        this._persistLayersAsync(targetMap);
-        this._notifyLayersChanged();
-
-        logLayerOperation(OperationType.UPDATE, layerId, mapResolver.resolveToId(targetMap), layer, oldLayer);
-        return layer;
+            return {
+                layers: { [layerId]: next },
+                operations: [{ type: OperationType.UPDATE, id: layerId, data: next, previous: { ...layer } }],
+                result: next,
+                effect: () => this._notifyLayersChanged()
+            };
+        });
     }
 
     /**

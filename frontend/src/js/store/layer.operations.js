@@ -73,11 +73,13 @@ export function getVisibleLayerIds(mapName = null) {
 /**
  * Creates a new layer.
  *
+ * ASYNC since 2026-09-13: the manager journals the intention before writing (bloco B4).
+ *
  * @param {string} [name='Nova Camada'] - Layer name
  * @param {string} [mapName=null] - Map name
- * @returns {import('./store.types.js').Layer|null} Created layer or null if blocked
+ * @returns {Promise<import('./store.types.js').Layer|null>} Created layer or null if blocked
  */
-export function createLayer(name = 'Nova Camada', mapName = null) {
+export async function createLayer(name = 'Nova Camada', mapName = null) {
     const perm = checkPermission(GuardAction.CREATE_LAYER);
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'createLayer', reason: perm.reason, required: perm.required });
@@ -94,11 +96,14 @@ export function createLayer(name = 'Nova Camada', mapName = null) {
 /**
  * Creates a new layer for import (no event emission).
  *
+ * ASYNC since 2026-09-13, like {@link createLayer}. Every caller has to await it: a floating
+ * promise here returns a layer id the import then stamps on features that reach disk first.
+ *
  * @param {string} [name='Importação'] - Layer name
  * @param {string} [mapName=null] - Map name
- * @returns {import('./store.types.js').Layer} Created layer
+ * @returns {Promise<import('./store.types.js').Layer>} Created layer
  */
-export function createLayerForImport(name = 'Importação', mapName = null) {
+export async function createLayerForImport(name = 'Importação', mapName = null) {
     return deps.layerManager.createLayerForImport(name, mapName);
 }
 
@@ -121,9 +126,9 @@ export function setActiveLayer(layerId, mapName = null) {
  * @param {string} layerId - Layer ID
  * @param {string} newName - New layer name
  * @param {string} [mapName=null] - Map name
- * @returns {import('./store.types.js').Layer|null} Renamed layer or null if blocked
+ * @returns {Promise<import('./store.types.js').Layer|null>} Renamed layer or null if blocked
  */
-export function renameLayer(layerId, newName, mapName = null) {
+export async function renameLayer(layerId, newName, mapName = null) {
     const perm = checkPermission(GuardAction.UPDATE_LAYER);
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'renameLayer', reason: perm.reason, required: perm.required });
@@ -143,9 +148,9 @@ export function renameLayer(layerId, newName, mapName = null) {
  * @param {string} layerId - Layer ID
  * @param {boolean} visible - Visibility state
  * @param {string} [mapName=null] - Map name
- * @returns {import('./store.types.js').Layer} Updated layer
+ * @returns {Promise<import('./store.types.js').Layer>} Updated layer
  */
-export function setLayerVisibility(layerId, visible, mapName = null) {
+export async function setLayerVisibility(layerId, visible, mapName = null) {
     return deps.layerManager.setLayerVisibility(layerId, visible, mapName);
 }
 
@@ -155,9 +160,9 @@ export function setLayerVisibility(layerId, visible, mapName = null) {
  * @param {string} layerId - Layer ID
  * @param {boolean} locked - Lock state
  * @param {string} [mapName=null] - Map name
- * @returns {import('./store.types.js').Layer} Updated layer
+ * @returns {Promise<import('./store.types.js').Layer>} Updated layer
  */
-export function setLayerLocked(layerId, locked, mapName = null) {
+export async function setLayerLocked(layerId, locked, mapName = null) {
     return deps.layerManager.setLayerLocked(layerId, locked, mapName);
 }
 
@@ -167,9 +172,9 @@ export function setLayerLocked(layerId, locked, mapName = null) {
  * @param {string} layerId - Layer ID
  * @param {number} opacity - Opacity multiplier
  * @param {string} [mapName=null] - Map name
- * @returns {import('./store.types.js').Layer|null} Updated layer or null if blocked
+ * @returns {Promise<import('./store.types.js').Layer|null>} Updated layer or null if blocked
  */
-export function setLayerOpacity(layerId, opacity, mapName = null) {
+export async function setLayerOpacity(layerId, opacity, mapName = null) {
     const perm = checkPermission(GuardAction.UPDATE_LAYER);
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'setLayerOpacity', reason: perm.reason, required: perm.required });
@@ -188,8 +193,9 @@ export function setLayerOpacity(layerId, opacity, mapName = null) {
  *
  * @param {string[]} orderedLayerIds - Array of layer IDs in new order
  * @param {string} [mapName=null] - Map name
+ * @returns {Promise<void>}
  */
-export function reorderLayers(orderedLayerIds, mapName = null) {
+export async function reorderLayers(orderedLayerIds, mapName = null) {
     const perm = checkPermission(GuardAction.UPDATE_LAYER);
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'reorderLayers', reason: perm.reason, required: perm.required });

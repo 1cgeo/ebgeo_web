@@ -84,7 +84,11 @@ const PISO_RECORD = 18;
 // e chaves de atlas migrou `setBaseLayer`, `updateMapPosition`, `clearMapPosition`, `setMapOrder`,
 // `setMapBadgeColors`, `saveAtlasAppearance` e `addCustomIcon`, e cada onda recalibrou o piso
 // sem ver a outra; o número fundido é o que a varredura mede sobre a árvore combinada.
-const PISO_LOG = 23;
+// Baixado de 23 para 20 na segunda onda de B4 (2026-09-13): as três entradas de
+// `src/js/layers/layer.manager.js` que viraram write-ahead (criar, atualizar propriedade e
+// reordenar) deixaram de chamar `logLayerOperation`. `deleteLayer` continua chamando, e é essa a
+// unidade que sobra ali.
+const PISO_LOG = 20;
 
 /**
  * Comentário fora, preservando a contagem de linhas para que a mensagem de erro aponte a

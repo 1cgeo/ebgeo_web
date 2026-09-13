@@ -321,7 +321,10 @@ class MapManager {
                 if (existingLayerId) {
                     layerIdMapping.set(sourceLayer.id, existingLayerId);
                 } else {
-                    const newLayer = layerManager.createLayerForImport(sourceLayer.name, targetMapName);
+                    // `createLayerForImport` e ASSINCRONA desde 2026-09-13 (write-ahead): sem o
+                    // `await`, `newLayer.id` viria `undefined` e o mapeamento apontaria as
+                    // feicoes do mapa mesclado para uma camada que nao existe.
+                    const newLayer = await layerManager.createLayerForImport(sourceLayer.name, targetMapName);
                     layerIdMapping.set(sourceLayer.id, newLayer.id);
                     targetLayersByName.set(newLayer.name, newLayer.id);
                 }

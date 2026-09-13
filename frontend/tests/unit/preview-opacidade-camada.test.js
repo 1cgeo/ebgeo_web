@@ -198,8 +198,19 @@ describe('quem chama o preview: a linha de opacidade da lista de camadas', () =>
         const corpo = codigo.slice(ondeLinha, codigo.indexOf('\n}', ondeLinha));
         const ondeChange = corpo.indexOf("addEventListener('change'");
 
-        expect(corpo.slice(ondeChange)).toMatch(/setLayerOpacity\(layer\.id, percent \/ 100\)/);
-        // Duas gravações no gesto (uma por quadro e outra no fim) desfariam a economia inteira.
-        expect(corpo.match(/setLayerOpacity\(/g)).toHaveLength(2);
+        // `setLayerOpacity` virou ASSÍNCRONA em 2026-09-13 (write-ahead), e os dois pontos de
+        // gravação passaram a chamá-la por um FUNIL, `gravarOpacidade`, que é onde mora o
+        // tratamento da rejeição: nenhum dos dois pode esperar pela promessa (um roda num quadro
+        // de animação, o outro no fim do gesto), então sem o funil a rejeição ficaria solta.
+        expect(corpo.slice(ondeChange)).toMatch(/gravarOpacidade\(percent \/ 100\)/);
+        // UM só chamador de `setLayerOpacity` (o funil), e é ele que trata a falha.
+        expect(corpo.match(/setLayerOpacity\(/g)).toHaveLength(1);
+        expect(corpo.slice(0, corpo.indexOf("addEventListener('input'")))
+            .toMatch(/setLayerOpacity\(layer\.id, valor\)\.catch\(/);
+        // DUAS chamadas do funil e nada mais: a queda do `input` sem mapa e o fim do gesto. Uma
+        // terceira significaria gravar por quadro, o que desfaria a economia inteira. A definição
+        // (`const gravarOpacidade = (valor) =>`) não entra nesta contagem, de propósito.
+        expect(corpo).toMatch(/const gravarOpacidade = \(valor\) =>/);
+        expect(corpo.match(/gravarOpacidade\(/g)).toHaveLength(2);
     });
 });

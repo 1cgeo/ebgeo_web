@@ -37,13 +37,33 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
+// AS OPS CHEGAM POR DUAS PORTAS, e as duas caem na mesma lista de proposito. `deleteLayer`
+// continua chamando `logLayerOperation` (caminho antigo); criar, atualizar e reordenar viraram
+// WRITE-AHEAD em 2026-09-13 e declaram a intencao por `tx.recordOperation`, que o despachante
+// recebe em `persistOperationIntents`. Normalizar as duas para a MESMA tupla
+// `[tipo, id, mapId, data, anterior]` e o que mantem as assercoes desta suite falando de
+// OPERACAO em vez de mecanismo.
 const loggedOps = [];
 vi.mock('../../src/js/store/sync/index.js', () => ({
     OperationType: { CREATE: 'create', UPDATE: 'update', DELETE: 'delete' },
     logLayerOperation: (...args) => loggedOps.push(args),
 }));
+vi.mock('../../src/js/store/sync/operation-dispatcher.js', async (importOriginal) => {
+    const real = await importOriginal();
+    return {
+        ...real,
+        persistOperationIntents: async (descriptions) => {
+            for (const op of descriptions) {
+                loggedOps.push([op.operationType, op.entityId, op.mapId, op.data, op.previousData]);
+            }
+        },
+    };
+});
+// `getIdForName` e o que `sideDocumentKey` chama para montar a chave da trava do documento
+// lateral de camadas. Sem ele no duplo, toda escrita migrada estoura em `TypeError` dentro da
+// trava, e o sintoma e uma rejeicao nao tratada longe da causa.
 vi.mock('../../src/js/store/services/map-resolver.service.js', () => ({
-    mapResolver: { resolveToId: (name) => `uuid-of-${name}` },
+    mapResolver: { resolveToId: (name) => `uuid-of-${name}`, getIdForName: (name) => name },
 }));
 
 const repo = { layers: {}, activeId: {} };
@@ -69,6 +89,17 @@ const MAP = 'MapaDeTeste';
 let lm;
 let emitted;
 
+/**
+ * A ordem VIGENTE de uma camada, lida da memoria.
+ *
+ * As tres entradas migradas SUBSTITUEM o registro em vez de muta-lo no lugar, que e o que mantem
+ * invisivel uma gravacao que falha. Uma referencia obtida antes do await continua sendo o
+ * documento anterior, e afirmar sobre ela mediria o passado.
+ * @param {string} id
+ * @returns {number|undefined}
+ */
+const ordem = (id) => lm.getLayerById(id, MAP)?.order;
+
 beforeEach(() => {
     loggedOps.length = 0;
     repo.layers = {};
@@ -83,8 +114,8 @@ beforeEach(() => {
 });
 
 describe('1. os tres carimbos, e a ausencia dos outros tres', () => {
-    it('createLayer poe EXATAMENTE createdAt, updatedAt e version, e nada de ownerId/dirty/deleted', () => {
-        const layer = lm.createLayer('Alfa', MAP);
+    it('createLayer poe EXATAMENTE createdAt, updatedAt e version, e nada de ownerId/dirty/deleted', async () => {
+        const layer = await lm.createLayer('Alfa', MAP);
         for (const campo of CARIMBOS) expect(layer[campo]).toBeDefined();
         for (const campo of NAO_CARIMBOS) expect(campo in layer).toBe(false);
         expect(Object.keys(layer).sort()).toEqual(
@@ -94,8 +125,8 @@ describe('1. os tres carimbos, e a ausencia dos outros tres', () => {
         expect(layer.createdAt).toBe(layer.updatedAt);
     });
 
-    it('createLayerForImport nasce com o mesmo conjunto de campos', () => {
-        const layer = lm.createLayerForImport('Importada', MAP);
+    it('createLayerForImport nasce com o mesmo conjunto de campos', async () => {
+        const layer = await lm.createLayerForImport('Importada', MAP);
         for (const campo of NAO_CARIMBOS) expect(campo in layer).toBe(false);
         expect(layer.version).toBe(1);
     });
@@ -119,8 +150,8 @@ describe('1. os tres carimbos, e a ausencia dos outros tres', () => {
         expect(repo.activeId.Destino).toBe(mapping.get('l2'));
     });
 
-    it('createLayer registra UMA op de sync, carimbada com o UUID do mapa e nao com o nome', () => {
-        const layer = lm.createLayer('Alfa', MAP);
+    it('createLayer registra UMA op de sync, carimbada com o UUID do mapa e nao com o nome', async () => {
+        const layer = await lm.createLayer('Alfa', MAP);
         expect(loggedOps).toHaveLength(1);
         const [tipo, layerId, mapId, payload] = loggedOps[0];
         expect(tipo).toBe('create');
@@ -129,91 +160,100 @@ describe('1. os tres carimbos, e a ausencia dos outros tres', () => {
         expect(payload).toBe(layer);
     });
 
-    it('createLayerForImport NAO emite LAYERS_CHANGED, e createLayer emite', () => {
-        lm.createLayerForImport('I', MAP);
+    it('createLayerForImport NAO emite LAYERS_CHANGED, e createLayer emite', async () => {
+        await lm.createLayerForImport('I', MAP);
         expect(emitted).toHaveLength(0);
-        lm.createLayer('C', MAP);
+        await lm.createLayer('C', MAP);
         expect(emitted).toHaveLength(1);
         expect(emitted[0][1]).toEqual({ mapName: MAP });
     });
 
-    it('BORDA: nome vazio cai no gerador de nome unico, e nome com zero NAO', () => {
+    it('BORDA: nome vazio cai no gerador de nome unico, e nome com zero NAO', async () => {
         // `name || gerado` engole a string vazia, que e o unico falsy plausivel aqui.
-        const vazio = lm.createLayer('', MAP);
+        const vazio = await lm.createLayer('', MAP);
         expect(vazio.name).not.toBe('');
         expect(vazio.name).toContain('Nova Camada');
-        const zero = lm.createLayer('0', MAP);
+        const zero = await lm.createLayer('0', MAP);
         expect(zero.name).toBe('0');
     });
 });
 
 describe('2. version e updatedAt sobem a cada atualizacao', () => {
-    it('cada renomeacao soma um em version e reescreve updatedAt', () => {
-        const l = lm.createLayer('A', MAP);
+    it('cada renomeacao soma um em version e reescreve updatedAt', async () => {
+        const l = await lm.createLayer('A', MAP);
         const antes = l.updatedAt;
-        const r1 = lm.renameLayer(l.id, 'B', MAP);
+        const r1 = await lm.renameLayer(l.id, 'B', MAP);
         expect(r1.version).toBe(2);
         expect(r1.name).toBe('B');
         expect(r1.updatedAt).toBeGreaterThanOrEqual(antes);
-        const r2 = lm.renameLayer(l.id, 'C', MAP);
+        const r2 = await lm.renameLayer(l.id, 'C', MAP);
         expect(r2.version).toBe(3);
+        // A ATUALIZACAO SUBSTITUI O REGISTRO, nao o muta no lugar, e e isso que mantem invisivel
+        // a gravacao que falha: `l` e o documento de antes, e quem responde pelo estado e a
+        // memoria. Ler por referencia guardada atraves do await mente.
+        expect(l.name).toBe('A');
+        expect(lm.getLayerById(l.id, MAP).name).toBe('C');
     });
 
-    it('camada legada SEM version comeca do zero e vai para 1, sem NaN', () => {
+    it('camada legada SEM version comeca do zero e vai para 1, sem NaN', async () => {
         lm.memoryStore.layers[MAP] = new Map([['legada', { id: 'legada', name: 'X', visible: true }]]);
-        const out = lm.renameLayer('legada', 'Y', MAP);
+        const out = await lm.renameLayer('legada', 'Y', MAP);
         expect(out.version).toBe(1);
         expect(Number.isFinite(out.version)).toBe(true);
     });
 
-    it('camada inexistente lanca, em vez de criar em silencio', () => {
-        expect(() => lm.renameLayer('nao-existe', 'Z', MAP)).toThrow(/not found/);
+    it('camada inexistente lanca, em vez de criar em silencio', async () => {
+        // Renomear virou assincrona: a recusa chega como REJEICAO, e `runTransaction` a relata
+        // como `STORE_PERSIST_ERROR` antes de repropagar. `setActiveLayer` continua sincrona,
+        // porque nao escreve o documento de camadas nem registra op.
+        await expect(lm.renameLayer('nao-existe', 'Z', MAP)).rejects.toThrow(/not found/);
         expect(() => lm.setActiveLayer('nao-existe', MAP)).toThrow(/not found/);
     });
 
-    it('reorderLayers so registra op para a camada que MUDOU de posicao', () => {
-        const a = lm.createLayer('A', MAP);
-        const b = lm.createLayer('B', MAP);
+    it('reorderLayers so registra op para a camada que MUDOU de posicao', async () => {
+        const a = await lm.createLayer('A', MAP);
+        const b = await lm.createLayer('B', MAP);
         loggedOps.length = 0;
         // 'default' ja esta em 0; a e b em 1 e 2. Trocar a por b move as duas.
-        lm.reorderLayers(['default', b.id, a.id], MAP);
+        await lm.reorderLayers(['default', b.id, a.id], MAP);
         const ids = loggedOps.map(([, layerId]) => layerId);
         expect(ids).toHaveLength(2);
         expect(new Set(ids)).toEqual(new Set([a.id, b.id]));
-        expect(a.order).toBe(2);
-        expect(b.order).toBe(1);
+        // Pela memoria, nunca pela referencia de antes: reordenar SUBSTITUI o registro.
+        expect(ordem(a.id)).toBe(2);
+        expect(ordem(b.id)).toBe(1);
         // Repetir a mesma ordem nao registra nada: a comparacao e por valor.
         loggedOps.length = 0;
-        lm.reorderLayers(['default', b.id, a.id], MAP);
+        await lm.reorderLayers(['default', b.id, a.id], MAP);
         expect(loggedOps).toHaveLength(0);
     });
 
-    it('CONSERTADO: id fantasma nao lanca e nao CONSOME mais o indice', () => {
-        const a = lm.createLayer('A', MAP); // nasce com order 1
+    it('CONSERTADO: id fantasma nao lanca e nao CONSOME mais o indice', async () => {
+        const a = await lm.createLayer('A', MAP); // nasce com order 1
         loggedOps.length = 0;
-        expect(() => lm.reorderLayers(['fantasma', a.id], MAP)).not.toThrow();
+        await expect(lm.reorderLayers(['fantasma', a.id], MAP)).resolves.not.toThrow();
         // O indice conta as camadas que EXISTEM, nao as posicoes do array recebido. Antes `a`
         // ficava em 1 porque o fantasma ocupava o 0, e um id ja apagado que sobrevivesse na lista
         // da UI empurrava a pilha inteira para baixo, sem erro nenhum.
-        expect(a.order).toBe(0);
+        expect(ordem(a.id)).toBe(0);
         expect(loggedOps).toHaveLength(1);
     });
 
-    it('CONSERTADO: varios fantasmas intercalados nao abrem buracos na pilha', () => {
-        const a = lm.createLayer('A', MAP);
-        const b = lm.createLayer('B', MAP);
+    it('CONSERTADO: varios fantasmas intercalados nao abrem buracos na pilha', async () => {
+        const a = await lm.createLayer('A', MAP);
+        const b = await lm.createLayer('B', MAP);
         loggedOps.length = 0;
-        lm.reorderLayers(['f1', b.id, 'f2', 'f3', a.id, 'f4'], MAP);
-        expect(b.order).toBe(0);
-        expect(a.order).toBe(1);
+        await lm.reorderLayers(['f1', b.id, 'f2', 'f3', a.id, 'f4'], MAP);
+        expect(ordem(b.id)).toBe(0);
+        expect(ordem(a.id)).toBe(1);
     });
 
-    it('CONTROLE: sem fantasma nenhum a ordem continua sendo a do array', () => {
-        const a = lm.createLayer('A', MAP);
-        const b = lm.createLayer('B', MAP);
-        lm.reorderLayers([b.id, a.id], MAP);
-        expect(b.order).toBe(0);
-        expect(a.order).toBe(1);
+    it('CONTROLE: sem fantasma nenhum a ordem continua sendo a do array', async () => {
+        const a = await lm.createLayer('A', MAP);
+        const b = await lm.createLayer('B', MAP);
+        await lm.reorderLayers([b.id, a.id], MAP);
+        expect(ordem(b.id)).toBe(0);
+        expect(ordem(a.id)).toBe(1);
     });
 });
 
@@ -339,57 +379,61 @@ describe('4. ordem: proxima ordem, ordenacao e o vazio que evita -Infinity', () 
 
 describe('5. opacidade: clamp, nao-finito e a assimetria de null contra undefined', () => {
     let alvo;
-    beforeEach(() => { alvo = lm.createLayer('A', MAP); });
+    /** A opacidade RESULTANTE de uma escrita, lida do retorno assincrono. */
+    const opacidade = async (valor) => (await lm.setLayerOpacity(alvo.id, valor, MAP)).opacity;
 
-    it('0 e preservado (nao vira 1), e 1 e o teto', () => {
-        expect(lm.setLayerOpacity(alvo.id, 0, MAP).opacity).toBe(0);
-        expect(lm.setLayerOpacity(alvo.id, 1, MAP).opacity).toBe(1);
+    beforeEach(async () => { alvo = await lm.createLayer('A', MAP); });
+
+    it('0 e preservado (nao vira 1), e 1 e o teto', async () => {
+        expect(await opacidade(0)).toBe(0);
+        expect(await opacidade(1)).toBe(1);
     });
 
-    it('clampa fora de [0,1] pelos dois lados', () => {
-        expect(lm.setLayerOpacity(alvo.id, -3, MAP).opacity).toBe(0);
-        expect(lm.setLayerOpacity(alvo.id, 7, MAP).opacity).toBe(1);
+    it('clampa fora de [0,1] pelos dois lados', async () => {
+        expect(await opacidade(-3)).toBe(0);
+        expect(await opacidade(7)).toBe(1);
     });
 
-    it('nao-finito cai no padrao 1 (Number.isFinite, nao `?? 1`)', () => {
-        expect(lm.setLayerOpacity(alvo.id, NaN, MAP).opacity).toBe(1);
-        expect(lm.setLayerOpacity(alvo.id, Infinity, MAP).opacity).toBe(1);
-        expect(lm.setLayerOpacity(alvo.id, undefined, MAP).opacity).toBe(1);
-        expect(lm.setLayerOpacity(alvo.id, 'abc', MAP).opacity).toBe(1);
+    it('nao-finito cai no padrao 1 (Number.isFinite, nao `?? 1`)', async () => {
+        expect(await opacidade(NaN)).toBe(1);
+        expect(await opacidade(Infinity)).toBe(1);
+        expect(await opacidade(undefined)).toBe(1);
+        expect(await opacidade('abc')).toBe(1);
     });
 
-    it('CONSERTADO: `null`, `undefined` e string vazia caem TODOS no padrao 1', () => {
+    it('CONSERTADO: `null`, `undefined` e string vazia caem TODOS no padrao 1', async () => {
         // `Number(null) === 0` passava pelo Number.isFinite e era clampado para 0, enquanto
         // `Number(undefined)` e NaN e caia no padrao. Os tres chegam de "nenhuma escolha" e saiam
         // em pontas opostas da escala: uma camada sumia da tela por um null.
-        expect(lm.setLayerOpacity(alvo.id, null, MAP).opacity).toBe(1);
-        expect(lm.setLayerOpacity(alvo.id, undefined, MAP).opacity).toBe(1);
-        expect(lm.setLayerOpacity(alvo.id, '', MAP).opacity).toBe(1);
+        expect(await opacidade(null)).toBe(1);
+        expect(await opacidade(undefined)).toBe(1);
+        expect(await opacidade('')).toBe(1);
     });
 
-    it('CONTROLE: o zero EXPLICITO continua sendo zero, e nao virou padrao junto', () => {
+    it('CONTROLE: o zero EXPLICITO continua sendo zero, e nao virou padrao junto', async () => {
         // Sem este par o conserto acima seria indistinguivel de proibir a transparencia total.
-        expect(lm.setLayerOpacity(alvo.id, 0, MAP).opacity).toBe(0);
-        expect(lm.setLayerOpacity(alvo.id, '0', MAP).opacity).toBe(0);
+        expect(await opacidade(0)).toBe(0);
+        expect(await opacidade('0')).toBe(0);
     });
 
-    it('numero em string e aceito e convertido', () => {
-        expect(lm.setLayerOpacity(alvo.id, '0.25', MAP).opacity).toBe(0.25);
+    it('numero em string e aceito e convertido', async () => {
+        expect(await opacidade('0.25')).toBe(0.25);
     });
 
-    it('escrever a opacidade que ja vale NAO registra op nem sobe version', () => {
-        lm.setLayerOpacity(alvo.id, 0.5, MAP);
-        const versaoDepois = alvo.version;
+    it('escrever a opacidade que ja vale NAO registra op nem sobe version', async () => {
+        const depoisDaPrimeira = await lm.setLayerOpacity(alvo.id, 0.5, MAP);
         loggedOps.length = 0;
-        const igual = lm.setLayerOpacity(alvo.id, 0.5, MAP);
-        expect(igual.version).toBe(versaoDepois);
+        const igual = await lm.setLayerOpacity(alvo.id, 0.5, MAP);
+        expect(igual.version).toBe(depoisDaPrimeira.version);
+        // O atalho devolve o registro que JA esta na memoria, sem transacao nenhuma.
+        expect(igual).toBe(lm.getLayerById(alvo.id, MAP));
         expect(loggedOps).toHaveLength(0);
     });
 
-    it('CONTROLE: opacidade diferente registra op, provando que o caso acima discrimina', () => {
-        lm.setLayerOpacity(alvo.id, 0.5, MAP);
+    it('CONTROLE: opacidade diferente registra op, provando que o caso acima discrimina', async () => {
+        await lm.setLayerOpacity(alvo.id, 0.5, MAP);
         loggedOps.length = 0;
-        lm.setLayerOpacity(alvo.id, 0.6, MAP);
+        await lm.setLayerOpacity(alvo.id, 0.6, MAP);
         expect(loggedOps).toHaveLength(1);
     });
 });
@@ -406,22 +450,22 @@ describe('6. apagar camada: a ultima renasce, e a ativa troca pela ordem de INSE
         expect(lm.getLayers(MAP)).toHaveLength(1);
     });
 
-    it('apagar camada nao-ativa nao mexe na ativa e nao cria padrao', () => {
-        const a = lm.createLayer('A', MAP);
+    it('apagar camada nao-ativa nao mexe na ativa e nao cria padrao', async () => {
+        const a = await lm.createLayer('A', MAP);
         lm.setActiveLayer(a.id, MAP);
-        const b = lm.createLayer('B', MAP);
+        const b = await lm.createLayer('B', MAP);
         const out = lm.deleteLayer(b.id, MAP);
         expect(out.createdDefaultLayer).toBeNull();
         expect(lm.memoryStore.activeLayerId).toBe(a.id);
     });
 
-    it('apagar a ATIVA escolhe a primeira DESTRAVADA na ordem de insercao, ignorando `order`', () => {
+    it('apagar a ATIVA escolhe a primeira DESTRAVADA na ordem de insercao, ignorando `order`', async () => {
         // 'default' entra primeiro (ordem 0). 'alta' recebe order 99, 'baixa' recebe order 100,
         // mas e 'default' quem herda, porque a varredura e sobre o Map e nao sobre a ordenacao.
-        const alta = lm.createLayer('Alta', MAP);
-        const baixa = lm.createLayer('Baixa', MAP);
-        alta.order = 99;
-        baixa.order = 100;
+        const alta = await lm.createLayer('Alta', MAP);
+        const baixa = await lm.createLayer('Baixa', MAP);
+        lm.getLayerById(alta.id, MAP).order = 99;
+        lm.getLayerById(baixa.id, MAP).order = 100;
         lm.memoryStore.layers[MAP].get('default').order = 500;
         lm.setActiveLayer(alta.id, MAP);
         lm.deleteLayer(alta.id, MAP);
@@ -430,8 +474,8 @@ describe('6. apagar camada: a ultima renasce, e a ativa troca pela ordem de INSE
         expect(lm.memoryStore.activeLayerId).not.toBe(baixa.id);
     });
 
-    it('se todas as sobreviventes estao travadas, uma delas e DESTRAVADA para poder receber o foco', () => {
-        const outra = lm.createLayer('Outra', MAP);
+    it('se todas as sobreviventes estao travadas, uma delas e DESTRAVADA para poder receber o foco', async () => {
+        const outra = await lm.createLayer('Outra', MAP);
         lm.memoryStore.layers[MAP].get('default').locked = true;
         lm.setActiveLayer(outra.id, MAP);
         lm.deleteLayer(outra.id, MAP);
@@ -445,8 +489,8 @@ describe('6. apagar camada: a ultima renasce, e a ativa troca pela ordem de INSE
         expect(loggedOps).toHaveLength(0);
     });
 
-    it('a op de delete leva a camada APAGADA como estado anterior', () => {
-        const a = lm.createLayer('A', MAP);
+    it('a op de delete leva a camada APAGADA como estado anterior', async () => {
+        const a = await lm.createLayer('A', MAP);
         loggedOps.length = 0;
         lm.deleteLayer(a.id, MAP);
         expect(loggedOps).toHaveLength(1);

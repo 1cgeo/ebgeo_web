@@ -238,10 +238,10 @@ describe('createLayer', () => {
         );
     });
 
-    it('returns null on locked map and never delegates', () => {
+    it('returns null on locked map and never delegates', async () => {
         isCurrentMapLockedSync.mockReturnValue(true);
 
-        const result = createLayer('Test');
+        const result = await createLayer('Test');
 
         expect(result).toBeNull();
         expect(mockLayerManager.createLayer).not.toHaveBeenCalled();
@@ -291,18 +291,20 @@ describe('renameLayer', () => {
         expect(mockLayerManager.renameLayer).not.toHaveBeenCalled();
     });
 
-    it('returns null on locked map', () => {
+    it('returns null on locked map', async () => {
         isCurrentMapLockedSync.mockReturnValue(true);
 
-        expect(renameLayer('layer-1', 'New')).toBeNull();
+        await expect(renameLayer('layer-1', 'New')).resolves.toBeNull();
         expect(mockLayerManager.renameLayer).not.toHaveBeenCalled();
     });
 
-    it('passes through layerManager return value', () => {
+    it('passes through layerManager return value', async () => {
         const sentinel = { id: 'layer-1', name: 'New' };
         mockLayerManager.renameLayer.mockReturnValueOnce(sentinel);
 
-        const result = renameLayer('layer-1', 'New');
+        // A fachada virou ASSINCRONA em 2026-09-13 (write-ahead): ela DEVOLVE a promessa do
+        // gerente, e o valor que o chamador ve continua sendo o mesmo objeto.
+        const result = await renameLayer('layer-1', 'New');
 
         expect(result).toBe(sentinel);
     });

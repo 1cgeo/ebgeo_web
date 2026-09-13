@@ -969,9 +969,14 @@ export class PhoneLayout {
             }
         });
 
-        // Layer visibility toggle
+        // Layer visibility toggle. `setLayerVisibility` e ASSINCRONA desde 2026-09-13
+        // (write-ahead): a rejeicao tem de virar frase na tela, senao uma cota estourada deixa
+        // o interruptor ligado sobre um estado que nada gravou.
         this._drawer.onLayerToggle((layerId, visible) => {
-            setLayerVisibility(layerId, visible);
+            setLayerVisibility(layerId, visible).catch((error) => {
+                console.error('Error toggling layer visibility:', error);
+                showToast('Erro ao salvar a visibilidade da camada', 'error');
+            });
         });
 
         // Chip selection

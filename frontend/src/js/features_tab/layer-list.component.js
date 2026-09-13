@@ -429,6 +429,17 @@ export function createLayerOpacityRow(layer) {
     // (acordando todos os ouvintes, a aba de mapas inclusive, que le um documento de mapa por
     // mapa do atlas) e gravava uma operacao de sync no IndexedDB por quadro. O store e escrito
     // UMA vez, no `change`, no fim do gesto.
+    // `setLayerOpacity` e ASSINCRONA desde 2026-09-13 (write-ahead), e nenhum dos dois pontos
+    // abaixo pode esperar por ela: um roda dentro de um quadro de animacao, o outro no fim do
+    // gesto. Sem este ajudante a promessa ficaria solta, e uma cota estourada viraria rejeicao
+    // nao tratada no console em vez de uma frase na tela.
+    const gravarOpacidade = (valor) => {
+        setLayerOpacity(layer.id, valor).catch((error) => {
+            console.error('Error saving layer opacity:', error);
+            showError('Erro ao salvar a opacidade da camada: ' + error.message);
+        });
+    };
+
     let rafId = null;
     let pendingOpacity = null;
     slider.addEventListener('input', () => {
@@ -440,7 +451,7 @@ export function createLayerOpacityRow(layer) {
                 rafId = null;
                 // Sem instancia de mapa (estilo ainda nao carregado) cai no store.
                 if (!previewLayerOpacity(layer.id, pendingOpacity)) {
-                    setLayerOpacity(layer.id, pendingOpacity);
+                    gravarOpacidade(pendingOpacity);
                 }
             });
         }
@@ -453,7 +464,7 @@ export function createLayerOpacityRow(layer) {
         }
         const percent = Number(slider.value);
         valueLabel.textContent = `${percent}%`;
-        setLayerOpacity(layer.id, percent / 100);
+        gravarOpacidade(percent / 100);
     });
 
     row.appendChild(label);

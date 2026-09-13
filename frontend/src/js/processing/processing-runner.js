@@ -89,7 +89,10 @@ export async function runProcessing(options) {
             throw new Error('O algoritmo não produziu resultados');
         }
 
-        const newLayer = createLayerForImport(outputLayerName || `${algorithm.name} - Resultado`);
+        // `createLayerForImport` e ASSINCRONA desde 2026-09-13 (write-ahead): sem o `await` o
+        // `newLayer` seria a promessa, `newLayer.id` viria `undefined` e todas as feicoes de
+        // saida nasceriam orfas de camada.
+        const newLayer = await createLayerForImport(outputLayerName || `${algorithm.name} - Resultado`);
         if (!newLayer) {
             throw new Error('Falha ao criar camada de saída');
         }
