@@ -38,6 +38,16 @@ export function parseAtlasParams(search) {
  * A falsy `mapId` PRESERVES any existing map param rather than deleting it — the live current-map
  * id briefly resolves to a name (not a UUID) before the map-resolver populates, and we must not
  * downgrade a good `?map=<uuid>` to a name. Pass a falsy `atlasId` to clear both (logout/disconnect).
+ *
+ * A PRESERVACAO VALE SO DENTRO DO MESMO ATLAS, e ate 2026-09-13 ela nao perguntava de quem era o
+ * mapa preservado. Numa troca AO VIVO de atlas (`switchAtlas`, sem recarga) o `?atlas=` passa a
+ * apontar para o destino enquanto o `?map=` continua sendo o do atlas de ORIGEM, que e um UUID
+ * perfeitamente valido e por isso sobrevivia ao teste de "bom". A barra de enderecos e a fonte da
+ * verdade do roteamento do boot, entao um F5 ali abria o atlas novo pedindo um mapa que nao e
+ * dele. Medido por `frontend/tests/e2e-ui/troca-viva-de-atlas-medida.spec.js`, que esperava os 60 s
+ * inteiros por um `?map=` que nunca trocava; o caminho por RECARGA nunca viu isso, porque ali a
+ * URL nasce limpa.
+ *
  * @param {string} search - Current `location.search`.
  * @param {string} atlasId
  * @param {string|null} mapId
@@ -54,8 +64,13 @@ export function buildAtlasSearch(search, atlasId, mapId) {
         // Writing an atlas link supersedes the one-shot/anonymous params.
         params.delete('atlasPublico');
         params.delete('verify');
+        const atlasAnterior = params.get(ATLAS_PARAM);
         params.set(ATLAS_PARAM, atlasId);
-        if (mapId) params.set(MAP_PARAM, mapId); // else: keep the existing map param
+        if (mapId) params.set(MAP_PARAM, mapId);
+        // TROCOU DE ATLAS: o mapa que estava ali e do atlas de ORIGEM, e preserva-lo publicaria um
+        // par impossivel. Sem `atlasAnterior` (primeira escrita da URL) a preservacao continua,
+        // porque ali o `?map=` so pode ter vindo do proprio link que trouxe a pessoa.
+        else if (atlasAnterior && atlasAnterior !== atlasId) params.delete(MAP_PARAM);
     }
     const qs = params.toString();
     return qs ? `?${qs}` : '';

@@ -52,6 +52,32 @@ describe('buildAtlasSearch', () => {
         expect(new URLSearchParams(out).get('map')).toBe(MAP);
     });
 
+    // A PRESERVACAO ACIMA VALE SO DENTRO DO MESMO ATLAS. Numa troca AO VIVO (`switchAtlas`, sem
+    // recarga) o `?atlas=` muda e o `?map=` de origem e um UUID valido, entao ele sobrevivia ao
+    // teste de "bom" e a barra publicava um par impossivel: atlas novo, mapa do anterior. Como a
+    // URL e a fonte da verdade do roteamento do boot, um F5 ali abre o atlas certo pedindo o mapa
+    // errado.
+    it('DESCARTA o map do atlas ANTERIOR quando o atlas muda e mapId e nulo', () => {
+        const OUTRO = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+        const out = buildAtlasSearch(`?atlas=${ATLAS}&map=${MAP}`, OUTRO, null);
+        expect(new URLSearchParams(out).get('atlas')).toBe(OUTRO);
+        expect(new URLSearchParams(out).get('map')).toBeNull();
+    });
+
+    it('e o map pedido EXPLICITAMENTE vence na troca de atlas', () => {
+        const OUTRO = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+        const MAPA_NOVO = '6ba7b811-9dad-11d1-80b4-00c04fd430c8';
+        const out = buildAtlasSearch(`?atlas=${ATLAS}&map=${MAP}`, OUTRO, MAPA_NOVO);
+        expect(new URLSearchParams(out).get('map')).toBe(MAPA_NOVO);
+    });
+
+    it('sem atlas anterior na URL, o map existente continua preservado', () => {
+        // A PRIMEIRA escrita da URL: um `?map=` sozinho so pode ter vindo do link que trouxe a
+        // pessoa, entao descarta-lo perderia o mapa que ela pediu.
+        const out = buildAtlasSearch(`?map=${MAP}`, ATLAS, null);
+        expect(new URLSearchParams(out).get('map')).toBe(MAP);
+    });
+
     it('drops the one-shot/anonymous params (atlasPublico, verify)', () => {
         const out = buildAtlasSearch('?atlasPublico=abc&verify=tok', ATLAS, null);
         expect(out).toBe(`?atlas=${ATLAS}`);
