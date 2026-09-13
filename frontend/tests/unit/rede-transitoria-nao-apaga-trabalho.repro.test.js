@@ -68,8 +68,8 @@ import { sharingErrorMessage } from '../../src/js/modals/sharing.modal.js';
 import {
     uploadImageBlob,
     setImageSyncAtlas,
-    imageUploadFailureNotice,
 } from '../../src/js/store/sync/image-sync.js';
+import { CausaDeFalha, fraseDeFalhaDeBlob } from '../../src/js/store/sync/blob-upload-phrases.js';
 
 /** @returns {Error} An ApiError-shaped error (the client stamps `status`). */
 function apiError(status, message = 'boom') {
@@ -227,8 +227,9 @@ describe('image-sync: offline é silêncio, upload falhado com atlas conectado a
 
     it('com atlas conectado e envio pendente avisa uma vez, e a frase promete a retomada', async () => {
         setImageSyncAtlas('atlas-1');
+        const frase = fraseDeFalhaDeBlob({ causa: CausaDeFalha.REDE });
         filaDeBlobs.enfileirarBlob.mockResolvedValue({
-            registrado: true, confirmado: false, estado: 'pendente', motivo: 'rede caiu',
+            registrado: true, confirmado: false, estado: 'pendente', motivo: frase,
         });
         const r = await uploadImageBlob(new Blob(['x']), 'img-a');
         expect(r).toEqual({ confirmado: false, registrado: true, estado: 'pendente' });
@@ -238,19 +239,26 @@ describe('image-sync: offline é silêncio, upload falhado com atlas conectado a
             expect.objectContaining({ imageId: 'img-a', atlasId: 'atlas-1' })
         );
         expect(showWarning).toHaveBeenCalledTimes(1);
-        expect(showWarning.mock.calls[0][0]).toContain('apenas para você');
+        // A FRASE DO VEREDICTO CHEGA INTACTA, e é este `toBe` que prende o achado: enquanto o aviso
+        // era recomposto aqui, a frase que a fila havia escrito era descartada em silêncio.
+        expect(showWarning.mock.calls[0][0]).toBe(frase);
         expect(showWarning.mock.calls[0][0]).toContain('retomado');
     });
 
     it('recusa definitiva avisa com OUTRA frase: ela não promete retomada nenhuma', async () => {
         setImageSyncAtlas('atlas-1');
+        const frase = fraseDeFalhaDeBlob({
+            causa: CausaDeFalha.RECUSA, motivo: 'Invalid file type: image/gif',
+        });
         filaDeBlobs.enfileirarBlob.mockResolvedValue({
-            registrado: true, confirmado: false, estado: 'recusado', motivo: 'formato',
+            registrado: true, confirmado: false, estado: 'recusado', motivo: frase,
         });
         await uploadImageBlob(new Blob(['x']), 'img-a');
         expect(showWarning).toHaveBeenCalledTimes(1);
         expect(showWarning.mock.calls[0][0]).toContain('recusou');
         expect(showWarning.mock.calls[0][0]).not.toContain('retomado');
+        // As palavras do SERVIDOR também chegam: são a única coisa que diz o que mudar na figura.
+        expect(showWarning.mock.calls[0][0]).toContain('Invalid file type: image/gif');
     });
 
     it('envio confirmado não avisa nada', async () => {
@@ -273,17 +281,45 @@ describe('image-sync: offline é silêncio, upload falhado com atlas conectado a
         expect(filaDeBlobs.retomarBlobsPendentes).toHaveBeenCalledTimes(1);
     });
 
-    it('a mensagem distingue permissão (403) e tamanho (413) do caso geral', () => {
-        expect(imageUploadFailureNotice(apiError(403))).toContain('permissão');
-        expect(imageUploadFailureNotice(apiError(413))).toContain('grande demais');
-        expect(imageUploadFailureNotice(apiError(500))).not.toContain('permissão');
+    it('permissão (403) e tamanho (413) CHEGAM à tela, cada uma com a sua frase', async () => {
+        // O ACHADO DE P4, em duas linhas. O aviso era recomposto aqui a partir de
+        // `{ message: resultado.motivo }`, e a função que o compunha só olhava `status`: os ramos de
+        // 403 e de 413 eram inalcançáveis por este caminho, e o que a pessoa via era sempre a frase
+        // genérica. Agora a causa viaja no veredicto e a frase dela é a que sobe.
+        setImageSyncAtlas('atlas-1');
+        const casos = [
+            [fraseDeFalhaDeBlob({ causa: CausaDeFalha.PERMISSAO }), /permissão/i],
+            [fraseDeFalhaDeBlob({ causa: CausaDeFalha.ARQUIVO, status: 413 }), /grande demais/i],
+        ];
+        for (const [frase, esperado] of casos) {
+            showWarning.mockClear();
+            filaDeBlobs.enfileirarBlob.mockResolvedValue({
+                registrado: true, confirmado: false, estado: 'recusado', motivo: frase,
+            });
+            await uploadImageBlob(new Blob(['x']), 'img-a');
+            expect(showWarning).toHaveBeenCalledTimes(1);
+            expect(showWarning.mock.calls[0][0]).toMatch(esperado);
+        }
+        // E as duas não são a mesma frase: uma se resolve pedindo acesso, a outra trocando a figura.
+        expect(casos[0][0]).not.toBe(casos[1][0]);
     });
 
-    it('borda: erro nulo/sem status ainda produz uma frase útil', () => {
-        for (const bad of [null, undefined, {}, new Error('x')]) {
-            const msg = imageUploadFailureNotice(bad);
+    it('borda: veredicto SEM frase ainda avisa, e a frase de reserva é a de rede', async () => {
+        // Alcançável de verdade: `assentar` devolve o registro intocado quando o disco recusa
+        // gravar o desfecho, e ali `ultimoErro` ainda é nulo. A pendência existe e será retomada,
+        // então a frase de reserva é a que promete retomada.
+        setImageSyncAtlas('atlas-1');
+        for (const vazio of ['', null, undefined]) {
+            showWarning.mockClear();
+            filaDeBlobs.enfileirarBlob.mockResolvedValue({
+                registrado: true, confirmado: false, estado: 'pendente', motivo: vazio,
+            });
+            await uploadImageBlob(new Blob(['x']), 'img-a');
+            expect(showWarning).toHaveBeenCalledTimes(1);
+            const msg = showWarning.mock.calls[0][0];
             expect(typeof msg).toBe('string');
-            expect(msg).toContain('apenas para você');
+            expect(msg.length).toBeGreaterThan(0);
+            expect(msg).toMatch(/retomado sozinho/i);
         }
     });
 });

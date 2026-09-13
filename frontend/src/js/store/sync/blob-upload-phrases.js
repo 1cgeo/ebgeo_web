@@ -22,6 +22,15 @@
  * quoted. When nothing arrived, the message is a transport string ("Failed to fetch", "NetworkError
  * when attempting to fetch resource") and quoting it just moves the same puzzle one line down.
  *
+ * IT IS THE ONLY SOURCE, AND SINCE 2026-09-13 THAT IS LITERAL. `image-sync.js` used to compose its
+ * own sentence for the toast it raises right after a failed upload (`imageUploadFailureNotice`),
+ * from an object it built as `{ message: resultado.motivo }` — a shape that function never read,
+ * since it looked only at `status`. So the toast threw away the sentence composed here and printed
+ * a generic one, and its 403 and 413 branches were unreachable through that path. That function is
+ * gone: the toast now shows the verdict's own `motivo`, which is what the pendency panel shows for
+ * the same event. Two surfaces wording the same failure differently is how a person learns that one
+ * of them is lying.
+ *
  * ZERO IMPORTS by contract, like `denial-phrases.js` and `sync-phrases.js`: the queue is reached by
  * the outbound dispatcher, and a phrase must never be the reason a module graph grows an edge.
  */
@@ -29,9 +38,9 @@
 /**
  * Why an attempt did not end with the bytes on the server.
  *
- * It is NOT the state of the record ({@link BlobUploadState}, in `blob-upload-queue.js`): three of
- * these five are transient and two are definitive, and the same state answers a different question
- * ("will this be retried?").
+ * It is NOT the state of the record ({@link BlobUploadState}, in `blob-upload-queue.js`): four of
+ * these six are transient or definitive in ways that state does not distinguish, and the same state
+ * answers a different question ("will this be retried?").
  * @readonly
  * @enum {string}
  */
@@ -42,6 +51,8 @@ export const CausaDeFalha = Object.freeze({
     SEM_RESPOSTA: 'sem-resposta',
     /** The server answered refusing. No retry changes it. */
     RECUSA: 'recusa',
+    /** The account may not write pictures in this atlas. Definitive, and nothing about the file. */
+    PERMISSAO: 'permissao',
     /** The file itself is the problem: format the server does not take, or size above its limit. */
     ARQUIVO: 'arquivo',
     /** The bytes are no longer in this browser, so nothing can ever be sent. */
@@ -50,6 +61,17 @@ export const CausaDeFalha = Object.freeze({
 
 /** HTTP statuses that mean "the file, not the request". 413 is size, 415 is media type. */
 const STATUS_DE_ARQUIVO = new Set([413, 415]);
+
+/**
+ * The status that means the account, not the picture.
+ *
+ * IT IS SPLIT FROM {@link CausaDeFalha.RECUSA} because the two ask different things of the person:
+ * a refusal is about the file, and the only useful next step is to change it; a 403 is about who is
+ * asking, and changing the file does nothing. 401 is deliberately NOT here: `RECUSA_DEFINITIVA` in
+ * `blob-upload-queue.js` does not treat it as definitive (a session can come back), so it never
+ * reaches this branch and listing it would advertise a path that does not exist.
+ */
+const STATUS_DE_PERMISSAO = new Set([403]);
 
 /**
  * @param {*} valor
@@ -80,7 +102,8 @@ function oServidorDisse(mensagem) {
  */
 export function causaDeErroLancado({ status, definitiva }) {
     if (!definitiva) return CausaDeFalha.REDE;
-    return STATUS_DE_ARQUIVO.has(status) ? CausaDeFalha.ARQUIVO : CausaDeFalha.RECUSA;
+    if (STATUS_DE_ARQUIVO.has(status)) return CausaDeFalha.ARQUIVO;
+    return STATUS_DE_PERMISSAO.has(status) ? CausaDeFalha.PERMISSAO : CausaDeFalha.RECUSA;
 }
 
 /**
@@ -113,6 +136,9 @@ export function fraseDeFalhaDeBlob({ causa, motivo = null, status = null } = {})
                     + `neste computador.${dito}`
                 : 'O servidor não aceita o formato desta figura, e reenviar não muda isso. Ela '
                     + `continua neste computador.${dito}`;
+        case CausaDeFalha.PERMISSAO:
+            return 'Você não tem permissão para enviar figuras neste atlas. Ela continua neste '
+                + `computador, visível apenas para você, e reenviar não muda isso.${dito}`;
         case CausaDeFalha.RECUSA:
             return 'O servidor recusou esta figura, e reenviar não muda o desfecho. Ela continua '
                 + `neste computador.${dito}`;

@@ -53,6 +53,19 @@ describe('a causa vira frase em pt-BR', () => {
         expect(frase).toMatch(/retomado/i);
     });
 
+    it('a falta de PERMISSÃO não se lê como problema da figura', () => {
+        // As duas são definitivas e é só nisso que se parecem: uma se resolve pedindo acesso, a
+        // outra trocando o arquivo. Enquanto 403 caía em RECUSA, a frase mandava mexer na figura.
+        const permissao = fraseDeFalhaDeBlob({ causa: CausaDeFalha.PERMISSAO });
+        expect(permissao).toMatch(/permissão/i);
+        expect(permissao).toMatch(/apenas para você/i);
+        expect(permissao).not.toMatch(/retomado/i);
+        expect(permissao).not.toBe(fraseDeFalhaDeBlob({ causa: CausaDeFalha.RECUSA }));
+        // E ela também cita o servidor quando ele disse algo.
+        expect(fraseDeFalhaDeBlob({ causa: CausaDeFalha.PERMISSAO, motivo: 'read-only share' }))
+            .toContain('read-only share');
+    });
+
     it('a RECUSA do servidor carrega o motivo DELE, que é o que diz o que mudar', () => {
         const frase = fraseDeFalhaDeBlob({
             causa: CausaDeFalha.RECUSA, motivo: 'Invalid file type: image/gif',
@@ -89,13 +102,21 @@ describe('a causa vira frase em pt-BR', () => {
 });
 
 describe('a causa de um erro LANÇADO', () => {
-    it('sem status é rede, e status de recusa separa arquivo de política', () => {
+    it('sem status é rede, e o status de recusa separa arquivo, permissão e o resto', () => {
         expect(causaDeErroLancado({ status: null, definitiva: false })).toBe(CausaDeFalha.REDE);
         expect(causaDeErroLancado({ status: 500, definitiva: false })).toBe(CausaDeFalha.REDE);
         expect(causaDeErroLancado({ status: 413, definitiva: true })).toBe(CausaDeFalha.ARQUIVO);
         expect(causaDeErroLancado({ status: 415, definitiva: true })).toBe(CausaDeFalha.ARQUIVO);
-        expect(causaDeErroLancado({ status: 403, definitiva: true })).toBe(CausaDeFalha.RECUSA);
+        expect(causaDeErroLancado({ status: 403, definitiva: true })).toBe(CausaDeFalha.PERMISSAO);
         expect(causaDeErroLancado({ status: 422, definitiva: true })).toBe(CausaDeFalha.RECUSA);
+        expect(causaDeErroLancado({ status: 400, definitiva: true })).toBe(CausaDeFalha.RECUSA);
+    });
+
+    it('403 só é permissão quando a recusa é DEFINITIVA, que é o que a fila decide', () => {
+        // `RECUSA_DEFINITIVA` (em `blob-upload-queue.js`) é quem carimba `definitiva`, e 401 não
+        // está nela: sessão volta. Um 403 transitório, se algum dia houver, continua sendo rede.
+        expect(causaDeErroLancado({ status: 403, definitiva: false })).toBe(CausaDeFalha.REDE);
+        expect(causaDeErroLancado({ status: 401, definitiva: false })).toBe(CausaDeFalha.REDE);
     });
 });
 

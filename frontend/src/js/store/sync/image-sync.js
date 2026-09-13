@@ -26,6 +26,16 @@
  * what {@link uploadImageBlob} answers. While they are not, the feature's operation stays
  * held by the queue (see that module's fileoverview), so nothing reaches a peer ahead of
  * its bytes.
+ *
+ * THIS MODULE NO LONGER WRITES A SENTENCE. It used to own `imageUploadFailureNotice`, a
+ * second wording of the same failure the queue had already worded, and it called it with
+ * `{ message: resultado.motivo }` — an object whose only field that function never read,
+ * because it branched on `status` alone. The result was the worst of both: the sentence
+ * composed by `blob-upload-phrases.js` (which knows the cause, quotes the server and
+ * separates a size refusal from a permission refusal) was discarded, and the generic
+ * branch was printed every time, with the 403 and 413 branches unreachable from here.
+ * The toast now shows the verdict's own `motivo`, the same string the pendency panel
+ * renders for that record, and the phrases live in one place.
  */
 
 import { apiClient } from './api-client.js';
@@ -34,9 +44,9 @@ import { connectionState, ConnectionStates } from './connection-state.js';
 import {
     enfileirarBlob,
     retomarBlobsPendentes,
-    esquecerPendenciasEmMemoria,
-    BlobUploadState
+    esquecerPendenciasEmMemoria
 } from './blob-upload-queue.js';
+import { fraseDeFalhaDeBlob } from './blob-upload-phrases.js';
 
 /** @type {string|null} The connected atlas id (null when offline). */
 let _atlasId = null;
@@ -91,36 +101,6 @@ export function isImageSyncOnline() {
 }
 
 /**
- * What to tell the user when an upload does not land WITH an atlas connected. Pure: no
- * I/O, no module state, so the wording rules are testable in node.
- *
- * THE WORDING CHANGED WITH THE QUEUE, and the old one is the reason to be careful here: it said
- * "refaça a inserção quando a conexão voltar", which asked the person to redo work that is now
- * queued, and it promised a local-only visibility that is now temporary. A message asking for a
- * redundant gesture produces exactly the duplicate the server then has to deduplicate.
- * @param {*} error - The error or verdict (ApiError carries `status`).
- * @param {boolean} [definitiva=false] - True when no retry will change the outcome.
- * @returns {string} A pt-BR message for the user.
- */
-export function imageUploadFailureNotice(error, definitiva = false) {
-    const status = error?.status ?? error?.statusCode;
-    if (status === 403) {
-        return 'Você não tem permissão para enviar imagens neste atlas: a imagem ficará visível '
-            + 'apenas para você.';
-    }
-    if (status === 413) {
-        return 'A imagem é grande demais para o servidor: ela ficará visível apenas para você, e o '
-            + 'envio não será repetido.';
-    }
-    if (definitiva) {
-        return 'O servidor recusou esta imagem: ela ficará visível apenas para você, e a pendência '
-            + 'fica registrada para revisão.';
-    }
-    return 'A imagem ainda não chegou ao servidor e, por ora, é visível apenas para você. O envio '
-        + 'será retomado sozinho quando a conexão voltar.';
-}
-
-/**
  * Sends an image blob to the backend under the id the caller chose.
  *
  * @param {Blob} blob - The bytes. The caller must have written them locally already.
@@ -146,13 +126,13 @@ export async function uploadImageBlob(blob, imageId, { origem = 'imagem' } = {})
     }
 
     try {
-        showWarning(
-            imageUploadFailureNotice(
-                { message: resultado.motivo },
-                resultado.estado === BlobUploadState.RECUSADO
-            ),
-            { duration: 8000 }
-        );
+        // THE VERDICT ALREADY CARRIES THE SENTENCE, and composing a second one here is what this
+        // line used to do wrong: it called `imageUploadFailureNotice({ message: resultado.motivo })`
+        // over a function that read only `status`, so the composed sentence was dropped and a
+        // generic one was printed instead. The fallback is for the one path that produces no
+        // sentence: a record whose OUTCOME could not be written to disk (`assentar` returns the
+        // untouched record), which is transient and resumed like any other pendency.
+        showWarning(resultado.motivo || fraseDeFalhaDeBlob({}), { duration: 8000 });
     } catch {
         // Headless (tests, worker): no UI to tell.
     }
