@@ -6,6 +6,7 @@ import { OrigemDeErro } from '@js/session/origens-de-erro.js';
 import { instalarMonitoramentoDePendencias } from '@js/session/pendencias-monitoramento.js';
 import { createTabLock, noneKey } from '../utilities/tab-lock.js';
 import { prepareLegacyTransition, legacyHasChanged, restartLegacyCopy } from '../store/migration/legacy-transition.js';
+import { pruneAbandonedCopies } from '../store/migration/legacy-cleanup.js';
 import { MigrationRecoveryError } from '../store/migration/transition-state.js';
 
 let screen = null;
@@ -118,6 +119,26 @@ export function showMigrationRecovery(error = {}) {
     });
 }
 
+/**
+ * The boot sweep of decision D8: the abandoned copies go, the origin stays.
+ *
+ * IT RUNS ONLY AFTER THE GATE SUCCEEDED, and it never fails the boot. A copy that could not be
+ * deleted keeps its entry and the next boot retries, so the whole cost of a failure here is disk,
+ * while raising would cost the user the map over housekeeping.
+ *
+ * @returns {Promise<void>}
+ */
+async function sweepAbandonedCopies() {
+    try {
+        const report = await pruneAbandonedCopies();
+        if (report.copies.length || report.recoveries.length || report.blocked.length) {
+            console.info('Poda das cópias da atualização:', JSON.stringify(report));
+        }
+    } catch (error) {
+        console.warn('Poda das cópias da atualização adiada:', error);
+    }
+}
+
 export async function runLegacyUpgradeGate() {
     registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_INICIO);
     descarregarUso();
@@ -133,6 +154,7 @@ export async function runLegacyUpgradeGate() {
         registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_SUCESSO);
         descarregarUso();
         instalarMonitoramentoDePendencias();
+        await sweepAbandonedCopies();
         return true;
     } catch (error) {
         if (error.code === 'legacy_tab') registrarUso(EventoDeUso.MIGRACAO_RESULTADO, PropDeUso.MIGRACAO_ABA_ANTIGA);

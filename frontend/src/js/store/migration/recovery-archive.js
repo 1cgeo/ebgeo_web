@@ -7,7 +7,10 @@ import {
 import { legacyScope } from './migration-scope.js';
 import { encodeStorageValue, decodeStorageValue, sameStorageValue, sha256 } from './storage-value.js';
 import { inventoryScope } from './legacy-transition.js';
-import { LEGACY_TRANSITION_KEY, TRANSITION_LOCK, MigrationRecoveryError, readLegacyTransition } from './transition-state.js';
+import {
+    LEGACY_TRANSITION_KEY, RECOVERY_PENDING_PREFIX, TRANSITION_LOCK,
+    MigrationRecoveryError, readLegacyTransition, recoveryDbSuffix, recoveryPendingKey
+} from './transition-state.js';
 import { generateUUID } from '../../utilities/uuid.js';
 import { prepareIsolatedScope } from './prepare-scope.js';
 
@@ -56,7 +59,7 @@ export async function buildRecoveryArchive() {
     }
     const global = getGlobalStore();
     for (const key of await global.keys()) {
-        if (!key.startsWith('recovery_pending:')) continue;
+        if (!key.startsWith(RECOVERY_PENDING_PREFIX)) continue;
         const entry = await global.getItem(key);
         if (entry?.id && entry.dbSuffix) await add(localScope(entry.id, entry.dbSuffix), entry.name);
     }
@@ -97,9 +100,9 @@ async function restoreSnapshot(item, { id = generateUUID(), beforeCommit } = {})
     const entries = await readLocalAtlasRegistry();
     if (entries.some(entry => entry.id === id)) return entries.find(entry => entry.id === id);
     if (entries.length >= 10) throw new Error('O limite de atlas locais foi atingido. Salve a cópia de recuperação em arquivo.');
-    const entry = { id, dbSuffix: `recovery-${id}`, name: `Recuperado — ${item.label}`,
+    const entry = { id, dbSuffix: recoveryDbSuffix(id), name: `Recuperado — ${item.label}`,
         createdAt: Date.now(), updatedAt: Date.now(), version: 1 };
-    const pendingKey = `recovery_pending:${id}`;
+    const pendingKey = recoveryPendingKey(id);
     let pending = await global.getItem(pendingKey);
     if (pending && JSON.stringify(pending.inventory) !== JSON.stringify(item.inventory)) {
         throw new Error('A recuperação pendente pertence a outra cópia. Os dois acervos foram preservados.');
