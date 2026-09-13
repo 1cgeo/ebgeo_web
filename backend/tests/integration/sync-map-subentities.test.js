@@ -293,22 +293,22 @@ describe('Sync Map Sub-entities', () => {
         { id: 'wms-layer-2', url: 'https://example.com/wms2', visible: false },
       ];
 
+      // UMA OP POR CAMADA, no mesmo push. Duas camadas chegavam aqui numa op só, pela forma de
+      // lista, que saiu em 2026-09-13 (B5, item 5) porque não endereçava linha nenhuma.
       await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${ownerToken}`)
         .send({
-          operations: [{ protocolVersion: 2,
+          operations: catalogData.map((entrada) => ({ protocolVersion: 2,
             id: randomUUID(),
             entityType: 'catalogLayer',
-            operationType: 'update',
-            entityId: randomUUID(),
+            operationType: 'create',
+            entityId: entrada.id,
             mapId: map.id,
-            data: {
-              catalog_layers: catalogData,
-            },
+            data: entrada,
             timestamp: Date.now(),
             clientId: 'test-client',
-          }],
+          })),
         })
         .expect(200);
 

@@ -356,10 +356,10 @@ function entityRowQuery(target, atlasId, op) {
   }
   if (target === 'catalog_layer') {
     // The id here is a catalogue-wide TEXT constant, so there is no UUID test to make; the row
-    // is keyed by (map_id, id). The legacy whole-array form addresses no single row at all, so
-    // it is unaskable and keeps its old path.
-    const isArrayForm = Array.isArray(op.data?.catalog_layers) || Array.isArray(op.changes?.catalog_layers);
-    if (isArrayForm || typeof op.targetId !== 'string' || !op.targetId || !UUID_RE.test(op.mapId ?? '')) return null;
+    // is keyed by (map_id, id). This branch also tested for the legacy whole-array form, which
+    // addressed no single row and was therefore unaskable; since 2026-09-13 that form never gets
+    // this far, refused by name in `catalogLayerArrayDenialReason` before the log insert.
+    if (typeof op.targetId !== 'string' || !op.targetId || !UUID_RE.test(op.mapId ?? '')) return null;
     return {
       sql: `SELECT c.version, c.deleted_at FROM catalog_layers c JOIN maps m ON m.id = c.map_id
             WHERE c.id = $1 AND c.map_id = $2 AND m.atlas_id = $3`,

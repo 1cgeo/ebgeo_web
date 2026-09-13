@@ -491,25 +491,26 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
     });
 
     it('updates catalogLayer via frontend alias', async () => {
-      const catalogData = [{ id: 'wms-layer', url: 'http://geo.example.com/wms', visible: true }];
+      // ONE OP PER LAYER, which is what the live client mints and, since 2026-09-13, the only
+      // shape the server applies: the whole-array form addressed no row and is refused by name
+      // (see `catalogo-array-recusada.repro.test.js`).
+      const entrada = { id: 'wms-layer', url: 'http://geo.example.com/wms', visible: true };
       await pushSync([{ protocolVersion: 2,
         id: randomUUID(),
         entityType: 'catalogLayer',
-        operationType: 'update',
-        entityId: randomUUID(),
+        operationType: 'create',
+        entityId: entrada.id,
         mapId: map.id,
-        data: { catalog_layers: catalogData },
+        data: entrada,
         timestamp: Date.now(),
         clientId: 'frontend-client',
       }]).expect(200);
 
-      // The whole-array form is materialised into the dedicated `catalog_layers` table: there
-      // is no `maps.catalog_layers` column for it to land in.
       const { rows } = await db.query(
         'SELECT id, data FROM catalog_layers WHERE map_id = $1 AND deleted_at IS NULL', [map.id]
       );
       assert.deepEqual(rows.map((r) => r.id), ['wms-layer']);
-      assert.deepEqual(rows[0].data, catalogData[0]);
+      assert.deepEqual(rows[0].data, entrada);
     });
   });
 

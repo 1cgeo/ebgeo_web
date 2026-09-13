@@ -77,35 +77,11 @@ describe('Sync — catalogLayer (per-layer)', () => {
     assert.equal(snapMap.catalogLayers[0].name, 'Layer 1 (edited)');
   });
 
-  it('still accepts the legacy whole-array form, materialised into the dedicated table', async () => {
-    // `maps.catalog_layers` is gone, so the compatibility shim writes where the
-    // reader is. It UPSERTS and never removes: the column write was a whole-array REPLACE, which
-    // was harmless while nothing read the column and would be a wipe against the canonical table.
-    // Its own map: the shim writes real rows now, so sharing the suite's map would leak into
-    // the per-layer cases above.
-    const m = await createMap(db, atlas.id, { name: 'Legacy array form' });
-    const opDoMapa = (data) => ({ ...op('update', randomUUID(), data), mapId: m.id });
-
-    const arr = [{ id: 'wms-a', visible: true }, { id: 'wms-b', visible: false }];
-    await push([opDoMapa({ catalog_layers: arr })]);
-
-    const { rows } = await db.query(
-      'SELECT id, data FROM catalog_layers WHERE map_id = $1 AND deleted_at IS NULL ORDER BY id',
-      [m.id]
-    );
-    assert.deepEqual(rows.map((r) => r.id), ['wms-a', 'wms-b']);
-    assert.deepEqual(rows.map((r) => r.data), arr);
-
-    // And it does not remove what the array omits (the destructive capability the column write
-    // never had).
-    await push([opDoMapa({ catalog_layers: [{ id: 'wms-a', visible: false }] })]);
-    const depois = await db.query(
-      'SELECT id, data FROM catalog_layers WHERE map_id = $1 AND deleted_at IS NULL ORDER BY id',
-      [m.id]
-    );
-    assert.deepEqual(depois.rows.map((r) => r.id), ['wms-a', 'wms-b'], 'the omitted layer survives');
-    assert.equal(depois.rows[0].data.visible, false, 'and the one named was updated');
-  });
+  // O CASO DA FORMA DE LISTA (`data.catalog_layers`) SAIU EM 2026-09-13 junto com a própria forma
+  // (B5, item 5). Ela não endereçava linha nenhuma (o `entityId` era o id do mapa ou um UUID
+  // descartável), então não havia base a observar nem o que a verificação por revisão comparasse,
+  // e nenhum cliente vivo a emitia. Hoje ela é recusada por nome antes do log, e quem prende isso
+  // é `tests/integration/catalogo-array-recusada.repro.test.js`.
 
   // ---------------------------------------------------------------------------
   // The ids the REAL client sends. Every test above uses randomUUID(), which the
@@ -340,10 +316,12 @@ describe('Sync — catalogLayer (per-layer)', () => {
       }
     });
 
-    it('a entrada da forma LEGADA de array atravessa verbatim, `name` e `config` inclusive', async () => {
-      // O mesmo dado que morava na coluna `maps.catalog_layers`, hoje apagada, e que agora é
-      // materializado na tabela dedicada. Ele não tem `type`, logo não CLAMA recurso de catálogo
-      // nenhum, e precisa sair exatamente como entrou.
+    it('a entrada SEM `type` atravessa verbatim, `name` e `config` inclusive', async () => {
+      // A entrada de estilo antigo (o mesmo dado que morava na coluna `maps.catalog_layers`, hoje
+      // apagada) não tem `type`, logo não CLAMA recurso de catálogo nenhum, e precisa sair
+      // exatamente como entrou. Ela chegava aqui pela forma de LISTA até 2026-09-13; a lista saiu
+      // (B5, item 5) e o que este caso mede nunca foi a lista, e sim o PREDICADO da poda, então
+      // ele passou a mandar a mesma entrada como op por camada.
       //
       // As chaves `name` e `config` estão no fixture DE PROPÓSITO, e são elas que dão poder de
       // discriminação a este caso: são exatamente as duas que a poda tira. Sem elas a entrada não
@@ -351,20 +329,20 @@ describe('Sync — catalogLayer (per-layer)', () => {
       // toda entrada — que é o erro mais fácil de cometer aqui (medido: com a poda incondicional,
       // este caso ficava vermelho, e com o predicado por CLAIM ele continua verde).
       const m = await createMap(db, atlas.id, { name: 'Shape freeze legado' });
-      const arr = [{
+      const entrada = {
         id: 'wms-a',
         nome: 'Camada A',
         visible: true,
         opacity: 0.3,
         name: 'Camada A',
         config: { id: 'wms-a', source: { type: 'raster', url: '/legado/{z}/{x}/{y}.png' } },
-      }];
+      };
       await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
         .send({ operations: [{ protocolVersion: 2,
-          id: randomUUID(), entityType: 'catalogLayer', operationType: 'update',
-          entityId: m.id, mapId: m.id, data: { catalog_layers: arr },
+          id: randomUUID(), entityType: 'catalogLayer', operationType: 'create',
+          entityId: entrada.id, mapId: m.id, data: entrada,
           timestamp: Date.now(), clientId: 'c-shape',
         }] })
         .expect(200);
@@ -378,11 +356,11 @@ describe('Sync — catalogLayer (per-layer)', () => {
         .find((l) => l.id === 'wms-a');
 
       assert.deepEqual(
-        chaves(item), chaves({ ...arr[0], sync: null }),
+        chaves(item), chaves({ ...entrada, sync: null }),
         'o item entregue é a entrada legada mais `sync`, nem uma chave a mais nem a menos',
       );
       assert.equal(item.name, 'Camada A', '`name` sobrevive: a entrada não clama recurso');
-      assert.deepEqual(item.config, arr[0].config, 'e `config` inteiro, URL inclusive');
+      assert.deepEqual(item.config, entrada.config, 'e `config` inteiro, URL inclusive');
     });
   });
 });

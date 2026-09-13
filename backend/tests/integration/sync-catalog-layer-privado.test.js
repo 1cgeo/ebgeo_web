@@ -421,18 +421,25 @@ describe('F11 — camada de catálogo no snapshot: referência, e a definição 
     assert.ok(rows[0].deleted_at !== null, 'e a remoção aconteceu de verdade');
   });
 
-  it('ESCRITA — o HILLSHADE e a forma legada de ARRAY passam pelo gate sem serem tocados', async () => {
-    // Os dois casos que o resolvedor de referência devolve como "não é recurso": sem esta
-    // medição, um gate que recusasse tudo o que não conhece tiraria o relevo sombreado de quem
-    // não é administrador, e quebraria o import/clone que ainda escreve o array.
+  it('ESCRITA — o HILLSHADE passa pelo gate sem ser tocado', async () => {
+    // O caso que o resolvedor de referência devolve como "não é recurso": sem esta medição, um
+    // gate que recusasse tudo o que não conhece tiraria o relevo sombreado de quem não é
+    // administrador.
     const doHillshade = await push(tokenMembro, [
       opDeCamada('hillshade', 'hillshade', {
         name: 'Sombreamento do Relevo', source: { type: 'raster-dem', url: URL_HILLSHADE },
       }, 'update'),
     ]);
     assert.equal(doHillshade.acks[0].rejected, undefined, 'o hillshade não é recurso e não é gateado');
+  });
 
-    const doArray = await push(tokenMembro, [{ protocolVersion: 2,
+  it('ESCRITA — a forma de LISTA é recusada ANTES do gate de recurso, e por outro motivo', async () => {
+    // A lista saiu em 2026-09-13 (B5, item 5) e este caso media que ela ATRAVESSAVA o gate de
+    // recurso sem tipo por camada. O fato mudou de sinal e continua valendo a pena medir, por uma
+    // razão que não se adivinha: as duas recusas são de camadas diferentes, e a da lista corre
+    // ANTES (é recusa PURA, sem banco). Se um dia ela voltasse a passar, a op cairia no ramo por
+    // camada com um `entityId` que não endereça nada: zero linhas escritas e ack de sucesso.
+    const daLista = await push(tokenMembro, [{ protocolVersion: 2,
       id: randomUUID(),
       entityType: 'catalogLayer',
       operationType: 'update',
@@ -442,7 +449,9 @@ describe('F11 — camada de catálogo no snapshot: referência, e a definição 
       timestamp: Date.now(),
       clientId: `c-arr-${sufixo}`,
     }]);
-    assert.equal(doArray.acks[0].rejected, undefined, 'a forma legada de array não carrega tipo por camada');
+    assert.equal(daLista.acks[0].rejected, true, 'a forma de lista é recusada');
+    assert.match(daLista.acks[0].reason, /lista inteira de camadas de catálogo/,
+      'pelo motivo da LISTA, não pelo do recurso invisível');
   });
 
   // ==========================================================================

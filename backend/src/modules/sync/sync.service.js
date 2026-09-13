@@ -119,9 +119,9 @@ const ENTITY_TYPE_MAP = {
   mapNotes: { target: 'map', subType: 'notes' },
   gridStyle: { target: 'map', subType: 'grid' },
   mapTemporal: { target: 'map', subType: 'temporal' },
-  // catalogLayer is its own entity (one row per layer). The handler still accepts the legacy
-  // whole-array form (data.catalog_layers) and materialises it into the same table: there is no
-  // second home for it.
+  // catalogLayer is its own entity: ONE row per layer, one op per row. The legacy whole-array
+  // form (`data.catalog_layers`) was accepted here until 2026-09-13 and is now refused by name;
+  // see `catalogLayerArrayDenialReason`.
   catalogLayer: { target: 'catalog_layer' },
 };
 
@@ -1405,6 +1405,41 @@ function unknownTargetDenialReason(op) {
 }
 
 /**
+ * Refusal for the LEGACY WHOLE-ARRAY form of a catalog-layer operation, removed on 2026-09-13.
+ *
+ * WHAT IT WAS AND WHY IT WENT. A `catalogLayer` op could carry `data.catalog_layers` (or
+ * `changes.catalog_layers`) as an ARRAY of entries, and the handler materialised each one as a row
+ * of `catalog_layers`. It addressed NO single row: `entityId` was a throwaway (every emitter sent
+ * the map's id or a fresh UUID), so there was nothing for a base to be observed about and nothing
+ * for the per-entity revision check to compare. A literal replay was stopped one layer up, by the
+ * receipt; an OUT-OF-ORDER array was not, and it wrote the live row with whatever the sender still
+ * held. That is the one hole in this file's conflict model that no amount of frontier bookkeeping
+ * could close, because the form has no address.
+ *
+ * NO LIVE CLIENT EMITS IT. The current client mints one op per layer (`catalog.operations.js`
+ * writes `mapData.catalogLayers` entry by entry, and there is no producer of the array shape in
+ * `frontend/src/`, checked across both packages on 2026-09-13). So the choice was between keeping
+ * an unverifiable write path for nobody and refusing it by name, and the second is what the client
+ * already knows how to show.
+ *
+ * REFUSED BEFORE THE LOG INSERT, like every other pure refusal here: an op nobody should apply must
+ * not consume a `server_version` nor be replayed to peers. Note what this does NOT touch: the array
+ * shape is still UNDERSTOOD by `pruneCatalogLayerOperation` and by the reference extractors, and
+ * has to be, because the append-only log can still hold array ops written before this date and an
+ * incremental pull replays them outbound.
+ *
+ * @param {Object} op - Normalized operation.
+ * @returns {string|null} Refusal reason, or null when the op is not the array form.
+ */
+function catalogLayerArrayDenialReason(op) {
+  if (op.target !== 'catalog_layer') return null;
+  const isArrayForm = Array.isArray(op.data?.catalog_layers) || Array.isArray(op.changes?.catalog_layers);
+  if (!isArrayForm) return null;
+  return 'Alteração descartada: a lista inteira de camadas de catálogo não é mais aceita; '
+    + 'envie uma operação por camada.';
+}
+
+/**
  * The other half of {@link operationDenialReason}, for the refusal that needs the database:
  * a LOCKED map blocks mutations of its child entities (the spec's "disable editing").
  *
@@ -2178,6 +2213,7 @@ export async function pushOperations(atlasId, operations, userId, permission = '
     const recusaPura = (op) => foreignAtlasDenialReason(op, atlasId)
       ?? unknownTargetDenialReason(op)
       ?? mapSubtypeDeleteDenialReason(op)
+      ?? catalogLayerArrayDenialReason(op)
       ?? operationDenialReason(op, permission);
 
     // ── SAVEPOINT: POR OPERAÇÃO quando ela é individual, POR LOTE quando ela tem `batchId` ──
@@ -3212,66 +3248,20 @@ function buildSoftDeleteQuery(table, target, op, atlasId) {
 }
 
 /**
- * Applies a catalogLayer operation. Dual-mode:
- *  - Legacy whole-array form (`data`/`changes`.catalog_layers is an array): each item is
- *    materialised as a row of the `catalog_layers` table.
- *  - Per-layer form: upsert/update/soft-delete a row in the `catalog_layers`
- *    table keyed by the layer id (op.targetId), scoped to the map.
+ * Applies a catalogLayer operation: upsert / update / soft-delete of ONE row of the
+ * `catalog_layers` table, keyed by the layer id (`op.targetId`) and scoped to the map.
  *
- * THE ARRAY BRANCH USED TO WRITE `maps.catalog_layers`, a legacy column that no longer exists.
- * Three properties of the replacement are deliberate:
- *   - it UPSERTS and never removes. The column write was a whole-array REPLACE, which was
- *     harmless while nothing read the column; against the canonical table the same semantics
- *     would turn an op carrying `catalog_layers: []` into a wipe of every catalog layer of that
- *     map. No live client emits this form at all (the current client mints per-layer ops), so
- *     the compatibility shim buys nothing worth a destructive capability.
- *   - the array item has no `type`, so it refers to no catalog resource and neither the write
- *     gate nor the rehydration touches it. That is unchanged by the move.
- *   - IT NEVER CROSSES A TOMBSTONE, and until 2026-09-13 it did. The conflict branch carried
- *     `deleted_at = NULL` with NO `WHERE`, so a single array op resurrected EVERY removed
- *     catalog layer whose id it happened to name, with the stale definition the sender still
- *     held. That is the opposite of what the per-layer form does: its `update` requires
- *     `deleted_at IS NULL`, and its `create` only ever revives a row that really IS a tombstone,
- *     as the deliberate re-add gesture. The array form is neither gesture: it is an
- *     update-shaped bulk materialisation with no per-item intent (every emitter of it, past and
- *     present, stamps `operationType: 'update'`), so the conflict branch takes the per-layer
- *     UPDATE policy — write the live row, leave the tombstone untouched — while the non-conflict
- *     branch keeps the insert the shim needs. A confirmed deletion therefore wins over an old
- *     array, which is the invariant F8 names.
- *
- *     WHAT THIS DOES NOT BUY, so nobody reads more into it than is there: the live row IS still
- *     written with what the array carries, because that is the shim's declared semantics (an
- *     array naming one layer edits it, and `sync-catalog-layer.test.js` holds that). The table
- *     has no base version and no revision row, so "this array is older than what the server
- *     holds" is not a question this statement can ask. A literal replay is stopped one layer up,
- *     by the receipt; the out-of-order case needs the per-entity base/revision still pending.
+ * SINGLE-MODE SINCE 2026-09-13. There was a second mode, the legacy whole-array form
+ * (`data.catalog_layers` as an array, each item materialised as a row), and it is now refused at
+ * the door by `catalogLayerArrayDenialReason` instead of being applied here. The reason it went is
+ * written there and is worth one line: the form addressed no single row, so no base could be
+ * observed about it and the per-entity revision check had nothing to compare, which left the
+ * out-of-order case permanently open for a shape no live client emits.
  *
  * @param {Object} t - Transaction context
  */
 async function applyCatalogLayerOp(t, atlasId, op, type) {
   if (!op.mapId) return;
-
-  const arrayPayload =
-    (op.data && Array.isArray(op.data.catalog_layers) && op.data.catalog_layers) ||
-    (op.changes && Array.isArray(op.changes.catalog_layers) && op.changes.catalog_layers);
-
-  if (arrayPayload) {
-    for (const item of arrayPayload) {
-      if (!item || typeof item !== 'object' || item.id == null) continue;
-      await t.none(
-        `INSERT INTO catalog_layers (id, map_id, data)
-         SELECT $1, $2, $3::jsonb
-         WHERE EXISTS (SELECT 1 FROM maps WHERE id = $2 AND atlas_id = $4)
-         ON CONFLICT (map_id, id) DO UPDATE
-           SET data       = EXCLUDED.data,
-               updated_at = NOW(),
-               version    = catalog_layers.version + 1
-           WHERE catalog_layers.deleted_at IS NULL`,
-        [String(item.id), op.mapId, JSON.stringify(item), atlasId]
-      );
-    }
-    return;
-  }
 
   // Per-layer rows are pinned to a map of THIS atlas (cross-atlas IDOR guard).
   if (type === 'create') {
