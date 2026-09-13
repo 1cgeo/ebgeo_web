@@ -77,6 +77,22 @@ const SINAIS = [
     EventTypes.SESSION_CHANGED,
 ];
 
+/**
+ * ONDE OS AVISOS DESTE PAINEL APARECEM, e por que não é o padrão da casa.
+ *
+ * O aviso da casa nasce no TOPO do viewport (`toast_service.js`, `top-center`, com 80 px de base e
+ * 60 px por aviso empilhado) e é `position: fixed` acima de todo modal. Este painel é alto e fica
+ * centrado, então o topo dele encosta na faixa de avisos: um aviso ali cobre a própria fileira de
+ * contadores do painel, e dois avisos cobrem o cabeçalho junto. Foi o que a captura de B5d
+ * fotografou. Como TODO aviso deste painel fala sobre a lista que está na tela, cobri-la é o pior
+ * lugar possível, e o rodapé é o único que nunca disputa com ela.
+ *
+ * ISSO NÃO ALCANÇA O AVISO DE OUTRO MÓDULO: a recusa que o laço de envio anuncia
+ * (`sync-flush.js`, 8 s) continua nascendo no topo, e é dela que vinham os dois balões laranja da
+ * imagem. Mover aquela faixa é decisão de quem manda no serviço de aviso, não deste painel.
+ */
+const AVISO_DO_PAINEL = Object.freeze({ position: 'bottom-center' });
+
 /** Janela de coalescência: N sinais dentro dela viram UMA leitura. */
 const COALESCE_MS = 250;
 
@@ -255,12 +271,27 @@ export class PendenciasPanel extends ModalBase {
     }
 
     /**
+     * O topo do painel: a fileira de contadores e, ABAIXO dela, o comando que vale para a lista
+     * inteira.
+     *
+     * SÃO DUAS LINHAS E NÃO UMA, e a captura de B5d é o motivo. Contador e comando dividiam a mesma
+     * fileira, então o que a pessoa lê como "os filtros desta tela" tinha um botão no meio e
+     * encolhia a cada contador novo; com seis classes possíveis, a fileira única passa a competir
+     * com o comando pela mesma largura. Separá-las custa uma linha de altura e devolve a leitura de
+     * varredura, que é como uma lista de pendências se lê.
      * @param {Object} modelo - Saída de `montarPendencias`.
      * @private
      */
     _desenharResumo(modelo) {
         const contadores = contadoresVisiveis(modelo.contadores);
-        this._resumo.replaceChildren(...contadores.map(({ classe, label, quantidade }) => {
+        this._resumo.replaceChildren();
+        this._resumo.hidden = contadores.length === 0;
+        if (contadores.length === 0) return;
+
+        const fileira = document.createElement('div');
+        fileira.className = 'pendencias__contadores';
+        fileira.setAttribute('data-testid', 'pendencias-contadores');
+        for (const { classe, label, quantidade } of contadores) {
             const item = document.createElement('span');
             item.className = 'pendencias__contador';
             item.setAttribute('data-classe', classe);
@@ -273,21 +304,23 @@ export class PendenciasPanel extends ModalBase {
             const nome = document.createElement('span');
             nome.textContent = label;
             item.appendChild(nome);
-            return item;
-        }));
-        this._resumo.hidden = contadores.length === 0;
+            fileira.appendChild(item);
+        }
+        this._resumo.appendChild(fileira);
 
         // EXPORTAR TUDO fica no topo e não na linha: é a saída de quem vai limpar a lista inteira,
         // e pedir uma cópia linha a linha antes de descartar meia dúzia é como uma pessoa desiste
         // de guardar o próprio trabalho.
-        if (contadores.length === 0) return;
+        const acoes = document.createElement('div');
+        acoes.className = 'pendencias__resumo-acoes';
         const tudo = document.createElement('button');
         tudo.type = 'button';
         tudo.className = 'pendencias__acao';
         tudo.setAttribute('data-acao', 'exportar-tudo');
         tudo.textContent = `${acaoLabel(PendenciaAcao.EXPORTAR)} tudo`;
         addDomListener(this, tudo, 'click', () => this._exportar(modelo.linhas));
-        this._resumo.appendChild(tudo);
+        acoes.appendChild(tudo);
+        this._resumo.appendChild(acoes);
     }
 
     /**
@@ -424,7 +457,7 @@ export class PendenciasPanel extends ModalBase {
             if (bloqueio) botao.setAttribute('aria-disabled', 'true');
             addDomListener(this, botao, 'click', () => {
                 if (bloqueio) {
-                    showWarning(recusa);
+                    showWarning(recusa, AVISO_DO_PAINEL);
                     return;
                 }
                 this._executar(acao, linha);
@@ -474,15 +507,16 @@ export class PendenciasPanel extends ModalBase {
         try {
             const { removidas } = await aceitarOServidor(linha, this._modelo?.linhas ?? []);
             if (removidas === 0) {
-                showError(ACEITE_FALHOU);
+                showError(ACEITE_FALHOU, AVISO_DO_PAINEL);
                 return;
             }
             showSuccess(removidas === 1
                 ? 'Uma alteração descartada. Buscando o estado atual no servidor.'
-                : `${removidas} alterações descartadas. Buscando o estado atual no servidor.`);
+                : `${removidas} alterações descartadas. Buscando o estado atual no servidor.`,
+            AVISO_DO_PAINEL);
         } catch (error) {
             console.warn('[pendencias] aceitar o servidor falhou:', error);
-            showError(ACEITE_FALHOU);
+            showError(ACEITE_FALHOU, AVISO_DO_PAINEL);
         }
         await this._ler();
     }
@@ -504,11 +538,11 @@ export class PendenciasPanel extends ModalBase {
 
         try {
             const { removidas } = await descartarTentativa(linha, this._modelo?.linhas ?? []);
-            if (removidas === 0) showError(ACEITE_FALHOU);
-            else showToast('Alteração esquecida neste computador.', 'info');
+            if (removidas === 0) showError(ACEITE_FALHOU, AVISO_DO_PAINEL);
+            else showToast('Alteração esquecida neste computador.', 'info', AVISO_DO_PAINEL);
         } catch (error) {
             console.warn('[pendencias] descartar falhou:', error);
-            showError(ACEITE_FALHOU);
+            showError(ACEITE_FALHOU, AVISO_DO_PAINEL);
         }
         await this._ler();
     }
@@ -521,10 +555,10 @@ export class PendenciasPanel extends ModalBase {
         const online = connectionState.getState() === ConnectionStates.ONLINE;
         try {
             await reaplicarComNovaBase(linha, { online });
-            showSuccess(reaplicacaoFeita(online));
+            showSuccess(reaplicacaoFeita(online), AVISO_DO_PAINEL);
         } catch (error) {
             console.warn('[pendencias] reaplicar falhou:', error);
-            showError(REAPLICACAO_FALHOU);
+            showError(REAPLICACAO_FALHOU, AVISO_DO_PAINEL);
         }
         await this._ler();
     }
@@ -545,10 +579,10 @@ export class PendenciasPanel extends ModalBase {
             const area = globalThis.navigator?.clipboard;
             if (!area?.writeText) throw new Error('sem área de transferência');
             await area.writeText(texto);
-            showSuccess(EXPORTACAO_COPIADA);
+            showSuccess(EXPORTACAO_COPIADA, AVISO_DO_PAINEL);
         } catch (error) {
             console.warn('[pendencias] a exportação não pôde ser copiada:', error);
-            showError(EXPORTACAO_FALHOU);
+            showError(EXPORTACAO_FALHOU, AVISO_DO_PAINEL);
         }
     }
 

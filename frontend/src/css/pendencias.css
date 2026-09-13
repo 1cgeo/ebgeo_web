@@ -20,11 +20,23 @@
     gap: var(--space-4);
 }
 
-/* ---- Contadores do topo ---- */
+/* ---- Contadores do topo ----
+   DUAS LINHAS E NAO UMA: a fileira de contadores tem a largura toda para ela, e o
+   comando que vale para a lista inteira ("Exportar tudo") fica na linha de baixo.
+   Enquanto dividiam a mesma fileira, o botao competia por largura com um numero de
+   contadores que cresce ate seis, e a leitura de varredura do topo se perdia. */
 
 .pendencias__resumo {
     display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.pendencias__contadores,
+.pendencias__resumo-acoes {
+    display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: var(--space-2);
 }
 
@@ -37,6 +49,11 @@
     border-radius: var(--radius-full);
     font-size: var(--font-size-xs);
     color: var(--gray-700);
+
+    /* CADA CONTADOR CABE NUMA LINHA: sem isto, um rotulo longo ("Figura a espera de
+       envio") quebra dentro da pilula e ela vira um balao de duas linhas, que estica a
+       fileira inteira. Quebrar a FILEIRA e barato; quebrar a pilula, nao. */
+    white-space: nowrap;
 }
 
 .pendencias__contador-valor {

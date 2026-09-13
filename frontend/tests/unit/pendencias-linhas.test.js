@@ -40,6 +40,7 @@ const ARQ_PAINEL = fileURLToPath(
 const ARQ_FRASES = fileURLToPath(
     new URL('../../src/js/account/pendencias/pendencias-phrases.js', import.meta.url),
 );
+const ARQ_CSS = fileURLToPath(new URL('../../src/css/pendencias.css', import.meta.url));
 
 const op = (extra = {}) => ({
     id: 'op-1',
@@ -382,5 +383,81 @@ describe('estrutura: o painel nunca escreve HTML cru', () => {
     it('as frases continuam num folha de zero imports', () => {
         const frases = readFileSync(ARQ_FRASES, 'utf8');
         expect(/^\s*import\s/m.test(frases)).toBe(false);
+    });
+});
+
+/**
+ * O TOPO DO PAINEL E OS AVISOS DELE, que é o que a captura de B5d mostrou errado.
+ *
+ * A leitura da imagem achou dois balões laranja `position: fixed` no topo do painel, cobrindo a
+ * fileira de contadores. São avisos do serviço da casa, que nasce em `top-center` acima de todo
+ * modal, e o painel é alto o bastante para o topo dele encostar naquela faixa. Duas providências, e
+ * as duas são estruturais, porque a aparência só se verifica lendo imagem:
+ *
+ *   - todo aviso que ESTE painel levanta nasce no rodapé, senão ele cobre a lista de que fala;
+ *   - contador e comando deixam de dividir a mesma fileira, e a pílula do contador não quebra em
+ *     duas linhas.
+ *
+ * O QUE ISTO NÃO ALCANÇA, declarado: o aviso de recusa que `sync-flush.js` levanta continua no
+ * topo, porque aquele arquivo é de outro dono. É dele que vinham os dois balões da imagem.
+ */
+describe('estrutura: o topo do painel e o lugar dos avisos', () => {
+    const fonte = readFileSync(ARQ_PAINEL, 'utf8');
+    const css = readFileSync(ARQ_CSS, 'utf8');
+
+    /**
+     * Os argumentos de cada chamada de aviso, por contagem de parênteses.
+     *
+     * Contar parênteses e não casar até o `;` mais próximo: as chamadas são multilinha e uma delas
+     * carrega um ternário com template literal dentro, onde o primeiro `;` não é o fim da chamada.
+     * @param {string} texto - Fonte.
+     * @returns {string[]} Um item por chamada.
+     */
+    function chamadasDeAviso(texto) {
+        const achadas = [];
+        const inicio = /show(?:Toast|Error|Success|Warning)\(/g;
+        let m;
+        while ((m = inicio.exec(texto)) !== null) {
+            let profundidade = 1;
+            let i = m.index + m[0].length;
+            while (i < texto.length && profundidade > 0) {
+                if (texto[i] === '(') profundidade += 1;
+                else if (texto[i] === ')') profundidade -= 1;
+                i += 1;
+            }
+            achadas.push(texto.slice(m.index, i));
+        }
+        return achadas;
+    }
+
+    it('todo aviso deste painel nasce fora do topo, que é onde o painel está', () => {
+        const chamadas = chamadasDeAviso(fonte);
+        // PISO: sem ele, um arquivo que deixasse de avisar qualquer coisa passaria por vacuidade.
+        expect(chamadas.length).toBeGreaterThanOrEqual(8);
+        const semLugar = chamadas.filter((c) => !c.includes('AVISO_DO_PAINEL'));
+        expect(semLugar).toEqual([]);
+        // E o lugar é o rodapé de fato, não uma constante com qualquer valor.
+        expect(fonte).toMatch(/AVISO_DO_PAINEL\s*=\s*Object\.freeze\(\{\s*position:\s*'bottom-center'/);
+    });
+
+    it('CONTROLE NEGATIVO da varredura de avisos: ela acusa a chamada sem lugar', () => {
+        const sintetica = "showError(ACEITE_FALHOU);\nshowSuccess(x, AVISO_DO_PAINEL);";
+        const chamadas = chamadasDeAviso(sintetica);
+        expect(chamadas).toHaveLength(2);
+        expect(chamadas.filter((c) => !c.includes('AVISO_DO_PAINEL'))).toHaveLength(1);
+    });
+
+    it('contador e comando não dividem a mesma fileira', () => {
+        expect(fonte).toContain("'pendencias__contadores'");
+        expect(fonte).toContain("'pendencias__resumo-acoes'");
+        // As duas classes que o JS escreve precisam existir no CSS, senão a separação é só DOM.
+        expect(css).toContain('.pendencias__contadores');
+        expect(css).toContain('.pendencias__resumo-acoes');
+        // E o resumo é uma COLUNA: em linha, as duas voltariam a disputar a mesma largura.
+        expect(css).toMatch(/\.pendencias__resumo\s*\{[^}]*flex-direction:\s*column/);
+    });
+
+    it('a pílula do contador cabe numa linha', () => {
+        expect(css).toMatch(/\.pendencias__contador\s*\{[^}]*white-space:\s*nowrap/);
     });
 });
