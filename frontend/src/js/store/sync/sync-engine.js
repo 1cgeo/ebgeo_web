@@ -735,6 +735,15 @@ class SyncEngine {
         this._session?.close();
         this._session = null;
         wsClient.disconnect();
+        // O REGISTRO DE OPERACOES SAI JUNTO COM O SOCKET, e ate 2026-09-13 so o logout o
+        // desligava. A janela que isso deixava aberta e a de F7: entre montar o namespace
+        // remoto e terminar a negociacao (`activateRemoteAtlas` -> `markStoreRemote` ->
+        // `connect`, em `account/open-atlas.service.js`) o escopo ja e remoto, e o estado do
+        // registro era o que tivesse sobrado da conexao anterior. Desligar aqui torna a janela
+        // DETERMINISTICA: nela toda edicao remota e RECUSADA por
+        // `persistOperationIntents` (que lanca), em vez de gravar a entidade sem intencao
+        // nenhuma. Quem religa e o proprio `connect`, depois do snapshot.
+        disableOperationLogging();
         // O PAPEL E DO ATLAS, e sai com ele. Ficando, o `owner` do atlas A valeria durante a
         // janela de conexao do atlas B, que e conceder o que o servidor ainda nao respondeu.
         // Ver `sessionContext.forgetAtlasRole`.
@@ -793,6 +802,9 @@ class SyncEngine {
         // Id de entidade nao e unico ENTRE atlas, entao uma marca de "eu editei isto" deixada
         // do atlas anterior faria o proximo atlas avisar de atropelo que nunca houve.
         clearLocalEditMarks();
+        // Redundante com o `disconnect` acima DE PROPOSITO: a chamada e idempotente, e o
+        // logout e o caminho onde "parar de registrar" tem de valer mesmo que alguem mude o
+        // disconnect. Duas chamadas, um estado.
         disableOperationLogging();
         // Forget the atlas so a subsequent boot/connect starts clean and nothing thinks
         // a server atlas is still open.

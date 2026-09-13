@@ -1137,6 +1137,31 @@ describe('disconnect', () => {
         // E o socket fecha do mesmo jeito: a bandeira nao troca o que `disconnect` ja fazia.
         expect(wsClientMock.disconnect).toHaveBeenCalledTimes(1);
     });
+
+    // F7. Ate 2026-09-13 so o `logoutAndDisconnect` desligava o registro de operacoes, entao a
+    // janela entre montar o namespace remoto e terminar a negociacao (`activateRemoteAtlas` ->
+    // `markStoreRemote` -> `connect`) herdava o estado da conexao anterior. Com o registro
+    // desligado aqui, essa janela e' DETERMINISTICA e toda edicao remota nela e' recusada por
+    // `persistOperationIntents` em vez de gravar a entidade sem intencao nenhuma.
+    // CONTROLE NEGATIVO: removendo a chamada de `disconnect`, este caso cai.
+    it('desliga o registro de operacoes, como o logout ja fazia', () => {
+        syncEngine.disconnect();
+        expect(disableOperationLogging).toHaveBeenCalledTimes(1);
+    });
+
+    it('e o `connect` seguinte RELIGA, depois da negociacao e do snapshot', async () => {
+        syncEngine.disconnect();
+        expect(disableOperationLogging).toHaveBeenCalledTimes(1);
+        expect(enableOperationLogging).not.toHaveBeenCalled();
+
+        await syncEngine.connect('atlas-1', { initialPull: true });
+
+        expect(enableOperationLogging).toHaveBeenCalledTimes(1);
+        // A ORDEM E' O CONTRATO: o religamento vem DEPOIS do pull inicial, nao antes. Enquanto o
+        // snapshot esta a caminho a janela continua fechada.
+        expect(apiClientMock.pullSync.mock.invocationCallOrder[0])
+            .toBeLessThan(enableOperationLogging.mock.invocationCallOrder[0]);
+    });
 });
 
 describe('logoutAndDisconnect', () => {
@@ -1145,6 +1170,9 @@ describe('logoutAndDisconnect', () => {
         expect(wsClientMock.disconnect).toHaveBeenCalledTimes(1);
         expect(apiClientMock.logout).toHaveBeenCalledTimes(1);
         expect(sessionContextMock.clearSession).toHaveBeenCalledTimes(1);
-        expect(disableOperationLogging).toHaveBeenCalledTimes(1);
+        // DUAS chamadas, um estado: o `disconnect` que o logout faz primeiro ja desliga, e o
+        // logout repete de proposito (a chamada e' idempotente e o logout nao pode depender de
+        // ninguem manter aquela linha no `disconnect`).
+        expect(disableOperationLogging).toHaveBeenCalledTimes(2);
     });
 });

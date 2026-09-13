@@ -8,7 +8,7 @@
 
 import { createOperation, createBatchOperations } from './operation-factory.js';
 import { operationQueue } from './operation-queue.js';
-import { getActiveScope } from '../atlas-namespace.js';
+import { getActiveScope, StoreScopeKind } from '../atlas-namespace.js';
 import { EntityType, OperationType } from './operation-types.js';
 import { StoreErrorEvents, emitStoreError } from '../store-errors.js';
 import { generateUUID, isValidUUID } from '../../utilities/uuid.js';
@@ -23,14 +23,109 @@ import { markLocalEditPending, CONVERGENCE_GUARDED } from './remote-operation-ha
  */
 let enabled = false;
 
-/** Write-ahead path used by store transactions. Failure prevents entity persistence. */
+/**
+ * A remote edit that cannot become an outbound intention. Named (and carrying a `code` from
+ * {@link DropReason}) so a caller can tell it apart from an IndexedDB failure: `runTransaction`
+ * turns it into a rollback plus `STORE_PERSIST_ERROR`, so the entity is NOT written and the
+ * refusal reaches the producer instead of the edit dissolving into an `undefined` return.
+ */
+export class OperationIntentRefusedError extends Error {
+    /**
+     * @param {string} message - pt-BR sentence; it may surface to the user.
+     * @param {string} code - One of DropReason.
+     */
+    constructor(message, code) {
+        super(message);
+        this.name = 'OperationIntentRefusedError';
+        this.code = code;
+    }
+}
+
+/**
+ * Whether an edit born in this scope owes the server an operation.
+ *
+ * A LOCAL atlas has no outbound queue, so logging being off there is the ordinary state and
+ * nothing is lost. A REMOTE atlas is the opposite: every edit owes the server an op, so a
+ * dropped intention is data the peer never sees and the author never learns about.
+ * @param {Object|null|undefined} scope
+ * @returns {boolean}
+ */
+function owesOutboundIntent(scope) {
+    return (scope ?? getActiveScope())?.kind === StoreScopeKind.REMOTE;
+}
+
+/**
+ * Why one edit description can never be pushed, or null when it can.
+ * Same poison-pill rule as {@link logOperation} (bug D): the backend rejects a non-UUID id with
+ * 22P02 and that one op fails the ENTIRE flush batch.
+ * @param {Object} op - Edit description collected by `tx.recordOperation`.
+ * @returns {string|null} A DropReason, or null.
+ */
+function nonUuidDropReason(op) {
+    if (op.entityType === EntityType.SETTING && op.entityId !== 'atlas' && !isValidUUID(op.entityId)) {
+        return DropReason.NON_UUID_SETTING_ID;
+    }
+    if (op.mapId != null && !isValidUUID(op.mapId)) return DropReason.NON_UUID_MAPID;
+    return null;
+}
+
+/**
+ * Write-ahead path used by store transactions. Failure prevents entity persistence.
+ *
+ * THE TWO REFUSALS BELOW USED TO BE BARE RETURNS, and that is F7. Between mounting a remote
+ * namespace and finishing the handshake (`activateRemoteAtlas` → `markStoreRemote` → `connect`,
+ * in `account/open-atlas.service.js`) the scope is remote while logging is still off; an edit in
+ * that window persisted the entity and returned `undefined`, with no op, no error and no signal
+ * outside the trace (which is off in production). Refusing is the only honest answer: the entity
+ * is not written, so nothing looks saved that the server will never hear about.
+ *
+ * @param {Array<Object>} descriptions - Edit descriptions from `tx.recordOperation`.
+ * @param {Object} [options]
+ * @param {Object} [options.scope] - Scope the transaction was born in.
+ * @param {string} [options.traceId] - Gesture-wide trace id.
+ * @returns {Promise<(function(): Promise<void>)|undefined>} Materialization step, or undefined.
+ * @throws {OperationIntentRefusedError} In a REMOTE scope, when no intention can be recorded.
+ */
 export async function persistOperationIntents(descriptions, { scope, traceId } = {}) {
-    if (!enabled || descriptions.length === 0) return;
-    const safe = descriptions.filter(op =>
-        (op.mapId == null || isValidUUID(op.mapId))
-        && (op.entityType !== EntityType.SETTING || op.entityId === 'atlas' || isValidUUID(op.entityId))
-    );
-    if (safe.length === 0) return;
+    if (descriptions.length === 0) return;
+    if (!enabled) {
+        record(TraceStage.PREFLUSH_DROP, {
+            count: descriptions.length,
+            outcome: TraceOutcome.DROPPED, reason: DropReason.LOGGING_DISABLED
+        });
+        if (owesOutboundIntent(scope)) {
+            throw new OperationIntentRefusedError(
+                'Edição recusada: a conexão com o atlas do servidor ainda não está pronta. Tente de novo em instantes.',
+                DropReason.LOGGING_DISABLED
+            );
+        }
+        return;
+    }
+    const safe = [];
+    for (const op of descriptions) {
+        const reason = nonUuidDropReason(op);
+        if (!reason) {
+            safe.push(op);
+            continue;
+        }
+        record(TraceStage.PREFLUSH_DROP, {
+            entityType: op.entityType, operationType: op.operationType,
+            entityId: op.entityId, mapId: op.mapId,
+            outcome: TraceOutcome.DROPPED, reason
+        });
+    }
+    if (safe.length === 0) {
+        // Every description was un-pushable. In a remote atlas that is a CALLER bug (a store op
+        // aimed a synced entity at a name-keyed local map), so it throws: swallowing it wrote the
+        // entity and left the atlas silently divergent.
+        if (owesOutboundIntent(scope)) {
+            throw new OperationIntentRefusedError(
+                'Edição recusada: esta alteração não tem identidade válida para o atlas do servidor.',
+                DropReason.NON_UUID_MAPID
+            );
+        }
+        return;
+    }
     const created = createBatchOperations(safe).map(op => ({ ...op, traceId }));
     const queue = scope ? operationQueue.forScope(scope) : operationQueue;
     const predecessors = new Map();
@@ -96,6 +191,27 @@ export function isOperationLoggingEnabled() {
     return enabled;
 }
 
+/**
+ * Tells the producer that a REMOTE edit was not queued because logging is off.
+ *
+ * The legacy producers (`logOperation`/`logBatchOperations`) run in `deferAsync`, AFTER the
+ * entity is durable, so there is nothing to roll back and throwing would only be swallowed by
+ * `runTransaction`'s effect wrapper. The refusal is therefore an event, which is the house
+ * pattern for an expected failure: the global `STORE_OPERATION_BLOCKED` listener names it to
+ * the user, and `session/migalhas-do-barramento.js` keeps `reason` in the crumb trail because
+ * it is a symbol, never user content. A LOCAL atlas stays silent: it owes no op.
+ *
+ * @param {string} operation - Human-readable label (e.g. "create feature").
+ * @param {string|null} entityId - Entity id for the payload, or null for a batch.
+ * @returns {void}
+ */
+function noteLoggingDisabled(operation, entityId) {
+    if (!owesOutboundIntent(null)) return;
+    emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+        operation, entityId, reason: DropReason.LOGGING_DISABLED
+    });
+}
+
 // ===== RETRY HELPER =====
 
 /**
@@ -151,6 +267,7 @@ export async function logOperation(entityType, operationType, entityId, mapId, d
             entityType, operationType, entityId, mapId,
             outcome: TraceOutcome.DROPPED, reason: DropReason.LOGGING_DISABLED
         });
+        noteLoggingDisabled(`${operationType} ${entityType}`, entityId);
         return;
     }
 
@@ -225,6 +342,7 @@ export async function logBatchOperations(operations) {
             count: (operations || []).length,
             outcome: TraceOutcome.DROPPED, reason: DropReason.LOGGING_DISABLED
         });
+        noteLoggingDisabled(`batch (${(operations || []).length} ops)`, null);
         return;
     }
 

@@ -20,7 +20,8 @@ vi.mock('localforage', () => {
 vi.mock('../../src/js/store/store-errors.js', () => ({
     StoreErrorEvents: {
         STORE_SYNC_ERROR: 'store:syncError',
-        STORE_PERSIST_ERROR: 'store:persistError'
+        STORE_PERSIST_ERROR: 'store:persistError',
+        STORE_OPERATION_BLOCKED: 'store:operationBlocked'
     },
     emitStoreError: vi.fn()
 }));
@@ -47,14 +48,22 @@ import {
     logFeatureOperation,
     logMapOperation,
     logBaseLayerOperation,
-    logBatchOperations
+    logBatchOperations,
+    persistOperationIntents,
+    OperationIntentRefusedError
 } from '../../src/js/store/sync/operation-dispatcher.js';
 import { EntityType, OperationType } from '../../src/js/store/sync/operation-types.js';
 import { operationQueue } from '../../src/js/store/sync/operation-queue.js';
-import { emitStoreError } from '../../src/js/store/store-errors.js';
+import { emitStoreError, StoreErrorEvents } from '../../src/js/store/store-errors.js';
+import { activateScope, clearActiveScope, remoteScope, localScope } from '../../src/js/store/atlas-namespace.js';
+import { setTracing, clearTrace, getTrace } from '../../src/js/store/sync/diag/trace-core.js';
+import { TraceStage, TraceOutcome, DropReason } from '../../src/js/store/sync/diag/trace-stages.js';
 
 beforeEach(async () => {
     disableOperationLogging();
+    clearActiveScope();
+    setTracing(false);
+    clearTrace();
     vi.clearAllMocks();
     localStorageMock.clear();
 });
@@ -187,6 +196,112 @@ describe('Logging when enabled', () => {
             { entityType: 'feature', operationType: OperationType.CREATE, entityId: 'f2', mapId: '4a22f7df-df6d-47df-80bb-f26df86d31ec' }
         ]);
         expect(await operationQueue.count()).toBe(1); // only the UUID-mapId op survives
+    });
+});
+
+// ============================================================================
+// F7 — a janela do dispatcher: escopo remoto com o registro desligado
+// ============================================================================
+
+const remoteAtlas = 'f1f1f1f1-f1f1-4f1f-8f1f-f1f1f1f1f1f1';
+const uuidMap = '4a22f7df-df6d-47df-80bb-f26df86d31ec';
+
+describe('F7 — registro desligado em escopo remoto', () => {
+    it('o produtor antigo (logOperation) emite STORE_OPERATION_BLOCKED em vez de voltar mudo', async () => {
+        activateScope(remoteScope(remoteAtlas));
+        disableOperationLogging();
+
+        await logFeatureOperation(OperationType.CREATE, 'f1', uuidMap, { nome: 'Ponto A' });
+
+        expect(emitStoreError).toHaveBeenCalledWith(
+            StoreErrorEvents.STORE_OPERATION_BLOCKED,
+            expect.objectContaining({ reason: DropReason.LOGGING_DISABLED, entityId: 'f1' })
+        );
+    });
+
+    it('o lote antigo tambem fala, e nomeia a contagem', async () => {
+        activateScope(remoteScope(remoteAtlas));
+        disableOperationLogging();
+
+        await logBatchOperations([
+            { entityType: 'feature', operationType: OperationType.CREATE, entityId: 'f1', mapId: uuidMap }
+        ]);
+
+        expect(emitStoreError).toHaveBeenCalledWith(
+            StoreErrorEvents.STORE_OPERATION_BLOCKED,
+            expect.objectContaining({ reason: DropReason.LOGGING_DISABLED, operation: 'batch (1 ops)' })
+        );
+    });
+
+    // A METADE QUE NAO PODE FALAR. Atlas local nao tem fila de envio, entao o registro
+    // desligado ali e' o estado normal: um aviso a cada edicao local seria ruido, e ruido e'
+    // o que faz a pessoa parar de ler o aviso que importa.
+    it('em atlas LOCAL o mesmo caminho segue silencioso', async () => {
+        activateScope(localScope('local-1', 'local-1'));
+        disableOperationLogging();
+
+        await logFeatureOperation(OperationType.CREATE, 'f1', uuidMap, { nome: 'Ponto A' });
+
+        expect(emitStoreError).not.toHaveBeenCalled();
+    });
+
+    it('persistOperationIntents recusa a edicao remota e nao devolve undefined', async () => {
+        const scope = remoteScope(remoteAtlas);
+        activateScope(scope);
+        disableOperationLogging();
+
+        await expect(persistOperationIntents(
+            [{ entityType: 'feature', operationType: OperationType.CREATE, entityId: 'f1', mapId: uuidMap }],
+            { scope }
+        )).rejects.toBeInstanceOf(OperationIntentRefusedError);
+    });
+});
+
+// O FILTRO DE IDENTIDADE VOLTOU A DEIXAR RASTRO. O caminho antigo (`logOperation`) sempre
+// registrou `preflush.drop`; o caminho write-ahead descartava calado, e uma op que some sem
+// linha nenhuma e' indistinguivel de uma op que nunca foi pedida.
+describe('F7 — filtro de identidade no caminho write-ahead', () => {
+    it('registra PREFLUSH_DROP com NON_UUID_MAPID e mantem as demais descricoes', async () => {
+        const scope = remoteScope(remoteAtlas);
+        activateScope(scope);
+        enableOperationLogging();
+        await operationQueue.forScope(scope).clear();
+        setTracing(true);
+        clearTrace();
+
+        await persistOperationIntents([
+            { entityType: 'feature', operationType: OperationType.CREATE, entityId: 'f1', mapId: 'Principal' },
+            { entityType: 'feature', operationType: OperationType.CREATE, entityId: 'f2', mapId: uuidMap }
+        ], { scope });
+
+        const drops = getTrace(s => s.stage === TraceStage.PREFLUSH_DROP);
+        expect(drops).toHaveLength(1);
+        expect(drops[0]).toMatchObject({
+            entityId: 'f1', mapId: 'Principal',
+            outcome: TraceOutcome.DROPPED, reason: DropReason.NON_UUID_MAPID
+        });
+        // A descricao sadia sobreviveu: o filtro descarta uma, nao o gesto inteiro.
+        expect(await operationQueue.forScope(scope).count()).toBe(1);
+    });
+
+    it('registra NON_UUID_SETTING_ID para uma chave local de setting', async () => {
+        const scope = remoteScope(remoteAtlas);
+        activateScope(scope);
+        enableOperationLogging();
+        await operationQueue.forScope(scope).clear();
+        setTracing(true);
+        clearTrace();
+
+        await expect(persistOperationIntents(
+            [{ entityType: EntityType.SETTING, operationType: OperationType.UPDATE, entityId: 'lastActiveMap', mapId: null }],
+            { scope }
+        )).rejects.toBeInstanceOf(OperationIntentRefusedError);
+
+        const drops = getTrace(s => s.stage === TraceStage.PREFLUSH_DROP);
+        expect(drops).toHaveLength(1);
+        expect(drops[0]).toMatchObject({
+            entityId: 'lastActiveMap', reason: DropReason.NON_UUID_SETTING_ID
+        });
     });
 });
 
