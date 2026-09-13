@@ -65,8 +65,20 @@ export const MARCADOR_DE_RESYNC_DO_CLIENTE = STRUCTURAL_MARKER.MAP_MERGE;
  *   `entity_id UUID NOT NULL`.
  * @param {string|null} [params.mapId] - O mapa, quando o ato é de mapa.
  * @param {string|null} [params.userId] - Quem pediu, para a auditoria do log.
- * @param {Object} [params.data] - O resumo do que foi escrito fora do log. Sem conteúdo de
- *   usuário e sem nome de recurso: contagens e identificadores.
+ * @param {Object} [params.data] - O resumo do que foi escrito fora do log.
+ *
+ *   A REGRA NÃO É "SEM CONTEÚDO DE USUÁRIO", e esta linha dizia isso enquanto um dos quatro
+ *   chamadores já a contrariava: o marcador da DUPLICAÇÃO carrega os REGISTROS de camada do mapa
+ *   novo (nome, estilo, ordem), porque `ensureMapLayers` as cria fora do log e sem eles o par não
+ *   tem como materializá-las. Nome de camada é conteúdo de usuário, escrito por quem edita.
+ *
+ *   A regra que de fato vale, e que é a que se pode conferir: o payload não pode conter NADA além
+ *   do que um leitor DESTE atlas já recebe no snapshot. É por isso que os três outros marcadores
+ *   levam só contagens e identificadores (não precisam de mais), e é o que o leitor tem de checar
+ *   ao acrescentar um campo, porque `GET /sync/:version` é gateado em `read` e entrega o log de
+ *   operações inteiro a qualquer participante. Definição de recurso de catálogo continua FORA em
+ *   qualquer caso: ela é a única coisa aqui cuja visibilidade varia por chamador dentro do mesmo
+ *   atlas, e quem a poda na saída é outro mecanismo (`resource-payload.prune.js`).
  * @returns {Promise<Object|null>} A linha inserida (`RETURNING *`), ou null na colisão de op_id.
  */
 export async function recordStructuralMarker(t, {

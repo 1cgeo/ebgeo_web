@@ -1036,8 +1036,11 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
     // coerente com o conteudo que ja tem. Sem uma linha em `operations` o gatilho
     // `trg_update_atlas_version` nunca dispara, o clone fica na versao zero com centenas de
     // entidades dentro, e a primeira op que alguem empurrar la vai parecer a primeira coisa que
-    // aconteceu naquele atlas. CONTAGENS, nunca ids nem nomes, pela mesma razao do
-    // `pruneReport`: esta linha e legivel por diagnostico.
+    // aconteceu naquele atlas. CONTAGENS mais o id da ORIGEM, nunca NOMES, pela mesma razao do
+    // `pruneReport`: esta linha e legivel por diagnostico. (A frase dizia "nunca ids nem nomes"
+    // enquanto a chamada logo abaixo passa `sourceAtlasId`. O id fica, porque e o que liga a
+    // copia a origem numa investigacao e um UUID de atlas nao abre nada sozinho: quem nao tem
+    // relacao com ele recebe 404. O que nao entra e nome, que e conteudo de usuario.)
     await recordStructuralMarker(t, {
       atlasId: newAtlasId,
       kind: STRUCTURAL_MARKER.ATLAS_CLONE,
