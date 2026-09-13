@@ -33,6 +33,8 @@ const sv360Store = new Map();
 // In-memory layer / group side-stores (keyed by map id)
 const layerStore = new Map();
 const groupStore = new Map();
+// In-memory per-map spatial-comment side-store (keyed by map id)
+const commentStore = new Map();
 
 vi.mock('localforage', () => {
     const mockStore = new Map();
@@ -78,7 +80,9 @@ vi.mock('../../src/js/store/repositories/index.js', () => ({
         saveStreetview360: vi.fn(async (mapName, data) => { sv360Store.set(mapName, data); }),
         getLayers: vi.fn(async (mapId) => layerStore.get(mapId) || []),
         saveLayers: vi.fn(async (mapId, layers) => { layerStore.set(mapId, layers); }),
+        getGroups: vi.fn(async (mapId) => groupStore.get(mapId) || {}),
         saveGroups: vi.fn(async (mapId, groups) => { groupStore.set(mapId, groups); }),
+        saveMapComments: vi.fn(async (mapId, comments) => { commentStore.set(mapId, comments); }),
     })),
 }));
 
@@ -104,6 +108,7 @@ import {
     setRemoteHandlerEventBus,
     markLocalEditPending,
     resolveLocalEdit,
+    confirmEntityVersion,
 } from '../../src/js/store/sync/remote-operation-handler.js';
 import { EntityType, OperationType } from '../../src/js/store/sync/operation-types.js';
 
@@ -159,6 +164,7 @@ beforeEach(() => {
     sv360Store.clear();
     layerStore.clear();
     groupStore.clear();
+    commentStore.clear();
     eventBus = createMockEventBus();
     setRemoteHandlerEventBus(eventBus);
 });
@@ -297,5 +303,128 @@ describe('F13 — tipo de entidade desconhecido', () => {
         const daqui = warn.mock.calls.filter(([m]) => String(m).includes('atlas_meta'));
         expect(daqui).toHaveLength(1);
         warn.mockRestore();
+    });
+});
+
+// ============================================================================
+// B5 passo 2, metade CLIENTE: a revisão que o servidor confirmou
+// ============================================================================
+//
+// A FEIÇÃO JÁ TINHA ISSO, E O SERVIDOR É QUEM CARIMBAVA: `getAtlasSnapshot` escreve
+// `confirmedVersion` dentro de `properties` (`backend/src/modules/sync/sync.service.js`) e
+// `feature-conflicts.js` faz o mesmo na operação canônica. Nenhuma outra entidade recebe esse
+// campo do servidor, e nenhuma pode passar a receber sem mexer no backend, que é outro lote. O
+// que o servidor manda para TODAS é a coluna `version` em cada linha do snapshot e o
+// `entityVersion` em cada recibo: é desses dois que o cliente passa a derivar a base observada.
+//
+// O QUE ESTES CASOS PRENDEM, e por que cada um existe:
+//  - o snapshot carimba as nove famílias, e o número é o `version` da LINHA, nunca o contador
+//    local de escritas que todo documento já carrega;
+//  - o recibo carimba pelo `entityVersion`, que é o único caminho para a SEGUNDA edição seguida
+//    da mesma entidade declarar uma base que o servidor ainda reconheça;
+//  - uma op ao vivo que MESCLA um payload parcial ESQUECE a revisão, porque uma base velha perde
+//    para uma mudança que este par já viu, e perder em silêncio é pior que não declarar nada.
+
+describe('B5 — a revisão confirmada de cada entidade', () => {
+    const atlasSnapshot = () => ({
+        maps: [{
+            id: 'map-9', name: 'Mapa 9', version: 4,
+            catalogLayers: [{ id: 'hillshade', version: 11 }],
+            layers: [{ id: 'layer-9', name: 'Camada', version: 5 }],
+            groups: [{ id: 'group-9', name: 'Grupo', version: 6, features: [] }],
+            comments: [{ id: 'comment-9', data: { text: 'oi' }, version: 7 }],
+            cesium3d: { markers: [{ id: 'm3d-9', version: 8 }], cameraPositions: {} },
+            streetview360: { markers: [{ id: 'm360-9', version: 9 }], orientations: {} },
+        }],
+        briefings: [{ id: 'brief-9', name: 'B', version: 2, slides: [{ id: 'slide-9', title: 'S', version: 3 }] }],
+    });
+
+    it('o snapshot carimba a revisão da linha em todas as famílias de entidade', async () => {
+        await applyRemoteSnapshot(atlasSnapshot());
+
+        expect(mapDataStore.get('map-9').confirmedVersion).toBe(4);
+        expect(mapDataStore.get('map-9').catalogLayers[0].confirmedVersion).toBe(11);
+        expect(layerStore.get('map-9')[0].confirmedVersion).toBe(5);
+        expect(groupStore.get('map-9')['group-9'].confirmedVersion).toBe(6);
+        expect(commentStore.get('map-9')['comment-9'].confirmedVersion).toBe(7);
+        expect(cesium3dStore.get('map-9').markers[0].confirmedVersion).toBe(8);
+        expect(sv360Store.get('map-9').markers[0].confirmedVersion).toBe(9);
+        expect(briefingStore.get('brief-9').confirmedVersion).toBe(2);
+        expect(briefingStore.get('brief-9').slides[0].confirmedVersion).toBe(3);
+    });
+
+    it('uma linha sem revisão do servidor não ganha base nenhuma, em vez de ganhar zero', async () => {
+        await applyRemoteSnapshot({ maps: [{ id: 'map-8', name: 'Sem versão',
+            layers: [{ id: 'layer-8', name: 'Camada' }] }] });
+        expect('confirmedVersion' in mapDataStore.get('map-8')).toBe(false);
+        expect('confirmedVersion' in layerStore.get('map-8')[0]).toBe(false);
+    });
+
+    it('o recibo carimba a revisão de cada família pelo entityVersion', async () => {
+        await applyRemoteSnapshot(atlasSnapshot());
+
+        expect(await confirmEntityVersion({ entityType: EntityType.MAP, entityId: 'map-9' }, 40)).toBe(true);
+        expect(await confirmEntityVersion({ entityType: EntityType.LAYER, entityId: 'layer-9', mapId: 'map-9' }, 50)).toBe(true);
+        expect(await confirmEntityVersion({ entityType: EntityType.GROUP, entityId: 'group-9', mapId: 'map-9' }, 60)).toBe(true);
+        expect(await confirmEntityVersion({ entityType: EntityType.BRIEFING, entityId: 'brief-9' }, 20)).toBe(true);
+        expect(await confirmEntityVersion({ entityType: EntityType.SLIDE, entityId: 'slide-9', mapId: 'brief-9' }, 30)).toBe(true);
+        expect(await confirmEntityVersion({ entityType: EntityType.CATALOG_LAYER, entityId: 'hillshade', mapId: 'map-9' }, 110)).toBe(true);
+        expect(await confirmEntityVersion({ entityType: EntityType.MARKER_3D, entityId: 'm3d-9', mapId: 'map-9' }, 80)).toBe(true);
+        expect(await confirmEntityVersion({ entityType: EntityType.MARKER_360, entityId: 'm360-9', mapId: 'map-9' }, 90)).toBe(true);
+
+        expect(mapDataStore.get('map-9').confirmedVersion).toBe(40);
+        expect(layerStore.get('map-9')[0].confirmedVersion).toBe(50);
+        expect(groupStore.get('map-9')['group-9'].confirmedVersion).toBe(60);
+        expect(briefingStore.get('brief-9').confirmedVersion).toBe(20);
+        expect(briefingStore.get('brief-9').slides[0].confirmedVersion).toBe(30);
+        expect(mapDataStore.get('map-9').catalogLayers[0].confirmedVersion).toBe(110);
+        expect(cesium3dStore.get('map-9').markers[0].confirmedVersion).toBe(80);
+        expect(sv360Store.get('map-9').markers[0].confirmedVersion).toBe(90);
+        // O `version` local, que conta as escritas DESTE cliente, não é tocado por nada disso.
+        expect(layerStore.get('map-9')[0].version).toBe(5);
+    });
+
+    it('a op de sub-tipo do mapa carimba o REGISTRO do mapa, endereçado pelo mapId', async () => {
+        await applyRemoteSnapshot(atlasSnapshot());
+        expect(await confirmEntityVersion(
+            { entityType: EntityType.MAP_POSITION, entityId: 'map-9', mapId: 'map-9' }, 41,
+        )).toBe(true);
+        expect(mapDataStore.get('map-9').confirmedVersion).toBe(41);
+    });
+
+    it('não inventa documento para uma entidade que este cliente não tem, e não lança', async () => {
+        expect(await confirmEntityVersion({ entityType: EntityType.LAYER, entityId: 'x', mapId: 'y' }, 3)).toBe(false);
+        expect(await confirmEntityVersion({ entityType: EntityType.FEATURE, entityId: 'f', mapId: 'map-9' }, 3)).toBe(false);
+        expect(await confirmEntityVersion({ entityType: EntityType.MAP, entityId: 'map-9' }, undefined)).toBe(false);
+        expect(mapDataStore.size).toBe(0);
+    });
+
+    it('uma camada que chega com a linha canônica do servidor carimba a base', async () => {
+        await applyRemoteSnapshot(atlasSnapshot());
+        await applyRemoteOperation({
+            id: 'op-layer', entityType: EntityType.LAYER, operationType: OperationType.UPDATE,
+            entityId: 'layer-9', mapId: 'map-9', data: { id: 'layer-9', name: 'Renomeada', version: 12 },
+            serverVersion: 950,
+        });
+        expect(layerStore.get('map-9')[0].confirmedVersion).toBe(12);
+    });
+
+    it('uma mescla parcial ESQUECE a revisão, no mapa e na camada', async () => {
+        await applyRemoteSnapshot(atlasSnapshot());
+
+        await applyRemoteOperation({
+            id: 'op-map', entityType: EntityType.MAP, operationType: OperationType.UPDATE,
+            entityId: 'map-9', data: { locked: true }, serverVersion: 951,
+        });
+        await applyRemoteOperation({
+            id: 'op-layer-2', entityType: EntityType.LAYER, operationType: OperationType.UPDATE,
+            entityId: 'layer-9', mapId: 'map-9', data: { visible: false }, serverVersion: 952,
+        });
+
+        expect('confirmedVersion' in mapDataStore.get('map-9')).toBe(false);
+        expect('confirmedVersion' in layerStore.get('map-9')[0]).toBe(false);
+        // E o resto do registro continua lá: a mescla é de campo, não de documento.
+        expect(mapDataStore.get('map-9').name).toBe('Mapa 9');
+        expect(layerStore.get('map-9')[0].name).toBe('Camada');
     });
 });

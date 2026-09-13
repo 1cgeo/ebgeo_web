@@ -153,6 +153,27 @@ describe('Layer write-ahead persistence', () => {
         expect(lm.getLayers(mapa.name).map(l => l.id)).toEqual(['l3', 'l2', 'l1']);
     });
 
+    // A REVISÃO CONFIRMADA ATRAVESSA A EDIÇÃO LOCAL, e é isso que dá base à SEGUNDA edição.
+    // `_updateLayerProperty` monta a camada nova espalhando a antiga, então o campo sobrevive de
+    // graça; o caso existe porque "de graça" é exatamente o tipo de propriedade que uma reescrita
+    // do construtor apaga sem nada ficar vermelho. Sem ela a segunda edição sai sem base e o
+    // servidor volta a aplicar por ordem de chegada.
+    it('editar duas vezes seguidas PRESERVA a revisão confirmada no documento e na intenção', async () => {
+        semear(camada('l1', 0, { confirmedVersion: 5 }));
+
+        await lm.renameLayer('l1', 'Primeira', mapa.name);
+        await lm.renameLayer('l1', 'Segunda', mapa.name);
+
+        const disco = await localRepository.getLayers(mapa.id);
+        expect(disco[0].confirmedVersion).toBe(5);
+        // O contador LOCAL de escritas andou duas vezes; a revisão do servidor não se move sem o
+        // servidor. São dois números diferentes de propósito.
+        expect(disco[0].version).toBe(3);
+        const fila = await operationQueue.getAll();
+        expect(fila.map(op => op.previousData.confirmedVersion)).toEqual([5, 5]);
+        expect(fila.map(op => op.data.confirmedVersion)).toEqual([5, 5]);
+    });
+
     it('reordenar para a MESMA ordem não registra intenção nem grava', async () => {
         semear(camada('l1', 0), camada('l2', 1));
         const persist = vi.spyOn(LocalRepository.prototype, 'saveLayers');

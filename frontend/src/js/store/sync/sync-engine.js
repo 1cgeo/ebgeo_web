@@ -41,6 +41,7 @@ import {
     setRemoteHandlerEventBus,
     recordLocalAppliedVersion,
     reconcilePendingLocalEdits,
+    confirmEntityVersion,
     CONVERGENCE_GUARDED,
 } from './remote-operation-handler.js';
 import { syncGateway } from './sync-gateway.js';
@@ -206,6 +207,15 @@ async function recordPushAcks(resp, ops) {
         // two windows it cannot close — see `lastRemoteAppliedVersion` in
         // remote-operation-handler.js). The ack is where the author learns it won, so it is where
         // it must be able to put its value back, and only the op carries that value.
+        // THE REVISION THE SERVER COMMITTED, written onto the local document so the author's NEXT
+        // edit of the same entity declares a base the server still recognises. Without it the
+        // second consecutive edit would carry the revision read from the snapshot, and the
+        // server's own frontier (moved by the FIRST edit) would refuse it: the author would lose
+        // a race against nobody. `entityVersion` rides every base-checked receipt; only three
+        // paths carry a canonical operation the inbound handler could have applied instead.
+        if (r.rejected !== true && r.success !== false && Number.isSafeInteger(r.entityVersion)) {
+            await confirmEntityVersion(op, r.entityVersion);
+        }
         if (r.rejected !== true && r.success !== false && sv != null && op.entityId && CONVERGENCE_GUARDED.has(op.entityType)) {
             await recordLocalAppliedVersion(op.entityId, sv, r.canonicalOperation ?? op);
         }

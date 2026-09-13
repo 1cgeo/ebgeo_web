@@ -41,6 +41,12 @@ import { pauseStoreWrites } from '../write-coordinator.js';
 import { createAtlas } from '../atlas/atlas.entity.js';
 import { generateUUID } from '../../utilities/uuid.js';
 import { isClearedPositionPayload } from '../map-position-clear.js';
+import {
+    clearConfirmedVersion,
+    stampConfirmedVersion,
+    stampConfirmedVersionFromRow,
+    stampConfirmedVersionFromRows,
+} from './confirmed-version.js';
 
 // ============================================================================
 // MODULE STATE
@@ -920,6 +926,19 @@ async function applyRemoteFeatureOpLocked(opType, featureId, mapId, data, server
  * @param {Object} data - Layer data
  * @returns {Promise<void>} Resolves once persisted and announced
  */
+/**
+ * @private The confirmed revision of a layer record a live payload was merged into: the payload's
+ * own when the server dated it (the canonical row a layer UPDATE ack carries), none otherwise.
+ * @param {Object} merged - The record about to be stored.
+ * @param {Object|null} data - The inbound payload.
+ * @returns {Object} `merged`.
+ */
+function mergedLayerRevision(merged, data) {
+    return data?.version != null
+        ? stampConfirmedVersion(merged, data.version)
+        : clearConfirmedVersion(merged);
+}
+
 async function applyRemoteLayerOp(opType, layerId, mapId, data, serverVersion) {
     const repo = handlerRepository();
     await flushLayerProjection(mapId);
@@ -936,8 +955,15 @@ async function applyRemoteLayerOp(opType, layerId, mapId, data, serverVersion) {
             ? layers.map((l) => (l.id === layerId ? data : l)) // idempotent re-apply
             : [...layers, data];
     } else if (opType === OperationType.UPDATE) {
-        next = layers.map((l) => (l.id === layerId ? { ...l, ...data } : l));
-        if (!next.some((l) => l.id === layerId) && data?.id === layerId && data.version != null) next.push(data);
+        // MERGE, so the confirmed revision of the record being merged INTO survives unless the
+        // payload dates itself. Same reasoning as `mergeRemoteMapUpdate`: a stale base is worse
+        // than none, because it loses to a change the peer has already applied.
+        next = layers.map((l) => (l.id === layerId
+            ? mergedLayerRevision({ ...l, ...data }, data)
+            : l));
+        if (!next.some((l) => l.id === layerId) && data?.id === layerId && data.version != null) {
+            next.push(stampConfirmedVersionFromRow(data));
+        }
     } else if (opType === OperationType.DELETE) {
         next = layers.filter((l) => l.id !== layerId);
         // Add only missing survivors/replacements; an ACK must not overwrite a
@@ -1095,6 +1121,11 @@ function mergeRemoteMapUpdate(repo, mapId, data) {
         for (const [key, value] of Object.entries(reshaped)) {
             if (carried.has(key)) merged[key] = value;
         }
+        // The row moved and this payload does not say to what: keeping the old confirmed revision
+        // would make the next local edit declare a base the server has already passed, and lose a
+        // race against a change this peer has just been shown. No base is the honest answer.
+        if (carried.has('version')) stampConfirmedVersion(merged, payload.version);
+        else clearConfirmedVersion(merged);
         await repo.saveMap?.(mapId, merged);
         return merged;
     });
@@ -1156,7 +1187,8 @@ async function applyConfirmedMapLayers(repo, mapId, layers, serverVersion) {
     const next = current.filter((layer) => layer.id !== 'default');
     for (const layer of layers) {
         if (shouldApplyVersion(layer.id, serverVersion) && !next.some((existing) => existing.id === layer.id)) {
-            next.push(layer);
+            // Rows the server itself serialised, so their `version` is the confirmed revision.
+            next.push(stampConfirmedVersionFromRow(layer));
             markAppliedVersion(layer.id, serverVersion);
         }
     }
@@ -1827,7 +1859,14 @@ async function reshapeSnapshotMap(repo, map) {
     // that predates the Coordination Line tool sends none. Without the collection the layer
     // setup builds no source and the tool activates, accepts clicks and draws nothing. Same
     // pure function as the other two, so the three cannot drift apart.
-    return ensureMapDataShape(reshaped) ?? reshaped;
+    const shaped = ensureMapDataShape(reshaped) ?? reshaped;
+    // The server's own revision of the map row, when this payload came from the server. A live
+    // partial update carries none, and then nothing is stamped: `mergeRemoteMapUpdate` is the one
+    // that has to FORGET the old number, because it merges into a record that already has one.
+    stampConfirmedVersionFromRow(shaped);
+    // The catalogue layers ride inside the map document and each carries its own row revision.
+    stampConfirmedVersionFromRows(shaped.catalogLayers);
+    return shaped;
 }
 
 /**
@@ -2053,7 +2092,7 @@ async function applyRemoteSnapshotInner(snapshot) {
             // sees existing groups on open. Without this the snapshot dropped them silently.
             if (Array.isArray(map.groups)) {
                 const byId = {};
-                for (const g of map.groups) { if (g && g.id) byId[g.id] = g; }
+                for (const g of map.groups) { if (g && g.id) byId[g.id] = stampConfirmedVersionFromRow(g); }
                 await repo.saveGroups?.(map.id, byId);
                 if (map.name) present(() => { memoryStore.groups[map.name] = byId; });
             }
@@ -2064,7 +2103,7 @@ async function applyRemoteSnapshotInner(snapshot) {
             // path did not. Persist them here (mirrors the groups handling above), else a pulled
             // atlas re-exports without its layers/3D/360 (silent data loss).
             if (Array.isArray(map.layers)) {
-                await repo.saveLayers?.(map.id, map.layers);
+                await repo.saveLayers?.(map.id, stampConfirmedVersionFromRows(map.layers));
                 // Refresh the live layer cache if this is the active map (visibility filter reads it).
                 if (map.name && memoryStore.currentMap === map.name) {
                     await present(async () => {
@@ -2074,9 +2113,11 @@ async function applyRemoteSnapshotInner(snapshot) {
                 }
             }
             if (map.cesium3d && typeof map.cesium3d === 'object') {
+                stampBucketedRevisions(map.cesium3d, CESIUM3D_BUCKETS);
                 await repo.saveCesium3d?.(map.id, map.cesium3d);
             }
             if (map.streetview360 && typeof map.streetview360 === 'object') {
+                stampBucketedRevisions(map.streetview360, STREETVIEW360_BUCKETS);
                 await repo.saveStreetview360?.(map.id, map.streetview360);
             }
             // Spatial comments: the backend snapshot sends them as an ARRAY per map; normalize to
@@ -2084,7 +2125,7 @@ async function applyRemoteSnapshotInner(snapshot) {
             // viewers (the server omits them) — then the side-store simply stays empty.
             if (Array.isArray(map.comments)) {
                 const commentsById = {};
-                for (const c of map.comments) { if (c && c.id) commentsById[c.id] = c; }
+                for (const c of map.comments) { if (c && c.id) commentsById[c.id] = stampConfirmedVersionFromRow(c); }
                 await repo.saveMapComments?.(map.id, commentsById);
             }
 
@@ -2099,6 +2140,8 @@ async function applyRemoteSnapshotInner(snapshot) {
     }
     for (const briefing of briefings) {
         if (briefing && briefing.id) {
+            stampConfirmedVersionFromRow(briefing);
+            stampConfirmedVersionFromRows(briefing.slides);
             await handlerLocalRepository().saveBriefing(briefing.id, briefing);
             emit(EventTypes.BRIEFING_UPDATED, { briefingId: briefing.id, briefing });
         }
@@ -2116,6 +2159,205 @@ async function applyRemoteSnapshotInner(snapshot) {
     emit(EventTypes.GROUPS_CHANGED, {});
     // Signal the comment overlay to reload the active map's comments from the side-store.
     emit(EventTypes.COMMENT_UPDATED, {});
+}
+
+// ============================================================================
+// CONFIRMED SERVER REVISION
+// ============================================================================
+
+/**
+ * The 3D and 360 side-stores keep their entities in buckets, some as arrays keyed by `id` and
+ * some as objects keyed by a natural key (tileset, photo). Declared once because BOTH the
+ * snapshot path and the push-ack write-back have to walk exactly the same places: a bucket in one
+ * list and not the other is an entity that gets a base it can never refresh.
+ */
+const CESIUM3D_BUCKETS = ['markers', 'measurements', 'viewsheds', 'cameraPositions'];
+const STREETVIEW360_BUCKETS = ['markers', 'orientations'];
+
+/**
+ * Stamps every entity of every named bucket of a side-store document from its own `version`.
+ * @param {Object} store - The per-map cesium3d / streetview360 document.
+ * @param {string[]} buckets - Bucket names to walk.
+ * @returns {Object} The same document.
+ */
+function stampBucketedRevisions(store, buckets) {
+    for (const bucket of buckets) stampConfirmedVersionFromRows(store?.[bucket]);
+    return store;
+}
+
+/** Client entity types that address the map RECORD itself (the map row's revision). */
+const MAP_RECORD_ENTITIES = new Set([
+    EntityType.MAP, EntityType.MAP_POSITION, EntityType.BASE_LAYER,
+    EntityType.MAP_NOTES, EntityType.GRID_STYLE, EntityType.MAP_TEMPORAL,
+]);
+
+/** Client entity types stored in the per-map cesium3d document, and the bucket each lands in. */
+const CESIUM3D_ENTITY_BUCKET = {
+    [EntityType.MARKER_3D]: 'markers',
+    [EntityType.MEASUREMENT_3D]: 'measurements',
+    [EntityType.VIEWSHED_3D]: 'viewsheds',
+    [EntityType.CAMERA_POSITION_3D]: 'cameraPositions',
+};
+
+/** Client entity types stored in the per-map streetview360 document. */
+const STREETVIEW360_ENTITY_BUCKET = {
+    [EntityType.MARKER_360]: 'markers',
+    [EntityType.ORIENTATION_360]: 'orientations',
+};
+
+/** @private Stamps one entity of a bucketed side-store, by id, and reports whether it was found. */
+function stampInBucket(bucket, entityId, entityVersion) {
+    if (Array.isArray(bucket)) {
+        const found = bucket.find((item) => item && item.id === entityId);
+        if (!found) return false;
+        stampConfirmedVersion(found, entityVersion);
+        return true;
+    }
+    if (!bucket || typeof bucket !== 'object') return false;
+    const key = Object.keys(bucket).find((k) => bucket[k]?.id === entityId);
+    if (!key) return false;
+    stampConfirmedVersion(bucket[key], entityVersion);
+    return true;
+}
+
+/**
+ * Writes the revision the server just confirmed for ONE entity onto its local document.
+ *
+ * WHY THE ACK IS NOT ENOUGH ON ITS OWN, and why this exists. The push receipt carries
+ * `entityVersion` for every base-checked entity, but only three paths carry a `canonicalOperation`
+ * the inbound handler can apply (feature, map create, layer update). Without this write-back the
+ * author's SECOND consecutive edit of the same entity would declare the revision it read from the
+ * snapshot, the server would find its own frontier already past it, and the author would lose a
+ * race against nobody but themselves. That is not a hypothetical: it is what a base declaration
+ * costs the moment the queue holds two edits of one document.
+ *
+ * IT WRITES ONE FIELD AND NOTHING ELSE. Re-applying the acked operation would have been shorter
+ * (`resolveLocalEdit` already does it under one narrow condition) and it is the wrong instrument:
+ * the operation's payload is the state at the time it was created, so replaying it over a newer
+ * local edit would revert work the user can see. Reading the document, setting one number and
+ * writing it back cannot lose anything it did not already hold.
+ *
+ * BEST-EFFORT BY DESIGN. It runs from the flush's ack loop; a failure here costs one operation of
+ * arrival-order behaviour on the next edit, and must never be allowed to stall the queue.
+ *
+ * @param {Object} operation - The acked local operation (entityType/entityId/mapId).
+ * @param {number} entityVersion - The revision the server committed.
+ * @returns {Promise<boolean>} Whether a document was written.
+ */
+export async function confirmEntityVersion(operation, entityVersion) {
+    const { entityType, entityId, mapId } = operation ?? {};
+    if (!entityType || !entityId || !Number.isSafeInteger(entityVersion)) return false;
+    try {
+        return await writeConfirmedEntityVersion(entityType, entityId, mapId, entityVersion);
+    } catch {
+        // See the header: the next edit falls back to arrival order, which is where it started.
+        return false;
+    }
+}
+
+/**
+ * @private The per-entity address of the confirmed revision. One switch, and the entity families
+ * are the ones `applyRemoteOperation` already routes to, so a new entity type that forgets this
+ * function simply never declares a base.
+ */
+async function writeConfirmedEntityVersion(entityType, entityId, mapId, entityVersion) {
+    // A feature is stamped by the canonical operation the receipt already carries (the server
+    // writes `confirmedVersion` into its properties, `feature-conflicts.js`), and re-stamping it
+    // here would be a second writer of one fact.
+    if (entityType === EntityType.FEATURE) return false;
+
+    const repo = handlerRepository();
+    const local = handlerLocalRepository();
+
+    if (MAP_RECORD_ENTITIES.has(entityType)) {
+        // A sub-typed map op (position, notes, grid, temporal, base layer) addresses the map
+        // through `mapId`; a plain `map` op through its own id. Same split the server makes in
+        // `revisionKeyOf`, and it has to be the same one or the two would name different rows.
+        const id = entityType === EntityType.MAP ? entityId : (mapId ?? entityId);
+        return withMapDocument(id, 'confirmEntityVersion:map', async () => {
+            const document = await repo.getMap?.(id);
+            if (!document) return false;
+            stampConfirmedVersion(document, entityVersion);
+            await repo.saveMap?.(id, document);
+            return true;
+        });
+    }
+
+    if (entityType === EntityType.LAYER) {
+        const layers = (await repo.getLayers?.(mapId)) || [];
+        const found = layers.find((layer) => layer && layer.id === entityId);
+        if (!found) return false;
+        stampConfirmedVersion(found, entityVersion);
+        await repo.saveLayers?.(mapId, layers);
+        return true;
+    }
+
+    if (entityType === EntityType.GROUP) {
+        const groups = (await repo.getGroups?.(mapId)) || {};
+        if (!groups[entityId]) return false;
+        stampConfirmedVersion(groups[entityId], entityVersion);
+        await repo.saveGroups?.(mapId, groups);
+        return true;
+    }
+
+    if (entityType === EntityType.COMMENT) {
+        return withSideDocument('comments', mapId, 'confirmEntityVersion:comment', async () => {
+            const collection = await local.getMapComments(mapId);
+            if (!collection?.[entityId]) return false;
+            stampConfirmedVersion(collection[entityId], entityVersion);
+            await local.saveMapComments(mapId, collection);
+            return true;
+        });
+    }
+
+    if (entityType === EntityType.BRIEFING || entityType === EntityType.SLIDE) {
+        // A slide lives INSIDE its briefing document, and the op carries the briefing id in the
+        // envelope's `mapId` slot (see `applyLocalSlideIntent`).
+        const briefingId = entityType === EntityType.BRIEFING ? entityId : mapId;
+        if (!briefingId) return false;
+        return withDocumentLock(`briefing:${briefingId}`, 'confirmEntityVersion:briefing', async () => {
+            const briefing = await local.getBriefing(briefingId);
+            if (!briefing) return false;
+            if (entityType === EntityType.BRIEFING) {
+                stampConfirmedVersion(briefing, entityVersion);
+            } else {
+                const slide = (briefing.slides || []).find((item) => item && item.id === entityId);
+                if (!slide) return false;
+                stampConfirmedVersion(slide, entityVersion);
+            }
+            await local.saveBriefing(briefingId, briefing);
+            return true;
+        });
+    }
+
+    if (entityType === EntityType.CATALOG_LAYER) {
+        return withMapDocument(mapId, 'confirmEntityVersion:catalogLayer', async () => {
+            const document = await repo.getMap?.(mapId);
+            const entry = (document?.catalogLayers ?? []).find((layer) => layer && layer.id === entityId);
+            if (!entry) return false;
+            stampConfirmedVersion(entry, entityVersion);
+            await repo.saveMap?.(mapId, document);
+            return true;
+        });
+    }
+
+    // The 3D and 360 side-stores are keyed by map NAME, like every other writer of them.
+    const mapName = mapResolver.resolveToName(mapId) || mapId;
+    const cesiumBucket = CESIUM3D_ENTITY_BUCKET[entityType];
+    if (cesiumBucket) {
+        const document = await repo.getCesium3d?.(mapName);
+        if (!stampInBucket(document?.[cesiumBucket], entityId, entityVersion)) return false;
+        await repo.saveCesium3d?.(mapName, document);
+        return true;
+    }
+    const streetviewBucket = STREETVIEW360_ENTITY_BUCKET[entityType];
+    if (streetviewBucket) {
+        const document = await repo.getStreetview360?.(mapName);
+        if (!stampInBucket(document?.[streetviewBucket], entityId, entityVersion)) return false;
+        await repo.saveStreetview360?.(mapName, document);
+        return true;
+    }
+    return false;
 }
 
 // ============================================================================
