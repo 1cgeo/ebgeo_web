@@ -30,7 +30,12 @@ import { editedRecentlyLocally } from './overwrite-notice.js';
 import { record } from './diag/trace-core.js';
 import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
 import { operationQueue } from './operation-queue.js';
-import { getActiveScope } from '@store/atlas-namespace.js';
+import {
+    adoptActiveGeneration,
+    dropGenerationDatabases,
+    getActiveScope,
+    pruneAtlasGenerations,
+} from '@store/atlas-namespace.js';
 import { readGeneration, writeGeneration } from '../namespace-generation.js';
 import { pauseStoreWrites } from '../write-coordinator.js';
 import { createAtlas } from '../atlas/atlas.entity.js';
@@ -1792,15 +1797,23 @@ export function applyRemoteSnapshot(snapshot, options = {}) {
         if (context.scope?.kind !== 'remote') return applyRemoteSnapshotInner(snapshot);
         validateSnapshot(snapshot, true);
         const pause = pauseStoreWrites(context.scope);
+        // Which side of the durable commit a failure lands on: before it, the preparation is disk
+        // to be deleted; after it, the same databases are the atlas the user is looking at. Both
+        // live OUTSIDE the try because the cleanup is in the catch, and a preparation the catch
+        // cannot name is a preparation nothing deletes.
+        let activated = false;
+        let generation = null;
+        let previousRecord = null;
         try {
             await pause.settled;
             context.assertActive();
             const record = readGeneration(context.scope);
+            previousRecord = record;
             if (snapshot.currentVersion < record.cursor) throw new Error('O retrato recebido é anterior à recuperação já confirmada.');
-            const generation = generateUUID();
+            generation = generateUUID();
             // Register ownership before creating any database. Failed preparations are still
             // included in scoped logout cleanup, without ever becoming the active atlas.
-            const prepared = { ...record, known: [...new Set([...record.known, record.active, generation])] };
+            const prepared = { ...record, known: knownGenerations(record, generation) };
             writeGeneration(context.scope, prepared);
             const stageScope = { ...context.scope, dataGeneration: generation };
             context.repo = localRepository.forScope(stageScope);
@@ -1817,6 +1830,10 @@ export function applyRemoteSnapshot(snapshot, options = {}) {
             const latest = readGeneration(context.scope);
             if (latest.active !== record.active) throw new Error('Outra aba atualizou o atlas durante a recuperação. Tente novamente.');
             writeGeneration(context.scope, { ...latest, active: generation, cursor: snapshot.currentVersion });
+            activated = true;
+            // This tab now READS the new generation, and says so with a lock, so that the pruning
+            // below (and another tab's) can tell "superseded" from "still being read".
+            await adoptActiveGeneration(context.scope, generation);
             context.staging = false;
             await context.markMaterialized?.();
             const maps = await context.repo.getAllMaps();
@@ -1830,10 +1847,95 @@ export function applyRemoteSnapshot(snapshot, options = {}) {
                 context.assertActive();
                 await effect();
             }
+            await pruneSupersededGenerations(context.scope, generation, record.active);
+        } catch (error) {
+            // A PREPARATION THAT NEVER BECAME THE ATLAS IS DISK NOBODY WILL EVER READ, and it used
+            // to stay there: quota was the first failure and the abandoned nine databases were the
+            // reason the SECOND attempt failed too. Only the not-yet-activated one is cleaned here;
+            // past this point the data is durable and the pointer names it.
+            if (!activated && generation) await discardPreparedGeneration(context.scope, generation, previousRecord);
+            throw error;
         } finally {
             pause.resume();
         }
     }));
+}
+
+/**
+ * The `known` list a preparation must leave behind: everything already recorded, the generation
+ * that is still active, and the one being prepared, with no null and no duplicate.
+ *
+ * Null used to travel in the list (a first snapshot prepares over `active: null`). It was
+ * harmless, because `allGenerationStores` adds the generation-less names anyway, and it is now
+ * filtered because the list became a statement about what is ON DISK: pruning has to be able to
+ * subtract from it.
+ *
+ * @param {{ active: string|null, known: string[] }} record - Durable record before the preparation.
+ * @param {string} generation - Generation being prepared.
+ * @returns {string[]}
+ */
+function knownGenerations(record, generation) {
+    return [...new Set([...record.known, record.active, generation])].filter(Boolean);
+}
+
+/**
+ * Deletes the databases of a preparation that failed, and takes it out of `known`.
+ *
+ * IT REPORTS NOTHING TO THE CALLER, and the failure it is cleaning up is the one being rethrown:
+ * the user is already being told the recovery did not happen. What it must never do is turn a
+ * quota error into a cleanup error, because the caller's message names the real cause.
+ *
+ * A DELETE THAT DID NOT CONFIRM KEEPS THE GENERATION IN `known`. The list is what the scoped
+ * logout cleanup is derived from (`allGenerationStores`), so forgetting a database that is still
+ * on disk would leave server data no purge can find, which is worse than an entry that names a
+ * database already gone.
+ *
+ * @param {{ kind: string, dbSuffix: string }} scope - Scope being recovered.
+ * @param {string} generation - Generation that was prepared and never activated.
+ * @param {{ active: string|null, known: string[], cursor: number }} record - Durable record as it
+ *   was before the preparation, and what it goes back to when the deletes confirm.
+ * @returns {Promise<void>}
+ */
+async function discardPreparedGeneration(scope, generation, record) {
+    try {
+        const { blocked } = await dropGenerationDatabases(scope, generation);
+        writeGeneration(scope, blocked.length > 0
+            ? { ...record, known: knownGenerations(record, generation) }
+            : record);
+    } catch (cleanupError) {
+        // The original failure is the one that matters; this one only costs disk.
+        console.warn('Não foi possível apagar a preparação interrompida do atlas:', cleanupError);
+    }
+}
+
+/**
+ * Prunes the generations the new one superseded, keeping ONE reserve (decision D3 of 2026-09-13),
+ * and rewrites `known` so it names exactly what survived.
+ *
+ * BEST EFFORT ON PURPOSE, AND ONLY BECAUSE OF THE ORDER. It runs after the pointer commit, so the
+ * data the user asked for is already durable and reachable: a failure here costs disk, never the
+ * recovery, and raising would abort an apply that already succeeded. The next activation prunes
+ * again, which is what makes the step idempotent rather than a one-shot.
+ *
+ * IT RE-READS THE RECORD BEFORE WRITING because the prune awaits, and another apply of the same
+ * tab could have moved the pointer in the meantime; that apply owns the list, so this one steps
+ * aside instead of writing a stale `known` over it.
+ *
+ * @param {{ kind: string, dbSuffix: string }} scope - Scope that was just recovered.
+ * @param {string} active - Generation that just became active.
+ * @param {string|null} reserve - The generation it replaced, kept as the reserve.
+ * @returns {Promise<void>}
+ */
+async function pruneSupersededGenerations(scope, active, reserve) {
+    try {
+        const { spared, blocked } = await pruneAtlasGenerations(scope, { keep: [reserve].filter(Boolean) });
+        const latest = readGeneration(scope);
+        if (latest.active !== active) return;
+        const survivors = [...new Set([active, reserve, ...spared, ...blocked])].filter(Boolean);
+        writeGeneration(scope, { ...latest, known: survivors });
+    } catch (error) {
+        console.warn('Não foi possível podar as gerações antigas do atlas:', error);
+    }
 }
 
 function validateSnapshot(snapshot, complete = false) {

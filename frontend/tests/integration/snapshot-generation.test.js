@@ -1,7 +1,7 @@
 // Path: tests/integration/snapshot-generation.test.js
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { activateScope, getActiveScope, remoteScope, StoreName, getStoreFor, clearAtlasDatabases } from '../../src/js/store/atlas-namespace.js';
+import { activateScope, atlasGenerationLockName, getActiveScope, remoteScope, resolveDbName, StoreName, getStoreFor, clearAtlasDatabases } from '../../src/js/store/atlas-namespace.js';
 import { localRepository, LocalRepository, getEmptyMapData } from '../../src/js/store/repositories/local.repository.js';
 import { readGeneration } from '../../src/js/store/namespace-generation.js';
 import { createAtlas } from '../../src/js/store/atlas/atlas.entity.js';
@@ -116,6 +116,111 @@ describe('Snapshot generation commit with native IndexedDB', () => {
         await localRepository.saveMap(mapId, map('Outro atlas'));
         expect(await applyRemoteOperation({ ...operation, id: 'other-operation', serverVersion: 2 })).toBe(true);
         expect((await localRepository.getMap(mapId)).features.points).toHaveLength(1);
+    });
+
+    // ========================================================================================
+    // PRUNING (D3 de 2026-09-13: a ativa mais UMA anterior; preparação que falhou sai na hora)
+    //
+    // Cada caso monta um namespace PRÓPRIO, porque o ponteiro de geração vive num
+    // `localStorage` compartilhado por todo o arquivo: medir poda sobre o `known` que o caso
+    // anterior deixou seria medir a soma dos dois.
+    // ========================================================================================
+    const mountIsolated = async id => {
+        const isolated = remoteScope(id);
+        activateScope(isolated);
+        await clearAtlasDatabases(isolated);
+        return isolated;
+    };
+    const snapshotFor = (id, version) => ({
+        atlas: { ...createAtlas('Remoto'), id }, maps: [map('Servidor')], briefings: [], currentVersion: version,
+    });
+    const atlasDbOf = (isolated, generation) => resolveDbName(StoreName.ATLAS, { ...isolated, dataGeneration: generation });
+    const onDisk = async () => (await indexedDB.databases()).map(entry => entry.name);
+
+    it('deixa a geração ativa e UMA anterior depois de dois retratos', async () => {
+        const isolated = await mountIsolated('poda-duas');
+        await applyRemoteSnapshot(snapshotFor('poda-duas', 11));
+        const first = readGeneration(isolated).active;
+        await applyRemoteSnapshot(snapshotFor('poda-duas', 12));
+        const second = readGeneration(isolated).active;
+
+        expect(second).not.toBe(first);
+        expect([...readGeneration(isolated).known].sort()).toEqual([first, second].sort());
+        // A reserva continua LEGÍVEL: é ela que um handle capturado antes da troca ainda usa.
+        expect(await onDisk()).toContain(atlasDbOf(isolated, first));
+        expect(await onDisk()).toContain(atlasDbOf(isolated, second));
+    });
+
+    it('poda a geração que deixou de ser reserva, e o `known` não nomeia banco que saiu do disco', async () => {
+        const isolated = await mountIsolated('poda-tres');
+        await applyRemoteSnapshot(snapshotFor('poda-tres', 21));
+        const first = readGeneration(isolated).active;
+        await applyRemoteSnapshot(snapshotFor('poda-tres', 22));
+        const second = readGeneration(isolated).active;
+        await applyRemoteSnapshot(snapshotFor('poda-tres', 23));
+        const third = readGeneration(isolated).active;
+
+        const record = readGeneration(isolated);
+        expect([...record.known].sort()).toEqual([second, third].sort());
+        expect(record.known).not.toContain(first);
+        const names = await onDisk();
+        expect(names).not.toContain(atlasDbOf(isolated, first));
+        expect(names).toContain(atlasDbOf(isolated, second));
+        expect(names).toContain(atlasDbOf(isolated, third));
+        // O acervo ativo continua o que o servidor mandou, e não uma casca vazia.
+        expect((await new LocalRepository(isolated).getMap(mapId)).name).toBe('Servidor');
+    });
+
+    it('apaga a preparação que falhou por quota na ativação e devolve o registro ao que era', async () => {
+        const isolated = await mountIsolated('poda-quota');
+        await applyRemoteSnapshot(snapshotFor('poda-quota', 31));
+        const previous = readGeneration(isolated);
+        let prepared = null;
+        const set = globalThis.localStorage.setItem;
+        vi.spyOn(globalThis.localStorage, 'setItem').mockImplementation((key, value) => {
+            if (key.startsWith('ebgeo_atlas_generation:')) {
+                const parsed = JSON.parse(value);
+                if (parsed.active !== previous.active) throw new DOMException('quota at activation', 'QuotaExceededError');
+                prepared = parsed.known.find(generation => !previous.known.includes(generation)) ?? prepared;
+            }
+            return set(key, value);
+        });
+
+        await expect(applyRemoteSnapshot(snapshotFor('poda-quota', 32))).rejects.toThrow('quota at activation');
+
+        expect(prepared).toBeTruthy();
+        expect(readGeneration(isolated)).toEqual(previous);
+        expect(await onDisk()).not.toContain(atlasDbOf(isolated, prepared));
+        // E a ativa continua servindo o acervo, com o cursor da recuperação confirmada.
+        expect(readGeneration(isolated).cursor).toBe(31);
+        expect((await new LocalRepository(isolated).getMap(mapId)).name).toBe('Servidor');
+    });
+
+    it('poupa a geração que outra aba ainda lê, e a mantém no `known`', async () => {
+        const isolated = await mountIsolated('poda-irma');
+        await applyRemoteSnapshot(snapshotFor('poda-irma', 41));
+        const first = readGeneration(isolated).active;
+
+        // A aba irmã: um leitor compartilhado do MESMO nome de trava que a ativação publica.
+        let release;
+        const unmounted = new Promise(resolve => { release = resolve; });
+        await new Promise(resolve => {
+            navigator.locks.request(atlasGenerationLockName(isolated.dbSuffix, first), { mode: 'shared' }, () => {
+                resolve();
+                return unmounted;
+            });
+        });
+
+        try {
+            await applyRemoteSnapshot(snapshotFor('poda-irma', 42));
+            await applyRemoteSnapshot(snapshotFor('poda-irma', 43));
+            const record = readGeneration(isolated);
+            expect(record.known).toContain(first);
+            expect(record.known).toHaveLength(3);
+            expect(await onDisk()).toContain(atlasDbOf(isolated, first));
+        } finally {
+            release();
+        }
     });
 
     it('waits for an existing writer and rejects new edits without holding document locks', async () => {

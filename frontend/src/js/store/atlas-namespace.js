@@ -1256,6 +1256,15 @@ export function activateScope(scope) {
     // shape of defect as declaring an origin without activating a namespace.
     writeTabMountPointer(scope);
     acquireMountLock(scope);
+    // And the lock of the GENERATION this scope resolves to, which is what tells another tab's
+    // pruning "somebody still reads these databases". A corrupt record resolves nothing anyway
+    // (every `getStore` would throw), so it degrades to holding no generation lock instead of
+    // making the mount itself fail.
+    try {
+        acquireGenerationLock(scope, dataGenerationFor(scope));
+    } catch {
+        releaseGenerationLock().catch(() => undefined);
+    }
 }
 
 /**
@@ -1288,6 +1297,9 @@ export function clearActiveScope() {
     _activeScope = null;
     clearTabMountPointer();
     releaseMountLock().catch(() => undefined);
+    // Nothing is mounted, so no generation is being read either: a lock left behind here would
+    // spare a generation of a namespace this client has already let go.
+    releaseGenerationLock().catch(() => undefined);
 }
 
 /**
@@ -1434,6 +1446,243 @@ function acquireMountLock(scope) {
         // runtime that refuses the request, and the purge then destroys instead of sparing.
         setHeldMountLock(null);
     }
+}
+
+/**
+ * Prefix of the lock that means "a live client resolves its data THROUGH THIS GENERATION".
+ *
+ * IT IS A SECOND LOCK, NOT THE MOUNT LOCK, and the reason is that the two answer different
+ * questions. The mount lock is per NAMESPACE and the pruning tab holds it itself (it is the tab
+ * that is mounted), so an `exclusive ifAvailable` on that name is refused BY THE ASKER: asking it
+ * would spare every generation, forever, which is a guard that always says no and therefore
+ * guards nothing. This name carries the generation, so a tab that already moved to the new
+ * generation can ask about the old one and get a real answer.
+ *
+ * `#` separates both segments: it cannot appear in a `dbSuffix` (`VALID_SUFFIX`) nor in a
+ * generation (validated by `readGeneration`), so suffix plus generation maps injectively to a name.
+ */
+const GENERATION_LOCK_PREFIX = 'ebgeo-atlas-generation:';
+
+/**
+ * @param {string} dbSuffix - Database suffix of a scope.
+ * @param {string} generation - Data generation id.
+ * @returns {string} Name of the Web Lock that means "a live client reads this generation".
+ */
+export function atlasGenerationLockName(dbSuffix, generation) {
+    return `${GENERATION_LOCK_PREFIX}#${dbSuffix}#${generation}`;
+}
+
+/**
+ * Where the single generation lock of this CLIENT is remembered. On `globalThis` for the same
+ * reason the mount lock is (Decision 5): a second instance of this module inside the same client
+ * would otherwise leak the first one's lock, and a generation nobody can prune is disk that grows
+ * on every reconnect.
+ */
+const GENERATION_LOCK_HOLDER = Symbol.for('ebgeo.store.atlasGenerationLock');
+
+/** @returns {{ name: string, release: () => void, settled: Promise<*> }|null} */
+function heldGenerationLock() {
+    return globalThis[GENERATION_LOCK_HOLDER] ?? null;
+}
+
+/**
+ * Releases the generation lock this client holds, if any, and AWAITS the release.
+ *
+ * The await is what makes the swap deterministic: a tab that activates generation N+1 and then
+ * prunes N-1 must not be refused by its own unsettled request (measured 200/200 for the mount
+ * lock, same queue).
+ * @returns {Promise<boolean>} True when a lock was actually released.
+ */
+export async function releaseGenerationLock() {
+    const held = heldGenerationLock();
+    if (!held) return false;
+    globalThis[GENERATION_LOCK_HOLDER] = null;
+    held.release();
+    await held.settled;
+    return true;
+}
+
+/**
+ * Takes the shared generation lock of a scope. Fire and forget, like `acquireMountLock`: the
+ * grant still orders correctly against a later `exclusive ifAvailable` because the lock queue is
+ * FIFO per name.
+ *
+ * @param {{ dbSuffix: string }} scope - Scope being mounted.
+ * @param {string|null} generation - Generation the scope resolves to, or null for a slot that
+ *   has none (a local slot, or a remote one that never received a snapshot). Null holds nothing:
+ *   there is no generation to spare, and the base databases are protected by the mount lock.
+ * @returns {void}
+ */
+function acquireGenerationLock(scope, generation) {
+    const manager = lockManager();
+    if (!manager || !generation) return;
+
+    const name = atlasGenerationLockName(scope.dbSuffix, generation);
+    if (heldGenerationLock()?.name === name) return;
+
+    releaseGenerationLock().catch(() => undefined);
+    try {
+        let release;
+        const untilUnmount = new Promise(resolve => { release = resolve; });
+        const settled = manager
+            .request(name, { mode: 'shared' }, () => untilUnmount)
+            .catch(() => undefined);
+        globalThis[GENERATION_LOCK_HOLDER] = { name, release, settled };
+    } catch {
+        // Degraded mode, never a failed mount: see `acquireMountLock`.
+        globalThis[GENERATION_LOCK_HOLDER] = null;
+    }
+}
+
+/**
+ * Moves this client's generation lock onto the generation that just became active.
+ *
+ * The caller is the snapshot activation (`applyRemoteSnapshot`), i.e. the ONE place a mounted tab
+ * changes which generation it reads. It is async and the release is awaited, because the very next
+ * thing that activation does is prune, and an unsettled release of the PREVIOUS generation would
+ * spare it as if a sibling tab held it.
+ *
+ * @param {{ dbSuffix: string }} scope - Mounted scope.
+ * @param {string} generation - Generation that is now active.
+ * @returns {Promise<void>}
+ */
+export async function adoptActiveGeneration(scope, generation) {
+    await releaseGenerationLock().catch(() => undefined);
+    acquireGenerationLock(scope, generation);
+}
+
+/**
+ * Every database name that belongs to ONE generation of a scope, and to no other.
+ *
+ * IT IS NOT "every per-atlas database": the generation reaches only the DATA databases minus the
+ * images (see `resolveDbName`), so the image blobs and the outbound queue are SHARED by every
+ * generation. Dropping them here would destroy the pictures of the atlas that is live and the
+ * work that never got uploaded, which is why the list is derived by COMPARING the resolved name
+ * with the generation-less one instead of being written by hand.
+ *
+ * @param {{ kind: string, dbSuffix: string }} scope - Scope the generation belongs to.
+ * @param {string|null} generation - Generation id.
+ * @returns {string[]} Database names, in descriptor order. Empty for a null generation.
+ */
+export function generationDbNames(scope, generation) {
+    if (!generation) return [];
+    const staged = { ...scope, dataGeneration: generation };
+    const shared = { ...scope, dataGeneration: null };
+    return STORE_DESCRIPTORS
+        .filter(descriptor => descriptor.perAtlas)
+        .map(descriptor => ({
+            staged: resolveDbName(descriptor.id, staged),
+            shared: resolveDbName(descriptor.id, shared)
+        }))
+        .filter(pair => pair.staged !== pair.shared)
+        .map(pair => pair.staged);
+}
+
+/**
+ * Forgets the cached handles of a set of database names.
+ *
+ * A handle cached under a name that has just been deleted is a writer that would RECREATE that
+ * database on its next call, which is how a dropped generation comes back as an empty shell
+ * nothing can reach. `clearStoreCache(scope)` would drop the handles of the LIVE generation too
+ * (its key carries only kind and suffix), so the pruning path needs this narrower one.
+ * @param {string[]} names - Database names to forget.
+ * @returns {void}
+ */
+function forgetCachedDatabases(names) {
+    const condemned = new Set(names);
+    for (const key of [..._instances.keys()]) {
+        if (condemned.has(key.slice(0, key.lastIndexOf('|')))) _instances.delete(key);
+    }
+}
+
+/**
+ * Deletes the databases of ONE generation, unconditionally.
+ *
+ * FOR A GENERATION NO POINTER EVER NAMED: a preparation that failed halfway. Nobody can be
+ * reading it (the durable pointer never resolved to it), so there is nothing to arbitrate, and
+ * the deletes are idempotent -- a name that is not on disk answers success, which is what makes
+ * the cleanup safe to run again after a crash.
+ *
+ * @param {{ kind: string, dbSuffix: string }} scope - Scope the generation belongs to.
+ * @param {string} generation - Generation id.
+ * @param {Object} [options]
+ * @param {number} [options.timeoutMs=DROP_TIMEOUT_MS] - Bound on each delete.
+ * @returns {Promise<{ dropped: string[], blocked: string[] }>}
+ */
+export async function dropGenerationDatabases(scope, generation, { timeoutMs = DROP_TIMEOUT_MS } = {}) {
+    const names = generationDbNames(scope, generation);
+    if (names.length === 0) return { dropped: [], blocked: [] };
+
+    const confirmations = await Promise.all(names.map(name => dropOneDatabase(name, timeoutMs)));
+    const dropped = names.filter((_, i) => confirmations[i]);
+    forgetCachedDatabases(dropped);
+    return { dropped, blocked: names.filter((_, i) => !confirmations[i]) };
+}
+
+/**
+ * Drops every generation of a scope except the ones named in `keep` (decision D3 of 2026-09-13:
+ * the ACTIVE one plus ONE reserve), and reports what happened to each.
+ *
+ * WHY A RESERVE AT ALL, since the pointer already moved: `getStoreFor` re-resolves the name on
+ * every call, so a new call follows the new pointer, but a handle captured BEFORE the switch
+ * (a repository built with `dataGeneration` pinned, an awaited write of an in-flight apply) keeps
+ * writing to the generation it was born in. The reserve is that reader's floor. Anything older
+ * has already survived a full activation cycle without being resolved by anyone.
+ *
+ * WHAT IT DOES NOT DO IS GUESS. A generation another live client still reads is SPARED, arbitrated
+ * by `atlasGenerationLockName` (never by the mount lock, which the pruning tab holds itself), and
+ * a spared or blocked generation STAYS in `known`: the caller writes the surviving list, because a
+ * `known` that names a database nobody can find is the leak this whole path exists to close.
+ *
+ * The active generation is kept whatever `keep` says: pruning what every reader resolves to is not
+ * a policy this function is allowed to be asked for.
+ *
+ * @param {{ kind: string, dbSuffix: string }} scope - Scope to prune.
+ * @param {Object} [options]
+ * @param {string[]} [options.keep=[]] - Generations to preserve besides the active one.
+ * @param {number} [options.timeoutMs=DROP_TIMEOUT_MS] - Bound on each delete.
+ * @returns {Promise<{ dropped: string[], spared: string[], blocked: string[] }>} `spared` is
+ *   "a live client still reads it", `blocked` is "the delete did not confirm".
+ */
+export async function pruneAtlasGenerations(scope, { keep = [], timeoutMs = DROP_TIMEOUT_MS } = {}) {
+    if (!scope || typeof scope.dbSuffix !== 'string') {
+        throw new Error('pruneAtlasGenerations: expected a scope built by localScope()/remoteScope()');
+    }
+    const metadata = readGeneration(scope);
+    const preserved = new Set([metadata.active, ...keep].filter(Boolean));
+    const candidates = metadata.known.filter(generation => generation && !preserved.has(generation));
+
+    const dropped = [];
+    const spared = [];
+    const blocked = [];
+    for (const generation of candidates) {
+        const { granted, result } = await withExclusiveGenerationLock(scope, generation,
+            () => dropGenerationDatabases(scope, generation, { timeoutMs }));
+        if (!granted) spared.push(generation);
+        else if (result.blocked.length > 0) blocked.push(generation);
+        else dropped.push(generation);
+    }
+    return { dropped, spared, blocked };
+}
+
+/**
+ * Runs `task` only if NO live client reads that generation.
+ * @param {{ dbSuffix: string }} scope - Scope the generation belongs to.
+ * @param {string} generation - Generation about to be dropped.
+ * @param {() => Promise<*>} task - The deletion, run while the exclusive lock is held.
+ * @returns {Promise<{ granted: boolean, result: * }>} Always granted without a lock manager, for
+ *   the reason spelled out in `withExclusiveAtlasLock`: disk hygiene is not worth a guess.
+ */
+async function withExclusiveGenerationLock(scope, generation, task) {
+    const manager = lockManager();
+    if (!manager) return { granted: true, result: await task() };
+    return manager.request(
+        atlasGenerationLockName(scope.dbSuffix, generation),
+        { mode: 'exclusive', ifAvailable: true },
+        async lock => (lock === null
+            ? { granted: false, result: null }
+            : { granted: true, result: await task() })
+    );
 }
 
 /**
