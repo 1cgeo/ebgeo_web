@@ -2,7 +2,10 @@
 import { query, tx } from '../../database/index.js';
 import { findReceipt, saveReceipt, operationDigest } from './sync-receipts.js';
 import { assertSyncProtocol } from './sync-protocol.js';
-import { prepareFeatureMutation, finishFeatureMutation } from './feature-conflicts.js';
+import {
+  prepareFeatureMutation, finishFeatureMutation,
+  RAZAO_EXCLUIDO_NO_SERVIDOR, RAZAO_CRIACAO_NAO_RESTAURA, RAZAO_IDENTIFICADOR_EM_USO,
+} from './feature-conflicts.js';
 import { ensureMapLayers, readMapLayers, resolveDefaultFeatureLayer } from '../maps/default-layer.js';
 import { ForbiddenError, ServiceUnavailableError } from '../../utils/errors.js';
 import * as Q from './sync.queries.js';
@@ -1430,6 +1433,143 @@ async function lockedMapDenialReason(t, op) {
 }
 
 /**
+ * The three targets whose row state is read before the write. `feature` is absent because
+ * `prepareFeatureMutation` already does this, and much more; the targets still missing are the
+ * declared gap of B5 step 2 (see `buildUpdateQuery`).
+ *
+ * IT HOLDS TARGETS, NEVER TABLE NAMES: the table comes from `TARGET_TABLE_MAP`, its single home.
+ * The first draft of this constant was a second `{ map: 'maps', cesium3d: 'cesium3d_data', ... }`
+ * and the duplication was caught only because a negative-control script asked for a unique
+ * match. A second copy is one rename away from guarding nothing at all, because a missing lookup
+ * returns undefined and reads exactly like "no such row".
+ */
+const TOMBSTONE_GUARDED_TARGETS = new Set(['map', 'cesium3d', 'streetview360']);
+
+/**
+ * Of those, the two whose CREATE over an EXISTING row is refused as well. `map` is deliberately
+ * out, and finding out why cost a red suite: a plain create over a tombstone IS the undo path.
+ * The client's Ctrl+Z of a delete replays the original object, id included, so the server sees a
+ * create whose targetId is a tombstone and MUST revive it — the contract `layer`, `group`, `map`,
+ * `briefing` and `slide` share, each asserted in `sync-service-coverage.test.js`, and carried by
+ * the `WHERE <table>.deleted_at IS NOT NULL` of their conflict branch (which is also what keeps a
+ * stale create from clobbering a LIVE row). Refusing it would lose the user's undo in silence.
+ *
+ * 3D and 360 never had that contract: their create is `ON CONFLICT (id) DO NOTHING`, so undoing a
+ * 3D marker delete already wrote nothing. Naming the refusal there takes no capability away, it
+ * replaces a generic integrity sentence with one that says what happened. Giving them the
+ * resurrect clause instead is a bigger change than a tombstone guard, and it belongs to whoever
+ * decides that 3D/360 should have an undo path across clients.
+ */
+const CREATE_OVER_EXISTING_REFUSED = new Set(['cesium3d', 'streetview360']);
+
+/**
+ * Reads `version`/`deleted_at` of the row a guarded op names, or null when there is no such row
+ * (and null, too, when the op does not name one in a shape this lookup can ask about).
+ *
+ * THE UUID TEST IS NOT COSMETIC. Every id column here is UUID, while the push schema accepts
+ * `mapId`/`entityId` as any string: the local default map is name-keyed ("Principal"), so a
+ * non-UUID reaches this function in normal operation. Casting it raises 22P02, which inside the
+ * per-op savepoint becomes a NAMED integrity refusal of an operation that would otherwise have
+ * been applied or dropped exactly as before. A guard that invents refusals is worse than the hole
+ * it closes, so an id this lookup cannot ask about skips the guard and behaves as it did.
+ *
+ * @param {Object} t - Transaction context.
+ * @param {string} atlasId
+ * @param {Object} op - Normalized operation.
+ * @returns {Promise<{version: number, deleted_at: Date|null}|null>}
+ */
+async function guardedEntityRow(t, atlasId, op) {
+  if (op.target === 'map') {
+    // A sub-typed map op (position/baseLayer/notes/grid/temporal) addresses the map through
+    // `mapId`; a plain one through `targetId`. Same split as `buildUpdateQuery`.
+    const mapId = op._subType ? op.mapId : op.targetId;
+    if (!FEATURE_UUID_RE.test(mapId)) return null;
+    return t.oneOrNone(
+      'SELECT version, deleted_at FROM maps WHERE id = $1 AND atlas_id = $2',
+      [mapId, atlasId],
+    );
+  }
+  // Safe to interpolate: the value is a literal of `TARGET_TABLE_MAP`, never client input, and
+  // the caller has already gated the target through `TOMBSTONE_GUARDED_TARGETS`.
+  const table = TARGET_TABLE_MAP[op.target];
+  if (!table) return null;
+  if (!FEATURE_UUID_RE.test(op.targetId) || !FEATURE_UUID_RE.test(op.mapId)) return null;
+  return t.oneOrNone(
+    `SELECT e.version, e.deleted_at FROM ${table} e JOIN maps m ON m.id = e.map_id
+     WHERE e.id = $1 AND e.map_id = $2 AND m.atlas_id = $3`,
+    [op.targetId, op.mapId, atlasId],
+  );
+}
+
+/**
+ * Per-operation refusal for `map`, `cesium3d` and `streetview360` when the row the operation
+ * names is NOT the row it assumes. An UPDATE over a soft-deleted row is refused for all three;
+ * a CREATE over an existing row (tombstone or live) only for the two of
+ * `CREATE_OVER_EXISTING_REFUSED`, because a map create over a tombstone is the undo path and the
+ * reason is written there.
+ *
+ * WHAT WAS HAPPENING, AND WHY IT WAS INVISIBLE. Only `feature` had base and revision, by a
+ * literal gate (`rawOp.protocolVersion === 2 && op.target === 'feature'`), so these three went
+ * straight to their statement. MEASURED on 2026-09-13, by reverting the guard and reading the
+ * rows back:
+ *   - an UPDATE ran against a soft-deleted row, and `buildUpdateQuery` did not filter
+ *     `deleted_at`, so the write LANDED. A map deleted and then renamed by an old op came back
+ *     `name: 'Renomeado tarde'`, `version` 2→3, `deleted_at` still set, with the ack reading
+ *     `status: 'applied'`; the 3D row the same way, `data.distance` 100→999. So a client that
+ *     later restored the row read back an edit made AFTER the deletion, and nobody was told.
+ *     With the clause the update touches zero rows instead, and zero rows on an update is ACKED
+ *     AS SUCCESS (only `rowsAffected === 0 && create` throws, since f8e109ea): silence either
+ *     way, which is why the clause alone is not the fix.
+ *   - a CREATE on 3D/360 was `ON CONFLICT (id) DO NOTHING`, so re-creating over a tombstone (or
+ *     over a live row) wrote nothing. That one is no longer silent since f8e109ea, but what it
+ *     says is the generic 23503 sentence, "Alteração descartada: referencia um item que não
+ *     existe mais." — a sentence about a missing REFERENCE, for a row that exists and is in the
+ *     way. (Do not look for the `Error` message thrown at the call site: it never reaches the
+ *     client. `integrityRejectionReason` answers from `PG_INTEGRITY_REASONS` by code.)
+ * Both now come back as the refusal the client already knows how to show, in the SAME words the
+ * feature command layer uses (`RAZAO_*`, `feature-conflicts.js`), through the SAME `conflict`
+ * channel: `rejected: true`, `status: 'conflict'`, a receipt, and a ledger span.
+ *
+ * A ROW THAT DOES NOT EXIST IS DELIBERATELY LEFT ALONE, and this is the half that is NOT fixed
+ * here. Today an update naming an absent row builds its statement, touches zero rows and is
+ * acked as applied; a create naming an absent map/parent inserts nothing and is refused by the
+ * 23503 path. Distinguishing "never existed" from "existed and is gone" is what the durable
+ * revision row of B5 step 2 is for: the operations log is purgeable, so absence alone does not
+ * prove anything. Refusing on absence with today's evidence would turn every legitimate
+ * out-of-order create/update pair into a permanent rejection.
+ *
+ * @param {Object} t - Transaction context.
+ * @param {string} atlasId
+ * @param {Object} op - Normalized operation.
+ * @returns {Promise<{reason: string, fields: string[], entityVersion: number,
+ *   deleted: boolean, serverData: null}|null>}
+ */
+async function tombstoneConflict(t, atlasId, op) {
+  if (!TOMBSTONE_GUARDED_TARGETS.has(op.target)) return null;
+  const isCreate = op.type === 'create';
+  if (isCreate && !CREATE_OVER_EXISTING_REFUSED.has(op.target)) return null;
+  if (!isCreate && op.type !== 'update') return null;
+  const row = await guardedEntityRow(t, atlasId, op);
+  if (!row) return null;
+  const deleted = Boolean(row.deleted_at);
+  // An update over a live row is the normal path, and the only one that falls through.
+  if (!isCreate && !deleted) return null;
+  const reason = isCreate
+    ? (deleted ? RAZAO_CRIACAO_NAO_RESTAURA : RAZAO_IDENTIFICADOR_EM_USO)
+    : RAZAO_EXCLUIDO_NO_SERVIDOR;
+  // Same key set the feature conflict carries, so the client sees ONE shape. `serverData` is
+  // null because these three have no canonical serializer yet (B5 step 3); the version is what
+  // a retry needs, and it is the one thing a purged log cannot take away.
+  return {
+    reason,
+    fields: ['*'],
+    entityVersion: Number(row.version ?? 0),
+    deleted,
+    serverData: null,
+  };
+}
+
+/**
  * Is this reference visible to the actor, in the scope of THIS atlas?
  *
  * Two queries, one rule: `fn_can_see_resource` decides both. The 360 branch exists only because
@@ -1926,6 +2066,15 @@ export async function pushOperations(atlasId, operations, userId, permission = '
             const deniedPatch = await unseenResourceDenialReason(sp, op, principalIdOrNull(userId), atlasId);
             if (deniedPatch) return { denied: deniedPatch };
           }
+
+          // THE TOMBSTONE GUARD OF THE THREE TARGETS THAT HAD NONE (`map`, `cesium3d`,
+          // `streetview360`). It sits here for the same reason the two consulted refusals above
+          // do: it reads the row under the atlas write lock, BEFORE the log insert, so a refused
+          // op leaves nothing behind, and it returns through the SAME `conflict` channel the
+          // feature command layer uses. `feature` never reaches it — `prepareFeatureMutation`
+          // has already answered, above, with more than this can ask.
+          const tombstone = await tombstoneConflict(sp, atlasId, op);
+          if (tombstone) return { conflict: tombstone };
 
           const layerDenial = await resolveDefaultFeatureLayer(sp, atlasId, op);
           if (layerDenial) return { denied: layerDenial };
@@ -2461,6 +2610,19 @@ function normalizeLayerChanges(changes) {
 /**
  * Builds the UPDATE query for a given target and operation.
  * Returns null if no changes apply.
+ *
+ * `deleted_at IS NULL` ON `map`, `cesium3d` AND `streetview360` IS DEFENCE IN DEPTH, NOT THE
+ * GUARD. `tombstoneConflict` already refuses those three per operation, with a named reason,
+ * before the log insert; the clause exists because the refusal reads the row and the statement
+ * writes it, and a guard that lives only in the reader is one refactor away from being skipped.
+ * It changes nothing the guard already caught: the update simply has no row to touch.
+ *
+ * THE OTHER TARGETS DO NOT HAVE IT YET, and the gap is declared, not forgotten:
+ * `group`, `layer`, `briefing` and `slide` still update a soft-deleted row into a version bump
+ * nobody can see. They are step 2 of B5 (base and revision per entity), where the read of the
+ * current row stops being a per-target special case. `feature` needs no clause: every feature
+ * write passes `prepareFeatureMutation` first. `comment` and the per-layer `catalog_layer`
+ * already carry their own.
  */
 function buildUpdateQuery(target, op, atlasId) {
   // Map-scoped entities are also pinned to the ROUTE atlas: the EXISTS clause
@@ -2504,7 +2666,7 @@ function buildUpdateQuery(target, op, atlasId) {
     if (fields.length === 0) return null;
     return buildDynamicUpdate(
       'maps', changes, fields,
-      [mapId, atlasId], 'id = $1 AND atlas_id = $2',
+      [mapId, atlasId], 'id = $1 AND atlas_id = $2 AND deleted_at IS NULL',
     );
   }
 
@@ -2529,14 +2691,14 @@ function buildUpdateQuery(target, op, atlasId) {
   if (target === 'cesium3d' && op.changes && op.mapId) {
     return buildDynamicUpdate(
       'cesium3d_data', op.changes, UPDATE_FIELDS.cesium3d,
-      [op.targetId, op.mapId, atlasId], `id = $1 AND map_id = $2 AND ${inAtlas}`,
+      [op.targetId, op.mapId, atlasId], `id = $1 AND map_id = $2 AND deleted_at IS NULL AND ${inAtlas}`,
     );
   }
 
   if (target === 'streetview360' && op.changes && op.mapId) {
     return buildDynamicUpdate(
       'streetview360_data', op.changes, UPDATE_FIELDS.streetview360,
-      [op.targetId, op.mapId, atlasId], `id = $1 AND map_id = $2 AND ${inAtlas}`,
+      [op.targetId, op.mapId, atlasId], `id = $1 AND map_id = $2 AND deleted_at IS NULL AND ${inAtlas}`,
     );
   }
 

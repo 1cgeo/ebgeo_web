@@ -4,6 +4,21 @@ import { scrubEntityPayload } from './free-field.schemas.js';
 
 const RESERVED = new Set(['__proto__', 'prototype', 'constructor', 'sync', 'confirmedVersion', 'version', 'createdAt', 'updatedAt', 'id']);
 
+/**
+ * THE THREE PHRASES FOR "YOUR WRITE LOST TO THE ROW THE SERVER ALREADY HOLDS", exported
+ * because the feature command layer is no longer their only speaker: since 2026-09-13 the
+ * tombstone guard of `map`, `cesium3d` and `streetview360` refuses with the SAME words
+ * (`tombstoneConflict`, `sync.service.js`). Two copies of one outcome drift into two
+ * wordings, and the client reads the reason verbatim, so the same defeat would reach the
+ * user under two names depending on which entity it happened to.
+ *
+ * No accents, matching every other server reason on this path: they are logged and filtered
+ * from the terminal (`npm run diag -- linhas --filtro`), where a cedilla is a liability.
+ */
+export const RAZAO_EXCLUIDO_NO_SERVIDOR = 'O item foi excluido no servidor.';
+export const RAZAO_CRIACAO_NAO_RESTAURA = `${RAZAO_EXCLUIDO_NO_SERVIDOR} A criacao antiga nao pode restaura-lo.`;
+export const RAZAO_IDENTIFICADOR_EM_USO = 'Ja existe um item com este identificador.';
+
 export function canonicalFeature(row) {
   if (!row) return null;
   return {
@@ -49,11 +64,11 @@ export async function prepareFeatureMutation(t, atlasId, op, rawOp, userId) {
   if (intent && op.type !== 'create') return conflict('Este comando exige uma operacao de criacao.');
   if (op.type === 'create' && !intent) {
     if (current) return conflict(current.deleted_at
-      ? 'O item foi excluido no servidor. A criacao antiga nao pode restaura-lo.'
-      : 'Ja existe um item com este identificador.');
+      ? RAZAO_CRIACAO_NAO_RESTAURA
+      : RAZAO_IDENTIFICADOR_EM_USO);
     return { op, previous: null, fields: ['*'] };
   }
-  if (!current || (current.deleted_at && intent !== 'restore')) return conflict('O item foi excluido no servidor.');
+  if (!current || (current.deleted_at && intent !== 'restore')) return conflict(RAZAO_EXCLUIDO_NO_SERVIDOR);
   if (intent === 'restore' && !current.deleted_at) return conflict('O item ja foi restaurado ou alterado no servidor.');
   if (intent === 'move' && String(current.map_id) !== String(rawOp.sourceMapId)) return conflict('O item foi movido para outro mapa.');
   if (!intent && String(current.map_id) !== String(op.mapId)) return conflict('O item foi movido para outro mapa.');
