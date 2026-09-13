@@ -26,10 +26,15 @@
 import {
     setupCleanup,
     addDomListener,
+    subscribe,
     cleanup,
     removeElement,
     trackTimer
 } from '@utils/event-cleanup.js';
+// Folhas, nunca o barril `@store`: o guarda de escopo precisa saber QUAL atlas esta montado e o
+// gatilho de conexao precisa do vocabulario de estado. Nenhum dos dois arrasta grafo novo.
+import { getActiveScope } from '@store/atlas-namespace.js';
+import { ConnectionStates } from '@store/sync/connection-state.js';
 import {
     getBriefingById,
     updateBriefing,
@@ -164,6 +169,9 @@ export class BriefingEditorControl {
         // Timers
         this._autosaveTimer = null;
 
+        // O endereço de bancos do atlas em que o briefing foi ABERTO. Ver `_flushAutosave`.
+        this._openedInScope = null;
+
         // Callbacks
         this._onClose = null;
 
@@ -219,6 +227,8 @@ export class BriefingEditorControl {
 
             // Create transition service for slide preview navigation
             this._transitionService = createTransitionService(this._map);
+
+            this._wireAutosaveFlushTriggers();
 
             this._isOpen = true;
 
@@ -1718,17 +1728,81 @@ export class BriefingEditorControl {
     }
 
     /**
+     * Liga os TRÊS pontos de risco em que o autosave represado se perderia.
+     *
+     * O autosave segura a edição só em MEMÓRIA por 1500 ms (`_scheduleAutosave`), e até
+     * 2026-09-13 só três caminhos internos o descarregavam (capturar posição, importar slides,
+     * navegar a prévia), todos deles dentro do próprio editor. A store já é write-ahead, então o
+     * que se perde aqui não é durabilidade de gravação: é a edição que nunca CHEGOU à store.
+     *
+     * Os ouvintes entram por `@utils/event-cleanup.js`, então `cleanup(this)` em `close()` e em
+     * `destroy()` os retira; o editor é aberto e fechado muitas vezes por sessão, e ouvinte de
+     * `window` que sobrevive ao fechamento acumula e ainda grava briefing que ninguém editou.
+     * @private
+     */
+    _wireAutosaveFlushTriggers() {
+        this._openedInScope = getActiveScope()?.dbSuffix ?? null;
+
+        // NENHUM dos três gatilhos pode AGUARDAR a promessa: os três são ouvintes de evento. Ela
+        // também não pode ficar solta, e é por isso que existe este funil: `_save` já trata a
+        // própria falha, mas um erro de programação aqui chegaria como rejeição não tratada,
+        // justamente no console em que alguém vai procurar por que uma edição desapareceu.
+        const descarregar = () => {
+            this._flushAutosave().catch((error) => {
+                console.error('Briefing autosave flush failed:', error);
+            });
+        };
+
+        // 1. A ABA FECHANDO. O flush é DISPARADO e não aguardado, porque nada no navegador
+        //    garante tempo depois destes dois eventos: `beforeunload` não espera promessa. É
+        //    best-effort por construção, e ainda assim é a diferença entre perder 1,5 s de
+        //    edição e perder nada. `pagehide` vai junto porque é o único que dispara no
+        //    descarte de aba do Safari/iOS, onde `beforeunload` não chega; o par não custa duas
+        //    gravações, porque `_flushAutosave` só faz algo se houver temporizador pendente.
+        addDomListener(this, window, 'beforeunload', descarregar);
+        addDomListener(this, window, 'pagehide', descarregar);
+
+        // 2. A CONEXÃO CAINDO. Aqui a gravação local continua CERTA e a op fica na fila para
+        //    quando a conexão voltar; o que não pode é a edição esperar 1,5 s em memória
+        //    enquanto o envio já parou. Qualquer estado que não seja ONLINE serve de gatilho,
+        //    porque `RECONNECTING` já significa que o flush de saída não está passando.
+        subscribe(this, this._eventBus, EventTypes.CONNECTION_STATE_CHANGED, ({ currentState } = {}) => {
+            if (currentState !== ConnectionStates.ONLINE) descarregar();
+        });
+
+        // 3. A SESSÃO TROCANDO, e aqui a honestidade importa mais que a cobertura: NÃO EXISTE
+        //    gancho PRÉ-troca de atlas. `openRemoteAtlas` esvazia a store (`clearAllDataStore`)
+        //    no meio do pipeline e `ATLAS_SWITCHED` só é anunciado no fim, com tudo já montado,
+        //    então nenhum evento do barramento chega antes do momento em que a gravação ainda
+        //    seria no atlas certo. O que este ouvinte faz é tentar no primeiro sinal disponível
+        //    (`SESSION_CHANGED`, que cobre entrar e sair da conta) e, quando já é tarde, ser
+        //    RECUSADO pelo guarda de escopo de `_flushAutosave` em vez de gravar o briefing de um
+        //    atlas dentro de outro.
+        subscribe(this, this._eventBus, EventTypes.SESSION_CHANGED, descarregar);
+    }
+
+    /**
      * Flushes any pending autosave immediately.
      * Must be called before store operations that read from IndexedDB
      * to avoid overwriting in-memory changes (e.g. captured positions).
+     *
+     * O GUARDA DE ESCOPO É O QUE TORNA SEGURO CHAMÁ-LA DE UM GATILHO EXTERNO. Os ouvintes de
+     * `_wireAutosaveFlushTriggers` podem disparar DEPOIS de o atlas montado já ter mudado (a
+     * troca ao vivo e o logout não avisam antes), e o documento em memória é do atlas ANTERIOR:
+     * gravá-lo ali criaria um briefing alheio dentro do projeto novo. Recusar perde a edição, o
+     * que é ruim, mas `_hasUnsavedChanges` fica de pé, então o fechamento ainda pergunta.
      * @private
      */
     async _flushAutosave() {
-        if (this._autosaveTimer) {
-            clearTimeout(this._autosaveTimer);
-            this._autosaveTimer = null;
-            await this._save();
+        if (!this._autosaveTimer) return;
+        clearTimeout(this._autosaveTimer);
+        this._autosaveTimer = null;
+
+        if ((getActiveScope()?.dbSuffix ?? null) !== this._openedInScope) {
+            console.warn('Briefing autosave descartado: o atlas montado mudou desde a abertura do editor.');
+            return;
         }
+        await this._save();
     }
 
     /**
