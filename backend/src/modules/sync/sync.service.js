@@ -1426,17 +1426,50 @@ function unknownTargetDenialReason(op) {
  *
  * Map-level ops (lock/unlock/delete) are NOT gated here — that is what lets the owner unlock.
  *
+ * `group_feature` RESOLVE O MAPA PELAS LINHAS, e não por `op.mapId`, e essa é a única exceção
+ * da função. Os outros seis alvos podem confiar no campo porque a ESCRITA deles também
+ * depende dele: sem `mapId`, `buildUpdateQuery` e `buildSoftDeleteQuery` devolvem null e nada
+ * é gravado, então o gate e o efeito falham juntos. A membresia é o contrário: os dois EXISTS
+ * do INSERT (e o `group_id IN (...)` do DELETE) pedem apenas que o grupo e a feição morem em
+ * ALGUM mapa deste atlas, e `op.mapId` não entra em nenhum dos dois. Com a checagem lendo o
+ * payload e a escrita ignorando-o, o remetente escolhia se o gate valia: uma op sem `mapId`
+ * saía pelo early-return, e uma com o `mapId` de outro mapa (destravado) do mesmo atlas fazia
+ * a pergunta ao mapa errado. Nos dois casos a linha entrava no grupo do mapa TRAVADO, com a
+ * trava ligada. É a classe "gate parametrizado pelo payload do cliente", e a saída é a mesma
+ * de sempre: perguntar às linhas que a escrita vai tocar.
+ *
+ * A pergunta cobre o mapa do GRUPO e o da FEIÇÃO, porque a tabela de junção não exige que os
+ * dois sejam o mesmo mapa e o par é conteúdo dos dois. `asUuidOrNull` em vez de um `::uuid`
+ * cru: `data.group_id`/`data.feature_id` vêm do cliente sem validação de formato no schema, e
+ * um 22P02 aqui viraria recusa por violação de integridade, com a palavra errada.
+ *
  * @param {Object} t - Transaction context.
  * @param {Object} op - Normalized operation.
  * @returns {Promise<string|null>} Refusal reason, or null when the write may proceed.
  */
 async function lockedMapDenialReason(t, op) {
-  if (!LOCKABLE_CHILD_TARGETS.has(op.target) || !op.mapId) return null;
+  if (!LOCKABLE_CHILD_TARGETS.has(op.target)) return null;
+  const MOTIVO = 'O mapa está bloqueado e não aceita edições';
+
+  if (op.target === 'group_feature') {
+    const data = op.data ?? op.changes ?? {};
+    const travado = await t.oneOrNone(
+      `SELECT 1 FROM maps m
+        WHERE m.locked = true AND m.deleted_at IS NULL
+          AND (m.id = (SELECT g.map_id FROM groups g WHERE g.id = $1)
+            OR m.id = (SELECT f.map_id FROM features f WHERE f.id = $2))
+        LIMIT 1`,
+      [asUuidOrNull(data.group_id), asUuidOrNull(data.feature_id)]
+    );
+    return travado ? MOTIVO : null;
+  }
+
+  if (!op.mapId) return null;
   const m = await t.oneOrNone(
     'SELECT locked FROM maps WHERE id = $1 AND deleted_at IS NULL',
     [op.mapId]
   );
-  return m && m.locked ? 'O mapa está bloqueado e não aceita edições' : null;
+  return m && m.locked ? MOTIVO : null;
 }
 
 /**
