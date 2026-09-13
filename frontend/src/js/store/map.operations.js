@@ -345,6 +345,39 @@ export async function removeMap(mapName) {
  * refusal indistinguishable from success, and the caller went on to point the current map at a
  * name that was never created.
  *
+ * WRITE-AHEAD since 2026-09-13 (bloco B4), and the rename is the entry where "one edit, several
+ * documents" bites: the name lives in the map document, in `mapOrder` and in `mapBadgeColors`,
+ * and the old shape wrote the three in sequence with the op logged LAST, so a failure between
+ * them left the atlas naming the map two different things with nothing to replay. Now the WHOLE
+ * section is one transaction inside one `withMapDocument`: every intention is journaled first
+ * (the `map` UPDATE plus one `setting` per auxiliary key that actually changes), and the single
+ * returned persistence function writes the three documents.
+ *
+ * WHY THE COLOUR AND ORDER INTENTIONS ARE RECORDED HERE INSTEAD OF CALLING `setMapBadgeColors`
+ * AND `setMapOrder`. Each of those opens its OWN transaction, and a transaction nested inside
+ * this one's `workFn` COMMITS FIRST: it journals and writes its key before this transaction has
+ * recorded a single intention. The ordering the migration exists for would be inverted, and a
+ * rename that then failed would leave the colour and the order already naming a map that does not
+ * exist, with no intention to replay. So both travel in this `tx` and both keys are written by
+ * this transaction's own persistence function.
+ *
+ * (The note this replaces claimed the symptom of nesting would be a HUNG interface, by the FIFO
+ * no-reentrancy rule of `document-lock.js`. Checked in 2026-09-13: that is not this case. Neither
+ * `setMapBadgeColors` nor `setMapOrder` takes a document lock (no repository, transaction or queue
+ * module calls `withDocumentLock` at all), so nesting them here would have deadlocked nothing and
+ * corrupted the ordering silently, which is the worse of the two failures because it stays green.)
+ *
+ * The op payload is the NAME, not the re-read document. The old code read `getMapData(newName)`
+ * back after writing just to fill it, which is one more read through the compatibility fallback
+ * (it answers an EMPTY document for a missing map) for a field the peer never uses.
+ *
+ * Renaming is a READ-MODIFY-WRITE of the whole map document, not a whole-record replacement:
+ * `LocalRepository.renameMap` reads the document under the UUID key, mutates `name` and writes it
+ * back. Without the lock it races every other writer of the same document, and one of the two
+ * writes is silently dropped (measured: renaming while a feature is being drawn lost the rename in
+ * 20 of 20 runs, in both orders). The key resolves through the map id, so this excludes against
+ * the local user drawing AND against an inbound remote operation on the same map.
+ *
  * @param {string} oldName - Current map name
  * @param {string} newName - New map name
  * @returns {Promise<boolean>} True when the map was renamed, false when the rename was refused
@@ -361,43 +394,54 @@ export async function renameMap(oldName, newName) {
         return false;
     }
 
-    const oldMapData = await getMapData(oldName);
-    const mapId = mapResolver.resolveToId(oldName) || oldName;
+    await withMapDocument(oldName, 'renameMap', async () => {
+        const mapId = mapResolver.resolveToId(oldName) || oldName;
 
-    // Renaming is a READ-MODIFY-WRITE of the whole map document, not a whole-record
-    // replacement: `LocalRepository.renameMap` reads the document under the UUID key,
-    // mutates `name` and writes it back. Without the lock it races every other writer of
-    // the same document, and one of the two writes is silently dropped (measured: renaming
-    // while a feature is being drawn lost the rename in 20 of 20 runs, in both orders).
-    // The key resolves through the map id, so this excludes against the local user drawing
-    // AND against an inbound remote operation on the same map.
-    await withMapDocument(oldName, 'renameMap', () => renameMapData(oldName, newName));
-    mapManager.renameMapInMemory(oldName, newName);
+        // Read the auxiliary documents BEFORE the transaction opens, so the intentions and the
+        // writes both describe the same starting state.
+        const order = await getMapOrderRepo();
+        const orderIndex = order?.length > 0 ? order.indexOf(oldName) : -1;
+        // A COPY, never the array read above: the previous state has to keep the old name, and
+        // mutating in place would ship the already-renamed order as the "previous" payload.
+        const nextOrder = orderIndex === -1 ? null : order.map((n, i) => (i === orderIndex ? newName : n));
 
-    mapResolver.renameMap(oldName, newName);
-
-    const order = await getMapOrderRepo();
-    if (order?.length > 0) {
-        const idx = order.indexOf(oldName);
-        if (idx !== -1) {
-            order[idx] = newName;
-            await setMapOrderRepo(order);
+        const colors = await getAppSetting('mapBadgeColors');
+        let nextColors = null;
+        if (colors?.[oldName]) {
+            nextColors = { ...colors, [newName]: colors[oldName] };
+            delete nextColors[oldName];
         }
-    }
 
-    const colors = await getAppSetting('mapBadgeColors');
-    if (colors?.[oldName]) {
-        colors[newName] = colors[oldName];
-        delete colors[oldName];
-        await setMapBadgeColors(colors);
-    }
+        return runTransaction(async (tx) => {
+            tx.recordOperation(EntityType.MAP, OperationType.UPDATE, mapId, null,
+                { name: newName }, { name: oldName });
+            if (nextOrder) {
+                await recordAtlasSetting(tx, { mapOrder: nextOrder }, { mapOrder: order });
+            }
+            if (nextColors) {
+                await recordAtlasSetting(tx, { mapBadgeColors: nextColors }, { mapBadgeColors: colors });
+            }
 
-    if (mapManager.getCurrentMapName() === newName) {
-        await deps.groupManager.loadGroupsToMemory(newName);
-    }
+            // The resolver is renamed AFTER persistence on purpose: `renameMapData(oldName, ...)`
+            // resolves the old name through it, so flipping it first would aim the write at a key
+            // that holds nothing.
+            tx.deferSync(() => {
+                mapManager.renameMapInMemory(oldName, newName);
+                mapResolver.renameMap(oldName, newName);
+            });
+            tx.deferAsync(async () => {
+                if (mapManager.getCurrentMapName() === newName) {
+                    await deps.groupManager.loadGroupsToMemory(newName);
+                }
+            });
 
-    const newMapData = await getMapData(newName);
-    logMapOperation(OperationType.UPDATE, mapId, newMapData, oldMapData);
+            return async () => {
+                await renameMapData(oldName, newName);
+                if (nextOrder) await setMapOrderRepo(nextOrder);
+                if (nextColors) await setAppSetting('mapBadgeColors', nextColors);
+            };
+        });
+    });
 
     return true;
 }
@@ -1008,15 +1052,22 @@ export async function getMapBadgeColors() {
  * rename all funnel through here.
  *
  * IT OPENS ITS OWN TRANSACTION, AND THAT IS SAFE ONLY BECAUSE OF WHERE IT IS CALLED FROM. The
- * five callers are all in this file (`removeMap`, `renameMap`, `getMapBadgeColor`,
- * `removeMapBadgeColor`, `getAllMapBadgeColors`) and NONE of them holds a document lock or an
- * open transaction at the call point: `renameMap` calls it after its `withMapDocument` section
- * has returned, `removeMap` after `deleteMapData`. The queue in `document-lock.js` is FIFO with
- * no reentrancy, so a caller that awaited this from INSIDE its own section would wait for
- * itself, forever. If either of them is ever migrated to write-ahead, the colour intention has
- * to move into the parent's `tx` instead of nesting a second transaction here. Pinned by the
- * rename/remove cases of `tests/integration/atlas-keys-write-ahead.test.js`, which would hang
- * (not merely fail) if that ever stopped being true.
+ * four remaining callers are all in this file (`removeMap`, `getMapBadgeColor`,
+ * `removeMapBadgeColor`, `getAllMapBadgeColors`) and NONE of them has an open transaction at the
+ * call point: `removeMap` calls it after `deleteMapData`. A transaction nested inside another
+ * one's `workFn` COMMITS FIRST, so the colour would be journaled and written before the parent had
+ * recorded anything, and a parent that then failed would leave the colour naming a map that does
+ * not exist.
+ *
+ * `renameMap` WAS the fifth caller and stopped being one in 2026-09-13, when it became
+ * write-ahead: it records the colour intention in its OWN `tx` and writes the key directly, which
+ * is the move the previous version of this paragraph prescribed for whoever migrated it (that
+ * version predicted a HUNG interface as the symptom of nesting, by the reentrancy rule of
+ * `document-lock.js`; checked on the same date, this path takes no document lock, so the symptom
+ * is the silent inversion above, which is worse because it stays green). `removeMap` still calls
+ * in and is the wave after. Pinned by the rename/remove cases of
+ * `tests/integration/atlas-keys-write-ahead.test.js` and by the rename cases of
+ * `tests/integration/map-settings-write-ahead.test.js`.
  *
  * @param {Object} colors - Map of mapName -> color
  * @returns {Promise<void>}

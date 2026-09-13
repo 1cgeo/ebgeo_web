@@ -92,7 +92,9 @@ const PISO_RECORD = 18;
 // virou write-ahead e deixou de chamar `logGroupOperation` mais `logGroupFeatureOperation`, que
 // eram duas chamadas ali. `combineGroups` e `removeFeatureFromAllGroups` continuam no caminho
 // antigo e são o que resta daquele arquivo.
-const PISO_LOG = 18;
+// Baixado de 18 para 17 na mesma onda: `renameMap` (`src/js/store/map.operations.js`) virou
+// write-ahead e deixou de chamar `logMapOperation`. `addMap` e `removeMap` continuam chamando.
+const PISO_LOG = 17;
 
 /**
  * Comentário fora, preservando a contagem de linhas para que a mensagem de erro aponte a

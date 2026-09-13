@@ -24,10 +24,12 @@ import { operationQueue } from '../../src/js/store/sync/operation-queue.js';
 import { enableOperationLogging } from '../../src/js/store/sync/operation-dispatcher.js';
 import { memoryStore } from '../../src/js/store/memory-store.js';
 import { mapResolver } from '../../src/js/store/services/map-resolver.service.js';
+import { getDocumentLockStats } from '../../src/js/store/document-lock.js';
 import {
     setBaseLayer,
     updateMapPosition,
     clearMapPosition,
+    renameMap,
     setMapDependencies
 } from '../../src/js/store/map.operations.js';
 import { applyRemoteSnapshot, setRemoteHandlerEventBus } from '../../src/js/store/sync/remote-operation-handler.js';
@@ -214,5 +216,156 @@ describe('Map settings write-ahead persistence', () => {
         expect(written.savedPosition.zoom).toBe(12);
         expect((await operationQueue.getAll()).map(op => op.entityType).sort())
             .toEqual(['baseLayer', 'mapPosition']);
+    });
+});
+
+// =====================================================================================
+// RENOMEAR: uma edição, TRÊS documentos
+// =====================================================================================
+//
+// O nome de um mapa mora em três lugares: no documento do mapa, na chave de atlas `mapOrder` e na
+// chave `mapBadgeColors`. O caminho antigo gravava os três em sequência e logava a op por ÚLTIMO,
+// então uma falha no meio deixava o atlas chamando o mesmo mapa de duas coisas diferentes, sem
+// nada para reexecutar. Estes casos medem a propriedade nova: as intenções TODAS antes de QUALQUER
+// gravação, e nenhuma das três metades sobrevive sozinha.
+describe('Rename write-ahead persistence', () => {
+    const ORDEM = ['Ativo', 'Destino'];
+    const CORES = { Ativo: '#abcdef', Destino: '#123456' };
+
+    beforeEach(async () => {
+        await localRepository.saveSetting('mapOrder', [...ORDEM]);
+        await localRepository.saveSetting('mapBadgeColors', { ...CORES });
+    });
+
+    /** As três chaves que o rename toca, relidas do disco. */
+    async function estadoNoDisco() {
+        return {
+            nome: (await reread(mapB.id))?.name,
+            ordem: await localRepository.getSetting('mapOrder'),
+            cores: await localRepository.getSetting('mapBadgeColors')
+        };
+    }
+
+    it('as TRÊS intenções são registradas antes da primeira das três gravações', async () => {
+        const originalRename = LocalRepository.prototype.renameMap;
+        const originalSetting = LocalRepository.prototype.saveSetting;
+        const diarioNaPrimeiraGravacao = [];
+        let gravacoes = 0;
+        const observar = async () => {
+            gravacoes += 1;
+            if (gravacoes === 1) {
+                diarioNaPrimeiraGravacao.push(...(await operationQueue.getAll()));
+                // Nenhuma delas é enviável ainda: a materialização só cai no fim da transação.
+                expect(await operationQueue.peek()).toEqual([]);
+            }
+        };
+        vi.spyOn(LocalRepository.prototype, 'renameMap').mockImplementation(async function (...args) {
+            await observar();
+            return originalRename.apply(this, args);
+        });
+        vi.spyOn(LocalRepository.prototype, 'saveSetting').mockImplementation(async function (...args) {
+            await observar();
+            return originalSetting.apply(this, args);
+        });
+
+        expect(await renameMap(mapB.name, 'Renomeado')).toBe(true);
+
+        // Três gravações (documento, ordem, cores) e as TRÊS intenções já no diário na primeira
+        // delas: é essa simultaneidade que faz a edição ser recuperável inteira.
+        expect(gravacoes).toBe(3);
+        expect(diarioNaPrimeiraGravacao.map(op => op.entityType)).toEqual(['map', 'setting', 'setting']);
+        expect(diarioNaPrimeiraGravacao[0].operationType).toBe('update');
+        expect(diarioNaPrimeiraGravacao[0].entityId).toBe(mapB.id);
+        // O payload é o NOME, e o anterior também: a op não recarrega o documento do mapa.
+        expect(diarioNaPrimeiraGravacao[0].data).toEqual({ name: 'Renomeado' });
+        expect(diarioNaPrimeiraGravacao[0].previousData).toEqual({ name: 'Destino' });
+        // O estado ANTERIOR das duas chaves guarda o nome VELHO: uma cópia mutada no lugar
+        // enviaria a lista já renomeada como "anterior", e o undo não teria para onde voltar.
+        expect(diarioNaPrimeiraGravacao[1].data).toEqual({ mapOrder: ['Ativo', 'Renomeado'] });
+        expect(diarioNaPrimeiraGravacao[1].previousData).toEqual({ mapOrder: ORDEM });
+        expect(diarioNaPrimeiraGravacao[2].data)
+            .toEqual({ mapBadgeColors: { Ativo: '#abcdef', Renomeado: '#123456' } });
+        expect(diarioNaPrimeiraGravacao[2].previousData).toEqual({ mapBadgeColors: CORES });
+
+        const depois = await estadoNoDisco();
+        expect(depois.nome).toBe('Renomeado');
+        expect(depois.ordem).toEqual(['Ativo', 'Renomeado']);
+        expect(depois.cores).toEqual({ Ativo: '#abcdef', Renomeado: '#123456' });
+        expect((await operationQueue.peek()).map(op => op.id))
+            .toEqual(diarioNaPrimeiraGravacao.map(op => op.id));
+    });
+
+    it('falha do diário deixa nome, ordem e cores INTACTOS', async () => {
+        const rename = vi.spyOn(LocalRepository.prototype, 'renameMap');
+        const setting = vi.spyOn(LocalRepository.prototype, 'saveSetting');
+
+        // Um nome não clonável reprova a escrita na fila, que é a PRIMEIRA das duas.
+        await expect(renameMap(mapB.name, () => 'X')).rejects.toThrow();
+
+        expect(rename).not.toHaveBeenCalled();
+        expect(setting).not.toHaveBeenCalled();
+        expect(await operationQueue.getAll()).toEqual([]);
+        expect(await estadoNoDisco()).toEqual({ nome: 'Destino', ordem: ORDEM, cores: CORES });
+    });
+
+    it('falha na gravação do documento preserva as três intenções e não toca as auxiliares', async () => {
+        const setting = vi.spyOn(LocalRepository.prototype, 'saveSetting');
+        vi.spyOn(LocalRepository.prototype, 'renameMap')
+            .mockRejectedValueOnce(new DOMException('quota', 'QuotaExceededError'));
+
+        await expect(renameMap(mapB.name, 'Renomeado')).rejects.toThrow('quota');
+
+        // O documento do mapa é o PRIMEIRO da função de persistência, então as duas chaves
+        // auxiliares nem foram tentadas: nenhuma metade da edição sobrevive.
+        expect(setting).not.toHaveBeenCalled();
+        expect(await estadoNoDisco()).toEqual({ nome: 'Destino', ordem: ORDEM, cores: CORES });
+        // A intenção inteira segue recuperável, e não enviável.
+        const pendentes = await operationQueue.getAll();
+        expect(pendentes.map(op => op.entityType)).toEqual(['map', 'setting', 'setting']);
+        expect(await operationQueue.peek()).toEqual([]);
+    });
+
+    it('mapa sem cor e sem posição na ordem registra a intenção do mapa e MAIS NADA', async () => {
+        await localRepository.saveSetting('mapOrder', ['Ativo']);
+        await localRepository.saveSetting('mapBadgeColors', { Ativo: '#abcdef' });
+
+        expect(await renameMap(mapB.name, 'Renomeado')).toBe(true);
+
+        // O controle do caso acima: sem chave auxiliar afetada a transação carrega UMA intenção,
+        // o que separa "registra o que mudou" de "registra sempre três".
+        expect((await operationQueue.getAll()).map(op => op.entityType)).toEqual(['map']);
+        expect(await localRepository.getSetting('mapOrder')).toEqual(['Ativo']);
+        expect(await localRepository.getSetting('mapBadgeColors')).toEqual({ Ativo: '#abcdef' });
+        expect((await reread(mapB.id)).name).toBe('Renomeado');
+    });
+
+    it('as duas recusas não registram intenção nem gravam nada', async () => {
+        const rename = vi.spyOn(LocalRepository.prototype, 'renameMap');
+        memoryStore.lockedMaps.add(mapB.name);
+
+        expect(await renameMap(mapB.name, 'Renomeado')).toBe(false);
+
+        expect(rename).not.toHaveBeenCalled();
+        expect(await operationQueue.getAll()).toEqual([]);
+        expect(await estadoNoDisco()).toEqual({ nome: 'Destino', ordem: ORDEM, cores: CORES });
+    });
+
+    it('renomear roda DENTRO da trava do documento do mapa, do começo ao fim', async () => {
+        // A seção inteira passou a ficar sob a trava, e não apenas a gravação do documento: as
+        // leituras de ordem e cores agora acontecem lá dentro, senão elas leriam um estado que
+        // outro escritor do mesmo gesto já mudou.
+        const originalSetting = LocalRepository.prototype.saveSetting;
+        const ocupado = [];
+        vi.spyOn(LocalRepository.prototype, 'saveSetting').mockImplementation(async function (...args) {
+            ocupado.push(getDocumentLockStats().busy.join(','));
+            return originalSetting.apply(this, args);
+        });
+
+        await renameMap(mapB.name, 'Renomeado');
+
+        // A chave leva o prefixo do escopo, porque duas abas em atlas distintos não se excluem.
+        const chave = `${getActiveScope().dbSuffix}|map:${mapB.id}:renameMap`;
+        expect(ocupado).toEqual([chave, chave]);
+        expect(getDocumentLockStats().busy).toEqual([]);
     });
 });
