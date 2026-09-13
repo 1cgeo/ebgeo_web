@@ -734,6 +734,26 @@ async function applyRemoteOperationInner(operation, guarded) {
     // above is what distinguishes ignored from applied for anyone diagnosing; the transport must
     // not be able to tell them apart, because one of them is not a failure.
     if (unknownType) return true;
+    // UMA OP DE MEMBRESIA QUE NAO ESCREVEU NADA TAMBEM NAO FALHOU, e tratar as duas como a mesma
+    // coisa custa exatamente o que o bloco de tipo desconhecido acima descreve: `_queueApply`
+    // (`ws-client.js`) le o `false` como falha de escrita local e fecha o socket com 4000, o
+    // `_onConnected` pede a cauda de novo, a MESMA op volta e falha de novo. Laco permanente, e o
+    // par para de receber tudo, de todo tipo.
+    //
+    // O GATILHO E O CAMINHO NORMAL, nao um caso de borda. `GroupManager.createGroup` registra o
+    // `group` CREATE com `data.features` JA POVOADO e, atras dele, um `group_feature` CREATE por
+    // membro. Os dois alvos sao obrigatorios (o servidor ignora `data.features` no INSERT de grupo
+    // e remonta a lista da tabela de juncao), mas o PAR ja recebeu o documento inteiro no primeiro
+    // envelope: cada `group_feature` que vem atras encontra o membro no lugar, nao muda nada e
+    // devolvia `false`. Ou seja, agrupar feicoes derrubava o socket de quem estava do outro lado,
+    // na hora e sempre. Medido pelos dois casos de
+    // `frontend/tests/e2e-ui/browser-collab-grupo-perde-membro.spec.js`, que morriam na primeira
+    // assercao dependente de entrega AO VIVO depois da criacao do grupo.
+    //
+    // O `false` de `applyRemoteGroupFeatureOp` continua dizendo o que sempre disse — NADA FOI
+    // ESCRITO —, e e ele que decide o span `apply.persist` acima. O que muda e so a traducao disso
+    // para o transporte, que nao pode distinguir "ja convergido" de "quebrado".
+    if (entityType === EntityType.GROUP_FEATURE) return true;
     return featureApplied && (entityPersisted || entityType === EntityType.SLIDE);
 }
 
