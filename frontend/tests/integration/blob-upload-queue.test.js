@@ -154,6 +154,37 @@ describe('fila durável de blobs: registro, retomada e liberação', () => {
         expect(h.enviados).toEqual([]);
     });
 
+    it('a falha de rede vira frase em pt-BR, e a mensagem crua fica só para diagnóstico', async () => {
+        // O ACHADO A3, na porta em que ele nasceu: `uploadImagesInChunks` dobra o erro de transporte
+        // em `failed[].error`, e aquela string é escrita pelo NAVEGADOR. Ela ia inteira para
+        // `ultimoErro`, que é o campo que o painel de pendências desenha.
+        const scope = getActiveScope();
+        h.resposta = redeCaiu();
+
+        await enfileirarBlob({ imageId: crypto.randomUUID(), blob: blob(), atlasId: scope.atlasId });
+
+        const registro = (await listarPendenciasDeBlob())[0];
+        expect(registro.ultimoErro).not.toContain('Failed to fetch');
+        expect(registro.ultimoErro).toMatch(/retomado sozinho/i);
+        // E o cru não se perde: ele é o que responde "o que exatamente aconteceu" depois.
+        expect(registro.ultimoErroCru).toBe('Failed to fetch');
+    });
+
+    it('a recusa do servidor mantém o motivo DELE dentro da frase em pt-BR', async () => {
+        const scope = getActiveScope();
+        h.resposta = recusa('Invalid file type: image/gif');
+
+        await enfileirarBlob({ imageId: crypto.randomUUID(), blob: blob(), atlasId: scope.atlasId });
+
+        const registro = (await listarPendenciasDeBlob())[0];
+        expect(registro.estado).toBe(BlobUploadState.RECUSADO);
+        // A DISTINÇÃO É O PONTO: a recusa é a única classe em que a mensagem crua é a coisa que diz
+        // à pessoa o que mudar na figura, então ela é citada, e não escondida como a de rede.
+        expect(registro.ultimoErro).toContain('Invalid file type: image/gif');
+        expect(registro.ultimoErro).toMatch(/O servidor recusou/);
+        expect(registro.ultimoErroCru).toBe('Invalid file type: image/gif');
+    });
+
     it('falha transitória deixa PENDENTE e a op da feição NÃO sai no peek', async () => {
         const scope = getActiveScope();
         const imageId = crypto.randomUUID();

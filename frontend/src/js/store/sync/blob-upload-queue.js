@@ -68,6 +68,13 @@ import { generateUUID } from '@utils/uuid.js';
 import { apiClient } from './api-client.js';
 import { operationQueue } from './operation-queue.js';
 import { BLOB_UPLOAD_KEY_PREFIX } from './blob-upload-keys.js';
+import {
+    CausaDeFalha,
+    FALHA_SEM_BYTES,
+    causaDeErroLancado,
+    fraseDeFalhaDeBlob,
+    mensagemCrua
+} from './blob-upload-phrases.js';
 
 /**
  * Key prefix of a pendency record inside the atlas IMAGES store.
@@ -237,15 +244,21 @@ async function marcarProblema(entityId, motivo, status) {
 
 /**
  * Classifies a thrown transport error.
+ *
+ * THE MESSAGE IS THE RAW ONE, and it stays raw all the way to {@link assentar}: it is the browser's
+ * or the server's own text (`Failed to fetch` is the common one), which is diagnosis and never a
+ * sentence for a person. What the person reads is composed from `causa` by `blob-upload-phrases.js`.
  * @param {*} error
- * @returns {{definitiva: boolean, status: number|null, motivo: string}}
+ * @returns {{definitiva: boolean, status: number|null, causa: string, motivo: string|null}}
  */
 function classificarErro(error) {
     const status = error?.status ?? error?.statusCode ?? null;
+    const definitiva = status !== null && RECUSA_DEFINITIVA.has(status);
     return {
-        definitiva: status !== null && RECUSA_DEFINITIVA.has(status),
+        definitiva,
         status,
-        motivo: error?.message || 'Falha de rede ao enviar a imagem.'
+        causa: causaDeErroLancado({ status, definitiva }),
+        motivo: mensagemCrua(error?.message)
     };
 }
 
@@ -271,9 +284,11 @@ async function transferirLote(atlasId, pares) {
     const veredictos = new Map();
     const { uploads, skipped } = await buildImageUploads(pares);
     for (const id of skipped) {
+        // Refused HERE, before a byte leaves: there is no server message to quote, and the cause is
+        // known outright.
         veredictos.set(id, {
             confirmado: false, definitiva: true, status: null,
-            motivo: 'O servidor não aceita este formato de imagem.'
+            causa: CausaDeFalha.ARQUIVO, motivo: null
         });
     }
     if (uploads.length === 0) return veredictos;
@@ -282,7 +297,9 @@ async function transferirLote(atlasId, pares) {
     const motivoPorId = new Map((failed ?? []).map(item => [item?.localId, item?.error]));
     for (const { localId } of uploads) {
         if (mapping[localId]) {
-            veredictos.set(localId, { confirmado: true, definitiva: false, status: null, motivo: '' });
+            veredictos.set(localId, {
+                confirmado: true, definitiva: false, status: null, causa: null, motivo: null
+            });
             continue;
         }
         // `uploadImagesInChunks` folds a transport failure into `failed` too, so the count of chunks
@@ -293,11 +310,11 @@ async function transferirLote(atlasId, pares) {
         veredictos.set(localId, transportErrors > 0
             ? {
                 confirmado: false, definitiva: false, status: null,
-                motivo: motivoPorId.get(localId) || 'A imagem não chegou ao servidor.'
+                causa: CausaDeFalha.REDE, motivo: mensagemCrua(motivoPorId.get(localId))
             }
             : {
                 confirmado: false, definitiva: true, status: null,
-                motivo: motivoPorId.get(localId) || 'O servidor recusou a imagem.'
+                causa: CausaDeFalha.RECUSA, motivo: mensagemCrua(motivoPorId.get(localId))
             });
     }
     return veredictos;
@@ -311,6 +328,10 @@ async function transferirLote(atlasId, pares) {
  * @returns {Promise<Object>} The record as it now stands on disk.
  */
 async function assentar(scope, registro, desfecho) {
+    // THE TRANSLATION HAPPENS HERE, in the one place every path passes through: three producers
+    // build verdicts and each of them would otherwise need to remember to write a pt-BR sentence.
+    // `ultimoErro` is what the pendency panel renders; `ultimoErroCru` is the untouched message,
+    // kept for diagnosis and read by no screen.
     const atualizado = {
         ...registro,
         tentativas: (registro.tentativas ?? 0) + 1,
@@ -318,7 +339,8 @@ async function assentar(scope, registro, desfecho) {
         estado: desfecho.confirmado
             ? BlobUploadState.CONFIRMADO
             : (desfecho.definitiva ? BlobUploadState.RECUSADO : BlobUploadState.PENDENTE),
-        ultimoErro: desfecho.confirmado ? null : desfecho.motivo
+        ultimoErro: desfecho.confirmado ? null : fraseDeFalhaDeBlob(desfecho),
+        ultimoErroCru: desfecho.confirmado ? null : mensagemCrua(desfecho.motivo)
     };
 
     try {
@@ -342,7 +364,7 @@ async function assentar(scope, registro, desfecho) {
 /** A verdict for an id the answer did not mention. Transient, because silence is not a refusal. */
 const semVeredicto = () => ({
     confirmado: false, definitiva: false, status: null,
-    motivo: 'O servidor não respondeu sobre esta imagem.'
+    causa: CausaDeFalha.SEM_RESPOSTA, motivo: null
 });
 
 /**
@@ -382,6 +404,7 @@ function novoRegistro(imageId, atlasId, origem, blob) {
         estado: BlobUploadState.PENDENTE,
         tentativas: 0,
         ultimoErro: null,
+        ultimoErroCru: null,
         criadoEm: Date.now(),
         atualizadoEm: Date.now()
     };
@@ -524,7 +547,8 @@ export async function retomarBlobsPendentes(atlasId) {
             const semBytes = {
                 ...registro,
                 estado: BlobUploadState.RECUSADO,
-                ultimoErro: 'Os bytes desta imagem não estão mais neste computador.',
+                ultimoErro: FALHA_SEM_BYTES,
+                ultimoErroCru: null,
                 atualizadoEm: Date.now()
             };
             try {
