@@ -385,6 +385,28 @@ const config = Object.freeze({
     // Zero DESLIGA e volta ao relay imediato, com teste proprio para que "desligado" nao possa
     // estar silenciosamente ligado. E a valvula para reverter sem novo deploy de codigo.
     cursorBatchMs: parseInt(optional('WS_CURSOR_BATCH_MS', '100'), 10),
+
+    // QUANTOS SOCKETS SIMULTANEOS UM MESMO PRINCIPAL MANTEM NUM ATLAS.
+    //
+    // O NUMERO SAI DA MEDICAO QUE JA ESTA LOGO ACIMA, e nao de um palpite. A sala e por atlas
+    // e sem subcanal, entao cada socket a mais multiplica o leque de TODO quadro de percepcao
+    // de TODO mundo, e o limite OPERACIONAL de sala medido na bancada e duzentos. Sem teto por
+    // principal, uma pessoa so levava a sala alem desse limite: medidos em 2026-09-13, quarenta
+    // sockets aceitos com UM token de conta e vinte com UM token de visitante de link publico.
+    //
+    // OITO E FOLGADO DE PROPOSITO, como o teto do gazetteer: o cliente mantem UM socket por aba
+    // e por atlas, e a trava entre abas ja impede duas abas no mesmo atlas de servidor, de modo
+    // que o uso humano fica em um. A folga cobre a reconexao com meia-conexao ainda aberta (a
+    // varredura de 30 s e quem colhe o socket morto, entao dois ou tres podem coexistir por
+    // pouco tempo) e ainda deixa vinte e cinco principais distintos caberem abaixo do limite de
+    // sala. Ele corta o laco de abertura, nao o trabalho.
+    //
+    // O QUE ELE NAO FECHA: o `sub` de um token de visitante e cunhado NOVO a cada
+    // `GET /atlas/public/:link`, entao repetir a chamada ganha outro balde. Quem limita isso e
+    // o `publicLinkLimiter`, que e onde esse teto por endereco ja mora.
+    //
+    // Zero DESLIGA, pela mesma razao do `cursorBatchMs`: e a valvula de reverter sem deploy.
+    maxSocketsPerPrincipal: parseInt(optional('WS_MAX_SOCKETS_PER_PRINCIPAL', '8'), 10),
   }),
 
   // How many reverse proxies sit in front of the app, for Express `trust proxy`.
@@ -614,6 +636,10 @@ export const NUMERIC_ENV_RULES = Object.freeze({
   WS_HEARTBEAT_TIMEOUT_MS: { min: 100, max: 3600000 },
   WS_AWAY_GRACE_MS: { min: 0, max: 86400000 },
   WS_CURSOR_BATCH_MS: { min: 0, max: 5000 },
+  // Sockets simultâneos de um mesmo principal num atlas. Zero é VÁLIDO e DESLIGA o teto (a
+  // válvula de reverter sem deploy, como o `cursorBatchMs`); o teto de 1024 é absurdo o
+  // bastante para só pegar erro de digitação, e fica bem acima do limite de sala medido.
+  WS_MAX_SOCKETS_PER_PRINCIPAL: { min: 0, max: 1024 },
   RATE_LIMIT_AUTH_WINDOW_MS: { min: 1000 },
   RATE_LIMIT_AUTH_MAX: { min: 1 },
   RATE_LIMIT_PUBLIC_WINDOW_MS: { min: 1000 },

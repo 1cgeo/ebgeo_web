@@ -1,7 +1,7 @@
 // Path: src/modules/collab/collab.gateway.js
 // WebSocket upgrade handler and message router
 
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import config from '../../config.js';
@@ -40,6 +40,50 @@ let awayGraceMs = config.ws.awayGraceMs;
 /** Test/ops hook to shorten (or lengthen) the away grace window. */
 export function setAwayGraceMs(ms) {
   awayGraceMs = ms;
+}
+
+// Quantos sockets ABERTOS um mesmo principal mantém num mesmo atlas. Ver o porquê e o número
+// medido no comentário de `ws.maxSocketsPerPrincipal` (src/config.js). Zero DESLIGA.
+let maxSocketsPerPrincipal = config.ws.maxSocketsPerPrincipal;
+
+/**
+ * Test/ops hook para o teto acima.
+ * @param {number} n - O teto novo (0 desliga).
+ * @returns {number} O teto ANTERIOR, para o chamador restaurá-lo.
+ */
+export function setMaxSocketsPerPrincipal(n) {
+  const anterior = maxSocketsPerPrincipal;
+  maxSocketsPerPrincipal = n;
+  return anterior;
+}
+
+/**
+ * Quantos sockets ABERTOS este principal já mantém neste atlas.
+ *
+ * SÓ OS ABERTOS CONTAM, e a distinção não é detalhe: um socket que caiu por rede fica no
+ * ROOM por até `awayGraceMs` marcado `away` (é o que impede a presença de piscar), mas o `ws`
+ * já o tirou de `wss.clients` no evento de fechamento. Contar a sala em vez dos clientes faria
+ * uma queda de rede consumir a vaga do próprio dono dela pelos dois minutos seguintes, que é
+ * exatamente a hora em que ele está tentando voltar.
+ *
+ * A chave é (principal, atlas) e não o principal sozinho: o token do visitante de link público
+ * já é confinado a um atlas, e uma pessoa com conta trabalha num atlas de cada vez. Contar por
+ * principal global faria uma aba de outro projeto gastar a vaga deste.
+ *
+ * @param {import('ws').WebSocketServer} wss
+ * @param {string} atlasId
+ * @param {string} userId - O `sub` do token, que é a identidade que o handshake resolveu.
+ * @returns {number}
+ */
+function socketsAbertosDoPrincipal(wss, atlasId, userId) {
+  let n = 0;
+  for (const ws of wss.clients) {
+    if (ws.readyState !== WebSocket.OPEN) continue;
+    if (ws.atlasId !== atlasId) continue;
+    if (String(ws.userId) !== String(userId)) continue;
+    n += 1;
+  }
+  return n;
 }
 
 /**
@@ -428,6 +472,27 @@ export function attachWebSocket(server) {
       if (!permission) {
         reject('403 Forbidden');
         return;
+      }
+
+      // O TETO DE CONEXÕES SIMULTÂNEAS DESTE PRINCIPAL NESTE ATLAS, e ele vem DEPOIS de
+      // identidade, vivacidade e permissão de propósito: quem não pode entrar continua
+      // recebendo 403, e um 429 nunca serve de oráculo sobre um atlas que o chamador não
+      // alcança.
+      //
+      // 429 E NÃO 403: a credencial é boa e a autorização existe; o que falta é vaga, e a
+      // resposta certa para "tente de novo mais tarde" é outra da que diz "você não pode".
+      // O cliente já reconecta com recuo exponencial em toda queda, então o desfecho de um
+      // laço de abertura é o laço desacelerar, não o socket legítimo morrer.
+      if (maxSocketsPerPrincipal > 0) {
+        const abertos = socketsAbertosDoPrincipal(wss, atlasId, userId);
+        if (abertos >= maxSocketsPerPrincipal) {
+          logger.warn(
+            { userId, atlasId, abertos, teto: maxSocketsPerPrincipal, isPublic: isPublicUser },
+            'WS upgrade recusado: teto de sockets simultâneos do principal'
+          );
+          reject('429 Too Many Requests');
+          return;
+        }
       }
 
       // Handshake is going through: hand the socket to ws, which installs its own
