@@ -108,8 +108,20 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
 
   O que as quatro têm em comum, e é o critério real: são operações de ENTIDADE INTEIRA, cujo efeito
   não é representável como uma sequência de ops incrementais. Duas armadilhas conhecidas. A primeira:
-  escrita por REST não avança `atlas.current_version`, então o peer offline não recebe nada no replay
-  (o merge resolve isso emitindo uma op MARCADORA na mesma transação).
+  escrita por REST não avança `atlas.current_version` sozinha, porque o gatilho que a avança dispara
+  no INSERT em `operations`; sem uma linha lá, o par offline reconecta com a versão parada, o pull
+  incremental responde vazio e ele conclui que está em dia. **Desde 2026-09-13 as QUATRO gravam um
+  MARCADOR na mesma transação**, e não só o merge: `recordStructuralMarker`
+  (`src/modules/sync/structural-marker.js`) é a fonte, e o marcador da duplicação carrega no payload
+  as camadas que `ensureMapLayers` criou fora do log. Duas coisas que se leem ao contrário. O
+  `entity_type` é o nome honesto do ato (`STRUCTURAL_MARKER`) e o `client_entity_type` é
+  `MARCADOR_DE_RESYNC_DO_CLIENTE`, que é o que sai publicado: o cliente reconhece UMA palavra como
+  "mudança estrutural por REST, tire um snapshot" (`STRUCTURAL_RESYNC_OPS`, em
+  `frontend/src/js/store/sync/sync-engine.js`), e o marcador que chegasse com nome novo seria
+  descartado como tipo desconhecido, deixando a versão andar sem convergência nenhuma. E nenhum dos
+  quatro nomes está em `APPLIABLE_TARGETS`, então um cliente que EMPURRE um deles é recusado por
+  operação antes do log, como qualquer tipo desconhecido. Guarda:
+  `tests/integration/excecoes-rest-marcador.repro.test.js`.
 
   A segunda são as DUAS rotas que **este** cliente não chama, e elas não correm o mesmo risco. O
   `merge` é gateado em `manage` aqui, mas o cliente combina localmente e sincroniza como ops comuns,
@@ -120,6 +132,37 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   `frontend/src/js/map/map.manager.js`, e sincroniza como ops) e
   **não** ganhou guard nenhum: `copyMap` depende de o servidor recusar as ops uma a uma. Quem for
   fechar essa ponta olhe o par inteiro, porque o assunto é o mesmo e só metade dele foi resolvida.
+- **A unidade de aplicação de um push tem TRÊS tamanhos, e confundi-los é o defeito F9.** O PUSH
+  inteiro é uma transação (`tx`, com o lock por atlas); dentro dele, uma op SEM `batchId` corre num
+  savepoint próprio, e as ops que compartilham um `batchId` são UM LOTE LÓGICO que corre num
+  savepoint só. O `batchId` é o gesto do usuário, carimbado pela fábrica do cliente
+  (`createBatchOperations`, em `frontend/src/js/store/sync/operation-factory.js`): criar grupo é um
+  `group` create mais um `group_feature` create por membro, e combinar grupos, transferir camada e
+  colar são iguais. Até 2026-09-13 o servidor não lia o campo, e o savepoint por op fazia da
+  aplicação PARCIAL de um comando composto o desfecho normal: um membro recusado deixava o grupo
+  criado e os irmãos dentro dele, com resposta 200 (decisão D4).
+
+  Quem decide o tamanho é `agruparPorLote` (`src/modules/sync/sync.service.js`), e quatro coisas
+  dela não se adivinham. **O lote é o que chegou NESTE push**, porque o cliente carimba `batchId` e
+  `batchIndex` e não um total, então o servidor não tem como saber se faltou membro: enquanto o
+  envio recortar a fila por FIFO cego, um gesto maior que o recorte chega como dois lotes lógicos,
+  cada um atômico em si, e fechar isso é trabalho do cliente. **A ordem dentro do lote é a de
+  `batchIndex`** quando todas o declaram, porque o servidor exige pai antes de filho (um
+  `group_feature` cujo `group` ainda não existe casa o EXISTS com zero linhas e é recusado). **O
+  status volta igual para todas, o envelope de `conflict` não**: ele descreve UMA entidade, e
+  carimbá-lo nas irmãs mandaria o cliente resolver o conflito da entidade errada; quem nomeia a
+  culpada para todas é `batchFailedOperationId`. **O recibo da recusa é gravado na transação de
+  FORA**, depois do rollback do savepoint, e é isso que faz o reenvio do lote recusado ser recusado
+  de novo em vez de aplicar as irmãs na segunda tentativa.
+
+  O teto é `LOTE_MAX_OPS` (200), medido e não escolhido: o custo por op é plano e o savepoint único
+  sai mais barato que N savepoints, então ele não protege contra custo, e sim contra o TEMPO de
+  posse do lock de push do atlas. A medição está no cabeçalho da constante. Lote acima dele é
+  recusado inteiro, em pt-BR, antes de escrever qualquer coisa. Guardas:
+  `tests/integration/lote-logico-atomico.repro.test.js` e
+  `tests/integration/sync-batch-atomicity.test.js` (este último prende a fronteira: sem `batchId`, a
+  recusa continua alcançando só a op ofensora). A coluna de lote em `operations` nasceu em
+  `src/database/migrations/014_lote_logico.sql`.
 - **Conflito tem DOIS regimes, e quem escolhe entre eles é a OP, não o alvo** (desde 2026-09-13;
   antes a verificação valia só para feição, por gate literal `op.target === 'feature'`). Op que
   DECLARA uma base observada (`baseVersion`, ou o recibo de `baseOperationId`) é verificada por
