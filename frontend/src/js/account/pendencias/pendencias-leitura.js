@@ -30,6 +30,7 @@ import { OperationQueue } from '@store/sync/operation-queue.js';
 import { listQuarantinedOperations } from '@store/sync/quarantine-registry.js';
 import { listarPendenciasDeBlob } from '@store/sync/blob-upload-queue.js';
 import { mapResolver } from '@store/services/map-resolver.service.js';
+import { isMapLocked } from '@store/map.operations.js';
 
 /**
  * Tudo o que as três fontes têm agora, na forma que `montarPendencias` consome.
@@ -69,4 +70,33 @@ export async function lerPendencias() {
 export function nomeDoMapa(mapId) {
     if (typeof mapId !== 'string' || mapId === '') return null;
     return mapResolver.getNameForId(mapId) ?? null;
+}
+
+/**
+ * Quais dos mapas citados pelas linhas estão travados AGORA.
+ *
+ * PERGUNTA ASSÍNCRONA, DE PROPÓSITO. O conjunto em memória (`memoryStore.lockedMaps`) só é
+ * completo em atlas de SERVIDOR e responde "destravado" para um mapa travado em atlas local, e
+ * uma pendência é justamente sobre um mapa que pode não ser o corrente. `isMapLocked` lê o app
+ * setting do disco, que é a resposta certa para outro mapa (ver `.claude/rules/architecture.md`,
+ * seção Data Model).
+ *
+ * A trava é lida por NOME, como todo escritor dela; um mapa cujo nome não resolve é perguntado
+ * pelo id, que é o que a chave de app setting terá se o mapa nunca foi registrado no resolvedor.
+ * Uma leitura que falhe conta como DESTRAVADO: recusar o clique por causa de uma leitura que não
+ * respondeu seria inventar um estado, e o servidor recusa a escrita de qualquer forma.
+ * @param {Iterable<string>} mapIds - Ids de mapa citados pelas linhas.
+ * @returns {Promise<Set<string>>} Os ids travados.
+ */
+export async function lerMapasTravados(mapIds) {
+    const travados = new Set();
+    for (const mapId of new Set(mapIds)) {
+        if (typeof mapId !== 'string' || mapId === '') continue;
+        try {
+            if (await isMapLocked(nomeDoMapa(mapId) ?? mapId)) travados.add(mapId);
+        } catch (error) {
+            console.warn('[pendencias] não foi possível ler a trava de um mapa:', error);
+        }
+    }
+    return travados;
 }

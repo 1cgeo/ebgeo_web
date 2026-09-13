@@ -262,3 +262,161 @@ export function tituloDoPainel(total) {
     if (!Number.isFinite(total) || total <= 0) return 'Pendências';
     return total === 1 ? 'Pendências (1)' : `Pendências (${total})`;
 }
+
+/* =========================================================================
+   AS AÇÕES
+   ========================================================================= */
+
+/**
+ * O que a pessoa pode mandar fazer com uma tentativa.
+ * @readonly
+ * @enum {string}
+ */
+export const PendenciaAcao = Object.freeze({
+    /** Remove a tentativa e os dependentes dela, e pede ao servidor o estado atual. */
+    ACEITAR: 'aceitar',
+    /** Cria uma operação NOVA, com a base atual, a partir do conteúdo local guardado. */
+    REAPLICAR: 'reaplicar',
+    /** Copia o envelope e o motivo, para guardar fora do EBGeo. */
+    EXPORTAR: 'exportar',
+    /** Esquece a tentativa. Para o que não tem para onde ser reenviado. */
+    DESCARTAR: 'descartar',
+});
+
+const ACAO_LABEL = Object.freeze({
+    [PendenciaAcao.ACEITAR]: 'Aceitar o servidor',
+    [PendenciaAcao.REAPLICAR]: 'Reaplicar',
+    [PendenciaAcao.EXPORTAR]: 'Exportar',
+    [PendenciaAcao.DESCARTAR]: 'Descartar',
+});
+
+/** O que cada comando faz, no `title` do botão, porque o rótulo cabe em duas palavras. */
+const ACAO_DETALHE = Object.freeze({
+    [PendenciaAcao.ACEITAR]:
+        'Descarta esta tentativa e o que estiver parado atrás dela, e pede ao servidor o estado '
+        + 'atual do item.',
+    [PendenciaAcao.REAPLICAR]:
+        'Envia de novo o conteúdo que você tinha escrito, agora declarando como base a versão que '
+        + 'o servidor informou.',
+    [PendenciaAcao.EXPORTAR]:
+        'Copia o conteúdo desta tentativa e o motivo da recusa, para guardar fora do EBGeo.',
+    [PendenciaAcao.DESCARTAR]:
+        'Esquece esta tentativa neste computador. O conteúdo dela não vai para o servidor.',
+});
+
+/**
+ * Os estados REVERSÍVEIS que recusam o clique. Eles não escondem o comando: o comando é desenhado,
+ * o clique é recusado e a frase nomeia o estado, porque o clique é como o motivo chega à pessoa
+ * (`.claude/rules/architecture.md`, seção UI Architecture).
+ * @readonly
+ * @enum {string}
+ */
+export const PendenciaBloqueio = Object.freeze({
+    OFFLINE: 'offline',
+    MAPA_TRAVADO: 'mapa-travado',
+});
+
+const BLOQUEIO_FRASE = Object.freeze({
+    [PendenciaBloqueio.OFFLINE]:
+        'Sem conexão com o servidor agora. Aceitar o servidor precisa buscar o estado atual do '
+        + 'item, e sem isso a tela ficaria mostrando algo que o servidor não tem.',
+    [PendenciaBloqueio.MAPA_TRAVADO]:
+        'Este mapa está travado. Destrave o mapa (ou peça ao dono do atlas) para reaplicar a sua '
+        + 'alteração.',
+});
+
+/**
+ * @param {string} acao - Valor de {@link PendenciaAcao}.
+ * @returns {string} O rótulo do botão.
+ */
+export function acaoLabel(acao) {
+    return ACAO_LABEL[acao] ?? String(acao ?? '');
+}
+
+/**
+ * @param {string} acao - Valor de {@link PendenciaAcao}.
+ * @returns {string} A frase de apoio do botão.
+ */
+export function acaoDetalhe(acao) {
+    return ACAO_DETALHE[acao] ?? '';
+}
+
+/**
+ * A frase que o clique recusado devolve, nomeando o ESTADO.
+ * @param {string} bloqueio - Valor de {@link PendenciaBloqueio}.
+ * @returns {string}
+ */
+export function bloqueioFrase(bloqueio) {
+    return BLOQUEIO_FRASE[bloqueio]
+        ?? 'Esta ação não pode ser feita agora, e esta tela não soube dizer por quê.';
+}
+
+/**
+ * A pergunta de "Aceitar o servidor", que NOMEIA quantas tentativas somem.
+ *
+ * O número é obrigatório e não decorativo: aceitar o servidor sobre uma tentativa leva junto tudo
+ * o que estava parado atrás dela, e uma pergunta que diga só "esta alteração" mente sobre o
+ * tamanho do que a pessoa está aceitando perder.
+ * @param {number} quantas - Total de tentativas que serão descartadas, esta inclusive.
+ * @returns {{titulo: string, mensagem: string, confirmar: string}}
+ */
+export function confirmacaoDeAceitar(quantas) {
+    const total = Number.isFinite(quantas) && quantas > 0 ? Math.trunc(quantas) : 1;
+    const corpo = total === 1
+        ? 'Esta tentativa será descartada e o EBGeo vai buscar do servidor o estado atual do item.'
+        : `Esta tentativa e as outras ${total - 1} que estão paradas atrás dela serão descartadas, `
+            + 'e o EBGeo vai buscar do servidor o estado atual dos itens.';
+    return {
+        titulo: 'Ficar com o que está no servidor?',
+        mensagem: `${corpo} O conteúdo que você tinha escrito não será enviado. Exporte antes se `
+            + 'quiser guardá-lo.',
+        confirmar: total === 1 ? 'Descartar 1 alteração' : `Descartar ${total} alterações`,
+    };
+}
+
+/**
+ * A pergunta de "Descartar", para o que não tem para onde ser reenviado.
+ * @param {number} quantas - Total de tentativas que somem.
+ * @returns {{titulo: string, mensagem: string, confirmar: string}}
+ */
+export function confirmacaoDeDescartar(quantas) {
+    const total = Number.isFinite(quantas) && quantas > 0 ? Math.trunc(quantas) : 1;
+    return {
+        titulo: 'Esquecer esta alteração?',
+        mensagem: total === 1
+            ? 'Ela sai deste computador e não vai para o servidor. Não há como recuperá-la depois. '
+                + 'Exporte antes se quiser guardar o conteúdo.'
+            : `Elas (${total}) saem deste computador e não vão para o servidor. Não há como `
+                + 'recuperá-las depois. Exporte antes se quiser guardar o conteúdo.',
+        confirmar: 'Descartar',
+    };
+}
+
+/** O que o toast diz quando a exportação foi para a área de transferência. */
+export const EXPORTACAO_COPIADA =
+    'Conteúdo copiado para a área de transferência. Cole num arquivo para guardar.';
+
+/** E quando não foi. */
+export const EXPORTACAO_FALHOU =
+    'Não foi possível copiar. O navegador recusou o acesso à área de transferência.';
+
+/**
+ * O que aconteceu depois de reaplicar, e a frase muda com a conexão porque o desfecho muda.
+ * @param {boolean} online - Se havia conexão no momento.
+ * @returns {string}
+ */
+export function reaplicacaoFeita(online) {
+    return online === true
+        ? 'Alteração reenviada com a versão que o servidor informou. Se ela for aceita, a tela é '
+            + 'atualizada em seguida.'
+        : 'Alteração recolocada na fila. Ela sai quando a conexão voltar, e até lá a tela continua '
+            + 'mostrando o que veio do servidor.';
+}
+
+/** Quando a reaplicação não conseguiu ser enfileirada. */
+export const REAPLICACAO_FALHOU =
+    'Não foi possível recolocar esta alteração na fila. Nada foi mudado.';
+
+/** Quando aceitar o servidor não conseguiu remover a tentativa. */
+export const ACEITE_FALHOU =
+    'Não foi possível descartar esta tentativa. Nada foi mudado, e ela continua na lista.';

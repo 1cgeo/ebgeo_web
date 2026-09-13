@@ -176,3 +176,37 @@ export async function listQuarantinedOperations(atlasId = null) {
 export async function discardPreservedQuarantine(atlasId) {
     await getGlobalStore().removeItem(quarantineRegistryKey(atlasId));
 }
+
+/**
+ * Forgets ONE preserved operation, by the same explicit decision as {@link
+ * discardPreservedQuarantine} and for the same single reason: somebody looked at it and decided.
+ *
+ * IT EXISTS BECAUSE THE PANEL DECIDES ONE LINE AT A TIME (B5, resolution panel). The per-atlas
+ * discard is the logout-shaped gesture; a person reading the list refuses one attempt, and
+ * offering only "forget everything from this atlas" there would make a per-row button destroy
+ * rows the person never looked at.
+ *
+ * THE RECORD LEAVES WHEN IT EMPTIES, rather than staying as an empty envelope: `listQuarantined-
+ * Operations` skips a record with no operations, so an empty one is invisible work that no sweep
+ * collects. A record of an unknown shape version is left alone, like everywhere else here.
+ * @param {string} atlasId - Server atlas id.
+ * @param {string} operationId - The operation to forget.
+ * @returns {Promise<boolean>} Whether something was removed.
+ */
+export async function discardQuarantinedOperation(atlasId, operationId) {
+    const globalStore = getGlobalStore();
+    const key = quarantineRegistryKey(atlasId);
+    const stored = await globalStore.getItem(key);
+    if (stored?.version !== RECORD_VERSION) return false;
+
+    const restantes = (stored.operations ?? [])
+        .filter(entry => entry?.operation?.id !== operationId);
+    if (restantes.length === (stored.operations ?? []).length) return false;
+
+    if (restantes.length === 0) {
+        await globalStore.removeItem(key);
+        return true;
+    }
+    await globalStore.setItem(key, { ...stored, operations: restantes });
+    return true;
+}

@@ -32,14 +32,34 @@ import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
 import { setupCleanup, subscribe, addDomListener } from '@utils/event-cleanup.js';
 import { ModalBase } from '@modals/modal.base.js';
+import { showConfirm } from '@modals/confirm.modal.js';
+import { showError, showSuccess, showToast, showWarning } from '@utils/toast_service.js';
+import { connectionState, ConnectionStates } from '@store/sync/connection-state.js';
 import { montarPendencias, PendenciaEstado } from './pendencias-rows.js';
-import { lerPendencias, nomeDoMapa } from './pendencias-leitura.js';
+import { lerMapasTravados, lerPendencias, nomeDoMapa } from './pendencias-leitura.js';
 import {
+    aceitarOServidor,
+    acoesDaLinha,
+    conteudoDeExportacao,
+    descartarTentativa,
+    idsQueSaemJunto,
+    reaplicarComNovaBase,
+} from './pendencias-acoes.js';
+import {
+    ACEITE_FALHOU,
     ESTADO_FALHA_DETALHE,
     ESTADO_FALHA_TITULO,
     ESTADO_VAZIO_DETALHE,
     ESTADO_VAZIO_TITULO,
+    EXPORTACAO_COPIADA,
+    EXPORTACAO_FALHOU,
+    PendenciaAcao,
+    REAPLICACAO_FALHOU,
+    acaoLabel,
+    confirmacaoDeAceitar,
+    confirmacaoDeDescartar,
     contadoresVisiveis,
+    reaplicacaoFeita,
     tituloDoPainel,
 } from './pendencias-phrases.js';
 
@@ -89,6 +109,10 @@ export class PendenciasPanel extends ModalBase {
         this._lerDeNovo = false;
         /** @type {Object|null} O último modelo desenhado, para as ações. */
         this._modelo = null;
+        /** @type {Set<string>} Ids de mapa travados na última leitura. */
+        this._travados = new Set();
+        /** @type {boolean} Se uma ação está em curso, para não deixar duas rodarem juntas. */
+        this._agindo = false;
         /** @type {(function(): void)|null} Chamado ao fechar, para soltar a instância única. */
         this._aoFechar = null;
 
@@ -168,6 +192,13 @@ export class PendenciasPanel extends ModalBase {
         if (!this._lista) return;
 
         this._modelo = montarPendencias({ ...leitura, nomeDoMapa });
+        // A TRAVA É LIDA DEPOIS DAS LINHAS, e só dos mapas que elas citam: ela decide apenas se um
+        // comando recusa o clique, então lê-la antes custaria uma varredura de mapas que talvez
+        // não apareçam em pendência nenhuma.
+        this._travados = await lerMapasTravados(
+            this._modelo.linhas.map((linha) => linha.mapa?.id).filter(Boolean)
+        );
+        if (!this._lista) return;
         this._desenhar(this._modelo);
 
         if (this._lerDeNovo) {
@@ -245,6 +276,18 @@ export class PendenciasPanel extends ModalBase {
             return item;
         }));
         this._resumo.hidden = contadores.length === 0;
+
+        // EXPORTAR TUDO fica no topo e não na linha: é a saída de quem vai limpar a lista inteira,
+        // e pedir uma cópia linha a linha antes de descartar meia dúzia é como uma pessoa desiste
+        // de guardar o próprio trabalho.
+        if (contadores.length === 0) return;
+        const tudo = document.createElement('button');
+        tudo.type = 'button';
+        tudo.className = 'pendencias__acao';
+        tudo.setAttribute('data-acao', 'exportar-tudo');
+        tudo.textContent = `${acaoLabel(PendenciaAcao.EXPORTAR)} tudo`;
+        addDomListener(this, tudo, 'click', () => this._exportar(modelo.linhas));
+        this._resumo.appendChild(tudo);
     }
 
     /**
@@ -348,7 +391,165 @@ export class PendenciasPanel extends ModalBase {
         explicacao.textContent = linha.classeExplicacao;
         item.appendChild(explicacao);
 
+        item.appendChild(this._desenharAcoes(linha));
         return item;
+    }
+
+    /**
+     * Os comandos de uma linha.
+     *
+     * O COMANDO BLOQUEADO POR ESTADO LEVA `aria-disabled` E NUNCA A PROPRIEDADE `disabled`: um
+     * botão desabilitado não dispara clique, e o clique É como o motivo chega à pessoa. Quem não
+     * pode por POSTO não chega aqui, porque `acoesDaLinha` nem devolve o comando.
+     * @param {Object} linha - Modelo de linha.
+     * @returns {HTMLElement}
+     * @private
+     */
+    _desenharAcoes(linha) {
+        const barra = document.createElement('div');
+        barra.className = 'pendencias__acoes';
+
+        const contexto = {
+            online: connectionState.getState() === ConnectionStates.ONLINE,
+            mapaTravado: (mapId) => this._travados.has(mapId),
+        };
+
+        for (const { acao, label, detalhe, bloqueio, recusa } of acoesDaLinha(linha, contexto)) {
+            const botao = document.createElement('button');
+            botao.type = 'button';
+            botao.className = 'pendencias__acao';
+            botao.setAttribute('data-acao', acao);
+            botao.setAttribute('title', bloqueio ? recusa : detalhe);
+            botao.textContent = label;
+            if (bloqueio) botao.setAttribute('aria-disabled', 'true');
+            addDomListener(this, botao, 'click', () => {
+                if (bloqueio) {
+                    showWarning(recusa);
+                    return;
+                }
+                this._executar(acao, linha);
+            });
+            barra.appendChild(botao);
+        }
+        return barra;
+    }
+
+    /**
+     * Executa um comando de linha, com a confirmação que ele exigir.
+     *
+     * UMA AÇÃO POR VEZ: as três que escrevem mexem na mesma fila, e duas em paralelo produziriam
+     * uma segunda decisão tomada sobre uma lista que a primeira já mudou.
+     * @param {string} acao - Valor de `PendenciaAcao`.
+     * @param {Object} linha - Modelo de linha.
+     * @private
+     */
+    async _executar(acao, linha) {
+        if (this._agindo) return;
+        this._agindo = true;
+        try {
+            if (acao === PendenciaAcao.EXPORTAR) await this._exportar([linha]);
+            else if (acao === PendenciaAcao.ACEITAR) await this._aceitar(linha);
+            else if (acao === PendenciaAcao.DESCARTAR) await this._descartar(linha);
+            else if (acao === PendenciaAcao.REAPLICAR) await this._reaplicar(linha);
+        } finally {
+            this._agindo = false;
+        }
+    }
+
+    /**
+     * @param {Object} linha - Modelo de linha.
+     * @private
+     */
+    async _aceitar(linha) {
+        const quantas = idsQueSaemJunto(linha, this._modelo?.linhas ?? []).length;
+        const pergunta = confirmacaoDeAceitar(quantas);
+        const confirmado = await showConfirm(pergunta.titulo, {
+            message: pergunta.mensagem,
+            confirmText: pergunta.confirmar,
+            cancelText: 'Manter',
+            destructive: true,
+        });
+        if (!confirmado) return;
+
+        try {
+            const { removidas } = await aceitarOServidor(linha, this._modelo?.linhas ?? []);
+            if (removidas === 0) {
+                showError(ACEITE_FALHOU);
+                return;
+            }
+            showSuccess(removidas === 1
+                ? 'Uma alteração descartada. Buscando o estado atual no servidor.'
+                : `${removidas} alterações descartadas. Buscando o estado atual no servidor.`);
+        } catch (error) {
+            console.warn('[pendencias] aceitar o servidor falhou:', error);
+            showError(ACEITE_FALHOU);
+        }
+        await this._ler();
+    }
+
+    /**
+     * @param {Object} linha - Modelo de linha.
+     * @private
+     */
+    async _descartar(linha) {
+        const quantas = Math.max(1, idsQueSaemJunto(linha, this._modelo?.linhas ?? []).length);
+        const pergunta = confirmacaoDeDescartar(quantas);
+        const confirmado = await showConfirm(pergunta.titulo, {
+            message: pergunta.mensagem,
+            confirmText: pergunta.confirmar,
+            cancelText: 'Manter',
+            destructive: true,
+        });
+        if (!confirmado) return;
+
+        try {
+            const { removidas } = await descartarTentativa(linha, this._modelo?.linhas ?? []);
+            if (removidas === 0) showError(ACEITE_FALHOU);
+            else showToast('Alteração esquecida neste computador.', 'info');
+        } catch (error) {
+            console.warn('[pendencias] descartar falhou:', error);
+            showError(ACEITE_FALHOU);
+        }
+        await this._ler();
+    }
+
+    /**
+     * @param {Object} linha - Modelo de linha.
+     * @private
+     */
+    async _reaplicar(linha) {
+        const online = connectionState.getState() === ConnectionStates.ONLINE;
+        try {
+            await reaplicarComNovaBase(linha, { online });
+            showSuccess(reaplicacaoFeita(online));
+        } catch (error) {
+            console.warn('[pendencias] reaplicar falhou:', error);
+            showError(REAPLICACAO_FALHOU);
+        }
+        await this._ler();
+    }
+
+    /**
+     * Copia o JSON das tentativas escolhidas para a área de transferência.
+     *
+     * ÁREA DE TRANSFERÊNCIA E NÃO DOWNLOAD porque a casa não tem porta de download compartilhada:
+     * cada saída (KMZ, PDF, QAN, `.ebgeo`) monta a sua com `URL.createObjectURL`, e inventar aqui
+     * a quinta cópia daquele trecho para um JSON de diagnóstico é custo sem dono. Se um dia
+     * existir a porta única, este é o ponto que a chama.
+     * @param {Array<Object>} linhas - Linhas a exportar.
+     * @private
+     */
+    async _exportar(linhas) {
+        const texto = JSON.stringify(conteudoDeExportacao(linhas), null, 2);
+        try {
+            const area = globalThis.navigator?.clipboard;
+            if (!area?.writeText) throw new Error('sem área de transferência');
+            await area.writeText(texto);
+            showSuccess(EXPORTACAO_COPIADA);
+        } catch (error) {
+            console.warn('[pendencias] a exportação não pôde ser copiada:', error);
+            showError(EXPORTACAO_FALHOU);
+        }
     }
 
     /**
