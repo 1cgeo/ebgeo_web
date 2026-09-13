@@ -26,6 +26,48 @@ describe('Pending issue dependencies', () => {
         expect(await queue.getIssues()).toHaveLength(1);
     });
 
+    // AS TRÊS CLASSES, e a terceira é a que não se grava. `getIssues` lê REGISTROS, e é ele que a
+    // quarentena do logout copia; `getProblems` DERIVA, e é o único que enxerga quem está parado
+    // atrás de quem. Gravar a dependência criaria uma pendência cuja causa some sozinha assim que
+    // a operação da frente for resolvida, e a leitura seguinte anunciaria um problema inexistente.
+    it('distingue conflito, recusa e dependência bloqueada', async () => {
+        const scope = remoteScope('55555555-5555-4555-8555-555555555555');
+        await getStoreFor(StoreName.OPERATION_QUEUE, scope).clear();
+        const queue = new OperationQueue(scope);
+        const disputada = { protocolVersion: 2, id: 'disputada', entityId: 'camada', entityType: 'layer', mapId: 'm1' };
+        const recusada = { protocolVersion: 2, id: 'recusada', entityId: 'outra', entityType: 'map' };
+        await queue.enqueueAll([
+            disputada,
+            { protocolVersion: 2, id: 'atras', entityId: 'camada', entityType: 'layer', mapId: 'm1' },
+            recusada,
+            { protocolVersion: 2, id: 'livre', entityId: 'terceira' },
+        ]);
+        await queue.recordIssue(disputada, {
+            rejected: true, status: 'conflict',
+            reason: 'Os mesmos campos foram alterados no servidor.',
+            conflict: { fields: ['nome'], entityVersion: 8, serverData: null },
+        });
+        await queue.recordIssue(recusada, { rejected: true, reason: 'Apenas o dono pode excluir um mapa' });
+
+        const problemas = await queue.getProblems();
+        expect(problemas.map((p) => [p.operation.id, p.classe])).toEqual([
+            ['disputada', 'conflito'],
+            ['atras', 'dependencia'],
+            ['recusada', 'recusa'],
+        ]);
+        // A dependência nomeia quem a segura e não guarda resultado nenhum: ela não foi recusada.
+        expect(problemas[1].bloqueadaPor).toBe('disputada');
+        expect(problemas[1].result).toBeNull();
+        // Os campos em disputa viajam com o problema, que é o que uma reaplicação vai precisar.
+        expect(problemas[0].result.conflict.fields).toEqual(['nome']);
+
+        // `getIssues` continua sendo só o que foi ESCRITO, agora com a classe.
+        expect((await queue.getIssues()).map((i) => [i.operation.id, i.classe]))
+            .toEqual([['disputada', 'conflito'], ['recusada', 'recusa']]);
+        // E as duas leituras somam o mesmo que o censo: três problemas, um enviável.
+        expect(await queue.countByState()).toEqual({ pendentes: 1, preparadas: 0, problemas: 3 });
+    });
+
     it('acknowledges opaque IDs beginning with twelve digits without truncation', async () => {
         const scope = remoteScope('44444444-4444-4444-8444-444444444444');
         await getStoreFor(StoreName.OPERATION_QUEUE, scope).clear();

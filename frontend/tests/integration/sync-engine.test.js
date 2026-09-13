@@ -236,6 +236,7 @@ vi.mock('../../src/js/utilities/toast_service.js', () => ({
 
 import { syncEngine } from '../../src/js/store/sync/sync-engine.js';
 import { setTracing, clearTrace, getTrace } from '../../src/js/store/sync/diag/trace-core.js';
+import { IssueClass, classifyIssue } from '../../src/js/store/sync/issue-classes.js';
 // O namespace e o ponteiro de geração vêm dos módulos REAIS: o que se mede é a decisão do
 // `connect` a partir do que existe em disco, e um dublê de ponteiro mediria o dublê.
 import {
@@ -897,6 +898,52 @@ describe('rejected operations are surfaced to the user', () => {
         // Still dequeued: a policy denial must not be retried forever.
         expect(queueState.issues.map(issue => issue.operation.id)).toContain('op-1');
         expect(queueState.dequeued).not.toContain('op-1');
+    });
+
+    // O CONFLITO CHEGA PELO MESMO CANAL DA RECUSA, e é por isso que ele precisa de classe. Até o
+    // servidor ganhar a revisão por entidade (2026-09-13) só a feição podia produzir um; agora
+    // qualquer entidade pode, e um problema que diz apenas "recusado" manda a pessoa procurar uma
+    // permissão que ela tem, em vez de mostrar que o dado mudou embaixo dela.
+    it('um conflito de QUALQUER entidade vira problema durável com classe própria', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        queueState.ops = [{ id: 'op-conflito', entityType: 'layer', entityId: 'l1', mapId: 'm1' }];
+        apiClientMock.pushOperations.mockResolvedValueOnce({
+            results: [{
+                operationId: 'op-conflito',
+                success: false,
+                rejected: true,
+                status: 'conflict',
+                reason: 'Os mesmos campos foram alterados no servidor.',
+                conflict: {
+                    reason: 'Os mesmos campos foram alterados no servidor.',
+                    fields: ['nome'], entityVersion: 8, deleted: false, serverData: null,
+                },
+            }],
+            serverVersion: 9,
+        });
+
+        await syncEngine.flush();
+
+        const [problema] = queueState.issues;
+        expect(problema.operation.id).toBe('op-conflito');
+        expect(classifyIssue(problema.result)).toBe(IssueClass.CONFLITO);
+        // Os campos em disputa e a revisão do servidor sobrevivem ao F5 junto com o envelope: são
+        // o que uma reaplicação deliberada precisa para nascer com base nova.
+        expect(problema.result.conflict.fields).toEqual(['nome']);
+        expect(problema.result.conflict.entityVersion).toBe(8);
+        // E ela NÃO sai da fila: o trabalho continua guardado até alguém decidir.
+        expect(queueState.dequeued).not.toContain('op-conflito');
+    });
+
+    it('DISCRIMINAÇÃO: a recusa de política continua sendo `recusa`, não conflito', () => {
+        // Sem este par, "classifica como conflito" passaria verde com uma função que devolve
+        // `conflito` para tudo.
+        expect(classifyIssue({ rejected: true, reason: 'Apenas o dono pode excluir um mapa' }))
+            .toBe(IssueClass.RECUSA);
+        expect(classifyIssue({ rejected: true, status: 'review', code: 'SYNC_PROTOCOL_REVIEW' }))
+            .toBe(IssueClass.REVISAO);
+        // Recibo de um servidor anterior ao campo `status`: o objeto `conflict` ainda decide.
+        expect(classifyIssue({ rejected: true, conflict: { fields: ['*'] } })).toBe(IssueClass.CONFLITO);
     });
 
     it('does not warn when everything was accepted', async () => {

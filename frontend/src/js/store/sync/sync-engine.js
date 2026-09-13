@@ -50,6 +50,7 @@ import { setImageSyncAtlas } from './image-sync.js';
 import { applyAtlasSettings, revertAtlasSettings } from './atlas-settings.service.js';
 import { refreshVisibleResources, clearVisibleResources } from './resource-access.service.js';
 import { clearLocalEditMarks } from './overwrite-notice.js';
+import { classifyIssue } from './issue-classes.js';
 import { getEventBus } from '../services.js';
 import { EventTypes } from '../../events/event_types.js';
 import { record } from './diag/trace-core.js';
@@ -196,6 +197,11 @@ async function recordPushAcks(resp, ops) {
             // is what a whole family of 3D/360/basemap specs did when a write gate started
             // refusing references to catalog rows the specs had invented.
             ...(r.reason ? { reason: r.reason } : {}),
+            // E A CLASSE, porque "recusado" não diz o que fazer a respeito. Uma DISPUTA
+            // (`status: 'conflict'`, com as unidades em `conflict.fields`) pede uma decisão sobre
+            // conteúdo; uma recusa de política pede outra conta. Sem isto, um diagnóstico de
+            // conflito de mapa e um de permissão negada são a mesma linha no ledger.
+            ...(r.rejected === true || r.success === false ? { classe: classifyIssue(r) } : {}),
         });
         // Seed the author's own applied serverVersion (LWW convergence): the author filters its
         // own WS echo, so without this it would never learn its op's server arrival order, and a
@@ -674,6 +680,12 @@ class SyncEngine {
             session.assertActive();
             await recordPushAcks(resp, ops);
             session.assertActive();
+            // TODA RECUSA VIRA PROBLEMA DURÁVEL, E O CONFLITO É UMA DELAS. O servidor devolve a
+            // disputa por este mesmo canal (`rejected: true` mais `status: 'conflict'` e o objeto
+            // `conflict` com as unidades, a `entityVersion` e o `serverData` quando houver), e o
+            // ack inteiro é guardado, de modo que a classe (`classifyIssue`) e os campos em
+            // disputa sobrevivem ao F5. A operação NÃO é retirada da fila e passa a bloquear os
+            // dependentes dela, que é o que a feição já fazia e agora vale para toda entidade.
             const refused = (resp?.results ?? resp?.acks ?? []).filter(r => r.rejected === true || r.success === false);
             let issues = 0;
             for (const result of refused) {

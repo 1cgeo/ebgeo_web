@@ -16,6 +16,7 @@ import { appendJournal, materializeJournal, purgeJournalEntries, JournalKey } fr
 import { captureRemoteWriteFence } from '../remote-write-fence.js';
 import { fenceStore } from '../fenced-store.js';
 import { legacyQueueIssue } from './legacy-queue.js';
+import { IssueClass, classifyIssue } from './issue-classes.js';
 
 function queueScope() {
     return getActiveScope() ?? UNMOUNTED_QUEUE_SCOPE;
@@ -143,15 +144,65 @@ class OperationQueue {
         await store.setItem(JournalKey.ISSUE + operation.id, { result, recordedAt: Date.now() });
     }
 
+    /**
+     * As operações com um resultado GUARDADO, cada uma com a sua classe.
+     *
+     * A classe (`IssueClass`) separa disputa de recusa de política e de intenção retida para
+     * revisão: as três chegavam como `rejected: true` mais uma frase, e pedem coisas diferentes de
+     * quem as lê. A dependência bloqueada NÃO entra aqui, porque não é um registro: ver
+     * {@link getProblems}.
+     * @returns {Promise<Array<{operation: Object, result: Object, recordedAt: number, classe: string}>>}
+     */
     async getIssues() {
         const { store, scopeSuffix } = this._context();
         const operations = await this._loadOperations(await this._getOrderedKeys(store), { store, scopeSuffix });
         const issues = [];
         for (const operation of operations) {
             const issue = await store.getItem(JournalKey.ISSUE + operation.id);
-            if (issue) issues.push({ operation, ...issue });
+            if (issue) issues.push({ operation, ...issue, classe: classifyIssue(issue.result) });
         }
         return issues;
+    }
+
+    /**
+     * TUDO que a fila não consegue enviar, classificado: o que foi recusado E o que está parado
+     * atrás do que foi recusado.
+     *
+     * É a mesma contagem que `countByState().problemas` devolve, agora com os envelopes e com a
+     * razão de cada um, e caminha com o MESMO {@link PendingBlockade} que o carregador usa, para
+     * que a lista não possa discordar do que o flush de fato se recusa a enviar.
+     *
+     * SEPARADO DE {@link getIssues} DE PROPÓSITO. Aquele lê registros, e é o que o expurgo do
+     * logout copia para a quarentena; este DERIVA, e a dependência que ele nomeia deixa de existir
+     * assim que a operação da frente é resolvida. Guardar uma pendência cuja causa some sozinha
+     * faria a leitura seguinte anunciar um problema que já não existe.
+     * @returns {Promise<Array<{operation: Object, result: Object|null, recordedAt: number|null,
+     *   classe: string, bloqueadaPor: string|null}>>}
+     */
+    async getProblems() {
+        const { store, scopeSuffix } = this._context();
+        const blockade = new PendingBlockade();
+        const problems = [];
+        let culpada = null;
+        for (const key of await this._getOrderedKeys(store)) {
+            const operation = await store.getItem(key);
+            if (!operation) continue;
+            if (!operationBelongsToScope(operation, scopeSuffix)) continue;
+            const issue = await store.getItem(JournalKey.ISSUE + operation.id);
+            if (issue) {
+                blockade.add(operation);
+                culpada = operation.id;
+                problems.push({ operation, ...issue, classe: classifyIssue(issue.result), bloqueadaPor: null });
+                continue;
+            }
+            if (!blockade.blocks(operation)) continue;
+            blockade.add(operation);
+            problems.push({
+                operation, result: null, recordedAt: null,
+                classe: IssueClass.DEPENDENCIA, bloqueadaPor: culpada,
+            });
+        }
+        return problems;
     }
 
     async getPendingProjection() {
