@@ -30,6 +30,14 @@ Por isso `FLUSH_BATCH_SIZE` (25) deixou de ser uma fatia e virou um ORÇAMENTO: 
 
 Na recusa, **o problema durável é gravado em TODOS os membros**, com `batchId` e `batchFailedOperationId` nomeando a culpada, inclusive nos que o recibo deixou de nomear, e `acknowledgedOperationIds` nunca desenfileira membro de lote recusado, mesmo acked como aplicado. Nada sai do disco em nenhum desses caminhos, então o reenvio reusa os mesmos envelopes e segue idempotente por `op_id`.
 
+## O que os contratos de ponta a ponta prendem, e o que fica fora deles
+
+`frontend/tests/e2e/lote-logico.e2e.test.js` mede o SERVIDOR pelo HTTP real, com envelopes da fábrica do cliente, e `frontend/tests/e2e/lote-recusado-fila.e2e.test.js` mede o que a FILA faz com o recibo que volta, dirigindo o motor e a fila de verdade. Três coisas que a leitura deles não entrega:
+
+- **A posição da culpada é uma medição, e são três.** Falha no primeiro membro mede o rollback de um savepoint que ainda não escreveu nada; no intermediário e no último, o desfazimento de irmãs que já escreveram. Um servidor que apenas PARASSE no primeiro erro, sem desfazer, passaria no caso do primeiro membro. Cada caso leva um controle dentro dele: o mesmo gesto sem a culpada aplica inteiro, senão "nada aplicou" não distingue atomicidade de recusa geral.
+- **`count()` da fila NÃO é o tamanho dela**, e ler assim faz um teste de "nada foi desenfileirado" passar verde por outro motivo: ele responde o que o flush pode enviar AGORA, então vale zero depois da recusa, com os envelopes intactos. Quem responde o que está guardado é `getAll()`; o total é a soma dos três baldes de `countByState()`.
+- **Um irmão ACKED COMO APLICADO dentro de um lote recusado não é produzível contra o servidor de verdade**, porque ele responde todos os membros com o mesmo status. A guarda de `acknowledgedOperationIds` que o segura é medida com recibo montado à mão, em `frontend/tests/unit/sync-ack-por-operacao.test.js`. Controle negativo medido: sem a filtragem por lote recusado, o irmão sai da fila e o gesto fica meio enfileirado; e sem o salto do carregador sobre a op com problema, o flush não termina mais (os dois casos de fila estouram em 30 s), que é o laço em vazio que o problema durável evita.
+
 ## O gesto é uma identidade AMBIENTE, e isso tem preço declarado
 
 Uma transação já era um lote, porque `createBatchOperations` cunha um `batchId` por transação: colar, duplicar e importar sempre foram um gesto só. Converter uma feição, transferir uma camada e desfazer **não cabem numa transação**, e não por descuido: as folhas tomam a trava do documento cada uma na sua chave, e aquela fila é FIFO sem reentrância, de modo que envolvê-las numa transação só travaria a interface para sempre (ver [[diario-write-ahead]]).

@@ -58,6 +58,14 @@
  *     mede a assimetria declarada do contrato: o `status` da culpada é `conflict` e o das irmãs é
  *     `rejected`, porque o envelope de conflito descreve UMA entidade e carimbá-lo nas irmãs
  *     mandaria o cliente resolver o conflito da entidade errada.
+ *  7. A POSIÇÃO DA CULPADA NÃO MUDA O DESFECHO: o mesmo gesto de cinco membros, com a falha
+ *     injetada no PRIMEIRO, no INTERMEDIÁRIO e no ÚLTIMO. As três posições são medições
+ *     diferentes do MESMO contrato, e nenhuma delas é implicada pelas outras: no primeiro membro
+ *     o savepoint não tinha escrito nada e o rollback é trivial; no intermediário e no último ele
+ *     já escreveu irmãs, e o que se mede é o desfazimento delas. Os casos 1 e 6 cobriam apenas o
+ *     ÚLTIMO, que é a posição mais fácil de acertar por acidente (um servidor que parasse no
+ *     primeiro erro e não desfizesse nada passaria neles). Nenhum ack volta com `success: true`,
+ *     que é a forma direta de dizer "nenhuma aplicação parcial acked como sucesso".
  *
  * ================= O QUE ELE NÃO PROVA, DECLARADO ============================================
  *
@@ -66,6 +74,11 @@
  * de um lote completo. Quem impede o corte é o recorte de envio do cliente, e isso se mede na fila
  * (`frontend/tests/integration/fila-recorte-por-lote.test.js`), não aqui: este arquivo empurra o
  * array direto pelo `ApiClient`, sem passar pela fila.
+ *
+ * O QUE A FILA FAZ COM O RECIBO DA RECUSA (nenhum membro desenfileirado, problema durável em
+ * todos) é a outra metade do mesmo contrato e mora em `lote-recusado-fila.e2e.test.js`, que dirige
+ * a fila e o motor de verdade contra este mesmo servidor. Separado porque aquele arquivo toma os
+ * singletons do cliente para si, e este não toma nenhum.
  *
  * O `featureIntent` NÃO aparece no caso 6, e a ausência é o contrato e não um esquecimento: `move`
  * e `restore` existem para REUSAR um id que o servidor já conhece (uma feição viva em outro mapa,
@@ -90,6 +103,23 @@ const TAMANHO_DO_LOTE_VALIDO = 30;
 
 /** Quantas ops leva o lote do caso 4. Acima do teto declarado pelo servidor, conferido lá. */
 const TAMANHO_ACIMA_DO_TETO = 201;
+
+/** Quantos membros tem o gesto do caso 7. Cinco é o menor tamanho com um meio inequívoco. */
+const MEMBROS_DO_GESTO = 5;
+
+/**
+ * As três posições da culpada dentro do gesto do caso 7, e por que são exatamente estas.
+ *
+ * O PRIMEIRO mede o rollback de um savepoint que ainda não escreveu nada; o INTERMEDIÁRIO e o
+ * ÚLTIMO medem o desfazimento de irmãs que JÁ escreveram, e o último é o único que os casos 1 e 6
+ * cobriam. A distinção não é cerimônia: um servidor que apenas PARASSE no primeiro erro, sem
+ * desfazer, passaria no caso do primeiro membro e falharia nos outros dois.
+ */
+const POSICOES_DA_CULPADA = [
+    { rotulo: 'PRIMEIRO', indice: 0 },
+    { rotulo: 'INTERMEDIÁRIO', indice: 2 },
+    { rotulo: 'ÚLTIMO', indice: MEMBROS_DO_GESTO - 1 },
+];
 
 describe.skipIf(E2E_SKIP)('e2e: o lote lógico aplica ou recusa inteiro', () => {
     /** @type {import('../../src/js/store/sync/api-client.js').ApiClient} */
@@ -523,4 +553,77 @@ describe.skipIf(E2E_SKIP)('e2e: o lote lógico aplica ou recusa inteiro', () => 
         expect(await replayDesde(versaoAntes)).toEqual([]);
         expect(await versaoDoAtlas()).toBe(versaoAntes);
     });
+
+    it.each(POSICOES_DA_CULPADA)(
+        `7) falha no membro $rotulo de um gesto de ${MEMBROS_DO_GESTO}: nada aplica, e nenhum ack volta success`,
+        async ({ rotulo, indice }) => {
+            const mapId = await createMap(api, atlasId, { name: `Mapa da falha no ${rotulo}` });
+
+            // O GRUPO NASCE FORA DO GESTO, e é isso que faz dos cinco membros ops IGUAIS entre si:
+            // com o grupo dentro do lote (como no caso 1) a posição 0 seria uma op de outro tipo, e
+            // a comparação entre as três posições mediria duas coisas ao mesmo tempo.
+            const reais = Array.from({ length: MEMBROS_DO_GESTO - 1 }, () => generateUUID());
+            await api.pushOperations(atlasId, reais.map((id, i) => criarPonto(mapId, id, i)));
+            const groupId = generateUUID();
+            await api.pushOperations(atlasId, [createOperation('group', 'create', groupId, mapId, {
+                name: `Grupo do ${rotulo}`, visible: true, locked: false, features: [],
+            })]);
+
+            const versaoAntes = await versaoDoAtlas();
+            const fantasma = generateUUID();   // nunca existiu: é a culpada
+            const membros = [...reais];
+            membros.splice(indice, 0, fantasma);
+            expect(membros[indice], 'a culpada precisa cair na posição pedida').toBe(fantasma);
+
+            const ops = createBatchOperations(membros.map((featureId) => ({
+                entityType: 'group_feature',
+                operationType: 'create',
+                entityId: generateUUID(),
+                mapId,
+                data: { group_id: groupId, feature_id: featureId, feature_type: 'point' },
+            })));
+            afirmarLoteBemFormado(ops);
+            expect(ops).toHaveLength(MEMBROS_DO_GESTO);
+
+            const res = await api.pushOperations(atlasId, ops);
+            expect(res.results).toHaveLength(MEMBROS_DO_GESTO);
+
+            // NENHUMA APLICAÇÃO PARCIAL ACKED COMO SUCESSO. Escrito como filtro e não como
+            // `every(false)` para que a mensagem de falha nomeie quantas passaram.
+            expect(res.results.filter((r) => r.success === true), 'nem um membro pode voltar aplicado')
+                .toHaveLength(0);
+            expect(res.results.every((r) => r.rejected === true)).toBe(true);
+
+            const motivos = new Set(res.results.map((r) => r.reason));
+            expect(motivos.size, `motivos vieram: ${[...motivos].join(' | ')}`).toBe(1);
+            expect([...motivos][0]).toMatch(/referencia um item que não existe mais/);
+            expect(new Set(res.results.map((r) => r.batchId))).toEqual(new Set([ops[0].batchId]));
+            expect(new Set(res.results.map((r) => r.batchFailedOperationId)),
+                'a culpada é nomeada para todas, e é a da posição injetada')
+                .toEqual(new Set([ops[indice].id]));
+
+            // O EFEITO: o grupo continua VAZIO. Com savepoint por op, os membros ANTERIORES à
+            // culpada ficariam ligados, e é justamente isso que muda com a posição.
+            const grupo = (await mapaDoSnapshot(mapId)).groups.find((g) => g.id === groupId);
+            expect(grupo, 'o grupo foi criado fora do gesto e continua lá').toBeTruthy();
+            expect(grupo.features ?? [], 'nenhum membro do gesto recusado pode ter entrado').toEqual([]);
+            expect(await replayDesde(versaoAntes)).toEqual([]);
+            expect(await versaoDoAtlas()).toBe(versaoAntes);
+
+            // CONTROLE, dentro do próprio caso: os QUATRO membros válidos, sozinhos, entram. Sem
+            // ele, um servidor que recusasse toda op de membresia passaria nos três casos acima e
+            // o "nada aplicou" não distinguiria atomicidade de quebra geral.
+            const soValidos = createBatchOperations(reais.map((featureId) => ({
+                entityType: 'group_feature',
+                operationType: 'create',
+                entityId: generateUUID(),
+                mapId,
+                data: { group_id: groupId, feature_id: featureId, feature_type: 'point' },
+            })));
+            const resValidos = await api.pushOperations(atlasId, soValidos);
+            expect(resValidos.results.every((r) => r.success === true),
+                'o mesmo gesto sem a culpada aplica inteiro').toBe(true);
+            const grupoDepois = (await mapaDoSnapshot(mapId)).groups.find((g) => g.id === groupId);
+            expect(grupoDepois.features.map((f) => f.id).sort()).toEqual([...reais].sort());
+        });
 });

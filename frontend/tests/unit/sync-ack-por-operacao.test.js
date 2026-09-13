@@ -63,6 +63,54 @@ describe('acknowledgedOperationIds — só sai da fila o que o servidor confirmo
         expect(acknowledgedOperationIds(null, ops('a'))).toEqual([]);
         expect(acknowledgedOperationIds({ results: [{ operationId: 'z' }] }, ops('a'))).toEqual([]);
     });
+
+    // O LOTE LÓGICO, e por que este caso NÃO se escreve contra o servidor de verdade. Ele aplica
+    // ou recusa o gesto inteiro num savepoint só e responde todos os membros com o mesmo status,
+    // então um irmão acked como APLICADO dentro de um lote recusado é, por construção, um servidor
+    // que quebrou o contrato: o e2e não consegue produzi-lo. A guarda existe justamente para esse
+    // caso, porque deixar o irmão sair deixaria o gesto meio enfileirado, que é a forma que nada a
+    // jusante conserta.
+    it('membro de lote RECUSADO não sai da fila nem quando o ack diz que foi aplicado', () => {
+        const enviadas = ops('a', 'b', 'c').map(op => ({ ...op, batchId: 'gesto-1' }));
+        const avulsa = { id: 'd', entityType: 'feature', entityId: 'e-d' };
+        const resp = {
+            results: [
+                { operationId: 'a', success: true, batchId: 'gesto-1' },
+                { operationId: 'b', success: false, rejected: true, batchId: 'gesto-1', reason: 'x' },
+                { operationId: 'c', success: true, batchId: 'gesto-1' },
+                { operationId: 'd', success: true },
+            ],
+        };
+
+        // A avulsa do MESMO push continua saindo: a unidade é o lote, não a resposta inteira.
+        expect(acknowledgedOperationIds(resp, [...enviadas, avulsa])).toEqual(['d']);
+    });
+
+    it('lote APLICADO inteiro sai inteiro (o controle do caso acima)', () => {
+        const enviadas = ops('a', 'b').map(op => ({ ...op, batchId: 'gesto-2' }));
+        const resp = {
+            results: [
+                { operationId: 'a', success: true, batchId: 'gesto-2' },
+                { operationId: 'b', success: true, batchId: 'gesto-2' },
+            ],
+        };
+
+        expect(acknowledgedOperationIds(resp, enviadas)).toEqual(['a', 'b']);
+    });
+
+    it('o `batchId` é lido do ENVELOPE quando o recibo não o ecoa', () => {
+        // Um servidor que recusa sem repetir o carimbo continua derrubando o gesto inteiro, porque
+        // quem sempre sabe a que gesto a op pertence é a op.
+        const enviadas = ops('a', 'b').map(op => ({ ...op, batchId: 'gesto-3' }));
+        const resp = {
+            results: [
+                { operationId: 'a', success: true },
+                { operationId: 'b', success: false, rejected: true, reason: 'x' },
+            ],
+        };
+
+        expect(acknowledgedOperationIds(resp, enviadas)).toEqual([]);
+    });
 });
 
 describe('classifyFlushFailure — o atlas que sumiu não é uma falha de rede', () => {
