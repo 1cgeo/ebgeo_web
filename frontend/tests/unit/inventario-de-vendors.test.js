@@ -39,6 +39,10 @@ import {
     gerarManifesto,
     lerManifestoVersionado,
     compararManifestos,
+    RAIZ_PUBLICA,
+    EXTENSOES_DE_CODIGO,
+    listarPublico,
+    foraDoInventario,
 } from '../../../scripts/inventario-de-vendors.mjs';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -208,5 +212,63 @@ describe('inventario de vendors: o eixo de comparacao', () => {
         const mentira = 'a'.repeat(64);
         expect(compararManifestos([[bin.path, bin.bytes, bin.sha256, mentira]], [bin]).divergente).toEqual([]);
         expect(compararManifestos([[txt.path, txt.bytes, txt.sha256, mentira]], [txt]).divergente).toHaveLength(1);
+    });
+});
+
+describe('inventario de vendors: o ALCANCE, que ate 2026-09-14 falhava aberto', () => {
+    // O que este bloco cobra e diferente de tudo acima. As quatro classes de
+    // `compararManifestos` respondem "o que o manifesto registra continua no disco"; nenhuma
+    // delas responde se existe codigo de terceiro que o manifesto NEM CONHECE. Era esse o
+    // buraco: o alcance vinha de uma lista de pastas escrita a mao, e
+    // `frontend/public/street_view/build/` guardou por meses uma SEGUNDA copia do Three.js
+    // (revisao 164dev, byte a byte igual a do snapshot de `src/`, 3.373.610 bytes, sem um unico
+    // consumidor) sem entrar em numero nenhum desta suite. Lista fechada escrita a mao falha
+    // ABERTO, em silencio, para o que nascer fora dela.
+
+    it('varre `frontend/public/` inteiro e reconhece as cinco extensoes de codigo', () => {
+        expect(RAIZ_PUBLICA).toBe('frontend/public');
+        expect([...EXTENSOES_DE_CODIGO].sort()).toEqual(['.cjs', '.css', '.js', '.mjs', '.wasm']);
+        // CONTROLE DE VACUO da varredura: `listarPublico` tem de caminhar de verdade. Sem esta
+        // linha, um `git ls-files` que devolvesse lista vazia deixaria o caso seguinte verde para
+        // sempre, que e exatamente a forma do defeito que este bloco fecha.
+        const publico = listarPublico();
+        expect(publico.length, 'a varredura de frontend/public/ nao achou arquivo nenhum')
+            .toBeGreaterThan(100);
+        expect(publico.every((p) => p.startsWith('frontend/public/'))).toBe(true);
+    });
+
+    it('hoje nao ha codigo de terceiro fora das pastas cobertas', () => {
+        // A poda de `frontend/public/street_view/build/` (item V7) deixou esta lista vazia. Ela e
+        // a unica asercao desta suite cuja resposta certa e o VAZIO, e por isso o caso abaixo
+        // existe: vazio de detector quebrado e vazio de arvore limpa sao a mesma saida.
+        expect(foraDoInventario(listarPublico())).toEqual([]);
+        expect(
+            existsSync(join(RAIZ, 'frontend/public/street_view/build')),
+            'a segunda copia do Three.js voltou a `frontend/public/street_view/build/`'
+        ).toBe(false);
+    });
+
+    it('CONTROLE NEGATIVO: o detector acusa codigo fora, e so codigo', () => {
+        // `foraDoInventario` e pura sobre a lista de caminhos justamente para isto: o disco nao
+        // oferece mais um positivo, entao ele e fabricado.
+        const amostra = [
+            'frontend/public/vendors/turf.min.js',                    // coberto: nao acusa
+            'frontend/public/vendors/cesium/Workers/algum.js',        // coberto, mais fundo
+            'frontend/public/street_view/build/three.module.js',      // FORA: o caso que existia
+            'frontend/public/algum/lugar/lib.css',                    // FORA
+            'frontend/public/algum/motor.wasm',                       // FORA
+            'frontend/public/images/logo_ebgeo.png',                  // nao e codigo
+            'frontend/public/glyphs/0-255.pbf',                       // nao e codigo
+            'frontend/public/docs/doc.html',                          // nao e codigo
+        ];
+        expect(foraDoInventario(amostra)).toEqual([
+            'frontend/public/street_view/build/three.module.js',
+            'frontend/public/algum/lugar/lib.css',
+            'frontend/public/algum/motor.wasm',
+        ]);
+        // E o prefixo e comparado com FRONTEIRA de caminho, nunca por `startsWith` cru: uma pasta
+        // irma chamada `vendors-antigo/` nao pode herdar a cobertura de `vendors/`.
+        expect(foraDoInventario(['frontend/public/vendors-antigo/x.js']))
+            .toEqual(['frontend/public/vendors-antigo/x.js']);
     });
 });

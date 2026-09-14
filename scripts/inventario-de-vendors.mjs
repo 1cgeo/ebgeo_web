@@ -68,6 +68,36 @@ export const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
  */
 export const PASTAS_DE_VENDOR = ['frontend/public/vendors'];
 
+/**
+ * A raiz varrida em busca de codigo de terceiro que NASCEU FORA das pastas conhecidas.
+ *
+ * ESTE E O BURACO QUE O INVENTARIO TINHA ATE 2026-09-14, e ele e do tipo que falha ABERTO. O
+ * alcance era uma lista de pastas escrita a mao, entao um arquivo de terceiro que nascesse fora
+ * dela simplesmente nao existia para a conferencia: nem entrava no manifesto, nem aparecia como
+ * `novo`, nem tinha versao registrada. Era assim que `frontend/public/street_view/build/` guardava
+ * uma SEGUNDA copia do Three.js (revisao 164dev, byte a byte igual a do snapshot de `src/`, 3,4 MB,
+ * sem um unico consumidor) sem entrar em numero nenhum: "os 408 artefatos" nunca quis dizer "todo
+ * codigo de terceiro versionado". A pasta foi podada no mesmo commit em que esta varredura nasceu
+ * (decisao D9, item V7).
+ *
+ * A FORMA E A DO CENSO QUE ESTE REPOSITORIO JA USA: a lista vem de `git ls-files`, nao de alvos
+ * escritos a mao, e o que nao esta classificado REPROVA em vez de passar. Nao ha allowlist de
+ * excecao aqui, e a ausencia e deliberada: allowlist sem beneficiario e como um guarda volta a
+ * abrir sozinho. Codigo da casa que um dia precise morar em `frontend/public/` acusa no commit em
+ * que nascer, e quem o puser ali decide na hora entre cobrir a pasta ou declarar a excecao com o
+ * motivo.
+ */
+export const RAIZ_PUBLICA = 'frontend/public';
+
+/**
+ * As extensoes que fazem de um arquivo de `frontend/public/` codigo a inventariar.
+ *
+ * Imagem, video, fonte e tile vetorial ficam de fora porque o que este inventario responde e "de
+ * que versao veio este CODIGO, e ha aviso publicado sobre ela"; um PNG nao tem upstream a que
+ * consultar aviso. O `.wasm` entra por ser exatamente o caso mais opaco dos tres.
+ */
+export const EXTENSOES_DE_CODIGO = ['.js', '.cjs', '.mjs', '.css', '.wasm'];
+
 export const CAMINHO_DO_MANIFESTO = 'docs/seguranca/dependencias-lancamento-inventario.json';
 
 /**
@@ -151,11 +181,45 @@ export function normalizarCrlf(buf) {
  * @returns {string[]}
  */
 export function listarArquivosVersionados(raiz = RAIZ) {
-    const saida = execFileSync('git', ['ls-files', '-z', '--', ...PASTAS_DE_VENDOR], {
+    return listarPorGit(PASTAS_DE_VENDOR, raiz);
+}
+
+/**
+ * Os caminhos versionados sob os alvos dados, na ordem do git (que ja e lexicografica).
+ *
+ * @param {string[]} alvos
+ * @param {string} [raiz]
+ * @returns {string[]}
+ */
+function listarPorGit(alvos, raiz = RAIZ) {
+    const saida = execFileSync('git', ['ls-files', '-z', '--', ...alvos], {
         cwd: raiz,
         maxBuffer: 64 * 1024 * 1024,
     });
     return saida.toString('utf8').split('\0').filter(Boolean);
+}
+
+/** Todo caminho versionado sob `frontend/public/`. @param {string} [raiz] @returns {string[]} */
+export function listarPublico(raiz = RAIZ) {
+    return listarPorGit([RAIZ_PUBLICA], raiz);
+}
+
+/**
+ * O codigo de terceiro que esta FORA das pastas cobertas, e portanto fora do manifesto.
+ *
+ * E funcao PURA sobre a lista de caminhos, e nao uma varredura de disco, por uma razao de
+ * verificacao: depois da poda de 2026-09-14 a resposta certa e a lista VAZIA, e um detector que so
+ * responde vazio e indistinguivel de um detector quebrado. Recebendo a lista, o teste alimenta
+ * caminho sintetico e cobra a acusacao, que e o controle negativo que o disco nao oferece mais.
+ *
+ * @param {string[]} caminhos
+ * @param {string[]} [pastasCobertas]
+ * @returns {string[]}
+ */
+export function foraDoInventario(caminhos, pastasCobertas = PASTAS_DE_VENDOR) {
+    const dentro = (p) => pastasCobertas.some((d) => p === d || p.startsWith(`${d}/`));
+    const ehCodigo = (p) => EXTENSOES_DE_CODIGO.some((e) => p.toLowerCase().endsWith(e));
+    return caminhos.filter((p) => ehCodigo(p) && !dentro(p));
 }
 
 /**
@@ -332,7 +396,14 @@ function principal() {
     for (const d of r.divergente) console.log(`  ~ ${d.caminho}\n      esperado ${d.esperado}\n      obtido   ${d.obtido}`);
     for (const d of r.bytesDivergentes) console.log(`  b ${d.caminho}: ${d.esperado} -> ${d.obtido}`);
 
-    if (args.includes('--check') && !r.igual) process.exitCode = 1;
+    // O ALCANCE, e nao so o conteudo. As quatro classes acima respondem "o que esta no manifesto
+    // continua no disco"; esta linha responde a pergunta que o manifesto NAO faz sozinho, que e
+    // se existe codigo de terceiro em `frontend/public/` que o manifesto nem conhece.
+    const fora = foraDoInventario(listarPublico());
+    console.log(`codigo fora das pastas cobertas: ${fora.length}`);
+    for (const c of fora) console.log(`  ! ${c}`);
+
+    if (args.includes('--check') && (!r.igual || fora.length > 0)) process.exitCode = 1;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
