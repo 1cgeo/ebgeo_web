@@ -31,7 +31,7 @@
  * como estava, senao a arvore CRLF do Windows viraria um diff de 3841 linhas.
  *
  * O EIXO DA CONFERENCIA E O HASH NORMALIZADO PARA LF, e isso nao e detalhe de
- * formatacao. A arvore de trabalho no Windows esta em CRLF (160 dos 193 de texto),
+ * formatacao. A arvore de trabalho no Windows esta em CRLF (157 dos 189 de texto),
  * entao o sha256 CRU de um arquivo de texto e uma propriedade do CHECKOUT, nao do
  * conteudo versionado: ele muda entre duas maquinas sem que um byte tenha mudado no
  * repositorio. Conferir por ele devolve o veredito errado, e ja devolveu (um dos
@@ -100,7 +100,7 @@ const decodificadorEstrito = new TextDecoder('utf8', { fatal: true });
  * coisa. O criterio e o do git: nenhum byte NUL, e aqui tambem UTF-8 valido, que e
  * exatamente a condicao sob a qual um ida e volta por string nao perde byte.
  *
- * Nao e zelo: 166 dos 402 artefatos sao PNG, JPG, WASM ou o pacote de dados do GDAL
+ * Nao e zelo: 166 dos 398 artefatos sao PNG, JPG, WASM ou o pacote de dados do GDAL
  * que POR COINCIDENCIA carregam o par de bytes 0D 0A no meio do conteudo comprimido.
  * Tratar esse par como fim de linha inventa um "hash normalizado" para um arquivo que
  * nao tem linha nenhuma, e o numero que sai dali nao identifica conteudo nem casa com

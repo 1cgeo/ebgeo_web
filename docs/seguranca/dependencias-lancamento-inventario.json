@@ -3850,16 +3850,17 @@
         "pastasCobertas": [
           "frontend/public/vendors"
         ],
-        "arquivos": 402,
-        "bytes": 65350136,
-        "textoEmCrlf": 160,
-        "textoEmLf": 33,
+        "arquivos": 398,
+        "bytes": 54666646,
+        "textoEmCrlf": 157,
+        "textoEmLf": 32,
         "binarios": 209,
         "notaDosNumeros": "Os cinco numeros arquivos, bytes, textoEmCrlf, textoEmLf e binarios sao GERADOS pelo --write a cada regravacao, nunca digitados; pastasCobertas e declaratorio e espelha a constante PASTAS_DE_VENDOR do script. Em 2026-09-13 o campo equivalente dizia 332 arquivos em CRLF, e aquele 332 contava tambem 166 binarios que carregam o par 0D 0A dentro de conteudo comprimido; aqui texto e binario estao separados justamente para que o numero nao possa voltar a significar duas coisas."
       },
       "deltaSobre2026_09_13": [
         "frontend/public/vendors/cesium/cesium-measure.js SAIU das pastas de vendor: ele virou codigo da casa em frontend/src/js/3d_models_viewer_tool/services/cesium-measure.js (decisao D9, item V2). Nao foi podado, foi adotado, e por isso nao aparece em nenhuma lista de poda.",
-        "frontend/src/vendor/three/ SAIU inteira das pastas cobertas: os cinco arquivos do snapshot 164dev foram apagados quando a biblioteca passou a vir do npm em versao exata (three 0.164.0), pelo ponto unico frontend/src/js/vendor/three.js (decisao D9, item V1). Os cinco eram TEXTO em CRLF, e e por isso que a parcela de binarios nao se moveu."
+        "frontend/src/vendor/three/ SAIU inteira das pastas cobertas: os cinco arquivos do snapshot 164dev foram apagados quando a biblioteca passou a vir do npm em versao exata (three 0.164.0), pelo ponto unico frontend/src/js/vendor/three.js (decisao D9, item V1). Os cinco eram TEXTO em CRLF, e e por isso que a parcela de binarios nao se moveu.",
+        "Quatro artefatos SEM CONSUMIDOR foram podados de frontend/public/vendors/ (decisao D9, item V6): os dois builds grandes do Cesium (cesium/index.js e cesium/index.cjs, 8,6 MB somados, que publicDir copiava verbatim para o dist/) e os dois builds auxiliares do GDAL (gdal/gdal3.dev.js e gdal/gdal3.node.js). Tres eram TEXTO em CRLF e um TEXTO em LF, e por isso a parcela de binarios continua parada em 209."
       ],
       "notaDoCampoSha256Lf": "Ao contrario do bloco de 2026-09-13, aqui sha256Lf e null em TODO arquivo binario, e isso e propriedade do instrumento e nao coincidencia: scripts/inventario-de-vendors.mjs classifica texto por UTF-8 valido sem byte NUL e so normaliza CRLF nos arquivos de texto. Um sha256Lf nao nulo num binario deste bloco significa que alguem mexeu no classificador.",
       "manifestoCompleto": {
@@ -6219,39 +6220,15 @@
             "f0bcf2196482d3ef2954d3fcefc6bf7e64f26d770e96d7ad93eb0ea551662925"
           ],
           [
-            "frontend/public/vendors/cesium/index.cjs",
-            4548070,
-            "17bdb422b66dc45ceff1f99b956b4d76e8039d9533e4bbae0c514c0bbdfef7a2",
-            "66465b800f3cc4fc1d6730a532c47d114258fb60c69c65ec7a00bb9f28ef2000"
-          ],
-          [
-            "frontend/public/vendors/cesium/index.js",
-            4495137,
-            "ce588a40922ec9e65c959bbc36e9095541c891eca24dbcc7f832769c73f3b632",
-            "78d91c848176a1e11a4ca80d1a78be295f28002a4b7e72404b784de594757c69"
-          ],
-          [
             "frontend/public/vendors/docsify.min.js",
             160921,
             "1e05fd18b0f5322ae52953498d4e5a35bfe713090d727c2c90d1b0e0f21f2eb7",
             "9123f808d3f6ad736b4a8f99944a611f87c5d4f9328030080a5c029ed5f450a5"
           ],
           [
-            "frontend/public/vendors/gdal/gdal3.dev.js",
-            1449646,
-            "f8044770de8bea7651623c9bdd86b5bf6c0ba24cfa388799748c76a6e5d5acc0",
-            "26d352ca8ce2e1a3152a5af5ae426ba59f07da43df9aeda2f97c2526364fd501"
-          ],
-          [
             "frontend/public/vendors/gdal/gdal3.js",
             191137,
             "304c0c73e2400476d44c5d9b22d8190faf3367c3069390ccad53d6f44905b81f",
-            null
-          ],
-          [
-            "frontend/public/vendors/gdal/gdal3.node.js",
-            190637,
-            "7bd82869ba5ce0625f2f74f665211e5f8fbaf4b4ac4b134de2642040d9a7be5a",
             null
           ],
           [

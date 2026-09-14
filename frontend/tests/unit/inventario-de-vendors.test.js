@@ -147,16 +147,18 @@ describe('inventario de vendors: o eixo de comparacao', () => {
         expect(binarios.every((m) => m.sha256Lf === null)).toBe(true);
     });
 
-    it('166 dos 402 sao binarios que CARREGAM o par 0D 0A por coincidencia', () => {
+    it('166 dos 398 sao binarios que CARREGAM o par 0D 0A por coincidencia', () => {
         // Este numero e a razao de o eixo existir: sem a classificacao, sao 166
         // divergencias fantasma. Se ele mudar, a poda ou a entrada de um vendor
         // mexeu na composicao da arvore, e a conferencia quer saber disso.
         //
-        // O DENOMINADOR MUDOU EM 2026-09-14 E O NUMERADOR NAO, e a leitura dos dois juntos e a
-        // prova de que a adocao do cesium-measure e a saida do snapshot do Three.js foram o que
-        // dizem ser: os seis arquivos que deixaram as pastas cobertas eram TEXTO em CRLF
-        // (166 -> 160), entao o conjunto dos binarios nao foi tocado. Fosse um binario junto,
-        // este numero cairia e a mudanca estaria alcancando mais do que anunciava.
+        // O DENOMINADOR CAIU DUAS VEZES EM 2026-09-14 E O NUMERADOR NAO SE MEXEU, e a leitura
+        // dos dois juntos e a prova de que a adocao e as podas foram o que dizem ser. A adocao do
+        // cesium-measure e a saida do snapshot do Three.js tiraram seis arquivos de TEXTO em CRLF
+        // (408 -> 402, e 166 -> 160 de texto em CRLF); a poda dos vendors sem consumidor tirou
+        // quatro (402 -> 398), tres de texto em CRLF e um de texto em LF. Nenhuma tocou num
+        // binario. Fosse um binario junto, este numero cairia, e a mudanca estaria alcancando
+        // mais do que anunciava.
         const comParCrLf = medicoes.filter((m) => m.binario && normalizarCrlf(readFileSync(join(RAIZ, m.path))) !== null);
         expect(comParCrLf).toHaveLength(166);
     });

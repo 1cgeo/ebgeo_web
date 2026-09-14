@@ -236,6 +236,17 @@ const ISENTOS = new Set([
     'frontend/src/vendor/three/three.min.js',
     'frontend/src/vendor/three/addons/controls/OrbitControls.js',
     'frontend/src/vendor/three/addons/controls/DragControls.js',
+    // Os DOIS do Cesium, apagados no mesmo dia pelo item V6, pelo mesmo motivo e com a mesma
+    // ressalva do bloco acima: a tabela de bytes daquele documento datado é exatamente o estado
+    // que se decidiu podar. Eles eram os pontos de entrada ESM e CommonJS do pacote npm, que um
+    // bundler consumiria e que um `<script>` nunca carrega; o app carrega `Cesium.js`.
+    //
+    // Os dois builds auxiliares do GDAL saíram junto e NÃO entram aqui, porque não precisam: a
+    // proposta os cita por nome solto (`gdal3.dev.js`), sem barra, e `RE_CAMINHO` só coleta token
+    // que tenha separador de caminho. Isenção sem beneficiário é como um guarda volta a abrir
+    // sozinho.
+    'frontend/public/vendors/cesium/index.cjs',
+    'frontend/public/vendors/cesium/index.js',
 ]);
 
 /**
