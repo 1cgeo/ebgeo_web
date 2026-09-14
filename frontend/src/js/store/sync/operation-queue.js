@@ -12,7 +12,7 @@ import {
     getActiveScope,
     UNMOUNTED_QUEUE_SCOPE
 } from '@store/atlas-namespace.js';
-import { appendJournal, materializeJournal, purgeJournalEntries, JournalKey } from './queue-journal.js';
+import { appendJournal, journalHeadKey, materializeJournal, purgeJournalEntries, JournalKey } from './queue-journal.js';
 import { captureRemoteWriteFence } from '../remote-write-fence.js';
 import { fenceStore } from '../fenced-store.js';
 import { legacyQueueIssue } from './legacy-queue.js';
@@ -129,15 +129,27 @@ class OperationQueue {
         await materializeJournal(store, operations, assertWritable);
     }
 
-    async getLatestPendingFeature(entityId) {
-        const { store } = this._context();
-        const key = await store.getItem(JournalKey.FEATURE_HEAD + entityId);
-        return key ? store.getItem(key) : null;
-    }
-
     async getLatestFeatureOperation(entityId) {
         const { store } = this._context();
         return store.getItem(JournalKey.FEATURE_LATEST + entityId);
+    }
+
+    /**
+     * A intenção PENDENTE mais nova de uma entidade QUALQUER, feição inclusive.
+     *
+     * É o que `persistOperationIntents` lê para encadear uma edição na anterior DO MESMO AUTOR
+     * quando o recibo da anterior ainda não voltou. Só a PENDENTE, nunca a já confirmada: carimbar
+     * `baseOperationId` sobre um recibo que o servidor não guarda mais devolve a op recusada por
+     * base não comprovada, e uma base declarada sozinha, ainda que velha, é melhor que isso.
+     *
+     * @param {string} entityType - Tipo de entidade do envelope.
+     * @param {string} entityId - Identidade da entidade.
+     * @returns {Promise<Object|null>} O envelope pendente mais novo, ou null.
+     */
+    async getLatestPendingEntity(entityType, entityId) {
+        const { store } = this._context();
+        const key = await store.getItem(journalHeadKey(entityType, entityId));
+        return key ? store.getItem(key) : null;
     }
 
     async recordIssue(operation, result) {
@@ -257,7 +269,7 @@ class OperationQueue {
             const opId = operationIdFromKey(key);
             if (opId === null || !wanted.has(opId)) continue;
             const operation = await store.getItem(key);
-            removals.push({ key, id: opId, entityId: operation?.entityId });
+            removals.push({ key, id: opId, entityId: operation?.entityId, entityType: operation?.entityType });
         }
         await purgeJournalEntries(store, removals, assertWritable);
         return removals.length;
@@ -405,7 +417,8 @@ class OperationQueue {
             removals.push({
                 key,
                 id: operation?.id ?? operationIdFromKey(key),
-                entityId: operation?.entityId
+                entityId: operation?.entityId,
+                entityType: operation?.entityType
             });
         }
         await purgeJournalEntries(store, removals, assertWritable);

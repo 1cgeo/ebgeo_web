@@ -335,3 +335,77 @@ describe('Dispatcher error handling', () => {
         operationQueue.enqueue = origEnqueue;
     });
 });
+
+// ============================================================================
+// Encadeamento de edicoes dependentes, para TODA entidade que declara base
+// ============================================================================
+
+/**
+ * O ENCADEAMENTO ERA SO DE FEICAO, e a declaracao de base ja era de todo mundo.
+ *
+ * Quem escreve duas vezes na mesma camada antes de o primeiro recibo voltar declara nas DUAS ops
+ * a base que a PRIMEIRA observou, porque quem move o `confirmedVersion` do documento local e o
+ * recibo. O servidor aplica a primeira, leva a fronteira da unidade adiante e recusa a segunda
+ * nomeando a unidade que a primeira acabou de mover: o autor perde para si mesmo. O remedio ja
+ * existia no servidor (`baseOperationId` -> `resolveObservedBase`), e o cliente nao o carimbava
+ * fora da feicao. O contrato do servidor esta medido em
+ * `tests/e2e/edicao-encadeada-por-entidade.e2e.test.js`; aqui fica o carimbo.
+ */
+describe('edicao dependente: `baseOperationId` para entidade que nao e feicao', () => {
+    const camada = 'b0f2a4d6-3c11-4d0a-9a6e-3f0f7c1d5e21';
+
+    /** Uma descricao de update de camada, com ou sem base confirmada no documento anterior. */
+    const edicao = (mudanca, base) => ({
+        entityType: EntityType.LAYER,
+        operationType: OperationType.UPDATE,
+        entityId: camada,
+        mapId: uuidMap,
+        data: { id: camada, name: 'Alfa', opacity: 1, ...mudanca },
+        previousData: { id: camada, name: 'Alfa', opacity: 1, ...(base === null ? {} : { confirmedVersion: base }) }
+    });
+
+    it('a segunda edicao aponta para a PRIMEIRA, que ainda esta pendente', async () => {
+        const scope = remoteScope(remoteAtlas);
+        activateScope(scope);
+        enableOperationLogging();
+        const fila = operationQueue.forScope(scope);
+        await fila.clear();
+
+        const materializar = await persistOperationIntents([edicao({ name: 'Beta' }, 3)], { scope });
+        await materializar?.();
+        const materializar2 = await persistOperationIntents([edicao({ opacity: 0.55 }, 3)], { scope });
+        await materializar2?.();
+
+        const enfileiradas = await fila.peek(10);
+        expect(enfileiradas).toHaveLength(2);
+        const [primeira, segunda] = enfileiradas;
+        // PISO: as duas declaram a MESMA base, que e o que faz desta a edicao dependente. Sem
+        // esta linha o caso passaria verde medindo duas edicoes independentes.
+        expect(primeira.baseVersion).toBe(3);
+        expect(segunda.baseVersion).toBe(3);
+        expect(primeira.baseOperationId).toBeUndefined();
+        expect(segunda.baseOperationId).toBe(primeira.id);
+        expect(segunda.dependsOn).toEqual([primeira.id]);
+    });
+
+    it('SEM base declarada nao ha encadeamento: a op continua sendo aplicada por chegada', async () => {
+        // O ESTREITAMENTO E DELIBERADO. Um `baseOperationId` sozinho TROCA o regime de chegada por
+        // uma recusa quando o recibo do antecessor nao for encontrado, entao so quem ja declara
+        // base e encadeado: a mudanca nao pode recusar o que hoje se aplica.
+        const scope = remoteScope(remoteAtlas);
+        activateScope(scope);
+        enableOperationLogging();
+        const fila = operationQueue.forScope(scope);
+        await fila.clear();
+
+        (await persistOperationIntents([edicao({ name: 'Beta' }, null)], { scope }))?.();
+        const materializar = await persistOperationIntents([edicao({ opacity: 0.55 }, null)], { scope });
+        await materializar?.();
+
+        const enfileiradas = await fila.peek(10);
+        expect(enfileiradas).toHaveLength(2);
+        expect(enfileiradas[0].baseVersion).toBeNull();
+        expect(enfileiradas[1].baseVersion).toBeNull();
+        expect(enfileiradas[1].baseOperationId).toBeUndefined();
+    });
+});

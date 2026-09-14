@@ -22,7 +22,34 @@ export const JournalKey = Object.freeze({
     FEATURE_HEAD: '__journal_feature_head__',
     /** `entityId -> {id, operationType, mapId}` of the newest operation, pending or confirmed. */
     FEATURE_LATEST: '__journal_feature_latest__',
+    /**
+     * `entityType:entityId -> envelope key` of the newest PENDING operation of a NON-feature
+     * entity. It exists for the same reason {@link JournalKey.FEATURE_HEAD} does, and it arrived
+     * late: `mutation-contract.js` passou a declarar base para TODA entidade com unidade de
+     * disputa, mas o encadeamento que torna legal a segunda edição feita antes do primeiro recibo
+     * continuou só de feição, então a segunda edição de uma camada perdia para a PRIMEIRA DO
+     * MESMO AUTOR.
+     *
+     * PREFIXO SEPARADO, e não a mesma chave com o tipo embutido, porque um diário já no disco
+     * carrega chaves de feição no formato antigo: reaproveitar o prefixo faria uma sessão
+     * interrompida perder o encadeamento das feições dela, que é a metade que já funcionava.
+     */
+    ENTITY_HEAD: '__journal_entity_head__',
 });
+
+/**
+ * A chave de cabeça de uma operação: por onde se pergunta "qual é a intenção pendente mais nova
+ * desta entidade".
+ *
+ * @param {string} entityType - Tipo de entidade do envelope.
+ * @param {string} entityId - Identidade da entidade.
+ * @returns {string} Chave de metadado do diário.
+ */
+export function journalHeadKey(entityType, entityId) {
+    return entityType === 'feature'
+        ? JournalKey.FEATURE_HEAD + entityId
+        : `${JournalKey.ENTITY_HEAD}${entityType}:${entityId}`;
+}
 
 const ID_PREFIX = JournalKey.ID;
 const tails = new WeakMap();
@@ -148,8 +175,8 @@ export async function appendJournal(store, operations, { prepared = false, asser
                 const key = nextKey(++sequence, operation.id);
                 await store.setItem(key, operation);
                 await store.setItem(identityKey, key);
+                await store.setItem(journalHeadKey(operation.entityType, operation.entityId), key);
                 if (operation.entityType === 'feature') {
-                    await store.setItem(JournalKey.FEATURE_HEAD + operation.entityId, key);
                     await store.setItem(JournalKey.FEATURE_LATEST + operation.entityId, { id: operation.id, operationType: operation.operationType, mapId: operation.mapId });
                 }
                 if (prepared) await store.setItem(JournalKey.STATE + operation.id, 'prepared');
@@ -240,8 +267,8 @@ export async function appendJournal(store, operations, { prepared = false, asser
                                 const key = nextKey(++sequence, operation.id);
                                 rows.put(operation, key);
                                 rows.put(key, identityKey);
+                                rows.put(key, journalHeadKey(operation.entityType, operation.entityId));
                                 if (operation.entityType === 'feature') {
-                                    rows.put(key, JournalKey.FEATURE_HEAD + operation.entityId);
                                     rows.put({ id: operation.id, operationType: operation.operationType, mapId: operation.mapId }, JournalKey.FEATURE_LATEST + operation.entityId);
                                 }
                                 if (prepared) rows.put('prepared', JournalKey.STATE + operation.id);
@@ -264,9 +291,11 @@ export async function appendJournal(store, operations, { prepared = false, asser
  *
  * WHAT IT REMOVES, AND THE ONE THING IT KEEPS. The envelope, its identity
  * ({@link JournalKey.ID}), its prepared mark ({@link JournalKey.STATE}) and its issue record
- * ({@link JournalKey.ISSUE}) all go; {@link JournalKey.FEATURE_HEAD} goes ONLY while it still
- * points at this envelope, because the head is the newest PENDING operation of that feature and a
- * later one may already own it. {@link JournalKey.FEATURE_LATEST} STAYS: it is what
+ * ({@link JournalKey.ISSUE}) all go; the head ({@link journalHeadKey}, which is
+ * {@link JournalKey.FEATURE_HEAD} for a feature and {@link JournalKey.ENTITY_HEAD} for every other
+ * entity) goes ONLY while it still points at this envelope, because the head is the newest PENDING
+ * operation of that entity and a later one may already own it. {@link JournalKey.FEATURE_LATEST}
+ * STAYS: it is what
  * `persistOperationIntents` reads to chain the next edit of a feature onto a base the server has
  * already confirmed, so dropping it with the operation would make the first edit after an ack
  * lose its base. The sequence is never touched: it is what keeps keys monotonic across a reload.
@@ -284,7 +313,8 @@ export async function appendJournal(store, operations, { prepared = false, asser
  * acked, and refusing to forget an applied operation would re-send it every 1.5 s forever.
  *
  * @param {object} store - The queue store of one scope.
- * @param {Array<{key: string, id: string, entityId?: string}>} removals - Envelopes to drop.
+ * @param {Array<{key: string, id: string, entityId?: string, entityType?: string}>} removals -
+ *   Envelopes to drop.
  * @param {Function} [assertWritable] - Discard fence of the scope.
  * @returns {Promise<void>}
  */
@@ -298,7 +328,7 @@ export async function purgeJournalEntries(store, removals, assertWritable = () =
         useTransaction = store.driver() === 'asyncStorage';
     }
     if (!useTransaction) {
-        for (const { key, id, entityId } of removals) {
+        for (const { key, id, entityId, entityType } of removals) {
             assertWritable();
             await store.removeItem(key);
             if (typeof id === 'string') {
@@ -306,9 +336,9 @@ export async function purgeJournalEntries(store, removals, assertWritable = () =
                 await store.removeItem(JournalKey.STATE + id);
                 await store.removeItem(JournalKey.ISSUE + id);
             }
-            if (entityId !== undefined && await store.getItem(JournalKey.FEATURE_HEAD + entityId) === key) {
-                await store.removeItem(JournalKey.FEATURE_HEAD + entityId);
-            }
+            if (entityId === undefined || entityType === undefined) continue;
+            const head = journalHeadKey(entityType, entityId);
+            if (await store.getItem(head) === key) await store.removeItem(head);
         }
         return;
     }
@@ -344,19 +374,20 @@ export async function purgeJournalEntries(store, removals, assertWritable = () =
                 };
                 transaction.onerror = () => {};
                 const rows = transaction.objectStore(store.config('storeName'));
-                for (const { key, id, entityId } of removals) {
+                for (const { key, id, entityId, entityType } of removals) {
                     rows.delete(key);
                     if (typeof id === 'string') {
                         rows.delete(JournalKey.ID + id);
                         rows.delete(JournalKey.STATE + id);
                         rows.delete(JournalKey.ISSUE + id);
                     }
-                    if (entityId === undefined) continue;
-                    const head = rows.get(JournalKey.FEATURE_HEAD + entityId);
+                    if (entityId === undefined || entityType === undefined) continue;
+                    const headKey = journalHeadKey(entityType, entityId);
+                    const head = rows.get(headKey);
                     head.onsuccess = () => {
                         try {
                             assertWritable();
-                            if (head.result === key) rows.delete(JournalKey.FEATURE_HEAD + entityId);
+                            if (head.result === key) rows.delete(headKey);
                         } catch (error) { failure = error; transaction.abort(); }
                     };
                 }

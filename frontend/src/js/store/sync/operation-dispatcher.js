@@ -129,16 +129,39 @@ export async function persistOperationIntents(descriptions, { scope, traceId } =
     }
     const created = createBatchOperations(safe).map(op => ({ ...op, traceId }));
     const queue = scope ? operationQueue.forScope(scope) : operationQueue;
+    // O ENCADEAMENTO VALE PARA TODA ENTIDADE QUE DECLARA BASE, e não só para a feição.
+    //
+    // Uma edição escrita antes de o recibo da anterior voltar declara a base que a ANTERIOR
+    // observou, porque quem move o `confirmedVersion` do documento local é o recibo
+    // (`confirmEntityVersion`). Enquanto isto era só de feição, a segunda edição de uma camada
+    // perdia para a PRIMEIRA DO MESMO AUTOR: o servidor aplicava a primeira, levava a fronteira da
+    // unidade adiante e recusava a segunda nomeando a unidade que a primeira acabara de mover. Não
+    // havia colaborador nenhum na história. Medido em `tests/e2e/edicao-encadeada-por-entidade`,
+    // que mostra o desfecho com e sem esta linha, e visto em duas browsers no par renomear/opacidade
+    // de `browser-default-layer.spec.js`.
+    //
+    // O remédio já estava no servidor: `resolveObservedBase` (`entity-conflicts.js`) lê o recibo do
+    // antecessor e adota a revisão que ELE commitou, e o cabeçalho dela diz por extenso que a
+    // edição dependente "é comportamento de CLIENTE, não de feição, então toda entidade precisa da
+    // mesma resolução". Faltava o carimbo.
+    //
+    // SÓ QUEM JÁ DECLARA BASE é encadeado, e o `??` importa: sem base declarada a op é aplicada por
+    // ordem de chegada, e um `baseOperationId` sozinho TROCA esse regime por uma recusa quando o
+    // recibo do antecessor não for encontrado. Estreitar aqui mantém a mudança incapaz de recusar o
+    // que hoje se aplica.
     const predecessors = new Map();
     for (const op of created) {
-        if (op.entityType !== EntityType.FEATURE) continue;
-        const predecessor = predecessors.get(op.entityId) ?? await queue.getLatestPendingFeature(op.entityId)
-            ?? (op.featureIntent ? await queue.getLatestFeatureOperation(op.entityId) : null);
-        if (predecessor && (op.operationType !== OperationType.CREATE || op.featureIntent)) {
+        const feature = op.entityType === EntityType.FEATURE;
+        if (!feature && (op.baseVersion ?? null) === null) continue;
+        const chave = `${op.entityType}:${op.entityId}`;
+        const predecessor = predecessors.get(chave)
+            ?? await queue.getLatestPendingEntity(op.entityType, op.entityId)
+            ?? (feature && op.featureIntent ? await queue.getLatestFeatureOperation(op.entityId) : null);
+        if (predecessor && (op.operationType !== OperationType.CREATE || (feature && op.featureIntent))) {
             op.baseOperationId = predecessor.id;
             op.dependsOn = [predecessor.id];
         }
-        predecessors.set(op.entityId, op);
+        predecessors.set(chave, op);
     }
     await queue.enqueueAll(created, { prepared: true });
     for (const op of created) {
