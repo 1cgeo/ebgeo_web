@@ -279,12 +279,90 @@ Preso por `backend/tests/integration/atlas-transfer-ownership.test.js` (10 casos
 e "nenhum candidato fica sem posse e sem share" asseridos à parte) e
 `backend/tests/integration/atlas-transfer-admin-actor.test.js` (5 casos).
 
+### P22. `denialNotice` podia devolver um membro de `Object.prototype` (CORRIGIDO)
+
+A tabela era lida com `??`, e a diferença só aparece na chave HERDADA: `CAPABILITY_DENIAL['toString']` é uma
+função, que não é nula e passa direto. O toast mostraria `function toString() { [native code] }` no lugar de
+uma frase. **Inalcançável pelo caminho vivo** (a chave vem de `checkPermission().required`, tabela interna
+congelada), e entrou assim mesmo porque o conserto é de uma linha e esta casa já pagou a mesma forma uma vez,
+na tabela de avisos de chegada indexada pela URL, onde ela ERA alcançável. Preso por
+`frontend/tests/unit/denial-phrases.test.js`, com o caso afirmando o TIPO antes do valor.
+
+### P23. o servidor oferecia uma transferência de grupo que não existe (CORRIGIDO)
+
+**É o único caso desta revisão em que o código CONTRADIZ a constituição.** A cláusula 4.7 declara por extenso
+que a recusa ao dono que tenta sair do próprio grupo "nomeia a saída que EXISTE, apagar o grupo, e só ela", e
+explica por quê: não há rota de transferência de grupo (nenhuma rota do módulo toca `owner_id`, e
+`updateGroupSchema` aceita só nome e descrição). O cliente já tinha sido corrigido; o servidor não, e é a
+frase dele que um integrador lê. O `fileoverview` da função do cliente ainda afirmava "nomeia os DOIS
+caminhos que ele nomeia", contradizendo o próprio corpo logo abaixo.
+
+**E o teste prendia a frase falsa**, casando `/apague o grupo, ou transfira a posse/i`: ele teria reprovado o
+conserto. Agora afirma a saída que existe e nega o radical inteiro. Preso por
+`backend/tests/integration/sair-do-grupo.test.js`.
+
+### P24. a cláusula 5.5 diz POSSE e o teste citado media GESTÃO (CORRIGIDO)
+
+A 5.5 afirma que o administrador global tem **posse** em todo atlas e cita `sharing-gaps.test.js`. O caso que
+estava lá dirigia `GET /sharing` e `POST /sharing/users`, as duas gateadas em `manage`: o verde era
+compatível com um administrador que resolvesse apenas como co-Gestor. O caso novo dirige
+`DELETE /atlas/:atlasId`, uma das duas rotas de `owner`, com um co-Gestor nominal tomando 403 na mesma rota
+como par negativo e um piso que assere a ausência de share.
+
+**O controle negativo precisou de três tentativas, e as duas primeiras são a lição.** Rebaixar o
+`req.atlasPermission` do atalho de `owner` para `manage` deixou os 16 casos verdes, porque o atalho faz
+`return next()` incondicional e a comparação de nível nunca roda para um administrador; remover o atalho
+inteiro reprovou os dois casos juntos, o que prova dependência e não acréscimo. O que discrimina é o
+estreitamento realista (`&& requiredLevel !== 'owner'`): o caso antigo fica verde e só o novo reprova.
+
+### P25. a revogação do link público não era medida sobre o token já emitido (CORRIGIDO)
+
+"O link é revogável" é a terceira afirmação da 5.4, e o arquivo citado não tinha caso de revogação nenhum; o
+que existia, noutro arquivo e sem citação, era a rotação do link ao republicar, que mede o endereço e não a
+credencial já entregue. O token vale uma hora e mora só na memória do visitante, então entre a revogação e o
+vencimento nada do lado do cliente o alcança. O mecanismo que fecha a janela é indireto (nada revoga o JWT;
+`resolvePermission` é que perde o ramo `isPublic`), e por isso precisa de caso e não de leitura. Preso por
+`backend/tests/integration/public-token-atlas-scope.repro.test.js`, com o piso, as outras portas do mesmo
+atlas, e um controle negativo em que apenas este caso reprova.
+
+## Cláusula a cláusula
+
+As 80 citações de teste resolvem, e isso é mecânico (`frontend/tests/unit/docs-integridade.test.js`). O que
+nenhum guarda verifica é se o teste citado **prova** o que a cláusula afirma, e foi isso que esta revisão
+mediu nas seções 1, 4, 5, 7 e na 8.5.
+
+**Provadas, sem ressalva:** 1.3 (nas três afirmações), 1.4, 4.1, 4.3, 4.5, 4.6, 5.1, 5.2, 5.3 (nas três
+partes e nas duas salvaguardas), 5.6, 5.8, 7.1, 7.2.1, 7.3, 7.5, 8.5 (bullets 2 e 3, mais o adendo do
+rebaixamento). 5.7 é provada dos dois lados, com a ressalva de que a metade do BOTÃO ("quem alcança `manage`
+vê Compartilhar, quem não alcança vê Participantes, e as duas nunca aparecem juntas") vive em
+`frontend/tests/unit/aba-mapas-acoes-por-estado.test.js`, que a cláusula não cita.
+
+**Fechadas nesta revisão:** 4.7 (contradição, P23), 5.5 (P24), 5.4 (P25).
+
+**Continuam com prova parcial, e ficam declaradas aqui em vez de silenciosas:**
+
+| cláusula | o que não é provado |
+|---|---|
+| 1.1 | o predicado do inventário do censo global exige um literal `'admin'` na linha, então a forma que o próprio cabeçalho nomeia como o perigo (`if (role !== 'user')`) não entraria na varredura. Hoje ela não existe em lugar nenhum (P18), mas o guarda não é quem garante isso |
+| 1.2 | "deslogado não é papel, é modo" segue sem prova: o teste citado assere o domínio do CHECK da coluna, e nada impediria alguém de representar o deslogado por um pseudo-papel fora dela. A própria cláusula já admitia isto |
+| 1.2 (adendo) | que a chave de API resolva carregando o papel global **admin**, e que o corte de sessão em massa não a alcance, não são asseridos; o teste citado mede só a precedência |
+| 1.3 | o controle negativo de "só o administrador promove" usa apenas o `user` comum; nenhum caso tenta um `producer` ou um `credenciado` promovendo alguém |
+| 4.2 | o curinga do administrador é exercido em três das cinco rotas; as duas de MEMBRESIA, que são justamente o "adiciona e remove pessoas" da cláusula, nunca são chamadas como administrador |
+| 4.4 | "o administrador vê todos" não é asserido: nenhum caso chama `GET /access-groups` com token de administrador (é verdade no SQL, pelo segundo ramo de `fn_can_administer_group`) |
+| 7.2 | a porta do MAPA ("o store local É o atlas que sobe, e o wipe posterior é a troca de atlas") não é medida por nenhum dos três arquivos citados; o comportamento existe e é coberto por arquivos não citados |
+| 7.4 | `duplicateLocalAtlas`, a metade que dá identidade própria à cópia no registro (sem a qual a lista mostra dois cartões iguais), não tem caso próprio |
+| 8.5 (bullet 1) | a DESATIVAÇÃO como gatilho nunca é medida na superfície de empréstimo: o arquivo que mede empréstimo não contém uma única ocorrência de `is_active`, e os gatilhos que ele mede são revogação e transferência |
+| 5.8 | a recusa ao dono nomeia "transferir a posse ou mandar à lixeira", e o teste cobra só a primeira metade |
+
+Nenhuma dessas é uma afirmação falsa sobre o código: são lugares onde o verde prova menos do que a cláusula
+diz. Deixá-las escritas é o que impede a próxima revisão de ler o verde como cobertura completa.
+
 ## Estado das cláusulas
 
-Nenhuma cláusula mudou de estado nesta revisão: os defeitos corrigidos (P1..P4) estavam todos **abaixo** do
-que a constituição declara, isto é, o texto já mandava o que o código passou a fazer. As 80 citações de
-teste resolvem, e a integridade disso é mecânica (`frontend/tests/unit/docs-integridade.test.js`).
-`frontend/tests/unit/constituicao-estado-das-clausulas.test.js` continua verde com a mesma lista de
+**Nenhuma cláusula mudou de estado.** Os defeitos corrigidos em P1..P4 estavam todos **abaixo** do que a
+constituição declara, isto é, o texto já mandava o que o código passou a fazer; P23 é o inverso (o código
+afirmava algo que o texto declara falso) e também se resolveu mudando o código, como a regra do documento
+manda. `frontend/tests/unit/constituicao-estado-das-clausulas.test.js` continua verde com a mesma lista de
 não-vigentes.
 
 ## O que esta revisão NÃO alcançou
@@ -292,6 +370,10 @@ não-vigentes.
 - **A superfície do 360 e do catálogo** só foi tocada pelo inventário de rotas; o eixo de RECURSO (concessão,
   empréstimo, poda) não foi reauditado, porque tem página e censos próprios.
 - **Playwright não foi executado.** A revisão é de lógica e de contrato; nenhuma afirmação aqui é sobre pixel.
+- **As dez linhas de prova parcial da tabela acima** não foram fechadas: elas são coverage, não defeito, e
+  fechá-las todas era mais trabalho do que a revisão de lançamento comportava. A de maior valor é a 8.5
+  bullet 1 (desativar uma conta e afirmar que os atlas dela deixam de emprestar), porque é a única em que o
+  gatilho declarado nunca é exercido na superfície que ele deveria alcançar.
 - **O alcance do administrador é provado rota a rota, não universalmente** (a própria cláusula 2.7 declara
   isso): uma superfície de configuração NOVA que não desse caminho ao administrador não deixaria nada
   vermelho.
