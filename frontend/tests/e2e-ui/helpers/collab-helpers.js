@@ -246,6 +246,18 @@ export async function openClient(browser, baseUrl, atlasId, creds, { expectMapNa
     return page;
 }
 
+/**
+ * A chave do registro de controles a partir do `data-tool-id` da barra.
+ *
+ * ELA JÁ FOI ESCRITA À MÃO EM DOIS PONTOS DESTE ARQUIVO, e a confusão entre os dois vocabulários
+ * (`point` na barra, `AddPointControl` no registro) já custou uma espera que não podia passar e
+ * queimava cinco segundos calada em todo desenho da suíte. Um nome só, num lugar só.
+ * @param {string} toolId - Id da ferramenta na barra.
+ * @returns {string} Nome da classe do controle, como o registro a guarda.
+ */
+export const controlKeyOf = (toolId) =>
+    `Add${toolId.charAt(0).toUpperCase()}${toolId.slice(1)}Control`;
+
 /** Reads the current map's features (per storage type) from the app store. */
 export function readFeatures(page, type) {
     return page.evaluate(async (t) => {
@@ -436,27 +448,34 @@ async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
             erro.message += `
   [console durante o clique] ${avisosDoConsole.join(' | ')}`;
         }
-        throw erro;
-    } finally {
         page.off('console', ouvirConsole);
+        throw erro;
     }
+    // O OUVINTE DE CONSOLE SEGUE ATE O FIM DO DESENHO, e nao so ate o botao acender: a
+    // mensagem que explica um desenho que nao virou feicao (o `Error creating line:` escrito
+    // pelo `catch` do proprio controle) sai DEPOIS do clique. Ele e retirado nos dois
+    // desfechos, abaixo.
 
-    // THE BUTTON FLIPPING IS NOT THE TOOL BEING READY. `data-active` is set on click, while the
-    // control's `activate()` — which wires the map 'click' handler — runs after; in a
-    // back-to-back draw loop the first vertex clicks can land before the handler exists, so only
-    // some register and the draw never finishes.
+    // O SINAL É `control.isActive`, QUE É O PREDICADO QUE ROTEIA O CLIQUE, e não o atributo do
+    // botão nem o tipo publicado pelo gerente.
     //
-    // THE WAIT THAT USED TO BE HERE COULD NEVER PASS. It asked `getControl(toolId)?.isActive`,
-    // but the registry is keyed by CONTROL CLASS NAME (`AddPointControl`), never by the
-    // toolbar's `data-tool-id` (`point`) — so the lookup always returned null, the predicate was
-    // always false, the 5s timeout always expired, and `.catch(() => {})` swallowed it. Every UI
-    // draw in this suite silently burned five seconds on a check that could not pass, and the
-    // only real protection was the 150 ms sleep that followed — which is why the draws flaked
-    // under full-suite load and passed in isolation.
+    // A ORDEM MEDIDA EM 2026-09-13 DESMENTE O QUE ESTAVA ESCRITO AQUI. A versão anterior dizia
+    // que "`data-active` é posto no clique, enquanto o `activate()` do controle roda depois", e
+    // isso está ao contrário: quem escreve `data-active` é um assinante de `activeTool.type`
+    // (`_updateActiveToolState`, `toolbar/components/toolbar-group.js`), e `setActiveTool`
+    // (`tool_manager/tool_manager.js`) só publica esse estado DEPOIS de `tool.activate()`
+    // retornar. Logo o atributo e o tipo publicado são o MESMO sinal, e os dois chegam TARDE
+    // demais para a corrida que o comentário descrevia. Nenhum `activate()` de ferramenta de
+    // desenho pendura `map.on('click')`: o roteamento é um ouvinte único instalado no boot
+    // (`selection_manager.js`), que escolhe a ferramenta por `control.isActive`, e `isActive =
+    // true` é a PRIMEIRA linha de `activate()`. Ou seja, a janela "botão aceso, clique morto"
+    // não existe, e a janela que existe é a oposta: `isActive` acende antes de tudo o mais.
     //
-    // The signal used now is the one the tool manager itself publishes AFTER `activate()`
-    // returns (`_syncToStateManager`, `tool_manager/tool_manager.js`), and it is NOT swallowed:
-    // a tool that never reports active is a real failure and says so.
+    // Esperar pelos dois é o que resta de honesto: o tipo publicado prova que `activate()`
+    // RETORNOU (não ficou preso no `await import()` da ferramenta preguiçosa), e o `isActive` da
+    // INSTÂNCIA prova que o roteador do clique vai encontrá-la. Só o segundo é o predicado real,
+    // e ele é reconferido antes de cada clique, mais abaixo, porque quem o apaga no meio do
+    // desenho (`switchMap`, `MAP_LOCK_CHANGED`) não avisa ninguém.
     await page.waitForFunction(async (id) => {
         const s = await import('/src/js/store/index.js');
         const active = s.getStateManager?.()?.getActiveTool?.();
@@ -466,6 +485,10 @@ async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
         const norm = (v) => String(v).toLowerCase().replace(/[^a-z0-9]/g, '');
         return norm(active) === norm(id);
     }, toolId, { timeout: 15000 });
+    await page.waitForFunction(async (key) => {
+        const s = await import('/src/js/store/index.js');
+        return s.getControl?.(key)?.isActive === true;
+    }, controlKeyOf(toolId), { timeout: 15000 });
 
     // O MAPA PRECISA ESTAR ASSENTADO ANTES DE SER DIRIGIDO, e "o tool está ativo" não diz isso.
     //
@@ -519,6 +542,42 @@ async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
     /** Pontos de clique que tinham outro elemento por cima, para o diagnóstico da falha. */
     const cobertos = [];
 
+    // A RECUSA DA STORE É MUDA PARA QUEM OLHA A FEIÇÃO, e ela produz a MESMA assinatura de um
+    // desenho que nunca armou.
+    //
+    // MEDIDO ao ler o caminho de `createFeature` dos três controles: o `deactivateCurrentTool()`
+    // roda DEPOIS do `await addFeature(...)` e não pergunta o desfecho dele, e `addFeature`
+    // devolve `undefined` (sem lançar) quando o gate recusa, emitindo `STORE_OPERATION_BLOCKED`.
+    // Então "o posto recusou", "o mapa está travado" e "a intenção não pôde ser registrada"
+    // chegam aqui exatamente como `isActive:false, drawPoints:0, toolAtivo:null` — que é também o
+    // que um desenho BEM-SUCEDIDO deixa. Sem esta escuta o relatório manda procurar a ferramenta,
+    // que é o único lugar onde a causa não está.
+    //
+    // O ouvinte é instalado UMA VEZ por página e só o balde é zerado a cada desenho: o barramento
+    // desta página vive enquanto o teste viver, e registrar um ouvinte por desenho vazaria um por
+    // feição numa varredura de vinte tipos.
+    await page.evaluate(async () => {
+        globalThis.__ebgeoRecusasDeDesenho = [];
+        if (globalThis.__ebgeoOuveRecusaDeDesenho) return;
+        const s = await import('/src/js/store/index.js');
+        const bus = s.getEventBus?.();
+        if (!bus) return;
+        globalThis.__ebgeoOuveRecusaDeDesenho = true;
+        for (const evento of Object.values(s.StoreErrorEvents)) {
+            bus.on(evento, (payload) => {
+                const motivo = payload?.reason ?? payload?.error?.message ?? payload?.mapName ?? '';
+                globalThis.__ebgeoRecusasDeDesenho?.push(
+                    `${evento} (${payload?.operation ?? '?'}) ${motivo}`.slice(0, 200));
+            });
+        }
+    }).catch(() => { /* página sem store: o diagnóstico degrada, o desenho não */ });
+
+    // O MAPA CORRENTE NO INÍCIO DO DESENHO. `readFeatures` lê `getCurrentMapFeatures()`, então uma
+    // troca de mapa no meio (o `switchMap` que recarrega o estilo, um deep-link, um par abrindo
+    // outro mapa) torna INVISÍVEL uma feição que foi gravada com sucesso. Sem este par de leituras
+    // o relatório não distingue "não gravou" de "gravou noutro mapa".
+    const mapaAntes = await currentMapName(page).catch(() => null);
+
     /**
      * Clica num lng/lat, anotando se havia outro elemento por cima do ponto.
      *
@@ -526,11 +585,27 @@ async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
      * mora em `clicarNoMapaUI`, no topo deste arquivo, com os motivos medidos de cada metade. O
      * que sobra aqui é só a ANOTAÇÃO: a cobertura entra no diagnóstico da falha lá embaixo, onde
      * responde a pergunta certa ("o clique chegou ao canvas?") sem inventar um veredito.
+     * E ELE RECONFERE O SINAL DE ROTEAMENTO ANTES DE CADA CLIQUE, que é `control.isActive` e não o
+     * atributo do botão: quem apaga a ferramenta no meio de um desenho não avisa ninguém
+     * (`BaseLayerControl.switchMap` chama `deactivateCurrentTool` ao recarregar o estilo, e
+     * `MAP_LOCK_CHANGED` chama o mesmo pela barra). Sem esta linha o clique cai no roteador de
+     * SELEÇÃO, não deixa vértice nenhum, e o vermelho aparece vinte segundos depois, num
+     * `expect.poll` que só sabe dizer que nada apareceu.
      * @param {[number, number]} lngLat
      * @param {{button?: 'left'|'right'}} [opcoes]
      * @returns {Promise<void>}
      */
     const clicarNoMapa = async (lngLat, opcoes) => {
+        const armada = await page.evaluate(async (key) => {
+            const s = await import('/src/js/store/index.js');
+            return s.getControl?.(key)?.isActive === true;
+        }, controlKeyOf(toolId)).catch(() => null);
+        if (armada === false) {
+            throw new Error(`drawViaToolUI: a ferramenta "${toolId}" foi DESATIVADA antes do clique em `
+                + `[${lngLat}] (o roteador do clique escolhe por control.isActive, e ele esta falso); `
+                + 'suspeitos: recarga de estilo por switchMap, trava de mapa, ou um desenho anterior '
+                + 'ainda finalizando');
+        }
         const p = await clicarNoMapaUI(page, lngLat, opcoes);
         if (p.coberto) cobertos.push(`[${lngLat}] <- ${p.porQuem}`);
     };
@@ -553,7 +628,7 @@ async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
         // únicos `multi` da suíte e ambos o expõem; a chave do registro é o nome da classe
         // (`AddLineControl`), nunca o id da barra (`line`), que é a confusão que já custou uma
         // espera impossível neste mesmo arquivo.
-        const controlKey = `Add${toolId.charAt(0).toUpperCase()}${toolId.slice(1)}Control`;
+        const controlKey = controlKeyOf(toolId);
         for (let i = 0; i < coords.length - 1; i++) {
             await clicarNoMapa(coords[i]);
             await page.waitForFunction(async ({ key, n }) => {
@@ -610,16 +685,35 @@ async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
                 zoom: map?.getZoom?.() ?? null,
                 projecao: map?.getProjection?.()?.type ?? null,
                 estiloCarregado: map?.isStyleLoaded?.() ?? null,
+                mapaAgora: s.getCurrentMapNameSync?.() ?? null,
+                recusas: globalThis.__ebgeoRecusasDeDesenho ?? null,
             };
-        }, { key: `Add${toolId.charAt(0).toUpperCase()}${toolId.slice(1)}Control` }).catch(() => null);
+        }, { key: controlKeyOf(toolId) }).catch(() => null);
         erro.message += `\n  [diagnóstico do tool] ${JSON.stringify(diag)}`;
-        // `isActive: true` com `drawPoints` abaixo do mínimo do tipo é a assinatura de um clique
-        // que não chegou ao canvas; a lista abaixo diz QUAL elemento estava por cima de cada ponto.
+        // AS QUATRO CAUSAS, NOMEADAS, em vez de um `null` que manda investigar por hipótese. As
+        // duas primeiras já estavam; as duas últimas são as que faltavam, e são justamente as que
+        // produzem a assinatura mais enganosa (`isActive:false, drawPoints:0, toolAtivo:null`, que
+        // é também a de um desenho que deu certo).
         if (cobertos.length > 0) {
+            // `isActive: true` com `drawPoints` abaixo do mínimo do tipo é a assinatura de um
+            // clique que não chegou ao canvas; a lista diz QUAL elemento estava por cima.
             erro.message += `\n  [pontos cobertos por outro elemento] ${cobertos.join(' | ')}`;
         }
+        if (diag?.recusas?.length > 0) {
+            erro.message += '\n  [a STORE recusou, e o desenho seguiu como se tivesse gravado] '
+                + diag.recusas.join(' | ');
+        }
+        if (diag && diag.mapaAgora !== mapaAntes) {
+            erro.message += `\n  [o mapa corrente MUDOU durante o desenho: "${mapaAntes}" -> `
+                + `"${diag.mapaAgora}"; a feição pode ter sido gravada e estar fora da leitura]`;
+        }
+        if (avisosDoConsole.length > 0) {
+            erro.message += `\n  [console durante o desenho] ${avisosDoConsole.join(' | ')}`;
+        }
+        page.off('console', ouvirConsole);
         throw erro;
     }
+    page.off('console', ouvirConsole);
     return id;
 }
 
