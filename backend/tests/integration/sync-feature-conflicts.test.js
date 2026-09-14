@@ -120,11 +120,17 @@ describe('Feature field conflicts with durable server revisions', () => {
     } finally { await db.query('UPDATE maps SET locked=false WHERE id=$1', [map.id]); }
   });
 
+  // O `cleanupOldOperations` NO MEIO DESTE CASO SAIU EM 14/09/2026, com a decisao D10
+  // (`docs/decisions/decisions-2026.md`). Ele estava ali para provar que o recibo de exclusao
+  // sobrevivia ao expurgo do log; desde que a poda alcanca `sync_receipts` na mesma fronteira,
+  // ele deixou de sobreviver, e a restauracao explicita passa a ser recusada por base nao
+  // confirmada. O comportamento que este caso descreve continua valendo inteiro (e o que se mede
+  // agora, sem o corte no meio); o efeito do corte ganhou bloco proprio logo abaixo, porque
+  // misturar os dois faria um caso medir duas coisas e provar nenhuma.
   it('restores explicitly from a durable deletion receipt, but not from a stale tombstone', async () => {
     const { id, op, version } = await create();
     const deletion = operation(id, 'delete', { baseVersion: version });
-    const deleted = await push(deletion);
-    await cleanupOldOperations(atlas.id, { keepFromVersion: deleted.serverVersion + 1 });
+    await push(deletion);
     const restore = { ...op, id: randomUUID(), featureIntent: 'restore', baseOperationId: deletion.id };
     const restored = await push(restore);
     assert.equal(restored.results[0].status, 'applied');
@@ -139,5 +145,25 @@ describe('Feature field conflicts with durable server revisions', () => {
     assert.equal(retry.results[0].idempotent, true);
     assert.equal(retry.events.length, 0);
     assert.ok((await row(id)).deleted_at);
+  });
+
+  it('after the deletion receipt is pruned by cleanup, the explicit restore is refused, not applied', async () => {
+    // O CUSTO DECLARADO DA DECISAO D10, medido aqui porque e nesta rotina que ele aparece: a
+    // restauracao explicita prova a intencao por `baseOperationId`, e `resolveObservedBase`
+    // resolve esse campo LENDO O RECIBO da exclusao. Purgado o recibo, a prova some e a
+    // restauracao e RECUSADA — que e o desfecho conservador, e nao o perigoso: o tumulo fica de
+    // pe. Sem este bloco, a remocao do corte no caso acima pareceria arrumacao e a consequencia
+    // ficaria sem guarda nenhuma.
+    const { id, op, version } = await create();
+    const deletion = operation(id, 'delete', { baseVersion: version });
+    const deleted = await push(deletion);
+
+    await cleanupOldOperations(atlas.id, { keepFromVersion: deleted.serverVersion + 1 });
+
+    const restore = { ...op, id: randomUUID(), featureIntent: 'restore', baseOperationId: deletion.id };
+    const refused = await push(restore);
+    assert.equal(refused.results[0].status, 'conflict',
+      `sem o recibo da exclusao a restauracao precisa recusar: ${JSON.stringify(refused.results[0])}`);
+    assert.ok((await row(id)).deleted_at, 'e o tumulo continua de pe');
   });
 });

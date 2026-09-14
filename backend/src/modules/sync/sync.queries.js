@@ -356,6 +356,29 @@ export const GET_OLDEST_OPERATION_VERSION = `
   WHERE atlas_id = $1
 `;
 
+// O RECIBO SAI COM A OPERACAO QUE ELE ACKOU, e a fronteira e a MESMA: nunca um prazo proprio.
+// Ver o cabecalho de `cleanupOldOperations` para o que essa igualdade compra e o que ela custa.
+//
+// `server_version IS NOT NULL` NAO E HIGIENE, e o recorte inteiro. O recibo de uma RECUSA nasce
+// com versao nula (`saveReceipt` recebe `server_version: null` no caminho de `recusarOperacao`) e
+// nao tem linha em `operations` nenhuma: ele e o UNICO registro daquele desfecho, e nao carrega
+// versao com que se comparar contra a fronteira. Um `server_version < $2` sozinho nao o alcanca
+// em SQL (NULL nao e menor que nada), e escrever `IS NULL OR` aqui apagaria justamente o recibo
+// que nada mais substitui. Fica, e a consequencia declarada e que a recusa nao e podada por este
+// caminho.
+//
+// Sem indice proprio: a chave primaria e `(atlas_id, op_id)`, entao o atlas ja recorta a varredura
+// e o filtro por versao cai sobre as linhas daquele atlas. Migracao nova so se a medicao pedir.
+export const DELETE_OLD_SYNC_RECEIPTS = `
+  DELETE FROM sync_receipts
+  WHERE atlas_id = $1 AND server_version IS NOT NULL AND server_version < $2
+  RETURNING op_id
+`;
+
+export const COUNT_SYNC_RECEIPTS = `
+  SELECT COUNT(*) AS total FROM sync_receipts WHERE atlas_id = $1
+`;
+
 // Cesium 3D data queries
 export const GET_MAP_CESIUM3D = `
   SELECT id, map_id, data_type, tileset_id, data,

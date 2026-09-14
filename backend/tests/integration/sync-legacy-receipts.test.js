@@ -47,18 +47,44 @@ describe('Read-only reconciliation of old sync intentions', () => {
     assert.equal(response.headers['cache-control'], 'no-store');
   });
 
-  it('confirms only identical author/content, even after replay cleanup, without rewriting advanced data', async () => {
+  // SUPERSEDIDO EM PARTE PELA DECISAO D10 DE 14/09/2026 (`docs/decisions/decisions-2026.md`), e o
+  // titulo anterior era "confirms only identical author/content, even after replay cleanup,
+  // without rewriting advanced data". O "even after replay cleanup" saiu, e o bloco foi partido
+  // em dois para que cada metade continue sendo cobrada em separado.
+  //
+  // O expurgo do administrador passou a podar `sync_receipts` na MESMA fronteira de `operations`,
+  // entao a consulta de recibos deixa de confirmar entrega abaixo do corte e responde `unknown`.
+  // Isso NAO e um estado novo do contrato: o `unknown` desta rota ja significa "nao ha como
+  // provar", e o cabecalho de `lookupOperationReceipts` ja dizia que a ausencia e ambigua. O que
+  // mudou e a FREQUENCIA com que ele aparece, e a consequencia pratica, que fica escrita aqui em
+  // vez de descoberta em campo: um cliente de volta de uma ausencia longa nao consegue mais
+  // saber que aquelas ops chegaram, e reenvia.
+  it('confirms only identical author/content, without rewriting advanced data', async () => {
     const op = operation();
     const applied = await push(op);
     assert.equal(applied.results[0].status, 'applied');
     await db.query('UPDATE maps SET name=$2 WHERE id=$1', [op.entityId, 'Mais avançado']);
-    await cleanupOldOperations(atlas.id, { keepFromVersion: applied.serverVersion + 1 });
     const before = await counts();
     assert.deepEqual((await lookup([op]).expect(200)).body.data.results, [{ opId: op.id, status: 'confirmed' }]);
     assert.deepEqual((await lookup([{ ...op, data: { name: 'Outro conteúdo' } }]).expect(200)).body.data.results,
       [{ opId: op.id, status: 'unknown' }]);
     assert.deepEqual(await counts(), before);
     assert.equal((await db.query('SELECT name FROM maps WHERE id=$1', [op.entityId])).rows[0].name, 'Mais avançado');
+  });
+
+  it('after replay cleanup the same lookup degrades to `unknown`, and still executes nothing', async () => {
+    const op = operation();
+    const applied = await push(op);
+    assert.deepEqual((await lookup([op]).expect(200)).body.data.results,
+      [{ opId: op.id, status: 'confirmed' }], 'guarda: antes do corte a entrega e comprovavel');
+
+    await cleanupOldOperations(atlas.id, { keepFromVersion: applied.serverVersion + 1 });
+
+    const before = await counts();
+    assert.deepEqual((await lookup([op]).expect(200)).body.data.results, [{ opId: op.id, status: 'unknown' }]);
+    // A propriedade que NAO pode ceder junto: consultar continua sendo so leitura. Um `unknown`
+    // que executasse a intencao antiga seria muito pior que um que apenas nao sabe.
+    assert.deepEqual(await counts(), before);
   });
 
   it('does not disclose receipts to a principal without atlas access', async () => {

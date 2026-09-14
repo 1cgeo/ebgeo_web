@@ -2843,10 +2843,41 @@ export async function pullOperations(atlasId, sinceVersion, permission = 'owner'
 /**
  * Cleans up old operations for an atlas.
  * Deletes operations older than the specified version and updates min_version.
+ *
+ * O RECIBO SAI JUNTO DESDE 2026-09-14, E A FRONTEIRA E `min_version`, NUNCA UM PRAZO PROPRIO
+ * (decisao D10 de 14/09/2026 em `docs/decisions/decisions-2026.md`). Ate entao nada podava
+ * `sync_receipts`: so o `ON DELETE CASCADE` do atlas, ou seja, a tabela so encolhia quando o
+ * atlas inteiro morria. Tres coisas que precisam ser lidas juntas para a igualdade fazer sentido:
+ *
+ *   - **O recibo e a operacao respondem pela MESMA pergunta em faixas diferentes.** Um reenvio
+ *     bate primeiro no recibo (`findReceipt`, em `processarIndividual`) e, na falta dele, no
+ *     `ON CONFLICT (atlas_id, op_id)` do proprio log (`INSERT_OPERATION`, ramo `!inserted`). Acima
+ *     da fronteira a linha de `operations` continua la, entao a idempotencia sobrevive ao recibo
+ *     que for embora; abaixo dela as duas saem na mesma transacao, de proposito.
+ *   - **Abaixo da fronteira o cliente ja nao aplica nada por pull.** `pullOperations` responde
+ *     SNAPSHOT a quem pedir `sinceVersion < min_version`, isto e, o estado local dele e
+ *     substituido pelo do servidor. O que se compra e um teto de disco; o que se paga, e fica
+ *     DECLARADO aqui em vez de descoberto depois, e que o reenvio de uma op daquela faixa volta a
+ *     ser aplicado por chegada, como qualquer op nova. Esse custo ja existia para `operations`
+ *     desde sempre: o recibo era a ultima rede, e a decisao e justamente nao mante-la sozinha de
+ *     pe para um cliente que o produto ja tratou como fora de faixa.
+ *   - **Prazo solto era a alternativa recusada.** Um expurgo por data corta os dois lados em
+ *     fronteiras diferentes: o recibo de uma op que o log AINDA guarda sairia, e pior, o de uma
+ *     RECUSA (sem linha em `operations`) tambem. Dai o recorte de `DELETE_OLD_SYNC_RECEIPTS`
+ *     poupar `server_version IS NULL`, que e a forma da recusa.
+ *
+ * O SEGUNDO EMPREGO DO RECIBO, QUE NAO SE LE DAQUI: `resolveObservedBase`
+ * (`src/modules/sync/entity-conflicts.js`) resolve `baseOperationId` LENDO o recibo da op
+ * predecessora, isto e, o recibo tambem e o comprovante de "o que eu editei foi esta versao".
+ * Purgar recibo, entao, faz a edicao ENCADEADA a uma op abaixo da fronteira ser recusada por base
+ * nao confirmada. E desfecho defensavel (aquele cliente ja recebe snapshot no pull, entao a base
+ * dele nao descreve mais o servidor) e NAO e silencioso: volta como conflito, com motivo proprio.
+ * Fica escrito porque foi medido ao fechar a decisao, e nao ao depurar o primeiro relato.
+ *
  * @param {string} atlasId - Atlas ID
  * @param {number} keepFromVersion - Keep operations from this version onwards (optional)
  * @param {number} keepDays - Keep operations from the last N days (default: 7)
- * @returns {Object} - { deletedCount, newMinVersion }
+ * @returns {Object} - { deletedCount, deletedReceipts, newMinVersion }
  */
 export async function cleanupOldOperations(atlasId, { keepFromVersion, keepDays = 7 } = {}) {
   return tx(async (t) => {
@@ -2869,35 +2900,46 @@ export async function cleanupOldOperations(atlasId, { keepFromVersion, keepDays 
 
       if (!result || !result.min_keep_version) {
         // No operations newer than cutoff, keep all
-        return { deletedCount: 0, newMinVersion: 0 };
+        return { deletedCount: 0, deletedReceipts: 0, newMinVersion: 0 };
       }
 
       deleteBeforeVersion = parseInt(result.min_keep_version, 10);
     }
 
     if (deleteBeforeVersion <= 0) {
-      return { deletedCount: 0, newMinVersion: 0 };
+      return { deletedCount: 0, deletedReceipts: 0, newMinVersion: 0 };
     }
 
     // Delete old operations
     const deleted = await t.result(Q.DELETE_OLD_OPERATIONS, [atlasId, deleteBeforeVersion]);
     const deletedCount = deleted.rowCount;
 
+    // Os recibos da MESMA faixa, na MESMA transacao. Separar as duas escritas em duas
+    // transacoes abriria uma janela em que o log ja nao prova a entrega e o recibo ainda
+    // promete: um push que caisse ali seria acked como aplicado sem nada para reaplicar.
+    const recibos = await t.result(Q.DELETE_OLD_SYNC_RECEIPTS, [atlasId, deleteBeforeVersion]);
+    const deletedReceipts = recibos.rowCount;
+
     // Update min_version on atlas
     await t.none(Q.UPDATE_ATLAS_MIN_VERSION, [atlasId, deleteBeforeVersion]);
 
-    return { deletedCount, newMinVersion: deleteBeforeVersion };
+    return { deletedCount, deletedReceipts, newMinVersion: deleteBeforeVersion };
   });
 }
 
 /**
  * Gets cleanup statistics for an atlas.
+ *
+ * `totalReceipts` entrou junto com o expurgo de recibos: a rota de estatistica e o unico lugar em
+ * que o administrador dimensiona a poda ANTES de dispara-la, e uma tabela que nenhuma medicao
+ * mostra e uma tabela que ninguem poda.
  */
 export async function getCleanupStats(atlasId) {
-  const [syncInfo, oldestResult, countResult] = await Promise.all([
+  const [syncInfo, oldestResult, countResult, receiptResult] = await Promise.all([
     query(Q.GET_ATLAS_SYNC_INFO, [atlasId]),
     query(Q.GET_OLDEST_OPERATION_VERSION, [atlasId]),
     query('SELECT COUNT(*) as total FROM operations WHERE atlas_id = $1', [atlasId]),
+    query(Q.COUNT_SYNC_RECEIPTS, [atlasId]),
   ]);
 
   if (!syncInfo.rows[0]) {
@@ -2910,6 +2952,7 @@ export async function getCleanupStats(atlasId) {
     currentVersion: parseInt(syncInfo.rows[0].current_version, 10),
     oldestOperationVersion: oldestResult.rows[0]?.oldest_version ? parseInt(oldestResult.rows[0].oldest_version, 10) : null,
     totalOperations: parseInt(countResult.rows[0].total, 10),
+    totalReceipts: parseInt(receiptResult.rows[0].total, 10),
   };
 }
 

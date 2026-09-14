@@ -36,7 +36,24 @@ describe('Durable delivery receipts', () => {
     assert.deepEqual((await row(id)).geometry.coordinates, [1, 0]);
   });
 
-  it('cleanup preserves deduplication and a retry preserves the newer value', async () => {
+  // SUPERSEDIDO EM 14/09/2026 PELA DECISAO D10 (`docs/decisions/decisions-2026.md`). O titulo
+  // anterior era "cleanup preserves deduplication and a retry preserves the newer value", e a
+  // primeira metade dele deixou de valer.
+  //
+  // Ate aquela data o expurgo do administrador apagava `operations` e NAO tocava em
+  // `sync_receipts`: o recibo sobrevivia ao corte e um reenvio daquela faixa voltava como
+  // `idempotent`. A decisao amarrou a poda de recibo a MESMA fronteira (`min_version`), entao
+  // abaixo dela as duas linhas saem juntas e a deduplicacao POR RECIBO acaba naquela faixa.
+  //
+  // O QUE SOBREVIVE E O QUE IMPORTA PARA O DADO, e e a segunda asserção, intacta: a edicao antiga
+  // nao sobrescreve a nova. Quem a segura agora e o regime de conflito por unidade de disputa (a
+  // op declara `baseVersion`, e a unidade `properties.name` andou depois dela). A perda e de
+  // CONVERSA, nao de dado: o cliente recebe conflito por uma edicao que ele ja tinha entregue.
+  //
+  // A RESSALVA QUE ESTE CASO NAO COBRE, escrita porque e onde a perda seria de dado: uma op que
+  // NAO declare base nenhuma volta ao regime de chegada pura, e ali o recibo era a unica rede.
+  // Update de feicao nao cai nesse caso (ele exige base declarada, `RAZAO_SEM_BASE`).
+  it('after cleanup below the frontier a retry is no longer deduplicated, but never overwrites the newer value', async () => {
     const id = randomUUID();
     const created = await push(op('create', id, data(1)));
     const old = { ...op('update', id, null), baseVersion: created.results[0].entityVersion,
@@ -46,7 +63,10 @@ describe('Durable delivery receipts', () => {
       patch: [{ op: 'set', path: ['properties', 'name'], value: 'latest' }] });
     await cleanupOldOperations(atlas.id, { keepFromVersion: latest.results[0].currentVersion });
     const retry = await push(old);
-    assert.equal(retry.results[0].idempotent, true);
+    assert.equal(retry.results[0].idempotent, false,
+      'o recibo saiu com a operacao: o reenvio deixa de ser reconhecido como repeticao');
+    assert.equal(retry.results[0].status, 'conflict',
+      'e quem o recusa agora e a base declarada, nao o recibo');
     assert.equal((await row(id)).properties.name, 'latest');
   });
 
