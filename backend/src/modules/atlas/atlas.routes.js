@@ -48,7 +48,17 @@ router.put('/:atlasId', auth, requireAtlasPermission('write'), validate({ body: 
 router.delete('/:atlasId', auth, requireAtlasPermission('owner'), ctrl.deleteAtlas);
 // Restore is owner-checked inside the service (the atlas is soft-deleted, so requireAtlasPermission
 // — which only sees live atlases — cannot gate it).
-router.post('/:atlasId/restore', auth, validate({ params: schemas.atlasIdParamsSchema }), ctrl.restoreAtlas);
+//
+// `requireAccountPrincipal` pelo MESMO motivo do `/clone` mais abaixo, e esta rota nasceu sem
+// ele: o visitante de link público passa o `auth` estrito (a confinação o aprova, porque o
+// atlas da rota É o do token dele), não encontra `requireAtlasPermission` aqui, e chega ao
+// controller, que passa `req.user.id` CRU. O `sub` sintético `public-<uuid>` bate num `::uuid`
+// e sai como 22P02, que a borda traduz em 400 "Valor mal formado". Nenhum privilégio é ganho
+// (o predicado de posse jamais casaria com aquela string), mas 400 é a resposta errada para
+// "esta ação precisa de uma conta", e é justamente a distinção que este middleware existe para
+// fazer. Guarda: `tests/integration/restaurar-visitante-publico.repro.test.js`.
+router.post('/:atlasId/restore', auth, requireAccountPrincipal,
+  validate({ params: schemas.atlasIdParamsSchema }), ctrl.restoreAtlas);
 
 // Settings (co-Gestor pode configurar o atlas)
 router.get('/:atlasId/settings', auth, requireAtlasPermission('read'), ctrl.getSettings);
