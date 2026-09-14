@@ -4,7 +4,7 @@ import { findReceipt, saveReceipt, operationDigest } from './sync-receipts.js';
 import { assertSyncProtocol } from './sync-protocol.js';
 import { prepareFeatureMutation, finishFeatureMutation } from './feature-conflicts.js';
 import {
-  prepareEntityMutation, finishEntityMutation, readEntityRow,
+  prepareEntityMutation, finishEntityMutation, readEntityRow, columnsForUnits,
   hasDeclaredBase, isRevisionTarget, UUID_RE,
   RAZAO_EXCLUIDO_NO_SERVIDOR, RAZAO_CRIACAO_NAO_RESTAURA, RAZAO_IDENTIFICADOR_EM_USO,
 } from './entity-conflicts.js';
@@ -3075,32 +3075,102 @@ function normalizeLayerChanges(changes) {
  * frame exists to stop. `comment` and `catalog_layer` do not pass through `buildUpdateQuery` at
  * all (they have hand-written statements), so their columns are named here directly.
  *
+ * THE `patch` WINS OVER THE PAYLOAD FOR THE TARGETS OF `PATCH_NARROWED_TARGETS`, since 2026-09-13
+ * (B5, item 4). The client's declaration lists the fields it actually CHANGED
+ * (`entityMutationContract`, frontend `store/sync/mutation-contract.js`, which diffs the document
+ * it read against the one it wrote), while the payload of a layer is the WHOLE document. Reading
+ * the payload made two people editing DIFFERENT fields of one layer dispute every unit that
+ * document carried, and one of them was refused for a conflict that did not exist.
+ *
+ * THAT IS HALF THE CHANGE, AND THE OTHER HALF IS NOT OPTIONAL: units narrower than the payload
+ * oblige the statement to be narrowed to match (`columnsForUnits` through `op._unitScope`, read in
+ * `buildUpdateQuery`). Deriving units from the patch while still writing the whole document would
+ * be strictly WORSE than reading the payload: the op would stop being refused and would then
+ * overwrite the very units it swore not to touch, in silence. The two live together or neither
+ * does, which is why they landed in one commit.
+ *
+ * A MALFORMED PATCH FALLS BACK TO THE PAYLOAD, never to nothing: an entry with no string path is a
+ * declaration this function cannot read, and the conservative answer is the wide one.
+ *
  * @param {Object} op - Normalized operation.
+ * @param {Object} [rawOp] - The operation as it arrived, read only for its `patch`.
  * @returns {string[]} Backend column names, possibly empty.
  */
-function declaredUpdateColumns(op) {
+function declaredUpdateColumns(op, rawOp = null) {
+  const doPatch = PATCH_NARROWED_TARGETS.has(op.target) ? patchAsChanges(rawOp?.patch) : null;
   const target = op.target;
   if (target === 'map') {
-    const merged = { ...op.changes, ...op.data };
+    const merged = doPatch ?? { ...op.changes, ...op.data };
     const changes = normalizeMapChanges(merged, op._subType);
     const fields = op._subType ? (MAP_SUBTYPE_FIELDS[op._subType] || []) : MAP_UPDATE_FIELDS;
     return presentColumns(changes, fields);
   }
   if (target === 'layer') {
-    return presentColumns(normalizeLayerChanges(op.changes ?? {}), UPDATE_FIELDS.layer);
+    return presentColumns(normalizeLayerChanges(doPatch ?? op.changes ?? {}), UPDATE_FIELDS.layer);
   }
   if (target === 'comment') {
     // The comment statement writes `data` wholesale and `status` only when the payload carries a
     // valid one. A payload whose ONLY key is `status` is a pure resolve and claims no text: see
     // `_unitScope` in `applyCommentOp`, which is what makes that claim true of the write too.
-    const data = op.changes ?? op.data ?? {};
+    const data = doPatch ?? op.changes ?? op.data ?? {};
     const columns = [];
     if (Object.keys(data).some((key) => key !== 'status')) columns.push('data');
     if (data.status === 'resolved' || data.status === 'open') columns.push('status');
     return columns;
   }
   const fields = UPDATE_FIELDS[target];
-  return fields ? presentColumns(op.changes ?? {}, fields) : [];
+  return fields ? presentColumns(doPatch ?? op.changes ?? {}, fields) : [];
+}
+
+/**
+ * The targets whose CLAIM may come from the client's `patch` instead of from the payload, and
+ * therefore the only ones whose write is ever narrowed below what the payload carries.
+ *
+ * THE MEMBERSHIP TEST IS NOT "DOES THE CLIENT SEND A PATCH", IT IS "DOES THE PEER END UP HOLDING
+ * WHAT THE SERVER WROTE". A narrowed write makes the server's row differ from the payload that was
+ * broadcast, so an entity qualifies only when the peer converges on the server's own row anyway:
+ *   - `layer`: the ack and the broadcast already carry the canonical layer row, because
+ *     `canonicalLayer` (in `pushOperations`) replaces `inserted.data` with the row read back after
+ *     the write. The peer MERGES that row (`applyRemoteLayerOp`), so it lands on what the server
+ *     holds and not on what the author sent. This is the entity the acceptance of B5.4 names.
+ *   - `map`: narrowing here is provably a no-op with the current client and is in the set to keep
+ *     it that way. Every map write site sends only the field it changed (`{name}`, `{locked}`, the
+ *     five position columns), and a sub-typed op is already restricted to `MAP_SUBTYPE_FIELDS`, so
+ *     the patch and the payload name the same columns. A future broad map payload would be
+ *     narrowed instead of silently widening the dispute, and `mergeRemoteMapUpdate` merges present
+ *     keys, so the peer never blind-replaces.
+ *
+ * WHO IS OUT, AND WHY IT IS NOT AN OVERSIGHT. `group`, `briefing`, `slide` and `comment` are
+ * applied on the peer by REPLACING the document with the broadcast payload; narrowing their write
+ * without also rebroadcasting the server's row would leave every peer holding a row that exists
+ * nowhere. Rebroadcasting is possible now that `entity-canonical.js` exists, but not free: a
+ * canonical `briefing` with no `slides` would wipe the slides of whoever applied it, so each of
+ * these needs its composite question answered before it joins. Until then they keep the payload as
+ * their claim, which refuses more than it should and never overwrites in silence. That is the
+ * right side to err on, and it is the side they were already on.
+ */
+const PATCH_NARROWED_TARGETS = new Set(['layer', 'map']);
+
+/**
+ * A declared `patch` read as a changes-shaped object, so the same normalizers and the same field
+ * tables answer for it. Null when there is no patch, or when it is not one this reader can trust.
+ *
+ * A `remove` ENTRY LANDS AS `null`, NOT AS ABSENT. Presence is what `presentColumns` tests, and
+ * dropping a key someone deliberately erased would leave that column out of the claim and then out
+ * of the narrowed write, which is the erase silently not happening.
+ *
+ * @param {*} patch - `rawOp.patch`.
+ * @returns {Object|null}
+ */
+function patchAsChanges(patch) {
+  if (!Array.isArray(patch) || patch.length === 0) return null;
+  const changes = {};
+  for (const entry of patch) {
+    const key = Array.isArray(entry?.path) ? entry.path[0] : null;
+    if (typeof key !== 'string' || key === '') return null;
+    changes[key] = entry.op === 'remove' ? null : entry.value;
+  }
+  return changes;
 }
 
 /** The subset of a field spec the payload actually addresses, by the same rule as `buildDynamicUpdate`. */
@@ -3134,6 +3204,19 @@ function buildUpdateQuery(target, op, atlasId) {
   // cannot mutate atlas B's data by supplying B's mapId (cross-atlas IDOR).
   const inAtlas = 'EXISTS (SELECT 1 FROM maps m WHERE m.id = $2 AND m.atlas_id = $3)';
 
+  /**
+   * THE WRITE IS NARROWED TO THE UNITS THE OPERATION CLAIMED, since 2026-09-13 (B5, item 4). The
+   * scope is stamped ONLY by `prepareEntityMutation`, so an op with no declared base sees this
+   * function behave exactly as it always did, and `columnsForUnits` answers null (no narrowing)
+   * for everything it cannot decide precisely. Without this, deriving the claimed units from the
+   * client's `patch` would be a regression rather than a refinement: the op would stop being
+   * refused for units it never touched and would then write them anyway, from a stale document.
+   */
+  const narrow = (fields) => {
+    const allowed = columnsForUnits(target, op._unitScope);
+    return allowed ? fields.filter((field) => allowed.has(field.column)) : fields;
+  };
+
   if (target === 'feature' && op.changes && op.mapId) {
     return buildDynamicUpdate(
       'features', op.changes, UPDATE_FIELDS.feature,
@@ -3143,7 +3226,7 @@ function buildUpdateQuery(target, op, atlasId) {
 
   if (target === 'group' && op.changes && op.mapId) {
     return buildDynamicUpdate(
-      'groups', op.changes, UPDATE_FIELDS.group,
+      'groups', op.changes, narrow(UPDATE_FIELDS.group),
       [op.targetId, op.mapId, atlasId],
       `id = $1 AND map_id = $2 AND deleted_at IS NULL AND ${inAtlas}`,
     );
@@ -3152,7 +3235,7 @@ function buildUpdateQuery(target, op, atlasId) {
   if (target === 'layer' && op.changes && op.mapId) {
     const changes = normalizeLayerChanges(op.changes);
     return buildDynamicUpdate(
-      'layers', changes, UPDATE_FIELDS.layer,
+      'layers', changes, narrow(UPDATE_FIELDS.layer),
       [op.targetId, op.mapId, atlasId],
       `id = $1 AND map_id = $2 AND deleted_at IS NULL AND ${inAtlas}`,
     );
@@ -3168,7 +3251,7 @@ function buildUpdateQuery(target, op, atlasId) {
     const changes = normalizeMapChanges(merged, op._subType);
     // A sub-typed update is narrowed to its own column(s) (anti sibling-column
     // smuggling); a plain `map` update may touch the full set.
-    const fields = op._subType ? (MAP_SUBTYPE_FIELDS[op._subType] || []) : MAP_UPDATE_FIELDS;
+    const fields = narrow(op._subType ? (MAP_SUBTYPE_FIELDS[op._subType] || []) : MAP_UPDATE_FIELDS);
     if (fields.length === 0) return null;
     return buildDynamicUpdate(
       'maps', changes, fields,
@@ -3178,7 +3261,7 @@ function buildUpdateQuery(target, op, atlasId) {
 
   if (target === 'briefing' && op.changes) {
     return buildDynamicUpdate(
-      'briefings', op.changes, UPDATE_FIELDS.briefing,
+      'briefings', op.changes, narrow(UPDATE_FIELDS.briefing),
       [op.targetId, atlasId], 'id = $1 AND atlas_id = $2 AND deleted_at IS NULL',
     );
   }
@@ -3188,7 +3271,7 @@ function buildUpdateQuery(target, op, atlasId) {
     // slide of atlas B even if its UUID is known (the FK only guarantees the slide
     // exists, not that it belongs to this atlas).
     return buildDynamicUpdate(
-      'slides', op.changes, UPDATE_FIELDS.slide,
+      'slides', op.changes, narrow(UPDATE_FIELDS.slide),
       [op.targetId, atlasId],
       'id = $1 AND deleted_at IS NULL AND briefing_id IN (SELECT id FROM briefings WHERE atlas_id = $2)',
     );

@@ -239,6 +239,36 @@ export function unitsForColumns(target, columns) {
 }
 
 /**
+ * The inverse of {@link unitsForColumns}: every column the claimed units own.
+ *
+ * IT IS THE LICENCE TO WRITE, and that is why it answers `null` (no narrowing) for everything it
+ * cannot answer precisely: an unknown target, a whole-document entity, a scope that widened to
+ * `'*'`. Narrowing on a wrong answer would DROP a column the operation legitimately writes, which
+ * is a lost edit with no error anywhere; refusing to narrow only means writing what the payload
+ * carries, which is what every op did before this existed.
+ *
+ * IT WIDENS FROM THE UNIT, NOT FROM THE COLUMN, and that is deliberate. A patch that touches only
+ * `zoom` claims the unit `posicao`, whose licence is all five position columns: a pan is one
+ * gesture, and half of one is a frame nobody asked for. The write and the comparison therefore
+ * cover exactly the same ground, which is the property that makes the unit table true of the
+ * statement and not only of the refusal.
+ *
+ * @param {string} target - Normalized target.
+ * @param {string[]|undefined} units - `op._unitScope`, when the op has one.
+ * @returns {Set<string>|null} Columns the write may touch, or null for "do not narrow".
+ */
+export function columnsForUnits(target, units) {
+  const spec = DISPUTE_UNITS[target];
+  if (!spec || spec.wholeDocument || !Array.isArray(units) || units.length === 0) return null;
+  if (units.includes('*') || units.includes(DOCUMENTO)) return null;
+  const allowed = new Set();
+  for (const entry of spec.units) {
+    if (units.includes(entry.unit)) for (const column of entry.columns) allowed.add(column);
+  }
+  return allowed.size > 0 ? allowed : null;
+}
+
+/**
  * Resolves the base version this operation observed, from `baseVersion` and/or the receipt named
  * by `baseOperationId`. Extracted verbatim from `prepareFeatureMutation`, where it was the only
  * copy: a dependent edit sent before its predecessor's ack is a client behaviour, not a feature
@@ -426,8 +456,9 @@ export async function readEntityRow(t, atlasId, op) {
  * @param {Object} op - Normalized operation.
  * @param {Object} rawOp - The operation as it arrived.
  * @param {string} userId
- * @param {(op: Object) => string[]} declaredColumns - Backend columns this update writes,
- *   computed by the caller with the SAME normalizers and field tables the statement uses.
+ * @param {(op: Object, rawOp: Object) => string[]} declaredColumns - Backend columns this update
+ *   claims, computed by the caller with the SAME normalizers and field tables the statement uses,
+ *   from the op's declared `patch` when it has one and from the payload otherwise.
  * @returns {Promise<null|{conflict: Object}|{op: Object, previous: Object,
  *   versions: Object|null, fields: string[]}>} `null` means "not a base-checked mutation": keep
  *   today's path.
@@ -471,7 +502,9 @@ export async function prepareEntityMutation(t, atlasId, op, rawOp, userId, decla
     return { op, previous: current, versions: null, fields: [DOCUMENTO] };
   }
 
-  const units = unitsForColumns(op.target, declaredColumns(op));
+  // `rawOp` goes in because the declaration the CLIENT made (`patch`) is finer than the payload
+  // for every entity that ships a whole document, and it is the caller that knows how to read it.
+  const units = unitsForColumns(op.target, declaredColumns(op, rawOp));
   // Declaring no column means writing no column: `buildDynamicUpdate` returns null for that and
   // the op is a no-op either way, so there is nothing to compare and nothing to record.
   if (units.length === 0) return null;
