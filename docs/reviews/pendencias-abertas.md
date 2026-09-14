@@ -15,7 +15,7 @@ Base: `3492c3dd`, branch `plano/bd`. Posição de 13/09/2026.
 | B2 | baseline consolidada, checksum do migrador | fundido |
 | B3 | fila, quarentena e a janela do dispatcher | fundido |
 | B4 | persistência write-ahead dos demais produtores | fundido (quatro ondas) |
-| B5 | conflitos por entidade e painel de resolução | fundido; resta o conteúdo do recibo e a comparação de geometria |
+| B5 | conflitos por entidade e painel de resolução | fundido; recibo canônico, unidades pelo patch, base do mapa, comparação de geometria e forma array fechados em 13/09/2026; resta a captura do painel de comparação |
 | B6 | comandos compostos e as quatro exceções REST | fundido; marcadores pelo nome, contratos do lote e cenários com estado do servidor fechados em 13/09/2026; só o conjunto grande fica fora, por D4 |
 | B7 | abas, logout, gerações e migração da main | fundido; quarentena da varredura de boot, reconciliação no boot do slot e faixa legada 1.3 a 1.7 fechadas em 13/09/2026 |
 | B8 | uploads duráveis | fundido; D7 respondida e implementada, resta a prova em duas browsers |
@@ -32,11 +32,11 @@ Base: `3492c3dd`, branch `plano/bd`. Posição de 13/09/2026.
 
 ### B5, conflitos
 
-1. **Comparação visual de geometria.** Onde mora: `frontend/src/js/account/pendencias/pendencias-panel.js` e `frontend/src/js/account/pendencias/pendencias-rows.js`. O que falta: a linha de conflito de feição nomeia a unidade em disputa e mostra o motivo, e não há onde ver a diferença entre a geometria local e a do servidor. Ela DEPENDE do item 3 abaixo: o conflito de entidade que não é feição devolve `serverData` nulo, então metade do par a desenhar não chega ao cliente. Aceite: duas geometrias na tela, com a decisão explícita entre elas, e o caso de recusa repetido depois de F5.
-2. **`map` e os cinco subtipos não declaram base.** Onde mora: `frontend/src/js/store/sync/mutation-contract.js` e os sítios de escrita de `frontend/src/js/store/map.operations.js`. O que falta: a declaração é lida de `previousData`, e aqueles sítios registram o campo mudado, nunca o documento; ler o documento ali custaria a leitura do mapa inteiro, feições incluídas, numa operação que hoje não lê nada. A saída barata é o recibo canônico do item 3. Aceite: uma edição de mapa contra base velha recusada nomeando a unidade, com o contraste de mapa do repro de revisão por entidade deixando de ser contraste.
-3. **Conteúdo do recibo: operação canônica por entidade.** Onde mora: `backend/src/modules/sync/sync-receipts.js` e `backend/src/modules/sync/entity-conflicts.js`. O que falta: hoje o ack traz a revisão da entidade sem operação canônica, porque publicar um canônico sem serializador seria devolver o documento do remetente com aparência de aval do servidor. Aceite: o painel consegue mostrar o "estado atual permitido" sem inventá-lo, e os itens 1 e 2 destravam.
-4. **O servidor deriva as unidades do PAYLOAD, não do `patch`.** Onde mora: `declaredUpdateColumns` (`backend/src/modules/sync/entity-conflicts.js`). O que falta: precisão de unidade também para as entidades cujo cliente envia documento inteiro. A alternativa, estreitar o payload no cliente, só é segura depois que cada entidade tiver canônico, senão o par que recebe a transmissão perde os campos ausentes na substituição em bloco. Aceite: dois clientes editando campos distintos de uma camada convergem sem recusa.
-5. **A forma array de camada de catálogo não é verificável por base.** Onde mora: o ramo de conflito de `catalog_layer` em `backend/src/modules/sync/sync.service.js`. Ela escreve a linha VIVA com o que carrega e não endereça uma linha só. O replay literal é barrado pelo recibo; o fora de ordem, não. **Nenhum cliente vivo a emite**, e é por isso que ela é pendência e não defeito. Aceite: ou a forma sai do servidor, ou ela ganha endereçamento por linha.
+1. **Fechada em 13/09/2026: comparação de geometria no painel.** Dois folhas de zero imports, `frontend/src/js/account/pendencias/comparacao-de-conflito.js` e `comparacao-phrases.js`: tipo, vértices, centro, deslocamento em metros e os campos que diferem, em texto, nomeando os dois lados e dizendo quando `serverData` não veio. O que resta: a captura `frontend/tests/e2e-ui/_captura-b5-comparacao.spec.js`, escrita para ser rodada, lida e apagada pelo coordenador.
+2. **Fechada em 13/09/2026: `map` e os cinco subtipos declaram base.** `frontend/src/js/store/map-revision.js` (`mapRevisionOf`, `readMapRevision`), ligado nos seis sítios de escrita; censo `frontend/tests/unit/mapa-declara-base-censo.test.js` reprova sítio novo sem base.
+3. **Fechada em 13/09/2026: recibo canônico por entidade.** `backend/src/modules/sync/entity-canonical.js` lê a linha VIVA na forma do snapshot para mapa, camada, grupo, briefing, slide, comentário, camada de catálogo, 3D e 360; `prepareEntityMutation` e `tombstoneConflict` publicam `serverData`. Guarda: `backend/tests/integration/recibo-canonico-por-entidade.test.js`.
+4. **Fechada em 13/09/2026: as unidades vêm do `patch`**, e a escrita é estreitada às mesmas colunas (`PATCH_NARROWED_TARGETS`: `layer` e `map`; grupo, briefing, slide e comentário ficam fora com motivo escrito, porque o par substitui o documento inteiro). Guarda: `backend/tests/integration/unidade-vem-do-patch.repro.test.js`. Consequência medida: duas edições do MESMO autor em campos distintos convergem sem encadeamento, e o contrato `frontend/tests/e2e/edicao-encadeada-por-entidade.e2e.test.js` passou a medir a edição dependente sobre a MESMA unidade.
+5. **Fechada em 13/09/2026: a forma array de `catalog_layer` foi REMOVIDA do servidor** (`catalogLayerArrayDenialReason` recusa antes do log). Guarda: `backend/tests/integration/catalogo-array-recusada.repro.test.js`.
 6. **Linha que NÃO EXISTE continua sendo acked como aplicada** num update. Onde mora: o caso final de `backend/tests/integration/sync-service-coverage.test.js`, que mede o comportamento atual de propósito. O log de operações é expurgável, então ausência não prova exclusão, e recusar por ausência transformaria todo par create/update fora de ordem numa recusa permanente. Aceite: só muda junto com uma fronteira durável por entidade que distinga "nunca existiu" de "existiu e foi-se".
 
 ### B6, comandos compostos
@@ -92,6 +92,7 @@ Aceite do bloco: nenhuma vulnerabilidade crítica ou alta aplicável e exploráv
    - `frontend/tests/e2e-ui/browser-collab-colar-imagem.spec.js`: EXECUTADO na terceira passada, verde em 13,3 s.
    Ler a contagem de `flaky` ANTES de declarar verde: com `retries: 1`, um caso que flakeia é um caso não verificado.
 3. **Lembrar que `browser-collab-mega.spec.js` não roda na rodada normal** (tem script próprio), então "`test:e2e:ui` verde" não é "a pasta inteira passou".
+4. **Um checkout por rodada, e o harness agora sabe disso.** Até 13/09/2026 o arquivo de estado do Playwright era chaveado só pela porta, e uma rodada recusada pela porta ocupada, vinda de OUTRO checkout, matava no teardown o backend da rodada viva ("o backend do harness MORREU (code=1)", três vezes na mesma noite). A chave leva o checkout desde então (`CHECKOUT_KEY` em `frontend/tests/e2e-ui/constants.js`). O que continua valendo: uma rodada por porta.
 
 ### A segunda passada (13/09): a classificação caso a caso
 
@@ -329,6 +330,19 @@ O piloto cobre usuários locais antigos, autenticados e anônimos, além de cola
 Suspender a expansão diante de perda, duplicação, divergência, acesso indevido entre atlas, migração incompleta, upload inacessível ou indicação falsa de sincronização. Registrar diagnóstico e responsável pela decisão.
 
 Encerrar somente com restauração comprovada, verificação da infraestrutura real, piloto observado e aprovação do conjunto compatível pelo responsável interno. Preencher evidências reais; não marcar esta tarefa como concluída porque o roteiro está pronto. **Esta documentação não executa implantação nem aprova a liberação.**
+
+## Revisões de lançamento de 13/09/2026: permissão de atlas, papel global e acesso a recurso
+
+Duas revisões pedidas pelo dono, cada uma com relatório próprio e matriz por teste: [`docs/seguranca/revisao-permissoes-de-atlas-2026-09-13.md`](../seguranca/revisao-permissoes-de-atlas-2026-09-13.md) (achados P1..P25) e [`docs/seguranca/revisao-acesso-a-recurso-2026-09-13.md`](../seguranca/revisao-acesso-a-recurso-2026-09-13.md) (achados R1..R7). Mais a revisão de autorização do sync, das quatro exceções REST, dos uploads, recibos e sockets (achados A1..A15, registrados na seção B10). O que ficou ABERTO, todos para decisão do dono:
+
+- **P8.** `GET /users/search` não tem recorte nem limitador e casa contra nome de posto e de OM: enumera o efetivo entre organizações. Estreitar é decisão de produto.
+- **P9 e R6, o mesmo assunto por duas portas.** O vídeo de prévia de recurso é capacidade por URL, servido a quem tiver o nome do arquivo, e marcar o recurso privado não re-cunha o nome. Escolha: re-cunhar ao marcar privado, ou declarar no censo que a capacidade sobrevive.
+- **A13.** `sync_receipts` nunca é purgado (o expurgo do administrador só alcança `operations`). Retenção atrelada a `min_version`, ou declarar a permanência e dimensionar.
+- **A14.** Socket aberto não cai quando o JWT expira; a varredura reconcilia autorização, nunca sessão. É o contrato client-driven já escrito; fica registrado porque é a pergunta do fecho.
+- **A15.** Sem cota de atlas por conta em `POST /atlas` e `POST /atlas/import`, e o import não tem teto de mapas além do corpo.
+- **Dez cláusulas de prova parcial** declaradas na tabela do relatório de permissões; a de maior valor é a desativação nunca exercida na superfície de empréstimo.
+
+Corrigidos e fundidos na mesma noite, para registro: P1 (gate por operação comparava por igualdade), P2 e P3 (olho, cadeado, camada de importação e `removeFeatureFromMap` enfileiravam op sem guard), P4 (visitante de link público alcançava a restauração), P23 (transferência de posse de grupo, que a constituição declara inexistente), R1 (a credencial de asset da cena caminhável ia a qualquer host derivado de `basePath`), A1 (trava do mapa não alcançava a membresia de grupo), A2 (teto de sockets por principal).
 
 ## Regras de verificação
 
