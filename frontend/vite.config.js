@@ -520,12 +520,23 @@ export default defineConfig(({ mode: _mode }) => ({
       // External vendors (not bundled)
       // Specific regex to exclude only the Cesium vendor,
       // not project files like cesium3d.operations.js
+      //
+      // WHAT THIS LIST COVERS TODAY, AND WHAT IT STOPPED COVERING. The Cesium
+      // distribution and `cesium-viewshed.js` are still `<script>` tags injected
+      // by `map_3d.js`, so nothing in the module graph reaches them and the
+      // marks below keep them out of any future one. `cesium-measure.js` LEFT
+      // this scope on 2026-09-14 (decision D9): it moved to
+      // `src/js/3d_models_viewer_tool/services/cesium-measure.js` and is a normal
+      // static import of `map_3d.js`, which means it is bundled into the lazy
+      // `cesium-integration` chunk and, because `frontend/eslint.config.js`
+      // ignores `public/**`, linted for the first time. Do not re-broaden these
+      // patterns to reach `src/`: that would silently take it back out of both.
       external: [
         // Exact match of 'cesium' module (import 'cesium')
         /^cesium$/i,
         // Match cesium subpaths (import 'cesium/Source/...')
         /^cesium\//i,
-        // Match local Cesium vendor paths
+        // Match the Cesium distribution and cesium-viewshed.js under public/
         /vendors\/cesium/i,
         // Match node_modules paths (if cesium installed via npm)
         /node_modules\/cesium/i

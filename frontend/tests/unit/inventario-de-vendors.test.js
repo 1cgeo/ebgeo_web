@@ -7,8 +7,13 @@
 //
 // A prosa virou `scripts/inventario-de-vendors.mjs`, e este teste e o que impede
 // que o script e o arquivo versionado se separem sem ninguem notar. Ele NAO prova
-// que os 408 artefatos sao seguros; prova que o que esta escrito ali e o que esta
+// que os 407 artefatos sao seguros; prova que o que esta escrito ali e o que esta
 // no disco, que e a unica pergunta que um manifesto responde.
+//
+// O MANIFESTO TEM MAIS DE UM BLOCO DATADO, e o que vale e `CHAVE_DO_BLOCO`. Os
+// anteriores ficam como evidencia da data deles e nao sao remedidos: quem os
+// reescrevesse para caber na arvore de hoje estaria datando uma medicao que
+// nunca aconteceu naquele dia.
 //
 // O EIXO E O PONTO. Comparar pelo sha256 CRU acusa divergencia em toda maquina com
 // outra configuracao de fim de linha, e comparar pelo "normalizado" cegamente acusa
@@ -26,6 +31,8 @@ import {
     RAIZ,
     PASTAS_DE_VENDOR,
     CAMINHO_DO_MANIFESTO,
+    CHAVE_DO_BLOCO,
+    CHAVE_DO_INVENTARIO,
     ehTexto,
     normalizarCrlf,
     medirArquivos,
@@ -83,6 +90,40 @@ describe('inventario de vendors: o script e o manifesto versionado', () => {
         expect(bloco.manifestoCompleto.ressalvaDoCampoSha256Lf).toMatch(/artefato do instrumento/);
         expect(bloco.resumo.ressalvaComCrlfNaArvore).toMatch(/166/);
     });
+
+    it('o bloco de 2026-09-13 continua no arquivo, com as 408 tuplas de entao', () => {
+        // O bloco corrente e outro (`CHAVE_DO_BLOCO`), e o anterior fica como
+        // evidencia datada. Apagá-lo seria a forma silenciosa de perder a prova
+        // de que a medicao de 2026-09-12 tinha o defeito de instrumento que a
+        // ressalva acima descreve: sem as tuplas, a ressalva vira uma frase
+        // sobre numeros que ninguem pode mais conferir.
+        const doc = JSON.parse(readFileSync(join(RAIZ, CAMINHO_DO_MANIFESTO), 'utf8'));
+        expect(doc['2026-09-13'].vendorInventory2026_09_13.manifestoCompleto.arquivos).toHaveLength(408);
+        expect(CHAVE_DO_BLOCO).not.toBe('2026-09-13');
+    });
+
+    it('no bloco CORRENTE nenhum arquivo binario carrega sha256Lf', () => {
+        // O defeito de 2026-09-12 em forma de invariante, para que ele nao possa
+        // voltar sem ficar vermelho: normalizar CRLF num binario e tratar um
+        // 0D 0A de conteudo comprimido como fim de linha, e o numero que sai
+        // dali nao identifica nada. O bloco anterior tem 166 desses, rotulados.
+        const doc = JSON.parse(readFileSync(join(RAIZ, CAMINHO_DO_MANIFESTO), 'utf8'));
+        const arquivos = doc[CHAVE_DO_BLOCO][CHAVE_DO_INVENTARIO].manifestoCompleto.arquivos;
+        const binarios = new Set(medicoes.filter((m) => m.binario).map((m) => m.path));
+        expect(binarios.size).toBeGreaterThan(0);
+        expect(arquivos.filter((t) => binarios.has(t[0]) && t[3] !== null)).toEqual([]);
+    });
+
+    it('cesium-measure.js saiu das pastas de vendor e virou codigo da casa', () => {
+        // Adocao, nao poda (decisao D9, item V2): o arquivo esta VIVO em src/js,
+        // e e por isso que ele nao aparece em lista de poda nenhuma. Esta
+        // asserção e dupla de proposito, porque so a metade de cima passaria
+        // verde se alguem simplesmente tivesse apagado o arquivo.
+        expect(medicoes.some((m) => m.path.endsWith('vendors/cesium/cesium-measure.js'))).toBe(false);
+        expect(
+            readFileSync(join(RAIZ, 'frontend/src/js/3d_models_viewer_tool/services/cesium-measure.js'), 'utf8')
+        ).toMatch(/formatDistanceLabel/);
+    });
 });
 
 describe('inventario de vendors: o eixo de comparacao', () => {
@@ -92,7 +133,7 @@ describe('inventario de vendors: o eixo de comparacao', () => {
         expect(binarios.every((m) => m.sha256Lf === null)).toBe(true);
     });
 
-    it('166 dos 408 sao binarios que CARREGAM o par 0D 0A por coincidencia', () => {
+    it('166 dos 407 sao binarios que CARREGAM o par 0D 0A por coincidencia', () => {
         // Este numero e a razao de o eixo existir: sem a classificacao, sao 166
         // divergencias fantasma. Se ele mudar, a poda ou a entrada de um vendor
         // mexeu na composicao da arvore, e a conferencia quer saber disso.

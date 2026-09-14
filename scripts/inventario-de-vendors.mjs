@@ -13,6 +13,17 @@
  *   node scripts/inventario-de-vendors.mjs            # relatorio legivel
  *   node scripts/inventario-de-vendors.mjs --check     # sai 1 se divergir
  *   node scripts/inventario-de-vendors.mjs --json      # manifesto no formato do arquivo
+ *   node scripts/inventario-de-vendors.mjs --write     # regrava o bloco corrente no arquivo
+ *
+ * O `--write` EXISTE PARA QUE NINGUEM EDITE A MAO O QUE A MEDICAO PRODUZ, e ele e
+ * deliberadamente estreito: das 407 tuplas e dos cinco numeros derivados do resumo
+ * ele nao preserva nada, porque regenera; de TODO o resto do arquivo ele nao muda um
+ * byte, porque o resto e declaratorio (o porque de cada ressalva, a lista de
+ * bibliotecas sem versao, o digest proposto) e nenhuma medicao o produz. A prova de
+ * que a divisao esta certa e o round-trip: `JSON.stringify(doc, null, 2)` reproduz
+ * este arquivo byte a byte, entao um `--write` que so troque aqueles campos aparece
+ * no diff como aqueles campos e nada mais. O fim de linha e lido do disco e devolvido
+ * como estava, senao a arvore CRLF do Windows viraria um diff de 3841 linhas.
  *
  * O EIXO DA CONFERENCIA E O HASH NORMALIZADO PARA LF, e isso nao e detalhe de
  * formatacao. A arvore de trabalho no Windows esta em CRLF (332 dos 408 arquivos),
@@ -33,7 +44,7 @@
  */
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
@@ -44,6 +55,21 @@ export const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const PASTAS_DE_VENDOR = ['frontend/public/vendors', 'frontend/src/vendor'];
 
 export const CAMINHO_DO_MANIFESTO = 'docs/seguranca/dependencias-lancamento-inventario.json';
+
+/**
+ * O bloco datado que vale HOJE, e a razao de ele ser uma constante e nao uma busca
+ * pela chave mais recente: uma busca automatica faria a proxima medicao se comparar
+ * sozinha com a propria, e o dia em que alguem acrescentasse um bloco pela metade a
+ * conferencia passaria a ler o bloco errado sem uma linha de aviso.
+ *
+ * O bloco de 2026-09-13 FICA NO ARQUIVO, intocado. Ele e evidencia datada e carrega
+ * a ressalva dos 166 sha256Lf binarios produzidos pelo instrumento defeituoso de
+ * 2026-09-12; reescrever aquelas tuplas para caber na arvore de hoje apagaria a
+ * unica prova de que aquela medicao tinha o defeito, e deixaria um bloco rotulado
+ * com uma data descrevendo uma arvore que nunca existiu naquela data.
+ */
+export const CHAVE_DO_BLOCO = '2026-09-14';
+export const CHAVE_DO_INVENTARIO = 'vendorInventory2026_09_14';
 
 const CR = 0x0d;
 const LF = 0x0a;
@@ -147,18 +173,60 @@ export function gerarManifesto(raiz = RAIZ) {
 }
 
 /**
- * O manifesto guardado no arquivo versionado.
+ * O documento versionado inteiro, com o fim de linha que ele tem no disco.
+ *
+ * @param {string} [raiz]
+ * @returns {{doc: object, eol: string, caminho: string}}
+ */
+function lerDocumento(raiz = RAIZ) {
+    const caminho = join(raiz, CAMINHO_DO_MANIFESTO);
+    const texto = readFileSync(caminho, 'utf8');
+    return { doc: JSON.parse(texto), eol: texto.includes('\r\n') ? '\r\n' : '\n', caminho };
+}
+
+/**
+ * O manifesto guardado no arquivo versionado, no bloco datado corrente.
  *
  * @param {string} [raiz]
  * @returns {Array<[string, number, string, string|null]>}
  */
 export function lerManifestoVersionado(raiz = RAIZ) {
-    const doc = JSON.parse(readFileSync(join(raiz, CAMINHO_DO_MANIFESTO), 'utf8'));
-    const bloco = doc['2026-09-13']?.vendorInventory2026_09_13?.manifestoCompleto;
+    const { doc } = lerDocumento(raiz);
+    const bloco = doc[CHAVE_DO_BLOCO]?.[CHAVE_DO_INVENTARIO]?.manifestoCompleto;
     if (!Array.isArray(bloco?.arquivos)) {
         throw new Error(`manifesto ausente ou com outra forma em ${CAMINHO_DO_MANIFESTO}`);
     }
     return bloco.arquivos;
+}
+
+/**
+ * Regrava no arquivo versionado APENAS o que a medicao produz: as tuplas do
+ * manifesto e os cinco numeros derivados do resumo. Todo campo declaratorio do
+ * documento e preservado, inclusive os blocos datados anteriores.
+ *
+ * @param {string} [raiz]
+ * @returns {{arquivos: number, bytes: number}}
+ */
+export function escreverManifesto(raiz = RAIZ) {
+    const { doc, eol, caminho } = lerDocumento(raiz);
+    const inventario = doc[CHAVE_DO_BLOCO]?.[CHAVE_DO_INVENTARIO];
+    if (!inventario?.manifestoCompleto || !inventario?.resumo) {
+        throw new Error(`bloco ${CHAVE_DO_BLOCO}.${CHAVE_DO_INVENTARIO} ausente em ${CAMINHO_DO_MANIFESTO}`);
+    }
+
+    const medicoes = medirArquivos(raiz);
+    const texto = medicoes.filter((m) => !m.binario);
+
+    inventario.manifestoCompleto.arquivos = medicoes.map((m) => [m.path, m.bytes, m.sha256, m.sha256Lf]);
+    inventario.resumo.arquivos = medicoes.length;
+    inventario.resumo.bytes = medicoes.reduce((s, m) => s + m.bytes, 0);
+    inventario.resumo.textoEmCrlf = texto.filter((m) => m.sha256Lf !== null).length;
+    inventario.resumo.textoEmLf = texto.filter((m) => m.sha256Lf === null).length;
+    inventario.resumo.binarios = medicoes.length - texto.length;
+
+    const saida = JSON.stringify(doc, null, 2).split('\n').join(eol);
+    writeFileSync(caminho, `${saida}${eol}`, 'utf8');
+    return { arquivos: inventario.resumo.arquivos, bytes: inventario.resumo.bytes };
 }
 
 /**
@@ -227,6 +295,13 @@ function principal() {
 
     if (args.includes('--json')) {
         process.stdout.write(`${JSON.stringify(gerarManifesto())}\n`);
+        return;
+    }
+
+    if (args.includes('--write')) {
+        const r = escreverManifesto();
+        console.log(`regravado ${CAMINHO_DO_MANIFESTO}: ${CHAVE_DO_BLOCO}.${CHAVE_DO_INVENTARIO}`);
+        console.log(`arquivos: ${r.arquivos}  bytes: ${r.bytes}`);
         return;
     }
 

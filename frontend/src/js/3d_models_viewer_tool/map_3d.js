@@ -22,6 +22,12 @@ import {
     applyCesiumPreLoadPatches,
     applyCesiumPostLoadPatches
 } from './services/cesium-compat.js';
+// House code since 2026-09-14 (decision D9), no longer a `<script>` injected
+// from public/vendors/. It touches the `Cesium` global only inside its methods,
+// never at module evaluation, which is what lets a static import sit here while
+// Cesium itself is still script-loaded below. What the adoption changed, and
+// what it deliberately left alone, is in that module's header.
+import { CesiumMeasure } from './services/cesium-measure.js';
 import { hideLoading3DScreen } from '@ui/loading-screen-3d.js';
 import { descritorDeAsset } from '@store/sync/assets3d-request.js';
 import {
@@ -105,13 +111,11 @@ async function loadCesiumAndInit() {
                 };
             }
 
-            // Compatibility patches for cesium-viewshed/cesium-measure (built for ~1.100)
+            // Compatibility patches for cesium-viewshed (built for ~1.100).
+            // cesium-measure needed none of the three and is now an import.
             applyCesiumPreLoadPatches(Cesium);
 
-            await Promise.all([
-                loadScript('./vendors/cesium/cesium-measure.js'),
-                loadScript('./vendors/cesium/cesium-viewshed.js')
-            ]);
+            await loadScript('./vendors/cesium/cesium-viewshed.js');
 
             applyCesiumPostLoadPatches(Cesium);
 
@@ -377,7 +381,7 @@ async function createGlbModel(viewer, tilesetConfig) {
 async function setupTools(viewer) {
     window.map = viewer;
 
-    const measure = new Cesium.Measure(viewer);
+    const measure = new CesiumMeasure(viewer);
     window.measure = measure;
 
     initCesiumEventHandlers();

@@ -444,11 +444,28 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // sozinho: dos 91 kB de folga deixados horas antes, 69 já tinham sido comidos por deriva
         // de outros lotes do MESMO dia, e o lote que reprovou responde por 27. 11760 deixa 55 kB,
         // de novo pouco de propósito.
+        //
+        // O TETO SUBIU DE 11760 PARA 11790 EM 2026-09-14, E ESTA SUBIDA NÃO É DERIVA NEM PAYLOAD
+        // NOVO: é a medição ficando honesta. O lote é a adoção de `cesium-measure.js` (decisão D9,
+        // item V2), que saiu de `frontend/public/vendors/cesium/` e virou
+        // `src/js/3d_models_viewer_tool/services/cesium-measure.js`. Aqueles bytes SEMPRE foram
+        // baixados pelo visualizador 3D; eles chegavam por uma tag `<script>` injetada em runtime,
+        // que este caminhador não enxerga por definição, porque ele anda no grafo de imports. O que
+        // mudou é que agora eles são visíveis, e o que a pessoa baixa continua o mesmo (na prática
+        // um pouco menos: as 5,8 kB de cabeçalho novo são comentário e o build as remove, e o
+        // pedido HTTP separado deixou de existir).
+        //
+        // MEDIDO nesta árvore, trocando o import por um comentário: 11733 kB SEM o lote e 11767 kB
+        // COM ele, 34 kB de diferença. Os dois números dizem juntos o que nenhum diz sozinho: dos
+        // 55 kB de folga deixados em 2026-09-13, 28 já tinham sido comidos por deriva de outros
+        // lotes, sobrando 27 para um lote que precisava de 34. 11790 deixa 23 kB, e a disciplina
+        // segue a mesma: pouco de propósito, para que o próximo lote tenha de medir em vez de
+        // empurrar o número.
         expect(completo.arquivos.size).toBeGreaterThanOrEqual(580);
         expect(completo.arquivos.size).toBeLessThanOrEqual(700);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
-        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11760);
+        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);
     });
 
     it('seguir `import()` de fato acrescenta grafo, e é isso que prova a regex dinâmica', () => {
