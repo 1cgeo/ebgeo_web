@@ -29,7 +29,7 @@ import { reconcileLegacyQueue } from './legacy-queue.js';
 import { apiClient, configureApiClient } from './api-client.js';
 import { wsClient } from './ws-client.js';
 import { operationQueue } from './operation-queue.js';
-import { STRUCTURAL_RESYNC_OPS } from './structural-markers.js';
+import { isStructuralMarker } from './structural-markers.js';
 import { SyncSession } from '@store/sync/sync-session.js';
 import { ATLAS_RECORD_KEY, getStoreFor, reconcileDurablePointers, StoreName } from '@store/atlas-namespace.js';
 import { readGeneration } from '@store/namespace-generation.js';
@@ -199,25 +199,16 @@ export function refusedBatchIds(resp, ops) {
     return refused;
 }
 
-/**
- * Entity types of MARKER operations: a structural change made over REST that moved
- * rows in bulk, so no per-entity operation describes it.
- *
- * Live peers already learn about these from the `maps_merged` broadcast, which
- * triggers a resync. A peer that was OFFLINE during the change missed that
- * broadcast, and before the marker existed its reconnect replay was empty by
- * construction: no op had been written, so `atlas.current_version` had not moved and
- * the incremental pull answered "nothing new". It kept showing features under the
- * old map until a manual reload.
- *
- * THE LIST MOVED OUT OF THIS FILE ON 2026-09-13, and the move is what makes the mirror
- * checkable: it is half of a wire contract whose other half is `STRUCTURAL_MARKER`
- * (`backend/src/modules/sync/structural-marker.js`), and this module cannot be imported next to
- * the backend's in a node test. See `store/sync/structural-markers.js`, a leaf with zero imports,
- * and the mirror test that imports both packages at once. Since decision D6 the server publishes
- * each of the four acts under its OWN name (it used to publish `map_merge` for all four, to stay
- * legible to a client of an older build).
- */
+// MARKER OPERATIONS (`isStructuralMarker`, imported above): a structural change made over REST
+// that moved rows in bulk, so no per-entity operation describes it, and the peer resolves it by
+// taking a snapshot. A live peer also learns about it from the `maps_merged` broadcast; the one
+// that was OFFLINE has only this marker, and before it existed that peer's reconnect replay was
+// empty by construction, so it kept showing the old state until a manual reload.
+//
+// THE LIST MOVED OUT OF THIS FILE ON 2026-09-13, and the move is what makes the mirror checkable:
+// it is half of a wire contract whose other half is `STRUCTURAL_MARKER`
+// (`backend/src/modules/sync/structural-marker.js`), and this module cannot be imported next to
+// the backend's in a node test. See `store/sync/structural-markers.js`, a leaf with zero imports.
 
 /**
  * Records a `push.ack` span per op from the server's push response — binding each
@@ -514,7 +505,7 @@ class SyncEngine {
         }
 
         const operations = Array.isArray(result?.operations) ? result.operations : [];
-        if (operations.some(op => STRUCTURAL_RESYNC_OPS.has(op?.entityType))) {
+        if (operations.some(isStructuralMarker)) {
             const fresh = await apiClient.pullSync(session.atlasId, 0, { signal: session.signal });
             session.assertActive();
             if (fresh?.snapshot) {
@@ -951,7 +942,7 @@ class SyncEngine {
             // pull() has no caller left in src/; a guard that exists in one of two
             // twin paths is the kind of asymmetry that becomes a bug the day the dead
             // path is revived.
-            if (result.operations.some((op) => STRUCTURAL_RESYNC_OPS.has(op?.entityType))) {
+            if (result.operations.some(isStructuralMarker)) {
                 await this.resync();
                 return;
             }
@@ -1157,7 +1148,7 @@ class SyncEngine {
                 // peer resolves the same way the live `maps_merged` broadcast is
                 // resolved: by taking a snapshot. Applying the rest of the tail
                 // first would be wasted work, since the snapshot supersedes it.
-                if (ops.some((op) => STRUCTURAL_RESYNC_OPS.has(op?.entityType))) {
+                if (ops.some(isStructuralMarker)) {
                     await this.resync();
                     return; // resync() re-reads the version from the snapshot
                 }
