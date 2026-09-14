@@ -71,6 +71,55 @@ describe('Sharing API — gap coverage', () => {
         .send({ userId: target.id, permission: 'read' })
         .expect(201);
     });
+
+    // A CLÁUSULA 5.5 DIZ **POSSE**, E AS DUAS ROTAS DO CASO ACIMA SÃO GATEADAS EM `manage`.
+    //
+    // Ela cita este arquivo como prova de que "o administrador global tem posse em todo
+    // atlas", e até 2026-09-13 o caso acima era a prova inteira: as duas chamadas dele passam
+    // por `requireAtlasPermission('manage')` (`sharing.routes.js`), de modo que o verde era
+    // compatível com um administrador que resolvesse apenas como co-Gestor. A diferença entre
+    // `manage` e `owner` não é acadêmica neste produto: são exatamente os dois degraus que
+    // separam configurar um atlas de destruí-lo.
+    //
+    // `DELETE /atlas/:atlasId` é uma das DUAS rotas gateadas em `owner` (a outra é a
+    // transferência de posse), então é ela a pergunta certa.
+    it('e tem POSSE, não só gestão: exclui atlas alheio, onde o `manage` nominal é recusado', async () => {
+      const admin = await createUser(db, { username: uniq(), role: 'admin' });
+      const adminToken = mintToken(admin);
+      assert.equal(jwt.decode(adminToken).role, 'admin');
+
+      // O CONTROLE NEGATIVO VEM PRIMEIRO, e a ordem é necessária: ele precisa do atlas VIVO.
+      // Sem ele, um gate que deixasse qualquer um passar responderia 204 do mesmo jeito e
+      // este caso passaria verde medindo a ausência de gate em vez do atalho de papel.
+      const atlas = await createAtlas(db, owner.id, { name: `s01b ${uniq()}` });
+      const gestor = await createUser(db, { username: uniq() });
+      await supertest(app)
+        .post(`/api/v1/atlas/${atlas.id}/sharing/users`)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send({ userId: gestor.id, permission: 'manage' })
+        .expect(201);
+      const gestorToken = mintToken(gestor);
+      await supertest(app)
+        .delete(`/api/v1/atlas/${atlas.id}`)
+        .set('Authorization', `Bearer ${gestorToken}`)
+        .expect(403);
+
+      // PISO: o administrador não tem share nenhum aqui. Sem esta linha a posse poderia vir
+      // de um share que a fixture criou sem ninguém reparar, e o caso mediria
+      // compartilhamento em vez do atalho de papel global.
+      const shares = await db.query(
+        'SELECT 1 FROM atlas_shares WHERE atlas_id = $1 AND user_id = $2', [atlas.id, admin.id]
+      );
+      assert.equal(shares.rows.length, 0, 'o administrador alcança o atlas SEM share');
+
+      await supertest(app)
+        .delete(`/api/v1/atlas/${atlas.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(204);
+
+      const depois = await db.query('SELECT deleted_at FROM atlas WHERE id = $1', [atlas.id]);
+      assert.notEqual(depois.rows[0].deleted_at, null, 'o atlas alheio foi para a lixeira');
+    });
   });
 
   // ---- share-02: re-share existing user upgrades permission, still 201, one row ----
