@@ -441,8 +441,14 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   refresh token, e **não** fecha sockets de `collab` nem limpa presença. Um socket só cai (a) quando o cliente
   fecha a conexão / envia `leave`, ou (b) quando o sweep de heartbeat (~30s, `reconcileAuthorization`)
   reconcilia **autorização** (share revogado / atlas despublicado / org desativada), e ele **não** reage à
-  revogação do refresh token. Há **um socket por `atlasId`** (sem mensagem de "switch"): trocar de atlas =
-  abrir nova conexão e fechar a anterior pelo cliente.
+  revogação do refresh token **nem à expiração do access token** (decisão D11 de 2026-09-14): a varredura não
+  chama `jwt.verify` nem olha `exp`, porque a expiração não muda o que a pessoa pode fazer, e a queda por
+  autorização já é imposta. A assimetria com o HANDSHAKE é deliberada: lá o token expirado é 401, porque ali
+  ele É a credencial e não há socket a preservar. Guardas:
+  `tests/ws/collab-expiracao-de-token-nao-derruba.test.js` e `tests/ws/collab-logout-keeps-socket.test.js`,
+  que existem porque a propriedade é uma AUSÊNCIA dentro daquela função, e ausência não se lê. Há **um socket
+  por `atlasId`** (sem mensagem de "switch"): trocar de atlas = abrir nova conexão e fechar a anterior pelo
+  cliente.
 - **`sv360` está FORA do sync/CRDT/WS** do atlas: pixel em SQLite por projeto, worker
   pool + ETag O(1) + semáforo, erros em envelope **plano** `{ error }` (não `{error:{code,message}}`),
   `db_filename` **derivado no servidor** por SLUG, sem prefixo de OM, como no `ebgeo_360`
