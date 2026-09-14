@@ -6311,6 +6311,62 @@
           ]
         ]
       }
+    },
+    "cesiumViewshedDeclarado": {
+      "decisao": "D9 de 2026-09-14, item V3: manter e DECLARAR, com a reescrita sobre a API publica de ShadowMap como alvo e prazo a fixar pelo dono. Nao desofuscar, nao reescrever por arrumacao.",
+      "arquivo": "frontend/public/vendors/cesium/cesium-viewshed.js",
+      "bytes": 154710,
+      "linhas": 1933,
+      "carregamento": "Tag <script> injetada em runtime por frontend/src/js/3d_models_viewer_tool/map_3d.js. Roda com os privilegios da pagina do produto: mesma origem, mesmo localStorage, mesmo cookie de sessao, mesmo acesso ao DOM.",
+      "autor": null,
+      "licenca": null,
+      "url": null,
+      "ano": null,
+      "versao": null,
+      "notaDaAusencia": "As cinco acima sao null porque o arquivo nao traz nenhuma delas, e nao porque ninguem procurou. Num repositorio PUBLICO por decisao, codigo de terceiro sem licenca explicita e, por padrao, todos os direitos reservados: essa metade e exposicao juridica e nenhuma revisao de codigo a resolve.",
+      "ofuscado": {
+        "estado": "OFUSCADO, e embelezado nao e desofuscado. Ele entrou minificado numa linha so e uma semana depois alguem rodou um embelezador em cima; e dai que vem a indentacao.",
+        "identificadoresHexadecimais": 3474,
+        "identificadoresHexadecimaisDistintos": 849,
+        "blocosDeFluxoAchatado": 20,
+        "caracteresNaLinha1": 9213,
+        "notaDaLinha1": "A linha 1 e o shader GLSL inteiro em escapes.",
+        "consequencia": "Revisao humana linha a linha nao e viavel sem desofuscar antes, e ninguem neste projeto jamais leu este arquivo."
+      },
+      "forkLocal": "Quatro commits nossos, editados DENTRO do codigo ofuscado, um deles em cima da string do shader escapado. Nao ha upstream a que voltar nem versao a que comparar aviso.",
+      "camposPrivadosDeShadowMap": {
+        "quantos": 11,
+        "nomes": [
+          "_shadowMap",
+          "_shadowMapTexture",
+          "_shadowMapMatrix",
+          "_lightPositionEC",
+          "_lightDirectionEC",
+          "_lightCamera",
+          "_isPointLight",
+          "_pointBias",
+          "_primitiveBias",
+          "_terrainBias",
+          "_textureSize"
+        ],
+        "comoForamLidos": "Relidos em 2026-09-14 por caminho INDEPENDENTE do da medicao de 2026-09-13 (busca por nome no arquivo, em vez da leitura do fluxo). Nada no Cesium promete nenhum deles.",
+        "ressalva": "Um decimo segundo, _distance, aparece 4 vezes e e ambiguo, porque o proprio viewshed tem um campo com esse nome. Ele fica FORA da contagem de proposito, para que o numero nao cresca por leitura otimista."
+      },
+      "remendosQueEleObriga": {
+        "arquivo": "frontend/src/js/3d_models_viewer_tool/services/cesium-compat.js",
+        "quantos": 3,
+        "lista": [
+          "polyfill de Cesium.defaultValue, removido do Cesium na 1.134; o token aparece 11 vezes no arquivo ofuscado",
+          "reescrita automatica de GLSL ES 1.0 para 3.0, porque o Cesium 1.138 usa WebGL2",
+          "isDestroyed/destroy injetados em ViewShed3D e RectangularSensorPrimitive"
+        ],
+        "nota": "Desde 2026-09-14 essa e a UNICA razao daquele arquivo: o irmao cesium-measure.js virou codigo da casa e nao precisava de nenhum dos tres."
+      },
+      "atenuanteMedido": "O arquivo nao contem eval, new Function, atob, String.fromCharCode, fetch nem XMLHttpRequest. Isso limita o pior cenario e NAO prova ausencia de comportamento indevido, porque um ofuscador reconstroi nomes por concatenacao.",
+      "oQueEMedidoHoje": "A ENTIDADE viewshed3d (create, update de altura/raio/angulos, delete), por transporte real contra o backend real, conferida no snapshot de pullSync: frontend/tests/e2e-ui/browser-cesium3d-crud.spec.js, frontend/tests/e2e-ui/browser-cesium3d.spec.js e frontend/tests/e2e/cesium3d.e2e.test.js.",
+      "oQueNaoEMedido": "Nem um pixel. Os tres specs dizem, cada um em comentario, que o alvo e viewer-only e que o visualizador Cesium se auto-pula sem WebGL, entao eles nunca constroem um Cesium.ViewShed3D. Nao existe neste repositorio um unico teste que exercite o shader, a projecao ou a cor de area visivel contra oculta. Quem trocar o motor e vir a suite verde nao tera medido o motor. (frontend/tests/unit/visibility-viewshed-custo.test.js NAO e sobre este arquivo, apesar do nome: ele mede a analise de visibilidade 2D sobre o DEM.)",
+      "aceiteDaReescrita": "docs/seguranca/cesium-viewshed-reescrita-aceite.md, com os seis itens que a reescrita tem de reproduzir, inclusive a opcao de callback escrita calback com um L (erro de digitacao do vendor) e a compensacao de 1,5 grau por sub-viewshed que existe porque o shader compara com > estrito.",
+      "prazo": "A fixar pelo dono. O gatilho natural e o proximo bump do Cesium, que e o que quebra o arquivo e torna comparaveis, pela primeira vez, o custo de remendar de fora e o de reescrever."
     }
   }
 }
