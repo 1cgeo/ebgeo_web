@@ -6510,6 +6510,85 @@
       "oCaminhoBaratoQueSOBROU": "O SpatiaLite empacotado expoe, como funcoes SQL, freexl_version(), proj_version(), sqlite_version() e spatialite_version(), mais HasFreeXL(). Elas foram encontradas como NOMES na sondagem de 2026-09-14, e respondem em RUNTIME o que a string nao responde no disco: uma consulta ao GDAL ja carregado fecharia de uma vez a presenca e a versao do FreeXL, e confirmaria PROJ, SQLite e SpatiaLite por um quinto caminho. Isso nao bloqueia o lancamento e e a proxima medicao barata deste item.",
       "oQueFecharIaAsSete": "O receituario de build do gdal3.js 2.8.1. O binario denuncia a arvore de build nos caminhos de assercao que carrega e NAO a empacota, entao o resultado seria uma afirmacao sobre o que o upstream DIZ ter compilado, e nao sobre o binario que temos.",
       "aRemocaoDaSuperficie": "O GDAL aqui serve a UMA coisa, a conversao para PDF georreferenciado da folha unica; o mosaico ja sai por jsPDF sem GDAL nenhum. Avaliar se a folha unica pode sair pela mesma porta elimina 39,8 MB e a cadeia inteira, e e a unica opcao que remove o problema em vez de descreve-lo. Pergunta de medio prazo, nao de lancamento."
+    },
+    "aholoViewerDeclarado": {
+      "decisao": "D9 de 2026-09-14, item V5: registrar o que se determinou, declarar Draco e Basis como o ponto cego que resta, e pedir o manifesto ao fornecedor. A opcao de declarar semver e fflate como dependencias DIRETAS do frontend foi RECUSADA explicitamente.",
+      "pacote": "@manycore/aholo-viewer",
+      "versao": "1.8.1",
+      "pinagem": "versao EXATA em frontend/package.json, sem acento circunflexo",
+      "licenca": "MIT, MANYCORE, INC., arquivo LICENSE no pacote",
+      "dependenciasDeclaradas": "nenhuma; o campo dependencies do package.json do fornecedor e um objeto vazio, e e por isso que nada do que ele vendoriza aparece no lockfile",
+      "papel": "motor do visualizador de primeira pessoa (Gaussian splatting), grupo lazy first-person-3d",
+      "releituraIndependente": "Tudo nesta entrada foi lido do pacote instalado em 2026-09-14, por caminho independente do da medicao de 2026-09-13 (busca dos comentarios de caminho no dist e caminhada das secoes de topo de cada wasm decodificado do base64).",
+      "bibliotecasJsVendorizadas": [
+        {
+          "biblioteca": "semver",
+          "versao": "7.8.5",
+          "metodo": "Comentario de caminho de modulo em texto claro em dist/index.js. O dist NAO e minificado: e bundle de esbuild com os comentarios preservados. Confirmado pelos sourcemaps que o pacote publica.",
+          "estado": "DEIXOU de ser ponto cego. Ate 2026-09-13 o inventario a registrava como versao indeterminada."
+        },
+        {
+          "biblioteca": "fflate",
+          "versao": "0.8.3",
+          "metodo": "Mesmo caminho, em dist/index.js E em dist/splat-worker.js.",
+          "estado": "DEIXOU de ser ponto cego, pela mesma leitura."
+        }
+      ],
+      "armadilhaDaVersaoDaEspecificacao": "Ha no bundle a constante \"2.0.0\", que e a versao da ESPECIFICACAO SemVer e nao da biblioteca. Quem a tomar pela versao erra por tres ordens de grandeza.",
+      "porQueNaoEntramComoDependenciaDireta": "Declara-las em frontend/package.json so para o npm audit falar delas e cobertura vazia: o audit passaria a reportar sobre a versao DECLARADA no lockfile, nao sobre a que esta fundida no bundle do fornecedor. No dia em que ele publicar 1.8.2 com outra fflate dentro, o verde continuaria verde. Um ponto cego declarado e melhor que um verde que nao verifica nada. Recusa explicita da decisao D9.",
+      "modulosNativosEmBase64": {
+        "forma": "O pacote nao distribui .wasm como arquivo: ele embute os modulos em base64 dentro dos .js. Sobre os quatro arquivos do dist somados (4.247.285 bytes), o base64 e 36,9%; so no transcoder-worker.js ele e 90,7%.",
+        "quantos": 3,
+        "lista": [
+          {
+            "modulo": "zstd",
+            "bytesDecodificados": 138633,
+            "caracteresBase64": 184844,
+            "onde": [
+              "dist/index.js",
+              "dist/splat-worker.js"
+            ],
+            "secoesCustom": [
+              "producers",
+              "target_features"
+            ],
+            "versao": "libzstd 1.5.7, via zstd-sys 2.0.16",
+            "cadeiaDeBuild": "rustc 1.91.1 (ed61e7d7e, 2025-11-07), clang 22.1.8, walrus 0.26.4, wasm-bindgen 0.2.122, tudo lido da secao producers.",
+            "estado": "FECHADO: ele diz tudo sozinho, e e a prova de que manter a secao producing custa poucas centenas de bytes e resolve o item inteiro."
+          },
+          {
+            "modulo": "Draco",
+            "bytesDecodificados": 285948,
+            "caracteresBase64": 381264,
+            "onde": [
+              "dist/index.js"
+            ],
+            "secoesCustom": [],
+            "versao": null,
+            "evidenciaDeIdentidade": "Strings internas do proprio Draco (\"Not a Draco file\", \"Unsupported encoding method\", N5draco28AttributeOctahedronTransformE), que identificam a BIBLIOTECA e nao a versao.",
+            "estado": "PONTO CEGO. Nenhuma secao custom, nenhuma string de versao."
+          },
+          {
+            "modulo": "transcodificador Basis Universal / KTX2",
+            "bytesDecodificados": 613861,
+            "caracteresBase64": 818484,
+            "onde": [
+              "dist/transcoder-worker.js"
+            ],
+            "secoesCustom": [],
+            "versao": null,
+            "evidenciaDeIdentidade": "Strings internas (basis_tex_format, transcoder_texture_format, KTX2Header, LowLevelETC1SImageTranscoder), que identificam a BIBLIOTECA e nao a versao.",
+            "estado": "PONTO CEGO. Nenhuma secao custom, nenhuma string de versao."
+          }
+        ],
+        "porQueIssoImporta": "O ponto cego nao sumiu quando semver e fflate ganharam versao: ele MUDOU DE LUGAR. Saiu de duas bibliotecas JavaScript para duas bibliotecas nativas de descompressao e transcodificacao de textura, que processam bytes de arquivo vindos do servidor. A superficie e pior, nao melhor."
+      },
+      "achadoDeCadeiaDeSUPRIMENTOS": "Os caminhos de fonte dentro do wasm do zstd mostram que as crates do fornecedor vieram de um ESPELHO de terceiro, e nao do crates.io: o diretorio de registro e rsproxy.cn-e3de039b2554c837, e nao index.crates.io. Isso nao e um defeito e nao muda nada no nosso lado, mas e um fato de procedencia que so aparece lendo o binario, e que nao estava registrado ate 2026-09-14. Os mesmos caminhos publicam o usuario da maquina de build do fornecedor.",
+      "pedidoAoFornecedor": {
+        "estado": "TEXTO PRONTO PARA O DONO ENVIAR, em docs/seguranca/aholo-viewer-pedido-de-manifesto.md. O repositorio nao envia nada.",
+        "oQueSePede": "A versao upstream (ou o commit) do Draco e do transcodificador Basis/KTX2 embutidos no 1.8.1, se ha remendo local sobre elas, e o sha256 dos artefatos upstream de partida. Mais duas sugestoes que dispensariam o pedido no futuro: manter a secao producers nos tres modulos, como o zstd ja faz, ou publicar um manifesto dos modulos embutidos no proprio pacote.",
+        "seNaoVier": "O ponto cego declarado permanece, e continua melhor que a opcao recusada. O caminho que NAO depende de resposta e fechar os dois por hash contra os artefatos publicados de Draco e Basis Universal, que e o metodo que resolveu o Turf neste mesmo inventario; ele nao bloqueia lancamento."
+      }
     }
   }
 }
