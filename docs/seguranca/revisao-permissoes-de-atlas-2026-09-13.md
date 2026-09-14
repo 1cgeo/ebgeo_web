@@ -259,6 +259,26 @@ par), mas o cabeçalho descreve um alcance menor que o real.
 para 400 (`middleware/error-handler.js`). O comportamento corrigido é o mesmo; a descrição do estado
 anterior é que está uma faixa acima. Medido em P4.
 
+### P21. transferência de posse (CONFERIDO, SEM DEFEITO, e é a frente mais bem coberta)
+
+A pergunta do escopo era "deixa dois donos ou nenhum?". Não deixa, e a razão é estrutural: o `UPDATE` de
+entrega é escopado pelo dono contra o qual o chamador foi autorizado (`WHERE id = $1 AND owner_id = $3`), e
+`rowCount === 0` vira 409. O comentário do serviço explica por que a correção mais barata (comparar a linha
+já lida contra `currentOwnerId`) **não** fecha o caso: sob READ COMMITTED as duas transações leem o dono
+pré-transferência antes de qualquer escrita, então as duas comparações passam, e o que de fato decide é a
+reavaliação do `WHERE` contra a linha commitada depois do lock. Um par ler-depois-escrever não é exclusão
+mútua.
+
+Três regras andam junto e estão testadas: o novo dono precisa ser membro **ativo** e por share **direto**
+(posse é nominal, e dá-la a quem só alcança o atlas por grupo trocaria autoridade revogável por
+irrevogável); o ex-dono cai para `manage`, nunca para nada; e quando quem dispara é o administrador global,
+quem é rebaixado é o dono REAL, e o administrador não coleta share nenhum.
+
+Preso por `backend/tests/integration/atlas-transfer-ownership.test.js` (10 casos),
+`backend/tests/integration/atlas-transfer-ownership-race.test.js` (corridas em série, com "um vencedor cada"
+e "nenhum candidato fica sem posse e sem share" asseridos à parte) e
+`backend/tests/integration/atlas-transfer-admin-actor.test.js` (5 casos).
+
 ## Estado das cláusulas
 
 Nenhuma cláusula mudou de estado nesta revisão: os defeitos corrigidos (P1..P4) estavam todos **abaixo** do

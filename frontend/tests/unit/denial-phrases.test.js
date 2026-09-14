@@ -70,6 +70,23 @@ describe('denialNotice', () => {
         }
     });
 
+    it('a chave HERDADA cai no padrão, e não devolve um membro de Object.prototype', () => {
+        // A tabela carrega o protótipo de Object, então `CAPABILITY_DENIAL['toString']` é uma
+        // FUNÇÃO: ela não é nula e passaria direto por um `??`, e o toast mostraria
+        // `function toString() { [native code] }` no lugar de uma frase. `Object.freeze` não
+        // protege disso, e esta casa já pagou a mesma forma uma vez, na tabela de avisos de
+        // chegada indexada pela URL.
+        //
+        // O caso é INALCANÇÁVEL pelo caminho vivo (a chave vem de `checkPermission().required`,
+        // isto é, de uma tabela interna congelada), e está aqui exatamente por isso: é ele que
+        // mantém a propriedade no dia em que a chave passar a vir de outro lugar.
+        for (const herdada of ['toString', 'constructor', 'valueOf', 'hasOwnProperty', '__proto__']) {
+            const frase = denialNotice(herdada);
+            expect(typeof frase, herdada).toBe('string');
+            expect(frase, herdada).toBe(UNKNOWN_DENIAL_TEXT);
+        }
+    });
+
     it('toda frase é pt-BR de tela: termina em ponto e não vaza jargão do guarda', () => {
         for (const cap of phrasedCapabilities()) {
             const frase = denialNotice(cap);

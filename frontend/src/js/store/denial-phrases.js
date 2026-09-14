@@ -61,7 +61,17 @@ export const UNKNOWN_DENIAL_TEXT = 'Seu nível neste atlas não permite esta aç
  */
 export function denialNotice(capability) {
     if (typeof capability !== 'string') return UNKNOWN_DENIAL_TEXT;
-    return CAPABILITY_DENIAL[capability] ?? UNKNOWN_DENIAL_TEXT;
+    // `Object.hasOwn` E NAO `??`, e a diferenca so aparece na chave HERDADA: esta tabela carrega o
+    // prototipo de Object, entao `CAPABILITY_DENIAL['toString']` devolve uma FUNCAO, que nao e
+    // nula e passa direto pelo `??`. O toast mostraria `function toString() { [native code] }` no
+    // lugar de uma frase, que e o oposto exato do que este arquivo existe para garantir, e
+    // `Object.freeze` nao protege disso. Esta casa ja pagou esta forma uma vez, na tabela de
+    // avisos de chegada indexada pela URL. Aqui a chave vem de `checkPermission().required`, isto
+    // e, de uma tabela interna congelada, de modo que o caso e INALCANCAVEL hoje: a troca existe
+    // para que ele continue inalcancavel no dia em que a chave passar a vir de outro lugar.
+    return Object.hasOwn(CAPABILITY_DENIAL, capability)
+        ? CAPABILITY_DENIAL[capability]
+        : UNKNOWN_DENIAL_TEXT;
 }
 
 /**
