@@ -2,12 +2,12 @@
 
 /**
  * @fileoverview Real end-to-end coverage for `catalogLayer` sync against the live
- * backend. Exercises both shapes the backend accepts:
+ * backend. There is ONE shape the backend accepts, and one it names as it refuses:
  *  - Per-layer entity: create/update/delete rows keyed by the layer id, surfaced
  *    in the snapshot as `maps[].catalogLayers`.
- *  - Legacy whole-array form: `data.catalog_layers = [...]` is materialised as one row per
- *    item in the same dedicated table. Migration 022 dropped the `maps.catalog_layers` column
- *    it used to write, so the two shapes now share a single home.
+ *  - Legacy whole-array form (`data.catalog_layers = [...]`): REFUSED by name since 2026-09-13
+ *    (B5, item 5). It addressed no single row, so no base could be observed about it and the
+ *    per-entity revision check had nothing to compare, and no live client emitted it.
  *
  * Drives the backend only through the public ApiClient + createOperation + the
  * shared harness; every assertion is an observable round-trip via pullSync.
@@ -120,33 +120,39 @@ describe.skipIf(E2E_SKIP)('e2e: catalogLayer sync', () => {
         expect(map.catalogLayers.some((l) => l.id === layerId)).toBe(false);
     });
 
-    it('materialises the legacy whole-array form into the per-layer list', async () => {
-        // Legacy form: entityId is the map (the array is map-scoped), payload carries
-        // `catalog_layers: [...]`. It used to write the `maps.catalog_layers` column, which
-        // migration 022 dropped; it now becomes one row per item in the dedicated table, which
-        // is the only surface the client reads.
-        const arrayPayload = [
-            { id: 'legacy-a', name: 'Camada A', visible: true },
-            { id: 'legacy-b', name: 'Camada B', visible: false },
-        ];
+    it('recusa a forma de LISTA, por nome, sem materializar nada', async () => {
+        // A FORMA DE LISTA SAIU EM 2026-09-13 (B5, item 5). O `entityId` dela era o mapa e o
+        // payload era a lista inteira, então ela não endereçava linha nenhuma: não havia base a
+        // observar e a verificação por revisão não tinha o que comparar. Este caso media que ela
+        // materializava; hoje mede que ela é RECUSADA, e que a recusa não escreve nada, porque o
+        // desfecho perigoso não é o erro, é o ack de sucesso sobre zero linhas escritas.
         const op = createOperation('catalogLayer', 'update', mapId, mapId, {
-            catalog_layers: arrayPayload,
+            catalog_layers: [
+                { id: 'legacy-a', name: 'Camada A', visible: true },
+                { id: 'legacy-b', name: 'Camada B', visible: false },
+            ],
         });
-        await api.pushOperations(atlasId, [op]);
+        const resposta = await api.pushOperations(atlasId, [op]);
+
+        const ack = resposta.acks[0];
+        expect(ack.rejected).toBe(true);
+        expect(ack.reason).toMatch(/lista inteira de camadas de catálogo/);
 
         const map = await snapshotMap(api, atlasId, mapId);
-        expect(map.catalog_layers).toBeUndefined();
-        const porId = Object.fromEntries(map.catalogLayers.map((l) => [l.id, l]));
-        expect(porId['legacy-a'].name).toBe('Camada A');
-        expect(porId['legacy-a'].visible).toBe(true);
-        expect(porId['legacy-b'].visible).toBe(false);
+        expect(map.catalogLayers.some((l) => l.id === 'legacy-a')).toBe(false);
+        expect(map.catalogLayers.some((l) => l.id === 'legacy-b')).toBe(false);
     });
 
-    it('keeps the array entries verbatim: no `type`, so nothing is pruned', async () => {
-        // The discriminating half of the case above. An array entry carries no `type`, so it
-        // CLAIMS no catalog resource, and both the rehydration and the log prune must leave it
-        // exactly as it arrived — `name` included. A prune that reached every entry would still
-        // pass the round-trip above and fail here.
+    it('a entrada SEM `type` atravessa verbatim: nada é podado dela', async () => {
+        // A metade discriminante do caso acima, e ela nunca foi sobre a LISTA: uma entrada sem
+        // `type` não CLAMA recurso de catálogo, então a reidratação e a poda do log têm de
+        // deixá-la exatamente como chegou, `name` incluído. Uma poda que alcançasse toda entrada
+        // passaria no round-trip da forma por camada e falharia aqui.
+        await api.pushOperations(atlasId, [
+            createOperation('catalogLayer', 'create', 'legacy-a', mapId,
+                { id: 'legacy-a', name: 'Camada A', visible: true }),
+        ]);
+
         const map = await snapshotMap(api, atlasId, mapId);
         const entrada = map.catalogLayers.find((l) => l.id === 'legacy-a');
         expect(entrada.name).toBe('Camada A');

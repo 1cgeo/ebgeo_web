@@ -14,9 +14,9 @@
  *   - update  -> overwrite the row `data` (reads op.changes ?? op.data; the factory
  *     packs everything into `data`).
  *   - delete  -> soft-delete (`deleted_at`), so the row leaves the snapshot.
- *   - legacy whole-array form: `data.catalog_layers` is an array -> materialised as one row
- *     per item in the SAME per-layer table (it used to write the `maps.catalog_layers` column,
- *     which migration 022 dropped), so it now surfaces in `map.catalogLayers`.
+ *   - legacy whole-array form: `data.catalog_layers` as an array is REFUSED by name since
+ *     2026-09-13 (B5, item 5). It addressed no single row, so no base could be observed about it
+ *     and the per-entity revision check had nothing to compare; no live client emitted it.
  *   - snapshot shape: `map.catalogLayers = [{ id, ...data, sync }]`.
  *
  * Each test creates its OWN user + atlas + map for isolation.
@@ -218,7 +218,7 @@ describeOrSkip('Browser catalogLayer (per-layer) sync (real Chromium + real back
         expect(matches[0].name).toBe('Original');
     });
 
-    test('legacy whole-array form is materialised as per-layer rows, verbatim', async ({
+    test('legacy whole-array form is refused by name, and writes nothing', async ({
         page,
     }) => {
         await page.goto('/');
@@ -228,28 +228,28 @@ describeOrSkip('Browser catalogLayer (per-layer) sync (real Chromium + real back
         // envelope (entityId == MAP id) is an old wire shape the current app never emits, so it
         // is driven directly through the real api-client.
         //
-        // It used to land in the `maps.catalog_layers` column, deliberately separate from the
-        // per-layer list. Migration 022 dropped that column, and the shim now writes one row per
-        // item into the same dedicated table — so the assertion inverted: the entry must SURFACE.
-        // It is a hillshade entry, which claims no catalog resource, so it also has to arrive
-        // verbatim, `name` included: that is the half that discriminates against a prune that
-        // reached every entry.
-        const arrayId = await page.evaluate(async ({ atlasId, mapId }) => {
+        // THE ASSERTION INVERTED TWICE. It used to land in the `maps.catalog_layers` column; when
+        // that column went, the shim materialised one row per item and the case asserted the
+        // entry SURFACED. Since 2026-09-13 (B5, item 5) the form is refused by name before the
+        // log: it addressed no single row, so there was nothing for a base to be observed about,
+        // and the out-of-order case stayed permanently open for a shape nobody sends. What has to
+        // be measured now is the refusal AND the silence of the write, because the dangerous
+        // outcome was never an error, it was an ack of success over zero rows.
+        const { arrayId, ack } = await page.evaluate(async ({ atlasId, mapId }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
             const id = crypto.randomUUID();
-            await window.__cat.api.pushOperations(atlasId, [
+            const resposta = await window.__cat.api.pushOperations(atlasId, [
                 createOperation('catalogLayer', 'update', mapId, mapId, {
                     catalog_layers: [{ id, type: 'hillshade', name: 'LegacyArrayLayer' }],
                 }),
             ]);
-            return id;
+            return { arrayId: id, ack: resposta.acks[0] };
         }, ids);
 
+        expect(ack.rejected).toBe(true);
+        expect(ack.reason).toMatch(/lista inteira de camadas de catálogo/);
         const layers = await readCatalogLayers(page, ids);
-        const entry = layers.find((l) => l.id === arrayId);
-        expect(entry).toBeDefined();
-        expect(entry.name).toBe('LegacyArrayLayer');
-        expect(entry.type).toBe('hillshade');
+        expect(layers.find((l) => l.id === arrayId)).toBeUndefined();
     });
 
     test('cross-atlas IDOR guard: a catalogLayer pinned to another atlas’ map is rejected silently', async ({
