@@ -253,13 +253,21 @@ export function unitsForColumns(target, columns) {
  * cover exactly the same ground, which is the property that makes the unit table true of the
  * statement and not only of the refusal.
  *
+ * AN EMPTY SCOPE IS A PRECISE ANSWER, AND THE ANSWER IS "NO COLUMN". It is the one empty case that
+ * is not ignorance: `prepareEntityMutation` stamps it when the operation's own declaration claims
+ * no unit, which is what a client says when it rewrote a document without changing a field. Widening
+ * it to "do not narrow" is what made such an operation still WRITE its payload and bump the row's
+ * version, leaving the durable frontier describing a version that no longer exists and refusing the
+ * author's next edit. Measured on 2026-09-13, on the `baseLayer` op of a map switch.
+ *
  * @param {string} target - Normalized target.
  * @param {string[]|undefined} units - `op._unitScope`, when the op has one.
  * @returns {Set<string>|null} Columns the write may touch, or null for "do not narrow".
  */
 export function columnsForUnits(target, units) {
   const spec = DISPUTE_UNITS[target];
-  if (!spec || spec.wholeDocument || !Array.isArray(units) || units.length === 0) return null;
+  if (!spec || spec.wholeDocument || !Array.isArray(units)) return null;
+  if (units.length === 0) return new Set();
   if (units.includes('*') || units.includes(DOCUMENTO)) return null;
   const allowed = new Set();
   for (const entry of spec.units) {
@@ -505,9 +513,17 @@ export async function prepareEntityMutation(t, atlasId, op, rawOp, userId, decla
   // `rawOp` goes in because the declaration the CLIENT made (`patch`) is finer than the payload
   // for every entity that ships a whole document, and it is the caller that knows how to read it.
   const units = unitsForColumns(op.target, declaredColumns(op, rawOp));
-  // Declaring no column means writing no column: `buildDynamicUpdate` returns null for that and
-  // the op is a no-op either way, so there is nothing to compare and nothing to record.
-  if (units.length === 0) return null;
+  // DECLARAR NENHUMA COLUNA É ESCREVER NENHUMA COLUNA, e desde 2026-09-13 é este ramo que torna a
+  // frase verdadeira. Ela nasceu quando a reivindicação vinha do PAYLOAD, onde nenhuma coluna
+  // declarada significava que `buildDynamicUpdate` também não acharia nenhuma; com a reivindicação
+  // vindo do `patch` do cliente as duas metades se descolaram, e sair por `return null` deixava a
+  // op escrever o payload inteiro, subir a `version` da linha e envelhecer a fronteira durável,
+  // que é o que recusava a edição SEGUINTE do mesmo autor. O escopo vazio é a licença de escrever
+  // nada (`columnsForUnits`), e o recibo continua devolvendo a revisão corrente, que é o que
+  // reconcilia a base do autor em vez de deixá-la para trás.
+  if (units.length === 0) {
+    return { op: { ...op, _unitScope: [] }, previous: current, versions: null, fields: [] };
+  }
 
   const entityId = revisionKeyOf(op);
   const versions = await readFieldFrontier(t, atlasId, op.target, entityId, currentVersion);

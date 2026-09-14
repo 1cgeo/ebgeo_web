@@ -3177,11 +3177,23 @@ const PATCH_NARROWED_TARGETS = new Set(['layer', 'map']);
  * dropping a key someone deliberately erased would leave that column out of the claim and then out
  * of the narrowed write, which is the erase silently not happening.
  *
+ * UM ARRAY VAZIO É UMA DECLARAÇÃO, NÃO A AUSÊNCIA DE UMA, e juntar os dois foi o defeito medido em
+ * 2026-09-13. `entityMutationContract` (frontend `store/sync/mutation-contract.js`) compara o
+ * documento que leu com o que escreveu e publica `[]` quando nada fora dos campos de escrituração
+ * mudou: a operação diz, com todas as letras, que não mudou campo nenhum. Lida como "sem patch",
+ * ela caía no payload inteiro e disputava toda unidade que aquele payload carrega, de modo que um
+ * `baseLayer` que regravava o valor JÁ armazenado era recusado nomeando `mapaBase`, a unidade que a
+ * op anterior DO MESMO AUTOR acabara de mover. A recusa vira problema durável, e o `PendingBlockade`
+ * do cliente segura toda operação seguinte daquele MAPA: uma escrita de mapa que não mudava nada
+ * parava a fila de saída inteira e a criação de camada nunca saía. Entrada MALFORMADA continua
+ * alargando, porque essa sim é ilegível.
+ *
  * @param {*} patch - `rawOp.patch`.
  * @returns {Object|null}
  */
 function patchAsChanges(patch) {
-  if (!Array.isArray(patch) || patch.length === 0) return null;
+  if (!Array.isArray(patch)) return null;
+  if (patch.length === 0) return {};
   const changes = {};
   for (const entry of patch) {
     const key = Array.isArray(entry?.path) ? entry.path[0] : null;
