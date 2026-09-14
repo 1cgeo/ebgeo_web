@@ -381,6 +381,38 @@ const CENSO_CONSULTA = [
       + 'Não é superfície de leitura de recurso: devolve uma coluna e nenhum conteúdo, e sai pelo '
       + 'mesmo gate da escrita que ela acompanha.',
   },
+  {
+    arquivo: 'src/modules/resource-access/resource-access.queries.js',
+    unidade: 'SET_360_PREVIEW_VIDEO_URL', n: 1, classe: ESCRITA,
+    predicado: 'requireResourceMaintainer',
+    motivo: 'A RE-CUNHAGEM do nome do vídeo de prévia do 360, na mesma transação da virada para '
+      + 'privado (decisão D14, 2026-09-14). Ela roda SÓ depois de `SET_360_ACCESS_LEVEL` ter '
+      + 'devolvido linha, ou seja, depois de o `fn_can_produce_resource` daquele WHERE já ter '
+      + 'decidido que este ator escreve esta linha; repetir o predicado aqui seria a segunda cópia '
+      + 'dele, a envelhecer em paralelo. A irmã de catálogo (`setCatalogPreviewVideoUrl`) é '
+      + 'invisível para a varredura pelo mesmo motivo de `setCatalogAccessLevel`: ela interpola a '
+      + 'tabela num `UPDATE ${...}`, e o buraco está declarado ali.',
+  },
+
+  // ---------------- o vídeo de prévia hospedado -------------------------------
+  {
+    arquivo: 'src/modules/catalog-video/catalog-video.queries.js', unidade: 'ramoDeCatalogo',
+    n: 1, classe: SQL, predicado: P_CATALOGO_AUTZ,
+    motivo: 'Um ramo da união que resolve QUAL recurso de catálogo é dono de um arquivo de vídeo, '
+      + 'com o predicado dentro do `WHERE`. Ele é função e não três consultas escritas à mão pela '
+      + 'razão de `sv360AccessPredicate`: o que muda entre as três tabelas é o nome e o tipo, e '
+      + 'três cópias divergiriam no ramo que ninguém olha.',
+  },
+  {
+    arquivo: 'src/modules/catalog-video/catalog-video.queries.js',
+    unidade: 'FIND_RESOURCE_BY_PREVIEW_VIDEO', n: 1, classe: SQL, predicado: P_360,
+    motivo: 'A união inteira: as três tabelas de catálogo (pelo ramo acima) mais o projeto 360, '
+      + 'este com `sv360AccessPredicate` e não com `fn_can_see_resource` sozinha, porque o eixo de '
+      + 'OCULTAÇÃO (`status`) também precisa valer — a prévia não pode sobreviver à ocultação do '
+      + 'recurso que ela previsualiza. Linha nenhuma vira 404, e "não existe" e "você não vê" são '
+      + 'indistinguíveis de propósito. O `basemaps` fica de fora porque a cláusula 2.4 diz que '
+      + 'mapa base não tem vídeo de prévia, e nenhuma escrita produz o dado que um ramo aqui leria.',
+  },
 
   {
     arquivo: 'src/modules/resource-access/resource-access.queries.js',
@@ -1073,14 +1105,16 @@ const CENSO_ROTA = [
 
   // ---------------- vídeo de prévia hospedado --------------------------------
   {
-    arquivo: 'src/modules/catalog-video/catalog-video.routes.js', rota: 'GET /:file', classe: R_PUBLICA,
-    gate: 'flexibleAuth',
-    motivo: 'Serve os bytes do vídeo de prévia hospedado, PÚBLICO-POR-URL: o nome do arquivo carrega '
-      + 'um token de 16 bytes aleatórios, e a URL só chega a quem VÊ o recurso (config público, ou o '
-      + 'payload aditivo do privado). O RISCO é o de um link de capacidade: quem tem a URL busca o '
-      + 'arquivo, como no link público de atlas. Não há gate por recurso aqui de propósito, porque o '
-      + 'token é o segredo; um gate por tipo exigiria mapear o arquivo de volta ao recurso, e o '
-      + 'vídeo de prévia não justifica isso.',
+    arquivo: 'src/modules/catalog-video/catalog-video.routes.js', rota: 'GET /:file',
+    classe: R_FILTRADA, gate: 'requireAtlasScopeWhenPresent',
+    motivo: 'Serve os bytes do vídeo de prévia, resolvendo o recurso DONO do arquivo e aplicando o '
+      + 'mesmo predicado das outras mídias dele (`FIND_RESOURCE_BY_PREVIEW_VIDEO`). Ela foi '
+      + 'PÚBLICO-POR-URL até 2026-09-14: o token de 16 bytes no nome era a capacidade, e a '
+      + 'justificativa ("a URL só chega a quem vê o recurso") é verdadeira a cada instante e falsa '
+      + 'ao longo do tempo, porque a URL de um recurso que já foi público circulou dentro do '
+      + '`/api/config`, que é o documento anônimo e cacheável, e marcar privado não movia byte '
+      + 'nenhum. Decisão D14 fechou as duas metades: o gate daqui para a frente, e a re-cunhagem '
+      + 'do nome para matar a URL que já saiu.',
   },
 
   // ---------------- config: o documento de boot ------------------------------
@@ -1628,13 +1662,14 @@ const CENSO_CACHE = [
   },
   {
     arquivo: 'src/modules/catalog-video/catalog-video.controller.js',
-    trecho: "'public, max-age=31536000, immutable'", n: 1, classe: C_PUBLICO_FIXO,
-    motivo: 'O vídeo de prévia hospedado sai `public, immutable`, e é FIXO de propósito, não por '
-      + 'descuido: o arquivo é público-por-URL (o token de 16 bytes no nome é a capacidade), então '
-      + 'não há eixo de acesso a seguir como na imagem 360 ou no modelo 3D. O RISCO é o do link de '
-      + 'capacidade — um cache compartilhado repõe o vídeo a quem tiver a URL —, e ele é aceito '
-      + 'porque a URL só chega a quem já vê o recurso, e o conteúdo é uma prévia, não dado sensível. '
-      + 'O token torna o arquivo único, então imutável é correto.',
+    trecho: "privado ? IMMUTABLE_PRIVADO : IMMUTABLE", n: 1, classe: C_CONDICIONAL,
+    motivo: 'O vídeo de prévia sai IMUTÁVEL nos dois ramos (o token no nome torna o arquivo único) '
+      + 'e o que o eixo de acesso decide é o ESCOPO. Era `public` FIXO até 2026-09-14, quando a '
+      + 'rota ganhou gate por recurso: a partir dali, um vídeo de recurso privado saindo `public` '
+      + 'seria reposto por um cache compartilhado a quem não o alcança, que é exatamente a porta '
+      + 'dos fundos que o gate acabou de fechar. É a mesma compra que a fase F9 fez no 360 e a F11 '
+      + 'no /assets3d, e o `vary()` (em vez de `setHeader`) é pela mesma razão de lá: o CORS já '
+      + 'escreveu `Vary: Origin` e o `compression` acrescenta `Accept-Encoding`.',
   },
 ];
 
@@ -1740,6 +1775,13 @@ const CENSO_REGIME = [
     arquivo: 'src/modules/nomes/assets3d.routes.js', rota: 'GET /*', handler: 'serveAsset',
     controller: 'src/modules/nomes/assets3d.controller.js', classe: C_CONDICIONAL,
     marcador: 'setImmutableHeaders(',
+  },
+
+  // ---------------- os bytes do vídeo de prévia ------------------------------
+  {
+    arquivo: 'src/modules/catalog-video/catalog-video.routes.js', rota: 'GET /:file',
+    handler: 'serveVideo', controller: 'src/modules/catalog-video/catalog-video.controller.js',
+    classe: C_CONDICIONAL, marcador: 'setVideoHeaders(',
   },
 
   // ---------------- os buracos, nomeados e com teto --------------------------
@@ -2303,14 +2345,15 @@ describe('Censo das superfícies de recurso (fase F9)', () => {
     assert.deepEqual(
       publicas.map((e) => `${e.arquivo} :: ${e.rota}`),
       [
-        // O vídeo de prévia hospedado, PÚBLICO-POR-URL: o token no nome do arquivo é a
-        // capacidade, e a URL só chega a quem vê o recurso (decisão do dono, 2026-08-29). O
-        // RISCO está escrito na entrada de CENSO_ROTA acima; entrar aqui é o ato deliberado.
-        'src/modules/catalog-video/catalog-video.routes.js :: GET /:file',
+        // SOBROU UMA, DE NOVO. O vídeo de prévia hospedado saiu daqui em 2026-09-14 (decisão
+        // D14): ele era público-por-URL, com o token no nome do arquivo como capacidade, e a
+        // justificativa ("a URL só chega a quem vê o recurso") não sobrevive ao TEMPO — a URL
+        // de um recurso que já foi público circulou dentro do documento abaixo, que é anônimo e
+        // cacheável. Hoje ele resolve o recurso dono e aplica o predicado dele.
         'src/modules/config/config.routes.js :: GET /',
       ],
-      'as rotas de leitura públicas por desenho são o documento de boot e o vídeo hospedado; '
-      + 'qualquer outra precisa ser classificada de novo, com o RISCO escrito'
+      'a única rota de leitura pública por desenho é o documento de boot; qualquer outra precisa '
+      + 'ser classificada de novo, com o RISCO escrito'
     );
     const semRisco = publicas.filter((e) => !e.motivo.includes('RISCO'))
       .map((e) => `${e.arquivo} :: ${e.rota}`);

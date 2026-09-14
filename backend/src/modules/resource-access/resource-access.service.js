@@ -26,6 +26,12 @@ import { resourceRefKey } from '../atlas/resource-reference.registry.js';
 // `countAtlasesLendingResource`), e não só a reexportá-la: um `export { x } from` reexporta
 // sem criar ligação local, então usá-la aqui exige o import de verdade.
 import { atlasesLendingResource, avisarAtlasQueEmprestam } from './resource-access.notify.js';
+// A RE-CUNHAGEM DO VÍDEO DE PRÉVIA vive no store do vídeo, não aqui: o nome do arquivo, a
+// extensão que ele preserva e o prefixo que distingue vídeo hospedado de URL externa são todos
+// daquele módulo, e uma segunda definição de "este endereço é nosso" é o defeito que a decisão
+// D14 fecha, não um que ela deva abrir.
+import { remintVideoUrl, renameHostedVideo } from '../catalog-video/catalog-video.store.js';
+import logger from '../../utils/logger.js';
 
 /**
  * Marca um recurso como público ou privado.
@@ -51,11 +57,34 @@ export async function setResourceVisibility({ type, resourceId, accessLevel, act
   const table = tableOf(t);
   const actorId = actor?.id ?? null;
 
+  /** @type {{de: string, para: string}|null} O que mover em disco DEPOIS do commit. */
+  let remint = null;
   const row = await tx(async (trx) => {
     const updated = table
       ? await trx.oneOrNone(Q.setCatalogAccessLevel(table), [accessLevel, resourceId, actorId, t])
       : await trx.oneOrNone(Q.SET_360_ACCESS_LEVEL, [accessLevel, resourceId, actorId]);
     if (!updated) throw new NotFoundError('Resource');
+    // A RE-CUNHAGEM DO VÍDEO DE PRÉVIA (decisão D14, 2026-09-14). Marcar privado precisa MOVER
+    // byte, e esta era a única superfície de recurso em que não movia: a URL do vídeo circulou
+    // dentro do `/api/config`, que é o documento anônimo e cacheável, enquanto o recurso era
+    // público, e nada a invalidava depois. O nome novo mata a URL antiga sozinho, porque o gate
+    // da rota resolve o arquivo A PARTIR da linha do recurso: sem linha que o nomeie, o nome
+    // velho é 404, e isso vale mesmo que o `rename` em disco falhe.
+    //
+    // SÓ NA IDA. Voltar a público não re-cunha, e a assimetria é deliberada: a URL que circulou
+    // enquanto o recurso era PRIVADO só chegou a quem o via, então não há capacidade vazada a
+    // matar, e re-cunhar na volta quebraria toda página que já tem o endereço em mãos.
+    //
+    // URL EXTERNA (o que o deploy antigo tinha) NÃO É NOSSA: `remintVideoUrl` devolve null para
+    // ela, e mexer no nome de um arquivo de terceiro seria inventar autoridade sobre ele.
+    if (accessLevel === 'private') {
+      const novaUrl = remintVideoUrl(updated.preview_video);
+      if (novaUrl) {
+        if (table) await trx.none(Q.setCatalogPreviewVideoUrl(table), [resourceId, novaUrl]);
+        else await trx.none(Q.SET_360_PREVIEW_VIDEO_URL, [resourceId, novaUrl]);
+        remint = { de: updated.preview_video, para: novaUrl };
+      }
+    }
     // O ALVO É COLUNA DE PRIMEIRA CLASSE, e esta é a linha que motivou a mudança de
     // schema. Até ela, as duas restrições do schema de auditoria (002_auditoria.sql)
     // empurravam tipo e id para dentro de `details` — o CHECK de `target_type` não
@@ -81,6 +110,19 @@ export async function setResourceVisibility({ type, resourceId, accessLevel, act
     }, trx);
     return updated;
   });
+
+  // O DISCO SÓ DEPOIS DO COMMIT, e a ordem é a decisão: renomear antes deixaria, num rollback,
+  // a linha apontando para um arquivo que não existe mais com o recurso ainda PÚBLICO, isto é,
+  // quebraria o que devia continuar funcionando. Nesta ordem, uma falha de `rename` custa a
+  // prévia do recurso que acabou de virar privado, e a URL antiga já morreu de qualquer jeito:
+  // a falha é FECHADA. Ela é REGISTRADA em vez de engolida, porque o arquivo que ficou para trás
+  // é o que alguém precisa achar para consertar à mão.
+  if (remint && !renameHostedVideo(remint.de, remint.para)) {
+    logger.warn(
+      { resourceType: t, resourceId, de: remint.de, para: remint.para },
+      'video de previa re-cunhado no banco e NAO movido em disco',
+    );
+  }
 
   invalidateAppConfigCache();
   // `owner_org_id` NÃO sai no corpo: ele entrou no `RETURNING` para a trilha, e o

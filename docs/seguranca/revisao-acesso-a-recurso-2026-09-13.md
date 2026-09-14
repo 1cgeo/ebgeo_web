@@ -23,7 +23,7 @@ inteira; controle negativo obrigatório em cada correção, com a taxa relatada.
 | 8 | download 3D, raiz e filhos `.b3dm` | `fn_can_see_resource` via `recursoPrivadoLiberado`, memoizado | `gateDeAsset3d` | `backend/tests/integration/assets3d-privado.test.js` (+ o caso de grupo desta revisão) |
 | 9 | cena caminhável (splat e a pasta inteira) | idem, pelo mesmo gate por CAMINHO | `gateDeAsset3d` | `backend/tests/integration/models3d-cena.test.js` |
 | 10 | tile raster/vetorial do servidor de tiles | `fn_can_see_resource` via `recursoPrivadoLiberado`, sobre o índice de regime | `requireTileAccess` (`auth_request` do nginx) | `backend/tests/integration/tile-access-auth-request.test.js` |
-| 11 | vídeo de prévia hospedado | nenhum: público-por-URL, o token de 16 bytes no nome é a capacidade | `flexibleAuth` | classificado em `backend/tests/unit/superficies-de-recurso-censo.test.js`; ver R6 |
+| 11 | vídeo de prévia hospedado | era NENHUM (público-por-URL, o token de 16 bytes no nome era a capacidade); desde 2026-09-14 é o predicado do recurso dono, por `FIND_RESOURCE_BY_PREVIEW_VIDEO` | era `flexibleAuth`; hoje `requireAtlasScopeWhenPresent` | `backend/tests/integration/video-de-previa-gateado.test.js`; ver R6 |
 | 12 | busca (gazetteer) | não tem eixo público/privado (cláusula 2.2) | limitador | `frontend/tests/e2e/nomes-busca-anon.e2e.test.js` |
 | 13 | snapshot de sync (definição de camada de catálogo) | `catalogAuthorizationPredicate` na reidratação | `requireAtlasPermission` | `backend/tests/integration/catalog-layer-cadeia-de-vazamento.test.js` |
 | 14 | escrita por sync que REFERENCIA recurso | `unseenResourceDenialReason`, tabela de extratores por alvo | recusa POR OPERAÇÃO | `backend/tests/integration/sync-referencia-privada.test.js` |
@@ -127,7 +127,16 @@ Não havia defeito no código (o gate compõe o mesmo predicado, e o caso passa)
 inteiro é uma linha em `access_group_members`, e mede a raiz e o filho `.b3dm`. Controle negativo:
 sem a linha de composição, o caso reprova (39 passam, 1 falha).
 
-### R6: o vídeo de prévia é capacidade e a capacidade sobrevive ao público→privado · ABERTO PARA O DONO
+### R6: o vídeo de prévia é capacidade e a capacidade sobrevive ao público→privado · DECIDIDO E FECHADO EM 2026-09-14
+
+> **Estado:** o dono decidiu (D14, [`../decisions/decisions-2026.md`](../decisions/decisions-2026.md)) pela
+> primeira das duas saídas que este achado oferecia, e ela veio inteira. A rota resolve o recurso DONO do
+> arquivo e aplica o MESMO predicado das outras mídias dele, com 404 (nunca 403) para quem não pode; marcar
+> privado RE-CUNHA o nome do arquivo na mesma transação, de modo que a URL que circulou enquanto o recurso
+> era público morre. O censo mudou de classe junto (a rota saiu de `recurso-publico-por-desenho` e o
+> cabeçalho de cache deixou de ser `public` fixo). Guarda:
+> `backend/tests/integration/video-de-previa-gateado.test.js`. O texto abaixo fica como foi escrito na
+> revisão, porque é ele que descreve o mundo que a decisão fechou.
 
 `GET /api/v1/catalog-videos/:file` (`backend/src/modules/catalog-video/catalog-video.routes.js`) é
 público-por-URL: o nome do arquivo carrega 16 bytes aleatórios e a URL é a capacidade. O censo

@@ -140,6 +140,24 @@ describe('o recorte de categorias do vídeo de prévia', () => {
         expect(cartao).not.toContain('catalog-card-btn--preview');
     });
 
+    it('as DUAS superfícies de prévia carimbam o escopo: o modal e o POPUP do marcador 3D', () => {
+        // O POPUP ERA O BURACO, e ele sobreviveu porque a metade de cá parecia coberta: o modal
+        // do catálogo carimba desde que nasceu, e o cabeçalho dele diz por extenso que um
+        // `<video src>` não carrega `Authorization`. O popup fazia `video.src = previewVideo`
+        // cru, e enquanto a rota do vídeo era pública-por-URL isso não custava nada. Com o gate
+        // de 2026-09-14 (decisão D14) passou a custar: a prévia de um recurso privado alcançado
+        // por EMPRÉSTIMO cairia no `onerror` e seria trocada pela miniatura, em silêncio.
+        const popup = lerFonte('src/js/3d_models_viewer_tool/add_3d_models_viewer_control.js');
+        expect(popup).toContain('enderecoDaPrevia(previewVideo)');
+        // DISCRIMINAÇÃO: a forma CRUA não pode voltar. Sem esta linha, acrescentar uma segunda
+        // atribuição sem carimbo deixaria o caso verde pela primeira.
+        expect(popup).not.toMatch(/video\.src\s*=\s*previewVideo\s*;/);
+        // E a função é a COMPARTILHADA, nunca uma segunda chamada de `escoparUrlDeAsset` escrita
+        // ali: duas definições de "o endereço de um vídeo de prévia" divergem, e só uma delas
+        // tem guarda em node (o caso do escopo, mais abaixo).
+        expect(popup).toMatch(/import \{[^}]*enderecoDaPrevia[^}]*\} from '@js\/catalog\/components\/preview-video\.modal\.js'/);
+    });
+
     it('`catalog.service.js` carrega `previewVideo` nas QUATRO famílias que têm cartão', () => {
         const fonte = lerFonte('src/js/catalog/catalog.service.js');
         const ocorrencias = [...fonte.matchAll(/^\s*previewVideo: /gm)];

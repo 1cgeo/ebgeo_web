@@ -228,6 +228,12 @@ async function runTests() {
         // DESENVOLVIMENTO, e rodar a suite destruia o acervo importado — sem erro, e so
         // percebido na proxima vez que alguem abrisse um modelo.
         ASSETS_3D_SQLITE: './data/test-assets3d.sqlite',
+        // O VIDEO DE PREVIA, pela MESMA razao do acervo 3D acima: desde que a rota ganhou gate
+        // por recurso (decisao D14), ha teste que ESCREVE e RENOMEIA arquivo neste diretorio.
+        // Sem esta linha valia o default, que e o caminho de DESENVOLVIMENTO, e rodar a suite
+        // mexeria nos videos de previa importados — sem erro, e so percebido na proxima vez
+        // que alguem abrisse um cartao do catalogo.
+        CATALOG_VIDEO_DIR: './data/test-catalog-videos',
         // A BASE DO SERVIDOR DE TILES precisa existir na suite, e a razao nao se adivinha:
         // o indice de regime (`tile-regime.js`) so indexa endereco que caia sob ela, entao
         // sem ela o indice sai VAZIO. Com o gate por recurso, indice vazio significa

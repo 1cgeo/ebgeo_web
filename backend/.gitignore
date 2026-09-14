@@ -21,6 +21,12 @@ data/e2e-images/
 # aqui, e um git add . os levava para o repositorio.
 data/ui-e2e-images/
 data/assets3d/
+# O video de previa hospedado: o diretorio de DESENVOLVIMENTO e o que a suite escreve
+# (CATALOG_VIDEO_DIR, em `scripts/run-tests.js`). Sao MB por arquivo, e o de teste ganhou nome
+# proprio em 2026-09-14 pela mesma razao do acervo 3D acima: ha caso que ESCREVE e RENOMEIA
+# arquivo la dentro, e sem a variavel ele mexeria no acervo de desenvolvimento.
+data/catalog-videos/
+data/test-catalog-videos/
 data/sv360/
 data/sv360-tmp/
 data/*.sqlite*

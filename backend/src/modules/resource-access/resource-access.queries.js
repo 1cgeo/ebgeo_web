@@ -32,7 +32,29 @@ export const setCatalogAccessLevel = (table) => `
   UPDATE ${table} SET access_level = $1, updated_at = NOW()
    WHERE id = $2 AND active = true
      AND fn_can_produce_resource($3::uuid, $4::text, $2)
-   RETURNING id, name, access_level, owner_org_id
+   RETURNING id, name, access_level, owner_org_id, config->>'previewVideo' AS preview_video
+`;
+
+/**
+ * A RE-CUNHAGEM DO NOME DO VÍDEO DE PRÉVIA, na mesma transação da virada para PRIVADO
+ * (decisão D14, 2026-09-14).
+ *
+ * SEM PREDICADO NO `WHERE`, e isso é seguro por CONSTRUÇÃO, não por descuido: ela só roda depois
+ * de `setCatalogAccessLevel` ter devolvido linha, ou seja, depois de o gate de produção já ter
+ * decidido que este ator escreve esta linha. Repetir o predicado aqui seria uma segunda cópia
+ * dele, a envelhecer em paralelo com a primeira.
+ *
+ * DOIS STATEMENTS E NÃO UM porque a URL nova depende da EXTENSÃO da antiga, que só se conhece
+ * lendo a linha, e ler ANTES do gate seria decidir sobre uma linha que talvez não se possa
+ * escrever.
+ *   $1 = id, $2 = a URL nova
+ * @param {string} table - Já validado.
+ * @returns {string}
+ */
+export const setCatalogPreviewVideoUrl = (table) => `
+  UPDATE ${table} SET config = jsonb_set(config, '{previewVideo}', to_jsonb($2::text)),
+                      updated_at = NOW()
+   WHERE id = $1
 `;
 
 /**
@@ -47,7 +69,14 @@ export const SET_360_ACCESS_LEVEL = `
   UPDATE sv360.projects SET access_level = $1, updated_at = NOW()
    WHERE id = $2::uuid
      AND fn_can_produce_resource($3::uuid, 'sv360_project', $2::uuid::text)
-   RETURNING id::text AS id, name, access_level, organization_id AS owner_org_id
+   RETURNING id::text AS id, name, access_level, organization_id AS owner_org_id, preview_video
+`;
+
+/** A re-cunhagem do vídeo de prévia do 360. Irmã de `setCatalogPreviewVideoUrl`, mesma razão.
+ *   $1 = id, $2 = a URL nova */
+export const SET_360_PREVIEW_VIDEO_URL = `
+  UPDATE sv360.projects SET preview_video = $2, updated_at = NOW()
+   WHERE id = $1::uuid
 `;
 
 /**

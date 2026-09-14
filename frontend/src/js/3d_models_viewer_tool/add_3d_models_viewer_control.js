@@ -13,6 +13,9 @@ import { EventTypes } from '@events/event_types.js';
 import { setupCleanup, subscribe, addDomListener, trackTimer, cleanup } from '@utils/event-cleanup.js';
 import { showLoading3DScreen, hideLoading3DScreen } from '@ui/loading-screen-3d.js';
 import { MARKER_KIND, buildMarkerFeatures, resolveMarkerDescriptor } from './marker-features.js';
+// O ENDEREÇO DE UM VÍDEO DE PRÉVIA tem UMA definição, e ela mora ao lado do modal que a
+// estreou. Ver o uso, abaixo, no popup do marcador.
+import { enderecoDaPrevia } from '@js/catalog/components/preview-video.modal.js';
 import { model3dFailures } from './model3d-failure.js';
 // A leaf of the first-person tool: it imports the shared notice and the phrases, and NOT the
 // splatting engine, so this eager control does not grow by a lazy chunk. See its fileoverview.
@@ -781,7 +784,18 @@ class Add3DModelsViewerControl {
         // Media element (video with thumbnail fallback, or just thumbnail)
         if (previewVideo) {
             const video = document.createElement('video');
-            video.src = previewVideo;
+            // O CARIMBO DE ESCOPO É OBRIGATÓRIO DESDE 2026-09-14 (decisão D14), e esta era a
+            // ÚNICA das duas superfícies de prévia que não o tinha. A rota do vídeo deixou de
+            // ser pública-por-URL e passa pelo mesmo predicado das outras mídias do recurso;
+            // um `<video src>` é buscado pelo NAVEGADOR, que não carrega `Authorization`, então
+            // para o recurso privado alcançado por EMPRÉSTIMO do atlas em foco o `?atlasId=` é a
+            // única autorização que atravessa. Sem ele, o popup do marcador cairia no `onerror`
+            // logo abaixo e trocaria o vídeo pela miniatura, em silêncio.
+            //
+            // A função é a MESMA do modal de prévia do catálogo (`enderecoDaPrevia`), e não uma
+            // segunda chamada de `escoparUrlDeAsset` escrita aqui: "o endereço de um vídeo de
+            // prévia" tem um nome só, e é ele que tem guarda em node.
+            video.src = enderecoDaPrevia(previewVideo);
             video.className = 'model-preview-video';
             video.autoplay = true;
             video.muted = true;

@@ -170,7 +170,13 @@ legítima.
 O visitante de link público **já** está barrado ali por `confineVisitorPrincipal` (sem parâmetro de atlas
 na URL, ele leva 403).
 
-### P9. `GET /catalog-videos/:file` não tem gate nenhum (ABERTO PARA O DONO)
+### P9. `GET /catalog-videos/:file` não tem gate nenhum (DECIDIDO E FECHADO EM 2026-09-14)
+
+> **Estado:** o dono decidiu (D14, [`../decisions/decisions-2026.md`](../decisions/decisions-2026.md)) e
+> está implementado, junto com o achado R6 da revisão irmã, que é o mesmo assunto visto do outro eixo. A
+> rota resolve o recurso dono do arquivo e aplica o predicado dele (o do 360 inclui a OCULTAÇÃO por
+> `status`, que é a metade que este achado nomeava), e marcar privado re-cunha o nome do arquivo. Guarda:
+> `backend/tests/integration/video-de-previa-gateado.test.js`. O texto abaixo fica como foi escrito.
 
 `serveVideo` resolve o caminho a partir do nome do arquivo e transmite, com
 `Cache-Control: public, max-age=31536000, immutable`. Está documentado como capability-in-URL. A consequência
