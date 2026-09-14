@@ -7,6 +7,7 @@
  */
 
 import os from 'node:os';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -66,7 +67,19 @@ export const BACKEND_DIR =
 // com portas diferentes precisam de arquivos diferentes, e uma terceira variável
 // para dizer isso é uma a mais para esquecer — esquecê-la faria a segunda rodada
 // sobrescrever o `pid`/`dbName` da primeira, e o teardown mataria o backend alheio.
-export const STATE_FILE = path.join(os.tmpdir(), `ebgeo-ui-e2e-state-${BACKEND_PORT}.json`);
+//
+// E LEVA TAMBEM O CHECKOUT, desde 2026-09-13: dois checkouts do mesmo repositorio (a arvore
+// principal e o worktree de um agente) compartilham `os.tmpdir()`, e uma rodada RECUSADA pela
+// porta ocupada ainda chegava ao `global-teardown`, lia o arquivo de estado da OUTRA rodada e
+// matava o backend dela pelo pid, no meio da bateria. O harness anunciava "o backend do harness
+// MORREU (code=1)" sem culpado, e toda spec seguinte reprovava como se fosse o produto. Medido
+// tres vezes na mesma noite antes de a causa aparecer.
+export const CHECKOUT_KEY = createHash('sha1')
+    .update(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'))
+    .digest('hex')
+    .slice(0, 8);
+
+export const STATE_FILE = path.join(os.tmpdir(), `ebgeo-ui-e2e-state-${BACKEND_PORT}-${CHECKOUT_KEY}.json`);
 
 /**
  * Onde o harness anota a MORTE DO BACKEND durante a rodada.
@@ -83,4 +96,4 @@ export const STATE_FILE = path.join(os.tmpdir(), `ebgeo-ui-e2e-state-${BACKEND_P
  * ele grava aqui, e o teardown lê e anuncia. O arquivo deriva da porta pela mesma
  * razão que `STATE_FILE`: duas rodadas em portas diferentes não podem misturar óbitos.
  */
-export const OBITO_FILE = path.join(os.tmpdir(), `ebgeo-ui-e2e-obito-${BACKEND_PORT}.json`);
+export const OBITO_FILE = path.join(os.tmpdir(), `ebgeo-ui-e2e-obito-${BACKEND_PORT}-${CHECKOUT_KEY}.json`);

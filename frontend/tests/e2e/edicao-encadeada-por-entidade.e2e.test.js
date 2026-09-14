@@ -95,14 +95,20 @@ describe.skipIf(E2E_SKIP)('e2e: duas edições da mesma entidade antes do primei
         // As duas nascem OFFLINE, uma depois da outra, então a segunda lê da memória o documento
         // que a primeira escreveu: `version` local anda, `confirmedVersion` NÃO, porque o recibo
         // da primeira nunca chegou.
-        const renomear = documentoLocal(camada, { name: 'Configuração preservada' },
+        //
+        // AS DUAS TOCAM A MESMA UNIDADE (a opacidade), de propósito. Desde 2026-09-13 o servidor
+        // deriva as unidades em disputa do `patch`, e não do payload inteiro, então renomear e
+        // depois mudar a opacidade são duas unidades DISTINTAS que convergem sem encadeamento
+        // nenhum (é o aceite da B5.4). O caso da edição dependente é o de duas edições da MESMA
+        // unidade sobre a mesma base: a primeira move a fronteira, a segunda chega atrasada.
+        const meiaLuz = documentoLocal(camada, { opacity: 0.3 },
             { version: 2, confirmedVersion: base });
-        const opacidade = documentoLocal(renomear, { opacity: 0.55 },
+        const opacidade = documentoLocal(meiaLuz, { opacity: 0.55 },
             { version: 3, confirmedVersion: base });
 
-        const op1 = createOperation('layer', 'update', layerId, mapId, renomear,
+        const op1 = createOperation('layer', 'update', layerId, mapId, meiaLuz,
             { ...camada, confirmedVersion: base });
-        const op2 = createOperation('layer', 'update', layerId, mapId, opacidade, renomear);
+        const op2 = createOperation('layer', 'update', layerId, mapId, opacidade, meiaLuz);
 
         // O PISO: as duas declaram a MESMA base, que é o que faz deste o caso da edição dependente.
         expect(op1.baseVersion).toBe(base);
@@ -122,10 +128,9 @@ describe.skipIf(E2E_SKIP)('e2e: duas edições da mesma entidade antes do primei
         expect(ack2.rejected).toBe(true);
         expect(ack2.conflict?.fields ?? []).toContain('opacidade');
 
-        // E o efeito na tela do par: o nome viaja, a opacidade não.
+        // E o efeito na tela do par: a PRIMEIRA opacidade viaja, a segunda não.
         const depois = await camadaDoServidor(mapId, layerId);
-        expect(depois.name).toBe('Configuração preservada');
-        expect(depois.opacity).toBe(1);
+        expect(depois.opacity).toBeCloseTo(0.3, 5);
     }, 30000);
 
     it('COM `baseOperationId`, as duas edições do mesmo autor convergem', async () => {
