@@ -426,7 +426,7 @@ async function loadSplat(viewer, splatUrl) {
     const splatLayer = new Object3D();
     viewer.getScene().add(splatLayer);
 
-    const response = await fetch(splatUrl, { headers: await cabecalhosDeAsset() });
+    const response = await fetch(splatUrl, { headers: await cabecalhosDeAsset(splatUrl) });
     if (!response.ok) {
         const erro = new Error(`HTTP ${response.status} em ${splatUrl}`);
         // THE STATUS TRAVELS AS A FIELD, not only inside the message. `requestStatus`

@@ -63,14 +63,56 @@ export function escoparUrlDeAsset(url) {
 }
 
 /**
- * The credential headers of an asset request.
+ * Is this address served by the SAME origin that issued the token?
+ *
+ * A relative address is same-origin by construction. An absolute one is compared by
+ * `URL.origin` (scheme, host and port), never by prefix, for the reason
+ * `map/credencial-de-tile.js` states in as many words: `https://meu.host.mil.br.evil.example`
+ * starts with the right string and is not the right host.
+ *
+ * WITH NO `location` TO COMPARE AGAINST (node, a worker without one) an absolute address is
+ * refused. Failing that way costs a private asset that does not load, which is VISIBLE;
+ * failing the other way hands the session token to whoever the address names, which is silent.
+ *
+ * @param {*} url
+ * @returns {boolean}
+ */
+function ehMesmaOrigemDoServidor(url) {
+    if (typeof url !== 'string' || url === '') return false;
+    if (!OUTRA_ORIGEM_RE.test(url)) return true;
+    const origem = globalThis.location?.origin;
+    if (!origem || origem === 'null') return false;
+    try {
+        return new URL(url, origem).origin === origem;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * The credential headers of an asset request TO THIS SERVER.
  *
  * Delegates to `apiClient`, which refreshes the token before handing it back — and returns
  * `{}` with no session, because the anonymous path is normal here: most models are public.
  *
+ * THE URL IS REQUIRED, AND THAT IS THE GUARD. `config.url` and `config.basePath` of a catalog
+ * row are free text typed by an administrator or a producer, `joinScenePath`
+ * (`first_person_3d_tool/scene-config.service.js`) honours an absolute value as written, and
+ * the 422 that would refuse a third-party address on WRITE does not exist yet (clause 10.1 of
+ * `CONSTITUICAO.md`). So a scene whose `basePath` names another host made every `fetch` of it
+ * carry `Authorization: Bearer` to that host — the exact hazard `escoparUrlDeAsset` and
+ * `descritorDeAsset` already refuse, on the one path that had no guard. A producer of one OM
+ * could harvest the token of an administrator who merely opened the scene.
+ *
+ * Omitting the argument returns `{}` for the same reason it refuses a third-party address: a
+ * caller that does not say where the request is going cannot be answered safely, and the
+ * failure direction has to be the visible one.
+ *
+ * @param {string} url - The address the headers will be attached to.
  * @returns {Promise<Object>} Headers to spread into a `fetch`.
  */
-export async function cabecalhosDeAsset() {
+export async function cabecalhosDeAsset(url) {
+    if (!ehMesmaOrigemDoServidor(url)) return {};
     try {
         return await apiClient.authHeader();
     } catch {
@@ -101,12 +143,12 @@ export async function descritorDeAsset(url) {
     const atlasId = escopoDeAsset();
     if (atlasId) descritor.queryParameters = { atlasId };
 
-    const headers = await cabecalhosDeAsset();
+    const headers = await cabecalhosDeAsset(url);
     if (headers.Authorization) {
         descritor.headers = headers;
         descritor.retryAttempts = 1;
         descritor.retryCallback = async (recurso) => {
-            const renovados = await cabecalhosDeAsset();
+            const renovados = await cabecalhosDeAsset(url);
             if (!renovados.Authorization || !recurso) return false;
             // One attempt only, and only when the credential CHANGED: retrying with the same
             // token would turn a legitimate 404 (the resource is not this user's) into two

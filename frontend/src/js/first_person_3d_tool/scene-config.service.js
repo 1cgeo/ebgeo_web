@@ -234,7 +234,7 @@ export function resolveSceneAssets(scene) {
         // fetches `cena.sog` itself and hands the parser an `ArrayBuffer`. Being on the wrong
         // side of this list is what kept its missing credential invisible — 20 MB of a private
         // scene asked for anonymously, answered 404, and read on screen as a broken viewer.
-        // It now stamps `cabecalhosDeAsset()` like the three fetches below.
+        // It now stamps `cabecalhosDeAsset(url)` like the three fetches below.
         assets[field] = escoparUrlDeAsset(bruto);
     }
     return assets;
@@ -276,7 +276,7 @@ export async function loadSceneMarkers(scene) {
     if (!isUsableScene(scene)) return [];
     const { markersUrl } = resolveSceneAssets(scene);
     try {
-        const response = await fetch(markersUrl, { headers: await cabecalhosDeAsset() });
+        const response = await fetch(markersUrl, { headers: await cabecalhosDeAsset(markersUrl) });
         if (!response.ok) {
             console.warn(`[first-person] no markers: HTTP ${response.status} at ${markersUrl}`);
             return [];
@@ -317,10 +317,18 @@ export async function loadSceneCollision(scene) {
         // The credential reaches the two files THIS code fetches. It is the arm that serves
         // whoever sees the private scene through a global role or a personal grant, with no
         // atlas in focus — the case the `?atlasId=` stamp alone does not cover.
-        const headers = await cabecalhosDeAsset();
+        //
+        // ONE HEADER SET PER URL, and they are resolved SEQUENTIALLY. Per URL because
+        // `cabecalhosDeAsset` now answers about the ADDRESS (a scene whose `basePath` names a
+        // third-party host must not receive the token), and the two addresses can be overridden
+        // one at a time. Sequentially because the call refreshes the access token when it is
+        // about to expire, and two concurrent refreshes rotate the refresh token twice, which is
+        // what the reuse detector is built to treat as theft.
+        const headersMeta = await cabecalhosDeAsset(voxelMetaUrl);
+        const headersBin = await cabecalhosDeAsset(voxelBinUrl);
         const [metaResponse, binResponse] = await Promise.all([
-            fetch(voxelMetaUrl, { headers }),
-            fetch(voxelBinUrl, { headers })
+            fetch(voxelMetaUrl, { headers: headersMeta }),
+            fetch(voxelBinUrl, { headers: headersBin })
         ]);
         if (!metaResponse.ok || !binResponse.ok) {
             console.error('[first-person] voxel unavailable',

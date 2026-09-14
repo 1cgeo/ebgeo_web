@@ -103,6 +103,28 @@ describe('cena indoor: todo fetch de asset carimba a credencial', () => {
         // varrer, que é a cobertura vazia na direção oposta.
         const texto = readFileSync(join(PASTA, 'first_person_viewer.js'), 'utf8');
         expect(texto).toContain('cabecalhosDeAsset');
-        expect(texto).toMatch(/fetch\(splatUrl,\s*\{\s*headers:\s*await cabecalhosDeAsset\(\)\s*\}\)/);
+        expect(texto).toMatch(/fetch\(splatUrl,\s*\{\s*headers:\s*await cabecalhosDeAsset\(splatUrl\)\s*\}\)/);
+    });
+
+    it('todo `cabecalhosDeAsset` da pasta recebe a URL de destino', () => {
+        // A CHAMADA SEM ARGUMENTO É O DEFEITO, não um detalhe de estilo: desde a revisão de
+        // 2026-09-13 a função responde sobre o ENDEREÇO, e sem ele devolve `{}`. Um
+        // `cabecalhosDeAsset()` nu volta a ser, na melhor hipótese, um asset privado que não
+        // carrega — e a varredura de cima o daria por carimbado, porque ela mede a presença
+        // da palavra `headers` na linha, não para onde o cabeçalho vai.
+        const nus = [];
+        for (const arquivo of arquivos) {
+            const rel = relative(RAIZ, arquivo).replace(/\\/g, '/');
+            readFileSync(arquivo, 'utf8').split('\n').forEach((bruto, i) => {
+                const linha = bruto.trim();
+                // Prosa não é chamada: o mesmo recorte que `chamadasDeFetch` faz acima.
+                if (linha.startsWith('//') || linha.startsWith('*')) return;
+                if (/cabecalhosDeAsset\(\s*\)/.test(linha)) nus.push(`${rel}:${i + 1} :: ${linha}`);
+            });
+        }
+        expect(nus, '`cabecalhosDeAsset()` sem a URL de destino: passe o endereço, senão a '
+            + 'credencial não sai (e, antes da guarda, ela saía para o host que o endereço '
+            + 'nomeasse). Ver tests/unit/credencial-de-asset-nao-vai-a-terceiro.test.js.')
+            .toEqual([]);
     });
 });
