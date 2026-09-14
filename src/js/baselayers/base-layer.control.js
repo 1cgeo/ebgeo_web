@@ -26,7 +26,7 @@ import imagensLayer from './imagens_layer.js';
 import bdgexLayer from './bdgex_layer.js';
 import config from '../config.js';
 import { setupMapFeatures } from '../layers';
-import { applyTileLodParams } from '../map/tile-lod.js';
+import { syncTileLodParams } from '../map/tile-lod.js';
 import { baseStyleAlreadyOnMap, collectStyleIds, mergeApplicationStyle } from './style-transform.js';
 import { showError } from '../utilities';
 
@@ -257,9 +257,10 @@ class BaseLayerControl {
             await styleLoadPromise.catch((error) => console.warn(`[base-layer] ${error.message}`));
             this.currentLayer = layer;
 
-            // setStyle replaced every source, and with them the tile LOD function
-            // `setSourceTileLodParams` had written on each one.
-            applyTileLodParams(this.map, config.map2d.sourceTileLodParams);
+            // setStyle replaced every source with a new object. The installer in
+            // map_sig.js already re-syncs on `styledata`; this call only makes the
+            // coverage explicit at the point where it would otherwise be lost.
+            syncTileLodParams(this.map);
 
             // Reapply globe projection after style change (setStyle resets projection)
             // Skip if terrain is active — globe + terrain is incompatible (MapLibre #4792)
