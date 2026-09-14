@@ -6367,6 +6367,149 @@
       "oQueNaoEMedido": "Nem um pixel. Os tres specs dizem, cada um em comentario, que o alvo e viewer-only e que o visualizador Cesium se auto-pula sem WebGL, entao eles nunca constroem um Cesium.ViewShed3D. Nao existe neste repositorio um unico teste que exercite o shader, a projecao ou a cor de area visivel contra oculta. Quem trocar o motor e vir a suite verde nao tera medido o motor. (frontend/tests/unit/visibility-viewshed-custo.test.js NAO e sobre este arquivo, apesar do nome: ele mede a analise de visibilidade 2D sobre o DEM.)",
       "aceiteDaReescrita": "docs/seguranca/cesium-viewshed-reescrita-aceite.md, com os seis itens que a reescrita tem de reproduzir, inclusive a opcao de callback escrita calback com um L (erro de digitacao do vendor) e a compensacao de 1,5 grau por sub-viewshed que existe porque o shader compara com > estrito.",
       "prazo": "A fixar pelo dono. O gatilho natural e o proximo bump do Cesium, que e o que quebra o arquivo e torna comparaveis, pela primeira vez, o custo de remendar de fora e o de reescrever."
+    },
+    "gdalWasmCadeiaNativa": {
+      "decisao": "D9 de 2026-09-14, item V4: as sete bibliotecas nativas sem versao determinavel ficam ACEITAS e declaradas como LISTA FECHADA, ao lado das que tem versao e do metodo pelo qual cada uma foi lida.",
+      "artefato": "frontend/public/vendors/gdal/gdal3WebAssembly.wasm",
+      "bytes": 28219835,
+      "empacotador": "gdal3.js 2.8.1, resolvido por hash byte a byte contra o artefato publicado",
+      "releituraIndependente": "Toda linha desta secao foi RELIDA em 2026-09-14, sobre este mesmo arquivo, por caminho independente do da medicao de 2026-09-13 (busca por string e caminhada das secoes de topo do modulo, em vez da leitura do fluxo). Os valores bateram, menos uma correcao e uma ressalva nova, ambas registradas abaixo. Esta releitura existe porque a entrada de 2026-09-13 nasceu justamente de a medicao anterior ter lido duas strings-armadilha como fato.",
+      "naoHaMetadadoDeBuild": "O modulo tem DEZ secoes de topo (ids 1,2,3,4,5,6,7,9,10,11) e NENHUMA secao custom: nao existe secao `name` nem `producers`. A caminhada de 2026-09-14 fecha exatamente no fim do arquivo (28219835 bytes), o que e o controle de que ela nao parou no meio e concluiu ausencia por engano. Logo, nao ha metadado de build a consultar, e tudo o que segue vem de string na secao de dados.",
+      "comVersaoDeterminada": [
+        {
+          "biblioteca": "GDAL",
+          "versao": "3.8.4",
+          "metodo": "Tres strings independentes: o token de build \"GDAL/3.8.4\" em 0x17b4cbc, seguido imediatamente de \"GDAL 3.8.4\"; e o prefixo dos caminhos de fonte das mensagens de assercao, \"gdal3.js/build/native/src/gdal-3.8.4/\".",
+          "armadilha": "O binario tambem carrega \"GDAL 3.6.0\", \"GDAL 3.7\", \"GDAL 3.9.\" e \"GDAL 4.0\", que sao texto de mensagens sobre OUTRAS versoes. Quem faz grep e pega a primeira ocorrencia le a versao errada."
+        },
+        {
+          "biblioteca": "libtiff",
+          "versao": "4.6.0",
+          "metodo": "Banner proprio da biblioteca em 0x1812851: \"LIBTIFF, Version 4.6.0\", seguido dos dois avisos de copyright de Sam Leffler e da Silicon Graphics.",
+          "armadilha": "O inventario de 2026-09-12 registrava 4.5.1, lido de \"H(ost) mode is deprecated. Since libtiff 4.5.1, it is an alias of...\", que e mencao historica e nao versao de build."
+        },
+        {
+          "biblioteca": "GEOS",
+          "versao": "3.12.1 (C API 1.18.1)",
+          "metodo": "Bloco de BUILD_INFO em 0x18da910: \"GEOS_VERSION=3.12.1-CAPI-1.18.1\", imediatamente antes de PROJ_BUILD_VERSION.",
+          "armadilha": "O inventario de 2026-09-12 registrava 3.8, lido de \"-makevalid only supported for builds against GEOS 3.8 or later\", que e piso minimo de funcionalidade."
+        },
+        {
+          "biblioteca": "PROJ",
+          "versao": "9.3.1",
+          "metodo": "Tres caminhos independentes: a constante de build \"PROJ_BUILD_VERSION=9.3.1\" em 0x18da931; a string propria do PROJ \"Rel. 9.3.1, December 1st, 2023\" em 0x1a03a26; e a chave PROJ.VERSION na tabela metadata do proj.db empacotado no .data.",
+          "armadilha": "A mensagem \"only supported since PROJ 9.4\" e requisito, nao versao: este build esta ABAIXO dela, entao aquele caminho de codigo esta desligado."
+        },
+        {
+          "biblioteca": "SQLite",
+          "versao": "3.45.1",
+          "metodo": "Dois caminhos: a constante de versao em 0x19c4386, terminada em NUL, e o sourceid do FTS5 \"2024-01-30 16:01:20 e876e51a...\", que e o do release 3.45.1."
+        },
+        {
+          "biblioteca": "SpatiaLite",
+          "versao": "5.1.0",
+          "metodo": "String em 0x1a58f85, imediatamente antes de \"wasm32-unknown-emscripten\": sao a versao e a CPU alvo lado a lado."
+        },
+        {
+          "biblioteca": "zlib",
+          "versao": "1.3.1",
+          "metodo": "INFERENCIA ESTRUTURAL, declarada como tal e mais fraca que as de cima: a macro de inicializacao passa a constante de versao em todo sitio de chamada, entao ela existe por construcao, e o literal e a unica ocorrencia daquele formato no binario."
+        },
+        {
+          "biblioteca": "libpng",
+          "versao": "1.6.37",
+          "metodo": "INFERENCIA ESTRUTURAL, pela mesma razao e com a mesma forca (ou falta dela) que a do zlib."
+        },
+        {
+          "biblioteca": "compilador",
+          "versao": "clang-18.0.0",
+          "metodo": "String \"COMPILER=clang-18.0.0\" em 0x17f0174, dentro do mesmo bloco de BUILD_INFO."
+        },
+        {
+          "biblioteca": "dados do PROJ (nao e biblioteca)",
+          "versao": "PROJ_DATA 1.16, EPSG v10.098, ESRI ArcGIS Pro 3.2, IGNF 3.1.0",
+          "metodo": "Tabela metadata do proj.db empacotado dentro de gdal3WebAssembly.data (11595145 bytes), em texto."
+        }
+      ],
+      "semVersaoDeterminavel": {
+        "quantas": 7,
+        "criterio": "LISTA FECHADA: cada uma esta no binario com mensagem interna PROPRIA (nao uma mensagem do GDAL a respeito dela), e nenhuma exporta string de versao. As duas metades foram medidas em 2026-09-14, e a segunda por sondagem dirigida ao formato de versao que cada projeto publica.",
+        "lista": [
+          {
+            "biblioteca": "expat",
+            "evidenciaDeLinkagem": "Quatro mensagens de erro proprias do expat: \"not well-formed (invalid token)\" em 0x1846860, \"junk after document element\", \"XML declaration not well-formed\", \"no element found\".",
+            "versao": null,
+            "sondagemQueFalhou": "expat_, XML_ExpatVersion: ambas AUSENTES."
+          },
+          {
+            "biblioteca": "json-c",
+            "evidenciaDeLinkagem": "Mensagens proprias: \"Unknown error, invalid json_tokener_error value passed to json_tokener_error_desc()\" em 0x186cfa5, \"unexpected end of data\", \"invalid utf-8 string\".",
+            "versao": null,
+            "sondagemQueFalhou": "JSON_C_VERSION, json-c-0: ambas AUSENTES."
+          },
+          {
+            "biblioteca": "libwebp",
+            "evidenciaDeLinkagem": "Mensagem interna do decodificador: \"NULL VP8Io parameter in VP8Decode()\" em 0x181c7d9.",
+            "versao": null,
+            "sondagemQueFalhou": "libwebp-, WebP version, WEBP_ENCODER_ABI: todas AUSENTES.",
+            "armadilhaNoSentidoOPOSTO": "O binario tambem carrega \"Table %s contains WEBP tiles, but GDAL configured without WEBP support\", em 0x161aff9, que e mensagem do GDAL sobre a AUSENCIA e nao sobre a presenca. Lida sozinha ela diz o contrario do que a mensagem interna do VP8Decode prova. Esta e a mesma armadilha das strings de versao, na direcao inversa: uma mensagem sobre a biblioteca nao e evidencia sobre a biblioteca."
+          },
+          {
+            "biblioteca": "libjpeg",
+            "evidenciaDeLinkagem": "Mensagens proprias: \"Bogus Huffman table definition\" em 0x15efcd8, \"Invalid JPEG file structure\", \"Unsupported marker type\".",
+            "versao": null,
+            "sondagemQueFalhou": "JVERSION, IJG, libjpeg-turbo: todas AUSENTES, entao nem a versao nem o SABOR (IJG contra turbo) se determinam."
+          },
+          {
+            "biblioteca": "libgeotiff",
+            "evidenciaDeLinkagem": "A tabela de nomes de geokey da propria biblioteca, em 0x158b6ab e adiante: ProjLinearUnitSizeGeoKey, GTModelTypeGeoKey, GeogLinearUnitSizeGeoKey e as demais, em sequencia.",
+            "versao": null,
+            "sondagemQueFalhou": "libgeotiff, GeoTIFF Version: ambas AUSENTES."
+          },
+          {
+            "biblioteca": "FreeXL",
+            "evidenciaDeLinkagem": "NENHUMA, e esta e a RESSALVA NOVA de 2026-09-14. O que existe no binario sao nomes de funcao do SpatiaLite (HasFreeXL em 0x1705e28, freexl_version em 0x15f3f06, VirtualXL em 0x1705e1e), e o SpatiaLite compila os tres HAJA OU NAO FreeXL, devolvendo 0 quando nao ha. Nenhuma mensagem interna do FreeXL aparece (CFBF, BIFF, Workbook, \"Not an Excel\": todas ausentes).",
+            "versao": null,
+            "estadoReal": "INDETERMINADA NOS DOIS EIXOS: nem a versao nem a PRESENCA se estabelecem por string. O registro de 2026-09-13 a contava entre as sete \"com mensagens internas proprias no binario\", e para esta especificamente essa frase nao se sustenta. Ela fica na lista das sete porque o estado dela e no minimo tao aberto quanto o das outras seis, nunca porque a linkagem esta provada."
+          },
+          {
+            "biblioteca": "qhull",
+            "evidenciaDeLinkagem": "Mensagens proprias: \"qhull internal error (qh_merge_pinchedvertices)\" em 0x18bbb72, \"qh_memalloc\" em 0x18bf318, \"qhull precision error\" em 0x18c298a.",
+            "versao": null,
+            "sondagemQueFalhou": "qhull 20, qhull version, Qhull 20: todas AUSENTES."
+          }
+        ]
+      },
+      "foraDoBinarioPorAUSENCIA": {
+        "quantas": 5,
+        "porQueIssoImporta": "Nao e o mesmo que indeterminacao: e reducao real de superficie a auditar, e merece ficar escrito com a mesma forca. A sondagem de 2026-09-14 procurou, para cada uma, strings INTERNAS que a biblioteca carrega quando esta linkada, e nao apenas o nome dela.",
+        "lista": [
+          {
+            "biblioteca": "curl",
+            "evidencia": "Nenhuma string interna (CURLE_, curl_easy_, curl_multi, \"Couldn't resolve host\", \"SSL connect error\": todas ausentes). E o binario DECLARA a ausencia, em 0x180dd52: \"GDAL/OGR not compiled with libcurl support, remote requests not supported\".",
+            "armadilha": "As ocorrencias de \"curl/\" no binario sao o prefixo do sistema de arquivos virtual do GDAL (/vsicurl/), que existe como string independentemente de curl estar linkado."
+          },
+          {
+            "biblioteca": "xerces",
+            "evidencia": "Nenhuma string interna (xercesc, XMLPlatformUtils, SAXParseException, DOMDocument: todas ausentes). O binario carrega a mensagem do GDAL sobre a ausencia: \"likely because Xerces or Expat support was not configured in\", em 0x1805380, e a string XERCES em 0x16d0e36 e nome de opcao de configuracao."
+          },
+          {
+            "biblioteca": "openjpeg",
+            "evidencia": "openjpeg, OPJ_, opj_, opj_j2k: todas ausentes."
+          },
+          {
+            "biblioteca": "netcdf",
+            "evidencia": "netcdf, NetCDF, nc_open, NC_NOERR, nc_inq_: todas ausentes."
+          },
+          {
+            "biblioteca": "hdf5",
+            "evidencia": "HDF5, hdf5, H5Fopen, H5Dread, HDF5-DIAG: todas ausentes."
+          }
+        ]
+      },
+      "oCaminhoBaratoQueSOBROU": "O SpatiaLite empacotado expoe, como funcoes SQL, freexl_version(), proj_version(), sqlite_version() e spatialite_version(), mais HasFreeXL(). Elas foram encontradas como NOMES na sondagem de 2026-09-14, e respondem em RUNTIME o que a string nao responde no disco: uma consulta ao GDAL ja carregado fecharia de uma vez a presenca e a versao do FreeXL, e confirmaria PROJ, SQLite e SpatiaLite por um quinto caminho. Isso nao bloqueia o lancamento e e a proxima medicao barata deste item.",
+      "oQueFecharIaAsSete": "O receituario de build do gdal3.js 2.8.1. O binario denuncia a arvore de build nos caminhos de assercao que carrega e NAO a empacota, entao o resultado seria uma afirmacao sobre o que o upstream DIZ ter compilado, e nao sobre o binario que temos.",
+      "aRemocaoDaSuperficie": "O GDAL aqui serve a UMA coisa, a conversao para PDF georreferenciado da folha unica; o mosaico ja sai por jsPDF sem GDAL nenhum. Avaliar se a folha unica pode sair pela mesma porta elimina 39,8 MB e a cadeia inteira, e e a unica opcao que remove o problema em vez de descreve-lo. Pergunta de medio prazo, nao de lancamento."
     }
   }
 }
