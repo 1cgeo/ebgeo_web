@@ -77,7 +77,10 @@ import { showConfirm } from './confirm.modal.js';
 // uma contagem, e dizer o CONTRÁRIO quando a contagem é zero, é regra que já foi paga uma
 // vez do lado do catálogo. Reescrevê-la aqui daria a terceira cópia de uma frase que os
 // dois eixos precisam ter igual.
-import { accessLossClause, groupOptionLabel, searchFailureNotice } from '@js/catalog/grant-tree.js';
+import {
+    accessLossClause, groupOptionLabel, searchFailureNotice,
+    PEOPLE_SEARCH_MIN_CHARS, peopleSearchHint, peopleSearchTruncatedNotice,
+} from '@js/catalog/grant-tree.js';
 // A DICA DO SELETOR MANDA A PESSOA PARA UMA PORTA, então ela precisa dizer o nome que ESTA
 // pessoa vê escrito naquela porta — "Grupos" para uma sessão comum, "Catálogo" para o
 // produtor, "Administração" para o administrador. Escrever "Administração" fixo mandaria o
@@ -413,8 +416,13 @@ export function podeAdministrarGrupo(group, sessao = {}) {
 
 /** Debounce (ms) for the user-search input. */
 const SEARCH_DEBOUNCE_MS = 300;
-/** Minimum query length the backend accepts for user search. */
-const SEARCH_MIN_CHARS = 2;
+/**
+ * O PISO DO TERMO NAO MORA MAIS AQUI (decisao D13, 2026-09-14): ele e
+ * `PEOPLE_SEARCH_MIN_CHARS`, espelho do piso que o servidor impoe com 422, e as CINCO buscas
+ * de pessoa do produto leem a MESMA constante. Cinco copias de um numero que o servidor decide
+ * sao cinco lugares para esquecer quando ele muda.
+ */
+const SEARCH_MIN_CHARS = PEOPLE_SEARCH_MIN_CHARS;
 /** How long the "Copiado" feedback stays on the copy button. */
 const COPY_FEEDBACK_MS = 1800;
 /**
@@ -1409,7 +1417,7 @@ export class SharingModal extends ModalBase {
                 <div class="sharing-search">
                     <span class="sharing-search__icon" aria-hidden="true">${ICONS.search}</span>
                     <input type="text" class="sharing-search__input" data-action="search"
-                           data-testid="sharing-user-search" placeholder="Buscar por nome, usuário ou posto…"
+                           data-testid="sharing-user-search" placeholder="Buscar por nome ou usuário…"
                            autocomplete="off" aria-label="Buscar pessoas">
                 </div>
                 <div class="sharing-results" data-results hidden></div>
@@ -1721,6 +1729,15 @@ export class SharingModal extends ModalBase {
         }
         const q = value.trim();
         if (q.length < SEARCH_MIN_CHARS) {
+            // O CAMPO COM TEXTO CURTO DIZ O QUE FALTA, em vez de desenhar lista vazia. Lista
+            // vazia aqui é a MESMA tela de "Nenhum usuário encontrado", e quem digitou duas
+            // letras lê uma ausência que a busca nunca foi perguntar. Campo VAZIO continua
+            // escondendo o painel: ali não há pergunta pela metade, não há pergunta nenhuma.
+            if (q.length > 0) {
+                this._renderSearchHint();
+                this._setResultsHidden(false);
+                return;
+            }
             this._renderResultsInto([]);
             this._setResultsHidden(true);
             return;
@@ -1737,10 +1754,13 @@ export class SharingModal extends ModalBase {
     async _runSearch(q) {
         const seq = ++this._searchSeq;
         try {
-            const results = await apiClient.searchUsers(q);
+            const resposta = await apiClient.searchUsers(q);
             if (seq !== this._searchSeq) return; // a newer query superseded this one
-            const list = Array.isArray(results) ? results : [];
-            this._renderResultsInto(list);
+            // O ENVELOPE É `{ results, truncated }` DESDE D13, e o `?? []` é a degradação para
+            // uma resposta com outra forma: uma lista vazia é o desfecho seguro, porque ela é
+            // desenhada como "nenhum usuário encontrado" e não como membro clicável.
+            const list = Array.isArray(resposta?.results) ? resposta.results : [];
+            this._renderResultsInto(list, resposta?.truncated === true);
             this._setResultsHidden(false);
         } catch {
             if (seq !== this._searchSeq) return;
@@ -1753,7 +1773,7 @@ export class SharingModal extends ModalBase {
      * @private Renders results HTML into the container and wires the add buttons.
      * @param {Array} results
      */
-    _renderResultsInto(results) {
+    _renderResultsInto(results, truncated = false) {
         const container = this.getBody()?.querySelector('[data-results]');
         if (!container) return;
         clearScopedListeners(this, 'results');
@@ -1762,11 +1782,33 @@ export class SharingModal extends ModalBase {
         // `_renderResults` já sabia devolver nunca chegava à tela. Somado ao `catch` de
         // `_runSearch`, que chamava este mesmo par, "ninguém encontrado" e "a rede caiu"
         // eram a MESMA caixa em branco.
-        container.innerHTML = this._renderResults(results);
+        // A NOTA DO CORTE VEM DEPOIS DA LISTA, e só quando o SERVIDOR disse que cortou.
+        // Deduzi-la do tamanho da lista mentiria no caso em que existem exatamente vinte, que é
+        // um desfecho legítimo e não cortado.
+        const nota = truncated
+            ? `<p class="sharing-results__truncated" data-testid="sharing-search-truncated">${escapeHtml(peopleSearchTruncatedNotice())}</p>`
+            : '';
+        container.innerHTML = this._renderResults(results) + nota;
         container.querySelectorAll('[data-action="add"]').forEach((btn) => {
             addScopedDomListener(this, 'results', btn, 'click', () =>
                 this._handleAdd(btn.dataset.userId));
         });
+    }
+
+    /**
+     * @private A FRASE DO CAMPO QUE AINDA NÃO TEM O QUE BUSCAR.
+     *
+     * Irmã de {@link _renderSearchFailure} e pelo mesmo motivo: são três estados distintos que
+     * a tela precisa distinguir ("ainda não perguntei", "perguntei e não achei", "não consegui
+     * perguntar"), e enquanto os dois primeiros eram a mesma caixa em branco a pessoa lia uma
+     * ausência que ninguém tinha verificado.
+     */
+    _renderSearchHint() {
+        const container = this.getBody()?.querySelector('[data-results]');
+        if (!container) return;
+        clearScopedListeners(this, 'results');
+        container.innerHTML = `
+            <div class="sharing-results__empty" data-testid="sharing-search-hint">${escapeHtml(peopleSearchHint())}</div>`;
     }
 
     /**

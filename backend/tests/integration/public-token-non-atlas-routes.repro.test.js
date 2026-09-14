@@ -112,6 +112,6 @@ describe('a visitor token is not a general-purpose credential (repro)', () => {
       .get('/api/v1/users/search?q=fulano')
       .set('Authorization', `Bearer ${login.body.data.accessToken}`)
       .expect(200);
-    assert.ok(Array.isArray(res.body.data), 'a real account still gets the directory');
+    assert.ok(Array.isArray(res.body.data.results), 'a real account still gets the directory');
   });
 });

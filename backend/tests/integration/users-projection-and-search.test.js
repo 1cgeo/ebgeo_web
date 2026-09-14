@@ -108,8 +108,8 @@ describe('users: field projection and what the search can reach', () => {
   it('/users/search exposes exactly seven fields, on every row', async () => {
     const res = await search('Zulmiro').expect(200);
 
-    assert.ok(res.body.data.length >= 2, 'guard: the loop below must iterate over something');
-    for (const row of res.body.data) {
+    assert.ok(res.body.data.results.length >= 2, 'guard: the loop below must iterate over something');
+    for (const row of res.body.data.results) {
       assert.deepEqual(Object.keys(row).sort(), SEARCH_KEYS, 'the projection is the contract');
       for (const secret of NEVER_EXPOSED) {
         assert.equal(row[secret], undefined, `${secret} must never reach another user`);
@@ -152,38 +152,46 @@ describe('users: field projection and what the search can reach', () => {
     assert.equal(res.body.data.api_key, undefined, 'nor the api key');
   });
 
-  // ── item 140 · the rank / organization clauses ─────────────────────────────
-  it('finds a user by their POSTO (r.nome), not only by name or username', async () => {
+  // ── item 140 · as cláusulas de posto / organização, DEPOIS de D13 ──────────
+  //
+  // AS DUAS VIRARAM O CONTRÁRIO EM 2026-09-14. Os ramos `LOWER(r.nome)` e `LOWER(o.nome)`
+  // saíram do `WHERE`: casar contra o nome de um posto ou de uma OM devolve o efetivo daquele
+  // grupo, que é enumeração com outro nome (achado P8). As colunas continuam na projeção, e é
+  // o caso de shape acima que as prende.
+  it('NÃO encontra ninguém pelo POSTO: o ramo r.nome saiu do casamento (D13)', async () => {
     const res = await search('Coronel').expect(200);
 
-    const ids = res.body.data.map((u) => u.id);
-    assert.ok(ids.includes(target.id), 'the Coronel clause is live');
-    assert.ok(!ids.includes(plain.id), 'and a user with no rank is not swept in');
+    const ids = res.body.data.results.map((u) => u.id);
+    assert.ok(!ids.includes(target.id), 'o nome de um posto não pode devolver quem o tem');
   });
 
-  it('finds a user by their OM (o.nome)', async () => {
+  it('NÃO encontra ninguém pela OM: o ramo o.nome saiu do casamento (D13)', async () => {
     const res = await search('Xilofone').expect(200);
 
-    const ids = res.body.data.map((u) => u.id);
-    assert.ok(ids.includes(target.id), 'the o.nome clause is live');
-    assert.ok(!ids.includes(plain.id), 'the user with no organization stays out');
+    const ids = res.body.data.results.map((u) => u.id);
+    assert.ok(!ids.includes(target.id), 'o nome de uma OM não pode devolver o efetivo dela');
   });
 
-  it('the posto match is case-insensitive on both sides (LOWER over LOWER)', async () => {
-    const lower = await search('coronel').expect(200);
-    const upper = await search('CORONEL').expect(200);
+  it('o casamento por NOME é case-insensitive dos dois lados (LOWER sobre LOWER)', async () => {
+    // O PAR POSITIVO das duas recusas acima, e ele é obrigatório: sem um caso que ACHE
+    // alguém, uma consulta que negasse tudo passaria verde nos dois blocos anteriores.
+    const lower = await search('zulmiro').expect(200);
+    const upper = await search('ZULMIRO').expect(200);
 
-    const idsOf = (res) => res.body.data.map((u) => u.id).sort();
-    assert.ok(idsOf(lower).includes(target.id));
+    const idsOf = (res) => res.body.data.results.map((u) => u.id).sort();
+    assert.ok(idsOf(lower).includes(target.id), 'o ramo por `nome` está vivo');
+    // E o SEM POSTO E SEM OM também: o casamento por nome não depende dos dois LEFT JOIN,
+    // que um dia decidiram quem voltava. Trocá-los por INNER silenciaria esta conta.
+    assert.ok(idsOf(lower).includes(plain.id), 'quem não tem posto nem OM continua achável pelo nome');
     assert.deepEqual(idsOf(lower), idsOf(upper));
   });
 
-  it('LIKE wildcards typed by the user stay literal: "C_ronel" matches nobody', async () => {
+  it('LIKE wildcards typed by the user stay literal: "Zulmir_" matches nobody', async () => {
     // escapeLike() makes `_` a literal underscore. Without it this would match
-    // "Coronel" and the search would silently answer a pattern the user did not write.
-    const res = await search('C_ronel').expect(200);
+    // "Zulmiro" and the search would silently answer a pattern the user did not write.
+    const res = await search(`Zulmir_ ${tag}`).expect(200);
 
-    const ids = res.body.data.map((u) => u.id);
+    const ids = res.body.data.results.map((u) => u.id);
     assert.ok(!ids.includes(target.id), 'the single-char wildcard must not be honored');
   });
 });

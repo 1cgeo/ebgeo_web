@@ -32,14 +32,22 @@ import { apiClient } from '@store/sync/api-client.js';
 import { grantablePermissionOptions, isGrantablePermission } from '@js/projects/permission-levels.js';
 // `grant-tree.js` e `admin-audience.js` têm ZERO imports por contrato, então trazê-los para cá
 // não arrasta a store para `atlas.html`, que é onde este modal também vive.
-import { searchFailureNotice } from '@js/catalog/grant-tree.js';
+import {
+    searchFailureNotice,
+    PEOPLE_SEARCH_MIN_CHARS, peopleSearchHint, peopleSearchTruncatedNotice,
+} from '@js/catalog/grant-tree.js';
 import { adminAudience } from '@js/admin/admin-audience.js';
 import { sessionContext } from '@store/sync/session-context.js';
 
 /** Debounce (ms) for the user-search input. */
 const SEARCH_DEBOUNCE_MS = 300;
-/** Minimum query length the backend accepts for user search. */
-const SEARCH_MIN_CHARS = 2;
+/**
+ * O PISO DO TERMO NAO MORA MAIS AQUI (decisao D13, 2026-09-14): ele e
+ * `PEOPLE_SEARCH_MIN_CHARS`, espelho do piso que o servidor impoe com 422, e as CINCO buscas
+ * de pessoa do produto leem a MESMA constante. Cinco copias de um numero que o servidor decide
+ * sao cinco lugares para esquecer quando ele muda.
+ */
+const SEARCH_MIN_CHARS = PEOPLE_SEARCH_MIN_CHARS;
 /** Default permission staged when a searched user is picked. */
 const DEFAULT_GRANT_PERMISSION = 'write';
 /**
@@ -509,6 +517,14 @@ export class CreateAtlasModal extends ModalBase {
         }
         const q = value.trim();
         if (q.length < SEARCH_MIN_CHARS) {
+            // Ver a irmã em `sharing.modal.core.js`: texto curto DIZ o que falta, texto vazio
+            // esconde o painel. Lista vazia abaixo do piso afirma uma ausência que a busca
+            // nunca foi perguntar.
+            if (q.length > 0) {
+                this._renderSearchHint();
+                this._setResultsHidden(false);
+                return;
+            }
             this._renderResultsInto([]);
             this._setResultsHidden(true);
             return;
@@ -525,9 +541,10 @@ export class CreateAtlasModal extends ModalBase {
     async _runSearch(q) {
         const seq = ++this._searchSeq;
         try {
-            const results = await apiClient.searchUsers(q);
+            const resposta = await apiClient.searchUsers(q);
             if (seq !== this._searchSeq) return;
-            this._renderResultsInto(Array.isArray(results) ? results : []);
+            const list = Array.isArray(resposta?.results) ? resposta.results : [];
+            this._renderResultsInto(list, resposta?.truncated === true);
             this._setResultsHidden(false);
         } catch {
             if (seq !== this._searchSeq) return;
@@ -540,7 +557,7 @@ export class CreateAtlasModal extends ModalBase {
      * @private Renders results into the container and wires the add buttons.
      * @param {Array} results
      */
-    _renderResultsInto(results) {
+    _renderResultsInto(results, truncated = false) {
         const container = this.getBody()?.querySelector('[data-results]');
         if (!container) return;
         clearScopedListeners(this, 'results');
@@ -549,11 +566,34 @@ export class CreateAtlasModal extends ModalBase {
         // string vazia, tornando INALCANÇÁVEL o "Nenhum usuário encontrado" que
         // `_renderResults` já sabia devolver, e o `catch` da busca caía no mesmo par, de
         // modo que "ninguém encontrado" e "a rede caiu" eram a mesma caixa em branco.
-        container.innerHTML = this._renderResults(results);
+        //
+        // A NOTA DO CORTE vem do campo `truncated` do servidor, nunca do tamanho da lista:
+        // exatamente vinte resultados é um desfecho legítimo e não foi cortado por ninguém.
+        const nota = truncated
+            ? `<p class="sharing-results__truncated" data-testid="create-atlas-search-truncated">${escapeHtml(peopleSearchTruncatedNotice())}</p>`
+            : '';
+        container.innerHTML = this._renderResults(results) + nota;
         container.querySelectorAll('[data-action="add"]').forEach((btn) => {
             addScopedDomListener(this, 'results', btn, 'click', () =>
                 this._addMember(btn.dataset.userId, btn.dataset.username, btn.dataset.nome));
         });
+    }
+
+    /**
+     * @private A FRASE DO CAMPO QUE AINDA NÃO TEM O QUE BUSCAR.
+     *
+     * Irmã de {@link _renderSearchFailure}: são três estados que a tela precisa distinguir
+     * ("ainda não perguntei", "perguntei e não achei", "não consegui perguntar"), e enquanto
+     * os dois primeiros eram a mesma caixa em branco a pessoa lia uma ausência que ninguém
+     * tinha verificado.
+     */
+    _renderSearchHint() {
+        const container = this.getBody()?.querySelector('[data-results]');
+        if (!container) return;
+        clearScopedListeners(this, 'results');
+        clearScopedListeners(this, 'groups');
+        container.innerHTML = `
+            <div class="sharing-results__empty" data-testid="create-atlas-search-hint">${escapeHtml(peopleSearchHint())}</div>`;
     }
 
     /**

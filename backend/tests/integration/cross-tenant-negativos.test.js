@@ -683,7 +683,7 @@ describe('cross-tenant / cross-actor negatives', () => {
 
     it('control: a real account still uses the search (the share autocomplete must keep working)', async () => {
       const res = await as(tokRead).get(`/api/v1/users/search?q=${sfx}`).expect(200);
-      const usernames = res.body.data.map((u) => u.username);
+      const usernames = res.body.data.results.map((u) => u.username);
       assert.ok(usernames.includes(ownerA.username), 'a normal user finds real accounts');
     });
   });

@@ -78,12 +78,18 @@ import {
     searchFailureNotice,
     LOAD_FAILURE,
     REVOKE_AVAILABILITY,
+    PEOPLE_SEARCH_MIN_CHARS, peopleSearchHint, peopleSearchTruncatedNotice,
 } from './grant-tree.js';
 
 /** Debounce (ms) da busca de usuário, o mesmo do compartilhamento de atlas. */
 const SEARCH_DEBOUNCE_MS = 300;
-/** Mínimo de caracteres que o backend aceita na busca. */
-const SEARCH_MIN_CHARS = 2;
+/**
+ * O PISO DO TERMO NAO MORA MAIS AQUI (decisao D13, 2026-09-14): ele e
+ * `PEOPLE_SEARCH_MIN_CHARS`, espelho do piso que o servidor impoe com 422, e as CINCO buscas
+ * de pessoa do produto leem a MESMA constante. Cinco copias de um numero que o servidor decide
+ * sao cinco lugares para esquecer quando ele muda.
+ */
+const SEARCH_MIN_CHARS = PEOPLE_SEARCH_MIN_CHARS;
 /** O nível padrão ao conceder. A permissão padrão ABAIXA, nunca eleva. */
 const DEFAULT_GRANT_LEVEL = 'view';
 /** O teto de `access_groups.name` (VARCHAR(100)), espelhado do `createGroupSchema` do servidor. */
@@ -821,7 +827,7 @@ export class ResourceShareModal extends ModalBase {
                 <div class="sharing-search">
                     <span class="sharing-search__icon" aria-hidden="true">${CATALOG_UI_ICONS.SEARCH}</span>
                     <input type="text" class="sharing-search__input" data-action="search"
-                           data-testid="resource-share-search" placeholder="Buscar por nome, usuário ou posto…"
+                           data-testid="resource-share-search" placeholder="Buscar por nome ou usuário…"
                            autocomplete="off" aria-label="Buscar pessoas">
                 </div>
                 <div class="sharing-results" data-results hidden></div>
@@ -1176,6 +1182,15 @@ export class ResourceShareModal extends ModalBase {
         }
         const q = value.trim();
         if (q.length < SEARCH_MIN_CHARS) {
+            // Ver a irmã em `js/modals/sharing.modal.core.js`: texto curto DIZ o que falta,
+            // texto vazio esconde o painel. Lista vazia abaixo do piso afirma uma ausência que
+            // a busca nunca foi perguntar, que é o mesmo defeito que `_renderSearchFailure`
+            // fechou do outro lado.
+            if (q.length > 0) {
+                this._renderSearchHint();
+                this._setResultsHidden(false);
+                return;
+            }
             this._renderResultsInto([]);
             this._setResultsHidden(true);
             return;
@@ -1192,9 +1207,10 @@ export class ResourceShareModal extends ModalBase {
     async _runSearch(q) {
         const seq = ++this._searchSeq;
         try {
-            const results = await apiClient.searchUsers(q);
+            const resposta = await apiClient.searchUsers(q);
             if (seq !== this._searchSeq) return;
-            this._renderResultsInto(Array.isArray(results) ? results : []);
+            const list = Array.isArray(resposta?.results) ? resposta.results : [];
+            this._renderResultsInto(list, resposta?.truncated === true);
             this._setResultsHidden(false);
         } catch {
             if (seq !== this._searchSeq) return;
@@ -1215,14 +1231,34 @@ export class ResourceShareModal extends ModalBase {
      * confusão que `groupsLoadFailureNotice` já tinha separado no seletor de grupo.
      * @param {Array} results
      */
-    _renderResultsInto(results) {
+    _renderResultsInto(results, truncated = false) {
         const container = this.getBody()?.querySelector('[data-results]');
         if (!container) return;
         clearScopedListeners(this, 'results');
-        container.innerHTML = this._renderResults(Array.isArray(results) ? results : []);
+        // A NOTA DO CORTE vem do campo `truncated` do servidor, nunca do tamanho da lista:
+        // exatamente vinte resultados é um desfecho legítimo e não cortado.
+        const nota = truncated
+            ? `<p class="sharing-results__truncated" data-testid="resource-share-search-truncated">${escapeHtml(peopleSearchTruncatedNotice())}</p>`
+            : '';
+        container.innerHTML = this._renderResults(Array.isArray(results) ? results : []) + nota;
         container.querySelectorAll('[data-action="grant"]').forEach((btn) => {
             addScopedDomListener(this, 'results', btn, 'click', () => this._handleGrant(btn.dataset.userId));
         });
+    }
+
+    /**
+     * @private A FRASE DO CAMPO QUE AINDA NÃO TEM O QUE BUSCAR.
+     *
+     * Irmã de {@link _renderSearchFailure}: são três estados que a tela distingue ("ainda não
+     * perguntei", "perguntei e não achei", "não consegui perguntar"), e enquanto os dois
+     * primeiros eram a mesma caixa em branco a pessoa lia uma ausência não verificada.
+     */
+    _renderSearchHint() {
+        const container = this.getBody()?.querySelector('[data-results]');
+        if (!container) return;
+        clearScopedListeners(this, 'results');
+        container.innerHTML = `
+            <div class="sharing-results__empty" data-testid="resource-share-search-hint">${escapeHtml(peopleSearchHint())}</div>`;
     }
 
     /**

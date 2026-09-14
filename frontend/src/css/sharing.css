@@ -1205,6 +1205,21 @@
     margin: 0;
 }
 
+/* A NOTA DO CORTE, quando o servidor devolveu o teto de linhas e disse que havia mais.
+   DISCRETA E DEPOIS DA LISTA, e nunca com a moldura de aviso de `.sharing-results__failed`:
+   nada falhou aqui, a busca funcionou e o termo é que foi largo demais. Ela existe porque
+   vinte de vinte e vinte de duzentas são a mesma tela sem ela, e quem não encontra a pessoa
+   procurada conclui que ela não está cadastrada em vez de refinar o termo. A borda de cima é
+   o que a separa da última linha clicável, para não ser lida como mais um resultado. */
+.sharing-results__truncated {
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    border-top: var(--border-width) solid var(--gray-200);
+    color: var(--gray-500);
+    font-size: var(--font-size-xs);
+    text-align: center;
+}
+
 /* ESTENDER O PRAZO, na linha da concessão e ao lado do remover.
    NEUTRO E DISCRETO: o ato é aditivo (ninguém perde nada), então ele não pode competir
    visualmente com o botão destrutivo vizinho, que é o único da linha que não se desfaz. */

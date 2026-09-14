@@ -528,8 +528,8 @@ describe('Users Admin API', () => {
           .set('Authorization', `Bearer ${userToken}`)
           .expect(200);
 
-        assert.ok(Array.isArray(res.body.data));
-        const usernames = res.body.data.map(u => u.username);
+        assert.ok(Array.isArray(res.body.data.results));
+        const usernames = res.body.data.results.map(u => u.username);
         assert.ok(usernames.some(u => u.includes('search_user')));
       });
 
@@ -539,14 +539,14 @@ describe('Users Admin API', () => {
           .set('Authorization', `Bearer ${userToken}`)
           .expect(200);
 
-        assert.ok(Array.isArray(res.body.data));
-        const names = res.body.data.map(u => u.nome);
+        assert.ok(Array.isArray(res.body.data.results));
+        const names = res.body.data.results.map(u => u.nome);
         assert.ok(names.some(n => n && n.includes('John')));
       });
 
       it('validates minimum query length', async () => {
         await supertest(app)
-          .get('/api/v1/users/search?q=a') // Too short (min 2)
+          .get('/api/v1/users/search?q=ab') // Too short (min 3 desde D13)
           .set('Authorization', `Bearer ${userToken}`)
           .expect(422);
       });

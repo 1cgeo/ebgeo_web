@@ -145,7 +145,15 @@ metades: subir o gate de `GET /sharing` de `manage` para `owner` no servidor rep
 
 ---
 
-### P8. `GET /users/search` não tem recorte nenhum (ABERTO PARA O DONO)
+### P8. `GET /users/search` não tem recorte nenhum (DECIDIDO E FECHADO EM 2026-09-14)
+
+> **Estado:** o dono decidiu (D13, [`../decisions/decisions-2026.md`](../decisions/decisions-2026.md)) e
+> está implementado. O piso do termo subiu para três caracteres (422 abaixo dele), o casamento por POSTO
+> e por OM saiu (as duas colunas ficaram na projeção, porque quem compartilha reconhece a pessoa por
+> elas), a resposta traz `truncated` junto com as no máximo vinte linhas, e a rota ganhou limitador
+> próprio chaveado pela CONTA (`userSearchLimiter`). Guarda:
+> `backend/tests/integration/busca-de-pessoas-nao-enumera.test.js`. O texto abaixo fica como foi escrito
+> na revisão, porque é ele que descreve o mundo que a decisão fechou.
 
 `searchUsers` (`backend/src/modules/users/users.service.js`) recebe só o termo e não referencia o chamador
 em lugar nenhum. O `WHERE` casa contra **nome de posto e nome de OM** além de username e nome, com piso de

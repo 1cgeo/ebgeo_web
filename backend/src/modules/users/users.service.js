@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import { query, tx } from '../../database/index.js';
 import {
   NotFoundError, UnauthorizedError, ConflictError, ForbiddenError, BadRequestError,
+  ValidationError,
 } from '../../utils/errors.js';
 import { createAudit, createAuditBestEffort } from '../../utils/audit.js';
 // O MECANISMO DE TOKEN DE CONTA TEM UMA IMPLEMENTACAO SO, e ela e a do modulo de auth: mesma
@@ -21,6 +22,9 @@ import logger from '../../utils/logger.js';
 // listas daquele arquivo, e nao um segundo motor aqui.
 import { diffAuditavel } from '../../utils/audit-diff.js';
 import * as Q from './users.queries.js';
+// O PISO DO TERMO E O TETO DE LINHAS moram no schema, ao lado do 422 que o mesmo piso produz na
+// borda: duas cópias do número fariam a rota e o serviço divergirem sem nada ficar vermelho.
+import { USER_SEARCH_MIN_TERM, USER_SEARCH_MAX_ROWS } from './users.schemas.js';
 // D8(b): desativar uma conta derruba o que ela concedeu. A semantica de queda tem UMA
 // definicao, e ela mora no modulo de acesso a recurso: importar a funcao e o que impede
 // a segunda copia da regra de nascer aqui.
@@ -449,25 +453,48 @@ export async function requestEmailChange(userId, data, req = null, origin = '') 
 }
 
 /**
- * Searches users by name or username.
- */
-/**
  * Escapes the LIKE wildcards so the search is LITERAL.
  *
  * Not SQL injection — the value travels as $1 — but PATTERN injection: a `%` or `_`
  * typed by the user acquired wildcard meaning. It broke ordinary searches (usernames
  * here routinely contain `_`, e.g. the `share_owner` fixtures) and turned `q = '%%'`
- * into a full-table scan bounded only by LIMIT 20. Backslash is escaped first, or it
+ * into a full-table scan bounded only by the row cap. Backslash is escaped first, or it
  * would double-escape the escapes that follow.
  */
 function escapeLike(value) {
   return String(value).replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
+/**
+ * A busca de pessoas: casa NOME e LOGIN, devolve no máximo `USER_SEARCH_MAX_ROWS` linhas e
+ * DIZ quando cortou (decisão D13, 2026-09-14).
+ *
+ * O PISO É CONFERIDO AQUI E TAMBÉM NO SCHEMA, e a repetição é deliberada, pelo mesmo motivo
+ * escrito em `searchAllAtlas`: a propriedade "não existe caminho que devolva uma fatia do
+ * efetivo" tem de valer para a FUNÇÃO, não para o middleware que hoje a precede. Um chamador
+ * interno novo não passa por `validate`.
+ *
+ * `truncated` É O QUE FAZ O TETO SER HONESTO. Sem ele, vinte linhas de vinte e vinte de
+ * duzentas são a mesma resposta na tela, e quem procura conclui que a pessoa não está
+ * cadastrada em vez de refinar o termo. A contagem sai de uma linha A MAIS pedida ao banco,
+ * nunca de um `COUNT(*)`.
+ *
+ * @param {string} searchQuery - o termo digitado
+ * @returns {Promise<{results: Object[], truncated: boolean}>}
+ */
 export async function searchUsers(searchQuery) {
-  const pattern = `%${escapeLike(searchQuery)}%`;
-  const { rows } = await query(Q.SEARCH_USERS, [pattern]);
-  return rows;
+  const termo = String(searchQuery ?? '').trim();
+  if (termo.length < USER_SEARCH_MIN_TERM) {
+    throw new ValidationError(
+      `A busca de pessoas exige um termo de ao menos ${USER_SEARCH_MIN_TERM} caracteres.`,
+    );
+  }
+  const pattern = `%${escapeLike(termo)}%`;
+  const { rows } = await query(Q.SEARCH_USERS, [pattern, USER_SEARCH_MAX_ROWS + 1]);
+  return {
+    results: rows.slice(0, USER_SEARCH_MAX_ROWS),
+    truncated: rows.length > USER_SEARCH_MAX_ROWS,
+  };
 }
 
 // ============================================

@@ -1,17 +1,20 @@
 // Path: tests/integration/users-search-scope.test.js
-// Item 171 — SEARCH_USERS: os ramos OR por posto/organização, o shape da linha e o
-// escopo ENTRE organizações.
+// Item 171 — SEARCH_USERS: os dois LEFT JOIN, o shape da linha e o escopo ENTRE organizações.
 //
-// A query tem quatro ramos OR (username, nome, r.nome, o.nome) e dois LEFT JOIN. Os
-// testes existentes (users-admin.test.js, org-identity-gaps.test.js) exercitam apenas
-// username/nome, o mínimo de 2 caracteres, o inativo escondido e o teto LIMIT 20:
-// apagar os JOINs de ranks/organizations deixava a suíte verde e esvaziava as colunas
-// Posto/OM do autocomplete de compartilhamento.
+// ESTE ARQUIVO MUDOU DE SUJEITO EM 2026-09-14 (decisão D13), e a metade que virou o contrário
+// vale ser dita. Ele nasceu para prender os ramos OR por POSTO e por ORGANIZAÇÃO, porque apagar
+// os JOINs deixava a suíte verde e esvaziava as colunas Posto/OM do autocomplete de
+// compartilhamento. Os dois ramos SAÍRAM do casamento: casar contra um atributo COLETIVO é
+// enumeração do efetivo com outro nome, e o achado P8 mediu o custo (o nome de uma OM devolvia o
+// efetivo dela, vinte linhas por vez, para qualquer conta).
 //
-// O escopo ENTRE ORGS é hoje acidental (não há filtro por organization_id, ao
-// contrário da postura explícita de isolamento de tenant em users.schemas.js). Sem um
-// teste que o DECLARE, ninguém sabe se é decisão ou esquecimento — o último caso aqui
-// registra a decisão por escrito, para o dia em que alguém propuser escopar.
+// O QUE ELE PRENDE HOJE É A OUTRA METADE DA MESMA DECISÃO: os JOINs continuam vivos e as duas
+// colunas continuam na PROJEÇÃO, porque quem compartilha reconhece a pessoa pelo par posto + OM.
+// O negativo (o termo que só existe no posto ou na OM não acha ninguém) mora em
+// `busca-de-pessoas-nao-enumera.test.js`, junto com o piso de três caracteres e o teto de vinte.
+//
+// O escopo ENTRE ORGS continua sendo decisão declarada: não há filtro por organization_id, e o
+// último caso aqui o registra por escrito, para o dia em que alguém propuser escopar.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -28,7 +31,7 @@ const CAMPOS = [
   'posto_graduacao', 'rank_id', 'username',
 ].sort();
 
-describe('GET /users/search — ramos por posto/OM, shape e escopo entre orgs', () => {
+describe('GET /users/search — os LEFT JOIN de posto/OM, shape e escopo entre orgs', () => {
   let app, db, quemBusca, token;
   let comPosto, postoNome, orgB, usuarioOrgB, orgBNome, semPosto;
 
@@ -74,32 +77,31 @@ describe('GET /users/search — ramos por posto/OM, shape e escopo entre orgs', 
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
 
-  it('ramo LOWER(r.nome): buscar pelo posto encontra quem o tem', async () => {
-    // O fragmento não aparece em nenhum username nem em nenhum `nome`: só o ramo por
-    // posto pode casar.
-    const fragmento = postoNome.slice(-10);
-    const res = await buscar(fragmento);
+  it('LEFT JOIN de ranks: o posto vem na linha de quem é achado pelo LOGIN', async () => {
+    // A METADE QUE SOBREVIVEU A D13. O ramo de CASAMENTO por posto saiu; o JOIN ficou, e é
+    // por ele que a coluna Posto do autocomplete continua preenchida. Apagá-lo deixa a linha
+    // com `posto_graduacao: null` sem erro em lugar nenhum.
+    const res = await buscar(comPosto.username);
 
-    const achou = res.body.data.find((u) => u.id === comPosto.id);
-    assert.ok(achou, `buscar por "${fragmento}" tem de achar quem tem o posto ${postoNome}`);
+    const achou = res.body.data.results.find((u) => u.id === comPosto.id);
+    assert.ok(achou, `quem tem o posto ${postoNome} continua achável pelo próprio login`);
     assert.equal(achou.posto_graduacao, postoNome, 'e a coluna Posto vem preenchida pelo LEFT JOIN');
   });
 
-  it('ramo LOWER(o.nome): buscar por um fragmento do nome da OM encontra o usuário dela', async () => {
-    const fragmento = orgBNome.slice(-10);
-    const res = await buscar(fragmento);
+  it('LEFT JOIN de organizations: a OM vem na linha de quem é achado pelo LOGIN', async () => {
+    const res = await buscar(usuarioOrgB.username);
 
-    const achou = res.body.data.find((u) => u.id === usuarioOrgB.id);
-    assert.ok(achou, 'o ramo por organização existe e é alcançável pela rota');
+    const achou = res.body.data.results.find((u) => u.id === usuarioOrgB.id);
+    assert.ok(achou, 'o LEFT JOIN de organização é alcançável pela rota');
     assert.equal(achou.organizacao_militar, orgBNome);
     assert.equal(achou.organization_id, orgB);
   });
 
   it('shape: exatamente os sete campos, e nada parecido com credencial', async () => {
-    const res = await buscar(postoNome.slice(-10));
-    assert.ok(res.body.data.length > 0, 'guarda de lista não-vazia');
+    const res = await buscar(comPosto.username);
+    assert.ok(res.body.data.results.length > 0, 'guarda de lista não-vazia');
 
-    for (const linha of res.body.data) {
+    for (const linha of res.body.data.results) {
       assert.deepEqual(Object.keys(linha).sort(), CAMPOS, `shape inesperado: ${JSON.stringify(linha)}`);
       const suspeitas = Object.keys(linha).filter((k) => /password|hash|api_key|email/i.test(k));
       assert.deepEqual(suspeitas, [], 'a busca é aberta a qualquer autenticado: nada sensível pode sair');
@@ -109,7 +111,7 @@ describe('GET /users/search — ramos por posto/OM, shape e escopo entre orgs', 
   it('rank_id NULL aparece na busca com posto_graduacao null (LEFT JOIN, não INNER)', async () => {
     const res = await buscar(semPosto.username);
 
-    const achou = res.body.data.find((u) => u.id === semPosto.id);
+    const achou = res.body.data.results.find((u) => u.id === semPosto.id);
     assert.ok(achou, 'um INNER JOIN silenciaria TODO usuário sem posto');
     assert.equal(achou.rank_id, null);
     assert.equal(achou.posto_graduacao, null);
@@ -123,7 +125,7 @@ describe('GET /users/search — ramos por posto/OM, shape e escopo entre orgs', 
     assert.notEqual(quemBusca.organization_id, orgB, 'as duas orgs são mesmo diferentes');
 
     const res = await buscar(usuarioOrgB.username);
-    const achou = res.body.data.find((u) => u.id === usuarioOrgB.id);
+    const achou = res.body.data.results.find((u) => u.id === usuarioOrgB.id);
     assert.ok(achou, 'busca entre organizações é permitida por decisão de produto');
   });
 });

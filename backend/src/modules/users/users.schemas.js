@@ -46,8 +46,32 @@ export const changeEmailSchema = Joi.object({
   currentPassword: Joi.string().required().max(100),
 });
 
+/**
+ * O PISO DO TERMO DA BUSCA DE PESSOAS, e o teto de linhas que ela devolve (decisão D13).
+ *
+ * TRÊS, e não dois, pelo mesmo argumento que a busca de atlas do administrador já usa: com dois
+ * caracteres a consulta deixa de ser busca e vira fatia do efetivo, e o casamento por SUBSTRING
+ * (`%termo%`) torna um dígrafo comum um corte largo do cadastro inteiro. O número é o mesmo dos
+ * dois lados do produto de propósito: duas buscas do mesmo sistema com pisos diferentes ensinam
+ * que o piso é arbitrário.
+ *
+ * O TETO NÃO PROTEGE SOZINHO, e essa foi a alternativa recusada na decisão: vinte linhas por
+ * consulta continuam sendo enumeração se a consulta for barata e ilimitada. Quem fecha o número
+ * de consultas é `userSearchLimiter` (`users.rate-limit.js`); quem fecha a LARGURA de cada uma é
+ * este piso mais o recorte do casamento a nome e login (`SEARCH_USERS`).
+ */
+export const USER_SEARCH_MIN_TERM = 3;
+export const USER_SEARCH_MAX_ROWS = 20;
+
+/**
+ * `GET /users/search?q=`.
+ *
+ * O 422 abaixo do piso é a resposta certa, e é a MESMA de `adminAtlasSearchSchema`: a tela não
+ * chama a rota antes de haver o que buscar, e o servidor não depende de a tela ter lembrado.
+ */
 export const searchQuerySchema = Joi.object({
-  q: Joi.string().required().min(2).max(100),
+  q: Joi.string().trim().required().min(USER_SEARCH_MIN_TERM)
+    .max(100),
 });
 
 // ============================================

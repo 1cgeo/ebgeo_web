@@ -2341,10 +2341,23 @@ export class ApiClient {
     // ===== USERS =====
 
     /**
-     * Searches users by name/username (min 2 chars; backend caps at 20 results).
-     * Frozen bare-array contract — returned as-is.
+     * Busca pessoas por NOME e por LOGIN, e só por esses dois (decisão D13, 2026-09-14).
+     *
+     * O ENVELOPE DEIXOU DE SER O ARRAY NU naquela data, e a mudança é o que torna o teto
+     * honesto: `results` traz no máximo vinte linhas e `truncated` diz se o servidor cortou.
+     * Sem o segundo campo, vinte de vinte e vinte de duzentas são a mesma tela, e quem procura
+     * alguém que não apareceu conclui que a pessoa não está cadastrada. O shape é o mesmo de
+     * `GET /atlas/admin/search`, que é a outra busca da casa com piso de termo e teto de linhas.
+     *
+     * POSTO E OM CONTINUAM NA LINHA, e é deliberado: eles saíram do CASAMENTO (casar contra o
+     * nome de uma OM devolve o efetivo dela, que é enumeração) e ficaram na PROJEÇÃO, porque
+     * quem compartilha reconhece a pessoa pelo par posto + OM e não por um login.
+     *
+     * O termo precisa de ao menos `PEOPLE_SEARCH_MIN_CHARS` (`js/catalog/grant-tree.js`)
+     * caracteres; abaixo disso o servidor responde 422 e o chamador não deve nem perguntar.
+     *
      * @param {string} q - Search term.
-     * @returns {Promise<Array<{ id: string, username: string, nome: string, posto_graduacao: string, organizacao_militar: string }>>}
+     * @returns {Promise<{term: string, results: Array<{ id: string, username: string, nome: string, posto_graduacao: string, organizacao_militar: string }>, truncated: boolean}>}
      */
     async searchUsers(q) {
         return this._request('GET', `/users/search?q=${encodeURIComponent(q)}`);

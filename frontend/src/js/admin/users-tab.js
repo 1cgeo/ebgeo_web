@@ -38,6 +38,12 @@ import {
 import {
     GLOBAL_ROLE_LABELS, getGlobalRoleLabel, getGlobalRoleDescription, isKnownGlobalRole,
 } from '@ui/role-labels.js';
+// O PISO E AS FRASES DA BUSCA DE PESSOAS vivem no mesmo folha de zero imports que a frase de
+// falha da busca (`js/catalog/grant-tree.js`), lido também por `admin/grants-tab.js`: importá-lo
+// daqui não arrasta a store para `admin.html`.
+import {
+    PEOPLE_SEARCH_MIN_CHARS, peopleSearchHint, peopleSearchTruncatedNotice,
+} from '@js/catalog/grant-tree.js';
 
 /**
  * O papel global de que o par (papel, OM de produção) é exigido pelo banco.
@@ -793,17 +799,33 @@ class UsersTab {
         search.addEventListener('input', () => {
             clearTimeout(this._searchTimer);
             const q = search.value.trim();
-            if (q.length < 2) { results.replaceChildren(); return; }
+            // O PISO É O DO SERVIDOR (`PEOPLE_SEARCH_MIN_CHARS`), e ele estava escrito solto
+            // aqui, como um `2` no meio do `if`: era a quinta cópia de um número que o servidor
+            // decide, e a única que nem nome tinha. O campo com texto curto DIZ o que falta, em
+            // vez de esvaziar a lista, que é a mesma tela de "ninguém encontrado".
+            if (q.length < PEOPLE_SEARCH_MIN_CHARS) {
+                results.replaceChildren();
+                if (q.length > 0) {
+                    const dica = document.createElement('p');
+                    dica.className = 'admin-users__status';
+                    dica.dataset.testid = 'admin-transfer-search-hint';
+                    dica.textContent = peopleSearchHint();
+                    results.appendChild(dica);
+                }
+                return;
+            }
             this._searchTimer = setTimeout(async () => {
-                let found;
+                let resposta;
                 try {
-                    found = await apiClient.searchUsers(q);
+                    resposta = await apiClient.searchUsers(q);
                 } catch {
                     return;
                 }
                 if (!this._alive) return;
                 results.replaceChildren();
-                for (const candidate of (found || [])) {
+                // Envelope `{ results, truncated }` desde D13; lista vazia é a degradação segura.
+                const found = Array.isArray(resposta?.results) ? resposta.results : [];
+                for (const candidate of found) {
                     if (candidate.id === user.id) continue; // can't transfer to the same user
                     const row = document.createElement('label');
                     row.className = 'admin-transfer__option';
@@ -817,6 +839,17 @@ class UsersTab {
                     text.textContent = `${candidate.nome} (${candidate.username})`;
                     row.appendChild(text);
                     results.appendChild(row);
+                }
+                // A NOTA DO CORTE, do campo do servidor e nunca do tamanho da lista. Aqui ela
+                // pesa mais que nas outras telas: quem não achar o novo dono na lista cortada
+                // desativa a conta sem transferir, e a transferência é o que impede o atlas de
+                // ficar órfão.
+                if (resposta?.truncated === true) {
+                    const corte = document.createElement('p');
+                    corte.className = 'admin-users__status';
+                    corte.dataset.testid = 'admin-transfer-search-truncated';
+                    corte.textContent = peopleSearchTruncatedNotice();
+                    results.appendChild(corte);
                 }
             }, 250);
         });

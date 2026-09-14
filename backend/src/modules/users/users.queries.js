@@ -69,6 +69,25 @@ export const UPDATE_USER_PASSWORD = `
   WHERE id = $1
 `;
 
+/**
+ * A BUSCA DE PESSOAS. Casa NOME e LOGIN, e mais nada (decisão D13, 2026-09-14).
+ *
+ * POSTO E OM SAÍRAM DO CASAMENTO E FICARAM NA PROJEÇÃO, e a assimetria é o assunto inteiro.
+ * Eles precisam continuar VINDO na linha, porque quem compartilha um atlas reconhece a pessoa
+ * pelo par posto + OM e não por um login; o que eles não podem é DECIDIR quais linhas voltam.
+ * Enquanto decidiam, um termo como o nome de uma organização devolvia o efetivo dela vinte
+ * linhas por vez, para qualquer conta e para qualquer chave de API de escopo largo: a busca
+ * casava contra um atributo COLETIVO, e casamento por atributo coletivo é enumeração com outro
+ * nome. Nome e login identificam a PESSOA que se procura, e é por isso que só eles sobraram.
+ *
+ * O `LIMIT` É PARÂMETRO, e o chamador pede uma linha A MAIS que o teto: é assim que o serviço
+ * distingue "vinte resultados" de "vinte de muitos" sem um `COUNT(*)`, que custaria a varredura
+ * inteira que este teto existe para evitar. Mesma forma de `SEARCH_ALL_ATLAS`.
+ *
+ * O `LIKE` É LITERAL: `%` e `_` chegam escapados por `escapeLike` no serviço, e a barra
+ * invertida é o caractere de escape que o Postgres assume no `LIKE` sem cláusula `ESCAPE`.
+ *   $1 = padrão, $2 = teto + 1
+ */
 export const SEARCH_USERS = `
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
          u.organization_id, o.nome AS organizacao_militar
@@ -79,11 +98,9 @@ export const SEARCH_USERS = `
     AND (
       LOWER(u.username) LIKE LOWER($1)
       OR LOWER(u.nome) LIKE LOWER($1)
-      OR LOWER(r.nome) LIKE LOWER($1)
-      OR LOWER(o.nome) LIKE LOWER($1)
     )
   ORDER BY u.nome
-  LIMIT 20
+  LIMIT $2
 `;
 
 // ============================================

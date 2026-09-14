@@ -35,9 +35,17 @@ export const changeMyEmail = asyncHandler(async (req, res) => {
   res.json({ data: result });
 });
 
+/**
+ * `GET /users/search`.
+ *
+ * O ENVELOPE É O DA BUSCA DE ATLAS DO ADMINISTRADOR (`searchAtlasAsAdmin`), e a simetria é
+ * deliberada: as duas são buscas com piso de termo e teto de linhas, e as duas precisam dizer
+ * que cortaram. `data` deixou de ser o array nu em 2026-09-14 (decisão D13); o `term` volta
+ * junto porque a tela desenha a frase do corte NOMEANDO o termo que a produziu.
+ */
 export const searchUsers = asyncHandler(async (req, res) => {
-  const users = await usersService.searchUsers(req.query.q);
-  res.json({ data: users });
+  const { results, truncated } = await usersService.searchUsers(req.query.q);
+  res.json({ data: { term: req.query.q, results, truncated } });
 });
 
 export const rotateMyApiKey = asyncHandler(async (req, res) => {

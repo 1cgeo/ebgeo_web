@@ -69,11 +69,22 @@ import {
     leaveAvailabilityUnknownNotice,
     participatingReachUnknownNotice,
 } from './group-phrases.js';
+// O PISO E AS FRASES DA BUSCA DE PESSOAS moram no mesmo folha de zero imports que a frase de
+// falha da busca (`js/catalog/grant-tree.js`), lido tambem por `admin/grants-tab.js`: importa-lo
+// daqui nao arrasta a store para `admin.html`.
+import {
+    PEOPLE_SEARCH_MIN_CHARS, peopleSearchHint, peopleSearchTruncatedNotice,
+} from '@js/catalog/grant-tree.js';
 
 /** The user search waits this long after the last keystroke before hitting the backend. */
 const SEARCH_DEBOUNCE_MS = 250;
-/** The backend's own minimum for `/users/search`; below it the request is pointless. */
-const SEARCH_MIN_CHARS = 2;
+/**
+ * O PISO DO TERMO NAO MORA MAIS AQUI (decisao D13, 2026-09-14): ele e
+ * `PEOPLE_SEARCH_MIN_CHARS`, espelho do piso que o servidor impoe com 422, e as CINCO buscas
+ * de pessoa do produto leem a MESMA constante. Cinco copias de um numero que o servidor decide
+ * sao cinco lugares para esquecer quando ele muda.
+ */
+const SEARCH_MIN_CHARS = PEOPLE_SEARCH_MIN_CHARS;
 
 /**
  * Builds the "Grupos" tab definition for the admin panel.
@@ -681,7 +692,7 @@ class GroupsTab {
         search.id = 'admin-group-search';
         search.className = 'admin-input admin-groups__search';
         search.dataset.testid = 'admin-group-search';
-        search.placeholder = 'Buscar por nome, usuário ou posto…';
+        search.placeholder = 'Buscar por nome ou usuário…';
         box.appendChild(search);
 
         const results = document.createElement('div');
@@ -694,7 +705,17 @@ class GroupsTab {
             const q = search.value.trim();
             if (q.length < SEARCH_MIN_CHARS) {
                 clearScopedListeners(this, 'results');
+                // O CAMPO COM TEXTO CURTO DIZ O QUE FALTA. Esvaziar o painel deixa a mesma tela
+                // de "Ninguém encontrado com esse termo", e quem digitou duas letras lê uma
+                // ausência que a busca nunca foi perguntar. Campo VAZIO segue apagando tudo.
                 results.replaceChildren();
+                if (q.length > 0) {
+                    const dica = document.createElement('p');
+                    dica.className = 'admin-users__status';
+                    dica.dataset.testid = 'admin-group-search-hint';
+                    dica.textContent = peopleSearchHint();
+                    results.appendChild(dica);
+                }
                 return;
             }
             // Tracked so the tab's cleanup clears it: a stray fire after teardown would issue an
@@ -711,9 +732,9 @@ class GroupsTab {
      * @param {string} q @param {HTMLElement} results @param {Object} group
      */
     async _runSearch(q, results, group) {
-        let found;
+        let resposta;
         try {
-            found = await apiClient.searchUsers(q);
+            resposta = await apiClient.searchUsers(q);
         } catch (error) {
             if (this._alive) showError(error?.message || 'Falha ao buscar pessoas.');
             return;
@@ -723,16 +744,32 @@ class GroupsTab {
         clearScopedListeners(this, 'results');
         results.replaceChildren();
 
+        // O ENVELOPE É `{ results, truncated }` DESDE D13. Lista vazia é a degradação segura
+        // para uma resposta de outra forma: ela vira "ninguém encontrado", nunca um candidato.
+        const found = Array.isArray(resposta?.results) ? resposta.results : [];
+        // A NOTA DO CORTE vem do campo do servidor, nunca do tamanho da lista: exatamente vinte
+        // resultados é um desfecho legítimo e não cortado. Ela é anexada nos DOIS desfechos, e o
+        // vazio é o que mais precisa dela: "ninguém encontrado" sobre uma lista que o servidor
+        // cortou é a afirmação mais enganosa que esta tela sabe fazer.
+        const anexarCorte = () => {
+            if (resposta?.truncated !== true) return;
+            const corte = document.createElement('p');
+            corte.className = 'admin-users__status';
+            corte.dataset.testid = 'admin-group-search-truncated';
+            corte.textContent = peopleSearchTruncatedNotice();
+            results.appendChild(corte);
+        };
         const already = new Set(this._members.map((m) => String(m.id)));
-        const candidates = (found || []).filter((u) => !already.has(String(u.id)));
+        const candidates = found.filter((u) => !already.has(String(u.id)));
         if (candidates.length === 0) {
             const none = document.createElement('p');
             none.className = 'admin-users__status';
             none.dataset.testid = 'admin-group-search-empty';
-            none.textContent = (found || []).length === 0
+            none.textContent = found.length === 0
                 ? 'Ninguém encontrado com esse termo.'
                 : 'Todas as pessoas encontradas já estão no grupo.';
             results.appendChild(none);
+            anexarCorte();
             return;
         }
 
@@ -749,6 +786,7 @@ class GroupsTab {
                 'admin-group-member-add', () => this._addMember(group, candidate), 'results'));
             results.appendChild(row);
         }
+        anexarCorte();
     }
 
     /**

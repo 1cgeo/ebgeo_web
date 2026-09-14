@@ -85,7 +85,7 @@ Desativar e rebaixar valem na hora, apesar dos 15 minutos do access token, porqu
 
 Troca e reset revogam **todos** os refresh tokens. Consequência para a UI: depois de qualquer um dos dois, as outras abas e dispositivos caem no próximo refresh. Trate esse 401 como "faça login de novo", não como falha inesperada. Ver [[refresh-token-rotacao]].
 
-`GET /users/search` tem **LIMIT 20 fixo e sem paginação** (`SEARCH_USERS`, `backend/src/modules/users/users.queries.js`), e é ela que alimenta o seletor de destinatários do [[compartilhamento-atlas]]. É o motivo de buscas curtas parecerem "cortar" resultados em organizações grandes. `GET /users` (admin) também não pagina, traz tudo.
+`GET /users/search` tem **teto de vinte linhas e sem paginação** (`SEARCH_USERS`, `backend/src/modules/users/users.queries.js`), e é ela que alimenta o seletor de destinatários do [[compartilhamento-atlas]]. É o motivo de buscas curtas parecerem "cortar" resultados em organizações grandes, e desde 2026-09-14 o corte deixou de ser mudo: a resposta traz `truncated`, o piso do termo subiu para três caracteres e o casamento por posto e por OM saiu. O porquê e o resto do desenho estão em [[compartilhamento-atlas]]. `GET /users` (admin) também não pagina, traz tudo.
 
 `GET /users/me` filtra `is_active = true` (`FIND_USER_BY_ID`, `backend/src/modules/users/users.queries.js`), então conta desativada receberia 404 no próprio perfil, embora o middleware já a barre com 401 antes.
 

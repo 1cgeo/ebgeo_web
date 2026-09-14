@@ -105,16 +105,19 @@ describe('edge hardening', () => {
     it('finds a username containing an underscore', async () => {
       const res = await search('alfa_bravo').expect(200);
       assert.ok(
-        res.body.data.some((u) => u.id === target.id),
+        res.body.data.results.some((u) => u.id === target.id),
         'an underscore must match itself, not "any character"'
       );
     });
 
     it('a bare wildcard query does not dump the table', async () => {
-      const res = await search('%%').expect(200);
+      // TRÊS por cento, e não dois: o piso do termo passou a ser três caracteres em D13, e
+      // um termo de dois agora é recusado na borda antes de chegar ao escape, que é o que
+      // este caso mede.
+      const res = await search('%%%').expect(200);
       assert.equal(
-        res.body.data.length, 0,
-        '`%%` is a literal search for two percent signs, not a full scan'
+        res.body.data.results.length, 0,
+        '`%%%` is a literal search for three percent signs, not a full scan'
       );
     });
 
@@ -123,7 +126,7 @@ describe('edge hardening', () => {
       const decoy = await createUser(db, { username: `alfaXbravo_${randomUUID().slice(0, 6)}` });
       const res = await search('alfa_bravo').expect(200);
       assert.ok(
-        !res.body.data.some((u) => u.id === decoy.id),
+        !res.body.data.results.some((u) => u.id === decoy.id),
         'the wildcard meaning is gone'
       );
     });

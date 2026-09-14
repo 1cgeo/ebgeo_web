@@ -200,9 +200,11 @@ describe.skipIf(E2E_SKIP)('e2e: a matriz posto x acao, nos cinco degraus', () =>
                     // o principal, senao a recusa seria a da clausula 5.6 (sem relacao nenhuma)
                     // e nao a do posto, e o caso passaria verde medindo a coisa errada.
                     if (degrau !== 'owner') {
+                        // O envelope da busca virou `{ term, results, truncated }` em D13
+                        // (2026-09-14): `data` deixou de ser o array nu.
                         const { user } = await donoApi._request(
                             'GET', `/users/search?q=Conta ${degrau}`
-                        ).then((r) => ({ user: r[0] }));
+                        ).then((r) => ({ user: r?.results?.[0] }));
                         await donoApi._request('POST', `/atlas/${descartavel.id}/sharing/users`, {
                             body: { userId: user.id, permission: degrau },
                         });

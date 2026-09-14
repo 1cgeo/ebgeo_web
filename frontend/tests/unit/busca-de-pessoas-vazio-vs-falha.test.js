@@ -63,18 +63,44 @@ describe('busca de pessoas: vazio e falha sao telas distintas', () => {
         // Guarda contra a varredura que para de casar em silencio: se um dos dois
         // arquivos for renomeado, o resto do describe ficaria verde por vacuidade.
         expect(IRMAS).toHaveLength(2);
-        for (const rel of IRMAS) expect(fonte(rel)).toContain('_renderResultsInto(results)');
+        for (const rel of IRMAS) expect(fonte(rel)).toContain('_renderResultsInto(results');
     });
 
     for (const rel of IRMAS) {
         describe(rel, () => {
             it('_renderResultsInto renderiza SEMPRE, sem o ternario que apagava o ramo vazio', () => {
-                const corpo = corpoDeMetodo(fonte(rel), '_renderResultsInto(results) {', rel);
-                expect(corpo).toContain('container.innerHTML = this._renderResults(results);');
+                // A ASSINATURA GANHOU `truncated` EM D13 (2026-09-14), e a ancora foi afrouxada
+                // ate a virgula justamente por isso: prende-la em `(results)` faria a proxima
+                // mudanca de assinatura reprovar por FORMA, sem nada ter regredido.
+                const corpo = corpoDeMetodo(fonte(rel), '_renderResultsInto(results, truncated', rel);
+                expect(corpo).toContain('container.innerHTML = this._renderResults(results) + nota;');
                 // REPROVA o estado anterior. O ternario e o defeito inteiro: com ele, o
                 // ramo de lista vazia de `_renderResults` nunca chega a tela.
                 expect(corpo, 'o ternario que torna o ramo vazio inalcancavel voltou')
                     .not.toMatch(/results\.length\s*\?/);
+            });
+
+            it('a nota do corte vem do campo do SERVIDOR, nunca do tamanho da lista', () => {
+                // Deduzir o corte de `results.length === 20` mente no caso em que existem
+                // exatamente vinte, que e um desfecho legitimo e nao cortado. Por isso a
+                // condicao le a bandeira, e por isso este caso proibe a aritmetica.
+                const corpo = corpoDeMetodo(fonte(rel), '_renderResultsInto(results, truncated', rel);
+                expect(corpo).toContain('truncated');
+                expect(corpo).toContain('peopleSearchTruncatedNotice()');
+                expect(corpo, 'a nota do corte voltou a ser deduzida do tamanho da lista')
+                    .not.toMatch(/results\.length\s*[><=]/);
+            });
+
+            it('o TERCEIRO estado existe: texto curto DIZ o que falta, em vez de lista vazia', () => {
+                // Sao tres, e nao dois: "ainda nao perguntei", "perguntei e nao achei" e "nao
+                // consegui perguntar". Enquanto o primeiro e o segundo eram a mesma caixa em
+                // branco, quem digitava duas letras lia uma ausencia que ninguem verificou.
+                const corpo = corpoDeMetodo(fonte(rel), '_renderSearchHint() {', rel);
+                expect(corpo).toContain('peopleSearchHint()');
+                const entrada = corpoDeMetodo(fonte(rel), '_handleSearchInput(value) {', rel);
+                expect(entrada).toContain('this._renderSearchHint();');
+                // E o piso e o COMPARTILHADO, nunca um numero solto: ver `grant-tree.js`.
+                expect(fonte(rel)).toContain('const SEARCH_MIN_CHARS = PEOPLE_SEARCH_MIN_CHARS;');
             });
 
             it('_renderResults tem o ramo de lista vazia, que e o que o conserto revela', () => {

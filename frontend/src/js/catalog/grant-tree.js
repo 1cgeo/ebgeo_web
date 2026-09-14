@@ -781,6 +781,59 @@ export function searchFailureNotice() {
 }
 
 /**
+ * O PISO DO TERMO DA BUSCA DE PESSOAS, do lado do cliente.
+ *
+ * ELE ESPELHA `USER_SEARCH_MIN_TERM` DO SERVIDOR (`backend/src/modules/users/users.schemas.js`),
+ * que responde 422 abaixo dele desde a decisão D13 (2026-09-14). As duas cópias existem porque
+ * são dois pacotes, e a que VALE é a do servidor; esta existe só para o campo não gastar uma
+ * requisição já sabidamente recusada, e o espelho é cobrado por
+ * `frontend/tests/unit/busca-de-pessoas-piso-espelha-backend.test.js`.
+ *
+ * QUATRO ARQUIVOS DECLARAVAM O NÚMERO, cada um com o seu `const SEARCH_MIN_CHARS = 2`, e um
+ * quinto o escrevia solto dentro de um `if`. Cinco cópias de um piso que o servidor impõe são
+ * cinco lugares para esquecer quando ele muda, e era exatamente o que estava prestes a
+ * acontecer: o piso subiu para três no servidor e as cinco telas seguiriam chamando com dois,
+ * gastando um 422 por tecla.
+ */
+export const PEOPLE_SEARCH_MIN_CHARS = 3;
+
+/** O TETO DE LINHAS, espelho de `USER_SEARCH_MAX_ROWS`. Só a frase abaixo o usa. */
+export const PEOPLE_SEARCH_MAX_ROWS = 20;
+
+/**
+ * A FRASE DO CAMPO QUE AINDA NÃO TEM O QUE BUSCAR.
+ *
+ * LISTA VAZIA NÃO É A RESPOSTA CERTA AQUI, e é o que as cinco telas mostravam: quem digitava
+ * duas letras via um painel em branco e lia "não há ninguém com esse nome", quando o que havia
+ * era uma busca que nunca saiu. É a mesma distinção que {@link searchFailureNotice} faz do outro
+ * lado ("não achei" contra "não perguntei"), agora na ponta de cá.
+ *
+ * @returns {string}
+ */
+export function peopleSearchHint() {
+    return `Digite ao menos ${PEOPLE_SEARCH_MIN_CHARS} caracteres para buscar por nome ou usuário.`;
+}
+
+/**
+ * A FRASE DA LISTA QUE FOI CORTADA no teto do servidor.
+ *
+ * Ela existe porque vinte de vinte e vinte de duzentos são a MESMA tela sem ela, e quem procura
+ * alguém que não apareceu conclui que a pessoa não está cadastrada em vez de refinar o termo. O
+ * servidor manda `truncated` justamente para que esta frase não seja adivinhada pelo tamanho da
+ * lista: exatamente vinte resultados é um desfecho legítimo e NÃO cortado.
+ *
+ * O TEXTO NOMEIA O QUE A BUSCA CASA, e isso é consequência direta de D13: posto e OM saíram do
+ * casamento, então "refine o termo" sem dizer POR ONDE mandaria a pessoa digitar o nome da OM de
+ * novo, que é justamente o termo que deixou de funcionar.
+ *
+ * @returns {string}
+ */
+export function peopleSearchTruncatedNotice() {
+    return `Mostrando as primeiras ${PEOPLE_SEARCH_MAX_ROWS}. A busca casa nome e usuário: `
+        + 'refine o termo para ver o resto.';
+}
+
+/**
  * Os desfechos da leitura da lista que a tela desenha DIFERENTE.
  *
  * Enum, e não booleano, pela mesma razão de {@link REVOKE_AVAILABILITY}: o que muda entre os

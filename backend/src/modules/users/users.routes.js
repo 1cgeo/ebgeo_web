@@ -4,6 +4,7 @@ import { auth } from '../../middleware/auth.js';
 import { requireAdmin } from '../../middleware/require-admin.js';
 import { validate } from '../../middleware/validate.js';
 import { emailChangeLimiter } from '../../middleware/rate-limit.js';
+import { userSearchLimiter } from './users.rate-limit.js';
 import { canDeliverAccountMail } from '../../utils/mailer.js';
 import * as ctrl from './users.controller.js';
 import * as schemas from './users.schemas.js';
@@ -46,7 +47,16 @@ router.get('/me/api-keys', auth, ctrl.listMyApiKeys);
 router.post('/me/api-keys', auth, validate({ body: schemas.createApiKeySchema }), ctrl.createMyApiKey);
 router.delete('/me/api-keys/:keyId', auth, validate({ params: schemas.apiKeyIdParamsSchema }), ctrl.revokeMyApiKey);
 
-router.get('/search', auth, validate({ query: schemas.searchQuerySchema }), ctrl.searchUsers);
+// A BUSCA DE PESSOAS, com o limitador ANTES do `validate` (decisão D13, 2026-09-14).
+//
+// A ordem `auth → limiter → validate → ctrl` tem as três posições decididas. O `auth` vem
+// primeiro porque a chave do balde é o PRINCIPAL e não o endereço (ver `users.rate-limit.js`);
+// o limitador vem antes do `validate` pela mesma razão de `POST /auth/register` e de
+// `POST /diag/erro-cliente`, que é o termo malformado não poder ser a porta barata de bater na
+// rota; e o `validate` É PARTE DO GATE, não formalidade, porque é ele que impõe o piso de três
+// caracteres com 422 — sem ele, dois caracteres devolveriam uma fatia do efetivo.
+router.get('/search', auth, userSearchLimiter,
+  validate({ query: schemas.searchQuerySchema }), ctrl.searchUsers);
 
 // Admin routes (manage all users)
 router.get('/', auth, requireAdmin, validate({ query: schemas.listUsersQuerySchema }), ctrl.listUsers);

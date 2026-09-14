@@ -341,25 +341,28 @@ describe('Org + Identity + Audit + Users gaps', () => {
         .set('Authorization', `Bearer ${userToken}`)
         .expect(200);
 
-      const ids = res.body.data.map((r) => r.id);
+      const ids = res.body.data.results.map((r) => r.id);
       assert.ok(!ids.includes(gone.id), 'inactive user must not be searchable');
     });
 
     it('a literal "%" query does not enumerate the whole user table', async () => {
-      // q='%%' (min length 2) is interpolated into `%${q}%` → `%%%%`, which
-      // matches every active user; the documented mitigation is the LIMIT 20
-      // cap, so the result set must never exceed 20 rows even though far more
-      // active users exist. Seed enough active users to exceed the cap.
+      // q='%%%' (o piso passou a ser TRÊS em D13) seria interpolado em `%${q}%` → `%%%%%`,
+      // que casaria todo usuário ativo se o escape não existisse. As DUAS metades da defesa
+      // ficam medidas aqui: o escape (o termo é literal e por isso não casa ninguém) e o
+      // teto de vinte linhas, com a base povoada acima do teto.
       for (let i = 0; i < 25; i++) {
         await createUser(db, { username: uname(`bulk${i}`) });
       }
       const res = await supertest(app)
-        .get('/api/v1/users/search?q=%25%25') // URL-encoded '%%'
+        .get('/api/v1/users/search?q=%25%25%25') // URL-encoded '%%%'
         .set('Authorization', `Bearer ${userToken}`)
         .expect(200);
 
-      assert.ok(Array.isArray(res.body.data));
-      assert.ok(res.body.data.length <= 20, `expected <=20 rows, got ${res.body.data.length}`);
+      assert.ok(Array.isArray(res.body.data.results));
+      assert.ok(
+        res.body.data.results.length <= 20,
+        `expected <=20 rows, got ${res.body.data.results.length}`,
+      );
     });
   });
 
