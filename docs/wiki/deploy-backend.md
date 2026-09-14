@@ -38,7 +38,20 @@ Runner `node src/database/migrate.js` (`npm run db:migrate`), forward-only, trac
 
 `node:22-bookworm-slim` (debian, não alpine) de propósito (`backend/Dockerfile`): `bcrypt` e `better-sqlite3` publicam prebuilds **glibc/x64** e o Dockerfile não instala toolchain. Em ARM, air-gapped ou sem prebuild, o `npm ci` tenta compilar e falha por falta de gcc/python/make; nesse caso adicione `build-essential` + `python3` ao estágio `deps`.
 
-**As duas ocorrências da base estão SEM digest**, e a proposta de fixação está em [[inventario-de-vendors]]: fixa-se o digest do ÍNDICE e não o de uma plataforma, senão a imagem fica amarrada a amd64 e a construção quebra em qualquer outra. O Dockerfile não foi alterado, porque ele é caminho de implantação e a troca exige confirmação do dono mais uma construção de prova.
+**As duas ocorrências da base estão FIXADAS por digest desde 2026-09-14** (decisão D9, item V8), e o digest é o do **ÍNDICE**, não o de uma plataforma: é isso que preserva o multiarch, porque o mesmo arquivo continua construindo em amd64 e em arm64, enquanto um digest de plataforma amarra a imagem a uma arquitetura e quebra a construção em qualquer outra. Não é preferência de estilo. O método e o histórico estão em [[inventario-de-vendors]].
+
+### Trocar o digest da imagem base
+
+Não há mecanismo que force as duas linhas `FROM` a carregarem o mesmo digest: são duas strings independentes, e trocar uma só produz uma imagem cujos dois estágios vêm de bases diferentes, em silêncio. O procedimento, na ordem:
+
+1. **Leia o digest do índice.** `docker buildx imagetools inspect node:22-bookworm-slim` e olhe a linha `Digest:` do TOPO, nunca uma das entradas de `Manifests:` abaixo dela, que são por plataforma. Sem daemon do Docker, a API do registro responde a mesma coisa no cabeçalho `docker-content-digest`, pedindo `Accept: application/vnd.oci.image.index.v1+json`; confira que o `Content-Type` da resposta é o do ÍNDICE, senão você leu uma plataforma.
+2. **Troque as DUAS linhas** `FROM` de `backend/Dockerfile`, e só elas.
+3. **Construa.** `docker build -t <tag> --build-arg EBGEO_RELEASE=$(git rev-parse --short HEAD) .` de dentro de `backend/`. **Um pino que ninguém provou que constrói é uma linha de texto, não uma garantia**, e é por isso que este passo não é opcional.
+4. **Registre a data e o digest** no manifesto `docs/seguranca/dependencias-lancamento-inventario.json`, no bloco datado, junto com o resultado da construção.
+
+O digest fixado hoje, `sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5`, foi lido em 2026-09-14 por três caminhos independentes (`docker manifest inspect`, `docker buildx imagetools inspect` e a API HTTP do registro) que concordaram entre si e com o digest anotado no inventário no dia anterior. A construção de prova rodou na mesma data e saiu com código 0. Dentro da imagem resultante: **Node v22.23.2**, npm 10.9.8, Debian 12 (bookworm), processo como uid/gid 1001, e o `EBGEO_RELEASE` carimbado. Essa leitura fecha um dos itens que o inventário listava como não verificados; **continuam abertos** a imagem que de fato roda no servidor interno (o digest do registro não prova o que está em execução) e qualquer varredura de vulnerabilidade do sistema operacional dela.
+
+O `backend/docker-compose.yml` constrói por `build: .` e portanto herda o Dockerfile; não há um segundo lugar onde o digest entre. Ele declara uma segunda imagem sem digest, `postgis/postgis:16-3.4`, que é do serviço de banco de desenvolvimento e teste: é decisão separada e de risco menor, porque não vai para produção.
 
 Runtime roda como uid/gid **1001** (`backend/Dockerfile`) e o `chown` do build cobre `/app/data` (`backend/Dockerfile`), mas um volume montado ali chega com a dono do host e **sobrescreve** esse chown. Só `/app/data/images` é pré-criado; os diretórios de assets 3D e 360 nascem em runtime pelo app. Volume não gravável por 1001 dá `EACCES` na primeira escrita, não no boot.
 

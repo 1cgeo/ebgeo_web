@@ -45,8 +45,8 @@ São seis, e a lista ENCOLHEU em conteúdo enquanto crescia em itens: a conferê
    **O ponto cego não sumiu quando essas duas ganharam versão: ele MUDOU DE LUGAR**, e para pior. Saiu de duas bibliotecas JavaScript para duas bibliotecas nativas de descompressão e transcodificação de textura, que processam bytes de arquivo vindos do servidor. Desde 2026-09-14 esse estado está declarado (decisão D9, item V5) e o pedido de manifesto ao fornecedor está escrito e pronto para o dono enviar, em [`docs/seguranca/aholo-viewer-pedido-de-manifesto.md`](../seguranca/aholo-viewer-pedido-de-manifesto.md). **A opção de declarar `semver` e `fflate` como dependências diretas do frontend foi recusada**, e o motivo é o que a constituição chama de cobertura vazia: o `npm audit` passaria a reportar sobre a versão do lockfile, não sobre a que está fundida no bundle, e no dia em que o fornecedor publicar 1.8.2 com outra `fflate` dentro o verde continuaria verde.
 
    **Achado lateral de procedência, que só aparece lendo o binário:** os caminhos de fonte dentro do wasm do zstd mostram que as crates do fornecedor vieram de um ESPELHO de terceiro, e não do crates.io (o diretório de registro é `rsproxy.cn`, não `index.crates.io`). Não é defeito e não muda nada do nosso lado; é um fato de cadeia de suprimentos que não estava registrado, e que o `npm audit` não alcança por definição.
-5. **A imagem Docker efetivamente em execução no servidor interno.** O digest lido do registro não prova o que roda hoje.
-6. **O sistema operacional da imagem.** Nenhuma varredura de pacote Debian foi feita, e nem o `npm audit` nem este inventário a alcançam.
+5. **A imagem Docker efetivamente em execução no servidor interno.** O digest lido do registro não prova o que roda hoje, e fixá-lo no `backend/Dockerfile` também não: ele decide o que a PRÓXIMA construção usa, não o que já está de pé.
+6. **O sistema operacional da imagem.** Nenhuma varredura de pacote Debian foi feita, e nem o `npm audit` nem este inventário a alcançam. O que a construção de prova de 2026-09-14 fechou foi só a IDENTIDADE do que sai dali (Debian 12 bookworm, Node v22.23.2, npm 10.9.8), que é o de menos: saber a distribuição não diz nada sobre os pacotes dela.
 
 A metade que a conferência por hash resolveu bem: os 394 arquivos que `frontend/public/vendors/cesium/` tinha em 2026-09-13 contra os 392 de cesium 1.138.0, pelos hashes que a API de metadados do jsDelivr publica por arquivo, deram 392 idênticos e zero divergentes (os dois que sobravam eram o item 2 acima, e desde 2026-09-14 sobra um, porque o outro virou código da casa); e os cinco artefatos do GDAL (wrapper em três builds, o WebAssembly e o pacote de dados) são idênticos aos de gdal3.js 2.8.1, o que torna a versão do wrapper determinável por hash mesmo sem ele declarar versão nenhuma.
 
@@ -66,9 +66,9 @@ O guarda do que sobrou puro é `frontend/tests/unit/cesium-measure-rotulos.test.
 
 ## O digest a fixar é o do ÍNDICE, não o de amd64
 
-`backend/Dockerfile` declara a base `node:22-bookworm-slim` nos dois estágios, sem digest nas duas ocorrências. **Fixar o digest do índice preserva o multiarch**, então o mesmo arquivo continua construindo em amd64 e em arm64; fixar o digest de uma plataforma amarra a imagem a ela e quebra a construção em qualquer outra. Não é preferência de estilo, é a diferença entre um Dockerfile portável e um que só funciona na máquina de quem o fixou.
+`backend/Dockerfile` declara a base `node:22-bookworm-slim` nos dois estágios, e desde 2026-09-14 as duas ocorrências carregam o digest do ÍNDICE (decisão D9, item V8). **Fixar o digest do índice preserva o multiarch**, então o mesmo arquivo continua construindo em amd64 e em arm64; fixar o digest de uma plataforma amarra a imagem a ela e quebra a construção em qualquer outra. Não é preferência de estilo, é a diferença entre um Dockerfile portável e um que só funciona na máquina de quem o fixou.
 
-O Dockerfile não foi alterado: ele é caminho de implantação, e a troca exige confirmação do dono e uma construção de prova. Ver [[deploy-backend]].
+**E o pino veio com construção de prova**, porque um pino que ninguém provou que constrói é uma linha de texto e não uma garantia: a construção rodou em 2026-09-14 e saiu com código 0. O digest tinha sido lido por três caminhos independentes no mesmo dia (`docker manifest inspect`, `docker buildx imagetools inspect` e a API HTTP do registro), que concordaram entre si e com o valor anotado aqui na véspera. A imagem construída respondeu Node v22.23.2, npm 10.9.8, Debian 12 (bookworm), uid/gid 1001, o que **fecha um dos três itens que este inventário dava por não verificados**. O procedimento de troca, com a armadilha de ler o digest errado e a de atualizar uma só das duas linhas, está em [[deploy-backend]].
 
 ## Achado lateral: vendor sem consumidor
 
@@ -124,17 +124,18 @@ E toda vez que esse zero for anotado, anote ao lado o que ele não prova: `npm a
 
 **3. O digest da imagem.**
 
-O digest a fixar é o do ÍNDICE, pela razão da seção acima, e o lugar em que ele entra é **`backend/Dockerfile`, nas DUAS ocorrências de `FROM node:22-bookworm-slim`** (o estágio `deps` e o estágio `runtime`), cada uma virando `FROM node:22-bookworm-slim@sha256:<digest do índice> AS <estágio>`. Não há outro lugar: `deploy/deploy.sh` não fala de Docker (ele troca o symlink do `dist/` do frontend) e `backend/docker-compose.yml` constrói por `build: .`, então herda o Dockerfile. O compose declara uma segunda imagem sem digest, `postgis/postgis:16-3.4`, que é do serviço de banco para desenvolvimento e teste e é decisão separada.
+O digest a fixar é o do ÍNDICE, pela razão da seção acima, e o lugar em que ele entra são as **DUAS ocorrências de `FROM` em `backend/Dockerfile`** (o estágio `deps` e o estágio `runtime`). Não há outro lugar: `deploy/deploy.sh` não fala de Docker (ele troca o symlink do `dist/` do frontend) e `backend/docker-compose.yml` constrói por `build: .`, então herda o Dockerfile. O compose declara uma segunda imagem sem digest, `postgis/postgis:16-3.4`, que é do serviço de banco para desenvolvimento e teste e é decisão separada.
 
-O digest observado em 2026-09-13 e a proposta estão em [`dependencias-lancamento-inventario.json`](../seguranca/dependencias-lancamento-inventario.json), sob `runtimeInventory2026_09_13`, com o digest por plataforma ao lado para conferência. Relê-lo é:
+Desde 2026-09-14 as duas linhas estão fixadas, e o que este passo do fecho verifica passou a ser outra coisa: que o digest fixado continua sendo o da tag, e que a imagem ainda constrói.
 
 ```bash
-docker buildx imagetools inspect node:22-bookworm-slim
+docker buildx imagetools inspect node:22-bookworm-slim   # a linha Digest: do TOPO
+cd backend && docker build -t ebgeo-backend:fecho .       # codigo de saida 0
 ```
 
-**O Dockerfile não se edita neste fecho.** Ele é caminho de implantação: a troca exige confirmação do dono e uma construção de prova, e sem essa construção o pino é uma linha que ninguém provou que constrói. Ver [[deploy-backend]].
+Se o digest da tag tiver andado, a decisão de subir o pino é do dono, e o procedimento (com as duas armadilhas: ler o digest de uma plataforma em vez do do índice, e atualizar uma só das duas linhas) está em [[deploy-backend]]. O histórico, com o digest por plataforma ao lado para conferência, continua em [`dependencias-lancamento-inventario.json`](../seguranca/dependencias-lancamento-inventario.json).
 
-**4. O que o fecho NÃO fecha.** As três medições acima certificam que o que está versionado é o que o manifesto diz, que o banco de avisos não tinha nada a dizer sobre os lockfiles naquele dia, e qual imagem base se pretende fixar. Nenhuma delas alcança a imagem em execução no servidor interno, o sistema operacional dela, ou a pergunta de exposição real dos cinco componentes sem versão determinável. Essas continuam abertas e são decisão, não medição.
+**4. O que o fecho NÃO fecha.** As três medições acima certificam que o que está versionado é o que o manifesto diz, que o banco de avisos não tinha nada a dizer sobre os lockfiles naquele dia, e que a base fixada ainda é a da tag e ainda constrói. Nenhuma delas alcança a imagem em execução no servidor interno, os pacotes do sistema operacional dela, ou a pergunta de exposição real dos componentes sem versão determinável. Essas continuam abertas e são decisão, não medição.
 
 ## Ver também
 

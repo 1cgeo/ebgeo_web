@@ -6589,6 +6589,53 @@
         "oQueSePede": "A versao upstream (ou o commit) do Draco e do transcodificador Basis/KTX2 embutidos no 1.8.1, se ha remendo local sobre elas, e o sha256 dos artefatos upstream de partida. Mais duas sugestoes que dispensariam o pedido no futuro: manter a secao producers nos tres modulos, como o zstd ja faz, ou publicar um manifesto dos modulos embutidos no proprio pacote.",
         "seNaoVier": "O ponto cego declarado permanece, e continua melhor que a opcao recusada. O caminho que NAO depende de resposta e fechar os dois por hash contra os artefatos publicados de Draco e Basis Universal, que e o metodo que resolveu o Turf neste mesmo inventario; ele nao bloqueia lancamento."
       }
+    },
+    "runtimeInventory2026_09_14": {
+      "decisao": "D9 de 2026-09-14, item V8: fixar o digest do INDICE nas duas linhas FROM do backend/Dockerfile, com construcao de prova. A varredura do sistema operacional da imagem pode vir depois do lancamento.",
+      "dockerfile": "backend/Dockerfile",
+      "baseDeclarada": "node:22-bookworm-slim",
+      "ocorrencias": "duas, os dois estagios (deps e runtime), AMBAS fixadas",
+      "pinnedDigest": true,
+      "digestFixado": "sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5",
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "porQueODoIndiceENaoODeAmd64": "O digest do indice preserva o multiarch: o mesmo Dockerfile continua construindo em amd64 e em arm64. Fixar o digest de amd64 amarra a imagem a uma arquitetura, e a construcao passa a falhar em qualquer outra.",
+      "leituraPorTresCaminhosIndependentes": {
+        "data": "2026-09-14",
+        "caminhos": [
+          "docker manifest inspect node:22-bookworm-slim: mediaType application/vnd.oci.image.index.v1+json no corpo",
+          "docker buildx imagetools inspect node:22-bookworm-slim: linha Digest: do TOPO, nao uma entrada de Manifests:",
+          "API HTTP do registro: GET https://registry-1.docker.io/v2/library/node/manifests/22-bookworm-slim com token anonimo e Accept de indice; cabecalho docker-content-digest, e Content-Type de resposta application/vnd.oci.image.index.v1+json"
+        ],
+        "resultado": "Os tres concordaram entre si E com o digest ja anotado em runtimeInventory2026_09_13, lido em 2026-09-13. O terceiro caminho nao passa pelo daemon nem pelo cliente do Docker, que e o que o torna independente dos outros dois.",
+        "digestPorPlataformaNaData": {
+          "linux/amd64": "sha256:4d676821dff059fd00d277ee4261ef34ea712317fed0737c03941481b5760c96",
+          "linux/arm/v7": "sha256:d0b45614c7fe6a5cfde4a0e8553ae9bbf07f9ec4dafff9425af367b34c6989e3"
+        },
+        "anotacoesDoIndice": "A entrada de amd64 anota org.opencontainers.image.base.name debian:bookworm-slim, base.digest sha256:5ae3c39ebd15e229dcedd5cee596b2497182493d41ff162e824ba13fc1b2b867, created 2026-08-25T00:55:24Z e revision bc0a422bce0f729dd85790639d9f1918143f1235 do nodejs/docker-node."
+      },
+      "construcaoDeProva": {
+        "data": "2026-09-14",
+        "comando": "docker build -t ebgeo-backend:pin-prova-20260914 --build-arg EBGEO_RELEASE=$(git rev-parse --short HEAD) . , de dentro de backend/",
+        "codigoDeSaida": 0,
+        "plataformaDaMaquina": "linux/amd64 (Docker Desktop 29.2.1 no Windows)",
+        "manifestListDaImagem": "sha256:72bba1d5287e4f089dacbaa778022533aa05b2ca2fc6d7b1840e140cf2e7c6de",
+        "porQueEsteImporta": "Um pino que ninguem provou que constroi e uma linha de texto, nao uma garantia. A construcao foi feita DEPOIS da edicao das duas linhas FROM, sobre a arvore commitada.",
+        "oQueFoiLidoDeDENTRODaImagem": {
+          "node": "v22.23.2",
+          "npm": "10.9.8",
+          "sistemaOperacional": "Debian GNU/Linux 12 (bookworm)",
+          "usuarioDeRuntime": "uid=1001(ebgeo) gid=1001(ebgeo)",
+          "ebgeoRelease": "carimbado pelo --build-arg, presente no ambiente do processo"
+        },
+        "oQueIssoFecha": "Um dos tres itens que runtimeInventory2026_09_13 listava como naoVerificado: \"A versao exata de Node dentro dela nao foi lida: exigiria baixar e executar a imagem\". Foi baixada e executada.",
+        "limpeza": "A imagem de prova foi apagada depois da leitura (docker rmi). O que fica no disco da maquina sao as camadas da base em cache, como em qualquer build."
+      },
+      "naoVerificado": [
+        "A imagem efetivamente em execucao no servidor interno continua sem ser consultada, e fixar o digest NAO a alcanca: o pino decide o que a PROXIMA construcao usa, nao o que ja esta de pe.",
+        "Nenhuma varredura de vulnerabilidade dos pacotes do sistema operacional da imagem foi feita. Saber que e Debian 12 bookworm e a identidade, nao o inventario de pacotes, e o npm audit nao alcanca nenhum dos dois.",
+        "postgis/postgis:16-3.4, declarada em backend/docker-compose.yml, continua sem digest. E o servico de banco de desenvolvimento e teste, nao vai para producao, e e decisao separada."
+      ],
+      "ondeOProcedimentoMora": "docs/wiki/deploy-backend.md, secao \"Trocar o digest da imagem base\", com as duas armadilhas: ler o digest de uma PLATAFORMA em vez do do indice, e atualizar uma so das duas linhas FROM (nada forca as duas a carregarem o mesmo digest, e uma imagem cujos dois estagios vem de bases diferentes nao acusa nada)."
     }
   }
 }

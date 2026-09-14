@@ -18,14 +18,33 @@
 # The sibling `ebgeo_360`, which is deployed by Docker on the same server, is on
 # node:22 for the same dependency.
 
+# THE DIGEST IS THE INDEX'S, NOT amd64's, AND THAT IS THE WHOLE POINT. Pinning the
+# index digest keeps the image multi-arch, so this same file still builds on amd64 and
+# on arm64; pinning a per-platform digest ties the image to one architecture and the
+# build then fails everywhere else. It is not a style preference. Read it back with
+# `docker buildx imagetools inspect node:22-bookworm-slim` and look at the top-level
+# `Digest:` line, never at one of the `Manifests:` entries below it.
+#
+# The two FROM lines MUST carry the same digest, and there is no mechanism enforcing
+# that: they are two independent strings. Updating one and not the other builds an
+# image whose two stages come from different base images, silently.
+#
+# Updating it is docs/wiki/deploy-backend.md, section "Trocar o digest da imagem base".
+# Pinned on 2026-09-14 (decision D9, item V8), digest read by three independent paths
+# on that date: `docker manifest inspect`, `docker buildx imagetools inspect`, and the
+# registry HTTP API (`docker-content-digest` header, content type
+# `application/vnd.oci.image.index.v1+json`). All three agreed with each other and with
+# the digest recorded in the inventory on 2026-09-13.
+
 # ---- deps: install production dependencies only ----
-FROM node:22-bookworm-slim AS deps
+FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 # ---- runtime ----
-FROM node:22-bookworm-slim AS runtime
+# Same index digest as the `deps` stage above, on purpose. See the block before it.
+FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 
