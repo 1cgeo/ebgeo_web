@@ -82,6 +82,7 @@ vi.mock('../../src/js/store/memory-store.js', () => ({
 
 import {
     moveFeaturesToMap,
+    removeFeatureFromMap,
     getFeatureById,
     setFeatureDependencies
 } from '../../src/js/store/feature.operations.js';
@@ -402,6 +403,53 @@ describe('moveFeaturesToMap - layer mapping', () => {
 // ============================================================================
 // moveFeaturesToMap - guards
 // ============================================================================
+
+// ============================================================================
+// A FOLHA, QUE E EXPORTADA E ERA A UNICA SEM GUARD
+// ============================================================================
+//
+// `removeFeatureFromMap` nao e so a leaf de `moveFeaturesToMap`: o barril `@store` a
+// reexporta, e os executores de DESFAZER e REFAZER de `moveBetweenMaps` a chamam SEM opcoes,
+// isto e, com `logOperation` no default `true`. Um Ctrl+Z depois de o share cair de Editor
+// para Leitor enfileirava um `feature` DELETE que o servidor recusa com 403 no lote inteiro,
+// e lote nao-2xx nao e desenfileirado: a fila para de andar.
+describe('removeFeatureFromMap - o guard da folha', () => {
+    it('recusa quem o posto nao autoriza, e nao toca o documento', async () => {
+        checkPermission.mockReturnValue({ allowed: false, reason: 'VIEWER', required: 'DELETE' });
+        const feature = makeFeature('p1');
+        mockMaps.value.SourceMap.features.points.push(feature);
+
+        await expect(removeFeatureFromMap('points', 'p1', 'SourceMap')).resolves.toBeNull();
+
+        expect(updateMapDataCompat).not.toHaveBeenCalled();
+        expect(mockMaps.value.SourceMap.features.points).toHaveLength(1);
+        expect(emitStoreError).toHaveBeenCalledWith(
+            'store:operationBlocked',
+            expect.objectContaining({ operation: 'removeFeatureFromMap', reason: 'VIEWER' })
+        );
+    });
+
+    it('recusa em mapa travado, e nao toca o documento', async () => {
+        isCurrentMapLockedSync.mockReturnValue(true);
+        const feature = makeFeature('p1');
+        mockMaps.value.SourceMap.features.points.push(feature);
+
+        await expect(removeFeatureFromMap('points', 'p1', 'SourceMap')).resolves.toBeNull();
+
+        expect(updateMapDataCompat).not.toHaveBeenCalled();
+        expect(mockMaps.value.SourceMap.features.points).toHaveLength(1);
+    });
+
+    it('remove quando o posto permite: o caminho legitimo nao mudou', async () => {
+        const feature = makeFeature('p1');
+        mockMaps.value.SourceMap.features.points.push(feature);
+
+        const removida = await removeFeatureFromMap('points', 'p1', 'SourceMap');
+
+        expect(removida?.mainFeature?.properties?.id).toBe('p1');
+        expect(mockMaps.value.SourceMap.features.points).toHaveLength(0);
+    });
+});
 
 describe('moveFeaturesToMap - guards', () => {
     it('no-ops with empty features array', async () => {

@@ -426,12 +426,25 @@ export async function addFeatureToMap(type, feature, mapName, options = {}) {
 
 /**
  * Removes a feature from a specific map and returns removed data.
+ *
+ * ELA ERA A UNICA ENTRADA DE ESCRITA DE FEICAO DESTE ARQUIVO SEM `guardWrite`, e nao por ser
+ * interna: o barril `@store` a reexporta, e os executores de DESFAZER e REFAZER de
+ * `moveBetweenMaps` (`store/store-state-manager.js`) a chamam SEM opcoes, isto e, com
+ * `logOperation` no default `true`. Um Ctrl+Z depois de o share cair de Editor para Leitor
+ * enfileirava um `feature` DELETE que o servidor recusa com 403 no lote INTEIRO, e lote
+ * nao-2xx nao e desenfileirado pelo cliente: a fila para de andar.
+ *
+ * O caminho legitimo nao muda de comportamento: `moveFeaturesToMap` ja consultou o MESMO
+ * guard na MESMA chave de mapa antes de chegar aqui, entao a segunda pergunta so custa o
+ * `allowed` que ja era verdadeiro.
+ *
  * @param {string} type - Storage type
  * @param {string} id - Feature ID
  * @param {string} mapName - Target map name
- * @returns {Promise<Object|null>} Removed feature data
+ * @returns {Promise<Object|null>} Removed feature data, or null when the rank refuses
  */
 export async function removeFeatureFromMap(type, id, mapName, { logOperation = true } = {}) {
+    if (guardWrite(GuardAction.DELETE_FEATURE, 'removeFeatureFromMap', mapName).blocked) return null;
     // Leaf: it takes the lock, so its caller `moveFeaturesToMap` must NOT (it awaits this
     // one and `addFeatureToMap`, and a section awaiting a section on the same key hangs).
     return withMapDocument(mapName, 'removeFeatureFromMap', async () => {
