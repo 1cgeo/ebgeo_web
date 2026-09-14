@@ -102,6 +102,10 @@ const h = vi.hoisted(() => {
             // O PAPEL E DO ATLAS E SAI COM ELE: `disconnect` o esquece, para que o `owner`
             // do atlas A nao valha na janela de conexao do atlas B (2026-08-25).
             forgetAtlasRole: vi.fn(),
+            // `isAdmin` e o EIXO GLOBAL, e o handler de `sharing_updated` depende dele.
+            // Sem ele no duble aquele handler morre num TypeError, que e exatamente por
+            // que ele passou tanto tempo sem caso nenhum.
+            isAdmin: vi.fn(() => false),
         },
         applyRemoteOperation: vi.fn(async () => {}),
         applyRemoteSnapshot: vi.fn(async () => {}),
@@ -856,6 +860,81 @@ describe('atlas_owner_changed re-soma o payload aditivo', () => {
     it('DISCRIMINAÇÃO: nenhum handler novo foi fiado (continuam oito)', async () => {
         await syncEngine.connect('atlas-1', { initialPull: false });
         expect(wsClientMock.on).toHaveBeenCalledTimes(8);
+    });
+});
+
+// ============================================================================
+// `sharing_updated`: as DUAS guardas que so existem deste lado
+// ============================================================================
+//
+// A ponte entre os dois eixos e `toFrontendRole` (`backend/src/utils/roles.js`), e ela
+// dobra o `admin` GLOBAL para o topo da escada por atlas SO quando recebe o segundo
+// argumento. `sharing.controller.js` a chama com UM argumento nos dois emissores de frame
+// por pessoa, entao a frame descreve o degrau do SHARE e nada mais. O comentario de la diz
+// que "a global admin keeps full access and ignores this on the client", isto e, delega a
+// correcao inteira para ca.
+//
+// Sao DUAS guardas, e nenhuma tinha caso ate esta revisao. Sem a de identidade, a frame que
+// nomeia OUTRA pessoa re-gateia a minha tela; sem a de papel global, um administrador do
+// sistema que tambem tenha share explicito de `read` se auto-rebaixa a Visualizador no
+// proprio atlas que ele administra, e so um F5 desfaz, porque o handshake resolve `admin`
+// de novo. O caminho realista nao e nem o share nominal: e o administrador participar de um
+// grupo de acesso cujo vinculo com o atlas muda, porque ali o servidor recalcula e emite uma
+// frame por membro CONECTADO (`broadcastEffectiveForMembers`).
+describe('sharing_updated: o cliente e o unico que sabe do papel global', () => {
+    it('aplica o papel da frame quando ela e minha e eu nao sou administrador', async () => {
+        sessionContextMock.userId = 'user-1';
+        sessionContextMock.isAdmin.mockReturnValue(false);
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        sessionContextMock.updateRole.mockClear();
+
+        await wsClientMock._handlers.sharingUpdated({
+            action: 'user_updated', userId: 'user-1', permission: 'read', role: 'viewer',
+        });
+
+        expect(sessionContextMock.updateRole).toHaveBeenCalledWith('viewer');
+    });
+
+    it('IGNORA a frame que nomeia outra pessoa', async () => {
+        sessionContextMock.userId = 'user-1';
+        sessionContextMock.isAdmin.mockReturnValue(false);
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        sessionContextMock.updateRole.mockClear();
+
+        await wsClientMock._handlers.sharingUpdated({
+            action: 'user_updated', userId: 'user-2', permission: 'read', role: 'viewer',
+        });
+
+        expect(sessionContextMock.updateRole).not.toHaveBeenCalled();
+    });
+
+    it('IGNORA a propria frame quando o papel GLOBAL e administrador', async () => {
+        // O caso que o servidor nao consegue evitar: `toFrontendRole(permission)` sem o
+        // papel global rotula o administrador pelo degrau do share dele.
+        sessionContextMock.userId = 'user-1';
+        sessionContextMock.isAdmin.mockReturnValue(true);
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        sessionContextMock.updateRole.mockClear();
+
+        await wsClientMock._handlers.sharingUpdated({
+            action: 'user_updated', userId: 'user-1', permission: 'read', role: 'viewer',
+        });
+
+        expect(sessionContextMock.updateRole).not.toHaveBeenCalled();
+    });
+
+    it('a REMOCAO nao re-gateia por papel: `user_removed` nao carrega `role`', async () => {
+        // A frame de remocao nao tem campo `role`, e aplicar `undefined` apagaria o papel
+        // em vez de rebaixa-lo. Quem derruba a sessao de fato e o sweep de
+        // `reconcileAuthorization` no servidor, com close 4003.
+        sessionContextMock.userId = 'user-1';
+        sessionContextMock.isAdmin.mockReturnValue(false);
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        sessionContextMock.updateRole.mockClear();
+
+        await wsClientMock._handlers.sharingUpdated({ action: 'user_removed', userId: 'user-1' });
+
+        expect(sessionContextMock.updateRole).not.toHaveBeenCalled();
     });
 
     it('frame que chega DEPOIS do disconnect não re-soma, e o par sim/não é o que prova o guard', async () => {
