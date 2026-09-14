@@ -152,19 +152,26 @@ const CENSO = [
       + 'precisa ver.',
   },
   {
-    arquivo: 'src/modules/sync/sync.service.js', trecho: "if (permission === 'read')", n: 2,
+    arquivo: 'src/modules/sync/sync.service.js', trecho: "if (permission === 'read')", n: 1,
     classe: DEGRAU_EXATO,
-    motivo: `${NEGA_LEITOR} Duas cópias: \`operationDenialReason\` (recusa toda escrita do leitor, `
-      + 'op a op) e `pullOperations` (o leitor não recebe operação de comentário no replay). São o '
-      + 'gate POR OPERAÇÃO, que é justamente o que middleware de rota não alcança.',
+    motivo: `${NEGA_LEITOR} Uma cópia: \`pullOperations\` (o leitor não recebe operação de `
+      + 'comentário no replay). ERAM DUAS até 2026-09-13, e a irmã era `assertOperationAllowed`, o '
+      + 'gate POR OPERAÇÃO da ESCRITA. Ele passou a comparar por hierarquia, na forma positiva '
+      + '(`!(nivel >= piso)`), porque a cadeia de igualdades dele falhava ABERTA: um degrau novo '
+      + 'entre `read` e `write` caía fora dos dois `if` e recebia escrita plena. Esta regra '
+      + 'mecânica não o alcançava, e não por descuido: a forma que ela proíbe é dois degraus '
+      + 'distintos na MESMA linha, e a cadeia é a mesma exclusão escrita na vertical. Guarda: '
+      + '`tests/integration/gate-de-sync-falha-fechado.repro.test.js`.',
   },
   {
     arquivo: 'src/modules/sync/sync.service.js',
-    trecho: "if (permission === 'comment' && op.target !== 'comment')", n: 1, classe: DEGRAU_EXATO,
-    motivo: 'O degrau `comment` só escreve COMENTÁRIO, e esta linha é a razão de a regra de lista '
-      + 'fechada contar tokens DISTINTOS: os dois `comment` dela são homônimos sem parentesco, um é '
-      + 'o posto de quem escreve e o outro é o tipo do que se escreve. Contando repetição, ela '
-      + 'seria o falso positivo que faz alguém desligar o censo.',
+    trecho: "op.target !== 'comment'", n: 1, classe: HOMONIMO,
+    motivo: 'O que sobrou da linha do Comentarista depois de o posto virar hierarquia: o literal '
+      + 'aqui é o `entityType` da OPERAÇÃO, nunca o degrau. Ela era a razão original de a regra de '
+      + 'lista fechada contar tokens DISTINTOS (os dois `comment` da linha antiga eram homônimos '
+      + 'sem parentesco, um o posto de quem escreve e o outro o tipo do que se escreve), e a razão '
+      + 'continua valendo: contando repetição, esta seria o falso positivo que faz alguém desligar '
+      + 'o censo.',
   },
   {
     arquivo: 'src/modules/sync/sync.service.js', trecho: "permission !== 'owner'", n: 1,

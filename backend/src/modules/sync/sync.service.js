@@ -1242,21 +1242,39 @@ const LOCKABLE_CHILD_TARGETS = new Set([
 
 /**
  * Authorization gate for a single operation (multiuser spec):
- *  - 'read'    → no writes at all (defensive; the route/WS gate already blocks it).
- *  - 'comment' → may ONLY write spatial comments (target 'comment').
- *  - map-delete and map lock/unlock are reserved for the atlas owner.
- *  - everything else passes (write / manage / owner).
+ *  - abaixo de `comment` (hoje so `read`) -> nao escreve nada.
+ *  - abaixo de `write` (hoje so `comment`) -> so escreve comentario espacial.
+ *  - `write` e acima passam; a politica fina fica em `operationDenialReason`.
  * Throws ForbiddenError when denied.
+ *
+ * ESTE ERA O UNICO GATE DESTE EIXO QUE FALHAVA ABERTO, e [[permissoes-atlas]] o nomeava
+ * assim na secao "Adicionou um nivel de permissao?": ele comparava por IGUALDADE a
+ * `'read'` e a `'comment'`, entao um degrau NOVO entre os dois cairia fora dos dois `if`
+ * e receberia escrita PLENA, sem passar por lugar nenhum. O censo por atlas nao o
+ * acusava, e nao por descuido: a forma que ele proibe e dois degraus DISTINTOS na MESMA
+ * linha, e estes moram em linhas separadas. A regra mecanica alcanca a lista fechada,
+ * nunca a cadeia de igualdades, que e a mesma exclusao escrita na vertical.
+ *
+ * A forma e a POSITIVA (`!(nivel >= piso)`) e nao a negativa (`nivel < piso`), pela mesma
+ * razao que o gate de selecao de `collab.handlers.js` ja registra: `PERMISSION_LEVELS` de
+ * um valor desconhecido e `undefined`, toda comparacao contra ele e falsa, e por isso a
+ * forma negativa transforma o desconhecido em PASSAGEM enquanto a positiva o transforma
+ * em RECUSA. As duas leem igual e decidem o contrario.
+ *
+ * Comportamento IDENTICO para os cinco degraus vivos: o que muda e o sexto.
+ *
  * @param {Object} op - Normalized operation (target/type/_subType/changes/data).
  * @param {'owner'|'manage'|'write'|'comment'|'read'} permission - Resolved atlas permission.
  */
 function assertOperationAllowed(op, permission) {
-  // Read-only never writes (defensive — the route/WS gate already blocks it).
-  if (permission === 'read') {
+  const nivel = PERMISSION_LEVELS[permission];
+  // Quem nao alcanca `comment` nao escreve nada (defensivo — a rota e o WS ja barram).
+  if (!(nivel >= PERMISSION_LEVELS.comment)) {
     throw new ForbiddenError('Seu acesso a este atlas é somente leitura.');
   }
-  // Comentarista (comment tier) may only create/edit/delete spatial comments.
-  if (permission === 'comment' && op.target !== 'comment') {
+  // Quem nao alcanca `write` so escreve COMENTARIO espacial. O literal desta linha e o
+  // tipo da ENTIDADE, homonimo do degrau, e nunca um posto.
+  if (!(nivel >= PERMISSION_LEVELS.write) && op.target !== 'comment') {
     throw new ForbiddenError('Comentaristas só podem criar ou editar comentários');
   }
 }
