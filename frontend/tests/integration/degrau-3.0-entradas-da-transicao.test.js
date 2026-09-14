@@ -183,7 +183,10 @@ async function semearEntrada(ns, {
  * leitura", no fim deste arquivo.
  *
  * `migracoes` conta quantas vezes `safelyMigrate` DECIDIU migrar, porque o estado final sozinho
- * nao separa "nao re-rodou" de "re-rodou sem efeito".
+ * nao separa "nao re-rodou" de "re-rodou sem efeito". `degrausLegados` faz o mesmo pela metade
+ * de baixo da cadeia: os quatro degraus v1.x sao NO-OP quando nao ha lacuna a preencher, entao o
+ * disco final nao distingue "entrou em 1.3" de "entrou em 1.6", e so a lista de degraus que
+ * REPORTARAM trabalho separa as entradas umas das outras.
  *
  * @param {Object} [options]
  * @param {boolean} [options.isAuthenticated=false] - Se ha sessao viva.
@@ -224,6 +227,12 @@ async function bootar({ isAuthenticated = false } = {}) {
     return {
         ns,
         migracoes: linhas.filter(l => l.startsWith('Migration needed:')),
+        // O recorte e o do rotulo de `runLegacyMigrations` (`Migrated N map(s) to <rotulo>`) e
+        // NAO um `startsWith('Migrated')`: o degrau 2.1 tambem loga "Migrated point zoom
+        // properties in map: X", e engoli-lo faria a lista dizer que um degrau v1.x correu.
+        degrausLegados: linhas
+            .map(l => l.match(/^Migrated \d+ map\(s\) to (.+)$/)?.[1])
+            .filter(Boolean),
         rodouV2: linhas.some(l => l.startsWith('Starting migration to v2.0')),
         linhaDoBoot,
         ramo
@@ -690,5 +699,243 @@ describe('o boot de verdade toma a mesma leitura que este arquivo espelha', () =
 
         expect(corpo).toContain('reportBootAtlasScope');
         expect(corpo.indexOf('initializeRepository')).toBeLessThan(corpo.indexOf('reportBootAtlasScope'));
+    });
+});
+
+// ============================================================================================
+// AS ENTRADAS LEGADAS 1.3 A 1.7, uma por versao (B7.8)
+// ============================================================================================
+
+/**
+ * A FORMA de cada versao da faixa legada, e nao so o carimbo dela.
+ *
+ * Ate agora "entrada 1.x" era um NUMERO no `ebgeo_app_settings` sobre um acervo moderno, e nessa
+ * forma as versoes sao a mesma entrada varias vezes: os degraus de `legacy-backfills.js` so
+ * escrevem quando encontram lacuna, entao nenhum deles roda e o verde nao prova nada. As lacunas
+ * sao CUMULATIVAS, e cada linha aqui e o que aquela versao do produto ainda NAO tinha:
+ *
+ *   1.3 -> `features.coordination_measures` nasce em 1.4 (`migrateMapTo14`)
+ *   1.4 -> `properties.layerId` nasce em 1.5 (`migrateMapTo15`)
+ *   1.5 -> `properties.attributes` e `properties.images` nascem em 1.6 (`migrateMapTo16`)
+ *   1.6 -> o registro `cesium3d_<mapa>` nasce em 1.7 (`migrateMapTo17`)
+ *   1.7 -> nada falta, e a cadeia legada nem comeca (o `findIndex` do rotulo devolve -1)
+ */
+const FORMA_LEGADA = Object.freeze({
+    '1.3': { medidas: false, layerId: false, atributos: false, cesium: false },
+    '1.4': { medidas: true, layerId: false, atributos: false, cesium: false },
+    '1.5': { medidas: true, layerId: true, atributos: false, cesium: false },
+    '1.6': { medidas: true, layerId: true, atributos: true, cesium: false },
+    '1.7': { medidas: true, layerId: true, atributos: true, cesium: true }
+});
+
+/** Os rotulos que `runLegacyMigrations` loga, na ordem da cadeia. */
+const ROTULOS_LEGADOS = Object.freeze([
+    'v1.4',
+    'v1.5 (added layerId to features)',
+    'v1.6 (added attributes and images to features)',
+    'v1.7 (initialized cesium3d data)'
+]);
+
+/** Quais rotulos cada entrada tem de REPORTAR, escrito e nao derivado do codigo sob teste. */
+const DEGRAUS_ESPERADOS = Object.freeze({
+    '1.3': ROTULOS_LEGADOS.slice(0),
+    '1.4': ROTULOS_LEGADOS.slice(1),
+    '1.5': ROTULOS_LEGADOS.slice(2),
+    '1.6': ROTULOS_LEGADOS.slice(3),
+    '1.7': []
+});
+
+/** Dois mapas, para que a contagem do log nao possa vir de um acaso de um mapa so. */
+const MAPAS_LEGADOS = ['Cidade', 'Regiao'];
+
+/**
+ * Escreve no disco uma instalacao LEGADA na forma exata de uma versao da faixa.
+ *
+ * @param {Object} ns - Modulo `atlas-namespace.js`.
+ * @param {string} versao - Versao da faixa (chave de {@link FORMA_LEGADA}).
+ * @param {string} [carimbo] - Carimbo a gravar no settings, quando diferente da forma.
+ * @returns {Promise<Object<string, string>>} Nomes absolutos dos bancos legados.
+ */
+async function semearLegado(ns, versao, carimbo = versao) {
+    const forma = FORMA_LEGADA[versao];
+    const nomes = nomesLegados(ns);
+    const mapas = {};
+    for (const [i, mapa] of MAPAS_LEGADOS.entries()) {
+        const props = { id: `feicao-${i}` };
+        if (forma.layerId) props.layerId = 'default';
+        if (forma.atributos) { props.attributes = {}; props.images = []; }
+        const features = {
+            points: [{
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [i, i] },
+                properties: props
+            }]
+        };
+        if (forma.medidas) features.coordination_measures = [];
+        mapas[mapa] = { features };
+    }
+    await seedDatabase(nomes.maps, mapas);
+    await seedDatabase(nomes.settings, { schemaVersion: carimbo });
+    if (forma.cesium) {
+        await seedDatabase(nomes[ns.StoreName.CESIUM3D], Object.fromEntries(
+            // `getEmptyCesium3dData` faz `cameraPositions` um OBJETO e `markers` um array; semear
+            // o par com a forma errada faria o predicado abaixo medir o seeder, nao o degrau.
+            MAPAS_LEGADOS.map(mapa => [`cesium3d_${mapa}`, { cameraPositions: {}, markers: [] }])
+        ));
+    }
+    return nomes;
+}
+
+/**
+ * O que a forma legada precisava ganhar, lido CRU do banco de mapas.
+ * @param {Object<string, string>} nomes - Nomes absolutos.
+ * @param {Object} ns - Modulo `atlas-namespace.js`.
+ * @returns {Promise<Object>}
+ */
+async function formaNoDisco(nomes, ns) {
+    const mapas = (await readDatabase(nomes.maps)) ?? {};
+    const feicoes = [];
+    for (const registro of Object.values(mapas)) {
+        for (const lista of Object.values(registro?.features ?? {})) {
+            if (Array.isArray(lista)) feicoes.push(...lista);
+        }
+    }
+    const cesium = (await readDatabase(nomes[ns.StoreName.CESIUM3D])) ?? {};
+    return {
+        mapas: Object.keys(mapas).length,
+        feicoes: feicoes.length,
+        todasComMedidas: Object.values(mapas)
+            .every(registro => Array.isArray(registro?.features?.coordination_measures)),
+        todasComLayerId: feicoes.every(f => typeof f?.properties?.layerId === 'string'),
+        todasComAtributos: feicoes.every(f => f?.properties?.attributes !== undefined
+            && Array.isArray(f?.properties?.images)),
+        cesiumCompleto: MAPAS_LEGADOS.every(mapa => {
+            const registro = cesium[`cesium3d_${mapa}`];
+            return Boolean(registro) && registro.cameraPositions !== undefined
+                && Array.isArray(registro.markers);
+        })
+    };
+}
+
+describe('a faixa legada 1.3-1.7: cada entrada tem forma propria e converge em dois boots', () => {
+    for (const versao of Object.keys(FORMA_LEGADA)) {
+        it(`entrada ${versao}: roda os degraus que faltam e o segundo boot nao pede nada`, async () => {
+            const ns0 = await import('@store/atlas-namespace.js');
+            const nomes = await semearLegado(ns0, versao);
+
+            // A PREMISSA da forma e checada no disco ANTES do boot, senao um seeder quebrado
+            // deixaria todas as asserções abaixo verdes sobre uma entrada so.
+            expect(await formaNoDisco(nomes, ns0)).toEqual({
+                mapas: MAPAS_LEGADOS.length,
+                feicoes: MAPAS_LEGADOS.length,
+                todasComMedidas: FORMA_LEGADA[versao].medidas,
+                todasComLayerId: FORMA_LEGADA[versao].layerId,
+                todasComAtributos: FORMA_LEGADA[versao].atributos,
+                cesiumCompleto: FORMA_LEGADA[versao].cesium
+            });
+
+            vi.resetModules();
+            const primeiro = await bootar();
+            const depoisDoPrimeiro = await inventario(nomes);
+
+            // O QUE SEPARA ESTA ENTRADA DAS OUTRAS: quais degraus v1.x acharam lacuna.
+            expect(primeiro.degrausLegados).toEqual(DEGRAUS_ESPERADOS[versao]);
+            expect(primeiro.rodouV2).toBe(true);
+
+            // Tudo o que faltava foi preenchido, e o acervo nao encolheu.
+            expect(await formaNoDisco(nomes, primeiro.ns)).toEqual({
+                mapas: MAPAS_LEGADOS.length,
+                feicoes: MAPAS_LEGADOS.length,
+                todasComMedidas: true,
+                todasComLayerId: true,
+                todasComAtributos: true,
+                cesiumCompleto: true
+            });
+            expect(depoisDoPrimeiro.carimboDoSettings).toBe('3.0');
+            expect(depoisDoPrimeiro.carimboDoRegistroDeAtlas).toBe('3.0');
+
+            vi.resetModules();
+            const segundo = await bootar();
+            const depoisDoSegundo = await inventario(nomes);
+
+            // A METADE QUE REPROVA O "so trocar a constante", igual as entradas 2.x acima.
+            expect(segundo.migracoes).toEqual([]);
+            expect(segundo.degrausLegados).toEqual([]);
+            expect(segundo.rodouV2).toBe(false);
+            expect(segundo.ramo).toBe('nenhum');
+            expect(depoisDoSegundo).toEqual(depoisDoPrimeiro);
+        });
+    }
+
+    it('CONTROLE: as cinco entradas NAO produzem o mesmo relatorio de degraus', async () => {
+        // Sem esta linha, os cinco casos acima poderiam medir a mesma coisa cinco vezes, que e
+        // exatamente o buraco que B7.8 nomeia: o carimbo mudava e a forma nao.
+        const relatorios = Object.values(DEGRAUS_ESPERADOS).map(l => l.join('|'));
+        expect(new Set(relatorios).size).toBe(relatorios.length);
+    });
+});
+
+// ============================================================================================
+// A VERSAO SEM SUPORTE: recuperacao ou exportacao, nunca migracao ficticia (B7.8)
+// ============================================================================================
+
+describe('abaixo do piso de 1.3 nada e migrado e nada e fingido', () => {
+    it('o portao de atualizacao RECUSA com `unsupported_version` e nao abre transicao', async () => {
+        // Este e o caminho que as QUATRO paginas tomam antes de montar a store
+        // (`runLegacyUpgradeGate`), e a recusa dele e o que desenha a tela de recuperacao.
+        const ns0 = await import('@store/atlas-namespace.js');
+        const nomes = await semearLegado(ns0, '1.3', '1.2');
+        const antes = await inventario(nomes);
+
+        vi.resetModules();
+        const transition = await import('@store/migration/legacy-transition.js');
+        const state = await import('@store/migration/transition-state.js');
+
+        await expect(transition.prepareLegacyTransition())
+            .rejects.toMatchObject({ code: 'unsupported_version' });
+
+        expect(await state.readLegacyTransition()).toBeNull();
+        expect(await inventario(nomes)).toEqual(antes);
+    });
+
+    it('a EXPORTACAO continua disponivel, e leva o acervo nao migrado dentro', async () => {
+        // A outra saida que a tela de recuperacao oferece. Sem ela, recusar seria so recusar.
+        const ns0 = await import('@store/atlas-namespace.js');
+        await semearLegado(ns0, '1.3', '1.2');
+
+        vi.resetModules();
+        const recovery = await import('@store/migration/recovery-archive.js');
+        const arquivo = await recovery.readRecoveryArchive(await recovery.buildRecoveryArchive());
+
+        const legado = arquivo.scopes.find(escopo => escopo.label === 'Dados da versão antiga');
+        expect(legado).toBeTruthy();
+        const chaves = legado.records.filter(r => r.store === 'maps').map(r => r.key).sort();
+        expect(chaves).toEqual([...MAPAS_LEGADOS].sort());
+    });
+
+    it('e se o boot da store chegar la assim mesmo, ele NAO carimba nem renumera', async () => {
+        // O portao acima e quem impede este caminho no produto. A rede aqui e para o dia em que
+        // alguem o remova: mesmo entao, o piso nao pode virar uma migracao que se anuncia.
+        const ns0 = await import('@store/atlas-namespace.js');
+        const nomes = await semearLegado(ns0, '1.3', '1.2');
+        const antes = await inventario(nomes);
+
+        vi.resetModules();
+        const aviso = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const boot = await bootar();
+        const avisos = aviso.mock.calls.map(args => String(args[0]));
+        aviso.mockRestore();
+
+        expect(boot.rodouV2).toBe(false);
+        expect(boot.degrausLegados).toEqual([]);
+        const depois = await inventario(nomes);
+        expect(depois.idsDeFeicao).toEqual(antes.idsDeFeicao);
+        expect(depois.carimboDoSettings).toBe('1.2');
+
+        // E A LINHA DO CONSOLE DIZ O QUE ACONTECEU. Ela prometia "Data will be cleared." sobre um
+        // acervo que `checkAndCleanLegacyData` acabara de PRESERVAR, o que e a mesma classe de
+        // defeito de uma migracao ficticia, do lado do log.
+        expect(avisos.some(linha => linha.includes('Data will be cleared'))).toBe(false);
+        expect(avisos.some(linha => linha.includes('below the migration floor (1.3)'))).toBe(true);
     });
 });

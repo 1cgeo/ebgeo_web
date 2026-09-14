@@ -220,7 +220,18 @@ export async function safelyMigrate(scope = legacyScope()) {
     }
 
     if (isTooOldToMigrate(currentVersion)) {
-        console.warn(`Version ${currentVersion} is too old to migrate. Data will be cleared.`);
+        // THIS LINE USED TO SAY "Data will be cleared.", AND NOTHING WAS CLEARED (B7.8). The
+        // clearing it described belongs to `checkAndCleanLegacyData`, and that function stopped
+        // destroying a scope that HOLDS data: below the floor with content it PRESERVES and says
+        // so. Announcing a destruction that does not happen is the same class of defect as
+        // announcing a migration that does not: whoever reads the console is told the wrong thing
+        // about their own disk. What actually happens to such an installation in the product is
+        // `runLegacyUpgradeGate`, which refuses it with `unsupported_version` and opens the
+        // recovery screen before any of the four pages mounts the store.
+        console.warn(
+            `Version ${currentVersion} is below the migration floor (${MIN_MIGRATABLE_VERSION}); `
+            + 'no step runs and nothing is written here. Recovery is the assisted path.'
+        );
         return { success: true };
     }
 
