@@ -976,6 +976,22 @@ const CENSO_CONSULTA = [
       + 'nada dela sai no corpo da resposta, e o alcance é o do atlas (o `JOIN maps` pina o '
       + 'atlas da rota), decidido por `requireAtlasPermission`.',
   },
+  {
+    arquivo: 'src/modules/sync/entity-canonical.js', unidade: 'sideStoreReader', n: 1,
+    classe: NAO_RECURSO,
+    motivo: 'FALSO POSITIVO DECLARADO, e ele DIFERE dos três irmãos acima num ponto que precisa '
+      + 'ficar escrito: o conteúdo desta consulta SAI no corpo, como o `serverData` de uma recusa '
+      + 'por conflito. O que a mantém fora do eixo de recurso é o resto. A interpolação é de dois '
+      + 'literais do próprio módulo (`cesium3d_data`/`tileset_id` e `streetview360_data`/'
+      + '`photo_name`, escritos na tabela `CANONICAL_READERS`), nunca entrada do cliente, e as duas '
+      + 'são tabelas de entidade de MAPA, não de catálogo, de projeto 360 nem de modelo 3D. O '
+      + 'alcance é o do atlas da rota (o `JOIN maps` o pina) e o gate é o `requireAtlasPermission` '
+      + 'do push, o MESMO que autorizou a escrita que está sendo recusada: quem recebe a linha de '
+      + 'volta é quem acabou de tentar escrevê-la. O que aquelas linhas podem carregar de catálogo '
+      + 'é uma REFERÊNCIA (`tileset_id`, `photo_name`), nunca uma definição, e uma definição que '
+      + 'alguém tivesse guardado dentro do `data` seria podada no limite de saída '
+      + '(`middleware/prune-resource-payload.js`), que envolve todo `res.json`.',
+  },
 ];
 
 /**
