@@ -2500,3 +2500,32 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
 - **Alternativa recusada:** apagar a origem sozinha, por prazo, como as cópias abandonadas. Ela fecha o disco sem perguntar, e a origem é a única cópia que o usuário ainda pode abrir na versão anterior do produto; a pendência deste lote pedia explicitamente poda condicionada a recuperação verificada, não poda automática.
 - **Alternativa recusada:** esconder o comando quando ele não pode agir. Toda recusa aqui é reversível e quem lê a frase costuma ser quem a reverte, então o comando é desenhado, carrega `aria-disabled` e nunca a propriedade que impediria o clique, e o clique é o que entrega o motivo.
 - **Status:** aceita; detalhe em [namespace por atlas](../wiki/namespace-por-atlas.md).
+
+### 2026-09-14: o fecho de segurança dos vendors segue as oito recomendações da proposta
+
+- **Decisão (D9, resposta do dono às oito perguntas de `docs/seguranca/b10-fecho-proposta-2026-09-13.md`):** V1, o three sai do snapshot 164dev e entra pelo npm em `three@0.164.0`, versão exata, num ponto único no modelo de `frontend/src/js/map/maplibre.js`. V2, `cesium-measure.js` deixa de ser vendor e vira código da casa, sob o ESLint e com os comentários traduzidos. V3, `cesium-viewshed.js` fica declarado por escrito como código ofuscado sem autor nem licença rodando com os privilégios da página, e a reescrita sobre a API pública de `ShadowMap` é o alvo, com prazo. V4, as sete bibliotecas nativas do WASM do GDAL sem versão determinável ficam aceitas e declaradas como lista fechada. V5, Draco e Basis dentro do `@manycore/aholo-viewer` ficam declarados como o ponto cego que resta, com o manifesto pedido ao fornecedor; `semver` e `fflate` NÃO entram como dependências diretas só para o `npm audit` falar delas. V6, os seis vendors sem consumidor são podados, num commit isolado com captura do 3D e do 360. V7, a segunda cópia do three em `frontend/public/street_view/build/` é podada e o inventário passa a cobrir todo `.js`, `.css` e `.wasm` de terceiro em `frontend/public/`, acusando arquivo fora das pastas conhecidas. V8, o digest do índice da imagem base é fixado nas duas linhas `FROM` do `backend/Dockerfile` no commit de lançamento, com construção de prova; a varredura do sistema operacional da imagem pode vir depois do lançamento.
+- **Por quê:** cada item troca uma auditoria recorrente sobre código sem dono por um custo único, e o que não dá para fechar fica ESCRITO em vez de invisível. O inventário existe para que a conferência seguinte seja um diff.
+- **Alternativa recusada:** declarar `semver` e `fflate` no lockfile para que o audit os veja (V5, opção 4): verde que não verifica, porque a cópia que roda é a vendorizada dentro do viewer, não a do lockfile.
+- **Status:** aceita; V1, V2, V6 e V7 em execução; V3, V4 e V5 são declarações no inventário; V8 espera o SHA candidato.
+
+### 2026-09-14: recibos de sync são retidos pela versão mínima do atlas, e a expiração do JWT não derruba socket
+
+- **Decisão (D10, A13):** `sync_receipts` ganha expurgo atrelado a `min_version`: sai o recibo mais velho que a versão que nenhum cliente pode mais pedir, e nunca por prazo solto. **Decisão (D11, A14):** socket aberto continua de pé depois de o JWT expirar; a varredura reconcilia autorização (conta, OM, papel, compartilhamento, publicação), nunca sessão, e isso passa a estar declarado na wiki em vez de só no código.
+- **Por quê:** o recibo é o que torna o reenvio idempotente e mantém um lote recusado recusado, então purgar por prazo reabriria a reaplicação de ops antigas; o token expirado não muda o que a pessoa pode fazer, e a queda por autorização já é imposta.
+- **Alternativa recusada:** purgar recibo junto com `operations` no mesmo expurgo do administrador, por data. Um cliente que ficou meses offline reenviaria ops que o recibo já tinha acked, e elas seriam aplicadas de novo.
+- **Status:** aceita; A13 em execução, A14 declarada.
+
+### 2026-09-14: cem atlas vivos por conta, e um teto de mapas por importação
+
+- **Decisão (D12, A15):** `POST /atlas`, `POST /atlas/import` e o clone recusam com 429 nomeado quando a conta já tem cem atlas vivos (lixeira não conta); a importação recusa acima de um teto de mapas por arquivo. Os dois valores são variáveis de ambiente com padrão, e zero desliga.
+- **Por quê:** era o único limite de recurso sem dono depois do teto de sockets por principal: autenticado e atribuível, mas sem teto.
+- **Alternativa recusada:** cota por OM. A lotação é auto-declarada no cadastro e não autoriza nada, então uma cota por OM seria contornável trocando a lotação.
+- **Status:** aceita; em execução.
+
+### 2026-09-14: a busca de usuários deixa de enumerar o efetivo, e o vídeo de prévia ganha gate
+
+- **Decisão (D13, P8):** `GET /users/search` exige três caracteres, devolve no máximo vinte linhas e casa só nome e login; posto e OM saem do casamento e o limitador anônimo de rotas públicas passa a valer nela. **Decisão (D14, P9 e R6):** o vídeo de prévia de recurso do catálogo deixa de ser capacidade por URL: sai por rota gateada pelo mesmo predicado das outras mídias do recurso, e marcar o recurso privado re-cunha o nome do arquivo, para que a URL antiga morra.
+- **Por quê:** a busca casando posto e OM devolvia o efetivo de outras organizações a qualquer conta; o vídeo era a única superfície em que marcar privado não movia byte nenhum, e declarar isso no censo deixaria escrito um vazamento.
+- **Alternativa recusada:** manter a busca ampla e só limitar o número de linhas. Vinte linhas por consulta com posto e OM no casamento continuam sendo enumeração, só mais lenta.
+- **Status:** aceita; em execução.
+

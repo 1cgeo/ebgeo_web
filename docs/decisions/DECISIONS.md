@@ -184,3 +184,9 @@ que envelheceu na decisão seguinte.)
 - 2026-09-13: o servidor publica os quatro marcadores estruturais como um só, até o cliente novo estar em campo, [registro](decisions-2026.md).
 - 2026-09-13: sem Web Locks a barreira de logout degrada para o regime por aba, [registro](decisions-2026.md).
 - 2026-09-13: a poda de gerações usa trava própria, e a lista de conhecidas é reescrita depois dela, [registro](decisions-2026.md).
+- 2026-09-13: a rota única de imagem deduplica só por chave de tentativa, e conteúdo igual deixa de ser identidade, [registro](decisions-2026.md).
+- 2026-09-13: as cópias abandonadas da atualização são podadas com uma reserva, e a origem legada só sai por decisão explícita, [registro](decisions-2026.md).
+- 2026-09-14: o fecho de segurança dos vendors segue as oito recomendações da proposta, [registro](decisions-2026.md).
+- 2026-09-14: recibos de sync são retidos pela versão mínima do atlas, e a expiração do JWT não derruba socket, [registro](decisions-2026.md).
+- 2026-09-14: cem atlas vivos por conta, e um teto de mapas por importação, [registro](decisions-2026.md).
+- 2026-09-14: a busca de usuários deixa de enumerar o efetivo, e o vídeo de prévia ganha gate, [registro](decisions-2026.md).
