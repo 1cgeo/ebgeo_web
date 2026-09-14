@@ -562,8 +562,13 @@ export function leaveGroupSummary(result) {
  * POR QUE O DONO NÃO TEM O BOTÃO, no lugar do botão.
  *
  * Espaço vazio é indistinguível de tela quebrada, e a pessoa que não acha a saída conclui que
- * ela não existe. A frase espelha a recusa do servidor e nomeia os DOIS caminhos que ele
- * nomeia, porque uma negativa sem saída é só um muro.
+ * ela não existe. A frase espelha a recusa do servidor e nomeia a ÚNICA saída que existe,
+ * porque uma negativa sem saída é só um muro.
+ *
+ * Este cabeçalho dizia "nomeia os DOIS caminhos que ele nomeia", e contradizia o próprio corpo
+ * logo abaixo, que já tinha perdido a transferência. Enquanto ele dizia isso, o servidor
+ * continuava oferecendo a transferência de verdade: um cabeçalho que descreve o estado
+ * anterior é o que faz a próxima leitura concluir que o outro lado é que está errado.
  * @returns {string}
  */
 export function groupOwnerCannotLeaveNotice() {

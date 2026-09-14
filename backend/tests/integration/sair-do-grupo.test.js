@@ -165,8 +165,20 @@ describe('sair do grupo · DELETE /:groupId/members/me', () => {
     await porMembro('dono', grupo.id, atores.membro.id);
 
     const res = await sair('dono', grupo.id).expect(409);
-    assert.match(res.body.error?.message ?? '', /apague o grupo, ou transfira a posse/i,
-      'a recusa precisa nomear a saída');
+    const frase = res.body.error?.message ?? '';
+
+    // A RECUSA NOMEIA A SAÍDA QUE EXISTE, E SÓ ELA (cláusula 4.7). Esta asserção casava
+    // "apague o grupo, ou transfira a posse", e a segunda metade NUNCA existiu: nenhuma rota
+    // do módulo toca `owner_id`, e `updateGroupSchema` aceita só nome e descrição. O teste
+    // prendia a frase falsa, isto é, teria reprovado o conserto e o feito parecer regressão.
+    assert.match(frase, /apague o grupo/i, 'a recusa precisa nomear a saída que existe');
+
+    // A METADE NEGATIVA É A QUE VALE, e ela é sobre o RADICAL: "transfira", "transferir" e
+    // "transferência" precisam ficar todos de fora, senão consertar uma conjugação deixaria a
+    // promessa de pé nas outras. É a mesma asserção que o lado do cliente já fazia, e é a
+    // divergência entre os dois lados que manteve esta frase viva.
+    assert.doesNotMatch(frase, /transfir|transferên|transferir/i,
+      'a recusa não pode oferecer uma transferência de posse que não existe');
 
     // NADA foi escrito, e o grupo continua vivo e administrável por ele.
     assert.equal(await contarComposicao(grupo.id, atores.membro.id), 1);

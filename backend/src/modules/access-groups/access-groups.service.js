@@ -473,9 +473,20 @@ async function retirarMembro({ grupo, userId, actor, req, self }) {
 export async function leaveGroup({ groupId, userId, actor, req }) {
   const grupo = await oneOrNone(Q.GET_GROUP, [groupId]);
   if (grupo && userId && String(grupo.owner_id) === String(userId)) {
+    // NÃO OFERECER A TRANSFERÊNCIA, e a metade que saiu daqui era FALSA: não existe rota de
+    // transferência de posse de grupo. `updateGroupSchema` aceita nome e descrição, e nenhuma
+    // das rotas do módulo toca `owner_id`. A cláusula 4.7 da constituição declara isto por
+    // extenso ("a recusa nomeia a saída que EXISTE, apagar o grupo, e só ela") e o cliente já
+    // tinha sido corrigido; esta frase, que é a que um integrador lê, ficou para trás, de modo
+    // que os dois lados diziam coisas diferentes sobre a mesma recusa.
+    //
+    // A regra da casa é que uma negativa sem saída é só um muro, e foi ela que produziu o
+    // defeito: ao procurar uma saída para oferecer, o texto inventou a que faltava. Saída
+    // INEXISTENTE é pior que muro, porque manda a pessoa caçar um botão que não há e ainda a
+    // faz duvidar da própria leitura da tela.
     throw new ConflictError(
       'O dono não pode sair do próprio grupo de acesso: um grupo sem dono deixa de entregar '
-      + 'acesso e fica sem quem o administre. Apague o grupo, ou transfira a posse dele.'
+      + 'acesso e fica sem quem o administre. Para deixar de participar, apague o grupo.'
     );
   }
   const naoParticipa = { groupId, userId, removed: false, grantsAffected: 0 };
