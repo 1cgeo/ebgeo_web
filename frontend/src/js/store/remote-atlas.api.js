@@ -220,12 +220,36 @@ function rememberedTeardown(addresses) {
  * A peer that DID answer and froze keeps its mount lock on purpose (`tab-lock-sync-brake.js`), so
  * the lock alone can never tell the two apart. That is exactly the question this answers.
  *
+ * ZERO PEERS NÃO É PROVA DE NADA, e o `acked >= peers` que estava aqui sozinho lia `0 >= 0` como
+ * "todo mundo parou". Medido em 2026-09-13, com duas abas de verdade: a irmã congelada RETRATA a
+ * chave dela ao congelar (`_enterFrozen` posta `RELEASE`, `utilities/tab-lock.js`), então o
+ * segundo anúncio do mesmo logout (`account.control.js` avisa antes do wipe, e
+ * `discardRemoteAtlasNamespaces` reaproveita esse relatório pelo memo de 5 s) sai para uma lista
+ * VAZIA de pares e volta `{peers: 0, acked: 0}`. Esse relatório, que não perguntou a ninguém,
+ * licenciava destruir o namespace que a irmã ainda tinha montado: os dez bancos de X sumiam e o
+ * ponteiro de geração ia junto, que é exatamente a perda que o aviso existe para impedir.
+ *
+ * Repare que a pergunta só é feita quando o lock RECUSOU, isto é, quando alguém vivo segura a
+ * montagem. Um logout de aba só nunca chega aqui (o exclusivo é concedido e a destruição segue
+ * pelo caminho normal), então exigir ao menos um par não deixa resíduo em lugar nenhum: o que ele
+ * muda é só o caso em que há um segurando e ninguém respondeu.
+ *
+ * E UM ACK DE `frozen: false` TAMBÉM NÃO É PROVA, pela mesma razão e com um beneficiário que o
+ * código já nomeava sem o ter: quem responde sem congelar é a página sem mapa, o congelamento que
+ * lançou, a aba JÁ congelada por um anúncio anterior (`_handleTeardown` pula `onTeardown` sob
+ * `!this._frozen`) e o VISITANTE público, de quem `applyTeardownFreeze` desiste dizendo por
+ * extenso que "o lock de montagem que ele guarda é o que o protege". Contar esses acks como
+ * licença destruía justamente o namespace que a frase mandava poupar. `frozen` é o único campo do
+ * relatório que afirma um efeito, e não uma resposta.
+ *
  * @param {Object|null|undefined} report - A teardown report.
  * @returns {boolean} False whenever there is no proof, which is the direction that spares.
  */
 function teardownStoppedEveryPeer(report) {
     if (!report || report.degraded || report.timedOut) return false;
     if (!Number.isFinite(report.peers) || !Number.isFinite(report.acked)) return false;
+    if (report.peers < 1) return false;
+    if (!Number.isFinite(report.frozen) || report.frozen < 1) return false;
     return report.acked >= report.peers;
 }
 

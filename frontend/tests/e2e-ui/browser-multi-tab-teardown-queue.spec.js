@@ -527,6 +527,21 @@ describeOrSkip('Duas abas, um usuário: fila de saída e aviso de desmontagem', 
                 + `ilegivel=${cd.unreadable}`,
             contentType: 'text/plain',
         });
+        // O DIAGNOSTICO VEM ANTES DA ASSERCAO, porque `ausente` NAO distingue "o expurgo apagou o
+        // banco" de "o ponteiro de geracao virou e o endereco lido envelheceu". As duas hipoteses
+        // produzem a MESMA amostra e pedem consertos opostos (uma e defeito de produto, a outra e
+        // do instrumento), e o que as separa e o disco: outra geracao de `ebgeo_maps__<sufixo>`
+        // presente significa troca de geracao. Anexar depois do `expect` seria anexar so quando
+        // nao serve, porque a asercao que reprova aborta o caso.
+        const prefixoX = mapsDbOf(remoteSuffix(X.id));
+        await testInfo.attach('B3 geracoes de X no disco depois da amostragem', {
+            body: [
+                `endereco amostrado: ${dbX}`,
+                `endereco que a aba resolve AGORA: ${await activeMapsDbOf(tabB, remoteSuffix(X.id))}`,
+                ...(await idbDatabaseNames(tabB)).filter((n) => n.startsWith(prefixoX)),
+            ].join('\n'),
+            contentType: 'text/plain',
+        });
         expect(cd.total, 'a amostragem realmente rodou').toBeGreaterThan(20);
         expect(cd.readable, 'a amostragem conseguiu LER o disco').toBeGreaterThan(20);
         expect(

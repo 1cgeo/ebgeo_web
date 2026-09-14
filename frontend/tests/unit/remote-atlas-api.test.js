@@ -1246,6 +1246,45 @@ describe('voluntary logout discard', () => {
             expect(remotosNoDisco()).toEqual([]);
         });
 
+        /**
+         * OS DOIS RELATÓRIOS QUE NÃO PERGUNTARAM A NINGUÉM, medidos com duas abas de verdade em
+         * 2026-09-13 (`browser-multi-tab-teardown-queue.spec.js`, B3): a irmã congelava, os dez
+         * bancos dela sumiam e o ponteiro de geração ia junto, com o relatório dizendo
+         * `{peers: 0, acked: 0}` porque o segundo anúncio do mesmo logout saiu depois de a irmã
+         * congelada ter retratado a chave. `acked >= peers` sozinho lia `0 >= 0` como prova.
+         */
+        it('um relatório SEM PARES não licencia tomar a montagem viva', async () => {
+            await api.activateRemoteAtlas(ATLAS_A);
+            await seedRemote(ATLAS_A);
+            await api.requestRemoteAtlasDiscard();
+            const soltar = await outraAbaMonta(ATLAS_A);
+
+            const relatorio = await api.purgeAllRemoteAtlases({
+                teardown: { peers: 0, acked: 0, frozen: 0, timedOut: false, degraded: false },
+            });
+            await soltar();
+
+            expect(relatorio.forced).toEqual([]);
+            expect(relatorio.spared).toEqual([ATLAS_A]);
+            expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual(dbNamesOfRemote(ATLAS_A));
+        });
+
+        it('um ack que NÃO congelou (visitante, página sem mapa, aba já congelada) também não licencia', async () => {
+            await api.activateRemoteAtlas(ATLAS_A);
+            await seedRemote(ATLAS_A);
+            await api.requestRemoteAtlasDiscard();
+            const soltar = await outraAbaMonta(ATLAS_A);
+
+            const relatorio = await api.purgeAllRemoteAtlases({
+                teardown: { peers: 1, acked: 1, frozen: 0, timedOut: false, degraded: false },
+            });
+            await soltar();
+
+            expect(relatorio.forced).toEqual([]);
+            expect(relatorio.spared).toEqual([ATLAS_A]);
+            expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual(dbNamesOfRemote(ATLAS_A));
+        });
+
         it('o prazo de poupança vencido destrói mesmo sem evidência nenhuma', async () => {
             // O resíduo continua limitado: a poupança adia, nunca eterniza, senão o único coletor
             // de dado remoto (que só roda deslogado) deixaria de coletar para sempre.
