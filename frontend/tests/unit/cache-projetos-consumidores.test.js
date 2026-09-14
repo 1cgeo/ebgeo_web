@@ -127,6 +127,31 @@ describe('censo dos consumidores do cache de projetos 360', () => {
             .toEqual([]);
     });
 
+    it('todo MISS-NULO tem OUTRO caminho que rebusca no escopo novo', () => {
+        // A CLASSE SEM DISCRIMINAÇÃO É UMA GAVETA, e este arquivo já escreveu isso sobre
+        // "OUTRO-MODULO" logo abaixo. `MISS-NULO` nasceu sem nenhuma: só `MISS-BUSCA`,
+        // `OUTRO-MODULO` e `DONO` eram conferidos, então o cabeçalho prometia que "consumidor
+        // que perde o refetch reprova nomeando o arquivo" quando bastava classificar o
+        // consumidor novo como `MISS-NULO` para que nada o medisse — que é exatamente a saída
+        // barata que um censo existe para fechar.
+        //
+        // O QUE SE COBRA É A JUSTIFICATIVA DA ÚNICA ENTRADA DA CLASSE, e ela é verificável:
+        // devolver `null` no miss só é degradação certa porque o arquivo tem OUTRO caminho
+        // que chama `fetchProjects()` direto (e portanto rebusca no escopo novo). Sem esse
+        // par, `MISS-NULO` significaria "esta tela fica vazia a cada troca de atlas".
+        for (const e of CENSO.filter((x) => x.classe === 'MISS-NULO')) {
+            const texto = textoDe(e.arquivo);
+            expect(texto, `${e.arquivo}: declarado MISS-NULO e sem chamada direta de `
+                + '`fetchProjects()`. Sem ela o miss é tela vazia, não degradação.')
+                .toMatch(/await\s+fetchProjects\(/);
+            // E se ele GANHAR o `?? await fetchProjects()`, a classe deixou de ser esta:
+            // reclassifique como MISS-BUSCA em vez de manter uma entrada que descreve outro
+            // arquivo.
+            expect(MISS_BUSCA.test(texto), `${e.arquivo}: ganhou o refetch no miss e continua `
+                + 'classificado MISS-NULO').toBe(false);
+        }
+    });
+
     it('os homônimos da calibração não falam com o serviço do 360', () => {
         // Discriminação: sem isto, "OUTRO-MODULO" viraria a gaveta onde se joga o que não se
         // quis classificar, e um consumidor de verdade entraria por ali.
