@@ -15,7 +15,7 @@ Base: `3492c3dd`, branch `plano/bd`. Posição de 13/09/2026.
 | B2 | baseline consolidada, checksum do migrador | fundido |
 | B3 | fila, quarentena e a janela do dispatcher | fundido |
 | B4 | persistência write-ahead dos demais produtores | fundido (quatro ondas) |
-| B5 | conflitos por entidade e painel de resolução | fundido; recibo canônico, unidades pelo patch, base do mapa, comparação de geometria e forma array fechados em 13/09/2026; resta a captura do painel de comparação |
+| B5 | conflitos por entidade e painel de resolução | fundido; recibo canônico, unidades pelo patch, base do mapa, comparação de geometria e forma array fechados em 13/09/2026; captura lida em 14/09/2026, com dois achados visuais abertos |
 | B6 | comandos compostos e as quatro exceções REST | fundido; marcadores pelo nome, contratos do lote e cenários com estado do servidor fechados em 13/09/2026; só o conjunto grande fica fora, por D4 |
 | B7 | abas, logout, gerações e migração da main | fundido; quarentena da varredura de boot, reconciliação no boot do slot e faixa legada 1.3 a 1.7 fechadas em 13/09/2026 |
 | B8 | uploads duráveis | fundido; D7 respondida e implementada, resta a prova em duas browsers |
@@ -32,7 +32,7 @@ Base: `3492c3dd`, branch `plano/bd`. Posição de 13/09/2026.
 
 ### B5, conflitos
 
-1. **Fechada em 13/09/2026: comparação de geometria no painel.** Dois folhas de zero imports, `frontend/src/js/account/pendencias/comparacao-de-conflito.js` e `comparacao-phrases.js`: tipo, vértices, centro, deslocamento em metros e os campos que diferem, em texto, nomeando os dois lados e dizendo quando `serverData` não veio. O que resta: a captura `frontend/tests/e2e-ui/_captura-b5-comparacao.spec.js`, escrita para ser rodada, lida e apagada pelo coordenador.
+1. **Fechada em 13/09/2026: comparação de geometria no painel**, com a captura lida em 14/09/2026. Dois folhas de zero imports, `frontend/src/js/account/pendencias/comparacao-de-conflito.js` e `comparacao-phrases.js`: tipo, vértices, centro, deslocamento em metros e os campos que diferem, em texto, nomeando os dois lados e dizendo quando `serverData` não veio (as duas imagens mostraram exatamente isso: "linha; 3 vértices aqui, 2 vértices no servidor; o centro está 612 m distante. Uma propriedade difere: lineColor", e "O servidor não devolveu o conteúdo atual deste item"). **Dois achados visuais ABERTOS, da leitura:** as notificações cobrem o cabeçalho do painel de pendências (a posição inferior que `resolveToastPosition` dá a modal aberto não alcança este painel); e na linha sem `serverData` o mapa aparece pelo UUID em vez do nome. Onde mora: `frontend/src/js/utilities/toast_service.js` e `frontend/src/js/account/pendencias/pendencias-rows.js`.
 2. **Fechada em 13/09/2026: `map` e os cinco subtipos declaram base.** `frontend/src/js/store/map-revision.js` (`mapRevisionOf`, `readMapRevision`), ligado nos seis sítios de escrita; censo `frontend/tests/unit/mapa-declara-base-censo.test.js` reprova sítio novo sem base.
 3. **Fechada em 13/09/2026: recibo canônico por entidade.** `backend/src/modules/sync/entity-canonical.js` lê a linha VIVA na forma do snapshot para mapa, camada, grupo, briefing, slide, comentário, camada de catálogo, 3D e 360; `prepareEntityMutation` e `tombstoneConflict` publicam `serverData`. Guarda: `backend/tests/integration/recibo-canonico-por-entidade.test.js`.
 4. **Fechada em 13/09/2026: as unidades vêm do `patch`**, e a escrita é estreitada às mesmas colunas (`PATCH_NARROWED_TARGETS`: `layer` e `map`; grupo, briefing, slide e comentário ficam fora com motivo escrito, porque o par substitui o documento inteiro). Guarda: `backend/tests/integration/unidade-vem-do-patch.repro.test.js`. Consequência medida: duas edições do MESMO autor em campos distintos convergem sem encadeamento, e o contrato `frontend/tests/e2e/edicao-encadeada-por-entidade.e2e.test.js` passou a medir a edição dependente sobre a MESMA unidade.
@@ -275,6 +275,17 @@ Catorze casos, todos vermelhos também em `13025f4a`. Os sintomas são os de hoj
 | `frontend/tests/e2e-ui/mobile-layout.spec.js`, §28.8/§28.11 | reprovou na 1ª tentativa, passou na retry | verde 3 de 3 |
 
 O do ledger reprova pela assinatura de `drawViaToolUI` acima, ou seja, ele e o `three-client-flow` são o MESMO defeito de instrumento visto em dois pontos da distribuição: um perde sempre sob carga, o outro perde uma vez em três. Fechar aquela janela fecha os dois, e é o candidato de maior rendimento da lista.
+
+### A quarta passada (14/09/2026): a rodada inteira sobre o candidato da noite
+
+Sobre `ad43f009`, com tudo da noite fundido, `npm run test:e2e:ui` inteiro: **359 verdes, 2 vermelhos, 6 flaky em 60 min** (a terceira passada tinha 345 verdes e 19 vermelhos). A rodada anterior da mesma noite, sobre `af0ffb8f`, tinha 5 vermelhos, e quatro eram REGRESSÕES da própria noite, fechadas antes desta rodada: `patchAsChanges` tratava `patch: []` como ausência de declaração e caía no payload inteiro, então a regravação do mesmo mapa-base ao trocar de mapa disputava a unidade que a op anterior do mesmo autor movera, virava problema durável e o bloqueio por `mapId` congelava toda op daquele mapa (`maps-layers`, `p8-undo-local` e `multimap-isolation`, todos "op never acked"); e `browser-confirm-logout` lia o disco no instante do botão Entrar, que é o `SESSION_CHANGED`, e não o fim da destruição do namespace, que passou a rodar inteiro sob a cerca fechada (classe c, spec realinhado).
+
+Os dois vermelhos:
+
+- `frontend/tests/e2e-ui/browser-migracao-2.2.spec.js`, "mede cópia e verificação de um acervo com 8 MiB": régua de tempo que estoura na rodada de uma hora e passa isolado (1 de 1). Classe d.
+- `frontend/tests/e2e-ui/browser-multi-tab-teardown-queue.spec.js`, B3: a asserção do namespace poupado ficou verde (o produto destruía a montagem viva ao ler `acked >= peers` com `0 >= 0`; corrigido com `frozen` como evidência), e o que sobra é um flake de instrumento ADIANTE, em `logoutUI`, esperando o botão Entrar (3 de 7 com o conserto, 4 de 4 sem ele). Aberto.
+
+Os seis flaky, todos verdes na retry: `browser-collab-crdt-conflict` (dois casos), `browser-collab-feature-mutations`, `browser-layer-transfer-permissions`, `troca-viva-de-atlas-medida` e `vazamento-viewers` §30.2. Nenhum foi remedido em série nesta passada; a regra da constituição vale: flaky não é verde. O `three-client-flow` reprovava na fase de conflito de três vias em 2 de 4 rodadas isoladas em 13/09 e passou na rodada inteira.
 
 ### A matriz (documento 09, íntegra)
 
