@@ -276,3 +276,79 @@ describe('a SEGUNDA base: o servidor de tiles', () => {
         expect(credencialDeTile(`${BASE_TILES}/rodovias`)).toBeUndefined();
     });
 });
+
+// O DEPLOY SAME-ORIGIN: o caso que a FRONTEIRA DE CAMINHO existe para cobrir, e que os
+// blocos acima NAO medem.
+//
+// Todos eles poem cada servico num host dedicado, e ali a comparacao de ORIGEM sozinha ja
+// recusaria o glifo e o basemap; o par de casos de `/tilesextra` prova a fronteira contra um
+// vizinho TEXTUAL, nunca contra a irmandade de caminhos de um mesmo host. No deploy que o
+// cabecalho de `credencial-de-tile.js` descreve o app inteiro divide uma origem, e e la que a
+// metade do caminho passa a ser a unica coisa entre o token e cada faixa de glifo que o mesmo
+// servidor entrega.
+//
+// A base tambem e escrita RELATIVA aqui (`/tiles`), que e a forma daquele deploy e que o
+// modulo aceita de proposito (`new URL(bruto, window.location.origin)`): sem um caso, a
+// resolucao da base relativa nunca foi exercitada.
+describe('deploy SAME-ORIGIN: a fronteira de caminho e a unica guarda', () => {
+    const RAIZ = ORIGEM_DA_PAGINA;
+
+    beforeEach(() => {
+        estado.config.streetView360.serviceUrl = '/api/v1/sv360';
+        estado.config.services.tileServerUrl = '/tiles';
+        estado.token = TOKEN;
+    });
+
+    it('POSITIVO: o tile e o TileJSON do servico, sob a base relativa, recebem o token', () => {
+        // Sem este lado o bloco inteiro passaria por vacuidade: uma base relativa que nao
+        // resolvesse casaria nada, e todo negativo abaixo seria verdade pelo motivo errado.
+        for (const url of [
+            `${RAIZ}/tiles/areas_treinamento`,
+            `${RAIZ}/tiles/areas_treinamento/10/385/577`,
+            `${RAIZ}/api/v1/sv360/tiles/12/1543/2270.pbf`,
+        ]) {
+            expect(ehUrlCredenciada(url), url).toBe(true);
+            expect(credencialDeTile(url)).toEqual({
+                url, headers: { Authorization: `Bearer ${TOKEN}` },
+            });
+        }
+    });
+
+    it('NEGATIVO: glifo, sprite e basemap DO MESMO HOST nao recebem o token', () => {
+        // Estes sao o volume do mapa: um deslocamento pede dezenas de faixas de glifo.
+        // Carimba-los mandaria o JWT do usuario em cada uma, para um caminho que nao precisa
+        // dele, e a comparacao por ORIGEM sozinha faria exatamente isso.
+        for (const url of [
+            `${RAIZ}/fonts/Noto%20Sans%20Regular/0-255.pbf`,
+            `${RAIZ}/sprites/sprite@2x.png`,
+            `${RAIZ}/basemaps/carta-topografica/10/385/577.png`,
+            `${RAIZ}/api/v1/config`,
+            `${RAIZ}/`,
+        ]) {
+            // O predicado ingenuo por ORIGEM aceitaria os cinco, e e isso que faz deste bloco
+            // uma discriminacao em vez de uma repeticao dos anteriores.
+            expect(new URL(url).origin, url).toBe(RAIZ);
+            expect(ehUrlCredenciada(url), url).toBe(false);
+            expect(credencialDeTile(url), url).toBeUndefined();
+        }
+    });
+
+    it('NEGATIVO: o vizinho textual da base continua fora, no mesmo host', () => {
+        expect(ehUrlCredenciada(`${RAIZ}/tilesextra/x/1/2/3`)).toBe(false);
+        expect(ehUrlCredenciada(`${RAIZ}/api/v1/sv360x/tiles/1/2/3.pbf`)).toBe(false);
+    });
+
+    it('a URL RELATIVA que o MapLibre resolve contra a pagina segue a MESMA regra', () => {
+        // O MapLibre entrega ao `transformRequest` a URL ja substituida, que em estilo
+        // same-origin pode chegar relativa. O modulo a resolve contra a origem da pagina, e o
+        // veredito tem de ser o mesmo dos absolutos acima, senao a FORMA da string decidiria.
+        expect(ehUrlCredenciada('/tiles/areas_treinamento/10/385/577')).toBe(true);
+        expect(ehUrlCredenciada('/fonts/Noto%20Sans%20Regular/0-255.pbf')).toBe(false);
+    });
+
+    it('NEGATIVO: outro host continua fora, mesmo com a base relativa configurada', () => {
+        // A base relativa nao pode ser lida como "qualquer caminho `/tiles`, em qualquer
+        // host": a origem continua sendo a primeira metade da regra.
+        expect(ehUrlCredenciada('https://tiles.evil.example/tiles/x/1/2/3')).toBe(false);
+    });
+});
