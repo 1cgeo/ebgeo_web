@@ -36,9 +36,20 @@ A quarentena de protocolo tem só exportar e descartar. **Não existe "reenviar"
 
 **A afordância segue a regra da casa:** bloqueio por POSTO não desenha o comando; bloqueio por ESTADO (sem conexão, mapa travado) desenha com `aria-disabled`, nunca com a propriedade `disabled`, e recusa o clique nomeando o estado. Nada some por fechar o painel nem por F5: as três fontes são de disco.
 
-## O que ainda não chega ao painel
+## A comparação entre a sua cópia e a do servidor
 
-- **A comparação visual de geometria.** A linha de conflito de feição nomeia a unidade em disputa e mostra o motivo; quem quiser ver a diferença entre a geometria local e a do servidor não tem onde.
+A linha de conflito de FEIÇÃO carrega, desde 2026-09-13, um bloco que diz o que muda se a pessoa insistir: tipo de geometria, contagem de vértices dos DOIS lados, deslocamento do centro em metros, e a lista nominal das propriedades que diferem. A aritmética é `frontend/src/js/account/pendencias/comparacao-de-conflito.js` e as palavras são `comparacao-phrases.js`, os dois folhas de zero imports.
+
+Quatro decisões que não se leem no código:
+
+- **É TEXTO, nunca desenho.** Duas geometrias quase iguais num canvas de 300 px não distinguem o que uma frase distingue, e desenhá-las traria projeção e escala para dentro de um modal que é uma lista.
+- **A frase nomeia OS DOIS LADOS, nunca o delta.** "2 vértices aqui, 3 no servidor" diz qual é qual; "um vértice a mais" obriga a pessoa a lembrar de que lado ela está.
+- **"Mesma geometria" significa sem diferença VISÍVEL**, não identidade: mesmo tipo, mesma contagem e centros a menos de meio metro. Este resumo não casa vértice com vértice, e dizer o contrário seria prometer um diff geométrico que ele não é.
+- **Só feição.** Para as outras entidades o que difere já está dito na lista de unidades em disputa, que é a linguagem do próprio servidor; a feição é a única cujo conteúdo é geometria, e "a unidade `geometry` está em disputa" não diz se o item andou meio metro ou meio quilômetro.
+
+**A AUSÊNCIA DO OUTRO LADO É DITA, nunca omitida.** Sem `serverData` (servidor mais antigo que esta tela, alvo sem serializador) o bloco continua desenhado e declara que o servidor não devolveu o conteúdo atual, porque um bloco que some se lê como "não há diferença", que é o contrário do que aconteceu.
+
+## O que ainda não chega ao painel
 
 **O conteúdo canônico do recibo CHEGOU em 2026-09-13**, e com ele o "estado atual permitido" que o painel não podia inventar: toda recusa por conflito de entidade carrega `serverData`, lido da linha VIVA por `backend/src/modules/sync/entity-canonical.js`, um serializador por entidade na mesma forma que o snapshot já entrega. A propriedade que importa não é o campo existir, é de ONDE ele vem: um canônico montado a partir do payload do remetente seria o documento dele com o aval do servidor colado em cima, e o par que o painel desenha concordaria por construção, provando nada. `null` continua sendo resposta legítima (alvo sem serializador, id numa forma que a consulta não sabe endereçar) e o painel degrada para o que já mostrava.
 

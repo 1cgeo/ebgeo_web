@@ -30,6 +30,8 @@
 // nothing here, and a second copy of the rule would drift silently in the direction that hurts
 // (a class the queue gains would keep its old meaning on this screen).
 import { classifyIssue } from '@store/sync/issue-classes.js';
+// Folha de zero imports, como as frases: a comparação é aritmética pura e roda em node.
+import { compararFeicao } from './comparacao-de-conflito.js';
 import {
     MOTIVO_DESCONHECIDO,
     PendenciaClasse,
@@ -101,6 +103,26 @@ function unidadesEmDisputa(result) {
 }
 
 /**
+ * A comparação entre a cópia local e a do servidor, quando existem as duas metades.
+ *
+ * SÓ FEIÇÃO, e a restrição é de conteúdo e não de esforço: para as outras entidades o que difere já
+ * está dito na lista de unidades em disputa, que é a linguagem do próprio servidor. A feição é a
+ * única cujo conteúdo é geometria, e "a unidade `geometry` está em disputa" não diz se o item andou
+ * meio metro ou meio quilômetro.
+ *
+ * O `serverData` VEM DO RECIBO DE CONFLITO, isto é, da linha VIVA lida pelo servidor
+ * (`canonicalFeature`, `backend/src/modules/sync/feature-conflicts.js`), nunca do payload que este
+ * cliente enviou: um par cujas duas metades viessem da mesma origem concordaria por construção.
+ * @param {Object|null|undefined} operation - O envelope guardado.
+ * @param {Object|null|undefined} result - O ack guardado.
+ * @returns {Object|null}
+ */
+function comparacaoDaLinha(operation, result) {
+    if (operation?.entityType !== 'feature') return null;
+    return compararFeicao(operation.data, result?.conflict?.serverData ?? null);
+}
+
+/**
  * A frase do servidor, ou a declaração de que ele não deu nenhuma.
  * @param {Object|null|undefined} result - O ack guardado.
  * @returns {string}
@@ -128,6 +150,7 @@ function linhaDeOperacao({
     operation, result, classe, origem, quandoMs, bloqueadaPor, atlasId, nomeDoMapa,
 }) {
     const mapId = operation?.mapId ?? null;
+    const comparacao = comparacaoDaLinha(operation, result);
     return {
         chave: `${origem}:${operation?.id ?? ''}`,
         origem,
@@ -145,6 +168,14 @@ function linhaDeOperacao({
         mapa: mapId === null ? null : { id: mapId, nome: nomeDoMapa(mapId) },
         motivo: result ? motivoDoResultado(result) : null,
         unidades: unidadesEmDisputa(result),
+        comparacao,
+        // A AUSÊNCIA É UM ESTADO, e ela precisa ser dizível: um conflito de feição sem
+        // `serverData` (servidor mais antigo que esta tela, id numa forma que a consulta não sabe
+        // endereçar) não tem o outro lado do par, e desenhar só a metade local com cara de
+        // comparação seria mostrar a cópia da pessoa duas vezes.
+        comparacaoIndisponivel: comparacao === null
+            && operation?.entityType === 'feature'
+            && classe === PendenciaClasse.CONFLITO,
         quandoMs,
         quandoLabel: dataLabel(quandoMs),
         bloqueadaPor,
@@ -183,6 +214,9 @@ function linhaDeUpload(registro) {
             ? registro.ultimoErro
             : null,
         unidades: [],
+        // Bytes de figura não têm operação, logo não têm conflito nem par a comparar.
+        comparacao: null,
+        comparacaoIndisponivel: false,
         quandoMs,
         quandoLabel: dataLabel(quandoMs),
         bloqueadaPor: null,

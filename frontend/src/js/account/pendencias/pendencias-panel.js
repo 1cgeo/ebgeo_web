@@ -62,6 +62,11 @@ import {
     reaplicacaoFeita,
     tituloDoPainel,
 } from './pendencias-phrases.js';
+import {
+    COMPARACAO_ROTULO,
+    COMPARACAO_SEM_SERVIDOR,
+    comparacaoFrases,
+} from './comparacao-phrases.js';
 
 /**
  * Os eventos que PODEM significar pendência diferente.
@@ -420,6 +425,9 @@ export class PendenciasPanel extends ModalBase {
             item.appendChild(this._desenharUnidades(linha.unidades));
         }
 
+        const comparacao = this._desenharComparacao(linha);
+        if (comparacao) item.appendChild(comparacao);
+
         if (linha.bloqueadaPor) {
             const bloqueio = document.createElement('p');
             bloqueio.className = 'pendencias__bloqueio';
@@ -627,6 +635,47 @@ export class PendenciasPanel extends ModalBase {
             chip.setAttribute('data-unidade', unidade);
             chip.textContent = label;
             bloco.appendChild(chip);
+        }
+        return bloco;
+    }
+
+    /**
+     * A comparação entre a cópia local e a do servidor: TEXTO, nunca desenho.
+     *
+     * O bloco tem duas formas e uma ausência. Com as duas metades do par, ele lista as frases que
+     * têm o que dizer (a geometria, as propriedades); sem a metade do servidor, ele DIZ isso, em
+     * vez de sumir, porque um bloco que some é indistinguível de "não há diferença". Quando não é
+     * conflito de feição, não há bloco nenhum e nada é anunciado.
+     * @param {Object} linha - Modelo de linha.
+     * @returns {HTMLElement|null}
+     * @private
+     */
+    _desenharComparacao(linha) {
+        const frases = comparacaoFrases(linha.comparacao);
+        if (frases.length === 0 && !linha.comparacaoIndisponivel) return null;
+
+        const bloco = document.createElement('div');
+        bloco.className = 'pendencias__comparacao';
+        bloco.setAttribute('data-testid', 'pendencias-comparacao');
+
+        const rotulo = document.createElement('span');
+        rotulo.className = 'pendencias__comparacao-rotulo';
+        rotulo.textContent = COMPARACAO_ROTULO;
+        bloco.appendChild(rotulo);
+
+        if (frases.length === 0) {
+            const ausente = document.createElement('p');
+            ausente.className = 'pendencias__comparacao-linha pendencias__comparacao-linha--ausente';
+            ausente.textContent = COMPARACAO_SEM_SERVIDOR;
+            bloco.appendChild(ausente);
+            return bloco;
+        }
+
+        for (const frase of frases) {
+            const linhaDeTexto = document.createElement('p');
+            linhaDeTexto.className = 'pendencias__comparacao-linha';
+            linhaDeTexto.textContent = frase;
+            bloco.appendChild(linhaDeTexto);
         }
         return bloco;
     }

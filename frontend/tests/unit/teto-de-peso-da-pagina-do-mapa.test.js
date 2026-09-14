@@ -433,11 +433,22 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // do que este número serve para fazer; 11700 deixa 91 kB, o que obriga o próximo lote a
         // olhar para cá. O PISO fica onde está: ele guarda o caminhador quebrado, e 9880 continua
         // acusando um grafo que desabou.
+        //
+        // O TETO SUBIU DE 11700 PARA 11760 AINDA EM 2026-09-13, e o parágrafo acima funcionou
+        // exatamente como devia: o lote seguinte (bloco B5, conflitos) bateu aqui e teve de medir.
+        // MEDIDO nesta árvore, com e sem o lote: 11678 kB SEM ele e 11705 kB COM ele, ou seja,
+        // 27 kB de fonte nova em TRÊS folhas de zero imports
+        // (`account/pendencias/comparacao-de-conflito.js` e `comparacao-phrases.js`, alcançados
+        // pelo `import()` do painel, e `store/map-revision.js`, que entra no grafo ANSIOSO por
+        // `store/map.operations.js`). Repare no que os dois números dizem juntos e nenhum diz
+        // sozinho: dos 91 kB de folga deixados horas antes, 69 já tinham sido comidos por deriva
+        // de outros lotes do MESMO dia, e o lote que reprovou responde por 27. 11760 deixa 55 kB,
+        // de novo pouco de propósito.
         expect(completo.arquivos.size).toBeGreaterThanOrEqual(580);
         expect(completo.arquivos.size).toBeLessThanOrEqual(700);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
-        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11700);
+        expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11760);
     });
 
     it('seguir `import()` de fato acrescenta grafo, e é isso que prova a regex dinâmica', () => {

@@ -461,3 +461,103 @@ describe('estrutura: o topo do painel e o lugar dos avisos', () => {
         expect(css).toMatch(/\.pendencias__contador\s*\{[^}]*white-space:\s*nowrap/);
     });
 });
+
+// ============================================================================
+// A COMPARAÇÃO ENTRE A CÓPIA LOCAL E A DO SERVIDOR (B5, item 1)
+// ============================================================================
+
+describe('a linha de conflito de FEIÇÃO carrega a comparação', () => {
+    // A ARITMÉTICA ESTÁ EM `tests/unit/comparacao-de-conflito.test.js`. O que se mede aqui é a
+    // FIAÇÃO: que o montador junta as duas metades certas (o `data` do envelope guardado e o
+    // `serverData` do recibo de conflito) e que ele não inventa comparação onde não há par.
+    const feicao = (geometry, properties) => ({ type: 'Feature', geometry, properties });
+    const pontoEm = (lng, lat) => ({ type: 'Point', coordinates: [lng, lat] });
+
+    const conflitoDeFeicao = (serverData) => ({
+        rejected: true,
+        status: 'conflict',
+        reason: 'Os mesmos campos foram alterados no servidor.',
+        conflict: { fields: ['geometry'], entityVersion: 12, serverData },
+    });
+
+    const linhaDeFeicao = (data, serverData) => montarPendencias({
+        problemas: [{
+            operation: op({ entityType: 'feature', entityId: 'f-1', data }),
+            result: conflitoDeFeicao(serverData),
+            recordedAt: 1_700_000_100_000,
+            classe: IssueClass.CONFLITO,
+            bloqueadaPor: null,
+        }],
+    }).linhas[0];
+
+    it('junta o `data` local com o `serverData` do recibo', () => {
+        const linha = linhaDeFeicao(
+            feicao(pontoEm(-43.2, -22.9), { nome: 'Posto A' }),
+            feicao(pontoEm(-43.2, -22.899), { nome: 'Posto B', confirmedVersion: 12 }),
+        );
+
+        expect(linha.comparacaoIndisponivel).toBe(false);
+        expect(linha.comparacao.geometria.igual).toBe(false);
+        expect(linha.comparacao.geometria.deslocamentoM).toBeGreaterThan(110);
+        expect(linha.comparacao.propriedades).toEqual(['nome']);
+    });
+
+    it('sem `serverData`, a ausência é DECLARADA em vez de virar silêncio', () => {
+        // Um bloco que some se lê como "não há diferença", que é o contrário do que aconteceu.
+        const linha = linhaDeFeicao(feicao(pontoEm(0, 0), { nome: 'A' }), null);
+        expect(linha.comparacao).toBeNull();
+        expect(linha.comparacaoIndisponivel).toBe(true);
+    });
+
+    it('não é feição: nenhuma comparação, e nenhuma ausência anunciada', () => {
+        // Para as outras entidades o que difere já está dito na lista de unidades em disputa, que
+        // é a linguagem do próprio servidor.
+        const modelo = montarPendencias({
+            problemas: [{
+                operation: op(),
+                result: conflito,
+                recordedAt: 1_700_000_100_000,
+                classe: IssueClass.CONFLITO,
+                bloqueadaPor: null,
+            }],
+        });
+        expect(modelo.linhas[0].comparacao).toBeNull();
+        expect(modelo.linhas[0].comparacaoIndisponivel).toBe(false);
+    });
+
+    it('uma pendência de figura não tem par a comparar', () => {
+        const modelo = montarPendencias({
+            uploads: [{ imageId: 'img-1', estado: 'pendente', criadoEm: 1_700_000_000_000 }],
+        });
+        expect(modelo.linhas[0].comparacao).toBeNull();
+        expect(modelo.linhas[0].comparacaoIndisponivel).toBe(false);
+    });
+
+    it('ESTRUTURAL: o painel desenha o bloco, e as frases dele são folha de zero imports', () => {
+        const painel = readFileSync(ARQ_PAINEL, 'utf8');
+        expect(painel).toContain('pendencias__comparacao');
+        expect(painel).toContain('data-testid');
+
+        const frases = fileURLToPath(
+            new URL('../../src/js/account/pendencias/comparacao-phrases.js', import.meta.url),
+        );
+        const modelo = fileURLToPath(
+            new URL('../../src/js/account/pendencias/comparacao-de-conflito.js', import.meta.url),
+        );
+        for (const arquivo of [frases, modelo]) {
+            expect(readFileSync(arquivo, 'utf8')).not.toMatch(/^import\s/m);
+        }
+
+        // E o CSS das classes novas existe: uma classe BEM sem regra é um bloco invisível que
+        // passa verde em toda asserção de DOM.
+        const css = readFileSync(ARQ_CSS, 'utf8');
+        for (const classe of [
+            '.pendencias__comparacao',
+            '.pendencias__comparacao-rotulo',
+            '.pendencias__comparacao-linha',
+            '.pendencias__comparacao-linha--ausente',
+        ]) {
+            expect(css, `${classe} precisa de regra`).toContain(`${classe} {`);
+        }
+    });
+});

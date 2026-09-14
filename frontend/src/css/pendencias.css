@@ -186,6 +186,40 @@
     color: var(--gray-600);
 }
 
+/* ---- Comparação entre a cópia local e a do servidor ----
+   TEXTO, nunca desenho: duas geometrias quase iguais num canvas de 300 px não
+   distinguem o que estas frases distinguem (tipo, número de vértices, quantos
+   metros o centro andou), e traria projeção e escala para dentro de um modal
+   que é uma lista. A barra à esquerda existe porque este bloco fica logo abaixo
+   do motivo do servidor, que também é texto corrido: sem ela os dois se leem
+   como um parágrafo só. */
+
+.pendencias__comparacao {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding-left: var(--space-3);
+    border-left: var(--space-1) solid var(--border-color-dark);
+}
+
+.pendencias__comparacao-rotulo {
+    font-size: var(--font-size-2xs);
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.pendencias__comparacao-linha {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-700);
+}
+
+.pendencias__comparacao-linha--ausente {
+    color: var(--gray-500);
+    font-style: italic;
+}
+
 /* ---- Avisos: carregando, vazio e falha de leitura ---- */
 
 .pendencias__aviso {
