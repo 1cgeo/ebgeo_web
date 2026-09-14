@@ -1368,3 +1368,80 @@ describe('setMapBadgeColors (chave de atlas, chamada de dentro de renameMap e re
         expect(mockMaps.value.OtherMap).toBeUndefined();
     });
 });
+
+// ============================================================================
+// A REVISÃO OBSERVADA (B5, item 2)
+// ============================================================================
+
+describe('o mapa declara a base que observou', () => {
+    // O MAPA ERA A ÚNICA ENTIDADE APLICADA POR ORDEM DE CHEGADA, e não por política: era a
+    // ausência de uma. A verificação por base do servidor é gateada em a op DECLARAR uma base
+    // (`hasDeclaredBase`), a declaração é lida de `previousData.confirmedVersion`, e os sítios de
+    // escrita do mapa registram o CAMPO que mudaram, nunca o documento. Estes casos medem que a
+    // revisão CHEGA no envelope, do documento que o sítio já tinha ou de uma leitura própria; o
+    // sítio que alguém escrever depois é assunto de `tests/unit/mapa-declara-base-censo.test.js`.
+    const REVISAO = 7;
+
+    beforeEach(() => {
+        mockMaps.value.TestMap.confirmedVersion = REVISAO;
+    });
+
+    it('renomear declara a revisão, lida do disco junto com os documentos auxiliares', async () => {
+        await renameMap('TestMap', 'RenomeadoTest');
+
+        expect(intents).toHaveLength(1);
+        expect(intents[0].previousData).toEqual({ name: 'TestMap', confirmedVersion: REVISAO });
+        // E o payload NOVO não a carrega: ela descreve o que foi observado, não o que se escreve.
+        expect(intents[0].data).toEqual({ name: 'RenomeadoTest' });
+    });
+
+    it('travar declara a revisão, e ela não vira parte do estado gravado', async () => {
+        await toggleMapLock();
+
+        expect(intents).toHaveLength(1);
+        expect(intents[0].previousData).toEqual({ locked: false, confirmedVersion: REVISAO });
+        expect(intents[0].data).toEqual({ locked: true });
+    });
+
+    it('o mapa-base declara a revisão do documento que a função JÁ leu', async () => {
+        mockMaps.value.TestMap.baseLayer = 'carta-topografica';
+
+        await setBaseLayer('osm');
+
+        expect(intents[0].previousData)
+            .toEqual({ baseLayer: 'carta-topografica', confirmedVersion: REVISAO });
+    });
+
+    it('a posição declara a revisão do MAPA, e só quando havia posição anterior', async () => {
+        // A primeira gravação é uma CRIAÇÃO: não há posição anterior, logo não há revisão
+        // observada, e prometer uma ali convidaria a lê-la como se houvesse.
+        await updateMapPosition(-22.9, -43.2, 10, 0, 0);
+        expect(intents[0].operationType).toBe('create');
+        expect(intents[0].previousData).toBeNull();
+
+        await updateMapPosition(-23.0, -43.3, 12, 0, 0);
+        expect(intents[1].operationType).toBe('update');
+        expect(intents[1].previousData).toMatchObject({ confirmedVersion: REVISAO });
+    });
+
+    it('limpar a posição declara a revisão do MAPA', async () => {
+        await updateMapPosition(-22.9, -43.2, 10, 0, 0);
+        intents.length = 0;
+
+        await clearMapPosition();
+
+        expect(intents).toHaveLength(1);
+        expect(intents[0].previousData).toMatchObject({ confirmedVersion: REVISAO });
+    });
+
+    it('sem revisão no documento, nada é declarado e a op volta a ser LWW por chegada', async () => {
+        // A DEGRADAÇÃO É O CAMINHO NORMAL, não um erro: um atlas local, ou um documento cuja
+        // revisão de servidor este cliente não pode provar, manda a op sem base e o servidor a
+        // aplica por chegada, exatamente como antes de tudo isto existir.
+        delete mockMaps.value.TestMap.confirmedVersion;
+
+        await toggleMapLock();
+
+        expect(intents[0].previousData).toEqual({ locked: false });
+    });
+});

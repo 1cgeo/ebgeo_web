@@ -27,6 +27,7 @@ import { runTransaction } from './store-transaction.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { fetchImageBlob } from './sync/image-sync.js';
+import { readMapRevision } from './map-revision.js';
 
 // ===== HELPERS =====
 
@@ -95,7 +96,11 @@ export async function setMapNotes(mapName, notes) {
         const mapId = mapResolver.resolveToId(targetMap) || targetMap;
         const previousNotes = await getMapNotesRepo(targetMap);
         const opType = previousNotes?.title || previousNotes?.description ? OperationType.UPDATE : OperationType.CREATE;
-        tx.recordOperation(EntityType.MAP_NOTES, opType, mapId, mapId, notes, previousNotes);
+        // A REVISÃO DO MAPA viaja no `previousData`, porque as notas são uma UNIDADE do mapa e não
+        // uma entidade própria do servidor: sem ela, esta escrita é aplicada por ordem de chegada.
+        // Ela custa uma leitura do documento do mapa, num gesto que se faz um por vez.
+        const previous = { ...(previousNotes ?? {}), ...(await readMapRevision(targetMap)) };
+        tx.recordOperation(EntityType.MAP_NOTES, opType, mapId, mapId, notes, previous);
         return () => setMapNotesRepo(targetMap, notes);
     });
 }
@@ -153,7 +158,10 @@ export async function setGridStyle(mapName, gridStyle) {
         const mapId = mapResolver.resolveToId(targetMap) || targetMap;
         const previousGridStyle = await getGridStyleRepo(targetMap);
         const opType = previousGridStyle ? OperationType.UPDATE : OperationType.CREATE;
-        tx.recordOperation(EntityType.GRID_STYLE, opType, mapId, mapId, gridStyle, previousGridStyle);
+        // Mesma razão de `setMapNotes` acima: a grade é uma unidade do mapa, e a base observada
+        // que o servidor lê é a do MAPA.
+        const previous = { ...(previousGridStyle ?? {}), ...(await readMapRevision(targetMap)) };
+        tx.recordOperation(EntityType.GRID_STYLE, opType, mapId, mapId, gridStyle, previous);
         return () => setGridStyleRepo(targetMap, gridStyle);
     });
 }

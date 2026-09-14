@@ -41,6 +41,7 @@ import { isStoreRecoveryRefusal, STORE_RECOVERY_NOTICE } from './write-coordinat
 import { resolveAtlasSettingId } from './atlas-setting-target.js';
 import { withMapDocument } from './document-lock.js';
 import { POSITION_FIELDS, clearedPositionPayload } from './map-position-clear.js';
+import { mapRevisionOf, readMapRevision } from './map-revision.js';
 
 // Repository aliases
 const getMapData = getMapDataCompat;
@@ -473,10 +474,14 @@ export async function renameMap(oldName, newName) {
             nextColors = { ...colors, [newName]: colors[oldName] };
             delete nextColors[oldName];
         }
+        // A REVISÃO OBSERVADA, lida junto com os documentos auxiliares e pelo mesmo motivo. Ela é o
+        // que faz o servidor verificar esta edição por BASE em vez de aplicá-la por ordem de
+        // chegada, e o preço é uma leitura do documento do mapa num gesto que se faz um por vez.
+        const revisao = await readMapRevision(oldName);
 
         return runTransaction(async (tx) => {
             tx.recordOperation(EntityType.MAP, OperationType.UPDATE, mapId, null,
-                { name: newName }, { name: oldName });
+                { name: newName }, { name: oldName, ...revisao });
             if (nextOrder) {
                 await recordAtlasSetting(tx, { mapOrder: nextOrder }, { mapOrder: order });
             }
@@ -983,8 +988,13 @@ export async function setBaseLayer(layer, mapName = null) {
         currentMapData.baseLayer = layer;
 
         const mapId = mapResolver.resolveToId(targetMap) || targetMap;
+        // A revisão sai do documento que esta função JÁ leu, então a declaração de base não custa
+        // leitura nenhuma aqui (ver o cabeçalho de `map-revision.js`). Ela fica na MESMA linha do
+        // payload anterior de propósito: `tests/unit/referencias-de-recurso-censo.test.js` conta
+        // LINHAS que citam o campo, e quebrar esta em duas move um número que descreve superfícies
+        // de referência, não formatação.
         tx.recordOperation(EntityType.BASE_LAYER, OperationType.UPDATE, mapId, mapId,
-            { baseLayer: layer }, { baseLayer: previousBaseLayer });
+            { baseLayer: layer }, { baseLayer: previousBaseLayer, ...mapRevisionOf(currentMapData) });
         return () => updateMapData(targetMap, currentMapData);
     })));
 }
@@ -1025,7 +1035,12 @@ export async function updateMapPosition(center_lat, center_long, zoom, bearing, 
 
         const existingPosition = currentMapData.savedPosition;
         const isUpdate = !!existingPosition?.id;
-        const previousData = existingPosition ? { ...existingPosition } : null;
+        // A revisão viaja no `previousData` da posição, e ela é a do MAPA, porque a posição é uma
+        // unidade dele e não uma entidade própria no servidor. Sem posição salva anterior não há
+        // `previousData`, e uma criação não observa revisão nenhuma de qualquer modo.
+        const previousData = existingPosition
+            ? { ...existingPosition, ...mapRevisionOf(currentMapData) }
+            : null;
 
         const sync = existingPosition?.sync
             ? touchSyncMetadata(existingPosition.sync)
@@ -1113,7 +1128,11 @@ export async function clearMapPosition(mapName = null) {
         assertRemoteMapIdentity(tx, currentMapData, targetMapName);
 
         const existingPosition = currentMapData.savedPosition;
-        const previousData = existingPosition ? { ...existingPosition } : null;
+        // A revisão do MAPA vai junto, do documento já lido: é ela que faz o servidor verificar
+        // esta limpeza por base em vez de aplicá-la por chegada.
+        const previousData = existingPosition
+            ? { ...existingPosition, ...mapRevisionOf(currentMapData) }
+            : null;
 
         delete currentMapData.savedPosition;
 
@@ -1390,10 +1409,14 @@ export async function toggleMapLock(mapName = null) {
     // The map UUID, never the name: a non-UUID entity id never matches a row on the backend, and
     // the lock would land on neither the server nor the peers.
     const mapId = mapResolver.resolveToId(target) || target;
+    // A REVISÃO OBSERVADA, lida ANTES da trava do documento: dentro dela a leitura seria a mesma,
+    // e fora dela ela não segura a fila FIFO do documento por nada. Sem esta linha a troca de
+    // trava é aplicada por ordem de chegada, que é o regime que o mapa inteiro tinha.
+    const revisao = await readMapRevision(target);
 
     await withMapDocument(target, 'toggleMapLock', () => runTransaction(async (tx) => {
         tx.recordOperation(EntityType.MAP, OperationType.UPDATE, mapId, null,
-            { locked: newState }, { locked: current });
+            { locked: newState }, { locked: current, ...revisao });
 
         tx.deferSync(() => {
             if (newState) {

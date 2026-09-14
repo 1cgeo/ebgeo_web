@@ -173,10 +173,12 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   antes a verificação valia só para feição, por gate literal `op.target === 'feature'`). Op que
   DECLARA uma base observada (`baseVersion`, ou o recibo de `baseOperationId`) é verificada por
   UNIDADE DE DISPUTA; op que não declara segue em LWW por ordem de CHEGADA, nunca por timestamp.
-  Hoje o cliente só declara base para feição (`featureMutationContract`, em
-  `frontend/src/js/store/sync/feature-patch.js`), então o segundo regime é o que roda para todo o
-  resto; quando o cliente passar a declarar, a verificação liga sozinha, sem dia-D entre os dois
-  pacotes. A moldura é `src/modules/sync/entity-conflicts.js` (ler a linha, resolver a base, ler a
+  Desde 2026-09-13 o cliente declara base para TODA entidade colaborativa, mapa e os cinco
+  subtipos dele inclusive (`mutationContract`, em
+  `frontend/src/js/store/sync/mutation-contract.js`, mais `frontend/src/js/store/map-revision.js`
+  para o mapa, que era o último). O gate continua sendo "a op DECLARA base" e não "o alvo é X", e
+  isso não é detalhe: base ausente é estado legítimo e frequente (atlas local, documento cuja
+  revisão de servidor o cliente não pode provar), e ali o regime de chegada continua valendo. A moldura é `src/modules/sync/entity-conflicts.js` (ler a linha, resolver a base, ler a
   fronteira por unidade em `sync_entity_fields` com o `entity_type` real, recusar NOMEANDO as
   unidades, gravar a fronteira nova); `src/modules/sync/feature-conflicts.js` é a instância de
   feição, com patch por caminho, mais fina que qualquer unidade abaixo.
@@ -208,13 +210,20 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   aplicada: o log é expurgável, então ausência não prova exclusão.
 
   Movimentação e restauração explícitas de feição exigem a revisão corrente. Recibos duráveis
-  vinculam ID, autor e conteúdo, e devolvem `entityVersion` para toda entidade verificada;
-  `canonicalOperation` continua só onde existe serializador canônico. Envelopes incompatíveis são
-  bloqueados antes da escrita; filas antigas têm consulta de recibos somente leitura. O módulo de
-  CRDT por timestamp foi removido; não religar sem requisito de produto. O painel de resolução
-  existe desde 2026-09-13; o que ainda falta (o alvo `map` e seus subtipos declarando base, e o
-  recibo com operação canônica por entidade, de que depende a comparação visual de geometria) está
-  em [`../docs/reviews/pendencias-abertas.md`](../docs/reviews/pendencias-abertas.md), e o modelo
+  vinculam ID, autor e conteúdo, e devolvem `entityVersion` para toda entidade verificada.
+  Envelopes incompatíveis são bloqueados antes da escrita; filas antigas têm consulta de recibos
+  somente leitura. O módulo de CRDT por timestamp foi removido; não religar sem requisito de
+  produto.
+
+  **A RECUSA CARREGA `serverData` DESDE 2026-09-13**, e o que ele NÃO é vale mais que o que ele é:
+  não é o documento do remetente devolvido, é a LINHA VIVA lida por `src/modules/sync/entity-canonical.js`,
+  um serializador por entidade, na forma que o snapshot já entrega para cada uma. O par que o
+  painel desenha viria do mesmo lugar dos dois lados se fosse eco, e provaria nada. Duas coisas que
+  se leem ao contrário: os FILHOS ficam de fora (um mapa é as colunas dele), com uma exceção
+  declarada, a membresia do grupo, porque o par substitui o documento inteiro; e o serializador não
+  filtra túmulo, porque "foi excluído no servidor" é justamente a recusa que mais precisa do outro
+  lado. O painel de resolução existe desde a mesma data; o que ainda falta está em
+  [`../docs/reviews/pendencias-abertas.md`](../docs/reviews/pendencias-abertas.md), e o modelo
   inteiro em [`../docs/wiki/modelo-conflito-lww.md`](../docs/wiki/modelo-conflito-lww.md). A
   decisão que abriu a expansão é a [de 12/09/2026](../docs/decisions/decisions-2026.md).
 - **O serviço 3D publica DUAS formas, e só uma é 3D Tiles.** O MODELO é `.3dtiles` por modelo,

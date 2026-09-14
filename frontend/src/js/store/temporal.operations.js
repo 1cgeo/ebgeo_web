@@ -25,6 +25,7 @@ import { EntityType } from './sync/operation-types.js';
 import { runTransaction } from './store-transaction.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
+import { readMapRevision } from './map-revision.js';
 
 const STORE_PREFIX = 'temporal_';
 
@@ -140,7 +141,11 @@ export async function setMapTemporalConfig(mapName, patch) {
             const mapId = mapManager.getMapId(target);
             previous = withDefaults(await getSettingCompat(`${STORE_PREFIX}${target}`));
             merged = { ...previous, ...(patch || {}) };
-            tx.recordOperation(EntityType.MAP_TEMPORAL, OperationType.UPDATE, mapId, mapId, merged, previous);
+            // A REVISÃO DO MAPA no `previousData`, e só nele: a config temporal é uma unidade do
+            // mapa, e `merged` é o que vai ser gravado no app setting, onde a revisão do servidor
+            // não tem o que fazer. `confirmedVersion` é bookkeeping, então não entra no patch.
+            const observado = { ...previous, ...(await readMapRevision(target)) };
+            tx.recordOperation(EntityType.MAP_TEMPORAL, OperationType.UPDATE, mapId, mapId, merged, observado);
             tx.deferSync(() => memoryStore.temporalConfigs.set(target, merged));
             return () => setSettingCompat(`${STORE_PREFIX}${target}`, merged);
         });

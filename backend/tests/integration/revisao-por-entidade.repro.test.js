@@ -246,9 +246,14 @@ describe('F8 — base observada e revisão por ENTIDADE, não só por feição',
     assert.equal((await linha('maps', map.id)).name, 'Base impossivel', 'e nada foi escrito');
   });
 
-  it('MAPA: op SEM base continua LWW por chegada (contraste com o cliente de hoje)', async () => {
-    // O CLIENTE ATUAL NÃO DECLARA BASE PARA MAPA. Se este caso ficar vermelho, o produto parou de
-    // sincronizar mapas: a moldura passou a exigir algo que ninguém envia.
+  it('MAPA: op SEM base continua LWW por chegada (o regime de degradação)', async () => {
+    // ESTE CASO DEIXOU DE SER UM CONTRASTE COM O CLIENTE em 2026-09-13 (B5, item 2): desde então o
+    // mapa DECLARA base nos seus sítios de escrita (`frontend/src/js/store/map-revision.js`, com
+    // censo em `frontend/tests/unit/mapa-declara-base-censo.test.js`). O que ele mede agora é o
+    // regime de DEGRADAÇÃO, que segue sendo caminho normal e não erro: atlas local, documento cuja
+    // revisão de servidor o cliente não consegue provar, build anterior ao campo. Se ele ficar
+    // vermelho, a moldura passou a EXIGIR base, e aí para de sincronizar todo mapa cujo documento
+    // não carrega revisão nenhuma.
     const map = await createMap(db, atlas.id, { name: 'Sem base' });
     const base = await versaoDe('maps', map.id);
 

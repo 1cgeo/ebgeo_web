@@ -31,17 +31,16 @@
  * Making `patch` the server's source of units is a SERVER change and belongs to the same step that
  * gives each entity a canonical serializer.
  *
- * THE ONE ENTITY THAT STILL DECLARES NOTHING IS `map`, AND ITS FIVE SUB-TYPES, which is stated
- * here because the table above would otherwise promise it. A declaration is read out of
- * `previousData`, and the map's write sites hand over the changed FIELD and not the document: a
- * rename records `{name: oldName}`, a lock toggle records `{locked: false}`, a position op records
- * the previous position. None of them carries the confirmed revision, so none declares a base, and
- * the map keeps arrival-order behaviour. Closing it means reading the map document at those sites,
- * and that document carries every feature of the map: a full read on a gesture that today reads
- * nothing. The cheap fix is the other direction, and it belongs with the canonical serializer
- * work: a map receipt that returns the row would let the write site carry the number it already
- * learned. Registered in `docs/wiki/modelo-conflito-lww.md`, and listed as open in
- * `docs/reviews/pendencias-abertas.md`.
+ * THE MAP WAS THE ONE ENTITY THAT DECLARED NOTHING, AND SINCE 2026-09-13 IT DECLARES. It is worth
+ * knowing why it was last, because the shape of the fix is not obvious from here. A declaration is
+ * read out of `previousData`, and the map's write sites hand over the changed FIELD and not the
+ * document: a rename records `{name: oldName}`, a lock toggle records `{locked: false}`, a
+ * position op records the previous position, and a fragment of a map carries no revision. The fix
+ * is `store/map-revision.js`, whose header carries the cost argument: three of those sites already
+ * hold the map document and pay nothing, the others pay one read of it, and a map document carries
+ * the map's whole feature collection. What was NOT done, and was the tempting answer, is a
+ * per-session cache of revisions: the confirmed revision has a CLEARING rule, and a second copy
+ * that forgets one clear hands the author a base the server has already moved past.
  */
 
 import { deepEqual } from '../../utilities/deep-utils.js';
