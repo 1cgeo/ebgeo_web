@@ -157,4 +157,46 @@ describe('a visitor token is bound to its own atlas (repro)', () => {
       .set('Authorization', `Bearer ${login.body.data.accessToken}`)
       .expect(200);
   });
+
+  // "O LINK É REVOGÁVEL" É A TERCEIRA AFIRMAÇÃO DA CLÁUSULA 5.4, e é esta a metade que
+  // importa para segurança: não é que um link novo deixe de ser emitido, é que o token JÁ
+  // EMITIDO pare de valer. Ele vale uma hora e mora só na memória do visitante, então entre
+  // a revogação e o vencimento existe uma janela em que nada do lado do cliente o alcança.
+  //
+  // A cláusula cita este arquivo, e ele não tinha caso de revogação nenhum. O que existia,
+  // noutro arquivo e sem citação, era a ROTAÇÃO do link ao republicar, que é outra pergunta:
+  // ela mede o ENDEREÇO, não a credencial já entregue.
+  //
+  // O mecanismo é INDIRETO, e é por isso que ele precisa de caso próprio em vez de leitura:
+  // nada revoga o JWT. Ele continua válido e continua sendo aceito pelo `auth`; o que muda é
+  // que `resolvePermission` perde o ramo `isPublic` (o `is_public` da linha virou falso), e o
+  // visitante, que não é dono e não tem share, cai em "nenhuma relação com o atlas".
+  it('revogado o link, o token JÁ EMITIDO para de valer na hora', async () => {
+    // O atlas B nunca foi tocado pelos casos acima, que dependem de A: usá-lo aqui não
+    // perturba nenhum deles.
+    const linkB2 = randomUUID().replace(/-/g, '');
+    await db.query('UPDATE atlas SET is_public = true, public_link = $2 WHERE id = $1',
+      [atlasB.id, linkB2]);
+    const emissao = await supertest(app).get(`/api/v1/atlas/public/${linkB2}`).expect(200);
+    const tokenB = emissao.body.data.publicToken;
+    const comTokenB = (path) => supertest(app).get(path).set('Authorization', `Bearer ${tokenB}`);
+
+    // PISO: o token funciona ANTES. Sem ele o 404 de depois seria indistinguível de um token
+    // que nunca valeu, e o caso passaria verde com a emissão quebrada.
+    await comTokenB(`/api/v1/atlas/${atlasB.id}`).expect(200);
+
+    await db.query('UPDATE atlas SET is_public = false, public_link = NULL WHERE id = $1',
+      [atlasB.id]);
+
+    // 404 e não 403, pela cláusula 5.6: sem o ramo público o visitante não tem relação
+    // nenhuma com o atlas, e "proibido" aqui contaria que ele existe.
+    const depois = await comTokenB(`/api/v1/atlas/${atlasB.id}`);
+    assert.equal(depois.status, 404, `esperava 404 depois de revogar; veio ${depois.status}`);
+
+    // E a revogação alcança as OUTRAS portas do mesmo atlas, não só a que o caso mediu: uma
+    // revogação que fechasse a leitura do documento e deixasse o snapshot aberto seria pior
+    // que nenhuma, porque o snapshot é onde o conteúdo de fato está.
+    assert.equal((await comTokenB(`/api/v1/atlas/${atlasB.id}/sync/0`)).status, 404);
+    assert.equal((await comTokenB(`/api/v1/atlas/${atlasB.id}/maps`)).status, 404);
+  });
 });
