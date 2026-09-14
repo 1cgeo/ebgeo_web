@@ -23,6 +23,10 @@ import { STRUCTURAL_MARKER, recordStructuralMarker } from '../sync/structural-ma
 import { ResourcePruner, refsFromCollectedRows, refsFromImportPayload } from './atlas-resource-prune.js';
 import { classifyResourceRefs } from '../resource-access/resource-access.service.js';
 import { ATLAS_SEARCH_MIN_TERM, ATLAS_SEARCH_MAX_LIMIT } from './atlas.schemas.js';
+// OS DOIS TETOS DE RECURSO (D12). Os TRES caminhos que criam atlas passam pelo MESMO gate, e a
+// frase mora num lugar so: tres copias dela e como duas telas do mesmo produto passam a dizer
+// numeros diferentes sobre o mesmo teto.
+import { assertAtlasQuota, assertImportMapCeiling } from './atlas-quota.js';
 
 // ---------------------------------------------------------------------------
 // Batch INSERT plumbing (L67).
@@ -284,6 +288,7 @@ function withCopySuffix(name) {
  */
 export async function createAtlas(userId, data) {
   return tx(async (t) => {
+    await assertAtlasQuota(t, userId);
     const atlas = await t.one(Q.INSERT_ATLAS, [data.name, data.description || null, userId]);
     const map = await t.one('INSERT INTO maps (atlas_id, name) VALUES ($1, $2) RETURNING id',
       [atlas.id, 'Mapa 1']);
@@ -941,6 +946,11 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
       throw new NotFoundError('Atlas');
     }
 
+    // A cota conta o DESTINO, que nasce do requisitante, e por isso ela vem DEPOIS do 404 da
+    // origem: um atlas inexistente nao pode responder "voce ja tem atlas demais", que revelaria
+    // ordem de gates sem revelar nada util. Ver `atlas-quota.js`.
+    await assertAtlasQuota(t, newOwnerId);
+
     // As referencias do atlas INTEIRO numa consulta, classificadas numa segunda: duas
     // instrucoes constantes, nunca uma por linha (`atlas-clone-import-n1.repro.test.js`).
     const refRows = await t.any(Q.COLLECT_ATLAS_RESOURCE_REFS, [atlasId]);
@@ -1450,7 +1460,15 @@ function propriedadesRealinhadas(feature, id, layerId) {
 export async function importAtlas(userId, data) {
   const { atlas, maps, briefings } = data;
 
+  // O TETO DE MAPAS POR ARQUIVO, ANTES da transacao: ele nao precisa do banco para nada, e abrir
+  // uma transacao para recusar seria segurar uma conexao do pool pelo tempo de um pedido que ja
+  // se sabe recusado. Ele e 400 e nao 429 porque o pedido e grande demais em si mesmo; nada que
+  // a pessoa apague no servidor faz este arquivo caber.
+  assertImportMapCeiling(maps);
+
   return tx(async (t) => {
+    // A cota da CONTA, dentro da transacao, como nos outros dois caminhos.
+    await assertAtlasQuota(t, userId);
     // 0. A PODA DA ENTRADA. Com a poda na saida o `.ebgeo` que ESTE app produz ja vem limpo,
     // mas `.ebgeo` e ARQUIVO: circula por e-mail, pode vir de uma versao anterior e pode ter
     // sido escrito a mao. Esta rota grava `tileset_id`, `photo_name` e as duas referencias de

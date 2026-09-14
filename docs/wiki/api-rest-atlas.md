@@ -116,6 +116,21 @@ O `publicToken` devolvido é JWT de **1 hora sem refresh**, válido para REST e 
 
 Acoplamento a vigiar: o enum de `feature_type` do schema (`backend/src/modules/atlas/atlas.schemas.js`) precisa acompanhar o do frontend **e** o CHECK do banco. Os três divergem em silêncio até um import falhar. Ver [[atlas-import-offline]].
 
+## Os dois tetos de recurso, e o 429 que não é backoff
+
+Desde 14/09/2026 (decisão D12 em [`../decisions/decisions-2026.md`](../decisions/decisions-2026.md)) os **três** caminhos que criam atlas (`POST /atlas`, `POST /atlas/import` e `POST /atlas/:id/clone`) recusam com **429 `QUOTA_EXCEEDED`** quando a conta já tem o máximo de atlas vivos, e a importação recusa com **400** um arquivo acima do teto de mapas. Era o último consumo de recurso autenticado e atribuível sem teto nenhum. O gate é `assertAtlasQuota` / `assertImportMapCeiling` (`backend/src/modules/atlas/atlas-quota.js`), e os dois números são env com padrão (`ATLAS_MAX_PER_ACCOUNT`, 100; `IMPORT_MAX_MAPS`, 200), com **zero desligando** cada um.
+
+Quatro coisas que não se adivinham:
+
+- **A cota é por CONTA, não por papel, e o administrador global NÃO fica isento.** No eixo de consumo de disco ele é uma conta como as outras; isentar por papel misturaria o eixo GLOBAL (que não é uma escada) com o de consumo. Cota por OM foi a alternativa recusada: a lotação é auto-declarada no cadastro e não autoriza nada, então ela se contornaria trocando a lotação. Ver [[sintese-eixos-de-permissao]].
+- **A contagem é de atlas VIVO de que a conta é DONA.** A lixeira não ocupa vaga (é a ação que a frase de recusa manda tomar, e ela de fato funciona), e o atlas de que a conta é apenas membro também não, porque quem responde pelo espaço dele é o dono.
+- **O 429 da cota não é o 429 do limitador**, e separá-los é o `code`. O conselho é oposto: um diz "espere", o outro diz "libere vaga". Ver [[erros-api]].
+- **O teto de mapas é 400 e não 429**, porque o pedido é grande demais em si mesmo: nada que a pessoa apague no servidor faz aquele `.ebgeo` caber. Ele é conferido ANTES da transação, então uma recusa não deixa atlas nenhum atrás.
+
+**O que NÃO é:** uma invariante serializada. A contagem roda dentro da transação de criação, mas duas criações concorrentes da mesma conta leem a mesma contagem e as duas passam, de modo que uma rajada estoura o teto pelo número de pedidos em voo. É aceito por escrito: o teto limita crescimento sem dono, não é fronteira de segurança, e serializar por conta cobraria contenção em toda criação.
+
+Guardas: `backend/tests/integration/cota-de-atlas-por-conta.test.js` (os três caminhos, o administrador não isento e os dois controles negativos, lixeira e posse), `backend/tests/unit/cota-de-atlas-frases.test.js` e `frontend/tests/unit/cota-de-atlas-frases-do-cliente.test.js`.
+
 ## REST com efeito colaborativo
 
 "REST só de metadados" não significa "REST sem efeito em tempo real": `PUT`, `DELETE`, `PATCH /settings`, `transfer`, `duplicate` e todo `/sharing/*` empurram mensagem para a sala do WebSocket. Quem raciocina sobre convergência precisa olhar os dois canais. Ver [[sintese-rest-vs-websocket]] e [[canal-collab-websocket]].

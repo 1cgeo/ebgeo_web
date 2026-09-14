@@ -11,6 +11,16 @@ export const FIND_ATLAS_BY_ID = `
   WHERE id = $1 AND deleted_at IS NULL
 `;
 
+// A COTA DE ATLAS POR CONTA (decisão D12). Os dois recortes são a decisão, não filtro de higiene:
+// `owner_id` porque quem responde pelo espaço de um atlas compartilhado é o dono dele, e
+// `deleted_at IS NULL` porque mover para a lixeira LIBERA a vaga, que é o que a frase de recusa
+// manda fazer. Ver `atlas-quota.js`.
+export const COUNT_LIVE_OWNED_ATLAS = `
+  SELECT COUNT(*)::int AS total
+  FROM atlas
+  WHERE owner_id = $1 AND deleted_at IS NULL
+`;
+
 // `user_permission` MUST resolve exactly like `resolvePermission` (middleware/permissions.js),
 // which is the single source of the five-level hierarchy read < comment < write < manage < owner:
 // it checks OWNERSHIP FIRST, then the share row. This query used to invert that

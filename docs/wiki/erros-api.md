@@ -53,7 +53,9 @@ O mesmo utilitário fecha os outros dois canais que escapavam do `errorHandler` 
 
 Tratar o conjunto de `code` como fechado gera `switch` incompleto no cliente, e esta página já cometeu o erro que denuncia: a enumeração que morava aqui omitia o `SERVICE_UNAVAILABLE` 503, que sai pelo ramo de `AppError` quando o push de sync estoura o `lock_timeout` do advisory lock ([[modelo-conflito-lww]]). A fonte é `backend/src/middleware/error-handler.js`, não uma lista em prosa.
 
-O `429` é o único que **não passa** pelo `errorHandler`: vem direto do limitador (`backend/src/middleware/rate-limit.js`), então perde o log enriquecido e o `details`. O log de request comum sai normalmente, porque `requestLogger` é montado antes de todos os routers e escuta `res.on('finish')`, que dispara para toda resposta (`backend/src/middleware/request-logger.js`).
+**O `429` TEM DUAS ORIGENS desde 14/09/2026, e esta linha dizia que ele era o único status que nunca passa pelo `errorHandler`.** A do limitador de taxa continua sendo assim: vem direto de `backend/src/middleware/rate-limit.js`, então perde o log enriquecido e o `details` (o log de request comum sai normalmente, porque `requestLogger` é montado antes de todos os routers e escuta `res.on('finish')`, que dispara para toda resposta, `backend/src/middleware/request-logger.js`). A outra é `QuotaExceededError` (`backend/src/utils/errors.js`, decisão D12), que é `AppError` como as irmãs e passa pelo handler inteiro.
+
+Separá-las é o `code`, nunca o status, e a diferença é de CONSELHO, que é a parte em que a pessoa age: o limitador diz "espere", e esperar resolve; `QUOTA_EXCEEDED` diz "você já tem N destes", e esperar não resolve nada. Um cliente que ramifique só pelo status dá o conselho errado em metade dos casos, e foi esse o defeito encontrado no cliente ao fechar a decisão (`motivoDaFalha`, `frontend/src/js/projects/local-atlas-notices.js`, embrulhava a recusa de cota na moldura de backoff). Ver [[api-rest-atlas]].
 
 ## Regra de ouro
 

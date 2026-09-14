@@ -575,6 +575,14 @@ function motivoDaFalha(error) {
     if (classe === RequestFailure.CREDENTIAL) {
         return 'a sua sessão não vale mais. Entre de novo e repita o envio.';
     }
+    // O 429 TEM DUAS CAUSAS, E SÓ UMA PASSA COM O TEMPO. Desde 14/09/2026 `POST /atlas/import`
+    // recusa com 429 quando a conta já bateu a cota de atlas (decisão D12), e esse envelope traz
+    // `code: 'QUOTA_EXCEEDED'`. A cabeça de baixo diria "pedidos demais em sequência", que manda
+    // a pessoa esperar por algo que esperar não resolve: a frase do servidor nomeia os dois
+    // números e a ação que libera vaga, e é ela que vale inteira.
+    if (error?.code === 'QUOTA_EXCEEDED' && doServidor) {
+        return doServidor;
+    }
 
     const cabeca = {
         [RequestFailure.MISSING]: 'o servidor não encontrou o endereço do envio',

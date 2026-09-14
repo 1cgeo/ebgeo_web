@@ -305,6 +305,33 @@ const config = Object.freeze({
     maxBulkUploadMb: parseInt(optional('MAX_BULK_UPLOAD_MB', '50'), 10),
   }),
 
+  // OS DOIS TETOS DE RECURSO DO ATLAS (decisão D12 de 2026-09-14, em
+  // `docs/decisions/decisions-2026.md`). Era o último limite de recurso sem dono depois do teto de
+  // sockets por principal: criar atlas é autenticado e atribuível, e não tinha teto nenhum.
+  //
+  // ZERO DESLIGA os dois, pela mesma razão do `cursorBatchMs` e do `maxSocketsPerPrincipal`: é a
+  // válvula de reverter sem deploy. Por isso o piso da faixa é 0 e não 1.
+  //
+  // A COTA É POR CONTA E NÃO POR PAPEL, e o administrador global NÃO fica isento: no eixo de
+  // consumo de disco ele é uma conta como as outras, e isentá-lo seria confundir os dois eixos de
+  // permissão. A alternativa recusada na decisão foi cota por OM: a lotação é auto-declarada no
+  // cadastro e não autoriza nada, então uma cota por OM se contorna trocando a lotação.
+  //
+  // CEM foi o número do dono. O que ele conta é o atlas VIVO de que a conta é DONA: a lixeira
+  // (`deleted_at` preenchido) não conta, e o atlas de que a conta é apenas membro não conta,
+  // porque quem responde pelo espaço dele é o dono.
+  //
+  // DUZENTOS MAPAS por importação sai do tamanho do que o produto de fato produz, não de gosto: o
+  // maior `.ebgeo` medido nesta bancada carrega 14 mapas (medição de 2026-09-07 do envio ao
+  // servidor: 14 mapas e 805 feições). Uma ordem de grandeza acima do maior arquivo real é longe
+  // o bastante para nunca morder uso legítimo, e perto o bastante para limitar o que UMA
+  // transação de `POST /atlas/import` segura de uma vez: aquela rota cria o atlas inteiro num
+  // `tx` só, e o payload vem de um ARQUIVO, que circula por e-mail e pode ter sido escrito à mão.
+  atlas: Object.freeze({
+    maxPerAccount: parseInt(optional('ATLAS_MAX_PER_ACCOUNT', '100'), 10),
+    importMaxMaps: parseInt(optional('IMPORT_MAX_MAPS', '200'), 10),
+  }),
+
   // Vídeo de prévia de recurso de catálogo HOSPEDADO (a thumbnail é embutida no config como
   // data URL; o vídeo é grande demais para isso, então vive em disco e é servido por rota
   // própria). O nome do arquivo carrega um token não-adivinhável, e a URL só chega a quem vê o
@@ -621,6 +648,13 @@ export const NUMERIC_ENV_RULES = Object.freeze({
   DATABASE_POOL_MAX: { min: 1, max: 1000 },
   MAX_IMAGE_SIZE_MB: { min: 1, max: 1024 },
   MAX_BULK_UPLOAD_MB: { min: 1, max: 4096 },
+  // Os dois tetos de recurso do atlas. Piso ZERO nos dois, e o zero DESLIGA (é a válvula de
+  // reverter sem deploy, como o `WS_MAX_SOCKETS_PER_PRINCIPAL` abaixo). Sem a faixa,
+  // `ATLAS_MAX_PER_ACCOUNT=abc` viraria NaN, e toda comparação com NaN é falsa: a cota
+  // simplesmente nunca fecharia, com a aparência de estar configurada. Os tetos de cima são
+  // absurdos o bastante para só pegar erro de digitação.
+  ATLAS_MAX_PER_ACCOUNT: { min: 0, max: 1000000 },
+  IMPORT_MAX_MAPS: { min: 0, max: 100000 },
   // Vídeo de prévia hospedado: teto por arquivo. Piso 1 MB, teto 2 GB (o vídeo é prévia curta;
   // acima disso o upload passa a exigir outro regime de streaming).
   CATALOG_VIDEO_MAX_SIZE_MB: { min: 1, max: 2048 },

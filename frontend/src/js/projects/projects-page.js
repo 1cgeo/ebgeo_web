@@ -65,6 +65,9 @@ import { initTabLock, noneKey } from '@utils/tab-lock.js';
 // `index.js` e `admin/admin-page.js` consomem, e a razão de ela ter saído de dentro do mapa.
 import { classifyRequestFailure, RequestFailure } from '@utils/request-failure.js';
 import { sessionRestoreNotice } from '../session/session-restore-phrases.js';
+// A frase da falha ao CRIAR atlas de servidor, de um módulo folha cujo único import é a
+// classificação acima. Ver o cabeçalho dele: a falha deste caminho era muda.
+import { createServerAtlasFailureNotice } from './server-atlas-notices.js';
 import { showConfirm, showChoice } from '@modals/confirm.modal.js';
 import { PromptModal } from '@modals/prompt.modal.js';
 import { showLoginModal } from '@modals/login.modal.js';
@@ -1154,8 +1157,21 @@ async function initProjectsPage() {
             projects,
             overview,
             onPick: (atlasId) => openAtlas(atlasId),
+            // A FALHA AQUI ERA MUDA, e o `catch` que a engolia é deliberado do outro lado:
+            // `CreateAtlasModal._handleCreate` captura sem relatar para manter o diálogo aberto,
+            // de modo que uma recusa do servidor não produzia palavra nenhuma na tela. O relato
+            // entra aqui, que é onde a chamada mora, e o `throw` continua subindo para que o
+            // diálogo siga aberto com o nome já digitado. Os vizinhos de importar e de clonar já
+            // faziam isto; só o de criar não fazia.
             onCreate: async (name, sharing) => {
-                const atlas = await apiClient.createAtlas({ name });
+                let atlas;
+                try {
+                    atlas = await apiClient.createAtlas({ name });
+                } catch (error) {
+                    console.error('[projects] atlas creation failed:', error);
+                    showError(createServerAtlasFailureNotice(error));
+                    throw error;
+                }
                 await applyAtlasSharing(atlas.id, sharing);
                 openAtlas(atlas.id);
             },

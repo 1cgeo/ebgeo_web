@@ -103,6 +103,25 @@ export class ValidationError extends AppError {
   }
 }
 
+/**
+ * 429 — a conta bateu num TETO DE RECURSO declarado (decisão D12 de 2026-09-14).
+ *
+ * Distinta do 429 do limitador de taxa, e a distinção está no `code`, não no status: o limitador
+ * (`middleware/rate-limit.js`) responde por conta própria, sem passar pelo `errorHandler`, e diz
+ * "pedidos demais em sequência"; esta diz "você já tem N destes". O cliente que olhe só o status
+ * trata as duas como backoff, e é por isso que a `message` precisa nomear o teto: ela é o que a
+ * pessoa lê, e aqui esperar não resolve.
+ *
+ * SEM `message` PADRÃO, de propósito. Um teto sem número não diz o que fazer, e o número varia
+ * por instalação (as duas faixas são env, e zero desliga), então a frase é montada no sítio que
+ * conhece o teto e a contagem.
+ */
+export class QuotaExceededError extends AppError {
+  constructor(message, options) {
+    super(message, 429, 'QUOTA_EXCEEDED', options);
+  }
+}
+
 export class BadRequestError extends AppError {
   constructor(message = 'Requisição inválida.', options) {
     super(message, 400, 'BAD_REQUEST', options);
