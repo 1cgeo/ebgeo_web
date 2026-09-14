@@ -225,9 +225,17 @@ export default defineConfig(({ mode: _mode }) => ({
           // próprio eles cairiam no bundle da entrada e se misturariam com o que `entriesAware`
           // já separa por outro critério; com ele, o payload da calibração tem um nome.
           //
-          // `src/vendor/three/` NÃO entra aqui de propósito: o Three.js também é importado pelo
-          // `street_view_tool` do mapa, e reivindicá-lo para este grupo o tiraria de onde ele está
-          // hoje — mexer no chunking do mapa não é trabalho desta página.
+          // O THREE.JS NÃO ENTRA AQUI, e desde 2026-09-14 a regra que o mantém fora não precisa
+          // ser escrita. Enquanto ele era o snapshot versionado `src/vendor/three/`, esta linha
+          // dizia que o caminho ficava DE PROPÓSITO fora do casamento, porque o
+          // `street_view_tool` do mapa também o importa e reivindicá-lo para este grupo mexeria no
+          // chunking do mapa. A biblioteca passou a vir do npm (`three` 0.164.0, versão exata),
+          // por um ponto único (`src/js/vendor/three.js`), e nem o ponto único nem
+          // `node_modules/three/` casam com `src/js/calibration/`, então a propriedade se sustenta
+          // sozinha: `entriesAware` subdivide o grupo pelas entradas que alcançam cada módulo e a
+          // biblioteca sai num chunk compartilhado pelas duas páginas, exatamente como antes.
+          // É o mesmo caso do MapLibre, cujo bloco acima explica por que uma regra própria para um
+          // pacote de `node_modules/` produziu um `dist/` byte a byte idêntico.
           if (id.includes('src/js/calibration/')) {
             return 'calibration';
           }

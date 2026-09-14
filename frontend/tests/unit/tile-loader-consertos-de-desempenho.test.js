@@ -40,7 +40,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { montarEscada } from '@js/street_view_tool/pyramid-math.js';
 import { MAX_PEDACOS } from '@js/street_view_tool/tile-upload-rects.js';
 
-vi.mock('../../src/vendor/three/three.module.js', () => ({
+vi.mock('@js/vendor/three.js', () => ({
     SRGBColorSpace: 'srgb',
     LinearFilter: 1006,
     // Os dois valores reais do three.

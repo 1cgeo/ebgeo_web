@@ -3839,33 +3839,38 @@
   },
   "2026-09-14": {
     "date": "2026-09-14",
-    "branch": "plano/vb",
-    "base": "2290e2c9b6b3d36aeb025afdfd028428816a79f8",
-    "escopo": "Bloco de EXECUCAO das decisoes D9 de 2026-09-14 sobre os oito itens de docs/seguranca/b10-fecho-proposta-2026-09-13.md. Ele remede as duas pastas de vendor na arvore de hoje e acrescenta as declaracoes que as decisoes pediram por escrito. NAO refaz o npm audit, que continua datado de 2026-09-13 no bloco anterior, nem alcanca a imagem em execucao no servidor interno.",
+    "branch": "plano/va, rebased sobre integracao_backend (que ja trazia plano/vb)",
+    "base": "45273cd441f32feee48b80f5dd2c6917b9dc9b44",
+    "escopo": "Bloco de EXECUCAO das decisoes D9 de 2026-09-14 sobre os oito itens de docs/seguranca/b10-fecho-proposta-2026-09-13.md, e ele reune as DUAS linhas de trabalho daquele dia: os itens V2, V3, V4, V5 e V8 vieram de plano/vb e os itens V1, V6 e V7 de plano/va. Este bloco e o manifesto VIVO: e contra ele que node scripts/inventario-de-vendors.mjs --check confere a arvore, e e ele que frontend/tests/unit/inventario-de-vendors.test.js le. NAO refaz o npm audit, que continua datado de 2026-09-13 no bloco anterior, nem alcanca a imagem em execucao no servidor interno. O bloco 2026-09-13 fica INTACTO ao lado, como a medicao datada que levou a decisao.",
     "porQueUmBlocoNovo": "O bloco 2026-09-13 fica intocado porque e evidencia datada: ele carrega os 166 sha256Lf binarios produzidos pelo instrumento defeituoso de 2026-09-12, com a ressalva que os rotula, e reescrever aquelas tuplas para caber na arvore de hoje apagaria a unica prova de que aquela medicao tinha o defeito. Quem confere hoje le este bloco, e quem o aponta e a constante CHAVE_DO_BLOCO de scripts/inventario-de-vendors.mjs.",
     "metodo": "node scripts/inventario-de-vendors.mjs --write, que regrava as tuplas e os cinco numeros derivados do resumo e preserva byte a byte todo campo declaratorio. O eixo de identidade continua sendo sha256Lf em arquivo de texto e sha256 em arquivo binario.",
+    "procedencia": "Medido pelo mesmo script do bloco anterior, no mesmo eixo (sha256 normalizado para LF em arquivo de texto, sha256 cru em binario), sobre a arvore depois da adocao e das podas. A diferenca para os 408 de 2026-09-13 nao e uma re-medicao: sao saidas de pasta coberta, uma a uma, e cada uma tem commit proprio. O que NAO mudou de conteudo tem, aqui, exatamente os mesmos hashes de la, e essa igualdade e a prova de que nem a adocao nem a poda tocaram em arquivo que ficou.",
     "vendorInventory2026_09_14": {
       "resumo": {
-        "arquivos": 407,
-        "bytes": 68723746,
-        "textoEmCrlf": 165,
+        "pastasCobertas": [
+          "frontend/public/vendors"
+        ],
+        "arquivos": 402,
+        "bytes": 65350136,
+        "textoEmCrlf": 160,
         "textoEmLf": 33,
         "binarios": 209,
-        "notaDosNumeros": "Os cinco numeros acima sao GERADOS pelo --write a cada regravacao, nunca digitados. Em 2026-09-13 o campo equivalente dizia 332 arquivos em CRLF, e aquele 332 contava tambem 166 binarios que carregam o par 0D 0A dentro de conteudo comprimido; aqui texto e binario estao separados justamente para que o numero nao possa voltar a significar duas coisas."
+        "notaDosNumeros": "Os cinco numeros arquivos, bytes, textoEmCrlf, textoEmLf e binarios sao GERADOS pelo --write a cada regravacao, nunca digitados; pastasCobertas e declaratorio e espelha a constante PASTAS_DE_VENDOR do script. Em 2026-09-13 o campo equivalente dizia 332 arquivos em CRLF, e aquele 332 contava tambem 166 binarios que carregam o par 0D 0A dentro de conteudo comprimido; aqui texto e binario estao separados justamente para que o numero nao possa voltar a significar duas coisas."
       },
       "deltaSobre2026_09_13": [
-        "frontend/public/vendors/cesium/cesium-measure.js SAIU das pastas de vendor: ele virou codigo da casa em frontend/src/js/3d_models_viewer_tool/services/cesium-measure.js (decisao D9, item V2). Nao foi podado, foi adotado, e por isso nao aparece em nenhuma lista de poda."
+        "frontend/public/vendors/cesium/cesium-measure.js SAIU das pastas de vendor: ele virou codigo da casa em frontend/src/js/3d_models_viewer_tool/services/cesium-measure.js (decisao D9, item V2). Nao foi podado, foi adotado, e por isso nao aparece em nenhuma lista de poda.",
+        "frontend/src/vendor/three/ SAIU inteira das pastas cobertas: os cinco arquivos do snapshot 164dev foram apagados quando a biblioteca passou a vir do npm em versao exata (three 0.164.0), pelo ponto unico frontend/src/js/vendor/three.js (decisao D9, item V1). Os cinco eram TEXTO em CRLF, e e por isso que a parcela de binarios nao se moveu."
       ],
       "notaDoCampoSha256Lf": "Ao contrario do bloco de 2026-09-13, aqui sha256Lf e null em TODO arquivo binario, e isso e propriedade do instrumento e nao coincidencia: scripts/inventario-de-vendors.mjs classifica texto por UTF-8 valido sem byte NUL e so normaliza CRLF nos arquivos de texto. Um sha256Lf nao nulo num binario deste bloco significa que alguem mexeu no classificador.",
       "manifestoCompleto": {
-        "descricao": "Um registro por arquivo versionado das duas pastas de vendor, para que a proxima conferencia seja um diff e nao uma busca.",
+        "descricao": "Um registro por arquivo versionado das pastas cobertas, para que a proxima conferencia seja um diff e nao uma busca.",
         "esquema": [
           "path",
           "bytes",
           "sha256",
           "sha256Lf (null em binario e em texto que ja esta em LF)"
         ],
-        "comoRefazer": "node scripts/inventario-de-vendors.mjs --check confere, --write regrava. As duas leem o DISCO, nunca o commit, entao confira o HEAD antes de acreditar na saida.",
+        "comoRefazer": "node scripts/inventario-de-vendors.mjs --check confere, --write regrava. As duas leem o DISCO, nunca o commit, entao confira o HEAD antes de acreditar na saida. A lista de arquivos vem de git ls-files, nunca de um caminhar do disco: as pastas de vendor recebem artefato de build e resto de experimento, e um caminhar contaria o que o repositorio nao guarda.",
         "arquivos": [
           [
             "frontend/public/vendors/cesium/Assets/IAU2006_XYS/IAU2006_XYS_0.json",
@@ -6278,36 +6283,6 @@
             13061,
             "1f8ddcde10fe1d9f3ab60de8469ed26f9b09716fb882b225d666d4f62838de2e",
             null
-          ],
-          [
-            "frontend/src/vendor/three/addons/controls/DragControls.js",
-            6270,
-            "19a1b3a5e939bf2ac89e0dd4a1fcc7647c714fd4cb6deaffb69b45e6e921fc0a",
-            "49e869fe1a68d9466e9f3bdbc6ff8b206eae1726ff10a73f1ff7ce5f7b502643"
-          ],
-          [
-            "frontend/src/vendor/three/addons/controls/OrbitControls.js",
-            33780,
-            "32a0d1e94316d6cba40a01b870496b2b246313bc9fb6e9090851bb919131ca3c",
-            "508a03ae231ea019c2d33a0416cdbbcf8f661ef07ea3a2de6c7b48a2225d864c"
-          ],
-          [
-            "frontend/src/vendor/three/three.cjs",
-            1335804,
-            "f9107f54b6d6ba9fe2bc27712ef92cd091e2884a416aeb67f4aa1895d1ae162e",
-            "9d8959e4fab795de952462281ccfb42deefe33b0481923b4c6a63b5356f5f88e"
-          ],
-          [
-            "frontend/src/vendor/three/three.min.js",
-            673123,
-            "6eea7588f57377ce1ee33535891eb1f4a43632ebf171153a63ba4f44bcf262ca",
-            "a2fcdb1fef918003fd35ca205e3fb445b25d26f47ef363b352d268ddb972de34"
-          ],
-          [
-            "frontend/src/vendor/three/three.module.js",
-            1324633,
-            "99d5a59e4423cf9fb3dad6b6265a52771b3fa0117d5051ae8614063e4de53b07",
-            "ac368b5a2a5d3d644b230c3ce166d88ace1a0d9950a57a1d2150c9aad7a61774"
           ]
         ]
       }

@@ -70,7 +70,7 @@
  * que ela busca.
  */
 
-import * as THREE from '../../vendor/three/three.module.js';
+import * as THREE from '@js/vendor/three.js';
 import config from '../config.js';
 import { stampAtlasOnUrl } from './tile-scope.js';
 import { currentResourceAtlasId } from '@store/sync/resource-scope.js';

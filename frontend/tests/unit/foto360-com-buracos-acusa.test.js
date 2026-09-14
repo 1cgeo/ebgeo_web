@@ -44,7 +44,7 @@ import { fileURLToPath } from 'node:url';
 import { montarEscada } from '@js/street_view_tool/pyramid-math.js';
 import { createTileHoleWatch, TILE_HOLE_MIN } from '@js/street_view_tool/photo360-failure.js';
 
-vi.mock('../../src/vendor/three/three.module.js', () => ({
+vi.mock('@js/vendor/three.js', () => ({
     SRGBColorSpace: 'srgb',
     RepeatWrapping: 1000,
     ClampToEdgeWrapping: 1001,

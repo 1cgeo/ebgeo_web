@@ -221,6 +221,21 @@ const ISENTOS = new Set([
     // `frontend/tests/unit/maplibre-construtores-regua.test.js`, que cobra a ausência das duas
     // cópias e a ausência da referência nas quatro páginas HTML.
     'frontend/public/vendors/maplibre-gl.js',
+    // APAGADOS EM 2026-09-14 (V1 e V6 da decisão D9), e citados por NOME e por BYTE dentro de
+    // `docs/seguranca/b10-fecho-proposta-2026-09-13.md`, que é a medição datada que levou à
+    // decisão. Aquele documento é evidência de uma data: reescrever a tabela dele para apontar
+    // para o que existe hoje apagaria a única prova de qual era o estado que se decidiu mudar.
+    // O Three.js passou a vir do npm (`three` 0.164.0, exato) pelo ponto único
+    // `frontend/src/js/vendor/three.js`; os outros quatro arquivos do snapshot não tinham um
+    // único consumidor e saíram junto.
+    //
+    // A isenção não deixa buraco, e o guarda é o mesmo do MapLibre: quem cobra que o snapshot NÃO
+    // voltou é `frontend/tests/unit/calibracao-pagina.test.js`, que exige a ausência de
+    // `src/vendor/three/` e que o pacote entre por uma porta só em `src/js/`.
+    'frontend/src/vendor/three/three.cjs',
+    'frontend/src/vendor/three/three.min.js',
+    'frontend/src/vendor/three/addons/controls/OrbitControls.js',
+    'frontend/src/vendor/three/addons/controls/DragControls.js',
 ]);
 
 /**

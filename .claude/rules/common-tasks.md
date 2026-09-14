@@ -129,8 +129,15 @@ aposentado: ele é o microsserviço 360 que este backend consome, e continua com
 conhecidos. Hoje são SEIS, os três de lá mais três nossos:
 
 1. o comentário de caminho na linha 1;
-2. `import * as THREE from '../../vendor/three/three.module.js'` e o `config.js` do monorepo, no
-   lugar do `import ... from 'three'` de lá;
+2. `import * as THREE from '@js/vendor/three.js'` e o `config.js` do monorepo, no lugar do
+   `import ... from 'three'` de lá. **Este trecho quase sumiu em 2026-09-14 e não sumiu, e a razão
+   é o ponto:** o Three.js deixou de ser o snapshot versionado `src/vendor/` e passou a vir do npm
+   em versão exata (`three` 0.164.0), que é o mesmo pacote que o `ebgeo_360` usa. O especificador
+   continua diferente porque aqui a biblioteca entra por um PONTO ÚNICO
+   (`frontend/src/js/vendor/three.js`), no modelo de `frontend/src/js/map/maplibre.js`, e não por
+   `three` nu em cada arquivo. A divergência que sobra é de uma linha e de endereço, não mais de
+   VERSÃO: antes o diff dos dois arquivos podia esconder uma diferença de comportamento do three
+   por trás de um import que parecia cosmético;
 3. a raiz da API por `raizApiPadrao()` lendo `config.streetView360.serviceUrl`, no lugar de
    `raizDaApi(location.pathname)`, mais o carimbo de escopo por `stampAtlasOnUrl` e
    `currentResourceAtlasId` em DOIS pontos (o descritor e cada URL resolvida contra ele);
@@ -152,7 +159,8 @@ conhecidos. Hoje são SEIS, os três de lá mais três nossos:
    seguinte.
 
 **O quarto e o quinto NÃO existem porque `tile-loader.js` seja intestável em node.** Ele é testável, e
-cinco suítes o dirigem lá, com `vi.mock` sobre `frontend/src/vendor/three/three.module.js`; a
+SEIS suítes o dirigem lá, com `vi.mock` sobre `@js/vendor/three.js` (esta linha disse cinco
+enquanto eram seis, e subdeclarar guarda custa igual a superdeclarar); a
 primeira versão desta seção afirmou o contrário, e estava errada. A razão é mais estreita e foi
 medida revertendo: a guarda da envolvente (`loteParaSubir`) é **invisível** do carregador, porque
 ele só expõe o lote que já sobreviveu a ela, e apagá-la deixa
@@ -162,10 +170,14 @@ revertida. Do estrangulamento, a borda de ENTRADA é síncrona e É cobrada pelo
 resto (janela, borda de saída, aritmética da espera) precisa de relógio injetado, e falsear
 `Date.now` em volta do carregador falsearia junto a fila de pedidos dele.
 
-**Se for mexer no `wrapS` ou em qualquer constante do three, lembre dos cinco mocks.** Eles são
+**Se for mexer no `wrapS` ou em qualquer constante do three, lembre dos SEIS mocks.** Eles são
 literais de objeto, não `importOriginal`, então uma propriedade nova do three usada em
-`tile-loader.js` derruba as cinco suítes com "No X export is defined on the mock". Isso é bom
-(fecha vermelho, não verde), mas não se adivinha antes da primeira rodada.
+`tile-loader.js` derruba as seis suítes com "No X export is defined on the mock". Isso é bom
+(fecha vermelho, não verde), mas não se adivinha antes da primeira rodada. Os quatro valores que
+eles fixam por NÚMERO (`RepeatWrapping` 1000, `ClampToEdgeWrapping` 1001, `LinearFilter` 1006,
+`SRGBColorSpace` `'srgb'`) foram reconferidos contra o pacote npm em 2026-09-14, na troca do
+snapshot 164dev por `three@0.164.0`: os quatro são os mesmos, e as seis suítes passaram sem tocar
+numa linha de asserção.
 
 **O comando de conferência**, que roda DENTRO do `ebgeo_360` sem checkout, sem trocar de branch e
 sem escrever nada lá (ele é só leitura):

@@ -133,8 +133,9 @@
     <!-- RESOURCE HINTS -->
     <link rel="preload" href="/images/logo_ebgeo.webp" as="image" fetchpriority="high">
     <link rel="prefetch" href="/vendors/cesium/Cesium.js">
-    <!-- Sem prefetch de /street_view/build/three.min.js: caminho legado do ebgeo_360, 673 kB que
-         nenhum modulo carrega. O Three.js do app vem bundleado de src/vendor/three/three.module.js. -->
+    <!-- Sem prefetch de Three.js: desde 2026-09-14 ele vem do npm (three 0.164.0, versao exata),
+         pelo ponto unico src/js/vendor/three.js, e o bundler o entrega dentro do chunk lazy do
+         visualizador 360, que esta pagina so baixa quando alguem abre uma foto. -->
 
 </head>
 

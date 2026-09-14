@@ -29,7 +29,7 @@
  * e com ela o fallback preview/full que este painel tinha para a foto sem piramide.
  */
 
-import * as THREE from '../../vendor/three/three.module.js';
+import * as THREE from '@js/vendor/three.js';
 import { createTileLoader } from '../street_view_tool/tile-loader.js';
 import { StreetViewProjector } from './projector.js';
 import { state, isTargetHidden, onChange } from './state.js';

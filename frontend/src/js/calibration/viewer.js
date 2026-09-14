@@ -10,7 +10,7 @@
  * o fallback preview/full para a foto sem piramide. Sem piramide, nao pinta.
  *
  * O CARREGADOR E O DO street_view_tool, e nao uma copia local. Ele ja resolveu
- * uma vez as duas adaptacoes desta casa: `three` do vendor e raiz da API por
+ * uma vez as duas adaptacoes desta casa: `three` pelo ponto unico e raiz da API por
  * `config.streetView360.serviceUrl`, a MESMA base que `api.js` usa aqui. Uma
  * segunda implementacao divergiria em silencio, que e o defeito que
  * `pyramid-math.js` fechou do lado da conta.
@@ -35,7 +35,7 @@
  * e trocar a fonte da textura nao pode encostar nele.
  */
 
-import * as THREE from '../../vendor/three/three.module.js';
+import * as THREE from '@js/vendor/three.js';
 import { createTileLoader } from '../street_view_tool/tile-loader.js';
 
 // ============================================================================

@@ -172,7 +172,7 @@ O `npm run build` **passa a emitir o aviso de tamanho** para este chunk, contra 
 
 O motor é `@manycore/aholo-viewer` (MIT), **pinado em versão exata** em `frontend/package.json`, não por acento circunflexo: o pacote publicou quinze versões em 75 dias e quebrou API em três minors seguidos. É o mesmo tratamento que `dompurify` e `quill` já recebem aqui.
 
-Ele **não** traz uma segunda cópia do Three.js (o núcleo é motor próprio; os nomes com forma de API do Three.js são coincidência de superfície), e `frontend/src/vendor/three/` continua servindo só o 360 e a calibração.
+Ele **não** traz uma segunda cópia do Three.js (o núcleo é motor próprio; os nomes com forma de API do Three.js são coincidência de superfície), e o Three.js deste repositório continua servindo só o 360 e a calibração. Desde 2026-09-14 ele também vem do npm em versão exata (`three` 0.164.0), por um ponto único, `frontend/src/js/vendor/three.js`; era um snapshot versionado em `src/vendor/`, que foi apagado. Ver [[inventario-de-vendors]].
 
 **O que ele traz, e é o risco a registrar: `semver` e `fflate` vêm VENDORIZADAS dentro do bundle publicado.** Elas não aparecem como dependências transitivas, então um CVE em qualquer das duas **nos deixa verdes no `npm audit` com o código vulnerável embarcado**. Não há guarda para isso neste repositório; a única reação disponível é acompanhar as duas à mão e subir a versão do motor quando ele reempacotar.
 

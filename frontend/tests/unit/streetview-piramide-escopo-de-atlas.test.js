@@ -30,7 +30,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { montarEscada } from '@js/street_view_tool/pyramid-math.js';
 
-vi.mock('../../src/vendor/three/three.module.js', () => ({
+vi.mock('@js/vendor/three.js', () => ({
     SRGBColorSpace: 'srgb',
     // Os dois valores reais do three: a costura da equirretangular repete em S
     // e o polo continua grampeado em T. Ver o conserto em `reconstruirCanvas`.

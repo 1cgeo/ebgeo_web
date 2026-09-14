@@ -1,10 +1,15 @@
 /**
  * Regenera o manifesto de vendors e o confere contra o arquivo versionado.
  *
- * O manifesto mora em docs/seguranca/dependencias-lancamento-inventario.json, sob
- * ["2026-09-13"].vendorInventory2026_09_13.manifestoCompleto.arquivos, e o campo
- * `comoRefazer` daquele bloco descrevia o procedimento em PROSA: "git ls-files das
- * duas pastas, e para cada caminho o sha256 do conteudo e o sha256 do conteudo com
+ * O manifesto mora em docs/seguranca/dependencias-lancamento-inventario.json. O bloco VIVO, o
+ * que este script confere, e o mais recente, hoje
+ * ["2026-09-14"].vendorInventory2026_09_14.manifestoCompleto.arquivos; os blocos datados
+ * anteriores ficam intactos ao lado, porque cada um e a medicao de uma data e reescreve-los
+ * apagaria a prova do estado que se decidiu mudar. Quem refizer o inventario numa data nova
+ * acrescenta um bloco e aponta `lerManifestoVersionado` para a chave nova.
+ *
+ * O campo `comoRefazer` do bloco de 2026-09-13 descrevia o procedimento em PROSA: "git ls-files das
+ * pastas de vendor, e para cada caminho o sha256 do conteudo e o sha256 do conteudo com
  * CRLF trocado por LF". Procedimento em prosa nao e reprodutivel: quem o repetisse
  * escreveria o proprio laco, com a propria decisao sobre o que normalizar, e a
  * conferencia seguinte compararia duas medicoes que nunca foram a mesma medicao.
@@ -16,7 +21,7 @@
  *   node scripts/inventario-de-vendors.mjs --write     # regrava o bloco corrente no arquivo
  *
  * O `--write` EXISTE PARA QUE NINGUEM EDITE A MAO O QUE A MEDICAO PRODUZ, e ele e
- * deliberadamente estreito: das 407 tuplas e dos cinco numeros derivados do resumo
+ * deliberadamente estreito: das tuplas e dos cinco numeros derivados do resumo
  * ele nao preserva nada, porque regenera; de TODO o resto do arquivo ele nao muda um
  * byte, porque o resto e declaratorio (o porque de cada ressalva, a lista de
  * bibliotecas sem versao, o digest proposto) e nenhuma medicao o produz. A prova de
@@ -26,7 +31,7 @@
  * como estava, senao a arvore CRLF do Windows viraria um diff de 3841 linhas.
  *
  * O EIXO DA CONFERENCIA E O HASH NORMALIZADO PARA LF, e isso nao e detalhe de
- * formatacao. A arvore de trabalho no Windows esta em CRLF (332 dos 408 arquivos),
+ * formatacao. A arvore de trabalho no Windows esta em CRLF (160 dos 193 de texto),
  * entao o sha256 CRU de um arquivo de texto e uma propriedade do CHECKOUT, nao do
  * conteudo versionado: ele muda entre duas maquinas sem que um byte tenha mudado no
  * repositorio. Conferir por ele devolve o veredito errado, e ja devolveu (um dos
@@ -35,7 +40,7 @@
  * porque sao a evidencia de COMO a arvore esta, mas quem decide identidade de
  * conteudo e `sha256Lf ?? sha256`.
  *
- * A LISTA DE ARQUIVOS VEM DO GIT, nunca de um caminhar do disco. As duas pastas sao
+ * A LISTA DE ARQUIVOS VEM DO GIT, nunca de um caminhar do disco. As pastas de vendor sao
  * caminho fragil e recebem artefato de build e resto de experimento; um caminhar do
  * disco contaria o que o repositorio nao guarda e acusaria divergencia em arquivo
  * que nenhum SHA candidato carrega. `git ls-files` responde exatamente "o que este
@@ -51,8 +56,17 @@ import process from 'node:process';
 
 export const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** As duas pastas de copia de terceiro que o inventario cobre. */
-export const PASTAS_DE_VENDOR = ['frontend/public/vendors', 'frontend/src/vendor'];
+/**
+ * As pastas de copia de terceiro que o inventario cobre.
+ *
+ * ERAM DUAS ATE 2026-09-14. `frontend/src/vendor/` guardava o snapshot do Three.js (revisao
+ * 164dev, sem release publicada a que comparar aviso) e saiu inteira quando a biblioteca passou a
+ * vir do npm em versao exata, pelo ponto unico `frontend/src/js/vendor/three.js` (decisao D9, item
+ * V1). A pasta nao foi deixada aqui "por seguranca": caminho que nao pode mais casar e allowlist
+ * sem beneficiario, e allowlist sem beneficiario e como um guarda volta a abrir sozinho. Se um
+ * snapshot novo nascer ali, ele entra nesta lista no commit em que nascer.
+ */
+export const PASTAS_DE_VENDOR = ['frontend/public/vendors'];
 
 export const CAMINHO_DO_MANIFESTO = 'docs/seguranca/dependencias-lancamento-inventario.json';
 
@@ -86,7 +100,7 @@ const decodificadorEstrito = new TextDecoder('utf8', { fatal: true });
  * coisa. O criterio e o do git: nenhum byte NUL, e aqui tambem UTF-8 valido, que e
  * exatamente a condicao sob a qual um ida e volta por string nao perde byte.
  *
- * Nao e zelo: 166 dos 408 artefatos sao PNG, JPG, WASM ou o pacote de dados do GDAL
+ * Nao e zelo: 166 dos 402 artefatos sao PNG, JPG, WASM ou o pacote de dados do GDAL
  * que POR COINCIDENCIA carregam o par de bytes 0D 0A no meio do conteudo comprimido.
  * Tratar esse par como fim de linha inventa um "hash normalizado" para um arquivo que
  * nao tem linha nenhuma, e o numero que sai dali nao identifica conteudo nem casa com
@@ -131,7 +145,7 @@ export function normalizarCrlf(buf) {
 }
 
 /**
- * Os caminhos versionados das duas pastas, na ordem do git (que ja e lexicografica).
+ * Os caminhos versionados das pastas cobertas, na ordem do git (que ja e lexicografica).
  *
  * @param {string} [raiz]
  * @returns {string[]}

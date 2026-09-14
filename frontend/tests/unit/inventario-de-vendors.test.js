@@ -7,7 +7,7 @@
 //
 // A prosa virou `scripts/inventario-de-vendors.mjs`, e este teste e o que impede
 // que o script e o arquivo versionado se separem sem ninguem notar. Ele NAO prova
-// que os 407 artefatos sao seguros; prova que o que esta escrito ali e o que esta
+// que os artefatos versionados sao seguros; prova que o que esta escrito ali e o que esta
 // no disco, que e a unica pergunta que um manifesto responde.
 //
 // O MANIFESTO TEM MAIS DE UM BLOCO DATADO, e o que vale e `CHAVE_DO_BLOCO`. Os
@@ -40,16 +40,30 @@ import {
     lerManifestoVersionado,
     compararManifestos,
 } from '../../../scripts/inventario-de-vendors.mjs';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 const medicoes = medirArquivos();
 const versionado = lerManifestoVersionado();
 
 describe('inventario de vendors: o script e o manifesto versionado', () => {
-    it('cobre as duas pastas de copia de terceiro', () => {
-        expect(PASTAS_DE_VENDOR).toEqual(['frontend/public/vendors', 'frontend/src/vendor']);
+    it('cobre as pastas de copia de terceiro que existem hoje', () => {
+        // ERAM DUAS ATE 2026-09-14. `frontend/src/vendor/` guardava o snapshot do Three.js
+        // (revisao 164dev) e saiu inteira quando a biblioteca passou a vir do npm em versao
+        // exata, pelo ponto unico `frontend/src/js/vendor/three.js` (decisao D9, item V1). A
+        // pasta nao ficou na lista "por seguranca": caminho que nao pode mais casar e allowlist
+        // sem beneficiario. Este caso e a razao de a lista ser FECHADA nos dois sentidos: uma
+        // pasta que entre ou saia sem passar por aqui reprova.
+        expect(PASTAS_DE_VENDOR).toEqual(['frontend/public/vendors']);
         expect(medicoes.length).toBeGreaterThan(0);
+        // E o outro lado, que o `toEqual` sozinho NAO cobre, e que seria cobertura vazia se fosse
+        // escrito sobre `medicoes`: a lista de medicoes so pode conter o que as PASTAS cobrem,
+        // entao procurar `src/vendor/` la dentro e perguntar algo cuja resposta e sempre "nao".
+        // A pergunta com conteudo e sobre o DISCO: se a pasta voltar, ela volta FORA do inventario.
+        expect(
+            existsSync(join(RAIZ, 'frontend/src/vendor')),
+            'frontend/src/vendor/ voltou a existir, e agora fora do escopo do inventario'
+        ).toBe(false);
     });
 
     it('mede exatamente os arquivos que o manifesto registra', () => {
@@ -133,10 +147,16 @@ describe('inventario de vendors: o eixo de comparacao', () => {
         expect(binarios.every((m) => m.sha256Lf === null)).toBe(true);
     });
 
-    it('166 dos 407 sao binarios que CARREGAM o par 0D 0A por coincidencia', () => {
+    it('166 dos 402 sao binarios que CARREGAM o par 0D 0A por coincidencia', () => {
         // Este numero e a razao de o eixo existir: sem a classificacao, sao 166
         // divergencias fantasma. Se ele mudar, a poda ou a entrada de um vendor
         // mexeu na composicao da arvore, e a conferencia quer saber disso.
+        //
+        // O DENOMINADOR MUDOU EM 2026-09-14 E O NUMERADOR NAO, e a leitura dos dois juntos e a
+        // prova de que a adocao do cesium-measure e a saida do snapshot do Three.js foram o que
+        // dizem ser: os seis arquivos que deixaram as pastas cobertas eram TEXTO em CRLF
+        // (166 -> 160), entao o conjunto dos binarios nao foi tocado. Fosse um binario junto,
+        // este numero cairia e a mudanca estaria alcancando mais do que anunciava.
         const comParCrLf = medicoes.filter((m) => m.binario && normalizarCrlf(readFileSync(join(RAIZ, m.path))) !== null);
         expect(comParCrLf).toHaveLength(166);
     });

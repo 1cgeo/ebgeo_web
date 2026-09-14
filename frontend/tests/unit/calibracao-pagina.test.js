@@ -98,6 +98,24 @@ function linhasQueCasam(regex, { ignorarComentarios = false } = {}) {
 }
 
 /**
+ * Todo `.js` sob um diretorio, recursivo, em caminho com barra normal.
+ *
+ * Existe para o caso do Three: a asercao que vale nao e sobre os modulos DESTA pagina, e sim que o
+ * pacote `three` entre no build por UMA porta so. Uma varredura de `src/js/` inteiro falha FECHADO
+ * para o import que alguem escrever amanha noutra pasta; uma lista de arquivos escrita a mao
+ * abencoa o que nao conhece.
+ */
+function arquivosJsDe(dir) {
+    const saida = [];
+    for (const nome of readdirSync(dir, { withFileTypes: true })) {
+        const caminho = join(dir, nome.name).replace(/\\/g, '/');
+        if (nome.isDirectory()) saida.push(...arquivosJsDe(caminho));
+        else if (nome.name.endsWith('.js')) saida.push(caminho);
+    }
+    return saida;
+}
+
+/**
  * A CONDICAO do `if` que manda o operador de volta para o mapa, recortada do arquivo.
  *
  * Recortar e avaliar, em vez de casar uma regex com o texto: uma regex por `isProducer` prova que
@@ -237,28 +255,42 @@ describe('pagina de calibracao 360 (porte do ebgeo_360)', () => {
         expect(externos, `atributo apontando para origem externa:\n${externos.join('\n')}`).toEqual([]);
     });
 
-    it('nenhum modulo importa three como bare specifier, e o vendor apontado existe', () => {
-        // REPROVA a origem, que fazia `import * as THREE from 'three'` e dependia
-        // do importmap do HTML para resolver. Sem importmap isso so funciona em
-        // modo dev (o Vite acha em node_modules) e o build quebra ou embute uma
-        // copia diferente da que o street_view do mapa ja usa.
+    it('o Three desta pagina vem do npm pelo ponto unico, e nao por bare specifier solto', () => {
+        // REPROVA a origem, que fazia `import * as THREE from 'three'` em cada modulo e dependia
+        // do importmap do HTML para resolver. O que este caso cobra MUDOU EM 2026-09-14, e a
+        // mudanca e o assunto: ate entao o Three era o snapshot versionado
+        // `frontend/src/vendor/three/three.module.js` (revisao 164dev, sem release publicada a que
+        // comparar aviso), e a asercao era "caminho relativo, nunca bare". Agora a biblioteca vem
+        // do npm em versao EXATA, e o que impede a volta da origem nao e proibir o especificador
+        // nu: e exigir que ele exista UMA VEZ SO, no ponto unico, como o MapLibre.
+        //
+        // A PRIMEIRA METADE: nenhum modulo desta pagina importa `three` direto, nem o snapshot.
         const bare = linhasQueCasam(/^\s*import\s[^'"]*['"]three(?:\/[^'"]*)?['"]/);
         expect(bare, `import de 'three' como bare specifier:\n${bare.join('\n')}`).toEqual([]);
+        const snapshot = linhasQueCasam(/vendor\/three\//);
+        expect(snapshot, `import do snapshot apagado:\n${snapshot.join('\n')}`).toEqual([]);
+        expect(
+            existsSync(join(PACOTE, 'src/vendor/three')),
+            'src/vendor/three/ voltou a existir: a biblioteca vem do npm desde 2026-09-14'
+        ).toBe(false);
 
-        // E o outro lado da mesma assercao: o caminho relativo apontado tem de
-        // existir no disco. Um caminho errado tambem nao e bare specifier.
-        const apontados = [];
-        for (const { nome, texto } of MODULOS) {
-            for (const m of texto.matchAll(/from\s+['"](\.[^'"]*three[^'"]*\.js)['"]/g)) {
-                const alvo = resolve(dirname(join(PACOTE, nome)), m[1]);
-                apontados.push({ nome, especificador: m[1], alvo });
-            }
-        }
-        expect(apontados.length, 'nenhum modulo importa o Three local: a coleta quebrou').toBeGreaterThan(0);
-        for (const { nome, especificador, alvo } of apontados) {
-            expect(especificador).toContain('three.module.js');
-            expect(existsSync(alvo), `${nome} importa ${especificador}, que nao existe no disco`).toBe(true);
-        }
+        // A SEGUNDA METADE, e ela e a que importa: sem ela a primeira ficaria verde numa pagina
+        // que nao carrega Three nenhum, e o visualizador quebraria no `new THREE.WebGLRenderer`.
+        const apontados = MODULOS.filter(({ texto }) => /from\s+['"]@js\/vendor\/three\.js['"]/.test(texto));
+        expect(apontados.map((m) => m.nome).sort(), 'as duas montagens do estudio importam o ponto unico')
+            .toEqual(['src/js/calibration/preview-viewer.js', 'src/js/calibration/viewer.js']);
+
+        // E o ponto unico e o UNICO arquivo de `src/js/` que nomeia o pacote. Uma segunda porta
+        // seria uma segunda versao possivel no mesmo build, que e o defeito que o snapshot tinha
+        // com `public/street_view/build/` e que esta linha existe para nao repetir.
+        const PONTO = join(PACOTE, 'src/js/vendor/three.js');
+        expect(existsSync(PONTO), 'o ponto unico do Three nao existe').toBe(true);
+        expect(readFileSync(PONTO, 'utf8')).toMatch(/export \* from 'three';/);
+        const portas = arquivosJsDe(join(PACOTE, 'src/js'))
+            .filter((f) => /^\s*(?:import|export)\s[^'"]*['"]three(?:\/[^'"]*)?['"]/m.test(readFileSync(f, 'utf8')))
+            .map((f) => f.replace(`${PACOTE.replace(/\\/g, '/')}/`, ''));
+        expect(portas, 'o pacote `three` entra por mais de uma porta em src/js/')
+            .toEqual(['src/js/vendor/three.js']);
     });
 
     it('nenhum modulo LE os campos displayName/sequenceNumber da API da origem', () => {

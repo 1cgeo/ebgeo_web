@@ -266,12 +266,23 @@ const PAGINAS = Object.freeze([
         // O que NÃO mudou, e é o assunto deste arquivo: a página continua sem alcançar um só
         // barril (`@store`, `@utils`, `@modals`) nem uma ferramenta do mapa. Biblioteca de
         // renderização não é a aplicação.
+        //
+        // O `three` ENTROU EM 2026-09-14 PELA MESMA RAZÃO E PELA MESMA FORMA, e a lista fechada
+        // voltou a fazer o trabalho dela: reprovou antes de eu editá-la. A biblioteca já era
+        // alcançada por esta página, pelas duas montagens do estúdio (`calibration/viewer.js` e
+        // `preview-viewer.js`); o que mudou é DE ONDE. Era o snapshot versionado
+        // `src/vendor/three/three.module.js`, revisão 164dev, que o caminhador resolvia como
+        // ARQUIVO e que portanto não aparecia como dependência externa nenhuma; agora é o pacote
+        // npm `three` 0.164.0 (versão exata), pelo ponto único `src/js/vendor/three.js`. É UM
+        // especificador e não três, ao contrário do MapLibre, porque não há folha de estilo nem
+        // worker a resolver: só o módulo.
         externos: [
             'jszip',
             'localforage',
             'maplibre-gl',
             'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url',
-            'maplibre-gl/dist/maplibre-gl.css'
+            'maplibre-gl/dist/maplibre-gl.css',
+            'three'
         ]
     }
 ]);

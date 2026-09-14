@@ -23,7 +23,7 @@
  * quadros.
  */
 
-import * as THREE from '../../vendor/three/three.module.js';
+import * as THREE from '@js/vendor/three.js';
 import config from '../config.js';
 import { createTileLoader } from './tile-loader.js';
 import { getEventBus } from '@store/services.js';

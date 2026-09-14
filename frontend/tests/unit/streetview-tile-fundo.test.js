@@ -27,7 +27,7 @@ import { montarEscada } from '@js/street_view_tool/pyramid-math.js';
 // O three de mentira entra no lugar do modulo vendorizado de 1,3 MB. Ele nao
 // muda nada do que esta sob teste, e evita carregar uma biblioteca de WebGL
 // inteira num ambiente `node`, sem `document` e sem contexto grafico.
-vi.mock('../../src/vendor/three/three.module.js', () => ({
+vi.mock('@js/vendor/three.js', () => ({
     SRGBColorSpace: 'srgb',
     // Os dois valores reais do three: a costura da equirretangular repete em S
     // e o polo continua grampeado em T. Ver o conserto em `reconstruirCanvas`.
