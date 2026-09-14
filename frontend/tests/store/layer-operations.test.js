@@ -260,16 +260,46 @@ describe('createLayer', () => {
     });
 });
 
+// ============================================================================
+// OS TRES BLOCOS QUE CONGELAVAM O BURACO
+// ============================================================================
+//
+// Ate 2026-09-13 estes tres afirmavam a AUSENCIA do guard, com estas palavras: "bypasses
+// permission AND lock checks" e "does NOT check permission or lock (unrestricted)". Um teste
+// que congela o defeito e pior que teste nenhum, porque faz o conserto ficar vermelho e
+// parecer a regressao — foi essa a razao de o buraco sobreviver a mais de uma revisao.
+//
+// `_writeLayers` (`layers/layer.manager.js`) registra uma intencao `layer` para QUALQUER campo
+// que mude, `visible` e `locked` inclusive. O olho e o cadeado da aba de feicoes sao desenhados
+// para todo papel, entao um Leitor ou um Comentarista clicando neles enfileirava uma op que o
+// servidor recusa com 403 no PUSH INTEIRO, e resposta nao-2xx nao e desenfileirada: aquela fila
+// reenviava o mesmo lote a cada 1,5 s para sempre.
+
 describe('createLayerForImport', () => {
-    it('bypasses permission AND lock checks', () => {
-        checkPermission.mockReturnValue({ allowed: false, reason: 'VIEWER_ROLE' });
+    it('recusa quem o posto nao autoriza, e nao delega', async () => {
+        checkPermission.mockReturnValue({ allowed: false, reason: 'VIEWER_ROLE', required: 'EDIT' });
+
+        await expect(createLayerForImport('Import Layer')).resolves.toBeNull();
+
+        expect(mockLayerManager.createLayerForImport).not.toHaveBeenCalled();
+        expect(emitStoreError).toHaveBeenCalledWith(
+            'store:operationBlocked',
+            expect.objectContaining({ operation: 'createLayerForImport', reason: 'VIEWER_ROLE' })
+        );
+    });
+
+    it('recusa em mapa travado, e nao delega', async () => {
         isCurrentMapLockedSync.mockReturnValue(true);
 
-        const layer = createLayerForImport('Import Layer');
+        await expect(createLayerForImport('Import Layer')).resolves.toBeNull();
 
-        // Should succeed despite both guards blocking
+        expect(mockLayerManager.createLayerForImport).not.toHaveBeenCalled();
+    });
+
+    it('delega quando o posto permite e o mapa esta destravado', async () => {
+        const layer = await createLayerForImport('Import Layer');
+
         expect(layer).toBeDefined();
-        expect(checkPermission).not.toHaveBeenCalled();
         expect(mockLayerManager.createLayerForImport).toHaveBeenCalledWith('Import Layer', null);
     });
 });
@@ -311,23 +341,58 @@ describe('renameLayer', () => {
 });
 
 describe('setLayerVisibility', () => {
-    it('does NOT check permission or lock (unrestricted)', () => {
-        // Visibility toggle should work even on locked maps
+    it('recusa quem o posto nao autoriza, e nao delega', async () => {
+        checkPermission.mockReturnValue({ allowed: false, reason: 'VIEWER_ROLE', required: 'EDIT' });
+
+        await expect(setLayerVisibility('layer-1', false)).resolves.toBeNull();
+
+        expect(mockLayerManager.setLayerVisibility).not.toHaveBeenCalled();
+        expect(emitStoreError).toHaveBeenCalledWith(
+            'store:operationBlocked',
+            expect.objectContaining({ operation: 'setLayerVisibility', reason: 'VIEWER_ROLE' })
+        );
+    });
+
+    it('recusa em mapa travado, e nao delega', async () => {
+        // `layer` esta em `LOCKABLE_CHILD_TARGETS` no servidor, entao a op seria recusada
+        // por operacao la: sem esta recusa aqui, quem clicou ve a camada sumir e o par nao.
         isCurrentMapLockedSync.mockReturnValue(true);
 
-        setLayerVisibility('layer-1', false);
+        await expect(setLayerVisibility('layer-1', false)).resolves.toBeNull();
 
-        // Should still delegate despite lock
+        expect(mockLayerManager.setLayerVisibility).not.toHaveBeenCalled();
+    });
+
+    it('delega quando o posto permite e o mapa esta destravado', async () => {
+        await setLayerVisibility('layer-1', false);
+
         expect(mockLayerManager.setLayerVisibility).toHaveBeenCalledWith('layer-1', false, null);
-        expect(checkPermission).not.toHaveBeenCalled();
     });
 });
 
 describe('setLayerLocked', () => {
-    it('does NOT check permission or lock (unrestricted)', () => {
+    it('recusa quem o posto nao autoriza, e nao delega', async () => {
+        checkPermission.mockReturnValue({ allowed: false, reason: 'VIEWER_ROLE', required: 'EDIT' });
+
+        await expect(setLayerLocked('layer-1', true)).resolves.toBeNull();
+
+        expect(mockLayerManager.setLayerLocked).not.toHaveBeenCalled();
+        expect(emitStoreError).toHaveBeenCalledWith(
+            'store:operationBlocked',
+            expect.objectContaining({ operation: 'setLayerLocked', reason: 'VIEWER_ROLE' })
+        );
+    });
+
+    it('recusa em mapa travado, e nao delega', async () => {
         isCurrentMapLockedSync.mockReturnValue(true);
 
-        setLayerLocked('layer-1', true);
+        await expect(setLayerLocked('layer-1', true)).resolves.toBeNull();
+
+        expect(mockLayerManager.setLayerLocked).not.toHaveBeenCalled();
+    });
+
+    it('delega quando o posto permite e o mapa esta destravado', async () => {
+        await setLayerLocked('layer-1', true);
 
         expect(mockLayerManager.setLayerLocked).toHaveBeenCalledWith('layer-1', true, null);
     });

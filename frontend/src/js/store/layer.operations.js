@@ -3,6 +3,27 @@
 /**
  * @fileoverview Layer CRUD operations.
  * Delegates to LayerManager for actual implementation.
+ *
+ * TODA ENTRADA QUE ESCREVE PASSA PELO GUARD, e as tres que nao passavam eram as que mais
+ * doiam. `_writeLayers` (`layers/layer.manager.js`) registra uma intencao `layer` para
+ * QUALQUER campo que mude, `visible` e `locked` inclusive, entao a fachada e o unico ponto
+ * em que a pergunta "este posto pode?" ainda cabe. `setLayerVisibility`, `setLayerLocked` e
+ * `createLayerForImport` nao a faziam, e o custo nao era teorico: o olho e o cadeado da aba
+ * de feicoes sao desenhados para TODO papel, entao um Leitor ou um Comentarista clicando
+ * neles enfileirava uma op `layer` que o servidor recusa com 403 no PUSH INTEIRO (a rota
+ * exige `comment`, e acima dela `assertOperationAllowed` recusa tudo que nao seja
+ * comentario). Resposta nao-2xx nao e desenfileirada pelo cliente, entao aquela fila
+ * reenviava o mesmo lote a cada 1,5 s para sempre, e no caso do Comentarista levava junto
+ * todo comentario legitimo dele.
+ *
+ * A metade da TRAVA anda com a mesma decisao: `layer` esta em `LOCKABLE_CHILD_TARGETS`
+ * (`backend/src/modules/sync/sync.service.js`), entao mapa travado recusa a op por
+ * operacao. Ali a fila nao congela (recusa por op e desenfileirada), mas as duas telas
+ * divergem em silencio: quem clicou ve a camada sumir e o par nao.
+ *
+ * O que ISTO nao decide, e continua aberto: se o olho deveria SUMIR para quem nao pode
+ * (a regra "o POSTO some"). Os cinco irmaos ja gateados desta fachada tambem sao botoes
+ * desenhados que recusam o clique, entao a forma escolhida e a da casa nesta aba.
  */
 
 import { setLayersCompat, setActiveLayerIdCompat } from './repositories/index.js';
@@ -104,6 +125,16 @@ export async function createLayer(name = 'Nova Camada', mapName = null) {
  * @returns {Promise<import('./store.types.js').Layer>} Created layer
  */
 export async function createLayerForImport(name = 'Importação', mapName = null) {
+    const perm = checkPermission(GuardAction.CREATE_LAYER);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'createLayerForImport', reason: perm.reason, required: perm.required });
+        return null;
+    }
+
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot create layer for import.');
+        return null;
+    }
     return deps.layerManager.createLayerForImport(name, mapName);
 }
 
@@ -151,6 +182,16 @@ export async function renameLayer(layerId, newName, mapName = null) {
  * @returns {Promise<import('./store.types.js').Layer>} Updated layer
  */
 export async function setLayerVisibility(layerId, visible, mapName = null) {
+    const perm = checkPermission(GuardAction.UPDATE_LAYER);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'setLayerVisibility', reason: perm.reason, required: perm.required });
+        return null;
+    }
+
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot change layer visibility.');
+        return null;
+    }
     return deps.layerManager.setLayerVisibility(layerId, visible, mapName);
 }
 
@@ -163,6 +204,16 @@ export async function setLayerVisibility(layerId, visible, mapName = null) {
  * @returns {Promise<import('./store.types.js').Layer>} Updated layer
  */
 export async function setLayerLocked(layerId, locked, mapName = null) {
+    const perm = checkPermission(GuardAction.UPDATE_LAYER);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'setLayerLocked', reason: perm.reason, required: perm.required });
+        return null;
+    }
+
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot change layer lock state.');
+        return null;
+    }
     return deps.layerManager.setLayerLocked(layerId, locked, mapName);
 }
 

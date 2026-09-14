@@ -800,6 +800,14 @@ class AddImportControl {
 
         const uniqueLayerName = await this._getUniqueLayerName(fileName);
         const importLayer = await createLayerForImport(uniqueLayerName);
+        // `createLayerForImport` passou a consultar o guard e a trava do mapa, e devolve
+        // `null` quando recusa. Sem esta linha a recusa chegaria como um TypeError em
+        // `.id`, que e a forma de erro que nao diz nada a quem le. A recusa ja emitiu
+        // `STORE_OPERATION_BLOCKED`, entao a frase de posto vem pelo toast; esta aqui
+        // aborta o import antes de ele escrever feicao orfa de camada.
+        if (!importLayer) {
+            throw new Error('Não foi possível criar a camada de importação neste projeto');
+        }
         const importLayerId = importLayer.id;
 
         // Preparation is the only per-feature step, so it is the one that can freeze
