@@ -121,6 +121,21 @@ for (const fromLocal of [false, true]) {
             await askLogout(page);
             await page.getByRole('button', { name: 'Sair e descartar pendências', exact: true }).click();
             await expect(page.getByTestId('account-login-btn')).toBeVisible({ timeout: 30000 });
+            // O BOTÃO "ENTRAR" É O FIM DA SESSÃO, NÃO O FIM DA DESTRUIÇÃO, e ler o disco no
+            // instante em que ele aparece é medir o meio do caminho. Quem o faz reaparecer é o
+            // `SESSION_CHANGED` de `syncEngine.logoutAndDisconnect()` (`_handleLogout`), e só
+            // DEPOIS dele vêm o aviso de desmontagem às abas irmãs (com prazo de acks), o
+            // `clearAllDataStore` e a varredura `discardRemoteAtlasNamespaces`, que esvazia onze
+            // bancos e apaga vinte (as gerações dobram a conta desde 2026-09-13). Medido nesta
+            // máquina: no instante do botão a fila ainda tinha os dois envelopes e o registro
+            // remoto ainda tinha a entrada; um segundo depois, registro vazio e nenhum banco
+            // `remote-` no disco. A espera é pelo EFEITO que o caso afirma, e não por um segundo
+            // sinal de interface: o desfecho continua sendo "a fila ficou vazia", só que exigido
+            // com prazo em vez de no primeiro relance.
+            await expect
+                .poll(async () => Object.keys((await stored(page, remote)).operationQueue).length,
+                    { timeout: 20000, message: 'a fila do atlas remoto não foi descartada' })
+                .toBe(0);
             const discarded = await stored(page, remote);
             expect(featureIds(discarded)).not.toContain(point);
             expect(discarded.operationQueue).toEqual({});
