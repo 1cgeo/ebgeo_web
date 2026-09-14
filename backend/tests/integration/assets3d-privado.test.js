@@ -169,9 +169,10 @@ async function criarTileset(db, id, accessLevel, config) {
 
 describe('F11 — os bytes do /assets3d seguem o recurso', () => {
   let app, db, contador;
-  let admin, dono, membro, forasteiro, beneficiario, expirado, revogado;
+  let admin, dono, membro, forasteiro, beneficiario, expirado, revogado, membroDeGrupo;
   let tokenAdmin, tokenDono, tokenMembro, tokenForasteiro, tokenBeneficiario;
-  let tokenExpirado, tokenRevogado;
+  let tokenExpirado, tokenRevogado, tokenMembroDeGrupo;
+  let grupoDeAcesso;
   let atlasPublico, atlasPrivadoComEmprestimo, atlasSemEmprestimo, tokenVisitante;
   const idPub = `f11-pub-${SUFIXO}`;
   const idPriv = `f11-priv-${SUFIXO}`;
@@ -232,6 +233,11 @@ describe('F11 — os bytes do /assets3d seguem o recurso', () => {
     // olharia só a existência da linha.
     expirado = await createUser(db);
     revogado = await createUser(db);
+    // O TERCEIRO gêmeo de `forasteiro`: mesma fábrica, mesmo papel, nenhum atlas, nenhuma
+    // linha em `resource_grants` COM O NOME DELE. O que ele tem é uma linha de composição num
+    // grupo, e é o braço COLETIVO de `fn_granted_resource_ids` que precisa transformá-la em
+    // bytes. Ver o caso "concessão POR GRUPO" abaixo para o porquê de ele existir.
+    membroDeGrupo = await createUser(db);
     tokenAdmin = await loginUser(app, admin.username, admin.password);
     tokenDono = await loginUser(app, dono.username, dono.password);
     tokenMembro = await loginUser(app, membro.username, membro.password);
@@ -239,6 +245,7 @@ describe('F11 — os bytes do /assets3d seguem o recurso', () => {
     tokenBeneficiario = await loginUser(app, beneficiario.username, beneficiario.password);
     tokenExpirado = await loginUser(app, expirado.username, expirado.password);
     tokenRevogado = await loginUser(app, revogado.username, revogado.password);
+    tokenMembroDeGrupo = await loginUser(app, membroDeGrupo.username, membroDeGrupo.password);
 
     atlasPublico = await createAtlas(db, dono.id);
     atlasPrivadoComEmprestimo = await createAtlas(db, dono.id);
@@ -294,6 +301,26 @@ describe('F11 — os bytes do /assets3d seguem o recurso', () => {
       [idPriv, revogado.id, admin.id],
     );
 
+    // A CONCESSÃO COLETIVA, o terceiro braço de `fn_granted_resource_ids`. Ela existe aqui e
+    // não só em `resource-grants-grupo.test.js` porque aquele arquivo mede o braço na
+    // LISTAGEM, e a lição mais cara deste repositório é que o predicado numa consulta não
+    // protege as outras portas: o MVT do 360 passou verde ao ser revertido porque a
+    // privacidade era medida na listagem e nunca no tile.
+    grupoDeAcesso = (await db.query(
+      `INSERT INTO access_groups (name, owner_id, created_by)
+       VALUES ($1, $2, $2) RETURNING id`,
+      [`f11-grupo-${SUFIXO}`, admin.id],
+    )).rows[0].id;
+    await db.query(
+      'INSERT INTO access_group_members (group_id, user_id, added_by) VALUES ($1, $2, $3)',
+      [grupoDeAcesso, membroDeGrupo.id, admin.id],
+    );
+    await db.query(
+      `INSERT INTO resource_grants (resource_type, resource_id, grantee_group_id, grant_level, granted_by)
+       VALUES ('tileset', $1, $2, 'view', $3)`,
+      [idPriv, grupoDeAcesso, admin.id],
+    );
+
     // As linhas entraram por SQL direto, que é um caminho de escrita que nenhum serviço vê.
     invalidateAppConfigCache();
   });
@@ -322,6 +349,11 @@ describe('F11 — os bytes do /assets3d seguem o recurso', () => {
     resetOpenModels();
     await db.query("DELETE FROM atlas_resources WHERE resource_id LIKE 'f11-%'");
     await db.query("DELETE FROM resource_grants WHERE resource_id LIKE 'f11-%'");
+    // O grupo sai DEPOIS das concessões: `resource_grants.grantee_group_id` tem FK para ele.
+    if (grupoDeAcesso) {
+      await db.query('DELETE FROM access_group_members WHERE group_id = $1', [grupoDeAcesso]);
+      await db.query('DELETE FROM access_groups WHERE id = $1', [grupoDeAcesso]);
+    }
     await db.query("DELETE FROM a3d.models WHERE model_id LIKE 'f11-%'");
     await db.query("DELETE FROM tilesets WHERE id LIKE 'f11-%'");
     invalidateAppConfigCache();
@@ -429,6 +461,35 @@ describe('F11 — os bytes do /assets3d seguem o recurso', () => {
     const viva = await supertest(app)
       .get(URL_PRIV).set('Authorization', `Bearer ${tokenBeneficiario}`).expect(200);
     assert.equal(viva.headers['cache-control'], CACHE_PRIVADO);
+  });
+
+  it('concessão POR GRUPO alcança os BYTES, e a árvore inteira deles', async () => {
+    // O TERCEIRO BRAÇO de `fn_granted_resource_ids`, e o único que nunca havia sido medido
+    // numa porta de BYTES. Ele tinha teste na função SQL (`resource-access-funcoes.test.js`)
+    // e na listagem (`resource-grants-grupo.test.js`); a lição mais cara deste repositório é
+    // que isso não prova nada sobre as outras portas — o predicado do MVT do 360 passou verde
+    // ao ser revertido exatamente porque a privacidade era medida na listagem e nunca no tile.
+    //
+    // `membroDeGrupo` é gêmeo de `forasteiro`: mesma fábrica, mesmo papel `user`, nenhum
+    // atlas, e NENHUMA linha de `resource_grants` com o id dele. A única diferença entre os
+    // dois no banco inteiro é uma linha em `access_group_members`, então o par isola o braço
+    // coletivo de todo o resto.
+    const raiz = await supertest(app)
+      .get(URL_PRIV).set('Authorization', `Bearer ${tokenMembroDeGrupo}`).expect(200);
+    assert.equal(raiz.headers['cache-control'], CACHE_PRIVADO);
+    assert.match(raiz.headers.vary, /Authorization/);
+
+    // E o filho, pelo mesmo motivo do par de concessão pessoal: é ele que o Cesium busca aos
+    // milhares, e o gate é por CAMINHO, não por linha de catálogo.
+    const filho = await supertest(app)
+      .get(TILE_PRIV).set('Authorization', `Bearer ${tokenMembroDeGrupo}`).expect(200);
+    assert.equal(filho.headers['cache-control'], CACHE_PRIVADO);
+
+    // A DISCRIMINAÇÃO, e sem ela o caso passaria com um gate que liberasse todo autenticado:
+    // o forasteiro é o mesmo tipo de conta, sem a linha de composição.
+    const fora = await supertest(app)
+      .get(URL_PRIV).set('Authorization', `Bearer ${tokenForasteiro}`);
+    assert.equal(fora.status, 404, 'quem não está no grupo não recebe os bytes');
   });
 
   it('HEAD segue o mesmo regime do GET, e não vira uma segunda porta', async () => {
