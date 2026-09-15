@@ -2513,7 +2513,7 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
 - **Decisão (D10, A13):** `sync_receipts` ganha expurgo atrelado a `min_version`: sai o recibo mais velho que a versão que nenhum cliente pode mais pedir, e nunca por prazo solto. **Decisão (D11, A14):** socket aberto continua de pé depois de o JWT expirar; a varredura reconcilia autorização (conta, OM, papel, compartilhamento, publicação), nunca sessão, e isso passa a estar declarado na wiki em vez de só no código.
 - **Por quê:** o recibo é o que torna o reenvio idempotente e mantém um lote recusado recusado, então purgar por prazo reabriria a reaplicação de ops antigas; o token expirado não muda o que a pessoa pode fazer, e a queda por autorização já é imposta.
 - **Alternativa recusada:** purgar recibo junto com `operations` no mesmo expurgo do administrador, por data. Um cliente que ficou meses offline reenviaria ops que o recibo já tinha acked, e elas seriam aplicadas de novo.
-- **Status:** aceita; A13 em execução, A14 declarada.
+- **Status:** aceita; A13 executada e A14 declarada em 2026-09-14. **Reconfirmada pelo dono em 2026-09-15** depois de a implementação medir o preço: a permanência dos recibos era contrato (três testes a prendiam), e o recibo também resolve a base da edição encadeada; abaixo da fronteira, um cliente de volta de ausência longa recebe conflito nomeado no painel em vez de "já aplicado", e nada reaplica. Mantida porque a fronteira só alcança o que o pull já responde com snapshot; a reversão é uma linha, dita em `backend/tests/integration/expurgo-de-recibos-por-min-version.test.js`.
 
 ### 2026-09-14: cem atlas vivos por conta, e um teto de mapas por importação
 
