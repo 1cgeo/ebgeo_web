@@ -3850,10 +3850,10 @@
         "pastasCobertas": [
           "frontend/public/vendors"
         ],
-        "arquivos": 3,
-        "bytes": 328692,
-        "textoEmCrlf": 2,
-        "textoEmLf": 1,
+        "arquivos": 1,
+        "bytes": 154710,
+        "textoEmCrlf": 1,
+        "textoEmLf": 0,
         "binarios": 0,
         "codigoDeTerceiroForaDasPastasCobertas": 0,
         "escopoAmpliadoEm": "Desde 2026-09-14 (item V7) o script tambem varre TODO frontend/public/ atras de .js, .cjs, .mjs, .css e .wasm que morem fora das pastas cobertas, e ACUSA cada um: o alcance do inventario era uma lista de pastas escrita a mao, que falha aberta e em silencio para o arquivo que nascer fora dela. Foi assim que frontend/public/street_view/build/ guardou uma segunda copia do Three.js (164dev, 3.373.610 bytes, sem consumidor) sem entrar em numero nenhum. A pasta foi podada no mesmo commit, e hoje a varredura devolve zero.",
@@ -3864,7 +3864,8 @@
         "frontend/src/vendor/three/ SAIU inteira das pastas cobertas: os cinco arquivos do snapshot 164dev foram apagados quando a biblioteca passou a vir do npm em versao exata (three 0.164.0), pelo ponto unico frontend/src/js/vendor/three.js (decisao D9, item V1). Os cinco eram TEXTO em CRLF, e e por isso que a parcela de binarios nao se moveu.",
         "Quatro artefatos SEM CONSUMIDOR foram podados de frontend/public/vendors/ (decisao D9, item V6): os dois builds grandes do Cesium (cesium/index.js e cesium/index.cjs, 8,6 MB somados, que publicDir copiava verbatim para o dist/) e os dois builds auxiliares do GDAL (gdal/gdal3.dev.js e gdal/gdal3.node.js). Tres eram TEXTO em CRLF e um TEXTO em LF, e por isso a parcela de binarios nao se moveu NAQUELE passo, continuando em 209; ela so cairia nos dois passos seguintes, que sao as duas entradas abaixo.",
         "A DISTRIBUICAO DO CESIUM SAIU de frontend/public/vendors/cesium/ (decisao V9 de 2026-09-14): 390 arquivos da 1.138.0, carregados por <script> injetado em runtime, e a biblioteca passa a vir do npm em 1.145.0, versao exata, pelo ponto unico frontend/src/js/vendor/cesium.js. Os quatro diretorios que o motor busca por URL (Assets, ThirdParty, Widgets, Workers) deixaram de ser versionados: o plugin ebgeo-cesium do frontend/vite.config.js os copia de node_modules/cesium/Build/Cesium a cada build. Sobrou na pasta cesium-viewshed.js, TEXTO, que continua sendo carregado por <script> porque le e escreve window.Cesium. Foi aqui que a parcela de binarios caiu de 209 para 2: o que saiu e PNG, JPG e WASM de Assets/, ThirdParty/ e Widgets/Images/.",
-        "frontend/public/vendors/gdal/ SAIU inteira (2026-09-14): gdal3.js 2.8.1 passa a vir do npm, em versao exata, pelo ponto unico frontend/src/js/vendor/gdal.js, e o dist/ deixa de receber os 39,8 MB que publicDir copiava verbatim. Eram tres arquivos, 40.006.117 bytes, e DOIS deles eram os ultimos binarios das pastas cobertas (gdal3WebAssembly.wasm, 28.219.835 bytes, e gdal3WebAssembly.data, 11.595.145); o terceiro e o wrapper, texto em LF. A parcela de binarios caiu de 2 para ZERO, e o conteudo e o MESMO, conferido por cmp byte a byte contra o pacote do npm, de modo que as declaracoes do item V4 sobre as sete bibliotecas nativas dentro daquele .wasm seguem valendo sem remedicao (ver gdalWasmCadeiaNativa)."
+        "frontend/public/vendors/gdal/ SAIU inteira (2026-09-14): gdal3.js 2.8.1 passa a vir do npm, em versao exata, pelo ponto unico frontend/src/js/vendor/gdal.js, e o dist/ deixa de receber os 39,8 MB que publicDir copiava verbatim. Eram tres arquivos, 40.006.117 bytes, e DOIS deles eram os ultimos binarios das pastas cobertas (gdal3WebAssembly.wasm, 28.219.835 bytes, e gdal3WebAssembly.data, 11.595.145); o terceiro e o wrapper, texto em LF. A parcela de binarios caiu de 2 para ZERO, e o conteudo e o MESMO, conferido por cmp byte a byte contra o pacote do npm, de modo que as declaracoes do item V4 sobre as sete bibliotecas nativas dentro daquele .wasm seguem valendo sem remedicao (ver gdalWasmCadeiaNativa).",
+        "O DOCSIFY SAIU (2026-09-15, decisao D16), e com ele o ULTIMO vendor com consumidor: docsify.min.js (160.921 bytes, texto em CRLF) e vue.css (13.061, texto em LF) eram a 4.13.1, servidos por tag para frontend/public/docs/doc.html, a pagina estatica do botao Tutorial. O tutorial virou a QUINTA entrada do bundler (frontend/tutorial.html, entry frontend/src/js/tutorial/tutorial-page.js) e a biblioteca passou a vir do npm em docsify 5.0.0, versao exata, pelo ponto unico frontend/src/js/vendor/docsify.js, com o tema vindo de dist/themes/core.css do proprio pacote. O markdown e as 41 midias continuam em frontend/public/docs/, porque sao conteudo e nao codigo, e por isso nao entram neste inventario. Sobra UM arquivo nas pastas cobertas, cesium/cesium-viewshed.js, e ele e o unico que resta sem versao, sem licenca e sem upstream a que perguntar por aviso: a pasta deixou de ter vendor com pino possivel e passou a ter so o caso declarado no item V3."
       ],
       "notaDoCampoSha256Lf": "Ao contrario do bloco de 2026-09-13, aqui sha256Lf e null em TODO arquivo binario, e isso e propriedade do instrumento e nao coincidencia: scripts/inventario-de-vendors.mjs classifica texto por UTF-8 valido sem byte NUL e so normaliza CRLF nos arquivos de texto. Um sha256Lf nao nulo num binario deste bloco significa que alguem mexeu no classificador. Desde a saida do GDAL, neste bloco nao ha um unico arquivo binario: a invariante acima continua escrita porque ela reganha sujeito no dia em que um binario voltar, e o positivo que a discrimina mora no bloco de 2026-09-13, com os 166 sha256Lf rotulados como artefato do instrumento.",
       "manifestoCompleto": {
@@ -3882,18 +3883,6 @@
             154710,
             "51a37b7a9bae8cc81135bb259bd823edae4c762ded54fe27d1fe4188020aa85a",
             "f0bcf2196482d3ef2954d3fcefc6bf7e64f26d770e96d7ad93eb0ea551662925"
-          ],
-          [
-            "frontend/public/vendors/docsify.min.js",
-            160921,
-            "1e05fd18b0f5322ae52953498d4e5a35bfe713090d727c2c90d1b0e0f21f2eb7",
-            "9123f808d3f6ad736b4a8f99944a611f87c5d4f9328030080a5c029ed5f450a5"
-          ],
-          [
-            "frontend/public/vendors/vue.css",
-            13061,
-            "1f8ddcde10fe1d9f3ab60de8469ed26f9b09716fb882b225d666d4f62838de2e",
-            null
           ]
         ]
       }

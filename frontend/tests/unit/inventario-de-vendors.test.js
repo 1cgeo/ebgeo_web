@@ -164,16 +164,20 @@ describe('inventario de vendors: o eixo de comparacao', () => {
             expect(m.sha256Lf === null, `${m.path}: sha256Lf nao casa com a presenca de CRLF`)
                 .toBe(normalizarCrlf(bruto) === null);
         }
-        // CONTROLE DE VACUO do laco acima: os DOIS lados da implicacao existem na arvore de hoje
-        // (dois arquivos em CRLF e um ja em LF), senao ele passaria verde medindo so um deles.
-        // Eram quatro em CRLF ate a fusao de plano/npmc: o Turf e o milsymbol, os dois em CRLF,
-        // sairam para o npm, e o lado LF continua com um so ocupante, que e o que o controle
-        // precisa para nao virar vacuo.
-        expect(medicoes.filter((m) => m.sha256Lf !== null)).toHaveLength(2);
-        expect(medicoes.filter((m) => m.sha256Lf === null)).toHaveLength(1);
+        // CONTROLE DE VACUO do laco acima. Ate 2026-09-14 ele era uma contagem: os DOIS lados da
+        // implicacao existiam no disco (dois arquivos em CRLF e um em LF), e era isso que impedia
+        // o laco de medir um lado so. EM 2026-09-15 O LADO LF FICOU SEM OCUPANTE, quando o docsify
+        // saiu para o npm (decisao D16) e levou `vue.css`, que era o unico arquivo em LF das
+        // pastas cobertas; sobrou UM arquivo, em CRLF. O controle entao mudou de forma em vez de
+        // sumir, pelo mesmo caminho que o eixo BINARIO ja tinha percorrido no dia anterior: o lado
+        // que o disco nao oferece mais e FABRICADO. Uma contagem `toHaveLength(0)` sobre o lado LF
+        // seria verde sem discriminar nada.
+        expect(medicoes.filter((m) => m.sha256Lf !== null)).toHaveLength(1);
+        expect(normalizarCrlf(Buffer.from('uma linha\noutra linha\n', 'utf8'))).toBeNull();
+        expect(normalizarCrlf(Buffer.from('uma linha\r\noutra linha\r\n', 'utf8'))).not.toBeNull();
     });
 
-    it('0 dos 3 sao binarios que CARREGAM o par 0D 0A, e o zero e o fim da serie', () => {
+    it('0 do 1 sao binarios que CARREGAM o par 0D 0A, e o zero e o fim da serie', () => {
         // Este numero e a razao de o eixo existir: sem a classificacao, cada um deles e uma
         // divergencia fantasma. Se ele mudar, a poda ou a entrada de um vendor mexeu na
         // composicao da arvore, e a conferencia quer saber disso.
@@ -214,9 +218,16 @@ describe('inventario de vendors: o eixo de comparacao', () => {
         //
         // A leitura que este par de numeros permite e a que interessa: uma poda que deixasse um
         // binario de OUTRO vendor para tras apareceria aqui como 1, e nao como 0.
+        // NA SEXTA O DENOMINADOR CHEGOU A UM, e o numerador continuou em zero (2026-09-15, decisao
+        // D16): o docsify passou a vir do npm e `docsify.min.js` (160.921 bytes, CRLF) e `vue.css`
+        // (13.061, LF) foram apagados, que eram o ULTIMO vendor com consumidor. Os dois eram texto,
+        // entao a parcela de binarios nao tinha como se mover: 3 -> 1 e 0 -> 0. Sobra
+        // `cesium/cesium-viewshed.js`, o unico artefato sem versao, sem licenca e sem upstream a
+        // que perguntar por aviso (item V3), e e por isso que este numero chegou ao fim da serie:
+        // abaixo de um so ha zero, e zero aqui significaria que a pasta inteira saiu.
         const comParCrLf = medicoes.filter((m) => m.binario && normalizarCrlf(readFileSync(join(RAIZ, m.path))) !== null);
         expect(comParCrLf).toEqual([]);
-        expect(medicoes).toHaveLength(3);
+        expect(medicoes).toHaveLength(1);
         // ZERO DE ARVORE LIMPA E ZERO DE FILTRO QUEBRADO SAO A MESMA SAIDA, e o disco nao
         // oferece mais o positivo: ele e fabricado. Uma sequencia com byte NUL (logo binaria)
         // que carrega o par tem de ser classificada como binaria E ter o par encontrado, que
@@ -244,8 +255,21 @@ describe('inventario de vendors: o eixo de comparacao', () => {
     it('CONTROLE NEGATIVO: a comparacao acusa mudanca de conteudo, sumico e entrada', () => {
         // Sem isto o verde acima poderia estar provando apenas que duas listas
         // existem. Cada classe e fabricada e tem de aparecer.
-        const base = medicoes.slice(0, 3).map((m) => [m.path, m.bytes, m.sha256, m.sha256Lf]);
-        const medidas = medicoes.slice(0, 3);
+        //
+        // AS TRES MEDICOES SAO FABRICADAS DESDE 2026-09-15, e antes eram `medicoes.slice(0, 3)`.
+        // A poda do docsify (decisao D16) deixou UM arquivo nas pastas cobertas, e um `slice(0, 3)`
+        // sobre uma lista de um devolve uma lista de um: o caso do sumico compararia contra uma
+        // base vazia e o dos bytes nao teria segundo elemento para alterar, ou seja, duas das
+        // quatro classes parariam de ter sujeito. `compararManifestos` e pura sobre (tuplas,
+        // medicoes), entao o que ela decide nao depende de o arquivo existir no disco, e fabricar
+        // e o que mantem as quatro classes vivas independentemente do que sobrar na pasta. E o
+        // mesmo caminho que o eixo binario deste arquivo ja tinha percorrido no dia anterior.
+        const medidas = [
+            { path: 'frontend/public/vendors/um.js', bytes: 10, sha256: '1'.repeat(64), sha256Lf: '2'.repeat(64), binario: false },
+            { path: 'frontend/public/vendors/dois.css', bytes: 20, sha256: '3'.repeat(64), sha256Lf: null, binario: false },
+            { path: 'frontend/public/vendors/tres.wasm', bytes: 30, sha256: '4'.repeat(64), sha256Lf: null, binario: true },
+        ];
+        const base = medidas.map((m) => [m.path, m.bytes, m.sha256, m.sha256Lf]);
 
         const alterado = base.map((t, i) => (i === 0 ? [t[0], t[1], 'f'.repeat(64), null] : t));
         expect(compararManifestos(alterado, medidas).divergente).toHaveLength(1);
@@ -331,7 +355,10 @@ describe('inventario de vendors: o ALCANCE, que ate 2026-09-14 falhava aberto', 
             'frontend/public/algum/motor.wasm',                       // FORA
             'frontend/public/images/logo_ebgeo.png',                  // nao e codigo
             'frontend/public/glyphs/0-255.pbf',                       // nao e codigo
-            'frontend/public/docs/doc.html',                          // nao e codigo
+            // `.md` nao e codigo, e este arquivo e o TUTORIAL: desde 2026-09-15 ele e a unica
+            // coisa que resta em `public/docs/`, porque `doc.html` (que morava aqui nesta amostra)
+            // virou `frontend/tutorial.html`, entrada do bundler.
+            'frontend/public/docs/README.md',                         // nao e codigo
         ];
         expect(foraDoInventario(amostra)).toEqual([
             'frontend/public/street_view/build/three.module.js',
