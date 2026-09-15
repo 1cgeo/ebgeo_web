@@ -768,6 +768,40 @@ function payloadDe(html) {
  * ela, um HTML que perdesse todas as referências daria 0 arquivos e 0 kB, e passaria em qualquer
  * teto. É o vácuo desta metade, e ele é fácil de produzir: basta uma regra de `input` errada.
  */
+/**
+ * AS QUATRO LINHAS FORAM RECENTRADAS EM 2026-09-14, e o que se ganha lendo isto é a ATRIBUIÇÃO,
+ * porque ela não é a que a data sugere.
+ *
+ * As quatro páginas estouravam a CONTAGEM de arquivos (e o admin também os kB) já em `9033b60b`,
+ * ANTES do lote que as recentrou: medido com build fresco naquele commit, 84/41/35/35 arquivos
+ * contra tetos de 82/40/34/32, e o admin em 769 kB contra 720. Ou seja, o vermelho estava em
+ * árvore e não foi a migração de vendors para o npm que o produziu; ela apenas foi o primeiro lote
+ * a rodar esta metade com `dist/` fresco depois que ele apareceu.
+ *
+ * O QUE O LOTE DE VENDORS MOVEU, e é pouco: `index.html` caiu de 84 para 83 arquivos, com os mesmos
+ * 4097 kB, quando o Turf virou chunk do bundler e um chunk se fundiu. As outras três não se
+ * moveram um byte, o que é a propriedade esperada: Turf e milsymbol são LAZY e nenhum HTML os
+ * referencia.
+ *
+ * SÃO DUAS LINHAS DE TRABALHO, e esta árvore é a fusão delas, então a medida de baixo não é a de
+ * nenhuma das duas sozinha. A outra linha é o Cesium vindo do npm (V9), e o que ela custa a esta
+ * conta está medido no comentário de `index.html` abaixo: ZERO arquivo e UM kB em cada página. É
+ * por isso que os kB da fusão são os do lote de vendors mais um, e as contagens são iguais.
+ *
+ * O QUE NÃO SE PODE AFIRMAR DAQUI, e fica escrito para ninguém herdar uma causa inventada: a
+ * hipótese natural para a deriva de contagem é o bump do MapLibre (6.7.0 -> 6.9.1, em `9033b60b`),
+ * que muda o conteúdo da biblioteca que `index.html` e `calibracao.html` compartilham. Ela explica
+ * essas duas e NÃO explica `admin.html`, que não instancia mapa nenhum e não alcança o ponto único
+ * (o próprio comentário de `calibracao.html` abaixo registra que admin e atlas ficaram idênticas
+ * dos dois lados da migração do MapLibre). O A/B que fecharia a questão exige instalar a 6.7.0 ao
+ * lado, e esta sessão não instala nada. Então: deriva MEDIDA, causa NÃO atribuída, e o teto novo é
+ * apertado justamente para que o próximo lote tropece aqui e meça de novo.
+ *
+ * Medido NA ÁRVORE FUNDIDA, build fresco de 2026-09-14: 83/41/35/35 arquivos e 4098/625/770/1966
+ * kB. A linha do lote de vendors sozinha media 83/41/35/35 e 4097/624/769/1965, isto é, a mesma
+ * contagem e um kB a menos por página, que é exatamente o que o Cesium acrescenta. Os tetos de
+ * contagem deixam TRÊS arquivos de folga cada; o de kB do admin deixa 20.
+ */
 const PAGINAS_DIST = Object.freeze([
     // index.html: 3000 -> 4150 em 2026-09-04, e a SUBIDA NÃO É UMA REGRESSÃO, é uma troca de
     // balcão. Medido nesta árvore, build fresco, nos dois estados do mesmo dia:
@@ -798,30 +832,23 @@ const PAGINAS_DIST = Object.freeze([
     // files. Allow one file of headroom for this entry-set split; the byte ceiling
     // stays unchanged, so additional page weight still fails at 4150 kB.
     //
-    // AS QUATRO CONTAGENS DE ARQUIVO SUBIRAM EM 2026-09-14, E A DERIVA NÃO É DO LOTE QUE AS
-    // RECENTROU. Esta metade estava VERMELHA nas QUATRO páginas em `HEAD` (9033b60b), e só na
-    // contagem de arquivos: medido com `dist/` fresco, antes de qualquer mudança do dia, 84
-    // arquivos no mapa (teto 82), 41 no atlas (40), 35 no admin (34) e 35 na calibração (32), mais
-    // 770 kB no admin contra um teto de 720. Ou seja, o lote dos cinco vendores que entraram pelo
-    // npm (9033b60b) mexeu na composição de chunk das quatro páginas e ninguém remediu esta
-    // tabela; ela vinha reprovando desde então, e a metade (b) só fica vermelha para quem roda
-    // com `dist/` construído, que é a minoria das rodadas.
+    // O QUE O LOTE DO CESIUM (npm, V9) CUSTA A ESTA CONTA É ZERO ARQUIVO E UM kB, e isso foi
+    // medido dos dois lados, com build fresco em cada um: 84 arquivos / 4097 kB ANTES e 84 / 4098
+    // DEPOIS, no mapa. É o resultado esperado e é o ponto da migração: os 4,97 MB do motor saem
+    // num chunk que NENHUM HTML referencia, então não entram nesta soma; o que saiu da página foi
+    // o `<link rel="prefetch">` de `/vendors/cesium/Cesium.js`, que esta conta nunca somou porque
+    // exclui `/vendors/`. Esse UM kB é a única diferença entre a medida da linha do Cesium e a
+    // desta árvore fundida: 4098 contra 4097 no mapa, e o mesmo +1 em cada uma das outras três.
     //
-    // O QUE O LOTE DE HOJE (Cesium do npm, V9) CUSTA A ESTA CONTA É ZERO ARQUIVO E UM kB, e
-    // isso também foi medido dos dois lados, com build fresco em cada um: 84 arquivos / 4097 kB
-    // ANTES e 84 / 4098 DEPOIS, no mapa. É o resultado esperado e é o ponto da migração: os 4,97
-    // MB do motor saem num chunk que NENHUM HTML referencia, então não entram nesta soma; o que
-    // saiu da página foi o `<link rel="prefetch">` de `/vendors/cesium/Cesium.js`, que esta conta
-    // nunca somou porque exclui `/vendors/`.
-    //
-    // OS TETOS DE CONTAGEM SOBEM PARA A MEDIDA MAIS UMA FOLGA CURTA; OS PISOS NÃO SE MEXEM, de
-    // propósito, e essa é a parte que merece ser lida. A medida de hoje foi tirada numa árvore que
-    // carregava TAMBÉM um lote de GDAL em voo de outra sessão, então ela é a soma de dois
-    // trabalhos e não a medida de nenhum: subir os pisos aqui gravaria como conquista um número
-    // que ninguém pode atribuir. Os pisos continuam sendo o que sempre foram, controle de vácuo
-    // contra caminhador quebrado, e quem remedir sozinho é que os move. O teto de kB do mapa fica
-    // em 4150 (52 kB de folga sobre 4098) e o do admin passa de 720 para 800.
-    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 88, minKb: 3600, maxKb: 4150 },
+    // OS PISOS NÃO SE MEXEM, de propósito, e essa é a parte que merece ser lida. As duas medidas
+    // que recentraram os tetos saíram de árvores que carregavam TAMBÉM lote de outra sessão em
+    // voo (a do Cesium, um lote de GDAL; o A/B do MapLibre, o lote de vendors), então elas são a
+    // soma de dois trabalhos e não a medida de nenhum: subir os pisos aqui gravaria como conquista
+    // um número que ninguém pode atribuir. Os pisos continuam sendo o que sempre foram, controle
+    // de vácuo contra caminhador quebrado, e quem remedir sozinho é que os move. O teto de kB do
+    // mapa fica em 4150 (52 kB de folga sobre 4098) e o do admin passa de 720 para 790 (20 kB
+    // sobre 770).
+    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 86, minKb: 3600, maxKb: 4150 },
     { html: 'atlas.html', entrada: 'atlas', minArq: 18, maxArq: 44, minKb: 320, maxKb: 700 },
     // admin.html: 800 -> 950 -> 720 em 2026-09-02, com a medida na mao: 670 kB em 24 arquivos, build
     // fresco. As abas Diagnostico e Uso (com os folhas de frase) tinham levado a pagina a 882 kB
@@ -832,7 +859,7 @@ const PAGINAS_DIST = Object.freeze([
     // quatro chunks que o HTML nao referencia (diag-tab 61 kB + legado 61 kB, uso-tab 45 kB + legado
     // 45 kB), e e por isso que a contagem de arquivos NAO mudou: 24 antes e 24 depois. O piso subiu
     // junto, para o proximo ganho aparecer na tabela em vez de passar calado.
-    { html: 'admin.html', entrada: 'admin', minArq: 14, maxArq: 38, minKb: 600, maxKb: 800 },
+    { html: 'admin.html', entrada: 'admin', minArq: 14, maxArq: 38, minKb: 600, maxKb: 790 },
     // calibracao.html: 1100 -> 1980 em 2026-09-04, pela MESMA troca de balcão de `index.html` e
     // pelo MESMO arquivo. Esta página carregava o `<script src="/vendors/maplibre-gl.js">` para
     // desenhar o mapa de projeto e o minimapa; agora ela alcança o chunk de MapLibre pelo grafo,
