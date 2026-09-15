@@ -42,7 +42,7 @@ export const BACKEND_PORT = porta('EBGEO_UI_E2E_BACKEND_PORT', 3912);
  * ainda colide (a segunda rodada dropa o banco da primeira), então quem isola uma
  * coisa precisa isolar a outra.
  */
-export const UI_E2E_DB_NAME = process.env.EBGEO_UI_E2E_DB_NAME || 'ebgeo_ui_e2e';
+// UI_E2E_DB_NAME: definido depois de CHECKOUT_KEY, porque deriva dele.
 
 /**
  * Absolute path to the backend, resolved FROM THIS REPO — the backend lives in
@@ -97,3 +97,14 @@ export const STATE_FILE = path.join(os.tmpdir(), `ebgeo-ui-e2e-state-${BACKEND_P
  * razão que `STATE_FILE`: duas rodadas em portas diferentes não podem misturar óbitos.
  */
 export const OBITO_FILE = path.join(os.tmpdir(), `ebgeo-ui-e2e-obito-${BACKEND_PORT}-${CHECKOUT_KEY}.json`);
+
+/**
+ * O BANCO TAMBEM DERIVA DO CHECKOUT, desde 2026-09-14. Ate entao o nome era fixo
+ * (`ebgeo_ui_e2e`), e o `globalTeardown` da rodada de OUTRA arvore dropava o banco desta no
+ * meio dela: o sintoma era `POST /auth/register` respondendo 500 a partir de um ponto qualquer,
+ * com os primeiros casos verdes, e ele foi lido como defeito do produto por meia hora (medido
+ * com quatro arvores na mesma maquina). A variavel de ambiente continua valendo, para quem
+ * quiser um nome proprio; sem ela, dois checkouts nunca compartilham banco.
+ * @type {string}
+ */
+export const UI_E2E_DB_NAME = process.env.EBGEO_UI_E2E_DB_NAME || `ebgeo_ui_e2e_${CHECKOUT_KEY}`;

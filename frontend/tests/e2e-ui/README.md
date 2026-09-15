@@ -405,9 +405,10 @@ EBGEO_UI_E2E_APP_PORT=4331 EBGEO_UI_E2E_BACKEND_PORT=3922 \
 EBGEO_UI_E2E_DB_NAME=ebgeo_ui_e2e_b npm run test:e2e:ui
 ```
 
-O arquivo de estado no temp DERIVA da porta do backend (e do checkout), então trocar a porta
-já o separa; o banco NÃO deriva de nada e precisa ser passado à parte, senão a segunda rodada
-dropa o banco da primeira no meio dela.
+O arquivo de estado no temp e o banco DERIVAM do checkout desde 2026-09-14 (`CHECKOUT_KEY` em
+`constants.js`: o banco padrão é `ebgeo_ui_e2e_<chave>`), então duas árvores nunca compartilham
+nem um nem outro sem que alguém passe o mesmo nome à mão. As portas continuam fixas por padrão:
+duas árvores ao mesmo tempo ainda precisam das duas variáveis de porta.
 
 **E ele também é dropado pelo FIM da rodada alheia, não só pelo começo dela** (medido em
 2026-09-14, com quatro árvores na mesma máquina). A sequência: a outra árvore sobe primeiro e

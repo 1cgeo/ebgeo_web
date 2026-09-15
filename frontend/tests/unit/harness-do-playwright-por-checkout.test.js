@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import os from 'node:os';
 import path from 'node:path';
-import { STATE_FILE, OBITO_FILE, CHECKOUT_KEY, BACKEND_PORT } from '../e2e-ui/constants.js';
+import { STATE_FILE, OBITO_FILE, CHECKOUT_KEY, BACKEND_PORT, UI_E2E_DB_NAME } from '../e2e-ui/constants.js';
 
 describe('harness do Playwright: estado e óbito por checkout', () => {
     it('a chave do checkout é um hash curto e estável', () => {
@@ -24,5 +24,9 @@ describe('harness do Playwright: estado e óbito por checkout', () => {
             expect(path.basename(file)).toContain(`-${BACKEND_PORT}-${CHECKOUT_KEY}.json`);
         }
         expect(STATE_FILE).not.toBe(OBITO_FILE);
+    });
+
+    it('o banco descartável também deriva do checkout, salvo variável de ambiente', () => {
+        expect(UI_E2E_DB_NAME).toBe(`ebgeo_ui_e2e_${CHECKOUT_KEY}`);
     });
 });
