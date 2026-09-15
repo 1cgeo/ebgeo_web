@@ -168,7 +168,7 @@ vi.mock('../../src/js/utilities/toast_service.js', () => ({
 import {
     activateScope, clearActiveScope, clearAtlasDatabases, remoteScope,
 } from '../../src/js/store/atlas-namespace.js';
-import { getEmptyMapData } from '../../src/js/store/repositories/local.repository.js';
+import { getEmptyMapData, localRepository } from '../../src/js/store/repositories/local.repository.js';
 import { readGeneration } from '../../src/js/store/namespace-generation.js';
 import { createAtlas } from '../../src/js/store/atlas/atlas.entity.js';
 import { setRemoteHandlerEventBus } from '../../src/js/store/sync/remote-operation-handler.js';
@@ -330,6 +330,55 @@ describe('abertura de atlas remoto: quantos retratos completos ela encena', () =
         expect(h.servidor.retratosServidos).toBe(0);
         expect(readGeneration(escopo).active).toBe(primeira);
         expect(ativacoes).toHaveLength(1);
+    });
+
+    it('o wipe de entrada esvazia a geração ativa, e o ponteiro sozinho não pula o retrato', async () => {
+        // O CONTRA-CONTROLE DO CASO ACIMA, e o defeito que ele escondia até 2026-09-14.
+        //
+        // "A segunda abertura não encena retrato nenhum" só vale enquanto a geração ativa
+        // REALMENTE tiver o atlas. Mas `openRemoteAtlas` chama `clearAllDataStore` em TODA
+        // abertura, e ele esvazia os bancos da geração ATIVA sem tocar no ponteiro: fica um
+        // registro dizendo "geração G, cursor 7" sobre nove bancos vazios. O atalho de
+        // idempotência lia só o ponteiro, então, quando o servidor TAMBÉM estava na versão 7
+        // (isto é, quando nada mudou no atlas entre as duas sessões), ele recusava encenar o
+        // retrato sobre o disco em branco. O repositório ficava sem mapa nenhum e
+        // `activateAtlasInitialMap` INVENTAVA um "Mapa 1": o F5 aterrissava num mapa vazio, com
+        // o atlas certo na barra e sem um erro em lugar nenhum (medido em 2026-09-14 por
+        // `browser-f5-reconnect-map.repro.spec.js`, 5 reprovações em 8 rodadas em série).
+        h.servidor.versao = 7;
+        await syncEngine.connect(atlasId);
+        await assentar();
+        const primeira = readGeneration(escopo).active;
+
+        // O WIPE DE ENTRADA, e só ele: os bancos esvaziam, o ponteiro fica.
+        await clearAtlasDatabases(escopo);
+        expect(readGeneration(escopo), 'o ponteiro sobrevive ao wipe, que é a premissa do caso')
+            .toEqual({ active: primeira, known: [primeira], cursor: 7 });
+
+        syncEngine.disconnect();
+        h.ws.disconnect();
+        h.pedidosHttp.length = 0;
+        h.servidor.retratosServidos = 0;
+        syncEngine._session = null;
+        syncEngine._lastVersion = 0;
+
+        await syncEngine.connect(atlasId);
+        await assentar();
+
+        // O cursor durável já perguntava ao disco, então o pull parte do zero e o servidor
+        // responde retrato. O que faltava era a MESMA pergunta do lado de quem aplica.
+        expect(h.pedidosHttp, 'o cursor durável não acreditou no ponteiro').toEqual([0]);
+        expect(h.servidor.retratosServidos).toBe(1);
+        expect(ativacoes, 'o retrato foi ENCENADO numa geração nova, e não recusado')
+            .toHaveLength(2);
+        expect(readGeneration(escopo).active).not.toBe(primeira);
+
+        // E O DISCO TEM O MAPA. Sem esta linha, "encenou" seria uma afirmação sobre o ponteiro,
+        // que é exatamente a evidência de que este caso existe para desconfiar.
+        const mapas = await localRepository.forScope({
+            ...escopo, dataGeneration: readGeneration(escopo).active,
+        }).getAllMaps();
+        expect([...mapas.values()].map(mapa => mapa.name)).toEqual(['Mapa 1']);
     });
 
     it('sem pull inicial o handshake NÃO afirma nada, e recebe o retrato', async () => {

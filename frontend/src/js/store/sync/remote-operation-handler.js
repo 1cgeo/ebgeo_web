@@ -35,6 +35,9 @@ import {
     dropGenerationDatabases,
     getActiveScope,
     pruneAtlasGenerations,
+    getStoreFor,
+    StoreName,
+    ATLAS_RECORD_KEY,
 } from '@store/atlas-namespace.js';
 import { readGeneration, writeGeneration } from '../namespace-generation.js';
 import { pauseStoreWrites } from '../write-coordinator.js';
@@ -1920,7 +1923,8 @@ export function applyRemoteSnapshot(snapshot, options = {}) {
         // not yet pushed (they do not move the server version, so they cannot raise it either).
         // The catalog repair the server answers with a snapshot for cannot land here: it only
         // triggers on rows newer than the asked cursor, which puts `currentVersion` above it.
-        if (activeGenerationHolds(context.scope, snapshot.currentVersion)) return;
+        if (await activeGenerationHolds(context.scope, snapshot.currentVersion)) return;
+        context.assertActive();
         const pause = pauseStoreWrites(context.scope);
         // Which side of the durable commit a failure lands on: before it, the preparation is disk
         // to be deleted; after it, the same databases are the atlas the user is looking at. Both
@@ -1993,15 +1997,46 @@ export function applyRemoteSnapshot(snapshot, options = {}) {
  * record inside its own try and throws there, so the corrupt case keeps the behaviour it had
  * before this shortcut existed instead of gaining a second, earlier failure point.
  *
- * @param {{ kind: string, dbSuffix: string }} scope - Scope the snapshot would be applied to.
+ * THE POINTER ALONE IS NOT EVIDENCE, AND ESTA FUNÇÃO ACREDITOU NELE ATÉ 2026-09-14. É a mesma
+ * armadilha que `_durablePullCursor` (`sync-engine.js`) declara e guarda uma função antes, e ela
+ * ficou aberta aqui: o registro mora no `localStorage` e os dados no IndexedDB, então um
+ * `clearAllDataStore` (que é o passo 4 de TODA abertura de atlas de servidor, `openRemoteAtlas`)
+ * esvazia os bancos da geração ATIVA e deixa o ponteiro dizendo que ela está cheia. O atalho
+ * então lia "cursor 13, retrato na versão 13: já tenho isto" e PULAVA o retrato inteiro, sobre um
+ * disco em branco.
+ *
+ * O QUE ISSO CUSTAVA NA TELA, medido em 2026-09-14 em 5 de 8 reaberturas: sem mapa nenhum no
+ * repositório, `activateAtlasInitialMap` cai no último ramo e CRIA um "Mapa 1" do nada, então o
+ * F5 (e a troca viva de atlas, e todo link profundo) aterrissava num mapa vazio inventado, com o
+ * atlas certo na barra e nenhum erro em lugar nenhum. O desfecho era sorteado pela aritmética:
+ * só acontece quando a versão do servidor é EXATAMENTE o cursor gravado, isto é, quando nada
+ * mudou no atlas entre a sessão anterior e esta.
+ *
+ * A pergunta passou a ser feita ao DISCO, como lá: a geração ativa guarda mesmo o registro DESTE
+ * atlas? Uma leitura a mais no caminho do retrato, que é o caminho caro por definição. O caso de
+ * o navegador recuperar espaço por conta própria é a razão de não bastar consertar o wipe: ali
+ * não roda código nosso, e só a evidência responde.
+ *
+ * @param {{ kind: string, dbSuffix: string, atlasId: string }} scope - Scope the snapshot would
+ *   be applied to.
  * @param {number} currentVersion - The snapshot's server version.
- * @returns {boolean}
+ * @returns {Promise<boolean>}
  */
-function activeGenerationHolds(scope, currentVersion) {
+async function activeGenerationHolds(scope, currentVersion) {
+    let record;
     try {
-        const record = readGeneration(scope);
-        return Boolean(record.active) && record.cursor === currentVersion;
+        record = readGeneration(scope);
     } catch {
+        return false;
+    }
+    if (!record.active || record.cursor !== currentVersion) return false;
+
+    try {
+        const atlas = await getStoreFor(StoreName.ATLAS, { ...scope, dataGeneration: record.active })
+            .getItem(ATLAS_RECORD_KEY);
+        return atlas?.id === scope.atlasId;
+    } catch {
+        // Um banco ilegível é exatamente o caso em que o atalho não pode ser tomado.
         return false;
     }
 }
