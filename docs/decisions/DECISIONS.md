@@ -190,3 +190,5 @@ que envelheceu na decisão seguinte.)
 - 2026-09-14: recibos de sync são retidos pela versão mínima do atlas, e a expiração do JWT não derruba socket, [registro](decisions-2026.md).
 - 2026-09-14: cem atlas vivos por conta, e um teto de mapas por importação, [registro](decisions-2026.md).
 - 2026-09-14: a busca de usuários deixa de enumerar o efetivo, e o vídeo de prévia ganha gate, [registro](decisions-2026.md).
+- 2026-09-14: o Cesium sai da pasta de vendors e entra pelo npm, e o viewshed continua pelo global, [registro](decisions-2026.md).
+- 2026-09-15: o tutorial vira a QUINTA página do bundler, e o docsify entra pelo npm, [registro](decisions-2026.md).
