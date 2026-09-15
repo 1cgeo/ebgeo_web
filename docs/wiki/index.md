@@ -82,6 +82,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[assets3d-distribuicao]] - a rota pública que serve os binários 3D com dual-mode de armazenamento.
 - [[acervo-3d-convertido]] - o acervo fotogramétrico convertido: um `.3dtiles` por modelo, o token de geração que autoriza o cache de um ano, e as armadilhas que já puseram modelo deitado e a 3,6 km do lugar.
 - [[primeira-pessoa-3d]] - a cena caminhável em Gaussian Splatting: por que ela é uma linha de tilesets, as opções de motor medidas (e os instrumentos que mentiram), e as armadilhas cujo sintoma é sucesso plausível.
+- [[viewshed-3d]] - a análise de visibilidade dentro do visualizador Cesium: o contrato com o chamador, as cinco recusas do shader, e as duas propriedades do motor que só a medição entrega.
 - [[streetview-360]] - o módulo de panoramas: projetos, metadado da foto, imagem, tiles e thumbnails.
 - [[calibracao-e-grafo-360]] - ajuste da câmera plana e dos links dirigidos entre fotos.
 - [[ingestao-projetos-360]] - upload de bundles que substitui o estado completo de um projeto.
