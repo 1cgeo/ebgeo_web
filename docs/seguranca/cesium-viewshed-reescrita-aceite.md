@@ -1,6 +1,6 @@
 # `cesium-viewshed.js`: a declaração e o aceite da reescrita
 
-Aberto em 2026-09-14 pela decisão D9, item V3 (`docs/decisions/decisions-2026.md`), a partir de [`b10-fecho-proposta-2026-09-13.md`](b10-fecho-proposta-2026-09-13.md). O método do inventário e as armadilhas de medição estão em [`../wiki/inventario-de-vendors.md`](../wiki/inventario-de-vendors.md).
+Aberto em 2026-09-14 pela decisão D9, item V3 (`docs/decisions/decisions-2026.md`), a partir da proposta de fecho do B10 de 2026-09-13, absorvida pela decisão D9 e apagada em 2026-09-15. O método do inventário e as armadilhas de medição estão em [`../wiki/inventario-de-vendors.md`](../wiki/inventario-de-vendors.md).
 
 **A decisão foi: manter e DECLARAR enquanto isso, com a reescrita sobre a API pública como alvo, e com prazo a fixar pelo dono.** Não desofuscar, não reescrever por arrumação. Este documento é a metade declaratória, e o aceite escrito para quando o alvo for atacado.
 

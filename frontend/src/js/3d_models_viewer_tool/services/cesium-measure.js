@@ -16,7 +16,7 @@
  * release" is not an option that exists. Being unlicensed third-party code in a
  * repository that is PUBLIC by decision is a legal exposure, not a technical
  * one, and no amount of code review closes it; that half of the question is the
- * owner's and is recorded in `docs/seguranca/b10-fecho-proposta-2026-09-13.md`.
+ * owner's and is recorded as decision D9 (2026-09-14) in `docs/decisions/decisions-2026.md`.
  *
  * IT WAS ALREADY A LOCAL FORK BEFORE IT MOVED HERE, and that is what settled
  * the decision (D9 of 2026-09-14, `docs/decisions/decisions-2026.md`): there is

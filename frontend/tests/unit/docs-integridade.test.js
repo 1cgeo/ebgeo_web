@@ -222,7 +222,7 @@ const ISENTOS = new Set([
     // cópias e a ausência da referência nas quatro páginas HTML.
     'frontend/public/vendors/maplibre-gl.js',
     // APAGADOS EM 2026-09-14 (V1 e V6 da decisão D9), e citados por NOME e por BYTE dentro de
-    // `docs/seguranca/b10-fecho-proposta-2026-09-13.md`, que é a medição datada que levou à
+    // a proposta de fecho do B10 de 2026-09-13 (absorvida pela decisão D9 e apagada), que é a medição datada que levou à
     // decisão. Aquele documento é evidência de uma data: reescrever a tabela dele para apontar
     // para o que existe hoje apagaria a única prova de qual era o estado que se decidiu mudar.
     // O Three.js passou a vir do npm (`three` 0.164.0, exato) pelo ponto único

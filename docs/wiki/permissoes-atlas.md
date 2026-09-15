@@ -91,3 +91,25 @@ Papel decide **se** a op entra; a ordem de chegada no servidor decide **quem ven
 ## Histórico
 
 - 2026-08-23: a seção "Adicionou um nível de permissão?" descrevia `applyCommentOp` como lista fechada por igualdade (`write`/`manage`/`owner`) e a chamava "a única ocorrência viva do padrão no módulo de sync". Ele passou a gatear por posto contra o piso `write`. O gate por igualdade que restou no módulo foi o `assertOperationAllowed`, e ele caiu em 2026-09-13, na revisão de lançamento do eixo: era o último que falhava ABERTO, e a seção acima passou a descrever a forma positiva em vez de nomear um culpado.
+
+## Cláusulas da constituição com prova parcial (revisão de 2026-09-13)
+
+A revisão de lançamento do eixo de permissão (achados P1 a P25, todos corrigidos, decididos ou conferidos até 2026-09-14; o relatório foi absorvido por testes e decisões e apagado em 2026-09-15) deixou esta lista, que é o que impede a próxima revisão de ler o verde como cobertura completa.
+
+**Continuam com prova parcial, e ficam declaradas aqui em vez de silenciosas:**
+
+| cláusula | o que não é provado |
+|---|---|
+| 1.1 | o predicado do inventário do censo global exige um literal `'admin'` na linha, então a forma que o próprio cabeçalho nomeia como o perigo (`if (role !== 'user')`) não entraria na varredura. Hoje ela não existe em lugar nenhum (P18), mas o guarda não é quem garante isso |
+| 1.2 | "deslogado não é papel, é modo" segue sem prova: o teste citado assere o domínio do CHECK da coluna, e nada impediria alguém de representar o deslogado por um pseudo-papel fora dela. A própria cláusula já admitia isto |
+| 1.2 (adendo) | que a chave de API resolva carregando o papel global **admin**, e que o corte de sessão em massa não a alcance, não são asseridos; o teste citado mede só a precedência |
+| 1.3 | o controle negativo de "só o administrador promove" usa apenas o `user` comum; nenhum caso tenta um `producer` ou um `credenciado` promovendo alguém |
+| 4.2 | o curinga do administrador é exercido em três das cinco rotas; as duas de MEMBRESIA, que são justamente o "adiciona e remove pessoas" da cláusula, nunca são chamadas como administrador |
+| 4.4 | "o administrador vê todos" não é asserido: nenhum caso chama `GET /access-groups` com token de administrador (é verdade no SQL, pelo segundo ramo de `fn_can_administer_group`) |
+| 7.2 | a porta do MAPA ("o store local É o atlas que sobe, e o wipe posterior é a troca de atlas") não é medida por nenhum dos três arquivos citados; o comportamento existe e é coberto por arquivos não citados |
+| 7.4 | `duplicateLocalAtlas`, a metade que dá identidade própria à cópia no registro (sem a qual a lista mostra dois cartões iguais), não tem caso próprio |
+| 8.5 (bullet 1) | a DESATIVAÇÃO como gatilho nunca é medida na superfície de empréstimo: o arquivo que mede empréstimo não contém uma única ocorrência de `is_active`, e os gatilhos que ele mede são revogação e transferência |
+| 5.8 | a recusa ao dono nomeia "transferir a posse ou mandar à lixeira", e o teste cobra só a primeira metade |
+
+Nenhuma dessas é uma afirmação falsa sobre o código: são lugares onde o verde prova menos do que a cláusula
+diz. Deixá-las escritas é o que impede a próxima revisão de ler o verde como cobertura completa.
