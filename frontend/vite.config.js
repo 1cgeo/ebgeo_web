@@ -702,14 +702,15 @@ export default defineConfig(({ mode: _mode }) => ({
       // viewer would die at load with the library declared "not bundled" by this very list.
       // `cesium-measure.js` had left the same scope hours earlier, for the neighbouring reason.
       //
-      // The ONE mark that stays covers `cesium-viewshed.js`, the obfuscated UMD that is still a
-      // runtime `<script>` under `public/vendors/cesium/` because it reads `window.Cesium` and
-      // writes onto it. Nothing in the module graph reaches it; the mark keeps it out of any
-      // future one. Do not broaden it to `node_modules/cesium` again.
-      external: [
-        // The Cesium plugin that is still script-loaded from public/vendors/.
-        /vendors\/cesium\/cesium-viewshed/i
-      ]
+      // A LISTA FICOU VAZIA EM 2026-09-15, e o comentario acima explica por que. A ultima marca
+      // cobria `cesium-viewshed.js`, o UMD ofuscado que entrava por `<script>` de
+      // `public/vendors/cesium/`. A decisao D15 o substituiu por codigo da casa
+      // (`src/js/3d_models_viewer_tool/services/viewshed-3d.js`), o arquivo foi apagado e com ele
+      // a pasta `public/vendors/cesium/`, que era so dele. O que sobra em `public/vendors/` sao o
+      // docsify e o CSS do tema do tutorial, que o `doc.html` carrega por conta propria e que o
+      // bundler nunca alcancou. A lista sobrevive VAZIA, e nao removida, porque o comentario acima
+      // e o que impede que alguem reponha `node_modules/cesium` aqui e mate o visualizador 3D.
+      external: []
     },
 
     // Source maps: 'hidden' generates maps without exposing them publicly

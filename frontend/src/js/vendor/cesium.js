@@ -17,30 +17,29 @@
  *
  * 1. **O NAMESPACE DO MÓDULO NÃO É EXTENSÍVEL, e escrever nele falha CALADO.** Medido:
  *    `Object.isExtensible(await import('cesium')) === false`, 1352 exportações, nenhuma `default`.
- *    Três consumidores PRECISAM escrever no objeto que chamam de `Cesium`, e os três são
- *    obrigatórios para o visualizador 3D: `polyfillDefaultValue` repõe `Cesium.defaultValue`
- *    (removido na 1.134, exigido pelo `cesium-viewshed` que foi construído para a ~1.100),
- *    `map_3d.js` substitui `Cesium.RequestScheduler.request` para bloquear o Ion, e o próprio
- *    `cesium-viewshed.js` pendura `ViewShed3D` e `RectangularSensorPrimitive` ali. O que torna
- *    isso perigoso é o MODO da falha, e ele é diferente dos dois lados: de dentro de um módulo ES
- *    (código estrito) a escrita LANÇA, mas `cesium-viewshed.js` é `<script>` clássico, portanto
- *    não estrito, e ali a escrita é um NO-OP SILENCIOSO. O resultado seria `Cesium.ViewShed3D`
- *    `undefined`, a ferramenta de viewshed morta e nenhum erro em lugar nenhum. Por isso o que se
- *    publica e se exporta daqui é uma CÓPIA rasa e extensível do namespace: as 1352 exportações
+ *    Eram TRÊS os consumidores que precisavam escrever no objeto que chamam de `Cesium`; desde
+ *    2026-09-15 (decisão D15) sobrou **um**, e ele basta para a cópia continuar existindo:
+ *    `map_3d.js` substitui `Cesium.RequestScheduler.request` para bloquear o Ion. Os outros dois
+ *    eram do viewshed de terceiro, que foi apagado: o polyfill de `Cesium.defaultValue` (removido
+ *    do Cesium na 1.134 e exigido por um plugin construído para a ~1.100) e o próprio plugin
+ *    pendurando `ViewShed3D` e `RectangularSensorPrimitive` ali. Por isso o que se publica e se
+ *    exporta daqui continua sendo uma CÓPIA rasa e extensível do namespace: as 1352 exportações
  *    são classes e constantes que o pacote nunca reatribui, então a cópia guarda as mesmas
  *    referências e remendar um protótipo através dela continua remendando a classe real.
  *
- * 2. **O global continua, e é contrato com três públicos.** O primeiro é `cesium-viewshed.js`,
- *    que é UMD e cujo ramo de navegador é literalmente `self['space'] = factory(self['Cesium'])`:
- *    ele LÊ o global e só existe depois dele. O segundo são nove módulos de `src/js/` que
+ * 2. **O global continua, e é contrato com DOIS públicos.** Eram três até 2026-09-15: o primeiro
+ *    era `cesium-viewshed.js`, UMD cujo ramo de navegador era literalmente
+ *    `self['space'] = factory(self['Cesium'])`, isto é, ele LIA o global e só existia depois dele.
+ *    Aquele arquivo foi apagado (D15) e o motor do viewshed virou um módulo como outro qualquer.
+ *    Os dois que ficam: nove módulos de `src/js/` que
  *    alcançam a biblioteca pelo identificador solto `Cesium` (as quatro ferramentas 3D,
  *    `cesium-measure.js`, `cesium-color.js`) ou por `window.Cesium` explícito
  *    (`briefing/presentation/transition.service.js`, `briefing/editor/briefing-editor.control.js`,
  *    `deep-link/deep-link.js`), e estes três últimos moram no grafo ANSIOSO da página do mapa:
  *    fazê-los importar este arquivo arrastaria 4 MB de motor para o payload de boot. Eles leem o
  *    global dentro de funções, depois de o visualizador 3D estar aberto, que é exatamente quando
- *    este módulo já avaliou. O terceiro são os specs de Playwright, que rodam `page.evaluate`
- *    dentro da página e não têm grafo de import próprio. A ordem não mudou em relação ao
+ *    este módulo já avaliou. E os specs de Playwright, que rodam `page.evaluate` dentro da página
+ *    e não têm grafo de import próprio. A ordem não mudou em relação ao
  *    `<script>`: antes o global aparecia quando a tag carregava, hoje aparece quando o chunk
  *    `cesium-integration` carrega, e nos dois casos isso é antes de `initCesiumMap`.
  *
@@ -59,31 +58,20 @@
  * 5. **A escrita do global é guardada por `typeof window`.** A suíte roda em `environment: 'node'`
  *    (`vitest.config.js`). É a mesma guarda, pela mesma razão, do ponto único do MapLibre.
  *
- * 6. **`__esModule: true` NÃO É ADORNO: sem ele o viewshed nasce morto, e em silêncio.** Foi o
- *    único defeito que esta migração produziu, e ele foi achado pela captura do Playwright, não
- *    pela suíte. `cesium-viewshed.js` é um bundle de webpack cujo `Cesium` é um EXTERNAL, e o
- *    interop de webpack para um external que não se declara módulo ES constrói um namespace
- *    sintético em volta do valor e expõe nele apenas `default`. O efeito é que TODA leitura de
- *    símbolo (`Cesium.Matrix3`, `Cesium.ShaderSource`, as vinte e tantas do cabeçalho do plugin)
- *    devolve `undefined` sem lançar, e o primeiro `new` sobre um deles explode com uma mensagem
- *    que nomeia uma variável ofuscada (medido: `TypeError: _0x2866d1 is not a constructor`, em
- *    `cesium-viewshed.js:1177`, onde `_0x2866d1` é `Cesium.Matrix3`). Daí para baixo tudo é mudo:
- *    o plugin não define `Cesium.ViewShed3D`, `applyCesiumPostLoadPatches` pula a classe ausente
- *    pelo `if (!CesiumNS[className]) continue`, e `viewshed_tool_3d.js` desiste no próprio guarda
- *    `!Cesium.ViewShed3D`. O visualizador 3D continua abrindo e desenhando o modelo; só a análise
- *    de visibilidade deixa de existir, sem um aviso em lugar nenhum.
+ * 6. **`__esModule: true` PERDEU O BENEFICIÁRIO EM 2026-09-15, E FICA, com a razão trocada.** Ele
+ *    foi posto aqui porque um namespace de módulo ES não carrega essa marca e a distribuição
+ *    oficial sempre carregou (é o helper `__toCommonJS` do esbuild, no fim do bundle). Sem ela, o
+ *    interop de webpack DENTRO de `cesium-viewshed.js` lia todo símbolo do Cesium como `undefined`
+ *    sem lançar em nenhum, o plugin não definia `ViewShed3D`, e a análise de visibilidade deixava
+ *    de existir sem uma linha de erro em lugar nenhum. Foi o único defeito que a migração ao npm
+ *    produziu, e quem o achou foi uma captura de tela, não a suíte.
  *
- *    A distribuição oficial SEMPRE publicou essa marca, e é por isso que o `<script>` funcionava:
- *    `node_modules/cesium/Build/Cesium/Cesium.js` termina no helper `__toCommonJS` do esbuild, que
- *    põe `__esModule: true` no objeto exportado (medido no bundle, e medido no navegador: o global
- *    da distribuição responde `__esModule === true`, o do namespace do npm responde `undefined`).
- *    Um namespace de módulo ES não a carrega porque não precisa: quem consome por `import` sabe o
- *    que ele é. Quem consome pelo global, não.
- *
- *    A PROVA É UM A/B, não o raciocínio acima: com a linha, o viewshed calcula e desenha; sem ela,
- *    o mesmo spec falha no mesmo ponto. E o controle NEGATIVO dessa medição foi rodar o caminho
- *    antigo (`<script>` da distribuição) no mesmo spec e ver o viewshed funcionar, que é o que
- *    separou "regressão desta migração" de "defeito que já existia".
+ *    A decisão D15 apagou aquele arquivo, então hoje **nenhum consumidor deste repositório lê a
+ *    marca**. Ela continua porque o objeto publicado aqui é o que o produto inteiro chama de
+ *    `Cesium`, inclusive em `page.evaluate` de spec e em console de depuração, e porque a
+ *    distribuição oficial a publica: tirá-la faria esta cópia divergir do que um
+ *    `<script>` de Cesium sempre entregou, para ganhar zero byte. Se alguém a remover um dia, o
+ *    que precisa acompanhar é esta nota, não um teste: não há teste, porque não há mais leitor.
  */
 
 import './cesium-base-url.js';
@@ -94,8 +82,8 @@ import 'cesium/Build/Cesium/Widgets/widgets.css';
  * A cópia extensível do namespace (nota 1 acima). Tudo o que o produto chama de `Cesium` é ESTE
  * objeto: o global, o valor exportado daqui e o argumento que `cesium-compat.js` remenda.
  *
- * `__esModule` é a única propriedade sintética, e a nota 6 é o que ela vale: sem ela o
- * `cesium-viewshed.js` nasce morto, em silêncio. Não a remova por parecer resto de bundler.
+ * `__esModule` é a única propriedade sintética. A nota 6 conta por que ela entrou, e por que ela
+ * deixou de ter leitor quando o viewshed de terceiro saiu.
  */
 const Cesium = { ...CesiumNS, __esModule: true };
 

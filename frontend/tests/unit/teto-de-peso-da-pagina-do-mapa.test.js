@@ -1019,10 +1019,22 @@ describe('(b) o peso construído de cada página', () => {
         const { vendors } = payloadDe('index.html');
         expect(vendors, 'a página do mapa voltou a referenciar um vendor de `public/` no HTML')
             .toEqual([]);
-        // Carregado por injeção de `<script>` em `map_3d.js`, porque lê e escreve `window.Cesium`.
-        for (const p of ['/vendors/cesium/cesium-viewshed.js']) {
-            expect(existsSync(join(DIST, p)), `${p} é lido em runtime e não foi publicado`).toBe(true);
-        }
+        // A SEGUNDA METADE PERDEU O ÚLTIMO OCUPANTE EM 2026-09-15, e ela mudou de sentido em vez
+        // de sumir. Até aqui ela exigia que `/vendors/cesium/cesium-viewshed.js` estivesse no
+        // `dist/`, porque `map_3d.js` o injetava como `<script>` em runtime, por um caminho que
+        // nenhum HTML menciona. A decisão D15 trocou aquele arquivo por código da casa
+        // (`src/js/3d_models_viewer_tool/services/viewshed-3d.js`), e com ele saiu o ÚLTIMO
+        // caminho de runtime que este repositório tinha para `public/vendors/`: hoje tudo o que a
+        // página do mapa carrega está no grafo do bundler, e portanto nas contagens acima.
+        //
+        // A afirmação vira a inversa, e ela é mais forte: o arquivo não pode estar no `dist/`,
+        // porque estar ali significaria que alguém o repôs em `public/`. O que restou daquela
+        // pasta é o par do tutorial (`docsify.min.js` e `vue.css`), que `public/docs/doc.html`
+        // carrega fora do Vite e que nenhuma das quatro páginas do app referencia.
+        expect(
+            existsSync(join(DIST, '/vendors/cesium/cesium-viewshed.js')),
+            'o vendor ofuscado do viewshed voltou para `public/vendors/` e foi publicado no dist/',
+        ).toBe(false);
         // E os ativos estáticos do Cesium, que `window.CESIUM_BASE_URL` endereça e que o plugin
         // `ebgeo-cesium` do `vite.config.js` copia de `node_modules/cesium/Build/Cesium/`. A
         // ausência deles é a falha mais silenciosa desta migração: o visualizador 3D abre, a cena

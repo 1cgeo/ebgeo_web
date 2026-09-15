@@ -2,7 +2,9 @@
 
 Aberto em 2026-09-14 pela decisão D9, item V3 (`docs/decisions/decisions-2026.md`), a partir da proposta de fecho do B10 de 2026-09-13, absorvida pela decisão D9 e apagada em 2026-09-15. O método do inventário e as armadilhas de medição estão em [`../wiki/inventario-de-vendors.md`](../wiki/inventario-de-vendors.md).
 
-**A decisão foi: manter e DECLARAR enquanto isso, com a reescrita sobre a API pública como alvo, e com prazo a fixar pelo dono.** Não desofuscar, não reescrever por arrumação. Este documento é a metade declaratória, e o aceite escrito para quando o alvo for atacado.
+**EXECUTADO EM 2026-09-15 (decisão D15).** O dono fixou o prazo, o arquivo foi apagado e o motor passou a ser código da casa em `frontend/src/js/3d_models_viewer_tool/services/viewshed-3d.js`. Este documento fica INTEIRO, sem reescrita do corpo, porque ele é a medição datada do que se decidiu trocar e o critério contra o qual a troca foi conferida; o que muda é este cabeçalho e a seção de fecho no fim.
+
+A decisão ANTERIOR, de 2026-09-14, era: manter e DECLARAR enquanto isso, com a reescrita sobre a API pública como alvo, e com prazo a fixar pelo dono. Não desofuscar, não reescrever por arrumação. Este documento é a metade declaratória, e o aceite escrito para quando o alvo for atacado.
 
 ## A declaração
 
@@ -45,3 +47,14 @@ Uma reescrita sobre a API pública de `ShadowMap` só é aceita quando reproduzi
 ## O que decide o prazo
 
 O gatilho natural é o **próximo bump do Cesium**: é ele que quebra o arquivo, e é nessa hora que o custo de remendar de fora e o de reescrever ficam comparáveis pela primeira vez. Até lá a dívida é declarada e não urgente. O prazo é do dono.
+
+## O fecho, item por item (2026-09-15)
+
+Os seis itens do aceite, conferidos contra a reescrita:
+
+1. **Contrato de construção**: reproduzido, `calback` com um L inclusive, e o chamador não mudou de grafia. Os dois modos (dirigido e interativo por dois cliques) existem.
+2. **Campos lidos de volta**: `cameraPosition`, `viewPosition`, `heading`, `pitch`, `horizontalAngle`, `verticalAngle` e `distance` são propriedades públicas da classe, e nenhuma nasce `0` por omissão.
+3. **Ciclo de vida**: `destroy()` é idempotente e `isDestroyed()` existe, os dois implementados de verdade, e por isso os dois remendos de `patchPrimitiveLifecycle` saíram junto com o arquivo inteiro que os continha. A classe aceita `_wasSaved`, a propriedade arbitrária que o chamador carimba. Uma armadilha nova, declarada no cabeçalho dela: ela **não** usa `destroyObject` do Cesium, porque aquele ajudante troca todo método por um que lança e a segunda chamada explodiria onde o aceite pede silêncio. E ela faz o que o plugin nunca fez, que é se REMOVER da coleção de primitivas ao morrer.
+4. **A regra do ângulo**: a comparação continua `>` estrita, deliberadamente, e por isso o `renderAngle` de 1,5 grau do chamador não mudou. A escolha está escrita nos dois lados.
+5. **A prova visual**: existe e é automática desde o dia anterior à troca, em `frontend/tests/e2e-ui/viewshed-3d-pixel.spec.js`, com referência versionada. A troca foi medida nas duas imagens: 5,307% dos pixels diferentes, 2,651% de classe diferente, verde 15,379% contra 15,192% e vermelho 6,776% contra 6,943%. **A parte do aceite que continua ABERTA é a costura acima de 150 graus**: o caso medido é de 120 graus, um sub-viewshed só, então a faixa saturada e a fresta não foram fotografadas. Quem mexer no `renderAngle` ou na direção da comparação tem essa leitura para fazer.
+6. **O sensor retangular**: confirmado sem chamador e NÃO portado. O tronco de visão passou a ser desenhado por nós, como um setor esférico em polilinhas, e a esfera é a forma honesta, porque o corte do shader é por distância constante. As linhas são translúcidas de propósito: uma polilinha opaca escreve profundidade e o próprio pós-processamento a pintaria de verde ou vermelho, fazendo a anotação mentir sobre o que o observador enxerga.

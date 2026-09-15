@@ -24,6 +24,19 @@
 // rotulados como artefato do instrumento, e o teste da divergencia entre "rotulado"
 // e "apagado" e este: se alguem os apagar, `a ressalva continua declarada` fica
 // vermelho, porque numero errado sem rotulo volta a ser lido como evidencia.
+//
+// A PASTA COBERTA FICOU VAZIA EM 2026-09-15, e isso muda COMO esta suite se le. Duas saidas do
+// mesmo dia se somaram: o docsify foi para o npm (decisao D16) e levou `docsify.min.js` e
+// `vue.css`, de 3 artefatos para 1, e o viewshed virou codigo da casa (decisao D15) e levou
+// `cesium/cesium-viewshed.js`, de 1 para ZERO, com a pasta `frontend/public/vendors/` junto.
+// Nenhum caso foi apagado, porque a pergunta que eles fazem continua valendo e ganha sujeito de
+// volta no commit em que um vendor novo nascer; o que mudou e que TODO controle que dependia de
+// um ocupante real do disco passou a FABRICAR o ocupante. Sao quatro: o binario (fabricado desde
+// 2026-09-14), o texto em CRLF, o texto em LF e as tuplas do controle negativo de comparacao. O
+// unico que continua lendo dado real e o do FORMATO de tupla, que le o bloco datado de
+// 2026-09-13, com as 408 tuplas de entao. Zero de arvore limpa e zero de instrumento quebrado
+// sao a mesma saida, e e so por causa dessa fabricacao que esta suite continua sabendo a
+// diferenca.
 
 import { describe, it, expect } from 'vitest';
 import { Buffer } from 'node:buffer';
@@ -59,7 +72,26 @@ describe('inventario de vendors: o script e o manifesto versionado', () => {
         // sem beneficiario. Este caso e a razao de a lista ser FECHADA nos dois sentidos: uma
         // pasta que entre ou saia sem passar por aqui reprova.
         expect(PASTAS_DE_VENDOR).toEqual(['frontend/public/vendors']);
-        expect(medicoes.length).toBeGreaterThan(0);
+        // A PASTA COBERTA FICOU VAZIA EM 2026-09-15, e e por isso que esta linha deixou de ser
+        // `toBeGreaterThan(0)`. Foram duas saidas somadas, no mesmo dia e por decisoes
+        // independentes: o docsify (D16) levou `docsify.min.js` e `vue.css`, de 3 artefatos para
+        // 1, e o viewshed (D15) levou `cesium/cesium-viewshed.js`, de 1 para ZERO, e com ele a
+        // pasta `frontend/public/vendors/` inteira. A lista de pastas continua FECHADA e o
+        // caminho continua declarado: e ele que faz um vendor que reapareca ali entrar como
+        // `novo` em vez de nascer invisivel para a conferencia.
+        //
+        // ZERO DE ARVORE LIMPA E ZERO DE INSTRUMENTO QUEBRADO SAO A MESMA SAIDA, e essa e a
+        // razao da linha seguinte: `listarPublico` roda o MESMO `git ls-files` sobre
+        // `frontend/public/` inteiro, entao ela e quem distingue "nao ha vendor" de "a listagem
+        // parou de caminhar". Sem ela, um git que falhasse calado deixaria esta suite verde de
+        // ponta a ponta.
+        expect(medicoes).toEqual([]);
+        expect(listarPublico().length, 'a listagem por git ls-files nao devolveu arquivo nenhum')
+            .toBeGreaterThan(100);
+        expect(
+            existsSync(join(RAIZ, 'frontend/public/vendors')),
+            'frontend/public/vendors/ voltou a existir, e o bloco corrente do manifesto a declara vazia'
+        ).toBe(false);
         // E o outro lado, que o `toEqual` sozinho NAO cobre, e que seria cobertura vazia se fosse
         // escrito sobre `medicoes`: a lista de medicoes so pode conter o que as PASTAS cobrem,
         // entao procurar `src/vendor/` la dentro e perguntar algo cuja resposta e sempre "nao".
@@ -93,7 +125,17 @@ describe('inventario de vendors: o script e o manifesto versionado', () => {
     it('mantem o formato de tupla do arquivo versionado', () => {
         const manifesto = gerarManifesto();
         expect(manifesto).toHaveLength(versionado.length);
-        for (const t of manifesto.slice(0, 5)) {
+        // O FORMATO PRECISA DE UM OCUPANTE, e desde 2026-09-15 o bloco CORRENTE nao oferece
+        // nenhum: com a pasta vazia, `manifesto.slice(0, 5)` e uma lista vazia e o laco abaixo
+        // passaria verde sem olhar uma tupla. O ocupante nao e fabricado aqui, e sim lido do
+        // bloco DATADO de 2026-09-13, que carrega as 408 tuplas de entao e nunca e reescrito
+        // (o caso proprio abaixo exige que ele continue no arquivo, com aquele numero). Preferir
+        // o dado datado ao sintetico e o que mantem este caso medindo o formato REAL que o
+        // esquema promete, e nao um literal que alguem escreveu para casar com a expectativa.
+        const doc = JSON.parse(readFileSync(join(RAIZ, CAMINHO_DO_MANIFESTO), 'utf8'));
+        const datadas = doc['2026-09-13'].vendorInventory2026_09_13.manifestoCompleto.arquivos;
+        expect(datadas.length).toBeGreaterThan(5);
+        for (const t of datadas.slice(0, 5)) {
             expect(t).toHaveLength(4);
             expect(typeof t[0]).toBe('string');
             expect(typeof t[1]).toBe('number');
@@ -133,6 +175,12 @@ describe('inventario de vendors: o script e o manifesto versionado', () => {
         // o classificador continua discriminando sao os casos sinteticos de `ehTexto` e o
         // controle negativo do eixo, que desde a mesma data FABRICA o binario que o disco nao
         // oferece mais.
+        //
+        // E DESDE 2026-09-15 NAO HA SUJEITO DE ESPECIE NENHUMA, porque a pasta coberta ficou
+        // VAZIA (o docsify pela D16, 3 -> 1, e o viewshed pela D15, 1 -> 0). As duas listas deste
+        // caso sao vazias pelos dois lados, e e por isso que ele nao vale sozinho: a discriminacao
+        // mora nos casos fabricados do bloco do eixo, e este aqui e o que volta a ter conteudo no
+        // commit em que um vendor entrar.
         const doc = JSON.parse(readFileSync(join(RAIZ, CAMINHO_DO_MANIFESTO), 'utf8'));
         const arquivos = doc[CHAVE_DO_BLOCO][CHAVE_DO_INVENTARIO].manifestoCompleto.arquivos;
         const binarios = new Set(medicoes.filter((m) => m.binario).map((m) => m.path));
@@ -153,31 +201,40 @@ describe('inventario de vendors: o script e o manifesto versionado', () => {
 });
 
 describe('inventario de vendors: o eixo de comparacao', () => {
-    it('classifica binario e texto, e hoje nao ha um binario sequer nas pastas cobertas', () => {
-        // O eixo nao morreu com o ultimo binario: sobre TEXTO ele continua decidindo quem ganha
-        // hash normalizado e quem nao tem o que normalizar. Escrever o caso assim e o que o
-        // mantem com sujeito vivo depois das duas migracoes de 2026-09-14; `every` sobre uma
-        // lista vazia seria verde sem medir nada.
-        expect(medicoes.filter((m) => m.binario)).toEqual([]);
+    it('classifica binario e texto, e hoje as pastas cobertas estao VAZIAS', () => {
+        // O laco abaixo e a metade que fala do DISCO, e desde 2026-09-15 ele nao tem sujeito:
+        // a pasta coberta saiu do repositorio. Ele fica escrito porque reganha sujeito no dia em
+        // que um vendor voltar, e porque e ele que prende `medirArquivos` ao par de funcoes puras
+        // que decidem a classificacao; quem carrega o caso hoje e o bloco FABRICADO logo abaixo.
+        expect(medicoes).toEqual([]);
         for (const m of medicoes) {
             const bruto = readFileSync(join(RAIZ, m.path));
             expect(m.sha256Lf === null, `${m.path}: sha256Lf nao casa com a presenca de CRLF`)
                 .toBe(normalizarCrlf(bruto) === null);
         }
-        // CONTROLE DE VACUO do laco acima. Ate 2026-09-14 ele era uma contagem: os DOIS lados da
-        // implicacao existiam no disco (dois arquivos em CRLF e um em LF), e era isso que impedia
-        // o laco de medir um lado so. EM 2026-09-15 O LADO LF FICOU SEM OCUPANTE, quando o docsify
-        // saiu para o npm (decisao D16) e levou `vue.css`, que era o unico arquivo em LF das
-        // pastas cobertas; sobrou UM arquivo, em CRLF. O controle entao mudou de forma em vez de
-        // sumir, pelo mesmo caminho que o eixo BINARIO ja tinha percorrido no dia anterior: o lado
-        // que o disco nao oferece mais e FABRICADO. Uma contagem `toHaveLength(0)` sobre o lado LF
-        // seria verde sem discriminar nada.
-        expect(medicoes.filter((m) => m.sha256Lf !== null)).toHaveLength(1);
-        expect(normalizarCrlf(Buffer.from('uma linha\noutra linha\n', 'utf8'))).toBeNull();
-        expect(normalizarCrlf(Buffer.from('uma linha\r\noutra linha\r\n', 'utf8'))).not.toBeNull();
+        // CONTROLE DE VACUO do laco acima, e ele passou por DUAS reducoes ate chegar aqui. Ate
+        // 2026-09-14 era uma contagem sobre arquivos reais: os DOIS lados da implicacao existiam
+        // no disco (dois arquivos em CRLF e um em LF), e era isso que impedia o laco de medir um
+        // lado so. EM 2026-09-15 O LADO LF FICOU SEM OCUPANTE, quando o docsify saiu para o npm
+        // (decisao D16) e levou `vue.css`, que era o unico arquivo em LF das pastas cobertas:
+        // sobrou UM arquivo, em CRLF, e a contagem foi de 3 para 1. HORAS DEPOIS O LADO CRLF
+        // FICOU SEM OCUPANTE TAMBEM, quando a decisao D15 apagou `cesium/cesium-viewshed.js` e
+        // com ele a pasta `frontend/public/vendors/` inteira: de 1 para ZERO.
+        //
+        // Os DOIS lados sao entao FABRICADOS, pelo mesmo caminho que o eixo BINARIO ja tinha
+        // percorrido no dia anterior. Uma contagem `toHaveLength(0)` sobre qualquer um deles
+        // seria verde sem discriminar nada, que e exatamente o vacuo que este bloco fecha:
+        // `ehTexto` e `normalizarCrlf` sao puras, entao o que elas decidem nao depende de o
+        // arquivo existir, e e essa pureza que mantem as tres classes vivas com a pasta vazia.
+        const crlf = Buffer.from('uma linha\r\noutra linha\r\n', 'utf8');
+        const lf = Buffer.from('uma linha\noutra linha\n', 'utf8');
+        expect(ehTexto(crlf)).toBe(true);
+        expect(ehTexto(lf)).toBe(true);
+        expect(normalizarCrlf(crlf)).not.toBeNull();
+        expect(normalizarCrlf(lf)).toBeNull();
     });
 
-    it('0 do 1 sao binarios que CARREGAM o par 0D 0A, e o zero e o fim da serie', () => {
+    it('a pasta coberta fechou em ZERO, e o numerador de binarios com o par 0D 0A fechou antes', () => {
         // Este numero e a razao de o eixo existir: sem a classificacao, cada um deles e uma
         // divergencia fantasma. Se ele mudar, a poda ou a entrada de um vendor mexeu na
         // composicao da arvore, e a conferencia quer saber disso.
@@ -216,18 +273,31 @@ describe('inventario de vendors: o eixo de comparacao', () => {
         // consumidor (`frontend/public/docs/doc.html`, servido estatico, fora do Vite), que e o
         // achado que impediu a poda dele.
         //
-        // A leitura que este par de numeros permite e a que interessa: uma poda que deixasse um
-        // binario de OUTRO vendor para tras apareceria aqui como 1, e nao como 0.
         // NA SEXTA O DENOMINADOR CHEGOU A UM, e o numerador continuou em zero (2026-09-15, decisao
         // D16): o docsify passou a vir do npm e `docsify.min.js` (160.921 bytes, CRLF) e `vue.css`
         // (13.061, LF) foram apagados, que eram o ULTIMO vendor com consumidor. Os dois eram texto,
-        // entao a parcela de binarios nao tinha como se mover: 3 -> 1 e 0 -> 0. Sobra
+        // entao a parcela de binarios nao tinha como se mover: 3 -> 1 e 0 -> 0. Sobrou
         // `cesium/cesium-viewshed.js`, o unico artefato sem versao, sem licenca e sem upstream a
-        // que perguntar por aviso (item V3), e e por isso que este numero chegou ao fim da serie:
-        // abaixo de um so ha zero, e zero aqui significaria que a pasta inteira saiu.
+        // que perguntar por aviso (item V3).
+        //
+        // NA SETIMA A SERIE ACABOU, e acabou do unico jeito que restava depois da sexta: horas
+        // depois, no MESMO dia, a decisao D15 apagou `cesium/cesium-viewshed.js` (154.710 bytes,
+        // TEXTO em CRLF), o UMD ofuscado sem autor nem licenca, substituido por codigo da casa em
+        // `frontend/src/js/3d_models_viewer_tool/services/viewshed-3d.js`. Com ele foi a pasta
+        // `frontend/public/vendors/` INTEIRA, e com ela o ULTIMO caminho montado em runtime deste
+        // repositorio. Dai 1 -> 0, e o numerador continuou em zero porque o que saiu era texto.
+        //
+        // ESTE ZERO NAO E UM NUMERO MENOR ENTRE OUTROS: ele e a pasta coberta deixando de
+        // existir. Daqui em diante o caso so reganha sujeito se um vendor novo nascer ali, que e
+        // exatamente o evento que a conferencia quer ver, e por isso a asercao continua sendo
+        // sobre o TOTAL e nao sobre a parcela de binarios: um artefato que reapareca reprova
+        // aqui antes de qualquer classificacao.
+        //
+        // A leitura que este par de numeros permite e a que interessa: uma poda que deixasse um
+        // binario de OUTRO vendor para tras apareceria aqui como 1, e nao como 0.
         const comParCrLf = medicoes.filter((m) => m.binario && normalizarCrlf(readFileSync(join(RAIZ, m.path))) !== null);
         expect(comParCrLf).toEqual([]);
-        expect(medicoes).toHaveLength(1);
+        expect(medicoes).toHaveLength(0);
         // ZERO DE ARVORE LIMPA E ZERO DE FILTRO QUEBRADO SAO A MESMA SAIDA, e o disco nao
         // oferece mais o positivo: ele e fabricado. Uma sequencia com byte NUL (logo binaria)
         // que carrega o par tem de ser classificada como binaria E ter o par encontrado, que
@@ -295,6 +365,13 @@ describe('inventario de vendors: o eixo de comparacao', () => {
         // do defeito que este bloco existe para impedir. Quem responde se a CLASSIFICACAO esta
         // certa e `medirArquivos`, cobrado acima; aqui o que se mede e o COMPORTAMENTO de
         // `compararManifestos` diante dela.
+        //
+        // O lado de TEXTO seguiu o mesmo caminho em 2026-09-15, um dia depois e pela mesma razao:
+        // era `medicoes.find(...)`, e com a pasta vazia (D16 levou o docsify, D15 levou o
+        // viewshed, 3 -> 1 -> 0) aquele `find` devolve `undefined`. O `expect(txt).toBeTruthy()`
+        // reprovaria, o que ja seria melhor que passar; mas a correcao certa nao e afrouxar o
+        // guarda e sim dar-lhe sujeito, porque o que este caso mede e `compararManifestos`, que e
+        // PURA sobre (tuplas, medicoes) e nao depende de arquivo nenhum existir no disco.
         const bin = {
             path: 'frontend/public/vendors/fabricado.wasm',
             bytes: 5,
@@ -302,8 +379,13 @@ describe('inventario de vendors: o eixo de comparacao', () => {
             sha256Lf: null,
             binario: true,
         };
-        const txt = medicoes.find((m) => !m.binario && m.sha256Lf !== null);
-        expect(txt).toBeTruthy();
+        const txt = {
+            path: 'frontend/public/vendors/fabricado.js',
+            bytes: 7,
+            sha256: 'c'.repeat(64),
+            sha256Lf: 'd'.repeat(64),
+            binario: false,
+        };
 
         const mentira = 'a'.repeat(64);
         expect(compararManifestos([[bin.path, bin.bytes, bin.sha256, mentira]], [bin]).divergente).toEqual([]);

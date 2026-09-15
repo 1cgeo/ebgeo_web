@@ -8,19 +8,29 @@
  * trocasse o motor e visse a suíte verde não teria medido o motor. Este arquivo é a trava que
  * permite trocá-lo: ele congela o DESENHO, não a entidade.
  *
- * O QUE ELE MEDE, em quatro camadas, da mais frágil para a mais robusta:
+ * O QUE ELE MEDE, em cinco camadas, da mais frágil para a mais robusta:
  *
  *   1. **Pixel contra referência versionada** (`__referencias__/viewshed-3d.png`), por percentual
  *      de pixels diferentes. É a camada que pega uma mudança de cor, de projeção ou de bias.
- *   2. **Proporção de verde (visível) e vermelho (oculto)**, com folga declarada. Sobrevive a
+ *   2. **Classificação visível/oculto** contra a mesma referência. Separa a ANÁLISE do DESENHO do
+ *      tronco, e foi ela que deu o número da troca de motor de 2026-09-15.
+ *   3. **Proporção de verde (visível) e vermelho (oculto)**, com folga declarada. Sobrevive a
  *      ruído de rasterização e a uma troca de GPU; morre se o shader parar de separar as duas
  *      metades, que é o defeito que importa.
- *   3. **O tronco de visão desenhado** (o fio de arame branco do sensor), contado em pixels.
- *   4. **O painel "Visibilidade #1"** com 120°, 186 m e 1,5 m, que é o contrato do chamador.
+ *   4. **O tronco de visão desenhado** (o fio de arame branco), contado em pixels.
+ *   5. **O painel "Visibilidade #1"** com 120°, 186 m e 1,5 m, que é o contrato do chamador.
  *
- * AS TRÊS PRIMEIRAS SÃO INDEPENDENTES DE PIXEL EXATO DE PROPÓSITO. A referência sozinha é frágil
+ * AS TRÊS ÚLTIMAS SÃO INDEPENDENTES DE PIXEL EXATO DE PROPÓSITO. A referência sozinha é frágil
  * (troca de driver, de versão do Chromium, de tamanho de viewport) e, quando falha, não diz o que
  * mudou. As proporções dizem.
+ *
+ * A REFERÊNCIA FOI REGERADA EM 2026-09-15, quando o motor deixou de ser o vendor ofuscado e passou
+ * a ser `frontend/src/js/3d_models_viewer_tool/services/viewshed-3d.js` (decisão D15). A troca foi
+ * medida nas duas imagens e o número que importa é o DA CLASSE: 5,307% dos pixels mudaram, mas só
+ * 2,651% mudaram de classe, e a maior parte do resto é o fio de arame, que trocou de tesselação
+ * porque o sensor retangular de terceiro não foi portado. Verde e vermelho ficaram em 15,379% e
+ * 6,776%, contra 15,192% e 6,943% do vendor, dentro das MESMAS faixas declaradas abaixo, que não
+ * precisaram mudar.
  *
  * A CENA É NOSSA, E ISSO É DECLARADO. A captura de 2026-09-14 citada no inventário de vendors usou
  * um tileset local que **não existe neste repositório** (`frontend/public/3d/` é ignorado pelo git,
@@ -152,7 +162,15 @@ async function registrarTileset(page) {
         return { status: res.status, body: await res.text() };
     }, { url: state.baseUrl, creds, id: TILESET_ID, obs: OBSERVADOR });
 
-    expect(criado.status, `o tileset nao foi registrado: ${criado.status} ${criado.body}`).toBeLessThan(300);
+    // 409 E SUCESSO AQUI. O catalogo e GLOBAL e a rodada e UMA: o segundo caso deste arquivo
+    // registra o mesmo id que o primeiro ja registrou, e a rota responde CONFLICT. O que
+    // interessa e o tileset ESTAR no catalogo ao fim da chamada, nao esta chamada ter sido a que
+    // o criou. Tratar 409 como falha faria o segundo caso reprovar por ordem de execucao, que e
+    // exatamente o tipo de vermelho que nao fala do produto.
+    expect(
+        criado.status === 409 || criado.status < 300,
+        `o tileset nao esta no catalogo: ${criado.status} ${criado.body}`,
+    ).toBe(true);
 
     // Sessão viva numa URL nua é roteada para `atlas.html`, que não tem mapa nenhum.
     await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });
@@ -203,7 +221,13 @@ async function abrirVisualizador3d(page) {
                 const visivel = el !== null && el.style.display !== 'none';
                 const v = window.map;
                 const vivo = !!(v && typeof v.isDestroyed === 'function' && !v.isDestroyed() && v.scene);
-                return visivel && vivo && !!window.Cesium?.ViewShed3D;
+                // A CONDICAO NAO PERGUNTA MAIS PELA CLASSE, e a mudanca foi paga: ate
+                // 2026-09-15 ela exigia `window.Cesium.ViewShed3D`, que so existia porque um
+                // `<script>` ofuscado pendurava a classe no global. Trocado o motor por codigo da
+                // casa (`services/viewshed-3d.js`), aquela pergunta passou a ser sempre falsa e o
+                // caso inteiro se AUTO-PULOU, verde, sem medir um pixel. Um guarda de ambiente que
+                // cita um simbolo do sujeito medido vira um interruptor de desligar o teste.
+                return visivel && vivo;
             },
             null,
             { timeout: 30000 },
@@ -505,16 +529,46 @@ async function compararImagens(page, aDataUrl, bDataUrl) {
         const pb = pixels(ib);
         // Tolerância por canal: rasterização de linha e arredondamento de float não são o assunto.
         const TOL = 12;
+
+        /**
+         * A CLASSE de um pixel: visível, oculto ou nenhum dos dois.
+         *
+         * A comparação por classe é a métrica que separa a ANÁLISE do DESENHO do tronco. Duas
+         * imagens podem diferir em 5% dos pixels só porque o fio de arame mudou de tesselação,
+         * enquanto a resposta "quem enxerga o quê" é a mesma; e podem coincidir em cor de fundo
+         * enquanto a resposta inverte. É esta que mede o motor.
+         * @param {Uint8ClampedArray} p
+         * @param {number} i
+         * @returns {number} 1 visível, 2 oculto, 0 nenhum
+         */
+        const classe = (p, i) => {
+            const r = p[i];
+            const g = p[i + 1];
+            const b = p[i + 2];
+            if (g > 40 && g > r + 25 && g > b + 25) return 1;
+            if (r > 40 && r > g + 25 && r > b + 25) return 2;
+            return 0;
+        };
+
         let diferentes = 0;
+        let classeDiferente = 0;
         for (let i = 0; i < pa.length; i += 4) {
             if (
                 Math.abs(pa[i] - pb[i]) > TOL ||
                 Math.abs(pa[i + 1] - pb[i + 1]) > TOL ||
                 Math.abs(pa[i + 2] - pb[i + 2]) > TOL
             ) diferentes++;
+            if (classe(pa, i) !== classe(pb, i)) classeDiferente++;
         }
         const total = pa.length / 4;
-        return { diferentes, total, razao: diferentes / total, mesmoTamanho: true };
+        return {
+            diferentes,
+            classeDiferente,
+            total,
+            razao: diferentes / total,
+            razaoClasse: classeDiferente / total,
+            mesmoTamanho: true,
+        };
     }, { a: aDataUrl, b: bDataUrl });
 }
 
@@ -532,6 +586,23 @@ describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
     test.use({ viewport: JANELA });
 
     test('o viewshed de 120°/186 m/1,5 m desenha verde, vermelho, tronco e painel', async ({ page }) => {
+        // O CONSOLE DA PAGINA E PARTE DA MEDICAO. Um shader que nao compila, uma uniforme que
+        // nao existe ou uma excecao dentro do `update` de uma primitiva deixam a cena PRETA e nao
+        // lancam nada no lado do Node: sem esta coleta, a rodada acusa "100% dos pixels diferentes"
+        // e cala o motivo. Medido em 2026-09-15, na primeira execucao da reescrita.
+        const errosDaPagina = [];
+        page.on('pageerror', (erro) => errosDaPagina.push(`pageerror: ${erro.message}`));
+        page.on('console', (msg) => {
+            // Falha de CARREGAMENTO de recurso fica de fora: o `/api/config` do backend
+            // descartavel aponta para um servidor de tiles que esta maquina nao alcanca, e essa
+            // recusa e ruido de ambiente, nao defeito do motor. O que interessa aqui e excecao de
+            // JavaScript e erro de renderizacao do proprio Cesium.
+            if (msg.type() !== 'error') return;
+            const texto = msg.text();
+            if (texto.includes('Failed to load resource')) return;
+            errosDaPagina.push(`console.error: ${texto}`);
+        });
+
         await registrarTileset(page);
         await servirTileset(page);
         await bootar(page);
@@ -540,8 +611,8 @@ describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
         if (!abriu) {
             const estado = await page.evaluate(() => ({
                 cesium: !!window.Cesium,
-                viewshed: !!window.Cesium?.ViewShed3D,
                 viewer: !!window.map,
+                container: document.getElementById('map-3d-container')?.style.display ?? 'ausente',
             }));
             test.skip(
                 true,
@@ -584,6 +655,11 @@ describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
                 'tileset recusado?), nao ha pixel a medir',
         ).toBeGreaterThan(0);
 
+        expect(
+            errosDaPagina,
+            'a pagina reportou erro antes da leitura de pixel; a cena preta costuma vir daqui',
+        ).toEqual([]);
+
         const atual = await lerCanvas(page);
         gravarPng(path.join(DIR_SAIDA, 'viewshed-3d-atual.png'), atual.png);
 
@@ -605,14 +681,18 @@ describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
         const diff = await compararImagens(page, atual.png, referencia);
         expect(diff.mesmoTamanho, 'a referencia tem outro tamanho que o canvas desta rodada').toBe(true);
         console.info(
-            `[viewshed-pixel] diferentes=${diff.diferentes}/${diff.total} (${(diff.razao * 100).toFixed(3)}%)`,
+            `[viewshed-pixel] diferentes=${diff.diferentes}/${diff.total} (${(diff.razao * 100).toFixed(3)}%) ` +
+                `classe=${diff.classeDiferente} (${(diff.razaoClasse * 100).toFixed(3)}%)`,
         );
 
-        // AS QUATRO CAMADAS. Os números vêm de uma medição, não de um chute, e a folga de cada um
-        // está declarada. Medido em 2026-09-15 nesta árvore, contra o vendor `cesium-viewshed.js`,
-        // em TRÊS rodadas em série: verde 133883 (15,192%), vermelho 61189 (6,943%), arame 13823,
-        // e 0/881280 pixels diferentes nas três. A cena não tem nada probabilístico dentro, e é
-        // por isso que ela pôde virar referência.
+        // AS CINCO CAMADAS. Os números vêm de uma medição, não de um chute, e a folga de cada um
+        // está declarada. Medido em 2026-09-15 nesta árvore, em TRÊS rodadas em série de cada
+        // motor, com 0/881280 pixels diferentes nas três de cada lado:
+        //
+        //   vendor `cesium-viewshed.js`   verde 133883 (15,192%)  vermelho 61189 (6,943%)  arame 13823
+        //   casa   `services/viewshed-3d` verde 135534 (15,379%)  vermelho 59714 (6,776%)  arame  9042
+        //
+        // A cena não tem nada probabilístico dentro, e é por isso que ela pôde virar referência.
 
         // 1%, contra 0% medido: a folga existe para rasterização de linha e arredondamento de
         // float, não para uma mudança de desenho. Um motor que troque a cor, a projeção ou o bias
@@ -620,6 +700,14 @@ describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
         // quadro). Se um dia esta linha ficar vermelha numa máquina com outra GPU, a leitura certa
         // é olhar as três camadas abaixo antes de afrouxar esta.
         expect(diff.razao, 'pixels diferentes da referencia').toBeLessThanOrEqual(0.01);
+
+        // A MESMA COMPARAÇÃO, MAS SÓ DA RESPOSTA. Classifica cada pixel em visível, oculto ou
+        // nenhum dos dois e compara as classificações. É a camada que sobrevive a uma mudança no
+        // DESENHO do tronco e morre quando a ANÁLISE muda, e foi ela que deu o número desta
+        // reescrita contra o vendor: 2,651% de classe diferente para 5,307% de pixel diferente,
+        // ou seja, metade do movimento de pixel era o fio de arame trocando de tesselação.
+        expect(diff.razaoClasse, 'classificacao visivel/oculto diferente da referencia')
+            .toBeLessThanOrEqual(0.01);
 
         // Folga de um quinto em cima e embaixo do medido. O que estas duas cobram é que o shader
         // continue SEPARANDO as duas metades: um motor que pinte tudo de verde (nada oclui) ou
@@ -629,12 +717,12 @@ describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
         expect(proporcaoVermelho, 'area oculta (vermelho)').toBeGreaterThan(0.05);
         expect(proporcaoVermelho, 'area oculta (vermelho)').toBeLessThan(0.09);
 
-        // O tronco de visão: a malha branca do sensor retangular, 13823 pixels medidos. O piso é
-        // deliberadamente baixo, porque o que se cobra é a PRESENÇA do fio de arame, e a forma
-        // exata dele já está na camada de pixel.
+        // O tronco de visão: a malha branca, 9042 pixels medidos (13823 com o vendor, que
+        // tesselava mais fino). O piso é deliberadamente baixo, porque o que se cobra aqui é a
+        // PRESENÇA do fio de arame; a forma exata dele já está na camada de pixel.
         expect(atual.arame, 'o tronco de visao em fio de arame').toBeGreaterThan(5000);
 
-        // Quarta camada: o painel do produto.
+        // Quinta camada: o painel do produto.
         const painel = page.locator('.viewshed-3d-panel-content');
         await expect(painel).toBeVisible({ timeout: 10000 });
         const entradas = painel.locator('.viewshed-observer-height-input');
@@ -642,5 +730,71 @@ describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
         await expect(entradas.nth(0)).toHaveValue(String(PARAMS.horizontalAngle));
         await expect(entradas.nth(1)).toHaveValue(String(PARAMS.distance));
         await expect(entradas.nth(2)).toHaveValue(String(PARAMS.observerHeight));
+    });
+
+    test('o gesto interativo de dois cliques completa, e e o `calback` com um L que o faz', async ({ page }) => {
+        // O QUE ESTE CASO MEDE, E QUE NENHUM OUTRO MEDIA. `activateViewshedTool` constroi o
+        // viewshed passando a opcao `calback`, com UM L, grafia herdada do plugin de terceiro que
+        // foi substituido em 2026-09-15. Se o motor corrigir a ortografia sem o chamador mudar
+        // junto, o gesto de dois cliques nunca completa: nao ha erro, nao ha toast, nao ha
+        // viewshed, e a pessoa fica clicando. O aceite da reescrita chama isso de item 1, e ate
+        // aqui ele estava escrito e nao verificado.
+        await registrarTileset(page);
+        await servirTileset(page);
+        await bootar(page);
+
+        const abriu = await abrirVisualizador3d(page);
+        if (!abriu) {
+            test.skip(true, 'o visualizador Cesium nao inicializou sem cabeca; limite de ambiente');
+            return;
+        }
+
+        await montarCena(page, OBSERVADOR);
+        await fixarCamera(page, OBSERVADOR);
+
+        await page.evaluate(async ({ id }) => {
+            const ferramenta = await import('/src/js/3d_models_viewer_tool/tools/viewshed_tool_3d.js');
+            ferramenta.activateViewshedTool(window.map, id);
+        }, { id: TILESET_ID });
+
+        // Dois cliques REAIS no canvas, sobre o chao da cena: o primeiro fixa o observador, o
+        // segundo o alvo. As posicoes sao do enquadramento fixo e caem os dois sobre a primitiva
+        // do chao, que e o que `pickScenePosition` precisa achar.
+        const canvas = page.locator('#map-3d canvas').first();
+        await canvas.click({ position: { x: 612, y: 560 } });
+        await canvas.click({ position: { x: 612, y: 300 } });
+
+        const criado = await page.evaluate(async ({ id }) => {
+            const loja = await import('/src/js/store/index.js');
+            for (let tentativa = 0; tentativa < 60; tentativa++) {
+                const lista = await loja.getViewsheds(id);
+                if (lista.length > 0) {
+                    const v = lista[0];
+                    return {
+                        nome: v.properties?.nome ?? null,
+                        alturaDoObservador: v.observerHeight,
+                        anguloHorizontal: v.parameters?.horizontalAngle,
+                        temAlvo: !!v.targetPosition,
+                        distancia: v.parameters?.distance,
+                    };
+                }
+                await new Promise((r) => setTimeout(r, 100));
+            }
+            return null;
+        }, { id: TILESET_ID });
+
+        expect(
+            criado,
+            'o gesto de dois cliques nao produziu viewshed nenhum: o retorno do motor nao chegou ' +
+                'ao chamador (a grafia de `calback` e o suspeito numero um)',
+        ).not.toBeNull();
+        expect(criado.nome).toBe('Visibilidade #1');
+        // O chamador RECRIA o viewshed com 1,5 m de offset depois do primeiro clique, e e esse
+        // numero que prova que ele leu de volta os campos do objeto em vez de inventa-los.
+        expect(criado.alturaDoObservador).toBe(1.5);
+        expect(criado.temAlvo, 'o segundo clique nao virou `targetPosition`').toBe(true);
+        expect(criado.anguloHorizontal).toBe(120);
+        expect(criado.distancia, 'a distancia e RECALCULADA dos dois pontos, nao o padrao de 500')
+            .not.toBe(500);
     });
 });

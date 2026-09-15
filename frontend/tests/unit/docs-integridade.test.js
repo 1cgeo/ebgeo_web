@@ -247,6 +247,21 @@ const ISENTOS = new Set([
     // sozinho.
     'frontend/public/vendors/cesium/index.cjs',
     'frontend/public/vendors/cesium/index.js',
+    // APAGADOS EM 2026-09-15 (decisão D15), e citados por nome, por byte e por número de campo
+    // privado em quatro documentos: a declaração de segurança, o aceite da reescrita, o
+    // inventário de vendors e as próprias entradas de decisão. Os quatro são registro DATADO do
+    // estado que se decidiu trocar (154.710 bytes de UMD ofuscado sem autor nem licença, e os
+    // três remendos de compatibilidade que existiam só por causa dele); reescrevê-los para
+    // apontar para o que existe hoje apagaria a única prova do que havia antes.
+    //
+    // O motor passou a ser código da casa em
+    // `frontend/src/js/3d_models_viewer_tool/services/viewshed-3d.js`.
+    //
+    // A isenção não deixa buraco, e o guarda é o mesmo padrão do MapLibre e do Three.js: quem
+    // cobra que o vendor NÃO voltou é `frontend/tests/unit/viewshed-3d-api-privada.test.js`,
+    // que exige a ausência da pasta e a ausência de qualquer referência a ela em `src/`.
+    'frontend/public/vendors/cesium/cesium-viewshed.js',
+    'frontend/src/js/3d_models_viewer_tool/services/cesium-compat.js',
 ]);
 
 /**
@@ -391,6 +406,9 @@ const SIMBOLO_INEXISTENTE_DE_PROPOSITO = new Map([
     ['deleteSession', 'o par do acima, removido no mesmo commit e citado pelo mesmo motivo'],
     ['updateData', 'método da GeoJSONSource do MapLibre 5.18 (aplica um diff em vez de reenviar a coleção). Externo, e o livro-razão o nomeia justamente para registrar que este projeto NÃO o usa: as 293 chamadas de setData reenviam o array inteiro'],
     ['connectionTimeoutMillis', 'opção do pool do pg que este projeto NÃO define, e a ausência é o ponto: sem ela o pool ESPERA em vez de lançar, então o catch que contaria a falha de autorização nunca roda. Um mecanismo de defeito inteiro foi deduzido de ler aquele catch sem verificar se algo o alcança, e a medição o refutou (todos os fechamentos saíram 1006, não 4003); ver a decisão de 2026-08-28 sobre vivacidade e capacidade-de-uma-instancia'],
+    ['patchPrimitiveLifecycle', 'um dos tres remendos de cesium-compat.js, apagado em 2026-09-15 com o arquivo inteiro (decisao D15): ele injetava isDestroyed/destroy nas duas classes que o vendor ofuscado definia, e a classe da casa os implementa. O aceite da reescrita o nomeia justamente para dizer qual remendo a troca faria sair, e essa saida e o que media o ganho; apagar o nome falsificaria o criterio de aceite'],
+    ['loadScript', 'o injetor de tag <script> de 3d_models_viewer_tool/map_3d.js, removido em 2026-09-15 junto com o seu ultimo chamador (o vendor do viewshed). O inventario de vendors o nomeia ao registrar que aquela pasta tinha um caminho montado em RUNTIME, que era a ressalva de alcance do proprio inventario; hoje nao ha mais nenhum'],
+    ['destroyObject', 'ajudante do Cesium (@cesium/engine), externo a este repositorio. A pagina viewshed-3d o nomeia para dizer que a classe da casa NAO o usa: ele troca todo metodo por um que lanca, e a segunda chamada a destroy() explodiria onde o contrato pede silencio'],
     ['waitForGlobal', 'o ajudante de 3d_models_viewer_tool/map_3d.js que fazia polling até o `<script>` do Cesium definir window.Cesium, removido em 2026-09-14 (V9) quando a biblioteca passou a vir do npm e a espera deixou de ter objeto: um import estático não corre contra ninguém. docs/MEMORY.md o nomeia como o gêmeo APAGADO, ao apontar para o waitFor de deep-link/deep-link.js, que é quem continua servindo de modelo do padrão. Apagar o nome tiraria da lição a única coisa que ela ensina, que é onde o padrão morava'],
 ]);
 

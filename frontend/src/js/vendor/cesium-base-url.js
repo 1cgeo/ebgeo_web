@@ -34,8 +34,10 @@
  *
  * O prefixo continua sendo `/vendors/cesium/`, o mesmo de quando a biblioteca era um `<script>`
  * de `frontend/public/vendors/cesium/`: o que mudou foi a origem dos bytes (npm, versão exata),
- * não o endereço. Só `cesium-viewshed.js` sobrevive naquela pasta, e ele é servido pelo
- * `publicDir` sob o mesmo prefixo, ao lado do que o plugin serve.
+ * não o endereço. **Aquela pasta deixou de existir em 2026-09-15** (decisão D15 apagou o último
+ * arquivo dela, o viewshed ofuscado), então hoje TUDO o que responde sob este prefixo vem do
+ * plugin, e nada do `publicDir`. O prefixo se mantém por ser o endereço que o produto já usava, e
+ * não por haver um arquivo versionado ali.
  */
 
 /** O prefixo de URL dos ativos estáticos do Cesium. Com barra final: `buildModuleUrl` concatena. */

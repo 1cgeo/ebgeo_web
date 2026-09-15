@@ -18,10 +18,6 @@ import {
     deactivateKeyboardService3D,
     confirmAndDelete3DFeature
 } from './services/keyboard-service-3d.js';
-import {
-    applyCesiumPreLoadPatches,
-    applyCesiumPostLoadPatches
-} from './services/cesium-compat.js';
 // House code since 2026-09-14 (decision D9), no longer a `<script>` injected
 // from public/vendors/. What the adoption changed, and what it deliberately
 // left alone, is in that module's header.
@@ -66,31 +62,13 @@ const navHelpHandlers = {
 };
 
 // ===== LAZY LOADING =====
-/**
- * Injects a classic `<script>` tag and resolves when it has run.
- *
- * ONE CALLER LEFT, and it is the reason this helper survives the npm migration:
- * `cesium-viewshed.js`, the obfuscated UMD that still lives in `public/vendors/cesium/`. Its
- * browser branch is `self['space'] = factory(self['Cesium'])`, so it reads the global that
- * `@js/vendor/cesium.js` publishes and cannot be imported as a module. The Cesium distribution
- * itself stopped coming through here on 2026-09-14.
- * @param {string} src
- * @returns {Promise<void>}
- */
-function loadScript(src) {
-    return new Promise((resolve, reject) => {
-        if (document.querySelector(`script[src="${src}"]`)) {
-            resolve();
-            return;
-        }
-
-        const script = document.createElement('script');
-        script.src = src;
-        script.onload = resolve;
-        script.onerror = () => reject(new Error(`Failed to load ${src}`));
-        document.head.appendChild(script);
-    });
-}
+//
+// `loadScript` VIVIA AQUI E SAIU EM 2026-09-15, com o seu ultimo chamador. Ele injetava uma tag
+// `<script>` classica e resolvia no `onload`, e existia para `cesium-viewshed.js`, o UMD ofuscado
+// que lia `window.Cesium` e pendurava `ViewShed3D` nele, duas coisas que um `import` nao faz. A
+// decisao D15 trocou aquele arquivo por codigo da casa (`services/viewshed-3d.js`), entao nao ha
+// mais nada nesta pagina que entre por tag: tudo o que o visualizador 3D usa esta no grafo do
+// bundler, e portanto nas guardas de peso e no `npm audit`.
 
 /**
  * Loads Cesium library and initializes the 3D map
@@ -129,13 +107,12 @@ async function loadCesiumAndInit() {
                 };
             }
 
-            // Compatibility patches for cesium-viewshed (built for ~1.100).
-            // cesium-measure needed none of the three and is now an import.
-            applyCesiumPreLoadPatches(Cesium);
-
-            await loadScript('./vendors/cesium/cesium-viewshed.js');
-
-            applyCesiumPostLoadPatches(Cesium);
+            // OS TRES REMENDOS DE `cesium-compat.js` SAIRAM COM O VENDOR QUE OS EXIGIA. Eram o
+            // polyfill de `Cesium.defaultValue` (removido na 1.134), a reescrita automatica de
+            // GLSL ES 1.0 para 3.0 e o `isDestroyed`/`destroy` injetado em duas classes que o
+            // plugin definia. Nenhum deles tinha outro beneficiario: `cesium-measure.js` nunca
+            // precisou de um, e `services/viewshed-3d.js` nasce com shader 3.0 e com ciclo de
+            // vida proprio. Ver a decisao D15 de 2026-09-15.
 
             await initCesiumMap();
 

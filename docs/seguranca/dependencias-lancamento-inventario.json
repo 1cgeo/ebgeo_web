@@ -3850,9 +3850,9 @@
         "pastasCobertas": [
           "frontend/public/vendors"
         ],
-        "arquivos": 1,
-        "bytes": 154710,
-        "textoEmCrlf": 1,
+        "arquivos": 0,
+        "bytes": 0,
+        "textoEmCrlf": 0,
         "textoEmLf": 0,
         "binarios": 0,
         "codigoDeTerceiroForaDasPastasCobertas": 0,
@@ -3865,7 +3865,8 @@
         "Quatro artefatos SEM CONSUMIDOR foram podados de frontend/public/vendors/ (decisao D9, item V6): os dois builds grandes do Cesium (cesium/index.js e cesium/index.cjs, 8,6 MB somados, que publicDir copiava verbatim para o dist/) e os dois builds auxiliares do GDAL (gdal/gdal3.dev.js e gdal/gdal3.node.js). Tres eram TEXTO em CRLF e um TEXTO em LF, e por isso a parcela de binarios nao se moveu NAQUELE passo, continuando em 209; ela so cairia nos dois passos seguintes, que sao as duas entradas abaixo.",
         "A DISTRIBUICAO DO CESIUM SAIU de frontend/public/vendors/cesium/ (decisao V9 de 2026-09-14): 390 arquivos da 1.138.0, carregados por <script> injetado em runtime, e a biblioteca passa a vir do npm em 1.145.0, versao exata, pelo ponto unico frontend/src/js/vendor/cesium.js. Os quatro diretorios que o motor busca por URL (Assets, ThirdParty, Widgets, Workers) deixaram de ser versionados: o plugin ebgeo-cesium do frontend/vite.config.js os copia de node_modules/cesium/Build/Cesium a cada build. Sobrou na pasta cesium-viewshed.js, TEXTO, que continua sendo carregado por <script> porque le e escreve window.Cesium. Foi aqui que a parcela de binarios caiu de 209 para 2: o que saiu e PNG, JPG e WASM de Assets/, ThirdParty/ e Widgets/Images/.",
         "frontend/public/vendors/gdal/ SAIU inteira (2026-09-14): gdal3.js 2.8.1 passa a vir do npm, em versao exata, pelo ponto unico frontend/src/js/vendor/gdal.js, e o dist/ deixa de receber os 39,8 MB que publicDir copiava verbatim. Eram tres arquivos, 40.006.117 bytes, e DOIS deles eram os ultimos binarios das pastas cobertas (gdal3WebAssembly.wasm, 28.219.835 bytes, e gdal3WebAssembly.data, 11.595.145); o terceiro e o wrapper, texto em LF. A parcela de binarios caiu de 2 para ZERO, e o conteudo e o MESMO, conferido por cmp byte a byte contra o pacote do npm, de modo que as declaracoes do item V4 sobre as sete bibliotecas nativas dentro daquele .wasm seguem valendo sem remedicao (ver gdalWasmCadeiaNativa).",
-        "O DOCSIFY SAIU (2026-09-15, decisao D16), e com ele o ULTIMO vendor com consumidor: docsify.min.js (160.921 bytes, texto em CRLF) e vue.css (13.061, texto em LF) eram a 4.13.1, servidos por tag para frontend/public/docs/doc.html, a pagina estatica do botao Tutorial. O tutorial virou a QUINTA entrada do bundler (frontend/tutorial.html, entry frontend/src/js/tutorial/tutorial-page.js) e a biblioteca passou a vir do npm em docsify 5.0.0, versao exata, pelo ponto unico frontend/src/js/vendor/docsify.js, com o tema vindo de dist/themes/core.css do proprio pacote. O markdown e as 41 midias continuam em frontend/public/docs/, porque sao conteudo e nao codigo, e por isso nao entram neste inventario. Sobra UM arquivo nas pastas cobertas, cesium/cesium-viewshed.js, e ele e o unico que resta sem versao, sem licenca e sem upstream a que perguntar por aviso: a pasta deixou de ter vendor com pino possivel e passou a ter so o caso declarado no item V3."
+        "O DOCSIFY SAIU (2026-09-15, decisao D16), e com ele o ULTIMO vendor com consumidor: docsify.min.js (160.921 bytes, texto em CRLF) e vue.css (13.061, texto em LF) eram a 4.13.1, servidos por tag para frontend/public/docs/doc.html, a pagina estatica do botao Tutorial. O tutorial virou a QUINTA entrada do bundler (frontend/tutorial.html, entry frontend/src/js/tutorial/tutorial-page.js) e a biblioteca passou a vir do npm em docsify 5.0.0, versao exata, pelo ponto unico frontend/src/js/vendor/docsify.js, com o tema vindo de dist/themes/core.css do proprio pacote. O markdown e as 41 midias continuam em frontend/public/docs/, porque sao conteudo e nao codigo, e por isso nao entram neste inventario. Sobra UM arquivo nas pastas cobertas, cesium/cesium-viewshed.js, e ele e o unico que resta sem versao, sem licenca e sem upstream a que perguntar por aviso: a pasta deixou de ter vendor com pino possivel e passou a ter so o caso declarado no item V3.",
+        "O VIEWSHED SAIU (2026-09-15, decisao D15), e com ele a pasta frontend/public/vendors/ INTEIRA: cesium/cesium-viewshed.js (154.710 bytes, texto em CRLF, 1.933 linhas, sem autor, sem licenca, sem versao, 849 identificadores hexadecimais distintos) foi APAGADO e a analise de visibilidade 3D passou a ser codigo da casa em frontend/src/js/3d_models_viewer_tool/services/viewshed-3d.js, sobre a API do Cesium 1.145, no ESLint da casa e dentro do grafo do bundler. Saiu junto tudo o que so existia por causa dele: frontend/src/js/3d_models_viewer_tool/services/cesium-compat.js inteiro, com os tres remendos do item V3, e o injetor de tag <script> de map_3d.js, que era o ULTIMO caminho montado em runtime deste repositorio. Ele era texto, entao a parcela de binarios nao tinha como se mover: 1 -> 0 arquivos e 0 -> 0 binarios. Esta entrada e a que fecha a serie, e o zero aqui nao e um numero menor entre outros: e a pasta coberta deixando de existir, de modo que tudo o que a pagina do mapa carrega esta hoje no grafo do bundler, e portanto nas guardas de peso e no alcance do npm audit."
       ],
       "notaDoCampoSha256Lf": "Ao contrario do bloco de 2026-09-13, aqui sha256Lf e null em TODO arquivo binario, e isso e propriedade do instrumento e nao coincidencia: scripts/inventario-de-vendors.mjs classifica texto por UTF-8 valido sem byte NUL e so normaliza CRLF nos arquivos de texto. Um sha256Lf nao nulo num binario deste bloco significa que alguem mexeu no classificador. Desde a saida do GDAL, neste bloco nao ha um unico arquivo binario: a invariante acima continua escrita porque ela reganha sujeito no dia em que um binario voltar, e o positivo que a discrimina mora no bloco de 2026-09-13, com os 166 sha256Lf rotulados como artefato do instrumento.",
       "manifestoCompleto": {
@@ -3877,18 +3878,13 @@
           "sha256Lf (null em binario e em texto que ja esta em LF)"
         ],
         "comoRefazer": "node scripts/inventario-de-vendors.mjs --check confere, --write regrava. As duas leem o DISCO, nunca o commit, entao confira o HEAD antes de acreditar na saida. A lista de arquivos vem de git ls-files, nunca de um caminhar do disco: as pastas de vendor recebem artefato de build e resto de experimento, e um caminhar contaria o que o repositorio nao guarda.",
-        "arquivos": [
-          [
-            "frontend/public/vendors/cesium/cesium-viewshed.js",
-            154710,
-            "51a37b7a9bae8cc81135bb259bd823edae4c762ded54fe27d1fe4188020aa85a",
-            "f0bcf2196482d3ef2954d3fcefc6bf7e64f26d770e96d7ad93eb0ea551662925"
-          ]
-        ]
+        "arquivos": [],
+        "notaDaListaVazia": "A lista VAZIA e o estado verdadeiro desde 2026-09-15, e nao um bloco pela metade: frontend/public/vendors/ deixou de existir no repositorio quando as duas ultimas saidas do mesmo dia se somaram (o docsify pela decisao D16 e o viewshed pela D15). O script continua conferindo, e o que ele afirma agora e que a pasta segue vazia: um arquivo que reapareca ali entra como novo e derruba o --check. Os controles de vacuo que dependiam de um ocupante real passaram a FABRICA-LO em frontend/tests/unit/inventario-de-vendors.test.js, porque zero de arvore limpa e zero de instrumento quebrado sao a mesma saida."
       }
     },
     "cesiumViewshedDeclarado": {
-      "decisao": "D9 de 2026-09-14, item V3: manter e DECLARAR, com a reescrita sobre a API publica de ShadowMap como alvo e prazo a fixar pelo dono. Nao desofuscar, nao reescrever por arrumacao.",
+      "executado": "EXECUTADO EM 2026-09-15 (decisao D15). O dono fixou o prazo, o arquivo foi APAGADO e o motor da analise de visibilidade 3D passou a ser codigo da casa em frontend/src/js/3d_models_viewer_tool/services/viewshed-3d.js, sobre a API do Cesium 1.145. Os onze campos privados abaixo viraram TRES (scene.context, _shadowMapTexture e frameState.shadowMaps), presos por frontend/tests/unit/viewshed-3d-api-privada.test.js, que le o fonte do Cesium instalado e reprova quando um nome muda. Os tres remendos de cesium-compat.js sairam com o arquivo que os continha. O resto desta secao fica INTACTO, sem reescrita: ela e a medicao datada do que se decidiu trocar, e e contra ela que a troca foi conferida, item por item, em docs/seguranca/cesium-viewshed-reescrita-aceite.md. Todo caminho e todo numero abaixo descrevem o estado ANTERIOR.",
+      "decisao": "D9 de 2026-09-14, item V3: manter e DECLARAR, com a reescrita sobre a API publica de ShadowMap como alvo e prazo a fixar pelo dono. Nao desofuscar, nao reescrever por arrumacao. SUPERADA pela D15 de 2026-09-15, registrada no campo executado acima.",
       "arquivo": "frontend/public/vendors/cesium/cesium-viewshed.js",
       "bytes": 154710,
       "linhas": 1933,

@@ -2,7 +2,7 @@
 
 O inventário do que a análise de visibilidade 3D FAZ, escrito para que ela possa ser reescrita: o contrato com o chamador, as decisões de desenho que parecem cosméticas e não são, e as armadilhas que só a medição entrega.
 
-Esta página é o passo 2 da decisão D15 de 2026-09-15 ([`../decisions/decisions-2026.md`](../decisions/decisions-2026.md)): reescrever `frontend/public/vendors/cesium/cesium-viewshed.js` como código da casa. Ela descreve **o que** a peça faz, nunca **como** o vendor faz, porque o "como" é justamente o que vai mudar. A declaração de segurança daquele arquivo e o aceite da troca vivem em [`../seguranca/cesium-viewshed-reescrita-aceite.md`](../seguranca/cesium-viewshed-reescrita-aceite.md).
+Esta página nasceu como o passo 2 da decisão D15 de 2026-09-15 ([`../decisions/decisions-2026.md`](../decisions/decisions-2026.md)), o inventário escrito para tornar a reescrita possível. **A reescrita ACONTECEU no mesmo dia**, e o motor é [`../../frontend/src/js/3d_models_viewer_tool/services/viewshed-3d.js`](../../frontend/src/js/3d_models_viewer_tool/services/viewshed-3d.js): o vendor ofuscado foi apagado, e com ele os três remendos de compatibilidade que só existiam para ele. A página segue descrevendo **o que** a peça faz, que é o que sobreviveu à troca; o cabeçalho daquele arquivo é quem conta **como**, e a declaração de segurança do arquivo substituído e o aceite da troca vivem em [`../seguranca/cesium-viewshed-reescrita-aceite.md`](../seguranca/cesium-viewshed-reescrita-aceite.md).
 
 ## O que a peça é, em uma frase
 
@@ -21,7 +21,7 @@ Dois modos de construção, e o chamador usa os dois:
 
 **Os campos que o chamador LÊ de volta** depois do clique interativo são `cameraPosition`, `viewPosition`, `heading`, `pitch`, `horizontalAngle`, `verticalAngle` e `distance`. Os três últimos são lidos com `|| DEFAULT_VIEWSHED_PARAMS.x`, então devolver `0` num deles cai no padrão em vez de no valor pedido. O chamador também carimba uma propriedade própria (`_wasSaved`) no objeto, então ou a classe aceita propriedade arbitrária, ou o chamador muda no mesmo commit.
 
-**O ciclo de vida**: `destroy()` precisa ser chamável mais de uma vez sem derrubar a tela (o chamador já envolve em `try`), e `isDestroyed()` precisa existir. Os dois são hoje INJETADOS de fora, por `patchPrimitiveLifecycle` em [`frontend/src/js/3d_models_viewer_tool/services/cesium-compat.js`](../../frontend/src/js/3d_models_viewer_tool/services/cesium-compat.js), porque o vendor não os tem e o Cesium 1.138 passou a chamar `isDestroyed()` em toda primitiva adicionada. Uma classe que os implemente de verdade faz esse remendo sair, e é essa saída que mede o ganho.
+**O ciclo de vida**: `destroy()` precisa ser chamável mais de uma vez sem derrubar a tela (o chamador já envolve em `try`), e `isDestroyed()` precisa existir. Até 2026-09-15 os dois eram INJETADOS de fora, por um remendo que existia só porque o vendor não os tinha e o Cesium 1.138 passou a chamar `isDestroyed()` em toda primitiva adicionada. A classe da casa os implementa, e o remendo saiu junto com o arquivo que o exigia: é essa saída que mede o ganho. Uma armadilha que a implementação carrega por escrito: ela **não** usa `destroyObject` do Cesium, porque aquele ajudante troca todo método por um que lança, e a segunda chamada a `destroy()` passaria a explodir exatamente onde o contrato pede silêncio.
 
 ## As sete coisas que o objeto faz quando se desenha
 
@@ -66,15 +66,19 @@ Ambas foram medidas em 2026-09-15 nesta árvore, com o spec de pixel, e estão n
 
 ## O que NÃO precisa ser reproduzido
 
-Metade do arquivo do vendor é um sensor retangular genérico com pintura Phong, plano de varredura animado, superfícies laterais e de domo, cor de interseção com o elipsoide e material configurável. **O viewshed usa uma fatia estreita disso**: o fio de arame, com raio e dois meios ângulos. Superfícies desligadas, varredura desligada, sem interseção com o elipsoide. Nenhum outro consumidor existe em `frontend/src/`; só o remendo de ciclo de vida em `cesium-compat.js` menciona a classe pelo nome.
+Metade do arquivo do vendor era um sensor retangular genérico com pintura Phong, plano de varredura animado, superfícies laterais e de domo, cor de interseção com o elipsoide e material configurável. **O viewshed usava uma fatia estreita disso**: o fio de arame, com raio e dois meios ângulos, com as superfícies e a varredura desligadas. Ele não tinha outro consumidor, e o aceite declarou que não precisava ser portado.
 
-Ou seja, a reescrita do tronco é um tronco de pirâmide em fio de arame, e não um sensor.
+O que a reescrita desenha no lugar é um **setor esférico** em polilinhas, e a escolha da esfera não é estética: o corte do shader é por DISTÂNCIA constante ao observador, então a fronteira distante é uma esfera, e um tronco de pirâmide desenharia um plano que a análise não tem. Duas consequências medidas: a tesselação é mais grossa que a do sensor (9042 pixels de fio de arame contra 13823), e as linhas são **translúcidas de propósito**, porque uma polilinha opaca escreve profundidade e o próprio pós-processamento a pinta de verde ou vermelho, fazendo a anotação mentir sobre o que o observador enxerga.
 
 ## Como saber se a reescrita reproduziu o desenho
 
 A prova é visual, e ela existe desde 2026-09-15: [`../../frontend/tests/e2e-ui/viewshed-3d-pixel.spec.js`](../../frontend/tests/e2e-ui/viewshed-3d-pixel.spec.js), com a referência versionada ao lado. Ele mede em quatro camadas (pixels diferentes da referência, proporção de verde, proporção de vermelho, presença do fio de arame) mais o painel do produto. Antes dele, os únicos testes que citavam viewshed mediam a ENTIDADE viajando pelo sync, e nenhum construía o objeto.
 
-Uma reescrita que deixe o spec verde reproduziu o desenho no caso de 120 graus. O que ele **não** cobre, e o aceite cobra à parte, é a costura entre sub-viewsheds acima de 150 graus: ali a leitura é de imagem, procurando faixa saturada e fresta.
+**A troca de 2026-09-15 foi medida com ele, e o número que importa é o da CLASSE.** Entre a imagem do vendor e a do motor da casa, 5,307% dos pixels mudaram, mas só 2,651% mudaram de classificação (visível, oculto ou nenhum dos dois): a maior parte do movimento de pixel é o fio de arame trocando de tesselação, e não a análise. Verde e vermelho ficaram em 15,379% e 6,776% do quadro, contra 15,192% e 6,943% do vendor, dentro das mesmas faixas declaradas, que não precisaram mudar.
+
+**O gesto interativo também passou a ser medido no mesmo arquivo**, e ele é o caso que mais precisava: dois cliques reais no canvas, e a asserção de que o viewshed nasceu na loja com 1,5 m de altura de observador e com a distância RECALCULADA dos dois pontos. É o único teste que prova a grafia de `calback`, e o controle negativo é direto: trocar o nome da opção para a grafia correta, num lado só, reprova com a mensagem que nomeia o suspeito.
+
+O que o spec **não** cobre, e o aceite cobra à parte, é a costura entre sub-viewsheds acima de 150 graus: ali a leitura é de imagem, procurando faixa saturada e fresta.
 
 ## Ver também
 

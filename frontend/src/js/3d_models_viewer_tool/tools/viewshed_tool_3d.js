@@ -1,9 +1,17 @@
 // Path: js/3d_models_viewer_tool/tools/viewshed_tool_3d.js
 
 /**
- * @fileoverview 3D Viewshed tool wrapper for cesium-viewshed.
+ * @fileoverview 3D Viewshed tool wrapper.
  * Provides persistence and selection for viewshed analysis.
  * Follows the same pattern as marker_tool_3d.js.
+ *
+ * SINCE 2026-09-15 THE ENGINE IS OURS. Until then this file built `Cesium.ViewShed3D`, a class that
+ * an obfuscated third-party `<script>` hung onto the Cesium namespace at runtime; it is now
+ * `Viewshed3D` from `services/viewshed-3d.js`, imported like anything else (decision D15). Three
+ * things the swap deliberately did NOT change, because they are contract with this file: the
+ * misspelled `calback` option, the fields read back after the interactive gesture, and the 1.5
+ * degree narrowing per sub-viewshed (`renderAngle` below), which only works because the shader
+ * still compares with strict `>`.
  */
 
 import {
@@ -15,13 +23,14 @@ import {
 } from '@store/index.js';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
+import { Viewshed3D } from '../services/viewshed-3d.js';
 
 // ===== MODULE STATE =====
 
 let isToolActive = false;
 let currentViewer = null;
 let currentTilesetId = null;
-const viewshedObjects = new Map(); // viewshedId -> { cesiumViewsheds: Cesium.ViewShed3D[], originEntity: Cesium.Entity }
+const viewshedObjects = new Map(); // viewshedId -> { cesiumViewsheds: Viewshed3D[], originEntity: Cesium.Entity }
 let selectedViewshedId = null;
 let selectionHandler = null;
 let pendingViewshed = null; // Temporary storage for viewshed being created
@@ -40,7 +49,7 @@ const DEFAULT_VIEWSHED_PARAMS = {
     distance: 500
 };
 
-// Maximum horizontal FOV supported by a single Cesium.ViewShed3D instance
+// Maximum horizontal FOV supported by a single Viewshed3D instance
 const MAX_SINGLE_VIEWSHED_ANGLE = 150;
 
 // ===== UTILITY FUNCTIONS =====
@@ -97,8 +106,8 @@ function rotateViewPositionAroundObserver(cameraPosition, viewPosition, angleDeg
 }
 
 /**
- * Destroys an array of Cesium.ViewShed3D objects safely.
- * @param {Cesium.ViewShed3D[]} cesiumViewsheds - Array of viewsheds to destroy
+ * Destroys an array of Viewshed3D objects safely.
+ * @param {Viewshed3D[]} cesiumViewsheds - Array of viewsheds to destroy
  */
 function destroyCesiumViewsheds(cesiumViewsheds) {
     if (!cesiumViewsheds) return;
@@ -107,7 +116,7 @@ function destroyCesiumViewsheds(cesiumViewsheds) {
             try {
                 vs.destroy();
             } catch (e) {
-                console.warn('Error destroying ViewShed3D:', e);
+                console.warn('Error destroying Viewshed3D:', e);
             }
         }
     }
@@ -179,15 +188,15 @@ function createViewshedIcon(color = '#FF8C00', size = 24) {
 }
 
 /**
- * Creates one or more Cesium.ViewShed3D objects from stored viewshed data.
- * For horizontalAngle <= 150°, creates a single ViewShed3D (original behavior).
+ * Creates one or more Viewshed3D objects from stored viewshed data.
+ * For horizontalAngle <= 150°, creates a single Viewshed3D (original behavior).
  * For horizontalAngle > 150°, splits into 2 or 3 sub-viewsheds rotated to cover
  * the total sector symmetrically around the original heading direction.
  * @param {Object} viewshed - Viewshed data from the store
- * @returns {Cesium.ViewShed3D[]} Array of ViewShed3D objects (1, 2, or 3 elements)
+ * @returns {Viewshed3D[]} Array of Viewshed3D objects (1, 2, or 3 elements)
  */
 function createCesiumViewsheds(viewshed) {
-    if (!currentViewer || !window.Cesium || !Cesium.ViewShed3D) {
+    if (!currentViewer || !window.Cesium) {
         return [];
     }
 
@@ -272,17 +281,19 @@ function createCesiumViewsheds(viewshed) {
         }
 
         // Each sub-viewshed's FOV is slightly reduced to prevent double-tinting at seams.
-        // The cesium-viewshed shader uses strict greater-than (degJJ > spzj/2.0), so
-        // pixels at the exact boundary pass both sub-viewsheds' checks. Both post-process
-        // stages then apply mix() sequentially, causing visible color saturation at seams.
-        // A 0.1° reduction per sub-viewshed creates imperceptible gaps that eliminate this.
+        // The shader compares with STRICT greater-than, so pixels at the exact boundary pass both
+        // neighbouring sub-viewsheds' checks; both post-process stages then apply mix()
+        // sequentially, which reads as a saturated band along the seam. The narrowing opens an
+        // imperceptible gap instead. This survived the 2026-09-15 engine swap ON PURPOSE: the
+        // house shader kept `>` precisely so this line would not have to change, and the two are
+        // a pair (see `services/viewshed-3d.js`, third declared decision in its header).
         const renderAngle = count > 1 ? subAngle - 1.5 : subAngle;
 
         const result = [];
         for (const offset of offsets) {
             const rotatedViewPosition = rotateViewPositionAroundObserver(cameraPosition, baseViewPosition, offset);
 
-            const vs = new Cesium.ViewShed3D(currentViewer, {
+            const vs = new Viewshed3D(currentViewer, {
                 cameraPosition: cameraPosition,
                 viewPosition: rotatedViewPosition,
                 horizontalAngle: renderAngle,
@@ -294,7 +305,7 @@ function createCesiumViewsheds(viewshed) {
 
         return result;
     } catch (error) {
-        console.warn('Failed to create ViewShed3D:', error);
+        console.warn('Failed to create Viewshed3D:', error);
         return [];
     }
 }
@@ -375,18 +386,18 @@ export function activateViewshedTool(viewer, tilesetId) {
     currentTilesetId = tilesetId;
     isToolActive = true;
 
-    // Use cesium-viewshed library
-    if (Cesium.ViewShed3D) {
-        pendingViewshed = new Cesium.ViewShed3D(viewer, {
-            horizontalAngle: DEFAULT_VIEWSHED_PARAMS.horizontalAngle,
-            verticalAngle: DEFAULT_VIEWSHED_PARAMS.verticalAngle,
-            distance: DEFAULT_VIEWSHED_PARAMS.distance,
-            calback: function () {
-                // Called when viewshed creation is complete
-                handleViewshedComplete(pendingViewshed);
-            }
-        });
-    }
+    // THE OPTION IS `calback`, WITH ONE L, and it is contract, not a typo to fix here: the class
+    // inherited the spelling from the plugin it replaced. Correcting it on one side only gives an
+    // interactive mode that never completes, and does it silently.
+    pendingViewshed = new Viewshed3D(viewer, {
+        horizontalAngle: DEFAULT_VIEWSHED_PARAMS.horizontalAngle,
+        verticalAngle: DEFAULT_VIEWSHED_PARAMS.verticalAngle,
+        distance: DEFAULT_VIEWSHED_PARAMS.distance,
+        calback: function () {
+            // Called when viewshed creation is complete
+            handleViewshedComplete(pendingViewshed);
+        }
+    });
 
     viewer.canvas.style.cursor = 'crosshair';
 }
@@ -413,11 +424,11 @@ export function deactivateViewshedTool() {
 }
 
 /**
- * Handles viewshed completion from cesium-viewshed.
+ * Handles viewshed completion from the interactive two-click gesture.
  * The interactive click handler places the observer at ground level (height += 0).
  * After capturing positions, the initial viewshed is destroyed and recreated
  * with a 1.5m observer height offset to simulate eye-level observation.
- * @param {Cesium.ViewShed3D} cesiumViewshed - The created viewshed
+ * @param {Viewshed3D} cesiumViewshed - The created viewshed
  */
 async function handleViewshedComplete(cesiumViewshed) {
     if (!currentViewer || !currentTilesetId || !cesiumViewshed) return;
