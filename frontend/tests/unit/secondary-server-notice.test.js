@@ -76,7 +76,7 @@ describe('deveMostrarAviso: só o booleano true liga a tela', () => {
     });
 
     it('config sem a chave vale false (payload de servidor anterior à chave)', () => {
-        const semAChave = hidratado({ title: 'EBGeo', tutorialUrl: './docs/doc.html' });
+        const semAChave = hidratado({ title: 'EBGeo', tutorialUrl: './tutorial.html' });
         expect(deveMostrarAviso(semAChave)).toBe(false);
     });
 

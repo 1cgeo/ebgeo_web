@@ -1146,7 +1146,10 @@ export class PhoneLayout {
             break;
         }
         case 'tutorial': {
-            const tutorialUrl = config.app?.tutorialUrl || config.tutorialUrl || './docs/doc.html';
+            // Mesmo padrão e mesmo motivo de `sidebar/components/chips.component.js`: desde
+            // 2026-09-15 o tutorial é a quinta página do bundler, e este literal só vale quando o
+            // `/api/config` vem sem a chave.
+            const tutorialUrl = config.app?.tutorialUrl || config.tutorialUrl || './tutorial.html';
             window.open(tutorialUrl, '_blank', 'noopener,noreferrer');
             break;
         }

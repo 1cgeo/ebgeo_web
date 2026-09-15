@@ -5,7 +5,16 @@
 
 export const APP = {
   title: 'EBGeo',
-  tutorialUrl: './docs/doc.html',
+  // O DESTINO DO BOTÃO TUTORIAL, e ele MUDOU EM 2026-09-15 (decisão D16). Era
+  // `./docs/doc.html`, uma página estática que o `publicDir` do web servia verbatim; o tutorial
+  // virou a quinta entrada do bundler e o endereço passou a ser a página na raiz. A mudança
+  // cruza os dois pacotes: o cliente carrega o mesmo literal como último recurso
+  // (`frontend/src/js/sidebar/components/chips.component.js` e
+  // `frontend/src/js/phone/phone-layout.js`), para o caso de um `/api/config` sem a chave, e os
+  // três têm de andar juntos. O administrador continua podendo sobrescrever isto pelo painel,
+  // e é por isso que o valor é um caminho RELATIVO: um deploy sob subcaminho o resolve contra a
+  // página que está aberta, sem ninguém reconfigurar nada.
+  tutorialUrl: './tutorial.html',
 };
 
 export const FEATURES = {

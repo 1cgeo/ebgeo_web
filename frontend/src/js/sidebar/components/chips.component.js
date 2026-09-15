@@ -192,8 +192,12 @@ export class ChipsComponent {
      * @private
      */
     _handleTutorialClick() {
-        // Get tutorial URL from config or use default
-        const tutorialUrl = config.app?.tutorialUrl || config.tutorialUrl || './docs/doc.html';
+        // O ÚLTIMO RECURSO É A QUINTA PÁGINA, desde 2026-09-15 (decisão D16): o tutorial deixou de
+        // ser `./docs/doc.html`, estático servido pelo `publicDir`, e virou `tutorial.html`, entrada
+        // do bundler. Este literal é uma TERCEIRA cópia do padrão que o servidor publica em
+        // `backend/src/modules/config/config.static.js` (a outra é `phone/phone-layout.js`), e ele
+        // só decide quando o `/api/config` vem sem a chave; as três mudam no mesmo commit.
+        const tutorialUrl = config.app?.tutorialUrl || config.tutorialUrl || './tutorial.html';
 
         // Open in new window (current behavior preserved)
         window.open(tutorialUrl, '_blank', 'noopener,noreferrer');
