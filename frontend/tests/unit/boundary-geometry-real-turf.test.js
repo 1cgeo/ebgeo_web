@@ -10,19 +10,23 @@
  * (distances in metres, gap lengths in km), which is the only way to catch a
  * symbol that drifts off its boundary or a gap that swallows it.
  *
- * HOW THE BUNDLE IS LOADED, and why not `runInThisContext`. `public/vendors/turf.min.js`
- * is a UMD: it publishes to `exports` when one is in scope and to `globalThis.turf`
- * otherwise. Which branch it takes under a vm depends on what the host happens to
- * expose (measured: under `node -e` it finds a real `exports` and the global stays
- * EMPTY), and an instrument that silently loads nothing would leave every
- * assertion below measuring a stub. So the source is called as an explicit
- * factory with the four names the UMD tests, and the `beforeAll` then FAILS LOUD
- * if what came back is not the real thing.
+ * HOW THE LIBRARY IS LOADED. Since 2026-09-14 it comes from npm (`@turf/turf` 7.4.0)
+ * and the import is all there is to it. The spread copy is deliberate: the global the
+ * product publishes was a plain object, and a module namespace is frozen; `toEqual`
+ * below compares prototypes, so the plain copy is the shape the assertions expect.
+ *
+ * IT USED TO BE HARDER, and the `beforeAll` guard below is what survives of that.
+ * `public/vendors/turf.min.js` (the 7.0.0, resolved by hash) was a UMD: it published to
+ * `exports` when one was in scope and to `globalThis.turf` otherwise, and which branch
+ * it took under a vm depended on what the host happened to expose (measured: under
+ * `node -e` it found a real `exports` and the global stayed EMPTY). An instrument that
+ * silently loads nothing would leave every assertion below measuring a stub, so the
+ * guard FAILS LOUD on what came back. That risk changed shape rather than disappearing
+ * (a package can change its surface), which is why the guard stays and why it asks for
+ * FUNCTIONS this file actually calls instead of asking for presence.
  */
 
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 
 // The geometry imports BaseGeometry from the `@tools` barrel, which pulls in
 // DOM/MapLibre-coupled modules; a trivial base keeps this file in `node`.
@@ -38,23 +42,8 @@ let geom;
 let turf;
 
 beforeAll(async () => {
-    const source = readFileSync(
-        fileURLToPath(new URL('../../public/vendors/turf.min.js', import.meta.url)),
-        'utf8',
-    );
-
-    // The four names the UMD header tests, in its own order. `module`/`exports`
-    // undefined pushes it past the CommonJS branch; `define` is not in scope, so
-    // it lands on the browser branch and writes `turf` onto the holder.
-    const holder = {};
-    // `no-new-func` is off HERE and nowhere else: the input is a file this
-    // repository vendors and already hands to the browser inside a <script> tag,
-    // and the alternative (`vm.runInNewContext`) would return cross-realm objects,
-    // trading a lint rule for prototype mismatches inside `toEqual`.
-    // eslint-disable-next-line no-new-func
-    const factory = new Function('module', 'exports', 'window', 'globalThis', source);
-    factory(undefined, undefined, holder, holder);
-    turf = holder.turf;
+    // A copia por `{ ... }` e deliberada: ver o `@fileoverview`.
+    turf = { ...(await import('@turf/turf')) };
 
     // FAIL LOUD. A bundle that published somewhere else leaves `turf` undefined,
     // and the geometry would then throw inside its own try/catch and return the
@@ -62,8 +51,8 @@ beforeAll(async () => {
     // nobody made. `length` is checked as a FUNCTION because a namespace object
     // has a numeric `length` of its own when it is a function, which is exactly
     // the confusion this assertion has to survive.
-    expect(turf, 'o bundle real do turf nao publicou em globalThis.turf').toBeTruthy();
-    expect(typeof turf.length, 'turf.length nao e funcao: o bundle carregou pela metade').toBe('function');
+    expect(turf, 'o pacote @turf/turf nao devolveu a biblioteca').toBeTruthy();
+    expect(typeof turf.length, 'turf.length nao e funcao: o pacote carregou pela metade').toBe('function');
     expect(typeof turf.along).toBe('function');
     expect(typeof turf.pointToLineDistance).toBe('function');
     // Ground truth, not a type check: one degree of longitude on the equator.

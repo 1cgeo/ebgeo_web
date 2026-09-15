@@ -28,8 +28,6 @@
  */
 
 import { describe, it, expect, beforeEach, vi, beforeAll, afterAll } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { getEmptyMapData } from '../../src/js/store/repository.utils.js';
 
 // ============================================================================
@@ -173,26 +171,20 @@ const SPINE = [
 ];
 
 /**
- * O bundle real do turf, carregado como a irmã `boundary-split-real-turf.test.js`
- * o carrega e pelo mesmo motivo: um stub que só devolvesse números plausíveis
- * deixaria o corte medir uma linha que ninguém desenhou.
- * @returns {Object} O namespace do turf
+ * O turf real, carregado como a irmã `boundary-split-real-turf.test.js` o carrega e
+ * pelo mesmo motivo: um stub que só devolvesse números plausíveis deixaria o corte
+ * medir uma linha que ninguém desenhou. Desde 2026-09-14 ele vem do npm
+ * (`@turf/turf` 7.4.0), e a cópia por `{ ... }` é deliberada: o global que o produto
+ * publica era um objeto simples, e um namespace de módulo é congelado.
+ * @returns {Promise<Object>} O namespace do turf, copiado para objeto simples
  */
-function loadRealTurf() {
-    const source = readFileSync(
-        fileURLToPath(new URL('../../public/vendors/turf.min.js', import.meta.url)),
-        'utf8',
-    );
-    const holder = {};
-    // eslint-disable-next-line no-new-func
-    const factory = new Function('module', 'exports', 'window', 'globalThis', source);
-    factory(undefined, undefined, holder, holder);
-    return holder.turf;
+async function loadRealTurf() {
+    return { ...(await import('@turf/turf')) };
 }
 
 beforeAll(async () => {
-    const turf = loadRealTurf();
-    expect(typeof turf?.nearestPointOnLine, 'o bundle real do turf nao carregou').toBe('function');
+    const turf = await loadRealTurf();
+    expect(typeof turf?.nearestPointOnLine, 'o pacote @turf/turf nao carregou').toBe('function');
     // A geometria lê o global nu e o corte lê `window.turf`, como no navegador,
     // onde `window` É o global. As duas formas convivem na árvore.
     globalThis.turf = turf;

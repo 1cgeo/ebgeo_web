@@ -9,19 +9,17 @@
  * PATCH OF GROUND. Everything here is a measurement in metres, which is the only
  * way to catch a symbol that survives the cut and lands somewhere else.
  *
- * HOW THE BUNDLE IS LOADED, and why not `runInThisContext`: the reason is spelled
- * out in the sibling `boundary-geometry-real-turf.test.js`, whose loader this
- * file reuses verbatim. `public/vendors/turf.min.js` is a UMD that publishes to
- * `exports` when one is in scope and to the browser holder otherwise, and under a
- * vm it takes the CommonJS branch, leaving the global EMPTY. An instrument that
- * silently loads nothing would leave every assertion below measuring a stub, so
- * the source is called as an explicit factory and the `beforeAll` FAILS LOUD if
- * what came back is not the real thing.
+ * HOW THE LIBRARY IS LOADED: the reason is spelled out in the sibling
+ * `boundary-geometry-real-turf.test.js`, whose loader this file reuses verbatim.
+ * Since 2026-09-14 it comes from npm (`@turf/turf` 7.4.0) and the spread copy is
+ * deliberate, because a module namespace is frozen and the global the product
+ * publishes was a plain object. The `beforeAll` still FAILS LOUD on what came back:
+ * an instrument that silently loads nothing would leave every assertion below
+ * measuring a stub, and that risk changed shape rather than disappearing when the
+ * UMD in `public/vendors/` gave way to the package.
  */
 
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 
 // The geometry imports BaseGeometry from the `@tools` barrel, which pulls in
 // DOM/MapLibre-coupled modules; a trivial base keeps this file in `node`.
@@ -39,29 +37,15 @@ let splitSpineAtPoint;
 let splitSymbolInstances;
 
 beforeAll(async () => {
-    const source = readFileSync(
-        fileURLToPath(new URL('../../public/vendors/turf.min.js', import.meta.url)),
-        'utf8',
-    );
-
-    // The four names the UMD header tests, in its own order. `module`/`exports`
-    // undefined pushes it past the CommonJS branch; `define` is not in scope, so
-    // it lands on the browser branch and writes `turf` onto the holder.
-    const holder = {};
-    // `no-new-func` is off HERE for the reason the sibling file states: the input
-    // is a file this repository vendors and already hands to the browser inside a
-    // <script> tag, and `vm.runInNewContext` would return cross-realm objects.
-    // eslint-disable-next-line no-new-func
-    const factory = new Function('module', 'exports', 'window', 'globalThis', source);
-    factory(undefined, undefined, holder, holder);
-    turf = holder.turf;
+    // A copia por `{ ... }` e deliberada: ver o `@fileoverview`.
+    turf = { ...(await import('@turf/turf')) };
 
     // FAIL LOUD. A bundle that published somewhere else leaves `turf` undefined,
     // and the geometry would then throw inside its own try/catch and return the
     // straight-line fallback: every measurement below would pass over a drawing
     // nobody made.
-    expect(turf, 'o bundle real do turf nao publicou no holder').toBeTruthy();
-    expect(typeof turf.length, 'turf.length nao e funcao: o bundle carregou pela metade').toBe('function');
+    expect(turf, 'o pacote @turf/turf nao devolveu a biblioteca').toBeTruthy();
+    expect(typeof turf.length, 'turf.length nao e funcao: o pacote carregou pela metade').toBe('function');
     expect(typeof turf.along).toBe('function');
     expect(typeof turf.nearestPointOnLine).toBe('function');
     // Ground truth, not a type check: one degree of longitude on the equator.

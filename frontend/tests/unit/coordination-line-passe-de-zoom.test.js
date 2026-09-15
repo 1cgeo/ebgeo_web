@@ -1,9 +1,6 @@
 // Path: tests/unit/coordination-line-passe-de-zoom.test.js
 
 import { beforeAll, describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createRequire } from 'node:module';
-import { runInThisContext } from 'node:vm';
-import { readFileSync } from 'node:fs';
 
 /**
  * O CUSTO DO GESTO DE ZOOM DA LINHA DE COORDENACAO, contado, nao estimado.
@@ -56,14 +53,17 @@ vi.mock('../../src/js/snapping/snapping.service.js', () => ({
  */
 const CONTROLE = '../../src/js/military_tools/coordination_line_tool/add_coordination_line_control.js';
 
-const require = createRequire(import.meta.url);
-
 beforeAll(async () => {
-    // O turf REAL, o mesmo que o app carrega por `<script>`. Sem ele a geometria cai
-    // no caminho degradado e as asercoes sobre o desenho refeito ficariam vazias:
-    // o passe escreveria a mesma espinha nua a cada quadro e ninguem notaria.
+    // O turf REAL, o mesmo que o app carrega. Sem ele a geometria cai no caminho
+    // degradado e as asercoes sobre o desenho refeito ficariam vazias: o passe
+    // escreveria a mesma espinha nua a cada quadro e ninguem notaria.
+    //
+    // Ele vem do npm desde 2026-09-14 (`@turf/turf` 7.4.0), e nao mais de uma copia em
+    // `public/vendors/`. A copia espalhada por `{ ... }` e deliberada: o global que o
+    // produto publica era um objeto simples, e um namespace de modulo e congelado.
+    // Ver `src/js/vendor/turf.js`.
     if (!globalThis.turf) {
-        runInThisContext(readFileSync(require.resolve('../../public/vendors/turf.min.js'), 'utf8'));
+        globalThis.turf = { ...(await import('@turf/turf')) };
     }
     await import(/* @vite-ignore */ CONTROLE);
 }, 120000);

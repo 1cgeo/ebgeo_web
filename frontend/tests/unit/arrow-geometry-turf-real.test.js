@@ -30,22 +30,25 @@
  * (contagem, flag estritamente `=== true`, clamp aritmético, alça) fica lá, que
  * é onde roda em milissegundos. Aqui só entra o que EXIGE geodesia real.
  *
- * COMO O TURF CHEGA. Ele é global puro no produto (`utilities/turf-loader.js`
- * baixa `vendors/turf.min.js` sob demanda e nada faz `import '@turf/...'`), e não
- * está no `package.json`. Então o bundle UMD vendorizado é lido do disco e
- * avaliado com `vm.runInThisContext`, que é o caminho que faz o ramo global do
- * UMD publicar `globalThis.turf` (não há `module` nem `define` no escopo de um
- * script do `vm`). Se ele não publicar, este arquivo FALHA ALTO no `beforeAll`:
- * um turf ausente deixaria a classe inteira lançar e cair nos `catch` que
- * devolvem LineString, e a suíte poderia passar medindo o socorro em vez da
+ * COMO O TURF CHEGA. Ele é global puro no produto: os 352 sítios de chamada leem
+ * `turf.x(...)`, e quem publica o global é o ponto único `src/js/vendor/turf.js`,
+ * carregado sob demanda por `utilities/turf-loader.js`. Aqui o pacote é importado
+ * direto (`@turf/turf` 7.4.0, do npm desde 2026-09-14) e posto no global à mão,
+ * que é o estado em que a classe medida espera encontrá-lo.
+ *
+ * ATÉ 2026-09-14 ele vinha de outro lugar, e a diferença vale ficar registrada
+ * porque ela explica a guarda abaixo: era o bundle UMD `public/vendors/turf.min.js`
+ * (a 7.0.0, resolvida por hash), lido do disco e avaliado com `vm.runInThisContext`
+ * para que o ramo global do UMD publicasse `globalThis.turf`. A guarda nasceu
+ * contra um vendor que mudasse de FORMATO e deixasse o global vazio; ela continua
+ * valendo contra um pacote que mude de superfície, e é a razão de ela perguntar por
+ * `kinks` e não por presença. Se o global não aparecer, este arquivo FALHA ALTO no
+ * `beforeAll`: um turf ausente deixaria a classe inteira lançar e cair nos `catch`
+ * que devolvem LineString, e a suíte poderia passar medindo o socorro em vez da
  * geometria.
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { runInThisContext } from 'node:vm';
 
 vi.mock('@tools', () => ({
     BaseGeometry: class {
@@ -53,20 +56,18 @@ vi.mock('@tools', () => ({
     },
 }));
 
-const FRONT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const VENDOR = resolve(FRONT, 'public', 'vendors', 'turf.min.js');
+beforeAll(async () => {
+    // A cópia espalhada por `{ ... }` é deliberada: o global que o produto publica
+    // era um objeto simples, e um namespace de módulo é congelado.
+    globalThis.turf = { ...(await import('@turf/turf')) };
 
-beforeAll(() => {
-    const source = readFileSync(VENDOR, 'utf8');
-    runInThisContext(source, { filename: VENDOR });
-
-    // FALHA ALTO, de propósito. Sem esta guarda um vendor que mudasse de formato
-    // (ESM, ou um UMD que preferisse outro ramo) deixaria `turf` indefinido, e a
-    // classe cairia nos próprios `catch`: a suíte ficaria verde medindo o
-    // socorro. O erro nomeia o arquivo porque ele é o que se troca.
+    // FALHA ALTO, de propósito. Sem esta guarda um pacote que mudasse de superfície
+    // deixaria `turf` indefinido ou incompleto, e a classe cairia nos próprios
+    // `catch`: a suíte ficaria verde medindo o socorro. A pergunta é por uma FUNÇÃO
+    // que este arquivo de fato usa, e não por presença, que qualquer objeto satisfaz.
     if (typeof globalThis.turf?.kinks !== 'function') {
         throw new Error(
-            `O bundle vendorizado nao publicou globalThis.turf com kinks(): ${VENDOR}. ` +
+            'O pacote @turf/turf nao publicou globalThis.turf com kinks(). ' +
             'Sem turf real este arquivo nao mede nada; conserte a carga em vez de pular.'
         );
     }

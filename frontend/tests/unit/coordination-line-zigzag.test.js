@@ -1,7 +1,4 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { createRequire } from 'node:module';
-import { runInThisContext } from 'node:vm';
-import { readFileSync } from 'node:fs';
 
 import {
     LINEAR_SYMBOLS,
@@ -48,8 +45,6 @@ vi.mock('@tools', () => ({
     },
 }));
 
-const require = createRequire(import.meta.url);
-
 let AddCoordinationLineGeometry;
 let geom;
 let turf;
@@ -57,9 +52,11 @@ let turf;
 beforeAll(async () => {
     // The app loads turf from a <script> tag, so it is a global, not a module:
     // run the shipped bundle in this context and read the global it defines.
-    const code = readFileSync(require.resolve('../../public/vendors/turf.min.js'), 'utf8');
-    runInThisContext(code);
-    turf = globalThis.turf;
+    // O Turf vem do npm desde 2026-09-14 (`@turf/turf` 7.4.0), e a copia espalhada por
+    // `{ ... }` e deliberada: o global que o produto publica era um objeto simples, e um
+    // namespace de modulo e congelado. Ver `src/js/vendor/turf.js`.
+    turf = { ...(await import('@turf/turf')) };
+    globalThis.turf = turf;
 
     ({ default: AddCoordinationLineGeometry } =
         await import('../../src/js/military_tools/coordination_line_tool/add_coordination_line_geometry.js'));
@@ -85,14 +82,25 @@ const REGUAS = new Map();
 /**
  * The base line densified into the course the geometry actually walks.
  *
- * The measuring tape had to be calibrated before it could measure anything:
- * `turf.along`, which places every tooth vertex, interpolates along the GREAT
- * CIRCLE, while `turf.pointToLineDistance` measures against the segment as a
- * chord. Measured on 2026-09-03 against this bundle, a point sitting exactly on a
- * 10 km two-point line reads 1.133 m off it at mid-span, which is the tape lying,
- * not the drawing wandering. Stepping the line into 400 pieces of its own `along`
- * stations drops that residual to 7.1e-6 m, and the calibration test below fails
- * if anyone trusts the raw line again.
+ * WHY IT EXISTED, and it is worth keeping the history because the calibration test
+ * below now asserts the OPPOSITE of what it asserted when it was written. The tape
+ * had to be calibrated before it could measure anything: `turf.along`, which places
+ * every tooth vertex, interpolates along the GREAT CIRCLE, while the 7.0.0
+ * `turf.pointToLineDistance` measured against the segment as a CHORD. Measured on
+ * 2026-09-03 against that bundle, a point sitting exactly on a 10 km two-point line
+ * read 1.133 m off it at mid-span, which was the tape lying and not the drawing
+ * wandering. Stepping the line into 400 pieces of its own `along` stations dropped
+ * that residual to 7.1e-6 m.
+ *
+ * TURF 7.4.0 FIXED THE TAPE, measured on 2026-09-14 when the library moved from the
+ * vendored 7.0.0 bundle to the npm package: the same raw two-point line now reads
+ * 1.3e-8 m, so `pointToLineDistance` and `along` finally agree on what a line is.
+ * The densification STAYS, for two reasons that are not inertia. It is what the
+ * other measurements in this file are calibrated against, so removing it would
+ * re-baseline every depth assertion below in a commit about a dependency; and it is
+ * harmless now that both readings agree, because densifying a course into its own
+ * `along` stations is a no-op for a tape that already walks the great circle.
+ * Retiring it is a separate change, with its own measurement.
  *
  * @param {Array} base - Base coordinates
  * @param {number} [passos] - Densification steps
@@ -172,7 +180,7 @@ function apiceDe(dente, base) {
 // ============================================================================
 
 describe('a fita metrica antes da medida', () => {
-    it('a linha crua de dois pontos mente mais de um metro sobre o proprio traco', () => {
+    it('a linha crua de dois pontos deixou de mentir: o turf 7.4.0 consertou a fita', () => {
         const base = linhaReta(10);
         const line = turf.lineString(base);
         const total = turf.length(line, { units: 'kilometers' });
@@ -185,10 +193,18 @@ describe('a fita metrica antes da medida', () => {
 
         console.log(`[calibracao] linha crua: pior desvio ${pior.toFixed(4)} m sobre pontos que estao NELA`);
 
-        // Ponto colocado por `turf.along`, portanto EXATAMENTE sobre o traco, lido
-        // como fora dele: o instrumento e que erra, nao o desenho.
-        expect(pior).toBeGreaterThan(1);
-        expect(pior).toBeLessThan(1.2);
+        // Ponto colocado por `turf.along`, portanto EXATAMENTE sobre o traco. Ate a
+        // 7.0.0 ele era lido como 1,133 m FORA dele, e este caso afirmava justamente
+        // isso: o instrumento e que errava, nao o desenho. A 7.4.0 alinhou
+        // `pointToLineDistance` com `along` (as duas caminham o circulo maximo), e
+        // medido nesta arvore o desvio caiu para 1,3e-8 m.
+        //
+        // O TETO E APERTADO DE PROPOSITO, e o piso nao existe. Um teto de 1 mm
+        // reprova se a discordancia CHORDA-vs-GEODESICA voltar em qualquer versao
+        // futura, que e o defeito que este caso sempre existiu para vigiar; um piso
+        // nao teria o que guardar, porque zero e a resposta certa e nenhum erro de
+        // instrumento se parece com ela.
+        expect(pior).toBeLessThan(0.001);
     });
 
     it('a regua densificada zera o desvio, e so entao serve de medida', () => {

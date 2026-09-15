@@ -3850,9 +3850,9 @@
         "pastasCobertas": [
           "frontend/public/vendors"
         ],
-        "arquivos": 5,
-        "bytes": 1817755,
-        "textoEmCrlf": 4,
+        "arquivos": 4,
+        "bytes": 1183782,
+        "textoEmCrlf": 3,
         "textoEmLf": 1,
         "binarios": 0,
         "codigoDeTerceiroForaDasPastasCobertas": 0,
@@ -3894,12 +3894,6 @@
             855090,
             "ef5fdffe93af2f82baf9307ddee2fd90390360642656c58b6031e7f1ea4640cd",
             "a646950d9809aa6f751087abf319f01f8420941328452452b395ed492e8156c5"
-          ],
-          [
-            "frontend/public/vendors/turf.min.js",
-            633973,
-            "307bd213a3dc10767a8a4a58e355d35ffa51e90bfb0efb5b603e4bc33feb7f04",
-            "2c69ba91b9b12b9b10ebb7daaf4de5629ea7c9eece60eb0349d5c1e9c6acef1b"
           ],
           [
             "frontend/public/vendors/vue.css",

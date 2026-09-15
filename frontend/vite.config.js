@@ -774,14 +774,18 @@ export default defineConfig(({ mode: _mode }) => ({
   optimizeDeps: {
     // Exclude global vendors (loaded via script tags).
     //
-    // `maplibre-gl` LEFT this list on 2026-09-04, and `cesium` on 2026-09-14, for the SAME reason:
-    // neither is a global vendor any more. Each comes from npm through a single point
-    // (`src/js/map/maplibre.js`, `src/js/vendor/cesium.js`) and is a normal graph dependency.
-    // Keeping one excluded would mean asking dev to serve it unbundled while the build bundles it,
-    // two different module identities for the same library, which is exactly the class of trap
-    // `bench/README.md` records under the `?t=` of the HMR.
+    // `maplibre-gl` LEFT this list on 2026-09-04, and `cesium` and `@turf/turf` on 2026-09-14,
+    // for the SAME reason: none of the three is a global vendor any more. Each comes from npm
+    // through a single point (`src/js/map/maplibre.js`, `src/js/vendor/cesium.js`,
+    // `src/js/vendor/turf.js`) and is a normal graph dependency. Keeping one excluded would mean
+    // asking dev to serve it unbundled while the build bundles it, two different module
+    // identities for the same library, which is exactly the class of trap `bench/README.md`
+    // records under the `?t=` of the HMR.
+    // For `@turf/turf` the UMD in `public/vendors/turf.min.js` (the 7.0.0, resolved by hash) was
+    // deleted and the library now arrives through the `import()` of `utilities/turf-loader.js`.
+    // It stays LAZY, which is the decision this move does not undo; what changed is the
+    // transport, from an injected `<script>` tag to a bundler chunk.
     exclude: [
-      '@turf/turf',
       'milsymbol'
     ]
   },

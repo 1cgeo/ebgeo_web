@@ -357,6 +357,18 @@ const EXTERNOS_ANSIOSOS = Object.freeze([
  */
 const EXTERNOS_SO_DINAMICOS = Object.freeze([
     '@manycore/aholo-viewer',
+    // `@turf/turf` ENTROU EM 2026-09-14, e a entrada dele é exatamente o que esta lista existe
+    // para vigiar. A biblioteca sempre foi sob demanda, mas por uma tag `<script>` injetada em
+    // runtime apontando `public/vendors/turf.min.js`, que este caminhador não enxerga por
+    // definição, porque ele anda no grafo de imports. Agora ela vem do npm pelo ponto único
+    // `src/js/vendor/turf.js`, alcançado SÓ pelo `import()` de `utilities/turf-loader.js`, então
+    // a aresta passou a existir e os dois lados da afirmação passaram a ser verificáveis.
+    //
+    // O lado "ausente do grafo ansioso" é o que importa aqui, e ele não é decorativo: um import
+    // estático do ponto único devolveria 531 kB ao payload do boot e desfaria a onda de
+    // 2026-08-25 inteira, sem que o produto parecesse diferente. É o defeito mais fácil de
+    // cometer neste lote, e é este caso que o pega.
+    '@turf/turf',
     // DESDE 2026-09-14 (V9), quando a distribuição de 14 MB que morava em
     // `frontend/public/vendors/cesium/` foi apagada e a biblioteca passou a vir do npm por
     // `src/js/vendor/cesium.js`. Enquanto era um `<script>` injetado em runtime, nenhuma guarda
@@ -689,9 +701,12 @@ const DIST = join(FRONT, 'dist');
  * Vite injeta, ou seja, o chunk que o navegador baixa ANTES de rodar qualquer coisa. Contar só o
  * `src=` mediria três arquivos de sessenta e três.
  *
- * `/vendors/` sai porque não é payload do bundler: são estáticos de `public/` (Cesium, Turf,
- * GDAL), copiados sem passar pelo chunking, e o que esta metade guarda é a decisão de
- * `codeSplitting`. Eles somam ~7,4 MB e afogariam qualquer variação do que se mede aqui.
+ * `/vendors/` sai porque não é payload do bundler: são estáticos de `public/` (Cesium, GDAL e o
+ * que mais sobrar lá), copiados sem passar pelo chunking, e o que esta metade guarda é a decisão
+ * de `codeSplitting`. Eles afogariam qualquer variação do que se mede aqui. O TURF saiu dessa
+ * enumeração em 2026-09-14, quando `public/vendors/turf.min.js` foi apagado e a biblioteca passou
+ * a vir do npm; ela continua sob demanda, então continua fora desta conta, agora por ser um chunk
+ * que nenhum HTML referencia e não por morar em `public/`.
  *
  * O MAPLIBRE SAIU DESSA LISTA EM 2026-09-04 e ENTROU na conta, e é a maior mudança que este
  * arquivo já sofreu sem que o produto engordasse: a 6.x não publica bundle UMD, então o

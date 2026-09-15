@@ -673,12 +673,19 @@
          import de /src/js/index.js (map/maplibre.js), que publica o global `maplibregl` antes de
          qualquer uso. O mapa continua sendo a página; o que mudou é por onde a biblioteca chega. -->
 
-    <!-- Turf: carregado SOB DEMANDA (js/utilities/turf-loader.js). São 619 kB, o maior
-         item depois do MapLibre no script que esta página baixava no boot (3749 kB
-         medidos no pacote de produção em 2026-08-25, quando ainda havia um `prefetch` do
-         Cesium ao lado, que saiu em 2026-09-14).
-         Ao contrário do milsymbol e do GDAL, o Turf NÃO tem um leitor único: são 257
-         sítios de chamada em 35 arquivos, todos lendo o global direto. Por isso a
+    <!-- Turf: carregado SOB DEMANDA, e desde 2026-09-14 pelo npm (`@turf/turf` 7.4.0),
+         não mais por uma tag injetada apontando `public/vendors/turf.min.js`. Aquele
+         arquivo era a 7.0.0 (sem versão declarada, resolvida por hash) e foi APAGADO,
+         não deixado ao lado. Quem publica o global é o ponto único
+         `src/js/vendor/turf.js`, alcançado APENAS pelo `import()` de
+         `js/utilities/turf-loader.js`: um import estático dele devolveria a biblioteca
+         inteira ao boot e desfaria a onda descrita abaixo, sem nada parecer diferente.
+         São 619 kB, o maior item depois do MapLibre no script que esta página baixava
+         no boot (3749 kB medidos no pacote de produção em 2026-08-25, quando ainda
+         havia um `prefetch` do Cesium ao lado, que saiu em 2026-09-14).
+         Ao contrário do milsymbol e do GDAL, o Turf NÃO tem um leitor único: são 352
+         sítios de chamada em 48 arquivos, todos lendo o global direto (remedido em
+         2026-09-14; eram 257 em 35 na medição anterior). Por isso a
          cobertura é por FUNIL, e são dois que respondem pela maioria:
          `tool_manager/tool-registry.js:ensureControl` (todo gesto que ativa uma
          ferramenta) e `tool_manager/selection_manager.js:getCompleteFeatureFromSource`

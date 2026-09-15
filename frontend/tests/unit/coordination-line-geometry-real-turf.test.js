@@ -1,9 +1,6 @@
 // Path: tests/unit/coordination-line-geometry-real-turf.test.js
 
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { createRequire } from 'node:module';
-import { runInThisContext } from 'node:vm';
-import { readFileSync } from 'node:fs';
 // O catalogo entra como FONTE das varreduras abaixo. Ele nao importa nada, entao
 // carrega fora do `beforeAll` sem precisar do turf global.
 import { LINEAR_SYMBOLS } from '../../src/js/military_tools/coordination_line_tool/coordination_line_catalog.js';
@@ -41,8 +38,6 @@ vi.mock('@tools', () => ({
     },
 }));
 
-const require = createRequire(import.meta.url);
-
 let AddCoordinationLineGeometry;
 let geom;
 let turf;
@@ -50,9 +45,11 @@ let turf;
 beforeAll(async () => {
     // The app loads turf from a <script> tag, so it is a global, not a module:
     // run the shipped bundle in this context and read the global it defines.
-    const code = readFileSync(require.resolve('../../public/vendors/turf.min.js'), 'utf8');
-    runInThisContext(code);
-    turf = globalThis.turf;
+    // O Turf vem do npm desde 2026-09-14 (`@turf/turf` 7.4.0), e a copia espalhada por
+    // `{ ... }` e deliberada: o global que o produto publica era um objeto simples, e um
+    // namespace de modulo e congelado. Ver `src/js/vendor/turf.js`.
+    turf = { ...(await import('@turf/turf')) };
+    globalThis.turf = turf;
 
     ({ default: AddCoordinationLineGeometry } =
         await import('../../src/js/military_tools/coordination_line_tool/add_coordination_line_geometry.js'));
