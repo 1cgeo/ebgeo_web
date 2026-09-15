@@ -51,8 +51,12 @@ const mounts = new WeakMap();
 
 function stateFor(scope) {
     if (!scope) return null;
-    if (!mounts.has(scope)) mounts.set(scope, { paused: 0, writers: new Set() });
-    return mounts.get(scope);
+    if (!mounts.has(scope)) mounts.set(scope, { paused: 0, writers: new Set(), resumeWaiters: new Set() });
+    const state = mounts.get(scope);
+    // Defensive for a hand-built entry (test doubles seed this map directly): a missing waiter set
+    // must degrade into "nobody is waiting", never into a throw inside a write path.
+    state.resumeWaiters ??= new Set();
+    return state;
 }
 
 /**
@@ -104,8 +108,85 @@ export function pauseStoreWrites(scope) {
         resume() {
             if (!resumed) state.paused -= 1;
             resumed = true;
+            if (state.paused === 0) {
+                for (const wake of [...state.resumeWaiters]) wake();
+                state.resumeWaiters.clear();
+            }
         },
     };
+}
+
+/**
+ * How long a gesture waits for a recovery before it gives up and is refused.
+ *
+ * Five seconds, and the number is the STAGING of nine databases on a loaded machine, not a guess:
+ * the window this closes was measured at hundreds of milliseconds idle and seconds with several
+ * browsers running. It is a ceiling on a frozen recovery, not the expected wait, so it is set well
+ * above the real one on purpose. It is deliberately NOT {@link BARRIER_DRAIN_TIMEOUT_MS}: that one
+ * bounds a cross-tab drain behind a modal dialog, and sharing a number between two unrelated
+ * deadlines is how one of them gets retuned for the other's reason.
+ */
+const RECOVERY_WAIT_TIMEOUT_MS = 5000;
+
+/**
+ * Waits until nobody is holding this scope's writes paused, for a GESTURE that has not taken any
+ * lock yet. Resolves `true` when writes are open, `false` when the deadline passed with the pause
+ * still up.
+ *
+ * WHY A WAIT EXISTS NEXT TO A REFUSAL, and why it has to live ABOVE the store. `beginStoreWrite`
+ * refuses instead of waiting because its caller (`runTransaction`) already holds the map document
+ * lock, and `applyRemoteSnapshotInner` takes that same lock per map while it stages: a writer that
+ * waited there would wait for a recovery that is waiting for the writer's lock. That reasoning is
+ * about the writer's POSITION, not about the answer being right for a person. A gesture that has
+ * not entered the store yet holds nothing, so it can simply wait out a staging that lasts a few
+ * hundred milliseconds instead of throwing the person's intent away.
+ *
+ * THE MEASURED DEFECT IT CLOSES, 2026-09-15. Opening a server atlas answers TWO snapshots (see
+ * `refusingDuringRecovery` in `store/map.operations.js`, which paid for the same window on the
+ * settings path). While the second one stages, every store write in the tab is refused, and the
+ * delete gesture swallowed that refusal in each drawing control's `catch` and removed the feature
+ * from the MapLibre source anyway: the map showed a deletion that no operation ever carried, and
+ * the peers never heard about it.
+ *
+ * WHAT IS PROVEN AND WHAT IS INFERRED, kept apart on purpose. Proven, by
+ * `tests/e2e-ui/delete-durante-recuperacao.repro.spec.js` with the pause taken by hand: the
+ * mechanism exists and produces exactly this outcome. Inferred: that it is what made phase 5 of
+ * `browser-collab-three-client-flow.spec.js` fail once in sixteen on 2026-09-15, in the client
+ * that had just reopened the atlas, with a missing author-side `apply.persist` and no other
+ * error. The signature matches and no other path loses an operation that quietly, but that red
+ * was never caught in the act: 32 isolated runs afterwards did not reproduce it, which is what a
+ * window of a few hundred milliseconds does to repetition.
+ *
+ * IT IS NOT A SUBSTITUTE FOR THE REFUSAL, and the residue is declared rather than implied: the
+ * pause can still start between this answer and the store call, and `runTransaction` still
+ * refuses there, silently, with the control still painting. Announcing from `runTransaction`
+ * would cover that residue and was tried: it also fires for the writes the person never asked
+ * for (`switchMap` persists a base layer on every open, inside this very window), so every atlas
+ * open would toast about a recovery nobody started. Naming the state belongs to whoever knows a
+ * PERSON asked, which is the gesture.
+ *
+ * @param {{kind: string, dbSuffix: string}|null|undefined} scope - Scope object, usually the active one.
+ * @param {Object} [options]
+ * @param {number} [options.timeoutMs=RECOVERY_WAIT_TIMEOUT_MS] - Cap, so a recovery that never
+ *   finishes refuses the gesture instead of freezing it.
+ * @returns {Promise<boolean>} True when writes are open (including "never paused").
+ */
+export function whenStoreWritesResume(scope, { timeoutMs = RECOVERY_WAIT_TIMEOUT_MS } = {}) {
+    if (!storeWritesPaused(scope)) return Promise.resolve(true);
+    const state = stateFor(scope);
+    return new Promise((resolve) => {
+        let done = false;
+        const settle = (value) => {
+            if (done) return;
+            done = true;
+            state.resumeWaiters.delete(wake);
+            clearTimeout(timer);
+            resolve(value);
+        };
+        const wake = () => settle(true);
+        const timer = setTimeout(() => settle(false), timeoutMs);
+        state.resumeWaiters.add(wake);
+    });
 }
 
 /**

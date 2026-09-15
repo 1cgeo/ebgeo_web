@@ -20,6 +20,9 @@ import {
     getFeatureById,
     getStorageTypeFromSource
 } from '../store';
+import { getActiveScope } from '@store/atlas-namespace.js';
+import { whenStoreWritesResume, STORE_RECOVERY_NOTICE } from '@store/write-coordinator.js';
+import { StoreErrorEvents, emitStoreError } from '@store/store-errors.js';
 import { createTwoFingerTapHandler } from '../utilities/pointer-utils';
 import { ensureTurf } from '../utilities/turf-loader.js';
 import { queryHoverFeatures } from './helpers/hover-query.helpers.js';
@@ -1071,10 +1074,45 @@ class SelectionManager {
     /**
      * Delete all selected features.
      * Uses batch undo so all deletions can be undone with a single Ctrl+Z.
+     *
+     * IT WAITS FOR A RECOVERY BEFORE IT TOUCHES THE STORE, and this is the only place in the
+     * delete path that can. Opening a server atlas answers TWO snapshots, and while the second one
+     * stages a generation it holds `pauseStoreWrites`, so every `runTransaction` in the tab is
+     * refused. Each drawing control's `deleteFeatures` catches that refusal with a bare
+     * `console.error` and then removes the ids from its MapLibre source anyway — seventeen copies
+     * of the same three lines — so the feature vanished from the map, stayed in the store, and no
+     * operation ever reached the peers. The mechanism is forced deterministically by
+     * `tests/e2e-ui/delete-durante-recuperacao.repro.spec.js`; the header of
+     * `whenStoreWritesResume` (`store/write-coordinator.js`) separates that proof from what is
+     * only inferred about the intermittent red of `browser-collab-three-client-flow.spec.js`.
+     *
+     * HERE AND NOT IN THE STORE, because of who holds what. `beginStoreWrite` cannot wait: its
+     * caller already holds the map document lock and `applyRemoteSnapshotInner` takes that same
+     * lock per map, so waiting there deadlocks. This function holds nothing, so waiting costs the
+     * gesture a few hundred milliseconds instead of costing the person their intent.
+     *
+     * AND IT REFUSES WITHOUT DELETING when the wait runs out, rather than trying anyway: an
+     * attempt that the store refuses is repainted as a deletion by the controls, which is the
+     * exact lie this is closing. The refusal names the STATE, never a role, because it is
+     * reversible and ends on its own.
+     *
+     * THE SELECTION IS READ BEFORE THE WAIT, and the order is the point. A recovery re-stages the
+     * atlas and repaints every source from it, and a repaint can empty the selection; reading it
+     * afterwards would turn a confirmed destructive gesture into a silent no-op, which is the same
+     * class of loss as the paragraph above. What the person confirmed was THIS set of features.
      */
     async deleteSelectedFeatures() {
-        const featuresByType = new Map();
         const selectedFeatures = this.getAllSelectedFeatures();
+        if (!(await whenStoreWritesResume(getActiveScope()))) {
+            emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+                operation: 'deleteSelectedFeatures',
+                message: STORE_RECOVERY_NOTICE,
+                reason: 'atlas_recovering',
+                timestamp: Date.now()
+            });
+            return;
+        }
+        const featuresByType = new Map();
 
         for (const feature of selectedFeatures) {
             const type = feature.properties.source;
