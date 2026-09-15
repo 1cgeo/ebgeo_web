@@ -18,7 +18,10 @@
  *      ruído de rasterização e a uma troca de GPU; morre se o shader parar de separar as duas
  *      metades, que é o defeito que importa.
  *   4. **O tronco de visão desenhado** (o fio de arame branco), contado em pixels.
- *   5. **O painel "Visibilidade #1"** com 120°, 186 m e 1,5 m, que é o contrato do chamador.
+ *   5. **Um retângulo de chão SEM oclusão**, dentro do setor e longe das duas cunhas de sombra,
+ *      onde o vermelho tem de ser residual. É a camada que pega a acne do mapa de sombras, que é
+ *      um erro de RESPOSTA (chão visível declarado oculto) e não de estilo.
+ *   6. **O painel "Visibilidade #1"** com 120°, 186 m e 1,5 m, que é o contrato do chamador.
  *
  * AS TRÊS ÚLTIMAS SÃO INDEPENDENTES DE PIXEL EXATO DE PROPÓSITO. A referência sozinha é frágil
  * (troca de driver, de versão do Chromium, de tamanho de viewport) e, quando falha, não diz o que
@@ -31,6 +34,16 @@
  * porque o sensor retangular de terceiro não foi portado. Verde e vermelho ficaram em 15,379% e
  * 6,776%, contra 15,192% e 6,943% do vendor, dentro das MESMAS faixas declaradas abaixo, que não
  * precisaram mudar.
+ *
+ * E FOI REGERADA DE NOVO NO MESMO DIA, PELA REVISÃO, e desta vez as faixas MUDARAM, porque o que
+ * mudou foi a resposta. `SHADOW_DEPTH_BIAS` passou de 2e-5 para 8e-5: o valor antigo era o do
+ * Cesium, que vale no pipeline dele (onde o receptor tem a normal da superfície), e num
+ * pós-processamento de tela cheia ele deixava metade do chão plano listrado de VERMELHO, ou seja,
+ * declarado oculto quando o observador o enxerga. Verde e vermelho foram de 15,379% e 6,776% para
+ * 17,331% e 4,824%, com a área tingida TOTAL praticamente intacta (195072 contra 195248 pixels,
+ * 0,09%): o que aconteceu foi vermelho falso virando verde, e não o setor mudando de tamanho. A
+ * quinta camada abaixo é nova e existe para isso: ela mede um retângulo de chão que ninguém oclui
+ * e cobra que ele esteja limpo.
  *
  * A CENA É NOSSA, E ISSO É DECLARADO. A captura de 2026-09-14 citada no inventário de vendors usou
  * um tileset local que **não existe neste repositório** (`frontend/public/3d/` é ignorado pelo git,
@@ -454,7 +467,7 @@ async function criarViewshed(page) {
  * As classes derivam do shader, que faz `mix(cor, vec4(corDoViewshed,1), 0.5)` sobre um globo
  * PRETO: verde vira (0, ~0.5, 0) e vermelho vira (~0.5, 0, 0). O fio de arame do sensor é branco.
  * @param {import('@playwright/test').Page} page
- * @returns {Promise<{ png: string, largura: number, altura: number, verde: number, vermelho: number, arame: number, total: number }>}
+ * @returns {Promise<{ png: string, largura: number, altura: number, verde: number, vermelho: number, arame: number, limpoVermelho: number, limpoTotal: number, total: number }>}
  */
 async function lerCanvas(page) {
     return page.evaluate(() => {
@@ -472,13 +485,28 @@ async function lerCanvas(page) {
         let verde = 0;
         let vermelho = 0;
         let arame = 0;
+        // O RETANGULO LIMPO: chao dentro do setor, a direita, abaixo da cunha do bloco distante e
+        // longe das duas sombras. Nada nesta cena oclui esta area, entao todo vermelho aqui e
+        // ACNE do mapa de sombras, isto e, chao visivel declarado oculto. As coordenadas sao do
+        // enquadramento fixo da referencia (canvas 1224x720) e so fazem sentido com ele.
+        const LIMPO = { x0: 820, x1: 1000, y0: 300, y1: 370 };
+        let limpoVermelho = 0;
+        let limpoTotal = 0;
         for (let i = 0; i < dados.length; i += 4) {
             const r = dados[i];
             const g = dados[i + 1];
             const b = dados[i + 2];
+            const ehVermelho = r > 40 && r > g + 25 && r > b + 25;
             if (g > 40 && g > r + 25 && g > b + 25) verde++;
-            else if (r > 40 && r > g + 25 && r > b + 25) vermelho++;
+            else if (ehVermelho) vermelho++;
             else if (r > 190 && g > 190 && b > 190) arame++;
+            const p = i / 4;
+            const x = p % w;
+            const y = (p - x) / w;
+            if (x >= LIMPO.x0 && x < LIMPO.x1 && y >= LIMPO.y0 && y < LIMPO.y1) {
+                limpoTotal++;
+                if (ehVermelho) limpoVermelho++;
+            }
         }
 
         return {
@@ -488,6 +516,8 @@ async function lerCanvas(page) {
             verde,
             vermelho,
             arame,
+            limpoVermelho,
+            limpoTotal,
             total: w * h,
         };
     });
@@ -685,12 +715,17 @@ describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
                 `classe=${diff.classeDiferente} (${(diff.razaoClasse * 100).toFixed(3)}%)`,
         );
 
-        // AS CINCO CAMADAS. Os números vêm de uma medição, não de um chute, e a folga de cada um
+        // AS SEIS CAMADAS. Os números vêm de uma medição, não de um chute, e a folga de cada um
         // está declarada. Medido em 2026-09-15 nesta árvore, em TRÊS rodadas em série de cada
         // motor, com 0/881280 pixels diferentes nas três de cada lado:
         //
         //   vendor `cesium-viewshed.js`   verde 133883 (15,192%)  vermelho 61189 (6,943%)  arame 13823
-        //   casa   `services/viewshed-3d` verde 135534 (15,379%)  vermelho 59714 (6,776%)  arame  9042
+        //   casa, antes da revisão        verde 135534 (15,379%)  vermelho 59714 (6,776%)  arame  9042
+        //   casa, com o viés corrigido    verde 152734 (17,331%)  vermelho 42514 (4,824%)  arame  9038
+        //
+        // A terceira linha é a de hoje. Repare no que ela NÃO mudou: 195248 pixels tingidos contra
+        // 195072, ou seja, o setor é o mesmo e o que se moveu foi a CLASSIFICAÇÃO de 17 mil pixels
+        // de chão plano, que o viés antigo declarava ocultos por acne.
         //
         // A cena não tem nada probabilístico dentro, e é por isso que ela pôde virar referência.
 
@@ -712,17 +747,35 @@ describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
         // Folga de um quinto em cima e embaixo do medido. O que estas duas cobram é que o shader
         // continue SEPARANDO as duas metades: um motor que pinte tudo de verde (nada oclui) ou
         // tudo de vermelho (tudo oclui) reprova aqui mesmo com a referência regerada.
-        expect(proporcaoVerde, 'area visivel (verde)').toBeGreaterThan(0.12);
-        expect(proporcaoVerde, 'area visivel (verde)').toBeLessThan(0.19);
-        expect(proporcaoVermelho, 'area oculta (vermelho)').toBeGreaterThan(0.05);
-        expect(proporcaoVermelho, 'area oculta (vermelho)').toBeLessThan(0.09);
+        expect(proporcaoVerde, 'area visivel (verde)').toBeGreaterThan(0.14);
+        expect(proporcaoVerde, 'area visivel (verde)').toBeLessThan(0.21);
+        expect(proporcaoVermelho, 'area oculta (vermelho)').toBeGreaterThan(0.036);
+        expect(proporcaoVermelho, 'area oculta (vermelho)').toBeLessThan(0.060);
 
         // O tronco de visão: a malha branca, 9042 pixels medidos (13823 com o vendor, que
         // tesselava mais fino). O piso é deliberadamente baixo, porque o que se cobra aqui é a
         // PRESENÇA do fio de arame; a forma exata dele já está na camada de pixel.
         expect(atual.arame, 'o tronco de visao em fio de arame').toBeGreaterThan(5000);
 
-        // Quinta camada: o painel do produto.
+        // QUINTA CAMADA: O CHÃO QUE NINGUÉM OCLUI. Nada nesta cena tapa o retângulo declarado em
+        // `lerCanvas`, então todo vermelho ali é acne do mapa de sombras, ou seja, chão que o
+        // observador enxerga e a análise declara oculto. Com o viés de 2e-5 que vigorou até a
+        // revisão de 2026-09-15 esta área saía com cerca de um terço de vermelho, em listras
+        // paralelas; com 8e-5 ela sai limpa. O controle negativo é direto: baixar
+        // `SHADOW_DEPTH_BIAS` de volta reprova aqui.
+        const sujeira = atual.limpoVermelho / atual.limpoTotal;
+        console.info(
+            `[viewshed-pixel] chao limpo: ${atual.limpoVermelho}/${atual.limpoTotal} vermelho ` +
+                `(${(sujeira * 100).toFixed(3)}%)`,
+        );
+        // Medido: 0,000% com 8e-5 e 1,952% com o 2e-5 anterior, ou seja, o teto abaixo separa os
+        // dois desfechos com quase quatro vezes de folga.
+        expect(
+            sujeira,
+            'acne do mapa de sombras: chao visivel declarado oculto no retangulo sem oclusao',
+        ).toBeLessThan(0.005);
+
+        // Sexta camada: o painel do produto.
         const painel = page.locator('.viewshed-3d-panel-content');
         await expect(painel).toBeVisible({ timeout: 10000 });
         const entradas = painel.locator('.viewshed-observer-height-input');

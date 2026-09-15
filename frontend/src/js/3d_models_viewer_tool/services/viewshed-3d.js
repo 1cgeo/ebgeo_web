@@ -188,8 +188,19 @@ void main()
     }
 
     // All nine taps must agree. There is no half tone, which is why shadow edges are hard.
-    float bias = u_depthBias * max(shadowPosition.z * 0.01, 1.0);
-    float visibility = shadowVisibility(shadowPosition.xy, shadowPosition.z - bias);
+    //
+    // O VIES E CONSTANTE, E ATE 2026-09-15 ELE FINGIA NAO SER. A linha era
+    // u_depthBias * max(shadowPosition.z * 0.01, 1.0), herdada do plugin substituido, e ela LE
+    // como um vies escalado pela profundidade. Nao e: a recusa 2 acima ja garantiu
+    // shadowPosition.z dentro de [0, 1], entao z * 0.01 nunca passa de 0,01 e o max devolve
+    // 1.0 SEMPRE. Era aritmetica morta com cara de compensacao, e enquanto ela esteve ali a acne
+    // parecia ja compensada por alguem.
+    //
+    // E NENHUM COMENTARIO DESTE SHADER PODE LEVAR CRASE: ele e um literal de gabarito de
+    // JavaScript, entao a crase FECHA a string e o arquivo inteiro deixa de ser JavaScript
+    // valido. O erro que sai disso e um SyntaxError apontando para um identificador do GLSL, que
+    // e a ultima pista que se associaria a pontuacao de um comentario (medido aqui, 2026-09-15).
+    float visibility = shadowVisibility(shadowPosition.xy, shadowPosition.z - u_depthBias);
     vec3 tint = visibility == 1.0 ? u_visibleColor : u_hiddenColor;
     out_FragColor = mix(color, vec4(tint, 1.0), u_mixAmount);
 }
@@ -211,11 +222,39 @@ const DEFAULTS = Object.freeze({
 const SHADOW_MAP_SIZE = 2048;
 
 /**
- * Depth bias, in shadow-map depth units, and the value the plugin took from `_primitiveBias`.
- * It is declared here instead of read off a private field because it is a rendering constant, not
- * a fact about Cesium: it trades shadow acne for peter-panning, and it is ours to tune.
+ * Depth bias, in shadow-map depth units. It trades shadow acne for peter-panning, and it is ours
+ * to tune: it is a rendering constant, not a fact about Cesium.
+ *
+ * QUATRO VEZES O VALOR DO CESIUM, E A DIFERENCA E MEDIDA, NAO GOSTO. Ate 2026-09-15 ele era
+ * 0.00002, que e o `_primitiveBias.depthBias` do proprio Cesium, e herdar aquele numero parecia a
+ * escolha conservadora. Nao era: o valor do Cesium vale no pipeline DELE, onde o receptor tambem
+ * tem a normal da superficie e aplica `normalOffset` mais `normalShading`. Este shader e um
+ * pos-processamento de tela cheia: ele nao tem normal nenhuma, e o vies de profundidade e o UNICO
+ * controle de acne que sobra.
+ *
+ * A conta que explica o numero: a 186 m, um texel de um mapa de 2048 sobre 120 graus cobre cerca
+ * de 0,19 m de chao; visto de um observador a 1,5 m de altura, o chao a 100 m esta a menos de um
+ * grau da linha de visada, entao a profundidade varia mais de 12 m ao longo de UM texel, o que em
+ * unidades de profundidade daquele frustum passa de 1e-4. Um vies de 2e-5 nao cobre isso, e o que
+ * aparece na tela sao listras vermelhas paralelas sobre chao plano que o observador enxerga: uma
+ * resposta ERRADA, nao um enfeite.
+ *
+ * Medido nesta arvore em 2026-09-15, contando pixels vermelhos na mesma cena e no mesmo
+ * enquadramento, com o setor de 150 graus (onde a acne era pior):
+ *
+ *     vies      120 graus     150 graus     60 graus a leste
+ *     2e-5        38727        128991          44986
+ *     4e-5        19109         86447           2859
+ *     8e-5        18434         20424            444
+ *     16e-5       17414         17770             82
+ *     32e-5       15421         15538              0
+ *     64e-5       10395         10478              0
+ *
+ * 8e-5 e o menor valor que apaga a acne nos tres; dali para cima o que continua caindo e OCLUSAO
+ * VERDADEIRA, e a 64e-5 a imagem mostra o peter-panning por extenso (a face escondida do bloco
+ * volta a verde e a sombra dele descola). O controle negativo, portanto, existe dos dois lados.
  */
-const SHADOW_DEPTH_BIAS = 0.00002;
+const SHADOW_DEPTH_BIAS = 0.00008;
 
 /** Near plane of the observer camera. Too small costs depth precision; too large clips the feet. */
 const OBSERVER_NEAR_PLANE = 0.1;
@@ -252,6 +291,7 @@ const scratchForwardEC = new Cesium.Cartesian3();
 const scratchUpEC = new Cesium.Cartesian3();
 const scratchRightEC = new Cesium.Cartesian3();
 const scratchTexelStep = new Cesium.Cartesian2();
+
 
 /**
  * One viewshed sector: the tinting pass, the depth map that feeds it, and the drawn outline.
