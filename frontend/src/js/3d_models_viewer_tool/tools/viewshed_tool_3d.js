@@ -24,6 +24,7 @@ import {
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
 import { Viewshed3D } from '../services/viewshed-3d.js';
+import { subViewshedLayout } from '../services/viewshed-geometry.js';
 
 // ===== MODULE STATE =====
 
@@ -49,21 +50,7 @@ const DEFAULT_VIEWSHED_PARAMS = {
     distance: 500
 };
 
-// Maximum horizontal FOV supported by a single Viewshed3D instance
-const MAX_SINGLE_VIEWSHED_ANGLE = 150;
-
 // ===== UTILITY FUNCTIONS =====
-
-/**
- * Determines how many sub-viewshed objects are needed to cover the requested angle.
- * @param {number} horizontalAngle - Total horizontal angle in degrees (1-360)
- * @returns {number} Number of sub-viewsheds (1, 2, or 3)
- */
-function computeSubViewshedCount(horizontalAngle) {
-    if (horizontalAngle <= MAX_SINGLE_VIEWSHED_ANGLE) return 1;
-    if (horizontalAngle <= MAX_SINGLE_VIEWSHED_ANGLE * 2) return 2;
-    return 3;
-}
 
 /**
  * Rotates viewPosition around cameraPosition by the given angle in the local
@@ -265,29 +252,12 @@ function createCesiumViewsheds(viewshed) {
             );
         }
 
-        // Split into sub-viewsheds if angle exceeds the per-instance limit
-        const count = computeSubViewshedCount(totalHorizontalAngle);
-        const subAngle = totalHorizontalAngle / count;
-
-        // Heading offsets so sub-viewsheds tile symmetrically around the center direction
-        // count=1: [0], count=2: [-subAngle/2, +subAngle/2], count=3: [-subAngle, 0, +subAngle]
-        const offsets = [];
-        if (count === 1) {
-            offsets.push(0);
-        } else if (count === 2) {
-            offsets.push(-subAngle / 2, subAngle / 2);
-        } else {
-            offsets.push(-subAngle, 0, subAngle);
-        }
-
-        // Each sub-viewshed's FOV is slightly reduced to prevent double-tinting at seams.
-        // The shader compares with STRICT greater-than, so pixels at the exact boundary pass both
-        // neighbouring sub-viewsheds' checks; both post-process stages then apply mix()
-        // sequentially, which reads as a saturated band along the seam. The narrowing opens an
-        // imperceptible gap instead. This survived the 2026-09-15 engine swap ON PURPOSE: the
-        // house shader kept `>` precisely so this line would not have to change, and the two are
-        // a pair (see `services/viewshed-3d.js`, third declared decision in its header).
-        const renderAngle = count > 1 ? subAngle - 1.5 : subAngle;
+        // THE SPLIT, THE SEAM NARROWING AND THE HEADING OFFSETS MOVED OUT IN 2026-09-15, into
+        // `services/viewshed-geometry.js`, which has zero imports and is therefore reachable from
+        // a node test. They were computed inline here for as long as they existed, inside a
+        // function that pulls in the store and Cesium, which is why numbers that decide the
+        // DRAWING had never been measured except through a screenshot.
+        const { renderAngle, offsets } = subViewshedLayout(totalHorizontalAngle);
 
         const result = [];
         for (const offset of offsets) {

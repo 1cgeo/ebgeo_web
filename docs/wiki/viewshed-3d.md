@@ -49,9 +49,11 @@ Sobrevivendo às cinco, o pixel é comparado com o mapa de sombras por um filtro
 
 ### A comparação é ESTRITA, e a compensação de 1,5 grau depende disso
 
-Os testes de abertura (4 e 5) usam `>` e não `>=`, então **o pixel exatamente na costura passa nos dois sub-viewsheds vizinhos e recebe a mistura duas vezes**, o que aparece como uma faixa saturada. Um setor acima de 150 graus é dividido em dois ou três pela ferramenta (`computeSubViewshedCount`), e é ela que compensa, reduzindo a abertura de render de cada pedaço em 1,5 grau.
+Os testes de abertura (4 e 5) usam `>` e não `>=`, então **o pixel exatamente na costura passa nos dois sub-viewsheds vizinhos e recebe a mistura duas vezes**, o que aparece como uma faixa saturada. Um setor acima de 150 graus é dividido em dois ou três (`subViewshedLayout`), e é o mesmo cálculo que compensa, reduzindo a abertura de render de cada pedaço em 1,5 grau.
 
-Quem reescrever o shader com `>=` transforma essa compensação em uma FRESTA visível. Qualquer das duas escolhas serve, desde que o valor de `renderAngle` mude no mesmo commit e a escolha fique escrita.
+Quem reescrever o shader com `>=` transforma essa compensação em uma FRESTA visível. Qualquer das duas escolhas serve, desde que o valor de `renderAngle` mude no mesmo commit e a escolha fique escrita. Desde 2026-09-15 as duas moram uma ao lado da outra: a aritmética saiu para [`../../frontend/src/js/3d_models_viewer_tool/services/viewshed-geometry.js`](../../frontend/src/js/3d_models_viewer_tool/services/viewshed-geometry.js), um folha de zero imports, e o cabeçalho dele diz que `SEAM_NARROWING_DEGREES` e o operador do shader são um par.
+
+**E há um efeito colateral que ninguém pediu, medido só quando a aritmética virou testável:** cada pedaço é estreitado INTEIRO e renderizado centrado no seu deslocamento, ou seja, encolhe 0,75 grau de cada lado. Nas emendas os dois meios somam a folga de 1,5 grau que o `>` estrito exige, mas nas duas bordas EXTERNAS do setor sobra um recuo de 0,75 grau. Um setor de 240 graus desenha 237. O desvio é imperceptível e não é regressão (o plugin substituído tinha o mesmo), mas ele existe; quem quiser o setor exato estreita só as bordas internas.
 
 ### O ramo que não escreve cor
 

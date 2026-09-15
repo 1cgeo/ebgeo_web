@@ -58,6 +58,14 @@
  */
 
 import { Cesium } from '@js/vendor/cesium.js';
+// A ARITMETICA MORA NUM ARQUIVO DE ZERO IMPORTS, e a razao e testabilidade: este modulo puxa o
+// Cesium inteiro, entao nada aqui dentro pode ser exercitado por um teste de node. Ver
+// `frontend/tests/unit/viewshed-3d-geometria.test.js`.
+import {
+    observerFovDegrees,
+    frustumOutlineAngles,
+    directionFromAngles,
+} from './viewshed-geometry.js';
 
 // ============================================================================
 // SHADER
@@ -199,12 +207,6 @@ const DEFAULTS = Object.freeze({
     distance: 100,
 });
 
-/**
- * Widest field of view a single instance renders. A `PerspectiveFrustum` degenerates as it
- * approaches 180 degrees, and the caller already splits anything past 150 into sub-viewsheds.
- */
-const MAX_FRUSTUM_FOV_DEGREES = 170;
-
 /** Shadow map resolution. Cesium's own default; the texel step in the shader derives from it. */
 const SHADOW_MAP_SIZE = 2048;
 
@@ -221,9 +223,6 @@ const OBSERVER_NEAR_PLANE = 0.1;
 /** Far plane of the observer camera. The real cut is the distance test in the shader. */
 const OBSERVER_FAR_PLANE = 5000;
 
-/** Subdivisions per axis in the drawn frustum outline. */
-const OUTLINE_SLICES = 8;
-
 /** Converts clip space [-1, 1] to texture space [0, 1]; the same matrix Cesium's ShadowMap uses. */
 const SCALE_BIAS_MATRIX = Object.freeze(
     new Cesium.Matrix4(
@@ -233,99 +232,6 @@ const SCALE_BIAS_MATRIX = Object.freeze(
         0.0, 0.0, 0.0, 1.0,
     ),
 );
-
-// ============================================================================
-// PURE GEOMETRY (node-testable, no Cesium state)
-// ============================================================================
-
-/**
- * Field of view, in degrees, for the observer camera that renders the depth map.
- *
- * It is the WIDER of the two openings, because one perspective frustum has to contain both, and it
- * is clamped because a perspective frustum degenerates at 180 degrees.
- * @param {number} horizontalAngle - Horizontal opening in degrees.
- * @param {number} verticalAngle - Vertical opening in degrees.
- * @returns {number} Field of view in degrees.
- */
-export function observerFovDegrees(horizontalAngle, verticalAngle) {
-    const horizontal = Number.isFinite(horizontalAngle) && horizontalAngle > 0
-        ? horizontalAngle
-        : DEFAULTS.horizontalAngle;
-    const vertical = Number.isFinite(verticalAngle) && verticalAngle > 0
-        ? verticalAngle
-        : DEFAULTS.verticalAngle;
-    return Math.min(Math.max(horizontal, vertical), MAX_FRUSTUM_FOV_DEGREES);
-}
-
-/**
- * The (azimuth, elevation) pairs, in degrees, of the polylines that draw the frustum outline.
- *
- * Kept pure and exported so the shape can be tested in node: each entry is one polyline, as a list
- * of angle pairs; `null` as the first entry of a run means "start at the apex".
- * @param {number} horizontalAngle - Horizontal opening in degrees.
- * @param {number} verticalAngle - Vertical opening in degrees.
- * @param {number} [slices] - Subdivisions per axis.
- * @returns {Array<{ apex: boolean, points: Array<{ azimuth: number, elevation: number }> }>}
- */
-export function frustumOutlineAngles(horizontalAngle, verticalAngle, slices = OUTLINE_SLICES) {
-    const halfH = Math.abs(horizontalAngle) / 2;
-    const halfV = Math.abs(verticalAngle) / 2;
-    const steps = Math.max(1, Math.floor(slices));
-    const lines = [];
-
-    const azimuthAt = (i) => -halfH + (2 * halfH * i) / steps;
-    const elevationAt = (j) => -halfV + (2 * halfV * j) / steps;
-
-    // Meridians: azimuth fixed, elevation sweeping.
-    for (let i = 0; i <= steps; i++) {
-        const azimuth = azimuthAt(i);
-        const points = [];
-        for (let j = 0; j <= steps; j++) points.push({ azimuth, elevation: elevationAt(j) });
-        lines.push({ apex: false, points });
-    }
-
-    // Parallels: elevation fixed, azimuth sweeping.
-    for (let j = 0; j <= steps; j++) {
-        const elevation = elevationAt(j);
-        const points = [];
-        for (let i = 0; i <= steps; i++) points.push({ azimuth: azimuthAt(i), elevation });
-        lines.push({ apex: false, points });
-    }
-
-    // Four edges from the apex to the corners, which is what reads as "a cone from the observer".
-    for (const azimuth of [-halfH, halfH]) {
-        for (const elevation of [-halfV, halfV]) {
-            lines.push({ apex: true, points: [{ azimuth, elevation }] });
-        }
-    }
-
-    return lines;
-}
-
-/**
- * Unit direction for one (azimuth, elevation) pair in the observer's local frame.
- *
- * Pure: takes and returns plain triples, so it is testable in node without Cesium.
- * @param {{x: number, y: number, z: number}} forward - Unit forward axis.
- * @param {{x: number, y: number, z: number}} right - Unit right axis.
- * @param {{x: number, y: number, z: number}} up - Unit up axis.
- * @param {number} azimuthDegrees - Angle around `up`, positive towards `right`.
- * @param {number} elevationDegrees - Angle around `right`, positive towards `up`.
- * @returns {{x: number, y: number, z: number}} Unit direction.
- */
-export function directionFromAngles(forward, right, up, azimuthDegrees, elevationDegrees) {
-    const az = (azimuthDegrees * Math.PI) / 180;
-    const el = (elevationDegrees * Math.PI) / 180;
-    const cosEl = Math.cos(el);
-    const sinEl = Math.sin(el);
-    const cosAz = Math.cos(az);
-    const sinAz = Math.sin(az);
-    return {
-        x: cosEl * (cosAz * forward.x + sinAz * right.x) + sinEl * up.x,
-        y: cosEl * (cosAz * forward.y + sinAz * right.y) + sinEl * up.y,
-        z: cosEl * (cosAz * forward.z + sinAz * right.z) + sinEl * up.z,
-    };
-}
 
 // ============================================================================
 // THE CLASS
