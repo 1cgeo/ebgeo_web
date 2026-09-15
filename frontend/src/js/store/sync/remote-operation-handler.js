@@ -30,6 +30,9 @@ import { editedRecentlyLocally } from './overwrite-notice.js';
 import { record } from './diag/trace-core.js';
 import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
 import { operationQueue } from './operation-queue.js';
+// A pergunta "esta feição ainda deve bytes ao servidor", lida do DISCO: ver o uso em
+// `applyRemoteSnapshot`, que roda dentro do connect em que o espelho de memória ainda está vazio.
+import { idsComBlobPendente } from './blob-upload-queue.js';
 import {
     adoptActiveGeneration,
     dropGenerationDatabases,
@@ -2240,9 +2243,23 @@ async function applyRemoteSnapshotInner(snapshot) {
 
     // Pending intentions belong to this session, not to the server snapshot. Rebuild their
     // projection without generating new operations or counting them as remotely applied.
+    //
+    // UMA PROJEÇÃO RECONSTRUÍDA NÃO É UMA INTENÇÃO COMPLETA, e a exceção é a feição de IMAGEM cujo
+    // blob ainda não subiu. Materializar aqui limpa a marca de preparo, e é ela que segura a op até
+    // os bytes chegarem ao servidor: não existe op de bytes, então uma op que chegue na frente
+    // desenha um buraco no par. É o MESMO filtro de `operation-dispatcher.js`, e ele faltava aqui.
+    // Medido três vezes em três, depois de um F5 no meio de uma subida interrompida: o par buscava
+    // a imagem cerca de 1 s ANTES de a subida terminar, tomava 404 e instalava o placeholder de
+    // erro sob aquele id, para sempre (quem já tem imagem no mapa não recebe outra).
+    //
+    // A LEITURA É DE DISCO, e não do espelho em memória: este bloco roda dentro do mesmo `connect`
+    // que dispara a retomada, e depois de um recarregamento o espelho ainda está vazio.
+    const pendentesDeBlob = await idsComBlobPendente();
     const projected = [];
     for (const op of pending) {
-        if (await applyRemoteOperationInner({ ...op, localRepair: true }, false)) projected.push(op);
+        if (!await applyRemoteOperationInner({ ...op, localRepair: true }, false)) continue;
+        if (op.entityType === EntityType.FEATURE && pendentesDeBlob.has(op.entityId)) continue;
+        projected.push(op);
     }
     if (applyContext?.staging) applyContext.markMaterialized = () => queue.markMaterialized?.(projected);
     else await queue.markMaterialized?.(projected);

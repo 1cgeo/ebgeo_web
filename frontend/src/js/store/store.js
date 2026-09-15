@@ -188,7 +188,14 @@ async function loadMapDataToMemory(mapName) {
 async function unmountCurrentAtlas({ clearQueue = true } = {}) {
     resetMemoryStore();
     mapResolver.clear();
-    await clearAllAtlasStores();
+    // O BLOB PENDENTE SEGUE A FILA, e a razão é a mesma frase acima: ele é o PAYLOAD de uma
+    // operação dessa fila (não existe op de bytes), então os dois têm uma vida só. Onde a fila
+    // sobrevive ao wipe porque o `connect` seguinte vai drená-la, o blob sobrevive porque esse
+    // mesmo `connect` vai retomá-lo; onde a fila é esvaziada, guardar os bytes deixaria dívida
+    // que ninguém mais cobra. Sem esta linha, um F5 no meio de uma subida interrompida apagava a
+    // pendência E os bytes, e a op da feição ficava PREPARADA para sempre, parando a fila inteira
+    // do atlas por retenção head-of-line, sem nada vermelho em lugar nenhum.
+    await clearAllAtlasStores({ preserveBlobUploads: !clearQueue });
     if (clearQueue) {
         await operationQueue.clear();
     }

@@ -715,7 +715,11 @@ describe('ATAQUE 2 - a regra do dono, caso a caso', () => {
         // mais recurso compartilhado a arbitrar, e o wipe de entrada deixou de alcanca-la.
         const store = read('store/store.js');
         const unmount = functionText(store, 'async function unmountCurrentAtlas');
-        expect(unmount).toMatch(/clearAllAtlasStores\(\)/);
+        // O UNICO argumento do wipe e o que SEGUE `clearQueue`: desde 2026-09-15 o blob de
+        // imagem ainda nao aceito pelo servidor vive ou morre com a fila, porque ele e o payload
+        // de uma op dela. A propriedade deste caso nao mudou: a fila em si continua fora da lista
+        // que o wipe esvazia (o descritor abaixo e quem diz isso).
+        expect(unmount).toMatch(/clearAllAtlasStores\(\{ preserveBlobUploads: !clearQueue \}\)/);
         // O `clear` da fila existe, mas so sob a decisao do chamador.
         expect(unmount).toMatch(/if \(clearQueue\) \{\s*await operationQueue\.clear\(\)/);
 
@@ -828,7 +832,7 @@ describe('ATAQUE 3 - a ordem contra o clearAllDataStore', () => {
             .toMatch(/if \(isRemoteOrigin && options\.isAuthenticated && atlasId\.length > 0\)[\s\S]{0,160}?activateRemoteAtlas\(atlasId\)/);
         // (c) e clearAllDataStore limpa o ESCOPO ATIVO, mais a fila global.
         expect(read('store/repository.js'))
-            .toMatch(/export async function clearAllAtlasStores\(\)\s*\{[\s\S]{0,300}?ensureAtlasScope\(\)/);
+            .toMatch(/export async function clearAllAtlasStores\([^)]*\)\s*\{[\s\S]{0,300}?ensureAtlasScope\(\)/);
         // (d) o unico elo que mudou: o caminho agora consulta o lock antes de apagar.
         const fn = functionText(read('index.js'), 'async function enterLocalMapOnBoot');
         expect(fn).toMatch(/clearMountedAtlasIfGranted/);

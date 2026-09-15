@@ -37,11 +37,21 @@
  * WHERE THE RECORDS LIVE, and why not in a database of their own. They are keys prefixed
  * {@link KEY_PREFIX} inside the atlas's IMAGES store. A new logical store would be a new line in
  * `STORE_DESCRIPTORS`, and the pendency has no lifecycle of its own to justify one: it is
- * meaningful exactly while the blob it names is in that database. Sharing the database makes the
- * three lists that matter correct for free — the entry wipe empties it with the blobs, namespace
- * destruction (confirmed logout) drops it with the blobs, and a local-atlas copy carries it as
- * inert baggage, because a local atlas never uploads. The one thing the sharing costs is that
- * `atlas-contents.js` must not count these keys as images, and it does not.
+ * meaningful exactly while the blob it names is in that database. Sharing it costs two things, and
+ * the first is small: `atlas-contents.js` must not count these keys as images, and it does not.
+ *
+ * THE SECOND IS THE ENTRY WIPE, AND IT WAS A DEFECT. This fileoverview used to say the sharing
+ * made three lists right for free, the first being "the entry wipe empties it with the blobs". It
+ * does not any more, and it must not: `openRemoteAtlas` empties the ten data databases and pulls
+ * the server's snapshot back, so everything it destroys is re-fetchable EXCEPT a blob the server
+ * never received. Destroying the pendency and its bytes left the resumption on `connect` with
+ * nothing to resume, and the feature's prepared mark (head-of-line) then stopped the whole
+ * outbound queue for good, silently. The wipe now spares a PENDENTE record and the bytes it names,
+ * under the same answer that spares the outbound queue, because this blob is the payload of an
+ * operation in it (`limparImagensPoupandoUploads` in `blob-upload-keys.js`,
+ * `clearAllAtlasStores` in `store/repository.js`). The other two lists are unchanged: namespace
+ * destruction (confirmed logout) drops the records with the blobs, and a local-atlas copy carries
+ * them as inert baggage, because a local atlas never uploads.
  *
  * NOTHING HERE THROWS. A failed upload costs a picture; a gesture aborted by a network error costs
  * the drawing. The callers get a verdict object and decide what to say.
@@ -67,7 +77,7 @@ import { fenceStore } from '../fenced-store.js';
 import { generateUUID } from '@utils/uuid.js';
 import { apiClient } from './api-client.js';
 import { operationQueue } from './operation-queue.js';
-import { BLOB_UPLOAD_KEY_PREFIX } from './blob-upload-keys.js';
+import { BLOB_UPLOAD_KEY_PREFIX, BLOB_UPLOAD_PENDENTE } from './blob-upload-keys.js';
 import {
     CausaDeFalha,
     FALHA_SEM_BYTES,
@@ -90,8 +100,13 @@ const KEY_PREFIX = BLOB_UPLOAD_KEY_PREFIX;
  * @enum {string}
  */
 export const BlobUploadState = Object.freeze({
-    /** Registered, not confirmed by the server: eligible for resumption. */
-    PENDENTE: 'pendente',
+    /**
+     * Registered, not confirmed by the server: eligible for resumption.
+     *
+     * The string is defined in the zero-import leaf because the atlas WIPE has to recognise it
+     * without importing this module's graph (`limparImagensPoupandoUploads`).
+     */
+    PENDENTE: BLOB_UPLOAD_PENDENTE,
     /** The server holds the bytes under this id. */
     CONFIRMADO: 'confirmado',
     /** The server refused for a reason no retry changes (type, size, id taken by other bytes). */
@@ -150,6 +165,32 @@ function chaveDe(tentativaId) {
  */
 export function blobUploadPending(imageId) {
     return typeof imageId === 'string' && _pendentes.has(imageId);
+}
+
+/**
+ * The image ids whose bytes are still owed to the server, READ FROM DISK.
+ *
+ * IT EXISTS BECAUSE THE MEMORY MIRROR IS EMPTY EXACTLY WHEN THE HANDSHAKE NEEDS THE ANSWER. The
+ * mirror above is filled by {@link retomarBlobsPendentes}, which runs INSIDE the connect it would
+ * have to precede: a reload comes back with `_pendentes` empty, and the snapshot's re-projection
+ * of pending intentions (`applyRemoteSnapshot`, `remote-operation-handler.js`) happens in that same
+ * handshake. Asking the mirror there answers "nothing is pending" and releases the operation of an
+ * image feature whose bytes are still on this machine: measured three times out of three, the peer
+ * fetched the image 1 s before the upload finished, took a 404 and drew the error placeholder
+ * under that id, permanently (the placeholder is never replaced once installed).
+ *
+ * The synchronous {@link blobUploadPending} stays the answer where the caller cannot await (the
+ * outbound batch being built); this one is for the paths that can.
+ * @returns {Promise<Set<string>>} Ids with a PENDENTE record; empty in a local atlas.
+ */
+export async function idsComBlobPendente() {
+    const ids = new Set();
+    for (const registro of await listarPendenciasDeBlob()) {
+        if (registro?.estado === BlobUploadState.PENDENTE && typeof registro.imageId === 'string') {
+            ids.add(registro.imageId);
+        }
+    }
+    return ids;
 }
 
 /**

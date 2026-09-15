@@ -20,6 +20,10 @@
  */
 
 import { StoreName, listAtlasStores, getActiveScope } from './atlas-namespace.js';
+// A FOLHA, nunca a fila de blobs: aquele módulo carrega o cliente HTTP, e este arquivo é alcançado
+// pelo repositório inteiro. O que se precisa daqui é só reconhecer uma pendência dentro do banco de
+// imagens, que é exatamente o que a folha existe para publicar.
+import { limparImagensPoupandoUploads } from './sync/blob-upload-keys.js';
 import { ensureAtlasScope, getScopedStore } from './repositories/local.repository.js';
 import {
     detectMigrationNeeded,
@@ -352,9 +356,19 @@ async function mapaDeEmergencia() {
  * unmounting the current atlas means. Destroying a slot's databases is `dropAtlasDatabases`
  * (`atlas-namespace.js`), reached only by deleting a local atlas.
  *
+ * ONE DATABASE HAS SOMETHING THE SERVER CANNOT GIVE BACK, and that is the exception below. Every
+ * other byte here is re-fetchable from the snapshot the caller pulls next; a blob whose upload is
+ * still pending is not, because the server never received it. `preserveBlobUploads` keeps those
+ * records and their bytes, and the caller decides it with the SAME answer it gives for the
+ * outbound queue (`clearQueue`, `store.js`): the blob is the payload of an operation in that
+ * queue, so the two have one lifetime. See `limparImagensPoupandoUploads`.
+ *
+ * @param {object} [options]
+ * @param {boolean} [options.preserveBlobUploads=false] - Whether to keep the pending image
+ *   uploads of this scope (and the blobs they name) instead of emptying them with the rest.
  * @returns {Promise<void>}
  */
-export async function clearAllAtlasStores() {
+export async function clearAllAtlasStores({ preserveBlobUploads = false } = {}) {
     // `listAtlasStores()` resolves against the ACTIVE scope and throws when there is none,
     // so the scope has to be settled before the set is resolved. O `.map` abaixo é síncrono e
     // roda depois desta linha, então a ordem continua a mesma que o laço tinha.
@@ -370,7 +384,11 @@ export async function clearAllAtlasStores() {
     // `allSettled` toda limpeza é aguardada, e só então a primeira falha é relançada, para que
     // o chamador continue vendo um wipe que falhou como falha.
     const resultados = await Promise.allSettled(
-        listAtlasStores().map(({ store }) => store.clear())
+        listAtlasStores().map(({ id, store }) => (
+            preserveBlobUploads && id === StoreName.IMAGES
+                ? limparImagensPoupandoUploads(store)
+                : store.clear()
+        ))
     );
 
     const falha = resultados.find(resultado => resultado.status === 'rejected');
