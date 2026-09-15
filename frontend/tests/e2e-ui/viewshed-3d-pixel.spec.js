@@ -2,7 +2,7 @@
 
 /**
  * @fileoverview O PRIMEIRO teste de PIXEL do viewshed 3D deste repositório, e a razão de ele
- * existir está escrita em `docs/seguranca/cesium-viewshed-reescrita-aceite.md`: até 2026-09-15 a
+ * existir está escrita em `docs/wiki/viewshed-3d.md` (o aceite da reescrita foi absorvido por ela): até 2026-09-15 a
  * análise de visibilidade era medida só como ENTIDADE (create/update/delete conferidos no snapshot
  * do servidor, em `browser-cesium3d*.spec.js`), e nenhuma suíte construía um `ViewShed3D`. Quem
  * trocasse o motor e visse a suíte verde não teria medido o motor. Este arquivo é a trava que
