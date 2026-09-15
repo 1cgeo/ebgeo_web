@@ -168,12 +168,14 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
 
   **A CAMADA DO PLAYWRIGHT SE ISOLA POR ENV, e são TRÊS variáveis, não uma.**
   `frontend/tests/e2e-ui/constants.js` lê `EBGEO_UI_E2E_APP_PORT` (Vite, padrão 4321),
-  `EBGEO_UI_E2E_BACKEND_PORT` (padrão 3912) e `EBGEO_UI_E2E_DB_NAME` (padrão
-  `ebgeo_ui_e2e`), e o cabeçalho de lá avisa que isolar uma sem as outras ainda colide:
-  trocar só a porta deixa a segunda rodada DROPANDO o banco da primeira, e o sintoma que
-  chega é `banco de dados "ebgeo_ui_e2e" não existe` na rodada de quem não fez nada.
-  Medido em 2026-09-14, com dois agentes na mesma máquina: as três juntas resolveram, e o
-  arquivo de estado já deriva da porta e do checkout, então não há uma quarta a lembrar.
+  `EBGEO_UI_E2E_BACKEND_PORT` (padrão 3912) e `EBGEO_UI_E2E_DB_NAME`, e o cabeçalho de lá
+  avisa que isolar uma sem as outras ainda colide: trocar só a porta deixava a segunda rodada
+  DROPANDO o banco da primeira, e o sintoma que chega é `banco de dados ... não existe` na
+  rodada de quem não fez nada. Medido em 2026-09-14, com dois agentes na mesma máquina: as
+  três juntas resolveram. **Desde o mesmo dia o banco DERIVA do checkout** (padrão
+  `ebgeo_ui_e2e_<chave>`, a mesma `CHECKOUT_KEY` do arquivo de estado), então o que sobra
+  para lembrar são as duas PORTAS; o nome do banco só precisa ser passado quando duas rodadas
+  do MESMO checkout coexistem.
   Se sua spec instala `page.route` com a origem do app escrita à mão, ela quebra
   exatamente aqui: leia `APP_ORIGIN` e `BACKEND_PORT` das constantes, senão o roteamento
   engole o próprio `GET /api/config` e o app não boota, com cara de defeito de produto.
