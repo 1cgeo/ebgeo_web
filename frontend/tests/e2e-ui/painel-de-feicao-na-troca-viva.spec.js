@@ -227,9 +227,20 @@ describeOrSkip('o painel de feicao aberto numa troca viva de atlas', () => {
 
             await esperarMapaDestravado(page);
             const id = await drawPointUI(page, [-43.2, -22.9]);
+            // O `toPass` REPETE ATE A MARCA ESTAR NA FEICAO, e nao ate os dois gestos nao
+            // lancarem. Sem a leitura de volta ele repetia um par de helpers que devolve sem
+            // reclamar mesmo quando o valor nao pegou: a aba redesenha a arvore inteira a cada
+            // `LAYERS_CHANGED` (o flush da propria feicao recem-desenhada dispara um), e um
+            // desses caindo entre o `fill` e o "Salvar" desfaz a digitacao sem erro nenhum. O
+            // caso entao seguia para a leitura de controle com "Ponto #1" na gaveta e reprovava
+            // trinta linhas adiante, acusando a TROCA de atlas por uma renomeacao que nunca
+            // aconteceu. Medido na rodada cheia de 2026-09-13, na primeira das tres passagens.
             await expect(async () => {
                 await selectFeatureUI(page, id);
                 await renameViaPanelUI(page, MARCA);
+                await selectFeatureUI(page, id);
+                const tela = await lerTela(page);
+                expect(tela.nomeNaGaveta, 'a renomeacao pegou na feicao').toContain(MARCA);
             }).toPass({ timeout: 90000 });
 
             // A TABELA PRIMEIRO. A gaveta desmonta a aba Camadas junto com o botao que abre a
