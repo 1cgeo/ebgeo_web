@@ -665,9 +665,13 @@
     </div>
 
     <!-- ========================================
-         VENDORS EXTERNOS (não bundlear)
-         Bibliotecas grandes ou especializadas mantidas como scripts externos
-         As demais foram migradas para npm e bundleadas pelo Vite
+         VENDORS: ESTA SEÇÃO NÃO CARREGA MAIS NADA, E É SÓ REGISTRO
+         Desde 2026-09-14 não sobrou uma tag de biblioteca neste HTML: MapLibre, Cesium, Turf e
+         milsymbol vêm do npm, cada um por um ponto único de src/js/vendor/ (o MapLibre por
+         src/js/map/maplibre.js), e o único que ainda mora em public/vendors/ é o GDAL, cuja tag
+         é injetada em RUNTIME pelo carregador dele, nunca daqui. O que sobrevive abaixo é o
+         porquê de cada um continuar SOB DEMANDA e o que foi medido antes de tirar a tag: é isso
+         que uma tag reposta aqui desfaria em silêncio.
     ======================================== -->
     <!-- O MapLibre 6.x não tem mais bundle UMD, então saiu daqui: ele entra pelo npm, no primeiro
          import de /src/js/index.js (map/maplibre.js), que publica o global `maplibregl` antes de
