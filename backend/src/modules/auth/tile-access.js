@@ -38,6 +38,19 @@
  *      (`fn_can_see_resource`, por `recursoPrivadoLiberado`), memoizado por (chamador,
  *      empréstimo, recurso).
  *
+ * O EMPRÉSTIMO POR ATLAS ENTROU NO DESFECHO 4 EM 2026-09-15 (D17), e até ali o "empréstimo"
+ * da chave do memo era uma coluna que nunca se preenchia: o atlas em foco era lido de
+ * `req.query`, que nesta rota é SEMPRE vazia, então o ramo de empréstimo do predicado nunca
+ * rodava. O efeito medido era uma camada privada que aparecia na lista do catálogo e não
+ * desenhava, para quem a alcança só pelo empréstimo — o visitante de link público inclusive,
+ * que é o caso em que a cláusula 6.3 mais importa. Quem o extrai agora é `atlasDoTile`, da
+ * query da URI ORIGINAL, e a leitura errada que sustentou o defeito está desfeita no
+ * cabeçalho daquela função.
+ *
+ * E COM ELE VEIO UM CABEÇALHO DE CACHE, que é a outra metade: a resposta do desfecho 4
+ * depende de quem pede, então `marcarEscopoDeTile` a marca `private, no-cache`, para o host
+ * copiar ao tile. Os desfechos 1, 2 e 3 continuam sem cabeçalho nenhum nosso.
+ *
  * E UM QUINTO, que não é desfecho de acesso: 503, "não consigo decidir". Ele sai quando o
  * índice de regime não pode ser construído e não há cópia anterior, e desde 2026-09-01
  * também quando a cópia anterior está vencida além do teto (`REGIME_STALE_MAX_MS`, cinco
@@ -73,6 +86,8 @@
  */
 import config from '../../config.js';
 import { ServiceUnavailableError } from '../../utils/errors.js';
+import { atlasScopeId } from '../../utils/principal.js';
+import { marcarEscopoDeTile } from '../../utils/cache-scope.js';
 import { API_KEY_SCOPES } from '../users/api-key-terms.js';
 import { regimeDoTile } from '../nomes/tile-regime.js';
 import { recursoPrivadoLiberado } from '../nomes/assets3d-acesso.js';
@@ -156,6 +171,38 @@ export function caminhoDoTile(req) {
 }
 
 /**
+ * O ATLAS EM FOCO que o tile declarou, lido da query da MESMA URI original, ou `null`.
+ *
+ * ELE VEM DO CABEÇALHO E NÃO DE `req.query`, e essa é a coisa que a cláusula 6.7 passou
+ * meses descrevendo como impossível. A subrequisição do `auth_request` chega aqui com a
+ * query VAZIA, e daí se concluía que o atlas não podia atravessar; mas o que o nginx copia
+ * da requisição principal é o `unparsed_uri` INTEIRO, que é o que ele já manda em
+ * `X-Original-URI` para que este arquivo resolva o caminho. A query sempre esteve dentro
+ * dele, do mesmo jeito que a chave de API já era extraída de `$request_uri` por um `map` do
+ * host. Ou seja, o conserto não precisou de cabeçalho novo nenhum no nginx.
+ *
+ * O UUID NÃO É SENHA, e nada aqui o trata como tal: ele diz QUAL empréstimo o chamador quer
+ * usar, e quem decide se ele pode é `requireAtlasPermission('read')`, rodado lá dentro de
+ * `recursoPrivadoLiberado`. É o mesmo contrato do 3D e do 360.
+ *
+ * A PENEIRA DE UUID É OBRIGATÓRIA AQUI, e por uma razão que as outras superfícies não têm:
+ * lá o `?atlasId=` passa por `validate` e um valor torto morre como 422 na borda, enquanto
+ * este valor chega de um cabeçalho que nenhum schema olha. Sem a peneira, um `atlasId=x`
+ * desceria para um cast `::uuid` e viraria um 500 por tile.
+ *
+ * @param {import('express').Request} req
+ * @returns {string|null}
+ */
+export function atlasDoTile(req) {
+  const bruto = req.get('x-original-uri');
+  if (typeof bruto !== 'string') return null;
+  const inicio = bruto.indexOf('?');
+  if (inicio === -1) return null;
+  const query = bruto.slice(inicio + 1).split('#')[0];
+  return atlasScopeId(new URLSearchParams(query).get('atlasId'));
+}
+
+/**
  * O gate. Assíncrono porque consulta o índice (memória) e, só no ramo privado, o predicado.
  *
  * RESPONDE SEM CORPO, e por isso não lança `UnauthorizedError`: o `errorHandler`
@@ -206,8 +253,20 @@ export async function requireTileAccess(req, res, next) {
     return recusar(res, TILE_ACCESS_DENIAL.ESCOPO_NAO_ALCANCA);
   }
 
-  // 4. E então o mesmo predicado de todo o resto do acervo privado.
-  const liberado = await recursoPrivadoLiberado(req, { tipo: regime.tipo, resourceId: regime.resourceId });
+  // 4. E então o mesmo predicado de todo o resto do acervo privado, agora COM o empréstimo:
+  //    o atlas em foco sai da query da URI original (`atlasDoTile`), porque a subrequisição
+  //    não tem query própria. Sem ele, o ramo de empréstimo de `fn_granted_resource_ids`
+  //    nunca era exercido aqui e a camada que só o empréstimo alcança aparecia na lista sem
+  //    desenhar (cláusula 6.7, fechada por D17 em 2026-09-15).
+  const liberado = await recursoPrivadoLiberado(
+    req,
+    { tipo: regime.tipo, resourceId: regime.resourceId },
+    { atlasId: atlasDoTile(req) }
+  );
+  //    A RESPOSTA DEPENDEU DE QUEM PEDIU, então ela nunca é publicamente cacheável — e o
+  //    `req.atlasId` que `recursoPrivadoLiberado` acabou de carimbar é o que faz
+  //    `respostaEscopada` enxergar o empréstimo. Ver o cabeçalho de `marcarEscopoDeTile`.
+  if (liberado) marcarEscopoDeTile(req, res);
   return liberado ? liberar(res) : recusar(res, TILE_ACCESS_DENIAL.RECURSO_NAO_ALCANCADO);
 }
 

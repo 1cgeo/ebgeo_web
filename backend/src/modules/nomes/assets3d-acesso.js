@@ -166,13 +166,22 @@ export function gateDeAsset3d(req, res, next) {
  * O memo é COMPARTILHADO pelos dois, e isso é deliberado — a chave carrega tipo e id, então
  * não há colisão, e uma segunda tabela teria um segundo teto de tamanho para dimensionar.
  *
+ * O ATLAS PODE CHEGAR POR FORA DA QUERY, e o segundo consumidor é justamente esse caso.
+ * A subrequisição do `auth_request` do nginx chega a este processo com a query VAZIA (o que
+ * ele copia da requisição principal é o `unparsed_uri`, num cabeçalho), então `req.query`
+ * ali não tem e nunca terá o `?atlasId=` que o cliente escreveu na URL do tile. Daí o
+ * `opcoes.atlasId`: quem sabe de onde extrair o escopo é a rota, e quem sabe o que fazer com
+ * ele continua sendo esta função. Sem isso o gate do tile decidia sempre com atlas nulo e o
+ * ramo de empréstimo nunca era exercido — a cláusula 6.7, fechada em 2026-09-15 (D17).
+ *
  * @param {import('express').Request} req
  * @param {{tipo: string, resourceId: string}} alvo - From `regimeDoCaminho`.
+ * @param {{atlasId?: string|null}} [opcoes] - O escopo quando ele NÃO vem de `req.query`.
  * @returns {Promise<boolean>}
  */
-export async function recursoPrivadoLiberado(req, alvo) {
+export async function recursoPrivadoLiberado(req, alvo, opcoes = {}) {
   const userId = principalUserId(req.user);
-  const atlasId = atlasScopeId(req.query?.atlasId);
+  const atlasId = atlasScopeId(opcoes.atlasId ?? req.query?.atlasId);
   const chave = `${impressaoDoPrincipal(req.user)}|${atlasId ?? '-'}|${alvo.tipo}|${alvo.resourceId}`;
 
   const agora = Date.now();
