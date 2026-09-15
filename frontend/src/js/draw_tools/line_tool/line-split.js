@@ -242,8 +242,6 @@ export function activateSplitMode(lineFeature, map, selectionManager) {
     }
 
     return new Promise((resolve) => {
-        showToast('Clique na linha para cortar. Pressione Esc para cancelar.', 'info');
-
         const originalCursor = map.getCanvas().style.cursor;
         map.getCanvas().style.cursor = 'crosshair';
 
@@ -261,9 +259,23 @@ export function activateSplitMode(lineFeature, map, selectionManager) {
             resolve({ success: false, cancelled: true });
         };
 
+        // NINGUÉM AGUARDA ESTE HANDLER, então o que ele deixa escapar não vira erro: vira
+        // silêncio. `splitLineAtPoint` só protege por `try` a parte que ESCREVE; tudo de
+        // `ensureTurf` até a geometria das metades corre fora dele, e o `import()` do turf é
+        // justamente o que uma máquina carregada pode deixar cair. Uma rejeição ali não tem quem
+        // a receba: a promessa deste modo nunca assenta, o modo já se desarmou no `cleanup`
+        // acima, e a linha original continua inteira sem um aviso em lugar nenhum. É a mesma
+        // cara de um clique que não chegou, e as duas causas pedem coisas opostas de quem lê.
         async function onMapClick(e) {
             cleanup();
-            const result = await splitLineAtPoint(lineFeature, e.lngLat, map, selectionManager);
+            let result;
+            try {
+                result = await splitLineAtPoint(lineFeature, e.lngLat, map, selectionManager);
+            } catch (error) {
+                console.error('Error splitting line:', error);
+                showWarning('Erro ao cortar a linha');
+                result = { success: false };
+            }
             resolve(result);
         }
 
@@ -277,10 +289,18 @@ export function activateSplitMode(lineFeature, map, selectionManager) {
 
         activeSplitCleanup = cancelActive;
 
-        // Defer listener registration to avoid capturing the triggering click
+        // Defer listener registration to avoid capturing the triggering click.
+        //
+        // O AVISO SAI DAQUI DE DENTRO, E ESSA ORDEM É CONTRATO. Enquanto ele era a primeira
+        // linha do executor, ele aparecia na tela um quadro ANTES de o clique estar armado, e
+        // quem o lesse como "pode clicar" podia clicar no vazio: o clique perdido não desarma
+        // nada, então o modo fica armado para sempre e nada acusa. Um sinal de prontidão que
+        // precede a prontidão é pior que nenhum, porque convence. Mesmo conserto, e mesma
+        // razão, em `military_tools/boundary_tool/boundary-split.js`.
         requestAnimationFrame(() => {
             map.on('click', onMapClick);
             document.addEventListener('keydown', onKeyDown);
+            showToast('Clique na linha para cortar. Pressione Esc para cancelar.', 'info');
         });
     });
 }

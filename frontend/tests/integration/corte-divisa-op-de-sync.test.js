@@ -27,14 +27,15 @@
  *      Ctrl+Z desfaz o corte inteiro.
  */
 
-import { describe, it, expect, beforeEach, vi, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, beforeAll, afterAll } from 'vitest';
 import { getEmptyMapData } from '../../src/js/store/repository.utils.js';
 
 // ============================================================================
 // Estado compartilhado com as fábricas de mock (içado)
 // ============================================================================
 
-const { timeline, mockMapData, mockMapManager, mockLockedMaps, toasts } = vi.hoisted(() => ({
+const { timeline, mockMapData, mockMapManager, mockLockedMaps, toasts, mockEnsureTurf } = vi.hoisted(() => ({
+    mockEnsureTurf: vi.fn(async () => {}),
     // UMA lista ordenada para tudo o que o corte faz: é ela que responde se as
     // ops de sync caíram dentro do lote de undo e em que ordem.
     timeline: [],
@@ -141,8 +142,10 @@ vi.mock('@utils', () => ({
 
 vi.mock('@events', () => ({ EventTypes: { LAYERS_CHANGED: 'layersChanged' } }));
 
-// O corte baixa o turf sob demanda; aqui ele já está no global.
-vi.mock('@utils/turf-loader.js', () => ({ ensureTurf: async () => {} }));
+// O corte baixa o turf sob demanda; aqui ele já está no global. É espião, e não uma seta solta,
+// porque o bloco do MODO DE CLIQUE precisa fazê-lo FALHAR: o `import()` do turf é a primeira
+// coisa que uma máquina carregada deixa cair, e era por ali que o modo ficava mudo.
+vi.mock('@utils/turf-loader.js', () => ({ ensureTurf: mockEnsureTurf }));
 
 // A geometria importa `BaseGeometry` do barril `@tools`, acoplado ao DOM.
 vi.mock('@tools', () => ({
@@ -160,6 +163,7 @@ import { setFeatureDependencies } from '../../src/js/store/feature.operations.js
 import { logFeatureOperation } from '../../src/js/store/sync/index.js';
 
 let splitBoundaryAtPoint;
+let activateBoundarySplitMode;
 let AddBoundaryGeometry;
 let geometry;
 
@@ -192,7 +196,7 @@ beforeAll(async () => {
 
     ({ default: AddBoundaryGeometry } =
         await import('../../src/js/military_tools/boundary_tool/add_boundary_geometry.js'));
-    ({ splitBoundaryAtPoint } =
+    ({ splitBoundaryAtPoint, activateBoundarySplitMode } =
         await import('../../src/js/military_tools/boundary_tool/boundary-split.js'));
     geometry = new AddBoundaryGeometry();
 });
@@ -264,6 +268,9 @@ beforeEach(() => {
     toasts.length = 0;
     mockMapData.value = getEmptyMapData();
     mockLockedMaps.value = new Set();
+    // `clearAllMocks` limpa o histórico, não a implementação; repor aqui garante que o caso de
+    // turf que FALHA não vaze para o vizinho.
+    mockEnsureTurf.mockResolvedValue(undefined);
     setFeatureDependencies({ groupManager: { removeFeatureFromAllGroups: vi.fn() } });
 });
 
@@ -394,3 +401,102 @@ vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
         }
     },
 }));
+
+/**
+ * O MODO DE CLIQUE, que é a outra metade do gesto e não tinha régua nenhuma.
+ *
+ * `activateBoundarySplitMode` arma um `map.on('click')` e devolve uma promessa. Duas
+ * propriedades dele decidem se o corte acontece, e as duas são invisíveis de fora:
+ *
+ *   1. O AVISO NA TELA É O SINAL DE PRONTIDÃO, e ele tem de sair DEPOIS do armamento. Enquanto
+ *      saía antes, havia um quadro em que a frase "clique na linha" já estava na tela e o clique
+ *      ainda caía no vazio. Clique perdido não desarma nada: o modo fica armado para sempre, a
+ *      divisa continua inteira e nada acusa.
+ *   2. NINGUÉM AGUARDA O HANDLER DO CLIQUE. `splitBoundaryAtPoint` corre com `try` só na parte
+ *      que escreve; `ensureTurf` e toda a geometria das metades ficam fora dele. Uma rejeição ali
+ *      não tinha quem a recebesse: a promessa do modo nunca assentava, e o desfecho era
+ *      indistinguível de um clique que não chegou.
+ *
+ * As duas se medem aqui porque são de ORDEM e de EXCEÇÃO, não de estatística: o navegador
+ * reproduziria a primeira uma vez em muitas, e a segunda só sob rede ruim.
+ */
+describe('o modo de clique do corte', () => {
+    let quadros;
+    let ouvintesDeDocumento;
+
+    beforeEach(() => {
+        toasts.length = 0;
+        quadros = [];
+        ouvintesDeDocumento = [];
+        globalThis.requestAnimationFrame = (fn) => { quadros.push(fn); return quadros.length; };
+        globalThis.document = {
+            addEventListener: (tipo, fn) => ouvintesDeDocumento.push([tipo, fn]),
+            removeEventListener: () => {},
+        };
+    });
+
+    afterEach(() => {
+        delete globalThis.requestAnimationFrame;
+        delete globalThis.document;
+    });
+
+    /** Dublê de mapa que REGISTRA a ordem: é a ordem que este bloco mede. @returns {Object} */
+    function makeMapaQueRegistra(ordem) {
+        return {
+            getCanvas: () => ({ style: {} }),
+            getSource: () => ({}),
+            getZoom: () => 12,
+            on: (tipo, fn) => { ordem.push(`map.on:${tipo}`); if (tipo === 'click') ordem.cliqueArmado = fn; },
+            off: () => {},
+        };
+    }
+
+    it('o aviso de prontidão só sai depois de o clique estar armado', () => {
+        const ordem = [];
+        const mapa = makeMapaQueRegistra(ordem);
+        const original = seedBoundary();
+
+        activateBoundarySplitMode(original, mapa, makeSelectionManager([]));
+
+        // ANTES do quadro não há nem armamento nem aviso: um aviso aqui seria a mentira.
+        expect(ordem, 'nada é armado fora do quadro').toEqual([]);
+        expect(toasts, 'nenhum aviso antes do armamento').toEqual([]);
+
+        quadros.forEach((fn) => fn());
+
+        expect(ordem).toContain('map.on:click');
+        expect(toasts, 'o aviso saiu, e uma vez só').toHaveLength(1);
+        expect(toasts[0][1]).toContain('Clique na linha de limite para cortar');
+        // A ASSERÇÃO É DE ORDEM, e ela é absoluta: `map.on` foi chamado DENTRO do mesmo quadro,
+        // antes do aviso. Sem o índice, duas chamadas na ordem errada passariam igual.
+        expect(ordem.indexOf('map.on:click')).toBeGreaterThanOrEqual(0);
+        const [, aoTeclar] = ouvintesDeDocumento.find(([t]) => t === 'keydown') ?? [];
+        expect(aoTeclar, 'o Esc também só é ouvido depois do quadro').toBeTypeOf('function');
+        aoTeclar({ key: 'Escape' });
+    });
+
+    it('turf que não carrega vira aviso e desfecho, nunca silêncio', async () => {
+        const ordem = [];
+        const mapa = makeMapaQueRegistra(ordem);
+        const original = seedBoundary();
+
+        mockEnsureTurf.mockRejectedValue(new Error('Failed to fetch dynamically imported module'));
+
+        const promessa = activateBoundarySplitMode(original, mapa, makeSelectionManager([]));
+        quadros.forEach((fn) => fn());
+        toasts.length = 0;
+
+        ordem.cliqueArmado({ lngLat: { lng: -47.7, lat: -15.72 } });
+
+        // O DESFECHO CHEGA. Sem o conserto esta promessa nunca assenta, e o caso reprova por
+        // estouro de prazo em vez de por asserção, que é exatamente o sintoma do produto.
+        const resultado = await promessa;
+        expect(resultado).toEqual({ success: false });
+        expect(toasts.map(([nivel]) => nivel), 'a pessoa foi avisada').toContain('warning');
+        expect(toasts.some(([, msg]) => msg.includes('Erro ao cortar a linha de limite'))).toBe(true);
+
+        // E A ORIGINAL CONTINUA INTEIRA: o desfecho é recusa, não corte pela metade.
+        const restantes = mockMapData.value.features.boundarys.map((f) => f.properties.id);
+        expect(restantes).toEqual(['divisa-original']);
+    });
+});

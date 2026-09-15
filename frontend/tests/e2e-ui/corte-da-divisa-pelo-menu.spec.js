@@ -12,8 +12,9 @@
  * O menu do mapa é da SELEÇÃO, não do pixel: ele abre em qualquer ponto do canvas que não esteja
  * sob um painel nem sobre uma alça de edição (o botão direito sobre a alça remove o vértice, e
  * a ferramenta engole o evento em fase de captura, de propósito). Por isso o clique direito vai
- * a um ponto da espinha longe dos vértices, e o clique do corte vai ao mesmo ponto, que está
- * sobre a linha.
+ * a um ponto da espinha longe das alças, e o clique do corte vai ao mesmo ponto, que está
+ * sobre a linha. "Longe das alças" inclui as de MEIO DE SEGMENTO, que é o que
+ * {@link pontoDoCorte} explica.
  */
 
 import { test, expect } from '@playwright/test';
@@ -27,13 +28,24 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 const ESPINHA = [[-51.24, -30.10], [-51.20, -30.11], [-51.16, -30.10]];
 
 /**
- * O meio do ÚLTIMO segmento: sobre a linha e longe das alças dos vértices. O último, e não o
- * primeiro, porque selecionar a feição abre o painel de atributos à esquerda, e a câmera é
- * levada a este ponto antes do clique para que ele fique na metade livre da tela.
+ * Um ponto do ÚLTIMO segmento que está sobre a linha e fora de TODA alça de edição. O último
+ * segmento, e não o primeiro, porque selecionar a feição abre o painel de atributos à esquerda,
+ * e a câmera é levada a este ponto antes do clique para que ele fique na metade livre da tela.
+ *
+ * NÃO é o meio do segmento, e a razão custou uma leitura: com a divisa SELECIONADA, o controle
+ * desenha uma alça por vértice E UMA POR MEIO DE SEGMENTO (`createHandles`, em
+ * `add_boundary_geometry.js`), com `circle-radius: 8`. O meio do segmento é portanto o centro
+ * exato de uma alça, e o `pointerdown` dela (`_onEditPointerDown`) chama `preventDefault()` e
+ * toma `setPointerCapture`: o `mousedown` de compatibilidade não sai, e o `click` do MapLibre
+ * passa a depender do `_mousedownPos` que sobrou do clique direito anterior. Funcionava por
+ * coincidência de pixel. A 30% do segmento o ponto continua sobre a linha e fica a mais de 8 px
+ * das duas alças no zoom deste caso.
  */
+const RAZAO_DO_CORTE = 0.3;
+
 function pontoDoCorte(espinha) {
     const [a, b] = espinha.slice(-2);
-    return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    return [a[0] + (b[0] - a[0]) * RAZAO_DO_CORTE, a[1] + (b[1] - a[1]) * RAZAO_DO_CORTE];
 }
 
 async function abrirMapa(page) {
@@ -94,7 +106,11 @@ describeOrSkip('corte da Linha de Limite pelo menu de contexto (Chromium real)',
 
         // O modo de corte chega por `await import()` (o item carrega a orquestração sob demanda),
         // e o clique antes disso cai no vazio. O sinal de que ele assentou é o aviso que ele
-        // mesmo mostra ao entrar.
+        // mesmo mostra ao entrar, E ISSO SÓ PASSOU A SER VERDADE EM 2026-09-15: até então o
+        // aviso era a primeira linha do modo e o `map.on('click')` era armado um quadro depois,
+        // de modo que este gate abria antes da prontidão que ele afirma. Hoje o aviso sai de
+        // dentro do mesmo `requestAnimationFrame` que arma o clique, e a ordem tem régua em
+        // `tests/integration/corte-divisa-op-de-sync.test.js`.
         await expect(page.getByText('Clique na linha de limite para cortar')).toBeVisible({ timeout: 10000 });
         await clicarNoMapaUI(page, corte);
 
