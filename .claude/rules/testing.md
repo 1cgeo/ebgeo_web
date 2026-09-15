@@ -166,6 +166,32 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   | `test:e2e` (contrato, 3ª perna da raiz) | 3911 | `ebgeo_e2e` | não |
   | `test:e2e:ui` e `test:e2e:mega` (Playwright) | 3912 | `ebgeo_ui_e2e` | não |
 
+  **A CAMADA DO PLAYWRIGHT SE ISOLA POR ENV, e são TRÊS variáveis, não uma.**
+  `frontend/tests/e2e-ui/constants.js` lê `EBGEO_UI_E2E_APP_PORT` (Vite, padrão 4321),
+  `EBGEO_UI_E2E_BACKEND_PORT` (padrão 3912) e `EBGEO_UI_E2E_DB_NAME` (padrão
+  `ebgeo_ui_e2e`), e o cabeçalho de lá avisa que isolar uma sem as outras ainda colide:
+  trocar só a porta deixa a segunda rodada DROPANDO o banco da primeira, e o sintoma que
+  chega é `banco de dados "ebgeo_ui_e2e" não existe` na rodada de quem não fez nada.
+  Medido em 2026-09-14, com dois agentes na mesma máquina: as três juntas resolveram, e o
+  arquivo de estado já deriva da porta e do checkout, então não há uma quarta a lembrar.
+  Se sua spec instala `page.route` com a origem do app escrita à mão, ela quebra
+  exatamente aqui: leia `APP_ORIGIN` e `BACKEND_PORT` das constantes, senão o roteamento
+  engole o próprio `GET /api/config` e o app não boota, com cara de defeito de produto.
+
+  **E HÁ UM QUINTO RECURSO COMPARTILHADO QUE NÃO É DE TESTE E É O ÚNICO QUE DESTRÓI
+  TRABALHO: `git stash`.** Ele é do REPOSITÓRIO, não do worktree: `refs/stash` é um ref
+  comum, então a pilha é a MESMA para a árvore principal e para todo `git worktree`, e o
+  `git stash list` de um mostra o que o outro empilhou. Medido em 2026-09-14: uma sessão
+  em `plano/npmb` empilhou o próprio trabalho para medir uma linha de base, outra sessão
+  em `plano/npma` empilhou o dela no intervalo, e o `git stash pop` da primeira aplicou o
+  trabalho da SEGUNDA na árvore da primeira e apagou a entrada dela. Nada acusa: o `pop`
+  sai com sucesso e o `git status` que se lê depois descreve arquivos que a sessão nunca
+  tocou. Duas regras daí: **não use `git stash` para medir linha de base num repositório
+  com worktrees vivos** (use `git worktree add` sobre o commit, ou meça o `dist/` antes de
+  editar); e se já usou, recupere pelo SHA em vez de pela posição, porque a posição mudou
+  (`git fsck --unreachable` acha o commit pela mensagem, `git stash store <sha>` devolve o
+  do outro à pilha e `git stash apply <sha>` traz o seu de volta sem mexer nela).
+
   A consequência que mais surpreende, e que evita coordenação desnecessária: o `npm test` da
   RAIZ e o Playwright **não colidem em nada**, porque a perna de e2e da raiz é outra porta e
   outro banco, e o Playwright sobe o backend por `spawn` sem passar por c8. Quem roda a raiz
