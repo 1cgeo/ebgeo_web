@@ -188,6 +188,33 @@ describe('inventario de vendors: o script e o manifesto versionado', () => {
         expect(arquivos.filter((t) => binarios.has(t[0]) && t[3] !== null)).toEqual([]);
     });
 
+    it('Draco e Basis continuam FECHADOS no manifesto, e o pedido ao fornecedor nao volta', () => {
+        // O QUE ESTE CASO PROVA E O QUE ELE NAO PROVA, e a distincao e a razao de ele existir.
+        // Ele NAO reconfere a identidade dos dois modulos nativos: isso foi medido a mao em
+        // 2026-09-15, por hash contra os artefatos publicados de google/draco e de
+        // BinomialLLC/basis_universal, e refazer a medicao aqui poria rede numa suite que e
+        // hermetica por contrato e ficaria vermelha quando o GitHub estivesse fora. Ele prova
+        // que a DECLARACAO continua escrita: que ninguem a apagou numa limpeza, e que os dois
+        // veredictos nao voltaram a ser "ponto cego".
+        //
+        // A metade do pedido ao fornecedor e asserida pela AUSENCIA do arquivo, e nao so pelo
+        // texto do campo, porque so a metade de texto passaria verde com o arquivo de volta no
+        // disco. A decisao do dono de 2026-09-15 e que aquele pedido nao existe.
+        const doc = JSON.parse(readFileSync(join(RAIZ, CAMINHO_DO_MANIFESTO), 'utf8'));
+        const aholo = doc[CHAVE_DO_BLOCO].aholoViewerDeclarado;
+        const fecho = aholo.fechamentoPorHash2026_09_15;
+        expect(fecho.draco.veredito).toMatch(/FECHADO POR HASH/);
+        expect(fecho.draco.sha256).toBe('2516a4e43526d71787bf2f678f951329f7f858f8f15f42d4bc9e370b31a0da3a');
+        expect(fecho.basisUniversalKtx2.veredito).toMatch(/FECHADO POR HASH/);
+        expect(fecho.basisUniversalKtx2.sha256).toBe('3a5b098d047899b50459f95f10d2d388a0cda17d6b7135742f3c32c46d7df542');
+        // O que ficou ACEITO sem fechar continua dito em voz alta, senao o fecho acima vira a
+        // promessa de que o proximo 1.8.2 esta coberto, e ele nao esta.
+        expect(fecho.oQueCONTINUAaberto.aceitoPeloDonoEm).toBe('2026-09-15');
+        expect(fecho.oQueCONTINUAaberto.itens.join(' ')).toMatch(/NAO HA AUTOMACAO/);
+        expect(aholo.pedidoAoFornecedor.estado).toMatch(/SUPERADO EM 2026-09-15/);
+        expect(existsSync(join(RAIZ, 'docs/seguranca/aholo-viewer-pedido-de-manifesto.md'))).toBe(false);
+    });
+
     it('cesium-measure.js saiu das pastas de vendor e virou codigo da casa', () => {
         // Adocao, nao poda (decisao D9, item V2): o arquivo esta VIVO em src/js,
         // e e por isso que ele nao aparece em lista de poda nenhuma. Esta

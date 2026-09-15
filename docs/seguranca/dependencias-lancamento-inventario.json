@@ -4139,7 +4139,8 @@
             "secoesCustom": [],
             "versao": null,
             "evidenciaDeIdentidade": "Strings internas do proprio Draco (\"Not a Draco file\", \"Unsupported encoding method\", N5draco28AttributeOctahedronTransformE), que identificam a BIBLIOTECA e nao a versao.",
-            "estado": "PONTO CEGO. Nenhuma secao custom, nenhuma string de versao."
+            "estado": "PONTO CEGO. Nenhuma secao custom, nenhuma string de versao.",
+            "supersedido": "A medicao acima continua valendo como FATO sobre o binario (ele de fato nao carrega secao custom nem string de versao), e a CONCLUSAO dela nao vale mais: a identidade fechou por hash em 2026-09-15, sem o fornecedor. Ver fechamentoPorHash2026_09_15."
           },
           {
             "modulo": "transcodificador Basis Universal / KTX2",
@@ -4151,16 +4152,66 @@
             "secoesCustom": [],
             "versao": null,
             "evidenciaDeIdentidade": "Strings internas (basis_tex_format, transcoder_texture_format, KTX2Header, LowLevelETC1SImageTranscoder), que identificam a BIBLIOTECA e nao a versao.",
-            "estado": "PONTO CEGO. Nenhuma secao custom, nenhuma string de versao."
+            "estado": "PONTO CEGO. Nenhuma secao custom, nenhuma string de versao.",
+            "supersedido": "A medicao acima continua valendo como FATO sobre o binario (ele de fato nao carrega secao custom nem string de versao), e a CONCLUSAO dela nao vale mais: a identidade fechou por hash em 2026-09-15, sem o fornecedor. Ver fechamentoPorHash2026_09_15."
           }
         ],
         "porQueIssoImporta": "O ponto cego nao sumiu quando semver e fflate ganharam versao: ele MUDOU DE LUGAR. Saiu de duas bibliotecas JavaScript para duas bibliotecas nativas de descompressao e transcodificacao de textura, que processam bytes de arquivo vindos do servidor. A superficie e pior, nao melhor."
       },
       "achadoDeCadeiaDeSUPRIMENTOS": "Os caminhos de fonte dentro do wasm do zstd mostram que as crates do fornecedor vieram de um ESPELHO de terceiro, e nao do crates.io: o diretorio de registro e rsproxy.cn-e3de039b2554c837, e nao index.crates.io. Isso nao e um defeito e nao muda nada no nosso lado, mas e um fato de procedencia que so aparece lendo o binario, e que nao estava registrado ate 2026-09-14. Os mesmos caminhos publicam o usuario da maquina de build do fornecedor.",
       "pedidoAoFornecedor": {
-        "estado": "TEXTO PRONTO PARA O DONO ENVIAR, em docs/seguranca/aholo-viewer-pedido-de-manifesto.md. O repositorio nao envia nada.",
+        "estado": "SUPERADO EM 2026-09-15, por decisao do dono: NAO EXISTE pedido ao fornecedor, e o texto que estava pronto (docs/seguranca/aholo-viewer-pedido-de-manifesto.md) foi APAGADO no mesmo dia. Os dois pontos cegos deviam se resolver pela internet ou ser declarados aceitos, e os DOIS se resolveram: ver fechamentoPorHash2026_09_15 abaixo. Este objeto fica como registro datado do que se ia pedir, e a entrada seNaoVier logo abaixo e o registro de que o caminho tomado ja estava previsto aqui.",
         "oQueSePede": "A versao upstream (ou o commit) do Draco e do transcodificador Basis/KTX2 embutidos no 1.8.1, se ha remendo local sobre elas, e o sha256 dos artefatos upstream de partida. Mais duas sugestoes que dispensariam o pedido no futuro: manter a secao producers nos tres modulos, como o zstd ja faz, ou publicar um manifesto dos modulos embutidos no proprio pacote.",
         "seNaoVier": "O ponto cego declarado permanece, e continua melhor que a opcao recusada. O caminho que NAO depende de resposta e fechar os dois por hash contra os artefatos publicados de Draco e Basis Universal, que e o metodo que resolveu o Turf neste mesmo inventario; ele nao bloqueia lancamento."
+      },
+      "fechamentoPorHash2026_09_15": {
+        "decisao": "D9, item V5, SUPERADO em 2026-09-15 por decisao do dono: nao existe pedido ao fornecedor, e os dois pontos cegos que restavam se resolvem pela internet ou se declaram aceitos. Os DOIS fecharam, por hash, e nenhum dos dois ficou sem versao determinavel. O que sobra como aceito e outra coisa, e esta em oQueCONTINUAaberto.",
+        "oQueTornouABuscaBarata": "Nao foi o hash, foi o SOURCEMAP, e essa e a licao de metodo. O pacote publica .map com sourcesContent ao lado de cada .js, e os nomes dos arquivos de ORIGEM dizem de que projeto cada modulo veio e por qual arquivo upstream ele entrou: loaders/draco-loader/draco_decoder_wrapper.js e draco_decoder.wasm.js, loaders/texture-loader/ktx2/basis/wasm/basis_transcoder.js e basis_transcoder.wasm.js. Sem isso a varredura por hash seria contra o universo dos projetos que embarcam wasm; com isso ela e contra duas listas de versoes de dois repositorios nomeados. A leitura de 2026-09-14 caminhou as secoes de topo do wasm, concluiu ausencia de versao e estava CERTA; o que faltou foi olhar o mapa que o proprio pacote publica ao lado do arquivo que ela estava lendo.",
+        "formaDeExtracao": "Cada .wasm.js do fornecedor e uma funcao que chama globalThis.atob sobre um literal base64 e devolve o ArrayBuffer. Os bytes conferidos sao os de SAIDA dessa funcao; o sha256 e sobre eles, nunca sobre o texto base64, que carrega o padding e a quebra de linha do empacotador.",
+        "draco": {
+          "veredito": "FECHADO POR HASH. Draco 1.5.7.",
+          "bytes": 285948,
+          "sha256": "2516a4e43526d71787bf2f678f951329f7f858f8f15f42d4bc9e370b31a0da3a",
+          "gitBlobSha1": "4138f55900cb8b31a7112def7269112a66a846e7",
+          "upstream": "google/draco, release 1.5.7 (publicada em 2024-01-17), arquivo javascript/draco_decoder.wasm. O mesmo artefato, byte a byte, e o draco_decoder.wasm do pacote npm draco3d@1.5.7.",
+          "caminhosIndependentes": [
+            "metadados do jsDelivr (sha256 em base64 publicado por arquivo) para as 27 versoes de draco3d que o npm serve: so a 1.5.7 casa",
+            "download do tarball do npm pelo unpkg, com o sha256 calculado localmente sobre os bytes recebidos",
+            "download por raw.githubusercontent.com na tag 1.5.7 do repositorio google/draco",
+            "o blob sha1 que o PROPRIO GitHub calcula e publica na API de contents, comparado com o git hash-object dos nossos bytes. Este quarto caminho e o unico que nao depende de download nenhum nosso: os outros tres conferem o que baixamos, e este confere o que eles dizem que e."
+          ],
+          "oHashDISCRIMINA": "A versao vizinha nao casa: draco3d 1.5.6 tem 285747 bytes e sha256 c55a594e8ffd18426d36b27fea9618af3df5e173640a3e56d46f09d76f0574f2. Sem isto o verde seria vazio, porque um hash que casasse com toda versao nao identificaria nenhuma.",
+          "remendoLocal": "NENHUM no wasm. O glue JS do fornecedor (draco_decoder_wrapper.js, 58786 bytes) e o draco_wasm_wrapper.js do proprio 1.5.7 (58763 bytes) com DUAS edicoes de empacotamento e ZERO de algoritmo: o ramo de Node, que fazia require(\"fs\") e require(\"path\"), virou um par de funcoes que lancam \"Node file loading is not available in the browser build.\"; e a cauda UMD virou export default DracoDecoderModule. Fora dessas duas regioes os conjuntos de literais de string dos dois arquivos sao iguais.",
+          "estadoDoUpstream": "A 1.5.7 e a release MAIS RECENTE publicada de google/draco (a lista de releases termina nela) e e a tag latest do npm draco3d. O modulo embutido nao esta atrasado em relacao ao upstream.",
+          "avisosPublicados": "Nenhuma advisory do GitHub Advisory Database afeta draco3d, e o OSV nao tem vulnerabilidade para npm/draco3d. O OSV tem 20 entradas de OSS-Fuzz para o projeto draco, TODAS publicadas em 2020 (11) e 2021 (9), isto e, anteriores a linha 1.5.x. Isto e o que as bases dizem, nao um atestado de ausencia de defeito."
+        },
+        "basisUniversalKtx2": {
+          "veredito": "FECHADO POR HASH, e a identidade upstream e uma TAG DE SNAPSHOT, nao uma release numerada. Esta distincao e a parte que muda a leitura, e esta em naoEUmaReleaseNumerada.",
+          "bytes": 613861,
+          "sha256": "3a5b098d047899b50459f95f10d2d388a0cda17d6b7135742f3c32c46d7df542",
+          "gitBlobSha1": "28fff9aced01b601abf527a2407329576e13cafa",
+          "upstream": "BinomialLLC/basis_universal, arquivo webgl/transcoder/build/basis_transcoder.wasm, IDENTICO nas tags v1_60_snapshot (commit 5c511882f1, 2025-12-18) e v1_60_snapshot_final (commit c54f46f8aa, 2026-01-19), que carregam os mesmos bytes.",
+          "intervaloDeCommits": "Os bytes nasceram no commit 5179a06343 (\"rebuild WASM\", 2025-11-18) e foram substituidos no commit a6bf1c00f2 (\"rebuilt\", 2026-01-19), que ja e a linha v2.0 (960316 bytes). O artefato embutido e, portanto, o daquele intervalo, e as duas tags acima sao os dois pontos nomeados dentro dele.",
+          "naoEUmaReleaseNumerada": "Nao e a release 1.60 (654157 bytes, sha256 867e354b478d62f0...), nem a v2.0 (960316 bytes, sha256 5139f8299b2c4ff6...), nem a before_xuastc (620525 bytes): e a linha de snapshot entre 1.60 e 2.0. Um snapshot nao tem nota de release, entao a pergunta \"quais avisos publicados se aplicam\" se responde por intervalo de commits, nunca por um numero de versao. Chamar isto de \"1.60\" seria a armadilha da versao da especificacao ao contrario: um numero proximo, escrito com confianca, sobre bytes que nao sao os dele.",
+          "caminhosIndependentes": [
+            "download por raw.githubusercontent.com em 21 tags do repositorio, de 1.16 ate v2_50, com o sha256 calculado localmente: so as duas tags acima casam",
+            "o blob sha1 que o PROPRIO GitHub calcula e publica na API de contents para as duas tags e para o commit 5179a06343, comparado com o git hash-object dos nossos bytes",
+            "corroboracao por STRING, que e um piso e nao uma versao: o simbolo embind getLDRHDRUpconversionNitMultiplier esta no nosso wasm e aparece no wasm upstream a partir da linha 1.60 (ausente em 1.16.4 e em v1_50_0_2, presente de v1_60 em diante). Ele nao distingue 1.60 de v2.50, entao sozinho nao fecharia nada; serve para dizer que o hash nao esta casando por acidente com uma linha errada do projeto.",
+            "controle negativo da hipotese mais provavel: as 90 versoes do pacote npm three varridas pelos metadados do jsDelivr (o three vendoriza basis e draco em examples/jsm/libs/) nao casam com nenhum dos dois artefatos, nem por hash nem por tamanho. O fornecedor nao copiou a build do three."
+          ],
+          "remendoLocal": "NENHUM no wasm. O glue JS do fornecedor (basis_transcoder.js, 50773 bytes) e o basis_transcoder.js do mesmo tag (50838 bytes) com DUAS edicoes de empacotamento e ZERO de algoritmo, as mesmas duas do Draco: require(\"fs\") virou um objeto cujo readFileSync lanca \"Node file loading is not available in the browser build.\", e a cauda UMD virou export default BASIS. O prefixo comum dos dois arquivos e de 763 caracteres e o sufixo comum e de 49860, isto e, a divergencia esta inteira nessas duas regioes.",
+          "avisosPublicados": "Nenhuma advisory do GitHub Advisory Database afeta basis_universal, e o OSV nao tem entrada de OSS-Fuzz para o projeto. Como acima, isto e o que as bases dizem."
+        },
+        "zstd": "Sem mudanca: ele ja se fechava sozinho pela secao producers, e continua sendo a prova de que manter aquela secao custa poucas centenas de bytes e dispensa todo o trabalho acima.",
+        "oQueCONTINUAaberto": {
+          "aceitoPeloDonoEm": "2026-09-15",
+          "itens": [
+            "A IDENTIDADE DO BASIS E UM INTERVALO DE COMMITS, nao um numero de release, entao nao ha canal de nota de release a seguir para ele. O que existe e o repositorio, e a pergunta se refaz lendo commits entre 5179a06343 e a6bf1c00f2.",
+            "NAO HA AUTOMACAO, e esta e a que mais custa. Tudo acima e uma medicao de UMA versao, a 1.8.1, feita a mao em 2026-09-15. No dia em que o fornecedor publicar 1.8.2, os quatro hashes desta entrada nao dizem nada sobre ela, e nenhum teste deste repositorio fica vermelho por isso. O que prende a versao e a pinagem exata em frontend/package.json: enquanto ela nao mudar, esta entrada descreve o que esta instalado.",
+            "A CADEIA DE BUILD dos dois modulos continua sem metadado proprio (nenhum dos dois tem secao producers). Isso deixou de ser uma pergunta NOSSA: sendo os bytes identicos aos artefatos publicados de cada projeto, a cadeia de build e a do upstream, e a pergunta passa a ser sobre o upstream, que e onde ela pertence."
+          ],
+          "porQueNaoVIROUteste": "Um teste que baixasse os artefatos upstream a cada rodada poria rede na suite de unidade, que e hermetica por contrato, e ficaria vermelho quando o GitHub estivesse fora. Um teste que guardasse os hashes conferiria o node_modules, que nao e versionado. A alternativa honesta e esta entrada datada mais a pinagem exata, e um teste ESTRUTURAL, em frontend/tests/unit/inventario-de-vendors.test.js, que cobra que esta declaracao continue aqui com os dois veredictos fechados: ele nao prova a identidade de novo, prova que ninguem a apagou."
+        }
       }
     },
     "runtimeInventory2026_09_14": {
