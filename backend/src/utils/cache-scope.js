@@ -44,6 +44,20 @@ export function respostaEscopada(req) {
 }
 
 /**
+ * O REGIME e o EIXO de uma resposta escopada, definidos UMA vez para os dois emissores.
+ *
+ * É a constante que não se duplica, e não a linha de `setHeader`: extrair também a linha
+ * para um ajudante foi TENTADO e revertido, porque o censo de superfícies liga rota ->
+ * handler -> marcador -> `Cache-Control` por TEXTO, a um salto de profundidade, e o
+ * ajudante escondia o cabeçalho de dezessete rotas de uma vez. O censo está certo: é
+ * exatamente assim que uma função de nome sugestivo passaria por coberta. O que importa
+ * não se perde, porque a cópia perigosa é a do VALOR, e ela continua impossível.
+ */
+const ESCOPADO = 'private, no-cache';
+/** Os dois transportes de credencial que `flexibleAuth` lê. Ver o cabeçalho. */
+const VARIA_POR = 'Authorization, Cookie';
+
+/**
  * Rotas JSON: `private, no-cache` quando a resposta dependeu de quem pediu.
  *
  * `no-cache` (e não `no-store`) de propósito: o navegador continua guardando e
@@ -51,11 +65,52 @@ export function respostaEscopada(req) {
  * conjunto de visibilidade por construção. Resposta pública continua sem cabeçalho,
  * como sempre esteve.
  *
+ * `Vary` é ESCRITO e não acrescentado, o que substitui o `Vary: Origin` do CORS.
+ *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
  */
 export function marcarEscopoJson(req, res) {
   if (!respostaEscopada(req)) return;
-  res.setHeader('Cache-Control', 'private, no-cache');
-  res.setHeader('Vary', 'Authorization, Cookie');
+  res.setHeader('Cache-Control', ESCOPADO);
+  res.setHeader('Vary', VARIA_POR);
+}
+
+/**
+ * O TILE: o mesmo regime, posto numa resposta que NÃO carrega os bytes que ele governa.
+ *
+ * ESTA É A SUPERFÍCIE TORTA, e o torto é do desenho e não deste arquivo. Os bytes do tile
+ * saem do servidor de tiles atrás do nginx e nunca passam por este processo; o que passa é
+ * a subrequisição do `auth_request`, que responde 200 ou 401 sem corpo. Então a única forma
+ * de o regime alcançar a resposta real é o nginx COPIAR este cabeçalho da subrequisição
+ * para o tile (`auth_request_set` mais `add_header`), que é o mesmo caminho pelo qual o
+ * motivo da recusa já viaja hoje. Um `Cache-Control` escrito aqui é, portanto, uma
+ * INSTRUÇÃO ao host, e não um cabeçalho que o cliente receberá por si só.
+ *
+ * POR QUE ELE EXISTE (D17, 2026-09-15): com o empréstimo por atlas valendo no tile, a
+ * decisão passou a depender de QUEM pede e de QUAL atlas está em foco. Uma resposta assim
+ * guardada por cache compartilhado seria entregue a quem não tem o empréstimo, que é
+ * exatamente a porta que a cláusula 6.7 mandou fechar. O `?atlasId=` já separa as URLs, mas
+ * ele não separa PESSOAS: dois chamadores pedem a mesma URL e só um alcança o atlas.
+ *
+ * O QUE ELE DELIBERADAMENTE NÃO FAZ: tocar no tile PÚBLICO. Aquele ramo não consulta
+ * credencial nenhuma (decisão 5 de `tile-access.js`), então ele continua saindo sem
+ * cabeçalho nosso, com o regime que o servidor de tiles já lhe dá — e é por isso que o
+ * `add_header` do host, cujo valor vem vazio nesse caso, não acrescenta nada.
+ *
+ * `no-store` foi considerado e recusado: ele mataria também o cache do NAVEGADOR, e um
+ * deslocamento de mapa rebaixaria toda a camada privada à rede outra vez. `private` já
+ * proíbe a guarda em cache compartilhado, que é a exposição real.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+export function marcarEscopoDeTile(req, res) {
+  // Passa pelo MESMO predicado dos JSON, e não por um `if` próprio, mesmo sendo hoje
+  // sempre verdadeiro no ramo que o chama (aquele ramo já recusou quem não tem principal).
+  // Uma segunda definição de "esta resposta dependeu de quem pediu" é o que este arquivo
+  // inteiro existe para não haver.
+  if (!respostaEscopada(req)) return;
+  res.setHeader('Cache-Control', ESCOPADO);
+  res.setHeader('Vary', VARIA_POR);
 }

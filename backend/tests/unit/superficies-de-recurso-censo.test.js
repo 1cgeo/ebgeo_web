@@ -1607,15 +1607,31 @@ const CENSO_CACHE = [
       + 'porque os dois ramos servem o mesmo recurso e um deles esquecer o eixo é invisível no outro.',
   },
   {
-    arquivo: 'src/utils/cache-scope.js', trecho: "'private, no-cache'", n: 1,
+    arquivo: 'src/utils/cache-scope.js', trecho: "'Cache-Control', ESCOPADO", n: 2,
     classe: C_CONDICIONAL,
-    motivo: 'A ÚNICA definição de escopo de cache para resposta JSON que variou por chamador, e ela '
-      + 'serve TRÊS superfícies: as rotas JSON do 360, as quatro listagens de catálogo e o payload '
-      + 'aditivo de /resource-access/visible. Nenhuma das três emitia Cache-Control, o que autoriza '
+    motivo: 'A ÚNICA definição de escopo de cache para resposta que variou por chamador, e ela '
+      + 'serve QUATRO superfícies: as rotas JSON do 360, as quatro listagens de catálogo, o '
+      + 'payload aditivo de /resource-access/visible e, desde 2026-09-15 (D17), o `auth_request` '
+      + 'do TILE. Nenhuma das três primeiras emitia Cache-Control, o que autoriza '
       + 'cache heurístico — aceitável enquanto o corpo era igual para todos, e não depois que ele '
       + 'varia por concessão e por empréstimo. Nasceu no 360 e saiu de lá quando o mesmo buraco '
       + 'apareceu nas outras duas: uma terceira cópia da regra é como este defeito volta. '
-      + '`no-cache` e não `no-store`, para preservar a revalidação pelo ETag do corpo.',
+      + '`no-cache` e não `no-store`, para preservar a revalidação pelo ETag do corpo. '
+      + 'O TILE É A SUPERFÍCIE TORTA, e o motivo precisa dizer como ela difere: os bytes do '
+      + 'tile NÃO passam por este processo (quem os serve é o servidor de tiles atrás do nginx), '
+      + 'então o Cache-Control que `marcarEscopoDeTile` escreve na resposta VAZIA do '
+      + '`auth_request` é uma INSTRUÇÃO ao host, que o copia para o tile por `auth_request_set` '
+      + 'mais `add_header` — o mesmo caminho pelo qual o motivo da recusa já viaja. O tile '
+      + 'PÚBLICO continua sem cabeçalho nosso (aquele ramo não consulta credencial nenhuma), e é '
+      + 'por isso que o `add_header` do host não acrescenta nada ali. O RISCO que isto fecha: com '
+      + 'o empréstimo por atlas valendo no tile, a decisão passou a variar por chamador, e o '
+      + '`?atlasId=` separa URLs mas não separa PESSOAS. '
+      + 'SÃO DUAS LINHAS E UMA ENTRADA, e a explicação é deste arquivo: extrair as duas para '
+      + 'um ajudante comum foi tentado e revertido, porque a última perna DESTE censo liga '
+      + 'marcador -> Cache-Control por texto, a um salto, e o ajudante escondia o cabeçalho de '
+      + 'dezessete rotas de uma vez. O que não se duplica é o VALOR (a constante ESCOPADO), que '
+      + 'é onde uma divergência entre as duas superfícies doeria. '
+      + 'Comportamento em `tests/integration/tile-emprestimo-por-atlas.test.js`.',
   },
   {
     arquivo: 'src/modules/streetview360/sv360.controller.js', trecho: '`private, max-age=${maxAge}`',
