@@ -292,6 +292,22 @@ const scratchUpEC = new Cesium.Cartesian3();
 const scratchRightEC = new Cesium.Cartesian3();
 const scratchTexelStep = new Cesium.Cartesian2();
 
+/**
+ * O NOME DO ESTAGIO DE POS-PROCESSAMENTO E UNICO POR INSTANCIA, E ISSO NAO E COSMETICA.
+ *
+ * `PostProcessStageCollection.add` lanca `DeveloperError` quando o nome ja esta na colecao
+ * ("has already been added to the collection or does not have a unique name"), e um nome fixo
+ * significa que o SEGUNDO viewshed vivo nunca entra. Isso matava, calado, os dois casos que a
+ * ferramenta mais usa: um setor acima de 150 graus (que `subViewshedLayout` parte em dois ou tres)
+ * e dois viewsheds ao mesmo tempo no mesmo modelo. O `catch` de `createCesiumViewsheds` engolia o
+ * erro como `console.warn`, devolvia lista vazia, e o primeiro pedaco ficava ORFAO na cena com o
+ * nome ainda tomado, de modo que todo viewshed seguinte da sessao tambem falhava. Medido em
+ * 2026-09-15: depois de um unico pedido de 180 graus, a ferramenta parava de desenhar ate o F5.
+ * O vendor substituido nao passava nome nenhum e recebia um GUID de `PostProcessStage`, que e por
+ * que ele nunca teve este defeito.
+ */
+let contadorDeEstagios = 0;
+
 
 /**
  * One viewshed sector: the tinting pass, the depth map that feeds it, and the drawn outline.
@@ -520,7 +536,7 @@ export class Viewshed3D {
         const self = this;
         this._postProcess = this.viewer.scene.postProcessStages.add(
             new Cesium.PostProcessStage({
-                name: 'ebgeo-viewshed-3d',
+                name: `ebgeo-viewshed-3d-${++contadorDeEstagios}`,
                 fragmentShader: VIEWSHED_FRAGMENT_SHADER,
                 uniforms: {
                     // PRIVATE SURFACE 2 of 3, and the only one with no public substitute.

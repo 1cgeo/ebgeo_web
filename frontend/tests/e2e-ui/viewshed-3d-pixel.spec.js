@@ -850,4 +850,69 @@ describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
         expect(criado.distancia, 'a distancia e RECALCULADA dos dois pontos, nao o padrao de 500')
             .not.toBe(500);
     });
+
+    test('um setor de 180 graus desenha os DOIS sub-viewsheds', async ({ page }) => {
+        // O QUE ESTE CASO MEDE, E QUE NENHUM OUTRO MEDIA ATE A REVISAO DE 2026-09-15. Acima de 150
+        // graus `subViewshedLayout` parte o setor em dois ou tres, e cada pedaco e um `Viewshed3D`
+        // proprio com um estagio de pos-processamento proprio. Os dois primeiros casos deste
+        // arquivo usam 120 graus, que cabe em UM pedaco, entao o caminho do corte nunca passou por
+        // pixel nenhum.
+        //
+        // E ele estava QUEBRADO. Todos os estagios nasciam com o mesmo `name`, e
+        // `PostProcessStageCollection.add` lanca `DeveloperError` num nome repetido: o segundo
+        // pedaco explodia, `createCesiumViewsheds` engolia o erro como `console.warn` e devolvia
+        // lista vazia, e o primeiro pedaco ficava orfao na cena com o nome ainda tomado. A partir
+        // dali NENHUM viewshed daquela sessao voltava a desenhar. O controle negativo e direto:
+        // voltar o nome a uma constante reprova a contagem de estagios abaixo.
+        await registrarTileset(page);
+        await servirTileset(page);
+        await bootar(page);
+
+        const abriu = await abrirVisualizador3d(page);
+        if (!abriu) {
+            test.skip(true, 'o visualizador Cesium nao inicializou sem cabeca; limite de ambiente');
+            return;
+        }
+
+        await montarCena(page, OBSERVADOR);
+        const criado = await page.evaluate(async ({ id: tilesetId, obs, passo, piso }) => {
+            const loja = await import('/src/js/store/index.js');
+            const ferramenta = await import('/src/js/3d_models_viewer_tool/tools/viewshed_tool_3d.js');
+            const viewshed = await loja.addViewshed(tilesetId, {
+                position: { longitude: obs.longitude, latitude: obs.latitude, height: piso },
+                targetPosition: { longitude: obs.longitude, latitude: obs.latitude + passo, height: piso },
+                terrainBaseHeight: piso,
+                direction: { heading: 0, pitch: 0 },
+                parameters: { horizontalAngle: 180, verticalAngle: 120, distance: 186 },
+                observerHeight: 1.5,
+            });
+            await ferramenta.renderViewshedsForTileset(window.map, tilesetId);
+            await new Promise((resolve) => {
+                let n = 30;
+                const passa = () => (n-- <= 0 ? resolve() : requestAnimationFrame(passa));
+                passa();
+            });
+            return { id: viewshed.id, estagios: window.map.scene.postProcessStages.length };
+        }, { id: TILESET_ID, obs: OBSERVADOR, passo: PASSO_NORTE, piso: PISO });
+
+        await fixarCamera(page, OBSERVADOR);
+
+        expect(
+            criado.estagios,
+            'um setor de 180 graus vira DOIS sub-viewsheds, e cada um registra um estagio de ' +
+                'pos-processamento: um estagio so significa que o segundo foi recusado em silencio',
+        ).toBe(2);
+
+        const atual = await lerCanvas(page);
+        gravarPng(path.join(DIR_SAIDA, 'viewshed-3d-180-atual.png'), atual.png);
+        const proporcaoVerde = atual.verde / atual.total;
+        console.info(
+            `[viewshed-pixel] 180 graus: verde=${atual.verde} (${(proporcaoVerde * 100).toFixed(3)}%) ` +
+                `vermelho=${atual.vermelho} arame=${atual.arame}`,
+        );
+        // Medido em 2026-09-15: 298451 verdes (33,865%). O piso e baixo de proposito, porque o que
+        // se cobra aqui e que os DOIS pedacos tenham desenhado; a forma exata e assunto do primeiro
+        // caso, que trabalha com referencia de pixel.
+        expect(proporcaoVerde, 'area visivel com o setor partido em dois').toBeGreaterThan(0.25);
+    });
 });

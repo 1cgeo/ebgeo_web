@@ -260,17 +260,27 @@ function createCesiumViewsheds(viewshed) {
         const { renderAngle, offsets } = subViewshedLayout(totalHorizontalAngle);
 
         const result = [];
-        for (const offset of offsets) {
-            const rotatedViewPosition = rotateViewPositionAroundObserver(cameraPosition, baseViewPosition, offset);
+        try {
+            for (const offset of offsets) {
+                const rotatedViewPosition = rotateViewPositionAroundObserver(cameraPosition, baseViewPosition, offset);
 
-            const vs = new Viewshed3D(currentViewer, {
-                cameraPosition: cameraPosition,
-                viewPosition: rotatedViewPosition,
-                horizontalAngle: renderAngle,
-                verticalAngle: verticalAngle,
-                distance: distance
-            });
-            result.push(vs);
+                const vs = new Viewshed3D(currentViewer, {
+                    cameraPosition: cameraPosition,
+                    viewPosition: rotatedViewPosition,
+                    horizontalAngle: renderAngle,
+                    verticalAngle: verticalAngle,
+                    distance: distance
+                });
+                result.push(vs);
+            }
+        } catch (error) {
+            // MEIO SETOR NA CENA E PIOR QUE NENHUM, e ate 2026-09-15 era o que sobrava. Um pedaco
+            // que ja se desenhou fica na coleção de primitivas e na de pós-processamento, mas
+            // NINGUÉM guarda a referência dele (a lista vazia é o que volta), então nenhum
+            // `deleteViewshed` o alcança: ele pinta a tela até o F5. Desfazer o que já entrou é o
+            // que torna a falha atômica.
+            destroyCesiumViewsheds(result);
+            throw error;
         }
 
         return result;
