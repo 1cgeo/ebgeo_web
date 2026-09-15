@@ -490,7 +490,27 @@ export class Viewshed3D {
 
         camera.frustum = new Cesium.PerspectiveFrustum({
             fov: Cesium.Math.toRadians(observerFovDegrees(this._horizontalAngle, this._verticalAngle)),
-            aspectRatio: scene.canvas.clientWidth / scene.canvas.clientHeight,
+            // O FRUSTUM E QUADRADO, E ATE 2026-09-15 ELE COPIAVA A FORMA DA JANELA. A linha era
+            // `scene.canvas.clientWidth / scene.canvas.clientHeight`, e com ela a ANALISE passava
+            // a depender do formato do navegador: `PerspectiveFrustum.fov` e o angulo HORIZONTAL
+            // quando a razao e maior que 1 e o VERTICAL quando e menor, e a outra metade sai do
+            // divisor. Medido nesta arvore, pedindo 120 graus nos dois eixos:
+            //
+            //     janela        razao    abertura H efetiva   abertura V efetiva
+            //     1280x720      1,70           120,00               91,07
+            //      900x900      0,94           116,76              120,00
+            //      720x1280     0,52            83,88              120,00
+            //
+            // Ou seja, numa janela em pe o setor de 120 graus desenhava 84: um terco do que a
+            // pessoa pediu sumia, sem aviso, e voltava se ela alargasse a janela e refizesse a
+            // analise. Quem cortava era a recusa 2 do shader (fora do tronco do mapa de sombras),
+            // que roda ANTES das duas de abertura, entao nem o parametro nem a malha desenhada
+            // denunciavam a perda. E era tambem por isso que pedir abertura vertical acima de uns
+            // noventa graus nao fazia nada em janela larga.
+            //
+            // A razao 1 tambem e a que casa com a TEXTURA, que e quadrada (2048 por 2048): a forma
+            // antiga esticava um tronco 16:9 sobre ela e jogava fora resolucao vertical.
+            aspectRatio: 1,
             near: OBSERVER_NEAR_PLANE,
             far: OBSERVER_FAR_PLANE,
         });

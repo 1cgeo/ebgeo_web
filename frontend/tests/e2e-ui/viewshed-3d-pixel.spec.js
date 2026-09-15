@@ -957,4 +957,70 @@ describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
             'fresta na emenda: chao dentro do setor que nenhum sub-viewshed analisou',
         ).toBeLessThanOrEqual(2);
     });
+
+    test('a abertura pedida nao depende da forma da janela', async ({ page }) => {
+        // ESTE CASO NAO OLHA PIXEL, E E POR ISSO QUE ELE EXISTE. Ate 2026-09-15 a camera que
+        // renderiza o mapa de profundidade do observador recebia `aspectRatio` igual ao da JANELA.
+        // `PerspectiveFrustum.fov` e o angulo HORIZONTAL quando a razao e maior que 1 e o VERTICAL
+        // quando e menor, e a outra metade sai do divisor: numa janela em pe, um setor de 120 graus
+        // era renderizado com 84 de abertura horizontal. A perda acontecia na recusa 2 do shader
+        // (fora do tronco do mapa de sombras), que roda ANTES das duas de abertura, entao nem o
+        // parametro guardado nem a malha desenhada a denunciavam, e a referencia de pixel deste
+        // arquivo (paisagem) nao a via.
+        //
+        // Medido, pedindo 120 graus nos dois eixos: 1280x720 dava 120,00 e 91,07; 900x900 dava
+        // 116,76 e 120,00; 720x1280 dava 83,88 e 120,00. Controle negativo: devolver o
+        // `aspectRatio` da janela reprova aqui, no caso retrato, com cerca de 84.
+        await page.setViewportSize({ width: 720, height: 1280 });
+        await registrarTileset(page);
+        await servirTileset(page);
+        await bootar(page);
+
+        const abriu = await abrirVisualizador3d(page);
+        if (!abriu) {
+            test.skip(true, 'o visualizador Cesium nao inicializou sem cabeca; limite de ambiente');
+            return;
+        }
+
+        const medido = await page.evaluate(async ({ obs, piso, passo }) => {
+            const C = window.Cesium;
+            const { Viewshed3D } = await import('/src/js/3d_models_viewer_tool/services/viewshed-3d.js');
+            const vs = new Viewshed3D(window.map, {
+                cameraPosition: C.Cartesian3.fromDegrees(obs.longitude, obs.latitude, piso + 1.5),
+                viewPosition: C.Cartesian3.fromDegrees(obs.longitude, obs.latitude + passo, piso),
+                horizontalAngle: 120,
+                verticalAngle: 120,
+                distance: 186,
+            });
+            const f = vs._observerCamera.frustum;
+            const a = f.aspectRatio;
+            const grau = (rad) => (rad * 180) / Math.PI;
+            // A conta e a mesma que o Cesium faz: com razao >= 1 o `fov` e o horizontal.
+            const fovH = a >= 1 ? f.fov : 2 * Math.atan(Math.tan(f.fov / 2) * a);
+            const fovV = a >= 1 ? 2 * Math.atan(Math.tan(f.fov / 2) / a) : f.fov;
+            const canvas = window.map.scene.canvas;
+            const resultado = {
+                larguraDoCanvas: canvas.width,
+                alturaDoCanvas: canvas.height,
+                aspectRatio: a,
+                fovHorizontal: grau(fovH),
+                fovVertical: grau(fovV),
+            };
+            try { vs.destroy(); } catch { /* ignore */ }
+            return resultado;
+        }, { obs: OBSERVADOR, piso: PISO, passo: PASSO_NORTE });
+
+        console.info(
+            `[viewshed-pixel] janela em pe ${medido.larguraDoCanvas}x${medido.alturaDoCanvas}: ` +
+                `H=${medido.fovHorizontal.toFixed(2)} V=${medido.fovVertical.toFixed(2)}`,
+        );
+        expect(
+            medido.alturaDoCanvas,
+            'a janela deste caso tem de ser mais alta que larga, senao ele nao mede nada',
+        ).toBeGreaterThan(medido.larguraDoCanvas);
+        expect(medido.fovHorizontal, 'abertura horizontal efetiva do tronco do observador')
+            .toBeCloseTo(120, 1);
+        expect(medido.fovVertical, 'abertura vertical efetiva do tronco do observador')
+            .toBeCloseTo(120, 1);
+    });
 });
