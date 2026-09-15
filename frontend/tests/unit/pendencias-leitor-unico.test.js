@@ -61,12 +61,28 @@ function paginasDoDisco() {
         });
 }
 
-const PAGINAS = paginasDoDisco();
+const TODAS = paginasDoDisco();
+
+/**
+ * A QUINTA PÁGINA FICA DE FORA, porque ela não chega a ter pendência.
+ *
+ * `tutorial.html` (2026-09-15, decisão D16) não abre banco, não monta atlas e não pulsa presença:
+ * ela renderiza o markdown do tutorial e acabou. Um leitor de pendências ali contaria zero sobre um
+ * escopo que não existe, ao preço de trazer a store para uma página de documentação. A classificação
+ * é a mesma, e pelo mesmo motivo, de `portao-de-migracao-nas-quatro-paginas.test.js`, que é quem
+ * cobra o outro lado (a página não pode passar a tocar o acervo em silêncio).
+ */
+const SEM_ACERVO = Object.freeze(['tutorial.html']);
+
+/** As quatro que passam pelo portão, que é quem instala o leitor. */
+const PAGINAS = TODAS.filter((p) => !SEM_ACERVO.includes(p.html));
 
 describe('o leitor de pendências alcança as quatro páginas', () => {
-    it('as quatro páginas do produto continuam sendo quatro', () => {
+    it('as cinco páginas do produto estão CLASSIFICADAS, e quatro passam pelo portão', () => {
         // Controle de vácuo: com uma página a mais, a classificação abaixo deixaria de cobrir o
         // conjunto e o verde passaria a ser sobre outra coisa.
+        expect(TODAS.map((p) => p.html))
+            .toEqual(['admin.html', 'atlas.html', 'calibracao.html', 'index.html', 'tutorial.html']);
         expect(PAGINAS.map((p) => p.html))
             .toEqual(['admin.html', 'atlas.html', 'calibracao.html', 'index.html']);
     });
@@ -86,7 +102,10 @@ describe('o leitor de pendências alcança as quatro páginas', () => {
         expect(sucesso).toBeGreaterThan(chamada);
         // E não há uma segunda instalação em página nenhuma: um segundo sítio faria a página que o
         // tem sobrescrever o leitor da outra, que é a forma como "um leitor só" volta a ser dois.
-        const outros = PAGINAS
+        // Varre TODAS, e não só as quatro classificadas: "não há segundo sítio" é afirmação sobre o
+        // produto inteiro, e a página que está fora do portão é justamente a que teria de instalar
+        // à mão se alguém quisesse o leitor lá.
+        const outros = TODAS
             .map((p) => semComentarios(readFileSync(join(FRONT, p.entrada), 'utf8')))
             .filter((c) => c.includes('instalarMonitoramentoDePendencias'));
         expect(outros).toEqual([]);

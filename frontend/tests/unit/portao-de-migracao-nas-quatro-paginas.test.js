@@ -23,6 +23,12 @@
  * O INVENTÁRIO VEM DO DISCO, nunca de uma lista escrita à mão: as entradas são lidas dos próprios
  * arquivos HTML, então uma quinta página nasce reprovada até ser classificada aqui, que é o modo
  * silencioso desta classe de teste envelhecer.
+ *
+ * A QUINTA PÁGINA CHEGOU EM 2026-09-15 E FOI CLASSIFICADA FORA, e o mecanismo acima funcionou
+ * exatamente como prometido: `tutorial.html` nasceu vermelha aqui. O nome do arquivo continua
+ * dizendo QUATRO porque quatro continua sendo o número de páginas que tocam o acervo local; a
+ * quinta não abre banco nenhum, e o que a mantém assim é um caso próprio, não a boa vontade de
+ * quem a escreveu.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -58,10 +64,42 @@ function paginasDoDisco() {
         });
 }
 
-const PAGINAS = paginasDoDisco();
+const TODAS = paginasDoDisco();
+
+/**
+ * A QUINTA PÁGINA NÃO TEM PORTÃO, e a exceção é de desenho, não esquecimento.
+ *
+ * `tutorial.html` nasceu em 2026-09-15 (decisão D16) e é a única página do produto que não abre
+ * banco nenhum: ela renderiza `frontend/public/docs/README.md` com o docsify e acaba aí. O portão
+ * existe para quem LÊ E ESCREVE os bancos locais antes de a atualização copiá-los; numa página que
+ * não os toca, chamá-lo significaria importar a store inteira para desenhar documentação.
+ *
+ * A classificação não é isenção gratuita: o caso `a quinta página não toca no acervo` cobra o outro
+ * lado, e é ele que reprova no dia em que alguém puser acesso a banco ali. Sem esse par, "não
+ * precisa de portão" seria uma afirmação sobre o passado.
+ */
+const SEM_ACERVO = Object.freeze(['tutorial.html']);
+
+/** As quatro que tocam o acervo local, e que por isso passam pelo portão. */
+const PAGINAS = TODAS.filter((p) => !SEM_ACERVO.includes(p.html));
 
 /** As três que bootam sem a store do mapa, e que fazem a varredura de logout elas mesmas. */
 const SEM_MAPA = Object.freeze(['atlas.html', 'admin.html', 'calibracao.html']);
+
+/**
+ * O que uma página que "não toca no acervo" não pode citar.
+ *
+ * São as portas do disco, não uma lista de estilo: o portão, a varredura de namespaces remotos, a
+ * fábrica de stores por escopo e a biblioteca de IndexedDB. Qualquer uma delas numa página desta
+ * classe significa que ela passou a ler ou escrever o acervo, e nesse instante a ausência do portão
+ * deixa de ser desenho e vira defeito.
+ */
+const PORTAS_DO_ACERVO = Object.freeze([
+    'runLegacyUpgradeGate',
+    'purgeAllRemoteAtlases',
+    'getStore(',
+    'localforage'
+]);
 
 /**
  * @param {string} relativo - Caminho relativo ao pacote.
@@ -72,11 +110,25 @@ function codigoDe(relativo) {
 }
 
 describe('o portão de migração roda nas quatro páginas', () => {
-    it('as quatro páginas do produto continuam sendo quatro', () => {
+    it('as cinco páginas do produto estão CLASSIFICADAS, e quatro delas tocam o acervo', () => {
         // Controle de vácuo: com uma página a mais (ou a menos) as classificações abaixo deixariam
-        // de cobrir o conjunto, e o verde passaria a ser sobre outra coisa.
+        // de cobrir o conjunto, e o verde passaria a ser sobre outra coisa. São CINCO desde
+        // 2026-09-15, e a divisão é o que este caso guarda: quem toca o acervo passa pelo portão,
+        // quem não toca fica de fora e é cobrado pelo caso seguinte.
+        expect(TODAS.map((p) => p.html))
+            .toEqual(['admin.html', 'atlas.html', 'calibracao.html', 'index.html', 'tutorial.html']);
         expect(PAGINAS.map((p) => p.html))
             .toEqual(['admin.html', 'atlas.html', 'calibracao.html', 'index.html']);
+    });
+
+    it.each(SEM_ACERVO)('%s não toca no acervo, e é isso que a dispensa do portão', (html) => {
+        const entrada = TODAS.find((p) => p.html === html).entrada;
+        const codigo = codigoDe(entrada);
+        const achadas = PORTAS_DO_ACERVO.filter((porta) => codigo.includes(porta));
+        expect(
+            achadas,
+            `${html} passou a citar ${achadas.join(', ')}: ou ela chama o portão, ou não abre banco`
+        ).toEqual([]);
     });
 
     it.each(PAGINAS)('$html chama o portão e NÃO monta quando ele recusa', ({ entrada }) => {

@@ -1,0 +1,59 @@
+/* Path: src/css/tutorial.css */
+
+/**
+ * @fileoverview A paleta da casa sobre o tema CORE do docsify 5, em `tutorial.html`.
+ *
+ * ELE SUBSTITUI O ADD-ON `vue` DO PACOTE, e a razão é de rede. Na 4 o tema era um arquivo solto
+ * (`themes/vue.css`, o que morava em `frontend/public/vendors/vue.css`); na 5 ele virou
+ * `dist/themes/core.css` mais `dist/themes/addons/vue.css`, e a primeira linha do add-on é um
+ * `@import` de URL ABSOLUTA para o serviço de fontes do Google. O Vite não inlina `@import` de URL
+ * absoluta, então aquele pedido sobreviveria ao build e sairia para a internet a cada abertura do
+ * tutorial, numa rede que não a alcança: fonte no fallback e um pedido pendurado. O add-on é 1,5 kB
+ * e quase todo ele são custom properties, então o que ele faz cabe aqui, sem o `@import`.
+ * (O endereço NÃO fica escrito aqui: `tests/unit/tutorial-pagina.test.js` cobra a ausência dele
+ * nesta folha, e uma regra de lint ou um teste que lê texto não distingue comentário de código.)
+ *
+ * POR QUE NÃO `@import url('./design-tokens.css')`, que é a convenção da casa: aquela folha tem
+ * 12,5 kB e termina com regras de classe do MAPA (sidebar, toolbar, modal, chips), que não existem
+ * nesta página. O que o tutorial precisa dela são DUAS cores, e elas estão abaixo com o nome do
+ * token que espelham; espelho de dois valores é mais barato que arrastar a folha inteira, e é o
+ * mesmo critério que mantém esta página sem store.
+ *
+ * A ORDEM IMPORTA e é declarada pelo entry (`src/js/tutorial/tutorial-page.js`): o ponto único do
+ * docsify importa `core.css` no corpo dele e o entry importa ESTA folha depois, então as custom
+ * properties daqui vencem as de lá. Invertido, nada ficaria vermelho e só a cor erraria.
+ */
+
+:root {
+    /* = --primary-700 de design-tokens.css, o verde da barra lateral do mapa. O docsify deriva
+       dele oito tons (`--theme-color-1` a `--theme-color-8`) por `color-mix`, então esta linha
+       pinta link, item ativo, barra de progresso e realce de código de uma vez. */
+    --theme-color: #15803d;
+    --color-text: #2b3a42;
+
+    /* O add-on `vue` aperta a medida de linha para 85ch, e a razão vale para este texto: os
+       parágrafos do tutorial são longos e a largura cheia da tela os torna difíceis de seguir. */
+    --content-max-width: 85ch;
+}
+
+/* As figuras do tutorial vêm em HTML cru com `width` em porcentagem (`width="30%"`, `width="60%"`),
+   herdado da página estática. Sem o teto de largura da coluna, uma imagem de 100% estoura a medida
+   de leitura nas telas grandes; e sem `height: auto` a proporção se perde quando o teto morde. */
+.markdown-section img,
+.markdown-section video {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Os vídeos do tutorial ficam lado a lado em pares de 49% quando cabem, que é como o texto foi
+   escrito. O fundo escuro evita a faixa branca antes do primeiro quadro. */
+.markdown-section video {
+    background: #000;
+    border-radius: var(--border-radius);
+}
+
+/* A grade do Módulo 2 é uma `<table>` de layout, sem cabeçalho, e o tema desenha borda em toda
+   célula: aqui ela viraria uma caixa em volta de um texto explicativo. */
+.markdown-section table:not(:has(th)) td {
+    border: 0;
+}

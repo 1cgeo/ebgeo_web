@@ -151,7 +151,10 @@ describe('(a) o MapLibre entra por um ponto único', () => {
     });
 
     it('nenhuma página nem módulo volta a apontar `public/vendors/maplibre-gl`', () => {
-        for (const arquivo of ['index.html', 'calibracao.html', 'atlas.html', 'admin.html']) {
+        // As CINCO páginas: `tutorial.html` entrou em 2026-09-15 e não usa mapa nenhum, mas a
+        // afirmação aqui é sobre o produto inteiro, e página nova é justamente onde uma tag de
+        // vendor reaparece por cópia de um HTML antigo.
+        for (const arquivo of ['index.html', 'calibracao.html', 'atlas.html', 'admin.html', 'tutorial.html']) {
             expect(readFileSync(join(FRONT, arquivo), 'utf8'), `${arquivo} cita o vendor apagado`)
                 .not.toContain('/vendors/maplibre-gl');
         }

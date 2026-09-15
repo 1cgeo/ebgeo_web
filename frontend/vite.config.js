@@ -217,18 +217,25 @@ export default defineConfig(({ mode: _mode }) => ({
     // Code splitting
     rollupOptions: {
       // Multi-page: the map is `index.html`; "Seus atlas" (`atlas.html`), Administração
-      // (`admin.html`) and Calibração 360 (`calibracao.html`) are pages of their own, each with its
-      // own entry module and CSS manifest. None loads the map bundle — see the codeSplitting note
-      // below for what enforces that.
+      // (`admin.html`), Calibração 360 (`calibracao.html`) and o tutorial (`tutorial.html`) are
+      // pages of their own, each with its own entry module and CSS manifest. None loads the map
+      // bundle — see the codeSplitting note below for what enforces that.
       //
       // `calibracao.html` veio do ebgeo_360, onde era estático solto servido pelo próprio Fastify.
       // Aqui ela é a QUARTA entrada do bundler: passa pelo chunking declarado abaixo e vira alvo do
       // ESLint e do Stylelint da casa, como qualquer outra página.
+      //
+      // `tutorial.html` é a QUINTA, desde 2026-09-15 (decisão D16), e chegou pelo mesmo caminho:
+      // era `public/docs/doc.html`, estático solto servido pelo `publicDir`, carregando o docsify
+      // 4.13.1 de `public/vendors/` por tag. O markdown e as imagens CONTINUAM em `public/docs/`,
+      // porque são conteúdo e não código; o que entrou no grafo foi a biblioteca, pelo ponto único
+      // `src/js/vendor/docsify.js`, e com ela o pino de versão que a pasta de vendors não tinha.
       input: {
         main: resolve(__dirname, 'index.html'),
         atlas: resolve(__dirname, 'atlas.html'),
         admin: resolve(__dirname, 'admin.html'),
-        calibracao: resolve(__dirname, 'calibracao.html')
+        calibracao: resolve(__dirname, 'calibracao.html'),
+        tutorial: resolve(__dirname, 'tutorial.html')
       },
       output: {
         // Chunks by functionality (path-based matching)

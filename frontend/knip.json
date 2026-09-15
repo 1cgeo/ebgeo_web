@@ -3,7 +3,8 @@
   "entry": [
     "src/js/projects/projects-page.js",
     "src/js/admin/admin-page.js",
-    "src/js/calibration/calibracao-page.js"
+    "src/js/calibration/calibracao-page.js",
+    "src/js/tutorial/tutorial-page.js"
   ],
   "project": [
     "src/**/*.js"

@@ -1,12 +1,16 @@
 // Path: tests/unit/paginas-sem-mapa-nao-arrastam-a-store.test.js
 
 /**
- * @fileoverview As TRÊS páginas sem mapa medem ~140 kB cada contra ~3,3 MB do mapa, e essa
- * diferença é uma propriedade de IMPORT, não de intenção: um único `from '@store'`, `from '@utils'`
- * ou `from '@modals'` em qualquer arquivo de `src/js/projects/`, `src/js/admin/` ou
- * `src/js/calibration/` traz a store inteira de volta pelo caminho transitivo (`@utils` →
- * `feature_navigation_utils` → `@store`). Nada estoura, nada avisa: a página continua funcionando e
- * passa a baixar a fundação do mapa.
+ * @fileoverview As QUATRO páginas sem mapa medem uma fração do mapa, e essa diferença é uma
+ * propriedade de IMPORT, não de intenção: um único `from '@store'`, `from '@utils'` ou
+ * `from '@modals'` em qualquer arquivo de `src/js/projects/`, `src/js/admin/`,
+ * `src/js/calibration/` ou `src/js/tutorial/` traz a store inteira de volta pelo caminho
+ * transitivo (`@utils` → `feature_navigation_utils` → `@store`). Nada estoura, nada avisa: a
+ * página continua funcionando e passa a baixar a fundação do mapa.
+ *
+ * ERAM TRÊS ATÉ 2026-09-15, quando o tutorial deixou de ser uma página estática de `public/` e
+ * virou a quinta entrada do bundler (decisão D16). A quarta entrou pelo censo do bloco lá embaixo,
+ * que a reprovou por não ter pasta vigiada, que é exatamente para isso que ele existe.
  *
  * Este arquivo guardava só `atlas.html` e passou a guardar as três em 2026-08-17, quando a fase de
  * permissões mexeu nas três ao mesmo tempo (papel global na barra do admin, gate de produção na
@@ -284,6 +288,31 @@ const PAGINAS = Object.freeze([
             'maplibre-gl/dist/maplibre-gl.css',
             'three'
         ]
+    },
+    {
+        // A QUINTA PÁGINA, desde 2026-09-15 (decisão D16), e ela é a mais leve das quatro sem mapa
+        // por uma margem grande: o grafo inteiro dela são QUATRO arquivos. É a única que não
+        // alcança `localforage`, e a razão é a mesma que a mantém fora do portão de migração e do
+        // tab-lock (ver `portao-de-migracao-nas-quatro-paginas.test.js`): ela não abre banco, não
+        // monta atlas e não tem sessão. A lista fechada de `externos` é o que preserva isso; o dia
+        // em que `localforage` aparecer aqui é o dia em que a página passou a ser outra coisa.
+        pagina: 'tutorial.html',
+        pasta: 'src/js/tutorial',
+        entradas: ['tutorial-page.js', 'caminhos-de-midia.js'],
+        minRaizes: 2,
+        minArquivos: 3,
+        ancoras: [
+            // O ponto único do docsify, alcançado pelo alias `@js`: sem esta âncora, um alias
+            // quebrado devolveria "nenhum barril encontrado" sobre um grafo de um arquivo só.
+            'src/js/vendor/docsify.js',
+            // E a folha da casa, pelo alias `@css`, que é o outro alias que esta página usa.
+            'src/css/tutorial.css'
+        ],
+        // DOIS especificadores e os dois do mesmo pacote: o módulo e o tema CORE. O add-on `vue`
+        // do tema NÃO entra, e isso é decisão de rede, não de gosto (ver o cabeçalho de
+        // `src/js/vendor/docsify.js`): a primeira linha dele é um `@import` de fontes do Google,
+        // que o Vite não inlina e que a rede de destino não alcança.
+        externos: ['docsify', 'docsify/dist/themes/core.css']
     }
 ]);
 
@@ -295,7 +324,10 @@ describe('a lista acima cobre TODA página sem mapa, e o inventário dela vem do
     const HTMLS = readdirSync(FRONT).filter((f) => f.endsWith('.html'));
 
     it('cada página HTML ou é o mapa, ou tem uma pasta vigiada aqui', () => {
-        expect(HTMLS.sort()).toEqual(['admin.html', 'atlas.html', 'calibracao.html', 'index.html']);
+        // CINCO desde 2026-09-15, quando o tutorial deixou de ser `public/docs/doc.html` e virou
+        // entrada do bundler. O bloco funcionou como prometido: a página nasceu reprovada aqui.
+        expect(HTMLS.sort())
+            .toEqual(['admin.html', 'atlas.html', 'calibracao.html', 'index.html', 'tutorial.html']);
 
         const vigiadas = PAGINAS.map((p) => p.pasta);
         for (const html of HTMLS) {

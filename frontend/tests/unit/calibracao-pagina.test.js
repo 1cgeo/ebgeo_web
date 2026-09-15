@@ -178,15 +178,21 @@ describe('pagina de calibracao 360 (porte do ebgeo_360)', () => {
         expect(MODULOS.map((m) => m.nome)).toContain('src/js/calibration/calibracao-page.js');
     });
 
-    it('vite.config.js declara as QUATRO entradas do multi-pagina', () => {
+    it('vite.config.js declara as CINCO entradas do multi-pagina', () => {
         // REPROVA a versao anterior do bundler, de TRES entradas: sem
         // `calibracao.html` no `input`, a pagina nao entra no build e o `dist/`
         // sai sem ela, ainda que o `npm run dev` a sirva normalmente.
+        //
+        // SAO CINCO DESDE 2026-09-15 (decisao D16): o tutorial deixou de ser
+        // `public/docs/doc.html`, estatico que o `publicDir` copiava verbatim, e entrou pela MESMA
+        // porta e pela mesma razao que a calibracao, que e o que faz este caso continuar sendo o
+        // lugar certo para conta-los.
         const bloco = VITE.match(/input:\s*\{([\s\S]*?)\}/);
         expect(bloco, 'bloco `input:` nao encontrado em vite.config.js').not.toBeNull();
 
         const paginas = [...bloco[1].matchAll(/resolve\(__dirname,\s*'([^']+\.html)'\)/g)].map((m) => m[1]);
-        expect(paginas.sort()).toEqual(['admin.html', 'atlas.html', 'calibracao.html', 'index.html']);
+        expect(paginas.sort())
+            .toEqual(['admin.html', 'atlas.html', 'calibracao.html', 'index.html', 'tutorial.html']);
 
         for (const pagina of paginas) {
             expect(existsSync(join(PACOTE, pagina)), `entrada declarada e inexistente: ${pagina}`).toBe(true);

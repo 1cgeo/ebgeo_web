@@ -751,7 +751,7 @@ function payloadDe(html) {
 }
 
 /**
- * As quatro páginas construídas, com piso e teto MEDIDOS em 2026-08-25.
+ * As CINCO páginas construídas (quatro até 2026-09-15), com piso e teto MEDIDOS em 2026-08-25.
  *
  * O teto de `index.html` desceu de 3600 para 3000 kB em 2026-08-25, e a descida é o recibo da onda
  * de carga tardia das ferramentas: a página do mapa passou de 63 arquivos e 3362 kB para 65
@@ -879,7 +879,24 @@ const PAGINAS_DIST = Object.freeze([
     // Ela é a única das três páginas sem mapa que sobe, e isso é uma propriedade e não um acaso:
     // `atlas.html` e `admin.html` não instanciam mapa nenhum, não alcançam o ponto único, e as
     // medidas delas ficaram idênticas (521 e 673 kB) do outro lado da migração.
-    { html: 'calibracao.html', entrada: 'calibracao', minArq: 12, maxArq: 38, minKb: 1700, maxKb: 1980 }
+    { html: 'calibracao.html', entrada: 'calibracao', minArq: 12, maxArq: 38, minKb: 1700, maxKb: 1980 },
+    // tutorial.html: a QUINTA página, medida na estreia, 2026-09-15, build fresco: 7 arquivos e
+    // 499 kB. Ela é a mais LEVE das cinco por uma margem grande, e vale entender de que os 499 são
+    // feitos, porque a leitura ingênua é que uma página de documentação deveria custar dezenas de
+    // kB: 189 kB são o chunk moderno (docsify 5.0.0 mais prismjs, marked, tinydate e common-tags,
+    // que o pacote traz), 241 kB são o MESMO conteúdo na passada legacy (`@vitejs/plugin-legacy`,
+    // que o `nomodule` referencia por `data-src` e esta regex conta), 76 kB são os polyfills
+    // legacy e o resto são três folhas de helper do Babel. Somam-se ainda 51 kB de CSS, que esta
+    // conta não vê porque ela é só de `.js`, e 50 dos 51 são o tema `core.css` do pacote.
+    //
+    // O QUE ELA SUBSTITUI, para a comparação honesta: `public/docs/doc.html` baixava 157 kB de
+    // `docsify.min.js` mais 13 kB de `vue.css`, que esta metade nunca somou, porque
+    // `/vendors/` sai da conta por definição. Então o número não é comparável ao de antes, e
+    // fingir que é seria o erro que o comentário do MapLibre acima descreve como troca de balcão.
+    //
+    // A banda segue a disciplina das outras quatro: teto perto da medida (7%), piso folgado, que
+    // aqui é controle de vácuo contra um HTML que perdesse as referências e desse 0 kB.
+    { html: 'tutorial.html', entrada: 'tutorial', minArq: 4, maxArq: 12, minKb: 350, maxKb: 535 }
 ]);
 
 describe('(b) o peso construído de cada página', () => {
@@ -917,10 +934,29 @@ describe('(b) o peso construído de cada página', () => {
                 );
                 expect(temEntrada, `${html} não referencia mais o chunk \`${entrada}-*.js\``)
                     .toBe(true);
-                // O runtime do Rolldown está em toda página construída. É a segunda âncora, e ela
-                // pega o caso de a página referenciar só o entry e mais nada.
-                const temRuntime = payload().assets.some((p) => p.includes('/assets/rolldown-runtime-'));
-                expect(temRuntime, `${html} não referencia o runtime do bundler`).toBe(true);
+                // A SEGUNDA ÂNCORA pega o caso de a página referenciar só o entry e mais nada, e
+                // ela MUDOU DE SUJEITO EM 2026-09-15, depois de reprovar nas CINCO páginas.
+                //
+                // Ela pedia `/assets/rolldown-runtime-*`, e esse chunk não existe mais: medido
+                // neste build (Vite 8.1.2, build fresco), `ls dist/assets | grep rolldown` devolve
+                // ZERO arquivos, e nenhum dos cinco HTML o referencia. Ou seja, a metade (b) estava
+                // VERMELHA em `HEAD` por deriva do bundler, e não por causa da página nova: o
+                // vermelho aparece nas quatro páginas antigas igualmente, e é a mesma classe que o
+                // livro-razão registrou em 2026-09-14 (guarda que só falha para quem constrói o
+                // `dist/` envelhece vermelho em vez de envelhecer frouxo).
+                //
+                // O substituto é escrito em DOIS níveis de propósito. O estrutural é a afirmação
+                // que o comentário original queria fazer e que nome de chunk nenhum garante: a
+                // página referencia MAIS do que o próprio entry. O nomeado é o polyfill de
+                // `modulepreload`, que as cinco carregam hoje; se ele também sumir um dia, o
+                // estrutural continua de pé e a falha nomeia só a âncora, não a conta inteira.
+                const outros = payload().assets.filter(
+                    (p) => !new RegExp(`/assets/${entrada}-[^/]+\\.js$`).test(p)
+                );
+                expect(outros.length, `${html} referencia só o próprio entry`).toBeGreaterThan(0);
+                const temPolyfill = payload().assets.some(
+                    (p) => p.includes('/assets/modulepreload-polyfill-'));
+                expect(temPolyfill, `${html} não referencia o polyfill de modulepreload`).toBe(true);
             });
 
             it(`baixa entre ${minArq} e ${maxArq} arquivos, e entre ${minKb} e ${maxKb} kB`, () => {
@@ -999,7 +1035,7 @@ describe('(b) o peso construído de cada página', () => {
         }
     });
 
-    (MEDE ? it : it.skip)('o mapa é a página pesada, e as outras três continuam leves', () => {
+    (MEDE ? it : it.skip)('o mapa é a página pesada, e as outras quatro continuam leves', () => {
         // A propriedade que `paginas-sem-mapa-nao-arrastam-a-store.test.js` guarda no GRAFO, medida
         // aqui em kB construídos. As duas medidas podem divergir, e divergência entre elas é
         // defeito de chunking, não ruído.
@@ -1018,8 +1054,12 @@ describe('(b) o peso construído de cada página', () => {
         // O piso continua sendo o controle contra o modo de falha que este caso existe para pegar:
         // uma página sem mapa que passe a arrastar o app do mapa engorda o EXCLUSIVO dela, e nenhum
         // desconto a salva.
+        // A QUINTA ENTROU EM 2026-09-15 e é a que menos compartilha com o mapa: 5 arquivos e 79 kB
+        // comuns (contra 29 e 1349 kB da calibração), porque o único ancestral comum entre as duas
+        // são os helpers do Babel e os polyfills da passada legacy. A razão medida na estreia é
+        // 9,57 (4019 kB exclusivos do mapa contra 420 dela).
         const mapa = payloadDe('index.html');
-        for (const html of ['atlas.html', 'admin.html', 'calibracao.html']) {
+        for (const html of ['atlas.html', 'admin.html', 'calibracao.html', 'tutorial.html']) {
             const outra = payloadDe(html);
             const comuns = outra.assets.filter((p) => mapa.assets.includes(p));
             const kbComuns = Math.round(
