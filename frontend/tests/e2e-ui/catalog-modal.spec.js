@@ -109,7 +109,17 @@ describeOrSkip('§19.1-3 External-layers catalog modal (real browser, local pure
 
         // Pick a filter whose live count badge is > 0 so the click yields a real,
         // non-empty filtered set (the dev config decides which types exist).
-        const filterButtons = overlay.locator('.catalog-filter-btn');
+        //
+        // SÓ OS FILTROS DE TIPO, E O SELETOR TEM DE DIZER ISSO. A barra carrega DUAS famílias de
+        // `.catalog-filter-btn`: a de TIPO (`data-type`, o sujeito deste caso) e a de ACESSO
+        // (`data-access` mais a classe `catalog-filter-btn--acesso`), e a segunda NASCE ESCONDIDA
+        // porque só a contagem sabe se há privado algum (`createAccessFilters`). Varrendo as duas,
+        // a escolha caía no primeiro botão com contagem maior que zero, e numa rodada em que
+        // outra spec já semeou acervo esse botão é o `publico` do grupo escondido: o `click()`
+        // então espera os sessenta segundos do caso por um botão que a casa desenha escondido de
+        // propósito, e o vermelho sai como timeout sem nada de errado no produto (medido na
+        // rodada cheia de 2026-09-13, `catalog-filter-btn--acesso` resolvido em `nth(4)`).
+        const filterButtons = overlay.locator('.catalog-filter-btn[data-type]');
         const filterCount = await filterButtons.count();
         let chosen = null;
         let chosenType = null;
@@ -123,6 +133,9 @@ describeOrSkip('§19.1-3 External-layers catalog modal (real browser, local pure
             }
         }
         expect(chosen, 'at least one type filter has items').not.toBeNull();
+        // O filtro escolhido está DESENHADO. Sem esta linha o caso volta a poder escolher um
+        // botão inalcançável, e o próximo `click()` gastaria o caso inteiro esperando por ele.
+        await expect(chosen, 'o filtro de tipo escolhido está visível na barra').toBeVisible();
 
         // Activate the filter — its data-active flips true.
         await expect(chosen).toHaveAttribute('data-active', 'false');
