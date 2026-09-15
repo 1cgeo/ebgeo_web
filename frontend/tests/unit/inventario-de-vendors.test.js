@@ -151,20 +151,36 @@ describe('inventario de vendors: o eixo de comparacao', () => {
         expect(binarios.every((m) => m.sha256Lf === null)).toBe(true);
     });
 
-    it('166 dos 398 sao binarios que CARREGAM o par 0D 0A por coincidencia', () => {
-        // Este numero e a razao de o eixo existir: sem a classificacao, sao 166
-        // divergencias fantasma. Se ele mudar, a poda ou a entrada de um vendor
-        // mexeu na composicao da arvore, e a conferencia quer saber disso.
+    it('2 dos 8 sao binarios que CARREGAM o par 0D 0A por coincidencia', () => {
+        // Este numero e a razao de o eixo existir: sem a classificacao, cada um deles e uma
+        // divergencia fantasma. Se ele mudar, a poda ou a entrada de um vendor mexeu na
+        // composicao da arvore, e a conferencia quer saber disso.
         //
         // O DENOMINADOR CAIU DUAS VEZES EM 2026-09-14 E O NUMERADOR NAO SE MEXEU, e a leitura
         // dos dois juntos e a prova de que a adocao e as podas foram o que dizem ser. A adocao do
         // cesium-measure e a saida do snapshot do Three.js tiraram seis arquivos de TEXTO em CRLF
         // (408 -> 402, e 166 -> 160 de texto em CRLF); a poda dos vendors sem consumidor tirou
         // quatro (402 -> 398), tres de texto em CRLF e um de texto em LF. Nenhuma tocou num
-        // binario. Fosse um binario junto, este numero cairia, e a mudanca estaria alcancando
-        // mais do que anunciava.
+        // binario.
+        //
+        // NA TERCEIRA MUDANCA DO MESMO DIA O NUMERADOR CAIU, E CAIU PORQUE DEVIA (V9, o
+        // Cesium vindo do npm): 398 -> 8 arquivos e 166 -> 2 binarios com o par. Os 390 que
+        // sairam sao a distribuicao 1.138.0 inteira, cujos `Assets/`, `ThirdParty/` e
+        // `Widgets/Images/` sao PNG, JPG e WASM, ou seja, exatamente a familia que este caso
+        // conta. Sobra `frontend/public/vendors/cesium/cesium-viewshed.js`, que e TEXTO e
+        // continua sendo carregado por `<script>` em runtime porque le e escreve
+        // `window.Cesium`. Os DOIS binarios que restam sao os do GDAL
+        // (`gdal3WebAssembly.data` e `gdal3WebAssembly.wasm`).
+        //
+        // A leitura que este par de numeros permite e a que interessa: uma poda de 390 arquivos
+        // que deixasse um binario de OUTRO vendor para tras apareceria aqui como 3, e uma que
+        // levasse um a mais apareceria como 1.
         const comParCrLf = medicoes.filter((m) => m.binario && normalizarCrlf(readFileSync(join(RAIZ, m.path))) !== null);
-        expect(comParCrLf).toHaveLength(166);
+        expect(comParCrLf).toHaveLength(2);
+        expect(comParCrLf.map((m) => m.path).sort()).toEqual([
+            'frontend/public/vendors/gdal/gdal3WebAssembly.data',
+            'frontend/public/vendors/gdal/gdal3WebAssembly.wasm',
+        ]);
     });
 
     it('ehTexto recusa NUL e UTF-8 invalido, e aceita texto acentuado', () => {

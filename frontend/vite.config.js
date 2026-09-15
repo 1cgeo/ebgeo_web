@@ -4,7 +4,8 @@ import legacy from '@vitejs/plugin-legacy';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { createReadStream, cpSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { CESIUM_BASE_URL } from './src/js/vendor/cesium-base-url.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -78,6 +79,110 @@ function pluginReleaseJson() {
         hash: APP_HASH,
         builtAt: APP_BUILT_AT,
       }, null, 2)}\n`);
+    },
+  };
+}
+
+/**
+ * Os quatro diretórios do Cesium que NÃO cabem num bundle, e a pasta de onde eles saem.
+ *
+ * `Workers/` são arquivos porque `new Worker(url)` precisa de uma URL; `Assets/` são imagens e
+ * tabelas do IAU; `ThirdParty/` traz os decodificadores Draco e Basis, `.wasm` inclusive; e
+ * `Widgets/` guarda a folha que o `InfoBox` injeta dentro do próprio iframe. A lista é a mesma
+ * que `vite-plugin-cesium` copia, e a origem é a distribuição pré-construída do pacote, que é
+ * onde os workers já vêm empacotados (a árvore `Source/` traz os módulos, não os workers).
+ */
+const CESIUM_DIST = resolve(__dirname, 'node_modules/cesium/Build/Cesium');
+const CESIUM_ATIVOS = ['Assets', 'ThirdParty', 'Widgets', 'Workers'];
+
+/** Os tipos que o middleware de dev precisa saber declarar. O resto sai como octet-stream. */
+const TIPOS_DE_ATIVO = {
+  '.css': 'text/css',
+  '.gif': 'image/gif',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.js': 'text/javascript',
+  '.json': 'application/json',
+  '.ktx2': 'image/ktx2',
+  '.mjs': 'text/javascript',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.wasm': 'application/wasm',
+  '.xml': 'application/xml',
+};
+
+/**
+ * Serve e publica os ativos estáticos do Cesium, que são a metade da biblioteca que não entra no
+ * bundle (ver a constante acima e `frontend/src/js/vendor/cesium-base-url.js`).
+ *
+ * POR QUE UM PLUGIN E NÃO UMA CÓPIA VERSIONADA. Até 2026-09-14 estes quatro diretórios moravam em
+ * `frontend/public/vendors/cesium/`, na 1.138.0, e o `publicDir` os servia de graça. O preço era
+ * o do plano inteiro: 391 arquivos que nenhum `npm audit` alcança e nenhum canal a que perguntar
+ * por aviso. Com a biblioteca vindo do npm em versão exata, deixá-los lá seria PIOR do que antes,
+ * porque o motor passaria a ser 1.145.0 e os workers continuariam 1.138.0: um par que não casa,
+ * e cujo sintoma (terreno que não decodifica, malha que não desenha) chega longe da causa e sem
+ * erro. Copiar do pacote, sempre, é o que amarra as duas metades na mesma versão.
+ *
+ * POR QUE NÃO `viteStaticCopy`: ele não está instalado, e este plugin é menor do que a dependência.
+ *
+ * DUAS COISAS QUE NÃO SE ADIVINHAM:
+ *
+ * 1. **A verificação da origem é na CRIAÇÃO do plugin, e ela LANÇA.** Sem os quatro diretórios o
+ *    build termina com sucesso e o visualizador 3D sobe com a cena vazia, respondendo 404 a cada
+ *    worker; é a classe "o verificador quebra calado" aplicada ao build. Falhar aqui é a única
+ *    forma de a ausência aparecer antes de um usuário.
+ * 2. **O prefixo é o MESMO do `publicDir`, e por isso o middleware SÓ responde pelos quatro
+ *    diretórios, nunca pelo prefixo inteiro.** `cesium-viewshed.js` sobrevive em
+ *    `frontend/public/vendors/cesium/` e tem de continuar vindo de lá. A primeira versão deste
+ *    plugin servia qualquer caminho sob o prefixo que existisse em `CESIUM_DIST`, na suposição de
+ *    que `configureServer` instala DEPOIS dos middlewares internos e portanto o `publicDir`
+ *    responderia primeiro. Medido: não responde. Com um `Cesium.js` presente nos dois lugares,
+ *    quem o navegador recebeu foi o do `node_modules` (a página relatou `Cesium.VERSION`
+ *    `1.145.0` com o arquivo de `public/` declarando `1.138.0`), ou seja, o middleware SOMBREIA o
+ *    `publicDir`. Restringir ao prefixo dos quatro diretórios torna a pergunta de ordem
+ *    irrelevante: os dois conjuntos de caminho deixam de se tocar.
+ *    No build não há disputa: `cpSync` funde diretórios, e a cópia do `publicDir` acontece na
+ *    mesma pasta sem apagar nada.
+ * @returns {Object} Um plugin de Vite.
+ */
+function pluginCesiumAtivos() {
+  const faltando = CESIUM_ATIVOS.filter((d) => !existsSync(resolve(CESIUM_DIST, d)));
+  if (faltando.length > 0) {
+    throw new Error(
+      `ativos do Cesium ausentes em ${CESIUM_DIST}: ${faltando.join(', ')}. ` +
+      'Sem eles o visualizador 3D sobe com a cena vazia e sem erro. Rode `npm install`.'
+    );
+  }
+
+  // Mesma guarda, e pela mesma razão, do `pluginReleaseJson`: o `@vitejs/plugin-legacy` faz os
+  // hooks de saída rodarem duas vezes por build, e aqui isso seriam 7,7 MB copiados em dobro.
+  let copiado = false;
+
+  return {
+    name: 'ebgeo-cesium',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = (req.url || '').split('?')[0];
+        if (!CESIUM_ATIVOS.some((d) => url.startsWith(`${CESIUM_BASE_URL}${d}/`))) return next();
+        const rel = decodeURIComponent(url.slice(CESIUM_BASE_URL.length));
+        // Sem isto, `..%2F..` sairia do pacote e serviria qualquer arquivo do disco.
+        const arquivo = resolve(CESIUM_DIST, rel);
+        if (!arquivo.startsWith(CESIUM_DIST) || !existsSync(arquivo)) return next();
+        if (!statSync(arquivo).isFile()) return next();
+        const ext = arquivo.slice(arquivo.lastIndexOf('.')).toLowerCase();
+        res.setHeader('Content-Type', TIPOS_DE_ATIVO[ext] || 'application/octet-stream');
+        createReadStream(arquivo).pipe(res);
+      });
+    },
+    writeBundle(opcoes) {
+      if (copiado) return;
+      copiado = true;
+      const dir = opcoes?.dir || resolve(__dirname, 'dist');
+      // O prefixo começa e termina em barra; `join` com string vazia no meio daria `dist//...`.
+      const destino = resolve(dir, CESIUM_BASE_URL.replace(/^\/|\/$/g, ''));
+      for (const sub of CESIUM_ATIVOS) {
+        cpSync(resolve(CESIUM_DIST, sub), resolve(destino, sub), { recursive: true });
+      }
     },
   };
 }
@@ -248,6 +353,30 @@ export default defineConfig(({ mode: _mode }) => ({
           // so it stays in main bundle.
           // Panels (marker-panel-3d, measurement-panel-3d, viewshed-panel-3d)
           // use dynamic imports to avoid conflicts.
+          //
+          // ===== CESIUM (npm, since 2026-09-14): THERE IS NO RULE HERE EITHER, AND IT WAS
+          // MEASURED, NOT ASSUMED =====
+          //
+          // The obvious move, when the library stopped being a `<script>` of
+          // `public/vendors/cesium/`, was to claim it for this group: `src/js/vendor/cesium` plus
+          // `node_modules/cesium/` returning `'cesium-integration'`. The rule was written, built
+          // and thrown away, exactly like the MapLibre one above, and for a reason that only a
+          // build can settle. The argument FOR it sounds strong and is wrong: MapLibre and
+          // Three.js are reached from two page entries each, so `entriesAware` had already split
+          // them; Cesium is reached from ONE entry (the map) and only through `import()`, which
+          // looks like the case where the default algorithm would scatter a 4,9 MB engine.
+          //
+          // It does not. Measured on this tree, two full builds, with the rule and with the four
+          // lines deleted: the engine comes out as ONE chunk both times, and it is the same chunk
+          // down to the content hash (`assets/cesium-integration-FmVf_uk4.js`, 4971814 bytes), so
+          // the emitted name was already `cesium-integration` without anyone asking. The map's
+          // eager payload is identical too (84 files, 4098 kB), because nothing eager reaches
+          // `src/js/vendor/cesium.js`. An inert rule is worse than no rule: it looks like it is
+          // doing something, and the next person to touch the chunking would protect it.
+          //
+          // What the migration DID change here is one line further down and in `external`: the
+          // three `cesium` marks that used to keep the library OUT of the graph had to go, or the
+          // import that now brings it in would be emitted as a bare specifier no browser resolves.
           if (id.includes('3d_models_viewer_tool/map_3d') ||
               id.includes('3d_models_viewer_tool/tools/') ||
               id.includes('3d_models_viewer_tool/services/')) {
@@ -525,29 +654,25 @@ export default defineConfig(({ mode: _mode }) => ({
         chunkFileNames: (chunk) => `assets/${String(chunk.name || 'chunk').split('~')[0]}-[hash].js`,
         assetFileNames: 'assets/[name]-[hash].[ext]'
       },
-      // External vendors (not bundled)
-      // Specific regex to exclude only the Cesium vendor,
-      // not project files like cesium3d.operations.js
+      // External vendors (not bundled).
       //
-      // WHAT THIS LIST COVERS TODAY, AND WHAT IT STOPPED COVERING. The Cesium
-      // distribution and `cesium-viewshed.js` are still `<script>` tags injected
-      // by `map_3d.js`, so nothing in the module graph reaches them and the
-      // marks below keep them out of any future one. `cesium-measure.js` LEFT
-      // this scope on 2026-09-14 (decision D9): it moved to
-      // `src/js/3d_models_viewer_tool/services/cesium-measure.js` and is a normal
-      // static import of `map_3d.js`, which means it is bundled into the lazy
-      // `cesium-integration` chunk and, because `frontend/eslint.config.js`
-      // ignores `public/**`, linted for the first time. Do not re-broaden these
-      // patterns to reach `src/`: that would silently take it back out of both.
+      // WHAT THIS LIST STOPPED COVERING, AND WHY THE THREE MARKS THAT LEFT HAD TO LEAVE. Until
+      // 2026-09-14 it carried `/^cesium$/i`, `/^cesium\//i` and `/node_modules\/cesium/i`, from
+      // the days when the library was a `<script>` of `public/vendors/cesium/`: they existed so
+      // that an accidental `import 'cesium'` would not bundle a second copy alongside the global.
+      // Decision V9 of 2026-09-14 made that import the ONLY way in (`src/js/vendor/cesium.js`, 1.145.0
+      // from npm), so the three marks became the opposite of a guard: an external specifier is
+      // emitted as a bare `import 'cesium'` into the chunk, which no browser resolves, and the 3D
+      // viewer would die at load with the library declared "not bundled" by this very list.
+      // `cesium-measure.js` had left the same scope hours earlier, for the neighbouring reason.
+      //
+      // The ONE mark that stays covers `cesium-viewshed.js`, the obfuscated UMD that is still a
+      // runtime `<script>` under `public/vendors/cesium/` because it reads `window.Cesium` and
+      // writes onto it. Nothing in the module graph reaches it; the mark keeps it out of any
+      // future one. Do not broaden it to `node_modules/cesium` again.
       external: [
-        // Exact match of 'cesium' module (import 'cesium')
-        /^cesium$/i,
-        // Match cesium subpaths (import 'cesium/Source/...')
-        /^cesium\//i,
-        // Match the Cesium distribution and cesium-viewshed.js under public/
-        /vendors\/cesium/i,
-        // Match node_modules paths (if cesium installed via npm)
-        /node_modules\/cesium/i
+        // The Cesium plugin that is still script-loaded from public/vendors/.
+        /vendors\/cesium\/cesium-viewshed/i
       ]
     },
 
@@ -620,15 +745,15 @@ export default defineConfig(({ mode: _mode }) => ({
   optimizeDeps: {
     // Exclude global vendors (loaded via script tags).
     //
-    // `maplibre-gl` LEFT this list on 2026-09-04. It stopped being a global vendor: the 6.x has no
-    // UMD build, so it comes from npm through `src/js/map/maplibre.js` and is a normal graph
-    // dependency of two entries. Keeping it excluded would mean asking dev to serve it unbundled
-    // while the build bundles it, two different module identities for the same library, which is
-    // exactly the class of trap `bench/README.md` records under the `?t=` of the HMR.
+    // `maplibre-gl` LEFT this list on 2026-09-04, and `cesium` on 2026-09-14, for the SAME reason:
+    // neither is a global vendor any more. Each comes from npm through a single point
+    // (`src/js/map/maplibre.js`, `src/js/vendor/cesium.js`) and is a normal graph dependency.
+    // Keeping one excluded would mean asking dev to serve it unbundled while the build bundles it,
+    // two different module identities for the same library, which is exactly the class of trap
+    // `bench/README.md` records under the `?t=` of the HMR.
     exclude: [
       '@turf/turf',
-      'milsymbol',
-      'cesium'
+      'milsymbol'
     ]
   },
 
@@ -641,6 +766,7 @@ export default defineConfig(({ mode: _mode }) => ({
       // Do not include polyfills in modern bundle
       modernPolyfills: false
     }),
+    pluginCesiumAtivos(),
     pluginReleaseJson()
   ],
 

@@ -7,11 +7,12 @@
     <title>EBGeo</title>
     <link rel="icon" type="image/x-icon" href="/images/favicon.ico">
 
-    <!-- Vendors CSS (servidos de public/) -->
-    <link rel="stylesheet" href="/vendors/cesium/Widgets/widgets.css" media="print"
-        onload="this.media='all'; this.onload=null;">
-    <!-- O CSS do MapLibre 6.x vem do pacote npm, importado por src/js/map/maplibre.js.
-         Não há mais cópia em public/vendors/: ela foi apagada, não deixada ao lado. -->
+    <!-- SEM CSS DE VENDOR AQUI, desde 2026-09-14: esta página não liga mais nenhuma folha de
+         public/vendors/. A do MapLibre 6.x vem do pacote npm (src/js/map/maplibre.js) e a dos
+         widgets do Cesium também (src/js/vendor/cesium.js), de modo que ela viaja com o chunk
+         lazy do visualizador 3D e quem nunca o abre não a baixa. O `media="print"` que morava
+         aqui era a gambiarra para adiar aquela folha sem adiar o pedido; o import a adia de
+         verdade. -->
 
     <!-- CSS principal (processado pelo Vite) -->
     <link rel="stylesheet" href="/src/css/style.css">
@@ -132,10 +133,20 @@
 
     <!-- RESOURCE HINTS -->
     <link rel="preload" href="/images/logo_ebgeo.webp" as="image" fetchpriority="high">
-    <link rel="prefetch" href="/vendors/cesium/Cesium.js">
-    <!-- Sem prefetch de Three.js: desde 2026-09-14 ele vem do npm (three 0.164.0, versao exata),
-         pelo ponto unico src/js/vendor/three.js, e o bundler o entrega dentro do chunk lazy do
-         visualizador 360, que esta pagina so baixa quando alguem abre uma foto. -->
+    <!-- O PREFETCH DO CESIUM SAIU EM 2026-09-14, E O QUE SE PERDEU FICA DITO: ele aquecia os 5,7 MB
+         de /vendors/cesium/Cesium.js em tempo ocioso, de modo que a primeira abertura do
+         visualizador 3D achava a biblioteca em cache. Desde a migracao para o npm (cesium 1.145.0,
+         versao exata, pelo ponto unico src/js/vendor/cesium.js) o motor viaja dentro do chunk lazy
+         `cesium-integration`, cujo nome de arquivo carrega hash de conteudo e portanto nao existe
+         para quem escreve este HTML. Um prefetch de chunk exigiria adivinhar o arquivo pelo ROTULO
+         do grupo, e o comentario do vite.config.js registra que rotulo de chunk nunca prediz
+         conteudo; alem disso um href para /assets/ entraria na conta de peso desta pagina
+         (tests/unit/teto-de-peso-da-pagina-do-mapa.test.js conta todo src= e href= fora de
+         /vendors/), somando 4 MB a um teto que existe para acusar exatamente isso. O preco e a
+         primeira abertura do 3D baixar o motor na hora; toda abertura seguinte vem do cache, agora
+         com hash de conteudo, que o arquivo anterior nao tinha.
+         Sem prefetch de Three.js pela mesma razao, desde 2026-09-14 (three 0.164.0, versao exata,
+         pelo ponto unico src/js/vendor/three.js, dentro do chunk lazy do visualizador 360). -->
 
 </head>
 
@@ -664,7 +675,8 @@
 
     <!-- Turf: carregado SOB DEMANDA (js/utilities/turf-loader.js). São 619 kB, o maior
          item depois do MapLibre no script que esta página baixava no boot (3749 kB
-         medidos no pacote de produção em 2026-08-25, fora o `prefetch` do Cesium).
+         medidos no pacote de produção em 2026-08-25, quando ainda havia um `prefetch` do
+         Cesium ao lado, que saiu em 2026-09-14).
          Ao contrário do milsymbol e do GDAL, o Turf NÃO tem um leitor único: são 257
          sítios de chamada em 35 arquivos, todos lendo o global direto. Por isso a
          cobertura é por FUNIL, e são dois que respondem pela maioria:

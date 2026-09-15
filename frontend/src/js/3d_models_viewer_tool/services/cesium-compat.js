@@ -1,13 +1,26 @@
 // Path: js/3d_models_viewer_tool/services/cesium-compat.js
 /**
  * @module 3d_models_viewer_tool/services/cesium-compat
- * @description Compatibility patches for running third-party Cesium plugins
- * (cesium-viewshed, cesium-measure) built for Cesium ~1.100 on Cesium 1.138+.
+ * @description Compatibility patches for running `cesium-viewshed`, a third-party plugin built
+ * for Cesium ~1.100, on the Cesium this app loads (1.145.0 from npm since 2026-09-14, V9;
+ * 1.138.0 as a vendored `<script>` before that).
  *
  * Patches applied:
  * 1. Cesium.defaultValue polyfill (removed in Cesium 1.134)
- * 2. GLSL ES 1.0 → 3.0 shader auto-upgrade (Cesium 1.138 uses WebGL2)
+ * 2. GLSL ES 1.0 → 3.0 shader auto-upgrade (Cesium uses WebGL2 since 1.138)
  * 3. isDestroyed()/destroy() for primitives missing them (required since Cesium 1.138)
+ *
+ * THE THREE STILL EARN THEIR KEEP ON 1.145, and that was measured rather than assumed: the
+ * Playwright capture of 2026-09-14 computed a viewshed over a real tileset and read the image
+ * (green visible, red occluded, the frustum wireframe), which exercises all three at once. The
+ * version bump brought no fourth patch.
+ *
+ * WHAT THE npm MIGRATION DID ADD is not here, it is in `frontend/src/js/vendor/cesium.js`: the
+ * object these functions receive has to be an EXTENSIBLE copy of the module namespace, and it has
+ * to carry `__esModule: true`. Without the first, `polyfillDefaultValue` cannot write; without the
+ * second, the plugin reads every Cesium symbol as `undefined` and never defines `ViewShed3D`, so
+ * `patchPrimitiveLifecycle` below skips both class names through its own `continue` and nothing
+ * anywhere goes red. That header carries the measurement.
  */
 
 // ============================================================================

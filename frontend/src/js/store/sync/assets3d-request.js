@@ -19,7 +19,11 @@
  * `Resource.clone()` copies `headers`, `queryParameters` and `retryCallback`, and
  * `getDerivedResource()` merges them into the child. So stamping the `tileset.json` reaches
  * every child tileset, every `.b3dm` and every external buffer derived from it. Verified in the
- * vendored bundle (`public/vendors/cesium/Cesium.js`, 1.138.0) before the design relied on it.
+ * vendored bundle (1.138.0) before the design relied on it, and re-verified on 2026-09-14 against
+ * Cesium 1.145.0 from npm, which is where the library comes from since V9
+ * (`frontend/src/js/vendor/cesium.js`); the vendored bundle was deleted in that same lot, so the
+ * path this line used to cite no longer exists. The Playwright capture of that day drove a real
+ * tileset through this path: 162 tiles selected, zero responses in the 4xx range.
  *
  * WHAT THIS MODULE DOES NOT SOLVE, and it is better written here than discovered as a bug: an
  * address the BROWSER fetches on its own (`<img src>`, `<video src>`, a third-party loader that

@@ -130,8 +130,12 @@ export function formatAreaLabel(squareMeters) {
  * Ephemeral measurement drawing over a Cesium viewer.
  *
  * Every method reads the `Cesium` global at CALL time, never at module
- * evaluation, which is what lets this module be imported before
- * `vendors/cesium/Cesium.js` has finished loading.
+ * evaluation. That was what let this module be imported while the library was
+ * still a `<script>` injected at runtime; since 2026-09-14 (V9) the library
+ * is a static import of `map_3d.js` (`@js/vendor/cesium.js`, which publishes
+ * the global), so the ordering hazard is gone and the late read is now merely
+ * harmless. Do not take it as a reason to keep reading the global in code
+ * written from here on: the import is the shorter path.
  */
 export class CesiumMeasure {
     /**

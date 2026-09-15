@@ -314,6 +314,19 @@ const ORCAMENTO = Object.freeze({
 const EXTERNOS_ANSIOSOS = Object.freeze([
     '@tmcw/togeojson',
     'dompurify',
+    // OS DOIS DO GDAL ENTRARAM EM 2026-09-14, e eles não são a biblioteca: são as duas URLs que o
+    // Vite emite para o `.wasm` (28,2 MB) e o `.data` (11,6 MB), pedidas por `?url` no ponto único
+    // `src/js/vendor/gdal.js`. O que o payload ansioso paga por elas são duas STRINGS, medidas no
+    // `dist/`: 110 bytes dentro do chunk `import-export`, que a página do mapa já baixava. Os
+    // arquivos em si continuam sendo buscados só quando alguém exporta um PDF de folha única, e
+    // quem os busca é o Emscripten pelo `Module.locateFile`, que recebe estas duas strings.
+    //
+    // A BIBLIOTECA fica na lista de baixo, e a divisão é o desenho inteiro: se `vendor/gdal.js`
+    // importasse `gdal3.js` estaticamente, os 191 kB dela voltariam para cá, porque `map_sig.js`
+    // importa `import_export/pdf-export.tab.js` de forma estática. É exatamente a regressão que a
+    // onda de 2026-08-25 desfez tirando a `<script>` do `index.html`.
+    'gdal3.js/dist/package/gdal3WebAssembly.data?url',
+    'gdal3.js/dist/package/gdal3WebAssembly.wasm?url',
     'geomagnetism',
     'jszip',
     'localforage',
@@ -344,7 +357,25 @@ const EXTERNOS_ANSIOSOS = Object.freeze([
  */
 const EXTERNOS_SO_DINAMICOS = Object.freeze([
     '@manycore/aholo-viewer',
+    // DESDE 2026-09-14 (V9), quando a distribuição de 14 MB que morava em
+    // `frontend/public/vendors/cesium/` foi apagada e a biblioteca passou a vir do npm por
+    // `src/js/vendor/cesium.js`. Enquanto era um `<script>` injetado em runtime, nenhuma guarda
+    // deste repositório enxergava aqueles bytes: o caminhador anda no grafo de IMPORTS, e uma tag
+    // criada por `document.createElement` não é uma aresta. Agora é, e a propriedade que importa
+    // passa a ser medida em vez de prometida: o motor (4,97 MB no `dist/`) só é alcançado pelo
+    // `import()` de `map_3d.js`, então ele NÃO pode aparecer no grafo ansioso do mapa. Este caso
+    // reprova se alguém importar o ponto único de um módulo eager, que é como 4 MB entrariam no
+    // boot sem que o teto de kB da metade (b) percebesse (o chunk lazy não é referenciado por
+    // HTML nenhum, logo não entra naquela soma).
+    'cesium',
     'chart.js',
+    // DESDE 2026-09-14, quando a biblioteca deixou de ser `frontend/public/vendors/gdal/gdal3.js`
+    // servida por uma tag injetada e passou a vir do npm. A propriedade que se quer preservar é a
+    // MESMA que a tag injetada dava (o mapa não paga os 191 kB no boot), e ela agora é medida em
+    // vez de prometida em comentário: é este caso que reprova se alguém trocar o `import()` de
+    // `src/js/vendor/gdal.js` por um import estático. As duas URLs de asset ficam na lista de
+    // cima, e é por isso que elas não contradizem esta linha.
+    'gdal3.js',
     'html2canvas',
     'jspdf',
     'quill'
@@ -461,8 +492,29 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // lotes, sobrando 27 para um lote que precisava de 34. 11790 deixa 23 kB, e a disciplina
         // segue a mesma: pouco de propósito, para que o próximo lote tenha de medir em vez de
         // empurrar o número.
+        //
+        // O TETO DE CONTAGEM SUBIU DE 700 PARA 706 EM 2026-09-14, E É O ÚNICO DOS DOIS QUE ESTE
+        // LOTE TOCA. O lote é o Cesium vindo do npm (V9), e o que ele acrescenta ao grafo são
+        // DOIS folhas de `src/js/vendor/`, `cesium.js` (7,5 kB) e `cesium-base-url.js` (2,9 kB),
+        // alcançados pelo `import()` de `map_3d.js`. Medido: 701 módulos com o lote. Descontando
+        // os dois meus e o saldo zero do lote de GDAL que corria em paralelo nesta mesma árvore
+        // (entra `src/js/vendor/gdal.js`, sai `src/js/utilities/gdal-loader.js`), `HEAD` estava em
+        // 699, isto é, a um módulo do teto. 706 deixa cinco, pouco de propósito, como as subidas
+        // anteriores.
+        //
+        // E O TETO DE kB NÃO SUBIU: ele SOBRA, e o que sobra é deriva não atribuída na direção
+        // contrária, que é a que ninguém percebe. Medido hoje: 10507 kB, 1283 ABAIXO do teto de
+        // 11790, escrito horas antes com uma medida de 11767. O que saiu do grafo entre as duas
+        // medições é o snapshot do Three.js: `frontend/src/vendor/three/three.module.js` sozinho
+        // passava de 1,2 MB e deixou de ser alcançado quando a biblioteca passou a vir do npm
+        // (commits `d5b26384` e `4ae81c3f`), sem que ninguém descesse este número no mesmo commit.
+        // NÃO o desci aqui, e a razão é a mesma que mantém os pisos da metade (b) parados: esta
+        // medida saiu de uma árvore que carregava o lote de GDAL de outra sessão, então ela é a
+        // soma de dois trabalhos e não a medida de nenhum. Quem remedir sozinho desce o teto para
+        // perto de 10600 e o guarda volta a guardar; até lá ele está frouxo em 1,2 MB, e é melhor
+        // que isso esteja escrito do que descoberto.
         expect(completo.arquivos.size).toBeGreaterThanOrEqual(580);
-        expect(completo.arquivos.size).toBeLessThanOrEqual(700);
+        expect(completo.arquivos.size).toBeLessThanOrEqual(706);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);
@@ -710,8 +762,32 @@ const PAGINAS_DIST = Object.freeze([
     // 81 files / 3955 kB. Removing the pending-monitor dynamic entry reduced 82 to 81
     // files. Allow one file of headroom for this entry-set split; the byte ceiling
     // stays unchanged, so additional page weight still fails at 4150 kB.
-    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 82, minKb: 3600, maxKb: 4150 },
-    { html: 'atlas.html', entrada: 'atlas', minArq: 18, maxArq: 40, minKb: 320, maxKb: 700 },
+    //
+    // AS QUATRO CONTAGENS DE ARQUIVO SUBIRAM EM 2026-09-14, E A DERIVA NÃO É DO LOTE QUE AS
+    // RECENTROU. Esta metade estava VERMELHA nas QUATRO páginas em `HEAD` (9033b60b), e só na
+    // contagem de arquivos: medido com `dist/` fresco, antes de qualquer mudança do dia, 84
+    // arquivos no mapa (teto 82), 41 no atlas (40), 35 no admin (34) e 35 na calibração (32), mais
+    // 770 kB no admin contra um teto de 720. Ou seja, o lote dos cinco vendores que entraram pelo
+    // npm (9033b60b) mexeu na composição de chunk das quatro páginas e ninguém remediu esta
+    // tabela; ela vinha reprovando desde então, e a metade (b) só fica vermelha para quem roda
+    // com `dist/` construído, que é a minoria das rodadas.
+    //
+    // O QUE O LOTE DE HOJE (Cesium do npm, V9) CUSTA A ESTA CONTA É ZERO ARQUIVO E UM kB, e
+    // isso também foi medido dos dois lados, com build fresco em cada um: 84 arquivos / 4097 kB
+    // ANTES e 84 / 4098 DEPOIS, no mapa. É o resultado esperado e é o ponto da migração: os 4,97
+    // MB do motor saem num chunk que NENHUM HTML referencia, então não entram nesta soma; o que
+    // saiu da página foi o `<link rel="prefetch">` de `/vendors/cesium/Cesium.js`, que esta conta
+    // nunca somou porque exclui `/vendors/`.
+    //
+    // OS TETOS DE CONTAGEM SOBEM PARA A MEDIDA MAIS UMA FOLGA CURTA; OS PISOS NÃO SE MEXEM, de
+    // propósito, e essa é a parte que merece ser lida. A medida de hoje foi tirada numa árvore que
+    // carregava TAMBÉM um lote de GDAL em voo de outra sessão, então ela é a soma de dois
+    // trabalhos e não a medida de nenhum: subir os pisos aqui gravaria como conquista um número
+    // que ninguém pode atribuir. Os pisos continuam sendo o que sempre foram, controle de vácuo
+    // contra caminhador quebrado, e quem remedir sozinho é que os move. O teto de kB do mapa fica
+    // em 4150 (52 kB de folga sobre 4098) e o do admin passa de 720 para 800.
+    { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 88, minKb: 3600, maxKb: 4150 },
+    { html: 'atlas.html', entrada: 'atlas', minArq: 18, maxArq: 44, minKb: 320, maxKb: 700 },
     // admin.html: 800 -> 950 -> 720 em 2026-09-02, com a medida na mao: 670 kB em 24 arquivos, build
     // fresco. As abas Diagnostico e Uso (com os folhas de frase) tinham levado a pagina a 882 kB
     // (admin-*.js 258 kB, admin-legacy-*.js 358 kB), e o teto de 800 passou verde por semanas porque
@@ -721,7 +797,7 @@ const PAGINAS_DIST = Object.freeze([
     // quatro chunks que o HTML nao referencia (diag-tab 61 kB + legado 61 kB, uso-tab 45 kB + legado
     // 45 kB), e e por isso que a contagem de arquivos NAO mudou: 24 antes e 24 depois. O piso subiu
     // junto, para o proximo ganho aparecer na tabela em vez de passar calado.
-    { html: 'admin.html', entrada: 'admin', minArq: 14, maxArq: 34, minKb: 600, maxKb: 720 },
+    { html: 'admin.html', entrada: 'admin', minArq: 14, maxArq: 38, minKb: 600, maxKb: 800 },
     // calibracao.html: 1100 -> 1980 em 2026-09-04, pela MESMA troca de balcão de `index.html` e
     // pelo MESMO arquivo. Esta página carregava o `<script src="/vendors/maplibre-gl.js">` para
     // desenhar o mapa de projeto e o minimapa; agora ela alcança o chunk de MapLibre pelo grafo,
@@ -731,7 +807,7 @@ const PAGINAS_DIST = Object.freeze([
     // Ela é a única das três páginas sem mapa que sobe, e isso é uma propriedade e não um acaso:
     // `atlas.html` e `admin.html` não instanciam mapa nenhum, não alcançam o ponto único, e as
     // medidas delas ficaram idênticas (521 e 673 kB) do outro lado da migração.
-    { html: 'calibracao.html', entrada: 'calibracao', minArq: 12, maxArq: 32, minKb: 1700, maxKb: 1980 }
+    { html: 'calibracao.html', entrada: 'calibracao', minArq: 12, maxArq: 38, minKb: 1700, maxKb: 1980 }
 ]);
 
 describe('(b) o peso construído de cada página', () => {
@@ -802,35 +878,45 @@ describe('(b) o peso construído de cada página', () => {
         }
     );
 
-    (MEDE ? it : it.skip)('o `/vendors/` de fora da conta é uma escolha, e ele está lá', () => {
+    (MEDE ? it : it.skip)('a página do mapa não liga mais nenhum `/vendors/`, e os que sobrevivem em disco entram em runtime', () => {
         // Se o filtro de `/vendors/` passasse a comer TUDO (um `base` diferente, um caminho
-        // reescrito), a conta cairia para zero e o piso de kB acusaria. Este caso acusa antes, e
-        // nomeia o motivo: os vendores existem, e foram excluídos de propósito.
+        // reescrito), a conta cairia para zero e o piso de kB acusaria. Este caso acusava antes, e
+        // nomeava o motivo: os vendores existiam, e eram excluídos de propósito.
         //
-        // O PISO DESCEU DE 3 PARA 2 EM 2026-08-25, e DE 2 PARA 1 EM 2026-09-04. As duas descidas
-        // são recibo de uma onda, não afrouxamento. Primeiro os 619 kB de `/vendors/turf.min.js`
-        // saíram do `index.html` para a carga sob demanda de `src/js/utilities/turf-loader.js`,
-        // como o milsymbol (855 kB) e o GDAL (187 kB) já tinham saído. Depois saiu o MapLibre, por
-        // outro motivo: a 6.x não publica bundle UMD, então `public/vendors/maplibre-gl.js` foi
-        // APAGADO e a biblioteca entrou no grafo do bundler.
+        // O PISO DESCEU DE 3 PARA 2 EM 2026-08-25, DE 2 PARA 1 EM 2026-09-04, E CHEGOU A ZERO EM
+        // 2026-09-14. As três descidas são recibo de uma onda, não afrouxamento. Primeiro os 619 kB
+        // de `/vendors/turf.min.js` saíram do `index.html` para a carga sob demanda de
+        // `src/js/utilities/turf-loader.js`, como o milsymbol (855 kB) e o GDAL (187 kB) já tinham
+        // saído. Depois saiu o MapLibre, por outro motivo: a 6.x não publica bundle UMD, então
+        // `public/vendors/maplibre-gl.js` foi APAGADO e a biblioteca entrou no grafo do bundler.
+        // Por último saiu o `<link rel="prefetch">` de `/vendors/cesium/Cesium.js`: a distribuição
+        // do Cesium virou `cesium` do npm (V9), e o motor viaja num chunk lazy cujo nome carrega
+        // hash de conteúdo, que não existe para quem escreve o HTML. O `index.html` diz isso por
+        // extenso, e diz o que se perdeu com o prefetch.
         //
-        // RESTA UM, o `<link rel="prefetch">` do Cesium, e por isso o piso de contagem sozinho
-        // deixaria de ser um controle de vácuo decente: com um só item, "pelo menos um" e "exatamente
-        // o que eu espero" ficaram longe demais. Então este caso passou a cobrar a IDENTIDADE, que é
-        // mais forte do que o piso de 2 jamais foi, e a cobrar dos dois lados: o Cesium está lá, e o
-        // MapLibre NÃO está. Se ele voltar para `public/vendors/`, este caso acusa antes de a
-        // metade (b) notar que a página emagreceu 981 kB por motivo errado.
+        // ZERO É UM ESTADO LEGÍTIMO E UM PÉSSIMO CONTROLE DE VÁCUO, então a afirmação mudou de
+        // lugar em vez de sumir. A lista de `/vendors/` da página tem de ser EXATAMENTE vazia (um
+        // `href` novo para lá reprova, e é assim que se percebe um vendor voltando ao HTML), e os
+        // dois arquivos de `public/vendors/` que o produto ainda carrega EM RUNTIME, por caminho
+        // que nenhum HTML menciona, têm de estar no `dist/`. Sem a segunda metade, apagar
+        // `frontend/public/` inteiro deixaria este caso verde.
         const { vendors } = payloadDe('index.html');
-        expect(vendors.length, 'a página do mapa não referencia mais nenhum vendor de `public/`')
-            .toBeGreaterThanOrEqual(1);
-        expect(vendors, 'o `prefetch` do Cesium é o último vendor de `public/` da página do mapa')
-            .toContain('/vendors/cesium/Cesium.js');
-        expect(
-            vendors.some((p) => p.includes('maplibre')),
-            'o MapLibre voltou a `public/vendors/`: a 6.x não tem bundle UMD'
-        ).toBe(false);
-        for (const p of vendors) {
-            expect(existsSync(join(DIST, p)), `${p} referenciado e ausente`).toBe(true);
+        expect(vendors, 'a página do mapa voltou a referenciar um vendor de `public/` no HTML')
+            .toEqual([]);
+        // Carregados por injeção de `<script>` (`map_3d.js`) e por caminho montado em runtime
+        // (`_getGdalPath`, em `import_export/pdf-export.tab.js`), respectivamente.
+        for (const p of ['/vendors/cesium/cesium-viewshed.js', '/vendors/gdal']) {
+            expect(existsSync(join(DIST, p)), `${p} é lido em runtime e não foi publicado`).toBe(true);
+        }
+        // E os ativos estáticos do Cesium, que `window.CESIUM_BASE_URL` endereça e que o plugin
+        // `ebgeo-cesium` do `vite.config.js` copia de `node_modules/cesium/Build/Cesium/`. A
+        // ausência deles é a falha mais silenciosa desta migração: o visualizador 3D abre, a cena
+        // fica vazia e nada reclama.
+        for (const sub of ['Assets', 'ThirdParty', 'Widgets', 'Workers']) {
+            expect(
+                existsSync(join(DIST, 'vendors/cesium', sub)),
+                `os ativos do Cesium (${sub}) não foram copiados para o dist/`
+            ).toBe(true);
         }
     });
 

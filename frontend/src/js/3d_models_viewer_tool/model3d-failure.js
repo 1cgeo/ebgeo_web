@@ -66,11 +66,13 @@ export const model3dFailures = createLoaderFailureSurface({
  * The HTTP status inside a Cesium `tileFailed` message, or `null` when there is none.
  *
  * READING IT OUT OF PROSE IS NOT A SHORTCUT, it is the only channel Cesium offers here. Measured
- * against the vendored build rather than assumed. The 2026-08-24 measurement read the npm entry
- * point `index.js`, which was pruned on 2026-09-14 for having no consumer (D9/V6); it was
- * re-measured the same day against `public/vendors/cesium/Cesium.js`, which is the build this app
- * actually loads, and both fragments are there. Citing the file the browser loads is the better
- * claim anyway:
+ * against the build the app actually loads, never assumed, and RE-MEASURED at every version bump,
+ * because this parser reads a sentence the upstream is free to reword. Last measured on
+ * 2026-09-14 against Cesium 1.145.0 from npm, in
+ * `node_modules/@cesium/engine/Source/Core/RequestErrorEvent.js`, which became the source of truth
+ * that day: the vendored `public/vendors/cesium/` distribution the earlier measurements cited was
+ * deleted in the same lot (V9), so citing it would now be citing a file that does not exist.
+ * The two fragments are byte-identical to the 1.138 measurement:
  * `tileFailed` is raised with `{url, message}` where `message` is `error.message ?? String(error)`,
  * and the error of a failed request is a `RequestErrorEvent`, which has no `message` and whose
  * `toString()` is `"Request has failed."` plus `" Status Code: <n>"` when a response arrived. So

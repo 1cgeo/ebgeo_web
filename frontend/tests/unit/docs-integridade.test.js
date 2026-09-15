@@ -391,6 +391,7 @@ const SIMBOLO_INEXISTENTE_DE_PROPOSITO = new Map([
     ['deleteSession', 'o par do acima, removido no mesmo commit e citado pelo mesmo motivo'],
     ['updateData', 'método da GeoJSONSource do MapLibre 5.18 (aplica um diff em vez de reenviar a coleção). Externo, e o livro-razão o nomeia justamente para registrar que este projeto NÃO o usa: as 293 chamadas de setData reenviam o array inteiro'],
     ['connectionTimeoutMillis', 'opção do pool do pg que este projeto NÃO define, e a ausência é o ponto: sem ela o pool ESPERA em vez de lançar, então o catch que contaria a falha de autorização nunca roda. Um mecanismo de defeito inteiro foi deduzido de ler aquele catch sem verificar se algo o alcança, e a medição o refutou (todos os fechamentos saíram 1006, não 4003); ver a decisão de 2026-08-28 sobre vivacidade e capacidade-de-uma-instancia'],
+    ['waitForGlobal', 'o ajudante de 3d_models_viewer_tool/map_3d.js que fazia polling até o `<script>` do Cesium definir window.Cesium, removido em 2026-09-14 (V9) quando a biblioteca passou a vir do npm e a espera deixou de ter objeto: um import estático não corre contra ninguém. docs/MEMORY.md o nomeia como o gêmeo APAGADO, ao apontar para o waitFor de deep-link/deep-link.js, que é quem continua servindo de modelo do padrão. Apagar o nome tiraria da lição a única coisa que ela ensina, que é onde o padrão morava'],
 ]);
 
 // ---------------------------------------------------------------------------

@@ -23,11 +23,16 @@ import {
     applyCesiumPostLoadPatches
 } from './services/cesium-compat.js';
 // House code since 2026-09-14 (decision D9), no longer a `<script>` injected
-// from public/vendors/. It touches the `Cesium` global only inside its methods,
-// never at module evaluation, which is what lets a static import sit here while
-// Cesium itself is still script-loaded below. What the adoption changed, and
-// what it deliberately left alone, is in that module's header.
+// from public/vendors/. What the adoption changed, and what it deliberately
+// left alone, is in that module's header.
 import { CesiumMeasure } from './services/cesium-measure.js';
+// The library itself, from npm since 2026-09-14 (decision V9 of 2026-09-14), through the single point
+// that also publishes `window.Cesium`. This BINDING SHADOWS that global inside this module, so the
+// ~60 bare `Cesium.` sites below read the import; every other module of this tool keeps reading the
+// global, which is why the single point still publishes it. What is not obvious about the
+// migration (a module namespace that cannot be patched, the base URL of the static assets, why the
+// first two imports there must not be reordered) is in that module's header.
+import { Cesium } from '@js/vendor/cesium.js';
 import { hideLoading3DScreen } from '@ui/loading-screen-3d.js';
 import { descritorDeAsset } from '@store/sync/assets3d-request.js';
 import {
@@ -61,6 +66,17 @@ const navHelpHandlers = {
 };
 
 // ===== LAZY LOADING =====
+/**
+ * Injects a classic `<script>` tag and resolves when it has run.
+ *
+ * ONE CALLER LEFT, and it is the reason this helper survives the npm migration:
+ * `cesium-viewshed.js`, the obfuscated UMD that still lives in `public/vendors/cesium/`. Its
+ * browser branch is `self['space'] = factory(self['Cesium'])`, so it reads the global that
+ * `@js/vendor/cesium.js` publishes and cannot be imported as a module. The Cesium distribution
+ * itself stopped coming through here on 2026-09-14.
+ * @param {string} src
+ * @returns {Promise<void>}
+ */
 function loadScript(src) {
     return new Promise((resolve, reject) => {
         if (document.querySelector(`script[src="${src}"]`)) {
@@ -88,8 +104,10 @@ async function loadCesiumAndInit() {
 
     cesiumState.loadPromise = (async () => {
         try {
-            await loadScript('./vendors/cesium/Cesium.js');
-            await waitForGlobal('Cesium', 5000);
+            // No `loadScript` and no `waitForGlobal` for the library any more: it is a static
+            // import of this module (see the top of the file), so by the time this function can
+            // run, the chunk that carries it has been evaluated. The wait that existed here was
+            // polling for a `<script>` to define a global, a race the module graph does not have.
 
             // Disable Cesium Ion to use only local resources
             if (Cesium.Ion) {
@@ -131,26 +149,6 @@ async function loadCesiumAndInit() {
     })();
 
     return cesiumState.loadPromise;
-}
-
-function waitForGlobal(globalName, timeout = 5000) {
-    return new Promise((resolve, reject) => {
-        if (window[globalName]) {
-            resolve();
-            return;
-        }
-
-        const startTime = Date.now();
-        const checkInterval = setInterval(() => {
-            if (window[globalName]) {
-                clearInterval(checkInterval);
-                resolve();
-            } else if (Date.now() - startTime > timeout) {
-                clearInterval(checkInterval);
-                reject(new Error(`Global ${globalName} not available after ${timeout}ms`));
-            }
-        }, 100);
-    });
 }
 
 async function initCesiumMap() {
