@@ -15,6 +15,34 @@
  * entram, e um clique direito 100 ms depois do último clique esquerdo conserva o vértice
  * esquerdo (a feição fecha com três vértices, e não com dois). A suíte em `node` não alcança
  * isto, porque o temporizador e o clique moram no controle acoplado ao MapLibre.
+ *
+ * ESTE ARQUIVO CARREGA UM FLAKE QUE NÃO É DELE NEM DO PRODUTO, e ele está declarado aqui com
+ * taxa e mecanismo porque um flake sem nome volta a ser investigado do zero a cada vermelho.
+ *
+ * O MECANISMO: o processo RENDERIZADOR do Chromium morre durante o boot do mapa, antes de
+ * qualquer clique, e a falha aparece como `page.evaluate: Target crashed` na linha do `jumpTo`,
+ * logo depois de `map.loaded()` ter respondido verdadeiro. Medido em 2026-09-15 com o ouvinte de
+ * `pageerror` armado desde antes do `goto`: nas duas quedas NÃO houve erro de página nenhum, e
+ * numa delas a última mensagem do console foi do driver de GL (`GL Driver Message (OpenGL,
+ * Performance, ...): GPU stall due to ReadPixels`, severidade alta). Ou seja, não há exceção do
+ * app, não há recurso do app faltando (as recusas de `http://localhost/tiles/...` aparecem
+ * igualmente nas rodadas VERDES, porque o servidor de tiles não sobe nesta camada): morre a
+ * pilha de WebGL do navegador. Nada no produto nem neste spec pode esperar por isso, porque não
+ * existe mais página onde esperar.
+ *
+ * A TAXA, em série e com `--retries=0`: 3 quedas em 64 boots deste arquivo (1 em 32 e 2 em 32,
+ * em duas baterias `--repeat-each 8`), cerca de 5%. Ele é o arquivo da suíte que mais boota mapa
+ * por minuto (quatro casos, cada um com mapa novo e contexto WebGL novo), e é por isso que a
+ * queda aparece AQUI primeiro e não porque ele tenha algo de especial.
+ *
+ * O QUE NÃO SE FEZ, e por quê. Não há `test.describe.configure({ retries })` neste arquivo: o
+ * `playwright.config.js` já tenta de novo uma vez, então declarar `retries: 1` aqui não mudaria
+ * a rodada normal e, pior, venceria um `--retries=0` de linha de comando, que é exatamente a
+ * medição em série que a constituição pede para investigar corrida. O precedente do repositório
+ * é o inverso (`browser-multi-tab-namespace.spec.js` desliga a retry porque ali a corrida É o
+ * sujeito). O que se fez foi dar NOME à queda: `abrirMapaComFerramenta` escuta `crash` e
+ * `pageerror` desde antes do `goto` e, ao falhar, diz se houve erro de página antes. Sem erro de
+ * página, o vermelho se anuncia como queda do navegador em vez de parecer defeito do mapa.
  */
 
 import { test, expect } from '@playwright/test';
@@ -32,11 +60,33 @@ const FERRAMENTAS = [
     { toolId: 'boundary', key: 'AddBoundaryControl', balde: 'boundarys' },
 ];
 
+/**
+ * O BOOT, COM O MOTIVO DA FALHA NOMEADO. Sem isto, a morte do renderizador chega como
+ * `page.evaluate: Target crashed` numa linha de `jumpTo`, que se lê como defeito do mapa; o
+ * `error-context.md` da rodada sai sem instantâneo e sem uma linha de erro de página, porque não
+ * há mais página de onde tirá-los. O que separa os dois desfechos é ter ou não havido erro de
+ * PÁGINA antes, e isso só se sabe escutando desde antes do `goto`.
+ * @private
+ */
 async function abrirMapaComFerramenta(page, toolId) {
-    await page.goto('/');
-    await expect(page.locator('#nav-btn-zoom-in')).toBeAttached({ timeout: 20000 });
-    await page.waitForFunction(() => globalThis.__ebgeoMap && globalThis.__ebgeoMap.loaded(), null, { timeout: 20000 });
-    await page.evaluate(() => globalThis.__ebgeoMap.jumpTo({ center: [-51.20, -30.02], zoom: 13 }));
+    const erroDePagina = [];
+    let morreu = false;
+    page.on('crash', () => { morreu = true; });
+    page.on('pageerror', (e) => erroDePagina.push(String(e.message).slice(0, 300)));
+    try {
+        await page.goto('/');
+        await expect(page.locator('#nav-btn-zoom-in')).toBeAttached({ timeout: 20000 });
+        await page.waitForFunction(() => globalThis.__ebgeoMap && globalThis.__ebgeoMap.loaded(), null, { timeout: 20000 });
+        await page.evaluate(() => globalThis.__ebgeoMap.jumpTo({ center: [-51.20, -30.02], zoom: 13 }));
+    } catch (erro) {
+        const caiu = morreu || /Target crashed|Target closed/.test(String(erro?.message ?? ''));
+        throw new Error(
+            `${caiu ? 'O PROCESSO DA PÁGINA MORREU' : 'o boot do mapa falhou'} antes de qualquer clique`
+            + `\n  erros de página antes disso: ${erroDePagina.length ? erroDePagina.join(' | ') : 'NENHUM'}`
+            + `${caiu && !erroDePagina.length ? '\n  Sem erro de página, isto é a queda do renderizador do Chromium descrita no cabeçalho deste arquivo, e NÃO o produto.' : ''}`
+            + `\n  original: ${String(erro?.message ?? erro).slice(0, 200)}`,
+        );
+    }
     await page.waitForTimeout(400);
     const grupo = page.locator('.toolbar-group[data-group-id="military"]');
     await grupo.locator('.toolbar-group-btn').click();
