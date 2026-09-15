@@ -1705,7 +1705,13 @@ const ViewShead3D_FS = '\x0auniform\x20float\x20czzj;\x0auniform\x20float\x20dis
                         case '0':
                             this['distance'] = _0x4a4e7e, _0x4eb33f['frustum'] = new Cesium['PerspectiveFrustum']({
                                 'fov': Cesium['Math']['toRadians'](Math.min(Math.max(this['_horizontalAngle'] || 0x78, this['_verticalAngle'] || 0x5a), 170)),
-                                'aspectRatio': _0x10b9e7['Qemtg'](_0x2de5fe['canvas']['clientWidth'], _0x2de5fe['canvas']['clientHeight']),
+                                // Patch DGEO 2026-09-15: era canvas.clientWidth/clientHeight.
+                                // A textura do shadow map do spot light e QUADRADA (2048x2048),
+                                // entao o aspecto da tela so encolhia o campo vertical: com fov=120
+                                // num canvas 16:9 o frustum entregava 88,5 graus, e o shader continuava
+                                // prometendo 120 (czzj/2). Com 1 o fovy iguala o fov, e a analise deixa
+                                // de mudar quando a janela muda de forma.
+                                'aspectRatio': 1,
                                 'near': 0.1,
                                 'far': 0x1388
                             });

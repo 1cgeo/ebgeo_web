@@ -36,6 +36,10 @@ const DEFAULT_VIEWSHED_PARAMS = {
 // Maximum horizontal FOV supported by a single Cesium.ViewShed3D instance
 const MAX_SINGLE_VIEWSHED_ANGLE = 150;
 
+// Gap left between adjacent sub-viewsheds so the seam is not tinted twice.
+// Tuned by eye when the split was written (2026-02-16), not derived.
+const SEAM_MARGIN_DEGREES = 1.5;
+
 // ===== UTILITY FUNCTIONS =====
 
 /**
@@ -47,6 +51,41 @@ function computeSubViewshedCount(horizontalAngle) {
     if (horizontalAngle <= MAX_SINGLE_VIEWSHED_ANGLE) return 1;
     if (horizontalAngle <= MAX_SINGLE_VIEWSHED_ANGLE * 2) return 2;
     return 3;
+}
+
+/**
+ * Lays out the sub-viewsheds that together cover the requested horizontal sector.
+ *
+ * Adjacent sub-viewsheds cannot share a boundary: the cesium-viewshed shader
+ * clips with a strict greater-than (degJJ > spzj/2.0), so a pixel exactly on the
+ * seam passes both checks, and the two post-process stages apply mix() one after
+ * the other, saturating the color along the seam. Each seam therefore opens a
+ * gap of SEAM_MARGIN_DEGREES.
+ *
+ * The gap comes out of the SPACING, never out of the total: the sub-sectors are
+ * widened so that the union spans exactly the requested angle, with the outer
+ * edges landing on ±horizontalAngle/2. The previous layout subtracted the margin
+ * from each sub-sector and left the total short (4.5° missing out of 360°).
+ *
+ * @param {number} horizontalAngle - Total horizontal angle in degrees (1-360)
+ * @returns {{ renderAngle: number, offsets: number[] }} Per-instance angle and
+ *   the heading offsets, symmetric around the center direction
+ */
+export function computeSubViewshedLayout(horizontalAngle) {
+    const count = computeSubViewshedCount(horizontalAngle);
+    if (count === 1) {
+        return { renderAngle: horizontalAngle, offsets: [0] };
+    }
+
+    const renderAngle = (horizontalAngle - (count - 1) * SEAM_MARGIN_DEGREES) / count;
+    const step = renderAngle + SEAM_MARGIN_DEGREES;
+
+    const offsets = [];
+    for (let i = 0; i < count; i++) {
+        offsets.push((i - (count - 1) / 2) * step);
+    }
+
+    return { renderAngle, offsets };
 }
 
 /**
@@ -250,26 +289,7 @@ function createCesiumViewsheds(viewshed) {
         }
 
         // Split into sub-viewsheds if angle exceeds the per-instance limit
-        const count = computeSubViewshedCount(totalHorizontalAngle);
-        const subAngle = totalHorizontalAngle / count;
-
-        // Heading offsets so sub-viewsheds tile symmetrically around the center direction
-        // count=1: [0], count=2: [-subAngle/2, +subAngle/2], count=3: [-subAngle, 0, +subAngle]
-        const offsets = [];
-        if (count === 1) {
-            offsets.push(0);
-        } else if (count === 2) {
-            offsets.push(-subAngle / 2, subAngle / 2);
-        } else {
-            offsets.push(-subAngle, 0, subAngle);
-        }
-
-        // Each sub-viewshed's FOV is slightly reduced to prevent double-tinting at seams.
-        // The cesium-viewshed shader uses strict greater-than (degJJ > spzj/2.0), so
-        // pixels at the exact boundary pass both sub-viewsheds' checks. Both post-process
-        // stages then apply mix() sequentially, causing visible color saturation at seams.
-        // A 0.1° reduction per sub-viewshed creates imperceptible gaps that eliminate this.
-        const renderAngle = count > 1 ? subAngle - 1.5 : subAngle;
+        const { renderAngle, offsets } = computeSubViewshedLayout(totalHorizontalAngle);
 
         const result = [];
         for (const offset of offsets) {
@@ -686,6 +706,10 @@ export async function updateViewshedDistance(viewshedId, newDistance) {
     destroyCesiumViewsheds(data.cesiumViewsheds);
     data.cesiumViewsheds = createCesiumViewsheds(updatedViewshed);
 
+    // Refresh the copy carried by the origin entity: the panel is rebuilt from it
+    // when the marker is clicked again, and a stale copy shows the old distance.
+    updateViewshedVisuals(viewshedId, updatedViewshed);
+
     return updatedViewshed;
 }
 
@@ -710,6 +734,8 @@ export async function updateViewshedHorizontalAngle(viewshedId, newAngle) {
 
     destroyCesiumViewsheds(data.cesiumViewsheds);
     data.cesiumViewsheds = createCesiumViewsheds(updatedViewshed);
+
+    updateViewshedVisuals(viewshedId, updatedViewshed);
 
     return updatedViewshed;
 }
@@ -765,6 +791,8 @@ export async function updateViewshedObserverHeight(viewshedId, newHeight) {
         );
         data.originEntity.position = newPosition;
     }
+
+    updateViewshedVisuals(viewshedId, viewshedForRecreation);
 
     return updatedViewshed;
 }
