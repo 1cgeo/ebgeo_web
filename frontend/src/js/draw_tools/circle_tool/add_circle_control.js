@@ -10,6 +10,7 @@ import { getSnappingService } from '../../snapping/snapping.service.js';
 import { createPreviewScheduler } from '@tools/helpers/preview-scheduler.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
+import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
 
 /**
  * Layers onHoverMove needs: the edit handles (hasHandleAtPoint, source 'circle-edit-handles')
@@ -825,7 +826,7 @@ class AddCircleControl extends BaseControl {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
                 const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
                 if (currentFeature) {
-                    await updateFeature('circles', currentFeature);
+                    await updateFeature('circles', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
                 }
             }
         }

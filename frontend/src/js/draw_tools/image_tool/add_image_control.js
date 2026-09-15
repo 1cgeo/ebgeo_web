@@ -20,6 +20,7 @@ import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-
 import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
 import { createRenderedIconSelectionBox } from '@tools/helpers/icon-selection-box.helpers.js';
 import { readGeoJSONSourceData } from '@utils/geojson-source.js';
+import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
 
 /**
  * Layer onHoverMove needs: the single layer drawn from the 'images' source, in
@@ -832,7 +833,7 @@ class AddImageControl extends BaseControl {
         );
 
         if (currentFeature) {
-          await updateFeature("images", currentFeature);
+          await updateFeature("images", mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
         }
       }
     }

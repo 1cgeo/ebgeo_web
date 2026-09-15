@@ -11,6 +11,7 @@ import { getSnappingService } from '../../snapping/snapping.service.js';
 import { createPreviewScheduler } from '@tools/helpers/preview-scheduler.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
+import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
 
 /**
  * Layers onHoverMove needs. Wider than the other shapes because hasSelectedFeatureAtPoint here
@@ -1146,7 +1147,7 @@ class AddRectangleControl extends BaseControl {
                 const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    await updateFeature('rectangles', currentFeature);
+                    await updateFeature('rectangles', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
                 }
             }
         }

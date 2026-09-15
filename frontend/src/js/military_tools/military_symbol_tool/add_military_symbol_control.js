@@ -24,6 +24,7 @@ import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-
 import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
 import { createRenderedIconSelectionBox } from '@tools/helpers/icon-selection-box.helpers.js';
 import { readGeoJSONSourceData } from '@utils/geojson-source.js';
+import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
 
 /**
  * Layer onHoverMove needs: the single layer drawn from the 'military_symbols' source, in
@@ -1221,7 +1222,7 @@ class AddMilitarySymbolControl extends BaseControl {
         );
 
         if (currentFeature) {
-          await updateFeature("military_symbols", currentFeature);
+          await updateFeature("military_symbols", mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
         }
       }
     }

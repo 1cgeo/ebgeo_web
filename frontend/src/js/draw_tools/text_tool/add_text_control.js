@@ -12,6 +12,7 @@ import {
 } from '../../tool_manager/helpers/zoom-correction.helpers.js';
 import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
 import { readGeoJSONSourceData } from '@utils/geojson-source.js';
+import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
 
 /**
  * Layers onHoverMove needs: 'text-edit-handles' (hasHandleAtPoint) and the layer drawn from
@@ -843,7 +844,7 @@ class AddTextControl extends BaseControl {
                 const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    await updateFeature('texts', currentFeature);
+                    await updateFeature('texts', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
                 }
             }
         }

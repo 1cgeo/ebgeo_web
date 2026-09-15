@@ -39,6 +39,7 @@ import {
 import { calculateProfile } from './line_profile.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
+import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
 
 /**
  * Layers onHoverMove needs: 'line-edit-handles' (hasHandleAtPoint) and the single layer drawn
@@ -1479,7 +1480,7 @@ class AddLineControl extends BaseControl {
                 const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    await updateFeature('lines', currentFeature);
+                    await updateFeature('lines', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
                     _hasChanges = true;
                 }
             }

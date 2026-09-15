@@ -23,6 +23,7 @@ import {
     showExtensionHandles
 } from '@tools/helpers/line-extension.helpers.js';
 import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
+import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
 
 /**
  * Layers onHoverMove needs: 'arrow-edit-handles' (hasHandleAtPoint) and both layers drawn from
@@ -1230,7 +1231,7 @@ class AddArrowControl extends BaseControl {
                 const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    await updateFeature('arrows', currentFeature);
+                    await updateFeature('arrows', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
                 }
             }
         }

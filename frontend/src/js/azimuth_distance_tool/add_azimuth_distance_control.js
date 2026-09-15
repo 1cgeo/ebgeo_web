@@ -18,6 +18,7 @@ import { showCoordinateEditModal } from '@modals/coordinate-edit.modal.js';
 import { showConfirm } from '@modals/confirm.modal.js';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { maplibregl } from '@js/map/maplibre.js';
+import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
 
 /**
  * Azimuth/distance features store their origin geometry kind in properties.source
@@ -727,7 +728,11 @@ class AddAzimuthDistanceControl extends BaseControl {
         }
     }
 
-    async saveFeatures(features) {
+    // `initialPropertiesMap` era ignorado aqui, e este foi o único dos dezoito `saveFeatures` em
+    // que ele nem estava na assinatura: `createModernButtons` sempre o passou. Sem ele não há
+    // retrato de abertura, e sem retrato `mergePendingEdits` não reaplica nada, de modo que a
+    // edição pendente continuaria evaporando só nesta ferramenta.
+    async saveFeatures(features, initialPropertiesMap) {
         for (const feature of features) {
             const sourceName = resolveAzimuthCollection(feature);
             const source = this.map.getSource(sourceName);
@@ -739,7 +744,7 @@ class AddAzimuthDistanceControl extends BaseControl {
                 const data = await source.getData();
                 const currentFeature = data.features.find(f => f.properties.id === feature.properties.id);
                 if (currentFeature) {
-                    await updateFeature(sourceName, currentFeature);
+                    await updateFeature(sourceName, mergePendingEdits(currentFeature, feature, initialPropertiesMap?.get(feature.properties.id)));
                 }
             }
         }

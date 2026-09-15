@@ -12,6 +12,7 @@ import { parseCustomMarker, registerCustomFeatureImage } from './point-custom-ic
 import { reanchorOnMove } from '@js/temporal/trajectory-anchor.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { readGeoJSONSourceData } from '@utils/geojson-source.js';
+import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
 
 /** Maximum circle-radius (in pixels) for zoom-corrected points. */
 const MAX_POINT_RADIUS = 500;
@@ -804,7 +805,7 @@ class AddPointControl extends BaseControl {
                 const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    await updateFeature('points', currentFeature);
+                    await updateFeature('points', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
                 }
             }
         }

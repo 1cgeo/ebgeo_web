@@ -23,6 +23,7 @@ import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-
 import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
 import { createRenderedIconSelectionBox } from '@tools/helpers/icon-selection-box.helpers.js';
 import { readGeoJSONSourceData } from '@utils/geojson-source.js';
+import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
 
 /**
  * Layer onHoverMove needs: the single layer drawn from the 'coordination_measures' source, in
@@ -1201,7 +1202,7 @@ class AddCoordinationMeasureControl extends BaseControl {
         );
 
         if (currentFeature) {
-          await updateFeature("coordination_measures", currentFeature);
+          await updateFeature("coordination_measures", mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
         }
       }
     }

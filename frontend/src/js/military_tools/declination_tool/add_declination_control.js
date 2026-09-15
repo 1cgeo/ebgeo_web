@@ -27,6 +27,7 @@ import {
 } from '@tools/helpers/zoom-correction.helpers.js';
 import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { readGeoJSONSourceData } from '@utils/geojson-source.js';
+import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
 
 /**
  * The dispatcher that owns the `magnetic_declinations` source.
@@ -763,7 +764,7 @@ class AddDeclinationControl extends BaseControl {
                     (f) => f.properties.id === selectedFeature.properties.id
                 );
                 if (currentFeature) {
-                    await updateFeature('magnetic_declinations', currentFeature);
+                    await updateFeature('magnetic_declinations', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
                 }
             }
         }

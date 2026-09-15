@@ -37,6 +37,7 @@ import {
 } from '@tools/helpers/line-extension.helpers.js';
 import { queryFeaturesAtPoint } from '@tools/helpers/feature-hit-test.helpers.js';
 import { readGeoJSONSourceData } from '../../utilities/geojson-source.js';
+import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
 
 /**
  * Layers onHoverMove needs: 'boundary-handles-layer' (hasHandleAtPoint matches on the layer id
@@ -1978,7 +1979,7 @@ class AddBoundaryControl extends BaseControl {
                 const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    await updateFeature('boundarys', currentFeature);
+                    await updateFeature('boundarys', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
                 }
             }
         }

@@ -38,6 +38,7 @@ import {
     isScreenAnchored,
     COORDINATION_LINE_ZOOM_LIMITS,
 } from '@tools/helpers/coordination-line-zoom.model.js';
+import { mergePendingEdits } from '@tools/helpers/pending-edit.helpers.js';
 
 /**
  * The dispatcher that owns the `coordination_lines` source.
@@ -1682,7 +1683,7 @@ class AddCoordinationLineControl extends BaseControl {
             const currentFeature = currentData.features.find(f =>
                 f.properties.id === selectedFeature.properties.id);
             if (currentFeature) {
-                await updateFeature('coordination_lines', currentFeature);
+                await updateFeature('coordination_lines', mergePendingEdits(currentFeature, selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id)));
             }
         }
     }
