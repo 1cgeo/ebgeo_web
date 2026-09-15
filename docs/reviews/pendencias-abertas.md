@@ -295,6 +295,16 @@ Os quatro vermelhos da quarta passada, fechados antes desta: o F5 num atlas cone
 
 Duas armadilhas de instrumento medidas nesta passada, já codificadas em `frontend/tests/e2e-ui/constants.js` e em `.claude/rules/testing.md`: o banco descartável do Playwright deriva do checkout desde então (o teardown de outra árvore dropava o desta); e `reuseExistingServer` faz o Playwright reusar um Vite de OUTRO checkout que esteja vivo na 4321, medindo código que não é o do HEAD, então toda rodada que vale começa matando Vite e Playwright órfãos.
 
+### A sexta passada (15/09/2026): duas rodadas inteiras sem vermelho, e os flaky com causa
+
+Sobre `21e3636d` (viewshed reescrito, tutorial na quinta entrada): **367 verdes, zero vermelhos, 4 flaky**. Remedidos em série (`--repeat-each 4`, `--retries=0`), `catalog-modal` deu 4 de 4 e três reprovaram 1 em 4; os três ganharam causa:
+
+- `browser-collab-three-client-flow`, fase de conflito de três vias: era PRODUTO, e não o que a hipótese de 13/09 dizia. A edição aberta no painel de feição vivia só na fonte do MapLibre; qualquer op remota redesenhava as fontes a partir da store, e o Salvar gravava de volta o que a store já tinha, então nenhuma op nascia e a edição evaporava sem erro. Corrigido por `mergePendingEdits` (`frontend/src/js/tool_manager/helpers/pending-edit.helpers.js`) nos dezoito pontos de gravação, com repro determinística `frontend/tests/e2e-ui/edicao-pendente-sobrevive-a-op-remota.repro.spec.js`. O spec também media uma premissa que o gesto não entrega (três ops com a mesma base só existem com a rede derrubada durante os três gestos), e foi realinhado como o irmão `browser-collab-crdt-conflict`. 0 em 16 depois, com UMA reprovação em 16 na fase 5 (o delete do cliente reaberto sem `apply.persist`), assinatura diferente e ainda sem diagnóstico.
+- `corte-da-divisa-pelo-menu`: não reproduziu em 31 rodadas, e a leitura achou duas fragilidades reais com o mesmo sintoma: o aviso de prontidão precedia o `map.on('click')` em um quadro, e `onMapClick` assíncrono sem receptor engolia a rejeição do `import()` do Turf. Consertadas (também em `line-split.js`), com réguas determinísticas em `frontend/tests/integration/corte-divisa-op-de-sync.test.js`; 12 de 12.
+- `vertices-em-cliques-rapidos`: **INEVITÁVEL**, o renderizador do Chromium morre no boot do mapa sem erro de página, 3 quedas em 64 boots, com a última mensagem de console vinda do driver de GL. O helper de boot passou a nomear a queda; não ganhou `retries` local, porque isso venceria o `--retries=0` da medição em série.
+
+Sobre `2b41312a`, com esses consertos: **371 verdes, zero vermelhos, 1 flaky** (`map-gestures` §15.4, o pitch), remedido em série 28 de 28. É a segunda rodada inteira sem vermelho, e o único flaky com mecanismo nomeado é a queda do renderizador.
+
 ### A matriz (documento 09, íntegra)
 
 1. Criar cópias verificadas dos dados de teste. Usar bancos e perfis descartáveis. Não alterar os originais nem misturar o banco de testes com desenvolvimento ou produção.
