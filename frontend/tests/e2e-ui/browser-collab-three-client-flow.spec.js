@@ -13,7 +13,10 @@
  *                                          to each other). Until 2026-09-13 all three applied
  *                                          and the last arrival overwrote the rest; see the
  *                                          inverted assertion inline and the header of
- *                                          `browser-collab-crdt-conflict.spec.js`.
+ *                                          `browser-collab-crdt-conflict.spec.js`. Os três
+ *                                          gestos acontecem com a REDE DERRUBADA, porque é isso
+ *                                          que garante a base única de que a contagem depende;
+ *                                          o porquê está por extenso na fase.
  *   4. a late joiner (C reconnects)      → A's offline-window write reaches B (full chain),
  *                                          and C catches up via snapshot (convergence check).
  *   5. C deletes a feature               → the delete traverses the chain to A and B.
@@ -63,14 +66,15 @@ async function convergedColor(db, pages, id, timeout = 30000) {
 }
 
 /**
- * Anchors one client's edit ON THE SERVER: the local op exists in the queue AND the backend
- * acked it. `push.ack` is the only outbound stage guaranteed for all three writers
- * (`remote.applied` is not: the losers can be legitimately discarded by the peer's
- * convergence guard), and it also removes the outbound-queue race (flush is on a 1.5s
- * interval). Two steps because the stages are keyed differently: `enqueue` carries
- * `entityId`, `push.ack` carries only `opId` (the server acks by operation id).
+ * Anchors one client's edit ON THE SERVER, in two halves. `push.ack` is the only outbound
+ * stage guaranteed for all three writers (`remote.applied` is not: the losers can be
+ * legitimately discarded by the peer's convergence guard), and it also removes the
+ * outbound-queue race (flush is on a 1.5s interval). The halves are separate because the
+ * stages are keyed differently (`enqueue` carries `entityId`, `push.ack` carries only `opId`,
+ * since the server acks by operation id) AND because the conflict phase needs to cobrar the
+ * first half with the network down.
  */
-async function expectReachedServer(page, quem, entityId, operationType = 'update') {
+async function expectEnqueued(page, quem, entityId, operationType = 'update') {
     const enq = await waitForEntitySpan(page, { entityId, operationType, stage: 'enqueue' }, 25000);
     // A MENSAGEM DISTINGUE DE QUEM E O DEFEITO, e essa distincao e o experimento, nao decoracao.
     // `vereditoDoCommitDeCor` (`helpers/collab-helpers.js`) le o que o driver observou no instante
@@ -79,10 +83,25 @@ async function expectReachedServer(page, quem, entityId, operationType = 'update
     // remoto no meio do gesto); se nao estava, o defeito e do HARNESS, que digitou no vazio porque
     // o painel nao publica o alvo no DOM. Sem isto, o vermelho e um `toBeTruthy() -> null` que nao
     // diz nada a quem o ler daqui a tres meses.
+    //
+    // A PERGUNTA QUE ELE FAZIA FOI RESPONDIDA EM 2026-09-15, E A RESPOSTA FOI PRODUTO: a previa do
+    // painel vivia so' na fonte do MapLibre, o redesenho disparado por qualquer op remota
+    // (`layers/remote-feature-render.js`) a apagava, e `saveFeatures` persistia a copia DA FONTE,
+    // de modo que `updateFeature` saia cedo por `isFeatureEqual` sem registrar operacao nenhuma.
+    // Conserto em `tool_manager/helpers/pending-edit.helpers.js`; repro deterministica em
+    // `tests/e2e-ui/edicao-pendente-sobrevive-a-op-remota.repro.spec.js`. A mensagem fica, porque
+    // e o que transforma o proximo vermelho desta linha em diagnostico.
     expect(enq, `a edição de ${quem} virou operação na fila\n  ${vereditoDoCommitDeCor(page)}`)
         .toBeTruthy();
-    await waitForAcked(page, enq.opId, 25000);
     return enq;
+}
+
+/**
+ * E O SERVIDOR A RECEBEU. Separado do passo acima porque a fase 3 enfileira com a rede
+ * derrubada e só então a devolve: enfileirar é local (offline-first), reconhecer não é.
+ */
+async function expectAcked(page, enq, timeout = 25000) {
+    await waitForAcked(page, enq.opId, timeout);
 }
 
 const COORDS_A = [[-43.2, -22.9], [-43.15, -22.85], [-43.1, -22.8]];
@@ -209,18 +228,33 @@ collabTest.describe('Three-client flow — multi-phase session with three collab
         //    padrão: primeiro cada edição chega ao servidor, depois o BANCO decide o vencedor
         //    e os clientes respondem a ele. Concordância entre pares vira consequência.
         //
-        //    Selecionar em SÉRIE e só então recolorir em paralelo, como em
-        //    `browser-collab-crdt-conflict.spec.js`. O gesto único (select+recolor junto) leva
-        //    segundos por causa da expansão de camadas, e a update remota dos outros dois
-        //    clientes chega no meio: o painel re-renderiza, a seleção cai, o save não vira
-        //    operação nenhuma e a edição some SEM ERRO. Foi exatamente o que a âncora nova
-        //    pegou na primeira execução limpa (`a edição de B virou operação na fila` →
-        //    null), com o poll antigo passando verde porque o preview local de B era
-        //    sobrescrito pela update remota e os três acabavam iguais. Na hora do select
-        //    ainda não há update concorrente (o create de fb já assentou no expectFullSync
-        //    da fase 1), então essa parte é segura em série; a concorrência que o teste
-        //    precisa é no COMMIT da cor, que é um clique, e essa continua paralela.
+        //    OS TRÊS EDITAM COM A REDE DERRUBADA, e essa é a parte que não se adivinha: sem isso
+        //    a fase pede uma coisa que o gesto de UI não consegue entregar. "Três edições de UMA
+        //    base" é o que faz a asserção de baixo (UMA aplica, duas voltam conflito) ser
+        //    verdadeira, e a base de cada op é lida no instante do `updateFeature`, dentro do
+        //    Salvar. Com a rede de pé, o gesto leva segundos (expansão de camadas, prévia, clique)
+        //    e a update do vizinho pode assentar na store de quem ainda não salvou: aí a op dele
+        //    DECLARA a base nova, o servidor a aceita como continuação legítima em vez de recusá-la
+        //    como conflito, e a contagem vira dois. Medido como uma reprovação em quatro, em
+        //    2026-09-13 e de novo em 2026-09-15.
+        //
+        //    O irmão `browser-collab-crdt-conflict.spec.js` resolveu o mesmo problema saindo da
+        //    UI: ele lê as props uma vez e manda as três updates por `applyStoreOp`, com a base
+        //    fixada à mão. O comentário dele diz por extenso que a UI sob concorrência tripla é
+        //    limite de driver. Aqui a UI é justamente o que este arquivo existe para exercitar,
+        //    então a base se fixa pelo outro lado: `setOffline` nos três contextos enquanto os
+        //    três gestos acontecem. Nada pode chegar, logo os três leem a mesma base; e as três
+        //    ops nascem no diário, que é local por desenho (offline-first). Devolvida a rede, as
+        //    três sobem e o servidor decide. A fase deixou de medir uma corrida e passou a medir
+        //    o contrato, que é o que ela sempre afirmou medir.
+        //
+        //    Selecionar em SÉRIE e só então recolorir em paralelo, como no irmão: o gesto único
+        //    (select+recolor junto) leva segundos por causa da expansão de camadas. A
+        //    concorrência que o teste precisa é no COMMIT da cor, que é um clique, e essa
+        //    continua paralela.
         await collab.clearTraces();
+        await Promise.all([A, B, C].map((p) => p.context().setOffline(true)));
+        await A.waitForTimeout(1500);
         await selectFeatureUI(A, fb);
         await selectFeatureUI(B, fb);
         await selectFeatureUI(C, fb);
@@ -234,19 +268,26 @@ collabTest.describe('Three-client flow — multi-phase session with three collab
         // `helpers/collab-helpers.js` e ignora o terceiro argumento. Quem registra o alvo para
         // `vereditoDoCommitDeCor` e' o driver compartilhado, entao hoje o veredito daqui sai
         // INDISPONIVEL e a propria frase dele diz isso. Fica escrito em vez de silenciosamente
-        // corrigido porque unificar os dois drivers e' mudanca de harness, nao de contrato, e
-        // este commit so' realinha asseroes ao contrato.
+        // corrigido porque unificar os dois drivers e' mudanca de harness, nao de contrato.
         const disputa = [
             { page: A, quem: 'A', cor: '#ff0000' },
             { page: B, quem: 'B', cor: '#0000ff' },
             { page: C, quem: 'C', cor: '#00ff00' },
         ];
         await Promise.all(disputa.map(({ page, cor }) => recolorViaPanelUI(page, cor, { featureId: fb })));
+        // COBRAR O ENFILEIRAMENTO ANTES DE DEVOLVER A REDE é o que afirma que as três ops
+        // nasceram na janela de isolamento, e não depois dela. É também o passo que pega a
+        // edição que evapora sem erro, que era o defeito de produto desta fase.
         const enviadas = [];
         for (const { page, quem, cor } of disputa) {
-            const enq = await expectReachedServer(page, quem, fb, 'update');
-            enviadas.push({ opId: enq.opId, quem, cor });
+            const enq = await expectEnqueued(page, quem, fb, 'update');
+            enviadas.push({ opId: enq.opId, quem, cor, page });
         }
+        await Promise.all([A, B, C].map((p) => p.context().setOffline(false)));
+        // 35 s, e não os 25 s do padrão, porque a volta passa pelo backoff exponencial da
+        // reconexão do socket antes de a fila de saída partir. É o mesmo prazo que
+        // `browser-collab-reconnect.spec.js` usa para a mesma travessia.
+        for (const { page, opId } of enviadas) await expectAcked(page, { opId }, 35000);
         const winner = await convergedColor(collab.db, [A, B, C], fb);
         expect(winner, 'o servidor gravou uma das três cores em disputa').toMatch(/^#(ff0000|0000ff|00ff00)$/);
 
