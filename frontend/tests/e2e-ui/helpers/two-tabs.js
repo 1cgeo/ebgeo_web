@@ -806,13 +806,52 @@ export function activeScopeOf(page) {
     });
 }
 
-/** Logs out through the real account menu (the only UI path). */
+/**
+ * Logs out through the real account menu (the only UI path).
+ *
+ * O GESTO NÃO TERMINA NO BOTÃO "Sair", e enquanto este ajudante achou que sim ele foi lido como
+ * flake de instrumento. Com trabalho pendente em qualquer namespace de servidor deste navegador,
+ * ou com a contagem DESCONHECIDA (o censo tem prazo de 3 s e a barreira de logout espera as
+ * irmãs pararem de escrever), `confirmLogoutWithPendingWork` abre um `alertdialog` ANTES de
+ * descartar coisa alguma. Um driver que pare no clique fica esperando o botão "Entrar" atrás de
+ * um diálogo que ninguém respondeu, e o vermelho sai como "account-login-btn continua hidden",
+ * apontando para o logout em vez de para a pergunta. Foi o que derrubou B3 de
+ * `browser-multi-tab-teardown-queue.spec.js` numa fração das rodadas: a aba irmã acabara de
+ * desenhar, e se o envio dela ainda não tivesse drenado, a saída perguntava. O snapshot da
+ * falha traz o diálogo por extenso, e é ele que fecha o diagnóstico.
+ *
+ * Responder é o caminho REAL da pessoa, não uma conveniência: quem sai com pendência escolhe
+ * descartar, e é isso que as asserções seguintes medem. Sem pendência nenhuma o diálogo não
+ * nasce, e a corrida entre os dois desfechos é resolvida esperando pelo primeiro dos dois.
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<boolean>} Se a saída precisou confirmar o descarte.
+ */
 export async function logoutUI(page) {
     await page.locator('[data-testid="account-control"] .account-control__identity').click();
     const btn = page.locator('[data-testid="account-logout-btn"]');
     await expect(btn).toBeVisible({ timeout: 10000 });
     await btn.click();
-    await expect(page.locator('[data-testid="account-login-btn"]')).toBeVisible({ timeout: 20000 });
+
+    const confirmar = page.locator('.confirm-modal-overlay .confirm-modal-btn-confirm');
+    const entrar = page.locator('[data-testid="account-login-btn"]');
+    // O QUE VIER PRIMEIRO NO TEMPO, e a distinção não é preciosismo: a primeira versão desta
+    // espera usava `confirmar.or(entrar).first()`, e `first()` é o primeiro em ordem de
+    // DOCUMENTO, não de chegada. O botão "Entrar" mora na barra de contas e o diálogo é
+    // anexado ao fim do `<body>`, então a união resolvia SEMPRE para o "Entrar" (que está
+    // `hidden` enquanto a sessão vive) e o diálogo aberto ao lado nunca era visto: a espera
+    // estourava com "52 × locator resolved to <button hidden>", exatamente o vermelho que ela
+    // existia para tirar. Ler os dois a cada sondagem é o que responde pelo tempo.
+    await expect
+        .poll(async () => (await confirmar.isVisible()) || (await entrar.isVisible()), {
+            timeout: 25000,
+            message: 'a saída produziu ou o diálogo de descarte ou o botão "Entrar"',
+        })
+        .toBe(true);
+    const perguntou = await confirmar.isVisible();
+    if (perguntou) await confirmar.click();
+
+    await expect(entrar).toBeVisible({ timeout: 20000 });
+    return perguntou;
 }
 
 /**

@@ -405,9 +405,18 @@ EBGEO_UI_E2E_APP_PORT=4331 EBGEO_UI_E2E_BACKEND_PORT=3922 \
 EBGEO_UI_E2E_DB_NAME=ebgeo_ui_e2e_b npm run test:e2e:ui
 ```
 
-O arquivo de estado no temp DERIVA da porta do backend, então trocar a porta já o separa;
-o banco NÃO deriva de nada e precisa ser passado à parte, senão a segunda rodada dropa o
-banco da primeira no meio dela.
+O arquivo de estado no temp DERIVA da porta do backend (e do checkout), então trocar a porta
+já o separa; o banco NÃO deriva de nada e precisa ser passado à parte, senão a segunda rodada
+dropa o banco da primeira no meio dela.
+
+**E ele também é dropado pelo FIM da rodada alheia, não só pelo começo dela** (medido em
+2026-09-14, com quatro árvores na mesma máquina). A sequência: a outra árvore sobe primeiro e
+cria `ebgeo_ui_e2e`; você encontra a porta ocupada, encerra o backend dela e sobe o seu, que
+recria o banco de mesmo nome; a rodada dela então morre e o `globalTeardown` dela dropa
+`ebgeo_ui_e2e`, que a essa altura é o SEU. O sintoma é `POST /auth/register → 500` em todos os
+casos a partir de um ponto do meio, com os primeiros verdes, e ele não se parece com banco
+ausente: parece defeito do produto, e foi lido assim por meia hora. Se há mais de uma árvore
+rodando esta camada, passe `EBGEO_UI_E2E_DB_NAME` ANTES de medir qualquer coisa em série.
 
 ### O MESMO checkout também colide consigo mesmo, e essa é a mais fácil de cair
 
