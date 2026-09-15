@@ -37,6 +37,8 @@ São três transportes, e a diferença entre eles decide o que cada um alcança.
 - **O cabeçalho**, por `credencialDeTile` (`frontend/src/js/map/credencial-de-tile.js`), cobre o visitante de link público (cujo token é efêmero e não vira cookie) e o deploy cross-origin, em que `SameSite=Strict` retém o cookie.
 - **A chave de API na URL** fica para integração **fora** do navegador. Ela é portadora, aparece no log de acesso do nginx e no `Referer`, e é o caminho mais caro: medida em +480 µs por tile, contra zero do cookie, porque `FIND_USER_BY_API_KEY` é uma consulta ao banco por requisição. Ver [[api-keys]].
 
+**E viaja uma QUARTA coisa, que não é credencial nenhuma:** o `?atlasId=` do atlas em foco, desde 2026-09-15. Ele diz QUAL empréstimo o pedido quer usar, e quem decide se o chamador pode usá-lo é `requireAtlasPermission('read')`, dentro do predicado. Confundi-lo com credencial é o erro que o cabeçalho de `assets3d-acesso.js` já nomeia: o UUID do atlas viaja em toda URL de compartilhamento. Ele é a única autorização do visitante de link público, e vale mesmo SEM token, porque um atlas `is_public` dá leitura a chamador anônimo.
+
 ## O custo, medido
 
 Cinco rodadas de 200 pedidos com conexão reusada, em 2026-08-29:
@@ -52,15 +54,35 @@ Cinco rodadas de 200 pedidos com conexão reusada, em 2026-08-29:
 
 *(A primeira medição foi jogada fora: ela lançava um processo por pedido, e o piso saiu em 35 ms, que é o custo de criar processo no Windows. Nela o tile público chegou a medir menos que o piso, que é o sinal de que o instrumento dominava o sujeito.)*
 
-## O DEFEITO conhecido: o empréstimo por atlas não alcança o tile
+## O empréstimo por atlas, que chegou ao tile em 2026-09-15 (D17)
 
-Medido em 2026-08-29, e registrado como cláusula 6.7 da [`CONSTITUICAO.md`](../../CONSTITUICAO.md). O ramo de empréstimo de `fn_granted_resource_ids` depende do atlas em foco, que chega por `?atlasId=`. **A subrequisição do `auth_request` chega ao backend sem query**, então o gate do tile decide sempre com atlas nulo, e aquele ramo nunca é exercido.
+O ramo de empréstimo de `fn_granted_resource_ids` depende do atlas em foco. Ele é o único braço do predicado que alcança o visitante de link público, e desde 2026-09-15 ele vale aqui como vale na listagem, no catálogo somado, no briefing, na busca e nos ativos 3D e 360.
 
-A medição, com um membro do atlas que alcança a camada SÓ pelo empréstimo: ele vê o item no payload aditivo do catálogo (`GET /resource-access/visible?atlasId=`) e recebe **401 no tile dela**, inclusive com `?atlasId=` na URL. Ou seja, a camada aparece na lista e não desenha.
+Três coisas que não se leem no código, e a primeira é a que custou dezessete dias.
 
-Isso contradiz a cláusula 6.3 exatamente onde ela mais importa, porque o visitante de link público alcança recurso privado **só** por empréstimo. O conserto tem três pontas: o nginx repassar o atlas em cabeçalho (como já faz com o caminho, pelo mesmo `map`), o gate lê-lo, e o cliente carimbá-lo na URL do tile, como `escoparUrlDeAsset` já faz para o 3D.
+**A QUERY SEMPRE ATRAVESSOU, e a cláusula 6.7 dizia o contrário.** A subrequisição do `auth_request` chega ao backend sem query própria, e daí esta página concluiu que o atlas não podia atravessar e que o conserto exigiria um cabeçalho NOVO no nginx. A primeira metade é verdadeira; a conclusão não é. O que o nginx copia da requisição principal é o `unparsed_uri` INTEIRO, que ele já manda em `X-Original-URI` para que o gate resolva o CAMINHO, e o `?atlasId=` sempre esteve lá dentro, do mesmo jeito que o `map` do topo daquele arquivo já tira a chave de API do mesmo texto. Quem extrai é `atlasDoTile`; o `location` do host não mudou uma linha por causa do empréstimo. **Uma observação verdadeira virou uma conclusão falsa, e a conclusão foi carregada como escopo de trabalho.**
 
-**Ele não foi achado pelas conferências**, e vale saber por quê: elas medem `?atlasId=` inventado, que tem de dar 401, e nunca mediram um empréstimo REAL passando. Um par negativo sem o positivo do mesmo eixo passa verde sobre um ramo que não funciona, que é a cobertura vazia da constituição na forma mais discreta.
+**A PENEIRA DE UUID É OBRIGATÓRIA AQUI, e não nas outras superfícies.** Lá o `?atlasId=` passa por `validate` e um valor torto morre como 422 na borda; aqui ele vem de um cabeçalho que nenhum schema olha. Sem a peneira, um `atlasId=x` desceria para um cast `::uuid` e viraria um 500 por TILE.
+
+**O DEFEITO NÃO FOI ACHADO PELAS CONFERÊNCIAS**, e a razão continua valendo para quem escrever a próxima: elas mediam `?atlasId=` inventado, que tem de dar 401, e nunca mediram um empréstimo REAL passando. Um par negativo sem o positivo do mesmo eixo passa verde sobre um ramo que não funciona, que é a cobertura vazia da constituição na forma mais discreta. Os três guardas de hoje levam o positivo junto: `frontend/tests/unit/tile-carimba-atlas-emprestado.test.js`, `backend/tests/integration/tile-emprestimo-por-atlas.test.js` e `frontend/tests/e2e/tile-emprestimo-contrato.e2e.test.js`.
+
+### O carimbo do lado do cliente, e por que ele mora no `transformRequest`
+
+Quem escreve o `?atlasId=` na URL do tile é `credencialDeTile`, pela mesma função de carimbo que o 360 usa (`stampAtlasOnUrl`). O `fileoverview` de `frontend/src/js/street_view_tool/tile-scope.js` ELIMINA o `transformRequest` como lugar de carimbo, com medição, e a conclusão dele não se transporta para cá porque o sujeito é outro: lá o carimbo escolhe CONTEÚDO (o mesmo z/x/y do MVT devolve feições diferentes por atlas, e o `TileManager` chaveia o cache por z/x/y, então um tile carregado sob um atlas seria reentregue dentro de outro sem pedido nenhum); aqui ele só autoriza a BUSCA, porque o tile de uma camada de dados tem o mesmo corpo para todo mundo. O que a reutilização por z/x/y produz no tile é um tile já baixado continuar na tela depois de trocar de atlas, que é a mesma parcialidade já declarada em [[acesso-a-recurso-privado]] para a camada viva depois de uma revogação.
+
+O preço fica dito: com um atlas aberto, TODO tile das duas bases credenciadas sai com `?atlasId=`, o da camada pública inclusive, porque o cliente não sabe quais endereços pertencem a linha privada. Saber exigiria uma segunda cópia do índice de regime dentro do navegador.
+
+**E uma armadilha de configuração que só apareceu ao medir:** `TILE_SERVER_URL` é uma BASE (`/tiles`, `http://host/tiles`), nunca um template com `{z}`. Escrita como template, a comparação por fronteira de caminho do cliente não casa endereço nenhum, o carimbo fica inerte e a camada emprestada volta a não desenhar, sem erro em lugar nenhum. O mesmo valor é lido pelos dois lados: o cliente decide por ele quais URLs recebem carimbo, e o índice do servidor indexa o catálogo por ele.
+
+### O regime de cache, e por que ele é escrito numa resposta sem bytes
+
+A decisão do desfecho privado passou a depender de QUEM pede e de QUAL atlas está em foco, então a resposta não pode ser guardada por um cache compartilhado: o `?atlasId=` separa URLs e **não separa pessoas**, e dois chamadores pedem a mesma URL com só um alcançando o atlas. Quem marca é `marcarEscopoDeTile` (`backend/src/utils/cache-scope.js`), sobre o mesmo predicado das rotas JSON e com o mesmo valor, `private, no-cache`.
+
+A torção é do desenho e não do arquivo: os bytes do tile nunca passam por este processo, então o `Cache-Control` escrito na resposta VAZIA do `auth_request` é uma INSTRUÇÃO ao host, que o copia para o tile por `auth_request_set` mais `add_header`, pelo mesmo caminho por onde o motivo da recusa já viaja. O tile PÚBLICO continua sem cabeçalho nosso, e por isso o `add_header` do host, cujo valor vem vazio nesse caso, não acrescenta nada.
+
+`no-store` foi considerado e recusado: ele mataria também o cache do navegador, e um deslocamento de mapa rebaixaria a camada privada inteira à rede outra vez.
+
+**O que fica como sonda com data no deploy:** que o host copie esses dois cabeçalhos, e que ele esconda o `Cache-Control` do servidor de tiles caso este emita um próprio na linha privada (duas diretivas coexistindo combinam, e `private` continua proibindo a guarda compartilhada, mas um `public` vindo de trás é o tipo de contradição que não vale deixar em pé). O `location` de `dev/tile-privado/nginx/ebgeo.conf` está na forma que a sonda deve conferir.
 
 ## O que fica de fora, e é decisão, não pendência
 

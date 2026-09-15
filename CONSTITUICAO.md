@@ -382,14 +382,23 @@ no tile passou a cobrir o servidor de tiles além do 360 (`frontend/src/js/map/c
 por `frontend/tests/unit/link-publico-aviso-de-exposicao.test.js` e por
 `backend/tests/integration/atlas-emprestimo-nomeia-recurso.test.js`.
 
-**6.7** **O empréstimo por atlas NÃO alcança o tile**, e isto é um DEFEITO medido em 2026-08-29, não uma
-decisão. O ramo de empréstimo do predicado depende do atlas em foco (`?atlasId=`), e a subrequisição do
-`auth_request` do nginx chega ao backend **sem query**, de modo que o gate do tile sempre decide com atlas
-nulo. Medido: um membro do atlas que alcança a camada SÓ pelo empréstimo vê o item no payload aditivo do
-catálogo e recebe 401 no tile dela, inclusive com `?atlasId=` na URL. Isso contradiz a 6.3 exatamente onde ela
-mais importa, porque é o caso do visitante de link público. **[pendente]**: o conserto tem três pontas (o
-nginx repassar o atlas em cabeçalho, como já faz com o caminho; o gate lê-lo; e o cliente carimbá-lo na URL do
-tile, como `escoparUrlDeAsset` já faz para o 3D).
+**6.7** **O empréstimo por atlas alcança o TILE**, como alcança a listagem, o catálogo somado, o briefing, a
+busca e os ativos 3D e 360. **[vigente]** desde 2026-09-15 (D17). O cliente carimba o atlas em foco na URL do
+tile das duas bases credenciadas (`frontend/src/js/map/credencial-de-tile.js`), o gate do `auth_request` lê
+esse carimbo e avalia o MESMO predicado de empréstimo do resto do acervo
+(`backend/src/modules/auth/tile-access.js`), e a resposta que dependeu do empréstimo sai `private, no-cache`,
+porque ela variou por chamador. Preso por `frontend/tests/unit/tile-carimba-atlas-emprestado.test.js`,
+`backend/tests/integration/tile-emprestimo-por-atlas.test.js` e
+`frontend/tests/e2e/tile-emprestimo-contrato.e2e.test.js`.
+
+Ela foi um DEFEITO medido de 2026-08-29 a 2026-09-15, e o que sustentou o defeito vale mais que o conserto: a
+redação anterior desta cláusula dizia que a subrequisição do `auth_request` chega ao backend **sem query**,
+logo o atlas não podia atravessar, logo o conserto precisaria de um cabeçalho NOVO no nginx. A primeira metade
+é verdadeira e a conclusão não: `X-Original-URI` é a URI ORIGINAL com a query inteira, e é o cabeçalho que o
+gate já usava para resolver o caminho. O `?atlasId=` sempre esteve dentro dele. **Uma observação verdadeira
+virou uma conclusão falsa, e a conclusão foi carregada por dezessete dias como escopo de trabalho.** O sintoma
+que ela deixou na tela era o pior possível para a 6.3: quem alcança uma camada SÓ pelo empréstimo a via na
+lista do catálogo e não a via desenhar.
 
 **6.4** O empréstimo reconhece também o **produtor** como dono capaz de emprestar o acervo da própria
 organização. **[vigente]** desde 2026-08-21: a produção do dono do atlas entrou como termo próprio na

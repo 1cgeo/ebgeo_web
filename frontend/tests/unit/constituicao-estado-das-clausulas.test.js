@@ -80,15 +80,11 @@ const ABERTAS = [
         natureza: 'dependência externa',
         motivo: 'auto-cadastro: o endurecimento está feito e a abertura da rota espera o relay de e-mail existir',
     },
-    {
-        numero: '6.7',
-        estado: 'pendente',
-        natureza: 'trabalho',
-        motivo: 'DEFEITO medido em 2026-08-29: o empréstimo por atlas não alcança o tile, porque a'
-            + ' subrequisição do auth_request chega sem query e o gate decide sempre com atlas nulo.'
-            + ' Contradiz a 6.3 no caso do visitante de link público. A 6.6 fechou no mesmo dia e saiu'
-            + ' desta lista',
-    },
+    // A 6.7 SAIU DESTA LISTA EM 2026-09-15 (D17), depois de dezessete dias aberta, e vale dizer
+    // por quê: ela descrevia um defeito medido e prescrevia um conserto de três pontas cuja
+    // primeira NÃO EXISTIA (um cabeçalho novo no nginx para levar o atlas). O cabeçalho já
+    // levava. Quem for fechar uma cláusula desta lista faz bem em conferir a prescrição contra o
+    // código antes de aceitá-la como escopo.
     {
         numero: '9.3',
         estado: 'em obra',
