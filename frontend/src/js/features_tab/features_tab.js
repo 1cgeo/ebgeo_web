@@ -27,7 +27,7 @@ import {
     updateActiveLayerIndicators,
     updateLayerVisibilityIndicator,
     updateLayerLockIndicator,
-    closeLayerActionsMenu,
+    reanchorLayerActionsMenu,
 } from './layer-list.component.js';
 import {
     handleFeatureClick,
@@ -790,15 +790,19 @@ export class FeaturesTab {
      * @param {Array} organizedLayers - Organized layer data
      */
     _renderOrganizedFeatures(organizedLayers) {
-        // The actions menu hangs off a header button and lives in <body>, so a re-render
-        // under an open menu would leave it floating over a header that no longer exists.
-        closeLayerActionsMenu();
-
+        // O MENU ABERTO É REANCORADO, NÃO FECHADO, e até 2026-09-14 era fechado. Ele mora no
+        // `<body>` e se pendura num botão do cabeçalho da camada, que este redesenho joga fora,
+        // então alguma coisa tem de acontecer com ele. Fechar era o mais simples e custava o
+        // menu de quem estava lendo as opções sempre que chegava um `LAYERS_CHANGED` de outra
+        // origem (o flush da própria feição recém-desenhada, a op de um par). Reancorar depois
+        // do desenho é o mesmo custo e preserva o gesto; a camada que sumiu da lista fecha,
+        // dentro de `reanchorLayerActionsMenu`.
         const featuresList = this.container.querySelector('.features-list');
         featuresList.innerHTML = '';
 
         if (!Array.isArray(organizedLayers) || organizedLayers.length === 0) {
             this._renderEmptyMessage(featuresList);
+            reanchorLayerActionsMenu();
             return;
         }
 
@@ -837,6 +841,9 @@ export class FeaturesTab {
 
         // Highlight currently selected features
         this._highlightSelectedFeatures();
+
+        // POR ÚLTIMO, porque o botão em que o menu se pendura só existe depois do laço acima.
+        reanchorLayerActionsMenu();
     }
 
     /**

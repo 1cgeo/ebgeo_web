@@ -173,11 +173,19 @@ function createLayerControls(layer, callbacks) {
 let openMenuEl = null;
 let openMenuAnchor = null;
 let openMenuCloseHandler = null;
+/** De QUAL camada e o menu aberto, para reencontrar o botao dele depois de um redesenho. */
+let openMenuLayerId = null;
 
 /**
  * Monotonic token for the map-list read the menu awaits before it can be built.
  * A second click during that window would otherwise append a second menu and orphan the
  * first, listener included.
+ *
+ * ELE CONTA ABERTURAS, E SO ELAS, desde 2026-09-14. `closeLayerActionsMenu` tambem o
+ * incrementava, e como quem fechava o menu ao redesenhar a lista era o proprio
+ * `_renderOrganizedFeatures`, um redesenho caindo dentro da leitura CANCELAVA a abertura em
+ * curso: o clique nao abria menu, nao dizia nada e nao deixava rastro. Ver
+ * {@link showLayerActionsMenu}.
  */
 let menuRequestId = 0;
 
@@ -197,10 +205,13 @@ const LAYER_MENU_ITEMS = Object.freeze({
  * @returns {void}
  */
 export function closeLayerActionsMenu() {
-    // Invalidate any map-list read still in flight. Without this, a menu opened just before
-    // a re-render would still be born after it, anchored to a button already thrown away.
-    menuRequestId++;
-
+    // ELE NAO CANCELA MAIS A ABERTURA EM CURSO. Cancelava, e a justificativa era "um menu
+    // aberto pouco antes de um redesenho nasceria ancorado num botao ja jogado fora", o que
+    // era verdade e virou o defeito: quem fechava por redesenho era `_renderOrganizedFeatures`,
+    // entao um redesenho dentro da leitura de mapas engolia o clique inteiro, calado. Quem
+    // responde por aquele risco agora e a REANCORAGEM ({@link showLayerActionsMenu} para a
+    // abertura em voo, {@link reanchorLayerActionsMenu} para o menu ja aberto), que e a
+    // resposta certa: o botao novo da mesma camada esta ali, desenhado pelo mesmo redesenho.
     if (openMenuCloseHandler) {
         document.removeEventListener('click', openMenuCloseHandler);
         openMenuCloseHandler = null;
@@ -213,6 +224,31 @@ export function closeLayerActionsMenu() {
     }
     openMenuEl = null;
     openMenuAnchor = null;
+    openMenuLayerId = null;
+}
+
+/**
+ * Repoe o menu aberto sobre o botao que o redesenho acabou de desenhar.
+ *
+ * O MENU ABERTO NAO E DO DESENHO, E DO GESTO. A aba redesenha a lista inteira a cada
+ * `LAYERS_CHANGED`, e um deles chega sozinho: o `flush` de uma feicao recem-desenhada, a op de
+ * um par, a troca de trava. Enquanto o redesenho FECHAVA o menu, o menu de quem estava lendo as
+ * opcoes sumia por causa de trabalho de outra pessoa, sem aviso e sem nada para clicar de volta.
+ *
+ * A camada pode ter SAIDO no redesenho (apagada, filtrada, aba trocada). Ai nao ha onde pendurar
+ * e o fechamento e o desfecho honesto.
+ * @returns {void}
+ */
+export function reanchorLayerActionsMenu() {
+    if (!openMenuEl || !openMenuLayerId) return;
+    const anchor = liveMenuAnchor(openMenuLayerId);
+    if (!anchor) {
+        closeLayerActionsMenu();
+        return;
+    }
+    openMenuAnchor = anchor;
+    anchor.setAttribute('aria-expanded', 'true');
+    positionLayerActionsMenu(openMenuEl, anchor);
 }
 
 /**
@@ -293,7 +329,30 @@ function createLayerMenuItem(action, handler) {
 }
 
 /**
+ * O botao "mais acoes" DESTA camada que esta no documento AGORA.
+ *
+ * A lista redesenha o bloco inteiro da camada, entao o botao que recebeu o clique pode ja ter
+ * sido substituido por um equivalente enquanto a leitura de mapas estava em voo. O endereco
+ * estavel e o `data-layer-id` do conteiner, o mesmo que o resto do modulo usa.
+ * @param {string} layerId - Id da camada.
+ * @returns {HTMLElement|null} O botao vivo, ou null se a camada saiu da tela.
+ */
+function liveMenuAnchor(layerId) {
+    return document.querySelector(`.layer-container[data-layer-id="${layerId}"] .layer-menu-btn`);
+}
+
+/**
  * Shows the "more actions" menu for a layer.
+ *
+ * O CLIQUE SEMPRE PRODUZ ALGUMA COISA, e ate 2026-09-14 ele tinha um desfecho MUDO. Entre o
+ * clique e o menu ha uma leitura assincrona (a lista de mapas, do repositorio), e qualquer
+ * redesenho da aba dentro dessa janela matava a abertura de duas maneiras: `closeLayerActionsMenu`
+ * invalidava o token, e o botao clicado saia do documento. Os dois caminhos devolviam em
+ * silencio, sem menu e sem aviso, e na tela isso e um botao que nao faz nada.
+ *
+ * O CONSERTO E REANCORAR, nao insistir: o redesenho que jogou o botao fora desenhou o
+ * substituto dele, e e nesse que o menu se pendura. O token continua existindo e continua
+ * cancelando, mas agora so o que ele sempre quis cancelar: uma SEGUNDA abertura.
  *
  * @param {Object} layer - Layer data object
  * @param {HTMLElement} anchorEl - Button the menu hangs from
@@ -310,10 +369,13 @@ async function showLayerActionsMenu(layer, anchorEl, callbacks) {
 
     const requestId = ++menuRequestId;
     const allMapNames = await getAllMapNamesStore();
-    // Two ways this read goes stale: another open superseded it, or the list re-rendered and
-    // took our anchor out of the document. A menu hung on a detached button positions itself
-    // at 0,0 and never closes on click.
-    if (requestId !== menuRequestId || !anchorEl.isConnected) return;
+    // Uma segunda abertura superou esta: ela e quem manda, e abrir as duas apenderia dois
+    // menus, orfaos e com dois listeners de documento.
+    if (requestId !== menuRequestId) return;
+    // A lista pode ter redesenhado e levado o nosso botao junto. O menu se pendura no botao
+    // VIVO da mesma camada; sem nenhum, a camada saiu da tela e nao ha onde pendurar.
+    const anchor = anchorEl.isConnected ? anchorEl : liveMenuAnchor(layer.id);
+    if (!anchor) return;
 
     const currentMapName = getCurrentMapNameSync();
     const otherMaps = (allMapNames || []).filter((name) => name !== currentMapName);
@@ -348,7 +410,8 @@ async function showLayerActionsMenu(layer, anchorEl, callbacks) {
     menu.className = 'layer-context-menu';
     menu.setAttribute('role', 'menu');
     openMenuEl = menu;
-    openMenuAnchor = anchorEl;
+    openMenuAnchor = anchor;
+    openMenuLayerId = layer.id;
 
     const modeById = {
         [LayerMenuAction.MOVE]: TransferMode.MOVE,
@@ -361,11 +424,15 @@ async function showLayerActionsMenu(layer, anchorEl, callbacks) {
     }
 
     document.body.appendChild(menu);
-    anchorEl.setAttribute('aria-expanded', 'true');
-    positionLayerActionsMenu(menu, anchorEl);
+    anchor.setAttribute('aria-expanded', 'true');
+    positionLayerActionsMenu(menu, anchor);
 
+    // ELE LE O ANCORA VIVO, e nao o capturado: depois de uma reancoragem o botao capturado esta
+    // fora do documento, e `contains` num no solto responde falso para tudo. Um clique no botao
+    // NOVO fecharia o menu por "clique de fora" e o `onclick` dele o reabriria em seguida, que na
+    // tela e o menu piscando em vez de alternar.
     openMenuCloseHandler = (e) => {
-        if (!menu.contains(e.target) && !anchorEl.contains(e.target)) {
+        if (!menu.contains(e.target) && !openMenuAnchor?.contains(e.target)) {
             closeLayerActionsMenu();
         }
     };
