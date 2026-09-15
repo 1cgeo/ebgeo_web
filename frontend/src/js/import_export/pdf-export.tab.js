@@ -2,9 +2,11 @@
 import { showError } from '@utils/toast_service.js'
 // GDAL entra SOB DEMANDA, e nao mais por `<script>` no `index.html`. Eram 187 kB
 // que a pagina do mapa baixava em toda carga sem ninguem ler no boot. O `/* global
-// initGdalJs */` que estava aqui saiu junto: o global agora chega pelo retorno de
-// `ensureGdal()`, e nao por uma tag que o eslint precisava aprender de cor.
-import { ensureGdal } from '@utils/gdal-loader.js'
+// initGdalJs */` que estava aqui saiu junto: desde 2026-09-14 o global nao e lido
+// em lugar nenhum, porque a biblioteca vem do npm pelo ponto unico
+// `@js/vendor/gdal.js`, que a carrega por `import()` e ja devolve o namespace
+// `Gdal` inicializado, com o `.wasm` e o `.data` resolvidos pelo proprio Vite.
+import { initGdal } from '@js/vendor/gdal.js'
 import { ensureTurf } from '@utils/turf-loader.js'
 import {
     correctZoomInvariantFeatures,
@@ -1009,8 +1011,7 @@ export default class PDFExportTab {
             //
             // Dois cliques rapidos nao entram duas vezes: `this._exporting` fecha a
             // porta antes deste `await`, e o botao ja saiu desabilitado acima.
-            const initGdalJs = await ensureGdal()
-            Gdal = await initGdalJs({ path: this._getGdalPath(), useWorker: false })
+            Gdal = await initGdal()
 
             if (this._exportCancelled) return;
 
@@ -1206,43 +1207,34 @@ export default class PDFExportTab {
     }
 
     /**
-     * Builds the base path for GDAL WASM files.
-     * Uses Vite's BASE_URL to resolve the correct path in any deployment.
-     * @returns {string} GDAL directory path
-     */
-    _getGdalPath() {
-        const base = import.meta.env.BASE_URL || '/';
-        return `${window.location.origin}${base}vendors/gdal`;
-    }
-
-    /**
      * Pre-initializes GDAL WASM in the background, aquecendo o export.
      *
-     * `initGdalJs()` returns a cached promise on subsequent calls, so this is safe
-     * to call more than once.
+     * `initGdal()` devolve a MESMA promessa nas chamadas seguintes (memo no ponto
+     * unico, e um segundo memo dentro do proprio `initGdalJs`), entao chamar mais
+     * de uma vez e barato.
      *
      * ATENCAO, ISTO HOJE QUASE NUNCA RODA. So `show()` o chama, e no caminho normal
      * da interface ninguem chama `show()`: `sidebar/tabs/export.tab.js`
      * (`_renderPdfContent`) inlina o corpo de `show()` e segue. Sobra o
      * `_createFallbackPdfUI`, que e o caminho de excecao. MEDIDO por sonda de
      * navegador em 2026-08-25: abrir a aba de PDF nao dispara pedido nenhum de
-     * GDAL. Quem de fato carrega o GDAL e o `await ensureGdal()` do
-     * `handleExport`. Nao confie neste metodo como garantia; ele e so aquecimento
-     * oportunista, e o dia em que a aba voltar a chamar `show()` ele volta a valer.
+     * GDAL. Quem de fato carrega o GDAL e o `await initGdal()` do `handleExport`.
+     * Nao confie neste metodo como garantia; ele e so aquecimento oportunista, e o
+     * dia em que a aba voltar a chamar `show()` ele volta a valer.
      *
-     * AGORA SAO DUAS ETAPAS, e a primeira e nova: `ensureGdal()` baixa o proprio
-     * `gdal3.js`, que ate 2026-08-25 vinha por `<script defer>` no `index.html`.
-     * Este metodo continua SINCRONO de proposito. Ele so dispara a corrente e
-     * volta, entao `show()` nao virou `async` e nenhum chamador de `show()`
-     * precisou mudar. Um `await` aqui atrasaria a abertura da aba para esperar
-     * 187 kB de script mais 39 MB de WASM, que e exatamente o oposto do objetivo.
+     * SAO DUAS ETAPAS DENTRO DE UMA CHAMADA SO: `initGdal()` baixa o chunk do
+     * gdal3.js (191 kB, que ate 2026-08-25 vinha por `<script defer>` no
+     * `index.html`) e so entao inicializa o WebAssembly, que puxa os 39,8 MB de
+     * `.wasm` mais `.data`. Este metodo continua SINCRONO de proposito. Ele so
+     * dispara a corrente e volta, entao `show()` nao virou `async` e nenhum
+     * chamador de `show()` precisou mudar. Um `await` aqui atrasaria a abertura da
+     * aba para esperar os dois, que e exatamente o oposto do objetivo.
      */
     _preInitGdal() {
         if (this._gdalPreInitStarted) return;
         this._gdalPreInitStarted = true;
 
-        ensureGdal()
-            .then((initGdalJs) => initGdalJs({ path: this._getGdalPath(), useWorker: false }))
+        initGdal()
             .catch(() => {
                 // Reset flag so it can be retried on next show()
                 this._gdalPreInitStarted = false;

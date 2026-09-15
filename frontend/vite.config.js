@@ -435,6 +435,35 @@ export default defineConfig(({ mode: _mode }) => ({
           if (id.includes('import_export')) {
             return 'import-export';
           }
+          // ===== GDAL (npm, since 2026-09-14): THERE IS NO RULE HERE, AND THAT IS MEASURED =====
+          //
+          // gdal3.js stopped being `public/vendors/gdal/gdal3.js` served by an injected `<script>`
+          // and became a normal npm dependency, reached ONLY by the `import()` inside the single
+          // load point `src/js/vendor/gdal.js`, which `import_export/pdf-export.tab.js` calls on
+          // the export click. Left unmapped it comes out as its own `assets/gdal3-*.js` (193 kB),
+          // referenced by no HTML.
+          //
+          // The obvious move was `if (id.includes('gdal3.js')) return 'import-export';`, since the
+          // only consumer lives in that group. It was written, built and thrown away, for the same
+          // reason as the MapLibre block above: it changes NOTHING measurable. Measured on this
+          // tree, three builds, `index.html` eager payload identical to the byte in all three
+          // (84 files / 4097 kB) — without the rule, with the rule, and on the previous HEAD.
+          // With the rule, `entriesAware` still subdivides the group at the dynamic-import
+          // boundary and the library lands in `import-export-<hash>.js` that no HTML references;
+          // all the rule buys is a label that lies about the content, which is precisely the
+          // "Naming caveat" above.
+          //
+          // WHAT WOULD ACTUALLY MOVE IT is not a rule here, it is the import in the load point.
+          // `map_sig.js` imports `pdf-export.tab.js` STATICALLY, so a static `import initGdalJs
+          // from 'gdal3.js'` would put the 193 kB back into the map's boot payload, undoing the
+          // 2026-08-25 wave that took the `<script defer>` out of `index.html`. That is guarded,
+          // not commented: `tests/unit/teto-de-peso-da-pagina-do-mapa.test.js` lists `gdal3.js`
+          // under EXTERNOS_SO_DINAMICOS, which fails in both directions.
+          //
+          // The `.wasm` (28.2 MB) and `.data` (11.6 MB) are ASSETS, not modules: they come in by
+          // `?url` in the load point and no group rule can reach them. They are emitted with a
+          // content hash under `assets/`, and Vite prefixes `base`, which is what makes a
+          // sub-path deploy work without the app computing a path of its own.
 
           // ===== TOOL CHUNKS =====
 

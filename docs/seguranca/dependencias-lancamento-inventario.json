@@ -3841,7 +3841,7 @@
     "date": "2026-09-14",
     "branch": "plano/va, rebased sobre integracao_backend (que ja trazia plano/vb)",
     "base": "45273cd441f32feee48b80f5dd2c6917b9dc9b44",
-    "escopo": "Bloco de EXECUCAO das decisoes D9 de 2026-09-14 sobre os oito itens de docs/seguranca/b10-fecho-proposta-2026-09-13.md, e ele reune as DUAS linhas de trabalho daquele dia: os itens V2, V3, V4, V5 e V8 vieram de plano/vb e os itens V1, V6 e V7 de plano/va. Este bloco e o manifesto VIVO: e contra ele que node scripts/inventario-de-vendors.mjs --check confere a arvore, e e ele que frontend/tests/unit/inventario-de-vendors.test.js le. NAO refaz o npm audit, que continua datado de 2026-09-13 no bloco anterior, nem alcanca a imagem em execucao no servidor interno. O bloco 2026-09-13 fica INTACTO ao lado, como a medicao datada que levou a decisao.",
+    "escopo": "Bloco de EXECUCAO das decisoes D9 de 2026-09-14 sobre os oito itens de docs/seguranca/b10-fecho-proposta-2026-09-13.md, e ele reune as DUAS linhas de trabalho daquele dia: os itens V2, V3, V4, V5 e V8 vieram de plano/vb e os itens V1, V6 e V7 de plano/va. Este bloco e o manifesto VIVO: e contra ele que node scripts/inventario-de-vendors.mjs --check confere a arvore, e e ele que frontend/tests/unit/inventario-de-vendors.test.js le. NAO refaz o npm audit, que continua datado de 2026-09-13 no bloco anterior, nem alcanca a imagem em execucao no servidor interno. As DUAS migracoes para o npm de 2026-09-14 (o GDAL e o item V9, o Cesium) entraram depois, por plano/npmb, e sao as duas ultimas entradas de deltaSobre2026_09_13. O bloco 2026-09-13 fica INTACTO ao lado, como a medicao datada que levou a decisao.",
     "porQueUmBlocoNovo": "O bloco 2026-09-13 fica intocado porque e evidencia datada: ele carrega os 166 sha256Lf binarios produzidos pelo instrumento defeituoso de 2026-09-12, com a ressalva que os rotula, e reescrever aquelas tuplas para caber na arvore de hoje apagaria a unica prova de que aquela medicao tinha o defeito. Quem confere hoje le este bloco, e quem o aponta e a constante CHAVE_DO_BLOCO de scripts/inventario-de-vendors.mjs.",
     "metodo": "node scripts/inventario-de-vendors.mjs --write, que regrava as tuplas e os cinco numeros derivados do resumo e preserva byte a byte todo campo declaratorio. O eixo de identidade continua sendo sha256Lf em arquivo de texto e sha256 em arquivo binario.",
     "procedencia": "Medido pelo mesmo script do bloco anterior, no mesmo eixo (sha256 normalizado para LF em arquivo de texto, sha256 cru em binario), sobre a arvore depois da adocao e das podas. A diferenca para os 408 de 2026-09-13 nao e uma re-medicao: sao saidas de pasta coberta, uma a uma, e cada uma tem commit proprio. O que NAO mudou de conteudo tem, aqui, exatamente os mesmos hashes de la, e essa igualdade e a prova de que nem a adocao nem a poda tocaram em arquivo que ficou.",
@@ -3850,11 +3850,11 @@
         "pastasCobertas": [
           "frontend/public/vendors"
         ],
-        "arquivos": 8,
-        "bytes": 41823872,
+        "arquivos": 5,
+        "bytes": 1817755,
         "textoEmCrlf": 4,
-        "textoEmLf": 2,
-        "binarios": 2,
+        "textoEmLf": 1,
+        "binarios": 0,
         "codigoDeTerceiroForaDasPastasCobertas": 0,
         "escopoAmpliadoEm": "Desde 2026-09-14 (item V7) o script tambem varre TODO frontend/public/ atras de .js, .cjs, .mjs, .css e .wasm que morem fora das pastas cobertas, e ACUSA cada um: o alcance do inventario era uma lista de pastas escrita a mao, que falha aberta e em silencio para o arquivo que nascer fora dela. Foi assim que frontend/public/street_view/build/ guardou uma segunda copia do Three.js (164dev, 3.373.610 bytes, sem consumidor) sem entrar em numero nenhum. A pasta foi podada no mesmo commit, e hoje a varredura devolve zero.",
         "notaDosNumeros": "Os cinco numeros arquivos, bytes, textoEmCrlf, textoEmLf e binarios sao GERADOS pelo --write a cada regravacao, nunca digitados; pastasCobertas, codigoDeTerceiroForaDasPastasCobertas e escopoAmpliadoEm sao declaratorios: o primeiro espelha a constante PASTAS_DE_VENDOR do script e o segundo e o zero que o --check cobra a cada rodada, entao quem o vir diferente de zero no arquivo esta lendo um campo que a rodada seguinte reprova. Em 2026-09-13 o campo equivalente dizia 332 arquivos em CRLF, e aquele 332 contava tambem 166 binarios que carregam o par 0D 0A dentro de conteudo comprimido; aqui texto e binario estao separados justamente para que o numero nao possa voltar a significar duas coisas."
@@ -3862,9 +3862,11 @@
       "deltaSobre2026_09_13": [
         "frontend/public/vendors/cesium/cesium-measure.js SAIU das pastas de vendor: ele virou codigo da casa em frontend/src/js/3d_models_viewer_tool/services/cesium-measure.js (decisao D9, item V2). Nao foi podado, foi adotado, e por isso nao aparece em nenhuma lista de poda.",
         "frontend/src/vendor/three/ SAIU inteira das pastas cobertas: os cinco arquivos do snapshot 164dev foram apagados quando a biblioteca passou a vir do npm em versao exata (three 0.164.0), pelo ponto unico frontend/src/js/vendor/three.js (decisao D9, item V1). Os cinco eram TEXTO em CRLF, e e por isso que a parcela de binarios nao se moveu.",
-        "Quatro artefatos SEM CONSUMIDOR foram podados de frontend/public/vendors/ (decisao D9, item V6): os dois builds grandes do Cesium (cesium/index.js e cesium/index.cjs, 8,6 MB somados, que publicDir copiava verbatim para o dist/) e os dois builds auxiliares do GDAL (gdal/gdal3.dev.js e gdal/gdal3.node.js). Tres eram TEXTO em CRLF e um TEXTO em LF, e por isso a parcela de binarios continua parada em 209."
+        "Quatro artefatos SEM CONSUMIDOR foram podados de frontend/public/vendors/ (decisao D9, item V6): os dois builds grandes do Cesium (cesium/index.js e cesium/index.cjs, 8,6 MB somados, que publicDir copiava verbatim para o dist/) e os dois builds auxiliares do GDAL (gdal/gdal3.dev.js e gdal/gdal3.node.js). Tres eram TEXTO em CRLF e um TEXTO em LF, e por isso a parcela de binarios nao se moveu NAQUELE passo, continuando em 209; ela so cairia nos dois passos seguintes, que sao as duas entradas abaixo.",
+        "A DISTRIBUICAO DO CESIUM SAIU de frontend/public/vendors/cesium/ (decisao V9 de 2026-09-14): 390 arquivos da 1.138.0, carregados por <script> injetado em runtime, e a biblioteca passa a vir do npm em 1.145.0, versao exata, pelo ponto unico frontend/src/js/vendor/cesium.js. Os quatro diretorios que o motor busca por URL (Assets, ThirdParty, Widgets, Workers) deixaram de ser versionados: o plugin ebgeo-cesium do frontend/vite.config.js os copia de node_modules/cesium/Build/Cesium a cada build. Sobrou na pasta cesium-viewshed.js, TEXTO, que continua sendo carregado por <script> porque le e escreve window.Cesium. Foi aqui que a parcela de binarios caiu de 209 para 2: o que saiu e PNG, JPG e WASM de Assets/, ThirdParty/ e Widgets/Images/.",
+        "frontend/public/vendors/gdal/ SAIU inteira (2026-09-14): gdal3.js 2.8.1 passa a vir do npm, em versao exata, pelo ponto unico frontend/src/js/vendor/gdal.js, e o dist/ deixa de receber os 39,8 MB que publicDir copiava verbatim. Eram tres arquivos, 40.006.117 bytes, e DOIS deles eram os ultimos binarios das pastas cobertas (gdal3WebAssembly.wasm, 28.219.835 bytes, e gdal3WebAssembly.data, 11.595.145); o terceiro e o wrapper, texto em LF. A parcela de binarios caiu de 2 para ZERO, e o conteudo e o MESMO, conferido por cmp byte a byte contra o pacote do npm, de modo que as declaracoes do item V4 sobre as sete bibliotecas nativas dentro daquele .wasm seguem valendo sem remedicao (ver gdalWasmCadeiaNativa)."
       ],
-      "notaDoCampoSha256Lf": "Ao contrario do bloco de 2026-09-13, aqui sha256Lf e null em TODO arquivo binario, e isso e propriedade do instrumento e nao coincidencia: scripts/inventario-de-vendors.mjs classifica texto por UTF-8 valido sem byte NUL e so normaliza CRLF nos arquivos de texto. Um sha256Lf nao nulo num binario deste bloco significa que alguem mexeu no classificador.",
+      "notaDoCampoSha256Lf": "Ao contrario do bloco de 2026-09-13, aqui sha256Lf e null em TODO arquivo binario, e isso e propriedade do instrumento e nao coincidencia: scripts/inventario-de-vendors.mjs classifica texto por UTF-8 valido sem byte NUL e so normaliza CRLF nos arquivos de texto. Um sha256Lf nao nulo num binario deste bloco significa que alguem mexeu no classificador. Desde a saida do GDAL, neste bloco nao ha um unico arquivo binario: a invariante acima continua escrita porque ela reganha sujeito no dia em que um binario voltar, e o positivo que a discrimina mora no bloco de 2026-09-13, com os 166 sha256Lf rotulados como artefato do instrumento.",
       "manifestoCompleto": {
         "descricao": "Um registro por arquivo versionado das pastas cobertas, para que a proxima conferencia seja um diff e nao uma busca.",
         "esquema": [
@@ -3886,24 +3888,6 @@
             160921,
             "1e05fd18b0f5322ae52953498d4e5a35bfe713090d727c2c90d1b0e0f21f2eb7",
             "9123f808d3f6ad736b4a8f99944a611f87c5d4f9328030080a5c029ed5f450a5"
-          ],
-          [
-            "frontend/public/vendors/gdal/gdal3.js",
-            191137,
-            "304c0c73e2400476d44c5d9b22d8190faf3367c3069390ccad53d6f44905b81f",
-            null
-          ],
-          [
-            "frontend/public/vendors/gdal/gdal3WebAssembly.data",
-            11595145,
-            "e473e1e9f20af114bbb491d9cf7ef154986708a7ec763b22181c5e5f012f889e",
-            null
-          ],
-          [
-            "frontend/public/vendors/gdal/gdal3WebAssembly.wasm",
-            28219835,
-            "350eec4ce9ae4bc10bcafd8621463e057abdbb8f8372f0d8e0af06e6b8561835",
-            null
           ],
           [
             "frontend/public/vendors/milsymbol.min.js",
@@ -3984,9 +3968,10 @@
     },
     "gdalWasmCadeiaNativa": {
       "decisao": "D9 de 2026-09-14, item V4: as sete bibliotecas nativas sem versao determinavel ficam ACEITAS e declaradas como LISTA FECHADA, ao lado das que tem versao e do metodo pelo qual cada uma foi lida.",
-      "artefato": "frontend/public/vendors/gdal/gdal3WebAssembly.wasm",
+      "artefato": "frontend/node_modules/gdal3.js/dist/package/gdal3WebAssembly.wasm",
+      "artefatoAnterior": "frontend/public/vendors/gdal/gdal3WebAssembly.wasm, APAGADO em 2026-09-14 junto com a pasta inteira, quando a biblioteca passou a vir do npm pelo ponto unico frontend/src/js/vendor/gdal.js. As declaracoes desta secao NAO foram remedidas, e nao precisam ser: o binario e o MESMO, conferido por cmp byte a byte entre a copia versionada e a do pacote npm, e pelo sha256 350eec4ce9ae4bc10bcafd8621463e057abdbb8f8372f0d8e0af06e6b8561835, que o bloco vendorInventory2026_09_14 ainda carrega como evidencia datada. Todo offset, toda string e toda sondagem que falhou continuam valendo para este arquivo; o que mudou foi de onde ele vem. O mesmo vale para o pacote de dados (gdal3WebAssembly.data, 11595145 bytes, sha256 e473e1e9f20af114bbb491d9cf7ef154986708a7ec763b22181c5e5f012f889e), de onde saem as versoes de EPSG, ESRI e IGNF lidas do proj.db empacotado.",
       "bytes": 28219835,
-      "empacotador": "gdal3.js 2.8.1, resolvido por hash byte a byte contra o artefato publicado",
+      "empacotador": "gdal3.js 2.8.1, resolvido por hash byte a byte contra o artefato publicado, e desde 2026-09-14 declarado em versao EXATA no frontend/package.json e no lockfile, que e o canal de aviso que a copia em public/vendors nao tinha",
       "releituraIndependente": "Toda linha desta secao foi RELIDA em 2026-09-14, sobre este mesmo arquivo, por caminho independente do da medicao de 2026-09-13 (busca por string e caminhada das secoes de topo do modulo, em vez da leitura do fluxo). Os valores bateram, menos uma correcao e uma ressalva nova, ambas registradas abaixo. Esta releitura existe porque a entrada de 2026-09-13 nasceu justamente de a medicao anterior ter lido duas strings-armadilha como fato.",
       "naoHaMetadadoDeBuild": "O modulo tem DEZ secoes de topo (ids 1,2,3,4,5,6,7,9,10,11) e NENHUMA secao custom: nao existe secao `name` nem `producers`. A caminhada de 2026-09-14 fecha exatamente no fim do arquivo (28219835 bytes), o que e o controle de que ela nao parou no meio e concluiu ausencia por engano. Logo, nao ha metadado de build a consultar, e tudo o que segue vem de string na secao de dados.",
       "comVersaoDeterminada": [
@@ -4123,7 +4108,8 @@
       },
       "oCaminhoBaratoQueSOBROU": "O SpatiaLite empacotado expoe, como funcoes SQL, freexl_version(), proj_version(), sqlite_version() e spatialite_version(), mais HasFreeXL(). Elas foram encontradas como NOMES na sondagem de 2026-09-14, e respondem em RUNTIME o que a string nao responde no disco: uma consulta ao GDAL ja carregado fecharia de uma vez a presenca e a versao do FreeXL, e confirmaria PROJ, SQLite e SpatiaLite por um quinto caminho. Isso nao bloqueia o lancamento e e a proxima medicao barata deste item.",
       "oQueFecharIaAsSete": "O receituario de build do gdal3.js 2.8.1. O binario denuncia a arvore de build nos caminhos de assercao que carrega e NAO a empacota, entao o resultado seria uma afirmacao sobre o que o upstream DIZ ter compilado, e nao sobre o binario que temos.",
-      "aRemocaoDaSuperficie": "O GDAL aqui serve a UMA coisa, a conversao para PDF georreferenciado da folha unica; o mosaico ja sai por jsPDF sem GDAL nenhum. Avaliar se a folha unica pode sair pela mesma porta elimina 39,8 MB e a cadeia inteira, e e a unica opcao que remove o problema em vez de descreve-lo. Pergunta de medio prazo, nao de lancamento."
+      "aRemocaoDaSuperficie": "O GDAL aqui serve a UMA coisa, a conversao para PDF georreferenciado da folha unica; o mosaico ja sai por jsPDF sem GDAL nenhum. Avaliar se a folha unica pode sair pela mesma porta elimina 39,8 MB e a cadeia inteira, e e a unica opcao que remove o problema em vez de descreve-lo. Pergunta de medio prazo, nao de lancamento.",
+      "aPodaDe20260914NaoRemoveuNada": "A pasta frontend/public/vendors/gdal saiu da arvore versionada (40006117 bytes a menos no repositorio, e o dist/ deixou de receber uma copia verbatim de 39,8 MB por publicDir), e isso NAO reduz a superficie que esta secao descreve em um byte. Os mesmos 39,8 MB continuam sendo emitidos pelo Vite como assets com hash e continuam sendo baixados por quem exporta um PDF de folha unica; a cadeia nativa inteira continua no ar. O ganho da poda e de PROCEDENCIA (versao declarada, canal de aviso) e de tamanho de repositorio, nunca de superficie a auditar, e confundir os dois faria a pergunta de medio prazo acima parecer respondida."
     },
     "aholoViewerDeclarado": {
       "decisao": "D9 de 2026-09-14, item V5: registrar o que se determinou, declarar Draco e Basis como o ponto cego que resta, e pedir o manifesto ao fornecedor. A opcao de declarar semver e fflate como dependencias DIRETAS do frontend foi RECUSADA explicitamente.",

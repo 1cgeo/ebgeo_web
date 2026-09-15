@@ -6,9 +6,17 @@
  * POR QUE ELE EXISTE. Esta e a TERCEIRA onda de "tirar um vendor pesado do
  * `index.html`", e as duas primeiras deixaram duas copias literais do mesmo
  * corpo: `military_tools/military_symbol_tool/milsymbol-loader.js` (855 kB de
- * milsymbol) e `utilities/gdal-loader.js` (187 kB de gdal3.js). O corpo tem
- * quatro decisoes finas, e cada copia teria de repeti-las certas. A terceira
- * copia seria o momento de parar, e e este arquivo.
+ * milsymbol) e o carregador do GDAL (187 kB de gdal3.js). O corpo tem quatro
+ * decisoes finas, e cada copia teria de repeti-las certas. A terceira copia
+ * seria o momento de parar, e e este arquivo.
+ *
+ * SAO DOIS BENEFICIARIOS DESDE 2026-09-14, e nao tres: o carregador do GDAL saiu
+ * porque a biblioteca deixou de ser copia em `public/vendors/` e passou a vir do
+ * npm, por `import()` no ponto unico `js/vendor/gdal.js`. Nao ha mais tag a
+ * injetar para ela, e nenhuma das quatro decisoes abaixo se aplica a um `import()`
+ * dinamico: o navegador ja memoiza o modulo, ja sabe quando ele EXECUTOU (e nao so
+ * quando a resposta chegou) e ja resolve o endereco pelo bundler. Este arquivo
+ * segue vivo pelos dois que ainda sao tag, e encolhe junto com eles.
  *
  * AS QUATRO DECISOES, todas medidas antes de virarem codigo:
  *

@@ -69,8 +69,16 @@ Use a skill `new-tool`. Esta seção já teve uma cópia resumida do procediment
 não anuncia. `isMosaic` (`rows * cols > 1`) decide qual roda:
 
 - **Folha única: GDAL.** O mapa vira PNG e `gdal_translate` o converte com `-a_ullr` e
-  `-a_srs`, então a saída é PDF **georreferenciado**. GDAL é pré-inicializado ao abrir a
-  aba, não no primeiro uso.
+  `-a_srs`, então a saída é PDF **georreferenciado**. A biblioteca vem do npm
+  (`gdal3.js` 2.8.1) por um ponto único que a carrega sob demanda,
+  `frontend/src/js/vendor/gdal.js`; `frontend/public/vendors/gdal/` foi apagada em
+  2026-09-14, e nem o `.wasm` nem o `.data` são mais estáticos de `public/`. Esta linha
+  dizia que o GDAL é "pré-inicializado ao abrir a aba, não no primeiro uso", e isso era
+  falso desde antes de ser escrito: `_preInitGdal` só roda a partir de `show()`, e o
+  caminho normal da interface nunca chama `show()`, porque
+  `sidebar/tabs/export.tab.js:_renderPdfContent` inlina o corpo dele. Medido por sonda de
+  navegador em 2026-08-25: abrir a aba de PDF não dispara um pedido de GDAL. O ponto em que
+  a biblioteca de fato carrega é o CLIQUE em Exportar, dentro de `handleExport`.
 - **Mosaico R×C: jsPDF, sem GDAL nenhum.** `pdf-export.tab.js` faz `import()` dinâmico de
   `frontend/src/js/import_export/pdf-mosaic-export.js`, que monta folhas A4 full-bleed a
   partir de um único mapa oculto reusado por tile, todas no MESMO zoom e com os centros

@@ -125,10 +125,18 @@ describe('inventario de vendors: o script e o manifesto versionado', () => {
         // voltar sem ficar vermelho: normalizar CRLF num binario e tratar um
         // 0D 0A de conteudo comprimido como fim de linha, e o numero que sai
         // dali nao identifica nada. O bloco anterior tem 166 desses, rotulados.
+        //
+        // DESDE 2026-09-14 ESTE CONJUNTO E VAZIO, e a troca de `toBeGreaterThan(0)` por `toBe(0)`
+        // e deliberada: as duas migracoes para o npm daquele dia (o Cesium e o GDAL) levaram o
+        // ultimo binario das pastas cobertas, entao a invariante ficou SEM SUJEITO na arvore. Ela
+        // continua escrita porque reganha sujeito no dia em que um binario voltar; quem prova que
+        // o classificador continua discriminando sao os casos sinteticos de `ehTexto` e o
+        // controle negativo do eixo, que desde a mesma data FABRICA o binario que o disco nao
+        // oferece mais.
         const doc = JSON.parse(readFileSync(join(RAIZ, CAMINHO_DO_MANIFESTO), 'utf8'));
         const arquivos = doc[CHAVE_DO_BLOCO][CHAVE_DO_INVENTARIO].manifestoCompleto.arquivos;
         const binarios = new Set(medicoes.filter((m) => m.binario).map((m) => m.path));
-        expect(binarios.size).toBeGreaterThan(0);
+        expect(binarios.size).toBe(0);
         expect(arquivos.filter((t) => binarios.has(t[0]) && t[3] !== null)).toEqual([]);
     });
 
@@ -145,13 +153,24 @@ describe('inventario de vendors: o script e o manifesto versionado', () => {
 });
 
 describe('inventario de vendors: o eixo de comparacao', () => {
-    it('classifica binario e texto, e o binario nao ganha hash normalizado', () => {
-        const binarios = medicoes.filter((m) => m.binario);
-        expect(binarios.length).toBeGreaterThan(0);
-        expect(binarios.every((m) => m.sha256Lf === null)).toBe(true);
+    it('classifica binario e texto, e hoje nao ha um binario sequer nas pastas cobertas', () => {
+        // O eixo nao morreu com o ultimo binario: sobre TEXTO ele continua decidindo quem ganha
+        // hash normalizado e quem nao tem o que normalizar. Escrever o caso assim e o que o
+        // mantem com sujeito vivo depois das duas migracoes de 2026-09-14; `every` sobre uma
+        // lista vazia seria verde sem medir nada.
+        expect(medicoes.filter((m) => m.binario)).toEqual([]);
+        for (const m of medicoes) {
+            const bruto = readFileSync(join(RAIZ, m.path));
+            expect(m.sha256Lf === null, `${m.path}: sha256Lf nao casa com a presenca de CRLF`)
+                .toBe(normalizarCrlf(bruto) === null);
+        }
+        // CONTROLE DE VACUO do laco acima: os DOIS lados da implicacao existem na arvore de hoje
+        // (quatro arquivos em CRLF e um ja em LF), senao ele passaria verde medindo so um deles.
+        expect(medicoes.filter((m) => m.sha256Lf !== null)).toHaveLength(4);
+        expect(medicoes.filter((m) => m.sha256Lf === null)).toHaveLength(1);
     });
 
-    it('2 dos 8 sao binarios que CARREGAM o par 0D 0A por coincidencia', () => {
+    it('0 dos 5 sao binarios que CARREGAM o par 0D 0A, e o zero e o fim da serie', () => {
         // Este numero e a razao de o eixo existir: sem a classificacao, cada um deles e uma
         // divergencia fantasma. Se ele mudar, a poda ou a entrada de um vendor mexeu na
         // composicao da arvore, e a conferencia quer saber disso.
@@ -161,7 +180,8 @@ describe('inventario de vendors: o eixo de comparacao', () => {
         // cesium-measure e a saida do snapshot do Three.js tiraram seis arquivos de TEXTO em CRLF
         // (408 -> 402, e 166 -> 160 de texto em CRLF); a poda dos vendors sem consumidor tirou
         // quatro (402 -> 398), tres de texto em CRLF e um de texto em LF. Nenhuma tocou num
-        // binario.
+        // binario. Fosse um binario junto, este numero cairia, e a mudanca estaria alcancando
+        // mais do que anunciava.
         //
         // NA TERCEIRA MUDANCA DO MESMO DIA O NUMERADOR CAIU, E CAIU PORQUE DEVIA (V9, o
         // Cesium vindo do npm): 398 -> 8 arquivos e 166 -> 2 binarios com o par. Os 390 que
@@ -169,18 +189,29 @@ describe('inventario de vendors: o eixo de comparacao', () => {
         // `Widgets/Images/` sao PNG, JPG e WASM, ou seja, exatamente a familia que este caso
         // conta. Sobra `frontend/public/vendors/cesium/cesium-viewshed.js`, que e TEXTO e
         // continua sendo carregado por `<script>` em runtime porque le e escreve
-        // `window.Cesium`. Os DOIS binarios que restam sao os do GDAL
-        // (`gdal3WebAssembly.data` e `gdal3WebAssembly.wasm`).
+        // `window.Cesium`.
         //
-        // A leitura que este par de numeros permite e a que interessa: uma poda de 390 arquivos
-        // que deixasse um binario de OUTRO vendor para tras apareceria aqui como 3, e uma que
-        // levasse um a mais apareceria como 1.
+        // NA QUARTA O NUMERADOR ZEROU, pela mesma razao e num commit independente: o GDAL
+        // tambem passou a vir do npm (2026-09-14) e `frontend/public/vendors/gdal/` foi apagada
+        // inteira, tres arquivos, dos quais DOIS eram os binarios que restavam (o `.wasm` de
+        // 28,2 MB e o `.data` de 11,6 MB, que carregam 0D 0A dentro de conteudo comprimido); o
+        // terceiro e o wrapper, texto em LF. Dai 8 -> 5 e 2 -> 0. As duas contas fecham pelos
+        // dois lados: 398 - 390 - 3 = 5 arquivos, e 166 - 164 - 2 = 0 binarios com o par. Ele
+        // nao e um teto que se empurra, e sim uma segunda leitura das mesmas podas; quem o
+        // editar sem saber quais binarios sairam esta apagando a unica coisa que ele mede.
+        //
+        // A leitura que este par de numeros permite e a que interessa: uma poda que deixasse um
+        // binario de OUTRO vendor para tras apareceria aqui como 1, e nao como 0.
         const comParCrLf = medicoes.filter((m) => m.binario && normalizarCrlf(readFileSync(join(RAIZ, m.path))) !== null);
-        expect(comParCrLf).toHaveLength(2);
-        expect(comParCrLf.map((m) => m.path).sort()).toEqual([
-            'frontend/public/vendors/gdal/gdal3WebAssembly.data',
-            'frontend/public/vendors/gdal/gdal3WebAssembly.wasm',
-        ]);
+        expect(comParCrLf).toEqual([]);
+        expect(medicoes).toHaveLength(5);
+        // ZERO DE ARVORE LIMPA E ZERO DE FILTRO QUEBRADO SAO A MESMA SAIDA, e o disco nao
+        // oferece mais o positivo: ele e fabricado. Uma sequencia com byte NUL (logo binaria)
+        // que carrega o par tem de ser classificada como binaria E ter o par encontrado, que
+        // sao as duas metades do predicado do filtro acima.
+        const fabricado = Buffer.from([0x00, 0x1f, 0x0d, 0x0a, 0x8b]);
+        expect(ehTexto(fabricado)).toBe(false);
+        expect(normalizarCrlf(fabricado)).not.toBeNull();
     });
 
     it('ehTexto recusa NUL e UTF-8 invalido, e aceita texto acentuado', () => {
@@ -221,9 +252,22 @@ describe('inventario de vendors: o eixo de comparacao', () => {
         // A metade que o manifesto de 2026-09-12 errou. Um sha256Lf mentiroso num
         // arquivo binario NAO pode reprovar; o mesmo num arquivo de texto TEM de
         // reprovar, senao o eixo estaria apenas desligado.
-        const bin = medicoes.find((m) => m.binario);
+        //
+        // O lado BINARIO passou a ser FABRICADO em 2026-09-14: as duas migracoes para o npm
+        // daquele dia levaram o ultimo binario das pastas cobertas, e um controle negativo que
+        // dependesse de achar um no disco viraria um `undefined` silencioso, que e a forma exata
+        // do defeito que este bloco existe para impedir. Quem responde se a CLASSIFICACAO esta
+        // certa e `medirArquivos`, cobrado acima; aqui o que se mede e o COMPORTAMENTO de
+        // `compararManifestos` diante dela.
+        const bin = {
+            path: 'frontend/public/vendors/fabricado.wasm',
+            bytes: 5,
+            sha256: 'b'.repeat(64),
+            sha256Lf: null,
+            binario: true,
+        };
         const txt = medicoes.find((m) => !m.binario && m.sha256Lf !== null);
-        expect(bin && txt).toBeTruthy();
+        expect(txt).toBeTruthy();
 
         const mentira = 'a'.repeat(64);
         expect(compararManifestos([[bin.path, bin.bytes, bin.sha256, mentira]], [bin]).divergente).toEqual([]);

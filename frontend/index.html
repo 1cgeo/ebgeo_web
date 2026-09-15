@@ -696,17 +696,18 @@
          window.ms num navegador real mostrou que nada os lê durante o boot, nem
          em F5 com símbolo já na tela. Não recoloque a tag aqui sem medir de novo. -->
 
-    <!-- GDAL para export de PDF georreferenciado: carregado SOB DEMANDA, no clique
-         em Exportar (js/utilities/gdal-loader.js, chamado por `handleExport` em
-         import_export/pdf-export.tab.js). São 187 kB dos 4509 kB
-         de script que esta página baixava no boot, medidos no pacote de produção em
-         2026-08-25. Estava com `defer`, e `defer` adia QUANDO o script roda, nunca
-         SE ele baixa: a página pagava os 187 kB em toda carga, e de novo em cada
-         login, logout e troca de atlas. O único leitor é o pdf-export, e o
-         construtor dele não toca em GDAL. Os arquivos irmãos (.wasm e .data)
-         continuam resolvendo: o gdal3.js os acha pela opção `path` que o
-         pdf-export passa, e não pela posição desta tag. Não recoloque a tag aqui
-         sem medir de novo. -->
+    <!-- GDAL para export de PDF georreferenciado: também não está mais aqui, e desde
+         2026-09-14 não está nem em `public/vendors/`. Ele vem do npm (gdal3.js 2.8.1)
+         pelo ponto único js/vendor/gdal.js, que o carrega por `import()` no clique em
+         Exportar (`handleExport`, em import_export/pdf-export.tab.js). A tag saiu antes,
+         em 2026-08-25: eram 187 kB dos 4509 kB de script que esta página baixava no boot,
+         com `defer`, e `defer` adia QUANDO o script roda, nunca SE ele baixa, de modo que
+         a página os pagava em toda carga e de novo em cada login, logout e troca de atlas.
+         O que a vinda pelo npm acrescenta é que o `.wasm` (28,2 MB) e o `.data` (11,6 MB)
+         deixaram de ser estáticos de `public/` e passaram a ser assets emitidos pelo Vite,
+         com hash de conteúdo e respeitando o `base` do deploy: quem os busca é o
+         `Module.locateFile` do Emscripten, pelas duas URLs que o ponto único passa em
+         `paths`. Não recoloque a tag aqui sem medir de novo. -->
 
     <!-- ========================================
          SCRIPT PRINCIPAL (processado pelo Vite)
