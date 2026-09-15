@@ -7,7 +7,9 @@
 // pergunta é a simétrica e é DIFERENTE: no cliente não existe predicado nenhum, existe
 // UMA fonte de verdade por família, e o defeito é ler fora dela.
 //
-// AS DUAS FONTES, e é só isso que este arquivo mede:
+// AS TRÊS FONTES, e é só isso que este arquivo mede (eram duas até 2026-09-15, quando D17
+// fez o carimbo de escopo de atlas alcançar o tile e a terceira passou a ter consumidor
+// fora do 360):
 //
 //   1. O SINGLETON `config` — o catálogo do deploy, hidratado por `GET /api/config` no
 //      boot. Ele é MUTADO por `mergeGrantedIntoBaseline` quando o servidor diz o que
@@ -17,12 +19,18 @@
 //      exatamente o desenho. Quem guarda uma CÓPIA fica com o recurso depois do logout.
 //   2. O CACHE DE PROJETOS 360 de `streetview-api.service.js`, que desde a fase F9 é
 //      CHAVEADO POR ESCOPO `(usuário, atlas em foco)`.
+//   3. O CARIMBO DE ESCOPO DE ATLAS — o `?atlasId=` que diz ao servidor QUAL empréstimo o
+//      pedido quer usar. Ele não é transporte de credencial e sim uma das duas entradas do
+//      predicado, e é a ÚNICA que o visitante de link público tem. O porquê por extenso
+//      está nas classes `DONO_ESCOPO`/`ESCREVE_CARIMBO`/`CARIMBA_ESCOPO`, abaixo.
 //
 // O MODO DE FALHA QUE ISTO PEGA é o inverso do de servidor, e é mais silencioso: no
 // servidor um filtro que falta VAZA; aqui um consumidor que lê fora da fonte fica com
 // dado VELHO — o recurso concedido some da tela (parece um bug de UI) ou, pior, o
 // recurso emprestado por um atlas continua visível depois de sair dele, e nada fica
-// vermelho porque uma lista é uma resposta bem-formada nos dois casos.
+// vermelho porque uma lista é uma resposta bem-formada nos dois casos. Na terceira fonte
+// o modo de falha é primo: o pedido sem carimbo recebe o subconjunto PÚBLICO, que também é
+// resposta bem-formada, e a camada emprestada simplesmente não desenha.
 //
 // A VARREDURA VEM DO VERSIONAMENTO (`git ls-files -co --exclude-standard src/js`), nunca
 // de uma lista escrita aqui: conferir um subconjunto e tratá-lo como o conjunto é a lição
@@ -82,6 +90,26 @@ const SEM_SINGLETON = 'toca-o-catalogo-sem-o-singleton';
 const CACHE_360 = 'consome-o-cache-de-projetos';
 const DONO_CACHE = 'dono-do-cache-de-projetos';
 const OUTRO_MODULO = 'homonimo-da-calibracao';
+
+/**
+ * Classes da TERCEIRA fonte, que entrou com D17 (2026-09-15): o CARIMBO DE ESCOPO DE ATLAS.
+ *
+ * POR QUE ELA É UMA FONTE, e não um detalhe de transporte. O que a pessoa enxerga de privado
+ * sai de duas entradas do servidor: quem pergunta, e QUAL ATLAS está em foco. A segunda só
+ * chega ao servidor se o cliente a escrever no pedido, e ela é a ÚNICA autorização que o
+ * visitante de link público tem. Uma superfície que fale com o servidor e esqueça o carimbo
+ * não devolve erro: devolve o subconjunto PÚBLICO, que é resposta bem-formada, e o recurso
+ * emprestado some da tela sem nada ficar vermelho. Foi assim que o tile passou de 2026-08-29
+ * a 2026-09-15 com a cláusula 6.7 aberta, e assim que as catorze rotas de leitura do 360
+ * ficaram meses sem escopo enquanto os tiles delas já o tinham.
+ *
+ * O CENSO É SOBRE O CONJUNTO, não sobre cada chamada: quem toca o carimbo declara por quê,
+ * para que a superfície nova nasça classificada em vez de ser descoberta por um usuário que
+ * não vê a camada que o atlas lhe empresta.
+ */
+const DONO_ESCOPO = 'dono-do-escopo-de-atlas';
+const ESCREVE_CARIMBO = 'escreve-o-carimbo-na-url';
+const CARIMBA_ESCOPO = 'carimba-o-escopo-no-pedido';
 
 /** Motivos que se repetem, escritos uma vez. */
 const LE_TILESETS = 'Lê `config.tilesets` do singleton, que é onde o modelo 3D concedido aparece e '
@@ -364,6 +392,105 @@ const CENSO = [
         motivo: 'Chama o `fetchProjects` da linha acima, o da calibração, e não o do 360 do mapa. '
             + 'Mesma razão de inclusão: um censo com homônimo silencioso engana quem o lê.',
     },
+
+    // ================= a terceira fonte: o carimbo de escopo de atlas ========
+    {
+        arquivo: 'src/js/store/sync/resource-scope.js', gatilho: 'escopo', n: 1,
+        classe: DONO_ESCOPO,
+        motivo: 'O DONO: ele guarda a identidade do escopo sob o qual o servidor decidiu o que '
+            + 'este cliente enxerga, e `currentResourceAtlasId` é a metade que quem precisa MANDAR '
+            + 'o atlas ao servidor lê. Quem o escreve é `resource-access.service.js`, e só ele, '
+            + 'para que o carimbo e o payload aditivo não possam discordar. Folha de ZERO imports '
+            + 'por contrato, porque o leitor dele mora em chunk lazy.',
+    },
+    {
+        arquivo: 'src/js/street_view_tool/tile-scope.js', gatilho: 'escopo', n: 3,
+        classe: ESCREVE_CARIMBO,
+        motivo: 'A RECEITA: `stampAtlasOnUrl` é o único lugar que decide COMO `?atlasId=` é '
+            + 'escrito numa URL, e `stampAtlasOnTiles` a aplica a um spec de fonte do MapLibre. '
+            + 'Ele mora sob `street_view_tool/` por história (o MVT do 360 foi o primeiro '
+            + 'chamador) e é geral: desde D17 (2026-09-15) o tile do servidor de tiles passa por '
+            + 'ele também. Um segundo `?atlasId=` escrito à mão em qualquer lugar é o defeito '
+            + 'voltando, porque a regra espalhada por N sítios falha no sítio que ninguém lembrou.',
+    },
+    {
+        arquivo: 'src/js/store/sync/assets3d-request.js', gatilho: 'escopo', n: 3,
+        classe: ESCREVE_CARIMBO,
+        motivo: 'A SEGUNDA receita, e ela é deliberadamente MAIS ESTREITA que a de cima: '
+            + '`escoparUrlDeAsset` recusa endereço de outra ORIGEM, porque no acervo 3D um '
+            + 'endereço cross-origin significa TERCEIRO (o `config.url` de catálogo é texto livre '
+            + 'digitado por um produtor). A de cima carimba qualquer origem de propósito, porque '
+            + 'lá o endereço vem do `/api/config` e nomeia serviço nosso. Duas funções, dois '
+            + 'contratos, e trocá-las de lugar vaza ou apaga: está escrito nos dois cabeçalhos.',
+    },
+    {
+        arquivo: 'src/js/map/credencial-de-tile.js', gatilho: 'escopo', n: 3,
+        classe: CARIMBA_ESCOPO,
+        motivo: 'O `transformRequest` do MapLibre, e a superfície que D17 (2026-09-15) fechou: o '
+            + 'tile das DUAS bases credenciadas (o serviço 360 e o servidor de tiles) passou a '
+            + 'levar o atlas em foco, sem o que o ramo de empréstimo do predicado do servidor '
+            + 'nunca é exercido e a camada que só ele alcança aparece na lista sem desenhar. O '
+            + 'carimbo é INDEPENDENTE do cabeçalho de credencial e vale sem sessão, porque é ele '
+            + 'que alcança o visitante de link público. Ele NÃO vai a host de terceiro nem a '
+            + 'glifo do mesmo host: a comparação é por origem mais fronteira de caminho.',
+    },
+    {
+        arquivo: 'src/js/street_view_tool/streetview-api.service.js', gatilho: 'escopo', n: 6,
+        classe: CARIMBA_ESCOPO,
+        motivo: 'As catorze rotas de leitura do 360 do mapa, todas montadas por uma função só. É '
+            + 'a superfície que ensinou a lição desta fonte: o servidor honrava `?atlasId=` desde '
+            + '2026-08-18 e o cliente o escrevia SÓ nos tiles, então o mapa provava que existia '
+            + 'uma panorâmica emprestada (um ponto na camada 2D) e todo o resto a recusava.',
+    },
+    {
+        arquivo: 'src/js/street_view_tool/tile-loader.js', gatilho: 'escopo', n: 4,
+        classe: CARIMBA_ESCOPO,
+        motivo: 'A pirâmide de tiles da panorâmica: o descritor e cada URL resolvida contra ele. '
+            + 'O escopo é lido A CADA USO e nunca congelado no load do módulo, porque este '
+            + 'arquivo é cópia declarada do `ebgeo_360` e sobrevive a trocas de atlas. É um dos '
+            + 'seis trechos de adaptação listados em `.claude/rules/common-tasks.md`.',
+    },
+    {
+        arquivo: 'src/js/first_person_3d_tool/scene-config.service.js', gatilho: 'escopo', n: 3,
+        classe: CARIMBA_ESCOPO,
+        motivo: 'Os assets da cena caminhável (Gaussian splatting), buscados por `fetch` nosso. '
+            + 'Aqui o carimbo é a metade que o cabeçalho não cobre e vice-versa: o `?atlasId=` '
+            + 'cobre o EMPRÉSTIMO e sobrevive a um `<img>`; o cabeçalho cobre o papel global e a '
+            + 'concessão pessoal, e não sobrevive a endereço de outra origem.',
+    },
+    {
+        arquivo: 'src/js/catalog/components/preview-video.modal.js', gatilho: 'escopo', n: 2,
+        classe: CARIMBA_ESCOPO,
+        motivo: 'A prévia em vídeo do item de catálogo. `<video src>` é buscado pelo NAVEGADOR, '
+            + 'que não carrega `Authorization`, então o `?atlasId=` é a única autorização que '
+            + 'atravessa para o recurso emprestado. Desde D14 (2026-09-14) aquele arquivo tem '
+            + 'gate de verdade, e sem o carimbo o gate recusa quem só tem o empréstimo.',
+    },
+    {
+        arquivo: 'src/js/session/erro-telemetria.js', gatilho: 'escopo', n: 2,
+        classe: CARIMBA_ESCOPO,
+        motivo: 'O relato de erro carrega o atlas em foco como CONTEXTO, e não como autorização: '
+            + 'é o único desta classe que manda o escopo para uma rota que não serve recurso '
+            + 'nenhum. Está no censo por isso, e não apesar disso: ele recebe o leitor como '
+            + 'PARÂMETRO com valor padrão, que é a forma que um gatilho exigindo parêntese não '
+            + 'veria, e é a razão de o gatilho casar a referência nua.',
+    },
+    {
+        arquivo: 'src/js/calibration/api.js', gatilho: 'escopo', n: 3,
+        classe: CARIMBA_ESCOPO,
+        motivo: 'O cliente HTTP do estúdio de calibração, que carimba pela MESMA função do mapa '
+            + 'para que não nasça uma segunda noção de escopo naquela página. Hoje o valor ali é '
+            + 'SEMPRE nulo (a calibração não monta atlas), e isso é de propósito: o dia em que '
+            + 'ela abrir um atlas, o carimbo já está no lugar certo.',
+    },
+    {
+        arquivo: 'src/js/calibration/project-map.js', gatilho: 'escopo', n: 5,
+        classe: CARIMBA_ESCOPO,
+        motivo: 'O mapa de projeto e o minimapa do estúdio, que buscam o descritor de tiles e as '
+            + 'imagens dele. A armadilha registrada ali é de URL relativa: `new URL(\'tiles/0/0/0\', '
+            + 'base)` NÃO herda a query da base, então cada endereço resolvido precisa do carimbo '
+            + 'outra vez, e é por isso que este arquivo tem cinco linhas e não duas.',
+    },
 ];
 
 /** As chaves de `config` que o dono do baseline PRECISA tratar. */
@@ -404,10 +531,20 @@ function arquivosDoInventario(pathspec = 'src/js') {
     ).split('\n').map((s) => s.trim()).filter((s) => s.endsWith('.js'));
 }
 
-/** As cinco chaves de catálogo de `config`, e o par de nomes do cache de projetos. */
+/**
+ * As cinco chaves de catálogo de `config`, o par de nomes do cache de projetos, e os quatro
+ * nomes do carimbo de escopo.
+ *
+ * O TERCEIRO CASA A REFERÊNCIA NUA, e não só a chamada, ao contrário do segundo: um consumidor
+ * pode receber o leitor de escopo como VALOR e chamá-lo depois (é o que
+ * `session/erro-telemetria.js` faz, por parâmetro com valor padrão), e um gatilho que exigisse
+ * o parêntese não o veria. O preço é que a linha de `import` também conta, e isso é justo: um
+ * arquivo que importa o carimbo é um arquivo que fala escopo com o servidor.
+ */
 const GATILHOS = {
     catalogo: /\.(tilesets|dataLayers|analysisLayers|basemaps|basemapStyles)\b/,
     projetos: /getCachedProjects\(|fetchProjects\(/,
+    escopo: /\b(?:stampAtlasOnUrl|stampAtlasOnTiles|escoparUrlDeAsset|currentResourceAtlasId)\b/,
 };
 
 /** A mesma lista do gatilho de catalogo, global, para colher QUAIS grupos a linha le. */
@@ -610,7 +747,8 @@ describe('Censo das superfícies de recurso no cliente (fase F9)', () => {
 
     it('toda entrada tem classe válida e motivo escrito', () => {
         const classes = [BASELINE, DONO_BASELINE, SEM_OVERLAY, SEM_EIXO, SEM_SINGLETON,
-            CACHE_360, DONO_CACHE, OUTRO_MODULO];
+            CACHE_360, DONO_CACHE, OUTRO_MODULO,
+            DONO_ESCOPO, ESCREVE_CARIMBO, CARIMBA_ESCOPO];
         const ruins = CENSO
             .filter((e) => !classes.includes(e.classe) || !e.motivo || e.motivo.length < 60)
             .map((e) => `${e.arquivo} (${e.gatilho})`);
@@ -619,6 +757,32 @@ describe('Censo das superfícies de recurso no cliente (fase F9)', () => {
         // Cada fonte tem UM dono, e exatamente um: dois donos é o começo de duas verdades.
         expect(CENSO.filter((e) => e.classe === DONO_BASELINE)).toHaveLength(1);
         expect(CENSO.filter((e) => e.classe === DONO_CACHE)).toHaveLength(1);
+        expect(CENSO.filter((e) => e.classe === DONO_ESCOPO)).toHaveLength(1);
+    });
+
+    it('as DUAS receitas do carimbo continuam folhas, e o dono do escopo também', () => {
+        // O ESPELHO DA TERCEIRA FONTE, e ele não é estilo. Os três arquivos declaram, cada
+        // um no próprio cabeçalho, que não importam nada, e a razão é a mesma nos três: os
+        // leitores deles moram em chunk lazy e em página que boota sem a store, então um
+        // import aqui arrasta o cliente HTTP, o contexto de sessão ou a store inteira atrás
+        // de uma pergunta de uma linha. É a propriedade que permite ao carimbo ser UM só
+        // para o mapa, para o 360, para o 3D e para a calibração; perdê-la é o começo da
+        // segunda cópia, que é o defeito que esta fonte inteira existe para impedir.
+        //
+        // `resource-scope.js` é zero imports LITERAL. Os outros dois têm import próprio de
+        // biblioteca nenhuma: `tile-scope.js` é zero também, e `assets3d-request.js` importa
+        // só dentro do próprio store (é ele que precisa do token), então a asserção dele é a
+        // mais fraca de propósito e mede o que ele promete: nada de fora de `store/sync/`.
+        const folhas = ['src/js/store/sync/resource-scope.js', 'src/js/street_view_tool/tile-scope.js'];
+        for (const arquivo of folhas) {
+            const imports = lerCodigo(arquivo).match(/^\s*import[\s{'"]/gm) ?? [];
+            expect(imports, `${arquivo} precisa continuar sem import nenhum`).toEqual([]);
+        }
+        const doAsset = [...lerCodigo('src/js/store/sync/assets3d-request.js').matchAll(/from '([^']+)'/g)]
+            .map((m) => m[1]);
+        expect(doAsset.length, 'a medição de `assets3d-request.js` seria vácua sem import nenhum')
+            .toBeGreaterThan(0);
+        expect(doAsset.filter((e) => !e.startsWith('./'))).toEqual([]);
     });
 
     it('a varredura REPROVA um consumidor novo não classificado (provado com fixture)', () => {

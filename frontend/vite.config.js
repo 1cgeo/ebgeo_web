@@ -332,6 +332,18 @@ export default defineConfig(({ mode: _mode }) => ({
             return 'core';
           }
 
+          // THERE IS NO FOURTH CASE FOR `street_view_tool/tile-scope`, AND IT WAS MEASURED.
+          // D17 (2026-09-15) made `map/credencial-de-tile.js` stamp the atlas scope on every
+          // tile request, which means the map ENTRY now statically reaches `tile-scope.js` —
+          // a module that lives under `street_view_tool/` and therefore falls into the lazy
+          // `street-view` group below. That is textbook shape for the circular pair above, so
+          // the pin was written and built. Two full builds, with the rule and without it: the
+          // module lands in the SAME eager chunk both times, down to the content hash
+          // (`assets/calibration-rCmok1Tn.js`, preloaded by `dist/index.html`), because
+          // `entriesAware` had already split the group by the entry set that reaches it (map +
+          // calibration). The rule was inert, and an inert rule is worse than no rule — the
+          // same verdict the MapLibre and Cesium blocks record. Re-measure before adding one.
+
           // ===== CALIBRAÇÃO 360 (calibracao.html) =====
           // Só esta página alcança estes módulos, e ela não alcança nada do mapa. Sem o grupo
           // próprio eles cairiam no bundle da entrada e se misturariam com o que `entriesAware`

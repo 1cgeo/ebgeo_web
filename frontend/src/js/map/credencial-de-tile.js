@@ -35,6 +35,37 @@
  * Isso não custa nada aqui: o token é lido no instante do PEDIDO, não no da criação do
  * mapa, e o boot restaura a sessão do `localStorage` antes de `createMap()`.
  *
+ * ELE CARREGA DUAS COISAS, E SÓ UMA DELAS É CREDENCIAL (decisão D17, 2026-09-15). O
+ * cabeçalho diz QUEM pede; o `?atlasId=` diz QUAL EMPRÉSTIMO o pedido quer usar, e o UUID
+ * não é senha: o servidor roda `requireAtlasPermission('read')` sobre o que chegar. Sem o
+ * carimbo, o ramo de empréstimo de `fn_granted_resource_ids` nunca era exercido no tile, e
+ * a cláusula 6.7 registrava isso como defeito medido: quem alcança a camada SÓ pelo
+ * empréstimo a via na lista e recebia 401 nos bytes. Os dois viajam JUNTOS porque cobrem
+ * pessoas diferentes: o membro sem concessão própria precisa do atlas, e quem tem concessão
+ * pessoal sem atlas aberto precisa do cabeçalho.
+ *
+ * POR QUE AQUI, se o `fileoverview` de `street_view_tool/tile-scope.js` ELIMINA o
+ * `transformRequest` como lugar de carimbo. A medição dele continua valendo e a conclusão
+ * não se transporta, porque o sujeito é outro. Lá o carimbo escolhe CONTEÚDO: o mesmo
+ * z/x/y do MVT do 360 devolve feições diferentes por atlas, e o `TileManager` chaveia por
+ * z/x/y, então um tile carregado sob o atlas A seria reentregue dentro do B sem pedido
+ * nenhum — vazamento. Aqui o carimbo só autoriza a BUSCA: `/tiles/<fonte>/z/x/y` de uma
+ * camada de dados tem o mesmo corpo para todo mundo, e o que o atlas decide é se o gate
+ * entrega ou recusa. O que a reutilização por z/x/y produz, então, não é conteúdo de outro
+ * escopo: é um tile que a pessoa JÁ baixou continuar na tela depois de trocar de atlas, que
+ * é a mesma parcialidade já declarada para a camada viva do mapa depois de uma revogação
+ * (`docs/wiki/acesso-a-recurso-privado.md`). E a alternativa (carimbar cada URL de fonte na
+ * montagem do estilo) é a regra espalhada por N sítios que aquele mesmo arquivo condena:
+ * o endereço entra no estilo por `source`, por `labelSource`, pelo raster de análise e por
+ * `style.sources.*` de basemap, e o índice do servidor existe justamente porque essas
+ * quatro famílias já foram esquecidas uma a uma.
+ *
+ * O PREÇO, dito em voz alta: com um atlas em foco, TODO tile das duas bases sai com
+ * `?atlasId=`, inclusive o da camada pública, porque o cliente não sabe quais endereços
+ * pertencem a linha privada — saber exigiria uma segunda cópia de `tile-regime.js` aqui.
+ * Um cache de borda passa a guardar uma cópia do tile público por atlas. Não foi medido, e
+ * a alternativa medível (perguntar ao servidor por endereço) custaria uma ida por fonte.
+ *
  * O QUE ELE NÃO ALCANÇA, e precisa ficar dito: `img.src` e `<video src>`. Não há API para
  * carimbar cabeçalho neles, e é por isso que o cookie continua sendo o transporte do
  * `img.src` da cena indoor. Para o visitante de link público, que não tem cookie, aquelas
@@ -45,6 +76,8 @@
  */
 import config from '../config.js';
 import { apiClient } from '@store/sync/api-client.js';
+import { currentResourceAtlasId } from '@store/sync/resource-scope.js';
+import { stampAtlasOnUrl } from '../street_view_tool/tile-scope.js';
 
 /**
  * Uma base configurada como `URL`, ou `null` quando ela não existe.
@@ -99,12 +132,26 @@ export function ehUrlCredenciada(url) {
 /**
  * O `transformRequest` a passar a toda construção de mapa que precise ver dado privado.
  *
+ * DUAS METADES INDEPENDENTES, e cada uma pode faltar sozinha. O carimbo de atlas vale
+ * mesmo SEM token, e é isso que alcança o visitante anônimo de um atlas `is_public`: ali o
+ * `requireAtlasPermission('read')` do servidor concede leitura sem principal nenhum, então
+ * recusar o carimbo por falta de sessão apagaria exatamente o caso da cláusula 6.3. O
+ * cabeçalho vale mesmo SEM atlas, que é quem tem concessão pessoal no mapa local.
+ *
+ * O `undefined` CONTINUA SENDO A RESPOSTA QUANDO NÃO HÁ NADA A ACRESCENTAR, e não um
+ * `{ url }` inerte: o MapLibre lê o falso como "deixe como está", e devolver um objeto
+ * igual à entrada faria toda faixa de glifo passar por uma alocação por pedido sem mudar
+ * uma vírgula da requisição.
+ *
  * @param {string} url - A URL que o MapLibre quer.
- * @returns {{url: string, headers: Object}|undefined}
+ * @returns {{url: string, headers?: Object}|undefined}
  */
 export function credencialDeTile(url) {
     if (!ehUrlCredenciada(url)) return undefined;
+    // `stampAtlasOnUrl` é idempotente e devolve a entrada quando não há atlas em foco, então
+    // a comparação por identidade abaixo é o teste de "mudou alguma coisa?".
+    const alvo = stampAtlasOnUrl(url, currentResourceAtlasId());
     const token = apiClient?.getAccessToken?.();
-    if (!token) return undefined;
-    return { url, headers: { Authorization: `Bearer ${token}` } };
+    if (!token) return alvo === url ? undefined : { url: alvo };
+    return { url: alvo, headers: { Authorization: `Bearer ${token}` } };
 }
