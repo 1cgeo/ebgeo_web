@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import {
     montarPendencias,
     classeDeProblema,
+    mapIdsCitados,
     PendenciaEstado,
 } from '@js/account/pendencias/pendencias-rows.js';
 import {
@@ -27,6 +28,7 @@ import {
     classeExplicacao,
     contadoresVisiveis,
     dataLabel,
+    localDoItem,
     tipoDeEntidadeLabel,
     tituloDoPainel,
     unidadeLabel,
@@ -80,7 +82,7 @@ describe('montarPendencias: as três fontes viram uma lista', () => {
         expect(linha.classeLabel).toBe('Conflito');
         expect(linha.origem).toBe(PendenciaOrigem.FILA);
         expect(linha.entidade).toMatchObject({ tipo: 'layer', tipoLabel: 'Camada', nome: 'Talhão 3' });
-        expect(linha.mapa).toEqual({ id: 'mapa-1', nome: 'Principal' });
+        expect(linha.mapa).toEqual({ id: 'mapa-1', nome: 'Principal', ausente: false });
         expect(linha.motivo).toBe('Os mesmos campos foram alterados no servidor.');
         expect(linha.unidades).toEqual([
             { unidade: 'nome', label: 'Nome' },
@@ -224,7 +226,8 @@ describe('montarPendencias: os três estados da lista', () => {
 });
 
 describe('montarPendencias: nomes, ids e unidades desconhecidas', () => {
-    it('cai no id quando nome de mapa e nome de item não resolvem', () => {
+    it('cai no id quando o nome do item não resolve e o do mapa é DESCONHECIDO', () => {
+        // `undefined` é "não deu para saber", e é o único desfecho em que o id vai para a tela.
         const modelo = montarPendencias({
             problemas: [{
                 operation: op({ data: null }),
@@ -232,11 +235,61 @@ describe('montarPendencias: nomes, ids e unidades desconhecidas', () => {
                 recordedAt: 1,
                 classe: IssueClass.RECUSA,
             }],
-            nomeDoMapa: () => null,
+            nomeDoMapa: () => undefined,
         });
         expect(modelo.linhas[0].entidade.nome).toBeNull();
         expect(modelo.linhas[0].entidade.id).toBe('camada-1');
-        expect(modelo.linhas[0].mapa).toEqual({ id: 'mapa-1', nome: null });
+        expect(modelo.linhas[0].mapa).toEqual({ id: 'mapa-1', nome: null, ausente: false });
+        expect(localDoItem(modelo.linhas[0].mapa)).toBe(', no mapa «mapa-1»');
+    });
+
+    it('DECLARA o mapa removido quando a leitura respondeu que ele não está mais no atlas', () => {
+        // CAUSA-RAIZ que este caso prende, medida em 2026-09-15: a linha lia o nome do resolvedor
+        // em memória, que fica VAZIO logo depois de um F5 num atlas de servidor, e a tela mostrava
+        // «6a54a5f6-8ffb-4e9d-887a-b8686764fb9d» no lugar de «Mapa Tático». Lido o disco, sobram
+        // dois vazios com significados opostos, e eles não podem virar a mesma frase.
+        const modelo = montarPendencias({
+            problemas: [{ operation: op(), result: {}, recordedAt: 1, classe: IssueClass.RECUSA }],
+            nomeDoMapa: () => null,
+        });
+        expect(modelo.linhas[0].mapa).toEqual({ id: 'mapa-1', nome: null, ausente: true });
+        expect(localDoItem(modelo.linhas[0].mapa)).toBe(', num mapa removido');
+    });
+
+    it('sem resolvedor nenhum, NADA é afirmado sobre o mapa: o padrão é desconhecido', () => {
+        // O padrão não pode ser `null`: ele diria a toda linha de todo chamador que não injeta
+        // resolvedor que o mapa dela foi removido, que é uma afirmação que ninguém mediu.
+        const modelo = montarPendencias({
+            problemas: [{ operation: op(), result: {}, recordedAt: 1, classe: IssueClass.RECUSA }],
+        });
+        expect(modelo.linhas[0].mapa).toEqual({ id: 'mapa-1', nome: null, ausente: false });
+    });
+
+    it('nome de mapa em branco não vira nome: ele conta como desconhecido', () => {
+        const modelo = montarPendencias({
+            problemas: [{ operation: op(), result: {}, recordedAt: 1, classe: IssueClass.RECUSA }],
+            nomeDoMapa: () => '   ',
+        });
+        expect(modelo.linhas[0].mapa).toEqual({ id: 'mapa-1', nome: null, ausente: false });
+    });
+
+    it('os mapas citados saem do MESMO campo que as linhas leem', () => {
+        // Se as duas leituras divergirem, a tabela de nomes é montada para um conjunto de mapas e
+        // consultada para outro, e o sintoma é o id de volta na tela.
+        const citados = mapIdsCitados({
+            problemas: [
+                { operation: op() },
+                { operation: op({ mapId: 'mapa-2' }) },
+                { operation: op() },
+                { operation: op({ mapId: null }) },
+                { operation: null },
+                null,
+            ],
+            quarentena: [{ operation: op({ mapId: 'mapa-3' }) }],
+        });
+        expect(citados).toEqual(['mapa-1', 'mapa-2', 'mapa-3']);
+        expect(mapIdsCitados()).toEqual([]);
+        expect(mapIdsCitados({ problemas: [{ operation: op({ mapId: '' }) }] })).toEqual([]);
     });
 
     it('lê o nome da feição de properties.nome e ignora string vazia', () => {
@@ -282,6 +335,9 @@ describe('montarPendencias: nomes, ids e unidades desconhecidas', () => {
             problemas: [{ operation: op({ mapId: null }), result: {}, recordedAt: 1, classe: IssueClass.RECUSA }],
         });
         expect(modelo.linhas[0].mapa).toBeNull();
+        // Linha que não cita mapa não ganha trecho de lugar nenhum, nem a frase do removido.
+        expect(localDoItem(modelo.linhas[0].mapa)).toBe('');
+        expect(localDoItem(undefined)).toBe('');
     });
 });
 

@@ -163,6 +163,28 @@ const UNIDADE_LABEL = Object.freeze({
 /** O motivo que se mostra quando o resultado guardado não traz nenhum. */
 export const MOTIVO_DESCONHECIDO = 'O servidor não disse por quê.';
 
+/**
+ * ONDE O ITEM ESTÁ, e os três desfechos são três frases diferentes de propósito.
+ *
+ * O UUID na tela foi o defeito medido em 2026-09-15: com o resolvedor de nomes FRIO (logo depois
+ * de um F5 num atlas de servidor ele fica vazio), a linha dizia "no mapa «6a54a5f6-8ffb-...»", que
+ * não casa com nada que a pessoa veja no produto. O nome passou a ser lido do disco, e sobraram
+ * dois desfechos sem nome, que NÃO podem virar a mesma frase: um mapa que o atlas montado
+ * comprovadamente não tem (a leitura respondeu, e respondeu nada) e um mapa sobre o qual a leitura
+ * não conseguiu afirmar coisa alguma. O primeiro é dito em palavras; o segundo continua mostrando
+ * o id, porque um id feio é pior que um nome e melhor que uma afirmação que ninguém mediu.
+ *
+ * A frase do ausente NÃO vai entre aspas angulares: «mapa removido» se leria como o NOME do mapa.
+ * @param {{id: string, nome: (string|null), ausente: boolean}|null|undefined} mapa - `linha.mapa`.
+ * @returns {string} O trecho a colar depois do item, ou vazio quando a linha não cita mapa nenhum.
+ */
+export function localDoItem(mapa) {
+    if (!mapa) return '';
+    if (mapa.nome) return `, no mapa «${mapa.nome}»`;
+    if (mapa.ausente === true) return ', num mapa removido';
+    return `, no mapa «${mapa.id}»`;
+}
+
 /** A lista vazia HONESTA: nada guardado, e a leitura funcionou. */
 export const ESTADO_VAZIO_TITULO = 'Nenhuma pendência';
 

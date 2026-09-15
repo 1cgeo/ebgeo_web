@@ -20,6 +20,10 @@ Duas finuras: o sinal de recuperação vem de `storeWritesPaused`, um leitor pur
 
 **A CLASSE e a ORIGEM viajam separadas**, e a razão é que uma recusa preservada é ao mesmo tempo uma recusa e algo de uma sessão anterior; juntá-las numa coluna obriga a escolher qual das duas o leitor perde. E **a falha de leitura é um ESTADO, nunca lista vazia**, porque lista vazia é a afirmação a partir da qual alguém decide sair da conta e aceitar perder pendências.
 
+**O NOME DO MAPA É UMA QUARTA LEITURA, e ela é de disco.** A tabela em memória (`mapResolver`) é zerada e remontada a cada retrato do servidor, então logo depois de um F5 num atlas de servidor existe uma janela em que ela está vazia: enquanto a linha lia só dela, a tela mostrava o UUID do mapa no lugar do nome, medido em 2026-09-15. Hoje a memória é o atalho, o disco é a fonte e o achado volta para a memória, de modo que a leitura custa uma vez por mapa e por sessão; a MESMA tabela responde também a trava do comando, porque enquanto as duas perguntas iam a fontes diferentes uma podia estar certa e a outra errada ao mesmo tempo.
+
+**E o mapa que não resolve tem DOIS desfechos, não um** (`localDoItem`): dito em palavras quando a lista de mapas do atlas foi lida e aquele id não está nela, e o id cru quando não deu para saber. A afirmação de remoção exige que a lista de chaves tenha vindo NÃO VAZIA e que toda chave seja UUID, que é a forma do atlas de servidor: a lista vazia é exatamente a janela do retrato em curso, e ali dizer "mapa removido" seria mentir sobre um mapa que está desenhado atrás do painel. Nessa janela a tela mostra o id e a batida de 3 s a corrige.
+
 ## As três ações, e o que elas não fazem
 
 - **Aceitar o servidor** remove a tentativa e o que estava parado atrás dela, com a confirmação nomeando QUANTAS, e pede o estado atual por `resync`.

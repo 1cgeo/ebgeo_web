@@ -36,7 +36,7 @@ import { showConfirm } from '@modals/confirm.modal.js';
 import { showError, showSuccess, showToast, showWarning } from '@utils/toast_service.js';
 import { connectionState, ConnectionStates } from '@store/sync/connection-state.js';
 import { montarPendencias, PendenciaEstado } from './pendencias-rows.js';
-import { lerMapasTravados, lerPendencias, nomeDoMapa } from './pendencias-leitura.js';
+import { lerMapasTravados, lerPendencias } from './pendencias-leitura.js';
 import {
     aceitarOServidor,
     acoesDaLinha,
@@ -59,6 +59,7 @@ import {
     confirmacaoDeAceitar,
     confirmacaoDeDescartar,
     contadoresVisiveis,
+    localDoItem,
     reaplicacaoFeita,
     tituloDoPainel,
 } from './pendencias-phrases.js';
@@ -220,12 +221,16 @@ export class PendenciasPanel extends ModalBase {
         // O painel pode ter sido fechado enquanto a leitura estava no ar.
         if (!this._lista) return;
 
-        this._modelo = montarPendencias({ ...leitura, nomeDoMapa });
+        // O RESOLVEDOR DE NOME VEM DENTRO DA LEITURA, porque é ela que tem disco: o painel não
+        // escolhe mais entre memória e disco, e as duas perguntas sobre mapa (o nome da linha e a
+        // trava do comando) passam a ser respondidas pela MESMA tabela.
+        this._modelo = montarPendencias(leitura);
         // A TRAVA É LIDA DEPOIS DAS LINHAS, e só dos mapas que elas citam: ela decide apenas se um
         // comando recusa o clique, então lê-la antes custaria uma varredura de mapas que talvez
         // não apareçam em pendência nenhuma.
         this._travados = await lerMapasTravados(
-            this._modelo.linhas.map((linha) => linha.mapa?.id).filter(Boolean)
+            this._modelo.linhas.map((linha) => linha.mapa?.id).filter(Boolean),
+            leitura.nomeDoMapa
         );
         if (!this._lista) return;
         this._desenhar(this._modelo);
@@ -603,7 +608,11 @@ export class PendenciasPanel extends ModalBase {
     }
 
     /**
-     * "Camada «Talhão 3» no mapa «Principal»", com o id no lugar do nome que não resolveu.
+     * "Camada «Talhão 3», no mapa «Principal»", com o id no lugar do nome que não resolveu.
+     *
+     * A METADE DO MAPA É `localDoItem`, folha pura, porque ela tem três desfechos e não dois: o
+     * nome, a declaração de que aquele mapa não está mais no atlas, e o id de quando não se pôde
+     * afirmar nem uma coisa nem outra.
      * @param {Object} linha - Modelo de linha.
      * @returns {string}
      * @private
@@ -611,8 +620,7 @@ export class PendenciasPanel extends ModalBase {
     _descreverItem(linha) {
         const nome = linha.entidade.nome ?? linha.entidade.id;
         const alvo = nome ? `${linha.entidade.tipoLabel} «${nome}»` : linha.entidade.tipoLabel;
-        if (!linha.mapa) return alvo;
-        return `${alvo}, no mapa «${linha.mapa.nome ?? linha.mapa.id}»`;
+        return `${alvo}${localDoItem(linha.mapa)}`;
     }
 
     /**

@@ -19,11 +19,18 @@
  * pessoa decide sair da conta e perder o trabalho. Uma leitura que falhou não autoriza essa
  * afirmação, então `estado` tem três valores e não dois.
  *
- * O NOME DO MAPA ENTRA INJETADO e o da entidade sai do próprio envelope. O primeiro exige o
- * resolvedor da store (`mapResolver`), que este módulo não pode importar sem deixar de ser
+ * O NOME DO MAPA ENTRA INJETADO e o da entidade sai do próprio envelope. O primeiro exige uma
+ * leitura de disco (`pendencias-leitura.js`), que este módulo não pode fazer sem deixar de ser
  * testável em node; o segundo está no `data` da tentativa, que é o conteúdo local guardado, e é
- * exatamente o nome que a pessoa deu ao item. Quando nenhum dos dois resolve, o ID aparece, porque
- * um item sem identificação nenhuma é uma linha que a pessoa não consegue casar com nada na tela.
+ * exatamente o nome que a pessoa deu ao item. Quando o nome do ITEM não resolve, o id dele
+ * aparece, porque uma linha sem identificação nenhuma é uma linha que a pessoa não casa com nada.
+ *
+ * O RESOLVEDOR DE MAPA TEM TRÊS RESPOSTAS, E DUAS DELAS SÃO VAZIAS POR MOTIVOS OPOSTOS: um nome
+ * (texto), `null` para "o atlas montado foi lido e não tem este mapa" e `undefined` para "não deu
+ * para saber". A distinção não é preciosismo, é o que separa dizer à pessoa que o mapa foi
+ * removido de INVENTAR essa afirmação a partir de uma leitura que falhou. É a mesma regra do
+ * `estado` desta função, em que lista vazia e falha de leitura também não se confundem, e é por
+ * isso que o resolvedor padrão daqui é `() => undefined` e não `() => null`.
  */
 
 // The queue's own classifier, imported and never copied: it is a zero-import leaf, so it costs
@@ -68,6 +75,39 @@ export function classeDeProblema(classeDaFila) {
         case 'revisao': return PendenciaClasse.REVISAO;
         default: return PendenciaClasse.RECUSA;
     }
+}
+
+/**
+ * O mapa que uma tentativa cita, lido num lugar só.
+ *
+ * Existe como função, e não como leitura solta, porque QUEM LÊ O DISCO precisa saber de antemão
+ * quais mapas as linhas vão citar (`mapIdsCitados`), e as duas leituras têm de sair do mesmo
+ * campo: o dia em que elas divergirem, a tabela de nomes será montada para um conjunto de mapas e
+ * consultada para outro, e o sintoma será o id na tela outra vez.
+ * @param {Object|null|undefined} operation - Envelope da operação.
+ * @returns {string|null}
+ */
+function mapIdDaOperacao(operation) {
+    const mapId = operation?.mapId;
+    return typeof mapId === 'string' && mapId !== '' ? mapId : null;
+}
+
+/**
+ * Os mapas que esta leitura vai citar, para que os nomes deles sejam buscados ANTES das linhas.
+ *
+ * Os registros de figura ficam de fora porque não carregam operação nenhuma, logo não citam mapa.
+ * @param {Object} [leitura] - O que `lerPendencias` devolveu.
+ * @param {Array<Object>} [leitura.problemas] - Saída de `operationQueue.getProblems()`.
+ * @param {Array<Object>} [leitura.quarentena] - Saída de `listQuarantinedOperations()`.
+ * @returns {string[]} Ids de mapa, sem repetição.
+ */
+export function mapIdsCitados({ problemas = [], quarentena = [] } = {}) {
+    const ids = new Set();
+    for (const entrada of [...problemas, ...quarentena]) {
+        const mapId = mapIdDaOperacao(entrada?.operation);
+        if (mapId) ids.add(mapId);
+    }
+    return [...ids];
 }
 
 /**
@@ -143,14 +183,19 @@ function motivoDoResultado(result) {
  * @param {number|null} entrada.quandoMs - Data a mostrar.
  * @param {string|null} entrada.bloqueadaPor - Id da operação da frente.
  * @param {string|null} entrada.atlasId - Atlas de origem, quando é de quarentena.
- * @param {function(string): (string|null)} entrada.nomeDoMapa - Resolvedor injetado.
+ * @param {function(string): (string|null|undefined)} entrada.nomeDoMapa - Resolvedor injetado, com
+ *   as três respostas do cabeçalho: nome, `null` para ausente e `undefined` para desconhecido.
  * @returns {Object} A linha.
  */
 function linhaDeOperacao({
     operation, result, classe, origem, quandoMs, bloqueadaPor, atlasId, nomeDoMapa,
 }) {
-    const mapId = operation?.mapId ?? null;
+    const mapId = mapIdDaOperacao(operation);
     const comparacao = comparacaoDaLinha(operation, result);
+    const respostaDoMapa = mapId === null ? undefined : nomeDoMapa(mapId);
+    const nomeResolvido = typeof respostaDoMapa === 'string' && respostaDoMapa.trim() !== ''
+        ? respostaDoMapa.trim()
+        : null;
     return {
         chave: `${origem}:${operation?.id ?? ''}`,
         origem,
@@ -165,7 +210,14 @@ function linhaDeOperacao({
             nome: nomeDaEntidade(operation),
         },
         operacao: operation?.operationType ?? null,
-        mapa: mapId === null ? null : { id: mapId, nome: nomeDoMapa(mapId) },
+        mapa: mapId === null ? null : {
+            id: mapId,
+            nome: nomeResolvido,
+            // `ausente` só é verdadeiro quando a leitura RESPONDEU que este mapa não está mais no
+            // atlas montado. Leitura que falhou devolve `undefined` e cai aqui como falso, de modo
+            // que a linha mostra o id em vez de afirmar uma remoção que ninguém viu.
+            ausente: respostaDoMapa === null,
+        },
         motivo: result ? motivoDoResultado(result) : null,
         unidades: unidadesEmDisputa(result),
         comparacao,
@@ -235,7 +287,9 @@ function linhaDeUpload(registro) {
  * @param {Array<Object>} [leitura.problemas] - Saída de `operationQueue.getProblems()`.
  * @param {Array<Object>} [leitura.quarentena] - Saída de `listQuarantinedOperations()`.
  * @param {Array<Object>} [leitura.uploads] - Saída de `listarPendenciasDeBlob()`.
- * @param {function(string): (string|null)} [leitura.nomeDoMapa] - Resolvedor de nome de mapa.
+ * @param {function(string): (string|null|undefined)} [leitura.nomeDoMapa] - Resolvedor de nome de
+ *   mapa. Sem ele, NADA é afirmado sobre mapa nenhum: o padrão é `undefined` (desconhecido) e
+ *   nunca `null`, que diria a toda linha que o mapa dela foi removido.
  * @returns {{estado: string, linhas: Array<Object>, contadores: Object<string, number>,
  *   total: number}}
  */
@@ -244,13 +298,13 @@ export function montarPendencias({
     problemas = [],
     quarentena = [],
     uploads = [],
-    nomeDoMapa = () => null,
+    nomeDoMapa = () => undefined,
 } = {}) {
     if (falhaDeLeitura === true) {
         return { estado: PendenciaEstado.FALHA, linhas: [], contadores: {}, total: 0 };
     }
 
-    const resolver = typeof nomeDoMapa === 'function' ? nomeDoMapa : () => null;
+    const resolver = typeof nomeDoMapa === 'function' ? nomeDoMapa : () => undefined;
     const linhas = [];
 
     for (const problema of problemas) {
