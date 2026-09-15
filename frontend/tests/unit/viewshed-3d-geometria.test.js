@@ -4,7 +4,7 @@
 //
 // Ela decidia o DESENHO e vivia dentro de duas funcoes que puxam a loja e o Cesium, ou seja, fora
 // do alcance de qualquer teste de node: o corte de um setor largo em dois ou tres pedacos, o
-// estreitamento de 1,5 grau em cada costura, o campo de visao da camera do observador e a malha do
+// estreitamento de cada costura, o campo de visao da camera do observador e a malha do
 // tronco. A decisao D15 as tirou de la para `services/viewshed-geometry.js`, um folha de ZERO
 // imports, e este arquivo e o que elas ganharam em troca.
 //
@@ -48,7 +48,7 @@ describe('subViewshedLayout: o corte do setor e o estreitamento da costura', () 
         expect(subViewshedLayout(300.0001).count).toBe(3);
     });
 
-    it('acima de 150 graus vira dois pedacos, cada um 1,5 grau mais estreito', () => {
+    it('acima de 150 graus vira dois pedacos, cada um estreitado pela folga da costura', () => {
         const l = subViewshedLayout(240);
         expect(l.count).toBe(2);
         expect(l.subAngle).toBe(120);
@@ -70,16 +70,17 @@ describe('subViewshedLayout: o corte do setor e o estreitamento da costura', () 
 
     it('a soma dos pedacos RENDERIZADOS perde 1,5 grau POR PEDACO, e nao por emenda', () => {
         // ESTA PROPRIEDADE NASCEU ERRADA E O TESTE A CORRIGIU, que e o unico jeito honesto de
-        // escrever a linha abaixo. A intuicao (e a primeira versao deste caso) diz "1,5 grau por
+        // escrever a linha abaixo. A intuicao (e a primeira versao deste caso) diz "uma folga por
         // COSTURA", ou seja, N-1 vezes; o contra-exemplo que o fast-check encolheu ate
         // 150.00000000000003 mostra que sao N vezes. O motivo e que cada pedaco e estreitado
-        // INTEIRO e renderizado centrado no seu deslocamento, entao ele encolhe 0,75 grau de cada
-        // lado: nas emendas os dois meios somam a folga de 1,5 grau que o `>` estrito exige, mas
-        // nas duas bordas EXTERNAS do setor sobra um recuo de 0,75 grau que ninguem pediu.
+        // INTEIRO e renderizado centrado no seu deslocamento, entao ele encolhe meia folga de cada
+        // lado: nas emendas as duas metades somam a folga que o `>` estrito exige, mas nas duas
+        // bordas EXTERNAS do setor sobra um recuo de meia folga que ninguem pediu.
         //
-        // Ou seja, um setor de 240 graus desenha 237. O desvio e imperceptivel e nao e defeito
-        // novo (o plugin substituido tinha o mesmo), mas ele existe, e agora esta medido em vez de
-        // suposto. Quem um dia quiser o setor exato estreita so as bordas internas.
+        // O desvio e imperceptivel e nao e defeito novo (o plugin substituido tinha o mesmo), mas
+        // ele existe, e agora esta medido em vez de suposto. Quem um dia quiser o setor exato
+        // estreita so as bordas internas. Com a folga de 2026-09-15 (0,1 grau) um setor de 240
+        // graus desenha 239,8; com a anterior (1,5) ele desenhava 237.
         fc.assert(
             fc.property(fc.double({ min: 1, max: 360, noNaN: true }), (total) => {
                 const l = subViewshedLayout(total);
@@ -93,8 +94,10 @@ describe('subViewshedLayout: o corte do setor e o estreitamento da costura', () 
     it('a folga na EMENDA e exatamente a que o `>` estrito do shader precisa', () => {
         // A conta que importa para o desenho: a borda direita do pedaco da esquerda e a borda
         // esquerda do pedaco da direita, com o estreitamento aplicado, distam SEAM_NARROWING_DEGREES.
-        // E dessa folga que sai a ausencia da faixa saturada; zera-la traz a faixa de volta, e
-        // dobra-la abre fresta.
+        // E dessa folga que sai a ausencia da faixa saturada, e ela foi MEDIDA em 2026-09-15:
+        // zera-la traz de volta 41 pixels de mistura dupla no setor de 320 graus, e a folga de 1,5
+        // grau que vigorou ate entao nao apagava nada a mais que 0,1 e custava 5429 pixels de chao
+        // sem analise, numa cunha cega bem na direcao de visada. Ver o cabecalho da constante.
         const l = subViewshedLayout(240);
         const bordaDireitaDoPrimeiro = l.offsets[0] + l.renderAngle / 2;
         const bordaEsquerdaDoSegundo = l.offsets[1] - l.renderAngle / 2;

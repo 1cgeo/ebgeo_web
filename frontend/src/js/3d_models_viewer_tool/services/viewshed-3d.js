@@ -46,10 +46,11 @@
  * 1. **The shader is GLSL ES 3.00**, so the automatic ES 1.00 to 3.00 rewrite of `ShaderSource`
  *    dies with it, and so does the `Cesium.defaultValue` polyfill and the injected
  *    `isDestroyed`/`destroy`. `cesium-compat.js` existed only for those three and is deleted.
- * 2. **The angle tests keep `>` strict, deliberately**, because `viewshed_tool_3d.js` compensates
- *    for it: a sector wider than 150 degrees is split, and each piece renders 1.5 degrees narrower
- *    so the seam is not mixed twice. Switching to `>=` would turn that compensation into a visible
- *    gap, so the two would have to change in the same commit. They did not.
+ * 2. **The angle tests keep `>` strict, deliberately**, because `viewshed-geometry.js` compensates
+ *    for it: a sector wider than 150 degrees is split, and each piece renders
+ *    `SEAM_NARROWING_DEGREES` narrower so the seam is not mixed twice. Switching to `>=` would
+ *    turn that compensation into a visible gap, so the two would have to change in the same
+ *    commit. They did not.
  * 3. **The frustum outline is drawn by us, as a spherical sector**, and no longer by the
  *    `RectangularSensorPrimitive` that took up half the old file (the acceptance says it need not be
  *    ported, and it has no other caller). A sphere is also the honest shape: the analysis cuts at a

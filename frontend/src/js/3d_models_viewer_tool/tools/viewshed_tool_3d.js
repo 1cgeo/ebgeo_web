@@ -9,9 +9,10 @@
  * an obfuscated third-party `<script>` hung onto the Cesium namespace at runtime; it is now
  * `Viewshed3D` from `services/viewshed-3d.js`, imported like anything else (decision D15). Three
  * things the swap deliberately did NOT change, because they are contract with this file: the
- * misspelled `calback` option, the fields read back after the interactive gesture, and the 1.5
- * degree narrowing per sub-viewshed (`renderAngle` below), which only works because the shader
- * still compares with strict `>`.
+ * misspelled `calback` option, the fields read back after the interactive gesture, and the
+ * narrowing per sub-viewshed (`renderAngle` below, `SEAM_NARROWING_DEGREES` in
+ * `services/viewshed-geometry.js`), which only works because the shader still compares with
+ * strict `>`.
  */
 
 import {

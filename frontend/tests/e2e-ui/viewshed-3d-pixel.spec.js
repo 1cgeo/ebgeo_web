@@ -851,7 +851,8 @@ describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
             .not.toBe(500);
     });
 
-    test('um setor de 180 graus desenha os DOIS sub-viewsheds', async ({ page }) => {
+
+    test('um setor de 180 graus desenha os DOIS sub-viewsheds, e a emenda nao deixa fresta', async ({ page }) => {
         // O QUE ESTE CASO MEDE, E QUE NENHUM OUTRO MEDIA ATE A REVISAO DE 2026-09-15. Acima de 150
         // graus `subViewshedLayout` parte o setor em dois ou tres, e cada pedaco e um `Viewshed3D`
         // proprio com um estagio de pos-processamento proprio. Os dois primeiros casos deste
@@ -864,6 +865,12 @@ describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
         // lista vazia, e o primeiro pedaco ficava orfao na cena com o nome ainda tomado. A partir
         // dali NENHUM viewshed daquela sessao voltava a desenhar. O controle negativo e direto:
         // voltar o nome a uma constante reprova a contagem de estagios abaixo.
+        //
+        // A SEGUNDA ASSERCAO E A EMENDA. A folga entre os dois pedacos (`SEAM_NARROWING_DEGREES`)
+        // existe porque o shader compara com `>` estrito, mas ela e chao que NENHUM pedaco analisa:
+        // com os 1,5 grau que vigoraram ate esta revisao, a cunha cega caia exatamente sobre a
+        // direcao de visada e media 5429 pixels nesta cena (13,1 m a 500 m, que e o alcance padrao
+        // do produto). Com 0,1 grau ela some da imagem, e nenhuma faixa saturada aparece no lugar.
         await registrarTileset(page);
         await servirTileset(page);
         await bootar(page);
@@ -914,5 +921,40 @@ describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
         // se cobra aqui e que os DOIS pedacos tenham desenhado; a forma exata e assunto do primeiro
         // caso, que trabalha com referencia de pixel.
         expect(proporcaoVerde, 'area visivel com o setor partido em dois').toBeGreaterThan(0.25);
+
+        // A EMENDA, LIDA NA LINHA. O setor e simetrico em torno do norte e o norte cai na vertical
+        // do observador na tela, entao a emenda mora numa faixa estreita de colunas. Procura-se
+        // chao CRU (o cinza 129,129,135 desta cena, que nenhuma passada tingiu) entre pixels
+        // tingidos: e isso, e so isso, que e a fresta.
+        const emenda = await page.evaluate(({ linhas, x0, x1 }) => {
+            const canvas = window.map.scene.canvas;
+            const espelho = document.createElement('canvas');
+            espelho.width = canvas.width;
+            espelho.height = canvas.height;
+            const ctx = espelho.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(canvas, 0, 0);
+            let maiorCorrida = 0;
+            for (const y of linhas) {
+                const d = ctx.getImageData(x0, y, x1 - x0, 1).data;
+                let corrida = 0;
+                for (let i = 0; i < d.length; i += 4) {
+                    const cru = Math.abs(d[i] - 129) < 6
+                        && Math.abs(d[i + 1] - 129) < 6
+                        && Math.abs(d[i + 2] - 135) < 6;
+                    corrida = cru ? corrida + 1 : 0;
+                    if (corrida > maiorCorrida) maiorCorrida = corrida;
+                }
+            }
+            return { maiorCorrida };
+        }, { linhas: [260, 300, 360, 420], x0: 570, x1: 655 });
+
+        console.info(`[viewshed-pixel] 180 graus: maior corrida de chao cru na emenda = ${emenda.maiorCorrida} px`);
+        // Com a folga de 1,5 grau a corrida media 6 a 8 pixels nestas linhas; com 0,1 grau ela e
+        // zero. O teto de 2 deixa passar um pixel de rasterizacao do proprio fio de arame sem
+        // deixar passar a cunha.
+        expect(
+            emenda.maiorCorrida,
+            'fresta na emenda: chao dentro do setor que nenhum sub-viewshed analisou',
+        ).toBeLessThanOrEqual(2);
     });
 });

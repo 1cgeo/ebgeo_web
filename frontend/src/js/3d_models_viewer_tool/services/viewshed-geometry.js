@@ -27,8 +27,27 @@ export const MAX_SINGLE_VIEWSHED_ANGLE = 150;
  *
  * It is a TOTAL, not a half: the piece renders this much less than its share of the sector, so the
  * gap at each seam is this wide. Read the module header for why it exists at all.
+ *
+ * ELE ERA 1,5 ATE 2026-09-15, E ISSO ABRIA UMA CUNHA CEGA NA DIRECAO DE VISADA. A folga da emenda
+ * nao e cosmetica: ela e um pedaco do setor que NENHUM sub-viewshed analisa, e num setor partido
+ * ela cai exatamente sobre a direcao para onde o observador esta apontado. A 500 m, que e a
+ * distancia padrao do produto (`DEFAULT_VIEWSHED_PARAMS.distance`), 1,5 grau sao 13,1 m de chao
+ * sem resposta; 0,1 grau sao 0,87 m.
+ *
+ * O numero 0,1 nao e chute: e o que o comentario do codigo anterior a reescrita ja prescrevia
+ * ("a 0.1 degree reduction per sub-viewshed creates imperceptible gaps"), enquanto a constante ao
+ * lado dele dizia 1.5. Medido nesta arvore em 2026-09-15, contando na imagem os pixels de chao CRU
+ * (nao tingido) e os de mistura DUPLA (a faixa saturada que a folga existe para evitar):
+ *
+ *     folga    chao cru a mais (320 graus)   pixels de mistura dupla
+ *     0                    -                          41
+ *     0,1                +146                          0
+ *     1,5               +5429                          0
+ *
+ * Ou seja, a faixa saturada existe mesmo, mas some com 0,1; de 0,1 para 1,5 nao se ganha nada e se
+ * paga uma fresta de milhares de pixels. O controle negativo esta nas duas pontas da tabela.
  */
-export const SEAM_NARROWING_DEGREES = 1.5;
+export const SEAM_NARROWING_DEGREES = 0.1;
 
 /** Widest field of view a perspective frustum takes before it degenerates, in degrees. */
 export const MAX_FRUSTUM_FOV_DEGREES = 170;
