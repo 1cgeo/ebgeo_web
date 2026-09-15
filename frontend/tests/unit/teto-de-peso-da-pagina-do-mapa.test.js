@@ -390,6 +390,11 @@ const EXTERNOS_SO_DINAMICOS = Object.freeze([
     'gdal3.js',
     'html2canvas',
     'jspdf',
+    // `milsymbol` ENTROU EM 2026-09-14 pelo mesmo caminho do `@turf/turf` acima, e pela mesma
+    // razão: ele sempre foi sob demanda, mas por uma tag `<script>` injetada em runtime, que este
+    // caminhador não enxerga. Agora vem do npm pelo ponto único `src/js/vendor/milsymbol.js`,
+    // alcançado só pelo `import()` de `military_symbol_tool/milsymbol-loader.js`.
+    'milsymbol',
     'quill'
 ]);
 
@@ -505,14 +510,29 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // segue a mesma: pouco de propósito, para que o próximo lote tenha de medir em vez de
         // empurrar o número.
         //
-        // O TETO DE CONTAGEM SUBIU DE 700 PARA 706 EM 2026-09-14, E É O ÚNICO DOS DOIS QUE ESTE
-        // LOTE TOCA. O lote é o Cesium vindo do npm (V9), e o que ele acrescenta ao grafo são
-        // DOIS folhas de `src/js/vendor/`, `cesium.js` (7,5 kB) e `cesium-base-url.js` (2,9 kB),
-        // alcançados pelo `import()` de `map_3d.js`. Medido: 701 módulos com o lote. Descontando
-        // os dois meus e o saldo zero do lote de GDAL que corria em paralelo nesta mesma árvore
-        // (entra `src/js/vendor/gdal.js`, sai `src/js/utilities/gdal-loader.js`), `HEAD` estava em
-        // 699, isto é, a um módulo do teto. 706 deixa cinco, pouco de propósito, como as subidas
+        // O TETO DE CONTAGEM SUBIU DE 700 PARA 708 EM 2026-09-14, E ELE É O ÚNICO DOS DOIS QUE
+        // ESTES LOTES TOCAM. São DUAS migrações que chegaram por linhas de trabalho paralelas e se
+        // encontraram aqui, e cada uma acrescenta ao grafo DOIS folhas de `src/js/vendor/`:
+        //
+        //   - o Cesium vindo do npm (V9): `cesium.js` (7,5 kB) e `cesium-base-url.js` (2,9 kB),
+        //     alcançados pelo `import()` de `map_3d.js`. Medido na linha dela: 701 módulos com o
+        //     lote, contra 699 sem;
+        //   - o Turf e o milsymbol vindo do npm: `turf.js` e `milsymbol.js`, alcançados pelo
+        //     `import()` dos respectivos carregadores. Medido na linha deles, na mesma base: 699
+        //     módulos / 10500 kB SEM o lote e 701 / 10509 COM ele.
+        //
+        // Os números dizem juntos o que nenhum diz sozinho: dos 700 do teto velho, 699 já estavam
+        // gastos por deriva anterior, e cada lote responde por 2. Somados sobre a MESMA base, os
+        // quatro módulos põem a árvore fundida em 703, que é o número medido aqui depois da fusão
+        // e não a soma no papel. 708 deixa cinco de folga, pouco de propósito, como as subidas
         // anteriores.
+        //
+        // NENHUM DOS DOIS É PAYLOAD NOVO: os quatro módulos SUBSTITUEM bundles de
+        // `public/vendors/` que este caminhador nunca enxergou, porque eles chegavam por tag
+        // `<script>` injetada em runtime e ele anda no grafo de imports. O que a pessoa baixa
+        // diminuiu (o Turf entra 109 kB menor que o UMD que saiu; o milsymbol empata; o motor do
+        // Cesium viaja num chunk lazy que nenhum HTML referencia). É a mesma correção de
+        // instrumento que a adoção do `cesium-measure.js` trouxe ao teto de kB, agora na contagem.
         //
         // E O TETO DE kB NÃO SUBIU: ele SOBRA, e o que sobra é deriva não atribuída na direção
         // contrária, que é a que ninguém percebe. Medido hoje: 10507 kB, 1283 ABAIXO do teto de
@@ -520,13 +540,13 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // medições é o snapshot do Three.js: `frontend/src/vendor/three/three.module.js` sozinho
         // passava de 1,2 MB e deixou de ser alcançado quando a biblioteca passou a vir do npm
         // (commits `d5b26384` e `4ae81c3f`), sem que ninguém descesse este número no mesmo commit.
-        // NÃO o desci aqui, e a razão é a mesma que mantém os pisos da metade (b) parados: esta
-        // medida saiu de uma árvore que carregava o lote de GDAL de outra sessão, então ela é a
-        // soma de dois trabalhos e não a medida de nenhum. Quem remedir sozinho desce o teto para
-        // perto de 10600 e o guarda volta a guardar; até lá ele está frouxo em 1,2 MB, e é melhor
-        // que isso esteja escrito do que descoberto.
+        // NÃO o desci aqui, e a razão é a mesma que mantém os pisos da metade (b) parados: estas
+        // medidas saíram de árvores que carregavam lotes de outras sessões, então elas são a soma
+        // de dois trabalhos e não a medida de nenhum. Quem remedir sozinho desce o teto para perto
+        // de 10600 e o guarda volta a guardar; até lá ele está frouxo em 1,2 MB, e é melhor que
+        // isso esteja escrito do que descoberto.
         expect(completo.arquivos.size).toBeGreaterThanOrEqual(580);
-        expect(completo.arquivos.size).toBeLessThanOrEqual(706);
+        expect(completo.arquivos.size).toBeLessThanOrEqual(708);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);

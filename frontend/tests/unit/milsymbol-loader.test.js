@@ -13,103 +13,140 @@
 // chega um snapshot de atlas remoto). Se duas chamadas dispararem juntas, as
 // duas precisam esperar o MESMO carregamento.
 //
-// O padrao vizinho em 3d_models_viewer_tool/map_3d.js:48 nao serve aqui, e o
-// teste "duas chamadas concorrentes" e exatamente o que o reprova: ele resolve
-// assim que existe um <script> com aquele src no DOM, o que e verdade desde o
-// appendChild e muito antes de o arquivo ter executado.
+// O MECANISMO MUDOU EM 2026-09-14, e este arquivo mudou com ele. Ate ali o
+// carregador injetava uma tag <script> apontando `vendors/milsymbol.min.js`, e
+// estes casos dirigiam um `document` falso contando `appendChild`. Agora a
+// biblioteca vem do npm por `import('@js/vendor/milsymbol.js')`, entao o que se
+// conta e a AVALIACAO do modulo, e o duplo de teste e um `vi.doMock` sobre o
+// ponto unico. As propriedades cobradas sao as mesmas cinco; o que as produz e
+// outro.
+//
+// POR QUE UM CARREGADOR NOVO EM CADA CASO (`montar`): tanto o memo do modulo
+// quanto o registro do motor sobrevivem entre casos, entao sem `vi.resetModules()`
+// o segundo caso nunca reavaliaria nada e o contador ficaria parado em 1. Um
+// contador parado passa VERDE em "nao carrega duas vezes" sem ter carregado
+// nenhuma.
+//
+// A BORDA QUE ESTE ARQUIVO MEDE EM VEZ DE AFIRMAR e a ultima: com tag <script>,
+// limpar o memo na falha bastava para a tentativa seguinte refazer o download.
+// Com `import()`, o registro do motor guarda o modulo que falhou ao AVALIAR, e a
+// segunda tentativa pode receber o mesmo erro sem refazer nada. O caso final
+// afirma o que de fato acontece, com o porque escrito nele.
 
-import { test, describe, beforeEach, afterEach, vi } from 'vitest';
+import { test, describe, beforeEach, afterEach, expect, vi } from 'vitest';
 import assert from 'node:assert/strict';
 
-import { ensureMilsymbol, resetMilsymbolLoader } from '@js/military_tools/military_symbol_tool/milsymbol-loader.js';
+const CAMINHO_CARREGADOR = '@js/military_tools/military_symbol_tool/milsymbol-loader.js';
 
-/** Scripts criados pelo carregador nesta execucao. */
-let criados;
-/** Controla se o "carregamento" define o global, e quando. */
-let comportamento;
+/**
+ * Monta um carregador NOVO com um duplo NOVO do ponto unico.
+ *
+ * O duplo e do PONTO UNICO, e nao do pacote: e ele que o carregador importa, e e ele que publica
+ * o global no produto. Mockar `milsymbol` deixaria o ponto unico real no meio e mediria duas
+ * coisas de uma vez.
+ *
+ * `vi.doMock` e nao `vi.mock`, e a diferenca nao e estilo: a fabrica de `vi.mock` e icada e
+ * MEMOIZADA para o arquivo inteiro, entao ela roda uma vez so e o contador de avaliacoes fica
+ * parado em 1 para sempre. Um contador parado passa VERDE em "nao carrega duas vezes" sem ter
+ * carregado nenhuma, que e a cobertura vazia que a constituicao nomeia. Foi assim que a primeira
+ * versao deste arquivo reprovou tres casos de uma vez.
+ *
+ * @param {{falhar?: boolean, definirGlobal?: boolean}} [inicial]
+ * @returns {Promise<Object>} o modulo do carregador mais o objeto de controle
+ */
+async function montar(inicial = {}) {
+    const ctl = { avaliacoes: 0, falhar: false, definirGlobal: true, ...inicial };
+    vi.resetModules();
+    vi.doMock('@js/vendor/milsymbol.js', () => {
+        ctl.avaliacoes += 1;
+        if (ctl.falhar) throw new Error('Falha ao carregar o modulo');
+        if (ctl.definirGlobal) globalThis.ms = { Symbol: class {} };
+        return { default: globalThis.ms, ms: globalThis.ms };
+    });
+    const mod = await import(CAMINHO_CARREGADOR);
+    return { ...mod, ctl };
+}
 
 beforeEach(() => {
-    criados = [];
-    comportamento = { defineGlobal: true, falhar: false };
     delete globalThis.ms;
-    resetMilsymbolLoader();
-
-    globalThis.document = {
-        head: {
-            appendChild(script) {
-                criados.push(script);
-                // O navegador so dispara onload num tick posterior. Simular isso
-                // e o que torna o teste de concorrencia possivel: as duas
-                // chamadas acontecem ANTES de o primeiro load completar.
-                setTimeout(() => {
-                    if (comportamento.falhar) {
-                        script.onerror(new Error('rede'));
-                        return;
-                    }
-                    if (comportamento.defineGlobal) globalThis.ms = { Symbol: class {} };
-                    script.onload();
-                }, 5);
-            },
-        },
-        createElement: () => ({ src: '', async: false, onload: null, onerror: null }),
-    };
 });
 
 afterEach(() => {
-    delete globalThis.document;
     delete globalThis.ms;
-    resetMilsymbolLoader();
-    vi.useRealTimers();
 });
 
 describe('ensureMilsymbol', () => {
-    test('carrega o bundle e devolve o global', async () => {
+    test('carrega a biblioteca e devolve o global', async () => {
+        const { ensureMilsymbol, ctl } = await montar();
         const ms = await ensureMilsymbol();
         assert.ok(ms);
-        assert.equal(criados.length, 1);
-        assert.equal(criados[0].src, '/vendors/milsymbol.min.js');
+        assert.equal(ctl.avaliacoes, 1);
+        assert.equal(ms, globalThis.ms);
     });
 
     test('duas chamadas CONCORRENTES compartilham um unico carregamento', async () => {
         // O caso real: o usuario desenha um simbolo enquanto um snapshot remoto
-        // chega e manda regenerar outro. Com o padrao do map_3d.js, a segunda
-        // resolveria com `ms` ainda indefinido.
+        // chega e manda regenerar outro. As duas precisam esperar a MESMA carga, e
+        // nenhuma pode resolver antes de o global existir.
+        const { ensureMilsymbol, ctl } = await montar();
         const [a, b] = await Promise.all([ensureMilsymbol(), ensureMilsymbol()]);
-        assert.equal(criados.length, 1, 'baixou o bundle duas vezes');
+        assert.equal(ctl.avaliacoes, 1, 'avaliou o modulo duas vezes');
         assert.equal(a, b);
         assert.ok(globalThis.ms, 'resolveu antes de o global existir');
     });
 
-    test('depois de carregado nao cria script nenhum', async () => {
+    test('depois de carregado nao avalia o modulo de novo', async () => {
+        const { ensureMilsymbol, ctl } = await montar();
         await ensureMilsymbol();
         await ensureMilsymbol();
         await ensureMilsymbol();
-        assert.equal(criados.length, 1);
+        assert.equal(ctl.avaliacoes, 1);
     });
 
-    test('global ja presente resolve sem tocar no DOM', async () => {
+    test('global ja presente resolve sem importar nada', async () => {
+        const { ensureMilsymbol, ctl } = await montar();
         globalThis.ms = { Symbol: class {} };
         await ensureMilsymbol();
-        assert.equal(criados.length, 0);
+        assert.equal(ctl.avaliacoes, 0);
     });
 
-    test('falha de rede rejeita, e a proxima tentativa REFAZ o carregamento', async () => {
-        // A borda que separa um blip de rede de "simbolo militar morto pelo resto
-        // da sessao": sem limpar o memo, todos herdariam a promessa rejeitada.
-        comportamento.falhar = true;
-        await assert.rejects(() => ensureMilsymbol(), /Falha ao carregar/);
-
-        comportamento.falhar = false;
-        const ms = await ensureMilsymbol();
-        assert.ok(ms);
-        assert.equal(criados.length, 2, 'nao tentou de novo depois da falha');
-    });
-
-    test('script que carrega SEM definir o global e erro, e nao sucesso silencioso', async () => {
-        // Acontece de verdade: caminho errado servido como HTML pelo dev server
-        // dispara onload normalmente. Resolver aqui devolveria `undefined` ao
-        // gerador, que quebraria com "ms is not defined" longe da causa.
-        comportamento.defineGlobal = false;
+    test('modulo que carrega SEM definir o global e erro, e nao sucesso silencioso', async () => {
+        // Resolver aqui devolveria `undefined` ao gerador, que quebraria com
+        // "ms is not defined" longe da causa.
+        const { ensureMilsymbol } = await montar({ definirGlobal: false });
         await assert.rejects(() => ensureMilsymbol(), /carregou sem definir/);
+    });
+
+    test('falha rejeita e LIMPA o memo, para que a tentativa seguinte exista', async () => {
+        // A borda que separa um blip de rede de "simbolo militar morto pelo resto
+        // da sessao". O que esta linha garante e que a SEGUNDA CHAMADA acontece:
+        // sem limpar o memo, ela herdaria a promessa rejeitada e nem tentaria.
+        //
+        // O QUE ELA NAO GARANTE, e por isso o caso nao afirma sucesso: com
+        // `import()` o registro de modulos do motor guarda o modulo que falhou ao
+        // AVALIAR, entao a reavaliacao pode nao acontecer e o mesmo erro pode
+        // voltar. E uma diferenca real em relacao a tag <script>, que refazia o
+        // download sempre, e ela esta declarada no `@fileoverview` do carregador.
+        const { ensureMilsymbol, ctl } = await montar({ falhar: true });
+
+        // A mensagem e conferida na CADEIA e nao so no topo: o vitest embrulha um
+        // erro lancado dentro da fabrica do mock num erro proprio e pendura o
+        // original em `cause`. Procurar so no topo reprovaria por artefato do
+        // arreio, e afrouxar para "rejeitou" aceitaria qualquer erro, inclusive um
+        // `TypeError` nosso.
+        const erro = await ensureMilsymbol().then(() => null, (e) => e);
+        assert.ok(erro, 'a carga que falha tem de rejeitar');
+        const cadeia = [];
+        for (let e = erro; e; e = e.cause) cadeia.push(String(e.message));
+        assert.match(cadeia.join(' | '), /Falha ao carregar/);
+        const apos1 = ctl.avaliacoes;
+
+        ctl.falhar = false;
+        await ensureMilsymbol().catch(() => {});
+
+        // O memo limpo e o que faz a segunda chamada CHEGAR ao import; se ela
+        // tivesse herdado a promessa rejeitada, nada seria reavaliado e este
+        // numero ficaria igual ao anterior.
+        expect(ctl.avaliacoes).toBeGreaterThan(apos1);
     });
 });

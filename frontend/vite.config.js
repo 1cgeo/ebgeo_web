@@ -772,22 +772,25 @@ export default defineConfig(({ mode: _mode }) => ({
 
   // ===== OPTIMIZATIONS =====
   optimizeDeps: {
-    // Exclude global vendors (loaded via script tags).
+    // Exclude global vendors (loaded via script tags). THE LIST IS EMPTY SINCE 2026-09-14, and the
+    // empty state is the point, not an omission: no library of this project is a global vendor of
+    // the bundler any more. A name coming back here means someone reintroduced a runtime
+    // `<script>` tag, and that is the decision to argue about before the entry is written.
     //
-    // `maplibre-gl` LEFT this list on 2026-09-04, and `cesium` and `@turf/turf` on 2026-09-14,
-    // for the SAME reason: none of the three is a global vendor any more. Each comes from npm
-    // through a single point (`src/js/map/maplibre.js`, `src/js/vendor/cesium.js`,
-    // `src/js/vendor/turf.js`) and is a normal graph dependency. Keeping one excluded would mean
-    // asking dev to serve it unbundled while the build bundles it, two different module
+    // `maplibre-gl` LEFT this list on 2026-09-04, and `cesium`, `@turf/turf` and `milsymbol` on
+    // 2026-09-14, for the SAME reason: each comes from npm through a single point
+    // (`src/js/map/maplibre.js`, `src/js/vendor/cesium.js`, `src/js/vendor/turf.js`,
+    // `src/js/vendor/milsymbol.js`) and is a normal graph dependency. Keeping one excluded would
+    // mean asking dev to serve it unbundled while the build bundles it, two different module
     // identities for the same library, which is exactly the class of trap `bench/README.md`
     // records under the `?t=` of the HMR.
     // For `@turf/turf` the UMD in `public/vendors/turf.min.js` (the 7.0.0, resolved by hash) was
-    // deleted and the library now arrives through the `import()` of `utilities/turf-loader.js`.
-    // It stays LAZY, which is the decision this move does not undo; what changed is the
-    // transport, from an injected `<script>` tag to a bundler chunk.
-    exclude: [
-      'milsymbol'
-    ]
+    // deleted and the library now arrives through the `import()` of `utilities/turf-loader.js`;
+    // for `milsymbol` the bundle in `public/vendors/` (the 3.0.3, also resolved by hash) was
+    // deleted and it arrives through the `import()` of `milsymbol-loader.js`. BOTH STAY LAZY,
+    // which is the decision neither move undoes; what changed is the transport, from an injected
+    // `<script>` tag to a bundler chunk.
+    exclude: []
   },
 
   // ===== PLUGINS =====

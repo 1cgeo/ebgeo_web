@@ -3850,9 +3850,9 @@
         "pastasCobertas": [
           "frontend/public/vendors"
         ],
-        "arquivos": 4,
-        "bytes": 1183782,
-        "textoEmCrlf": 3,
+        "arquivos": 3,
+        "bytes": 328692,
+        "textoEmCrlf": 2,
         "textoEmLf": 1,
         "binarios": 0,
         "codigoDeTerceiroForaDasPastasCobertas": 0,
@@ -3888,12 +3888,6 @@
             160921,
             "1e05fd18b0f5322ae52953498d4e5a35bfe713090d727c2c90d1b0e0f21f2eb7",
             "9123f808d3f6ad736b4a8f99944a611f87c5d4f9328030080a5c029ed5f450a5"
-          ],
-          [
-            "frontend/public/vendors/milsymbol.min.js",
-            855090,
-            "ef5fdffe93af2f82baf9307ddee2fd90390360642656c58b6031e7f1ea4640cd",
-            "a646950d9809aa6f751087abf319f01f8420941328452452b395ed492e8156c5"
           ],
           [
             "frontend/public/vendors/vue.css",

@@ -164,7 +164,28 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   | `test:frontend` (vitest) | nenhuma | nenhum | não |
   | `test:backend` | nenhuma | `ebgeo_test` (`TEST_DB_NAME` sobrepõe) | SIM, sob c8 |
   | `test:e2e` (contrato, 3ª perna da raiz) | 3911 | `ebgeo_e2e` | não |
-  | `test:e2e:ui` e `test:e2e:mega` (Playwright) | 3912 | `ebgeo_ui_e2e` | não |
+  | `test:e2e:ui` e `test:e2e:mega` (Playwright) | 3912 **e 4321** | `ebgeo_ui_e2e` | não |
+
+  **A COLUNA DA PORTA DO PLAYWRIGHT TEM DOIS NÚMEROS, e o segundo é o que morde calado.**
+  A 3912 é o backend, e ela GRITA (ver adiante). A 4321 é o Vite que serve o APP, e
+  `playwright.config.js` a abre com `reuseExistingServer: !process.env.CI`: se outro checkout
+  já tiver um Vite ali, o Playwright REUSA aquele servidor e a sua rodada passa a medir o
+  `src/` do OUTRO worktree, sem um aviso em lugar nenhum. É a forma mais pura de "o
+  instrumento está medindo outra cópia do sujeito": os specs passam, a captura sai bonita, e
+  nada do que você editou entrou na medida.
+
+  MEDIDO em 2026-09-14, e o que denunciou foi uma CONTRADIÇÃO entre rodadas: duas capturas do
+  mesmo commit relataram `ms.getVersion()` 3.0.4 e depois 3.0.2, e a segunda pediu
+  `/vendors/milsymbol.min.js`, um arquivo que aquele commit tinha apagado. O dono da 4321 era o
+  `frontend` de outro worktree. A regra prática que sai daí: **ao capturar ou depurar, registre
+  os pedidos de REDE do recurso em questão**, porque o caminho servido nomeia a árvore, enquanto
+  o resultado visual não nomeia nada.
+
+  A saída já existe e está documentada em `frontend/tests/e2e-ui/constants.js`: as quatro
+  coordenadas são sobrescritíveis por ambiente, e **isolar uma sem isolar as outras ainda
+  colide**. O conjunto completo é `EBGEO_UI_E2E_APP_PORT`, `EBGEO_UI_E2E_BACKEND_PORT` e
+  `EBGEO_UI_E2E_DB_NAME`. Dois agentes na mesma máquina definem os três e param de esperar um
+  pelo outro.
 
   **A CAMADA DO PLAYWRIGHT SE ISOLA POR ENV, e são TRÊS variáveis, não uma.**
   `frontend/tests/e2e-ui/constants.js` lê `EBGEO_UI_E2E_APP_PORT` (Vite, padrão 4321),

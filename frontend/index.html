@@ -698,10 +698,15 @@
          sempre e falharia só às vezes. Não recoloque a tag aqui sem medir de novo. -->
 
     <!-- Simbologia militar: carregada SOB DEMANDA, na primeira geração de símbolo
-         (js/military_tools/military_symbol_tool/milsymbol-loader.js). São 855 kB,
-         14,6% do JavaScript inicial desta página, e a medição com Proxy sobre
-         window.ms num navegador real mostrou que nada os lê durante o boot, nem
-         em F5 com símbolo já na tela. Não recoloque a tag aqui sem medir de novo. -->
+         (js/military_tools/military_symbol_tool/milsymbol-loader.js), e desde
+         2026-09-14 pelo npm (`milsymbol` 3.0.4), não mais por uma tag injetada
+         apontando `public/vendors/milsymbol.min.js`. Aquele arquivo era a 3.0.3
+         (resolvida por hash) e foi APAGADO, não deixado ao lado. Quem publica o
+         global `ms` é o ponto único `src/js/vendor/milsymbol.js`, alcançado APENAS
+         pelo `import()` do carregador. São 855 kB, 14,6% do JavaScript inicial
+         desta página, e a medição com Proxy sobre window.ms num navegador real
+         mostrou que nada os lê durante o boot, nem em F5 com símbolo já na tela.
+         Não recoloque a tag aqui sem medir de novo. -->
 
     <!-- GDAL para export de PDF georreferenciado: também não está mais aqui, e desde
          2026-09-14 não está nem em `public/vendors/`. Ele vem do npm (gdal3.js 2.8.1)
