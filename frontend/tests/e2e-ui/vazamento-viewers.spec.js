@@ -274,6 +274,22 @@ describeOrSkip('§30 vazamento de recurso ao abrir e fechar visualizador', () =>
         for (let i = 0; i < CICLOS; i++) {
             await page.evaluate(() => window.__sondaVazamento.vazarDeProposito());
         }
+        // O RUÍDO QUE JÁ DERRUBOU ESTE CONTROLE, agora POSTO DE PROPÓSITO e no meio da medida.
+        //
+        // Em 2026-09-13, numa rodada cheia, este caso reprovou com 61 em vez de 60, e o tipo que
+        // sobrava era `AbortSignal:abort`: um pedido de rede do app estava em voo no instante da
+        // segunda leitura, e a sonda contava o listener dele porque `WeakRef.deref()` responde
+        // "vivo" enquanto o coletor de lixo não passa. Deixar isso como flake seria medir o
+        // coletor; a régua passou a separar o ANCORADO (window, document, elemento conectado) do
+        // SOLTO, e este bloco é o controle negativo dessa separação: com a sonda antiga ele soma
+        // um ao total e o `toBe(60)` reprova; com a de hoje ele entra no balde solto e o total
+        // continua exato. O sinal que a régua existe para ver (o listener pendurado num botão
+        // que nunca sai do documento) continua do lado ancorado.
+        await page.evaluate(() => {
+            const ctrl = new AbortController();
+            window.__ruidoDeAbort = [ctrl, () => {}];
+            ctrl.signal.addEventListener('abort', window.__ruidoDeAbort[1]);
+        });
         const depois = await contarRecursos(page);
 
         // O vazador retém, por chamada, 20 listeners de `document`, 1 contexto WebGL e 1 timer.
@@ -281,8 +297,23 @@ describeOrSkip('§30 vazamento de recurso ao abrir e fechar visualizador', () =>
         // ela mede, e o §30.2 abaixo não pode ser lido.
         expect(
             depois.listeners - antes.listeners,
-            `a sonda nao viu os listeners retidos; cresceu em: ${diferencaPorTipo(antes, depois)}`,
+            'a sonda nao viu os listeners retidos, ou contou o ruido de AbortSignal junto; cresceu '
+            + `em: ${diferencaPorTipo(antes, depois)} (soltos: `
+            + `${diferencaPorTipo(antes, depois, 'porTipoSolto')})`,
         ).toBe(20 * CICLOS);
+        // E O RUÍDO FOI MEDIDO, não ignorado: sem esta linha, uma sonda que parasse de registrar
+        // alvo solto nenhum passaria igual, e o balde separado viraria cobertura vazia.
+        //
+        // A CONTAGEM É ABSOLUTA, E NÃO UMA DIFERENÇA, pelo mesmo motivo que o balde existe: a
+        // diferença entre duas leituras do lado SOLTO depende do coletor de lixo, então uma
+        // entrada do app que suma entre as duas mascararia o +1 desta. O listener daqui está
+        // preso em `window.__ruidoDeAbort` e não pode ser coletado, então "pelo menos um" é uma
+        // afirmação que não depende de relógio nenhum.
+        const abortosSoltos = new Map(depois.porTipoSolto).get('AbortSignal:abort') ?? 0;
+        expect(
+            abortosSoltos,
+            'o listener de AbortSignal caiu no balde SOLTO, que é relatado e não asserido exato',
+        ).toBeGreaterThanOrEqual(1);
         expect(depois.contextosWebgl - antes.contextosWebgl).toBe(CICLOS);
         expect(depois.intervalos - antes.intervalos).toBe(CICLOS);
     });
