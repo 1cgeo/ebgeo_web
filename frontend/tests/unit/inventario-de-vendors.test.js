@@ -165,12 +165,15 @@ describe('inventario de vendors: o eixo de comparacao', () => {
                 .toBe(normalizarCrlf(bruto) === null);
         }
         // CONTROLE DE VACUO do laco acima: os DOIS lados da implicacao existem na arvore de hoje
-        // (quatro arquivos em CRLF e um ja em LF), senao ele passaria verde medindo so um deles.
-        expect(medicoes.filter((m) => m.sha256Lf !== null)).toHaveLength(4);
+        // (dois arquivos em CRLF e um ja em LF), senao ele passaria verde medindo so um deles.
+        // Eram quatro em CRLF ate a fusao de plano/npmc: o Turf e o milsymbol, os dois em CRLF,
+        // sairam para o npm, e o lado LF continua com um so ocupante, que e o que o controle
+        // precisa para nao virar vacuo.
+        expect(medicoes.filter((m) => m.sha256Lf !== null)).toHaveLength(2);
         expect(medicoes.filter((m) => m.sha256Lf === null)).toHaveLength(1);
     });
 
-    it('0 dos 5 sao binarios que CARREGAM o par 0D 0A, e o zero e o fim da serie', () => {
+    it('0 dos 3 sao binarios que CARREGAM o par 0D 0A, e o zero e o fim da serie', () => {
         // Este numero e a razao de o eixo existir: sem a classificacao, cada um deles e uma
         // divergencia fantasma. Se ele mudar, a poda ou a entrada de um vendor mexeu na
         // composicao da arvore, e a conferencia quer saber disso.
@@ -200,11 +203,20 @@ describe('inventario de vendors: o eixo de comparacao', () => {
         // nao e um teto que se empurra, e sim uma segunda leitura das mesmas podas; quem o
         // editar sem saber quais binarios sairam esta apagando a unica coisa que ele mede.
         //
+        // NA QUINTA O DENOMINADOR CAIU E O NUMERADOR FICOU EM ZERO, que e a unica combinacao
+        // possivel depois da quarta: a fusao de plano/npmc sobre a arvore que ja trazia o GDAL do
+        // npm tirou `turf.min.js` (633.973 bytes) e `milsymbol.min.js` (855.090), os dois TEXTO em
+        // CRLF, que passaram a vir do npm pelos pontos unicos `src/js/vendor/turf.js` e
+        // `src/js/vendor/milsymbol.js`. Dai 5 -> 3. Sobram `cesium/cesium-viewshed.js` e
+        // `docsify.min.js`, texto em CRLF, mais `vue.css`, texto em LF; o docsify fica porque TEM
+        // consumidor (`frontend/public/docs/doc.html`, servido estatico, fora do Vite), que e o
+        // achado que impediu a poda dele.
+        //
         // A leitura que este par de numeros permite e a que interessa: uma poda que deixasse um
         // binario de OUTRO vendor para tras apareceria aqui como 1, e nao como 0.
         const comParCrLf = medicoes.filter((m) => m.binario && normalizarCrlf(readFileSync(join(RAIZ, m.path))) !== null);
         expect(comParCrLf).toEqual([]);
-        expect(medicoes).toHaveLength(5);
+        expect(medicoes).toHaveLength(3);
         // ZERO DE ARVORE LIMPA E ZERO DE FILTRO QUEBRADO SAO A MESMA SAIDA, e o disco nao
         // oferece mais o positivo: ele e fabricado. Uma sequencia com byte NUL (logo binaria)
         // que carrega o par tem de ser classificada como binaria E ter o par encontrado, que

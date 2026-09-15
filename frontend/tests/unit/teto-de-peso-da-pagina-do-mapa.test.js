@@ -848,6 +848,16 @@ const PAGINAS_DIST = Object.freeze([
     // de vácuo contra caminhador quebrado, e quem remedir sozinho é que os move. O teto de kB do
     // mapa fica em 4150 (52 kB de folga sobre 4098) e o do admin passa de 720 para 790 (20 kB
     // sobre 770).
+    //
+    // A FUSÃO DE `plano/npmc` COM O GDAL DO NPM (rebase sobre `b3b19d4c`) FOI MEDIDA, build fresco,
+    // e os quatro números são 83/4098, 41/625, 35/770 e 35/1966. Só a contagem do mapa se move:
+    // 84 na linha do Cesium acima, 83 aqui, um arquivo A MENOS. Não há teto a mexer, e a nota fica
+    // porque o parágrafo do Cesium afirma 84 por extenso e um absoluto que envelhece cala quem o
+    // lê depois. A diferença é de composição de chunk, não de peso: os kB do mapa são os MESMOS
+    // 4098, ou seja, o que sumiu foi uma fronteira entre chunks e não conteúdo. As contagens das
+    // outras três páginas (41/35/35) são as MESMAS da medida de recentragem acima, o que é a
+    // propriedade esperada: nem o Turf nem o milsymbol nem o GDAL são referenciados por HTML
+    // nenhum, então nenhum dos três podia mover estas contas.
     { html: 'index.html', entrada: 'main', minArq: 45, maxArq: 86, minKb: 3600, maxKb: 4150 },
     { html: 'atlas.html', entrada: 'atlas', minArq: 18, maxArq: 44, minKb: 320, maxKb: 700 },
     // admin.html: 800 -> 950 -> 720 em 2026-09-02, com a medida na mao: 670 kB em 24 arquivos, build
@@ -958,16 +968,23 @@ describe('(b) o peso construído de cada página', () => {
         //
         // ZERO É UM ESTADO LEGÍTIMO E UM PÉSSIMO CONTROLE DE VÁCUO, então a afirmação mudou de
         // lugar em vez de sumir. A lista de `/vendors/` da página tem de ser EXATAMENTE vazia (um
-        // `href` novo para lá reprova, e é assim que se percebe um vendor voltando ao HTML), e os
-        // dois arquivos de `public/vendors/` que o produto ainda carrega EM RUNTIME, por caminho
-        // que nenhum HTML menciona, têm de estar no `dist/`. Sem a segunda metade, apagar
+        // `href` novo para lá reprova, e é assim que se percebe um vendor voltando ao HTML), e o
+        // arquivo de `public/vendors/` que o produto ainda carrega EM RUNTIME, por caminho que
+        // nenhum HTML menciona, tem de estar no `dist/`. Sem a segunda metade, apagar
         // `frontend/public/` inteiro deixaria este caso verde.
+        //
+        // ERAM DOIS ATÉ ESTA FUSÃO, E O SEGUNDO ERA `/vendors/gdal`, LIDO PELO CAMINHO QUE
+        // `_getGdalPath` MONTAVA. Ele saiu porque a pasta saiu: desde 2026-09-14 o gdal3.js vem do
+        // npm pelo ponto único `src/js/vendor/gdal.js`, e o `.wasm` e o `.data` são assets emitidos
+        // pelo Vite com hash de conteúdo, endereçados pelas duas URLs de `?url` que a lista
+        // `EXTERNOS_ANSIOSOS` afirma lá em cima. A afirmação sobre eles não sumiu, mudou de eixo: é
+        // a lista de externos que a guarda agora, e não a existência de um diretório em `dist/`.
+        // Esta linha ficou pedindo o diretório por uma revisão inteira, e o caso reprovava.
         const { vendors } = payloadDe('index.html');
         expect(vendors, 'a página do mapa voltou a referenciar um vendor de `public/` no HTML')
             .toEqual([]);
-        // Carregados por injeção de `<script>` (`map_3d.js`) e por caminho montado em runtime
-        // (`_getGdalPath`, em `import_export/pdf-export.tab.js`), respectivamente.
-        for (const p of ['/vendors/cesium/cesium-viewshed.js', '/vendors/gdal']) {
+        // Carregado por injeção de `<script>` em `map_3d.js`, porque lê e escreve `window.Cesium`.
+        for (const p of ['/vendors/cesium/cesium-viewshed.js']) {
             expect(existsSync(join(DIST, p)), `${p} é lido em runtime e não foi publicado`).toBe(true);
         }
         // E os ativos estáticos do Cesium, que `window.CESIUM_BASE_URL` endereça e que o plugin
