@@ -16,9 +16,17 @@
 //
 // O QUE ELE NÃO PROVA: que o rodapé seja o lugar certo na tela. Isso é a captura do Playwright, que
 // roda fora do `npm test`.
+//
+// A SEGUNDA METADE DA MESMA CAUSA, medida em 2026-09-15 e prendida aqui desde então: decidir só no
+// NASCIMENTO não alcançava o caso da captura. Com o painel aberto, a consulta ao DOM respondia SIM
+// (o painel É `.modal-overlay[data-visible="true"]`) e os dois avisos continuavam em 80 px e
+// 140 px, porque tinham nascido segundos ANTES, sem modal na tela, e vivem 8 s. Como a pessoa abre
+// o painel pela luz de sync justamente PORQUE os avisos apareceram, o aviso que cobre é sempre o
+// que antecede o painel: a ordem que uma regra de criação nunca alcança. Daí a revisão enquanto o
+// aviso vive, e daí este arquivo ter um bloco por momento, o do nascimento e o da revisão.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { resolveToastPosition } from '@utils/toast_service.js';
+import { resolveToastPosition, revisaoDePosicoes } from '@utils/toast_service.js';
 
 const SELETOR_DE_MODAL = '.modal-overlay[data-visible="true"]';
 
@@ -30,6 +38,9 @@ const SELETOR_DE_MODAL = '.modal-overlay[data-visible="true"]';
  * @param {boolean} [opcoes.semQuerySelector] - Simula um `document` que não sabe consultar.
  */
 function makeDocumentStub({ comModal = false, semQuerySelector = false } = {}) {
+    // O modal ABRE E FECHA durante um caso, então o estado é mutável: a revisão só tem o que rever
+    // quando a resposta do DOM muda DEPOIS de o aviso já estar na tela, que é o caso da captura.
+    const estado = { comModal };
     const body = {
         children: [],
         appendChild(el) { el.parentNode = body; body.children.push(el); return el; },
@@ -45,14 +56,54 @@ function makeDocumentStub({ comModal = false, semQuerySelector = false } = {}) {
             appendChild(child) { el.children.push(child); return child; },
             setAttribute() { /* role/aria-live: irrelevante aqui */ },
             addEventListener() { /* botão de fechar: idem */ },
-            classList: { add() {}, remove() {} },
+            // `classList` de verdade, espelhado em `className`: é assim que o serviço troca o par
+            // `toast--top`/`toast--bottom` ao mover um aviso, e um dublê no-op esconderia a troca.
+            classList: {
+                add(...classes) {
+                    const atuais = new Set(el.className.split(' ').filter(Boolean));
+                    for (const classe of classes) atuais.add(classe);
+                    el.className = [...atuais].join(' ');
+                },
+                remove(...classes) {
+                    const atuais = new Set(el.className.split(' ').filter(Boolean));
+                    for (const classe of classes) atuais.delete(classe);
+                    el.className = [...atuais].join(' ');
+                },
+            },
             remove() { el.parentNode = null; },
         };
         return el;
     };
-    const doc = { body, createElement };
-    if (!semQuerySelector) doc.querySelector = vi.fn(() => (comModal ? { visivel: true } : null));
+    const doc = {
+        body,
+        createElement,
+        /** Abre ou fecha o modal DEPOIS de o aviso ter nascido. */
+        definirModalAberto(aberto) { estado.comModal = aberto; },
+    };
+    if (!semQuerySelector) {
+        doc.querySelector = vi.fn(() => (estado.comModal ? { visivel: true } : null));
+    }
     return doc;
+}
+
+/**
+ * Dublê de `MutationObserver` que guarda a última instância, para o caso disparar o retorno de
+ * chamada na hora em que o modal muda de estado (no navegador quem dispara é o DOM).
+ */
+class ObservadorDeMutacaoFalso {
+    /** @type {ObservadorDeMutacaoFalso|null} */
+    static ultimo = null;
+
+    constructor(retorno) {
+        this.retorno = retorno;
+        this.observando = [];
+        this.desligado = false;
+        ObservadorDeMutacaoFalso.ultimo = this;
+    }
+
+    observe(alvo, opcoes) { this.observando.push({ alvo, opcoes }); }
+
+    disconnect() { this.desligado = true; }
 }
 
 /**
@@ -70,17 +121,22 @@ async function carregarServico() {
 
 let documentoOriginal;
 let rafOriginal;
+let observadorOriginal;
 
 beforeEach(() => {
     documentoOriginal = globalThis.document;
     rafOriginal = globalThis.requestAnimationFrame;
+    observadorOriginal = globalThis.MutationObserver;
     // Sem rAF o serviço nunca marca `toast--visible`; a animação não é o sujeito aqui.
     globalThis.requestAnimationFrame = () => {};
+    globalThis.MutationObserver = ObservadorDeMutacaoFalso;
+    ObservadorDeMutacaoFalso.ultimo = null;
 });
 
 afterEach(() => {
     globalThis.document = documentoOriginal;
     globalThis.requestAnimationFrame = rafOriginal;
+    globalThis.MutationObserver = observadorOriginal;
     vi.restoreAllMocks();
 });
 
@@ -157,5 +213,146 @@ describe('a fiação: `showToast` lê o DOM e carimba o lugar resolvido', () => 
 
         expect(toast.dataset.position).toBe('top-center');
         expect(toast.style.top).toBe('80px');
+    });
+});
+
+describe('a decisão pura de rever o aviso JÁ na tela', () => {
+    it('quem recebeu o padrão desce quando um modal abre depois dele', () => {
+        expect(revisaoDePosicoes([{ pedida: undefined, atual: 'top-center' }], true))
+            .toEqual(['bottom-center']);
+    });
+
+    it('e volta ao topo quando o modal fecha: a revisão vale nos dois sentidos', () => {
+        expect(revisaoDePosicoes([{ pedida: undefined, atual: 'bottom-center' }], false))
+            .toEqual(['top-center']);
+    });
+
+    it('quem já está no lugar certo devolve `null`, e não a posição atual', () => {
+        // O `null` não é estilo: o observador dispara a cada mutação do corpo do documento, e
+        // reescrever classe e estilo de todo aviso a cada uma delas é trabalho por nada.
+        expect(revisaoDePosicoes([
+            { pedida: undefined, atual: 'top-center' },
+            { pedida: undefined, atual: 'bottom-center' },
+        ], false)).toEqual([null, 'top-center']);
+    });
+
+    it('quem pediu lugar NUNCA se move, nem para o rodapé nem de volta', () => {
+        const pedidos = [
+            { pedida: 'top-center', atual: 'top-center' },
+            { pedida: 'bottom-right', atual: 'bottom-right' },
+            { pedida: 'top-right', atual: 'top-right' },
+        ];
+        expect(revisaoDePosicoes(pedidos, true)).toEqual([null, null, null]);
+        expect(revisaoDePosicoes(pedidos, false)).toEqual([null, null, null]);
+    });
+
+    it('bordas: lista vazia, entrada que não é lista e item sem forma', () => {
+        expect(revisaoDePosicoes([], true)).toEqual([]);
+        expect(revisaoDePosicoes(undefined, true)).toEqual([]);
+        expect(revisaoDePosicoes(null, false)).toEqual([]);
+        // Item sem `atual` nenhum: qualquer posição é diferente de `undefined`, então ele é
+        // reposicionado em vez de ficar num lugar que ninguém sabe qual é.
+        expect(revisaoDePosicoes([{}], true)).toEqual(['bottom-center']);
+    });
+});
+
+describe('a fiação: o aviso que já estava na tela desce quando o painel abre', () => {
+    it('o caso da captura: nasce no topo sem modal e desce quando o modal aparece', async () => {
+        const doc = makeDocumentStub({ comModal: false });
+        globalThis.document = doc;
+        const { showToast } = await carregarServico();
+
+        // O aviso do laço de envio, que nasce ANTES de a pessoa abrir o painel.
+        const toast = showToast('Os mesmos campos foram alterados no servidor.', 'warning', { duration: 0 });
+        expect(toast.style.top).toBe('80px');
+        expect(toast.className).toContain('toast--top');
+
+        // O painel abre: no navegador é o `data-visible` do overlay que dispara o observador.
+        doc.definirModalAberto(true);
+        ObservadorDeMutacaoFalso.ultimo.retorno();
+
+        expect(toast.dataset.position).toBe('bottom-center');
+        expect(toast.style.bottom).toBe('20px');
+        expect(toast.style.top).toBe('');
+        expect(toast.className).toContain('toast--bottom');
+        expect(toast.className).not.toContain('toast--top');
+        expect(toast.className).toContain('toast--center');
+    });
+
+    it('fechado o modal, o mesmo aviso volta para o topo', async () => {
+        const doc = makeDocumentStub({ comModal: false });
+        globalThis.document = doc;
+        const { showToast } = await carregarServico();
+        const toast = showToast('mensagem', 'warning', { duration: 0 });
+
+        doc.definirModalAberto(true);
+        ObservadorDeMutacaoFalso.ultimo.retorno();
+        doc.definirModalAberto(false);
+        ObservadorDeMutacaoFalso.ultimo.retorno();
+
+        expect(toast.dataset.position).toBe('top-center');
+        expect(toast.style.top).toBe('80px');
+        expect(toast.style.bottom).toBe('');
+        expect(toast.className).toContain('toast--top');
+    });
+
+    it('o aviso com lugar pedido fica onde o chamador o pôs, com o modal aberto', async () => {
+        // É o caso do próprio painel de pendências, que pede o rodapé nas nove chamadas dele: a
+        // revisão não pode ser a segunda autora do lugar de ninguém.
+        const doc = makeDocumentStub({ comModal: false });
+        globalThis.document = doc;
+        const { showToast } = await carregarServico();
+        const toast = showToast('mensagem', 'info', { duration: 0, position: 'top-center' });
+
+        doc.definirModalAberto(true);
+        ObservadorDeMutacaoFalso.ultimo.retorno();
+
+        expect(toast.dataset.position).toBe('top-center');
+        expect(toast.style.top).toBe('80px');
+    });
+
+    it('a pilha é refeita depois de mover: dois avisos descem sem se sobrepor', async () => {
+        const doc = makeDocumentStub({ comModal: false });
+        globalThis.document = doc;
+        const { showToast } = await carregarServico();
+        const primeiro = showToast('primeiro', 'warning', { duration: 0 });
+        const segundo = showToast('segundo', 'warning', { duration: 0 });
+        expect(primeiro.style.top).toBe('80px');
+        expect(segundo.style.top).toBe('140px');
+
+        doc.definirModalAberto(true);
+        ObservadorDeMutacaoFalso.ultimo.retorno();
+
+        expect(primeiro.style.bottom).toBe('20px');
+        expect(segundo.style.bottom).toBe('80px');
+    });
+
+    it('o observador nasce com o aviso, olha o corpo do documento e filtra o atributo do overlay',
+        async () => {
+            globalThis.document = makeDocumentStub({ comModal: false });
+            const { showToast } = await carregarServico();
+            expect(ObservadorDeMutacaoFalso.ultimo).toBeNull();
+
+            showToast('mensagem', 'info', { duration: 0 });
+
+            const observador = ObservadorDeMutacaoFalso.ultimo;
+            expect(observador).not.toBeNull();
+            expect(observador.observando).toHaveLength(1);
+            expect(observador.observando[0].alvo).toBe(globalThis.document.body);
+            expect(observador.observando[0].opcoes.attributeFilter).toEqual(['data-visible']);
+            expect(observador.observando[0].opcoes.subtree).toBe(true);
+        });
+
+    it('sem `MutationObserver` o aviso continua nascendo, só não é revisto', async () => {
+        // O serviço é importado por costuras que rodam sem DOM: a revisão é um ganho, nunca uma
+        // condição para a mensagem sair.
+        globalThis.MutationObserver = undefined;
+        globalThis.document = makeDocumentStub({ comModal: true });
+        const { showToast } = await carregarServico();
+
+        const toast = showToast('mensagem', 'info', { duration: 0 });
+
+        expect(toast.dataset.position).toBe('bottom-center');
+        expect(toast.style.bottom).toBe('20px');
     });
 });

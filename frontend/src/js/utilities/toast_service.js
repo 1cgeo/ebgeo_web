@@ -19,6 +19,22 @@
  * keys visibility off that same attribute. So one `querySelector` answers the question for all of
  * them, with no bookkeeping to keep in sync and nothing to leak when a modal is destroyed rather
  * than hidden. An explicit `options.position` still wins: the decision only fills in the default.
+ *
+ * DECIDIR SÓ NO NASCIMENTO DEIXAVA METADE DO DEFEITO VIVA, e era a metade que a captura
+ * continuava fotografando. Medido no Playwright em 2026-09-15, com o painel de pendências aberto:
+ * ele ERA reconhecido (`.modal-overlay[data-visible="true"]` casava com ele) e os dois avisos
+ * continuavam em `top: 80px` e `top: 140px`, sobre o cabeçalho. Eles nasceram segundos ANTES,
+ * quando não havia modal nenhum, e o laço de envio lhes dá 8 s de vida (`sync-flush.js`): a pessoa
+ * abre o painel pela luz de sync JUSTAMENTE porque aqueles avisos acabaram de aparecer, então o
+ * aviso que cobre é, por construção, sempre o que antecede o painel. Uma regra aplicada uma vez,
+ * na criação, nunca alcança essa ordem.
+ *
+ * ENTÃO A POSIÇÃO É REVISTA ENQUANTO O AVISO VIVE, e o gatilho é o mesmo atributo do overlay,
+ * observado em vez de sondado ({@link revisaoDePosicoes} decide, e um `MutationObserver` no corpo
+ * do documento diz quando). O observador fica ligado só enquanto há aviso na tela (segundos por
+ * vez) e cai com o último, então a página não paga nada enquanto nada está sendo mostrado. Só o
+ * aviso que NÃO nomeou lugar se move, e nos dois sentidos: quem nomeou é obedecido pela vida
+ * inteira da mensagem, não só no primeiro quadro dela.
  */
 
 /** @type {number} */
@@ -79,6 +95,25 @@ function isModalOpen() {
 export function resolveToastPosition(requested, modalOpen) {
     if (requested) return requested;
     return modalOpen ? MODAL_OPEN_POSITION : DEFAULT_POSITION;
+}
+
+/**
+ * Onde cada aviso JÁ NA TELA deveria estar agora. Pura, como a de nascimento, e pela mesma razão.
+ *
+ * Ela devolve `null` para quem não muda, e não a posição atual, porque mexer no DOM de um aviso
+ * que já está no lugar certo é trabalho por nada a cada mutação observada, e o observador recebe
+ * muito mais mutação do que troca de modal. Quem pediu lugar explícito nunca aparece com posição
+ * nova aqui: {@link resolveToastPosition} devolve o pedido dele, que é o que ele já tem.
+ * @param {Array<{pedida: (string|undefined), atual: string}>} avisos - Um item por aviso vivo.
+ * @param {boolean} modalAberto - Se há modal na tela AGORA.
+ * @returns {Array<string|null>} A nova posição de cada aviso, ou `null` quando ele fica onde está.
+ */
+export function revisaoDePosicoes(avisos, modalAberto) {
+    if (!Array.isArray(avisos)) return [];
+    return avisos.map(({ pedida, atual } = {}) => {
+        const alvo = resolveToastPosition(pedida, modalAberto);
+        return alvo === atual ? null : alvo;
+    });
 }
 
 /**
@@ -154,6 +189,85 @@ function createToastElement(message, type, config) {
 }
 
 /**
+ * Move um aviso vivo para a outra borda da tela.
+ *
+ * Só troca o par de classes e limpa a borda antiga; o deslocamento vertical fica com
+ * {@link repositionActiveToasts}, que reempilha todo mundo depois. A classe `toast--center` não é
+ * tocada porque quem se move é sempre `top-center` ↔ `bottom-center`: o aviso com lugar pedido não
+ * entra nesta função.
+ * @param {HTMLElement} toast - Aviso na tela.
+ * @param {string} position - A nova posição.
+ */
+function moveToast(toast, position) {
+    const isTop = position.startsWith('top');
+    toast.classList.remove(isTop ? 'toast--bottom' : 'toast--top');
+    toast.classList.add(isTop ? 'toast--top' : 'toast--bottom');
+    toast.style[isTop ? 'bottom' : 'top'] = '';
+    toast.dataset.position = position;
+}
+
+/**
+ * Revê onde cada aviso vivo deve estar, agora que o DOM mudou.
+ *
+ * Chamada pelo observador, isto é, muitas vezes por segundo no pior caso: por isso a saída cedo
+ * com a pilha vazia e o `null` de {@link revisaoDePosicoes} para quem não muda. A consulta ao DOM
+ * acontece UMA vez por chamada, e não uma por aviso.
+ */
+function reviewToastPositions() {
+    if (activeToasts.size === 0) return;
+    const avisos = [...activeToasts];
+    const revisao = revisaoDePosicoes(
+        avisos.map((toast) => ({
+            pedida: toast.dataset.requestedPosition || undefined,
+            atual: toast.dataset.position,
+        })),
+        isModalOpen()
+    );
+
+    let mudou = false;
+    revisao.forEach((posicao, i) => {
+        if (!posicao) return;
+        moveToast(avisos[i], posicao);
+        mudou = true;
+    });
+    if (mudou) repositionActiveToasts();
+}
+
+/** @type {MutationObserver|null} Vive só enquanto há aviso na tela. */
+let modalObserver = null;
+
+/**
+ * Liga o observador com o primeiro aviso e o desliga com o último.
+ *
+ * O FILTRO É O ATRIBUTO DO OVERLAY, e o `childList` está junto porque um modal pode chegar ao
+ * documento já visível, caso em que não há mutação de atributo nenhuma para observar. O custo é
+ * limitado pela vida de um aviso (segundos), e o retorno do observador é a saída cedo acima.
+ *
+ * Tudo é protegido porque este módulo é importado por costuras que rodam sem DOM (testes, um
+ * worker): sem `MutationObserver` ou sem corpo de documento, o aviso continua nascendo no lugar
+ * decidido na criação, que é o comportamento anterior.
+ */
+function syncModalObserver() {
+    try {
+        if (activeToasts.size > 0) {
+            if (modalObserver || typeof MutationObserver !== 'function' || !document?.body) return;
+            modalObserver = new MutationObserver(reviewToastPositions);
+            modalObserver.observe(document.body, {
+                subtree: true,
+                childList: true,
+                attributes: true,
+                attributeFilter: ['data-visible'],
+            });
+            return;
+        }
+        modalObserver?.disconnect();
+        modalObserver = null;
+    } catch {
+        modalObserver = null;
+    }
+}
+
+/**
  * Repositions all active toasts after one is removed.
  */
 function repositionActiveToasts() {
@@ -182,6 +296,7 @@ function hideToast(toast) {
         toast.remove();
         activeToasts.delete(toast);
         repositionActiveToasts();
+        syncModalObserver();
     }, TRANSITION_MS);
 }
 
@@ -205,10 +320,15 @@ function showToast(message, type = 'info', options = {}) {
 
     const toast = createToastElement(message, type, config);
     toast.dataset.position = config.position;
+    // O PEDIDO DO CHAMADOR FICA GUARDADO, e não só o lugar resolvido: é ele que distingue, na
+    // revisão, quem escolheu um lugar de quem recebeu o padrão. Sem esta marca a revisão teria de
+    // adivinhar pela posição atual, e um `top-center` pedido seria indistinguível do padrão.
+    toast.dataset.requestedPosition = options.position ?? '';
 
     applyPosition(toast, config.position, activeToasts.size);
     document.body.appendChild(toast);
     activeToasts.add(toast);
+    syncModalObserver();
 
     requestAnimationFrame(() => {
         toast.classList.add('toast--visible');
