@@ -1473,8 +1473,15 @@ async function invalidateStreetview360Cache() {
 async function applyRemoteCesium3dEntityOp(bucket, changeEvent, opType, entityId, mapId, data) {
     const repo = handlerRepository();
     const mapName = mapResolver.resolveToName(mapId) || mapId;
-    const c3d = await repo.getCesium3d?.(mapName);
-    if (c3d) {
+    // A TRAVA DO DOCUMENTO LATERAL, PELO MESMO MOTIVO QUE O COMENTARIO JA TOMAVA A DELE. O par e
+    // o usuario local sao dois escritores do MESMO documento `cesium3d:<mapa>`, e os dois fazem
+    // read-modify-write assincrono do documento INTEIRO. Sem a trava, a op que chega no meio de um
+    // `addMarker` local devolve ao disco a versao que ela leu antes, e o resultado e uma perda
+    // silenciosa nos dois sentidos: o marcador recem-criado some, e o recem-apagado volta.
+    // `serializeGuardedApply` serializa remoto contra remoto, nunca remoto contra local.
+    await withSideDocument('cesium3d', mapName, 'applyRemoteCesium3dEntityOp', async () => {
+        const c3d = await repo.getCesium3d?.(mapName);
+        if (!c3d) return;
         if (!Array.isArray(c3d[bucket])) c3d[bucket] = [];
         const idx = c3d[bucket].findIndex((e) => e && e.id === entityId);
         if (opType === OperationType.DELETE) {
@@ -1484,7 +1491,9 @@ async function applyRemoteCesium3dEntityOp(bucket, changeEvent, opType, entityId
         }
         await repo.saveCesium3d?.(mapName, c3d);
         await present(invalidateCesium3dCache);
-    }
+    });
+    // O aviso sai FORA da secao critica: quem escuta vai reler o documento, e ler de dentro da
+    // trava e o caminho mais curto para um assinante esperar por quem ainda nao soltou.
     emit(changeEvent, { mapName: mapId });
 }
 
@@ -1502,8 +1511,11 @@ async function applyRemoteCesium3dEntityOp(bucket, changeEvent, opType, entityId
 async function applyRemoteCameraOp(opType, entityId, mapId, data) {
     const repo = handlerRepository();
     const mapName = mapResolver.resolveToName(mapId) || mapId;
-    const c3d = await repo.getCesium3d?.(mapName);
-    if (c3d) {
+    // Mesmo documento `cesium3d:<mapa>` dos marcadores, mesma trava: a camera salva de um par
+    // cruzando com um marcador criado localmente apagaria um dos dois.
+    await withSideDocument('cesium3d', mapName, 'applyRemoteCameraOp', async () => {
+        const c3d = await repo.getCesium3d?.(mapName);
+        if (!c3d) return;
         if (!c3d.cameraPositions) c3d.cameraPositions = {};
         if (opType === OperationType.DELETE) {
             const key = Object.keys(c3d.cameraPositions).find((k) => c3d.cameraPositions[k]?.id === entityId);
@@ -1513,7 +1525,7 @@ async function applyRemoteCameraOp(opType, entityId, mapId, data) {
         }
         await repo.saveCesium3d?.(mapName, c3d);
         await present(invalidateCesium3dCache);
-    }
+    });
     if (opType !== OperationType.DELETE) {
         emit(EventTypes.CAMERA_3D_SAVED, { tilesetId: data?.tilesetId, mapName: mapId });
     }
@@ -1533,8 +1545,11 @@ async function applyRemoteCameraOp(opType, entityId, mapId, data) {
 async function applyRemoteOrientation360Op(opType, entityId, mapId, data) {
     const repo = handlerRepository();
     const mapName = mapResolver.resolveToName(mapId) || mapId;
-    const sv = await repo.getStreetview360?.(mapName);
-    if (sv) {
+    // Orientacao e marcador 360 moram no MESMO documento `sv360:<mapa>`, entao a trava e a mesma
+    // que o escritor local toma; ver a nota em applyRemoteCesium3dEntityOp.
+    await withSideDocument('sv360', mapName, 'applyRemoteOrientation360Op', async () => {
+        const sv = await repo.getStreetview360?.(mapName);
+        if (!sv) return;
         if (!sv.orientations) sv.orientations = {};
         if (opType === OperationType.DELETE) {
             const key = Object.keys(sv.orientations).find((k) => sv.orientations[k]?.id === entityId);
@@ -1544,7 +1559,7 @@ async function applyRemoteOrientation360Op(opType, entityId, mapId, data) {
         }
         await repo.saveStreetview360?.(mapName, sv);
         await present(invalidateStreetview360Cache);
-    }
+    });
     const eventType = opType === OperationType.DELETE
         ? EventTypes.ORIENTATION_360_CLEARED
         : EventTypes.ORIENTATION_360_SAVED;
@@ -1563,8 +1578,11 @@ async function applyRemoteOrientation360Op(opType, entityId, mapId, data) {
 async function applyRemoteMarker360Op(opType, entityId, mapId, data) {
     const repo = handlerRepository();
     const mapName = mapResolver.resolveToName(mapId) || mapId;
-    const sv = await repo.getStreetview360?.(mapName);
-    if (sv) {
+    // Mesma trava que `addMarker360`/`removeMarker360` tomam do lado local; ver a nota em
+    // applyRemoteCesium3dEntityOp para o que a ausencia dela custava.
+    await withSideDocument('sv360', mapName, 'applyRemoteMarker360Op', async () => {
+        const sv = await repo.getStreetview360?.(mapName);
+        if (!sv) return;
         if (!Array.isArray(sv.markers)) sv.markers = [];
         const idx = sv.markers.findIndex((m) => m && m.id === entityId);
         if (opType === OperationType.DELETE) {
@@ -1574,7 +1592,7 @@ async function applyRemoteMarker360Op(opType, entityId, mapId, data) {
         }
         await repo.saveStreetview360?.(mapName, sv);
         await present(invalidateStreetview360Cache);
-    }
+    });
     emit(EventTypes.MARKERS_360_CHANGED, { mapName: mapId });
 }
 
@@ -2184,10 +2202,17 @@ async function applyRemoteSnapshotInner(snapshot) {
             // not carry them. Restore the snapshot's map.groups (array → object keyed by id)
             // into both the group store (by id) and the in-memory cache (by name) so a peer
             // sees existing groups on open. Without this the snapshot dropped them silently.
+            //
+            // CADA DOCUMENTO LATERAL TOMA A TRAVA DELE, pela mesma razao que o `saveMap` acima
+            // toma a do mapa: o snapshot SOBRESCREVE o documento inteiro, e cair dentro da janela
+            // de leitura-escrita de um escritor local faz um dos dois desaparecer sem erro. As
+            // chaves sao as mesmas que `layer.manager`, `group_manager`, `cesium3d.operations`,
+            // `streetview360.operations` e `comment.operations` ja tomam.
             if (Array.isArray(map.groups)) {
                 const byId = {};
                 for (const g of map.groups) { if (g && g.id) byId[g.id] = stampConfirmedVersionFromRow(g); }
-                await repo.saveGroups?.(map.id, byId);
+                await withSideDocument('groups', map.id, 'applyRemoteSnapshot:groups',
+                    () => repo.saveGroups?.(map.id, byId));
                 if (map.name) present(() => { memoryStore.groups[map.name] = byId; });
             }
 
@@ -2197,7 +2222,8 @@ async function applyRemoteSnapshotInner(snapshot) {
             // path did not. Persist them here (mirrors the groups handling above), else a pulled
             // atlas re-exports without its layers/3D/360 (silent data loss).
             if (Array.isArray(map.layers)) {
-                await repo.saveLayers?.(map.id, stampConfirmedVersionFromRows(map.layers));
+                await withSideDocument('layers', map.id, 'applyRemoteSnapshot:layers',
+                    () => repo.saveLayers?.(map.id, stampConfirmedVersionFromRows(map.layers)));
                 // Refresh the live layer cache if this is the active map (visibility filter reads it).
                 if (map.name && memoryStore.currentMap === map.name) {
                     await present(async () => {
@@ -2208,11 +2234,13 @@ async function applyRemoteSnapshotInner(snapshot) {
             }
             if (map.cesium3d && typeof map.cesium3d === 'object') {
                 stampBucketedRevisions(map.cesium3d, CESIUM3D_BUCKETS);
-                await repo.saveCesium3d?.(map.id, map.cesium3d);
+                await withSideDocument('cesium3d', map.id, 'applyRemoteSnapshot:cesium3d',
+                    () => repo.saveCesium3d?.(map.id, map.cesium3d));
             }
             if (map.streetview360 && typeof map.streetview360 === 'object') {
                 stampBucketedRevisions(map.streetview360, STREETVIEW360_BUCKETS);
-                await repo.saveStreetview360?.(map.id, map.streetview360);
+                await withSideDocument('sv360', map.id, 'applyRemoteSnapshot:sv360',
+                    () => repo.saveStreetview360?.(map.id, map.streetview360));
             }
             // Spatial comments: the backend snapshot sends them as an ARRAY per map; normalize to
             // the { [id]: comment } shape the side-store + overlay expect. Absent for read-only
@@ -2220,7 +2248,8 @@ async function applyRemoteSnapshotInner(snapshot) {
             if (Array.isArray(map.comments)) {
                 const commentsById = {};
                 for (const c of map.comments) { if (c && c.id) commentsById[c.id] = stampConfirmedVersionFromRow(c); }
-                await repo.saveMapComments?.(map.id, commentsById);
+                await withSideDocument('comments', map.id, 'applyRemoteSnapshot:comments',
+                    () => repo.saveMapComments?.(map.id, commentsById));
             }
 
             emit(EventTypes.MAP_MODIFIED, { mapId: map.id, map: reshaped });
@@ -2451,19 +2480,26 @@ async function writeConfirmedEntityVersion(entityType, entityId, mapId, entityVe
 
     // The 3D and 360 side-stores are keyed by map NAME, like every other writer of them.
     const mapName = mapResolver.resolveToName(mapId) || mapId;
+    // Carimbar a revisao tambem e leitura-modificacao-escrita do documento inteiro, entao toma a
+    // mesma trava que o apply e o escritor local: o recibo do proprio push chega enquanto o
+    // usuario continua desenhando, e este era o terceiro escritor sem porta.
     const cesiumBucket = CESIUM3D_ENTITY_BUCKET[entityType];
     if (cesiumBucket) {
-        const document = await repo.getCesium3d?.(mapName);
-        if (!stampInBucket(document?.[cesiumBucket], entityId, entityVersion)) return false;
-        await repo.saveCesium3d?.(mapName, document);
-        return true;
+        return withSideDocument('cesium3d', mapName, 'confirmEntityVersion:cesium3d', async () => {
+            const document = await repo.getCesium3d?.(mapName);
+            if (!stampInBucket(document?.[cesiumBucket], entityId, entityVersion)) return false;
+            await repo.saveCesium3d?.(mapName, document);
+            return true;
+        });
     }
     const streetviewBucket = STREETVIEW360_ENTITY_BUCKET[entityType];
     if (streetviewBucket) {
-        const document = await repo.getStreetview360?.(mapName);
-        if (!stampInBucket(document?.[streetviewBucket], entityId, entityVersion)) return false;
-        await repo.saveStreetview360?.(mapName, document);
-        return true;
+        return withSideDocument('sv360', mapName, 'confirmEntityVersion:sv360', async () => {
+            const document = await repo.getStreetview360?.(mapName);
+            if (!stampInBucket(document?.[streetviewBucket], entityId, entityVersion)) return false;
+            await repo.saveStreetview360?.(mapName, document);
+            return true;
+        });
     }
     return false;
 }

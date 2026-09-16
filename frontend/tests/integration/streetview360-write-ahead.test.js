@@ -26,7 +26,8 @@ import {
     setStreetview360Dependencies,
     updateMarker360
 } from '../../src/js/store/streetview360.operations.js';
-import { applyRemoteSnapshot, setRemoteHandlerEventBus } from '../../src/js/store/sync/remote-operation-handler.js';
+import { applyRemoteOperation, applyRemoteSnapshot, setRemoteHandlerEventBus } from '../../src/js/store/sync/remote-operation-handler.js';
+import { EntityType, OperationType } from '../../src/js/store/sync/operation-types.js';
 import { createAtlas } from '../../src/js/store/atlas/atlas.entity.js';
 
 vi.mock('../../src/js/store/sync/permission-guard.js', async importOriginal => ({
@@ -174,6 +175,101 @@ describe('Streetview360 write-ahead persistence', () => {
         const stored = await localRepository.getStreetview360(mapB.id);
         expect(new Set(stored.markers.map(m => m.id))).toEqual(new Set(criados.map(m => m.id)));
         expect((await operationQueue.getAll()).map(op => op.mapId)).toEqual(criados.map(() => mapB.id));
+    });
+
+    // =========================================================================================
+    // O CRUZAMENTO ENTRE O ESCRITOR LOCAL E O APPLY REMOTO (2026-09-16)
+    //
+    // O caso acima ("escritas concorrentes na mesma foto") prova a exclusão entre DOIS ESCRITORES
+    // LOCAIS, e passava verde enquanto o documento se perdia em produção, porque o segundo
+    // escritor do mundo real não é local: é a operação do colega. `serializeGuardedApply` ordena
+    // remoto contra remoto, nunca remoto contra local, e o apply do 360 gravava o documento
+    // inteiro sem tomar a trava que `addMarker360` toma.
+    //
+    // A INTERCALAÇÃO PERDEDORA É FORÇADA, e não sorteada: estatística de corrida não converge, e
+    // um verde único é indistinguível do determinístico. O portão prende a PRIMEIRA leitura do
+    // documento; sem a trava, o escritor local atravessa por baixo e grava, e a gravação do
+    // remoto (que leu antes) o apaga.
+    // =========================================================================================
+    it('op remota que cruza com a escrita local preserva os DOIS marcadores', async () => {
+        const marcadorA = await seedMarker();
+
+        let liberar;
+        let entrou;
+        const leituraEmCurso = new Promise(resolve => { entrou = resolve; });
+        const portao = new Promise(resolve => { liberar = resolve; });
+        const original = LocalRepository.prototype.getStreetview360;
+        vi.spyOn(LocalRepository.prototype, 'getStreetview360').mockImplementationOnce(async function (key) {
+            const documento = await original.call(this, key);
+            entrou();
+            await portao;
+            return documento;
+        });
+
+        // O remoto entra primeiro e fica preso na leitura; o local só depois.
+        const remoto = applyRemoteOperation({
+            entityType: EntityType.MARKER_360, operationType: OperationType.CREATE,
+            entityId: 'm360-remoto', mapId: mapB.id,
+            data: { id: 'm360-remoto', photoName: 'photo-1.jpg', position: { heading: 99, pitch: 0 } },
+        });
+        await leituraEmCurso;
+        const local = addMarker360('photo-1.jpg', {
+            position: { heading: 42, pitch: 0 }, properties: { nome: 'Local' }
+        }, mapB.name);
+
+        // Espaço de sobra para o escritor local terminar, se nada o estiver segurando.
+        await new Promise(resolve => setTimeout(resolve, 20));
+        liberar();
+        const [, marcadorLocal] = await Promise.all([remoto, local]);
+
+        const ids = (await localRepository.getStreetview360(mapB.id)).markers.map(m => m.id);
+        expect(ids).toContain(marcadorA.id);
+        expect(ids).toContain('m360-remoto');
+        expect(ids).toContain(marcadorLocal.id);
+    });
+
+    it('delete remoto que cruza com a escrita local não ressuscita o marcador apagado', async () => {
+        // O sentido oposto do mesmo defeito, e o que o chefe descreve como "apaguei e voltou": o
+        // documento relido antes do delete é o que vai ao disco depois dele.
+        //
+        // O ALVO É UM MARCADOR DO PAR, e não um local, de propósito: sobre uma entidade com edição
+        // local PENDENTE o guard de convergência adia a op remota, que é o comportamento certo e
+        // mediria outra coisa.
+        await applyRemoteOperation({
+            entityType: EntityType.MARKER_360, operationType: OperationType.CREATE,
+            entityId: 'm360-do-par', mapId: mapB.id,
+            data: { id: 'm360-do-par', photoName: 'photo-1.jpg', position: { heading: 7, pitch: 0 } },
+        });
+        const alvo = { id: 'm360-do-par' };
+
+        let liberar;
+        let entrou;
+        const leituraEmCurso = new Promise(resolve => { entrou = resolve; });
+        const portao = new Promise(resolve => { liberar = resolve; });
+        const original = LocalRepository.prototype.getStreetview360;
+        vi.spyOn(LocalRepository.prototype, 'getStreetview360').mockImplementationOnce(async function (key) {
+            const documento = await original.call(this, key);
+            entrou();
+            await portao;
+            return documento;
+        });
+
+        const localNovo = addMarker360('photo-1.jpg', {
+            position: { heading: 1, pitch: 0 }, properties: { nome: 'Novo' }
+        }, mapB.name);
+        await leituraEmCurso;
+        const remoto = applyRemoteOperation({
+            entityType: EntityType.MARKER_360, operationType: OperationType.DELETE,
+            entityId: alvo.id, mapId: mapB.id, data: null,
+        });
+
+        await new Promise(resolve => setTimeout(resolve, 20));
+        liberar();
+        const [marcadorNovo] = await Promise.all([localNovo, remoto]);
+
+        const ids = (await localRepository.getStreetview360(mapB.id)).markers.map(m => m.id);
+        expect(ids).not.toContain(alvo.id);
+        expect(ids).toContain(marcadorNovo.id);
     });
 
     it('troca de escopo durante a leitura não escreve em nenhum dos dois atlas', async () => {

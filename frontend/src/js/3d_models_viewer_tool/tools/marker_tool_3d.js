@@ -42,6 +42,8 @@ const remoteSelectionEntities = new Map();
 const loadedMarkers = new Map();
 // Unsubscribe callbacks for the module-level event listeners (paired in cleanup).
 const temporalUnsubscribers = [];
+/** Coalescing window for scene repaints driven by remote marker ops (mirrors the 2D bridge). */
+const MARKER_REFRESH_DEBOUNCE_MS = 80;
 
 // ===== MARKER VISUALIZATION =====
 
@@ -838,6 +840,61 @@ export async function refreshMarkersForCurrentTileset() {
 }
 
 /**
+ * Reconciles the scene against the store WITHOUT disturbing what the local user is doing.
+ *
+ * POR QUE NAO REUSA `refreshMarkersForCurrentTileset`: aquela funcao limpa a cena inteira e
+ * DESSELECIONA, o que e correto numa troca de mapa e seria uma regressao aqui, porque isto roda a
+ * cada operacao que um colega manda. O usuario perderia a selecao e o painel aberto no meio da
+ * edicao dele, por causa de um marcador do outro lado da cena.
+ *
+ * O QUE ELE FAZ: adiciona o que nasceu, refaz o que mudou, remove o que sumiu, e mantem a selecao
+ * local quando o marcador selecionado sobreviveu. So quando o proprio marcador selecionado foi
+ * APAGADO pelo par e que a selecao cai, e ai ela tem de cair mesmo.
+ * @returns {Promise<void>}
+ */
+export async function syncMarkersFromStore() {
+    if (!currentViewer || currentViewer.isDestroyed?.() || !currentTilesetId) return;
+
+    const markers = await getMarkers(currentTilesetId);
+    const vivos = new Set();
+
+    for (const marker of markers) {
+        vivos.add(marker.id);
+        const anterior = loadedMarkers.get(marker.id);
+        loadedMarkers.set(marker.id, marker);
+
+        // A entidade so se refaz quando o DADO mudou. Refazer todas a cada evento faria a cena
+        // piscar a cada movimento de um colega. A comparacao e pelo conteudo inteiro de proposito:
+        // estilo, rotulo, posicao e janela temporal decidem o desenho, e um carimbo de versao que
+        // algum caminho de escrita esquecesse de mexer deixaria a tela velha em silencio.
+        const mudou = !anterior || JSON.stringify(anterior) !== JSON.stringify(marker);
+        if (mudou) {
+            removeMarkerEntity(marker.id);
+            renderMarkerIfVisible(marker);
+        } else if (!markerEntities.has(marker.id)) {
+            renderMarkerIfVisible(marker);
+        }
+    }
+
+    for (const id of [...loadedMarkers.keys()]) {
+        if (vivos.has(id)) continue;
+        if (selectedMarkerId === id) {
+            selectMarker(null);
+            emitMarkerDeselected();
+        }
+        removeMarkerEntity(id);
+        loadedMarkers.delete(id);
+    }
+
+    // Reata o realce do que continua selecionado (a entidade pode ter sido refeita acima) e os
+    // realces de selecao dos colegas, que ancoram na posicao das entidades.
+    if (selectedMarkerId && markerEntities.has(selectedMarkerId)) {
+        selectMarker(selectedMarkerId);
+    }
+    renderRemoteSelections3D();
+}
+
+/**
  * Initializes marker tool event listeners.
  * Should be called once when the 3D viewer is initialized.
  */
@@ -877,7 +934,34 @@ export function initMarkerToolListeners() {
         }
     });
 
-    temporalUnsubscribers.push(offLayers, offCursor, offTemporal, offSelections);
+    // O CONJUNTO DE MARCADORES MUDOU, e a cena tem de mostrar isso AGORA.
+    //
+    // Ate 2026-09-16 ninguem dentro do visualizador 3D escutava este evento: a operacao do colega
+    // era gravada no side-store, `MARKERS_3D_CHANGED` era emitido, e a unica coisa que repintava a
+    // cena a partir do store era FECHAR E REABRIR o 3D. O marcador criado pelo par nao aparecia, e
+    // o apagado por ele continuava na tela. O mesmo defeito ja tinha sido consertado no mapa 2D, e
+    // o cabecalho de `layers/remote-feature-render.js` o descreve palavra por palavra.
+    //
+    // A coalescencia tem o mesmo motivo que la: um lote de sync ou um snapshot emite uma rajada de
+    // eventos, e sem ela cada op pediria uma releitura inteira do store.
+    let refreshTimer = null;
+    const offMarkers = eventBus.on(EventTypes.MARKERS_3D_CHANGED, () => {
+        if (!currentViewer || !currentTilesetId || refreshTimer !== null) return;
+        refreshTimer = setTimeout(() => {
+            refreshTimer = null;
+            syncMarkersFromStore().catch((err) => {
+                console.error('Falha ao repintar os marcadores 3D:', err);
+            });
+        }, MARKER_REFRESH_DEBOUNCE_MS);
+    });
+    temporalUnsubscribers.push(() => {
+        if (refreshTimer !== null) {
+            clearTimeout(refreshTimer);
+            refreshTimer = null;
+        }
+    });
+
+    temporalUnsubscribers.push(offLayers, offCursor, offTemporal, offSelections, offMarkers);
 }
 
 /**

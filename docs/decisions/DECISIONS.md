@@ -194,3 +194,4 @@ que envelheceu na decisão seguinte.)
 - 2026-09-15: o tutorial vira a QUINTA página do bundler, e o docsify entra pelo npm, [registro](decisions-2026.md).
 - 2026-09-15: o viewshed 3D é reescrito como código da casa, e o desenho é congelado em pixel antes, [registro](decisions-2026.md).
 - 2026-09-15: o empréstimo por atlas alcança o TILE, e a cláusula 6.7 fecha, [registro](decisions-2026.md).
+- 2026-09-16: o cursor de presença ganha SUPERFÍCIE, e o apply remoto de documento lateral passa a tomar a trava, [registro](decisions-2026.md).
