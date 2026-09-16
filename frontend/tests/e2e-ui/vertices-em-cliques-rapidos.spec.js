@@ -25,15 +25,27 @@
  * `pageerror` armado desde antes do `goto`: nas duas quedas NÃO houve erro de página nenhum, e
  * numa delas a última mensagem do console foi do driver de GL (`GL Driver Message (OpenGL,
  * Performance, ...): GPU stall due to ReadPixels`, severidade alta). Ou seja, não há exceção do
- * app, não há recurso do app faltando (as recusas de `http://localhost/tiles/...` aparecem
- * igualmente nas rodadas VERDES, porque o servidor de tiles não sobe nesta camada): morre a
- * pilha de WebGL do navegador. Nada no produto nem neste spec pode esperar por isso, porque não
- * existe mais página onde esperar.
+ * app e não há recurso do app faltando (as recusas de `http://localhost/tiles/...` aparecem
+ * igualmente nas rodadas VERDES, porque o servidor de tiles não sobe nesta camada): morre o
+ * PROCESSO, não o app. Nada no produto nem neste spec pode esperar por isso, porque não existe
+ * mais página onde esperar.
  *
- * A TAXA, em série e com `--retries=0`: 3 quedas em 64 boots deste arquivo (1 em 32 e 2 em 32,
- * em duas baterias `--repeat-each 8`), cerca de 5%. Ele é o arquivo da suíte que mais boota mapa
- * por minuto (quatro casos, cada um com mapa novo e contexto WebGL novo), e é por isso que a
- * queda aparece AQUI primeiro e não porque ele tenha algo de especial.
+ * E NÃO É A PILHA DE WebGL, apesar da mensagem de console, que esta linha leu como causa até a
+ * noite de 2026-09-15. Aquela mensagem é saída de depuração do próprio ANGLE sobre SwiftShader
+ * (este harness não tem driver de fornecedor nenhum dentro do processo), e a queda acontece na
+ * MESMA taxa quando se troca o rasterizador inteiro pelo driver da NVIDIA (`--use-angle=d3d11`):
+ * 4 em 128, contra 5 em 160 do padrão. O Windows registra todas elas como a mesma exceção, no mesmo
+ * deslocamento do binário, o que a torna um CHECK determinístico do Chromium e não uma parada de
+ * driver. Cinco configurações de lançamento foram medidas e NENHUMA reduz a taxa; quatro das
+ * cinco bandeiras que a intuição sugere já são o padrão do headless shell. A tabela e o porquê de
+ * não se mexer no config estão na seção do flaky de `.claude/rules/testing.md`, e ela existe para
+ * que a próxima sessão não refaça a busca.
+ *
+ * A TAXA, em série e com `--retries=0`: 5 quedas em 160 boots deste arquivo, 3,1%, em quatro
+ * baterias (0 em 32, 2 em 32, 3 em 64 e 0 em 32). Ele é o arquivo da suíte que mais boota mapa por minuto
+ * (quatro casos, cada um com mapa novo e contexto WebGL novo), e é por isso que a queda aparece
+ * AQUI primeiro e não porque ele tenha algo de especial. Repare na variância entre baterias: uma
+ * bateria de 32 que volte limpa NÃO é evidência de conserto.
  *
  * O QUE NÃO SE FEZ, e por quê. Não há `test.describe.configure({ retries })` neste arquivo: o
  * `playwright.config.js` já tenta de novo uma vez, então declarar `retries: 1` aqui não mudaria

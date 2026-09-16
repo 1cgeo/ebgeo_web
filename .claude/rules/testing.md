@@ -293,6 +293,74 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   investigando um flake, rode em SÉRIE e relate a taxa, que é o que a constituição
   pede.
 
+  **A QUEDA DO RENDERIZADOR NÃO SE CONSERTA POR BANDEIRA DE LANÇAMENTO, e a lista de
+  bandeiras que a intuição oferece JÁ É O PADRÃO DO HARNESS** (medido em 2026-09-15 nesta
+  máquina, 480 boots em cinco configurações). O sintoma está declarado com mecanismo e taxa no
+  cabeçalho de `frontend/tests/e2e-ui/vertices-em-cliques-rapidos.spec.js`: o processo da página
+  morre no boot do mapa e a falha chega como Target crashed, sem erro de página nenhum.
+
+  **O primeiro fato mata a prescrição inteira: não há driver de GPU dentro do processo.** A
+  leitura da extensão de depuração de renderizador dentro da página devolve "ANGLE (Google,
+  Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)", e a linha de comando VIVA do
+  processo de GPU (`Get-CimInstance Win32_Process`) traz `--use-angle=swiftshader-webgl`,
+  `--use-gl=angle` e `--enable-unsafe-swiftshader`; o processo do navegador nasce ainda com
+  `--disable-back-forward-cache` e `--disable-dev-shm-usage`. Ou seja, `--use-angle=swiftshader`,
+  o par `--use-gl=angle --use-angle=swiftshader-webgl`, `--enable-unsafe-swiftshader`,
+  `--disable-features=BackForwardCache` e `--disable-dev-shm-usage` são TODOS o padrão do headless
+  shell do Playwright: acrescentá-los mede a linha de base duas vezes. E a mensagem de console que
+  fundamentava a suspeita ("GL Driver Message ... GPU stall due to ReadPixels") é saída de
+  depuração do próprio ANGLE sobre SwiftShader, não de um driver de fornecedor, que ali não
+  existe. Confira a bandeira contra o PROCESSO antes de gastar bateria com ela.
+
+  **O segundo fato diz onde a queda não está.** O Windows registra toda ocorrência como exceção
+  0x80000003 (STATUS BREAKPOINT) no módulo chrome-headless-shell.exe, sempre no MESMO deslocamento
+  0x0000000000d7d2c3: é um CHECK determinístico do Chromium, não uma parada de driver e não
+  corrupção de memória. A memória também não sustenta a leitura de OOM: amostrada a cada 9 s numa
+  bateria de 64 boots, a soma dos processos oscilou POR TESTE entre 49 MB e 822 MB, com o maior
+  processo em 519 MB, sem tendência de subida.
+
+  **E o log de eventos do Windows NÃO serve de contador.** O WER agrupa duplicata por bucket: uma
+  janela com TRÊS reprovações deixou UM evento. Quem contar queda pelo Visualizador de Eventos
+  subconta, e subconta mais quanto pior estiver o quadro. O contador que vale continua sendo a
+  reprovação do caso, em série e com `--retries=0`.
+
+  **A medição**, sempre sobre `frontend/tests/e2e-ui/vertices-em-cliques-rapidos.spec.js` (o
+  arquivo que mais boota mapa por minuto), em série e sem retry:
+
+  | configuração | quedas / boots | taxa | custo |
+  |---|---|---|---|
+  | padrão do harness (headless shell, SwiftShader) | 5 / 160 | 3,1% | 5,5 s/caso; boot 3,82 s; viewshed 30,1 s |
+  | `--use-angle=d3d11` (GPU real, RTX 4070 Ti) | 4 / 128 | 3,1% | 5,3 s/caso; boot 3,74 s; viewshed 21,2 s |
+  | `--disable-gpu-driver-bug-workarounds` | 1 / 64 | 1,6% | igual ao padrão |
+  | `--in-process-gpu` | 3 / 64 | 4,7% | igual ao padrão |
+  | canal `chromium` (binário completo) + SwiftShader | 3 / 64 | 4,7% | boot 3,85 s, e a falha PIORA |
+
+  Nenhuma diferença sai do ruído: 16 quedas em 480 boots, 3,3% no agregado, e a 3,3% uma bateria
+  de 64 espera 2,1 quedas, de modo que 1 e 4 são o mesmo número. A variância entre baterias da
+  MESMA configuração mostra isso sozinha: as quatro baterias do padrão deram 0 em 32, 2 em 32, 3
+  em 64 e 0 em 32, ou seja, metade delas voltou limpa. **Nada foi mudado no config, e é
+  esse o resultado.** Em particular, não promova o 1 de 64 da terceira linha a conserto: ela é a
+  única bandeira da lista que ainda não era padrão, e o que ela desliga é a lista de contornos de
+  bug de DRIVER, que sob SwiftShader está vazia. É um dip de ruído com mecanismo nulo.
+
+  **A queda sobrevive à troca COMPLETA do rasterizador**, o que tira a pilha de GL da lista de
+  suspeitos apesar da mensagem de console: ela acontece na mesma taxa com SwiftShader e com o
+  driver da NVIDIA. E o canal `chromium` é PIOR, com o custo fora da taxa: com o binário completo
+  a falha deixa de ser Target crashed num caso e vira "worker process exited unexpectedly
+  (code=3221225477)", isto é, ACCESS VIOLATION derrubando o worker inteiro, que é a assinatura que
+  custou as duas tentativas de `frontend/tests/e2e-ui/browser-collab-shared-atlas.spec.js` na
+  rodada completa de 2b809a2f.
+
+  **Uma medição de tabela vale por si e não pelo motivo que a gerou**: trocar o rasterizador por
+  hardware muda 190 de 881280 pixels do `frontend/tests/e2e-ui/viewshed-3d-pixel.spec.js` (0,022%)
+  e 11 pixels de CLASSE (0,001%), com verde e vermelho em 17,331% e 4,824% dos dois lados. A
+  referência versionada passa sem regeneração, com quase cinquenta vezes de folga dentro do teto
+  de 1%, e a suíte de viewshed fica um terço mais rápida. Ou seja, o teto daquele arquivo foi bem
+  escolhido: ele sobrevive a uma troca de GPU, que é exatamente o cenário que o comentário dele
+  antecipava. Isso não autoriza a troca (ela não conserta nada e amarraria ao driver desta máquina
+  uma referência hoje reprodutível em qualquer uma), mas tira o pixel da lista de objeções caso
+  alguém precise de hardware por outro motivo.
+
   **E o comando ignora uma spec em silêncio.** O mesmo config traz uma lista de
   ignorados que tira `frontend/tests/e2e-ui/browser-collab-mega.spec.js` da rodada
   normal, salvo quando a própria linha de comando nomeia a mega (é o que
