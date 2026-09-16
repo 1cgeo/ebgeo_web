@@ -9,10 +9,18 @@
 // `grep` por `navigator.storage`, `persist(`, `persisted()` e `estimate()` devolvia ZERO nas duas
 // linhas do produto.
 //
-// Três estados e não dois, e a diferença importa para o suporte: `sim` (a origem é persistente),
-// `nao` (o navegador recusou, que é um estado NORMAL, porque a permissão é concedida por
-// heurística e não por diálogo) e `indisponivel` (a API não existe ou lançou, e nada se sabe).
-// Confundir `nao` com `indisponivel` faria o suporte ler recusa onde há motor sem a API.
+// QUATRO estados e não dois, e a diferença importa para o suporte: `sim` (a origem é
+// persistente), `nao` (o navegador recusou, que é um estado NORMAL no Chromium, onde a permissão
+// é concedida por heurística), `indisponivel` (a API não existe ou lançou, e nada se sabe) e
+// `pendente` (o navegador abriu DIÁLOGO e ninguém respondeu dentro do prazo). Confundir `nao`
+// com `indisponivel` faria o suporte ler recusa onde há motor sem a API.
+//
+// O QUARTO NASCEU DE UM DEFEITO MEDIDO NO FIREFOX (2026-09-15). "Concedida por heurística e não
+// por diálogo" é verdade no Chromium e FALSA no Firefox, onde `persist()` abre a tarja de
+// permissão e a promessa fica pendente até alguém responder. Com o boot AGUARDANDO este pedido,
+// o mapa nunca montava: sem erro, sem console, sem tela de indisponível. O `try/catch` do módulo
+// cobria a promessa que REJEITA e não a que NUNCA SE RESOLVE, e as duas custam coisas
+// diferentes: a primeira custa um estado, a segunda custa a página.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -102,6 +110,54 @@ describe('B4-7: pedirPersistencia nos três estados', () => {
         const { persistencia } = await carregarModulos();
 
         expect(await persistencia.pedirPersistencia()).toBe('indisponivel');
+    });
+
+    it('uma promessa que NUNCA se resolve vira pendente e devolve dentro do prazo', async () => {
+        // O REPRO DO FIREFOX, em node: `persist()` que fica pendente para sempre é a tarja de
+        // permissão que ninguém respondeu. O que se afirma aqui é o que o boot precisa: a função
+        // VOLTA, e volta dizendo que não sabe, em vez de segurar a página para sempre.
+        vi.stubGlobal('navigator', {
+            storage: {
+                persisted: vi.fn(async () => false),
+                persist: vi.fn(() => new Promise(() => {}))
+            }
+        });
+        const { persistencia } = await carregarModulos();
+
+        const inicio = Date.now();
+        const desfecho = await persistencia.pedirPersistencia({ prazoMs: 30 });
+
+        expect(desfecho).toBe('pendente');
+        expect(Date.now() - inicio, 'voltou dentro do prazo, e não ficou pendurada').toBeLessThan(2000);
+        expect(persistencia.desfechoDaPersistencia()).toBe('pendente');
+    });
+
+    it('a resposta TARDIA corrige o desfecho guardado, em vez de se perder', async () => {
+        // Quem concede é o navegador, não esta função: se a pessoa responder depois do prazo, a
+        // origem VIRA persistente e a linha de boot não pode continuar dizendo `pendente`.
+        let responder = null;
+        vi.stubGlobal('navigator', {
+            storage: {
+                persisted: vi.fn(async () => false),
+                persist: vi.fn(() => new Promise((r) => { responder = r; }))
+            }
+        });
+        const { persistencia } = await carregarModulos();
+
+        expect(await persistencia.pedirPersistencia({ prazoMs: 20 })).toBe('pendente');
+        responder(true);
+        await new Promise((r) => setTimeout(r, 10));
+
+        expect(persistencia.desfechoDaPersistencia()).toBe('sim');
+    });
+
+    it('CONTROLE: o prazo não trunca quem responde a tempo', async () => {
+        // Sem este caso, um prazo de zero passaria os dois casos acima e transformaria TODO boot
+        // em `pendente`, isto é, o conserto viraria a perda da medição que ele deveria preservar.
+        vi.stubGlobal('navigator', { storage: storageDublado({ persisted: false, persist: true }) });
+        const { persistencia } = await carregarModulos();
+
+        expect(await persistencia.pedirPersistencia({ prazoMs: 5000 })).toBe('sim');
     });
 
     it('uma promessa que REJEITA vira indisponivel e não custa o boot', async () => {
