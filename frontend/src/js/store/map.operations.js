@@ -1034,13 +1034,18 @@ export async function updateMapPosition(center_lat, center_long, zoom, bearing, 
         assertRemoteMapIdentity(tx, currentMapData, targetMap);
 
         const existingPosition = currentMapData.savedPosition;
-        const isUpdate = !!existingPosition?.id;
         // A revisão viaja no `previousData` da posição, e ela é a do MAPA, porque a posição é uma
-        // unidade dele e não uma entidade própria no servidor. Sem posição salva anterior não há
-        // `previousData`, e uma criação não observa revisão nenhuma de qualquer modo.
-        const previousData = existingPosition
-            ? { ...existingPosition, ...mapRevisionOf(currentMapData) }
-            : null;
+        // unidade dele e não uma entidade própria no servidor.
+        //
+        // ELA VIAJA TAMBÉM NA PRIMEIRA GRAVAÇÃO, e isso mudou em 2026-09-16. O racional antigo era
+        // "sem posição anterior não há `previousData`, e uma criação não observa revisão nenhuma";
+        // ele caiu junto com o `create`, porque a op deixou de ser criação: uma posição salva é um
+        // conjunto de COLUNAS de um mapa que já existe, e a revisão que ela observa é a do mapa,
+        // que existe desde o primeiro `pull`. Sem isto, a primeira posição salva de cada mapa
+        // continuaria sendo aplicada por ordem de chegada. É a mesma forma que `setGridStyle` e
+        // `setMapNotes` usam, e o `{}` de um documento sem revisão degrada para o mesmo LWW de
+        // antes, sem prometer base nenhuma.
+        const previousData = { ...(existingPosition ?? {}), ...mapRevisionOf(currentMapData) };
 
         const sync = existingPosition?.sync
             ? touchSyncMetadata(existingPosition.sync)
@@ -1065,8 +1070,14 @@ export async function updateMapPosition(center_lat, center_long, zoom, bearing, 
         currentMapData.pitch = pitch;
 
         const mapId = mapResolver.resolveToId(targetMap) || targetMap;
-        const operationType = isUpdate ? OperationType.UPDATE : OperationType.CREATE;
-        tx.recordOperation(EntityType.MAP_POSITION, operationType, mapId, mapId,
+        // SEMPRE `update`, pela razão escrita por extenso em `setGridStyle`
+        // (`settings.operations.js`): a posição salva é um conjunto de COLUNAS de um mapa que já
+        // existe, e não uma linha própria. `create` mandava a op para o ramo de criação de mapa,
+        // que insere a linha inteira com o nome nulo, e a primeira posição salva de cada mapa
+        // voltava recusada por integridade; e um `create` não monta patch, então a disputa saía
+        // sobre o bloco em vez da unidade. A base observada não depende disto: ela viaja no
+        // `previousData` acima.
+        tx.recordOperation(EntityType.MAP_POSITION, OperationType.UPDATE, mapId, mapId,
             currentMapData.savedPosition, previousData);
         return () => updateMapData(targetMap, currentMapData);
     })));

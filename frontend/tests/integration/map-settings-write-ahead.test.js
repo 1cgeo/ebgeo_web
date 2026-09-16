@@ -107,8 +107,12 @@ describe('Map settings write-ahead persistence', () => {
         expect(seen.size).toBe(3);
         const journal = await operationQueue.getAll();
         expect(journal.map(op => op.entityType)).toEqual(['baseLayer', 'mapPosition', 'mapPosition']);
-        // Salvar posição pela primeira vez é CREATE; limpar é UPDATE com os cinco campos nulos.
-        expect(journal.map(op => op.operationType)).toEqual(['update', 'create', 'update']);
+        // AS TRÊS SÃO `update`, inclusive salvar a posição pela primeira vez. Até 2026-09-16 ela
+        // era `create`, e o servidor a mandava para o ramo de criação de mapa, que insere a linha
+        // inteira com o nome nulo: reprovava por NOT NULL e a primeira posição salva de cada mapa
+        // nunca chegava. Sub-entidade de mapa é COLUNA, nunca linha. Limpar continua sendo update
+        // com os cinco campos nulos.
+        expect(journal.map(op => op.operationType)).toEqual(['update', 'update', 'update']);
         expect(journal[2].data).toEqual({
             center_lat: null, center_long: null, zoom: null, bearing: null, pitch: null
         });

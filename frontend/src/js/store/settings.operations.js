@@ -95,12 +95,13 @@ export async function setMapNotes(mapName, notes) {
     await runTransaction(async tx => {
         const mapId = mapResolver.resolveToId(targetMap) || targetMap;
         const previousNotes = await getMapNotesRepo(targetMap);
-        const opType = previousNotes?.title || previousNotes?.description ? OperationType.UPDATE : OperationType.CREATE;
+        // SEMPRE `update`, pela razão escrita por extenso em `setGridStyle` abaixo: as notas são
+        // `maps.notes_title`/`notes_description`, colunas de um mapa que já existe.
         // A REVISÃO DO MAPA viaja no `previousData`, porque as notas são uma UNIDADE do mapa e não
         // uma entidade própria do servidor: sem ela, esta escrita é aplicada por ordem de chegada.
         // Ela custa uma leitura do documento do mapa, num gesto que se faz um por vez.
         const previous = { ...(previousNotes ?? {}), ...(await readMapRevision(targetMap)) };
-        tx.recordOperation(EntityType.MAP_NOTES, opType, mapId, mapId, notes, previous);
+        tx.recordOperation(EntityType.MAP_NOTES, OperationType.UPDATE, mapId, mapId, notes, previous);
         return () => setMapNotesRepo(targetMap, notes);
     });
 }
@@ -157,11 +158,22 @@ export async function setGridStyle(mapName, gridStyle) {
     await runTransaction(async tx => {
         const mapId = mapResolver.resolveToId(targetMap) || targetMap;
         const previousGridStyle = await getGridStyleRepo(targetMap);
-        const opType = previousGridStyle ? OperationType.UPDATE : OperationType.CREATE;
+        // SEMPRE `update`, e nunca `create`. Uma sub-entidade de mapa não é uma linha própria no
+        // servidor: ela é uma COLUNA de um mapa que já existe (aqui, `maps.grid_style`), e quem
+        // cria a linha é a op de `map`, a única que carrega o nome. O tipo decidido por "havia
+        // valor local antes?" produzia `create` na PRIMEIRA gravação de cada mapa, e custava duas
+        // coisas, as duas medidas em 2026-09-16: no servidor, o ramo de criação de mapa inseria a
+        // linha inteira com o nome nulo e o Postgres reprovava por NOT NULL antes de olhar o
+        // `ON CONFLICT` (o lote voltava com "campo obrigatório ausente", e ligar a grade pela
+        // primeira vez nunca chegava lá); e no contrato, `entityMutationContract` só monta o
+        // PATCH para `update`, então a op viajava sem a lista de unidades alteradas e a disputa
+        // passava a ser julgada sobre o bloco em vez da unidade. A base observada NÃO dependia
+        // disto: ela sai do `previous` logo abaixo, que carrega a revisão do mapa nos dois casos.
+
         // Mesma razão de `setMapNotes` acima: a grade é uma unidade do mapa, e a base observada
         // que o servidor lê é a do MAPA.
         const previous = { ...(previousGridStyle ?? {}), ...(await readMapRevision(targetMap)) };
-        tx.recordOperation(EntityType.GRID_STYLE, opType, mapId, mapId, gridStyle, previous);
+        tx.recordOperation(EntityType.GRID_STYLE, OperationType.UPDATE, mapId, mapId, gridStyle, previous);
         return () => setGridStyleRepo(targetMap, gridStyle);
     });
 }

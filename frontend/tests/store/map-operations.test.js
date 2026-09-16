@@ -984,14 +984,18 @@ describe('updateMapPosition', () => {
         expect(intents).toEqual([]);
     });
 
-    it('registra CREATE na primeira posição e UPDATE quando já existe uma', async () => {
-        // O que separa os dois é o `id` da posição guardada, não a existência dos campos planos:
-        // um mapa LEGADO tem os cinco campos e nenhuma posição com id, e nasce como CREATE.
+    it('registra UPDATE em toda gravação, inclusive na primeira', async () => {
+        // ANTES DE 2026-09-16 A PRIMEIRA ERA `create`, e o `id` da posição guardada era o que
+        // separava as duas. O tipo mudou porque a posição não é uma linha própria no servidor: é
+        // um conjunto de COLUNAS de um mapa que já existe, e quem cria a linha é a op de `map`. Um
+        // `create` aqui caía no ramo de criação de mapa, que insere a linha inteira com o nome
+        // nulo, e o Postgres a reprovava por NOT NULL antes de olhar o `ON CONFLICT`: a primeira
+        // posição salva de cada mapa voltava recusada por integridade, com a frase "campo
+        // obrigatório ausente". Ver `sync-subentidade-de-mapa-como-create.test.js` no backend.
         await updateMapPosition(-22.9, -43.17, 12, 0, 0);
         expect(intents).toHaveLength(1);
         expect(intents[0].entityType).toBe('mapPosition');
-        expect(intents[0].operationType).toBe('create');
-        expect(intents[0].previousData).toBeNull();
+        expect(intents[0].operationType).toBe('update');
 
         await updateMapPosition(-23, -43, 14, 0, 0);
         expect(intents).toHaveLength(2);
@@ -1412,12 +1416,15 @@ describe('o mapa declara a base que observou', () => {
             .toEqual({ baseLayer: 'carta-topografica', confirmedVersion: REVISAO });
     });
 
-    it('a posição declara a revisão do MAPA, e só quando havia posição anterior', async () => {
-        // A primeira gravação é uma CRIAÇÃO: não há posição anterior, logo não há revisão
-        // observada, e prometer uma ali convidaria a lê-la como se houvesse.
+    it('a posição declara a revisão do MAPA, inclusive na primeira gravação', async () => {
+        // O RACIONAL ANTIGO ERA "a primeira é uma criação, e uma criação não observa revisão
+        // nenhuma". Ele caiu com o `create` (2026-09-16): a op é um update de colunas de um mapa
+        // que já existe, e a revisão que ela observa é a DO MAPA, que existe desde o primeiro
+        // `pull`. Sem declará-la, a primeira posição salva de cada mapa seria aplicada por ordem
+        // de chegada, que é justamente o que a base observada existe para evitar.
         await updateMapPosition(-22.9, -43.2, 10, 0, 0);
-        expect(intents[0].operationType).toBe('create');
-        expect(intents[0].previousData).toBeNull();
+        expect(intents[0].operationType).toBe('update');
+        expect(intents[0].previousData).toMatchObject({ confirmedVersion: REVISAO });
 
         await updateMapPosition(-23.0, -43.3, 12, 0, 0);
         expect(intents[1].operationType).toBe('update');
