@@ -1,6 +1,6 @@
 # Pendências de sincronização: a luz e o painel
 
-A luz de sync responde por SETE sinais, não pela contagem de envelopes na fila, e o verde exige que não haja nada guardado à espera de decisão; o painel que abre a partir dela lê TRÊS fontes de disco, porque cada uma guarda o que as outras duas não veem.
+A luz de sync responde por SETE sinais, não pela contagem de envelopes na fila, e o verde exige que não haja nada guardado à espera de decisão; o painel que abre a partir dela lê TRÊS fontes de linha, porque cada uma guarda o que as outras duas não veem, mais o censo da fila, que não produz linha e existe para que as duas telas não se contradigam.
 
 As frases e os estados são folhas de zero imports (`frontend/src/js/account/sync-phrases.js`, `frontend/src/js/account/pendencias/pendencias-phrases.js`), a decisão de linha é função pura (`pendencias-rows.js`) e o painel só monta DOM (`pendencias-panel.js`). Esta página guarda por que o verde ficou mais caro, por que as fontes são três, e o que o painel deliberadamente NÃO faz.
 
@@ -12,7 +12,19 @@ Hoje `SYNC_WORK_STATE` tem os quatro estados que faltavam (`recuperando`, `confl
 
 Duas finuras: o sinal de recuperação vem de `storeWritesPaused`, um leitor puro, lido no momento da PINTURA, porque uma recuperação começa e termina entre duas batidas do mostrador; e um LEITOR só alimenta a luz e o crachá de presença (`configurarPendenciasDePresenca`, `frontend/src/js/session/pendencias-monitoramento.js`, instalado nas quatro páginas), porque um terceiro varredor divergiria dos outros dois sem que nada ficasse vermelho.
 
-## Três fontes, e nenhuma é redundante
+## O contrato entre a luz e o painel: recortes diferentes que não podem se contradizer
+
+A luz conta o TRABALHO e o painel lista o que EXIGE DECISÃO, e o segundo é um subconjunto do primeiro. Números diferentes nas duas telas são legítimos por construção; frases que se contradizem, não. Era o que acontecia: com duas alterações na fila e nenhum problema, a luz escrevia "Enviando 2…" e o painel que ela abre escrevia "Nenhuma pendência", medido em 2026-09-15 nos DOIS navegadores, portanto sem nada de navegador nisso. A causa é de leitura e não de corrida: as três fontes do painel (recusa guardada, quarentena, bytes de figura) não incluem a operação COMUM esperando a vez, e nenhuma delas tinha por que incluir.
+
+O painel passou a fazer uma QUARTA leitura que não produz linha nenhuma: o censo da fila (`countByState`), de onde sai `pendentes + preparadas`, que é exatamente a expressão que alimenta `describeSyncWork` na luz. Três decisões seguem daí:
+
+- **O que está a caminho não vira linha.** Não há ação a oferecer sobre uma alteração que sai sozinha, e uma linha sem ação numa tela de decisões é ruído que ensina a rolar a lista sem ler.
+- **Mas é DITO, com o mesmo número.** Com a lista vazia ele É o estado vazio (`estadoVazio`, que tem três frases e não uma); com a lista cheia ele é uma nota de apoio no topo (`transitoNota`), porque o que está a caminho não some da tela só porque há uma recusa para decidir.
+- **"Nenhuma pendência" voltou a ser uma afirmação verdadeira**, e só o zero MEDIDO a autoriza: o que não é contagem cai no ramo de quem não tem fila de saída, nunca no ramo do zero, pela mesma regra do `toPendingCount` da luz.
+
+O `null` de `aCaminho` significa "não existe fila de saída neste escopo", que é o atlas local, e a frase daquele ramo afirma SÓ a quarentena: ali a fila e os bytes de figura nem chegam a ser consultados, então a frase antiga ("não há figura à espera de envio") relatava uma leitura que ninguém fez.
+
+## Três fontes de LINHA, e nenhuma é redundante
 
 - **`getProblems`** do escopo montado: conflito, recusa, e a dependência bloqueada. Esta última é DERIVADA a cada leitura e nunca gravada, porque a causa dela some sozinha quando a operação da frente é resolvida.
 - **`listQuarantinedOperations`** do registro global: o que sobreviveu ao logout, lido inclusive em atlas local, porque é o único registro que nenhum expurgo alcança. Ver [[namespace-por-atlas]].
