@@ -456,9 +456,17 @@ dobraria a suíte inteira em silêncio. Conferido: `playwright test --list` sozi
 todos `[chromium]`; com `--project=firefox`, 374, todos `[firefox]`.
 
 ```bash
-npm run test:e2e:firefox                      # a matriz mínima, na raiz e no frontend
+# A CAMADA INTEIRA no segundo navegador (374 casos, e a ~3x do Chromium isso é longo):
+npm run test:e2e:firefox
+# A MATRIZ MÍNIMA da tabela abaixo, que é o que a homologação pede:
+npx playwright test --project=firefox browser-migracao-2.2 browser-collab-feature-mutations   browser-collab-maps-layers browser-multi-tab-namespace browser-confirm-logout browser-cesium3d.spec.js
 npm run test:e2e:atlas -- --project=firefox   # o cenário de config dedicada, no segundo navegador
 ```
+
+`test:e2e:firefox` é `playwright test --project=firefox`, sem recorte: ele roda TUDO. O recorte da
+matriz mínima é a linha do meio, e a diferença importa porque a tabela abaixo mede o recorte, não a
+camada inteira — dizer "test:e2e:firefox verde" a partir dela seria a mesma leitura errada que este
+arquivo já adverte sobre a mega.
 
 ### A matriz medida (2026-09-15, worktree `plano/ffx`, uma rodada por porta privada)
 

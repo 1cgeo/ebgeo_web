@@ -39,7 +39,7 @@ Não há mais bloqueio automático (o hook `PreToolUse` foi removido em 2026-07-
 
 ## O segundo navegador é um comando próprio, e "verde" no primeiro não diz nada sobre ele
 
-A camada de navegador (`frontend/tests/e2e-ui/`) roda em Chromium e **só** em Chromium: o projeto `firefox` do `frontend/playwright.config.js` nem entra no array de projetos a menos que a linha de comando o nomeie, o que é deliberado (um segundo projeto no array dobraria a suíte inteira em silêncio). A matriz de homologação é `npm run test:e2e:firefox`, na raiz e no frontend, mais `npm run test:e2e:atlas -- --project=firefox` para o cenário de config dedicada. O binário se busca uma vez com `npx playwright install firefox`, que baixa para o cache global do Playwright e não toca o repositório. A matriz medida, caso a caso, vive em `frontend/tests/e2e-ui/README.md`.
+A camada de navegador (`frontend/tests/e2e-ui/`) roda em Chromium e **só** em Chromium: o projeto `firefox` do `frontend/playwright.config.js` nem entra no array de projetos a menos que a linha de comando o nomeie, o que é deliberado (um segundo projeto no array dobraria a suíte inteira em silêncio). O comando é `npm run test:e2e:firefox`, na raiz e no frontend, que roda a camada INTEIRA no segundo navegador, mais `npm run test:e2e:atlas -- --project=firefox` para o cenário de config dedicada; a matriz mínima da homologação é um recorte desses casos, e o recorte está escrito no README da camada. O binário se busca uma vez com `npx playwright install firefox`, que baixa para o cache global do Playwright e não toca o repositório. A matriz medida, caso a caso, vive em `frontend/tests/e2e-ui/README.md`.
 
 O que a primeira passada dessa matriz ensinou, e que vale além do Firefox:
 
