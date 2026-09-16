@@ -70,9 +70,45 @@ export function opHistory(page, opId) {
     return page.evaluate((id) => (window.__ebgeoSyncTrace ? window.__ebgeoSyncTrace.byOpId(id) : []), opId);
 }
 
-/** Clears the page ring (call at the start of a scenario for a clean ledger). */
-export function clearClientTrace(page) {
-    return page.evaluate(() => { if (window.__ebgeoSyncTrace) window.__ebgeoSyncTrace.clear(); });
+/**
+ * Clears the page ring E ESPERA ELE FICAR QUIETO, que é o que faz a limpeza valer alguma coisa.
+ *
+ * UM `clear()` SOZINHO NÃO ESVAZIA A JANELA, e a diferença só aparece num navegador lento. O
+ * chamador desta limpeza é `collab.clearTraces`, cujo contrato é "a próxima `expectFullSync`
+ * resolve o id da operação ATUAL", e quem resolve esse id é a PRIMEIRA `apply.persist` que casar
+ * (entidade, tipo de operação) depois do clear. Mas a operação ANTERIOR ainda tem retardatários a
+ * caminho: o ack dela dispara `resolveLocalEdit`, que regrava a entidade com o `serverVersion` do
+ * servidor e emite OUTRA `apply.persist`, com o id VELHO. Se ela cair no anel recém-limpo antes da
+ * nova, a cadeia inteira passa a perseguir a operação errada, e o vermelho que sai é
+ * `BROKE AT LINK 2 — push.ack missing`: o ack daquela operação existiu de verdade, só que ANTES do
+ * clear. Medido em 2026-09-15 no Firefox, 3 de 3, com o anel mostrando as duas operações lado a
+ * lado (a velha só com `apply.persist`, a nova com `enqueue` → `flush.push` → `push.ack`).
+ *
+ * O Chromium quase nunca cai nisso porque a janela entre o clear e o retardatário é pequena; é a
+ * mesma corrida, e o conserto vale para os dois. Por isso a limpeza repete até o anel ficar
+ * `quietMs` sem novidade, com teto: assim ela devolve uma janela que está mesmo vazia, em vez de
+ * uma que acabou de ser esvaziada.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {Object} [opcoes]
+ * @param {number} [opcoes.quietMs=400] - Silêncio exigido para dar a janela por limpa.
+ * @param {number} [opcoes.limiteMs=6000] - Teto total; estourado, limpa uma última vez e desiste.
+ * @returns {Promise<{limpo: boolean, passadas: number}>} `limpo: false` significa que o anel nunca
+ *   ficou quieto — é diagnóstico, não erro, porque uma página que emite span o tempo todo não pode
+ *   travar a rodada aqui.
+ */
+export function clearClientTrace(page, { quietMs = 400, limiteMs = 6000 } = {}) {
+    return page.evaluate(async (q) => {
+        const t = window.__ebgeoSyncTrace;
+        if (!t) return { limpo: false, passadas: 0 };
+        const fim = Date.now() + q.limiteMs;
+        for (let passadas = 1; ; passadas++) {
+            t.clear();
+            await new Promise((r) => setTimeout(r, q.quietMs));
+            if (t.get().length === 0) return { limpo: true, passadas };
+            if (Date.now() >= fim) { t.clear(); return { limpo: false, passadas }; }
+        }
+    }, { quietMs, limiteMs });
 }
 
 // ============================================================================

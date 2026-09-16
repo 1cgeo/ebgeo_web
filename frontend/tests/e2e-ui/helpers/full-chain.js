@@ -19,13 +19,34 @@
  * Usage (bound by the collab fixture): `await collab.expectFullSync({ entityId, type, operationType })`.
  */
 
-import { expect } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import {
     waitForEntitySpan, tryWaitStage, renderProbeOn,
     peerSawRemoteApplied, findDropSpan, opHistory,
 } from './trace-helpers.js';
 import { readIdbEntity } from './idb.js';
 import { TABLE_BY_ENTITY } from './db.js';
+
+/**
+ * Teto de espera de cada elo, por PROJETO.
+ *
+ * O `timeout` do projeto `firefox` e triplo porque o Firefox custa cerca de 3x contra este dev
+ * server (a medicao esta no `playwright.config.js`), e a espera de elo tem de acompanhar: um elo
+ * com teto de Chromium dentro de um caso com orcamento de Firefox reprova por relogio e ACUSA O
+ * ELO, que e o pior tipo de vermelho, porque aponta para o sync quando o problema e o relogio.
+ * Fora do corredor do Playwright (`test.info()` lanca) fica o valor historico.
+ *
+ * Isto nao afrouxa asseracao nenhuma: um elo que nunca chega continua reprovando, so que depois.
+ *
+ * @returns {number} ms
+ */
+function tetoDoProjeto() {
+    try {
+        return test.info().project.name === 'firefox' ? 45000 : 15000;
+    } catch {
+        return 15000;
+    }
+}
 
 const LINK_NAMES = {
     1: 'author IndexedDB',
@@ -167,7 +188,7 @@ async function runFullChain(ctx, opRef, mode) {
         entityType = 'feature',
         type,
         operationType = mode === 'delete' ? 'delete' : 'create',
-        timeout = 15000,
+        timeout = tetoDoProjeto(),
         // Skip the peer-render check (link 6) for features that do NOT live in a GeoJSON
         // source named after their storage bucket — e.g. military_symbols render via an
         // icon/image layer, so `getSource('military_symbols')` has nothing to read.
