@@ -288,8 +288,19 @@ export const EventTypes = Object.freeze({
     // ===== PRESENCE / AWARENESS =====
     /** Online users set changed (join/left/away/back/initial). Payload: { users } */
     PRESENCE_CHANGED: 'presence:changed',
-    /** A user's cursor moved (live cursors). Payload: { mapId } */
+    /** A user's cursor moved (live cursors). Payload: { mapId, surface } */
     PRESENCE_CURSORS_CHANGED: 'presence:cursorsChanged',
+    /**
+     * Local pointer moved inside the 360 viewer, in SPHERE coordinates (never pixels: each peer
+     * looks from its own yaw/pitch/FOV). The presence bridge throttles and ships it.
+     * Payload: { position: { heading, pitch }|null, photoName }
+     */
+    CURSOR_360_MOVED: 'cursor360:moved',
+    /**
+     * Local pointer moved inside the 3D scene, picked against the tileset/terrain.
+     * Payload: { position: { lng, lat, alt }|null, tilesetId }
+     */
+    CURSOR_3D_MOVED: 'cursor3d:moved',
     /** A peer's feature/marker selection changed (2D/3D/360). Payload: { surface } */
     PRESENCE_SELECTIONS_CHANGED: 'presence:selectionsChanged',
 });

@@ -228,6 +228,9 @@ export function getRoomUsers(atlasId) {
         posto_graduacao: client.userPosto,
         mapId: client.currentMapId,
         cursorPosition: client.cursorPosition,
+        // Superficie e escopo do cursor (2d/3d/360), pelo mesmo motivo do `selectionContext`
+        // logo abaixo: sem eles o late-joiner desenha um cursor de panorama sobre o mapa.
+        cursorContext: client.cursorContext,
         // B-be2: late-joiners get peers' current selection in the join snapshot.
         selectedFeatures: client.selectedFeatures,
         // Full selection context (surface 2d/3d/360 + scope) so a late-joiner can

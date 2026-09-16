@@ -10,7 +10,7 @@ O modelo é **sem locks**: edição simultânea livre, conflito resolvido por [[
 
 Nada dela passa pela fila de operações, pelo IndexedDB ou pelo Postgres. Não vira linha em [[tabela-operations]], não entra na [[fila-operacoes-outbound]], não participa do LWW. Não confunda com [[envelope-operacao]] (persistido, idempotente) nem com [[comentario-espacial]] (entidade sincronizada de verdade). Só existe em atlas remoto conectado ([[atlas-modelo-de-dados]]); no modo local/anônimo o bridge fica montado e inerte ([[dominio-local-vs-remoto]], [[modos-operacao]]).
 
-**Descartável por construção, e isso é deliberado.** `broadcastCursor` faz `if (!wsClient.isConnected()) return;` (`frontend/src/js/presence/presence-bridge.js`) e nunca enfileira: misturar presença com a fila offline faria o usuário reviver cursores de dez minutos atrás no reconnect. No servidor, `cursor`/`selection`/`temporal` estão em `COALESCABLE_TYPES` e são **descartados** quando `bufferedAmount` passa do teto de drop, enquanto o mesmo laço termina (`terminate()`) o socket afogado por operações duráveis para forçar reconnect e replay (`broadcastToRoom`, `backend/src/modules/collab/collab.rooms.js`). Perder um cursor é invisível; perder uma operação é divergência.
+**Descartável por construção, e isso é deliberado.** `sendCursorFrame` faz `if (!wsClient.isConnected()) return;` (`frontend/src/js/presence/presence-bridge.js`) e nunca enfileira: misturar presença com a fila offline faria o usuário reviver cursores de dez minutos atrás no reconnect. No servidor, `cursor`/`selection`/`temporal` estão em `COALESCABLE_TYPES` e são **descartados** quando `bufferedAmount` passa do teto de drop, enquanto o mesmo laço termina (`terminate()`) o socket afogado por operações duráveis para forçar reconnect e replay (`broadcastToRoom`, `backend/src/modules/collab/collab.rooms.js`). Perder um cursor é invisível; perder uma operação é divergência.
 
 ## O invariante: TODO frame de presença carrega `clientId`
 
@@ -45,6 +45,19 @@ O campo não é UUID e não precisa ser: o backend o trata como **opaco**, só r
 Corolário: `getCursors()` sem argumento devolve cursores de **todos** os mapas, por isso o overlay recusa renderizar quando o mapa ativo é `null` (`frontend/src/js/presence/remote-cursors.layer.js`).
 
 Mapa ativo pega carona no cursor porque o backend **não tem handler `map_active`**: uma troca de mapa manda um cursor sem posição carregando só o novo `mapId` (`frontend/src/js/presence/presence-bridge.js`). Quem for adicionar um sinal de "mapa atual" precisa saber que já existe esse canal implícito.
+
+## O cursor tem superfície desde 2026-09-16, e a POSIÇÃO muda de forma junto
+
+O cursor era só do mapa 2D, enquanto a seleção já vivia nas três superfícies. Hoje ele carrega `surface` e a mesma chave de escopo da seleção (`mapId` no 2D, `tilesetId` no 3D, `photoName` no 360), e o que muda de verdade é a POSIÇÃO: `{lng,lat}` no mapa, `{heading,pitch}` dentro de um panorama, `{lng,lat,alt}` dentro da cena 3D.
+
+**Pixel não viaja, e é essa a razão de existir a conversão.** Cada par olha o panorama de um yaw/pitch/FOV próprio e a cena 3D de uma câmera própria, então a coordenada de tela de um significa outra direção na tela do outro: o cursor apareceria plausível e apontando o lugar errado, que é pior que não aparecer. O 360 manda a direção na esfera (`screenToSpherical`, `frontend/src/js/street_view_tool/navigation/projector.js`) e o 3D manda o ponto picado sobre o modelo (`scene.pickPosition`), e cada receptor reprojeta com a câmera dele.
+
+Quatro consequências que não se adivinham:
+
+- **Cada superfície tem a régua dela no servidor** (`Joi.when('surface')`, `backend/src/modules/collab/collab.schemas.js`). A tentação é declarar um objeto permissivo com os cinco campos opcionais; isso aceitaria calado um cursor 2D sem `lng`, e como `validatePresenceFrame` usa `stripUnknown`, campo não declarado é APAGADO em silêncio em vez de recusado.
+- **O socket retém `cursorContext` junto com a posição** e `getRoomUsers` o publica, espelhando o `selectionContext`. Sem ele o late-joiner desenha o cursor de um panorama sobre o mapa, porque todo quadro de cursor também carrega `mapId` (o canal implícito de mapa ativo acima).
+- **A janela de throttle é UMA para as três**, e o valor pendente é o QUADRO inteiro, nunca só a posição: o envio atrasado do fim da janela precisa saber de que superfície era o quadro, ou o quadro de uma sai rotulado como o da outra no instante exato da troca.
+- **O 360 desenha sob demanda**, então o consumidor chama `requestRender()` ao receber presença (`updateRemoteCursors360`, `frontend/src/js/street_view_tool/street_view_viewer.js`); sem isso o colega só aparece quando o operador local mexe na própria vista. No 3D o laço é contínuo e a entidade aparece no quadro seguinte, mas a troca de tileset faz `entities.removeAll()` por fora do módulo, e por isso existe `resetRemoteCursors3D`.
 
 ## Seleção: a única presença com gate de papel
 

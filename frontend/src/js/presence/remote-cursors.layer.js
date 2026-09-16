@@ -124,11 +124,13 @@ export class RemoteCursorsLayer {
         // userId — exclude self by BOTH ids, else the user sees their OWN cursor
         // (e.g. another tab of the same user, whom the backend does broadcast to).
         const selfUserId = sessionContext.userId;
-        // getCursors(undefined/null) would return cursors across all maps; we
-        // only render the active map, so an absent mapId yields no cursors.
+        // getCursors(undefined/null) would return cursors across all maps AND all surfaces; we
+        // only render the 2D cursors of the active map, so an absent mapId yields no cursors.
+        // The surface argument is what keeps a peer pointing inside a panorama (whose position is
+        // heading/pitch, not lng/lat) from ever reaching this overlay.
         const cursors = mapId === undefined || mapId === null
             ? []
-            : presenceStore.getCursors(mapId);
+            : presenceStore.getCursors('2d', mapId);
 
         /** @type {Set<string>} clientIds present in this render pass. */
         const seen = new Set();

@@ -304,6 +304,83 @@ describe('WebSocket collab — presence payload is validated and bounded (achado
     assert.equal(entry.mapId, map.name);
   });
 
+  it('keeps 3D and 360 cursors intact, each with ITS position shape and scope', async () => {
+    const { atlas, map } = await freshAtlas();
+
+    const e = await connect(atlas.id, editorToken, `e8-${randomUUID().slice(0, 8)}`);
+    const peer = await connect(atlas.id, ownerToken, `p8-${randomUUID().slice(0, 8)}`);
+
+    // 360: direcao na esfera (heading em graus, pitch em radianos), escopada pela foto.
+    e.send({
+      type: 'cursor',
+      surface: '360',
+      position: { heading: 187.53, pitch: -0.2137 },
+      mapId: map.name,
+      photoName: 'IMG_20240712_143201.jpg',
+    });
+    const c360 = await peer.waitForCursor();
+    assert.equal(c360.surface, '360');
+    assert.equal(c360.photoName, 'IMG_20240712_143201.jpg');
+    assert.deepEqual(c360.position, { heading: 187.53, pitch: -0.2137 });
+
+    // 3D: ponto picado no tileset, com altura, escopado pelo modelo.
+    peer.clearMessages();
+    e.send({
+      type: 'cursor',
+      surface: '3d',
+      position: { lng: -43.2099, lat: -22.9011, alt: 15.75 },
+      mapId: map.name,
+      tilesetId: '3d-PCL',
+    });
+    const c3d = await peer.waitForCursor();
+    assert.equal(c3d.surface, '3d');
+    assert.equal(c3d.tilesetId, '3d-PCL');
+    assert.deepEqual(c3d.position, { lng: -43.2099, lat: -22.9011, alt: 15.75 });
+
+    // E o que o late joiner recebe carrega a superficie junto: sem ela o roster desenharia o
+    // cursor do panorama sobre o mapa.
+    await settle(e);
+    const { connected } = await snapshotOf(atlas.id, ownerToken);
+    const entry = connected.usersOnline.find((u) => u.id === editor.id);
+    assert.ok(entry, 'editor missing from the join snapshot');
+    assert.deepEqual(entry.cursorPosition, { lng: -43.2099, lat: -22.9011, alt: 15.75 });
+    assert.equal(entry.cursorContext?.surface, '3d');
+    assert.equal(entry.cursorContext?.tilesetId, '3d-PCL');
+  });
+
+  it('RECUSA a posicao da superficie errada, em vez de repassar meia coordenada', async () => {
+    // O PIOR CASO desta regua, e o unico jeito de ela provar alguma coisa: `stripUnknown` APAGA o
+    // que o schema nao declara, entao um schema frouxo aceitaria `{lng,lat}` rotulado como 360 e
+    // entregaria ao par um cursor sem posicao nenhuma, sem erro em lugar algum. Cada superficie
+    // tem de ter a regua dela.
+    const { atlas, map } = await freshAtlas();
+
+    const e = await connect(atlas.id, editorToken, `e9-${randomUUID().slice(0, 8)}`);
+    const peer = await connect(atlas.id, ownerToken, `p9-${randomUUID().slice(0, 8)}`);
+
+    // Forma de mapa declarada como 360.
+    e.send({ type: 'cursor', surface: '360', position: { lng: 1, lat: 2 }, mapId: map.name, photoName: 'f.jpg' });
+    const err1 = await e.waitForType('error');
+    assert.equal(err1.code, 'VALIDATION_ERROR');
+
+    // Forma de esfera declarada como mapa.
+    e.send({ type: 'cursor', surface: '2d', position: { heading: 10, pitch: 0 }, mapId: map.name });
+    const err2 = await e.waitForType('error');
+    assert.equal(err2.code, 'VALIDATION_ERROR');
+
+    // 3D sem altura: o ponto picado sem `alt` nao situa nada na cena.
+    e.send({ type: 'cursor', surface: '3d', position: { lng: 1, lat: 2 }, mapId: map.name, tilesetId: 't1' });
+    const err3 = await e.waitForType('error');
+    assert.equal(err3.code, 'VALIDATION_ERROR');
+
+    // Nenhum dos tres chegou ao par, e o socket segue de pe.
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal(peer.messages.filter((m) => m.type === 'cursor' || m.type === 'cursors').length, 0);
+    e.send({ type: 'cursor', surface: '2d', position: { lng: 1, lat: 2 }, mapId: map.name });
+    const ok = await peer.waitForCursor();
+    assert.deepEqual(ok.position, { lng: 1, lat: 2 });
+  });
+
   it('a longitude past the antimeridian is still accepted (MapLibre does not clamp)', async () => {
     const { atlas, map } = await freshAtlas();
 

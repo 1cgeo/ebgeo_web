@@ -297,6 +297,9 @@ export class StreetViewRenderer {
         // The per-frame render() rewrites selectedMarkerId (local) but NEVER touches
         // this map, so a peer's highlight is independent of the local selection.
         this.remoteSelections = new Map();
+        // Peers' live cursors, already projected to screen coordinates by the navigator:
+        // [{ clientId, screenX, screenY, color, name }].
+        this.remoteCursors = [];
         this.visible = true;
 
         // Animation state
@@ -352,6 +355,14 @@ export class StreetViewRenderer {
     }
 
     /**
+     * Sets the peers' live cursors to draw (multiuser presence), already projected to screen.
+     * @param {Array<{ clientId: string, screenX: number, screenY: number, color: string, name: string }>} cursors
+     */
+    setRemoteCursors(cursors) {
+        this.remoteCursors = Array.isArray(cursors) ? cursors : [];
+    }
+
+    /**
      * Sets visibility of the overlay
      * @param {boolean} visible - Whether to show the overlay
      */
@@ -397,6 +408,78 @@ export class StreetViewRenderer {
             this.renderMarker(marker);
         }
 
+        // Peers' cursors go LAST, over everything else: they are the most volatile thing on the
+        // overlay, and burying one under a marker is the same as not drawing it.
+        for (const cursor of this.remoteCursors) {
+            this.renderRemoteCursor(cursor);
+        }
+    }
+
+    /**
+     * Draws one peer's cursor: an arrow in the peer's presence colour with the name chip beside it,
+     * the same vocabulary the 2D map uses for remote cursors.
+     * @param {{ screenX: number, screenY: number, color: string, name: string }} cursor
+     */
+    renderRemoteCursor(cursor) {
+        const ctx = this.ctx;
+        const color = cursor.color || '#2563eb';
+
+        ctx.save();
+        ctx.translate(cursor.screenX, cursor.screenY);
+
+        // Arrow, drawn from the hotspot down-right, like a pointer.
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(0, 16);
+        ctx.lineTo(4.5, 12);
+        ctx.lineTo(7.5, 18.5);
+        ctx.lineTo(10.5, 17);
+        ctx.lineTo(7.5, 10.5);
+        ctx.lineTo(13, 10);
+        ctx.closePath();
+        ctx.fillStyle = color;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        ctx.fill();
+        ctx.stroke();
+
+        if (cursor.name) {
+            this.renderRemoteCursorLabel(ctx, cursor.name, color);
+        }
+
+        ctx.restore();
+    }
+
+    /**
+     * Draws the peer's name chip beside their cursor (to the right, below the arrow tip).
+     * @param {CanvasRenderingContext2D} ctx - Canvas context, already translated to the cursor.
+     * @param {string} text - Peer display name.
+     * @param {string} color - Peer presence colour (chip background).
+     */
+    renderRemoteCursorLabel(ctx, text, color) {
+        const fontSize = NAV_CONSTANTS.LABEL_FONT_SIZE;
+        const padding = NAV_CONSTANTS.LABEL_PADDING;
+        const borderRadius = NAV_CONSTANTS.LABEL_BORDER_RADIUS;
+
+        ctx.font = `600 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        const metrics = ctx.measureText(text);
+        const boxWidth = metrics.width + padding * 2;
+        const boxHeight = fontSize + padding * 1.5;
+
+        ctx.save();
+        ctx.translate(14 + boxWidth / 2, 20 + boxHeight / 2);
+
+        ctx.beginPath();
+        ctx.roundRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, borderRadius);
+        ctx.fillStyle = color;
+        ctx.fill();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, 0, 1);
+
+        ctx.restore();
     }
 
     /**

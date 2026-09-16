@@ -134,6 +134,10 @@ const CENSO = [
     { arquivo: 'src/js/3d_models_viewer_tool/map_3d.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/3d_models_viewer_tool/map_3d.js', campo: 'baseLayer', classe: RUNTIME },
     { arquivo: 'src/js/3d_models_viewer_tool/tools/marker_tool_3d.js', campo: 'tilesetId', classe: RUNTIME },
+    // Presença: o `tilesetId` é só o ESCOPO do quadro de cursor, para o par desenhar o ponteiro
+    // dentro do modelo certo. Nada disso é persistido (presença não tem tabela, não entra na fila
+    // de operações e não vai para o `.ebgeo`), então não há documento a podar.
+    { arquivo: 'src/js/3d_models_viewer_tool/tools/presence_cursor_3d.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/3d_models_viewer_tool/tools/measurement_tool_3d.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/3d_models_viewer_tool/tools/viewshed_tool_3d.js', campo: 'tilesetId', classe: RUNTIME },
     // HOMÓNIMO DE VOCABULÁRIO, e não um campo: em `uso-phrases.js` `baseLayer` é CHAVE da

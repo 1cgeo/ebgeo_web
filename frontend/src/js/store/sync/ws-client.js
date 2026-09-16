@@ -196,12 +196,19 @@ export class WsClient {
     }
 
     /**
-     * Sends a cursor position (presence).
-     * @param {{ position: Object, mapId: string }} payload
+     * Sends a cursor position (presence) on one of the three surfaces.
+     *
+     * `surface` + its scope key (mapId for 2D, tilesetId for 3D, photoName for 360) mirror what
+     * `sendSelection` already carries, and the POSITION's shape follows the surface: `{lng,lat}`
+     * on the map, `{heading,pitch}` inside a panorama, `{lng,lat,alt}` inside the 3D scene. The
+     * backend validates one shape per surface, so shipping the wrong pair is refused, not drawn
+     * in the wrong place.
+     * @param {{ position: Object|null, mapId: string, surface?: '2d'|'3d'|'360',
+     *   tilesetId?: string|null, photoName?: string|null }} payload
      * @returns {boolean}
      */
-    sendCursor({ position, mapId }) {
-        return this._sendRaw({ type: 'cursor', position, mapId });
+    sendCursor({ position, mapId, surface, tilesetId, photoName }) {
+        return this._sendRaw({ type: 'cursor', position, mapId, surface, tilesetId, photoName });
     }
 
     /**

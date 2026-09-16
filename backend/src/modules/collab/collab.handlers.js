@@ -150,6 +150,16 @@ export function handleCursor(ws, data) {
 
   ws.cursorPosition = value.position;
   ws.currentMapId = value.mapId;
+  // A SUPERFICIE FICA RETIDA JUNTO COM A POSICAO, e o motivo e o snapshot de quem entra depois:
+  // `getRoomUsers` monta o roster a partir do que esta no socket, entao um cursor de 360 retido
+  // sem superfície volta como cursor de MAPA para o late-joiner, que o desenharia num lugar que
+  // nao significa nada. Espelha o `selectionContext`, que ja existia pela mesma razao.
+  ws.cursorContext = {
+    surface: value.surface,
+    mapId: value.mapId,
+    tilesetId: value.tilesetId ?? null,
+    photoName: value.photoName ?? null,
+  };
 
   const quadro = {
     // `clientId` is NOT optional here, even though the frontend's `resolveKey` falls
@@ -161,6 +171,11 @@ export function handleCursor(ws, data) {
     userId: ws.userId,
     position: value.position,
     mapId: value.mapId,
+    // O escopo viaja no mesmo quadro, e o lote o carrega inteiro sem saber o que e: quem filtra
+    // por superficie e o cliente, como ja faz com `mapId` e com a selecao.
+    surface: value.surface,
+    tilesetId: value.tilesetId ?? null,
+    photoName: value.photoName ?? null,
   };
 
   // O AGRUPAMENTO DECIDE, E O CAMINHO ANTIGO FICA INTEIRO. Com `WS_CURSOR_BATCH_MS` em zero o

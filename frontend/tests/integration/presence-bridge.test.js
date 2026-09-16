@@ -281,7 +281,7 @@ describe('presence-bridge', () => {
 
         it('case C: re-announces the current map on MAP_LOCK_CHANGED via a positionless cursor', () => {
             fireBus(EventTypes.MAP_LOCK_CHANGED, { mapName: 'mapa-1', locked: false });
-            expect(wsClientMock.sendCursor).toHaveBeenCalledWith({ position: null, mapId: 'mapa-1' });
+            expect(wsClientMock.sendCursor).toHaveBeenCalledWith({ position: null, mapId: 'mapa-1', surface: '2d' });
         });
 
         it('case E: sends temporal state (cursor + derived label + playing) on TEMPORAL_CURSOR_CHANGED', () => {
@@ -363,6 +363,7 @@ describe('presence-bridge', () => {
             expect(wsClientMock.sendCursor).toHaveBeenCalledWith({
                 position: { lng: 10, lat: 20 },
                 mapId: 'mapa-1',
+                surface: '2d',
             });
         });
 
@@ -378,6 +379,7 @@ describe('presence-bridge', () => {
             expect(wsClientMock.sendCursor).toHaveBeenLastCalledWith({
                 position: { lng: 3, lat: 3 },
                 mapId: 'mapa-1',
+                surface: '2d',
             });
         });
 
@@ -390,6 +392,76 @@ describe('presence-bridge', () => {
         it('ignores mousemove events without a valid lngLat', () => {
             map.fire('mousemove', {});
             map.fire('mousemove', { lngLat: { lng: 'x', lat: 1 } });
+            expect(wsClientMock.sendCursor).not.toHaveBeenCalled();
+        });
+    });
+
+    // ===== Cursor das superficies imersivas (2026-09-16) =====
+    describe('outbound cursor — 360 e 3D', () => {
+        beforeEach(() => {
+            startPresence({ map });
+        });
+
+        it('leva o ponteiro do 360 em coordenada de esfera, escopado pela foto', () => {
+            fireBus(EventTypes.CURSOR_360_MOVED, {
+                position: { heading: 12.5, pitch: -0.3 }, photoName: 'foto-7',
+            });
+            expect(wsClientMock.sendCursor).toHaveBeenCalledWith({
+                position: { heading: 12.5, pitch: -0.3 },
+                mapId: 'mapa-1',
+                surface: '360',
+                photoName: 'foto-7',
+            });
+        });
+
+        it('leva o ponteiro do 3D com altura, escopado pelo tileset', () => {
+            fireBus(EventTypes.CURSOR_3D_MOVED, {
+                position: { lng: -43.1, lat: -22.9, alt: 15.5 }, tilesetId: 'modelo-2',
+            });
+            expect(wsClientMock.sendCursor).toHaveBeenCalledWith({
+                position: { lng: -43.1, lat: -22.9, alt: 15.5 },
+                mapId: 'mapa-1',
+                surface: '3d',
+                tilesetId: 'modelo-2',
+            });
+        });
+
+        it('leva a saida do ponteiro como quadro sem posicao, e nao como silencio', () => {
+            fireBus(EventTypes.CURSOR_360_MOVED, { position: null, photoName: 'foto-7' });
+            expect(wsClientMock.sendCursor).toHaveBeenCalledWith({
+                position: null, mapId: 'mapa-1', surface: '360', photoName: 'foto-7',
+            });
+        });
+
+        it('usa a MESMA janela do cursor do mapa: um quadro na frente, um no fim', () => {
+            fireBus(EventTypes.CURSOR_360_MOVED, { position: { heading: 1, pitch: 0 }, photoName: 'f1' });
+            fireBus(EventTypes.CURSOR_360_MOVED, { position: { heading: 2, pitch: 0 }, photoName: 'f1' });
+            fireBus(EventTypes.CURSOR_360_MOVED, { position: { heading: 3, pitch: 0 }, photoName: 'f1' });
+            expect(wsClientMock.sendCursor).toHaveBeenCalledTimes(1);
+
+            vi.advanceTimersByTime(80);
+            expect(wsClientMock.sendCursor).toHaveBeenCalledTimes(2);
+            expect(wsClientMock.sendCursor).toHaveBeenLastCalledWith({
+                position: { heading: 3, pitch: 0 }, mapId: 'mapa-1', surface: '360', photoName: 'f1',
+            });
+        });
+
+        it('O QUADRO ATRASADO SAI COM A SUPERFICIE DELE, e nao com a da ultima chamada', () => {
+            // O caso degenerado da janela unica: dois quadros de superficies DIFERENTES na mesma
+            // janela. Guardar so a posicao no pendente faria o quadro do 360 sair rotulado como 3D
+            // (ou o contrario), e o par desenharia o colega na cena errada.
+            fireBus(EventTypes.CURSOR_3D_MOVED, { position: { lng: 1, lat: 2, alt: 3 }, tilesetId: 't1' });
+            fireBus(EventTypes.CURSOR_360_MOVED, { position: { heading: 9, pitch: 0.1 }, photoName: 'f9' });
+
+            vi.advanceTimersByTime(80);
+            expect(wsClientMock.sendCursor).toHaveBeenLastCalledWith({
+                position: { heading: 9, pitch: 0.1 }, mapId: 'mapa-1', surface: '360', photoName: 'f9',
+            });
+        });
+
+        it('nao envia com o socket desconectado', () => {
+            wsClientMock.isConnected.mockReturnValue(false);
+            fireBus(EventTypes.CURSOR_360_MOVED, { position: { heading: 1, pitch: 0 }, photoName: 'f1' });
             expect(wsClientMock.sendCursor).not.toHaveBeenCalled();
         });
     });
@@ -450,6 +522,7 @@ describe('presence-bridge', () => {
             expect(wsClientMock.sendCursor).toHaveBeenLastCalledWith({
                 position: { lng: 5, lat: 6 },
                 mapId: 'mapa-1',
+                surface: '2d',
             });
         });
     });

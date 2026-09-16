@@ -28,7 +28,10 @@ import { EventTypes } from '@events/event_types.js';
  * @property {string|null} userId
  * @property {string} clientId
  * @property {string|null} userName
- * @property {{ lng: number, lat: number, mapId: string|null }|null} cursor
+ * @property {{ surface: string, mapId: string|null, tilesetId: string|null, photoName: string|null,
+ *   lng?: number, lat?: number, alt?: number, heading?: number, pitch?: number }|null} cursor -
+ *   Live pointer, on the surface the peer is pointing at: `{lng,lat}` on the 2D map,
+ *   `{heading,pitch}` inside a panorama, `{lng,lat,alt}` inside the 3D scene.
  * @property {{ surface: string, featureIds: string[],
  *   featureMeta: (Array<{id: string, type: string|null}>|null), mapId: string|null,
  *   tilesetId: string|null, photoName: string|null }|null} selection
@@ -67,15 +70,48 @@ function resolveKey(source) {
  * Normalizes a raw cursor/position payload into the stored cursor shape, or null
  * when malformed. Accepts the live `position` field and the snapshot's
  * `cursorPosition` alias.
+ *
+ * A POSICAO DEPENDE DA SUPERFICIE, e a validacao segue junto: o par no 360 aponta um lugar na
+ * ESFERA (`heading`/`pitch`), nao um pixel e nao um ponto no mapa, porque cada um olha o panorama
+ * de um yaw/pitch/FOV proprio. Aceitar a forma de outra superficie desenharia o colega num lugar
+ * que nao e onde ele esta, entao o par errado devolve null, como sempre devolveu para o cursor 2D
+ * sem `lng`/`lat`.
  * @param {*} pos
  * @param {string|null} mapId
- * @returns {{ lng: number, lat: number, mapId: string|null }|null}
+ * @param {{ surface?: string, tilesetId?: *, photoName?: * }} [extra] - Live frame or the
+ *   snapshot's `cursorContext`.
+ * @returns {{ surface: string, mapId: string|null, tilesetId: string|null,
+ *   photoName: string|null }|null}
  */
-function normalizeCursor(pos, mapId) {
-    if (pos && typeof pos === 'object' && typeof pos.lng === 'number' && typeof pos.lat === 'number') {
-        return { lng: pos.lng, lat: pos.lat, mapId: mapId ?? null };
+function normalizeCursor(pos, mapId, extra) {
+    if (!pos || typeof pos !== 'object') {
+        return null;
     }
-    return null;
+    const src = extra && typeof extra === 'object' ? extra : {};
+    const surface = src.surface ? String(src.surface) : '2d';
+    const scope = {
+        surface,
+        mapId: mapId ?? null,
+        tilesetId: src.tilesetId !== undefined && src.tilesetId !== null ? String(src.tilesetId) : null,
+        photoName: src.photoName !== undefined && src.photoName !== null ? String(src.photoName) : null,
+    };
+
+    if (surface === '360') {
+        if (typeof pos.heading !== 'number' || typeof pos.pitch !== 'number') {
+            return null;
+        }
+        return { ...scope, heading: pos.heading, pitch: pos.pitch };
+    }
+    if (surface === '3d') {
+        if (typeof pos.lng !== 'number' || typeof pos.lat !== 'number' || typeof pos.alt !== 'number') {
+            return null;
+        }
+        return { ...scope, lng: pos.lng, lat: pos.lat, alt: pos.alt };
+    }
+    if (typeof pos.lng !== 'number' || typeof pos.lat !== 'number') {
+        return null;
+    }
+    return { ...scope, lng: pos.lng, lat: pos.lat };
 }
 
 /**
@@ -153,7 +189,13 @@ function normalizeUser(raw, existing) {
             : (raw.id !== undefined && raw.id !== null ? String(raw.id) : (existing?.userId ?? null)),
         clientId: key,
         userName: rawName !== null ? String(rawName) : (existing?.userName ?? null),
-        cursor: hasCursor ? normalizeCursor(raw.cursorPosition, raw.mapId ?? null) : (existing?.cursor ?? null),
+        cursor: hasCursor
+            ? normalizeCursor(
+                raw.cursorPosition,
+                raw.cursorContext?.mapId ?? raw.mapId ?? null,
+                raw.cursorContext,
+            )
+            : (existing?.cursor ?? null),
         selection: hasSelection
             ? normalizeSelection(
                 raw.selectionContext?.featureIds ?? raw.selectedFeatures,
@@ -242,8 +284,9 @@ export class PresenceStore {
     }
 
     /**
-     * Updates a user's live cursor position.
-     * @param {{ userId?: string, clientId?: string, position?: { lng: number, lat: number }, mapId?: string }} msg
+     * Updates a user's live cursor position, on the surface the frame declares.
+     * @param {{ userId?: string, clientId?: string, position?: Object, mapId?: string,
+     *   surface?: '2d'|'3d'|'360', tilesetId?: string, photoName?: string }} msg
      */
     setCursor(msg) {
         if (!msg || typeof msg !== 'object') {
@@ -254,12 +297,14 @@ export class PresenceStore {
             return;
         }
         const user = this._users.get(key) ?? normalizeUser(msg);
-        user.cursor = normalizeCursor(msg.position, msg.mapId ?? null);
+        user.cursor = normalizeCursor(msg.position, msg.mapId ?? null, msg);
         // Active-map awareness piggybacks on cursor frames (the only outbound
         // carrier the backend has): every cursor's mapId updates currentMap.
         const mapChanged = this._applyCurrentMap(user, msg.mapId);
         this._users.set(key, user);
-        this._emitCursors(msg.mapId ?? null);
+        // A superficie do quadro, capturada mesmo quando a posicao veio nula (troca de mapa, saida
+        // do ponteiro): a cena que acabou de perder o cursor do par tambem precisa repintar.
+        this._emitCursors(msg.mapId ?? null, msg.surface ? String(msg.surface) : (user.cursor?.surface ?? '2d'));
         // currentMap is read by the roster (PRESENCE_CHANGED), not the cursor
         // overlay, so emit a membership change too when it moved.
         if (mapChanged) {
@@ -425,23 +470,41 @@ export class PresenceStore {
     }
 
     /**
-     * Returns active cursors, optionally filtered to a single map.
-     * @param {string} [mapId]
-     * @returns {Array<{ clientId: string, userName: string|null, position: { lng: number, lat: number, mapId: string|null } }>}
+     * Returns active cursors for a surface, scoped to that surface's key: mapId for '2d',
+     * tilesetId for '3d', photoName for '360'. Mirrors `getSelections` on purpose: same two
+     * arguments, same fail-closed filter, so the three surfaces read presence the same way.
+     *
+     * Self is NOT excluded here — the overlay filters self by clientId/userId, as it does for
+     * selections.
+     * @param {'2d'|'3d'|'360'} [surface]
+     * @param {string} [scopeKey]
+     * @returns {Array<{ clientId: string, userId: string|null, userName: string|null,
+     *   surface: string, position: Object }>}
      */
-    getCursors(mapId) {
+    getCursors(surface, scopeKey) {
         const out = [];
         for (const user of this._users.values()) {
-            if (!user.cursor) {
+            const cursor = user.cursor;
+            if (!cursor) {
                 continue;
             }
-            if (mapId !== undefined && mapId !== null && user.cursor.mapId !== mapId) {
+            if (surface !== undefined && surface !== null && cursor.surface !== surface) {
                 continue;
+            }
+            if (scopeKey !== undefined && scopeKey !== null) {
+                const key = cursor.surface === '3d'
+                    ? cursor.tilesetId
+                    : (cursor.surface === '360' ? cursor.photoName : cursor.mapId);
+                if (key !== scopeKey) {
+                    continue;
+                }
             }
             out.push({
                 clientId: user.clientId,
+                userId: user.userId,
                 userName: user.userName,
-                position: { ...user.cursor },
+                surface: cursor.surface,
+                position: { ...cursor },
             });
         }
         return out;
@@ -530,9 +593,12 @@ export class PresenceStore {
      * @private
      * @param {string|null} mapId
      */
-    _emitCursors(mapId) {
+    _emitCursors(mapId, surface) {
         try {
-            getEventBus().emit(EventTypes.PRESENCE_CURSORS_CHANGED, { mapId });
+            // A superficie viaja junto desde 2026-09-16: o overlay do mapa filtra por `mapId`, mas
+            // a cena 3D e o panorama precisam saber que o quadro e DELES antes de repintar, e um
+            // cursor movendo-se no panorama nao deve custar um quadro ao 3D do vizinho.
+            getEventBus().emit(EventTypes.PRESENCE_CURSORS_CHANGED, { mapId, surface: surface ?? '2d' });
         } catch {
             // Event bus not initialized — degrade silently.
         }

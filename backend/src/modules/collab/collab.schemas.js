@@ -73,20 +73,67 @@ function jsonSizeUnder(maxBytes) {
 /** Free-text scalar of a presence frame: bounded by truncation, never by rejection. */
 const presenceText = Joi.string().max(MAX_PRESENCE_TEXT).truncate().allow(null, '');
 
+/** `cursor` position on the 2D map: geographic, and the shape every client spoke before 2026-09-16. */
+const cursor2dPosition = Joi.object({
+  lng: Joi.number().required(),
+  lat: Joi.number().required(),
+});
+
+/**
+ * `cursor` position inside a panorama: where the peer is POINTING on the sphere, never a pixel.
+ * Screen coordinates would land somewhere else on every peer, because each one looks from its own
+ * yaw/pitch/FOV. `heading` is in DEGREES and `pitch` in RADIANS, which is the asymmetry that
+ * `screenToSpherical` (frontend/src/js/street_view_tool/navigation/projector.js) already returns
+ * and that the stored 360 marker already carries; converting here would put two conventions in the
+ * codebase for the same pair.
+ */
+const cursor360Position = Joi.object({
+  heading: Joi.number().required(),
+  pitch: Joi.number().required(),
+});
+
+/**
+ * `cursor` position inside the 3D scene: geographic plus height, resolved by the sender's pick
+ * against the tileset/terrain. It is NOT the camera and NOT a pixel, for the same reason as the
+ * 360: the peer renders it from its own viewpoint.
+ */
+const cursor3dPosition = Joi.object({
+  lng: Joi.number().required(),
+  lat: Joi.number().required(),
+  alt: Joi.number().required(),
+});
+
 /**
  * `cursor` frame. `position` is null on the map-switch frame (broadcastCurrentMap piggybacks
  * the active map on a positionless cursor), and lng is NOT range-checked: MapLibre does not
  * clamp longitude when panning past the antimeridian, so a real cursor legitimately reports
  * lng > 180.
+ *
+ * SUPERFICIE, DESDE 2026-09-16, E A FORMA DA POSICAO DEPENDE DELA. O cursor passou a existir nas
+ * tres superficies imersivas, como a `selection` ja existia, e carrega a mesma chave de escopo:
+ * `mapId` no 2D, `tilesetId` no 3D, `photoName` no 360. Sem isso um cursor do 360 chegaria ao par
+ * como cursor de mapa e seria desenhado numa coordenada que nao significa nada ali.
+ *
+ * A POSICAO E VALIDADA POR SUPERFICIE, e nao afrouxada para caber nas tres. Declarar um objeto
+ * permissivo com cinco campos opcionais aceitaria calado um cursor 2D sem `lng`, que e exatamente
+ * o que a regua existe para pegar; `Joi.when` mantem cada superficie com a regua dela.
+ *
+ * E o que nao esta declarado aqui e APAGADO, nao recusado (`stripUnknown` em
+ * `validatePresenceFrame`): um campo novo que o emissor mande sem passar por este schema chega ao
+ * par sem ele, sem erro nenhum em lugar nenhum.
  */
 export const cursorPresenceSchema = Joi.object({
-  position: Joi.object({
-    lng: Joi.number().required(),
-    lat: Joi.number().required(),
-  })
-    .allow(null)
-    .default(null),
+  surface: Joi.string().valid('2d', '3d', '360').default('2d'),
+  position: Joi.when('surface', {
+    switch: [
+      { is: '360', then: cursor360Position.allow(null).default(null) },
+      { is: '3d', then: cursor3dPosition.allow(null).default(null) },
+    ],
+    otherwise: cursor2dPosition.allow(null).default(null),
+  }),
   mapId: presenceText,
+  tilesetId: presenceText,
+  photoName: presenceText,
 });
 
 /** `temporal` frame (caso E): opaque-but-bounded viewing state + active map. */

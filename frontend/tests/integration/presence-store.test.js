@@ -224,13 +224,14 @@ describe('PresenceStore', () => {
 
             const payloads = emitsFor(EventTypes.PRESENCE_CURSORS_CHANGED);
             expect(payloads).toHaveLength(1);
-            expect(payloads[0]).toEqual({ mapId: 'm1' });
+            // A superficie viaja no evento desde 2026-09-16, e um quadro sem ela e do mapa.
+            expect(payloads[0]).toEqual({ mapId: 'm1', surface: '2d' });
         });
 
         it('creates a transient entry when the user is not yet known', () => {
             store.setCursor({ clientId: 'c9', userId: 'u9', position: { lng: 1, lat: 2 }, mapId: 'm1' });
             expect(store.count()).toBe(1);
-            expect(store.getCursors('m1')).toHaveLength(1);
+            expect(store.getCursors('2d', 'm1')).toHaveLength(1);
         });
 
         it('clears the cursor when position is malformed', () => {
@@ -498,17 +499,107 @@ describe('PresenceStore', () => {
         });
 
         it('returns only cursors for the requested map', () => {
-            const cursors = store.getCursors('m1');
+            const cursors = store.getCursors('2d', 'm1');
             expect(cursors).toHaveLength(1);
             expect(cursors[0]).toMatchObject({
                 clientId: 'c1',
                 userName: 'Alice',
+                surface: '2d',
                 position: { lng: 1, lat: 1, mapId: 'm1' },
             });
         });
 
-        it('returns all cursors when no map filter is given', () => {
+        it('returns all cursors when no filter is given', () => {
             expect(store.getCursors()).toHaveLength(2);
+        });
+    });
+
+    // ===== Cursor por superficie (2026-09-16) =====
+    //
+    // O QUE ESTES CASOS EXISTEM PARA PEGAR: um cursor de panorama desenhado sobre o mapa, e um
+    // cursor de mapa desenhado dentro do panorama. Os dois sao invisiveis para qualquer teste que
+    // so pergunte "guardou o cursor?", porque nos dois o cursor E guardado.
+    describe('setCursor — superficies 3D e 360', () => {
+        it('guarda o cursor do 360 em coordenada de esfera, escopado pela foto', () => {
+            store.userJoined({ clientId: 'c1', userId: 'u1', userName: 'Alice' });
+            store.setCursor({
+                clientId: 'c1', surface: '360', photoName: 'foto-7', mapId: 'm1',
+                position: { heading: 187.5, pitch: -0.2 },
+            });
+
+            const cursors = store.getCursors('360', 'foto-7');
+            expect(cursors).toHaveLength(1);
+            expect(cursors[0].position).toMatchObject({
+                surface: '360', heading: 187.5, pitch: -0.2, photoName: 'foto-7',
+            });
+        });
+
+        it('guarda o cursor do 3D com altura, escopado pelo tileset', () => {
+            store.userJoined({ clientId: 'c1', userId: 'u1' });
+            store.setCursor({
+                clientId: 'c1', surface: '3d', tilesetId: 'modelo-2', mapId: 'm1',
+                position: { lng: -43.1, lat: -22.9, alt: 15.5 },
+            });
+
+            const cursors = store.getCursors('3d', 'modelo-2');
+            expect(cursors).toHaveLength(1);
+            expect(cursors[0].position).toMatchObject({
+                surface: '3d', lng: -43.1, lat: -22.9, alt: 15.5, tilesetId: 'modelo-2',
+            });
+        });
+
+        it('NAO entrega o cursor do 360 a quem pergunta pelo mapa 2D', () => {
+            store.userJoined({ clientId: 'c1', userId: 'u1' });
+            store.setCursor({
+                clientId: 'c1', surface: '360', photoName: 'foto-7', mapId: 'm1',
+                position: { heading: 10, pitch: 0 },
+            });
+
+            // O overlay do mapa pergunta assim, e o mapId do quadro CASA ('m1'): se o filtro fosse
+            // so por mapa, o par apareceria no mapa 2D numa coordenada que nao existe.
+            expect(store.getCursors('2d', 'm1')).toHaveLength(0);
+        });
+
+        it('recusa a posicao da superficie errada, em vez de guardar meia coordenada', () => {
+            store.userJoined({ clientId: 'c1', userId: 'u1' });
+            // Forma de mapa (lng/lat) declarada como 360.
+            store.setCursor({
+                clientId: 'c1', surface: '360', photoName: 'foto-7',
+                position: { lng: 1, lat: 2 },
+            });
+            expect(store.getUsers()[0].cursor).toBeNull();
+
+            // Forma de esfera declarada como mapa.
+            store.setCursor({ clientId: 'c1', surface: '2d', mapId: 'm1', position: { heading: 1, pitch: 0 } });
+            expect(store.getUsers()[0].cursor).toBeNull();
+
+            // 3D sem altura: o ponto picado sem `alt` nao situa nada na cena.
+            store.setCursor({
+                clientId: 'c1', surface: '3d', tilesetId: 't1', position: { lng: 1, lat: 2 },
+            });
+            expect(store.getUsers()[0].cursor).toBeNull();
+        });
+
+        it('emite a superficie do quadro no evento, para a cena certa repintar', () => {
+            store.userJoined({ clientId: 'c1', userId: 'u1' });
+            emitSpy.mockClear();
+            store.setCursor({
+                clientId: 'c1', surface: '360', photoName: 'f1', mapId: 'm1',
+                position: { heading: 1, pitch: 0 },
+            });
+            expect(emitsFor(EventTypes.PRESENCE_CURSORS_CHANGED)[0]).toEqual({ mapId: 'm1', surface: '360' });
+        });
+
+        it('le a superficie do snapshot de quem entra depois (cursorContext)', () => {
+            store.setInitial([{
+                id: 'u1', clientId: 'c1', nome: 'Alice', mapId: 'm1',
+                cursorPosition: { heading: 42, pitch: 0.1 },
+                cursorContext: { surface: '360', mapId: 'm1', photoName: 'foto-9', tilesetId: null },
+            }]);
+
+            expect(store.getCursors('360', 'foto-9')).toHaveLength(1);
+            // E o late-joiner nao o desenha no mapa.
+            expect(store.getCursors('2d', 'm1')).toHaveLength(0);
         });
     });
 

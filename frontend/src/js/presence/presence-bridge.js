@@ -12,7 +12,8 @@
  *              wsClient 'selection'    -> presenceStore.setSelection
  *              wsClient 'temporal'     -> presenceStore.setTemporal
  *              wsClient 'briefingEdit' -> presenceStore.setBriefingEdit
- *   outbound : map 'mousemove' (throttled ~80ms)        -> wsClient.sendCursor
+ *   outbound : map 'mousemove' (throttled ~80ms)        -> wsClient.sendCursor (2D)
+ *              CURSOR_360_MOVED / CURSOR_3D_MOVED        -> wsClient.sendCursor (360 / 3D)
  *              MAP_LOCK_CHANGED (de-facto map switch)    -> wsClient.sendCursor(mapId) [case C]
  *              StateManager 'selection.features' change  -> wsClient.sendSelection (2D)  [case F]
  *              MARKER_3D_CLICKED / _DESELECTED           -> wsClient.sendSelection (3D)  [case F]
@@ -133,16 +134,23 @@ function routeBriefingEdit(msg) {
 }
 
 /**
- * Sends the local cursor to peers, resolving the active map id at call time.
+ * Sends one cursor frame, resolving the active map name at call time.
+ *
+ * O `mapId` VAI EM TODO QUADRO, inclusive nos das superficies imersivas, e nao e redundancia: ele
+ * e o unico carregador do "mapa ativo" que o servidor tem (caso C), entao um par que abra o 360
+ * continua aparecendo no roster sob o mapa certo.
+ *
  * No-op when the socket is not connected (presence is best-effort, never queued).
- * @param {{ lng: number, lat: number }} position
+ * @param {{ position: Object|null, surface: '2d'|'3d'|'360', tilesetId?: string|null,
+ *   photoName?: string|null }} frame
  */
-function broadcastCursor(position) {
+function sendCursorFrame(frame) {
     if (!wsClient.isConnected()) {
         return;
     }
-    wsClient.sendCursor({ position, mapId: getCurrentMapNameSync() });
+    wsClient.sendCursor({ mapId: getCurrentMapNameSync(), ...frame });
 }
+
 
 /**
  * Announces the local user's active map to peers (case C). The backend has no
@@ -151,10 +159,7 @@ function broadcastCursor(position) {
  * currentMap. Best-effort; no-op when offline.
  */
 function broadcastCurrentMap() {
-    if (!wsClient.isConnected()) {
-        return;
-    }
-    wsClient.sendCursor({ position: null, mapId: getCurrentMapNameSync() });
+    sendCursorFrame({ position: null, surface: '2d' });
 }
 
 /**
@@ -301,33 +306,27 @@ function onMouseMove(e) {
     if (!lngLat || typeof lngLat.lng !== 'number' || typeof lngLat.lat !== 'number') {
         return;
     }
-    const position = { lng: lngLat.lng, lat: lngLat.lat };
-    const throttle = state._cursorThrottle;
-    const now = Date.now();
-    const elapsed = now - throttle.last;
+    throttleCursor({ position: { lng: lngLat.lng, lat: lngLat.lat }, surface: '2d' });
+}
 
-    if (elapsed >= CURSOR_THROTTLE_MS) {
-        throttle.last = now;
-        throttle.pending = null;
-        broadcastCursor(position);
-        return;
-    }
-
-    // Within the window: remember the latest position and schedule a trailing send.
-    throttle.pending = position;
-    if (throttle.timer === null) {
-        const delay = CURSOR_THROTTLE_MS - elapsed;
-        throttle.timer = setTimeout(() => {
-            throttle.timer = null;
-            const queued = throttle.pending;
-            throttle.pending = null;
-            if (queued) {
-                throttle.last = Date.now();
-                broadcastCursor(queued);
-            }
-        }, delay);
-        trackTimer(state, throttle.timer, 'timeout');
-    }
+/**
+ * Throttles one outbound cursor frame, whatever its surface.
+ *
+ * UMA JANELA SO PARA AS TRES SUPERFICIES, de proposito: o usuario aponta uma coisa de cada vez
+ * (o 360 e o 3D cobrem a tela do mapa), e o servidor guarda UM cursor por `clientId`. Duas janelas
+ * independentes so produziriam dois quadros disputando a mesma gaveta.
+ *
+ * O QUADRO INTEIRO E O VALOR PENDENTE, e nao so a posicao: o envio atrasado do fim da janela tem
+ * de saber de que superficie era o quadro que ele esta mandando. Guardar so a posicao e deixar a
+ * superficie na funcao de envio faria o quadro atrasado de uma superficie sair rotulado como o da
+ * outra, no exato instante da troca.
+ * @param {{ position: Object|null, surface: '2d'|'3d'|'360', tilesetId?: string|null,
+ *   photoName?: string|null }} frame
+ */
+function throttleCursor(frame) {
+    scheduleCoalesced(state._cursorThrottle, CURSOR_THROTTLE_MS, frame, (queued) => {
+        if (queued) sendCursorFrame(queued);
+    });
 }
 
 /**
@@ -422,6 +421,16 @@ export function startPresence({ map } = {}) {
     });
     subscribe(state, eventBus, EventTypes.MARKER_3D_DESELECTED, ({ tilesetId } = {}) => {
         broadcastSelection3D(null, tilesetId ?? null);
+    });
+
+    // Cursor das superficies imersivas (2026-09-16). A cena emite a posicao no sistema DELA (esfera
+    // no 360, ponto picado no 3D) e a ponte continua sendo a unica dona da cadencia e do socket,
+    // como ja e para o mapa. Ungated, como todo cursor: quem so le tambem aparece para os colegas.
+    subscribe(state, eventBus, EventTypes.CURSOR_360_MOVED, ({ position, photoName } = {}) => {
+        throttleCursor({ position: position ?? null, surface: '360', photoName: photoName ?? null });
+    });
+    subscribe(state, eventBus, EventTypes.CURSOR_3D_MOVED, ({ position, tilesetId } = {}) => {
+        throttleCursor({ position: position ?? null, surface: '3d', tilesetId: tilesetId ?? null });
     });
 
     // Case F (360) — POI selection inside the panorama viewer, scoped by photoName.

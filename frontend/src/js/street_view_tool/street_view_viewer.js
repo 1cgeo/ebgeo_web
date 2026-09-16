@@ -1732,6 +1732,42 @@ function updateRemoteSelections360() {
 }
 
 /**
+ * Multiuser presence: rebuilds the peers' live cursors for the current photo from the presence
+ * store, excluding self, and asks for a redraw.
+ *
+ * O PEDIDO DE REDESENHO E OBRIGATORIO AQUI, e e a diferenca em relacao ao realce de selecao: o 360
+ * so desenha quando alguma coisa suja o quadro, entao um colega movendo o mouse com a camera local
+ * parada nao apareceria ate o operador mexer na vista.
+ */
+function updateRemoteCursors360() {
+    const navigator = streetViewState.navigator;
+    if (!navigator || !navigator.renderer) return;
+
+    const cursors = [];
+    const photoName = streetViewState.currentPhotoName;
+    if (photoName) {
+        const selfClientId = sessionContext.clientId;
+        const selfUserId = sessionContext.userId;
+        for (const cursor of presenceStore.getCursors('360', photoName)) {
+            const ownerKey = String(cursor.clientId ?? '');
+            const isSelf = (selfClientId != null && ownerKey === String(selfClientId))
+                || (selfUserId != null && ownerKey === String(selfUserId));
+            if (isSelf) continue;
+
+            cursors.push({
+                clientId: ownerKey,
+                heading: cursor.position.heading,
+                pitch: cursor.position.pitch,
+                color: getPresenceColor(String(cursor.userId || cursor.clientId || '')),
+                name: cursor.userName || '',
+            });
+        }
+    }
+    navigator.setRemoteCursors(cursors);
+    navigator.requestRender();
+}
+
+/**
  * Re-applies the temporal filter to the current photo's markers when the
  * timeline cursor moves or the map temporal config changes. TEMPORAL_CURSOR_CHANGED
  * fires every animation frame during playback, so the POI set is rebuilt only
@@ -2000,6 +2036,14 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
     eventBus.off(EventTypes.STREETVIEW_360_PHOTO_CHANGED, updateRemoteSelections360);
     eventBus.on(EventTypes.STREETVIEW_360_PHOTO_CHANGED, updateRemoteSelections360);
 
+    // Multiuser: peers' live cursors inside this panorama, pelo mesmo par de gatilhos da selecao
+    // (mudou a presenca, ou eu troquei de foto e o escopo mudou).
+    eventBus.off(EventTypes.PRESENCE_CURSORS_CHANGED, updateRemoteCursors360);
+    eventBus.on(EventTypes.PRESENCE_CURSORS_CHANGED, updateRemoteCursors360);
+
+    eventBus.off(EventTypes.STREETVIEW_360_PHOTO_CHANGED, updateRemoteCursors360);
+    eventBus.on(EventTypes.STREETVIEW_360_PHOTO_CHANGED, updateRemoteCursors360);
+
     // Mark as visible BEFORE init/load so closeViewer360 can always work.
     // resumeRendering() also sets this, but we need it as early as possible
     // to guarantee the close button is functional even if loading fails.
@@ -2167,6 +2211,13 @@ export async function closeViewer360() {
     eventBus.off(EventTypes.MAP_TEMPORAL_CHANGED, handleTemporalRefresh);
     eventBus.off(EventTypes.PRESENCE_SELECTIONS_CHANGED, updateRemoteSelections360);
     eventBus.off(EventTypes.STREETVIEW_360_PHOTO_CHANGED, updateRemoteSelections360);
+    eventBus.off(EventTypes.PRESENCE_CURSORS_CHANGED, updateRemoteCursors360);
+    eventBus.off(EventTypes.STREETVIEW_360_PHOTO_CHANGED, updateRemoteCursors360);
+
+    // Fechar o 360 tira o ponteiro de dentro dele, e o `mouseleave` do canvas nao cobre o caminho
+    // do botao: sem este quadro o cursor local fica pendurado na foto para os colegas ate a
+    // proxima coisa que o mover.
+    eventBus.emit(EventTypes.CURSOR_360_MOVED, { position: null, photoName: null });
 
     // O seletor sai junto com o visualizador, cache de projeto incluido: manter
     // os andares do levantamento anterior faria a proxima abertura mostrar uma

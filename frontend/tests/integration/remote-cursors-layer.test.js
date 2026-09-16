@@ -112,7 +112,7 @@ import { EventTypes } from '@events/event_types.js';
 // ============================================================================
 
 function cursor(clientId, lng, lat, mapId, userName) {
-    return { clientId, userName: userName ?? clientId, position: { lng, lat, mapId } };
+    return { clientId, userName: userName ?? clientId, surface: '2d', position: { surface: '2d', lng, lat, mapId } };
 }
 
 function fireCursorsChanged() {
@@ -230,20 +230,22 @@ describe('RemoteCursorsLayer — marker reconciliation + active-map filtering', 
     it('case C: renders only cursors on the active map (filters the rest)', () => {
         // The layer asks the store for cursors of the active map only; emulate that
         // by returning the filtered set for the requested mapId.
-        presenceStoreMock.getCursors.mockImplementation((mapId) =>
-            [cursor('c1', 10, 20, 'm1'), cursor('c2', 30, 40, 'm2')].filter((c) => c.position.mapId === mapId),
+        presenceStoreMock.getCursors.mockImplementation((surface, mapId) =>
+            [cursor('c1', 10, 20, 'm1'), cursor('c2', 30, 40, 'm2')]
+                .filter((c) => c.surface === surface && c.position.mapId === mapId),
         );
         activeMap = 'm1';
         layer.start();
 
-        expect(presenceStoreMock.getCursors).toHaveBeenCalledWith('m1');
+        expect(presenceStoreMock.getCursors).toHaveBeenCalledWith('2d', 'm1');
         expect(FakeMarker.instances).toHaveLength(1);
         expect(FakeMarker.instances[0].getElement().getAttribute('data-client-id')).toBe('c1');
     });
 
     it('case C: switching the active map re-renders against the new map', () => {
-        presenceStoreMock.getCursors.mockImplementation((mapId) =>
-            [cursor('c1', 10, 20, 'm1'), cursor('c2', 30, 40, 'm2')].filter((c) => c.position.mapId === mapId),
+        presenceStoreMock.getCursors.mockImplementation((surface, mapId) =>
+            [cursor('c1', 10, 20, 'm1'), cursor('c2', 30, 40, 'm2')]
+                .filter((c) => c.surface === surface && c.position.mapId === mapId),
         );
         activeMap = 'm1';
         layer.start();
@@ -271,15 +273,16 @@ describe('RemoteCursorsLayer — marker reconciliation + active-map filtering', 
     // ID, so the filter never matched and no remote cursor ever rendered.
     it('default resolver filters by the map NAME (matching the bridge), not the id', () => {
         getCurrentMapNameSync.mockReturnValue('Mapa Tático');
-        presenceStoreMock.getCursors.mockImplementation((mapId) =>
-            [cursor('c1', 10, 20, 'Mapa Tático', 'Alice')].filter((c) => c.position.mapId === mapId),
+        presenceStoreMock.getCursors.mockImplementation((surface, mapId) =>
+            [cursor('c1', 10, 20, 'Mapa Tático', 'Alice')]
+                .filter((c) => c.surface === surface && c.position.mapId === mapId),
         );
 
         const defaultLayer = new RemoteCursorsLayer(fakeMap); // no mapIdProvider → default resolver
         defaultLayer.start();
 
         expect(getCurrentMapNameSync).toHaveBeenCalled();
-        expect(presenceStoreMock.getCursors).toHaveBeenCalledWith('Mapa Tático');
+        expect(presenceStoreMock.getCursors).toHaveBeenCalledWith('2d', 'Mapa Tático');
         expect(FakeMarker.instances.filter((m) => !m.removed)).toHaveLength(1);
         defaultLayer.stop();
     });

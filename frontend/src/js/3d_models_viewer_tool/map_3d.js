@@ -376,6 +376,12 @@ async function setupTools(viewer) {
             markerModule.initMarkerToolListeners();
         }
 
+        // Multiusuario: o ponteiro dos colegas dentro da cena. O tileset aberto e desta casa, e
+        // por isso ele entra como provedor, em vez de o modulo importar este arquivo de volta.
+        const presenceCursorModule = await import('./tools/presence_cursor_3d.js');
+        cesiumState.modules.presenceCursor = presenceCursorModule;
+        presenceCursorModule.initPresenceCursor3D(viewer, { tilesetIdProvider: () => _currentTilesetId });
+
         // Load new measurement tool
         const measurementModule = await import('./tools/measurement_tool_3d.js');
         cesiumState.modules.measurements = measurementModule;
@@ -478,6 +484,10 @@ export function cleanup3DFeatures() {
 
         if (cesiumState.modules.mouseCoordinates) {
             cesiumState.modules.mouseCoordinates.cleanupMouseCoordinates3D();
+        }
+
+        if (cesiumState.modules.presenceCursor) {
+            cesiumState.modules.presenceCursor.cleanupPresenceCursor3D();
         }
 
         // Cleanup marker tool
@@ -1517,6 +1527,14 @@ async function switchTileset(newTilesetId) {
     cleanupActiveTools();
     await loadSingleTileset(cesiumState.viewer, newTilesetId);
     init3DFeatures();
+
+    // O `entities.removeAll` de `cleanupActiveTools` levou junto os cursores dos colegas, e o
+    // escopo mudou: quem aparece agora sao os que estao NESTE modelo. Sem esta linha o modulo
+    // ficaria com entidades ja removidas no registro dele, e ninguem seria redesenhado ate o
+    // proximo quadro de presenca.
+    if (cesiumState.modules.presenceCursor) {
+        cesiumState.modules.presenceCursor.resetRemoteCursors3D();
+    }
 }
 
 /**

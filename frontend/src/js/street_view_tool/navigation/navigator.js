@@ -19,6 +19,33 @@ import { showToast } from '@utils';
 const DRAG_THRESHOLD = 5;
 
 /**
+ * Converts a direction on the sphere into the viewer's 3D coordinates.
+ *
+ * Module-level and pure ON PURPOSE: both the POI projection and the remote-cursor projection need
+ * it, and a method would make `projectPOI` depend on `this` beyond the projector, which is how the
+ * unit tests call it (through the prototype, with a minimal fake). Duplicating the four lines is
+ * how the two would drift apart the first time the convention changes.
+ *
+ * `heading` is in DEGREES and `pitch` in RADIANS, the pair `screenToSpherical` returns and the one
+ * the stored 360 marker carries.
+ * @param {number} heading - Bearing on the sphere, degrees.
+ * @param {number} pitch - Elevation, radians.
+ * @param {number} distance - Radius to place the point at.
+ * @returns {{ x: number, y: number, z: number }}
+ */
+function sphericalToMeters(heading, pitch, distance) {
+    const headingRad = (heading * Math.PI) / 180;
+    return {
+        x: Math.sin(headingRad) * Math.cos(pitch) * distance,
+        y: Math.sin(pitch) * distance,
+        z: -Math.cos(headingRad) * Math.cos(pitch) * distance,
+    };
+}
+
+/** Radius used to place a peer's cursor on the sphere; matches what `screenToSpherical` returns. */
+const REMOTE_CURSOR_DISTANCE = 5;
+
+/**
  * Main navigation system for the 360 viewer.
  * Manages navigation targets, POIs, and user interactions.
  */
@@ -37,6 +64,13 @@ export class StreetViewNavigator {
         /** @type {Function|null} Notified when the hovered marker changes */
         this.onHoverChange = null;
         this._lastHoveredId = null;
+        /**
+         * Peers' live cursors inside THIS photo, already resolved to colour and name by the
+         * viewer: `[{ clientId, heading, pitch, color, name }]`. The navigator projects them per
+         * frame; it never reads presence itself.
+         * @type {Array<{ clientId: string, heading: number, pitch: number, color: string, name: string }>}
+         */
+        this.remoteCursors = [];
 
         // Create canvas overlay
         this.canvas = null;
@@ -246,6 +280,15 @@ export class StreetViewNavigator {
 
         // Update hit tester
         this.hitTester.setMarkers(markers);
+
+        // Cursores dos colegas: projetados como qualquer outra coisa da esfera, mas FORA da lista
+        // de marcadores, porque cursor nao e alvo de clique nem entra no hit test.
+        const remoteCursors = [];
+        for (const cursor of this.remoteCursors) {
+            const projected = this.projectRemoteCursor(cursor, yaw, pitch, fov);
+            if (projected) remoteCursors.push(projected);
+        }
+        this.renderer.setRemoteCursors(remoteCursors);
 
         // Update renderer
         this.renderer.setMarkers(markers);
@@ -535,10 +578,7 @@ export class StreetViewNavigator {
         const { heading, pitch: poiPitch, distance } = poi.position;
 
         // Convert to 3D coordinates
-        const headingRad = (heading * Math.PI) / 180;
-        const x = Math.sin(headingRad) * Math.cos(poiPitch) * distance;
-        const y = Math.sin(poiPitch) * distance;
-        const z = -Math.cos(headingRad) * Math.cos(poiPitch) * distance;
+        const { x, y, z } = sphericalToMeters(heading, poiPitch, distance);
 
         // Project to screen
         const projected = this.projector.metersToScreen(x, y, z, yaw, pitch, fov);
@@ -575,6 +615,13 @@ export class StreetViewNavigator {
      * Clears the highlight when the pointer leaves the 360 view.
      */
     handleMouseLeave() {
+        // Sai ANTES do early return abaixo: o ponteiro deixou o panorama mesmo quando nao havia
+        // marcador em realce, e o colega precisa ver o cursor sumir nos dois casos.
+        getEventBus().emit(EventTypes.CURSOR_360_MOVED, {
+            position: null,
+            photoName: this.cameraConfig?.img ?? null,
+        });
+
         if (this._lastHoveredId === null) return;
         this._lastHoveredId = null;
         this.renderer.setHoveredMarker(null);
@@ -596,6 +643,10 @@ export class StreetViewNavigator {
             x: event.clientX - rect.left,
             y: event.clientY - rect.top
         };
+
+        // Presenca: o ponteiro local sai em coordenada da ESFERA, nunca em pixel. Um pixel so
+        // significa alguma coisa para quem olha do mesmo yaw/pitch/FOV, e cada par olha do seu.
+        this.broadcastLocalCursor();
 
         // Hit test for hover
         const hit = this.hitTester.testPoint(this.mousePosition.x, this.mousePosition.y);
@@ -632,6 +683,61 @@ export class StreetViewNavigator {
             }
         }
 
+    }
+
+    /**
+     * Emits the local pointer's SPHERE direction for the presence bridge to ship (it owns the
+     * throttle and the socket). No-op before the first render, when the camera angles that the
+     * conversion needs do not exist yet.
+     */
+    broadcastLocalCursor() {
+        if (this.currentYaw === undefined) return;
+
+        const spherical = this.projector.screenToSpherical(
+            this.mousePosition.x,
+            this.mousePosition.y,
+            this.currentYaw,
+            this.currentPitch,
+            this.currentFov
+        );
+        getEventBus().emit(EventTypes.CURSOR_360_MOVED, {
+            position: { heading: spherical.heading, pitch: spherical.pitch },
+            photoName: this.cameraConfig?.img ?? null,
+        });
+    }
+
+    /**
+     * Sets the peers' cursors to draw inside the current photo (multiuser presence).
+     * The viewer resolves identity, colour and scope; the navigator only projects.
+     * @param {Array<{ clientId: string, heading: number, pitch: number, color: string, name: string }>} cursors
+     */
+    setRemoteCursors(cursors) {
+        this.remoteCursors = Array.isArray(cursors) ? cursors : [];
+    }
+
+    /**
+     * Projects one peer's cursor onto the screen, or null when it is behind the camera or outside
+     * the field of view (`metersToScreen` already decides both).
+     * @param {{ clientId: string, heading: number, pitch: number, color: string, name: string }} cursor
+     * @param {number} yaw - Camera yaw, radians.
+     * @param {number} pitch - Camera pitch, radians.
+     * @param {number} fov - Camera field of view.
+     * @returns {Object|null}
+     */
+    projectRemoteCursor(cursor, yaw, pitch, fov) {
+        if (typeof cursor?.heading !== 'number' || typeof cursor?.pitch !== 'number') return null;
+
+        const { x, y, z } = sphericalToMeters(cursor.heading, cursor.pitch, REMOTE_CURSOR_DISTANCE);
+        const projected = this.projector.metersToScreen(x, y, z, yaw, pitch, fov);
+        if (!projected.visible) return null;
+
+        return {
+            clientId: cursor.clientId,
+            screenX: projected.screenX,
+            screenY: projected.screenY,
+            color: cursor.color,
+            name: cursor.name,
+        };
     }
 
     /**
