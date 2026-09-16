@@ -245,7 +245,13 @@ export class BaseLayerSelectorControl {
         // Name
         const name = document.createElement('div');
         name.className = 'base-layer-option-name';
-        name.textContent = thumbnailConfig?.label || layerConfig.name;
+        // O NOME DO CATÁLOGO VENCE O RÓTULO FIXO, e a ordem estava invertida aqui (medido em
+        // 2026-09-16): o `carta-topografica` se chama "DSG" no catálogo de produção e "Topográfica"
+        // em `LAYER_THUMBNAILS`, então a lista mostrava "Topográfica, Ortoimagem, Topográfica,
+        // BDGEx" — dois cartões com o mesmo nome e nada que explicasse a diferença. A linha da
+        // MINIATURA, três linhas acima, sempre pôs `layerConfig.image` na frente pela mesma razão;
+        // era só o nome que não seguia o catálogo.
+        name.textContent = layerConfig.name || thumbnailConfig?.label || layerId;
 
         option.appendChild(thumb);
         option.appendChild(name);
@@ -514,8 +520,9 @@ export class BaseLayerSelectorControl {
                 'linear-gradient(135deg, #ccc 0%, #999 100%)';
         }
 
-        label.textContent = thumbnailConfig?.label ||
-            layerInfo?.config?.name || layerId;
+        // Mesma ordem do cartão da lista: o catálogo primeiro, o rótulo fixo como queda.
+        label.textContent = layerInfo?.config?.name
+            || thumbnailConfig?.label || layerId;
     }
 
     /**

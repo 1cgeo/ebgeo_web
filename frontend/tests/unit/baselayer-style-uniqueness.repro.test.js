@@ -221,18 +221,22 @@ describe('base layer styles', () => {
         for (const [id, style] of Object.entries(SERVED_STYLES)) expectLoadable(id, style, 'server');
     });
 
-    // WHERE AN ADMIN-EDITED STYLE ACTUALLY LANDS. `config.service.js`
-    // (listBasemapStyles) overlays any catalog row's `config.style` on top of the
-    // static builders, for any id. This pins what that overlay does to the map,
-    // because the answer is counter-intuitive and it is what makes the id-set
-    // assertion above the load-bearing one: for the five built-in ids the overlay
-    // is INERT on the map, so the only way a server style reaches it is an id the
-    // client has no module for.
-    it('an admin style overrides only the ids the client has no module for', () => {
+    // ONDE UM ESTILO EDITADO PELO ADMINISTRADOR REALMENTE CAI. `config.service.js`
+    // (`listBasemapStyles`) sobrepõe o `config.style` de qualquer linha do catálogo aos
+    // construtores estáticos, para qualquer id.
+    //
+    // ATÉ 2026-09-16 ESSA SOBREPOSIÇÃO ERA INERTE no mapa para os cinco ids embutidos, e a
+    // asserção aqui era justamente essa. A ordem se inverteu porque os cinco módulos desta
+    // linha são ESBOÇOS (`carta_topografica.js` são 18 linhas de OSM cru), e o embutido
+    // vencendo fazia a tela desenhar OSM por baixo da carta DSG publicada pelo administrador,
+    // sem erro nenhum. O racional completo está no cabeçalho de `basemap-style.js`.
+    it('an admin style overrides ANY id, including the ones the client has a module for', () => {
         const admin = { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background' }] };
         const published = { ...SERVED_STYLES, osm: admin, 'bm-custom': admin };
 
-        expect(resolveBasemapStyle('osm', STYLES, published)).toBe(STYLES.osm);
+        expect(resolveBasemapStyle('osm', STYLES, published)).toBe(admin);
         expect(resolveBasemapStyle('bm-custom', STYLES, published)).toBe(admin);
+        // E O EMBUTIDO CONTINUA SENDO A REDE: sem publicação para o id, ele responde.
+        expect(resolveBasemapStyle('osm', STYLES, {})).toBe(STYLES.osm);
     });
 });

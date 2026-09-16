@@ -12,12 +12,19 @@
  * those five modules and nothing else. "The selector honours the access filter" has to mean the
  * item works when it is offered, not merely that it is listed.
  *
- * THE ORDER IS BUILT-IN FIRST, AND THAT IS DELIBERATE. `/api/config` publishes `basemapStyles` for
- * the five built-in ids as well, assembled from the deployment's ENV-injected tile/glyph URLs.
- * Preferring the published copy for them would silently repoint the five layers every deployment
- * ships with — a change nobody asked for, riding along with a feature about private resources. So
- * the published style is consulted only where the client has NO style of its own, which is exactly
- * the set of ids that did not work at all.
+ * A ORDEM É O PUBLICADO PRIMEIRO, E ELA MUDOU EM 2026-09-16. Era o embutido primeiro, com um
+ * receio declarado: preferir a cópia publicada para os cinco ids embutidos "repontaria em silêncio
+ * as cinco camadas que todo deployment traz". O caso real mostrou o custo do outro lado, e ele é
+ * maior: os cinco módulos desta pasta são ESBOÇOS nesta linha do produto (o `carta_topografica.js`
+ * são 18 linhas de OSM cru, o `carta_ortoimagem.js` é a URL de demonstração do MapLibre), enquanto
+ * a `main` traz neles a carta DSG de 4.817 linhas e a Ortoimagem de 3.185. Com o embutido vencendo,
+ * o administrador publicava a carta DSG no catálogo e a tela desenhava o esboço de OSM por baixo
+ * dela, sem um erro em lugar nenhum. Foi o relato de 2026-09-16: "esse topográfica que tá com OSM".
+ *
+ * O QUE A INVERSÃO PRESERVA: quem não publica estilo nenhum continua caindo no embutido, que é o
+ * que os cinco ids sempre fizeram antes de existir catálogo servido; e um publicado MALFORMADO
+ * continua contando como ausente, então o esboço ainda é a rede de segurança. O que ela devolve é
+ * a autoridade a quem configura o catálogo, que é de onde o resto de `/api/config` já vem.
  *
  * A malformed published style is treated as ABSENT: `map.setStyle()` on a broken object leaves the
  * map blank, and blank is worse than falling back to a layer that draws. The structural check is
@@ -36,13 +43,14 @@ import { validateMapLibreStyle } from '@utils/maplibre-style-validate.js';
  */
 export function resolveBasemapStyle(id, builtinStyles, publishedStyles) {
     if (!id) return null;
-    const builtin = builtinStyles?.[id];
-    if (builtin) return builtin;
 
     const published = publishedStyles?.[id];
-    if (typeof published === 'string') return published.trim() ? published : null;
-    if (published && validateMapLibreStyle(published).ok) return published;
-    return null;
+    if (typeof published === 'string' && published.trim()) return published;
+    if (published && typeof published !== 'string' && validateMapLibreStyle(published).ok) return published;
+
+    // A QUEDA, e não o caminho principal: o embutido vale quando o servidor não publicou nada
+    // utilizável para este id. Um publicado malformado chega aqui de propósito (ver o cabeçalho).
+    return builtinStyles?.[id] ?? null;
 }
 
 /**

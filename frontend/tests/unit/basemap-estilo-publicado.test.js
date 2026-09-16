@@ -23,12 +23,22 @@ const BUILTIN = {
 const PUBLICADO_VALIDO = { version: 8, sources: { c: { type: 'raster', tiles: ['z'] } }, layers: [{ id: 'c', type: 'raster', source: 'c' }] };
 
 describe('estilo de uma camada base', () => {
-    it('o estilo EMBUTIDO ganha do publicado para os ids que o cliente já traz', () => {
-        // `/api/config` publica estilo para os cinco embutidos também, montado das URLs de
-        // tile do deploy. Preferir a cópia publicada para eles repontaria as cinco camadas
-        // de todo deploy, de carona numa mudança sobre recurso privado.
+    it('o estilo PUBLICADO ganha do embutido, inclusive nos ids que o cliente já traz', () => {
+        // A ORDEM SE INVERTEU EM 2026-09-16, e o caso está no cabeçalho do módulo: os cinco
+        // módulos embutidos desta linha são ESBOÇOS (o `carta_topografica.js` são 18 linhas de
+        // OSM cru), então o embutido vencendo fazia a tela desenhar OSM por baixo da carta DSG
+        // que o administrador tinha publicado, sem erro nenhum. O receio que a ordem antiga
+        // protegia ("repontar as cinco camadas de todo deploy") continua endereçado pelo caso
+        // seguinte e pelo do malformado: sem publicação utilizável, o embutido segue valendo.
         const publicados = { 'carta-topografica': PUBLICADO_VALIDO };
-        expect(resolveBasemapStyle('carta-topografica', BUILTIN, publicados)).toBe(BUILTIN['carta-topografica']);
+        expect(resolveBasemapStyle('carta-topografica', BUILTIN, publicados)).toBe(PUBLICADO_VALIDO);
+    });
+
+    it('e sem publicação nenhuma, o embutido continua valendo', () => {
+        // O outro lado da inversão: o deploy que não publica estilo para um id embutido não pode
+        // ficar sem camada.
+        expect(resolveBasemapStyle('carta-topografica', BUILTIN, {})).toBe(BUILTIN['carta-topografica']);
+        expect(resolveBasemapStyle('osm', BUILTIN, undefined)).toBe(BUILTIN.osm);
     });
 
     it('o id que o cliente NÃO conhece resolve pelo estilo publicado', () => {
