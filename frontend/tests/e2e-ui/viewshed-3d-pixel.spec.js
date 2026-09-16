@@ -71,6 +71,36 @@
  * A imagem produzida em cada rodada fica em `test-results/viewshed-3d-atual.png` para leitura
  * humana, e a rodada sempre a escreve, verde ou vermelha, porque comparar duas imagens é o único
  * jeito de saber o que o percentual significa.
+ *
+ * ## A COSTURA ENTRE SUB-VIEWSHEDS TEM REFERÊNCIA PRÓPRIA DESDE 2026-09-16, E EM OUTRO ENQUADRAMENTO
+ *
+ * Os dois últimos casos deste arquivo medem a EMENDA, e o que eles provam não é o que a revisão de
+ * 2026-09-15 achou ter provado. Aquela revisão mediu a emenda no enquadramento largo dos primeiros
+ * casos, leu "0 px de chão cru" e registrou "fresta, não faixa". O número estava certo e a
+ * conclusão não: com a folga de 0,1 grau que vigorava, a cunha cega media 0,32 m a 186 m, e naquele
+ * enquadramento um pixel vale cerca de 0,42 m. **A fresta não estava ausente, estava sub-pixel.**
+ *
+ * Por isso estes dois casos aproximam a câmera até o chão valer cerca de 0,046 m por pixel
+ * (`ENQUADRAMENTO_COSTURA`) e põem um MURO em cima da emenda, a 115 m: é o que transforma as quatro
+ * perguntas em coisas que um pixel pode responder. As quatro réguas, e o que cada uma veria se a
+ * costura estivesse errada:
+ *
+ *   1. **Fresta** (chão CRU entre dois tingidos, ao longo da linha da emenda, no chão E na sombra).
+ *      Com folga positiva ela vê uma corrida contínua de pixels sem tinta: 4 px com 0,1 grau, 60 px
+ *      com 1,5. É o controle negativo direto: repor qualquer folga positiva reprova aqui.
+ *   2. **Faixa saturada** (a mediana do canal OPOSTO à tinta, nas colunas da emenda, contra a mesma
+ *      mediana a mais de 5 graus dali). Uma tinta só deixa o canal oposto em ~62; duas misturas
+ *      sobre o mesmo pixel deixam ~31. Com os pedaços SOBREPOSTOS (folga negativa) a mediana da
+ *      emenda cai para 31 e as duas metades da régua divergem por um fator de dois.
+ *   3. **Sombra contínua**: descendo as colunas da emenda dentro da faixa da sombra do muro, o
+ *      vermelho não pode se interromper. Com folga positiva a sombra é cortada em duas pela mesma
+ *      cunha cega, e essa é a forma mais grave do defeito: a análise não responde NADA numa linha
+ *      que atravessa o obstáculo e a sombra dele.
+ *   4. **Pixel e classe contra referência versionada**, como nos primeiros casos.
+ *
+ * TRÊS PEDAÇOS SÃO 320 GRAUS, E NÃO 300. `subViewshedLayout` corta em dois até
+ * `MAX_SINGLE_VIEWSHED_ANGLE * 2` INCLUSIVE, então 300 ainda são dois pedaços e 300,0001 já são
+ * três. Um caso de costura escrito com 300 mediria o corte em dois duas vezes.
  */
 
 import { Buffer } from 'node:buffer';
@@ -89,6 +119,12 @@ const DIR_REFERENCIA = path.join(AQUI, '__referencias__');
 const REFERENCIA = path.join(DIR_REFERENCIA, 'viewshed-3d.png');
 const DIR_SAIDA = path.resolve(AQUI, '../../test-results');
 const REGERAR = process.env.EBGEO_VIEWSHED_REFERENCIA === '1';
+
+/** Referência da emenda, uma por número de sub-viewsheds. Ver o cabeçalho, seção da costura. */
+const REFERENCIA_COSTURA = {
+    180: path.join(DIR_REFERENCIA, 'viewshed-3d-costura-180.png'),
+    320: path.join(DIR_REFERENCIA, 'viewshed-3d-costura-320.png'),
+};
 
 /** Tileset que este spec registra para si. O documento raiz é servido pela rota interceptada. */
 const TILESET_ID = 'e2e-viewshed-pixel';
@@ -253,9 +289,12 @@ async function abrirVisualizador3d(page) {
  * Monta a cena determinística: câmera fixa, dois blocos que castam sombra, sem animação.
  * @param {import('@playwright/test').Page} page
  * @param {{ longitude: number, latitude: number }} obs
+ * @param {{ muroNaEmenda?: boolean }} [opcoes] - `muroNaEmenda` acrescenta o obstáculo que os casos
+ *   de costura precisam. Ele fica FORA da cena dos primeiros casos de propósito: acrescentá-lo lá
+ *   invalidaria a referência de pixel de 2026-09-15 sem nada a ganhar.
  */
-async function montarCena(page, obs) {
-    await page.evaluate(async ({ obs: o, piso: PISO }) => {
+async function montarCena(page, obs, opcoes = {}) {
+    await page.evaluate(async ({ obs: o, piso: PISO, muroNaEmenda }) => {
         const C = window.Cesium;
         const viewer = window.map;
         const cena = viewer.scene;
@@ -294,8 +333,10 @@ async function montarCena(page, obs) {
          * @param {number} altura
          * @param {number[]} rgb
          * @param {number} [piso]
+         * @param {number} [profundidade] - Norte-sul, em metros. Ausente = igual à largura, que é a
+         *   forma dos três blocos originais; o muro da costura é largo e fino.
          */
-        const bloco = (leste, norte, largura, altura, rgb, piso = 0) => {
+        const bloco = (leste, norte, largura, altura, rgb, piso = 0, profundidade = largura) => {
             const base = C.Cartesian3.fromDegrees(o.longitude, o.latitude, 0);
             const enu = C.Transforms.eastNorthUpToFixedFrame(base);
             const deslocado = C.Matrix4.multiplyByPoint(
@@ -305,7 +346,7 @@ async function montarCena(page, obs) {
             );
             const modelo = C.Transforms.eastNorthUpToFixedFrame(deslocado);
             const geometria = C.BoxGeometry.fromDimensions({
-                dimensions: new C.Cartesian3(largura, largura, altura),
+                dimensions: new C.Cartesian3(largura, profundidade, altura),
                 vertexFormat: C.PerInstanceColorAppearance.VERTEX_FORMAT,
             });
             const primitiva = new C.Primitive({
@@ -342,6 +383,17 @@ async function montarCena(page, obs) {
         bloco(-22, 46, 16, 22, [0.75, 0.72, 0.68], PISO);
         bloco(26, 92, 20, 26, [0.68, 0.66, 0.62], PISO);
 
+        // O MURO DA COSTURA: 34 m de largura, 6 m de espessura, 7 m de altura, centrado
+        // EXATAMENTE na direção da emenda (o norte, ver `criarViewshedDeCostura`) a 115 m.
+        //
+        // As três medidas são escolhidas, não arredondadas. Ele é LARGO para atravessar a emenda
+        // com folga dos dois lados; é FINO para que a câmera aproximada enxergue por cima dele o
+        // chão que ele mesmo sombreia (um bloco de base quadrada esconderia a sombra atrás de si e
+        // a régua da sombra não mediria nada); e é BAIXO o bastante para caber no quadro e alto o
+        // bastante para a sombra dele alcançar o corte de distância, porque a 1,5 m de altura de
+        // observador qualquer obstáculo acima do olho sombreia até o infinito.
+        if (muroNaEmenda) bloco(0, 115, 34, 7, [0.72, 0.70, 0.66], PISO, 6);
+
         // O globo precisa estar completo antes de qualquer leitura de pixel.
         await new Promise((resolve) => {
             let restantes = 600;
@@ -351,7 +403,7 @@ async function montarCena(page, obs) {
             };
             tenta();
         });
-    }, { obs, piso: PISO });
+    }, { obs, piso: PISO, muroNaEmenda: opcoes.muroNaEmenda === true });
 }
 
 /**
@@ -366,15 +418,16 @@ async function montarCena(page, obs) {
  *
  * @param {import('@playwright/test').Page} page
  * @param {{ longitude: number, latitude: number }} obs
+ * @param {{ recuoNorte: number, altura: number, pitchGraus: number }} [enquadramento]
  */
-async function fixarCamera(page, obs) {
+async function fixarCamera(page, obs, enquadramento) {
     /**
      * Altura e recuo (metros) do enquadramento da referência. Escolhido para que o SETOR INTEIRO
      * caiba no quadro: a abertura de 120° e o corte em 186 m só provam alguma coisa se as duas
      * bordas e o arco distante estiverem na imagem. Com a câmera mais baixa o leque saía pelo topo
      * e a distância deixava de ser medida.
      */
-    const ENQUADRAMENTO = { recuoNorte: -180, altura: 260, pitchGraus: -42 };
+    const ENQUADRAMENTO = enquadramento ?? { recuoNorte: -180, altura: 260, pitchGraus: -42 };
 
     /** @returns {Promise<{ altura: number, pitch: number }>} */
     const aplicarELer = () => page.evaluate(async ({ o, e }) => {
@@ -610,6 +663,301 @@ async function compararImagens(page, aDataUrl, bDataUrl) {
 function gravarPng(destino, dataUrl) {
     fs.mkdirSync(path.dirname(destino), { recursive: true });
     fs.writeFileSync(destino, Buffer.from(dataUrl.split(',')[1], 'base64'));
+}
+
+// ==================== A COSTURA ENTRE SUB-VIEWSHEDS ====================
+
+/**
+ * Os dois cortes que existem. `pedacos` é o que `subViewshedLayout` devolve, e é asserido: 300
+ * graus ainda são DOIS (a fronteira é inclusiva), então o caso de três é 320.
+ */
+const CASOS_DE_COSTURA = [
+    { angulo: 180, pedacos: 2 },
+    { angulo: 320, pedacos: 3 },
+];
+
+/**
+ * O enquadramento da emenda, e cada número dele foi medido, não escolhido por gosto.
+ *
+ * A câmera fica 60 m ao NORTE do observador, 30 m acima do chão, inclinada 22 graus para baixo,
+ * olhando para o norte com rumo zero. Três propriedades saem daí, e as três são necessárias:
+ *
+ *   - o chão à frente vale cerca de 0,046 m por pixel, contra os 0,42 m do enquadramento largo dos
+ *     primeiros casos. É esse fator de nove que separa uma cunha de 0,1 grau (0,175 m a 100 m,
+ *     quase 4 px aqui e menos de meio pixel lá) de uma medição que não vê nada;
+ *   - o muro a 115 m cabe no quadro com chão LIMPO abaixo dele (linhas de `FAIXA_DE_CHAO`) e a
+ *     SOMBRA dele acima (linhas de `FAIXA_DE_SOMBRA`), que é o que permite medir a fresta e a
+ *     continuidade da sombra na mesma imagem;
+ *   - a emenda cai na COLUNA CENTRAL do canvas, porque o setor é montado com a emenda apontando
+ *     para o norte e a câmera olha o norte de um ponto exatamente ao norte do observador.
+ */
+const ENQUADRAMENTO_COSTURA = { recuoNorte: 60, altura: 30, pitchGraus: -22 };
+
+/** Linhas de chão sem oclusão, entre a câmera e o muro. */
+const FAIXA_DE_CHAO = { y0: 470, y1: 710 };
+/** Linhas dentro da sombra que o muro projeta, entre ele e o corte de distância. */
+const FAIXA_DE_SOMBRA = { y0: 190, y1: 330 };
+/** Meia largura, em pixels, da faixa de colunas que se considera "a emenda". */
+const MEIA_FAIXA_DA_EMENDA = 6;
+/**
+ * Colunas de referência: o MESMO chão, longe da emenda. A 100 m de distância de chão, 220 px valem
+ * cerca de 5,8 graus de azimute e 320 px cerca de 8,4, então a faixa inteira está além dos 5 graus.
+ */
+const COLUNAS_DE_REFERENCIA = { de: 220, ate: 320 };
+
+/**
+ * Cria um viewshed cuja PRIMEIRA EMENDA aponta para o norte, que é o que põe a costura na coluna
+ * central do canvas.
+ *
+ * Com dois pedaços a emenda é a própria direção de visada; com três elas ficam a meio sub-ângulo
+ * de cada lado dela, e o rumo do setor é girado de meio sub-ângulo para trazer uma delas ao norte.
+ *
+ * O ALVO É CONSTRUÍDO NO REFERENCIAL LOCAL, e não por graus de latitude e longitude somados à mão.
+ * A conversão ingênua (`distância * sen(rumo) / (110574 * cos(latitude))`) erra o raio do paralelo
+ * em cerca de 0,7% nesta latitude, o que num rumo de 53 graus desloca o azimute em 0,19 grau: a
+ * emenda nasce 5 px fora do centro e as réguas passam a medir chão em vez de costura. Medido aqui
+ * em 2026-09-16.
+ * @param {import('@playwright/test').Page} page
+ * @param {number} angulo - Abertura horizontal total, em graus.
+ * @returns {Promise<{ id: string, pedacos: number, subAngle: number, renderAngle: number, rumo: number, estagios: number }>}
+ */
+async function criarViewshedDeCostura(page, angulo) {
+    return page.evaluate(async ({ id: tilesetId, ang, obs, piso, dist }) => {
+        const C = window.Cesium;
+        const loja = await import('/src/js/store/index.js');
+        const ferramenta = await import('/src/js/3d_models_viewer_tool/tools/viewshed_tool_3d.js');
+        const { subViewshedLayout } = await import(
+            '/src/js/3d_models_viewer_tool/services/viewshed-geometry.js'
+        );
+
+        const layout = subViewshedLayout(ang);
+        const emendas = layout.count === 2 ? [0] : [-layout.subAngle / 2, layout.subAngle / 2];
+        const rumo = -emendas[0];
+
+        const observador = C.Cartesian3.fromDegrees(obs.longitude, obs.latitude, piso);
+        const enu = C.Transforms.eastNorthUpToFixedFrame(observador);
+        const radianos = (C.Math.toRadians(rumo));
+        const alvoCartesiano = C.Matrix4.multiplyByPoint(
+            enu,
+            new C.Cartesian3(dist * Math.sin(radianos), dist * Math.cos(radianos), 0),
+            new C.Cartesian3(),
+        );
+        const carto = C.Cartographic.fromCartesian(alvoCartesiano);
+
+        const viewshed = await loja.addViewshed(tilesetId, {
+            position: { longitude: obs.longitude, latitude: obs.latitude, height: piso },
+            targetPosition: {
+                longitude: C.Math.toDegrees(carto.longitude),
+                latitude: C.Math.toDegrees(carto.latitude),
+                height: piso,
+            },
+            terrainBaseHeight: piso,
+            direction: { heading: rumo, pitch: 0 },
+            parameters: { horizontalAngle: ang, verticalAngle: 120, distance: dist },
+            observerHeight: 1.5,
+        });
+
+        await ferramenta.renderViewshedsForTileset(window.map, tilesetId);
+        await new Promise((resolve) => {
+            let n = 30;
+            const passa = () => (n-- <= 0 ? resolve() : requestAnimationFrame(passa));
+            passa();
+        });
+
+        return {
+            id: viewshed.id,
+            pedacos: layout.count,
+            subAngle: layout.subAngle,
+            renderAngle: layout.renderAngle,
+            rumo,
+            estagios: window.map.scene.postProcessStages.length,
+        };
+    }, { id: TILESET_ID, ang: angulo, obs: OBSERVADOR, piso: PISO, dist: PARAMS.distance });
+}
+
+/**
+ * As quatro réguas da costura, lidas do canvas numa passada só.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<object>} As contagens; ver o cabeçalho do arquivo para o que cada uma significa.
+ */
+async function medirCostura(page) {
+    return page.evaluate(({ chao, sombra, meia, ref }) => {
+        const canvas = window.map.scene.canvas;
+        const w = canvas.width;
+        const h = canvas.height;
+        const espelho = document.createElement('canvas');
+        espelho.width = w;
+        espelho.height = h;
+        const ctx = espelho.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(canvas, 0, 0);
+        const d = ctx.getImageData(0, 0, w, h).data;
+
+        const em = (x, y) => {
+            const i = (y * w + x) * 4;
+            return { r: d[i], g: d[i + 1], b: d[i + 2] };
+        };
+        /**
+         * 'V' visível, 'X' oculto, 'A' fio de arame, '.' cru (nenhuma passada tingiu).
+         * @param {{r: number, g: number, b: number}} p
+         * @returns {string}
+         */
+        const classe = (p) => {
+            if (p.g > 40 && p.g > p.r + 25 && p.g > p.b + 25) return 'V';
+            if (p.r > 40 && p.r > p.g + 25 && p.r > p.b + 25) return 'X';
+            if (p.r > 190 && p.g > 190 && p.b > 190) return 'A';
+            return '.';
+        };
+
+        let verde = 0;
+        let vermelho = 0;
+        let arame = 0;
+        for (let i = 0; i < d.length; i += 4) {
+            const c = classe({ r: d[i], g: d[i + 1], b: d[i + 2] });
+            if (c === 'V') verde++;
+            else if (c === 'X') vermelho++;
+            else if (c === 'A') arame++;
+        }
+
+        const centro = Math.round(w / 2);
+
+        /**
+         * A maior corrida de pixels CRUS entre dois TINGIDOS, varrendo cada linha da faixa em torno
+         * da emenda. O fio de arame zera a corrida em vez de contar como fresta: ele é anotação
+         * desenhada por cima, e as duas bordas do corte são desenhadas justamente ali.
+         * @param {{y0: number, y1: number}} faixa
+         * @returns {number}
+         */
+        const maiorFresta = (faixa) => {
+            let maior = 0;
+            for (let y = faixa.y0; y <= faixa.y1; y++) {
+                let corrida = 0;
+                let vistoTingido = false;
+                for (let x = centro - 40; x <= centro + 40; x++) {
+                    const c = classe(em(x, y));
+                    if (c === 'V' || c === 'X') {
+                        if (vistoTingido && corrida > maior) maior = corrida;
+                        vistoTingido = true;
+                        corrida = 0;
+                    } else if (c === '.') {
+                        corrida++;
+                    } else {
+                        corrida = 0;
+                    }
+                }
+            }
+            return maior;
+        };
+
+        /**
+         * A mediana do canal VERMELHO entre os pixels verdes de uma coluna, nas linhas de chão.
+         * É o canal OPOSTO à tinta, e é ele que cai pela metade quando a mistura acontece duas
+         * vezes: sobre este chão, ~62 com uma passada e ~31 com duas.
+         * @param {number} x0
+         * @param {number} x1
+         * @returns {{mediana: number, n: number}}
+         */
+        const medianaDoOposto = (x0, x1) => {
+            const rs = [];
+            for (let y = chao.y0; y <= chao.y1; y++) {
+                for (let x = x0; x <= x1; x++) {
+                    const p = em(x, y);
+                    if (classe(p) === 'V') rs.push(p.r);
+                }
+            }
+            rs.sort((a, b) => a - b);
+            return { mediana: rs.length ? rs[Math.floor(rs.length / 2)] : -1, n: rs.length };
+        };
+
+        const emenda = medianaDoOposto(centro - meia, centro + meia);
+        const referenciaEsquerda = medianaDoOposto(centro - ref.ate, centro - ref.de);
+        const referenciaDireita = medianaDoOposto(centro + ref.de, centro + ref.ate);
+        const referencia = Math.round((referenciaEsquerda.mediana + referenciaDireita.mediana) / 2);
+
+        // COLUNAS COM POUCO VERDE FICAM DE FORA, e isso não é afrouxar a régua: uma coluna sem
+        // verde nenhum é uma coluna que a FRESTA comeu, e é a régua da fresta que responde por
+        // ela. Sem este corte, o controle negativo da fresta acusava "faixa saturada", que é o
+        // diagnóstico errado para o defeito certo.
+        const medianaPorColuna = [];
+        for (let x = centro - meia; x <= centro + meia; x++) {
+            const coluna = medianaDoOposto(x, x);
+            if (coluna.n >= 30) medianaPorColuna.push(coluna.mediana);
+        }
+
+        // AS DUAS ANCORAS DA REGUA DA FRESTA: quanto está tingido nas BORDAS da janela varrida, e
+        // não no meio dela.
+        //
+        // A régua da fresta conta chão cru ENTRE dois tingidos, então ela é vazia quando a janela
+        // inteira é crua, e é isso que esta guarda existe para pegar. Medi-la no meio da janela
+        // seria medi-la justamente onde a fresta mora: com a folga de 1,5 grau a cunha ocupa 62 dos
+        // 81 pixels varridos, a fração cai para 0,23 e a guarda passa a gritar "não há tinta" sobre
+        // uma imagem cheia de tinta. Nas bordas, ela só cai quando não há tinta em lugar nenhum.
+        const tingidosEm = (x0, x1) => {
+            let n = 0;
+            for (let y = chao.y0; y <= chao.y1; y++) {
+                for (let x = x0; x <= x1; x++) {
+                    const c = classe(em(x, y));
+                    if (c === 'V' || c === 'X') n++;
+                }
+            }
+            return n;
+        };
+        const linhasDeChao = chao.y1 - chao.y0 + 1;
+        const ancoraEsquerda = tingidosEm(centro - 40, centro - 35);
+        const ancoraDireita = tingidosEm(centro + 35, centro + 40);
+
+        // A sombra do muro, descendo as colunas da emenda: o maior buraco (pixels não vermelhos)
+        // entre dois vermelhos.
+        //
+        // A CONTAGEM POR COLUNA ANDA JUNTO, e sem ela esta régua é VAZIA no caso que mais importa.
+        // Uma coluna inteiramente crua (a fresta comeu a sombra toda) nunca vê um vermelho, então
+        // nunca abre uma corrida, então reporta buraco ZERO: o defeito mais grave sairia verde.
+        // Medido em 2026-09-16, com a folga de 0,1 grau: buraco 0 e coluna central com 0 vermelhos.
+        let buracoNaSombra = 0;
+        const vermelhosPorColunaNaSombra = [];
+        for (const x of [centro - 2, centro, centro + 2]) {
+            let corrida = 0;
+            let visto = false;
+            let vermelhos = 0;
+            for (let y = sombra.y0; y <= sombra.y1; y++) {
+                if (classe(em(x, y)) === 'X') {
+                    vermelhos++;
+                    if (visto && corrida > buracoNaSombra) buracoNaSombra = corrida;
+                    visto = true;
+                    corrida = 0;
+                } else {
+                    corrida++;
+                }
+            }
+            vermelhosPorColunaNaSombra.push(vermelhos);
+        }
+
+        return {
+            png: espelho.toDataURL('image/png'),
+            largura: w,
+            altura: h,
+            verde,
+            vermelho,
+            arame,
+            frestaChao: maiorFresta(chao),
+            frestaSombra: maiorFresta(sombra),
+            medianaEmenda: emenda.mediana,
+            verdesNaEmenda: emenda.n,
+            medianaReferencia: referencia,
+            medianaPorColuna,
+            ancoraEsquerda,
+            ancoraDireita,
+            totalDaAncora: linhasDeChao * 6,
+            buracoNaSombra,
+            vermelhosPorColunaNaSombra,
+            linhasDaSombra: sombra.y1 - sombra.y0 + 1,
+        };
+    }, {
+        chao: FAIXA_DE_CHAO,
+        sombra: FAIXA_DE_SOMBRA,
+        meia: MEIA_FAIXA_DA_EMENDA,
+        ref: COLUNAS_DE_REFERENCIA,
+    });
 }
 
 describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
@@ -866,11 +1214,13 @@ describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
         // dali NENHUM viewshed daquela sessao voltava a desenhar. O controle negativo e direto:
         // voltar o nome a uma constante reprova a contagem de estagios abaixo.
         //
-        // A SEGUNDA ASSERCAO E A EMENDA. A folga entre os dois pedacos (`SEAM_NARROWING_DEGREES`)
-        // existe porque o shader compara com `>` estrito, mas ela e chao que NENHUM pedaco analisa:
-        // com os 1,5 grau que vigoraram ate esta revisao, a cunha cega caia exatamente sobre a
-        // direcao de visada e media 5429 pixels nesta cena (13,1 m a 500 m, que e o alcance padrao
-        // do produto). Com 0,1 grau ela some da imagem, e nenhuma faixa saturada aparece no lugar.
+        // A SEGUNDA ASSERCAO E A EMENDA, E ELA E FRACA DE PROPOSITO: este enquadramento vale cerca
+        // de 0,42 m por pixel, entao ele so enxerga cunha cega a partir de uns 0,3 grau. Foi com
+        // ele que a revisao de 2026-09-15 mediu "0 px" sobre a folga de 0,1 grau que entao vigorava
+        // e concluiu que a emenda estava fechada; ela estava SUB-PIXEL, o que e outra coisa. Quem
+        // mede a emenda de verdade sao os dois ultimos casos deste arquivo, que aproximam a camera
+        // ate 0,046 m por pixel. Esta assercao fica porque ela pega a cunha GRANDE (a de 1,5 grau
+        // do motor substituido media 9 px aqui) sem custar um caso proprio.
         await registrarTileset(page);
         await servirTileset(page);
         await bootar(page);
@@ -917,8 +1267,9 @@ describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
             `[viewshed-pixel] 180 graus: verde=${atual.verde} (${(proporcaoVerde * 100).toFixed(3)}%) ` +
                 `vermelho=${atual.vermelho} arame=${atual.arame}`,
         );
-        // Medido em 2026-09-15: 298451 verdes (33,865%). O piso e baixo de proposito, porque o que
-        // se cobra aqui e que os DOIS pedacos tenham desenhado; a forma exata e assunto do primeiro
+        // Medido em 2026-09-16, com a folga da emenda em zero: 299559 verdes (33,991%); eram
+        // 298451 (33,865%) com a folga de 0,1 grau. O piso e baixo de proposito, porque o que se
+        // cobra aqui e que os DOIS pedacos tenham desenhado; a forma exata e assunto do primeiro
         // caso, que trabalha com referencia de pixel.
         expect(proporcaoVerde, 'area visivel com o setor partido em dois').toBeGreaterThan(0.25);
 
@@ -949,9 +1300,10 @@ describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
         }, { linhas: [260, 300, 360, 420], x0: 570, x1: 655 });
 
         console.info(`[viewshed-pixel] 180 graus: maior corrida de chao cru na emenda = ${emenda.maiorCorrida} px`);
-        // Com a folga de 1,5 grau a corrida media 6 a 8 pixels nestas linhas; com 0,1 grau ela e
-        // zero. O teto de 2 deixa passar um pixel de rasterizacao do proprio fio de arame sem
-        // deixar passar a cunha.
+        // Com a folga de 1,5 grau a corrida media 6 a 9 pixels nestas linhas; com 0,1 grau e com a
+        // folga de hoje (zero) ela e zero, e as duas nao se distinguem AQUI: e por isso que a
+        // emenda ganhou os dois casos aproximados no fim deste arquivo. O teto de 2 deixa passar um
+        // pixel de rasterizacao do proprio fio de arame sem deixar passar a cunha grande.
         expect(
             emenda.maiorCorrida,
             'fresta na emenda: chao dentro do setor que nenhum sub-viewshed analisou',
@@ -1023,4 +1375,131 @@ describeOrSkip('viewshed 3D: o desenho congelado em pixel', () => {
         expect(medido.fovVertical, 'abertura vertical efetiva do tronco do observador')
             .toBeCloseTo(120, 1);
     });
+
+    // ==================== A COSTURA, DE PERTO ====================
+    // O cabeçalho deste arquivo carrega o porquê das quatro réguas e o que cada uma veria se a
+    // costura estivesse errada. Aqui ficam só os números.
+
+    for (const caso of CASOS_DE_COSTURA) {
+        test(`a emenda de um setor de ${caso.angulo} graus (${caso.pedacos} pedacos) nao abre fresta, nao satura e nao corta a sombra`, async ({ page }) => {
+            const errosDaPagina = [];
+            page.on('pageerror', (erro) => errosDaPagina.push(`pageerror: ${erro.message}`));
+
+            await registrarTileset(page);
+            await servirTileset(page);
+            await bootar(page);
+
+            const abriu = await abrirVisualizador3d(page);
+            if (!abriu) {
+                test.skip(true, 'o visualizador Cesium nao inicializou sem cabeca; limite de ambiente');
+                return;
+            }
+
+            await montarCena(page, OBSERVADOR, { muroNaEmenda: true });
+            const criado = await criarViewshedDeCostura(page, caso.angulo);
+            await fixarCamera(page, OBSERVADOR, ENQUADRAMENTO_COSTURA);
+
+            expect(
+                criado.pedacos,
+                `${caso.angulo} graus tem de virar ${caso.pedacos} sub-viewsheds; outro numero ` +
+                    'significa que `subViewshedLayout` mudou de fronteira e este caso passou a ' +
+                    'medir outro corte',
+            ).toBe(caso.pedacos);
+            expect(
+                criado.estagios,
+                'cada pedaco registra um estagio de pos-processamento: um estagio a menos ' +
+                    'significa que um pedaco foi recusado em silencio (nome de estagio repetido)',
+            ).toBe(caso.pedacos);
+            expect(errosDaPagina, 'a pagina reportou erro antes da leitura de pixel').toEqual([]);
+
+            const m = await medirCostura(page);
+            gravarPng(path.join(DIR_SAIDA, `viewshed-3d-costura-${caso.angulo}-atual.png`), m.png);
+            console.info(
+                `[viewshed-costura] ${caso.angulo} graus: verde=${m.verde} vermelho=${m.vermelho} ` +
+                    `arame=${m.arame} ancoras=${m.ancoraEsquerda}/${m.ancoraDireita} de ${m.totalDaAncora} fresta(chao)=${m.frestaChao} fresta(sombra)=${m.frestaSombra} ` +
+                    `buracoNaSombra=${m.buracoNaSombra} ` +
+                    `vermelhosPorColuna=[${m.vermelhosPorColunaNaSombra.join(',')}]/${m.linhasDaSombra} ` +
+                    `medianaEmenda=${m.medianaEmenda} medianaReferencia=${m.medianaReferencia} ` +
+                    `medianaPorColuna=[${m.medianaPorColuna.join(',')}]`,
+            );
+
+            // CADA REGUA VEM PRECEDIDA DA GUARDA QUE A IMPEDE DE SER VAZIA, e a ordem entre as
+            // tres e escolhida: a fresta primeiro, porque e o defeito que as outras duas guardas
+            // tambem detectam de lado, e ler "a sombra falta na coluna" quando a causa e a cunha
+            // cega manda consertar a coisa errada. Uma regua que procura fresta numa janela sem
+            // tinta nenhuma passa verde sem verificar nada, e foi assim que a medicao de
+            // 2026-09-15 concluiu "0 px" sobre uma fresta que existia.
+            expect(
+                Math.min(m.ancoraEsquerda, m.ancoraDireita) / m.totalDaAncora,
+                'as duas BORDAS da janela varrida tem de estar tingidas, senao a regua da fresta ' +
+                    'procura chao cru onde nao havia tinta para comecar',
+            ).toBeGreaterThan(0.8);
+
+            // REGUA 1: A FRESTA. Chao CRU (nenhuma das duas passadas o tingiu) entre dois pixels
+            // tingidos, ao longo da linha da emenda. Medido em 2026-09-16 nesta arvore, na mesma
+            // cena e no mesmo enquadramento: 0 px com a folga de hoje, 4 px com a folga de 0,1
+            // grau que vigorou ate esta data, 60 px com a de 1,5 grau do motor substituido. O teto
+            // de 1 deixa passar um pixel de rasterizacao sem deixar passar a cunha.
+            expect(
+                m.frestaChao,
+                'fresta na emenda, sobre o chao: pedaco do setor que nenhum sub-viewshed analisou',
+            ).toBeLessThanOrEqual(1);
+            expect(
+                m.frestaSombra,
+                'fresta na emenda, dentro da sombra do muro: a cunha cega atravessa o obstaculo',
+            ).toBeLessThanOrEqual(1);
+
+            // REGUA 2: A FAIXA SATURADA. Uma tinta so deixa o canal oposto em ~62 sobre este chao;
+            // duas misturas sobre o mesmo pixel deixam ~31. A comparacao e contra o MESMO chao a
+            // mais de 5 graus da emenda, e nao contra um numero absoluto, porque o valor depende da
+            // cor do chao e da forca da mistura. Medido: 62 contra 62 com a folga de hoje, 31
+            // contra 62 com os pedacos sobrepostos em 1,5 grau.
+            expect(
+                m.verdesNaEmenda,
+                'a mediana da emenda precisa de verdes para ser mediana de alguma coisa',
+            ).toBeGreaterThan(500);
+            expect(
+                Math.abs(m.medianaEmenda - m.medianaReferencia),
+                'faixa saturada: a tinta da emenda esta mais forte que a do mesmo chao a 5 graus ' +
+                    'dali, ou seja, os dois sub-viewsheds estao pintando o mesmo pixel',
+            ).toBeLessThanOrEqual(10);
+            expect(
+                Math.min(...m.medianaPorColuna),
+                'faixa saturada, coluna a coluna: nenhuma coluna da emenda pode ter tinta mais ' +
+                    'forte que a de uma passada so',
+            ).toBeGreaterThanOrEqual(m.medianaReferencia - 15);
+
+            // REGUA 3: A SOMBRA CONTINUA. Descendo as colunas da emenda dentro da faixa da sombra
+            // do muro, o vermelho nao pode se interromper. Com a folga de 0,1 grau esta faixa era
+            // CRUA de ponta a ponta na coluna central, ou seja, a analise nao respondia nada numa
+            // linha que atravessava o obstaculo e a sombra dele.
+            expect(
+                Math.min(...m.vermelhosPorColunaNaSombra),
+                'CADA coluna da emenda tem de estar quase toda vermelha dentro da faixa da sombra: ' +
+                    'uma coluna sem vermelho nenhum e a sombra do muro faltando ali por inteiro, e ' +
+                    'e o caso em que a regua do buraco, abaixo, nao teria o que medir',
+            ).toBeGreaterThan(100);
+            expect(
+                m.buracoNaSombra,
+                'a sombra do muro se interrompe na costura: a coluna de vermelho tem um buraco',
+            ).toBeLessThanOrEqual(1);
+
+            // REGUA 4: pixel e classe contra a referencia versionada, a mesma dos primeiros casos.
+            const arquivo = REFERENCIA_COSTURA[caso.angulo];
+            if (REGERAR || !fs.existsSync(arquivo)) {
+                gravarPng(arquivo, m.png);
+                console.info(`[viewshed-costura] referencia (re)gerada em ${arquivo}`);
+            }
+            const referencia = 'data:image/png;base64,' + fs.readFileSync(arquivo).toString('base64');
+            const diff = await compararImagens(page, m.png, referencia);
+            expect(diff.mesmoTamanho, 'a referencia tem outro tamanho que o canvas desta rodada').toBe(true);
+            console.info(
+                `[viewshed-costura] ${caso.angulo} graus: diferentes=${diff.diferentes}/${diff.total} ` +
+                    `(${(diff.razao * 100).toFixed(3)}%) classe=${(diff.razaoClasse * 100).toFixed(3)}%`,
+            );
+            expect(diff.razao, 'pixels diferentes da referencia da costura').toBeLessThanOrEqual(0.01);
+            expect(diff.razaoClasse, 'classificacao diferente da referencia da costura')
+                .toBeLessThanOrEqual(0.01);
+        });
+    }
 });

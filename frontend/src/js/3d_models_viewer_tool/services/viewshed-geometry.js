@@ -12,11 +12,13 @@
  * unmeasurable except through a browser and a screenshot. Here they are functions over numbers.
  *
  * THE ONE THING THAT IS NOT OBVIOUS FROM THE CODE: the seam narrowing and the shader's comparison
- * operator are a PAIR. The fragment shader refuses a pixel whose angle is STRICTLY greater than
- * half the opening, so a pixel exactly on the boundary between two neighbouring sub-viewsheds
- * passes both and gets mixed twice, which reads as a saturated band. `subViewshedLayout` narrows
- * each piece so the band becomes an imperceptible gap instead. Whoever changes the shader to `>=`
- * has to change `SEAM_NARROWING_DEGREES` to zero in the same commit, or the gap becomes visible.
+ * operator are a PAIR, and the pair only helps in ONE direction. The fragment shader refuses a
+ * pixel whose angle is STRICTLY greater than half the opening, so two pieces that abut exactly
+ * SHARE their boundary: the degenerate set is painted TWICE (a tint that reads slightly darker)
+ * rather than not at all (raw, untinted ground). Since 2026-09-16 the narrowing is ZERO, and that
+ * is deliberate, measured, and argued on `SEAM_NARROWING_DEGREES` below. Whoever switches the
+ * shader to `>=` inverts the degenerate case into a hairline of raw ground, and has to say so in
+ * the same commit.
  */
 
 /** Widest horizontal opening a single viewshed instance renders acceptably, in degrees. */
@@ -28,26 +30,57 @@ export const MAX_SINGLE_VIEWSHED_ANGLE = 150;
  * It is a TOTAL, not a half: the piece renders this much less than its share of the sector, so the
  * gap at each seam is this wide. Read the module header for why it exists at all.
  *
- * ELE ERA 1,5 ATE 2026-09-15, E ISSO ABRIA UMA CUNHA CEGA NA DIRECAO DE VISADA. A folga da emenda
- * nao e cosmetica: ela e um pedaco do setor que NENHUM sub-viewshed analisa, e num setor partido
- * ela cai exatamente sobre a direcao para onde o observador esta apontado. A 500 m, que e a
- * distancia padrao do produto (`DEFAULT_VIEWSHED_PARAMS.distance`), 1,5 grau sao 13,1 m de chao
- * sem resposta; 0,1 grau sao 0,87 m.
+ * ELE E ZERO DESDE 2026-09-16, E QUALQUER VALOR POSITIVO E UMA CUNHA CEGA NA DIRECAO DE VISADA.
+ * A folga da emenda nao e cosmetica: ela e um pedaco do setor que NENHUM sub-viewshed analisa, e
+ * num setor partido em dois ela cai exatamente sobre a direcao para onde o observador aponta. Foi
+ * 1,5 ate 2026-09-15 e 0,1 de la ate aqui.
  *
- * O numero 0,1 nao e chute: e o que o comentario do codigo anterior a reescrita ja prescrevia
- * ("a 0.1 degree reduction per sub-viewshed creates imperceptible gaps"), enquanto a constante ao
- * lado dele dizia 1.5. Medido nesta arvore em 2026-09-15, contando na imagem os pixels de chao CRU
- * (nao tingido) e os de mistura DUPLA (a faixa saturada que a folga existe para evitar):
+ * A REVISAO DE 2026-09-15 MEDIU A EMENDA NUM ENQUADRAMENTO LARGO E CONCLUIU "0 px de chao cru".
+ * O numero estava certo e a conclusao nao: 0,1 grau a 186 m sao 0,32 m, que naquele enquadramento
+ * (cerca de 0,42 m por pixel) cabem dentro de um pixel. Aproximada a camera ate o chao ficar com
+ * cerca de 0,046 m por pixel, a mesma cena mostra a cunha como uma FRESTA CONTINUA de 3 a 4 px que
+ * sobe do observador ate o corte de distancia, atravessa a face de um obstaculo posto sobre a
+ * emenda e CORTA A SOMBRA DELE em duas. Medido nesta arvore em 2026-09-16, em oito aberturas (151,
+ * 155, 180, 240, 300, 301, 320 e 360), sempre 4 px na vista aproximada e 0 ou 1 px na vista larga:
+ * a fresta nao dependia da abertura, dependia de quao perto se olhava.
  *
- *     folga    chao cru a mais (320 graus)   pixels de mistura dupla
- *     0                    -                          41
- *     0,1                +146                          0
- *     1,5               +5429                          0
+ *     folga    fresta (vista larga)   fresta (vista aproximada)   mediana do canal oposto na emenda
+ *     1,5              9 px                    60 px              (a emenda nao tem tinta nenhuma)
+ *     0,1            0 a 1 px                   4 px                    62, igual ao chao vizinho
+ *     0                0 px                     0 px                    62, igual ao chao vizinho
+ *    -1,5               0 px                    0 px               31, METADE do chao vizinho
  *
- * Ou seja, a faixa saturada existe mesmo, mas some com 0,1; de 0,1 para 1,5 nao se ganha nada e se
- * paga uma fresta de milhares de pixels. O controle negativo esta nas duas pontas da tabela.
+ * O CONTROLE NEGATIVO ESTA NAS DUAS PONTAS: acima, a fresta; abaixo, a faixa saturada, que e o
+ * defeito que a folga existia para evitar e que so aparece com SOBREPOSICAO de verdade. Em cima da
+ * linha do zero nao ha faixa: com o `>` estrito do shader, o conjunto degenerado (o pixel cujo
+ * angulo calculado cai exatamente na fronteira) e pintado duas vezes, e ele tem medida zero.
+ * Medido: no setor de 320 graus sobram 170 pixels de mistura dupla espalhados por tres colunas de
+ * 720 linhas, e no de 180 graus, nenhum; a mediana do canal oposto na faixa da emenda continua a do
+ * chao vizinho, que e a regua que acusa a faixa saturada.
+ *
+ * E HA UMA RAZAO PARA O ZERO SER SEGURO, E ELA E O SINAL DO ERRO RESIDUAL. Os dois pedacos nao
+ * concordam sobre onde exatamente esta a fronteira: o angulo que o shader mede e em torno do eixo
+ * "para cima" de CADA pedaco, e o Cesium ortogonaliza esse eixo contra a direcao de cada um, entao
+ * as duas contas divergem um pouco para um fragmento fora do plano horizontal do observador. A
+ * divergencia foi medida por bisseccao, em graus de azimute, e o sinal dela e SOBREPOSICAO para
+ * todo fragmento ABAIXO do horizonte, que e onde o chao esta:
+ *
+ *     distancia do observador    180 graus     320 graus
+ *              20 m               -0,038        -0,044
+ *              50 m               -0,014        -0,017
+ *             100 m               -0,007        -0,008
+ *             180 m               -0,003        -0,004
+ *
+ * (negativo = os pedacos se sobrepoem). Ou seja, com folga zero a emenda fecha com uma sobra de
+ * centesimos de grau, que a 100 m e menos de um centimetro de chao, e nunca abre. Uma folga
+ * positiva SOMA a esse numero e vira fresta; e por isso que a resposta certa aqui e zero e nao um
+ * numero pequeno. Acima do horizonte o sinal inverte, entao o topo de um obstaculo muito proximo
+ * pode mostrar a mesma ordem de grandeza como fresta: centesimos de grau, sub-pixel em toda
+ * medicao feita ate aqui, e declarado em vez de escondido.
+ *
+ * Guarda: `frontend/tests/e2e-ui/viewshed-3d-pixel.spec.js`, nos dois casos de costura.
  */
-export const SEAM_NARROWING_DEGREES = 0.1;
+export const SEAM_NARROWING_DEGREES = 0;
 
 /** Widest field of view a perspective frustum takes before it degenerates, in degrees. */
 export const MAX_FRUSTUM_FOV_DEGREES = 170;
@@ -84,7 +117,9 @@ export function subViewshedLayout(horizontalAngle) {
     const subAngle = total / count;
 
     // ONE PIECE IS NEVER NARROWED, and that is the whole asymmetry: with no neighbour there is no
-    // seam, so narrowing it would just shrink the answer the person asked for.
+    // seam, so narrowing it would just shrink the answer the person asked for. With the narrowing
+    // at zero the two branches coincide today; the shape stays because it is the knob the measured
+    // table on the constant argues about, and collapsing it would hide the decision.
     const renderAngle = count > 1 ? subAngle - SEAM_NARROWING_DEGREES : subAngle;
 
     // Symmetric tiling around the centre direction. Note that the three-piece case uses the FULL

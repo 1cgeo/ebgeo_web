@@ -12,7 +12,9 @@
  * misspelled `calback` option, the fields read back after the interactive gesture, and the
  * narrowing per sub-viewshed (`renderAngle` below, `SEAM_NARROWING_DEGREES` in
  * `services/viewshed-geometry.js`), which only works because the shader still compares with
- * strict `>`.
+ * strict `>`. That narrowing went to ZERO on 2026-09-16, after the seam was photographed close
+ * up: any positive value is a blind wedge pointing exactly where the observer is aimed. The
+ * measured table lives on the constant.
  */
 
 import {

@@ -48,7 +48,7 @@ describe('subViewshedLayout: o corte do setor e o estreitamento da costura', () 
         expect(subViewshedLayout(300.0001).count).toBe(3);
     });
 
-    it('acima de 150 graus vira dois pedacos, cada um estreitado pela folga da costura', () => {
+    it('acima de 150 graus vira dois pedacos, cada um com a folga da costura descontada', () => {
         const l = subViewshedLayout(240);
         expect(l.count).toBe(2);
         expect(l.subAngle).toBe(120);
@@ -68,19 +68,19 @@ describe('subViewshedLayout: o corte do setor e o estreitamento da costura', () 
         expect(l.offsets).toEqual([-120, 0, 120]);
     });
 
-    it('a soma dos pedacos RENDERIZADOS perde 1,5 grau POR PEDACO, e nao por emenda', () => {
+    it('a folga, quando existe, sai POR PEDACO e nao por emenda', () => {
         // ESTA PROPRIEDADE NASCEU ERRADA E O TESTE A CORRIGIU, que e o unico jeito honesto de
         // escrever a linha abaixo. A intuicao (e a primeira versao deste caso) diz "uma folga por
         // COSTURA", ou seja, N-1 vezes; o contra-exemplo que o fast-check encolheu ate
         // 150.00000000000003 mostra que sao N vezes. O motivo e que cada pedaco e estreitado
         // INTEIRO e renderizado centrado no seu deslocamento, entao ele encolhe meia folga de cada
-        // lado: nas emendas as duas metades somam a folga que o `>` estrito exige, mas nas duas
-        // bordas EXTERNAS do setor sobra um recuo de meia folga que ninguem pediu.
+        // lado: nas emendas as duas metades somam a folga, mas nas duas bordas EXTERNAS do setor
+        // sobra um recuo de meia folga que ninguem pediu.
         //
-        // O desvio e imperceptivel e nao e defeito novo (o plugin substituido tinha o mesmo), mas
-        // ele existe, e agora esta medido em vez de suposto. Quem um dia quiser o setor exato
-        // estreita so as bordas internas. Com a folga de 2026-09-15 (0,1 grau) um setor de 240
-        // graus desenha 239,8; com a anterior (1,5) ele desenhava 237.
+        // COM A FOLGA EM ZERO, DESDE 2026-09-16, ESSE RECUO NAO EXISTE MAIS: um setor de 240 graus
+        // desenha 240. Ele desenhava 239,8 com a folga de 0,1 e 237 com a de 1,5. O caso continua
+        // aqui porque a propriedade e sobre a FORMA da conta, e e ela que reprova quem repuser uma
+        // folga achando que a paga so uma vez.
         fc.assert(
             fc.property(fc.double({ min: 1, max: 360, noNaN: true }), (total) => {
                 const l = subViewshedLayout(total);
@@ -91,17 +91,23 @@ describe('subViewshedLayout: o corte do setor e o estreitamento da costura', () 
         );
     });
 
-    it('a folga na EMENDA e exatamente a que o `>` estrito do shader precisa', () => {
+    it('os pedacos vizinhos ENCOSTAM, e a folga da emenda e ZERO por decisao medida', () => {
         // A conta que importa para o desenho: a borda direita do pedaco da esquerda e a borda
         // esquerda do pedaco da direita, com o estreitamento aplicado, distam SEAM_NARROWING_DEGREES.
-        // E dessa folga que sai a ausencia da faixa saturada, e ela foi MEDIDA em 2026-09-15:
-        // zera-la traz de volta 41 pixels de mistura dupla no setor de 320 graus, e a folga de 1,5
-        // grau que vigorou ate entao nao apagava nada a mais que 0,1 e custava 5429 pixels de chao
-        // sem analise, numa cunha cega bem na direcao de visada. Ver o cabecalho da constante.
         const l = subViewshedLayout(240);
         const bordaDireitaDoPrimeiro = l.offsets[0] + l.renderAngle / 2;
         const bordaEsquerdaDoSegundo = l.offsets[1] - l.renderAngle / 2;
         expect(bordaEsquerdaDoSegundo - bordaDireitaDoPrimeiro).toBeCloseTo(SEAM_NARROWING_DEGREES, 10);
+
+        // E A CONSTANTE E ZERO, ASSERIDO AQUI EM ABSOLUTO. A linha acima sozinha passa com
+        // QUALQUER folga (ela compara a conta consigo mesma), e foi por isso que este arquivo
+        // seguiu verde enquanto a emenda abria uma cunha cega de 0,1 grau na direcao de visada:
+        // uma fresta continua de 3 a 4 px que cortava ate a sombra de um obstaculo posto em cima
+        // dela (medido em 2026-09-16, em oito aberturas). Qualquer valor positivo aqui e chao que
+        // NENHUM sub-viewshed analisa; o valor seguro e zero, porque o erro residual entre os dois
+        // pedacos ja tem o sinal da SOBREPOSICAO. A tabela medida esta no cabecalho da constante e
+        // a prova em pixel em `frontend/tests/e2e-ui/viewshed-3d-pixel.spec.js`.
+        expect(SEAM_NARROWING_DEGREES).toBe(0);
     });
 
     it('os deslocamentos sao simetricos e cobrem o setor pedido', () => {

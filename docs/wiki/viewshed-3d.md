@@ -47,13 +47,13 @@ A ordem das recusas é a especificação, e cada uma delas é uma saída antecip
 
 Sobrevivendo às cinco, o pixel é comparado com o mapa de sombras por um filtro 3x3, e a regra é **tudo ou nada**: visibilidade 1,0 (as nove amostras concordam que o pixel está visível) pinta de verde; qualquer outra coisa pinta de vermelho. Não há meio-tom, e é por isso que a borda das sombras é dura.
 
-### A comparação é ESTRITA, e a compensação de 1,5 grau depende disso
+### A comparação é ESTRITA, e desde 2026-09-16 ela é a política inteira da costura
 
-Os testes de abertura (4 e 5) usam `>` e não `>=`, então **o pixel exatamente na costura passa nos dois sub-viewsheds vizinhos e recebe a mistura duas vezes**, o que aparece como uma faixa saturada. Um setor acima de 150 graus é dividido em dois ou três (`subViewshedLayout`), e é o mesmo cálculo que compensa, reduzindo a abertura de render de cada pedaço em `SEAM_NARROWING_DEGREES`. A folga foi **0,1 grau desde a revisão de 2026-09-15** e era 1,5 antes dela; a medição que trocou o número está na seção de revisão, no fim desta página.
+Os testes de abertura (4 e 5) usam `>` e não `>=`, então **o pixel exatamente na costura passa nos dois sub-viewsheds vizinhos e recebe a mistura duas vezes**. Um setor acima de 150 graus é dividido em dois ou três (`subViewshedLayout`), e era o mesmo cálculo que compensava isso, reduzindo a abertura de render de cada pedaço em `SEAM_NARROWING_DEGREES`. **A folga é ZERO desde 2026-09-16**: foi 1,5 grau até 2026-09-15 e 0,1 entre as duas datas. A medição que a zerou está na seção de revisão de 2026-09-16, no fim desta página.
 
-Quem reescrever o shader com `>=` transforma essa compensação em uma FRESTA visível. Qualquer das duas escolhas serve, desde que o valor de `renderAngle` mude no mesmo commit e a escolha fique escrita. Desde 2026-09-15 as duas moram uma ao lado da outra: a aritmética saiu para [`../../frontend/src/js/3d_models_viewer_tool/services/viewshed-geometry.js`](../../frontend/src/js/3d_models_viewer_tool/services/viewshed-geometry.js), um folha de zero imports, e o cabeçalho dele diz que `SEAM_NARROWING_DEGREES` e o operador do shader são um par.
+O par continua sendo um par, e o que ele decide é qual dos dois defeitos você prefere no conjunto degenerado (o pixel cujo ângulo calculado cai exatamente na fronteira): com `>` ele é pintado DUAS vezes, com `>=` não é pintado NENHUMA. Os dois são conjuntos de medida zero, mas não se leem igual: uma tinta um pouco mais escura desaparece na imagem, um pixel de chão cru no meio do verde não. É por isso que a escolha é `>` com folga zero, e não `>=` com folga zero. Quem trocar o operador troca o defeito residual de lado e tem de dizer isso no mesmo commit. As duas moram uma ao lado da outra: a aritmética está em [`../../frontend/src/js/3d_models_viewer_tool/services/viewshed-geometry.js`](../../frontend/src/js/3d_models_viewer_tool/services/viewshed-geometry.js), um folha de zero imports, e o cabeçalho da constante carrega a tabela medida.
 
-**E há um efeito colateral que ninguém pediu, medido só quando a aritmética virou testável:** cada pedaço é estreitado INTEIRO e renderizado centrado no seu deslocamento, ou seja, encolhe meia folga de cada lado. Nas emendas as duas metades somam a folga que o `>` estrito exige, mas nas duas bordas EXTERNAS do setor sobra um recuo de meia folga. Com a folga de hoje um setor de 240 graus desenha 239,8; com a de 1,5 grau que vigorou até 2026-09-15 ele desenhava 237. O desvio é imperceptível e não é regressão (o plugin substituído tinha o mesmo), mas ele existe; quem quiser o setor exato estreita só as bordas internas.
+**E o efeito colateral que ninguém pediu morreu junto com a folga:** cada pedaço era estreitado INTEIRO e renderizado centrado no seu deslocamento, ou seja, encolhia meia folga de cada lado, e nas duas bordas EXTERNAS do setor sobrava um recuo de meia folga. Um setor de 240 graus desenhava 237 com a folga de 1,5 e 239,8 com a de 0,1; hoje ele desenha 240.
 
 ### O ramo que não escreve cor
 
@@ -82,7 +82,7 @@ A prova é visual, e ela existe desde 2026-09-15: [`../../frontend/tests/e2e-ui/
 
 **O gesto interativo também passou a ser medido no mesmo arquivo**, e ele é o caso que mais precisava: dois cliques reais no canvas, e a asserção de que o viewshed nasceu na loja com 1,5 m de altura de observador e com a distância RECALCULADA dos dois pontos. É o único teste que prova a grafia de `calback`, e o controle negativo é direto: trocar o nome da opção para a grafia correta, num lado só, reprova com a mensagem que nomeia o suspeito.
 
-**A costura entre sub-viewsheds passou a ser coberta na revisão de 2026-09-15**, e a resposta da leitura de imagem que o aceite pedia é: **fresta, não faixa saturada**. O mesmo arquivo hoje tem um caso de 180 graus que exige DOIS estágios de pós-processamento (sem eles não há corte nenhum) e procura, numa faixa de colunas em volta da emenda, a maior corrida de chão CRU, isto é, chão dentro do setor que nenhum pedaço analisou.
+**A costura entre sub-viewsheds passou a ser coberta na revisão de 2026-09-15**, e a resposta da leitura de imagem que o aceite pedia é: **fresta, não faixa saturada**. O mesmo arquivo tem um caso de 180 graus que exige DOIS estágios de pós-processamento (sem eles não há corte nenhum) e procura, numa faixa de colunas em volta da emenda, a maior corrida de chão CRU, isto é, chão dentro do setor que nenhum pedaço analisou. **Aquele caso mede num enquadramento LARGO, e por isso ele respondeu "0 px" sobre uma fresta que existia**; desde 2026-09-16 há mais dois casos, com a câmera aproximada e referência própria, e é a seção seguinte que conta o que eles acharam.
 
 **E um quarto caso que não olha pixel nenhum**, porque o defeito que ele prende era invisível na imagem de referência: ele sobe o visualizador numa janela mais alta que larga e cobra as duas aberturas EFETIVAS do tronco do observador. Ver a seção seguinte.
 
@@ -117,9 +117,9 @@ Onde a medida e "verde/vermelho", sao pixels do quadro de 881280. A interface ex
 | F5 com viewshed salvo | recarregar | verde antes e depois | 152734 / 152734 | 133883 / 133883 | reconstroi da loja |
 | observador DENTRO de um bloco | 10 m num bloco de 22 | verde / oculto | 121510 / 25915 | 120885 / 26220 | ele **enxerga atraves do proprio bloco**, nos dois: a face de tras nao casta |
 | viewshed so sobre o globo | sem primitiva nenhuma | verde | 0 | 0 | o globo nunca e tingido, como esta pagina ja dizia |
-| costura entre sub-viewsheds | 155 / 180 / 240 / 320 / 360 | maior corrida de chao cru | 0 px | 6 a 8 px | ver abaixo |
+| costura entre sub-viewsheds | 155 / 180 / 240 / 320 / 360 | maior corrida de chao cru, vista LARGA | 0 px | 6 a 9 px | ver abaixo, e a secao de 2026-09-16 |
 
-**A costura, que o aceite mandava ler na imagem: e FRESTA, nao faixa saturada.** Com a folga de 1,5 grau, a emenda mostrava uma tira de chao CRU de 6 a 8 pixels nesta cena, ladeada pelos dois fios de arame, bem na direcao de visada. A folga de 0,1 grau fecha a tira sem trazer a faixa de volta, e a faixa existe mesmo: com folga ZERO aparecem 41 pixels de mistura dupla no setor de 320 graus, e nenhum com 0,1.
+**A costura, que o aceite mandava ler na imagem: e FRESTA, nao faixa saturada.** Com a folga de 1,5 grau, a emenda mostrava uma tira de chao CRU de 6 a 9 pixels nesta cena, ladeada pelos dois fios de arame, bem na direcao de visada. A folga de 0,1 grau fechava a tira NESTE ENQUADRAMENTO, e e so isso que esta linha podia dizer: a secao seguinte mostra que ela nao a fechava na tela, e explica por que um "0 px" medido a 0,42 m por pixel nao responde por uma cunha de 0,32 m.
 
 ### Desempenho
 
@@ -152,6 +152,62 @@ Ou seja, **nenhuma medida da casa e mais que 20% pior**, e o custo por viewshed 
 - **A abertura vertical acima de 170 graus nao existe**, por `MAX_FRUSTUM_FOV_DEGREES`: um tronco perspectivo degenera perto de 180. Perto do teto, a densidade de texel ja cai o bastante para a resposta piorar, que e a linha de 170 na tabela. Um setor vertical realmente grande precisaria de outra coisa que nao um unico mapa de sombras perspectivo.
 - **Um observador dentro de um obstaculo enxerga atraves dele**, porque a face de tras nao casta sombra. E consequencia do estado de render de sombra do Cesium, igual nos dois motores, e para o produto ela e mais util que o contrario: um observador colocado no telhado com deslocamento de altura acaba dentro do predio e mesmo assim responde.
 - **O tamanho do mapa de sombras e uma constante**, nao uma opcao. Aumenta-lo e o caminho obvio para a acne residual muito perto do observador, e custa memoria por viewshed vivo.
+
+## Revisao de 2026-09-16: a costura, lida de perto
+
+A revisao anterior deixou escrito que a costura acima de 150 graus **nao tinha prova visual automatizada**. Ela tem agora, e o que a prova achou contradiz a conclusao que aquela linha registrava.
+
+### O que a imagem mostrou, aproximacao por aproximacao
+
+Foram geradas duas vistas para cada uma de oito aberturas (151, 155, 180, 240, 300, 301, 320 e 360), sempre com o setor girado para que a emenda apontasse para o NORTE e a camera olhando o norte, de modo que a costura caisse na coluna central do quadro. A cena e a do spec de pixel mais um muro de 34 m por 6 m e 7 m de altura posto EM CIMA da emenda, a 115 m: sem obstaculo atravessando a costura nao se ve se a sombra atravessa junto.
+
+- **Vista LARGA** (a mesma dos primeiros casos do spec, cerca de 0,42 m por pixel): nenhuma fresta, nenhuma faixa saturada, nenhum degrau de cor. Verde e vermelho sao identicos dos dois lados da emenda, pixel a pixel (64,192,68 dos dois lados no chao, e a mesma cor a 40 px de distancia). O arco de distancia atravessa a costura sem descontinuidade. As oito aberturas deram a mesma coisa: 0 px de chao cru, e 1 px em 360 graus.
+- **Vista APROXIMADA** (camera 60 m ao norte do observador, 30 m de altura, 22 graus para baixo, cerca de 0,046 m por pixel): **uma fresta continua de 3 a 4 px em TODAS as oito aberturas.** Ela sobe do pe do observador ate o corte de distancia, atravessa a face do muro e **corta a sombra dele em duas**. Nas duas de dois pedacos a coluna central ficava com ZERO pixels vermelhos dentro da faixa da sombra, enquanto as colunas a 2 px de distancia tinham 131 de 141.
+
+Ou seja: a cunha cega de 0,1 grau nao tinha sumido, tinha ficado **sub-pixel no enquadramento em que foi medida**. A 186 m ela mede 0,32 m, e o pixel daquela vista vale 0,42 m. O numero "0 px" estava certo; a conclusao que se tirou dele, nao. Esta e a forma mais cara de verificacao fantasma que este trabalho ja produziu, porque ela nao era um teste que nao rodava: era um teste que rodava, media a coisa certa e respondia sobre uma escala em que o defeito nao cabia.
+
+### A comparacao com o motor substituido, nas mesmas cenas
+
+Worktree descartavel em `d53a0d27~1`, dirigido pelo mesmo spec, mesma cena, mesmos enquadramentos:
+
+| medida | casa (folga 0,1) | vendor (folga 1,5) |
+|---|---|---|
+| fresta, vista larga, 180 graus | 0 px | 9 px |
+| fresta, vista larga, 240 graus | 0 px | 1 px, e o motivo esta abaixo |
+| fresta, vista aproximada, 180 e 240 graus | 4 px | **60 px** |
+| verdes na faixa da emenda (vista aproximada) | 45 de 65 | **ZERO** |
+
+O 1 px do vendor em 240 graus e o achado que vale guardar: naquela vista a acne de sombra dele (o vies de 2e-5 que esta arvore corrigiu em 2026-09-15) cobre o chao inteiro de listras vermelhas, e listra vermelha **interrompe a corrida de chao cru**, entao a propria regua media menos fresta onde havia mais defeito. Um defeito mascarando o outro na mesma imagem.
+
+O veredicto e o mesmo para os dois motores, com quinze vezes de diferenca no tamanho: **os dois abrem uma cunha cega na emenda, e a do vendor e grosseira**. Nada no desenho da casa esta errado em relacao ao que foi substituido; o que estava errado era a folga, nos dois.
+
+### O conserto: a folga e ZERO, e o sinal do erro residual e a razao
+
+`SEAM_NARROWING_DEGREES` passou a ser zero. Os pedacos vizinhos passam a ENCOSTAR, e o `>` estrito do shader pinta duas vezes o conjunto degenerado, que tem medida zero: no setor de 320 graus sobram 170 pixels de mistura dupla espalhados por tres colunas de 720 linhas, e no de 180, nenhum. A fresta vai a 0 px nas oito aberturas, na vista larga e na aproximada, e a sombra do muro volta a atravessar a costura inteira.
+
+**A pergunta que decide entre "zero" e "um numero pequeno" e o SINAL do erro residual**, e ele foi medido por bisseccao, achando o azimute em que cada pedaco passa a recusar. Os dois pedacos nao concordam exatamente sobre onde esta a fronteira, porque o angulo que o shader mede e em torno do eixo "para cima" de CADA pedaco e o Cesium ortogonaliza esse eixo contra a direcao de cada um. A divergencia, em graus de azimute:
+
+| distancia do observador | 180 graus | 320 graus |
+|---|---|---|
+| 20 m | -0,038 | -0,044 |
+| 50 m | -0,014 | -0,017 |
+| 100 m | -0,007 | -0,008 |
+| 180 m | -0,003 | -0,004 |
+
+Negativo quer dizer SOBREPOSICAO. Para todo fragmento abaixo do horizonte, que e onde o chao esta, a emenda ja fecha sozinha com centesimos de grau de sobra, e uma folga positiva SOMA a esse numero. Por isso a resposta certa e zero e nao 0,01. Acima do horizonte o sinal inverte, entao o topo de um obstaculo muito proximo pode mostrar a mesma ordem de grandeza como fresta: centesimos de grau, sub-pixel em toda medicao feita ate aqui, e declarado aqui em vez de escondido.
+
+### Como isso se mede hoje
+
+Dois casos novos em [`../../frontend/tests/e2e-ui/viewshed-3d-pixel.spec.js`](../../frontend/tests/e2e-ui/viewshed-3d-pixel.spec.js), um de dois pedacos (180 graus) e um de tres (320; **300 ainda sao dois**, porque `subViewshedLayout` corta em dois ate `MAX_SINGLE_VIEWSHED_ANGLE` vezes dois INCLUSIVE), cada um com referencia versionada propria na vista aproximada. Quatro reguas, e cada uma com o controle negativo executado:
+
+| regua | o que ela ve se a costura estiver errada | controle negativo |
+|---|---|---|
+| fresta, no chao e dentro da sombra | corrida continua de pixels sem tinta | folga 0,1 reprova com 4 px; folga 1,5 com 62 px |
+| faixa saturada (mediana do canal oposto na emenda contra o mesmo chao a mais de 5 graus) | 31 contra 62, metade | folga -1,5 reprova, mediana 31 |
+| sombra continua (vermelho descendo a coluna da emenda) | coluna sem vermelho, ou vermelho interrompido | folga 0,1 deixa a coluna central com 0 de 141 |
+| pixel e classe contra referencia | qualquer mudanca de desenho | a referencia e regerada por `EBGEO_VIEWSHED_REFERENCIA=1` |
+
+**Cada regua vem precedida da guarda que a impede de ser vazia**, e uma delas foi paga em vermelho durante esta propria revisao: a regua da sombra, escrita sem contagem por coluna, reportava buraco ZERO justamente no caso em que a fresta tinha comido a coluna inteira, porque uma coluna sem nenhum vermelho nunca abre uma corrida. A guarda tambem nao pode ser sensivel ao defeito que protege: medida no meio da janela varrida, ela caia junto com a fresta e passava a gritar "nao ha tinta" sobre uma imagem cheia de tinta. Ela mede as duas BORDAS da janela.
 
 ## Ver também
 
