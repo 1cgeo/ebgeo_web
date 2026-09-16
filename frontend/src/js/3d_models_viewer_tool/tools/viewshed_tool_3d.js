@@ -687,6 +687,11 @@ export async function updateViewshedDistance(viewshedId, newDistance) {
     destroyCesiumViewsheds(data.cesiumViewsheds);
     data.cesiumViewsheds = createCesiumViewsheds(updatedViewshed);
 
+    // Refresca a COPIA que a entidade de origem carrega em `properties.viewshedData`: o painel
+    // e reconstruido dela quando o marcador e clicado de novo, entao a copia velha fazia o
+    // valor reverter na tela mesmo com o store ja gravado.
+    updateViewshedVisuals(viewshedId, updatedViewshed);
+
     return updatedViewshed;
 }
 
@@ -711,6 +716,8 @@ export async function updateViewshedHorizontalAngle(viewshedId, newAngle) {
 
     destroyCesiumViewsheds(data.cesiumViewsheds);
     data.cesiumViewsheds = createCesiumViewsheds(updatedViewshed);
+
+    updateViewshedVisuals(viewshedId, updatedViewshed);
 
     return updatedViewshed;
 }
@@ -766,6 +773,10 @@ export async function updateViewshedObserverHeight(viewshedId, newHeight) {
         );
         data.originEntity.position = newPosition;
     }
+
+    // A copia leva o viewshed COM o terrainBaseHeight resolvido, que e o mesmo objeto que
+    // acabou de desenhar o cone: o painel reabre com o que esta na tela.
+    updateViewshedVisuals(viewshedId, viewshedForRecreation);
 
     return updatedViewshed;
 }

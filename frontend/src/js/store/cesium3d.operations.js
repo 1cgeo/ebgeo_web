@@ -1114,10 +1114,10 @@ export async function getViewshedById(viewshedId, mapName = null) {
 }
 
 /**
- * Updates a viewshed's properties or observer height.
+ * Updates a viewshed's properties, analysis parameters or observer height.
  *
  * @param {string} viewshedId - Viewshed ID
- * @param {Object} updates - { properties, observerHeight }
+ * @param {Object} updates - { properties, parameters, observerHeight }
  * @param {string|null} mapName - Map name (null = current)
  * @returns {Promise<Object|null>} Updated viewshed or null if not found
  */
@@ -1136,6 +1136,14 @@ export async function updateViewshed(viewshedId, updates, mapName = null) {
 
         if (updates.properties) {
             viewshed.properties = { ...viewshed.properties, ...updates.properties };
+        }
+        // Os parâmetros da análise (campo horizontal, campo vertical, distância) são
+        // FUNDIDOS, no mesmo padrão do updateMarker. Sem esta linha eles caíam em silêncio:
+        // o painel manda `{ parameters: {...} }`, o atualizador só conhecia `properties` e
+        // `observerHeight`, o retorno vinha com o valor velho e o cone era recriado igual.
+        // Preso por tests/store/viewshed-parametros.test.js.
+        if (updates.parameters) {
+            viewshed.parameters = { ...(viewshed.parameters || {}), ...updates.parameters };
         }
         if (updates.observerHeight !== undefined) {
             viewshed.observerHeight = updates.observerHeight;
