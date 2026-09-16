@@ -277,13 +277,13 @@ export const LIST_USER_ATLAS_MEMBERS = `
                     ORDER BY m.ord, m.nome
                   )
            FROM (
-             SELECT ow.id, ow.nome, orank.nome AS posto_graduacao,
+             SELECT ow.id, ow.nome, COALESCE(orank.nome_abrev, orank.nome) AS posto_graduacao,
                     'owner'::text AS permission, 0 AS ord
              FROM users ow
              LEFT JOIN ranks orank ON orank.id = ow.rank_id
              WHERE ow.id = a.owner_id
              UNION ALL
-             SELECT mu.id, mu.nome, mrank.nome AS posto_graduacao,
+             SELECT mu.id, mu.nome, COALESCE(mrank.nome_abrev, mrank.nome) AS posto_graduacao,
                     ef.permission, 1 AS ord
              FROM fn_atlas_member_ids(a.id) ms
              JOIN users mu ON mu.id = ms.user_id

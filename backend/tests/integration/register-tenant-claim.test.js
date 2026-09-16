@@ -64,7 +64,7 @@ describe('POST /auth/register: the organization the applicant claims for themsel
       .expect(201);
     orgB = res.body.data;
 
-    const { rows } = await db.query("SELECT id, nome FROM ranks WHERE nome ILIKE 'Coronel' LIMIT 1");
+    const { rows } = await db.query("SELECT id, nome, nome_abrev FROM ranks WHERE nome ILIKE 'Coronel' LIMIT 1");
     coronel = rows[0];
     assert.ok(coronel, 'fixture: the seed rank "Coronel" must exist');
   });
@@ -176,7 +176,10 @@ describe('POST /auth/register: the organization the applicant claims for themsel
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
 
-    assert.equal(me.body.data.posto_graduacao, coronel.nome, 'a name, not the UUID');
+    // A ABREVIATURA, e não o nome por extenso: desde 2026-09-16 as consultas projetam
+    // `COALESCE(r.nome_abrev, r.nome)`, porque é assim que o Exército escreve posto (`Cel`, e
+    // não "Coronel"). O que este caso mede continua sendo o mesmo: veio um NOME, não o UUID.
+    assert.equal(me.body.data.posto_graduacao, coronel.nome_abrev, 'a name, not the UUID');
     assert.equal(me.body.data.organizacao_militar, orgB.nome);
     assert.equal(me.body.data.rank_id, coronel.id, 'the FK travels alongside the derived name');
     assert.equal(me.body.data.organization_id, orgB.id);

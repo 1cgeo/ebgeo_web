@@ -38,18 +38,23 @@ export function orgLabel(orgId, emptyLabel = '—') {
  * `config.organizacoesMilitares`). The option VALUE is the row id (the FK); a leading "(nenhum)"
  * allows clearing it, and the current id is preserved (labelled with its derived name) even when
  * it is no longer in the active list.
+ * O RÓTULO É INJETÁVEL porque as duas listas se escrevem de formas diferentes: a OM aparece
+ * pelo nome, e o POSTO pela abreviatura (`1º Ten`, e não "Primeiro Tenente", que não é como o
+ * Exército escreve). O padrão continua sendo o nome, que é o que a OM quer.
  * @param {Array<{id: string, name: string}>|undefined} list
  * @param {string} [currentId]
  * @param {string} [currentLabel]
  * @param {string} [emptyLabel] - Label of the empty option.
+ * @param {(item: Object) => string} [rotulo] - How to write one item.
  * @returns {Array<{value: string, label: string}>}
  */
-export function buildDomainOptions(list, currentId, currentLabel, emptyLabel = '— (nenhum)') {
+export function buildDomainOptions(list, currentId, currentLabel, emptyLabel = '— (nenhum)',
+    rotulo = (item) => item.name) {
     const opts = [{ value: '', label: emptyLabel }];
     const seen = new Set();
     for (const item of (Array.isArray(list) ? list : [])) {
         if (item && item.id && !seen.has(item.id)) {
-            opts.push({ value: item.id, label: item.name });
+            opts.push({ value: item.id, label: rotulo(item) || item.name });
             seen.add(item.id);
         }
     }

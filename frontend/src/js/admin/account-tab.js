@@ -131,9 +131,11 @@ function el(tag, className = '', text = '') {
  */
 function rankOptions() {
     const list = Array.isArray(config?.postos) ? config.postos : [];
+    // O RÓTULO É A ABREVIATURA (`1º Ten`), porque é assim que o Exército escreve posto; o nome
+    // por extenso fica como queda para um posto sem abreviatura, que a coluna admite.
     return list
         .filter((item) => item && item.id && item.name)
-        .map((item) => ({ value: String(item.id), label: String(item.name) }));
+        .map((item) => ({ value: String(item.id), label: String(item.abrev || item.name) }));
 }
 
 /**

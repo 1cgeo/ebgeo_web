@@ -19,7 +19,7 @@ import { LIVE_GRANT_COUNT_BY_GRANTER } from '../resource-access/resource-access.
 // Neither is writable through this route; `updateProfileSchema` does not accept them and the
 // change goes through `PUT /users/me/email`, which re-verifies.
 export const FIND_USER_BY_ID = `
-  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+  SELECT u.id, u.username, u.nome, u.rank_id, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
          u.organization_id, o.nome AS organizacao_militar,
          u.email, u.email_verified, u.created_at, u.last_login_at
   FROM users u
@@ -55,7 +55,7 @@ export const UPDATE_USER_PROFILE = `
     WHERE id = $1
     RETURNING *
   )
-  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+  SELECT u.id, u.username, u.nome, u.rank_id, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
          u.organization_id, o.nome AS organizacao_militar,
          u.email, u.email_verified, u.created_at, u.last_login_at
   FROM upd u
@@ -89,7 +89,7 @@ export const UPDATE_USER_PASSWORD = `
  *   $1 = padrão, $2 = teto + 1
  */
 export const SEARCH_USERS = `
-  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+  SELECT u.id, u.username, u.nome, u.rank_id, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
          u.organization_id, o.nome AS organizacao_militar
   FROM users u
   LEFT JOIN ranks r ON r.id = u.rank_id
@@ -138,7 +138,7 @@ const LIVE_GRANTS_BY_GRANTER_AGG = `
 `;
 
 export const LIST_ALL_USERS = `
-  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+  SELECT u.id, u.username, u.nome, u.rank_id, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
          u.organization_id, o.nome AS organizacao_militar, u.role,
          u.producer_org_id, u.is_active,
          u.email, u.email_verified, u.created_at, u.last_login_at,
@@ -153,7 +153,7 @@ export const LIST_ALL_USERS = `
 `;
 
 export const LIST_ACTIVE_USERS = `
-  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+  SELECT u.id, u.username, u.nome, u.rank_id, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
          u.organization_id, o.nome AS organizacao_militar, u.role,
          u.producer_org_id, u.is_active,
          u.email, u.email_verified, u.created_at, u.last_login_at,
@@ -169,7 +169,7 @@ export const LIST_ACTIVE_USERS = `
 `;
 
 export const FIND_USER_BY_ID_ADMIN = `
-  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+  SELECT u.id, u.username, u.nome, u.rank_id, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
          u.organization_id, o.nome AS organizacao_militar, u.role,
          u.producer_org_id, u.is_active,
          u.email, u.email_verified, u.created_at, u.updated_at, u.last_login_at
@@ -194,7 +194,7 @@ export const INSERT_USER_ADMIN = `
     VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6, $7::uuid)
     RETURNING *
   )
-  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+  SELECT u.id, u.username, u.nome, u.rank_id, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
          u.organization_id, o.nome AS organizacao_militar, u.role,
          u.producer_org_id, u.is_active, u.created_at
   FROM new_user u
@@ -234,7 +234,7 @@ export const UPDATE_USER_ADMIN = `
     WHERE id = $1
     RETURNING *
   )
-  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+  SELECT u.id, u.username, u.nome, u.rank_id, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
          u.organization_id, o.nome AS organizacao_militar, u.role,
          u.producer_org_id, u.is_active,
          u.email, u.email_verified, u.created_at, u.updated_at, u.last_login_at
@@ -261,7 +261,7 @@ export const REACTIVATE_USER = `
   WITH upd AS (
     UPDATE users SET is_active = true, updated_at = NOW() WHERE id = $1 RETURNING *
   )
-  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+  SELECT u.id, u.username, u.nome, u.rank_id, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
          u.organization_id, o.nome AS organizacao_militar, u.role, u.is_active, u.created_at
   FROM upd u
   LEFT JOIN ranks r ON r.id = u.rank_id
@@ -471,7 +471,7 @@ export const FIND_USER_BY_API_KEY = `
       AND u.api_key_expires_at IS NOT NULL
       AND u.api_key_expires_at > NOW()
   )
-  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+  SELECT u.id, u.username, u.nome, u.rank_id, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
          u.organization_id, o.nome AS organizacao_militar, u.producer_org_id, u.role,
          c.api_key_id, c.api_key_scope
   FROM candidata c

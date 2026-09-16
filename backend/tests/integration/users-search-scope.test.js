@@ -85,7 +85,9 @@ describe('GET /users/search — os LEFT JOIN de posto/OM, shape e escopo entre o
 
     const achou = res.body.data.results.find((u) => u.id === comPosto.id);
     assert.ok(achou, `quem tem o posto ${postoNome} continua achável pelo próprio login`);
-    assert.equal(achou.posto_graduacao, postoNome, 'e a coluna Posto vem preenchida pelo LEFT JOIN');
+    // A projeção é a ABREVIATURA desde 2026-09-16; a fixture a cria com os 20 primeiros
+    // caracteres do nome. O que o caso mede continua sendo o LEFT JOIN vivo.
+    assert.equal(achou.posto_graduacao, postoNome.slice(0, 20), 'e a coluna Posto vem preenchida pelo LEFT JOIN');
   });
 
   it('LEFT JOIN de organizations: a OM vem na linha de quem é achado pelo LOGIN', async () => {

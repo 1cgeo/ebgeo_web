@@ -121,7 +121,10 @@ describe('GET /users/search — a busca não enumera o efetivo (D13)', () => {
     const doPostoPeloLogin = await buscar(soPeloPosto.username).expect(200);
     const comPosto = doPostoPeloLogin.body.data.results.find((u) => u.id === soPeloPosto.id);
     assert.ok(comPosto, 'idem para quem só compartilha o posto');
-    assert.equal(comPosto.posto_graduacao, postoNome, 'o posto vem na linha');
+    // A PROJEÇÃO É A ABREVIATURA desde 2026-09-16 (`COALESCE(r.nome_abrev, r.nome)`), porque é
+    // assim que o Exército escreve posto. O que este caso mede não mudou: o posto continua vindo
+    // na linha, e é isso que separa "saiu do casamento da busca" de "saiu do produto".
+    assert.equal(comPosto.posto_graduacao, postoNome.slice(0, 20), 'o posto vem na linha');
   });
 
   it('vinte de vinte e cinco, com `truncated`; e abaixo do teto `truncated` é falso', async () => {

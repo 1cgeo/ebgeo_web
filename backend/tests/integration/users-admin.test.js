@@ -82,7 +82,7 @@ describe('Users Admin API', () => {
     // nothing about it. They are now the real FKs, asserted on both sides of the
     // write: the derived NAMES in the response, the UUIDs in the row.
     it('admin can create a new user, with posto/OM assigned by FK and returned derived', async () => {
-      const rank = (await db.query("SELECT id, nome FROM ranks WHERE nome_abrev = '1º Ten' LIMIT 1")).rows[0];
+      const rank = (await db.query("SELECT id, nome, nome_abrev FROM ranks WHERE nome_abrev = '1º Ten' LIMIT 1")).rows[0];
       const om = (await db.query("SELECT id, nome FROM organizations WHERE sigla = 'DSG' LIMIT 1")).rows[0];
       assert.ok(rank, 'fixture: the seed rank "1º Ten" must exist');
       assert.ok(om, 'fixture: the seed organization "DSG" must exist');
@@ -103,7 +103,10 @@ describe('Users Admin API', () => {
       assert.ok(res.body.data.id);
       assert.equal(res.body.data.username, 'new_user_test');
       assert.equal(res.body.data.role, 'user');
-      assert.equal(res.body.data.posto_graduacao, rank.nome, 'the CTE re-joins to emit the name');
+        // A PROJEÇÃO É A ABREVIATURA desde 2026-09-16 (`COALESCE(r.nome_abrev, r.nome)`),
+        // porque é assim que o Exército escreve posto. O que o caso mede não mudou: o nome
+        // DERIVADO do FK, e não o UUID.
+      assert.equal(res.body.data.posto_graduacao, rank.nome_abrev, 'the CTE re-joins to emit the name');
       assert.equal(res.body.data.organizacao_militar, om.nome);
       // Password should not be returned
       assert.ok(!res.body.data.password);
@@ -240,7 +243,7 @@ describe('Users Admin API', () => {
     });
 
     it('admin can update rank_id and organization_id (derives posto/OM names)', async () => {
-      const maj = (await db.query("SELECT id, nome FROM ranks WHERE nome_abrev = 'Maj' LIMIT 1")).rows[0];
+      const maj = (await db.query("SELECT id, nome, nome_abrev FROM ranks WHERE nome_abrev = 'Maj' LIMIT 1")).rows[0];
       const om = (await db.query("SELECT id, nome FROM organizations WHERE sigla = 'DSG' LIMIT 1")).rows[0];
       const res = await supertest(app)
         .put(`/api/v1/users/${regularUser.id}`)
@@ -249,7 +252,10 @@ describe('Users Admin API', () => {
         .expect(200);
 
       assert.equal(res.body.data.rank_id, maj.id);
-      assert.equal(res.body.data.posto_graduacao, maj.nome);
+        // A PROJEÇÃO É A ABREVIATURA desde 2026-09-16 (`COALESCE(r.nome_abrev, r.nome)`),
+        // porque é assim que o Exército escreve posto. O que o caso mede não mudou: o nome
+        // DERIVADO do FK, e não o UUID.
+      assert.equal(res.body.data.posto_graduacao, maj.nome_abrev);
       assert.equal(res.body.data.organization_id, om.id);
       assert.equal(res.body.data.organizacao_militar, om.nome);
     });
@@ -448,7 +454,7 @@ describe('Users Admin API', () => {
       // updateProfileSchema does not declare. UPDATE_USER_PROFILE carries the same
       // re-joining CTE as the admin query and nobody verified it on this path.
       it('user can update their own profile, and rank_id comes back as the derived posto', async () => {
-        const rank = (await db.query("SELECT id, nome FROM ranks WHERE nome_abrev = 'Cap' LIMIT 1")).rows[0];
+        const rank = (await db.query("SELECT id, nome, nome_abrev FROM ranks WHERE nome_abrev = 'Cap' LIMIT 1")).rows[0];
         assert.ok(rank, 'fixture: the seed rank "Cap" must exist');
 
         const res = await supertest(app)
@@ -461,7 +467,10 @@ describe('Users Admin API', () => {
           .expect(200);
 
         assert.equal(res.body.data.nome, 'Self Updated Name');
-        assert.equal(res.body.data.posto_graduacao, rank.nome);
+        // A PROJEÇÃO É A ABREVIATURA desde 2026-09-16 (`COALESCE(r.nome_abrev, r.nome)`),
+        // porque é assim que o Exército escreve posto. O que o caso mede não mudou: o nome
+        // DERIVADO do FK, e não o UUID.
+        assert.equal(res.body.data.posto_graduacao, rank.nome_abrev);
         assert.equal(res.body.data.rank_id, rank.id);
         assert.equal(res.body.data.role, undefined, 'the self projection never exposes role');
       });

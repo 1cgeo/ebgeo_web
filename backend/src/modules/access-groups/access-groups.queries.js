@@ -243,7 +243,7 @@ export const SOFT_DELETE_GROUP = `
  *   $1 = group_id
  */
 export const LIST_MEMBERS = `
-  SELECT u.id, u.username, u.nome, r.nome AS posto_graduacao,
+  SELECT u.id, u.username, u.nome, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
          m.added_at, m.added_by, au.username AS added_by_username
     FROM access_group_members m
     JOIN users u ON u.id = m.user_id AND u.is_active = true

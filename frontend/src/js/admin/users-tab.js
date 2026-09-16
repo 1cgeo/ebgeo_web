@@ -389,8 +389,11 @@ class UsersTab {
             : null;
         const password = isEdit ? null
             : textField(form, 'Senha', 'admin-userform-password', '', 'password');
+        // O posto se escreve ABREVIADO, como em todo o resto da tela: o catálogo traz as duas
+        // formas (`name` e `abrev`), e a queda para o nome cobre um posto sem abreviatura.
         const posto = selectField(form, 'Posto/Graduação', 'admin-userform-posto',
-            buildDomainOptions(config.postos, user?.rank_id, user?.posto_graduacao), user?.rank_id || '');
+            buildDomainOptions(config.postos, user?.rank_id, user?.posto_graduacao,
+                undefined, (p) => p.abrev || p.name), user?.rank_id || '');
         const om = selectField(form, 'Organização Militar (lotação)', 'admin-userform-om',
             buildDomainOptions(config.organizacoesMilitares, user?.organization_id, user?.organizacao_militar), user?.organization_id || '');
         form.appendChild(hint('Lotação: rótulo institucional da pessoa, declarado por ela no '

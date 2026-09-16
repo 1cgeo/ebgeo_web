@@ -191,16 +191,19 @@ export class SignupModal extends ModalBase {
      * to <select> options, ordered by sort_order. The option VALUE is the row id
      * (FK stored in users.rank_id / organization_id); the label is the display name.
      * @private
+     * O RÓTULO É INJETÁVEL pela mesma razão de `buildDomainOptions` no painel: a OM se escreve
+     * pelo nome e o POSTO pela abreviatura (`1º Ten`, e não "Primeiro Tenente").
      * @param {Array<{ id: string, name: string, sort_order?: number }>|undefined} list
+     * @param {(item: Object) => string} [rotulo] - How to write one item.
      * @returns {Array<{ value: string, label: string }>}
      */
-    _domainOptions(list) {
+    _domainOptions(list, rotulo = (item) => item.name) {
         if (!Array.isArray(list)) return [];
         return list
             .filter((item) => item && item.id && item.name)
             .slice()
             .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-            .map((item) => ({ value: item.id, label: item.name }));
+            .map((item) => ({ value: item.id, label: rotulo(item) || item.name }));
     }
 
     /**
@@ -236,7 +239,7 @@ export class SignupModal extends ModalBase {
         // backend (/config). When present they render as required dropdowns; if the
         // backend served none (misconfig/offline), fall back to a required text input
         // so signup is never hard-blocked.
-        const postoOpts = this._domainOptions(config.postos);
+        const postoOpts = this._domainOptions(config.postos, (p) => p.abrev || p.name);
         const omOpts = this._domainOptions(config.organizacoesMilitares);
 
         this._postoInput = postoOpts.length
