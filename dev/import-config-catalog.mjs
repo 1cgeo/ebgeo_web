@@ -178,8 +178,17 @@ function mapTilesets(source) {
  */
 function buildOverrides(source) {
   const { bounds, minZoom, maxZoom, maxPitch, globe_projection, sourceTileLodParams, hillshade } = source.map2d || {};
+  // `app.tutorialUrl` NÃO viaja, e o caso é medido (2026-09-16). O legado aponta
+  // `./docs/doc.html`, um estático do `publicDir`; na decisão D16, de 2026-09-15, o tutorial
+  // virou `tutorial.html`, entrada do bundler, e o padrão passou a ser `./tutorial.html`
+  // (`config.static.js:17`). Gravar o valor legado no override FOSSILIZA o caminho morto por
+  // cima do padrão vivo, e o sintoma não é erro: o servidor de desenvolvimento devolve o
+  // `index.html` com HTTP 200 para qualquer caminho desconhecido, então o botão do tutorial
+  // abre a própria aplicação numa aba nova. Um caminho de página é decisão do FRONTEND, e o
+  // lugar dele é o padrão do backend; o administrador ainda pode sobrescrevê-lo pela tela.
+  const { tutorialUrl: _tutorialLegado, ...app } = source.app || {};
   return {
-    app: { ...(source.app || {}) },
+    app,
     features: { ...(source.features || {}) },
     map2d: {
       ...(bounds !== undefined && { bounds }),
