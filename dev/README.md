@@ -230,3 +230,95 @@ reiniciado.
 Use o PowerShell para as flags com caminho POSIX. No Git Bash, o MSYS converte
 `--assets3d-base=/api/v1/assets3d` em `C:/Program Files/Git/api/v1/assets3d` antes do node
 ver o argumento; o script detecta e aborta em vez de gravar 98 urls quebradas.
+
+### O que ele NÃO traz do `app`
+
+`app.tutorialUrl`. O legado aponta `./docs/doc.html`, estático do `publicDir`; pela decisão
+D16, de 2026-09-15, o tutorial virou `tutorial.html`, entrada do bundler, e o padrão passou a
+ser `./tutorial.html` (`config.static.js:17`). Gravar o valor legado fossiliza o caminho morto
+por cima do padrão vivo, e o sintoma não é erro: o servidor de desenvolvimento devolve
+`index.html` com HTTP 200 para qualquer caminho desconhecido, então o botão do tutorial abre a
+própria aplicação numa aba nova. Caminho de página é decisão do frontend.
+
+## `import-catalogo-3d-legado.mjs`
+
+Completa o catálogo dos modelos 3D já ADOTADOS, lendo o `index.db` do `ebgeo_3d` legado. É o
+passo entre `models3d:adotar` e a paridade com o que a produção serve.
+
+```bash
+node dev/import-catalogo-3d-legado.mjs --index-db=<caminho>/index.db
+node dev/import-catalogo-3d-legado.mjs --index-db=... --assets-dir=<caminho>/assets --apply
+```
+
+| Flag | Efeito |
+|---|---|
+| `--index-db=` | o `index.db` do `ebgeo_3d`. Obrigatório, aberto somente-leitura. |
+| `--apply` | executa a escrita. Sem ela é dry-run. |
+| `--assets-dir=` | pasta com `<id>.webp` e `<id>.webm`. Sem ela, miniatura e vídeo não viajam. |
+| `--assets-base=` | prefixo público da mídia. Default `/api/v1/assets3d`. |
+| `--publicados` | pula os despublicados na origem em vez de desativá-los. |
+| `--so=a,b` | restringe a estes ids (o piloto). |
+
+O `models3d:adotar` reconstrói a linha de catálogo a partir do cabeçalho `meta` do `.3dtiles`,
+que guarda a PRODUÇÃO (token, contagem de tiles, envelope) e não o CATÁLOGO. Medido no acervo
+de 2026-09-16, 105 modelos: `meta.name` é o slug, e os 105 têm nome amigável, descrição,
+palavras-chave e local só no `index.db`, além de 6 com `heightOffset` não-zero. Sem este passo
+a travessia publica 105 cartões chamados `13bib`, `4rcb`, `cmdo14bda`.
+
+A miniatura só é gravada quando o arquivo EXISTE na pasta apontada: a origem tem
+`preview_thumb` nulo nos 105 e o serviço antigo deriva o caminho por convenção, então derivar
+sem conferir gravaria 105 URLs que respondem 404.
+
+Readotar depois deste script devolve ao arquivo apenas `name` e `heightOffset` (o `UPSERT`
+sobrescreve o nome e mescla o `config` com o lado do arquivo vencendo). A ordem é adotar,
+enriquecer, e repetir o enriquecimento depois de qualquer readoção.
+
+## `import-catalogo-360-legado.mjs`
+
+Completa `description` e `location` dos projetos 360 já importados, lendo o `index.db` do
+`ebgeo_360` legado.
+
+```bash
+node dev/import-catalogo-360-legado.mjs --index-db=<caminho>/index.db [--apply] [--so=a,b]
+```
+
+O `sv360-import.js` monta o manifesto do projeto com slug, nome, centro, foto de entrada, data
+e arquivo (`sv360-import.js:359-373`), e nem ele nem o `mergeProject` tocam nesses dois campos,
+embora as colunas existam nas duas pontas e a API nova as SIRVA (`sv360.queries.js:70`). Os 36
+projetos do servidor têm as duas preenchidas. O conserto definitivo é uma linha no manifesto,
+mas ele mexe no núcleo COMPARTILHADO com o envio online do painel e pede revisão do dono.
+
+Ele só preenche campo VAZIO, nunca sobrescreve o que um administrador escreveu pela tela.
+
+## `import-estilos-basemap.mjs`
+
+Grava o estilo MapLibre exato de cada mapa base no catálogo, lendo `src/js/baselayers/*.js` do
+checkout da `main`.
+
+```bash
+node dev/import-estilos-basemap.mjs --origem=<caminho>/ebgeo_web_main/src/js/baselayers [--apply]
+```
+
+| Flag | Efeito |
+|---|---|
+| `--origem=` | a pasta `src/js/baselayers` do checkout da `main`. Obrigatória. |
+| `--apply` | executa a escrita. Sem ela é dry-run. |
+| `--sprite-verbatim` | não reescreve o `sprite` absoluto. |
+| `--so=a,b` | restringe a estes ids de mapa base. |
+
+Os construtores estáticos de `config.static.js:214-225` cobrem cinco ids genéricos, montando um
+raster de uma camada a partir das URLs do ambiente. O que a produção serve são outros quatro,
+desenhados: a Topográfica do Overture (12 fontes, 190 camadas), a Ortoimagem do Overture (16 e
+136), a DSG do atlas Perseu (5 e 97) e o BDGEx. Sem estilo, `osm-overture` e
+`overture-ortoimagem` caem no fallback do frontend e a tela mostra DUAS cartas topográficas
+iguais. São 237 KB, e o `/api/config` vai de 23 para 259 KB.
+
+A única coisa que ele muda no estilo é o `sprite`, de URL absoluta do nome público para
+caminho relativo ao documento (`./images/sprite`), que é a forma que o `glyphs` do mesmo
+arquivo já usa. Caminho de raiz (`/ebgeo/images/...`) não serve: o app é servido sob `/ebgeo/`
+em produção e na RAIZ pelo servidor de desenvolvimento, e ali ele cai no fallback de SPA e
+volta o `index.html` com HTTP 200, com o sintoma de ícone que não desenha e console limpo.
+
+**A ORDEM É CONTRATO.** `import-config-catalog.mjs` SUBSTITUI o `config` de cada mapa base, não
+o mescla, então uma reimportação do config derruba os quatro `style` de volta a nada. Config
+primeiro, estilos depois, sempre.
