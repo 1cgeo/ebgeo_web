@@ -1621,9 +1621,26 @@ async function applyRemoteMapSettingOp(entityType, mapId, data) {
                         await repo.saveMap?.(mapId, mapData);
                     }
                 });
+                // PERSISTIR E AVISAR NAO E TROCAR O QUE A TELA DESENHA, e ate 2026-09-16 este ramo
+                // emitia `BASE_LAYER_CHANGED` direto. Os assinantes daquele evento (o cartao do
+                // seletor, a barra lateral, o 3D, o 360, o terreno) atualizam ROTULO e estado;
+                // quem chama `map.setStyle` e o `BaseLayerControl`, que e o EMISSOR daquele evento
+                // e nunca o ouviu. Medido com dois navegadores: no par o cartao passava a mostrar
+                // a base nova enquanto o MapLibre seguia desenhando a antiga (242 camadas do
+                // estilo velho), e so um F5 trocava de verdade. A UI mentia, que e pior do que nao
+                // propagar.
+                //
+                // Agora sai um evento PROPRIO do caminho remoto, com o mapa a que ele pertence: o
+                // controle decide se aquele mapa e o ativo, aplica o estilo e SO ENTAO emite
+                // `BASE_LAYER_CHANGED`, lendo de volta o que ficou na tela.
+                //
                 // The payload MUST be the layer id STRING (mirrors base-layer.control's emit). Emitting
                 // the wrapper object `data` made the base-layer-selector render "[object Object]".
-                emit(EventTypes.BASE_LAYER_CHANGED, { layer });
+                emit(EventTypes.BASE_LAYER_REMOTE_CHANGED, {
+                    layer,
+                    mapId,
+                    mapName: mapResolver.resolveToName(mapId) || null,
+                });
             }
             break;
         }

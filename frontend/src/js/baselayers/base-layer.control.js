@@ -182,6 +182,35 @@ class BaseLayerControl {
         //
         // O PADRÃO É `true` porque o evento tem oito outros ouvintes que não passam argumento nenhum,
         // e um wipe sem opinião sobre isto é o wipe que quer o comportamento antigo.
+        // O MAPA BASE QUE UM PAR TROCOU, aplicado na tela e não só no registro.
+        //
+        // Este controle é o único que chama `setStyle`, e ele era o EMISSOR de
+        // `BASE_LAYER_CHANGED`, nunca um ouvinte: a operação do colega era gravada, o cartão do
+        // seletor passava a mostrar a base nova e o mapa continuava desenhando a antiga até um F5.
+        // `applySharedBasemap` é exatamente o gesto certo aqui, e pela mesma razão do link
+        // compartilhado: troca o estilo, remonta as feições e NÃO persiste nem enfileira op (o
+        // dado já veio do par; reescrevê-lo devolveria a operação ao servidor em laço).
+        //
+        // O FILTRO POR MAPA NÃO É DETALHE: a operação pertence a UM mapa do atlas, e sem ele um
+        // colega editando outro mapa trocaria a base debaixo de quem está em outro lugar. Quando
+        // o mapa não é o ativo, basta o que o handler já fez, porque abrir aquele mapa lê o
+        // registro.
+        if (this._unsubBaseLayerRemote) this._unsubBaseLayerRemote();
+        this._unsubBaseLayerRemote = getEventBus().on(
+            EventTypes.BASE_LAYER_REMOTE_CHANGED,
+            async ({ layer, mapName } = {}) => {
+                if (!layer || !this.map) return;
+                try {
+                    const mapaAtivo = await getCurrentMapName();
+                    if (mapName && mapaAtivo && mapName !== mapaAtivo) return;
+                    if (layer === this.currentLayer) return;
+                    await this.applySharedBasemap(layer);
+                } catch (error) {
+                    console.error('Falha ao aplicar o mapa base trocado por um colega:', error);
+                }
+            },
+        );
+
         if (this._unsubAllCleared) this._unsubAllCleared();
         this._unsubAllCleared = getEventBus().on(EventTypes.ALL_DATA_CLEARED, async ({ rebuild = true } = {}) => {
             if (!rebuild) {
@@ -239,6 +268,13 @@ class BaseLayerControl {
         if (this.changeDebounceTimer) {
             clearTimeout(this.changeDebounceTimer);
             this.changeDebounceTimer = null;
+        }
+
+        // Pareado com o `on()` de BASE_LAYER_REMOTE_CHANGED: um ouvinte que sobrevive ao controle
+        // chamaria `applySharedBasemap` sobre um mapa que já não existe.
+        if (this._unsubBaseLayerRemote) {
+            this._unsubBaseLayerRemote();
+            this._unsubBaseLayerRemote = null;
         }
 
         this.container?.remove();

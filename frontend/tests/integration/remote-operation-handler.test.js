@@ -831,10 +831,17 @@ describe('Remote map-setting operations', () => {
         );
     });
 
-    it('emits BASE_LAYER_CHANGED with the id STRING (not the wrapper object) for baseLayer', async () => {
+    it('emits BASE_LAYER_REMOTE_CHANGED with the id STRING (not the wrapper object) for baseLayer', async () => {
         // The op data is { baseLayer: '<id>' } (map.operations.js#logBaseLayerOperation). The event
-        // payload must be { layer: '<id string>' } — mirroring base-layer.control's emit — or the
+        // payload must carry the id as a STRING — mirroring base-layer.control's emit — or the
         // base-layer-selector renders "[object Object]". Regression for the {layer: data} bug.
+        //
+        // E O EVENTO E O DO CAMINHO REMOTO, desde 2026-09-16. Emitir `BASE_LAYER_CHANGED` daqui
+        // fazia o cartao do seletor anunciar uma base que o mapa nao tinha trocado, porque quem
+        // chama `setStyle` e o `BaseLayerControl`, que EMITE aquele evento e nunca o ouviu. Agora
+        // o controle ouve este, aplica o estilo e so entao anuncia. O `mapName` viaja junto
+        // porque a operacao pertence a UM mapa: sem ele, um colega editando outro mapa do atlas
+        // trocaria a base de quem esta em outro lugar.
         await applyRemoteOperation({
             entityType: EntityType.BASE_LAYER,
             operationType: OperationType.UPDATE,
@@ -844,8 +851,13 @@ describe('Remote map-setting operations', () => {
         });
 
         expect(eventBus.emit).toHaveBeenCalledWith(
+            EventTypes.BASE_LAYER_REMOTE_CHANGED,
+            expect.objectContaining({ layer: 'osm', mapId: 'map-1' })
+        );
+        // E NAO o evento que o seletor ouve: quem o emite e o controle, depois de trocar o estilo.
+        expect(eventBus.emit).not.toHaveBeenCalledWith(
             EventTypes.BASE_LAYER_CHANGED,
-            expect.objectContaining({ layer: 'osm' })
+            expect.anything()
         );
         expect(eventBus.emit).toHaveBeenCalledWith(
             EventTypes.MAP_MODIFIED,
