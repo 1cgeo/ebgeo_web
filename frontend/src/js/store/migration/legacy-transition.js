@@ -145,7 +145,28 @@ export async function prepareLegacyTransition({ onProgress } = {}) {
     const classification = initial ? null : await classifySource();
     if (classification?.kind !== 'local' && !initial) return classification;
     if (!globalThis.navigator?.locks?.request) {
-        throw new MigrationRecoveryError('lock_unavailable', 'Este navegador não permite coordenar a atualização com segurança. Salve uma cópia de recuperação.');
+        // SEM WEB LOCKS, INTERROMPER SÓ FAZ SENTIDO SE HÁ O QUE PERDER.
+        //
+        // `navigator.locks` exige CONTEXTO SEGURO: existe em `localhost` e em HTTPS, e não
+        // existe numa origem `http://<ip>:<porta>`, que é como o EBGeo é aberto de outra
+        // máquina da rede interna. Até 2026-09-16 a ausência da API interrompia o boot de
+        // QUALQUER pessoa nessa origem, inclusive de quem nunca tinha aberto o produto: a
+        // instalação nova é classificada como `local` com inventário ZERO (a guarda de escopo
+        // vazio em `classifySource` pede também um registro que ela ainda não tem), e a pessoa
+        // recebia a tela de recuperação com um pacote de zero registros para salvar. O relato e
+        // o `.zip` medido (`records: []`, `inventory: []`) são de 2026-09-16.
+        //
+        // O QUE O LOCK PROTEGE é a cópia concorrente: duas abas copiando o mesmo acervo para
+        // dois destinos, e o `dois boots convergem para uma copia` que mede isso. Com inventário
+        // vazio não há cópia, e o que resta é a criação do slot, que `commitDestination` já
+        // resolve por registro. Então o portão segue sem lock NESSE caso, e continua parando no
+        // outro, que é onde há dado de alguém em jogo.
+        const nadaACopiar = !initial && classification?.kind === 'local'
+            && classification.inventory.length === 0;
+        if (!nadaACopiar) {
+            throw new MigrationRecoveryError('lock_unavailable', 'Este navegador não permite coordenar a atualização com segurança. Salve uma cópia de recuperação.');
+        }
+        return semLock(classification, onProgress);
     }
     return navigator.locks.request(TRANSITION_LOCK, async () => {
         let state = await readLegacyTransition();
@@ -171,6 +192,28 @@ export async function prepareLegacyTransition({ onProgress } = {}) {
         if (!transitionIsSettled(state)) throw new MigrationRecoveryError('unreadable', 'A etapa da atualização não foi reconhecida.');
         return { kind: 'ready', state };
     });
+}
+
+/**
+ * A MESMA sequência do corpo do lock, para o único caso em que ele não é necessário: instalação
+ * nova, inventário vazio, navegador sem Web Locks. Ela é extraída em vez de duplicada para que
+ * um passo novo no fluxo não entre só de um lado.
+ * @param {Object} classification - O veredito de `classifySource`, com `kind: 'local'`.
+ * @param {Function} [onProgress] - Relatório de progresso da cópia.
+ * @returns {Promise<Object>}
+ */
+async function semLock(classification, onProgress) {
+    const state = {
+        version: 1, status: TransitionStatus.COPYING, entry: classification.entry,
+        destination: `upgrade-${generateUUID()}`, sourceInventory: classification.inventory,
+        copied: 0, history: []
+    };
+    await save(state);
+    if (state.status === TransitionStatus.COPYING) await copyAndCheck(state, onProgress);
+    if (state.status === TransitionStatus.MIGRATING) await migrateDestination(state);
+    if (state.status === TransitionStatus.READY) await commitDestination(state);
+    if (!transitionIsSettled(state)) throw new MigrationRecoveryError('unreadable', 'A etapa da atualização não foi reconhecida.');
+    return { kind: 'ready', state };
 }
 
 export async function restartLegacyCopy() {
