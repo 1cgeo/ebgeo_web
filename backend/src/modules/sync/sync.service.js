@@ -558,7 +558,7 @@ function normalizeOperation(op) {
   // Get raw entity type from frontend or backend format
   const rawEntityType = op.entityType || op.target;
   const mapping = ENTITY_TYPE_MAP[rawEntityType];
-  const type = op.operationType || op.type;
+  let type = op.operationType || op.type;
 
   // If it's a mapped type (like marker3d), convert to generic type and reshape data
   let target = rawEntityType;
@@ -572,6 +572,32 @@ function normalizeOperation(op) {
   if (mapping) {
     target = mapping.target;
     subType = mapping.subType || null;
+
+    // UM `create` DE SUB-ENTIDADE DE MAPA É UM `update`, e rebaixá-lo aqui é o que impede uma
+    // recusa que o usuário não tem como contornar.
+    //
+    // O caso é medido (2026-09-16), e a frase que ele produz na tela é "Alteração descartada:
+    // campo obrigatório ausente". Uma sub-entidade não é uma linha, é uma COLUNA de um mapa que
+    // já existe: `gridStyle` é `maps.grid_style`, `mapNotes` são `notes_*`, e assim as cinco. O
+    // cliente decide o tipo por "havia valor local antes?" (`settings.operations.js:160` para a
+    // grade, `:98` para as notas, `map.operations.js:1068` para a posição), então a PRIMEIRA
+    // gravação de cada uma num mapa nasce `create`. Ela caía no ramo de criação de `map`, que
+    // insere a linha INTEIRA com `data.name` — e uma op de grade não carrega nome. O Postgres
+    // avalia o NOT NULL da tupla proposta ANTES de resolver o `ON CONFLICT (id)`, então nem o
+    // mapa já existir salvava: 23502 em `maps.name`, lote recusado por integridade, e o cliente
+    // instruído a descartar a alteração. A segunda vez virava `update` e passava, o que fazia o
+    // defeito parecer intermitente.
+    //
+    // O REBAIXAMENTO É AQUI, e não só no cliente, porque o navegador de quem já usa o sistema
+    // continua emitindo `create` e uma fila local presa não se desfaz sozinha. Ele não abre
+    // porta nenhuma: o caminho de update escreve pela lista de colunas do sub-tipo
+    // (`MAP_UPDATE_FIELDS` por `subType`), que é mais estreita do que a do INSERT, e a criação
+    // de mapa continua sendo op de `map`, a única que carrega o nome. Preso por
+    // `tests/integration/sync-subentidade-de-mapa-como-create.test.js`, cujos dois controles
+    // medem justamente os dois lados: o nome do mapa sobrevive, e um `create` de `map` cria.
+    if (subType && type === 'create') {
+      type = 'update';
+    }
 
     // cesium3d/streetview360: reshape FLAT/nested entity into the backend envelope.
     if (mapping.dataType) {
