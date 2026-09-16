@@ -3,7 +3,7 @@ import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
 import { connectionState, ConnectionStates } from '@store/sync/connection-state.js';
 import { sessionContext } from '@store/sync/session-context.js';
-import { lerPendenciasDoEscopoAtivo } from '@js/session/pendencias-monitoramento.js';
+import { aCaminhoDoCenso, lerPendenciasDoEscopoAtivo } from '@js/session/pendencias-monitoramento.js';
 import { storeWritesPaused } from '@store/write-coordinator.js';
 import { getActiveScope } from '@store/atlas-namespace.js';
 import { isRemoteStoreSync } from '@store/store-origin.js';
@@ -487,7 +487,10 @@ export class SyncStatusControl {
             // each right by its own rule, is a disagreement nobody can see.
             const medido = await lerPendenciasDoEscopoAtivo();
             if (medido === null) return;
-            this._pending = medido.pendentes + medido.preparadas;
+            // A SOMA NÃO É FEITA AQUI, e essa é a segunda metade da mesma lição (2026-09-15): o
+            // painel de pendências mostra este mesmo número, e enquanto cada tela somava os
+            // próprios baldes as duas podiam divergir sem nada acusar. A definição é uma só.
+            this._pending = aCaminhoDoCenso(medido);
             this._problemas = medido.problemas;
             this._quarentena = medido.quarentena;
             this._uploads = medido.uploads;

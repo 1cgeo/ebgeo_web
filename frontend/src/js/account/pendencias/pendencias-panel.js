@@ -15,6 +15,15 @@
  * frases moram em `pendencias-phrases.js`. A divisão não é estética: a decisão de linha é a parte
  * que se verifica em node, e a camada que exercita DOM roda fora do `npm test`.
  *
+ * O CONTRATO COM O CRACHÁ, desde 2026-09-15. O crachá conta o TRABALHO (inclusive o que está
+ * saindo agora) e o painel lista o que EXIGE DECISÃO, que é um subconjunto: são recortes
+ * diferentes da mesma fila, e por isso as duas telas podem mostrar números diferentes sem estarem
+ * em desacordo. O que elas não podem é se CONTRADIZER, e era o que faziam: com a fila cheia e
+ * nenhum problema, o crachá dizia "Enviando 2…" e o painel que ele abre dizia "Nenhuma pendência".
+ * Agora o painel lê também o censo da fila e DIZ o que está a caminho, com o mesmo número e pela
+ * mesma expressão (`pendentes + preparadas`), sem transformá-lo em linha: não há ação a oferecer
+ * sobre uma alteração que sai sozinha, e uma linha sem ação numa tela de decisões é ruído.
+ *
  * NUNCA `innerHTML`. Toda linha carrega nome de mapa, nome de feição e a frase de recusa do
  * SERVIDOR, e as três são conteúdo de usuário chegando por caminhos diferentes. O painel usa
  * `textContent` e `createElement` em todos os pontos, sem exceção, e um teste estrutural
@@ -49,8 +58,6 @@ import {
     ACEITE_FALHOU,
     ESTADO_FALHA_DETALHE,
     ESTADO_FALHA_TITULO,
-    ESTADO_VAZIO_DETALHE,
-    ESTADO_VAZIO_TITULO,
     EXPORTACAO_COPIADA,
     EXPORTACAO_FALHOU,
     PendenciaAcao,
@@ -59,9 +66,11 @@ import {
     confirmacaoDeAceitar,
     confirmacaoDeDescartar,
     contadoresVisiveis,
+    estadoVazio,
     localDoItem,
     reaplicacaoFeita,
     tituloDoPainel,
+    transitoNota,
 } from './pendencias-phrases.js';
 import {
     COMPARACAO_ROTULO,
@@ -271,8 +280,12 @@ export class PendenciasPanel extends ModalBase {
             return;
         }
         if (modelo.estado === PendenciaEstado.VAZIO) {
+            // A LISTA VAZIA NÃO É UMA FRASE SÓ. "Nenhuma pendência" contradizia o crachá que abriu
+            // esta tela sempre que havia trabalho na fila, e duas telas do mesmo produto dizendo o
+            // contrário uma da outra sobre a MESMA fila se leem como uma delas quebrada.
+            const vazio = estadoVazio(modelo.aCaminho);
             this._lista.replaceChildren(
-                this._aviso('pendencias__vazio', ESTADO_VAZIO_TITULO, ESTADO_VAZIO_DETALHE)
+                this._aviso('pendencias__vazio', vazio.titulo, vazio.detalhe)
             );
             return;
         }
@@ -302,6 +315,9 @@ export class PendenciasPanel extends ModalBase {
      */
     _desenharResumo(modelo) {
         const contadores = contadoresVisiveis(modelo.contadores);
+        // A NOTA DO QUE ESTÁ A CAMINHO SÓ APARECE AQUI QUANDO HÁ LISTA: com a lista vazia ela É o
+        // estado vazio, e dizer o mesmo número duas vezes na mesma tela sugere duas quantidades.
+        const nota = transitoNota(modelo.aCaminho);
         this._resumo.replaceChildren();
         this._resumo.hidden = contadores.length === 0;
         if (contadores.length === 0) return;
@@ -325,6 +341,14 @@ export class PendenciasPanel extends ModalBase {
             fileira.appendChild(item);
         }
         this._resumo.appendChild(fileira);
+
+        if (nota) {
+            const transito = document.createElement('p');
+            transito.className = 'pendencias__transito';
+            transito.setAttribute('data-testid', 'pendencias-transito');
+            transito.textContent = nota;
+            this._resumo.appendChild(transito);
+        }
 
         // EXPORTAR TUDO fica no topo e não na linha: é a saída de quem vai limpar a lista inteira,
         // e pedir uma cópia linha a linha antes de descartar meia dúzia é como uma pessoa desiste

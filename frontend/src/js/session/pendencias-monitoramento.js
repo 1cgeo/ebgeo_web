@@ -95,6 +95,29 @@ async function lerEscopo(scope, agora) {
 }
 
 /**
+ * O NÚMERO DO QUE ESTÁ A CAMINHO, definido num lugar só porque DUAS telas o mostram.
+ *
+ * A luz da barra escreve "Enviando N…" e o painel de pendências escreve "N alterações a caminho",
+ * e enquanto cada uma somava os próprios baldes as duas podiam divergir sem que nada acusasse: é a
+ * mesma família do achado F23, e foi assim que o painel chegou a dizer "Nenhuma pendência" com a
+ * fila cheia (2026-09-15). Aqui a soma é UMA.
+ *
+ * `problemas` fica FORA: o que o servidor recusou não está a caminho de lugar nenhum, e é
+ * justamente o que o painel lista como linha.
+ *
+ * DEVOLVE `null` E NUNCA ZERO quando o censo não é um censo, pela regra da casa: só o zero MEDIDO
+ * autoriza as duas telas a dizerem que o servidor já tem tudo.
+ * @param {{pendentes: number, preparadas: number}|null|undefined} censo - Saída de
+ *   `countByState()`, ou de {@link lerPendenciasDoEscopoAtivo}, que a repete.
+ * @returns {number|null}
+ */
+export function aCaminhoDoCenso(censo) {
+    const partes = [censo?.pendentes, censo?.preparadas];
+    if (!partes.every((n) => Number.isFinite(n) && n >= 0)) return null;
+    return Math.trunc(partes[0]) + Math.trunc(partes[1]);
+}
+
+/**
  * TUDO o que o atlas MONTADO ainda não entregou, para a luz de sync da barra do mapa.
  *
  * São quatro fontes e não uma, e cada uma das três últimas era invisível com a fila em zero:

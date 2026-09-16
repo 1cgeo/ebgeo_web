@@ -185,13 +185,94 @@ export function localDoItem(mapa) {
     return `, no mapa «${mapa.id}»`;
 }
 
-/** A lista vazia HONESTA: nada guardado, e a leitura funcionou. */
+/** A lista vazia HONESTA: nada guardado, nada a caminho, e a leitura funcionou. */
 export const ESTADO_VAZIO_TITULO = 'Nenhuma pendência';
 
 /** @type {string} */
 export const ESTADO_VAZIO_DETALHE =
     'Tudo o que você fez neste atlas já foi aceito pelo servidor, e não há figura à espera de '
     + 'envio nem alteração guardada de uma sessão anterior.';
+
+/**
+ * A lista vazia onde NÃO EXISTE fila de saída, que é o atlas local: ali só a quarentena global é
+ * lida, porque ela é a única fonte que não pertence a um atlas.
+ *
+ * ELA NÃO PODE DIZER A FRASE ACIMA, e essa é a correção que veio junto: num atlas local a fila de
+ * saída e a de figuras nem chegam a ser consultadas, então afirmar que "não há figura à espera de
+ * envio" é relatar uma leitura que ninguém fez. Esta frase afirma só o que foi lido.
+ * @type {string}
+ */
+export const ESTADO_VAZIO_LOCAL_DETALHE =
+    'Não há alteração guardada de uma sessão anterior à espera de decisão. Este atlas não tem fila '
+    + 'de envio: o que você faz nele fica neste computador.';
+
+/**
+ * O QUE ESTÁ A CAMINHO, que é a metade que o painel não listava e o crachá contava.
+ *
+ * É O MESMO NÚMERO que o crachá de sync chama de "Enviando N…" (`describeSyncWork`, entrada
+ * `pending`): `pendentes + preparadas` do censo da fila do escopo montado. Enquanto o painel não o
+ * lia, as duas superfícies liam a MESMA fila e diziam coisas opostas, medido em 2026-09-15 nos dois
+ * navegadores: "Enviando 2…" no crachá e "Nenhuma pendência" no painel que ele abre.
+ *
+ * O SUBSTANTIVO É "alteração" E NÃO "operação" de propósito: é a palavra que a frase longa do
+ * próprio crachá usa para este mesmo número (`pendingLabel`, `sync-phrases.js`) e a que as ações
+ * deste painel já usam. Dois substantivos para a mesma coisa nas duas telas se leem como duas
+ * quantidades diferentes, que é exatamente o defeito que esta linha existe para fechar.
+ * @param {number} quantas - Quantas alterações estão na fila à espera de confirmação.
+ * @returns {string}
+ */
+export function transitoTitulo(quantas) {
+    const n = Number.isFinite(quantas) && quantas > 0 ? Math.trunc(quantas) : 0;
+    return n === 1 ? '1 alteração a caminho' : `${n} alterações a caminho`;
+}
+
+/**
+ * O ESTADO DE LISTA VAZIA, QUE TEM TRÊS FRASES E NÃO UMA.
+ *
+ * "Nenhuma pendência" é uma AFIRMAÇÃO, e ela só é verdadeira quando não há nada guardado E nada
+ * esperando envio. Com trabalho na fila ela contradiz o crachá que abriu esta tela, e a pessoa fica
+ * com duas telas do mesmo produto dizendo coisas opostas sobre a mesma fila: a leitura natural é
+ * que uma das duas está quebrada, e nenhuma está.
+ *
+ * O CONTRATO ADOTADO: o painel é o lugar do que EXIGE DECISÃO, e o que está a caminho não exige
+ * nenhuma, então ele não vira linha de lista (não há ação a oferecer sobre uma alteração que sai
+ * sozinha). Mas ele é DITO, com o mesmo número do crachá, porque a alternativa é a contradição.
+ * O QUE NÃO É UMA CONTAGEM CAI NO RAMO DE QUEM NÃO TEM FILA, nunca no ramo do zero, e é a mesma
+ * regra do `null` de `toPendingCount` na luz de sync: só o zero MEDIDO autoriza "tudo já foi
+ * aceito pelo servidor", que é a frase sobre a qual alguém decide sair da conta.
+ * @param {number|null|undefined} aCaminho - Alterações na fila à espera de confirmação; `null`
+ *   quando não existe fila de saída neste escopo (atlas local).
+ * @returns {{titulo: string, detalhe: string}}
+ */
+export function estadoVazio(aCaminho) {
+    if (!Number.isFinite(aCaminho) || aCaminho < 0) {
+        return { titulo: ESTADO_VAZIO_TITULO, detalhe: ESTADO_VAZIO_LOCAL_DETALHE };
+    }
+    const n = Math.trunc(aCaminho);
+    if (n === 0) return { titulo: ESTADO_VAZIO_TITULO, detalhe: ESTADO_VAZIO_DETALHE };
+    return {
+        titulo: transitoTitulo(n),
+        detalhe: 'Nada aqui exige decisão sua: estas alterações estão guardadas neste computador e '
+            + 'saem sozinhas assim que o servidor confirmar. Não há recusa do servidor, figura à '
+            + 'espera de envio nem alteração guardada de uma sessão anterior.',
+    };
+}
+
+/**
+ * A mesma verdade quando a lista NÃO está vazia: o que está a caminho não some da tela só porque
+ * há uma recusa para decidir.
+ *
+ * `null` quando não há o que dizer, e o painel então não desenha nada: uma linha "0 alterações a
+ * caminho" ocupa a mesma altura e não informa.
+ * @param {number|null|undefined} aCaminho - Alterações na fila à espera de confirmação.
+ * @returns {string|null}
+ */
+export function transitoNota(aCaminho) {
+    if (!Number.isFinite(aCaminho) || aCaminho <= 0) return null;
+    const n = Math.trunc(aCaminho);
+    return `Além do que está nesta lista, ${transitoTitulo(n)}, que ${n === 1 ? 'sai' : 'saem'} `
+        + `${n === 1 ? 'sozinha' : 'sozinhas'} e não ${n === 1 ? 'exige' : 'exigem'} decisão.`;
+}
 
 /** A falha de leitura, que NUNCA se desenha como lista vazia. */
 export const ESTADO_FALHA_TITULO = 'Não foi possível ler as pendências';

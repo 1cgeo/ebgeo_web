@@ -122,6 +122,52 @@ describe('o leitor de pendências alcança as quatro páginas', () => {
     });
 });
 
+/**
+ * O NÚMERO QUE AS DUAS TELAS MOSTRAM TEM UMA DEFINIÇÃO SÓ (achado de 2026-09-15).
+ *
+ * A luz escreve "Enviando N…" e o painel escreve "N alterações a caminho" sobre a MESMA fila. O
+ * defeito medido foi o painel nem olhar para ela ("Nenhuma pendência" com duas alterações na fila);
+ * a recaída seguinte seria cada tela somar os próprios baldes e as duas divergirem por aritmética,
+ * que é a forma que ninguém vê, porque cada uma estaria certa pela sua própria conta. Daí a soma
+ * morar em `aCaminhoDoCenso` e as duas a chamarem.
+ */
+describe('o número "a caminho" é definido num lugar só', () => {
+    const FONTES = Object.freeze({
+        cracha: 'src/js/account/sync-status.control.js',
+        painel: 'src/js/account/pendencias/pendencias-leitura.js',
+        dono: 'src/js/session/pendencias-monitoramento.js',
+    });
+
+    it('as duas telas CHAMAM a soma, e nenhuma delas a refaz', () => {
+        for (const arquivo of [FONTES.cracha, FONTES.painel]) {
+            const codigo = semComentarios(readFileSync(join(FRONT, arquivo), 'utf8'));
+            expect(codigo, `${arquivo} precisa chamar a soma compartilhada`)
+                .toContain('aCaminhoDoCenso(');
+            // O que a reversão desfaria, e é a forma exata que o código tinha antes: somar `preparadas`
+            // no próprio arquivo. Com os comentários fora, sobra só o código.
+            expect(codigo, `${arquivo} não pode somar de novo`).not.toContain('preparadas');
+        }
+    });
+
+    it('e quem a define é o módulo do leitor, uma vez', () => {
+        const dono = readFileSync(join(FRONT, FONTES.dono), 'utf8');
+        expect(dono).toMatch(/export function aCaminhoDoCenso\(/);
+        expect(dono.match(/export function aCaminhoDoCenso\(/g)).toHaveLength(1);
+    });
+
+    it('a soma devolve o total, e o que NÃO é censo vira `null` e nunca zero', async () => {
+        const { aCaminhoDoCenso } = await import('../../src/js/session/pendencias-monitoramento.js');
+        expect(aCaminhoDoCenso({ pendentes: 2, preparadas: 1, problemas: 9 })).toBe(3);
+        expect(aCaminhoDoCenso({ pendentes: 0, preparadas: 0 })).toBe(0);
+        // `problemas` fica fora: recusa não está a caminho de lugar nenhum, e é linha no painel.
+        expect(aCaminhoDoCenso({ pendentes: 0, preparadas: 0, problemas: 5 })).toBe(0);
+        for (const ruim of [null, undefined, {}, { pendentes: 1 }, { pendentes: Number.NaN, preparadas: 0 },
+            { pendentes: -1, preparadas: 0 }, { pendentes: '2', preparadas: 0 }]) {
+            expect(aCaminhoDoCenso(ruim)).toBeNull();
+        }
+    });
+});
+
 // ---------------------------------------------------------------------------
 // Metade de comportamento
 // ---------------------------------------------------------------------------

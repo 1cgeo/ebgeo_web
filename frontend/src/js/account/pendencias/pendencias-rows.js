@@ -280,28 +280,58 @@ function linhaDeUpload(registro) {
 }
 
 /**
- * A lista inteira, a partir do que as três fontes devolveram.
+ * A contagem do que está a caminho, ou `null` quando ela NÃO é uma contagem.
+ *
+ * `null` é o produto principal e não o caso degenerado, pela mesma razão de `toPendingCount` em
+ * `sync-phrases.js`: é ele que impede um `NaN` de escorregar para o ramo do zero e virar a
+ * afirmação "nenhuma pendência", que é a frase a partir da qual alguém decide sair da conta.
+ * Repare que `x ?? 0` NÃO serviria, porque não guarda `NaN`.
+ * @param {*} valor - O que o leitor devolveu.
+ * @returns {number|null}
+ */
+function contagemOuNula(valor) {
+    if (!Number.isFinite(valor) || valor < 0) return null;
+    return Math.trunc(valor);
+}
+
+/**
+ * A lista inteira, a partir do que as fontes devolveram.
+ *
+ * A QUARTA LEITURA NÃO VIRA LINHA, E MESMO ASSIM VEM (2026-09-15). As três fontes de linha guardam
+ * o que EXIGE DECISÃO; o que está a caminho não exige nenhuma e por isso não é linha (não há ação a
+ * oferecer sobre uma alteração que sai sozinha). Mas o crachá que abre este painel CONTA esse
+ * número, e enquanto ele não chegava aqui as duas telas liam a mesma fila e diziam coisas opostas:
+ * "Enviando 2…" no crachá, "Nenhuma pendência" no painel. O número entra no modelo, sem linha, e a
+ * frase dele mora em `pendencias-phrases.js`.
  *
  * @param {Object} leitura
  * @param {boolean} [leitura.falhaDeLeitura] - Alguma das fontes não respondeu.
  * @param {Array<Object>} [leitura.problemas] - Saída de `operationQueue.getProblems()`.
  * @param {Array<Object>} [leitura.quarentena] - Saída de `listQuarantinedOperations()`.
  * @param {Array<Object>} [leitura.uploads] - Saída de `listarPendenciasDeBlob()`.
+ * @param {number|null} [leitura.aCaminho] - `pendentes + preparadas` do censo da fila, isto é, o
+ *   MESMO número que o crachá mostra. `null` quando não há fila de saída no escopo (atlas local) ou
+ *   quando o que chegou não é uma contagem, e nesse caso nada é afirmado sobre envio.
  * @param {function(string): (string|null|undefined)} [leitura.nomeDoMapa] - Resolvedor de nome de
  *   mapa. Sem ele, NADA é afirmado sobre mapa nenhum: o padrão é `undefined` (desconhecido) e
  *   nunca `null`, que diria a toda linha que o mapa dela foi removido.
  * @returns {{estado: string, linhas: Array<Object>, contadores: Object<string, number>,
- *   total: number}}
+ *   total: number, aCaminho: number|null}}
  */
 export function montarPendencias({
     falhaDeLeitura = false,
     problemas = [],
     quarentena = [],
     uploads = [],
+    aCaminho = null,
     nomeDoMapa = () => undefined,
 } = {}) {
     if (falhaDeLeitura === true) {
-        return { estado: PendenciaEstado.FALHA, linhas: [], contadores: {}, total: 0 };
+        // NADA É AFIRMADO NUMA FALHA, o número a caminho inclusive: as fontes caem juntas no leitor,
+        // então um número sobrevivente aqui seria o censo de uma leitura que não aconteceu.
+        return {
+            estado: PendenciaEstado.FALHA, linhas: [], contadores: {}, total: 0, aCaminho: null,
+        };
     }
 
     const resolver = typeof nomeDoMapa === 'function' ? nomeDoMapa : () => undefined;
@@ -353,9 +383,12 @@ export function montarPendencias({
     }
 
     return {
+        // VAZIO É SOBRE A LISTA, e a lista é o que exige decisão: ele significa "nada a decidir",
+        // nunca "nada esperando envio". Quem desenha a frase desse estado precisa de `aCaminho`.
         estado: linhas.length === 0 ? PendenciaEstado.VAZIO : PendenciaEstado.LISTA,
         linhas,
         contadores,
         total: linhas.length,
+        aCaminho: contagemOuNula(aCaminho),
     };
 }

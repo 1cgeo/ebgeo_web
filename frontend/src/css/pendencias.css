@@ -72,6 +72,18 @@
     color: var(--color-error-strong);
 }
 
+/* ---- O que esta a caminho ----
+   NAO E CONTADOR E NAO E LINHA: e a frase que impede esta tela de contradizer o cracha
+   que a abriu, e o que ela conta nao exige decisao nenhuma. Por isso ela e texto de
+   apoio, sem pilula e sem borda: uma pilula ao lado das outras a leria como mais uma
+   classe de pendencia, que e justamente o que ela nao e. */
+
+.pendencias__transito {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--gray-600);
+}
+
 /* ---- Lista ---- */
 
 .pendencias__lista {

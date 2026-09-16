@@ -21,6 +21,9 @@ import {
     PendenciaEstado,
 } from '@js/account/pendencias/pendencias-rows.js';
 import {
+    ESTADO_VAZIO_DETALHE,
+    ESTADO_VAZIO_LOCAL_DETALHE,
+    ESTADO_VAZIO_TITULO,
     PendenciaClasse,
     PendenciaOrigem,
     MOTIVO_DESCONHECIDO,
@@ -28,11 +31,21 @@ import {
     classeExplicacao,
     contadoresVisiveis,
     dataLabel,
+    estadoVazio,
     localDoItem,
     tipoDeEntidadeLabel,
     tituloDoPainel,
+    transitoNota,
+    transitoTitulo,
     unidadeLabel,
 } from '@js/account/pendencias/pendencias-phrases.js';
+// A luz de sync entra no MESMO processo porque o contrato é ENTRE as duas telas: comparar o número
+// que cada uma diz exige as duas decisões rodando lado a lado, nunca uma cópia de uma delas.
+import {
+    describeSyncWork,
+    SYNC_CONNECTION,
+    SYNC_WORK_STATE,
+} from '@js/account/sync-phrases.js';
 import { IssueClass } from '@store/sync/issue-classes.js';
 import { EntityType } from '@store/sync/operation-types.js';
 
@@ -43,6 +56,9 @@ const ARQ_FRASES = fileURLToPath(
     new URL('../../src/js/account/pendencias/pendencias-phrases.js', import.meta.url),
 );
 const ARQ_CSS = fileURLToPath(new URL('../../src/css/pendencias.css', import.meta.url));
+const ARQ_LEITURA = fileURLToPath(
+    new URL('../../src/js/account/pendencias/pendencias-leitura.js', import.meta.url),
+);
 
 const op = (extra = {}) => ({
     id: 'op-1',
@@ -615,5 +631,142 @@ describe('a linha de conflito de FEIÇÃO carrega a comparação', () => {
         ]) {
             expect(css, `${classe} precisa de regra`).toContain(`${classe} {`);
         }
+    });
+});
+
+// ============================================================================
+// O CONTRATO ENTRE O CRACHÁ E O PAINEL (achado de 2026-09-15)
+// ============================================================================
+
+/**
+ * O DEFEITO MEDIDO: com duas alterações na fila e nenhum problema, o crachá escrevia
+ * "Enviando 2…" e o painel que ele abre escrevia "Nenhuma pendência". Duas superfícies lendo a
+ * MESMA fila e se contradizendo, nos dois navegadores.
+ *
+ * O CONTRATO ADOTADO: o crachá conta o TRABALHO, o painel lista o que EXIGE DECISÃO, e o segundo é
+ * um subconjunto do primeiro. Números diferentes são legítimos; frases que se contradizem, não. O
+ * que está a caminho não vira linha (não há ação a oferecer sobre uma alteração que sai sozinha) e
+ * é DITO, com o mesmo número e pela mesma expressão que alimenta o crachá.
+ *
+ * O QUE ESTE VERDE NÃO PROVA: que o leitor de disco somou os baldes certos. Isso é estrutural e
+ * está no último bloco; o resto é a captura do Playwright.
+ */
+describe('o crachá e o painel não podem se contradizer sobre a mesma fila', () => {
+    it('com trabalho na fila e nada a decidir, o painel NÃO diz "Nenhuma pendência"', () => {
+        const modelo = montarPendencias({ aCaminho: 2 });
+        expect(modelo.estado).toBe(PendenciaEstado.VAZIO);
+        expect(modelo.aCaminho).toBe(2);
+
+        const vazio = estadoVazio(modelo.aCaminho);
+        expect(vazio.titulo).toBe('2 alterações a caminho');
+        expect(vazio.titulo).not.toBe(ESTADO_VAZIO_TITULO);
+        expect(vazio.detalhe).toMatch(/não exige decisão|Nada aqui exige decisão/);
+        // E ela não repete a afirmação que era falsa: o servidor NÃO tem tudo.
+        expect(vazio.detalhe).not.toContain('já foi aceito pelo servidor');
+    });
+
+    it('o número que o painel diz é o MESMO que o crachá mostra, pela mesma expressão', () => {
+        // Um censo só, lido pelas duas telas: é isto que impede as duas aritméticas de divergirem.
+        const censo = { pendentes: 2, preparadas: 1, problemas: 0 };
+        const aCaminho = censo.pendentes + censo.preparadas;
+
+        const cracha = describeSyncWork({
+            remote: true,
+            connection: SYNC_CONNECTION.ONLINE,
+            pending: aCaminho,
+            problemas: censo.problemas,
+            quarentena: 0,
+            uploads: 0,
+        });
+        const modelo = montarPendencias({ aCaminho });
+
+        expect(cracha.state).toBe(SYNC_WORK_STATE.SENDING);
+        expect(cracha.label).toBe('Enviando 3…');
+        expect(modelo.aCaminho).toBe(cracha.pending);
+        expect(estadoVazio(modelo.aCaminho).titulo).toContain('3');
+    });
+
+    it('CONTROLE NEGATIVO: o painel cego à fila reproduz a contradição', () => {
+        // É o estado anterior à correção, escrito à mão: a leitura não passava `aCaminho`, então o
+        // painel caía no ramo do zero e afirmava que o servidor tinha tudo, com a fila cheia.
+        const cego = montarPendencias({});
+        expect(cego.aCaminho).toBeNull();
+        expect(estadoVazio(cego.aCaminho).titulo).toBe(ESTADO_VAZIO_TITULO);
+        // A correção é exatamente o número chegar: com ele, a mesma função muda de frase.
+        expect(estadoVazio(montarPendencias({ aCaminho: 2 }).aCaminho).titulo)
+            .not.toBe(ESTADO_VAZIO_TITULO);
+    });
+
+    it('a fila medida em ZERO é o único caso que autoriza "tudo já foi aceito"', () => {
+        const vazio = estadoVazio(montarPendencias({ aCaminho: 0 }).aCaminho);
+        expect(vazio.titulo).toBe(ESTADO_VAZIO_TITULO);
+        expect(vazio.detalhe).toBe(ESTADO_VAZIO_DETALHE);
+    });
+
+    it('o que NÃO é contagem nunca vira zero, e não afirma envio nenhum', () => {
+        for (const valor of [null, undefined, Number.NaN, Number.POSITIVE_INFINITY, -3, '2']) {
+            expect(montarPendencias({ aCaminho: valor }).aCaminho).toBeNull();
+            expect(estadoVazio(valor).detalhe).toBe(ESTADO_VAZIO_LOCAL_DETALHE);
+            expect(estadoVazio(valor).detalhe).not.toBe(ESTADO_VAZIO_DETALHE);
+        }
+        // O atlas local é o caso REAL desse ramo, e a frase dele não fala de figura nem de recusa,
+        // porque nenhuma das duas chega a ser lida ali.
+        expect(ESTADO_VAZIO_LOCAL_DETALHE).not.toContain('figura');
+    });
+
+    it('a falha de leitura continua não afirmando nada, o número a caminho inclusive', () => {
+        const modelo = montarPendencias({ falhaDeLeitura: true, aCaminho: 7 });
+        expect(modelo.estado).toBe(PendenciaEstado.FALHA);
+        expect(modelo.aCaminho).toBeNull();
+    });
+
+    it('as frases concordam no singular', () => {
+        expect(transitoTitulo(1)).toBe('1 alteração a caminho');
+        expect(transitoTitulo(2)).toBe('2 alterações a caminho');
+        expect(estadoVazio(1).titulo).toBe('1 alteração a caminho');
+        expect(transitoNota(1)).toContain('1 alteração a caminho, que sai sozinha');
+        expect(transitoNota(4)).toContain('4 alterações a caminho, que saem sozinhas');
+    });
+
+    it('com lista, a nota diz o que está a caminho; sem nada a caminho, não diz nada', () => {
+        expect(transitoNota(0)).toBeNull();
+        expect(transitoNota(null)).toBeNull();
+        expect(transitoNota(Number.NaN)).toBeNull();
+        expect(transitoNota(-1)).toBeNull();
+        expect(transitoNota(3)).toContain('3 alterações a caminho');
+    });
+
+    it('o que está a caminho NÃO entra na contagem do título nem nos contadores', () => {
+        // Ele não exige decisão, então não é uma pendência a decidir: contá-lo no título faria o
+        // painel prometer três decisões e mostrar uma.
+        const modelo = montarPendencias({
+            aCaminho: 5,
+            problemas: [{
+                operation: op(),
+                result: conflito,
+                recordedAt: 1_700_000_100_000,
+                classe: IssueClass.CONFLITO,
+                bloqueadaPor: null,
+            }],
+        });
+        expect(modelo.total).toBe(1);
+        expect(tituloDoPainel(modelo.total)).toBe('Pendências (1)');
+        expect(contadoresVisiveis(modelo.contadores).map((c) => c.classe))
+            .toEqual([PendenciaClasse.CONFLITO]);
+        expect(modelo.aCaminho).toBe(5);
+    });
+
+    it('ESTRUTURAL: o leitor soma os MESMOS baldes do crachá, e o painel desenha a nota', () => {
+        const leitura = readFileSync(ARQ_LEITURA, 'utf8');
+        // A FUNÇÃO COMPARTILHADA, e não uma segunda aritmética aqui: quem prende isso de verdade é
+        // `pendencias-leitor-unico.test.js`, que exige a definição num lugar só nos dois leitores.
+        expect(leitura).toContain('countByState()');
+        expect(leitura).toContain('aCaminhoDoCenso(censo)');
+
+        const painel = readFileSync(ARQ_PAINEL, 'utf8');
+        expect(painel).toContain('estadoVazio(modelo.aCaminho)');
+        expect(painel).toContain('transitoNota(modelo.aCaminho)');
+        // A classe BEM da nota precisa de regra, senão é um bloco invisível que passa verde.
+        expect(readFileSync(ARQ_CSS, 'utf8')).toContain('.pendencias__transito {');
     });
 });

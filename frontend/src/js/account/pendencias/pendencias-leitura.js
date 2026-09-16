@@ -1,10 +1,18 @@
 // Path: js/account/pendencias/pendencias-leitura.js
 
 /**
- * @fileoverview As três leituras que o painel de pendências faz, e as duas coisas que elas NÃO
+ * @fileoverview As leituras que o painel de pendências faz, e as duas coisas que elas NÃO
  * conseguem afirmar.
  *
- * SÃO TRÊS FONTES E NÃO UMA, pelas mesmas razões que a luz de sync tem cinco números
+ * A QUARTA FONTE NÃO PRODUZ LINHA NENHUMA, e é por isso que ela demorou a existir: o CENSO da fila
+ * (`countByState`) diz quantas alterações estão a caminho, e nenhuma delas exige decisão, que é o
+ * assunto desta tela. Enquanto ele não era lido aqui, o crachá e o painel liam a MESMA fila e
+ * diziam coisas opostas, medido em 2026-09-15 nos dois navegadores: "Enviando 2…" no crachá e
+ * "Nenhuma pendência" no painel que ele abre. O número sai daqui pela MESMA função que alimenta o
+ * crachá (`aCaminhoDoCenso`), e não por uma segunda aritmética: duas contas do mesmo trabalho é
+ * como as duas telas voltam a divergir sem que nada acuse.
+ *
+ * SÃO TRÊS FONTES DE LINHA E NÃO UMA, pelas mesmas razões que a luz de sync tem cinco números
  * (`@js/session/pendencias-monitoramento.js`): a fila de saída do atlas montado guarda o que o
  * servidor recusou e o que está parado atrás disso; o registro global de quarentena guarda o que
  * uma sessão anterior pôs de lado e que sobreviveu ao logout; a fila de bytes de figura não tem
@@ -42,6 +50,9 @@ import { mapResolver } from '@store/services/map-resolver.service.js';
 import { getRepository } from '@store/repositories/index.js';
 import { isValidUUID } from '@utils/uuid.js';
 import { isMapLocked } from '@store/map.operations.js';
+// A SOMA DO QUE ESTÁ A CAMINHO VEM DE LÁ, e não daqui: é a mesma que a luz da barra mostra, e uma
+// segunda cópia dela é como as duas telas voltam a divergir sem que nada acuse.
+import { aCaminhoDoCenso } from '@js/session/pendencias-monitoramento.js';
 import { mapIdsCitados } from './pendencias-rows.js';
 
 /**
@@ -54,18 +65,23 @@ import { mapIdsCitados } from './pendencias-rows.js';
  * recebe um resolvedor SÍNCRONO, e a única forma de um resolvedor síncrono conhecer o disco é o
  * disco ter sido lido antes. A busca acontece aqui porque este é o módulo que pode ler.
  * @returns {Promise<{falhaDeLeitura: boolean, problemas: Array<Object>,
- *   quarentena: Array<Object>, uploads: Array<Object>,
- *   nomeDoMapa: function(string): (string|null|undefined)}>}
+ *   quarentena: Array<Object>, uploads: Array<Object>, aCaminho: (number|null),
+ *   nomeDoMapa: function(string): (string|null|undefined)}>} `aCaminho` é `null` no atlas local,
+ *   onde não existe fila de saída: ali a ausência do número é o fato, nunca um zero.
  */
 export async function lerPendencias() {
-    const vazio = { problemas: [], quarentena: [], uploads: [], nomeDoMapa: () => undefined };
+    const vazio = {
+        problemas: [], quarentena: [], uploads: [], aCaminho: null, nomeDoMapa: () => undefined,
+    };
     try {
         const scope = getActiveScope();
         const remoto = scope?.kind === StoreScopeKind.REMOTE;
-        const [problemas, quarentena, uploads] = await Promise.all([
-            remoto ? new OperationQueue(scope).getProblems() : [],
+        const fila = remoto ? new OperationQueue(scope) : null;
+        const [problemas, quarentena, uploads, censo] = await Promise.all([
+            fila ? fila.getProblems() : [],
             listQuarantinedOperations(),
             remoto ? listarPendenciasDeBlob() : [],
+            fila ? fila.countByState() : null,
         ]);
         const nomes = await lerNomesDeMapa(mapIdsCitados({ problemas, quarentena }));
         return {
@@ -73,6 +89,10 @@ export async function lerPendencias() {
             problemas,
             quarentena,
             uploads,
+            // O MESMO NÚMERO DO CRACHÁ, PELA MESMA FUNÇÃO e não por uma segunda soma: é ela que
+            // impede as duas telas de voltarem a divergir no dia em que a definição mudar. Num
+            // atlas local o censo é `null`, e a função devolve `null`, que é "não há fila aqui".
+            aCaminho: aCaminhoDoCenso(censo),
             nomeDoMapa: (mapId) => nomes.get(mapId),
         };
     } catch (error) {
