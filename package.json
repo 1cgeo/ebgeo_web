@@ -27,6 +27,7 @@
     "test:e2e": "npm run test:e2e --prefix frontend",
     "test:e2e:ui": "npm run test:e2e:ui --prefix frontend",
     "test:e2e:mega": "npm run test:e2e:mega --prefix frontend",
+    "test:e2e:firefox": "npm run test:e2e:firefox --prefix frontend",
     "test:e2e:atlas": "npm run test:e2e:atlas --prefix frontend",
     "test:e2e:migracao": "npm run test:e2e:migracao --prefix frontend",
     "knip": "npm run knip --prefix frontend",

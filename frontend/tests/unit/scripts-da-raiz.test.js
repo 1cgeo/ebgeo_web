@@ -47,6 +47,12 @@ const SO_UM_PACOTE_DE_PROPOSITO = new Map([
     // Estes dois SÃO Playwright (browser), caros demais para o loop; ficam manuais.
     ['test:e2e:ui', 'Playwright com browser, caro demais para o encadeamento do DoD'],
     ['test:e2e:mega', 'idem, e roda headed'],
+    // O SEGUNDO NAVEGADOR (B11, 2026-09-15). Playwright de novo, e fora do encadeamento pela
+    // mesma razão dos dois acima; mas há uma a mais, que é o motivo de ele existir como script
+    // separado em vez de uma bandeira: o projeto `firefox` do `playwright.config.js` só entra no
+    // array quando a linha de comando o nomeia, então "test:e2e:ui verde" NUNCA significa que o
+    // Firefox passou, e um comando com nome próprio é o que torna essa assimetria legível.
+    ['test:e2e:firefox', 'Playwright no segundo navegador (--project=firefox), fora da rodada normal'],
     // Os dois cenários de config DEDICADA (B11, 2026-09-13): só rodam por estes scripts,
     // porque o `playwright.config.js` normal não os casa. "test:e2e:ui verde" não os cobre.
     ['test:e2e:atlas', 'Playwright com config própria (playwright.atlas-safety.config.js)'],
