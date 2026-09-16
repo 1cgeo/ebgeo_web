@@ -3,6 +3,9 @@
 Real-browser (Chromium) end-to-end layer, **complementary** to the headless Node E2E
 in `tests/e2e/` (which drives the same transport in Node against the real backend).
 
+O SEGUNDO NAVEGADOR existe e **não entra na rodada normal**: ver §A matriz do segundo
+navegador (Firefox), no fim deste arquivo.
+
 ## What it covers
 
 - **`smoke.spec.js`** — the app boots in real Chromium (served by Vite) and mounts a
@@ -439,6 +442,92 @@ Se o `StartTime` for anterior à sua última edição, mate o processo antes de 
 qualquer coisa sobre a tela. Um verde (ou um vermelho) obtido de um Vite mais velho que o
 código não afirma nada sobre o código.
 
+## A matriz do segundo navegador (Firefox)
+
+A homologação B11 pede um segundo navegador, e até 2026-09-15 só o Chromium tinha sido
+exercitado. O Firefox do Playwright (151, build `firefox-1532`) se busca UMA vez com
+`npx playwright install firefox`, que baixa para o cache global do Playwright e **não toca o
+repositório**.
+
+**Ele fica FORA da rodada normal, de propósito.** O projeto `firefox` do `playwright.config.js`
+só entra no array de projetos quando a linha de comando o nomeia (`TARGETING_FIREFOX`), então
+`npm run test:e2e:ui` continua sendo Chromium e só Chromium — um segundo projeto no array
+dobraria a suíte inteira em silêncio. Conferido: `playwright test --list` sozinho lista 374 casos,
+todos `[chromium]`; com `--project=firefox`, 374, todos `[firefox]`.
+
+```bash
+npm run test:e2e:firefox                      # a matriz mínima, na raiz e no frontend
+npm run test:e2e:atlas -- --project=firefox   # o cenário de config dedicada, no segundo navegador
+```
+
+### A matriz medida (2026-09-15, worktree `plano/ffx`, uma rodada por porta privada)
+
+| spec | Chromium | Firefox | classificação do vermelho |
+|---|---|---|---|
+| `browser-migracao-2.2.spec.js` (8 casos) | 8/8 | 8/8 | — (era 2/8 antes dos consertos: boot travado) |
+| `atlas-data-safety.scenario.js` (3, `test:e2e:atlas`) | 3/3 | 3/3 | — |
+| `browser-collab-feature-mutations.spec.js` | 3/3 em série | 3/3 em série | instrumento (limpeza de anel + relógio) |
+| `browser-collab-maps-layers.spec.js` | 3/3 em série | 3/3 em série | — |
+| `browser-multi-tab-namespace.spec.js` (10 casos) | 10/10 | 10/10 | — |
+| `browser-confirm-logout.spec.js` (3 casos) | 3/3 | 3/3 | — |
+| `browser-cesium3d.spec.js` (4 casos) | 4/4 | 4/4 | — |
+| painel de pendências (captura temporária, apagada) | abre e desenha | abre e desenha | — (ver a ressalva abaixo) |
+
+**WebGL2 EXISTE no Firefox do Playwright**, e isso foi medido e não suposto (`getContext('webgl2')`
+responde, o MapLibre monta e o canvas do mapa desenha). `browser-cesium3d.spec.js`, apesar do nome,
+é um teste de TRANSPORTE e não abre o visualizador Cesium; a abertura do visualizador continua se
+auto-pulando sem cena servida, nos dois navegadores, exatamente como antes.
+
+### Os quatro vermelhos, e de quem era cada um
+
+- **Produto, e só o Firefox mostrava: o boot inteiro ficava refém de `navigator.storage.persist()`.**
+  No Chromium a permissão é concedida por heurística e a promessa resolve em 0 ms; no Firefox ela
+  ABRE UM DIÁLOGO e fica pendente até alguém responder (medido: seguia pendente depois de 8 s). Com
+  `await pedirPersistencia()` no boot, o mapa nunca montava — sem erro, sem console, sem tela de
+  indisponível, `#map-sig` vazio, e a suíte inteira reprovando em `waitForMap`. O `try/catch` do
+  módulo cobria a promessa que REJEITA e não a que NUNCA SE RESOLVE. Consertado com prazo e um
+  quarto desfecho (`pendente`) em `frontend/src/js/store/storage-persistence.js`; guarda em
+  `frontend/tests/store/pedido-de-persistencia-no-boot.test.js`, com controle negativo (revertido o
+  prazo, os dois casos novos reprovam e os outros nove continuam verdes).
+- **Instrumento, e ele matava o PROCESSO e não o teste: `FFPage._onWebSocketOpened` do Playwright.**
+  O driver de Firefox do Playwright 1.61.1 chama `assert(request)` sobre um mapa que só registra
+  pedidos do contexto principal, e o `/@vite/client` que o Vite injeta DENTRO do worker do MapLibre
+  abre um soquete que nasce fora dele. O sintoma é `Error: Assertion error` levando a rodada junto,
+  sem caso vermelho. Reproduzido em quatro linhas sem uma linha do EBGeo: página em branco +
+  `import('/src/js/map/maplibre.js')` vive; mais `new maplibregl.Map(...)` morre. Consertado em
+  `vite.e2e.config.js`, que troca as três construções de `WebSocket` do cliente do Vite por um dublê
+  inerte, no SERVIDOR (nenhuma rota de Playwright alcança o worker) e com contagem conferida, para
+  que um Vite futuro reprove alto em vez de devolver o crash em silêncio.
+- **Instrumento, relógio: o Firefox custa ~3x contra este dev server.** Medido no MESMO caso:
+  `browser-confirm-logout` 19,5 / 18,8 / 15,1 s contra 66 / 66 / 45,3 s; `browser-collab-maps-layers`
+  21,3 s contra 52,8 s. Com os 60 s de todo mundo, `browser-collab-feature-mutations` estourava no
+  meio do sexto passo e o vermelho ACUSAVA O PASSO (a carga tardia da ferramenta militar) em vez do
+  relógio — medida isolada, aquela ferramenta fica pronta em 2,8 s no Firefox contra 0,78 s no
+  Chromium. Daí o `timeout` triplo do projeto `firefox` e `tetoDoProjeto()` em `helpers/full-chain.js`.
+  **Só o relógio muda; asserção nenhuma foi afrouxada.**
+- **Instrumento, e este era um defeito de verdade do arnês: `clearTraces()` não esvaziava a janela.**
+  O contrato dele é "a próxima `expectFullSync` resolve o id da operação ATUAL", e quem resolve esse
+  id é a primeira `apply.persist` que casar depois do clear. Só que o ack da operação ANTERIOR
+  dispara `resolveLocalEdit`, que regrava a entidade e emite OUTRA `apply.persist` com o id VELHO;
+  caindo no anel recém-limpo, a cadeia inteira passava a perseguir a operação errada e o vermelho
+  era `BROKE AT LINK 2 — push.ack missing` (o ack daquela operação existiu, antes do clear). O anel
+  despejado mostrou as duas lado a lado. **Subir o teto de 15 s para 45 s NÃO consertava (0 de 3)**,
+  que é o que separa este caso do anterior. `clearClientTrace` agora limpa até o anel ficar quieto;
+  Chromium seguiu 3/3 (controle) e o Firefox foi de 0-1/3 para 3/3.
+
+### Duas ressalvas que o verde não conta
+
+- **A tela de pendências diz "Nenhuma pendência" com 2 operações na fila, NOS DOIS NAVEGADORES.**
+  Com o push abortado, `countPendingOperations()` devolve 2 e o crachá do Firefox escreve
+  "Enviando 2…", enquanto o painel desenha o estado vazio, cujo texto afirma que "tudo já foi aceito
+  pelo servidor". As duas capturas foram lidas e mostram o MESMO desfecho em Chromium e Firefox,
+  então isto **não é achado de segundo navegador**: é divergência entre superfícies, pré-existente,
+  e continua aberta. O que a matriz cobre é o que ela mediu: o painel ABRE e DESENHA certo no
+  Firefox (cabeçalho, botão de fechar, cartão), sem quebra de layout.
+- **Os pré-existentes de `browser-multi-tab-namespace` (A0b, A2, A3b) passaram nesta bateria**, nos
+  dois navegadores, e os `test.fail()` de A1/A2b/A4 já não existem. Não houve bissecção para dizer
+  o que os fechou, então a única afirmação sustentada aqui é a medição: 10 de 10, duas vezes.
+
 ## Prerequisites (one-time)
 
 Playwright is a `devDependency` but the browser binary must be fetched. Because
@@ -447,6 +536,7 @@ Playwright is a `devDependency` but the browser binary must be fetched. Because
 ```bash
 npm install                       # installs @playwright/test
 npx playwright install chromium   # downloads the Chromium build
+npx playwright install firefox    # o segundo navegador da matriz de homologacao (B11)
 ```
 
 Also needs a reachable PostgreSQL with PostGIS (same as the backend test suite:

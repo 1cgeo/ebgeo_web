@@ -37,6 +37,16 @@ Mudança em qualquer um dos dois é invisível a este repositório e a todos os 
 
 Não há mais bloqueio automático (o hook `PreToolUse` foi removido em 2026-07-18), então a cautela aqui é humana: este script troca o symlink que o NGINX serve, e o custo de um erro não se compara ao de um erro em `frontend/src/`. O `.gitignore` da raiz versiona o `deploy.sh` e ignora `deploy/releases/` e `deploy/current`, que são artefatos do host.
 
+## O segundo navegador é um comando próprio, e "verde" no primeiro não diz nada sobre ele
+
+A camada de navegador (`frontend/tests/e2e-ui/`) roda em Chromium e **só** em Chromium: o projeto `firefox` do `frontend/playwright.config.js` nem entra no array de projetos a menos que a linha de comando o nomeie, o que é deliberado (um segundo projeto no array dobraria a suíte inteira em silêncio). A matriz de homologação é `npm run test:e2e:firefox`, na raiz e no frontend, mais `npm run test:e2e:atlas -- --project=firefox` para o cenário de config dedicada. O binário se busca uma vez com `npx playwright install firefox`, que baixa para o cache global do Playwright e não toca o repositório. A matriz medida, caso a caso, vive em `frontend/tests/e2e-ui/README.md`.
+
+O que a primeira passada dessa matriz ensinou, e que vale além do Firefox:
+
+- **Um pedido opcional pode segurar o boot inteiro, e `try/catch` não protege disso.** `navigator.storage.persist()` é concedido por heurística no Chromium e por DIÁLOGO no Firefox, onde a promessa fica pendente até alguém responder. Com o boot aguardando esse pedido, o mapa não montava e nada aparecia: sem erro, sem console, sem tela de indisponível. `try/catch` cobre a promessa que rejeita e não cobre a que nunca se resolve. Ver [[sessao-boot-e-ciclo-de-vida]].
+- **O aparelho de medir tem um limite que se parece com defeito do produto.** O driver de Firefox do Playwright 1.61.1 quebra ao ver um WebSocket cujo aperto de mão ele não registrou, e o `/@vite/client` que o Vite injeta dentro do worker do MapLibre abre exatamente um desses: o processo do Playwright morre com `Error: Assertion error` e leva a rodada junto, sem teste vermelho. O `vite.e2e.config.js` troca o soquete do cliente por um dublê inerte, o que de quebra entrega a ausência de canal que o controle A0z daquela camada queria e não conseguia.
+- **Um vermelho de relógio acusa o passo errado.** O Firefox custa cerca de 3x contra o dev server, e um caso que estoura o orçamento reprova apontando para o que estava em voo naquele instante. Daí o `timeout` triplo do projeto e o teto de elo por projeto em `frontend/tests/e2e-ui/helpers/full-chain.js`: relógio, nunca asserção.
+
 ## Histórico
 
 - 2026-02-18: modelo de releases + symlink swap substitui a sobrescrita direta de `dist/`. Origem desta página, um tutorial solto dentro de `deploy/`, absorvido e removido em 2026-07-18.
