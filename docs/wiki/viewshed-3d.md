@@ -181,20 +181,35 @@ O 1 px do vendor em 240 graus e o achado que vale guardar: naquela vista a acne 
 
 O veredicto e o mesmo para os dois motores, com quinze vezes de diferenca no tamanho: **os dois abrem uma cunha cega na emenda, e a do vendor e grosseira**. Nada no desenho da casa esta errado em relacao ao que foi substituido; o que estava errado era a folga, nos dois.
 
-### O conserto: a folga e ZERO, e o sinal do erro residual e a razao
+### O conserto, parte 1: a folga e ZERO
 
-`SEAM_NARROWING_DEGREES` passou a ser zero. Os pedacos vizinhos passam a ENCOSTAR, e o `>` estrito do shader pinta duas vezes o conjunto degenerado, que tem medida zero: no setor de 320 graus sobram 170 pixels de mistura dupla espalhados por tres colunas de 720 linhas, e no de 180, nenhum. A fresta vai a 0 px nas oito aberturas, na vista larga e na aproximada, e a sombra do muro volta a atravessar a costura inteira.
+`SEAM_NARROWING_DEGREES` passou a ser zero. Os pedacos vizinhos passam a ENCOSTAR, e o `>` estrito do shader pinta duas vezes o conjunto degenerado, que tem medida zero: no setor de 320 graus sobram 170 pixels de mistura dupla espalhados por tres colunas de 720 linhas, e no de 180, nenhum.
 
-**A pergunta que decide entre "zero" e "um numero pequeno" e o SINAL do erro residual**, e ele foi medido por bisseccao, achando o azimute em que cada pedaco passa a recusar. Os dois pedacos nao concordam exatamente sobre onde esta a fronteira, porque o angulo que o shader mede e em torno do eixo "para cima" de CADA pedaco e o Cesium ortogonaliza esse eixo contra a direcao de cada um. A divergencia, em graus de azimute:
+Isso fechou a fresta no CHAO e na SOMBRA, e nao fechou a emenda. O que faltava esta na secao seguinte, e quem o achou foi a leitura das referencias recem-geradas, pixel a pixel, depois de as reguas terem passado verde.
 
-| distancia do observador | 180 graus | 320 graus |
+### O conserto, parte 2: os dois pedacos mediam azimute em torno de eixos DIFERENTES
+
+Com a folga em zero, as duas referencias novas ainda traziam **uma fenda de 2 px de largura por 16 px de altura (setor de 180, linhas 347 a 362) e 25 px (setor de 320, linhas 339 a 363)**: exatamente sobre a emenda, na face de CIMA do muro e na borda alta da face frontal, visivel a olho como um traco branco no topo do muro.
+
+**O mecanismo, medido.** O shader mede o azimute do fragmento em torno de um eixo "para cima" que era o da camera de CADA pedaco. `Camera` mantem os tres eixos ortonormais, entao ele INCLINA o "para cima" contra a direcao de cada pedaco, e dois pedacos que olham para direcoes diferentes recebem eixos diferentes: medidos **0,517 grau** entre eles no setor de 180 e **0,611** no de 320, com apenas 0,46 grau de inclinacao da visada (o alvo esta no chao e o olho 1,5 m acima dele, a 186 m). Medir azimute em torno de eixos diferentes faz os dois pedacos discordarem sobre ONDE esta a fronteira, e a discordancia e proporcional a TANGENTE da elevacao do fragmento. E isso que a tabela anterior desta pagina nao previu: ela foi medida so' em pontos do CHAO, e no chao o sinal e o outro.
+
+| elevacao do fragmento (a 115 m) | antes: 180 / 320 | depois: 180 / 320 |
 |---|---|---|
-| 20 m | -0,038 | -0,044 |
-| 50 m | -0,014 | -0,017 |
-| 100 m | -0,007 | -0,008 |
-| 180 m | -0,003 | -0,004 |
+| chao, -0,75 grau | -0,006 / -0,007 | -0,0014 / -0,0016 |
+| altura do olho, 0 grau | +0,001 / +0,001 | -0,0014 / -0,0016 |
+| topo do muro, +2,74 graus | **+0,026 / +0,030** | -0,0014 / -0,0016 |
+| +11 m, +5,46 graus | +0,050 / +0,059 | -0,0014 / -0,0016 |
+| +20 m, +9,87 graus | +0,091 / +0,107 | -0,0014 / -0,0016 |
 
-Negativo quer dizer SOBREPOSICAO. Para todo fragmento abaixo do horizonte, que e onde o chao esta, a emenda ja fecha sozinha com centesimos de grau de sobra, e uma folga positiva SOMA a esse numero. Por isso a resposta certa e zero e nao 0,01. Acima do horizonte o sinal inverte, entao o topo de um obstaculo muito proximo pode mostrar a mesma ordem de grandeza como fresta: centesimos de grau, sub-pixel em toda medicao feita ate aqui, e declarado aqui em vez de escondido.
+Negativo e SOBREPOSICAO, que e o desfecho invisivel; positivo e fresta. O sinal trocava exatamente no horizonte do observador. Os +0,026 grau do topo do muro sao 5,2 cm de mundo a 115 m, cerca de um pixel naquele enquadramento, e a rasterizacao os pinta em duas colunas.
+
+**Nenhuma folga consertaria isso, e e por isso que a resposta nao foi um numero negativo pequeno:** o erro e proporcional a `tan(elevacao)` e uma folga e constante. Fecha-la no topo do muro abriria sobreposicao mensuravel no chao, e um obstaculo mais alto reabriria a fresta de qualquer jeito (a 45 graus de elevacao ela mede meio grau, que a 1 km sao 9 m de chao sem resposta).
+
+**O conserto e medir em torno do MESMO eixo.** A vertical local no observador e a mesma conta para todos os pedacos, entao ela passou a ser guardada antes de o Cesium ortogonalizar e e ela que vai ao shader; e a funcao de angulo passou a projetar TAMBEM o eixo de referencia, sem o que ela devolve `acos(cos(azimute) * cos(inclinacao))` em vez do azimute (o que sozinho ja abria 0,001 grau de fresta com 0,46 grau de inclinacao, e passaria de 9 graus com um observador 40 m acima do alvo a 100 m). Com os dois, a divergencia entre os pedacos ficou CONSTANTE em elevacao e em distancia, na coluna da direita da tabela; o que sobra dela vem de a rotacao dos pedacos ser em torno da normal do ELIPSOIDE enquanto o azimute e medido em torno da GEOCENTRICA, que nesta latitude diferem 0,14 grau: efeito de segunda ordem, 0,0015 grau, 3 mm de chao a 115 m e 1,3 cm a 500 m, sempre com o sinal da sobreposicao.
+
+O custo no desenho foi medido nas tres referencias: 10 pixels de 881280 na de 120 graus (0,001%), 32 na de 180 e 50 na de 320. Os 32 e os 50 sao exatamente 2x16 e 2x25, isto e, a fenda e nada mais.
+
+**O que continua sem regua, declarado:** a MALHA do tronco e desenhada no referencial da camera do observador, enquanto a tinta passou a medir azimute em torno da vertical local. As duas coincidem com visada horizontal e divergem com o QUADRADO da inclinacao (0,002 grau nesta cena, 4 graus para um observador 40 m acima do alvo a 100 m). A tinta e a resposta; a malha e anotacao.
 
 ### Como isso se mede hoje
 
@@ -202,12 +217,14 @@ Dois casos novos em [`../../frontend/tests/e2e-ui/viewshed-3d-pixel.spec.js`](..
 
 | regua | o que ela ve se a costura estiver errada | controle negativo |
 |---|---|---|
-| fresta, no chao e dentro da sombra | corrida continua de pixels sem tinta | folga 0,1 reprova com 4 px; folga 1,5 com 62 px |
+| fresta, na coluna da emenda INTEIRA (chao, muro e sombra) | corrida continua de pixels sem tinta, com a linha em que ela esta | eixo de azimute por pedaco reprova com 2 px em y=347 e y=339; folga 0,1 com 4 px; folga 1,5 com 64 px |
 | faixa saturada (mediana do canal oposto na emenda contra o mesmo chao a mais de 5 graus) | 31 contra 62, metade | folga -1,5 reprova, mediana 31 |
 | sombra continua (vermelho descendo a coluna da emenda) | coluna sem vermelho, ou vermelho interrompido | folga 0,1 deixa a coluna central com 0 de 141 |
 | pixel e classe contra referencia | qualquer mudanca de desenho | a referencia e regerada por `EBGEO_VIEWSHED_REFERENCIA=1` |
 
 **Cada regua vem precedida da guarda que a impede de ser vazia**, e uma delas foi paga em vermelho durante esta propria revisao: a regua da sombra, escrita sem contagem por coluna, reportava buraco ZERO justamente no caso em que a fresta tinha comido a coluna inteira, porque uma coluna sem nenhum vermelho nunca abre uma corrida. A guarda tambem nao pode ser sensivel ao defeito que protege: medida no meio da janela varrida, ela caia junto com a fresta e passava a gritar "nao ha tinta" sobre uma imagem cheia de tinta. Ela mede as duas BORDAS da janela.
+
+**E MESMO ASSIM AS REGUAS DEIXARAM PASSAR A FENDA DO MURO, por duas razoes que valem mais que ela.** A primeira e de JANELA: a varredura eram duas faixas, o chao (linhas 470 a 710) e a sombra (190 a 330), e o muro mora nas linhas 339 a 455, ou seja, no vao entre elas. Media-se dos dois lados do defeito sem tocar nele. A segunda e de CLASSIFICADOR: a face de cima do muro sem tinta e (211, 205, 193), e o piso de branco de 190 a chamava de FIO DE ARAME, que e justamente o que a regua trata como anotacao desenhada por cima e usa para ZERAR a corrida de chao cru. Uma fenda de 16 px sobre aquela face era lida como zero. Hoje a varredura e uma faixa unica, do arco de distancia ate a borda de baixo do quadro, e o piso do branco e 235.
 
 ## Ver também
 

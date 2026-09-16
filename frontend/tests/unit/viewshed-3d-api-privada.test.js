@@ -73,6 +73,10 @@ const NOSSOS_CAMPOS = new Set([
     '_distance',
     '_destroyed',
     '_observerCamera',
+    // A vertical local no observador, guardada antes de o Cesium ortogonalizar o "para cima" da
+    // camera contra a direcao de cada pedaco. E campo NOSSO, e existe desde 2026-09-16 porque
+    // medir azimute em torno do eixo de cada pedaco abria uma fenda na costura acima do horizonte.
+    '_azimuthAxis',
     '_shadowMap',
     '_postProcess',
     '_outline',

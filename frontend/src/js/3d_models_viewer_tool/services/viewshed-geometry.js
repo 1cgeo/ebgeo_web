@@ -44,11 +44,17 @@ export const MAX_SINGLE_VIEWSHED_ANGLE = 150;
  * 155, 180, 240, 300, 301, 320 e 360), sempre 4 px na vista aproximada e 0 ou 1 px na vista larga:
  * a fresta nao dependia da abertura, dependia de quao perto se olhava.
  *
- *     folga    fresta (vista larga)   fresta (vista aproximada)   mediana do canal oposto na emenda
- *     1,5              9 px                    60 px              (a emenda nao tem tinta nenhuma)
- *     0,1            0 a 1 px                   4 px                    62, igual ao chao vizinho
- *     0                0 px                     0 px                    62, igual ao chao vizinho
- *    -1,5               0 px                    0 px               31, METADE do chao vizinho
+ * E ZERAR A FOLGA NAO BASTOU, porque ela nao era a unica coisa a abrir a emenda: ver o bloco do
+ * erro residual, adiante.
+ *
+ * A tabela abaixo e a coluna da emenda INTEIRA (chao, muro e sombra do muro), na vista aproximada,
+ * medida em 2026-09-16:
+ *
+ *     folga    maior corrida de chao cru    mediana do canal oposto na emenda
+ *     1,5               64 px               (a emenda nao tem tinta nenhuma)
+ *     0,1                4 px                     62, igual ao chao vizinho
+ *     0                  0 px                     62, igual ao chao vizinho
+ *    -1,5                0 px               31, METADE do chao vizinho
  *
  * O CONTROLE NEGATIVO ESTA NAS DUAS PONTAS: acima, a fresta; abaixo, a faixa saturada, que e o
  * defeito que a folga existia para evitar e que so aparece com SOBREPOSICAO de verdade. Em cima da
@@ -58,25 +64,28 @@ export const MAX_SINGLE_VIEWSHED_ANGLE = 150;
  * 720 linhas, e no de 180 graus, nenhum; a mediana do canal oposto na faixa da emenda continua a do
  * chao vizinho, que e a regua que acusa a faixa saturada.
  *
- * E HA UMA RAZAO PARA O ZERO SER SEGURO, E ELA E O SINAL DO ERRO RESIDUAL. Os dois pedacos nao
- * concordam sobre onde exatamente esta a fronteira: o angulo que o shader mede e em torno do eixo
- * "para cima" de CADA pedaco, e o Cesium ortogonaliza esse eixo contra a direcao de cada um, entao
- * as duas contas divergem um pouco para um fragmento fora do plano horizontal do observador. A
- * divergencia foi medida por bisseccao, em graus de azimute, e o sinal dela e SOBREPOSICAO para
- * todo fragmento ABAIXO do horizonte, que e onde o chao esta:
+ * ZERO SO E SEGURO PORQUE O ERRO RESIDUAL TEM O SINAL DA SOBREPOSICAO, E ATE 2026-09-16 ELE NAO
+ * TINHA. A primeira versao desta nota mediu a divergencia entre os dois pedacos so' em pontos do
+ * CHAO e concluiu que ela era sempre sobreposicao; ela era proporcional a TANGENTE da elevacao do
+ * fragmento e trocava de sinal acima do horizonte do observador, porque cada pedaco media azimute
+ * em torno do proprio eixo "para cima". A leitura das duas referencias de pixel achou o que sobrou
+ * disso: 2 px de largura por 16 e 25 de altura no topo de um muro 5,5 m acima do olho. O conserto
+ * esta em `viewshed-3d.js` (`_azimuthAxis`, a vertical local, comum aos pedacos, mais a projecao
+ * do eixo de referencia dentro de `angleAround`), e com ele a divergencia passou a ser CONSTANTE em
+ * elevacao e em distancia, medida por bisseccao em graus de azimute:
  *
- *     distancia do observador    180 graus     320 graus
- *              20 m               -0,038        -0,044
- *              50 m               -0,014        -0,017
- *             100 m               -0,007        -0,008
- *             180 m               -0,003        -0,004
+ *     elevacao do fragmento     antes (180 / 320)      depois (180 / 320)
+ *     chao a 115 m (-0,7)        -0,006 / -0,007        -0,0014 / -0,0016
+ *     altura do olho (0,0)       +0,001 / +0,001        -0,0014 / -0,0016
+ *     topo do muro (+2,7)        +0,026 / +0,030        -0,0014 / -0,0016
+ *     +20 m a 115 m (+9,9)       +0,091 / +0,107        -0,0014 / -0,0016
  *
- * (negativo = os pedacos se sobrepoem). Ou seja, com folga zero a emenda fecha com uma sobra de
- * centesimos de grau, que a 100 m e menos de um centimetro de chao, e nunca abre. Uma folga
- * positiva SOMA a esse numero e vira fresta; e por isso que a resposta certa aqui e zero e nao um
- * numero pequeno. Acima do horizonte o sinal inverte, entao o topo de um obstaculo muito proximo
- * pode mostrar a mesma ordem de grandeza como fresta: centesimos de grau, sub-pixel em toda
- * medicao feita ate aqui, e declarado em vez de escondido.
+ * (negativo = os pedacos se sobrepoem, que e o desfecho invisivel). O que sobra vem de a ROTACAO
+ * dos pedacos ser em torno da normal do elipsoide enquanto o azimute e medido em torno da normal
+ * geocentrica: as duas diferem 0,14 grau nesta latitude, e o efeito de segunda ordem disso sao os
+ * 0,0015 grau da coluna da direita, 3 mm de chao a 115 m e 1,3 cm a 500 m. Uma folga positiva SOMA
+ * a esse numero e vira fresta, e e por isso que a resposta certa aqui e zero e nao um numero
+ * pequeno.
  *
  * Guarda: `frontend/tests/e2e-ui/viewshed-3d-pixel.spec.js`, nos dois casos de costura.
  */

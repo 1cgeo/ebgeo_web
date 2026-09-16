@@ -109,8 +109,19 @@ in vec2 v_textureCoordinates;
 
 const float DEGREES_PER_RADIAN = 57.29577951308232;
 
-// Angle, in degrees, between toPoint and the forward axis, measured in the plane whose normal
-// is "axis".
+// Angle, in degrees, between toPoint and forward, BOTH projected onto the plane whose normal is
+// "axis".
+//
+// PROJECTING forward TOO IS WHAT MAKES THIS A TRUE AZIMUTH, and until 2026-09-16 it was left
+// unprojected. When forward is not perpendicular to the axis, which is the normal case (the
+// target sits on the ground and the eye is above it, so the view pitches down), the unprojected
+// form returns acos(cos(azimuth) * cos(pitch)) instead of the azimuth. That shrinks every piece
+// of a split sector by the same amount, which opens a gap exactly on the seam, and it grows with
+// the SQUARE of the pitch: 0,001 degree at the 0,46 degree pitch of the pixel test, but over 9
+// degrees of blind wedge for an observer 40 m up looking 100 m away.
+//
+// For the vertical test this projection is a no-op: forward is already perpendicular to the
+// camera's right axis, which is the axis that test passes.
 //
 // EVERY COMMENT IN THIS SOURCE IS A LINE COMMENT, AND ISSO NAO E ESTILO. Cesium's removeComments
 // counts the newlines inside each doc-style block comment it finds, and a block comment that has
@@ -121,11 +132,12 @@ const float DEGREES_PER_RADIAN = 57.29577951308232;
 float angleAround(vec3 axis, vec3 toPoint, vec3 forward)
 {
     vec3 projected = toPoint - axis * dot(axis, toPoint);
-    float lengths = length(projected) * length(forward);
+    vec3 reference = forward - axis * dot(axis, forward);
+    float lengths = length(projected) * length(reference);
     if (lengths == 0.0) {
         return 0.0;
     }
-    return abs(acos(clamp(dot(projected, forward) / lengths, -1.0, 1.0))) * DEGREES_PER_RADIAN;
+    return abs(acos(clamp(dot(projected, reference) / lengths, -1.0, 1.0))) * DEGREES_PER_RADIAN;
 }
 
 // One PCF tap: 1.0 when the shadow map says this depth is the closest thing the observer sees.
@@ -354,6 +366,7 @@ export class Viewshed3D {
 
         this._destroyed = false;
         this._observerCamera = null;
+        this._azimuthAxis = null;
         this._shadowMap = null;
         this._postProcess = null;
         this._outline = null;
@@ -445,6 +458,7 @@ export class Viewshed3D {
         this._postProcess = null;
         this._outline = null;
         this._observerCamera = null;
+        this._azimuthAxis = null;
         this.viewer = null;
     }
 
@@ -485,6 +499,29 @@ export class Viewshed3D {
         camera.position = Cesium.Cartesian3.clone(this.cameraPosition, new Cesium.Cartesian3());
         camera.direction = Cesium.Cartesian3.normalize(forward, new Cesium.Cartesian3());
         camera.up = Cesium.Cartesian3.normalize(this.cameraPosition, new Cesium.Cartesian3());
+
+        // O EIXO DE AZIMUTE E A VERTICAL LOCAL, GUARDADA ANTES DE O CESIUM ORTOGONALIZAR, E A
+        // DIFERENCA ENTRE ELE E `camera.upWC` E O QUE ABRIA A COSTURA.
+        //
+        // `Camera` mantem os tres eixos ortonormais: ele recalcula `right = cross(direction, up)`
+        // e depois `up = cross(right, direction)`, ou seja, ele INCLINA o "para cima" contra a
+        // direcao de cada pedaco. Dois pedacos vizinhos de um setor partido olham para direcoes
+        // diferentes, entao recebem eixos "para cima" diferentes: medido nesta arvore em
+        // 2026-09-16, 0,517 grau entre eles num setor de 180 e 0,611 num de 320, com apenas 0,46
+        // grau de inclinacao da visada. Medir azimute em torno de eixos diferentes faz os dois
+        // discordarem sobre ONDE esta a fronteira, e a discordancia e proporcional a TANGENTE da
+        // elevacao do fragmento: negativa (sobreposicao, invisivel) abaixo do horizonte do
+        // observador e POSITIVA (fresta) acima dele. No chao a 115 m dava -0,006 grau; no topo de
+        // um muro 5,5 m acima do olho, +0,026 grau, que e a fresta de 2 px que sobrou na
+        // referencia de pixel de 2026-09-16 e que nenhuma folga constante fecharia, porque ela
+        // nao e constante.
+        //
+        // A vertical local e a MESMA para todos os pedacos (mesmo observador, mesma conta), entao
+        // medir em torno dela faz os dois concordarem bit a bit.
+        this._azimuthAxis = Cesium.Cartesian3.normalize(
+            this.cameraPosition,
+            new Cesium.Cartesian3(),
+        );
 
         this._distance = Number(
             Cesium.Cartesian3.distance(this.viewPosition, this.cameraPosition).toFixed(1),
@@ -631,8 +668,10 @@ export class Viewshed3D {
             );
         }
         if (axis === 'up') {
+            // A vertical local, e nao `upWC`: ver `_azimuthAxis`. Trocar por `upWC` reabre a
+            // fresta da costura, que e o controle negativo do caso de emenda do spec de pixel.
             return Cesium.Matrix4.multiplyByPointAsVector(
-                view, this._observerCamera.upWC, scratchUpEC,
+                view, this._azimuthAxis, scratchUpEC,
             );
         }
         return Cesium.Matrix4.multiplyByPointAsVector(
