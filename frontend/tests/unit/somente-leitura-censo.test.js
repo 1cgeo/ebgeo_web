@@ -67,6 +67,24 @@ const SITIOS = Object.freeze([
         arquivo: 'src/js/sidebar/tabs/maps.tab.js', ancora: "'sidebar-settings-btn edit-affordance'" },
     { nome: 'Temporal: engrenagem de configuração', classe: MARCA,
         arquivo: 'src/js/temporal/temporal-timeline-bar.js', ancora: 'temporal-bar__settings edit-affordance' },
+
+    // A SEGUNDA LEVA (2026-09-17), que o dono encontrou testando um mapa somente leitura na rede:
+    // "ele ainda está exibindo a escolha de basemap" e "quero que as ferramentas do 360 e 3d sejam
+    // suprimidas". As quatro perguntavam SÓ pela trava do mapa, que é a metade que o inventário de
+    // ontem já tinha nomeado, e por isso nasceram fora do censo: elas não desenhavam nada errado
+    // sobre um mapa travado, só sobre um papel sem edição.
+    { nome: 'Seletor de mapa base (a troca é escrita e PROPAGA ao atlas)', classe: PERGUNTA,
+        arquivo: 'src/js/base-layer-selector/base-layer-selector.control.js',
+        ancora: "semEdicaoSync('UPDATE_MAP')" },
+    { nome: 'Barra de ferramentas do 3D', classe: PERGUNTA,
+        arquivo: 'src/js/3d_models_viewer_tool/map_3d.js',
+        ancora: "toolbar3d.classList.toggle('map-locked', semEdicaoSync())" },
+    { nome: 'Barra de ferramentas do 360', classe: PERGUNTA,
+        arquivo: 'src/js/street_view_tool/components/streetview-sidebar.js',
+        ancora: "elements.toolbar.classList.toggle('map-locked', semEdicaoSync())" },
+    { nome: 'Aba de camadas (o container inteiro)', classe: PERGUNTA,
+        arquivo: 'src/js/features_tab/features_tab.js',
+        ancora: "this.container.classList.toggle('map-locked', semEdicaoSync())" },
 ]);
 
 describe('somente leitura: as superfícies de edição somem', () => {
@@ -125,5 +143,87 @@ describe('somente leitura: as superfícies de edição somem', () => {
         const catalogo = semComentarios(fonte('src/js/features_tab/catalog-layers.component.js'));
         expect(catalogo).toContain('const removida = await removeCatalogLayer(layer.id);');
         expect(catalogo).toMatch(/if \(!removida\) return;/);
+    });
+});
+
+/**
+ * AS DUAS BARRAS DE VISUALIZADOR, que somem por CSS e não por marca no elemento.
+ *
+ * O 3D e o 360 já tinham a regra certa e completa (`#toolbar-3d.map-locked .button-tool-3d:not(
+ * #help-3d, #voar-camera)` e a irmã do 360), escrita para o mapa travado. O que faltava era a
+ * CONTA: quem aplicava a classe perguntava só pela trava. O censo acima prende a conta; este bloco
+ * prende o desenho, porque uma conta certa com o CSS apagado esconderia exatamente nada.
+ */
+describe('somente leitura: as barras do 3D e do 360', () => {
+    it('o CSS do 3D esconde os comandos e preserva a ajuda e o voo para a posição salva', () => {
+        const css = fonte('src/css/panels-3d.css');
+        expect(css).toMatch(/#toolbar-3d\.map-locked \.button-tool-3d:not\(#help-3d, #voar-camera\)/);
+        expect(css).toMatch(/#toolbar-3d\.map-locked \.toolbar-3d-separator/);
+    });
+
+    it('o CSS do 360 esconde os comandos e preserva a ajuda', () => {
+        const css = fonte('src/css/panels-360.css');
+        expect(css).toMatch(/#toolbar-360\.map-locked \.button-tool-360:not\(#help-360\)/);
+        expect(css).toMatch(/#toolbar-360\.map-locked \.toolbar-360-separator/);
+    });
+
+    it('os portões de GESTO das duas barras usam a mesma conta do desenho', () => {
+        // O comando escondido ainda é alcançável por atalho de teclado (M, V), e o portão é o que
+        // fecha esse caminho. Eram seis `isCurrentMapLockedSync` — três no 360 (marcador, salvar e
+        // limpar orientação) e três no 3D (ativação de ferramenta, salvar e limpar câmera).
+        const sv = semComentarios(fonte('src/js/street_view_tool/components/streetview-sidebar.js'));
+        const tres = sv.match(/if \(semEdicaoSync\(\)\) return;/g) ?? [];
+        expect(tres.length, 'os três portões do 360').toBe(3);
+
+        const m3d = semComentarios(fonte('src/js/3d_models_viewer_tool/map_3d.js'));
+        expect((m3d.match(/if \(semEdicaoSync\(\)\) return;/g) ?? []).length, 'os três portões do 3D').toBe(3);
+
+        // E nenhuma das duas volta a perguntar só pela trava.
+        expect(sv).not.toContain('isCurrentMapLockedSync');
+        expect(m3d).not.toContain('isCurrentMapLockedSync');
+    });
+
+    it('a barra do 360 aplica o estado na ABERTURA, e não só quando um evento chega', () => {
+        // O segundo defeito do mesmo lugar: a assinatura antiga era `eventBus.on(MAP_LOCK_CHANGED)`
+        // e nada aplicava o estado inicial, então a barra nascia inteira sobre um mapa travado e só
+        // se corrigia se alguém destravasse e travasse de novo. `assinarEdicaoIndisponivel` chama o
+        // callback uma vez, e é ISSO que fecha o buraco.
+        const sv = semComentarios(fonte('src/js/street_view_tool/components/streetview-sidebar.js'));
+        expect(sv).toContain('assinarEdicaoIndisponivel');
+        expect(sv).not.toMatch(/eventBus\.on\(EventTypes\.MAP_LOCK_CHANGED/);
+    });
+});
+
+/**
+ * O ASSINANTE ÚNICO: quem escuta metade dos eventos acerta metade das vezes.
+ *
+ * As quatro superfícies desta leva assinavam só `MAP_LOCK_CHANGED`. Com a conta somando o papel, o
+ * evento que falta é o que conta: entrar, sair, conectar e trocar de atlas mudam a resposta sem
+ * tocar em trava nenhuma, e a tela ficaria congelada no estado com que nasceu.
+ */
+describe('o assinante único cobre os dois eixos', () => {
+    const modulo = semComentarios(fonte('src/js/store/edicao-indisponivel.js'));
+
+    it('assina os cinco eventos que mudam a resposta', () => {
+        for (const evento of ['MAP_LOCK_CHANGED', 'SESSION_CHANGED', 'CONNECTION_STATE_CHANGED',
+            'ATLAS_SWITCHED', 'ALL_DATA_CLEARED']) {
+            expect(modulo, `falta ${evento}`).toContain(evento);
+        }
+    });
+
+    it('chama o callback uma vez na assinatura, e devolve como desassinar', () => {
+        expect(modulo).toMatch(/export function assinarEdicaoIndisponivel\(callback\) \{\s*callback\(\);/);
+        expect(modulo).toMatch(/return \(\) => \{ for \(const s of soltar\) s\?\.\(\); \};/);
+    });
+
+    it('as quatro superfícies da leva usam o assinante, e não uma assinatura própria pela metade', () => {
+        for (const arquivo of [
+            'src/js/base-layer-selector/base-layer-selector.control.js',
+            'src/js/3d_models_viewer_tool/map_3d.js',
+            'src/js/street_view_tool/components/streetview-sidebar.js',
+            'src/js/features_tab/features_tab.js',
+        ]) {
+            expect(semComentarios(fonte(arquivo)), arquivo).toContain('assinarEdicaoIndisponivel');
+        }
     });
 });

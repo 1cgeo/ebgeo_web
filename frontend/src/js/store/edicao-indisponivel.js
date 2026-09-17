@@ -28,6 +28,8 @@
  *   @store/sync/permission-guard.js (checkPermission)
  */
 
+import { getEventBus } from './services.js';
+import { EventTypes } from '../events/event_types.js';
 import { isCurrentMapLockedSync } from './map.operations.js';
 import { checkPermission } from './sync/permission-guard.js';
 
@@ -68,4 +70,48 @@ export function edicaoIndisponivelSync(acao = 'UPDATE_FEATURE') {
  */
 export function semEdicaoSync(acao = 'UPDATE_FEATURE') {
     return edicaoIndisponivelSync(acao).bloqueado;
+}
+
+/**
+ * Os eventos que podem mudar a resposta de {@link edicaoIndisponivelSync}.
+ *
+ * SÃO DOIS EIXOS E CINCO EVENTOS, e é justamente por isso que esta lista mora aqui: cada superfície
+ * que assinava por conta própria assinava só metade. As quatro que o dono encontrou em 2026-09-17
+ * (o seletor de mapa base, a barra do 3D, a barra do 360 e a aba de camadas) escutavam apenas
+ * `MAP_LOCK_CHANGED` e nada sabiam de sessão, então mudar de papel não mexia na tela até alguém
+ * travar um mapa.
+ *
+ * `MAP_LOCK_CHANGED` cobre DOIS fatos, e isso não é acidente: `setCurrentMap` o emite ao trocar o
+ * mapa ativo (é o que `deep-link/atlas-url-sync.js` usa para atualizar a `?map=`), e a trava é por
+ * mapa, então a troca muda a resposta tanto quanto a trava.
+ */
+const EVENTOS_QUE_MUDAM_A_RESPOSTA = Object.freeze([
+    'MAP_LOCK_CHANGED',
+    'SESSION_CHANGED',
+    'CONNECTION_STATE_CHANGED',
+    'ATLAS_SWITCHED',
+    'ALL_DATA_CLEARED',
+]);
+
+/**
+ * Assina tudo o que pode mudar a resposta, e devolve como desassinar.
+ *
+ * O callback roda UMA VEZ na assinatura, de propósito: a superfície que só reagia ao evento nascia
+ * com o estado errado e se corrigia no primeiro evento que aparecesse (a barra do 360 abria inteira
+ * sobre um mapa travado até alguém destravar e travar de novo).
+ *
+ * @param {() => void} callback - Chamado agora e a cada mudança.
+ * @returns {() => void} Desassina todos os ouvintes.
+ */
+export function assinarEdicaoIndisponivel(callback) {
+    callback();
+    const bus = getEventBus();
+    const soltar = EVENTOS_QUE_MUDAM_A_RESPOSTA
+        .map((nome) => {
+            const tipo = EventTypes[nome];
+            if (!tipo) return null;
+            return bus.on(tipo, callback);
+        })
+        .filter(Boolean);
+    return () => { for (const s of soltar) s?.(); };
 }

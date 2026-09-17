@@ -62,7 +62,6 @@ import {
     deleteLayer,
     renameLayer,
     getCurrentMapNameSync,
-    isCurrentMapLockedSync,
     getSourceTypeFromStorage,
     getStorageTypeFromSource,
     getStateManager,
@@ -70,6 +69,7 @@ import {
     transferLayerToMap,
     TransferMode,
 } from '@store';
+import { assinarEdicaoIndisponivel, semEdicaoSync } from '@store/edicao-indisponivel.js';
 import { EventTypes } from '@events';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { showConfirm, showLayerTransferModal } from '@modals';
@@ -1109,10 +1109,10 @@ export class FeaturesTab {
             this._eventBus.on(EventTypes.VIEWER_3D_CLOSED, this._viewer3DClosedHandler)
         );
 
-        // Listen for map lock changes
-        this._mapLockChangedHandler = () => this._applyMapLockState();
+        // Tudo o que muda a resposta de "da para editar?": papel, conexao, troca de atlas e troca
+        // ou trava de mapa, numa assinatura so.
         this._unsubscribers.push(
-            this._eventBus.on(EventTypes.MAP_LOCK_CHANGED, this._mapLockChangedHandler)
+            assinarEdicaoIndisponivel(() => this._applyMapLockState())
         );
 
         // Listen for 360 viewer state changes
@@ -1158,7 +1158,6 @@ export class FeaturesTab {
 
         this._groupsChangedHandler = null;
         this._layersChangedHandler = null;
-        this._mapLockChangedHandler = null;
         this._viewer3DOpenedHandler = null;
         this._viewer3DClosedHandler = null;
         this._viewer360OpenedHandler = null;
@@ -1172,7 +1171,9 @@ export class FeaturesTab {
      */
     _applyMapLockState() {
         if (!this.container) return;
-        this.container.classList.toggle('map-locked', isCurrentMapLockedSync());
+        // Os dois eixos na mesma conta (2026-09-17): papel no atlas e trava do mapa. Perguntando so
+        // pela trava, a aba desenhava os controles de edicao para quem entrou como leitor.
+        this.container.classList.toggle('map-locked', semEdicaoSync());
     }
 
     /**

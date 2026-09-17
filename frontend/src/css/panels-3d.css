@@ -425,6 +425,12 @@ body.cesium-active .modal-overlay {
 }
 
 /* ===== MAP LOCK: HIDE WRITE-ACTION BUTTONS ===== */
+
+/* `map-locked` NAO E SO A TRAVA desde 2026-09-17: quem a aplica (`map_3d.js`) pergunta pela conta
+   unica de `store/edicao-indisponivel.js`, que soma o PAPEL no atlas e a trava do mapa. O nome da
+   classe ficou pelo custo de troca-lo em dois arquivos de CSS e nos testes que a leem; o que ela
+   significa e "nao da para editar agora", pelo motivo que for. A regra em si nao mudou: sobram a
+   ajuda e o voo para a posicao salva, que sao leitura. */
 #toolbar-3d.map-locked .button-tool-3d:not(#help-3d, #voar-camera) {
     display: none !important;
 }

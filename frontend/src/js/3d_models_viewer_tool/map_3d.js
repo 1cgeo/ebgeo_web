@@ -4,9 +4,9 @@ import {
     saveCameraPosition,
     getCameraPosition,
     hasSavedCameraPosition,
-    clearCameraPosition,
-    isCurrentMapLockedSync
+    clearCameraPosition
 } from '@store/index.js';
+import { assinarEdicaoIndisponivel, semEdicaoSync } from '@store/edicao-indisponivel.js';
 import { showSuccess, showError, showWarning } from '@utils/index.js';
 import { checkPermission } from '@store/sync/permission-guard.js';
 import { denialNotice } from '@store/denial-phrases.js';
@@ -605,8 +605,9 @@ function activeTool() {
     // Skip help button - handled separately
     if (toolId === 'help-3d') return;
 
-    // Block tool activation when map is locked
-    if (isCurrentMapLockedSync()) return;
+    // O PORTAO DO GESTO acompanha o do desenho: papel e trava, na mesma conta. Com o comando
+    // escondido ele quase nunca e alcancado pelo ponteiro, mas o atalho de teclado chega aqui.
+    if (semEdicaoSync()) return;
 
     // Skip non-toggleable tools and camera buttons (handled separately)
     const nonToggleable = ['salvar-camera', 'limpar-camera', 'share-3d'];
@@ -1111,18 +1112,20 @@ function registerToolEventListeners() {
         // Initialize camera buttons
         initCameraButtons();
 
-        // Apply map lock state to 3D toolbar
+        // A BARRA 3D SOME QUANDO NAO SE PODE EDITAR, e nao so quando o mapa esta travado (pedido
+        // do dono, 2026-09-17: "quero que as ferramentas do 360 e 3d sejam suprimidas no modo de
+        // somente leitura do mapa"). A regra de CSS que faz o desenho ja existia e ja era a certa
+        // (`#toolbar-3d.map-locked .button-tool-3d:not(#help-3d, #voar-camera)`, panels-3d.css): o
+        // que faltava era a conta, que perguntava so pela trava e nada sabia do papel no atlas.
         const toolbar3d = document.getElementById('toolbar-3d');
         if (toolbar3d) {
-            toolbar3d.classList.toggle('map-locked', isCurrentMapLockedSync());
             try {
-                const eventBus = getEventBus();
                 // Detach any previous subscription first: this runs on every viewer
                 // open and closeViewer() does not tear it down, so without this the
-                // MAP_LOCK_CHANGED listener accumulated one per open.
+                // listener accumulated one per open.
                 if (mapLockUnsub) mapLockUnsub();
-                mapLockUnsub = eventBus.on(EventTypes.MAP_LOCK_CHANGED, () => {
-                    toolbar3d.classList.toggle('map-locked', isCurrentMapLockedSync());
+                mapLockUnsub = assinarEdicaoIndisponivel(() => {
+                    toolbar3d.classList.toggle('map-locked', semEdicaoSync());
                 });
             } catch { /* EventBus not available */ }
         }
@@ -1143,7 +1146,7 @@ function initCameraButtons() {
 
         newSaveBtn.addEventListener('click', async (e) => {
             e.stopPropagation();
-            if (isCurrentMapLockedSync()) return;
+            if (semEdicaoSync()) return;
             const success = await saveCurrentCameraPosition();
             if (success) {
                 showSuccess('Posição da câmera salva!');
@@ -1158,7 +1161,7 @@ function initCameraButtons() {
 
         newClearBtn.addEventListener('click', async (e) => {
             e.stopPropagation();
-            if (isCurrentMapLockedSync()) return;
+            if (semEdicaoSync()) return;
             const success = await clearCurrentCameraPosition();
             if (success) {
                 showSuccess('Posição da câmera removida');

@@ -630,6 +630,10 @@ body.streetview-active .modal-overlay {
 }
 
 /* ===== MAP LOCK: HIDE WRITE-ACTION BUTTONS ===== */
+
+/* `map-locked` NAO E SO A TRAVA desde 2026-09-17: quem a aplica (`streetview-sidebar.js`) pergunta
+   pela conta unica de `store/edicao-indisponivel.js`, que soma o PAPEL no atlas e a trava do mapa.
+   Ver a nota irma em `panels-3d.css`. */
 #toolbar-360.map-locked .button-tool-360:not(#help-360) {
     display: none !important;
 }

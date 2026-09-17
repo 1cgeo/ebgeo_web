@@ -6,15 +6,15 @@
  * Based on the 3D viewer toolbar pattern from map_3d.js.
  */
 
-import { isCurrentMapLockedSync } from '@store/index.js';
-import { getEventBus } from '@store/services.js';
-import { EventTypes } from '@events/event_types.js';
+import { assinarEdicaoIndisponivel, semEdicaoSync } from '@store/edicao-indisponivel.js';
 
 // =========================================================================
 // STATE
 // =========================================================================
 
 let isInitialized = false;
+/** Desassina o observador de "edicao indisponivel", para o init nao acumular um por abertura. */
+let soltarEdicao = null;
 let currentActiveTool = null;
 let helpPopupOpen = false;
 
@@ -77,12 +77,18 @@ export function initToolbar360() {
         }
     });
 
-    // Subscribe to map lock changes for toolbar visibility
+    // A BARRA 360 SOME QUANDO NAO SE PODE EDITAR (pedido do dono, 2026-09-17), e sao DOIS consertos
+    // no mesmo lugar. O primeiro: a conta era so a trava do mapa, entao quem entrava por
+    // compartilhamento `read` ou por link publico via "adicionar marcador" e "salvar orientacao",
+    // clicava, e a escrita morria no guarda da store. O segundo: nada aplicava o estado na ABERTURA,
+    // so no evento, de modo que a barra nascia inteira sobre um mapa travado e so se corrigia se
+    // alguem destravasse e travasse de novo. O assinante chama o callback uma vez, o que fecha os
+    // dois. A regra de CSS ja existia (`#toolbar-360.map-locked .button-tool-360:not(#help-360)`).
     try {
-        const eventBus = getEventBus();
-        eventBus.on(EventTypes.MAP_LOCK_CHANGED, () => {
+        soltarEdicao?.();
+        soltarEdicao = assinarEdicaoIndisponivel(() => {
             if (elements.toolbar) {
-                elements.toolbar.classList.toggle('map-locked', isCurrentMapLockedSync());
+                elements.toolbar.classList.toggle('map-locked', semEdicaoSync());
             }
         });
     } catch (error) {
@@ -227,7 +233,9 @@ export function isHelpPopupOpen360() {
 export function onAddMarkerClick(handler) {
     if (elements.addMarkerButton) {
         elements.addMarkerButton.addEventListener('click', () => {
-            if (isCurrentMapLockedSync()) return;
+            // Mesma conta do desenho (papel e trava): o comando escondido ainda pode ser
+            // alcancado por atalho de teclado, e o portao e o que fecha esse caminho.
+            if (semEdicaoSync()) return;
             handler();
         });
     }
@@ -240,7 +248,9 @@ export function onAddMarkerClick(handler) {
 export function onSaveOrientationClick(handler) {
     if (elements.saveOrientationButton) {
         elements.saveOrientationButton.addEventListener('click', () => {
-            if (isCurrentMapLockedSync()) return;
+            // Mesma conta do desenho (papel e trava): o comando escondido ainda pode ser
+            // alcancado por atalho de teclado, e o portao e o que fecha esse caminho.
+            if (semEdicaoSync()) return;
             handler();
         });
     }
@@ -253,7 +263,9 @@ export function onSaveOrientationClick(handler) {
 export function onClearOrientationClick(handler) {
     if (elements.clearOrientationButton) {
         elements.clearOrientationButton.addEventListener('click', () => {
-            if (isCurrentMapLockedSync()) return;
+            // Mesma conta do desenho (papel e trava): o comando escondido ainda pode ser
+            // alcancado por atalho de teclado, e o portao e o que fecha esse caminho.
+            if (semEdicaoSync()) return;
             handler();
         });
     }
