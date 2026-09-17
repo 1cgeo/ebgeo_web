@@ -422,7 +422,21 @@ async function loadPhoto(photoName, prevWorldHeading = null) {
         throw error;
     }
     streetViewState.currentInfo = data;
-    streetViewState.currentPhotoName = photoName;
+    // A CHAVE DA FOTO É A QUE O SERVIDOR DEVOLVEU, nunca a que veio no argumento. A rota de
+    // metadado aceita as duas formas (`WHERE p.id = $1` e `WHERE p.original_name = $1`), e os dois
+    // caminhos de abertura usam formas DIFERENTES: o pino do mapa chama
+    // `openViewer360WithPhoto(photo.id)` com o UUID do tile (`loadPoint`, add_street_view_control.js),
+    // e a seta de navegação chama `navigateToTarget(target.img)` com o `original_name`.
+    //
+    // O DESENCONTRO CUSTAVA O PONTO. Toda LEITURA (marcador, orientação, presença) passa por
+    // `currentPhotoName`, enquanto a ESCRITA do marcador nasce com `cameraConfig.img`, que é sempre
+    // o `original_name`. Guardar o argumento fazia as duas chaves divergirem justamente na foto
+    // aberta pelo mapa, que é a PRIMEIRA da sessão: o ponto gravava no documento e nunca era
+    // desenhado, e só aparecia depois de o usuário navegar e voltar. Medido em 2026-09-17, mesma
+    // foto e mesma sessão: aberta por UUID, marcador no disco e `pois` do navegador em 0, overlay
+    // inalterado em 4771 pixels; aberta por nome, `pois` em 1 e overlay em 6829.
+    const chaveDaFoto = data.camera?.img ?? photoName;
+    streetViewState.currentPhotoName = chaveDaFoto;
 
     // camera_height is inert in the relative marker model; the navigator only
     // reads lon/lat/heading. (The old DEFAULT_CAMERA_HEIGHT fallback pointed at
@@ -443,8 +457,10 @@ async function loadPhoto(photoName, prevWorldHeading = null) {
         throw error;
     }
 
-    // If another loadPhoto call started while we were loading, bail out
-    if (streetViewState.currentPhotoName !== photoName) return;
+    // If another loadPhoto call started while we were loading, bail out.
+    // A comparação é contra a chave CANÔNICA, e não contra o argumento: com o argumento, a foto
+    // aberta por UUID sairia aqui sempre, e a tela ficaria preta.
+    if (streetViewState.currentPhotoName !== chaveDaFoto) return;
 
     // Update minimap
     updateMiniMap(data.camera);
@@ -457,8 +473,9 @@ async function loadPhoto(photoName, prevWorldHeading = null) {
         streetViewState.navigator.setPhoto(cameraConfig, targets);
     }
 
-    // Check for saved orientation and apply it
-    const savedOrientation = await getOrientation(photoName);
+    // Check for saved orientation and apply it. Pela chave canônica: a orientação é GRAVADA sob
+    // `currentPhotoName`, e lê-la pelo argumento perderia o giro salvo na foto aberta pelo mapa.
+    const savedOrientation = await getOrientation(chaveDaFoto);
     setCameraOrientation(data, savedOrientation, prevWorldHeading);
 
     // Update orientation button state
@@ -471,7 +488,7 @@ async function loadPhoto(photoName, prevWorldHeading = null) {
     // Emit photo changed event
     getEventBus().emit(EventTypes.STREETVIEW_360_PHOTO_CHANGED, {
         previousPhoto: previousPhotoName,
-        currentPhoto: photoName
+        currentPhoto: chaveDaFoto
     });
 }
 

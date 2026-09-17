@@ -31,6 +31,7 @@ import {
     createModernTextarea,
     createSectionDivider
 } from '@tools/helpers/index.js';
+import { fetchPhotoMetadata } from '@js/street_view_tool/streetview-api.service.js';
 
 /**
  * Icons used in the component.
@@ -191,10 +192,12 @@ function buildIdentificationSection(container, marker, photoName, onUpdate) {
     typeLabel.className = 'feature-identification-type';
     typeLabel.textContent = 'Tipo: Marcador 360';
 
-    // Photo info
+    // A FOTO NA IDENTIFICAÇÃO some junto (2026-09-17): o `original_name` do acervo aparecia DUAS
+    // vezes no mesmo painel, aqui e na seção "Localização", e nas duas ele era o nome de arquivo.
+    // Quem quiser o identificador o encontra no `title` da linha de localização.
     const photoLabel = document.createElement('div');
     photoLabel.className = 'feature-identification-layer';
-    photoLabel.textContent = `Foto: ${photoName}`;
+    photoLabel.hidden = true;
 
     // Description section
     const descriptionSection = createDescriptionSection(marker, onUpdate);
@@ -737,7 +740,14 @@ function buildLocationSection(placeholder, marker, photoName) {
     coordsContainer.className = 'feature-location-coords';
 
     if (marker.position) {
-        // Photo row
+        // ONDE A FOTO ESTÁ, e não COMO ELA SE CHAMA (2026-09-17, a pedido do dono). A linha
+        // mostrava `original_name`, que é o nome de arquivo do acervo
+        // (`PIC_20251205_114053_25_12_08_08_47_46_output_1`): não diz nada a quem lê o painel, e
+        // ocupa a linha inteira. A coordenada da foto situa o ponto no mundo, que é o que a seção
+        // "Localização" promete.
+        //
+        // O METADADO VEM POR REDE, então a linha nasce com um traço e se preenche quando chega;
+        // se não chegar, ela some em vez de mostrar o nome interno de volta.
         const photoRow = document.createElement('div');
         photoRow.className = 'feature-location-row';
         const photoIcon = document.createElement('span');
@@ -745,10 +755,11 @@ function buildLocationSection(placeholder, marker, photoName) {
         photoIcon.innerHTML = ICONS.CAMERA_360;
         const photoText = document.createElement('span');
         photoText.className = 'feature-location-text';
-        photoText.textContent = `Foto: ${photoName}`;
+        photoText.textContent = 'Foto: —';
         photoRow.appendChild(photoIcon);
         photoRow.appendChild(photoText);
         coordsContainer.appendChild(photoRow);
+        preencherCoordenadasDaFoto(photoRow, photoText, photoName);
 
         // Heading row
         const headingRow = document.createElement('div');
@@ -782,6 +793,32 @@ function buildLocationSection(placeholder, marker, photoName) {
 
     placeholder.innerHTML = '';
     placeholder.appendChild(section);
+}
+
+/**
+ * Preenche a linha da foto com a COORDENADA dela, lida do metadado do acervo.
+ *
+ * A leitura é por rede e o painel já está na tela, então a linha se completa quando a resposta
+ * chega. Falhando (foto sem coordenada, rede fora, projeto que o chamador não alcança), a linha é
+ * REMOVIDA: uma linha que promete localização e mostra um traço para sempre é pior que a ausência
+ * dela, e o nome de arquivo do acervo não é substituto — era justamente o que estava ali.
+ *
+ * @param {HTMLElement} linha - A linha inteira, para poder sumir.
+ * @param {HTMLElement} texto - O nó de texto a preencher.
+ * @param {string} photoName - Nome da foto (o `original_name` do acervo).
+ * @returns {void}
+ */
+function preencherCoordenadasDaFoto(linha, texto, photoName) {
+    if (!photoName) { linha.remove(); return; }
+    fetchPhotoMetadata(photoName)
+        .then((meta) => {
+            const lat = Number(meta?.camera?.lat);
+            const lon = Number(meta?.camera?.lon);
+            if (!Number.isFinite(lat) || !Number.isFinite(lon)) { linha.remove(); return; }
+            texto.textContent = `Foto: ${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+            texto.title = photoName;
+        })
+        .catch(() => linha.remove());
 }
 
 /**
