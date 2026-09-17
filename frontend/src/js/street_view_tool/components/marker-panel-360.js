@@ -32,6 +32,8 @@ import {
     createSectionDivider
 } from '@tools/helpers/index.js';
 import { fetchPhotoMetadata } from '@js/street_view_tool/streetview-api.service.js';
+import { formatCoordinates } from '@utils/coordinate_converter.js';
+import { copiarAoClicar } from '@utils/copiar-ao-clicar.js';
 
 /**
  * Icons used in the component.
@@ -815,8 +817,14 @@ function preencherCoordenadasDaFoto(linha, texto, photoName) {
             const lat = Number(meta?.camera?.lat);
             const lon = Number(meta?.camera?.lon);
             if (!Number.isFinite(lat) || !Number.isFinite(lon)) { linha.remove(); return; }
-            texto.textContent = `Foto: ${lat.toFixed(6)}, ${lon.toFixed(6)}`;
-            texto.title = photoName;
+            // O FORMATO VEM DO CONVERSOR DA CASA, e não de um `toFixed` escrito aqui: é a mesma
+            // função que a seção "Localização" do painel de feição usa, então as duas telas
+            // mostram a coordenada do mesmo jeito e uma mudança de formato as alcança juntas.
+            const coordenada = formatCoordinates(lat, lon, 'latlong');
+            texto.textContent = `Foto: ${coordenada}`;
+            // CLICAR COPIA A COORDENADA, e não a linha inteira (2026-09-17, a pedido do dono): o
+            // que serve para colar em outro lugar é o par de números, sem o rótulo "Foto:".
+            copiarAoClicar(texto, coordenada, { titulo: 'Clique para copiar a coordenada da foto' });
         })
         .catch(() => linha.remove());
 }

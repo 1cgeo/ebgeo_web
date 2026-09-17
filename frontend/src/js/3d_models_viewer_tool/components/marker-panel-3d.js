@@ -24,6 +24,7 @@ import { showSuccess, showToast } from '@utils/index.js';
 import { deepClone } from '@utils/deep-utils.js';
 import { showConfirm } from '@modals/index.js';
 import { formatCoordinates } from '@utils/coordinate_converter.js';
+import { copiarAoClicar } from '@utils/copiar-ao-clicar.js';
 import {
     createModernSlider,
     createModernColorPicker,
@@ -568,12 +569,10 @@ async function renderCoordinates(container, position) {
     latLngText.className = 'feature-location-text';
     const formattedLatLng = await formatCoordinates(latitude, longitude, 'latlong');
     latLngText.textContent = formattedLatLng;
-    latLngText.title = 'Clique para copiar';
-    latLngText.style.cursor = 'pointer';
-    latLngText.addEventListener('click', () => {
-        copyToClipboard(formattedLatLng);
-        showCopyFeedback(latLngText);
-    });
+    // O gesto inteiro (classe, título, clique, teclado e o "Copiado!") vem de
+    // `@utils/copiar-ao-clicar.js`, que é o dono dele desde 2026-09-17. Este arquivo tinha uma
+    // CÓPIA das duas funções, idêntica à da seção de localização do painel de feição 2D.
+    copiarAoClicar(latLngText, formattedLatLng);
 
     latLngRow.appendChild(latLngIcon);
     latLngRow.appendChild(latLngText);
@@ -591,12 +590,7 @@ async function renderCoordinates(container, position) {
     utmText.className = 'feature-location-text';
     const formattedUtm = await formatCoordinates(latitude, longitude, 'utm_wgs84');
     utmText.textContent = formattedUtm;
-    utmText.title = 'Clique para copiar';
-    utmText.style.cursor = 'pointer';
-    utmText.addEventListener('click', () => {
-        copyToClipboard(formattedUtm);
-        showCopyFeedback(utmText);
-    });
+    copiarAoClicar(utmText, formattedUtm);
 
     utmRow.appendChild(utmIcon);
     utmRow.appendChild(utmText);
@@ -815,39 +809,6 @@ function buildDeleteButton(container, marker, _onClose) {
 
     section.appendChild(deleteBtn);
     container.appendChild(section);
-}
-
-/**
- * Copies text to clipboard.
- */
-async function copyToClipboard(text) {
-    try {
-        await navigator.clipboard.writeText(text);
-    } catch {
-        // Fallback for older browsers that don't support Clipboard API
-        const textArea = document.createElement('textarea');
-        textArea.value = text;
-        textArea.style.position = 'fixed';
-        textArea.style.left = '-9999px';
-        document.body.appendChild(textArea);
-        textArea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textArea);
-    }
-}
-
-/**
- * Shows copy feedback on element.
- */
-function showCopyFeedback(element) {
-    const originalText = element.textContent;
-    element.textContent = 'Copiado!';
-    element.classList.add('copied');
-
-    setTimeout(() => {
-        element.textContent = originalText;
-        element.classList.remove('copied');
-    }, 1500);
 }
 
 /**

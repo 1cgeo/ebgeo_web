@@ -6,6 +6,7 @@
  */
 
 import { formatCoordinates } from '@utils/coordinate_converter.js';
+import { copiarAoClicar } from '@utils/copiar-ao-clicar.js';
 import { zoomToFeature } from '@utils/feature_navigation_utils.js';
 import { showCoordinateEditModal } from '@modals/coordinate-edit.modal.js';
 import { ensureTurf } from '@utils/turf-loader.js';
@@ -107,14 +108,13 @@ export async function createLocationSection(options) {
             latLngIcon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>`;
 
             const latLngText = document.createElement('span');
-            latLngText.className = 'feature-location-text feature-location-text--clickable';
+            latLngText.className = 'feature-location-text';
             const formattedLatLng = await formatCoordinates(lat, lng, 'latlong');
             latLngText.textContent = formattedLatLng;
-            latLngText.title = 'Clique para copiar';
-            latLngText.addEventListener('click', () => {
-                copyToClipboard(formattedLatLng);
-                showCopyFeedback(latLngText);
-            });
+            // O gesto inteiro (classe, título, clique, teclado e o "Copiado!") vem de
+            // `@utils/copiar-ao-clicar.js`, que é o dono dele desde 2026-09-17. Este arquivo tinha
+            // uma CÓPIA das duas funções, idêntica à do painel do ponto 3D.
+            copiarAoClicar(latLngText, formattedLatLng);
 
             latLngRow.appendChild(latLngIcon);
             latLngRow.appendChild(latLngText);
@@ -129,14 +129,10 @@ export async function createLocationSection(options) {
             utmIcon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`;
 
             const utmText = document.createElement('span');
-            utmText.className = 'feature-location-text feature-location-text--clickable';
+            utmText.className = 'feature-location-text';
             const formattedUtm = await formatCoordinates(lat, lng, 'utm_wgs84');
             utmText.textContent = formattedUtm;
-            utmText.title = 'Clique para copiar';
-            utmText.addEventListener('click', () => {
-                copyToClipboard(formattedUtm);
-                showCopyFeedback(utmText);
-            });
+            copiarAoClicar(utmText, formattedUtm);
 
             utmRow.appendChild(utmIcon);
             utmRow.appendChild(utmText);
@@ -257,41 +253,6 @@ function getFeatureCenter(feature) {
         console.warn('Error getting feature center:', error);
         return null;
     }
-}
-
-/**
- * Copies text to clipboard.
- * @param {string} text - Text to copy
- */
-async function copyToClipboard(text) {
-    try {
-        await navigator.clipboard.writeText(text);
-    } catch {
-        // Fallback for older browsers
-        const textArea = document.createElement('textarea');
-        textArea.value = text;
-        textArea.style.position = 'fixed';
-        textArea.style.left = '-9999px';
-        document.body.appendChild(textArea);
-        textArea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textArea);
-    }
-}
-
-/**
- * Shows copy feedback on element.
- * @param {HTMLElement} element - Element to show feedback on
- */
-function showCopyFeedback(element) {
-    const originalText = element.textContent;
-    element.textContent = 'Copiado!';
-    element.classList.add('copied');
-
-    setTimeout(() => {
-        element.textContent = originalText;
-        element.classList.remove('copied');
-    }, 1500);
 }
 
 /**
