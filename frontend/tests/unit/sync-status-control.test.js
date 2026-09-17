@@ -584,3 +584,105 @@ describe('o aviso do acervo tem caixa PRÓPRIA, e o crachá continua abrindo o p
         expect(aviso.hidden).toBe(true);
     });
 });
+
+/**
+ * O CRACHÁ NO ATLAS LOCAL É INDICADOR, E NÃO COMANDO (pedido do dono, 2026-09-17).
+ *
+ * O QUE ELE RELATOU, em duas linhas da mesma leva: "o texto do mouseover no
+ * sync-status-badge__label está muito grande, deixar conciso" e "no modo local
+ * sync-status-badge__label não é para ser clicável e não precisa abrir um modal".
+ *
+ * O segundo tem razão de produto: no atlas local não existe fila de envio, então o painel de
+ * pendências abriria vazio para dizer que não há o que dizer. O portão mora em `_abrirPendencias`,
+ * que é onde o clique e a tecla se encontram, e não em cada ouvinte; o atributo
+ * `data-abre-pendencias` acompanha porque é dele que o CSS tira o cursor de ponteiro e o anel de
+ * foco (`pendencias.css`).
+ *
+ * O primeiro tem razão de leitura: o `title` carregava a frase inteira, de três linhas, e ninguém
+ * lê um parágrafo pairando o ponteiro. O `aria-label` fica com a longa DE PROPÓSITO, porque quem
+ * usa leitor de tela não tem o painel como segunda chance barata.
+ *
+ * CONTROLE POSITIVO em cada caso: o mesmo gesto no atlas REMOTO, que tem de continuar abrindo. Sem
+ * ele, um crachá que nunca abrisse o painel passaria aqui inteiro.
+ */
+describe('no atlas local o crachá não é comando, e o mouseover é curto', () => {
+    it('o atlas local não anuncia o painel, e o teclado não o alcança', async () => {
+        cenario.remoto = false;
+        const { _container: container } = await montado();
+        const comando = comandoDe(container);
+
+        expect(comando.getAttribute('data-abre-pendencias')).toBe('false');
+        expect(comando.getAttribute('tabindex')).toBe('-1');
+        expect(comando.getAttribute('aria-haspopup')).toBe('false');
+    });
+
+    it('o clique e a tecla no atlas local não abrem painel nenhum', async () => {
+        cenario.remoto = false;
+        const { _container: container } = await montado();
+        const comando = comandoDe(container);
+
+        disparar(comando, 'click');
+        disparar(comando, 'keydown', { key: 'Enter' });
+        await assentar();
+        expect(cenario.aberturas).toBe(0);
+    });
+
+    it('CONTROLE POSITIVO: no atlas remoto o mesmo clique abre', async () => {
+        cenario.censo = { pendentes: 1, preparadas: 0, problemas: 0 };
+        const { _container: container } = await montado();
+        const comando = comandoDe(container);
+
+        expect(comando.getAttribute('data-abre-pendencias')).toBe('true');
+        expect(comando.getAttribute('tabindex')).toBe('0');
+        disparar(comando, 'click');
+        await assentar();
+        expect(cenario.aberturas).toBe(1);
+    });
+
+    it('o mouseover é o resumo, e o leitor de tela continua com a frase inteira', async () => {
+        cenario.censo = { pendentes: 3, preparadas: 0, problemas: 0 };
+        const { _container: container } = await montado();
+        const comando = comandoDe(container);
+
+        const titulo = comando.getAttribute('title');
+        const longa = comando.getAttribute('aria-label');
+        expect(titulo).toBeTruthy();
+        expect(longa).toBeTruthy();
+        // A relação é o que importa, e não um comprimento fixo: o resumo é OUTRA frase, mais
+        // curta, e a longa continua inteira onde ela serve.
+        expect(titulo).not.toBe(longa);
+        expect(titulo.length).toBeLessThan(longa.length);
+        expect(titulo).not.toContain('\n');
+    });
+
+    it('o resumo existe em todos os estados que o crachá pinta', async () => {
+        // O `title` cai no `detail` quando não há resumo, o que seria um regresso silencioso para
+        // a frase de três linhas em algum estado esquecido.
+        const casos = [
+            { nome: 'local', arranjo: () => { cenario.remoto = false; } },
+            { nome: 'vazio', arranjo: () => {} },
+            { nome: 'a caminho', arranjo: () => { cenario.censo = { pendentes: 2, preparadas: 0, problemas: 0 }; } },
+            { nome: 'com problema', arranjo: () => { cenario.censo = { pendentes: 0, preparadas: 0, problemas: 1 }; } },
+            { nome: 'sem rede', arranjo: () => { cenario.conexao = 'offline'; } },
+            { nome: 'pausado', arranjo: () => { cenario.pausado = true; } },
+            { nome: 'em quarentena', arranjo: () => { cenario.quarentena = [{ atlasId: 'a1' }]; } },
+        ];
+        for (const caso of casos) {
+            Object.assign(cenario, {
+                remoto: true,
+                conexao: 'online',
+                censo: { pendentes: 0, preparadas: 0, problemas: 0 },
+                quarentena: [],
+                pausado: false,
+                aberturas: 0,
+            });
+            caso.arranjo();
+            const { _container: container } = await montado();
+            const comando = comandoDe(container);
+            const titulo = comando.getAttribute('title');
+            const longa = comando.getAttribute('aria-label');
+            expect(titulo, `estado ${caso.nome} sem título`).toBeTruthy();
+            expect(titulo.length, `estado ${caso.nome} caiu na frase longa`).toBeLessThan(longa.length);
+        }
+    });
+});

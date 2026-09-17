@@ -24,7 +24,7 @@ import {
 // Direct file, never the `@utils` barrel: the barrel drags the whole store back in through
 // `feature_navigation_utils`, and this control is mounted inside the map bar.
 import { showError } from '@utils/toast_service.js';
-import { describeSyncWork, SYNC_TONE } from './sync-phrases.js';
+import { describeSyncWork, SYNC_TONE, SYNC_WORK_STATE } from './sync-phrases.js';
 
 /**
  * O que a pessoa lê quando o clique em "Pendências" não consegue trazer o painel.
@@ -419,6 +419,10 @@ export class SyncStatusControl {
      */
     async _abrirPendencias() {
         if (!sessionContext.isAuthenticated()) return;
+        // NO ATLAS LOCAL NÃO HÁ PAINEL A ABRIR (2026-09-17): não existe fila de envio, então o
+        // painel de pendências abriria vazio para dizer que não há o que dizer. O portão fica
+        // AQUI, e não no ouvinte, porque clique e tecla chegam aos dois pelo mesmo caminho.
+        if (this._ehComando === false) return;
         try {
             const { abrirPainelDePendencias } = await this._carregarPainel();
             abrirPainelDePendencias();
@@ -551,9 +555,25 @@ export class SyncStatusControl {
         this._command.setAttribute('data-work', work.state);
         this._command.setAttribute('data-tone', work.tone);
         this._precarregarPainel(work.tone);
-        this._command.setAttribute('title', work.detail);
+        // O MOUSEOVER É CURTO (2026-09-17, a pedido do dono): o `title` carregava a frase inteira,
+        // de três linhas, e ninguém lê um parágrafo pairando o ponteiro. A frase longa continua
+        // inteira no `detail`, que é o que o painel de pendências mostra quando a pessoa clica.
+        // O `aria-label` fica com a longa de propósito: quem usa leitor de tela não tem o painel
+        // como segunda chance barata, e ali o parágrafo é a única descrição.
+        this._command.setAttribute('title', work.resumo ?? work.detail);
         this._command.setAttribute('aria-label', work.detail);
         if (this._label) this._label.textContent = work.label;
+
+        // NO ATLAS LOCAL O SELO NÃO É COMANDO (2026-09-17, a pedido do dono): não há fila de
+        // envio, então o painel de pendências abriria vazio para dizer que não há nada a dizer.
+        // O atributo `data-abre-pendencias` é o que a suíte e o CSS leem, e ele acompanha.
+        // Sem a propriedade `disabled`: ela pintaria de comando morto o que aqui é um INDICADOR,
+        // e o CSS já governa o cursor por `data-abre-pendencias` (`pendencias.css`). O portão do
+        // gesto é o próprio `_abrirPendencias`, que é onde o clique e a tecla se encontram.
+        this._ehComando = work.state !== SYNC_WORK_STATE.LOCAL;
+        this._command.setAttribute('data-abre-pendencias', String(this._ehComando));
+        this._command.setAttribute('aria-haspopup', this._ehComando ? 'dialog' : 'false');
+        this._command.setAttribute('tabindex', this._ehComando ? '0' : '-1');
 
         this._renderResourceNotice();
     }
