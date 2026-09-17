@@ -9,12 +9,13 @@
  * Both services disable this handler when active and re-enable when closed.
  */
 
-import { undoLastAction, redoLastAction, getStateManager, isCurrentMapLockedSync } from '@store';
+import { undoLastAction, redoLastAction, getStateManager } from '@store';
 import { showConfirm } from '@modals/index.js';
 import { showInChannel, showWarning } from '@utils/toast_service.js';
 import { describeUndoRedoAction } from '@store/undo-redo-messages.js';
 import { getViewModeController } from '@ui/view-mode.controller.js';
 import { ensureControl } from '@tools/tool-registry.js';
+import { semEdicaoSync } from '@store/edicao-indisponivel.js';
 
 /**
  * Keyboard shortcuts manager for the SIG map
@@ -172,7 +173,7 @@ class KeyboardShortcuts {
                 // A no-edit role (safe view) must not even reach the destructive confirm dialog — the
                 // hidden toolbars aren't enough, since Delete is a bare keystroke. The map lock is the
                 // pre-existing gate; both are belt-and-suspenders over the store-level guardWrite.
-                if (!isCurrentMapLockedSync() && getViewModeController().canEdit()) {
+                if (!semEdicaoSync()) {
                     await this._confirmAndDeleteSelectedFeatures();
                 }
                 return true;
@@ -187,7 +188,9 @@ class KeyboardShortcuts {
             case 'z':
                 if (hasCtrl && !hasShift) {
                     e.preventDefault();
-                    if (!isCurrentMapLockedSync() && !this._isProcessingUndoRedo) {
+                    // OS DOIS EIXOS: desfazer ESCREVE, e quem esta em somente leitura desfazia, via o
+                    // aviso do que "foi desfeito" e nada mudava no servidor.
+                    if (!semEdicaoSync() && !this._isProcessingUndoRedo) {
                         this._isProcessingUndoRedo = true;
                         try {
                             // skipSave: undo should revert state, not save pending edits first
@@ -212,7 +215,7 @@ class KeyboardShortcuts {
             case 'y':
                 if (hasCtrl && !hasShift) {
                     e.preventDefault();
-                    if (!isCurrentMapLockedSync() && !this._isProcessingUndoRedo) {
+                    if (!semEdicaoSync() && !this._isProcessingUndoRedo) {
                         this._isProcessingUndoRedo = true;
                         try {
                             // skipSave: redo should restore state, not save pending edits first
@@ -244,7 +247,8 @@ class KeyboardShortcuts {
     async handleToolShortcuts(e, key) {
         // Snapping toggle (not a tool activation)
         if (key === 'g') {
-            if (isCurrentMapLockedSync()) return;
+            // O snapping serve a quem DESENHA, e a barra dele ja some pelo papel (`view-mode.css`).
+            if (semEdicaoSync()) return;
             e.preventDefault();
             const sm = getStateManager();
             sm.set('ui.snapping.enabled', !sm.getUnsafe('ui.snapping.enabled'));
@@ -286,7 +290,11 @@ class KeyboardShortcuts {
             'y': 'coordinationLineControl'
         };
 
-        const locked = isCurrentMapLockedSync();
+        // A BARRA SOME PELO PAPEL E A TECLA NAO SUMIA, e esse era o pior caso do inventario de
+        // 2026-09-16: quem estava em somente leitura apertava P, L, A, M ou S, a ferramenta ativava,
+        // o clique desenhava, a feicao ia para a fonte do MapLibre e a escrita morria na store. O
+        // resultado era um fantasma na tela, que some sozinho na proxima releitura.
+        const locked = semEdicaoSync();
 
         if (key === 'v') {
             if (locked) return;

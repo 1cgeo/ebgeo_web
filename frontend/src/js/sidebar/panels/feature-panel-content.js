@@ -14,7 +14,8 @@ import { createFeatureTabs } from '../components/feature-tabs.js';
 import { createLocationSection } from '../components/feature-location-section.js';
 import { createGroupTypeSelector } from '../components/group-type-selector.js';
 import { createMultiSelectionActions } from '../components/multi-selection-actions.js';
-import { isCurrentMapLockedSync, startBatchUndo, commitBatchUndo, discardBatchUndo, getControl } from '@store/index.js';
+import { startBatchUndo, commitBatchUndo, discardBatchUndo, getControl } from '@store/index.js';
+import { semEdicaoSync } from '@store/edicao-indisponivel.js';
 import { renderReadOnlyAttributesSection } from '@js/user_data/attributes_tab_renderer.js';
 import { createTemporalAttributesSection, createTrajectorySection, createTemporalReadonlySection, releaseTemporalSection } from '@js/temporal/temporal-attributes-section.js';
 import { COORDINATE_FORMATS, formatCoordinates } from '@utils/index.js';
@@ -667,7 +668,12 @@ export async function createFeaturePanelContent({
     const isMixedTypes = types.size > 1;
 
     // Main container
-    const mapLocked = isCurrentMapLockedSync();
+    // OS DOIS EIXOS, e nao so a trava: ate 2026-09-16 este painel perguntava apenas pelo mapa
+    // travado, entao quem entrava em somente leitura (compartilhamento `read` ou link publico) via
+    // nome, descricao, cor, tamanho, opacidade, atributos, fotos e EXCLUIR como se pudesse usar, e a
+    // escrita morria no guarda da store. A classe continua a mesma, e o CSS dela tambem: o que mudou
+    // e a pergunta.
+    const mapLocked = semEdicaoSync();
     const container = document.createElement('div');
     container.className = 'feature-panel-sections';
     // Every build gets a fresh id. The sidebar swaps this element in only when the async

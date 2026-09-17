@@ -21,7 +21,8 @@ import { showColumnContextMenu } from './components/column-context-menu.js';
 import { EventTypes } from '@events';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { ensureTurf } from '@utils/turf-loader.js';
-import { getLayers, getCurrentMapNameSync, isCurrentMapLockedSync, FEATURE_TYPE_MAPPINGS, FEATURE_DISPLAY_NAMES } from '@store';
+import { getLayers, getCurrentMapNameSync, FEATURE_TYPE_MAPPINGS, FEATURE_DISPLAY_NAMES } from '@store';
+import { semEdicaoSync } from '@store/edicao-indisponivel.js';
 import { showPrompt } from '@modals';
 import userDataManager from '@js/user_data/user_data_manager.js';
 import { showWarning, showError, showSuccess } from '@utils';
@@ -391,7 +392,9 @@ export class AttributeTableControl {
             sortState: this._sortState,
             columnWidths: config.columnWidths,
             callbacks: {
-                readOnly: isCurrentMapLockedSync(),
+                // Somente leitura tambem pelo POSTO, e nao so pela trava do mapa: a celula editavel
+                // aceitava a digitacao de quem nao pode escrever, e a recusa so aparecia depois.
+                readOnly: semEdicaoSync(),
                 onCheckboxChange: (featureId, checked) =>
                     this._handleCheckboxChange(featureId, checked),
                 onSelectAll: (checked) => this._handleSelectAll(checked),
@@ -654,7 +657,7 @@ export class AttributeTableControl {
      * @param {string} newValue - New value
      */
     async _handleCellEdit(featureId, featureType, columnKey, newValue) {
-        if (isCurrentMapLockedSync()) return;
+        if (semEdicaoSync()) return;
 
         try {
             if (columnKey === 'nome' || columnKey === 'descricao') {
@@ -739,7 +742,7 @@ export class AttributeTableControl {
      * Handles add column action.
      */
     async _handleAddColumn() {
-        if (isCurrentMapLockedSync()) return;
+        if (semEdicaoSync()) return;
         const name = await showPrompt('Nome do novo atributo:', '');
         if (!name || !name.trim()) return;
 
@@ -787,7 +790,7 @@ export class AttributeTableControl {
      * @param {string} columnKey - Column key
      */
     async _handleRemoveColumn(columnKey) {
-        if (isCurrentMapLockedSync()) return;
+        if (semEdicaoSync()) return;
         try {
             // Remove attribute from all features in this layer
             for (const feature of this._allFeatures) {

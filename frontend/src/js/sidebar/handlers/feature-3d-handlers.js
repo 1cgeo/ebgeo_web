@@ -7,7 +7,7 @@
  * @module sidebar/handlers/feature-3d-handlers
  */
 
-import { isCurrentMapLockedSync } from '@store/index.js';
+import { semEdicaoSync } from '@store/edicao-indisponivel.js';
 import { SIDEBAR_DIMENSIONS } from '../sidebar.constants.js';
 
 // ============================================================================
@@ -69,7 +69,7 @@ export async function handleMarker3dClick({
         onPanelClose
     );
 
-    if (isCurrentMapLockedSync()) {
+    if (semEdicaoSync()) {
         element.classList.add('feature-panel--locked');
     }
 
@@ -147,7 +147,7 @@ export async function handleMeasurement3dClick({
         onPanelClose
     );
 
-    if (isCurrentMapLockedSync()) {
+    if (semEdicaoSync()) {
         element.classList.add('feature-panel--locked');
     }
 
@@ -226,7 +226,7 @@ export async function handleViewshed3dClick({
         onPanelClose
     );
 
-    if (isCurrentMapLockedSync()) {
+    if (semEdicaoSync()) {
         element.classList.add('feature-panel--locked');
     }
 
@@ -303,7 +303,7 @@ export async function handleMarker360Click({
         onPanelClose
     );
 
-    if (isCurrentMapLockedSync()) {
+    if (semEdicaoSync()) {
         element.classList.add('feature-panel--locked');
     }
 

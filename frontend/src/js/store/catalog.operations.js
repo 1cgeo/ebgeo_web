@@ -155,13 +155,20 @@ export async function addCatalogLayer(layer, mapName = null) {
  * @returns {Promise<void>}
  */
 export async function removeCatalogLayer(layerId, mapName = null) {
-    if (!guardCatalogWrite('removeCatalogLayer', GuardAction.DELETE_LAYER)) return;
-    return editCatalogLayers(resolveMapName(mapName), 'removeCatalogLayer', layers => {
+    // O RETORNO DIZ SE A LINHA SAIU, e ate 2026-09-16 ele nao dizia nada: a recusa do guarda e o
+    // caminho feliz devolviam ambos `undefined`, entao a lista da barra lateral apagava o item na
+    // tela mesmo quando a store tinha recusado, e ele voltava sozinho na proxima releitura. Quem
+    // desenha precisa de um booleano para seguir o resultado em vez da intencao.
+    if (!guardCatalogWrite('removeCatalogLayer', GuardAction.DELETE_LAYER)) return false;
+    let removida = false;
+    await editCatalogLayers(resolveMapName(mapName), 'removeCatalogLayer', layers => {
         const index = layers.findIndex(layer => layer.id === layerId);
         if (index === -1) return null;
         const [previous] = layers.splice(index, 1);
+        removida = true;
         return { type: OperationType.DELETE, id: layerId, previous };
     });
+    return removida;
 }
 
 /**

@@ -264,10 +264,10 @@ export class BriefingsTab {
                 <button class="briefing-action-btn pdf-btn" title="Exportar PDF" data-action="pdf">
                     ${BRIEFINGS_ICONS.pdf}
                 </button>
-                <button class="briefing-action-btn edit-btn" title="Editar" data-action="edit">
+                <button class="briefing-action-btn edit-btn edit-affordance" title="Editar" data-action="edit">
                     ${BRIEFINGS_ICONS.edit}
                 </button>
-                <button class="briefing-action-btn delete-btn" title="Excluir" data-action="delete">
+                <button class="briefing-action-btn delete-btn edit-affordance" title="Excluir" data-action="delete">
                     ${BRIEFINGS_ICONS.trash}
                 </button>
             </div>
@@ -398,7 +398,11 @@ export class BriefingsTab {
         if (!confirmed) return;
 
         try {
-            await deleteBriefing(briefingId);
+            // O RETORNO DECIDE A FRASE. `deleteBriefing` devolve `false` quando o guarda recusa (papel
+            // sem permissao, mapa travado), e o anuncio saia assim mesmo: a pessoa lia "excluido"
+            // sobre um briefing que continuava la. Quem recusou ja falou, pelo toast do store.
+            const excluido = await deleteBriefing(briefingId);
+            if (excluido === false) return;
             showSuccess(`Briefing "${briefingName}" excluido`);
 
             // Emit event

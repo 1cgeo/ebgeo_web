@@ -108,7 +108,7 @@ export class TemporalTimelineBar {
                 </div>
                 <div class="temporal-bar__actions">
                     <button type="button" class="temporal-bar__btn temporal-bar__reveal" title="Mostrar feições ocultas (edição)" aria-label="Mostrar feições ocultas" aria-pressed="false">${ICONS.eyeOff}</button>
-                    <button type="button" class="temporal-bar__btn temporal-bar__settings" title="Configurações temporais" aria-label="Configurações temporais">${ICONS.settings}</button>
+                    <button type="button" class="temporal-bar__btn temporal-bar__settings edit-affordance" title="Configurações temporais" aria-label="Configurações temporais">${ICONS.settings}</button>
                 </div>
             </div>
             <div class="temporal-bar__coords"></div>

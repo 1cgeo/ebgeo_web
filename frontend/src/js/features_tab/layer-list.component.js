@@ -24,6 +24,7 @@ import { previewLayerOpacity } from '@layers/layer-opacity-applier.js';
 import { checkPermission } from '@store/sync/permission-guard.js';
 import { showPrompt, showConfirm } from '@modals';
 import { IDUtils, showError, showToast } from '@utils';
+import { semEdicaoSync } from '@store/edicao-indisponivel.js';
 
 /**
  * @typedef {Object} LayerListCallbacks
@@ -66,12 +67,17 @@ export function createLayerHeader(layer, isActive, featureCount, callbacks) {
     const layerName = document.createElement('div');
     layerName.className = 'layer-name';
     layerName.textContent = layer.name;
-    layerName.title = 'Duplo-clique para renomear';
 
-    layerName.ondblclick = (e) => {
-        e.stopPropagation();
-        startLayerRenameInline(layer.id, layerName, callbacks);
-    };
+    // A AFORDANCIA SO EXISTE PARA QUEM PODE EDITAR (2026-09-16). O duplo clique renomeava para
+    // qualquer um, com o `title` convidando, e a recusa vinha depois, no guarda da store: quem esta
+    // em somente leitura via o convite, digitava o nome novo e nada acontecia.
+    if (!semEdicaoSync()) {
+        layerName.title = 'Duplo-clique para renomear';
+        layerName.ondblclick = (e) => {
+            e.stopPropagation();
+            startLayerRenameInline(layer.id, layerName, callbacks);
+        };
+    }
 
     const count = document.createElement('div');
     count.className = 'layer-count';

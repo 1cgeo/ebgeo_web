@@ -230,7 +230,7 @@ function createActiveLayerHTML(layer) {
             <button class="catalog-layer-btn catalog-layer-visibility" title="Alternar visibilidade" data-visible="${layer.visible}">
                 ${layer.visible ? ICONS.VISIBLE : ICONS.HIDDEN}
             </button>
-            <button class="catalog-layer-btn catalog-layer-remove" title="Remover camada">
+            <button class="catalog-layer-btn catalog-layer-remove edit-affordance" title="Remover camada">
                 ${ICONS.TRASH}
             </button>
         </div>
@@ -256,7 +256,7 @@ function createUnavailableLayerHTML(layer) {
             <button class="catalog-layer-btn catalog-layer-info-btn" title="Ver detalhes">
                 ${ICONS.INFO}
             </button>
-            <button class="catalog-layer-btn catalog-layer-remove" title="Remover camada">
+            <button class="catalog-layer-btn catalog-layer-remove edit-affordance" title="Remover camada">
                 ${ICONS.TRASH}
             </button>
         </div>
@@ -363,7 +363,10 @@ function attachRemoveEvent(item, layer, map, eventBus, analysisLayersManager, da
     const removeBtn = item.querySelector('.catalog-layer-remove');
     removeBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        await removeCatalogLayer(layer.id);
+        // A TELA SEGUE O RESULTADO, e nao a intencao: com a remocao recusada (papel ou trava) a
+        // linha sumia da lista assim mesmo, e voltava sozinha na proxima releitura.
+        const removida = await removeCatalogLayer(layer.id);
+        if (!removida) return;
         item.remove();
 
         // Remove from map (only if was active)

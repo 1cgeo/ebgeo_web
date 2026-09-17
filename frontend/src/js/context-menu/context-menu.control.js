@@ -30,6 +30,7 @@ import {
 // `tool_manager/helpers/`, which is `core`, not in `military_tools`, which this file must keep
 // at zero eager modules. Its header says why it sits there.
 import { canSplitBoundary } from '@tools/helpers/boundary-split.model.js';
+import { semEdicaoSync } from '@store/edicao-indisponivel.js';
 // ── Portões de combinar/separar setas ─────────────────────────────────────────────────────────
 //
 // POR QUE OS PREDICADOS ESTÃO AQUI, COPIADOS. O import estático de `arrow-merge.js` prendia
@@ -218,7 +219,15 @@ class ContextMenuControl {
 
         this._contextMenu.innerHTML = '';
 
-        const locked = isCurrentMapLockedSync();
+        // UMA VARIAVEL GOVERNA ESTE MENU (grupos, combinar e separar setas, cortar linha, mover para
+        // outra camada e para outro mapa), e ate 2026-09-16 ela perguntava so pela trava. Quem estava
+        // em somente leitura recebia o menu completo, clicava, a tela pintava a mudanca e a escrita
+        // morria no guarda da store.
+        //
+        // O SEGUNDO `locked` DESTE ARQUIVO (em `_addDefaultOptions`) CONTINUA SENDO SO A TRAVA, de
+        // proposito: ali ele vai para a tabela pura do clipboard JUNTO com `can`, que ja carrega o
+        // eixo de posto, e somar os dois antes apagaria a diferenca entre "some" e "recusa".
+        const locked = semEdicaoSync();
         const groupingAnalysis = this._analyzeSelectionForGrouping();
         const hasGroupingOptions = !locked && (
             groupingAnalysis.canCreateGroup ||

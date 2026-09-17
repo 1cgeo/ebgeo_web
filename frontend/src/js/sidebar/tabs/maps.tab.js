@@ -230,7 +230,10 @@ export class MapsTab {
 
         // Settings button
         const settingsBtn = document.createElement('button');
-        settingsBtn.className = 'sidebar-settings-btn';
+        // TUDO o que este modal oferece e escrita (aparencia do atlas, restricao de recursos), e o
+        // salvar anunciava "Configuracoes salvas." mesmo com a recusa. A marca e a mesma de "Nova
+        // camada" e "CRIAR BRIEFING": o CSS do modo de visualizacao a esconde.
+        settingsBtn.className = 'sidebar-settings-btn edit-affordance';
         settingsBtn.title = 'Configurações';
         settingsBtn.innerHTML = `${MAPS_ICONS.gear}<span>Configurações</span>`;
         addDomListener(this, settingsBtn, 'click', () => this._handleOpenSettings());

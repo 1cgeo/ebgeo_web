@@ -16,6 +16,7 @@ import { record } from './diag/trace-core.js';
 import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
 import { markLocalEditPending, CONVERGENCE_GUARDED } from './remote-operation-handler.js';
 import { blobUploadPending } from './blob-upload-queue.js';
+import { checkPermission, GuardAction } from './permission-guard.js';
 
 /**
  * Whether operation logging is enabled.
@@ -579,6 +580,17 @@ export const logSettingOperation = createEntityLogger(EntityType.SETTING, true);
  */
 export async function logAtlasSetting(patch) {
     if (!enabled) return;
+    // O GUARDA ANTES DA FILA, e aqui ele vale por TODOS os chamadores desta porta.
+    //
+    // MEDIDO EM 2026-09-16, com um usuario de compartilhamento `read` aberto num atlas: o boot
+    // recontava as cores do mapa e gravava `colorUsage`, que caia aqui e ia para a fila. O servidor
+    // respondia 403 ("Seu acesso a este atlas e somente leitura."), a op nao desenfileirava, e o
+    // cracha ficava preso em "Enviando 2..." para sempre, com a fila retida na cabeca: nada mais
+    // sairia daquele cliente. Quem so le nao deve produzir escrita nenhuma.
+    //
+    // `checkPermission` e permissivo offline e em store local, entao o atlas local e o visitante
+    // anonimo seguem escrevendo as preferencias deles como antes.
+    if (!checkPermission(GuardAction.UPDATE_MAP).allowed) return;
     const scope = getActiveScope();
     try {
         if (scope?.kind === 'remote') {
