@@ -11,6 +11,18 @@
  *   Ctrl (or Meta on macOS) + drag -> pitch only   (vertical movement)
  *   Shift + drag                   -> bearing only (horizontal movement)
  *   Ctrl + Shift + drag            -> both axes    (legacy behaviour)
+ *   Middle button drag             -> both axes    (no modifier at all)
+ *
+ * O BOTÃO DO MEIO ENTROU EM 2026-09-17, a pedido do dono: girar e inclinar sem
+ * tirar a mão do mouse. Ele é o único botão livre no mapa, e é por isso que ele
+ * serve: o esquerdo seleciona e arrasta, e o direito abre o menu de contexto e
+ * fecha desenho em andamento.
+ *
+ * O MapLibre NÃO tem opção para isto. Na 6.9.1 o botão de cada gesto é um
+ * literal dentro da fábrica do handler (`checkCorrectEvent: (e) => e.button ===
+ * LEFT_BUTTON && e.ctrlKey || e.button === RIGHT_BUTTON`), sem nada configurável
+ * por fora, e o `HandlerManager` só expõe `_handlers`. Aqui a decisão é nossa
+ * porque `dragRotate: false` foi declarado na criação do mapa.
  *
  * The right mouse button is deliberately NOT mapped: it is reserved for the
  * context menu and for finishing in-progress drawings.
@@ -37,6 +49,12 @@ export const MOUSE_PITCH_SENSITIVITY = 0.3;
 /** Pixels the pointer must travel before the drag engages (keeps Shift+click selecting). */
 export const DRAG_THRESHOLD_PX = 3;
 
+/** O botão esquerdo, o único que os modificadores acompanham. */
+export const LEFT_BUTTON = 0;
+
+/** O botão do meio, que gira e inclina sozinho. */
+export const MIDDLE_BUTTON = 1;
+
 /**
  * Resolves which camera axes a mousedown should drive.
  *
@@ -48,7 +66,12 @@ export const DRAG_THRESHOLD_PX = 3;
  */
 export function resolveDragMode(event = {}) {
     const { button, ctrlKey, metaKey, shiftKey } = event ?? {};
-    if (button !== 0) return DRAG_MODE.NONE;
+
+    // O BOTÃO DO MEIO NÃO OLHA MODIFICADOR: ele é o gesto inteiro, e responde igual com Ctrl ou
+    // Shift apertados. Vem ANTES da recusa por botão, senão ele cairia fora com os demais.
+    if (button === MIDDLE_BUTTON) return DRAG_MODE.BOTH;
+
+    if (button !== LEFT_BUTTON) return DRAG_MODE.NONE;
 
     const pitchModifier = Boolean(ctrlKey) || Boolean(metaKey);
     const bearingModifier = Boolean(shiftKey);

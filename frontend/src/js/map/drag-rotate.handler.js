@@ -1,6 +1,8 @@
 // Path: js/map/drag-rotate.handler.js
 import {
     DRAG_MODE,
+    LEFT_BUTTON,
+    MIDDLE_BUTTON,
     clampPitch,
     computeCameraDelta,
     exceedsDragThreshold,
@@ -9,8 +11,9 @@ import {
 
 /**
  * Mouse-only camera gesture: Ctrl drags the pitch, Shift drags the bearing,
- * Ctrl+Shift drags both. The native `dragRotate` is disabled at map creation,
- * so this is the only source of mouse-driven rotation.
+ * Ctrl+Shift drags both, and the MIDDLE BUTTON drags both with no modifier at
+ * all. The native `dragRotate` is disabled at map creation, so this is the only
+ * source of mouse-driven rotation.
  *
  * Touch is deliberately NOT handled here: two-finger zoom/rotate is left to
  * MapLibre's own `touchZoomRotate`, which has activation thresholds. The custom
@@ -28,6 +31,8 @@ class DragRotateHandler {
         this._map = map;
         this._canvas = null;
         this._mode = DRAG_MODE.NONE;
+        /** O botão que começou o gesto: é ELE que tem o direito de terminá-lo. */
+        this._button = LEFT_BUTTON;
         this._engaged = false;
         this._startPoint = null;
         this._accumDx = 0;
@@ -35,6 +40,7 @@ class DragRotateHandler {
         this._originalCursor = '';
         this._dragPanWasEnabled = false;
         this._swallowClick = null;
+        this._swallowTipo = null;
         this._swallowTimer = null;
 
         this._onMouseDown = this._onMouseDown.bind(this);
@@ -76,11 +82,16 @@ class DragRotateHandler {
         if (mode === DRAG_MODE.NONE) return;
 
         this._mode = mode;
+        this._button = e.button ?? LEFT_BUTTON;
         this._engaged = false;
         this._startPoint = { x: e.clientX, y: e.clientY };
         this._accumDx = 0;
         this._accumDy = 0;
 
+        // O AUTOSCROLL DO NAVEGADOR MORRE AQUI, e é o `preventDefault` do fim deste método que o
+        // mata: no Windows, o botão do meio abre aquele alvo de rolagem automática, e com ele na
+        // tela o movimento do ponteiro rola a página em vez de girar o mapa.
+        //
         // dragPan must go down at mousedown: MapLibre's mousePan accepts
         // Shift+left button, so it would pan while we rotate.
         this._dragPanWasEnabled = Boolean(this._map.dragPan?.isEnabled?.());
@@ -128,11 +139,13 @@ class DragRotateHandler {
     }
 
     _onMouseUp(e) {
-        // Only the left button drives the gesture. A right-click (context menu)
-        // released mid-drag must not end it: ending it re-enables dragPan while
-        // the left button is still down, and MapLibre would resume panning from
-        // the stale mousedown point.
-        if (e && e.button !== 0) return;
+        // SÓ O BOTÃO QUE COMEÇOU TERMINA. Era uma comparação com o esquerdo fixo, pela mesma
+        // razão que continua valendo: um clique com o direito (menu de contexto) solto no meio do
+        // arrasto não pode encerrar o gesto, porque encerrar reabilita o dragPan com o esquerdo
+        // ainda apertado e o MapLibre retoma a panorâmica do ponto velho do mousedown. Com o
+        // botão do meio no gesto, o esquerdo fixo tinha o efeito oposto e pior: o `mouseup` do
+        // meio chega com `button === 1` e o arrasto NUNCA terminaria.
+        if (e && e.button !== this._button) return;
         this._endDrag();
     }
 
@@ -175,8 +188,11 @@ class DragRotateHandler {
         this._engaged = false;
 
         if (wasEngaged) {
-            this._swallowClickAfterDrag();
+            // O BOTÃO DO MEIO NÃO DISPARA `click`, e sim `auxclick`: engolir o evento errado
+            // deixaria passar o que se queria comer e comeria um clique que ninguém deu.
+            this._swallowClickAfterDrag(this._button === MIDDLE_BUTTON ? 'auxclick' : 'click');
         }
+        this._button = LEFT_BUTTON;
     }
 
     /**
@@ -194,16 +210,18 @@ class DragRotateHandler {
      * canvas container, so stopping propagation above it beats every listener
      * below. Only armed when the drag actually ENGAGED (past the 3 px threshold),
      * so a Shift+click that never moved still selects.
+     * @param {string} [tipo='click'] - O evento a engolir (o botao do meio dispara `auxclick`).
      * @private
      */
-    _swallowClickAfterDrag() {
+    _swallowClickAfterDrag(tipo = 'click') {
         if (this._swallowClick) return;
 
+        this._swallowTipo = tipo;
         this._swallowClick = (event) => {
             event.stopPropagation();
             event.preventDefault();
         };
-        window.addEventListener('click', this._swallowClick, true);
+        window.addEventListener(tipo, this._swallowClick, true);
         // One tick only: the click we are eating is dispatched synchronously
         // right after this mouseup, so anything later is a real click.
         this._swallowTimer = setTimeout(() => this._disarmClickSwallow(), 0);
@@ -216,8 +234,9 @@ class DragRotateHandler {
             this._swallowTimer = null;
         }
         if (this._swallowClick) {
-            window.removeEventListener('click', this._swallowClick, true);
+            window.removeEventListener(this._swallowTipo ?? 'click', this._swallowClick, true);
             this._swallowClick = null;
+            this._swallowTipo = null;
         }
     }
 }

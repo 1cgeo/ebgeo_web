@@ -27,6 +27,8 @@ import fc from 'fast-check';
 import {
     DRAG_MODE,
     DRAG_THRESHOLD_PX,
+    LEFT_BUTTON,
+    MIDDLE_BUTTON,
     MOUSE_BEARING_SENSITIVITY,
     MOUSE_PITCH_SENSITIVITY,
     clampPitch,
@@ -59,7 +61,46 @@ describe('resolveDragMode', () => {
         expect(resolveDragMode({ button: 2, ctrlKey: true })).toBe(DRAG_MODE.NONE);
         expect(resolveDragMode({ button: 2, shiftKey: true })).toBe(DRAG_MODE.NONE);
         expect(resolveDragMode({ button: 2, ctrlKey: true, shiftKey: true })).toBe(DRAG_MODE.NONE);
-        expect(resolveDragMode({ button: 1, ctrlKey: true })).toBe(DRAG_MODE.NONE);
+        // O botão do MEIO saiu desta lista em 2026-09-17 e ganhou bloco próprio abaixo: ele é o
+        // gesto sem tecla que o dono pediu. O direito continua fora, e continua pelo mesmo motivo.
+        expect(resolveDragMode({ button: 3 })).toBe(DRAG_MODE.NONE);
+        expect(resolveDragMode({ button: 4 })).toBe(DRAG_MODE.NONE);
+    });
+
+    /**
+     * O BOTÃO DO MEIO GIRA E INCLINA SEM TECLA NENHUMA (pedido do dono, 2026-09-17).
+     *
+     * O MapLibre não tem opção para isto: na 6.9.1 o botão de cada gesto é um literal dentro da
+     * fábrica do handler (`checkCorrectEvent: (e) => e.button === LEFT_BUTTON && e.ctrlKey ||
+     * e.button === RIGHT_BUTTON`), e o `HandlerManager` só expõe `_handlers`. A decisão é deste
+     * módulo porque o app declara `dragRotate: false` ao criar o mapa.
+     */
+    describe('o botão do meio', () => {
+        it('gira e inclina junto, sem modificador nenhum', () => {
+            expect(resolveDragMode({ button: MIDDLE_BUTTON })).toBe(DRAG_MODE.BOTH);
+        });
+
+        it('responde igual com Ctrl, Shift, os dois, ou Meta — ele ignora tecla', () => {
+            // A propriedade é "o botão basta": se um modificador mudasse o modo, o gesto teria
+            // dois comportamentos e a pessoa descobriria isso por acidente.
+            for (const teclas of [
+                { ctrlKey: true },
+                { shiftKey: true },
+                { ctrlKey: true, shiftKey: true },
+                { metaKey: true },
+            ]) {
+                expect(resolveDragMode({ button: MIDDLE_BUTTON, ...teclas }), JSON.stringify(teclas))
+                    .toBe(DRAG_MODE.BOTH);
+            }
+        });
+
+        it('o número do botão é o 1, e é comparado por identidade', () => {
+            expect(MIDDLE_BUTTON).toBe(1);
+            expect(LEFT_BUTTON).toBe(0);
+            // O `'1'` de um evento sintético mal montado não vale como botão do meio, pela mesma
+            // razão que o `'0'` não vale como esquerdo.
+            expect(resolveDragMode({ button: '1' })).toBe(DRAG_MODE.NONE);
+        });
     });
 
     it('handles a missing/empty/null event', () => {

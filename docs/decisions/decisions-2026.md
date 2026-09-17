@@ -2591,3 +2591,47 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
 - **Guardas e controle negativo:** `frontend/tests/integration/streetview360-write-ahead.test.js` (dois casos novos, com a intercalação perdedora FORÇADA por um portão, nunca sorteada: revertida a trava, os dois reprovam), `frontend/tests/integration/marcador-3d-cena-ao-vivo.test.js` (seis casos, o primeiro teste da história a importar `marker_tool_3d.js`; cortado o fio do evento, o caso que o mede reprova), `frontend/tests/unit/streetview-cursor-remoto.test.js`, `backend/tests/ws/collab-presence-payload-bound.repro.test.js` (a recusa da posição da superfície errada) e os casos novos em `presence-store`, `presence-bridge` e `remote-cursors-layer`.
 - **Prova visual, com dois navegadores reais contra o acervo desta máquina:** na tela do segundo usuário aparecem o cursor rotulado do primeiro e o marcador que ele criou, sobre o panorama real do projeto `museu_cms`, e o marcador some quando o primeiro o apaga. No 3D o cursor rotulado do colega aparece na cena; o modelo não desenhou no ambiente de captura porque a imagery e o terreno não respondem ali.
 - **Status:** aceita.
+
+---
+
+### 2026-09-17: o botão do meio gira e inclina o mapa, sem tecla nenhuma
+
+- **Contexto:** o gesto de câmera por mouse exigia modificador (decisão de 2026-09-01: Ctrl inclina,
+  Shift rotaciona, Ctrl+Shift faz os dois), e o dono pediu a versão sem tecla: "queria tb uma versão sem
+  shift e ctrl com o botão do meio". A pergunta que ele fez primeiro tem resposta medida: o MapLibre NÃO
+  permite configurar isto. Na 6.9.1 instalada, o botão de cada gesto é um literal dentro da fábrica do
+  handler (os nomes do vendor, escritos sem crase porque não existem neste repositório: a fábrica
+  generateMouseRotationHandler traz um checkCorrectEvent que aceita o botão esquerdo com Ctrl ou o botão
+  direito, e nada mais), não há opção que o altere, e o gerenciador de handlers do mapa só expõe a lista
+  interna deles. O app não depende disso porque declara `dragRotate: false` em `createMap` e traz o
+  gesto próprio desde 2026-09-01.
+- **Decisão:** `resolveDragMode` passa a devolver `DRAG_MODE.BOTH` para `button === 1`, ANTES da recusa
+  por botão, e sem olhar modificador nenhum: o botão do meio é o gesto inteiro e responde igual com Ctrl,
+  Shift ou Meta apertados. O botão do meio é o único livre no mapa (o esquerdo seleciona e arrasta, o
+  direito abre o menu de contexto e encerra desenho em andamento). O `preventDefault` que já existia no
+  `mousedown` mata o autoscroll do Windows de graça.
+- **O que a mudança QUEBRAVA, e é a parte que só o handler vê:** `_onMouseUp` comparava o botão solto com
+  o esquerdo FIXO e ignorava os demais, o que era certo para um clique com o direito não encerrar um
+  arrasto do esquerdo (encerrar reabilita o `dragPan` com o esquerdo ainda apertado, e o MapLibre retoma a
+  panorâmica do ponto velho). Com o botão do meio arrastando, a mesma linha faz o `mouseup` dele ser
+  ignorado e o gesto NUNCA terminar: o mapa segue girando com o botão solto e o `dragPan` fica
+  desabilitado, sem nada no console. O handler passa a guardar o botão que começou, e só ele termina. Pelo
+  mesmo motivo, a engolida do clique sintético passa a ser de `auxclick` quando o gesto foi do meio, que é
+  o evento que esse botão dispara.
+- **Alternativas rejeitadas:**
+  - *Trocar o predicado interno do MapLibre* (alcançar os `DragHandler` dentro de `map.dragRotate` e
+    reescrever o predicado de botão deles, outro nome do vendor): três linhas, e nenhum contrato. Quebra numa atualização de menor
+    versão sem aviso, e o app já tem o gesto próprio, que é onde a decisão pertence.
+  - *Mapear o botão do meio para um eixo só*: o pedido é girar E inclinar, e o gesto sem tecla é o que
+    precisa ser completo justamente porque não há modificador para escolher o eixo.
+- **Guardas e controle negativo:** `frontend/tests/unit/drag-rotate-model.test.js` (bloco novo do botão do
+  meio: ele basta sozinho, ignora todo modificador, e o `'1'` de evento sintético não vale) e
+  `frontend/tests/unit/drag-rotate-botao-do-meio.test.js` (onze casos sobre o HANDLER, com `window` e o
+  container do mapa duplicados). Controle negativo executado em 2026-09-17: devolvendo `e.button !== 0` ao
+  `_onMouseUp`, reprovam os TRÊS casos do fim do gesto (a câmera continua andando com o botão solto, o
+  `dragPan` não volta, e a engolida é armada no evento errado) e os oito restantes seguem verdes.
+- **Prova visual, contra o ambiente real, com o botão do meio de verdade:** bearing de 0 para -60 e pitch
+  de 0 para 27 num arrasto só; soltando o botão, mover o ponteiro por mais 400 px não mexe a câmera; e a
+  panorâmica com o esquerdo volta a funcionar logo depois (o centro muda). O modal de atalhos mostra
+  "Botão do meio+Arrastar", com a descrição "Inclinar e rotacionar, sem tecla".
+- **Status:** aceita.

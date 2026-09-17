@@ -54,6 +54,7 @@ export const SHORTCUTS_DATA = {
             { key: 'Ctrl+Arrastar', description: 'Inclinar o mapa (pitch)' },
             { key: 'Shift+Arrastar', description: 'Rotacionar o mapa (bearing)' },
             { key: 'Ctrl+Shift+Arrastar', description: 'Inclinar e rotacionar juntos' },
+            { key: 'Botão do meio+Arrastar', description: 'Inclinar e rotacionar, sem tecla' },
             { key: 'Scroll', description: 'Zoom in / zoom out' },
         ],
     },
