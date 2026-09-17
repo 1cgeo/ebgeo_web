@@ -84,7 +84,7 @@ export function importModeDialog(target) {
         return {
             title: 'Importar atlas deste arquivo',
             message: '"Substituir Atual" abre o arquivo em um atlas local NOVO. O atlas do '
-                + 'servidor que está aberto continua intacto em "Seus atlas", e nada dele é '
+                + 'servidor que está aberto continua intacto em "Meus Atlas", e nada dele é '
                 + 'apagado.\n\n'
                 + '"Adicionar ao Atual" não vale para um atlas do servidor.',
             choices: acoes('primary'),

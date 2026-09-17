@@ -33,7 +33,7 @@
 import { takePendingImport, PendingImportOutcome } from '@store/atlas-namespace.js';
 
 /** Said when a `?atlas=` deep link wins over the file. */
-const RECUSA_DEEP_LINK = 'O arquivo .ebgeo escolhido em "Seus atlas" não foi aberto porque esta '
+const RECUSA_DEEP_LINK = 'O arquivo .ebgeo escolhido em "Meus Atlas" não foi aberto porque esta '
     + 'aba abriu outro atlas. Escolha o arquivo novamente.';
 
 /**
@@ -45,11 +45,11 @@ const RECUSA_DEEP_LINK = 'O arquivo .ebgeo escolhido em "Seus atlas" não foi ab
  * distinction is in the console-free path above and in `PendingImportOutcome`, for whoever is
  * reading the code.
  */
-const RECUSA_ENTREGA_PERDIDA = 'O arquivo .ebgeo escolhido em "Seus atlas" não chegou a ser '
+const RECUSA_ENTREGA_PERDIDA = 'O arquivo .ebgeo escolhido em "Meus Atlas" não chegou a ser '
     + 'aberto. Escolha o arquivo novamente.';
 
 /** Said when the map booted without its import/export control. */
-const RECUSA_SEM_IMPORTADOR = 'Não foi possível abrir o arquivo .ebgeo escolhido em "Seus atlas".';
+const RECUSA_SEM_IMPORTADOR = 'Não foi possível abrir o arquivo .ebgeo escolhido em "Meus Atlas".';
 
 /** Last-resort text for a creation that failed without a sentence of its own. */
 const RECUSA_SEM_SLOT = 'Não foi possível criar um atlas local para este arquivo .ebgeo.';
@@ -87,7 +87,7 @@ async function refusalForFile(file) {
 }
 
 /**
- * Imports the `.ebgeo` that "Seus atlas" left in the global database, if there is one.
+ * Imports the `.ebgeo` that "Meus Atlas" left in the global database, if there is one.
  *
  * THE PAGE CANNOT IMPORT, AND THE PAGE MUST NOT SPEND A SLOT. `atlas.html` has no store and no
  * importer (loading either is what makes it a ~140 kB page instead of a 3,3 MB one), so it parks

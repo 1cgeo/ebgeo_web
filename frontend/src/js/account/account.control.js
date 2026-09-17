@@ -311,7 +311,7 @@ export class AccountControl {
         this._projectsBtn.className = 'account-control__btn account-control__btn--projects';
         this._projectsBtn.setAttribute('role', 'menuitem');
         this._projectsBtn.setAttribute('data-testid', 'account-projects-btn');
-        setMenuButtonContent(this._projectsBtn, ICON_PROJECTS, 'Seus atlas');
+        setMenuButtonContent(this._projectsBtn, ICON_PROJECTS, 'Meus Atlas');
         this._projectsBtn.hidden = true;
         this._menu.appendChild(this._projectsBtn);
 
@@ -938,7 +938,7 @@ export class AccountControl {
                         showWarning(
                             'O atlas foi criado no servidor, mas outra aba assumiu este atlas '
                             + 'enquanto isso. Seus dados locais continuam aqui, intactos: feche a '
-                            + 'outra aba e abra o atlas em "Seus atlas".',
+                            + 'outra aba e abra o atlas em "Meus Atlas".',
                             { duration: 10000 }
                         );
                         return;
@@ -965,7 +965,7 @@ export class AccountControl {
                         showWarning(
                             'O atlas foi criado no servidor, mas não foi possível abri-lo agora. '
                             + 'Seus dados locais continuam aqui, intactos: abra o atlas em '
-                            + '"Seus atlas".',
+                            + '"Meus Atlas".',
                             { duration: 10000 }
                         );
                         console.error('[AccountControl] activateRemoteAtlas failed:', error);

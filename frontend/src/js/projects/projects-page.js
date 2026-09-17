@@ -1003,7 +1003,7 @@ function buildLocalSection(local) {
  * @returns {Promise<void>}
  */
 async function renderWithoutServer() {
-    document.title = `Seus atlas — ${config?.app?.title || 'EBGeo'}`;
+    document.title = `Meus Atlas — ${config?.app?.title || 'EBGeo'}`;
     initTabLock({ key: noneKey(), overlayHost: null });
 
     let local = { atlases: null, currentId: null };
@@ -1072,7 +1072,7 @@ async function initProjectsPage() {
         await renderWithoutServer();
         return;
     }
-    document.title = `Seus atlas — ${config?.app?.title || 'EBGeo'}`;
+    document.title = `Meus Atlas — ${config?.app?.title || 'EBGeo'}`;
 
     const signedIn = await restoreSession();
 

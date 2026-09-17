@@ -2221,7 +2221,7 @@ export function clsLabel(valor) {
 export function paginaDeUsoLabel(pagina) {
     if (typeof pagina !== 'string' || !pagina.trim()) return 'Sem página';
     const chave = pagina.trim();
-    const NOMES = { mapa: 'Mapa', atlas: 'Seus atlas', admin: 'Administração', calibracao: 'Calibração' };
+    const NOMES = { mapa: 'Mapa', atlas: 'Meus Atlas', admin: 'Administração', calibracao: 'Calibração' };
     return Object.hasOwn(NOMES, chave) ? NOMES[chave] : chave;
 }
 

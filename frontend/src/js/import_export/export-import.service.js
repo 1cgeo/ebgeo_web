@@ -760,7 +760,7 @@ export class ExportImportService {
             if (newLocalAtlasName) {
                 showToast(
                     `Importado em um atlas local novo, "${newLocalAtlasName}". `
-                    + 'O atlas do servidor foi fechado e continua intacto em "Seus atlas".',
+                    + 'O atlas do servidor foi fechado e continua intacto em "Meus Atlas".',
                     'info',
                     8000
                 );
@@ -819,7 +819,7 @@ export class ExportImportService {
             return {
                 ok: false,
                 message: 'Não foi possível preparar um atlas local para receber a importação. '
-                    + 'Nada foi importado; reabra o atlas em "Seus atlas" e tente de novo.'
+                    + 'Nada foi importado; reabra o atlas em "Meus Atlas" e tente de novo.'
             };
         }
 

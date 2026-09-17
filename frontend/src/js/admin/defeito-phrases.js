@@ -382,7 +382,7 @@ export function origemLabel(origem) {
  */
 export const PAGINAS = Object.freeze([
     Object.freeze({ valor: 'index.html', rotulo: 'Mapa' }),
-    Object.freeze({ valor: 'atlas.html', rotulo: 'Seus atlas' }),
+    Object.freeze({ valor: 'atlas.html', rotulo: 'Meus Atlas' }),
     Object.freeze({ valor: 'admin.html', rotulo: 'Administração' }),
     Object.freeze({ valor: 'calibracao.html', rotulo: 'Calibração 360' }),
 ]);

@@ -244,7 +244,7 @@ const RAMOS_DE_RECUSA = [
         nome: 'importador AUSENTE: o controle não chegou a ser registrado',
         preparar: () => entregaPronta(),
         opcoes: { importador: null },
-        aviso: { nivel: 'error', trecho: 'Seus atlas' }
+        aviso: { nivel: 'error', trecho: 'Meus Atlas' }
     },
     {
         nome: 'sem entrega nenhuma: o boot de quase todo mundo',
