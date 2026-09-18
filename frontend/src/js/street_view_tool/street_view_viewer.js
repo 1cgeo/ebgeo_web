@@ -1718,6 +1718,50 @@ async function loadMarkersForCurrentPhoto() {
 }
 
 /**
+ * Monta (ou remonta) a camada de comentarios sobre a foto que acabou de abrir.
+ *
+ * A CADA FOTO, e nao uma vez por sessao: a ancora do comentario 360 e a foto, entao trocar de
+ * panorama troca o conjunto inteiro. `iniciarComentarios360` e idempotente e solta os ouvintes da
+ * chamada anterior, que e o que impede um ouvinte por foto visitada.
+ *
+ * O BOTAO DA BARRA acompanha a permissao: quem nao pode comentar nao ve o comando, que e a regra do
+ * POSTO que o repositorio ja aplica em toda superficie de escrita. A diferenca do comentario e que
+ * ele sobrevive ao somente leitura, porque o Comentarista existe para isto.
+ * @returns {Promise<void>}
+ */
+async function montarComentariosDaFoto() {
+    if (!streetViewState.navigator || !streetViewState.currentPhotoName) return;
+    try {
+        const { iniciarComentarios360 } = await import('./comments-360.js');
+        await iniciarComentarios360(streetViewState.navigator, streetViewState.currentPhotoName);
+    } catch (erro) {
+        console.error('Falha ao montar os comentarios do 360:', erro);
+    }
+    await atualizarBotaoDeComentario360();
+}
+
+/** Mostra o botao de comentar so para quem pode comentar, e fia o clique dele. */
+async function atualizarBotaoDeComentario360() {
+    const botao = document.getElementById('comment-360');
+    if (!botao) return;
+    const { podeComentar } = await import('@js/comment_tool/comment-card.js');
+    const { alternarModoComentario360, modoComentario360Ativo } = await import('./comments-360.js');
+    const liberado = podeComentar();
+    botao.hidden = !liberado;
+    if (!liberado) return;
+    if (!botao._ebgeoFiado) {
+        botao._ebgeoFiado = true;
+        botao.addEventListener('click', () => {
+            // Ligar o modo de comentar desliga a ferramenta de desenho que estiver ativa: os dois
+            // disputam o proximo clique na cena, e dois modos ligados fariam o clique valer duas
+            // vezes.
+            deactivateCurrentTool360();
+            alternarModoComentario360(!modoComentario360Ativo());
+        });
+    }
+}
+
+/**
  * Multiuser presence: rebuilds the renderer's remote-selection map for the current
  * photo (markerId -> { color, name }) from the presence store, excluding self.
  * Scoped by photoName, so only peers viewing the same panorama are shown. The
@@ -2137,6 +2181,11 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
     // Load markers for the photo
     await loadMarkersForCurrentPhoto();
 
+    // A CAMADA DE COMENTARIOS DA FOTO (2026-09-17). Vem depois dos marcadores e usa a mesma chave
+    // canonica: os dois se ancoram na foto, e um comentario preso a uma chave e os marcadores a
+    // outra desenhariam em fotos diferentes.
+    await montarComentariosDaFoto();
+
     // If minimap 'selected' layer wasn't ready during loadPhoto (deep link scenario),
     // retry once the minimap finishes loading its sources/images
     if (streetViewState.miniMap && !streetViewState.miniMap.getLayer('selected')) {
@@ -2184,6 +2233,11 @@ export async function closeViewer360() {
 
     // Deactivate current tool
     deactivateCurrentTool360();
+
+    // A camada de comentarios sai junto: ela guarda ouvintes do barramento e um cartao no DOM. O
+    // import e dinamico como o da montagem, para o modulo nao entrar no grafo ANSIOSO da pagina do
+    // mapa (o teto por pasta de `teto-de-peso-da-pagina-do-mapa.test.js` conta 10 aqui).
+    import('./comments-360.js').then((m) => m.pararComentarios360()).catch(() => {});
 
     // Pause rendering
     pauseRendering();

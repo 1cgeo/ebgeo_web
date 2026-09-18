@@ -499,8 +499,9 @@ export const COLLECT_ATLAS_RESOURCE_REFS = `
  * cobre. Comparar por (tabela, coluna) resolveria esse caso e quebraria o oposto — as SEIS
  * entradas de `atlas.settings` compartilham tabela e coluna e são seis pernas diferentes.
  *
- * O QUE FALTA AQUI, E POR QUÊ: as três superfícies de `sv360_project`
- * (`streetview360_data.photo_name`, `briefing.slide.photoId`, `settings.available_360_views`).
+ * O QUE FALTA AQUI, E POR QUÊ: as QUATRO superfícies de `sv360_project`
+ * (`streetview360_data.photo_name`, `briefing.slide.photoId`, `settings.available_360_views` e,
+ * desde 2026-09-17, `comments.foto360`, o comentário feito dentro de uma foto).
  * Projeto 360 não é tabela de CATÁLOGO (`CATALOG_TABLES` são quatro; `RESOURCE_TYPES` são cinco),
  * e a rota que consome esta consulta é fabricada por tabela de catálogo. Se o 360 ganhar uma rota
  * de contagem, são estas três pernas que ela precisa.
@@ -519,6 +520,7 @@ export const REF_COUNT_SURFACES = Object.freeze([
     registro: ['cesium3d.cameraPositions', 'cesium3d.markers', 'cesium3d.measurements',
       'cesium3d.viewsheds'],
   }),
+  Object.freeze({ origem: 'comments.modelo3d', registro: ['comments.modelo3d'] }),
   Object.freeze({ origem: 'briefing.slide.modelId', registro: ['briefing.slide.modelId'] }),
   Object.freeze({ origem: 'settings.basemaps', registro: ['settings.basemaps'] }),
   Object.freeze({ origem: 'settings.default_basemap', registro: ['settings.default_basemap'] }),
@@ -592,6 +594,12 @@ export const COUNT_ATLAS_REFS_TO_RESOURCE = `
       JOIN atlas a ON a.id = m.atlas_id
      WHERE $2 = 'tileset' AND COALESCE(c.tileset_id, c.data->>'tilesetId') = $1
        AND c.deleted_at IS NULL AND m.deleted_at IS NULL AND a.deleted_at IS NULL
+    UNION ALL
+    SELECT 'comments.modelo3d', c.atlas_id, NULL, NULL
+      FROM comments c
+      JOIN atlas a ON a.id = c.atlas_id
+     WHERE $2 = 'tileset' AND c.data->>'tilesetId' = $1
+       AND c.deleted_at IS NULL AND a.deleted_at IS NULL
     UNION ALL
     SELECT 'briefing.slide.modelId', b.atlas_id, NULL, NULL
       FROM slides sl

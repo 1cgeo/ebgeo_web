@@ -519,6 +519,8 @@ export class StreetViewRenderer {
                     floorLevel: marker.floorLevel ?? null,
                     floorLabel: marker.floorLabel ?? null,
                 });
+        } else if (type === 'comment') {
+            this.renderComentario(ctx, finalRadius, marker.data, isHovered);
         } else if (type === 'poi') {
             // Only render marker circle if showMarker is not false
             if (style?.showMarker !== false) {
@@ -606,6 +608,56 @@ export class StreetViewRenderer {
      * @param {boolean} isHovered - Whether marker is hovered
      * @param {boolean} isSelected - Whether marker is selected
      */
+    /**
+     * Desenha o balao de um COMENTARIO: um circulo na cor do autor com as iniciais dele dentro, e
+     * um contador quando a conversa tem respostas.
+     *
+     * A APARENCIA E A DO PINO DO MAPA 2D de proposito (cor do autor, duas iniciais, contador de
+     * respostas): e o mesmo objeto visto de outra superficie, e o usuario que comentou no mapa tem
+     * de reconhecer o que ve dentro da foto. O que muda e a FORMA, circulo em vez de gota, porque
+     * dentro do panorama nao ha "chao" para a ponta da gota apontar.
+     *
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {number} radius
+     * @param {{authorInitials?:string, authorColor?:string, respostas?:number}} comentario
+     * @param {boolean} isHovered
+     */
+    renderComentario(ctx, radius, comentario, isHovered) {
+        const cor = comentario?.authorColor || '#2563eb';
+
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.fillStyle = cor;
+        ctx.fill();
+        ctx.lineWidth = isHovered ? 3 : 2;
+        ctx.strokeStyle = '#ffffff';
+        ctx.stroke();
+
+        const iniciais = (comentario?.authorInitials || '?').slice(0, 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `bold ${Math.round(radius * 0.9)}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(iniciais, 0, 1);
+
+        const respostas = Number(comentario?.respostas) || 0;
+        if (respostas > 0) {
+            // O contador fica na quina superior direita, como no pino do mapa.
+            const rx = radius * 0.78;
+            const ry = -radius * 0.78;
+            ctx.beginPath();
+            ctx.arc(rx, ry, radius * 0.45, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = cor;
+            ctx.stroke();
+            ctx.fillStyle = cor;
+            ctx.font = `bold ${Math.round(radius * 0.55)}px sans-serif`;
+            ctx.fillText(String(Math.min(respostas, 9)), rx, ry + 1);
+        }
+    }
+
     renderPOIMarker(ctx, radius, style, isHovered, isSelected) {
         const color = style?.color || NAV_CONSTANTS.POI_DEFAULT_COLOR;
         // Use nullish coalescing to properly handle opacity 0

@@ -19,6 +19,26 @@ import { showToast } from '@utils';
 const DRAG_THRESHOLD = 5;
 
 /**
+ * O raio do balao de comentario, em pixels.
+ *
+ * Maior que o POI padrao (12) porque ele carrega as INICIAIS do autor dentro, como o pino do mapa
+ * 2D: com 12 as duas letras nao cabem sem encostar na borda.
+ */
+const COMMENT_RADIUS = 15;
+
+/**
+ * A distancia do balao ao centro da esfera, em metros.
+ *
+ * ELA NAO E DECORATIVA, e a medicao de 2026-09-17 mostrou por que: `sphericalToMeters` multiplica
+ * a distancia pelos senos e cossenos da direcao, entao `undefined` vira NaN nos tres eixos, o
+ * marcador entra no hit tester com `screenX` NaN e nada mais acontece: ele nao desenha e nao e
+ * clicavel, sem erro nenhum no console. O valor e o mesmo padrao do marcador 360
+ * (`createMarkerAtPosition`), e o que ele governa e so a escala aparente, porque o balao tem raio
+ * fixo.
+ */
+const COMMENT_DISTANCE = 5;
+
+/**
  * Converts a direction on the sphere into the viewer's 3D coordinates.
  *
  * Module-level and pure ON PURPOSE: both the POI projection and the remote-cursor projection need
@@ -84,10 +104,14 @@ export class StreetViewNavigator {
         /** @type {Object|null} Memo of the last direction layout, keyed by its inputs */
         this._directionLayoutCache = null;
         this.pois = [];
+        /** Os comentarios desta foto (ver `setComments`). */
+        this.comments = [];
         this.cameraConfig = null;
         this.mousePosition = { x: 0, y: 0 };
         this.selectedPOIId = null;
         this.markerToolActive = false;
+        /** O proximo clique escolhe onde um comentario novo fica (ver `setCommentToolActive`). */
+        this.commentToolActive = false;
         this.nearestTargetId = null;
 
         // Drag detection state
@@ -217,6 +241,23 @@ export class StreetViewNavigator {
     }
 
     /**
+     * Os COMENTARIOS desta foto, que sao desenhados e clicaveis como os POIs.
+     *
+     * LISTA PROPRIA, E NAO POIs COM UM CAMPO A MAIS (2026-09-17): os dois se projetam igual, mas
+     * tudo o mais difere. O POI tem estilo do usuario (cor, tamanho, rotulo, visibilidade), entra
+     * na selecao e na presenca, e some com o filtro temporal; o comentario tem a cor do AUTOR,
+     * mostra as iniciais dele, abre uma conversa e nunca e selecionado. Misturar os dois faria cada
+     * regra de um ter de perguntar se o outro e' ele.
+     *
+     * @param {Array<{id:string, heading:number, pitch:number, authorInitials?:string,
+     *   authorColor?:string, respostas?:number}>} comentarios
+     */
+    setComments(comentarios) {
+        this.comments = comentarios || [];
+        this.requestRender();
+    }
+
+    /**
      * Renders a single frame of navigation elements
      * @param {number} lonDeg - Camera longitude (horizontal rotation) in degrees
      * @param {number} latDeg - Camera latitude (vertical rotation) in degrees
@@ -274,6 +315,21 @@ export class StreetViewNavigator {
             if (projected) {
                 projected.type = 'poi';
                 projected.data = poi;
+                markers.push(projected);
+            }
+        }
+
+        // Projeta os COMENTARIOS. Entram no hit tester como qualquer outra coisa clicavel, e
+        // DEPOIS dos POIs de proposito: com um comentario exatamente sobre um ponto, quem ganha o
+        // clique e o comentario, que e a coisa que tem conversa atras dela.
+        for (const comentario of this.comments) {
+            const projected = this.projectPOI(
+                { id: comentario.id, position: { heading: comentario.heading, pitch: comentario.pitch, distance: COMMENT_DISTANCE }, style: { markerSize: COMMENT_RADIUS } },
+                yaw, pitch, fov,
+            );
+            if (projected) {
+                projected.type = 'comment';
+                projected.data = comentario;
                 markers.push(projected);
             }
         }
@@ -817,6 +873,22 @@ export class StreetViewNavigator {
      * @returns {Object|null} Click result with type and data
      */
     handleNavigationClick(x, y) {
+        // MODO DE COMENTAR: o proximo clique escolhe ONDE a conversa fica, e nao navega nem
+        // seleciona. Vem antes do modo de marcador porque so um dos dois fica ativo por vez, e a
+        // ordem torna isso explicito para quem le.
+        if (this.commentToolActive && this.currentYaw !== undefined) {
+            const spherical = this.projector.screenToSpherical(
+                x, y, this.currentYaw, this.currentPitch, this.currentFov,
+            );
+            getEventBus().emit(EventTypes.COMMENT_360_POSITION_CLICKED, {
+                position: spherical,
+                photoName: this.cameraConfig?.img,
+                screenX: x,
+                screenY: y,
+            });
+            return { type: 'comment-position', position: spherical };
+        }
+
         // Check for marker tool mode
         if (this.markerToolActive) {
             // Use currentYaw/currentPitch from render() which include imageHeading,
@@ -855,6 +927,16 @@ export class StreetViewNavigator {
                 // Navigation target clicked - navigate to it
                 this.navigateToTarget(hit.data);
                 return { type: 'navigation', target: hit.data };
+            } else if (hit.type === 'comment') {
+                // O comentario nao entra na selecao de POI: quem responde e o visualizador, que
+                // abre a conversa ancorada no pixel em que ele esta.
+                getEventBus().emit(EventTypes.COMMENT_360_CLICKED, {
+                    comment: hit.data,
+                    photoName: this.cameraConfig?.img,
+                    screenX: hit.screenX,
+                    screenY: hit.screenY,
+                });
+                return { type: 'comment', comment: hit.data };
             } else if (hit.type === 'poi') {
                 // POI clicked - select it
                 this.selectPOI(hit.id);
@@ -948,6 +1030,20 @@ export class StreetViewNavigator {
      * Sets the marker tool active state
      * @param {boolean} active - Whether marker tool is active
      */
+    /**
+     * Liga ou desliga o modo de COMENTAR, que faz o proximo clique escolher a posicao da conversa.
+     * Reusa a classe de cursor do marcador: o gesto e o mesmo (mirar e clicar).
+     * @param {boolean} active
+     */
+    setCommentToolActive(active) {
+        this.commentToolActive = active;
+        const container = document.getElementById('street-view-container');
+        if (container) {
+            container.classList.toggle('marker-tool-active', active);
+        }
+        this.requestRender();
+    }
+
     setMarkerToolActive(active) {
         this.markerToolActive = active;
         // Toggle CSS class on container for crosshair cursor

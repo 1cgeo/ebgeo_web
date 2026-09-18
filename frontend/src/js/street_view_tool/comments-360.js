@@ -1,0 +1,219 @@
+// Path: js/street_view_tool/comments-360.js
+
+/**
+ * @fileoverview O COMENTÁRIO ESPACIAL DENTRO DO PANORAMA 360.
+ *
+ * O dono pediu em 2026-09-17 o sistema de comentários do mapa também no 360, "com as mesmas regras
+ * e funcionalidades", e decidiu que o comentário desenha SÓ na superfície onde nasceu. Este arquivo
+ * é a metade do 360: ele carrega os comentários da foto aberta, alimenta o navegador (que os
+ * projeta e os torna clicáveis como os POIs) e ancora o CARTÃO na tela.
+ *
+ * O CARTÃO E AS REGRAS NÃO MORAM AQUI, e é isso que faz "as mesmas" ser verdade em vez de promessa:
+ * responder, resolver, reabrir, excluir, quem pode o quê e a aparência da conversa vêm todos de
+ * `comment_tool/comment-card.js`, o mesmo módulo que o mapa 2D usa. O que é próprio do 360 são três
+ * coisas, e só elas: a ÂNCORA (foto mais direção e inclinação, como o marcador 360), o DESENHO (o
+ * balão no canvas do panorama) e o POSICIONAMENTO do cartão (pixel na tela, porque dentro da esfera
+ * não existe coordenada onde pendurar um popup).
+ *
+ * POR QUE O CARTÃO É ANCORADO EM PIXEL, e não segue o balão quadro a quadro: o panorama gira, e um
+ * cartão que perseguisse o balão andaria pela tela enquanto a pessoa lê e escreve. O mapa 2D tem o
+ * mesmo comportamento por outro caminho (o popup do MapLibre fica na coordenada e sai de vista se a
+ * pessoa arrastar), então a regra é a mesma: o cartão nasce onde o gesto aconteceu e fica lá até
+ * ser fechado.
+ */
+
+import { getComments, addComment, getCurrentMapNameSync } from '@store';
+import { getEventBus } from '@store/services.js';
+import { EventTypes } from '@events/event_types.js';
+import {
+    SUPERFICIE,
+    autoriaAtual,
+    ehDaSuperficie,
+    montarCartaoDeCompose,
+    montarCartaoDeThread,
+    podeComentar,
+    respostasDe,
+} from '@js/comment_tool/comment-card.js';
+
+/** O estado do módulo: um visualizador 360 por vez, como o resto da ferramenta. */
+const estado = {
+    navigator: null,
+    photoName: null,
+    /** A coleção inteira do mapa (as três superfícies), como o store a devolve. */
+    colecao: {},
+    cartao: null,
+    /** O id da conversa aberta, para o cartão se refazer quando chega resposta do colega. */
+    raizAberta: null,
+    ativo: false,
+    soltar: [],
+};
+
+/** O container onde o cartão é posicionado. */
+function container() {
+    return document.getElementById('street-view-container');
+}
+
+/** Fecha o cartão aberto, se houver. */
+export function fecharCartao360() {
+    estado.cartao?.remove();
+    estado.cartao = null;
+    estado.raizAberta = null;
+}
+
+/**
+ * Põe um cartão na tela, preso ao pixel do gesto.
+ *
+ * O cartão é mantido DENTRO do container: nascendo perto da borda ele escaparia da tela, e o que a
+ * pessoa veria seria meia conversa. As margens são as do próprio cartão medido, e não um palpite.
+ * @private
+ */
+function ancorar(cartao, x, y) {
+    const caixa = container();
+    if (!caixa) return;
+    fecharCartao360();
+
+    cartao.classList.add('comment-card--flutuante');
+    caixa.appendChild(cartao);
+
+    const largura = cartao.offsetWidth || 320;
+    const altura = cartao.offsetHeight || 160;
+    const margem = 12;
+    const maxX = caixa.clientWidth - largura - margem;
+    const maxY = caixa.clientHeight - altura - margem;
+    cartao.style.left = `${Math.max(margem, Math.min(x - largura / 2, maxX))}px`;
+    cartao.style.top = `${Math.max(margem, Math.min(y - altura - 24, maxY))}px`;
+
+    estado.cartao = cartao;
+}
+
+/** Os comentários RAIZ desta foto, já com a contagem de respostas que o balão mostra. */
+function raizesDaFoto() {
+    return Object.values(estado.colecao)
+        .filter((c) => c && !c.parentId && c.status !== 'resolved'
+            && ehDaSuperficie(c, SUPERFICIE.FOTO_360, estado.photoName)
+            && Number.isFinite(c.heading) && Number.isFinite(c.pitch))
+        .map((c) => ({
+            id: c.id,
+            heading: c.heading,
+            pitch: c.pitch,
+            authorInitials: c.authorInitials,
+            authorColor: c.authorColor,
+            respostas: respostasDe(estado.colecao, c.id).length,
+        }));
+}
+
+/** Relê a coleção do mapa e repinta os balões. */
+async function recarregar() {
+    if (!estado.ativo) return;
+    const mapa = getCurrentMapNameSync();
+    estado.colecao = (mapa ? await getComments(mapa) : {}) || {};
+    if (!estado.ativo) return;
+    estado.navigator?.setComments(raizesDaFoto());
+
+    // A CONVERSA ABERTA SE REFAZ, e é o que faz a resposta do colega aparecer sem fechar e
+    // reabrir. Se ela sumiu (resolvida ou excluída), o cartão fecha em vez de ficar mentindo.
+    if (estado.raizAberta) {
+        const raiz = estado.colecao[estado.raizAberta];
+        const onde = estado.cartao
+            ? { x: parseFloat(estado.cartao.style.left) + (estado.cartao.offsetWidth / 2), y: parseFloat(estado.cartao.style.top) + estado.cartao.offsetHeight + 24 }
+            : null;
+        if (raiz && raiz.status !== 'resolved' && onde) abrirConversa(raiz.id, onde.x, onde.y);
+        else fecharCartao360();
+    }
+}
+
+/** Abre a conversa de uma raiz, ancorada no pixel indicado. */
+function abrirConversa(raizId, x, y) {
+    const raiz = estado.colecao[raizId];
+    if (!raiz) return;
+    const cartao = montarCartaoDeThread({
+        raiz,
+        respostas: respostasDe(estado.colecao, raizId),
+        aoFechar: () => fecharCartao360(),
+    });
+    ancorar(cartao, x, y);
+    estado.raizAberta = raizId;
+}
+
+/**
+ * Liga ou desliga o modo de comentar (o próximo clique escolhe onde a conversa fica).
+ * @param {boolean} ligado
+ */
+export function alternarModoComentario360(ligado) {
+    if (!estado.navigator) return;
+    estado.navigator.setCommentToolActive(Boolean(ligado));
+    const botao = document.getElementById('comment-360');
+    botao?.classList.toggle('active', Boolean(ligado));
+    if (!ligado) fecharCartao360();
+}
+
+/** @returns {boolean} */
+export function modoComentario360Ativo() {
+    return Boolean(estado.navigator?.commentToolActive);
+}
+
+/**
+ * Monta a camada de comentários do 360 sobre uma foto.
+ *
+ * Idempotente por construção: cada chamada solta os ouvintes da anterior. A troca de foto passa por
+ * aqui, e sem isso cada panorama aberto deixaria um ouvinte a mais.
+ *
+ * @param {Object} navigator - O navegador do panorama.
+ * @param {string} photoName - A foto aberta (a CHAVE canônica, `data.camera.img`).
+ * @returns {Promise<void>}
+ */
+export async function iniciarComentarios360(navigator, photoName) {
+    pararComentarios360();
+    estado.navigator = navigator;
+    estado.photoName = photoName;
+    estado.ativo = true;
+
+    const bus = getEventBus();
+    const assinar = (tipo, fn) => { estado.soltar.push(bus.on(tipo, fn)); };
+
+    // As três escritas chegam pelos MESMOS eventos, venham daqui ou do colega: o aplicador remoto
+    // emite os mesmos `COMMENT_*` que a operação local emite.
+    for (const tipo of [EventTypes.COMMENT_CREATED, EventTypes.COMMENT_UPDATED, EventTypes.COMMENT_DELETED]) {
+        assinar(tipo, () => { recarregar(); });
+    }
+
+    assinar(EventTypes.COMMENT_360_CLICKED, ({ comment, screenX, screenY }) => {
+        if (!comment?.id) return;
+        abrirConversa(comment.id, screenX, screenY);
+    });
+
+    assinar(EventTypes.COMMENT_360_POSITION_CLICKED, ({ position, screenX, screenY }) => {
+        alternarModoComentario360(false);
+        if (!podeComentar() || !position) return;
+        const cartao = montarCartaoDeCompose({
+            aoCancelar: () => fecharCartao360(),
+            aoEnviar: async (texto) => {
+                fecharCartao360();
+                await addComment({
+                    surface: SUPERFICIE.FOTO_360,
+                    photoName: estado.photoName,
+                    heading: position.heading,
+                    pitch: position.pitch,
+                    text: texto,
+                    ...autoriaAtual(),
+                });
+            },
+        });
+        ancorar(cartao, screenX, screenY);
+    });
+
+    await recarregar();
+}
+
+/** Desmonta a camada: solta os ouvintes, fecha o cartão e limpa os balões. */
+export function pararComentarios360() {
+    for (const soltar of estado.soltar) soltar?.();
+    estado.soltar = [];
+    estado.ativo = false;
+    fecharCartao360();
+    estado.navigator?.setCommentToolActive(false);
+    estado.navigator?.setComments([]);
+    estado.navigator = null;
+    estado.photoName = null;
+    estado.colecao = {};
+}

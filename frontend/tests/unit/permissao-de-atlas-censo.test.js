@@ -353,6 +353,21 @@ const CENSO = [
             + 'literal nenhum, então nem aparece nesta varredura.',
     },
     {
+        arquivo: 'src/js/street_view_tool/navigation/navigator.js', trecho: "'comment'", n: 3,
+        classe: HOMONIMO,
+        motivo: 'O TIPO de marcador projetado dentro do panorama 360 (2026-09-17): `navigation`, '
+            + '`poi` e agora `comment`, que e o balao de uma conversa. Diz o que esta desenhado na '
+            + 'esfera, e nao quem pode desenhar. O gate de verdade do comentario 360 e '
+            + '`podeComentar()` (`comment_tool/comment-card.js`), que chama `checkPermission` e nao '
+            + 'cita literal nenhum.',
+    },
+    {
+        arquivo: 'src/js/street_view_tool/navigation/renderer.js', trecho: "'comment'", n: 1,
+        classe: HOMONIMO,
+        motivo: 'O mesmo tipo de marcador, do lado do desenho: o ramo que pinta o balao com as '
+            + 'iniciais do autor. Homonimo puro.',
+    },
+    {
         arquivo: 'src/js/toolbar/components/active-tool-chip.js', trecho: "'comment',", n: 1,
         classe: HOMONIMO,
         motivo: 'O mesmo `type` de ferramenta, do outro lado: a lista de ferramentas que o chip '

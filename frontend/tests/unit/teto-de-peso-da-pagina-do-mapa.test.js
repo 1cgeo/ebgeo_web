@@ -549,8 +549,13 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // de dois trabalhos e não a medida de nenhum. Quem remedir sozinho desce o teto para perto
         // de 10600 e o guarda volta a guardar; até lá ele está frouxo em 1,2 MB, e é melhor que
         // isso esteja escrito do que descoberto.
+        // 709 desde 2026-09-17, e o arquivo novo e nomeado: `street_view_tool/comments-360.js`, a
+        // camada de comentarios do panorama, alcancada por `import()` a partir do visualizador. Ele
+        // nao entra no grafo ANSIOSO (a metade (b) deste arquivo continua contando 10 na pasta), e
+        // o peso que ele traz ja estava no grafo completo: `comment_tool/comment-card.js` e o store
+        // sao alcancados pelo overlay do 2D desde antes.
         expect(completo.arquivos.size).toBeGreaterThanOrEqual(580);
-        expect(completo.arquivos.size).toBeLessThanOrEqual(708);
+        expect(completo.arquivos.size).toBeLessThanOrEqual(709);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);

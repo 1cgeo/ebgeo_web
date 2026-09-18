@@ -291,6 +291,22 @@ export const EventTypes = Object.freeze({
     COMMENT_UPDATED: 'comment:updated',
     /** Payload: { commentId } — a spatial comment was deleted. */
     COMMENT_DELETED: 'comment:deleted',
+    /**
+     * Payload: { comment, photoName, screenX, screenY } — alguem clicou num comentario DENTRO do
+     * panorama 360. Os pixels viajam junto porque o cartao da conversa e ancorado na tela, e nao
+     * numa coordenada: quem sabe onde o balao foi desenhado e o navegador que o projetou.
+     */
+    COMMENT_360_CLICKED: 'comment360:clicked',
+    /**
+     * Payload: { position, photoName, screenX, screenY } — no modo de comentar, o clique escolheu a
+     * direcao dentro da foto. `position` e o par {heading, pitch} que `screenToSpherical` devolve.
+     */
+    COMMENT_360_POSITION_CLICKED: 'comment360:positionClicked',
+    /**
+     * Payload: { comment, tilesetId } — alguem clicou num comentario dentro do visualizador 3D. Sem
+     * pixels: no Cesium a posicao de tela se obtem da propria cena a qualquer momento.
+     */
+    COMMENT_3D_CLICKED: 'comment3d:clicked',
 
     // ===== PRESENCE / AWARENESS =====
     /** Online users set changed (join/left/away/back/initial). Payload: { users } */
