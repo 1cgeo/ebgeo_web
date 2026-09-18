@@ -16,15 +16,20 @@ import {
     getCurrentMapNameSync,
     getComments,
     addComment,
-    addReply,
     updateComment,
-    resolveComment,
-    removeComment,
 } from '@store';
 import { isRemoteStoreSync } from '@store/store-origin.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { checkPermission, GuardAction } from '@store/sync/permission-guard.js';
-import { getInitials, getPresenceColor } from '@js/presence/presence-colors.js';
+import { getPresenceColor } from '@js/presence/presence-colors.js';
+import {
+    SUPERFICIE,
+    autoriaAtual,
+    ehDaSuperficie,
+    montarCartaoDeCompose,
+    montarCartaoDeThread,
+    respostasDe,
+} from './comment-card.js';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
 import { showWarning } from '@utils/toast_service.js';
@@ -33,30 +38,6 @@ import { maplibregl } from '@js/map/maplibre.js';
 
 /** Static speech-bubble glyph for the pin reply-count badge (static SVG — XSS-safe). */
 const REPLY_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 6h-2v9H6v2c0 .55.45 1 1 1h11l4 4V7c0-.55-.45-1-1-1zm-4 6V3c0-.55-.45-1-1-1H3c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1z"/></svg>`;
-
-/** Relative-time label in pt-BR (compact). */
-function timeAgo(ts) {
-    if (!ts) return '';
-    const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-    if (s < 60) return 'agora';
-    const m = Math.floor(s / 60);
-    if (m < 60) return `há ${m} min`;
-    const h = Math.floor(m / 60);
-    if (h < 24) return `há ${h} h`;
-    const d = Math.floor(h / 24);
-    return `há ${d} d`;
-}
-
-/** Identity stamp for a new comment/reply from the current session. */
-function authorStamp() {
-    const name = sessionContext.username || '';
-    const id = sessionContext.userId || '';
-    return {
-        authorId: id || null,
-        authorInitials: getInitials(name),
-        authorColor: getPresenceColor(String(id || name)),
-    };
-}
 
 /**
  * Comment overlay: pins + thread/compose cards. Construct with the map, call start()/stop().
@@ -279,8 +260,14 @@ export class CommentOverlay {
         }
         // Resolved comments are NOT shown on the map — they live only in the Comentários panel
         // (a focusComment from the panel still opens the resolved thread card by coordinate).
+        // A SUPERFICIE ENTRA NO FILTRO desde 2026-09-17, e a coordenada sozinha nao basta: o
+        // comentario do 3D tem `lng`/`lat` (o ponto sobre o modelo) e desenharia aqui como se
+        // fosse do mapa. O do 360 nao tem coordenada e ja caia fora por acidente; agora cai por
+        // regra, que e o que sobrevive a um comentario 360 que um dia ganhe coordenada da foto.
         const roots = Object.values(this._comments).filter(
-            (c) => c && !c.parentId && c.status !== 'resolved' && Number.isFinite(c.lng) && Number.isFinite(c.lat),
+            (c) => c && !c.parentId && c.status !== 'resolved'
+                && ehDaSuperficie(c, SUPERFICIE.MAPA)
+                && Number.isFinite(c.lng) && Number.isFinite(c.lat),
         );
         const seen = new Set();
         for (const root of roots) {
@@ -436,20 +423,19 @@ export class CommentOverlay {
     /** @private Opens the compose card to create a new root comment at a coordinate. */
     _openCompose(lngLat) {
         this._closeCard();
-        const card = document.createElement('div');
-        card.className = 'comment-card comment-card--compose';
-        card.dataset.testid = 'comment-compose';
-
-        card.appendChild(this._buildComposer({
-            placeholder: 'Escreva um comentário…',
-            submitLabel: 'Comentar',
-            testid: 'comment-compose',
-            onCancel: () => this._closeCard(),
-            onSubmit: async (text) => {
+        const card = montarCartaoDeCompose({
+            aoCancelar: () => this._closeCard(),
+            aoEnviar: async (text) => {
                 this._closeCard();
-                await addComment({ lng: lngLat.lng, lat: lngLat.lat, text, ...authorStamp() });
+                await addComment({
+                    surface: SUPERFICIE.MAPA,
+                    lng: lngLat.lng,
+                    lat: lngLat.lat,
+                    text,
+                    ...autoriaAtual(),
+                });
             },
-        }));
+        });
 
         this._popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: '320px', className: 'comment-popup', anchor: 'bottom', offset: 38 })
             .setLngLat([lngLat.lng, lngLat.lat])
@@ -468,44 +454,12 @@ export class CommentOverlay {
         if (!keepOpen) this._closeCard();
         else if (this._popup) this._popup.remove();
 
-        const replies = Object.values(this._comments)
-            .filter((c) => c && c.parentId === rootId)
-            .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-
-        const card = document.createElement('div');
-        card.className = 'comment-card comment-card--thread';
-        card.dataset.testid = 'comment-thread';
-        card.dataset.resolved = root.status === 'resolved' ? 'true' : 'false';
-
-        card.appendChild(this._buildThreadHeader(root));
-        card.appendChild(this._buildEntry(root, true));
-        if (replies.length) {
-            const list = document.createElement('div');
-            list.className = 'comment-card__replies';
-            for (const r of replies) list.appendChild(this._buildEntry(r, false));
-            card.appendChild(list);
-        }
-        // A resolved comment is read-only: no replies until it is reopened (matches "resolvido sai
-        // do mapa" — the thread is only reachable from the Comentários panel).
-        if (root.status === 'resolved') {
-            const note = document.createElement('p');
-            note.className = 'comment-card__note';
-            note.dataset.testid = 'comment-resolved-note';
-            note.textContent = this._canModify(root)
-                ? 'Comentário resolvido. Reabra para responder.'
-                : 'Comentário resolvido.';
-            card.appendChild(note);
-        } else if (this._canComment()) {
-            card.appendChild(this._buildComposer({
-                placeholder: 'Responder…',
-                submitLabel: 'Responder',
-                testid: 'comment-reply',
-                compact: true,
-                onSubmit: async (text) => {
-                    await addReply(rootId, { text, ...authorStamp() });
-                },
-            }));
-        }
+        const replies = respostasDe(this._comments, rootId);
+        const card = montarCartaoDeThread({
+            raiz: root,
+            respostas: replies,
+            aoFechar: () => this._closeCard(),
+        });
 
         this._popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: '340px', className: 'comment-popup', anchor: 'bottom', offset: 38 })
             .setLngLat([root.lng, root.lat])
@@ -514,128 +468,5 @@ export class CommentOverlay {
         this._popup._ebgeoRootId = rootId;
     }
 
-    /** @private Thread header: title + actions (resolve/reopen, delete, close). */
-    _buildThreadHeader(root) {
-        const header = document.createElement('div');
-        header.className = 'comment-card__header';
-
-        const title = document.createElement('span');
-        title.className = 'comment-card__title';
-        title.textContent = root.status === 'resolved' ? 'Comentário resolvido' : 'Comentário';
-        header.appendChild(title);
-
-        const actions = document.createElement('div');
-        actions.className = 'comment-card__actions';
-
-        // Resolve/Delete only for who may modify this comment (author, or Editor+); everyone else
-        // gets a read-only thread (matches the server-side author gate).
-        if (this._canModify(root)) {
-            const resolveBtn = document.createElement('button');
-            resolveBtn.type = 'button';
-            resolveBtn.className = 'comment-card__action';
-            resolveBtn.dataset.testid = 'comment-resolve';
-            resolveBtn.textContent = root.status === 'resolved' ? 'Reabrir' : 'Resolver';
-            resolveBtn.addEventListener('click', () => resolveComment(root.id, root.status !== 'resolved'));
-            actions.appendChild(resolveBtn);
-
-            const delBtn = document.createElement('button');
-            delBtn.type = 'button';
-            delBtn.className = 'comment-card__action comment-card__action--danger';
-            delBtn.dataset.testid = 'comment-delete';
-            delBtn.textContent = 'Excluir';
-            delBtn.addEventListener('click', async () => { this._closeCard(); await removeComment(root.id); });
-            actions.appendChild(delBtn);
-        }
-
-        const closeBtn = document.createElement('button');
-        closeBtn.type = 'button';
-        closeBtn.className = 'comment-card__close';
-        closeBtn.setAttribute('aria-label', 'Fechar');
-        closeBtn.textContent = '×';
-        closeBtn.addEventListener('click', () => this._closeCard());
-        actions.appendChild(closeBtn);
-
-        header.appendChild(actions);
-        return header;
-    }
-
-    /** @private One comment/reply row: avatar + name + time + text. */
-    _buildEntry(entry, isRoot) {
-        const row = document.createElement('div');
-        row.className = isRoot ? 'comment-entry comment-entry--root' : 'comment-entry';
-
-        const avatar = document.createElement('span');
-        avatar.className = 'comment-entry__avatar';
-        avatar.textContent = entry.authorInitials || '?';
-        avatar.style.backgroundColor = entry.authorColor || getPresenceColor(String(entry.authorId || ''));
-        row.appendChild(avatar);
-
-        const body = document.createElement('div');
-        body.className = 'comment-entry__body';
-
-        const meta = document.createElement('div');
-        meta.className = 'comment-entry__meta';
-        const time = document.createElement('span');
-        time.className = 'comment-entry__time';
-        time.textContent = timeAgo(entry.createdAt);
-        meta.appendChild(time);
-        body.appendChild(meta);
-
-        const text = document.createElement('p');
-        text.className = 'comment-entry__text';
-        text.textContent = entry.text || '';
-        body.appendChild(text);
-
-        row.appendChild(body);
-        return row;
-    }
-
-    /**
-     * @private Builds a composer (textarea + submit/cancel). XSS-safe (textarea value only).
-     * @param {{ placeholder:string, submitLabel:string, testid:string, compact?:boolean,
-     *           onSubmit:(text:string)=>any, onCancel?:()=>void }} opts
-     */
-    _buildComposer(opts) {
-        const wrap = document.createElement('div');
-        wrap.className = opts.compact ? 'comment-composer comment-composer--compact' : 'comment-composer';
-
-        const textarea = document.createElement('textarea');
-        textarea.className = 'comment-composer__input';
-        textarea.placeholder = opts.placeholder;
-        textarea.rows = opts.compact ? 1 : 2;
-        textarea.dataset.testid = `${opts.testid}-input`;
-        wrap.appendChild(textarea);
-
-        const actions = document.createElement('div');
-        actions.className = 'comment-composer__actions';
-
-        if (opts.onCancel) {
-            const cancel = document.createElement('button');
-            cancel.type = 'button';
-            cancel.className = 'comment-composer__btn comment-composer__btn--ghost';
-            cancel.textContent = 'Cancelar';
-            cancel.addEventListener('click', () => opts.onCancel());
-            actions.appendChild(cancel);
-        }
-
-        const submit = document.createElement('button');
-        submit.type = 'button';
-        submit.className = 'comment-composer__btn comment-composer__btn--primary';
-        submit.dataset.testid = `${opts.testid}-submit`;
-        submit.textContent = opts.submitLabel;
-        submit.disabled = true;
-        textarea.addEventListener('input', () => { submit.disabled = textarea.value.trim().length === 0; });
-        submit.addEventListener('click', async () => {
-            const text = textarea.value.trim();
-            if (!text) return;
-            textarea.value = '';
-            submit.disabled = true;
-            await opts.onSubmit(text);
-        });
-        actions.appendChild(submit);
-
-        wrap.appendChild(actions);
-        return wrap;
-    }
 }
 

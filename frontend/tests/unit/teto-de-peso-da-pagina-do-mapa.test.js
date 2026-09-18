@@ -301,7 +301,11 @@ const ORCAMENTO = Object.freeze({
     analysis_tools: 0,
     '3d_models_viewer_tool': 5,
     first_person_3d_tool: 5,
-    comment_tool: 3,
+    // 4 desde 2026-09-17: `comment-card.js`, o cartao de comentario com as regras dele (os dois
+    // gates, resolver, responder, excluir), extraido do overlay para o 360 e o 3D montarem O MESMO
+    // cartao. Ele nao traz peso novo ao grafo ansioso: as dependencias dele (store, sessao, guarda
+    // de permissao, cores de presenca) sao as que o proprio overlay ja carregava.
+    comment_tool: 4,
     selection_tools: 2
 });
 

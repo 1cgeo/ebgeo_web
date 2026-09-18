@@ -92,6 +92,15 @@ const CENSO = {
   'sv360.markers': {
     classe: GATEADA, target: 'streetview360', chaves: ['photo_name', 'photoName'], tipo: 'sv360_project',
   },
+  // O comentario espacial ganhou as superficies 360 e 3D em 2026-09-17. As duas compartilham o
+  // target `comment` (uma entidade so, com o campo `surface` dizendo onde ela nasceu), do mesmo
+  // jeito que as quatro de cesium3d compartilham a coluna.
+  'comments.foto360': {
+    classe: GATEADA, target: 'comment', chaves: ['photo_name', 'photoName'], tipo: 'sv360_project',
+  },
+  'comments.modelo3d': {
+    classe: GATEADA, target: 'comment', chaves: ['tileset_id', 'tilesetId'], tipo: 'tileset',
+  },
   'briefing.slide.modelId': {
     classe: GATEADA, target: 'slide', chaves: ['model_id', 'modelId'], tipo: 'tileset',
   },

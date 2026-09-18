@@ -61,8 +61,10 @@ function emitComment(eventType, payload) {
 }
 
 /**
- * Creates a root spatial comment (a pin) on a map.
- * @param {{ lng:number, lat:number, text:string, authorId?:string, authorInitials?:string, authorColor?:string }} input
+ * Creates a root spatial comment (a pin) on a map, na superficie em que o gesto aconteceu.
+ * @param {{ lng?:number, lat?:number, text:string, surface?:('2d'|'360'|'3d'),
+ *   photoName?:string, tilesetId?:string, heading?:number, pitch?:number, alt?:number,
+ *   authorId?:string, authorInitials?:string, authorColor?:string }} input
  * @param {string} [mapName=null]
  * @returns {Promise<Object|undefined>} The created comment, or undefined if blocked.
  */
@@ -74,10 +76,34 @@ export async function addComment(input, mapName = null) {
     const comment = {
         id: generateUUID(),
         parentId: null,
-        lng: input.lng,
-        lat: input.lat,
+        // Nulo, e nao `undefined`, quando a superficie nao tem coordenada: a coluna aceita nulo, e
+        // o overlay do 2D ja descarta o que nao for finito, o que mantem o comentario do 360 fora
+        // do mapa sem nenhuma regra nova.
+        lng: Number.isFinite(input.lng) ? input.lng : null,
+        lat: Number.isFinite(input.lat) ? input.lat : null,
         text: input.text || '',
         status: 'open',
+        // A SUPERFICIE E A ANCORA DELA (2026-09-17, a pedido do dono: o mesmo sistema de
+        // comentarios no 360 e no 3D). Um comentario continua sendo UMA entidade, na colecao do
+        // MAPA, com o mesmo guarda, o mesmo documento lateral e o mesmo sync: o que muda e onde ele
+        // se prende. O padrao e o do MARCADOR de cada superficie, para as duas coisas se ancorarem
+        // igual e a tela poder desenha-las lado a lado.
+        //
+        //   '2d'  -> lng, lat                     (a coordenada do mapa)
+        //   '360' -> photoName, heading, pitch    (a foto e a direcao dentro dela)
+        //   '3d'  -> tilesetId, lng, lat, alt     (o modelo e o ponto sobre ele)
+        //
+        // OS CAMPOS ATRAVESSAM O SERVIDOR SEM MIGRACAO, e isso foi medido antes de escrever a
+        // linha: o payload de `comment` esta em `SCALAR_PAYLOAD_ENTITIES` (free-field.schemas.js),
+        // que preserva todo escalar; o INSERT grava `JSON.stringify(data)` inteiro na coluna
+        // `data` JSONB; e o retrato devolve `...c.data` com o espalhamento. A coluna `lng`/`lat`
+        // continua recebendo o que o 2D e o 3D tem, e nulo no 360, que nao tem coordenada.
+        surface: input.surface ?? '2d',
+        photoName: input.photoName ?? null,
+        tilesetId: input.tilesetId ?? null,
+        heading: Number.isFinite(input.heading) ? input.heading : null,
+        pitch: Number.isFinite(input.pitch) ? input.pitch : null,
+        alt: Number.isFinite(input.alt) ? input.alt : null,
         authorId: input.authorId ?? null,
         authorInitials: input.authorInitials ?? '',
         authorColor: input.authorColor ?? null,

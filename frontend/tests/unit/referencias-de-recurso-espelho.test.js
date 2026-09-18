@@ -48,6 +48,10 @@ const IDS = [
     'cesium3d.viewsheds',
     'sv360.orientations',
     'sv360.markers',
+    // 2026-09-17: o comentario espacial ganhou as superficies 360 e 3D, e cada uma carrega a
+    // referencia do recurso em que o comentario foi feito.
+    'comments.foto360',
+    'comments.modelo3d',
     'briefing.slide.modelId',
     'briefing.slide.photoId',
     'settings.basemaps',
@@ -83,6 +87,8 @@ describe('as duas cópias do registro de referências', () => {
             'cesium3d.viewsheds': 'remove-entrada',
             'sv360.orientations': 'remove-entrada',
             'sv360.markers': 'remove-entrada',
+            'comments.foto360': 'remove-entrada',
+            'comments.modelo3d': 'remove-entrada',
             'briefing.slide.modelId': 'zera-e-rebaixa',
             'briefing.slide.photoId': 'zera-e-rebaixa',
             'settings.basemaps': 'filtra-lista',

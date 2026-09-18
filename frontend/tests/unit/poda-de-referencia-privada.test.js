@@ -42,6 +42,8 @@ const PAR = {
     // `poda-recusa-sem-soma.test.js`, no caso do 360.
     'sv360.orientations': ['foto-or-publica', 'foto-or-privada'],
     'sv360.markers': ['foto-mk-publica', 'foto-mk-privada'],
+    'comments.foto360': ['foto-cm-publica', 'foto-cm-privada'],
+    'comments.modelo3d': ['tileset-cm-publico', 'tileset-cm-privado'],
     'briefing.slide.modelId': ['tileset-slide-publico', 'tileset-slide-privado'],
     'briefing.slide.photoId': ['foto-slide-publica', 'foto-slide-privada'],
 };
@@ -125,6 +127,21 @@ function documentoDourado() {
                 ],
             },
         },
+        // O COMENTARIO ESPACIAL NAS TRES SUPERFICIES (2026-09-17). A colecao e um OBJETO indexado
+        // pelo id, e nao uma lista, o que e a forma que `podarDocumentoDeComentarios` trata. As
+        // RESPOSTAS entram de proposito: `r-privada` pendura numa raiz que vai ser podada, e ela
+        // tem de cair junto, senao sobra conversa sem o que ela comenta.
+        comments: {
+            [CONTROLE.mapa]: {
+                'c-mapa': { id: 'c-mapa', parentId: null, surface: '2d', lng: 1, lat: 2, text: 'no mapa' },
+                'c-publica': { id: 'c-publica', parentId: null, surface: '360', photoName: PAR['comments.foto360'][0], text: 'foto publica' },
+                'c-privada': { id: 'c-privada', parentId: null, surface: '360', photoName: PAR['comments.foto360'][1], text: 'foto privada' },
+                'c-3d-publico': { id: 'c-3d-publico', parentId: null, surface: '3d', tilesetId: PAR['comments.modelo3d'][0], text: 'modelo publico' },
+                'c-3d-privado': { id: 'c-3d-privado', parentId: null, surface: '3d', tilesetId: PAR['comments.modelo3d'][1], text: 'modelo privado' },
+                'r-publica': { id: 'r-publica', parentId: 'c-publica', text: 'resposta que fica' },
+                'r-privada': { id: 'r-privada', parentId: 'c-privada', text: 'resposta que cai junto' },
+            },
+        },
         briefings: [{
             id: CONTROLE.briefingId,
             name: 'Briefing',
@@ -143,14 +160,14 @@ describe('poda de saída sobre o documento dourado', () => {
         // Sem este caso, uma superfície nova no registro entraria sem prova nenhuma e os
         // outros casos continuariam verdes sobre uma fixture incompleta.
         expect(Object.keys(PAR).sort()).toEqual(prunableSurfaceIds().sort());
-        expect(prunableSurfaceIds().length).toBe(10);
+        expect(prunableSurfaceIds().length).toBe(12);  // 12 desde 2026-09-17: os comentarios do 360 e do 3D
     });
 
-    it('PISO: os vinte ids estão no documento antes da poda', () => {
+    it('PISO: os vinte e quatro ids estão no documento antes da poda', () => {
         const json = JSON.stringify(documentoDourado());
         const ausentes = [...PUBLICOS, ...PRIVADOS].filter((id) => !json.includes(id));
         expect(ausentes).toEqual([]);
-        expect(new Set([...PUBLICOS, ...PRIVADOS]).size).toBe(20);
+        expect(new Set([...PUBLICOS, ...PRIVADOS]).size).toBe(24);
     });
 
     it('perde TODA referência privada e mantém TODA pública', () => {
@@ -163,9 +180,24 @@ describe('poda de saída sobre o documento dourado', () => {
         const privadosSobreviventes = PRIVADOS.filter((id) => json.includes(id));
         expect(privadosSobreviventes, 'privado não pode ficar').toEqual([]);
 
-        // Uma perda por superfície, e o relatório nomeia exatamente as dez.
+        // Uma perda por superfície, e o relatório nomeia exatamente as doze.
         expect(Object.keys(relatorio.porSuperficie).sort()).toEqual(prunableSurfaceIds().sort());
-        expect(relatorio.total).toBe(10);
+        expect(relatorio.total).toBe(12);
+    });
+
+    it('A CONVERSA CAI INTEIRA: a resposta de uma raiz podada sai junto', () => {
+        // A resposta não tem âncora própria (só `parentId`), então nenhuma varredura por id de
+        // recurso a alcançaria: sem a segunda passada do podador ela ficaria no documento
+        // pendurada num comentário que não existe mais. O par de controle é `r-publica`, que
+        // pende de uma raiz que sobrevive e TEM de ficar.
+        const { documento } = podarDocumentoDeExportacao(documentoDourado(), resolverDeTeste);
+        const comentarios = documento.comments[CONTROLE.mapa];
+
+        expect(Object.keys(comentarios).sort()).toEqual(['c-3d-publico', 'c-mapa', 'c-publica', 'r-publica']);
+        expect(comentarios['r-privada'], 'a resposta órfã ficou').toBeUndefined();
+        expect(comentarios['r-publica'], 'a resposta boa foi levada junto').toBeDefined();
+        // E o comentário do MAPA não é assunto desta poda: ele não cita recurso nenhum.
+        expect(comentarios['c-mapa']).toBeDefined();
     });
 
     it('DISCRIMINAÇÃO: o que não é referência de recurso fica byte-idêntico', () => {

@@ -124,6 +124,20 @@ export const RESOURCE_REF_SURFACES = Object.freeze([
     acao: REF_ACTION.REMOVE_ENTRADA,
   }),
   Object.freeze({
+    id: 'comments.foto360',
+    tipos: ['sv360_project'],
+    tabela: 'comments',
+    coluna: "data->>'photoName'",
+    acao: REF_ACTION.REMOVE_ENTRADA,
+  }),
+  Object.freeze({
+    id: 'comments.modelo3d',
+    tipos: ['tileset'],
+    tabela: 'comments',
+    coluna: "data->>'tilesetId'",
+    acao: REF_ACTION.REMOVE_ENTRADA,
+  }),
+  Object.freeze({
     id: 'briefing.slide.modelId',
     tipos: ['tileset'],
     tabela: 'slides',

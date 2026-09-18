@@ -69,6 +69,19 @@ export const RESOURCE_REF_EXTRACTORS = Object.freeze({
   // 360 orientation / marker. The value is a photo NAME, not a project id — the resolution to a
   // project lives in `CAN_SEE_SV360_REF` (`sync.queries.js`), never here.
   streetview360: (payload) => resourceRef('sv360_project', payload.photo_name ?? payload.photoName),
+  // O COMENTARIO ESPACIAL NASCE EM UMA DE TRES SUPERFICIES (2026-09-17), e as duas que nao sao o
+  // mapa carregam a referencia do recurso onde o comentario foi feito. As duas pernas sao
+  // independentes pela mesma razao do slide: um comentario cita a foto OU o modelo, nunca os dois,
+  // e ler as duas chaves e o que torna o extrator cego a qual delas veio.
+  //
+  // POR QUE ISTO E GATE, e nao so inventario: sem ele um comentario feito dentro de uma foto
+  // PRIVADA seria aceito de quem nao alcanca aquela foto, e a referencia ficaria gravada no
+  // documento do atlas. O valor e o NOME da foto, como no 360, e quem resolve nome -> projeto e
+  // `CAN_SEE_SV360_REF`, nunca este arquivo.
+  comment: (payload) => [
+    ...resourceRef('tileset', payload.tileset_id ?? payload.tilesetId),
+    ...resourceRef('sv360_project', payload.photo_name ?? payload.photoName),
+  ],
   // A briefing slide points at a 3D model AND/OR a 360 view; the two legs are independent.
   slide: (payload) => [
     ...resourceRef('tileset', payload.model_id ?? payload.modelId),
@@ -101,6 +114,7 @@ export const UNSEEN_RESOURCE_REASONS = Object.freeze({
   cesium3d: 'Alteração descartada: você não tem acesso a este modelo 3D.',
   streetview360: 'Alteração descartada: você não tem acesso a este projeto 360.',
   slide: 'Alteração descartada: você não tem acesso ao recurso referenciado por este slide.',
+  comment: 'Alteração descartada: você não tem acesso ao recurso onde este comentário foi feito.',
   map: 'Alteração descartada: você não tem acesso a esta camada de base.',
 });
 

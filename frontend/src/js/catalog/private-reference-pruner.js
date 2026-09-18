@@ -246,6 +246,79 @@ export function podarDocumentoSv360(doc, resolver) {
 }
 
 /**
+ * Poda a coleção de comentários de um mapa: os que nasceram DENTRO de uma foto 360 ou de um
+ * modelo 3D carregam a referência do recurso onde foram feitos.
+ *
+ * DUAS COISAS DISTINGUEM ESTA PODA DAS OUTRAS CINCO, e as duas vêm da forma do documento:
+ *
+ *  1. A COLEÇÃO É UM OBJETO indexado por id, e não uma lista, então não dá para usar
+ *     `filtrarPorCampo` (que filtra array) nem `filtrarPorChave` (a chave aqui é o id do
+ *     comentário, não o do recurso). O que se filtra é o VALOR, pelo campo que a superfície dele
+ *     declara.
+ *
+ *  2. A CONVERSA CAI INTEIRA. Um comentário raiz podado leva junto as respostas dele: elas não
+ *     têm âncora própria (só `parentId`), e deixá-las no documento produziria uma conversa sem o
+ *     que ela comenta, que é pior do que a ausência. É a mesma razão pela qual o banco declara
+ *     `parent_id ... ON DELETE CASCADE`.
+ *
+ * O comentário do mapa 2D não é assunto desta poda: ele se ancora em coordenada e não cita
+ * recurso nenhum.
+ *
+ * @param {Object<string,Object>} colecao - `{ id: comentario }`.
+ * @param {Function} resolver
+ * @returns {{documento: Object, relatorio: Object}}
+ */
+export function podarDocumentoDeComentarios(colecao, resolver) {
+    const relatorio = relatorioVazio();
+    if (!colecao || typeof colecao !== 'object') return { documento: colecao, relatorio };
+
+    const podadas = new Set();
+    const saida = {};
+
+    // Primeira passada: as RAÍZES, cada uma pela referência da superfície em que nasceu.
+    for (const [id, c] of Object.entries(colecao)) {
+        if (!c || c.parentId) continue;
+        const sobrevive = comentarioSobrevive(c, resolver, relatorio);
+        if (sobrevive) saida[id] = c;
+        else podadas.add(id);
+    }
+
+    // Segunda passada: as RESPOSTAS, que seguem a raiz delas.
+    for (const [id, c] of Object.entries(colecao)) {
+        if (!c || !c.parentId) continue;
+        if (podadas.has(c.parentId)) continue;
+        saida[id] = c;
+    }
+
+    return { documento: saida, relatorio };
+}
+
+/** @private O veredito de UM comentário raiz, pela superfície que ele declara. */
+function comentarioSobrevive(c, resolver, relatorio) {
+    const superficie = c.surface ?? '2d';
+    let grupo = null;
+    let id = null;
+    let nome = null;
+    if (superficie === '360') {
+        grupo = RESOURCE_REF_GROUP.VIEWS_360;
+        id = c.photoName;
+        nome = 'comments.foto360';
+    } else if (superficie === '3d') {
+        grupo = RESOURCE_REF_GROUP.TILESETS;
+        id = c.tilesetId;
+        nome = 'comments.modelo3d';
+    }
+    // Sem superfície de recurso, ou sem referência preenchida, não há o que podar: um comentário
+    // do mapa continua sendo dado do usuário.
+    if (!grupo || id == null || id === '') return true;
+
+    const veredito = vereditoDe(resolver, grupo, id);
+    if (veredito === RefVerdict.PUBLIC) return true;
+    anotar(relatorio, nome, grupo, id, veredito);
+    return false;
+}
+
+/**
  * Poda um briefing: as duas referências de slide.
  *
  * O slide é REBAIXADO, nunca removido: título e prosa são escritos à mão e não existem em
@@ -317,6 +390,7 @@ export function podarDocumentoDeExportacao(data, resolver) {
     porMapa('maps', podarDocumentoDeMapa);
     porMapa('cesium3d', podarDocumentoCesium3d);
     porMapa('streetview360', podarDocumentoSv360);
+    porMapa('comments', podarDocumentoDeComentarios);
 
     if (Array.isArray(documento.briefings)) {
         documento.briefings = documento.briefings.map((b) => {

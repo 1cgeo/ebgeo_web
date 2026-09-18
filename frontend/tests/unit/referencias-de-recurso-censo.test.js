@@ -99,14 +99,14 @@ const MOTIVO = Object.freeze({
 /** @type {Entrada[]} */
 const CENSO = [
     { arquivo: 'src/js/session/uso-do-barramento.js', campo: 'tilesetId', classe: RUNTIME },
-    { arquivo: 'src/js/catalog/private-reference-pruner.js', campo: 'tilesetId', n: 3, classe: PODA, superficies: ['cesium3d.cameraPositions', 'cesium3d.markers', 'cesium3d.measurements', 'cesium3d.viewsheds'] },
-    { arquivo: 'src/js/catalog/private-reference-pruner.js', campo: 'photoName', n: 1, classe: PODA, superficies: ['sv360.orientations', 'sv360.markers'] },
+    { arquivo: 'src/js/catalog/private-reference-pruner.js', campo: 'tilesetId', n: 4, classe: PODA, superficies: ['cesium3d.cameraPositions', 'cesium3d.markers', 'cesium3d.measurements', 'cesium3d.viewsheds', 'comments.modelo3d'] },
+    { arquivo: 'src/js/catalog/private-reference-pruner.js', campo: 'photoName', n: 2, classe: PODA, superficies: ['sv360.orientations', 'sv360.markers', 'comments.foto360'] },
     { arquivo: 'src/js/catalog/private-reference-pruner.js', campo: 'modelId', n: 4, classe: PODA, superficies: ['briefing.slide.modelId'] },
     { arquivo: 'src/js/catalog/private-reference-pruner.js', campo: 'photoId', n: 4, classe: PODA, superficies: ['briefing.slide.photoId'] },
     { arquivo: 'src/js/catalog/private-reference-pruner.js', campo: 'baseLayer', n: 4, classe: PODA, superficies: ['mapa.baseLayer'] },
     { arquivo: 'src/js/catalog/private-reference-pruner.js', campo: 'catalogLayers', n: 3, classe: PODA, superficies: ['mapa.catalogLayers'] },
-    { arquivo: 'src/js/catalog/resource-reference.registry.js', campo: 'tilesetId', n: 4, classe: PODA, superficies: ['cesium3d.cameraPositions', 'cesium3d.markers', 'cesium3d.measurements', 'cesium3d.viewsheds'] },
-    { arquivo: 'src/js/catalog/resource-reference.registry.js', campo: 'photoName', n: 2, classe: PODA, superficies: ['sv360.orientations', 'sv360.markers'] },
+    { arquivo: 'src/js/catalog/resource-reference.registry.js', campo: 'tilesetId', n: 6, classe: PODA, superficies: ['cesium3d.cameraPositions', 'cesium3d.markers', 'cesium3d.measurements', 'cesium3d.viewsheds', 'comments.modelo3d'] },
+    { arquivo: 'src/js/catalog/resource-reference.registry.js', campo: 'photoName', n: 4, classe: PODA, superficies: ['sv360.orientations', 'sv360.markers', 'comments.foto360'] },
     { arquivo: 'src/js/catalog/resource-reference.registry.js', campo: 'modelId', n: 3, classe: PODA, superficies: ['briefing.slide.modelId'] },
     { arquivo: 'src/js/catalog/resource-reference.registry.js', campo: 'photoId', n: 3, classe: PODA, superficies: ['briefing.slide.photoId'] },
     { arquivo: 'src/js/catalog/resource-reference.registry.js', campo: 'baseLayer', n: 4, classe: PODA, superficies: ['mapa.baseLayer'] },
@@ -197,6 +197,13 @@ const CENSO = [
     { arquivo: 'src/js/modals/atlas-settings.modal.js', campo: 'available_360_views', n: 2, classe: PERSISTE },
     { arquivo: 'src/js/presence/presence-bridge.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/presence/presence-bridge.js', campo: 'photoName', classe: RUNTIME },
+    // O COMENTARIO ESPACIAL NAS SUPERFICIES 360 E 3D (2026-09-17). A operacao GRAVA a referencia
+    // no documento de comentarios do mapa, entao ela e PERSISTE com contagem exata; o cartao so
+    // compara a superficie para decidir o que desenhar, entao e RUNTIME.
+    { arquivo: 'src/js/store/comment.operations.js', campo: 'photoName', n: 1, classe: PERSISTE },
+    { arquivo: 'src/js/store/comment.operations.js', campo: 'tilesetId', n: 1, classe: PERSISTE },
+    { arquivo: 'src/js/comment_tool/comment-card.js', campo: 'photoName', classe: RUNTIME },
+    { arquivo: 'src/js/comment_tool/comment-card.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/presence/presence-store.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/presence/presence-store.js', campo: 'photoName', classe: RUNTIME },
     // HOMÓNIMOS DE VOCABULÁRIO, nove de uma vez, e nenhum deles é um campo: em

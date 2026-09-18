@@ -206,6 +206,29 @@ export const RESOURCE_REF_SURFACES = Object.freeze([
             + 'ao qual ela pertence.',
     }),
     Object.freeze({
+        id: 'comments.foto360',
+        grupos: [RESOURCE_REF_GROUP.VIEWS_360],
+        documento: 'comments[mapa]',
+        campo: 'photoName',
+        banco: 'comments.data->>photoName',
+        acao: REF_ACTION.REMOVE_ENTRADA,
+        motivo: 'Comentário feito DENTRO de uma foto 360 (2026-09-17) é ancorado por azimute e '
+            + 'inclinação dentro dela, como o marcador: fora da foto não tem onde ser desenhado, '
+            + 'e o nome da foto identifica o projeto a que ela pertence. As RESPOSTAS de uma raiz '
+            + 'podada saem junto, senão sobra uma conversa sem o que ela comenta.',
+    }),
+    Object.freeze({
+        id: 'comments.modelo3d',
+        grupos: [RESOURCE_REF_GROUP.TILESETS],
+        documento: 'comments[mapa]',
+        campo: 'tilesetId',
+        banco: 'comments.data->>tilesetId',
+        acao: REF_ACTION.REMOVE_ENTRADA,
+        motivo: 'Comentário feito DENTRO de um modelo 3D (2026-09-17) só é desenhado enquanto '
+            + 'aquele modelo está carregado; sem ele a conversa fica órfã no documento e o id do '
+            + 'recurso privado viaja junto sem nada para mostrar. Mesma regra das respostas.',
+    }),
+    Object.freeze({
         id: 'briefing.slide.modelId',
         grupos: [RESOURCE_REF_GROUP.TILESETS],
         documento: 'briefings[].slides[]',
