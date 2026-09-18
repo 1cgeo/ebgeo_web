@@ -292,7 +292,7 @@ describe('A3: a frase CHEGA ao cabecalho da aba Mapas', () => {
 // M4 — o rotulo da unica porta ate a tela de atlas
 // ============================================================================
 
-describe('M4: a porta para "Seus atlas" diz o proprio nome', () => {
+describe('M4: a porta para "Meus Atlas" diz o proprio nome', () => {
     /** The `open` entry of the actions grid, as declared. */
     function acaoOpen() {
         const lista = recorte(corpoDeMetodo(MAPS, '_createActionsGrid'), 'const actions =', '[');
@@ -308,9 +308,13 @@ describe('M4: a porta para "Seus atlas" diz o proprio nome', () => {
         return entradas.find((e) => e.id === 'open');
     }
 
-    it('o rotulo e "Seus atlas" e o `title` continua explicando', () => {
+    it('o rotulo e "Meus Atlas" e o `title` continua explicando', () => {
+        // O ROTULO MUDOU EM 2026-09-17, a pedido do dono ("a gente escreve no menu 'Minha conta'
+        // mas tambem escreve 'Seus atlas'"): o menu fala na primeira pessoa do dono da conta, e uma
+        // entrada na segunda pessoa no meio dele troca de voz sem motivo. O que M4 decidiu continua
+        // de pe: a porta diz o NOME da tela de destino, e nao "Abrir".
         const open = acaoOpen();
-        expect(open.label).toBe('Seus atlas');
+        expect(open.label).toBe('Meus Atlas');
         expect(open.title).toBe('Escolher outro atlas');
 
         // O ACHADO: "Abrir" ficava ao lado de "Importar", que E um seletor de arquivo, e o

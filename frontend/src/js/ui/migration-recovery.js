@@ -183,7 +183,7 @@ export function showMigrationRecovery(error = {}) {
         button(card, 'Recuperar alterações em outro atlas', async () => {
             const { recoverLateLegacyChanges } = await import('../store/migration/recovery-archive.js');
             const entry = await recoverLateLegacyChanges();
-            text.textContent = `O atlas “${entry.name}” foi recuperado. Reabra o EBGeo para acessá-lo em Seus atlas.`;
+            text.textContent = `O atlas “${entry.name}” foi recuperado. Reabra o EBGeo para acessá-lo em Meus Atlas.`;
         }, text);
     }
     const file = document.createElement('input');
@@ -208,7 +208,7 @@ export function showMigrationRecovery(error = {}) {
             card.append(select);
             button(card, 'Restaurar como outro atlas', async () => {
                 const entry = await restoreRecoveryArchive(archive, Number(select.value));
-                text.textContent = `O atlas “${entry.name}” foi restaurado. Reabra o EBGeo para acessá-lo em Seus atlas.`;
+                text.textContent = `O atlas “${entry.name}” foi restaurado. Reabra o EBGeo para acessá-lo em Meus Atlas.`;
             }, text);
         } catch (failure) { text.textContent = failure.message; }
     });

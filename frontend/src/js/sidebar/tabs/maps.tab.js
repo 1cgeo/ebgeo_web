@@ -271,7 +271,7 @@ export class MapsTab {
             // de arquivo, e o próprio `_handleOpenProject` registra que este botão JÁ FOI um
             // seletor de `.ebgeo`; as palavras "Seus atlas" não apareciam em lugar nenhum do mapa
             // para quem não tem sessão. O `title` continua sendo a explicação.
-            { id: 'open', icon: MAPS_ICONS.folderOpen, label: 'Seus atlas', handler: () => this._handleOpenProject(), title: 'Escolher outro atlas' },
+            { id: 'open', icon: MAPS_ICONS.folderOpen, label: 'Meus Atlas', handler: () => this._handleOpenProject(), title: 'Escolher outro atlas' },
             // Label is "Enviar", not "Salvar": this PROMOTES the local atlas to a server project
             // and leaves you connected to it. It is not a "save as", and while it sat next to
             // another button starting with "Salvar" the two were indistinguishable by name.
