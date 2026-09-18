@@ -1035,6 +1035,17 @@ async function loadSingleTileset(viewer, tilesetId) {
         await cesiumState.modules.markers.renderMarkersForTileset(viewer, tilesetId);
     }
 
+    // A CAMADA DE COMENTARIOS DESTE MODELO (2026-09-17). Montada a cada tileset aberto, como os
+    // marcadores: a ancora do comentario 3D e o MODELO, entao trocar de modelo troca o conjunto.
+    // O import e dinamico para o modulo nao entrar no grafo ansioso da pagina do mapa.
+    try {
+        const comentarios = await import('./tools/comments-3d.js');
+        await comentarios.iniciarComentarios3D(viewer, tilesetId);
+        await atualizarBotaoDeComentario3D();
+    } catch (erro) {
+        console.error('Falha ao montar os comentarios do 3D:', erro);
+    }
+
     // Render measurements for this tileset
     if (cesiumState.modules.measurements) {
         await cesiumState.modules.measurements.renderMeasurementsForTileset(viewer, tilesetId);
@@ -1130,6 +1141,30 @@ function registerToolEventListeners() {
             } catch { /* EventBus not available */ }
         }
     }, 100);
+}
+
+/**
+ * Mostra o botao de comentar so para quem pode comentar, e fia o clique dele.
+ *
+ * O botao SOBREVIVE ao somente leitura (a regra de CSS o excetua ao lado da ajuda), porque o
+ * Comentarista e o somente leitura MAIS a funcao de comentar. Quem decide se ele aparece e
+ * `podeComentar()`, que pergunta por `CREATE_COMMENT`.
+ * @returns {Promise<void>}
+ */
+async function atualizarBotaoDeComentario3D() {
+    const botao = document.getElementById('comment-3d');
+    if (!botao) return;
+    const { podeComentar } = await import('@js/comment_tool/comment-card.js');
+    const liberado = podeComentar();
+    botao.hidden = !liberado;
+    if (!liberado || botao._ebgeoFiado) return;
+    botao._ebgeoFiado = true;
+    botao.addEventListener('click', async () => {
+        const m = await import('./tools/comments-3d.js');
+        // Desliga a ferramenta ativa: as duas disputariam o proximo clique na cena.
+        deactivateActiveTool3D();
+        m.alternarModoComentario3D(!m.modoComentario3DAtivo());
+    });
 }
 
 /**
@@ -1441,6 +1476,10 @@ export async function openViewerWithTileset(tilesetId) {
  * Closes the 3D viewer by pausing rendering without destroying it
  */
 export function closeViewer() {
+    // A camada de comentarios sai junto: ela guarda um handler do Cesium, ouvintes do barramento e
+    // um cartao no DOM.
+    import('./tools/comments-3d.js').then((m) => m.pararComentarios3D()).catch(() => {});
+
     if (cesiumState.viewer && !cesiumState.viewer.isDestroyed() && cesiumState.isVisible) {
         // Deselect any selected marker and close its panel
         if (cesiumState.modules.markers && cesiumState.modules.markers.deselectCurrentMarker) {

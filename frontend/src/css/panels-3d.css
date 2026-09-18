@@ -431,7 +431,7 @@ body.cesium-active .modal-overlay {
    classe ficou pelo custo de troca-lo em dois arquivos de CSS e nos testes que a leem; o que ela
    significa e "nao da para editar agora", pelo motivo que for. A regra em si nao mudou: sobram a
    ajuda e o voo para a posicao salva, que sao leitura. */
-#toolbar-3d.map-locked .button-tool-3d:not(#help-3d, #voar-camera) {
+#toolbar-3d.map-locked .button-tool-3d:not(#help-3d, #voar-camera, #comment-3d) {
     display: none !important;
 }
 
@@ -881,4 +881,14 @@ body.cesium-active .modal-overlay {
     100% {
         width: 100%;
     }
+}
+
+
+/* ---- O cartao de comentario dentro do visualizador 3D ----
+   Ancorado em PIXEL, como o do 360 e pela mesma razao (ver `comments-3d.js`): a cena e uma camera
+   que gira, e um cartao que perseguisse o balao andaria pela tela enquanto a pessoa escreve. */
+#map-3d .comment-card--flutuante {
+    position: absolute;
+    z-index: 30;
+    max-width: 340px;
 }

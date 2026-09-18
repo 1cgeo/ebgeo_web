@@ -205,6 +205,24 @@ export async function iniciarComentarios360(navigator, photoName) {
     await recarregar();
 }
 
+/**
+ * Abre a conversa de um comentário DESTA foto, no centro da tela.
+ *
+ * O CENTRO, e não o pixel do balão, e a razão é o chamador: quem chama é o painel de comentários,
+ * depois de girar a câmera para o comentário (`targetOrientation`). Nesse instante o balão ESTÁ no
+ * centro, e ancorar ali é o mesmo ponto sem depender de um quadro já projetado.
+ *
+ * @param {string} raizId
+ * @returns {boolean} Se a conversa foi aberta.
+ */
+export function focarComentario360(raizId) {
+    if (!estado.ativo || !estado.colecao[raizId]) return false;
+    const caixa = container();
+    if (!caixa) return false;
+    abrirConversa(raizId, caixa.clientWidth / 2, caixa.clientHeight / 2);
+    return true;
+}
+
 /** Desmonta a camada: solta os ouvintes, fecha o cartão e limpa os balões. */
 export function pararComentarios360() {
     for (const soltar of estado.soltar) soltar?.();

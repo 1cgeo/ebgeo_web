@@ -12,6 +12,19 @@
  */
 
 import { getComments, getCurrentMapNameSync, getAllMapNamesStore, setCurrentMap } from '@store';
+import { SUPERFICIE, superficieDe } from './comment-card.js';
+
+/**
+ * Como cada superficie se chama na lista.
+ *
+ * O MAPA NAO TEM ROTULO de proposito: ele e o caso comum, e etiquetar todas as linhas com "Mapa"
+ * so acrescentaria ruido a leitura. Quem precisa de etiqueta e quem esta em outro lugar.
+ */
+const ROTULO_DE_SUPERFICIE = Object.freeze({
+    [SUPERFICIE.MAPA]: '',
+    [SUPERFICIE.FOTO_360]: '360',
+    [SUPERFICIE.MODELO_3D]: '3D',
+});
 import { getControl } from '@store/control.registry.js';
 import { isRemoteStoreSync } from '@store/store-origin.js';
 import { sessionContext } from '@store/sync/session-context.js';
@@ -245,11 +258,14 @@ export class CommentsPanel {
 
         const body = document.createElement('div');
         body.className = 'comment-list-item__body';
-        // Which map this comment belongs to (the list spans all maps).
-        if (comment._mapName) {
+        // Which map this comment belongs to (the list spans all maps), e DESDE QUANDO ELA ABRANGE
+        // AS TRES SUPERFICIES (2026-09-17), onde dentro daquele mapa ele foi feito. Sem a etiqueta,
+        // duas linhas iguais levariam a lugares diferentes e a lista pareceria repetida.
+        if (comment._mapName || superficieDe(comment) !== SUPERFICIE.MAPA) {
             const mapTag = document.createElement('div');
             mapTag.className = 'comment-list-item__map';
-            mapTag.textContent = comment._mapName;
+            mapTag.textContent = [comment._mapName, ROTULO_DE_SUPERFICIE[superficieDe(comment)]]
+                .filter(Boolean).join(' · ');
             body.appendChild(mapTag);
         }
         const text = document.createElement('div');
@@ -279,6 +295,15 @@ export class CommentsPanel {
      * @param {Object} comment - The aggregated comment (carries `_mapName`).
      */
     async _focusComment(comment) {
+        // CADA SUPERFICIE TEM O SEU CAMINHO (2026-09-17). A lista e uma so, com os tres tipos de
+        // comentario, e clicar numa linha tem de LEVAR ATE ELE: no mapa e voar ate a coordenada, no
+        // 360 e abrir a foto ja apontada para a direcao do comentario, no 3D e abrir o modelo e voar
+        // ate o ponto. O despacho e por `surface`, e nao por qual campo esta preenchido, porque
+        // adivinhar pelo campo e o que faz um comentario 3D (que tem lng/lat) ser tratado como 2D.
+        const superficie = superficieDe(comment);
+        if (superficie === SUPERFICIE.FOTO_360) { await this._focarNoPanorama(comment); return; }
+        if (superficie === SUPERFICIE.MODELO_3D) { await this._focarNoModelo(comment); return; }
+
         const target = comment._mapName;
         if (target && target !== getCurrentMapNameSync()) {
             try {
@@ -291,6 +316,42 @@ export class CommentsPanel {
             }
         }
         await this._overlay()?.focusComment(comment.id);
+    }
+
+    /**
+     * @private Abre a foto do comentario, ja apontada para ele, e abre a conversa.
+     *
+     * O `targetOrientation` e o mesmo caminho que a aba de camadas usa para abrir uma foto virada
+     * para um marcador: `worldHeading` e o heading do comentario somado ao da imagem, que e a conta
+     * que `applyTargetOrientation` desfaz do outro lado.
+     */
+    async _focarNoPanorama(comment) {
+        if (!comment.photoName) return;
+        try {
+            const viewer = await import('@js/street_view_tool/street_view_viewer.js');
+            await viewer.openViewer360WithPhoto(comment.photoName, {
+                targetOrientation: { worldHeading: comment.heading, pitch: comment.pitch },
+            });
+            const camada = await import('@js/street_view_tool/comments-360.js');
+            camada.focarComentario360(comment.id);
+        } catch (erro) {
+            console.error('Nao foi possivel abrir a foto do comentario:', erro);
+        }
+    }
+
+    /** @private Abre o modelo do comentario, voa ate o ponto e abre a conversa. */
+    async _focarNoModelo(comment) {
+        if (!comment.tilesetId) return;
+        try {
+            const m3d = await import('@js/3d_models_viewer_tool/map_3d.js');
+            if (m3d.getCurrentTilesetId?.() !== comment.tilesetId) {
+                await m3d.openViewerWithTileset(comment.tilesetId);
+            }
+            const camada = await import('@js/3d_models_viewer_tool/tools/comments-3d.js');
+            camada.focarComentario3D(comment.id);
+        } catch (erro) {
+            console.error('Nao foi possivel abrir o modelo do comentario:', erro);
+        }
     }
 
     /** @private Hide/show all comment pins. */

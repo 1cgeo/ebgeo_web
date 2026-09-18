@@ -157,7 +157,9 @@ describe('somente leitura: as superfícies de edição somem', () => {
 describe('somente leitura: as barras do 3D e do 360', () => {
     it('o CSS do 3D esconde os comandos e preserva a ajuda e o voo para a posição salva', () => {
         const css = fonte('src/css/panels-3d.css');
-        expect(css).toMatch(/#toolbar-3d\.map-locked \.button-tool-3d:not\(#help-3d, #voar-camera\)/);
+        // `#comment-3d` entrou na excecao em 2026-09-17, pela mesma razao do 360: o Comentarista
+        // comenta, e so isso.
+        expect(css).toMatch(/#toolbar-3d\.map-locked \.button-tool-3d:not\(#help-3d, #voar-camera, #comment-3d\)/);
         expect(css).toMatch(/#toolbar-3d\.map-locked \.toolbar-3d-separator/);
     });
 

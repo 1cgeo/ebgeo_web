@@ -205,6 +205,9 @@ const CENSO = [
     { arquivo: 'src/js/comment_tool/comment-card.js', campo: 'photoName', classe: RUNTIME },
     { arquivo: 'src/js/comment_tool/comment-card.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/street_view_tool/comments-360.js', campo: 'photoName', classe: RUNTIME },
+    { arquivo: 'src/js/3d_models_viewer_tool/tools/comments-3d.js', campo: 'tilesetId', classe: RUNTIME },
+    { arquivo: 'src/js/comment_tool/comments-panel.js', campo: 'photoName', classe: RUNTIME },
+    { arquivo: 'src/js/comment_tool/comments-panel.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/presence/presence-store.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/presence/presence-store.js', campo: 'photoName', classe: RUNTIME },
     // HOMÓNIMOS DE VOCABULÁRIO, nove de uma vez, e nenhum deles é um campo: em
