@@ -177,6 +177,19 @@ export async function iniciarComentarios360(navigator, photoName) {
         assinar(tipo, () => { recarregar(); });
     }
 
+    // A FOTO MUDA SEM A CAMADA SER REMONTADA, e era o defeito do relato do dono (2026-09-18: "ao no
+    // mapa principal clicar num comentario do 360 ele abre na foto errada"). `iniciarComentarios360`
+    // roda na ABERTURA do visualizador; andar pela seta troca a foto por `loadPhoto` e nao passa
+    // por aqui. Sem isto, a camada continuava com a foto da abertura: os baloes desenhados eram os
+    // da foto ERRADA, e o comentario criado depois de andar era GRAVADO com ela, o que fazia o
+    // painel abrir noutra foto mais tarde.
+    assinar(EventTypes.STREETVIEW_360_PHOTO_CHANGED, ({ currentPhoto }) => {
+        if (!currentPhoto || currentPhoto === estado.photoName) return;
+        estado.photoName = currentPhoto;
+        fecharCartao360();
+        recarregar();
+    });
+
     assinar(EventTypes.COMMENT_360_CLICKED, ({ comment, screenX, screenY }) => {
         if (!comment?.id) return;
         abrirConversa(comment.id, screenX, screenY);

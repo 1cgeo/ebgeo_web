@@ -301,6 +301,13 @@ export class CommentsPanel {
         // ate o ponto. O despacho e por `surface`, e nao por qual campo esta preenchido, porque
         // adivinhar pelo campo e o que faz um comentario 3D (que tem lng/lat) ser tratado como 2D.
         const superficie = superficieDe(comment);
+
+        // SAIR DE ONDE SE ESTA, ANTES DE IR (pedido do dono, 2026-09-18). A lista e uma so e o
+        // clique atravessa superficies: com o 3D aberto, clicar num comentario do mapa levava a
+        // uma tela que continuava mostrando o modelo, e o pino ficava atras dele. Fechar o que nao
+        // e o destino e o que faz o "ir para" chegar.
+        await this._fecharOutrasSuperficies(superficie);
+
         if (superficie === SUPERFICIE.FOTO_360) { await this._focarNoPanorama(comment); return; }
         if (superficie === SUPERFICIE.MODELO_3D) { await this._focarNoModelo(comment); return; }
 
@@ -316,6 +323,47 @@ export class CommentsPanel {
             }
         }
         await this._overlay()?.focusComment(comment.id);
+    }
+
+    /**
+     * @private Fecha o visualizador que NAO e o destino do comentario.
+     *
+     * O 360 e o 3D sao telas cheias sobre o mapa, e so uma delas pode estar aberta. Fechar o 360
+     * para ir a outra FOTO seria piscar a tela a toa, e por isso a comparacao e por SUPERFICIE: o
+     * 360 so fecha quando o destino nao e o 360.
+     * @param {string} destino - Uma das `SUPERFICIE`.
+     */
+    async _fecharOutrasSuperficies(destino) {
+        try {
+            // O CARTAO DA SUPERFICIE ANTERIOR TAMBEM SAI, e nao so o visualizador: sem isto, ir do
+            // mapa para o 360 deixava o popup do MapLibre aberto por baixo do panorama, e a pessoa
+            // lia a conversa ERRADA sobre a superficie nova. Medido em 2026-09-18.
+            if (destino !== SUPERFICIE.MAPA) this._overlay()?.closeCard?.();
+            if (destino !== SUPERFICIE.FOTO_360) {
+                await import('@js/street_view_tool/comments-360.js')
+                    .then((m) => m.fecharCartao360()).catch(() => {});
+            }
+            if (destino !== SUPERFICIE.MODELO_3D) {
+                await import('@js/3d_models_viewer_tool/tools/comments-3d.js')
+                    .then((m) => m.fecharCartao3D()).catch(() => {});
+            }
+            if (destino !== SUPERFICIE.FOTO_360) {
+                const viewer = await import('@js/street_view_tool/street_view_viewer.js');
+                if (viewer.isStreetView360Open?.()) await viewer.closeViewer360();
+            }
+            if (destino !== SUPERFICIE.MODELO_3D) {
+                const m3d = await import('@js/3d_models_viewer_tool/map_3d.js');
+                if (m3d.isViewer3DOpen?.()) {
+                    // Pelo CONTROLE, que e quem devolve o layout ao mapa (`setFullMap(true)`);
+                    // `closeViewer` do modulo desmonta a cena e deixa o container escondido.
+                    const ctrl = getControl('Add3DModelsViewerControl') ?? getControl('modelsViewer');
+                    if (ctrl?.closeViewer) ctrl.closeViewer();
+                    else m3d.closeViewer();
+                }
+            }
+        } catch (erro) {
+            console.warn('Nao foi possivel fechar o visualizador aberto:', erro);
+        }
     }
 
     /**
@@ -344,8 +392,15 @@ export class CommentsPanel {
         if (!comment.tilesetId) return;
         try {
             const m3d = await import('@js/3d_models_viewer_tool/map_3d.js');
-            if (m3d.getCurrentTilesetId?.() !== comment.tilesetId) {
-                await m3d.openViewerWithTileset(comment.tilesetId);
+            if (m3d.getCurrentTilesetId?.() !== comment.tilesetId || !m3d.isViewer3DOpen?.()) {
+                // PELO CONTROLE, e nao por `openViewerWithTileset` (defeito relatado pelo dono em
+                // 2026-09-18: "ao no mapa principal clicar num comentario do 3d o 3d nao abre").
+                // Aquela funcao MONTA a cena do Cesium e nada mais; quem esconde o mapa 2D e mostra
+                // o container do 3D e `setFullMap(false)`, dentro do `openViewer` do controle. Sem
+                // ele a cena existia, invisivel, e a tela nao mudava.
+                const ctrl = getControl('Add3DModelsViewerControl') ?? getControl('modelsViewer');
+                if (ctrl?.openViewer) await ctrl.openViewer(comment.tilesetId);
+                else await m3d.openViewerWithTileset(comment.tilesetId);
             }
             const camada = await import('@js/3d_models_viewer_tool/tools/comments-3d.js');
             camada.focarComentario3D(comment.id);

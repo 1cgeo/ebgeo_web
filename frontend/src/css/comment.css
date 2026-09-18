@@ -268,6 +268,23 @@
     color: var(--gray-500);
 }
 
+/* "Editar" fica na linha do tempo, discreto ate o ponteiro chegar: ele acompanha toda entrada de
+   quem pode modifica-la, e um botao forte em cada linha competiria com o texto da conversa. */
+.comment-entry__edit {
+    margin-left: auto;
+    padding: 0;
+    border: 0;
+    background: none;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    cursor: pointer;
+}
+
+.comment-entry__edit:hover {
+    color: var(--primary);
+    text-decoration: underline;
+}
+
 .comment-entry__text {
     margin: 2px 0 0;
     font-size: var(--font-size-sm);

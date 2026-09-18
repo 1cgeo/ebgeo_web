@@ -26,7 +26,7 @@
  * precedente é o cursor de presença, que ganhou `surface` em 2026-09-16 pela mesma razão.
  */
 
-import { addReply, resolveComment, removeComment } from '@store';
+import { addReply, resolveComment, removeComment, updateComment } from '@store';
 import { isRemoteStoreSync } from '@store/store-origin.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { checkPermission, GuardAction } from '@store/sync/permission-guard.js';
@@ -178,6 +178,41 @@ export function montarCompositor(opcoes) {
     return wrap;
 }
 
+/**
+ * Troca o texto da entrada por um editor, e devolve ao normal quando termina.
+ *
+ * O EDITOR NASCE COM O TEXTO ATUAL e devolve o foco a ele, porque editar e' quase sempre
+ * corrigir: quem clica em "Editar" quer o que escreveu na tela, nao uma caixa vazia.
+ * @private
+ */
+function editarNoLugar(corpo, paragrafo, entrada) {
+    const editor = montarCompositor({
+        placeholder: 'Edite o comentário…',
+        submitLabel: 'Salvar',
+        testid: 'comment-edit',
+        compact: true,
+        onCancel: () => { editor.replaceWith(paragrafo); },
+        onSubmit: async (texto) => {
+            // O TEXTO VOLTA ANTES DA ESCRITA porque o cartão inteiro se refaz quando
+            // `COMMENT_UPDATED` chega: deixar o editor aberto mostraria dois estados do mesmo
+            // comentário por um instante.
+            paragrafo.textContent = texto;
+            editor.replaceWith(paragrafo);
+            await updateComment({ id: entrada.id, text: texto });
+        },
+    });
+    const caixa = editor.querySelector('.comment-composer__input');
+    if (caixa) caixa.value = entrada.text || '';
+    // O botão de salvar nasce desabilitado (o compositor só o libera ao digitar), e aqui já há
+    // texto: sem isto, salvar uma edição exigiria mexer no texto antes.
+    const salvar = editor.querySelector('.comment-composer__btn--primary');
+    if (salvar) salvar.disabled = !(entrada.text || '').trim();
+
+    paragrafo.replaceWith(editor);
+    caixa?.focus();
+    return editor;
+}
+
 /** Uma linha de comentário ou resposta: avatar, tempo e texto. */
 export function montarEntrada(entrada, ehRaiz) {
     const row = document.createElement('div');
@@ -204,6 +239,19 @@ export function montarEntrada(entrada, ehRaiz) {
     text.className = 'comment-entry__text';
     text.textContent = entrada.text || '';
     body.appendChild(text);
+
+    // EDITAR O PRÓPRIO TEXTO (pedido do dono, 2026-09-18). Fica em CADA ENTRADA, e não só na raiz,
+    // porque uma resposta errada e' tao comum quanto um comentario errado; e o gate e' o mesmo de
+    // resolver e excluir (`podeModificar`), que o servidor aplica pela coluna `author_id`.
+    if (podeModificar(entrada)) {
+        const editar = document.createElement('button');
+        editar.type = 'button';
+        editar.className = 'comment-entry__edit';
+        editar.dataset.testid = 'comment-edit-open';
+        editar.textContent = 'Editar';
+        editar.addEventListener('click', () => editarNoLugar(body, text, entrada));
+        meta.appendChild(editar);
+    }
 
     row.appendChild(body);
     return row;

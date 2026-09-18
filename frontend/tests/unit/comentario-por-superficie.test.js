@@ -160,3 +160,86 @@ describe('as três superfícies usam o MESMO cartão', () => {
         expect(card).not.toMatch(/edicao-indisponivel/);
     });
 });
+
+/**
+ * OS QUATRO PEDIDOS DE 2026-09-18, que vieram do dono usando o produto.
+ *
+ * Três deles são consertos de defeito e um é função nova, e o que os une é o mesmo assunto: a lista
+ * de comentários atravessa superfícies, então o gesto de "ir para" tem de LEVAR — fechando o que
+ * está aberto, abrindo o que é o destino, e mostrando a conversa certa.
+ */
+describe('o painel atravessa superfícies', () => {
+    const painel = fonte('src/js/comment_tool/comments-panel.js');
+
+    it('FECHA o visualizador que não é o destino', () => {
+        // "Se tiver com 3d aberto ou 360 e clicar num comentario do maplibre na barra lateral deve
+        // fechar o 3d/360 e ir pro comentário."
+        expect(painel).toContain('_fecharOutrasSuperficies');
+        expect(painel).toMatch(/destino !== SUPERFICIE\.FOTO_360[\s\S]{0,400}closeViewer360/);
+        expect(painel).toMatch(/destino !== SUPERFICIE\.MODELO_3D[\s\S]{0,400}closeViewer/);
+        // E a conta é por SUPERFÍCIE, não por comentário: ir de uma foto para outra não fecha o
+        // 360, senão a tela piscaria à toa.
+        expect(painel).toMatch(/await this\._fecharOutrasSuperficies\(superficie\)/);
+    });
+
+    it('FECHA também o cartão das outras superfícies', () => {
+        // O popup do MapLibre ficava aberto POR BAIXO do visualizador, e quem lia via a conversa
+        // errada sobre a superfície nova. Medido em 2026-09-18, na própria sonda de aceitação.
+        expect(painel).toMatch(/destino !== SUPERFICIE\.MAPA[\s\S]{0,120}closeCard/);
+        expect(painel).toContain('fecharCartao360');
+        expect(painel).toContain('fecharCartao3D');
+        expect(fonte('src/js/comment_tool/comment-overlay.js')).toMatch(/closeCard\(\) \{\s*this\._closeCard\(\);/);
+    });
+
+    it('abre o 3D pelo CONTROLE, que é quem troca o layout', () => {
+        // `openViewerWithTileset` monta a cena do Cesium e mais nada; quem esconde o mapa 2D e
+        // mostra o container do 3D é `setFullMap(false)`, dentro do `openViewer` do controle. Com a
+        // chamada errada, a cena existia invisível e a tela não mudava — foi o relato do dono.
+        expect(painel).toMatch(/getControl\('Add3DModelsViewerControl'\)/);
+        expect(painel).toMatch(/ctrl\?\.openViewer\) await ctrl\.openViewer\(comment\.tilesetId\)/);
+    });
+});
+
+describe('a camada do 360 acompanha a foto aberta', () => {
+    it('assina a troca de foto e troca o escopo', () => {
+        // O DEFEITO: `iniciarComentarios360` roda na ABERTURA do visualizador, e andar pela seta
+        // troca a foto sem passar por lá. A camada ficava com a foto da abertura, desenhava os
+        // balões errados e GRAVAVA o comentário novo com a foto anterior — que é o "abre na foto
+        // errada" que o dono viu ao clicar na lista.
+        const camada = fonte('src/js/street_view_tool/comments-360.js');
+        expect(camada).toMatch(/STREETVIEW_360_PHOTO_CHANGED/);
+        expect(camada).toMatch(/estado\.photoName = currentPhoto/);
+        // E o cartão aberto fecha junto: ele é da foto que ficou para trás.
+        expect(camada).toMatch(/estado\.photoName = currentPhoto;\s*fecharCartao360\(\);/);
+    });
+});
+
+describe('editar o próprio comentário', () => {
+    const card = fonte('src/js/comment_tool/comment-card.js');
+
+    it('a entrada oferece "Editar" a quem pode modificá-la', () => {
+        expect(card).toMatch(/if \(podeModificar\(entrada\)\)/);
+        expect(card).toContain("dataset.testid = 'comment-edit-open'");
+    });
+
+    it('a edição grava por `updateComment`, e não por um caminho próprio', () => {
+        expect(card).toMatch(/import \{ addReply, resolveComment, removeComment, updateComment \}/);
+        expect(card).toMatch(/await updateComment\(\{ id: entrada\.id, text: texto \}\)/);
+    });
+
+    it('o editor nasce com o texto atual e com o salvar já liberado', () => {
+        // Editar é quase sempre corrigir: uma caixa vazia obrigaria a reescrever tudo, e um botão
+        // desabilitado obrigaria a mexer no texto antes de poder salvar.
+        expect(card).toMatch(/caixa\.value = entrada\.text \|\| ''/);
+        expect(card).toMatch(/salvar\.disabled = !\(entrada\.text \|\| ''\)\.trim\(\)/);
+    });
+
+    it('o 360 e o 3D continuam sem chamar a escrita por conta própria', () => {
+        // A régua irmã lá de cima cobre `addReply`, `resolveComment` e `removeComment`; a edição
+        // entra na mesma lista pela mesma razão.
+        for (const arquivo of ['src/js/street_view_tool/comments-360.js',
+            'src/js/3d_models_viewer_tool/tools/comments-3d.js']) {
+            expect(fonte(arquivo), arquivo).not.toContain('updateComment');
+        }
+    });
+});

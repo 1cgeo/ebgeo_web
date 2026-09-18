@@ -412,6 +412,18 @@ export class CommentOverlay {
 
     // ===== CARDS (compose + thread) =====
 
+    /**
+     * Fecha o cartao aberto (thread ou compose), de fora.
+     *
+     * O PAINEL PRECISA DISSO ao atravessar superficies (2026-09-18): indo para o 360 ou o 3D, o
+     * popup do MapLibre continuava na tela por baixo do visualizador, e quem lia via a conversa
+     * ERRADA sobre a superficie nova. `setVisible(false)` tambem fecharia, e junto sumiria com
+     * todos os pinos, que nao e o que se quer.
+     */
+    closeCard() {
+        this._closeCard();
+    }
+
     /** @private Closes the open popup card. */
     _closeCard() {
         if (this._popup) {
