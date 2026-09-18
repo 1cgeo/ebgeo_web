@@ -192,6 +192,18 @@ async function main() {
         // `enabled: Boolean(map3dTerrainUrl)`.
         valor.map2d.terrainSource = restaurar ? undefined : null;
         if (restaurar) delete valor.map2d.terrainSource;
+        // O TERRENO DO 3D E OUTRO SERVICO, e ele tambem so existe na producao: o Cesium busca
+        // `layer.json` do provider de terreno e, sem resposta, o visualizador fica em "Carregando
+        // cena..." para sempre (medido em 2026-09-18, com a conexao recusada no console). A chave
+        // `MAP3D_TERRAIN_URL` do `.env` vence a variavel de ambiente, entao quem desliga e o
+        // OVERRIDE, como o resto desta funcao ja faz. Sem terreno o Cesium usa o elipsoide, que e o
+        // comportamento declarado de quem nao tem terreno (config.service.js).
+        valor.map3d = { ...(valor.map3d || {}) };
+        valor.map3d.providers = { ...(valor.map3d.providers || {}) };
+        valor.map3d.providers.terrain = {
+            ...(valor.map3d.providers.terrain || {}),
+            enabled: restaurar,
+        };
         await t.none(
             `INSERT INTO config_settings (key, value, updated_at) VALUES ('app_config', $1::jsonb, NOW())
              ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
@@ -199,7 +211,7 @@ async function main() {
         );
     });
     console.log(`
-features.grid = ${!restaurar ? 'false' : 'true'} | hillshade = ${restaurar} | terrainSource = ${restaurar ? '(do ambiente)' : 'null'}`);
+features.grid = ${!restaurar ? 'false' : 'true'} | hillshade = ${restaurar} | terrainSource = ${restaurar ? '(do ambiente)' : 'null'} | terreno 3D = ${restaurar}`);
 
     const depois = await db.any('SELECT id, name, active, sort_order FROM basemaps WHERE active ORDER BY sort_order');
     console.log('\nATIVOS AGORA:');
