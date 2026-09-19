@@ -1,26 +1,19 @@
 // Path: js/import_export/save-local-atlas.service.js
 
 /**
- * @fileoverview Orchestrates "Salvar atlas local no servidor" (item 2): packages the current local
- * store as a NEW server atlas. Order matters —
- *   1. build the in-memory `.ebgeo` data (`exportService.buildExportDataObject`),
- *   2. transform it to the import payload (`buildServerImportPayload`), minting a FRESH id for
- *      every image blob and rewriting the refs to it (see the comment at the mint),
- *   3. `importAtlas` (creates the atlas + entities),
- *   4. upload the image blobs under those fresh ids, so the refs in the just-imported features
- *      stay valid with no post-import rewrite.
- * It does NOT connect/switch the store — the caller (UI) wires sharing + `clearAllDataStore` +
- * `markStoreRemote` + `connect` afterwards so the saved atlas becomes the live remote one.
+ * Packages the mounted local atlas without discarding unreadable sections. Image bytes
+ * are read before network writes. The server prepares privately and publishes metadata,
+ * images and the recovery receipt together; the caller switches only after confirmation.
  */
 
 import { buildServerImportPayload } from './local-atlas-to-server.js';
-import { buildImageUploads, uploadImagesInChunks } from './atlas-image-upload.js';
+import { buildImageUploads } from './atlas-image-upload.js';
 import { getImage, getAllMapNamesStore } from '@store';
 import { generateUUID } from '@utils/uuid.js';
 
 /**
  * Reads the blobs for `imageIds` from the LOCAL image store and builds the bulk-upload items.
- * Ids with no backing blob (e.g. a non-image feature id) are simply absent.
+ * A missing original aborts the import before any network write.
  *
  * O blob e LIDO pelo id local e ENVIADO com o id novo de `imageIdMap`: e a mesma troca que o
  * payload ja fez nas referencias, e as duas metades precisam concordar.
@@ -31,13 +24,9 @@ import { generateUUID } from '@utils/uuid.js';
 async function collectImageUploads(imageIds, imageIdMap) {
     const found = [];
     for (const id of imageIds) {
-        try {
-            const blob = await getImage(id);
-            if (blob) found.push([imageIdMap[id] || id, blob]);
-        } catch {
-            // An unreadable blob is reported by buildImageUploads only if it got this far; a
-            // failed READ is not a skipped image, it is an id with nothing behind it.
-        }
+        const blob = await getImage(id);
+        if (!blob) throw new Error('Uma imagem original está ausente. Nenhum atlas foi publicado.');
+        found.push([imageIdMap[id] || id, blob]);
     }
     return buildImageUploads(found);
 }
@@ -55,32 +44,18 @@ export async function saveLocalAtlasToServer(apiClient, exportService, { name, d
         throw new Error('Nenhum mapa local para salvar no servidor.');
     }
 
-    const exportData = await exportService.buildExportDataObject(mapsToExport);
+    const exportData = await exportService.buildExportDataObject(mapsToExport, { strict: true });
 
-    // O BLOB GANHA ID NOVO A CADA ENVIO, e a assimetria com o resto do atlas e deliberada.
-    //
-    // `images.id` tambem e chave primaria GLOBAL. As demais entidades (feicao, camada, grupo)
-    // preservam o id do cliente e o SERVIDOR recunha as que ja estao ocupadas, porque so ele
-    // sabe o que esta livre. Com o blob esse conserto nao alcanca: ele sobe DEPOIS do import,
-    // entao um id recunhado ali deixaria a referencia ja gravada na feicao apontando para o
-    // nada. Cunhar antes de montar o payload resolve pela construcao, e nada precisa voltar
-    // do servidor.
-    //
-    // DUAS PASSADAS da funcao PURA, e so a primeira serve para descobrir QUAIS blobs o atlas
-    // cita. A leitura cara (`buildExportDataObject`, que varre o IndexedDB) continua sendo
-    // uma so. A segunda passada reescreve, pelo `imageIdMap`, todas as referencias de blob de
-    // uma vez: id de feicao de imagem, `markerSymbol` de icone proprio, `images[]` de 3D/360 e
-    // `settings.customIcons`.
+    // Images have globally unique identities. Mint them before transforming all references;
+    // a resumed attempt reuses the first manifest and payload held by the server.
     const sondagem = buildServerImportPayload(exportData, { name, description });
     const imageIdMap = Object.fromEntries(sondagem.imageIds.map((id) => [id, generateUUID()]));
     const built = buildServerImportPayload(exportData, { name, description, imageIdMap });
 
-    const atlas = await apiClient.importAtlas(built.payload);
-    const atlasId = atlas.id;
-
-    // Phase 2/3: upload the blobs under the ids the payload already points at.
     const { uploads, skipped } = await collectImageUploads(built.imageIds, imageIdMap);
-    const { failed } = await uploadImagesInChunks(apiClient, atlasId, uploads);
+    if (skipped.length || built.stats.droppedFeatures) throw new Error('Há imagens ou feições que não podem ser convertidas. Nenhum atlas foi publicado.');
+    const atlas = await apiClient.importAtlas(built.payload, { images: uploads, source: { exportData, name, description } });
+    const atlasId = atlas.id;
 
     return {
         atlasId,
@@ -89,9 +64,9 @@ export async function saveLocalAtlasToServer(apiClient, exportService, { name, d
         stats: built.stats,
         imageStats: {
             total: built.imageIds.length,
-            uploaded: uploads.length - failed.length,
+            uploaded: uploads.length,
             skipped: skipped.length,
-            failed: failed.length,
+            failed: 0,
         },
     };
 }

@@ -35,7 +35,7 @@ import { fileURLToPath } from 'node:url';
 // Do módulo, e não do global: o `env` desta suíte é o do NAVEGADOR, onde `Buffer` não existe.
 import { Buffer } from 'node:buffer';
 import { resetIndexedDB } from '../helpers/idb-helpers.js';
-import { NoticeKind, sendFailureNotice, sendToServerNotice } from '@js/projects/local-atlas-notices.js';
+import { NoticeKind, sendFailureNotice } from '@js/projects/local-atlas-notices.js';
 
 const PAGE_SRC = readFileSync(
     fileURLToPath(new URL('../../src/js/projects/projects-page.js', import.meta.url)), 'utf8'
@@ -245,69 +245,36 @@ describe('o serviço diz EM QUE ETAPA caiu', () => {
 
         const erro = await enviar(scope, apiClient).catch((e) => e);
 
-        expect(erro.stage).toBe('import');
+        expect(erro.stage).toBe('preparation');
         expect(erro.atlasId ?? null).toBeNull();
-        expect(sendFailureNotice(erro, { name: 'Falho' }).message).toMatch(/nada foi criado/i);
+        expect(sendFailureNotice(erro, { name: 'Falho' }).message).toMatch(/concluir ou confirmar/i);
     });
 
-    it('rede caída na subida NÃO derruba o envio: vira `imageStats.failed`, e a frase diz onde o atlas está', async () => {
-        // O CAMINHO REAL DESTE ACHADO MUDOU DE RAMO NA MESMA ONDA. A subida por lotes ganhou
-        // `try/catch` POR LOTE (`atlas-image-upload.js`), então o transporte que cai deixa de
-        // propagar e passa a contar como imagem que não subiu. O que a pessoa vê deixa de ser um
-        // toast de ERRO com texto cru e passa a ser o AVISO que nomeia o que faltou e diz que o
-        // atlas está no servidor. Esta é a régua desse ramo, e ela é a que a população encontra.
+    it('an unconfirmed atomic upload is an error, never partial success', async () => {
         const scope = escopo();
         await semear(scope);
-        const apiClient = {
-            async importAtlas() { return { id: 'srv-criado', summary: {} }; },
-            async bulkUploadImages() { throw new Error('Failed to fetch'); },
-        };
-
-        const result = await enviar(scope, apiClient);
-        const notice = sendToServerNotice(result);
-
-        expect(result.atlasId).toBe('srv-criado');
-        expect(result.imageStats.failed).toBe(1);
-        expect(notice.kind).toBe(NoticeKind.WARNING);
-        expect(notice.message).toMatch(/1 imagem não subiu/i);
-        expect(notice.message).toMatch(/já está no servidor/i);
-        expect(notice.message).not.toContain('Failed to fetch');
-        // E NÃO NAVEGA: a frase é a única que nomeia a imagem que ficou para trás.
-        expect(notice.openAtlasId).toBeNull();
+        const apiClient = { importAtlas: vi.fn(async () => { throw new Error('Failed to fetch'); }) };
+        const error = await enviar(scope, apiClient).catch(error => error);
+        expect(error.stage).toBe('preparation');
+        expect(error.atlasId).toBeUndefined();
+        expect(sendFailureNotice(error, { name: 'Falho' }).kind).toBe(NoticeKind.ERROR);
     });
 
-    it('BELT: o que ainda assim estourar DEPOIS do import carimba `images` e o `atlasId`', async () => {
-        // A subida por lotes não propaga mais, então este ramo não tem gatilho pelas juntas
-        // públicas — e é justamente por isso que ele existe: uma falha que ninguém previu depois
-        // do import deixaria a pessoa com um atlas no servidor e uma frase dizendo que nada foi
-        // criado. O dublê é do MÓDULO VIZINHO, declarado, e mede o carimbo, não o vizinho.
+    it('preparing image bytes fails before any server publication', async () => {
         vi.resetModules();
         vi.doMock('@js/import_export/atlas-image-upload.js', () => ({
-            buildImageUploads: async () => ({ uploads: [{ localId: 'x' }], skipped: [] }),
-            uploadImagesInChunks: async () => { throw new Error('Failed to fetch'); },
+            buildImageUploads: async () => { throw new Error('unreadable image'); },
         }));
-        const nsDublê = await import('../../src/js/store/atlas-namespace.js');
-        const servicoDublê = await import('../../src/js/projects/send-local-to-server.service.js');
-        const scope = nsDublê.localScope('atlas-belt', 'belt');
-        await nsDublê.getStoreFor(nsDublê.StoreName.MAPS, scope)
-            .setItem('Alfa', { name: 'Alfa', features: {} });
-
-        const erro = await servicoDublê.sendLocalAtlasToServer(
-            { id: 'atlas-belt', name: 'Belt', dbSuffix: 'belt' },
-            {
-                scopeOf: () => scope,
-                apiClient: {
-                    async importAtlas() { return { id: 'srv-criado', summary: {} }; },
-                    async bulkUploadImages() { return { mapping: {}, failed: [] }; },
-                },
-            },
-        ).catch((e) => e);
-        vi.doUnmock('@js/import_export/atlas-image-upload.js');
-
-        expect(erro.stage).toBe('images');
-        expect(erro.atlasId).toBe('srv-criado');
-        expect(sendFailureNotice(erro, { name: 'Belt' }).message)
-            .toMatch(/já (foi criado|está) no servidor/i);
+        try {
+            const nsMock = await import('../../src/js/store/atlas-namespace.js');
+            const service = await import('../../src/js/projects/send-local-to-server.service.js');
+            const scope = nsMock.localScope('atlas-belt', 'belt');
+            await nsMock.getStoreFor(nsMock.StoreName.MAPS, scope).setItem('Alfa', { name: 'Alfa', features: {} });
+            const apiClient = { importAtlas: vi.fn() };
+            await expect(service.sendLocalAtlasToServer({ id: 'atlas-belt', name: 'Belt', dbSuffix: 'belt' },
+                { scopeOf: () => scope, apiClient })).rejects.toThrow('unreadable image');
+            expect(apiClient.importAtlas).not.toHaveBeenCalled();
+        } finally { vi.doUnmock('@js/import_export/atlas-image-upload.js'); }
     });
 
     it('a recusa por atlas sem mapa carimba `stage: leitura`', async () => {

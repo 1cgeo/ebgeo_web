@@ -6,7 +6,7 @@ A substituição apagava o atlas montado antes de gravar o arquivo inteiro. Falt
 
 A importação não aditiva agora prepara mapas, grupos, camadas, notas, cores, comentários, configurações temporais, grade, 3D, 360, briefings, ícones e imagens em bancos separados. Cada gravação é relida e comparada, inclusive os bytes e o MIME dos blobs. Só depois uma única gravação no registro global do IndexedDB publica o novo endereço do atlas.
 
-No atlas local, o cartão mantém seu identificador e nome; não consome uma vaga adicional, mesmo no limite de dez atlas. Com um atlas remoto aberto, o resultado nasce como outro atlas local completo. Uma falha na preparação não desconecta nem modifica o remoto. A importação aditiva continua sendo um fluxo separado e não recebeu garantia de atomicidade.
+No atlas local, o cartão mantém seu identificador e nome; não consome uma vaga adicional, mesmo no limite de dez atlas. Com um atlas remoto aberto, o resultado nasce como outro atlas local completo. Uma falha na preparação não desconecta nem modifica o remoto. A ressalva da importação aditiva foi encerrada no [complemento desta auditoria](plano-importacoes-atomicas-2026-09-19.md): ela passou a copiar o original, preparar a soma e publicar pelo mesmo registro atômico.
 
 ## Interrupções e concorrência
 
@@ -34,4 +34,4 @@ A rodada final aprovou os 13.349 testes do frontend, os 5.298 do backend e os 24
 
 ## Limites
 
-A garantia cobre a substituição local por arquivo aceito, dentro das garantias de durabilidade do navegador. Não cobre apagar os dados do site, corrupção física do perfil/disco ou perda simultânea de todos os registros e suas cópias. A importação direta para o servidor ainda separa criação do atlas e upload de imagens; esse limite está na [auditoria de migração](auditoria-migracao-versoes-2026-09-19.md). A intranet não foi acessada, conforme o escopo solicitado.
+A garantia cobre a substituição local por arquivo aceito, dentro das garantias de durabilidade do navegador. Não cobre apagar os dados do site, corrupção física do perfil/disco ou perda simultânea de todos os registros e suas cópias. A separação entre criação no servidor e upload de imagens foi corrigida pelo [protocolo de preparação e publicação](plano-importacoes-atomicas-2026-09-19.md). A intranet não foi acessada, conforme o escopo solicitado.

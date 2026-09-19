@@ -100,7 +100,7 @@ describe('server migration preserves image references', () => {
         expect(isValidUUID(iconId)).toBe(true);
         expect(payload.maps[0].features.find(f => f.feature_type === 'point').properties.markerSymbol).toBe(`custom:${iconId}`);
         expect(JSON.stringify(payload.maps[0].cesium3dData)).toContain(photoId);
-        expect(api.bulkUploadImages.mock.calls[0][1].map(item => item.localId)).toEqual(expect.arrayContaining([photoId, iconId]));
+        expect(api.importAtlas.mock.calls[0][1].images.map(item => item.localId)).toEqual(expect.arrayContaining([photoId, iconId]));
         await importEbgeoAsAtlas(file, { apiClient: api });
         expect(api.importAtlas.mock.calls[1][0].maps[0].features.find(f => f.feature_type === 'image').id).not.toBe(photoId);
         expect(data.maps.Principal.features.images[0].properties.id).toBe('old-photo');
@@ -112,11 +112,11 @@ describe('server migration preserves image references', () => {
         await expect(importEbgeoAsAtlas(await archive(data), { apiClient: api })).rejects.toThrow(/ausente/);
         expect(api.importAtlas).not.toHaveBeenCalled();
     });
-    it('reports missing upload acknowledgment as incomplete instead of counting it as success', async () => {
+    it('does not report success when atomic publication cannot be confirmed', async () => {
         const data = document();
         data.maps.Principal.features.images = [feature('photo')];
-        api.bulkUploadImages.mockResolvedValue({});
-        const result = await importEbgeoAsAtlas(await archive(data, { images: { 'images/photo.png': png } }), { apiClient: api });
-        expect(result.imageStats).toMatchObject({ uploaded: 0, failed: 1 });
+        api.importAtlas.mockRejectedValue(new Error('unconfirmed commit'));
+        await expect(importEbgeoAsAtlas(await archive(data, { images: { 'images/photo.png': png } }), { apiClient: api })).rejects.toThrow('unconfirmed commit');
+        expect(api.bulkUploadImages).not.toHaveBeenCalled();
     });
 });

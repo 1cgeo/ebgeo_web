@@ -2,6 +2,8 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 
+test.describe.configure({ retries: 0 });
+
 async function boot(page) {
     const state = readState();
     expect(state.skip).toBe(false);
@@ -98,4 +100,52 @@ test('a reload after publication but before mounting opens the complete replacem
     });
     expect(restored.scope.dbSuffix).toBe(published.entry.dbSuffix);
     expect(restored.maps).toEqual(['Completed']);
+});
+
+test('additive image-write failure preserves the old atlas; retry and reload preserve both image identities', async ({ page }, testInfo) => {
+    await boot(page);
+    const before = await page.evaluate(async () => {
+        const ns = await import('/src/js/store/atlas-namespace.js');
+        const original = ns.getActiveScope();
+        await ns.getStore(ns.StoreName.IMAGES).setItem('photo', new Blob(['original bytes']));
+        const JSZip = (await import('/node_modules/.vite/deps/jszip.js')).default;
+        const zip = new JSZip();
+        zip.file('data.json', JSON.stringify({ version: '3.0', maps: { Principal: { features: { images: [{ type: 'Feature',
+            geometry: { type: 'Point', coordinates: [-47, -15] }, properties: { id: 'photo', source: 'image' } }] } } } }));
+        const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='), c => c.charCodeAt(0));
+        zip.file('images/photo.png', png);
+        globalThis.__additiveArchive = new File([await zip.generateAsync({ type: 'blob' })], 'Append.ebgeo');
+        const { getControl } = await import('/src/js/store/index.js');
+        const put = IDBObjectStore.prototype.put;
+        IDBObjectStore.prototype.put = function (...args) {
+            if (this.transaction.db.name.startsWith('ebgeo_images__import-') && args[1] !== 'photo') throw new DOMException('Injected quota', 'QuotaExceededError');
+            return put.apply(this, args);
+        };
+        try { await getControl('exportImport').processFileDirectly(globalThis.__additiveArchive, true); } finally { IDBObjectStore.prototype.put = put; }
+        return { original, after: ns.getActiveScope(), keys: await ns.getStore(ns.StoreName.MAPS).keys(),
+            bytes: await (await ns.getStore(ns.StoreName.IMAGES).getItem('photo')).text() };
+    });
+    expect(before.after).toEqual(before.original);
+    expect(before.keys).toHaveLength(1);
+    expect(before.bytes).toBe('original bytes');
+    await page.screenshot({ path: testInfo.outputPath('additive-quota-original.png') });
+    await page.evaluate(async () => {
+        const { getControl } = await import('/src/js/store/index.js');
+        await getControl('exportImport').processFileDirectly(globalThis.__additiveArchive, true);
+    });
+    await expect(page.getByText('1 mapa adicionados!', { exact: true })).toBeVisible();
+    await boot(page);
+    const result = await page.evaluate(async () => {
+        const ns = await import('/src/js/store/atlas-namespace.js');
+        const maps = [];
+        await ns.getStore(ns.StoreName.MAPS).iterate(map => { maps.push(map); });
+        const photoId = maps.find(map => map.name === 'Principal_1').features.images[0].properties.id;
+        const image = await createImageBitmap(await ns.getStore(ns.StoreName.IMAGES).getItem(photoId));
+        return { names: maps.map(map => map.name).sort(), photoId, decoded: [image.width, image.height],
+            original: await (await ns.getStore(ns.StoreName.IMAGES).getItem('photo')).text() };
+    });
+    expect(result.names).toEqual(['Principal', 'Principal_1']);
+    expect(result.photoId).not.toBe('photo');
+    expect(result.decoded).toEqual([1, 1]);
+    expect(result.original).toBe('original bytes');
 });

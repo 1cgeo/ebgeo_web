@@ -242,7 +242,8 @@ describe('o núcleo do modal de compartilhamento cabe em `atlas.html`', () => {
         expect(grafo.arquivos.size).toBeGreaterThanOrEqual(12);
         // Atlas copying also verifies binary values through storage-value.js, a leaf
         // without imports. Keep the bound explicit; no application store is pulled in.
-        expect(grafo.arquivos.size).toBeLessThanOrEqual(29);
+        // Atomic server import adds one lazy module, reusing the namespace factory.
+        expect(grafo.arquivos.size).toBeLessThanOrEqual(30);
     });
 
     for (const [rotulo, padrao] of Object.entries(PROIBIDOS)) {

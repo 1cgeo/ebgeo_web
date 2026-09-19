@@ -41,11 +41,11 @@ Nas medições de importação local, diferenças de bytes em bitmaps gerados s�
 ## Limites e riscos que permanecem
 
 1. **Substituição local corrigida em auditoria posterior.** A preparação isolada, a publicação atômica e os ensaios de interrupção estão na [auditoria de importação atômica](auditoria-importacao-atomica-2026-09-19.md). A ressalva original deste item foi encerrada por esse trabalho.
-2. **Criação no servidor e upload de imagens são operações separadas.** A queda após criar o atlas deixa uma importação parcial, agora sinalizada. Uma nova importação cria outro atlas; não completa automaticamente o anterior. Não há rollback distribuído nem fila persistente de retomada adicionados a esse fluxo nesta auditoria.
+2. **Criação e imagens unificadas em correção posterior.** O [complemento de atomicidade](plano-importacoes-atomicas-2026-09-19.md) prepara os dados em área privada e publica atlas, entidades, descritores de imagens, recibo e auditoria numa transação. Repetir a mesma tentativa recupera o resultado publicado ou retoma as imagens pendentes. O protocolo também atende os dois caminhos de envio de atlas local. Atlas parciais criados por versões anteriores não são reparados automaticamente.
 3. **Dados ausentes na origem não são reconstruídos.** O `01-completo.ebgeo` continua tendo oito definições irrecuperáveis automaticamente, detalhadas na [auditoria de imagens](auditoria-imagens-2026-09-19.md). A declinação com aliases é recuperada. A importação direta desse arquivo para o servidor é recusada por faltar uma foto original, preservando o arquivo para recuperação; a importação local preserva os registros incompletos e os sinaliza.
 4. **Cobertura delimitada.** Chromium local e backend descartável não certificam a intranet nem todos os navegadores, versões históricas, volumes de arquivo ou formas de corrupção. A atualização do IndexedDB legado preserva sua origem por cópia verificada; essa propriedade não deve ser confundida com a substituição local por arquivo.
 
-Esta auditoria e a correção posterior da substituição local não eliminam os limites de criação e upload separados no servidor, dados ausentes na origem e cobertura de ambientes descritos acima.
+As correções posteriores encerraram os limites de atomicidade da substituição, da importação aditiva local e da criação no servidor com imagens. Permanecem os limites de dados ausentes na origem e cobertura de ambientes descritos acima. As medições e o comportamento de upload parcial registrados nas seções anteriores são históricos; a validação do protocolo atual está no complemento de atomicidade.
 
 ## Reprodução
 

@@ -20,7 +20,7 @@ import { readEbgeoArchive, importVersionRefusal, isV1Format } from '@js/import_e
 import { migrateImportDataToV2 } from '@js/import_export/import-normalize.js';
 import { generateUUID } from '@utils/uuid.js';
 import { buildServerImportPayload } from '@js/import_export/local-atlas-to-server.js';
-import { buildImageUploads, uploadImagesInChunks } from '@js/import_export/atlas-image-upload.js';
+import { buildImageUploads } from '@js/import_export/atlas-image-upload.js';
 import { atlasNameFromFilename } from './ebgeo-filename.js';
 
 /** Matches `images/<id>.<ext>` entries inside the archive. */
@@ -52,16 +52,17 @@ export { atlasNameFromFilename };
  *
  * @param {File|Blob} file - The `.ebgeo` archive.
  * @param {Object} deps
- * @param {Object} deps.apiClient - The sync ApiClient (`importAtlas` + `bulkUploadImages`).
+ * @param {Object} deps.apiClient - The sync ApiClient (`importAtlas` with atomic image preparation).
  * @param {string} [deps.name] - Overrides the name derived from the filename.
  * @returns {Promise<{ atlasId: string, name: string, stats: Object, imageStats: Object }>}
- * @throws {Error} When archive preflight fails, before any server write. After creation,
- *   image upload failures are reported in imageStats; the created atlas remains available.
+ * @throws {Error} On preflight or preparation failure, or when publication cannot be confirmed.
+ *   Retrying the same content resumes preparation or recovers the committed receipt.
  */
 export async function importEbgeoAsAtlas(file, { apiClient, name } = {}) {
     const { zip, data } = await readEbgeoArchive(file);
     const refusal = importVersionRefusal(data);
     if (refusal) throw new Error(refusal);
+    const originalData = structuredClone(data); // Migration adds timestamps; retries identify the original file.
     const exportData = isV1Format(data) ? migrateImportDataToV2(data) : data;
 
     const atlasName = (name || atlasNameFromFilename(file?.name)).trim();
@@ -80,6 +81,7 @@ export async function importEbgeoAsAtlas(file, { apiClient, name } = {}) {
     for (const entryName of Object.keys(zip.files)) {
         const match = IMAGE_ENTRY.exec(entryName);
         if (!match || !wanted.has(match[1])) continue;
+        if (foundIds.has(match[1])) throw new Error('O arquivo contém imagens com o mesmo identificador. Nenhum atlas foi criado.');
         const raw = await zip.file(entryName).async('blob');
         const mimeType = MIME_BY_EXT[match[2].toLowerCase()] || 'application/octet-stream';
         foundIds.add(match[1]);
@@ -90,12 +92,7 @@ export async function importEbgeoAsAtlas(file, { apiClient, name } = {}) {
     const { uploads, skipped } = await buildImageUploads(found);
     if (skipped.length) throw new Error(`Importação interrompida: ${skipped.length} imagem(ns) não pode(m) ser enviada(s) ao servidor. Nenhum atlas foi criado.`);
     // All archive reads/conversions above must succeed before creating the atlas.
-    const atlas = await apiClient.importAtlas(built.payload);
-    const { failed, mapping } = await uploadImagesInChunks(apiClient, atlas.id, uploads);
-    const failedIds = new Set(failed.map(item => item.localId));
-    for (const item of uploads) {
-        if (mapping[item.localId] !== item.localId) failedIds.add(item.localId);
-    }
+    const atlas = await apiClient.importAtlas(built.payload, { images: uploads, source: { exportData: originalData, name: atlasName } });
 
     registrarUso(EventoDeUso.EBGEO_IMPORTADO);
     return {
@@ -104,9 +101,9 @@ export async function importEbgeoAsAtlas(file, { apiClient, name } = {}) {
         stats: built.stats,
         imageStats: {
             total: built.imageIds.length,
-            uploaded: uploads.length - failedIds.size,
+            uploaded: uploads.length,
             skipped: skipped.length,
-            failed: failedIds.size,
+            failed: 0,
         },
     };
 }

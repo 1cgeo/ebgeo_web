@@ -61,7 +61,8 @@ describe('salvar atlas local no servidor: o blob sobe com id novo', () => {
         enviados = [];
 
         apiClient = {
-            importAtlas: vi.fn(async (payload) => {
+            importAtlas: vi.fn(async (payload, { images }) => {
+                enviados.push(...images);
                 importado = payload;
                 return { id: generateUUID(), name: payload.atlas.name };
             }),
@@ -124,11 +125,10 @@ describe('salvar atlas local no servidor: o blob sobe com id novo', () => {
         expect(enviados.map((u) => u.localId)).toContain(idNovoDoIcone);
     });
 
-    it('o blob ilegivel nao vira envio, e a contagem continua contando o citado', async () => {
+    it('refuses a missing original before publishing any atlas', async () => {
         blobs.delete(idLocalDoIcone);
-        const r = await saveLocalAtlasToServer(apiClient, exportService, { name: 'Sem o icone' });
-
-        expect(r.imageStats.total).toBe(2);
-        expect(enviados).toHaveLength(1);
+        await expect(saveLocalAtlasToServer(apiClient, exportService, { name: 'Missing icon' })).rejects.toThrow(/ausente/);
+        expect(apiClient.importAtlas).not.toHaveBeenCalled();
+        expect(enviados).toHaveLength(0);
     });
 });

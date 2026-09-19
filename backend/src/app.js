@@ -123,8 +123,9 @@ export function createApp() {
     /^\/api\/v1\/atlas\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/images\/bulk\/?$/i;
   const jsonParser = express.json({ limit: '10mb' });
   const bulkJsonParser = express.json({ limit: `${config.images.maxBulkUploadMb}mb` });
+  const IMPORT_IMAGES_PATH = /^\/api\/v1\/atlas\/imports\/[0-9a-f-]{36}\/images\/?$/i;
   app.use((req, res, next) => {
-    if (req.method === 'POST' && req.user && BULK_IMAGES_PATH.test(req.path)) {
+    if (req.method === 'POST' && req.user && (BULK_IMAGES_PATH.test(req.path) || IMPORT_IMAGES_PATH.test(req.path))) {
       return bulkJsonParser(req, res, next);
     }
     return jsonParser(req, res, next);

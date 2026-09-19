@@ -4,13 +4,9 @@ import {
     getCurrentMapName,
     getCurrentMapFeatures,
     getCurrentBaseLayer,
-    setBaseLayer,
-    addMap,
     isRemoteStoreSync,
     getImage,
     storeImage,
-    setSchemaVersion,
-    setGridStyle,
     // `getMapGroups` (memoria) fica, e e o certo no unico ponto que o usa: o import aditivo o
     // consulta sobre um mapa CRIADO segundos antes, que nao tem grupo nenhum, entao o `{}` que
     // ele devolve e a resposta verdadeira e nao um cache frio.
@@ -22,14 +18,9 @@ import {
     getMapOrder,
     processCatalogLayersOnImport,
     getCatalogLayers,
-    setCesium3dDataForImport,
-    setStreetview360DataForImport,
-    setMapTemporalConfig,
-    setMapComments,
     getBriefingsForExport,
     importBriefings,
     getCustomIconsForExport,
-    restoreCustomIconsFromImport,
     getGroupManager,
 } from '@store';
 import { optionalSectionTasks } from './export-optional-sections.js';
@@ -39,7 +30,7 @@ import { showToast, showSuccess, showError, showWarning } from '@utils/toast_ser
 import { ATLAS_SCHEMA_VERSION } from '@store/atlas/atlas.entity.js';
 // Normalization/migration of imported data lives in its own module so it can be
 // tested in node (this file pulls in JSZip, the @store barrel and modal UI).
-import { migrateImportDataToV2, normalizeMapDataForCurrentVersion } from './import-normalize.js';
+import { migrateImportDataToV2 } from './import-normalize.js';
 // O PORTÃO, e o leitor do arquivo, do mesmo módulo folha e pela mesma razão que o de cima: o boot
 // do mapa precisa RECUSAR um `.ebgeo` antes de gastar um dos dez atlas locais com ele, e não pode
 // carregar este serviço para isso. O predicado é o mesmo de sempre; só mudou de endereço.
@@ -299,7 +290,7 @@ export class ExportImportService {
      * @param {string[]} mapsToExport - Map names to include.
      * @returns {Promise<Object>} The export data object.
      */
-    async buildExportDataObject(mapsToExport) {
+    async buildExportDataObject(mapsToExport, { strict = false } = {}) {
         // ANTES DE QUALQUER LEITURA, e uma vez so para o documento inteiro. As secoes de camada
         // e de grupo leem o REPOSITORIO (ver o cabecalho de `export-optional-sections.js`: ler
         // memoria entregava as camadas de todo mapa nao visitado como uma `default` inventada,
@@ -343,13 +334,15 @@ export class ExportImportService {
                 };
                 data.maps[mapName] = this.optimizeMapData(fullMapData);
             }
-            await this._exportOptionalMapData(data, mapName);
+            if (strict && !mapData) throw new Error('Um mapa não pôde ser lido. Nenhum atlas foi publicado.');
+            await this._exportOptionalMapData(data, mapName, strict);
         }
 
         try {
             const briefings = await getBriefingsForExport();
             if (briefings?.length > 0) data.briefings = briefings;
         } catch (error) {
+            if (strict) throw error;
             console.warn('Could not export briefings:', error);
         }
 
@@ -591,113 +584,18 @@ export class ExportImportService {
             }
 
             if (isAdditiveImport) {
-                await setSchemaVersion(ATLAS_SCHEMA_VERSION);
-                const imageIdMapping = await this.loadImagesFromZip(zip, { additive: true });
-                for (const icon of data.customIcons || []) {
-                    icon.id = imageIdMapping.get(icon.id) || icon.id;
-                }
-                for (const mapData of Object.values(data.maps)) {
-                    for (const feature of mapData.features?.points || []) {
-                        const marker = feature.properties?.markerSymbol;
-                        if (marker?.startsWith('custom:')) {
-                            const id = marker.slice(7);
-                            if (imageIdMapping.has(id)) feature.properties.markerSymbol = `custom:${imageIdMapping.get(id)}`;
-                        }
-                    }
-                }
-
-                const existingMapNames = await getAllMapNamesStore();
-                const mapsToImport = Object.keys(data.maps).length;
-
-                if (existingMapNames.length + mapsToImport > 100) {
-                    throw new Error(`Limite de mapas excedido. Você tem ${existingMapNames.length} mapas, tentando importar ${mapsToImport}. Limite: 100 mapas.`);
-                }
-
-                const mapNameMapping = new Map();
-                const newlyCreatedMaps = new Set();
-
-                for (const [originalMapName, mapData] of Object.entries(data.maps)) {
-                    // Find unique name
-                    let finalMapName = originalMapName;
-                    let counter = 1;
-                    while (existingMapNames.includes(finalMapName)) {
-                        finalMapName = `${originalMapName}_${counter}`;
-                        counter++;
-                    }
-
-                    newlyCreatedMaps.add(finalMapName);
-
-                    // Create layer ID mapping BEFORE regenerating feature IDs
-                    // This ensures features get the correct new layer IDs
-                    const layerIdMapping = new Map();
-                    const originalLayers = data.layers?.[originalMapName] || [];
-                    for (const layer of originalLayers) {
-                        if (layer.id === 'default') {
-                            layerIdMapping.set('default', 'default');
-                        } else {
-                            layerIdMapping.set(layer.id, IDUtils.generateUniqueId());
-                        }
-                    }
-
-                    // Regenerate feature IDs with layer ID mapping.
-                    // `idMapping` (oldFeatureId -> newFeatureId) must be kept: the groups of this
-                    // map still reference the OLD feature ids and would import empty without it.
-                    const { newMapData, idMapping } = await IDUtils.regenerateMapIds(mapData, finalMapName, layerIdMapping, imageIdMapping);
-
-                    // Normalizar estrutura para versão atual
-                    const { unavailableCatalogLayersCount } = normalizeMapDataForCurrentVersion(newMapData, processCatalogLayersOnImport);
-                    totalUnavailableCatalogLayers += unavailableCatalogLayersCount;
-
-                    // Get original data from file to preserve colors and notes
-                    const originalColorUsage = data.colorUsage?.[originalMapName] || null;
-                    const originalNotes = data.mapNotes?.[originalMapName] || null;
-
-                    // Pass colors and notes to preserve original data
-                    await addMap(finalMapName, newMapData, originalColorUsage, originalNotes);
-                    existingMapNames.push(finalMapName);
-                    importedMapsCount++;
-
-                    // Store mapping with layer ID mapping for importLayersAdditively
-                    // and feature ID mapping for importGroupsAdditively
-                    mapNameMapping.set(originalMapName, { finalMapName, layerIdMapping, idMapping });
-                }
-
-                // Import groups with updated map names
-                await this.importGroupsAdditively(data.groups, mapNameMapping);
-
-                // Import layers with updated map names (pass newlyCreatedMaps to avoid creating extra default layers)
-                await this.importLayersAdditively(data.layers, mapNameMapping, newlyCreatedMaps);
-
-                // Import cesium 3D data additively
-                await this._importMappedData(data.cesium3d, setCesium3dDataForImport, mapNameMapping, 'cesium 3D data');
-
-                // Import street view 360 data additively
-                await this._importMappedData(data.streetview360, setStreetview360DataForImport, mapNameMapping, '360 data');
-
-                // Import per-map temporal config additively
-                await this._importMappedData(data.temporal, setMapTemporalConfig, mapNameMapping, 'temporal config');
-
-                // Import per-map grid style additively
-                await this._importMappedData(data.gridStyle, setGridStyle, mapNameMapping, 'grid style');
-
-                // Import per-map spatial comments additively
-                await this._importMappedData(data.comments, setMapComments, mapNameMapping, 'comments');
-
-                // Import briefings (additive import - no overwrite)
-                await this._importBriefings(data.briefings, false);
-
-                await restoreCustomIconsFromImport(data.customIcons, { replace: false });
+                const { prepareAdditiveScope } = await import('./prepare-additive-scope.js');
+                const result = await replaceAtlasFromImport(importSource, null,
+                    (scope, entry) => prepareAdditiveScope(importSource, scope, entry, data, zip, processCatalogLayersOnImport));
+                if (!result.ok) throw new Error(result.message);
+                importedMapsCount = result.importedMapsCount;
+                totalUnavailableCatalogLayers = result.unavailableCatalogLayersCount;
+                if (result.missingOriginalImages) showWarning(`O arquivo já contém ${result.missingOriginalImages} imagem(ns) original(is) ausente(s). As referências foram preservadas, sem substituir por imagens do atlas anterior.`);
             }
 
             // Notify about unavailable catalog layers
             if (totalUnavailableCatalogLayers > 0) {
                 this._notifyUnavailableCatalogLayers(totalUnavailableCatalogLayers);
-            }
-
-            if (isAdditiveImport) {
-                const validBaseLayer = config.getValidBasemapFallback(await getCurrentBaseLayer());
-                await setBaseLayer(validBaseLayer);
-                await this.baseLayerControl.switchMap();
             }
 
             // Notify sidebar to refresh map list
@@ -1100,7 +998,7 @@ export class ExportImportService {
      * @param {string} mapName - Map name to export
      * @private
      */
-    async _exportOptionalMapData(data, mapName) {
+    async _exportOptionalMapData(data, mapName, strict = false) {
         const tasks = optionalSectionTasks(mapName);
 
         for (const { key, fn, check, transform } of tasks) {
@@ -1110,6 +1008,7 @@ export class ExportImportService {
                     data[key][mapName] = transform ? transform(value) : value;
                 }
             } catch (error) {
+                if (strict) throw error;
                 console.warn(`Could not export ${key} from map ${mapName}:`, error);
             }
         }

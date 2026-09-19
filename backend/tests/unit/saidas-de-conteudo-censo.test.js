@@ -414,6 +414,8 @@ const SEM_CORPO = 'Resposta sem corpo (204, 304 ou 416). Não há JSON para poda
  *   - `sem-corpo`: 204, 304 e 416. Não há corpo para podar.
  */
 const CENSO_EMISSOR = [
+  { arquivo: 'src/modules/atlas/import-attempt.routes.js', texto: 'res.status(204).end();', n: 1,
+    classe: E_SEM_CORPO, motivo: SEM_CORPO },
   { arquivo: 'src/modules/atlas/atlas.controller.js', texto: 'res.status(204).send();', n: 2,
     classe: E_SEM_CORPO, motivo: SEM_CORPO },
   { arquivo: 'src/modules/atlas/atlas.controller.js', texto: 'if (req.fresh) return res.status(304).end();', n: 1,

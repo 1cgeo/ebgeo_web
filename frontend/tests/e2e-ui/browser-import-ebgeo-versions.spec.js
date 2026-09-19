@@ -81,7 +81,7 @@ test('masked v1 import twice preserves images, legacy fields and references on t
 test('invalid versions and missing image bytes produce no server import request', async ({ page }) => {
     await setup(page);
     let posts = 0;
-    page.on('request', request => { if (request.method() === 'POST' && request.url().endsWith('/atlas/import')) posts++; });
+    page.on('request', request => { if (request.method() === 'POST' && /\/atlas\/imports?/.test(request.url())) posts++; });
     const files = await Promise.all([
         archive(document('1.2')), archive(document('future')),
         archive({ ...document(), atlas: { schemaVersion: '99.0' } }),
@@ -101,36 +101,60 @@ test('invalid versions and missing image bytes produce no server import request'
     expect(posts).toBe(0);
 });
 
-test('connection loss after server creation is reported as incomplete; retry uses independent image IDs', async ({ page }) => {
+test('connection loss during preparation publishes nothing; retry after reload resumes the same attempt', async ({ page }) => {
     await setup(page);
-    await page.route('**/images/bulk', route => route.abort('connectionfailed'));
-    const bytes = await archive(document('2.4'), { masked: false });
-    const first = await page.evaluate(async bytes => window.auditImport(new File([new Uint8Array(bytes)], 'retry.ebgeo'), { apiClient: window.auditApi }), bytes);
-    expect(first.imageStats).toEqual({ total: 2, uploaded: 0, skipped: 0, failed: 2 });
-    await page.unroute('**/images/bulk');
-    const retried = await page.evaluate(async bytes => {
-        const result = await window.auditImport(new File([new Uint8Array(bytes)], 'retry.ebgeo'), { apiClient: window.auditApi });
-        const pulled = await window.auditApi.pullSync(result.atlasId, 0);
-        const blob = await window.auditApi.fetchImageBlob(result.atlasId, pulled.snapshot.maps[0].features.images[0].properties.id);
-        return { result, bytes: Array.from(new Uint8Array(await blob.arrayBuffer())) };
+    const attempts = [];
+    page.on('request', request => {
+        if (request.method() === 'POST' && request.url().endsWith('/atlas/imports')) attempts.push(request.postDataJSON().id);
+    });
+    await page.route('**/atlas/imports/*/images', route => route.abort('connectionfailed'));
+    const bytes = await archive(document('1.7'), { masked: false });
+    const first = await page.evaluate(async bytes => {
+        try { await window.auditImport(new File([new Uint8Array(bytes)], 'retry.ebgeo'), { apiClient: window.auditApi }); } catch (error) { return { stage: error.stage, attempts: await window.auditApi.listAtlas() }; }
     }, bytes);
-    expect(retried.result.atlasId).not.toBe(first.atlasId);
+    expect(first.stage).toBe('preparation');
+    expect(first.attempts).toEqual([]);
+    await page.unroute('**/atlas/imports/*/images');
+    await page.reload();
+    const retried = await page.evaluate(async bytes => {
+        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const api = new ApiClient(); api.loadStoredTokens();
+        const { importEbgeoAsAtlas } = await import('/src/js/projects/import-ebgeo.service.js');
+        const result = await importEbgeoAsAtlas(new File([new Uint8Array(bytes)], 'retry.ebgeo'), { apiClient: api });
+        const pulled = await api.pullSync(result.atlasId, 0);
+        const blob = await api.fetchImageBlob(result.atlasId, pulled.snapshot.maps[0].features.images[0].properties.id);
+        return { result, bytes: Array.from(new Uint8Array(await blob.arrayBuffer())), atlas: await api.listAtlas() };
+    }, bytes);
+    expect(attempts).toHaveLength(1);
+    expect(retried.atlas).toHaveLength(1);
     expect(retried.result.imageStats).toEqual({ total: 2, uploaded: 2, skipped: 0, failed: 0 });
     expect(retried.bytes).toEqual(Array.from(png));
 });
 
-test('the chooser keeps the incomplete-import explanation visible before navigating', async ({ page }) => {
+test('a lost final response recovers the receipt and does not publish twice', async ({ page }) => {
+    await setup(page);
+    await page.route('**/atlas/imports/*/commit', async route => {
+        const response = await route.fetch();
+        expect(response.status()).toBe(201);
+        await route.abort('connectionfailed');
+    });
+    const result = await page.evaluate(async bytes => {
+        const imported = await window.auditImport(new File([new Uint8Array(bytes)], 'confirmed.ebgeo'), { apiClient: window.auditApi });
+        return { imported, atlas: await window.auditApi.listAtlas() };
+    }, await archive(document()));
+    expect(result.atlas).toHaveLength(1);
+    expect(result.atlas[0].id).toBe(result.imported.atlasId);
+    expect(result.imported.imageStats.uploaded).toBe(2);
+});
+
+test('the chooser explains a preparation failure and remains on the atlas list', async ({ page }, testInfo) => {
     await setup(page);
     await page.goto('/atlas.html');
     const input = page.getByTestId('project-picker-import-input');
     await expect(input).toBeAttached();
-    await page.route('**/images/bulk', route => route.abort('connectionfailed'));
+    await page.route('**/atlas/imports/*/images', route => route.abort('connectionfailed'));
     await input.setInputFiles({ name: 'incomplete.ebgeo', mimeType: 'application/octet-stream', buffer: Buffer.from(await archive(document())) });
-    await expect(page.getByText('Importação incompleta', { exact: true })).toBeVisible();
-    await expect(page.getByText(/2 imagem\(ns\) sem confirmação/)).toBeVisible();
+    await expect(page.getByText(/concluir ou confirmar/)).toBeVisible();
     await expect(page).toHaveURL(/atlas\.html$/);
-    await page.getByRole('button', { name: 'Voltar à lista', exact: true }).click();
-    await expect(page.getByText('Importação incompleta', { exact: true })).not.toBeVisible();
-    await expect(page.getByTestId('project-picker-import-input')).toBeAttached();
-    await expect(page).toHaveURL(/atlas\.html$/);
+    await page.screenshot({ path: testInfo.outputPath('import-preparation-failed.png') });
 });

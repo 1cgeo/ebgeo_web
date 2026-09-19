@@ -72,6 +72,8 @@ const CENSO = {
   // ---- DERIVED -------------------------------------------------------------
   'operations.data': ['DERIVED', 'espelho da carga da op, que já passou por sync.schemas.js'],
   'operations.changes': ['DERIVED', 'idem operations.data'],
+  'atlas_import_attempts.payload': ['DERIVED', 'Private staging of importSchema-validated input, including the same closed and scrubbed entity fields as the import endpoint. Removed at publication.'],
+  'atlas_import_attempts.result': ['NOT_CLIENT', 'Server-generated publication receipt. Never accepts a client-provided result.'],
   'sync_receipts.result': ['DERIVED',
     'resultado construido por sync.service.js: recibo, recusa ou conflito; o evento canonico deriva '
     + 'da operacao validada e o estado de conflito deriva da entidade persistida. Nao aceita resultado enviado pelo cliente.'],

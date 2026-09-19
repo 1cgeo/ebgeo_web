@@ -634,6 +634,11 @@ export function sendFailureNotice(error, { name = null } = {}) {
     }
 
     const local = 'O atlas local continua neste navegador, inteiro.';
+    if (stage === 'preparation') {
+        return { kind: NoticeKind.ERROR,
+            message: `Não foi possível concluir ou confirmar o envio de ${alvo}. ${local} `
+                + `Tente novamente com o mesmo conteúdo: a preparação será retomada, ou o resultado já publicado será recuperado. Motivo: ${motivoDaFalha(error)}` };
+    }
     if (stage === 'images') {
         return {
             kind: NoticeKind.ERROR,

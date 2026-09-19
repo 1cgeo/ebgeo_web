@@ -16,10 +16,8 @@
  *      depois é a troca de atlas. Aqui não há atlas ativo nenhum, e apagar o slot de origem seria
  *      destruir, sem pedir, o cartão que a pessoa mandou COPIAR para o servidor.
  *
- * O MODELO É `projects/import-ebgeo.service.js`, o vizinho que já faz este mesmo trajeto sem store:
- * um `.ebgeo` vira atlas de servidor por `buildServerImportPayload` (pura) mais duas rotas,
- * `POST /atlas/import` e `POST /atlas/:id/images/bulk`. A única peça que faltava era a FONTE: lá
- * ela é um ZIP, aqui é um namespace de IndexedDB.
+ * The source is read from its explicit namespace, without mounting it. Like the ZIP importer,
+ * it prepares metadata and image bytes privately on the server before a single publication.
  *
  * E A FONTE SE LÊ SEM MONTAR, por `getStoreFor(storeId, scope)` com o escopo do slot passado
  * EXPLICITAMENTE. É o mesmo mecanismo de `copyAtlasDatabases` (`atlas-namespace.js`), que
@@ -52,7 +50,7 @@ import { getDefaultLayer, ensureCoordinationLines } from '@store/repository.util
 // aviso, e ele so serve para isso se for independente do numerador. Do ARQUIVO, como os vizinhos.
 import { countAtlasContents } from '@store/atlas-contents.js';
 import { buildServerImportPayload } from '@js/import_export/local-atlas-to-server.js';
-import { buildImageUploads, uploadImagesInChunks } from '@js/import_export/atlas-image-upload.js';
+import { buildImageUploads } from '@js/import_export/atlas-image-upload.js';
 import { generateUUID, isValidId } from '@utils/uuid.js';
 
 /**
@@ -84,14 +82,7 @@ const KEY = Object.freeze({
 
 /** Lê uma chave, devolvendo `null` no lugar de estourar por gaveta que nem existe. */
 async function ler(storeId, scope, key) {
-    try {
-        return await getStoreFor(storeId, scope).getItem(key);
-    } catch {
-        // Banco ausente é o estado normal de uma seção que o atlas nunca usou: localforage cria a
-        // base na primeira leitura e devolve `null`. Só um erro REAL cai aqui, e uma seção
-        // opcional ilegível não pode derrubar o envio das outras nove.
-        return null;
-    }
+    return getStoreFor(storeId, scope).getItem(key);
 }
 
 /** Escreve `valor` em `destino[chave]` só quando ele carrega conteúdo. */
@@ -297,14 +288,9 @@ export async function buildLocalAtlasExportData(scope) {
     }
 
     const briefings = [];
-    try {
-        await getStoreFor(StoreName.BRIEFINGS, scope).iterate((value) => {
-            if (value) briefings.push(value);
-        });
-    } catch {
-        // Mesma escolha do exportador do mapa: um briefing ilegível custa os briefings, nunca o
-        // atlas inteiro.
-    }
+    await getStoreFor(StoreName.BRIEFINGS, scope).iterate(value => {
+        if (value) briefings.push(value);
+    });
     if (briefings.length > 0) {
         briefings.sort((a, b) => (b?.updatedAt ?? 0) - (a?.updatedAt ?? 0));
         data.briefings = briefings;
@@ -387,44 +373,11 @@ function contarPayload(payload, imagens) {
 }
 
 /**
- * Envia um atlas LOCAL ao servidor como atlas NOVO. Não destrutivo: o slot de origem sai desta
- * função exatamente como entrou.
- *
- * A ORDEM É A DO IRMÃO DO MAPA, e ela não é arbitrária: o atlas sobe PRIMEIRO com as referências de
- * imagem apontando para os ids LOCAIS, e os blobs sobem DEPOIS preservando esses ids, porque o
- * servidor guarda o id que o cliente mandou. Inverter obrigaria a reescrever toda referência já
- * gravada.
- *
- * UMA IMAGEM QUE NÃO SOBE NÃO DERRUBA O ENVIO, e é por isso que o retorno traz `imageStats`: o
- * atlas existe no servidor de qualquer forma, e a frase que a tela diz muda com esse número
- * (`sendToServerNotice`).
- *
- * O QUE O SERVIDOR RESPONDE VOLTA INTEIRO, desde 2026-09-07. `POST /atlas/import` devolve um
- * `summary` com a contagem por seção, com `prunedResourceRefs` (o que ele DESCARTOU, por
- * superfície, quando o tileset ou o projeto 360 não está no catálogo de quem recebeu) e com
- * `remappedIds`. Guardar só `atlas.id` era jogar fora o único relato que existe daquela poda: com
- * o catálogo do servidor vazio, 16 de 16 itens 3D e 360 do atlas medido evaporaram e a frase da
- * tela saiu idêntica à do caso em que eles entraram.
- *
- * A ETAPA DA FALHA VIAJA COM O ERRO (`error.stage`), e é a metade que a tela precisa. As duas
- * falhas têm consequências opostas: caindo no import, NADA foi criado no servidor (`importAtlas`
- * roda inteiro dentro de uma transação); caindo na subida das imagens, o atlas JÁ EXISTE lá, sem
- * parte das fotos, e a pessoa tem uma decisão a tomar. Sem essa distinção a tela mostrava o
- * `error.message` cru do `fetch` ("Failed to fetch") nos dois casos.
- *
- * @param {{id: string, name: string, dbSuffix: string}} entry - A entrada do registro local, de
- *   `listLocalAtlases()`. O `dbSuffix` é o que endereça os bancos, então uma entrada sem ele
- *   endereçaria os bancos legados de outro slot.
- * @param {Object} deps
- * @param {Object} deps.apiClient - O ApiClient (`importAtlas` + `bulkUploadImages`).
- * @param {Function} deps.scopeOf - Constrói o escopo do slot (`scopeOfLocalAtlas`), injetado para
- *   que o teste possa endereçar um namespace sem carregar o registro inteiro.
- * @param {string} [deps.name] - Nome do atlas no servidor. Sem ele, o nome do slot.
- * @returns {Promise<{atlasId: string, name: string, stats: Object, imageStats: Object,
- *   sent: Object, local: Object, summary: Object|null}>}
- * @throws {Error} Sempre com `stage`: `'leitura'` (nada saiu deste navegador), `'import'` (nada
- *   foi criado no servidor) ou `'images'` (o atlas EXISTE no servidor, e o `atlasId` acompanha o
- *   erro). O slot de origem está intacto nos três.
+ * Copies a local atlas to the server. Every source section and image must be readable;
+ * the server exposes the atlas only after atomic publication. Source data is read-only.
+ * @param {Object} entry - Local registry entry.
+ * @param {Object} deps - API client, explicit scopeOf resolver, and optional display name.
+ * @returns {Promise<Object>} Confirmed atlas, counts and server conversion summary.
  */
 export async function sendLocalAtlasToServer(entry, { apiClient, scopeOf, name } = {}) {
     if (!entry?.id) throw new Error('sendLocalAtlasToServer: entry with an id is required');
@@ -441,55 +394,26 @@ export async function sendLocalAtlasToServer(entry, { apiClient, scopeOf, name }
         );
     }
 
-    // O BLOB GANHA ID NOVO A CADA ENVIO, pela mesma razao da porta irma
-    // (`import_export/save-local-atlas.service.js`), e as duas precisam faze-lo.
-    //
-    // `images.id` e chave primaria GLOBAL. Feicao, camada e grupo tambem sao, mas ali o conserto
-    // vive no SERVIDOR, que recunha o que ja esta ocupado no momento do import. Com o blob esse
-    // conserto NAO ALCANCA: ele sobe DEPOIS, entao um id recunhado la deixaria a referencia ja
-    // gravada na feicao apontando para o nada. Cunhar ANTES de montar o payload resolve por
-    // construcao, e nada precisa voltar do servidor.
-    //
-    // O SINTOMA SEM ISTO E MUDO: o reenvio de um atlas COM IMAGEM entra, e a imagem some. Foi
-    // apontado em 2026-08-25 como a metade que faltava do conserto da colisao de id.
-    //
-    // DUAS PASSADAS da funcao PURA, e a leitura cara do IndexedDB continua sendo uma so: a
-    // primeira serve para descobrir QUAIS blobs o atlas cita. A segunda reescreve, pelo
-    // `imageIdMap`, todas as referencias de uma vez.
+    // Assign independent blob identities before rewriting all references. The atomic
+    // transport preserves the original manifest on retries after a lost response.
     const sondagem = buildServerImportPayload(exportData, { name: atlasName });
     const imageIdMap = Object.fromEntries(sondagem.imageIds.map((id) => [id, generateUUID()]));
     const built = buildServerImportPayload(exportData, { name: atlasName, imageIdMap });
 
+    const found = [];
+    for (const id of built.imageIds) {
+        const blob = await getStoreFor(StoreName.IMAGES, scope).getItem(id);
+        if (!blob) throw comEtapa(new Error('Uma imagem original está ausente. Nenhum atlas foi publicado.'), 'leitura');
+        found.push([imageIdMap[id], blob]);
+    }
+    const { uploads, skipped } = await buildImageUploads(found);
+    if (skipped.length || built.stats.droppedFeatures) throw comEtapa(new Error('Há imagens ou feições que não podem ser convertidas. Nenhum atlas foi publicado.'), 'leitura');
+    const local = await countAtlasContents(scope);
     let atlas;
     try {
-        atlas = await apiClient.importAtlas(built.payload);
+        atlas = await apiClient.importAtlas(built.payload, { images: uploads, source: { exportData, name: atlasName } });
     } catch (error) {
-        // NADA FOI CRIADO NO SERVIDOR: `importAtlas` roda inteiro dentro de `tx(...)`, medido
-        // contra um 500 forjado. A etapa é o que autoriza a tela a dizer isso.
-        throw comEtapa(error, 'import');
-    }
-
-    // O BLOB SE LE PELO ID LOCAL E SOBE PELO NOVO. `built.imageIds` continua sendo a lista de ids
-    // LOCAIS que o atlas cita, e nao a recunhada: quem carrega a troca e o `imageIdMap`, que a
-    // segunda passada ja aplicou as REFERENCIAS dentro do payload. Ler pelo id novo devolveria
-    // vazio, e o envio subiria sem imagem nenhuma, calado.
-    let uploads;
-    let skipped;
-    let failed;
-    try {
-        const encontradas = [];
-        for (const id of built.imageIds) {
-            const blob = await ler(StoreName.IMAGES, scope, id);
-            if (blob) encontradas.push([imageIdMap[id] ?? id, blob]);
-        }
-        ({ uploads, skipped } = await buildImageUploads(encontradas));
-        ({ failed } = await uploadImagesInChunks(apiClient, atlas.id, uploads));
-    } catch (error) {
-        // DAQUI PARA BAIXO O ATLAS JÁ EXISTE NO SERVIDOR, e o `atlasId` viaja com o erro para que
-        // a frase possa dizer ONDE ele está. Medido em 2026-09-07 cortando a rede no meio da
-        // subida: `POST /atlas/import` respondeu 201 com 14 mapas e 805 feições, o pedido das
-        // imagens caiu, e a tela mostrou o literal "Failed to fetch".
-        throw comEtapa(error, 'images', atlas?.id);
+        throw comEtapa(error, 'preparation');
     }
 
     return {
@@ -498,9 +422,9 @@ export async function sendLocalAtlasToServer(entry, { apiClient, scopeOf, name }
         stats: built.stats,
         imageStats: {
             total: built.imageIds.length,
-            uploaded: uploads.length - failed.length,
+            uploaded: uploads.length,
             skipped: skipped.length,
-            failed: failed.length,
+            failed: 0,
         },
         // O QUE SUBIU, contra O QUE O SLOT TEM: os dois lados do aviso, e nenhum deles se deduz do
         // outro.
@@ -514,7 +438,7 @@ export async function sendLocalAtlasToServer(entry, { apiClient, scopeOf, name }
         // acervo de 14 e 805. Uma comparação entre duas medidas que compartilham o erro não é
         // comparação. `countAtlasContents` lê o disco por outro módulo e outro caminho de código
         // (`iterate` cru sobre `ebgeo_maps`, sem resolver nome nenhum), e por isso pode discordar.
-        local: await countAtlasContents(scope),
+        local,
         // A RESPOSTA DO SERVIDOR, INTEIRA. `prunedResourceRefs` é o que ele descartou e
         // `remappedIds` quantos ids do payload já estavam ocupados e foram recunhados (que não é
         // perda: é o servidor fazendo o certo, e por isso não vira frase).

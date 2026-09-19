@@ -561,7 +561,8 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // um retrato HTTP antigo de apagar confirmações/edições recebidas pelo socket.
         // One shared image-context module fences asynchronous image writes/renders.
         // One lazy builder prepares complete imports without mounting their namespace.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(713);
+        // Two lazy modules implement additive preparation and resumable server import.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(715);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);

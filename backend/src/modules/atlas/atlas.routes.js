@@ -8,6 +8,7 @@ import { assertCanSeeResource, requireResourceRelay } from '../../middleware/res
 import { publicLinkLimiter } from '../../middleware/rate-limit.js';
 import * as ctrl from './atlas.controller.js';
 import * as schemas from './atlas.schemas.js';
+import { importAttemptRoutes } from './import-attempt.routes.js';
 
 // Sub-routers (nested resources)
 import { sharingRoutes } from '../sharing/index.js';
@@ -22,6 +23,7 @@ const router = Router();
 router.get('/', auth, ctrl.listAtlas);
 router.post('/', auth, validate({ body: schemas.createAtlasSchema }), ctrl.createAtlas);
 router.post('/import', auth, validate({ body: schemas.importSchema }), ctrl.importAtlas);
+router.use('/imports', importAttemptRoutes);
 router.get('/public/:link', publicLinkLimiter, ctrl.getPublicAtlas);
 // Trash: list the caller's own soft-deleted atlases. MUST precede '/:atlasId' (literal vs param).
 router.get('/trash', auth, ctrl.listTrash);

@@ -27,6 +27,7 @@ import { ATLAS_SEARCH_MIN_TERM, ATLAS_SEARCH_MAX_LIMIT } from './atlas.schemas.j
 // frase mora num lugar so: tres copias dela e como duas telas do mesmo produto passam a dizer
 // numeros diferentes sobre o mesmo teto.
 import { assertAtlasQuota, assertImportMapCeiling } from './atlas-quota.js';
+import { importImageIds } from './import-image-refs.js';
 
 // ---------------------------------------------------------------------------
 // Batch INSERT plumbing (L67).
@@ -1457,8 +1458,11 @@ function propriedadesRealinhadas(feature, id, layerId) {
  * Creates atlas with all maps, features, layers, groups, briefings, and slides.
  * IDs from the client are preserved WHEN FREE. See the block above for the collision rule.
  */
-export async function importAtlas(userId, data) {
+export async function importAtlas(userId, data, { transaction = tx } = {}) {
   const { atlas, maps, briefings } = data;
+  if (transaction === tx && importImageIds(data).size) {
+    throw new BadRequestError('Importações com imagens exigem preparação atômica. Atualize a página antes de importar.');
+  }
 
   // O TETO DE MAPAS POR ARQUIVO, ANTES da transacao: ele nao precisa do banco para nada, e abrir
   // uma transacao para recusar seria segurar uma conexao do pool pelo tempo de um pedido que ja
@@ -1466,7 +1470,7 @@ export async function importAtlas(userId, data) {
   // a pessoa apague no servidor faz este arquivo caber.
   assertImportMapCeiling(maps);
 
-  return tx(async (t) => {
+  return transaction(async (t) => {
     // A cota da CONTA, dentro da transacao, como nos outros dois caminhos.
     await assertAtlasQuota(t, userId);
     // 0. A PODA DA ENTRADA. Com a poda na saida o `.ebgeo` que ESTE app produz ja vem limpo,

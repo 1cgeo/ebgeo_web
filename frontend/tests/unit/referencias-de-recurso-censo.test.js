@@ -184,6 +184,8 @@ const CENSO = [
     { arquivo: 'src/js/import_export/export-import.service.js', campo: 'baseLayer', n: 2, classe: PODA, superficies: ['mapa.baseLayer'] },
     { arquivo: 'src/js/import_export/export-import.service.js', campo: 'catalogLayers', n: 2, classe: PODA, superficies: ['mapa.catalogLayers'] },
     { arquivo: 'src/js/import_export/import-normalize.js', campo: 'catalogLayers', n: 3, classe: PERSISTE },
+    // Additive copies preserve resource identities and delegate availability to import-normalize.
+    { arquivo: 'src/js/import_export/prepare-additive-scope.js', campo: 'catalogLayers', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/import_export/local-atlas-to-server.js', campo: 'tilesetId', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/import_export/local-atlas-to-server.js', campo: 'photoName', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/import_export/local-atlas-to-server.js', campo: 'modelId', n: 1, classe: PERSISTE },

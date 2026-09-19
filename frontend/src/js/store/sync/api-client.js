@@ -744,12 +744,15 @@ export class ApiClient {
         }
     }
 
-    async _performRequest(method, path, { body, auth = true, _retry = true, signal } = {}) {
+    async _performRequest(method, path, { body, auth = true, _retry = true, signal, assertContext } = {}) {
         // Renew BEFORE the header is built, or the request carries the stale token.
         // Guarded by `auth`, which is also what keeps this out of the recursion:
         // `refresh()` issues its own request with `auth: false`.
         if (auth) await this._ensureFreshAccessToken();
         signal?.throwIfAborted();
+        // Some multi-request operations belong to a captured account/server. Check AFTER
+        // token refresh, immediately before building headers; a pre-request check can race it.
+        assertContext?.();
 
         const headers = {};
         if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -788,19 +791,21 @@ export class ApiClient {
             throw erroDeRede;
         }
         migalharPedido(method, path, res?.status ?? null, Date.now() - inicioDoPedido);
+        assertContext?.();
 
         // 204 No Content (logout) — nothing to parse.
         if (res.status === 204) return null;
 
         const parsed = await this._parseBody(res);
         signal?.throwIfAborted();
+        assertContext?.();
 
         if (!res.ok) {
             // Transparent refresh+retry on an expired access token.
             if (res.status === 401 && _retry && auth && this._refreshToken) {
                 await this.refresh();
                 signal?.throwIfAborted();
-                return this._performRequest(method, path, { body, auth, _retry: false, signal });
+                return this._performRequest(method, path, { body, auth, _retry: false, signal, assertContext });
             }
             // Two error envelopes reach this client. The atlas API sends
             // `{ error: { code, message } }`; sv360 sends a FLAT `{ error: '...' }`
@@ -1924,7 +1929,11 @@ export class ApiClient {
      * @param {Object} payload - Per the backend importSchema ({ atlas, maps, briefings }).
      * @returns {Promise<Object>} The created atlas ({ id, name, ..., summary }).
      */
-    async importAtlas(payload) {
+    async importAtlas(payload, { images, source = payload } = {}) {
+        if (images) {
+            const { atomicServerImport } = await import('../../import_export/atomic-server-import.js');
+            return atomicServerImport(this, payload, images, source);
+        }
         return this._request('POST', '/atlas/import', { body: payload });
     }
 

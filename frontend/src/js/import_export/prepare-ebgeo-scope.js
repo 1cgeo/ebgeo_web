@@ -4,13 +4,13 @@ import { createAtlas, ATLAS_SCHEMA_VERSION } from '@store/atlas/atlas.entity.js'
 import { getEmptyMapData } from '@store/repositories/local.repository.js';
 import { createSyncMetadata } from '@store/sync/sync-metadata.js';
 import { sameStorageValue } from '@store/migration/storage-value.js';
-import { generateUUID, isValidUUID } from '@utils/uuid.js';
+import { generateUUID, isValidUUID, isValidId } from '@utils/uuid.js';
 import { normalizeMapDataForCurrentVersion } from './import-normalize.js';
 
 const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', svg: 'image/svg+xml', webp: 'image/webp' };
 
 /** Build an unpublished namespace. Every write, including optional sections, must succeed. */
-export async function prepareEbgeoScope(scope, entry, data, zip, processCatalogLayers) {
+export async function prepareEbgeoScope(scope, entry, data, zip, processCatalogLayers, { append = false } = {}) {
     const put = async (storeName, key, value) => {
         const store = getStoreFor(storeName, scope);
         await store.setItem(key, value);
@@ -20,8 +20,11 @@ export async function prepareEbgeoScope(scope, entry, data, zip, processCatalogL
     };
     let unavailableCatalogLayersCount = 0;
     const maps = Object.entries(data.maps);
-    if (!maps.length) maps.push(['Principal', getEmptyMapData()]);
+    if (!maps.length && !append) maps.push(['Principal', getEmptyMapData()]);
     const ids = new Map();
+    const settings = getStoreFor(StoreName.SETTINGS, scope);
+    const previousAtlas = append ? await getStoreFor(StoreName.ATLAS, scope).getItem(ATLAS_RECORD_KEY) : null;
+    if (append) await getStoreFor(StoreName.MAPS, scope).iterate((map, key) => { ids.set(isValidId(key) ? map.name || key : key, key); });
     for (const [name, map] of maps) {
         // Preserve valid identities, but never overwrite a sibling with a duplicate ID.
         if (!isValidUUID(map.id) || [...ids.values()].includes(map.id)) map.id = generateUUID();
@@ -69,14 +72,19 @@ export async function prepareEbgeoScope(scope, entry, data, zip, processCatalogL
         const bytes = await zip.file(file).async('arraybuffer');
         await put(StoreName.IMAGES, id, new Blob([bytes], { type: MIME[file.split('.').pop().toLowerCase()] }));
     }
-    await put(StoreName.SETTINGS, 'custom_icons', (data.customIcons || []).filter(icon => icon?.id));
+    const existingIcons = append ? await settings.getItem('custom_icons') || [] : [];
+    await put(StoreName.SETTINGS, 'custom_icons', [...existingIcons, ...(data.customIcons || []).filter(icon => icon?.id)]);
     await put(StoreName.SETTINGS, 'schemaVersion', ATLAS_SCHEMA_VERSION);
-    const order = [...new Set([...(data.mapOrder || []).filter(name => ids.has(name)), ...ids.keys()])];
-    const currentName = ids.has(data.currentMap) ? data.currentMap : order[0];
+    const oldOrderRaw = append ? await settings.getItem('mapOrder') || previousAtlas?.mapOrder || [] : [];
+    const oldOrder = oldOrderRaw.map(value => ids.has(value) ? value : [...ids].find(([, id]) => id === value)?.[0]);
+    const order = [...new Set([...oldOrder.filter(name => ids.has(name)), ...(data.mapOrder || []).filter(name => ids.has(name)), ...ids.keys()])];
+    const oldCurrent = append ? await settings.getItem('lastActiveMap') : null;
+    const currentName = [...ids].find(([name, id]) => append && (oldCurrent === id || oldCurrent === name))?.[0]
+        || (ids.has(data.currentMap) ? data.currentMap : order[0]);
     await put(StoreName.SETTINGS, 'lastActiveMap', ids.get(currentName));
     await put(StoreName.SETTINGS, 'mapOrder', order);
     await put(StoreName.ATLAS, ATLAS_RECORD_KEY, {
-        ...createAtlas(entry.name), id: entry.id,
+        ...(previousAtlas || createAtlas(entry.name)), id: entry.id,
         mapOrder: order.map(name => ids.get(name)), lastActiveMapId: ids.get(currentName),
     });
     return { importedMapsCount: Object.keys(data.maps).length, unavailableCatalogLayersCount, currentMapName: currentName };

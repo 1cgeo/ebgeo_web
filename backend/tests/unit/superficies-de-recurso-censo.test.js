@@ -1528,6 +1528,8 @@ const CENSO_ROTA = [
 
 /** @type {EntradaDeCache[]} */
 const CENSO_CACHE = [
+  { arquivo: 'src/modules/atlas/import-attempt.routes.js', trecho: "'Cache-Control', 'private, no-store'", n: 1, classe: C_SEM,
+    motivo: 'Private import preparations and publication receipts belong only to their account and must never persist in shared caches.' },
   { arquivo: 'src/modules/diag/diag.routes.js', trecho: "'Cache-Control', 'private, no-store'", n: 1, classe: C_SEM,
     motivo: 'Diagnóstico contém dados administrativos e respostas de coleta; não pode persistir em cache do navegador ou de intermediários.' },
   { arquivo: 'src/modules/uso/uso.routes.js', trecho: "'Cache-Control', 'private, no-store'", n: 1, classe: C_SEM,

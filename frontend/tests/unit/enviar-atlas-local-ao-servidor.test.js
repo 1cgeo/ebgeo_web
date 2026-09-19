@@ -211,7 +211,8 @@ function apiFalso() {
     const chamadas = { importAtlas: [], bulkUploadImages: [] };
     return {
         chamadas,
-        async importAtlas(payload) {
+        async importAtlas(payload, options) {
+            chamadas.atomicImages = options.images;
             chamadas.importAtlas.push(payload);
             return { id: 'srv-novo-1', name: payload?.atlas?.name };
         },
@@ -498,9 +499,8 @@ describe('sendLocalAtlasToServer', () => {
 
         const result = await enviar(scope, { apiClient, name: 'Com Imagem' });
 
-        expect(apiClient.chamadas.bulkUploadImages).toHaveLength(1);
-        const [atlasId, itens] = apiClient.chamadas.bulkUploadImages[0];
-        expect(atlasId).toBe('srv-novo-1');
+        expect(apiClient.chamadas.bulkUploadImages).toHaveLength(0);
+        const itens = apiClient.chamadas.atomicImages;
         // SAO DOIS, porque o icone personalizado tambem e um blob que o payload referencia.
         expect(itens).toHaveLength(2);
         const enviados = itens.map((i) => i.localId).sort();
