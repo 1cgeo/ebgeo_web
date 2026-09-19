@@ -2660,3 +2660,7 @@ The physical Backquote key (left of 1, apostrophe on ABNT2) cycles the current e
 ### 2026-09-19: map locks require atlas management
 
 At the user's request, managers and owners can lock and unlock remote maps. This replaces the previous owner-only exception with the existing management hierarchy, in the controller, store capability and server sync authorization. Lower roles never see the padlock button; session changes refresh its visibility. Local maps remain fully controlled by their user. Editor map creation cannot smuggle a locked state. If the store refuses a toggle after an asynchronous permission change, the controller keeps the previous state instead of reporting a fabricated success.
+
+### 2026-09-19: choose the new map base before journaling
+
+A fresh map resolves its base against the current accessible catalog before its create operation is journaled. Falling back only while rendering was too late: the queued create still named the inaccessible historical default. Imported documents keep their explicit data. The sync insert now honors both base-layer spellings used by its authorization gate, and an empty or absent reference stays empty instead of acquiring an unchecked private default. An empty catalog therefore does not invent access to any resource. The browser regression makes the historical default private, creates through the editor's Maps tab, and checks database, peer and reload.

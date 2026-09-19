@@ -260,6 +260,7 @@ const CENSO = [
     { arquivo: 'src/js/store/cesium3d.operations.js', campo: 'tilesetId', n: 36, classe: PERSISTE },
     { arquivo: 'src/js/store/map.operations.js', campo: 'baseLayer', n: 4, classe: PERSISTE },
     { arquivo: 'src/js/store/repositories/local.repository.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
+    { arquivo: 'src/js/store/repositories/index.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/store/repository.js', campo: 'catalogLayers', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/store/repository.utils.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/store/settings.operations.js', campo: 'catalogLayers', n: 2, classe: PERSISTE },

@@ -51,10 +51,10 @@ describe.skipIf(E2E_SKIP)('E2E §13/§26 baseLayer + gridStyle map updates', () 
         return map;
     }
 
-    it('defaults the base layer at creation (carta-topografica)', async () => {
+    it('does not inject a catalog reference when creation omitted the base layer', async () => {
         const map = await pullMap();
         // Sanity baseline so the later mutation is provably observable.
-        expect(map.base_layer).toBe('carta-topografica');
+        expect(map.base_layer).toBe('');
     });
 
     it('applies a baseLayer update -> map.base_layer === carta-ortoimagem', async () => {

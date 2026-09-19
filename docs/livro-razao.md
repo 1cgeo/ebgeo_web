@@ -1,5 +1,7 @@
 # Livro-razão de correções
 
+- 2026-09-19 `perda-de-dados` [mapas] A queda visual para uma base disponível ocorria depois de enfileirar a criação com a Topográfica fixa; o servidor também ignorava a grafia do cliente ao gravar a base. A escolha agora antecede o diário e a escrita aceita a mesma referência autorizada. Reproduções negativas em `frontend/tests/unit/new-map-basemap.test.js` e `backend/tests/integration/sync-map-basemap-create.test.js`; simulação com recurso privado e dois navegadores em `frontend/tests/e2e-ui/browser-new-map-basemap.spec.js`.
+
 Espelho das **correções**, não dos sucessos: uma linha por vez em que um desvio foi pego, seja por você, seja pela realidade (teste que quebrou, bug que voltou, produção que reprovou). Existe para que a retrospectiva e o agente **percebam padrão e recorrência** ao longo do tempo, não para virar placar.
 
 É memória lida por raciocínio, **nunca métrica a maximizar**: no instante em que se otimiza este arquivo, a armadilha mecânica voltou. Registro de sucesso premiaria covardia (fazer menos para o número subir); registro de correção alimenta aprendizado. A correção é sinal de primeira classe, presente, não falta.

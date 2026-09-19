@@ -3890,7 +3890,9 @@ async function applyOperation(t, atlasId, op, userId, permission) {
           op.targetId,
           atlasId,
           data.name,
-          data.base_layer || 'carta-topografica',
+          // Match the access gate's aliases and preserve an intentionally empty catalog.
+          // Never substitute an unchecked private default after authorization succeeded.
+          data.base_layer ?? data.baseLayer ?? '',
           data.center_lat || null,
           data.center_long || null,
           data.zoom || null,

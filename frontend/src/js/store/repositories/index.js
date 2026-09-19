@@ -18,6 +18,7 @@
 import { localRepository, LocalRepository, getEmptyMapData } from './local.repository.js';
 import { RepositoryMethods, validateRepository, getMissingMethods } from './repository.interface.js';
 import { mapResolver } from '../services/map-resolver.service.js';
+import config from '@js/config.js';
 
 // ===== SINGLETON MANAGEMENT =====
 
@@ -184,6 +185,10 @@ export async function createMapCompat(mapNameOrId, mapData = null, { uuidKeyed =
  */
 export function mintMapDocument(mapNameOrId, mapData = null, { uuidKeyed = false } = {}) {
     const newMapData = mapData || getEmptyMapData();
+    // Resolve before journaling: changing the rendered style afterwards is too late to
+    // prevent the CREATE from referencing a private or removed historical default.
+    // Explicit documents belong to import/duplicate flows and retain their own data.
+    if (!mapData) newMapData.baseLayer = config.getValidBasemapFallback?.(newMapData.baseLayer) ?? '';
     // A fresh map (no caller-supplied data) must take the REQUESTED name — getEmptyMapData
     // returns the placeholder 'Novo Mapa', which silently overrode the name the UI asked for
     // (every new map ended up "Novo Mapa"). Imported/duplicated data keeps its own name.
