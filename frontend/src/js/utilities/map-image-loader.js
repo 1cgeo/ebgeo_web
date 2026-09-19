@@ -11,6 +11,34 @@ const loads = new WeakMap();
 import { captureImageContext } from '../store/image-context.js';
 
 /**
+ * Registers a count badge as a symbol image. Circle-layer translations are projected
+ * against the map even with a viewport anchor; symbol offsets stay with their text.
+ * @param {Object} map - MapLibre map.
+ * @param {string} id - Style image id.
+ * @param {Object} options - Badge appearance in CSS pixels.
+ * @param {string} options.color - Fill color.
+ * @param {number} options.radius - Fill radius.
+ * @param {number} options.strokeWidth - White outline width.
+ */
+export function ensureCountBadgeImage(map, id, { color, radius, strokeWidth }) {
+    if (map.hasImage(id)) return;
+    const pixelRatio = 2;
+    const size = Math.ceil((radius + strokeWidth + 1) * 2);
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size * pixelRatio;
+    const context = canvas.getContext('2d');
+    context.scale(pixelRatio, pixelRatio);
+    context.beginPath();
+    context.arc(size / 2, size / 2, radius + strokeWidth / 2, 0, Math.PI * 2);
+    context.fillStyle = color;
+    context.fill();
+    context.strokeStyle = '#ffffff';
+    context.lineWidth = strokeWidth;
+    context.stroke();
+    map.addImage(id, context.getImageData(0, 0, canvas.width, canvas.height), { pixelRatio });
+}
+
+/**
  * Load a blob as a MapLibre image, with optional replace-existing behaviour.
  *
  * @param {Object}  map                    - MapLibre map instance

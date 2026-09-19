@@ -10,6 +10,7 @@ import * as streetviewApi from './streetview-api.service.js';
 import { getAllOrientations, getAllMarkers360 } from '@store/streetview360.operations.js';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
+import { ensureCountBadgeImage } from '@utils/map-image-loader.js';
 
 // Primary color for saved photo markers (blue to differentiate from orange streetview markers)
 const SAVED_PHOTO_MARKER_COLOR = '#3b82f6';
@@ -233,6 +234,9 @@ class SavedPhotosMarkers {
 
             // Load marker icon
             await this.loadMarkerImage();
+            ensureCountBadgeImage(this.map, 'saved-photo-count-badge', {
+                color: '#ef4444', radius: 9, strokeWidth: 2
+            });
 
             // Marker layers are added at the top of the stack (no beforeId)
             // so they always render above PMTiles line layers
@@ -259,19 +263,18 @@ class SavedPhotosMarkers {
             // Layer 2: Badge background (only for markers with count > 0)
             this.map.addLayer({
                 id: this.badgeLayer,
-                type: 'circle',
+                type: 'symbol',
                 source: this.sourceId,
                 minzoom: 7,
                 filter: ['>', ['get', 'markerCount'], 0],
                 layout: {
+                    'icon-image': 'saved-photo-count-badge',
+                    'icon-offset': [12, -42],
+                    'icon-pitch-alignment': 'viewport',
+                    'icon-rotation-alignment': 'viewport',
+                    'icon-allow-overlap': true,
+                    'icon-ignore-placement': true,
                     'visibility': 'none'
-                },
-                paint: {
-                    'circle-radius': 9,
-                    'circle-color': '#ef4444', // Red badge
-                    'circle-stroke-width': 2,
-                    'circle-stroke-color': '#ffffff',
-                    'circle-translate': [12, -42] // Position at top-right of marker
                 }
             });
 
@@ -286,7 +289,9 @@ class SavedPhotosMarkers {
                     'text-field': ['to-string', ['get', 'markerCount']],
                     'text-font': ['Noto Sans Bold'],
                     'text-size': 11,
-                    'text-offset': [1.09, -3.82], // Match badge position: [12/11, -42/11] ems
+                    'text-offset': [12 / 11, -42 / 11], // Match the circle's pixel offset.
+                    'text-pitch-alignment': 'viewport',
+                    'text-rotation-alignment': 'viewport',
                     'text-anchor': 'center',
                     'text-allow-overlap': true,
                     'text-ignore-placement': true,

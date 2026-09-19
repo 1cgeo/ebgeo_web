@@ -21,6 +21,7 @@ import { model3dFailures } from './model3d-failure.js';
 // splatting engine, so this eager control does not grow by a lazy chunk. See its fileoverview.
 import { scene3dFailures } from '@js/first_person_3d_tool/scene3d-failure.js';
 import { maplibregl } from '@js/map/maplibre.js';
+import { ensureCountBadgeImage } from '@utils/map-image-loader.js';
 
 // Global flag to prevent click propagation between overlapping marker layers
 // (3D models, street view, saved photos)
@@ -453,6 +454,9 @@ class Add3DModelsViewerControl {
 
             // Load marker icon
             await this.loadMarkerImage();
+            ensureCountBadgeImage(this.map, '3d-model-count-badge', {
+                color: BADGE_COLOR, radius: 10, strokeWidth: 1.5
+            });
 
             // Layer 3: Individual markers (unclustered points)
             this.map.addLayer({
@@ -504,21 +508,20 @@ class Add3DModelsViewerControl {
             // Layer 5: Badge circle (only show when featureCount > 0)
             this.map.addLayer({
                 id: this.badgeCircleLayer,
-                type: 'circle',
+                type: 'symbol',
                 source: this.sourceId,
                 filter: ['all',
                     ['!', ['has', 'point_count']],
                     ['==', ['get', 'kind'], MARKER_KIND.TILESET],
                     ['>', ['get', 'featureCount'], 0]
                 ],
-                paint: {
-                    'circle-color': BADGE_COLOR,
-                    'circle-radius': 10,
-                    'circle-stroke-width': 1.5,
-                    'circle-stroke-color': '#ffffff',
-                    'circle-translate': [14, -42]
-                },
                 layout: {
+                    'icon-image': '3d-model-count-badge',
+                    'icon-offset': [14, -42],
+                    'icon-pitch-alignment': 'viewport',
+                    'icon-rotation-alignment': 'viewport',
+                    'icon-allow-overlap': true,
+                    'icon-ignore-placement': true,
                     'visibility': 'none'
                 }
             });
@@ -538,7 +541,9 @@ class Add3DModelsViewerControl {
                     'text-font': ['Noto Sans Bold'],
                     'text-size': 11,
                     'text-anchor': 'center',
-                    'text-offset': [1.27, -3.82],
+                    'text-offset': [14 / 11, -42 / 11],
+                    'text-pitch-alignment': 'viewport',
+                    'text-rotation-alignment': 'viewport',
                     'text-allow-overlap': true,
                     'text-ignore-placement': true,
                     'visibility': 'none'
