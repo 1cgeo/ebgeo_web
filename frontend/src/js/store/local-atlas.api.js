@@ -54,6 +54,7 @@ import {
     readLocalAtlasRegistry,
     reconcileDurablePointers,
     remoteAtlasRegistryKey,
+    atlasMountLockName,
     remoteScope
 } from './atlas-namespace.js';
 import { activateRemoteAtlas } from './remote-atlas.api.js';
@@ -72,6 +73,7 @@ export const MAX_LOCAL_ATLASES = 10;
 /** Registry shape version, for a future change to the registry itself. */
 const REGISTRY_VERSION = 1;
 const COPY_PREPARATION_PREFIX = '__local_atlas_copy__:';
+const IMPORT_PREPARATION_PREFIX = '__local_atlas_import__:';
 
 /** Name given to the atlas that inherits the pre-namespace workspace. */
 export const DEFAULT_LOCAL_ATLAS_NAME = 'Meu Atlas';
@@ -656,6 +658,7 @@ async function initializeLocalAtlases(options) {
     // The registry Web Lock excludes a live copy in another tab. Without it, leave
     // preparations alone: absence of a published entry is not proof the writer died.
     if (globalThis.navigator?.locks?.request) {
+        await recoverPreparedImports();
         const globalStore = getGlobalStore();
         for (const key of await globalStore.keys()) {
             if (!key.startsWith(COPY_PREPARATION_PREFIX)) continue;
@@ -1300,6 +1303,77 @@ function getActiveScopeKind() {
  */
 export function duplicateLocalAtlas(sourceId, name) {
     return withRegistryLock(() => duplicateLocalSlot(sourceId, name));
+}
+
+/** Prepare off-screen and publish by ONE registry write. Never mounts or clears the source. */
+export function importLocalAtlasAtomically({ targetId = null, expectedSuffix, name }, prepare) {
+    return withRegistryLock(async () => {
+        if (globalThis.navigator?.locks?.request) await recoverPreparedImports();
+        const entries = requireEntries();
+        const previous = targetId ? entries.find(entry => entry.id === targetId) : null;
+        if (targetId && (!previous || previous.dbSuffix !== expectedSuffix)) {
+            throw new Error('O atlas de destino mudou. Reabra-o antes de importar.');
+        }
+        if (!previous && entries.length >= MAX_LOCAL_ATLASES) {
+            return refuse(LocalAtlasError.LIMIT_REACHED, { count: entries.length, max: MAX_LOCAL_ATLASES });
+        }
+        const token = generateUUID();
+        const now = Date.now();
+        const entry = previous
+            ? { ...previous, dbSuffix: `import-${token}`, updatedAt: now }
+            : { id: generateUUID(), name: uniqueName(name, entries), dbSuffix: `import-${token}`, createdAt: now, updatedAt: now };
+        const key = IMPORT_PREPARATION_PREFIX + token;
+        const journal = { token, entry, previous };
+        await getGlobalStore().setItem(key, journal);
+        try {
+            const details = await prepare(scopeOfLocalAtlas(entry), entry);
+            await persistRegistryEntry(entry);
+            if (previous) entries[entries.indexOf(previous)] = entry;
+            else entries.push(entry);
+            // Keep the journal until the old mount is released. Recovery checks the
+            // committed registry, never a second "done" flag that could lag the commit.
+            return { ok: true, atlas: { ...entry }, ...details };
+        } catch (error) {
+            await discardPreparedImport(key, journal).catch(() => undefined);
+            if (error?.name === 'QuotaExceededError') {
+                throw new Error('Não há espaço no navegador para concluir a importação. O atlas anterior foi preservado.', { cause: error });
+            }
+            throw error;
+        }
+    });
+}
+
+async function discardPreparedImport(key, journal) {
+    const registry = [...await readLocalAtlasRegistry(), ...lerEspelho()];
+    const committed = registry.some(entry => entry.dbSuffix === journal.entry.dbSuffix);
+    const discarded = committed ? journal.previous : journal.entry;
+    if (!discarded || registry.some(entry => entry.dbSuffix === discarded.dbSuffix)) {
+        await getGlobalStore().removeItem(key);
+        return;
+    }
+    // Legacy recovery and rescued remote namespaces have their own retention owners.
+    // Keep the recovery record instead of deleting bytes those owners may still need.
+    if (discarded.dbSuffix === LEGACY_DB_SUFFIX || discarded.dbSuffix.startsWith('remote-')) return;
+    const drop = async () => {
+        const result = await dropAtlasDatabases(scopeOfLocalAtlas(discarded));
+        if (!result.blocked.length) await getGlobalStore().removeItem(key);
+    };
+    if (globalThis.navigator?.locks?.request) {
+        await navigator.locks.request(atlasMountLockName(discarded.dbSuffix),
+            { mode: 'exclusive', ifAvailable: true }, lock => lock ? drop() : undefined);
+    } else if (!committed) {await drop();} // Only the failed writer cleans up without Web Locks.
+}
+
+async function recoverPreparedImports() {
+    const globalStore = getGlobalStore();
+    for (const key of await globalStore.keys()) {
+        if (!key.startsWith(IMPORT_PREPARATION_PREFIX)) continue;
+        const journal = await globalStore.getItem(key);
+        if (journal?.token && key === IMPORT_PREPARATION_PREFIX + journal.token
+            && journal.entry?.dbSuffix === `import-${journal.token}`) {
+            await discardPreparedImport(key, journal);
+        }
+    }
 }
 
 async function duplicateLocalSlot(sourceId, name) {

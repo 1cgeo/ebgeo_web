@@ -146,7 +146,7 @@ const CENSO = Object.freeze({
     // `remoteMountWitness`, com a mesma regra de `selfHolds`. Por ela nao destruir nada, ela NAO
     // aparece no segundo censo (o de `clearAllDataStore`) mais abaixo, e essa ausencia e a
     // afirmacao de que a entrada em atlas local existente e nao-destrutiva.
-    'src/js/account/open-atlas.service.js': { chamadas: 3, comTestemunha: 3 },
+    'src/js/account/open-atlas.service.js': { chamadas: 4, comTestemunha: 4 },
     // `AccountControl.saveLocalToServer`: ERA O FURO VIVO, fechado em 2026-08-24. Ficou aberto por
     // ser o mais estreito dos cinco (o atlas nasce uma linha antes do pre-flight, então nenhuma
     // outra aba pode tê-lo montado, e `remoteMountWitness` deriva `selfHolds: 0` do escopo ATIVO,
@@ -418,11 +418,6 @@ const CENSO_DE_WIPE = Object.freeze({
     // antes do wipe: o alvo é um namespace que nenhum par pode segurar. O próprio arquivo diz isso
     // por extenso ("THE CLAIM MOVES WITHOUT ARBITRATION, on purpose").
     'src/js/account/open-atlas.service.js :: switchToNewLocalAtlasNow': ARBITRAGEM.SEM_ALVO_VIVO,
-    // Importar `.ebgeo` não-aditivo. Este ramo só roda quando NÃO se está num atlas de servidor
-    // (o ramo de servidor sai por `switchToNewLocalAtlas`), e é gesto humano: escolher o arquivo
-    // num diálogo. Uma aba que perdeu a ordem está atrás da sobreposição e não alcança o botão.
-    'src/js/import_export/export-import.service.js :: _prepareNonAdditiveTarget':
-        ARBITRAGEM.GESTO_SOB_SOBREPOSICAO,
     // "Apagar tudo" do gerente de mapas: gesto humano, com a confirmação na aba Mapas, que é o
     // único chamador. Mesmo argumento da sobreposição.
     'src/js/map/map.manager.js :: clearAllData': ARBITRAGEM.GESTO_SOB_SOBREPOSICAO,

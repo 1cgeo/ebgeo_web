@@ -1528,6 +1528,10 @@ const CENSO_ROTA = [
 
 /** @type {EntradaDeCache[]} */
 const CENSO_CACHE = [
+  { arquivo: 'src/modules/diag/diag.routes.js', trecho: "'Cache-Control', 'private, no-store'", n: 1, classe: C_SEM,
+    motivo: 'Diagnóstico contém dados administrativos e respostas de coleta; não pode persistir em cache do navegador ou de intermediários.' },
+  { arquivo: 'src/modules/uso/uso.routes.js', trecho: "'Cache-Control', 'private, no-store'", n: 1, classe: C_SEM,
+    motivo: 'Relatórios administrativos, presença e coleta de uso não podem persistir em cache nem atravessar contas.' },
   { arquivo: 'src/modules/sync/sync.controller.js', trecho: "'Cache-Control', 'no-store'", n: 1, classe: C_SEM,
     motivo: 'Consulta de recibos depende de conta, acesso e conteúdo enviado; a resposta não pode ser armazenada em cache.' },
   { arquivo: 'src/modules/sync/sync.routes.js', trecho: "'Cache-Control', 'no-store'", n: 1, classe: C_SEM,

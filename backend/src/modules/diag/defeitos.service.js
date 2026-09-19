@@ -17,6 +17,7 @@
 
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
+import { redactUrl } from '../../utils/redact-url.js';
 import { any, oneOrNone, tx } from '../../database/index.js';
 import { createAudit } from '../../utils/audit.js';
 import { ValidationError } from '../../utils/errors.js';
@@ -244,7 +245,7 @@ export async function registrarErroDeCliente(relato, userId, opcoesDePoda) {
     assinatura: relato.assinatura,
     mensagem: relato.mensagem,
     stack: vazioVirando(relato.stack),
-    url: vazioVirando(relato.url),
+    url: vazioVirando(redactUrl(relato.url)),
     pagina: vazioVirando(relato.pagina),
     userAgent: vazioVirando(relato.userAgent),
     release: vazioVirando(relato.release),

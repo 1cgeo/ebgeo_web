@@ -159,12 +159,9 @@ export function requestLogPayload(req, res, duration) {
  * formato. Com o id, `diag-consulta.js` funde as duas e fica com a mais rica. A recusa por
  * limitador (`rate-limit.js`) carimba o mesmo `reqId` pela mesma razão.
  *
- * O id é gerado AQUI, e não num middleware próprio, porque este é o primeiro ponto por
- * onde toda requisição logada passa. A consequência é conhecida e está declarada: uma
- * falha ANTERIOR a este ponto (corpo malformado, que morre no parser de JSON montado logo
- * acima) não tem `req.id` nem linha de requisição, só a do `errorHandler`. Ela continua no
- * relatório, sozinha, que é o comportamento correto para uma requisição que nunca chegou a
- * ser processada.
+ * Logging precedes authentication and body parsing. Malformed bodies therefore carry
+ * the same request/session correlation as route failures. Premature connection closure
+ * is recorded once as 499; a subsequent finish event must not count it a second time.
  */
 export function requestLogger(req, res, next) {
   const start = Date.now();
@@ -176,15 +173,21 @@ export function requestLogger(req, res, next) {
   // what makes `if (req.sessaoId)` the whole test at every call site.
   req.sessaoId = sessaoDaRequisicao(req);
 
-  res.on('finish', () => {
+  let recorded = false;
+  const record = (aborted = false) => {
+    if (recorded) return;
+    recorded = true;
     const logData = requestLogPayload(req, res, Date.now() - start);
+    if (aborted) { logData.statusCode = 499; logData.aborted = true; }
 
-    if (res.statusCode >= 400) {
+    if (logData.statusCode >= 400) {
       logger.warn(logData, 'request error');
     } else {
       logger.info(logData, 'request');
     }
-  });
+  };
+  res.on('finish', () => record());
+  res.on('close', () => record(!res.writableFinished));
 
   next();
 }

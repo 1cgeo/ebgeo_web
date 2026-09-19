@@ -103,6 +103,19 @@ describe('URL redaction at the log call sites', () => {
     await teardownTestEnv(db);
   });
 
+  it('malformed anonymous JSON has a request id and no submitted content in either log', async () => {
+    const records = await captureLogs(async () => {
+      await supertest(realApp).post('/api/v1/uso/eventos').set('Content-Type', 'application/json')
+        .set('x-ebgeo-sessao', randomUUID()).send(`{"password":"${SECRET}",}`).expect(400);
+    });
+    const request = records.find(isRequestLog);
+    const error = records.find(isErrorLog);
+    assert.ok(request?.obj.reqId);
+    assert.equal(request.obj.reqId, error.obj.reqId);
+    assert.equal(request.obj.sessaoId, error.obj.sessaoId);
+    assert.doesNotMatch(JSON.stringify(records), new RegExp(SECRET));
+  });
+
   it('request-logger redacts ?token= on a successful (2xx) request', async () => {
     let status;
     const records = await captureLogs(async () => {

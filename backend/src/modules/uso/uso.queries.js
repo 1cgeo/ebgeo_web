@@ -478,10 +478,8 @@ export const UPSERT_EVENTOS_DIA = `
  *  - `erros` é `GREATEST` e não soma, porque o cliente manda o acumulado da sessão: somar
  *    contaria o mesmo erro uma vez por descarga, e a taxa "sessões com erro" que a saúde de
  *    release publica passaria a crescer com a duração da sessão em vez de com o defeito;
- *  - `user_id` é `COALESCE(EXCLUDED, atual)`, ou seja o ÚLTIMO não nulo vence: a aba começa
- *    anônima e a pessoa entra no meio, que é o caminho normal deste produto. O contrário
- *    (primeiro vence) deixaria toda sessão que começou deslogada contada como anônima para
- *    sempre, e `usuarios_distintos` mediria só quem já chegou logado;
+ *  - user_id is immutable within a session. The client starts a new segment on
+ *    login/logout; accepting another identity here would merge unrelated usage;
  *  - `release` e `navegador` são `COALESCE(atual, EXCLUDED)`, o PRIMEIRO não nulo: eles
  *    identificam a build e o navegador em que a sessão COMEÇOU, e é essa a pergunta da saúde
  *    de release;
@@ -510,16 +508,18 @@ export const UPSERT_SESSAO = `
     $6, $7, $8, $9, $10, $11, $12, $13
   )
   ON CONFLICT (sessao_id) DO UPDATE SET
+    inicio            = LEAST(uso_sessoes.inicio, EXCLUDED.inicio),
     ultimo_sinal      = GREATEST(uso_sessoes.ultimo_sinal, EXCLUDED.ultimo_sinal),
     eventos           = LEAST(uso_sessoes.eventos::bigint + EXCLUDED.eventos, 2147483647)::int,
     erros             = GREATEST(uso_sessoes.erros, EXCLUDED.erros),
-    user_id           = COALESCE(EXCLUDED.user_id, uso_sessoes.user_id),
     release           = COALESCE(uso_sessoes.release, EXCLUDED.release),
     navegador         = COALESCE(uso_sessoes.navegador, EXCLUDED.navegador),
     lcp_ms            = CASE WHEN EXCLUDED.ultimo_sinal >= uso_sessoes.ultimo_sinal THEN COALESCE(EXCLUDED.lcp_ms, uso_sessoes.lcp_ms) ELSE uso_sessoes.lcp_ms END,
     tempo_ate_mapa_ms = COALESCE(uso_sessoes.tempo_ate_mapa_ms, EXCLUDED.tempo_ate_mapa_ms),
     inp_ms            = CASE WHEN EXCLUDED.ultimo_sinal >= uso_sessoes.ultimo_sinal THEN COALESCE(EXCLUDED.inp_ms, uso_sessoes.inp_ms) ELSE uso_sessoes.inp_ms END,
     cls               = CASE WHEN EXCLUDED.ultimo_sinal >= uso_sessoes.ultimo_sinal THEN COALESCE(EXCLUDED.cls, uso_sessoes.cls) ELSE uso_sessoes.cls END
+  WHERE uso_sessoes.user_id IS NOT DISTINCT FROM EXCLUDED.user_id
+  RETURNING sessao_id
 `;
 
 /**
@@ -544,23 +544,10 @@ export const UPSERT_SESSAO = `
  * seguinte recomputaria aquele dia a partir do subconjunto sobrevivente e sobrescreveria um
  * número correto por um menor, plausível e definitivo. Com ela, a atualização só ACRESCE.
  *
- * O PISO fecha a outra ponta: sem ele a varredura reagregaria o histórico inteiro a cada
- * passada, e um dia de onde a poda já levou tudo teria sua linha recomputada a partir de zero
- * sessões (a condição acima o impediria de encolher, mas o trabalho seria pago mesmo assim).
- * Com o piso, a passada olha só a janela em que ainda pode haver sessão.
- *
- * O PISO É `retenção + 1` DIAS, E O DIA A MAIS NÃO É FOLGA. A poda mira um INSTANTE
- * (`ultimo_sinal < NOW() - retenção`) e a agregação agrupa por DIA, então os dois recortes não
- * coincidem: com o piso em `hoje - retenção` existiria uma faixa de um dia que a poda apaga e
- * que a agregação já parou de olhar, ou seja sessões destruídas sem nunca terem virado número.
- * Com o dia extra, todo dia que a poda alcança ainda está dentro do alcance da agregação na
- * MESMA passada, e é isso que torna a ordem "agregar, depois podar" uma garantia e não uma
- * coincidência de calendário.
- *
- * O QUE O PISO CUSTA, declarado: um dia que saia da retenção sem que nenhuma passada tenha
- * rodado no meio (servidor calado por mais tempo que `LOG_RETENTION_DAYS`) perde as sessões
- * sem virar agregado. Nesse cenário não houve escrita nenhuma, logo não havia sessão nova para
- * agregar; o caso é declarado por ser o único em que a convergência não acontece.
+ * All closed days with surviving sessions are considered. A retention-based lower bound
+ * loses history after a long idle period, including updates to an ALREADY aggregated day.
+ * Days fully pruned do not participate in the GROUP BY; partially pruned days cannot
+ * shrink the published aggregate because of the count guard below.
  *
  * `percentile_cont` IGNORA NULO, e é isso que permite `lcp_ms` só existir na página que
  * carrega mapa: a mediana de uma coluna vazia é NULL, e o NULL sobrevive até o payload
@@ -594,7 +581,6 @@ export const AGREGAR_DIAS_FECHADOS = `
          percentile_cont(0.75) WITHIN GROUP (ORDER BY s.tempo_ate_mapa_ms::double precision)::int
     FROM uso_sessoes s
    WHERE s.dia < ($1::timestamptz)::date
-     AND s.dia >= (($1::timestamptz)::date - ($2::int + 1))
    GROUP BY s.dia, s.pagina_inicial
   ON CONFLICT (dia, pagina) DO UPDATE SET
     sessoes               = EXCLUDED.sessoes,

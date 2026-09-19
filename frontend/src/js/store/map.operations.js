@@ -570,7 +570,7 @@ export async function adoptMountedLocalAtlas(preferredMapId = null) {
     // alcanca. Deixa-lo de pe faria a aba Camadas desenhar as camadas do atlas anterior.
     deps.layerManager.clearLayersCache();
 
-    const lastActive = await initializeRepository();
+    const lastActive = await initializeRepository({ strict: true, installation: false });
 
     // O resolvedor e refeito com o repositorio JA montado no slot novo. `clear()` sozinho
     // deixaria a resolucao nome->UUID vazia pelo resto da sessao (nada a reconstroi), e a

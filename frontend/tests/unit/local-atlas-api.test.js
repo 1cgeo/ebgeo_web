@@ -131,6 +131,62 @@ function slotsOnDisk() {
     return localSlotsOnDisk(databases.get('ebgeo_global::keyvaluepairs'));
 }
 
+describe('atomic import publication', () => {
+    it('keeps the mounted source and registry intact until every staging write completes, even at the cap', async () => {
+        const { current, scope } = await api.initLocalAtlases();
+        for (let n = 1; n < 10; n++) await api.createLocalAtlas(`Atlas ${n}`);
+        const source = ns.getStoreFor(ns.StoreName.MAPS, scope);
+        await source.setItem('old', { content: 'original' });
+        const result = await api.importLocalAtlasAtomically({ targetId: current.id, expectedSuffix: current.dbSuffix }, async (destination) => {
+            await ns.getStoreFor(ns.StoreName.MAPS, destination).setItem('new', { content: 'complete' });
+            expect(slotsOnDisk().find(entry => entry.id === current.id).dbSuffix).toBe(current.dbSuffix);
+            expect(ns.getActiveScope()).toEqual(scope);
+            expect(await source.getItem('old')).toEqual({ content: 'original' });
+        });
+        expect(result.ok).toBe(true);
+        expect(slotsOnDisk()).toHaveLength(10);
+        expect(slotsOnDisk().find(entry => entry.id === current.id).dbSuffix).toBe(result.atlas.dbSuffix);
+        expect(await source.getItem('old')).toEqual({ content: 'original' });
+        expect(ns.getActiveScope()).toEqual(scope); // Publication never redirects a live editor.
+    });
+
+    it.each(['maps', 'images', 'briefings'])('a failure in %s leaves the original published', async (section) => {
+        const { current, scope } = await api.initLocalAtlases();
+        await ns.getStoreFor(ns.StoreName.MAPS, scope).setItem('old', { content: 'original' });
+        await expect(api.importLocalAtlasAtomically({ targetId: current.id, expectedSuffix: current.dbSuffix }, async destination => {
+            await ns.getStoreFor(ns.StoreName.MAPS, destination).setItem('partial', { section });
+            throw new DOMException('disk full', 'QuotaExceededError');
+        })).rejects.toThrow('O atlas anterior foi preservado');
+        expect(slotsOnDisk()).toEqual([{ version: 1, ...current }]);
+        expect(await ns.getStoreFor(ns.StoreName.MAPS, scope).getItem('old')).toEqual({ content: 'original' });
+    });
+
+    it('a failed commit preserves the source, and a retry publishes a complete new namespace', async () => {
+        const { current } = await api.initLocalAtlases();
+        const global = ns.getGlobalStore();
+        const write = global.setItem.getMockImplementation();
+        global.setItem.mockImplementation(async (key, value) => {
+            if (key === ns.localAtlasRegistryKey(current.id)) throw new Error('commit failure');
+            return write(key, value);
+        });
+        const prepare = vi.fn(async () => {});
+        await expect(api.importLocalAtlasAtomically({ targetId: current.id, expectedSuffix: current.dbSuffix }, prepare)).rejects.toThrow('commit failure');
+        expect(slotsOnDisk()).toEqual([{ version: 1, ...current }]);
+        global.setItem.mockImplementation(write);
+        const retried = await api.importLocalAtlasAtomically({ targetId: current.id, expectedSuffix: current.dbSuffix }, prepare);
+        expect(slotsOnDisk()[0].dbSuffix).toBe(retried.atlas.dbSuffix);
+    });
+
+    it('rejects stale replacement targets and refuses new imports at the cap before preparing', async () => {
+        const { current } = await api.initLocalAtlases();
+        const prepare = vi.fn();
+        await expect(api.importLocalAtlasAtomically({ targetId: current.id, expectedSuffix: 'stale' }, prepare)).rejects.toThrow('destino mudou');
+        for (let n = 1; n < 10; n++) await api.createLocalAtlas(`Atlas ${n}`);
+        expect((await api.importLocalAtlasAtomically({ name: 'New' }, prepare)).ok).toBe(false);
+        expect(prepare).not.toHaveBeenCalled();
+    });
+});
+
 describe('local-atlas.api :: boot e ponteiro de atlas corrente', () => {
     it('instalacao sem registro nasce com "Meu Atlas" herdando os bancos legados', async () => {
         const resultado = await api.initLocalAtlases();

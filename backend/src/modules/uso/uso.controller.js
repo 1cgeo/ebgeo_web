@@ -1,11 +1,12 @@
 // Path: src/modules/uso/uso.controller.js
 import { asyncHandler } from '../../utils/async-handler.js';
+import { principalUserId } from '../../utils/principal.js';
 import * as usoService from './uso.service.js';
 import * as eventos from './uso.eventos.service.js';
 import { registrarPresenca, resumoPresenca } from './uso.presenca.js';
 
 export const presenca = asyncHandler(async (req, res) => {
-  await registrarPresenca(req.body, req.user?.id ?? null);
+  await registrarPresenca(req.body, principalUserId(req.user));
   res.status(204).end();
 });
 export const agora = asyncHandler(async (req, res) => {
@@ -51,11 +52,11 @@ export const resumo = asyncHandler(async (req, res) => {
  * nada. Ver o campo no schema.
  */
 export const registrarEventos = asyncHandler(async (req, res) => {
-  if (req.body.identidade != null && req.body.identidade !== (req.user?.id ?? null)) {
+  if (req.body.identidade != null && req.body.identidade !== principalUserId(req.user)) {
     res.status(409).json({ error: { message: 'A identidade da sessão mudou.' } });
     return;
   }
-  const userId = Object.hasOwn(req.body, 'identidade') && req.body.identidade === null ? null : req.user?.id;
+  const userId = Object.hasOwn(req.body, 'identidade') && req.body.identidade === null ? null : principalUserId(req.user);
   await eventos.registrarLoteDeUso(req.body, userId ?? null);
   res.status(204).end();
 });

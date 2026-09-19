@@ -1,6 +1,7 @@
 // Path: src/modules/diag/diag.controller.js
 import config from '../../config.js';
 import { asyncHandler } from '../../utils/async-handler.js';
+import { principalUserId } from '../../utils/principal.js';
 import { NotFoundError } from '../../utils/errors.js';
 import * as diagService from './diag.service.js';
 import * as defeitos from './defeitos.service.js';
@@ -192,7 +193,7 @@ export const registrarErroDeCliente = asyncHandler(async (req, res) => {
     ...req.body,
     userAgent: (req.get('user-agent') || req.body.userAgent || '').slice(0, 300),
   };
-  await defeitos.registrarErroDeCliente(relato, req.user?.id ?? null);
+  await defeitos.registrarErroDeCliente(relato, principalUserId(req.user));
   res.status(204).end();
 });
 

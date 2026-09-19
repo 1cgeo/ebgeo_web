@@ -402,7 +402,7 @@ export function truncar(texto, teto) {
  * O destino é o próprio servidor, mas telemetria é o tipo de dado que acaba num log, num relatório
  * e num anexo de e-mail, e nenhum dos três é lugar de credencial.
  */
-const PARAMS_SENSIVEIS = Object.freeze(['verify', 'atlasPublico', 'token', 'access_token']);
+const PARAMS_SENSIVEIS = Object.freeze(['verify', 'atlaspublico', 'token', 'access_token', 'refresh_token', 'api_key']);
 
 /**
  * O endereço, sem as credenciais de uso único. Tudo o mais é preservado, porque `?atlas=`,
@@ -416,20 +416,20 @@ export function urlSegura(href) {
         // Base fixa só para tolerar um caminho relativo; a origem é descartada se não veio no href.
         const url = new URL(href, 'http://local.invalid');
         let mexeu = false;
-        for (const chave of PARAMS_SENSIVEIS) {
-            if (url.searchParams.has(chave)) {
+        for (const chave of new Set(url.searchParams.keys())) {
+            if (PARAMS_SENSIVEIS.includes(chave.toLowerCase())) {
                 url.searchParams.set(chave, '<oculto>');
                 mexeu = true;
             }
         }
+        if (url.username || url.password) { url.username = ''; url.password = ''; mexeu = true; }
         if (!mexeu) return truncar(href, TETOS.url);
         const texto = url.origin === 'http://local.invalid' && !href.startsWith('http')
             ? `${url.pathname}${url.search}${url.hash}`
             : url.href;
         return truncar(texto, TETOS.url);
     } catch {
-        // URL que o parser recusa: melhor um endereço cru truncado que endereço nenhum.
-        return truncar(String(href ?? ''), TETOS.url);
+        return '[endereço inválido]';
     }
 }
 
@@ -594,7 +594,12 @@ export function montarCorpo({
     // de outra forma derruba o relato INTEIRO num 422 por causa do campo mais dispensável dele.
     if (typeof sessaoId === 'string' && RE_UUID_INTEIRO.test(sessaoId)) corpo.sessaoId = sessaoId;
     if (typeof stackBruta === 'string' && stackBruta) {
-        corpo.stackBruta = truncar(stackBruta, TETOS.stackBruta);
+        // Keep filenames, line and column for sourcemaps, but strip URL credentials.
+        const limpa = stackBruta.replace(/https?:\/\/[^\s)]+/g, address => {
+            const location = address.match(/(?::\d+){1,2}$/)?.[0] || '';
+            return urlSegura(location ? address.slice(0, -location.length) : address) + location;
+        });
+        corpo.stackBruta = truncar(limpa, TETOS.stackBruta);
     }
     // A FORMA se confere aqui; o VOCABULÁRIO das dez origens se confere na fiação
     // (`session/erro-telemetria.js`, contra `ORIGENS_DE_ERRO`), porque este módulo é folha de zero

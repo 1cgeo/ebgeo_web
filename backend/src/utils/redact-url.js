@@ -3,7 +3,7 @@
 // `api_key` is a supported, non-expiring M2M credential transport
 // (flexibleAuth reads ?api_key=); `token` is the cookie/refresh value. Neither
 // must ever land in plaintext in pino output.
-const SENSITIVE_QUERY_KEYS = new Set(['api_key', 'token', 'access_token', 'refresh_token']);
+const SENSITIVE_QUERY_KEYS = new Set(['api_key', 'token', 'access_token', 'refresh_token', 'verify', 'atlaspublico']);
 
 /**
  * Returns `url` with the values of sensitive query params replaced by `REDACTED`.
@@ -14,6 +14,7 @@ const SENSITIVE_QUERY_KEYS = new Set(['api_key', 'token', 'access_token', 'refre
  */
 export function redactUrl(url) {
   if (typeof url !== 'string' || url.length === 0) return url;
+  url = url.replace(/^(https?:\/\/)[^/\s@]+@/i, '$1');
   const qIndex = url.indexOf('?');
   if (qIndex === -1) return url;
 
@@ -23,7 +24,8 @@ export function redactUrl(url) {
   try {
     const params = new URLSearchParams(queryStr);
     let mutated = false;
-    for (const key of params.keys()) {
+    // Work on a stable, distinct list while set() normalizes duplicate parameters.
+    for (const key of new Set(params.keys())) {
       if (SENSITIVE_QUERY_KEYS.has(key.toLowerCase())) {
         params.set(key, 'REDACTED');
         mutated = true;

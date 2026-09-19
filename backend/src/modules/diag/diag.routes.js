@@ -8,6 +8,13 @@ import * as ctrl from './diag.controller.js';
 import * as schemas from './diag.schemas.js';
 
 const router = Router();
+// Diagnostic and usage responses may contain identities and operational history.
+router.use((req, res, next) => {
+  res.set('Cache-Control', 'private, no-store');
+  res.vary('Cookie');
+  res.vary('Authorization');
+  next();
+});
 
 /**
  * A ROTA ANÔNIMA VEM PRIMEIRO no arquivo porque ela é a exceção, e escrevê-la no meio das

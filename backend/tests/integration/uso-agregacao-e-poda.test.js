@@ -57,9 +57,8 @@ const RETENCAO_LARGA = 200;
 /**
  * A idade das sessões que este arquivo quer ver PODADAS: um dia além da retenção.
  *
- * O `+ 1` casa com o piso da agregação (`retenção + 1` dias, ver `AGREGAR_DIAS_FECHADOS`), e é
- * justamente a faixa de um dia em que agregar e podar acontecem na MESMA passada. Escolher
- * `+ 2` deixaria o dia fora do alcance da agregação e o caso principal mediria outra coisa.
+ * The extra day makes the sessions unambiguously eligible for pruning. Aggregation now
+ * covers every closed day with surviving sessions, including a long idle interval.
  */
 const IDADE_PODAVEL = RETENCAO_LARGA + 1;
 
@@ -127,6 +126,36 @@ describe('Uso do produto — a passada de manutenção (agregar, depois podar)',
 
   beforeEach(() => {
     _zerarRelogioDeManutencao();
+  });
+
+  it('aggregates unprocessed history after an idle period longer than retention before pruning', async () => {
+    const age = RETENCAO_LARGA + 40;
+    const dia = await diaAtras(age);
+    await semear(dia, 'mapa', { idadeDias: age, erros: 1 });
+    const result = await passada();
+    assert.equal(result.passou, true);
+    assert.equal((await diarioDe(dia, 'mapa')).sessoes, 1);
+    assert.equal((await diarioDe(dia, 'mapa')).sessoes_com_erro, 1);
+    assert.equal(await sessoesVivas(dia), 0);
+  });
+
+  it('refreshes an existing old aggregate before a bounded prune and never shrinks it on the next pass', async () => {
+    const age = RETENCAO_LARGA + 41;
+    const dia = await diaAtras(age);
+    await semear(dia, 'mapa', { idadeDias: age, duracaoS: 10 });
+    await semear(dia, 'mapa', { idadeDias: age, duracaoS: 30, erros: 1 });
+    await db.query("INSERT INTO uso_diario (dia, pagina, sessoes, sessoes_autenticadas, usuarios_distintos, sessoes_com_erro, duracao_mediana_s) VALUES ($1, 'mapa', 1, 0, 0, 0, 10)", [dia]);
+    const options = { emTeste: false, retencaoDias: RETENCAO_LARGA, teto: 1, registrar: mudo };
+    assert.equal((await agregarEPodar(options)).passou, true);
+    assert.equal((await diarioDe(dia, 'mapa')).sessoes, 2);
+    assert.equal((await diarioDe(dia, 'mapa')).sessoes_com_erro, 1);
+    assert.equal((await diarioDe(dia, 'mapa')).duracao_mediana_s, 20);
+    assert.equal(await sessoesVivas(dia), 1);
+    _zerarRelogioDeManutencao();
+    assert.equal((await agregarEPodar(options)).passou, true);
+    assert.equal((await diarioDe(dia, 'mapa')).sessoes, 2);
+    assert.equal((await diarioDe(dia, 'mapa')).duracao_mediana_s, 20);
+    assert.equal(await sessoesVivas(dia), 0);
   });
 
   after(async () => {
@@ -270,20 +299,29 @@ describe('Uso do produto — a passada de manutenção (agregar, depois podar)',
   });
 
   it('NUNCA LANÇA, e a AGREGAÇÃO falhando impede a poda de rodar', async () => {
-    // A manutenção não é parte do contrato da rota: quando ela falha, o lote já foi gravado e
-    // a resposta segue 204. `retencaoDias` inválido derruba o `$2::int` da AGREGAÇÃO, que é a
-    // primeira metade, e o motivo devolvido prova que a segunda não rodou: os dois `try` são
-    // separados justamente para que a metade destrutiva não aconteça sobre uma agregação que
-    // não aconteceu.
+    // An invalid date fails the first statement. The old session must remain untouched.
+    const dia = await diaAtras(RETENCAO_LARGA + 42);
+    const id = await semear(dia, 'mapa', { idadeDias: RETENCAO_LARGA + 42 });
     const avisos = [];
     const r = await agregarEPodar({
       emTeste: false,
-      retencaoDias: 'duzentos',
+      agoraMs: Number.NaN,
+      retencaoDias: RETENCAO_LARGA,
       registrar: { info() {}, warn: (obj, msg) => avisos.push(msg) },
     });
     assert.equal(r.passou, false);
     assert.equal(r.motivo, 'falha-agregacao', 'a poda não pode rodar depois de a agregação falhar');
     assert.equal(avisos.length, 1, 'falha de manutenção não pode ser MUDA');
     assert.match(avisos[0], /agregar/);
+    assert.equal((await db.query('SELECT 1 FROM uso_sessoes WHERE sessao_id = $1', [id])).rowCount, 1);
+  });
+
+  it('a pruning error rolls back the preceding aggregation in the same transaction', async () => {
+    const dia = await diaAtras(RETENCAO_LARGA + 43);
+    await semear(dia, 'mapa', { idadeDias: RETENCAO_LARGA + 43 });
+    const result = await agregarEPodar({ emTeste: false, retencaoDias: 'invalid', registrar: mudo });
+    assert.equal(result.motivo, 'falha-poda');
+    assert.equal(await diarioDe(dia, 'mapa'), undefined);
+    assert.equal(await sessoesVivas(dia), 1);
   });
 });

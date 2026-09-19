@@ -14,15 +14,16 @@ import { elidirSql } from './elidir-sql.js';
 const SECRET_FIELDS = new Set([
   'password', 'newPassword', 'currentPassword', 'senha',
   'token', 'refreshToken', 'accessToken', 'apiKey', 'api_key',
-  'password_hash', 'passwordHash', 'pass', 'secret', 'authorization',
-]);
+  'password_hash', 'passwordHash', 'pass', 'secret', 'authorization', 'cookie', 'set-cookie',
+].map(key => key.replace(/[-_]/g, '').toLowerCase()));
 
 /**
  * Recursively strips secret-named fields. Depth- and size-bounded so a hostile or
  * merely huge payload cannot turn error logging into a CPU sink.
  */
 export function scrubSecrets(value, depth = 0) {
-  if (depth > 6 || value === null || typeof value !== 'object') return value;
+  if (value === null || typeof value !== 'object') return value;
+  if (depth > 6) return '[TRUNCATED]';
   if (value instanceof Date) return value;
   if (Array.isArray(value)) return value.slice(0, 50).map((v) => scrubSecrets(v, depth + 1));
 
@@ -30,7 +31,7 @@ export function scrubSecrets(value, depth = 0) {
   let n = 0;
   for (const key of Object.keys(value)) {
     if (++n > 100) { out['...'] = 'truncated'; break; }
-    out[key] = SECRET_FIELDS.has(key) ? '[REDACTED]' : scrubSecrets(value[key], depth + 1);
+    out[key] = SECRET_FIELDS.has(key.replace(/[-_]/g, '').toLowerCase()) ? '[REDACTED]' : scrubSecrets(value[key], depth + 1);
   }
   return out;
 }
@@ -165,6 +166,12 @@ export function errSerializer(err) {
   // Joi's copy of the whole submitted body. Never useful in a log, and the direct
   // carrier of the credential.
   delete base._original;
+  delete base.body;
+  if (err?.type === 'entity.parse.failed') {
+    // JSON parser messages and stacks can echo a fragment of the submitted body.
+    base.message = 'Invalid JSON body';
+    delete base.stack;
+  }
 
   if (Array.isArray(base.details)) {
     base.details = base.details.map((d) => ({

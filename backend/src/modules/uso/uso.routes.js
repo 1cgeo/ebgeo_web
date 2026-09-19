@@ -8,6 +8,13 @@ import * as ctrl from './uso.controller.js';
 import * as schemas from './uso.schemas.js';
 
 const router = Router();
+// Diagnostic and usage responses may contain identities and operational history.
+router.use((req, res, next) => {
+  res.set('Cache-Control', 'private, no-store');
+  res.vary('Cookie');
+  res.vary('Authorization');
+  next();
+});
 router.post('/presenca', usoPresencaLimiter, validate({ body: schemas.presencaSchema }), ctrl.presenca);
 router.get('/agora', auth, requireAdmin, ctrl.agora);
 

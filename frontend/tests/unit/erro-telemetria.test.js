@@ -872,6 +872,15 @@ describe('A6 — a FORMA do valor, nunca o conteúdo', () => {
 });
 
 describe('A4 — a pilha CRUA viaja ao lado da normalizada', () => {
+    it('redacts credentials in URLs and raw stacks while preserving sourcemap coordinates', () => {
+        const url = 'https://user:secret-pass@local/assets/main.js?API_KEY=secret-key&refresh_token=secret-refresh';
+        expect(urlSegura(url)).not.toMatch(/secret-|user:/);
+        const body = montarCorpo({ mensagem: 'boom', stackBruta: `Error: boom\n    at init (${url}:123:45)` });
+        expect(body.stackBruta).not.toMatch(/secret-|user:/);
+        expect(body.stackBruta).toContain('main.js');
+        expect(body.stackBruta).toContain(':123:45)');
+    });
+
     it('a ASSINATURA é idêntica com e sem `stackBruta`', () => {
         // Se a bruta entrasse na chave, cada carga da página viraria um grupo novo — que é
         // exatamente o defeito que `normalizarStack` existe para impedir.

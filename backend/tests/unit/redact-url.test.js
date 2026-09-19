@@ -6,6 +6,16 @@ import assert from 'node:assert/strict';
 import { redactUrl } from '../../src/utils/redact-url.js';
 
 describe('redactUrl', () => {
+  it('masks duplicate credentials and their adjacent secrets', () => {
+    const out = redactUrl('/x?api_key=first&api_key=second&token=third&refresh_token=fourth');
+    assert.doesNotMatch(out, /first|second|third|fourth/);
+    assert.match(out, /token=REDACTED/);
+  });
+  it('removes URL credentials and masks verification and public-link tokens', () => {
+    const out = redactUrl('https://operator:private-password@example.test/?verify=verification-secret&atlasPublico=public-secret');
+    assert.doesNotMatch(out, /operator|private-password|verification-secret|public-secret/);
+    assert.match(out, /^https:\/\/example\.test\//);
+  });
   it('masks ?api_key= while preserving path and other params', () => {
     const out = redactUrl('/api/v1/nomes/busca?q=rio&api_key=3f2a1b4c-0000-4000-8000-000000000000');
     assert.match(out, /q=rio/);

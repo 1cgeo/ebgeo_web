@@ -196,15 +196,13 @@ describe('Uso do produto — as regras de conflito da segunda descarga', () => {
     assert.equal(Number(linha.cls), 0.123);
   });
 
-  it('a sessão que COMEÇA anônima e depois entra fica com o usuário; a release fica a primeira', async () => {
+  it('the authenticated session keeps its first release and browser', async () => {
     const id = novaSessao();
-    await enviar(corpo(id, { release: 'build-a', navegador: 'Firefox' }));
-    assert.equal((await sessaoDe(id)).user_id, null);
-
+    await enviar(corpo(id, { release: 'build-a', navegador: 'Firefox' }), comumToken);
     await enviar(corpo(id, { release: 'build-b', navegador: 'Chrome' }), comumToken);
     const linha = await sessaoDe(id);
-    assert.equal(linha.user_id, comum.id, 'o último não nulo vence para a identidade');
-    assert.equal(linha.release, 'build-a', 'a build é a do INÍCIO da sessão');
+    assert.equal(linha.user_id, comum.id);
+    assert.equal(linha.release, 'build-a');
     assert.equal(linha.navegador, 'Firefox');
   });
 

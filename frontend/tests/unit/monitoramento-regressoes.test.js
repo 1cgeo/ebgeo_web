@@ -8,6 +8,61 @@ import { instalarPresenca, configurarPendenciasDePresenca } from '@js/session/pr
 vi.mock('@store/sync/api-client.js', () => ({ apiClient: { authHeader: async () => ({}) } }));
 afterEach(() => desinstalarUso());
 
+it.each([() => { throw new Error('storage unavailable'); }, () => Promise.reject(new Error('storage unavailable'))])(
+    'failed pending-data collection still reports anonymous presence as unknown', async reader => {
+        configurarPendenciasDePresenca(reader);
+        const fetch = vi.fn().mockResolvedValue({ ok: true });
+        const pulse = instalarPresenca({ alvo: { fetch, setTimeout, clearTimeout,
+            document: { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} } } });
+        try {
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+            const body = JSON.parse(fetch.mock.calls[0][1].body);
+            expect(body).not.toHaveProperty('pendentes');
+            expect(body.falhasColeta).toBe(1);
+        } finally { pulse.desinstalar(); configurarPendenciasDePresenca(null); }
+    });
+
+it('a pending pulse is repeated after an identity change and uninstallation aborts its request', async () => {
+    let release;
+    const fetch = vi.fn().mockImplementationOnce(() => new Promise(resolve => { release = resolve; }))
+        .mockImplementation((_url, options) => new Promise(resolve => options.signal.addEventListener('abort', resolve)));
+    const pulse = instalarPresenca({ alvo: { fetch, setTimeout, clearTimeout } });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    await pulse.pulsar();
+    release({ ok: true });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    const signal = fetch.mock.calls[1][1].signal;
+    pulse.desinstalar();
+    expect(signal.aborted).toBe(true);
+});
+
+it('expired and corrupt backlog cannot evict a fresh usage batch on reconnect', async () => {
+    const dados = new Map();
+    const storage = { get length() { return dados.size; }, key: i => [...dados.keys()][i],
+        getItem: k => dados.get(k), setItem: (k, v) => dados.set(k, v), removeItem: k => dados.delete(k) };
+    const url = '/api/v1/uso/eventos';
+    for (let n = 0; n < 40; n++) {
+dados.set(`ebgeo:telemetria:lote:${n}`, n % 2 ? '{broken' : JSON.stringify({
+        corpo: { loteId: String(n) }, identidade: null, url, expira: Date.now() - 1,
+    }));
+}
+    dados.set('ebgeo:telemetria:lote:fresh', JSON.stringify({ corpo: { loteId: 'fresh' }, identidade: null, url, expira: Date.now() + 10000 }));
+    const fetch = vi.fn().mockResolvedValue({ ok: true });
+    criarTransporteDeUso({ alvo: { localStorage: storage, fetch } }).retomar();
+    await vi.waitFor(() => expect(dados.size).toBe(0));
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(JSON.parse(fetch.mock.calls[0][1].body).loteId).toBe('fresh');
+});
+
+it('bounds the offline queue on insertion, without waiting for the next periodic retry', () => {
+    const dados = new Map();
+    const storage = { get length() { return dados.size; }, key: i => [...dados.keys()][i],
+        getItem: k => dados.get(k), setItem: (k, v) => dados.set(k, v), removeItem: k => dados.delete(k) };
+    const t = criarTransporteDeUso({ alvo: { localStorage: storage, fetch: async () => ({ ok: false, status: 503 }) } });
+    for (let n = 0; n < 35; n++) t.enviar({ eventos: [] }, '/api/v1/uso/eventos');
+    expect(dados.size).toBe(30);
+});
+
 it('leitura travada das pendências não impede o sinal de presença', async () => {
     vi.useFakeTimers();
     configurarPendenciasDePresenca(() => new Promise(() => {}));

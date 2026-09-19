@@ -105,10 +105,15 @@ describe('atlas.current_version como cursor de sync (item 24)', () => {
       try {
         // The cursor SELECT runs freely, but the log SELECT must wait here.
         await db.query('LOCK TABLE operations IN ACCESS EXCLUSIVE MODE');
+        // Prime the statistics snapshot before the pull exists, making a stale poll deterministic.
+        await db.query('SELECT query FROM pg_stat_activity');
         pulling = pullOperations(atlas.id, since, 'owner', user.id);
         const deadline = Date.now() + 5000;
         let blocked = false;
         while (Date.now() < deadline) {
+          // pg_stat_activity is cached inside this transaction. Refresh before polling:
+          // otherwise the first read can hide a pull that blocks just after it.
+          await db.query('SELECT pg_stat_clear_snapshot()');
           const { rows } = await db.query(`SELECT 1 FROM pg_stat_activity
             WHERE datname = current_database() AND pid <> pg_backend_pid()
               AND wait_event_type = 'Lock' AND query ILIKE '%SELECT * FROM operations%'`);

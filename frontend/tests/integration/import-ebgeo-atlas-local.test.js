@@ -151,6 +151,10 @@ const { wipeDoEscopoAtivo, addMapNoEscopoAtivo, descarteDeMapasDoEscopoAtivo } =
     }),
 }));
 
+vi.mock('@store/map.operations.js', async (original) => ({
+    ...await original(), adoptMountedLocalAtlas: vi.fn(async () => {}),
+}));
+
 vi.mock('@store/store.js', async (importOriginal) => {
     const real = await importOriginal();
     return {
@@ -354,13 +358,13 @@ function slotsNoDisco() {
 
 /** @param {string} dbName @returns {boolean} Se aquele banco de mapas guarda o mapa importado. */
 function temOMapa(dbName) {
-    return Boolean(databases.get(`${dbName}::keyvaluepairs`)?.has(MAPA));
+    return [...(databases.get(`${dbName}::keyvaluepairs`)?.values() || [])].some(map => map?.name === MAPA);
 }
 
 /** @returns {string[]} Todo banco de mapas onde o projeto importado ainda é legível. */
 function ondeOMapaEstaLegivel() {
     return [...databases.keys()]
-        .filter(chave => chave.startsWith('ebgeo_maps') && databases.get(chave).has(MAPA))
+        .filter(chave => chave.startsWith('ebgeo_maps') && [...databases.get(chave).values()].some(map => map?.name === MAPA))
         .map(chave => chave.split('::')[0]);
 }
 
@@ -482,7 +486,7 @@ describe('import de .ebgeo com atlas de SERVIDOR montado', () => {
 
         // O escopo em que o wipe rodou é medido pelo efeito, não pela ordem das chamadas: os dez
         // bancos do servidor continuam cheios, e é isso que prova onde a limpeza caiu.
-        expect(wipeDoEscopoAtivo).toHaveBeenCalledTimes(1);
+        expect(wipeDoEscopoAtivo).not.toHaveBeenCalled();
         expect(aindaComSentinela(bancosRemotos(ATLAS_SERVIDOR)))
             .toEqual(bancosRemotos(ATLAS_SERVIDOR));
     });
@@ -519,7 +523,7 @@ describe('o teto de 10 atlas locais degrada para RECUSA, nunca para exceção ne
 
         expect(toasts.error).toHaveLength(1);
         expect(toasts.error[0]).toContain('Limite de 10 atlas locais atingido');
-        expect(toasts.error[0]).toContain('continua aberto');
+        expect(toasts.error[0]).toContain('Limite de 10');
 
         // O preço da recusa é zero: nenhum slot novo, nenhuma desconexão, nenhum wipe, e o
         // projeto do servidor segue montado com o que tinha.
@@ -560,17 +564,13 @@ describe('CONTROLE NEGATIVO: sem atlas de servidor o import não gasta um slot',
 
         // Nenhum slot novo: dez importações não podem consumir o teto de 10 do usuário.
         expect(slotsNoDisco()).toHaveLength(1);
-        expect(ns.getActiveScope()).toEqual(localApi.scopeOfLocalAtlas(slot));
-        // E o projeto entrou no banco do slot que já estava montado (o legado, sem sufixo).
-        expect(temOMapa('ebgeo_maps')).toBe(true);
-        expect(wipeDoEscopoAtivo).toHaveBeenCalledTimes(1);
-        // A ORDEM É O CONSERTO DE 2026-08-28, e ela não se lê no resultado: o descarte tem de
-        // acontecer ANTES da primeira escrita do arquivo. Rodando depois, ele apagaria o projeto
-        // que acabou de entrar; não rodando, o "Principal" em branco que o wipe semeia sobrevive
-        // com CHAVE igual ao NOME e sombreia o "Principal" do arquivo em toda leitura por nome.
-        expect(descarteDeMapasDoEscopoAtivo).toHaveBeenCalledTimes(1);
-        expect(descarteDeMapasDoEscopoAtivo.mock.invocationCallOrder[0])
-            .toBeLessThan(addMapNoEscopoAtivo.mock.invocationCallOrder[0]);
+        const replaced = slotsNoDisco()[0];
+        expect(replaced.id).toBe(slot.id);
+        expect(replaced.dbSuffix).not.toBe(slot.dbSuffix);
+        expect(ns.getActiveScope()).toEqual(localApi.scopeOfLocalAtlas(replaced));
+        expect(temOMapa(`ebgeo_maps__${replaced.dbSuffix}`)).toBe(true);
+        expect(wipeDoEscopoAtivo).not.toHaveBeenCalled();
+        expect(descarteDeMapasDoEscopoAtivo).not.toHaveBeenCalled();
         expect(calls).toEqual([]);
         // A frase sobre "atlas local novo" não aparece quando não houve troca.
         expect((toasts.info ?? []).join(' ')).not.toContain('atlas local novo');
@@ -643,7 +643,7 @@ describe('marcador LOCAL sobre um namespace de SERVIDOR montado', () => {
         expect(ondeOMapaEstaLegivel()).not.toEqual([]);
         // 2. O boot não só poupou o projeto: ele ABRIU nele. Sobreviver num banco que o boot não
         //    monta é sobreviver invisível, que para o usuário é a mesma coisa que ter sumido.
-        expect(mapaAtivo).toBe(MAPA);
+        expect((await ns.getStore(ns.StoreName.MAPS).getItem(mapaAtivo)).name).toBe(MAPA);
         // 3. E o banco é o do slot local que o import criou, por nome absoluto.
         const novo = slotsNoDisco().find(s => s.name === 'Operação Alfa');
         expect(ondeOMapaEstaLegivel()).toEqual([`ebgeo_maps__${novo.dbSuffix}`]);

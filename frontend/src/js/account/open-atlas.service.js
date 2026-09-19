@@ -73,6 +73,7 @@ import { pauseStoreWrites } from '@store/write-coordinator.js';
 import { flushPendingLayerWrites } from '@store/layer.operations.js';
 import {
     createLocalAtlas,
+    importLocalAtlasAtomically,
     getLocalAtlas,
     localAtlasAdoptingRemote,
     mountLocalAtlas,
@@ -990,6 +991,35 @@ async function switchToExistingLocalAtlas(atlasId, mapId) {
  */
 export async function switchToNewLocalAtlas(name) {
     return serializeAtlasTransition(() => switchToNewLocalAtlasNow(name));
+}
+
+/** The import reader captures its source before awaiting ZIP parsing. */
+export function replaceAtlasFromImport(source, name, prepare) {
+    return serializeAtlasTransition(async () => {
+        if (getActiveScope() !== source) throw new Error('O atlas mudou durante a leitura do arquivo. Tente novamente.');
+        const local = source?.kind === StoreScopeKind.LOCAL;
+        if (local) {
+            const claim = await acquireTabLock(localKeyOfScope(source), { witness: localMountWitness(source) });
+            if (!claim.granted) return { ok: false, message: OCCUPIED_MESSAGE };
+        }
+        const result = await importLocalAtlasAtomically({
+            targetId: local ? source.atlasId : null, expectedSuffix: source?.dbSuffix, name,
+        }, async (scope, entry) => {
+            const prepared = await prepare(scope, entry);
+            if (getActiveScope() !== source || getTabLock()?.blocked) {
+                throw new Error('O atlas mudou ou foi assumido por outra aba. A importação foi cancelada.');
+            }
+            return prepared;
+        });
+        if (!result.ok) return result;
+        try {
+            const opened = await switchToExistingLocalAtlas(result.atlas.id, result.currentMapName);
+            if (!opened.ok) return { ...opened, message: 'O atlas foi importado. Abra-o em Meus Atlas para continuar.' };
+        } catch (cause) {
+            throw new Error('O atlas foi importado e salvo, mas não foi possível exibi-lo. Reabra-o em Meus Atlas.', { cause });
+        }
+        return { ...result, atlasName: local ? null : result.atlas.name };
+    });
 }
 
 async function switchToNewLocalAtlasNow(name) {

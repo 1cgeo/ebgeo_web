@@ -20,8 +20,8 @@
 
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
-import { any, tx } from '../../database/index.js';
-import { ServiceUnavailableError } from '../../utils/errors.js';
+import { tx } from '../../database/index.js';
+import { ServiceUnavailableError, ConflictError } from '../../utils/errors.js';
 import { instantesDoLote, devePassar } from './uso.lote.js';
 import {
   UPSERT_EVENTOS_DIA,
@@ -135,9 +135,8 @@ export function _zerarRelogioDeManutencao() {
  * escrever uma linha de aviso, ou seja, um defeito de manutenção viraria uma tempestade de
  * log em cima de um banco que já está sofrendo.
  *
- * AS DUAS METADES SÃO SEPARADAS NO `try`, E ISSO É DELIBERADO: se a agregação falha, a poda
- * NÃO roda. Ela é a metade destrutiva, e rodá-la depois de uma agregação que não aconteceu é
- * exatamente o modo de falha que a ordem existe para impedir.
+ * Both statements run in one repeatable-read transaction. A failure rolls back both,
+ * and rows inserted after aggregation cannot be deleted by its accompanying prune.
  *
  * @param {Object} [opts] - injeções; em produção nenhuma é passada
  * @returns {Promise<{passou: boolean, motivo?: string, agregados?: number, apagadas?: number}>}
@@ -157,16 +156,17 @@ export async function agregarEPodar({
 
   ultimaManutencaoEm = agoraMs;
 
-  let agregados;
+  let fase = 'agregacao';
   try {
-    agregados = await any(AGREGAR_DIAS_FECHADOS, [new Date(agoraMs), retencaoDias]);
-  } catch (err) {
-    registrar.warn({ err }, 'falha ao agregar o uso diario');
-    return { passou: false, motivo: 'falha-agregacao' };
-  }
-
-  try {
-    const apagadas = await any(DELETE_SESSOES_EXPIRADAS, [retencaoDias, teto]);
+    const { agregados, apagadas } = await tx(async t => {
+      // Both steps see the same sessions. A concurrent update causes rollback,
+      // never deletion of a row that was absent from the aggregate's snapshot.
+      await t.none('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+      const agregados = await t.any(AGREGAR_DIAS_FECHADOS, [new Date(agoraMs)]);
+      fase = 'poda';
+      const apagadas = await t.any(DELETE_SESSOES_EXPIRADAS, [retencaoDias, teto]);
+      return { agregados, apagadas };
+    });
     if (agregados.length > 0 || apagadas.length > 0) {
       registrar.info(
         { agregados: agregados.length, apagadas: apagadas.length, retencaoDias, teto },
@@ -175,8 +175,8 @@ export async function agregarEPodar({
     }
     return { passou: true, agregados: agregados.length, apagadas: apagadas.length };
   } catch (err) {
-    registrar.warn({ err, retencaoDias, teto }, 'falha ao podar sessoes de uso');
-    return { passou: false, motivo: 'falha-poda', agregados: agregados.length };
+    registrar.warn({ err, retencaoDias, teto }, fase === 'agregacao' ? 'falha ao agregar o uso diario' : 'falha ao podar sessoes de uso');
+    return { passou: false, motivo: `falha-${fase}` };
   }
 }
 
@@ -248,7 +248,7 @@ export async function registrarLoteDeUso(lote, userId, opcoesDeManutencao) {
         ]);
       }
 
-      await t.none(UPSERT_SESSAO, [
+      const session = await t.oneOrNone(UPSERT_SESSAO, [
         lote.sessaoId,
         userId ?? null,
         lote.pagina,
@@ -267,8 +267,10 @@ export async function registrarLoteDeUso(lote, userId, opcoesDeManutencao) {
         Number.isFinite(vitais.cls) ? vitais.cls : null,
         inteiroOuNulo(vitais.tempoAteMapaMs),
       ]);
+      if (!session) throw new ConflictError('A identidade desta sessão de uso mudou. Inicie outra sessão.');
     });
   } catch (err) {
+    if (err instanceof ConflictError) throw err;
     throw new ServiceUnavailableError(
       'Não foi possível registrar o uso agora. Tente novamente em instantes.',
       { cause: err }

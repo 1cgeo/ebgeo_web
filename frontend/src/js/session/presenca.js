@@ -17,26 +17,34 @@ export function instalarPresenca({ alvo = globalThis, falhas = () => 0 } = {}) {
     let ocupado = false;
     let vivo = true;
     let prazo = null;
+    let falhasLocais = 0;
+    let repetir = false;
+    let controller = null;
     const pulsar = async () => {
-        if (ocupado || !vivo || alvo.document?.visibilityState === 'hidden') return;
+        if (!vivo || alvo.document?.visibilityState === 'hidden') return;
+        if (ocupado) { repetir = true; return; }
         ocupado = true;
         try {
             const pendencias = lerPendencias ? await Promise.race([
-                lerPendencias(),
+                Promise.resolve().then(() => lerPendencias()).catch(() => { falhasLocais++; return {}; }),
                 new Promise(resolve => { prazo = alvo.setTimeout(() => resolve({}), 3000); }),
             ]) : {};
             alvo.clearTimeout?.(prazo);
             prazo = null;
             const auth = await apiClient.authHeader();
-            if (!vivo) return;
+            if (!vivo || alvo.document?.visibilityState === 'hidden') return;
+            controller = new AbortController();
+            prazo = alvo.setTimeout(() => controller?.abort(), 10000);
             await alvo.fetch(`${resolveBackendBaseUrl()}/uso/presenca`, {
                 method: 'POST', credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json', ...auth },
-                body: JSON.stringify({ navegadorId: id, ...pendencias, falhasColeta: falhas() }),
-                signal: AbortSignal.timeout(10000),
+                body: JSON.stringify({ navegadorId: id, ...pendencias, falhasColeta: falhas() + falhasLocais }),
+                signal: controller.signal,
             });
         } catch { /* A missing pulse expires on the server. */ } finally {
             alvo.clearTimeout?.(prazo); prazo = null; ocupado = false;
+            controller = null;
+            if (repetir && vivo) { repetir = false; pulsar(); }
         }
     };
     const timer = alvo.setInterval?.(pulsar, 30000);
@@ -44,6 +52,7 @@ export function instalarPresenca({ alvo = globalThis, falhas = () => 0 } = {}) {
     pulsar();
     return { pulsar, desinstalar() {
         vivo = false;
+        controller?.abort();
         alvo.clearTimeout?.(prazo);
         alvo.clearInterval?.(timer);
         alvo.document?.removeEventListener('visibilitychange', pulsar);

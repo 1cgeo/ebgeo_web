@@ -40,6 +40,24 @@ function realJoiError(body) {
 }
 
 describe('error serializer — validation errors must not carry the body', () => {
+  it('malformed JSON cannot leak the body through body, message or stack', () => {
+    const err = Object.assign(new SyntaxError('Unexpected token in "private-user-content"'), {
+      type: 'entity.parse.failed', body: '{"password":"private-user-content",}',
+    });
+    assert.doesNotMatch(JSON.stringify(errSerializer(err)), /private-user-content/);
+  });
+  it('truncates deep values instead of returning an unsanitized tail, including cycles', () => {
+    let value = { password: 'deep-secret' };
+    for (let n = 0; n < 9; n++) value = { nested: value };
+    value.cycle = value;
+    const out = JSON.stringify(scrubSecrets(value));
+    assert.doesNotMatch(out, /deep-secret/);
+    assert.match(out, /TRUNCATED/);
+  });
+  it('scrubs case and separator variants and cookie headers', () => {
+    const out = scrubSecrets({ Authorization: 'a', Cookie: 'b', headers: { 'Set-Cookie': 'c' }, refresh_token: 'd' });
+    assert.deepEqual(out, { Authorization: '[REDACTED]', Cookie: '[REDACTED]', headers: { 'Set-Cookie': '[REDACTED]' }, refresh_token: '[REDACTED]' });
+  });
   it('drops the submitted password from a real Joi error', () => {
     const err = realJoiError({ username: 'ab', password: 'senha-secreta-do-usuario' });
     assert.ok(err, 'fixture: the schema really rejected the body');

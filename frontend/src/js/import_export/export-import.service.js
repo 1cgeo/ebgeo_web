@@ -6,9 +6,6 @@ import {
     getCurrentBaseLayer,
     setBaseLayer,
     addMap,
-    setCurrentMap,
-    clearAllDataStore,
-    discardMapsForReplacingImport,
     isRemoteStoreSync,
     getImage,
     storeImage,
@@ -23,7 +20,6 @@ import {
     flushPendingLayerWrites,
     getMapPosition,
     getMapOrder,
-    setMapOrder,
     processCatalogLayersOnImport,
     getCatalogLayers,
     setCesium3dDataForImport,
@@ -59,9 +55,9 @@ import { construirResolverDeSaida, descreverPerdas } from '@catalog/resource-ref
 // with a server project open is not a wipe-in-place, it is a change of atlas, and the pipeline that
 // owns "which atlas this tab holds" owns it too — spreading a sixth improvised entry through this
 // file is exactly the defect phase E3 exists to prevent.
-import { switchToNewLocalAtlas } from '@js/account/open-atlas.service.js';
+import { replaceAtlasFromImport } from '@js/account/open-atlas.service.js';
 // WHICH namespace this tab has mounted, which is what the import actually writes into. See
-// `_prepareNonAdditiveTarget` for why the origin marker alone is not enough to answer it.
+// `replaceAtlasFromImport` for why the origin marker alone is not enough to answer it.
 import { getActiveScope, StoreScopeKind } from '@store/atlas-namespace.js';
 import { captureImageContext } from '@store/image-context.js';
 // SHARED with the chooser page's "Importar .ebgeo" (which creates a SERVER atlas from the same
@@ -560,6 +556,7 @@ export class ExportImportService {
 
         // Preenchido só quando o import trocou de atlas, para a frase que explica isso ao usuário.
         let newLocalAtlasName = null;
+        const importSource = getActiveScope();
 
         try {
             // O LEITOR E O PORTÃO SÃO OS MESMOS QUE O BOOT USA para recusar um arquivo ANTES de
@@ -580,26 +577,21 @@ export class ExportImportService {
                 data = migrateImportDataToV2(data);
             }
 
-            // Non-additive import replaces the whole project. Decided (and executed) ONLY after
-            // the archive has been parsed and the version validated above, so a corrupt or
-            // incompatible file can no longer wipe the current project — nor spend a local atlas
-            // slot — before we know it is loadable.
-            if (!isAdditiveImport) {
-                const target = await this._prepareNonAdditiveTarget(file);
-                if (!target.ok) {
-                    showError(target.message, { duration: 10000 });
-                    event.target.value = '';
-                    return;
-                }
-                newLocalAtlasName = target.atlasName;
-            }
-
-            await setSchemaVersion(ATLAS_SCHEMA_VERSION);
-
             let importedMapsCount = 0;
             let totalUnavailableCatalogLayers = 0;
+            if (!isAdditiveImport) {
+                const { prepareEbgeoScope } = await import('./prepare-ebgeo-scope.js');
+                for (const map of Object.values(data.maps)) map.baseLayer = config.getValidBasemapFallback(map.baseLayer);
+                const result = await replaceAtlasFromImport(importSource, atlasNameFromFilename(file.name),
+                    (scope, entry) => prepareEbgeoScope(scope, entry, data, zip, processCatalogLayersOnImport));
+                if (!result.ok) throw new Error(result.message);
+                importedMapsCount = result.importedMapsCount;
+                totalUnavailableCatalogLayers = result.unavailableCatalogLayersCount;
+                newLocalAtlasName = result.atlasName;
+            }
 
             if (isAdditiveImport) {
+                await setSchemaVersion(ATLAS_SCHEMA_VERSION);
                 const imageIdMapping = await this.loadImagesFromZip(zip, { additive: true });
                 for (const icon of data.customIcons || []) {
                     icon.id = imageIdMapping.get(icon.id) || icon.id;
@@ -694,82 +686,19 @@ export class ExportImportService {
                 // Import briefings (additive import - no overwrite)
                 await this._importBriefings(data.briefings, false);
 
-            } else {
-                // O ESCOPO PRECISA ESTAR VAZIO DE MAPAS ANTES DA PRIMEIRA ESCRITA. O wipe acima
-                // (ou o slot local recém-criado, no ramo do servidor) deixa um "Principal" em
-                // branco chaveado pelo NOME, e `addMap` grava os do arquivo chaveados por UUID:
-                // os dois coexistiriam sob o mesmo nome, a lista mostraria um cartão só e a
-                // leitura por nome acertaria o em branco, escondendo as feições do arquivo.
-                // Guardado pelo caso vazio: um arquivo sem mapa nenhum deixaria o app sem mapa.
-                if (Object.keys(data.maps).length > 0) {
-                    await discardMapsForReplacingImport();
-                }
-
-                for (const [mapName, mapData] of Object.entries(data.maps)) {
-                    // Normalizar estrutura para versão atual
-                    const { unavailableCatalogLayersCount } = normalizeMapDataForCurrentVersion(mapData, processCatalogLayersOnImport);
-                    totalUnavailableCatalogLayers += unavailableCatalogLayersCount;
-
-                    const colorUsageData = data.colorUsage?.[mapName] || null;
-                    const notesData = data.mapNotes?.[mapName] || null;
-                    await addMap(mapName, mapData, colorUsageData, notesData);
-                    importedMapsCount++;
-                }
-
-                await setCurrentMap(data.currentMap);
-
-                // Import groups directly (normal import)
-                await this.importGroupsDirectly(data.groups);
-
-                // Import layers directly (normal import)
-                await this.importLayersDirectly(data.layers);
-
-                // Import cesium 3D data directly (normal import)
-                await this._importMappedData(data.cesium3d, setCesium3dDataForImport, null, 'cesium 3D data');
-
-                // Import street view 360 data directly (normal import)
-                await this._importMappedData(data.streetview360, setStreetview360DataForImport, null, '360 data');
-
-                // Import per-map temporal config directly (normal import)
-                await this._importMappedData(data.temporal, setMapTemporalConfig, null, 'temporal config');
-
-                // Import per-map grid style directly (normal import)
-                await this._importMappedData(data.gridStyle, setGridStyle, null, 'grid style');
-
-                // Import per-map spatial comments directly (normal import)
-                await this._importMappedData(data.comments, setMapComments, null, 'comments');
-
-                // Import briefings (normal import - overwrite if same ID)
-                await this._importBriefings(data.briefings, true);
-
-                // Restore map order if available
-                if (data.mapOrder && Array.isArray(data.mapOrder) && data.mapOrder.length > 0) {
-                    await setMapOrder(data.mapOrder);
-                }
-
-                // Load images after processing maps (normal import)
-                await this.loadImagesFromZip(zip);
+                await restoreCustomIconsFromImport(data.customIcons, { replace: false });
             }
-
-            // Restore custom point-icon registry (blobs already restored above).
-            // Non-additive import replaces the project, so replace the registry;
-            // additive import merges into the existing one.
-            await restoreCustomIconsFromImport(data.customIcons, { replace: !isAdditiveImport });
 
             // Notify about unavailable catalog layers
             if (totalUnavailableCatalogLayers > 0) {
                 this._notifyUnavailableCatalogLayers(totalUnavailableCatalogLayers);
             }
 
-            const currentBaseLayer = isAdditiveImport ?
-                await getCurrentBaseLayer() :
-                data.maps[await getCurrentMapName()]?.baseLayer;
-
-            const validBaseLayer = config.getValidBasemapFallback(currentBaseLayer);
-
-            await setBaseLayer(validBaseLayer);
-
-            await this.baseLayerControl.switchMap();
+            if (isAdditiveImport) {
+                const validBaseLayer = config.getValidBasemapFallback(await getCurrentBaseLayer());
+                await setBaseLayer(validBaseLayer);
+                await this.baseLayerControl.switchMap();
+            }
 
             // Notify sidebar to refresh map list
             if (this._eventBus) {
@@ -795,64 +724,6 @@ export class ExportImportService {
         }
 
         event.target.value = '';
-    }
-
-    /**
-     * Decides WHERE a non-additive import lands, and puts the store there.
-     *
-     * TWO TARGETS, and the difference is whose data is at stake.
-     *
-     * On a LOCAL atlas the import replaces it IN PLACE, which is literally what the button says
-     * ("Importar atlas (substitui atual)") and what it has always done. Minting a slot per
-     * import instead would burn the cap of 10 in ten imports, for a wipe the user asked for on
-     * their own workspace.
-     *
-     * On a SERVER atlas replacing in place is not an option: the wipe would land on
-     * `ebgeo_*__remote-<id>`, i.e. the databases another tab may be writing to, and the imported
-     * project would be born inside a namespace the next logout destroys — which is how it lost
-     * projects silently before this branch existed. So the import LEAVES the server atlas for a
-     * brand-new local one (`switchToNewLocalAtlas`, which owns the order and the tab-lock claim).
-     *
-     * THE CAP DEGRADES TO A REFUSAL, NEVER TO AN EXCEPTION AND NEVER TO A WIPE. `createLocalAtlas`
-     * runs first inside the switch precisely so a full registry costs the user nothing: the socket
-     * is still up and the server project still open when this returns `ok: false`.
-     *
-     * WHICH QUESTION DECIDES is `writingIntoServerAtlas()`, and the reason it is not
-     * `isRemoteStoreSync()` alone is written there.
-     *
-     * @param {File} file - The `.ebgeo` being imported; its name becomes the new atlas's name.
-     * @returns {Promise<{ok: boolean, message?: string, atlasName?: string}>} `atlasName` is set
-     *   only when the store changed atlas, so the caller can say so.
-     * @private
-     */
-    async _prepareNonAdditiveTarget(file) {
-        if (!writingIntoServerAtlas()) {
-            await clearAllDataStore();
-            return { ok: true };
-        }
-
-        let result;
-        try {
-            result = await switchToNewLocalAtlas(atlasNameFromFilename(file?.name));
-        } catch (error) {
-            // Past the refusal there is nothing left that destroys data (the wipe targets the new,
-            // empty slot), so this is a persistence failure. The server project may already be
-            // closed, so the message must not promise that nothing changed.
-            console.error('[import] failed to switch to a new local atlas:', error);
-            return {
-                ok: false,
-                message: 'Não foi possível preparar um atlas local para receber a importação. '
-                    + 'Nada foi importado; reabra o atlas em "Meus Atlas" e tente de novo.'
-            };
-        }
-
-        if (!result.ok) {
-            return {
-                ok: false,
-                message: `${result.message} O atlas do servidor continua aberto e nada foi alterado.`
-            };
-        }
-        return { ok: true, atlasName: result.atlas.name };
     }
 
     /**

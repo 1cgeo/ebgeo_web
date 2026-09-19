@@ -200,13 +200,13 @@ describe('requestLogger — ordering, level choice and the no-finish path (115)'
     }
   });
 
-  it('a connection that never emits "finish" logs nothing and throws nothing', () => {
-    // Cliente que aborta: `res.on('finish')` nunca dispara. Um middleware que logasse
-    // no `close` ou fora do listener produziria linha aqui.
+  it('a connection that closes before "finish" records its interruption', () => {
     const res = fakeRes(200);
     requestLogger({ method: 'GET', url: '/p' }, res, () => {});
     res.emit('close');
-    assert.equal(spy.records.length, 0);
+    assert.equal(spy.records.length, 1);
+    assert.equal(spy.records[0].obj.statusCode, 499);
+    assert.equal(spy.records[0].obj.aborted, true);
   });
 
   it('an anonymous request carries userId undefined without a TypeError', () => {
@@ -234,10 +234,16 @@ describe('requestLogger — ordering, level choice and the no-finish path (115)'
     assert.ok(!JSON.stringify(obj).includes('3f2a1b4c-0000-4000-8000-000000000000'));
   });
 
-  it('the listener is registered on "finish" specifically, exactly once', () => {
+  it('finish followed by close produces exactly one successful record', () => {
     const res = fakeRes(200);
     requestLogger({ method: 'GET', url: '/p' }, res, () => {});
     assert.equal(res.listenerCount('finish'), 1);
-    assert.equal(res.listenerCount('close'), 0, 'não pode duplicar o log num segundo evento');
+    assert.equal(res.listenerCount('close'), 1);
+    res.emit('finish');
+    res.writableFinished = true;
+    res.emit('close');
+    assert.equal(spy.records.length, 1);
+    assert.equal(spy.records[0].obj.statusCode, 200);
+    assert.equal(spy.records[0].obj.aborted, undefined);
   });
 });

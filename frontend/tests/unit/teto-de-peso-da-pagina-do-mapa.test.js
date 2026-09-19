@@ -560,7 +560,8 @@ describe('(a) o grafo de imports de `map_sig.js`', () => {
         // 2026-09-19: 711 módulos com snapshot-frontier.js (menos de 1 kB), que impede
         // um retrato HTTP antigo de apagar confirmações/edições recebidas pelo socket.
         // One shared image-context module fences asynchronous image writes/renders.
-        expect(completo.arquivos.size).toBeLessThanOrEqual(712);
+        // One lazy builder prepares complete imports without mounting their namespace.
+        expect(completo.arquivos.size).toBeLessThanOrEqual(713);
         const kb = kbDe(completo.arquivos);
         expect(kb, `fonte total em ${kb} kB`).toBeGreaterThanOrEqual(9880);
         expect(kb, `fonte total em ${kb} kB`).toBeLessThanOrEqual(11790);

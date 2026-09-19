@@ -3,6 +3,8 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import supertest from 'supertest';
+import jwt from 'jsonwebtoken';
+import config from '../../src/config.js';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, loginUser } from '../helpers/fixtures.js';
 
@@ -23,6 +25,45 @@ describe('Presença, identidade e inventário administrativo', () => {
     return r.send({ navegadorId: id, ...extra });
   };
   const agora = () => supertest(app).get('/api/v1/uso/agora').set('Authorization', `Bearer ${token}`).expect(200);
+
+  it('public-link visitors report usage, presence and errors as anonymous', async () => {
+    const visitor = jwt.sign({ sub: `public-${randomUUID()}`, isPublic: true, atlasId: randomUUID(), role: 'user' }, config.jwt.secret, { expiresIn: '5m' });
+    const session = randomUUID();
+    await pulso(randomUUID(), visitor).expect(204);
+    await supertest(app).post('/api/v1/uso/eventos').set('Authorization', `Bearer ${visitor}`)
+      .send({ sessaoId: session, pagina: 'mapa', inicio: Date.now(), ultimoSinal: Date.now(), eventos: [] }).expect(204);
+    const assinatura = `anonymous-audit-${randomUUID()}`;
+    await supertest(app).post('/api/v1/diag/erro-cliente').set('Authorization', `Bearer ${visitor}`)
+      .send({ assinatura, mensagem: 'Client error', url: '/mapa?api_key=secret-one&api_key=secret-two&token=secret-three' }).expect(204);
+    const row = (await db.query('SELECT user_id FROM uso_sessoes WHERE sessao_id = $1', [session])).rows[0];
+    assert.equal(row.user_id, null);
+    const defect = (await db.query('SELECT url FROM defeitos WHERE assinatura = $1', [assinatura])).rows[0];
+    assert.doesNotMatch(defect.url, /secret-/);
+    await db.query('DELETE FROM uso_presenca');
+  });
+
+  it('cannot merge an anonymous or another account batch into an authenticated session', async () => {
+    const session = randomUUID();
+    const lote = { sessaoId: session, pagina: 'mapa', inicio: Date.now(), ultimoSinal: Date.now(),
+      eventos: [{ evento: 'medicao.aberta', prop: 'angulo', contagem: 2 }] };
+    await supertest(app).post('/api/v1/uso/eventos').set('Authorization', `Bearer ${userToken}`).send(lote).expect(204);
+    for (const auth of [null, token]) {
+      const request = supertest(app).post('/api/v1/uso/eventos');
+      if (auth) request.set('Authorization', `Bearer ${auth}`);
+      await request.send(lote).expect(409);
+    }
+    const row = (await db.query('SELECT user_id, eventos FROM uso_sessoes WHERE sessao_id = $1', [session])).rows[0];
+    assert.deepEqual(row, { user_id: user.id, eventos: 2 });
+  });
+
+  it('administrative monitoring responses cannot remain in browser or shared caches', async () => {
+    for (const route of ['/uso/agora', '/uso/resumo', '/diag/defeitos']) {
+      const response = await supertest(app).get(`/api/v1${route}`).set('Authorization', `Bearer ${token}`).expect(200);
+      assert.match(response.headers['cache-control'], /private.*no-store/);
+      assert.match(response.headers.vary, /Cookie/);
+      assert.match(response.headers.vary, /Authorization/);
+    }
+  });
 
   it('conta navegadores anônimos uma vez e contas logadas uma vez, mesmo em dois navegadores', async () => {
     const anon = randomUUID();

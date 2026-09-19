@@ -34,7 +34,7 @@ Suíte geral final: **720 arquivos e 13.325 testes aprovados**, em uma execuçã
 - A fila coordena as três entradas de troca citadas dentro desta aba. Arbitragem entre abas continua sendo responsabilidade dos mecanismos existentes de namespace e Web Locks.
 - Esperar uma gravação em andamento não torna o conjunto de bancos uma transação única. Falhas físicas de armazenamento, encerramento abrupto do navegador e limpeza externa de dados não recebem garantia geral de recuperação nesta auditoria.
 - Não foi adicionada uma transação abrangendo toda importação longa ou todo logout junto com a troca. Operações compostas fora das entradas citadas exigem seus próprios controles; estes resultados não provam todas as combinações possíveis com elas.
-- Permanecem os limites da [auditoria de migração](auditoria-migracao-versoes-2026-09-19.md), em especial a substituição local por arquivo ainda não atômica e o upload parcial de imagens ao servidor. Trocar de atlas preservando os bancos não resolve esses riscos de importação.
+- Permanece o limite de upload parcial de imagens ao servidor da [auditoria de migração](auditoria-migracao-versoes-2026-09-19.md). A substituição local recebeu correção posterior, documentada na [auditoria de importação atômica](auditoria-importacao-atomica-2026-09-19.md).
 - Os resultados são da bancada local com Chromium; não certificam a intranet, outros navegadores ou ausência de qualquer perda de dados.
 
 ## Reprodução
