@@ -2,7 +2,7 @@
 import { ATLAS_RECORD_KEY, StoreName, getStoreFor } from '../atlas-namespace.js';
 import { createAtlas } from '../atlas/atlas.entity.js';
 import { runLegacyMigrations } from './legacy-backfills.js';
-import { safelyMigrate } from './migration.service.js';
+import { safelyMigrate, detectMigrationNeeded, isTooOldToMigrate } from './migration.service.js';
 import { repairPlaceholderMapNames, migrateToV3_0 } from './v2.x-to-v3.0.migration.js';
 import { MigrationRecoveryError } from './transition-state.js';
 
@@ -14,10 +14,10 @@ export async function prepareIsolatedScope(scope, name, { empty = false } = {}) 
         await atlasStore.setItem(ATLAS_RECORD_KEY, createAtlas(name));
         await settings.setItem('schemaVersion', '3.0');
     } else {
-        const settingsVersion = await settings.getItem('schemaVersion');
-        const atlas = await atlasStore.getItem(ATLAS_RECORD_KEY);
-        const version = atlas?.schemaVersion || settingsVersion;
-        if (!['1.3', '1.4', '1.5', '1.6', '1.7', '2.0', '2.1', '2.2', '2.3', '2.4', '3.0'].includes(version)) {
+        // Validate BOTH markers before any backfill; use the same checkpoint as the
+        // active-slot migrator, including interrupted steps and patch versions.
+        const { currentVersion: version } = await detectMigrationNeeded(scope);
+        if (!version || isTooOldToMigrate(version)) {
             throw new MigrationRecoveryError('unsupported_version', 'A cópia precisa de recuperação assistida; seus registros foram preservados.');
         }
         await runLegacyMigrations(version, scope);

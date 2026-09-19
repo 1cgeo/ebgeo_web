@@ -15,9 +15,8 @@
  * requires the predicate outside a service that pulls in the `@store` barrel and modal UI, which is
  * the same reason `import-normalize.js` lives on its own.
  *
- * THE PREDICATE IS UNCHANGED, deliberately: below `MIN_SCHEMA_VERSION` refuses, above
- * `ATLAS_SCHEMA_VERSION` refuses, the two messages are the ones the user already reads, and a v1.x
- * archive is accepted because the importer migrates it (which stamps it with the current version).
+ * All declared version markers must be readable and within the supported bounds, including v1.x.
+ * Structural validation and ZIP CRC checks happen before callers may replace stored data.
  * Both bounds are READ from their constants and never spelled out here — the ceiling is exactly the
  * number that moves when the schema moves.
  *
@@ -105,7 +104,8 @@ export async function readEbgeoArchive(file) {
 
     let zip;
     try {
-        zip = await JSZip.loadAsync(zipData);
+        // Check every entry before a replacing import is allowed to clear its target.
+        zip = await JSZip.loadAsync(zipData, { checkCRC32: true });
     } catch (error) {
         throw new Error(corruptedArchiveMessage(file), { cause: error });
     }
@@ -115,6 +115,14 @@ export async function readEbgeoArchive(file) {
         throw new Error('Arquivo data.json não encontrado no .ebgeo');
     }
 
+    const imageIds = new Set();
+    for (const name of Object.keys(zip.files)) {
+        if (zip.files[name].dir) continue;
+        const match = /^images\/([^/]+)\.(png|jpe?g|svg|webp)$/i.exec(name);
+        if (!match) continue;
+        if (imageIds.has(match[1])) throw new Error(`Arquivo .ebgeo ambíguo: mais de uma imagem usa o ID ${match[1]}.`);
+        imageIds.add(match[1]);
+    }
     return { zip, data: JSON.parse(await dataFile.async('string')) };
 }
 
@@ -132,9 +140,8 @@ export function isV1Format(data) {
 /**
  * The verdict on a parsed `.ebgeo` document: may this build import it?
  *
- * A v1.x archive passes because the importer migrates it, and the migration stamps the current
- * version onto it; judging it by the number it arrives with would refuse a file the product knows
- * how to read.
+ * Supported v1.x archives pass before migration stamps the current version. Checking their
+ * original markers prevents normalization from concealing an unsupported or corrupt document.
  *
  * @param {Object} data - The parsed `data.json`.
  * @returns {string|null} The pt-BR refusal to show, or `null` when the file may be imported.
@@ -143,12 +150,53 @@ export function importVersionRefusal(data) {
     if (!data?.version) {
         return 'Arquivo .ebgeo sem informação de versão. Use a versão mais recente da aplicação para gerar o arquivo.';
     }
-    if (isV1Format(data)) return null;
-    if (compareVersions(data.version, MIN_SCHEMA_VERSION) < 0) {
-        return `Arquivo .ebgeo incompatível. Versão do arquivo: ${data.version}, versão mínima aceita: ${MIN_SCHEMA_VERSION}`;
+    // A malformed marker must not become zero in compareVersions, and a legacy
+    // outer marker must not conceal a future atlas record. v1 obeys the same floor.
+    for (const version of [data.version, data.schemaVersion, data.atlas?.schemaVersion]) {
+        if (version === undefined) continue;
+        if (typeof version !== 'string' || !/^\d+\.\d+(?:\.\d+)?$/.test(version)) {
+            return 'Arquivo .ebgeo com informação de versão inválida. Os dados atuais foram preservados.';
+        }
+        if (compareVersions(version, MIN_SCHEMA_VERSION) < 0) {
+            return `Arquivo .ebgeo incompatível. Versão do arquivo: ${version}, versão mínima aceita: ${MIN_SCHEMA_VERSION}`;
+        }
+        if (compareVersions(version, ATLAS_SCHEMA_VERSION) > 0) {
+            return `Arquivo .ebgeo incompatível - versão muito recente. Versão do arquivo: ${version}, versão máxima aceita: ${ATLAS_SCHEMA_VERSION}. Atualize a aplicação para usar este arquivo.`;
+        }
     }
-    if (compareVersions(data.version, ATLAS_SCHEMA_VERSION) > 0) {
-        return `Arquivo .ebgeo incompatível - versão muito recente. Versão do arquivo: ${data.version}, versão máxima aceita: ${ATLAS_SCHEMA_VERSION}. Atualize a aplicação para usar este arquivo.`;
+    const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+    if (!object(data) || !object(data.maps)) return 'Arquivo .ebgeo inválido: a coleção de mapas está ausente ou corrompida.';
+    for (const [name, map] of Object.entries(data.maps)) {
+        if (!object(map) || (map.features !== undefined && !object(map.features))) {
+            return `Arquivo .ebgeo inválido: estrutura do mapa "${name}" corrompida.`;
+        }
+        for (const list of Object.values(map.features || {})) {
+            if (!Array.isArray(list) || list.some(feature => !object(feature))) {
+                return `Arquivo .ebgeo inválido: coleção de feições do mapa "${name}" corrompida.`;
+            }
+        }
+    }
+    for (const key of ['layers', 'groups', 'cesium3d', 'streetview360', 'temporal', 'gridStyle', 'mapNotes', 'comments', 'colorUsage']) {
+        if (data[key] !== undefined && !object(data[key])) return `Arquivo .ebgeo inválido: seção ${key} corrompida.`;
+    }
+    for (const key of ['customIcons', 'briefings', 'mapOrder']) {
+        if (data[key] !== undefined && !Array.isArray(data[key])) return `Arquivo .ebgeo inválido: seção ${key} corrompida.`;
+    }
+    for (const layers of Object.values(data.layers || {})) {
+        if (!Array.isArray(layers) || layers.some(layer => !object(layer))) return 'Arquivo .ebgeo inválido: camadas corrompidas.';
+    }
+    for (const groups of Object.values(data.groups || {})) {
+        if (!object(groups) || Object.values(groups).some(group => !object(group)
+            || (group.features !== undefined && (!Array.isArray(group.features) || group.features.some(ref => !object(ref)))))) {
+            return 'Arquivo .ebgeo inválido: grupos corrompidos.';
+        }
+    }
+    for (const briefing of data.briefings || []) {
+        if (!object(briefing) || (briefing.slides !== undefined && (!Array.isArray(briefing.slides)
+            || briefing.slides.some(slide => !object(slide))))) return 'Arquivo .ebgeo inválido: briefings corrompidos.';
+    }
+    if ((data.customIcons || []).some(icon => !object(icon) || typeof icon.id !== 'string' || !icon.id)) {
+        return 'Arquivo .ebgeo inválido: ícones personalizados corrompidos.';
     }
     return null;
 }

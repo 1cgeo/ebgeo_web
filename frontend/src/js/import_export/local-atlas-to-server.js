@@ -18,7 +18,7 @@
 
 import { generateUUID, isValidUUID } from '@utils/uuid.js';
 import { pruneCatalogLayerDefinitions } from '@catalog/catalog-layer.ref.js';
-import { normalizeLegacyDeclinationProperties } from '@store/repository.utils.js';
+import { normalizeLegacyDeclinationProperties, ensureMapDataShape } from '@store/repository.utils.js';
 
 /** Server-accepted feature types (mirror of backend `VALID_FEATURE_TYPES`). */
 const VALID_FEATURE_TYPES = new Set([
@@ -274,10 +274,12 @@ function buildStreetview360(sv, idFor, imageIdMap) {
  * @param {Set<string>} sink
  */
 function collectImageIds(buckets, c3d, sv, sink) {
-    for (const list of Object.values(buckets || {})) {
+    for (const [bucket, list] of Object.entries(buckets || {})) {
         if (!Array.isArray(list)) continue;
         for (const f of list) {
-            if (f?.properties?.source === 'image' && f.properties.id) sink.add(f.properties.id);
+            if ((bucket === 'images' || f?.properties?.source === 'image') && f?.properties?.id) sink.add(f.properties.id);
+            const marker = f?.properties?.markerSymbol;
+            if (typeof marker === 'string' && marker.startsWith('custom:')) sink.add(marker.slice(7));
         }
     }
     const fromItems = (items) => {
@@ -329,9 +331,11 @@ export function buildServerImportPayload(exportData, meta = {}) {
     const groupId = makeIdMapper();
 
     // Map names → assigned server map UUIDs (briefings reference maps by name/id).
-    const mapNameToId = {};
-    for (const mapName of Object.keys(maps)) {
+    const mapNameToId = Object.create(null);
+    const sourceMapIds = new Map();
+    for (const [mapName, mapData] of Object.entries(maps)) {
         mapNameToId[mapName] = generateUUID();
+        if (mapData?.id) sourceMapIds.set(mapData.id, mapNameToId[mapName]);
     }
 
     const serverMaps = [];
@@ -340,7 +344,7 @@ export function buildServerImportPayload(exportData, meta = {}) {
         // map gets its own UUID for it (features in this map resolve to the same one).
         const layerIdFor = makeIdMapper();
 
-        const buckets = mapData?.features || {};
+        const buckets = (ensureMapDataShape(mapData) || mapData)?.features || {};
         const c3d = data.cesium3d?.[mapName] || null;
         const sv = data.streetview360?.[mapName] || null;
         const notes = data.mapNotes?.[mapName] || {};
@@ -394,7 +398,7 @@ export function buildServerImportPayload(exportData, meta = {}) {
             title: s.title || '',
             content: s.content || '',
             mode: s.mode === '3d' || s.mode === '360' ? s.mode : '2d',
-            map_id: mapNameToId[s.mapId] || (isValidUUID(s.mapId) ? s.mapId : null),
+            map_id: mapNameToId[s.mapId] || sourceMapIds.get(s.mapId) || (isValidUUID(s.mapId) ? s.mapId : null),
             model_id: slideResourceRef(s.modelId),
             photo_id: slideResourceRef(s.photoId),
             position: s.position || {},

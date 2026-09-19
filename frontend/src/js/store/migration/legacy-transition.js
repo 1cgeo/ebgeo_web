@@ -6,6 +6,8 @@ import {
 } from '../atlas-namespace.js';
 import { legacyScope } from './migration-scope.js';
 import { generateUUID } from '../../utilities/uuid.js';
+import { compareVersions, MIN_SCHEMA_VERSION } from '../repository.utils.js';
+import { ATLAS_SCHEMA_VERSION } from '../atlas/atlas.entity.js';
 import { prepareIsolatedScope } from './prepare-scope.js';
 import { fingerprint, sameStorageValue } from './storage-value.js';
 import {
@@ -63,11 +65,14 @@ async function classifySource() {
     if (!version && inventory.length) {
         throw new MigrationRecoveryError('unknown_version', 'Os dados não têm uma versão identificável. Salve uma cópia para recuperação assistida.');
     }
-    if (version != null && (typeof version !== 'string' || !/^\d+\.\d+$/.test(version))) {
-        throw new MigrationRecoveryError('unknown_version', 'Não foi possível identificar a versão dos dados.');
-    }
-    if (version && (Number(version) < 1.3 || Number(version) > 3)) {
-        throw new MigrationRecoveryError('unsupported_version', 'Esta versão dos dados precisa de recuperação assistida.');
+    for (const marker of [settings, atlas?.schemaVersion]) {
+        if (marker == null) continue;
+        if (typeof marker !== 'string' || !/^\d+\.\d+(?:\.\d+)?$/.test(marker)) {
+            throw new MigrationRecoveryError('unknown_version', 'Não foi possível identificar a versão dos dados.');
+        }
+        if (compareVersions(marker, MIN_SCHEMA_VERSION) < 0 || compareVersions(marker, ATLAS_SCHEMA_VERSION) > 0) {
+            throw new MigrationRecoveryError('unsupported_version', 'Esta versão dos dados precisa de recuperação assistida.');
+        }
     }
     const id = existing?.id || generateUUID();
     return {

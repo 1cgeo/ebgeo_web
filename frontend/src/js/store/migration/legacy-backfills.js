@@ -134,7 +134,8 @@ export async function runLegacyMigrations(currentVersion, scope) {
             return;
         }
 
-        const startIndex = LEGACY_MIGRATIONS.findIndex(m => m.version === currentVersion);
+        const schemaMinor = currentVersion.split('.').slice(0, 2).join('.');
+        const startIndex = LEGACY_MIGRATIONS.findIndex(m => m.version === schemaMinor);
         if (startIndex === -1) return;
 
         for (let i = startIndex; i < LEGACY_MIGRATIONS.length; i++) {

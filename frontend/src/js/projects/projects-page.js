@@ -759,10 +759,23 @@ async function importProjectFromFile(file) {
         const { importEbgeoAsAtlas } = await import('./import-ebgeo.service.js');
         const { atlasId, name, stats, imageStats } = await importEbgeoAsAtlas(file, { apiClient });
         const lost = (imageStats.skipped || 0) + (imageStats.failed || 0);
-        showSuccess(
-            `"${name}" importado (${stats.maps} mapa(s), ${stats.features} feição(ões))`
-            + (lost > 0 ? ` — ${lost} imagem(ns) não enviada(s)` : '')
-        );
+        if (lost > 0) {
+            // A toast would disappear as soon as openAtlas navigates. Keep the
+            // incomplete result visible until the operator chooses where to go.
+            const choice = await showChoice('Importação incompleta', {
+                message: `"${name}" foi criado, mas tem ${lost} imagem(ns) sem confirmação de envio. Preserve o arquivo .ebgeo original para repetir a importação quando a conexão estiver disponível.`,
+                choices: [
+                    { id: 'list', label: 'Voltar à lista', variant: 'ghost' },
+                    { id: 'open', label: 'Abrir atlas incompleto', variant: 'primary' },
+                ],
+            });
+            if (choice !== 'open') {
+                window.location.reload();
+                return;
+            }
+        } else {
+            showSuccess(`"${name}" importado (${stats.maps} mapa(s), ${stats.features} feição(ões))`);
+        }
         openAtlas(atlasId);
     } catch (error) {
         console.error('[projects] .ebgeo import failed:', error);

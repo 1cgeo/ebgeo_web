@@ -297,6 +297,31 @@ async function importar(file, { aditivo = false } = {}) {
     await servico().handleImport(evento, aditivo);
 }
 
+describe('version audit: refusal preserves the currently mounted local atlas', () => {
+    it.each([
+        { version: '1.2', maps: {} },
+        { version: 'NaN', maps: {} },
+        { version: '1.7', atlas: { schemaVersion: '9.0' }, maps: {} },
+        { version: '2.4', maps: { Broken: null } },
+        { version: '2.4', maps: {}, layers: { M: {} } },
+        { version: '2.4', maps: {}, briefings: [null] },
+    ])('refuses %j before clearing or creating a destination', async data => {
+        const scope = ns.getActiveScope();
+        const slots = slotsNoDisco().length;
+        for (const { store } of ns.listAtlasStores()) await store.setItem(SENTINELA, 1);
+        const zip = new JSZip();
+        zip.file('data.json', JSON.stringify(data));
+        const bytes = await zip.generateAsync({ type: 'uint8array' });
+        await importar({ name: 'invalid.ebgeo', arrayBuffer: async () => bytes.buffer });
+        expect(wipeDoEscopoAtivo).not.toHaveBeenCalled();
+        expect(descarteDeMapasDoEscopoAtivo).not.toHaveBeenCalled();
+        expect(ns.getActiveScope()).toEqual(scope);
+        expect(slotsNoDisco()).toHaveLength(slots);
+        for (const { store } of ns.listAtlasStores()) expect(await store.getItem(SENTINELA)).toBe(1);
+        expect(toasts.error.length).toBeGreaterThan(0);
+    });
+});
+
 /** Põe a aba dentro de um atlas de servidor, pelo caminho legal (registra e só então aponta). */
 async function abrirAtlasDeServidor(atlasId) {
     await remoteApi.activateRemoteAtlas(atlasId);

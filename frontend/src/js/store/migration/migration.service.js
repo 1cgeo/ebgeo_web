@@ -140,7 +140,8 @@ function describeScope(scope) {
 /**
  * The version a scope is REALLY at, from the two markers it carries.
  *
- * Normally the settings marker answers alone. The exception it exists for is the "1.7 entry"
+ * Normally the older marker answers: interrupted writes must replay unfinished backfills.
+ * The exception is the "1.7 entry"
  * described in the fileoverview: a settings marker claiming a v1 next to an atlas record that
  * declares 2.x or above is NOT a v1 installation, it is a 2.x installation whose marker was
  * overwritten by the other line's data-wipe constant. Believing the marker there re-runs the v1
@@ -157,11 +158,14 @@ function describeScope(scope) {
  */
 function effectiveVersion(settingsVersion, atlas) {
     const recordVersion = typeof atlas?.schemaVersion === 'string' ? atlas.schemaVersion : null;
-    if (!settingsVersion || !recordVersion) return settingsVersion;
+    if (!settingsVersion || !recordVersion) return settingsVersion || recordVersion;
 
     const settingsIsV1 = compareVersions(settingsVersion, '2.0') < 0;
     const recordIsV2OrLater = compareVersions(recordVersion, '2.0') >= 0;
-    return settingsIsV1 && recordIsV2OrLater ? recordVersion : settingsVersion;
+    if (settingsIsV1 && recordIsV2OrLater) return recordVersion;
+    // Each step writes two markers. A crash between those writes leaves different
+    // versions: replay from the older checkpoint, never skip its remaining backfills.
+    return compareVersions(settingsVersion, recordVersion) < 0 ? settingsVersion : recordVersion;
 }
 
 /**
@@ -193,13 +197,12 @@ export async function detectMigrationNeeded(scope = legacyScope()) {
     }
     const currentVersion = effectiveVersion(settingsVersion, atlas);
 
-    const atlasCurrent = atlas && atlas.schemaVersion === ATLAS_SCHEMA_VERSION;
     const versionCurrent = currentVersion && compareVersions(currentVersion, ATLAS_SCHEMA_VERSION) >= 0;
-    const needed = !atlasCurrent && !versionCurrent;
+    const needed = !versionCurrent;
 
     return {
         needed,
-        currentVersion: atlasCurrent ? ATLAS_SCHEMA_VERSION : currentVersion,
+        currentVersion,
         targetVersion: ATLAS_SCHEMA_VERSION
     };
 }
