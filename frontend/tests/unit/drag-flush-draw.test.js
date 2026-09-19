@@ -578,7 +578,7 @@ describe('the brush tool, stroke inside one frame', () => {
         const { default: AddBrushControl } = await import('../../src/js/draw_tools/brush_tool/add_brush_control.js');
         const { control } = buildControl(AddBrushControl, { isPixelDistanceSufficient: () => true });
         let committed = null;
-        control.createFeature = async () => { committed = [...control.points]; };
+        control.createFeature = async (points) => { committed = [...points]; };
         control.isActive = true;
 
         control._onPointerDown({ isPrimary: true, clientX: 1, clientY: 1, pointerId: 1, preventDefault: () => {} });
@@ -589,6 +589,24 @@ describe('the brush tool, stroke inside one frame', () => {
         // The pending frame is dropped by `clearPreview`, not left to redraw a
         // stroke that is already finished.
         expect(clock.frame()).toBe(0);
+    });
+
+    it('a finished save cannot erase the next stroke or its pending preview', async () => {
+        const { default: AddBrushControl } = await import('../../src/js/draw_tools/brush_tool/add_brush_control.js');
+        const { control } = buildControl(AddBrushControl, { isPixelDistanceSufficient: () => true });
+        let finishSave;
+        control.createFeature = () => new Promise((resolve) => { finishSave = resolve; });
+        control.isActive = true;
+        control._onPointerDown({ isPrimary: true, clientX: 1, clientY: 1, pointerId: 1, preventDefault() {} });
+        control._onPointerMove({ isPrimary: true, clientX: 6, clientY: 6, pointerId: 1 });
+        const firstSave = control._onPointerUp({ pointerId: 1 });
+        control._onPointerDown({ isPrimary: true, clientX: 20, clientY: 20, pointerId: 2, preventDefault() {} });
+        control._onPointerMove({ isPrimary: true, clientX: 30, clientY: 30, pointerId: 2 });
+        finishSave();
+        await firstSave;
+        expect(control.points).toEqual([[20, 20], [30, 30]]);
+        expect(control.isDrawing).toBe(true);
+        expect(clock.frame()).toBe(1);
     });
 });
 

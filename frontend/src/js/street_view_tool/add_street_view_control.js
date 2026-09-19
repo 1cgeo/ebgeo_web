@@ -691,14 +691,14 @@ class AddStreetViewControl {
     }
 
     showHoverCursor = () => {
-        if (!this.isActive) return;
+        if (!this.isActive || this.toolManager?.activeTool) return;
         if (this.map?.getCanvas()) {
             this.map.getCanvas().style.cursor = 'pointer';
         }
     }
 
     hideHoverCursor = () => {
-        if (!this.isActive) return;
+        if (!this.isActive || this.toolManager?.activeTool) return;
         if (this.map?.getCanvas()) {
             this.map.getCanvas().style.cursor = '';
         }
@@ -707,8 +707,8 @@ class AddStreetViewControl {
     deactivate = () => {
         this.isActive = false;
 
-        // Safe cursor reset with null check
-        if (this.map?.getCanvas()) {
+        // Viewer overlays coexist with drawing tools; preserve the tool cursor.
+        if (this.map?.getCanvas() && !this.toolManager?.activeTool) {
             this.map.getCanvas().style.cursor = '';
         }
 

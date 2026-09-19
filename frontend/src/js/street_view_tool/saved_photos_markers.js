@@ -414,7 +414,7 @@ class SavedPhotosMarkers {
      * Show pointer cursor on hover
      */
     showHoverCursor() {
-        if (!this.isActive) return;
+        if (!this.isActive || this.streetViewControl?.toolManager?.activeTool) return;
         this.map.getCanvas().style.cursor = 'pointer';
     }
 
@@ -422,7 +422,7 @@ class SavedPhotosMarkers {
      * Hide pointer cursor on mouse leave
      */
     hideHoverCursor() {
-        if (!this.isActive) return;
+        if (!this.isActive || this.streetViewControl?.toolManager?.activeTool) return;
         this.map.getCanvas().style.cursor = '';
     }
 

@@ -224,6 +224,7 @@ class AddBrushControl extends BaseControl {
     // ===== TOOL ACTIVATION/DEACTIVATION =====
 
     activate = () => {
+        this._activationId = (this._activationId ?? 0) + 1;
         this.isActive = true;
         this.isDrawing = false;
         this.points = [];
@@ -233,10 +234,13 @@ class AddBrushControl extends BaseControl {
 
     deactivate = async () => {
         this.isActive = false;
-        await this.finishDrawing();
+        const finishing = this.finishDrawing();
+        // ToolManager activates the next tool synchronously. Release input and
+        // cursor before yielding, even when the previous stroke is still saving.
         this.map.getCanvas().style.cursor = '';
         this.removeDrawingEventListeners();
         this.clearPreview();
+        await finishing;
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====
@@ -319,6 +323,7 @@ class AddBrushControl extends BaseControl {
         const point = getPointerPosition(e, canvas);
         const lngLat = this.map.unproject([point.x, point.y]);
 
+        this._strokeId = (this._strokeId ?? 0) + 1;
         this.isDrawing = true;
         this.points = [[lngLat.lng, lngLat.lat]];
         this.lastPixelPoint = point;
@@ -402,13 +407,13 @@ class AddBrushControl extends BaseControl {
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = 'crosshair';
 
-        if (this.points.length >= 2) {
-            await this.createFeature();
-        }
-
+        const points = this.points;
         this.points = [];
         this.lastPixelPoint = null;
         this.clearPreview();
+        if (points.length >= 2) {
+            await this.createFeature(points);
+        }
     }
 
     /** The frame callback: ONE write of the stroke as it stands. */
@@ -440,14 +445,18 @@ class AddBrushControl extends BaseControl {
         }
     }
 
-    createFeature = async () => {
-        if (!this.geometry.validate(this.points)) {
+    createFeature = async (points = this.points) => {
+        if (!this.geometry.validate(points)) {
             console.warn('Line must have at least 2 valid points');
             return;
         }
 
         const currentZoom = this.map.getZoom();
         const calculatedLineWidth = AddBrushControl.DEFAULT_PROPERTIES.lineWidth;
+        const activationId = this._activationId;
+        const strokeId = this._strokeId;
+        const geometry = this.geometry.generate(points);
+        const layerId = getActiveLayerIdSync();
 
         const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const featureName = await IDUtils.generateFeatureName('brush', this.map);
@@ -457,13 +466,13 @@ class AddBrushControl extends BaseControl {
             id: geoJsonId,
             properties: {
                 ...AddBrushControl.DEFAULT_PROPERTIES,
-                layerId: getActiveLayerIdSync(),
+                layerId,
                 id: featureId,
                 nome: featureName,
                 createdAtZoom: currentZoom,
                 calculatedLineWidth: calculatedLineWidth
             },
-            geometry: this.geometry.generate(this.points)
+            geometry
         };
 
         try {
@@ -476,10 +485,14 @@ class AddBrushControl extends BaseControl {
             dispatcher.add(feature);
             await dispatcher.flush();
 
-            this.points = [];
-            this.toolManager.deactivateCurrentTool();
-            await this.selectionManager.toggleFeatureSelection('brush', featureId, feature);
-            this.selectionManager.updateUI();
+            // A completed save belongs to its original activation. It may not
+            // cancel/select over a different tool or a newly started brush stroke.
+            if (this.isActive && this.toolManager.activeTool === this
+                && this._activationId === activationId && this._strokeId === strokeId) {
+                this.toolManager.deactivateCurrentTool();
+                await this.selectionManager.toggleFeatureSelection('brush', featureId, feature);
+                this.selectionManager.updateUI();
+            }
         } catch (error) {
             console.error('Erro ao criar pincel:', error);
         }

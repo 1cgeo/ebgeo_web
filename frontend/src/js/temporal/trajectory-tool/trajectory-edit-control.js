@@ -76,6 +76,7 @@ export class TrajectoryEditControl {
         this._rafId = null;
         this._pendingPreview = false;
         this._cleanupLongPress = null;
+        this._editListenersActive = false;
 
         this._onClick = this._onClick.bind(this);
         this._onKeyDown = this._onKeyDown.bind(this);
@@ -244,7 +245,9 @@ export class TrajectoryEditControl {
 
         this._map.off('click', this._onClick);
         document.removeEventListener('keydown', this._onKeyDown, true);
-        this._map.getCanvas().style.cursor = '';
+        // A toolActivated listener can stop append mode AFTER the next tool has
+        // set its cursor. Cleanup must not overwrite that new owner's state.
+        if (!this._toolManager?.activeTool) this._map.getCanvas().style.cursor = '';
         this._removeToolbar();
 
         if (!commit && this._addSnapshot && this._feature?.properties) {
@@ -338,6 +341,7 @@ export class TrajectoryEditControl {
     _setupEditListeners() {
         const map = this._map;
         if (!map) return;
+        this._editListenersActive = true;
         map.on('mousedown', this._onEditMouseDown);
         map.on('mousemove', this._onEditMouseMove);
         map.on('mouseup', this._onEditMouseUp);
@@ -366,8 +370,13 @@ export class TrajectoryEditControl {
         map.off('mouseup', this._onEditMouseUp);
         map.off('mousemove', this._onHoverMove);
         map.getCanvas().removeEventListener('contextmenu', this._onCanvasContextMenu, true);
-        map.dragPan.enable();
-        map.getCanvas().style.cursor = '';
+        // hide() also runs when this editor was never shown. Only release the
+        // interactions we owned, and never clobber a newly activated tool.
+        if (!this._toolManager?.activeTool) {
+            if (this._editing) map.dragPan.enable();
+            if (this._editListenersActive && !this._adding) map.getCanvas().style.cursor = '';
+        }
+        this._editListenersActive = false;
         if (this._cleanupLongPress) {
             this._cleanupLongPress();
             this._cleanupLongPress = null;

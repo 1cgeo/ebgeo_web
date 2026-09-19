@@ -30,6 +30,8 @@ const TOOL_NAMES = {
     text: 'Texto',
     image: 'Imagem',
     brush: 'Pincel',
+    sector: 'Setor',
+    declination: 'Declinação Magnética',
 
     // Military tools
     military_symbol: 'Símbolo Militar',
@@ -66,10 +68,11 @@ const TOOL_NAMES = {
  */
 const TOOLBAR_TOOLS = new Set([
     // Draw tools
-    'point', 'line', 'polygon', 'rectangle', 'circle', 'ellipse', 'text', 'image', 'brush',
+    'point', 'line', 'polygon', 'rectangle', 'circle', 'ellipse', 'text', 'image', 'brush', 'sector',
     // Military tools
     'military_symbol', 'militarysymbol', 'coordination_measure', 'coordinationmeasure',
     'arrow', 'boundary', 'occupied_front', 'occupiedfront', 'coordination_line', 'coordinationline',
+    'declination',
     // Analysis tools
     'los', 'visibility',
     // Measurement tools

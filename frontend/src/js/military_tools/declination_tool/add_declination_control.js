@@ -169,6 +169,16 @@ class AddDeclinationControl extends BaseControl {
         }
     }
 
+    activate() {
+        super.activate();
+        this.map.getCanvas().style.cursor = 'crosshair';
+    }
+
+    deactivate() {
+        super.deactivate();
+        if (this.map) this.map.getCanvas().style.cursor = '';
+    }
+
     // ===== MAP CLICK =====
 
     handleMapClick = async (e) => {

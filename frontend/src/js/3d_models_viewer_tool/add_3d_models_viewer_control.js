@@ -1083,7 +1083,7 @@ class Add3DModelsViewerControl {
      * Show pointer cursor on hover
      */
     showHoverCursor() {
-        if (!this.isActive) return;
+        if (!this.isActive || this.toolManager?.activeTool) return;
         this.map.getCanvas().style.cursor = 'pointer';
     }
 
@@ -1091,7 +1091,7 @@ class Add3DModelsViewerControl {
      * Hide pointer cursor on mouse leave
      */
     hideHoverCursor() {
-        if (!this.isActive) return;
+        if (!this.isActive || this.toolManager?.activeTool) return;
         this.map.getCanvas().style.cursor = '';
     }
 
