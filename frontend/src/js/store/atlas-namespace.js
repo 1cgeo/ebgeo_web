@@ -258,8 +258,9 @@ import {
     adoptMirroredDiscardState, captureRemoteWriteFence, forgetRemoteWriteFence, setEpochMirror,
 } from './remote-write-fence.js';
 import {
-    adoptMirroredGeneration, dataGenerationFor, forgetGeneration, readGeneration, setGenerationMirror,
+    adoptMirroredGeneration, captureDataScope, dataGenerationFor, forgetGeneration, readGeneration, setGenerationMirror,
 } from './namespace-generation.js';
+import { fingerprint, sameStorageValue } from './migration/storage-value.js';
 
 /** Kinds of scope a store instance can be resolved for. */
 export const StoreScopeKind = Object.freeze({
@@ -2030,23 +2031,44 @@ export async function dropAtlasDatabases(scope, { timeoutMs = DROP_TIMEOUT_MS, a
  */
 export async function copyAtlasDatabases(from, to) {
     if (!from || !to) throw new Error('copyAtlasDatabases: both scopes are required');
-    if (scopeKey(from) === scopeKey(to)) {
+    if (from.dbSuffix === to.dbSuffix) {
         throw new Error('copyAtlasDatabases: source and destination are the same namespace');
     }
 
+    const source = captureDataScope(from);
+    const destination = captureDataScope(to);
+    const inventory = [];
     let keys = 0;
     const descriptors = STORE_DESCRIPTORS.filter(d => d.perAtlas && d.atlasData);
     for (const descriptor of descriptors) {
-        const origem = getStoreFor(descriptor.id, from);
-        const destino = getStoreFor(descriptor.id, to);
+        const origem = getStoreFor(descriptor.id, source);
+        const destino = getStoreFor(descriptor.id, destination);
         // `iterate` em vez de `keys()` + `getItem`: uma passada só por banco, e o localforage já
         // devolve o valor desserializado (Blob de imagem incluso).
         const pares = [];
         await origem.iterate((value, key) => { pares.push([key, value]); });
         for (const [key, value] of pares) {
+            inventory.push([descriptor.id, key, await fingerprint(value)]);
             await destino.setItem(key, value);
+            if (!await sameStorageValue(value, await destino.getItem(key))) {
+                throw new Error('A cópia do atlas não passou na verificação. O original foi preservado.');
+            }
             keys += 1;
         }
+    }
+    // A concurrent edit or snapshot must not produce a successful but mixed atlas copy.
+    // The caller removes the incomplete destination on rejection; the source is read-only.
+    const after = [];
+    for (const descriptor of descriptors) {
+        const store = getStoreFor(descriptor.id, source);
+        for (const key of await store.keys()) {
+            after.push([descriptor.id, key, await fingerprint(await store.getItem(key))]);
+        }
+    }
+    const ordered = records => JSON.stringify(records.sort((a, b) =>
+        JSON.stringify(a.slice(0, 2)).localeCompare(JSON.stringify(b.slice(0, 2)))));
+    if (dataGenerationFor(from) !== source.dataGeneration || ordered(inventory) !== ordered(after)) {
+        throw new Error('O atlas original mudou durante a cópia. Aguarde as alterações terminarem e tente novamente.');
     }
     return { stores: descriptors.length, keys };
 }

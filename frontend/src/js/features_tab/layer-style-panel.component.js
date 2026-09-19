@@ -29,7 +29,9 @@ import { DebouncedPersist } from '@utils/debounced-persist.js';
 import { deepClone } from '@utils/deep-utils.js';
 import { CATALOG_ITEM_TYPES } from '@catalog/catalog.constants.js';
 import { catalogLayerDisplayName, catalogLayerReferenceId } from '@catalog/catalog-layer.ref.js';
-import { updateCatalogLayer } from '@store';
+import { updateCatalogLayer, getCurrentMapNameSync } from '@store';
+import { getActiveScope } from '@store/atlas-namespace.js';
+import { showWarning } from '@utils/toast_service.js';
 import {
     VECTOR_SUBLAYERS,
     RASTER_SUBLAYER,
@@ -106,6 +108,8 @@ export class LayerStylePanel {
      */
     constructor(config) {
         this._layer = config.layer;
+        this._scope = getActiveScope();
+        this._mapName = getCurrentMapNameSync();
         this._host = config.host || null;
         this._analysisLayersManager = config.analysisLayersManager || null;
         this._dataLayersManager = config.dataLayersManager || null;
@@ -117,7 +121,8 @@ export class LayerStylePanel {
         this._previousActiveElement = null;
         this._closing = false;
         this._applyScheduled = false;
-        this._persist = new DebouncedPersist({ delay: 300 });
+        this._persist = new DebouncedPersist({ delay: 300, warnBeforeUnload: true, retainOnError: true,
+            onError: () => showWarning('Não foi possível salvar o estilo da camada. A alteração não foi gravada; verifique o espaço disponível e tente novamente.') });
 
         // Working copy of persisted overrides; mutated live, persisted debounced.
         // Keep only sub-layer-nested entries — legacy flat overrides (keyed
@@ -581,9 +586,13 @@ export class LayerStylePanel {
     /** @private */
     _schedulePersist() {
         const snapshot = deepClone(this._overrides);
-        this._persist.schedule(PERSIST_KEY, () =>
-            updateCatalogLayer(this._layer.id, { styleOverrides: snapshot })
-        );
+        this._persist.schedule(PERSIST_KEY, () => {
+            if (getActiveScope() !== this._scope) {
+                showWarning('O atlas mudou antes de salvar o estilo. Reabra a camada no atlas original para reaplicar a alteração.');
+                return false;
+            }
+            return updateCatalogLayer(this._layer.id, { styleOverrides: snapshot }, this._mapName);
+        });
     }
 
     /** Clears all overrides, re-applies config defaults and rebuilds the form. @private */
@@ -597,12 +606,17 @@ export class LayerStylePanel {
     // ===== Lifecycle =====
 
     /** @private */
-    _close() {
+    async _close() {
         // Guard against a second click during teardown.
         if (this._closing) return;
         this._closing = true;
 
-        this._persist.flush(PERSIST_KEY);
+        // Do not dismiss the user's last editable copy after quota/storage failure.
+        // Clicking Concluir again retries the retained value once storage recovers.
+        if (!await this._persist.flush(PERSIST_KEY)) {
+            this._closing = false;
+            return;
+        }
         this._destroy();
 
         if (this._previousActiveElement) {

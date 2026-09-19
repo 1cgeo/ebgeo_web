@@ -763,8 +763,11 @@ class LayerManager {
 
     /** @private */
     _persistActiveLayerAsync(mapName) {
+        const scope = getActiveScope();
+        const layerId = this.memoryStore.activeLayerId;
         this._activeLayerPersist.schedule(mapName, async () => {
-            await setActiveLayerIdRepo(mapName, this.memoryStore.activeLayerId);
+            if (getActiveScope() !== scope) return;
+            await setActiveLayerIdRepo(mapName, layerId);
         });
     }
 }

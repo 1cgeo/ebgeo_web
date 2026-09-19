@@ -161,10 +161,22 @@ const ATLAS_GONE_STATUSES = new Set([404, 410]);
 export function acknowledgedOperationIds(resp, ops) {
     const results = resp?.results || resp?.acks || [];
     const named = new Set();
+    const uncertain = new Set();
     const refusedBatches = refusedBatchIds(resp, ops);
     for (const r of results) {
         const id = r?.operationId ?? r?.opId;
-        if (id && r.rejected !== true && r.success !== false) named.add(id);
+        if (!id) continue;
+        const knownStatus = r.status === 'applied' || r.status === 'already_applied';
+        const accepted = r.rejected !== true && r.success !== false
+            && (r.status == null ? r.success === true : knownStatus);
+        if (accepted) named.add(id);
+        else uncertain.add(id);
+    }
+    for (const id of uncertain) named.delete(id);
+    // A logical gesture is replayed atomically. Losing just one member's envelope makes
+    // its next retry an incomplete batch, even when the original server commit succeeded.
+    for (const op of ops) {
+        if (op.batchId && !named.has(op.id)) refusedBatches.add(op.batchId);
     }
     // A MEMBER OF A REFUSED BATCH NEVER LEAVES THE QUEUE, EVEN ACKED AS APPLIED. The server
     // rolls the whole gesture back in one savepoint and answers every member with the same
@@ -220,6 +232,7 @@ export function refusedBatchIds(resp, ops) {
 async function recordPushAcks(resp, ops) {
     if (!resp) return;
     const results = resp.results || resp.acks || [];
+    const confirmed = new Set(acknowledgedOperationIds(resp, ops));
     const rejections = [];
     for (const op of ops) {
         const r = results.find((x) => x && (x.operationId === op.id || x.opId === op.id));
@@ -277,13 +290,13 @@ async function recordPushAcks(resp, ops) {
         // server's own frontier (moved by the FIRST edit) would refuse it: the author would lose
         // a race against nobody. `entityVersion` rides every base-checked receipt; only three
         // paths carry a canonical operation the inbound handler could have applied instead.
-        if (r.rejected !== true && r.success !== false && Number.isSafeInteger(r.entityVersion)) {
+        if (confirmed.has(op.id) && Number.isSafeInteger(r.entityVersion)) {
             await confirmEntityVersion(op, r.entityVersion);
         }
-        if (r.rejected !== true && r.success !== false && sv != null && op.entityId && CONVERGENCE_GUARDED.has(op.entityType)) {
+        if (confirmed.has(op.id) && sv != null && op.entityId && CONVERGENCE_GUARDED.has(op.entityType)) {
             await recordLocalAppliedVersion(op.entityId, sv, r.canonicalOperation ?? op);
         }
-        if (r.rejected !== true && r.success !== false && op.entityType === 'map'
+        if (confirmed.has(op.id) && op.entityType === 'map'
             && op.operationType === 'create' && r.canonicalOperation) {
             await applyMapCreationAck(r.canonicalOperation);
         }
@@ -546,6 +559,9 @@ class SyncEngine {
      */
     async _durablePullCursor(session) {
         if (session.scope?.kind !== 'remote') return 0;
+        // A journaled edit may have crashed before materialization. A tail alone cannot
+        // replay it: ask for a complete snapshot, whose apply path replays prepared edits.
+        if ((await session.queue.countByState?.())?.preparadas > 0) return 0;
         // A `localStorage` that was cleared while IndexedDB survived leaves the pointer gone and the
         // acervo intact; the mirror in the global database is what rebuilds it, and it has to happen
         // BEFORE the record is read here, or the connect would answer "nothing on disk" and pull a

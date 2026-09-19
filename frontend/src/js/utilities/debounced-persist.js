@@ -35,11 +35,21 @@ export class DebouncedPersist {
      * @param {number} [options.delay=300] - Debounce delay in ms
      * @param {number} [options.maxRetries=3] - Max retry attempts on failure
      * @param {Function} [options.onError] - Callback when all retries exhausted: (key, error) => void
+     * @param {boolean} [options.warnBeforeUnload=false] - Warn while user edits are not yet saved.
+     * @param {boolean} [options.retainOnError=false] - Keep failed edits for an explicit retry.
      */
-    constructor({ delay = DEFAULT_DELAY, maxRetries = DEFAULT_MAX_RETRIES, onError = null } = {}) {
+    constructor({ delay = DEFAULT_DELAY, maxRetries = DEFAULT_MAX_RETRIES, onError = null, warnBeforeUnload = false, retainOnError = false } = {}) {
         this._delay = delay;
         this._maxRetries = maxRetries;
         this._onError = onError;
+        this._warnBeforeUnload = warnBeforeUnload;
+        this._retainOnError = retainOnError;
+        this._failed = new Map();
+        this._unloadAttached = false;
+        this._beforeUnload = event => {
+            event.preventDefault();
+            event.returnValue = '';
+        };
 
         /** @type {Map<string, {timerId: number, persistFn: Function}>} */
         this._pending = new Map();
@@ -63,6 +73,7 @@ export class DebouncedPersist {
         }, this._delay);
 
         this._pending.set(key, { timerId, persistFn });
+        this._syncUnloadWarning();
     }
 
     /**
@@ -73,10 +84,10 @@ export class DebouncedPersist {
      */
     cancel(key) {
         const existing = this._pending.get(key);
-        if (!existing) return;
-
-        clearTimeout(existing.timerId);
+        if (existing) clearTimeout(existing.timerId);
         this._pending.delete(key);
+        this._failed.delete(key);
+        this._syncUnloadWarning();
     }
 
     /**
@@ -87,6 +98,8 @@ export class DebouncedPersist {
             clearTimeout(entry.timerId);
         }
         this._pending.clear();
+        this._failed.clear();
+        this._syncUnloadWarning();
     }
 
     /**
@@ -95,43 +108,75 @@ export class DebouncedPersist {
      * If a flush is already in progress for this key, returns the existing promise.
      *
      * @param {string} key - Debounce key
-     * @returns {Promise<void>}
+     * @returns {Promise<boolean>} Whether the latest requested value was saved.
      */
     async flush(key) {
         const existingFlush = this._flushing.get(key);
         if (existingFlush) return existingFlush;
 
-        const entry = this._pending.get(key);
-        if (!entry) return;
+        const entry = this._pending.get(key) || this._failed.get(key);
+        if (!entry) return true;
 
         clearTimeout(entry.timerId);
         this._pending.delete(key);
+        this._failed.delete(key);
 
-        const promise = this._executeWithRetry(key, entry.persistFn);
+        // Timer saves and explicit flushes share one ordered writer per key. An older
+        // save (including its retries) must finish before a newer value is persisted.
+        const promise = Promise.resolve().then(async () => {
+            let current = entry;
+            let saved = true;
+            while (current) {
+                saved = await this._executeWithRetry(key, current.persistFn);
+                this._failed.delete(key);
+                if (!saved && this._retainOnError) this._failed.set(key, current);
+                current = this._pending.get(key);
+                if (current) {
+                    clearTimeout(current.timerId);
+                    this._pending.delete(key);
+                }
+            }
+            return saved;
+        });
         this._flushing.set(key, promise);
 
         try {
-            await promise;
+            return await promise;
         } finally {
             this._flushing.delete(key);
+            this._syncUnloadWarning();
         }
     }
 
     /**
      * Flush all pending persists immediately.
-     * @returns {Promise<void>}
+     * @returns {Promise<boolean>} Whether every key's latest value was saved.
      */
     async flushAll() {
-        const keys = Array.from(this._pending.keys());
-        await Promise.all(keys.map(key => this.flush(key)));
+        const keys = [...new Set([...this._pending.keys(), ...this._flushing.keys(), ...this._failed.keys()])];
+        return (await Promise.all(keys.map(key => this.flush(key)))).every(Boolean);
     }
 
     /**
      * Cleanup all timers. Call on destroy/teardown.
      */
     destroy() {
-        this.cancelAll();
-        this._flushing.clear();
+        // Closing a panel immediately after flush() must not cancel the latest value
+        // that the in-flight save is draining. Other scheduled work is still cancelled.
+        for (const key of this._pending.keys()) {
+            if (!this._flushing.has(key)) this.cancel(key);
+        }
+    }
+
+    _syncUnloadWarning() {
+        const dirty = this._warnBeforeUnload && (this._pending.size > 0 || this._flushing.size > 0 || this._failed.size > 0);
+        if (dirty && !this._unloadAttached) {
+            globalThis.addEventListener?.('beforeunload', this._beforeUnload);
+            this._unloadAttached = true;
+        } else if (!dirty && this._unloadAttached) {
+            globalThis.removeEventListener?.('beforeunload', this._beforeUnload);
+            this._unloadAttached = false;
+        }
     }
 
     /**
@@ -139,11 +184,7 @@ export class DebouncedPersist {
      * @private
      */
     _execute(key) {
-        const entry = this._pending.get(key);
-        if (!entry) return;
-
-        this._pending.delete(key);
-        this._executeWithRetry(key, entry.persistFn);
+        this.flush(key);
     }
 
     /**
@@ -151,13 +192,14 @@ export class DebouncedPersist {
      * @private
      * @param {string} key
      * @param {Function} persistFn
-     * @returns {Promise<void>}
+     * @returns {Promise<boolean>}
      */
     async _executeWithRetry(key, persistFn) {
         for (let attempt = 0; attempt <= this._maxRetries; attempt++) {
             try {
-                await persistFn();
-                return;
+                // A guarded write may refuse explicitly without throwing. It is
+                // still unsaved work, not a successful commit.
+                return await persistFn() !== false;
             } catch (error) {
                 if (attempt < this._maxRetries) {
                     const backoff = BASE_RETRY_DELAY * (2 ** attempt);
@@ -177,5 +219,6 @@ export class DebouncedPersist {
                 }
             }
         }
+        return false;
     }
 }

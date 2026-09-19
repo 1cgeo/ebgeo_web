@@ -787,7 +787,20 @@ export default defineConfig(({ mode: _mode }) => ({
 
   // ===== CSS =====
   css: {
-    devSourcemap: true
+    devSourcemap: true,
+    postcss: {
+      plugins: [{
+        postcssPlugin: 'ebgeo-docsify-theme-fix',
+        Rule(rule) {
+          // docsify 5.0.0 ships an invalid :not:has selector. Fix the dependency
+          // in the CSS pipeline, so npm ci and dev/build receive the same correction.
+          const file = rule.source?.input?.file?.replaceAll('\\', '/') || '';
+          if (file.endsWith('/docsify/dist/themes/core.css') && rule.selector.includes('body:not:has(.sidebar)')) {
+            rule.selector = rule.selector.replaceAll('body:not:has(.sidebar)', 'body:not(:has(.sidebar))');
+          }
+        }
+      }]
+    }
   },
 
   // ===== OPTIMIZATIONS =====

@@ -390,6 +390,9 @@ export function ensureControl(controlKey, { comTurf = true } = {}) {
             if (jaExiste) return jaExiste;
 
             const controle = new Classe(dependencias.toolManager);
+            // Constructor names change in the production minifier. The toolbar and
+            // StateManager must use the stable type declared by this registry.
+            controle.type ||= ferramenta.tipoDeUi;
             instancias.set(controlKey, controle);
             registrarInstancia(controlKey, ferramenta, controle);
             return controle;
@@ -435,6 +438,7 @@ export function seedControl(controlKey, instancia) {
     if (!FERRAMENTAS[controlKey]) {
         throw new Error(`Ferramenta desconhecida no registro: ${controlKey}`);
     }
+    instancia.type ||= FERRAMENTAS[controlKey].tipoDeUi;
     instancias.set(controlKey, instancia);
 }
 

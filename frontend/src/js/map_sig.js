@@ -1,4 +1,5 @@
 // Path: js/map_sig.js
+import * as streetviewApi from './street_view_tool/streetview-api.service.js';
 
 /**
  * @module map_sig
@@ -549,7 +550,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
             config.features.imagens_panoramicas = false;
         } else {
             try {
-                const { preflightCheck } = await import('./street_view_tool/streetview-api.service.js');
+                const { preflightCheck } = streetviewApi;
                 if (!(await preflightCheck())) {
                     config.features.imagens_panoramicas = false;
                 }

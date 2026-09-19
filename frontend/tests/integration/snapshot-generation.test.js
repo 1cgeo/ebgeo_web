@@ -12,7 +12,7 @@ import { readGeneration } from '../../src/js/store/namespace-generation.js';
 import { createAtlas } from '../../src/js/store/atlas/atlas.entity.js';
 import { applyRemoteSnapshot, applyRemoteOperation, markLocalEditPending, setRemoteHandlerEventBus } from '../../src/js/store/sync/remote-operation-handler.js';
 import { operationQueue } from '../../src/js/store/sync/operation-queue.js';
-import { beginStoreWrite } from '../../src/js/store/write-coordinator.js';
+import { beginStoreWrite, storeWritesPaused } from '../../src/js/store/write-coordinator.js';
 
 const atlasId = '51000000-0000-4000-8000-000000000001';
 const mapId = '51000000-0000-4000-8000-000000000002';
@@ -48,6 +48,23 @@ beforeEach(async () => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('Snapshot generation commit with native IndexedDB', () => {
+    it('replays a prepared edit even when the server snapshot has the same cursor', async () => {
+        scope = remoteScope('prepared-same-cursor');
+        activateScope(scope);
+        const fresh = { ...snapshot(19), atlas: { ...snapshot(19).atlas, id: scope.atlasId } };
+        await applyRemoteSnapshot(fresh);
+        const op = { protocolVersion: 2, id: 'prepared-at-same-cursor', entityType: 'feature',
+            operationType: 'create', entityId: featureId, mapId,
+            data: { type: 'Feature', geometry: { type: 'Point', coordinates: [3, 4] },
+                properties: { id: featureId, source: 'point' } } };
+        await operationQueue.enqueueAll([op], { prepared: true });
+        await applyRemoteSnapshot(fresh);
+        expect((await new LocalRepository(scope).getMap(mapId)).features.points
+            .some(feature => feature.properties.id === featureId)).toBe(true);
+        expect((await operationQueue.peek()).map(item => item.id)).toContain(op.id);
+        await operationQueue.clear();
+    });
+
     it('leaves the complete previous generation and cursor visible after a mid-write failure', async () => {
         const previous = readGeneration(scope);
         const save = LocalRepository.prototype.saveMap;
@@ -279,6 +296,7 @@ describe('Snapshot generation commit with native IndexedDB', () => {
         // Snapshot registration is synchronous inside the serialized apply microtask.
         await Promise.resolve();
         await Promise.resolve();
+        await vi.waitFor(() => expect(storeWritesPaused(scope)).toBe(true));
         expect(() => beginStoreWrite(scope)).toThrow('recuperando');
         expect(finished).toBe(false);
         expect(readGeneration(scope)).toEqual(original);

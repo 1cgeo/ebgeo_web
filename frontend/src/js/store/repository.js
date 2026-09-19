@@ -27,6 +27,7 @@ import { limparImagensPoupandoUploads } from './sync/blob-upload-keys.js';
 import { ensureAtlasScope, getScopedStore } from './repositories/local.repository.js';
 import {
     detectMigrationNeeded,
+    assertActiveSlotSupported,
     migrateActiveSlot,
     safelyMigrate
 } from './migration/migration.service.js';
@@ -246,6 +247,8 @@ export async function seedBlankDefaultMap() {
  */
 export async function initializeRepository({ strict = false, installation = true } = {}) {
     try {
+        ensureAtlasScope();
+        await assertActiveSlotSupported();
         const carimboConfiavel = await checkAndCleanLegacyData();
 
         // A CADEIA LEGADA SÓ RODA SOBRE UM CARIMBO EM QUE SE PODE CONFIAR. Com o carimbo ilegível

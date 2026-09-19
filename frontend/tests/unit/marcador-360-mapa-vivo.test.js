@@ -94,7 +94,8 @@ describe('a camada de marcadores 360 do mapa sobreviveu à remoção da tabela h
         // `loadMarkers` → `fetchProjects()` → `GET /sv360/projects`, que é a tabela
         // `sv360.projects`. Era essa a confusão que a remoção podia produzir: tratar a
         // camada como consumidora do catálogo apagado.
-        expect(texto).toMatch(/import\('\.\/streetview-api\.service\.js'\)/);
+        expect(texto).toMatch(/import \* as streetviewApi from '\.\/streetview-api\.service\.js'/);
+        expect(texto).toMatch(/\{ fetchProjects \} = streetviewApi/);
         expect(texto).toMatch(/fetchProjects\(\)/);
         expect(texto, 'a camada não fala com rota de catálogo').not.toMatch(/api\/v1\/(basemaps|tilesets|data-layers|analysis-layers)/);
     });

@@ -49,7 +49,27 @@ describe('acknowledgedOperationIds — só sai da fila o que o servidor confirmo
     });
 
     it('aceita a forma alternativa do ack (`acks` com `opId`)', () => {
-        expect(acknowledgedOperationIds({ acks: [{ opId: 'b' }] }, ops('a', 'b'))).toEqual(['b']);
+        expect(acknowledgedOperationIds({ acks: [{ opId: 'b', status: 'applied' }] }, ops('a', 'b'))).toEqual(['b']);
+    });
+
+    it('recibos sem resultado, desconhecidos ou contraditórios preservam o trabalho', () => {
+        for (const receipt of [{ opId: 'a' }, { opId: 'a', status: 'pending' },
+            { opId: 'a', status: 'conflict', success: true }]) {
+            expect(acknowledgedOperationIds({ acks: [receipt] }, ops('a'))).toEqual([]);
+        }
+        expect(acknowledgedOperationIds({ results: [
+            { operationId: 'a', success: true }, { operationId: 'a', success: false }
+        ] }, ops('a'))).toEqual([]);
+    });
+
+    it('recibo incompleto mantém o lote inteiro para repetir com os mesmos ids', () => {
+        const sent = [...ops('a', 'b').map(op => ({ ...op, batchId: 'gesto' })), ...ops('c')];
+        expect(acknowledgedOperationIds({ results: [
+            { operationId: 'a', success: true }, { operationId: 'c', success: true }
+        ] }, sent)).toEqual(['c']);
+        expect(acknowledgedOperationIds({ acks: sent.map(op => ({
+            opId: op.id, status: 'already_applied'
+        })) }, sent)).toEqual(['a', 'b', 'c']);
     });
 
     it('resposta que não identifica NENHUMA op: nada sai, o lote inteiro fica na fila', () => {

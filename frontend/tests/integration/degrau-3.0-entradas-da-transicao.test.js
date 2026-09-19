@@ -922,12 +922,10 @@ describe('abaixo do piso de 1.3 nada e migrado e nada e fingido', () => {
 
         vi.resetModules();
         const aviso = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        const boot = await bootar();
+        await expect(bootar()).rejects.toMatchObject({ code: 'unsupported_version' });
         const avisos = aviso.mock.calls.map(args => String(args[0]));
         aviso.mockRestore();
 
-        expect(boot.rodouV2).toBe(false);
-        expect(boot.degrausLegados).toEqual([]);
         const depois = await inventario(nomes);
         expect(depois.idsDeFeicao).toEqual(antes.idsDeFeicao);
         expect(depois.carimboDoSettings).toBe('1.2');

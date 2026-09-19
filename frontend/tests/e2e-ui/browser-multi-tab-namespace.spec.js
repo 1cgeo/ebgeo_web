@@ -113,6 +113,19 @@ import {
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
+// Opening no longer creates empty base databases by wiping every store. Verify the
+// committed generation itself, using the raw durable pointer as independent evidence.
+async function committedAtlasDbNames(page, suffix) {
+    const generation = await page.evaluate(suffix => {
+        return JSON.parse(localStorage.getItem(`ebgeo_atlas_generation:${suffix}`))?.active;
+    }, suffix);
+    expect(generation, 'o atlas tem uma geração completa confirmada').toBeTruthy();
+    return atlasDbNames(suffix).map(name => (
+        name === `ebgeo__${suffix}` || name === `ebgeo_images__${suffix}`
+            ? name : `${name}__generation-${generation}`
+    ));
+}
+
 /** Maps databases of every NON-remote (local slot) namespace present on disk. */
 const localMapsDbs = (names) => names.filter(
     (n) => n === 'ebgeo_maps' || (n.startsWith('ebgeo_maps__') && !n.startsWith('ebgeo_maps__remote-')),
@@ -514,8 +527,8 @@ describeOrSkip('Duas abas, um usuário: namespace por atlas (E0)', () => {
 
         // --- Both namespaces on disk, read from the browser, not from an app module. ---
         const names = await attachNamespaces(testInfo, tabA, 'A1 depois das duas aberturas');
-        for (const db of atlasDbNames(remoteSuffix(X.id))) expect(names).toContain(db);
-        for (const db of atlasDbNames(remoteSuffix(Y.id))) expect(names).toContain(db);
+        for (const db of await committedAtlasDbNames(tabA, remoteSuffix(X.id))) expect(names).toContain(db);
+        for (const db of await committedAtlasDbNames(tabB, remoteSuffix(Y.id))) expect(names).toContain(db);
 
         // --- No cross-leak ON DISK: what is drawn in X lands in X and nowhere else. ---
         const pointX = await drawPointUI(tabA, [-43.2, -22.9]);
@@ -584,7 +597,7 @@ describeOrSkip('Duas abas, um usuário: namespace por atlas (E0)', () => {
         expect(ghost.exists, 'um namespace inexistente lê como ausente (e não é criado pela leitura)').toBe(false);
 
         const namesBefore = await attachNamespaces(testInfo, tabA, 'A2 com só a aba A');
-        for (const db of atlasDbNames(remoteSuffix(X.id))) expect(namesBefore).toContain(db);
+        for (const db of await committedAtlasDbNames(tabA, remoteSuffix(X.id))) expect(namesBefore).toContain(db);
 
         // --- The gate: a second tab on the SAME atlas is blocked, and blocked VISIBLY.
         //     SAIBA O QUE ELE MEDE HOJE: com a espera de `keysCollide` no lugar, QUALQUER par

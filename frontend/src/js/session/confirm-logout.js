@@ -1,6 +1,7 @@
 // Path: js/session/confirm-logout.js
 import { registrarUso, descarregarUso } from '@js/session/uso-lote.js';
 import { EventoDeUso, PropDeUso } from '@js/session/eventos-de-uso.js';
+import { showConfirm } from '@modals/confirm.modal.js';
 /** Voluntary logout: confirm the loss across every remote namespace on this browser. */
 import {
     listRemoteAtlases,
@@ -124,7 +125,6 @@ async function confirmAndPrepareLogout(settled, drained = true) {
         console.warn('[logout] could not count remote pending work:', error);
     }
     if (!Number.isFinite(pendingOps) || pendingOps > 0) {
-        const { showConfirm } = await import('@modals/confirm.modal.js');
         const confirmed = await showConfirm('Sair com alterações pendentes?', {
             message: `${pendingWorkSummary(pendingOps, quarantined)} Ao sair, as alterações `
                 + 'pendentes dos atlas do servidor neste navegador, inclusive em outras abas, '

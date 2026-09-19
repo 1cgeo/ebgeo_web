@@ -1961,7 +1961,9 @@ export function applyRemoteSnapshot(snapshot, options = {}) {
         // not yet pushed (they do not move the server version, so they cannot raise it either).
         // The catalog repair the server answers with a snapshot for cannot land here: it only
         // triggers on rows newer than the asked cursor, which puts `currentVersion` above it.
-        if (await activeGenerationHolds(context.scope, snapshot.currentVersion)) return;
+        const queue = operationQueue.forScope(context.scope);
+        const hasPrepared = (await queue.countByState()).preparadas > 0;
+        if (!hasPrepared && await activeGenerationHolds(context.scope, snapshot.currentVersion)) return;
         context.assertActive();
         const pause = pauseStoreWrites(context.scope);
         // Which side of the durable commit a failure lands on: before it, the preparation is disk

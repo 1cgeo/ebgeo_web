@@ -1,4 +1,5 @@
 // Path: js/features_tab/streetview360-section.component.js
+import * as streetviewApi from '@js/street_view_tool/streetview-api.service.js';
 
 /**
  * @fileoverview Component for displaying Street View 360 features in the features tab.
@@ -77,9 +78,7 @@ export async function renderStreetview360Section(container, eventBus) {
     const photoDisplayNames = {};
     if (isStreetviewAvailable) {
         try {
-            const { getPhotoDisplayName } = await import(
-                '@js/street_view_tool/streetview-api.service.js'
-            );
+            const { getPhotoDisplayName } = streetviewApi;
             const entries = await Promise.all(
                 Object.keys(featuresByPhoto).map(async (photoId) => [
                     photoId,

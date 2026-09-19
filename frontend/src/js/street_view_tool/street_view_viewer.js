@@ -1,4 +1,5 @@
 // Path: js/street_view_tool/street_view_viewer.js
+import * as streetviewApi from './streetview-api.service.js';
 
 /**
  * @fileoverview Core Street View 360 viewer using Three.js.
@@ -161,7 +162,7 @@ async function loadMetadataWithCache(name) {
         return streetViewState.metadataCache.get(name);
     }
 
-    const { fetchPhotoMetadata } = await import('./streetview-api.service.js');
+    const { fetchPhotoMetadata } = streetviewApi;
     const data = await fetchPhotoMetadata(name);
 
     streetViewState.metadataCache.set(name, data);

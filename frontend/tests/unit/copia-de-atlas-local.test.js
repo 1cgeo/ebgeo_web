@@ -165,6 +165,42 @@ describe('copyAtlasDatabases :: alcance', () => {
 });
 
 describe('copyAtlasDatabases :: recusa', () => {
+    it('recusa cópia sobre o mesmo endereço físico mesmo com kinds diferentes', async () => {
+        const source = ns.remoteScope('origem');
+        const alias = ns.localScope('resgate', source.dbSuffix);
+        await ns.getStoreFor(ns.StoreName.MAPS, source).setItem('k', 'original');
+        await expect(ns.copyAtlasDatabases(source, alias)).rejects.toThrow('same namespace');
+        expect(await ns.getStoreFor(ns.StoreName.MAPS, source).getItem('k')).toBe('original');
+    });
+
+    it('não anuncia sucesso se a origem for editada no meio da cópia', async () => {
+        const source = ns.localScope('origem', 'aaa');
+        const target = ns.localScope('destino', 'bbb');
+        const maps = ns.getStoreFor(ns.StoreName.MAPS, source);
+        const destination = ns.getStoreFor(ns.StoreName.MAPS, target);
+        await maps.setItem('mapa', { name: 'Antes' });
+        await destination.ready();
+        const save = destination.setItem.bind(destination);
+        vi.spyOn(destination, 'setItem').mockImplementation(async (key, value) => {
+            await save(key, value);
+            await maps.setItem('mapa', { name: 'Depois' });
+            return value;
+        });
+        await expect(ns.copyAtlasDatabases(source, target)).rejects.toThrow('mudou durante a cópia');
+        expect(await maps.getItem('mapa')).toEqual({ name: 'Depois' });
+    });
+
+    it('verifica o valor gravado antes de considerar a cópia concluída', async () => {
+        const source = ns.localScope('origem', 'aaa');
+        const target = ns.localScope('destino', 'bbb');
+        await ns.getStoreFor(ns.StoreName.MAPS, source).setItem('k', 'original');
+        const destination = ns.getStoreFor(ns.StoreName.MAPS, target);
+        await destination.ready();
+        vi.spyOn(destination, 'setItem').mockResolvedValue('original'); // write lost by storage
+        await expect(ns.copyAtlasDatabases(source, target)).rejects.toThrow('verificação');
+        expect(await ns.getStoreFor(ns.StoreName.MAPS, source).getItem('k')).toBe('original');
+    });
+
     it('recusa dois escopos de mesmo ENDEREÇO, ainda que os ids diferentes', async () => {
         const origem = ns.localScope('origem', 'aaa');
         await ns.getStoreFor(ns.StoreName.MAPS, origem).setItem('k', 'valor');

@@ -1,4 +1,5 @@
 // Path: js/street_view_tool/saved_photos_markers.js
+import * as streetviewApi from './streetview-api.service.js';
 
 /**
  * @fileoverview Manages markers for 360 photos with saved data (orientations or markers).
@@ -126,7 +127,7 @@ class SavedPhotosMarkers {
         }
 
         try {
-            const { fetchPhotoMetadata } = await import('./streetview-api.service.js');
+            const { fetchPhotoMetadata } = streetviewApi;
             const data = await fetchPhotoMetadata(photoName);
             this.metadataCache.set(photoName, data);
             return data;

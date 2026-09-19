@@ -1,4 +1,5 @@
 // Path: js/briefing/validation/reference-validator.js
+import * as streetviewApi from '@js/street_view_tool/streetview-api.service.js';
 
 /**
  * @fileoverview Reference validator for briefing slides.
@@ -298,9 +299,7 @@ export class ReferenceValidator {
                 } else if (!availablePhotos.has(slide.photoId)) {
                     // Not in local project cache — validate via API (covers non-entry photos)
                     try {
-                        const { validatePhoto } = await import(
-                            '@js/street_view_tool/streetview-api.service.js'
-                        );
+                        const { validatePhoto } = streetviewApi;
                         const exists = await validatePhoto(slide.photoId);
                         if (!exists) {
                             result.addError(new ValidationError(
@@ -404,9 +403,7 @@ export class ReferenceValidator {
         }
 
         try {
-            const { getCachedProjects, fetchProjects } = await import(
-                '@js/street_view_tool/streetview-api.service.js'
-            );
+            const { getCachedProjects, fetchProjects } = streetviewApi;
             const projects = getCachedProjects() ?? await fetchProjects();
             if (projects && Array.isArray(projects)) {
                 for (const project of projects) {

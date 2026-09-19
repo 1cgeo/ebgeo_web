@@ -1,0 +1,30 @@
+{
+  "release": {
+    "release": "1.0.0+1ba66c77",
+    "version": "1.0.0",
+    "hash": "1ba66c77",
+    "builtAt": "2026-09-19T11:07:33.418Z"
+  },
+  "workingTreeContainsUncommittedFixes": true,
+  "files": 4886,
+  "bytes": 314217496,
+  "inventorySha256": "57744138ce66c7cca54bbc2a2aa16ce8e38e1c51536e90ae18b4e038f4862ece",
+  "entrypoints": [
+    {
+      "path": "atlas.html",
+      "sha256": "46404d950cb078cdf1942e8f2ba939c5f1afb34335c0c35792e69622267321ee",
+      "bytes": 6652
+    },
+    {
+      "path": "index.html",
+      "sha256": "44eb0ca555660fbb6ee9e57eaf63025a096c9df16d93178041df57ace1ce6d82",
+      "bytes": 51989
+    },
+    {
+      "path": "release.json",
+      "sha256": "b4d9ff6254df43e701a45b7a355ca37c1081defab6f3ba0a572721d1c0c703ab",
+      "bytes": 119
+    }
+  ],
+  "frontendSourceDiffSha256": "bb266d96a279c0d00854abaf7925979d5af4ce4514407fc761ca16d7d2389506"
+}

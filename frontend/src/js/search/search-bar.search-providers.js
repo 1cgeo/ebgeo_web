@@ -1,4 +1,5 @@
 // Path: js/search/search-bar.search-providers.js
+import * as streetviewApi from '../street_view_tool/streetview-api.service.js';
 
 /**
  * @fileoverview Search providers for the search bar.
@@ -303,7 +304,7 @@ function searchFirstPersonScenes(normalizedQuery) {
  */
 export async function searchStreetViewMarkers(query) {
     try {
-        const { getCachedProjects, fetchProjects } = await import('../street_view_tool/streetview-api.service.js');
+        const { getCachedProjects, fetchProjects } = streetviewApi;
 
         // Use cache first, fetch if empty
         const projects = getCachedProjects() || await fetchProjects();

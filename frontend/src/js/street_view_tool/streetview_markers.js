@@ -1,4 +1,5 @@
 // Path: js/street_view_tool/streetview_markers.js
+import * as streetviewApi from './streetview-api.service.js';
 
 import config from '../config.js';
 import { formatarDataCaptura } from '@utils/data-captura.js';
@@ -114,7 +115,7 @@ class StreetviewMarkers {
         let features;
 
         try {
-            const { fetchProjects } = await import('./streetview-api.service.js');
+            const { fetchProjects } = streetviewApi;
             const projects = await fetchProjects();
             if (!projects || projects.length === 0) return;
 
@@ -640,7 +641,7 @@ class StreetviewMarkers {
      */
     async _resolveMarkerFromAPI(markerId) {
         try {
-            const { getCachedProjects } = await import('./streetview-api.service.js');
+            const { getCachedProjects } = streetviewApi;
             const projects = getCachedProjects();
             if (!projects) return null;
 

@@ -250,6 +250,47 @@ describe('local-atlas.api :: o registro é uma chave POR SLOT (E4)', () => {
         return apiC.listLocalAtlases().map(e => e.name).sort();
     }
 
+    it('aba desatualizada não restaura nome nem endereço antigos ao criar ou trocar atlas', async () => {
+        const slot = (await api.createLocalAtlas('Antes')).atlas;
+        const stale = await carregarAba();
+        await api.renameLocalAtlas(slot.id, 'Depois');
+        const updated = { ...slotsOnDisk().find(e => e.id === slot.id), dbSuffix: 'upgrade-preservado' };
+        await ns.getGlobalStore().setItem(localAtlasDiskKey(slot.id), updated);
+        await stale.createLocalAtlas('Outro');
+        await stale.setCurrentLocalAtlas(slot.id);
+        expect(slotsOnDisk().find(e => e.id === slot.id)).toMatchObject({
+            name: 'Depois', dbSuffix: 'upgrade-preservado'
+        });
+    });
+
+    it('aba desatualizada não ressuscita atlas excluído', async () => {
+        const slot = (await api.createLocalAtlas('Excluir')).atlas;
+        const stale = await carregarAba();
+        await api.deleteLocalAtlas(slot.id);
+        await stale.createLocalAtlas('Novo');
+        expect((await stale.renameLocalAtlas(slot.id, 'Fantasma')).ok).toBe(false);
+        expect((await stale.mountLocalAtlas(slot.id)).ok).toBe(false);
+        expect(slotsOnDisk().some(e => e.id === slot.id)).toBe(false);
+    });
+
+    it('duas abas não ultrapassam o limite ao criar simultaneamente', async () => {
+        while (api.listLocalAtlases().length < api.MAX_LOCAL_ATLASES - 1) {
+            await api.createLocalAtlas('Atlas');
+        }
+        const other = await carregarAba();
+        const results = await Promise.all([api.createLocalAtlas('A'), other.createLocalAtlas('B')]);
+        expect(results.filter(result => result.ok)).toHaveLength(1);
+        expect(slotsOnDisk()).toHaveLength(api.MAX_LOCAL_ATLASES);
+    });
+
+    it('falha de quota ao criar não deixa slot anunciado apenas na memória', async () => {
+        const before = api.listLocalAtlases();
+        ns.getGlobalStore().setItem.mockRejectedValueOnce(new DOMException('quota', 'QuotaExceededError'));
+        await expect(api.createLocalAtlas('Não gravou')).rejects.toThrow('quota');
+        expect(api.listLocalAtlases()).toMatchObject(before);
+        expect(slotsOnDisk()).toHaveLength(before.length);
+    });
+
     it('duas abas criando um slot cada, as duas CARREGADAS antes de gravar: nenhuma some', async () => {
         const apiA = api; // já carregada no beforeEach
         const apiB = await carregarAba();

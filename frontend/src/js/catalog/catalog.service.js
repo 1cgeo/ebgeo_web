@@ -1,4 +1,5 @@
 // Path: js/catalog/catalog.service.js
+import * as streetviewApi from '../street_view_tool/streetview-api.service.js';
 
 /**
  * @fileoverview Service for aggregating and normalizing catalog data.
@@ -327,7 +328,7 @@ export class CatalogService {
         if (!config.features.imagens_panoramicas) return [];
 
         try {
-            const { getCachedProjects, fetchProjects, sv360ReadUrl } = await import('../street_view_tool/streetview-api.service.js');
+            const { getCachedProjects, fetchProjects, sv360ReadUrl } = streetviewApi;
 
             const projects = getCachedProjects() ?? await fetchProjects();
             if (!projects || projects.length === 0) return [];

@@ -14,11 +14,13 @@ Até 2026-07-18 isto era invertido de um jeito que custava caro: `build` apontav
 
 O deploy anterior copiava por cima do `dist/` servido. Durante a cópia o NGINX servia um diretório **meio atualizado**: `index.html` novo pedindo chunk que ainda não existia, ou o contrário. Não é hipótese de corrida rara, é a janela inteira da cópia.
 
-Cada build agora vira `releases/<timestamp>` e a publicação é um `ln -sfn` (`deploy/deploy.sh`), que o kernel resolve atomicamente. O NGINX resolve o symlink a cada request, então não há restart nem recarga de config. Rollback é o mesmo movimento apontando para a release anterior (`deploy/deploy.sh`), e é por isso que as 3 últimas ficam retidas (`deploy/deploy.sh`).
+Cada build vira `releases/<timestamp>`. A publicação prepara um symlink temporário e usa `mv -Tf` para substituir `current` atomicamente (`deploy/deploy.sh`). O `ln -sfn` usado anteriormente removia o link antes de criar o novo, deixando uma janela de indisponibilidade. O NGINX resolve o symlink a cada request, então não há restart nem recarga de config. Publicação e rollback compartilham uma trava `flock`; o rollback escolhe a versão anterior à que está realmente ativa.
+
+Os chunks em `assets/` das três releases retidas são mantidos acessíveis na release nova: uma aba ainda executando o bundle anterior pode pedir um módulo tardio depois da publicação. O manifesto `.release-assets` registra apenas os arquivos próprios de cada build, para limitar essa retenção. O rollback também carrega os assets próprios das releases retidas, inclusive quando executado duas vezes. A retenção não cobre abas de versões anteriores à janela de três releases, nem converte dados novos para o esquema antigo.
 
 ## A armadilha: o symlink precisa ser relativo
 
-`ln -sfn "releases/$RELEASE_NAME"`, nunca `/mnt/dados/.../releases/$RELEASE_NAME`.
+O destino do symlink deve ser `releases/$RELEASE_NAME`, nunca `/mnt/dados/.../releases/$RELEASE_NAME`.
 
 O container monta o diretório `deploy/` do host em `/var/www/deploy/`. Um symlink **absoluto** guardaria um caminho do host, que dentro do container não existe: o NGINX segue o link, não acha nada e devolve **404 em tudo**, com o deploy reportando sucesso e o diretório da release visivelmente correto no host. O sintoma não aponta para o symlink.
 

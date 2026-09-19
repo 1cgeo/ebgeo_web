@@ -1,4 +1,5 @@
 // Path: js/modals/atlas-settings.modal.js
+import * as streetviewApi from '@js/street_view_tool/streetview-api.service.js';
 
 /**
  * @fileoverview As configurações DO PROJETO, num lugar só: como o mapa se parece (exagero
@@ -470,7 +471,7 @@ export class AtlasSettingsModal extends ModalBase {
         // entrar num atlas, ou seja, quase sempre depois de uma troca de escopo: ler o miss como
         // "não há 360" deixaria o Gestor sem nada para restringir. Miss busca.
         try {
-            const { getCachedProjects, fetchProjects, sv360ReadUrl } = await import('@js/street_view_tool/streetview-api.service.js');
+            const { getCachedProjects, fetchProjects, sv360ReadUrl } = streetviewApi;
             for (const p of (getCachedProjects() ?? await fetchProjects())) {
                 items.push({ id: `360-${p.id}`, type: T.PANORAMIC_360, name: p.name, description: p.description || null,
                     // Escopada como no catálogo: sem o `atlasId` a miniatura do projeto emprestado quebra.

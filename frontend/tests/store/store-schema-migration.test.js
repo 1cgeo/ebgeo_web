@@ -341,12 +341,11 @@ describe('safelyMigrate orchestration', () => {
         expect(uuidCounter.value).toBe(0);
     });
 
-    it('returns success WITHOUT migrating when data is too old to migrate', async () => {
+    it('refuses editing without migrating when data is too old to migrate', async () => {
         await appStore().setItem('schemaVersion', '1.2'); // below MIN_MIGRATABLE_VERSION (1.3)
         await mapStore().setItem('Ancient', { id: 'm', features: { points: [v1Point('old-id')] } });
 
-        const result = await safelyMigrate();
-        expect(result).toEqual({ success: true });
+        await expect(safelyMigrate()).rejects.toMatchObject({ code: 'unsupported_version' });
 
         // Too-old path bails out BEFORE running any migration step.
         const map = await mapStore().getItem('Ancient');
@@ -708,6 +707,27 @@ describe('migrateActiveSlot (o segundo alvo: o atlas montado)', () => {
 
     beforeEach(() => { clearActiveScope(); });
     afterEach(() => { clearActiveScope(); });
+
+    it.each(['1.2', '3.1', 'desconhecida', 3])('preserva e bloqueia slot com versão não suportada %s', async version => {
+        const scope = localScope(SLOT_ID, SLOT_ID);
+        const { settings } = seedScopeAt(scope, version);
+        const maps = makeNamedStore(`ebgeo_maps__${SLOT_ID}`);
+        await maps.setItem('Original', { payload: 'não alterar' });
+        activateScope(scope);
+        await expect(migrateActiveSlot()).rejects.toMatchObject({ name: 'MigrationRecoveryError' });
+        expect(await maps.getItem('Original')).toEqual({ payload: 'não alterar' });
+        expect(await settings.getItem('schemaVersion')).toBe(version);
+    });
+
+    it('dados sem os dois marcadores não são tratados como slot vazio', async () => {
+        const scope = localScope(SLOT_ID, SLOT_ID);
+        const images = makeNamedStore(`ebgeo_images__${SLOT_ID}`);
+        await images.setItem('imagem', new Uint8Array([1, 2, 3]));
+        activateScope(scope);
+        await expect(migrateActiveSlot()).rejects.toMatchObject({ code: 'unknown_version' });
+        expect(await images.getItem('imagem')).toEqual(new Uint8Array([1, 2, 3]));
+        expect(await makeNamedStore(`ebgeo_app_settings__${SLOT_ID}`).getItem('schemaVersion')).toBeNull();
+    });
 
     /**
      * Seeds one scope's two markers by ABSOLUTE database name, and asserts that name is the

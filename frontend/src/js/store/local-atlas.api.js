@@ -71,6 +71,7 @@ export const MAX_LOCAL_ATLASES = 10;
 
 /** Registry shape version, for a future change to the registry itself. */
 const REGISTRY_VERSION = 1;
+const COPY_PREPARATION_PREFIX = '__local_atlas_copy__:';
 
 /** Name given to the atlas that inherits the pre-namespace workspace. */
 export const DEFAULT_LOCAL_ATLAS_NAME = 'Meu Atlas';
@@ -157,27 +158,39 @@ function requireEntries() {
 }
 
 /**
- * Persists the registry and the pointer together. They are written in one place so they
- * cannot drift apart.
- *
- * IT GOES THROUGH `persistRegistryEntry` AND NEVER WRITES A REGISTRY KEY ITSELF, so that the
- * whole module has exactly TWO writers of the registry (this one's helper and
- * `removeRegistryEntry`) and the `localStorage` mirror can be kept by those two alone. Before
- * this there were five write sites, and a mirror hung on two of them would have been a mirror
- * that silently missed three.
+ * Persist only the installation's default pointer. Never rewrite unrelated registry entries
+ * from this tab's memory: another tab may have renamed, migrated or deleted them.
  * @returns {Promise<void>}
  */
-async function persistRegistry() {
-    for (const entry of _entries) {
-        await persistRegistryEntry(entry);
-    }
+async function persistCurrentPointer() {
     await getGlobalStore().setItem(GlobalKey.CURRENT_LOCAL_ATLAS, _currentId);
+}
+
+// Registry changes must read the latest disk state under the same cross-tab lock.
+// A stale tab must never resurrect a deleted slot or restore an obsolete dbSuffix.
+let registryTail = Promise.resolve();
+function withRegistryLock(work, { refresh = true } = {}) {
+    const run = async () => {
+        if (refresh) {
+            requireEntries();
+            const mountedId = _currentId;
+            await loadRegistry();
+            if (_entries.some(entry => entry.id === mountedId)) _currentId = mountedId;
+        }
+        return work();
+    };
+    const task = () => globalThis.navigator?.locks?.request
+        ? navigator.locks.request('ebgeo-local-atlas-registry', run)
+        : run();
+    const result = registryTail.then(task);
+    registryTail = result.catch(() => undefined);
+    return result;
 }
 
 /**
  * Persists ONE slot's registry entry, without touching the in-memory mirror.
  *
- * Separate from `persistRegistry` so a caller can write to disk FIRST and only mirror after
+ * A caller can write to disk FIRST and only mirror after
  * the write resolves. A mirror updated before the disk is a claim the next boot cannot honour.
  * @param {LocalAtlasEntry} entry
  * @returns {Promise<void>}
@@ -350,6 +363,7 @@ async function restaurarRegistroDoEspelho() {
 async function loadRegistry() {
     const globalStore = getGlobalStore();
     _entries = [];
+    const mirrors = new Map(lerEspelho().map(entry => [entry.id, entry]));
 
     const keys = await globalStore.keys();
     for (const key of keys) {
@@ -363,14 +377,26 @@ async function loadRegistry() {
         // and a registry whose ONLY entry is unreadable reads as EMPTY, so `bootstrapEntry` runs
         // and mints a SECOND key for the same databases.
         const value = (stored && typeof stored === 'object') ? stored : {};
-        _entries.push({
+        const mirror = mirrors.get(id);
+        const entry = {
             ...value,
             id,
-            name: typeof value.name === 'string' ? value.name : DEFAULT_LOCAL_ATLAS_NAME,
-            dbSuffix: typeof value.dbSuffix === 'string' ? value.dbSuffix : id,
+            name: typeof value.name === 'string' ? value.name
+                : (typeof mirror?.name === 'string' ? mirror.name : DEFAULT_LOCAL_ATLAS_NAME),
+            dbSuffix: typeof value.dbSuffix === 'string' ? value.dbSuffix
+                : (typeof mirror?.dbSuffix === 'string' ? mirror.dbSuffix : id),
             createdAt: typeof value.createdAt === 'number' ? value.createdAt : 0,
             updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : 0
-        });
+        };
+        // Repair only a key that still exists. Merging missing mirror entries here would
+        // resurrect deleted atlases; guessing suffix=id would orphan migrated/rescued data.
+        if (typeof value.dbSuffix !== 'string' && typeof mirror?.dbSuffix === 'string') {
+            scopeOfLocalAtlas(entry); // validate the recovered address before persisting it
+            await persistRegistryEntry(entry);
+        } else if (typeof value.dbSuffix === 'string') {
+            espelharEntrada(entry);
+        }
+        _entries.push(entry);
     }
 
     await migrateLegacyRegistryArray(globalStore);
@@ -621,8 +647,23 @@ function tabMountedLocalSlotId() {
  *   target redirected by wherever the tab happened to be.
  * @returns {Promise<{ scope: Object, current: LocalAtlasEntry|null, atlases: LocalAtlasEntry[] }>}
  */
-export async function initLocalAtlases(options = {}) {
+export function initLocalAtlases(options = {}) {
+    return withRegistryLock(() => initializeLocalAtlases(options), { refresh: false });
+}
+
+async function initializeLocalAtlases(options) {
     await loadRegistry();
+    // The registry Web Lock excludes a live copy in another tab. Without it, leave
+    // preparations alone: absence of a published entry is not proof the writer died.
+    if (globalThis.navigator?.locks?.request) {
+        const globalStore = getGlobalStore();
+        for (const key of await globalStore.keys()) {
+            if (!key.startsWith(COPY_PREPARATION_PREFIX)) continue;
+            const entry = await globalStore.getItem(key);
+            if (entry && key === COPY_PREPARATION_PREFIX + entry.id
+                && entry.dbSuffix === `copy-${entry.id}`) await discardPreparedCopy(entry);
+        }
+    }
 
     const origin = options.origin ?? await getGlobalStore().getItem(GlobalKey.STORE_ORIGIN);
     const isRemoteOrigin = origin?.kind === StoreScopeKind.REMOTE;
@@ -662,7 +703,7 @@ export async function initLocalAtlases(options = {}) {
         // fall back to the most recently touched slot, and repair the pointer.
         current = [..._entries].sort((a, b) => b.updatedAt - a.updatedAt)[0];
         _currentId = current.id;
-        await persistRegistry();
+        await persistCurrentPointer();
     } else if (current.id !== _currentId) {
         // IN MEMORY ONLY, and never persisted: this branch is only reachable when the tab pointer
         // won. Writing it through would make this tab's reload move the INSTALLATION's default,
@@ -754,7 +795,11 @@ export function activateCurrentLocalAtlasScope() {
  * @returns {Promise<LocalAtlasResult>} `{ ok: true, atlas }`.
  * @throws {Error} When `name` is not a non-empty string (caller bug).
  */
-export async function adoptRemoteAtlasAsLocal(atlasId, name) {
+export function adoptRemoteAtlasAsLocal(atlasId, name) {
+    return withRegistryLock(() => adoptRemoteSlot(atlasId, name), { refresh: false });
+}
+
+async function adoptRemoteSlot(atlasId, name) {
     if (typeof name !== 'string' || name.trim().length === 0) {
         throw new Error('adoptRemoteAtlasAsLocal: name must be a non-empty string');
     }
@@ -762,7 +807,7 @@ export async function adoptRemoteAtlasAsLocal(atlasId, name) {
 
     // The rescue can fire at any moment of a session, so it cannot require a boot that
     // already loaded the registry.
-    if (_entries === null) await loadRegistry();
+    await loadRegistry();
 
     const already = _entries.find(e => e.dbSuffix === dbSuffix);
     if (already) {
@@ -860,7 +905,12 @@ export async function localAtlasAdoptingRemote(atlasId) {
  *   release" is the end state the caller asked for, not a refusal to report to the user.
  * @throws {Error} When `atlasId` is not an opaque server id (caller bug).
  */
-export async function releaseAdoptedLocalAtlas(atlasId) {
+export function releaseAdoptedLocalAtlas(atlasId) {
+    return withRegistryLock(() => releaseAdoptedSlot(atlasId), { refresh: false });
+}
+
+async function releaseAdoptedSlot(atlasId) {
+    await loadRegistry();
     const { dbSuffix } = remoteScope(atlasId);
     const globalStore = getGlobalStore();
 
@@ -911,7 +961,11 @@ export function getLocalAtlas(id) {
  * @returns {Promise<LocalAtlasResult>} `{ ok: true, atlas }`, or a named refusal.
  * @throws {Error} When `name` is not a non-empty string (caller bug).
  */
-export async function createLocalAtlas(name) {
+export function createLocalAtlas(name) {
+    return withRegistryLock(() => createLocalSlot(name));
+}
+
+async function createLocalSlot(name, { preparingCopy = false } = {}) {
     if (typeof name !== 'string' || name.trim().length === 0) {
         throw new Error('createLocalAtlas: name must be a non-empty string');
     }
@@ -928,14 +982,20 @@ export async function createLocalAtlas(name) {
         name: uniqueName(name.trim(), entries),
         // The suffix is the id and never the name: a name is user text with accents and
         // spaces, and renaming an atlas must not require renaming a database.
-        dbSuffix: id,
+        dbSuffix: preparingCopy ? `copy-${id}` : id,
         createdAt: now,
         updatedAt: now
     };
 
-    entries.push(entry);
-    await persistRegistry();
+    if (preparingCopy) {
+        // This journal is not a registry entry: no tab may list or mount a partial copy.
+        await getGlobalStore().setItem(COPY_PREPARATION_PREFIX + id, entry);
+    }
     await seedAtlasRecord(entry);
+    if (!preparingCopy) {
+        await persistRegistryEntry(entry);
+        entries.push(entry);
+    }
 
     return { ok: true, atlas: { ...entry } };
 }
@@ -965,7 +1025,11 @@ export async function createLocalAtlas(name) {
  * @returns {Promise<LocalAtlasResult>} `{ ok: true, atlas }`, or a named refusal.
  * @throws {Error} When `name` is not a non-empty string (caller bug).
  */
-export async function renameLocalAtlas(id, name) {
+export function renameLocalAtlas(id, name) {
+    return withRegistryLock(() => renameLocalSlot(id, name));
+}
+
+async function renameLocalSlot(id, name) {
     if (typeof name !== 'string' || name.trim().length === 0) {
         throw new Error('renameLocalAtlas: name must be a non-empty string');
     }
@@ -1007,7 +1071,7 @@ export async function renameLocalAtlas(id, name) {
  * @returns {Promise<LocalAtlasResult>} `{ ok: true, atlas }`, or a named refusal.
  */
 export async function setCurrentLocalAtlas(id) {
-    return pointAtLocalAtlas(id, getActiveScopeKind() !== StoreScopeKind.REMOTE);
+    return withRegistryLock(() => pointAtLocalAtlas(id, getActiveScopeKind() !== StoreScopeKind.REMOTE));
 }
 
 /**
@@ -1031,7 +1095,7 @@ export async function setCurrentLocalAtlas(id) {
  * @returns {Promise<LocalAtlasResult>} `{ ok: true, atlas }`, or a named refusal.
  */
 export async function mountLocalAtlas(id) {
-    return pointAtLocalAtlas(id, true);
+    return withRegistryLock(() => pointAtLocalAtlas(id, true));
 }
 
 /**
@@ -1046,9 +1110,11 @@ async function pointAtLocalAtlas(id, mount) {
         return refuse(LocalAtlasError.NOT_FOUND, { atlasId: id });
     }
 
+    const updated = { ...entry, updatedAt: Date.now() };
+    await persistRegistryEntry(updated);
+    await getGlobalStore().setItem(GlobalKey.CURRENT_LOCAL_ATLAS, entry.id);
     _currentId = entry.id;
-    entry.updatedAt = Date.now();
-    await persistRegistry();
+    entry.updatedAt = updated.updatedAt;
 
     if (mount) {
         await mountSlotScope(entry);
@@ -1114,7 +1180,11 @@ async function announceLocalAtlasTeardown(entry) {
  *   `LocalAtlasKept` code and appears only when nothing was dropped ON PURPOSE, because another
  *   registry entry still names the same `dbSuffix`.
  */
-export async function deleteLocalAtlas(id) {
+export function deleteLocalAtlas(id) {
+    return withRegistryLock(() => deleteLocalSlot(id));
+}
+
+async function deleteLocalSlot(id) {
     const entries = requireEntries();
     const index = entries.findIndex(e => e.id === id);
     if (index === -1) {
@@ -1152,7 +1222,7 @@ export async function deleteLocalAtlas(id) {
             _currentId = [...entries].sort((a, b) => b.updatedAt - a.updatedAt)[0].id;
         }
         await removeRegistryEntry(entrada.id);
-        await persistRegistry();
+        await persistCurrentPointer();
 
         console.warn(
             `local-atlas: o atlas "${entrada.name}" saiu do registro, mas os bancos "${entrada.dbSuffix}" `
@@ -1185,7 +1255,7 @@ export async function deleteLocalAtlas(id) {
     // still knows about, so without this the deleted slot would survive on disk and come
     // back on the next boot.
     await removeRegistryEntry(entry.id);
-    await persistRegistry();
+    await persistCurrentPointer();
 
     const { dropped, blocked } = await dropAtlasDatabases(scopeOfLocalAtlas(entry));
 
@@ -1216,9 +1286,9 @@ function getActiveScopeKind() {
  * a lição de tentar o caminho contrário: copiar via export/import obrigava a montar o slot novo,
  * o que trazia junto o wipe, a memória do atlas anterior e um reload para desfazer os dois.
  *
- * A ORDEM PROTEGE OS DOIS LADOS: criar vem primeiro porque é o único passo refusável (o teto de
- * dez slots), e uma recusa ali não tocou em byte nenhum. Se a CÓPIA falhar depois, o slot criado é
- * apagado — um atlas vazio com nome de cópia é pior que nenhum, porque parece ter funcionado.
+ * O destino é preparado fora do registro publicado, sob a trava do registro. Só passa a ser
+ * listado após copiar, verificar e corrigir sua identidade. Se a aba morrer antes disso,
+ * o journal permite limpar os bancos incompletos no próximo boot sem tocar no original.
  *
  * O REGISTRO DE ATLAS DO DESTINO É REESCRITO no fim, e é o que impede a cópia de se apresentar
  * como o original: os bancos copiados trazem o `id` e o `name` da origem, e sem esta correção a
@@ -1228,11 +1298,15 @@ function getActiveScopeKind() {
  * @param {string} name - Nome do atlas novo.
  * @returns {Promise<LocalAtlasResult>} `{ ok: true, atlas }` com o slot criado, ou a recusa nomeada.
  */
-export async function duplicateLocalAtlas(sourceId, name) {
+export function duplicateLocalAtlas(sourceId, name) {
+    return withRegistryLock(() => duplicateLocalSlot(sourceId, name));
+}
+
+async function duplicateLocalSlot(sourceId, name) {
     const source = getLocalAtlas(sourceId);
     if (!source) return refuse(LocalAtlasError.NOT_FOUND, { atlasId: sourceId });
 
-    const created = await createLocalAtlas(name);
+    const created = await createLocalSlot(name, { preparingCopy: true });
     if (!created.ok) return created;
 
     const destino = scopeOfLocalAtlas(created.atlas);
@@ -1251,14 +1325,34 @@ export async function duplicateLocalAtlas(sourceId, name) {
             id: created.atlas.id,
             name: created.atlas.name,
         });
+        await publishPreparedCopy(created.atlas);
         return created;
     } catch (error) {
         // A cópia falhou no meio: o slot fica pela metade e mentiria na lista. Apagar é o único
         // desfazer honesto, e ele não pode ser o motivo de a função lançar.
         console.error('[local-atlas] duplicate failed, removing the half-written slot:', error);
-        await deleteLocalAtlas(created.atlas.id).catch(() => undefined);
+        await discardPreparedCopy(created.atlas).catch(() => undefined);
         throw error;
     }
+}
+
+async function publishPreparedCopy(entry) {
+    // The registry write is the commit. Identity and private-resource pruning already
+    // finished; a crash after this point must keep the completed copy.
+    await persistRegistryEntry(entry);
+    requireEntries().push(entry);
+    await getGlobalStore().removeItem(COPY_PREPARATION_PREFIX + entry.id).catch(() => undefined);
+}
+
+async function discardPreparedCopy(entry) {
+    const registry = await readLocalAtlasRegistry();
+    // A committed copy may survive only in the mirror after loss of the registry.
+    // That mirror is written exclusively after commit; preserve it for recovery.
+    if (![...registry, ...lerEspelho()].some(item => item.dbSuffix === entry.dbSuffix)) {
+        const result = await dropAtlasDatabases(scopeOfLocalAtlas(entry));
+        if (result.blocked.length) return;
+    }
+    await getGlobalStore().removeItem(COPY_PREPARATION_PREFIX + entry.id);
 }
 
 /**
@@ -1299,7 +1393,11 @@ export async function saveActiveRemoteAtlasAsLocal(name, resolver) {
         throw new Error('saveActiveRemoteAtlasAsLocal: o resolver de poda é obrigatório');
     }
 
-    const created = await createLocalAtlas(name);
+    return withRegistryLock(() => saveRemoteCopy(origem, name, resolver));
+}
+
+async function saveRemoteCopy(origem, name, resolver) {
+    const created = await createLocalSlot(name, { preparingCopy: true });
     if (!created.ok) return created;
 
     const destino = scopeOfLocalAtlas(created.atlas);
@@ -1316,10 +1414,11 @@ export async function saveActiveRemoteAtlasAsLocal(name, resolver) {
 
         const { podarEscopo } = await import('./private-reference-prune.scope.js');
         const relatorio = await podarEscopo(destino, resolver);
+        await publishPreparedCopy(created.atlas);
         return { ...created, relatorio };
     } catch (error) {
         console.error('[local-atlas] save-as-local failed, removing the half-written slot:', error);
-        await deleteLocalAtlas(created.atlas.id).catch(() => undefined);
+        await discardPreparedCopy(created.atlas).catch(() => undefined);
         throw error;
     }
 }

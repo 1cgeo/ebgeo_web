@@ -197,6 +197,19 @@ afterEach(() => {
 // ============================================================================
 
 describe('B4-8: registro vazio e espelho com slots, no boot', () => {
+    it('recupera o endereço de uma chave corrompida sem ressuscitar chaves excluídas', async () => {
+        const entry = { id: 'migrado', name: 'Acervo', dbSuffix: 'upgrade-original', createdAt: 1, updatedAt: 2 };
+        semearEspelho([entry, { id: 'excluido', name: 'Excluído', dbSuffix: 'excluido' }], dublado.storage);
+        await raw('ebgeo_global').setItem('local_atlas:migrado', 'corrompido');
+        await raw('ebgeo_maps__upgrade-original').setItem('Mapa', { name: 'Trabalho original' });
+        const pagina = await carregarPagina();
+        const boot = await pagina.localAtlas.initLocalAtlases({ origin: ORIGEM_LOCAL });
+        expect(boot.scope.dbSuffix).toBe('upgrade-original');
+        expect((await slotsNoDisco()).map(slot => slot.id)).toEqual(['migrado']);
+        expect(await pagina.ns.getStore(pagina.ns.StoreName.MAPS).getItem('Mapa'))
+            .toEqual({ name: 'Trabalho original' });
+    });
+
     it('restaura os dois slots do espelho e o bootstrap NÃO cria um terceiro', async () => {
         await semearBancosSemSufixo();
         semearEspelho([

@@ -153,6 +153,24 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
+it('falha de rede ao reabrir atlas remoto preserva todos os bancos e a origem remota', async () => {
+    await localApi.initLocalAtlases();
+    const scope = ns.remoteScope(Y);
+    for (const { store } of ns.listAtlasStores(scope)) {
+        await store.setItem('trabalho-pendente', { original: true });
+    }
+    const queue = ns.getStoreFor(ns.StoreName.OPERATION_QUEUE, scope);
+    await queue.setItem('op-pendente', { id: 'nao-confirmada' });
+    engine.connect.mockRejectedValueOnce(new Error('rede indisponível'));
+    await expect(servico.openRemoteAtlas(Y)).rejects.toThrow('rede indisponível');
+    for (const { store } of ns.listAtlasStores(scope)) {
+        expect(await store.getItem('trabalho-pendente')).toEqual({ original: true });
+    }
+    expect(await queue.getItem('op-pendente')).toEqual({ id: 'nao-confirmada' });
+    expect(origem.isRemoteStoreSync()).toBe(true);
+    expect(engine.atlasId).toBeNull();
+});
+
 /**
  * Avanca o laco por ORDEM (voltas da fila de macrotarefas), nunca por milissegundos:
  * `fake-indexeddb` agenda o proprio trabalho em `setImmediate`, que o relogio falso nao troca.

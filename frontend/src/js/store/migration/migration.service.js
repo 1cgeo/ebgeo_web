@@ -82,7 +82,8 @@ import {
     StoreName,
     StoreScopeKind,
     getActiveScope,
-    getStoreFor
+    getStoreFor,
+    listAtlasStores
 } from '../atlas-namespace.js';
 import { isLegacyScope, legacyScope } from './migration-scope.js';
 import { ATLAS_SCHEMA_VERSION } from '../atlas/atlas.entity.js';
@@ -181,6 +182,15 @@ export async function detectMigrationNeeded(scope = legacyScope()) {
     }
     const settingsVersion = await getStoreFor(StoreName.SETTINGS, scope).getItem(SCHEMA_VERSION_KEY);
     const atlas = await getStoreFor(StoreName.ATLAS, scope).getItem(ATLAS_RECORD_KEY);
+    for (const version of [settingsVersion, atlas?.schemaVersion]) {
+        if (version == null) continue;
+        if (typeof version !== 'string' || !/^\d+\.\d+(?:\.\d+)?$/.test(version)) {
+            throw new MigrationRecoveryError('unknown_version', 'A versão dos dados deste atlas não pôde ser identificada. Os dados foram preservados.');
+        }
+        if (compareVersions(version, ATLAS_SCHEMA_VERSION) > 0) {
+            throw new MigrationRecoveryError('unsupported_version', 'Este atlas foi salvo por uma versão mais recente do EBGeo. Os dados foram preservados.');
+        }
+    }
     const currentVersion = effectiveVersion(settingsVersion, atlas);
 
     const atlasCurrent = atlas && atlas.schemaVersion === ATLAS_SCHEMA_VERSION;
@@ -232,7 +242,8 @@ export async function safelyMigrate(scope = legacyScope()) {
             `Version ${currentVersion} is below the migration floor (${MIN_MIGRATABLE_VERSION}); `
             + 'no step runs and nothing is written here. Recovery is the assisted path.'
         );
-        return { success: true };
+        throw new MigrationRecoveryError('unsupported_version',
+            'Este atlas precisa de recuperação assistida antes de ser editado. Os dados foram preservados.');
     }
 
     console.log(
@@ -275,8 +286,15 @@ export async function safelyMigrate(scope = legacyScope()) {
  */
 async function isVirginScope(scope) {
     const version = await getStoreFor(StoreName.SETTINGS, scope).getItem(SCHEMA_VERSION_KEY);
-    if (version) return false;
-    return !(await getStoreFor(StoreName.ATLAS, scope).getItem(ATLAS_RECORD_KEY));
+    if (version != null) return false;
+    if (await getStoreFor(StoreName.ATLAS, scope).getItem(ATLAS_RECORD_KEY)) return false;
+    for (const { store } of listAtlasStores(scope)) {
+        if ((await store.keys()).length > 0) {
+            throw new MigrationRecoveryError('unknown_version',
+                'Este atlas contém dados sem versão identificável. Os dados foram preservados para recuperação.');
+        }
+    }
+    return true;
 }
 
 /**
@@ -302,6 +320,18 @@ export async function migrateActiveSlot() {
 
     await safelyMigrate(scope);
     return { success: true, migrated: true, reason: 'migrated' };
+}
+
+/** Validate a local slot before boot cleanup/backfills can stamp or rewrite its data. */
+export async function assertActiveSlotSupported() {
+    const scope = getActiveScope();
+    if (!scope || scope.kind !== StoreScopeKind.LOCAL || isLegacyScope(scope)) return;
+    if (await isVirginScope(scope)) return;
+    const { currentVersion } = await detectMigrationNeeded(scope);
+    if (isTooOldToMigrate(currentVersion)) {
+        throw new MigrationRecoveryError('unsupported_version',
+            'Este atlas precisa de recuperação assistida antes de ser editado. Os dados foram preservados.');
+    }
 }
 
 /**

@@ -20,6 +20,7 @@
  */
 
 import { BlockingCause, blockingScreenContent } from './blocking-screen-phrases.js';
+import { showMigrationRecovery } from './migration-recovery.js';
 // Por ARQUIVO, e nunca pelo barril: esta tela é montada pelas QUATRO páginas, e três delas bootam
 // sem a store. `erro-telemetria.js` alcança `store/sync/runtime-config.js` (que importa só
 // `config.js` e `api-client.js`, ambos de zero imports) e `store/sync/resource-scope.js`, que é
@@ -151,7 +152,6 @@ export function showUnavailableScreen(cause = BlockingCause.SERVER_UNREACHABLE) 
     recovery.className = 'ebgeo-unavailable__btn';
     recovery.textContent = 'Recuperar dados deste computador';
     recovery.addEventListener('click', async () => {
-        const { showMigrationRecovery } = await import('./migration-recovery.js');
         showMigrationRecovery({ code: 'api_unavailable' });
     });
     card.appendChild(recovery);

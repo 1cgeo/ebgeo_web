@@ -58,6 +58,7 @@ import { getControl, getEventBus, getStateManager } from '@store';
 import { startAutoFlush, stopAutoFlush } from '@store/sync/sync-flush.js';
 import {
     clearAllDataStore,
+    resetAtlasView,
     markStoreRemote,
     markStoreLocal,
     activateAtlasInitialMap,
@@ -589,7 +590,7 @@ export async function openRemoteAtlas(atlasId, { mapId = null } = {}) {
     }
 
     // Switching atlases: close any previous server connection first (one socket per atlas — the
-    // server has no "switch"), then wipe local + connect the new one.
+    // server has no "switch"), then mount and connect the new one.
     if (syncEngine.atlasId) {
         stopAutoFlush();
         // `forgetAtlas: true` porque a aba esta SAINDO deste atlas, e nao pausando nele. O
@@ -631,20 +632,21 @@ export async function openRemoteAtlas(atlasId, { mapId = null } = {}) {
     // `markLocal: false`: the very next line marks REMOTE, and the marker is global to the
     // installation. Flipping it to LOCAL in between announced, to every other tab, an origin
     // that contradicts what this one had already mounted.
-    clearFeatureClipboard();
-    await clearAllDataStore({ markLocal: false });
-    // Mark REMOTE before connecting (durable intent): if the tab dies mid-pull, the boot guard sees
-    // 'remote' and discards the partial data instead of mislabeling it as a permanent local atlas.
-    await markStoreRemote(atlasId);
     try {
+        clearFeatureClipboard();
+        // A failed pull must leave the last complete projection and its image bytes recoverable.
+        // Only an explicitly confirmed discard of rescued work authorizes deletion on open.
+        if (rescued) await clearAllDataStore({ markLocal: false, clearQueue: true });
+        else await resetAtlasView();
+        // Preserve server provenance even if initialization or the first pull fails.
+        await markStoreRemote(atlasId);
         await syncEngine.connect(atlasId, { initialPull: true });
         // Land on the atlas's map (the requested one when given), not the local default.
         await activateAtlasInitialMap(mapId);
     } catch (error) {
-        // Connect failed (e.g. 403/404 or a backend hiccup): the local store is already blank and the
-        // origin is durably 'remote' pointing at an atlas we cannot open. Revert the origin to LOCAL
-        // so the boot reconnect (which reads the origin) does not keep retrying the dead atlas on F5.
-        await markStoreLocal();
+        // The data still belongs to the server atlas. A network error cannot turn it into
+        // an unrestricted local workspace, or edits would bypass remote permission checks.
+        syncEngine.disconnect({ forgetAtlas: true });
         // Same revert for the lock: a tab that announced a UUID it cannot open must RETRACT it,
         // or every other tab stays locked out of the server on behalf of an atlas nobody has.
         retractAtlasClaim();

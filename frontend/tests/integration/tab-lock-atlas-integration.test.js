@@ -109,6 +109,7 @@ vi.mock('@store/store.js', () => ({
     // `tests/integration/namespace-remoto-fiacao.test.js`, com a fábrica de verdade.
     activateRemoteAtlas: vi.fn(async () => calls.push('activateRemoteAtlas')),
     clearAllDataStore: vi.fn(async () => calls.push('clearAllDataStore')),
+    resetAtlasView: vi.fn(async () => calls.push('resetAtlasView')),
     markStoreRemote: vi.fn(async () => calls.push('markStoreRemote')),
     markStoreLocal: vi.fn(async () => calls.push('markStoreLocal')),
     isRemoteStoreSync: vi.fn(() => false),
@@ -116,7 +117,7 @@ vi.mock('@store/store.js', () => ({
     activateAtlasInitialMap: vi.fn(async () => calls.push('activateAtlasInitialMap')),
 }));
 
-import { isRemoteStoreSync, hasAnyMapFeatures, clearAllDataStore } from '@store/store.js';
+import { isRemoteStoreSync, hasAnyMapFeatures, resetAtlasView } from '@store/store.js';
 import { readLocalAtlasRegistry } from '@store/atlas-namespace.js';
 import { showChoice } from '@modals/confirm.modal.js';
 import { showError } from '@utils/toast_service.js';
@@ -242,8 +243,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-    peer?.destroy();
+    // Destroying the peer first resumes a deferred open on the page and lets that
+    // asynchronous work mutate the next test's lock. Teardown must not reopen an atlas.
+    deferAtlasOpen(null);
     destroyTabLock();
+    peer?.destroy();
     vi.clearAllMocks();
 });
 
@@ -330,8 +334,8 @@ describe('openRemoteAtlas: a colisão é respondida ANTES do clearAllDataStore',
     it('caminho livre: a chave já é remota no instante em que o scratch é apagado', async () => {
         bootPageLock(localAtlasKey('slot-a'));
         let keyAtWipe = null;
-        vi.mocked(clearAllDataStore).mockImplementation(async () => {
-            calls.push('clearAllDataStore');
+        vi.mocked(resetAtlasView).mockImplementation(async () => {
+            calls.push('resetAtlasView');
             keyAtWipe = getTabLock().key;
         });
 
@@ -341,7 +345,7 @@ describe('openRemoteAtlas: a colisão é respondida ANTES do clearAllDataStore',
         // Se o acquire viesse depois do wipe, aqui se leria `local`.
         expect(keyAtWipe).toEqual({ kind: 'remote', atlasId: 'atlas-uuid' });
         expect(calls).toEqual([
-            'activateRemoteAtlas', 'clearAllDataStore', 'markStoreRemote', 'connect',
+            'activateRemoteAtlas', 'resetAtlasView', 'markStoreRemote', 'connect',
             'activateAtlasInitialMap', 'startAutoFlush',
         ]);
     });
@@ -382,7 +386,7 @@ describe('openRemoteAtlas: a colisão é respondida ANTES do clearAllDataStore',
         peer.release();
         await settle(10);
 
-        expect(calls).toContain('clearAllDataStore');
+        expect(calls).toContain('resetAtlasView');
         expect(syncEngineDouble.atlasId).toBe('atlas-uuid');
     });
 
@@ -426,7 +430,7 @@ describe('openRemoteAtlas: a colisão é respondida ANTES do clearAllDataStore',
 
         expect(opened).toBe(true);
         // A abertura rodou inteira, na ordem que o contrato exige.
-        expect(calls).toContain('clearAllDataStore');
+        expect(calls).toContain('resetAtlasView');
         expect(calls).toContain('connect');
         expect(syncEngineDouble.atlasId).toBe('atlas-uuid');
         // E a vizinha nao pagou por isso: nem bloqueada, nem deslocada da propria chave.
@@ -478,7 +482,7 @@ describe('openRemoteAtlas: a colisão é respondida ANTES do clearAllDataStore',
         await settle();
 
         expect(await openRemoteAtlas('atlas-uuid')).toBe(true);
-        expect(calls).toContain('clearAllDataStore');
+        expect(calls).toContain('resetAtlasView');
         expect(peer.blocked).toBe(false);
     });
 
@@ -502,7 +506,7 @@ describe('retratação: chave anunciada que não se consegue honrar', () => {
 
         await expect(openRemoteAtlas('atlas-uuid')).rejects.toThrow('nope');
 
-        expect(calls).toContain('markStoreLocal');
+        expect(calls).not.toContain('markStoreLocal');
         expect(getTabLock().key.kind).not.toBe('remote');
     });
 
@@ -718,7 +722,7 @@ describe('furo #1: o pré-voo consulta o lock de montagem, e não só o silênci
     it('CONTROLE NEGATIVO: sem ninguém montando o destino, o open segue e apaga', async () => {
         bootPageLock(localAtlasKey('slot-a'));
         expect(await openRemoteAtlas('atlas-uuid')).toBe(true);
-        expect(calls).toContain('clearAllDataStore');
+        expect(calls).toContain('resetAtlasView');
     });
 
     it('a testemunha NÃO é consultada quando a aba já segura aquele atlas: seria a própria '
@@ -731,7 +735,7 @@ describe('furo #1: o pré-voo consulta o lock de montagem, e não só o silênci
         bootPageLock(remoteAtlasKey('atlas-uuid'));
 
         expect(await openRemoteAtlas('atlas-uuid')).toBe(true);
-        expect(calls).toContain('clearAllDataStore');
+        expect(calls).toContain('resetAtlasView');
         expect(vi.mocked(showError)).not.toHaveBeenCalled();
     });
 });

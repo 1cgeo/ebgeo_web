@@ -24,7 +24,7 @@
 // CONVERGE ao lado dos que não convergem, porque um bloco só de vermelhos não separa "o registro
 // é frágil" de "o registro nunca se repara".
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { localSlotsOnDisk, localAtlasDiskKey } from '../helpers/atlas-registry-disk.js';
 
 // ============================================================================
@@ -223,7 +223,11 @@ function criarPorta() {
     return { promessa, abrir };
 }
 
+// These forced interleavings exercise the fallback without Web Locks. The HTTPS
+// serialized path is covered by local-atlas-api.test.js with the real lock manager.
+afterEach(() => vi.unstubAllGlobals());
 beforeEach(() => {
+    vi.stubGlobal('navigator', {});
     resetFake();
     uuidCounter.value = 0;
     vi.restoreAllMocks();

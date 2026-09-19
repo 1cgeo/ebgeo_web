@@ -73,6 +73,7 @@ const store = vi.hoisted(() => ({
 
 vi.mock('@store/store.js', () => ({
     clearAllDataStore: store.clearAllDataStore,
+    resetAtlasView: vi.fn(async () => {}),
     markStoreRemote: store.markStoreRemote,
     markStoreLocal: store.markStoreLocal,
     activateAtlasInitialMap: store.activateAtlasInitialMap,

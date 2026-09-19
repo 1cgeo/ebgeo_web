@@ -114,6 +114,7 @@ vi.mock('@store/store.js', async (importOriginal) => {
     const ns = await import('@store/atlas-namespace.js');
     return {
         ...real,
+        resetAtlasView: vi.fn(async () => { calls.push('resetAtlasView'); }),
         // Reproduz o essencial do wipe: esvaziar os dez bancos do escopo ATIVO.
         clearAllDataStore: vi.fn(async () => {
             calls.push('clearAllDataStore');
@@ -191,7 +192,7 @@ describe('openRemoteAtlas :: monta o namespace do atlas aberto', () => {
         expect(ns.getActiveScope()).toEqual(ns.remoteScope(ATLAS_A));
         expect((await remoteApi.listRemoteAtlases()).map(e => e.atlasId)).toEqual([ATLAS_A]);
         expect(ns.getStore(ns.StoreName.MAPS).__dbName).toBe(`ebgeo_maps__remote-${ATLAS_A}`);
-        expect(calls).toEqual(['clearAllDataStore', 'connect', 'activateAtlasInitialMap']);
+        expect(calls).toEqual(['resetAtlasView', 'connect', 'activateAtlasInitialMap']);
     });
 
     it('o wipe cai no namespace ABERTO, não no atlas local que a aba tinha montado', async () => {
@@ -201,8 +202,8 @@ describe('openRemoteAtlas :: monta o namespace do atlas aberto', () => {
 
         await abrir.openRemoteAtlas(ATLAS_A);
 
-        // O bloco que a abertura veio limpar: vazio.
-        expect(aindaComSentinela(bancosRemotos(ATLAS_A))).toEqual([]);
+        // A abertura preserva o cache at? o commit de um novo snapshot.
+        expect(aindaComSentinela(bancosRemotos(ATLAS_A))).toEqual(bancosRemotos(ATLAS_A));
         // CONTROLE: o trabalho local segue no disco. Antes da fiação os dois eram os MESMOS
         // dez bancos, e esta linha lia uma lista vazia.
         expect(aindaComSentinela(PER_ATLAS_BASE_NAMES)).toEqual(PER_ATLAS_BASE_NAMES);
@@ -263,7 +264,7 @@ describe('openRemoteAtlas :: monta o namespace do atlas aberto', () => {
 
         await expect(abrir.openRemoteAtlas(ATLAS_A)).rejects.toThrow('403');
 
-        expect(origem.isRemoteStoreSync()).toBe(false);
+        expect(origem.isRemoteStoreSync()).toBe(true);
         // O namespace foi criado e tem de continuar alcançável: a origem local não é inventário.
         expect((await remoteApi.listRemoteAtlases()).map(e => e.atlasId)).toEqual([ATLAS_A]);
     });

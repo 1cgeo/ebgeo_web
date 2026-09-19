@@ -1,4 +1,5 @@
 // Path: js/briefing/editor/briefing-editor.control.js
+import * as streetviewApi from '@js/street_view_tool/streetview-api.service.js';
 
 /**
  * @fileoverview Main briefing editor control.
@@ -1428,7 +1429,7 @@ export class BriefingEditorControl {
                 const {
                     fetchPhotoMetadata,
                     getPhotoDisplayName
-                } = await import('@js/street_view_tool/streetview-api.service.js');
+                } = streetviewApi;
 
                 for (const photoName of photoNames) {
                     const ori = orientations[photoName];

@@ -240,7 +240,9 @@ describe('o núcleo do modal de compartilhamento cabe em `atlas.html`', () => {
         // (importa as duas mais o contrato de feição). Nenhuma alcança a store, que é o que os
         // proibidos abaixo medem, e é por isso que o teto sobe em vez de a mudança ser desfeita.
         expect(grafo.arquivos.size).toBeGreaterThanOrEqual(12);
-        expect(grafo.arquivos.size).toBeLessThanOrEqual(28);
+        // Atlas copying also verifies binary values through storage-value.js, a leaf
+        // without imports. Keep the bound explicit; no application store is pulled in.
+        expect(grafo.arquivos.size).toBeLessThanOrEqual(29);
     });
 
     for (const [rotulo, padrao] of Object.entries(PROIBIDOS)) {

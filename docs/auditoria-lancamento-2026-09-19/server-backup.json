@@ -1,0 +1,15 @@
+{
+  "tablesCompared": 56,
+  "rowsCompared": 9515,
+  "binaryFilesCompared": 501,
+  "rebasedImagePaths": 14,
+  "restoredImagesServed": 14,
+  "snapshotIdenticalByIdentity": true,
+  "unorderedTransportCollections": [
+    "maps",
+    "groups",
+    "groupFeatures"
+  ],
+  "postgresMajor": 16,
+  "databaseDumpBytes": 371870
+}

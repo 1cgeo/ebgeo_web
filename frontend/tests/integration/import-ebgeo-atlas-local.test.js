@@ -575,7 +575,7 @@ describe('marcador LOCAL sobre um namespace de SERVIDOR montado', () => {
         expect(ns.getActiveScope()).toEqual(ns.remoteScope(ATLAS_SERVIDOR));
         expect(ns.getStore(ns.StoreName.MAPS).__dbName)
             .toBe(`ebgeo_maps__remote-${ATLAS_SERVIDOR}`);
-        expect(origem.isRemoteStoreSync()).toBe(false);
+        expect(origem.isRemoteStoreSync()).toBe(true);
     });
 
     it('o import NÃO escreve no namespace do servidor: ele cria um atlas local', async () => {

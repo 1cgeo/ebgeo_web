@@ -201,6 +201,21 @@ async function unmountCurrentAtlas({ clearQueue = true } = {}) {
     }
 }
 
+/** Clear presentation without deleting the mounted atlas's durable data. */
+export async function resetAtlasView() {
+    resetMemoryStore();
+    mapResolver.clear();
+    mapManager.projectColorCache.clear();
+    deps.layerManager?.clearLayersCache();
+    clearCesium3dCache();
+    clearStreetview360Cache();
+    deps.eventBus?.emit(EventTypes.ALL_DATA_CLEARED, { rebuild: false });
+    deps.eventBus?.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
+    // A reconnect may receive only a tail, so map-name resolution must also work without
+    // a full snapshot rebuilding it. This reads the mounted cache without rewriting it.
+    await mapResolver.initialize(getRepository());
+}
+
 /** Janela em que um anúncio repetido da MESMA lista reaproveita o relatório do primeiro. */
 const TEARDOWN_ANNOUNCE_MEMO_MS = 5000;
 
