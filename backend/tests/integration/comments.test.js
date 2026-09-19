@@ -138,11 +138,15 @@ describe('Spatial comments — sync + visibility', () => {
     assert.equal(r.status, 'resolved');
   });
 
-  it('an Editor CAN edit and delete ANY comment', async () => {
+  it('an Editor cannot edit foreign text, but can still moderate the thread', async () => {
     const id = randomUUID();
     await push(commenterTok, commentOp(id, commenter.id, { text: 'orig' }), 200);
-    await push(writerTok, updateOp(id, { text: 'by editor', status: 'open', authorId: commenter.id }), 200);
-    assert.equal((await row(id)).text, 'by editor');
+    const denied = await push(writerTok, updateOp(id, { text: 'by editor', status: 'open', authorId: writer.id }), 200);
+    assert.equal(denied.body.data.results[0].rejected, true);
+    assert.equal((await row(id)).text, 'orig');
+    await push(writerTok, updateOp(id, { status: 'resolved' }), 200);
+    assert.equal((await row(id)).text, 'orig');
+    assert.equal((await row(id)).status, 'resolved');
     await push(writerTok, deleteOp(id), 200);
     assert.ok((await row(id)).deleted_at, 'an editor can delete any comment');
   });

@@ -218,7 +218,7 @@ describe('editar o próprio comentário', () => {
     const card = fonte('src/js/comment_tool/comment-card.js');
 
     it('a entrada oferece "Editar" a quem pode modificá-la', () => {
-        expect(card).toMatch(/if \(podeModificar\(entrada\)\)/);
+        expect(card).toMatch(/if \(podeEditar\(entrada\)\)/);
         expect(card).toContain("dataset.testid = 'comment-edit-open'");
     });
 

@@ -2644,3 +2644,7 @@ At the user's request, comments in the first-person museum use the existing map 
 The existing sidebar new-comment button now routes to the open surface (2D, Cesium, 360 or first person). The separate 360/Cesium comment buttons were removed; first person adds no button or keyboard shortcut. Failed persistence keeps the composer text and rejects concurrent submissions. The local museum registration was already present; its installed 82-file manifest was verified against its registered SHA-256 signature, without overwriting catalog data.
 
 Position labels on all four surfaces use abbreviated rank and war name (for example, Maj Diniz). The optional `users.nome_guerra` field preserves the full name separately; older accounts fall back to the existing name until edited. Authentication and both live and initial presence rosters carry this field. Clicking the scene closes the comment card; switching to another drawing tool cancels comment placement before the next click.
+
+### 2026-09-19: comment text belongs exclusively to its author
+
+At the user's request, atlas editors, managers, owners and global administrators cannot edit another author's comment or reply. The shared card and local store enforce authorship; sync refuses foreign edits before operation logging and broadcast, using the server author column, after revision patches are prepared. Existing moderation rights remain separate. Status moderation preserves the stored body, including for older clients sending a full comment object.

@@ -24,6 +24,7 @@ import { checkPermission, GuardAction } from '@store/sync/permission-guard.js';
 import { getPresenceColor } from '@js/presence/presence-colors.js';
 import {
     SUPERFICIE,
+    podeEditar,
     autoriaAtual,
     ehDaSuperficie,
     montarCartaoDeCompose,
@@ -180,12 +181,9 @@ export class CommentOverlay {
             && checkPermission(GuardAction.CREATE_COMMENT).allowed;
     }
 
-    /** @private Whether the session may edit/resolve/delete THIS comment: an Editor+ may act on any,
-     * a Comentarista only on their own. Always true on the local store (P1). */
+    /** @private Only the author may reposition a comment. */
     _canModify(comment) {
-        if (!this._canComment()) return false;
-        if (sessionContext.canPerformAction('canEdit')) return true;
-        return !!comment.authorId && comment.authorId === sessionContext.userId;
+        return podeEditar(comment);
     }
 
     /** @returns {boolean} */

@@ -184,23 +184,33 @@ export async function addReply(parentId, input, mapName = null) {
  */
 export async function updateComment(comment, mapName = null) {
     const targetMap = resolveMap(mapName);
-    if (!guardComment(GuardAction.UPDATE_COMMENT, 'updateComment')) return;
-    if (!comment?.id) return;
+    if (!guardComment(GuardAction.UPDATE_COMMENT, 'updateComment')) return false;
+    if (!comment?.id) return false;
+    let saved = false;
 
     // Leaf RMW of the comments document; see the note on `addComment` and document-lock.js.
     await withSideDocument('comments', targetMap, 'updateComment', () => runTransaction(async (tx) => {
         const collection = await getRepository().getMapComments(targetMap);
         const previous = collection[comment.id];
         if (!previous) return () => {};
-        const next = { ...previous, ...comment, updatedAt: Date.now() };
+        const changesBody = Object.entries(comment).some(([key, value]) =>
+            !['id', 'status', 'updatedAt', 'sync'].includes(key)
+            && JSON.stringify(value) !== JSON.stringify(previous[key]));
+        if (changesBody
+            && (!previous.authorId || previous.authorId !== sessionContext.userId)) {
+            emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'updateComment', reason: 'Somente o autor pode editar o comentário.' });
+            return () => {};
+        }
+        const next = { ...previous, ...comment, authorId: previous.authorId, updatedAt: Date.now() };
         collection[comment.id] = next;
         tx.deferSync(() => emitComment(EventTypes.COMMENT_UPDATED, { comment: next }));
         {
             const mapId = mapManager.getMapId(targetMap);
             tx.recordOperation(EntityType.COMMENT, OperationType.UPDATE, next.id, mapId, next, previous);
         }
-        return () => getRepository().saveMapComments(targetMap, collection);
+        return async () => { await getRepository().saveMapComments(targetMap, collection); saved = true; };
     }));
+    return saved;
 }
 
 /**
@@ -214,7 +224,7 @@ export async function resolveComment(commentId, resolved, mapName = null) {
     const collection = await getRepository().getMapComments(targetMap);
     const existing = collection[commentId];
     if (!existing) return;
-    return updateComment({ ...existing, status: resolved ? 'resolved' : 'open' }, mapName);
+    return updateComment({ id: existing.id, status: resolved ? 'resolved' : 'open' }, mapName);
 }
 
 /**

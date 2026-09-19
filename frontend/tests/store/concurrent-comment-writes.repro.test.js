@@ -46,7 +46,7 @@ vi.mock('../../src/js/store/store-state-manager.js', () => ({
 }));
 
 vi.mock('../../src/js/store/sync/session-context.js', () => ({
-    sessionContext: { isAuthenticated: () => true }
+    sessionContext: { isAuthenticated: () => true, userId: 'u1' }
 }));
 
 vi.mock('../../src/js/store/sync/index.js', () => ({

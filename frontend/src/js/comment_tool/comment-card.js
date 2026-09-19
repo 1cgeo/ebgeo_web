@@ -127,6 +127,11 @@ export function podeModificar(comentario) {
     return !!comentario?.authorId && comentario.authorId === sessionContext.userId;
 }
 
+/** Editing text is reserved to its author, independently of atlas administration. */
+export function podeEditar(comentario) {
+    return podeComentar() && !!comentario?.authorId && comentario.authorId === sessionContext.userId;
+}
+
 /**
  * O compositor: uma caixa de texto com enviar e (opcionalmente) cancelar.
  *
@@ -207,12 +212,12 @@ function editarNoLugar(corpo, paragrafo, entrada) {
         compact: true,
         onCancel: () => { editor.replaceWith(paragrafo); },
         onSubmit: async (texto) => {
-            // O TEXTO VOLTA ANTES DA ESCRITA porque o cartão inteiro se refaz quando
-            // `COMMENT_UPDATED` chega: deixar o editor aberto mostraria dois estados do mesmo
-            // comentário por um instante.
+            if (!podeEditar(entrada)) return false;
+            const saved = await updateComment({ id: entrada.id, text: texto });
+            if (!saved) return false;
             paragrafo.textContent = texto;
             editor.replaceWith(paragrafo);
-            await updateComment({ id: entrada.id, text: texto });
+            return true;
         },
     });
     const caixa = editor.querySelector('.comment-composer__input');
@@ -254,10 +259,8 @@ export function montarEntrada(entrada, ehRaiz) {
     text.textContent = entrada.text || '';
     body.appendChild(text);
 
-    // EDITAR O PRÓPRIO TEXTO (pedido do dono, 2026-09-18). Fica em CADA ENTRADA, e não só na raiz,
-    // porque uma resposta errada e' tao comum quanto um comentario errado; e o gate e' o mesmo de
-    // resolver e excluir (`podeModificar`), que o servidor aplica pela coluna `author_id`.
-    if (podeModificar(entrada)) {
+    // Roots and replies have independent authors; moderation never grants text editing.
+    if (podeEditar(entrada)) {
         const editar = document.createElement('button');
         editar.type = 'button';
         editar.className = 'comment-entry__edit';

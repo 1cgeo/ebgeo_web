@@ -86,7 +86,7 @@ vi.mock('../../src/js/store/services.js', () => ({
 // Imports (after mocks)
 // ============================================================================
 
-const { addComment, addReply, resolveComment, getComments } = await import(
+const { addComment, addReply, resolveComment, getComments, updateComment } = await import(
     '../../src/js/store/comment.operations.js'
 );
 
@@ -95,6 +95,22 @@ const { addComment, addReply, resolveComment, getComments } = await import(
 // ============================================================================
 
 describe('comment.operations — addReply', () => {
+    it('blocks a foreign text edit before persistence, events or enqueue, even with forged authorship', async () => {
+        h.comments.value = { foreign: { id: 'foreign', authorId: 'other', text: 'Original' } };
+        expect(await updateComment({ id: 'foreign', authorId: 'user-1', text: 'Changed' })).toBe(false);
+        expect(h.comments.value.foreign.text).toBe('Original');
+        expect(h.comments.value.foreign.authorId).toBe('other');
+        expect(h.logCommentOperation).not.toHaveBeenCalled();
+        expect(h.emit).not.toHaveBeenCalled();
+        expect(await updateComment({ id: 'foreign', lng: 20, status: 'open' })).toBe(false);
+        expect(h.logCommentOperation).not.toHaveBeenCalled();
+    });
+    it('allows the author to edit their own text', async () => {
+        h.comments.value = { mine: { id: 'mine', authorId: 'user-1', text: 'Original' } };
+        expect(await updateComment({ id: 'mine', text: 'Corrected' })).toBe(true);
+        expect(h.comments.value.mine.text).toBe('Corrected');
+        expect(h.logCommentOperation).toHaveBeenCalledTimes(1);
+    });
     beforeEach(() => {
         h.comments.value = {};
         h.authenticated.value = true;

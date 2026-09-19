@@ -146,7 +146,7 @@ describe('sync com share `manage` (co-Gestor)', () => {
     assert.equal(rows[0].locked, false);
   });
 
-  it('manage EDITA comentário de OUTRO autor (prende o `manage` dentro do isEditor)', async () => {
+  it('manage cannot edit another author comment', async () => {
     const { atlas, map } = await cenario();
     const comentarioId = randomUUID();
 
@@ -155,17 +155,18 @@ describe('sync com share `manage` (co-Gestor)', () => {
     assert.equal(antes.text, 'original');
     assert.equal(antes.author_id, comentarista.id, 'a autoria é do comentarista');
 
-    await push(atlas.id, gestorTok, [{ protocolVersion: 2,
+    const result = await push(atlas.id, gestorTok, [{ protocolVersion: 2,
       id: randomUUID(), entityType: 'comment', operationType: 'update', entityId: comentarioId, mapId: map.id,
       data: { id: comentarioId, mapId: map.id, lng: -43.2, lat: -22.9, text: 'editado pelo gestor' },
       timestamp: Date.now(), clientId: 'mgt-client',
     }]).expect(200);
 
     const depois = await rowDoComentario(comentarioId);
+    assert.equal(result.body.data.results[0].rejected, true);
     assert.equal(
       depois.text,
-      'editado pelo gestor',
-      'com a lista fechada errada o UPDATE casa ZERO linhas e o texto não mudaria'
+      'original',
+      'management does not grant authorship'
     );
   });
 
@@ -197,7 +198,7 @@ describe('sync com share `manage` (co-Gestor)', () => {
       data: { id: comentarioId, mapId: map.id, lng: -43.2, lat: -22.9, text: 'invasão' },
       timestamp: Date.now(), clientId: 'mgt-client',
     }]).expect(200);
-    assert.equal(res.body.data.results[0].success, true, 'a op é acked (o gate de autoria vive no SQL)');
+    assert.equal(res.body.data.results[0].rejected, true, 'the foreign edit is explicitly refused');
 
     assert.equal(
       (await rowDoComentario(comentarioId)).text,

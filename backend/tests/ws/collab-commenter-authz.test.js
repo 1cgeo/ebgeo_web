@@ -170,4 +170,27 @@ describe('WebSocket collab — Comentarista (comment tier) authorization', () =>
       'a comment-tier user must not broadcast selection to peers'
     );
   });
+
+  it('an atlas owner cannot edit a peer comment through WebSocket or broadcast the refused text', async () => {
+    const writer = await connect(commenterToken);
+    const ownerTok = await loginUser(app, owner.username, owner.password);
+    const moderator = await connect(ownerTok);
+    const id = randomUUID();
+    const create = { protocolVersion: 2, id: randomUUID(), entityType: 'comment', operationType: 'create',
+      entityId: id, mapId: map.id, timestamp: Date.now(), clientId: 'cw-author',
+      data: { id, text: 'Original author text', status: 'open' } };
+    writer.send({ type: 'operation', op: create });
+    await writer.waitForType('ack');
+    await moderator.waitForType('operation');
+    writer.clearMessages();
+    const edit = { ...create, id: randomUUID(), operationType: 'update', clientId: 'cw-owner',
+      data: { id, text: 'Foreign edit', authorId: owner.id, status: 'open' } };
+    moderator.send({ type: 'operation', op: edit });
+    const ack = await moderator.waitForType('ack');
+    assert.equal(ack.result.rejected, true);
+    await sleep(250);
+    assert.equal(writer.getMessagesOfType('operation').filter((frame) => frame.op?.id === edit.id).length, 0);
+    const { rows } = await db.query('SELECT data FROM comments WHERE id = $1', [id]);
+    assert.equal(rows[0].data.text, 'Original author text');
+  });
 });

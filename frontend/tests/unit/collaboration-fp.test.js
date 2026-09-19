@@ -36,6 +36,7 @@ vi.mock('@store/sync/session-context.js', () => ({ sessionContext: {
 vi.mock('@js/presence/presence-store.js', () => ({ presenceStore: { getCursors: (_surface, scene) => h.peers.filter((p) => p.position.tilesetId === scene) } }));
 import { FpCollaboration, pickFpPoint, projectFpPoint } from '@js/first_person_3d_tool/collaboration-fp.js';
 import { EventTypes } from '@events/event_types.js';
+import { montarCartaoDeThread } from '@js/comment_tool/comment-card.js';
 
 const camera = { position: { x: 1, y: 2, z: 3 }, fov: 60, aspect: 1,
     matrixWorld: { elements: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 2, 3, 1] } };
@@ -56,6 +57,15 @@ function mount(collision = { queryRay: () => ({ x: 1, y: 2, z: 0 }) }) {
 }
 
 describe('first-person collaboration', () => {
+    it('only offers Edit on the author own entry, across all surfaces, even for editors', () => {
+        for (const surface of ['2d', '3d', '360', 'fp']) {
+            const card = montarCartaoDeThread({ raiz: { ...root, surface, authorId: 'other' },
+                respostas: [{ ...root, id: 'mine', parentId: 'root', authorId: 'me', text: 'My reply' }], aoFechar: vi.fn() });
+            const edits = card.querySelectorAll('.comment-entry__edit');
+            expect(edits).toHaveLength(1);
+            expect(edits[0].parentNode.parentNode.querySelector('.comment-entry__text').textContent).toBe('My reply');
+        }
+    });
     it('projects local metres and refuses points behind the viewer or invalid points', () => {
         expect(projectFpPoint(root, camera, 600, 600)).toEqual({ x: 300, y: 300 });
         expect(projectFpPoint({ x: 1, y: 2, z: 4 }, camera, 600, 600)).toBeNull();

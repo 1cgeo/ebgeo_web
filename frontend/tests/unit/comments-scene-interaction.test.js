@@ -65,7 +65,8 @@ describe('comment cards follow scene gestures', () => {
         scene.addEventListener('pointerup', (event) => nav.handlePointerUp(event));
         let stopped = false;
         const event = { button: 0, clientX: 200, clientY: 200, stopPropagation: () => { stopped = true; } };
-        for (let node = scene.children[0]; node && !stopped; node = node.parentNode) {
+        for (let node = scene.children[0]; node; node = node.parentNode) {
+            if (stopped) break;
             for (const handler of node._listeners.get('pointerup') || []) handler(event);
         }
         expect(scene.children).toHaveLength(1);

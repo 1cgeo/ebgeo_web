@@ -165,8 +165,9 @@ const CENSO = [
   },
   {
     arquivo: 'src/modules/sync/sync.service.js',
-    trecho: "op.target !== 'comment'", n: 1, classe: HOMONIMO,
-    motivo: 'O que sobrou da linha do Comentarista depois de o posto virar hierarquia: o literal '
+    trecho: "op.target !== 'comment'", n: 2, classe: HOMONIMO,
+    motivo: 'Inclui o recorte por entidade de commentEditDenialReason. '
+      + 'O que sobrou da linha do Comentarista depois de o posto virar hierarquia: o literal '
       + 'aqui é o `entityType` da OPERAÇÃO, nunca o degrau. Ela era a razão original de a regra de '
       + 'lista fechada contar tokens DISTINTOS (os dois `comment` da linha antiga eram homônimos '
       + 'sem parentesco, um o posto de quem escreve e o outro o tipo do que se escreve), e a razão '

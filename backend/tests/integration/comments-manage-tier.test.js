@@ -25,7 +25,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'crypto';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
-import { createUser, createAtlas, createMap, createShare, loginUser } from '../helpers/fixtures.js';
+import { createUser, createAdminUser, createAtlas, createMap, createShare, loginUser } from '../helpers/fixtures.js';
 
 /**
  * The whole hierarchy, each paired with what it may do to a comment it did NOT write.
@@ -62,6 +62,8 @@ describe('spatial comments — the manage tier is an editor on other people\'s c
     authorTok = await loginUser(app, author.username, author.password);
 
     tok.owner = await loginUser(app, owner.username, owner.password);
+    const admin = await createAdminUser(db, { username: `cmtmg_admin_${randomUUID().slice(0, 6)}` });
+    tok.admin = await loginUser(app, admin.username, admin.password);
     for (const { tier } of TIERS.filter((t) => t.tier !== 'owner')) {
       const u = await createUser(db, { username: `cmtmg_${tier}_${randomUUID().slice(0, 6)}` });
       await createShare(db, atlas.id, u.id, tier, owner.id);
@@ -101,9 +103,9 @@ describe('spatial comments — the manage tier is an editor on other people\'s c
     return id;
   }
 
-  it('EDITS another user\'s comment exactly for write/manage/owner — tabled over all five tiers', async () => {
+  it('no atlas tier can edit another author\'s text', async () => {
     assert.equal(TIERS.length, 5, 'the table must cover the whole hierarchy');
-    for (const { tier, pushStatus, applies } of TIERS) {
+    for (const { tier, pushStatus } of TIERS) {
       const id = await seedComment();
       const marker = `edited-by-${tier}`;
       await push(tok[tier], op('update', id, { text: marker, status: 'open' }), pushStatus);
@@ -113,12 +115,12 @@ describe('spatial comments — the manage tier is an editor on other people\'s c
       const seen = rows[0].data?.text;
       assert.equal(
         seen === marker,
-        applies,
-        `${tier}: expected applies=${applies}, comment text is ${JSON.stringify(seen)}`,
+        false,
+        `${tier}: foreign text must remain unchanged: ${JSON.stringify(seen)}`,
       );
       assert.equal(
         rows[0].version === 2,
-        applies,
+        false,
         `${tier}: version must advance only when the edit really applied (got ${rows[0].version})`,
       );
     }
@@ -170,6 +172,29 @@ describe('spatial comments — the manage tier is an editor on other people\'s c
     assert.equal(rows.length, 3, 'root plus both replies must still exist as rows');
     for (const r of rows) {
       assert.notEqual(r.deleted_at, null, `comment ${r.id} should have been soft-deleted by the cascade`);
+    }
+  });
+
+  it('even a global admin cannot edit another author root or reply, or log the refused edit', async () => {
+    const root = await seedComment();
+    const reply = await seedComment(root);
+    for (const id of [root, reply]) {
+      const edit = op('update', id, { text: 'forged admin edit', status: 'resolved' });
+      const result = await push(tok.admin, edit, 200);
+      assert.equal(result.body.data.results[0].rejected, true);
+      const { rows } = await db.query('SELECT data, status, version FROM comments WHERE id = $1', [id]);
+      assert.equal(rows[0].data.text, 'original');
+      assert.equal(rows[0].status, 'open');
+      assert.equal(rows[0].version, 1);
+      const log = await db.query('SELECT id FROM operations WHERE op_id = $1', [edit.id]);
+      assert.equal(log.rows.length, 0);
+      for (const body of [
+        { text: 'original', status: 'open', lng: -40 },
+        { text: 'original', status: 'open', authorId: owner.id },
+      ]) {
+        const spoof = await push(tok.admin, op('update', id, body), 200);
+        assert.equal(spoof.body.data.results[0].rejected, true, 'moderation cannot disguise a body or author change');
+      }
     }
   });
 

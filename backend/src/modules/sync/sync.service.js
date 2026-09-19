@@ -1,5 +1,6 @@
 // Path: src/modules/sync/sync.service.js
 import { query, tx } from '../../database/index.js';
+import { isDeepStrictEqual } from 'node:util';
 import { findReceipt, saveReceipt, operationDigest } from './sync-receipts.js';
 import { assertSyncProtocol } from './sync-protocol.js';
 import { prepareFeatureMutation, finishFeatureMutation } from './feature-conflicts.js';
@@ -1342,6 +1343,25 @@ function operationDenialReason(op, permission) {
   return null;
 }
 
+/** Refuse foreign text edits before logging or fanout, using the stored author. */
+async function commentEditDenialReason(t, atlasId, op, userId, permission) {
+  if (op.target !== 'comment' || op.type !== 'update') return null;
+  const existing = await t.oneOrNone(
+    'SELECT id, map_id, parent_id, author_id, data FROM comments WHERE id = $1 AND atlas_id = $2 AND deleted_at IS NULL',
+    [op.targetId, atlasId]
+  );
+  if (!existing || (existing.author_id && existing.author_id === userId)) return null;
+  const data = op.changes ?? op.data ?? {};
+  const canonical = { ...existing.data, id: existing.id, mapId: existing.map_id,
+    parentId: existing.parent_id, authorId: existing.author_id };
+  // Editors retain moderation, including legacy full-object status updates.
+  const statusOnly = (data.status === 'open' || data.status === 'resolved')
+    && Object.entries(data).every(([key, value]) => ['status', 'updatedAt', 'sync'].includes(key)
+      || isDeepStrictEqual(value, canonical[key]));
+  if (statusOnly && PERMISSION_LEVELS[permission] >= PERMISSION_LEVELS.write) return null;
+  return 'Somente o autor pode editar o comentário.';
+}
+
 /**
  * Human names for the map sub-types, for the refusal sentence below. Keys match the
  * `subType` values of ENTITY_TYPE_MAP, which is the only producer of `_subType`.
@@ -2340,6 +2360,10 @@ export async function pushOperations(atlasId, operations, userId, permission = '
               entityRevision = preparedEntity;
             }
           }
+
+          // Check the prepared payload too: revision patches can replace the original data.
+          const commentDenial = await commentEditDenialReason(sp, atlasId, op, userId, permission);
+          if (commentDenial) return { denied: commentDenial };
 
           // THE TOMBSTONE GUARD OF THE SEVEN TARGETS THAT HAD NONE (`map`, `cesium3d`,
           // `streetview360`, and since 2026-09-13 `group`, `layer`, `briefing`, `slide`). It sits
@@ -3500,7 +3524,7 @@ function asUuidOrNull(v) {
 
 async function applyCommentOp(t, atlasId, op, type, userId, permission) {
   const data = op.changes ?? op.data ?? {};
-  // Editors and above may act on ANY comment; a Comentarista only on their OWN (authorship gate).
+  // Editors may moderate any comment, but only its author may replace its body.
   //
   // Gate by RANK, never by a closed list. This read
   //   `permission === 'write' || permission === 'manage' || permission === 'owner'`
@@ -3564,7 +3588,7 @@ async function applyCommentOp(t, atlasId, op, type, userId, permission) {
     // writes `data` exactly as it always did.
     const claimsText = !op._unitScope || op._unitScope.includes('texto');
     await t.none(`
-      UPDATE comments SET data = CASE WHEN $7 THEN $1::jsonb ELSE data END,
+      UPDATE comments SET data = CASE WHEN $7 AND author_id = $6 THEN $1::jsonb ELSE data END,
         status = COALESCE($2, status), updated_at = NOW(), version = version + 1
       WHERE id = $3 AND atlas_id = $4 AND deleted_at IS NULL AND ($5 OR author_id = $6)
     `, [

@@ -304,6 +304,11 @@ causou bug real duas vezes, nos dois pacotes. **[vigente]** Preso por
 `backend/tests/integration/permission-hierarchy-matrix.test.js`, que percorre os 25 pares de (nível resolvido,
 nível exigido) em vez de amostrar.
 
+A edição do texto de um comentário ou resposta é exclusiva do seu autor, inclusive diante de um
+administrador ou dono do atlas. A hierarquia continua regendo a moderação (resolver, reabrir e excluir).
+**[vigente]** Preso por `backend/tests/integration/comments-manage-tier.test.js` e
+`frontend/tests/unit/collaboration-fp.test.js`.
+
 **5.3** O compartilhamento por grupo alcança os **quatro níveis concedíveis**, gestão inclusive. Dono não é
 concedível por caminho nenhum. Duas salvaguardas são parte da regra, não detalhe de implementação: só se
 compartilha atlas com **grupo próprio**, e a lista de quem tem acesso **nomeia o dono do grupo**, para que o
