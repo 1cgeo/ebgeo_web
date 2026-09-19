@@ -295,8 +295,45 @@ export function ensureCoordinationLines(features) {
 export function ensureMapDataShape(mapData) {
     if (!mapData || typeof mapData !== 'object') return null;
 
-    const features = ensureCoordinationLines(mapData.features);
-    return features ? { ...mapData, features } : null;
+    let features = ensureCoordinationLines(mapData.features) || mapData.features;
+    const declinations = features?.magnetic_declinations;
+    if (Array.isArray(declinations)) {
+        let changed = false;
+        const normalized = declinations.map(feature => {
+            const properties = normalizeLegacyDeclinationProperties(feature?.properties);
+            if (properties === feature?.properties) return feature;
+            changed = true;
+            return { ...feature, properties };
+        });
+        if (changed) features = { ...features, magnetic_declinations: normalized };
+    }
+    return features !== mapData.features ? { ...mapData, features } : null;
+}
+
+/**
+ * Recover recorded angles from legacy Portuguese keys without recalculating them.
+ * Keep the original keys, geometry, ids and explicit canonical values (even invalid
+ * ones) intact. Only finite numeric aliases qualify; strings are not guessed.
+ * Display defaults match the declination tool's 400x500 generator. Do not invent a
+ * calculation date or creation zoom from the legacy year or the current view.
+ * Returns the input by identity when no change is needed, so reads stay read-only.
+ * @param {Object} properties - A magnetic declination's properties
+ * @returns {Object} Original properties or a normalized copy
+ */
+export function normalizeLegacyDeclinationProperties(properties) {
+    if (!properties || typeof properties !== 'object') return properties;
+    const aliases = [['declinacao', 'declination'], ['convergencia', 'convergence']];
+    if (!aliases.some(([legacy]) => Number.isFinite(properties[legacy]))) return properties;
+    const additions = {};
+    for (const [legacy, canonical] of aliases) {
+        if (!Object.hasOwn(properties, canonical) && Number.isFinite(properties[legacy])) {
+            additions[canonical] = properties[legacy];
+        }
+    }
+    for (const [key, value] of Object.entries({ width: 400, height: 500, size: 0.6, opacity: 1 })) {
+        if (!Object.hasOwn(properties, key)) additions[key] = value;
+    }
+    return Object.keys(additions).length ? { ...properties, ...additions } : properties;
 }
 
 /**

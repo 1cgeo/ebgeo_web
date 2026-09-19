@@ -28,7 +28,7 @@ import { createSyncMetadata } from '@store/sync/sync-metadata.js';
 import { ATLAS_SCHEMA_VERSION } from '@store/atlas/atlas.entity.js';
 // A zero-import leaf, imported BY PATH and never through the `@store` barrel, which would
 // drag the whole store graph into a module written to run in the node test environment.
-import { ensureCoordinationLines } from '@store/repository.utils.js';
+import { ensureMapDataShape } from '@store/repository.utils.js';
 
 /**
  * Migrates import data from v1.x to v2.0+ format.
@@ -132,9 +132,11 @@ export function normalizeMapDataForCurrentVersion(mapData, processCatalogLayers)
     // This is also where a v2.2 file hands over its `barrier_lines`: the tool that wrote them
     // became the Coordination Line, and this is the entry path a 2.2 `.ebgeo` uses. See
     // `ensureCoordinationLines`.
-    const shapedFeatures = ensureCoordinationLines(mapData.features);
-    if (shapedFeatures) {
-        mapData.features = shapedFeatures;
+    // Also recovers known legacy declination aliases, including files whose version
+    // already says 3.0. Browser reads and remote snapshots use the same conversion.
+    const shapedMap = ensureMapDataShape(mapData);
+    if (shapedMap) {
+        mapData.features = shapedMap.features;
     }
 
     // Add sync metadata if missing (v2.0)

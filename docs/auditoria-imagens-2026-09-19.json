@@ -71,8 +71,8 @@
     },
     {
       "test": "01-completo.ebgeo: migração, três boots e recuperação bruta",
-      "images": 3,
-      "samples": 1,
+      "images": 4,
+      "samples": 2,
       "defectiveOriginals": [
         {
           "name": "Principal",
@@ -85,10 +85,6 @@
         {
           "name": "Principal",
           "id": "1aa313b5-26e8-485b-8224-2ba700028fbe"
-        },
-        {
-          "name": "Principal",
-          "id": "d6088ac9-6e73-4d64-8934-c79b96ca1fae"
         },
         {
           "name": "05 Temporal",
@@ -114,8 +110,8 @@
     },
     {
       "test": "01-completo.ebgeo: importação pela interface e reabertura",
-      "images": 3,
-      "samples": 1,
+      "images": 4,
+      "samples": 2,
       "defectiveOriginals": [
         {
           "name": "Principal",
@@ -128,10 +124,6 @@
         {
           "name": "Principal",
           "id": "1aa313b5-26e8-485b-8224-2ba700028fbe"
-        },
-        {
-          "name": "Principal",
-          "id": "d6088ac9-6e73-4d64-8934-c79b96ca1fae"
         },
         {
           "name": "05 Temporal",
@@ -199,8 +191,8 @@
       "differences": [],
       "records": 40,
       "imageBytes": 5209,
-      "elapsedMs": 148.10000002384186,
-      "recoveryZipBytes": 51990
+      "elapsedMs": 152.60000002384186,
+      "recoveryZipBytes": 72126
     },
     {
       "filename": "02-minimo.ebgeo",
@@ -224,8 +216,8 @@
       "differences": [],
       "records": 6,
       "imageBytes": 0,
-      "elapsedMs": 27.800000071525574,
-      "recoveryZipBytes": 1576
+      "elapsedMs": 22.600000023841858,
+      "recoveryZipBytes": 1577
     },
     {
       "filename": "03-completo-2.4.ebgeo",
@@ -275,8 +267,8 @@
       "differences": [],
       "records": 207,
       "imageBytes": 1093854,
-      "elapsedMs": 2085.7999999523163,
-      "recoveryZipBytes": 2504299
+      "elapsedMs": 3372.100000023842,
+      "recoveryZipBytes": 2504301
     },
     {
       "filename": "04-completo-2.3.ebgeo",
@@ -326,8 +318,8 @@
       "differences": [],
       "records": 188,
       "imageBytes": 898680,
-      "elapsedMs": 1281.2000000476837,
-      "recoveryZipBytes": 2030708
+      "elapsedMs": 2615.2000000476837,
+      "recoveryZipBytes": 2030705
     },
     {
       "filename": "05-completo-2.2.ebgeo",
@@ -377,8 +369,8 @@
       "differences": [],
       "records": 188,
       "imageBytes": 523671,
-      "elapsedMs": 2034.1000000238419,
-      "recoveryZipBytes": 1324135
+      "elapsedMs": 2255.1999999284744,
+      "recoveryZipBytes": 1324136
     },
     {
       "filename": "03-completo-2.4.ebgeo",
@@ -428,8 +420,23 @@
       "differences": [],
       "records": 207,
       "imageBytes": 1093854,
-      "elapsedMs": 2574,
-      "recoveryZipBytes": 2504305
+      "elapsedMs": 1456.3999999761581,
+      "recoveryZipBytes": 2504299
     }
-  ]
+  ],
+  "legacyDeclinationRecovery": {
+    "fixture": "01-completo.ebgeo",
+    "featureId": "d6088ac9-6e73-4d64-8934-c79b96ca1fae",
+    "declination": -21.5,
+    "convergence": 0.7,
+    "bitmapWidth": 400,
+    "bitmapHeight": 500,
+    "verifiedAfterReopen": [
+      "browser migration",
+      "file import"
+    ],
+    "renderedWithoutStyleOverrides": true,
+    "originalFieldsAndGeometryPreserved": true,
+    "unrecoverableReferencesRemaining": 8
+  }
 }

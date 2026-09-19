@@ -18,6 +18,7 @@
 
 import { generateUUID, isValidUUID } from '@utils/uuid.js';
 import { pruneCatalogLayerDefinitions } from '@catalog/catalog-layer.ref.js';
+import { normalizeLegacyDeclinationProperties } from '@store/repository.utils.js';
 
 /** Server-accepted feature types (mirror of backend `VALID_FEATURE_TYPES`). */
 const VALID_FEATURE_TYPES = new Set([
@@ -151,7 +152,9 @@ function buildFeatures(buckets, featureId, layerIdFor, imageIdMap, stats) {
             // Realign id + layer ref to their server values so the feature stays consistent whether
             // read via the column or via properties. For an IMAGE feature `properties.id` is the
             // blob ref, so it must also become the uploaded server image id (seeded into featureId).
-            const newProps = { ...props, id: mappedId, layerId: serverLayerId };
+            const compatibleProps = featureType === 'magnetic_declination'
+                ? normalizeLegacyDeclinationProperties(props) : props;
+            const newProps = { ...compatibleProps, id: mappedId, layerId: serverLayerId };
             // A custom point icon is referenced as `markerSymbol = 'custom:<iconId>'`; rewrite the
             // icon id to its uploaded server id.
             if (typeof newProps.markerSymbol === 'string' && newProps.markerSymbol.startsWith('custom:')) {

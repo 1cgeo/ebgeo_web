@@ -32,6 +32,12 @@ async function boot(page) {
     await page.goto('/');
     await expect(page.locator('#nav-btn-zoom-in')).toBeAttached({ timeout: 45000 });
     await page.waitForFunction(() => Boolean(globalThis.__ebgeoMap?.getZoom), null, { timeout: 45000 });
+    // The MapLibre instance exists before IndexedDB initialization mounts the atlas.
+    // Wait for the actual boot curtain to leave before inspecting the active stores.
+    await expect(page.locator('.loading-background')).toHaveCount(0, { timeout: 45000 });
+    // The curtain also disappears on a boot error, and precedes the final atlas routing.
+    // This hook is installed only after the store initialization and tab-lock setup.
+    await page.waitForFunction(() => typeof globalThis.__ebgeoSwitchAtlas === 'function', null, { timeout: 45000 });
 }
 
 async function counts(page) {
@@ -90,10 +96,10 @@ async function compareCopy(page, entries, scope, atlasName) {
 // Check the actual MapLibre raster and GPU-rendered feature after visiting EVERY map.
 // Hidden/temporal layers are made visible only in this disposable browser view.
 async function inspectRestoredImages(page, testInfo, fixture) {
-    // Known defective definitions in 01-completo: no PNG, invalid SIDC, no pointCode,
-    // and declinacao/convergencia instead of the fields written by main. Preserve them
+    // Known defective definitions in 01-completo: no PNG, invalid SIDC, no pointCode.
+    // The legacy declination aliases are recoverable and MUST render. Preserve the rest
     // and assert the visible error placeholder; do not count them as restored drawings.
-    const defectiveDefinitions = ['7349fcb9-5d7b-4cd5-b9f6-69aed07d9156', '1aa313b5-26e8-485b-8224-2ba700028fbe', 'd6088ac9-6e73-4d64-8934-c79b96ca1fae',
+    const defectiveDefinitions = ['7349fcb9-5d7b-4cd5-b9f6-69aed07d9156', '1aa313b5-26e8-485b-8224-2ba700028fbe',
         '1aa80bf7-6930-4e9f-b52a-ff1eb0ab6ad2', 'd817e2eb-6826-4aff-a344-73b60b11692b',
         '5ee25711-4a06-41c4-9fe5-d0fca11d4303', 'd461589d-0b32-41dc-963b-0c7e9737da61', '87653b44-1a23-4c8f-8b36-a8c4783ad1f9'];
     const originallyAbsent = Object.values(fixture.data.maps).flatMap(map => (map.features.images || []).filter(f => !fixture.images.has(f.properties.id)).map(f => f.properties.id));
@@ -106,6 +112,7 @@ async function inspectRestoredImages(page, testInfo, fixture) {
         const checked = [];
         const rendered = [];
         const missingInOriginal = [];
+        const recoveredWithoutStyleOverrides = [];
         for (const name of await store.getAllMapNamesStore()) {
             await store.setCurrentMap(name);
             await store.getControl('BaseLayerControl').switchMap();
@@ -129,6 +136,17 @@ async function inspectRestoredImages(page, testInfo, fixture) {
                     if (!installed.data.data.some((v, i) => i % 4 === 3 && v > 0)) throw new Error(`Transparent raster ${id}`);
                     checked.push({ name, type, id, width: decoded.width, height: decoded.height });
                     decoded.close();
+                    if (id === 'd6088ac9-6e73-4d64-8934-c79b96ca1fae') {
+                        // Exercise real layer defaults: the generic sampling below forces
+                        // opacity/size and would hide an incomplete property migration.
+                        map.jumpTo({ center: feature.geometry.coordinates, zoom: 12 });
+                        const deadline = performance.now() + 10000;
+                        while (!map.queryRenderedFeatures({ layers: [layer] }).some(f => f.properties.id === id)) {
+                            if (performance.now() > deadline) throw new Error(`Recovered declination not visible ${id}`);
+                            await new Promise(resolve => setTimeout(resolve, 50));
+                        }
+                        recoveredWithoutStyleOverrides.push(feature);
+                    }
                 }
                 if (!list.length) continue;
                 const sample = list.find(f => !originallyAbsent.includes(f.properties.id));
@@ -146,8 +164,21 @@ async function inspectRestoredImages(page, testInfo, fixture) {
                 rendered.push({ name, type, id: sample.properties.id });
             }
         }
-        return { checked, rendered, missingInOriginal };
+        return { checked, rendered, missingInOriginal, recoveredWithoutStyleOverrides };
     }, originallyAbsent);
+    const originalDeclination = Object.values(fixture.data.maps)
+        .flatMap(map => map.features.magnetic_declinations || [])
+        .find(feature => feature.properties.id === 'd6088ac9-6e73-4d64-8934-c79b96ca1fae');
+    if (originalDeclination) {
+        expect(result.recoveredWithoutStyleOverrides).toHaveLength(1);
+        expect(result.recoveredWithoutStyleOverrides[0]).toMatchObject({
+            geometry: originalDeclination.geometry,
+            properties: { ...originalDeclination.properties, declination: -21.5, convergence: 0.7, opacity: 1 },
+        });
+        expect(result.checked).toContainEqual(expect.objectContaining({
+            id: originalDeclination.properties.id, width: 400, height: 500,
+        }));
+    }
     await testInfo.attach('rendered-images.json', { body: JSON.stringify(result, null, 2), contentType: 'application/json' });
     console.info('IMAGES_RENDERED', JSON.stringify({ test: testInfo.title, images: result.checked.length, samples: result.rendered.length, defectiveOriginals: result.missingInOriginal }));
     return result;
@@ -190,6 +221,9 @@ for (const [filename, version, maps, features, images, settingsVersion] of cases
             expect(current.registry).toHaveLength(1);
             expect(current.images).toEqual(expect.arrayContaining([...fixture.images.keys()]));
         }
+        // Recovery runs from its own screen, with the map closed. A live map can still
+        // persist its camera after the splash disappears; a snapshot must refuse that race.
+        await blank(page);
         const restored = await page.evaluate(async before => {
             const ns = await import('/src/js/store/atlas-namespace.js');
             const migration = await import('/src/js/store/migration/legacy-transition.js');
@@ -206,6 +240,7 @@ for (const [filename, version, maps, features, images, settingsVersion] of cases
         const report = { filename, settingsVersion: settingsVersion || version, sha256: hash, ...declared, ...checked, elapsedMs: initial.elapsedMs, recoveryZipBytes: restored.zipBytes };
         await testInfo.attach('preservacao.json', { body: JSON.stringify(report, null, 2), contentType: 'application/json' });
         console.info('PRESERVACAO', JSON.stringify(report));
+        await boot(page);
         await inspectRestoredImages(page, testInfo, fixture);
     });
 
