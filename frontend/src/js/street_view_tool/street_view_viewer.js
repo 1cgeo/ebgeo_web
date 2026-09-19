@@ -1618,7 +1618,7 @@ async function initToolbar360() {
             setMarkerButtonActive
         } = await import('./components/streetview-sidebar.js');
 
-        init();
+        init({ onDeactivateTool: deactivateCurrentTool360 });
 
         // Register save orientation handler
         onSaveOrientationClick(handleSaveOrientation);
@@ -1922,11 +1922,7 @@ function hideActiveToolChip360() {
     const chip = document.getElementById('active-tool-chip-360');
     if (chip) {
         chip.classList.remove('visible');
-        setTimeout(() => {
-            if (!chip.classList.contains('visible')) {
-                chip.style.display = 'none';
-            }
-        }, 200);
+        chip.style.display = 'none';
     }
 }
 
@@ -1962,6 +1958,8 @@ function updateOrientationButtonState(hasSaved) {
  */
 export async function deactivateCurrentTool360() {
     alternarModoComentario360(false);
+    // Stop accepting placement clicks before waiting for the lazy tool module.
+    streetViewState.navigator?.setMarkerToolActive(false);
     hideActiveToolChip360();
 
     // Deactivate marker tool if active
@@ -2036,6 +2034,7 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
                 if (btn) btn.click();
             },
             closeViewer: closeViewer360,
+            deactivateCurrentTool: deactivateCurrentTool360,
             deselectPOI: () => {
                 if (streetViewState.navigator) {
                     return streetViewState.navigator.deselectPOI();
@@ -2043,8 +2042,7 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
                 return false;
             },
             isToolActive: () => {
-                const chip = document.getElementById('active-tool-chip-360');
-                return chip && chip.style.display !== 'none';
+                return streetViewState.navigator?.markerToolActive || modoComentario360Ativo();
             }
         });
 

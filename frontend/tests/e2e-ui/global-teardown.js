@@ -33,6 +33,11 @@ export default async function globalTeardown() {
         killPid(state.pid);
         await dropDatabase(state.dbName).catch(() => {});
     }
+    // SQLite fixtures can still be open in the backend's worker pool during
+    // test teardown, especially on Windows. The process is gone at this point.
+    for (const filename of state.temporaryFiles ?? []) {
+        fs.rmSync(filename, { force: true });
+    }
     try {
         fs.unlinkSync(STATE_FILE);
     } catch {

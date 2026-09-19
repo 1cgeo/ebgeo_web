@@ -15,7 +15,6 @@ import { assinarEdicaoIndisponivel, semEdicaoSync } from '@store/edicao-indispon
 let isInitialized = false;
 /** Desassina o observador de "edicao indisponivel", para o init nao acumular um por abertura. */
 let soltarEdicao = null;
-let currentActiveTool = null;
 let helpPopupOpen = false;
 
 // DOM element references (cached after init)
@@ -39,8 +38,10 @@ const elements = {
 /**
  * Initialize toolbar 360 event listeners and cache DOM elements.
  * Should be called once when the 360 viewer module loads.
+ * @param {Object} [options]
+ * @param {Function} [options.onDeactivateTool] - Viewer-owned cancellation command.
  */
-export function initToolbar360() {
+export function initToolbar360({ onDeactivateTool } = {}) {
     if (isInitialized) return;
 
     // Cache DOM elements
@@ -64,7 +65,7 @@ export function initToolbar360() {
     // Setup active tool chip close button
     if (elements.activeToolChipClose) {
         elements.activeToolChipClose.addEventListener('click', () => {
-            deactivateCurrentTool360();
+            onDeactivateTool?.();
         });
     }
 
@@ -139,38 +140,9 @@ function setupHelpPopupTabs() {
  * Hide the active tool chip.
  */
 export function hideActiveToolChip360() {
-    currentActiveTool = null;
-
     if (elements.activeToolChip) {
         elements.activeToolChip.style.display = 'none';
     }
-}
-
-// =========================================================================
-// TOOL DEACTIVATION
-// =========================================================================
-
-/**
- * Deactivate the currently active 360 tool.
- * This is called when ESC is pressed or the chip close button is clicked.
- */
-export function deactivateCurrentTool360() {
-    if (!currentActiveTool) return;
-
-    // Remove active state from buttons
-    if (elements.addMarkerButton) {
-        elements.addMarkerButton.classList.remove('active');
-    }
-
-    // Hide the chip
-    hideActiveToolChip360();
-
-    // Emit event for the navigator to handle
-    // The actual tool deactivation logic is in the navigator
-    const event = new CustomEvent('tool360:deactivate', {
-        detail: { tool: currentActiveTool }
-    });
-    document.dispatchEvent(event);
 }
 
 // =========================================================================

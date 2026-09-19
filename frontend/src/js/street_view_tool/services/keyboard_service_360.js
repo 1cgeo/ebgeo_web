@@ -34,6 +34,7 @@ let callbacks = {
     saveOrientation: null,
     closeViewer: null,
     deselectPOI: null,
+    deactivateCurrentTool: null,
     isToolActive: null
 };
 
@@ -197,7 +198,7 @@ async function handleEscape() {
 
     // Priority 2: Deactivate current tool
     if (callbacks.isToolActive?.()) {
-        sidebar.deactivateCurrentTool360();
+        callbacks.deactivateCurrentTool?.();
         return;
     }
 
