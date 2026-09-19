@@ -239,34 +239,20 @@ export class SignupModal extends ModalBase {
             id: 'signup-password-confirm', label: 'Confirmar senha', type: 'password',
             autocomplete: 'new-password', testid: 'signup-password-confirm', required: true
         });
-        // Posto/Graduação and Organização Militar are controlled lists served by the
-        // backend (/config). When present they render as required dropdowns; if the
-        // backend served none (misconfig/offline), fall back to a required text input
-        // so signup is never hard-blocked.
+        // These values are UUIDs from the server, never free-form names.
         const postoOpts = this._domainOptions(config.postos, (p) => p.abrev || p.name);
         const omOpts = this._domainOptions(config.organizacoesMilitares);
-
-        this._postoInput = postoOpts.length
-            ? this._addSelectField(form, {
-                id: 'signup-posto', label: 'Posto/Graduação',
-                testid: 'signup-posto', required: true,
-                placeholder: 'Selecione o posto/graduação'
-            }, postoOpts)
-            : this._addField(form, {
-                id: 'signup-posto', label: 'Posto/Graduação',
-                testid: 'signup-posto', required: true
-            });
-
-        this._omInput = omOpts.length
-            ? this._addSelectField(form, {
-                id: 'signup-om', label: 'Organização Militar',
-                testid: 'signup-om', required: true,
-                placeholder: 'Selecione a organização militar'
-            }, omOpts)
-            : this._addField(form, {
-                id: 'signup-om', label: 'Organização Militar',
-                testid: 'signup-om', required: true
-            });
+        this._postoInput = this._addSelectField(form, {
+            id: 'signup-posto', label: 'Posto/Graduação',
+            testid: 'signup-posto', required: true,
+        }, postoOpts);
+        this._omInput = this._addSelectField(form, {
+            id: 'signup-om', label: 'Organização Militar',
+            testid: 'signup-om', required: true,
+        }, omOpts);
+        this._postoInput.disabled = !postoOpts.length;
+        this._omInput.disabled = !omOpts.length;
+        this._domainsUnavailable = !postoOpts.length || !omOpts.length;
 
         // The hint goes INSIDE the field (both builders append the control to a `field` div and
         // that div to the form), so it stays attached to the control whichever branch above ran,
@@ -338,6 +324,10 @@ export class SignupModal extends ModalBase {
         this._cancelBtn = cancelBtn;
         this._backBtn = backBtn;
         this._resendBtn = resendBtn;
+        if (this._domainsUnavailable) {
+            submitBtn.disabled = true;
+            this._showError('Não foi possível carregar os postos e organizações. Reabra o cadastro após atualizar a página.');
+        }
 
         return form;
     }
@@ -391,7 +381,7 @@ export class SignupModal extends ModalBase {
      * @private
      */
     async _handleSubmit() {
-        if (this._submitting) return;
+        if (this._submitting || this._domainsUnavailable) return;
 
         const nome = this._nomeInput.value.trim();
         const username = this._userInput.value.trim();
@@ -413,6 +403,10 @@ export class SignupModal extends ModalBase {
             this._showError('As senhas não coincidem.');
             return;
         }
+        if (new TextEncoder().encode(password).length > 72) {
+            this._showError('A senha deve ter no máximo 72 bytes; caracteres acentuados ocupam mais de um byte.');
+            return;
+        }
         if (!posto || !om) {
             this._showError('Selecione o posto/graduação e a organização militar.');
             return;
@@ -429,6 +423,7 @@ export class SignupModal extends ModalBase {
                 rank_id: posto,
                 organization_id: om
             });
+            if (!this.isOpen()) return;
             this._close();
             // ANUNCIA DEPOIS DE FECHAR, e é por isso que existe um gancho separado do `onSubmit`.
             // Enquanto o anúncio morava dentro do `onSubmit`, este `await` só terminava quando a
@@ -459,7 +454,7 @@ export class SignupModal extends ModalBase {
      */
     _setSubmitting(submitting) {
         this._submitting = submitting;
-        if (this._submitBtn) this._submitBtn.disabled = submitting;
+        if (this._submitBtn) this._submitBtn.disabled = submitting || this._domainsUnavailable;
     }
 
     /**

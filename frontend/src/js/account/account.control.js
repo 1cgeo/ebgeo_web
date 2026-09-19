@@ -1186,9 +1186,9 @@ export class AccountControl {
         // taken, so this text must cover both without saying which. See `_handleRegister`'s
         // fileoverview note on non-enumeration.
         const choice = await showChoice('Confira sua caixa de entrada', {
-            message: `Enviamos um e-mail para ${email}. Se ainda não houver conta com esse `
-                + 'endereço, ele traz o link de confirmação do cadastro; se já houver, traz as '
-                + 'instruções para recuperar o acesso.',
+            message: `Solicitação processada para ${email}. Confira as instruções de confirmação `
+                + 'ou de acesso na sua caixa de entrada e no spam. Se nada chegar, tente reenviar '
+                + 'a confirmação ou procure o administrador.',
             choices: [
                 { id: 'ok', label: 'Entendi', variant: 'ghost' },
                 { id: 'resend', label: 'Reenviar e-mail', variant: 'primary' }
@@ -1198,7 +1198,7 @@ export class AccountControl {
 
         try {
             await apiClient.resendVerification({ email });
-            showSuccess('E-mail de confirmação reenviado.');
+            showSuccess('Se houver confirmação pendente, você receberá um novo link.');
         } catch {
             showError('Não foi possível reenviar o e-mail agora.');
         }

@@ -26,8 +26,10 @@ import { fileURLToPath } from 'node:url';
 import {
     MAX_PASSWORD_LENGTH,
     MIN_PASSWORD_LENGTH,
+    validateRecoveryReset,
 } from '../../src/js/modals/password-recovery.model.js';
 import { MAX_EMAIL_LENGTH } from '../../src/js/admin/account-model.js';
+import { resetPasswordWithTokenSchema } from '../../../backend/src/modules/auth/auth.schemas.js';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const USERS_SCHEMAS = resolve(RAIZ, 'backend/src/modules/users/users.schemas.js');
@@ -79,12 +81,22 @@ describe('a redefinição por código espelha resetPasswordWithTokenSchema', () 
     });
 
     it('os limites de senha são os mesmos dos dois lados', () => {
-        const min = limiteDoCampo(corpo, 'newPassword', 'min');
-        const max = limiteDoCampo(corpo, 'newPassword', 'max');
+        const rules = resetPasswordWithTokenSchema.describe().keys.newPassword.rules;
+        const min = rules.find((rule) => rule.name === 'min')?.args.limit;
+        const max = rules.find((rule) => rule.name === 'max')?.args.limit;
         expect(min).not.toBeNull();
         expect(max).not.toBeNull();
         expect(MIN_PASSWORD_LENGTH).toBe(min);
         expect(MAX_PASSWORD_LENGTH).toBe(max);
+    });
+
+    it('valida os mesmos limites em bytes, inclusive com acentos e emoji', () => {
+        const token = 'fc987654-1234-4321-9876-123456789abc';
+        for (const password of ['abc12', 'abc123', 'a'.repeat(72), 'a'.repeat(73), 'á'.repeat(36), 'á'.repeat(37), '😀'.repeat(18), '😀'.repeat(19)]) {
+            const server = resetPasswordWithTokenSchema.validate({ token, newPassword: password });
+            const browser = validateRecoveryReset({ code: token, newPassword: password, confirmPassword: password });
+            expect(browser.valid).toBe(!server.error);
+        }
     });
 
     it('o código é validado como uuid do lado do servidor, que é o que o cliente checa', () => {

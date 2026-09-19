@@ -98,6 +98,9 @@ vínculo institucional não são escolhíveis no cadastro. A organização decla
 inicialização) está feito; a abertura da rota em produção espera o relay de e-mail existir. Enquanto não
 existir, a conta é criada pelo administrador.
 
+Desde 2026-09-19, habilitar o autocadastro pelo painel em produção exige também `SMTP_HOST` e
+`APP_BASE_URL`, assim como a inicialização. Um override antigo não contorna essa exigência.
+
 ---
 
 ## 2. Recursos
@@ -659,6 +662,14 @@ esta cláusula.** O endereço pretendido mora no token (`email_verification_toke
 nunca na conta, então enquanto o convite está de pé o endereço segue livre para qualquer outra pessoa: a
 unicidade é conferida no pedido e DE NOVO no resgate, nunca segurada no meio. Um token que caduca sem ser
 aberto não deixa nada reservado.
+
+**Confirmação e recuperação vinculadas à conta (2026-09-19).** O link de confirmação só confirma
+o endereço ao qual foi enviado, enquanto a conta estiver ativa. O código de recuperação exige
+o mesmo endereço ainda confirmado e o mesmo corte de sessões da emissão; alteração de senha
+ou revogação geral de sessões o invalida. Emissão e resgate de recuperação são serializados por
+conta, e substituir o código é transacional. As migrações 017/018 preservam contas e credenciais;
+links de confirmação e códigos de recuperação anteriores, sem esses vínculos, exigem novo envio.
+Essas proteções não alteram a reserva indefinida do cadastro pendente.
 
 **10.7** **A chave de API ganhou as três amarras em 2026-08-24, e o ENDPOINT que o nginx vai consultar; o `location` continua por fazer.**
 Até aquela data ela era o usuário inteiro: resolvia para a linha de `users`, carregava o papel global,

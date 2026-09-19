@@ -55,8 +55,8 @@ describe('Low-impact scan fixes (L2 / L4 / L6 / L12)', () => {
       );
       const userId = rows[0].id;
       const tok = await db.query(
-        `INSERT INTO email_verification_tokens (user_id, expires_at)
-         VALUES ($1, NOW() + INTERVAL '1 day') RETURNING token`,
+        `INSERT INTO email_verification_tokens (user_id, expires_at, email_at_issue)
+         SELECT id, NOW() + INTERVAL '1 day', email FROM users WHERE id = $1 RETURNING token`,
         [userId]
       );
       return { userId, token: tok.rows[0].token };

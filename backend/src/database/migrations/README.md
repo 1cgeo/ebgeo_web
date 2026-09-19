@@ -18,6 +18,10 @@ Consolidação autorizada em 12/09/2026, antes da primeira implantação deste b
 | [012_camadas_remotas.sql](012_camadas_remotas.sql) | Regularização de dados anteriores à camada padrão persistida: conserva feições e configurações e exige snapshot para cursores antigos. |
 | [013_imagens_idempotentes.sql](013_imagens_idempotentes.sql) | Identidade de tentativa e de conteúdo em `images`, para que a retentativa de um upload cuja resposta se perdeu não crie segunda linha nem seja recusada como colisão. |
 | [014_lote_logico.sql](014_lote_logico.sql) | A identidade do gesto que produziu várias operações, para que o servidor aplique ou recuse o lote inteiro e o recibo diga a que gesto cada operação pertenceu. |
+| [015_importacoes_atomicas.sql](015_importacoes_atomicas.sql) | Persistência e idempotência das importações atômicas. |
+| [016_nome_de_guerra.sql](016_nome_de_guerra.sql) | Nome de guerra na identificação de usuários. |
+| [017_confirmacao_email_destinatario.sql](017_confirmacao_email_destinatario.sql) | Vincula a confirmação ao destinatário original. Links anteriores sem vínculo exigem reenvio. |
+| [018_recuperacao_senha_sessoes.sql](018_recuperacao_senha_sessoes.sql) | Vincula a recuperação ao corte de sessões da emissão. Códigos anteriores sem vínculo exigem novo pedido. |
 
 **A contagem não se escreve em prosa aqui, e a tabela acima é a lista.** Esta seção disse "onze bases" e depois "doze", e as duas envelheceram no arquivo seguinte que nasceu, sem nada ficar vermelho: `frontend/tests/unit/docs-integridade.test.js` valida caminho, link e símbolo, nunca aritmética. Quem precisar do número conta a tabela ou roda `ls`.
 

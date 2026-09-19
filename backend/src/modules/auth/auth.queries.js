@@ -170,7 +170,8 @@ export const REVOKE_ALL_USER_TOKENS = `
 // Self-registration accepts a client-chosen organization_id (the OM dropdown). This
 // confirms the target exists and is active before the INSERT binds a user to it.
 export const FIND_ACTIVE_ORGANIZATION = `
-  SELECT id FROM organizations WHERE id = $1 AND is_active = TRUE
+  SELECT id FROM organizations
+  WHERE id = COALESCE($1::uuid, '00000000-0000-0000-0000-000000000001'::uuid) AND is_active = TRUE
 `;
 
 export const CHECK_USERNAME_EXISTS = `
@@ -182,7 +183,7 @@ export const CHECK_EMAIL_EXISTS = `
 `;
 
 export const FIND_USER_BY_EMAIL = `
-  SELECT id, username, nome, email, email_verified
+  SELECT id, username, nome, email, email_verified, is_active
   FROM users WHERE LOWER(email) = LOWER($1)
 `;
 
@@ -192,6 +193,7 @@ export const INSERT_USER = `
   WITH new_user AS (
     INSERT INTO users (username, password_hash, nome, rank_id, role, organization_id, email, email_verified, nome_guerra)
     VALUES ($1, $2, $3, $4::uuid, $5, COALESCE($6::uuid, '00000000-0000-0000-0000-000000000001'::uuid), $7, $8, $9)
+    ON CONFLICT DO NOTHING
     RETURNING *
   )
   SELECT u.id, u.username, u.nome, u.nome_guerra, u.rank_id, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
@@ -210,8 +212,8 @@ export const INSERT_USER = `
 // that every mint declares what the token may be redeemed for. The bicondicional
 // CHECK of 001_identidade_e_credenciais.sql refuses the two impossible pairings.
 export const INSERT_VERIFICATION_TOKEN = `
-  INSERT INTO email_verification_tokens (user_id, expires_at, purpose, new_email)
-  VALUES ($1, $2, $3, $4)
+  INSERT INTO email_verification_tokens (user_id, expires_at, purpose, new_email, email_at_issue)
+  VALUES ($1, $2, $3, $4, $5)
   RETURNING token
 `;
 
@@ -235,7 +237,7 @@ export const CLAIM_VERIFICATION_TOKEN = `
   UPDATE email_verification_tokens
   SET consumed_at = NOW()
   WHERE token = $1 AND purpose = ANY($2::text[]) AND consumed_at IS NULL
-  RETURNING user_id, expires_at, purpose, new_email
+  RETURNING user_id, expires_at, purpose, new_email, email_at_issue
 `;
 
 // Burns every still-live token of ONE purpose for ONE user. Called before minting a
@@ -249,7 +251,13 @@ export const CONSUME_PENDING_TOKENS = `
 `;
 
 export const MARK_EMAIL_VERIFIED = `
-  UPDATE users SET email_verified = TRUE, updated_at = NOW() WHERE id = $1
+  UPDATE users SET email_verified = TRUE, updated_at = NOW()
+  WHERE id = $1 AND is_active = TRUE AND LOWER(email) = LOWER($2)
+  RETURNING id
+`;
+
+export const FIND_ACTIVE_RANK = `
+  SELECT id FROM ranks WHERE id = $1 AND is_active = TRUE
 `;
 
 // The confirmed half of an e-mail change: the pending address becomes the real one
@@ -284,6 +292,31 @@ export const FIND_RESETTABLE_USER_BY_EMAIL = `
 // service learns that without a second round trip.
 export const SET_USER_PASSWORD = `
   UPDATE users SET password_hash = $2, updated_at = NOW()
-  WHERE id = $1 AND is_active = TRUE
+  WHERE id = $1 AND is_active = TRUE AND email_verified = TRUE
+    AND EXISTS (
+      SELECT 1 FROM email_verification_tokens t WHERE t.token = $3
+        AND t.user_id = users.id AND t.purpose = 'reset_password'
+        AND LOWER(t.email_at_issue) = LOWER(users.email)
+        AND t.reset_sessions_valid_from IS NOT DISTINCT FROM users.sessions_valid_from
+    )
   RETURNING id
+`;
+
+// Lock the account BEFORE its codes everywhere in recovery, avoiding deadlocks
+// between issuance and redemption and serializing requests for the same account.
+export const LOCK_RESETTABLE_USER = `
+  SELECT id, nome, email FROM users
+  WHERE id = $1 AND is_active = TRUE AND email_verified = TRUE AND LOWER(email) = LOWER($2)
+  FOR UPDATE
+`;
+
+export const LOCK_RESET_TOKEN_USER = `
+  SELECT u.id FROM users u JOIN email_verification_tokens t ON t.user_id = u.id
+  WHERE t.token = $1 AND t.purpose = 'reset_password' FOR UPDATE OF u
+`;
+
+export const INSERT_RESET_TOKEN = `
+  INSERT INTO email_verification_tokens (user_id, expires_at, purpose, email_at_issue, reset_sessions_valid_from)
+  SELECT id, $2, 'reset_password', email, sessions_valid_from FROM users WHERE id = $1
+  RETURNING token
 `;

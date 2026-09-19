@@ -421,13 +421,10 @@ describe('register / resend — existence oracle and best-effort verification (7
       assert.equal(res.body.error.code, 'EMAIL_NOT_VERIFIED');
     });
 
-    it('caracterização: o resend NÃO tem o mesmo try/catch e propaga a falha como 500', async () => {
-      // O mesmo try/catch não existe em resendVerification — aqui o comportamento é o
-      // 500 do errorHandler. Documentado como caracterização: o caminho de recuperação
-      // FALHA enquanto a causa persistir, o que é aceitável (o erro é transitório), mas
-      // não é silencioso como no register.
-      const res = await resend(email);
-      assert.equal(res.status, 500, 'caracterização: resend propaga a falha, register não');
+    it('a token failure does not reveal a pending account through the resend status', async () => {
+      const res = await resend(email).expect(200);
+      const unknown = await resend(`missing_${SFX}@example.mil`).expect(200);
+      assert.deepEqual(res.body, unknown.body);
     });
 
     it('removido o obstáculo, o caminho de recuperação funciona ponta a ponta', async () => {

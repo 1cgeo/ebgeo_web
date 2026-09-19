@@ -315,8 +315,9 @@ describe('Senha — redefinição por e-mail', () => {
       'um código de senha não pode confirmar endereço nenhum'
     );
 
-    // E ele também não foi queimado: continua redefinindo a senha, que é o que foi cunhado para
-    // fazer.
+    // The wrong route did not burn the code. Restore confirmation before using
+    // recovery: unconfirmed mailboxes can no longer redeem password credentials.
+    await db.query('UPDATE users SET email_verified = TRUE WHERE id = $1', [conta.userId]);
     await supertest(app)
       .post('/api/v1/auth/reset-password')
       .send({ token: codigo.token, newPassword: PW_NOVA })

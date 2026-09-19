@@ -349,29 +349,17 @@ export async function register(data, origin = '', req = null) {
   // pending, and the confirmation link is the only way in.
   const email = data.email.trim();
 
-  // The client picks its own organization here (the OM dropdown), and the value went
-  // straight into the INSERT unchecked, so a caller could name any UUID — including a
-  // soft-deactivated or nonexistent org — and become a member of it.
-  //
-  // SCOPE, stated plainly: this check rejects orgs that do not exist or are inactive.
-  // It does NOT stop someone from self-selecting a real, active OM they do not belong
-  // to; that remains possible by design, because the signup dropdown is a
-  // self-declaration. Membership is not decorative — it grants read of that org's
-  // unpublished (`disabled`) 360 projects via isProjectReadable — and every active
-  // org's UUID is served by the anonymous GET /api/config to populate that dropdown.
-  // Closing it properly needs an approval step; deliberately deferred (see
-  // bugs-backend.md #33). What now bounds the exposure is confirmation, not rarity: the
-  // account is born pending and only a caller who controls the declared mailbox ever gets
-  // to use it. That is weaker than approval and it is the honest description — the
-  // declaration still goes unreviewed. (This paragraph used to close with "the exposure
-  // today is limited to deployments with ALLOW_SELF_REGISTRATION on, which is off in
-  // production"; that sentence is the whole argument for leaving the hole open, so it must
-  // not be the sentence that survives an unrelated deployment decision.)
-  if (data.organization_id) {
-    const { rows: org } = await query(Q.FIND_ACTIVE_ORGANIZATION, [data.organization_id]);
-    if (org.length === 0) {
-      throw new BadRequestError('Organização militar inválida ou inativa.');
-    }
+  // Lotacao is a self-declaration, never a grant of authority. Validate the
+  // effective organization, including the default used when the field is omitted.
+  const { rows: org } = await query(Q.FIND_ACTIVE_ORGANIZATION, [data.organization_id || null]);
+  if (org.length === 0) {
+    throw new BadRequestError('Organização militar inválida ou inativa.');
+  }
+  // Validate domains before the uniqueness branch, so a nonexistent rank does
+  // not produce a foreign-key error only when the username is still free.
+  if (data.rank_id) {
+    const { rows: rank } = await query(Q.FIND_ACTIVE_RANK, [data.rank_id]);
+    if (!rank.length) throw new BadRequestError('Posto/graduação inválido ou inativo.');
   }
 
   // Hash the password BEFORE knowing whether it will be used. This is the timing half of the
@@ -387,7 +375,18 @@ export async function register(data, origin = '', req = null) {
   const { rows: emailRows } = await query(Q.CHECK_EMAIL_EXISTS, [email]);
   const emailTaken = emailRows.length > 0;
 
-  if (usernameTaken || emailTaken) {
+  // The pre-check is only an optimization. The unique indexes arbitrate a race
+  // with another signup, and INSERT returns no row when another writer wins.
+  let user = null;
+  if (!usernameTaken && !emailTaken) {
+    const { rows } = await query(Q.INSERT_USER, [
+      data.username, passwordHash, data.nome, data.rank_id || null, 'user',
+      data.organization_id || null, email, false, data.nome_guerra || null,
+    ]);
+    user = rows[0] ?? null;
+  }
+
+  if (!user) {
     // Nothing is created and nothing is said back. The notice goes to the mailbox instead, which
     // is the whole point: only its owner learns that the address is registered.
     //
@@ -402,24 +401,6 @@ export async function register(data, origin = '', req = null) {
     logger.info({ usernameTaken, emailTaken }, 'Register attempt on an existing account — nothing created');
     return null;
   }
-
-  // Create user (role is always 'user' for self-registration; org defaults). email_verified
-  // starts false, and since e-mail is mandatory here the login gate always applies: a
-  // self-registered account is unusable until the link is followed. Accounts created by an
-  // administrator carry no e-mail and are therefore active on creation, which is why the
-  // gate in login() must stay conditional on `user.email` rather than on the flag alone.
-  const { rows } = await query(Q.INSERT_USER, [
-    data.username,
-    passwordHash,
-    data.nome,
-    data.rank_id || null,
-    'user',
-    data.organization_id || null, // COALESCE -> default org in SQL
-    email,
-    false,
-    data.nome_guerra || null,
-  ]);
-  const user = rows[0];
 
   // A CONTA NASCIA SEM TRILHA. `USER_CREATE` só tinha emissor no caminho
   // administrativo (`users.service.js`), então uma conta criada pelo auto-cadastro
@@ -495,13 +476,14 @@ const CONFIRMABLE_PURPOSES = Object.freeze([TokenPurpose.VERIFY, TokenPurpose.CH
  * @param {string|null} [newEmail] - Required for (and only for) `change_email`.
  * @returns {Promise<string>} The token.
  */
-async function mintToken(userId, purpose, ttlMs, newEmail = null) {
+async function mintToken(userId, purpose, ttlMs, newEmail = null, emailAtIssue = null) {
   const expiresAt = new Date(Date.now() + ttlMs);
   const { rows } = await query(Q.INSERT_VERIFICATION_TOKEN, [
     userId,
     expiresAt,
     purpose,
     newEmail,
+    emailAtIssue,
   ]);
   return rows[0].token;
 }
@@ -526,7 +508,7 @@ export function passwordResetTtlMinutes() {
  * @returns {Promise<string>} The token.
  */
 async function issueAndSendVerification(user, email, origin) {
-  const token = await mintToken(user.id, TokenPurpose.VERIFY, verificationTtlMs());
+  const token = await mintToken(user.id, TokenPurpose.VERIFY, verificationTtlMs(), null, email);
   const link = buildVerificationLink(token, origin);
   await sendVerificationEmail({ to: email, link, nome: user.nome });
   return token;
@@ -616,7 +598,10 @@ export async function verifyEmail(token) {
       return { success: true, purpose: claimed.purpose };
     }
 
-    await t.none(Q.MARK_EMAIL_VERIFIED, [claimed.user_id]);
+    const verified = await t.oneOrNone(Q.MARK_EMAIL_VERIFIED, [claimed.user_id, claimed.email_at_issue]);
+    if (!verified) {
+      throw new AppError('Este link não confirma o e-mail atual da conta. Peça uma nova confirmação.', 400, 'EMAIL_TOKEN_INVALID');
+    }
     return { success: true, purpose: claimed.purpose };
   });
 }
@@ -647,22 +632,24 @@ export async function requestPasswordReset(email, origin = '') {
   const user = rows[0];
 
   if (user) {
-    // Asking again invalidates the previous code: two live codes for one account doubles the
-    // window without buying the person anything.
-    await query(Q.CONSUME_PENDING_TOKENS, [user.id, TokenPurpose.RESET_PASSWORD]);
-    const minutes = passwordResetTtlMinutes();
-    const token = await mintToken(
-      user.id,
-      TokenPurpose.RESET_PASSWORD,
-      minutes * 60 * 1000
-    );
-    await sendPasswordResetEmail({
-      to: user.email,
-      token,
-      nome: user.nome,
-      minutes,
-      appLink: buildAppLink(origin),
-    });
+    try {
+      const minutes = passwordResetTtlMinutes();
+      const issued = await tx(async (t) => {
+        const current = await t.oneOrNone(Q.LOCK_RESETTABLE_USER, [user.id, email]);
+        if (!current) return null;
+        await t.none(Q.CONSUME_PENDING_TOKENS, [user.id, TokenPurpose.RESET_PASSWORD]);
+        const token = await t.one(Q.INSERT_RESET_TOKEN, [user.id, new Date(Date.now() + minutes * 60000)]);
+        return { ...current, token: token.token };
+      });
+      if (issued) await sendPasswordResetEmail({
+        to: issued.email, token: issued.token, nome: issued.nome, minutes,
+        appLink: buildAppLink(origin),
+      });
+    } catch (err) {
+      // A failure specific to a real account must not disclose its existence.
+      // The transaction also preserves the previous code if replacement fails.
+      logger.error({ err, userId: user.id }, 'Password recovery issuance failed');
+    }
   } else {
     logger.info('Password reset requested for an address with no resettable account');
   }
@@ -693,6 +680,7 @@ export async function resetPasswordWithToken(token, newPassword, req = null) {
   const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
 
   return tx(async (t) => {
+    await t.oneOrNone(Q.LOCK_RESET_TOKEN_USER, [token]);
     const claimed = await t.oneOrNone(Q.CLAIM_VERIFICATION_TOKEN, [
       token,
       [TokenPurpose.RESET_PASSWORD],
@@ -705,9 +693,9 @@ export async function resetPasswordWithToken(token, newPassword, req = null) {
       throw new AppError('Código de redefinição expirado. Peça outro.', 400, 'RESET_TOKEN_EXPIRED');
     }
 
-    const updated = await t.oneOrNone(Q.SET_USER_PASSWORD, [claimed.user_id, passwordHash]);
+    const updated = await t.oneOrNone(Q.SET_USER_PASSWORD, [claimed.user_id, passwordHash, token]);
     if (!updated) {
-      throw new AppError('Esta conta não está mais ativa.', 400, 'ACCOUNT_INACTIVE');
+      throw new AppError('Este código não é mais válido para a conta. Peça outro.', 400, 'RESET_TOKEN_INVALID');
     }
 
     // Any OTHER live code of this account dies with the one just spent: a second code in a
@@ -748,8 +736,12 @@ export async function resendVerification({ email = null, username = null }, orig
     ? await query(Q.FIND_USER_BY_EMAIL, [email])
     : await query(Q.FIND_USER_BY_USERNAME, [username]);
   const user = rows[0];
-  if (user && user.email && !user.email_verified) {
-    await issueAndSendVerification(user, user.email, origin);
+  if (user && user.is_active && user.email && !user.email_verified) {
+    try {
+      await issueAndSendVerification(user, user.email, origin);
+    } catch (err) {
+      logger.error({ err, userId: user.id }, 'Verification resend failed; account remains pending');
+    }
   }
   // Sempre o mesmo desfecho, com ou sem conta: a rota não diz quem existe.
   return { success: true };

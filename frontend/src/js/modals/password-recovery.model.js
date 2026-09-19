@@ -41,7 +41,7 @@ export const MAX_PASSWORD_LENGTH = 100;
 
 /** The rule, stated before the attempt instead of after the refusal. */
 export const PASSWORD_RULE_TEXT =
-    `A nova senha precisa ter de ${MIN_PASSWORD_LENGTH} a ${MAX_PASSWORD_LENGTH} caracteres.`;
+    `A nova senha precisa ter de ${MIN_PASSWORD_LENGTH} a ${MAX_PASSWORD_LENGTH} caracteres, com no máximo 72 bytes em UTF-8 (acentos ocupam mais de um byte).`;
 
 /**
  * The path that is true in EVERY deployment, and the reason this whole panel is worth having
@@ -169,7 +169,8 @@ export function validateRecoveryReset(form) {
             message: 'Esse código não está completo. Copie a linha inteira da mensagem.',
         };
     }
-    if (next.length < MIN_PASSWORD_LENGTH || next.length > MAX_PASSWORD_LENGTH) {
+    if (next.length < MIN_PASSWORD_LENGTH || next.length > MAX_PASSWORD_LENGTH
+        || new TextEncoder().encode(next).length > 72) {
         return { valid: false, message: PASSWORD_RULE_TEXT };
     }
     if (next !== confirm) {

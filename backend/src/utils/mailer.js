@@ -47,6 +47,11 @@ export function canDeliverAccountMail() {
   return isSmtpConfigured() || !config.isProd;
 }
 
+/** Runtime enabling must satisfy the same delivery requirements as production boot. */
+export function canEnableSelfRegistration(settings = config) {
+  return !settings.isProd || Boolean(settings.mail.host && settings.mail.appBaseUrl);
+}
+
 /**
  * Decides which base URL a verification link may point at.
  *

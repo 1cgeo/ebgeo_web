@@ -1,6 +1,10 @@
 // Path: src/modules/auth/auth.schemas.js
 import Joi from 'joi';
 
+const newPassword = Joi.string().required().min(6).max(100).custom((value, helpers) =>
+  Buffer.byteLength(value, 'utf8') > 72 ? helpers.error('password.bytes') : value
+).messages({ 'password.bytes': 'A senha deve ter no máximo 72 bytes em UTF-8; caracteres acentuados ocupam mais de um byte.' });
+
 /**
  * LOGIN DELIBERATELY HAS NO PASSWORD LENGTH RULE, unlike every schema below.
  *
@@ -28,12 +32,12 @@ export const logoutSchema = Joi.object({
 });
 
 export const registerSchema = Joi.object({
-  username: Joi.string().required().min(3).max(100).pattern(/^[a-zA-Z0-9._-]+$/)
+  username: Joi.string().trim().required().min(3).max(100).pattern(/^[a-zA-Z0-9._-]+$/)
     .messages({
       'string.pattern.base': 'Usuário aceita apenas letras, números, ponto, hífen e sublinhado.',
     }),
-  password: Joi.string().required().min(6).max(100),
-  nome: Joi.string().required().max(255),
+  password: newPassword,
+  nome: Joi.string().trim().required().max(255),
   nome_guerra: Joi.string().trim().max(100).allow(null, ''),
   // REQUIRED. Self-registration creates the account pending; it is activated only by the
   // `?verify=` link. Making the field mandatory is what makes confirmation mandatory,
@@ -53,7 +57,7 @@ export const registerSchema = Joi.object({
   // 422 body. (Measured: with the override in place the wire answered "Informe e-mail.",
   // the central rendering.) Only `string.pattern.base` belongs in a schema, per the
   // fileoverview of that file.
-  email: Joi.string().email().max(255).required(),
+  email: Joi.string().trim().email().max(255).required(),
   // FKs: posto (ranks) + OM (organizations). Empty string is normalized to null in the service.
   rank_id: Joi.string().uuid().allow(null, ''),
   organization_id: Joi.string().uuid().allow(null, ''),
@@ -84,7 +88,7 @@ export const resendVerificationSchema = Joi.object({
 
 /** Step one of the recovery: the address to mail a code to. Answers the same 200 either way. */
 export const forgotPasswordSchema = Joi.object({
-  email: Joi.string().email().max(255).required(),
+  email: Joi.string().trim().email().max(255).required(),
 });
 
 /**
@@ -102,5 +106,5 @@ export const forgotPasswordSchema = Joi.object({
  */
 export const resetPasswordWithTokenSchema = Joi.object({
   token: Joi.string().uuid().required(),
-  newPassword: Joi.string().required().min(6).max(100),
+  newPassword,
 });

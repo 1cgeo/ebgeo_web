@@ -136,14 +136,15 @@ describe('cadastro: a Organização Militar se declara como lotação', () => {
         expect(om.getAttribute('aria-describedby')).toBe(nota.id);
     });
 
-    it('a nota chega também no ramo de <input>, quando o /config não serviu a lista', () => {
+    it('a nota permanece com o seletor indisponivel quando o /config nao serviu a lista', () => {
         // Sem `config.organizacoesMilitares` o modal cai no campo de texto: são dois construtores
         // diferentes, e pendurar a nota só num deles some com ela metade das vezes.
         const form = montarFormulario();
         const om = byTestId(form, 'signup-om');
         const nota = byTestId(form, 'signup-om-hint');
 
-        expect(om.tagName, 'sem lista controlada ele é um input de texto').toBe('INPUT');
+        expect(om.tagName, 'sem lista, não se pode digitar texto em um campo UUID').toBe('SELECT');
+        expect(om.disabled).toBe(true);
         expect(nota, 'a nota foi pendurada também aqui').not.toBeNull();
         expect(nota.textContent).toBe(LOTACAO_HINT);
         expect(ancestors(nota)).toContain(om.parentElement);

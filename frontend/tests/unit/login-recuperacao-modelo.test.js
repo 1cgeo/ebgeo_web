@@ -104,9 +104,12 @@ describe('validateRecoveryReset', () => {
 
         // E as pontas EXATAS passam: sem isto, um validador que recusasse tudo passaria verde.
         const minima = 'a'.repeat(MIN_PASSWORD_LENGTH);
-        const maxima = 'a'.repeat(MAX_PASSWORD_LENGTH);
+        const maxima = 'a'.repeat(72);
         expect(validateRecoveryReset({ code: CODIGO, newPassword: minima, confirmPassword: minima }).valid).toBe(true);
         expect(validateRecoveryReset({ code: CODIGO, newPassword: maxima, confirmPassword: maxima }).valid).toBe(true);
+        for (const password of ['a'.repeat(73), 'á'.repeat(37)]) {
+            expect(validateRecoveryReset({ code: CODIGO, newPassword: password, confirmPassword: password }).valid).toBe(false);
+        }
     });
 
     it('cobra a confirmação', () => {
