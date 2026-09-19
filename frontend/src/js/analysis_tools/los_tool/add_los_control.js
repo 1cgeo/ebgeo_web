@@ -211,7 +211,7 @@ class AddLOSControl extends BaseControl {
                 const expandedBbox = this.expandBboxWithPadding(bbox, this.getSelectionBoxPadding(),this.map);
                 return turf.bboxPolygon(expandedBbox);
             }
-            return turf.bbox(feature);
+            return turf.bboxPolygon(this.expandBboxWithPadding(turf.bbox(feature), this.getSelectionBoxPadding(), this.map));
         } catch (error) {
             console.warn('Error creating LOS selection box:', error);
             return null;

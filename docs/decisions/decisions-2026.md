@@ -2664,3 +2664,9 @@ At the user's request, managers and owners can lock and unlock remote maps. This
 ### 2026-09-19: choose the new map base before journaling
 
 A fresh map resolves its base against the current accessible catalog before its create operation is journaled. Falling back only while rendering was too late: the queued create still named the inaccessible historical default. Imported documents keep their explicit data. The sync insert now honors both base-layer spellings used by its authorization gate, and an empty or absent reference stays empty instead of acquiring an unchecked private default. An empty catalog therefore does not invent access to any resource. The browser regression makes the historical default private, creates through the editor's Maps tab, and checks database, peer and reload.
+
+### 2026-09-19: remote selections resolve lazy tools
+
+Receiving the presence frame did not guarantee a visible selection: the remote overlay searched instantiated controls only, so an arrow selected by a colleague disappeared on a client that had never loaded that tool. Resolution now includes the registered source descriptors, reads the feature first, and loads only the matching tool to build its outline. It does not activate the tool or select anything for the receiving user. Legacy frames without a recognized type follow the same source-first lookup. The render generation guard still discards a late load after deselection or teardown; a later source refresh retries a selection received before its feature.
+
+The browser regression derives its sweep from all 19 selectable feature types and checks the rendered MapLibre layer after selection through the layers tree, instead of accepting a presence-store entry as proof. The audit also found the fallback of coordination-line and LOS selection boxes returning bbox numbers instead of a GeoJSON polygon; both now return the padded polygon expected by local and remote highlights.

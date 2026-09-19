@@ -368,18 +368,20 @@ export class RemoteSelectionsLayer {
      * @private
      */
     async _resolveFeatureAndControl(type, featureId) {
-        const controls = this._selectionManager?.controls;
+        const manager = this._selectionManager;
+        const controls = manager?.controls;
         if (!controls) return null;
+        const registered = new Set([...controls.keys(), ...(manager.controlFactories?.keys() ?? [])]);
+        const candidates = type && registered.has(type) ? [type] : registered;
 
-        if (type && controls.has(type)) {
-            const feature = await this._selectionManager.getCompleteFeatureFromSource(type, featureId);
-            return feature ? { feature, control: controls.get(type) } : null;
-        }
-
-        // No (or unknown) type: probe each control until one source holds the id.
-        for (const [t, control] of controls.entries()) {
-            const feature = await this._selectionManager.getCompleteFeatureFromSource(t, featureId);
-            if (feature) return { feature, control };
+        // Source descriptors exist before lazy tools are loaded. Locate the feature
+        // first, then load only its tool to build the remote outline. Never activate
+        // the tool or change the receiving user's own selection.
+        for (const candidate of candidates) {
+            const feature = await manager.getCompleteFeatureFromSource(candidate, featureId);
+            if (!feature) continue;
+            const control = controls.get(candidate) ?? await manager.ensureControlFor(candidate);
+            return control ? { feature, control } : null;
         }
         return null;
     }

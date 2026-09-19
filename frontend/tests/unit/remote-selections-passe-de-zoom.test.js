@@ -177,6 +177,97 @@ afterEach(() => {
     globalThis.cancelAnimationFrame = cancelOriginal;
 });
 
+describe('RemoteSelectionsLayer: ferramentas ainda não carregadas', () => {
+    function preparar(type = 'arrow') {
+        const mapa = montarMapa();
+        const { selectionManager } = montarSelectionManager(mapa, ['seta']);
+        const control = selectionManager.controls.get('point');
+        selectionManager.controlFactories = new Map([['arrow', {}], ['circle', {}]]);
+        selectionManager.ensureControlFor = vi.fn(async () => control);
+        selectionManager.getCompleteFeatureFromSource = vi.fn(async (t, id) => (
+            t === 'arrow' && id === 'seta'
+                ? { type: 'Feature', geometry: { type: 'Point', coordinates: [10, 20] }, properties: { id } }
+                : null
+        ));
+        const selections = selecaoDoColega(['seta']);
+        selections[0].featureMeta = type ? [{ type, id: 'seta' }] : [];
+        presenceStoreMock.getSelections.mockReturnValue(selections);
+        const camada = new RemoteSelectionsLayer(mapa, selectionManager);
+        return { mapa, selectionManager, camada, control };
+    }
+
+    it.each(['arrow', null, 'tipo-antigo'])('resolve seleção %s usando somente a ferramenta da fonte correspondente', async (type) => {
+        const { mapa, selectionManager, camada } = preparar(type);
+        camada.start();
+        await assentar();
+        expect(selectionManager.ensureControlFor).toHaveBeenCalledExactlyOnceWith('arrow');
+        expect(mapa.escritas.at(-1).features.map((f) => f.properties.featureId)).toEqual(['seta']);
+        camada.stop();
+    });
+
+    it('não carrega ferramentas quando a feição ainda não existe nas fontes', async () => {
+        const { mapa, selectionManager, camada } = preparar();
+        selectionManager.getCompleteFeatureFromSource.mockResolvedValue(null);
+        camada.start();
+        await assentar();
+        expect(selectionManager.ensureControlFor).not.toHaveBeenCalled();
+        expect(mapa.escritas.at(-1).features).toEqual([]);
+        camada.stop();
+    });
+
+    it('combina uma ferramenta pronta e uma tardia na mesma seleção', async () => {
+        const { mapa, selectionManager, camada } = preparar();
+        const lookup = selectionManager.getCompleteFeatureFromSource.getMockImplementation();
+        selectionManager.getCompleteFeatureFromSource.mockImplementation(async (type, id) => {
+            if (type === 'point' && id === 'ponto') {
+                return { type: 'Feature', properties: { id }, geometry: { type: 'Point', coordinates: [11, 21] } };
+            }
+            return lookup(type, id);
+        });
+        const selections = selecaoDoColega(['ponto', 'seta']);
+        selections[0].featureMeta[1].type = 'arrow';
+        presenceStoreMock.getSelections.mockReturnValue(selections);
+        camada.start();
+        await assentar();
+        expect(mapa.escritas.at(-1).features.map((f) => f.properties.featureId)).toEqual(['ponto', 'seta']);
+        expect(selectionManager.ensureControlFor).toHaveBeenCalledExactlyOnceWith('arrow');
+        camada.stop();
+    });
+
+    it.each(['desselecionar', 'parar'])('não restaura seleção obsoleta ao %s durante o carregamento', async (acao) => {
+        const { mapa, selectionManager, camada, control } = preparar();
+        let concluir;
+        selectionManager.ensureControlFor.mockImplementation(() => new Promise((resolve) => { concluir = resolve; }));
+        camada.start();
+        await assentar();
+        expect(selectionManager.ensureControlFor).toHaveBeenCalledExactlyOnceWith('arrow');
+        if (acao === 'parar') {
+            camada.stop();
+        } else {
+            presenceStoreMock.getSelections.mockReturnValue([]);
+            emitir(EventTypes.PRESENCE_SELECTIONS_CHANGED);
+            await assentar();
+        }
+        concluir(control);
+        await assentar();
+        expect(mapa.escritas.at(-1).features).toEqual([]);
+        camada.stop();
+    });
+
+    it('desenha quando a feição chega depois da seleção remota', async () => {
+        const { mapa, selectionManager, camada } = preparar();
+        selectionManager.getCompleteFeatureFromSource.mockResolvedValueOnce(null);
+        camada.start();
+        await assentar();
+        expect(mapa.escritas.at(-1).features).toEqual([]);
+        emitir(EventTypes.LAYERS_CHANGED);
+        relogio.quadro();
+        await assentar();
+        expect(mapa.escritas.at(-1).features.map((f) => f.properties.featureId)).toEqual(['seta']);
+        camada.stop();
+    });
+});
+
 describe('RemoteSelectionsLayer: o passe de zoom por quadro', () => {
     it('o passe roda ao longo do gesto, e nao passa fome no proprio debounce', async () => {
         const mapa = montarMapa();
