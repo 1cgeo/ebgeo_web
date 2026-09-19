@@ -2846,9 +2846,14 @@ export async function pullOperations(atlasId, sinceVersion, permission = 'owner'
   // Otherwise return incremental operations (converted to frontend format). Read-only viewers
   // never receive comment ops (visibility rule).
   const opsResult = await query(Q.GET_OPERATIONS_SINCE_VERSION, [atlasId, sinceVersion]);
+  // Cleanup commits deletion and min_version atomically. If it ran between our two reads,
+  // the tail may already be incomplete despite the first frontier check. Re-read AFTER
+  // collecting the tail: a later cleanup cannot invalidate rows we have already captured.
+  const latestSyncInfo = await getAtlasSyncInfo(atlasId);
+  const historyWasPruned = !latestSyncInfo || sinceVersion < Number(latestSyncInfo.min_version);
   // Older logs replaced textual catalog identities with the atlas UUID, including deletes
   // whose payload is empty. A snapshot is the only authoritative recovery for those rows.
-  if (opsResult.rows.some(op => op.entity_type === 'catalog_layer'
+  if (historyWasPruned || opsResult.rows.some(op => op.entity_type === 'catalog_layer'
       && op.client_entity_id == null && op.entity_id === op.atlas_id)) {
     const snapshot = await getAtlasSnapshot(atlasId, permission, userId);
     return snapshot ? { snapshot, currentVersion: snapshot.currentVersion, isSnapshot: true }

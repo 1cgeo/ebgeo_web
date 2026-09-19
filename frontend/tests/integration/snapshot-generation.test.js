@@ -10,9 +10,10 @@ import { discardRemoteWrites } from '../../src/js/store/remote-write-fence.js';
 import { localRepository, LocalRepository, getEmptyMapData } from '../../src/js/store/repositories/local.repository.js';
 import { readGeneration } from '../../src/js/store/namespace-generation.js';
 import { createAtlas } from '../../src/js/store/atlas/atlas.entity.js';
-import { applyRemoteSnapshot, applyRemoteOperation, markLocalEditPending, setRemoteHandlerEventBus } from '../../src/js/store/sync/remote-operation-handler.js';
+import { applyRemoteSnapshot, applyRemoteOperation, confirmEntityVersion, markLocalEditPending, setRemoteHandlerEventBus } from '../../src/js/store/sync/remote-operation-handler.js';
 import { operationQueue } from '../../src/js/store/sync/operation-queue.js';
 import { beginStoreWrite, storeWritesPaused } from '../../src/js/store/write-coordinator.js';
+import { observeServerVersion } from '../../src/js/store/sync/snapshot-frontier.js';
 
 const atlasId = '51000000-0000-4000-8000-000000000001';
 const mapId = '51000000-0000-4000-8000-000000000002';
@@ -48,6 +49,47 @@ beforeEach(async () => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('Snapshot generation commit with native IndexedDB', () => {
+    it('refuses a snapshot older than an operation already received on the socket', async () => {
+        await applyRemoteSnapshot(snapshot(10));
+        await applyRemoteOperation({ id: 'live-newer-than-http', entityType: 'feature', operationType: 'create',
+            entityId: featureId, mapId, serverVersion: 12,
+            data: { type: 'Feature', geometry: { type: 'Point', coordinates: [7, 8] },
+                properties: { id: featureId, source: 'point' } } });
+        await expect(applyRemoteSnapshot(snapshot(11))).rejects.toMatchObject({ code: 'STALE_SYNC_SNAPSHOT' });
+        expect((await localRepository.getMap(mapId)).features.points.some(f => f.properties.id === featureId)).toBe(true);
+        const fresh = { ...snapshot(12), maps: [await localRepository.getMap(mapId)] };
+        await applyRemoteSnapshot(fresh);
+        expect(readGeneration(scope).cursor).toBe(12);
+        expect((await localRepository.getMap(mapId)).features.points.some(f => f.properties.id === featureId)).toBe(true);
+    });
+
+    it('checks receipts that arrive while a snapshot is being staged before publishing it', async () => {
+        const before = readGeneration(scope);
+        const save = LocalRepository.prototype.saveMap;
+        vi.spyOn(LocalRepository.prototype, 'saveMap').mockImplementation(async function (...args) {
+            await save.apply(this, args);
+            if (this.scope.dataGeneration !== before.active) observeServerVersion(30, scope);
+        });
+        await expect(applyRemoteSnapshot(snapshot(20))).rejects.toMatchObject({ code: 'STALE_SYNC_SNAPSHOT' });
+        expect(readGeneration(scope).active).toBe(before.active);
+        expect((await localRepository.getMap(mapId)).name).toBe('Anterior');
+    });
+
+    it('does not write a late receipt into another atlas with the same map ID', async () => {
+        const destination = remoteScope('receipt-destination');
+        const other = new LocalRepository(destination);
+        await other.saveMap(mapId, map('Outro atlas'));
+        const originalRead = LocalRepository.prototype.getMap;
+        vi.spyOn(LocalRepository.prototype, 'getMap').mockImplementationOnce(async function (...args) {
+            const document = await originalRead.apply(this, args);
+            activateScope(destination);
+            return document;
+        });
+        await confirmEntityVersion({ entityType: 'map', entityId: mapId }, 77);
+        expect((await other.getMap(mapId)).name).toBe('Outro atlas');
+        expect((await other.getMap(mapId)).confirmedVersion).toBeUndefined();
+    });
+
     it('replays a prepared edit even when the server snapshot has the same cursor', async () => {
         scope = remoteScope('prepared-same-cursor');
         activateScope(scope);

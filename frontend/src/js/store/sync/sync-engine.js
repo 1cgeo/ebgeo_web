@@ -28,7 +28,6 @@ import { reconcileLegacyQueue } from './legacy-queue.js';
 
 import { apiClient, configureApiClient } from './api-client.js';
 import { wsClient } from './ws-client.js';
-import { operationQueue } from './operation-queue.js';
 import { isStructuralMarker } from './structural-markers.js';
 import { SyncSession } from '@store/sync/sync-session.js';
 import { ATLAS_RECORD_KEY, getStoreFor, reconcileDurablePointers, StoreName } from '@store/atlas-namespace.js';
@@ -52,6 +51,7 @@ import { applyAtlasSettings, revertAtlasSettings } from './atlas-settings.servic
 import { refreshVisibleResources, clearVisibleResources } from './resource-access.service.js';
 import { clearLocalEditMarks } from './overwrite-notice.js';
 import { classifyIssue } from './issue-classes.js';
+import { observeServerVersion } from './snapshot-frontier.js';
 import { getEventBus } from '../services.js';
 import { EventTypes } from '../../events/event_types.js';
 import { record } from './diag/trace-core.js';
@@ -229,15 +229,17 @@ export function refusedBatchIds(resp, ops) {
  * @param {Object} resp - The pushOperations response ({ results?, acks?, serverVersion? }).
  * @param {Object[]} ops - The ops that were pushed (in order).
  */
-async function recordPushAcks(resp, ops) {
+async function recordPushAcks(resp, ops, session) {
     if (!resp) return;
     const results = resp.results || resp.acks || [];
     const confirmed = new Set(acknowledgedOperationIds(resp, ops));
     const rejections = [];
     for (const op of ops) {
+        session.assertActive();
         const r = results.find((x) => x && (x.operationId === op.id || x.opId === op.id));
         if (!r) continue;
         const sv = r.currentVersion ?? r.serverVersion ?? resp.serverVersion;
+        if (confirmed.has(op.id)) observeServerVersion(sv, session.scope);
 
         // A policy denial (map delete without the `manage` tier, lock/unlock without
         // owner) is acked per-operation with 200 + rejected, so the batch is NOT
@@ -291,14 +293,17 @@ async function recordPushAcks(resp, ops) {
         // a race against nobody. `entityVersion` rides every base-checked receipt; only three
         // paths carry a canonical operation the inbound handler could have applied instead.
         if (confirmed.has(op.id) && Number.isSafeInteger(r.entityVersion)) {
-            await confirmEntityVersion(op, r.entityVersion);
+            await confirmEntityVersion(op, r.entityVersion, session);
+            session.assertActive();
         }
         if (confirmed.has(op.id) && sv != null && op.entityId && CONVERGENCE_GUARDED.has(op.entityType)) {
             await recordLocalAppliedVersion(op.entityId, sv, r.canonicalOperation ?? op);
+            session.assertActive();
         }
         if (confirmed.has(op.id) && op.entityType === 'map'
             && op.operationType === 'create' && r.canonicalOperation) {
             await applyMapCreationAck(r.canonicalOperation);
+            session.assertActive();
         }
     }
 
@@ -759,7 +764,7 @@ class SyncEngine {
                         atlasId: session.atlasId, opIds, outcome: TraceOutcome.FAILED,
                         reason: 'atlas_gone', error: error?.message || String(error),
                     });
-                    await this._reconcileConvergenceGuard();
+                    await this._reconcileConvergenceGuard(session);
                     throw error;
                 }
 
@@ -824,11 +829,11 @@ class SyncEngine {
                     continue;
                 }
 
-                await this._reconcileConvergenceGuard();
+                await this._reconcileConvergenceGuard(session);
                 throw error;
             }
             session.assertActive();
-            await recordPushAcks(resp, ops);
+            await recordPushAcks(resp, ops, session);
             session.assertActive();
             // TODA RECUSA VIRA PROBLEMA DURÁVEL, E O CONFLITO É UMA DELAS. O servidor devolve a
             // disputa por este mesmo canal (`rejected: true` mais `status: 'conflict'` e o objeto
@@ -888,7 +893,7 @@ class SyncEngine {
                     atlasId: session.atlasId, opIds, outcome: TraceOutcome.FAILED,
                     reason: 'unacknowledged_batch',
                 });
-                await this._reconcileConvergenceGuard();
+                await this._reconcileConvergenceGuard(session);
                 throw new Error(
                     `sync: o servidor não confirmou nenhuma das ${ops.length} operações enviadas`
                 );
@@ -899,7 +904,7 @@ class SyncEngine {
         session.assertActive();
         if (needsRecovery) await this.resync();
         session.assertActive();
-        await this._reconcileConvergenceGuard();
+        await this._reconcileConvergenceGuard(session);
         return { pushed };
     }
 
@@ -928,12 +933,16 @@ class SyncEngine {
      * after a flush (clears leaked deferrals; see reconcilePendingLocalEdits). Never throws.
      * @returns {Promise<void>}
      */
-    async _reconcileConvergenceGuard() {
+    async _reconcileConvergenceGuard(session = this._session) {
         try {
-            const remaining = await (operationQueue.getPendingProjection?.() ?? operationQueue.getAll());
+            session ??= new SyncSession(this._atlasId, sessionContext.userId);
+            session.assertActive();
+            const remaining = await (session.queue.getPendingProjection?.() ?? session.queue.getAll());
+            session.assertActive();
             const remainingIds = new Set(remaining.map((o) => o.entityId).filter(Boolean));
             await reconcilePendingLocalEdits(remainingIds);
         } catch (err) {
+            if (err?.name === 'AbortError') return;
             console.warn('reconcilePendingLocalEdits failed:', err);
         }
     }
@@ -949,6 +958,7 @@ class SyncEngine {
         session.assertActive();
         if (result?.snapshot) {
             await applyRemoteSnapshot(result.snapshot, session);
+            session.assertActive();
             this._haveSnapshot = true;
         } else if (result?.operations) {
             // Same structural-marker guard as the syncResponse handler. Without it a
@@ -980,19 +990,33 @@ class SyncEngine {
     async resync() {
         if (!this._atlasId) return;
         const session = this._session ?? this._beginSession(this._atlasId);
+        // A second notification may describe a commit newer than the in-flight snapshot.
+        // Share the worker, but fetch again before reporting that all requests are complete.
+        session.resyncRequested = true;
         if (session.resyncPromise) return session.resyncPromise;
         session.recovering = true;
         session.resyncPromise = (async () => {
-            const result = await apiClient.pullSync(session.atlasId, 0, { signal: session.signal });
-            session.assertActive();
-            if (result?.snapshot) {
-                await applyRemoteSnapshot(result.snapshot, session);
+            let staleResponses = 0;
+            do {
+                session.resyncRequested = false;
+                const result = await apiClient.pullSync(session.atlasId, 0, { signal: session.signal });
                 session.assertActive();
-                this._lastVersion = result.currentVersion ?? this._lastVersion;
-                wsClient.setLastVersion(this._lastVersion);
-                this._haveSnapshot = true;
-                wsClient.setHaveSnapshot(true);
-            }
+                if (result?.snapshot) {
+                    try {
+                        await applyRemoteSnapshot(result.snapshot, session);
+                    } catch (error) {
+                        session.assertActive();
+                        if (error?.code !== 'STALE_SYNC_SNAPSHOT' || ++staleResponses >= 3) throw error;
+                        session.resyncRequested = true;
+                        continue;
+                    }
+                    session.assertActive();
+                    this._lastVersion = result.currentVersion ?? this._lastVersion;
+                    wsClient.setLastVersion(this._lastVersion);
+                    this._haveSnapshot = true;
+                    wsClient.setHaveSnapshot(true);
+                }
+            } while (session.resyncRequested);
             session.recovering = false;
         })().finally(() => { session.resyncPromise = null; });
         return session.resyncPromise;
@@ -1151,6 +1175,7 @@ class SyncEngine {
             session.assertActive();
             if (msg?.isSnapshot) {
                 await applyRemoteSnapshot(msg.snapshot, session);
+                session.assertActive();
                 // A snapshot that lands (or that is refused because the disk already holds it)
                 // leaves the local state COMPLETE, so a later reconnect may ask for a tail. This
                 // is the only path that learns it for a connect that skipped the initial pull.

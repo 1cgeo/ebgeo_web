@@ -457,6 +457,27 @@ describe('WsClient — serverVersion cursor (global sequence: monotonic, NOT per
 });
 
 describe('WsClient — server-side data events route to a re-pull (doc: peer reload on duplicate/merge)', () => {
+    it('reconnects after a failed structural recovery without skipping the missed change', async () => {
+        const { ws, conn } = setup();
+        const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            ws.on('serverResync', async () => { throw new Error('recovery failed'); });
+            const connected = ws.connect('atlas-1');
+            const sock = FakeSocket.instances[0];
+            sock.emit({ type: 'connected', sessionId: 'me', permission: 'owner', role: 'owner' });
+            await connected;
+            ws.setLastVersion(7);
+            sock.emit({ type: 'maps_merged', currentVersion: 9 });
+            await ws._applyChain;
+            expect(sock.readyState).toBe(3);
+            expect(conn.getState()).toBe(ConnectionStates.RECONNECTING);
+            expect(ws._lastVersion).toBe(7);
+        } finally {
+            ws.disconnect();
+            warning.mockRestore();
+        }
+    });
+
     it('routes map_duplicated / maps_merged / atlas_updated to a serverResync event (was silently dropped)', async () => {
         const { ws } = setup();
         const onResync = vi.fn();
@@ -469,6 +490,7 @@ describe('WsClient — server-side data events route to a re-pull (doc: peer rel
         sock.emit({ type: 'map_duplicated', mapId: 'm2' });
         sock.emit({ type: 'maps_merged', mapId: 'm3' });
         sock.emit({ type: 'atlas_updated', atlasId: 'atlas-1' });
+        await ws._applyChain;
 
         expect(onResync).toHaveBeenCalledTimes(3);
         expect(onResync).toHaveBeenCalledWith(expect.objectContaining({ type: 'map_duplicated', mapId: 'm2' }));

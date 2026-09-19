@@ -16,6 +16,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAdminUser, createAtlas, createMap, loginUser } from '../helpers/fixtures.js';
@@ -86,6 +87,52 @@ describe('atlas.current_version como cursor de sync (item 24)', () => {
     assert.equal(res.body.data.isSnapshot, true);
     return Number(res.body.data.currentVersion);
   };
+
+  for (const keepTail of [false, true]) {
+    it(`does not skip edits during concurrent cleanup (keep tail: ${keepTail})`, { timeout: 15000 }, async () => {
+      const { pullOperations } = await import('../../src/modules/sync/sync.service.js');
+      const atlas = await createAtlas(db, user.id);
+      const map = await createMap(db, atlas.id);
+      const first = await push(atlas.id, [opCreate(map.id)]).expect(200);
+      const since = Number(first.body.data.serverVersion);
+      const pending = opCreate(map.id);
+      await push(atlas.id, [pending]).expect(200);
+      const last = await push(atlas.id, [opCreate(map.id)]).expect(200);
+      const current = Number(last.body.data.serverVersion);
+      const frontier = keepTail ? current : current + 1;
+      let pulling;
+      await db.query('BEGIN');
+      try {
+        // The cursor SELECT runs freely, but the log SELECT must wait here.
+        await db.query('LOCK TABLE operations IN ACCESS EXCLUSIVE MODE');
+        pulling = pullOperations(atlas.id, since, 'owner', user.id);
+        const deadline = Date.now() + 5000;
+        let blocked = false;
+        while (Date.now() < deadline) {
+          const { rows } = await db.query(`SELECT 1 FROM pg_stat_activity
+            WHERE datname = current_database() AND pid <> pg_backend_pid()
+              AND wait_event_type = 'Lock' AND query ILIKE '%SELECT * FROM operations%'`);
+          if (rows.length) { blocked = true; break; }
+          await delay(10);
+        }
+        assert.ok(blocked, 'the pull must be suspended after reading the old cursor');
+        // Same atomic log/receipt/frontier transition performed by cleanupOldOperations.
+        await db.query('DELETE FROM operations WHERE atlas_id = $1 AND server_version < $2', [atlas.id, frontier]);
+        await db.query('DELETE FROM sync_receipts WHERE atlas_id = $1 AND server_version < $2', [atlas.id, frontier]);
+        await db.query('UPDATE atlas SET min_version = $2 WHERE id = $1', [atlas.id, frontier]);
+        await db.query('COMMIT');
+        const result = await pulling;
+        assert.equal(result.currentVersion, current);
+        assert.equal(result.isSnapshot, true, 'a pruned tail requires a complete snapshot');
+        const recoveredMap = result.snapshot.maps.find(item => item.id === map.id);
+        assert.ok(recoveredMap.features.points.some(feature => feature.properties.id === pending.targetId),
+          'snapshot retains the edit');
+      } finally {
+        await db.query('ROLLBACK');
+        await pulling?.catch(() => {});
+      }
+    });
+  }
 
   it('igualdade TRIPLA após um push de 3 ops: coluna == MAX(server_version) == snapshot == ack', async () => {
     const res = await push(atlasA.id, [opCreate(mapA.id), opCreate(mapA.id), opCreate(mapA.id)]).expect(200);

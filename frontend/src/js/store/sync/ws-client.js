@@ -440,7 +440,13 @@ export class WsClient {
                 // These create/alter server-side data OUTSIDE the CRDT op log (REST clone/merge/
                 // rename), so peers never receive the entities as ops. Trigger a snapshot re-pull
                 // so the change is actually picked up (it was silently dropped at `default`).
-                this._emit('serverResync', msg);
+                // Structural recovery is part of applying this stream, including its failure
+                // boundary. A rejected fetch must reconnect from the previous cursor; merely
+                // logging a rejected event handler leaves the missing change unnoticed.
+                this._queueApply(async () => {
+                    const handler = this._handlers.serverResync;
+                    if (!handler || await handler(msg) === false) throw new Error('Recuperação estrutural não aplicada.');
+                });
                 break;
             case 'sharing_updated':
                 this._emit('sharingUpdated', msg);

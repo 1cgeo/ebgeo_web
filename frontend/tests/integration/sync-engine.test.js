@@ -115,6 +115,8 @@ const h = vi.hoisted(() => {
         // after each flush. Both were MISSING from the mock, so `recordPushAcks` and
         // `_reconcileConvergenceGuard` blew up on `undefined`.
         recordLocalAppliedVersion: vi.fn(),
+        confirmEntityVersion: vi.fn(async () => true),
+        applyMapCreationAck: vi.fn(async () => {}),
         reconcilePendingLocalEdits: vi.fn(async () => {}),
         syncGatewayMock: {
             setRemoteOperationHandler: vi.fn(),
@@ -196,6 +198,8 @@ vi.mock('../../src/js/store/sync/remote-operation-handler.js', async (importOrig
         applyRemoteSnapshot: h.applyRemoteSnapshot,
         setRemoteHandlerEventBus: h.setRemoteHandlerEventBus,
         recordLocalAppliedVersion: h.recordLocalAppliedVersion,
+        confirmEntityVersion: h.confirmEntityVersion,
+        applyMapCreationAck: h.applyMapCreationAck,
         reconcilePendingLocalEdits: h.reconcilePendingLocalEdits,
         CONVERGENCE_GUARDED: actual.CONVERGENCE_GUARDED,
     };
@@ -249,6 +253,7 @@ import {
     getGlobalStore, getStoreFor, remoteScope, StoreName,
 } from '../../src/js/store/atlas-namespace.js';
 import { writeGeneration } from '../../src/js/store/namespace-generation.js';
+import { assertSnapshotCurrent } from '../../src/js/store/sync/snapshot-frontier.js';
 // O barramento é dublê, mas os NOMES dos eventos vêm do módulo real: uma cópia literal
 // aqui deixaria de acompanhar a de produção sem ficar vermelha.
 import { EventTypes } from '../../src/js/events/event_types.js';
@@ -269,7 +274,7 @@ beforeEach(() => {
     syncEngine._atlasId = null;
     syncEngine._lastVersion = 0;
     syncEngine._handlersWired = false;
-    apiClientMock.pullSync.mockResolvedValue({ currentVersion: 0, isSnapshot: false });
+    apiClientMock.pullSync.mockReset().mockResolvedValue({ currentVersion: 0, isSnapshot: false });
     // `vi.clearAllMocks()` clears CALLS, not implementations, so a `mockRejectedValue` /
     // `mockImplementation` set by one test survives into every test that follows it. The
     // poisoned-batch describe leaves a 400-rejecting push behind, and a later test that never
@@ -1077,6 +1082,43 @@ describe('rejected operations are surfaced to the user', () => {
 });
 
 describe('flush', () => {
+    it('an accepted receipt fences older snapshots even after its queue entry is removed', async () => {
+        const scope = remoteScope('receipt-frontier');
+        activateScope(scope);
+        try {
+            await syncEngine.connect(scope.atlasId, { initialPull: false });
+            queueState.ops = [{ id: 'committed-map', entityType: 'map', entityId: 'm1' }];
+            apiClientMock.pushOperations.mockResolvedValueOnce({ results: [{
+                operationId: 'committed-map', success: true, serverVersion: 77,
+            }] });
+            await syncEngine.flush();
+            expect(queueState.ops).toEqual([]);
+            expect(() => assertSnapshotCurrent(76, scope)).toThrow();
+            expect(() => assertSnapshotCurrent(77, scope)).not.toThrow();
+            expect(() => assertSnapshotCurrent(0, remoteScope('other-mount'))).not.toThrow();
+        } finally {
+            syncEngine.disconnect();
+            clearActiveScope();
+        }
+    });
+
+    it('stops an ACK loop when the atlas changes during revision confirmation', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        const ops = [1, 2].map(n => ({ id: `late-${n}`, entityType: 'feature', entityId: `f${n}` }));
+        queueState.ops = ops.slice();
+        apiClientMock.pushOperations.mockResolvedValueOnce({ results: ops.map(op => ({
+            operationId: op.id, success: true, entityVersion: 7, currentVersion: 7,
+        })) });
+        h.confirmEntityVersion.mockImplementationOnce(async () => {
+            syncEngine.disconnect();
+            await syncEngine.connect('atlas-2', { initialPull: false });
+        });
+        await expect(syncEngine.flush()).rejects.toMatchObject({ name: 'AbortError' });
+        expect(h.confirmEntityVersion).toHaveBeenCalledTimes(1);
+        expect(recordLocalAppliedVersion).not.toHaveBeenCalled();
+        expect(queueState.dequeued).toEqual([]);
+    });
+
     it('drains the queue in batches and dequeues accepted ops', async () => {
         await syncEngine.connect('atlas-1', { initialPull: false });
         queueState.ops = [
@@ -1301,6 +1343,17 @@ describe('lote envenenado: isolamento e descarte da op ofensora', () => {
 // fed the wrong set, they go red instead of quietly printing to a console nobody reads.
 
 describe('post-flush convergence-guard reconciliation', () => {
+    it('does not reconcile a new mount against the previous mount queue', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        operationQueueMock.getAll.mockImplementationOnce(async () => {
+            syncEngine.disconnect();
+            await syncEngine.connect('atlas-2', { initialPull: false });
+            return [];
+        });
+        await syncEngine.reconcileConvergenceGuard();
+        expect(reconcilePendingLocalEdits).not.toHaveBeenCalled();
+    });
+
     it('reconciles with an EMPTY set after the queue drains completely', async () => {
         await syncEngine.connect('atlas-1', { initialPull: false });
         const ops = [
@@ -1641,6 +1694,40 @@ describe('lote lógico no envio', () => {
 });
 
 describe('marcadores estruturais das quatro exceções REST', () => {
+    it('retries a stale HTTP snapshot without advertising its cursor', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        applyRemoteSnapshot.mockRejectedValueOnce(Object.assign(new Error('old snapshot'), { code: 'STALE_SYNC_SNAPSHOT' }));
+        apiClientMock.pullSync.mockResolvedValueOnce({ snapshot: { maps: [] }, currentVersion: 11 });
+        apiClientMock.pullSync.mockResolvedValueOnce({ snapshot: { maps: ['latest'] }, currentVersion: 12 });
+        wsClientMock.setLastVersion.mockClear();
+        await syncEngine.resync();
+        expect(syncEngine.lastVersion).toBe(12);
+        expect(wsClientMock.setLastVersion.mock.calls).toEqual([[12]]);
+    });
+
+    it('bounds retries and preserves the cursor when snapshots stay stale', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        const error = Object.assign(new Error('old snapshot'), { code: 'STALE_SYNC_SNAPSHOT' });
+        applyRemoteSnapshot.mockRejectedValueOnce(error).mockRejectedValueOnce(error).mockRejectedValueOnce(error);
+        apiClientMock.pullSync.mockResolvedValue({ snapshot: { maps: [] }, currentVersion: 11 });
+        await expect(syncEngine.resync()).rejects.toBe(error);
+        expect(syncEngine.lastVersion).toBe(0);
+        expect(syncEngine._session.resyncPromise).toBeNull();
+    });
+
+    it('fetches again when a structural change arrives during an older snapshot request', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        let finishFirst;
+        apiClientMock.pullSync.mockImplementationOnce(() => new Promise(resolve => { finishFirst = resolve; }));
+        apiClientMock.pullSync.mockResolvedValueOnce({ snapshot: { maps: ['second-change'] }, currentVersion: 12 });
+        const first = syncEngine.resync();
+        const second = wsClientMock._handlers.serverResync({ type: 'maps_merged' });
+        finishFirst({ snapshot: { maps: ['first-change'] }, currentVersion: 11 });
+        await Promise.all([first, second]);
+        expect(applyRemoteSnapshot).toHaveBeenLastCalledWith({ maps: ['second-change'] }, expect.anything());
+        expect(syncEngine.lastVersion).toBe(12);
+    });
+
     it.each(['map_merge', 'map_duplicate', 'atlas_clone', 'atlas_import'])(
         'o marcador %s no replay dispara resync, não aplicação op a op', async (entityType) => {
             await syncEngine.connect('atlas-1', { initialPull: false });

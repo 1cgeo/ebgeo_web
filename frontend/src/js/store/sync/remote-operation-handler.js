@@ -30,6 +30,7 @@ import { editedRecentlyLocally } from './overwrite-notice.js';
 import { record } from './diag/trace-core.js';
 import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
 import { operationQueue } from './operation-queue.js';
+import { observeServerVersion, assertSnapshotCurrent } from './snapshot-frontier.js';
 // A pergunta "esta feição ainda deve bytes ao servidor", lida do DISCO: ver o uso em
 // `applyRemoteSnapshot`, que roda dentro do connect em que o espelho de memória ainda está vazio.
 import { idsComBlobPendente } from './blob-upload-queue.js';
@@ -588,6 +589,7 @@ export async function applyRemoteOperation(operation, options = {}) {
  */
 async function applyRemoteOperationInner(operation, guarded) {
     const { entityType, operationType, entityId, mapId, data, serverVersion } = operation;
+    observeServerVersion(serverVersion, applyContext?.scope);
 
     // Convergence guard (LWW by server arrival order) for the entity types that blind-replace:
     //  1. defer the op while the local user has an un-acked edit on the same entity (so a peer's
@@ -1946,6 +1948,7 @@ export function applyRemoteSnapshot(snapshot, options = {}) {
     return serializeGuardedApply(() => withApplyContext(context, async () => {
         if (context.scope?.kind !== 'remote') return applyRemoteSnapshotInner(snapshot);
         validateSnapshot(snapshot, true);
+        assertSnapshotCurrent(snapshot.currentVersion, context.scope);
         // THE SAME SNAPSHOT TWICE IS STAGED ONCE. Opening a remote atlas answers two full
         // snapshots whenever the atlas has never had an operation written: the HTTP pull asks
         // from the durable cursor (zero, with no active generation), and the socket handshake
@@ -1997,6 +2000,9 @@ export function applyRemoteSnapshot(snapshot, options = {}) {
             // The pointer and cursor are a single durable commit; until this line every reader
             // still resolves the previous complete generation, including after a browser crash.
             const latest = readGeneration(context.scope);
+            // HTTP receipts can arrive while staging awaits IndexedDB, even though inbound
+            // operation application is serialized. Check again at the publication boundary.
+            assertSnapshotCurrent(snapshot.currentVersion, context.scope);
             if (latest.active !== record.active) throw new Error('Outra aba atualizou o atlas durante a recuperação. Tente novamente.');
             writeGeneration(context.scope, { ...latest, active: generation, cursor: snapshot.currentVersion });
             activated = true;
@@ -2400,11 +2406,13 @@ function stampInBucket(bucket, entityId, entityVersion) {
  * @param {number} entityVersion - The revision the server committed.
  * @returns {Promise<boolean>} Whether a document was written.
  */
-export async function confirmEntityVersion(operation, entityVersion) {
+export async function confirmEntityVersion(operation, entityVersion, options = {}) {
     const { entityType, entityId, mapId } = operation ?? {};
     if (!entityType || !entityId || !Number.isSafeInteger(entityVersion)) return false;
+    const context = capturedApplyContext(options);
     try {
-        return await writeConfirmedEntityVersion(entityType, entityId, mapId, entityVersion);
+        return await serializeGuardedApply(() => withApplyContext(context, () =>
+            writeConfirmedEntityVersion(entityType, entityId, mapId, entityVersion, context)));
     } catch {
         // See the header: the next edit falls back to arrival order, which is where it started.
         return false;
@@ -2416,7 +2424,7 @@ export async function confirmEntityVersion(operation, entityVersion) {
  * are the ones `applyRemoteOperation` already routes to, so a new entity type that forgets this
  * function simply never declares a base.
  */
-async function writeConfirmedEntityVersion(entityType, entityId, mapId, entityVersion) {
+async function writeConfirmedEntityVersion(entityType, entityId, mapId, entityVersion, context) {
     // A feature is stamped by the canonical operation the receipt already carries (the server
     // writes `confirmedVersion` into its properties, `feature-conflicts.js`), and re-stamping it
     // here would be a second writer of one fact.
@@ -2432,6 +2440,7 @@ async function writeConfirmedEntityVersion(entityType, entityId, mapId, entityVe
         const id = entityType === EntityType.MAP ? entityId : (mapId ?? entityId);
         return withMapDocument(id, 'confirmEntityVersion:map', async () => {
             const document = await repo.getMap?.(id);
+            context.assertActive();
             if (!document) return false;
             stampConfirmedVersion(document, entityVersion);
             await repo.saveMap?.(id, document);
@@ -2441,6 +2450,7 @@ async function writeConfirmedEntityVersion(entityType, entityId, mapId, entityVe
 
     if (entityType === EntityType.LAYER) {
         const layers = (await repo.getLayers?.(mapId)) || [];
+        context.assertActive();
         const found = layers.find((layer) => layer && layer.id === entityId);
         if (!found) return false;
         stampConfirmedVersion(found, entityVersion);
@@ -2450,6 +2460,7 @@ async function writeConfirmedEntityVersion(entityType, entityId, mapId, entityVe
 
     if (entityType === EntityType.GROUP) {
         const groups = (await repo.getGroups?.(mapId)) || {};
+        context.assertActive();
         if (!groups[entityId]) return false;
         stampConfirmedVersion(groups[entityId], entityVersion);
         await repo.saveGroups?.(mapId, groups);
@@ -2459,6 +2470,7 @@ async function writeConfirmedEntityVersion(entityType, entityId, mapId, entityVe
     if (entityType === EntityType.COMMENT) {
         return withSideDocument('comments', mapId, 'confirmEntityVersion:comment', async () => {
             const collection = await local.getMapComments(mapId);
+            context.assertActive();
             if (!collection?.[entityId]) return false;
             stampConfirmedVersion(collection[entityId], entityVersion);
             await local.saveMapComments(mapId, collection);
@@ -2473,6 +2485,7 @@ async function writeConfirmedEntityVersion(entityType, entityId, mapId, entityVe
         if (!briefingId) return false;
         return withDocumentLock(`briefing:${briefingId}`, 'confirmEntityVersion:briefing', async () => {
             const briefing = await local.getBriefing(briefingId);
+            context.assertActive();
             if (!briefing) return false;
             if (entityType === EntityType.BRIEFING) {
                 stampConfirmedVersion(briefing, entityVersion);
@@ -2490,6 +2503,7 @@ async function writeConfirmedEntityVersion(entityType, entityId, mapId, entityVe
         return withMapDocument(mapId, 'confirmEntityVersion:catalogLayer', async () => {
             const document = await repo.getMap?.(mapId);
             const entry = (document?.catalogLayers ?? []).find((layer) => layer && layer.id === entityId);
+            context.assertActive();
             if (!entry) return false;
             stampConfirmedVersion(entry, entityVersion);
             await repo.saveMap?.(mapId, document);
@@ -2507,6 +2521,7 @@ async function writeConfirmedEntityVersion(entityType, entityId, mapId, entityVe
         return withSideDocument('cesium3d', mapName, 'confirmEntityVersion:cesium3d', async () => {
             const document = await repo.getCesium3d?.(mapName);
             if (!stampInBucket(document?.[cesiumBucket], entityId, entityVersion)) return false;
+            context.assertActive();
             await repo.saveCesium3d?.(mapName, document);
             return true;
         });
@@ -2516,6 +2531,7 @@ async function writeConfirmedEntityVersion(entityType, entityId, mapId, entityVe
         return withSideDocument('sv360', mapName, 'confirmEntityVersion:sv360', async () => {
             const document = await repo.getStreetview360?.(mapName);
             if (!stampInBucket(document?.[streetviewBucket], entityId, entityVersion)) return false;
+            context.assertActive();
             await repo.saveStreetview360?.(mapName, document);
             return true;
         });
