@@ -2648,3 +2648,11 @@ Position labels on all four surfaces use abbreviated rank and war name (for exam
 ### 2026-09-19: comment text belongs exclusively to its author
 
 At the user's request, atlas editors, managers, owners and global administrators cannot edit another author's comment or reply. The shared card and local store enforce authorship; sync refuses foreign edits before operation logging and broadcast, using the server author column, after revision patches are prepared. Existing moderation rights remain separate. Status moderation preserves the stored body, including for older clients sending a full comment object.
+
+### 2026-09-19: polygon outlines can become lines or boundaries
+
+The feature gear offers polygon-to-line and polygon-to-boundary conversion through the existing conversion executor, with its permission checks, undo batch and sync gesture. The outline keeps the closing segment, name, description, layer, attributes, segment observations and temporal interval. Attached photos are deep-copied for every conversion instead of being silently dropped. Fill, hatch and area labels are removed with the existing conversion notice; polygon label sources are refreshed. Line conversion retains the dash style. Outline opacity stays at 1, matching polygon rendering, independently of fill opacity. Holes and multipolygons are refused explicitly instead of silently dropping rings or parts.
+
+Visual verification exposed a boundary renderer defect: point-based Turf slicing confused a closed ring's final vertex with its start, duplicating earlier edges and omitting the closing edge. Distance-based slicing preserves traversal order. A real-Turf regression checks perimeter minus the symbol gap and coverage of the closing edge; it fails on the previous implementation. Browser checks cover conversion through the gear, arrival at a second client and undo.
+
+The physical Backquote key (left of 1, apostrophe on ABNT2) cycles the current enabled basemaps through the selector's existing change handler, wrapping at the end. Text focus, modifiers, composition, key repeat, changes in progress and the existing map-edit gate suppress the shortcut.

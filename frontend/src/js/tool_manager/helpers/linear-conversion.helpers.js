@@ -47,6 +47,7 @@ import {
     isFeatureEffectivelyLocked,
     getStorageTypeFromSource,
     getCurrentMapNameSync,
+    getCurrentMapFeatures,
     getFeatureGroup,
     getEventBus,
 } from '@store';
@@ -58,8 +59,10 @@ import { IDUtils, showSuccess, showWarning } from '@utils';
 import { EventTypes } from '@events';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { ensureControl, controlKeyForFeatureType } from '../tool-registry.js';
+import { syncLabelSource } from './label-tab.helpers.js';
 import {
-    LINEAR_SOURCES,
+    linearConversionTargets,
+    POLYGON_CONVERSION_NOTICE,
     LINEAR_CONVERSION_CAPABILITIES,
     LOCKED_FEATURE_NOTICE,
     LOCKED_MAP_NOTICE,
@@ -204,6 +207,9 @@ async function removeSourceFeature({ control, source, feature, map }) {
     const dispatcher = getGeoJsonDispatcher(map, storage);
     dispatcher.remove(featureId);
     await dispatcher.flush();
+    if (source === 'polygon') {
+        syncLabelSource(map, 'polygon-labels', await map.getSource(storage).getData());
+    }
 }
 
 /**
@@ -219,7 +225,24 @@ export async function convertLinearFeature(feature, target, selectionManager, ui
     const map = selectionManager?.map;
     const source = feature?.properties?.source;
 
-    if (!map || !LINEAR_SOURCES.includes(source) || !LINEAR_SOURCES.includes(target) || source === target) {
+    if (!map || !linearConversionTargets(source).includes(target)) {
+        return false;
+    }
+
+    // Selection/rendered features may omit photos or hold older metadata. Convert the
+    // persisted feature, never that display snapshot, or deleting the original loses them.
+    const sourceMapName = getCurrentMapNameSync();
+    try {
+        const features = await getCurrentMapFeatures(sourceMapName);
+        feature = features[getStorageTypeFromSource(source)]
+            ?.find((candidate) => candidate.properties.id === feature.properties.id);
+    } catch (error) {
+        console.error('Failed to read the feature for conversion:', error);
+        showWarning(CONVERSION_FAILED_NOTICE);
+        return false;
+    }
+    if (!feature || getCurrentMapNameSync() !== sourceMapName) {
+        showWarning('A feição ou o mapa mudou. Selecione a feição novamente para converter.');
         return false;
     }
 
@@ -246,7 +269,7 @@ export async function convertLinearFeature(feature, target, selectionManager, ui
 
     const spine = resolveSpineCoordinates(feature);
     if (!spine) {
-        showWarning(SHORT_SPINE_NOTICE);
+        showWarning(source === 'polygon' ? POLYGON_CONVERSION_NOTICE : SHORT_SPINE_NOTICE);
         return false;
     }
 
@@ -307,6 +330,7 @@ export async function convertLinearFeature(feature, target, selectionManager, ui
         console.warn('Could not read the group of the source feature:', error);
     }
 
+    if (getCurrentMapNameSync() !== sourceMapName) return false;
     selectionManager.deselectAllFeatures();
 
     const targetStorage = getStorageTypeFromSource(target);

@@ -78,6 +78,18 @@ const km = (a, b) => turf.distance(turf.point(a), turf.point(b), { units: 'kilom
 /** Length of a coordinate array, in kilometres. */
 const lengthKm = (coords) => turf.length(turf.lineString(coords), { units: 'kilometers' });
 
+it('preserva o segmento de fechamento ao recortar os vãos de um limite fechado', () => {
+    const ring = [[-43.22, -22.92], [-43.18, -22.92], [-43.18, -22.88], [-43.22, -22.92]];
+    const size = 0.1;
+    const pieces = geom.createLineWithGaps(ring, [{ ratio: 0.5 }], size, 'X');
+    expect(pieces).toHaveLength(2);
+    expect(pieces.reduce((sum, piece) => sum + lengthKm(piece), 0))
+        .toBeCloseTo(lengthKm(ring) - size * 1.5 * 1.2, 6);
+    expect(pieces.at(-1).at(-1)).toEqual(ring[0]);
+    const closingMidpoint = turf.midpoint(turf.point(ring[2]), turf.point(ring[3])).geometry.coordinates;
+    expect(Math.min(...pieces.map((piece) => distToLine(closingMidpoint, piece)))).toBeLessThan(0.01);
+});
+
 /**
  * Split a generated MultiLineString into the pieces that lie ON the boundary
  * (the visible segments) and the pieces that do not (the echelon strokes).

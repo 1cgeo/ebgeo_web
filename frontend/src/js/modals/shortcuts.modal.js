@@ -56,6 +56,7 @@ export const SHORTCUTS_DATA = {
             { key: 'Ctrl+Shift+Arrastar', description: 'Inclinar e rotacionar juntos' },
             { key: 'Botão do meio+Arrastar', description: 'Inclinar e rotacionar, sem tecla' },
             { key: 'Scroll', description: 'Zoom in / zoom out' },
+            { key: "'", description: 'Alternar mapa-base (tecla à esquerda do 1)' },
         ],
     },
     drawing: {

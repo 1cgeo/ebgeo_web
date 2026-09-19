@@ -67,9 +67,9 @@ beforeAll(() => {
         along: (_line, dist) => pointFeature([dist, 0]),
         bearing: () => turfState.bearing,
         destination: (p, dist, brg) => pointFeature([coordOf(p)[0] + dist, coordOf(p)[1] + brg]),
-        lineSlice: (from, to) => ({
+        lineSliceAlong: (_line, from, to) => ({
             type: 'Feature',
-            geometry: { type: 'LineString', coordinates: [coordOf(from), coordOf(to)] },
+            geometry: { type: 'LineString', coordinates: [[from, 0], [to, 0]] },
         }),
         nearestPointOnLine: () => ({ properties: { location: 5 } }),
         distance: () => 1,

@@ -26,6 +26,51 @@ async function bootSelector(page) {
 }
 
 describeOrSkip('§13 Base layer selector (real browser, local panel + selection)', () => {
+    test('the key left of 1 cycles basemaps, wraps and respects text focus', async ({ page }, testInfo) => {
+        await bootSelector(page);
+        const { layers, initial } = await page.evaluate(async () => {
+            const { getControl } = await import('/src/js/store/control.registry.js');
+            const control = getControl('BaseLayerControl');
+            return { layers: control.availableBasemaps, initial: control.currentLayer };
+        });
+        expect(layers.length).toBeGreaterThan(1);
+
+        // Real key events traverse the document listener, debounce, store and MapLibre switch.
+        let current = initial;
+        for (let i = 0; i < layers.length; i++) {
+            current = layers[(layers.indexOf(current) + 1) % layers.length];
+            await page.keyboard.press('Backquote');
+            await expect.poll(() => page.evaluate(async () => {
+                const { getControl } = await import('/src/js/store/control.registry.js');
+                const { getCurrentBaseLayer } = await import('/src/js/store/index.js');
+                const control = getControl('BaseLayerControl');
+                return !control.isChanging && control.currentLayer === await getCurrentBaseLayer()
+                    ? control.currentLayer : null;
+            })).toBe(current);
+            await expect(page.locator(`.base-layer-option[data-layer-id="${current}"]`))
+                .toHaveAttribute('data-selected', 'true');
+        }
+        expect(current).toBe(initial);
+
+        // Typing into a focused field must remain text input, including on an ABNT2 keyboard.
+        await page.evaluate(() => {
+            const input = document.createElement('input');
+            input.id = 'shortcut-focus-probe';
+            document.body.append(input);
+            input.focus();
+        });
+        await page.keyboard.press('Backquote');
+        await expect(page.locator('#shortcut-focus-probe')).toHaveValue('`');
+        await page.evaluate(() => document.getElementById('shortcut-focus-probe').remove());
+        await page.keyboard.press('Control+Backquote');
+        await page.keyboard.press('Shift+Backquote');
+        // Drain the selector's debounce before checking that no forbidden switch started.
+        await page.waitForTimeout(150);
+        await expect(page.locator(`.base-layer-option[data-layer-id="${initial}"]`))
+            .toHaveAttribute('data-selected', 'true');
+        await page.screenshot({ path: testInfo.outputPath('basemap-shortcut.png') });
+    });
+
     test('§13.1 clicking the collapsed thumbnail expands the basemap list', async ({ page }) => {
         await bootSelector(page);
 

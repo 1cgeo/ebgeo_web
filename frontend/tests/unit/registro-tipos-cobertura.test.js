@@ -82,6 +82,14 @@ const LIMIAR = 5;
 
 /** @type {EntradaDoCenso[]} */
 const CENSO = [
+    {
+        arquivo: 'tool_manager/helpers/linear-conversion.model.js',
+        motivo: 'SUBSET: conversão entre os quatro tipos lineares e do contorno de polígono para linha ou limite. Outros tipos não compartilham esse eixo.',
+    },
+    {
+        arquivo: 'tool_manager/helpers/linear-conversion.helpers.js',
+        motivo: 'SUBSET: executor das conversões de eixo, com geração por tipo e limpeza dos artefatos da origem; não é um inventário de todas as feições.',
+    },
     // ---------- DERIVA ----------
     {
         arquivo: 'store/store.constants.js', deriva: true,

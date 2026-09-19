@@ -76,7 +76,7 @@ class KeyboardShortcuts {
      */
     isTypingInInput(target) {
         // Standard form inputs
-        if (['INPUT', 'TEXTAREA'].includes(target.tagName)) {
+        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) {
             return true;
         }
         // Rich text editors (Quill uses contenteditable)
@@ -123,6 +123,19 @@ class KeyboardShortcuts {
      * @param {KeyboardEvent} e - Keyboard event
      */
     async processShortcut(e) {
+        // Physical key to the left of 1: apostrophe on ABNT2, backtick on US layouts.
+        if (e.code === 'Backquote') {
+            if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || e.isComposing || e.repeat) return;
+            const control = this.baseLayerControl;
+            if (!control || control.isChanging || semEdicaoSync('UPDATE_MAP')) return;
+            const layers = control.availableBasemaps;
+            if (layers.length < 2) return;
+            e.preventDefault();
+            const next = layers[(layers.indexOf(control.currentLayer) + 1) % layers.length];
+            await control.handleLayerChange({ target: { value: next } });
+            return;
+        }
+
         const key = e.key.toLowerCase();
         const hasCtrl = e.ctrlKey;
         const hasShift = e.shiftKey;

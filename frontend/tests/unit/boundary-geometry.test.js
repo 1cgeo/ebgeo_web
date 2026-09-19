@@ -20,20 +20,22 @@ let stubBearing = 90;
 let stubDistance = 3;
 // The two calls that carry a size in KILOMETRES are recorded, because that is the
 // only observable an effective-vs-authored symbol size leaves in this stub world:
-// `along` receives the gap boundaries (a function of the symbol width) and
+// `lineSliceAlong` receives the gap boundaries (a function of the symbol width) and
 // `destination` receives the label offset.
-const alongCalls = [];
+const sliceCalls = [];
 const destinationCalls = [];
 beforeAll(() => {
     globalThis.turf = {
         lineString: (coords) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords } }),
         length: () => 10,
         along: (_line, dist) => {
-            alongCalls.push(dist);
             return { type: 'Feature', geometry: { type: 'Point', coordinates: [dist, 0] } };
         },
         point: (c) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: c } }),
-        lineSlice: () => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: [[0, 0], [1, 0]] } }),
+        lineSliceAlong: (_line, from, to) => {
+            sliceCalls.push([from, to]);
+            return { type: 'Feature', geometry: { type: 'LineString', coordinates: [[from, 0], [to, 0]] } };
+        },
         midpoint: (a) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: a.geometry.coordinates } }),
         nearestPointOnLine: () => ({ properties: { location: nearestLocation } }),
         bearing: () => stubBearing,
@@ -529,7 +531,7 @@ describe('AddBoundaryGeometry.resolveSymbolSize', () => {
 describe('AddBoundaryGeometry.generate (effective symbol size)', () => {
     // Length is 10 km and the single instance sits at 0.5, so the gap around the
     // 'XX' echelon is `2 * size * 1.5 * 1.2` wide and the first segment ends at
-    // `5 - 1.8 * size`. That end is the first distance `turf.along` is asked for.
+    // `5 - 1.8 * size`. That end is the first slice's end distance.
     const props = (extra = {}) => ({
         baseCoordinates: [[0, 0], [1, 0], [2, 0]],
         echelon: 'XX',
@@ -539,9 +541,9 @@ describe('AddBoundaryGeometry.generate (effective symbol size)', () => {
     });
 
     const firstGapStart = (properties) => {
-        alongCalls.length = 0;
+        sliceCalls.length = 0;
         geom.generate(properties);
-        return alongCalls[0];
+        return sliceCalls[0][1];
     };
 
     it('draws a screen-pinned boundary at the derived size', () => {

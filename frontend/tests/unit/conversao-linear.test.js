@@ -48,6 +48,77 @@ import {
 import { LOCKED_MAP_NOTICE as LOCKED_MAP_NOTICE_DO_MENU_DE_MAPA } from '../../src/js/sidebar/tabs/map-menu-actions.js';
 import { readFileSync } from 'node:fs';
 
+describe('conversão do contorno do polígono', () => {
+    const openRing = [[-43, -22], [-42, -22], [-42, -21]];
+    const closedRing = [...openRing, openRing[0]];
+    const polygon = (baseCoordinates = openRing) => ({
+        properties: { source: 'polygon', baseCoordinates, nome: 'Área A', descricao: 'Descrição',
+            layerId: 'layer-a', attributes: { unidade: '1CGEO' }, lineColor: '#123456',
+            lineWidth: 3, opacity: 0, lineStyle: 'dashed', fillColor: '#abcdef', hatchEnabled: true,
+            images: [{ id: 'photo-1', data: 'data:image/png;base64,AA==', name: 'Foto' }],
+            observations: ['Trecho 1', 'Trecho 2', 'Fechamento'] },
+        geometry: { type: 'Polygon', coordinates: [closedRing] },
+    });
+
+    it('oferece somente linha e limite e respeita permissões e bloqueios', () => {
+        const feature = polygon();
+        const context = { source: 'polygon', feature, can: () => true };
+        expect(linearConversionActions(context)).toEqual([
+            { target: 'line', blocked: null }, { target: 'boundary', blocked: null },
+        ]);
+        expect(canConvertLinear(feature, 'arrow')).toBe(false);
+        expect(linearConversionActions({ ...context, can: () => false })).toEqual([]);
+        expect(linearConversionActions({ ...context, featureLocked: true })
+            .every((a) => a.blocked === LOCKED_FEATURE_NOTICE)).toBe(true);
+    });
+
+    it.each([openRing, closedRing, JSON.stringify(openRing), undefined])(
+        'preserva o fechamento e copia as coordenadas sem compartilhar referências: %j', (coords) => {
+            const feature = polygon(coords);
+            if (coords === undefined) delete feature.properties.baseCoordinates;
+            const original = structuredClone(feature);
+            const spine = resolveSpineCoordinates(feature);
+            expect(spine).toEqual(closedRing);
+            spine[0][0] = 10;
+            expect(spine.at(-1)).toEqual(closedRing[0]);
+            expect(feature).toEqual(original);
+        },
+    );
+
+    it('recusa furos e múltiplas partes mesmo com um baseCoordinates utilizável', () => {
+        for (const geometry of [
+            { type: 'Polygon', coordinates: [closedRing, closedRing] },
+            { type: 'MultiPolygon', coordinates: [[closedRing], [closedRing]] },
+        ]) {
+            const feature = { ...polygon(), geometry };
+            expect(resolveSpineCoordinates(feature)).toBeNull();
+            expect(canConvertLinear(feature, 'line')).toBe(false);
+            expect(linearConversionActions({ source: 'polygon', feature, can: () => true })
+                .every((a) => a.blocked?.includes('sem furos'))).toBe(true);
+        }
+    });
+
+    it.each(['line', 'boundary'])('preserva dados e estilo autoral em %s', (target) => {
+        const feature = polygon();
+        const result = buildConvertedProperties({ feature, target, defaults: {}, id: 'new', currentZoom: 10 });
+        expect(result.baseCoordinates).toEqual(closedRing);
+        expect(result).toMatchObject({ nome: 'Área A', descricao: 'Descrição', layerId: 'layer-a',
+            attributes: { unidade: '1CGEO' }, opacity: 1, lineWidth: 3 });
+        if (target === 'line') expect(result.lineStyle).toBe('dashed');
+        expect(result[target === 'line' ? 'lineColor' : 'color']).toBe('#123456');
+        expect(result).not.toHaveProperty('fillColor');
+        expect(result.images).toEqual(feature.properties.images);
+        expect(result.observations).toEqual(feature.properties.observations);
+        result.images[0].name = 'Outra foto';
+        result.observations[0] = 'Outra observação';
+        expect(feature.properties.images[0].name).toBe('Foto');
+        expect(feature.properties.observations[0]).toBe('Trecho 1');
+        result.attributes.unidade = 'Outra';
+        expect(feature.properties.attributes.unidade).toBe('1CGEO');
+        expect(describeConversionLoss({ source: 'polygon', target })).toContain('preenchimento');
+    });
+});
+
 // ============================================================================
 // OS PADRÕES DOS TRÊS CONTROLES
 // ============================================================================
@@ -844,7 +915,7 @@ describe('linearConversionActions: POSTO', () => {
     });
 
     it('tipo não linear não recebe comando nenhum, mesmo com posto total', () => {
-        expect(linearConversionActions({ source: 'polygon', can: podeTudo, feature: feicao('polygon') })).toEqual([]);
+        expect(linearConversionActions({ source: 'point', can: podeTudo, feature: feicao('point') })).toEqual([]);
         expect(linearConversionActions({ source: undefined, can: podeTudo })).toEqual([]);
         expect(linearConversionActions()).toEqual([]);
     });

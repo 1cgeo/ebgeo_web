@@ -65,11 +65,18 @@ import { computeCoordinationLineZoomSizes } from './coordination-line-zoom.model
  * Os tipos que compartilham um eixo de coordenadas e por isso se convertem entre si, na
  * ordem em que o menu os desenha.
  *
- * O polígono NÃO entra: ele fecha, e reabrir um anel produz um eixo cujo primeiro e último
- * vértice coincidem, o que a geometria da seta lê como comprimento zero no último segmento.
+ * Polígonos têm destinos próprios: seu contorno fechado só vira linha ou limite.
  * @type {readonly string[]}
  */
 export const LINEAR_SOURCES = Object.freeze(['line', 'arrow', 'boundary', 'coordination_line']);
+
+/** @param {string} source - Tipo de origem. @returns {string[]} Destinos do menu. */
+export function linearConversionTargets(source) {
+    if (source === 'polygon') return ['line', 'boundary'];
+    return LINEAR_SOURCES.includes(source) ? LINEAR_SOURCES.filter((t) => t !== source) : [];
+}
+
+export const POLYGON_CONVERSION_NOTICE = 'Converta apenas polígonos com um contorno válido, sem furos ou múltiplas partes.';
 
 /** O rótulo do comando que produz cada tipo. @type {Object<string, string>} */
 export const LINEAR_CONVERSION_LABELS = Object.freeze({
@@ -161,7 +168,7 @@ export const DROPPED_BY_SOURCE = Object.freeze({
  */
 export const PRESERVED_KEYS = Object.freeze([
     'layerId', 'nome', 'descricao', 'visivel', 'bloqueado',
-    'attributes', 'temporalInicio', 'temporalFim',
+    'attributes', 'images', 'temporalInicio', 'temporalFim',
 ]);
 
 /**
@@ -186,6 +193,7 @@ export const LINE_WIDTH_RANGE = Object.freeze({
  * @type {Object<string, string>}
  */
 const LOSS_PHRASE = Object.freeze({
+    polygon: 'o preenchimento, a hachura e o rótulo da área',
     line: 'a medição, o perfil do terreno e o estilo do traço',
     arrow: 'a largura, a cabeça, a ponta dupla e o traçado aeromóvel',
     boundary: 'o escalão, os rótulos e o tamanho do símbolo',
@@ -233,6 +241,23 @@ export function resolveSpineCoordinates(feature) {
         }
     }
 
+    if (feature?.properties?.source === 'polygon') {
+        const geometry = feature.geometry;
+        // Never silently discard holes or parts, even if baseCoordinates contains only the exterior.
+        if (geometry?.type !== 'Polygon' || !Array.isArray(geometry.coordinates)
+            || geometry.coordinates.length !== 1) return null;
+        if (!Array.isArray(coords) || coords.length < 3 || !coords.every(isFinitePosition)) {
+            coords = geometry.coordinates[0];
+        }
+        if (!Array.isArray(coords) || !coords.every(isFinitePosition)
+            || new Set(coords.map((p) => `${p[0]},${p[1]}`)).size < 3) return null;
+        const ring = coords.map((p) => [...p]);
+        const first = ring[0];
+        const last = ring.at(-1);
+        if (first[0] !== last[0] || first[1] !== last[1]) ring.push([...first]);
+        return ring;
+    }
+
     if (!Array.isArray(coords) || coords.length < 2 || !coords.every(isFinitePosition)) {
         const geometry = feature?.geometry;
         if (geometry?.type !== 'LineString' || !Array.isArray(geometry.coordinates)) return null;
@@ -270,9 +295,7 @@ export function isMergedArrow(properties) {
  */
 export function canConvertLinear(feature, target) {
     const source = feature?.properties?.source;
-    if (!LINEAR_SOURCES.includes(source)) return false;
-    if (!LINEAR_SOURCES.includes(target)) return false;
-    if (source === target) return false;
+    if (!linearConversionTargets(source).includes(target)) return false;
     if (isMergedArrow(feature?.properties)) return false;
     return resolveSpineCoordinates(feature) !== null;
 }
@@ -291,6 +314,8 @@ export function canConvertLinear(feature, target) {
  */
 function readLinearStyle(properties, source) {
     const p = properties || {};
+    // Polygon opacity controls only its fill; its outline is always opaque.
+    if (source === 'polygon') return { color: p.lineColor, lineWidth: p.lineWidth, opacity: 1 };
     if (source === 'arrow') return { color: p.fillColor, lineWidth: p.lineWidth, opacity: p.fillOpacity };
     // As DUAS linhas militares guardam a cor em `color`, e não em `lineColor`: ler a linha de
     // coordenação pelo ramo da linha comum devolveria `undefined` e a conversão nasceria com a
@@ -377,6 +402,8 @@ export function buildConvertedProperties({
     props.visivel = src.visivel !== false;
     props.bloqueado = src.bloqueado === true;
     if (src.attributes !== undefined) props.attributes = deepClone(src.attributes);
+    if (src.images !== undefined) props.images = deepClone(src.images);
+    if (source === 'polygon' && src.observations !== undefined) props.observations = deepClone(src.observations);
     if (src.temporalInicio !== undefined) props.temporalInicio = src.temporalInicio;
     if (src.temporalFim !== undefined) props.temporalFim = src.temporalFim;
 
@@ -388,6 +415,7 @@ export function buildConvertedProperties({
         props.lineColor = style.color ?? props.lineColor;
         props.lineWidth = width;
         props.opacity = opacity;
+        if (source === 'polygon' && typeof src.lineStyle === 'string') props.lineStyle = src.lineStyle;
     } else if (target === 'arrow') {
         // A cor e a opacidade únicas da origem viram DUAS de cada: o corpo e o contorno da
         // seta são propriedades separadas, e deixar o contorno no padrão produzia uma seta
@@ -464,6 +492,7 @@ export function describeConversionLoss({ source, target, inGroup = false } = {})
     const partes = [];
     const phrase = LOSS_PHRASE[source];
     if (phrase && LINEAR_SOURCES.includes(target) && source !== target) partes.push(phrase);
+    if (source === 'polygon' && target === 'boundary') partes.push('o estilo do traço');
     if (inGroup) partes.push('a participação no grupo');
     if (partes.length === 0) return null;
     return `A conversão descarta ${partes.join(' e ')}.`;
@@ -489,7 +518,8 @@ export function linearConversionActions({
     featureLocked = false,
     feature,
 } = {}) {
-    if (!LINEAR_SOURCES.includes(source)) return [];
+    const targets = linearConversionTargets(source);
+    if (targets.length === 0) return [];
 
     // POSTO: as DUAS capacidades, e o comando some se qualquer uma faltar. Falha fechada
     // também quando o predicado lança ou devolve um truthy que não é `true`.
@@ -506,10 +536,15 @@ export function linearConversionActions({
     // ESTADO: desenhado, e o clique carrega o motivo. A ordem é a da gravidade percebida — o
     // cadeado do mapa é o que a pessoa tem mais chance de não saber que está ligado.
     let blocked = null;
-    if (mapLocked) blocked = LOCKED_MAP_NOTICE;
-    else if (featureLocked) blocked = LOCKED_FEATURE_NOTICE;
-    else if (isMergedArrow(feature?.properties)) blocked = MERGED_ARROW_NOTICE;
-    else if (resolveSpineCoordinates(feature) === null) blocked = SHORT_SPINE_NOTICE;
+    if (mapLocked) {
+        blocked = LOCKED_MAP_NOTICE;
+    } else if (featureLocked) {
+        blocked = LOCKED_FEATURE_NOTICE;
+    } else if (isMergedArrow(feature?.properties)) {
+        blocked = MERGED_ARROW_NOTICE;
+    } else if (resolveSpineCoordinates(feature) === null) {
+        blocked = source === 'polygon' ? POLYGON_CONVERSION_NOTICE : SHORT_SPINE_NOTICE;
+    }
 
-    return LINEAR_SOURCES.filter((t) => t !== source).map((target) => ({ target, blocked }));
+    return targets.map((target) => ({ target, blocked }));
 }

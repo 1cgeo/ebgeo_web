@@ -444,13 +444,9 @@ class AddBoundaryGeometry extends BaseGeometry {
             const segments = [];
             const pushSegment = (from, to) => {
                 if (to - from <= MIN_LENGTH_KM) return;
-                const fromPoint = from <= 0
-                    ? turf.point(validCoords[0])
-                    : turf.along(line, from, { units: 'kilometers' });
-                const toPoint = to >= totalLength
-                    ? turf.point(validCoords[validCoords.length - 1])
-                    : turf.along(line, to, { units: 'kilometers' });
-                const slice = turf.lineSlice(fromPoint, toPoint, line);
+                // Slice by distance: point-based slicing snaps the closing vertex to the
+                // START of a closed ring, omitting its last edge and duplicating earlier ones.
+                const slice = turf.lineSliceAlong(line, from, to, { units: 'kilometers' });
                 if (slice.geometry.coordinates.length >= 2) {
                     segments.push(slice.geometry.coordinates);
                 }

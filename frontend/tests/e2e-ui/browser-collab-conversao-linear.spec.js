@@ -13,8 +13,7 @@
  *      antigo. Do outro lado da rede isso tem de virar exatamente uma feição nova no balde
  *      certo e uma feição sumida no balde antigo — e não as duas vivas, que é o desfecho da
  *      recusa parcial.
- *   2. QUE O POSTO SOME. Um Leitor não recebe os comandos de conversão, com o menu montado ao
- *      redor deles para provar que a ausência não é uma tela vazia.
+ *   2. QUE O POSTO SOME. Um Leitor vê a feição, mas seu painel de leitura esconde a engrenagem.
  *   3. QUE O ESTADO RECUSA O CLIQUE. Com a CAMADA travada o comando CONTINUA desenhado, sai
  *      com `aria-disabled` e SEM a propriedade `disabled` (um botão desabilitado não dispara
  *      clique, e o clique é o portador do motivo), o clique mostra a frase, e NADA é escrito
@@ -32,7 +31,7 @@
 
 import {
     collabTest, expect,
-    drawLineUI, readFeatures, selectFeatureUI,
+    drawLineUI, drawPolygonUI, readFeatures, selectFeatureUI,
 } from './helpers/collab.fixtures.js';
 import { pollPeerFeature, pollPeerFeatureGone } from './helpers/collab-helpers.js';
 
@@ -133,6 +132,47 @@ async function newFeatureId(page, storage, jaConhecidos) {
 collabTest.describe('Conversão linear — a travessia chega ao par', () => {
     collabTest.use({ collabOptions: { peers: 1, permission: 'write' } });
 
+    for (const [storage, label] of [['lines', 'Converter para Linha'], ['boundarys', 'Converter para Linha de Limite']]) {
+        collabTest(`polígono -> ${storage}: contorno completo, sincronização e desfazer`, async ({ collab }, testInfo) => {
+            const A = collab.author;
+            const B = collab.peers[0];
+            const polygonId = await drawPolygonUI(A, [[-43.22, -22.92], [-43.18, -22.92], [-43.18, -22.88]]);
+            await collab.expectFullSync({ entityId: polygonId, type: 'polygons', operationType: 'create' });
+            await A.locator('.feature-photo-gallery__file-input').setInputFiles({
+                name: 'foto-do-poligono.png', mimeType: 'image/png',
+                buffer: globalThis.Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII=', 'base64'),
+            });
+            await expect(A.locator('.feature-photo-gallery-grid img').first()).toBeVisible();
+            const original = (await readFeatures(A, 'polygons')).find((f) => f.id === polygonId);
+            const expectedRing = original.props.baseCoordinates.map((p) => [...p]);
+            if (JSON.stringify(expectedRing[0]) !== JSON.stringify(expectedRing.at(-1))) {
+                expectedRing.push([...expectedRing[0]]);
+            }
+            const before = (await readFeatures(A, storage)).map((f) => f.id);
+            const { menu, row } = await openConversionRow(A, polygonId, label);
+            await expect(conversionRow(menu, 'Converter para Seta')).toHaveCount(0);
+            await expect(row).not.toHaveAttribute('aria-disabled', 'true');
+            await clickRow(row);
+            await expect.poll(async () => (await readFeatures(A, storage)).length).toBe(before.length + 1);
+            const convertedId = await newFeatureId(A, storage, before);
+            await collab.expectFullSync({ entityId: convertedId, type: storage, operationType: 'create' });
+            await pollPeerFeatureGone(B, 'polygons', polygonId);
+            const converted = (await readFeatures(B, storage)).find((f) => f.id === convertedId);
+            expect(converted.props.baseCoordinates).toEqual(expectedRing);
+            expect(converted.props.images).toEqual(original.props.images);
+            expect(converted.props.images).toHaveLength(1);
+            expect(converted.nome).toBe(original.nome);
+            await expect(A.locator('.feature-photo-gallery-grid img').first()).toBeVisible();
+            await A.screenshot({ path: testInfo.outputPath(`polygon-to-${storage}.png`) });
+
+            await A.keyboard.press('Control+z');
+            await pollPeerFeature(B, 'polygons', polygonId);
+            await pollPeerFeatureGone(B, storage, convertedId);
+            expect((await readFeatures(B, 'polygons')).find((f) => f.id === polygonId).props.baseCoordinates)
+                .toEqual(original.props.baseCoordinates);
+        });
+    }
+
     collabTest('linha -> seta -> linha: B ganha a nova e PERDE a antiga, nas duas direções', async ({ collab }) => {
         const A = collab.author;
         const B = collab.peers[0];
@@ -221,7 +261,7 @@ collabTest.describe('Conversão linear — a travessia chega ao par', () => {
 collabTest.describe('Conversão linear — POSTO (Leitor)', () => {
     collabTest.use({ collabOptions: { peers: 1, permission: 'read' } });
 
-    collabTest('um Leitor não recebe comando de conversão nenhum, e o menu continua montado', async ({ collab }) => {
+    collabTest('um Leitor vê a feição mas não recebe a engrenagem de conversão', async ({ collab }) => {
         const A = collab.author;   // dono
         const B = collab.peers[0]; // Leitor
 
@@ -233,17 +273,14 @@ collabTest.describe('Conversão linear — POSTO (Leitor)', () => {
         // A mesma espera dos outros caminhos: sem ela, a cascata de reconstruções do painel
         // descartava o menu do Leitor logo depois de aberto (o caso instável de 2026-09-04).
         await selectAndSettle(B, lineId);
-        const menu = await openFeatureMenu(B);
-
-        // AUSÊNCIA, nunca linha bloqueada: converter é um CREATE mais um DELETE, e um Leitor
-        // não vira Editor a partir deste menu.
-        await expect(conversionRow(menu, 'Converter para Seta')).toHaveCount(0);
-        await expect(conversionRow(menu, 'Converter para Linha de Limite')).toHaveCount(0);
-
-        // CONTROLE: o menu ESTÁ montado. Sem isto, uma tela quebrada passaria em toda asserção
-        // de ausência acima.
-        await expect(menu.locator('.feature-menu-button', { hasText: 'Selecionar todos com mesmo tipo' }))
-            .toBeVisible();
+        // semEdicaoSync now marks the entire reader panel: the existing CSS hides its gear.
+        // Assert the selected feature is visible too, so an empty/broken screen cannot pass.
+        const panel = B.locator('.feature-panel[data-expanded="true"] .feature-panel-sections');
+        await expect(panel).toBeVisible();
+        await expect(panel).toHaveClass(/feature-panel--locked/);
+        const original = (await readFeatures(B, 'lines')).find((f) => f.id === lineId);
+        await expect(panel).toContainText(original.nome);
+        await expect(panel.locator('.feature-options-button')).toBeHidden();
 
         // E o dono, no mesmo atlas, RECEBE os dois: o par que prova que a ausência é do posto.
         const { menu: menuDoDono } = await openConversionRow(A, lineId, 'Converter para Seta');

@@ -220,7 +220,7 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
         }
     }
 
-    // Conversão entre os três tipos LINEARES (seleção única). A decisão de QUAIS comandos
+    // Conversão entre tipos lineares e do contorno de polígono (seleção única). QUAIS comandos
     // aparecem, e de quais deles o clique tem de recusar, é `linearConversionActions`
     // (`linear-conversion.model.js`): aqui só se desenha o que ela devolveu.
     if (selectedFeatures.length === 1) {
