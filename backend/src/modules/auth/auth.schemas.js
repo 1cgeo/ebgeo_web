@@ -34,6 +34,7 @@ export const registerSchema = Joi.object({
     }),
   password: Joi.string().required().min(6).max(100),
   nome: Joi.string().required().max(255),
+  nome_guerra: Joi.string().trim().max(100).allow(null, ''),
   // REQUIRED. Self-registration creates the account pending; it is activated only by the
   // `?verify=` link. Making the field mandatory is what makes confirmation mandatory,
   // without a single new gate: `login()` already refuses `user.email && !user.email_verified`,

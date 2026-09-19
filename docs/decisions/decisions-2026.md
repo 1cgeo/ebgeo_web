@@ -2635,3 +2635,12 @@ A auditoria de 2026-09-13 (commit `841e1539`) abriu com seis perguntas que só o
   panorâmica com o esquerdo volta a funcionar logo depois (o centro muda). O modal de atalhos mostra
   "Botão do meio+Arrastar", com a descrição "Inclinar e rotacionar, sem tecla".
 - **Status:** aceita.
+
+
+### 2026-09-19: first-person collaboration and one sidebar entry point
+
+At the user's request, comments in the first-person museum use the existing map comment entity and shared card. The new `fp` surface carries local x/y/z metres and the existing tilesetId resource reference, preserving resource pruning and sync permissions. Presence is ephemeral and carries the walker camera position, never the mouse hit. Peers are filtered by atlas socket, map and scene. Close or context changes dispose the overlay and clear the advertised pose.
+
+The existing sidebar new-comment button now routes to the open surface (2D, Cesium, 360 or first person). The separate 360/Cesium comment buttons were removed; first person adds no button or keyboard shortcut. Failed persistence keeps the composer text and rejects concurrent submissions. The local museum registration was already present; its installed 82-file manifest was verified against its registered SHA-256 signature, without overwriting catalog data.
+
+Position labels on all four surfaces use abbreviated rank and war name (for example, Maj Diniz). The optional `users.nome_guerra` field preserves the full name separately; older accounts fall back to the existing name until edited. Authentication and both live and initial presence rosters carry this field. Clicking the scene closes the comment card; switching to another drawing tool cancels comment placement before the next click.

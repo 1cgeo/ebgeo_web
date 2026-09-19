@@ -205,6 +205,7 @@ const CENSO = [
     { arquivo: 'src/js/store/comment.operations.js', campo: 'photoName', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/store/comment.operations.js', campo: 'tilesetId', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/comment_tool/comment-card.js', campo: 'photoName', classe: RUNTIME },
+    { arquivo: 'src/js/first_person_3d_tool/collaboration-fp.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/comment_tool/comment-card.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/street_view_tool/comments-360.js', campo: 'photoName', classe: RUNTIME },
     { arquivo: 'src/js/3d_models_viewer_tool/tools/comments-3d.js', campo: 'tilesetId', classe: RUNTIME },

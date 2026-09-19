@@ -101,6 +101,11 @@ export async function addComment(input, mapName = null) {
         surface: input.surface ?? '2d',
         photoName: input.photoName ?? null,
         tilesetId: input.tilesetId ?? null,
+        ...(input.surface === 'fp' ? {
+            x: Number.isFinite(input.x) ? input.x : null,
+            y: Number.isFinite(input.y) ? input.y : null,
+            z: Number.isFinite(input.z) ? input.z : null,
+        } : {}),
         heading: Number.isFinite(input.heading) ? input.heading : null,
         pitch: Number.isFinite(input.pitch) ? input.pitch : null,
         alt: Number.isFinite(input.alt) ? input.alt : null,

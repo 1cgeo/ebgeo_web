@@ -123,9 +123,10 @@ const cursor3dPosition = Joi.object({
  * par sem ele, sem erro nenhum em lugar nenhum.
  */
 export const cursorPresenceSchema = Joi.object({
-  surface: Joi.string().valid('2d', '3d', '360').default('2d'),
+  surface: Joi.string().valid('2d', '3d', '360', 'fp').default('2d'),
   position: Joi.when('surface', {
     switch: [
+      { is: 'fp', then: Joi.object({ x: Joi.number().required(), y: Joi.number().required(), z: Joi.number().required() }).allow(null).default(null) },
       { is: '360', then: cursor360Position.allow(null).default(null) },
       { is: '3d', then: cursor3dPosition.allow(null).default(null) },
     ],

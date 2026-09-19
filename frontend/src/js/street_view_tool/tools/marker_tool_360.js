@@ -9,6 +9,7 @@ import { addMarker360 } from '@store';
 import { showSuccess, showWarning } from '@utils/toast_service.js';
 import { checkPermission } from '@store/sync/permission-guard.js';
 import { denialNotice } from '@store/denial-phrases.js';
+import { alternarModoComentario360 } from '@js/street_view_tool/comments-360.js';
 
 // ===== STATE =====
 
@@ -35,6 +36,7 @@ export function activateMarkerTool(photoName, navigator) {
         return;
     }
 
+    alternarModoComentario360(false);
     isActive = true;
     currentPhotoName = photoName;
     navigatorRef = navigator;

@@ -96,6 +96,10 @@ function normalizeCursor(pos, mapId, extra) {
         photoName: src.photoName !== undefined && src.photoName !== null ? String(src.photoName) : null,
     };
 
+    if (surface === 'fp') {
+        if (![pos.x, pos.y, pos.z].every(Number.isFinite)) return null;
+        return { ...scope, x: pos.x, y: pos.y, z: pos.z };
+    }
     if (surface === '360') {
         if (typeof pos.heading !== 'number' || typeof pos.pitch !== 'number') {
             return null;
@@ -166,9 +170,9 @@ function normalizeSelection(featureIds, mapId, extra) {
 function normalizeUser(raw, existing) {
     const key = resolveKey(raw);
     // userName accepts the `userName` field and the snapshot's `nome` alias.
-    const rawName = raw.userName !== undefined && raw.userName !== null
+    const rawName = raw.nome_guerra?.trim() || (raw.userName !== undefined && raw.userName !== null
         ? raw.userName
-        : (raw.nome !== undefined && raw.nome !== null ? raw.nome : null);
+        : (raw.nome !== undefined && raw.nome !== null ? raw.nome : null));
 
     // currentMap: prefer an explicit mapId on the descriptor (snapshot or
     // presence frame), else keep what we already knew.
@@ -189,6 +193,7 @@ function normalizeUser(raw, existing) {
             : (raw.id !== undefined && raw.id !== null ? String(raw.id) : (existing?.userId ?? null)),
         clientId: key,
         userName: rawName !== null ? String(rawName) : (existing?.userName ?? null),
+        rank: raw.posto_graduacao !== undefined ? (raw.posto_graduacao || null) : (existing?.rank ?? null),
         cursor: hasCursor
             ? normalizeCursor(
                 raw.cursorPosition,
@@ -492,7 +497,7 @@ export class PresenceStore {
                 continue;
             }
             if (scopeKey !== undefined && scopeKey !== null) {
-                const key = cursor.surface === '3d'
+                const key = (cursor.surface === '3d' || cursor.surface === 'fp')
                     ? cursor.tilesetId
                     : (cursor.surface === '360' ? cursor.photoName : cursor.mapId);
                 if (key !== scopeKey) {
@@ -502,7 +507,7 @@ export class PresenceStore {
             out.push({
                 clientId: user.clientId,
                 userId: user.userId,
-                userName: user.userName,
+                userName: [user.rank, user.userName].filter(Boolean).join(' ') || null,
                 surface: cursor.surface,
                 position: { ...cursor },
             });

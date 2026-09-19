@@ -297,6 +297,8 @@ export const EventTypes = Object.freeze({
      * numa coordenada: quem sabe onde o balao foi desenhado e o navegador que o projetou.
      */
     COMMENT_360_CLICKED: 'comment360:clicked',
+    /** A scene click after drag filtering, before placing or opening a comment. */
+    STREETVIEW_360_SCENE_CLICKED: 'streetview360:sceneClicked',
     /**
      * Payload: { position, photoName, screenX, screenY } — no modo de comentar, o clique escolheu a
      * direcao dentro da foto. `position` e o par {heading, pitch} que `screenToSpherical` devolve.
@@ -324,6 +326,7 @@ export const EventTypes = Object.freeze({
      * Payload: { position: { lng, lat, alt }|null, tilesetId }
      */
     CURSOR_3D_MOVED: 'cursor3d:moved',
+    POSITION_FP_MOVED: 'positionfp:moved',
     /** A peer's feature/marker selection changed (2D/3D/360). Payload: { surface } */
     PRESENCE_SELECTIONS_CHANGED: 'presence:selectionsChanged',
 });

@@ -1,5 +1,6 @@
 // Path: js/street_view_tool/street_view_viewer.js
 import * as streetviewApi from './streetview-api.service.js';
+import { alternarModoComentario360, modoComentario360Ativo } from './comments-360.js';
 
 /**
  * @fileoverview Core Street View 360 viewer using Three.js.
@@ -1738,28 +1739,14 @@ async function montarComentariosDaFoto() {
     } catch (erro) {
         console.error('Falha ao montar os comentarios do 360:', erro);
     }
-    await atualizarBotaoDeComentario360();
+
 }
 
-/** Mostra o botao de comentar so para quem pode comentar, e fia o clique dele. */
-async function atualizarBotaoDeComentario360() {
-    const botao = document.getElementById('comment-360');
-    if (!botao) return;
-    const { podeComentar } = await import('@js/comment_tool/comment-card.js');
-    const { alternarModoComentario360, modoComentario360Ativo } = await import('./comments-360.js');
-    const liberado = podeComentar();
-    botao.hidden = !liberado;
-    if (!liberado) return;
-    if (!botao._ebgeoFiado) {
-        botao._ebgeoFiado = true;
-        botao.addEventListener('click', () => {
-            // Ligar o modo de comentar desliga a ferramenta de desenho que estiver ativa: os dois
-            // disputam o proximo clique na cena, e dois modos ligados fariam o clique valer duas
-            // vezes.
-            deactivateCurrentTool360();
-            alternarModoComentario360(!modoComentario360Ativo());
-        });
-    }
+/** Route the shared sidebar action into the open panorama. */
+export async function toggleComments360() {
+    const activate = !modoComentario360Ativo();
+    await deactivateCurrentTool360();
+    alternarModoComentario360(activate);
 }
 
 /**
@@ -1974,6 +1961,7 @@ function updateOrientationButtonState(hasSaved) {
  * Deactivates the currently active 360 tool
  */
 export async function deactivateCurrentTool360() {
+    alternarModoComentario360(false);
     hideActiveToolChip360();
 
     // Deactivate marker tool if active

@@ -1,5 +1,6 @@
 // Path: js/3d_models_viewer_tool/map_3d.js
 import config from '@js/config.js';
+import { alternarModoComentario3D, modoComentario3DAtivo } from './tools/comments-3d.js';
 import {
     saveCameraPosition,
     getCameraPosition,
@@ -717,6 +718,7 @@ function deactivateAllToolButtons() {
  * Deactivates all active tools without removing persisted features.
  */
 function deactivateAllActiveTools() {
+    alternarModoComentario3D(false);
     try {
         // Deactivate measurement tool
         if (cesiumState.modules.measurements) {
@@ -1037,11 +1039,11 @@ async function loadSingleTileset(viewer, tilesetId) {
 
     // A CAMADA DE COMENTARIOS DESTE MODELO (2026-09-17). Montada a cada tileset aberto, como os
     // marcadores: a ancora do comentario 3D e o MODELO, entao trocar de modelo troca o conjunto.
-    // O import e dinamico para o modulo nao entrar no grafo ansioso da pagina do mapa.
+    // The viewer itself is loaded lazily; its tools share one comment layer.
     try {
         const comentarios = await import('./tools/comments-3d.js');
         await comentarios.iniciarComentarios3D(viewer, tilesetId);
-        await atualizarBotaoDeComentario3D();
+
     } catch (erro) {
         console.error('Falha ao montar os comentarios do 3D:', erro);
     }
@@ -1143,28 +1145,11 @@ function registerToolEventListeners() {
     }, 100);
 }
 
-/**
- * Mostra o botao de comentar so para quem pode comentar, e fia o clique dele.
- *
- * O botao SOBREVIVE ao somente leitura (a regra de CSS o excetua ao lado da ajuda), porque o
- * Comentarista e o somente leitura MAIS a funcao de comentar. Quem decide se ele aparece e
- * `podeComentar()`, que pergunta por `CREATE_COMMENT`.
- * @returns {Promise<void>}
- */
-async function atualizarBotaoDeComentario3D() {
-    const botao = document.getElementById('comment-3d');
-    if (!botao) return;
-    const { podeComentar } = await import('@js/comment_tool/comment-card.js');
-    const liberado = podeComentar();
-    botao.hidden = !liberado;
-    if (!liberado || botao._ebgeoFiado) return;
-    botao._ebgeoFiado = true;
-    botao.addEventListener('click', async () => {
-        const m = await import('./tools/comments-3d.js');
-        // Desliga a ferramenta ativa: as duas disputariam o proximo clique na cena.
-        deactivateActiveTool3D();
-        m.alternarModoComentario3D(!m.modoComentario3DAtivo());
-    });
+/** Route the shared sidebar action into the open model. */
+export async function toggleComments3D() {
+    const activate = !modoComentario3DAtivo();
+    deactivateActiveTool3D();
+    alternarModoComentario3D(activate);
 }
 
 /**
@@ -1298,6 +1283,7 @@ function initActiveToolChip3D() {
  * Deactivates the currently active 3D tool
  */
 function deactivateCurrentTool3D() {
+    alternarModoComentario3D(false);
     if (activeToolId) {
         const activeBtn = document.getElementById(activeToolId);
         if (activeBtn) {
@@ -1515,6 +1501,7 @@ export function closeViewer() {
  * Called after completing a tool action (e.g., adding a marker).
  */
 export function deactivateActiveTool3D() {
+    activeToolId = null;
     deactivateAllToolButtons();
     removeAllTools();
     hideActiveToolChip3D();

@@ -37,7 +37,7 @@ const SEARCH_KEYS = [
 // explícito por `SELECT u.*` (o refactor plausível, com os LEFT JOINs já ali) continua vermelho,
 // e continua vermelho por `password_hash`, `api_key`, `is_active` e `role`.
 const ME_KEYS = [
-  'created_at', 'email', 'email_verified', 'id', 'last_login_at', 'nome',
+  'created_at', 'email', 'email_verified', 'id', 'last_login_at', 'nome', 'nome_guerra',
   'organizacao_militar', 'organization_id', 'posto_graduacao', 'rank_id', 'username',
 ];
 const NEVER_EXPOSED = ['password_hash', 'password', 'api_key', 'email', 'is_active', 'role'];

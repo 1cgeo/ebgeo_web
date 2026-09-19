@@ -46,6 +46,7 @@ export function issueAccessToken(user) {
       sub: user.id,
       username: user.username,
       nome: user.nome,
+      nome_guerra: user.nome_guerra ?? null,
       posto: user.posto_graduacao,
       role: user.role || 'user', // global {user, admin}
       organization_id: user.organization_id ?? null, // tenant claim (LOTACAO: exibicao)
@@ -144,6 +145,7 @@ export async function login(username, password) {
       id: user.id,
       username: user.username,
       nome: user.nome,
+      nome_guerra: user.nome_guerra ?? null,
       posto_graduacao: user.posto_graduacao,
       organizacao_militar: user.organizacao_militar,
       organization_id: user.organization_id ?? null,
@@ -415,6 +417,7 @@ export async function register(data, origin = '', req = null) {
     data.organization_id || null, // COALESCE -> default org in SQL
     email,
     false,
+    data.nome_guerra || null,
   ]);
   const user = rows[0];
 

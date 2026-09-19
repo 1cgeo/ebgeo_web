@@ -46,6 +46,7 @@ export function broadcastUserJoined(atlasId, user, excludeWs, clientId = null) {
     user: {
       id: user.id,
       nome: user.nome,
+      nome_guerra: user.nome_guerra ?? null,
       posto_graduacao: user.posto_graduacao,
       clientId,
     },

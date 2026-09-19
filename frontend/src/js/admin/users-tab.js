@@ -374,6 +374,7 @@ class UsersTab {
         form.appendChild(heading);
 
         const nome = textField(form, 'Nome completo', 'admin-userform-nome', user?.nome || '');
+        const nomeGuerra = textField(form, 'Nome de guerra', 'admin-userform-nome-guerra', user?.nome_guerra || '');
         const username = textField(form, 'Usuário', 'admin-userform-username', user?.username || '');
         // O CAMPO QUE FALTAVA, e a falta tinha efeito exato: a tela oferecia APROVAR o endereço
         // (a caixa "E-mail verificado", abaixo) e não oferecia CORRIGI-LO, então diante de um
@@ -493,6 +494,7 @@ class UsersTab {
             const ehProdutor = role.value === PRODUCER_ROLE;
             const payload = {
                 nome: nome.value.trim(),
+                nome_guerra: nomeGuerra.value.trim() || null,
                 username: username.value.trim(),
                 rank_id: posto.value,
                 organization_id: om.value,

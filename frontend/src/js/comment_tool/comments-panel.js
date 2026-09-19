@@ -23,6 +23,7 @@ import { SUPERFICIE, superficieDe } from './comment-card.js';
 const ROTULO_DE_SUPERFICIE = Object.freeze({
     [SUPERFICIE.MAPA]: '',
     [SUPERFICIE.FOTO_360]: '360',
+    [SUPERFICIE.PRIMEIRA_PESSOA]: 'Primeira pessoa',
     [SUPERFICIE.MODELO_3D]: '3D',
 });
 import { getControl } from '@store/control.registry.js';
@@ -308,9 +309,6 @@ export class CommentsPanel {
         // e o destino e o que faz o "ir para" chegar.
         await this._fecharOutrasSuperficies(superficie);
 
-        if (superficie === SUPERFICIE.FOTO_360) { await this._focarNoPanorama(comment); return; }
-        if (superficie === SUPERFICIE.MODELO_3D) { await this._focarNoModelo(comment); return; }
-
         const target = comment._mapName;
         if (target && target !== getCurrentMapNameSync()) {
             try {
@@ -322,6 +320,14 @@ export class CommentsPanel {
                 return;
             }
         }
+        if (superficie === SUPERFICIE.PRIMEIRA_PESSOA) {
+            const viewer = await import('@js/first_person_3d_tool/first_person_viewer.js');
+            await viewer.openFirstPersonViewer(comment.tilesetId);
+            viewer.focusFirstPersonComment(comment.id);
+            return;
+        }
+        if (superficie === SUPERFICIE.FOTO_360) { await this._focarNoPanorama(comment); return; }
+        if (superficie === SUPERFICIE.MODELO_3D) { await this._focarNoModelo(comment); return; }
         await this._overlay()?.focusComment(comment.id);
     }
 
@@ -335,6 +341,11 @@ export class CommentsPanel {
      */
     async _fecharOutrasSuperficies(destino) {
         try {
+            if (destino !== SUPERFICIE.PRIMEIRA_PESSOA
+                && document.getElementById('first-person-container')?.classList.contains('fp3d-container--open')) {
+                const fp = await import('@js/first_person_3d_tool/first_person_viewer.js');
+                if (fp.isFirstPersonViewerOpen()) await fp.closeFirstPersonViewer();
+            }
             // O CARTAO DA SUPERFICIE ANTERIOR TAMBEM SAI, e nao so o visualizador: sem isto, ir do
             // mapa para o 360 deixava o popup do MapLibre aberto por baixo do panorama, e a pessoa
             // lia a conversa ERRADA sobre a superficie nova. Medido em 2026-09-18.
@@ -430,7 +441,23 @@ export class CommentsPanel {
     }
 
     /** @private Starts a new comment (placement mode). */
-    _handleNew() {
+    async _handleNew() {
+        // Checking the mounted surface keeps a 2D action from downloading three viewer engines.
+        if (document.getElementById('first-person-container')?.classList.contains('fp3d-container--open')) {
+            const fp = await import('@js/first_person_3d_tool/first_person_viewer.js');
+            fp.toggleCommentsFp();
+            return;
+        }
+        if (document.getElementById('street-view-container')?.getClientRects().length) {
+            const panorama = await import('@js/street_view_tool/street_view_viewer.js');
+            await panorama.toggleComments360();
+            return;
+        }
+        if (document.getElementById('map-3d')?.getClientRects().length) {
+            const model = await import('@js/3d_models_viewer_tool/map_3d.js');
+            await model.toggleComments3D();
+            return;
+        }
         this._overlay()?.togglePlacement(true);
     }
 

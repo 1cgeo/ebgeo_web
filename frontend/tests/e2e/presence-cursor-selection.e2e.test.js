@@ -148,6 +148,26 @@ describe.skipIf(E2E_SKIP)('§Awareness — presence, cursor & selection over rea
         expect(frame.featureIds).toEqual(featureIds);
     });
 
+    it('relays first-person metres and preserves the pose in a late join snapshot', async () => {
+        const position = { x: 3.82, y: 0.55, z: 1.42 };
+        wsA.sendCursor({ surface: 'fp', tilesetId: 'museum', position, mapId });
+        const frame = await waitFor(() => bCursors.find((c) => c.surface === 'fp'));
+        expect(frame).toMatchObject({ surface: 'fp', tilesetId: 'museum', position, mapId });
+        let snapshot;
+        const late = makeWs(apiB, { clientId: newClientId() });
+        late.on('connected', (msg) => { snapshot = msg; });
+        try {
+            await late.connect(atlasId);
+            const peer = snapshot.usersOnline.find((u) => u.id === userIdA);
+            expect(peer.cursorPosition).toEqual(position);
+            expect(peer.cursorContext).toMatchObject({ surface: 'fp', tilesetId: 'museum', mapId });
+        } finally {
+            late.disconnect();
+        }
+        wsA.sendCursor({ surface: 'fp', tilesetId: 'museum', position: null, mapId });
+        await waitFor(() => bCursors.some((c) => c.surface === 'fp' && c.position === null));
+    });
+
     it('does not echo the sender its own cursor or selection (broadcast excludes sender)', async () => {
         // Use B's reception as a happens-after barrier: once B has both of A's
         // frames, any echo back to A would already have arrived too.

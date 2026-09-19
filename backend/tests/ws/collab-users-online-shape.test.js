@@ -26,7 +26,7 @@ const GRACA_MS = 3000; // longa de propósito: o caso 'away' precisa da janela a
 
 // Campos congelados de CADA entrada do roster (o frontend indexa por eles).
 const CAMPOS = [
-  'clientId', 'cursorPosition', 'id', 'mapId', 'nome', 'posto_graduacao',
+  'clientId', 'cursorPosition', 'id', 'mapId', 'nome', 'nome_guerra', 'posto_graduacao',
   'selectedFeatures', 'selectionContext', 'status', 'temporalState',
 ];
 

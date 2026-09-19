@@ -57,7 +57,7 @@ export const MAX_EMAIL_LENGTH = 255;
  * third field on this screen would be worse than offering none.
  * @type {readonly string[]}
  */
-export const EDITABLE_PROFILE_FIELDS = Object.freeze(['nome', 'rank_id']);
+export const EDITABLE_PROFILE_FIELDS = Object.freeze(['nome', 'nome_guerra', 'rank_id']);
 
 /** The password rule, stated before the attempt instead of after the refusal. */
 export const PASSWORD_RULE_TEXT =

@@ -157,18 +157,13 @@ describe('somente leitura: as superfícies de edição somem', () => {
 describe('somente leitura: as barras do 3D e do 360', () => {
     it('o CSS do 3D esconde os comandos e preserva a ajuda e o voo para a posição salva', () => {
         const css = fonte('src/css/panels-3d.css');
-        // `#comment-3d` entrou na excecao em 2026-09-17, pela mesma razao do 360: o Comentarista
-        // comenta, e so isso.
-        expect(css).toMatch(/#toolbar-3d\.map-locked \.button-tool-3d:not\(#help-3d, #voar-camera, #comment-3d\)/);
+        expect(css).toMatch(/#toolbar-3d\.map-locked \.button-tool-3d:not\(#help-3d, #voar-camera\)/);
         expect(css).toMatch(/#toolbar-3d\.map-locked \.toolbar-3d-separator/);
     });
 
     it('o CSS do 360 esconde os comandos e preserva a ajuda', () => {
         const css = fonte('src/css/panels-360.css');
-        // O COMENTARIO E A EXCECAO DECLARADA (2026-09-17): o Comentarista e o somente leitura mais
-        // a funcao de comentar, entao o botao de comentar nao pode sumir com os de edicao. Quem
-        // decide se ele aparece e `podeComentar()`, e nao esta regra.
-        expect(css).toMatch(/#toolbar-360\.map-locked \.button-tool-360:not\(#help-360, #comment-360\)/);
+        expect(css).toMatch(/#toolbar-360\.map-locked \.button-tool-360:not\(#help-360\)/);
         expect(css).toMatch(/#toolbar-360\.map-locked \.toolbar-360-separator/);
     });
 

@@ -528,6 +528,7 @@ export function attachWebSocket(server) {
           id: userId,
           username: isPublicUser ? 'visitante' : payload.username,
           nome: isPublicUser ? 'Visitante' : payload.nome,
+          nome_guerra: isPublicUser ? null : (payload.nome_guerra ?? null),
           posto_graduacao: isPublicUser ? null : payload.posto,
           role: isPublicUser ? 'user' : (liveRole || 'user'),
           organization_id: isPublicUser ? null : (payload.organization_id ?? null),
@@ -601,6 +602,7 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
   // Attach user info to WebSocket
   ws.userId = user.id;
   ws.userName = user.nome;
+  ws.userWarName = user.nome_guerra ?? null;
   ws.userPosto = user.posto_graduacao;
   ws.userRole = user.role;
   ws.atlasId = atlasId;

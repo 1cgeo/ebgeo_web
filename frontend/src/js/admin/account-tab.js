@@ -233,6 +233,7 @@ class AccountTab {
 
         const draft = {
             nome: root.querySelector('[data-field="nome"]')?.value ?? '',
+            nome_guerra: root.querySelector('[data-field="nome_guerra"]')?.value ?? '',
             rank_id: root.querySelector('[data-field="rank"]')?.value ?? '',
         };
 
@@ -629,6 +630,10 @@ class AccountTab {
             maxLength: MAX_NAME_LENGTH,
         }));
         form.appendChild(this._renderRankField(profile));
+        form.appendChild(this._inputField({
+            field: 'nome_guerra', label: 'Nome de guerra',
+            value: profile.nome_guerra || '', maxLength: 100,
+        }));
         section.appendChild(form);
 
         if (this._profileError) {

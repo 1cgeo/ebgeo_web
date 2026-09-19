@@ -49,6 +49,21 @@ describe('PresenceStore', () => {
         store = new PresenceStore();
     });
 
+    it.each([
+        ['2d', { lng: 1, lat: 2 }, 'Mapa'],
+        ['3d', { lng: 1, lat: 2, alt: 3 }, 'museum'],
+        ['360', { heading: 1, pitch: 0 }, 'photo'],
+        ['fp', { x: 1, y: 2, z: 3 }, 'museum'],
+    ])('shows abbreviated rank and registered name at the %s position, for joins and snapshots', (surface, position, scope) => {
+        store.setInitial([{ id: 'u1', clientId: 'c1', nome: 'Felipe de Carvalho Diniz', nome_guerra: 'Diniz', posto_graduacao: 'Maj' }]);
+        store.setCursor({ clientId: 'c1', surface, position, mapId: 'Mapa', tilesetId: 'museum', photoName: 'photo' });
+        expect(store.getCursors(surface, scope)[0].userName).toBe('Maj Diniz');
+        store.userJoined({ id: 'u1', clientId: 'c1', nome: 'Diniz' });
+        expect(store.getCursors(surface, scope)[0].userName).toBe('Maj Diniz');
+        store.userJoined({ id: 'u1', clientId: 'c1', nome: 'Diniz', posto_graduacao: null });
+        expect(store.getCursors(surface, scope)[0].userName).toBe('Diniz');
+    });
+
     describe('event types', () => {
         it('exposes the new presence events', () => {
             expect(EventTypes.PRESENCE_CHANGED).toBe('presence:changed');

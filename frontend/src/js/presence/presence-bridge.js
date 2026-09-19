@@ -432,6 +432,9 @@ export function startPresence({ map } = {}) {
     subscribe(state, eventBus, EventTypes.CURSOR_3D_MOVED, ({ position, tilesetId } = {}) => {
         throttleCursor({ position: position ?? null, surface: '3d', tilesetId: tilesetId ?? null });
     });
+    subscribe(state, eventBus, EventTypes.POSITION_FP_MOVED, ({ position, tilesetId } = {}) => {
+        throttleCursor({ position: position ?? null, surface: 'fp', tilesetId: tilesetId ?? null });
+    });
 
     // Case F (360) — POI selection inside the panorama viewer, scoped by photoName.
     subscribe(state, eventBus, EventTypes.MARKER_360_CLICKED, ({ marker, photoName } = {}) => {

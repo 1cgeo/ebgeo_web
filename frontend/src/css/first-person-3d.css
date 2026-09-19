@@ -1,5 +1,35 @@
 /* Path: css/first-person-3d.css */
 
+.fp3d-collaboration {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 8;
+}
+
+.fp3d-comment-pin, .fp3d-person {
+    position: absolute;
+    top: 0;
+    left: 0;
+    color: white;
+    border: 2px solid white;
+    border-radius: 18px;
+    padding: 5px 9px;
+    font: 600 12px sans-serif;
+    box-shadow: 0 2px 6px #0008;
+}
+
+.fp3d-comment-pin { pointer-events: auto; cursor: pointer; }
+.fp3d-person::before { content: '● '; }
+.fp3d-commenting .fp3d-canvas { cursor: crosshair; }
+
+.fp3d-container > .comment-card {
+    position: absolute;
+    z-index: 12;
+    pointer-events: auto;
+    color: var(--text-color);
+}
+
 /* =========================================================================
    FIRST PERSON 3D (GAUSSIAN SPLATTING) — "fp3d" BLOCK
 

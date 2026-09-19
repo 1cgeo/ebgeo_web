@@ -4,6 +4,12 @@ Percorrer a pé um ambiente interno capturado por Gaussian Splatting, com colis�
 
 Vizinhas: [[resources-catalogo]] (a outra descoberta 3D, que o cliente nunca usou e que saiu do sistema), [[assets3d-distribuicao]] (por onde os bytes saem), [[peso-do-pacote-web]] (o que prende biblioteca no payload), [[streetview-360]] (o viewer irmão, e o precedente que esta cena segue).
 
+## Colaboração em coordenadas locais
+
+Desde 2026-09-19, presença e comentários usam a superfície `fp`. A referência continua sendo `tilesetId`, porque a cena é um recurso desse catálogo: criar outra chave escaparia da poda de recursos privados na exportação e no compartilhamento. As coordenadas `x`, `y`, `z` são metros no referencial da cena, nunca coordenadas geográficas disfarçadas. Reprocessar o museu alterando o referencial exige outro recurso ou transformação explícita das âncoras; substituir os bytes não transforma comentários antigos.
+
+A presença usa a câmera da caminhada, inclusive parado, e nunca o raio do mouse. Os comentários usam o raio contra a colisão, mantendo o cartão e as permissões comuns. O botão de novo comentário da barra lateral atende mapa, 360, Cesium e primeira pessoa; não há botão adicional nessas barras de visualização. Comentários exigem um atlas do servidor e sessão com permissão, como no mapa.
+
 ## A cena é uma linha de `tilesets`, e a escolha compra três coisas de graça
 
 Uma cena é **uma linha da tabela do catálogo `tilesets` carregando `viewer: 'firstPerson'` dentro do `config` JSONB**. `listTilesets()` (`backend/src/modules/config/config.service.js`) espalha esse `config` sobre `id` e `name`, então `basePath` e `poseInicial` viajam até o cliente sem schema novo, sem migração e sem chave nova no `/api/config` ([[config-dinamico]], [[resources-catalogo]]). O cadastro é o Painel do Administrador, aba Catálogo, ou `backend/scripts/models3d-importar-cena.js`, que instala os bytes com conferência por `sha256`, grava a linha de catálogo e registra a produção em `a3d.scenes`. Houve um segundo roteiro só para isto (`fp:register`), aposentado em 2026-08-23: ele nasceu antes do eixo `forma3d` e do schema `a3d`, e gravava só o discriminador legado, então a cena que ele cadastrava não era reconhecida por `npm run models3d:verificar`. Duas receitas para o mesmo ato divergem, e a incompleta é a que causa o bug. A única coisa que ele fazia e o importador não fazia era registrar bytes JÁ instalados, que hoje é `--base-path`.

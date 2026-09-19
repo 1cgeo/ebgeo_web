@@ -223,7 +223,6 @@ export function modoComentario3DAtivo() {
  */
 export function alternarModoComentario3D(ligado) {
     estado.modoAtivo = Boolean(ligado) && podeComentar();
-    document.getElementById('comment-3d')?.classList.toggle('active', estado.modoAtivo);
     if (estado.viewer?.canvas) {
         estado.viewer.canvas.style.cursor = estado.modoAtivo ? 'crosshair' : '';
     }
@@ -244,6 +243,7 @@ function aoClicar(click) {
         return;
     }
 
+    fecharCartao3D();
     if (!estado.modoAtivo || !podeComentar()) return;
 
     const cartesiano = viewer.scene.pickPosition(click.position);
@@ -254,19 +254,23 @@ function aoClicar(click) {
     const alt = carto.height;
 
     alternarModoComentario3D(false);
+    const tilesetId = estado.tilesetId;
+    const mapName = getCurrentMapNameSync();
     ancorar(montarCartaoDeCompose({
         aoCancelar: () => fecharCartao3D(),
         aoEnviar: async (texto) => {
-            fecharCartao3D();
-            await addComment({
+            if (!estado.ativo || tilesetId !== estado.tilesetId || mapName !== getCurrentMapNameSync()) return false;
+            const created = await addComment({
                 surface: SUPERFICIE.MODELO_3D,
-                tilesetId: estado.tilesetId,
+                tilesetId,
                 lng,
                 lat,
                 alt,
                 text: texto,
                 ...autoriaAtual(),
-            });
+            }, mapName);
+            if (created) fecharCartao3D();
+            return !!created;
         },
     }), click.position.x, click.position.y);
 }

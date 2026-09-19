@@ -18,6 +18,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Replaced wholesale so the dynamic import inside turnToTarget resolves to a spy
 // (and so the real viewer, with Three.js and a WebGL context, never loads here).
 const turnViewBy = vi.fn();
+vi.mock('@store/services.js', () => ({ getEventBus: () => ({ emit: vi.fn() }) }));
 vi.mock('../../src/js/street_view_tool/street_view_viewer.js', () => ({
     turnViewBy: (...args) => turnViewBy(...args),
 }));

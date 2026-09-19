@@ -873,6 +873,7 @@ export class StreetViewNavigator {
      * @returns {Object|null} Click result with type and data
      */
     handleNavigationClick(x, y) {
+        getEventBus().emit(EventTypes.STREETVIEW_360_SCENE_CLICKED, {});
         // MODO DE COMENTAR: o proximo clique escolhe ONDE a conversa fica, e nao navega nem
         // seleciona. Vem antes do modo de marcador porque so um dos dois fica ativo por vez, e a
         // ordem torna isso explicito para quem le.

@@ -37,6 +37,7 @@ let callbacks = {
     toggleMeasurement: null,
     /** L - toggles the curated marker labels. */
     toggleLabels: null,
+    closeComment: null,
     /** Backspace - removes the last measurement point. */
     undoMeasurement: null,
     /** Delete - clears every measurement. */
@@ -186,6 +187,7 @@ function handleKeyDown(e) {
 function runEscapeCascade() {
     const cascade = [
         callbacks.exitImmersive,
+        callbacks.closeComment,
         callbacks.closeMarkerPanel,
         callbacks.finishMeasurement,
         callbacks.disableMeasurement

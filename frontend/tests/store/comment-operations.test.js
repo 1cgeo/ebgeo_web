@@ -113,6 +113,13 @@ describe('comment.operations — addReply', () => {
         expect(Object.values(all).filter((c) => c.parentId === root.id)).toHaveLength(1);
     });
 
+    it('persists first-person local coordinates without inventing latitude or longitude', async () => {
+        const root = await addComment({ surface: 'fp', tilesetId: 'museum', x: 3.82, y: -0.5, z: 1.42, text: 'vitrine' });
+        expect((await getComments('TestMap'))[root.id]).toMatchObject({
+            surface: 'fp', tilesetId: 'museum', x: 3.82, y: -0.5, z: 1.42, lng: null, lat: null,
+        });
+    });
+
     it('refuses to reply to a RESOLVED comment (must be reopened first)', async () => {
         const root = await addComment({ lng: 1, lat: 2, text: 'raiz' });
         await resolveComment(root.id, true);

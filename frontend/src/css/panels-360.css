@@ -631,16 +631,10 @@ body.streetview-active .modal-overlay {
 
 /* ===== MAP LOCK: HIDE WRITE-ACTION BUTTONS ===== */
 
-/* O COMENTARIO SOBREVIVE AO SOMENTE LEITURA, e a excecao e a regra do produto: o Comentarista e o
-   somente leitura MAIS a funcao de comentar (decisao do dono, 2026-09-16), entao esconder o botao
-   de comentar junto com os de edicao tiraria dele a unica coisa que ele sabe fazer. Quem decide se
-   o botao aparece e `podeComentar()`, que ja pergunta pelo gate certo (`CREATE_COMMENT`); o
-   atributo `hidden` do HTML e o estado inicial dele. */
-
 /* `map-locked` NAO E SO A TRAVA desde 2026-09-17: quem a aplica (`streetview-sidebar.js`) pergunta
    pela conta unica de `store/edicao-indisponivel.js`, que soma o PAPEL no atlas e a trava do mapa.
    Ver a nota irma em `panels-3d.css`. */
-#toolbar-360.map-locked .button-tool-360:not(#help-360, #comment-360) {
+#toolbar-360.map-locked .button-tool-360:not(#help-360) {
     display: none !important;
 }
 

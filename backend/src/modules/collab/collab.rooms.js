@@ -225,6 +225,7 @@ export function getRoomUsers(atlasId) {
         // que chegava depois. O valor sempre esteve aqui, só não era exposto.
         clientId: client.clientId ?? null,
         nome: client.userName,
+        nome_guerra: client.userWarName ?? null,
         posto_graduacao: client.userPosto,
         mapId: client.currentMapId,
         cursorPosition: client.cursorPosition,

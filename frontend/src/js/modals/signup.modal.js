@@ -223,6 +223,10 @@ export class SignupModal extends ModalBase {
             id: 'signup-username', label: 'Usuário', autocomplete: 'username',
             testid: 'signup-username', required: true
         });
+        this._nomeGuerraInput = this._addField(form, {
+            id: 'signup-nome-guerra', label: 'Nome de guerra',
+            testid: 'signup-nome-guerra', required: false,
+        });
         this._emailInput = this._addField(form, {
             id: 'signup-email', label: 'E-mail', type: 'email', autocomplete: 'email',
             testid: 'signup-email', required: true
@@ -418,6 +422,7 @@ export class SignupModal extends ModalBase {
         try {
             await this._onSubmit({
                 nome,
+                nome_guerra: this._nomeGuerraInput.value.trim() || null,
                 username,
                 email,
                 password,

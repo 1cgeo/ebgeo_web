@@ -16,7 +16,7 @@
 // O `false` de `producer_org_ativa` abaixo é o oposto por um motivo que não vale aqui: sem
 // OM produtora a resposta certa é "não produz".
 export const FIND_USER_BY_USERNAME = `
-  SELECT u.id, u.username, u.password_hash, u.nome, u.rank_id, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
+  SELECT u.id, u.username, u.password_hash, u.nome, u.nome_guerra, u.rank_id, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
          u.organization_id, o.nome AS organizacao_militar,
          COALESCE(o.is_active, true) AS org_ativa,
          u.producer_org_id,
@@ -55,7 +55,7 @@ export const FIND_USER_BY_USERNAME = `
 // lados OPOSTOS de propósito, e a assimetria é a regra de cada uma: ausência de OM de
 // lotação ISENTA (não há o que desativar), ausência de OM produtora RECUSA (não produz).
 export const FIND_USER_BY_ID = `
-  SELECT u.id, u.username, u.nome, u.rank_id, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
+  SELECT u.id, u.username, u.nome, u.nome_guerra, u.rank_id, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
          u.organization_id, o.nome AS organizacao_militar,
          COALESCE(o.is_active, true) AS org_ativa,
          u.producer_org_id, po.nome AS producer_org_nome,
@@ -190,11 +190,11 @@ export const FIND_USER_BY_EMAIL = `
 // ranks/organizations so RETURNING still emits the derived posto_graduacao / organizacao_militar names.
 export const INSERT_USER = `
   WITH new_user AS (
-    INSERT INTO users (username, password_hash, nome, rank_id, role, organization_id, email, email_verified)
-    VALUES ($1, $2, $3, $4::uuid, $5, COALESCE($6::uuid, '00000000-0000-0000-0000-000000000001'::uuid), $7, $8)
+    INSERT INTO users (username, password_hash, nome, rank_id, role, organization_id, email, email_verified, nome_guerra)
+    VALUES ($1, $2, $3, $4::uuid, $5, COALESCE($6::uuid, '00000000-0000-0000-0000-000000000001'::uuid), $7, $8, $9)
     RETURNING *
   )
-  SELECT u.id, u.username, u.nome, u.rank_id, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
+  SELECT u.id, u.username, u.nome, u.nome_guerra, u.rank_id, COALESCE(r.nome_abrev, r.nome) AS posto_graduacao,
          u.organization_id, o.nome AS organizacao_militar, u.producer_org_id,
          u.role, u.created_at, u.email, u.email_verified
   FROM new_user u

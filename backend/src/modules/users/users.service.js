@@ -253,6 +253,8 @@ export async function updateProfile(userId, data, req = null) {
     data.rank_id !== undefined,
     data.organization_id === '' ? null : (data.organization_id ?? null),
     data.organization_id !== undefined,
+    data.nome_guerra || null,
+    data.nome_guerra !== undefined,
   ]);
 
   if (rows.length === 0) {
@@ -552,6 +554,7 @@ export async function createUser(data, req = null, actorId = null) {
       // O bicondicional ja foi cobrado pelo Joi da criacao (onde o corpo e completo
       // e o `when` alcanca os dois lados); aqui basta normalizar '' para null.
       uuidOuNulo(data.producer_org_id),
+      data.nome_guerra || null,
     ]);
 
     if (actorId) {
@@ -659,6 +662,8 @@ export async function updateUser(userId, data, actingUserId = null, req = null) 
       escopo.producerProvided,
       emailAlvo.email,
       emailAlvo.provided,
+      data.nome_guerra || null,
+      data.nome_guerra !== undefined,
     ]);
 
     if (rows.length === 0) {

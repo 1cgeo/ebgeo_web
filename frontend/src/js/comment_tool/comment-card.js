@@ -31,6 +31,7 @@ import { isRemoteStoreSync } from '@store/store-origin.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { checkPermission, GuardAction } from '@store/sync/permission-guard.js';
 import { getInitials, getPresenceColor } from '@js/presence/presence-colors.js';
+import { showError } from '@utils/toast_service.js';
 
 /**
  * As três superfícies onde um comentário pode nascer.
@@ -43,6 +44,7 @@ export const SUPERFICIE = Object.freeze({
     MAPA: '2d',
     FOTO_360: '360',
     MODELO_3D: '3d',
+    PRIMEIRA_PESSOA: 'fp',
 });
 
 /**
@@ -70,7 +72,7 @@ export function ehDaSuperficie(comentario, surface, escopo = null) {
     if (superficieDe(comentario) !== surface) return false;
     if (escopo === null) return true;
     if (surface === SUPERFICIE.FOTO_360) return comentario?.photoName === escopo;
-    if (surface === SUPERFICIE.MODELO_3D) return comentario?.tilesetId === escopo;
+    if (surface === SUPERFICIE.MODELO_3D || surface === SUPERFICIE.PRIMEIRA_PESSOA) return comentario?.tilesetId === escopo;
     return true;
 }
 
@@ -164,13 +166,25 @@ export function montarCompositor(opcoes) {
     submit.dataset.testid = `${opcoes.testid}-submit`;
     submit.textContent = opcoes.submitLabel;
     submit.disabled = true;
-    textarea.addEventListener('input', () => { submit.disabled = textarea.value.trim().length === 0; });
+    let sending = false;
+    textarea.addEventListener('input', () => { submit.disabled = sending || textarea.value.trim().length === 0; });
     submit.addEventListener('click', async () => {
         const texto = textarea.value.trim();
-        if (!texto) return;
-        textarea.value = '';
+        if (!texto || sending) return;
+        sending = true;
+        textarea.readOnly = true;
         submit.disabled = true;
-        await opcoes.onSubmit(texto);
+        try {
+            const result = await opcoes.onSubmit(texto);
+            if (result !== false) textarea.value = '';
+        } catch (error) {
+            console.error('Could not save comment:', error);
+            showError('Não foi possível salvar o comentário. Seu texto foi mantido; tente novamente.');
+        } finally {
+            sending = false;
+            textarea.readOnly = false;
+            submit.disabled = !textarea.value.trim();
+        }
     });
     actions.appendChild(submit);
 

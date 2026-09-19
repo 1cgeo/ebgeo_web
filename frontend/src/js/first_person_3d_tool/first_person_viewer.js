@@ -57,6 +57,7 @@ import { WalkMode } from './walk/walk-mode.js';
 import { PointerLock } from './walk/pointer-lock.js';
 import { FpMarkersLayer } from './components/markers-layer-fp.js';
 import { FpMeasurementTool } from './tools/measurement_tool_fp.js';
+import { FpCollaboration } from './collaboration-fp.js';
 import {
     getFirstPersonSceneById,
     resolveSceneAssets,
@@ -156,6 +157,7 @@ const fpState = {
     walk: null,
     markers: null,
     measurement: null,
+    collaboration: null,
     /** PointerLock instance, built with the container. Null before the viewer opens. */
     pointerLock: null,
     /** Deadline for swallowing the context menu of the click that left the mode. */
@@ -733,7 +735,7 @@ function onSceneMouseUp(event) {
     // The marker CARD is not tested here: it is the application feature panel,
     // which lives in the sidebar and therefore outside this container, so its
     // events never reach this listener.
-    if (event.target instanceof Element && event.target.closest('.fp3d-label')) {
+    if (event.target instanceof Element && event.target.closest('.fp3d-label, .fp3d-collaboration, .comment-card')) {
         return;
     }
 
@@ -744,6 +746,9 @@ function onSceneMouseUp(event) {
     if (dragged) return;
 
     readCursor(event);
+
+    if (fpState.collaboration?.place(camera, cursor.ndcX, cursor.ndcY)) return;
+    fpState.collaboration?.closeCard();
 
     if (measurement?.active) {
         // Clicking a closed measurement starts a new one, so the card that
@@ -781,6 +786,7 @@ function toggleMeasure(force) {
     if (!measurement) return false;
 
     const next = typeof force === 'boolean' ? force : !measurement.active;
+    if (next) fpState.collaboration?.cancel();
     if (next && !measurement.available) {
         showWarning('Cena sem malha de colisão: a trena não está disponível');
         return false;
@@ -897,6 +903,7 @@ function hideMeasurementResults() {
  * @returns {void}
  */
 function toggleImmersive(force) {
+    fpState.collaboration?.cancel();
     const lock = fpState.pointerLock;
     if (!lock?.supported) return;
 
@@ -1143,6 +1150,7 @@ function registerKeyboardCallbacks() {
     setKeyboardCallbacksFp({
         toggleMeasurement: () => toggleMeasure(),
         toggleLabels,
+        closeComment: () => fpState.collaboration?.cancel(),
         undoMeasurement: () => fpState.measurement?.undo(),
         clearMeasurement: () => {
             hideMeasurementResults();
@@ -1188,6 +1196,7 @@ function renderFrame(dt) {
 
     const { width, height } = readViewportSize();
     markers?.update(camera, width, height);
+    fpState.collaboration?.update(camera, width, height);
 
     if (measurement?.active && cursor.inside) {
         measurement.point(camera, cursor.ndcX, cursor.ndcY);
@@ -1331,6 +1340,13 @@ async function doOpenFirstPersonViewer(sceneId, options) {
             await initScene(scene, dom);
         }
         applyPose(options.pose ?? null);
+        fpState.collaboration?.destroy();
+        fpState.collaboration = new FpCollaboration({
+            container: dom.container, sceneId, collision: fpState.collision?.voxels,
+            releasePointer: () => fpState.pointerLock?.exit(),
+            onContextLost: () => { closeFirstPersonViewer(); },
+        });
+        await fpState.collaboration.ready;
         fpState.viewer?.resize();
         // The toolbar is shared DOM that survives a close, and the tool state it
         // reflects lives in components that also survive. Re-sync on every open,
@@ -1380,6 +1396,8 @@ export async function closeFirstPersonViewer() {
     fpState.lastPose = getFirstPersonViewerState();
 
     pauseRendering();
+    fpState.collaboration?.destroy();
+    fpState.collaboration = null;
     toggleMeasure(false);
     fpState.markers?.closePanel();
     fpState.walk?.disable();
@@ -1402,6 +1420,17 @@ export async function closeFirstPersonViewer() {
  */
 export function isFirstPersonViewerOpen() {
     return fpState.isVisible === true;
+}
+
+/** Toggle placement without borrowing movement keys from the walker. */
+export function toggleCommentsFp() {
+    toggleMeasure(false);
+    fpState.collaboration?.toggle();
+}
+
+/** Open the shared thread from the comments panel, including resolved threads. */
+export function focusFirstPersonComment(id) {
+    return fpState.collaboration?.focus(id) ?? false;
 }
 
 /**
@@ -1432,6 +1461,8 @@ export function getFirstPersonViewerState() {
  * scene. After it, the next open rebuilds from scratch.
  */
 export function cleanupFirstPersonFeatures() {
+    fpState.collaboration?.destroy();
+    fpState.collaboration = null;
     if (fpState.animationId) {
         cancelAnimationFrame(fpState.animationId);
         fpState.animationId = null;

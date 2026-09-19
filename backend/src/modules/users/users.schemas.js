@@ -18,6 +18,7 @@ import { API_KEY_SCOPES, API_KEY_SCOPE_DEFAULT } from './api-key-terms.js';
 // cobre `ng` (nomes), gateado por zona (`ng.fn_user_zone_geoms`), nunca por OM.
 export const updateProfileSchema = Joi.object({
   nome: Joi.string().max(255),
+  nome_guerra: Joi.string().trim().max(100).allow(null, ''),
   rank_id: Joi.string().uuid().allow(null, ''),
 });
 
@@ -89,6 +90,7 @@ export const createUserAdminSchema = Joi.object({
     }),
   password: Joi.string().required().min(6).max(100),
   nome: Joi.string().required().max(255),
+  nome_guerra: Joi.string().trim().max(100).allow(null, ''),
   rank_id: Joi.string().uuid().allow(null, ''),
   organization_id: Joi.string().uuid().allow(null, ''),
   // OS QUATRO PAPEIS GLOBAIS, E ELES NAO SAO UMA ESCADA: nenhum contem o outro, e
@@ -133,6 +135,7 @@ export const updateUserAdminSchema = Joi.object({
       'string.pattern.base': 'Usuário aceita apenas letras, números, ponto, hífen e sublinhado.',
     }),
   nome: Joi.string().max(255),
+  nome_guerra: Joi.string().trim().max(100).allow(null, ''),
   rank_id: Joi.string().uuid().allow(null, ''),
   organization_id: Joi.string().uuid().allow(null, ''),
   role: Joi.string().valid('user', 'producer', 'credenciado', 'admin'),

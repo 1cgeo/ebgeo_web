@@ -73,6 +73,11 @@ function ancorar(cartao, x, y) {
     fecharCartao360();
 
     cartao.classList.add('comment-card--flutuante');
+    // The navigator and camera listen on the container, including pointer events.
+    // Editing or replying inside a card must never become a scene gesture.
+    for (const type of ['pointerdown', 'pointerup', 'click', 'dblclick', 'contextmenu']) {
+        cartao.addEventListener(type, (event) => event.stopPropagation());
+    }
     caixa.appendChild(cartao);
 
     const largura = cartao.offsetWidth || 320;
@@ -141,9 +146,7 @@ function abrirConversa(raizId, x, y) {
  */
 export function alternarModoComentario360(ligado) {
     if (!estado.navigator) return;
-    estado.navigator.setCommentToolActive(Boolean(ligado));
-    const botao = document.getElementById('comment-360');
-    botao?.classList.toggle('active', Boolean(ligado));
+    estado.navigator.setCommentToolActive(Boolean(ligado) && podeComentar());
     if (!ligado) fecharCartao360();
 }
 
@@ -170,6 +173,7 @@ export async function iniciarComentarios360(navigator, photoName) {
 
     const bus = getEventBus();
     const assinar = (tipo, fn) => { estado.soltar.push(bus.on(tipo, fn)); };
+    assinar(EventTypes.STREETVIEW_360_SCENE_CLICKED, fecharCartao360);
 
     // As três escritas chegam pelos MESMOS eventos, venham daqui ou do colega: o aplicador remoto
     // emite os mesmos `COMMENT_*` que a operação local emite.
@@ -198,18 +202,22 @@ export async function iniciarComentarios360(navigator, photoName) {
     assinar(EventTypes.COMMENT_360_POSITION_CLICKED, ({ position, screenX, screenY }) => {
         alternarModoComentario360(false);
         if (!podeComentar() || !position) return;
+        const photoName = estado.photoName;
+        const mapName = getCurrentMapNameSync();
         const cartao = montarCartaoDeCompose({
             aoCancelar: () => fecharCartao360(),
             aoEnviar: async (texto) => {
-                fecharCartao360();
-                await addComment({
+                if (!estado.ativo || photoName !== estado.photoName || mapName !== getCurrentMapNameSync()) return false;
+                const created = await addComment({
                     surface: SUPERFICIE.FOTO_360,
-                    photoName: estado.photoName,
+                    photoName,
                     heading: position.heading,
                     pitch: position.pitch,
                     text: texto,
                     ...autoriaAtual(),
-                });
+                }, mapName);
+                if (created) fecharCartao360();
+                return !!created;
             },
         });
         ancorar(cartao, screenX, screenY);
