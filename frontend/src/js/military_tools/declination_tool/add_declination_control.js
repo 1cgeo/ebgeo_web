@@ -1,4 +1,5 @@
 // Path: js/military_tools/declination_tool/add_declination_control.js
+import { beginImageTask } from '../../store/image-context.js';
 
 /**
  * @fileoverview Control for placing magnetic declination diagrams on the map.
@@ -308,6 +309,11 @@ class AddDeclinationControl extends BaseControl {
     }
 
     async regenerateIcon(feature) {
+        const task = beginImageTask(this.map, feature.properties.id);
+        if (!Number.isFinite(feature.properties.declination)
+            || !Number.isFinite(feature.properties.convergence ?? 0)) {
+            throw new Error('Dados de declinação magnética incompletos. A imagem original foi preservada.');
+        }
         const svgString = generateDeclinationSvg(
             feature.properties.declination,
             feature.properties.convergence ?? 0,
@@ -315,10 +321,14 @@ class AddDeclinationControl extends BaseControl {
 
         try {
             const { blob } = await convertSvgToPngBlob(svgString, ICON_WIDTH, ICON_HEIGHT);
+            task.assertCurrent();
             await storeImage(feature.properties.id, blob);
-            await this.loadIconToMap(feature.properties.id, blob);
+            task.assertCurrent();
+            await loadImageToMap(this.map, feature.properties.id, blob, { replaceExisting: true, isCurrent: task.isCurrent });
+            return { blob };
         } catch (error) {
-            console.error('Error regenerating declination icon:', error);
+            if (error.name !== 'AbortError') console.error('Error regenerating declination icon:', error);
+            throw error;
         }
     }
 

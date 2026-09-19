@@ -673,7 +673,7 @@ export async function getFeatureById(featureType, featureId, mapName = null) {
  * @param {string} [mapName=null] - Target map name (defaults to the current map)
  * @returns {Promise<boolean>} Whether the stored feature was found and stamped
  */
-export async function stampGeneratedBitmap(feature, result, mapName = null) {
+export async function stampGeneratedBitmap(feature, result, mapName = null, isCurrent = () => true) {
     const featureId = feature?.properties?.id;
     const source = feature?.properties?.source;
     if (!featureId || !source || !result) return false;
@@ -682,7 +682,9 @@ export async function stampGeneratedBitmap(feature, result, mapName = null) {
     const storageType = getStorageTypeFromSource(source);
 
     return withMapDocument(targetMap, 'stampGeneratedBitmap', async () => {
+        if (!isCurrent()) return false;
         const currentMapData = await getMapDataCompat(targetMap);
+        if (!isCurrent()) return false;
         const bucket = currentMapData?.features?.[storageType];
         if (!Array.isArray(bucket)) return false;
 

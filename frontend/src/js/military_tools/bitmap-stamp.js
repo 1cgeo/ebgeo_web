@@ -53,8 +53,8 @@ import { stampGeneratedBitmap } from '@store';
  * @param {Object} result - Generator result { width, height, pixelRatio?, anchor?, iconOffset? }
  * @returns {Promise<void>} Resolves once the source settled and the store was written
  */
-export async function stampRegeneratedBitmap(dispatcher, feature, result) {
-    if (!dispatcher || !feature?.properties?.id || !result) return;
+export async function stampRegeneratedBitmap(dispatcher, feature, result, isCurrent = () => true) {
+    if (!isCurrent() || !dispatcher || !feature?.properties?.id || !result) return;
 
     applyGeneratedBitmap(feature.properties, result);
 
@@ -62,5 +62,5 @@ export async function stampRegeneratedBitmap(dispatcher, feature, result) {
     dispatcher.patch(feature.properties.id, { setProps, unsetProps });
     await dispatcher.flush();
 
-    await stampGeneratedBitmap(feature, result);
+    if (isCurrent()) await stampGeneratedBitmap(feature, result, null, isCurrent);
 }

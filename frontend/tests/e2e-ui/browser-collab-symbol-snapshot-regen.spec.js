@@ -75,3 +75,37 @@ collabTest.describe('Client-generated symbol raster survives a snapshot (open/re
             .toMatchObject({ hasLocalBlob: true, hasMapImage: true });
     });
 });
+
+
+collabTest('restoring an inactive map rebuilds pixels from the latest remote properties', async ({ collab }) => {
+    const A = collab.author;
+    const B = collab.peers[0];
+    const id = await drawMilitarySymbolUI(A, [CENTER.lng, CENTER.lat]);
+    await collab.expectFullSync({ entityId: id, type: 'military_symbols', operationType: 'create', skipRender: true });
+    const original = await B.evaluate(async id => {
+        const store = await import('/src/js/store/index.js');
+        const blob = await store.getImage(id);
+        const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
+        const name = await store.getCurrentMapName();
+        await store.addMap('Image audit other map');
+        await store.setCurrentMap('Image audit other map');
+        await store.getControl('BaseLayerControl').switchMap();
+        return { name, bytes };
+    }, id);
+    await A.evaluate(async ({ id, name }) => {
+        const store = await import('/src/js/store/index.js');
+        await store.updateFeatureProperty('military_symbols', id, 'uniqueDesignation', 'IMAGE AUDIT NEW LABEL', name);
+    }, { id, name: original.name });
+    await expect.poll(() => B.evaluate(async ({ id, name }) => {
+        const { getMapDataCompat } = await import('/src/js/store/repositories/index.js');
+        return (await getMapDataCompat(name)).features.military_symbols.find(f => f.properties.id === id)?.properties.uniqueDesignation;
+    }, { id, name: original.name })).toBe('IMAGE AUDIT NEW LABEL');
+    const restored = await B.evaluate(async ({ id, name }) => {
+        const store = await import('/src/js/store/index.js');
+        await store.setCurrentMap(name);
+        await store.getControl('BaseLayerControl').switchMap();
+        return { installed: globalThis.__ebgeoMap.hasImage(id), bytes: Array.from(new Uint8Array(await (await store.getImage(id)).arrayBuffer())) };
+    }, { id, name: original.name });
+    expect(restored.installed).toBe(true);
+    expect(restored.bytes).not.toEqual(original.bytes);
+});

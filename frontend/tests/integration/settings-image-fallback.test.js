@@ -5,12 +5,12 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const h = vi.hoisted(() => ({ images: new Map(), fetchImageBlob: vi.fn() }));
+const h = vi.hoisted(() => ({ images: new Map(), fetchImageBlob: vi.fn(), beforeRead: null }));
 
 vi.mock('../../src/js/store/repositories/index.js', () => ({
     deleteImageCompat: async (id) => { h.images.delete(id); },
     getGridStyleCompat: vi.fn(),
-    getImageCompat: async (id) => h.images.get(id) || null,
+    getImageCompat: async (id) => { await h.beforeRead?.(); return h.images.get(id) || null; },
     getMapDataCompat: vi.fn(),
     getMapNotesCompat: vi.fn(),
     hasImageCompat: async (id) => h.images.has(id),
@@ -34,10 +34,13 @@ vi.mock('../../src/js/store/sync/index.js', () => ({
     OperationType: { UPDATE: 'update' },
 }));
 
+import { activateScope, localScope } from '../../src/js/store/atlas-namespace.js';
 import { getImage, storeImage } from '../../src/js/store/settings.operations.js';
 
 beforeEach(() => {
     h.images.clear();
+    h.beforeRead = null;
+    activateScope(localScope('images-a', 'images-a'));
     h.fetchImageBlob.mockReset();
 });
 
@@ -65,4 +68,24 @@ describe('settings.operations image multiuser fallback (§17.14)', () => {
         h.fetchImageBlob.mockResolvedValue(null);
         expect(await getImage('ghost')).toBeNull();
     });
+});
+
+
+it('does not cache or return a response from an unmounted atlas', async () => {
+    let finish;
+    h.fetchImageBlob.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const pending = getImage('same-id');
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    activateScope(localScope('images-b', 'images-b'));
+    const own = blob();
+    h.images.set('same-id', own);
+    finish(blob());
+    expect(await pending).toBeNull();
+    expect(h.images.get('same-id')).toBe(own);
+});
+
+it('does not start a backend fetch after the local read crossed an atlas switch', async () => {
+    h.beforeRead = () => activateScope(localScope('images-b', 'images-b'));
+    expect(await getImage('absent')).toBeNull();
+    expect(h.fetchImageBlob).not.toHaveBeenCalled();
 });

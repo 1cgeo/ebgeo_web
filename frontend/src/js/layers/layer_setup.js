@@ -1,4 +1,6 @@
 // Path: js/layers/layer_setup.js
+import { captureImageContext } from '../store/image-context.js';
+import { loadImageToMap } from '../utilities/map-image-loader.js';
 
 /**
  * @fileoverview Main layer setup orchestrator for MapLibre.
@@ -6,7 +8,7 @@
 
 import { getCurrentMapFeatures, getImage, hasImage, getCurrentMapNameSync, getGridStyle, getCatalogLayers, getControl } from '../store';
 import { getImageRegenerator } from './image-regen-registry.js';
-import { needsBitmapRebuild } from './bitmap-version.js';
+
 import { collectImageResourceFeatures, collectImageResourceRatios } from './feature-images.js';
 import { ensureTurf } from '../utilities/turf-loader.js';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
@@ -61,6 +63,8 @@ import { writeWholeCollection } from './geojson-dispatcher.js';
  * @type {Map<string, string>}
  */
 const _pointImageSignatures = new Map();
+const imageStates = new WeakMap();
+const imageSignature = feature => JSON.stringify(Object.entries(feature.properties).sort(([a], [b]) => a.localeCompare(b)));
 
 /**
  * Creates an error placeholder image for failed image loads.
@@ -112,10 +116,10 @@ function createErrorImage() {
  * @param {string} imageId - Image ID
  * @param {Object} mapInstance - MapLibre map instance
  */
-async function addErrorImageIfNeeded(imageId, mapInstance) {
+async function addErrorImageIfNeeded(imageId, mapInstance, isCurrent = captureImageContext()) {
     try {
         const errorImage = await createErrorImage();
-        if (!mapInstance.hasImage(imageId)) {
+        if (isCurrent() && !mapInstance.hasImage(imageId)) {
             mapInstance.addImage(imageId, errorImage);
         }
     } catch (err) {
@@ -131,51 +135,18 @@ async function addErrorImageIfNeeded(imageId, mapInstance) {
  *   acima do tamanho logico voltar do disco no tamanho certo. O icone de ERRO nao recebe a
  *   razao: ele e um raster 1:1, e aplica-la ali encolheria o aviso.
  */
-async function loadSingleImage(imageId, mapInstance, pixelRatio = 1) {
+async function loadSingleImage(imageId, mapInstance, pixelRatio = 1, isCurrent = captureImageContext()) {
     try {
         const blob = await getImage(imageId);
-
-        if (!blob) {
-            console.warn(`Imagem ${imageId} não encontrada no store, usando imagem de erro`);
-            await addErrorImageIfNeeded(imageId, mapInstance);
-            return;
-        }
-
-        const url = URL.createObjectURL(blob);
-
-        return new Promise((resolve, reject) => {
-            const image = new Image();
-            let settled = false;
-
-            function settle(fn) {
-                if (settled) return;
-                settled = true;
-                URL.revokeObjectURL(url);
-                fn();
-            }
-
-            image.onload = () => settle(() => {
-                if (!mapInstance.hasImage(imageId)) {
-                    mapInstance.addImage(imageId, image, { pixelRatio });
-                }
-                resolve();
-            });
-
-            image.onerror = () => settle(() => {
-                console.warn(`Falha ao carregar imagem ${imageId}, usando imagem de erro`);
-                addErrorImageIfNeeded(imageId, mapInstance).then(resolve, reject);
-            });
-
-            setTimeout(() => settle(() => {
-                addErrorImageIfNeeded(imageId, mapInstance).then(resolve, reject);
-            }), 10000);
-
-            image.src = url;
-        });
-
+        if (!isCurrent()) return false;
+        if (!blob) throw new Error(`Imagem ${imageId} não encontrada`);
+        await loadImageToMap(mapInstance, imageId, blob, { replaceExisting: true, pixelRatio, isCurrent });
+        return true;
     } catch (error) {
+        if (error.name === 'AbortError' || !isCurrent()) return false;
         console.warn(`Erro ao processar imagem ${imageId}:`, error);
-        await addErrorImageIfNeeded(imageId, mapInstance);
+        await addErrorImageIfNeeded(imageId, mapInstance, isCurrent);
+        return false;
     }
 }
 
@@ -185,63 +156,45 @@ async function loadSingleImage(imageId, mapInstance, pixelRatio = 1) {
  * @param {Object} mapInstance - MapLibre map instance
  */
 async function setImages(features, mapInstance) {
-    // THE BUCKETS ARE DERIVED (`collectImageResourceFeatures`), never written out here. The
-    // hand-written list this replaces was the COMPLETE one, and its twin in
-    // `tool_manager/clipboard_manager.js` was two families behind it, which is exactly the
-    // divergence a single derived sweep removes. The PAIR is what this path needs: the
-    // regenerator branch below rebuilds the raster from the feature's own properties.
-    const imagePromises = [];
-
-    // A razao de pixels com que cada raster foi assado. So quem a DECLARA acima de 1 entra,
-    // entao feicao antiga (sem a chave) cai no 1 de sempre e continua do mesmo tamanho.
+    let state = imageStates.get(mapInstance);
+    if (!state?.isCurrent()) {
+        _pointImageSignatures.clear();
+        state = { isCurrent: captureImageContext(), signatures: new Map() };
+        imageStates.set(mapInstance, state);
+    }
+    const { isCurrent, signatures } = state;
     const razoes = collectImageResourceRatios(features);
-
-    for (const { imageId, feature } of collectImageResourceFeatures(features)) {
-        if (mapInstance.hasImage(imageId)) continue;
-
-        // Military symbols / coordination measures / declinations render a client-generated
-        // PNG that is NEVER uploaded (it's deterministically rebuildable from props). On a
-        // remote snapshot / map switch the local blob is absent, and fetching it from the
-        // backend 404s → error icon. Rebuild from props instead when no local blob exists, and
-        // also when the blob on disk is of an older bitmap layout (see below).
+    await Promise.allSettled(collectImageResourceFeatures(features).map(async ({ imageId, feature }) => {
+        const signature = imageSignature(feature);
+        if (mapInstance.hasImage(imageId) && signatures.get(imageId) === signature) return;
         const regenerate = getImageRegenerator(feature.properties.source);
         if (regenerate) {
-            // The SECOND reason to regenerate, and it holds with the blob right there on disk:
-            // the stored bitmap may be of an older LAYOUT. Version 1 was drawn centred in a
-            // square canvas, with transparent bands on either side of the drawing, and both the
-            // selection box and the click hit-test ARE the bitmap rectangle, so an old feature
-            // answers clicks over an area larger than what is visible. The question is asked of
-            // `needsBitmapRebuild` (`layers/bitmap-version.js`, a zero-import leaf: no
-            // `military_tools` module may enter the map's eager graph), and only the two STAMPED
-            // types answer yes, so the declination, whose generator stamps nothing, keeps
-            // regenerating only when the blob is missing.
-            const stale = needsBitmapRebuild(feature.properties.source, feature.properties);
-            imagePromises.push((async () => {
-                const stored = await hasImage(imageId);
-                if (!stale && stored) {
-                    await loadSingleImage(imageId, mapInstance, razoes.get(imageId) || 1);
-                    return;
+            try {
+                // Disk presence and layout version do not prove that the pixels match current
+                // properties (edits may have arrived while another map was selected).
+                const result = await regenerate(feature);
+                if (!isCurrent()) return;
+                if (result === null) throw new Error('O gerador não produziu uma imagem.');
+                if (mapInstance.hasImage(imageId)) signatures.set(imageId, imageSignature(feature));
+                return;
+            } catch (error) {
+                if (error.name === 'AbortError' || !isCurrent()) return;
+                console.warn(`Falha ao regenerar imagem ${imageId}:`, error);
+                // Preserve legacy pixels when an old symbol definition cannot be rebuilt.
+                // Do not mark a fallback as current: the next restoration must retry.
+                if (await hasImage(imageId)) {
+                    await loadSingleImage(imageId, mapInstance, razoes.get(imageId) || 1, isCurrent);
+                } else {
+                    await addErrorImageIfNeeded(imageId, mapInstance, isCurrent);
                 }
-                try {
-                    await regenerate(feature); // rebuilds + stores + installs the image on the map
-                } catch (err) {
-                    console.warn(`Falha ao regenerar imagem ${imageId} (${feature.properties.source}):`, err);
-                    // A stale bitmap that could not be rebuilt is still a bitmap of the
-                    // symbol: the old layout beats the error icon, and the next load tries again.
-                    if (stored) {
-                        await loadSingleImage(imageId, mapInstance, razoes.get(imageId) || 1);
-                        return;
-                    }
-                    await addErrorImageIfNeeded(imageId, mapInstance);
-                }
-            })());
-            continue;
+                return;
+            }
         }
-
-        imagePromises.push(loadSingleImage(imageId, mapInstance, razoes.get(imageId) || 1));
-    }
-
-    await Promise.allSettled(imagePromises);
+        if (await loadSingleImage(imageId, mapInstance, razoes.get(imageId) || 1, isCurrent)) {
+            signatures.set(imageId, signature);
+        }
+    }));
+    if (!isCurrent()) return;
 
     // Generate per-feature canvas images for non-circle point markers.
     // Custom icons (uploaded images) register asynchronously from stored blobs;
@@ -626,8 +579,11 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
             return;
         }
 
+        const isCurrent = captureImageContext();
         const features = await getCurrentMapFeatures();
+        if (!isCurrent()) return;
         await setImages(features, mapInstance);
+        if (!isCurrent()) return;
 
         setupImageLayers(features, mapInstance);
         setupPolygonLayers(features, mapInstance);

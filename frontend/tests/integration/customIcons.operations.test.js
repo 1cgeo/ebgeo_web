@@ -195,3 +195,30 @@ describe('customIcons write-ahead', () => {
         vi.restoreAllMocks();
     });
 });
+
+
+it('late icon downloads cannot overwrite the icon in a newly selected atlas', async () => {
+    let finish;
+    h.fetchImageBlob.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const pending = getCustomIconBlob('same-id');
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    activateScope(remoteScope('different-image-atlas'));
+    const own = blob();
+    h.images.set('same-id', own);
+    finish(blob());
+    expect(await pending).toBeNull();
+    expect(h.images.get('same-id')).toBe(own);
+});
+
+it('a slow icon upload cannot register its metadata in the next atlas', async () => {
+    let finish;
+    h.uploadImageBlob.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const pending = addCustomIcon({ name: 'From old atlas', blob: blob(), thumbnail: 't' });
+    const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    activateScope(remoteScope('different-image-atlas'));
+    finish({ confirmado: true, registrado: true, estado: 'confirmado' });
+    await rejected;
+    expect(h.setSetting).not.toHaveBeenCalled();
+    expect(await getCustomIcons()).toEqual([]);
+});

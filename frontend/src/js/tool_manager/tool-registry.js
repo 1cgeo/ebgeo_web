@@ -1,4 +1,5 @@
 // Path: js/tool_manager/tool-registry.js
+import { captureImageContext } from '../store/image-context.js';
 
 /**
  * @fileoverview O CATALOGO DAS FERRAMENTAS DO MAPA, e o unico lugar que sabe carregar uma.
@@ -579,12 +580,14 @@ export function initToolRegistry(deps) {
         //     por cima desta.
         if (ferramenta.regenImagem) {
             registerImageRegenerator(ferramenta.regenImagem, async (feature) => {
+                const isCurrent = captureImageContext();
                 // `comTurf: false` pelo mesmo motivo do `applyZoomCorrections` acima: isto
                 // dispara SEM CLIQUE quando um snapshot de atlas remoto chega, e regenerar um
                 // PNG de simbolo e trabalho do milsymbol, nao do Turf. As tres ferramentas que
                 // registram regeneracao (simbolo militar, medida de coordenacao, declinacao)
                 // nao tem sitio de `turf.` nenhum.
                 const controle = await ensureControl(controlKey, { comTurf: false });
+                if (!isCurrent()) throw new DOMException('Carregamento de imagem substituído.', 'AbortError');
                 return controle.regenerateImageFromProps(feature);
             });
         }

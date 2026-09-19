@@ -15,6 +15,7 @@ import { IMAGE_CONFIG } from '@utils/image_utils.js';
 import { showError } from '@utils/toast_service.js';
 import { getCustomIconBlob, getEventBus } from '../../store';
 import { EventTypes } from '../../events/event_types.js';
+import { captureImageContext, beginImageTask } from '../../store/image-context.js';
 
 const CUSTOM_PREFIX = 'custom:';
 
@@ -33,6 +34,7 @@ const ALLOWED_TYPES = new Set([
 
 /** Decoded normalized images, keyed by icon id, reused across features. */
 const imageCache = new Map();
+let cacheContext = null;
 
 /** Clear decoded images when the project is wiped, so a new/imported project
  *  never serves a previous project's decoded pixels for a reused icon id (the
@@ -155,11 +157,17 @@ export async function normalizeIconFile(file) {
  */
 export async function ensureCustomIconImage(iconId) {
     subscribeCacheReset();
+    if (!cacheContext?.()) {
+        imageCache.clear();
+        cacheContext = captureImageContext({ includeMap: false });
+    }
+    const isCurrent = cacheContext;
     if (imageCache.has(iconId)) return imageCache.get(iconId);
     const blob = await getCustomIconBlob(iconId);
-    if (!blob) return null;
+    if (!blob || !isCurrent()) return null;
     try {
         const img = await blobToImage(blob);
+        if (!isCurrent()) return null;
         imageCache.set(iconId, img);
         return img;
     } catch (error) {
@@ -177,8 +185,9 @@ export async function ensureCustomIconImage(iconId) {
  * @returns {Promise<boolean>} True if the image was registered
  */
 export async function registerCustomFeatureImage(map, featureId, iconId) {
+    const task = beginImageTask(map, featureId);
     const img = await ensureCustomIconImage(iconId);
-    if (!img) return false;
+    if (!img || !task.isCurrent()) return false;
     if (map.hasImage(featureId)) map.removeImage(featureId);
     map.addImage(featureId, img, { pixelRatio: PIXEL_RATIO });
     return true;

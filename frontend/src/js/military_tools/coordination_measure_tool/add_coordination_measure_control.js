@@ -1,4 +1,5 @@
 // Path: js/military_tools/coordination_measure_tool/add_coordination_measure_control.js
+import { beginImageTask } from '../../store/image-context.js';
 
 import {
   addFeature,
@@ -574,19 +575,23 @@ class AddCoordinationMeasureControl extends BaseControl {
    */
   async _regenerateRemote(feature) {
     if (!this.map || !feature?.properties?.id) return null;
+    const task = beginImageTask(this.map, feature.properties.id);
     let actualPointCode = feature.properties.pointCode;
     if (actualPointCode === 'ECHELON' || actualPointCode === 'ECHELON_FT') {
       actualPointCode = feature.properties.echelonCode ||
         (actualPointCode === 'ECHELON' ? 'ECHELON_16' : 'ECHELON_FT_16');
     }
     const result = await this.symbolGenerator.generate(actualPointCode, feature.properties);
+    task.assertCurrent();
     if (result?.blob) {
       await storeImage(feature.properties.id, result.blob);
       // A razao vem do RESULTADO, nunca de `feature.properties.pixelRatio`: quem regenera e
       // o par, que nao tem o blob e acabou de assar o seu. Sem ela o simbolo do par saia
       // `pixelRatio` vezes maior que o do autor, sem erro em lugar nenhum.
-      await this.loadSymbolToMap(feature.properties.id, result.blob, result.pixelRatio);
-      await stampRegeneratedBitmap(coordinationMeasuresSource(this.map), feature, result);
+      task.assertCurrent();
+      await loadImageToMap(this.map, feature.properties.id, result.blob, { replaceExisting: true, pixelRatio: result.pixelRatio, isCurrent: task.isCurrent });
+      task.assertCurrent();
+      await stampRegeneratedBitmap(coordinationMeasuresSource(this.map), feature, result, task.isCurrent);
       return result;
     }
     return null;
@@ -609,7 +614,9 @@ class AddCoordinationMeasureControl extends BaseControl {
 
     try {
       const feature = this.lastSymbolFeature;
+      this.lastSymbolFeature = null;
       const symbolId = feature.properties.id;
+      const task = beginImageTask(this.map, symbolId);
 
       const properties = {
         tipo: feature.properties.tipo,
@@ -637,6 +644,7 @@ class AddCoordinationMeasureControl extends BaseControl {
         properties
       );
 
+      task.assertCurrent();
       applyGeneratedBitmap(feature.properties, result);
 
       // The read stays: the box is measured from the SOURCE geometry, which is the authority on
@@ -644,6 +652,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       const dispatcher = coordinationMeasuresSource(this.map);
       await dispatcher.flush();
       const data = await this.map.getSource("coordination_measures").getData();
+      task.assertCurrent();
       const sourceFeature = data.features.find(
         f => f.properties.id === feature.properties.id
       );
@@ -682,8 +691,10 @@ class AddCoordinationMeasureControl extends BaseControl {
         await dispatcher.flush();
       }
 
+      task.assertCurrent();
       await storeImage(symbolId, result.blob);
-      await this.loadSymbolToMap(symbolId, result.blob, result.pixelRatio);
+      task.assertCurrent();
+      await loadImageToMap(this.map, symbolId, result.blob, { replaceExisting: true, pixelRatio: result.pixelRatio, isCurrent: task.isCurrent });
 
       if (this.selectionManager.uiManager.invalidateCache) {
         this.selectionManager.uiManager.invalidateCache(symbolId);
@@ -699,12 +710,13 @@ class AddCoordinationMeasureControl extends BaseControl {
     }
 
     this.pendingSymbolUpdate = false;
-    this.lastSymbolFeature = null;
+    if (this.lastSymbolFeature) this.scheduleSymbolUpdate(this.lastSymbolFeature);
   };
 
   async updateSymbolImage(feature) {
     try {
       const symbolId = feature.properties.id;
+      const task = beginImageTask(this.map, symbolId);
 
       const properties = {
         tipo: feature.properties.tipo,
@@ -732,6 +744,7 @@ class AddCoordinationMeasureControl extends BaseControl {
         properties
       );
 
+      task.assertCurrent();
       applyGeneratedBitmap(feature.properties, result);
 
       // The read stays: the box is measured from the SOURCE geometry, which is the authority on
@@ -739,6 +752,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       const dispatcher = coordinationMeasuresSource(this.map);
       await dispatcher.flush();
       const data = await this.map.getSource("coordination_measures").getData();
+      task.assertCurrent();
       const sourceFeature = data.features.find(
         f => f.properties.id === feature.properties.id
       );
@@ -777,8 +791,10 @@ class AddCoordinationMeasureControl extends BaseControl {
         await dispatcher.flush();
       }
 
+      task.assertCurrent();
       await storeImage(symbolId, result.blob);
-      await this.loadSymbolToMap(symbolId, result.blob, result.pixelRatio);
+      task.assertCurrent();
+      await loadImageToMap(this.map, symbolId, result.blob, { replaceExisting: true, pixelRatio: result.pixelRatio, isCurrent: task.isCurrent });
 
       if (this.selectionManager.uiManager.invalidateCache) {
         this.selectionManager.uiManager.invalidateCache(symbolId);

@@ -1,0 +1,435 @@
+{
+  "date": "2026-09-19",
+  "browser": "Chromium",
+  "environment": "local test backend, disposable browser contexts",
+  "rendering": [
+    {
+      "test": "02-minimo.ebgeo: migração, três boots e recuperação bruta",
+      "images": 0,
+      "samples": 0,
+      "defectiveOriginals": []
+    },
+    {
+      "test": "02-minimo.ebgeo: importação pela interface e reabertura",
+      "images": 0,
+      "samples": 0,
+      "defectiveOriginals": []
+    },
+    {
+      "test": "03-completo-2.4.ebgeo: migração, três boots e recuperação bruta",
+      "images": 146,
+      "samples": 12,
+      "defectiveOriginals": []
+    },
+    {
+      "test": "03-completo-2.4.ebgeo: importação pela interface e reabertura",
+      "images": 146,
+      "samples": 12,
+      "defectiveOriginals": []
+    },
+    {
+      "test": "04-completo-2.3.ebgeo: migração, três boots e recuperação bruta",
+      "images": 128,
+      "samples": 10,
+      "defectiveOriginals": []
+    },
+    {
+      "test": "04-completo-2.3.ebgeo: importação pela interface e reabertura",
+      "images": 128,
+      "samples": 10,
+      "defectiveOriginals": []
+    },
+    {
+      "test": "05-completo-2.2.ebgeo: migração, três boots e recuperação bruta",
+      "images": 128,
+      "samples": 10,
+      "defectiveOriginals": []
+    },
+    {
+      "test": "05-completo-2.2.ebgeo: importação pela interface e reabertura",
+      "images": 128,
+      "samples": 10,
+      "defectiveOriginals": []
+    },
+    {
+      "test": "03-completo-2.4.ebgeo [settings 1.7, atlas 2.4]: migração, três boots e recuperação bruta",
+      "images": 146,
+      "samples": 12,
+      "defectiveOriginals": []
+    },
+    {
+      "test": "browser-v1: non-UUID image IDs survive v1 migration and render after F5",
+      "images": 4,
+      "samples": 4,
+      "defectiveOriginals": []
+    },
+    {
+      "test": "file-v1: non-UUID image IDs survive v1 migration and render after F5",
+      "images": 4,
+      "samples": 4,
+      "defectiveOriginals": []
+    },
+    {
+      "test": "01-completo.ebgeo: migração, três boots e recuperação bruta",
+      "images": 3,
+      "samples": 1,
+      "defectiveOriginals": [
+        {
+          "name": "Principal",
+          "id": "831f91cc-1776-41fe-ab14-1e48dbe78589"
+        },
+        {
+          "name": "Principal",
+          "id": "7349fcb9-5d7b-4cd5-b9f6-69aed07d9156"
+        },
+        {
+          "name": "Principal",
+          "id": "1aa313b5-26e8-485b-8224-2ba700028fbe"
+        },
+        {
+          "name": "Principal",
+          "id": "d6088ac9-6e73-4d64-8934-c79b96ca1fae"
+        },
+        {
+          "name": "05 Temporal",
+          "id": "1aa80bf7-6930-4e9f-b52a-ff1eb0ab6ad2"
+        },
+        {
+          "name": "02 Estilos",
+          "id": "d817e2eb-6826-4aff-a344-73b60b11692b"
+        },
+        {
+          "name": "02 Estilos",
+          "id": "5ee25711-4a06-41c4-9fe5-d0fca11d4303"
+        },
+        {
+          "name": "02 Estilos",
+          "id": "d461589d-0b32-41dc-963b-0c7e9737da61"
+        },
+        {
+          "name": "02 Estilos",
+          "id": "87653b44-1a23-4c8f-8b36-a8c4783ad1f9"
+        }
+      ]
+    },
+    {
+      "test": "01-completo.ebgeo: importação pela interface e reabertura",
+      "images": 3,
+      "samples": 1,
+      "defectiveOriginals": [
+        {
+          "name": "Principal",
+          "id": "831f91cc-1776-41fe-ab14-1e48dbe78589"
+        },
+        {
+          "name": "Principal",
+          "id": "7349fcb9-5d7b-4cd5-b9f6-69aed07d9156"
+        },
+        {
+          "name": "Principal",
+          "id": "1aa313b5-26e8-485b-8224-2ba700028fbe"
+        },
+        {
+          "name": "Principal",
+          "id": "d6088ac9-6e73-4d64-8934-c79b96ca1fae"
+        },
+        {
+          "name": "05 Temporal",
+          "id": "1aa80bf7-6930-4e9f-b52a-ff1eb0ab6ad2"
+        },
+        {
+          "name": "02 Estilos",
+          "id": "d817e2eb-6826-4aff-a344-73b60b11692b"
+        },
+        {
+          "name": "02 Estilos",
+          "id": "5ee25711-4a06-41c4-9fe5-d0fca11d4303"
+        },
+        {
+          "name": "02 Estilos",
+          "id": "d461589d-0b32-41dc-963b-0c7e9737da61"
+        },
+        {
+          "name": "02 Estilos",
+          "id": "87653b44-1a23-4c8f-8b36-a8c4783ad1f9"
+        }
+      ]
+    }
+  ],
+  "preservation": [
+    {
+      "filename": "01-completo.ebgeo",
+      "settingsVersion": "2.2",
+      "sha256": "309ecc2cb241ca0f9c2497f50cad98a9b189ce775b35792b02ee7bd6b996488c",
+      "schemaVersion": "2.2",
+      "maps": 11,
+      "features": 262,
+      "featuresByMap": {
+        "Principal": 18,
+        "11 Bordas": 8,
+        "10 3D e 360": 0,
+        "09 Lote": 170,
+        "08 Grupos": 6,
+        "07 Camadas": 6,
+        "06 Temporal relativo": 1,
+        "05 Temporal": 7,
+        "04 Imagens": 3,
+        "03 Atributos": 17,
+        "02 Estilos": 26
+      },
+      "layers": 17,
+      "groups": 2,
+      "briefings": 2,
+      "slides": 5,
+      "customIcons": 2,
+      "images": 5,
+      "mapNames": [
+        "Principal",
+        "11 Bordas",
+        "10 3D e 360",
+        "09 Lote",
+        "08 Grupos",
+        "07 Camadas",
+        "06 Temporal relativo",
+        "05 Temporal",
+        "04 Imagens",
+        "03 Atributos",
+        "02 Estilos"
+      ],
+      "differences": [],
+      "records": 40,
+      "imageBytes": 5209,
+      "elapsedMs": 148.10000002384186,
+      "recoveryZipBytes": 51990
+    },
+    {
+      "filename": "02-minimo.ebgeo",
+      "settingsVersion": "2.2",
+      "sha256": "f26b044e16edcbcf14967d3b050662e9d388a0aa4bf75bcb996103c91393130b",
+      "schemaVersion": "2.2",
+      "maps": 1,
+      "features": 1,
+      "featuresByMap": {
+        "Principal": 1
+      },
+      "layers": 1,
+      "groups": 0,
+      "briefings": 0,
+      "slides": 0,
+      "customIcons": 0,
+      "images": 0,
+      "mapNames": [
+        "Principal"
+      ],
+      "differences": [],
+      "records": 6,
+      "imageBytes": 0,
+      "elapsedMs": 27.800000071525574,
+      "recoveryZipBytes": 1576
+    },
+    {
+      "filename": "03-completo-2.4.ebgeo",
+      "settingsVersion": "2.4",
+      "sha256": "50fc7fe20cac8aec3301a56304924b6c49e21ce86a52f66c2732e26e1f7d17e7",
+      "schemaVersion": "2.4",
+      "maps": 14,
+      "features": 805,
+      "featuresByMap": {
+        "Principal": 23,
+        "02 Estilos": 91,
+        "03 Atributos": 24,
+        "04 Imagens": 9,
+        "05 Simbologia": 86,
+        "06 Medidas": 39,
+        "07 Táticas": 38,
+        "08 Temporal": 13,
+        "09 Temporal relativo": 3,
+        "10 Camadas": 25,
+        "11 Grupos": 12,
+        "12 Lote": 430,
+        "13 3D e 360": 2,
+        "14 Bordas": 10
+      },
+      "layers": 21,
+      "groups": 3,
+      "briefings": 2,
+      "slides": 7,
+      "customIcons": 3,
+      "images": 149,
+      "mapNames": [
+        "Principal",
+        "02 Estilos",
+        "03 Atributos",
+        "04 Imagens",
+        "05 Simbologia",
+        "06 Medidas",
+        "07 Táticas",
+        "08 Temporal",
+        "09 Temporal relativo",
+        "10 Camadas",
+        "11 Grupos",
+        "12 Lote",
+        "13 3D e 360",
+        "14 Bordas"
+      ],
+      "differences": [],
+      "records": 207,
+      "imageBytes": 1093854,
+      "elapsedMs": 2085.7999999523163,
+      "recoveryZipBytes": 2504299
+    },
+    {
+      "filename": "04-completo-2.3.ebgeo",
+      "settingsVersion": "2.3",
+      "sha256": "a75321ea37070e06f61fe4c1ceb83f724ff0019dd859e4b90403bab7e0046f0f",
+      "schemaVersion": "2.3",
+      "maps": 14,
+      "features": 787,
+      "featuresByMap": {
+        "Principal": 22,
+        "02 Estilos": 91,
+        "03 Atributos": 24,
+        "04 Imagens": 9,
+        "05 Simbologia": 86,
+        "06 Medidas": 23,
+        "07 Táticas": 38,
+        "08 Temporal": 12,
+        "09 Temporal relativo": 3,
+        "10 Camadas": 25,
+        "11 Grupos": 12,
+        "12 Lote": 430,
+        "13 3D e 360": 2,
+        "14 Bordas": 10
+      },
+      "layers": 21,
+      "groups": 3,
+      "briefings": 2,
+      "slides": 7,
+      "customIcons": 3,
+      "images": 131,
+      "mapNames": [
+        "Principal",
+        "02 Estilos",
+        "03 Atributos",
+        "04 Imagens",
+        "05 Simbologia",
+        "06 Medidas",
+        "07 Táticas",
+        "08 Temporal",
+        "09 Temporal relativo",
+        "10 Camadas",
+        "11 Grupos",
+        "12 Lote",
+        "13 3D e 360",
+        "14 Bordas"
+      ],
+      "differences": [],
+      "records": 188,
+      "imageBytes": 898680,
+      "elapsedMs": 1281.2000000476837,
+      "recoveryZipBytes": 2030708
+    },
+    {
+      "filename": "05-completo-2.2.ebgeo",
+      "settingsVersion": "2.2",
+      "sha256": "9dbcc32b586145662cb8ea1859d76c7592ce04bce6f6ae4603aceb4d99e74665",
+      "schemaVersion": "2.2",
+      "maps": 14,
+      "features": 776,
+      "featuresByMap": {
+        "Principal": 21,
+        "02 Estilos": 91,
+        "03 Atributos": 24,
+        "04 Imagens": 9,
+        "05 Simbologia": 86,
+        "06 Medidas": 23,
+        "07 Táticas": 28,
+        "08 Temporal": 12,
+        "09 Temporal relativo": 3,
+        "10 Camadas": 25,
+        "11 Grupos": 12,
+        "12 Lote": 430,
+        "13 3D e 360": 2,
+        "14 Bordas": 10
+      },
+      "layers": 21,
+      "groups": 3,
+      "briefings": 2,
+      "slides": 7,
+      "customIcons": 3,
+      "images": 131,
+      "mapNames": [
+        "Principal",
+        "02 Estilos",
+        "03 Atributos",
+        "04 Imagens",
+        "05 Simbologia",
+        "06 Medidas",
+        "07 Táticas",
+        "08 Temporal",
+        "09 Temporal relativo",
+        "10 Camadas",
+        "11 Grupos",
+        "12 Lote",
+        "13 3D e 360",
+        "14 Bordas"
+      ],
+      "differences": [],
+      "records": 188,
+      "imageBytes": 523671,
+      "elapsedMs": 2034.1000000238419,
+      "recoveryZipBytes": 1324135
+    },
+    {
+      "filename": "03-completo-2.4.ebgeo",
+      "settingsVersion": "1.7",
+      "sha256": "50fc7fe20cac8aec3301a56304924b6c49e21ce86a52f66c2732e26e1f7d17e7",
+      "schemaVersion": "2.4",
+      "maps": 14,
+      "features": 805,
+      "featuresByMap": {
+        "Principal": 23,
+        "02 Estilos": 91,
+        "03 Atributos": 24,
+        "04 Imagens": 9,
+        "05 Simbologia": 86,
+        "06 Medidas": 39,
+        "07 Táticas": 38,
+        "08 Temporal": 13,
+        "09 Temporal relativo": 3,
+        "10 Camadas": 25,
+        "11 Grupos": 12,
+        "12 Lote": 430,
+        "13 3D e 360": 2,
+        "14 Bordas": 10
+      },
+      "layers": 21,
+      "groups": 3,
+      "briefings": 2,
+      "slides": 7,
+      "customIcons": 3,
+      "images": 149,
+      "mapNames": [
+        "Principal",
+        "02 Estilos",
+        "03 Atributos",
+        "04 Imagens",
+        "05 Simbologia",
+        "06 Medidas",
+        "07 Táticas",
+        "08 Temporal",
+        "09 Temporal relativo",
+        "10 Camadas",
+        "11 Grupos",
+        "12 Lote",
+        "13 3D e 360",
+        "14 Bordas"
+      ],
+      "differences": [],
+      "records": 207,
+      "imageBytes": 1093854,
+      "elapsedMs": 2574,
+      "recoveryZipBytes": 2504305
+    }
+  ]
+}

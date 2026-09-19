@@ -32,6 +32,7 @@ import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { runTransaction } from './store-transaction.js';
 import { resolveAtlasSettingId } from './atlas-setting-target.js';
+import { captureImageContext } from './image-context.js';
 
 const SETTING_KEY = 'custom_icons';
 
@@ -39,6 +40,7 @@ const SETTING_KEY = 'custom_icons';
 let registry = null;
 let loadPromise = null;
 let eventSubscribed = false;
+let registryContext = null;
 
 /**
  * Reset the cache so the next access reloads from storage. Subscribed to
@@ -65,19 +67,28 @@ function subscribeToDataCleared() {
  */
 async function ensureLoaded() {
     subscribeToDataCleared();
+    if (!registryContext?.()) {
+        registry = null;
+        loadPromise = null;
+        registryContext = captureImageContext({ includeMap: false });
+    }
+    const isCurrent = registryContext;
     if (registry !== null) return registry;
     if (!loadPromise) {
         loadPromise = getSettingCompat(SETTING_KEY);
     }
+    const pending = loadPromise;
     try {
-        const value = await loadPromise;
+        const value = await pending;
+        if (!isCurrent()) return [];
+        if (pending !== loadPromise) return ensureLoaded();
         registry = Array.isArray(value) ? value : [];
         return registry;
     } catch (error) {
         // Transient read failure: don't cache an empty registry — allow a retry
         // on the next access instead of hiding saved icons for the whole session.
         console.warn('Failed to load custom icons registry:', error);
-        loadPromise = null;
+        if (isCurrent() && pending === loadPromise) loadPromise = null;
         return [];
     }
 }
@@ -118,6 +129,10 @@ export function invalidateCustomIconsCache() {
  *   permission refuses the write (a blocked operation, not an error)
  */
 export async function addCustomIcon({ name, blob, thumbnail, type = 'image/png' }) {
+    const isCurrent = captureImageContext({ includeMap: false });
+    const assertCurrent = () => {
+        if (!isCurrent()) throw new DOMException('O atlas mudou durante a gravação do ícone.', 'AbortError');
+    };
     // The tail enqueues an `atlas.settings.customIcons` op, refused by the server from a reader,
     // and a refused op stalls the outbound queue. Gate FIRST, before the upload: without this
     // the blob would already be on the server by the time the registry write is refused.
@@ -132,6 +147,7 @@ export async function addCustomIcon({ name, blob, thumbnail, type = 'image/png' 
     }
 
     await ensureLoaded();
+    assertCurrent();
     // §17.19: the icon id is MINTED HERE and no longer depends on the upload landing.
     //
     // It used to be the id the server minted, with a local UUID as the fallback on failure, and
@@ -150,7 +166,9 @@ export async function addCustomIcon({ name, blob, thumbnail, type = 'image/png' 
     // author and falls back to the placeholder on the peer, which is degraded and not corrupting.
     const id = generateUUID();
     await saveImageCompat(id, blob);
+    assertCurrent();
     await uploadImageBlob(blob, id, { origem: 'icone-personalizado' });
+    assertCurrent();
 
     const entry = { id, name: name || 'Ícone', thumbnail, type, createdAt: Date.now() };
     const previous = [...registry];
@@ -166,7 +184,7 @@ export async function addCustomIcon({ name, blob, thumbnail, type = 'image/png' 
                 { customIcons: next }, { customIcons: previous });
             // The module cache only moves after the key is on disk: a registry in memory that
             // the disk does not have makes the picker offer an icon that dies at the next F5.
-            tx.deferSync(() => { registry = next; });
+            tx.deferSync(() => { if (isCurrent()) registry = next; });
             return () => setSettingCompat(SETTING_KEY, next);
         });
     } catch (error) {
@@ -175,7 +193,7 @@ export async function addCustomIcon({ name, blob, thumbnail, type = 'image/png' 
         // not in a deferred effect: `runTransaction` only defers what happens AFTER a successful
         // persistence, so a failure has no hook of its own, and this is the compensation for the
         // two steps that ran before the transaction began.
-        await deleteImageCompat(id).catch(() => {});
+        if (isCurrent()) await deleteImageCompat(id).catch(() => {});
         throw error;
     }
     return entry;
@@ -187,15 +205,18 @@ export async function addCustomIcon({ name, blob, thumbnail, type = 'image/png' 
  * @returns {Promise<Blob|null>}
  */
 export async function getCustomIconBlob(id) {
+    const isCurrent = captureImageContext({ includeMap: false });
     const local = await getImageCompat(id);
+    if (!isCurrent()) return null;
     if (local) return local;
     // §17.19: a collaborator may reference an icon uploaded by someone else that is
     // not cached locally — fetch it from the backend by id and cache it for next time.
     const remote = await fetchImageBlob(id);
+    if (!isCurrent()) return null;
     if (remote) {
         await saveImageCompat(id, remote).catch(() => {});
     }
-    return remote;
+    return isCurrent() ? remote : null;
 }
 
 /**
@@ -215,6 +236,7 @@ export async function getCustomIconsForExport() {
  * @returns {Promise<void>}
  */
 export async function restoreCustomIconsFromImport(entries, { replace = false } = {}) {
+    const isCurrent = captureImageContext({ includeMap: false });
     subscribeToDataCleared();
     const incoming = Array.isArray(entries) ? entries.filter((e) => e && e.id) : [];
 
@@ -222,6 +244,7 @@ export async function restoreCustomIconsFromImport(entries, { replace = false } 
         registry = incoming;
     } else {
         await ensureLoaded();
+        if (!isCurrent()) throw new DOMException('O atlas mudou durante a importação dos ícones.', 'AbortError');
         const byId = new Map(registry.map((e) => [e.id, e]));
         for (const entry of incoming) {
             if (!byId.has(entry.id)) byId.set(entry.id, entry);
@@ -229,5 +252,7 @@ export async function restoreCustomIconsFromImport(entries, { replace = false } 
         registry = Array.from(byId.values());
     }
 
+    registryContext = captureImageContext({ includeMap: false });
+    loadPromise = null;
     await setSettingCompat(SETTING_KEY, registry);
 }

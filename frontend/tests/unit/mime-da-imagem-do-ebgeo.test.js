@@ -23,6 +23,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const armazenadas = new Map();
 
+vi.mock('@utils/toast_service.js', () => ({ showError: vi.fn(), showWarning: vi.fn(), showToast: vi.fn(), showSuccess: vi.fn(), showInChannel: vi.fn() }));
+
 vi.mock('@store', () => ({
     getAllMapNamesStore: vi.fn(async () => []),
     getCurrentMapName: vi.fn(async () => 'Mapa A'),
@@ -229,4 +231,36 @@ describe('B2-4: o round-trip devolve o JPEG com a extensao certa', () => {
         expect(svc.getBlobExtension(armazenadas.get('foto-a'))).toBe('jpg');
         expect(svc.getBlobExtension(armazenadas.get('simbolo'))).toBe('png');
     });
+});
+
+
+it('additive import preserves colliding blobs and assigns isolated IDs', async () => {
+    const original = new Blob([BYTES_PNG], { type: 'image/png' });
+    armazenadas.set('same-id', original);
+    const mapping = await servico().loadImagesFromZip(zipFalso({ 'images/same-id.jpg': BYTES_JPEG }), { additive: true });
+    expect(mapping.get('same-id')).not.toBe('same-id');
+    expect(armazenadas.get('same-id')).toBe(original);
+    expect(new Uint8Array(await armazenadas.get(mapping.get('same-id')).arrayBuffer())).toEqual(BYTES_JPEG);
+});
+
+it('a storage failure rejects image import instead of reporting success', async () => {
+    const { storeImage } = await import('@store');
+    storeImage.mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'));
+    await expect(servico().loadImagesFromZip(zipFalso({ 'images/photo.png': BYTES_PNG })))
+        .rejects.toThrow('A importação não foi concluída');
+});
+
+
+it('refuses to download an export whose original photo is unavailable', async () => {
+    const svc = servico();
+    vi.spyOn(svc, 'buildPrunedExportData').mockResolvedValue({
+        data: { maps: { Map: { features: { images: [{ properties: { id: 'missing-photo', source: 'image' } }] } } } }, relatorio: null
+    });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const download = vi.spyOn(URL, 'createObjectURL');
+    await svc.handleExport(['Map']);
+    expect(download).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith('Erro ao exportar dados:', expect.objectContaining({ message: expect.stringContaining('missing-photo') }));
+    error.mockRestore();
+    download.mockRestore();
 });

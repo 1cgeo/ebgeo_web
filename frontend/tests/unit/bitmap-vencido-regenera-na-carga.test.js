@@ -1,26 +1,7 @@
 // Path: tests/unit/bitmap-vencido-regenera-na-carga.test.js
 
-/**
- * @fileoverview O BLOB ESTAR NO DISCO DEIXOU DE SER PROVA DE QUE ELE SERVE.
- *
- * O PNG de símbolo militar e de medida de coordenação é cache por cliente: nunca sobe ao
- * servidor, e todo cliente o reconstrói das propriedades sincronizadas
- * (`layers/image-regen-registry.js`). `setImages` (`layers/layer_setup.js`) regenerava
- * quando o blob LOCAL faltava, e só então. A troca de layout do bitmap (v1 centrado num
- * quadrado, com faixas transparentes; v2 recortado no desenho, com `iconOffset`) criou o
- * segundo caso, que aquela condição não vê: o blob está lá, e está velho. Como a caixa de
- * seleção e o hit-test do clique SÃO o retângulo do bitmap, a feição antiga responde ao
- * clique numa área maior que a que se enxerga, sem erro em lugar nenhum.
- *
- * A pergunta passou a ser `needsBitmapRebuild` (`layers/bitmap-version.js`), e o caso que a
- * torna não trivial é o da DECLINAÇÃO MAGNÉTICA: ela também desenha PNG gerado no cliente e
- * também tem regenerador, mas o gerador dela devolve blob pelado e não carimba nada. Ler
- * "sem carimbo" como "vencido" sem a lista de tipos versionados regeneraria toda declinação
- * em toda carga, para sempre. Os dois casos da declinação são o que separa a regra certa da parecida.
- *
- * O QUE ELE NÃO ALCANÇA: que o MapLibre desenhe. O mapa é falso, e a asserção é sobre QUEM
- * foi chamado (regenerador ou leitura de disco), nunca sobre pixel.
- */
+// Restoring generated images validates content, not just the bitmap layout version.
+// Real rendering/migration is covered separately in the browser suite.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
@@ -119,6 +100,7 @@ function mapaFalso() {
         addSource: (id) => sources.set(id, { setData() {}, updateData() {} }),
         removeSource: (id) => sources.delete(id),
         hasImage: (id) => imagens.has(id),
+        removeImage: (id) => imagens.delete(id),
         addImage(id, img, opts) {
             imagens.set(id, img);
             this.imagensAdicionadas.push({ id, opts });
@@ -174,6 +156,7 @@ const originais = {
 
 beforeEach(() => {
     vi.useFakeTimers();
+    vi.stubGlobal('requestAnimationFrame', () => 1);
     globalThis.Image = ImagemFalsa;
     globalThis.URL.createObjectURL = () => 'blob:falso';
     globalThis.URL.revokeObjectURL = () => {};
@@ -185,6 +168,7 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     globalThis.Image = originais.Image;
     globalThis.URL.createObjectURL = originais.createObjectURL;
     globalThis.URL.revokeObjectURL = originais.revokeObjectURL;
@@ -200,7 +184,7 @@ describe('a lista de tipos versionados', () => {
 });
 
 describe('setImages e o carimbo de layout do bitmap', () => {
-    it('carimbo ATUAL e blob no disco: não regenera, carrega o que está lá', async () => {
+    it('carimbo atual e blob no disco ainda exigem conferir as propriedades', async () => {
         const chamadas = espiao('military_symbol');
         blobs.value.add('sim-1');
 
@@ -208,9 +192,9 @@ describe('setImages e o carimbo de layout do bitmap', () => {
             military_symbols: [feicao('sim-1', 'military_symbol', { bitmapVersion: SYMBOL_BITMAP_VERSION })],
         });
 
-        expect(chamadas).toEqual([]);
-        expect(imagensPedidas).toEqual(['sim-1']);
-        expect(map.imagensAdicionadas.map((i) => i.id)).toEqual(['sim-1']);
+        expect(chamadas).toEqual(['sim-1']);
+        expect(imagensPedidas).toEqual([]);
+        expect(map.imagensAdicionadas).toEqual([]);
     });
 
     it('SEM carimbo (bitmap v1) e blob no disco: REGENERA — este é o caso novo', async () => {
@@ -256,10 +240,7 @@ describe('setImages e o carimbo de layout do bitmap', () => {
         expect(chamadas).toEqual(['sim-1']);
     });
 
-    it('A DECLINAÇÃO NÃO É VERSIONADA: sem carimbo e com blob, ela carrega do disco', async () => {
-        // O caso que separa a regra certa da parecida. O gerador da declinação devolve blob
-        // pelado e nunca carimba, então "sem carimbo" é o estado NORMAL dela: tratá-lo como
-        // vencido regeneraria toda declinação em toda carga, para sempre.
+    it('declinação também regenera para conferir os ângulos, mesmo com blob', async () => {
         const chamadas = espiao('magnetic_declination');
         blobs.value.add('dec-1');
 
@@ -267,8 +248,8 @@ describe('setImages e o carimbo de layout do bitmap', () => {
             magnetic_declinations: [feicao('dec-1', 'magnetic_declination')],
         });
 
-        expect(chamadas).toEqual([]);
-        expect(imagensPedidas).toEqual(['dec-1']);
+        expect(chamadas).toEqual(['dec-1']);
+        expect(imagensPedidas).toEqual([]);
     });
 
     it('a declinação SEM blob continua regenerando, que é o caminho que ela sempre teve', async () => {
@@ -313,7 +294,7 @@ describe('setImages e o carimbo de layout do bitmap', () => {
         espiaoDeConsole.mockRestore();
     });
 
-    it('imagem JÁ REGISTRADA no mapa não chega nem à pergunta do carimbo', async () => {
+    it('imagem registrada sem assinatura de conteúdo precisa ser conferida', async () => {
         const chamadas = espiao('military_symbol');
         blobs.value.add('sim-1');
         colecao.value = { military_symbols: [feicao('sim-1', 'military_symbol')] };
@@ -323,7 +304,32 @@ describe('setImages e o carimbo de layout do bitmap', () => {
         map.addImage('sim-1', {});
         await setupMapFeatures(map, gerentes, gerentes, barramento);
 
-        expect(chamadas).toEqual([]);
+        expect(chamadas).toEqual(['sim-1']);
         expect(imagensPedidas).toEqual([]);
     });
+});
+
+
+it('retries a failed photo on the same map and replaces its placeholder', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const map = await carregar({ images: [feicao('photo', 'image')] });
+    expect(map.imagensAdicionadas).toHaveLength(1);
+    blobs.value.add('photo');
+    await setupMapFeatures(map, gerentes, gerentes, barramento);
+    expect(map.imagensAdicionadas).toHaveLength(2);
+    expect(imagensPedidas).toEqual(['photo', 'photo']);
+    warn.mockRestore();
+});
+
+it('rebuilds a cached bitmap after properties change but reuses unchanged pixels', async () => {
+    colecao.value = { military_symbols: [feicao('symbol', 'military_symbol', { bitmapVersion: 2, uniqueDesignation: 'A' })] };
+    const map = mapaFalso();
+    map.addSource('points', {});
+    const calls = espiao('military_symbol', async f => { map.addImage(f.properties.id, {}); return { blob: {} }; });
+    await setupMapFeatures(map, gerentes, gerentes, barramento);
+    await setupMapFeatures(map, gerentes, gerentes, barramento);
+    expect(calls).toHaveLength(1);
+    colecao.value.military_symbols[0].properties.uniqueDesignation = 'B';
+    await setupMapFeatures(map, gerentes, gerentes, barramento);
+    expect(calls).toHaveLength(2);
 });

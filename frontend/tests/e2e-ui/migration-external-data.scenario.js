@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer';
+import JSZip from 'jszip';
 // External files are read only. Every test uses a fresh browser context and disposable backend.
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
@@ -85,6 +87,72 @@ async function compareCopy(page, entries, scope, atlasName) {
     }, { entries, scope, atlasName });
 }
 
+// Check the actual MapLibre raster and GPU-rendered feature after visiting EVERY map.
+// Hidden/temporal layers are made visible only in this disposable browser view.
+async function inspectRestoredImages(page, testInfo, fixture) {
+    // Known defective definitions in 01-completo: no PNG, invalid SIDC, no pointCode,
+    // and declinacao/convergencia instead of the fields written by main. Preserve them
+    // and assert the visible error placeholder; do not count them as restored drawings.
+    const defectiveDefinitions = ['7349fcb9-5d7b-4cd5-b9f6-69aed07d9156', '1aa313b5-26e8-485b-8224-2ba700028fbe', 'd6088ac9-6e73-4d64-8934-c79b96ca1fae',
+        '1aa80bf7-6930-4e9f-b52a-ff1eb0ab6ad2', 'd817e2eb-6826-4aff-a344-73b60b11692b',
+        '5ee25711-4a06-41c4-9fe5-d0fca11d4303', 'd461589d-0b32-41dc-963b-0c7e9737da61', '87653b44-1a23-4c8f-8b36-a8c4783ad1f9'];
+    const originallyAbsent = Object.values(fixture.data.maps).flatMap(map => (map.features.images || []).filter(f => !fixture.images.has(f.properties.id)).map(f => f.properties.id));
+    originallyAbsent.push(...defectiveDefinitions);
+    const result = await page.evaluate(async originallyAbsent => {
+        const store = await import('/src/js/store/index.js');
+        const map = globalThis.__ebgeoMap;
+        const layers = { images: 'image-layer', military_symbols: 'military-symbols-layer',
+            coordination_measures: 'coordination-measures-layer', magnetic_declinations: 'magnetic-declinations-layer' };
+        const checked = [];
+        const rendered = [];
+        const missingInOriginal = [];
+        for (const name of await store.getAllMapNamesStore()) {
+            await store.setCurrentMap(name);
+            await store.getControl('BaseLayerControl').switchMap();
+            const features = await store.getCurrentMapFeatures();
+            for (const [type, layer] of Object.entries(layers)) {
+                const list = features[type] || [];
+                for (const feature of list) {
+                    const id = feature.properties.id;
+                    const blob = await store.getImage(id);
+                    if (originallyAbsent.includes(id)) {
+                        if (!map.hasImage(id)) throw new Error(`No visible placeholder for ${id}`);
+                        missingInOriginal.push({ name, id });
+                        continue;
+                    }
+                    if (!blob) throw new Error(`Missing blob ${name}/${id}`);
+                    const decoded = await createImageBitmap(blob);
+                    const installed = map.getImage(id);
+                    if (!installed || installed.data.width !== decoded.width || installed.data.height !== decoded.height) {
+                        throw new Error(`Missing/wrong raster ${name}/${id}`);
+                    }
+                    if (!installed.data.data.some((v, i) => i % 4 === 3 && v > 0)) throw new Error(`Transparent raster ${id}`);
+                    checked.push({ name, type, id, width: decoded.width, height: decoded.height });
+                    decoded.close();
+                }
+                if (!list.length) continue;
+                const sample = list.find(f => !originallyAbsent.includes(f.properties.id));
+                if (!sample) continue;
+                map.setFilter(layer, null);
+                map.setLayoutProperty(layer, 'visibility', 'visible');
+                map.setLayoutProperty(layer, 'icon-size', 0.5);
+                map.setPaintProperty(layer, 'icon-opacity', 1);
+                map.jumpTo({ center: sample.geometry.coordinates, zoom: sample.properties.createdAtZoom || 12 });
+                const deadline = performance.now() + 10000;
+                while (!map.queryRenderedFeatures({ layers: [layer] }).some(f => f.properties.id === sample.properties.id)) {
+                    if (performance.now() > deadline) throw new Error(`Not rendered ${name}/${type}/${sample.properties.id}`);
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                }
+                rendered.push({ name, type, id: sample.properties.id });
+            }
+        }
+        return { checked, rendered, missingInOriginal };
+    }, originallyAbsent);
+    await testInfo.attach('rendered-images.json', { body: JSON.stringify(result, null, 2), contentType: 'application/json' });
+    console.info('IMAGES_RENDERED', JSON.stringify({ test: testInfo.title, images: result.checked.length, samples: result.rendered.length, defectiveOriginals: result.missingInOriginal }));
+    return result;
+}
+
 for (const [filename, version, maps, features, images, settingsVersion] of cases) {
     const label = settingsVersion ? `${filename} [settings ${settingsVersion}, atlas ${version}]` : filename;
     test(`${label}: migração, três boots e recuperação bruta`, async ({ page }, testInfo) => {
@@ -138,6 +206,7 @@ for (const [filename, version, maps, features, images, settingsVersion] of cases
         const report = { filename, settingsVersion: settingsVersion || version, sha256: hash, ...declared, ...checked, elapsedMs: initial.elapsedMs, recoveryZipBytes: restored.zipBytes };
         await testInfo.attach('preservacao.json', { body: JSON.stringify(report, null, 2), contentType: 'application/json' });
         console.info('PRESERVACAO', JSON.stringify(report));
+        await inspectRestoredImages(page, testInfo, fixture);
     });
 
     if (!settingsVersion) {
@@ -168,9 +237,9 @@ for (const [filename, version, maps, features, images, settingsVersion] of cases
             // the same symbol definition and the explicit v2 stamp on the stored feature.
             const regenerable = new Map();
             for (const map of Object.values(fixture.data.maps)) {
-                for (const type of ['military_symbols', 'coordination_measures']) {
+                for (const type of ['military_symbols', 'coordination_measures', 'magnetic_declinations']) {
                     for (const feature of map.features?.[type] || []) {
-                        if (feature.properties.bitmapVersion !== 2) regenerable.set(feature.properties.id, feature.properties);
+                        regenerable.set(feature.properties.id, feature.properties);
                     }
                 }
             }
@@ -191,7 +260,10 @@ for (const [filename, version, maps, features, images, settingsVersion] of cases
                     }
                     return null;
                 }, id);
-                expect(props).toMatchObject({ bitmapVersion: 2, source: regenerable.get(id).source });
+                expect(props.source).toBe(regenerable.get(id).source);
+                if (props.source !== 'magnetic_declination') expect(props.bitmapVersion).toBe(2);
+                expect(props.declination).toBe(regenerable.get(id).declination);
+                expect(props.convergence).toBe(regenerable.get(id).convergence);
                 expect(props.sidc).toBe(regenerable.get(id).sidc);
                 expect(props.pointCode).toBe(regenerable.get(id).pointCode);
             }
@@ -202,7 +274,62 @@ for (const [filename, version, maps, features, images, settingsVersion] of cases
             expect(fileHash(path)).toBe(hash);
             await testInfo.attach('importacao.json', { body: JSON.stringify({ filename, sha256: hash, maps, features, images: first.images.length, pageErrors: errors }, null, 2), contentType: 'application/json' });
             console.info('IMPORTACAO', JSON.stringify({ filename, maps, features, images: first.images.length, pageErrors: errors }));
+            await inspectRestoredImages(page, testInfo, fixture);
             expect(errors).toEqual([]);
         });
     }
+}
+
+
+for (const route of ['browser-v1', 'file-v1']) {
+    test(`${route}: non-UUID image IDs survive v1 migration and render after F5`, async ({ page }, testInfo) => {
+        const original = await loadEbgeoFixture(join(directory, '03-completo-2.4.ebgeo'));
+        const principal = structuredClone(original.data.maps.Principal);
+        const images = new Map();
+        const selected = {};
+        for (const type of ['images', 'military_symbols', 'coordination_measures', 'magnetic_declinations']) {
+            const feature = principal.features[type][0];
+            const oldId = feature.properties.id;
+            feature.properties.id = `legacy-${type}`;
+            feature.properties.bitmapVersion = 1;
+            selected[type] = [feature];
+            images.set(feature.properties.id, original.images.get(oldId));
+        }
+        principal.features = selected;
+        const fixture = { data: { version: '1.7', currentMap: 'Principal', mapOrder: ['Principal'], maps: { Principal: principal }, layers: {}, groups: {} }, images };
+        if (route === 'browser-v1') {
+            const entries = buildLegacyEntries(fixture, { schemaVersion: '1.7', imageValue: bytes => Array.from(bytes) });
+            await blank(page);
+            await page.evaluate(async entries => {
+                const ns = await import('/src/js/store/atlas-namespace.js');
+                const legacy = ns.localScope('legacy', '');
+                for (const [id, values] of Object.entries(entries)) {
+                    for (const [key, value] of Object.entries(values)) {
+                        await ns.getStoreFor(id, legacy).setItem(key, id === 'images' ? new Blob([new Uint8Array(value)], { type: 'image/png' }) : value);
+                    }
+                }
+            }, entries);
+            await boot(page);
+            const ids = await page.evaluate(async () => {
+                const store = await import('/src/js/store/index.js');
+                return Object.values(await store.getCurrentMapFeatures()).flatMap(list => Array.isArray(list) ? list.map(f => f.properties.id) : []);
+            });
+            expect(ids).toHaveLength(4);
+            expect(ids.every(id => !id.startsWith('legacy-'))).toBe(true);
+        } else {
+            const zip = new JSZip();
+            zip.file('data.json', JSON.stringify(fixture.data));
+            for (const [id, bytes] of images) zip.file(`images/${id}.png`, bytes);
+            const raw = await zip.generateAsync({ type: 'nodebuffer' });
+            const buffer = Buffer.concat([Buffer.from('EBGXOR'), Buffer.from(raw.map(b => b ^ 0xaa))]);
+            await page.goto('/atlas.html');
+            await page.getByTestId('local-atlas-file-input').setInputFiles({ name: 'v1-images.ebgeo', mimeType: 'application/octet-stream', buffer });
+            await expect(page.getByText('1 mapa carregados!', { exact: true })).toBeVisible({ timeout: 90000 });
+        }
+        await boot(page);
+        const result = await inspectRestoredImages(page, testInfo, fixture);
+        expect(result.checked).toHaveLength(4);
+        expect(result.rendered).toHaveLength(4);
+        await testInfo.attach('migrated-map.png', { body: await page.screenshot(), contentType: 'image/png' });
+    });
 }

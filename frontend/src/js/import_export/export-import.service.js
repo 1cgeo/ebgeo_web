@@ -63,6 +63,7 @@ import { switchToNewLocalAtlas } from '@js/account/open-atlas.service.js';
 // WHICH namespace this tab has mounted, which is what the import actually writes into. See
 // `_prepareNonAdditiveTarget` for why the origin marker alone is not enough to answer it.
 import { getActiveScope, StoreScopeKind } from '@store/atlas-namespace.js';
+import { captureImageContext } from '@store/image-context.js';
 // SHARED with the chooser page's "Importar .ebgeo" (which creates a SERVER atlas from the same
 // file), so both surfaces derive the same project name from the same filename. A second copy of
 // this rule would drift, and the name is the only thing the user sees before opening the project.
@@ -410,6 +411,7 @@ export class ExportImportService {
     }
 
     async handleExport(selectedMaps = null) {
+        const isCurrent = captureImageContext({ includeMap: false });
         try {
             this._toolManager.deactivateCurrentTool();
 
@@ -458,16 +460,23 @@ export class ExportImportService {
             }
 
             const usedImages = this.collectUsedImageIds(data);
+            if (!isCurrent()) throw new Error('O atlas mudou durante a exportação. Tente novamente.');
 
             zip.file('data.json', JSON.stringify(data), {
                 compression: 'DEFLATE',
                 compressionOptions: { level: 9 }
             });
 
+            const requiredImages = new Set((data.customIcons || []).map(icon => icon.id));
+            for (const map of Object.values(data.maps || {})) {
+                for (const feature of map.features?.images || []) requiredImages.add(feature.properties.id);
+            }
+
             // Add images to ZIP with correct extension based on MIME type
             for (const imageId of usedImages) {
                 try {
                     const blob = await getImage(imageId);
+                    if (!blob && requiredImages.has(imageId)) throw new Error(`Imagem ${imageId} indisponível. Aguarde a conexão e tente exportar novamente.`);
                     if (blob) {
                         const extension = this.getBlobExtension(blob);
                         zip.file(`images/${imageId}.${extension}`, blob, {
@@ -475,7 +484,8 @@ export class ExportImportService {
                             compressionOptions: { level: 9 }
                         });
                     }
-                } catch (_error) {
+                } catch (error) {
+                    if (requiredImages.has(imageId)) throw error;
                     console.warn('Image not found:', imageId);
                 }
             }
@@ -503,6 +513,7 @@ export class ExportImportService {
                 type: 'application/vnd.ebgeo'
             });
 
+            if (!isCurrent()) throw new Error('O atlas mudou durante a exportação. Tente novamente.');
             const url = URL.createObjectURL(finalBlob);
             const a = document.createElement('a');
             a.href = url;
@@ -517,7 +528,7 @@ export class ExportImportService {
 
         } catch (error) {
             console.error('Erro ao exportar dados:', error);
-            showError('Erro ao exportar arquivo .ebgeo');
+            showError('Erro ao exportar arquivo .ebgeo: ' + error.message);
         }
     }
 
@@ -589,7 +600,19 @@ export class ExportImportService {
             let totalUnavailableCatalogLayers = 0;
 
             if (isAdditiveImport) {
-                await this.loadImagesFromZip(zip);
+                const imageIdMapping = await this.loadImagesFromZip(zip, { additive: true });
+                for (const icon of data.customIcons || []) {
+                    icon.id = imageIdMapping.get(icon.id) || icon.id;
+                }
+                for (const mapData of Object.values(data.maps)) {
+                    for (const feature of mapData.features?.points || []) {
+                        const marker = feature.properties?.markerSymbol;
+                        if (marker?.startsWith('custom:')) {
+                            const id = marker.slice(7);
+                            if (imageIdMapping.has(id)) feature.properties.markerSymbol = `custom:${imageIdMapping.get(id)}`;
+                        }
+                    }
+                }
 
                 const existingMapNames = await getAllMapNamesStore();
                 const mapsToImport = Object.keys(data.maps).length;
@@ -627,7 +650,7 @@ export class ExportImportService {
                     // Regenerate feature IDs with layer ID mapping.
                     // `idMapping` (oldFeatureId -> newFeatureId) must be kept: the groups of this
                     // map still reference the OLD feature ids and would import empty without it.
-                    const { newMapData, idMapping } = await IDUtils.regenerateMapIds(mapData, finalMapName, layerIdMapping);
+                    const { newMapData, idMapping } = await IDUtils.regenerateMapIds(mapData, finalMapName, layerIdMapping, imageIdMapping);
 
                     // Normalizar estrutura para versão atual
                     const { unavailableCatalogLayersCount } = normalizeMapDataForCurrentVersion(newMapData, processCatalogLayersOnImport);
@@ -1099,7 +1122,9 @@ export class ExportImportService {
      *
      * @param {JSZip} zip - ZIP file object
      */
-    async loadImagesFromZip(zip) {
+    async loadImagesFromZip(zip, { additive = false } = {}) {
+        const isCurrent = captureImageContext({ includeMap: false });
+        const imageIdMapping = new Map();
         const imageFiles = Object.keys(zip.files).filter(name =>
             name.startsWith('images/') &&
             /\.(png|jpe?g|svg|webp)$/i.test(name)
@@ -1110,12 +1135,16 @@ export class ExportImportService {
                 const imageId = fileName.replace('images/', '').replace(/\.(png|jpe?g|svg|webp)$/i, '');
                 const extension = (fileName.match(/\.([^.]+)$/)?.[1] || '').toLowerCase();
                 const buffer = await zip.file(fileName).async('arraybuffer');
+                if (!isCurrent()) throw new Error('O atlas mudou durante a importação.');
                 const blob = new Blob([buffer], { type: MIME_BY_EXTENSION[extension] || 'application/octet-stream' });
-                await storeImage(imageId, blob);
+                const targetId = additive ? IDUtils.generateUniqueId() : imageId;
+                await storeImage(targetId, blob);
+                imageIdMapping.set(imageId, targetId);
             } catch (imgError) {
-                console.warn('Error loading image:', fileName, imgError);
+                throw new Error(`Não foi possível guardar a imagem ${fileName}. A importação não foi concluída.`, { cause: imgError });
             }
         }
+        return imageIdMapping;
     }
 
     /**

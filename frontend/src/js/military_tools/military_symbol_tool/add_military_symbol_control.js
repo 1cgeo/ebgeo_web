@@ -1,4 +1,5 @@
 // Path: js/military_tools/military_symbol_tool/add_military_symbol_control.js
+import { beginImageTask } from '../../store/image-context.js';
 
 import { normalizeSIDC } from './brazilian_sidc_extension.js';
 import {
@@ -656,11 +657,15 @@ class AddMilitarySymbolControl extends BaseControl {
    */
   async _regenerateRemote(feature) {
     if (!this.map || !feature?.properties?.id) return null;
+    const task = beginImageTask(this.map, feature.properties.id);
     const result = await this.symbolGenerator.generateSymbolBlob(feature.properties);
+    task.assertCurrent();
     if (result?.blob) {
       await storeImage(feature.properties.id, result.blob);
-      await this.loadSymbolToMap(feature.properties.id, result.blob);
-      await stampRegeneratedBitmap(militarySymbolsSource(this.map), feature, result);
+      task.assertCurrent();
+      await loadImageToMap(this.map, feature.properties.id, result.blob, { replaceExisting: true, isCurrent: task.isCurrent });
+      task.assertCurrent();
+      await stampRegeneratedBitmap(militarySymbolsSource(this.map), feature, result, task.isCurrent);
       return result;
     }
     return null;
@@ -683,12 +688,15 @@ class AddMilitarySymbolControl extends BaseControl {
 
     try {
       const feature = this.lastSymbolFeature;
+      this.lastSymbolFeature = null;
       const symbolId = feature.properties.id;
+      const task = beginImageTask(this.map, symbolId);
 
       const result = await this.symbolGenerator.generateSymbolBlob(
         feature.properties
       );
 
+      task.assertCurrent();
       applyGeneratedBitmap(feature.properties, result);
 
       feature.properties.selectionBox = this.geometry.recalculateSelectionBox(
@@ -712,8 +720,10 @@ class AddMilitarySymbolControl extends BaseControl {
       });
       await dispatcher.flush();
 
+      task.assertCurrent();
       await storeImage(symbolId, result.blob);
-      await this.loadSymbolToMap(symbolId, result.blob);
+      task.assertCurrent();
+      await loadImageToMap(this.map, symbolId, result.blob, { replaceExisting: true, isCurrent: task.isCurrent });
 
       if (this.selectionManager.uiManager.invalidateCache) {
         this.selectionManager.uiManager.invalidateCache(symbolId);
@@ -729,17 +739,19 @@ class AddMilitarySymbolControl extends BaseControl {
     }
 
     this.pendingSymbolUpdate = false;
-    this.lastSymbolFeature = null;
+    if (this.lastSymbolFeature) this.scheduleSymbolUpdate(this.lastSymbolFeature);
   };
 
   async updateSymbolImage(feature) {
     try {
       const symbolId = feature.properties.id;
+      const task = beginImageTask(this.map, symbolId);
 
       const result = await this.symbolGenerator.generateSymbolBlob(
         feature.properties
       );
 
+      task.assertCurrent();
       applyGeneratedBitmap(feature.properties, result);
 
       feature.properties.selectionBox = this.geometry.recalculateSelectionBox(
@@ -763,8 +775,10 @@ class AddMilitarySymbolControl extends BaseControl {
       });
       await dispatcher.flush();
 
+      task.assertCurrent();
       await storeImage(symbolId, result.blob);
-      await this.loadSymbolToMap(symbolId, result.blob);
+      task.assertCurrent();
+      await loadImageToMap(this.map, symbolId, result.blob, { replaceExisting: true, isCurrent: task.isCurrent });
 
       if (this.selectionManager.uiManager.invalidateCache) {
         this.selectionManager.uiManager.invalidateCache(symbolId);

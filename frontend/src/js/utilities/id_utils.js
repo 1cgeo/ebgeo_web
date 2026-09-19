@@ -123,7 +123,7 @@ export class IDUtils {
      * @param {Map} [layerIdMapping=null] - Optional layer ID mapping (oldLayerId -> newLayerId)
      * @returns {Promise<{newMapData: Object, idMapping: Map}>}
      */
-    static async regenerateMapIds(mapData, mapName, layerIdMapping = null) {
+    static async regenerateMapIds(mapData, mapName, layerIdMapping = null, imageIdMapping = null) {
         const idMapping = new Map();
         const newMapData = deepClone(mapData);
 
@@ -147,7 +147,13 @@ export class IDUtils {
 
         // PHASE 2: Duplicate resources using original IDs
         for (const { oldId, newId, featureType } of resourceOperations) {
-            await this.duplicateImageResource(oldId, newId, featureType);
+            if (imageIdMapping && !imageIdMapping.has(oldId)) {
+                if (featureType === 'images') throw new Error(`A imagem ${oldId} não está no arquivo importado.`);
+                // Generated symbols can be restored from their properties. Never borrow a
+                // same-ID bitmap from the atlas being extended when the archive lacks one.
+                continue;
+            }
+            await this.duplicateImageResource(imageIdMapping?.get(oldId) || oldId, newId, featureType);
         }
 
         // PHASE 3: Apply new IDs to features and update layerId if mapping provided
@@ -209,10 +215,11 @@ export class IDUtils {
             if (oldBlob) {
                 await storeImage(newId, oldBlob);
             } else {
+                if (featureType === 'images') throw new Error(`Imagem ${oldId} indisponível.`);
                 console.warn(`Resource not found for duplication: ${oldId} (${featureType})`);
             }
         } catch (error) {
-            console.error(`Error duplicating resource ${oldId}:`, error);
+            throw new Error(`Não foi possível copiar a imagem ${oldId}.`, { cause: error });
         }
     }
 }

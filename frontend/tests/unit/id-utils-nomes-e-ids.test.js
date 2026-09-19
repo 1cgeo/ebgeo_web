@@ -418,15 +418,13 @@ describe('regenerateMapIds', () => {
         expect(storeMock.storeImage).not.toHaveBeenCalled();
     });
 
-    it('survives a missing blob and a throwing store without losing the id remap', async () => {
+    it('aborts duplication if the source blob store cannot be read', async () => {
         storeMock.hasImageResource.mockReturnValue(true);
         storeMock.getImage.mockRejectedValue(new Error('disk gone'));
         vi.spyOn(console, 'error').mockImplementation(() => {});
 
         const input = mapDataWith({ images: [feature('img-a')] });
-        const { newMapData } = await IDUtils.regenerateMapIds(input, 'Novo');
-
-        expect(newMapData.features.images[0].properties.id).toMatch(UUID_V4);
+        await expect(IDUtils.regenerateMapIds(input, 'Novo')).rejects.toThrow('copiar a imagem');
         expect(storeMock.storeImage).not.toHaveBeenCalled();
         vi.restoreAllMocks();
     });
@@ -438,4 +436,35 @@ describe('regenerateMapIds', () => {
         expect(idMapping.size).toBe(0);
         expect(newMapData.nome).toBe('Novo');
     });
+});
+
+
+it('additive import copies the isolated archive blob, never the colliding existing blob', async () => {
+    storeMock.hasImageResource.mockReturnValue(true);
+    const incoming = new Blob(['incoming']);
+    storeMock.getImage.mockImplementation(async id => id === 'staged' ? incoming : new Blob(['existing']));
+    const map = { features: { images: [{ properties: { id: 'same-id', source: 'image' } }] } };
+    const { newMapData } = await IDUtils.regenerateMapIds(map, 'Imported', null, new Map([['same-id', 'staged']]));
+    const id = newMapData.features.images[0].properties.id;
+    expect(id).not.toBe('same-id');
+    expect(storeMock.getImage).toHaveBeenCalledExactlyOnceWith('staged');
+    expect(storeMock.storeImage).toHaveBeenCalledExactlyOnceWith(id, incoming);
+});
+
+it('a failed bitmap copy aborts map duplication', async () => {
+    storeMock.hasImageResource.mockReturnValue(true);
+    storeMock.getImage.mockResolvedValue(new Blob(['photo']));
+    storeMock.storeImage.mockRejectedValueOnce(new Error('quota'));
+    await expect(IDUtils.regenerateMapIds({ features: { images: [{ properties: { id: 'old' } }] } }, 'Copy'))
+        .rejects.toThrow('copiar a imagem');
+});
+
+
+it('does not substitute an existing atlas photo for a photo absent from the incoming ZIP', async () => {
+    storeMock.hasImageResource.mockReturnValue(true);
+    storeMock.getImage.mockResolvedValue(new Blob(['unrelated existing photo']));
+    const map = { features: { images: [{ properties: { id: 'same-id' } }] } };
+    await expect(IDUtils.regenerateMapIds(map, 'Imported', null, new Map())).rejects.toThrow('arquivo importado');
+    expect(storeMock.getImage).not.toHaveBeenCalled();
+    expect(storeMock.storeImage).not.toHaveBeenCalled();
 });

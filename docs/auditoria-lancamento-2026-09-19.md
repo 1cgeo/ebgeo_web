@@ -8,11 +8,13 @@ Origem somente para leitura: `C:\Users\diniz\OneDrive\Desktop\Desenvolvimento\_e
 
 | Arquivo | Mapas | Feições | Imagens | Resultado |
 | --- | ---: | ---: | ---: | --- |
-| 01-completo.ebgeo | 11 | 262 | 5 | Migração, três inicializações, recuperação bruta e importação pela interface aprovadas |
+| 01-completo.ebgeo | 11 | 262 | 5 | Preservação, três inicializações, recuperação bruta e importação aprovadas; nove desenhos já incompletos na origem, conforme auditoria de imagens |
 | 02-minimo.ebgeo | 1 | 1 | 0 | Aprovado nos mesmos caminhos |
 | 03-completo-2.4.ebgeo | 14 | 805 | 149 | Aprovado; também ensaiado com settings 1.7 e atlas 2.4 |
 | 04-completo-2.3.ebgeo | 14 | 787 | 131 | Aprovado |
 | 05-completo-2.2.ebgeo | 14 | 776 | 131 | Aprovado |
+
+A [auditoria de imagens](auditoria-imagens-2026-09-19.md) acrescentou conferência dos bitmaps e da renderização. Ela identificou nove definições incompletas no próprio `01-completo.ebgeo`, que os checks anteriores de preservação de registros não detectavam como problema visual.
 
 Foram **11 cenários Chromium**, sem retries. As comparações de migração e recuperação bruta não encontraram diferenças. Na importação pela interface, um bitmap de simbologia antiga é regenerado nas fixtures 2.2 e 2.3; os testes validam explicitamente a origem, o SIDC e a representação atualizada, em vez de aceitar qualquer diferença de imagem. Os SHA-256 dos arquivos originais permaneceram iguais. Inventário, hashes e medições: [migration.json](auditoria-lancamento-2026-09-19/migration.json).
 
