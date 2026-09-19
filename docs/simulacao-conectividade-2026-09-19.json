@@ -1,0 +1,106 @@
+{
+  "date": "2026-09-19",
+  "applicationBase": "d6ac0399",
+  "browser": "Chromium",
+  "backend": "local, real PostgreSQL, disposable database",
+  "passedScenarios": 9,
+  "automaticTestRetries": 0,
+  "profiles": [
+    {
+      "profile": "offline",
+      "offlineMs": 30000,
+      "convergenceMs": 2073,
+      "features": 6,
+      "queuesEmpty": true,
+      "durableClientsEqualServer": true,
+      "duplicateOperations": 0,
+      "transitions": [
+        {
+          "from": "online",
+          "to": "reconnecting",
+          "at": 1789822163426
+        },
+        {
+          "from": "reconnecting",
+          "to": "online",
+          "at": 1789822194467
+        }
+      ]
+    },
+    {
+      "profile": "intermittent",
+      "cycles": 5,
+      "offlineHoldMs": 2000,
+      "onlineHoldMs": 1200,
+      "convergenceMs": 5005,
+      "features": 11,
+      "queuesEmpty": true,
+      "durableClientsEqualServer": true,
+      "duplicateOperations": 0,
+      "transitions": [
+        {
+          "from": "online",
+          "to": "reconnecting",
+          "at": 1789822213059
+        },
+        {
+          "from": "reconnecting",
+          "to": "online",
+          "at": 1789822228095
+        },
+        {
+          "from": "online",
+          "to": "reconnecting",
+          "at": 1789822228622
+        },
+        {
+          "from": "reconnecting",
+          "to": "online",
+          "at": 1789822243646
+        }
+      ]
+    },
+    {
+      "profile": "slow",
+      "link": "backend HTTP",
+      "latencyMs": 1000,
+      "downloadBytesPerSecond": 32768,
+      "uploadBytesPerSecond": 16384,
+      "receiptDelayMs": 4000,
+      "convergenceMs": 5869,
+      "features": 10,
+      "queuesEmpty": true,
+      "durableClientsEqualServer": true,
+      "duplicateOperations": 0,
+      "transitions": []
+    },
+    {
+      "profile": "timeout",
+      "attempts": [
+        {
+          "at": 1789822283994,
+          "ids": [
+            "aa1b3e89-a70e-4839-8841-48046196d12b",
+            "37aafe55-8d5b-45d4-835d-3970cacf79c4"
+          ]
+        },
+        {
+          "at": 1789822316998,
+          "ids": [
+            "aa1b3e89-a70e-4839-8841-48046196d12b",
+            "37aafe55-8d5b-45d4-835d-3970cacf79c4",
+            "5a07be07-101d-4627-bab7-d8a284a03c6d",
+            "b45c84f3-84fd-4b01-8c5e-ec59ef967a34"
+          ]
+        }
+      ],
+      "convergenceMs": 214,
+      "features": 3,
+      "queuesEmpty": true,
+      "durableClientsEqualServer": true,
+      "duplicateOperations": 0,
+      "transitions": [],
+      "retryAfterMs": 33004
+    }
+  ]
+}
